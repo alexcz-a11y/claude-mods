@@ -97,8 +97,20 @@
       "type": "string",
       "multiple": true,
       "title": "Skills never suggested",
-      "description": "Skills never suggested to the main agent nor pointed out to you, by the name the listing gives them. They stay installed: the Skill tool still loads one by name.",
+      "description": "Skills never suggested to the main agent nor pointed out to you, by the name the listing gives them. They stay installed: the Skill tool still loads one by name. find_skill never returns them either.",
       "default": []
+    },
+    "findSkillMax": {
+      "type": "number",
+      "title": "Skills find_skill returns at most",
+      "description": "How many skills the main agent's find_skill tool returns for one query at most (1 to 10); fewer, or none, when fewer reach the relevance below.",
+      "default": 5
+    },
+    "findSkillMinRelevance": {
+      "type": "number",
+      "title": "Least relevance find_skill returns",
+      "description": "The relevance a skill needs for find_skill to return it (0 to 1): its share of the decision model's answer to which skill fits the work the main agent names, against every other skill and none.",
+      "default": 0.1
     }
   }
 }

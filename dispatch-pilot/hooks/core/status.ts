@@ -16,9 +16,10 @@ import type { Failure } from '../decision/backend.ts'
  *   decision  the main-effort feature: why the message got no decision
  *   skills    the skills feature: the skills suggested for the latest message,
  *             and the person-only ones to try
+ *   find-skill  the find-skill feature: what the main agent's latest find_skill returned, or why it failed
  *   agent     the dispatched-agents feature: the latest dispatched agent's model and effort, or why it got none
  */
-const ORDER = ['effort', 'decision', 'skills', 'agent'] as const
+const ORDER = ['effort', 'decision', 'skills', 'find-skill', 'agent'] as const
 export type Segment = (typeof ORDER)[number]
 
 const segments = new Map<Segment, string>()
