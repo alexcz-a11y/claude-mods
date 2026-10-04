@@ -51,6 +51,43 @@ function shapeOf(index: number, settings: DispatchSettings): DispatchSettings {
   return { ...settings, part: `agent-${index}`, field: `brief_${index}` }
 }
 
+/** A template needs this many tokens of words of its own, beside what `${...}` fills in, to say what the work is. */
+const MIN_OWN_TOKENS = 6
+
+/**
+ * Whether the decision model can tell what a call's work is from its prompt as
+ * written: a string, or a template without placeholders, is the whole task; a
+ * template with placeholders must have words of its own (`${CONTEXT}\n\n${row.prompt}`
+ * is a shared context and a table row, which says nothing of the work).
+ */
+export function tellsTheWork(prompt: string | null): prompt is string {
+  if (prompt === null) return false
+  if (!prompt.includes('${')) return true
+  return estimateTokens(withoutPlaceholders(prompt).replace(/\s+/g, ' ').trim()) >= MIN_OWN_TOKENS
+}
+
+/** A template's text with each `${...}` taken out (its braces counted, so a placeholder holding an object or a nested template goes whole). */
+function withoutPlaceholders(template: string): string {
+  let out = ''
+  let i = 0
+  while (i < template.length) {
+    if (template.charAt(i) === '$' && template.charAt(i + 1) === '{') {
+      let depth = 1
+      i += 2
+      while (i < template.length && depth > 0) {
+        if (template.charAt(i) === '{') depth++
+        else if (template.charAt(i) === '}') depth--
+        i++
+      }
+      out += ' '
+    } else {
+      out += template.charAt(i)
+      i++
+    }
+  }
+  return out
+}
+
 /** At most this many calls of a script are asked about. */
 export const MAX_CALLS = 24
 /** At most this many calls share one request: every question reads the whole state, so each brief added to it dilutes the others (guide §2.1 S5, S6). */
@@ -71,8 +108,9 @@ const MIN_BRIEF = 150
 export function workflowBatches(parsed: ParsedWorkflow, words: string, settings: DispatchSettings, tokens: number): { batches: Batch[]; skipped: Skipped[] } {
   const skipped: Skipped[] = []
   const readable = parsed.calls.filter((call) => {
-    if (call.prompt === null) skipped.push({ index: call.index, reason: 'unreadable' })
-    return call.prompt !== null
+    const tells = tellsTheWork(call.prompt)
+    if (!tells) skipped.push({ index: call.index, reason: 'unreadable' })
+    return tells
   })
   const first = readable[0]
   if (first === undefined) return { batches: [], skipped }

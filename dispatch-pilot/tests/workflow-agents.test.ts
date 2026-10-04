@@ -125,6 +125,35 @@ return [a, b]
   expect(w.status()).toBe('dp workflow routed 1 agent (1 as written)')
 })
 
+test("a template that is only what ${...} fills in says nothing of the work, so its call is left as written; one with words of its own beside the placeholders is asked about", { options: KEY }, async ($, on) => {
+  // The shapes real main agents write: a shared context, then the task in a table row or in words of its own.
+  const shared = `export const meta = { name: 'review', description: 'Review each lens, then verify', phases: [] }
+const CONTEXT = 'Repository rules: ...'
+const finds = await parallel(LENSES.map((l) => () => agent(\`\${CONTEXT}\\n\\n\${l.prompt}\`, { label: \`review:\${l.key}\` })))
+const verdict = await agent(\`\${CONTEXT}\\n\\nYou are the adversarial verifier. For each finding below, try to refute it and report only what survives.\\n\${JSON.stringify(finds)}\`, { label: 'verify:all' })
+return verdict
+`
+  const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { sonnet: 1 } })) })
+  const result = await w.workflow({ script: shared })
+
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent-1.model', 'agent-1.effort'])
+  expect(w.reached.map((r) => r.script)).toEqual([shared.replace("{ label: 'verify:all' }", "{ label: 'verify:all', model: 'sonnet', effort: 'high' }")])
+  expect((result.context ?? []).join('\n')).toContain('"review:${l.key}": left as written (its prompt is built when the script runs)')
+  expect(w.status()).toBe('dp workflow routed 1 agent (1 as written)')
+})
+
+test("a short prompt with nothing to fill in is the whole task: it is asked about like any other", { options: KEY }, async ($, on) => {
+  const ping = `export const meta = { name: 'ping', description: 'Ping', phases: [] }
+const pong = await agent('Reply: pong.', { label: 'ping' })
+return pong
+`
+  const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 1 } })) })
+  await w.workflow({ script: ping })
+
+  expect(w.requests).toHaveLength(1)
+  expect(w.reached.map((r) => r.script)).toEqual([ping.replace("{ label: 'ping' }", "{ label: 'ping', model: 'haiku' }")])
+})
+
 test("a script whose agents all take their prompts from data (a table mapped over) is left as written, nothing is asked, and the main agent is told why", { options: KEY }, async ($, on) => {
   const table = `export const meta = { name: 'table', description: 'Answer each question', phases: [] }
 const QUESTIONS = [{ label: 'a', prompt: 'Reply with pong.' }, { label: 'b', prompt: 'Explain what an index is.' }]
@@ -421,6 +450,17 @@ test("a run is recorded in $.state by its id as soon as the tool launches it, be
   })
   // The run's first agent steps within milliseconds of the launch: nothing may come before the record.
   expect(w.stateWrites.map((write) => write.key)).toEqual(['workflows', 'decisionLog', 'decisionLog'])
+})
+
+test("a record the state cannot keep does not stop the Workflow: it runs as rewritten, the main agent is told, and the debug log says the run was not recorded", { options: KEY }, async ($, on) => {
+  on('state.set', { key: 'workflows' }, () => ({ deny: 'the state is full' }))
+  const w = workflowWorld($, on, { backend: siteJev(BOTH_ROUTED) })
+  const result = await w.workflow({ script: TIDY })
+
+  expect(w.reached).toHaveLength(1)
+  expect(w.reached[0]?.script).toContain("model: 'sonnet'")
+  expect((result.context ?? []).join('\n')).toContain('"rename": sonnet high')
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^workflow wf_test-1 launched, but not recorded: .*the state is full/))
 })
 
 test("when the script already has what the decisions say, nothing is written, and the main agent is not told it was", { options: KEY }, async ($, on) => {

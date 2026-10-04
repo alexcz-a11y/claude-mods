@@ -37,7 +37,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - **优先级和派出 agent 一致。** 你这一轮的消息里点名的模型 > 决策模型 > 脚本里已经写的 `model`（作为强提示交给决策模型，决策模型的选择达到 `agentOverride` 才推翻它）。脚本里的 `effort` 没有这条规则，用决策模型的。脚本在运行时才算出来的 `model` 或 `effort`（`model: pickModel()`）不动。
 - **发给决策模型的内容**和派出 agent 一样：这个调用的 prompt、label、`agentType`，脚本 `meta` 里的 description，以及你这一轮的话，发送前脱敏，按 token 预算（`contextTokens`）截断。同一个脚本的几个调用放进同一个请求，每个调用有自己的 part（`agent-<n>`）和 state 字段（`brief_<n>`），`n` 是它在脚本里的序号（从 0 起），你的话只放一份。
 - **调用多时分批。** 一个请求最多 64 个问题（Clef 的限制）、最多 8 个调用，各调用的 brief 加起来不超过 `contextTokens`，所以调用多时分成几个请求，同时发出，每个调用只问一次。一个脚本最多问 24 个调用、4 个请求，超出的调用保持脚本里写的样子，并告诉主 agent。分成几个请求时，等决策模型的时间按请求数放大（`timeoutMs` 乘请求数，最多 8000 毫秒），因为同一个 key 的并发请求可能排队。
-- **读不了的调用保持原样。** prompt 不是字符串或模板（`agent(q.prompt)`、`agent(buildPrompt(x))`，也就是在数组上 `map` 出来的那种常见写法）时看不到任务内容，不问决策模型；选项不是对象字面量（`agent('x', opts)`）也不改。读不了的脚本（没有 `meta` 块，引号、模板或括号不成对）整个放行。这些留给运行时按 label 兜底的功能（#9）。
+- **读不了的调用保持原样。** prompt 不是字符串或模板（`agent(q.prompt)`、`agent(buildPrompt(x))`，也就是在数组上 `map` 出来的那种写法）时看不到任务内容，不问决策模型；模板里除了 `${...}` 自己没有几个字（不到约 6 个 token，例如 `` `${CONTEXT}\n\n${l.prompt}` ``：共用的上下文加上表里的一行）也一样，因为这样的 prompt 没说要做什么；不带占位符的短 prompt 就是完整的任务，照常判断。选项不是对象字面量（`agent('x', opts)`）也不改。读不了的脚本（没有 `meta` 块，引号、模板或括号不成对）整个放行。这些留给运行时按 label 兜底的功能（#9）。
 - **告诉主 agent。** 工具结果后面附一段说明（引擎把它显示为 `tool.call hook additional context`，只有模型看得到）：逐个调用写了哪个模型和 effort、依据，以及哪些调用保持原样。工具返回的脚本文件（`Script file:`）就是改写后的那一份，主 agent 之后用 `scriptPath` 重跑，改写还在。
 - **失败时放行。** 决策模型超时、出错或回答不完整时，这个请求里的调用保持原样，状态行写明原因；这个功能自己出错时，整个脚本照原样运行。改写后的脚本如果被工具判为语法错误（工具在启动任何 agent 之前检查），就改用主 agent 原来的脚本再提交一次，并告诉主 agent。
 - **不改写的输入。** 用 `scriptPath` 或 `name` 提交的脚本（这里读不到内容，留给 #9）；带 `resumeFromRunId` 恢复的运行（缓存按每个 `agent()` 的 prompt 和选项匹配，改写会让已完成的 agent 重跑）；没有 `agent()` 的脚本。
@@ -374,7 +374,7 @@ effort 问题的档位描述是共用的：用 `effortQuestion(instructions, ctx
 
 **给 #9：`$.state` 的 `workflows`。** 每个启动了的 Workflow 运行一条，id 是工具结果里的 `runId`：`{ rewritten, reason, agents, left }`。`rewritten` 表示脚本里写进了模型和 effort（持久化的脚本文件里也有）；`agents` 是判断过的调用（label 为 `null` 表示没有 label，或 label 是运行时才算出来的），带它们跑的模型和 effort；`left` 是保持脚本原样的调用数；`reason` 在没改写时说明为什么：`scriptPath`、`name`、`resume`（这三种输入不改写）、`unreadable`（读不了的脚本，或所有调用的 prompt 都读不了）、`failed`（决策模型没答）、`second`（退回模式的第二次提交）、`no agents`、`rewrite failed`（改写后的脚本被工具拒绝，改用了原脚本）。写入发生在工具返回之后、状态行和决策日志之前，但运行的第一个 agent 在工具返回后约 16 毫秒（2.1.289 实测）就走到第 0 步，读的一方可能还读不到：读不到时按「没改写」处理，或稍等再读。
 
-读不了的调用要留意：主 agent 最常写的 fan-out 是 `QUESTIONS.map((q) => () => agent(q.prompt, { label: q.label }))`，prompt 和 label 都在数据里，这里读不到它的任务内容，也不能在一个调用点上给每一行定不同的模型，所以整个调用点保持原样（`left` 计入，主 agent 被告知）。这一类要靠 #9 在运行时按每个 agent 的 label 和它实际收到的 prompt 来判断。
+读不了的调用要留意：prompt 放在数据里的 fan-out（`QUESTIONS.map((q) => () => agent(q.prompt, { label: q.label }))`，或 `` agent(`${CONTEXT}\n\n${l.prompt}`) ``）这里读不到任务内容，也不能在一个调用点上给每一行定不同的模型，所以整个调用点保持原样（`left` 计入，主 agent 被告知）。这一类要靠 #9 在运行时按每个 agent 的 label 和它实际收到的 prompt 来判断。用本机 `~/.claude/projects` 里已有的 16 个主 agent 写的真实脚本（共 50 个调用点，不含本票的探针）试过：44 个调用点的 prompt 说明了要做什么（多数是 `` `${COMMON} YOUR TOPIC: ...` `` 这样的模板），6 个读不了（1 个整个是运行时拼的，5 个是 `` `${CONTEXT}\n\n${l.prompt}` `` 这样的共用上下文加表里的一行）；改写后的脚本用 Node 的解析器检查过，都能解析。
 
 ### 中途重判（#5）
 
