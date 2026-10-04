@@ -16,10 +16,14 @@
 // prompt submitted during that reload.
 
 import type { Failure } from '../decision/backend.ts'
-import type { Answer, Part } from '../decision/system-one.ts'
+import type { Answer, Part, State } from '../decision/system-one.ts'
 
-/** A part's answers, by its own question ids (a missing or malformed one is left out), or why there are none. */
-export type PartOutcome = { ok: true; answers: Readonly<Record<string, Answer>> } | { ok: false; failure: Failure }
+/**
+ * A part's answers, by its own question ids (a missing or malformed one is
+ * left out), and the state they were asked about (a follow-up request, such
+ * as the skills' second stage, asks about the same); or why there are none.
+ */
+export type PartOutcome = { ok: true; answers: Readonly<Record<string, Answer>>; state: State } | { ok: false; failure: Failure }
 
 /** A feature's share of a message's decision request. */
 export type Contribution = Part & {

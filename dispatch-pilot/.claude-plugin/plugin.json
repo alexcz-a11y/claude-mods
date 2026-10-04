@@ -119,8 +119,26 @@
     "skillsMinRelevance": {
       "type": "number",
       "title": "Least relevance to suggest",
-      "description": "The relevance a skill needs to be suggested (0 to 1): its share of the decision model's answer to which skill fits the message, against every other skill and none.",
-      "default": 0.2
+      "description": "The relevance a skill needs to be suggested (0 to 1): how likely the decision model judges that the skill does the kind of work the message asks for, each skill judged on its own after its instructions are re-read.",
+      "default": 0.7
+    },
+    "skillsShortlist": {
+      "type": "number",
+      "title": "Skills re-read in the second stage",
+      "description": "How many of the skills rated highest for a message are re-read with the opening of their instructions and judged one by one (1 to 10). The second request goes out only when some skill is rated at least 0.05, and both requests together wait at most the decision timeout.",
+      "default": 4
+    },
+    "skillsProfileModel": {
+      "type": "string",
+      "title": "Model that writes skill profiles",
+      "description": "The model (an alias such as haiku, or a full model id) that writes each skill a short profile in English and Chinese from its SKILL.md, once per version of the file, so the decision model can match a request in either language. It runs in the background through your Claude Code login and uses your plan's usage. A new model writes every profile again.",
+      "default": "haiku"
+    },
+    "skillsProfilesPerSession": {
+      "type": "number",
+      "title": "Skill profiles written per session",
+      "description": "How many missing skill profiles are written at most each time a session starts (0 to 500; 0 writes none). The rest wait for later sessions, so a first run with many skills spreads its cost.",
+      "default": 30
     },
     "skillsAlwaysListed": {
       "type": "string",
@@ -145,8 +163,8 @@
     "findSkillMinRelevance": {
       "type": "number",
       "title": "Least relevance find_skill returns",
-      "description": "The relevance a skill needs for find_skill to return it (0 to 1): its share of the decision model's answer to which skill fits the work the main agent names, against every other skill and none.",
-      "default": 0.1
+      "description": "The relevance a skill needs for find_skill to return it (0 to 1): how likely the decision model judges that the skill does the kind of work the main agent names, each skill judged on its own after its instructions are re-read.",
+      "default": 0.5
     },
     "workflowMode": {
       "type": "string",
