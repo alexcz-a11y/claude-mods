@@ -13,7 +13,7 @@
     "decisionModel": {
       "type": "string",
       "title": "Decision model",
-      "description": "Which model makes the decisions: jev (TypeSafe; needs the TypeSafe API key) or clef (Cloudflare Workers AI; needs the Cloudflare account ID and API token). The other is never used as a fallback: when the chosen one fails, the message goes on unrouted.",
+      "description": "Which model makes the decisions: jev (TypeSafe; needs the TypeSafe API key) or clef (Cloudflare Workers AI; needs the Cloudflare account ID and API token). The other is never used as a fallback: when the chosen one fails, the message goes on unrouted. Clef answers more slowly than Jev, so raise the decision timeout (about 3000 ms) when you choose it.",
       "options": ["jev", "clef"],
       "default": "jev"
     },
@@ -41,7 +41,7 @@
     "timeoutMs": {
       "type": "number",
       "title": "Decision timeout (ms)",
-      "description": "How long a message waits for the decision model (200 to 8000). Past it the message goes on unrouted, at the session's effort, and the status line says so.",
+      "description": "How long a message waits for the decision model (200 to 8000). Past it the message goes on unrouted, at the session's effort, and the status line says so. Clef answers more slowly than Jev (a first request often takes 1.5 s or more): about 3000 suits it.",
       "default": 1500
     },
     "contextMessages": {
