@@ -154,7 +154,8 @@ const STUCK: EffortMidturnItem = {
   tags: ['stuck'],
 }
 
-test("the trouble variant is the mod's re-decision when #7 demands one: its trouble in the state, no call still running, and the question says what to do with it", { options: { typesafeApiKey: 'k', rejudgeEvery: 0 } }, async ($, on) => {
+// (#7's own trigger, `escalateAfter`, is kept out of the way: it asks for its own re-decision and does not take this entry.)
+test("the trouble variant is the mod's re-decision when #7 demands one: its trouble in the state, no call still running, and the question says what to do with it", { options: { typesafeApiKey: 'k', rejudgeEvery: 0, escalateAfter: 20 } }, async ($, on) => {
   // #7's demand, written once the second failure is in (after step 1's calls ended).
   let stuck = false
   const demand = { trouble: troubleOf(2), atLeast: 'xhigh', at: 1 }

@@ -14,14 +14,16 @@ import type { Failure } from '../decision/backend.ts'
  * one; each is set by its owner only.
  *   effort    the core's turn.step writer: the main turn's effort as it goes out
  *   midturn   the midturn-effort feature: the turn's steps, decisions and changes, once re-decided
+ *   escalation the escalation feature: failed tool calls, hook blocks and forced raises, once there is one
  *   decision  the main-effort feature: why the message got no decision
  *   skills    the skills feature: the skills suggested for the latest message,
  *             and the person-only ones to try
  *   find-skill  the find-skill feature: what the main agent's latest find_skill returned, or why it failed
  *   agent     the dispatched-agents feature: the latest dispatched agent's model and effort, or why it got none
+ *   agentEscalation  the escalation feature: failed tool calls, hook blocks and forced raises of the latest agent that had any
  *   workflow  the workflow-agents feature: how the latest Workflow's agents were routed, or why they were not
  */
-const ORDER = ['effort', 'midturn', 'decision', 'skills', 'find-skill', 'agent', 'workflow'] as const
+const ORDER = ['effort', 'midturn', 'escalation', 'decision', 'skills', 'find-skill', 'agent', 'agentEscalation', 'workflow'] as const
 export type Segment = (typeof ORDER)[number]
 
 const segments = new Map<Segment, string>()
