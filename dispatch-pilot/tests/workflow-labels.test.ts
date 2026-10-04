@@ -473,7 +473,7 @@ return summary
   expect(w.reached[0]?.script).toContain("{ label: 'summary', model: 'haiku' }")
   expect(w.requests).toHaveLength(1)
   // The main agent is told those agents are decided as they start.
-  expect((result.context ?? []).join('\n')).toContain('Dispatch Pilot decides the model and effort of the agents of the agent() calls left as written when each one starts, from its label and its task.')
+  expect((result.context ?? []).join('\n')).toContain("Dispatch Pilot (the user's routing plugin) sets the model and effort of the agents of the agent() calls it leaves as written, as each one starts, from its label and its task.")
 
   w.started('wf_test-1', 'wa1', 'q-auth')
   w.transcript('wf_test-1', 'wa1', 'Is every route under src/api/admin checked for the admin role? Cite the file and line of each gap.')

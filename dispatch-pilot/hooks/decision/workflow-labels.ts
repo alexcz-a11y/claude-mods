@@ -265,7 +265,7 @@ export function launchNote(
   if (sites === null) return "Dispatch Pilot (the user's routing plugin) could not read this script, so it decides each agent's model and effort as the agent starts, from its label and its task."
   if (given === 'script') {
     return sites.some((site) => site.route.kind === 'runtime')
-      ? 'Dispatch Pilot decides the model and effort of the agents of the agent() calls left as written when each one starts, from its label and its task.'
+      ? "Dispatch Pilot (the user's routing plugin) sets the model and effort of the agents of the agent() calls it leaves as written, as each one starts, from its label and its task."
       : null
   }
   if (launched === null) return null
