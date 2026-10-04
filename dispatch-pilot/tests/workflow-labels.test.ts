@@ -327,6 +327,29 @@ test("an agent that already has a plan (one the main agent dispatched, or a firs
   expect(w.status()).toBe('dp workflow not routed (given by path) | by label: routed 1 agent')
 })
 
+test("an agent of a run this has no work in does not wait while workflow-agents is still deciding about another Workflow", { options: KEY }, async ($, on) => {
+  const answer = siteJev((): SiteAnswer => ({ model: { sonnet: 0.9 }, effort: [0, 1, 0, 0, 0] }))
+  const w = runWorld($, on, { backend: (request) => ({ after: 300, reply: answer(request) }) })
+  // The first run's script is the main agent's own and readable: workflow-agents wrote it, there is nothing to do as its agents start.
+  const first = w.workflow({ script: TIDY })
+  await w.clock.settle()
+  await w.clock.advance(300)
+  await first
+
+  // A second Workflow is sent; workflow-agents asks about it before the tool runs it.
+  const second = w.workflow({ script: TIDY.replace('tidy-api', 'tidy-api-2') })
+  await w.clock.settle()
+  w.started('wf_test-1', 'wa1', 'rename')
+  const step = w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.clock.settle()
+  // The first run's agent went out at once.
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
+
+  await w.clock.advance(300)
+  await second
+  await step
+})
+
 /** A saved workflow: a pipeline over files, each stage's label a template. */
 const MIGRATE = `export const meta = { name: 'migrate-logger', description: 'Move each file to the new logger API', phases: [] }
 const results = await pipeline(args, (file) => agent(\`Replace the old logger calls in \${file} with the new API; do not change behaviour.\`, { label: \`migrate:\${file}\` }), (done, file) => agent(\`Check \${file} still compiles: run tsc --noEmit and report errors only.\`, { label: \`check:\${file}\` }))

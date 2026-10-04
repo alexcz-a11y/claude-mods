@@ -104,7 +104,8 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       result = await next(e)
       const launched = launchedRun(result)
       if (launched === null || result.deny !== undefined) return result
-      // The script the run uses: the one sent (what workflow-agents read), else the copy the tool runs.
+      // The script the run uses: the one sent (as workflow-agents passed it on: what it wrote is in it,
+      // the calls it left are as they were), else the copy the tool runs.
       const text = given === 'script' ? (e.script ?? null) : await $.fs.read(launched.scriptPath).catch(() => null)
       const parsed = text === null ? null : parseWorkflow(text)
       if (parsed !== null && parsed.calls.length === 0) return result
@@ -152,8 +153,8 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
           if (failure?.kind === 'left' && failure.failure !== undefined) {
             const undecided = outcomes.filter((outcome) => outcome.kind === 'left' && (outcome.reason === 'failed' || outcome.reason === 'unanswered')).length
             const why = failureText(ctx.backend.name, failure.failure)
-            const decided = outcomes.some((outcome) => outcome.kind !== 'left')
-            setStatus('labels', decided ? `by label: ${undecided} call${undecided === 1 ? '' : 's'} not decided (${why})` : `by label: not routed (${why})`, show)
+            const some = outcomes.some((outcome) => outcome.kind !== 'left')
+            setStatus('labels', some ? `by label: ${undecided} call${undecided === 1 ? '' : 's'} not decided (${why})` : `by label: not routed (${why})`, show)
           }
         }
         // Nothing for this feature to do: every call is the script's.

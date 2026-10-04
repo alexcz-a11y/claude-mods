@@ -29,9 +29,10 @@ export const register: Register = (on, options) => {
   registerEscalation(on, ctx) // above the mid-turn feature: its raise is in the plan before a mid-turn answer is applied
   registerMidturnEffort(on, ctx)
   registerDispatchedAgents(on, ctx)
-  // Outside workflow-agents: its Workflow hook sees what that feature did with the script once the tool returns.
-  registerWorkflowLabels(on, ctx)
   registerWorkflowAgents(on, ctx)
+  // Inside workflow-agents: a Workflow call is this feature's only once that feature has sent the script on, so the
+  // agents of other runs never wait while it is still deciding.
+  registerWorkflowLabels(on, ctx)
   registerSkills(on, ctx)
   registerFindSkill(on, ctx)
 
