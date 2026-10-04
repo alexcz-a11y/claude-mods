@@ -95,6 +95,26 @@ declare module 'claude-code' {
         at: number
       }>
       /**
+       * Failed tool calls piling up in one loop (#7), id `main` for the main
+       * agent (its counts are those of the turn `turnId`; a new turn starts them
+       * afresh) or the agentId of a dispatched or workflow agent (counted for as
+       * long as it lives). Written by features/escalation.ts only.
+       */
+      escalation: StateFamily<{
+        /** The main turn the counts belong to; '' for an agent. */
+        turnId: string
+        /** Tool calls that failed since the loop began (hook blocks and the person's refusals not counted). */
+        failures: number
+        /** Tool calls a hook refused. */
+        hookBlocks: number
+        /** What escalating (or deciding the failures were expected) has already dealt with: the counts at that moment. */
+        base: { failures: number; hookBlocks: number }
+        /** Forced raises so far (an expected-failure verdict is not one). */
+        raises: number
+        /** The step a stuck re-decision was last made for; null before the first. */
+        askedAt: number | null
+      }>
+      /**
        * The person's own words this turn, masked and clipped, oldest first: the
        * last message they sent while the session was idle, then the ones they
        * typed while its turn ran (at most 8). A dispatched agent's decision reads
