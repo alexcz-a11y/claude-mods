@@ -113,6 +113,27 @@ export type StepOptions = {
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number | null
   /** A dispatched or workflow agent's loop; absent on the main agent. */
   agentId?: string
+  /** The response's visible text, streamed before its tool calls. */
+  answer?: string
+  /**
+   * The tool calls the response makes. The engine runs each one (`tool.call`)
+   * while the response still streams, before the step ends (measured on
+   * 2.1.289), so a hook on `tool.call` sees it inside the step.
+   */
+  tools?: ToolRun[]
+}
+
+/** A tool call the model makes in a step, and how it ends. */
+export type ToolRun = {
+  tool: string
+  /** The call's arguments as the model wrote them (`command`, `file_path`, `description`, ...). */
+  input?: Record<string, unknown>
+  /**
+   * How the call ends: the tool's text (default "ok"), an error the tool
+   * reported (also how a refusal at the permission prompt reads), or a
+   * PreToolUse settings hook's refusal (the tool never runs).
+   */
+  ends?: { text: string } | { error: string } | { blockedByHook: string }
 }
 
 /** One agent.spawn as it reached the engine, after every hook of the mod. */
@@ -142,11 +163,16 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const steps: Step[] = []
   const prompts: { text: string; context: readonly string[] | undefined; origin: unknown }[] = []
   const turnIds: string[] = []
+  const toolCalls: { tool: string; input: Record<string, unknown>; isError: boolean; text: string | undefined }[] = []
   const spawned: Spawned[] = []
   let calls = 0
   const disk = options.disk ?? {}
   const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
   const commands: CommandSpec[] = []
+  /** What the step being sent streams and runs (set by `step()`, read by the engine's turn.step below). */
+  let streaming: Pick<StepOptions, 'answer' | 'tools'> = {}
+  /** How the tool call running now ends (set around each `$.tool.call` below). */
+  let ending: ToolRun['ends'] | undefined
 
   async function answer(reply: Reply): Promise<{ value: { status: number; ok: boolean; headers: Record<string, string>; text: string } } | { deny: string }> {
     if ('after' in reply) {
@@ -238,9 +264,34 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     spawned.push({ tool_use_id: e.tool_use_id, model: e.model, subagentType: e.subagentType, description: e.description, prompt: e.prompt })
     return { model: e.model ?? e.parentModel, agentId: `a${spawned.length}` }
   })
+  // The engine at the bottom of turn.step: it records what the request went
+  // out with, streams the response's text, and runs each tool call while the
+  // response still streams, as Claude Code does.
   on('turn.step', async function* (_$, e) {
     steps.push({ turnId: e.turnId, index: e.index, model: e.model, effort: e.effort, agentId: e.agentId })
-    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use' as const, usage: null }
+    const { answer = '', tools = [] } = streaming
+    streaming = {}
+    if (answer) yield { kind: 'text' as const, index: 0, text: answer }
+    for (const [i, run] of tools.entries()) {
+      yield { kind: 'tool' as const, index: i + 1, id: `toolu_${e.turnId}_${e.index}_${i}`, name: run.tool }
+      ending = run.ends
+      await $.tool.call({ tool: run.tool, ...(run.input ?? {}), ...(e.agentId !== undefined ? { agentId: e.agentId } : {}) } as never)
+      ending = undefined
+    }
+    const toolUses = tools.map((run) => ({ name: run.tool, input: run.input ?? {} }))
+    return { turnId: e.turnId, index: e.index, answer, toolUses, stopReason: 'tool_use' as const, usage: null }
+  })
+  // A PreToolUse settings hook: it refuses the call when the test says so.
+  on('classic.PreToolUse', () => (ending !== undefined && 'blockedByHook' in ending ? { deny: ending.blockedByHook } : {}))
+  // The tools themselves: each call that reaches them is recorded with its
+  // arguments as they arrived (after every hook of the mod) and how it ended.
+  on('tool.call', (_$, e) => {
+    const { tool, tool_use_id: _id, agentId: _agent, ...input } = e as { tool: string; tool_use_id?: string; agentId?: string } & Record<string, unknown>
+    const end = ending ?? { text: 'ok' }
+    const failed = 'error' in end
+    const text = failed ? end.error : 'text' in end ? end.text : 'ok'
+    toolCalls.push({ tool, input, isError: failed, text })
+    return failed ? { result: text, text, isError: true as const } : { result: text, text }
   })
 
   return {
@@ -255,6 +306,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     commands,
     /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */
     stored: (key: string): unknown => (store.has(key) ? JSON.parse(store.get(key) as string) : undefined),
+    /** Every tool call that reached the tools, its arguments as they arrived (a hook's rewrite included) and how it ended; a call a hook refused is not in it. */
+    toolCalls,
     /** The status line as last set (`undefined` once cleared or never set). */
     status: () => statuses.at(-1),
     /** Submits a prompt the way the engine does; resolves when it entered (or was queued). */
@@ -300,8 +353,9 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     /** The engine's skill listing as one request of a loop carries it (`agentId`: a dispatched agent's; needs `skills`); resolves to what the model reads. */
     listing: (text: string, agentId?: string) =>
       $.prompt.attachment({ type: 'skill_listing', text, origin: { kind: 'engine' }, ...(agentId !== undefined ? { agentId } : {}) }),
-    /** Sends one model request through the mod, drained to its end. */
+    /** Sends one model request through the mod, drained to its end (its text streamed, its tools run). */
     step: async (step: StepOptions) => {
+      streaming = { answer: step.answer, tools: step.tools }
       const effort = step.effort === undefined ? 'xhigh' : step.effort
       const input = {
         turnId: step.turnId ?? turnIds.at(-1) ?? 't0',
@@ -327,12 +381,12 @@ function usageListing(listed: readonly ContextSkill[]): SessionUsage {
 
 /**
  * A Jev answer to every question of the request it replies to: each `score`
- * question gets `levels` as its probabilities (lowest level first), each
- * `choice` the option named in `choice` (or its first), or the probabilities
- * `shares` gives for its question id (options it leaves out get 0), each
- * `noul` 0.5.
+ * question gets `levels` as its probabilities (lowest level first) and
+ * `confidence` (0.7 by default), each `choice` the option named in `choice`
+ * (or its first), or the probabilities `shares` gives for its question id
+ * (options it leaves out get 0), each `noul` 0.5.
  */
-export function jev(levels: readonly number[], extra: { status?: number; choice?: string; shares?: Record<string, Record<string, number>> } = {}) {
+export function jev(levels: readonly number[], extra: { status?: number; choice?: string; confidence?: number | null; shares?: Record<string, Record<string, number>> } = {}) {
   return (request: Sent): Reply => {
     const answers: Record<string, unknown> = {}
     const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
@@ -340,7 +394,7 @@ export function jev(levels: readonly number[], extra: { status?: number; choice?
       if (question.type === 'score') {
         const probabilities = Object.fromEntries(levels.map((p, i) => [String(i), p]))
         const score = levels.reduce((sum, p, i) => sum + p * i, 0)
-        answers[id] = { type: 'score', score, legend: {}, probabilities, confidence: 0.7 }
+        answers[id] = { type: 'score', score, legend: {}, probabilities, confidence: extra.confidence === undefined ? 0.7 : extra.confidence }
       } else if (question.type === 'choice' && extra.shares?.[id] !== undefined) {
         const shares = extra.shares[id] as Record<string, number>
         const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
