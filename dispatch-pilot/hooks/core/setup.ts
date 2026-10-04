@@ -44,6 +44,8 @@ export function setup(options: PluginOptions): Ctx {
       tokens: Math.round(numberIn(options.contextTokens, 100, 16000, 2000)),
     },
   }
+  // One decision model or the other, as the person chose: only that one is built, and there is no fallback.
+  // (The engine reads a value outside the option's list as the default, jev.)
   const backend =
     stringOf(options.decisionModel, 'jev') === 'clef'
       ? clefBackend({ accountId: stringOf(options.cloudflareAccountId, '').trim(), apiToken: stringOf(options.cloudflareApiToken, '').trim() })
