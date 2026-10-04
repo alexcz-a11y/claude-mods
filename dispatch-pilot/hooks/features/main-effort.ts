@@ -9,20 +9,25 @@
 // in case the turn ends first and the message starts a turn of its own.
 
 import type { On } from 'claude-code'
-import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart, type EffortReading } from '../decision/effort.ts'
+import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart, type Effort, type EffortReading } from '../decision/effort.ts'
 import { redactSecrets } from '../decision/redact.ts'
 import { contribute } from '../core/ballot.ts'
+import { recordDecision } from '../core/decisions.ts'
 import { addPending, revise, turnKey, update, type Cell, type PendingDecision, type TurnRecord } from '../core/plans.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
 import type { Ctx } from '../core/setup.ts'
 import { failureText, setStatus } from '../core/status.ts'
+import { defineSwitch, isOn } from '../core/switches.ts'
 
 const PENDING = { plugin: 'dispatch-pilot', key: 'pending' } as const
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
+const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 export function registerMainEffort(on: On, ctx: Ctx): void {
+  defineSwitch({ name: 'main-effort', info: "decides the main agent's effort when you send a message", segments: ['decision'] })
+
   on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
-    if (!isPersonsMessage(e)) return next(e)
+    if (!isPersonsMessage(e) || !isOn('main-effort')) return next(e)
     const pending: Cell<PendingDecision[]> = { get: () => $.state.get(PENDING), set: (value, options) => $.state.set(PENDING, value, options) }
     let added: PendingDecision | null = null
 
@@ -41,7 +46,11 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
         }
         setStatus('decision', null, show)
         const effort = pickEffort(reading, ctx.config.thetaMax)
-        $.ui.log(`effort ${effort} for ${quote(e.text)}: ${describeReading(reading)}`, { to: 'debug' })
+        await recordDecision(
+          { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+          (line) => $.ui.log(line, { to: 'debug' }),
+          { feature: 'main-effort', outcome: `effort ${effort}`, about: quote(e.text), reason: describeReading(reading, effort, ctx.config.thetaMax) },
+        )
         const entry: PendingDecision = { text: e.text, effort, at: await $.clock.now() }
         await update(pending, (list) => addPending(list ?? [], entry))
         added = entry
@@ -70,8 +79,11 @@ function quote(text: string): string {
   return JSON.stringify(flat.length > 40 ? `${flat.slice(0, 40)}...` : flat)
 }
 
-/** Why a level was picked: every level's probability, and the backend's confidence. */
-function describeReading(reading: EffortReading): string {
-  const levels = EFFORTS.map((level, i) => `${level} ${(reading.probabilities[i] ?? 0).toFixed(2)}`).join(', ')
-  return `p ${levels}; confidence ${reading.confidence === null ? 'n/a' : reading.confidence.toFixed(2)}`
+/** Why a level was picked: every level's probability, `max` held back below thetaMax when it was the most likely, and the backend's confidence. */
+function describeReading(reading: EffortReading, picked: Effort, thetaMax: number): string {
+  const p = reading.probabilities
+  const levels = EFFORTS.map((level, i) => `${level} ${(p[i] ?? 0).toFixed(2)}`).join(', ')
+  const max = p[EFFORTS.length - 1] ?? 0
+  const held = picked !== 'max' && p.every((other) => other <= max) ? `; max is below thetaMax ${thetaMax.toFixed(2)}` : ''
+  return `p ${levels}${held}; confidence ${reading.confidence === null ? 'n/a' : reading.confidence.toFixed(2)}`
 }

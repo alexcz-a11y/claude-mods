@@ -12,7 +12,7 @@
 
 import { mock } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
-import type { On, PromptOrigin, SessionMessage } from 'claude-code'
+import type { CommandSpec, On, PromptOrigin, SessionMeasureInput, SessionMessage } from 'claude-code'
 
 /** One request the mod sent through `$.http.fetch`, its JSON body parsed. */
 export type Sent = {
@@ -43,6 +43,16 @@ export type WorldOptions = {
   messages?: SessionMessage[]
   /** Files the mod can read, by absolute path (`$.fs.read`, `$.fs.exists`). */
   disk?: Record<string, string>
+  /**
+   * The mod's `$.store`, seeded with these values; what the mod writes is read back with `w.stored(key)`.
+   * Without it every `$.store` call rejects, as when the store file cannot be read or written.
+   */
+  store?: Record<string, unknown>
+  /**
+   * The engine's session around the mod: `w.start()` runs `session.start`, the commands the mod registers
+   * are recorded in `w.commands` (`registerError` refuses them), `w.measure(...)` raises `session.measure`.
+   */
+  session?: true | { registerError: string }
   /** What the hooks beneath the mod (other plugins, settings hooks) do to a prompt. */
   beneath?: {
     /** The text the turn starts with, when a hook beneath rewrote the prompt. */
@@ -103,6 +113,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const spawned: Spawned[] = []
   let calls = 0
   const disk = options.disk ?? {}
+  const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
+  const commands: CommandSpec[] = []
 
   async function answer(reply: Reply): Promise<{ value: { status: number; ok: boolean; headers: Record<string, string>; text: string } } | { deny: string }> {
     if ('after' in reply) {
@@ -129,6 +141,28 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   on('session.messages', () => ({ value: options.messages ?? [] }))
   on('fs.read', (_$, e) => (e.path in disk ? { value: disk[e.path] as string } : { deny: `ENOENT: ${e.path}` }))
   on('fs.exists', (_$, e) => ({ value: e.path in disk }))
+  if (options.store !== undefined) {
+    on('store.get', (_$, e) => ({ value: store.has(e.key) ? JSON.parse(store.get(e.key) as string) : undefined }))
+    on('store.set', (_$, e) => {
+      store.set(e.key, JSON.stringify(e.value))
+      return { value: undefined }
+    })
+    on('store.delete', (_$, e) => {
+      store.delete(e.key)
+      return { value: undefined }
+    })
+    on('store.keys', () => ({ value: [...store.keys()] }))
+  }
+  if (options.session !== undefined) {
+    const refused = options.session === true ? undefined : options.session.registerError
+    on('session.start', (_$, e) => ({ cwd: e.cwd }))
+    on('session.measure', (_$, e) => ({ changed: e.changed }))
+    on('command.register', (_$, e) => {
+      if (refused !== undefined) return { deny: refused }
+      commands.push(e)
+      return { value: { command: e.name } }
+    })
+  }
   on('ui.status', (_$, e) => {
     statuses.push(e.text)
     return { value: undefined }
@@ -175,6 +209,9 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     prompts,
     turnIds,
     spawned,
+    commands,
+    /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */
+    stored: (key: string): unknown => (store.has(key) ? JSON.parse(store.get(key) as string) : undefined),
     /** The status line as last set (`undefined` once cleared or never set). */
     status: () => statuses.at(-1),
     /** Submits a prompt the way the engine does; resolves when it entered (or was queued). */
@@ -206,6 +243,13 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
         ...(spawn.model !== undefined ? { model: spawn.model } : {}),
         ...(spawn.isTeammate ? { isTeammate: true as const } : {}),
       }),
+    /** The session starts (needs `session`): the mod sets itself up and registers its commands. */
+    start: () => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true }),
+    /** The engine reports the session's context, limits and cost (needs `session`). */
+    measure: (input: SessionMeasureInput) => $.session.measure(input),
+    /** Runs a slash command as the person types it (`/dp lock max` is `command('dp', 'lock max')`); resolves to the text it printed. */
+    command: async (name: string, args = '') =>
+      (await $.command.run({ command: name, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })).text ?? '',
     /** Sends one model request through the mod, drained to its end. */
     step: async (step: StepOptions) => {
       const effort = step.effort === undefined ? 'xhigh' : step.effort
