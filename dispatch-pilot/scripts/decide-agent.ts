@@ -1,21 +1,24 @@
-// One dispatched agent's decision against the real Jev, outside Claude Code:
-// the same request the mod sends at agent.spawn (the shared decision module),
-// built from an item of the eval set (subagent.jsonl) or from a JSON object
-// with the same fields. For a manual check and as the starting point of the
-// eval (#15).
+// One dispatched agent's decision against the real Jev or Clef, outside Claude
+// Code: the same request the mod sends at agent.spawn (the shared decision
+// module), built from an item of the eval set (subagent.jsonl) or from a JSON
+// object with the same fields. For a manual check and as the starting point of
+// the eval (#15).
 //
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-agent.ts --file subagent.jsonl --id subagent-011 [--lang en]
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-agent.ts '{"user_message":"...","agent_type":"Explore","description":"...","prompt":"...","requested_model":null}'
+//   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_AUTH_TOKEN=... node dispatch-pilot/scripts/decide-agent.ts --file subagent.jsonl --id subagent-011 --clef
 //
-// Variants (eval variables): --zh (questions in Chinese), --work (options
-// named by the kind of work), --noul (the main agent's pick asked about on its
-// own), --choice (effort as a Choice), --fable (fable among the options).
-// Prints the request (question ids, state), the answers that matter, the
-// decision and, for an eval item, its gold. The key is read from the
-// environment and never printed. Node 22.18+ runs .ts as is.
+// Jev unless `--clef`. Variants (eval variables): --zh (questions in
+// Chinese), --work (options named by the kind of work), --noul (the main
+// agent's pick asked about on its own), --choice (effort as a Choice), --fable
+// (fable among the options). Prints the request (question ids, state), the
+// answers that matter, the decision and, for an eval item, its gold.
+// Credentials are read from the environment and never printed. Node 22.18+
+// runs .ts as is.
 
 import { readFileSync } from 'node:fs'
-import type { BackendIo } from '../hooks/decision/backend.ts'
+import type { Backend, BackendIo } from '../hooks/decision/backend.ts'
+import { clefBackend } from '../hooks/decision/clef.ts'
 import { AGENT_MODELS, DEFAULT_AGENT_MODELS, decideDispatch, dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { jevBackend } from '../hooks/decision/jev.ts'
 import { answersFor, mergeParts } from '../hooks/decision/system-one.ts'
@@ -43,15 +46,27 @@ if (file !== undefined) {
 } else {
   const json = args.find((arg) => arg.startsWith('{'))
   if (!json) {
-    console.error('usage: node scripts/decide-agent.ts (--file <jsonl> --id <id> [--lang en] | <item JSON>) [--zh] [--work] [--noul] [--choice] [--fable] [--timeout ms]')
+    console.error('usage: node scripts/decide-agent.ts (--file <jsonl> --id <id> [--lang en] | <item JSON>) [--zh] [--work] [--noul] [--choice] [--fable] [--clef] [--timeout ms]')
     process.exit(2)
   }
   dispatch = JSON.parse(json) as Dispatch
 }
-const apiKey = process.env.TYPESAFE_API_KEY ?? ''
-if (!apiKey) {
-  console.error('TYPESAFE_API_KEY is not set')
-  process.exit(2)
+let backend: Backend
+if (flag('--clef')) {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? ''
+  const apiToken = process.env.CLOUDFLARE_AUTH_TOKEN ?? ''
+  if (!accountId || !apiToken) {
+    console.error('CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AUTH_TOKEN must both be set')
+    process.exit(2)
+  }
+  backend = clefBackend({ accountId, apiToken })
+} else {
+  const apiKey = process.env.TYPESAFE_API_KEY ?? ''
+  if (!apiKey) {
+    console.error('TYPESAFE_API_KEY is not set')
+    process.exit(2)
+  }
+  backend = jevBackend(apiKey)
 }
 
 // Node's fetch and timers in place of $.http.fetch and $.clock.sleep.
@@ -87,10 +102,10 @@ const request = mergeParts(dispatchState(dispatch, 2000), [part])
 console.log(JSON.stringify({ questions: Object.keys(request.questions), state: request.state }))
 
 const started = performance.now()
-const asked = await jevBackend(apiKey).ask(io, request, Number(value('--timeout') ?? 5000))
+const asked = await backend.ask(io, request, Number(value('--timeout') ?? 5000))
 const ms = Math.round(performance.now() - started)
 if (!asked.ok) {
-  console.log(JSON.stringify({ ok: false, failure: asked.failure, ms }))
+  console.log(JSON.stringify({ ok: false, backend: backend.name, failure: asked.failure, ms }))
   process.exit(1)
 }
 const answers = answersFor(part, asked.answers)
@@ -98,4 +113,4 @@ const decision = decideDispatch(answers, dispatch, settings)
 const brief = Object.fromEntries(
   Object.entries(answers).map(([id, answer]) => [id, answer.type === 'noul' ? Number(answer.noul.toFixed(3)) : answer.probabilities]),
 )
-console.log(JSON.stringify({ ok: true, model: asked.model, inputTokens: asked.inputTokens, ms, answers: brief, decision, ...(gold === undefined ? {} : gold) }))
+console.log(JSON.stringify({ ok: true, backend: backend.name, model: asked.model, inputTokens: asked.inputTokens, ms, answers: brief, decision, ...(gold === undefined ? {} : gold) }))
