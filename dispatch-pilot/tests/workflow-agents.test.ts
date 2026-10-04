@@ -126,12 +126,34 @@ return [a, b]
   expect(w.status()).toBe('dp workflow routed 1 agent (1 as written)')
 })
 
+test("a script whose agents all take their prompts from data (a table mapped over) is left as written, nothing is asked, and the main agent is told why", { options: KEY }, async ($, on) => {
+  const table = `export const meta = { name: 'table', description: 'Answer each question', phases: [] }
+const QUESTIONS = [{ label: 'a', prompt: 'Reply with pong.' }, { label: 'b', prompt: 'Explain what an index is.' }]
+const answers = await parallel(QUESTIONS.map((q) => () => agent(q.prompt, { label: q.label })))
+return answers
+`
+  const w = workflowWorld($, on, { backend: siteJev(BOTH_ROUTED) })
+  const result = await w.workflow({ script: table })
+
+  expect(w.requests).toHaveLength(0)
+  expect(w.reached.map((r) => r.script)).toEqual([table])
+  expect((result.context ?? []).join('\n')).toMatch(/agent\(\) at line 3: left as written \(its prompt is built when the script runs\)/)
+  expect(w.status()).toBe('dp workflow not routed (its prompt is built when the script runs)')
+  expect(w.records()).toEqual({ 'wf_test-1': { rewritten: false, reason: 'unreadable', agents: [], left: 1 } })
+})
+
 test("a Workflow given by scriptPath or by name, or resumed from an earlier run, goes through as it is, nothing is asked, and its run is recorded as not rewritten", { options: KEY }, async ($, on) => {
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 1 } })) })
+  const statuses: (string | undefined)[] = []
   await w.workflow({ scriptPath: '/home/u/.claude/projects/p/s1/workflows/scripts/tidy-wf_old.js' })
+  statuses.push(w.status())
   await w.workflow({ name: 'review-changes', args: { base: 'main' } })
+  statuses.push(w.status())
   await w.workflow({ script: TIDY, resumeFromRunId: 'wf_old' })
+  statuses.push(w.status())
 
+  // The status line speaks of the latest Workflow, so it says each time that this one was not routed.
+  expect(statuses).toEqual(['dp workflow not routed (given by path)', 'dp workflow not routed (given by name)', 'dp workflow not routed (resumed from an earlier run)'])
   expect(w.requests).toHaveLength(0)
   expect(w.reached).toEqual([
     { scriptPath: '/home/u/.claude/projects/p/s1/workflows/scripts/tidy-wf_old.js', launched: true },
@@ -381,6 +403,85 @@ test("each agent's decision is logged with its reason: in the debug log, never i
   expect(log[0]).toBe('the last 2 decisions, newest last')
   expect(log[1]).toMatch(/^#1 workflow-agents: sonnet high for "rename" \(workflow tidy-api\): decided; pick sonnet, confidence 0\.70; effort p /)
   expect(log[2]).toMatch(/^#2 workflow-agents: opus high for "review" \(workflow tidy-api\): decided; pick opus, confidence 0\.85; effort p /)
+})
+
+test("a run is recorded in $.state by its id as soon as the tool launches it, before the decisions are logged: what was decided, by label, and what was left", { options: KEY }, async ($, on) => {
+  const w = workflowWorld($, on, { backend: siteJev(BOTH_ROUTED) })
+  await w.workflow({ script: TIDY })
+
+  expect(w.records()).toEqual({
+    'wf_test-1': {
+      rewritten: true,
+      reason: '',
+      agents: [
+        { label: 'rename', model: 'sonnet', effort: 'high' },
+        { label: 'review', model: 'opus', effort: 'high' },
+      ],
+      left: 0,
+    },
+  })
+  // The run's first agent steps within milliseconds of the launch: nothing may come before the record.
+  expect(w.stateWrites.map((write) => write.key)).toEqual(['workflows', 'decisionLog', 'decisionLog'])
+})
+
+test("when the script already has what the decisions say, nothing is written, and the main agent is not told it was", { options: KEY }, async ($, on) => {
+  const kept = `export const meta = { name: 'kept', description: 'Already as it should be', phases: [] }
+const a = await agent('Read docs/architecture.md and summarize the module boundaries.', { label: 'summary', model: 'haiku' })
+return a
+`
+  const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 0.9, sonnet: 0.05, opus: 0.05 } })) })
+  const result = await w.workflow({ script: kept })
+
+  expect(w.reached.map((r) => r.script)).toEqual([kept])
+  const told = (result.context ?? []).join('\n')
+  expect(told).toMatch(/"summary": kept as written \(haiku\)/)
+  expect(told).not.toMatch(/wrote them into the script/)
+  expect(w.records()['wf_test-1']).toMatchObject({ rewritten: false, reason: '', agents: [{ label: 'summary', model: 'haiku', effort: null }], left: 0 })
+})
+
+test('a script that cannot be read, one with no agent() call, and one given by path with its text beside it all go through as they are', { options: KEY }, async ($, on) => {
+  const w = workflowWorld($, on, { backend: siteJev(BOTH_ROUTED) })
+  const broken = `${TIDY}const oops = await agent('never closed\n`
+  const none = `export const meta = { name: 'none', description: 'Only a sub-workflow', phases: [] }\nreturn await workflow('review-changes')\n`
+  await w.workflow({ script: broken })
+  expect(w.status()).toBe('dp workflow not routed (script not readable)')
+  await w.workflow({ script: none })
+  await w.workflow({ script: TIDY, scriptPath: '/home/u/.claude/projects/p/s1/workflows/scripts/tidy-wf_old.js' })
+
+  expect(w.requests).toHaveLength(0)
+  expect(w.reached.map((r) => r.script)).toEqual([broken, none, TIDY])
+  expect(Object.values(w.records()).map((record) => (record as { reason: string }).reason)).toEqual(['unreadable', 'no agents', 'scriptPath'])
+})
+
+test("the decision model reads each agent as a dispatched agent: its prompt (secrets masked), label, agent type and the workflow's description, with fable among the options when agentFable is on", { options: { ...KEY, agentFable: true } }, async ($, on) => {
+  const careful = `export const meta = { name: 'careful', description: 'Prove the lease protocol', phases: [] }
+const proof = await agent('Prove that the lease-renewal protocol keeps mutual exclusion under clock drift. The test token is sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWx.', { label: 'proof', agentType: 'general-purpose' })
+return proof
+`
+  const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { fable: 1 }, effort: [0, 0, 0, 0.3, 0.7] })) })
+  await w.workflow({ script: careful })
+
+  const sent = w.requests[0]?.body
+  expect(sent.state.brief_0).toEqual({
+    agent_type: 'general-purpose',
+    workflow_description: 'Prove the lease protocol',
+    label: 'proof',
+    prompt: 'Prove that the lease-renewal protocol keeps mutual exclusion under clock drift. The test token is [REDACTED].',
+  })
+  expect(Object.keys(sent.questions['agent-0.model'].criteria)).toEqual(['haiku', 'sonnet', 'opus', 'fable'])
+  expect(w.reached.map((r) => r.script)).toEqual([careful.replace("agentType: 'general-purpose' }", "agentType: 'general-purpose', model: 'fable', effort: 'max' }")])
+})
+
+test("the person's words go to the decision model once for the whole script, masked and cut to a third of the context budget, keeping their end", { options: { ...KEY, contextTokens: 900 } }, async ($, on) => {
+  const w = workflowWorld($, on, { backend: siteJev(BOTH_ROUTED) })
+  await w.submit(`${'这个重构牵涉的面很广，先把方案想清楚。'.repeat(80)}最后：测试用 haiku 就行，密钥 sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWx 别外传`)
+  await w.workflow({ script: TIDY })
+
+  const words = w.requests[1]?.body.state.user_message as string
+  expect(estimateTokens(words)).toBeLessThanOrEqual(300)
+  expect(words.endsWith('别外传')).toBe(true)
+  expect(words).toContain('[REDACTED]')
+  expect(Object.keys(w.requests[1]?.body.state)).toEqual(['brief_0', 'brief_1', 'user_message'])
 })
 
 test('no answer within timeoutMs: the script goes through as written, the tool answers as it always does, and the status line says why', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {

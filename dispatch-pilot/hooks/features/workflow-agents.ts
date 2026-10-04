@@ -45,8 +45,8 @@ type RunRecord = { rewritten: boolean; reason: string; agents: { label: string |
 
 /** What the feature does with one submission, settled before the tool is called. */
 type Route =
-  /** The script goes through as it is; the run is recorded as not rewritten, with this status line if any. */
-  | { kind: 'pass'; record: Omit<RunRecord, 'rewritten'>; status?: string }
+  /** The script goes through as it is; the run is recorded as not rewritten, and the status line says `status` (null: nothing to say). */
+  | { kind: 'pass'; record: Omit<RunRecord, 'rewritten'>; status: string | null }
   /** The Workflow is sent back (return mode). */
   | { kind: 'refuse'; deny: string }
   /** The tool is called with `script` (null: as submitted), the decisions in `outcomes`. */
@@ -103,15 +103,20 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
     const decide = async (): Promise<Route> => {
       // What this does not rewrite: a script given by path or name, or resumed (its cache matches on each call's prompt and options).
       const given = input.scriptPath !== undefined ? 'scriptPath' : input.script === undefined || input.name !== undefined ? 'name' : input.resumeFromRunId !== undefined ? 'resume' : null
-      if (given !== null || input.script === undefined) return { kind: 'pass', record: { reason: given ?? 'name', agents: [], left: 0 } }
+      if (given !== null || input.script === undefined) {
+        const how = given === 'scriptPath' ? 'given by path' : given === 'resume' ? 'resumed from an earlier run' : 'given by name'
+        return { kind: 'pass', record: { reason: given ?? 'name', agents: [], left: 0 }, status: `workflow not routed (${how})` }
+      }
 
       const parsed = parseWorkflow(input.script)
       if (parsed === null) return { kind: 'pass', record: { reason: 'unreadable', agents: [], left: 0 }, status: 'workflow not routed (script not readable)' }
-      if (parsed.calls.length === 0) return { kind: 'pass', record: { reason: 'no agents', agents: [], left: 0 } }
+      if (parsed.calls.length === 0) return { kind: 'pass', record: { reason: 'no agents', agents: [], left: 0 }, status: null }
 
       // A Workflow already sent back runs as it is submitted, whatever the second submission says.
       const fingerprint = workflowFingerprint(parsed)
-      if (sendBack && ((await $.state.get(RETURNED)).value ?? []).includes(fingerprint)) return { kind: 'pass', record: { reason: 'second', agents: [], left: 0 } }
+      if (sendBack && ((await $.state.get(RETURNED)).value ?? []).includes(fingerprint)) {
+        return { kind: 'pass', record: { reason: 'second', agents: [], left: 0 }, status: 'workflow runs as written (sent back once before)' }
+      }
 
       const { value: said = [] } = await $.state.get(SAID)
       const words = said.join('\n')
@@ -158,7 +163,8 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
     if (route.kind === 'pass') {
       const result = await next(e)
       await record(result, { rewritten: false, ...route.record })
-      if (route.status !== undefined) setStatus('workflow', route.status, show)
+      setStatus('workflow', route.status, show)
+      log(`workflow${input.name === undefined ? '' : ` ${JSON.stringify(input.name)}`} let through as it is: ${route.record.reason}`)
       return result
     }
 
@@ -180,16 +186,18 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
     if (result.isError === true || result.deny !== undefined) return result
 
     const decided = outcomes.filter((outcome) => outcome.kind !== 'left').length
+    // With no call decided, why: the decision model did not answer, or no call had a prompt to read.
+    const reason = decided > 0 ? '' : outcomes.some((outcome) => outcome.kind === 'left' && outcome.failure !== undefined) ? 'failed' : 'unreadable'
     await record(result, {
       rewritten,
-      reason: decided === 0 ? 'failed' : '',
+      reason,
       agents: outcomes.flatMap((outcome, index) => (outcome.kind === 'left' ? [] : [{ label: parsed.calls[index]?.label ?? null, model: outcome.decision.model, effort: outcome.decision.effort }])),
       left: outcomes.length - decided,
     })
     setStatus('workflow', statusText(outcomes, describe), show)
     await logDecisions(parsed, outcomes, '')
-    if (decided === 0) return result
-    return { ...result, context: [...(result.context ?? []), rewriteNote(parsed, outcomes, describe)] }
+    const note = rewriteNote(parsed, outcomes, describe)
+    return note === null ? result : { ...result, context: [...(result.context ?? []), note] }
   })
 }
 

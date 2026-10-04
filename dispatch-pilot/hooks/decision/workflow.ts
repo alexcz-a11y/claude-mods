@@ -244,8 +244,15 @@ export function returnNote(parsed: ParsedWorkflow, outcomes: readonly CallOutcom
   ].join('\n')
 }
 
-/** What the main agent reads after the Workflow tool's result: a line for each call the decisions touched or left. */
-export function rewriteNote(parsed: ParsedWorkflow, outcomes: readonly CallOutcome[], describe: (failure: Failure) => string): string {
+/**
+ * What the main agent reads after the Workflow tool's result: a line for each
+ * call the decisions touched or left. Null when there is nothing for it to
+ * know: no call was decided, and none was left for a reason it could change
+ * (a decision model that did not answer is the status line's to report).
+ */
+export function rewriteNote(parsed: ParsedWorkflow, outcomes: readonly CallOutcome[], describe: (failure: Failure) => string): string | null {
+  const decided = outcomes.some((outcome) => outcome.kind !== 'left')
+  if (!decided && !outcomes.some((outcome) => outcome.kind === 'left' && (outcome.reason === 'unreadable' || outcome.reason === 'capped'))) return null
   const lines = outcomes.map((outcome, index) => {
     const call = parsed.calls[index] as AgentCall
     if (outcome.kind === 'left') return `${callName(call)}: left as written (${leftText(outcome, describe)})`
@@ -254,9 +261,11 @@ export function rewriteNote(parsed: ParsedWorkflow, outcomes: readonly CallOutco
       ? `${callName(call)}: kept as written (${outcomeOf(call, outcome.decision)})`
       : `${callName(call)}: ${outcomeOf(call, outcome.decision)}${how === '' ? '' : ` (${how})`}`
   })
-  return [
-    "Dispatch Pilot (the user's routing plugin) decided a model and an effort for each agent() call of this Workflow and wrote them into the script before it ran:",
-    ...lines.map((line) => `- ${line}`),
-    'The script file named above holds these changes. To change one, edit its model or effort there and run that file with scriptPath.',
-  ].join('\n')
+  const written = outcomes.some((outcome) => outcome.kind === 'written')
+  const header = written
+    ? "Dispatch Pilot (the user's routing plugin) decided a model and an effort for each agent() call of this Workflow and wrote them into the script before it ran:"
+    : decided
+      ? "Dispatch Pilot (the user's routing plugin) checked the model and effort of the agent() calls of this Workflow; nothing needed to change:"
+      : "Dispatch Pilot (the user's routing plugin) left the agent() calls of this Workflow as the script wrote them, so they run as it says:"
+  return [header, ...lines.map((line) => `- ${line}`), ...(written ? ['The script file named above holds these changes. To change one, edit its model or effort there and run that file with scriptPath.'] : [])].join('\n')
 }

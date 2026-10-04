@@ -167,6 +167,14 @@ test('a script that cannot be read is not read at all: an unterminated string or
   expect(unreadable.map((script) => parseWorkflow(script))).toEqual(unreadable.map(() => null))
 })
 
+test('a method or a constructor that happens to be called agent is no call of the workflow API', () => {
+  const script = `${META}const helper = { agent(prompt) { return prompt } }
+const made = new agent('constructed')
+const real = await agent('the real one')
+`
+  expect(parse(script).calls.map((call) => call.prompt)).toEqual(['the real one'])
+})
+
 test('only calls with a prompt and at most one options argument are calls: not agent(), agent(...args), or a call with extra arguments', () => {
   const script = `${META}const a = await agent()
 const b = await agent(...args)

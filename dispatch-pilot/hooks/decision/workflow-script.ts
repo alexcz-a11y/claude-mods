@@ -182,7 +182,8 @@ function propertyText(src: string, property: Property, edit: Edit | undefined): 
 const BEFORE_REGEX = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await'])
 
 const ID_START = /[\p{ID_Start}_$]/u
-const ID_PART = /[\p{ID_Continue}$‌‍]/u
+// An identifier may also hold the zero-width joiners U+200C and U+200D.
+const ID_PART = new RegExp(`[\\p{ID_Continue}$${String.fromCharCode(0x200c, 0x200d)}]`, 'u')
 
 /**
  * The tokens of the code from `from`: to the end of the script, or (inside a
@@ -367,19 +368,24 @@ function findCalls(src: string, stream: Stream, calls: AgentCall[], lineOf: (off
     const token = tokens[i] as Token
     if (token.kind === 'tpl') {
       for (const inner of token.streams ?? []) findCalls(src, inner, calls, lineOf)
-    } else if (isAgentCall(tokens, i)) {
+    } else if (isAgentCall(src, stream, i)) {
       const call = readCall(src, stream, i, lineOf)
       if (call !== null) calls.push(call)
     }
   }
 }
 
-/** Whether token `i` is the `agent` of a call `agent(`: not a member (`x.agent(`) and not a declaration. */
-function isAgentCall(tokens: readonly Token[], i: number): boolean {
+/** Whether token `i` is the `agent` of a call `agent(`: not a member (`x.agent(`), a declaration, a constructor call or a method definition. */
+function isAgentCall(src: string, stream: Stream, i: number): boolean {
+  const { tokens, pairs } = stream
   const token = tokens[i] as Token
   if (token.kind !== 'id' || token.text !== 'agent' || tokens[i + 1]?.text !== '(') return false
   const before = tokens[i - 1]
-  return !(before !== undefined && (before.text === '.' || before.text === 'function'))
+  if (before !== undefined && (before.text === '.' || before.text === 'function' || before.text === 'new')) return false
+  // `agent(prompt) {` on one line defines a method; a call is not followed by a block.
+  const close = tokens[pairs.get(i + 1) as number] as Token
+  const after = tokens[(pairs.get(i + 1) as number) + 1]
+  return !(after !== undefined && after.text === '{' && !src.slice(close.end, after.start).includes('\n'))
 }
 
 /** The arguments of the call whose `(` is token `open`: each one's first and last token index (inclusive), and whether a comma trails the last. */
