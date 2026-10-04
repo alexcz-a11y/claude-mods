@@ -1,0 +1,7 @@
+# Claude Code 每次加载 mod 时都会在这里重新生成 TypeScript 类型
+**/.claude-plugin/types/
+
+# claude --debug-file 输出
+*.log
+
+.DS_Store
