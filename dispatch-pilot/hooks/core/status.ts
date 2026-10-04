@@ -47,6 +47,8 @@ export function failureText(backend: string, failure: Failure): string {
       return `${backend}: unreachable`
     case 'busy':
       return `${backend}: busy (HTTP ${failure.status ?? '?'})`
+    case 'quota':
+      return `${backend}: daily quota used up`
     case 'http':
       return `${backend}: HTTP ${failure.status ?? '?'}`
     case 'parse':
