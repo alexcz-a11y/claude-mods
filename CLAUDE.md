@@ -96,7 +96,7 @@ validate 通过并不代表以下几条也满足，它们需要自己留意：
 
 ## 分发（marketplace）
 
-本仓库将作为一个 marketplace 发布，布局沿用 playground 的扁平结构：每个 mod 是根目录下的 `./<mod>`。清单 `.claude-plugin/marketplace.json` **尚未创建**，它的格式要点如下：
+本仓库将作为一个 marketplace 发布，布局沿用 playground 的扁平结构：每个 mod 是根目录下的 `./<mod>`。清单是 `.claude-plugin/marketplace.json`，marketplace 名为 `alex-mods`。在添加第一个 mod 之前 `plugins` 为空，validate 会给出 "no plugins defined" 警告，这属于预期。格式要点：
 
 - 必填字段：`name`、`owner`（必须有 `owner.name`）和 `plugins`。
 - `plugins` 里的每一项至少要有 `name` 和 `source`，并建议写上 `description`。
@@ -110,7 +110,7 @@ validate 通过并不代表以下几条也满足，它们需要自己留意：
 
 ```bash
 claude plugin marketplace add alexcz-a11y/claude-mods
-claude plugin install <mod>@<marketplace-name> --scope user
+claude plugin install <mod>@alex-mods --scope user
 ```
 
 版本管理：发版时递增 `plugin.json` 的 `version`，或者不写 `version`，改用 commit SHA。已发布的 mod 不要改名；确实需要时，用 marketplace 的 `renames` 字段处理。

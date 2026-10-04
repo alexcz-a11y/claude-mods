@@ -1,0 +1,9 @@
+{
+  "name": "alex-mods",
+  "description": "alexcz-a11y's collection of Claude Code mods, one mod per directory.",
+  "owner": {
+    "name": "alexcz-a11y",
+    "url": "https://github.com/alexcz-a11y"
+  },
+  "plugins": []
+}
