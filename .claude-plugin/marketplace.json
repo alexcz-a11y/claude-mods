@@ -5,5 +5,11 @@
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "dispatch-pilot",
+      "source": "./dispatch-pilot",
+      "description": "A decision model outside Claude (Jev) picks the main agent's reasoning effort each time you send a message; the main agent's model never changes, so the prompt cache survives."
+    }
+  ]
 }

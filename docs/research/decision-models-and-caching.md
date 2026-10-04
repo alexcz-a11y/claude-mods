@@ -34,7 +34,7 @@
 
 ### 1.1 本地技能文件
 
-- 位置：`/Users/alexnear/.claude/plugins/cache/typesafe-ai/typesafe/0.5.7/skills/typesafe-ai/SKILL.md`（marketplace 副本在 `/Users/alexnear/.claude/plugins/marketplaces/typesafe-ai/skills/typesafe-ai/SKILL.md`）。该插件**没有** `references/` 目录，只有 SKILL.md、README.md 和 LICENSE。
+- 位置：`~/.claude/plugins/cache/typesafe-ai/typesafe/0.5.7/skills/typesafe-ai/SKILL.md`（marketplace 副本在 `~/.claude/plugins/marketplaces/typesafe-ai/skills/typesafe-ai/SKILL.md`）。该插件**没有** `references/` 目录，只有 SKILL.md、README.md 和 LICENSE。
 - 技能要求以在线文档为准："The live TypeSafe docs are the source of truth. Read them as part of the task." 文档索引是 https://docs.typesafe.ai/llms.txt 。
 
 ### 1.2 Jev 与 System One 是什么

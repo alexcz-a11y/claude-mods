@@ -1,0 +1,45 @@
+{
+  "name": "dispatch-pilot",
+  "version": "0.1.0",
+  "description": "Dispatch Pilot: a decision model outside Claude (Jev) picks the main agent's reasoning effort each time you send a message, and that effort holds on every request of the turn. The main agent's model never changes, so the prompt cache survives.",
+  "author": {
+    "name": "alexcz-a11y",
+    "url": "https://github.com/alexcz-a11y"
+  },
+  "repository": "https://github.com/alexcz-a11y/claude-mods",
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "typesafeApiKey": {
+      "type": "string",
+      "title": "TypeSafe API key",
+      "description": "Key for TypeSafe's System One API, where Jev runs. Without one, nothing is sent and every turn keeps the session's effort.",
+      "default": "",
+      "sensitive": true
+    },
+    "timeoutMs": {
+      "type": "number",
+      "title": "Decision timeout (ms)",
+      "description": "How long a message waits for the decision model (200 to 8000). Past it the message goes on unrouted, at the session's effort, and the status line says so.",
+      "default": 1500
+    },
+    "contextMessages": {
+      "type": "number",
+      "title": "Recent messages sent",
+      "description": "How many recent messages the decision model reads beside yours (0 to 32): their text and the names of the tools they called, never file contents or tool output, secrets masked.",
+      "default": 4
+    },
+    "contextTokens": {
+      "type": "number",
+      "title": "Context budget (tokens)",
+      "description": "How many tokens your message and the recent messages may take together (100 to 16000), counted the same way for Chinese and English; older messages are dropped first.",
+      "default": 2000
+    },
+    "thetaMax": {
+      "type": "number",
+      "title": "Threshold for max effort",
+      "description": "The main agent goes to max only when the decision model gives max at least this probability (0 to 1); otherwise it gets the most likely of the other levels.",
+      "default": 0.5
+    }
+  }
+}

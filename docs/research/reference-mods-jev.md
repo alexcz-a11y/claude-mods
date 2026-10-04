@@ -1,6 +1,6 @@
 # 参考 mod 调研：jev-pilot 与 jev-skill-suggestion
 
-调研日期 2026-10-04。路径缩写：`J` = `/Users/alexnear/.claude/plugins/cache/jev-pilot/jev-pilot/0.12.1`（本机已装，版本 0.12.1，与 GitHub tag `jev-pilot--v0.12.1` 同源，仓库 https://github.com/Akramovic1/jev-pilot）。`P2` = https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/mods/productivity/jev-skill-suggestion（本地副本在会话 scratchpad，内容取自 raw.githubusercontent.com 同路径，共 7 个文件：`.claude-plugin/plugin.json`、`commands/setup.md`、`hooks/hooks.json`、`hooks/jev-skill-suggestion.ts`、`hooks/policy.ts`、`tests/policy.test.ts`、`README.md`，已全部读完）。平台文档：https://code.claude.com/docs/en/plugins/mods/overview 与 https://code.claude.com/docs/en/plugins/mods/reference 。
+调研日期 2026-10-04。路径缩写：`J` = `~/.claude/plugins/cache/jev-pilot/jev-pilot/0.12.1`（本机已装，版本 0.12.1，与 GitHub tag `jev-pilot--v0.12.1` 同源，仓库 https://github.com/Akramovic1/jev-pilot）。`P2` = https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/mods/productivity/jev-skill-suggestion（本地副本在会话 scratchpad，内容取自 raw.githubusercontent.com 同路径，共 7 个文件：`.claude-plugin/plugin.json`、`commands/setup.md`、`hooks/hooks.json`、`hooks/jev-skill-suggestion.ts`、`hooks/policy.ts`、`tests/policy.test.ts`、`README.md`，已全部读完）。平台文档：https://code.claude.com/docs/en/plugins/mods/overview 与 https://code.claude.com/docs/en/plugins/mods/reference 。
 
 关系：jev-pilot 自述 "Built on claude-code-templates' jev-model-router and jev-skill-suggestion"（`J/.claude-plugin/plugin.json` description），即 P2 是 jev-pilot 技能部分的祖先；`J/docs/model-router.md:1` 也明说该文档是 davila7 `jev-model-router` 的原文。
 
@@ -159,6 +159,6 @@ mod，纯函数 hook：`P2/hooks/hooks.json` 为 `{"description": "...", "module
 ## 无法确定的事项
 
 - Workflow 工具的 `agent()` 是否触发 `agent.spawn`，以及不触发是平台限制还是设计：官方文档（reference 页 `agent.spawn` 行）没有说明，jev-pilot 只断言"don't pass through"并改用提示绕过。
-- jev-pilot 是否真的在"当前会话"生效，未验证；只确认已安装于 `/Users/alexnear/.claude/plugins/cache/jev-pilot/jev-pilot/0.12.1`。
+- jev-pilot 是否真的在"当前会话"生效，未验证；只确认已安装于 `~/.claude/plugins/cache/jev-pilot/jev-pilot/0.12.1`。
 - P2 `hooks/policy.ts` 与 jev-pilot `*.policy.ts` 中打分细节（如 `shortlistOf`、`decide`、`describe*`）未逐行核对，上文只引用了读过的函数。
 - jev-pilot 的 toast：源码中未见使用，结论是"没有 toast"，但只检查了 `hooks/` 目录里 `$.ui.*` 的调用。
