@@ -86,7 +86,7 @@ if (values.ids !== undefined) {
 if (values.limit !== undefined) items = items.slice(0, Number(values.limit))
 
 // The mod's settings as the engine hands them over: the manifest's defaults, then --option.
-const manifest = JSON.parse(readFileSync(join(MOD_DIR, '.claude-plugin', 'plugin.json'), 'utf8')) as { userConfig?: Record<string, { default?: unknown }> }
+const manifest = JSON.parse(readFileSync(join(MOD_DIR, '.claude-plugin', 'plugin.json'), 'utf8')) as { userConfig?: Record<string, { default?: unknown; sensitive?: boolean }> }
 const options: Record<string, unknown> = Object.fromEntries(Object.entries(manifest.userConfig ?? {}).map(([key, spec]) => [key, spec.default]))
 for (const assignment of values.option) {
   const [key, value] = assignment.split(/=(.*)/s, 2)
@@ -94,6 +94,8 @@ for (const assignment of values.option) {
   options[key] = value !== '' && Number.isFinite(Number(value)) ? Number(value) : value
 }
 const settings = settingsFrom(options as PluginOptions)
+// The options in effect, as the results record them: never a sensitive one, nor decisionModel (--backend says who answered).
+const recordedOptions = Object.fromEntries(Object.entries(options).filter(([key]) => manifest.userConfig?.[key]?.sensitive !== true && key !== 'decisionModel'))
 
 const backendName = values.backend
 if (backendName === 'clef' && values.model !== undefined && values.model !== CLEF_MODEL) fail(`the Clef backend asks ${CLEF_MODEL} only`)
@@ -177,7 +179,7 @@ if (!values['no-save']) {
     backend: { name: backend.name, model, answeredBy },
     dataset: { path: shown(path), items: dataset.items.length, sha256: sha(dataset.text), review: { file: existsSync(reviewPath) ? shown(reviewPath) : null, decided } },
     code: Object.fromEntries(readdirSync(decisionDir).sort().map((file) => [`hooks/decision/${file}`, sha(readFileSync(join(decisionDir, file), 'utf8')).slice(0, 16)])),
-    settings: { context: settings.context, thetaMax: settings.thetaMax, timeoutMs: settings.timeoutMs },
+    settings: { context: settings.context, thetaMax: settings.thetaMax, timeoutMs: settings.timeoutMs, options: recordedOptions },
     run: { items: items.length, variants, languages, timeoutMs: Number(values.timeout), retries: Number(values.retries), concurrency: Number(values.concurrency), requests: rows.length, attempts: rows.reduce((sum, row) => sum + row.attempts, 0), inputTokens, usd: Number(usd.toFixed(4)) },
     questions: Object.fromEntries(variants.map((variant) => [variant, suite.questions(variant)])),
     summary,
@@ -244,6 +246,10 @@ function report(summary: Summary): void {
     const missed = v.tags.filter((t) => t.wrong.zh + t.wrong.en > 0).slice(0, 6)
     const tags = missed.map((t) => `${t.tag} ${t.wrong.zh}/${t.wrong.en} of ${t.items}`).join(', ') || 'none'
     console.log(`${v.variant}: misses zh ${misses('zh')}; en ${misses('en')}. most missed tags (zh/en wrong of n): ${tags}`)
+  }
+  for (const v of summary.variants) {
+    if (v.groups === undefined) continue
+    console.log(`${v.variant}: accuracy by group (zh/en of n): ${v.groups.map((g) => `${g.group} ${pct(g.accuracy.zh)}/${pct(g.accuracy.en)} of ${g.items}`).join(', ')}`)
   }
   const best = Math.max(...summary.constants.map((c) => c.accuracy))
   console.log(`constant answers: ${summary.constants.map((c) => `${c.answer} ${pct(c.accuracy)}${c.accuracy === best ? ' (best)' : ''} (gold ${pct(c.exact)})`).join(', ')}`)

@@ -9,10 +9,9 @@
 // Pure: the network, the clock and the pauses are handed in.
 
 import type { Backend, BackendIo, Failure } from '../../hooks/decision/backend.ts'
-import type { Config } from '../../hooks/core/setup.ts'
 import type { State } from '../../hooks/decision/system-one.ts'
 import { LANGUAGES, type Language } from './datasets.ts'
-import type { AnyItem, Ask, Sent, Suite } from './suite.ts'
+import type { AnyItem, Ask, Sent, Settings, Suite } from './suite.ts'
 
 export type RunOptions = {
   backend: Backend
@@ -23,7 +22,7 @@ export type RunOptions = {
   /** Waits before asking again. */
   pause: (ms: number) => Promise<void>
   /** The mod's settings (settingsFrom). */
-  settings: Config
+  settings: Settings
   variants: readonly string[]
   /** Both by default. */
   languages?: readonly Language[]

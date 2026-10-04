@@ -9,11 +9,14 @@
 //   same answer in both;
 // - latency over answered requests: p50 and p90 by nearest rank, the max,
 //   and how many took longer than `slowMs` (the mod's timeout);
-// - wrong answers by tag, most first.
+// - wrong answers by tag, most first;
+// - for a suite that groups its items, the accuracy of each group in each
+//   language.
 //
 // And, for the dataset, the score of always giving the same answer (a
 // constant baseline: with acceptable sets two levels wide, a constant can do
-// well).
+// well), and of the suite's other baselines (an answer that depends on the
+// item, such as keeping its current level).
 //
 // Pure. Rates are rounded to four places.
 
@@ -43,6 +46,8 @@ export type VariantSummary = {
   agreement: { items: number; same: number; rate: number | null }
   latency: { answers: number; p50: number | null; p90: number | null; max: number | null; slow: number }
   tags: { tag: string; items: number; wrong: Record<Language, number> }[]
+  /** Accuracy per group, by group name; only for a suite that groups its items. */
+  groups?: { group: string; items: number; accuracy: Record<Language, number> }[]
 }
 
 export type Summary = {
@@ -53,17 +58,21 @@ export type Summary = {
 
 export function summarize<I extends AnyItem, P>(suite: Suite<I, P>, items: readonly I[], rows: readonly Row<P>[], options: { slowMs: number }): Summary {
   const variants = [...new Set(rows.map((row) => row.variant))]
+  const baseline = (name: string, answer: (item: I) => P) => {
+    const grades = items.map((item) => suite.grade(item, answer(item)))
+    return { answer: name, accuracy: rate(grades.filter((g) => g.correct).length, items.length), exact: rate(grades.filter((g) => g.exact).length, items.length) }
+  }
   return {
     items: items.length,
-    variants: variants.map((variant) => summarizeVariant(items, rows.filter((row) => row.variant === variant), variant, options.slowMs)),
-    constants: suite.constants.map((answer) => {
-      const grades = items.map((item) => suite.grade(item, answer))
-      return { answer: suite.show(answer), accuracy: rate(grades.filter((g) => g.correct).length, items.length), exact: rate(grades.filter((g) => g.exact).length, items.length) }
-    }),
+    variants: variants.map((variant) => summarizeVariant(items, rows.filter((row) => row.variant === variant), variant, options.slowMs, suite.group)),
+    constants: [
+      ...suite.constants.map((answer) => baseline(suite.show(answer), () => answer)),
+      ...Object.entries(suite.baselines ?? {}).map(([name, answer]) => baseline(name, answer)),
+    ],
   }
 }
 
-function summarizeVariant(items: readonly AnyItem[], rows: readonly Row<unknown>[], variant: string, slowMs: number): VariantSummary {
+function summarizeVariant<I extends AnyItem>(items: readonly I[], rows: readonly Row<unknown>[], variant: string, slowMs: number, group?: (item: I) => string): VariantSummary {
   const of = (language: Language) => rows.filter((row) => row.language === language)
   const zh = languageSummary(items.length, of('zh'))
   const en = languageSummary(items.length, of('en'))
@@ -106,7 +115,18 @@ function summarizeVariant(items: readonly AnyItem[], rows: readonly Row<unknown>
     tags: [...tags]
       .map(([tag, entry]) => ({ tag, ...entry }))
       .sort((a, b) => b.wrong.zh + b.wrong.en - (a.wrong.zh + a.wrong.en) || (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0)),
+    ...(group === undefined ? {} : { groups: groupAccuracy(items, group, zhRows, enRows) }),
   }
+}
+
+/** Each group's accuracy in each language (an unanswered item counts as wrong), groups by name. */
+function groupAccuracy<I extends AnyItem>(items: readonly I[], group: (item: I) => string, zh: ReadonlyMap<string, Row<unknown>>, en: ReadonlyMap<string, Row<unknown>>) {
+  const names = [...new Set(items.map(group))].sort()
+  return names.map((name) => {
+    const members = items.filter((item) => group(item) === name)
+    const right = (rows: ReadonlyMap<string, Row<unknown>>) => members.filter((item) => rows.get(item.id)?.correct === true).length
+    return { group: name, items: members.length, accuracy: { zh: rate(right(zh), members.length), en: rate(right(en), members.length) } }
+  })
 }
 
 function languageSummary(items: number, rows: readonly Row<unknown>[]): LanguageSummary {

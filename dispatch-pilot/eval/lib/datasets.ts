@@ -14,6 +14,7 @@
 // Pure: no Node API. The tests and the Node scripts import it as it is.
 
 import { EFFORTS, isEffort, type Effort } from '../../hooks/decision/effort.ts'
+import type { MidturnInput } from '../../hooks/decision/midturn.ts'
 
 export const KINDS = ['effort-submit', 'effort-midturn', 'subagent', 'skill'] as const
 export type Kind = (typeof KINDS)[number]
@@ -43,6 +44,15 @@ export type Item<Asked, Answer, Accept> = {
 /** effort-submit: the message the person sent and what came before it. */
 export type SubmitAsked = { message: string; recent_context: ContextEntry[] }
 export type EffortSubmitItem = Item<SubmitAsked, Effort, Effort[]>
+
+/**
+ * effort-midturn: a snippet of a turn as the mid-turn re-decision reads it,
+ * field for field (MidturnInput): the person's message, the step about to go
+ * out, the level it goes at, the turn's counts and its latest steps. A row
+ * has no `trouble`; a suite adds one where #7 would.
+ */
+export type MidturnAsked = Omit<MidturnInput, 'trouble'>
+export type EffortMidturnItem = Item<MidturnAsked, Effort, Effort[]>
 
 /** subagent: the models a dispatched agent can be given (fable only where an item really needs it). */
 export const MODELS = ['haiku', 'sonnet', 'opus', 'fable'] as const

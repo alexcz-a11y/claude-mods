@@ -15,10 +15,16 @@ import type { Item, Language } from './datasets.ts'
 /**
  * The mod's settings for the given options, read the way the mod reads them
  * (`setup`: the same defaults and the same clamping), so a suite asks with
- * the limits the mod runs with. The eval passes the manifest's defaults.
+ * the limits the mod runs with; and the options as the mod hands them to
+ * every feature (`ctx.options`), for those one feature reads on its own (the
+ * mid-turn re-decision's rejudgeSteps and thresholds). The eval passes the
+ * manifest's defaults.
  */
-export function settingsFrom(options: PluginOptions): Config {
-  return setup(options).config
+export type Settings = Config & { options: PluginOptions }
+
+export function settingsFrom(options: PluginOptions): Settings {
+  const ctx = setup(options)
+  return { ...ctx.config, options: ctx.options }
 }
 
 /** One request a suite sent: the backend's outcome, how long the answered attempt took, how many attempts it took. */
@@ -45,12 +51,16 @@ export type Suite<I extends AnyItem, P> = {
   /** The ways it can ask (eval variables), by name; the first is how the mod asks today. */
   variants: readonly string[]
   /** Asks about one item in one language, through `ask`, exactly as the mod would. */
-  decide: (item: I, language: Language, variant: string, ask: Ask, settings: Config) => Promise<Decided<P>>
+  decide: (item: I, language: Language, variant: string, ask: Ask, settings: Settings) => Promise<Decided<P>>
   grade: (item: I, prediction: P) => Grade
   /** A prediction as text: equal texts are the same decision (zh and en agree), and the results show it. */
   show: (prediction: P) => string
   /** The answers a suite would score by always giving one of them, reported beside its accuracy. */
   constants: readonly P[]
+  /** Baselines whose answer depends on the item (always keeping its current level, say), by name; reported with the constants. */
+  baselines?: Readonly<Record<string, (item: I) => P>>
+  /** The group an item falls in (the way its answer should move, say): accuracy is also reported per group. */
+  group?: (item: I) => string
   /** The questions a variant asks, recorded with the results (what a prompt change changes). */
   questions: (variant: string) => unknown
 }
