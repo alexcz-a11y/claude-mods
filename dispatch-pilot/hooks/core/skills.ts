@@ -6,12 +6,33 @@
 // Pure: no `$`. Whatever reads the session (commands, settings, disk) comes
 // in as closures the hook that owns `$` builds (README, 开发).
 
-import type { SkillOption } from '../decision/skills.ts'
+import type { PluginOptions } from 'claude-code'
+import type { Language } from '../decision/effort.ts'
+import type { SkillOption, TwoStageSettings } from '../decision/skills.ts'
+import { numberIn } from './setup.ts'
+
+/**
+ * How skills are ranked (`twoStageRanker`'s settings), read from the person's
+ * options the same way wherever skills are ranked: the message's suggestions
+ * and find_skill (#12). Each stage may take up to `timeoutMs`; a message's
+ * second stage gets only what the first left of it (features/skills.ts).
+ */
+export function rankingSettings(ctx: { options: PluginOptions; config: { timeoutMs: number }; ask: { language: Language } }): TwoStageSettings {
+  return {
+    language: ctx.ask.language,
+    shortlist: Math.round(numberIn(ctx.options.skillsShortlist, 1, 10, 4)),
+    timeoutMs: { first: ctx.config.timeoutMs, second: ctx.config.timeoutMs },
+  }
+}
 
 /** One skill of the session, as the decision model is offered it. */
 export type CatalogSkill = SkillOption & {
   /** Where it comes from, by the engine's word (`userSettings`, `plugin`, `built-in`, `syncedSkills`, ...). */
   source: string
+  /** Its SKILL.md (or command file) on disk, found by Claude Code's layout; null when there is none to read (a built-in skill). */
+  file: string | null
+  /** The store key of its profile (core/profiles.ts), once looked up: it changes with the SKILL.md. */
+  profileKey?: string | null
 }
 
 /** A command as `$.command.list()` gives it (the part read here). */
@@ -43,6 +64,8 @@ export type CatalogIo = {
   exists: (path: string) => Promise<boolean>
   /** `$.fs.read(path)`: rejects when the file is missing. */
   read: (path: string) => Promise<string>
+  /** `$.fs.list(path)`: a directory's entries (synced skills sit under an account directory only a listing names). */
+  list: (path: string) => Promise<readonly { name: string; kind: string }[]>
 }
 
 /**
@@ -61,38 +84,83 @@ function toolName(skill: ListedLike): string {
  * model may load them), in its order; then those only the person can start,
  * the commands the engine keeps out of the listing whose SKILL.md (or command
  * file) sets `disable-model-invocation: true`, unless settings switch them
- * off. Each is described as `$.command.list()` describes it. Rejects when the
- * commands or the listing cannot be read; a settings source or a file that
- * cannot be read only leaves its part out.
+ * off. Each is described as `$.command.list()` describes it, with the file it
+ * was found in. Rejects when the commands or the listing cannot be read; a
+ * settings source or a file that cannot be read only leaves its part out.
  */
 export async function loadCatalog(io: CatalogIo): Promise<CatalogSkill[]> {
   const [commands, listed] = await Promise.all([io.commands(), io.listed()])
   const descriptions = new Map<string, string>()
   for (const command of commands) if (!descriptions.has(command.name)) descriptions.set(command.name, command.description)
-  const skills: CatalogSkill[] = []
-  const seen = new Set<string>()
-  for (const entry of listed) {
-    const name = toolName(entry)
-    if (seen.has(name)) continue
-    seen.add(name)
-    const description = descriptions.get(entry.name) ?? descriptions.get(name) ?? ''
-    skills.push({ name, description: description.trim(), by: 'model', source: entry.source })
-  }
-
-  const listedAs = new Set(listed.map((entry) => entry.name))
-  const overrides = await mergedOverrides(io)
   const where = { home: await io.home().catch(() => undefined), cwd: await io.cwd().catch(() => undefined) }
   let installed: Promise<string> | undefined
   const installedPlugins = () => (installed ??= where.home ? readIfThere(io, `${where.home}/.claude/plugins/installed_plugins.json`).then((text) => text ?? '') : Promise.resolve(''))
+  let accounts: Promise<string[]> | undefined
+  const syncedAccounts = () => (accounts ??= syncedAccountsOf(io, where.home))
+
+  const skills: CatalogSkill[] = []
+  const seen = new Set<string>()
+  const entries = listed.filter((entry) => {
+    const name = toolName(entry)
+    if (seen.has(name)) return false
+    seen.add(name)
+    return true
+  })
+  const files = await Promise.all(entries.map(async (entry) => firstExisting(io, await listedFiles(entry, where, installedPlugins, syncedAccounts))))
+  entries.forEach((entry, i) => {
+    const name = toolName(entry)
+    const description = descriptions.get(entry.name) ?? descriptions.get(name) ?? ''
+    skills.push({ name, description: description.trim(), by: 'model', source: entry.source, file: files[i] ?? null })
+  })
+
+  const listedAs = new Set(listed.map((entry) => entry.name))
+  const overrides = await mergedOverrides(io)
   for (const command of commands) {
     if (command.source !== 'user' && command.source !== 'plugin') continue
     if (listedAs.has(command.name) || seen.has(command.name) || isOff(overrides, command.name)) continue
-    const files = command.source === 'plugin' ? pluginFiles(command, await installedPlugins()) : ownFiles(command.name, where)
-    if (!(await anyReservesForPerson(io, files))) continue
+    const found = await firstThere(io, command.source === 'plugin' ? pluginFiles(command, await installedPlugins()) : ownFiles(command.name, where))
+    if (found === null || !reservedForPerson(found.text)) continue
     seen.add(command.name)
-    skills.push({ name: command.name, description: command.description.trim(), by: 'person', source: command.source })
+    skills.push({ name: command.name, description: command.description.trim(), by: 'person', source: command.source, file: found.path })
   }
   return skills
+}
+
+/**
+ * Where a listed skill's file may be, by where the engine says it comes from:
+ * the person's own under `~/.claude`, a project's under the working
+ * directory, a plugin's under its install path, a synced one under its
+ * account's directory. A built-in skill has no file.
+ */
+async function listedFiles(
+  entry: ListedLike,
+  where: { home: string | undefined; cwd: string | undefined },
+  installedPlugins: () => Promise<string>,
+  syncedAccounts: () => Promise<string[]>,
+): Promise<string[]> {
+  switch (entry.source) {
+    case 'userSettings':
+      return ownFiles(entry.name, { home: where.home, cwd: undefined })
+    case 'projectSettings':
+    case 'localSettings':
+      return ownFiles(entry.name, { home: undefined, cwd: where.cwd })
+    case 'plugin':
+      return pluginFiles({ name: entry.name, description: '', source: 'plugin', ...(entry.pluginName !== undefined ? { plugin: entry.pluginName } : {}) }, await installedPlugins())
+    case 'syncedSkills': {
+      const short = entry.name.slice(entry.name.lastIndexOf(':') + 1)
+      if (!where.home || !safeName(short)) return []
+      return (await syncedAccounts()).map((account) => `${where.home}/.claude/skills/synced/${account}/${short}/SKILL.md`)
+    }
+    default:
+      return []
+  }
+}
+
+/** The accounts whose synced skills sit under `~/.claude/skills/synced` (a directory each). */
+async function syncedAccountsOf(io: CatalogIo, home: string | undefined): Promise<string[]> {
+  if (!home) return []
+  const entries = await io.list(`${home}/.claude/skills/synced`).catch(() => [])
+  return entries.filter((entry) => entry.kind === 'dir' && safeName(entry.name)).map((entry) => entry.name)
 }
 
 /** `skillOverrides` over every settings source, a name taking the value of the highest source that sets it. */
@@ -155,13 +223,19 @@ async function readIfThere(io: CatalogIo, path: string): Promise<string | null> 
   return io.read(path).catch(() => null)
 }
 
-/** Whether the first of `files` that exists reserves its skill for the person. */
-async function anyReservesForPerson(io: CatalogIo, files: readonly string[]): Promise<boolean> {
-  for (const file of files) {
-    const markdown = await readIfThere(io, file)
-    if (markdown !== null) return reservedForPerson(markdown)
+/** The first of `files` that exists; null when none does. */
+async function firstExisting(io: CatalogIo, files: readonly string[]): Promise<string | null> {
+  for (const path of files) if (await io.exists(path).catch(() => false)) return path
+  return null
+}
+
+/** The first of `files` that can be read, with its text; null when none can. */
+async function firstThere(io: CatalogIo, files: readonly string[]): Promise<{ path: string; text: string } | null> {
+  for (const path of files) {
+    const text = await readIfThere(io, path)
+    if (text !== null) return { path, text }
   }
-  return false
+  return null
 }
 
 /** Whether a SKILL.md's frontmatter sets `disable-model-invocation: true` (the model may not load it; the person runs `/name`). */

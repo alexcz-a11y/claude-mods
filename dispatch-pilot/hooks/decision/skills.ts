@@ -1,28 +1,56 @@
-// The skills question the decision model answers when the person sends a
-// message, and how its answer becomes the skills suggested.
+// How the decision model ranks the session's skills for a message, in two
+// stages (#11), and how the ranking becomes the skills suggested.
 //
-// Pure (see system-one.ts): the mod and the eval (#16) build the same
-// question from the same code. Written to TypeSafe's guide for Choice
-// (docs/research/typesafe-question-guide.md §2.4, §4.3): every candidate is an
-// option described by its own description, and a "(none)" option lets the
-// model say no skill fits (jev-pilot measured it: without one the ranking
-// always names a skill).
+//   stage one  one Choice over every skill and "(none)", in the message's one
+//              decision request (`skills.which`): a skill is offered by its
+//              bilingual profile when one is written (`SkillProfile`), else by
+//              its description. Only for ranking: its shares are relative.
+//   stage two  a request of its own about the same state, for the few skills
+//              stage one rated highest: each re-read with the opening of its
+//              SKILL.md, a yes/no `skills.fits.<i>` each (the absolute
+//              relevance shown and compared with the threshold) and a Choice
+//              `skills.best` between them (breaks ties).
+//
+// `twoStageRanker` is the one entry: the message's suggestions (features/
+// skills.ts) and find_skill (#12) rank through it, and so does the eval (#16).
+//
+// Pure (see system-one.ts): the mod and the eval build the same questions from
+// the same code. Written to TypeSafe's guide (docs/research/
+// typesafe-question-guide.md §2.4, §2.5, §4.3): every candidate is an option
+// described by its own fields, a "(none)" option lets the model say no skill
+// fits (jev-pilot measured it: without one the ranking always names a skill),
+// and question ids use Clef's characters (`fits.0`, not the skill's name).
 
-import { turnStartState, type ContextLimits, type ContextMessage } from './context.ts'
+import type { Asked, Failure } from './backend.ts'
+import { clipToTokens, turnStartState, type ContextLimits, type ContextMessage } from './context.ts'
 import { turnStartEffortPart, type EffortAsk, type Language } from './effort.ts'
-import { mergeParts, type Answer, type DecisionRequest, type Part, type Text } from './system-one.ts'
+import { redactSecrets } from './redact.ts'
+import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part, type Question, type State, type Text } from './system-one.ts'
+
+/**
+ * What a skill is for, in English and in Chinese, written once per version of
+ * its SKILL.md by a cheap model (core/profiles.ts): what it does, the requests
+ * it is for, and the nearby requests it is not for.
+ */
+export type SkillProfile = {
+  en: { what: string; use_when: string; not_for: string }
+  zh: { what: string; use_when: string; not_for: string }
+}
 
 /**
  * A skill the decision model may name. `by` says who can start it: `model`,
  * the main agent with the Skill tool; `person`, only the person by typing
  * `/name` (its SKILL.md sets `disable-model-invocation: true`): such a skill
  * is never suggested to the main agent, the status line names it instead.
+ * `profile`, when one is written, describes it in place of the description.
  */
-export type SkillOption = { name: string; description: string; by: 'model' | 'person' }
+export type SkillOption = { name: string; description: string; by: 'model' | 'person'; profile?: SkillProfile | null }
 
-/** The skills part's name and its question's id: `skills.which` in the request. */
+/** The skills part's name and its questions' ids: `skills.which` (stage one), `skills.best` and `skills.fits.<i>` (stage two). */
 export const SKILLS_PART = 'skills'
 export const WHICH = 'which'
+export const BEST = 'best'
+export const FITS = 'fits'
 /** The option that says no skill fits; parentheses keep it apart from any skill's name. */
 export const NO_SKILL = '(none)'
 
@@ -48,22 +76,120 @@ const NO_SKILL_CRITERION: Record<Language, string> = {
   zh: '都不合适：这个请求是普通的工作，没有哪个列出的 skill 专门针对它。',
 }
 
+/** Stage two's Choice: the shortlist side by side, each with the opening of its instructions. */
+const BEST_INSTRUCTIONS: Record<Language, Readonly<Record<string, string>>> = {
+  en: {
+    question: 'Exactly one of these skills is the right one to load for the work that `user_message` asks for, given `recent_context`. Which one?',
+    read: 'Read what each skill actually does (its description and the opening of its instructions), not only its name.',
+  },
+  zh: {
+    问题: '结合 `recent_context`，要完成 `user_message` 所要求的工作，下面这些 skill 中正好有一个最该加载。是哪一个？',
+    看什么: '看每个 skill 实际做什么（它的描述和说明的开头），不要只看名字。',
+  },
+}
+
+/** Stage two's yes/no per skill (the cookbook's `fits`); the skill goes in a field of its own beside the question. */
+const FITS_INSTRUCTIONS: Record<Language, Readonly<Record<string, string>>> = {
+  en: {
+    question: 'Does `skill` do the specific kind of work that `user_message` asks for, given `recent_context`?',
+    platforms: 'A skill for one product or platform fits only when `user_message` or `recent_context` shows that product is the one in use here.',
+    short_replies:
+      'When `user_message` only approves, continues or picks an option (such as "go ahead", "1", "继续"), judge the work it approves, as described at the end of `recent_context`.',
+  },
+  zh: {
+    问题: '结合 `recent_context`，`skill` 是否正好做 `user_message` 所要求的那种工作？',
+    平台: '针对某个产品或平台的 skill，只有在 `user_message` 或 `recent_context` 表明这里用的正是那个产品时才合适。',
+    简短回复: '如果 `user_message` 只是同意、让继续或选一个选项（例如“go ahead”“1”“继续”），按它所同意的那项工作来判断；那项工作写在 `recent_context` 的末尾。',
+  },
+}
+
 /** A Choice takes at most this many options (Jev's limit; Clef's too), "(none)" among them. */
 export const MAX_CHOICE_OPTIONS = 255
 
 /**
- * The part a message's decision request carries for the skills: one Choice,
- * `skills.which`, over `options` in their order and then "(none)"; past
- * MAX_CHOICE_OPTIONS - 1 skills, the rest are left out. Null when there is no
- * skill to ask about.
+ * How much of a SKILL.md stage two reads: the opening of its body, frontmatter
+ * off, about 700 English characters (the cookbook's EXCERPT_CHARS), counted in
+ * tokens so Chinese text is cut to the same scale.
+ */
+export const OPENING_TOKENS = 180
+
+/**
+ * The opening of a SKILL.md as stage two reads it: the body after the
+ * frontmatter, whitespace collapsed, secrets masked, cut to OPENING_TOKENS.
+ * Empty when the body is.
+ */
+export function skillOpening(markdown: string): string {
+  const frontmatter = /^﻿?---\r?\n[\s\S]*?\r?\n---[^\n]*(?:\r?\n|$)/.exec(markdown)
+  const body = (frontmatter ? markdown.slice(frontmatter[0].length) : markdown).replace(/\s+/g, ' ').trim()
+  return clipToTokens(redactSecrets(body), OPENING_TOKENS)
+}
+
+/**
+ * A profile as the decision model reads it: the English fields, then the
+ * Chinese ones, each under a label of its own language (the same labels for
+ * every skill, so the options compare field by field). An empty `not_for` is
+ * left out.
+ */
+export function profileFields(profile: SkillProfile): Record<string, string> {
+  const fields: Record<string, string> = { what: profile.en.what, use_when: profile.en.use_when }
+  if (profile.en.not_for) fields.not_for = profile.en.not_for
+  fields['用途'] = profile.zh.what
+  fields['何时用'] = profile.zh.use_when
+  if (profile.zh.not_for) fields['何时不用'] = profile.zh.not_for
+  return fields
+}
+
+/**
+ * The part a message's decision request carries for the skills (stage one):
+ * one Choice, `skills.which`, over `options` in their order and then
+ * "(none)", each skill described by its profile (`profileFields`) when it
+ * has one, else by its description; past MAX_CHOICE_OPTIONS - 1 skills, the
+ * rest are left out. Null when there is no skill to ask about.
  */
 export function skillsPart(options: readonly SkillOption[], ask: { language?: Language } = {}): Part | null {
   if (options.length === 0) return null
   const language = ask.language ?? 'en'
   const criteria: Record<string, Text | null> = {}
-  for (const option of options.slice(0, MAX_CHOICE_OPTIONS - 1)) criteria[option.name] = option.description.trim() || null
+  for (const option of options.slice(0, MAX_CHOICE_OPTIONS - 1)) {
+    criteria[option.name] = option.profile ? profileFields(option.profile) : option.description.trim() || null
+  }
   criteria[NO_SKILL] = NO_SKILL_CRITERION[language]
   return { part: SKILLS_PART, questions: { [WHICH]: { type: 'choice', instructions: WHICH_INSTRUCTIONS[language], criteria } } }
+}
+
+/** A skill stage two re-reads, with the opening of its SKILL.md (null when it could not be read). */
+export type Candidate = { option: SkillOption; opening: string | null }
+
+/** What stage two shows of a candidate: its description, its profile when it has one, and the opening of its instructions. */
+function detailOf(candidate: Candidate): Record<string, string> {
+  const detail: Record<string, string> = {}
+  const description = candidate.option.description.trim()
+  if (description) detail.description = description
+  if (candidate.option.profile) Object.assign(detail, profileFields(candidate.option.profile))
+  if (candidate.opening) detail.opening = candidate.opening
+  return detail
+}
+
+/**
+ * The part of stage two's request: a yes/no `fits.<i>` for each candidate
+ * (the skill as structured data beside the question), and a Choice `best`
+ * between them when there are two or more (Clef refuses a Choice of one).
+ * Null for no candidate.
+ */
+export function rerankPart(candidates: readonly Candidate[], ask: { language?: Language } = {}): Part | null {
+  if (candidates.length === 0) return null
+  const language = ask.language ?? 'en'
+  const details = candidates.map(detailOf)
+  const questions: Record<string, Question> = {}
+  if (candidates.length >= 2) {
+    const criteria: Record<string, Text> = {}
+    candidates.forEach((candidate, i) => (criteria[candidate.option.name] = details[i] as Record<string, string>))
+    questions[BEST] = { type: 'choice', instructions: BEST_INSTRUCTIONS[language], criteria }
+  }
+  candidates.forEach((candidate, i) => {
+    questions[`${FITS}.${i}`] = { type: 'noul', instructions: { skill: { name: candidate.option.name, ...details[i] }, ...FITS_INSTRUCTIONS[language] } }
+  })
+  return { part: SKILLS_PART, questions }
 }
 
 /**
@@ -76,29 +202,39 @@ export type SkillsItem = { message: string; recent_context: readonly ContextMess
 /**
  * The decision request the mod sends when the person sends `item.message`:
  * the shared state, the effort question, then the skills question over
- * `options` (the `ranker`'s, #10's by default), in the ballot's order. `part`
- * reads the skills answers back (`answersFor(part, answers)`, then
- * `ranker.rank`); null when there is no option, and the request then asks
- * about effort alone.
+ * `options` (stage one; the `ranker`'s when given), in the ballot's order.
+ * `part` reads the skills answers back (`answersFor(part, answers)`, then
+ * `ranker.rank` with `request.state`); null when there is no option, and the
+ * request then asks about effort alone.
  */
 export function skillsRequest(
   item: SkillsItem,
   options: readonly SkillOption[],
-  settings: { limits: ContextLimits; ask?: Partial<EffortAsk>; ranker?: SkillRanker },
+  settings: { limits: ContextLimits; ask?: Partial<EffortAsk>; ranker?: Pick<SkillRanker, 'part'> },
 ): { request: DecisionRequest; part: Part | null } {
-  const ranker = settings.ranker ?? choiceRanker({ language: settings.ask?.language })
-  const part = ranker.part(options)
+  const part = settings.ranker ? settings.ranker.part(options) : skillsPart(options, { language: settings.ask?.language })
   const state = turnStartState({ prompt: item.message, messages: item.recent_context, limits: settings.limits })
   const request = mergeParts(state, [turnStartEffortPart(settings.ask), ...(part === null ? [] : [part])])
   return { request, part }
 }
 
 /**
- * The options ranked, most relevant first (a tie keeps the options' order),
- * and the relevance left on "(none)". Here relevance is the option's share of
- * the Choice: relative, the shares of all options and "(none)" summing to 1.
+ * The options ranked, most relevant first, and the share stage one left on
+ * "(none)". Two-stage rankings carry what stage one put forward (`shortlist`,
+ * with each skill's share) and, when no relevance could be read, why
+ * (`failed`): then `ranked` is empty.
+ *
+ * Relevance is absolute in a two-stage ranking: the second stage's yes/no
+ * fit, each skill judged on its own. In stage one alone (`readSkills`,
+ * `choiceRanker`) it is the option's share of the Choice: relative, the shares
+ * of all options and "(none)" summing to 1.
  */
-export type SkillRanking = { ranked: readonly { name: string; relevance: number }[]; none: number }
+export type SkillRanking = {
+  ranked: readonly { name: string; relevance: number }[]
+  none: number
+  shortlist?: readonly { name: string; share: number }[]
+  failed?: { stage: 'first' | 'second'; failure: Failure }
+}
 
 /**
  * The ranking `skills.which` gives (the part's answers, under its own ids):
@@ -120,24 +256,125 @@ export function readSkills(answers: Readonly<Record<string, Answer>>, options: r
 }
 
 /**
- * How a message's skills are ranked: the questions the ranker adds to the
- * message's decision request (`part`), and how their answers become a
- * ranking (`rank`, async so a ranker may send a request of its own). The
- * swap point for #11 (bilingual portraits as the options' criteria, then a
- * second request re-reading the top few, its relevance the absolute `fits`
- * Noul instead of #10's Choice share) and for #12 (find_skill ranks the same
- * way). The mod and the eval both go through it.
+ * Stage two's answers as a ranking of the candidates: relevance is each one's
+ * `fits` (yes/no, 0 to 1); the higher first, a tie going to the one `best`
+ * gave more, then to the candidates' order. A candidate whose `fits` is
+ * missing is left out; null when none came back.
+ */
+export function readRerank(answers: Readonly<Record<string, Answer>>, candidates: readonly Candidate[]): SkillRanking['ranked'] | null {
+  const best = answers[BEST]
+  const share = (name: string) => (best?.type === 'choice' ? (best.probabilities[name] ?? 0) : 0)
+  const read = candidates.flatMap((candidate, i) => {
+    const fit = answers[`${FITS}.${i}`]
+    return fit?.type === 'noul' && Number.isFinite(fit.noul) ? [{ name: candidate.option.name, relevance: Math.min(1, Math.max(0, fit.noul)), i }] : []
+  })
+  if (read.length === 0) return null
+  read.sort((a, b) => b.relevance - a.relevance || share(b.name) - share(a.name) || a.i - b.i)
+  return read.map(({ name, relevance }) => ({ name, relevance }))
+}
+
+/**
+ * How a message's skills are ranked: the question the ranker adds to the
+ * message's decision request (`part`, stage one), and how its answers become
+ * a ranking (`rank`; given the state stage one was asked about, so a second
+ * stage can ask about the same).
  */
 export type SkillRanker = {
   part: (options: readonly SkillOption[]) => Part | null
-  rank: (answers: Readonly<Record<string, Answer>>, options: readonly SkillOption[]) => Promise<SkillRanking | null>
+  rank: (answers: Readonly<Record<string, Answer>>, options: readonly SkillOption[], asked: RankAsked) => Promise<SkillRanking | null>
 }
 
-/** #10's ranker: one Choice in the message's request (`skillsPart`); relevance is each option's share of it (`readSkills`). */
+/** What `rank` is told: the state stage one was asked about, and how long stage two may take (the ranker's own when left out). */
+export type RankAsked = { state: State; timeoutMs?: number }
+
+/** #10's ranker, stage one alone: relevance is each option's share of the Choice (`readSkills`). */
 export function choiceRanker(ask: { language?: Language } = {}): SkillRanker {
   return {
     part: (options) => skillsPart(options, ask),
     rank: async (answers, options) => readSkills(answers, options),
+  }
+}
+
+/** What the two-stage ranker needs of the host, as closures (the mod builds them over `$`, the eval over Node). */
+export type SkillRankerIo = {
+  /** Sends one decision request within `timeoutMs` (the backend's `ask`, its io bound); never throws. */
+  ask: (request: DecisionRequest, timeoutMs: number) => Promise<Asked>
+  /** The opening of the skill's SKILL.md (`skillOpening`), or null when there is none to read. */
+  opening: (option: SkillOption) => Promise<string | null>
+}
+
+export type TwoStageSettings = {
+  /** The questions' language (the state keeps the person's own words either way). */
+  language?: Language
+  /** How many of stage one's best stage two re-reads (one `fits` each). */
+  shortlist: number
+  /** How long each stage may take: stage one when the ranker sends it (`query`), stage two. */
+  timeoutMs: { first: number; second: number }
+}
+
+/**
+ * Stage one must rate a skill at least this share to be re-read: below it,
+ * the message most likely needs no skill, and no second request is sent.
+ */
+export const SHORTLIST_FLOOR = 0.05
+/** Clef answers at most 64 questions a request: stage two asks one per candidate and one Choice. */
+export const MAX_SHORTLIST = 63
+
+/** A two-stage ranker: `part` and `rank` for a request it shares (the ballot), `query` when it asks stage one itself (find_skill). */
+export type TwoStageRanker = SkillRanker & {
+  /** Both stages about `state` (`{ user_message, recent_context }`): stage one sent on its own, then `rank`. */
+  query: (state: State, options: readonly SkillOption[]) => Promise<SkillRanking | null>
+}
+
+/**
+ * The one way skills are ranked (#11): stage one over every option, stage two
+ * over the SHORTLIST_FLOOR-passing best `settings.shortlist` of them.
+ *
+ * - A message's suggestions: `part(options)` goes into the message's ballot;
+ *   its `settle` calls `rank(answers, options, { state: outcome.state })`.
+ * - find_skill (#12): `query(state, options)` asks both stages itself.
+ *
+ * `rank` resolves null when stage one gave no usable answer; a ranking with
+ * nothing in `ranked` when nothing passed the floor, or with `failed` when
+ * stage two did not answer (nothing is suggested then: its relevance is the
+ * only absolute one).
+ */
+export function twoStageRanker(io: SkillRankerIo, settings: TwoStageSettings): TwoStageRanker {
+  const language = settings.language ?? 'en'
+  const part = (options: readonly SkillOption[]) => skillsPart(options, { language })
+  const rank = async (answers: Readonly<Record<string, Answer>>, options: readonly SkillOption[], asked: RankAsked): Promise<SkillRanking | null> => {
+    const first = readSkills(answers, options)
+    if (first === null) return null
+    const count = Math.max(1, Math.min(MAX_SHORTLIST, Math.round(settings.shortlist)))
+    const shortlist = first.ranked.filter((entry) => entry.relevance >= SHORTLIST_FLOOR).slice(0, count)
+    const put = shortlist.map((entry) => ({ name: entry.name, share: entry.relevance }))
+    if (shortlist.length === 0) return { ranked: [], none: first.none, shortlist: put }
+    const byName = new Map(options.map((option) => [option.name, option]))
+    const candidates = await Promise.all(
+      shortlist.map(async (entry): Promise<Candidate> => {
+        const option = byName.get(entry.name) as SkillOption
+        return { option, opening: await io.opening(option).catch(() => null) }
+      }),
+    )
+    const second = rerankPart(candidates, { language }) as Part
+    const timeoutMs = Math.floor(asked.timeoutMs ?? settings.timeoutMs.second)
+    const asked2: Asked =
+      timeoutMs >= 1 ? await io.ask(mergeParts(asked.state, [second]), timeoutMs) : { ok: false, failure: { kind: 'timeout', detail: 'no time left for the second request' } }
+    if (!asked2.ok) return { ranked: [], none: first.none, shortlist: put, failed: { stage: 'second', failure: asked2.failure } }
+    const ranked = readRerank(answersFor(second, asked2.answers), candidates)
+    if (ranked === null) return { ranked: [], none: first.none, shortlist: put, failed: { stage: 'second', failure: { kind: 'parse', detail: 'no fits answer' } } }
+    return { ranked, none: first.none, shortlist: put }
+  }
+  return {
+    part,
+    rank,
+    query: async (state, options) => {
+      const own = part(options)
+      if (own === null) return null
+      const asked = await io.ask(mergeParts(state, [own]), settings.timeoutMs.first)
+      if (!asked.ok) return { ranked: [], none: 0, failed: { stage: 'first', failure: asked.failure } }
+      return rank(answersFor(own, asked.answers), options, { state })
+    },
   }
 }
 

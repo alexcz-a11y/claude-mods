@@ -16,6 +16,8 @@ import type {
   CommandInfo,
   CommandSpec,
   ContextSkill,
+  ModelCompleteRequest,
+  ModelCompleteResult,
   On,
   PromptOrigin,
   SessionContextBreakdown,
@@ -78,7 +80,23 @@ export type WorldOptions = {
    * Without it those calls reject, and the skills feature finds no skills.
    */
   skills?: SkillsWorld
+  /**
+   * The model behind `$.model.complete` (#11 writes skill profiles with it): answers each completion
+   * (`n` counts from 1); every one is recorded in `w.completions`. Without it every completion is refused.
+   */
+  model?: (request: ModelCompleteRequest, n: number) => Completion | Promise<Completion>
 }
+
+/** How the model answers one completion. */
+export type Completion =
+  /** The reply's text. */
+  | { text: string }
+  /** No text: an API error (with its HTTP status), a reply without text, or the call cut short. */
+  | { fails: 'api-error' | 'empty-reply' | 'aborted' }
+  /** The engine refuses to send it (a blocked model): `$.model.complete` rejects. */
+  | { reject: string }
+  /** The answer, after `after` ms of mock time (`w.clock.advance`). */
+  | { after: number; reply: Completion }
 
 /** The session's skills as the engine reports them to the mod (#10). */
 export type SkillsWorld = {
@@ -165,6 +183,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const turnIds: string[] = []
   const toolCalls: { tool: string; input: Record<string, unknown>; isError: boolean; text: string | undefined }[] = []
   const spawned: Spawned[] = []
+  const completions: ModelCompleteRequest[] = []
   let calls = 0
   const disk = options.disk ?? {}
   const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
@@ -196,9 +215,37 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     const reply = options.backend ? await options.backend(sent, requests.length) : { status: 500, body: 'no backend in this test' }
     return answer(reply)
   })
+  const usage = { input_tokens: 1200, output_tokens: 180, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+  const none = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+  async function complete(reply: Completion): Promise<{ value: ModelCompleteResult } | { deny: string }> {
+    if ('after' in reply) {
+      await clock.sleep(reply.after)
+      return complete(reply.reply)
+    }
+    if ('reject' in reply) return { deny: reply.reject }
+    if ('text' in reply) return { value: { isAnswered: true, text: reply.text, usage } }
+    if (reply.fails === 'api-error') return { value: { isAnswered: false, reason: 'api-error', status: 529, error: 'overloaded', usage: none } }
+    return { value: { isAnswered: false, reason: reply.fails, usage: none } }
+  }
+  on('model.complete', async (_$, e) => {
+    completions.push(e)
+    return options.model ? complete(await options.model(e, completions.length)) : { deny: 'no model in this test' }
+  })
   on('session.messages', () => ({ value: options.messages ?? [] }))
   on('fs.read', (_$, e) => (e.path in disk ? { value: disk[e.path] as string } : { deny: `ENOENT: ${e.path}` }))
-  on('fs.exists', (_$, e) => ({ value: e.path in disk }))
+  on('fs.exists', (_$, e) => ({ value: e.path in disk || Object.keys(disk).some((path) => path.startsWith(`${e.path}/`)) }))
+  // A directory of the disk: what lies directly under it, a file or a directory (one holding files further down).
+  on('fs.list', (_$, e) => {
+    const under = `${(e.path ?? '').replace(/\/+$/, '')}/`
+    const entries = new Map<string, 'file' | 'dir'>()
+    for (const path of Object.keys(disk)) {
+      if (!path.startsWith(under)) continue
+      const [name = '', ...deeper] = path.slice(under.length).split('/')
+      if (name !== '' && entries.get(name) !== 'dir') entries.set(name, deeper.length > 0 ? 'dir' : 'file')
+    }
+    if (entries.size === 0) return { deny: `ENOENT: ${e.path}` }
+    return { value: [...entries].map(([name, kind]) => ({ name, kind, size: 0, mtimeMs: 0, isLink: false })) }
+  })
   if (options.store !== undefined) {
     on('store.get', (_$, e) => ({ value: store.has(e.key) ? JSON.parse(store.get(e.key) as string) : undefined }))
     on('store.set', (_$, e) => {
@@ -306,6 +353,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     commands,
     /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */
     stored: (key: string): unknown => (store.has(key) ? JSON.parse(store.get(key) as string) : undefined),
+    /** The keys the store holds now, in the order they were first set. */
+    storedKeys: (): string[] => [...store.keys()],
+    /** Every completion the mod asked of `$.model.complete`, as it reached the model. */
+    completions,
     /** Every tool call that reached the tools, its arguments as they arrived (a hook's rewrite included) and how it ended; a call a hook refused is not in it. */
     toolCalls,
     /** The status line as last set (`undefined` once cleared or never set). */
@@ -384,9 +435,13 @@ function usageListing(listed: readonly ContextSkill[]): SessionUsage {
  * question gets `levels` as its probabilities (lowest level first) and
  * `confidence` (0.7 by default), each `choice` the option named in `choice`
  * (or its first), or the probabilities `shares` gives for its question id
- * (options it leaves out get 0), each `noul` 0.5.
+ * (options it leaves out get 0), each `noul` the value `nouls` gives for its
+ * question id, else 0.5.
  */
-export function jev(levels: readonly number[], extra: { status?: number; choice?: string; confidence?: number | null; shares?: Record<string, Record<string, number>> } = {}) {
+export function jev(
+  levels: readonly number[],
+  extra: { status?: number; choice?: string; confidence?: number | null; shares?: Record<string, Record<string, number>>; nouls?: Record<string, number> } = {},
+) {
   return (request: Sent): Reply => {
     const answers: Record<string, unknown> = {}
     const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
@@ -406,9 +461,35 @@ export function jev(levels: readonly number[], extra: { status?: number; choice?
         const pick = extra.choice ?? options[0] ?? ''
         answers[id] = { type: 'choice', choice: pick, probabilities: Object.fromEntries(options.map((o) => [o, o === pick ? 1 : 0])), confidence: 1 }
       } else {
-        answers[id] = { type: 'noul', noul: 0.5 }
+        answers[id] = { type: 'noul', noul: extra.nouls?.[id] ?? 0.5 }
       }
     }
     return { status: extra.status ?? 200, body: { model: 'jev-1.13.0', answers, usage: { input_tokens: 300, output_tokens: 0 } } }
+  }
+}
+
+/** Whether a request is a message's second skills request (#11): the shortlist re-read, one `skills.fits.<i>` each. */
+export function isSecondSkillsRequest(request: Sent): boolean {
+  return Object.keys(request.body?.questions ?? {}).some((id) => id.startsWith('skills.fits.'))
+}
+
+/**
+ * Jev answering both requests a message's skills take (#11): the first (each
+ * Score `levels`, effort medium by default; `skills.which` these `shares`),
+ * and the second, where each `skills.fits.<i>` is the fit `fits` gives the
+ * skill its instructions name (0 when left out) and `skills.best` puts all on
+ * the best-fitting one.
+ */
+export function rates(shares: Record<string, number>, fits: Record<string, number> = {}, levels: readonly number[] = [0, 1, 0, 0, 0]) {
+  return (request: Sent): Reply => {
+    if (!isSecondSkillsRequest(request)) return jev(levels, { shares: { 'skills.which': shares } })(request)
+    const questions = request.body.questions as Record<string, { instructions?: { skill?: { name?: string } } }>
+    const nouls: Record<string, number> = {}
+    for (const [id, question] of Object.entries(questions)) {
+      if (id.startsWith('skills.fits.')) nouls[id] = fits[question.instructions?.skill?.name ?? ''] ?? 0
+    }
+    const named = Object.values(questions).flatMap((question) => question.instructions?.skill?.name ?? [])
+    const best = named.reduce((top, name) => ((fits[name] ?? 0) > (fits[top] ?? 0) ? name : top), named[0] ?? '')
+    return jev(levels, { nouls, shares: { 'skills.best': { [best]: 1 } } })(request)
   }
 }
