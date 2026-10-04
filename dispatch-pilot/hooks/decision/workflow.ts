@@ -222,7 +222,7 @@ export function reasonOf(decision: DispatchDecision, requested: string | null, t
 }
 
 /** Why a call got the model and effort it did, in a few words for the main agent: whose model it is, how sure the decision model was, how likely its effort level. */
-function whyOf(decision: DispatchDecision): string {
+export function whyOf(decision: DispatchDecision): string {
   const model =
     decision.source === 'user'
       ? 'model: you asked for it'

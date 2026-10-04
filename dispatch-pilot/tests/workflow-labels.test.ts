@@ -7,7 +7,8 @@
 // decision requests, what the main agent is told, the status line.
 
 import { expect, test } from 'claude-code/testing'
-import { siteJev, type SiteAnswer } from './support/workflow.ts'
+import { CLEF_OPTIONS, clefInputProblems } from './support/cloudflare.ts'
+import { clefSiteJev, siteJev, type SiteAnswer } from './support/workflow.ts'
 import { persisted, runWorld } from './support/workflow-run.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
@@ -175,6 +176,141 @@ test("an error of the feature's own as an agent starts lets the step go out as t
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 xhigh'])
   expect(w.status()).toBe('dp by label: not routed (error: see the debug log)')
   expect(w.logs.some((log) => log.to === 'debug' && log.text.includes('the state cannot be read'))).toBe(true)
+})
+
+test("each decision is logged with its reason, in the debug log and /dp log, never in the conversation: a call decided when its run starts, and an agent decided from its task as it starts", { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, {
+    disk: { [SAVED]: TIDY, '/work/.claude/workflow-scripts/frozen.js': FROZEN },
+    backend: siteJev((i): SiteAnswer => (i === 0 ? { model: { sonnet: 0.9 }, effort: [0, 1, 0, 0, 0] } : { model: { opus: 0.9 }, effort: [0, 0, 1, 0, 0] })),
+  })
+  await w.workflow({ scriptPath: SAVED })
+  await w.workflow({ scriptPath: '/work/.claude/workflow-scripts/frozen.js' })
+  w.started('wf_test-2', 'wa1', 'first')
+  w.transcript('wf_test-2', 'wa1', 'Find why the nightly import drops rows, and fix it.')
+  await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+
+  const shown = await w.command('dp', 'log')
+  expect(shown).toMatch(/workflow-labels: sonnet medium for "rename" \(workflow tidy-api\): decided; pick sonnet, confidence 1\.00; effort p low 0\.00, medium 1\.00/)
+  expect(shown).toMatch(/workflow-labels: opus high for "review" \(workflow tidy-api\): decided; pick opus/)
+  // (The tool's result names the workflow; this stub's does not, so it is `unnamed` here.)
+  expect(shown).toMatch(/workflow-labels: sonnet medium for "first" \(agent wa1, workflow \S+\): from its task as it started; decided; pick sonnet/)
+  const debug = w.logs.filter((log) => log.to === 'debug').map((log) => log.text)
+  expect(debug.some((line) => line.startsWith('sonnet medium for "rename" (workflow tidy-api): decided'))).toBe(true)
+  expect(w.logs.every((log) => log.to === 'debug')).toBe(true)
+})
+
+test("the main agent reads, after the tool's result, what each call's agents get as they start: the choice made for the call, or a decision from each agent's own task", { options: KEY }, async ($, on) => {
+  const mixed = `export const meta = { name: 'mixed', description: 'Rename, then answer each question', phases: [] }
+const edited = await agent('Rename getUser to fetchUser across src/api and run pnpm test api.', { label: 'rename' })
+const found = await parallel(QUESTIONS.map((q) => () => agent(q.prompt, { label: q.label })))
+return { edited, found }
+`
+  const w = runWorld($, on, { disk: { [SAVED]: mixed }, backend: TIDY_DECIDED })
+  const told = ((await w.workflow({ scriptPath: SAVED })).context ?? []).join('\n')
+
+  expect(told).toBe(
+    [
+      "Dispatch Pilot (the user's routing plugin) chose a model and an effort for the agent() calls of this Workflow. The script is unchanged: each agent gets its call's choice as it starts, found by its label.",
+      '- "rename": sonnet medium (model: decided, confidence 1.00; effort: p 1.00)',
+      '- agent() at line 3: decided as each of its agents starts, from its label and its task',
+    ].join('\n'),
+  )
+})
+
+test("the main agent is told that the agents of a script this cannot read are each decided as they start", { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: siteJev(() => ({ model: { opus: 0.9 } })) })
+  const told = ((await w.workflow({ scriptPath: SAVED })).context ?? []).join('\n')
+  expect(told).toBe("Dispatch Pilot (the user's routing plugin) could not read this script, so it decides each agent's model and effort as the agent starts, from its label and its task.")
+})
+
+test("two calls with the same label that were decided differently cannot be told apart: their agents are each decided from their own task as they start", { options: KEY }, async ($, on) => {
+  const twice = `export const meta = { name: 'twice', description: 'Check twice', phases: [] }
+const quick = await agent('List the TODO comments under src/ by file.', { label: 'check' })
+const deep = await agent('Find the race between the cache refresh and the session writer in src/session, and fix it.', { label: 'check' })
+return [quick, deep]
+`
+  const atLaunch = siteJev((i): SiteAnswer => (i === 0 ? { model: { haiku: 0.9 } } : { model: { opus: 0.9 }, effort: [0, 0, 0, 1, 0] }))
+  const asStarts = siteJev((): SiteAnswer => ({ model: { opus: 0.9 }, effort: [0, 0, 0, 0, 1] }))
+  const w = runWorld($, on, { disk: { [SAVED]: twice }, backend: (request, n) => (n === 1 ? atLaunch(request) : asStarts(request)) })
+  await w.workflow({ scriptPath: SAVED })
+  w.started('wf_test-1', 'wa1', 'check')
+  w.transcript('wf_test-1', 'wa1', 'Find the race between the cache refresh and the session writer in src/session, and fix it.')
+  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  expect(w.requests).toHaveLength(2)
+  expect(w.requests[1]?.body.state.brief_0.prompt).toBe('Find the race between the cache refresh and the session writer in src/session, and fix it.')
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 max'])
+})
+
+test("an agent the run's journal does not list (yet), or that started in no run this routes, goes out as the engine made it: nothing is asked, nothing is waited for", { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, { disk: { [SAVED]: TIDY }, backend: TIDY_DECIDED })
+  await w.workflow({ scriptPath: SAVED })
+  // The journal has only its first line: no agent has started in it.
+  w.disk['/home/u/.claude/projects/p/s1/subagents/workflows/wf_test-1/journal.jsonl'] = '{"type":"launched"}\n'
+  await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+  // An agent the main agent dispatched, in no Workflow run.
+  await w.agentStep('a1', { index: 0, model: 'claude-sonnet-5-5', effort: 'low' })
+
+  expect(w.requests).toHaveLength(1)
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 xhigh', 'a1 claude-sonnet-5-5 low'])
+  expect(w.status()).toBe('dp workflow not routed (given by path)')
+})
+
+test("a resumed run keeps its script as sent, so the cache of each agent() still matches; its agents get their calls' choices as they start", { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, { disk: { [persisted('wf_test-1')]: TIDY }, backend: TIDY_DECIDED })
+  await w.workflow({ script: TIDY, resumeFromRunId: 'wf_earlier' })
+  expect(w.reached).toEqual([{ script: TIDY, resumeFromRunId: 'wf_earlier', launched: true }])
+
+  w.started('wf_test-1', 'wa1', 'review')
+  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 high'])
+})
+
+test("a step names the model by the id the API knows, never by its alias (the engine sends a step's model as written: `haiku` is a 404), and a step already on the decided family keeps its own", { options: { ...KEY, agentFable: true } }, async ($, on) => {
+  const four = `export const meta = { name: 'four', description: 'One of each', phases: [] }
+const a = await agent('List the files under src/ and report their sizes.', { label: 'h' })
+const b = await agent('Rename getUser to fetchUser across src/api and run pnpm test api.', { label: 's' })
+const c = await agent('Design the retry policy for the payment webhooks and write it up.', { label: 'o' })
+const d = await agent('Prove the lease protocol in docs/lease.md safe under clock skew, or find the counterexample.', { label: 'f' })
+return [a, b, c, d]
+`
+  const families = ['haiku', 'sonnet', 'opus', 'fable']
+  const w = runWorld($, on, { disk: { [SAVED]: four }, backend: siteJev((i): SiteAnswer => ({ model: { [families[i] as string]: 1 }, effort: [0, 0, 1, 0, 0] })) })
+  await w.workflow({ scriptPath: SAVED })
+  for (const label of ['h', 's', 'o', 'f']) {
+    w.started('wf_test-1', `w${label}`, label)
+    // The engine's id for a sonnet after a fallback (seen on 2.1.289): a family, not one exact id.
+    await w.agentStep(`w${label}`, { index: 0, model: 'claude-sonnet-5', effort: 'medium' })
+  }
+
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model}`)).toEqual(['wh claude-haiku-4-5', 'ws claude-sonnet-5', 'wo claude-opus-5-5', 'wf claude-fable-5-1'])
+})
+
+test('no answer within timeoutMs as an agent starts: it goes out as the engine made it, and the status line says why', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
+  const answer = siteJev(() => ({ model: { opus: 0.9 } }))
+  const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: (request) => ({ after: 2000, reply: answer(request) }) })
+  await w.workflow({ scriptPath: SAVED })
+  w.started('wf_test-1', 'wa1', 'first')
+  w.transcript('wf_test-1', 'wa1', 'Find why the nightly import drops rows, and fix it.')
+
+  const step = w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.clock.settle()
+  await w.clock.advance(800)
+  await step
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
+  expect(w.status()).toBe('dp workflow not routed (given by path) | by label: not routed (jev: no answer in 800 ms)')
+})
+
+test("with Clef as the decision model, the request made as an agent starts passes Clef's input rules", { options: CLEF_OPTIONS }, async ($, on) => {
+  const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: clefSiteJev(() => ({ model: { opus: 0.9 }, effort: [0, 0, 1, 0, 0] })) })
+  await w.workflow({ scriptPath: SAVED })
+  w.started('wf_test-1', 'wa1', 'first')
+  w.transcript('wf_test-1', 'wa1', 'Find why the nightly import drops rows, and fix it.')
+  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  expect(w.requests).toHaveLength(1)
+  expect(clefInputProblems(w.requests[0]?.body)).toEqual([])
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 high'])
 })
 
 /** A saved workflow: a pipeline over files, each stage's label a template. */

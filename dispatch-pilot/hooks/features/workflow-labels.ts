@@ -18,11 +18,12 @@
 
 import type { EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
 import type { Asked } from '../decision/backend.ts'
-import { DEFAULT_AGENT_MODELS, type AgentModel, type DispatchSettings } from '../decision/dispatched-agent.ts'
+import { DEFAULT_AGENT_MODELS, modelFamily, type AgentModel, type DispatchSettings } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
-import { agentPlan, inlineSites, isTaskStart, launchNote, sameRoute, sitesFor, sitesOf, startedIn, taskOf, type JournalStart, type RunSite } from '../decision/workflow-labels.ts'
+import { agentPlan, inlineSites, isTaskStart, launchNote, sameRoute, sitesFor, sitesOf, startedIn, taskOf, type Given, type JournalStart, type RunSite } from '../decision/workflow-labels.ts'
 import { parseWorkflow, type AgentCall, type ParsedWorkflow } from '../decision/workflow-script.ts'
-import { readOutcomes, workflowBatches } from '../decision/workflow.ts'
+import { callName, outcomeOf, readOutcomes, reasonOf, workflowBatches } from '../decision/workflow.ts'
+import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { numberIn, type Ctx } from '../core/setup.ts'
 import { failureText, setStatus } from '../core/status.ts'
@@ -31,6 +32,7 @@ import { defineSwitch, isOn } from '../core/switches.ts'
 const SAID = { plugin: 'dispatch-pilot', key: 'said' } as const
 const AGENTS = { plugin: 'dispatch-pilot', key: 'agents' } as const
 const RUNS = { plugin: 'dispatch-pilot', key: 'labelRuns' } as const
+const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'workflow-labels'
@@ -98,7 +100,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
     let recorded: LabelRun | null = null
     let result: ToolCallResult | undefined
     try {
-      const given = e.scriptPath !== undefined ? 'path' : e.script === undefined || e.name !== undefined ? 'name' : e.resumeFromRunId !== undefined ? 'resume' : 'script'
+      const given: Given = e.scriptPath !== undefined ? 'path' : e.script === undefined || e.name !== undefined ? 'name' : e.resumeFromRunId !== undefined ? 'resume' : 'script'
       result = await next(e)
       const launched = launchedRun(result)
       if (launched === null || result.deny !== undefined) return result
@@ -108,6 +110,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       if (parsed !== null && parsed.calls.length === 0) return result
 
       let sites: RunSite[] | null = null
+      let decided: Parameters<typeof launchNote>[2] = null
       if (parsed !== null) {
         // An inline script's calls were asked about by workflow-agents: the person's words only size its batches here,
         // and when they cannot be read, that feature could not route the script either.
@@ -134,6 +137,17 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
           )
           const outcomes = readOutcomes(parsed, plan, asked, words, settings)
           sites = sitesOf(parsed.calls, outcomes)
+          decided = { calls: parsed.calls, outcomes, describe: (failure) => failureText(ctx.backend.name, failure) }
+          for (const [index, outcome] of outcomes.entries()) {
+            const call = parsed.calls[index]
+            if (outcome.kind === 'left' || call === undefined) continue
+            await recordDecision({ get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) }, log, {
+              feature: SWITCH,
+              outcome: outcomeOf(call, outcome.decision),
+              about: `${callName(call)} (workflow ${parsed.meta.name ?? 'unnamed'})`,
+              reason: reasonOf(outcome.decision, call.model.kind === 'literal' ? modelFamily(call.model.value) : null, settings.thetaOverride),
+            })
+          }
           const failure = outcomes.find((outcome) => outcome.kind === 'left' && outcome.failure !== undefined)
           if (failure?.kind === 'left' && failure.failure !== undefined) {
             const undecided = outcomes.filter((outcome) => outcome.kind === 'left' && (outcome.reason === 'failed' || outcome.reason === 'unanswered')).length
@@ -149,7 +163,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       const runs: Cell<LabelRun[]> = { get: () => $.state.get(RUNS), set: (value, options) => $.state.set(RUNS, value, options) }
       await update(runs, (list) => [...(list ?? []).filter((kept) => kept.runId !== run.runId), run].slice(-MAX_RUNS))
       recorded = run
-      const note = launchNote(sites, given)
+      const note = launchNote(given, sites, decided)
       return note === null ? result : { ...result, context: [...(result.context ?? []), note] }
     } catch (error) {
       // The tool itself failed: as it did. Otherwise the run goes on as the tool started it.
@@ -282,12 +296,22 @@ async function decideAtStart(
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
     sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
   }
+  const startedAt = await $.clock.now()
   const asked = await ctx.backend.ask(io, batch.request, timeoutMs)
+  const about = `${JSON.stringify(agent.label)} (agent ${agent.agentId}, workflow ${agent.run.workflow ?? 'unnamed'})`
+  const log = (line: string) => $.ui.log(line, { to: 'debug' })
+  log(`request [${Object.keys(batch.request.questions).join(', ')}] to ${ctx.backend.name} for ${about}: ${describeAsked(asked, (await $.clock.now()) - startedAt)}`)
   const outcome = readOutcomes(parsed, plan, [asked], words, settings)[0]
   if (outcome === undefined || outcome.kind === 'left') {
     const failure = outcome?.kind === 'left' ? outcome.failure : undefined
     return { ok: false, reason: failure === undefined ? 'no answer from the decision model' : failureText(ctx.backend.name, failure) }
   }
+  await recordDecision({ get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) }, log, {
+    feature: SWITCH,
+    outcome: outcomeOf(call, outcome.decision),
+    about,
+    reason: `from its task as it started; ${reasonOf(outcome.decision, call.model.kind === 'literal' ? modelFamily(call.model.value) : null, settings.thetaOverride)}`,
+  })
   if (outcome.kind === 'kept') return { ok: true, route: null }
   return { ok: true, route: { model: outcome.write.model === undefined ? null : (outcome.write.model as AgentModel), effort: typeof outcome.write.effort === 'string' ? (outcome.write.effort as Effort) : null } }
 }

@@ -13,11 +13,12 @@
 //
 // Pure (see system-one.ts).
 
+import type { Failure } from './backend.ts'
 import { modelFamily, type AgentModel } from './dispatched-agent.ts'
 import type { Effort } from './effort.ts'
 import { modelId } from './model-ids.ts'
 import type { AgentCall, Written } from './workflow-script.ts'
-import type { CallOutcome, Skipped } from './workflow.ts'
+import { callName, outcomeOf, whyOf, type CallOutcome, type Skipped } from './workflow.ts'
 
 /** How the agents of one call are routed. */
 export type SiteRoute =
@@ -247,15 +248,41 @@ export function agentPlan(route: { model: AgentModel | null; effort: Effort | nu
   return { model, effort: route.effort }
 }
 
+/** How the Workflow tool was handed the script: inline (`script`), by `scriptPath`, by `name`, or inline to resume an earlier run. */
+export type Given = 'script' | 'path' | 'name' | 'resume'
+
 /**
  * What the main agent reads after the Workflow tool's result about the agents
  * this feature routes as they start; null when there is nothing to say.
+ * `launched`: what was decided about each call when the run started (a
+ * script given by path or by name, or resumed).
  */
-export function launchNote(sites: readonly RunSite[] | null, given: 'script' | 'path' | 'name' | 'resume'): string | null {
-  if (given === 'script' && sites !== null && sites.some((site) => site.route.kind === 'runtime')) {
-    return 'Dispatch Pilot decides the model and effort of the agents of the agent() calls left as written when each one starts, from its label and its task.'
+export function launchNote(
+  given: Given,
+  sites: readonly RunSite[] | null,
+  launched: { calls: readonly AgentCall[]; outcomes: readonly CallOutcome[]; describe: (failure: Failure) => string } | null,
+): string | null {
+  if (sites === null) return "Dispatch Pilot (the user's routing plugin) could not read this script, so it decides each agent's model and effort as the agent starts, from its label and its task."
+  if (given === 'script') {
+    return sites.some((site) => site.route.kind === 'runtime')
+      ? 'Dispatch Pilot decides the model and effort of the agents of the agent() calls left as written when each one starts, from its label and its task.'
+      : null
   }
-  return null
+  if (launched === null) return null
+  const lines = launched.outcomes.map((outcome, index) => {
+    const call = launched.calls[index] as AgentCall
+    if (outcome.kind === 'written') {
+      const why = whyOf(outcome.decision)
+      return `- ${callName(call)}: ${outcomeOf(call, outcome.decision)}${why === '' ? '' : ` (${why})`}`
+    }
+    if (outcome.kind === 'kept') return `- ${callName(call)}: as the script has it (${outcomeOf(call, outcome.decision)})`
+    if (outcome.reason === 'unreadable' || outcome.reason === 'capped') return `- ${callName(call)}: decided as each of its agents starts, from its label and its task`
+    return `- ${callName(call)}: as the script has it (${outcome.failure === undefined ? 'no answer from the decision model' : launched.describe(outcome.failure)})`
+  })
+  const header = launched.outcomes.some((outcome) => outcome.kind !== 'left')
+    ? "Dispatch Pilot (the user's routing plugin) chose a model and an effort for the agent() calls of this Workflow. The script is unchanged: each agent gets its call's choice as it starts, found by its label."
+    : "Dispatch Pilot (the user's routing plugin) decides the model and effort of this Workflow's agents as each one starts. The script is unchanged."
+  return [header, ...lines].join('\n')
 }
 
 /** Whether two routes set the same thing. */
