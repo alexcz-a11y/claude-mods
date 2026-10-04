@@ -213,7 +213,7 @@ test('failures the decision model finds expected (a test written to fail first) 
   expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level,escalation.expected', 'midturn.level,escalation.expected'])
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium', 'medium', 'medium'])
   const log = (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' escalation: '))
-  expect(log[0]).toContain('#2 escalation: effort medium (kept) for step 1 (2 failed tool calls): the failures are expected (p 0.90, thetaExpected 0.60), so nothing is forced; ')
+  expect(log[0]).toContain('#2 escalation: effort medium (kept) for step 1 (2 failed tool calls): the failures are expected (p 0.90, thetaExpected 0.25), so nothing is forced; ')
 })
 
 test('an expected verdict leaves an ordinary re-decision: the answer moves the level by the usual rules; the same answer to failures that are not expected raises it', { options: ONLY }, async ($, on) => {
@@ -232,6 +232,17 @@ test('failures that are not expected raise the loop, whatever else the answer sa
   await w.step({ index: 1 })
 
   expect(w.steps.map((s) => s.effort)).toEqual(['high', 'xhigh'])
+})
+
+test('by default an answer of 0.25 or more counts the failures as expected (the decision model rates real ones well below that), less does not', { options: ONLY }, async ($, on) => {
+  const w = world($, on, { backend: (request, n) => answers(MEDIUM, { expected: n === 2 ? 0.25 : 0.24 })(request) })
+  await w.submit('把登录模块重构成三层')
+  await w.step(failing(0))
+  await w.step({ index: 1 }) // 0.25: expected
+  await w.step(failing(2))
+  await w.step({ index: 3 }) // 0.24: not
+
+  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium', 'high'])
 })
 
 test('thetaExpected sets how sure the answer must be that the failures are expected', { options: { ...ONLY, thetaExpected: 0.8 } }, async ($, on) => {
@@ -494,7 +505,7 @@ test('a haiku agent has no effort to raise: it goes on as sonnet, named by its f
   const log = (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' escalation: '))
   expect(log).toHaveLength(1)
   expect(log[0]).toContain('model claude-sonnet-5-5 (was claude-haiku-4-5-20251001) for agent "Make the failing auth tests pass: run `p...", step 1 (2 failed tool calls)')
-  expect(log[0]).toContain('a haiku agent has no effort to raise, so it is switched to claude-sonnet-5-5; not expected (p 0.10, thetaExpected 0.60)')
+  expect(log[0]).toContain('a haiku agent has no effort to raise, so it is switched to claude-sonnet-5-5; not expected (p 0.10, thetaExpected 0.25)')
 })
 
 test('escalateHaikuTo names the model a failing haiku agent is switched to', { options: { ...ONLY, escalateHaikuTo: 'claude-sonnet-9-9' } }, async ($, on) => {

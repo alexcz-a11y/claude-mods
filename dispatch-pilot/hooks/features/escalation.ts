@@ -93,7 +93,7 @@ export function registerEscalation(on: On, ctx: Ctx): void {
     after: Math.round(numberIn(ctx.options.escalateAfter, 1, 20, 2)),
     mode: RAISE_MODES.find((mode) => mode === ctx.options.escalateMode) ?? 'one-level',
     limit: Math.round(numberIn(ctx.options.escalateLimit, 0, 10, 2)),
-    thetaExpected: numberIn(ctx.options.thetaExpected, 0, 1, 0.6),
+    thetaExpected: numberIn(ctx.options.thetaExpected, 0, 1, 0.25),
     haikuTo: stringOf(ctx.options.escalateHaikuTo, 'claude-sonnet-5-5').trim(),
     rules: {
       thetaUp: numberIn(ctx.options.thetaUp, 0, 1, 0.4),
