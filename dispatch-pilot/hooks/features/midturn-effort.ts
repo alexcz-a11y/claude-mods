@@ -1,10 +1,17 @@
 // Feature: the main agent's effort, decided again while a turn runs (#5).
 //
-// Every N steps of a turn, the decision model is asked again how much
-// reasoning the rest of the work needs. The question goes out the moment a
-// tool call of the main agent starts (`tool.call`), so it is answered while
+// Every N steps of a turn, and when the main agent dispatches an agent,
+// starts a Workflow or loads a skill, the decision model is asked again how
+// much reasoning the rest of the work needs. The question goes out the moment
+// a tool call of the main agent starts (`tool.call`), so it is answered while
 // the tool runs; the next step (`turn.step`, a layer above the core) takes
-// the answer and writes the turn's plan, which the core then sends.
+// the answer, waits briefly when it is not back yet, and writes the turn's
+// plan, which the core then sends. Raising needs thetaUp; lowering needs
+// thetaDown, goes one level at a time and waits holdSteps after a raise.
+//
+// Another feature can ask for a re-decision (`demand`, #7 when the turn is
+// stuck): it goes out at the next chance with the demand's `trouble` in the
+// state, and the turn goes at least to the demand's level, answer or not.
 //
 // Measured on 2.1.289: the engine runs a step's tool calls while the response
 // still streams, so `tool.call` fires inside the step, before the step's
@@ -39,6 +46,7 @@ import { defineSwitch, isOn } from '../core/switches.ts'
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
 const MIDTURN = { plugin: 'dispatch-pilot', key: 'midturn' } as const
 const MAIN_STEP = { plugin: 'dispatch-pilot', key: 'mainStep' } as const
+const DEMAND = { plugin: 'dispatch-pilot', key: 'demand' } as const
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
@@ -53,10 +61,13 @@ type MidturnRecord = {
   engine: Effort | null
   askedFor: number | null
   raisedAt: number | null
+  served: number | null
   failures: number
   hookBlocks: number
   recent: StepRecord[]
 }
+/** Another feature's demand for a re-decision (`demand` in types/index.d.ts). */
+type Demand = { trouble: string; atLeast: Effort | null; at: number }
 
 /** Steps kept in a turn's record. */
 const MAX_RECENT = 16
@@ -77,9 +88,15 @@ type Settings = {
 
 /** A step of the main agent: its turn and its index. */
 type MainStep = { turnId: string; index: number }
+/** A tool call as it starts: its name and what it works on. */
+type Starting = { name: string; detail: string }
 
-/** A re-decision on its way: asked for step `forStep`; `answer` never rejects. */
-type InFlight = { forStep: number; reason: string; sentAt: number; answer: Promise<Asked>; settled: Asked | null }
+/**
+ * A re-decision on its way: asked for step `forStep` (`reason` says why);
+ * `answer` never rejects. `atLeast`: the level a demand asked for, until
+ * applied; `demand`: that demand's `at`.
+ */
+type InFlight = { forStep: number; reason: string; sentAt: number; answer: Promise<Asked>; settled: Asked | null; atLeast: Effort | null; demand: number | null }
 /** Re-decisions on their way, by turn key. Promises cannot live in $.state: a reload drops them (the step then keeps its effort). */
 const inFlight = new Map<string, InFlight>()
 /** The text of the main step streaming now, by turn key. */
@@ -120,10 +137,11 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
       blockedByHook.delete(e.tool_use_id)
       return result
     }
+    const detail = toolDetail(e)
     let step: MainStep | null = null
     try {
       step = (await $.state.get(MAIN_STEP)).value ?? null
-      if (step !== null) await launch($, settings, step, e.tool, toolDetail(e))
+      if (step !== null) await launch($, settings, step, { name: e.tool, detail })
     } catch (error) {
       $.ui.log(`midturn: ${describe(error)}`, { to: 'debug' })
     }
@@ -131,11 +149,13 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
     const blocked = blockedByHook.delete(e.tool_use_id)
     if (step !== null) {
       try {
-        const ended: ToolEnd = { name: e.tool, detail: toolDetail(e), outcome: outcomeOf(e.tool, result, blocked) }
+        const ended: ToolEnd = { name: e.tool, detail, outcome: outcomeOf(e.tool, result, blocked) }
         const at = step.index
         const ref = { ...MIDTURN, id: turnKey(step.turnId, undefined) }
         const cell: Cell<MidturnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
         await update(cell, (r) => withTool(r ?? fresh(), at, ended))
+        // A demand written while the call ran (by a hook beneath this one) goes out now, with the call's ending.
+        await launch($, settings, step, null)
       } catch (error) {
         $.ui.log(`midturn: ${describe(error)}`, { to: 'debug' })
       }
@@ -147,6 +167,8 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
     if (e.agentId !== undefined || !isOn(SWITCH)) return yield* next(e)
     const key = turnKey(e.turnId, undefined)
     try {
+      // A demand written after the last call ended goes out now; this step waits for it like any other.
+      if (e.index > 0) await launch($, settings, { turnId: e.turnId, index: e.index - 1 }, null)
       const note = await settle($, settings, e, key)
       const engine = isEffort(e.effort) ? e.effort : null
       await $.state.set(MAIN_STEP, { turnId: e.turnId, index: e.index })
@@ -183,49 +205,67 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
   })
 }
 
-/** Asks again about the turn's effort, for the step after `step`, when this tool call is a reason to. */
-async function launch($: EngineInterface, s: Settings, step: MainStep, tool: string, detail: string): Promise<void> {
+/**
+ * Asks again about the turn's effort, for the step after `step`, when there
+ * is a reason to: a demand not asked about yet; else, for a call `starting`,
+ * a phase tool or a step index that is a multiple of `every`. Once per step
+ * (a demand once per `at`); the answer is left for that step to take.
+ */
+async function launch($: EngineInterface, s: Settings, step: MainStep, starting: Starting | null): Promise<void> {
   const upcoming = step.index + 1
-  const reason = PHASE_TOOLS.has(tool) ? tool : s.every > 0 && upcoming % s.every === 0 ? `every ${s.every} steps` : null
-  if (reason === null) return
   const key = turnKey(step.turnId, undefined)
-  const [{ value: turn }, { value: record }, { value: lock = null }, sentAt] = await Promise.all([
+  const [{ value: turn }, { value: record }, { value: lock = null }, { value: asked }, sentAt] = await Promise.all([
     $.state.get({ ...TURNS, id: key }),
     $.state.get({ ...MIDTURN, id: key }),
     $.state.get(LOCK),
+    $.state.get({ ...DEMAND, id: key }),
     $.clock.now(),
   ])
   if (turn === undefined || turn.decisions < 1 || lock !== null || record === undefined || record.engine === null) return
-  if (record.askedFor === upcoming || inFlight.get(key)?.forStep === upcoming) return
+  const flying = inFlight.get(key)
+  const demand: Demand | null = asked !== undefined && asked.at !== record.served && flying?.demand !== asked.at ? asked : null
+  const reason =
+    demand !== null ? 'trouble' : starting === null ? null : PHASE_TOOLS.has(starting.name) ? starting.name : s.every > 0 && upcoming % s.every === 0 ? `every ${s.every} steps` : null
+  if (reason === null) return
+  if (demand === null && (record.askedFor === upcoming || flying?.forStep === upcoming)) return
   const current = higherEffort(turn.effort ?? record.engine, turn.floor) as Effort
   const input: MidturnInput = {
     message: turn.prompt,
     step: upcoming,
     current_effort: current,
     counts: { judgments: turn.decisions, changes: turn.changes, failures: record.failures, hook_blocks: record.hookBlocks },
-    recent_steps: summaries(record, step.index, key, { name: tool, detail }, contentLanguage(turn.prompt)),
+    recent_steps: summaries(record, step.index, key, starting, contentLanguage(turn.prompt)),
+    ...(demand !== null ? { trouble: demand.trouble } : {}),
   }
-  const request = mergeParts(midturnState(input, s.limits), [midturnEffortPart(s.ctx.ask)])
+  const request = mergeParts(midturnState(input, s.limits), [midturnEffortPart(s.ctx.ask, { trouble: demand !== null })])
   const io = {
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
     sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
   }
-  const entry: InFlight = { forStep: upcoming, reason, sentAt, answer: s.ctx.backend.ask(io, request, s.ctx.config.timeoutMs), settled: null }
-  void entry.answer.then((asked) => {
-    entry.settled = asked
+  const entry: InFlight = {
+    forStep: upcoming,
+    reason,
+    sentAt,
+    answer: s.ctx.backend.ask(io, request, s.ctx.config.timeoutMs),
+    settled: null,
+    atLeast: higherEffort(demand?.atLeast ?? null, flying?.forStep === upcoming ? flying.atLeast : null),
+    demand: demand?.at ?? flying?.demand ?? null,
+  }
+  void entry.answer.then((answered) => {
+    entry.settled = answered
   })
   inFlight.set(key, entry)
   const ref = { ...MIDTURN, id: key }
   const cell: Cell<MidturnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
-  await update(cell, (r) => ({ ...(r ?? fresh()), askedFor: upcoming }))
+  await update(cell, (r) => ({ ...(r ?? fresh()), askedFor: upcoming, served: demand?.at ?? r?.served ?? null }))
 }
 
 /**
  * Takes the re-decision meant for this step, if any, and writes what it
  * decides into the turn's plan. An answer not back yet gets `waitMs` more;
- * still none, the step keeps the effort it had and the answer stays for a
- * later step. Resolves to what the status line should add: `late`, or why
- * there is no answer; null otherwise.
+ * still none, the step keeps the effort it had (lifted to a demand's level)
+ * and the answer stays for a later step. Resolves to what the status line
+ * should add: `late`, or why there is no answer; null otherwise.
  */
 async function settle($: EngineInterface, s: Settings, e: { index: number; effort?: unknown }, key: string): Promise<string | null> {
   const pending = inFlight.get(key)
@@ -240,8 +280,7 @@ async function settle($: EngineInterface, s: Settings, e: { index: number; effor
     asked = await Promise.race([pending.answer, timer])
     stop.abort()
   }
-  if (asked === null) return 'late'
-  inFlight.delete(key)
+  if (asked !== null) inFlight.delete(key)
   const engine = isEffort(e.effort) ? e.effort : null
   const [{ value: turn }, { value: record }, { value: lock = null }] = await Promise.all([
     $.state.get({ ...TURNS, id: key }),
@@ -249,31 +288,54 @@ async function settle($: EngineInterface, s: Settings, e: { index: number; effor
     $.state.get(LOCK),
   ])
   if (turn === undefined || record === undefined || lock !== null || engine === null) return null
-  if (!asked.ok) return failureText(s.ctx.backend.name, asked.failure)
-  const reading = readEffort(answersFor(midturnEffortPart(s.ctx.ask), asked.answers)[MIDTURN_LEVEL])
-  if (reading === null) return failureText(s.ctx.backend.name, { kind: 'parse', detail: 'no effort answer' })
   const current = higherEffort(turn.effort ?? engine, turn.floor) as Effort
-  const sinceRaise = record.raisedAt === null ? null : e.index - record.raisedAt
-  const position = { current, sinceRaise, atLeast: turn.floor }
-  const verdict = judgeMidturn(reading, position, s.rules)
   const ref = { ...TURNS, id: key }
-  const cell: Cell<TurnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
-  await update(cell, (r) => decided(r ?? turn, current, verdict.effort))
-  await recordDecision(
-    { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
-    (line) => $.ui.log(line, { to: 'debug' }),
-    {
-      feature: SWITCH,
-      outcome: `effort ${verdict.effort} ${verdict.effort === current ? '(kept)' : `(was ${current})`}`,
-      about: `step ${e.index} (${pending.reason})`,
-      reason: `${describeReading(reading)}; ${verdictReason(verdict, position, s.rules)}`,
-    },
-  )
-  if (verdict.why === 'up') {
-    const own = { ...MIDTURN, id: key }
-    const ownCell: Cell<MidturnRecord> = { get: () => $.state.get(own), set: (value, options) => $.state.set(own, value, options) }
-    await update(ownCell, (r) => ({ ...(r ?? fresh()), raisedAt: e.index }))
+  const turnCell: Cell<TurnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
+  const own = { ...MIDTURN, id: key }
+  const ownCell: Cell<MidturnRecord> = { get: () => $.state.get(own), set: (value, options) => $.state.set(own, value, options) }
+  const log: Cell<{ n: number; feature: string; outcome: string; about: string; reason: string }[]> = {
+    get: () => $.state.get(DECISIONS),
+    set: (value, options) => $.state.set(DECISIONS, value, options),
   }
+  const about = `step ${e.index} (${pending.reason})`
+
+  const reading = asked !== null && asked.ok ? readEffort(answersFor(midturnEffortPart(s.ctx.ask), asked.answers)[MIDTURN_LEVEL]) : null
+  const note =
+    asked === null
+      ? 'late'
+      : !asked.ok
+        ? failureText(s.ctx.backend.name, asked.failure)
+        : reading === null
+          ? failureText(s.ctx.backend.name, { kind: 'parse', detail: 'no effort answer' })
+          : null
+  if (reading === null) {
+    // No answer (yet): a demand's level still holds from this step on.
+    const lifted = pending.atLeast === null ? current : (higherEffort(current, pending.atLeast) as Effort)
+    pending.atLeast = null
+    if (lifted !== current) {
+      await update(turnCell, (r) => moved(r ?? turn, current, lifted))
+      await update(ownCell, (r) => ({ ...(r ?? fresh()), raisedAt: e.index }))
+      await recordDecision(log, (line) => $.ui.log(line, { to: 'debug' }), {
+        feature: SWITCH,
+        outcome: `effort ${lifted} (was ${current})`,
+        about,
+        reason: `no answer (${note ?? 'none'}); lifted to ${lifted}, the least asked for`,
+      })
+    }
+    return note
+  }
+
+  const sinceRaise = record.raisedAt === null ? null : e.index - record.raisedAt
+  const position = { current, sinceRaise, atLeast: higherEffort(turn.floor, pending.atLeast) }
+  const verdict = judgeMidturn(reading, position, s.rules)
+  await update(turnCell, (r) => decided(r ?? turn, current, verdict.effort))
+  if (EFFORTS.indexOf(verdict.effort) > EFFORTS.indexOf(current)) await update(ownCell, (r) => ({ ...(r ?? fresh()), raisedAt: e.index }))
+  await recordDecision(log, (line) => $.ui.log(line, { to: 'debug' }), {
+    feature: SWITCH,
+    outcome: `effort ${verdict.effort} ${verdict.effort === current ? '(kept)' : `(was ${current})`}`,
+    about,
+    reason: `${describeReading(reading)}; ${verdictReason(verdict, position, s.rules)}`,
+  })
   return null
 }
 
@@ -288,26 +350,26 @@ function segment(record: MidturnRecord, turn: TurnRecord | undefined, note: stri
 }
 
 function fresh(): MidturnRecord {
-  return { steps: 0, engine: null, askedFor: null, raisedAt: null, failures: 0, hookBlocks: 0, recent: [] }
+  return { steps: 0, engine: null, askedFor: null, raisedAt: null, served: null, failures: 0, hookBlocks: 0, recent: [] }
 }
 
 /**
  * The latest steps as the decision model reads them, oldest first: each
- * step's text and its tool calls with how they ended. The step running now
- * comes last, its text as streamed so far, the call just starting in it
+ * step's text and its tool calls with how they ended. Step `index` comes
+ * last, its text as streamed so far, the call `starting` in it (if any)
  * marked running.
  */
-function summaries(record: MidturnRecord, index: number, key: string, starting: { name: string; detail: string }, language: 'en' | 'zh'): MidturnInput['recent_steps'] {
+function summaries(record: MidturnRecord, index: number, key: string, starting: Starting | null, language: 'en' | 'zh'): MidturnInput['recent_steps'] {
   const live = streamed.get(key)
   const now = record.recent.find((step) => step.index === index)
-  const steps = [
-    ...record.recent.filter((step) => step.index < index).map((step) => ({ text: step.text, tools: step.tools.map((t) => ({ ...t })) as { name: string; detail: string; outcome: Outcome }[] })),
+  const line = (t: { name: string; detail: string; outcome: Outcome }) => ({ name: t.name, result: resultLine(t.outcome, t.detail, language) })
+  return [
+    ...record.recent.filter((step) => step.index < index).map((step) => ({ assistant_text: step.text, tools: step.tools.map(line) })),
     {
-      text: live?.index === index ? live.text : (now?.text ?? ''),
-      tools: [...(now?.tools ?? []), { ...starting, outcome: 'running' as const }] as { name: string; detail: string; outcome: Outcome }[],
+      assistant_text: live?.index === index ? live.text : (now?.text ?? ''),
+      tools: [...(now?.tools ?? []).map(line), ...(starting === null ? [] : [line({ ...starting, outcome: 'running' })])],
     },
   ]
-  return steps.map((step) => ({ assistant_text: step.text, tools: step.tools.map((t) => ({ name: t.name, result: resultLine(t.outcome, t.detail, language) })) }))
 }
 
 /** The record with a tool call's ending added to its step (and counted when it failed or a hook blocked it). */
@@ -337,6 +399,11 @@ function withText(record: MidturnRecord, index: number, text: string): MidturnRe
 /** The turn's record after a re-decision: its effort set when the level moves (counted as a change), the decision counted either way. */
 function decided(record: TurnRecord, current: Effort, next: Effort): TurnRecord {
   return next === current ? { ...record, decisions: record.decisions + 1 } : revise({ ...record, effort: current }, next)
+}
+
+/** The turn's record lifted to `next` with no decision behind it (a demand's level, its answer missing): a change, not a decision. */
+function moved(record: TurnRecord, current: Effort, next: Effort): TurnRecord {
+  return { ...revise({ ...record, effort: current }, next), decisions: record.decisions }
 }
 
 /** Every level's probability and the backend's confidence, for the decision log. */

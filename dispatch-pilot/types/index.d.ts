@@ -63,6 +63,8 @@ declare module 'claude-code' {
         askedFor: number | null
         /** The step from which a re-decision last raised the effort; null when none did. */
         raisedAt: number | null
+        /** The `at` of the last `demand` asked about (each is asked once); null for none. */
+        served: number | null
         /** The turn's tool calls that failed (not counting hook blocks and denials). */
         failures: number
         /** The turn's tool calls a hook refused. */
@@ -76,6 +78,22 @@ declare module 'claude-code' {
       }>
       /** The main agent's step in progress (its tool calls carry no turn id); null before the first. */
       mainStep: { turnId: string; index: number } | null
+      /**
+       * A re-decision another feature asks of the mid-turn feature, id
+       * `main:<turnId>`: #7 writes one when the turn is stuck. It is asked at
+       * the turn's next tool call (or next step) with `trouble` in the
+       * decision model's state, and the turn goes at least to `atLeast`
+       * whatever the answer (or with no answer). Each `at` (a number the
+       * writer increases) is asked once. Written by #7, read by #5.
+       */
+      demand: StateFamily<{
+        /** What has gone wrong, in one English sentence for the decision model: "2 tool calls in a row have failed ...". */
+        trouble: string
+        /** The lowest level the turn may go at from then on; null for none. */
+        atLeast: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+        /** Which demand this is: a new value is a new demand. */
+        at: number
+      }>
     }
   }
 }

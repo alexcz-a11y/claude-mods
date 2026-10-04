@@ -191,8 +191,8 @@ export type MidturnPosition = {
   atLeast?: Effort | null
 }
 
-/** Why a decision left the level where it did. */
-export type MidturnWhy = 'same' | 'up' | 'down' | 'unsure' | 'held'
+/** Why a decision left the level where it did; `lifted`: brought up to `atLeast`. */
+export type MidturnWhy = 'same' | 'up' | 'down' | 'unsure' | 'held' | 'lifted'
 
 /** A mid-turn decision: the level to go on at and why, with what the answer said (its pick and how sure it was). */
 export type MidturnVerdict = { effort: Effort; why: MidturnWhy; picked: Effort; confidence: number }
@@ -204,14 +204,17 @@ export type MidturnVerdict = { effort: Effort; why: MidturnWhy; picked: Effort; 
  * answer surer still (thetaDown, never below thetaUp) and no raise happened
  * in the last holdSteps steps; else the current level. Sure enough means the
  * backend's confidence, or the most likely level's probability when the
- * backend gives none.
+ * backend gives none. Whatever the answer, never below `atLeast` (a forced
+ * raise: #7 asks for one level above the turn's when it is stuck).
  */
 export function judgeMidturn(reading: EffortReading, position: MidturnPosition, rules: MidturnRules): MidturnVerdict {
   const { current } = position
   const picked = pickEffort(reading, rules.thetaMax)
   const confidence = reading.confidence ?? Math.max(...reading.probabilities)
   const at = (level: Effort) => EFFORTS.indexOf(level)
-  const verdict = (effort: Effort, why: MidturnWhy): MidturnVerdict => ({ effort, why, picked, confidence })
+  const floor = position.atLeast ?? null
+  const verdict = (effort: Effort, why: MidturnWhy): MidturnVerdict =>
+    floor !== null && at(effort) < at(floor) ? { effort: floor, why: 'lifted', picked, confidence } : { effort, why, picked, confidence }
   if (at(picked) > at(current)) return confidence >= rules.thetaUp ? verdict(picked, 'up') : verdict(current, 'unsure')
   if (at(picked) < at(current)) {
     if (position.sinceRaise !== null && position.sinceRaise < rules.holdSteps) return verdict(current, 'held')
@@ -236,5 +239,7 @@ export function verdictReason(verdict: MidturnVerdict, position: MidturnPosition
     }
     case 'same':
       return 'same level'
+    case 'lifted':
+      return `lifted to ${verdict.effort}, the least asked for`
   }
 }
