@@ -65,6 +65,10 @@ command claude plugin validate ./dispatch-pilot --strict
 tsc -p ./dispatch-pilot                                   # 需要先用 --plugin-dir 加载一次，生成 .claude-plugin/types/
 claude --plugin-dir ./dispatch-pilot --settings '{"enabledPlugins":{"jev-pilot@jev-pilot":false}}'
 TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' [--zh] [--choice]   # 用 Node 调一次真实的 Jev
+node dispatch-pilot/eval/validate.ts                      # 校验评测集（接缝 2，见下文「评测」）
+node dispatch-pilot/eval/run.ts effort-submit --estimate  # 估算请求数、token 和费用，不发请求
+node dispatch-pilot/eval/run.ts effort-submit --label <名字>                   # 用真实 Jev 跑一次评测，结果存进 eval/results/
+node dispatch-pilot/eval/apply-review.ts effort-submit --from <审核记录.jsonl>  # 应用用户的审核决定，再校验
 ```
 
 mod 根目录的 `tsconfig.json` 是手写的。它继承生成的配置，并加上 `allowImportingTsExtensions`，因为相对导入都带 `.ts` 后缀（Node 直接运行也需要这样写）。Claude Code 发现已有 tsconfig.json 时不会覆盖它。
@@ -91,6 +95,7 @@ hooks/
     ├── backend.ts          决策后端的接口、超时、失败分类
     └── jev.ts              Jev 后端（#3 在旁边加 clef.ts）
 scripts/decide.ts           用 Node 发一次真实的判断，请求内容与 mod 发出的完全相同
+eval/                       评测（接缝 2）：评测集、Node 脚本、结果，见下文「评测」
 tests/support/world.ts      接缝 1 的测试脚手架
 types/index.d.ts            $.state 的契约（PluginState）
 ```
@@ -242,6 +247,28 @@ test('……', { options: { typesafeApiKey: 'k' } }, async ($, on) => {
 - `world()` 总会装上 `mock.clock(on)`。测超时时，先 `const p = w.submit(...)`，再依次 `await w.clock.settle()`、`await w.clock.advance(ms)`、`await p`。
 - 同一个事件的桩不能注册两次：`world()` 已经注册过的事件，测试里不要再注册。
 - 每个测试拿到的都是全新的模块实例，模块级变量不会跨测试残留。
+
+### 评测（接缝 2）
+
+评测用真实的 Jev（#3 之后也可以用 Clef）测决策的准确率，脚本用 Node 运行，放在 `eval/`：
+
+```
+eval/
+├── datasets/<类>.jsonl     评测集，一行一题，中英对照；格式和校验规则见 lib/datasets.ts
+├── review/<类>.review.jsonl 用户的审核决定（应用时由 apply-review.ts 放进来，和改动一起提交）
+├── results/<类>/*.json     每次运行的结果：设置、答题的模型版本、汇总、逐题答案
+├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、各类题型的 suite
+└── validate.ts、run.ts、apply-review.ts、node.ts   Node 脚本
+```
+
+- **测到的就是线上的请求。** 每类题型的 suite 用 `hooks/decision/` 拼请求，设置取 manifest 的默认值，经 `setup()` 读出（`--option contextTokens=4000` 可以改）。`tests/eval-effort-submit.test.ts` 用 world 核对：同一条消息和对话，评测发的请求与 mod 发的逐字相同。
+- **变量。** effort-submit 有四个变体：`en-score`（mod 现在的问法）、`zh-score`、`en-choice`、`zh-choice`，即问题用英文还是中文写、用 Score 还是 Choice 问；用户的原文总是照搬进 state。每题的中文版和英文版都问。
+- **指标**（`lib/metrics.ts`）：每个变体的中文、英文准确率（答案在可接受集合里；没答上的算错，另列条数），gold 命中率，答偏的方向，中英差距和 spec 的 3 个百分点门槛，中英一致率，延迟 p50 和 p90（以及超过 mod 超时的条数），按 tag 分组的错题数；另报「每题都答同一档」的常数基线。
+- **延迟只在 `--concurrency 1`（默认）时可信。** Jev 对同一个 key 的并发请求依次处理，4 个并发时 p50 从约 290 ms 涨到 700–1100 ms。
+- **单次运行有波动。** 同一配置跑两次，约 4% 的答案不同，单项准确率相差 1–3 个百分点，和 3 个百分点的门槛同一量级。比较写法或判断门槛时多跑几次再看。
+- **结果文件**记录后端、请求的模型和响应里的模型版本、日期、变量、mod 的设置、评测集和决策模块各文件的哈希、每个变体问的问题、汇总，以及逐题答案（每个档位的概率和 confidence，供 #17 校准门槛），不含凭证。凭证按「进程环境变量优先，其次 `~/.config/dispatch-pilot/eval.env`」读取。
+- **审核。** 用户的审核 wizard 每行写一个决定（`agree`、`edit`、`note`）。`apply-review.ts --from <文件>` 把它复制到 `eval/review/`，把 `edit` 写进评测集（只改答案字段，其他行逐字不变），列出改过答案的题（它们的理由需要重写）和要跟进的 note，再校验一遍；有任何一条无法应用时整份不写。
+- **加一类题型**（#14、#15、#16）：评测集放进 `eval/datasets/<类>.jsonl`（校验规则已经在 `lib/datasets.ts` 里），在 `eval/lib/<类>.ts` 实现 `Suite`（`lib/suite.ts`：怎么问、怎么评分、怎么显示、常数基线），在 `lib/suites.ts` 登记一行，再仿照 `tests/eval-effort-submit.test.ts` 用 world 核对请求与 mod 的一致。
 
 ### 已实测的引擎行为（2.1.289）
 
