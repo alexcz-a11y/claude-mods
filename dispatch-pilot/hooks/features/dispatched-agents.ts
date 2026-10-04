@@ -18,6 +18,7 @@ import { messageText } from '../decision/context.ts'
 import {
   DEFAULT_AGENT_MODELS,
   decideDispatch,
+  decisionNotes,
   dispatchPart,
   dispatchState,
   modelFamily,
@@ -114,7 +115,9 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       }
       const model = decision.model ?? modelFamily(result.model) ?? result.model
       const outcome = decision.effort === null ? model : `${model} ${decision.effort}`
-      setStatus('agent', `agent ${outcome}${decision.source === 'user' ? ' (you)' : decision.source === 'requested' ? ' (kept)' : ''}`, show)
+      // Whose choice it is: the model's, when the person's or the main agent's; else the effort's, when the person's.
+      const whose = decision.source === 'user' ? ' (you)' : decision.source === 'requested' ? ' (kept)' : decision.effortSource === 'user' ? ' (effort: you)' : ''
+      setStatus('agent', `agent ${outcome}${whose}`, show)
       await recordDecision(
         { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
         (line) => $.ui.log(line, { to: 'debug' }),
@@ -144,7 +147,7 @@ function reasonOf(decision: DispatchDecision, requested: string | null, thetaOve
   else if (decision.source === 'decided') parts.push(requested !== null && requested !== decision.model ? `decided over the main agent's ${requested}` : 'decided')
   else parts.push("the engine's model kept")
   if (pick !== null) parts.push(pick)
-  if (decision.banned.length > 0) parts.push(`ruled out ${decision.banned.join(', ')}`)
+  parts.push(...decisionNotes(decision))
   if (decision.reading !== null) parts.push(`effort p ${EFFORTS.map((level, i) => `${level} ${(decision.reading?.probabilities[i] ?? 0).toFixed(2)}`).join(', ')}`)
   return parts.join('; ')
 }

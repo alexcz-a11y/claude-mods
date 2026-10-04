@@ -22,6 +22,7 @@ import {
   DEFAULT_DISPATCH_ASK,
   EFFORT,
   MODEL,
+  NAMED_EFFORT,
   decideDispatch,
   dispatchPart,
   dispatchState,
@@ -125,6 +126,7 @@ function side(at: number, acceptable: readonly number[]): 'under' | 'over' | 'of
 function detailOf(answers: Readonly<Record<string, Answer>>, decision: DispatchDecision): Record<string, unknown> {
   const model = answers[MODEL]
   const effort = answers[EFFORT]
+  const named = answers[NAMED_EFFORT]
   return {
     source: decision.source,
     pick: decision.pick?.model ?? null,
@@ -132,6 +134,9 @@ function detailOf(answers: Readonly<Record<string, Answer>>, decision: DispatchD
     p_model: model?.type === 'choice' ? model.probabilities : null,
     p_effort: effort === undefined || effort.type === 'noul' ? null : EFFORTS.map((level, i) => effort.probabilities[effort.type === 'score' ? String(i) : level] ?? 0),
     nouls: Object.fromEntries(Object.entries(answers).flatMap(([id, answer]) => (answer.type === 'noul' ? [[id, answer.noul]] : []))),
+    // Only when the person's words may name an effort (the question is asked then).
+    ...(named?.type === 'choice' ? { p_named_effort: named.probabilities } : {}),
+    ...(decision.namedEffort != null ? { named_effort: decision.namedEffort } : {}),
   }
 }
 
@@ -145,14 +150,15 @@ export const subagent: Suite<SubagentItem, SubagentAnswer> = {
     const answers = answersFor(part, asked.answers)
     const decision = decideDispatch(answers, dispatch, shape)
     // As the mod: without an answer about the agent, or a model to start it on, the agent goes out as the main agent asked.
+    // (A model ruled out that the answer favours is replaced by the nearest one left: there is always a model, unless none is left.)
     if (!decision.answered) return { ok: false, failure: 'parse: no answer about the agent' }
     if (decision.model === null) {
       const { banned } = decision
       const left = (shape.models ?? DEFAULT_AGENT_MODELS).filter((model) => !banned.includes(model))
       if (banned.length === 0) return { ok: false, failure: 'parse: no model answer' }
       if (left.length === 0) return { ok: false, failure: `none: every model offered was ruled out: ${banned.join(', ')}` }
-      return { ok: false, failure: `none: ${banned.join(', ')} ${banned.length > 1 ? 'were' : 'was'} ruled out, and the answer gives the other models no probability` }
     }
+    if (decision.model === null) return { ok: false, failure: 'parse: no model answer' }
     return { ok: true, prediction: { model: decision.model, effort: decision.effort }, detail: detailOf(answers, decision) }
   },
   grade: gradeAgent,
@@ -316,7 +322,8 @@ function sweeps(items: readonly SubagentItem[], answered: Record<Language, Answe
  */
 export function redecide(item: SubagentItem, language: Language, detail: Readonly<Record<string, unknown>>, shape: DispatchSettings): SubagentAnswer | null {
   const answers: Record<string, Answer> = {}
-  const { p_model: model, p_effort: effort, nouls } = detail
+  const { p_model: model, p_effort: effort, nouls, p_named_effort: namedEffort } = detail
+  if (isRecord(namedEffort)) answers[NAMED_EFFORT] = { type: 'choice', choice: '', probabilities: namedEffort as Record<string, number>, confidence: null }
   if (isRecord(model)) answers[MODEL] = { type: 'choice', choice: '', probabilities: model as Record<string, number>, confidence: null }
   if (Array.isArray(effort)) answers[EFFORT] = { type: 'score', score: Number.NaN, probabilities: Object.fromEntries(effort.map((p, i) => [String(i), Number(p)])), confidence: null }
   if (isRecord(nouls)) for (const [id, p] of Object.entries(nouls)) answers[id] = { type: 'noul', noul: Number(p) }
@@ -334,7 +341,7 @@ function rate(count: number, of: number): number {
 
 /** A dispatch that brings out every kind of question a variant asks: a main agent's pick, a model the person mentions. */
 const SAMPLE: Dispatch = {
-  user_message: 'Use opus for this.',
+  user_message: 'Use opus for this, at high effort.',
   agent_type: 'general-purpose',
   description: 'Example',
   prompt: 'Example',

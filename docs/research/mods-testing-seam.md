@@ -488,3 +488,16 @@ on('model.complete', (_$, e) => { asked.push(e); return { value: { isAnswered: t
 | 12 | 真实 Jev（jev-1.13.0），发消息时的 effort 请求（英文问题、Score、无上下文）：输入 618–648 token，`$.http.fetch` 耗时 433–522 ms（新进程的第一个请求），与 Node `fetch` 的 526 ms 相当。中文问题 746 token，Choice 写法 656 token，两者 API 都接受。 | `dispatch-pilot/scripts/decide.ts` 和真实引擎运行。 |
 
 对第 1 节要点 6（空过陷阱）的补充：`dispatch-pilot` 的脚手架 `world()` 总会装上 `mock.clock`、`http.fetch` 桩（没有给 `backend` 时回答 HTTP 500）和 `ui.status`、`ui.log` 桩，并在 `w.submit` 里总是带上 origin，从结构上避开了这几类空过。
+
+## 11. #11 实现时的补充实测（2.1.289）
+
+skill 画像要在后台调用 `$.model.complete`，第二段要再发一个请求，为此又测了几项。kit 和真实引擎的含义同第 10 节。
+
+| # | 结论 | 怎么测的 |
+|---|---|---|
+| 1 | **`session.start` 里 `void` 出去、不等待的异步任务，hook 返回后照常运行**；它用到的 `$` 调用都由桩立即回答时，测试里 `await clock.settle()` 之后它就跑完了。真实引擎里同样：任务里的 `$.model.complete`、`$.store.set`、`$.state` 写入都照常完成。 | kit：探针 mod 在 `session.start` 里 `void work($)`，测试 `settle()` 后断言两次 `model.complete` 和两次 `store.set`。真实引擎：`dispatch-pilot` 写画像。 |
+| 2 | **`crypto.subtle.digest` 的结果不受 mock clock 管**，`settle()` 不等它：后台任务在 `await digest` 处停着，测试断言时它还没走到 `$.model.complete`（时过时不过），测试结束后它再继续，`$` 已被拒绝，留下 `a rejection nothing handled: environment N: $.clock.now refused` 。kit 要驱动的代码里用同步的哈希（`dispatch-pilot` 用 cyrb53），后台任务自己 `catch` 一切。 | `tests/skill-profiles.test.ts` 先用 `crypto.subtle` 时，有一次运行里第一个测试断言时还没有任何 `model.complete`，下一次运行又通过；换成同步哈希后连跑三次都通过。 |
+| 3 | **`model.complete` 的桩**返回 `{ value: ModelCompleteResult }`（`{ isAnswered: true, text, usage }`，或 `{ isAnswered: false, reason, ... }`）；返回 `{ deny }` 时 mod 里的 `$.model.complete` reject，错误是 `HooksError: <plugin>: $.model.complete: <理由>`，对应引擎拒绝发出（模型被封、参数不对）的情况。 | `dispatch-pilot/tests/support/world.ts` 的 `model` 选项。 |
+| 4 | **`$.ui.log` 一行超过 4096 个字符时整行丢弃**，引擎只记 `$.ui.log dropped: HooksError: <plugin>: ui.log: text over 4096 characters (host check)`。 | 真实引擎，探针一次输出全部命令的 JSON。 |
+| 5 | **引擎的 debug log 会把 `"tokens":<数字>` 这样的字段遮成 `[REDACTED]`**（它自己的脱敏规则），探针要在 debug log 里输出 JSON 时注意。 | 真实引擎，探针输出 `skillFrontmatter`。 |
+| 6 | **后台的 `$.model.complete`（调用它的 hook 早已返回）在真实引擎里照常工作**，引擎记 `$.model.complete (dispatch-pilot): claude-haiku-4-5-20251001 answered in 2189ms, 457 chars`；用的是会话自己的登录，`haiku` 解析成 `claude-haiku-4-5-20251001`。 | `claude -p --input-format stream-json`，`dispatch-pilot` 写三份画像，进程保持 40 秒。 |

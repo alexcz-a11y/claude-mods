@@ -1,25 +1,52 @@
-// Feature: skills (#10). The main agent no longer reads the full skill
-// listing the engine attaches at the start of a session (ADR 0002); instead,
-// each time the person sends a message, the decision model rates the skills
-// against it and the few that fit are suggested beside the message. Skills
-// only the person can start are pointed out on the status line instead.
+// Feature: skills (#10, #11). The main agent no longer reads the full skill
+// listing the engine attaches at the start of a session (ADR 0002): a fixed
+// note takes its place, saying where the skills went and how to come by one
+// (the find_skill tool, while its switch is on). Instead, each time the
+// person sends a message, the decision model ranks the skills against it in
+// two stages (decision/skills.ts) and the few that fit are suggested beside
+// the message. Skills only the person can start are pointed out on the status
+// line instead.
+//
+// At session start a cheap model writes each skill a bilingual profile from
+// its SKILL.md, in the background, once per version of the file
+// (core/profiles.ts); the ranking offers a skill by its profile once one is
+// written, by its description until then.
 //
 // Its switch is `skills` (`/dp skills off`, and `/dp off`): off, nothing is
 // suggested and the main agent gets the listing back: a listing the engine
 // asks about from then on passes as it is, and one already withheld in this
 // conversation (the engine keeps that answer) goes beside the next message.
+// `skill-profiles` switches the profiles alone (neither written nor offered).
 // The find_skill tool (#12) has a switch of its own.
 
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, HttpInit, ModelCompleteResult, On } from 'claude-code'
+import type { Asked } from '../decision/backend.ts'
 import { redactSecrets } from '../decision/redact.ts'
-import { modRanker, pickSkills, relevanceBlock, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
+import { modRanker, pickSkills, relevanceBlock, skillOpening, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
+import type { DecisionRequest } from '../decision/system-one.ts'
 import { contribute } from '../core/ballot.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
+import {
+  evictions,
+  MAX_PROFILES,
+  PROFILE_MAX_TOKENS,
+  PROFILE_PREFIX,
+  PROFILE_SYSTEM,
+  PROFILE_TIMEOUT_MS,
+  profileKey,
+  profileModel,
+  profilePrompt,
+  readProfile,
+  readSessionSkills,
+  storedProfile,
+  withProfile,
+  type StoredProfile,
+} from '../core/profiles.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
 import { namesOf, numberIn, type Ctx } from '../core/setup.ts'
-import { listingNames, loadCatalog, trimListing, type CatalogSkill } from '../core/skills.ts'
-import { setStatus } from '../core/status.ts'
+import { describeStages, listingNames, rankingSettings, trimListing, type CatalogSkill } from '../core/skills.ts'
+import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
 const SHOWN = { plugin: 'dispatch-pilot', key: 'skillsShown' } as const
@@ -29,29 +56,167 @@ const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** The feature's switch: the suggestions, and with them the withheld listing. */
 const SWITCH = 'skills'
+/** The profiles' own switch: written at session start, and offered in the ranking. */
+const PROFILES = 'skill-profiles'
+/** The find_skill tool's switch (features/find-skill.ts): the note in place of the listing names the tool only while it is on. */
+const FIND_SKILL = 'find-skill'
+
+/** Profiles are being written now (one batch at a time). */
+let writing = false
+
+/**
+ * The session's skills read afresh, each with its profile when the store
+ * holds one, and kept for the session; `store` says whether the store could
+ * be read. Null when the session's skills cannot be read.
+ */
+async function readCatalog($: EngineInterface, model: string): Promise<{ skills: CatalogSkill[]; store: boolean } | null> {
+  const found = await readSessionSkills(
+    {
+      commands: () => $.command.list(),
+      listed: async () => (await $.session.usage({ breakdown: 'summary' })).context.breakdown?.skills?.skillFrontmatter ?? [],
+      overrides: async (source) => (await $.settings.read({ source })).skillOverrides,
+      home: () => $.env.get('HOME'),
+      cwd: () => $.session.cwd(),
+      exists: (path) => $.fs.exists(path),
+      read: (path) => $.fs.read(path),
+      list: (path) => $.fs.list(path),
+      get: (key) => $.store.get(key),
+    },
+    model,
+  )
+  if (found !== null) await $.state.set(CATALOG, { skills: found.skills })
+  return found
+}
 
 /**
  * The session's skills: as read earlier this session, else read now (and
  * kept for the session); null when the session cannot be read.
  */
-async function sessionCatalog($: EngineInterface): Promise<CatalogSkill[] | null> {
+async function sessionCatalog($: EngineInterface, model: string): Promise<CatalogSkill[] | null> {
   const { value } = await $.state.get(CATALOG)
   if (value) return value.skills
-  const skills = await loadCatalog({
-    commands: () => $.command.list(),
-    listed: async () => (await $.session.usage({ breakdown: 'summary' })).context.breakdown?.skills?.skillFrontmatter ?? [],
-    overrides: async (source) => (await $.settings.read({ source })).skillOverrides,
-    home: () => $.env.get('HOME'),
-    cwd: () => $.session.cwd(),
-    exists: (path) => $.fs.exists(path),
-    read: (path) => $.fs.read(path),
-  }).catch(() => null)
-  if (skills !== null) await $.state.set(CATALOG, { skills })
-  return skills
+  return (await readCatalog($, model))?.skills ?? null
+}
+
+/** How profiles are written: the model, how many at most per session start, the skills never offered (none written for them). */
+type ProfileSettings = { model: string; perSession: number; skip: ReadonlySet<string> }
+
+/**
+ * Writes the profiles the catalog lacks, one completion at a time, in the
+ * catalog's order (the skills the main agent can load first), at most
+ * `perSession`; each is kept in the store and given to the session's catalog
+ * at once. Runs in the background from session start: nothing waits for it.
+ * Stops for this session when the model is refused or answers with an API
+ * error, the store will not keep a profile, or the person switches profiles
+ * off; a skill whose reply is not a profile (or is cut short) is skipped.
+ * What is left is tried again at the next session start. Then drops the
+ * oldest profiles past MAX_PROFILES.
+ */
+async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly CatalogSkill[], settings: ProfileSettings): Promise<void> {
+  if (writing) return
+  writing = true
+  const cell: Cell<{ skills: CatalogSkill[] } | null> = { get: () => $.state.get(CATALOG), set: (value, options) => $.state.set(CATALOG, value, options) }
+  const due = catalog.filter((skill) => !skill.profile && typeof skill.profileKey === 'string' && !settings.skip.has(skill.name))
+  let written = 0
+  try {
+    for (const skill of due) {
+      if (!isOn(SWITCH) || !isOn(PROFILES) || ctx.backend.configured === false) break
+      if (written >= settings.perSession) {
+        $.ui.log(`skill profiles: ${due.length - written} left to write at a later session start (at most ${settings.perSession} each)`, { to: 'debug' })
+        break
+      }
+      const markdown = skill.file === null ? null : await $.fs.read(skill.file).catch(() => null)
+      const key = profileKey(skill, markdown, settings.model)
+      // Another session may have written it meanwhile.
+      const kept = storedProfile(await $.store.get(key).catch(() => undefined))
+      if (kept !== null) {
+        await update(cell, (value) => (value ? { skills: withProfile(value.skills, key, kept) } : null))
+        continue
+      }
+      const startedAt = await $.clock.now()
+      let reply: ModelCompleteResult
+      try {
+        reply = await $.model.complete({ model: settings.model, system: PROFILE_SYSTEM, prompt: profilePrompt(skill, markdown), maxTokens: PROFILE_MAX_TOKENS, timeoutMs: PROFILE_TIMEOUT_MS })
+      } catch (error) {
+        $.ui.log(`skill profiles: ${settings.model} was refused (${errorText(error)}); no more profiles are written this session`, { to: 'debug' })
+        break
+      }
+      const ms = (await $.clock.now()) - startedAt
+      if (!reply.isAnswered) {
+        const why = reply.reason === 'api-error' ? `an API error, HTTP ${reply.status ?? 'none'} ${reply.error}` : reply.reason
+        if (reply.reason === 'api-error') {
+          $.ui.log(`skill profiles: no profile for ${skill.name} (${why}, ${ms} ms); no more profiles are written this session`, { to: 'debug' })
+          break
+        }
+        $.ui.log(`skill profiles: no profile for ${skill.name} (${why}, ${ms} ms)`, { to: 'debug' })
+        continue
+      }
+      const profile = readProfile(reply.text)
+      if (profile === null) {
+        $.ui.log(`skill profiles: the reply for ${skill.name} is not a profile (${ms} ms): ${JSON.stringify(reply.text.slice(0, 80))}`, { to: 'debug' })
+        continue
+      }
+      const entry: StoredProfile = { name: skill.name, at: await $.clock.now(), profile }
+      try {
+        await $.store.set(key, entry)
+      } catch (error) {
+        $.ui.log(`skill profiles: the store did not keep the profile of ${skill.name} (${errorText(error)}); no more profiles are written this session`, { to: 'debug' })
+        break
+      }
+      await update(cell, (value) => (value ? { skills: withProfile(value.skills, key, profile) } : null))
+      written++
+      $.ui.log(`skill profile written for ${skill.name} by ${settings.model} in ${ms} ms (${reply.usage.input_tokens} input, ${reply.usage.output_tokens} output tokens)`, { to: 'debug' })
+    }
+    await dropOldProfiles($, catalog)
+  } catch (error) {
+    // The session went away under it (its `$` refused), or a bug: either way the session is not held up.
+    try {
+      $.ui.log(`skill profiles: stopped writing (${errorText(error)})`, { to: 'debug' })
+    } catch {
+      // nowhere left to say it
+    }
+  } finally {
+    writing = false
+  }
+}
+
+/** Past MAX_PROFILES profiles in the store, the oldest written that this session does not use are deleted. */
+async function dropOldProfiles($: EngineInterface, catalog: readonly CatalogSkill[]): Promise<void> {
+  try {
+    const keys = (await $.store.keys()).filter((key) => key.startsWith(PROFILE_PREFIX))
+    if (keys.length <= MAX_PROFILES) return
+    const entries = await Promise.all(keys.map(async (key) => ({ key, at: writtenAt(await $.store.get(key).catch(() => null)) })))
+    const drop = evictions(entries, new Set(catalog.flatMap((skill) => (typeof skill.profileKey === 'string' ? [skill.profileKey] : []))))
+    for (const key of drop) await $.store.delete(key)
+    $.ui.log(`skill profiles: dropped the ${drop.length} oldest of ${keys.length} kept`, { to: 'debug' })
+  } catch (error) {
+    $.ui.log(`skill profiles: could not tidy the store (${errorText(error)})`, { to: 'debug' })
+  }
+}
+
+/** One decision request through the person's decision model, its outcome in the debug log as the core logs its own. */
+async function askLogged($: EngineInterface, ctx: Ctx, what: string, request: DecisionRequest, timeoutMs: number): Promise<Asked> {
+  const io = { fetch: (url: string, init: HttpInit) => $.http.fetch(url, init), sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }) }
+  const startedAt = await $.clock.now()
+  const asked = await ctx.backend.ask(io, request, timeoutMs)
+  const ms = (await $.clock.now()) - startedAt
+  const outcome = asked.ok
+    ? `answered in ${ms} ms${asked.model === null ? '' : ` by ${asked.model}`}${asked.inputTokens === null ? '' : ` (${asked.inputTokens} input tokens)`}`
+    : `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)`
+  $.ui.log(`${what} [${Object.keys(request.questions).join(', ')}] to ${ctx.backend.name}: ${outcome}`, { to: 'debug' })
+  return asked
+}
+
+/** The opening of a catalog skill's SKILL.md for the ranking's second stage; null when it has no file or it cannot be read. */
+async function openingOf($: EngineInterface, catalog: readonly CatalogSkill[], name: string): Promise<string | null> {
+  const file = catalog.find((skill) => skill.name === name)?.file ?? null
+  if (file === null) return null
+  return skillOpening(await $.fs.read(file))
 }
 
 export function registerSkills(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: 'suggests the skills that fit each message; the full skill listing stays out', segments: ['skills'] })
+  defineSwitch({ name: PROFILES, info: 'rates skills by bilingual profiles a cheap model writes once per SKILL.md version (off: by description)' })
 
   /** Skills the main agent keeps in its listing (names as the listing spells them). */
   const alwaysListed = new Set(namesOf(ctx.options.skillsAlwaysListed))
@@ -59,10 +224,16 @@ export function registerSkills(on: On, ctx: Ctx): void {
   const neverSuggested = new Set(namesOf(ctx.options.skillsNeverSuggested))
   const policy: SkillPolicy = {
     max: Math.round(numberIn(ctx.options.skillsMax, 0, 10, 3)),
-    minRelevance: numberIn(ctx.options.skillsMinRelevance, 0, 1, 0.2),
+    minRelevance: numberIn(ctx.options.skillsMinRelevance, 0, 1, 0.7),
   }
-  /** How the skills are rated: the mod's ranker, the one find_skill (#12) uses too (#11 swaps in its own there). */
-  const ranker = modRanker({ language: ctx.ask.language })
+  /** How the skills are ranked: by the mod's ranker (`modRanker`, built for each message), as find_skill (#12) ranks them too. */
+  const ranking = rankingSettings(ctx)
+  /** How profiles are written. */
+  const profiles: ProfileSettings = {
+    model: profileModel(ctx),
+    perSession: Math.round(numberIn(ctx.options.skillsProfilesPerSession, 0, 500, 30)),
+    skip: neverSuggested,
+  }
   /**
    * Whether the feature is at work now: its switch (and the master switch)
    * on, and a decision model set up to suggest (without one, withholding the
@@ -73,7 +244,7 @@ export function registerSkills(on: On, ctx: Ctx): void {
 
   // Every plugin loaded (after the others' session.start, so their commands
   // are listed): the session's skills, read afresh, and a line saying what
-  // came of it.
+  // came of it; then the profiles they lack are written in the background.
   on('session.start', { cwd: /(?:)/ }, async ($, e, next) => {
     const result = await next(e)
     if (!isOn(SWITCH)) return result
@@ -82,33 +253,50 @@ export function registerSkills(on: On, ctx: Ctx): void {
       return result
     }
     await $.state.set(CATALOG, null)
-    const catalog = await sessionCatalog($)
-    if (catalog === null) {
+    const read = await readCatalog($, profiles.model)
+    if (read === null) {
       $.ui.log("skills: the session's skills could not be read, so the main agent keeps the skill listing", { to: 'debug' })
       return result
     }
+    const catalog = read.skills
     const persons = catalog.filter((skill) => skill.by === 'person').map((skill) => `/${skill.name}`)
     const models = catalog.length - persons.length
     const only = persons.length > 0 ? `, ${persons.length} only you can start (${persons.join(' ')})` : ''
     $.ui.log(`skills: ${models} the main agent can load${only}; the listing is withheld from the main agent`, { to: 'debug' })
+    if (!isOn(PROFILES)) return result
+    if (!read.store) {
+      $.ui.log('skill profiles: the store cannot be read, so no profile is kept or written; skills are rated by their descriptions', { to: 'debug' })
+      return result
+    }
+    const offered = catalog.filter((skill) => !profiles.skip.has(skill.name))
+    const due = offered.filter((skill) => !skill.profile).length
+    $.ui.log(`skill profiles: ${offered.length - due} kept, ${due} to write with ${profiles.model} (at most ${profiles.perSession} this session)`, { to: 'debug' })
+    // In the background: the session goes on, and each profile is used as soon as it is written.
+    if (due > 0 && profiles.perSession > 0) void writeProfiles($, ctx, catalog, profiles).catch(() => undefined)
     return result
   })
 
   // The engine's skill listing, as each request of a loop carries it (the
-  // engine keeps the answer for the process). A dispatched agent's (and a
-  // workflow agent's) reaches it untouched.
+  // engine keeps the answer for the conversation). The main agent's gives way to
+  // a fixed note on how to come by a skill, after the skills always listed.
+  // A dispatched agent's (and a workflow agent's) reaches it untouched.
   on('prompt.attachment', { type: 'skill_listing' }, async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     // Skills that cannot be suggested stay listed.
-    if (!active() || (await sessionCatalog($)) === null) {
+    if (!active() || (await sessionCatalog($, profiles.model)) === null) {
       await $.state.set(LISTING, { answered: 'passed', text: '' })
       return next(e)
     }
     const kept = trimListing(e.text, alwaysListed)
     const keptNames = kept === null ? 'none' : listingNames(kept).join(', ')
-    $.ui.log(`withheld the skill listing from the main agent (${listingNames(e.text).length} skills, ${e.text.length} characters); kept ${keptNames}`, { to: 'debug' })
+    // Picked as the engine asks, by the switch as it stands: the engine keeps the answer for the
+    // conversation, so a later `/dp find-skill on|off` shows from the next one (README).
+    const findSkill = isOn(FIND_SKILL)
+    const hint = findSkill ? LISTING_HINT : LISTING_HINT_WITHOUT_FIND_SKILL
+    const noted = findSkill ? 'the note names find_skill' : 'the note leaves find_skill out (switched off)'
+    $.ui.log(`withheld the skill listing from the main agent (${listingNames(e.text).length} skills, ${e.text.length} characters); kept ${keptNames}; ${noted}`, { to: 'debug' })
     await $.state.set(LISTING, { answered: 'withheld', text: e.text })
-    return { text: kept }
+    return { text: kept === null ? hint : `${kept}\n\n${hint}` }
   })
 
   // The person's message: the skills question goes into its ballot, beside
@@ -127,29 +315,47 @@ export function registerSkills(on: On, ctx: Ctx): void {
       if (result.drop !== undefined) await $.state.set(LISTING, listing)
       return result
     }
-    const catalog = (await sessionCatalog($))?.filter((skill) => !neverSuggested.has(skill.name)) ?? null
-    const part = catalog === null ? null : ranker.part(catalog)
-    if (catalog === null || part === null) return next(e)
+    const known = await sessionCatalog($, profiles.model)
+    // Profiles switched off: every skill is offered by its description.
+    const catalog = known?.filter((skill) => !neverSuggested.has(skill.name)).map((skill) => (isOn(PROFILES) ? skill : { ...skill, profile: null })) ?? null
+    if (catalog === null) return next(e)
+    const ranker = modRanker(
+      {
+        ask: (request, timeoutMs) => askLogged($, ctx, 'second skills request', request, timeoutMs),
+        opening: (option) => openingOf($, catalog, option.name),
+      },
+      ranking,
+    )
+    const part = ranker.part(catalog)
+    if (part === null) return next(e)
     const shown: Cell<string[]> = { get: () => $.state.get(SHOWN), set: (value, options) => $.state.set(SHOWN, value, options) }
     /** The skills this message describes for the first time. */
     let described: string[] = []
+    // Both requests share the message's wait: the second gets what the first left of timeoutMs.
+    const startedAt = await $.clock.now()
 
     contribute(e.text, {
       ...part,
       settle: async (outcome) => {
         const show = (line: string | undefined) => $.ui.status(line)
+        const left = ctx.config.timeoutMs - ((await $.clock.now()) - startedAt)
         // No answer (the decision segment says why) or none about the skills: nothing suggested.
-        const ranking = outcome.ok ? await ranker.rank(outcome.answers, catalog) : null
-        if (ranking === null) {
+        const ranked = outcome.ok ? await ranker.rank(outcome.answers, catalog, { state: outcome.state, timeoutMs: left }) : null
+        if (ranked === null) {
           if (outcome.ok) $.ui.log(`skills for ${quote(e.text)}: no answer about the skills`, { to: 'debug' })
           setStatus('skills', null, show)
           return
         }
-        const { suggest, hint } = pickSkills(ranking, catalog, policy)
+        if (ranked.failed !== undefined) {
+          $.ui.log(`skills for ${quote(e.text)}: not rated, the second request failed (${ranked.failed.kind}: ${ranked.failed.detail})`, { to: 'debug' })
+          setStatus('skills', `skills not rated (${failureText(ctx.backend.name, ranked.failed)})`, show)
+          return
+        }
+        const { suggest, hint } = pickSkills(ranked, catalog, policy)
         await recordDecision(
           { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
           (line) => $.ui.log(line, { to: 'debug' }),
-          { feature: SWITCH, outcome: describePicks(suggest, hint), about: quote(e.text), reason: describeRanking(ranking, policy) },
+          { feature: SWITCH, outcome: describePicks(suggest, hint), about: quote(e.text), reason: describeRanking(ranked, policy) },
         )
         setStatus('skills', statusText(suggest, hint), show)
         const { value: before = [] } = await $.state.get(SHOWN)
@@ -190,6 +396,21 @@ export function registerSkills(on: On, ctx: Ctx): void {
   })
 }
 
+/**
+ * What the main agent reads in place of the skill listing: where the skills
+ * went and how to come by one. Fixed text, naming no skill: the engine keeps
+ * the answer for the conversation, and it is part of the prompt cache. It
+ * names find_skill in full and says it may need ToolSearch: the tool is
+ * deferred, so until loaded the main agent sees only its name. (A wording that
+ * also said when to look, in find_skill's own words, did no better on a real
+ * engine; README, 已实测.)
+ */
+const LISTING_HINT =
+  "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it. For any other skill, call the find_skill tool (mcp__dispatch-pilot__find_skill; load it with ToolSearch first if it is deferred) with a few words on the work, then load a skill it returns with the Skill tool by its exact name."
+/** The same with find_skill switched off: it does not send the main agent to a tool that would only say it is off. */
+const LISTING_HINT_WITHOUT_FIND_SKILL =
+  "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it; load one, or any skill you know, with the Skill tool by its exact name."
+
 /** The listing the feature withheld, as it goes beside a message once the feature is switched off. */
 function restoredListing(text: string): string {
   return `Dispatch Pilot's skill suggestions are switched off, so here is the skill listing it had left out:\n\n${text}`
@@ -201,11 +422,9 @@ function quote(text: string): string {
   return JSON.stringify(flat.length > 40 ? `${flat.slice(0, 40)}...` : flat)
 }
 
-/** Why: the head of the ranking (no skill under 0.005), none's share, and the bar a skill had to reach. */
+/** Why: what each stage of the ranking said (`describeStages`), and the bar a skill had to reach. */
 function describeRanking(ranking: SkillRanking, policy: SkillPolicy): string {
-  const head = ranking.ranked.filter((entry) => entry.relevance >= 0.005).slice(0, 5)
-  const shares = [...head.map((entry) => `${entry.name} ${entry.relevance.toFixed(2)}`), `none ${ranking.none.toFixed(2)}`].join(', ')
-  return `${shares}; suggested from ${policy.minRelevance.toFixed(2)}, at most ${policy.max}`
+  return `${describeStages(ranking)}; suggested from ${policy.minRelevance.toFixed(2)}, at most ${policy.max}`
 }
 
 /** What the message got: the skills suggested, then those for the person to start. */
@@ -221,4 +440,14 @@ function statusText(suggest: readonly SkillPick[], hint: readonly SkillPick[]): 
     ...(hint.length > 0 ? [`try ${hint.map((skill) => `/${skill.name}`).join(' ')}`] : []),
   ]
   return parts.length > 0 ? parts.join(' | ') : null
+}
+
+/** When a stored profile was written; 0 when the value does not say. */
+function writtenAt(value: unknown): number {
+  const at = typeof value === 'object' && value !== null ? (value as { at?: unknown }).at : undefined
+  return typeof at === 'number' && Number.isFinite(at) ? at : 0
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

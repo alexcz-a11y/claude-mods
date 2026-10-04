@@ -95,6 +95,26 @@ declare module 'claude-code' {
         at: number
       }>
       /**
+       * Failed tool calls piling up in one loop (#7), id `main` for the main
+       * agent (its counts are those of the turn `turnId`; a new turn starts them
+       * afresh) or the agentId of a dispatched or workflow agent (counted for as
+       * long as it lives). Written by features/escalation.ts only.
+       */
+      escalation: StateFamily<{
+        /** The main turn the counts belong to; '' for an agent. */
+        turnId: string
+        /** Tool calls that failed since the loop began (hook blocks and the person's refusals not counted). */
+        failures: number
+        /** Tool calls a hook refused. */
+        hookBlocks: number
+        /** What escalating (or deciding the failures were expected) has already dealt with: the counts at that moment. */
+        base: { failures: number; hookBlocks: number }
+        /** Forced raises so far (an expected-failure verdict is not one). */
+        raises: number
+        /** The step a stuck re-decision was last made for; null before the first. */
+        askedAt: number | null
+      }>
+      /**
        * The person's own words this turn, masked and clipped, oldest first: the
        * last message they sent while the session was idle, then the ones they
        * typed while its turn ran (at most 8). A dispatched agent's decision reads
@@ -173,11 +193,25 @@ declare module 'claude-code' {
       /**
        * The session's skills (hooks/core/skills.ts `CatalogSkill`), read once
        * per session (#10; #11 reads it too). find_skill (#12) reads it, and
-       * reads and keeps it itself when the skills feature did not. null: read
-       * it again.
+       * reads and keeps it itself when the skills feature did not. `file` is
+       * the SKILL.md (or command file) found on disk, null when none (a
+       * built-in skill); `profileKey` the store key of its profile (#11,
+       * core/profiles.ts), `profile` that profile once written (null until
+       * then). null: read it again.
        */
       skillCatalog: {
-        skills: { name: string; description: string; by: 'model' | 'person'; source: string }[]
+        skills: {
+          name: string
+          description: string
+          by: 'model' | 'person'
+          source: string
+          file: string | null
+          profileKey?: string | null
+          profile?: {
+            en: { what: string; use_when: string; not_for: string }
+            zh: { what: string; use_when: string; not_for: string }
+          } | null
+        }[]
       } | null
       /**
        * How the skills feature answered the main agent's skill listing, which

@@ -17,7 +17,7 @@
 
 import type { HttpInit, On } from 'claude-code'
 import { messageText, turnStartState } from '../decision/context.ts'
-import { answersFor, mergeParts } from '../decision/system-one.ts'
+import { answersFor, mergeParts, type State } from '../decision/system-one.ts'
 import type { Asked } from '../decision/backend.ts'
 import { collect, type Contribution, type PartOutcome } from './ballot.ts'
 import { newTurn, planStep, takePending, turnKey, update, type Cell, type PendingDecision } from './plans.ts'
@@ -42,8 +42,10 @@ export function registerCore(on: On, ctx: Ctx): void {
     const startedAt = await $.clock.now()
     const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
     let asked: Asked
+    let state: State = {}
     try {
       const request = mergeParts(turnStartState({ prompt: e.text, messages, limits: ctx.config.context }), ballot)
+      state = request.state
       const io = {
         fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
         sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
@@ -55,7 +57,7 @@ export function registerCore(on: On, ctx: Ctx): void {
     }
     const ms = (await $.clock.now()) - startedAt
     $.ui.log(`request [${ids}] to ${ctx.backend.name}: ${describeAsked(asked, ms)}`, { to: 'debug' })
-    const blocks = await settleAll(ballot, asked)
+    const blocks = await settleAll(ballot, asked, state)
     entering.push(e.text)
     try {
       return await next(blocks.length > 0 ? { ...e, context: [...(e.context ?? []), ...blocks] } : e)
@@ -107,10 +109,10 @@ function describeAsked(asked: Asked, ms: number): string {
 }
 
 /** Hands each part its outcome (in parallel) and gathers the context blocks they return, in ballot order. */
-async function settleAll(ballot: readonly Contribution[], asked: Asked): Promise<string[]> {
+async function settleAll(ballot: readonly Contribution[], asked: Asked, state: State): Promise<string[]> {
   const settled = await Promise.all(
     ballot.map(async (contribution) => {
-      const outcome: PartOutcome = asked.ok ? { ok: true, answers: answersFor(contribution, asked.answers) } : { ok: false, failure: asked.failure }
+      const outcome: PartOutcome = asked.ok ? { ok: true, answers: answersFor(contribution, asked.answers), state } : { ok: false, failure: asked.failure }
       try {
         return (await contribution.settle(outcome)) ?? []
       } catch {

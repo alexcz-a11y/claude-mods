@@ -211,7 +211,63 @@ return unit
   expect(w.reached.map((r) => r.script)).toEqual([checks.replace("model: 'sonnet' }", "model: 'haiku' }")])
 })
 
-test("in return mode the first submission is refused with each agent's recommendation, worded as the instruction it is; the same Workflow submitted again runs as written, and asks nothing", { options: { ...KEY, workflowMode: 'return' } }, async ($, on) => {
+test("an effort the person asks for is written into the agent() calls it covers, over the script's own (a level it wrote or works out when it runs) and the decided one; the call it does not cover keeps its decided effort", { options: KEY }, async ($, on) => {
+  const scope = `export const meta = { name: 'scope', description: 'Rename, review, then scan', phases: [] }
+const a = await agent('Rename getUser to fetchUser across src/api and run pnpm test api.', { label: 'rename', effort: 'low' })
+const b = await agent('Review the diff of src/policies/document.ts for permission regressions and report the risky edge cases.', { label: 'review', effort: levelFor(item) })
+const c = await agent('Review the diff of src/billing/invoice.ts for rounding errors and report the risky edge cases.', { label: 'billing' })
+return [a, b, c]
+`
+  // The person asked for high on the first two steps (the words say which); the decision model reads that into calls 0 and 1.
+  const w = workflowWorld($, on, {
+    backend: siteJev((i) => ({
+      model: { haiku: 0.02, sonnet: i === 0 ? 0.9 : 0.08, opus: i === 0 ? 0.08 : 0.9 },
+      effort: [0, 0, 0.1, 0.8, 0.1],
+      namedEffort: i < 2 ? { none: 0.02, high: 0.97 } : { none: 0.95, high: 0.05 },
+    })),
+  })
+  await w.submit('改名和第一个审查都把 effort 开到 high，最后那个按你的判断来')
+  const result = await w.workflow({ script: scope })
+
+  expect(Object.keys(w.requests[1]?.body.questions)).toContain('agent-1.named_effort')
+  expect(w.reached.map((r) => r.script)).toEqual([
+    scope
+      .replace("effort: 'low' }", "effort: 'high', model: 'sonnet' }")
+      .replace('effort: levelFor(item) }', "effort: 'high', model: 'opus' }")
+      .replace("{ label: 'billing' }", "{ label: 'billing', model: 'opus', effort: 'xhigh' }"),
+  ])
+  const told = (result.context ?? []).join('\n')
+  expect(told).toContain('"rename": sonnet high (model: decided, confidence 0.85; effort: you asked for it)')
+  expect(told).toContain('"billing": opus xhigh (model: decided, confidence 0.85; effort: p 0.80)')
+})
+
+test('a call that goes to haiku takes no effort even when the person asked for one: the script is not given it, and the main agent is told why', { options: KEY }, async ($, on) => {
+  const scan = `export const meta = { name: 'scan', description: 'List the files that import legacyAuth', phases: [] }
+const files = await agent('List every file under src/ that imports legacyAuth. Report file:line only.', { label: 'scan', effort: 'low' })
+return files
+`
+  const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 0.9, sonnet: 0.08, opus: 0.02 }, effort: [1, 0, 0, 0, 0], namedEffort: { none: 0, xhigh: 1 } })) })
+  await w.submit('所有 agent 的 effort 都用 xhigh')
+  const result = await w.workflow({ script: scan })
+
+  expect(w.reached.map((r) => r.script)).toEqual([scan.replace("{ label: 'scan', effort: 'low' }", "{ label: 'scan', model: 'haiku' }")])
+  expect((result.context ?? []).join('\n')).toContain('"scan": haiku (model: decided, confidence 0.85; haiku takes no effort, so the xhigh you asked for is not set)')
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/effort xhigh asked for in your message, not set: haiku takes no effort/))
+})
+
+test("a model the person rules out is never written into a call, even when the answer puts all its probability on it: the nearest model left is", { options: KEY }, async ($, on) => {
+  const checks = `export const meta = { name: 'checks', description: 'Evaluate the queue migration', phases: [] }
+const verdict = await agent('Evaluate whether it is worth moving the message queue from RabbitMQ to Kafka; compare three options and give the cost and risks.', { label: 'evaluate', model: 'opus' })
+return verdict
+`
+  const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { opus: 1 }, effort: [0, 0, 0, 1, 0], nouls: { 'banned.opus': 0.93 } })) })
+  await w.submit('这周额度快用完了，别用 opus')
+  await w.workflow({ script: checks })
+
+  expect(w.reached.map((r) => r.script)).toEqual([checks.replace("model: 'opus' }", "model: 'sonnet', effort: 'xhigh' }")])
+})
+
+test("in return mode the first submission is refused with each agent's recommendation, worded as the instruction it is; the same Workflow submitted again runs as written, and asks nothing",{ options: { ...KEY, workflowMode: 'return' } }, async ($, on) => {
   const w = workflowWorld($, on, {
     backend: siteJev((i) =>
       i === 0
