@@ -7,7 +7,7 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, join, relative, resolve } from 'node:path'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { isKind, parseJsonl, type Kind } from './lib/datasets.ts'
 
@@ -17,6 +17,12 @@ export const EVAL_DIR = join(MOD_DIR, 'eval')
 export const DATASETS_DIR = join(EVAL_DIR, 'datasets')
 export const REVIEW_DIR = join(EVAL_DIR, 'review')
 export const RESULTS_DIR = join(EVAL_DIR, 'results')
+
+/** A path as the scripts print it: relative to the mod when inside it. */
+export function shown(path: string): string {
+  const inside = relative(MOD_DIR, path)
+  return inside.startsWith('..') ? path : inside
+}
 
 /** A dataset named by its kind (`effort-submit`) or by a path to its JSONL; the kind is the file's name. */
 export function datasetFile(nameOrPath: string): { kind: Kind; path: string } {
