@@ -64,6 +64,10 @@ _Avoid_: skill 库、候选池
 用户发消息时，决策模型从 skill 目录里挑出与这条消息相关的几个 skill，连同名字、描述和相关度附在消息后面交给主 agent。只能由用户触发的 skill 不推荐给主 agent，只在状态行提示用户。
 _Avoid_: skill 注入、skill 建议
 
+**skill 查询（find_skill）**：
+主 agent 在一轮中途调用 `find_skill` 工具，用几个词说明要做的工作，决策模型用和 skill 推荐相同的排序从 skill 目录里挑出相关的 skill，连同名字、描述和相关度作为工具的回答返回。只在被调用时回答，从不主动推送；只能由用户触发的 skill 不返回。
+_Avoid_: skill 搜索、按需推荐
+
 **相关度（Relevance）**：
 一个 skill 与一条消息相符的程度，由决策模型给出，0 到 1。#10 用的是这个 skill 在「哪个 skill 最合适」这一个 Choice 问题里分到的概率，是相对值；#11 改为每个候选单独判断的绝对值。
 _Avoid_: 匹配度、分数

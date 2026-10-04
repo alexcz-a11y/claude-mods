@@ -28,6 +28,18 @@ const PERSON_FILES: Record<string, string> = {
   '/home/u/.claude/skills/grill-me/SKILL.md': '---\nname: grill-me\ndisable-model-invocation: true\n---\nAsk one question at a time.\n',
 }
 
+const PDF_DESCRIPTION = 'Use this skill whenever the user wants to do anything with PDF files: read, fill in forms, merge, split.'
+const REVIEW_DESCRIPTION = 'Review the changes since a fixed point along two axes: Standards and Spec.'
+/** How an answer that brings no skill ends. */
+const SKILL_TOOL_LINE = 'Carry on without it, or load a skill you know with the Skill tool by its exact name.'
+
+/** Jev's answer to whatever is asked: these shares of the skills question (effort medium, if asked). */
+function rates(shares: Record<string, number>) {
+  return jev([0, 1, 0, 0, 0], { shares: { 'skills.which': shares } })
+}
+
+// ---- Registration -------------------------------------------------------------
+
 test('at session start find_skill is registered: it takes a query, and its description names no skill and stays the same however the skills and switches change', { options: KEY }, async ($, on) => {
   const skills = { commands: [...SKILLS.commands], listed: [...SKILLS.listed] }
   const w = world($, on, { skills, disk: PERSON_FILES, session: true })
@@ -52,13 +64,7 @@ test('without a decision model find_skill is not registered: nothing could rate 
   expect(w.tools).toEqual([])
 })
 
-/** Jev's answer to whatever is asked: these shares of the skills question (effort medium, if asked). */
-function rates(shares: Record<string, number>) {
-  return jev([0, 1, 0, 0, 0], { shares: { 'skills.which': shares } })
-}
-
-const PDF_DESCRIPTION = 'Use this skill whenever the user wants to do anything with PDF files: read, fill in forms, merge, split.'
-const REVIEW_DESCRIPTION = 'Review the changes since a fixed point along two axes: Standards and Spec.'
+// ---- What it asks and what it answers -------------------------------------------
 
 test("find_skill's answer names the skills that fit, most relevant first, each by the name the Skill tool takes, with its relevance and description", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({ 'anthropic-skills:pdf': 0.7, 'code-review': 0.2, tdd: 0.02, '(none)': 0.08 }), skills: SKILLS, disk: PERSON_FILES })
@@ -102,6 +108,21 @@ test('find_skill asks the very question a message asks about the skills: the sam
   expect(w.requests[1]?.body.questions['skills.which']).toEqual(beside)
 })
 
+test('find_skill speaks only when called: the steps around the call ask nothing about skills, and its answer is the tool result alone', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ tdd: 0.8, '(none)': 0.2 }), skills: SKILLS, disk: PERSON_FILES })
+  await w.submit('先写一个失败的测试')
+  await w.step({ index: 0 })
+  const answer = await w.findSkill('write the tests first')
+  await w.step({ index: 1 })
+  await w.step({ index: 2 })
+
+  // The message's request, then the call's: none for the steps.
+  expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([['effort.level', 'skills.which'], ['skills.which']])
+  expect(answer.context).toBeUndefined()
+})
+
+// ---- How many come back -------------------------------------------------------
+
 test('findSkillMax caps how many skills come back, the most relevant first', { options: { ...KEY, findSkillMax: 1 } }, async ($, on) => {
   const w = world($, on, { backend: rates({ 'anthropic-skills:pdf': 0.5, 'code-review': 0.3, tdd: 0.15, '(none)': 0.05 }), skills: SKILLS, disk: PERSON_FILES })
   const answer = String((await w.findSkill('fill in a form in a PDF')).result)
@@ -117,6 +138,16 @@ test('findSkillMinRelevance is the relevance a skill needs to come back', { opti
   expect(answer).not.toContain('code-review')
 })
 
+test('when no skill reaches the bar the answer says so, and still points at the Skill tool', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ tdd: 0.06, '(none)': 0.94 }), skills: SKILLS, disk: PERSON_FILES })
+  const answer = await w.findSkill('rename a variable')
+  expect(answer.result).toBe(
+    'No skill fits "rename a variable": none reached relevance 0.10. Carry on without one, try other words for the work, or load a skill you know with the Skill tool by its exact name.',
+  )
+})
+
+// ---- Skills that never come back -------------------------------------------------
+
 test('a skill only the person can start never comes back to the main agent, even as the best fit', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({ 'grill-me': 0.55, 'code-review': 0.3, '(none)': 0.15 }), skills: SKILLS, disk: PERSON_FILES })
   const answer = String((await w.findSkill('poke holes in this plan')).result)
@@ -131,7 +162,7 @@ test('skills named in skillsNeverSuggested are neither asked about nor returned'
   expect(answer).not.toContain('code-review')
 })
 
-const SKILL_TOOL_LINE = 'Carry on without it, or load a skill you know with the Skill tool by its exact name.'
+// ---- Switches -------------------------------------------------------------------
 
 test('switched off (/dp find-skill off), find_skill says so when called and asks nothing; /dp lists its switch', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 1 }), skills: SKILLS, disk: PERSON_FILES })
@@ -160,6 +191,8 @@ test('find_skill has a switch of its own: with the suggestions off since an earl
   expect(Object.keys(w.requests[0]?.body.questions['skills.which'].criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:pdf', 'grill-me', '(none)'])
   expect(answer).toContain('\n- tdd (relevance 0.80): ')
 })
+
+// ---- Failures: answered at once, never blocking -----------------------------------
 
 test('a failed decision request: find_skill answers at once that it could not rate the skills, and why; the status line reports it', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: () => ({ status: 503, body: 'overloaded' }), skills: SKILLS, disk: PERSON_FILES })
@@ -208,6 +241,8 @@ test('an error of its own still gets the main agent an answer, and the status li
   expect(w.logs[0]?.text).toContain('state store unavailable')
 })
 
+// ---- The status line and the logs -------------------------------------------------
+
 test('the status line names what find_skill returned last, which takes the place of an earlier failure', { options: KEY }, async ($, on) => {
   const w = world($, on, {
     backend: (request, n) => (n === 1 ? { status: 503, body: 'overloaded' } : rates(n === 2 ? { 'anthropic-skills:pdf': 0.7, 'code-review': 0.2, '(none)': 0.1 } : { '(none)': 1 })(request)),
@@ -239,6 +274,8 @@ test('each call goes to the debug log (its request, what it returned and why) an
   expect((await w.command('dp', 'log')).split('\n')).toEqual(['the last decision, newest last', `#1 find-skill: ${decision}`])
 })
 
+// ---- Calls it does not rate -------------------------------------------------------
+
 test("a dispatched agent's call is pointed at its own skill listing, which the mod leaves whole; nothing is asked", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 1 }), skills: SKILLS, disk: PERSON_FILES })
   const answer = await w.findSkill('write the tests first', { agentId: 'a1' })
@@ -263,25 +300,4 @@ test('a session with no skill to offer: find_skill says so and asks nothing', { 
 
   expect(answer.result).toBe(`This session has no skill that find_skill could return. ${SKILL_TOOL_LINE}`)
   expect(w.requests).toHaveLength(0)
-})
-
-test('find_skill speaks only when called: the steps around the call ask nothing about skills, and its answer is the tool result alone', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ tdd: 0.8, '(none)': 0.2 }), skills: SKILLS, disk: PERSON_FILES })
-  await w.submit('先写一个失败的测试')
-  await w.step({ index: 0 })
-  const answer = await w.findSkill('write the tests first')
-  await w.step({ index: 1 })
-  await w.step({ index: 2 })
-
-  // The message's request, then the call's: none for the steps.
-  expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([['effort.level', 'skills.which'], ['skills.which']])
-  expect(answer.context).toBeUndefined()
-})
-
-test('when no skill reaches the bar the answer says so, and still points at the Skill tool', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ tdd: 0.06, '(none)': 0.94 }), skills: SKILLS, disk: PERSON_FILES })
-  const answer = await w.findSkill('rename a variable')
-  expect(answer.result).toBe(
-    'No skill fits "rename a variable": none reached relevance 0.10. Carry on without one, try other words for the work, or load a skill you know with the Skill tool by its exact name.',
-  )
 })

@@ -64,7 +64,9 @@ declare module 'claude-code' {
       skillsShown: string[]
       /**
        * The session's skills (hooks/core/skills.ts `CatalogSkill`), read once
-       * per session (#10; #11 and #12 read it too). null: read it again.
+       * per session (#10; #11 reads it too). find_skill (#12) reads it, and
+       * reads and keeps it itself when the skills feature did not. null: read
+       * it again.
        */
       skillCatalog: {
         skills: { name: string; description: string; by: 'model' | 'person'; source: string }[]
