@@ -61,6 +61,18 @@
       "title": "Threshold for max effort",
       "description": "The main agent goes to max only when the decision model gives max at least this probability (0 to 1); otherwise it gets the most likely of the other levels.",
       "default": 0.5
+    },
+    "agentFable": {
+      "type": "boolean",
+      "title": "Let dispatched agents run on fable",
+      "description": "Adds fable to the models the decision model may choose for an agent the main agent dispatches (haiku, sonnet and opus otherwise). Fable costs more than opus. A model you name yourself in your message is used either way.",
+      "default": false
+    },
+    "agentOverride": {
+      "type": "number",
+      "title": "Confidence to override the main agent's model pick",
+      "description": "When the main agent names a model for an agent it dispatches, the decision model's pick replaces it only at this confidence or above (0 to 1). A model you name yourself in your message is never replaced.",
+      "default": 0.6
     }
   }
 }

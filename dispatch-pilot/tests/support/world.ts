@@ -83,6 +83,23 @@ export type StepOptions = {
   agentId?: string
 }
 
+/** One agent.spawn as it reached the engine, after every hook of the mod. */
+export type Spawned = { tool_use_id: string; model: string | undefined; subagentType: string; description: string; prompt: string }
+
+export type SpawnOptions = {
+  /** The task the main agent wrote for the agent (the Agent tool's `prompt`). */
+  prompt: string
+  description?: string
+  /** `general-purpose` by default. */
+  subagentType?: string
+  /** The Agent tool's `model` parameter: the main agent's pick; absent leaves it to the engine. */
+  model?: string
+  /** A fork of the parent (it always inherits the parent's model). */
+  fork?: boolean
+  /** A teammate of the session's team. */
+  isTeammate?: true
+}
+
 export type World = ReturnType<typeof world>
 
 export function world($: Engine, on: On, options: WorldOptions = {}) {
@@ -93,6 +110,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const steps: Step[] = []
   const prompts: { text: string; context: readonly string[] | undefined; origin: unknown }[] = []
   const turnIds: string[] = []
+  const spawned: Spawned[] = []
+  let calls = 0
   const disk = options.disk ?? {}
   const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
   const commands: CommandSpec[] = []
@@ -169,6 +188,13 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     return { text, context: e.context }
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  // The engine at the bottom of agent.spawn: it starts the agent on the model
+  // it is handed (the parent's when none) and names it a1, a2, ... in the
+  // order the spawns reach it.
+  on('agent.spawn', (_$, e) => {
+    spawned.push({ tool_use_id: e.tool_use_id, model: e.model, subagentType: e.subagentType, description: e.description, prompt: e.prompt })
+    return { model: e.model ?? e.parentModel, agentId: `a${spawned.length}` }
+  })
   on('turn.step', async function* (_$, e) {
     steps.push({ turnId: e.turnId, index: e.index, model: e.model, effort: e.effort, agentId: e.agentId })
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use' as const, usage: null }
@@ -182,6 +208,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     steps,
     prompts,
     turnIds,
+    spawned,
     commands,
     /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */
     stored: (key: string): unknown => (store.has(key) ? JSON.parse(store.get(key) as string) : undefined),
@@ -202,6 +229,20 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       await $.turn.start({ text, turnId })
       return turnId
     },
+    /** The main agent calls the Agent tool: resolves to the started agent's `{ model, agentId }`, or `{ deny }`. */
+    spawn: (spawn: SpawnOptions) =>
+      $.agent.spawn({
+        tool_use_id: `toolu_${++calls}`,
+        provider: { plugin: 'engine', tier: 'core' },
+        parentModel: 'claude-opus-5-5',
+        background: false,
+        fork: spawn.fork ?? false,
+        prompt: spawn.prompt,
+        description: spawn.description ?? 'task',
+        subagentType: spawn.subagentType ?? 'general-purpose',
+        ...(spawn.model !== undefined ? { model: spawn.model } : {}),
+        ...(spawn.isTeammate ? { isTeammate: true as const } : {}),
+      }),
     /** The session starts (needs `session`): the mod sets itself up and registers its commands. */
     start: () => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true }),
     /** The engine reports the session's context, limits and cost (needs `session`). */
