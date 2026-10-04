@@ -3,6 +3,7 @@
 // line out).
 
 import { expect, test } from 'claude-code/testing'
+import { estimateTokens } from '../hooks/decision/context.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { midturnEffortPart, midturnState, type MidturnInput } from '../hooks/decision/midturn.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
@@ -71,6 +72,18 @@ test("the re-decision reads the turn's message, the step it is for, the level an
   expect(sent).not.toContain('File does not exist')
 })
 
+test('rejudgeSteps sets how many of the latest steps the re-decision reads; contextTokens bounds the whole state', { options: { ...KEY, rejudgeSteps: 2, contextTokens: 300 } }, async ($, on) => {
+  const w = world($, on, { backend: answers(MEDIUM, { levels: MEDIUM }) })
+  await w.submit('把会话模块的过期逻辑彻底查清楚')
+  await w.step(working(0))
+  await w.step(working(1))
+  await w.step(working(2)) // its call starts the re-decision for step 3
+
+  const state = w.requests[1]?.body.state
+  expect((state.recent_steps as { assistant_text: string }[]).map((s) => s.assistant_text)).toEqual(['第 1 步', '第 2 步'])
+  expect(estimateTokens(JSON.stringify(state))).toBeLessThanOrEqual(300)
+})
+
 test('going down needs a surer answer (thetaDown) than going up, and goes one level at a time', { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {
   const w = world($, on, {
     backend: answers([0, 0, 0, 1, 0], { levels: LOW, confidence: 0.5 }, { levels: LOW, confidence: 0.8 }, { levels: LOW, confidence: 0.8 }),
@@ -129,6 +142,18 @@ test('dispatching an agent, loading a skill or starting a Workflow re-decides th
     { name: 'Workflow', result: '进行中：fix-flaky-tests' },
   ])
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'xhigh', 'xhigh', 'xhigh'])
+})
+
+test('one re-decision per step, however many of its calls are reasons; each request is written to the debug log', { options: { ...KEY, rejudgeEvery: 0 } }, async ($, on) => {
+  const w = world($, on, { backend: answers(MEDIUM, { levels: XHIGH, confidence: 0.8 }) })
+  await w.submit('派两个 agent 分头查前端和后端')
+  await w.step({ index: 0, tools: [{ tool: 'Agent', input: { description: '查前端' } }, { tool: 'Agent', input: { description: '查后端' } }] })
+  await w.step({ index: 1 })
+
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level'])
+  expect(w.logs.filter((l) => l.text.startsWith('request [midturn.level]')).map((l) => `${String(l.to)}: ${l.text}`)).toEqual([
+    'debug: request [midturn.level] for step 1 (Agent) to jev: answered in 0 ms by jev-1.13.0 (300 input tokens)',
+  ])
 })
 
 test('an answer not back by its step: the step waits rejudgeWaitMs, keeps the effort it had and says so; the answer is used once it comes', { options: { ...KEY, rejudgeEvery: 2, rejudgeWaitMs: 300 } }, async ($, on) => {

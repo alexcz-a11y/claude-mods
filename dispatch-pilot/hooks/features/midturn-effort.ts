@@ -93,10 +93,19 @@ type Starting = { name: string; detail: string }
 
 /**
  * A re-decision on its way: asked for step `forStep` (`reason` says why);
- * `answer` never rejects. `atLeast`: the level a demand asked for, until
- * applied; `demand`: that demand's `at`.
+ * `answer` never rejects, and once it resolves `settled` holds it and `ms`
+ * how long it took. `atLeast`: the level a demand asked for, until applied;
+ * `demand`: that demand's `at`.
  */
-type InFlight = { forStep: number; reason: string; sentAt: number; answer: Promise<Asked>; settled: Asked | null; atLeast: Effort | null; demand: number | null }
+type InFlight = {
+  forStep: number
+  reason: string
+  answer: Promise<Asked>
+  settled: Asked | null
+  ms: number
+  atLeast: Effort | null
+  demand: number | null
+}
 /** Re-decisions on their way, by turn key. Promises cannot live in $.state: a reload drops them (the step then keeps its effort). */
 const inFlight = new Map<string, InFlight>()
 /** The text of the main step streaming now, by turn key. */
@@ -120,7 +129,7 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
       thetaMax: ctx.config.thetaMax,
       holdSteps: Math.round(numberIn(ctx.options.holdSteps, 0, 50, 3)),
     },
-    limits: { steps: 4, tokens: ctx.config.context.tokens },
+    limits: { steps: Math.round(numberIn(ctx.options.rejudgeSteps, 1, 16, 4)), tokens: ctx.config.context.tokens },
   }
 
   // Wraps the PreToolUse settings hooks (they run beneath, as this event's core) to see which calls they refuse.
@@ -242,17 +251,20 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
     sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
   }
+  const asking = s.ctx.backend.ask(io, request, s.ctx.config.timeoutMs)
   const entry: InFlight = {
     forStep: upcoming,
     reason,
-    sentAt,
-    answer: s.ctx.backend.ask(io, request, s.ctx.config.timeoutMs),
+    answer: asking,
     settled: null,
+    ms: 0,
     atLeast: higherEffort(demand?.atLeast ?? null, flying?.forStep === upcoming ? flying.atLeast : null),
     demand: demand?.at ?? flying?.demand ?? null,
   }
-  void entry.answer.then((answered) => {
+  entry.answer = asking.then(async (answered) => {
+    entry.ms = (await $.clock.now()) - sentAt
     entry.settled = answered
+    return answered
   })
   inFlight.set(key, entry)
   const ref = { ...MIDTURN, id: key }
@@ -280,7 +292,10 @@ async function settle($: EngineInterface, s: Settings, e: { index: number; effor
     asked = await Promise.race([pending.answer, timer])
     stop.abort()
   }
-  if (asked !== null) inFlight.delete(key)
+  if (asked !== null) {
+    inFlight.delete(key)
+    $.ui.log(`request [midturn.${MIDTURN_LEVEL}] for step ${pending.forStep} (${pending.reason}) to ${s.ctx.backend.name}: ${describeAsked(asked, pending.ms)}`, { to: 'debug' })
+  }
   const engine = isEffort(e.effort) ? e.effort : null
   const [{ value: turn }, { value: record }, { value: lock = null }] = await Promise.all([
     $.state.get({ ...TURNS, id: key }),
@@ -404,6 +419,14 @@ function decided(record: TurnRecord, current: Effort, next: Effort): TurnRecord 
 /** The turn's record lifted to `next` with no decision behind it (a demand's level, its answer missing): a change, not a decision. */
 function moved(record: TurnRecord, current: Effort, next: Effort): TurnRecord {
   return { ...revise({ ...record, effort: current }, next), decisions: record.decisions }
+}
+
+/** A request's outcome for the debug log, as the core writes its own. */
+function describeAsked(asked: Asked, ms: number): string {
+  if (!asked.ok) return `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)`
+  const by = asked.model === null ? '' : ` by ${asked.model}`
+  const tokens = asked.inputTokens === null ? '' : ` (${asked.inputTokens} input tokens)`
+  return `answered in ${ms} ms${by}${tokens}`
 }
 
 /** Every level's probability and the backend's confidence, for the decision log. */

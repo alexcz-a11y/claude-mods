@@ -7,7 +7,7 @@
 // `recent_steps`), field for field, so the eval (#14) builds exactly the
 // request the mod sends from a dataset row (spec #67).
 
-import { clipToTokens, messageText } from './context.ts'
+import { clipToTokens, estimateTokens, messageText } from './context.ts'
 import { DEFAULT_ASK, EFFORTS, effortQuestion, pickEffort, type Effort, type EffortAsk, type EffortReading, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import type { Part, State } from './system-one.ts'
@@ -128,21 +128,56 @@ export type MidturnLimits = {
 /** Which optional fields the state shows: eval variables (guide §4.1, §6 item 7), shown by default as the spec asks. */
 export type MidturnShow = { currentEffort?: boolean; counts?: boolean }
 
+/** A step's text keeps at most this many tokens, most of them from its end (what the agent is about to do). */
+const STEP_TEXT_TOKENS = 120
+/** A step's text cut to fit keeps this share of its budget for its end. */
+const STEP_TAIL = 0.75
+/** A tool's line keeps at most this many tokens. */
+const RESULT_TOKENS = 80
+
 /**
  * The state of a mid-turn decision request:
  * `{ user_message, trouble?, step, current_effort, counts, recent_steps }`,
- * the message first (Clef may read only the start of a state).
+ * the message first (Clef may read only the start of a state). Secrets are
+ * masked everywhere. The message takes at most half of `limits.tokens`; the
+ * latest `limits.steps` steps fill what is left, newest first, an older step
+ * dropped whole rather than squeezed; the newest always goes, its text cut to
+ * fit. A dataset row short enough goes as it is.
  */
 export function midturnState(input: MidturnInput, limits: MidturnLimits, show: MidturnShow = {}): State {
-  const message = messageText(input.message, Math.floor(limits.tokens / 2))
-  const steps = input.recent_steps.slice(-Math.max(1, limits.steps))
-  return {
-    user_message: message,
+  const head = {
+    user_message: messageText(input.message, Math.floor(limits.tokens / 2)),
     ...(input.trouble ? { trouble: input.trouble } : {}),
     step: input.step,
     ...(show.currentEffort === false ? {} : { current_effort: input.current_effort }),
     ...(show.counts === false ? {} : { counts: input.counts }),
-    recent_steps: steps,
+  }
+  let room = limits.tokens - estimateTokens(JSON.stringify({ ...head, recent_steps: [] }))
+  const steps = input.recent_steps.slice(-Math.max(1, limits.steps)).map(cleanStep)
+  const kept: MidturnStep[] = []
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i] as MidturnStep
+    const size = estimateTokens(JSON.stringify(step)) + 1
+    if (size <= room) {
+      kept.unshift(step)
+      room -= size
+      continue
+    }
+    if (kept.length === 0) {
+      const bare = estimateTokens(JSON.stringify({ ...step, assistant_text: '' })) + 1
+      kept.unshift({ ...step, assistant_text: clipToTokens(step.assistant_text, room - bare, STEP_TAIL) })
+    }
+    break
+  }
+  return { ...head, recent_steps: kept }
+}
+
+/** A step as it goes: whitespace collapsed, secrets masked, its text and each tool's line cut to their caps. */
+function cleanStep(step: MidturnStep): MidturnStep {
+  const clean = (text: string, tokens: number, tail = 0) => clipToTokens(redactSecrets(text.replace(/\s+/g, ' ').trim()), tokens, tail)
+  return {
+    assistant_text: clean(step.assistant_text, STEP_TEXT_TOKENS, STEP_TAIL),
+    tools: step.tools.map((tool) => ({ name: tool.name, result: clean(tool.result, RESULT_TOKENS) })),
   }
 }
 

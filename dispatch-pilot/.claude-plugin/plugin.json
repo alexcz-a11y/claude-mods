@@ -86,6 +86,12 @@
       "description": "After a re-decision raises the effort, it does not lower it again for this many steps (0 to 50).",
       "default": 3
     },
+    "rejudgeSteps": {
+      "type": "number",
+      "title": "Recent steps read when re-deciding",
+      "description": "How many of the turn's latest steps the decision model reads when it re-decides (1 to 16): the main agent's last text and the tools it called with how each ended, never file contents or tool output, secrets masked. The context budget bounds them too.",
+      "default": 4
+    },
     "rejudgeWaitMs": {
       "type": "number",
       "title": "Wait for a late re-decision (ms)",
