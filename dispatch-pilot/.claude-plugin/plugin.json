@@ -120,7 +120,7 @@
       "type": "number",
       "title": "Least relevance to suggest",
       "description": "The relevance a skill needs to be suggested (0 to 1): how likely the decision model judges that the skill does the kind of work the message asks for, each skill judged on its own after its instructions are re-read.",
-      "default": 0.2
+      "default": 0.7
     },
     "skillsShortlist": {
       "type": "number",
@@ -164,7 +164,7 @@
       "type": "number",
       "title": "Least relevance find_skill returns",
       "description": "The relevance a skill needs for find_skill to return it (0 to 1): how likely the decision model judges that the skill does the kind of work the main agent names, each skill judged on its own after its instructions are re-read.",
-      "default": 0.3
+      "default": 0.5
     }
   }
 }

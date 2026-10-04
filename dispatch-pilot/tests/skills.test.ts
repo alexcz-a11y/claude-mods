@@ -379,7 +379,7 @@ test('each decision about the skills goes to the decision log (/dp log) and the 
   // What the first stage put forward (its shares), how each fits on its own (the second stage), the bar.
   const first = 'suggested tdd, code-review for "先写一个失败的测试再实现登录限流": first tdd 0.62, code-review 0.23, none 0.14; fits tdd 0.97, code-review 0.41; suggested from 0.20, at most 3'
   const second = 'suggested no skill; try /grill-me for "这个方案往死里挑刺": first grill-me 0.40, none 0.60; fits grill-me 0.93; suggested from 0.20, at most 3'
-  const third = 'suggested no skill for "这个报错什么意思": first none 0.98; no skill rated 0.05 or more; suggested from 0.20, at most 3'
+  const third = 'suggested no skill for "这个报错什么意思": first none 0.98; no skill rated 0.10 or more; suggested from 0.20, at most 3'
   expect(w.logs.filter((log) => log.text.startsWith('suggested '))).toEqual([
     { text: first, to: 'debug' },
     { text: second, to: 'debug' },

@@ -103,7 +103,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
   const neverSuggested = new Set(namesOf(ctx.options.skillsNeverSuggested))
   const policy: SkillPolicy = {
     max: Math.round(numberIn(ctx.options.findSkillMax, 1, 10, 5)),
-    minRelevance: numberIn(ctx.options.findSkillMinRelevance, 0, 1, 0.3),
+    minRelevance: numberIn(ctx.options.findSkillMinRelevance, 0, 1, 0.5),
   }
   /** How the mod's ranker ranks: the settings it rates the skills beside each message with. */
   const rankBy = rankingSettings(ctx)

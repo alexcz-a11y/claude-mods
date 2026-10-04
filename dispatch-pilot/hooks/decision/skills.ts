@@ -352,9 +352,13 @@ export type RankerSettings = {
 
 /**
  * Stage one must rate a skill at least this share to be re-read: below it,
- * the message most likely needs no skill, and no second request is sent.
+ * the message most likely needs no skill, and no second request is sent (it
+ * would add its latency to the message's wait). Measured with the real Jev on
+ * the person's 87 skills (2026-10-04): every skill a message needed got 0.34
+ * or more; messages that needed none spread at most 0.10 over a skill, unless
+ * stage one picked one outright (and stage two then judged it).
  */
-export const SHORTLIST_FLOOR = 0.05
+export const SHORTLIST_FLOOR = 0.1
 /** Clef answers at most 64 questions a request: stage two asks one per candidate and one Choice. */
 export const MAX_SHORTLIST = 63
 

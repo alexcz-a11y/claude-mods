@@ -67,7 +67,7 @@ test('without a decision model find_skill is not registered: nothing could rate 
 
 test("find_skill's answer names the skills that fit, most relevant first, each by the name the Skill tool takes, with its relevance and description", { options: KEY }, async ($, on) => {
   const w = world($, on, {
-    backend: rates({ 'anthropic-skills:pdf': 0.7, 'code-review': 0.2, tdd: 0.02, '(none)': 0.08 }, { 'anthropic-skills:pdf': 0.93, 'code-review': 0.41 }),
+    backend: rates({ 'anthropic-skills:pdf': 0.7, 'code-review': 0.2, tdd: 0.02, '(none)': 0.08 }, { 'anthropic-skills:pdf': 0.93, 'code-review': 0.61 }),
     skills: SKILLS,
     disk: PERSON_FILES,
   })
@@ -77,7 +77,7 @@ test("find_skill's answer names the skills that fit, most relevant first, each b
     [
       'Skills that fit "fill in a form in a PDF", rated by Dispatch Pilot’s decision model (relevance 0 to 1), most relevant first. Load one with the Skill tool by its exact name if it fits the work:',
       `- anthropic-skills:pdf (relevance 0.93): ${PDF_DESCRIPTION}`,
-      `- code-review (relevance 0.41): ${REVIEW_DESCRIPTION}`,
+      `- code-review (relevance 0.61): ${REVIEW_DESCRIPTION}`,
     ].join('\n'),
   )
 })
@@ -152,7 +152,7 @@ test('when no skill reaches the bar the answer says so, and still points at the 
   const w = world($, on, { backend: rates({ tdd: 0.06, '(none)': 0.94 }, { tdd: 0.04 }), skills: SKILLS, disk: PERSON_FILES })
   const answer = await w.findSkill('rename a variable')
   expect(answer.result).toBe(
-    'No skill fits "rename a variable": none reached relevance 0.30. Carry on without one, try other words for the work, or load a skill you know with the Skill tool by its exact name.',
+    'No skill fits "rename a variable": none reached relevance 0.50. Carry on without one, try other words for the work, or load a skill you know with the Skill tool by its exact name.',
   )
 })
 
@@ -279,7 +279,7 @@ test('the status line names what find_skill returned last, which takes the place
 test('each call goes to the debug log (its requests, what it returned and why) and its decision to /dp log, never into the conversation', { options: KEY }, async ($, on) => {
   const w = world($, on, {
     backend: (request, n) =>
-      n <= 2 ? rates({ 'anthropic-skills:pdf': 0.7, 'code-review': 0.2, tdd: 0.02, '(none)': 0.08 }, { 'anthropic-skills:pdf': 0.93, 'code-review': 0.41 })(request) : { status: 500, body: 'boom' },
+      n <= 2 ? rates({ 'anthropic-skills:pdf': 0.7, 'code-review': 0.2, tdd: 0.02, '(none)': 0.08 }, { 'anthropic-skills:pdf': 0.93, 'code-review': 0.61 })(request) : { status: 500, body: 'boom' },
     skills: SKILLS,
     disk: PERSON_FILES,
   })
@@ -288,7 +288,7 @@ test('each call goes to the debug log (its requests, what it returned and why) a
 
   // What each stage said: the first request's shares of the skills it put forward, the second's fits.
   const decision =
-    'found anthropic-skills:pdf, code-review for "fill in a form in a PDF": first anthropic-skills:pdf 0.70, code-review 0.20, none 0.08; fits anthropic-skills:pdf 0.93, code-review 0.41; returned from 0.30, at most 5'
+    'found anthropic-skills:pdf, code-review for "fill in a form in a PDF": first anthropic-skills:pdf 0.70, code-review 0.20, none 0.08; fits anthropic-skills:pdf 0.93, code-review 0.61; returned from 0.50, at most 5'
   expect(w.logs).toEqual([
     { text: 'request [skills.which] to jev for find_skill "fill in a form in a PDF": answered in 0 ms by jev-1.13.0 (300 input tokens)', to: 'debug' },
     { text: 'second request [skills.best, skills.fits.0, skills.fits.1] to jev for find_skill "fill in a form in a PDF": answered in 0 ms by jev-1.13.0 (300 input tokens)', to: 'debug' },
