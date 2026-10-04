@@ -57,6 +57,8 @@ export type Row<P> = {
   detail: Readonly<Record<string, unknown>> | null
   /** Latency of the answered attempts, summed over the item's requests; null when unanswered. */
   ms: number | null
+  /** Requests sent for the item, each counted once however often it was tried (more than one where a suite asks again: the skill suite's second stage). */
+  requests?: number
   attempts: number
   inputTokens: number | null
   /** The model that answered, as the response named it. */
@@ -109,6 +111,7 @@ async function answer<I extends AnyItem, P>(suite: Suite<I, P>, item: I, languag
     id: item.id,
     language,
     variant,
+    requests: sent.length,
     attempts: sent.reduce((sum, one) => sum + one.attempts, 0),
     inputTokens: answered.some((one) => one.asked.ok && one.asked.inputTokens !== null)
       ? answered.reduce((sum, one) => sum + (one.asked.ok ? (one.asked.inputTokens ?? 0) : 0), 0)

@@ -1,0 +1,1791 @@
+{
+  "about": {
+    "what": "Each skill's profile as the mod's profile writer keeps it in $.store (key: profileKey over the SKILL.md, the model alias and PROFILE_VERSION; value: { name, at, profile }), for the skills of skill-catalog.json. Written by eval/profiles.ts.",
+    "model": "haiku",
+    "answered_by": [
+      "claude-haiku-4-5-20251001"
+    ],
+    "profile_version": 1,
+    "written": "2026-10-04",
+    "how": "claude -p --model haiku --safe-mode --setting-sources project --tools \"\" --system-prompt-file <PROFILE_SYSTEM> --output-format json --no-session-persistence --settings '{\"enabledPlugins\":{\"jev-pilot@jev-pilot\":false},\"alwaysThinkingEnabled\":false}' --strict-mcp-config, MAX_THINKING_TOKENS=0, the profile prompt on stdin, in an empty directory",
+    "catalog_sha256": "edc1843df5be20782bbf8cc6b2ea10db5761fa7fd9f79f33f12bce956d4377ae"
+  },
+  "profiles": {
+    "profile.19a7a730cecbcc12cb954e1f41db": {
+      "name": "agents",
+      "at": 1791148298261,
+      "profile": {
+        "en": {
+          "what": "Build voice AI agents with natural conversations, tools, and workflows using ElevenLabs.",
+          "use_when": "Creating voice assistants, chatbots, customer service agents, configuring agent tools, procedures, or publishing agents.",
+          "not_for": "Text-only chatbots without voice, non-conversational AI, or services not using ElevenLabs."
+        },
+        "zh": {
+          "what": "使用ElevenLabs构建具有自然对话、工具和工作流的语音AI代理。",
+          "use_when": "创建语音助手、聊天机器人、客户服务代理、配置代理工具和程序或发布代理时。",
+          "not_for": "不需要语音的纯文本聊天机器人、非对话型AI或不使用ElevenLabs的服务。"
+        }
+      }
+    },
+    "profile.0d2fdca059a1e80746b1ce51eed6": {
+      "name": "code-review",
+      "at": 1791148298612,
+      "profile": {
+        "en": {
+          "what": "Review code changes against repo standards and spec requirements in parallel.",
+          "use_when": "User wants to review a branch, PR, or changes since a commit, tag, or merge-base.",
+          "not_for": "Linting or automated tooling; single-axis style checks; reviews without a fixed point."
+        },
+        "zh": {
+          "what": "按代码规范和需求规格并行审查代码变更。",
+          "use_when": "用户要求审查分支、拉取请求或某个提交/标签以来的变更。",
+          "not_for": "代码检查工具；单轴风格检查；无固定对比点的审查。"
+        }
+      }
+    },
+    "profile.15a89c7714388309748a3c768b8f": {
+      "name": "codebase-design",
+      "at": 1791148298036,
+      "profile": {
+        "en": {
+          "what": "Provides vocabulary and principles for designing deep modules with small interfaces and hidden complexity.",
+          "use_when": "User wants to design module interfaces, improve testability, find deepening opportunities, or decide where seams go.",
+          "not_for": "Implementation details, specific language features, or architectural patterns beyond module-level design."
+        },
+        "zh": {
+          "what": "提供深模块设计的术语和原则，用小接口隐藏复杂实现逻辑。",
+          "use_when": "用户需要设计模块接口、改进可测试性、找到深化机会或确定接缝位置。",
+          "not_for": "实现细节、特定语言特性或超出模块级设计范围的架构模式。"
+        }
+      }
+    },
+    "profile.1233802d012ac91180ac8fc159c1": {
+      "name": "diagnosing-bugs",
+      "at": 1791148298299,
+      "profile": {
+        "en": {
+          "what": "Systematic diagnosis of hard bugs and performance regressions through tight feedback loops.",
+          "use_when": "User reports something broken, failing, throwing errors, or running slow; asks to debug or diagnose.",
+          "not_for": "Feature requests, code reviews, refactoring, or general how-to questions."
+        },
+        "zh": {
+          "what": "通过紧密反馈循环系统诊断疑难 bug 和性能回退。",
+          "use_when": "用户报告代码崩溃、异常、失败或性能变慢；要求调试或诊断问题。",
+          "not_for": "功能需求、代码审查、重构或通用技术问题。"
+        }
+      }
+    },
+    "profile.11c737a4a9b79d11d71af187ee22": {
+      "name": "domain-modeling",
+      "at": 1791148303892,
+      "profile": {
+        "en": {
+          "what": "Build and refine a project's domain model through active terminology work.",
+          "use_when": "Discussing codebase terminology, creating or editing GLOSSARY.md, or writing ADRs.",
+          "not_for": "Passively reading existing glossaries or implementing code features."
+        },
+        "zh": {
+          "what": "通过主动术语工作来构建和完善项目的领域模型。",
+          "use_when": "讨论代码库术语、创建或编辑GLOSSARY.md、或编写ADR时使用。",
+          "not_for": "被动阅读现有词汇表或实现代码功能。"
+        }
+      }
+    },
+    "profile.18fdbb6b3471e405bd792253e93d": {
+      "name": "dubbing",
+      "at": 1791148304654,
+      "profile": {
+        "en": {
+          "what": "Dub audio and video into other languages while preserving original speaker voices.",
+          "use_when": "Translating videos, podcasts, or recordings into other languages; localizing media content; editing dubbing transcripts.",
+          "not_for": "Transcription, subtitle generation, voice cloning, or general audio editing."
+        },
+        "zh": {
+          "what": "使用ElevenLabs API将音频和视频配音成其他语言，保留原始说话者的声音。",
+          "use_when": "将视频、播客或录音翻译成其他语言；本地化媒体内容；编辑配音转录和翻译。",
+          "not_for": "语音识别、字幕生成、声音克隆或常规音频编辑。"
+        }
+      }
+    },
+    "profile.128401ea1647700abe3be83c9cb1": {
+      "name": "ego-browser",
+      "at": 1791148304265,
+      "profile": {
+        "en": {
+          "what": "Automates browser tasks like navigating websites, filling forms, clicking buttons, and extracting data.",
+          "use_when": "You need to open websites, interact with web apps, test web interfaces, or automate browser workflows.",
+          "not_for": "Non-browser tasks like file processing, calculations, or API calls without a web interface."
+        },
+        "zh": {
+          "what": "自动化浏览器任务，如导航网站、填写表单、点击按钮和提取数据。",
+          "use_when": "需要打开网站、与网络应用交互、测试网页界面或自动化浏览器工作流。",
+          "not_for": "非浏览器任务，如文件处理、计算或无网页界面的API调用。"
+        }
+      }
+    },
+    "profile.17c812cfb71eaa07dd77b4db9080": {
+      "name": "git-guardrails-claude-code",
+      "at": 1791148304466,
+      "profile": {
+        "en": {
+          "what": "Set up Claude Code hooks to block dangerous git commands like push and reset.",
+          "use_when": "User wants to prevent destructive git operations or add git safety guardrails to Claude Code.",
+          "not_for": "General git workflow help, branch management, or reviewing git history."
+        },
+        "zh": {
+          "what": "设置Claude Code钩子以阻止危险的git命令（如push和reset）。",
+          "use_when": "用户想防止破坏性git操作或为Claude Code添加git安全保护。",
+          "not_for": "一般git工作流帮助、分支管理或git历史查看。"
+        }
+      }
+    },
+    "profile.0d94b04816401a06ac3eab19a1c8": {
+      "name": "grilling",
+      "at": 1791148310542,
+      "profile": {
+        "en": {
+          "what": "Systematically challenges plans, decisions, or ideas through relentless questioning.",
+          "use_when": "User wants to stress-test thinking, validate decisions, or uses grill-related trigger phrases.",
+          "not_for": "Providing advice, solutions, or information; casual brainstorming without critical scrutiny."
+        },
+        "zh": {
+          "what": "通过持续质疑来系统地挑战计划、决定或想法。",
+          "use_when": "用户希望检验思路、验证决策或使用相关触发词语时。",
+          "not_for": "提供建议、解决方案或信息；无批判性的头脑风暴。"
+        }
+      }
+    },
+    "profile.0fb4f3a10566c71f2814935f2dc8": {
+      "name": "herdr",
+      "at": 1791148311001,
+      "profile": {
+        "en": {
+          "what": "Control Herdr terminal multiplexer to manage panes, tabs, workspaces, and coding agents.",
+          "use_when": "User explicitly mentions Herdr or asks to inspect or control terminal layout and agents.",
+          "not_for": "General background tasks, delegation, or parallel work without explicit Herdr mention."
+        },
+        "zh": {
+          "what": "控制Herdr终端多路复用器来管理窗格、标签、工作区和编码代理。",
+          "use_when": "用户明确提及Herdr或要求检查或控制终端布局和代理。",
+          "not_for": "没有明确提及Herdr的后台任务、委派或并行工作。"
+        }
+      }
+    },
+    "profile.149310958f3d140b435604a32035": {
+      "name": "img2-img2glb",
+      "at": 1791148310687,
+      "profile": {
+        "en": {
+          "what": "Converts a single image into a GLB 3D mesh using TRELLIS reconstruction.",
+          "use_when": "User wants to turn an image into a 3D GLB mesh file or 3D model.",
+          "not_for": "Batch image processing, multi-view 3D generation, OBJ export, or non-image inputs."
+        },
+        "zh": {
+          "what": "使用TRELLIS重建服务将单张图像转换为GLB 3D网格。",
+          "use_when": "用户需要将图像转换为3D GLB网格文件或3D模型。",
+          "not_for": "批量图像处理、多视图3D生成、OBJ导出或非图像输入。"
+        }
+      }
+    },
+    "profile.17f28c3422432616cce5b777ca64": {
+      "name": "img2threejs",
+      "at": 1791148311771,
+      "profile": {
+        "en": {
+          "what": "Convert reference images into animation-ready procedural Three.js 3D models through staged sculpting.",
+          "use_when": "You have an object or character image and need a code-built 3D model, reconstruction spec, or sculpt plan.",
+          "not_for": "Photogrammetry, mesh extraction, downloading pre-made models, or converting existing 3D files."
+        },
+        "zh": {
+          "what": "通过分阶段雕刻流程将参考图像转换为动画就绪的Three.js程序化3D模型。",
+          "use_when": "您有对象或角色图像，需要代码构建的3D模型、重建规范或雕刻计划。",
+          "not_for": "摄影测量、网格提取、下载预制模型或转换现有3D文件。"
+        }
+      }
+    },
+    "profile.09b65a1639093005973ddf823c21": {
+      "name": "jev-batch",
+      "at": 1791148316703,
+      "profile": {
+        "en": {
+          "what": "Batch-sorts tens to thousands of text items into fixed categories with confidence scores.",
+          "use_when": "You have text already in hand and need to classify, route, or rank it by closed options.",
+          "not_for": "Single items, open-ended answers, or tasks requiring code execution or tool calls."
+        },
+        "zh": {
+          "what": "把几十到几千条文字分拣到固定答案里，输出带概率的结果。",
+          "use_when": "已有文字在手，需要分类、路由或按概率排序。",
+          "not_for": "单条项目、开放性问题、需要执行代码或调用工具的任务。"
+        }
+      }
+    },
+    "profile.04f57d4f73e86b1708a1d162870b": {
+      "name": "jev-browser-agent",
+      "at": 1791148316285,
+      "profile": {
+        "en": {
+          "what": "Runs browser experiments with fast TypeSafe Jev decisions replacing full LLM reasoning.",
+          "use_when": "Automating browser tasks needing rapid, cost-efficient element selection and operation choices.",
+          "not_for": "Login flows, CAPTCHAs, or tasks requiring full LLM reasoning over page snapshots."
+        },
+        "zh": {
+          "what": "使用TypeSafe Jev快速决策运行浏览器实验，替代完整LLM推理。",
+          "use_when": "自动化浏览器任务，需要快速、低成本的元素选择和操作决策。",
+          "not_for": "登录流程、验证码或需要完整LLM页面推理的任务。"
+        }
+      }
+    },
+    "profile.02207732e9a2570d88269fcb99e0": {
+      "name": "migrate-to-shoehorn",
+      "at": 1791148316693,
+      "profile": {
+        "en": {
+          "what": "Migrate test files from `as` type assertions to @total-typescript/shoehorn.",
+          "use_when": "User mentions shoehorn, wants to replace `as` in tests, or needs partial test data.",
+          "not_for": "Production code, runtime assertions, or non-test files."
+        },
+        "zh": {
+          "what": "将测试文件中的 `as` 类型断言迁移到 @total-typescript/shoehorn。",
+          "use_when": "用户提到 shoehorn、想替换测试中的 `as` 或需要部分测试数据。",
+          "not_for": "生产代码、运行时断言或非测试文件。"
+        }
+      }
+    },
+    "profile.01fc3ad75fc87f0774b545a8df55": {
+      "name": "mobilebuildmcp-cli",
+      "at": 1791148317788,
+      "profile": {
+        "en": {
+          "what": "Build, test, run, and debug iOS, macOS, watchOS, tvOS, and visionOS apps.",
+          "use_when": "Building, testing, running, debugging, or automating Apple platform mobile and desktop applications.",
+          "not_for": "Android development, web apps, or general purpose command-line tasks."
+        },
+        "zh": {
+          "what": "构建、测试、运行和调试 iOS、macOS、watchOS、tvOS 和 visionOS 应用。",
+          "use_when": "需要构建、测试、运行、调试或自动化 Apple 平台的移动和桌面应用时。",
+          "not_for": "Android 开发、Web 应用或其他通用命令行任务。"
+        }
+      }
+    },
+    "profile.1305dd914e83ff00a15b5bf6d61f": {
+      "name": "music",
+      "at": 1791148321955,
+      "profile": {
+        "en": {
+          "what": "Generate music from text prompts using ElevenLabs API.",
+          "use_when": "Creating instrumental tracks, songs with lyrics, background music, jingles, or any AI-generated music composition.",
+          "not_for": "Editing existing audio, voice synthesis, or music analysis."
+        },
+        "zh": {
+          "what": "使用ElevenLabs API从文本提示生成音乐。",
+          "use_when": "创建器乐曲目、带歌词的歌曲、背景音乐、标语音乐或任何AI生成的音乐作品。",
+          "not_for": "编辑现有音频、语音合成或音乐分析。"
+        }
+      }
+    },
+    "profile.10edf5bc5c631c0322846a748f90": {
+      "name": "openai-image",
+      "at": 1791148322436,
+      "profile": {
+        "en": {
+          "what": "Generate or edit reference images using OpenAI's GPT Image models via Node SDK.",
+          "use_when": "User needs to create, modify, or iteratively refine reference images with AI.",
+          "not_for": "Image processing, upscaling, background removal, or non-reference image tasks."
+        },
+        "zh": {
+          "what": "用OpenAI的GPT Image模型生成或编辑参考图。",
+          "use_when": "用户需要生成、改图或多轮迭代编辑参考图时。",
+          "not_for": "图像处理、超分、抠图等非参考图的任务。"
+        }
+      }
+    },
+    "profile.02bbfff420f07c1dafba8209c826": {
+      "name": "pr",
+      "at": 1791148322602,
+      "profile": {
+        "en": {
+          "what": "Formats pull request bodies using a structured template with summary, evidence, and merge danger sections.",
+          "use_when": "Writing or reviewing PR descriptions that need clear formatting, risk assessment, and before-after evidence.",
+          "not_for": "Creating commit messages, release notes, or general documentation outside of PR contexts."
+        },
+        "zh": {
+          "what": "使用结构化模板格式化拉取请求正文，包含总结、证据和合并风险部分。",
+          "use_when": "编写或审查需要清晰格式化、风险评估和对比证据的拉取请求描述时。",
+          "not_for": "创建提交消息、发布说明或拉取请求上下文之外的常规文档。"
+        }
+      }
+    },
+    "profile.191ca63c6bb2a80e37d04fc442d9": {
+      "name": "prototype",
+      "at": 1791148323675,
+      "profile": {
+        "en": {
+          "what": "Build throwaway prototypes to validate design questions about logic, state models, or UI.",
+          "use_when": "You need to sanity-check whether a state model feels right or explore what a UI should look like.",
+          "not_for": "Production code, polished implementations, or questions not about design validation."
+        },
+        "zh": {
+          "what": "构建一次性原型来验证关于逻辑、状态模型或UI的设计问题。",
+          "use_when": "需要检验状态模型是否合理，或探索UI的外观设计时使用。",
+          "not_for": "生产代码、完整实现或非设计验证的问题。"
+        }
+      }
+    },
+    "profile.0d6fcee201246502f5e2108d0683": {
+      "name": "research",
+      "at": 1791148327606,
+      "profile": {
+        "en": {
+          "what": "Investigates questions against primary sources and writes findings to a Markdown file.",
+          "use_when": "User wants research done, documentation gathered, or API facts verified from official sources.",
+          "not_for": "Quick answers, summaries of existing write-ups, or tasks not requiring primary source verification."
+        },
+        "zh": {
+          "what": "针对主要信息源进行调查研究，并将结果写入Markdown文件。",
+          "use_when": "用户需要研究某个话题、收集文档资料或验证官方API事实。",
+          "not_for": "快速解答、现有文章摘要或不需要查证主要信息源的任务。"
+        }
+      }
+    },
+    "profile.1860daca67b950195a05cab3d11f": {
+      "name": "scaffold-exercises",
+      "at": 1791148328314,
+      "profile": {
+        "en": {
+          "what": "Creates exercise directory structures with problems, solutions, and explainers passing linting.",
+          "use_when": "User wants to scaffold exercises, create exercise stubs, or set up a new course section.",
+          "not_for": "Editing existing exercises, writing exercise content, or managing non-exercise directories."
+        },
+        "zh": {
+          "what": "创建通过代码检查的练习目录结构，包含问题、解决方案和讲解器。",
+          "use_when": "用户想要搭建练习框架、创建练习存根或设置新课程部分。",
+          "not_for": "编辑现有练习、编写练习内容或管理非练习目录。"
+        }
+      }
+    },
+    "profile.0d9bc957c195f410ce6071142a56": {
+      "name": "setup-api-key",
+      "at": 1791148328374,
+      "profile": {
+        "en": {
+          "what": "Guides users through obtaining and configuring an ElevenLabs API key.",
+          "use_when": "User needs to set up ElevenLabs API key or an API request fails due to missing key.",
+          "not_for": "Using ElevenLabs services after the key is already configured and working."
+        },
+        "zh": {
+          "what": "引导用户获取并配置 ElevenLabs API 密钥。",
+          "use_when": "用户需要设置 ElevenLabs API 密钥或 API 请求因缺少密钥而失败时。",
+          "not_for": "API 密钥已配置且正常工作后使用 ElevenLabs 服务。"
+        }
+      }
+    },
+    "profile.1d0c64f40723031e04fc9d212320": {
+      "name": "setup-pre-commit",
+      "at": 1791148330206,
+      "profile": {
+        "en": {
+          "what": "Set up Husky pre-commit hooks with lint-staged, Prettier, type checking, and tests.",
+          "use_when": "User wants to add pre-commit hooks, configure Husky, set up lint-staged, or add commit-time formatting and validation.",
+          "not_for": "Configuring linters like ESLint, setting up CI/CD pipelines, or modifying existing hook behavior."
+        },
+        "zh": {
+          "what": "配置 Husky 预提交钩子，集成 lint-staged、Prettier、类型检查和测试。",
+          "use_when": "用户需要添加预提交钩子、配置 Husky、设置 lint-staged 或实现提交时格式化和验证。",
+          "not_for": "配置 ESLint 等代码检查工具、建立 CI/CD 流程或修改现有钩子行为。"
+        }
+      }
+    },
+    "profile.060ced0b58d37c1d751a6a16fece": {
+      "name": "sound-effects",
+      "at": 1791148333685,
+      "profile": {
+        "en": {
+          "what": "Generate sound effects from text descriptions using ElevenLabs API.",
+          "use_when": "Creating sound effects, ambient sounds, UI sounds, cinematic impacts, or audio textures from text prompts.",
+          "not_for": "Speech synthesis, voice generation, music composition, or audio without text descriptions."
+        },
+        "zh": {
+          "what": "使用 ElevenLabs API 从文本描述生成音效。",
+          "use_when": "创建音效、环境音、UI 音效、电影撞击音或其他音频纹理。",
+          "not_for": "语音合成、语音生成、音乐创作或没有文本描述的音频。"
+        }
+      }
+    },
+    "profile.074e2992d6eefe071af090492ad9": {
+      "name": "speech-engine",
+      "at": 1791148334887,
+      "profile": {
+        "en": {
+          "what": "Add real-time voice conversations to custom agents using ElevenLabs Speech Engine.",
+          "use_when": "Building voice-enabled chat servers, WebSocket handlers, browser clients, or voice agents with custom server logic.",
+          "not_for": "Creating hosted ElevenLabs Conversational AI agents with platform-managed prompts and tools."
+        },
+        "zh": {
+          "what": "使用 ElevenLabs Speech Engine 为自定义代理添加实时语音对话功能。",
+          "use_when": "构建启用语音的聊天服务器、WebSocket 处理器、浏览器客户端或具有自定义服务器逻辑的语音代理。",
+          "not_for": "创建具有平台管理提示和工具的托管 ElevenLabs 对话 AI 代理。"
+        }
+      }
+    },
+    "profile.131e1b5a7d85a40abfed43347288": {
+      "name": "speech-to-text",
+      "at": 1791148334283,
+      "profile": {
+        "en": {
+          "what": "Transcribes audio and video files to text using ElevenLabs Scribe v2.",
+          "use_when": "Converting audio/video to text, generating subtitles, transcribing meetings, identifying speakers.",
+          "not_for": "Text-to-speech, real-time voice processing, audio editing or manipulation."
+        },
+        "zh": {
+          "what": "使用ElevenLabs Scribe v2将音频和视频文件转录为文本。",
+          "use_when": "转换音频或视频为文本、生成字幕、转录会议、识别说话者。",
+          "not_for": "文本转语音、实时语音处理、音频编辑或处理。"
+        }
+      }
+    },
+    "profile.077ffe984c40fd1279c983b5f925": {
+      "name": "tdd",
+      "at": 1791148278788,
+      "profile": {
+        "en": {
+          "what": "Guide test-driven development using red-green-refactor cycles with public interface testing.",
+          "use_when": "Building features or fixing bugs test-first, red-green-refactor workflows, or integration test design.",
+          "not_for": "Code review, refactoring guidance, or testing strategies beyond TDD methodology."
+        },
+        "zh": {
+          "what": "使用红绿重构循环指导测试驱动开发，通过公共接口测试。",
+          "use_when": "先写测试构建功能、修复bug、红绿重构工作流或集成测试设计。",
+          "not_for": "代码审查、重构指导或TDD方法论之外的测试策略。"
+        }
+      }
+    },
+    "profile.04bac4b84d49e00fe79b9b006753": {
+      "name": "text-to-speech",
+      "at": 1791148336582,
+      "profile": {
+        "en": {
+          "what": "Converts text to natural speech audio using ElevenLabs AI in 70+ languages.",
+          "use_when": "Creating voiceovers, audio from text, voice apps, or synthesizing speech in multiple languages.",
+          "not_for": "Speech recognition, audio editing, music generation, or voice cloning without API setup."
+        },
+        "zh": {
+          "what": "使用ElevenLabs AI将文本转换为70多种语言的自然语音音频。",
+          "use_when": "创建配音、文本转音频、语音应用或多语言语音合成。",
+          "not_for": "语音识别、音频编辑、音乐生成或未配置API的声音克隆。"
+        }
+      }
+    },
+    "profile.1d7c1c7058163b1bc39859a57aa6": {
+      "name": "update-skills-from-changelog",
+      "at": 1791148340288,
+      "profile": {
+        "en": {
+          "what": "Update ElevenLabs agent skills from a merged weekly changelog.",
+          "use_when": "A changelog merges to elevenlabs-dx main, or you ask to update skills from a specific date.",
+          "not_for": "Manually editing individual skill files or updating skills from GitHub issues."
+        },
+        "zh": {
+          "what": "从合并的周报更新 ElevenLabs 代理技能文档。",
+          "use_when": "changelog 合并到 elevenlabs-dx main，或要求从特定日期更新技能。",
+          "not_for": "手动编辑技能文件或从 GitHub issue 更新技能。"
+        }
+      }
+    },
+    "profile.1536cbf7c6e88c100f2a5c4f9aff": {
+      "name": "voice-changer",
+      "at": 1791148341307,
+      "profile": {
+        "en": {
+          "what": "Transform voice in audio recordings into different target voices while preserving emotion and timing.",
+          "use_when": "Converting existing audio to a different speaker, dubbing, re-voicing, or applying speech-to-speech voice conversion.",
+          "not_for": "Creating new voices from samples or cloning voices; use voice cloning for that instead."
+        },
+        "zh": {
+          "what": "将音频录音中的声音转换为不同的目标声音，同时保留情感和时序。",
+          "use_when": "将现有音频转换为不同的说话人、配音、重新配音或应用语音转换。",
+          "not_for": "从样本创建或克隆新声音；应改用语音克隆功能。"
+        }
+      }
+    },
+    "profile.189a6bb3ca6e2d1e0a9c88574ad9": {
+      "name": "voice-isolator",
+      "at": 1791148341495,
+      "profile": {
+        "en": {
+          "what": "Remove background noise and isolate vocals from audio using ElevenLabs API.",
+          "use_when": "Cleaning noisy recordings, removing music from dialogue, isolating speech, prepping for transcription.",
+          "not_for": "Audio generation, voice conversion, speech recognition, music production beyond isolation."
+        },
+        "zh": {
+          "what": "使用ElevenLabs API从音频中移除背景噪音并隔离人声。",
+          "use_when": "清理嘈杂录音、从对白中去除音乐、隔离语音、为转录做准备。",
+          "not_for": "音频生成、声音转换、语音识别、超出隔离范围的音乐制作。"
+        }
+      }
+    },
+    "profile.1d2c19394ff96a09808ffa79e243": {
+      "name": "wizard",
+      "at": 1791148343204,
+      "profile": {
+        "en": {
+          "what": "Generate an interactive bash wizard that guides humans through manual setup steps.",
+          "use_when": "Setting up credentials, CI secrets, infrastructure provisioning, or one-off migrations requiring human action.",
+          "not_for": "Automating tasks the agent can perform itself or scripting fully automated procedures."
+        },
+        "zh": {
+          "what": "生成交互式bash向导脚本,引导用户完成手动设置步骤。",
+          "use_when": "配置凭证、CI密钥、基础设施配置或需要人工操作的一次性迁移。",
+          "not_for": "自动化agent可自行执行的任务或完全自动化的程序。"
+        }
+      }
+    },
+    "profile.17579ffb432db716d4ee5f4ea50c": {
+      "name": "writing-for-agents",
+      "at": 1791148346592,
+      "profile": {
+        "en": {
+          "what": "Write skill profiles, AGENTS.md, CLAUDE.md, and referenced documents for agents.",
+          "use_when": "Creating or editing agent-consumed documents, context pointers, skill frontmatter, or information hierarchy.",
+          "not_for": "Writing agent logic, implementing skill code, or designing agent workflows."
+        },
+        "zh": {
+          "what": "为智能体编写技能档案、AGENTS.md、CLAUDE.md 及相关文档。",
+          "use_when": "创建或编辑智能体消费的文档、上下文指针、技能元数据或信息架构。",
+          "not_for": "编写智能体逻辑、实现技能代码或设计智能体工作流。"
+        }
+      }
+    },
+    "profile.035b7a7796508b0edb1562ab7ace": {
+      "name": "claude-md-management:revise-claude-md",
+      "at": 1791148347130,
+      "profile": {
+        "en": {
+          "what": "Update CLAUDE.md with learnings and context from the current session.",
+          "use_when": "You want to document discoveries, patterns, or gotchas for future Claude sessions.",
+          "not_for": "Creating new documentation files or updating project README files."
+        },
+        "zh": {
+          "what": "用本次会话的经验和上下文更新 CLAUDE.md 文件。",
+          "use_when": "需要记录发现的模式、命令、技巧或遇到的坑点供后续会话参考。",
+          "not_for": "创建新文档或更新项目的 README 等其他文件。"
+        }
+      }
+    },
+    "profile.0ace69b791b4f0112f6523a7129c": {
+      "name": "claude-md-management:claude-md-improver",
+      "at": 1791148347251,
+      "profile": {
+        "en": {
+          "what": "Audits and improves CLAUDE.md files to enhance project context for Claude Code.",
+          "use_when": "User asks to check, audit, update, improve, or fix CLAUDE.md files in repositories.",
+          "not_for": "Creating new projects from scratch or general code review tasks."
+        },
+        "zh": {
+          "what": "审计和改进CLAUDE.md文件,增强Claude Code的项目上下文。",
+          "use_when": "用户要求检查、审计、更新、改进或修复CLAUDE.md文件。",
+          "not_for": "从头创建新项目或进行常规代码审查。"
+        }
+      }
+    },
+    "profile.039384682ae4eb0ce08a77f749e3": {
+      "name": "cloudflare:agents-sdk",
+      "at": 1791148350067,
+      "profile": {
+        "en": {
+          "what": "Build, debug, and review Cloudflare Agents SDK applications with persistent state and RPC.",
+          "use_when": "Creating agents with scheduling, workflows, chat, state management, or MCP integration on Cloudflare.",
+          "not_for": "General Cloudflare Workers, non-agent applications, or runtime issues outside Agents SDK."
+        },
+        "zh": {
+          "what": "使用 Cloudflare Agents SDK 构建、调试和审查具有持久状态和 RPC 的应用。",
+          "use_when": "创建带有调度、工作流、聊天、状态管理或 MCP 集成的 Cloudflare 代理应用。",
+          "not_for": "通用 Cloudflare Workers、非代理应用或 Agents SDK 外的运行时问题。"
+        }
+      }
+    },
+    "profile.16dba595a4969005ad9cba878f98": {
+      "name": "cloudflare:cloudflare",
+      "at": 1791148352542,
+      "profile": {
+        "en": {
+          "what": "Discover and choose Cloudflare products for apps, APIs, storage, networking, and security.",
+          "use_when": "You need to find the right Cloudflare product for your goal or understand which tool solves your problem.",
+          "not_for": "Implementation details; use product-specific skills after choosing your Cloudflare products."
+        },
+        "zh": {
+          "what": "发现并选择适合应用、API、存储、网络和安全的Cloudflare产品。",
+          "use_when": "您需要为目标找到合适的Cloudflare产品，或了解哪个工具能解决您的问题。",
+          "not_for": "实现细节；选择Cloudflare产品后，请使用特定产品的技能。"
+        }
+      }
+    },
+    "profile.07e89f97bf174a13997f98bef319": {
+      "name": "cloudflare:cloudflare-email-service",
+      "at": 1791148352971,
+      "profile": {
+        "en": {
+          "what": "Implement or troubleshoot Cloudflare Email Sending and Email Routing integrations.",
+          "use_when": "Setting up transactional email, sending emails from Workers or agents, receiving and routing emails.",
+          "not_for": "Marketing campaigns, bulk email, non-Cloudflare email services, general email client setup."
+        },
+        "zh": {
+          "what": "实施或排查Cloudflare电子邮件发送和电子邮件路由集成。",
+          "use_when": "配置事务性电子邮件、从Workers或代理发送电子邮件、接收和路由电子邮件。",
+          "not_for": "营销活动、批量电子邮件、非Cloudflare电子邮件服务、常规电子邮件客户端设置。"
+        }
+      }
+    },
+    "profile.1c2f527fb22290017a7f32c85f32": {
+      "name": "cloudflare:cloudflare-one",
+      "at": 1791148353671,
+      "profile": {
+        "en": {
+          "what": "Design, configure, troubleshoot, and review Cloudflare One Zero Trust and SASE deployments.",
+          "use_when": "You need to set up or debug Cloudflare Access, Gateway, Tunnel, WARP, DLP, device posture, or related security services.",
+          "not_for": "Migration planning from other vendors; use cloudflare-one-migrations skill instead."
+        },
+        "zh": {
+          "what": "设计、配置、排故和审查 Cloudflare One 零信任与 SASE 部署。",
+          "use_when": "需要建立或调试 Cloudflare Access、Gateway、Tunnel、WARP、DLP 或设备安全相关服务…",
+          "not_for": "来自其他厂商的迁移规划；请改用 cloudflare-one-migrations 技能。"
+        }
+      }
+    },
+    "profile.021d48d1d605e21642eca764523c": {
+      "name": "cloudflare:cloudflare-one-migrations",
+      "at": 1791148355929,
+      "profile": {
+        "en": {
+          "what": "Assess and plan migrations from VPN, SWG, or SASE platforms to Cloudflare One.",
+          "use_when": "Planning or executing a migration from Zscaler, Palo Alto, or legacy VPN to Cloudflare One.",
+          "not_for": "Troubleshooting existing Cloudflare One deployments or general Cloudflare configuration."
+        },
+        "zh": {
+          "what": "评估并规划从VPN、SWG或SASE平台迁移到Cloudflare One的方案。",
+          "use_when": "规划或执行从Zscaler、Palo Alto或传统VPN向Cloudflare One的迁移。",
+          "not_for": "排查现有Cloudflare One部署的问题或通用Cloudflare配置。"
+        }
+      }
+    },
+    "profile.144de25eaa74ad01195a54a91200": {
+      "name": "cloudflare:durable-objects",
+      "at": 1791148358453,
+      "profile": {
+        "en": {
+          "what": "Build, debug, and review Cloudflare Durable Objects code for persistent state.",
+          "use_when": "Creating stateful applications, implementing RPC methods, configuring DO bindings, writing tests.",
+          "not_for": "Stateless request handling, plain Workers development, non-Cloudflare platforms."
+        },
+        "zh": {
+          "what": "构建、调试和审查 Cloudflare Durable Objects 代码以实现持久状态。",
+          "use_when": "创建有状态应用、实现 RPC 方法、配置 DO 绑定、编写测试。",
+          "not_for": "无状态请求处理、普通 Workers 开发、非 Cloudflare 平台。"
+        }
+      }
+    },
+    "profile.10c8532d46687405bc04a02d9dfd": {
+      "name": "cloudflare:nextjs-on-cloudflare",
+      "at": 1791148358448,
+      "profile": {
+        "en": {
+          "what": "Build, migrate, and deploy Next.js apps on Cloudflare Workers using vinext.",
+          "use_when": "Starting a Next.js project on Cloudflare, migrating existing apps to Workers, or setting up vinext.",
+          "not_for": "OpenNext setups, non-Cloudflare deployments, or non-Next.js frameworks."
+        },
+        "zh": {
+          "what": "使用 vinext 在 Cloudflare Workers 上构建、迁移和部署 Next.js 应用。",
+          "use_when": "在 Cloudflare 上启动 Next.js 项目、迁移现有应用到 Workers 或设置 vinext 时使用。",
+          "not_for": "OpenNext 设置、非 Cloudflare 部署或非 Next.js 框架。"
+        }
+      }
+    },
+    "profile.0a773c9b45e72b00d5f934cbfe27": {
+      "name": "cloudflare:sandbox-migrate-to-next",
+      "at": 1791148360196,
+      "profile": {
+        "en": {
+          "what": "Migrate Cloudflare Sandbox apps from stable to SDK 1.0 preview @next.",
+          "use_when": "Porting existing Sandbox projects to the @cloudflare/sandbox@next preview release.",
+          "not_for": "New projects, stable API work, or apps not ready for preview migration."
+        },
+        "zh": {
+          "what": "将 Cloudflare Sandbox 应用从稳定版迁移到 SDK 1.0 预览版 @next。",
+          "use_when": "需要将现有 Sandbox 项目移植到 @cloudflare/sandbox@next 预览版时。",
+          "not_for": "新项目、稳定版 API 工作或尚未准备好预览版迁移的应用。"
+        }
+      }
+    },
+    "profile.0144d29f0714ab0b4a0c6d12295d": {
+      "name": "cloudflare:sandbox-next",
+      "at": 1791148362180,
+      "profile": {
+        "en": {
+          "what": "Build or maintain Cloudflare Sandbox apps using the @next SDK 1.0 preview.",
+          "use_when": "You are working with @cloudflare/sandbox@next package and need process execution, terminals, or interpreters.",
+          "not_for": "Stable sandbox apps, porting from stable to @next, or self-deployed bridge deployments."
+        },
+        "zh": {
+          "what": "使用 @next SDK 1.0 预览版构建或维护 Cloudflare Sandbox 应用。",
+          "use_when": "使用 @cloudflare/sandbox@next 包，需要进程执行、终端或解释器功能。",
+          "not_for": "稳定版 Sandbox 应用、从稳定版迁移到 @next，或自部署桥接。"
+        }
+      }
+    },
+    "profile.045a0d158cf14a043eac35d62b22": {
+      "name": "cloudflare:sandbox-stable",
+      "at": 1791148364870,
+      "profile": {
+        "en": {
+          "what": "Build and maintain Cloudflare Sandbox apps using the stable @cloudflare/sandbox package.",
+          "use_when": "Working with existing Sandbox apps or stable production deployments on the current package line.",
+          "not_for": "New projects, preview features, migrations to @next, or 1.0 preview development."
+        },
+        "zh": {
+          "what": "使用稳定版 @cloudflare/sandbox 包构建和维护 Cloudflare Sandbox 应用。",
+          "use_when": "处理现有 Sandbox 应用或当前稳定包版本的生产部署。",
+          "not_for": "新项目、预览功能、迁移到 @next 或 1.0 预览开发。"
+        }
+      }
+    },
+    "profile.0e07e462f1c2c81b9125d857e2f9": {
+      "name": "cloudflare:turnstile-spin",
+      "at": 1791148364975,
+      "profile": {
+        "en": {
+          "what": "Set up, repair, or migrate to Cloudflare Turnstile bot verification end-to-end.",
+          "use_when": "User mentions Turnstile, CAPTCHA, bot protection, siteverify, or protecting forms and endpoints from bots.",
+          "not_for": "Other Cloudflare services like Workers, Pages, R2 unless Turnstile is also mentioned."
+        },
+        "zh": {
+          "what": "端到端设置、修复或迁移到 Cloudflare Turnstile 机器人验证。",
+          "use_when": "用户提及 Turnstile、CAPTCHA、机器人防护、siteverify 或保护表单和端点。",
+          "not_for": "其他 Cloudflare 服务如 Workers、Pages、R2，除非同时提及 Turnstile。"
+        }
+      }
+    },
+    "profile.06f9f6c21fd4f90c7627f23e6489": {
+      "name": "cloudflare:web-perf",
+      "at": 1791148366228,
+      "profile": {
+        "en": {
+          "what": "Audit website performance, Core Web Vitals, and Lighthouse scores with detailed diagnostics.",
+          "use_when": "User needs to analyze page load speed, performance metrics, or optimize website interactions.",
+          "not_for": "General web development, SEO optimization, or non-performance website issues."
+        },
+        "zh": {
+          "what": "审计网站性能、核心网页指标和灯塔评分，提供详细诊断。",
+          "use_when": "用户需要分析页面加载速度、性能指标或优化网站交互。",
+          "not_for": "通用网页开发、SEO优化或非性能相关的网站问题。"
+        }
+      }
+    },
+    "profile.02f0a16a462d7804d579add7d013": {
+      "name": "cloudflare:workers-best-practices",
+      "at": 1791148367678,
+      "profile": {
+        "en": {
+          "what": "Guides on Cloudflare Workers best practices for production applications.",
+          "use_when": "Writing, reviewing, or configuring Workers code and architecture.",
+          "not_for": "Durable Objects, Workflows, or Wrangler CLI command usage."
+        },
+        "zh": {
+          "what": "Cloudflare Workers 生产应用最佳实践指导。",
+          "use_when": "编写、审查或配置 Workers 代码和架构时。",
+          "not_for": "Durable Objects、Workflows 或 Wrangler CLI 命令使用。"
+        }
+      }
+    },
+    "profile.157769b5449e320ebf717362277a": {
+      "name": "cloudflare:wrangler",
+      "at": 1791148370918,
+      "profile": {
+        "en": {
+          "what": "Run Wrangler CLI commands and configure Cloudflare Workers projects for development and deployment.",
+          "use_when": "Setting up, configuring, deploying Workers; troubleshooting Wrangler commands or Worker project issues.",
+          "not_for": "Cloudflare account management, non-Worker services, writing Worker application code logic."
+        },
+        "zh": {
+          "what": "运行 Wrangler CLI 命令，配置 Cloudflare Workers 项目的开发和部署。",
+          "use_when": "设置和配置 Workers 项目、部署 Workers、排查 Wrangler 命令或项目问题。",
+          "not_for": "Cloudflare 账户管理、非 Worker 服务、编写 Worker 应用程序逻辑代码。"
+        }
+      }
+    },
+    "profile.1e1763203ee80f1a23f30df57505": {
+      "name": "remotion:remotion-best-practices",
+      "at": 1791148370748,
+      "profile": {
+        "en": {
+          "what": "Routes requests to appropriate Remotion video creation and editing skills.",
+          "use_when": "User asks about making videos, Remotion projects, compositions, maps, multimedia, or rendering.",
+          "not_for": "General video software questions, non-Remotion frameworks, or unrelated web development."
+        },
+        "zh": {
+          "what": "将请求路由到适当的Remotion视频创建和编辑技能。",
+          "use_when": "用户询问制作视频、Remotion项目、合成、地图、多媒体或渲染。",
+          "not_for": "通用视频软件问题、非Remotion框架或无关的网络开发。"
+        }
+      }
+    },
+    "profile.1fb638e37b83161b37d48ffb1e97": {
+      "name": "remotion:remotion-captions",
+      "at": 1791148371828,
+      "profile": {
+        "en": {
+          "what": "Transcribe, display, and animate captions for videos using JSON format.",
+          "use_when": "You need to add captions to videos, transcribe audio, or import subtitle files.",
+          "not_for": "Video editing effects, audio processing, or general video rendering tasks."
+        },
+        "zh": {
+          "what": "使用JSON格式转录、显示和动画化视频字幕。",
+          "use_when": "需要为视频添加字幕、转录音频或导入字幕文件时。",
+          "not_for": "视频编辑效果、音频处理或常规视频渲染任务。"
+        }
+      }
+    },
+    "profile.0c4211aee0320a0866ce7588c7f5": {
+      "name": "remotion:remotion-create",
+      "at": 1791148373455,
+      "profile": {
+        "en": {
+          "what": "Create a new Remotion video project and composition from scratch.",
+          "use_when": "User wants to start a new video project, scaffold a Remotion setup, or initialize a composition.",
+          "not_for": "Editing existing videos, adding effects, or modifying compositions already created."
+        },
+        "zh": {
+          "what": "从零开始创建新的 Remotion 视频项目和合成。",
+          "use_when": "用户需要启动新视频项目、搭建 Remotion 环境或初始化合成。",
+          "not_for": "编辑现有视频、添加效果或修改已创建的合成。"
+        }
+      }
+    },
+    "profile.006bac19b300c91c7ecf0043fa21": {
+      "name": "remotion:remotion-docs",
+      "at": 1791148376817,
+      "profile": {
+        "en": {
+          "what": "Search and fetch current Remotion documentation pages.",
+          "use_when": "You need to look up Remotion APIs, concepts, or usage patterns from official docs.",
+          "not_for": "General video editing questions or Remotion best practices guidance."
+        },
+        "zh": {
+          "what": "搜索和获取最新的Remotion文档页面。",
+          "use_when": "需要查询Remotion官方文档中的API、概念或使用方法时。",
+          "not_for": "通用视频编辑问题或Remotion最佳实践指导。"
+        }
+      }
+    },
+    "profile.15250e640226bb1e743b4d921685": {
+      "name": "remotion:remotion-interactivity",
+      "at": 1791148377289,
+      "profile": {
+        "en": {
+          "what": "Structure Remotion markup to enable Studio interactivity for video editing.",
+          "use_when": "Building interactive Remotion components with editable props, styles, keyframes, and transforms in Studio.",
+          "not_for": "General Remotion video rendering, non-interactive components, or video export workflows."
+        },
+        "zh": {
+          "what": "构建Remotion标记结构以启用Studio交互性功能。",
+          "use_when": "创建具有可编辑属性、样式、关键帧和变换的交互式Remotion组件。",
+          "not_for": "通用Remotion视频渲染、非交互式组件或视频导出工作流。"
+        }
+      }
+    },
+    "profile.0e5c146b4d2be100ec2200627ce4": {
+      "name": "remotion:remotion-maps",
+      "at": 1791148378485,
+      "profile": {
+        "en": {
+          "what": "Create animated maps using Remotion with various mapping libraries and techniques.",
+          "use_when": "Building map animations, geographic visualizations, or flythrough videos with Remotion.",
+          "not_for": "Static maps without animation, or non-geographic data visualization."
+        },
+        "zh": {
+          "what": "使用Remotion和多种地图库创建动画地图。",
+          "use_when": "构建地图动画、地理可视化或使用Remotion的飞行视频。",
+          "not_for": "静态地图或非地理数据可视化。"
+        }
+      }
+    },
+    "profile.089641dc02b9d405964246c729a7": {
+      "name": "remotion:remotion-markup",
+      "at": 1791148379782,
+      "profile": {
+        "en": {
+          "what": "Guides writing Remotion React markup for animations and effects.",
+          "use_when": "Building video animations with Remotion, keyframing, interactive components, or media.",
+          "not_for": "General React development, non-Remotion video editing, or static web design."
+        },
+        "zh": {
+          "what": "指导编写 Remotion React 标记用于动画和效果。",
+          "use_when": "使用 Remotion 构建视频动画、关键帧、交互组件或媒体时。",
+          "not_for": "通用 React 开发、非 Remotion 视频编辑或静态网页设计。"
+        }
+      }
+    },
+    "profile.16752279b3318f0e3bc148cc05b2": {
+      "name": "remotion:remotion-multimedia",
+      "at": 1791148382204,
+      "profile": {
+        "en": {
+          "what": "Analyze audio and video files for duration and dimensions using Mediabunny library.",
+          "use_when": "You need to extract metadata like audio/video duration or video width and height.",
+          "not_for": "Video editing, format conversion, streaming, or audio/video generation tasks."
+        },
+        "zh": {
+          "what": "使用Mediabunny库分析音视频文件的时长和尺寸。",
+          "use_when": "需要提取音视频时长、视频宽高等元数据信息时。",
+          "not_for": "视频编辑、格式转换、流媒体处理或音视频生成。"
+        }
+      }
+    },
+    "profile.0a8443f00ea6020c5b9bfebd1c29": {
+      "name": "remotion:remotion-render",
+      "at": 1791148383204,
+      "profile": {
+        "en": {
+          "what": "Export videos or stills using Remotion with CLI rendering options.",
+          "use_when": "You need to render Remotion compositions to video files, images, or frame sequences.",
+          "not_for": "Creating or editing Remotion compositions, or non-Remotion video projects."
+        },
+        "zh": {
+          "what": "使用Remotion CLI将视频合成导出为视频或静止图像。",
+          "use_when": "需要将Remotion合成渲染为视频文件、图像或帧序列时。",
+          "not_for": "创建或编辑Remotion合成，或非Remotion视频项目。"
+        }
+      }
+    },
+    "profile.0e740a0a6b1e7402d5be109c8a43": {
+      "name": "remotion:remotion-saas",
+      "at": 1791148384165,
+      "profile": {
+        "en": {
+          "what": "Build interactive video applications and editors using Remotion framework.",
+          "use_when": "Creating video generation apps, SaaS video tools, or embedding video previews in React applications.",
+          "not_for": "General video editing software, video hosting platforms, or non-web video applications."
+        },
+        "zh": {
+          "what": "使用Remotion框架构建交互式视频应用和编辑器。",
+          "use_when": "创建视频生成应用、SaaS视频工具或在React应用中嵌入视频预览时使用。",
+          "not_for": "通用视频编辑软件、视频托管平台或非网络视频应用。"
+        }
+      }
+    },
+    "profile.1dd5b2ac808f3417464362f00767": {
+      "name": "remotion:remotion-studio",
+      "at": 1791148385123,
+      "profile": {
+        "en": {
+          "what": "Start Remotion Studio to preview and debug video compositions in real-time.",
+          "use_when": "Creating or editing Remotion videos and need to see live previews of compositions.",
+          "not_for": "Building final video exports or rendering videos for production."
+        },
+        "zh": {
+          "what": "启动 Remotion Studio 实时预览和调试视频合成。",
+          "use_when": "创建或编辑 Remotion 视频时，需要查看合成的实时预览。",
+          "not_for": "构建最终视频导出或生成用于生产的视频。"
+        }
+      }
+    },
+    "profile.0a93c39e8e76221137f931619056": {
+      "name": "remotion:remotion-upgrade",
+      "at": 1791148387535,
+      "profile": {
+        "en": {
+          "what": "Upgrades Remotion and related packages to the latest stable version.",
+          "use_when": "You need to update Remotion dependencies in a project to the latest version.",
+          "not_for": "Installing Remotion for the first time or downgrading to older versions."
+        },
+        "zh": {
+          "what": "将 Remotion 和相关软件包升级到最新稳定版本。",
+          "use_when": "需要将项目中的 Remotion 依赖更新到最新版本时使用。",
+          "not_for": "首次安装 Remotion 或降级到旧版本的情况。"
+        }
+      }
+    },
+    "profile.1f1aa816d4810a0426c6aa2c7285": {
+      "name": "typesafe:typesafe-ai",
+      "at": 1791148389298,
+      "profile": {
+        "en": {
+          "what": "Build AI features using TypeSafe System One models for structured decisions.",
+          "use_when": "You need programmable common sense: routing, ranking, extraction, verification, or interactive AI experiences.",
+          "not_for": "Text generation, long-form reasoning, or replacing exact lookups and calculations."
+        },
+        "zh": {
+          "what": "使用 TypeSafe System One 模型构建结构化决策的 AI 功能。",
+          "use_when": "需要可编程的常识推理：路由、排序、提取、验证或交互式 AI 体验。",
+          "not_for": "文本生成、长篇推理或替代精确查询和计算。"
+        }
+      }
+    },
+    "profile.02617082914b1a1af5e4d78a2dd3": {
+      "name": "ui-ux-pro-max:banner-design",
+      "at": 1791148391117,
+      "profile": {
+        "en": {
+          "what": "Design banners for social media, ads, websites, and print in multiple styles.",
+          "use_when": "User requests banner design, social covers, ad banners, website heroes, or creative assets.",
+          "not_for": "Video editing, full website design, print production, or non-banner graphics."
+        },
+        "zh": {
+          "what": "为社交媒体、广告、网站和印刷品设计多种风格的横幅。",
+          "use_when": "用户需要设计横幅、社交媒体封面、广告横幅、网站首屏或创意资产。",
+          "not_for": "视频编辑、完整网站设计、印刷生产或非横幅图形。"
+        }
+      }
+    },
+    "profile.01319a131b3fe114597f42daffdc": {
+      "name": "ui-ux-pro-max:brand",
+      "at": 1791148391539,
+      "profile": {
+        "en": {
+          "what": "Manages brand identity, voice, visual standards, messaging frameworks, and asset consistency.",
+          "use_when": "Defining brand voice, creating style guides, managing brand assets, ensuring consistency, developing messaging frameworks.",
+          "not_for": "General copywriting, graphic design execution, website development, marketing campaign strategy."
+        },
+        "zh": {
+          "what": "管理品牌标识、声音、视觉标准、消息框架和资产一致性。",
+          "use_when": "定义品牌声音、创建样式指南、管理品牌资产、确保一致性、开发消息框架。",
+          "not_for": "通用文案写作、图形设计执行、网站开发、营销活动策略。"
+        }
+      }
+    },
+    "profile.07747cf083c0b81a7a24cca7e93a": {
+      "name": "ui-ux-pro-max:design",
+      "at": 1791148394380,
+      "profile": {
+        "en": {
+          "what": "Create logos, brand identity, design systems, UI styling, presentations, banners, icons, and social media images.",
+          "use_when": "You need brand design, logos, corporate identity programs, slides, banners, icons, or social photos for multiple platforms.",
+          "not_for": "Web development, copywriting, video editing, or detailed brand strategy consulting beyond visual identity."
+        },
+        "zh": {
+          "what": "生成徽标、品牌形象、设计系统、UI样式、演示文稿、横幅、图标和社交媒体图片。",
+          "use_when": "需要品牌设计、徽标、企业识别程序、幻灯片、横幅、图标或多平台社交图片。",
+          "not_for": "网站开发、文案写作、视频编辑或品牌战略咨询。"
+        }
+      }
+    },
+    "profile.024ddba335b2fa12d6c6f9bcf6bc": {
+      "name": "ui-ux-pro-max:design-system",
+      "at": 1791148395327,
+      "profile": {
+        "en": {
+          "what": "Creates design tokens, component specs, and brand-compliant presentations using three-layer token architecture.",
+          "use_when": "Building design systems, defining tokens, creating systematic components, or generating strategic slides.",
+          "not_for": "General slide editing, design critique, or brand strategy development without token framework."
+        },
+        "zh": {
+          "what": "使用三层令牌架构创建设计令牌、组件规范和品牌一致的演示文稿。",
+          "use_when": "构建设计系统、定义令牌、创建系统化组件或生成战略幻灯片时使用。",
+          "not_for": "通用幻灯片编辑、设计评审或不基于令牌框架的品牌战略开发。"
+        }
+      }
+    },
+    "profile.078042e697ca0e1c36e7c022b490": {
+      "name": "ui-ux-pro-max:slides",
+      "at": 1791148396634,
+      "profile": {
+        "en": {
+          "what": "Create strategic HTML presentations with charts, design tokens, and responsive layouts.",
+          "use_when": "Building marketing decks, pitch presentations, or data-driven slides with professional design.",
+          "not_for": "Editing existing presentations, creating animations, or designing non-presentation graphics."
+        },
+        "zh": {
+          "what": "使用图表、设计令牌和响应式布局创建战略性HTML演示文稿。",
+          "use_when": "制作营销演讲、融资演讲或包含数据可视化的专业演示文稿。",
+          "not_for": "编辑现有演示文稿、创建动画或设计非演示类图形。"
+        }
+      }
+    },
+    "profile.1fc2f8648d96d010c9676686129a": {
+      "name": "ui-ux-pro-max:ui-styling",
+      "at": 1791148397693,
+      "profile": {
+        "en": {
+          "what": "Create beautiful, accessible UIs with shadcn/ui components and Tailwind CSS utility styling.",
+          "use_when": "Building React UIs, implementing design systems, responsive layouts, accessible components, dark mode, or visual designs.",
+          "not_for": "Backend logic, server-side rendering, API design, or non-web applications."
+        },
+        "zh": {
+          "what": "使用 shadcn/ui 组件和 Tailwind CSS 创建美观、易访问的用户界面。",
+          "use_when": "构建 React UI、实现设计系统、响应式布局、可访问组件、深色模式或视觉设计。",
+          "not_for": "后端逻辑、服务器端渲染、API 设计或非网络应用。"
+        }
+      }
+    },
+    "profile.0b7450103dfbab186109b32c9dea": {
+      "name": "ui-ux-pro-max:ui-ux-pro-max",
+      "at": 1791148400741,
+      "profile": {
+        "en": {
+          "what": "UI/UX design intelligence for web, mobile, and desktop interfaces.",
+          "use_when": "Designing, building, reviewing, or fixing pages, components, design systems, accessibility, interaction, responsive layout, typography, color, charts.",
+          "not_for": "Backend logic, API design, infrastructure, non-visual performance, or DevOps work."
+        },
+        "zh": {
+          "what": "网页、移动和桌面界面的UI/UX设计智能指导。",
+          "use_when": "设计、构建、审查或修复页面、组件、设计系统、无障碍访问、交互、响应式布局、字体、色彩、图表。",
+          "not_for": "后端逻辑、API设计、基础设施、非视觉性能优化或DevOps工作。"
+        }
+      }
+    },
+    "profile.0e0596a90e8b8a0c37523d6b6d4e": {
+      "name": "dataviz",
+      "at": 1791148400736,
+      "profile": {
+        "en": {
+          "what": "Creates charts, graphs, dashboards, and data visualizations in any medium or format.",
+          "use_when": "You need to visualize data, create charts, build dashboards, or design analytics interfaces.",
+          "not_for": "Analyzing data, writing statistics, or creating non-visual reports without charts."
+        },
+        "zh": {
+          "what": "在任何介质或格式中创建图表、图形、仪表板和数据可视化。",
+          "use_when": "需要可视化数据、创建图表、构建仪表板或设计分析界面时使用。",
+          "not_for": "数据分析、统计写作或不含图表的非可视化报告。"
+        }
+      }
+    },
+    "profile.0143723a00bf0f1a60b09d416110": {
+      "name": "update-config",
+      "at": 1791148402303,
+      "profile": {
+        "en": {
+          "what": "Configure Claude Code harness settings and permissions via settings.json.",
+          "use_when": "Setting up automated behaviors, permissions, environment variables, or troubleshooting hooks.",
+          "not_for": "Simple theme or model changes; use /config command instead."
+        },
+        "zh": {
+          "what": "通过settings.json配置Claude Code框架的设置和权限。",
+          "use_when": "需要设置自动化行为、权限、环境变量或排查钩子问题时。",
+          "not_for": "主题或模型等简单设置，请使用/config命令。"
+        }
+      }
+    },
+    "profile.1b3b260ff13bbd1e5393d421585d": {
+      "name": "keybindings-help",
+      "at": 1791148403217,
+      "profile": {
+        "en": {
+          "what": "Customize keyboard shortcuts and keybindings in Claude.",
+          "use_when": "User wants to rebind keys, create chord shortcuts, or modify keybindings.json configuration.",
+          "not_for": "General keyboard help, troubleshooting input problems, or other configuration files."
+        },
+        "zh": {
+          "what": "自定义Claude中的键盘快捷键和按键绑定。",
+          "use_when": "用户想要重新绑定键、创建组合快捷键或修改keybindings.json配置。",
+          "not_for": "通用键盘帮助、输入问题排查或其他配置文件修改。"
+        }
+      }
+    },
+    "profile.0e527d31195ff9020237f88a4fa9": {
+      "name": "simplify",
+      "at": 1791148406521,
+      "profile": {
+        "en": {
+          "what": "Refactor code for reuse, simplification, efficiency, and cleanup.",
+          "use_when": "You have changed code and want quality improvements without bug hunting.",
+          "not_for": "Finding bugs or logical errors; use code-review skill for that."
+        },
+        "zh": {
+          "what": "重构代码以提高复用性、简洁性、效率和代码清洁度。",
+          "use_when": "代码已改动，需要质量优化但不需要查找bug。",
+          "not_for": "寻找bug或逻辑错误，那种情况使用code-review技能。"
+        }
+      }
+    },
+    "profile.0342f8c804ab3d13d3636293697e": {
+      "name": "fewer-permission-prompts",
+      "at": 1791148406366,
+      "profile": {
+        "en": {
+          "what": "Analyzes transcripts to create an allowlist of safe Bash and MCP tool calls in settings.",
+          "use_when": "You want to reduce permission prompts by pre-approving common read-only operations.",
+          "not_for": "Modifying permissions, granting write access, or managing security policies directly."
+        },
+        "zh": {
+          "what": "分析对话记录，在设置中创建安全的Bash和MCP工具调用白名单。",
+          "use_when": "您想通过预批准常见的只读操作来减少权限提示。",
+          "not_for": "修改权限、授予写入权限或直接管理安全策略。"
+        }
+      }
+    },
+    "profile.1091564d87b0cc0d203904021bb8": {
+      "name": "loop",
+      "at": 1791148408737,
+      "profile": {
+        "en": {
+          "what": "Executes a prompt or command repeatedly at specified intervals or self-paced.",
+          "use_when": "You need to run the same task periodically, like monitoring, polling, or repeated checks.",
+          "not_for": "One-time executions, batch processing multiple different tasks, or scheduled future runs."
+        },
+        "zh": {
+          "what": "按指定间隔或自主节奏重复执行提示词或命令。",
+          "use_when": "需要定期运行同一任务，如监控、轮询或重复检查。",
+          "not_for": "一次性执行、批量处理不同任务或定时未来运行。"
+        }
+      }
+    },
+    "profile.1d3539c0ef977a0cf34f90800af6": {
+      "name": "schedule",
+      "at": 1791148409129,
+      "profile": {
+        "en": {
+          "what": "Create, update, list, or execute scheduled cloud agents on cron schedules.",
+          "use_when": "You need to set up recurring automated tasks, manage existing schedules, or trigger agents periodically.",
+          "not_for": "One-time task execution, real-time event responses, or non-scheduled agent operations."
+        },
+        "zh": {
+          "what": "创建、更新、列出或执行按cron时间表运行的计划云代理。",
+          "use_when": "需要设置循环自动化任务、管理现有计划或定期触发代理。",
+          "not_for": "一次性任务执行、实时事件响应或非计划代理操作。"
+        }
+      }
+    },
+    "profile.09e77438a4c5270bfacb1571d897": {
+      "name": "claude-api",
+      "at": 1791148412007,
+      "profile": {
+        "en": {
+          "what": "Reference for Claude API, models, pricing, parameters, streaming, tool use, agents.",
+          "use_when": "Questions about Claude/Anthropic models, API features, pricing, limits, token counting, caching.",
+          "not_for": "Using other LLM providers like OpenAI, Gemini, Llama, or Mistral."
+        },
+        "zh": {
+          "what": "Claude API、模型、价格、参数、流式输出、工具调用、代理的参考文档。",
+          "use_when": "询问Claude/Anthropic模型、API功能、价格、限制、令牌计数、缓存等问题。",
+          "not_for": "使用OpenAI、Gemini、Llama或Mistral等其他LLM提供商。"
+        }
+      }
+    },
+    "profile.14c0e344e339a10cff659244cae0": {
+      "name": "workflow-authoring",
+      "at": 1791148414968,
+      "profile": {
+        "en": {
+          "what": "Reference guide for writing Workflow tool scripts using the script API.",
+          "use_when": "User is authoring a script for an existing opted-in Workflow and needs API documentation.",
+          "not_for": "Authorizing Workflow execution, creating new Workflows, or general scripting help."
+        },
+        "zh": {
+          "what": "编写工作流工具脚本的参考指南，包含脚本API和最佳实践。",
+          "use_when": "用户正在为已授权的工作流编写脚本，需要API文档和代码示例。",
+          "not_for": "授权执行工作流、创建新工作流或提供通用编程帮助。"
+        }
+      }
+    },
+    "profile.139d76721801130b6ea3f0c669c8": {
+      "name": "run",
+      "at": 1791148283573,
+      "profile": {
+        "en": {
+          "what": "Launch and run the project's app to test changes in a live environment.",
+          "use_when": "User asks to run, start, or screenshot the app, or verify a change works.",
+          "not_for": "Writing code, running tests, or analyzing logs without executing the app."
+        },
+        "zh": {
+          "what": "启动并运行项目的应用程序以在实时环境中测试变更。",
+          "use_when": "用户要求运行、启动或截图应用程序，或验证变更是否有效。",
+          "not_for": "编写代码、运行测试或分析日志，但不执行应用程序。"
+        }
+      }
+    },
+    "profile.15603dce88c387010b686efb2242": {
+      "name": "plugin-authoring",
+      "at": 1791148414598,
+      "profile": {
+        "en": {
+          "what": "Create a Claude Code plugin with hooks that hot-reloads during development.",
+          "use_when": "You want to build custom UI elements, status displays, or event handlers for Claude Code.",
+          "not_for": "Extending Claude's core features, modifying chat behavior, or server-side functionality."
+        },
+        "zh": {
+          "what": "创建具有热重载功能的Claude Code插件钩子模块。",
+          "use_when": "需要为Claude Code开发自定义UI、状态显示或事件处理器时使用。",
+          "not_for": "扩展Claude核心功能、修改聊天行为或服务器端功能。"
+        }
+      }
+    },
+    "profile.1bf5d064f0d59c1cad9e7609e80f": {
+      "name": "init",
+      "at": 1791148414677,
+      "profile": {
+        "en": {
+          "what": "Creates a new CLAUDE.md file to document a codebase.",
+          "use_when": "Starting documentation for a project or setting up codebase reference.",
+          "not_for": "Updating existing documentation or analyzing code structure."
+        },
+        "zh": {
+          "what": "为代码库创建新的 CLAUDE.md 文档文件。",
+          "use_when": "为项目启动文档或设置代码库参考时。",
+          "not_for": "更新现有文档或分析代码结构。"
+        }
+      }
+    },
+    "profile.0a0e1e14408be107d3d541311bf6": {
+      "name": "security-review",
+      "at": 1791148417528,
+      "profile": {
+        "en": {
+          "what": "Reviews pending changes on the current branch for security vulnerabilities and risks.",
+          "use_when": "You need to audit code changes for security issues before merging or deploying.",
+          "not_for": "General code review, performance analysis, or style checking."
+        },
+        "zh": {
+          "what": "审查当前分支的待处理更改中的安全漏洞和风险。",
+          "use_when": "需要在合并或部署前审计代码更改的安全问题时使用。",
+          "not_for": "通用代码审查、性能分析或代码风格检查。"
+        }
+      }
+    },
+    "profile.105a7cd5aac3a1106a1b94d90047": {
+      "name": "anthropic-skills:built-in-browser",
+      "at": 1791148420508,
+      "profile": {
+        "en": {
+          "what": "Use the built-in browser pane in Claude desktop app to browse websites.",
+          "use_when": "You need to read pages, interact with sites, or sign in using Claude's own browser.",
+          "not_for": "Claude in Chrome, localhost servers, or file:// URLs."
+        },
+        "zh": {
+          "what": "使用 Claude 桌面应用内置浏览器面板浏览网站。",
+          "use_when": "需要阅读网页、与网站交互或使用 Claude 内置浏览器登录。",
+          "not_for": "Chrome 中的 Claude、本地服务器或 file:// URL。"
+        }
+      }
+    },
+    "profile.0694e6e31f200802b401e80c84be": {
+      "name": "anthropic-skills:computer-use",
+      "at": 1791148420823,
+      "profile": {
+        "en": {
+          "what": "Control your computer desktop: take screenshots, click, type, and scroll in native apps.",
+          "use_when": "You need to interact with desktop applications like Notes, Finder, Settings, or control your screen.",
+          "not_for": "Web browsing, which uses browser tools instead; financial transactions, which require your approval."
+        },
+        "zh": {
+          "what": "控制你的电脑桌面：截图、点击、输入和滚动本地应用。",
+          "use_when": "你需要与桌面应用交互，如备忘录、访达、系统设置或控制屏幕。",
+          "not_for": "网页浏览使用浏览器工具；金融交易需要你的明确批准。"
+        }
+      }
+    },
+    "profile.16d8ef605e139e0c5ceebac39050": {
+      "name": "anthropic-skills:deep-research",
+      "at": 1791148421848,
+      "profile": {
+        "en": {
+          "what": "Coordinates research across multiple sources and synthesizes findings into comprehensive reports.",
+          "use_when": "You need to research a topic broadly, compare alternatives, analyze trends, or review literature across multiple sources.",
+          "not_for": "Simple factual lookups, single-source queries, or tasks that don't require synthesis of multiple perspectives."
+        },
+        "zh": {
+          "what": "协调多源研究并将发现综合为全面报告。",
+          "use_when": "需要广泛研究某个话题、比较多个选项、分析趋势或综合多个信息源的文献。",
+          "not_for": "简单事实查询、单一信息源查询或无需综合多个观点的任务。"
+        }
+      }
+    },
+    "profile.148c33bb85d75b08a94a2d2c179f": {
+      "name": "anthropic-skills:google-workspace",
+      "at": 1791148423999,
+      "profile": {
+        "en": {
+          "what": "Create, edit, and format Google Docs, Sheets, and Slides files in Drive.",
+          "use_when": "User wants to make, change, or format a Google file, or provides a docs.google.com link to edit.",
+          "not_for": "Read-only questions about Google files, or Word, Excel, PowerPoint, and PDF files."
+        },
+        "zh": {
+          "what": "在 Google 云端硬盘中创建、编辑和格式化 Google 文档、表格和幻灯片。",
+          "use_when": "用户想要创建、修改或格式化 Google 文件，或提供 docs.google.com 链接进行编辑。",
+          "not_for": "关于 Google 文件的只读问题，或 Word、Excel、PowerPoint 和 PDF 文件。"
+        }
+      }
+    },
+    "profile.1fd8535f11f3531d28a43e07a72a": {
+      "name": "anthropic-skills:morning",
+      "at": 1791148427032,
+      "profile": {
+        "en": {
+          "what": "Render a styled morning brief showing your day's shape and important items.",
+          "use_when": "You explicitly ask to run, see, or set up your morning brief, or invoke /morning.",
+          "not_for": "General questions about your day, schedule, or calendar. Answer those directly instead."
+        },
+        "zh": {
+          "what": "生成风格化的晨间简报,展示你的日程形状和重要事项。",
+          "use_when": "你明确要求查看、运行或设置晨间简报,或直接调用 /morning。",
+          "not_for": "关于你日程、日历或每日安排的一般问题。应直接回答而非使用此技能。"
+        }
+      }
+    },
+    "profile.0e08698b6f0e7a06e9f308c3c6e4": {
+      "name": "anthropic-skills:setup-writing-style",
+      "at": 1791148427258,
+      "profile": {
+        "en": {
+          "what": "Learns your writing voice from your sent messages and docs, builds a profile for authentic drafts.",
+          "use_when": "You want to set up your writing voice, capture your style, or make drafts sound like you.",
+          "not_for": "Writing as Claude or other personas; analyzing others' writing; existing voice profiles."
+        },
+        "zh": {
+          "what": "从你发送的消息和文档中学习写作风格，建立档案使草稿听起来像你。",
+          "use_when": "你想建立写作风格、捕捉个人风格或让草稿听起来更像你自己。",
+          "not_for": "以Claude或其他人物身份写作；分析他人文章；已有风格档案的情况。"
+        }
+      }
+    },
+    "profile.171b104309bd910826e9d6113755": {
+      "name": "anthropic-skills:skill-creator",
+      "at": 1791148427900,
+      "profile": {
+        "en": {
+          "what": "Create, edit, and evaluate skills using test cases and performance benchmarks.",
+          "use_when": "User wants to build a new skill, modify an existing skill, run evaluations, or optimize skill triggering.",
+          "not_for": "Using an existing skill for its intended purpose; general coding or writing tasks unrelated to skill creation."
+        },
+        "zh": {
+          "what": "创建、编辑和评估技能，包括测试用例和性能基准测试。",
+          "use_when": "用户想要构建新技能、修改现有技能、运行评估或优化技能触发准确性。",
+          "not_for": "使用现有技能实现其预期功能；与技能创建无关的通用编码或写作任务。"
+        }
+      }
+    },
+    "profile.1c1e5ab688d9c71a1cf32d8d3e1e": {
+      "name": "ask-matt",
+      "at": 1791148429764,
+      "profile": {
+        "en": {
+          "what": "Route to the right skill or flow for your situation.",
+          "use_when": "You are unsure which skill fits your work or how to navigate the skill map.",
+          "not_for": "Executing a specific skill; use the skill directly once you know which one."
+        },
+        "zh": {
+          "what": "根据你的情况路由到正确的技能或流程。",
+          "use_when": "你不确定哪个技能适合你的工作，或不知道如何在技能地图中导航。",
+          "not_for": "执行具体的技能；一旦确定了技能，直接使用该技能。"
+        }
+      }
+    },
+    "profile.0a4bd2f63da3b31b5a8fdcce78fc": {
+      "name": "grill-me",
+      "at": 1791148433078,
+      "profile": {
+        "en": {
+          "what": "Conducts a rigorous interview to refine and stress-test your plan or design.",
+          "use_when": "You want critical feedback to strengthen a proposal, strategy, or concept before finalizing it.",
+          "not_for": "Generating new ideas, implementation guidance, or detailed technical specifications."
+        },
+        "zh": {
+          "what": "通过严格的追问来打磨和验证你的计划或设计。",
+          "use_when": "需要在定稿前获得尖锐的批评反馈，以完善方案、战略或概念。",
+          "not_for": "创意生成、执行指导或详细的技术规范。"
+        }
+      }
+    },
+    "profile.00557b495f592b135c11c8b210dd": {
+      "name": "grill-with-docs",
+      "at": 1791148432997,
+      "profile": {
+        "en": {
+          "what": "Conducts intensive interviews to refine plans or designs while generating documentation.",
+          "use_when": "You need to sharpen a concept, design, or strategy and create ADRs and glossaries.",
+          "not_for": "Quick answers, implementation details, or code generation."
+        },
+        "zh": {
+          "what": "通过深入访谈来完善计划或设计，同时生成文档。",
+          "use_when": "需要精化概念、设计或策略，并创建ADR和术语表。",
+          "not_for": "快速答案、实现细节或代码生成。"
+        }
+      }
+    },
+    "profile.0c5af36658977a183a19484b4076": {
+      "name": "handoff",
+      "at": 1791148433644,
+      "profile": {
+        "en": {
+          "what": "Summarize conversation into a handoff document for the next agent.",
+          "use_when": "Ending a session and need to pass context to another agent or session.",
+          "not_for": "Creating project specs, plans, or saving work artifacts in the current workspace."
+        },
+        "zh": {
+          "what": "将当前对话总结为切换文档，供下一个代理继续使用。",
+          "use_when": "结束会话需要将上下文传递给另一个代理或下一个会话时。",
+          "not_for": "创建项目规范、计划或在当前工作区保存工作成果。"
+        }
+      }
+    },
+    "profile.17c0d14005da5b1961f29188255f": {
+      "name": "implement",
+      "at": 1791148435433,
+      "profile": {
+        "en": {
+          "what": "Implement work based on specifications or tickets using test-driven development.",
+          "use_when": "You have a spec or tickets describing features to build and need implementation.",
+          "not_for": "Code review, design decisions, or planning work that hasn't been specified yet."
+        },
+        "zh": {
+          "what": "根据规格说明或工单实现工作，使用测试驱动开发。",
+          "use_when": "你有明确的规格说明或工单描述需要构建的功能。",
+          "not_for": "代码审查、设计决策或尚未指定的工作规划。"
+        }
+      }
+    },
+    "profile.126155408ede721bec6b2b5f7fcf": {
+      "name": "implement-spec",
+      "at": 1791148438957,
+      "profile": {
+        "en": {
+          "what": "Implement a specification and its associated tickets into code on an integration branch.",
+          "use_when": "You have a spec with tickets describing implementation tasks and need to build it.",
+          "not_for": "Creating specs, generating tickets, or code review without a pre-existing spec."
+        },
+        "zh": {
+          "what": "根据规格说明书及其关联工单实现代码到集成分支。",
+          "use_when": "你有规格说明书和描述实现任务的工单，需要构建代码。",
+          "not_for": "创建规格说明书、生成工单或无规格说明书的代码审查。"
+        }
+      }
+    },
+    "profile.0df9a21b30dccb03ef85692af244": {
+      "name": "improve-codebase-architecture",
+      "at": 1791148438984,
+      "profile": {
+        "en": {
+          "what": "Scan codebases for architectural friction and propose refactors that deepen modules.",
+          "use_when": "You want to improve testability and navigability by identifying shallow modules worth refactoring.",
+          "not_for": "Writing new code, fixing bugs, or optimizing performance."
+        },
+        "zh": {
+          "what": "扫描代码库寻找架构问题，提议深化模块的重构方案。",
+          "use_when": "想通过识别和重构浅层模块来改进可测试性和可导航性。",
+          "not_for": "编写新代码、修复缺陷或性能优化。"
+        }
+      }
+    },
+    "profile.14260d169486dc1aef3a439db9e8": {
+      "name": "loop-me",
+      "at": 1791148439216,
+      "profile": {
+        "en": {
+          "what": "Interview you about recurring life patterns and create workflow specifications.",
+          "use_when": "You want to design a new workflow or explore loops worth automating.",
+          "not_for": "Implementing workflows, running existing automations, or general advice."
+        },
+        "zh": {
+          "what": "通过提问帮助你识别生活中的循环模式，并生成工作流规范。",
+          "use_when": "你想设计新工作流或探索值得自动化的生活循环。",
+          "not_for": "执行工作流、运行现有自动化或提供一般建议。"
+        }
+      }
+    },
+    "profile.09674b3660943905e205094820c0": {
+      "name": "retro",
+      "at": 1791148441289,
+      "profile": {
+        "en": {
+          "what": "Analyze a coding session and suggest improvements to the development environment.",
+          "use_when": "After completing a coding task, to identify navigation, automation, standards, or tooling improvements.",
+          "not_for": "Writing code, reviewing pull requests, or debugging runtime issues."
+        },
+        "zh": {
+          "what": "分析编程会话并建议改进开发环境的方案。",
+          "use_when": "完成编码任务后，识别导航、自动化、标准或工具链的改进机会。",
+          "not_for": "编写代码、审查拉取请求或调试运行时问题。"
+        }
+      }
+    },
+    "profile.0f102ca603073c1e2dcac2db5bdf": {
+      "name": "setup-matt-pocock-skills",
+      "at": 1791148444640,
+      "profile": {
+        "en": {
+          "what": "Configure a repository for engineering skills: issue tracker, triage labels, and domain docs.",
+          "use_when": "Setting up a new repo for the first time before using other engineering skills.",
+          "not_for": "Updating existing skill configurations or modifying individual issue tracking workflows."
+        },
+        "zh": {
+          "what": "为工程技能配置仓库：问题追踪器、分类标签和领域文档。",
+          "use_when": "首次为仓库设置，在使用其他工程技能之前。",
+          "not_for": "更新已有技能配置或修改单个问题追踪工作流。"
+        }
+      }
+    },
+    "profile.1aa0901e3e80170b7f336eeaf68d": {
+      "name": "setup-ts-deep-modules",
+      "at": 1791148444971,
+      "profile": {
+        "en": {
+          "what": "Set up dependency-cruiser to enforce deep modules in a TypeScript monorepo.",
+          "use_when": "You want to hide package internals in subfolders and allow imports only through entry points.",
+          "not_for": "Designing layering rules between packages or refactoring existing package structures."
+        },
+        "zh": {
+          "what": "在 TypeScript 单体仓库中配置 dependency-cruiser 来强制深模块架构。",
+          "use_when": "需要隐藏包的内部实现在子文件夹中，仅允许通过入口点导入。",
+          "not_for": "设计包之间的分层规则或重构现有的包结构。"
+        }
+      }
+    },
+    "profile.1caf0dd2332c5f1cdba8755c35f4": {
+      "name": "teach",
+      "at": 1791148445142,
+      "profile": {
+        "en": {
+          "what": "Teach you a new skill or concept through structured lessons and reference materials.",
+          "use_when": "You want to learn a topic deeply over multiple sessions with guided lessons.",
+          "not_for": "Quick answers to specific questions or one-off explanations of concepts."
+        },
+        "zh": {
+          "what": "通过结构化课程和参考资料教你新技能或概念。",
+          "use_when": "你想在多个学习阶段深入学习一个话题，需要有指导的课程。",
+          "not_for": "快速回答具体问题或一次性解释概念。"
+        }
+      }
+    },
+    "profile.13c96304be81941650fd012dd4e8": {
+      "name": "to-questionnaire",
+      "at": 1791148447071,
+      "profile": {
+        "en": {
+          "what": "Create a structured questionnaire to gather missing knowledge from someone else.",
+          "use_when": "You need specific information or decisions from another person to move forward.",
+          "not_for": "Surveys, feedback forms, or questions for people without specialized knowledge you need."
+        },
+        "zh": {
+          "what": "创建结构化问卷，从他人处收集缺失的信息。",
+          "use_when": "需要从另一个人那里获取特定信息或决策以继续推进工作。",
+          "not_for": "调查问卷、反馈表单或向没有你需要的专业知识的人提问。"
+        }
+      }
+    },
+    "profile.19989bf0233f73067f639f09cf6e": {
+      "name": "to-spec",
+      "at": 1791148450551,
+      "profile": {
+        "en": {
+          "what": "Synthesize current conversation into a spec and publish to issue tracker.",
+          "use_when": "You have discussed a feature and need to formalize it as a specification.",
+          "not_for": "Gathering new requirements, interviewing users, or exploring undefined ideas."
+        },
+        "zh": {
+          "what": "将当前对话合成规格说明并发布到问题跟踪器。",
+          "use_when": "已讨论功能需求，需要将其正式化为规格说明文档。",
+          "not_for": "收集新需求、采访用户或探索未定义的想法。"
+        }
+      }
+    },
+    "profile.1d09989442801a09dac713fb7141": {
+      "name": "to-tickets",
+      "at": 1791148450852,
+      "profile": {
+        "en": {
+          "what": "Break plans, specs, or conversations into vertical-slice tickets with blocking edges.",
+          "use_when": "You need to decompose work into traceable, independently-demoable tasks with dependencies.",
+          "not_for": "Estimating effort, assigning owners, or managing existing tickets."
+        },
+        "zh": {
+          "what": "将计划、规范或对话分解为包含阻塞关系的垂直切片工单。",
+          "use_when": "需要将工作分解为可独立演示的任务并标明依赖关系时。",
+          "not_for": "估算工作量、分配所有者或管理现有工单。"
+        }
+      }
+    },
+    "profile.0816ff1e662db8050b05b0cdbd89": {
+      "name": "triage",
+      "at": 1791148451124,
+      "profile": {
+        "en": {
+          "what": "Move issues and PRs through triage states, categorize, verify claims, and write agent briefs.",
+          "use_when": "You need to evaluate, categorize, or advance issues and external PRs through a triage workflow.",
+          "not_for": "Implementing features, merging code, or closing issues without triage evaluation first."
+        },
+        "zh": {
+          "what": "将议题和PR通过分类状态机推进,验证并撰写代理简报。",
+          "use_when": "需要评估、分类议题或外部PR,推进其通过分类工作流程。",
+          "not_for": "实现功能、合并代码或直接关闭议题而不进行分类评估。"
+        }
+      }
+    },
+    "profile.11779a2ff8b83504b97aef70bb9a": {
+      "name": "wait-what",
+      "at": 1791148452914,
+      "profile": {
+        "en": {
+          "what": "Asks for clarification and repitching of an unclear message using simplified language.",
+          "use_when": "A previous message was confusing, unclear, or did not communicate effectively.",
+          "not_for": "Understanding code, debugging, or technical problem-solving requests."
+        },
+        "zh": {
+          "what": "要求用简化语言重新阐述一条不清楚的消息。",
+          "use_when": "前面的消息不清楚、难以理解或无效表达。",
+          "not_for": "代码理解、调试或技术问题解决。"
+        }
+      }
+    },
+    "profile.12ee9d6a71891d046d646150ba7c": {
+      "name": "wayfinder",
+      "at": 1791148456328,
+      "profile": {
+        "en": {
+          "what": "Plan large work efforts by charting decision tickets on an issue tracker.",
+          "use_when": "Work is too big for one session and the path forward is unclear or foggy.",
+          "not_for": "Executing work, building deliverables, or resolving decisions independently."
+        },
+        "zh": {
+          "what": "通过在问题追踪器上绘制决策工单来规划大型工作。",
+          "use_when": "工作超出单个会话范围，前进方向不清楚或模糊不明。",
+          "not_for": "执行工作、交付成果或独立解决决策。"
+        }
+      }
+    },
+    "profile.19e520b3ef13511bfefef7983bec": {
+      "name": "writing-beats",
+      "at": 1791148456978,
+      "profile": {
+        "en": {
+          "what": "Assemble raw material into a structured article journey, grounding concepts beat by beat.",
+          "use_when": "You have raw notes or fragments and want to build a coherent piece with guided pacing.",
+          "not_for": "Writing from scratch, editing existing polished work, or organizing reference material."
+        },
+        "zh": {
+          "what": "将原始素材逐步组织成文章，每个节拍前确保概念已扎根。",
+          "use_when": "你有散乱的笔记或片段，需要引导式地构建连贯的文章。",
+          "not_for": "从零开始写作、编辑已成型的作品、或整理参考资料。"
+        }
+      }
+    },
+    "profile.0b4208d35ec0b91907cddab984df": {
+      "name": "writing-fragments",
+      "at": 1791148456983,
+      "profile": {
+        "en": {
+          "what": "Conduct unstructured interviews to mine raw writing fragments without organizing them.",
+          "use_when": "User wants to explore ideas, gather raw material, or brainstorm before committing to structure.",
+          "not_for": "Organizing fragments, outlining articles, or creating final structured drafts."
+        },
+        "zh": {
+          "what": "通过非结构化访谈采集原始写作素材片段，不进行组织整理。",
+          "use_when": "用户想探索想法、收集原始素材或在定稿前进行头脑风暴。",
+          "not_for": "组织片段、制作大纲或创作最终结构化的草稿。"
+        }
+      }
+    },
+    "profile.06151c4023a69a03fa708e018b9b": {
+      "name": "writing-shape",
+      "at": 1791148458994,
+      "profile": {
+        "en": {
+          "what": "Shapes raw material into a structured article, paragraph by paragraph.",
+          "use_when": "You have unstructured notes, fragments, or transcripts to transform into a coherent written piece.",
+          "not_for": "Editing existing polished articles or creating new content from scratch without source material."
+        },
+        "zh": {
+          "what": "将原始素材逐段塑造成结构化的文章。",
+          "use_when": "你有零散笔记、片段或记录需要转化为连贯的成文作品。",
+          "not_for": "修改已成稿的文章或从无到有创作新内容。"
+        }
+      }
+    }
+  }
+}

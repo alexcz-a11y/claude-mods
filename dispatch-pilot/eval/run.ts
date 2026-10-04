@@ -37,7 +37,7 @@ import { summarize, type Summary } from './lib/metrics.ts'
 import { runSuite, type Row } from './lib/runner.ts'
 import { settingsFrom } from './lib/suite.ts'
 import { SUITES } from './lib/suites.ts'
-import { CREDENTIALS_FILE, MOD_DIR, RESULTS_DIR, REVIEW_DIR, credential, datasetFile, nodeIo, readDataset, shown } from './node.ts'
+import { CREDENTIALS_FILE, MOD_DIR, RESULTS_DIR, REVIEW_DIR, credential, datasetFile, nodeHost, nodeIo, readCatalog, readDataset, shown } from './node.ts'
 
 /** Input price per million tokens; output is free on both (docs.typesafe.ai/models, the Clef model page; 2026-10-04). */
 const PRICES: Readonly<Record<string, number>> = { jev: 0.042, clef: 0.24, 'clef-flash': 0.09 }
@@ -68,11 +68,16 @@ function fail(message: string): never {
 }
 
 const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|clef] [--label <word>] ...')
-const suite = SUITES[name] ?? fail(`no suite for "${name}" yet (suites: ${Object.keys(SUITES).join(', ')})`)
+const entry = SUITES[name] ?? fail(`no suite for "${name}" yet (suites: ${Object.keys(SUITES).join(', ')})`)
 const { kind, path } = datasetFile(name)
 const dataset = readDataset(path)
-const checked = validateDataset(kind, dataset.items)
+const checked = validateDataset(kind, dataset.items, { catalog: kind === 'skill' ? readCatalog(path) : undefined })
 if (dataset.errors.length + checked.errors.length > 0) fail(`${shown(path)} is not valid; run eval/validate.ts ${name}`)
+const sha = (text: string) => createHash('sha256').update(text).digest('hex')
+// A suite that reads more than its items (the skill suite) is built from what lies beside its dataset; the results hash those files too.
+const beside: Record<string, string> = {}
+const suite = typeof entry === 'function' ? await entry(nodeHost(path, (file, text) => (beside[file] = sha(text)))) : entry
+for (const warning of suite.about?.warnings ?? []) console.log(`warning: ${warning}`)
 
 const variants = values.variants?.split(',') ?? suite.variants
 for (const variant of variants) if (!suite.variants.includes(variant)) fail(`no variant "${variant}" (${suite.variants.join(', ')})`)
@@ -102,15 +107,20 @@ if (backendName === 'clef' && values.model !== undefined && values.model !== CLE
 const model = backendName === 'clef' ? CLEF_MODEL : (values.model ?? JEV_MODEL)
 const price = PRICES[backendName === 'jev' ? 'jev' : model] ?? fail(`no price known for ${backendName} ${model}`)
 
-// The estimate: the requests a run sends first (a suite that asks a second
-// time, after reading the first answer, sends more), at the mod's token
-// estimate times what Jev actually counted: 6468 tokens for 8 effort-submit
-// requests estimated at 4127 (2026-10-04), so 1.6.
+// The estimate: the requests a run sends (a suite that asks again after
+// reading an answer says what it may send at most: Suite.estimate; another
+// counts what it sends first), at the mod's token estimate times what Jev
+// actually counted: 6468 tokens for 8 effort-submit requests estimated at
+// 4127 (2026-10-04), so 1.6.
 const ESTIMATE_FACTOR = 1.6
 const planned: DecisionRequest[] = []
 for (const item of items) {
   for (const variant of variants) {
     for (const language of languages) {
+      if (suite.estimate !== undefined) {
+        planned.push(...(await suite.estimate(item, language, variant, settings)))
+        continue
+      }
       await suite.decide(item, language, variant, async (request) => {
         planned.push(request)
         return { request, asked: { ok: false, failure: { kind: 'config', detail: 'estimate only' } }, ms: 0, attempts: 0 }
@@ -120,7 +130,7 @@ for (const item of items) {
 }
 const estimatedTokens = Math.round(ESTIMATE_FACTOR * planned.reduce((sum, request) => sum + estimateTokens(JSON.stringify({ model, ...request })), 0))
 const estimatedUsd = (estimatedTokens * price) / 1e6
-console.log(`${name}: ${items.length} items x ${variants.length} variants x ${languages.length} languages = ${planned.length} requests, about ${estimatedTokens} input tokens, about $${estimatedUsd.toFixed(4)} on ${backendName} (${model})`)
+console.log(`${name}: ${items.length} items x ${variants.length} variants x ${languages.length} languages = ${planned.length} requests${suite.estimate === undefined ? '' : ' at most'}, about ${estimatedTokens} input tokens, about $${estimatedUsd.toFixed(4)} on ${backendName} (${model})`)
 if (values.estimate) process.exit(0)
 const maxUsd = Number(values['max-usd'])
 if (estimatedUsd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothing sent`)
@@ -165,10 +175,11 @@ const answeredBy = [...new Set(rows.flatMap((row) => (row.model === null ? [] : 
 const inputTokens = rows.reduce((sum, row) => sum + (row.inputTokens ?? 0), 0)
 const usd = (inputTokens * price) / 1e6
 report(summary)
-console.log(`requests ${rows.length} (attempts ${rows.reduce((sum, row) => sum + row.attempts, 0)}), input tokens ${inputTokens}, about $${usd.toFixed(4)}; answered by ${answeredBy.join(', ') || 'none'}`)
+// Requests sent: one per answer, more where a suite asks again (the skill suite's second stage).
+const requests = rows.reduce((sum, row) => sum + (row.requests ?? 1), 0)
+console.log(`answers ${rows.length}, requests ${requests} (attempts ${rows.reduce((sum, row) => sum + row.attempts, 0)}), input tokens ${inputTokens}, about $${usd.toFixed(4)}; answered by ${answeredBy.join(', ') || 'none'}`)
 
 if (!values['no-save']) {
-  const sha = (text: string) => createHash('sha256').update(text).digest('hex')
   const decisionDir = join(MOD_DIR, 'hooks', 'decision')
   const reviewPath = join(REVIEW_DIR, `${kind}.review.jsonl`)
   const decided = existsSync(reviewPath) ? new Set(readFileSync(reviewPath, 'utf8').split('\n').flatMap((line) => (line.trim() ? [JSON.parse(line).id] : []))).size : 0
@@ -177,7 +188,13 @@ if (!values['no-save']) {
     label: values.label ?? null,
     date: started.toISOString(),
     backend: { name: backend.name, model, answeredBy },
-    dataset: { path: shown(path), items: dataset.items.length, sha256: sha(dataset.text), review: { file: existsSync(reviewPath) ? shown(reviewPath) : null, decided } },
+    dataset: {
+      path: shown(path),
+      items: dataset.items.length,
+      sha256: sha(dataset.text),
+      ...(Object.keys(beside).length === 0 ? {} : { beside }),
+      review: { file: existsSync(reviewPath) ? shown(reviewPath) : null, decided },
+    },
     code: Object.fromEntries(readdirSync(decisionDir).sort().map((file) => [`hooks/decision/${file}`, sha(readFileSync(join(decisionDir, file), 'utf8')).slice(0, 16)])),
     settings: {
       context: settings.context,
@@ -186,9 +203,10 @@ if (!values['no-save']) {
       // Every option as the run read it (a feature's own, such as agentOverride), less the sensitive ones.
       options: Object.fromEntries(Object.entries(options).filter(([key]) => manifest.userConfig?.[key]?.sensitive !== true)),
     },
-    run: { items: items.length, variants, languages, timeoutMs: Number(values.timeout), retries: Number(values.retries), concurrency: Number(values.concurrency), requests: rows.length, attempts: rows.reduce((sum, row) => sum + row.attempts, 0), inputTokens, usd: Number(usd.toFixed(4)) },
+    run: { items: items.length, variants, languages, timeoutMs: Number(values.timeout), retries: Number(values.retries), concurrency: Number(values.concurrency), requests, attempts: rows.reduce((sum, row) => sum + row.attempts, 0), inputTokens, usd: Number(usd.toFixed(4)) },
     questions: Object.fromEntries(variants.map((variant) => [variant, suite.questions(variant)])),
     ...(suite.scoring === undefined ? {} : { scoring: suite.scoring }),
+    ...(suite.about === undefined ? {} : { about: suite.about }),
     summary,
     answers: answersByItem(rows),
   }
