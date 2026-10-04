@@ -13,13 +13,19 @@
 //
 // And, for the dataset, the score of always giving the same answer (a
 // constant baseline: with acceptable sets two levels wide, a constant can do
-// well).
+// well), and of the suite's other baselines (an answer that depends on the
+// item, such as keeping its current level).
+//
+// A suite that grades the parts of an answer (Grade.parts, such as a
+// dispatched agent's model and effort) gets each part's accuracy beside the
+// whole answer's: in each language, by tag (wrong answers) and for each
+// constant answer.
 //
 // Pure. Rates are rounded to four places.
 
 import type { Language } from './datasets.ts'
 import type { Row } from './runner.ts'
-import type { AnyItem, Suite } from './suite.ts'
+import type { AnyItem, Settings, Suite } from './suite.ts'
 
 /** Chinese may be this far below English (spec: 中文准确率比英文低不超过 3 个百分点). */
 export const MAX_GAP = 0.03
@@ -32,6 +38,16 @@ export type LanguageSummary = {
   exact: number
   /** Wrong answers by the way they missed. */
   misses: Record<string, number>
+  /** Each part's accuracy (a suite that grades parts): items whose answer got that part right, over all items. */
+  parts?: Record<string, number>
+}
+
+export type TagSummary = {
+  tag: string
+  items: number
+  wrong: Record<Language, number>
+  /** Wrong answers by part (a suite that grades parts); an unanswered item is wrong in every part. */
+  parts?: Record<string, Record<Language, number>>
 }
 
 export type VariantSummary = {
@@ -42,31 +58,58 @@ export type VariantSummary = {
   pass: boolean
   agreement: { items: number; same: number; rate: number | null }
   latency: { answers: number; p50: number | null; p90: number | null; max: number | null; slow: number }
-  tags: { tag: string; items: number; wrong: Record<Language, number> }[]
+  tags: TagSummary[]
+  /** The suite's own figures (Suite.breakdown), when it has them. */
+  breakdown?: Readonly<Record<string, unknown>>
 }
 
 export type Summary = {
   items: number
   variants: VariantSummary[]
-  constants: { answer: string; accuracy: number; exact: number }[]
+  constants: { answer: string; accuracy: number; exact: number; parts?: Record<string, number> }[]
 }
 
-export function summarize<I extends AnyItem, P>(suite: Suite<I, P>, items: readonly I[], rows: readonly Row<P>[], options: { slowMs: number }): Summary {
+/** `settings`: the run's (settingsFrom), which a suite's own figures may read (Suite.breakdown); without them there are none. */
+export function summarize<I extends AnyItem, P>(suite: Suite<I, P>, items: readonly I[], rows: readonly Row<P>[], options: { slowMs: number; settings?: Settings }): Summary {
   const variants = [...new Set(rows.map((row) => row.variant))]
+  const parts = partNames(rows.map((row) => row.parts))
+  const { settings } = options
+  // A baseline: the answer `answer` gives each item, scored on the whole dataset.
+  const baseline = (label: string, answer: (item: I) => P) => {
+    const grades = items.map((item) => suite.grade(item, answer(item)))
+    const named = partNames(grades.map((grade) => grade.parts))
+    return {
+      answer: label,
+      accuracy: rate(grades.filter((g) => g.correct).length, items.length),
+      exact: rate(grades.filter((g) => g.exact).length, items.length),
+      ...(named.length > 0 ? { parts: Object.fromEntries(named.map((name) => [name, rate(grades.filter((g) => g.parts?.[name] === true).length, items.length)])) } : {}),
+    }
+  }
   return {
     items: items.length,
-    variants: variants.map((variant) => summarizeVariant(items, rows.filter((row) => row.variant === variant), variant, options.slowMs)),
-    constants: suite.constants.map((answer) => {
-      const grades = items.map((item) => suite.grade(item, answer))
-      return { answer: suite.show(answer), accuracy: rate(grades.filter((g) => g.correct).length, items.length), exact: rate(grades.filter((g) => g.exact).length, items.length) }
+    variants: variants.map((variant) => {
+      const mine = rows.filter((row) => row.variant === variant)
+      const summary = summarizeVariant(items, mine, variant, options.slowMs, parts)
+      return suite.breakdown === undefined || settings === undefined ? summary : { ...summary, breakdown: suite.breakdown(items, mine, variant, settings) }
     }),
+    constants: [
+      ...suite.constants.map((answer) => baseline(suite.show(answer), () => answer)),
+      ...Object.entries(suite.baselines ?? {}).map(([name, answer]) => baseline(name, answer)),
+    ],
   }
 }
 
-function summarizeVariant(items: readonly AnyItem[], rows: readonly Row<unknown>[], variant: string, slowMs: number): VariantSummary {
+/** The parts answers are graded on, in the order the suite names them; none for a suite that grades whole answers only. */
+function partNames(parts: readonly (Readonly<Record<string, boolean>> | null | undefined)[]): string[] {
+  const names: string[] = []
+  for (const one of parts) for (const name of Object.keys(one ?? {})) if (!names.includes(name)) names.push(name)
+  return names
+}
+
+function summarizeVariant(items: readonly AnyItem[], rows: readonly Row<unknown>[], variant: string, slowMs: number, parts: readonly string[]): VariantSummary {
   const of = (language: Language) => rows.filter((row) => row.language === language)
-  const zh = languageSummary(items.length, of('zh'))
-  const en = languageSummary(items.length, of('en'))
+  const zh = languageSummary(items.length, of('zh'), parts)
+  const en = languageSummary(items.length, of('en'), parts)
   const gap = round(zh.accuracy - en.accuracy)
 
   const byId = (language: Language) => new Map(of(language).map((row) => [row.id, row]))
@@ -82,14 +125,15 @@ function summarizeVariant(items: readonly AnyItem[], rows: readonly Row<unknown>
 
   const times = rows.flatMap((row) => (row.ms === null ? [] : [row.ms])).sort((a, b) => a - b)
 
-  const tags = new Map<string, { items: number; wrong: Record<Language, number> }>()
+  const tags = new Map<string, Omit<TagSummary, 'tag'>>()
   for (const item of items) {
     for (const tag of item.tags) {
-      const entry = tags.get(tag) ?? { items: 0, wrong: { zh: 0, en: 0 } }
+      const entry = tags.get(tag) ?? { items: 0, wrong: { zh: 0, en: 0 }, ...(parts.length > 0 ? { parts: Object.fromEntries(parts.map((name) => [name, { zh: 0, en: 0 }])) } : {}) }
       entry.items++
       for (const language of ['zh', 'en'] as const) {
         const row = (language === 'zh' ? zhRows : enRows).get(item.id)
         if (row !== undefined && !row.correct) entry.wrong[language]++
+        for (const name of parts) if (row !== undefined && row.parts?.[name] !== true) (entry.parts?.[name] as Record<Language, number>)[language]++
       }
       tags.set(tag, entry)
     }
@@ -109,7 +153,7 @@ function summarizeVariant(items: readonly AnyItem[], rows: readonly Row<unknown>
   }
 }
 
-function languageSummary(items: number, rows: readonly Row<unknown>[]): LanguageSummary {
+function languageSummary(items: number, rows: readonly Row<unknown>[], parts: readonly string[]): LanguageSummary {
   const misses: Record<string, number> = {}
   for (const row of rows) if (row.miss !== null) misses[row.miss] = (misses[row.miss] ?? 0) + 1
   return {
@@ -119,6 +163,7 @@ function languageSummary(items: number, rows: readonly Row<unknown>[]): Language
     accuracy: rate(rows.filter((row) => row.correct).length, items),
     exact: rate(rows.filter((row) => row.exact).length, items),
     misses,
+    ...(parts.length > 0 ? { parts: Object.fromEntries(parts.map((name) => [name, rate(rows.filter((row) => row.parts?.[name] === true).length, items)])) } : {}),
   }
 }
 
