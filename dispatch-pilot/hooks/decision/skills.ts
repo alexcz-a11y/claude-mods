@@ -141,6 +141,18 @@ export function choiceRanker(ask: { language?: Language } = {}): SkillRanker {
   }
 }
 
+/**
+ * The ranker the mod rates the session's skills with, wherever it does:
+ * beside each message (features/skills.ts) and when the main agent calls
+ * find_skill (features/find-skill.ts, #12). One entry, so the two always rank
+ * alike: a ranker swapped in here (#11's) serves both. A ranker that needs
+ * `$` (a request of its own, files to read) takes closures here, which each
+ * caller builds in its own hook.
+ */
+export function modRanker(ask: { language?: Language } = {}): SkillRanker {
+  return choiceRanker(ask)
+}
+
 /** How many skills to suggest at most, and the least relevance one needs. */
 export type SkillPolicy = { max: number; minRelevance: number }
 

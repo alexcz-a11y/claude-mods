@@ -271,14 +271,15 @@ function at(id: string, current: Effort, gold: Effort, accept: Effort[]): Effort
   return { ...ITEM, id, zh: asked, en: { ...ITEM.en, current_effort: current }, gold, accept }
 }
 
-/** An answer as the runner records it, graded by the suite; null when there was none. */
-function answered(item: EffortMidturnItem, language: 'zh' | 'en', effort: Effort | null): Row<Effort> {
-  const grade = effort === null ? { correct: false, exact: false } : effortMidturn.grade(item, effort)
-  const failure = effort === null ? 'timeout: no answer in 10000 ms' : null
-  return { id: item.id, language, variant: 'en-score', ok: effort !== null, prediction: effort, shown: effort, correct: grade.correct, exact: grade.exact, miss: grade.miss ?? null, failure, detail: null, ms: 300, attempts: 1, inputTokens: 900, model: 'jev-1.13.0', state: null }
+/** An answer as the runner records it, graded by the suite on the level picked, with the level the mod would send; null when there was none. */
+function answered(item: EffortMidturnItem, language: 'zh' | 'en', picked: Effort | null, sent?: Effort): Row<Effort> {
+  const grade = picked === null ? { correct: false, exact: false } : effortMidturn.grade(item, picked)
+  const failure = picked === null ? 'timeout: no answer in 10000 ms' : null
+  const detail = picked === null ? null : { sent: sent ?? picked }
+  return { id: item.id, language, variant: 'en-score', ok: picked !== null, prediction: picked, shown: picked, correct: grade.correct, exact: grade.exact, miss: grade.miss ?? null, failure, detail, ms: 300, attempts: 1, inputTokens: 900, model: 'jev-1.13.0', state: null }
 }
 
-test('the report scores keeping the current level as a baseline, and gives the accuracy of the items that should go up, down or keep their level', () => {
+test('the report scores keeping the current level as a baseline, and gives the accuracy by the way the level should move and of the level the mod would send', () => {
   const items = [
     at('a', 'medium', 'high', ['high', 'xhigh']), // up
     at('b', 'high', 'high', ['medium', 'high']), // keep
@@ -287,23 +288,31 @@ test('the report scores keeping the current level as a baseline, and gives the a
   ]
   const [a, b, c, d] = items as [EffortMidturnItem, EffortMidturnItem, EffortMidturnItem, EffortMidturnItem]
   const rows = [
-    answered(a, 'zh', 'high'), // right
+    answered(a, 'zh', 'high'), // right; the mod raises to it
     answered(a, 'en', 'medium'), // wrong
     answered(b, 'zh', 'high'), // right
     answered(b, 'en', 'high'), // right
-    answered(c, 'zh', 'medium'), // right
+    answered(c, 'zh', 'medium', 'high'), // right, but the mod drops one level only: high, wrong
     answered(c, 'en', 'high'), // wrong
     answered(d, 'zh', 'high'), // wrong
     answered(d, 'en', null), // no answer
   ]
-  const summary = summarize(effortMidturn, items, rows, { slowMs: 1500 })
+  const summary = summarize(effortMidturn, items, rows, { slowMs: 1500, settings: settingsFrom({}) })
 
   // Keeping the current level is right on b (gold) and d (acceptable), wrong on a and c.
   expect(summary.constants.find((c) => c.answer === 'current')).toEqual({ answer: 'current', accuracy: 0.5, exact: 0.25 })
-  expect(summary.variants[0]?.groups).toEqual([
-    { group: 'down', items: 1, accuracy: { zh: 1, en: 0 } },
-    { group: 'keep', items: 1, accuracy: { zh: 1, en: 1 } },
-    { group: 'up', items: 2, accuracy: { zh: 0.5, en: 0 } },
+  const variant = summary.variants[0]
+  expect(variant?.breakdown).toEqual({
+    directions: [
+      { direction: 'up', items: 2, accuracy: { zh: 0.5, en: 0 } },
+      { direction: 'down', items: 1, accuracy: { zh: 1, en: 0 } },
+      { direction: 'keep', items: 1, accuracy: { zh: 1, en: 1 } },
+    ],
+    sent: { zh: 0.5, en: 0.25 },
+  })
+  expect(variant && effortMidturn.report?.(variant)).toEqual([
+    'en-score: right by the way the level should move (zh/en of n): up 50.0%/0.0% of 2, down 100.0%/0.0% of 1, keep 100.0%/100.0% of 1',
+    'en-score: the level the mod would go on at (sent) right: zh 50.0%, en 25.0%',
   ])
 })
 

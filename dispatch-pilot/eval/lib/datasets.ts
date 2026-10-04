@@ -378,7 +378,7 @@ function checkSubagentAnswer(item: Record<string, unknown>, add: Add): void {
   if (isRecord(gold) && isModel(gold.model) && (!models.includes(gold.model) || !efforts.includes(gold.effort as Effort | null))) add(`gold ${JSON.stringify(gold)} is not in accept`)
 }
 
-const PRIORITIES = ['priority:user', 'priority:main-kept', 'priority:main-overridden', 'priority:none'] as const
+export const PRIORITIES = ['priority:user', 'priority:main-kept', 'priority:main-overridden', 'priority:none'] as const
 
 /**
  * Which priority case an item tests, one tag each: the person named a model

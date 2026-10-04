@@ -5,6 +5,7 @@
 
 import { effortMidturn } from './effort-midturn.ts'
 import { effortSubmit } from './effort-submit.ts'
+import { subagent } from './subagent.ts'
 import type { Suite } from './suite.ts'
 
 // Each suite has its own item and prediction types; the runner and the
@@ -12,4 +13,5 @@ import type { Suite } from './suite.ts'
 export const SUITES: Readonly<Record<string, Suite<any, any>>> = {
   'effort-submit': effortSubmit,
   'effort-midturn': effortMidturn,
+  subagent,
 }

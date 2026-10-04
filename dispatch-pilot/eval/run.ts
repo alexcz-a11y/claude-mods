@@ -93,9 +93,9 @@ for (const assignment of values.option) {
   if (!key || value === undefined) fail(`--option takes name=value, not ${assignment}`)
   options[key] = value !== '' && Number.isFinite(Number(value)) ? Number(value) : value
 }
+// The decision model is the backend under evaluation (--backend), whatever the manifest's default says.
+options.decisionModel = values.backend
 const settings = settingsFrom(options as PluginOptions)
-// The options in effect, as the results record them: never a sensitive one, nor decisionModel (--backend says who answered).
-const recordedOptions = Object.fromEntries(Object.entries(options).filter(([key]) => manifest.userConfig?.[key]?.sensitive !== true && key !== 'decisionModel'))
 
 const backendName = values.backend
 if (backendName === 'clef' && values.model !== undefined && values.model !== CLEF_MODEL) fail(`the Clef backend asks ${CLEF_MODEL} only`)
@@ -160,7 +160,7 @@ const rows: Row<unknown>[] = await runSuite(suite, items, {
 })
 for (const row of rows) row.ms = row.ms === null ? null : Math.round(row.ms)
 
-const summary = summarize(suite, items, rows, { slowMs: settings.timeoutMs })
+const summary = summarize(suite, items, rows, { slowMs: settings.timeoutMs, settings })
 const answeredBy = [...new Set(rows.flatMap((row) => (row.model === null ? [] : [row.model])))]
 const inputTokens = rows.reduce((sum, row) => sum + (row.inputTokens ?? 0), 0)
 const usd = (inputTokens * price) / 1e6
@@ -179,9 +179,16 @@ if (!values['no-save']) {
     backend: { name: backend.name, model, answeredBy },
     dataset: { path: shown(path), items: dataset.items.length, sha256: sha(dataset.text), review: { file: existsSync(reviewPath) ? shown(reviewPath) : null, decided } },
     code: Object.fromEntries(readdirSync(decisionDir).sort().map((file) => [`hooks/decision/${file}`, sha(readFileSync(join(decisionDir, file), 'utf8')).slice(0, 16)])),
-    settings: { context: settings.context, thetaMax: settings.thetaMax, timeoutMs: settings.timeoutMs, options: recordedOptions },
+    settings: {
+      context: settings.context,
+      thetaMax: settings.thetaMax,
+      timeoutMs: settings.timeoutMs,
+      // Every option as the run read it (a feature's own, such as agentOverride), less the sensitive ones.
+      options: Object.fromEntries(Object.entries(options).filter(([key]) => manifest.userConfig?.[key]?.sensitive !== true)),
+    },
     run: { items: items.length, variants, languages, timeoutMs: Number(values.timeout), retries: Number(values.retries), concurrency: Number(values.concurrency), requests: rows.length, attempts: rows.reduce((sum, row) => sum + row.attempts, 0), inputTokens, usd: Number(usd.toFixed(4)) },
     questions: Object.fromEntries(variants.map((variant) => [variant, suite.questions(variant)])),
+    ...(suite.scoring === undefined ? {} : { scoring: suite.scoring }),
     summary,
     answers: answersByItem(rows),
   }
@@ -203,7 +210,7 @@ function answersByItem(rows: readonly Row<unknown>[]): Record<string, unknown>[]
     const key = `${row.id} ${row.language}`
     const group = groups.get(key) ?? { id: row.id, language: row.language, state: row.state }
     group[row.variant] = Object.fromEntries(
-      Object.entries({ answer: row.shown, correct: row.correct, gold: row.exact, miss: row.miss, ...row.detail, ms: row.ms, attempts: row.attempts, tokens: row.inputTokens, model: row.model, failure: row.failure }).filter(
+      Object.entries({ answer: row.shown, correct: row.correct, gold: row.exact, miss: row.miss, parts: row.parts ?? null, ...row.detail, ms: row.ms, attempts: row.attempts, tokens: row.inputTokens, model: row.model, failure: row.failure }).filter(
         ([, value]) => value !== null,
       ),
     )
@@ -242,15 +249,21 @@ function report(summary: Summary): void {
     )
   }
   for (const v of summary.variants) {
+    const parts = Object.keys(v.zh.parts ?? {})
+    if (parts.length > 0) console.log(`${v.variant}: right by part (zh/en): ${parts.map((part) => `${part} ${pct(v.zh.parts?.[part] ?? 0)}/${pct(v.en.parts?.[part] ?? 0)}`).join(', ')}; whole answer ${pct(v.zh.accuracy)}/${pct(v.en.accuracy)}`)
+  }
+  for (const v of summary.variants) {
     const misses = (language: 'zh' | 'en') => Object.entries(v[language].misses).map(([way, n]) => `${way} ${n}`).join(', ') || 'none'
     const missed = v.tags.filter((t) => t.wrong.zh + t.wrong.en > 0).slice(0, 6)
     const tags = missed.map((t) => `${t.tag} ${t.wrong.zh}/${t.wrong.en} of ${t.items}`).join(', ') || 'none'
     console.log(`${v.variant}: misses zh ${misses('zh')}; en ${misses('en')}. most missed tags (zh/en wrong of n): ${tags}`)
-  }
-  for (const v of summary.variants) {
-    if (v.groups === undefined) continue
-    console.log(`${v.variant}: accuracy by group (zh/en of n): ${v.groups.map((g) => `${g.group} ${pct(g.accuracy.zh)}/${pct(g.accuracy.en)} of ${g.items}`).join(', ')}`)
+    for (const line of suite.report?.(v) ?? []) console.log(line)
   }
   const best = Math.max(...summary.constants.map((c) => c.accuracy))
   console.log(`constant answers: ${summary.constants.map((c) => `${c.answer} ${pct(c.accuracy)}${c.accuracy === best ? ' (best)' : ''} (gold ${pct(c.exact)})`).join(', ')}`)
+  // For a suite that grades parts: the best constant for each part alone.
+  for (const part of Object.keys(summary.constants[0]?.parts ?? {})) {
+    const top = summary.constants.reduce((a, b) => ((b.parts?.[part] ?? 0) > (a.parts?.[part] ?? 0) ? b : a))
+    console.log(`best constant for the ${part} alone: ${top.answer} ${pct(top.parts?.[part] ?? 0)}`)
+  }
 }
