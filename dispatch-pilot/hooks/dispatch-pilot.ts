@@ -18,6 +18,7 @@ import { registerMainEffort } from './features/main-effort.ts'
 import { registerMidturnEffort } from './features/midturn-effort.ts'
 import { registerSkills } from './features/skills.ts'
 import { registerWorkflowAgents } from './features/workflow-agents.ts'
+import { registerWorkflowLabels } from './features/workflow-labels.ts'
 
 export const register: Register = (on, options) => {
   const ctx = setup(options)
@@ -29,6 +30,9 @@ export const register: Register = (on, options) => {
   registerMidturnEffort(on, ctx)
   registerDispatchedAgents(on, ctx)
   registerWorkflowAgents(on, ctx)
+  // Inside workflow-agents: a Workflow call is this feature's only once that feature has sent the script on, so the
+  // agents of other runs never wait while it is still deciding.
+  registerWorkflowLabels(on, ctx)
   registerSkills(on, ctx)
   registerFindSkill(on, ctx)
 

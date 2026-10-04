@@ -20,6 +20,13 @@ export type AgentCall = {
   prompt: string | null
   /** The `label` option as written; null when there is none or it is built at run time. */
   label: string | null
+  /**
+   * How the call writes its label: not at all (the engine then records the
+   * agent under the start of its prompt, #9), a string, a template (`label`
+   * keeps its `${...}`), or something worked out when the script runs (an
+   * expression, a spread that may hold one, options that are not an object).
+   */
+  labelKind: 'none' | 'string' | 'template' | 'dynamic'
   /** The `agentType` option when it is a string; null otherwise. */
   agentType: string | null
   /** The `model` option: absent, a string the script wrote, or some other expression (`dynamic`). */
@@ -420,6 +427,7 @@ function readCall(src: string, stream: Stream, at: number, lineOf: (offset: numb
     line: lineOf((tokens[at] as Token).start),
     prompt: textOf(src, tokens, promptArg.first, promptArg.last)?.text ?? null,
     label: null,
+    labelKind: 'none',
     agentType: null,
     model: { kind: 'none' },
     effort: { kind: 'none' },
@@ -433,12 +441,19 @@ function readCall(src: string, stream: Stream, at: number, lineOf: (offset: numb
     return call
   }
   const object = readObject(src, stream, optionsArg.first, optionsArg.last)
-  if (object === null) return call
+  if (object === null) {
+    call.labelKind = 'dynamic'
+    return call
+  }
   call.edit = { kind: 'object', object }
+  // A spread or a computed key may hold a label.
+  if (object.properties.some((property) => property.key === null)) call.labelKind = 'dynamic'
   for (const property of object.properties) {
     const text = property.value !== null && !property.value.interpolated ? property.value.text : null
-    if (property.key === 'label') call.label = property.value?.text ?? null
-    else if (property.key === 'agentType') call.agentType = text
+    if (property.key === 'label') {
+      call.label = property.value?.text ?? null
+      call.labelKind = property.value === null || property.value.text === null ? 'dynamic' : property.value.interpolated ? 'template' : 'string'
+    } else if (property.key === 'agentType') call.agentType = text
     else if (property.key === 'model') call.model = text === null ? { kind: 'dynamic' } : { kind: 'literal', value: text }
     else if (property.key === 'effort') call.effort = text === null ? { kind: 'dynamic' } : { kind: 'literal', value: text }
   }
