@@ -38,10 +38,58 @@ const SKILLS: SkillsWorld = {
   ],
 }
 
-test("the main agent's skill listing is withheld; a dispatched agent's reaches it as the engine wrote it", { options: KEY }, async ($, on) => {
+// What the main agent reads in place of the listing: a fixed note on how to
+// come by a skill, naming none (the attachment is part of the prompt cache).
+const HINT =
+  "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it. For any other skill, call the find_skill tool (mcp__dispatch-pilot__find_skill; load it with ToolSearch first if it is deferred) with a few words on the work, then load a skill it returns with the Skill tool by its exact name."
+
+test("the main agent's skill listing is withheld, a fixed note on finding skills in its place; a dispatched agent's reaches it as the engine wrote it", { options: KEY }, async ($, on) => {
   const w = world($, on, { skills: SKILLS })
-  expect(await w.listing(LISTING)).toEqual({ text: null })
+  expect(await w.listing(LISTING)).toEqual({ text: HINT })
   expect(await w.listing(LISTING, 'a1')).toEqual({ text: LISTING })
+})
+
+// The note with the find_skill tool switched off: it does not send the main agent to it.
+const HINT_WITHOUT_FIND_SKILL =
+  "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it; load one, or any skill you know, with the Skill tool by its exact name."
+
+test('with find_skill switched off (/dp find-skill off, kept from an earlier session), the note does not name it', { options: KEY }, async ($, on) => {
+  const w = world($, on, { skills: SKILLS, store: { switches: { 'find-skill': false } }, session: true })
+  await w.start()
+  expect(await w.listing(LISTING)).toEqual({ text: HINT_WITHOUT_FIND_SKILL })
+})
+
+test('the note is the same text each time the engine asks, whatever skills the session has or the listing holds', { options: KEY }, async ($, on) => {
+  const skills = { commands: [...(SKILLS.commands ?? [])], listed: [...(SKILLS.listed ?? [])] }
+  const w = world($, on, { skills, session: true })
+  await w.start()
+  const first = await w.listing(LISTING)
+  const again = await w.listing(LISTING)
+  // A new conversation (/clear), with one more skill installed meanwhile: the skills are read afresh.
+  skills.commands.push({ name: 'wrangler', description: 'Deploy Cloudflare Workers with Wrangler.', source: 'user' })
+  skills.listed.push({ name: 'wrangler', source: 'userSettings', tokens: 40 })
+  await w.clear()
+  const later = await w.listing(`${LISTING}\n- wrangler: Deploy Cloudflare Workers with Wrangler.`)
+
+  expect(first).toEqual({ text: HINT })
+  expect(again).toEqual(first)
+  expect(later).toEqual(first)
+})
+
+// The engine asks about the listing once per conversation and keeps the answer
+// (a mid-conversation `$.ui.invalidate` does not ask again: real engine,
+// 2.1.289), so the note follows the find-skill switch as it stands when the
+// engine asks, and a switch flipped mid-conversation shows from the next
+// conversation on. Meanwhile the tool itself answers by the switch.
+test('the note follows the find-skill switch as it stands when the engine asks: flipped, it shows from the next conversation (/clear) on', { options: KEY }, async ($, on) => {
+  const w = world($, on, { skills: SKILLS, session: true })
+  expect(await w.listing(LISTING)).toEqual({ text: HINT })
+  await w.command('dp', 'find-skill off')
+  await w.clear()
+  expect(await w.listing(LISTING)).toEqual({ text: HINT_WITHOUT_FIND_SKILL })
+  await w.command('dp', 'find-skill on')
+  await w.clear()
+  expect(await w.listing(LISTING)).toEqual({ text: HINT })
 })
 
 test('with the skills switch off (/dp skills off, kept from an earlier session), nothing is asked about the skills and the main agent reads the listing as the engine wrote it', { options: KEY }, async ($, on) => {
@@ -60,7 +108,7 @@ const RESTORED = `Dispatch Pilot's skill suggestions are switched off, so here i
 
 test('switched off mid-conversation, the listing it withheld reaches the main agent with the next message, once; suggestions stop', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS })
-  expect(await w.listing(LISTING)).toEqual({ text: null })
+  expect(await w.listing(LISTING)).toEqual({ text: HINT })
   await w.submit('先写一个失败的测试')
   await w.command('dp', 'skills off')
   await w.submit('再写一个')
@@ -116,7 +164,7 @@ test('Clef takes both skills requests as they are (its input rules hold), and th
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'skills.which'])
   // One skill re-read: its yes/no alone (Clef refuses a Choice of one option).
   expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['skills.fits.0'])
-  expect(await w.listing(LISTING)).toEqual({ text: null })
+  expect(await w.listing(LISTING)).toEqual({ text: HINT })
 })
 
 test("a message's one decision request also asks which skill the main agent could load for it, by name and description, or none", { options: KEY }, async ($, on) => {
@@ -355,11 +403,16 @@ test('the skills switch is listed by /dp with what it does', { options: KEY }, a
   expect(await w.command('dp')).toMatch(/\bon +skills +suggests the skills that fit each message/)
 })
 
-test('each listing withheld from the main agent is noted in the debug log, with what it kept', { options: { ...KEY, skillsAlwaysListed: ['tdd'] } }, async ($, on) => {
+test('each listing withheld from the main agent is noted in the debug log, with what it kept and whether the note names find_skill', { options: { ...KEY, skillsAlwaysListed: ['tdd'] } }, async ($, on) => {
   const w = world($, on, { skills: SKILLS })
   await w.listing(LISTING)
   await w.listing(LISTING, 'a1')
-  expect(w.logs.map((log) => log.text)).toEqual([`withheld the skill listing from the main agent (3 skills, ${LISTING.length} characters); kept tdd`])
+  await w.command('dp', 'find-skill off')
+  await w.listing(LISTING)
+  expect(w.logs.map((log) => log.text)).toEqual([
+    `withheld the skill listing from the main agent (3 skills, ${LISTING.length} characters); kept tdd; the note names find_skill`,
+    `withheld the skill listing from the main agent (3 skills, ${LISTING.length} characters); kept tdd; the note leaves find_skill out (switched off)`,
+  ])
 })
 
 test('each decision about the skills goes to the decision log (/dp log) and the debug log, never into the conversation', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
@@ -414,7 +467,7 @@ test('what the mod sends is exactly what the decision module builds from a messa
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, ...request })
 })
 
-test('the skills named in skillsAlwaysListed stay in the main agent’s listing, as the engine wrote them', { options: { ...KEY, skillsAlwaysListed: ['anthropic-skills:computer-use', 'code-review', 'not-installed'] } }, async ($, on) => {
+test('the skills named in skillsAlwaysListed stay in the main agent’s listing, as the engine wrote them, the note after them', { options: { ...KEY, skillsAlwaysListed: ['anthropic-skills:computer-use', 'code-review', 'not-installed'] } }, async ($, on) => {
   const w = world($, on, { skills: SKILLS })
   expect(await w.listing(LISTING)).toEqual({
     text: [
@@ -422,6 +475,8 @@ test('the skills named in skillsAlwaysListed stay in the main agent’s listing,
       '',
       '- code-review: Review the changes since a fixed point along two axes: Standards and Spec.',
       '- anthropic-skills:computer-use: Read this skill before the first step of any request to do something in an app on the person’s own computer.',
+      '',
+      HINT,
     ].join('\n'),
   })
 })
