@@ -43,6 +43,19 @@ declare module 'claude-code' {
       }>
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+      /**
+       * Skills the main agent has had described beside a message in this
+       * conversation (#10): suggested again, they are only named. Emptied by
+       * /compact and /clear.
+       */
+      skillsShown: string[]
+      /**
+       * The session's skills (hooks/core/skills.ts `CatalogSkill`), read once
+       * per session (#10; #11 and #12 read it too). null: read it again.
+       */
+      skillCatalog: {
+        skills: { name: string; description: string; by: 'model' | 'person'; source: string }[]
+      } | null
     }
   }
 }

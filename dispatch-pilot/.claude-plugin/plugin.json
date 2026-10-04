@@ -40,6 +40,38 @@
       "title": "Threshold for max effort",
       "description": "The main agent goes to max only when the decision model gives max at least this probability (0 to 1); otherwise it gets the most likely of the other levels.",
       "default": 0.5
+    },
+    "suggestSkills": {
+      "type": "boolean",
+      "title": "Suggest skills",
+      "description": "Leave the full skill listing out of the main agent's context and, each time you send a message, suggest the few skills the decision model finds relevant to it. Off: the main agent reads the listing as Claude Code writes it. Needs the decision model set up.",
+      "default": true
+    },
+    "skillsMax": {
+      "type": "number",
+      "title": "Skills suggested at most",
+      "description": "How many skills one message gets suggested at most (0 to 10); fewer, or none, when fewer reach the relevance below.",
+      "default": 3
+    },
+    "skillsMinRelevance": {
+      "type": "number",
+      "title": "Least relevance to suggest",
+      "description": "The relevance a skill needs to be suggested (0 to 1): its share of the decision model's answer to which skill fits the message, against every other skill and none.",
+      "default": 0.2
+    },
+    "skillsAlwaysListed": {
+      "type": "string",
+      "multiple": true,
+      "title": "Skills always listed",
+      "description": "Skills the main agent keeps seeing in its skill listing, by the name the listing gives them (a synced skill with its prefix, such as anthropic-skills:pdf). Every other skill is left out of the listing and suggested only when a message needs it.",
+      "default": []
+    },
+    "skillsNeverSuggested": {
+      "type": "string",
+      "multiple": true,
+      "title": "Skills never suggested",
+      "description": "Skills never suggested to the main agent nor pointed out to you, by the name the listing gives them. They stay installed: the Skill tool still loads one by name.",
+      "default": []
     }
   }
 }

@@ -38,6 +38,13 @@ export type Asked =
 export type Backend = {
   /** Its name in the status line and the debug log. */
   name: string
+  /**
+   * False when the person has not set it up (no key): every `ask` fails at
+   * once with a `config` failure. A feature that takes something away in
+   * exchange for the decisions (the skills feature hides the listing) holds
+   * back then. Absent reads as set up.
+   */
+  configured?: boolean
   /** One decision request, answered within `timeoutMs` or failed; never throws. */
   ask: (io: BackendIo, request: DecisionRequest, timeoutMs: number) => Promise<Asked>
 }

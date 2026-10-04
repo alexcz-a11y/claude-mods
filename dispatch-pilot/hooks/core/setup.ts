@@ -55,3 +55,9 @@ export function numberIn(value: unknown, min: number, max: number, fallback: num
 export function stringOf(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback
 }
+
+/** A list-of-names option (`multiple` in the manifest; a comma-separated string also reads): trimmed, empty ones dropped. */
+export function namesOf(value: unknown): string[] {
+  const items = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : []
+  return items.flatMap((item) => (typeof item === 'string' && item.trim() !== '' ? [item.trim()] : []))
+}

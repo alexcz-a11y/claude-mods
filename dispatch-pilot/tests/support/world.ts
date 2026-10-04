@@ -12,7 +12,7 @@
 
 import { mock } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
-import type { On, PromptOrigin, SessionMessage } from 'claude-code'
+import type { CommandInfo, ContextSkill, On, PromptOrigin, SessionContextBreakdown, SessionMessage, SessionUsage, SettingsSource } from 'claude-code'
 
 /** One request the mod sent through `$.http.fetch`, its JSON body parsed. */
 export type Sent = {
@@ -50,6 +50,22 @@ export type WorldOptions = {
     /** A reason to refuse the prompt (it never enters, no turn starts). */
     drop?: (text: string) => string | undefined
   }
+  /** The session's skills (#10); none by default. */
+  skills?: SkillsWorld
+}
+
+/** The session's skills as the engine reports them to the mod (#10). */
+export type SkillsWorld = {
+  /** What `$.command.list()` returns. */
+  commands?: CommandInfo[]
+  /** The main agent's skill listing as `$.session.usage({ breakdown })` counts it (`skillFrontmatter`); `null` to make the call fail. */
+  listed?: ContextSkill[] | null
+  /** `skillOverrides` per settings source (`$.settings.read({ source })`). */
+  overrides?: Partial<Record<SettingsSource, Record<string, string>>>
+  /** `$.env.get('HOME')`; `/home/u` by default. */
+  home?: string
+  /** `$.session.cwd()`; `/work` by default. */
+  cwd?: string
 }
 
 export type SubmitOptions = {
@@ -140,6 +156,20 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use' as const, usage: null }
   })
 
+  // The session's skills (#10): the commands, the main agent's listing as the
+  // context counts it, the settings, and the engine at the bottom of the
+  // attachment and session events. Without `skills`, a session with none.
+  const skills = options.skills ?? {}
+  mock.env(on, { HOME: skills.home ?? '/home/u' })
+  on('session.cwd', () => ({ value: skills.cwd ?? '/work' }))
+  on('command.list', () => ({ value: skills.commands ?? [] }))
+  on('session.usage', () => (skills.listed === null ? { deny: 'no session bound' } : { value: usageListing(skills.listed ?? []) }))
+  on('settings.read', (_$, e) => ({ value: e?.source === undefined ? {} : { skillOverrides: skills.overrides?.[e.source] ?? {} } }))
+  on('prompt.attachment', (_$, e) => ({ text: e.text }))
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
+  on('session.compact', (_$, e) => ({ messages: e.messages }))
+
   return {
     clock,
     requests,
@@ -165,6 +195,15 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       await $.turn.start({ text, turnId })
       return turnId
     },
+    /** The engine's skill listing as one request of a loop carries it (`agentId`: a dispatched agent's); resolves to what the model reads. */
+    listing: (text: string, agentId?: string) =>
+      $.prompt.attachment({ type: 'skill_listing', text, origin: { kind: 'engine' }, ...(agentId !== undefined ? { agentId } : {}) }),
+    /** Claude Code starting the session, every plugin loaded, before the first prompt. */
+    startSession: () => $.session.start({ cwd: skills.cwd ?? '/work', surface: 'terminal', isInteractive: true }),
+    /** The person's `/compact` of the main conversation. */
+    compact: () => $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'earlier work', toolUses: [] }] }),
+    /** The person's `/clear`: the conversation ends, the process goes on (no session.start follows). */
+    clear: () => $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } }),
     /** Sends one model request through the mod, drained to its end. */
     step: async (step: StepOptions) => {
       const effort = step.effort === undefined ? 'xhigh' : step.effort
@@ -183,12 +222,21 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   }
 }
 
+/** `$.session.usage({ breakdown: 'summary' })` whose context lists these skills for the main agent (the rest of the breakdown left out). */
+function usageListing(listed: readonly ContextSkill[]): SessionUsage {
+  const skills = { totalSkills: listed.length, includedSkills: listed.length, tokens: 60 * listed.length, skillFrontmatter: [...listed] }
+  const breakdown = { skills } as unknown as SessionContextBreakdown
+  return { startedAt: 0, context: { window: 200_000, breakdown }, rateLimits: [] }
+}
+
 /**
  * A Jev answer to every question of the request it replies to: each `score`
  * question gets `levels` as its probabilities (lowest level first), each
- * `choice` the option named in `choice` (or its first), each `noul` 0.5.
+ * `choice` the option named in `choice` (or its first), or the probabilities
+ * `shares` gives for its question id (options it leaves out get 0), each
+ * `noul` 0.5.
  */
-export function jev(levels: readonly number[], extra: { status?: number; choice?: string } = {}) {
+export function jev(levels: readonly number[], extra: { status?: number; choice?: string; shares?: Record<string, Record<string, number>> } = {}) {
   return (request: Sent): Reply => {
     const answers: Record<string, unknown> = {}
     const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
@@ -197,6 +245,12 @@ export function jev(levels: readonly number[], extra: { status?: number; choice?
         const probabilities = Object.fromEntries(levels.map((p, i) => [String(i), p]))
         const score = levels.reduce((sum, p, i) => sum + p * i, 0)
         answers[id] = { type: 'score', score, legend: {}, probabilities, confidence: 0.7 }
+      } else if (question.type === 'choice' && extra.shares?.[id] !== undefined) {
+        const shares = extra.shares[id] as Record<string, number>
+        const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
+        const probabilities = Object.fromEntries(options.map((o) => [o, shares[o] ?? 0]))
+        const pick = options.reduce((best, o) => ((probabilities[o] ?? 0) > (probabilities[best] ?? 0) ? o : best), options[0] ?? '')
+        answers[id] = { type: 'choice', choice: pick, probabilities, confidence: 0.5 }
       } else if (question.type === 'choice') {
         const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
         const pick = extra.choice ?? options[0] ?? ''
