@@ -19,8 +19,9 @@ import type { Failure } from '../decision/backend.ts'
  *             and the person-only ones to try
  *   find-skill  the find-skill feature: what the main agent's latest find_skill returned, or why it failed
  *   agent     the dispatched-agents feature: the latest dispatched agent's model and effort, or why it got none
+ *   workflow  the workflow-agents feature: how the latest Workflow's agents were routed, or why they were not
  */
-const ORDER = ['effort', 'midturn', 'decision', 'skills', 'find-skill', 'agent'] as const
+const ORDER = ['effort', 'midturn', 'decision', 'skills', 'find-skill', 'agent', 'workflow'] as const
 export type Segment = (typeof ORDER)[number]
 
 const segments = new Map<Segment, string>()

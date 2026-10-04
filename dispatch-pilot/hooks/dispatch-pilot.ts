@@ -16,6 +16,7 @@ import { registerFindSkill } from './features/find-skill.ts'
 import { registerMainEffort } from './features/main-effort.ts'
 import { registerMidturnEffort } from './features/midturn-effort.ts'
 import { registerSkills } from './features/skills.ts'
+import { registerWorkflowAgents } from './features/workflow-agents.ts'
 
 export const register: Register = (on, options) => {
   const ctx = setup(options)
@@ -25,6 +26,7 @@ export const register: Register = (on, options) => {
   registerMainEffort(on, ctx)
   registerMidturnEffort(on, ctx)
   registerDispatchedAgents(on, ctx)
+  registerWorkflowAgents(on, ctx)
   registerSkills(on, ctx)
   registerFindSkill(on, ctx)
 

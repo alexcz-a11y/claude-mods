@@ -147,6 +147,13 @@
       "title": "Least relevance find_skill returns",
       "description": "The relevance a skill needs for find_skill to return it (0 to 1): its share of the decision model's answer to which skill fits the work the main agent names, against every other skill and none.",
       "default": 0.1
+    },
+    "workflowMode": {
+      "type": "string",
+      "title": "How Workflow agents are routed",
+      "description": "rewrite: when the main agent submits a Workflow, the model and effort decided for each agent() call are written into the script before it runs, and the main agent is told what was written. return: the first submission of a Workflow is refused with the recommendation for each agent() call, for the main agent to write in itself; the same Workflow submitted again runs as written.",
+      "options": ["rewrite", "return"],
+      "default": "rewrite"
     }
   }
 }
