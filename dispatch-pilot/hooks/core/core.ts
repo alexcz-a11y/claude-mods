@@ -13,7 +13,7 @@
 // registers them with a matcher (README, 开发).
 
 import type { HttpInit, On } from 'claude-code'
-import { turnStartState } from '../decision/context.ts'
+import { messageText, turnStartState } from '../decision/context.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import type { Asked } from '../decision/backend.ts'
 import { collect, type Contribution, type PartOutcome } from './ballot.ts'
@@ -71,7 +71,9 @@ export function registerCore(on: On, ctx: Ctx): void {
       taken = took.taken
       return took.rest
     })
-    await $.state.set({ ...TURNS, id: turnKey(e.turnId, undefined) }, newTurn(e.text, (taken as PendingDecision | null)?.effort ?? null))
+    // The turn's message as the decision model read it (later decisions about the turn reuse it).
+    const prompt = messageText(e.text, ctx.config.context.tokens)
+    await $.state.set({ ...TURNS, id: turnKey(e.turnId, undefined) }, newTurn(prompt, (taken as PendingDecision | null)?.effort ?? null))
     return next(e)
   })
 

@@ -274,6 +274,24 @@ test('what the mod sends is exactly what the decision module builds, so the eval
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, ...built })
 })
 
+test("the turn's record keeps its message masked and cut to the context budget, as later decisions read it", { options: { ...KEY, contextTokens: 100 } }, async ($, on) => {
+  const writes: { key: string; id: string | undefined; value: unknown }[] = []
+  on('state.set', async (_$, e, next) => {
+    const write = e as { key: string; id?: string; value: unknown }
+    writes.push({ key: write.key, id: write.id, value: write.value })
+    return next(e)
+  })
+  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]) })
+  await w.submit(`把 token=abcd1234efgh5678 换成读环境变量。${'顺便检查一下其他地方有没有类似的硬编码。'.repeat(20)}`)
+
+  const record = writes.find((write) => write.key === 'turns' && write.id === 'main:t1')?.value as { prompt: string } | undefined
+  expect(record?.prompt.startsWith('把 token=[REDACTED] 换成读环境变量。')).toBe(true)
+  expect(record?.prompt).not.toContain('abcd1234efgh5678')
+  expect(estimateTokens(record?.prompt ?? '')).toBeLessThanOrEqual(100)
+  // The same text the decision model was shown as user_message.
+  expect(record?.prompt).toBe(w.requests[0]?.body.state.user_message)
+})
+
 test('contextMessages 0: only the message itself goes', { options: { ...KEY, contextMessages: 0 } }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), messages: TRANSCRIPT })
   await w.submit('改吧')

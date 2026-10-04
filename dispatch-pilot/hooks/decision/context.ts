@@ -128,6 +128,11 @@ const TAIL_SHARE = 0.6
 /** The person's message, cut to fit, keeps this much for its end. */
 const MESSAGE_TAIL = 0.3
 
+/** The person's message as the decision model reads it: secrets masked, cut to `tokens` (keeping its end too). */
+export function messageText(prompt: string, tokens: number): string {
+  return clipToTokens(redactSecrets(prompt), tokens, MESSAGE_TAIL)
+}
+
 export type TurnStartInput = {
   /** The message the person just sent. */
   prompt: string
@@ -144,7 +149,7 @@ export type TurnStartInput = {
  * always sent, cut to fit if it must be.
  */
 export function turnStartState(input: TurnStartInput): State {
-  const message = clipToTokens(redactSecrets(input.prompt), input.limits.tokens, MESSAGE_TAIL)
+  const message = messageText(input.prompt, input.limits.tokens)
   let room = input.limits.tokens - estimateTokens(message)
   const kept: string[] = []
   const lines = recentLines(input.messages, input.prompt, input.limits.messages)
