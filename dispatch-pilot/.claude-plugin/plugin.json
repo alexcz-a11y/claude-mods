@@ -1,7 +1,7 @@
 {
   "name": "dispatch-pilot",
   "version": "0.1.0",
-  "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message, sets it on every request of the turn, and decides it again every few steps while the turn runs. The main agent's model never changes, so the prompt cache survives. It also keeps the full skill listing out of the main agent's context and suggests the few skills that fit each message.",
+  "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message, sets it on every request of the turn, and decides it again every few steps while the turn runs. The main agent's model never changes, so the prompt cache survives. It also keeps the full skill listing out of the main agent's context and suggests the few skills that fit each message; mid-turn, the main agent can look skills up with the find_skill tool.",
   "author": {
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
@@ -119,7 +119,7 @@
     "skillsMinRelevance": {
       "type": "number",
       "title": "Least relevance to suggest",
-      "description": "The relevance a skill needs to be suggested (0 to 1): its share of the decision model's answer to which skill fits the message, against every other skill and none.",
+      "description": "The relevance a skill needs to be suggested (0 to 1): how likely the decision model judges that the skill does the kind of work the message asks for, each skill judged on its own after its instructions are re-read.",
       "default": 0.2
     },
     "skillsShortlist": {
@@ -151,8 +151,20 @@
       "type": "string",
       "multiple": true,
       "title": "Skills never suggested",
-      "description": "Skills never suggested to the main agent nor pointed out to you, by the name the listing gives them. They stay installed: the Skill tool still loads one by name.",
+      "description": "Skills never suggested to the main agent nor pointed out to you, by the name the listing gives them. They stay installed: the Skill tool still loads one by name. find_skill never returns them either.",
       "default": []
+    },
+    "findSkillMax": {
+      "type": "number",
+      "title": "Skills find_skill returns at most",
+      "description": "How many skills the main agent's find_skill tool returns for one query at most (1 to 10); fewer, or none, when fewer reach the relevance below.",
+      "default": 5
+    },
+    "findSkillMinRelevance": {
+      "type": "number",
+      "title": "Least relevance find_skill returns",
+      "description": "The relevance a skill needs for find_skill to return it (0 to 1): how likely the decision model judges that the skill does the kind of work the main agent names, each skill judged on its own after its instructions are re-read.",
+      "default": 0.3
     }
   }
 }

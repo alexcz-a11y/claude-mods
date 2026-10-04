@@ -8,16 +8,31 @@
 
 import type { PluginOptions } from 'claude-code'
 import type { Language } from '../decision/effort.ts'
-import type { SkillOption, TwoStageSettings } from '../decision/skills.ts'
+import { SHORTLIST_FLOOR, type RankerSettings, type SkillOption, type SkillRanking } from '../decision/skills.ts'
 import { numberIn } from './setup.ts'
 
 /**
- * How skills are ranked (`twoStageRanker`'s settings), read from the person's
+ * What the two stages of a ranking said, for a decision's reason: the skills
+ * stage one put forward with their shares, and none's; how well each fits by
+ * stage two, or that stage one put none forward.
+ */
+export function describeStages(ranking: SkillRanking): string {
+  const shortlist = ranking.shortlist ?? []
+  const first = [...shortlist.map((entry) => `${entry.name} ${entry.share.toFixed(2)}`), `none ${ranking.none.toFixed(2)}`].join(', ')
+  const second =
+    shortlist.length === 0
+      ? `no skill rated ${SHORTLIST_FLOOR.toFixed(2)} or more`
+      : `fits ${ranking.ranked.map((entry) => `${entry.name} ${entry.relevance.toFixed(2)}`).join(', ')}`
+  return `first ${first}; ${second}`
+}
+
+/**
+ * How skills are ranked (`modRanker`'s settings), read from the person's
  * options the same way wherever skills are ranked: the message's suggestions
  * and find_skill (#12). Each stage may take up to `timeoutMs`; a message's
  * second stage gets only what the first left of it (features/skills.ts).
  */
-export function rankingSettings(ctx: { options: PluginOptions; config: { timeoutMs: number }; ask: { language: Language } }): TwoStageSettings {
+export function rankingSettings(ctx: { options: PluginOptions; config: { timeoutMs: number }; ask: { language: Language } }): RankerSettings {
   return {
     language: ctx.ask.language,
     shortlist: Math.round(numberIn(ctx.options.skillsShortlist, 1, 10, 4)),

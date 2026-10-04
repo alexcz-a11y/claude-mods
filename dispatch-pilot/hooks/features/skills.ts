@@ -20,30 +20,30 @@
 import type { EngineInterface, HttpInit, ModelCompleteResult, On } from 'claude-code'
 import type { Asked } from '../decision/backend.ts'
 import { redactSecrets } from '../decision/redact.ts'
-import { pickSkills, relevanceBlock, SHORTLIST_FLOOR, skillOpening, twoStageRanker, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
+import { modRanker, pickSkills, relevanceBlock, skillOpening, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
 import { contribute } from '../core/ballot.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
 import {
-  DEFAULT_PROFILE_MODEL,
   evictions,
-  lookUpProfiles,
   MAX_PROFILES,
   PROFILE_MAX_TOKENS,
   PROFILE_PREFIX,
   PROFILE_SYSTEM,
   PROFILE_TIMEOUT_MS,
   profileKey,
+  profileModel,
   profilePrompt,
   readProfile,
+  readSessionSkills,
   storedProfile,
   withProfile,
   type StoredProfile,
 } from '../core/profiles.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
-import { namesOf, numberIn, stringOf, type Ctx } from '../core/setup.ts'
-import { listingNames, loadCatalog, rankingSettings, trimListing, type CatalogSkill } from '../core/skills.ts'
+import { namesOf, numberIn, type Ctx } from '../core/setup.ts'
+import { describeStages, listingNames, rankingSettings, trimListing, type CatalogSkill } from '../core/skills.ts'
 import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
@@ -66,19 +66,21 @@ let writing = false
  * be read. Null when the session's skills cannot be read.
  */
 async function readCatalog($: EngineInterface, model: string): Promise<{ skills: CatalogSkill[]; store: boolean } | null> {
-  const skills = await loadCatalog({
-    commands: () => $.command.list(),
-    listed: async () => (await $.session.usage({ breakdown: 'summary' })).context.breakdown?.skills?.skillFrontmatter ?? [],
-    overrides: async (source) => (await $.settings.read({ source })).skillOverrides,
-    home: () => $.env.get('HOME'),
-    cwd: () => $.session.cwd(),
-    exists: (path) => $.fs.exists(path),
-    read: (path) => $.fs.read(path),
-    list: (path) => $.fs.list(path),
-  }).catch(() => null)
-  if (skills === null) return null
-  const found = await lookUpProfiles(skills, { read: (path) => $.fs.read(path), get: (key) => $.store.get(key) }, model)
-  await $.state.set(CATALOG, { skills: found.skills })
+  const found = await readSessionSkills(
+    {
+      commands: () => $.command.list(),
+      listed: async () => (await $.session.usage({ breakdown: 'summary' })).context.breakdown?.skills?.skillFrontmatter ?? [],
+      overrides: async (source) => (await $.settings.read({ source })).skillOverrides,
+      home: () => $.env.get('HOME'),
+      cwd: () => $.session.cwd(),
+      exists: (path) => $.fs.exists(path),
+      read: (path) => $.fs.read(path),
+      list: (path) => $.fs.list(path),
+      get: (key) => $.store.get(key),
+    },
+    model,
+  )
+  if (found !== null) await $.state.set(CATALOG, { skills: found.skills })
   return found
 }
 
@@ -220,11 +222,11 @@ export function registerSkills(on: On, ctx: Ctx): void {
     max: Math.round(numberIn(ctx.options.skillsMax, 0, 10, 3)),
     minRelevance: numberIn(ctx.options.skillsMinRelevance, 0, 1, 0.2),
   }
-  /** How the skills are ranked: the two stages, as find_skill ranks them too. */
+  /** How the skills are ranked: by the mod's ranker (`modRanker`, built for each message), as find_skill (#12) ranks them too. */
   const ranking = rankingSettings(ctx)
   /** How profiles are written. */
   const profiles: ProfileSettings = {
-    model: stringOf(ctx.options.skillsProfileModel, DEFAULT_PROFILE_MODEL).trim() || DEFAULT_PROFILE_MODEL,
+    model: profileModel(ctx),
     perSession: Math.round(numberIn(ctx.options.skillsProfilesPerSession, 0, 500, 30)),
     skip: neverSuggested,
   }
@@ -307,7 +309,7 @@ export function registerSkills(on: On, ctx: Ctx): void {
     // Profiles switched off: every skill is offered by its description.
     const catalog = known?.filter((skill) => !neverSuggested.has(skill.name)).map((skill) => (isOn(PROFILES) ? skill : { ...skill, profile: null })) ?? null
     if (catalog === null) return next(e)
-    const ranker = twoStageRanker(
+    const ranker = modRanker(
       {
         ask: (request, timeoutMs) => askLogged($, ctx, 'second skills request', request, timeoutMs),
         opening: (option) => openingOf($, catalog, option.name),
@@ -395,19 +397,9 @@ function quote(text: string): string {
   return JSON.stringify(flat.length > 40 ? `${flat.slice(0, 40)}...` : flat)
 }
 
-/**
- * Why: the skills stage one put forward with their shares, and none's; how
- * well each fits by stage two (or that nothing was put forward); the bar a
- * skill had to reach.
- */
+/** Why: what each stage of the ranking said (`describeStages`), and the bar a skill had to reach. */
 function describeRanking(ranking: SkillRanking, policy: SkillPolicy): string {
-  const shortlist = ranking.shortlist ?? []
-  const first = [...shortlist.map((entry) => `${entry.name} ${entry.share.toFixed(2)}`), `none ${ranking.none.toFixed(2)}`].join(', ')
-  const second =
-    shortlist.length === 0
-      ? `no skill rated ${SHORTLIST_FLOOR.toFixed(2)} or more`
-      : `fits ${ranking.ranked.map((entry) => `${entry.name} ${entry.relevance.toFixed(2)}`).join(', ')}`
-  return `first ${first}; ${second}; suggested from ${policy.minRelevance.toFixed(2)}, at most ${policy.max}`
+  return `${describeStages(ranking)}; suggested from ${policy.minRelevance.toFixed(2)}, at most ${policy.max}`
 }
 
 /** What the message got: the skills suggested, then those for the person to start. */

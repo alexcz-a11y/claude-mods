@@ -11,8 +11,9 @@
 //              relevance shown and compared with the threshold) and a Choice
 //              `skills.best` between them (breaks ties).
 //
-// `twoStageRanker` is the one entry: the message's suggestions (features/
-// skills.ts) and find_skill (#12) rank through it, and so does the eval (#16).
+// `modRanker` is the one entry: the message's suggestions (features/
+// skills.ts) and find_skill (#12, features/find-skill.ts) rank through it, and
+// so does the eval (#16).
 //
 // Pure (see system-one.ts): the mod and the eval build the same questions from
 // the same code. Written to TypeSafe's guide (docs/research/
@@ -295,7 +296,7 @@ export function choiceRanker(ask: { language?: Language } = {}): SkillRanker {
   }
 }
 
-/** What the two-stage ranker needs of the host, as closures (the mod builds them over `$`, the eval over Node). */
+/** What the mod's ranker needs of the host, as closures (each caller builds them over its own `$`, the eval over Node). */
 export type SkillRankerIo = {
   /** Sends one decision request within `timeoutMs` (the backend's `ask`, its io bound); never throws. */
   ask: (request: DecisionRequest, timeoutMs: number) => Promise<Asked>
@@ -303,7 +304,8 @@ export type SkillRankerIo = {
   opening: (option: SkillOption) => Promise<string | null>
 }
 
-export type TwoStageSettings = {
+/** How the mod's ranker ranks (core/skills.ts `rankingSettings` reads them from the person's options). */
+export type RankerSettings = {
   /** The questions' language (the state keeps the person's own words either way). */
   language?: Language
   /** How many of stage one's best stage two re-reads (one `fits` each). */
@@ -320,26 +322,33 @@ export const SHORTLIST_FLOOR = 0.05
 /** Clef answers at most 64 questions a request: stage two asks one per candidate and one Choice. */
 export const MAX_SHORTLIST = 63
 
-/** A two-stage ranker: `part` and `rank` for a request it shares (the ballot), `query` when it asks stage one itself (find_skill). */
-export type TwoStageRanker = SkillRanker & {
+/** The mod's ranker: `part` and `rank` for a request it shares (the ballot), `query` when it asks stage one itself. */
+export type ModRanker = SkillRanker & {
   /** Both stages about `state` (`{ user_message, recent_context }`): stage one sent on its own, then `rank`. */
   query: (state: State, options: readonly SkillOption[]) => Promise<SkillRanking | null>
 }
 
 /**
- * The one way skills are ranked (#11): stage one over every option, stage two
- * over the SHORTLIST_FLOOR-passing best `settings.shortlist` of them.
+ * The ranker the mod rates the session's skills with, wherever it does:
+ * beside each message (features/skills.ts) and when the main agent calls
+ * find_skill (features/find-skill.ts, #12). One entry, so the two always rank
+ * alike. It needs `$` (a request of its own, files to read), so it takes
+ * closures (`io`), which each caller builds in its own hook.
  *
- * - A message's suggestions: `part(options)` goes into the message's ballot;
- *   its `settle` calls `rank(answers, options, { state: outcome.state })`.
- * - find_skill (#12): `query(state, options)` asks both stages itself.
+ * Two stages (#11): stage one over every option, stage two over the
+ * SHORTLIST_FLOOR-passing best `settings.shortlist` of them.
+ *
+ * - Shared with other questions (a message's ballot): `part(options)` goes
+ *   into the request; with its answers, `rank(answers, options, { state })`
+ *   (the state the request asked about) sends stage two.
+ * - On its own: `query(state, options)` asks both stages.
  *
  * `rank` resolves null when stage one gave no usable answer; a ranking with
- * nothing in `ranked` when nothing passed the floor, or with `failed` when
- * stage two did not answer (nothing is suggested then: its relevance is the
- * only absolute one).
+ * nothing in `ranked` when nothing passed the floor, or with `failed` when a
+ * request did not answer (nothing is suggested then: stage two's relevance is
+ * the only absolute one).
  */
-export function twoStageRanker(io: SkillRankerIo, settings: TwoStageSettings): TwoStageRanker {
+export function modRanker(io: SkillRankerIo, settings: RankerSettings): ModRanker {
   const language = settings.language ?? 'en'
   const part = (options: readonly SkillOption[]) => skillsPart(options, { language })
   const rank = async (answers: Readonly<Record<string, Answer>>, options: readonly SkillOption[], asked: RankAsked): Promise<SkillRanking | null> => {

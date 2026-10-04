@@ -10,10 +10,12 @@
 // profile's store key (from the SKILL.md, so an edited file gets a new one)
 // and keeps the profiles within their share of the store's 4 MiB.
 
+import type { PluginOptions } from 'claude-code'
 import { clipToTokens } from '../decision/context.ts'
 import { redactSecrets } from '../decision/redact.ts'
 import type { SkillProfile } from '../decision/skills.ts'
-import type { CatalogSkill } from './skills.ts'
+import { stringOf } from './setup.ts'
+import { loadCatalog, type CatalogIo, type CatalogSkill } from './skills.ts'
 
 /** Bumped when the prompt changes: every profile is written again. */
 export const PROFILE_VERSION = 1
@@ -36,6 +38,11 @@ export const ZH_CHARS = 60
  */
 export const MAX_PROFILES = 500
 export const EVICT_TO = 400
+
+/** The model that writes profiles, as the person set it (`skillsProfileModel`); it is part of every profile's key. */
+export function profileModel(ctx: { options: PluginOptions }): string {
+  return stringOf(ctx.options.skillsProfileModel, DEFAULT_PROFILE_MODEL).trim() || DEFAULT_PROFILE_MODEL
+}
 
 export const PROFILE_SYSTEM =
   'You write short routing profiles of Claude Code skills. A router that reads requests written in Chinese or English uses them to decide whether a skill fits a request. Reply with one JSON object and nothing else.'
@@ -136,6 +143,16 @@ export async function lookUpProfiles(skills: readonly CatalogSkill[], io: Profil
     }),
   )
   return { skills: store ? found : found.map((skill) => ({ ...skill, profile: null })), store }
+}
+
+/**
+ * The session's skills (`loadCatalog`), each with its profile when the store
+ * holds one (`lookUpProfiles`): what both the skills feature and find_skill
+ * keep as the session's catalog. Null when the skills cannot be read.
+ */
+export async function readSessionSkills(io: CatalogIo & Pick<ProfileIo, 'get'>, model: string): Promise<{ skills: CatalogSkill[]; store: boolean } | null> {
+  const skills = await loadCatalog(io).catch(() => null)
+  return skills === null ? null : lookUpProfiles(skills, io, model)
 }
 
 /** The catalog with `profile` given to the skills whose profile key is `key`. */
