@@ -20,9 +20,9 @@
 // profile prompt on stdin and PROFILE_SYSTEM as the whole system prompt, no
 // tools, no thinking, no user or project settings (no language or output
 // style of the person's), safe mode (no CLAUDE.md, plugins or hooks), no MCP,
-// in an empty directory. Measured on 2026-10-04 with haiku: about 1.5k input
-// and 220 output tokens and 3 s a profile, as the mod's own completions
-// (README, 开发).
+// in an empty directory. Measured on 2026-10-04 with haiku: tdd's profile took
+// 1.5k input and 220 output tokens and 2.7 s, the scale of the mod's own
+// completions (README, 开发); the 111 profiles, 4 at a time, 2 min 47 s.
 
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
