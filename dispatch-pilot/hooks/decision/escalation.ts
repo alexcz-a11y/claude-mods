@@ -9,6 +9,7 @@
 // question, a high value means yes, `criteria.true` is yes.
 
 import { DEFAULT_ASK, EFFORTS, higherEffort, pickEffort, type Effort, type EffortAsk, type EffortReading, type Language } from './effort.ts'
+import { outcomeOf, resultLine, toolDetail, type MidturnStep, type MidturnTool } from './midturn.ts'
 import type { Answer, Part, Question } from './system-one.ts'
 
 /** The part's name and its one question's id: `escalation.expected` in a request. */
@@ -47,6 +48,48 @@ export function troubleText(counted: { failures: number; hookBlocks: number }): 
   const n = counted.failures + counted.hookBlocks
   const how = counted.hookBlocks > 0 ? 'failed or been blocked by a hook' : 'failed'
   return `${n} tool call${n === 1 ? ' has' : 's have'} ${how} while working on this request`
+}
+
+/** A transcript row as `$.session.messages()` gives it (the part read here). */
+export type TranscriptRow = {
+  role: 'user' | 'assistant'
+  text: string
+  toolUses?: readonly { tool_use_id?: string; tool: string; input?: Readonly<Record<string, unknown>>; text?: string; isError?: true }[]
+  toolResults?: readonly unknown[]
+}
+
+/**
+ * What a loop has done since the last thing a person said, as the decision
+ * model reads it: the steps, oldest first, each the text the agent wrote and
+ * its tool calls with how they ended (the mid-turn request's `recent_steps`).
+ * The transcript gives a response one row per block and the tool results rows
+ * of their own, so a step is the run of assistant rows between two user rows.
+ * `blocked` says which calls a hook refused (their error reads as any other).
+ */
+export function stepsFromRows(rows: readonly TranscriptRow[], options: { language: Language; blocked?: (toolUseId: string) => boolean }): MidturnStep[] {
+  const said = (row: TranscriptRow) => row.role === 'user' && row.text.trim() !== '' && (row.toolResults?.length ?? 0) === 0
+  const from = rows.findLastIndex(said) + 1
+  const steps: MidturnStep[] = []
+  let texts: string[] = []
+  let tools: MidturnTool[] = []
+  const close = () => {
+    if (texts.length > 0 || tools.length > 0) steps.push({ assistant_text: texts.join('\n'), tools })
+    texts = []
+    tools = []
+  }
+  for (const row of rows.slice(from)) {
+    if (row.role === 'user') {
+      close()
+      continue
+    }
+    if (row.text.trim() !== '') texts.push(row.text.trim())
+    for (const use of row.toolUses ?? []) {
+      const outcome = outcomeOf(use.tool, { isError: use.isError, text: use.text }, options.blocked?.(use.tool_use_id ?? '') ?? false)
+      tools.push({ name: use.tool, result: resultLine(outcome, toolDetail(use.input ?? {}), options.language) })
+    }
+  }
+  close()
+  return steps
 }
 
 const EXPECTED_QUESTION: Record<Language, Question> = {

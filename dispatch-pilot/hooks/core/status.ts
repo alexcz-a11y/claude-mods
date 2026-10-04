@@ -19,8 +19,9 @@ import type { Failure } from '../decision/backend.ts'
  *   skills    the skills feature: the skills suggested for the latest message,
  *             and the person-only ones to try
  *   agent     the dispatched-agents feature: the latest dispatched agent's model and effort, or why it got none
+ *   agentEscalation  the escalation feature: failed tool calls, hook blocks and forced raises of the latest agent that had any
  */
-const ORDER = ['effort', 'midturn', 'escalation', 'decision', 'skills', 'agent'] as const
+const ORDER = ['effort', 'midturn', 'escalation', 'decision', 'skills', 'agent', 'agentEscalation'] as const
 export type Segment = (typeof ORDER)[number]
 
 const segments = new Map<Segment, string>()
