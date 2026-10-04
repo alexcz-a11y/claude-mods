@@ -9,10 +9,9 @@
 // Pure: the network, the clock and the pauses are handed in.
 
 import type { Backend, BackendIo, Failure } from '../../hooks/decision/backend.ts'
-import type { Config } from '../../hooks/core/setup.ts'
 import type { State } from '../../hooks/decision/system-one.ts'
 import { LANGUAGES, type Language } from './datasets.ts'
-import type { AnyItem, Ask, Sent, Suite } from './suite.ts'
+import type { AnyItem, Ask, Sent, Settings, Suite } from './suite.ts'
 
 export type RunOptions = {
   backend: Backend
@@ -23,7 +22,7 @@ export type RunOptions = {
   /** Waits before asking again. */
   pause: (ms: number) => Promise<void>
   /** The mod's settings (settingsFrom). */
-  settings: Config
+  settings: Settings
   variants: readonly string[]
   /** Both by default. */
   languages?: readonly Language[]
@@ -50,6 +49,8 @@ export type Row<P> = {
   exact: boolean
   /** Which way a wrong answer missed, in the suite's words. */
   miss: string | null
+  /** Each part of the answer right or wrong, for a suite that grades parts (Grade.parts); null without an answer. */
+  parts?: Readonly<Record<string, boolean>> | null
   /** Why there was no prediction. */
   failure: string | null
   /** The suite's reading of the answer (for effort: each level's probability and the confidence). */
@@ -116,7 +117,7 @@ async function answer<I extends AnyItem, P>(suite: Suite<I, P>, item: I, languag
     state: sent[0]?.request.state ?? null,
   }
   if (!decided.ok) {
-    return { ...base, ok: false, prediction: null, shown: null, correct: false, exact: false, miss: null, failure: decided.failure, detail: null, ms: null }
+    return { ...base, ok: false, prediction: null, shown: null, correct: false, exact: false, miss: null, parts: null, failure: decided.failure, detail: null, ms: null }
   }
   const grade = suite.grade(item, decided.prediction)
   return {
@@ -127,6 +128,7 @@ async function answer<I extends AnyItem, P>(suite: Suite<I, P>, item: I, languag
     correct: grade.correct,
     exact: grade.exact,
     miss: grade.correct ? null : (grade.miss ?? null),
+    parts: grade.parts ?? null,
     failure: null,
     detail: decided.detail ?? null,
     ms: answered.reduce((sum, one) => sum + one.ms, 0),

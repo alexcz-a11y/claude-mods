@@ -12,7 +12,10 @@ import { registerCore } from './core/core.ts'
 import { setup } from './core/setup.ts'
 import { registerControl } from './features/control.ts'
 import { registerDispatchedAgents } from './features/dispatched-agents.ts'
+import { registerFindSkill } from './features/find-skill.ts'
 import { registerMainEffort } from './features/main-effort.ts'
+import { registerMidturnEffort } from './features/midturn-effort.ts'
+import { registerSkills } from './features/skills.ts'
 import { registerWorkflowAgents } from './features/workflow-agents.ts'
 
 export const register: Register = (on, options) => {
@@ -21,8 +24,11 @@ export const register: Register = (on, options) => {
   // Features, outermost first.
   registerControl(on, ctx)
   registerMainEffort(on, ctx)
+  registerMidturnEffort(on, ctx)
   registerDispatchedAgents(on, ctx)
   registerWorkflowAgents(on, ctx)
+  registerSkills(on, ctx)
+  registerFindSkill(on, ctx)
 
   // The core: always last.
   registerCore(on, ctx)

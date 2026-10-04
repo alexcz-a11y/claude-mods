@@ -9,7 +9,7 @@
     {
       "name": "dispatch-pilot",
       "source": "./dispatch-pilot",
-      "description": "A decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message; the main agent's model never changes, so the prompt cache survives."
+      "description": "A decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message, and suggests the few skills that fit it instead of the full skill listing; the main agent's model never changes, so the prompt cache survives."
     }
   ]
 }
