@@ -248,13 +248,23 @@ test('what an answer records: where its model came from, the pick and its confid
   })
 })
 
-test('no decision is a failure that says why: no answer about the agent, or every model offered ruled out', async () => {
+test('no decision is a failure that says why: no answer about the agent, every model offered ruled out, or no probability left on the rest', async () => {
   const items = [
     item('e', { model: 'sonnet', effort: 'low' }, { model: ['sonnet'], effort: ['low'] }, { words: ' 别用 haiku、sonnet 和 opus' }),
     item('f', { model: 'sonnet', effort: 'low' }, { model: ['sonnet'], effort: ['low'] }),
+    // The main agent's opus is ruled out, and the answer puts everything on opus: no model is left.
+    item('g', { model: 'sonnet', effort: 'low' }, { model: ['sonnet'], effort: ['low'] }, { requested: 'opus', words: ' 别用 opus', tags: ['priority:main-overridden'] }),
   ]
-  const net = network({ 'e zh': { model: SONNET, effort: LOW, nouls: { 'banned.haiku': 0.9, 'banned.sonnet': 0.9, 'banned.opus': 0.9 } }, 'f zh': {} })
+  const net = network({
+    'e zh': { model: SONNET, effort: LOW, nouls: { 'banned.haiku': 0.9, 'banned.sonnet': 0.9, 'banned.opus': 0.9 } },
+    'f zh': {},
+    'g zh': { model: { haiku: 0, sonnet: 0, opus: 1 }, effort: LOW, nouls: { 'banned.opus': 0.9 } },
+  })
   const rows = await runSuite(subagent, items, { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['models-hint'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
-  expect(rows.map(line)).toEqual(['e zh: no answer (none: every model offered was ruled out: haiku, sonnet, opus)', 'f zh: no answer (parse: no answer about the agent)'])
+  expect(rows.map(line)).toEqual([
+    'e zh: no answer (none: every model offered was ruled out: haiku, sonnet, opus)',
+    'f zh: no answer (parse: no answer about the agent)',
+    'g zh: no answer (none: opus was ruled out, and the answer gives the other models no probability)',
+  ])
 })

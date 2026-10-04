@@ -93,6 +93,8 @@ for (const assignment of values.option) {
   if (!key || value === undefined) fail(`--option takes name=value, not ${assignment}`)
   options[key] = value !== '' && Number.isFinite(Number(value)) ? Number(value) : value
 }
+// The decision model is the backend under evaluation (--backend), whatever the manifest's default says.
+options.decisionModel = values.backend
 const settings = settingsFrom(options as PluginOptions)
 
 const backendName = values.backend

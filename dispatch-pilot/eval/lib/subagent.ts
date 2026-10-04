@@ -147,7 +147,11 @@ export const subagent: Suite<SubagentItem, SubagentAnswer> = {
     // As the mod: without an answer about the agent, or a model to start it on, the agent goes out as the main agent asked.
     if (!decision.answered) return { ok: false, failure: 'parse: no answer about the agent' }
     if (decision.model === null) {
-      return { ok: false, failure: decision.banned.length > 0 ? `none: every model offered was ruled out: ${decision.banned.join(', ')}` : 'parse: no model answer' }
+      const { banned } = decision
+      const left = (shape.models ?? DEFAULT_AGENT_MODELS).filter((model) => !banned.includes(model))
+      if (banned.length === 0) return { ok: false, failure: 'parse: no model answer' }
+      if (left.length === 0) return { ok: false, failure: `none: every model offered was ruled out: ${banned.join(', ')}` }
+      return { ok: false, failure: `none: ${banned.join(', ')} ${banned.length > 1 ? 'were' : 'was'} ruled out, and the answer gives the other models no probability` }
     }
     return { ok: true, prediction: { model: decision.model, effort: decision.effort }, detail: detailOf(answers, decision) }
   },
@@ -184,7 +188,7 @@ export const subagent: Suite<SubagentItem, SubagentAnswer> = {
   constants: [{ model: 'haiku', effort: null }, ...(['sonnet', 'opus'] as const).flatMap((model) => EFFORTS.map((effort) => ({ model, effort })))],
   questions: (variant) => dispatchPart(SAMPLE, { ask: variantAsk(variant) }).questions,
   scoring:
-    'model: right when in accept.model. effort: right when in accept.effort, one set of levels shared by every acceptable model, so with two acceptable models either model with any acceptable level counts (e.g. subagent-089 opus/low); haiku runs without an effort (null), right exactly when haiku is acceptable; any other model needs a level. Whole answer (accuracy): both right; exact: the gold model and effort. No decision (a failed request, no answer about the agent, every model offered ruled out) is wrong.',
+    'model: right when in accept.model. effort: right when in accept.effort, one set of levels shared by every acceptable model, so with two acceptable models either model with any acceptable level counts (e.g. subagent-089 opus/low); haiku runs without an effort (null), right exactly when haiku is acceptable; any other model needs a level. Whole answer (accuracy): both right; exact: the gold model and effort. No decision (a failed request, no answer about the agent, no model left once the models the person ruled out are taken away) is wrong.',
 }
 
 type Answered = ReadonlyMap<string, Row<SubagentAnswer>>
