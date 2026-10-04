@@ -20,11 +20,13 @@ export type Failure = {
   /**
    * `config`: no key, or the key was refused (401/403). `timeout`: no answer
    * in time. `network`: the request never completed. `busy`: rate limited or
-   * overloaded (429, 502, 503, 529). `http`: any other non-2xx (400 and 422
-   * mean this mod sent a bad request). `parse`: a 2xx that is not a System One
-   * answer. `request`: the request could not be built (a part's bug).
+   * overloaded (429, 502, 503, 529). `quota`: the account's allowance for the
+   * day is spent, so asking again today is pointless (Cloudflare's 3036, also
+   * an HTTP 429). `http`: any other non-2xx (400 and 422 mean this mod sent a
+   * bad request). `parse`: a 2xx that is not a System One answer. `request`:
+   * the request could not be built (a part's bug).
    */
-  kind: 'config' | 'timeout' | 'network' | 'busy' | 'http' | 'parse' | 'request'
+  kind: 'config' | 'timeout' | 'network' | 'busy' | 'quota' | 'http' | 'parse' | 'request'
   /** One line for the debug log. */
   detail: string
   /** The HTTP status, when there was one. */
@@ -54,16 +56,24 @@ export type Posted = { ok: true; response: HttpResponse } | { ok: false; failure
 /**
  * POSTs `body` as JSON, giving up after `timeoutMs` ($.http.fetch has no
  * timeout of its own). A request that loses the race keeps running; its
- * answer is dropped.
+ * answer is dropped. A non-2xx response becomes a failure through `classify`
+ * (by its HTTP status, unless the backend reads more of its body).
  */
-export async function postJson(io: BackendIo, url: string, headers: Record<string, string>, body: unknown, timeoutMs: number): Promise<Posted> {
+export async function postJson(
+  io: BackendIo,
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+  timeoutMs: number,
+  classify: (response: HttpResponse) => Failure = httpFailure,
+): Promise<Posted> {
   const stop = new AbortController()
   const timer = io.sleep(timeoutMs, stop.signal).then(
     (): Posted => ({ ok: false, failure: { kind: 'timeout', detail: `no answer in ${timeoutMs} ms` } }),
     (): Posted => ({ ok: false, failure: { kind: 'timeout', detail: `no answer in ${timeoutMs} ms` } }),
   )
   const call = io.fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }).then(
-    (response): Posted => (response.ok ? { ok: true, response } : { ok: false, failure: httpFailure(response) }),
+    (response): Posted => (response.ok ? { ok: true, response } : { ok: false, failure: classify(response) }),
     (error: unknown): Posted => ({ ok: false, failure: { kind: 'network', detail: String(error instanceof Error ? error.message : error) } }),
   )
   try {

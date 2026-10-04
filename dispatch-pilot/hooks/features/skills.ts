@@ -1,20 +1,33 @@
 // Feature: skills (#10). The main agent no longer reads the full skill
 // listing the engine attaches at the start of a session (ADR 0002); instead,
 // each time the person sends a message, the decision model rates the skills
-// against it and the few that fit are suggested beside the message.
+// against it and the few that fit are suggested beside the message. Skills
+// only the person can start are pointed out on the status line instead.
+//
+// Its switch is `skills` (`/dp skills off`): off, nothing is suggested and the
+// main agent reads the listing as the engine wrote it again (from the next
+// message on, see `listingWanted`). The find_skill tool (#12) has a switch of
+// its own.
 
 import type { EngineInterface, On } from 'claude-code'
 import { redactSecrets } from '../decision/redact.ts'
 import { choiceRanker, pickSkills, relevanceBlock, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
 import { contribute } from '../core/ballot.ts'
+import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
 import { namesOf, numberIn, type Ctx } from '../core/setup.ts'
 import { listingNames, loadCatalog, trimListing, type CatalogSkill } from '../core/skills.ts'
 import { setStatus } from '../core/status.ts'
+import { defineSwitch, isOn } from '../core/switches.ts'
 
 const SHOWN = { plugin: 'dispatch-pilot', key: 'skillsShown' } as const
 const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
+const LISTING = { plugin: 'dispatch-pilot', key: 'skillListing' } as const
+const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+
+/** The feature's switch: the suggestions, and with them the withheld listing. */
+const SWITCH = 'skills'
 
 /**
  * The session's skills: as read earlier this session, else read now (and
@@ -29,6 +42,7 @@ async function sessionCatalog($: EngineInterface): Promise<CatalogSkill[] | null
     overrides: async (source) => (await $.settings.read({ source })).skillOverrides,
     home: () => $.env.get('HOME'),
     cwd: () => $.session.cwd(),
+    exists: (path) => $.fs.exists(path),
     read: (path) => $.fs.read(path),
   }).catch(() => null)
   if (skills !== null) await $.state.set(CATALOG, { skills })
@@ -36,6 +50,8 @@ async function sessionCatalog($: EngineInterface): Promise<CatalogSkill[] | null
 }
 
 export function registerSkills(on: On, ctx: Ctx): void {
+  defineSwitch({ name: SWITCH, info: 'suggests the skills that fit each message; the full skill listing stays out', segments: ['skills'] })
+
   /** Skills the main agent keeps in its listing (names as the listing spells them). */
   const alwaysListed = new Set(namesOf(ctx.options.skillsAlwaysListed))
   /** Skills never offered, to the main agent or to the person. */
@@ -47,22 +63,20 @@ export function registerSkills(on: On, ctx: Ctx): void {
   /** How the skills are rated: one Choice in the message's request (#11 swaps in its own). */
   const ranker = choiceRanker({ language: ctx.ask.language })
   /**
-   * The feature at work: switched on, and a decision model set up to suggest
-   * (without one, hiding the listing would only take the skills away).
-   * #13's runtime switch belongs here; turning it off mid-session also needs
-   * `$.ui.invalidate('prompt.attachment')`, since the engine keeps each
-   * attachment's answer for the process.
+   * Whether the feature is at work now: its switch (and the master switch)
+   * on, and a decision model set up to suggest (without one, withholding the
+   * listing would only take the skills away). Asked where it acts, never at
+   * register: the person's switches are loaded at session start.
    */
-  const enabled = ctx.options.suggestSkills !== false
-  const active = enabled && ctx.backend.configured !== false
+  const active = () => isOn(SWITCH) && ctx.backend.configured !== false
 
   // Every plugin loaded (after the others' session.start, so their commands
   // are listed): the session's skills, read afresh, and a line saying what
   // came of it.
   on('session.start', { cwd: /(?:)/ }, async ($, e, next) => {
     const result = await next(e)
-    if (!enabled) return result
-    if (!active) {
+    if (!isOn(SWITCH)) return result
+    if (!active()) {
       $.ui.log('skills: no decision model is set up, so the main agent keeps the skill listing and nothing is suggested', { to: 'debug' })
       return result
     }
@@ -79,22 +93,34 @@ export function registerSkills(on: On, ctx: Ctx): void {
     return result
   })
 
-  // The engine's skill listing, as each request of a loop carries it. A
-  // dispatched agent's (and a workflow agent's) reaches it untouched.
+  // The engine's skill listing, as each request of a loop carries it (the
+  // engine keeps the answer for the process). A dispatched agent's (and a
+  // workflow agent's) reaches it untouched.
   on('prompt.attachment', { type: 'skill_listing' }, async ($, e, next) => {
-    if (!active || e.agentId !== undefined) return next(e)
+    if (e.agentId !== undefined) return next(e)
     // Skills that cannot be suggested stay listed.
-    if ((await sessionCatalog($)) === null) return next(e)
+    if (!active() || (await sessionCatalog($)) === null) {
+      await $.state.set(LISTING, 'passed')
+      return next(e)
+    }
     const kept = trimListing(e.text, alwaysListed)
     const keptNames = kept === null ? 'none' : listingNames(kept).join(', ')
     $.ui.log(`withheld the skill listing from the main agent (${listingNames(e.text).length} skills, ${e.text.length} characters); kept ${keptNames}`, { to: 'debug' })
+    await $.state.set(LISTING, 'withheld')
     return { text: kept }
   })
 
   // The person's message: the skills question goes into its ballot, beside
   // the effort question (one decision request, sent by the core).
   on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
-    if (!active || !isPersonsMessage(e)) return next(e)
+    if (!isPersonsMessage(e)) return next(e)
+    // The switch flipped since the engine took its answer about the listing: have it ask again.
+    const { value: answered = null } = await $.state.get(LISTING)
+    if (answered !== null && answered !== (active() ? 'withheld' : 'passed')) {
+      $.ui.invalidate('prompt.attachment')
+      await $.state.set(LISTING, null)
+    }
+    if (!active()) return next(e)
     const catalog = (await sessionCatalog($))?.filter((skill) => !neverSuggested.has(skill.name)) ?? null
     const part = catalog === null ? null : ranker.part(catalog)
     if (catalog === null || part === null) return next(e)
@@ -114,7 +140,11 @@ export function registerSkills(on: On, ctx: Ctx): void {
           return
         }
         const { suggest, hint } = pickSkills(ranking, catalog, policy)
-        $.ui.log(`skills for ${quote(e.text)}: ${describeRanking(ranking)}; ${describePicks(suggest, hint)}`, { to: 'debug' })
+        await recordDecision(
+          { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+          (line) => $.ui.log(line, { to: 'debug' }),
+          { feature: SWITCH, outcome: describePicks(suggest, hint), about: quote(e.text), reason: describeRanking(ranking, policy) },
+        )
         setStatus('skills', statusText(suggest, hint), show)
         const { value: before = [] } = await $.state.get(SHOWN)
         const known = new Set([...before, ...alwaysListed])
@@ -155,15 +185,16 @@ function quote(text: string): string {
   return JSON.stringify(flat.length > 40 ? `${flat.slice(0, 40)}...` : flat)
 }
 
-/** The ranking's head for the debug log: the most relevant skills (none under 0.005), then none's share. */
-function describeRanking(ranking: SkillRanking): string {
+/** Why: the head of the ranking (no skill under 0.005), none's share, and the bar a skill had to reach. */
+function describeRanking(ranking: SkillRanking, policy: SkillPolicy): string {
   const head = ranking.ranked.filter((entry) => entry.relevance >= 0.005).slice(0, 5)
-  return [...head.map((entry) => `${entry.name} ${entry.relevance.toFixed(2)}`), `none ${ranking.none.toFixed(2)}`].join(', ')
+  const shares = [...head.map((entry) => `${entry.name} ${entry.relevance.toFixed(2)}`), `none ${ranking.none.toFixed(2)}`].join(', ')
+  return `${shares}; suggested from ${policy.minRelevance.toFixed(2)}, at most ${policy.max}`
 }
 
-/** What the message got, for the debug log. */
+/** What the message got: the skills suggested, then those for the person to start. */
 function describePicks(suggest: readonly SkillPick[], hint: readonly SkillPick[]): string {
-  const suggested = suggest.length > 0 ? `suggested ${suggest.map((skill) => skill.name).join(', ')}` : 'nothing suggested'
+  const suggested = suggest.length > 0 ? `suggested ${suggest.map((skill) => skill.name).join(', ')}` : 'suggested no skill'
   return hint.length > 0 ? `${suggested}; try ${hint.map((skill) => `/${skill.name}`).join(' ')}` : suggested
 }
 

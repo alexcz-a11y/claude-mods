@@ -12,7 +12,18 @@
 
 import { mock } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
-import type { CommandInfo, ContextSkill, On, PromptOrigin, SessionContextBreakdown, SessionMessage, SessionUsage, SettingsSource } from 'claude-code'
+import type {
+  CommandInfo,
+  CommandSpec,
+  ContextSkill,
+  On,
+  PromptOrigin,
+  SessionContextBreakdown,
+  SessionMeasureInput,
+  SessionMessage,
+  SessionUsage,
+  SettingsSource,
+} from 'claude-code'
 
 /** One request the mod sent through `$.http.fetch`, its JSON body parsed. */
 export type Sent = {
@@ -43,6 +54,17 @@ export type WorldOptions = {
   messages?: SessionMessage[]
   /** Files the mod can read, by absolute path (`$.fs.read`, `$.fs.exists`). */
   disk?: Record<string, string>
+  /**
+   * The mod's `$.store`, seeded with these values; what the mod writes is read back with `w.stored(key)`.
+   * Without it every `$.store` call rejects, as when the store file cannot be read or written.
+   */
+  store?: Record<string, unknown>
+  /**
+   * The engine's session around the mod: `w.start()` runs `session.start`, the commands the mod registers
+   * are recorded in `w.commands` (`registerError` refuses them), `w.measure(...)` raises `session.measure`,
+   * `w.compact()` and `w.clear()` the person's /compact and /clear (`session.compact`, `session.end`).
+   */
+  session?: true | { registerError: string }
   /** What the hooks beneath the mod (other plugins, settings hooks) do to a prompt. */
   beneath?: {
     /** The text the turn starts with, when a hook beneath rewrote the prompt. */
@@ -50,7 +72,11 @@ export type WorldOptions = {
     /** A reason to refuse the prompt (it never enters, no turn starts). */
     drop?: (text: string) => string | undefined
   }
-  /** The session's skills (#10); none by default. */
+  /**
+   * The session's skills (#10): what `$.command.list()`, `$.session.usage({ breakdown })`, `$.settings.read`,
+   * `$.env.get('HOME')` and `$.session.cwd()` answer, and the engine beneath `prompt.attachment` (`w.listing`).
+   * Without it those calls reject, and the skills feature finds no skills.
+   */
   skills?: SkillsWorld
 }
 
@@ -100,6 +126,9 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const prompts: { text: string; context: readonly string[] | undefined; origin: unknown }[] = []
   const turnIds: string[] = []
   const disk = options.disk ?? {}
+  const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
+  const commands: CommandSpec[] = []
+  const invalidated: string[] = []
 
   async function answer(reply: Reply): Promise<{ value: { status: number; ok: boolean; headers: Record<string, string>; text: string } } | { deny: string }> {
     if ('after' in reply) {
@@ -126,6 +155,43 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   on('session.messages', () => ({ value: options.messages ?? [] }))
   on('fs.read', (_$, e) => (e.path in disk ? { value: disk[e.path] as string } : { deny: `ENOENT: ${e.path}` }))
   on('fs.exists', (_$, e) => ({ value: e.path in disk }))
+  if (options.store !== undefined) {
+    on('store.get', (_$, e) => ({ value: store.has(e.key) ? JSON.parse(store.get(e.key) as string) : undefined }))
+    on('store.set', (_$, e) => {
+      store.set(e.key, JSON.stringify(e.value))
+      return { value: undefined }
+    })
+    on('store.delete', (_$, e) => {
+      store.delete(e.key)
+      return { value: undefined }
+    })
+    on('store.keys', () => ({ value: [...store.keys()] }))
+  }
+  if (options.session !== undefined) {
+    const refused = options.session === true ? undefined : options.session.registerError
+    on('session.start', (_$, e) => ({ cwd: e.cwd }))
+    on('session.measure', (_$, e) => ({ changed: e.changed }))
+    on('session.compact', (_$, e) => ({ messages: e.messages }))
+    on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
+    on('command.register', (_$, e) => {
+      if (refused !== undefined) return { deny: refused }
+      commands.push(e)
+      return { value: { command: e.name } }
+    })
+  }
+  if (options.skills !== undefined) {
+    const skills = options.skills
+    mock.env(on, { HOME: skills.home ?? '/home/u' })
+    on('session.cwd', () => ({ value: skills.cwd ?? '/work' }))
+    on('command.list', () => ({ value: skills.commands ?? [] }))
+    on('session.usage', () => (skills.listed === null ? { deny: 'no session bound' } : { value: usageListing(skills.listed ?? []) }))
+    on('settings.read', (_$, e) => ({ value: e?.source === undefined ? {} : { skillOverrides: skills.overrides?.[e.source] ?? {} } }))
+    on('prompt.attachment', (_$, e) => ({ text: e.text }))
+    on('ui.invalidate', (_$, e) => {
+      invalidated.push(e.event)
+      return { value: undefined }
+    })
+  }
   on('ui.status', (_$, e) => {
     statuses.push(e.text)
     return { value: undefined }
@@ -156,20 +222,6 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use' as const, usage: null }
   })
 
-  // The session's skills (#10): the commands, the main agent's listing as the
-  // context counts it, the settings, and the engine at the bottom of the
-  // attachment and session events. Without `skills`, a session with none.
-  const skills = options.skills ?? {}
-  mock.env(on, { HOME: skills.home ?? '/home/u' })
-  on('session.cwd', () => ({ value: skills.cwd ?? '/work' }))
-  on('command.list', () => ({ value: skills.commands ?? [] }))
-  on('session.usage', () => (skills.listed === null ? { deny: 'no session bound' } : { value: usageListing(skills.listed ?? []) }))
-  on('settings.read', (_$, e) => ({ value: e?.source === undefined ? {} : { skillOverrides: skills.overrides?.[e.source] ?? {} } }))
-  on('prompt.attachment', (_$, e) => ({ text: e.text }))
-  on('session.start', (_$, e) => ({ cwd: e.cwd }))
-  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
-  on('session.compact', (_$, e) => ({ messages: e.messages }))
-
   return {
     clock,
     requests,
@@ -178,6 +230,9 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     steps,
     prompts,
     turnIds,
+    commands,
+    /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */
+    stored: (key: string): unknown => (store.has(key) ? JSON.parse(store.get(key) as string) : undefined),
     /** The status line as last set (`undefined` once cleared or never set). */
     status: () => statuses.at(-1),
     /** Submits a prompt the way the engine does; resolves when it entered (or was queued). */
@@ -195,15 +250,22 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       await $.turn.start({ text, turnId })
       return turnId
     },
-    /** The engine's skill listing as one request of a loop carries it (`agentId`: a dispatched agent's); resolves to what the model reads. */
+    /** The session starts (needs `session`): the mod sets itself up and registers its commands. */
+    start: () => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true }),
+    /** The engine reports the session's context, limits and cost (needs `session`). */
+    measure: (input: SessionMeasureInput) => $.session.measure(input),
+    /** Runs a slash command as the person types it (`/dp lock max` is `command('dp', 'lock max')`); resolves to the text it printed. */
+    command: async (name: string, args = '') =>
+      (await $.command.run({ command: name, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })).text ?? '',
+    /** The person's `/compact` of the main conversation (needs `session`). */
+    compact: () => $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'earlier work', toolUses: [] }] }),
+    /** The person's `/clear` (needs `session`): the conversation ends, the process goes on, no session.start follows. */
+    clear: () => $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } }),
+    /** The engine's skill listing as one request of a loop carries it (`agentId`: a dispatched agent's; needs `skills`); resolves to what the model reads. */
     listing: (text: string, agentId?: string) =>
       $.prompt.attachment({ type: 'skill_listing', text, origin: { kind: 'engine' }, ...(agentId !== undefined ? { agentId } : {}) }),
-    /** Claude Code starting the session, every plugin loaded, before the first prompt. */
-    startSession: () => $.session.start({ cwd: skills.cwd ?? '/work', surface: 'terminal', isInteractive: true }),
-    /** The person's `/compact` of the main conversation. */
-    compact: () => $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'earlier work', toolUses: [] }] }),
-    /** The person's `/clear`: the conversation ends, the process goes on (no session.start follows). */
-    clear: () => $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } }),
+    /** The events whose cached answers the mod asked the engine to ask again (`$.ui.invalidate`; needs `skills`). */
+    invalidated,
     /** Sends one model request through the mod, drained to its end. */
     step: async (step: StepOptions) => {
       const effort = step.effort === undefined ? 'xhigh' : step.effort

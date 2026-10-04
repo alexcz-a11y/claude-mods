@@ -7,6 +7,7 @@ import { expect, test } from 'claude-code/testing'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { choiceRanker, pickSkills, readSkills, skillsPart, skillsRequest, type SkillOption } from '../hooks/decision/skills.ts'
 import { answersFor } from '../hooks/decision/system-one.ts'
+import { CLEF_OPTIONS, clef, clefInputProblems } from './support/cloudflare.ts'
 import type { SkillsWorld } from './support/world.ts'
 import { jev, world } from './support/world.ts'
 
@@ -43,14 +44,51 @@ test("the main agent's skill listing is withheld; a dispatched agent's reaches i
   expect(await w.listing(LISTING, 'a1')).toEqual({ text: LISTING })
 })
 
-test('with suggestSkills off, the main agent reads the listing as the engine wrote it', { options: { ...KEY, suggestSkills: false } }, async ($, on) => {
-  const w = world($, on, { skills: SKILLS })
+test('with the skills switch off (/dp skills off, kept from an earlier session), nothing is asked about the skills and the main agent reads the listing as the engine wrote it', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS, store: { switches: { skills: false } }, session: true })
+  await w.start()
+  await w.submit('先写一个失败的测试')
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
+  expect(await w.command('dp')).toMatch(/\boff +skills +\S/)
+})
+
+test('switched off mid-session, the next message has the engine ask again about the listing it holds, and the main agent gets it back; switched on, it goes again', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS })
+  expect(await w.listing(LISTING)).toEqual({ text: null })
+  await w.submit('先写一个失败的测试')
+  expect(w.invalidated).toEqual([])
+
+  await w.command('dp', 'skills off')
+  await w.submit('再写一个')
+  expect(w.invalidated).toEqual(['prompt.attachment'])
+  expect(await w.listing(LISTING)).toEqual({ text: LISTING })
+  await w.submit('再写一个')
+  expect(w.invalidated).toEqual(['prompt.attachment'])
+
+  await w.command('dp', 'skills on')
+  await w.submit('继续')
+  expect(w.invalidated).toEqual(['prompt.attachment', 'prompt.attachment'])
+  expect(await w.listing(LISTING)).toEqual({ text: null })
 })
 
 test('without a TypeSafe key nothing could suggest a skill, so the main agent keeps its listing', async ($, on) => {
   const w = world($, on, { skills: SKILLS })
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
+})
+
+test('Clef chosen without its Cloudflare credentials could suggest nothing either, so the main agent keeps its listing', { options: { decisionModel: 'clef' } }, async ($, on) => {
+  const w = world($, on, { skills: SKILLS })
+  expect(await w.listing(LISTING)).toEqual({ text: LISTING })
+})
+
+test('Clef takes the skills question as it is (its input rules hold), and the listing is withheld', { options: CLEF_OPTIONS }, async ($, on) => {
+  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), skills: SKILLS })
+  await w.submit('先写一个失败的测试')
+  expect(w.requests).toHaveLength(1)
+  expect(clefInputProblems(w.requests[0]?.body)).toEqual([])
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'skills.which'])
+  expect(await w.listing(LISTING)).toEqual({ text: null })
 })
 
 test("a message's one decision request also asks which skill the main agent could load for it, by name and description, or none", { options: KEY }, async ($, on) => {
@@ -199,7 +237,7 @@ test('a skill suggested earlier in the conversation is named again without its d
 })
 
 test('after /compact or /clear, a skill suggested earlier is described again', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
-  const w = world($, on, { backend: rates({ tdd: 0.6, '(none)': 0.4 }), skills: SKILLS })
+  const w = world($, on, { backend: rates({ tdd: 0.6, '(none)': 0.4 }), skills: SKILLS, session: true })
   await w.submit('先写失败的测试')
   await w.compact()
   await w.submit('继续写测试')
@@ -245,17 +283,22 @@ test("when the session's skills cannot be read, nothing is asked about them and 
 })
 
 test('at session start the skills are read, and the debug log says what was found and whether the listing is withheld', { options: KEY }, async ($, on) => {
-  const w = world($, on, { skills: WITH_PERSONS, disk: PERSON_FILES })
-  await w.startSession()
+  const w = world($, on, { skills: WITH_PERSONS, disk: PERSON_FILES, session: true })
+  await w.start()
   expect(w.logs).toEqual([
     { text: 'skills: 3 the main agent can load, 2 only you can start (/grill-me /ship:release); the listing is withheld from the main agent', to: 'debug' },
   ])
 })
 
 test('without a decision model the debug log says the listing stays', async ($, on) => {
-  const w = world($, on, { skills: SKILLS })
-  await w.startSession()
+  const w = world($, on, { skills: SKILLS, session: true })
+  await w.start()
   expect(w.logs.map((log) => log.text)).toEqual(['skills: no decision model is set up, so the main agent keeps the skill listing and nothing is suggested'])
+})
+
+test('the skills switch is listed by /dp with what it does', { options: KEY }, async ($, on) => {
+  const w = world($, on, { skills: SKILLS })
+  expect(await w.command('dp')).toMatch(/\bon +skills +suggests the skills that fit each message/)
 })
 
 test('each listing withheld from the main agent is noted in the debug log, with what it kept', { options: { ...KEY, skillsAlwaysListed: ['tdd'] } }, async ($, on) => {
@@ -265,13 +308,24 @@ test('each listing withheld from the main agent is noted in the debug log, with 
   expect(w.logs.map((log) => log.text)).toEqual([`withheld the skill listing from the main agent (3 skills, ${LISTING.length} characters); kept tdd`])
 })
 
-test('each decision about the skills is written to the debug log, never into the conversation', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
-  const w = world($, on, { backend: rates({ tdd: 0.62, 'code-review': 0.23, 'anthropic-skills:computer-use': 0.01, '(none)': 0.14 }), skills: WITH_PERSONS, disk: PERSON_FILES })
+test('each decision about the skills goes to the decision log (/dp log) and the debug log, never into the conversation', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
+  const w = world($, on, {
+    backend: (request, n) => rates(n === 1 ? { tdd: 0.62, 'code-review': 0.23, 'anthropic-skills:computer-use': 0.01, '(none)': 0.14 } : { 'grill-me': 0.4, '(none)': 0.6 })(request),
+    skills: WITH_PERSONS,
+    disk: PERSON_FILES,
+  })
   await w.submit('先写一个失败的测试，再实现登录限流')
-  const lines = w.logs.filter((log) => log.text.startsWith('skills for '))
-  expect(lines).toEqual([
-    { text: 'skills for "先写一个失败的测试，再实现登录限流": tdd 0.62, code-review 0.23, anthropic-skills:computer-use 0.01, none 0.14; suggested tdd, code-review', to: 'debug' },
+  await w.submit('这个方案往死里挑刺')
+
+  const first = 'suggested tdd, code-review for "先写一个失败的测试，再实现登录限流": tdd 0.62, code-review 0.23, anthropic-skills:computer-use 0.01, none 0.14; suggested from 0.20, at most 3'
+  const second = 'suggested no skill; try /grill-me for "这个方案往死里挑刺": grill-me 0.40, none 0.60; suggested from 0.20, at most 3'
+  expect(w.logs.filter((log) => log.text.startsWith('suggested '))).toEqual([
+    { text: first, to: 'debug' },
+    { text: second, to: 'debug' },
   ])
+  const log = await w.command('dp', 'log')
+  expect(log).toContain(`skills: ${first}`)
+  expect(log).toContain(`skills: ${second}`)
 })
 
 test('what the mod sends is exactly what the decision module builds from a message and its recent context, so the eval measures the live request (spec #67)', { options: KEY }, async ($, on) => {

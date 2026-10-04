@@ -39,6 +39,8 @@ export type CatalogIo = {
   home: () => Promise<string | undefined>
   /** `$.session.cwd()`. */
   cwd: () => Promise<string>
+  /** `$.fs.exists(path)` (asked first: a read that fails leaves a line in the debug log). */
+  exists: (path: string) => Promise<boolean>
   /** `$.fs.read(path)`: rejects when the file is missing. */
   read: (path: string) => Promise<string>
 }
@@ -81,7 +83,7 @@ export async function loadCatalog(io: CatalogIo): Promise<CatalogSkill[]> {
   const overrides = await mergedOverrides(io)
   const where = { home: await io.home().catch(() => undefined), cwd: await io.cwd().catch(() => undefined) }
   let installed: Promise<string> | undefined
-  const installedPlugins = () => (installed ??= where.home ? io.read(`${where.home}/.claude/plugins/installed_plugins.json`).catch(() => '') : Promise.resolve(''))
+  const installedPlugins = () => (installed ??= where.home ? readIfThere(io, `${where.home}/.claude/plugins/installed_plugins.json`).then((text) => text ?? '') : Promise.resolve(''))
   for (const command of commands) {
     if (command.source !== 'user' && command.source !== 'plugin') continue
     if (listedAs.has(command.name) || seen.has(command.name) || isOff(overrides, command.name)) continue
@@ -147,10 +149,16 @@ function pluginFiles(command: CommandLike, installedJson: string): string[] {
   return files
 }
 
+/** A file's text, or null when it is not there or cannot be read. */
+async function readIfThere(io: CatalogIo, path: string): Promise<string | null> {
+  if (!(await io.exists(path).catch(() => false))) return null
+  return io.read(path).catch(() => null)
+}
+
 /** Whether the first of `files` that exists reserves its skill for the person. */
 async function anyReservesForPerson(io: CatalogIo, files: readonly string[]): Promise<boolean> {
   for (const file of files) {
-    const markdown = await io.read(file).catch(() => null)
+    const markdown = await readIfThere(io, file)
     if (markdown !== null) return reservedForPerson(markdown)
   }
   return false

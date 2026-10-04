@@ -41,6 +41,12 @@ declare module 'claude-code' {
         floor: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
         model: string | null
       }>
+      /**
+       * What the features recorded about their decisions (core/decisions.ts),
+       * oldest first, at most 50: what `/dp log` shows. `n` counts the session's
+       * decisions from 1.
+       */
+      decisionLog: { n: number; feature: string; outcome: string; about: string; reason: string }[]
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
       /**
@@ -56,6 +62,13 @@ declare module 'claude-code' {
       skillCatalog: {
         skills: { name: string; description: string; by: 'model' | 'person'; source: string }[]
       } | null
+      /**
+       * How the skills feature last answered the main agent's skill listing,
+       * which the engine keeps for the process: `withheld` or `passed` (#10).
+       * When the `skills` switch no longer agrees, the next message has the
+       * engine ask again. null: not answered since.
+       */
+      skillListing: 'withheld' | 'passed' | null
     }
   }
 }
