@@ -162,7 +162,7 @@ Dispatch Pilot 不能和 jev-pilot 同时启用：两者都在 `turn.step` 上�
 
 还没有数据的事，留给评测票（#17；中途重判的几项留给 #14）：
 
-- **中途重判的默认值和写法。** `thetaUp` 0.4、`thetaDown` 0.6、`holdSteps` 3、`rejudgeEvery` 3、`rejudgeSteps` 4 都是起点（参考了 jev-pilot 实测的升档 0.3/0.5、降档 0.6），按语言分别校准。state 里放不放当前档位和计数、问题用英文还是中文，都是评测变量（见「开发」里的「中途重判」）。`rejudgeWaitMs` 300 毫秒按回答延迟的 p90 和工具的平均执行时间来定：实测 Jev 的中途请求 313–330 ms。
+- **中途重判的默认值和写法。** `thetaUp` 0.4、`thetaDown` 0.6、`holdSteps` 3、`rejudgeEvery` 3、`rejudgeSteps` 4 都是起点（参考了 jev-pilot 实测的升档 0.3/0.5、降档 0.6），按语言分别校准。state 里放不放当前档位和计数、问题用英文还是中文，都是评测变量（见「开发」里的「中途重判」）。`rejudgeWaitMs` 300 毫秒按回答延迟的 p90 和工具的平均执行时间来定：实测 Jev 的中途请求 313–330 ms。#14 的评测（见「开发」里「评测」的「一轮中途的 effort」）给出了第一批数据：Jev 的中途请求 p50 约 280 ms、p90 约 350 ms；去掉当前档位或计数、问题改用中文，两次运行里都看不出稳定的差别；Clef 的 confidence 比 Jev 低得多，默认门槛下几乎不改档，门槛要按后端分别校准。
 
 - **Clef 是否只读 state 的前约 2K token。** 第三方资料（OpenRouter 的模型页）说 Workers AI 只读 state 的前约 2K token，官方 schema 只写了「过长的 state 会被截断」。mod 已经尽量不吃亏：state 里 `user_message` 排在最前，`contextTokens` 的默认值也是 2000。方法：发一个已知长度的 state，在末尾放一个只有靠它才能作答的探针事实，并对比 `usage.input_tokens`；还要确认截断是否也作用于问题（skill 画像在 criteria 里）。基线（#3 实测）：一条中文消息、不带上下文的 effort 请求，Clef 报 460 input tokens，Jev 报 626。
 - **Clef 的延迟和 `timeoutMs`。** 本机用 Node 的 fetch 连发 6 次同一个请求：Clef 第一次 1.8 秒，之后 0.6–1.4 秒；Jev 第一次 0.57 秒，之后 0.28–0.33 秒。默认的 `timeoutMs` 1500 对 Clef 偏紧（在真实引擎里，第一次请求的冷连接用了 1.3 秒才拿到 Cloudflare 的 401）。按延迟的 p50 和 p90 为 Clef 定 `timeoutMs` 的默认值。#4 的正式基线是第一批数据：200 个请求依次发送时 p50 699 ms、p90 929 ms，只有 1 条超过 1500 ms（见「开发」里的「评测」）。
@@ -189,6 +189,7 @@ TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-agent.ts --file <subagen
 node dispatch-pilot/eval/validate.ts                      # 校验评测集（接缝 2，见下文「评测」）
 node dispatch-pilot/eval/run.ts effort-submit --estimate  # 估算请求数、token 和费用，不发请求
 node dispatch-pilot/eval/run.ts effort-submit --label <名字> [--backend clef]   # 用真实 Jev（或 Clef）跑一次评测，结果存进 eval/results/
+node dispatch-pilot/eval/run.ts effort-midturn --label <名字> [--variants en-score] [--backend clef --option timeoutMs=3000]   # 中途重判的评测（#14）
 node dispatch-pilot/eval/run.ts subagent --label <名字>   # 派出 agent 的模型和 effort（#15）：四个变体 × 中英，800 个请求，Jev 约 0.04 美元
 node dispatch-pilot/eval/run.ts subagent --backend clef --option timeoutMs=3000 --variants models-hint --ids subagent-001,...   # Clef 抽样
 node dispatch-pilot/eval/apply-review.ts effort-submit --from <审核记录.jsonl>  # 应用用户的审核决定，再校验
@@ -410,6 +411,7 @@ const request = mergeParts(midturnState(row.zh, { steps: 4, tokens: 2000 }), [mi
 - `judgeMidturn(reading, { current, sinceRaise, atLeast }, { thetaUp, thetaDown, thetaMax, holdSteps })` 就是 mod 用的防抖规则，返回 `{ effort, why, picked, confidence }`：`picked` 是不加防抖时选的档位，`effort` 是 mod 发出的档位，两者都可以拿去和 `gold`、`accept` 比较。
 - 评测变量：`midturnState` 的第三个参数 `{ currentEffort: false }`、`{ counts: false }` 可以去掉当前档位和计数（指南 §4.1 担心当前档位会产生锚定）；`midturnEffortPart({ language: 'zh' })` 是中文问题；`{ trouble: true }` 加上「卡住」的说明，006、017、051、053、056、057 这几题可以对比带与不带。
 - 线上请求和评测集有两处不同：线上请求在工具开始执行时发出，所以最新一步里正在运行的工具写「进行中：」（评测集里没有这种结果）；线上的一句话结果只有结局加上调用在做什么（例如 `失败：server/proxy.ts`），评测集的结果是人写的摘要、信息更多（例如 `失败：old_string 未找到`）。要量出这个差距，可以把评测集的结果截成「前缀 + 文件名」再跑一遍。
+- #14 照这些做成了 `eval/lib/effort-midturn.ts`，见下文「评测」。
 
 ### 登记功能开关
 
@@ -555,14 +557,14 @@ eval/
 └── validate.ts、run.ts、apply-review.ts、compare.ts、node.ts   Node 脚本
 ```
 
-- **测到的就是线上的请求。** 每类题型的 suite 用 `hooks/decision/` 拼请求，设置取 manifest 的默认值，经 `setup()` 读出（`--option contextTokens=4000` 可以改）；只有一项功能读的选项（例如 `agentOverride`），suite 从 `settings.options` 按那项功能的读法读。`tests/eval-effort-submit.test.ts` 用 world 核对：同一条消息和对话，评测发的请求与 mod 发的逐字相同。
+- **测到的就是线上的请求。** 每类题型的 suite 用 `hooks/decision/` 拼请求，设置取 manifest 的默认值，经 `setup()` 读出（`--option contextTokens=4000` 可以改）；只有一项功能读的选项（例如 `agentOverride`、`rejudgeSteps`），suite 从 `settings.options` 按那项功能的读法读。`tests/eval-effort-submit.test.ts` 用 world 核对：同一条消息和对话，评测发的请求与 mod 发的逐字相同。
 - **变量。** effort-submit 有四个变体：`en-score`（mod 现在的问法）、`zh-score`、`en-choice`、`zh-choice`，即问题用英文还是中文写、用 Score 还是 Choice 问；用户的原文总是照搬进 state。每题的中文版和英文版都问。
 - **指标**（`lib/metrics.ts`）：每个变体的中文、英文准确率（答案在可接受集合里；没答上的算错，另列条数），gold 命中率，答偏的方向，中英差距和 spec 的 3 个百分点门槛，中英一致率，延迟 p50 和 p90（以及超过 mod 超时的条数），按 tag 分组的错题数；另报「每题都答同一档」的常数基线。
 - **延迟只在 `--concurrency 1`（默认）时可信。** 实测 Jev 对同一个 key 的并发请求像是依次处理：p50 在 1 个并发时约 270–290 ms，2 个时约 540 ms，4 个时 700–1100 ms。
 - **单次运行有波动。** 2026-10-04 用同一配置跑了两次（`results/effort-submit/` 里的两份 preliminary），四个变体分别有 192、192、191、193 / 200 个答案相同，单项准确率相差 0–3 个百分点，zh-score 的中英差距一次是 −2、一次是 −4，和 3 个百分点的门槛同一量级。比较写法或判断门槛时多跑几次，用 `compare.ts` 对照。
 - **结果文件**记录后端、请求的模型和响应里的模型版本、日期、变量、mod 的设置（包括除敏感字段外的全部选项）、评测集和 `hooks/decision/` 各文件的哈希、每个变体问的问题、汇总，以及逐题答案（每个档位的概率和 confidence，供 #17 校准门槛；分部分评分的题型另有 `parts`），不含凭证。判断提示词有没有变，看拼请求的文件（effort-submit 是 `system-one.ts`、`effort.ts`、`context.ts`、`redact.ts`）和记录下来的问题；`backend.ts`、`clef.ts` 这类文件变了不影响请求内容。凭证按「进程环境变量优先，其次 `~/.config/dispatch-pilot/eval.env`」读取。
-- **审核。** 用户的审核 wizard 每行写一个决定（`agree`、`edit`、`note`）。`apply-review.ts --from <文件>` 把它复制到 `eval/review/`，把 `edit` 写进评测集（只改答案字段，其他行逐字不变），列出改过答案的题（它们的理由需要重写）和要跟进的 note，再校验一遍；有任何一条无法应用时整份不写。
-- **加一类题型**（#14、#15、#16）：评测集放进 `eval/datasets/<类>.jsonl`（校验规则已经在 `lib/datasets.ts` 里），在 `eval/lib/<类>.ts` 实现 `Suite`（`lib/suite.ts`：怎么问、怎么评分、怎么显示、常数基线），在 `lib/suites.ts` 登记一行，再仿照 `tests/eval-effort-submit.test.ts` 用 world 核对请求与 mod 的一致。可选的三样：一个答案由几个决定组成时，`grade` 可以给出每部分的对错（`parts`，例如派出 agent 的 `model` 和 `effort`），汇总就会在整题之外给出每部分的准确率（分语言、按 tag、常数基线）；`breakdown` 给出这类题型自己的数字，存进每个变体的汇总；`report` 给出 `run.ts` 打印的几行。
+- **审核。** 用户的审核 wizard 每行写一个决定（`agree`、`edit`、`note`）。`apply-review.ts --from <文件>` 把它复制到 `eval/review/`，把 `edit` 写进评测集（只改答案字段，其他行逐字不变），列出改过答案的题（它们的理由需要重写）和要跟进的 note，再校验一遍；有任何一条无法应用时整份不写。审核之后又有新决定时，追加在记录末尾（同一题以最后一行为准），再运行一次 `apply-review.ts <类>`：提交的记录重新应用后，得到的仍是提交的评测集。`effort-midturn.review.jsonl` 的最后一行就是这样，按用户在 issue #1 的拍板撤回了审核者对 midturn-006 的修改。
+- **加一类题型**（#14、#15、#16）：评测集放进 `eval/datasets/<类>.jsonl`（校验规则已经在 `lib/datasets.ts` 里），在 `eval/lib/<类>.ts` 实现 `Suite`（`lib/suite.ts`：怎么问、怎么评分、怎么显示、常数基线），在 `lib/suites.ts` 登记一行，再仿照 `tests/eval-effort-submit.test.ts` 用 world 核对请求与 mod 的一致。可选的几样：一个答案由几个决定组成时，`grade` 可以给出每部分的对错（`parts`，例如派出 agent 的 `model` 和 `effort`），汇总就会在整题之外给出每部分的准确率（分语言、按 tag、常数基线）；`breakdown` 给出这类题型自己的数字，存进每个变体的汇总；`report` 给出 `run.ts` 打印的几行；`baselines` 是随题而变的基线（例如每题都保持当前档），和常数基线一起评分、一起打印。
 
 #### effort-submit 的正式基线（2026-10-04）
 
@@ -583,6 +585,33 @@ eval/
 - **延迟。** 第 1 次运行整体慢了约 130 ms（p50 413–419 ms，分布同样集中，不像是并发排队），第 2、3 次的 p50 是 278–286 ms，和 preliminary 相近：同样是 1 个并发，不同时段的延迟也会差上百毫秒。超过 mod 超时 1500 ms 的，每个变体每次 0–1 条，最长 2245 ms。Clef 在连接已经建立、请求依次发送时 p50 699 ms、p90 929 ms，最长 2148 ms，200 条里只有 1 条超过 1500 ms（冷连接的第一次请求更慢，见「待评测」）。
 - **Clef 偏高。** Clef 每种语言答错 26 题，其中 25 题是答高了；Jev 的 `en-score` 每种语言答高 16–18 题、答低 3–5 题。
 - **审核规则 R4 暴露的提示词问题（留给 #17）。** 线上提示词（`hooks/decision/effort.ts`）的 high 档写着「writing tests」（中文版是「编写测试」），把写测试整体放在 high 档；审核规则 R4（`eval/review/effort-submit.review-summary.md`）定的是写测试按范围定档。submit-056（给二十来行的纯函数补几个用户已经列明的用例，只接受 medium）因此很难答对：3 次运行里，`en-score`、`zh-score`、`en-choice` 中英文各 3 次全部答 high（`en-score` 给 high 的概率是 0.71–0.76），只有 `zh-choice` 6 次里答对 5 次；Clef 中英文也都答 high。对照题 submit-055（为三个外部依赖设计 mock、覆盖率要到 80%，接受 medium 和 high）24 次都答 high，这是对的。#17 改提示词时，可以考虑把 high 档的写测试改成按范围描述，改完再跑一遍，用 `compare.ts` 对照这两题。#4 没有改提示词。
+
+#### 一轮中途的 effort（effort-midturn，#14）
+
+- **评测集** `datasets/effort-midturn.jsonl`：100 题，中英对照，74 题 hard。每题是一段真实执行轨迹的片段：本轮用户的消息、即将发出的那一步（`step`，从 0 数，就是 `turn.step` 的 `index`）、这一轮现在的档位、计数（判断次数、档位变化次数、失败的工具调用数、被 hook 拦截的次数）和最近几步（主 agent 在那一步最后写的文字、调用的工具和一句话结果，结果以「成功：」「失败：」「被 hook 拦截：」「用户拒绝：」开头）。答案是从这一步到下一次重判之前的工作需要的档位：相对现在的档位，32 题该升、30 题该降、38 题该保持；`accept` 最多两档宽。审核（Opus 5.5 high 的审核会话，用户同意以它的结论为准）同意 96 题、改 1 题、备注 3 题；记录和总结在 `review/effort-midturn.review.jsonl`、`review/effort-midturn.review-summary.md`。总结末尾一节写了之后的处理：midturn-006 按用户在 issue #1 的拍板撤回了审核者的修改（计划内的 TDD 红灯不强制升档，accept 仍是 `[medium]`），053、087 改写了理由，090 在题面里补了一句「等结果都回来再综合」。
+- **请求与 mod 相同。** 每题的 `zh` 或 `en` 对象就是 `MidturnInput`：suite 用 `midturnState`、`midturnEffortPart` 拼请求，`rejudgeSteps`、`thetaUp`、`thetaDown`、`holdSteps` 按 `features/midturn-effort.ts` 的读法从选项读。`tests/eval-effort-midturn.test.ts` 用 world 核对三种情形下评测发的请求与 mod 发的逐字相同：每隔 N 步的重判（mod 的请求在最新一步里有一个「进行中：」的调用，测试里的题照样写进去，评测集的题没有这种结果）、改过 `rejudgeSteps` 和 `contextTokens` 的重判、#7 要求的带 `trouble` 的重判（这时没有进行中的调用，形状和评测集的题完全一样）；还核对了同样的回答下，评测记下的 `sent` 就是 mod 下一步发出的档位。
+- **变体**：`en-score`（mod 现在的问法）、`zh-score`（问题用中文写）、`no-current-effort` 和 `no-counts`（state 里去掉当前档位或计数；指南 §4.1 担心当前档位会产生锚定）、`trouble`（失败满 2 次的 6 题带上「卡住」说明和对应的问题指令，和 #7 要求重判时一样；其余 94 题的请求与 `en-score` 相同，所以这个变体的整体数字也反映了重复提问的波动）。`trouble` 的那句话（`troubleOf`）暂代 #7 的写法，#7 合入后改用 #7 的。
+- **评分口径**：回答选出的档位（`pickEffort`：概率最高的一档，`max` 要过 `thetaMax`）在 `accept` 里算对，评测集标的就是这个判断。mod 随后实际发出的档位记在逐题答案的 `sent` 里（`judgeMidturn`：升档要置信度过 `thetaUp`，降档要过 `thetaDown` 而且一次只降一档），`why` 是原因，另有各档概率 `p` 和 `confidence`：#17 校准门槛时可以用同一批回答重新判断，不必重新请求。评测集不记录上次升档在第几步，所以 `holdSteps` 不起作用；强制升档的下限也不加：失败是不是预期内的，按用户的拍板由 #7 让决策模型判断。
+- **指标**（共用指标之外）：「每题都保持当前档」的基线（`current`，52%，gold 命中 38%）；按 gold 相对当前档该升、该降、该保持分组的中英准确率（汇总里的 `breakdown.directions`）；`sent` 的中英准确率（`breakdown.sent`）。`sent` 的准确率有上限：5 题（007、061、066、068、091）可接受的档位都比当前档低两档以上，mod 一次只降一档，这 5 题的 `sent` 不可能对。
+- **结果**（2026-10-04，审核后的评测集，设置取 manifest 的默认值：`rejudgeSteps` 4、`contextTokens` 2000、`thetaUp` 0.4、`thetaDown` 0.6、`thetaMax` 0.5，`--concurrency 1`）。Jev 用同一配置跑了两次：`results/effort-midturn/2026-10-04-jev-first.json` 在合入 #15 之前跑，`2026-10-04-jev-reviewed.json` 在合入之后跑。两次发的请求逐字相同（评测集和拼请求的文件哈希都一样），只是第一次的汇总早于 #15 的 `breakdown`：分组的数字在 `groups` 里，没有 `sent` 的准确率。每次 1000 个请求、908,778 input token、约 0.038 美元，没有失败。Clef 只跑了默认变体一次（`2026-10-04-clef-wiring.json`，`--option timeoutMs=3000`）：200 个请求、125,190 input token，没有失败，也没有重试。
+
+  准确率、一致率、gold 命中率和 `sent` 准确率是百分比，差距是百分点。Jev 写第二次运行的数字，括号里是第一次。
+
+  | 后端（答题的模型） | 变体 | 中文准确率 | 英文准确率 | 中英差距 | 中英一致率 | gold 命中（中 / 英） | `sent` 准确率（中 / 英） | p50 / p90 ms |
+  |---|---|---|---|---|---|---|---|---|
+  | Jev（jev-1.13.0） | `en-score`（线上的问法） | 73（77） | 74（74） | −1（+3） | 85（84） | 57 / 54（59 / 55） | 76 / 77（79 / 77） | 286 / 352（278 / 344） |
+  | Jev（jev-1.13.0） | `zh-score` | 73（73） | 72（72） | +1（+1） | 88（92） | 52 / 49（51 / 50） | 74 / 73（74 / 74） | 282 / 350（279 / 350） |
+  | Jev（jev-1.13.0） | `no-current-effort` | 74（77） | 75（75） | −1（+2） | 86（86） | 56 / 57（60 / 57） | 76 / 77（76 / 76） | 285 / 354（277 / 323） |
+  | Jev（jev-1.13.0） | `no-counts` | 75（73） | 74（75） | +1（−2） | 87（87） | 58 / 57（56 / 55） | 78 / 77（77 / 78） | 286 / 358（277 / 326） |
+  | Jev（jev-1.13.0） | `trouble` | 75（74） | 73（75） | +2（−1） | 90（87） | 59 / 53（57 / 53） | 77 / 75（78 / 77） | 287 / 346（275 / 333） |
+  | Clef（响应里只写 `clef`） | `en-score` | 85 | 87 | −2 | 88 | 65 / 70 | 58 / 57 | 633 / 761 |
+
+  - **常数基线。** 每题都保持当前档 52%（gold 命中 38%），是最好的常数；每题都答 high 50%，medium 和 xhigh 43%，low 28%，max 12%。Jev 的 `en-score` 比保持当前档高 21–25 个百分点，Clef 高 33–35 个百分点。
+  - **3 个百分点的门槛。** 两次运行五个变体都通过，差距在 −2 到 +3 之间。同一题同一种语言两次答案相同的，五个变体分别是 185、192、185、188、189 / 200；`en-score` 的中文准确率两次差 4 个百分点（77、73），差距从 +3 摆到 −1。变体之间 1–3 个百分点的差别都在这个波动之内，两次运行看不出哪个变体稳定更好，所以也还看不出去掉当前档位（锚定）或计数有没有好处。
+  - **按升、降、保持分组**（`en-score` 第二次，中 / 英）：该升 69 / 66，该降 73 / 77，该保持 76 / 79。答错的大多是答低了：中文 19 题答低、8 题答高，英文 21 题答低、5 题答高（第一次运行中文 19 低 4 高，英文 18 低 8 高）。有 17 题 Jev 两次运行中英文都答错，例如收尾阶段降得太多（042、045、064、066、078 都答 low），该保持 max 的 024、032 答低了，长而机械的批量工作 021、063 答高了；这 17 题里 Clef 中英文都答对的有 7 题，另有 2 题答对一种语言。
+  - **`sent`：mod 实际会发出的档位。** Jev 的 `sent` 比选出的档位还略好一点（`en-score` 76 / 77，选出的是 73 / 74）：回答不够确定时 mod 保持原档，而保持原档常常也可以接受。Clef 正好相反：选出的档位最准（85 / 87），`sent` 却只有 58 / 57，只比保持当前档高 5–6 个百分点。原因是 Clef 的 confidence 比 Jev 低得多（`en-score` 200 个回答的中位数 0.24、p90 0.50，158 个低于 0.4，192 个低于 0.6；Jev 两次都是中位数 0.65–0.66、p90 0.97），默认的 `thetaUp` 0.4 和 `thetaDown` 0.6 挡住了它的大部分改档：每种语言约 60 题判为不够确定（`unsure`），一次降档也没有。所以门槛要按后端分别校准（#17），或者让 Clef 改看概率最高那一档的概率。
+  - **`trouble`（失败满 2 次的 6 题）。** 两次运行合起来 24 个答案，带上「卡住」说明后变对 4 个、变错 2 个（017 英文两次都变对；006、057 各有一次变对、一次变错），样本太小，看不出效果。006（两次失败都是计划内的 TDD 红灯）带不带都大多答 medium。#7 按用户的拍板还要问「这些失败是不是预期内的」，那个问题这里没有评测。
+  - **延迟。** Jev 的 p50 275–287 ms、p90 323–358 ms，最长 1305 ms，没有超过 1500 ms 的。mod 在工具开始执行时就发出中途请求，下一步最多再等 `rejudgeWaitMs`（300 ms），按这个延迟，回答一般在工具运行期间就到了。Clef（连接建立后依次发送）p50 633 ms、p90 761 ms，最长 2078 ms，都在 3000 ms 之内。
 
 #### 派出 agent（subagent，#15）
 

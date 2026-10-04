@@ -17,7 +17,8 @@ import type { Row } from './runner.ts'
 /**
  * The mod's settings: what every feature shares (`Config`), and the options
  * themselves, for a suite whose feature reads its own (subagent:
- * `agentOverride`, `agentFable`).
+ * `agentOverride`, `agentFable`; effort-midturn: `rejudgeSteps` and the
+ * mid-turn thresholds).
  */
 export type Settings = Config & { options: PluginOptions }
 
@@ -62,6 +63,8 @@ export type Suite<I extends AnyItem, P> = {
   show: (prediction: P) => string
   /** The answers a suite would score by always giving one of them, reported beside its accuracy. */
   constants: readonly P[]
+  /** Optional: baselines whose answer depends on the item (effort-midturn: keep the current level), by name; scored and reported with the constants. */
+  baselines?: Readonly<Record<string, (item: I) => P>>
   /** The questions a variant asks, recorded with the results (what a prompt change changes). */
   questions: (variant: string) => unknown
   /**

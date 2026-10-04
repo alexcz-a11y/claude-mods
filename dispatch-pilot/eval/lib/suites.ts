@@ -3,6 +3,7 @@
 // file of its own beside effort-submit.ts and adds one line here (#14
 // effort-midturn, #15 subagent, #16 skill).
 
+import { effortMidturn } from './effort-midturn.ts'
 import { effortSubmit } from './effort-submit.ts'
 import { subagent } from './subagent.ts'
 import type { Suite } from './suite.ts'
@@ -11,5 +12,6 @@ import type { Suite } from './suite.ts'
 // metrics are generic over them, so the table holds them loosely.
 export const SUITES: Readonly<Record<string, Suite<any, any>>> = {
   'effort-submit': effortSubmit,
+  'effort-midturn': effortMidturn,
   subagent,
 }

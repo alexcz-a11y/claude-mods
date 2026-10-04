@@ -13,7 +13,8 @@
 //
 // And, for the dataset, the score of always giving the same answer (a
 // constant baseline: with acceptable sets two levels wide, a constant can do
-// well).
+// well), and of the suite's other baselines (an answer that depends on the
+// item, such as keeping its current level).
 //
 // A suite that grades the parts of an answer (Grade.parts, such as a
 // dispatched agent's model and effort) gets each part's accuracy beside the
@@ -73,6 +74,17 @@ export function summarize<I extends AnyItem, P>(suite: Suite<I, P>, items: reado
   const variants = [...new Set(rows.map((row) => row.variant))]
   const parts = partNames(rows.map((row) => row.parts))
   const { settings } = options
+  // A baseline: the answer `answer` gives each item, scored on the whole dataset.
+  const baseline = (label: string, answer: (item: I) => P) => {
+    const grades = items.map((item) => suite.grade(item, answer(item)))
+    const named = partNames(grades.map((grade) => grade.parts))
+    return {
+      answer: label,
+      accuracy: rate(grades.filter((g) => g.correct).length, items.length),
+      exact: rate(grades.filter((g) => g.exact).length, items.length),
+      ...(named.length > 0 ? { parts: Object.fromEntries(named.map((name) => [name, rate(grades.filter((g) => g.parts?.[name] === true).length, items.length)])) } : {}),
+    }
+  }
   return {
     items: items.length,
     variants: variants.map((variant) => {
@@ -80,16 +92,10 @@ export function summarize<I extends AnyItem, P>(suite: Suite<I, P>, items: reado
       const summary = summarizeVariant(items, mine, variant, options.slowMs, parts)
       return suite.breakdown === undefined || settings === undefined ? summary : { ...summary, breakdown: suite.breakdown(items, mine, variant, settings) }
     }),
-    constants: suite.constants.map((answer) => {
-      const grades = items.map((item) => suite.grade(item, answer))
-      const named = partNames(grades.map((grade) => grade.parts))
-      return {
-        answer: suite.show(answer),
-        accuracy: rate(grades.filter((g) => g.correct).length, items.length),
-        exact: rate(grades.filter((g) => g.exact).length, items.length),
-        ...(named.length > 0 ? { parts: Object.fromEntries(named.map((name) => [name, rate(grades.filter((g) => g.parts?.[name] === true).length, items.length)])) } : {}),
-      }
-    }),
+    constants: [
+      ...suite.constants.map((answer) => baseline(suite.show(answer), () => answer)),
+      ...Object.entries(suite.baselines ?? {}).map(([name, answer]) => baseline(name, answer)),
+    ],
   }
 }
 
