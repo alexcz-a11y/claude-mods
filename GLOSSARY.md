@@ -32,6 +32,10 @@ _Avoid_: 路由模型、小模型
 发给决策模型的一次请求：一份 state 加若干问题，返回每个问题带概率的回答。用户发消息时，各功能的问题合在同一个决策请求里。
 _Avoid_: 调用、查询
 
+**中途重判（Mid-turn Re-decision）**：
+一轮进行中再判断一次主 agent 的 effort：每隔几步，或主 agent 派出 agent、启动 Workflow、加载 skill 时。决策请求在主 agent 的工具开始执行时就发出，下一步发出前取用回答；只判断 effort，升降档有防抖。
+_Avoid_: 轮中重判、中途判断
+
 **计划表（Plan Table）**：
 Dispatch Pilot 在 `$.state` 里按「轮 + agentId」记录每一步该发出的 effort（派出 agent 还有模型）的表；各功能写表，每一步由核心照表发出。
 _Avoid_: 决策表、路由表

@@ -168,12 +168,12 @@ test('an answer not back by its step: the step waits rejudgeWaitMs, keeps the ef
   await w.clock.settle() // step 2 is now waiting for the answer
   await w.clock.advance(300)
   await late
-  expect(w.status()).toBe('dp effort medium | step 3, judged 1, changed 0 (late)')
+  expect(w.status()).toBe('dp effort medium | steps 3, judged 1, changed 0 (late)')
 
   await w.clock.advance(700) // the answer comes
   await w.step({ index: 3 })
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium', 'xhigh'])
-  expect(w.status()).toBe('dp effort xhigh | step 4, judged 2, changed 1')
+  expect(w.status()).toBe('dp effort xhigh | steps 4, judged 2, changed 1')
 })
 
 const REFUSED_AT_PROMPT =
@@ -206,6 +206,9 @@ test("a call a PreToolUse hook blocks, or the person refuses, reads as such and 
     { assistant_text: '', tools: [{ name: 'Bash', result: '进行中：跑测试' }] },
   ])
   expect(state.counts).toEqual({ judgments: 1, changes: 0, failures: 1, hook_blocks: 1 })
+  // The blocked call never reached the tools; the others did, as they were written.
+  expect(w.toolCalls.map((c) => c.tool)).toEqual(['Bash', 'mcp__github__create_pr', 'Bash'])
+  expect(w.toolCalls[0]?.input).toEqual({ command: 'rm -rf build', description: '删除构建目录' })
 })
 
 test('a re-decision that fails leaves the effort as it was, and the status line says why', { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {
@@ -217,7 +220,7 @@ test('a re-decision that fails leaves the effort as it was, and the status line 
 
   expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level'])
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium'])
-  expect(w.status()).toBe('dp effort medium | step 3, judged 1, changed 0 (jev: busy (HTTP 503))')
+  expect(w.status()).toBe('dp effort medium | steps 3, judged 1, changed 0 (jev: busy (HTTP 503))')
 })
 
 test('each re-decision is recorded with why it went where it did (debug log and /dp log)', { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {

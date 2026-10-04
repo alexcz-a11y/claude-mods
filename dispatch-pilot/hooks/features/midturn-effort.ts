@@ -175,6 +175,11 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
   on('turn.step', { turnId: /(?:)/ }, async function* ($, e, next) {
     if (e.agentId !== undefined || !isOn(SWITCH)) return yield* next(e)
     const key = turnKey(e.turnId, undefined)
+    if (e.index === 0) {
+      // A new turn: what is left of earlier turns (a text, an answer never taken) is dropped.
+      for (const old of [...streamed.keys()]) if (old !== key) streamed.delete(old)
+      for (const old of [...inFlight.keys()]) if (old !== key) inFlight.delete(old)
+    }
     try {
       // A demand written after the last call ended goes out now; this step waits for it like any other.
       if (e.index > 0) await launch($, settings, { turnId: e.turnId, index: e.index - 1 }, null)
@@ -355,13 +360,13 @@ async function settle($: EngineInterface, s: Settings, e: { index: number; effor
 }
 
 /**
- * The feature's status segment: the turn's steps, decisions and level
- * changes, once the turn has been re-decided (so a short turn stays quiet);
- * none at a turn's first step.
+ * The feature's status segment: how many steps the turn has made, how many
+ * decisions and level changes it had, once it has been re-decided (so a
+ * short turn stays quiet); none at a turn's first step.
  */
 function segment(record: MidturnRecord, turn: TurnRecord | undefined, note: string | null): string | null {
   if (record.askedFor === null || turn === undefined) return null
-  return `step ${record.steps}, judged ${turn.decisions}, changed ${turn.changes}${note === null ? '' : ` (${note})`}`
+  return `steps ${record.steps}, judged ${turn.decisions}, changed ${turn.changes}${note === null ? '' : ` (${note})`}`
 }
 
 function fresh(): MidturnRecord {

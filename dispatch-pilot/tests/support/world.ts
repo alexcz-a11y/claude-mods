@@ -232,21 +232,23 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     for (const [i, run] of tools.entries()) {
       yield { kind: 'tool' as const, index: i + 1, id: `toolu_${e.turnId}_${e.index}_${i}`, name: run.tool }
       ending = run.ends
-      const input = run.input ?? {}
-      const result = await $.tool.call({ tool: run.tool, ...input, ...(e.agentId !== undefined ? { agentId: e.agentId } : {}) } as never)
+      await $.tool.call({ tool: run.tool, ...(run.input ?? {}), ...(e.agentId !== undefined ? { agentId: e.agentId } : {}) } as never)
       ending = undefined
-      toolCalls.push({ tool: run.tool, input, isError: 'isError' in result && result.isError === true, text: 'text' in result ? result.text : undefined })
     }
     const toolUses = tools.map((run) => ({ name: run.tool, input: run.input ?? {} }))
     return { turnId: e.turnId, index: e.index, answer, toolUses, stopReason: 'tool_use' as const, usage: null }
   })
   // A PreToolUse settings hook: it refuses the call when the test says so.
   on('classic.PreToolUse', () => (ending !== undefined && 'blockedByHook' in ending ? { deny: ending.blockedByHook } : {}))
-  // The tools themselves.
-  on('tool.call', () => {
+  // The tools themselves: each call that reaches them is recorded with its
+  // arguments as they arrived (after every hook of the mod) and how it ended.
+  on('tool.call', (_$, e) => {
+    const { tool, tool_use_id: _id, agentId: _agent, ...input } = e as { tool: string; tool_use_id?: string; agentId?: string } & Record<string, unknown>
     const end = ending ?? { text: 'ok' }
-    if ('error' in end) return { result: end.error, text: end.error, isError: true as const }
-    return { result: 'text' in end ? end.text : 'ok', text: 'text' in end ? end.text : 'ok' }
+    const failed = 'error' in end
+    const text = failed ? end.error : 'text' in end ? end.text : 'ok'
+    toolCalls.push({ tool, input, isError: failed, text })
+    return failed ? { result: text, text, isError: true as const } : { result: text, text }
   })
 
   return {
@@ -261,7 +263,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     commands,
     /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */
     stored: (key: string): unknown => (store.has(key) ? JSON.parse(store.get(key) as string) : undefined),
-    /** Every tool call that ran (in steps), with how it ended. */
+    /** Every tool call that reached the tools, its arguments as they arrived (a hook's rewrite included) and how it ended; a call a hook refused is not in it. */
     toolCalls,
     /** The status line as last set (`undefined` once cleared or never set). */
     status: () => statuses.at(-1),
