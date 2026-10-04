@@ -67,6 +67,33 @@ test('the skills rated highest are re-read in a second request, and the relevanc
   ])
 })
 
+test("a plugin's skill is re-read from its SKILL.md, also where the plugin's manifest keeps its skills", { options: KEY }, async ($, on) => {
+  const root = '/home/u/.claude/plugins/cache/market/acme/1.0.0'
+  const w = world($, on, {
+    backend: rates({ 'acme:design': 0.6, 'acme:deploy': 0.3, '(none)': 0.1 }, { 'acme:design': 0.9, 'acme:deploy': 0.2 }),
+    skills: {
+      commands: [
+        { name: 'acme:design', description: 'Design pages.', source: 'plugin', plugin: 'acme' },
+        { name: 'acme:deploy', description: 'Deploy the site.', source: 'plugin', plugin: 'acme' },
+      ],
+      listed: [
+        { name: 'acme:design', source: 'plugin', pluginName: 'acme', tokens: 10 },
+        { name: 'acme:deploy', source: 'plugin', pluginName: 'acme', tokens: 10 },
+      ],
+    },
+    disk: {
+      '/home/u/.claude/plugins/installed_plugins.json': JSON.stringify({ version: 2, plugins: { 'acme@market': [{ scope: 'user', installPath: root }] } }),
+      [`${root}/.claude-plugin/plugin.json`]: JSON.stringify({ name: 'acme', skills: './.claude/skills/' }),
+      [`${root}/.claude/skills/design/SKILL.md`]: '---\nname: design\n---\nLay out the page on a grid first.\n',
+      [`${root}/skills/deploy/SKILL.md`]: '---\nname: deploy\n---\nBuild, then push to the host.\n',
+    },
+  })
+  await w.submit('把首页重新排一下版')
+  const second = w.requests[1]?.body.questions
+  expect(second['skills.fits.0'].instructions.skill.opening).toBe('Lay out the page on a grid first.')
+  expect(second['skills.fits.1'].instructions.skill.opening).toBe('Build, then push to the host.')
+})
+
 test('both requests share the message’s wait: the second gets what the first left of timeoutMs, and given up, the message goes on with nothing suggested and the status line says why', { options: { ...KEY, timeoutMs: 1500 } }, async ($, on) => {
   const answer = rates({ tdd: 0.62, '(none)': 0.38 }, { tdd: 0.97 })
   const w = world($, on, {

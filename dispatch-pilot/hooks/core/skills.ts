@@ -123,7 +123,7 @@ export async function loadCatalog(io: CatalogIo): Promise<CatalogSkill[]> {
     seen.add(name)
     return true
   })
-  const files = await Promise.all(entries.map(async (entry) => firstExisting(io, await listedFiles(entry, where, installedPlugins, syncedAccounts))))
+  const files = await Promise.all(entries.map(async (entry) => firstExisting(io, await listedFiles(io, entry, where, installedPlugins, syncedAccounts))))
   entries.forEach((entry, i) => {
     const name = toolName(entry)
     const description = descriptions.get(entry.name) ?? descriptions.get(name) ?? ''
@@ -135,7 +135,7 @@ export async function loadCatalog(io: CatalogIo): Promise<CatalogSkill[]> {
   for (const command of commands) {
     if (command.source !== 'user' && command.source !== 'plugin') continue
     if (listedAs.has(command.name) || seen.has(command.name) || isOff(overrides, command.name)) continue
-    const found = await firstThere(io, command.source === 'plugin' ? pluginFiles(command, await installedPlugins()) : ownFiles(command.name, where))
+    const found = await firstThere(io, command.source === 'plugin' ? await pluginFiles(io, command, await installedPlugins()) : ownFiles(command.name, where))
     if (found === null || !reservedForPerson(found.text)) continue
     seen.add(command.name)
     skills.push({ name: command.name, description: command.description.trim(), by: 'person', source: command.source, file: found.path })
@@ -150,6 +150,7 @@ export async function loadCatalog(io: CatalogIo): Promise<CatalogSkill[]> {
  * account's directory. A built-in skill has no file.
  */
 async function listedFiles(
+  io: CatalogIo,
   entry: ListedLike,
   where: { home: string | undefined; cwd: string | undefined },
   installedPlugins: () => Promise<string>,
@@ -162,7 +163,7 @@ async function listedFiles(
     case 'localSettings':
       return ownFiles(entry.name, { home: undefined, cwd: where.cwd })
     case 'plugin':
-      return pluginFiles({ name: entry.name, description: '', source: 'plugin', ...(entry.pluginName !== undefined ? { plugin: entry.pluginName } : {}) }, await installedPlugins())
+      return pluginFiles(io, { name: entry.name, description: '', source: 'plugin', ...(entry.pluginName !== undefined ? { plugin: entry.pluginName } : {}) }, await installedPlugins())
     case 'syncedSkills': {
       const short = entry.name.slice(entry.name.lastIndexOf(':') + 1)
       if (!where.home || !safeName(short)) return []
@@ -208,8 +209,13 @@ function ownFiles(name: string, where: { home: string | undefined; cwd: string |
   return roots.flatMap((root) => [`${root}/.claude/skills/${name}/SKILL.md`, `${root}/.claude/commands/${name.replace(/:/g, '/')}.md`])
 }
 
-/** Where a plugin's skill (or command) lives, under each install path `installed_plugins.json` records for the plugin. */
-function pluginFiles(command: CommandLike, installedJson: string): string[] {
+/**
+ * Where a plugin's skill (or command) lives, under each install path
+ * `installed_plugins.json` records for the plugin: in the skill directories
+ * its manifest names (`skills` in `.claude-plugin/plugin.json`, a path or
+ * paths), then in `skills/`, then as a command.
+ */
+async function pluginFiles(io: CatalogIo, command: CommandLike, installedJson: string): Promise<string[]> {
   const plugin = command.plugin ?? command.name.split(':')[0] ?? ''
   const short = command.name.startsWith(`${plugin}:`) ? command.name.slice(plugin.length + 1) : command.name
   if (!safeName(plugin) || !safeName(short)) return []
@@ -228,10 +234,28 @@ function pluginFiles(command: CommandLike, installedJson: string): string[] {
       const path = (install as { installPath?: unknown } | null)?.installPath
       if (typeof path !== 'string') continue
       const root = path.replace(/\/+$/, '')
-      files.push(`${root}/skills/${short}/SKILL.md`, `${root}/commands/${short.replace(/:/g, '/')}.md`)
+      for (const dir of await skillDirsOf(io, root)) files.push(`${root}/${dir}/${short}/SKILL.md`)
+      files.push(`${root}/commands/${short.replace(/:/g, '/')}.md`)
     }
   }
   return files
+}
+
+/** A plugin's skill directories, relative to its root: those its manifest names (`skills`), then `skills`. */
+async function skillDirsOf(io: CatalogIo, root: string): Promise<string[]> {
+  const manifest = await readIfThere(io, `${root}/.claude-plugin/plugin.json`)
+  let declared: unknown
+  try {
+    declared = manifest === null ? undefined : (JSON.parse(manifest) as { skills?: unknown }).skills
+  } catch {
+    declared = undefined
+  }
+  const named = (Array.isArray(declared) ? declared : [declared]).flatMap((dir) => {
+    if (typeof dir !== 'string') return []
+    const clean = dir.trim().replace(/^\.\/+/, '').replace(/\/+$/, '')
+    return clean !== '' && !clean.startsWith('/') && !clean.split('/').includes('..') ? [clean] : []
+  })
+  return [...new Set([...named, 'skills'])]
 }
 
 /** A file's text, or null when it is not there or cannot be read. */
