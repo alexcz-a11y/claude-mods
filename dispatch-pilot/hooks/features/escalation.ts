@@ -18,7 +18,7 @@
 import type { EngineInterface, HttpInit, On, TurnStepInput } from 'claude-code'
 import type { Asked, Failure } from '../decision/backend.ts'
 import { modelFamily } from '../decision/dispatched-agent.ts'
-import { expectedFailurePart, forcedTarget, raisedLevel, readExpected, RAISE_MODES, stepsFromRows, troubleText, type RaiseMode } from '../decision/escalation.ts'
+import { briefOf, expectedFailurePart, forcedTarget, raisedLevel, readExpected, RAISE_MODES, stepsFromRows, troubleText, type RaiseMode } from '../decision/escalation.ts'
 import { EFFORTS, higherEffort, isEffort, readEffort, type Effort, type EffortReading } from '../decision/effort.ts'
 import {
   contentLanguage,
@@ -266,9 +266,11 @@ async function forAgent($: EngineInterface, loop: Loop): Promise<void> {
   const { value: planned } = await $.state.get(planRef)
   const plan: AgentPlan = planned ?? { effort: null, floor: null, model: null }
   const engine = isEffort(e.effort) ? e.effort : null
+  // A step with no effort level is raised by switching a haiku agent's model; any other model that takes none has nothing to raise.
+  if (engine === null && modelFamily(e.model) !== 'haiku') return
   const found = await $.session.messages({ agentId: id }).catch(() => null)
   const rows = Array.isArray(found) ? found : null
-  const brief = rows?.find((row) => row.role === 'user' && row.text.trim() !== '')?.text ?? ''
+  const brief = rows === null ? '' : briefOf(rows)
   const label = brief === '' ? `agent ${id}` : `agent ${quote(brief)}`
   const about = `${label}, step ${e.index} (${total} failed tool calls)`
 
@@ -284,7 +286,7 @@ async function forAgent($: EngineInterface, loop: Loop): Promise<void> {
       await decide($, { outcome: `effort ${current} (kept)`, about, reason: s.mode === 'max' ? 'already at max' : 'a one-level raise stops at xhigh' })
       return
     }
-  } else if (modelFamily(e.model) === 'haiku') {
+  } else {
     if (plan.model !== null || s.haikuTo === '') {
       // Already switched (the engine still names haiku for its steps, with no level to set), or nowhere to switch to.
       await settle($, loop, false)
@@ -292,8 +294,6 @@ async function forAgent($: EngineInterface, loop: Loop): Promise<void> {
       return
     }
     switchTo = s.haikuTo
-  } else {
-    return
   }
 
   let answer: Stuck = { reading: null, expected: null, failure: null }

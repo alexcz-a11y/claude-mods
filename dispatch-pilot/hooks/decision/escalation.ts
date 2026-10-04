@@ -58,6 +58,20 @@ export type TranscriptRow = {
   toolResults?: readonly unknown[]
 }
 
+/** A row's words without what the engine wraps in <system-reminder> (not something anyone said). */
+function unwrapped(text: string): string {
+  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, ' ').trim()
+}
+
+/** The task an agent was given: the first thing said to it in its transcript ('' when there is none). */
+export function briefOf(rows: readonly TranscriptRow[]): string {
+  for (const row of rows) {
+    const words = row.role === 'user' ? unwrapped(row.text) : ''
+    if (words !== '') return words
+  }
+  return ''
+}
+
 /**
  * What a loop has done since the last thing a person said, as the decision
  * model reads it: the steps, oldest first, each the text the agent wrote and
@@ -67,7 +81,7 @@ export type TranscriptRow = {
  * `blocked` says which calls a hook refused (their error reads as any other).
  */
 export function stepsFromRows(rows: readonly TranscriptRow[], options: { language: Language; blocked?: (toolUseId: string) => boolean }): MidturnStep[] {
-  const said = (row: TranscriptRow) => row.role === 'user' && row.text.trim() !== '' && (row.toolResults?.length ?? 0) === 0
+  const said = (row: TranscriptRow) => row.role === 'user' && unwrapped(row.text) !== '' && (row.toolResults?.length ?? 0) === 0
   const from = rows.findLastIndex(said) + 1
   const steps: MidturnStep[] = []
   let texts: string[] = []

@@ -5,7 +5,7 @@
 
 import type { SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
-import { expectedFailurePart } from '../hooks/decision/escalation.ts'
+import { briefOf, expectedFailurePart, stepsFromRows, type TranscriptRow } from '../hooks/decision/escalation.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { midturnEffortPart, midturnState, type MidturnInput } from '../hooks/decision/midturn.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
@@ -565,4 +565,63 @@ test('an agent is raised at most escalateLimit times, and a one-level raise stop
 
   expect(w.steps.map((s) => String(s.effort))).toEqual(['low', 'medium', 'high', 'high'])
   expect(w.requests.filter((r) => 'escalation.expected' in r.body.questions)).toHaveLength(2)
+})
+
+// The decision module (a public interface for the eval): reading a loop's steps from its transcript.
+
+const call = (id: string, description: string, isError?: true) => ({ tool_use_id: id, tool: 'Bash', input: { description }, text: isError ? 'FAIL' : 'ok', ...(isError ? { isError } : {}) })
+const REMINDER = '<system-reminder>The task tools have not been used recently.</system-reminder>'
+
+test('a user row that only holds a system reminder is not something the person said: the steps before it stay, and the task is what was said', () => {
+  const rows: TranscriptRow[] = [
+    { role: 'user', text: REMINDER, toolUses: [] },
+    { role: 'user', text: '修一下登录', toolUses: [] },
+    { role: 'assistant', text: '先跑测试。', toolUses: [call('a', '跑测试', true)] },
+    { role: 'user', text: '', toolUses: [], toolResults: [{ tool_use_id: 'a', text: 'FAIL', isError: true }] },
+    { role: 'user', text: REMINDER, toolUses: [] },
+    { role: 'assistant', text: '再跑一次。', toolUses: [call('b', '再跑测试')] },
+  ]
+
+  expect(briefOf(rows)).toBe('修一下登录')
+  expect(stepsFromRows(rows, { language: 'zh' })).toEqual([
+    { assistant_text: '先跑测试。', tools: [{ name: 'Bash', result: '失败：跑测试' }] },
+    { assistant_text: '再跑一次。', tools: [{ name: 'Bash', result: '成功：再跑测试' }] },
+  ])
+})
+
+test('what a person said last starts the window: the steps of the turn before are not the loop\'s', () => {
+  const rows: TranscriptRow[] = [
+    { role: 'user', text: '上一件事', toolUses: [] },
+    { role: 'assistant', text: '做完了。', toolUses: [call('a', '跑测试')] },
+    { role: 'user', text: '这一件事', toolUses: [] },
+    { role: 'assistant', text: '开始。', toolUses: [call('b', 'Look around')] },
+  ]
+
+  expect(stepsFromRows(rows, { language: 'en' })).toEqual([{ assistant_text: '开始。', tools: [{ name: 'Bash', result: 'Success: Look around' }] }])
+})
+
+test('a call a hook refused reads as blocked in the steps, a call the person refused as refused, any other error as failed', () => {
+  const rows: TranscriptRow[] = [
+    { role: 'user', text: 'push it', toolUses: [] },
+    {
+      role: 'assistant',
+      text: '',
+      toolUses: [
+        { tool_use_id: 'h', tool: 'Bash', input: { description: 'Push main' }, text: 'blocked by policy', isError: true },
+        { tool_use_id: 'p', tool: 'Bash', input: { description: 'Delete build' }, text: REFUSED_AT_PROMPT, isError: true },
+        { tool_use_id: 'f', tool: 'Bash', input: { description: 'Run tests' }, text: 'FAIL', isError: true },
+      ],
+    },
+  ]
+
+  expect(stepsFromRows(rows, { language: 'en', blocked: (id) => id === 'h' })).toEqual([
+    {
+      assistant_text: '',
+      tools: [
+        { name: 'Bash', result: 'Blocked by hook: Push main' },
+        { name: 'Bash', result: 'Denied by user: Delete build' },
+        { name: 'Bash', result: 'Failed: Run tests' },
+      ],
+    },
+  ])
 })
