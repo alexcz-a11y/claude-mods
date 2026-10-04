@@ -71,6 +71,27 @@ export type StepOptions = {
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number | null
   /** A dispatched or workflow agent's loop; absent on the main agent. */
   agentId?: string
+  /** The response's visible text, streamed before its tool calls. */
+  answer?: string
+  /**
+   * The tool calls the response makes. The engine runs each one (`tool.call`)
+   * while the response still streams, before the step ends (measured on
+   * 2.1.289), so a hook on `tool.call` sees it inside the step.
+   */
+  tools?: ToolRun[]
+}
+
+/** A tool call the model makes in a step, and how it ends. */
+export type ToolRun = {
+  tool: string
+  /** The call's arguments as the model wrote them (`command`, `file_path`, `description`, ...). */
+  input?: Record<string, unknown>
+  /**
+   * How the call ends: the tool's text (default "ok"), an error the tool
+   * reported (also how a refusal at the permission prompt reads), or a
+   * PreToolUse settings hook's refusal (the tool never runs).
+   */
+  ends?: { text: string } | { error: string } | { blockedByHook: string }
 }
 
 export type World = ReturnType<typeof world>
@@ -83,7 +104,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const steps: Step[] = []
   const prompts: { text: string; context: readonly string[] | undefined; origin: unknown }[] = []
   const turnIds: string[] = []
+  const toolCalls: { tool: string; input: Record<string, unknown>; isError: boolean; text: string | undefined }[] = []
   const disk = options.disk ?? {}
+  /** What the step being sent streams and runs (set by `step()`, read by the engine's turn.step below). */
+  let streaming: Pick<StepOptions, 'answer' | 'tools'> = {}
+  /** How the tool call running now ends (set around each `$.tool.call` below). */
+  let ending: ToolRun['ends'] | undefined
 
   async function answer(reply: Reply): Promise<{ value: { status: number; ok: boolean; headers: Record<string, string>; text: string } } | { deny: string }> {
     if ('after' in reply) {
@@ -135,9 +161,32 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     return { text, context: e.context }
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  // The engine at the bottom of turn.step: it records what the request went
+  // out with, streams the response's text, and runs each tool call while the
+  // response still streams, as Claude Code does.
   on('turn.step', async function* (_$, e) {
     steps.push({ turnId: e.turnId, index: e.index, model: e.model, effort: e.effort, agentId: e.agentId })
-    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use' as const, usage: null }
+    const { answer = '', tools = [] } = streaming
+    streaming = {}
+    if (answer) yield { kind: 'text' as const, index: 0, text: answer }
+    for (const [i, run] of tools.entries()) {
+      yield { kind: 'tool' as const, index: i + 1, id: `toolu_${e.turnId}_${e.index}_${i}`, name: run.tool }
+      ending = run.ends
+      const input = run.input ?? {}
+      const result = await $.tool.call({ tool: run.tool, ...input, ...(e.agentId !== undefined ? { agentId: e.agentId } : {}) } as never)
+      ending = undefined
+      toolCalls.push({ tool: run.tool, input, isError: 'isError' in result && result.isError === true, text: 'text' in result ? result.text : undefined })
+    }
+    const toolUses = tools.map((run) => ({ name: run.tool, input: run.input ?? {} }))
+    return { turnId: e.turnId, index: e.index, answer, toolUses, stopReason: 'tool_use' as const, usage: null }
+  })
+  // A PreToolUse settings hook: it refuses the call when the test says so.
+  on('classic.PreToolUse', () => (ending !== undefined && 'blockedByHook' in ending ? { deny: ending.blockedByHook } : {}))
+  // The tools themselves.
+  on('tool.call', () => {
+    const end = ending ?? { text: 'ok' }
+    if ('error' in end) return { result: end.error, text: end.error, isError: true as const }
+    return { result: 'text' in end ? end.text : 'ok', text: 'text' in end ? end.text : 'ok' }
   })
 
   return {
@@ -148,6 +197,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     steps,
     prompts,
     turnIds,
+    /** Every tool call that ran (in steps), with how it ended. */
+    toolCalls,
     /** The status line as last set (`undefined` once cleared or never set). */
     status: () => statuses.at(-1),
     /** Submits a prompt the way the engine does; resolves when it entered (or was queued). */
@@ -165,8 +216,9 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       await $.turn.start({ text, turnId })
       return turnId
     },
-    /** Sends one model request through the mod, drained to its end. */
+    /** Sends one model request through the mod, drained to its end (its text streamed, its tools run). */
     step: async (step: StepOptions) => {
+      streaming = { answer: step.answer, tools: step.tools }
       const effort = step.effort === undefined ? 'xhigh' : step.effort
       const input = {
         turnId: step.turnId ?? turnIds.at(-1) ?? 't0',
@@ -185,10 +237,11 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
 
 /**
  * A Jev answer to every question of the request it replies to: each `score`
- * question gets `levels` as its probabilities (lowest level first), each
- * `choice` the option named in `choice` (or its first), each `noul` 0.5.
+ * question gets `levels` as its probabilities (lowest level first) and
+ * `confidence` (0.7 by default), each `choice` the option named in `choice`
+ * (or its first), each `noul` 0.5.
  */
-export function jev(levels: readonly number[], extra: { status?: number; choice?: string } = {}) {
+export function jev(levels: readonly number[], extra: { status?: number; choice?: string; confidence?: number | null } = {}) {
   return (request: Sent): Reply => {
     const answers: Record<string, unknown> = {}
     const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
@@ -196,7 +249,7 @@ export function jev(levels: readonly number[], extra: { status?: number; choice?
       if (question.type === 'score') {
         const probabilities = Object.fromEntries(levels.map((p, i) => [String(i), p]))
         const score = levels.reduce((sum, p, i) => sum + p * i, 0)
-        answers[id] = { type: 'score', score, legend: {}, probabilities, confidence: 0.7 }
+        answers[id] = { type: 'score', score, legend: {}, probabilities, confidence: extra.confidence === undefined ? 0.7 : extra.confidence }
       } else if (question.type === 'choice') {
         const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
         const pick = extra.choice ?? options[0] ?? ''

@@ -43,6 +43,33 @@ declare module 'claude-code' {
       }>
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+      /**
+       * The mid-turn re-decision's own record of a main turn (#5), id
+       * `main:<turnId>` (turnKey): its steps, the tool calls they made and how
+       * they ended, and when its effort was last asked about and raised.
+       */
+      midturn: StateFamily<{
+        /** Steps the turn has made: the latest step's index + 1. */
+        steps: number
+        /** The engine's own effort on the latest step; null when the model takes no level (nothing to re-decide). */
+        engine: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+        /** The step the latest re-decision was asked for; null before the first. */
+        askedFor: number | null
+        /** The step from which a re-decision last raised the effort; null when none did. */
+        raisedAt: number | null
+        /** The turn's tool calls that failed (not counting hook blocks and denials). */
+        failures: number
+        /** The turn's tool calls a hook refused. */
+        hookBlocks: number
+        /** The latest steps, oldest first (at most 16): the last text written and the tools called, each with how it ended. */
+        recent: {
+          index: number
+          text: string
+          tools: { name: string; detail: string; outcome: 'ok' | 'failed' | 'blocked' | 'denied' }[]
+        }[]
+      }>
+      /** The main agent's step in progress (its tool calls carry no turn id); null before the first. */
+      mainStep: { turnId: string; index: number } | null
     }
   }
 }
