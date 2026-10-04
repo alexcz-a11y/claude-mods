@@ -1,7 +1,7 @@
 {
   "name": "dispatch-pilot",
   "version": "0.1.0",
-  "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message, and that effort holds on every request of the turn. The main agent's model never changes, so the prompt cache survives. It also keeps the full skill listing out of the main agent's context and suggests the few skills that fit each message; mid-turn, the main agent can look skills up with the find_skill tool.",
+  "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message, sets it on every request of the turn, and decides it again every few steps while the turn runs. The main agent's model never changes, so the prompt cache survives. It also keeps the full skill listing out of the main agent's context and suggests the few skills that fit each message; mid-turn, the main agent can look skills up with the find_skill tool.",
   "author": {
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
@@ -61,6 +61,42 @@
       "title": "Threshold for max effort",
       "description": "The main agent goes to max only when the decision model gives max at least this probability (0 to 1); otherwise it gets the most likely of the other levels.",
       "default": 0.5
+    },
+    "rejudgeEvery": {
+      "type": "number",
+      "title": "Re-decide effort every N steps",
+      "description": "While a turn runs, the main agent's effort is decided again at every Nth step (0 to 50; 0 turns this off). Dispatching an agent, starting a Workflow or loading a skill also re-decides it.",
+      "default": 3
+    },
+    "thetaUp": {
+      "type": "number",
+      "title": "Threshold to raise effort mid-turn",
+      "description": "A re-decision raises the effort only when the decision model's confidence is at least this (0 to 1).",
+      "default": 0.4
+    },
+    "thetaDown": {
+      "type": "number",
+      "title": "Threshold to lower effort mid-turn",
+      "description": "A re-decision lowers the effort, by one level at most, only when the decision model's confidence is at least this (0 to 1; never below the raise threshold).",
+      "default": 0.6
+    },
+    "holdSteps": {
+      "type": "number",
+      "title": "Steps before effort may drop after a raise",
+      "description": "After a re-decision raises the effort, it does not lower it again for this many steps (0 to 50).",
+      "default": 3
+    },
+    "rejudgeSteps": {
+      "type": "number",
+      "title": "Recent steps read when re-deciding",
+      "description": "How many of the turn's latest steps the decision model reads when it re-decides (1 to 16): the main agent's last text and the tools it called with how each ended, never file contents or tool output, secrets masked. The context budget bounds them too.",
+      "default": 4
+    },
+    "rejudgeWaitMs": {
+      "type": "number",
+      "title": "Wait for a late re-decision (ms)",
+      "description": "A re-decision is asked while a tool runs; if it is not back when the next request goes out, that request waits this long for it (0 to 2000), then keeps the effort it had and the status line says so.",
+      "default": 300
     },
     "agentFable": {
       "type": "boolean",

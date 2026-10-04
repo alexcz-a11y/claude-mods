@@ -1,6 +1,6 @@
 # Dispatch Pilot
 
-Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 Cloudflare Workers AI 的 Clef，在配置里二选一），替你决定 Claude Code 怎么干活。现阶段做两件事：**每次你发消息时，判断主 agent 这一轮该用哪档 effort**，并让这一轮的每一步都按这一档发出；**主 agent 每派出一个 agent，判断它该用哪个模型、哪档 effort**（#6）。主 agent 的模型从不改变，所以 prompt cache 不受影响（ADR 0001）。另外，主 agent 不再读完整的 skill 列表，改由决策模型在你发消息时挑出相关的几个 skill 推荐给它（#10，见下文「skill：隐藏列表，发消息时推荐」）；一轮进行中，主 agent 还可以用 `find_skill` 工具按需查询 skill（#12，见下文「find_skill：主 agent 中途查询 skill」）。轮中重判、Workflow 里的 agent 等功能由后续的票实现，完整设计见 spec（issue #1）。用斜杠命令 `/dp` 可以开关整个 mod 或其中的单项功能、临时锁定 effort、查看最近的决策和理由（#13，见下文「控制：`/dp`」）。
+Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 Cloudflare Workers AI 的 Clef，在配置里二选一），替你决定 Claude Code 怎么干活。现阶段做两件事：**每次你发消息时，判断主 agent 这一轮该用哪档 effort**，并让这一轮的每一步都按这一档发出，一轮进行中还会每隔几步、以及在主 agent 派出 agent、启动 Workflow 或加载 skill 时重新判断（#5，见下文「一轮中途重新判断」）；**主 agent 每派出一个 agent，判断它该用哪个模型、哪档 effort**（#6）。主 agent 的模型从不改变，所以 prompt cache 不受影响（ADR 0001）。另外，主 agent 不再读完整的 skill 列表，改由决策模型在你发消息时挑出相关的几个 skill 推荐给它（#10，见下文「skill：隐藏列表，发消息时推荐」）；一轮进行中，主 agent 还可以用 `find_skill` 工具按需查询 skill（#12，见下文「find_skill：主 agent 中途查询 skill」）。Workflow 里的 agent 等功能由后续的票实现，完整设计见 spec（issue #1）。用斜杠命令 `/dp` 可以开关整个 mod 或其中的单项功能、临时锁定 effort、查看最近的决策和理由（#13，见下文「控制：`/dp`」）。
 
 测试环境：Claude Code 2.1.289（Opus 5.5，订阅登录）、Node 26.5、jev-1.13.0、Clef（Cloudflare Workers AI，2026-10-04）。
 
@@ -27,6 +27,17 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - 不处理的 agent：fork 出来的 agent（它总是用父 agent 的模型）和 agent team 的 teammate（它会长期存在、处理很多任务，派出时的一次判断看不到这些任务）。
 - 失败时放行：决策模型超时、出错或回答无法解析时，agent 按主 agent 原来的要求启动，用引擎自己的 effort，状态行写明原因。
 - 每个决定都记进 `/dp log`：选了什么模型和 effort、是哪个 agent、理由（模型是谁定的、决策模型的选择和置信度、被排除的模型、effort 各档的概率）。`/dp dispatched-agents off` 单独关掉这项功能，之后派出的 agent 都按主 agent 原来的要求启动。
+
+### 一轮中途重新判断
+
+- 一轮进行中，每到第 N 步（`rejudgeEvery`，默认 3，即第 3、6、9……步，从 0 数），以及主 agent 派出 agent、启动 Workflow 或加载 skill 时，Dispatch Pilot 再问一次决策模型：剩下的工作还需要多少逐步推理。只判断 effort，不推荐 skill。
+- 问题在主 agent 的工具开始执行时就发出，工具运行期间得到回答，下一步发出前取用，所以一般不增加等待。回答还没到时，下一步最多再等 `rejudgeWaitMs`（默认 300 毫秒）；仍然没有就沿用上一步的 effort，状态行注明 `(late)`，这个回答到了以后用在再下一步。请求失败时同样沿用，状态行写明原因。
+- 防抖：升档要求决策模型的置信度不低于 `thetaUp`；降档要求不低于 `thetaDown`（更高的门槛），而且每次只降一档；升档后 `holdSteps` 步之内不降档；用 `max` 仍要它自己的概率达到 `thetaMax`。
+- 决策模型读到的是：这一轮你的消息，即将发出的是第几步，当前的 effort，这一轮的计数（判断次数、档位变化次数、失败的工具调用数、被 hook 拦截的次数），以及最近几步（`rejudgeSteps`，默认 4）的摘要。每一步的摘要是主 agent 在那一步最后写的文字，加上它调用的工具和一句话结果，结果以「成功：」「失败：」「被 hook 拦截：」「用户拒绝：」开头（你的消息不含中文时用 `Success:`、`Failed:`、`Blocked by hook:`、`Denied by user:`），正在运行的那个工具写「进行中：」。结果后面只说明这次调用在做什么：调用自带的 `description`、skill 或 Workflow 的名字、文件路径的最后两段、搜索的 pattern 或 query、URL，或者 shell 命令的第一行。**不包含文件内容、工具写入的内容和工具输出**；同样脱敏，同样受 `contextTokens` 限制（你的消息最多占一半）。
+- 这些情况不重判：你用 `/dp lock` 锁定了 effort；这一轮开始时没有经过路由（不是你本人发的消息，或者那次判断失败），整轮都用会话自己的 effort；模型不接受 effort 档位（haiku 这类）。`/dp midturn-effort off` 关掉这项功能。
+- 这一轮第一次重判之后，状态行多出一段，例如 `dp effort xhigh | steps 7, judged 3, changed 1`：已经发出的步数、这一轮的判断次数（包括发消息时的那一次）、档位变化的次数。
+- 每次重判都记进 debug log 和 `/dp log`，例如 `#5 midturn-effort: effort xhigh (was medium) for step 3 (every 3 steps): p low 0.00, medium 0.05, high 0.15, xhigh 0.70, max 0.10; confidence 0.80; up`。
+- 在 Sonnet 5.5 上也照常重判：实测一轮中途改 effort 不会返回 400（见「开发」里的「已实测的引擎行为」）。
 
 ### 失败时放行
 
@@ -110,7 +121,13 @@ Dispatch Pilot 不能和 jev-pilot 同时启用：两者都在 `turn.step` 上�
 | `timeoutMs` | 1500 | 等待决策模型的最长时间，范围 200–8000 毫秒。Clef 比 Jev 慢（见「待评测」），选 Clef 时建议先调到 3000 左右。 |
 | `contextMessages` | 4 | 随你的消息一起发送的最近消息条数，范围 0–32。 |
 | `contextTokens` | 2000 | 你的消息加上最近对话的 token 预算，范围 100–16000。 |
-| `thetaMax` | 0.5 | 使用 `max` 所需的最低概率，范围 0–1。派出 agent 的 effort 用同一个门槛。 |
+| `thetaMax` | 0.5 | 使用 `max` 所需的最低概率，范围 0–1。发消息时、一轮中途和派出 agent 的 effort 都用这个门槛。 |
+| `rejudgeEvery` | 3 | 一轮进行中每到第几步重新判断一次，范围 0–50；0 表示不按步数重判（派出 agent、启动 Workflow、加载 skill 时仍会重判）。 |
+| `rejudgeSteps` | 4 | 重判时决策模型读到的最近步数，范围 1–16。 |
+| `rejudgeWaitMs` | 300 | 重判的回答还没到时，下一步最多再等多久，范围 0–2000 毫秒。 |
+| `thetaUp` | 0.4 | 中途升档所需的最低置信度，范围 0–1。 |
+| `thetaDown` | 0.6 | 中途降档所需的最低置信度，范围 0–1；低于 `thetaUp` 时按 `thetaUp` 算。 |
+| `holdSteps` | 3 | 中途升档之后，多少步之内不降档，范围 0–50。 |
 | `agentFable` | 关 | 打开后，派出 agent 的可选模型加入 fable（比 opus 更贵）。你自己点名 fable 时不受这个开关限制。 |
 | `agentOverride` | 0.6 | 主 agent 为派出的 agent 指定了模型时，决策模型的选择要达到这个置信度才推翻它，范围 0–1。 |
 | `skillsMax` | 3 | 一条消息最多推荐几个 skill，范围 0–10。 |
@@ -120,11 +137,13 @@ Dispatch Pilot 不能和 jev-pilot 同时启用：两者都在 `turn.step` 上�
 | `findSkillMax` | 5 | `find_skill` 一次最多返回几个 skill，范围 1–10。 |
 | `findSkillMinRelevance` | 0.1 | `find_skill` 返回一个 skill 所需的最低相关度，范围 0–1。相关度的含义和 `skillsMinRelevance` 相同。 |
 
-`contextMessages`、`contextTokens`、`thetaMax` 和 `agentOverride` 的默认值是暂定的，评测（#4、#15、#17）之后会更新。`skillsMinRelevance` 和 `findSkillMinRelevance` 同样是暂定的，评测（#16）之后会更新；#11 把相关度从 Choice 里分到的概率（相对值）换成每个候选单独判断的绝对值之后，两者都要重新校准。
+`contextMessages`、`contextTokens`、`thetaMax` 和 `agentOverride` 的默认值是暂定的，评测（#4、#15、#17）之后会更新；中途重判的几项（`rejudgeEvery` 到 `holdSteps`）同样是暂定的，由 #14 的评测校准。`skillsMinRelevance` 和 `findSkillMinRelevance` 同样是暂定的，评测（#16）之后会更新；#11 把相关度从 Choice 里分到的概率（相对值）换成每个候选单独判断的绝对值之后，两者都要重新校准。
 
 ## 待评测
 
-还没有数据的事，留给评测票（#17）：
+还没有数据的事，留给评测票（#17；中途重判的几项留给 #14）：
+
+- **中途重判的默认值和写法。** `thetaUp` 0.4、`thetaDown` 0.6、`holdSteps` 3、`rejudgeEvery` 3、`rejudgeSteps` 4 都是起点（参考了 jev-pilot 实测的升档 0.3/0.5、降档 0.6），按语言分别校准。state 里放不放当前档位和计数、问题用英文还是中文，都是评测变量（见「开发」里的「中途重判」）。`rejudgeWaitMs` 300 毫秒按回答延迟的 p90 和工具的平均执行时间来定：实测 Jev 的中途请求 313–330 ms。
 
 - **Clef 是否只读 state 的前约 2K token。** 第三方资料（OpenRouter 的模型页）说 Workers AI 只读 state 的前约 2K token，官方 schema 只写了「过长的 state 会被截断」。mod 已经尽量不吃亏：state 里 `user_message` 排在最前，`contextTokens` 的默认值也是 2000。方法：发一个已知长度的 state，在末尾放一个只有靠它才能作答的探针事实，并对比 `usage.input_tokens`；还要确认截断是否也作用于问题（skill 画像在 criteria 里）。基线（#3 实测）：一条中文消息、不带上下文的 effort 请求，Clef 报 460 input tokens，Jev 报 626。
 - **Clef 的延迟和 `timeoutMs`。** 本机用 Node 的 fetch 连发 6 次同一个请求：Clef 第一次 1.8 秒，之后 0.6–1.4 秒；Jev 第一次 0.57 秒，之后 0.28–0.33 秒。默认的 `timeoutMs` 1500 对 Clef 偏紧（在真实引擎里，第一次请求的冷连接用了 1.3 秒才拿到 Cloudflare 的 401）。按延迟的 p50 和 p90 为 Clef 定 `timeoutMs` 的默认值。
@@ -167,6 +186,7 @@ hooks/
 │   ├── dispatched-agents.ts  派出 agent 时判断它的模型和 effort（#6）
 │   ├── find-skill.ts       主 agent 的 find_skill 工具：会话开始时注册，被调用时按查询给 skill 排序（#12）
 │   ├── main-effort.ts      发消息时判断主 agent 的 effort（#2）
+│   ├── midturn-effort.ts   一轮中途重新判断主 agent 的 effort（#5）
 │   └── skills.ts           对主 agent 隐藏 skill 列表，发消息时推荐 skill（#10）
 ├── core/                   各功能共用的机制，不含具体功能
 │   ├── core.ts             核心的 hook：发消息时的决策请求、一轮的开始、每一步的写入
@@ -181,6 +201,7 @@ hooks/
 └── decision/               决策请求模块：纯模块，不依赖 $，Node 可以直接 import（#4 的评测会用）
     ├── system-one.ts       System One 请求和回答的类型；mergeParts、answersFor
     ├── effort.ts           effort 问题（英文或中文 × Score 或 Choice）、读回答、选档位
+    ├── midturn.ts          中途重判：state（与评测集 effort-midturn 同形）、问题、防抖规则、工具调用的一句话结果
     ├── dispatched-agent.ts 派出 agent 的问题（模型 Choice + effort Score + 点名和排除）、按优先级读回答
     ├── skills.ts           skill 问题和排序（SkillRanker；modRanker 是推荐和 find_skill 共用的入口）、挑选、给主 agent 的文字块；skillsRequest（#16 的评测用）
     ├── context.ts          state：token 估算和截断、最近的对话、turnStartState
@@ -222,6 +243,7 @@ types/index.d.ts            $.state 的契约（PluginState）
   | `session.start` | `{ cwd: /(?:)/ }` | 已实测（`features/control.ts` 用它），每个功能的 session.start 都这样写 |
   | `session.measure` | `{ context: { window: /(?:)/ } }` | 已实测，`window` 每次都有 |
   | `command.run` | `{ command: 'dp' }` | 已实测，只处理自己的命令 |
+  | `classic.PreToolUse` | `{ tool: /(?:)/ }` | 已实测（kit 和真实引擎），`features/midturn-effort.ts` 用它认出 settings hook 拦下的调用 |
 
   其他事件请选一个每次都存在的字段。字段不存在时 matcher 不会命中，hook 会被静默跳过，所以新写的 matcher 要有测试覆盖。
 - **`$` 只能在 hook 所在的文件里使用**，不能传给从别的文件导入的函数，否则加载时会被拒绝。共用的逻辑写成纯函数；需要 `$` 的能力时，让函数接收闭包，例如 `BackendIo`（`{ fetch: (u, i) => $.http.fetch(u, i), sleep: (ms, s) => $.clock.sleep(ms, { signal: s }) }`）或 `$.state` 的 `Cell`（`{ get: () => $.state.get(REF), set: (v, o) => $.state.set(REF, v, o) }`）。`ctx` 里只有数据和纯函数。
@@ -242,6 +264,9 @@ types/index.d.ts            $.state 的契约（PluginState）
 | `decisionLog` | 无 | 各功能记录的决策，最近 50 条，`/dp log` 显示（见下「记录一次决策」） | 各功能，用 `recordDecision` |
 | `pending` | 无 | 发消息时做出的判断，等它的那一轮开始时由核心认领 | #2 |
 | `said` | 无 | 用户本人这一轮说的话（已脱敏和截断）：空闲时发的那条消息开始新的一组，这一轮进行中发的消息追加进去，其他来源的 prompt 不动它；派出 agent 的判断把它当作 `user_message` | #6 |
+| `midturn` | `main:<turnId>` | 中途重判自己的记录：步数、最近 16 步的文字和工具调用（各带结局）、`failures`（失败的工具调用，不含 hook 拦截和拒绝）、`hookBlocks`、最近一次重判和升档在第几步 | #5 |
+| `mainStep` | 无 | 主 agent 正在进行的一步 `{ turnId, index }`（`tool.call` 上没有 turnId，靠它对上） | #5 |
+| `demand` | `main:<turnId>` | 别的功能要求的一次重判 `{ trouble, atLeast, at }`，见下「中途重判」 | #7 写，#5 读 |
 
 `planStep` 按以下规则决定每一步发出什么：
 
@@ -300,7 +325,7 @@ on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
 
 ### 在其他时机发决策请求
 
-轮中重判（#5）和派出 agent（#6）不经过投票箱，而是在自己的 hook 里直接发：
+中途重判（#5）和派出 agent（#6）不经过投票箱，而是在自己的 hook 里直接发：
 
 ```ts
 const io = { fetch: (url: string, init: HttpInit) => $.http.fetch(url, init), sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }) }
@@ -312,6 +337,41 @@ const answers = asked.ok ? answersFor(part, asked.answers) : null
 effort 问题的档位描述是共用的：用 `effortQuestion(instructions, ctx.ask)` 配上自己的 instructions，生成同样五档的问题，这样各处判断出的档位可以直接比较。
 
 判断一个 agent 的模型和 effort，用 `decision/dispatched-agent.ts`：输入 `Dispatch` 的字段与评测集 subagent.jsonl 的题目相同，`dispatchState` 拼 state，`dispatchPart` 出问题，`decideDispatch` 按优先级读回答。Workflow 改写（#8）把几个 `agent()` 放进同一个请求时，给每个 agent 不同的 `part` 和 `field`（例如 `agent-0` 和 `brief_0`），state 用 `dispatchBrief` 拼各自的 brief，`user_message` 只放一份。
+
+### 中途重判（#5）
+
+`features/midturn-effort.ts` 注册三层，都带 matcher：
+
+- `tool.call`：只看主 agent 自己的调用（`e.agentId` 为空，并且 `next.origin.plugin === 'engine'`，排除插件的 `$.tool.call`）。调用开始时，如果这是重判的时机，就拼好请求、发出去但不等待，把 Promise 放进模块级的 Map（`$.state` 只收 JSON）；调用结束后，把结局记进 `midturn`。
+- `classic.PreToolUse`：settings hook 拒绝的调用在 `tool.call` 里只是一个错误（理由是错误文字），所以在这里按 `tool_use_id` 记下来。
+- `turn.step`（在核心之外）：取这一步的回答，必要时等 `rejudgeWaitMs`，按防抖规则写 `turns[main:<turnId>]`（有变化时用 `revise`），再交给核心；同时边转发边收集这一步的文字。
+
+同一步只问一次：并行的几个调用里只有第一个发请求，`midturn.askedFor` 记下已经问过的步。热重载后计数和摘要都在 `$.state` 里；在途的回答在模块里，会丢，那一步就沿用原来的 effort。
+
+**给 #7（失败计数和强制升档）的入口。** 要求一次带「卡住」标记的重判，就写 `demand[main:<turnId>]`：
+
+```ts
+const DEMAND = { plugin: 'dispatch-pilot', key: 'demand' } as const
+await $.state.set({ ...DEMAND, id: turnKey(turnId, undefined) }, {
+  trouble: '2 tool calls in a row have failed while working on this request', // 一句英文，原样放进决策模型的 state
+  atLeast: 'high',  // 这一轮至少升到的档位（通常是当前档位的上一档）；null 表示不限
+  at: 3,            // 这是第几次要求：值变了才算新的要求，每个值只问一次
+})
+```
+
+`midturn-effort` 在下一次机会发出这个请求：主 agent 的下一个工具调用开始时、当前调用结束时（`demand` 在调用期间写入时），或者下一步开始时。请求的 state 里带上 `trouble`，问题里加一句「`trouble` 说明出了什么问题，评解决它需要多少推理」。结果不低于 `atLeast`，不受 `thetaDown` 和 `holdSteps` 的限制；回答失败或迟到时也照样升到 `atLeast`。失败和 hook 拦截的次数已经在 `midturn` 里（`failures`、`hookBlocks`，从这一轮开始累计，用户拒绝不计入），#7 在此基础上实现阈值、「hook 拦截算不算失败」的开关和升档后清零（自己记一个基数即可）。结局的分类是 `decision/midturn.ts` 的 `outcomeOf`：用户拒绝按 Claude Code 自己的文字认（`The user doesn't want to proceed with this tool use`、`Permission to use ...`、`Permission for this ...`），MCP 工具的错误文字是它自己写的，一律算失败。
+
+**给 #14（中途重判的评测）。** 评测集 `effort-midturn` 每题的 `zh` 或 `en` 对象就是 `MidturnInput`，可以直接传进去：
+
+```ts
+import { midturnEffortPart, midturnState, judgeMidturn } from '../hooks/decision/midturn.ts'
+const request = mergeParts(midturnState(row.zh, { steps: 4, tokens: 2000 }), [midturnEffortPart({ language: 'en' })])
+// 读回答：readEffort(answersFor(midturnEffortPart(), answers).level)，再用 judgeMidturn 得到 mod 实际会发出的档位
+```
+
+- `judgeMidturn(reading, { current, sinceRaise, atLeast }, { thetaUp, thetaDown, thetaMax, holdSteps })` 就是 mod 用的防抖规则，返回 `{ effort, why, picked, confidence }`：`picked` 是不加防抖时选的档位，`effort` 是 mod 发出的档位，两者都可以拿去和 `gold`、`accept` 比较。
+- 评测变量：`midturnState` 的第三个参数 `{ currentEffort: false }`、`{ counts: false }` 可以去掉当前档位和计数（指南 §4.1 担心当前档位会产生锚定）；`midturnEffortPart({ language: 'zh' })` 是中文问题；`{ trouble: true }` 加上「卡住」的说明，006、017、051、053、056、057 这几题可以对比带与不带。
+- 线上请求和评测集有两处不同：线上请求在工具开始执行时发出，所以最新一步里正在运行的工具写「进行中：」（评测集里没有这种结果）；线上的一句话结果只有结局加上调用在做什么（例如 `失败：server/proxy.ts`），评测集的结果是人写的摘要、信息更多（例如 `失败：old_string 未找到`）。要量出这个差距，可以把评测集的结果截成「前缀 + 文件名」再跑一遍。
 
 ### 登记功能开关
 
@@ -434,6 +494,7 @@ test('……', { options: { typesafeApiKey: 'k' } }, async ($, on) => {
 - `session` 打开时，mod 用 `$.tool.register` 注册的工具记在 `w.tools`（`registerError` 同样拒绝它们）。`w.findSkill(query, { agentId })` 像模型那样调用 `find_skill`（带 `agentId` 是派出 agent 的调用），返回工具的回答 `{ result }`。例子见 `tests/find-skill.test.ts`。
 - 选 Clef 的测试：`options` 用 `tests/support/cloudflare.ts` 的 `CLEF_OPTIONS`（假的 account ID 和 token），`backend` 用 `clef(levels)`。它是 `jev(levels)` 的 Cloudflare 版：token 或地址不对时回真实的 401、404；请求体不符合 Clef 的输入规则时回 400（`clefInputProblems` 按 Cloudflare 的 schema 检查：问题 ID 的字符集和长度、1–64 个问题、Choice 至少 2 个选项、Score 2–10 档、instructions 非空）；其余按 `jev(levels)` 作答，放进 Cloudflare 的外壳。新增问题的票可以用它确认自己的问题 Clef 也接受。`cloudflareError(status, code, message)` 生成 Cloudflare 的失败响应。
 - `w.submit(text, { origin, turnId, wait })` 默认模拟用户在终端按回车；带 `turnId` 表示在那一轮进行中发的，不会开始新的一轮。`w.startTurn(text)` 模拟排队的消息稍后开始自己的一轮。`w.step({...})` 发出一步并把流读完。
+- `w.step({ index, answer, tools })` 还可以让这一步像真实引擎那样流出文字（`answer`），并在流还没结束时依次执行工具调用（`tools`，每个是 `{ tool, input, ends }`），所以功能的 `tool.call` hook 是在这一步之内触发的。`ends` 决定调用的结局：`{ text }`（成功，默认 `ok`）、`{ error }`（工具报错；用户在权限对话框里拒绝时也是这样，文字是引擎的那句话）、`{ blockedByHook }`（PreToolUse settings hook 拒绝，工具不会执行）。到达工具的调用记在 `w.toolCalls`（参数是经过 mod 各层改写后的样子；被 hook 拦下的调用不在其中）。`jev(levels, { confidence })` 可以指定回答的置信度（默认 0.7）。例子见 `tests/midturn-effort.test.ts`。
 - `w.spawn({ prompt, description, subagentType, model, fork, isTeammate })` 模拟主 agent 调用 Agent 工具，返回 `{ model, agentId }`（agent 按到达引擎的顺序命名为 a1、a2……）；`spawned` 记录每次派发到达引擎时的样子。拿到的 `agentId` 传给 `w.step` 就是这个 agent 的步。
 - 要模拟别的功能已经写好的计划表，就在测试里回答 `state.get`，见 `tests/plan-table.test.ts` 的 `table()`。
 - 每个测试都要断言一个实际产物（发出的请求、某一步的 effort、状态行），否则可能空过。例如不给 origin 时 hook 会被跳过；没有 `http.fetch` 桩时 fetch 会失败、走放行分支，「effort 不变」照样成立。
@@ -492,3 +553,7 @@ eval/
   - 它是延迟加载的工具：模型先调用 `ToolSearch`（`select:mcp__dispatch-pilot__find_skill`）加载它，再调用。
   - 假 key 得到 Jev 的 401：工具立即回答 `find_skill could not rate the skills (jev: key refused (HTTP 401)). ...`，状态行是 `dp effort xhigh (not routed) | jev: key refused (HTTP 401) | find_skill failed (jev: key refused (HTTP 401))`。之后模型用 Skill 工具按名字加载 `pr`，得到 `Launching skill: pr`（列表这时是隐藏的）。
   - 用 Node 把 find_skill 的同一个请求发给真实的 Jev（jev-1.13.0，12 个本机 skill，约 1,070 input token，273–500 ms）：`write the description of a pull request` 和 `写 PR 的说明` 都是 `pr` 1.00；`fill in a form in a PDF file` 是 `anthropic-skills:pdf` 1.00；`rename a variable across the repo` 的 none 是 0.97，不返回 skill。
+- **一步里的工具调用在这一步的流还没结束时就开始执行**：`tool.call` 的开始和结束都早于这一步的 stop chunk，也早于 `turn.step` 的 `next(e)` 返回。所以在 `tool.call` 里读不到这一步完整的 `answer`，需要的话在 `turn.step` 里边转发边收集 text chunk（`midturn-effort` 就是这样做的）。下一步的 `turn.step` 开始时，上一步的工具结果都已经回来了。
+- **在 `tool.call` 里发出、不等待的 `$.http.fetch`，hook 返回后照常完成**，在之后另一次 dispatch（下一步的 `turn.step`）里取用没有问题；它回调里的 `$.clock.now()` 也照常可用。实测：Sonnet 5.5，每步重判，Jev 回答用了 313–330 ms，都在下一步开始前到达。
+- **Sonnet 5.5 上一轮中途改 effort 不会返回 400**（#5 的验证项）。用一个每步改 effort 的探针 mod 测了三种配置，每轮 4–5 步，都正常完成：思考开着（默认），low → high → medium → high；`"alwaysThinkingEnabled": false`，同样的序列；`MAX_THINKING_TOKENS=0`，high → xhigh → low → max。API 文档说的 400 是 `thinking: {type: "between_tools"}` 加上与当前不同的逐条消息 effort（`messages.N: output_config.effort ... differs from ... in effect`），以及 `between_tools` 配 `xhigh`/`max`；Claude Code 2.1.289 在上面几种配置下都没有触发它（没有抓原始请求体，只看结果）。改档也没有打断缓存：每一步都从缓存读到整个前缀（约 2.85 万 token，新写入 0），没有因为改档重新写缓存。所以 Sonnet 5.5 上不需要关掉中途重判。
+- PreToolUse settings hook 拒绝一个调用时，`tool.call` 拿到的是 `{ isError: true, text: <拒绝理由> }`，和工具自己报错一样；包一层 `classic.PreToolUse`，按 `tool_use_id` 才能区分（kit 实测，真实引擎里这一层照常触发）。用户在权限对话框里拒绝、或权限规则拒绝时，错误文字是 Claude Code 固定的几句（`The user doesn't want to proceed with this tool use...`、`Permission to use ... has been denied`、`Permission for this tool use was denied...`），从 2.1.289 的二进制里查到；kit 里无法触发真实的权限对话框，只能按这些文字模拟。
