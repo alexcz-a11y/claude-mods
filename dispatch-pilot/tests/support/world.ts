@@ -12,7 +12,18 @@
 
 import { mock } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
-import type { CommandSpec, On, PromptOrigin, SessionMeasureInput, SessionMessage } from 'claude-code'
+import type {
+  CommandInfo,
+  CommandSpec,
+  ContextSkill,
+  On,
+  PromptOrigin,
+  SessionContextBreakdown,
+  SessionMeasureInput,
+  SessionMessage,
+  SessionUsage,
+  SettingsSource,
+} from 'claude-code'
 
 /** One request the mod sent through `$.http.fetch`, its JSON body parsed. */
 export type Sent = {
@@ -50,7 +61,8 @@ export type WorldOptions = {
   store?: Record<string, unknown>
   /**
    * The engine's session around the mod: `w.start()` runs `session.start`, the commands the mod registers
-   * are recorded in `w.commands` (`registerError` refuses them), `w.measure(...)` raises `session.measure`.
+   * are recorded in `w.commands` (`registerError` refuses them), `w.measure(...)` raises `session.measure`,
+   * `w.compact()` and `w.clear()` the person's /compact and /clear (`session.compact`, `session.end`).
    */
   session?: true | { registerError: string }
   /** What the hooks beneath the mod (other plugins, settings hooks) do to a prompt. */
@@ -60,6 +72,26 @@ export type WorldOptions = {
     /** A reason to refuse the prompt (it never enters, no turn starts). */
     drop?: (text: string) => string | undefined
   }
+  /**
+   * The session's skills (#10): what `$.command.list()`, `$.session.usage({ breakdown })`, `$.settings.read`,
+   * `$.env.get('HOME')` and `$.session.cwd()` answer, and the engine beneath `prompt.attachment` (`w.listing`).
+   * Without it those calls reject, and the skills feature finds no skills.
+   */
+  skills?: SkillsWorld
+}
+
+/** The session's skills as the engine reports them to the mod (#10). */
+export type SkillsWorld = {
+  /** What `$.command.list()` returns. */
+  commands?: CommandInfo[]
+  /** The main agent's skill listing as `$.session.usage({ breakdown })` counts it (`skillFrontmatter`); `null` to make the call fail. */
+  listed?: ContextSkill[] | null
+  /** `skillOverrides` per settings source (`$.settings.read({ source })`). */
+  overrides?: Partial<Record<SettingsSource, Record<string, string>>>
+  /** `$.env.get('HOME')`; `/home/u` by default. */
+  home?: string
+  /** `$.session.cwd()`; `/work` by default. */
+  cwd?: string
 }
 
 export type SubmitOptions = {
@@ -81,6 +113,27 @@ export type StepOptions = {
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number | null
   /** A dispatched or workflow agent's loop; absent on the main agent. */
   agentId?: string
+  /** The response's visible text, streamed before its tool calls. */
+  answer?: string
+  /**
+   * The tool calls the response makes. The engine runs each one (`tool.call`)
+   * while the response still streams, before the step ends (measured on
+   * 2.1.289), so a hook on `tool.call` sees it inside the step.
+   */
+  tools?: ToolRun[]
+}
+
+/** A tool call the model makes in a step, and how it ends. */
+export type ToolRun = {
+  tool: string
+  /** The call's arguments as the model wrote them (`command`, `file_path`, `description`, ...). */
+  input?: Record<string, unknown>
+  /**
+   * How the call ends: the tool's text (default "ok"), an error the tool
+   * reported (also how a refusal at the permission prompt reads), or a
+   * PreToolUse settings hook's refusal (the tool never runs).
+   */
+  ends?: { text: string } | { error: string } | { blockedByHook: string }
 }
 
 /** One agent.spawn as it reached the engine, after every hook of the mod. */
@@ -110,11 +163,16 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const steps: Step[] = []
   const prompts: { text: string; context: readonly string[] | undefined; origin: unknown }[] = []
   const turnIds: string[] = []
+  const toolCalls: { tool: string; input: Record<string, unknown>; isError: boolean; text: string | undefined }[] = []
   const spawned: Spawned[] = []
   let calls = 0
   const disk = options.disk ?? {}
   const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
   const commands: CommandSpec[] = []
+  /** What the step being sent streams and runs (set by `step()`, read by the engine's turn.step below). */
+  let streaming: Pick<StepOptions, 'answer' | 'tools'> = {}
+  /** How the tool call running now ends (set around each `$.tool.call` below). */
+  let ending: ToolRun['ends'] | undefined
 
   async function answer(reply: Reply): Promise<{ value: { status: number; ok: boolean; headers: Record<string, string>; text: string } } | { deny: string }> {
     if ('after' in reply) {
@@ -157,11 +215,22 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     const refused = options.session === true ? undefined : options.session.registerError
     on('session.start', (_$, e) => ({ cwd: e.cwd }))
     on('session.measure', (_$, e) => ({ changed: e.changed }))
+    on('session.compact', (_$, e) => ({ messages: e.messages }))
+    on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
     on('command.register', (_$, e) => {
       if (refused !== undefined) return { deny: refused }
       commands.push(e)
       return { value: { command: e.name } }
     })
+  }
+  if (options.skills !== undefined) {
+    const skills = options.skills
+    mock.env(on, { HOME: skills.home ?? '/home/u' })
+    on('session.cwd', () => ({ value: skills.cwd ?? '/work' }))
+    on('command.list', () => ({ value: skills.commands ?? [] }))
+    on('session.usage', () => (skills.listed === null ? { deny: 'no session bound' } : { value: usageListing(skills.listed ?? []) }))
+    on('settings.read', (_$, e) => ({ value: e?.source === undefined ? {} : { skillOverrides: skills.overrides?.[e.source] ?? {} } }))
+    on('prompt.attachment', (_$, e) => ({ text: e.text }))
   }
   on('ui.status', (_$, e) => {
     statuses.push(e.text)
@@ -195,9 +264,34 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     spawned.push({ tool_use_id: e.tool_use_id, model: e.model, subagentType: e.subagentType, description: e.description, prompt: e.prompt })
     return { model: e.model ?? e.parentModel, agentId: `a${spawned.length}` }
   })
+  // The engine at the bottom of turn.step: it records what the request went
+  // out with, streams the response's text, and runs each tool call while the
+  // response still streams, as Claude Code does.
   on('turn.step', async function* (_$, e) {
     steps.push({ turnId: e.turnId, index: e.index, model: e.model, effort: e.effort, agentId: e.agentId })
-    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use' as const, usage: null }
+    const { answer = '', tools = [] } = streaming
+    streaming = {}
+    if (answer) yield { kind: 'text' as const, index: 0, text: answer }
+    for (const [i, run] of tools.entries()) {
+      yield { kind: 'tool' as const, index: i + 1, id: `toolu_${e.turnId}_${e.index}_${i}`, name: run.tool }
+      ending = run.ends
+      await $.tool.call({ tool: run.tool, ...(run.input ?? {}), ...(e.agentId !== undefined ? { agentId: e.agentId } : {}) } as never)
+      ending = undefined
+    }
+    const toolUses = tools.map((run) => ({ name: run.tool, input: run.input ?? {} }))
+    return { turnId: e.turnId, index: e.index, answer, toolUses, stopReason: 'tool_use' as const, usage: null }
+  })
+  // A PreToolUse settings hook: it refuses the call when the test says so.
+  on('classic.PreToolUse', () => (ending !== undefined && 'blockedByHook' in ending ? { deny: ending.blockedByHook } : {}))
+  // The tools themselves: each call that reaches them is recorded with its
+  // arguments as they arrived (after every hook of the mod) and how it ended.
+  on('tool.call', (_$, e) => {
+    const { tool, tool_use_id: _id, agentId: _agent, ...input } = e as { tool: string; tool_use_id?: string; agentId?: string } & Record<string, unknown>
+    const end = ending ?? { text: 'ok' }
+    const failed = 'error' in end
+    const text = failed ? end.error : 'text' in end ? end.text : 'ok'
+    toolCalls.push({ tool, input, isError: failed, text })
+    return failed ? { result: text, text, isError: true as const } : { result: text, text }
   })
 
   return {
@@ -212,6 +306,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     commands,
     /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */
     stored: (key: string): unknown => (store.has(key) ? JSON.parse(store.get(key) as string) : undefined),
+    /** Every tool call that reached the tools, its arguments as they arrived (a hook's rewrite included) and how it ended; a call a hook refused is not in it. */
+    toolCalls,
     /** The status line as last set (`undefined` once cleared or never set). */
     status: () => statuses.at(-1),
     /** Submits a prompt the way the engine does; resolves when it entered (or was queued). */
@@ -250,8 +346,16 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     /** Runs a slash command as the person types it (`/dp lock max` is `command('dp', 'lock max')`); resolves to the text it printed. */
     command: async (name: string, args = '') =>
       (await $.command.run({ command: name, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })).text ?? '',
-    /** Sends one model request through the mod, drained to its end. */
+    /** The person's `/compact` of the main conversation (needs `session`). */
+    compact: () => $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'earlier work', toolUses: [] }] }),
+    /** The person's `/clear` (needs `session`): the conversation ends, the process goes on, no session.start follows. */
+    clear: () => $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } }),
+    /** The engine's skill listing as one request of a loop carries it (`agentId`: a dispatched agent's; needs `skills`); resolves to what the model reads. */
+    listing: (text: string, agentId?: string) =>
+      $.prompt.attachment({ type: 'skill_listing', text, origin: { kind: 'engine' }, ...(agentId !== undefined ? { agentId } : {}) }),
+    /** Sends one model request through the mod, drained to its end (its text streamed, its tools run). */
     step: async (step: StepOptions) => {
+      streaming = { answer: step.answer, tools: step.tools }
       const effort = step.effort === undefined ? 'xhigh' : step.effort
       const input = {
         turnId: step.turnId ?? turnIds.at(-1) ?? 't0',
@@ -268,12 +372,21 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   }
 }
 
+/** `$.session.usage({ breakdown: 'summary' })` whose context lists these skills for the main agent (the rest of the breakdown left out). */
+function usageListing(listed: readonly ContextSkill[]): SessionUsage {
+  const skills = { totalSkills: listed.length, includedSkills: listed.length, tokens: 60 * listed.length, skillFrontmatter: [...listed] }
+  const breakdown = { skills } as unknown as SessionContextBreakdown
+  return { startedAt: 0, context: { window: 200_000, breakdown }, rateLimits: [] }
+}
+
 /**
  * A Jev answer to every question of the request it replies to: each `score`
- * question gets `levels` as its probabilities (lowest level first), each
- * `choice` the option named in `choice` (or its first), each `noul` 0.5.
+ * question gets `levels` as its probabilities (lowest level first) and
+ * `confidence` (0.7 by default), each `choice` the option named in `choice`
+ * (or its first), or the probabilities `shares` gives for its question id
+ * (options it leaves out get 0), each `noul` 0.5.
  */
-export function jev(levels: readonly number[], extra: { status?: number; choice?: string } = {}) {
+export function jev(levels: readonly number[], extra: { status?: number; choice?: string; confidence?: number | null; shares?: Record<string, Record<string, number>> } = {}) {
   return (request: Sent): Reply => {
     const answers: Record<string, unknown> = {}
     const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
@@ -281,7 +394,13 @@ export function jev(levels: readonly number[], extra: { status?: number; choice?
       if (question.type === 'score') {
         const probabilities = Object.fromEntries(levels.map((p, i) => [String(i), p]))
         const score = levels.reduce((sum, p, i) => sum + p * i, 0)
-        answers[id] = { type: 'score', score, legend: {}, probabilities, confidence: 0.7 }
+        answers[id] = { type: 'score', score, legend: {}, probabilities, confidence: extra.confidence === undefined ? 0.7 : extra.confidence }
+      } else if (question.type === 'choice' && extra.shares?.[id] !== undefined) {
+        const shares = extra.shares[id] as Record<string, number>
+        const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
+        const probabilities = Object.fromEntries(options.map((o) => [o, shares[o] ?? 0]))
+        const pick = options.reduce((best, o) => ((probabilities[o] ?? 0) > (probabilities[best] ?? 0) ? o : best), options[0] ?? '')
+        answers[id] = { type: 'choice', choice: pick, probabilities, confidence: 0.5 }
       } else if (question.type === 'choice') {
         const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
         const pick = extra.choice ?? options[0] ?? ''

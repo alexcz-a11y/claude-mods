@@ -13,10 +13,13 @@ import type { Failure } from '../decision/backend.ts'
  * The segments, in the order they show. Add yours here when a feature needs
  * one; each is set by its owner only.
  *   effort    the core's turn.step writer: the main turn's effort as it goes out
+ *   midturn   the midturn-effort feature: the turn's steps, decisions and changes, once re-decided
  *   decision  the main-effort feature: why the message got no decision
+ *   skills    the skills feature: the skills suggested for the latest message,
+ *             and the person-only ones to try
  *   agent     the dispatched-agents feature: the latest dispatched agent's model and effort, or why it got none
  */
-const ORDER = ['effort', 'decision', 'agent'] as const
+const ORDER = ['effort', 'midturn', 'decision', 'skills', 'agent'] as const
 export type Segment = (typeof ORDER)[number]
 
 const segments = new Map<Segment, string>()

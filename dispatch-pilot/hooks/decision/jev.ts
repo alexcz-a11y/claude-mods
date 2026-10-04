@@ -14,6 +14,7 @@ export function jevBackend(apiKey: string, options: { url?: string; model?: stri
   const model = options.model ?? JEV_MODEL
   return {
     name: 'jev',
+    configured: apiKey !== '',
     async ask(io, request, timeoutMs) {
       if (!apiKey) return { ok: false, failure: { kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey' } }
       const posted = await postJson(io, url, { authorization: `Bearer ${apiKey}` }, { model, state: request.state, questions: request.questions }, timeoutMs)

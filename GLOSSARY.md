@@ -32,6 +32,10 @@ _Avoid_: 路由模型、小模型
 发给决策模型的一次请求：一份 state 加若干问题，返回每个问题带概率的回答。用户发消息时，各功能的问题合在同一个决策请求里。
 _Avoid_: 调用、查询
 
+**中途重判（Mid-turn Re-decision）**：
+一轮进行中再判断一次主 agent 的 effort：每隔几步，或主 agent 派出 agent、启动 Workflow、加载 skill 时。决策请求在主 agent 的工具开始执行时就发出，下一步发出前取用回答；只判断 effort，升降档有防抖。
+_Avoid_: 轮中重判、中途判断
+
 **计划表（Plan Table）**：
 Dispatch Pilot 在 `$.state` 里按「轮 + agentId」记录每一步该发出的 effort（派出 agent 还有模型）的表；各功能写表，每一步由核心照表发出。
 _Avoid_: 决策表、路由表
@@ -51,3 +55,19 @@ _Avoid_: 决策记录
 **信号（Signals）**：
 引擎通过 `session.measure` 报告的会话读数：上下文占用、用量限额百分比、会话花费。第一版只记录（写进 debug log），不参与任何决策。
 _Avoid_: 指标、用量
+
+**skill 列表（Skill Listing）**：
+引擎在会话开始时作为附件（`skill_listing`）交给模型的全部 skill 的名字和描述。Dispatch Pilot 对主 agent 拦下它（ADR 0002），派出 agent 的不动。
+_Avoid_: skill 目录（目录是 Dispatch Pilot 自己读出的）
+
+**skill 目录（Skill Catalog）**：
+Dispatch Pilot 读出的本会话的 skill：主 agent 能用 Skill 工具加载的（与引擎给主 agent 的 skill 列表一致），以及只能由用户本人触发的（SKILL.md 写了 `disable-model-invocation: true`），各带名字和描述。skill 推荐和 `find_skill` 都从它挑选。
+_Avoid_: skill 库、候选池
+
+**skill 推荐（Skill Suggestion）**：
+用户发消息时，决策模型从 skill 目录里挑出与这条消息相关的几个 skill，连同名字、描述和相关度附在消息后面交给主 agent。只能由用户触发的 skill 不推荐给主 agent，只在状态行提示用户。
+_Avoid_: skill 注入、skill 建议
+
+**相关度（Relevance）**：
+一个 skill 与一条消息相符的程度，由决策模型给出，0 到 1。#10 用的是这个 skill 在「哪个 skill 最合适」这一个 Choice 问题里分到的概率，是相对值；#11 改为每个候选单独判断的绝对值。
+_Avoid_: 匹配度、分数
