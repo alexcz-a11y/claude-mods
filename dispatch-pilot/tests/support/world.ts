@@ -23,6 +23,7 @@ import type {
   SessionMessage,
   SessionUsage,
   SettingsSource,
+  ToolSpec,
 } from 'claude-code'
 
 /** One request the mod sent through `$.http.fetch`, its JSON body parsed. */
@@ -60,9 +61,10 @@ export type WorldOptions = {
    */
   store?: Record<string, unknown>
   /**
-   * The engine's session around the mod: `w.start()` runs `session.start`, the commands the mod registers
-   * are recorded in `w.commands` (`registerError` refuses them), `w.measure(...)` raises `session.measure`,
-   * `w.compact()` and `w.clear()` the person's /compact and /clear (`session.compact`, `session.end`).
+   * The engine's session around the mod: `w.start()` runs `session.start`, the commands and tools the mod
+   * registers are recorded in `w.commands` and `w.tools` (`registerError` refuses both), `w.measure(...)`
+   * raises `session.measure`, `w.compact()` and `w.clear()` the person's /compact and /clear
+   * (`session.compact`, `session.end`).
    */
   session?: true | { registerError: string }
   /** What the hooks beneath the mod (other plugins, settings hooks) do to a prompt. */
@@ -169,6 +171,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const disk = options.disk ?? {}
   const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
   const commands: CommandSpec[] = []
+  const tools: Required<ToolSpec>[] = []
   /** What the step being sent streams and runs (set by `step()`, read by the engine's turn.step below). */
   let streaming: Pick<StepOptions, 'answer' | 'tools'> = {}
   /** How the tool call running now ends (set around each `$.tool.call` below). */
@@ -221,6 +224,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       if (refused !== undefined) return { deny: refused }
       commands.push(e)
       return { value: { command: e.name } }
+    })
+    // The model calls a plugin's tool by its full name (`mcp__<plugin>__<name>`).
+    on('tool.register', (_$, e) => {
+      if (refused !== undefined) return { deny: refused }
+      tools.push(e)
+      return { value: { tool: `mcp__dispatch-pilot__${e.name}` } }
     })
   }
   if (options.skills !== undefined) {
@@ -304,6 +313,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     turnIds,
     spawned,
     commands,
+    tools,
     /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */
     stored: (key: string): unknown => (store.has(key) ? JSON.parse(store.get(key) as string) : undefined),
     /** Every tool call that reached the tools, its arguments as they arrived (a hook's rewrite included) and how it ended; a call a hook refused is not in it. */
@@ -350,6 +360,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     compact: () => $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'earlier work', toolUses: [] }] }),
     /** The person's `/clear` (needs `session`): the conversation ends, the process goes on, no session.start follows. */
     clear: () => $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } }),
+    /**
+     * The model calls the mod's find_skill tool with this query (`agentId`: from a dispatched agent's loop);
+     * resolves to the tool's answer, `{ result }`.
+     */
+    findSkill: (query: unknown, call: { agentId?: string } = {}) =>
+      $.tool.call({ tool: 'mcp__dispatch-pilot__find_skill', query, ...(call.agentId !== undefined ? { agentId: call.agentId } : {}) }),
     /** The engine's skill listing as one request of a loop carries it (`agentId`: a dispatched agent's; needs `skills`); resolves to what the model reads. */
     listing: (text: string, agentId?: string) =>
       $.prompt.attachment({ type: 'skill_listing', text, origin: { kind: 'engine' }, ...(agentId !== undefined ? { agentId } : {}) }),

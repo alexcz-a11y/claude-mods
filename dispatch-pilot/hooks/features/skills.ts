@@ -12,7 +12,7 @@
 
 import type { EngineInterface, On } from 'claude-code'
 import { redactSecrets } from '../decision/redact.ts'
-import { choiceRanker, pickSkills, relevanceBlock, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
+import { modRanker, pickSkills, relevanceBlock, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
 import { contribute } from '../core/ballot.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
@@ -61,8 +61,8 @@ export function registerSkills(on: On, ctx: Ctx): void {
     max: Math.round(numberIn(ctx.options.skillsMax, 0, 10, 3)),
     minRelevance: numberIn(ctx.options.skillsMinRelevance, 0, 1, 0.2),
   }
-  /** How the skills are rated: one Choice in the message's request (#11 swaps in its own). */
-  const ranker = choiceRanker({ language: ctx.ask.language })
+  /** How the skills are rated: the mod's ranker, the one find_skill (#12) uses too (#11 swaps in its own there). */
+  const ranker = modRanker({ language: ctx.ask.language })
   /**
    * Whether the feature is at work now: its switch (and the master switch)
    * on, and a decision model set up to suggest (without one, withholding the
