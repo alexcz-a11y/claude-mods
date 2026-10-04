@@ -114,3 +114,17 @@ claude plugin install <mod>@alex-mods --scope user
 ```
 
 版本管理：发版时递增 `plugin.json` 的 `version`，或者不写 `version`，改用 commit SHA。已发布的 mod 不要改名；确实需要时，用 marketplace 的 `renames` 字段处理。
+
+## Agent skills
+
+### Issue tracker
+
+Issue 在 GitHub Issues（alexcz-a11y/claude-mods）中管理，用 gh CLI 操作。See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+使用默认的五个标签：needs-triage、needs-info、ready-for-agent、ready-for-human、wontfix。See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+single-context：根目录 GLOSSARY.md + docs/adr/（按需创建）。See `docs/agents/domain.md`.
