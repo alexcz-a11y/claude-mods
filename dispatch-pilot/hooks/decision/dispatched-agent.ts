@@ -10,7 +10,7 @@
 // the effort a Score with the levels every effort question shares.
 
 import { clipToTokens, estimateTokens } from './context.ts'
-import { DEFAULT_ASK, effortQuestion, pickEffort, readEffort, type Effort, type EffortAsk, type Language } from './effort.ts'
+import { DEFAULT_ASK, effortQuestion, pickEffort, readEffort, type Effort, type EffortAsk, type EffortReading, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import type { Answer, Part, Question, State } from './system-one.ts'
 
@@ -327,6 +327,8 @@ export type DispatchDecision = {
   pick: { model: AgentModel; confidence: number } | null
   /** The models the person ruled out for this agent. */
   banned: AgentModel[]
+  /** The effort answer's level probabilities, also when unused (haiku); null without a usable answer. */
+  reading: EffortReading | null
   /** False when neither the model nor the effort question got a usable answer: a failed request. */
   answered: boolean
 }
@@ -366,7 +368,7 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
   }
   const effort = model === 'haiku' || reading === null ? null : pickEffort(reading, settings.thetaMax)
   const answered = answers[MODEL]?.type === 'choice' || reading !== null
-  return { model, effort, source, pick, banned, answered }
+  return { model, effort, source, pick, banned, reading, answered }
 }
 
 /** The model whose `<prefix>.<model>` yes/no answer is highest and reaches `threshold`; null when none does. */

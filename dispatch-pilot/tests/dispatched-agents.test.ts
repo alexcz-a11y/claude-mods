@@ -6,6 +6,7 @@
 import { expect, test } from 'claude-code/testing'
 import { dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
+import { CLEF_OPTIONS, CLEF_URL, clef, clefInputProblems } from './support/cloudflare.ts'
 import { world, type Reply, type Sent } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
@@ -204,6 +205,19 @@ test("what the mod sends about an agent is exactly what the decision module buil
   expect(w.requests[1]?.body).toEqual({ model: 'jev-latest', state: built.state, questions: built.questions })
 })
 
+test("with Clef as the decision model, the agent's request passes Clef's input rules and the agent is routed", { options: CLEF_OPTIONS }, async ($, on) => {
+  const w = world($, on, { backend: clef([0, 1, 0, 0, 0], { choice: 'sonnet' }) })
+  await w.submit('别用 opus 了，用 sonnet 就行：给 src/cache/lru.ts 补单测')
+  const started = await w.spawn({ prompt: 'Write unit tests for src/cache/lru.ts covering eviction order.', description: 'LRU tests', model: 'opus' })
+  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-sonnet-5-5', effort: 'high' })
+
+  const sent = w.requests[1]
+  expect(sent?.url).toBe(CLEF_URL)
+  expect(clefInputProblems(sent?.body)).toEqual([])
+  expect(Object.keys(sent?.body.questions)).toEqual(['agent.model', 'agent.effort', 'agent.named.sonnet', 'agent.named.opus', 'agent.banned.sonnet', 'agent.banned.opus'])
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium'])
+})
+
 test('agentFable adds fable to the models the decision model may choose for an agent', { options: { ...KEY, agentFable: true } }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 0.02, sonnet: 0.03, opus: 0.15, fable: 0.8 }, effort: [0, 0, 0, 0.2, 0.8] }) })
   await w.spawn({ prompt: 'Prove that the lease-renewal protocol keeps mutual exclusion under clock drift; build a counterexample if it does not.', description: 'Prove mutual exclusion' })
@@ -235,16 +249,43 @@ test("the status line shows the latest dispatched agent's model and effort, and 
   expect(lines).toEqual(['dp agent sonnet high', 'dp agent opus medium (kept)', 'dp agent haiku (you)'])
 })
 
-test("each dispatched agent's decision is written to the debug log, never into the conversation", { options: KEY }, async ($, on) => {
+test("each dispatched agent's decision is logged with its reason: in the debug log, never in the conversation, and in /dp log", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 0.05, sonnet: 0.9, opus: 0.05 }, effort: [0, 0, 1, 0, 0] }) })
   await w.spawn({ prompt: 'Rename getUser to fetchUser across src/api.', description: 'Rename getUser', subagentType: 'general-purpose' })
 
   expect(w.logs.length).toBeGreaterThan(0)
   expect(w.logs.every((log) => log.to === 'debug')).toBe(true)
-  const line = w.logs.map((log) => log.text).find((text) => text.includes('Rename getUser'))
-  expect(line).toMatch(/general-purpose/)
-  expect(line).toMatch(/sonnet high/)
-  expect(line).toMatch(/confidence 0\.85/)
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^sonnet high for "Rename getUser" \(general-purpose\): .*confidence 0\.85/))
+  expect(await w.command('dp', 'log')).toMatch(/#1 dispatched-agents: sonnet high for "Rename getUser" \(general-purpose\): .*confidence 0\.85/)
+})
+
+test('/dp dispatched-agents off lets agents start as the main agent sent them, with nothing asked and its status segment gone; on brings the decisions back', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.05, opus: 0.05 }, effort: [0, 1, 0, 0, 0] }) })
+  expect(await w.command('dp')).toMatch(/\bon +dispatched-agents +\S/)
+  await w.spawn({ prompt: 'List the files under src/.' })
+  expect(w.status()).toBe('dp agent haiku')
+
+  expect(await w.command('dp', 'dispatched-agents off')).toContain('dispatched-agents is off')
+  expect(w.status()).toBeUndefined()
+  const started = await w.spawn({ prompt: 'List the files under test/.', model: 'opus' })
+  await w.step({ index: 0, turnId: 'sub-2', agentId: started.agentId, model: 'claude-opus-5-5', effort: 'xhigh' })
+  expect(w.requests).toHaveLength(1)
+  expect(w.spawned.map((s) => s.model)).toEqual(['haiku', 'opus'])
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['xhigh'])
+
+  await w.command('dp', 'dispatched-agents on')
+  await w.spawn({ prompt: 'List the files under docs/.' })
+  expect(w.requests).toHaveLength(2)
+})
+
+test('/dp off stands dispatched agents down too: nothing is asked and the agent starts as the main agent sent it', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.05, opus: 0.05 } }) })
+  await w.command('dp', 'off')
+  await w.spawn({ prompt: 'List the files under src/.', model: 'sonnet' })
+
+  expect(w.requests).toHaveLength(0)
+  expect(w.spawned.map((s) => s.model)).toEqual(['sonnet'])
+  expect(w.status()).toBe('dp off')
 })
 
 test('no answer within timeoutMs: the agent starts then, on the model it was given, at the engine effort, and the status line says why', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
