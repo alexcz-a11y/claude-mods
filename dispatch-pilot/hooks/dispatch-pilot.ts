@@ -10,6 +10,7 @@
 import type { Register } from 'claude-code'
 import { registerCore } from './core/core.ts'
 import { setup } from './core/setup.ts'
+import { registerDispatchedAgents } from './features/dispatched-agents.ts'
 import { registerMainEffort } from './features/main-effort.ts'
 
 export const register: Register = (on, options) => {
@@ -17,6 +18,7 @@ export const register: Register = (on, options) => {
 
   // Features, outermost first.
   registerMainEffort(on, ctx)
+  registerDispatchedAgents(on, ctx)
 
   // The core: always last.
   registerCore(on, ctx)
