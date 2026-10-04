@@ -107,7 +107,7 @@ function partNames(parts: readonly (Readonly<Record<string, boolean>> | null | u
 }
 
 function summarizeVariant(items: readonly AnyItem[], rows: readonly Row<unknown>[], variant: string, slowMs: number, parts: readonly string[]): VariantSummary {
-  const of =(language: Language) => rows.filter((row) => row.language === language)
+  const of = (language: Language) => rows.filter((row) => row.language === language)
   const zh = languageSummary(items.length, of('zh'), parts)
   const en = languageSummary(items.length, of('en'), parts)
   const gap = round(zh.accuracy - en.accuracy)
