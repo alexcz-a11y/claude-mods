@@ -113,8 +113,8 @@ test('a feature switched off takes what it showed off the status line', { option
 test('a switch nobody registered is refused and nothing changes', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })
 
-  const text = await w.command('dp', 'skills off')
-  expect(text).toContain('no switch named "skills"')
+  const text = await w.command('dp', 'teleport off')
+  expect(text).toContain('no switch named "teleport"')
   expect(text).toContain('main-effort')
   await w.submit('把登录模块重构成三层')
   expect(w.requests).toHaveLength(1)

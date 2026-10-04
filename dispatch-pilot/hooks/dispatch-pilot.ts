@@ -13,6 +13,7 @@ import { setup } from './core/setup.ts'
 import { registerControl } from './features/control.ts'
 import { registerDispatchedAgents } from './features/dispatched-agents.ts'
 import { registerMainEffort } from './features/main-effort.ts'
+import { registerSkills } from './features/skills.ts'
 
 export const register: Register = (on, options) => {
   const ctx = setup(options)
@@ -21,6 +22,7 @@ export const register: Register = (on, options) => {
   registerControl(on, ctx)
   registerMainEffort(on, ctx)
   registerDispatchedAgents(on, ctx)
+  registerSkills(on, ctx)
 
   // The core: always last.
   registerCore(on, ctx)

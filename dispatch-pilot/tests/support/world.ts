@@ -12,7 +12,18 @@
 
 import { mock } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
-import type { CommandSpec, On, PromptOrigin, SessionMeasureInput, SessionMessage } from 'claude-code'
+import type {
+  CommandInfo,
+  CommandSpec,
+  ContextSkill,
+  On,
+  PromptOrigin,
+  SessionContextBreakdown,
+  SessionMeasureInput,
+  SessionMessage,
+  SessionUsage,
+  SettingsSource,
+} from 'claude-code'
 
 /** One request the mod sent through `$.http.fetch`, its JSON body parsed. */
 export type Sent = {
@@ -50,7 +61,8 @@ export type WorldOptions = {
   store?: Record<string, unknown>
   /**
    * The engine's session around the mod: `w.start()` runs `session.start`, the commands the mod registers
-   * are recorded in `w.commands` (`registerError` refuses them), `w.measure(...)` raises `session.measure`.
+   * are recorded in `w.commands` (`registerError` refuses them), `w.measure(...)` raises `session.measure`,
+   * `w.compact()` and `w.clear()` the person's /compact and /clear (`session.compact`, `session.end`).
    */
   session?: true | { registerError: string }
   /** What the hooks beneath the mod (other plugins, settings hooks) do to a prompt. */
@@ -60,6 +72,26 @@ export type WorldOptions = {
     /** A reason to refuse the prompt (it never enters, no turn starts). */
     drop?: (text: string) => string | undefined
   }
+  /**
+   * The session's skills (#10): what `$.command.list()`, `$.session.usage({ breakdown })`, `$.settings.read`,
+   * `$.env.get('HOME')` and `$.session.cwd()` answer, and the engine beneath `prompt.attachment` (`w.listing`).
+   * Without it those calls reject, and the skills feature finds no skills.
+   */
+  skills?: SkillsWorld
+}
+
+/** The session's skills as the engine reports them to the mod (#10). */
+export type SkillsWorld = {
+  /** What `$.command.list()` returns. */
+  commands?: CommandInfo[]
+  /** The main agent's skill listing as `$.session.usage({ breakdown })` counts it (`skillFrontmatter`); `null` to make the call fail. */
+  listed?: ContextSkill[] | null
+  /** `skillOverrides` per settings source (`$.settings.read({ source })`). */
+  overrides?: Partial<Record<SettingsSource, Record<string, string>>>
+  /** `$.env.get('HOME')`; `/home/u` by default. */
+  home?: string
+  /** `$.session.cwd()`; `/work` by default. */
+  cwd?: string
 }
 
 export type SubmitOptions = {
@@ -157,11 +189,22 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     const refused = options.session === true ? undefined : options.session.registerError
     on('session.start', (_$, e) => ({ cwd: e.cwd }))
     on('session.measure', (_$, e) => ({ changed: e.changed }))
+    on('session.compact', (_$, e) => ({ messages: e.messages }))
+    on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
     on('command.register', (_$, e) => {
       if (refused !== undefined) return { deny: refused }
       commands.push(e)
       return { value: { command: e.name } }
     })
+  }
+  if (options.skills !== undefined) {
+    const skills = options.skills
+    mock.env(on, { HOME: skills.home ?? '/home/u' })
+    on('session.cwd', () => ({ value: skills.cwd ?? '/work' }))
+    on('command.list', () => ({ value: skills.commands ?? [] }))
+    on('session.usage', () => (skills.listed === null ? { deny: 'no session bound' } : { value: usageListing(skills.listed ?? []) }))
+    on('settings.read', (_$, e) => ({ value: e?.source === undefined ? {} : { skillOverrides: skills.overrides?.[e.source] ?? {} } }))
+    on('prompt.attachment', (_$, e) => ({ text: e.text }))
   }
   on('ui.status', (_$, e) => {
     statuses.push(e.text)
@@ -250,6 +293,13 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     /** Runs a slash command as the person types it (`/dp lock max` is `command('dp', 'lock max')`); resolves to the text it printed. */
     command: async (name: string, args = '') =>
       (await $.command.run({ command: name, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })).text ?? '',
+    /** The person's `/compact` of the main conversation (needs `session`). */
+    compact: () => $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'earlier work', toolUses: [] }] }),
+    /** The person's `/clear` (needs `session`): the conversation ends, the process goes on, no session.start follows. */
+    clear: () => $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } }),
+    /** The engine's skill listing as one request of a loop carries it (`agentId`: a dispatched agent's; needs `skills`); resolves to what the model reads. */
+    listing: (text: string, agentId?: string) =>
+      $.prompt.attachment({ type: 'skill_listing', text, origin: { kind: 'engine' }, ...(agentId !== undefined ? { agentId } : {}) }),
     /** Sends one model request through the mod, drained to its end. */
     step: async (step: StepOptions) => {
       const effort = step.effort === undefined ? 'xhigh' : step.effort
@@ -268,12 +318,21 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   }
 }
 
+/** `$.session.usage({ breakdown: 'summary' })` whose context lists these skills for the main agent (the rest of the breakdown left out). */
+function usageListing(listed: readonly ContextSkill[]): SessionUsage {
+  const skills = { totalSkills: listed.length, includedSkills: listed.length, tokens: 60 * listed.length, skillFrontmatter: [...listed] }
+  const breakdown = { skills } as unknown as SessionContextBreakdown
+  return { startedAt: 0, context: { window: 200_000, breakdown }, rateLimits: [] }
+}
+
 /**
  * A Jev answer to every question of the request it replies to: each `score`
  * question gets `levels` as its probabilities (lowest level first), each
- * `choice` the option named in `choice` (or its first), each `noul` 0.5.
+ * `choice` the option named in `choice` (or its first), or the probabilities
+ * `shares` gives for its question id (options it leaves out get 0), each
+ * `noul` 0.5.
  */
-export function jev(levels: readonly number[], extra: { status?: number; choice?: string } = {}) {
+export function jev(levels: readonly number[], extra: { status?: number; choice?: string; shares?: Record<string, Record<string, number>> } = {}) {
   return (request: Sent): Reply => {
     const answers: Record<string, unknown> = {}
     const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
@@ -282,6 +341,12 @@ export function jev(levels: readonly number[], extra: { status?: number; choice?
         const probabilities = Object.fromEntries(levels.map((p, i) => [String(i), p]))
         const score = levels.reduce((sum, p, i) => sum + p * i, 0)
         answers[id] = { type: 'score', score, legend: {}, probabilities, confidence: 0.7 }
+      } else if (question.type === 'choice' && extra.shares?.[id] !== undefined) {
+        const shares = extra.shares[id] as Record<string, number>
+        const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
+        const probabilities = Object.fromEntries(options.map((o) => [o, shares[o] ?? 0]))
+        const pick = options.reduce((best, o) => ((probabilities[o] ?? 0) > (probabilities[best] ?? 0) ? o : best), options[0] ?? '')
+        answers[id] = { type: 'choice', choice: pick, probabilities, confidence: 0.5 }
       } else if (question.type === 'choice') {
         const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
         const pick = extra.choice ?? options[0] ?? ''

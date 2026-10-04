@@ -24,6 +24,7 @@ export function clefUrl(accountId: string): string {
 export function clefBackend(credentials: CloudflareCredentials): Backend {
   return {
     name: 'clef',
+    configured: missingCredentials(credentials) === null,
     async ask(io, request, timeoutMs) {
       const asked = await askClef(io, credentials, request, timeoutMs)
       // A failure's detail goes to the debug log: what it echoes of the address or the header stays out.

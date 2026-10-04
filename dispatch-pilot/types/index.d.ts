@@ -56,6 +56,27 @@ declare module 'claude-code' {
        * them as `user_message`.
        */
       said: string[]
+      /**
+       * Skills the main agent has had described beside a message in this
+       * conversation (#10): suggested again, they are only named. Emptied by
+       * /compact and /clear.
+       */
+      skillsShown: string[]
+      /**
+       * The session's skills (hooks/core/skills.ts `CatalogSkill`), read once
+       * per session (#10; #11 and #12 read it too). null: read it again.
+       */
+      skillCatalog: {
+        skills: { name: string; description: string; by: 'model' | 'person'; source: string }[]
+      } | null
+      /**
+       * How the skills feature answered the main agent's skill listing, which
+       * the engine keeps for the conversation (#10): `withheld` (with the
+       * engine's text), `passed`, or `restored`: withheld, then sent beside a
+       * message once the `skills` switch went off. null: not answered in
+       * this conversation.
+       */
+      skillListing: { answered: 'withheld' | 'passed' | 'restored'; text: string } | null
     }
   }
 }
