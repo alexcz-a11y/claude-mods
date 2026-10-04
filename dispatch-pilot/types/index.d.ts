@@ -63,12 +63,13 @@ declare module 'claude-code' {
         skills: { name: string; description: string; by: 'model' | 'person'; source: string }[]
       } | null
       /**
-       * How the skills feature last answered the main agent's skill listing,
-       * which the engine keeps for the process: `withheld` or `passed` (#10).
-       * When the `skills` switch no longer agrees, the next message has the
-       * engine ask again. null: not answered since.
+       * How the skills feature answered the main agent's skill listing, which
+       * the engine keeps for the conversation (#10): `withheld` (with the
+       * engine's text), `passed`, or `restored`: withheld, then sent beside a
+       * message once the `skills` switch went off. null: not answered in
+       * this conversation.
        */
-      skillListing: 'withheld' | 'passed' | null
+      skillListing: { answered: 'withheld' | 'passed' | 'restored'; text: string } | null
     }
   }
 }

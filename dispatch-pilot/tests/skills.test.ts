@@ -53,23 +53,48 @@ test('with the skills switch off (/dp skills off, kept from an earlier session),
   expect(await w.command('dp')).toMatch(/\boff +skills +\S/)
 })
 
-test('switched off mid-session, the next message has the engine ask again about the listing it holds, and the main agent gets it back; switched on, it goes again', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS })
+// The engine keeps its answer about the listing for the conversation (a
+// mid-conversation `$.ui.invalidate` does not bring it back: real engine,
+// 2.1.289), so the listing the feature withheld travels with a message instead.
+const RESTORED = `Dispatch Pilot's skill suggestions are switched off, so here is the skill listing it had left out:\n\n${LISTING}`
+
+test('switched off mid-conversation, the listing it withheld reaches the main agent with the next message, once; suggestions stop', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS })
   expect(await w.listing(LISTING)).toEqual({ text: null })
   await w.submit('先写一个失败的测试')
-  expect(w.invalidated).toEqual([])
-
   await w.command('dp', 'skills off')
   await w.submit('再写一个')
-  expect(w.invalidated).toEqual(['prompt.attachment'])
-  expect(await w.listing(LISTING)).toEqual({ text: LISTING })
-  await w.submit('再写一个')
-  expect(w.invalidated).toEqual(['prompt.attachment'])
+  await w.submit('还有吗')
 
-  await w.command('dp', 'skills on')
+  expect(w.prompts.map((prompt) => prompt.context)).toEqual([undefined, [RESTORED], undefined])
+  expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['effort.level'])
+})
+
+test('/dp off brings the withheld listing back the same way; switched on again, suggestions resume and the listing is not sent twice', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
+  const w = world($, on, { backend: rates({ tdd: 0.7, '(none)': 0.3 }), skills: SKILLS })
+  await w.listing(LISTING)
+  await w.command('dp', 'off')
+  await w.submit('先写一个失败的测试')
+  await w.command('dp', 'on')
+  await w.submit('再写一个')
+  await w.command('dp', 'skills off')
+  await w.submit('还有吗')
+
+  expect(w.prompts[0]?.context).toEqual([RESTORED])
+  expect(w.prompts[1]?.context?.[0]).toContain('- tdd (relevance 0.70)')
+  expect(w.prompts[2]?.context).toBeUndefined()
+})
+
+test('after /compact the listing goes back again with the next message while the switch stays off', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS, session: true })
+  await w.listing(LISTING)
+  await w.command('dp', 'skills off')
+  await w.submit('再写一个')
+  await w.compact()
+  await w.submit('还有吗')
   await w.submit('继续')
-  expect(w.invalidated).toEqual(['prompt.attachment', 'prompt.attachment'])
-  expect(await w.listing(LISTING)).toEqual({ text: null })
+
+  expect(w.prompts.map((prompt) => prompt.context)).toEqual([[RESTORED], [RESTORED], undefined])
 })
 
 test('without a TypeSafe key nothing could suggest a skill, so the main agent keeps its listing', async ($, on) => {

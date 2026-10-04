@@ -4,10 +4,11 @@
 // against it and the few that fit are suggested beside the message. Skills
 // only the person can start are pointed out on the status line instead.
 //
-// Its switch is `skills` (`/dp skills off`): off, nothing is suggested and the
-// main agent reads the listing as the engine wrote it again (from the next
-// message on, see `listingWanted`). The find_skill tool (#12) has a switch of
-// its own.
+// Its switch is `skills` (`/dp skills off`, and `/dp off`): off, nothing is
+// suggested and the main agent gets the listing back: a listing the engine
+// asks about from then on passes as it is, and one already withheld in this
+// conversation (the engine keeps that answer) goes beside the next message.
+// The find_skill tool (#12) has a switch of its own.
 
 import type { EngineInterface, On } from 'claude-code'
 import { redactSecrets } from '../decision/redact.ts'
@@ -100,13 +101,13 @@ export function registerSkills(on: On, ctx: Ctx): void {
     if (e.agentId !== undefined) return next(e)
     // Skills that cannot be suggested stay listed.
     if (!active() || (await sessionCatalog($)) === null) {
-      await $.state.set(LISTING, 'passed')
+      await $.state.set(LISTING, { answered: 'passed', text: '' })
       return next(e)
     }
     const kept = trimListing(e.text, alwaysListed)
     const keptNames = kept === null ? 'none' : listingNames(kept).join(', ')
     $.ui.log(`withheld the skill listing from the main agent (${listingNames(e.text).length} skills, ${e.text.length} characters); kept ${keptNames}`, { to: 'debug' })
-    await $.state.set(LISTING, 'withheld')
+    await $.state.set(LISTING, { answered: 'withheld', text: e.text })
     return { text: kept }
   })
 
@@ -114,13 +115,18 @@ export function registerSkills(on: On, ctx: Ctx): void {
   // the effort question (one decision request, sent by the core).
   on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
     if (!isPersonsMessage(e)) return next(e)
-    // The switch flipped since the engine took its answer about the listing: have it ask again.
-    const { value: answered = null } = await $.state.get(LISTING)
-    if (answered !== null && answered !== (active() ? 'withheld' : 'passed')) {
-      $.ui.invalidate('prompt.attachment')
-      await $.state.set(LISTING, null)
+    if (!active()) {
+      // Switched off after the listing was withheld: the engine keeps its answer for the conversation
+      // (a $.ui.invalidate does not bring it back), so the listing goes beside this message, once.
+      const { value: listing = null } = await $.state.get(LISTING)
+      if (listing?.answered !== 'withheld') return next(e)
+      await $.state.set(LISTING, { answered: 'restored', text: listing.text })
+      $.ui.log(`skills is off: the skill listing withheld earlier goes to the main agent with ${quote(e.text)}`, { to: 'debug' })
+      const result = await next({ ...e, context: [...(e.context ?? []), restoredListing(listing.text)] })
+      // Refused beneath: the model never read it.
+      if (result.drop !== undefined) await $.state.set(LISTING, listing)
+      return result
     }
-    if (!active()) return next(e)
     const catalog = (await sessionCatalog($))?.filter((skill) => !neverSuggested.has(skill.name)) ?? null
     const part = catalog === null ? null : ranker.part(catalog)
     if (catalog === null || part === null) return next(e)
@@ -164,19 +170,29 @@ export function registerSkills(on: On, ctx: Ctx): void {
     return result
   })
 
-  // A new conversation (/clear) or a compacted one no longer holds the
-  // descriptions given beside earlier messages: give them again. A new one
-  // also reads the skills afresh.
+  // A new conversation (/clear) or a compacted one no longer holds what was
+  // given beside earlier messages (descriptions, a restored listing): give it
+  // again. A new conversation also reads the skills afresh, and the engine
+  // asks about its listing anew.
   on('session.end', { reason: /(?:)/ }, async ($, e, next) => {
     await $.state.set(SHOWN, [])
     await $.state.set(CATALOG, null)
+    await $.state.set(LISTING, null)
     return next(e)
   })
   on('session.compact', { trigger: /(?:)/ }, async ($, e, next) => {
     const result = await next(e)
-    if (e.agentId === undefined && result.skip === undefined) await $.state.set(SHOWN, [])
+    if (e.agentId !== undefined || result.skip !== undefined) return result
+    await $.state.set(SHOWN, [])
+    const { value: listing = null } = await $.state.get(LISTING)
+    if (listing?.answered === 'restored') await $.state.set(LISTING, { answered: 'withheld', text: listing.text })
     return result
   })
+}
+
+/** The listing the feature withheld, as it goes beside a message once the feature is switched off. */
+function restoredListing(text: string): string {
+  return `Dispatch Pilot's skill suggestions are switched off, so here is the skill listing it had left out:\n\n${text}`
 }
 
 /** The start of a message for the debug log, secrets masked. */

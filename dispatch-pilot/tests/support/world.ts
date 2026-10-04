@@ -128,7 +128,6 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const disk = options.disk ?? {}
   const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
   const commands: CommandSpec[] = []
-  const invalidated: string[] = []
 
   async function answer(reply: Reply): Promise<{ value: { status: number; ok: boolean; headers: Record<string, string>; text: string } } | { deny: string }> {
     if ('after' in reply) {
@@ -187,10 +186,6 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     on('session.usage', () => (skills.listed === null ? { deny: 'no session bound' } : { value: usageListing(skills.listed ?? []) }))
     on('settings.read', (_$, e) => ({ value: e?.source === undefined ? {} : { skillOverrides: skills.overrides?.[e.source] ?? {} } }))
     on('prompt.attachment', (_$, e) => ({ text: e.text }))
-    on('ui.invalidate', (_$, e) => {
-      invalidated.push(e.event)
-      return { value: undefined }
-    })
   }
   on('ui.status', (_$, e) => {
     statuses.push(e.text)
@@ -264,8 +259,6 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     /** The engine's skill listing as one request of a loop carries it (`agentId`: a dispatched agent's; needs `skills`); resolves to what the model reads. */
     listing: (text: string, agentId?: string) =>
       $.prompt.attachment({ type: 'skill_listing', text, origin: { kind: 'engine' }, ...(agentId !== undefined ? { agentId } : {}) }),
-    /** The events whose cached answers the mod asked the engine to ask again (`$.ui.invalidate`; needs `skills`). */
-    invalidated,
     /** Sends one model request through the mod, drained to its end. */
     step: async (step: StepOptions) => {
       const effort = step.effort === undefined ? 'xhigh' : step.effort
