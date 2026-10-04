@@ -3,7 +3,7 @@
 //   node dispatch-pilot/eval/run.ts effort-submit --estimate            what a run would send and cost; nothing is sent
 //   node dispatch-pilot/eval/run.ts effort-submit --label preliminary   every variant, both languages, against Jev
 //
-// Options: --backend jev|clef (jev), --model <id> (the backend's default),
+// Options: --backend jev|clef (jev), --model <id> (Jev's: jev-latest by default; Clef asks clef only),
 // --variants en-score,zh-score (all), --languages zh,en (both), --ids a,b or
 // --limit N (all items), --concurrency 1 (Jev answers one key's requests one
 // after another: on 2026-10-04 the p50 was 271 ms at 1 in flight, 543 ms at
@@ -28,6 +28,7 @@ import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { PluginOptions } from 'claude-code'
 import type { Backend } from '../hooks/decision/backend.ts'
+import { CLEF_MODEL, clefBackend } from '../hooks/decision/clef.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
@@ -95,7 +96,8 @@ for (const assignment of values.option) {
 const settings = settingsFrom(options as PluginOptions)
 
 const backendName = values.backend
-const model = values.model ?? (backendName === 'jev' ? JEV_MODEL : backendName)
+if (backendName === 'clef' && values.model !== undefined && values.model !== CLEF_MODEL) fail(`the Clef backend asks ${CLEF_MODEL} only`)
+const model = backendName === 'clef' ? CLEF_MODEL : (values.model ?? JEV_MODEL)
 const price = PRICES[backendName === 'jev' ? 'jev' : model] ?? fail(`no price known for ${backendName} ${model}`)
 
 // The estimate: the requests a run sends first (a suite that asks a second
@@ -130,9 +132,9 @@ async function makeBackend(): Promise<Backend> {
   }
   if (backendName === 'clef') {
     const accountId = credential('CLOUDFLARE_ACCOUNT_ID') ?? fail(`no CLOUDFLARE_ACCOUNT_ID in the environment or ${CREDENTIALS_FILE}`)
-    const token = credential('CLOUDFLARE_AUTH_TOKEN') ?? fail(`no CLOUDFLARE_AUTH_TOKEN in the environment or ${CREDENTIALS_FILE}`)
-    secrets.push(accountId, token)
-    fail('the Clef backend (hooks/decision/clef.ts, #3) is not in this checkout yet')
+    const apiToken = credential('CLOUDFLARE_AUTH_TOKEN') ?? fail(`no CLOUDFLARE_AUTH_TOKEN in the environment or ${CREDENTIALS_FILE}`)
+    secrets.push(accountId, apiToken)
+    return clefBackend({ accountId, apiToken })
   }
   return fail(`no backend "${backendName}" (jev, clef)`)
 }
