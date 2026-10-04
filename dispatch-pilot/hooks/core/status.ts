@@ -20,6 +20,7 @@ export type Segment = (typeof ORDER)[number]
 
 const segments = new Map<Segment, string>()
 let shown: string | undefined
+let paused = false
 
 /**
  * Sets (or with null clears) one segment, and hands the new line to `show`
@@ -29,8 +30,24 @@ let shown: string | undefined
 export function setStatus(segment: Segment, text: string | null, show: (line: string | undefined) => void): void {
   if (text === null) segments.delete(segment)
   else segments.set(segment, text)
+  refresh(show)
+}
+
+/**
+ * While Dispatch Pilot is switched off the row says only `dp off`, whatever the
+ * segments hold; switched on again it starts empty, until the features set
+ * their segments anew. Only the control feature calls this.
+ */
+export function pauseStatus(value: boolean, show: (line: string | undefined) => void): void {
+  if (value === paused) return
+  paused = value
+  if (!value) segments.clear()
+  refresh(show)
+}
+
+function refresh(show: (line: string | undefined) => void): void {
   const parts = ORDER.flatMap((name) => segments.get(name) ?? [])
-  const line = parts.length > 0 ? `dp ${parts.join(' | ')}` : undefined
+  const line = paused ? 'dp off' : parts.length > 0 ? `dp ${parts.join(' | ')}` : undefined
   if (line === shown) return
   shown = line
   show(line)
@@ -47,6 +64,8 @@ export function failureText(backend: string, failure: Failure): string {
       return `${backend}: unreachable`
     case 'busy':
       return `${backend}: busy (HTTP ${failure.status ?? '?'})`
+    case 'quota':
+      return `${backend}: daily quota used up`
     case 'http':
       return `${backend}: HTTP ${failure.status ?? '?'}`
     case 'parse':

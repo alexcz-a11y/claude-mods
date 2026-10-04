@@ -35,3 +35,19 @@ _Avoid_: 调用、查询
 **计划表（Plan Table）**：
 Dispatch Pilot 在 `$.state` 里按「轮 + agentId」记录每一步该发出的 effort（派出 agent 还有模型）的表；各功能写表，每一步由核心照表发出。
 _Avoid_: 决策表、路由表
+
+**开关（Switch）**：
+用户用 `/dp` 开启或关闭的单位：总开关管整个 mod，每项功能各有一个开关；各功能自己登记，状态保存在 `$.store`，下次启动沿用。总开关关闭时 mod 完全退场：不发决策请求，每一步照引擎原样发出。
+_Avoid_: 设置、配置（配置指 userConfig）
+
+**锁定（Lock）**：
+用户用 `/dp lock` 把主 agent 的 effort 固定在某一档：每一步都按它发出，优先于任何决策；只在当前会话有效，用 `/dp unlock` 解除。
+_Avoid_: 固定、覆盖
+
+**决策日志（Decision Log）**：
+各功能每做出一个决定就记录一条：决定了什么、针对什么、理由。最近 50 条存在 `$.state`，用 `/dp log` 查看，同样的内容写进 debug log，不进入对话。
+_Avoid_: 决策记录
+
+**信号（Signals）**：
+引擎通过 `session.measure` 报告的会话读数：上下文占用、用量限额百分比、会话花费。第一版只记录（写进 debug log），不参与任何决策。
+_Avoid_: 指标、用量
