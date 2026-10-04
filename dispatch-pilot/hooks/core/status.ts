@@ -15,8 +15,9 @@ import type { Failure } from '../decision/backend.ts'
  *   effort    the core's turn.step writer: the main turn's effort as it goes out
  *   decision  the main-effort feature: why the message got no decision
  *   agent     the dispatched-agents feature: the latest dispatched agent's model and effort, or why it got none
+ *   workflow  the workflow-agents feature: how the latest Workflow's agents were routed, or why they were not
  */
-const ORDER = ['effort', 'decision', 'agent'] as const
+const ORDER = ['effort', 'decision', 'agent', 'workflow'] as const
 export type Segment = (typeof ORDER)[number]
 
 const segments = new Map<Segment, string>()
