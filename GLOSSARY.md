@@ -27,3 +27,11 @@ _Avoid_: 子 agent、subagent
 **决策模型（Decision Model）**：
 mod 在 Claude 之外调用的判断模型，只负责给出判断、不参与回答用户；可选 Jev（TypeSafe 提供）或 Clef（Cloudflare Workers AI 提供），由用户二选一。
 _Avoid_: 路由模型、小模型
+
+**决策请求（Decision Request）**：
+发给决策模型的一次请求：一份 state 加若干问题，返回每个问题带概率的回答。用户发消息时，各功能的问题合在同一个决策请求里。
+_Avoid_: 调用、查询
+
+**计划表（Plan Table）**：
+Dispatch Pilot 在 `$.state` 里按「轮 + agentId」记录每一步该发出的 effort（派出 agent 还有模型）的表；各功能写表，每一步由核心照表发出。
+_Avoid_: 决策表、路由表
