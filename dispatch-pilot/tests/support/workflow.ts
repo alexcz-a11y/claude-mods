@@ -104,6 +104,8 @@ export type SiteAnswer = {
   effort?: readonly number[]
   /** Each yes/no question's answer by its id within the part (`named.haiku`); the rest get 0. */
   nouls?: Record<string, number>
+  /** The named-effort question's probability for each option (`none`, `low` .. `max`); without it the answer is `none`. */
+  namedEffort?: Record<string, number>
 }
 
 /**
@@ -121,7 +123,8 @@ export function siteJev(answers: (index: number) => SiteAnswer) {
       const local = site ? (site[2] as string) : id
       if (question.type === 'choice') {
         const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
-        const probabilities = Object.fromEntries(options.map((option) => [option, answer.model?.[option] ?? 0]))
+        const given = local === 'named_effort' ? (answer.namedEffort ?? { none: 1 }) : answer.model
+        const probabilities = Object.fromEntries(options.map((option) => [option, given?.[option] ?? 0]))
         const choice = options.reduce((best, option) => ((probabilities[option] ?? 0) > (probabilities[best] ?? 0) ? option : best), options[0] ?? '')
         out[id] = { type: 'choice', choice, probabilities, confidence: 0.5 }
       } else if (question.type === 'score') {

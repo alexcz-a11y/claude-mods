@@ -5,7 +5,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
-import { AGENT_MODELS, decideDispatch, dispatchBrief, dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
+import { AGENT_MODELS, decideDispatch, dispatchBrief, dispatchPart, dispatchState, mentionsEffort, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { mergeParts, QUESTION_ID, type Answer } from '../hooks/decision/system-one.ts'
 
 /** subagent.jsonl's item shape (`zh`). */
@@ -115,6 +115,50 @@ test('the person naming and ruling out models: the thresholds are settings; a ru
   expect(decideDispatch(all, item, SETTINGS)).toMatchObject({ model: null, source: 'none', pick: null, banned: ['haiku', 'sonnet', 'opus'] })
   // The main agent asked for a model nobody ruled out: it stands.
   expect(decideDispatch(all, { ...item, requested_model: 'fable' }, SETTINGS)).toMatchObject({ model: 'fable', source: 'requested', effort: 'high' })
+})
+
+test("a model ruled out is in no branch the one the agent ends on: with no probability left on the others the nearest one to the answer's choice (a tie to the cheaper), else to the main agent's pick, takes its place; with none left nothing is decided", () => {
+  const effort = score([0, 0, 1, 0, 0])
+  const out = (model: Record<string, number> | null, banned: string[], item: Dispatch = { ...REVIEW, requested_model: null }) =>
+    decideDispatch({ ...(model === null ? {} : { model: choice(model) }), effort, ...Object.fromEntries(banned.map((m) => [`banned.${m}`, noul(0.9)])) }, item, SETTINGS)
+
+  // Everything on opus, opus ruled out: sonnet is the nearest left; the answer is no confident one.
+  expect(out({ haiku: 0, sonnet: 0, opus: 1 }, ['opus'])).toMatchObject({ model: 'sonnet', source: 'decided', pick: { model: 'sonnet', confidence: 0, nearest: true } })
+  // Everything on sonnet, sonnet ruled out: haiku and opus are as near; the cheaper.
+  expect(out({ haiku: 0, sonnet: 1, opus: 0 }, ['sonnet'])).toMatchObject({ model: 'haiku' })
+  // Even asked for by the main agent, and even with the answer lacking altogether (only the effort was answered).
+  expect(out({ haiku: 0, sonnet: 0, opus: 1 }, ['opus'], REVIEW)).toMatchObject({ model: 'sonnet', source: 'decided' })
+  expect(out(null, ['opus'], REVIEW)).toMatchObject({ model: 'sonnet', source: 'decided' })
+  // Some probability left on the others: the most probable of them, as before.
+  expect(out({ haiku: 0.1, sonnet: 0, opus: 0.9 }, ['opus'])).toMatchObject({ model: 'haiku', pick: { confidence: 1 } })
+  // Nothing ruled out and no model answer: the engine's choice stands.
+  expect(out(null, [])).toMatchObject({ model: null, source: 'none' })
+  expect(out({ haiku: 0, sonnet: 0, opus: 0 }, [])).toMatchObject({ model: null, source: 'none' })
+})
+
+test("an effort the person names: asked only when their words may name one; the level the answer favours, when it beats none and reaches 0.5; haiku takes none", () => {
+  expect(mentionsEffort('用 sonnet、effort 开 low 跑就行')).toBe(true)
+  expect(mentionsEffort('all agents at extra high please')).toBe(true)
+  expect(mentionsEffort('推理强度拉满')).toBe(true)
+  expect(mentionsEffort('给 utils/date.ts 补几个边界情况的单测')).toBe(false)
+  const part = dispatchPart({ ...REVIEW, user_message: '这次所有 agent 的 effort 都开 high' })
+  const question = part.questions.named_effort
+  expect(question?.type === 'choice' && Object.keys(question.criteria)).toEqual(['none', 'low', 'medium', 'high', 'xhigh', 'max'])
+  expect(Object.keys(dispatchPart(REVIEW).questions)).not.toContain('named_effort')
+
+  const sonnet = choice({ haiku: 0, sonnet: 1, opus: 0 })
+  const effort = score([0, 0, 0, 1, 0])
+  const sure = decideDispatch({ model: sonnet, effort, named_effort: choice({ none: 0.05, low: 0.9, medium: 0.05 }) }, REVIEW, SETTINGS)
+  expect(sure).toMatchObject({ model: 'sonnet', effort: 'low', namedEffort: 'low', effortSource: 'user' })
+  // Unsure (0.4), or none the most probable: the decided effort stands.
+  expect(decideDispatch({ model: sonnet, effort, named_effort: choice({ none: 0.3, low: 0.4, medium: 0.3 }) }, REVIEW, SETTINGS)).toMatchObject({ effort: 'xhigh', namedEffort: null, effortSource: 'decided' })
+  expect(decideDispatch({ model: sonnet, effort, named_effort: choice({ none: 0.6, low: 0.4 }) }, REVIEW, SETTINGS)).toMatchObject({ effort: 'xhigh', namedEffort: null })
+  // The threshold is thetaNamed, as for a model.
+  expect(decideDispatch({ model: sonnet, effort, named_effort: choice({ none: 0.1, low: 0.6, medium: 0.3 }) }, REVIEW, { ...SETTINGS, thetaNamed: 0.7 })).toMatchObject({ effort: 'xhigh', namedEffort: null })
+  // Without an effort answer the named level still stands; on haiku it cannot be set.
+  expect(decideDispatch({ model: sonnet, named_effort: choice({ none: 0, max: 1 }) }, REVIEW, SETTINGS)).toMatchObject({ effort: 'max', effortSource: 'user' })
+  const haiku = decideDispatch({ model: choice({ haiku: 1, sonnet: 0, opus: 0 }), effort, named_effort: choice({ none: 0, high: 1 }), 'named.haiku': noul(0.9) }, { ...REVIEW, requested_model: null }, SETTINGS)
+  expect(haiku).toMatchObject({ model: 'haiku', effort: null, namedEffort: 'high', effortSource: 'none' })
 })
 
 test("requested_fits variant: the main agent's pick is no hint but a question of its own, and goes only when the work is also outside what it covers", () => {
