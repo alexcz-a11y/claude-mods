@@ -122,6 +122,33 @@ declare module 'claude-code' {
        */
       said: string[]
       /**
+       * The Workflows the workflow-agents feature sent back to the main agent
+       * (return mode), as a hash of each one's name and prompts, oldest first,
+       * at most 16: a Workflow is sent back once, its second submission runs.
+       */
+      returned: string[]
+      /**
+       * What the workflow-agents feature did with each Workflow run, id = the
+       * run's id (`runId` of the Workflow tool's result). Written as the tool
+       * returns, a few milliseconds before the run's first agent takes a step
+       * (16 ms measured on 2.1.289): a reader on that step may find nothing yet.
+       */
+      workflows: StateFamily<{
+        /** Whether model and effort were written into the run's script; the persisted script (`scriptPath`) holds them. */
+        rewritten: boolean
+        /**
+         * When not: why, in a word. `scriptPath`, `name` or `resume` (an input it does not rewrite),
+         * `unreadable` (a script it cannot read, or none of whose agent() prompts it can), `failed` (no
+         * decision), `second` (return mode: the Workflow was sent back before), `no agents`,
+         * `rewrite failed` (the tool refused the rewritten script; the original ran).
+         */
+        reason: string
+        /** The agent() calls it decided, by label (null: the call has none, or its label is built when the script runs). */
+        agents: { label: string | null; model: string | null; effort: string | null }[]
+        /** The agent() calls it left as the script wrote them. */
+        left: number
+      }>
+      /**
        * Skills the main agent has had described beside a message in this
        * conversation (#10): suggested again, they are only named. Emptied by
        * /compact and /clear.
@@ -129,7 +156,9 @@ declare module 'claude-code' {
       skillsShown: string[]
       /**
        * The session's skills (hooks/core/skills.ts `CatalogSkill`), read once
-       * per session (#10; #11 and #12 read it too). null: read it again.
+       * per session (#10; #11 reads it too). find_skill (#12) reads it, and
+       * reads and keeps it itself when the skills feature did not. null: read
+       * it again.
        */
       skillCatalog: {
         skills: { name: string; description: string; by: 'model' | 'person'; source: string }[]

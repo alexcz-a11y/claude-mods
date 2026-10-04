@@ -13,9 +13,11 @@ import { setup } from './core/setup.ts'
 import { registerControl } from './features/control.ts'
 import { registerDispatchedAgents } from './features/dispatched-agents.ts'
 import { registerEscalation } from './features/escalation.ts'
+import { registerFindSkill } from './features/find-skill.ts'
 import { registerMainEffort } from './features/main-effort.ts'
 import { registerMidturnEffort } from './features/midturn-effort.ts'
 import { registerSkills } from './features/skills.ts'
+import { registerWorkflowAgents } from './features/workflow-agents.ts'
 
 export const register: Register = (on, options) => {
   const ctx = setup(options)
@@ -26,7 +28,9 @@ export const register: Register = (on, options) => {
   registerEscalation(on, ctx) // above the mid-turn feature: its raise is in the plan before a mid-turn answer is applied
   registerMidturnEffort(on, ctx)
   registerDispatchedAgents(on, ctx)
+  registerWorkflowAgents(on, ctx)
   registerSkills(on, ctx)
+  registerFindSkill(on, ctx)
 
   // The core: always last.
   registerCore(on, ctx)

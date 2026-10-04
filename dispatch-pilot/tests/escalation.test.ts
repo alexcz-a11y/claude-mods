@@ -105,6 +105,20 @@ test('a call one of your hooks blocked is not a failure unless the hook-block-fa
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium'])
 })
 
+test("a call a plugin's own tool.call hook refused (as Dispatch Pilot hands a Workflow script back) is nobody's failure, whatever the switches say", { options: ONLY }, async ($, on) => {
+  on('tool.call', { tool: /^Handback$/ }, () => ({ deny: 'Workflow sent back with a recommendation for each agent' }))
+  const w = world($, on, { backend: answers(MEDIUM), store: {}, session: true })
+  await w.start()
+  await w.command('dp', 'hook-block-failures on')
+  await w.submit('把登录模块重构成三层')
+  await w.step({ index: 0, tools: [{ tool: 'Handback', input: {} }, { tool: 'Handback', input: {} }] })
+  await w.step({ index: 1 })
+
+  expect(w.requests.map(kind)).toEqual(['effort.level'])
+  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium'])
+  expect(w.status()).toBe('dp effort medium')
+})
+
 test('with the hook-block-failures switch on, the same blocks count: the loop is asked about, and goes one level higher', { options: ONLY }, async ($, on) => {
   const w = world($, on, { backend: answers(MEDIUM), store: {}, session: true })
   await w.start()

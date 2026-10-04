@@ -117,7 +117,9 @@ export function registerEscalation(on: On, ctx: Ctx): void {
     // The calls the model made, not another plugin's `$.tool.call`.
     if (next.origin.plugin !== 'engine' || !isOn(SWITCH)) return result
     try {
-      const outcome = outcomeOf(e.tool, result, wasBlocked(e.tool_use_id))
+      // A refusal by a plugin's tool.call hook (`{ deny }`) is nobody's failure and no settings hook's block: the
+      // Workflow feature's hand-back of a script is one. Only what the tool reported, and what the settings hooks refused, count.
+      const outcome = typeof result.deny === 'string' ? 'ok' : outcomeOf(e.tool, result, wasBlocked(e.tool_use_id))
       if (outcome === 'failed' || outcome === 'blocked') {
         const ref = { ...ESCALATION, id: e.agentId ?? MAIN_ID }
         const cell: Cell<Strain> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
