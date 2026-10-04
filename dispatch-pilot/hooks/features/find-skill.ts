@@ -167,7 +167,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       const request = mergeParts(turnStartState({ prompt: query, messages, limits: ctx.config.context }), [part])
       const asked = await askLogged($, ctx, 'request', about, request, ctx.config.timeoutMs)
       const ranked = asked.ok ? await ranker.rank(answersFor(part, asked.answers), candidates, { state: request.state }) : null
-      const failure = !asked.ok ? asked.failure : ranked === null ? { kind: 'parse' as const, detail: 'no answer about the skills' } : ranked.failed?.failure
+      const failure = !asked.ok ? asked.failure : ranked === null ? { kind: 'parse' as const, detail: 'no answer about the skills' } : ranked.failed
       if (ranked === null || failure !== undefined) {
         const why = failureText(ctx.backend.name, failure ?? { kind: 'parse', detail: 'no answer about the skills' })
         show(`find_skill failed (${why})`)

@@ -337,8 +337,8 @@ export function registerSkills(on: On, ctx: Ctx): void {
           return
         }
         if (ranked.failed !== undefined) {
-          $.ui.log(`skills for ${quote(e.text)}: not rated, the ${ranked.failed.stage} request failed (${ranked.failed.failure.kind}: ${ranked.failed.failure.detail})`, { to: 'debug' })
-          setStatus('skills', `skills not rated (${failureText(ctx.backend.name, ranked.failed.failure)})`, show)
+          $.ui.log(`skills for ${quote(e.text)}: not rated, the second request failed (${ranked.failed.kind}: ${ranked.failed.detail})`, { to: 'debug' })
+          setStatus('skills', `skills not rated (${failureText(ctx.backend.name, ranked.failed)})`, show)
           return
         }
         const { suggest, hint } = pickSkills(ranked, catalog, policy)

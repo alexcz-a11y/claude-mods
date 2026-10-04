@@ -8,7 +8,7 @@
 
 import type { PluginOptions } from 'claude-code'
 import type { Language } from '../decision/effort.ts'
-import { SHORTLIST_FLOOR, type RankerSettings, type SkillOption, type SkillRanking } from '../decision/skills.ts'
+import { questionBudget, SHORTLIST_FLOOR, type RankerSettings, type SkillOption, type SkillRanking } from '../decision/skills.ts'
 import { numberIn } from './setup.ts'
 
 /**
@@ -29,14 +29,16 @@ export function describeStages(ranking: SkillRanking): string {
 /**
  * How skills are ranked (`modRanker`'s settings), read from the person's
  * options the same way wherever skills are ranked: the message's suggestions
- * and find_skill (#12). Each stage may take up to `timeoutMs`; a message's
- * second stage gets only what the first left of it (features/skills.ts).
+ * and find_skill (#12). Stage one's question fits beside the state the
+ * person's context budget allows; stage two may take up to `timeoutMs` (a
+ * message's gets only what its first request left of it, features/skills.ts).
  */
-export function rankingSettings(ctx: { options: PluginOptions; config: { timeoutMs: number }; ask: { language: Language } }): RankerSettings {
+export function rankingSettings(ctx: { options: PluginOptions; config: { timeoutMs: number; context: { tokens: number } }; ask: { language: Language } }): RankerSettings {
   return {
     language: ctx.ask.language,
     shortlist: Math.round(numberIn(ctx.options.skillsShortlist, 1, 10, 4)),
-    timeoutMs: { first: ctx.config.timeoutMs, second: ctx.config.timeoutMs },
+    questionTokens: questionBudget(ctx.config.context.tokens),
+    timeoutMs: ctx.config.timeoutMs,
   }
 }
 
