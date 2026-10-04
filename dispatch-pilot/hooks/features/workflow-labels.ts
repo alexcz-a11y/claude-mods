@@ -193,7 +193,9 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
 /** At an agent's first step: finds the run and the call it belongs to, and plans its steps. */
 async function routeAgent($: EngineInterface, ctx: Ctx, settings: DispatchSettings, agentId: string, stepModel: string): Promise<void> {
   const deadline = (await $.clock.now()) + STEP_BUDGET_MS
-  const { value: runs = [] } = await $.state.get(RUNS)
+  // An agent with a plan already is someone's: dispatched (and planned at its spawn), or decided at a first step the engine sends again.
+  const [{ value: planned }, { value: runs = [] }] = await Promise.all([$.state.get({ ...AGENTS, id: agentId }), $.state.get(RUNS)])
+  if (planned !== undefined) return
   let found = await findAgent($, runs, agentId)
   if (found === null && launching.size > 0) found = await findAgent($, await settleLaunches($, deadline), agentId)
   if (found === null) return

@@ -313,6 +313,20 @@ test("with Clef as the decision model, the request made as an agent starts passe
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 high'])
 })
 
+test("an agent that already has a plan (one the main agent dispatched, or a first step the engine sends again after an error) keeps it: nothing is asked again", { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: siteJev(() => ({ model: { opus: 0.9 }, effort: [0, 0, 1, 0, 0] })) })
+  await w.workflow({ scriptPath: SAVED })
+  w.started('wf_test-1', 'wa1', 'first')
+  w.transcript('wf_test-1', 'wa1', 'Find why the nightly import drops rows, and fix it.')
+  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  // The engine sends the first request again (a retry after an API error).
+  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  expect(w.requests).toHaveLength(1)
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 high', 'wa1 claude-opus-5-5 high'])
+  expect(w.status()).toBe('dp workflow not routed (given by path) | by label: routed 1 agent')
+})
+
 /** A saved workflow: a pipeline over files, each stage's label a template. */
 const MIGRATE = `export const meta = { name: 'migrate-logger', description: 'Move each file to the new logger API', phases: [] }
 const results = await pipeline(args, (file) => agent(\`Replace the old logger calls in \${file} with the new API; do not change behaviour.\`, { label: \`migrate:\${file}\` }), (done, file) => agent(\`Check \${file} still compiles: run tsc --noEmit and report errors only.\`, { label: \`check:\${file}\` }))
