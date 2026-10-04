@@ -47,8 +47,8 @@ test('each agent() of a submitted script is written with the model and effort de
   expect(w.requests[0]?.body.state.brief_1.label).toBe('review')
   // The main agent reads what was written, per agent.
   const told = (result.context ?? []).join('\n')
-  expect(told).toMatch(/"rename".*sonnet.*medium/)
-  expect(told).toMatch(/"review".*opus.*xhigh/)
+  expect(told).toContain('"rename": sonnet medium (model: decided, confidence 0.70; effort: p 0.80)')
+  expect(told).toContain('"review": opus xhigh (model: decided, confidence 0.85; effort: p 0.80)')
   expect(w.status()).toBe('dp workflow routed 2 agents')
 })
 
@@ -61,8 +61,7 @@ return files
   const result = await w.workflow({ script: scan })
 
   expect(w.reached.map((r) => r.script)).toEqual([scan.replace("{ label: 'scan', effort: 'high' }", "{ label: 'scan', model: 'haiku' }")])
-  expect((result.context ?? []).join('\n')).toMatch(/"scan".*haiku/)
-  expect((result.context ?? []).join('\n')).not.toMatch(/"scan".*haiku.*(low|medium|high|max)/)
+  expect((result.context ?? []).join('\n')).toContain('"scan": haiku (model: decided, confidence 0.85; haiku takes no effort)')
 })
 
 test("the model the script wrote reaches the decision model as a hint, and stands unless it is sure of another one (agentOverride, default 0.6)", { options: KEY }, async ($, on) => {

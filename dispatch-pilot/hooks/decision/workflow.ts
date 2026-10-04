@@ -183,6 +183,28 @@ export function reasonOf(decision: DispatchDecision, requested: string | null, t
   return parts.join('; ')
 }
 
+/** Why a call got the model and effort it did, in a few words for the main agent: whose model it is, how sure the decision model was, how likely its effort level. */
+function whyOf(decision: DispatchDecision): string {
+  const model =
+    decision.source === 'user'
+      ? 'model: you asked for it'
+      : decision.source === 'requested'
+        ? "model: the script's own kept"
+        : decision.pick === null
+          ? ''
+          : `model: decided, confidence ${decision.pick.confidence.toFixed(2)}`
+  const level = decision.effort === null ? -1 : EFFORTS.indexOf(decision.effort)
+  const effort =
+    decision.effort === null
+      ? decision.model === 'haiku'
+        ? 'haiku takes no effort'
+        : ''
+      : decision.reading === null
+        ? ''
+        : `effort: p ${(decision.reading.probabilities[level] ?? 0).toFixed(2)}`
+  return [model, effort].filter((part) => part !== '').join('; ')
+}
+
 /** Why a call was left as the script wrote it, in a few words. */
 function leftText(outcome: Extract<CallOutcome, { kind: 'left' }>, describe: (failure: Failure) => string): string {
   switch (outcome.reason) {
@@ -256,10 +278,9 @@ export function rewriteNote(parsed: ParsedWorkflow, outcomes: readonly CallOutco
   const lines = outcomes.map((outcome, index) => {
     const call = parsed.calls[index] as AgentCall
     if (outcome.kind === 'left') return `${callName(call)}: left as written (${leftText(outcome, describe)})`
-    const how = outcome.decision.source === 'user' ? 'you asked for this model' : outcome.decision.source === 'requested' ? 'your model kept' : outcome.decision.pick === null ? '' : `model confidence ${outcome.decision.pick.confidence.toFixed(2)}`
-    return outcome.kind === 'kept'
-      ? `${callName(call)}: kept as written (${outcomeOf(call, outcome.decision)})`
-      : `${callName(call)}: ${outcomeOf(call, outcome.decision)}${how === '' ? '' : ` (${how})`}`
+    if (outcome.kind === 'kept') return `${callName(call)}: kept as written (${outcomeOf(call, outcome.decision)})`
+    const why = whyOf(outcome.decision)
+    return `${callName(call)}: ${outcomeOf(call, outcome.decision)}${why === '' ? '' : ` (${why})`}`
   })
   const written = outcomes.some((outcome) => outcome.kind === 'written')
   const header = written
