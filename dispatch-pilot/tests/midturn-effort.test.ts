@@ -195,6 +195,38 @@ test('a re-decision that fails leaves the effort as it was, and the status line 
   expect(w.status()).toBe('dp effort medium | step 3, judged 1, changed 0 (jev: busy (HTTP 503))')
 })
 
+test('each re-decision is recorded with why it went where it did (debug log and /dp log)', { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {
+  const w = world($, on, { backend: answers(MEDIUM, { levels: XHIGH, confidence: 0.8 }, { levels: LOW, confidence: 0.9 }), store: {}, session: true })
+  await w.start()
+  await w.submit('把登录模块重构成三层')
+  for (const index of [0, 1, 2, 3]) await w.step(working(index))
+  await w.step({ index: 4 })
+
+  const mine = (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' midturn-effort: '))
+  expect(mine).toEqual([
+    '#2 midturn-effort: effort xhigh (was medium) for step 2 (every 2 steps): p low 0.00, medium 0.00, high 0.10, xhigh 0.80, max 0.10; confidence 0.80; up',
+    '#3 midturn-effort: effort xhigh (kept) for step 4 (every 2 steps): p low 0.90, medium 0.10, high 0.00, xhigh 0.00, max 0.00; confidence 0.90; held: raised 2 steps ago (holdSteps 3)',
+  ])
+  expect(w.logs.filter((l) => l.text.startsWith('effort xhigh (was medium) for step 2')).map((l) => l.to)).toEqual(['debug'])
+})
+
+test('/dp midturn-effort off stops the re-decisions; switched on again they resume', { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {
+  const w = world($, on, { backend: answers(MEDIUM, { levels: XHIGH, confidence: 0.8 }), store: {}, session: true })
+  await w.start()
+  expect(await w.command('dp', 'midturn-effort off')).toContain('midturn-effort is off')
+  await w.submit('把登录模块重构成三层')
+  await w.step(working(0))
+  await w.step(working(1))
+  await w.step(working(2))
+  expect(w.requests.map(kind)).toEqual(['effort.level'])
+
+  await w.command('dp', 'midturn-effort on')
+  await w.step(working(3)) // its call starts the re-decision for step 4
+  await w.step({ index: 4 })
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level'])
+  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium', 'medium', 'xhigh'])
+})
+
 test('no re-decision while the person has locked the effort, nor in a turn that was not routed when it started', { options: { ...KEY, rejudgeEvery: 1 } }, async ($, on) => {
   let locked: string | null = 'high'
   on('state.get', async (_$, e, next) => (e.key === 'lock' ? { value: { value: locked, version: 1 } } : next(e)))

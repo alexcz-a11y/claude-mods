@@ -13,7 +13,7 @@
 import type { EngineInterface, HttpInit, On } from 'claude-code'
 import type { Asked } from '../decision/backend.ts'
 import { messageText } from '../decision/context.ts'
-import { higherEffort, isEffort, readEffort, type Effort } from '../decision/effort.ts'
+import { EFFORTS, higherEffort, isEffort, readEffort, type Effort, type EffortReading } from '../decision/effort.ts'
 import {
   contentLanguage,
   judgeMidturn,
@@ -23,20 +23,27 @@ import {
   outcomeOf,
   resultLine,
   toolDetail,
+  verdictReason,
   type MidturnInput,
   type MidturnLimits,
   type MidturnRules,
   type Outcome,
 } from '../decision/midturn.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
+import { recordDecision } from '../core/decisions.ts'
 import { revise, turnKey, update, type Cell, type TurnRecord } from '../core/plans.ts'
 import { numberIn, type Ctx } from '../core/setup.ts'
 import { failureText, setStatus } from '../core/status.ts'
+import { defineSwitch, isOn } from '../core/switches.ts'
 
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
 const MIDTURN = { plugin: 'dispatch-pilot', key: 'midturn' } as const
 const MAIN_STEP = { plugin: 'dispatch-pilot', key: 'mainStep' } as const
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
+const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+
+/** The feature's switch (`/dp midturn-effort on|off`). */
+const SWITCH = 'midturn-effort'
 
 type ToolEnd = { name: string; detail: string; outcome: Exclude<Outcome, 'running'> }
 type StepRecord = { index: number; text: string; tools: ToolEnd[] }
@@ -85,6 +92,7 @@ const streamed = new Map<string, { index: number; block: number; text: string }>
 const blockedByHook = new Set<string>()
 
 export function registerMidturnEffort(on: On, ctx: Ctx): void {
+  defineSwitch({ name: SWITCH, info: "re-decides the main agent's effort while a turn runs", segments: ['midturn'] })
   const settings: Settings = {
     ctx,
     every: Math.round(numberIn(ctx.options.rejudgeEvery, 0, 50, 3)),
@@ -107,7 +115,7 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
 
   on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {
     // The main agent's own calls only: not a dispatched agent's, nor another plugin's $.tool.call.
-    if (e.agentId !== undefined || next.origin.plugin !== 'engine') {
+    if (e.agentId !== undefined || next.origin.plugin !== 'engine' || !isOn(SWITCH)) {
       const result = await next(e)
       blockedByHook.delete(e.tool_use_id)
       return result
@@ -136,7 +144,7 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
   })
 
   on('turn.step', { turnId: /(?:)/ }, async function* ($, e, next) {
-    if (e.agentId !== undefined) return yield* next(e)
+    if (e.agentId !== undefined || !isOn(SWITCH)) return yield* next(e)
     const key = turnKey(e.turnId, undefined)
     try {
       const note = await settle($, settings, e, key)
@@ -246,10 +254,21 @@ async function settle($: EngineInterface, s: Settings, e: { index: number; effor
   if (reading === null) return failureText(s.ctx.backend.name, { kind: 'parse', detail: 'no effort answer' })
   const current = higherEffort(turn.effort ?? engine, turn.floor) as Effort
   const sinceRaise = record.raisedAt === null ? null : e.index - record.raisedAt
-  const verdict = judgeMidturn(reading, { current, sinceRaise, atLeast: turn.floor }, s.rules)
+  const position = { current, sinceRaise, atLeast: turn.floor }
+  const verdict = judgeMidturn(reading, position, s.rules)
   const ref = { ...TURNS, id: key }
   const cell: Cell<TurnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
   await update(cell, (r) => decided(r ?? turn, current, verdict.effort))
+  await recordDecision(
+    { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+    (line) => $.ui.log(line, { to: 'debug' }),
+    {
+      feature: SWITCH,
+      outcome: `effort ${verdict.effort} ${verdict.effort === current ? '(kept)' : `(was ${current})`}`,
+      about: `step ${e.index} (${pending.reason})`,
+      reason: `${describeReading(reading)}; ${verdictReason(verdict, position, s.rules)}`,
+    },
+  )
   if (verdict.why === 'up') {
     const own = { ...MIDTURN, id: key }
     const ownCell: Cell<MidturnRecord> = { get: () => $.state.get(own), set: (value, options) => $.state.set(own, value, options) }
@@ -318,6 +337,12 @@ function withText(record: MidturnRecord, index: number, text: string): MidturnRe
 /** The turn's record after a re-decision: its effort set when the level moves (counted as a change), the decision counted either way. */
 function decided(record: TurnRecord, current: Effort, next: Effort): TurnRecord {
   return next === current ? { ...record, decisions: record.decisions + 1 } : revise({ ...record, effort: current }, next)
+}
+
+/** Every level's probability and the backend's confidence, for the decision log. */
+function describeReading(reading: EffortReading): string {
+  const levels = EFFORTS.map((level, i) => `${level} ${(reading.probabilities[i] ?? 0).toFixed(2)}`).join(', ')
+  return `p ${levels}; confidence ${reading.confidence === null ? 'n/a' : reading.confidence.toFixed(2)}`
 }
 
 function describe(error: unknown): string {

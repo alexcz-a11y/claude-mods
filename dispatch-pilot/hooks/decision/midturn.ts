@@ -194,6 +194,9 @@ export type MidturnPosition = {
 /** Why a decision left the level where it did. */
 export type MidturnWhy = 'same' | 'up' | 'down' | 'unsure' | 'held'
 
+/** A mid-turn decision: the level to go on at and why, with what the answer said (its pick and how sure it was). */
+export type MidturnVerdict = { effort: Effort; why: MidturnWhy; picked: Effort; confidence: number }
+
 /**
  * The level the turn goes on at after a mid-turn answer: the answer's level
  * (pickEffort: the most likely, max only past thetaMax) when it is higher and
@@ -203,15 +206,35 @@ export type MidturnWhy = 'same' | 'up' | 'down' | 'unsure' | 'held'
  * backend's confidence, or the most likely level's probability when the
  * backend gives none.
  */
-export function judgeMidturn(reading: EffortReading, position: MidturnPosition, rules: MidturnRules): { effort: Effort; why: MidturnWhy } {
+export function judgeMidturn(reading: EffortReading, position: MidturnPosition, rules: MidturnRules): MidturnVerdict {
   const { current } = position
   const picked = pickEffort(reading, rules.thetaMax)
   const confidence = reading.confidence ?? Math.max(...reading.probabilities)
   const at = (level: Effort) => EFFORTS.indexOf(level)
-  if (at(picked) > at(current)) return confidence >= rules.thetaUp ? { effort: picked, why: 'up' } : { effort: current, why: 'unsure' }
+  const verdict = (effort: Effort, why: MidturnWhy): MidturnVerdict => ({ effort, why, picked, confidence })
+  if (at(picked) > at(current)) return confidence >= rules.thetaUp ? verdict(picked, 'up') : verdict(current, 'unsure')
   if (at(picked) < at(current)) {
-    if (position.sinceRaise !== null && position.sinceRaise < rules.holdSteps) return { effort: current, why: 'held' }
-    return confidence >= Math.max(rules.thetaDown, rules.thetaUp) ? { effort: EFFORTS[at(current) - 1] as Effort, why: 'down' } : { effort: current, why: 'unsure' }
+    if (position.sinceRaise !== null && position.sinceRaise < rules.holdSteps) return verdict(current, 'held')
+    return confidence >= Math.max(rules.thetaDown, rules.thetaUp) ? verdict(EFFORTS[at(current) - 1] as Effort, 'down') : verdict(current, 'unsure')
   }
-  return { effort: current, why: 'same' }
+  return verdict(current, 'same')
+}
+
+/** Why a verdict went where it did, in a few words for the decision log: `up`, `held: raised 2 steps ago (holdSteps 3)`. */
+export function verdictReason(verdict: MidturnVerdict, position: MidturnPosition, rules: MidturnRules): string {
+  switch (verdict.why) {
+    case 'up':
+      return 'up'
+    case 'down':
+      return `down one level, toward ${verdict.picked}`
+    case 'held':
+      return `held: raised ${position.sinceRaise ?? 0} steps ago (holdSteps ${rules.holdSteps})`
+    case 'unsure': {
+      const up = EFFORTS.indexOf(verdict.picked) > EFFORTS.indexOf(position.current)
+      const needed = up ? rules.thetaUp : Math.max(rules.thetaDown, rules.thetaUp)
+      return `${verdict.picked} not sure enough (needs ${up ? 'thetaUp' : 'thetaDown'} ${needed.toFixed(2)})`
+    }
+    case 'same':
+      return 'same level'
+  }
 }
