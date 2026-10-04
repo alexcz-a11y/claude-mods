@@ -81,8 +81,10 @@ test('two failed tool calls: the next step is asked about again, with the troubl
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'high'])
 })
 
-test('a call the person refused is never a failure, however often they refuse', { options: ONLY }, async ($, on) => {
-  const w = world($, on, { backend: answers(MEDIUM) })
+test('a call the person refused is never a failure, however often they refuse, and no hook block either (even with hook blocks counting)', { options: ONLY }, async ($, on) => {
+  const w = world($, on, { backend: answers(MEDIUM), store: {}, session: true })
+  await w.start()
+  await w.command('dp', 'hook-block-failures on')
   await w.submit('把 main 分支推上去')
   await w.step(calls(0, { error: REFUSED_AT_PROMPT }))
   await w.step(calls(1, { error: REFUSED_AT_PROMPT }))
