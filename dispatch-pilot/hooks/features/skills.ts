@@ -277,7 +277,7 @@ export function registerSkills(on: On, ctx: Ctx): void {
   })
 
   // The engine's skill listing, as each request of a loop carries it (the
-  // engine keeps the answer for the process). The main agent's gives way to
+  // engine keeps the answer for the conversation). The main agent's gives way to
   // a fixed note on how to come by a skill, after the skills always listed.
   // A dispatched agent's (and a workflow agent's) reaches it untouched.
   on('prompt.attachment', { type: 'skill_listing' }, async ($, e, next) => {
