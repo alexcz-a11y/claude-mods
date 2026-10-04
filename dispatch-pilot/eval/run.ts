@@ -5,7 +5,10 @@
 //
 // Options: --backend jev|clef (jev), --model <id> (the backend's default),
 // --variants en-score,zh-score (all), --languages zh,en (both), --ids a,b or
-// --limit N (all items), --concurrency 4, --timeout 10000 (ms per attempt),
+// --limit N (all items), --concurrency 1 (Jev answers one key's requests one
+// after another: on 2026-10-04 the p50 was 271 ms at 1 in flight, 543 ms at
+// 2 and 684-1134 ms at 4, so latency is only the mod's at 1; more is faster
+// for accuracy alone), --timeout 10000 (ms per attempt),
 // --retries 2, --option contextTokens=4000 (one of the mod's options, as
 // /config sets it; the manifest's defaults otherwise), --max-usd 1 (refuse a
 // run estimated to cost more), --label <word>, --no-save.
@@ -47,7 +50,7 @@ const { values, positionals } = parseArgs({
     languages: { type: 'string', default: LANGUAGES.join(',') },
     ids: { type: 'string' },
     limit: { type: 'string' },
-    concurrency: { type: 'string', default: '4' },
+    concurrency: { type: 'string', default: '1' },
     timeout: { type: 'string', default: '10000' },
     retries: { type: 'string', default: '2' },
     option: { type: 'string', multiple: true, default: [] },
