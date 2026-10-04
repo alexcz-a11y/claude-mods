@@ -126,6 +126,57 @@ test('/dp off stands the fallback down too: nothing is asked when a Workflow sta
   expect(w.status()).toBe('dp off')
 })
 
+test('a decision request that fails when the run starts leaves its agents as the script has them, and the status line says why', { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, { disk: { [SAVED]: TIDY }, backend: () => ({ status: 500, body: 'Internal Server Error' }) })
+  const result = await w.workflow({ scriptPath: SAVED })
+  expect(result.isError).toBeUndefined()
+  expect(w.status()).toBe('dp workflow not routed (given by path) | by label: not routed (jev: HTTP 500)')
+
+  w.started('wf_test-1', 'wa1', 'rename')
+  await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+  // Nothing more is asked as the agent starts.
+  expect(w.requests).toHaveLength(1)
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 xhigh'])
+})
+
+test("an agent whose own decision fails goes out as the engine made it; the status line counts the routed and says why the others were not", { options: KEY }, async ($, on) => {
+  const answer = siteJev(() => ({ model: { haiku: 0.9 } }))
+  const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: (request, n) => (n === 1 ? { status: 500, body: 'Internal Server Error' } : answer(request)) })
+  await w.workflow({ scriptPath: SAVED })
+  for (const agentId of ['wa1', 'wa2']) {
+    w.started('wf_test-1', agentId, 'first')
+    w.transcript('wf_test-1', agentId, `List the files under src/${agentId} and report their sizes.`)
+    await w.agentStep(agentId, { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  }
+
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium', 'wa2 claude-haiku-4-5 medium'])
+  expect(w.status()).toBe('dp workflow not routed (given by path) | by label: routed 1 agent (1 not: jev: HTTP 500)')
+})
+
+test("an error of the feature's own when the run starts leaves the tool's result as it was, and the status line says to look in the debug log", { options: KEY }, async ($, on) => {
+  // workflowWorld watches every state.set; this one refuses only the runs' record.
+  on('state.set', { key: 'labelRuns' }, () => ({ deny: 'the state cannot be written' }))
+  const w = runWorld($, on, { disk: { [SAVED]: TIDY }, backend: TIDY_DECIDED })
+  const result = await w.workflow({ scriptPath: SAVED })
+
+  expect(result.isError).toBeUndefined()
+  expect(result.text).toContain('Workflow launched in background')
+  expect(w.reached).toEqual([{ scriptPath: SAVED, launched: true }])
+  expect(w.status()).toBe('dp workflow not routed (given by path) | by label: not routed (error: see the debug log)')
+  expect(w.logs.some((log) => log.to === 'debug' && log.text.includes('the state cannot be written'))).toBe(true)
+})
+
+test("an error of the feature's own as an agent starts lets the step go out as the engine made it, and the status line says to look in the debug log", { options: KEY }, async ($, on) => {
+  on('state.get', async (_$, e, next) => (e.key === 'labelRuns' ? { deny: 'the state cannot be read' } : next(e)))
+  const w = runWorld($, on)
+  w.started('wf_test-1', 'wa1', 'rename')
+  await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 xhigh'])
+  expect(w.status()).toBe('dp by label: not routed (error: see the debug log)')
+  expect(w.logs.some((log) => log.to === 'debug' && log.text.includes('the state cannot be read'))).toBe(true)
+})
+
 /** A saved workflow: a pipeline over files, each stage's label a template. */
 const MIGRATE = `export const meta = { name: 'migrate-logger', description: 'Move each file to the new logger API', phases: [] }
 const results = await pipeline(args, (file) => agent(\`Replace the old logger calls in \${file} with the new API; do not change behaviour.\`, { label: \`migrate:\${file}\` }), (done, file) => agent(\`Check \${file} still compiles: run tsc --noEmit and report errors only.\`, { label: \`check:\${file}\` }))

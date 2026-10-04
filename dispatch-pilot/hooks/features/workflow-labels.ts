@@ -17,6 +17,7 @@
 // Its switch is `workflow-labels` (`/dp workflow-labels off`).
 
 import type { EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
+import type { Asked } from '../decision/backend.ts'
 import { DEFAULT_AGENT_MODELS, type AgentModel, type DispatchSettings } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
 import { agentPlan, inlineSites, isTaskStart, launchNote, sameRoute, sitesFor, sitesOf, startedIn, taskOf, type JournalStart, type RunSite } from '../decision/workflow-labels.ts'
@@ -89,13 +90,16 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
 
   on('tool.call', { tool: 'Workflow' }, async ($, e, next) => {
     if (e.tool !== 'Workflow' || !isOn(SWITCH) || !ctx.backend.configured) return next(e)
+    const show = (line: string | undefined) => $.ui.status(line)
+    const log = (line: string) => $.ui.log(line, { to: 'debug' })
     let settled: (run: LabelRun | null) => void = () => {}
     const launch = new Promise<LabelRun | null>((resolve) => (settled = resolve))
     launching.add(launch)
     let recorded: LabelRun | null = null
+    let result: ToolCallResult | undefined
     try {
       const given = e.scriptPath !== undefined ? 'path' : e.script === undefined || e.name !== undefined ? 'name' : e.resumeFromRunId !== undefined ? 'resume' : 'script'
-      const result = await next(e)
+      result = await next(e)
       const launched = launchedRun(result)
       if (launched === null || result.deny !== undefined) return result
       // The script the run uses: the one sent (what workflow-agents read), else the copy the tool runs.
@@ -105,7 +109,9 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
 
       let sites: RunSite[] | null = null
       if (parsed !== null) {
-        const { value: said = [] } = await $.state.get(SAID)
+        // An inline script's calls were asked about by workflow-agents: the person's words only size its batches here,
+        // and when they cannot be read, that feature could not route the script either.
+        const said = given === 'script' ? await $.state.get(SAID).then((read) => read.value ?? [], () => []) : ((await $.state.get(SAID)).value ?? [])
         const words = said.join('\n')
         const plan = workflowBatches(parsed, words, settings, ctx.config.context.tokens)
         if (given === 'script') {
@@ -116,19 +122,41 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
             fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
             sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
           }
+          // Concurrent requests to one key can queue behind each other: each gets a share more time.
           const timeoutMs = Math.min(8000, ctx.config.timeoutMs * plan.batches.length)
-          const asked = await Promise.all(plan.batches.map((batch) => ctx.backend.ask(io, batch.request, timeoutMs)))
-          sites = sitesOf(parsed.calls, readOutcomes(parsed, plan, asked, words, settings))
+          const asked = await Promise.all(
+            plan.batches.map(async (batch) => {
+              const startedAt = await $.clock.now()
+              const answer = await ctx.backend.ask(io, batch.request, timeoutMs)
+              log(`request [${Object.keys(batch.request.questions).join(', ')}] to ${ctx.backend.name} for workflow ${JSON.stringify(parsed.meta.name)} (by label): ${describeAsked(answer, (await $.clock.now()) - startedAt)}`)
+              return answer
+            }),
+          )
+          const outcomes = readOutcomes(parsed, plan, asked, words, settings)
+          sites = sitesOf(parsed.calls, outcomes)
+          const failure = outcomes.find((outcome) => outcome.kind === 'left' && outcome.failure !== undefined)
+          if (failure?.kind === 'left' && failure.failure !== undefined) {
+            const undecided = outcomes.filter((outcome) => outcome.kind === 'left' && (outcome.reason === 'failed' || outcome.reason === 'unanswered')).length
+            const why = failureText(ctx.backend.name, failure.failure)
+            const decided = outcomes.some((outcome) => outcome.kind !== 'left')
+            setStatus('labels', decided ? `by label: ${undecided} call${undecided === 1 ? '' : 's'} not decided (${why})` : `by label: not routed (${why})`, show)
+          }
         }
         // Nothing for this feature to do: every call is the script's.
         if (sites.every((site) => site.route.kind === 'script')) return result
       }
       const run: LabelRun = { runId: launched.runId, dir: launched.dir, workflow: parsed?.meta.name ?? launched.workflow, description: parsed?.meta.description ?? null, sites }
-      recorded = run
       const runs: Cell<LabelRun[]> = { get: () => $.state.get(RUNS), set: (value, options) => $.state.set(RUNS, value, options) }
       await update(runs, (list) => [...(list ?? []).filter((kept) => kept.runId !== run.runId), run].slice(-MAX_RUNS))
+      recorded = run
       const note = launchNote(sites, given)
       return note === null ? result : { ...result, context: [...(result.context ?? []), note] }
+    } catch (error) {
+      // The tool itself failed: as it did. Otherwise the run goes on as the tool started it.
+      if (result === undefined) throw error
+      log(`workflow-labels: the run's agents are not routed by label: ${describe(error)}`)
+      setStatus('labels', 'by label: not routed (error: see the debug log)', show)
+      return result
     } finally {
       launching.delete(launch)
       settled(recorded)
@@ -138,34 +166,46 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
   on('turn.step', { agentId: /(?:)/ }, async function* ($, e, next) {
     const agentId = e.agentId
     if (agentId === undefined || e.index !== 0 || !isOn(SWITCH)) return yield* next(e)
-    const deadline = (await $.clock.now()) + STEP_BUDGET_MS
-    const { value: runs = [] } = await $.state.get(RUNS)
-    let found = await findAgent($, runs, agentId)
-    if (found === null && launching.size > 0) found = await findAgent($, await settleLaunches($, deadline), agentId)
-    if (found !== null) {
-      const { run, start } = found
-      const candidates = run.sites === null ? [] : sitesFor(start.label, run.sites)
-      const route = run.sites === null ? null : routeOf(candidates)
-      if (route?.kind !== 'script') {
-        const decided: Decided =
-          route?.kind === 'set'
-            ? { ok: true, route }
-            : await decideAtStart($, ctx, settings, { run, agentId, label: start.label, site: candidates.length === 1 ? candidates[0] : undefined, deadline })
-        const tally = tallies.get(run.runId) ?? { routed: 0, failed: 0, reason: '' }
-        if (decided.ok) {
-          tally.routed++
-          const plan = decided.route === null ? null : agentPlan(decided.route, e.model)
-          if (plan !== null && (plan.model !== null || plan.effort !== null)) await $.state.set({ ...AGENTS, id: agentId }, { effort: plan.effort, floor: null, model: plan.model })
-        } else {
-          tally.failed++
-          tally.reason = decided.reason
-        }
-        tallies.set(run.runId, tally)
-        setStatus('labels', tallyText(tally), (line) => $.ui.status(line))
-      }
+    try {
+      await routeAgent($, ctx, settings, agentId, e.model)
+    } catch (error) {
+      $.ui.log(`workflow-labels: agent ${agentId} is not routed: ${describe(error)}`, { to: 'debug' })
+      setStatus('labels', 'by label: not routed (error: see the debug log)', (line) => $.ui.status(line))
     }
     return yield* next(e)
   })
+}
+
+/** At an agent's first step: finds the run and the call it belongs to, and plans its steps. */
+async function routeAgent($: EngineInterface, ctx: Ctx, settings: DispatchSettings, agentId: string, stepModel: string): Promise<void> {
+  const deadline = (await $.clock.now()) + STEP_BUDGET_MS
+  const { value: runs = [] } = await $.state.get(RUNS)
+  let found = await findAgent($, runs, agentId)
+  if (found === null && launching.size > 0) found = await findAgent($, await settleLaunches($, deadline), agentId)
+  if (found === null) return
+  const { run, start } = found
+  const candidates = run.sites === null ? [] : sitesFor(start.label, run.sites)
+  const route = run.sites === null ? null : routeOf(candidates)
+  if (route?.kind === 'script') return
+  const decided: Decided =
+    route?.kind === 'set'
+      ? { ok: true, route }
+      : await decideAtStart($, ctx, settings, { run, agentId, label: start.label, site: candidates.length === 1 ? candidates[0] : undefined, deadline })
+  const tally = tallies.get(run.runId) ?? { routed: 0, failed: 0, reason: '' }
+  if (decided.ok) {
+    tally.routed++
+    const plan = decided.route === null ? null : agentPlan(decided.route, stepModel)
+    if (plan !== null && (plan.model !== null || plan.effort !== null)) await $.state.set({ ...AGENTS, id: agentId }, { effort: plan.effort, floor: null, model: plan.model })
+  } else {
+    tally.failed++
+    tally.reason = decided.reason
+  }
+  tallies.set(run.runId, tally)
+  setStatus('labels', tallyText(tally), (line) => $.ui.status(line))
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /** The run of `runs` that `agentId` started in, newest first, and what its journal says of it; null when it is in none. */
@@ -270,6 +310,14 @@ async function readTask($: EngineInterface, dir: string, agentId: string, deadli
 function routeOf(sites: readonly RunSite[]): RunSite['route'] | null {
   const first = sites[0]
   return first !== undefined && sites.every((site) => sameRoute(site.route, first.route)) ? first.route : null
+}
+
+/** A request's outcome for the debug log. */
+function describeAsked(asked: Asked, ms: number): string {
+  if (!asked.ok) return `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)`
+  const by = asked.model === null ? '' : ` by ${asked.model}`
+  const tokens = asked.inputTokens === null ? '' : ` (${asked.inputTokens} input tokens)`
+  return `answered in ${ms} ms${by}${tokens}`
 }
 
 /** The run the Workflow tool's result says it launched: its id, its directory, the script it runs and the workflow's name. */
