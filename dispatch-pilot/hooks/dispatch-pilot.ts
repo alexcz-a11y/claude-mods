@@ -17,6 +17,7 @@ import { registerMainEffort } from './features/main-effort.ts'
 import { registerMidturnEffort } from './features/midturn-effort.ts'
 import { registerSkills } from './features/skills.ts'
 import { registerWorkflowAgents } from './features/workflow-agents.ts'
+import { registerWorkflowLabels } from './features/workflow-labels.ts'
 
 export const register: Register = (on, options) => {
   const ctx = setup(options)
@@ -26,6 +27,8 @@ export const register: Register = (on, options) => {
   registerMainEffort(on, ctx)
   registerMidturnEffort(on, ctx)
   registerDispatchedAgents(on, ctx)
+  // Outside workflow-agents: its Workflow hook sees what that feature did with the script once the tool returns.
+  registerWorkflowLabels(on, ctx)
   registerWorkflowAgents(on, ctx)
   registerSkills(on, ctx)
   registerFindSkill(on, ctx)
