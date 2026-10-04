@@ -85,13 +85,28 @@ export function storedProfile(value: unknown): SkillProfile | null {
  * The store key of a skill's profile: a hash of what it is written from (its
  * SKILL.md, or its description when it has none), its name, the model and
  * PROFILE_VERSION. A changed file, another model or a new prompt gets a new
- * key, so its profile is written again.
+ * key, so its profile is written again. Synchronous (two 53-bit hashes, not
+ * `crypto.subtle`), so it is computed in line with the code around it.
  */
-export async function profileKey(skill: { name: string; description: string }, markdown: string | null, model: string): Promise<string> {
-  const source = markdown ?? `description: ${skill.description.trim()}`
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(['dispatch-pilot skill profile', String(PROFILE_VERSION), model, skill.name, source].join('\n')))
-  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
-  return `${PROFILE_PREFIX}${hex.slice(0, 32)}`
+export function profileKey(skill: { name: string; description: string }, markdown: string | null, model: string): string {
+  const source = ['dispatch-pilot skill profile', String(PROFILE_VERSION), model, skill.name, markdown ?? `description: ${skill.description.trim()}`].join('\n')
+  return `${PROFILE_PREFIX}${hash53(source, 1)}${hash53(source, 2)}`
+}
+
+/** cyrb53 (bryc, public domain): a 53-bit hash of `text` as 14 hex digits; another `seed` gives an independent one. */
+function hash53(text: string, seed: number): string {
+  let h1 = 0xdeadbeef ^ seed
+  let h2 = 0x41c6ce57 ^ seed
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    h1 = Math.imul(h1 ^ code, 2654435761)
+    h2 = Math.imul(h2 ^ code, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507)
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507)
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, '0')
 }
 
 /** What looking up the profiles needs of the session, as closures over `$`. */
@@ -112,7 +127,7 @@ export async function lookUpProfiles(skills: readonly CatalogSkill[], io: Profil
   const found = await Promise.all(
     skills.map(async (skill): Promise<CatalogSkill> => {
       const markdown = skill.file === null ? null : await io.read(skill.file).catch(() => null)
-      const key = await profileKey(skill, markdown, model)
+      const key = profileKey(skill, markdown, model)
       const value = await io.get(key).catch(() => {
         store = false
         return undefined

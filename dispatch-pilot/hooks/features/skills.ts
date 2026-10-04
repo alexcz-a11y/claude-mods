@@ -120,7 +120,7 @@ async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly Cat
         break
       }
       const markdown = skill.file === null ? null : await $.fs.read(skill.file).catch(() => null)
-      const key = await profileKey(skill, markdown, settings.model)
+      const key = profileKey(skill, markdown, settings.model)
       // Another session may have written it meanwhile.
       const kept = storedProfile(await $.store.get(key).catch(() => undefined))
       if (kept !== null) {
@@ -161,10 +161,17 @@ async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly Cat
       written++
       $.ui.log(`skill profile written for ${skill.name} by ${settings.model} in ${ms} ms (${reply.usage.input_tokens} input, ${reply.usage.output_tokens} output tokens)`, { to: 'debug' })
     }
+    await dropOldProfiles($, catalog)
+  } catch (error) {
+    // The session went away under it (its `$` refused), or a bug: either way the session is not held up.
+    try {
+      $.ui.log(`skill profiles: stopped writing (${errorText(error)})`, { to: 'debug' })
+    } catch {
+      // nowhere left to say it
+    }
   } finally {
     writing = false
   }
-  await dropOldProfiles($, catalog)
 }
 
 /** Past MAX_PROFILES profiles in the store, the oldest written that this session does not use are deleted. */
@@ -259,7 +266,7 @@ export function registerSkills(on: On, ctx: Ctx): void {
     const due = offered.filter((skill) => !skill.profile).length
     $.ui.log(`skill profiles: ${offered.length - due} kept, ${due} to write with ${profiles.model} (at most ${profiles.perSession} this session)`, { to: 'debug' })
     // In the background: the session goes on, and each profile is used as soon as it is written.
-    if (due > 0 && profiles.perSession > 0) void writeProfiles($, ctx, catalog, profiles)
+    if (due > 0 && profiles.perSession > 0) void writeProfiles($, ctx, catalog, profiles).catch(() => undefined)
     return result
   })
 
