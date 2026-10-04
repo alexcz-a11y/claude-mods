@@ -141,9 +141,17 @@ const b = await agent('plain', { model: pickModel(), label: label })
 const c = await agent('plain', { model })
 `
   const [a, b, c] = parse(script).calls
-  expect(a).toMatchObject({ prompt: 'It\'s "quoted"\nand two lines 中文', label: '三个文件', agentType: 'Explore', model: { kind: 'literal', value: 'claude-sonnet-5-5' }, line: 3 })
+  expect(a).toMatchObject({ prompt: 'It\'s "quoted"\nand two lines 中文', label: '三个文件', agentType: 'Explore', model: { kind: 'literal', value: 'claude-sonnet-5-5' }, effort: { kind: 'none' }, line: 3 })
   expect(b).toMatchObject({ label: null, model: { kind: 'dynamic' }, line: 4 })
   expect(c?.model).toEqual({ kind: 'dynamic' })
+})
+
+test("the effort a script wrote is read the way its model is: a string, or an expression it works out when it runs", () => {
+  const script = `${META}const a = await agent('one', { effort: 'high' })
+const b = await agent('two', { effort: level })
+const c = await agent('three', { label: 'c' })
+`
+  expect(parse(script).calls.map((call) => call.effort)).toEqual([{ kind: 'literal', value: 'high' }, { kind: 'dynamic' }, { kind: 'none' }])
 })
 
 test('a script that cannot be read is not read at all: an unterminated string or template or comment, brackets that do not pair, no meta block', () => {

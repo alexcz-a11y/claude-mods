@@ -23,10 +23,15 @@ export type AgentCall = {
   /** The `agentType` option when it is a string; null otherwise. */
   agentType: string | null
   /** The `model` option: absent, a string the script wrote, or some other expression (`dynamic`). */
-  model: { kind: 'none' } | { kind: 'literal'; value: string } | { kind: 'dynamic' }
+  model: Written
+  /** The `effort` option, read the same way. */
+  effort: Written
   /** Where the edits go (internal to `rewriteWorkflow`); null for a call whose options cannot be edited. */
   edit: CallEdit | null
 }
+
+/** An option of a call: not written, a string the script wrote, or an expression it works out when it runs. */
+export type Written = { kind: 'none' } | { kind: 'literal'; value: string } | { kind: 'dynamic' }
 
 /** What `parseWorkflow` reads of a script. */
 export type ParsedWorkflow = {
@@ -411,6 +416,7 @@ function readCall(src: string, stream: Stream, at: number, lineOf: (offset: numb
     label: null,
     agentType: null,
     model: { kind: 'none' },
+    effort: { kind: 'none' },
     edit: null,
   }
   const optionsArg = args[1]
@@ -428,6 +434,7 @@ function readCall(src: string, stream: Stream, at: number, lineOf: (offset: numb
     if (property.key === 'label') call.label = property.value?.text ?? null
     else if (property.key === 'agentType') call.agentType = text
     else if (property.key === 'model') call.model = text === null ? { kind: 'dynamic' } : { kind: 'literal', value: text }
+    else if (property.key === 'effort') call.effort = text === null ? { kind: 'dynamic' } : { kind: 'literal', value: text }
   }
   return call
 }

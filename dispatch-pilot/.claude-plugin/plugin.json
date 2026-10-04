@@ -73,6 +73,13 @@
       "title": "Confidence to override the main agent's model pick",
       "description": "When the main agent names a model for an agent it dispatches, the decision model's pick replaces it only at this confidence or above (0 to 1). A model you name yourself in your message is never replaced.",
       "default": 0.6
+    },
+    "workflowMode": {
+      "type": "string",
+      "title": "How Workflow agents are routed",
+      "description": "rewrite: when the main agent submits a Workflow, the model and effort decided for each agent() call are written into the script before it runs, and the main agent is told what was written. return: the first submission of a Workflow is refused with the recommendation for each agent() call, for the main agent to write in itself; the same Workflow submitted again runs as written.",
+      "options": ["rewrite", "return"],
+      "default": "rewrite"
     }
   }
 }

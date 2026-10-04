@@ -56,6 +56,28 @@ declare module 'claude-code' {
        * them as `user_message`.
        */
       said: string[]
+      /**
+       * The Workflows the workflow-agents feature sent back to the main agent
+       * (return mode), as a hash of each one's name and prompts, oldest first,
+       * at most 16: a Workflow is sent back once, its second submission runs.
+       */
+      returned: string[]
+      /**
+       * What the workflow-agents feature did with each Workflow run, id = the
+       * run's id (`runId` of the Workflow tool's result). Written as the tool
+       * returns, a few milliseconds before the run's first agent takes a step
+       * (16 ms measured on 2.1.289): a reader on that step may find nothing yet.
+       */
+      workflows: StateFamily<{
+        /** Whether model and effort were written into the run's script; the persisted script (`scriptPath`) holds them. */
+        rewritten: boolean
+        /** When not: why, in a word. `scriptPath`, `name` or `resume` (an input it does not rewrite), `unreadable` (a script it cannot read), `no agents`, `failed` (no decision). */
+        reason: string
+        /** The agent() calls it decided, by label (null: the call has none, or its label is built when the script runs). */
+        agents: { label: string | null; model: string | null; effort: string | null }[]
+        /** The agent() calls it left as the script wrote them. */
+        left: number
+      }>
     }
   }
 }

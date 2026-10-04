@@ -15,6 +15,7 @@
 
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
+import { CLEF_URL, TOKEN, cloudflareError, clefInputProblems } from './cloudflare.ts'
 import { world, type Reply, type Sent, type WorldOptions } from './world.ts'
 
 /** One call that reached the Workflow tool, after every hook of the mod. */
@@ -33,28 +34,44 @@ export type WorkflowInput = { script?: string; scriptPath?: string; name?: strin
 export type WorkflowWorldOptions = WorldOptions & {
   /** The engine's own parse check: the error it reports for a script it would refuse; undefined for one it launches. */
   parseError?: (script: string) => string | undefined
+  /** An error of any other kind the tool reports instead of launching (its whole text); undefined for a script it launches. */
+  fails?: (script: string) => string | undefined
 }
 
+/** One `$.state.set` the mod made, as it reached the state beneath. */
+export type StateWrite = { key: string; id: string | undefined; value: unknown }
+
 export function workflowWorld($: Engine, on: On, options: WorkflowWorldOptions = {}) {
-  const { parseError, ...rest } = options
+  const { parseError, fails, ...rest } = options
   const reached: Reached[] = []
+  const stateWrites: StateWrite[] = []
   let runs = 0
+
+  // What the mod writes to `$.state`, seen on its way to the state the kit keeps.
+  on('state.set', async (_$, e, next) => {
+    const write = e as unknown as StateWrite
+    stateWrites.push({ key: write.key, id: write.id, value: write.value })
+    return next(e)
+  })
 
   // The Workflow tool itself. Registered before world()'s stubs: it is the
   // outermost stub, and the matcher keeps every other tool away from it.
   on('tool.call', { tool: 'Workflow' }, (_$, e) => {
     const input = e as WorkflowInput
-    const error = input.scriptPath === undefined && input.script !== undefined ? parseError?.(input.script) : undefined
+    const checked = input.scriptPath === undefined && input.script !== undefined
+    const parse = checked ? parseError?.(input.script as string) : undefined
+    const other = checked ? fails?.(input.script as string) : undefined
     reached.push({
       ...(input.script !== undefined ? { script: input.script } : {}),
       ...(input.scriptPath !== undefined ? { scriptPath: input.scriptPath } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.resumeFromRunId !== undefined ? { resumeFromRunId: input.resumeFromRunId } : {}),
-      launched: error === undefined,
+      launched: parse === undefined && other === undefined,
     })
-    if (error !== undefined) {
-      return { isError: true as const, result: `Error: Invalid workflow script: ${error}`, text: `<tool_use_error>Invalid workflow script: ${error}</tool_use_error>` }
+    if (parse !== undefined) {
+      return { isError: true as const, result: `Error: Invalid workflow script: ${parse}`, text: `<tool_use_error>Invalid workflow script: ${parse}</tool_use_error>` }
     }
+    if (other !== undefined) return { isError: true as const, result: `Error: ${other}`, text: `<tool_use_error>${other}</tool_use_error>` }
     runs++
     const runId = `wf_test-${runs}`
     const dir = '/home/u/.claude/projects/p/s1'
@@ -70,6 +87,10 @@ export function workflowWorld($: Engine, on: On, options: WorkflowWorldOptions =
     ...w,
     /** Every call that reached the Workflow tool, in order. */
     reached,
+    /** Every value the mod wrote to `$.state`, in order (`key`, the family's `id`, the value). */
+    stateWrites,
+    /** What the mod recorded of the Workflow runs, by run id (the last record of each). */
+    records: (): Record<string, unknown> => Object.fromEntries(stateWrites.filter((write) => write.key === 'workflows' && write.id !== undefined).map((write) => [write.id as string, write.value])),
     /** The main agent calls the Workflow tool: resolves to what the tool, or a hook of the mod, answered. */
     workflow: (input: WorkflowInput) => $.tool.call({ tool: 'Workflow', ...input }),
   }
@@ -111,5 +132,21 @@ export function siteJev(answers: (index: number) => SiteAnswer) {
       }
     }
     return { status: 200, body: { model: 'jev-1.13.0', answers: out, usage: { input_tokens: 400, output_tokens: 0 } } }
+  }
+}
+
+/**
+ * `siteJev` as Clef answers it: a request that is not for Clef with its token,
+ * or that breaks Clef's input rules, is refused as Workers AI refuses it; the
+ * answers come in Cloudflare's envelope.
+ */
+export function clefSiteJev(answers: (index: number) => SiteAnswer) {
+  return (request: Sent): Reply => {
+    if (request.headers.authorization !== `Bearer ${TOKEN}`) return cloudflareError(401, 10000, 'Authentication error')
+    if (request.url !== CLEF_URL) return cloudflareError(404, 7003, 'No route for the URI')
+    const problems = clefInputProblems(request.body)
+    if (problems.length > 0) return cloudflareError(400, 5006, `AiError: ${problems.join('; ')}`)
+    const { body } = siteJev(answers)(request) as { body: { answers: unknown } }
+    return { status: 200, body: { result: { model: 'clef', answers: body.answers, usage: { input_tokens: 151, output_tokens: 0 } }, success: true, errors: [], messages: [] } }
   }
 }
