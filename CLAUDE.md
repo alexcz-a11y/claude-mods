@@ -48,6 +48,7 @@ settings hook 是 settings 文件里配置的 shell 命令、HTTP 请求或 prom
 
 - 没有构建步骤，Claude Code 直接加载 `.js`、`.mjs`、`.ts`、`.tsx` 等文件，`.tsx` 和 `.jsx` 支持 JSX。
 - `.claude-plugin/types/` 是 Claude Code 每次通过 `--plugin-dir` 加载 mod 时生成的类型和 tsconfig。它是当前版本事件和 `$` API 的权威来源，比网页文档更准，但不提交（已写入 `.gitignore`）。
+- 如果 mod 自己没有 `tsconfig.json`，Claude Code 会在 mod 根目录生成一个。这个文件依赖已被忽略的 `.claude-plugin/types/`，所以不要提交；playground 里的 mod 也都不提交它。没有把它写进 `.gitignore`，是为了避免以后手写的 tsconfig 被悄悄忽略。
 - 热重载会重新执行 `register`，`session.start` 也会再触发一次，模块级变量会被重置。需要保留的值放进 `$.state`；跨会话共享的放进 `$.store`，它本机共享、总上限 4 MiB，存放在 `~/.claude/plugins/store/`。
 
 ## 常用命令（在仓库根目录执行，`<mod>` 换成子目录名）
@@ -75,13 +76,19 @@ claude --debug-file ./mod-debug.log --plugin-dir ./<mod>   # 调试；日志里�
 - 测试界面绘制用 `$.ui.mount({...})`，再配合它的 `press`、`input`、`select` 和 `find`。
 - 一个测试文件里如果没有 `test()`，会以 `declares no test(): nothing ran` 失败。
 
-## 编写约束（`claude plugin validate` 会检查）
+## 编写约束
+
+`claude plugin validate` 会检查以下几条：
 
 - `$` 的 API 必须完整写出，例如 `$.store.get(...)`。不能给 `$` 起别名、解构，也不能用计算下标访问。
 - 事件名必须是字符串字面量；不要遮蔽 `on`。
 - 只允许插件内部的相对导入。唯一允许的裸导入是 `claude-code`，测试中可用 `claude-code/testing`。禁止动态 `import()` 和 `require`。
-- mod 的 `name`（以及目录名）不能以 `claude-`、`anthropic-`、`anthropics-`、`cc-plugin-` 开头，也不能恰好是 `claude`、`anthropic`、`anthropics`、`claude-code` 或 `claude-mods`。目录名用 kebab-case，并与 `plugin.json` 中的 `name` 保持一致。
-- 每个 hook 有 10 秒超时（`prompt.edit` 只有 50 ms）。command、tool 和 pane 的名字只能用字母、数字、`_`、`-`，最长 64 个字符。
+- mod 的 `name` 不能以 `claude-`、`anthropic-`、`anthropics-`、`cc-plugin-` 开头，也不能恰好是 `claude`、`anthropic`、`anthropics`、`claude-code` 或 `claude-mods`。
+
+validate 通过并不代表以下几条也满足，它们需要自己留意：
+
+- 运行时限制：每个 hook 有 10 秒超时（`prompt.edit` 只有 50 ms）。command、tool 和 pane 的名字只能用字母、数字、`_`、`-`，最长 64 个字符。
+- 仓库约定（沿用 playground）：目录名用 kebab-case，与 `plugin.json` 中的 `name` 一致，同样不能带上面那些保留前缀。
 
 ## 把 Claude 写的 mod 收进本仓库
 
