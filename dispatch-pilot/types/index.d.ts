@@ -95,6 +95,26 @@ declare module 'claude-code' {
         at: number
       }>
       /**
+       * Failed tool calls piling up in one loop (#7), id `main` for the main
+       * agent (its counts are those of the turn `turnId`; a new turn starts them
+       * afresh) or the agentId of a dispatched or workflow agent (counted for as
+       * long as it lives). Written by features/escalation.ts only.
+       */
+      escalation: StateFamily<{
+        /** The main turn the counts belong to; '' for an agent. */
+        turnId: string
+        /** Tool calls that failed since the loop began (hook blocks and the person's refusals not counted). */
+        failures: number
+        /** Tool calls a hook refused. */
+        hookBlocks: number
+        /** What escalating (or deciding the failures were expected) has already dealt with: the counts at that moment. */
+        base: { failures: number; hookBlocks: number }
+        /** Forced raises so far (an expected-failure verdict is not one). */
+        raises: number
+        /** The step a stuck re-decision was last made for; null before the first. */
+        askedAt: number | null
+      }>
+      /**
        * The person's own words this turn, masked and clipped, oldest first: the
        * last message they sent while the session was idle, then the ones they
        * typed while its turn ran (at most 8). A dispatched agent's decision reads
@@ -128,6 +148,42 @@ declare module 'claude-code' {
         /** The agent() calls it left as the script wrote them. */
         left: number
       }>
+      /**
+       * The Workflow runs whose agents the workflow-labels feature (#9) routes
+       * as each one starts, by the label the run's journal records for it;
+       * newest last, at most 8. Written when the run's tool call returns.
+       */
+      labelRuns: {
+        /** The run's id (`runId` of the Workflow tool's result). */
+        runId: string
+        /** The run's directory (`transcriptDir`): its journal.jsonl, and each agent's transcript. */
+        dir: string
+        /** The script's `meta` name and description; null when it has none (or could not be read). */
+        workflow: string | null
+        description: string | null
+        /** The script's agent() calls in order; null when the script could not be read: each agent is decided from its own prompt. */
+        sites: {
+          /** The line the call starts on. */
+          line: number
+          /** The label as the script writes it (a template keeps its `${...}`); null when it has none, or works it out when it runs. */
+          label: string | null
+          /**
+           * How a label the journal recorded is told to be this call's: `exact` (a string label),
+           * `pattern` (a template label, a regular expression's source), `head` (no label: the engine
+           * records the prompt's start, `whole` when the prompt is a string), `none` (nothing to tell it by).
+           */
+          match: { kind: 'exact'; label: string } | { kind: 'pattern'; source: string } | { kind: 'head'; head: string; whole: boolean } | { kind: 'none' }
+          /** `set`: decided when the run started; `runtime`: decided from each agent's prompt as it starts; `script`: left as the script says. */
+          route:
+            | { kind: 'set'; model: 'haiku' | 'sonnet' | 'opus' | 'fable' | null; effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null }
+            | { kind: 'runtime' }
+            | { kind: 'script' }
+          /** The call's own `model`, `effort` and `agentType` options, for a decision made as its agents start. */
+          model: { kind: 'none' } | { kind: 'literal'; value: string } | { kind: 'dynamic' }
+          effort: { kind: 'none' } | { kind: 'literal'; value: string } | { kind: 'dynamic' }
+          agentType: string | null
+        }[] | null
+      }[]
       /**
        * Skills the main agent has had described beside a message in this
        * conversation (#10): suggested again, they are only named. Emptied by

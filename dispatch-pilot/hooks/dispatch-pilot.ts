@@ -12,11 +12,13 @@ import { registerCore } from './core/core.ts'
 import { setup } from './core/setup.ts'
 import { registerControl } from './features/control.ts'
 import { registerDispatchedAgents } from './features/dispatched-agents.ts'
+import { registerEscalation } from './features/escalation.ts'
 import { registerFindSkill } from './features/find-skill.ts'
 import { registerMainEffort } from './features/main-effort.ts'
 import { registerMidturnEffort } from './features/midturn-effort.ts'
 import { registerSkills } from './features/skills.ts'
 import { registerWorkflowAgents } from './features/workflow-agents.ts'
+import { registerWorkflowLabels } from './features/workflow-labels.ts'
 
 export const register: Register = (on, options) => {
   const ctx = setup(options)
@@ -24,9 +26,13 @@ export const register: Register = (on, options) => {
   // Features, outermost first.
   registerControl(on, ctx)
   registerMainEffort(on, ctx)
+  registerEscalation(on, ctx) // above the mid-turn feature: its raise is in the plan before a mid-turn answer is applied
   registerMidturnEffort(on, ctx)
   registerDispatchedAgents(on, ctx)
   registerWorkflowAgents(on, ctx)
+  // Inside workflow-agents: a Workflow call is this feature's only once that feature has sent the script on, so the
+  // agents of other runs never wait while it is still deciding.
+  registerWorkflowLabels(on, ctx)
   registerSkills(on, ctx)
   registerFindSkill(on, ctx)
 

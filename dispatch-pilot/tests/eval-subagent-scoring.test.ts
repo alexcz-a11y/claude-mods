@@ -248,11 +248,11 @@ test('what an answer records: where its model came from, the pick and its confid
   })
 })
 
-test('no decision is a failure that says why: no answer about the agent, every model offered ruled out, or no probability left on the rest', async () => {
+test('no decision is a failure that says why (no answer about the agent, every model offered ruled out); a model ruled out that the answer favours is replaced by the nearest one left, not a failure', async () => {
   const items = [
     item('e', { model: 'sonnet', effort: 'low' }, { model: ['sonnet'], effort: ['low'] }, { words: ' 别用 haiku、sonnet 和 opus' }),
     item('f', { model: 'sonnet', effort: 'low' }, { model: ['sonnet'], effort: ['low'] }),
-    // The main agent's opus is ruled out, and the answer puts everything on opus: no model is left.
+    // The main agent's opus is ruled out, and the answer puts everything on opus: the nearest model left, sonnet, is the decision (subagent-058).
     item('g', { model: 'sonnet', effort: 'low' }, { model: ['sonnet'], effort: ['low'] }, { requested: 'opus', words: ' 别用 opus', tags: ['priority:main-overridden'] }),
   ]
   const net = network({
@@ -265,6 +265,6 @@ test('no decision is a failure that says why: no answer about the agent, every m
   expect(rows.map(line)).toEqual([
     'e zh: no answer (none: every model offered was ruled out: haiku, sonnet, opus)',
     'f zh: no answer (parse: no answer about the agent)',
-    'g zh: no answer (none: opus was ruled out, and the answer gives the other models no probability)',
+    'g zh: sonnet low right, gold; model right, effort right',
   ])
 })

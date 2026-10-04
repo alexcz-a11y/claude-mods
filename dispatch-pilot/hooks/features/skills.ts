@@ -1,9 +1,11 @@
 // Feature: skills (#10, #11). The main agent no longer reads the full skill
-// listing the engine attaches at the start of a session (ADR 0002); instead,
-// each time the person sends a message, the decision model ranks the skills
-// against it in two stages (decision/skills.ts) and the few that fit are
-// suggested beside the message. Skills only the person can start are pointed
-// out on the status line instead.
+// listing the engine attaches at the start of a session (ADR 0002): a fixed
+// note takes its place, saying where the skills went and how to come by one
+// (the find_skill tool, while its switch is on). Instead, each time the
+// person sends a message, the decision model ranks the skills against it in
+// two stages (decision/skills.ts) and the few that fit are suggested beside
+// the message. Skills only the person can start are pointed out on the status
+// line instead.
 //
 // At session start a cheap model writes each skill a bilingual profile from
 // its SKILL.md, in the background, once per version of the file
@@ -56,6 +58,8 @@ const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const SWITCH = 'skills'
 /** The profiles' own switch: written at session start, and offered in the ranking. */
 const PROFILES = 'skill-profiles'
+/** The find_skill tool's switch (features/find-skill.ts): the note in place of the listing names the tool only while it is on. */
+const FIND_SKILL = 'find-skill'
 
 /** Profiles are being written now (one batch at a time). */
 let writing = false
@@ -273,8 +277,9 @@ export function registerSkills(on: On, ctx: Ctx): void {
   })
 
   // The engine's skill listing, as each request of a loop carries it (the
-  // engine keeps the answer for the process). A dispatched agent's (and a
-  // workflow agent's) reaches it untouched.
+  // engine keeps the answer for the conversation). The main agent's gives way to
+  // a fixed note on how to come by a skill, after the skills always listed.
+  // A dispatched agent's (and a workflow agent's) reaches it untouched.
   on('prompt.attachment', { type: 'skill_listing' }, async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     // Skills that cannot be suggested stay listed.
@@ -284,9 +289,14 @@ export function registerSkills(on: On, ctx: Ctx): void {
     }
     const kept = trimListing(e.text, alwaysListed)
     const keptNames = kept === null ? 'none' : listingNames(kept).join(', ')
-    $.ui.log(`withheld the skill listing from the main agent (${listingNames(e.text).length} skills, ${e.text.length} characters); kept ${keptNames}`, { to: 'debug' })
+    // Picked as the engine asks, by the switch as it stands: the engine keeps the answer for the
+    // conversation, so a later `/dp find-skill on|off` shows from the next one (README).
+    const findSkill = isOn(FIND_SKILL)
+    const hint = findSkill ? LISTING_HINT : LISTING_HINT_WITHOUT_FIND_SKILL
+    const noted = findSkill ? 'the note names find_skill' : 'the note leaves find_skill out (switched off)'
+    $.ui.log(`withheld the skill listing from the main agent (${listingNames(e.text).length} skills, ${e.text.length} characters); kept ${keptNames}; ${noted}`, { to: 'debug' })
     await $.state.set(LISTING, { answered: 'withheld', text: e.text })
-    return { text: kept }
+    return { text: kept === null ? hint : `${kept}\n\n${hint}` }
   })
 
   // The person's message: the skills question goes into its ballot, beside
@@ -385,6 +395,21 @@ export function registerSkills(on: On, ctx: Ctx): void {
     return result
   })
 }
+
+/**
+ * What the main agent reads in place of the skill listing: where the skills
+ * went and how to come by one. Fixed text, naming no skill: the engine keeps
+ * the answer for the conversation, and it is part of the prompt cache. It
+ * names find_skill in full and says it may need ToolSearch: the tool is
+ * deferred, so until loaded the main agent sees only its name. (A wording that
+ * also said when to look, in find_skill's own words, did no better on a real
+ * engine; README, 已实测.)
+ */
+const LISTING_HINT =
+  "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it. For any other skill, call the find_skill tool (mcp__dispatch-pilot__find_skill; load it with ToolSearch first if it is deferred) with a few words on the work, then load a skill it returns with the Skill tool by its exact name."
+/** The same with find_skill switched off: it does not send the main agent to a tool that would only say it is off. */
+const LISTING_HINT_WITHOUT_FIND_SKILL =
+  "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it; load one, or any skill you know, with the Skill tool by its exact name."
 
 /** The listing the feature withheld, as it goes beside a message once the feature is switched off. */
 function restoredListing(text: string): string {

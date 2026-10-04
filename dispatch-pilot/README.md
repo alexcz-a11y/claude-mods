@@ -1,6 +1,6 @@
 # Dispatch Pilot
 
-Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 Cloudflare Workers AI 的 Clef，在配置里二选一），替你决定 Claude Code 怎么干活。现阶段做三件事：**每次你发消息时，判断主 agent 这一轮该用哪档 effort**，并让这一轮的每一步都按这一档发出，一轮进行中还会每隔几步、以及在主 agent 派出 agent、启动 Workflow 或加载 skill 时重新判断（#5，见下文「一轮中途重新判断」）；**主 agent 每派出一个 agent，判断它该用哪个模型、哪档 effort**（#6）；**主 agent 提交 Workflow 时，对脚本里的每个 `agent()` 做同样的判断，并写进脚本**（#8，见下文「Workflow 里的 agent」）。主 agent 的模型从不改变，所以 prompt cache 不受影响（ADR 0001）。另外，主 agent 不再读完整的 skill 列表，改由决策模型在你发消息时挑出相关的几个 skill 推荐给它（#10，见下文「skill：隐藏列表，发消息时推荐」）：它先按每个 skill 的中英双语画像给全部 skill 排序，再补读前几名的 SKILL.md 开头，逐个判断是否合适（#11）；一轮进行中，主 agent 还可以用 `find_skill` 工具按需查询 skill（#12，见下文「find_skill：主 agent 中途查询 skill」）。完整设计见 spec（issue #1）。用斜杠命令 `/dp` 可以开关整个 mod 或其中的单项功能、临时锁定 effort、查看最近的决策和理由（#13，见下文「控制：`/dp`」）。
+Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 Cloudflare Workers AI 的 Clef，在配置里二选一），替你决定 Claude Code 怎么干活。现阶段做三件事：**每次你发消息时，判断主 agent 这一轮该用哪档 effort**，并让这一轮的每一步都按这一档发出，一轮进行中还会每隔几步、以及在主 agent 派出 agent、启动 Workflow 或加载 skill 时重新判断（#5，见下文「一轮中途重新判断」）；**主 agent 每派出一个 agent，判断它该用哪个模型、哪档 effort**（#6）；**主 agent 提交 Workflow 时，对脚本里的每个 `agent()` 做同样的判断，并写进脚本**（#8，见下文「Workflow 里的 agent」）；脚本写不进去的（用 `scriptPath` 或 `name` 提交、恢复的运行、读不了的脚本或调用），**在每个 agent 启动时按它的 label 设置**（#9，见下文「Workflow 兜底：agent 启动时按 label 设置」）。主 agent 的模型从不改变，所以 prompt cache 不受影响（ADR 0001）。另外，主 agent 不再读完整的 skill 列表，改由决策模型在你发消息时挑出相关的几个 skill 推荐给它（#10，见下文「skill：隐藏列表，发消息时推荐」）：它先按每个 skill 的中英双语画像给全部 skill 排序，再补读前几名的 SKILL.md 开头，逐个判断是否合适（#11）；一轮进行中，主 agent 还可以用 `find_skill` 工具按需查询 skill（#12，见下文「find_skill：主 agent 中途查询 skill」）。主 agent 或派出 agent 的工具调用接连失败时，Dispatch Pilot 会强制升档，除非这些失败本来就在意料之中（#7，见下文「卡住时强制升档」）。完整设计见 spec（issue #1）。用斜杠命令 `/dp` 可以开关整个 mod 或其中的单项功能、临时锁定 effort、查看最近的决策和理由（#13，见下文「控制：`/dp`」）。
 
 测试环境：Claude Code 2.1.289（Opus 5.5，订阅登录）、Node 26.5、jev-1.13.0、Clef（Cloudflare Workers AI，2026-10-04）。
 
@@ -21,7 +21,8 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
   1. 你在这一轮的消息里为这项工作点名的模型，一定照办，即使它不在可选范围内（例如没打开 `agentFable` 时点名 fable）。
   2. 否则用决策模型选的模型。
   3. 主 agent 自己指定了模型时，这个指定作为强提示交给决策模型；只有决策模型选了别的模型、而且置信度达到 `agentOverride`（默认 0.6）时才推翻，否则保留主 agent 的指定。
-- 你在消息里排除的模型（例如「这周额度快用完了，别用 opus」）不会被选中，主 agent 指定了它也会被换掉，换成决策模型在其余模型里最看好的那个。
+- effort 的优先级：你在这一轮的消息里为这项工作点名的 effort（「effort 开 low」「这次所有 agent 都用 high」），一定照办，也不会被推翻；否则用决策模型给的 effort（#6 的补丁，与点名模型同样对待）。点名了哪一档由决策模型判断（请求里的 `named_effort`：没有点名 / low / medium / high / xhigh / max，最可能的一档不是「没有点名」并且概率达到 `thetaNamed` 0.5 才算），不靠关键词匹配；只有消息里出现可能点名 effort 的字眼（effort、档位名、推理、思考、强度、拉满……）时才在请求里加这一题，只是为了省 token，判断仍交给决策模型。点名只管它说的那项工作，「这次所有 agent」管这一轮全部 agent。模型最后是 haiku 时 effort 无法设置：不设，并在 `/dp log` 里写明「要求了什么、为什么没设」。Workflow 里的 `agent()` 同样：点名的 effort 写进脚本，盖过脚本里写的 effort，也盖过脚本在运行时才算出来的 effort。
+- 你在消息里排除的模型（例如「这周额度快用完了，别用 opus」）在任何情况下都不会成为 agent 启动的模型：不论决策模型是不确定、置信度低，还是把概率全给了被排除的那个模型，也不论主 agent 是否指定了它。决策模型在其余模型里最看好的那个会被选中；回答没有给其余模型任何概率时，选离它的选择最近的那个（并列取便宜的，置信度记 0），`/dp log` 里写明。只有整个决策请求失败（没有任何判断）时才照常放行，按主 agent 原来的要求启动。
 - 「点名」和「排除」都由决策模型结合上下文判断，而不是看消息里有没有模型名：模型名只是作为产品被讨论（「比较一下 haiku 和 sonnet」）、说的是之前写代码的模型、是否定说法（「别用 opus 了，用 haiku 就行」里的 opus），或者点名针对的是另一项工作（「调研那种活儿用 haiku，实现你看着办」之于实现的 agent），都不算为这个 agent 点名。消息里提到了哪个模型，请求里才问它是否被点名或排除。
 - 只在派出时判断一次。一条消息里派出几个 agent，就逐个判断，每个拿到自己的回答就立刻放行，不互相等待。
 - 不处理的 agent：fork 出来的 agent（它总是用父 agent 的模型）和 agent team 的 teammate（它会长期存在、处理很多任务，派出时的一次判断看不到这些任务）。
@@ -34,15 +35,30 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 
 - **一个调用点判断一次。** 循环、`pipeline`、`parallel` 里的 `agent()` 会运行很多次，但它只有一个调用点，只判断一次，改写也写在这个调用点上。prompt 和 label 写成模板字符串（`` `migrate:${file}` ``）也行：决策模型看到的是模板原文，`${file}` 保持原样。
 - **写法。** 决定的 `model` 和 `effort` 写进这个调用的选项对象：脚本已经写了字符串值的就原地替换，没写的加在最后一个属性后面，没有选项的调用补一个选项对象。脚本的其他部分逐字不变。选了 haiku 就不写 effort，脚本里已有的 effort 也会拿掉。
-- **优先级和派出 agent 一致。** 你这一轮的消息里点名的模型 > 决策模型 > 脚本里已经写的 `model`（作为强提示交给决策模型，决策模型的选择达到 `agentOverride` 才推翻它）。脚本里的 `effort` 没有这条规则，用决策模型的。脚本在运行时才算出来的 `model` 或 `effort`（`model: pickModel()`）不动。
+- **优先级和派出 agent 一致。** 你这一轮的消息里点名的模型 > 决策模型 > 脚本里已经写的 `model`（作为强提示交给决策模型，决策模型的选择达到 `agentOverride` 才推翻它）。脚本里的 `effort` 没有这条规则，用决策模型的；你点名的 effort 除外，它盖过脚本里写的 effort（见「派出 agent」）。脚本在运行时才算出来的 `model`（`model: pickModel()`）不动，运行时才算出来的 `effort` 只有你没点名 effort 时才不动。
 - **发给决策模型的内容**和派出 agent 一样：这个调用的 prompt、label、`agentType`，脚本 `meta` 里的 description，以及你这一轮的话，发送前脱敏，按 token 预算（`contextTokens`）截断。同一个脚本的几个调用放进同一个请求，每个调用有自己的 part（`agent-<n>`）和 state 字段（`brief_<n>`），`n` 是它在脚本里的序号（从 0 起），你的话只放一份。
 - **调用多时分批。** 一个请求最多 64 个问题（Clef 的限制）、最多 8 个调用，各调用的 brief 加起来不超过 `contextTokens`，所以调用多时分成几个请求，同时发出，每个调用只问一次。一个脚本最多问 24 个调用、4 个请求，超出的调用保持脚本里写的样子，并告诉主 agent。分成几个请求时，等决策模型的时间按请求数放大（`timeoutMs` 乘请求数，最多 8000 毫秒），因为同一个 key 的并发请求可能排队。
-- **读不了的调用保持原样。** prompt 不是字符串或模板（`agent(q.prompt)`、`agent(buildPrompt(x))`，也就是在数组上 `map` 出来的那种写法）时看不到任务内容，不问决策模型；模板里除了 `${...}` 自己没有几个字（不到约 6 个 token，例如 `` `${CONTEXT}\n\n${l.prompt}` ``：共用的上下文加上表里的一行）也一样，因为这样的 prompt 没说要做什么；不带占位符的短 prompt 就是完整的任务，照常判断。选项不是对象字面量（`agent('x', opts)`）也不改。读不了的脚本（没有 `meta` 块，引号、模板或括号不成对）整个放行。这些留给运行时按 label 兜底的功能（#9）。
+- **读不了的调用保持原样。** prompt 不是字符串或模板（`agent(q.prompt)`、`agent(buildPrompt(x))`，也就是在数组上 `map` 出来的那种写法）时看不到任务内容，不问决策模型；模板里除了 `${...}` 自己没有几个字（不到约 6 个 token，例如 `` `${CONTEXT}\n\n${l.prompt}` ``：共用的上下文加上表里的一行）也一样，因为这样的 prompt 没说要做什么；不带占位符的短 prompt 就是完整的任务，照常判断。选项不是对象字面量（`agent('x', opts)`）也不改。读不了的脚本（没有 `meta` 块，引号、模板或括号不成对）整个放行。这些调用的 agent 在启动时由兜底功能判断（#9，见下一节）。
 - **告诉主 agent。** 工具结果后面附一段说明（引擎把它显示为 `tool.call hook additional context`，只有模型看得到）：逐个调用写了哪个模型和 effort、依据，以及哪些调用保持原样。工具返回的脚本文件（`Script file:`）就是改写后的那一份，主 agent 之后用 `scriptPath` 重跑，改写还在。
 - **失败时放行。** 决策模型超时、出错或回答不完整时，这个请求里的调用保持原样，状态行写明原因；这个功能自己出错时，整个脚本照原样运行。改写后的脚本如果被工具判为语法错误（工具在启动任何 agent 之前检查），就改用主 agent 原来的脚本再提交一次，并告诉主 agent。
-- **不改写的输入。** 用 `scriptPath` 或 `name` 提交的脚本（这里读不到内容，留给 #9）；带 `resumeFromRunId` 恢复的运行（缓存按每个 `agent()` 的 prompt 和选项匹配，改写会让已完成的 agent 重跑）；没有 `agent()` 的脚本。
+- **不改写的输入。** 用 `scriptPath` 或 `name` 提交的脚本（这里读不到内容，由 #9 在 agent 启动时设置）；带 `resumeFromRunId` 恢复的运行（缓存按每个 `agent()` 的 prompt 和选项匹配，改写会让已完成的 agent 重跑；#9 在 agent 启动时设置，不动脚本，所以缓存照样命中）；没有 `agent()` 的脚本。
 - **退回模式**（配置 `workflowMode`，默认 `rewrite`；选 `return`）：不改写，拒绝这次提交，把逐个调用的决定写成给主 agent 的改写说明：要加什么选项，并说明这是路由插件的策略、是你设的。主 agent 照着改好再提交，这第二次提交直接放行，不再问决策模型。「同一个 Workflow」按脚本 `meta.name` 和各调用的 prompt 判断，主 agent 只加选项不影响它；退回过的 Workflow 记在 `$.state`（最近 16 个）。没有要写的（脚本已经是对的）、决策模型没答、读不了的脚本，都不退回。
 - **每个决定记进 `/dp log`**，每个调用一条，例如 `sonnet medium for "rename" (workflow tidy-api): decided; pick sonnet, confidence 0.70; effort p ...`；退回模式的决定后面加 `(sent back)`。`/dp workflow-agents off` 单独关掉这项功能，之后 Workflow 照主 agent 写的运行。
+
+### Workflow 兜底：agent 启动时按 label 设置
+
+上一节的改写只能用在主 agent 直接交来、读得懂的脚本上。其余情况（#9）不改脚本，而是在每个 agent 启动时，在它自己的请求上设置模型和 effort：
+
+- **处理哪些运行。** 用 `scriptPath` 或 `name` 提交的脚本、带 `resumeFromRunId` 恢复的运行（运行时设置不改 `agent()` 的 prompt 和选项，缓存照样命中）、读不了的脚本，以及上一节留下的调用（prompt 是数据，例如 `agent(q.prompt, { label: q.label })`；或者超出 24 个的调用）。上一节写进脚本的调用不再处理；它没答上的调用（决策模型失败）照样保持原样，不再问第二次。两项功能的开关互相独立：`/dp workflow-agents off` 时，直接交来的脚本里读得懂的调用照主 agent 写的运行，读不了的仍由这里在 agent 启动时判断。
+- **运行开始时。** Workflow 工具启动运行之后，读这次运行用的脚本：工具结果的 `scriptPath`（`scriptPath` 提交的就是那个文件；`name` 提交的是引擎解析好、存在会话目录里的那一份，所以项目、个人、插件和内置的命名 workflow 都一样处理）。能读懂的调用，用和上一节相同的请求逐个判断（同一个调用点判断一次）。
+- **agent 启动时。** 每个 agent 的第一步发出之前，读这次运行的 `journal.jsonl`，找到这个 agent 的 label，再找到它是哪个 `agent()` 调用：字符串 label 按原文；模板 label（`` `migrate:${file}` ``）要求模板自己的文字都在、`${...}` 处可以是任何内容；不写 label 的调用，引擎把 prompt 的开头记成 label（空白折叠成一个空格、截到 60 个字符，实测），就按 prompt 的开头认；label 在运行时才算出来的调用，只在其他调用都对不上时才算。找到的调用在运行开始时已经判断过，就用它的决定；它的 prompt 是数据、两个调用用了同一个 label 却决定不同、对不上任何调用，或者整个脚本读不了，就用这个 agent 实际收到的任务（它的 transcript 第一条消息）当场问决策模型，请求和上一节一个调用的请求相同。
+- **设置什么。** 模型和 effort 写进计划表（`agents[agentId]`），核心在这个 agent 的每一步都照写。模型写引擎认得的完整 ID（`claude-haiku-4-5`、`claude-sonnet-5-5`、`claude-opus-5-5`、`claude-fable-5-1`）：`turn.step` 不解析别名，写 `haiku` 会让 agent 以 404 失败（实测）。agent 本来就在决定的模型家族上时不改模型，只改 effort；选了 haiku 就不设 effort。脚本在运行时才算出来的 `model` 或 `effort` 不动，优先级和上一节相同（你点名的模型 > 决策模型 > 脚本写的 `model`）。
+- **等待。** agent 启动时它的任务还没写到磁盘上，引擎在 50–110 毫秒后写入（实测），所以当场判断的 agent 第一步最多等 400 毫秒，再加一次决策请求的时间；运行开始时已经判断过的 agent 不等。运行的第一个 agent 可能在工具调用处理完之前就启动（实测相差 1–10 毫秒），这时它等运行开始时的判断完成。一个 agent 的第一步最多等 9 秒（hook 自己的时间上限是 10 秒）。
+- **常驻提示。** Workflow 工具的描述后面附一段固定的话，请主 agent 给每个 `agent()` 写固定且唯一的 label（对每一项都运行的调用，写固定前缀加这一项，例如 `` `audit:${file}` ``）。引擎在会话里第一次给出工具描述时问一次，之后一直沿用，所以文字固定，不影响 prompt cache；只在配置了决策模型、`workflow-labels` 开着时附上。
+- **告诉主 agent。** 工具结果后面附一段说明：运行开始时每个调用定了什么、哪些调用在 agent 启动时再判断；读不了的脚本说明每个 agent 都在启动时判断。主 agent 直接交来的脚本，上一节已经说明了写进去的调用，这里只补一句：保持原样的调用由 agent 启动时判断。
+- **失败时放行。** 决策模型失败或超时、任务没有及时写到磁盘、或者这个功能自己出错时，agent 按引擎原样启动，状态行写明原因。
+- **状态行和日志。** 状态行的 `by label:` 一段写最近一个运行里按 label 设置的 agent 数，例如 `by label: routed 3 agents`；有没设置成的写成 `by label: routed 2 agents (1 not: jev: no answer in 1500 ms)` 或 `by label: not routed (task not on disk in time)`。运行开始时判断过的调用、启动时当场判断的 agent，各记一条进 `/dp log` 和 debug log，例如 `opus high for "q-license" (agent a25d..., workflow e2e-labels): from its task as it started; decided; pick opus, ...`。`/dp workflow-labels off` 单独关掉这项功能。
+- **限制。** 当场判断是一个 agent 一个请求。一次启动很多个 prompt 是数据的 agent 时（fan-out），这些请求同时发给决策模型，而 Jev 对同一个 key 的并发请求像是依次处理，排在后面的可能超时，那些 agent 按引擎原样启动。脚本给某个调用写了 `model: 'haiku'`、决策换成别的模型时，那个 agent 的请求本来没有 effort（haiku 不收），核心不会补上，它用新模型的默认 effort。强制升档（#7）按引擎给这一步的模型判断（`e.model`、`e.effort`），不看计划表里换过的模型：被换成 haiku 的 agent 卡住时，#7 抬的是 effort（haiku 不收，等于没升）；从 haiku 换走的，#7 当它已经换过模型，不再升。这两处要在 #7 里改成先看计划表的 `model`，留给后续。
 
 ### 一轮中途重新判断
 
@@ -55,6 +71,19 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - 每次重判都记进 debug log 和 `/dp log`，例如 `#5 midturn-effort: effort xhigh (was medium) for step 3 (every 3 steps): p low 0.00, medium 0.05, high 0.15, xhigh 0.70, max 0.10; confidence 0.80; up`。
 - 在 Sonnet 5.5 上也照常重判：实测一轮中途改 effort 不会返回 400（见「开发」里的「已实测的引擎行为」）。
 
+### 卡住时强制升档
+
+- **记什么。** 主 agent 和它派出的每个 agent，工具调用出错一次记一次。**你自己拒绝的调用从不算**。被你自己的 settings hook 拦下的调用，只有打开 `/dp hook-block-failures on` 才算失败（默认关闭，免得你的 PreToolUse hook 正常拦截时误触发升档）。不管开关，状态行都显示失败次数和被 hook 拦下的次数。
+- **什么时候问。** 一个循环（主 agent 的这一轮，或一个派出 agent）里计入的失败满 `escalateAfter` 次（默认 2），它的下一步发出之前，Dispatch Pilot 再问一次决策模型。同一个请求里问两件事：剩下的工作还需要多少逐步推理（和中途重判是同一个问题，带上「卡住」的说明，见上文），以及这些失败是不是**预期内的**：TDD 里先写下、要看它红的测试，没找到东西而以非零退出的搜索，探测某样东西是否存在的命令。「预期内」由决策模型结合你的消息和最近几步判断，不靠关键词匹配；回答的概率达到 `thetaExpected`（默认 0.25）就算预期内。发出的内容和别的决策请求一样：只有文字和工具名，加上每个调用做了什么（`description`、文件路径的最后两段、命令的第一行），不含工具输出，脱敏，受 `contextTokens` 限制。最近几步取自对话的记录（主 agent 的，或这个 agent 自己的），所以一个 agent 的任务和它做过的事决策模型都看得到。
+- **预期内。** 不强制升档，失败计数清零，这次回答里的 effort 按普通的中途重判规则处理（`thetaUp`、`thetaDown`、`holdSteps`）。
+- **否则**（包括决策模型超时、出错、没回答这个问题：不知道是不是预期内，就当不是）：强制升档，升档后失败计数清零。
+  - **主 agent**：这一轮从这一步起至少升一档（`escalateMode` 是 `one-level` 时最高到 xhigh，是 `max` 时直接升到 max），在这一轮里不会再被中途重判降到这一档以下。决策模型自己给的判断更高、而且有足够把握（`thetaUp`）时，采用它的。一轮最多升 `escalateLimit` 次（默认 2），之后失败照常记、状态行照常显示，但不再升。
+  - **派出 agent**：它的每一步都不低于升档后的档位，其余同上。**haiku 没有 effort 可升**，所以改用 `escalateHaikuTo`（默认 `claude-sonnet-5-5`）接着做。这里要写完整的模型 id：实测引擎对每一步的模型不认别名（`sonnet` 会让这个 agent 以 `model_not_found` 提前结束）。换模型之后引擎仍然不给这个 agent 的步骤带 effort（它是按 haiku 算的），所以 sonnet 用自己的默认档；换模型只影响这个 agent 自己的缓存。haiku agent 只问「是不是预期内」，不问 effort。
+  - 已经到顶（`one-level` 的 xhigh，`max` 的 max）：没有可升的，不问决策模型，失败计数清零，记一条决策。
+- **不动的情况。** 你用 `/dp lock` 锁定了 effort（锁定优先）；没有配置决策模型；主 agent 这一步的模型不接受 effort 档位。主 agent 这一轮开始时没有经过路由（决策失败）也照样升：升的是会话自己的 effort。Workflow 里的 agent 的记录读不到（引擎不给 mod 读它），所以它只升、不问是不是预期内。
+- **状态行。** 主 agent 这一轮的计数在 `midturn` 那一段后面，例如 `dp effort high | steps 5, judged 3, changed 1 | failed 2, blocked 1, raised 1`（`blocked` 是被 hook 拦下的次数，`raised` 是强制升档的次数）；最近一个有失败的派出 agent 的计数跟在 `agent` 那一段后面，例如 `agent sonnet medium | agent failed 2, raised 1`。新的一轮从零开始。
+- **记录。** 每次强制升档、「预期内失败、没有升档」和「已经到顶」都记进 `/dp log` 和 debug log，例如 `#4 escalation: effort high (was medium) for step 2 (2 failed tool calls): forced one level up; not expected (p 0.05, thetaExpected 0.25); p low 0.00, medium 1.00, ...`。`/dp escalation off` 单独关掉这项功能；`/dp hook-block-failures on` 让被 hook 拦下的调用也算失败。
+
 ### 失败时放行
 
 如果决策模型超时（默认 1.5 秒）、出错、回答无法解析，或者没有配置 key（Clef 是 account ID 和 token），消息照常进入，不会额外等待，这一轮使用会话自己的 effort。状态行会写明原因，例如 `dp effort xhigh (not routed) | jev: no answer in 1500 ms`、`dp effort xhigh (not routed) | clef: key refused (HTTP 401)`。选了其中一个就只用它，失败时不会改用另一个。Clef 的免费额度当天用完时写 `clef: daily quota used up`（Cloudflare 的错误码 3036），和一时繁忙的 `clef: busy (HTTP 429)`（错误码 3040）区分开：两者的 HTTP 状态都是 429。
@@ -63,9 +92,11 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 
 状态行只有一行，例如 `dp effort high`。`(not routed)` 表示这一轮没有经过路由，用的是会话自己的 effort；`(locked)` 表示你用 `/dp lock` 锁定了 effort；`dp off` 表示你用 `/dp off` 关掉了整个 mod。本仓库约定界面里只用单宽字符，而中文是双宽字符，所以状态行用英文。`claude -p` 模式没有状态行，内容会写进 debug log。
 
-派出 agent 后，状态行后面会加一段，显示最近一个派出 agent 的模型和 effort，例如 `dp effort high | agent sonnet high`。`(you)` 表示模型是你点名的，`(kept)` 表示保留了主 agent 的指定；`agent not routed (jev: no answer in 1500 ms)` 表示这个 agent 没有经过路由，括号里是原因。
+派出 agent 后，状态行后面会加一段，显示最近一个派出 agent 的模型和 effort，例如 `dp effort high | agent sonnet high`。`(you)` 表示模型是你点名的，`(kept)` 表示保留了主 agent 的指定，`(effort: you)` 表示 effort 是你点名的；`agent not routed (jev: no answer in 1500 ms)` 表示这个 agent 没有经过路由，括号里是原因。出过错的工具调用的计数（`failed 2, blocked 1, raised 1`）见「卡住时强制升档」。
 
 提交 Workflow 后，状态行再加一段，写最近一个 Workflow 的处理结果：`workflow routed 3 agents` 是三个调用已判断、决定写进了脚本；有调用保持原样时写成 `workflow routed 2 agents (1 as written)`，请求失败的话后面跟原因（`(1 as written: jev: HTTP 500)`）；一个调用也没判断时写 `workflow not routed (...)`，括号里是原因，例如 `jev: no answer in 1500 ms`、`its prompt is built when the script runs`、`given by path`、`given by name`、`resumed from an earlier run`、`script not readable`；退回模式写 `workflow sent back (2 agents)`。
+
+Workflow 的 agent 启动时按 label 设置之后（#9），后面再加一段，写最近一个运行里设置了几个 agent：`by label: routed 3 agents`；有没设置成的，括号里写个数和原因（`by label: routed 2 agents (1 not: jev: HTTP 500)`），一个也没设置成时写 `by label: not routed (...)`。所以用 `scriptPath` 提交的 Workflow 常见的整行是 `dp effort high | workflow not routed (given by path) | by label: routed 3 agents`：前一段说脚本没有改写，后一段说 agent 启动时设置了。
 
 ### 发给决策模型的内容
 
@@ -77,13 +108,15 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 
 ### skill：隐藏列表，发消息时推荐
 
-Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附件（`skill_listing`）交给主 agent，装的 skill 多时这一段很长：本机 66 个 skill，实测每个会话多出约 6.6k input token。Dispatch Pilot 对主 agent 拦下这条附件（ADR 0002），改为在你每次发消息时推荐相关的几个：
+Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附件（`skill_listing`）交给主 agent，装的 skill 多时这一段很长：本机 66 个 skill，实测每个会话多出约 6.6k input token。Dispatch Pilot 对主 agent 拦下这条附件（ADR 0002），换成一句固定的提示，改为在你每次发消息时推荐相关的几个：
 
 - **推荐分两段。** 第一段和 effort 在同一个决策请求里，多问一个问题：在本会话主 agent 能加载的 skill 中，加上只能由你本人触发的 skill，再加上「都不合适」，哪个最适合这条消息要做的工作？每个 skill 用它的画像描述（见下一条），还没有画像的用描述。这一段的概率在全部选项之间加起来为 1，只用来排序。第一段分到 0.1 以上的 skill 里，最多取前 `skillsShortlist` 个（默认 4）进入第二段：再发一个请求，问的是同样的消息和对话，补上每个 skill 的 SKILL.md 正文开头，对每个 skill 单独问「它是否正好做这条消息要做的那种工作」，回答的概率（0 到 1）就是相关度，是绝对值，几个 skill 可以同时很高，也可以都很低。相关度不低于 `skillsMinRelevance`（默认 0.7）的 skill，最多 `skillsMax` 个，按相关度从高到低写成一个文字块附在消息后面交给主 agent，内容是名字、相关度和描述。主 agent 用 Skill 工具按名字加载，也可以不理会。没有合适的就不附任何东西；第一段没有哪个 skill 到 0.1 时不发第二个请求。
 - **两个请求共用一次等待。** 消息最多等 `timeoutMs`：第二个请求只能用第一个请求剩下的时间。第二个请求超时或失败时，这条消息不推荐 skill，照常进入，状态行写明原因，例如 `skills not rated (jev: no answer in 1100 ms)`；effort 的判断不受影响。实测（真实引擎、Jev）第一段约 0.3–0.5 秒，第二段约 0.26 秒，合计在 1.5 秒之内。
 - **中英双语的 skill 画像。** 会话开始时，Dispatch Pilot 在后台让一个便宜的模型（`skillsProfileModel`，默认 haiku，通过你自己的 Claude Code 登录调用，算在你的用量里）读每个 skill 的 SKILL.md，写一份简短的画像：做什么、什么时候用、什么时候不用，英文和中文各一份。这样中文消息也能对上英文描述的 skill，「什么时候不用」还能挡掉似是而非的匹配。画像按 SKILL.md 的内容（以及模型名、提示词版本）做哈希，存在 `$.store` 里，下次会话直接用；SKILL.md 改了才重写。每次会话开始最多写 `skillsProfilesPerSession` 份（默认 30，0 表示不写），其余留给以后的会话，第一次装了很多 skill 时不会一下子花掉很多用量。写的过程不阻塞你的消息：写好一份用一份，还没写好或写失败的 skill 用名字和描述。没有 SKILL.md 的 skill（内置 skill）从描述写画像。每份画像的每个字段都有长度上限，最多保留 500 份（超过时删掉最早写的、本会话不用的，删到 400 份），在 `$.store` 4 MiB 的总上限里只占几百 KB。`/dp skill-profiles off` 停止写画像，并改回只用名字和描述排序。实测 haiku 写一份约 2.2–2.6 秒、约 2k 输入和 200 输出 token。
 - **已经推荐过的只再提名字。** 同一段对话里描述过一次的 skill，再推荐时只写名字和相关度。`/compact` 和 `/clear` 之后重新给描述。
 - **只能由你触发的 skill**（SKILL.md 的 frontmatter 写了 `disable-model-invocation: true`）从不推荐给主 agent，Skill 工具也加载不了它们。合适时状态行提示你自己输入，例如 `try /grill-me`。settings 的 `skillOverrides` 设成 `off` 的 skill 不提示。
+- **列表的位置上是一句固定的提示。** 主 agent 读到的不是空白，而是：`Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it. For any other skill, call the find_skill tool (mcp__dispatch-pilot__find_skill; load it with ToolSearch first if it is deferred) with a few words on the work, then load a skill it returns with the Skill tool by its exact name.` 也就是：skill 不再列出；和消息相关的会随消息推荐；需要别的 skill 时用 `find_skill` 按几个词查找，再用 Skill 工具按名字加载。写出 `find_skill` 的全名、提到 ToolSearch，是因为它是延迟加载的工具，加载之前主 agent 只看得到名字。`skillsAlwaysListed` 里的 skill 照旧留在列表里，提示跟在它们后面。提示不含任何 skill 的名字或数量，每次问到都一字不差，不破坏 prompt cache（360 个字符，本机原来的列表 18,397 个）。实测它并不能让主 agent 主动去查 skill（见「开发」里的「已实测的引擎行为」）。
+- **`find-skill` 关掉时，提示不提 `find_skill`**，最后一句换成 `...; load one, or any skill you know, with the Skill tool by its exact name.`。用哪一句，看的是引擎问到列表那一刻 `find-skill` 开关的状态。引擎在整段对话里沿用这个回答，对话中途调用 `$.ui.invalidate` 也不会重问（已实测），所以**对话中途切换 `find-skill`，提示要到下一段对话（`/clear` 或新会话）才跟着变**；`/compact` 之后引擎不再问列表（#10 实测），提示既不会变，也不会重发。这期间工具本身按当前的开关回答：中途关掉后，主 agent 照提示去调用，会得到「已关闭」的回答，不发请求；中途打开后，下一段对话之前，主 agent 只能从延迟加载的工具名里看到它。
 - **主 agent 仍然可以按名字加载任何 skill。** 隐藏的只是列表，skill 本身和 Skill 工具不变（已实测，包括 `anthropic-skills:` 开头的同步 skill）。`skillsAlwaysListed` 里的 skill 留在列表里，推荐到它们时只写名字。派出 agent 和 Workflow 里的 agent 的列表不动。
 - **什么时候不隐藏。** 没有配置决策模型（Jev 没有 key，Clef 缺 account ID 或 token）、读不到本会话的 skill，或者 skill 推荐被关掉时，主 agent 照常读完整的列表。
 - **开关。** `/dp skills off`（以及 `/dp off`）停止推荐，并把列表还给主 agent：之后引擎再问到的列表原样放行；这段对话里已经被拦下的列表（引擎在整段对话里沿用当时的回答），随你的下一条消息作为附件补给主 agent，只补一次，`/compact` 之后再补一次。`/dp skills on` 恢复推荐；已经还给主 agent 的列表留在这段对话里，下一段对话（`/clear` 或新会话）起才重新隐藏。
@@ -97,8 +130,8 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 - **返回什么。** 相关度（第二段的绝对值）不低于 `findSkillMinRelevance`（默认 0.5，比推荐的门槛低：这是主 agent 主动问的，它会自己看描述再决定）的 skill，最多 `findSkillMax` 个，按相关度从高到低，每个写名字（Skill 工具接受的写法，同步来的 skill 带 `anthropic-skills:` 前缀）、相关度和描述。主 agent 再用 Skill 工具按名字加载。都不够相关时，回答没有合适的 skill，并提示主 agent 不用 skill 继续，或者按名字加载它已知的 skill。
 - **只在被调用时回答。** 一轮中途不会主动推送 skill；结果只作为这次工具调用的回答交给主 agent。
 - **不返回的 skill。** 只能由你本人触发的 skill 从不返回给主 agent，即使它最相关；`skillsNeverSuggested` 里的 skill 既不问也不返回。派出 agent 调用时，工具让它从自己的 skill 列表里挑（派出 agent 的列表没有隐藏），不发请求。
-- **不影响缓存。** 工具在会话开始时注册（只在配置了决策模型时），描述固定不变，不含任何会话内容。实测它是延迟加载的工具：主 agent 的工具列表里先只有它的名字，用 ToolSearch 加载之后才调用。
-- **开关。** `/dp find-skill off`（以及 `/dp off`）之后，工具仍然注册着，调用时只回答它已关闭、可以用 `/dp find-skill on` 打开，不发请求。它和 skill 推荐的开关 `skills` 互相独立：推荐关掉时 `find_skill` 照常工作（会话开始没有读 skill 目录的话，第一次调用时再读）。
+- **不影响缓存。** 工具在会话开始时注册（只在配置了决策模型时），描述固定不变，不含任何会话内容。实测它是延迟加载的工具：主 agent 的工具列表里先只有它的名字，用 ToolSearch 加载之后才调用。主 agent 的 skill 列表换成的那句提示写出了它的全名，并说明要先用 ToolSearch 加载（见上一节）。
+- **开关。** `/dp find-skill off`（以及 `/dp off`）之后，工具仍然注册着，调用时只回答它已关闭、可以用 `/dp find-skill on` 打开，不发请求；列表位置上的提示也不再提它，从下一段对话起生效（见上一节）。它和 skill 推荐的开关 `skills` 互相独立：推荐关掉时 `find_skill` 照常工作（会话开始没有读 skill 目录的话，第一次调用时再读）。
 - **失败时放行。** 决策模型超时、出错、回答里没有 skill 问题（两个请求中任何一个），读不到本会话的 skill，或者 mod 自己出错时，工具都立即回答失败的原因，并提示主 agent 不用 skill 继续，或者按名字加载已知的 skill。状态行写明原因，例如 `find_skill failed (jev: no answer in 1500 ms)`。
 - **状态行和日志。** 状态行显示最近一次查询返回的 skill，例如 `dp effort high | find_skill pr`，没有合适的写 `find_skill none`。每次查询的两个请求都写进 debug log，结果记进决策日志（`/dp log`）和 debug log，例如 `found code-review for "review a branch before merging": first code-review 1.00, none 0.00; fits code-review 0.95; returned from 0.50, at most 5`。
 
@@ -148,6 +181,11 @@ Dispatch Pilot 不能和 jev-pilot 同时启用：两者都在 `turn.step` 上�
 | `thetaUp` | 0.4 | 中途升档所需的最低置信度，范围 0–1。 |
 | `thetaDown` | 0.6 | 中途降档所需的最低置信度，范围 0–1；低于 `thetaUp` 时按 `thetaUp` 算。 |
 | `holdSteps` | 3 | 中途升档之后，多少步之内不降档，范围 0–50。 |
+| `escalateAfter` | 2 | 一个循环（主 agent 的一轮，或一个派出 agent）里计入的失败满几次，就问决策模型并强制升档（除非是预期内的），范围 1–20。 |
+| `escalateMode` | `one-level` | 强制升档的方式，在 `/config` 里是下拉选择：`one-level` 升一档，最高到 xhigh（决策模型自己有把握给更高时可以更高）；`max` 直接升到 max。 |
+| `escalateLimit` | 2 | 一轮（或一个派出 agent）最多强制升档几次，范围 0–10；升档后失败计数清零。 |
+| `thetaExpected` | 0.25 | 决策模型认为这些失败「是预期内的」的概率达到多少，就不强制升档，范围 0–1。故意定得低：在几个手写的例子上，Jev 对预期内失败的评分是 0.15–0.72，对真的卡住的是 0.09–0.16（Clef：0.27–0.90 和 0.03–0.11）。暂定，见「待评测」。 |
+| `escalateHaikuTo` | `claude-sonnet-5-5` | 失败的 haiku agent 接着用哪个模型做。haiku 没有 effort 可升。要写完整的模型 id，不能写别名（引擎对每一步的模型不认别名）；留空表示不换。 |
 | `agentFable` | 关 | 打开后，派出 agent（包括 Workflow 里的）的可选模型加入 fable（比 opus 更贵）。你自己点名 fable 时不受这个开关限制。 |
 | `agentOverride` | 0.6 | 主 agent 为派出的 agent 指定了模型时，决策模型的选择要达到这个置信度才推翻它，范围 0–1。Workflow 脚本里的 `agent()` 写了 `model` 时同样适用。 |
 | `skillsMax` | 3 | 一条消息最多推荐几个 skill，范围 0–10。 |
@@ -161,7 +199,7 @@ Dispatch Pilot 不能和 jev-pilot 同时启用：两者都在 `turn.step` 上�
 | `findSkillMinRelevance` | 0.5 | `find_skill` 返回一个 skill 所需的最低相关度，范围 0–1。相关度的含义和 `skillsMinRelevance` 相同。 |
 | `workflowMode` | `rewrite` | Workflow 里的 agent 怎么路由：`rewrite` 把决定写进脚本再运行；`return` 第一次提交被拒绝并附上逐个 agent 的推荐，让主 agent 自己写进去，同一个 Workflow 第二次提交直接放行（见「Workflow 里的 agent」）。在 `/config` 里是下拉选择。 |
 
-`contextMessages`、`contextTokens`、`thetaMax` 和 `agentOverride` 的默认值是暂定的，评测（#4、#15、#17）之后会更新；中途重判的几项（`rejudgeEvery` 到 `holdSteps`）同样是暂定的，由 #14 的评测校准。`skillsMinRelevance`、`findSkillMinRelevance` 和 `skillsShortlist` 同样是暂定的：#11 用真实的 Jev 在 21 条消息上定了起点（见「待评测」），#16 的评测给出了按语言的建议值（见「开发」里「评测」的「skill 匹配」），默认值由 #17 更新。
+`contextMessages`、`contextTokens`、`thetaMax` 和 `agentOverride` 的默认值是暂定的，评测（#4、#15、#17）之后会更新；中途重判的几项（`rejudgeEvery` 到 `holdSteps`）同样是暂定的，由 #14 的评测校准。`skillsMinRelevance`、`findSkillMinRelevance` 和 `skillsShortlist` 同样是暂定的：#11 用真实的 Jev 在 21 条消息上定了起点（见「待评测」），#16 的评测给出了按语言的建议值（见「开发」里「评测」的「skill 匹配」），默认值由 #17 更新。`escalateAfter`、`escalateMode`、`escalateLimit` 和 `thetaExpected` 同样是暂定的，见「待评测」。
 
 ## 待评测
 
@@ -169,10 +207,13 @@ Dispatch Pilot 不能和 jev-pilot 同时启用：两者都在 `turn.step` 上�
 
 - **中途重判的默认值和写法。** `thetaUp` 0.4、`thetaDown` 0.6、`holdSteps` 3、`rejudgeEvery` 3、`rejudgeSteps` 4 都是起点（参考了 jev-pilot 实测的升档 0.3/0.5、降档 0.6），按语言分别校准。state 里放不放当前档位和计数、问题用英文还是中文，都是评测变量（见「开发」里的「中途重判」）。`rejudgeWaitMs` 300 毫秒按回答延迟的 p90 和工具的平均执行时间来定：实测 Jev 的中途请求 313–330 ms。#14 的评测（见「开发」里「评测」的「一轮中途的 effort」）给出了第一批数据：Jev 的中途请求 p50 约 280 ms、p90 约 350 ms；去掉当前档位或计数、问题改用中文，两次运行里都看不出稳定的差别；Clef 的 confidence 比 Jev 低得多，默认门槛下几乎不改档，门槛要按后端分别校准。
 
+- **「预期内失败」这一问的写法和门槛（#7；评测归 #14，门槛按语言校准归 #17）。** `thetaExpected` 0.25、`escalateAfter` 2、`escalateLimit` 2 都是起点。0.25 来自一次手工的小实验：11 个手写场景（6 个预期内：先写红灯测试、搜索没结果、探测 docker 是否安装、lint 报告问题、探测端口、一道中文红灯题；5 个真的卡住：构建一再失败、Edit 一再失败、部署失败、安装依赖失败、上传凭证错误），用 `scripts/decide-stuck.ts` 的同一份请求，各问 8 种写法。当前写法（英文问题加 `criteria`）：Jev 对预期内的评分 0.15–0.72（均值 0.39），对卡住的 0.09–0.16（均值 0.12）；Clef 对预期内的 0.27–0.90（均值 0.63），对卡住的 0.03–0.11（均值 0.06）。两个后端的分布都偏低，所以门槛取低（0.25 下，Jev 放过 6 个里的 5 个预期内的，Clef 6 个全放过，卡住的 10 次都升了档）。样本太小，只能当起点。要评测它，可以在 `effort-midturn` 的带 `trouble` 的题上加一个标注「这些失败是否预期内」，用 `midturnState` 加 `midturnEffortPart({ trouble: true })` 加 `expectedFailurePart()` 拼请求（和 mod 发出的一样），再用 `readExpected` 读回答；变量有：问题的写法（当前写法、「是不是预期内」改问「是不是卡住」（高值代表卡住）、不带 `criteria`，几种写法在上面的场景里的差别不大，不带 `criteria` 的卡住问法在 Clef 上间隔最大）、中英文、`recent_steps` 条数。`escalateMode`、`escalateAfter` 和 `escalateLimit` 没有评测方法，按使用体验调。
 - **Clef 是否只读 state 的前约 2K token。** 第三方资料（OpenRouter 的模型页）说 Workers AI 只读 state 的前约 2K token，官方 schema 只写了「过长的 state 会被截断」。mod 已经尽量不吃亏：state 里 `user_message` 排在最前，`contextTokens` 的默认值也是 2000。方法：发一个已知长度的 state，在末尾放一个只有靠它才能作答的探针事实，并对比 `usage.input_tokens`；还要确认截断是否也作用于问题（skill 画像在 criteria 里）。基线（#3 实测）：一条中文消息、不带上下文的 effort 请求，Clef 报 460 input tokens，Jev 报 626。
 - **Clef 的延迟和 `timeoutMs`。** 本机用 Node 的 fetch 连发 6 次同一个请求：Clef 第一次 1.8 秒，之后 0.6–1.4 秒；Jev 第一次 0.57 秒，之后 0.28–0.33 秒。默认的 `timeoutMs` 1500 对 Clef 偏紧（在真实引擎里，第一次请求的冷连接用了 1.3 秒才拿到 Cloudflare 的 401）。按延迟的 p50 和 p90 为 Clef 定 `timeoutMs` 的默认值。#4 的正式基线是第一批数据：200 个请求依次发送时 p50 699 ms、p90 929 ms，只有 1 条超过 1500 ms（见「开发」里的「评测」）。
 - **派出 agent 的门槛（#15 的数据）。** `agentOverride` 0.6 在两次 Jev 运行里都不是最好：0.4–0.5 时整题中文 +3、英文 +2 个百分点；点名的门槛 0.5 偏低，英文里只是被提到的模型以 0.5–0.6 被当成点名；`thetaMax` 0.3 比 0.5 好 1–2 个百分点。数字见 `eval/results/subagent/` 各变体的 `breakdown.sweeps`，逐题的原始回答也在里面，可以按语言分别重扫（见「开发」里的「派出 agent（subagent，#15）」）。Clef 只抽样跑了 12 题（p90 约 1.05 秒），全量一个变体约 0.05 美元。
+- **Workflow agent 启动时当场判断的排队（#9）。** prompt 是数据的调用（fan-out）每启动一个 agent 就发一个请求，fan-out 的几个 agent 几毫秒内一起启动（实测），而 Jev 对同一个 key 的并发请求像是依次处理，排在后面的会等到超时，那些 agent 不经路由。要量一量常见的 fan-out（几个到十几个 agent）有多少能在 `timeoutMs` 之内答上；不够的话，把几毫秒内一起启动的 agent 合进一个请求（#8 的 `workflowBatches` 已经能把几个调用放进一个请求）。
 - **skill 推荐的门槛和准确率（#16）。** #11 的起点：用 mod 自己的排序代码（`skillsRequest` + `modRanker`）和真实的 Jev（jev-1.13.0），在本机 87 个 skill（66 个主 agent 能加载、21 个只能由用户触发）上问了 21 条消息：18 条中文（10 条该推荐 skill、8 条不该），3 条 find_skill 式的英文查询（2 条有对应的 skill）。先不带画像：该推荐的 skill 在第二段的相关度是 0.81–0.98（最低的是 `pr` 0.81）；不该推荐的消息里进入第二段的 skill 是 0.07–0.66（两次重命名都给了 `implement`，0.49 和 0.66），另有两个可争议的 0.80 左右（「这个函数为什么返回 undefined」的 `diagnosing-bugs`，「解释一下这个正则」里只能由用户触发的 `teach` 0.79）。所以 `skillsMinRelevance` 取两组之间的 0.7，`findSkillMinRelevance` 取 0.5（主 agent 主动问时宁多勿漏，它自己会看描述）。给 3 个 skill 写了画像后再问一遍：该推荐的照旧（`code-review` 0.96、`codebase-design` 0.96、`diagnosing-bugs` 0.94），`diagnosing-bugs` 对「为什么返回 undefined」降到 0.53（它的画像写了「不用于简单问题」）。第一段的分布：该推荐的 skill 都分到 0.34 以上（多数 0.96–1.00），不需要 skill 的消息里分给 skill 的最多 0.10，所以第二段只补读分到 0.1 以上的（`SHORTLIST_FLOOR`），多数普通消息只发一个请求。#16 的评测（109 题 × 中英 × 有画像和没有画像，真实的 Jev 跑了两次，见「开发」里「评测」的「skill 匹配」）：线上的有画像时中文 79.8%、英文 83.5%，两次都差 3.7 个百分点，没过 spec 的门槛（没有画像时 −1.8 和 −0.9）；`skillsMinRelevance` 在 0.3–0.8 之间很平，按语言建议中文 0.75、英文 0.8，共用一个值时 0.75（差距缩到 −2.3）；`findSkillMinRelevance` 建议中文 0.3、英文 0.5（共用时保持 0.5）。评测集里九成以上的消息都过了 0.1 这个下限、发了第二段（不该推荐的题多是诱导题）。还要评测（#17）：`skillsShortlist` 和 0.1 这个下限（决定第二段问什么，只能重新请求）；只能由用户触发的 skill 在第一段里挤掉能加载的 skill（033、090、091、092：例如两类分开取短名单）；问题用中文写；画像只用英文；Choice 选项顺序的影响（Jev 偏向排在前面的选项）。
+- **主 agent 会不会主动用 `find_skill`。** 列表换成提示之后，主 agent 在推荐漏掉时并不会自己去查：一条要写 PR 描述、但没有推荐 `pr` 的消息，有提示、没有提示、加上「何时用」的更主动写法各 3 次，都直接写了正文；读到完整列表时第一步就加载了 `pr`（见「开发」里的「已实测的引擎行为」）。这类消息目前靠发消息时的推荐。还要评测：换别的场景（文件格式、某个服务的工具、一轮中途才出现的需要）和别的模型，以及「每轮先查」这类更强的写法值不值得它多出的 ToolSearch 加 `find_skill` 两步。
 - **skill 请求的大小和延迟。** 不带画像时第一段约 6.4k input token（87 个选项），真实引擎里 0.3–0.6 秒；每份画像约多 110 token（实测 3 份画像多出 330–380 token），全部写好后估计 16k 左右，在 Jev「state + 最长的问题 ≤ 32k」之内；`questionBudget` 再按估算值留了余量（估算比 Jev 报的少约 10%，按 1.35 倍留），超出时先去掉「何时不用」，再从后往前改回描述。第二段约 0.5–1.5k token、0.25–0.5 秒。`-p` 进程启动时的第一个请求有一次用了 1.7 秒（#10 实测，进程启动时其他工作同时在跑），超时后照常放行。#16 实测（111 个 skill，Jev 计）：不带画像时第一段 8.6k input token，带全部画像 2.19 万（`questionBudget` 没有裁剪），第二段约 1.3k。Jev 第一段 p50 0.32–0.34 秒（不带画像）、0.56–0.67 秒（带画像）；慢的时段带画像的 p90 到 1.65 秒，218 条里 24 条第一段就超过 1500 ms：这条消息的决策请求整个超时，effort 也没有经过路由。Clef 带画像的第一段 1.5 万 token、3.7–7.9 秒，`timeoutMs` 3000 下每条消息都会超时（6 条抽样全部超过）：选 Clef 时，skill 问题和 effort 问题放在同一个请求里要重新考虑（例如把第一段单独发、按后端限制画像字段），这一条留给 #17。
 - **一个请求里放几个 Workflow 调用，准确率会不会降（#8）。** 一个脚本的几个 `agent()` 共用一个请求（最多 8 个，各自的 brief 放在 state 里），对每个问题来说，其他调用的 brief 是无关内容，TypeSafe 的指南说这会降低准确率。实际降不降、降多少，要拿同一批调用，一个请求一个调用和现在的分批各问一遍来比；差距明显就把 `decision/workflow.ts` 的 `MAX_PER_REQUEST` 调小。
 
@@ -192,6 +233,7 @@ claude --plugin-dir ./dispatch-pilot --settings '{"enabledPlugins":{"jev-pilot@j
 TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' [--zh] [--choice]   # 用 Node 调一次真实的 Jev
 CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_AUTH_TOKEN=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' --clef   # 调一次真实的 Clef
 TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-agent.ts --file <subagent.jsonl> --id subagent-011 [--lang en] [--zh] [--work] [--noul] [--fable]   # 一个派出 agent 的判断（Jev），请求与 mod 发出的相同
+TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-stuck.ts <输入.json> [--zh] [--clef]   # 一个卡住的循环的再判断（Jev，或 --clef）：输入是 MidturnInput，打印「预期内」的概率和 effort 各档的概率
 node dispatch-pilot/eval/validate.ts                      # 校验评测集（接缝 2，见下文「评测」）
 node dispatch-pilot/eval/run.ts effort-submit --estimate  # 估算请求数、token 和费用，不发请求
 node dispatch-pilot/eval/run.ts effort-submit --label <名字> [--backend clef]   # 用真实 Jev（或 Clef）跑一次评测，结果存进 eval/results/
@@ -217,11 +259,13 @@ hooks/
 ├── features/               每项功能一个文件，导出 register<X>(on, ctx)
 │   ├── control.ts          /dp 命令：开关、锁定 effort、最近的决策；记录 session.measure 的读数（#13）
 │   ├── dispatched-agents.ts  派出 agent 时判断它的模型和 effort（#6）
+│   ├── escalation.ts       失败计数和强制升档：主 agent 和派出 agent（#7）
 │   ├── find-skill.ts       主 agent 的 find_skill 工具：会话开始时注册，被调用时按查询给 skill 排序（#12）
 │   ├── main-effort.ts      发消息时判断主 agent 的 effort（#2）
 │   ├── midturn-effort.ts   一轮中途重新判断主 agent 的 effort（#5）
-│   ├── skills.ts           对主 agent 隐藏 skill 列表，发消息时推荐 skill（#10）；会话开始时在后台写 skill 画像（#11）
-│   └── workflow-agents.ts  提交 Workflow 时判断脚本里每个 agent() 的模型和 effort，写进脚本或退回（#8）
+│   ├── skills.ts           对主 agent 隐藏 skill 列表、换成一句提示，发消息时推荐 skill（#10）；会话开始时在后台写 skill 画像（#11）
+│   ├── workflow-agents.ts  提交 Workflow 时判断脚本里每个 agent() 的模型和 effort，写进脚本或退回（#8）
+│   └── workflow-labels.ts  脚本写不进去的 Workflow：运行开始时判断各调用，agent 启动时按 label 写计划表；Workflow 工具描述里的常驻提示（#9）
 ├── core/                   各功能共用的机制，不含具体功能
 │   ├── core.ts             核心的 hook：发消息时的决策请求、一轮的开始、每一步的写入
 │   ├── ballot.ts           一条消息的「投票箱」：各功能放进问题，由核心一次发出
@@ -237,9 +281,12 @@ hooks/
     ├── system-one.ts       System One 请求和回答的类型；mergeParts、answersFor
     ├── effort.ts           effort 问题（英文或中文 × Score 或 Choice）、读回答、选档位
     ├── midturn.ts          中途重判：state（与评测集 effort-midturn 同形）、问题、防抖规则、工具调用的一句话结果
-    ├── dispatched-agent.ts 派出 agent 的问题（模型 Choice + effort Score + 点名和排除）、按优先级读回答
+    ├── dispatched-agent.ts 派出 agent 的问题（模型 Choice + effort Score + 点名模型、排除模型、点名 effort）、按优先级读回答
+    ├── escalation.ts       强制升档：「失败是不是预期内」的问题、升到哪一档的规则、从对话记录取最近几步（#7）
     ├── workflow.ts         Workflow 脚本里各个 agent() 的请求（分批）、读回答、写进什么、告诉主 agent 什么（#8）
     ├── workflow-script.ts  读 Workflow 脚本（找 agent() 调用和它的选项）、把模型和 effort 写进去（#8）
+    ├── workflow-labels.ts  Workflow 兜底：journal 里的 label 对应哪个 agent() 调用、从 transcript 取任务、给主 agent 的说明（#9）
+    ├── model-ids.ts        模型家族对应的完整模型 ID：计划表的 model 写它，不写别名（#9）
     ├── skills.ts           skill 的两段排序（modRanker 是推荐和 find_skill 共用的唯一入口；第一段 skillsPart，第二段 rerankPart）、画像的写法、挑选、给主 agent 的文字块；skillsRequest（#16 的评测用）
     ├── context.ts          state：token 估算和截断、最近的对话、turnStartState
     ├── redact.ts           secret 脱敏
@@ -248,10 +295,12 @@ hooks/
     └── clef.ts             Clef 后端（Cloudflare Workers AI，#3）
 scripts/decide.ts           用 Node 发一次真实的判断（Jev 或 `--clef`），请求内容与 mod 发出的完全相同
 scripts/decide-agent.ts     同上，判断一个派出 agent（输入是评测集 subagent.jsonl 的一题）
+scripts/decide-stuck.ts     同上，一个卡住的循环的再判断（输入是 MidturnInput，见 `decision/midturn.ts`；#7）
 eval/                       评测（接缝 2）：评测集、Node 脚本、结果，见下文「评测」
 tests/support/world.ts      接缝 1 的测试脚手架
 tests/support/cloudflare.ts world 的 Cloudflare 一侧：clef(levels) 是 jev(levels) 的孪生，按 Workers AI 的方式回答和拒绝
 tests/support/workflow.ts   Workflow 工具桩和按脚本里第几个调用作答的 siteJev（#8）；workflowWorld 在 world 之外加一层，不改 world.ts
+tests/support/workflow-run.ts  运行目录（journal、transcript）和 tool.describe 的桩；runWorld 在 workflowWorld 之外再加一层（#9）
 types/index.d.ts            $.state 的契约（PluginState）
 ```
 
@@ -284,7 +333,7 @@ types/index.d.ts            $.state 的契约（PluginState）
   | `classic.PreToolUse` | `{ tool: /(?:)/ }` | 已实测（kit 和真实引擎），`features/midturn-effort.ts` 用它认出 settings hook 拦下的调用 |
 
   其他事件请选一个每次都存在的字段。字段不存在时 matcher 不会命中，hook 会被静默跳过，所以新写的 matcher 要有测试覆盖。
-- **`$` 只能在 hook 所在的文件里使用**，不能传给从别的文件导入的函数，否则加载时会被拒绝。共用的逻辑写成纯函数；需要 `$` 的能力时，让函数接收闭包，例如 `BackendIo`（`{ fetch: (u, i) => $.http.fetch(u, i), sleep: (ms, s) => $.clock.sleep(ms, { signal: s }) }`）或 `$.state` 的 `Cell`（`{ get: () => $.state.get(REF), set: (v, o) => $.state.set(REF, v, o) }`）。`ctx` 里只有数据和纯函数。
+- **`$` 只能在 hook 所在的文件里使用**，不能传给从别的文件导入的函数，否则加载时会被拒绝。同一个文件里的函数可以接收 `$` 当参数（`forMain($, loop)`），但不能把 `$` 放进对象字面量（例如 `{ $, s, e }`）：加载时报 `$ itself is put in an object`（#7 撞到的），要写成单独的参数。共用的逻辑写成纯函数；需要 `$` 的能力时，让函数接收闭包，例如 `BackendIo`（`{ fetch: (u, i) => $.http.fetch(u, i), sleep: (ms, s) => $.clock.sleep(ms, { signal: s }) }`）或 `$.state` 的 `Cell`（`{ get: () => $.state.get(REF), set: (v, o) => $.state.set(REF, v, o) }`）。`ctx` 里只有数据和纯函数。
 - **`$.state` 的 ref 在每个文件里各自写成字面量常量**，例如 `const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const`，family 写成 `{ ...TURNS, id }`。validate 要求 `plugin` 和 `key` 是字面量。
 - **每个字段只由一个 hook 写出。** 主 agent 的 effort 和非主 agent 的 model 只由核心的 `turn.step` 写出。功能通过计划表影响它们，不要在自己的 `turn.step` 里改 `e.effort` 或 `e.model`：内层的改写会覆盖外层，而核心在最内层。
 - **主 agent 永远不写 model**（ADR 0001）。`planStep` 从结构上保证这一点：主 agent 的步最多只改 effort。
@@ -296,21 +345,22 @@ types/index.d.ts            $.state 的契约（PluginState）
 
 | key | id | 内容 | 由谁写 |
 |---|---|---|---|
-| `turns` | `turnKey(turnId, agentId)`，即 `main:<turnId>` 或 `<agentId>:<turnId>` | 一轮的计划 `{ effort, floor, model }`，另有 `prompt`（主 agent 这一轮的消息，已脱敏和截断）、`decisions`、`changes` | #2 发消息时写；#5 中途重判用 `revise` 写；#7 强制升档写 `floor` |
-| `agents` | `agentId` | 一个派出 agent 或 Workflow agent 所有轮的计划 `{ effort, floor, model }` | #6 在 `agent.spawn` 时写 effort（haiku 不写；model 已经改在派发上，表里留 `null`，免得每一步都把引擎过载时换用的模型改回去）；#9 查到 label 后写；#7 把 haiku 换成 sonnet 时写 |
+| `turns` | `turnKey(turnId, agentId)`，即 `main:<turnId>` 或 `<agentId>:<turnId>` | 一轮的计划 `{ effort, floor, model }`，另有 `prompt`（主 agent 这一轮的消息，已脱敏和截断）、`decisions`、`changes` | #2 发消息时写；#5 中途重判用 `revise` 写；#7 强制升档时写 `floor`（并用 `revise` 把 `effort` 设到升到的档位；这一轮没有经过路由时只写 `floor`） |
+| `agents` | `agentId` | 一个派出 agent 或 Workflow agent 所有轮的计划 `{ effort, floor, model }` | #6 在 `agent.spawn` 时写 effort（haiku 不写；model 已经改在派发上，表里留 `null`，免得每一步都把引擎过载时换用的模型改回去）；#9 在 Workflow agent 的第 0 步写（model 只在要换家族时写，写完整 ID）；#7 强制升档时写 `floor`，把 haiku 换成 sonnet 时写 `model`（完整的模型 id，每一步都发出） |
+| `escalation` | `main`（主 agent，记录里的 `turnId` 是它所属的那一轮）或 `agentId` | #7 自己的记录：失败次数、被 hook 拦下的次数、清零的基数 `base`、强制升档的次数、最近一次再判断是为第几步做的 | #7 |
 | `lock` | 无 | 用户锁定的主 agent effort，`null` 表示没有锁定 | #13：`/dp lock`、`/dp unlock`（`features/control.ts`） |
 | `decisionLog` | 无 | 各功能记录的决策，最近 50 条，`/dp log` 显示（见下「记录一次决策」） | 各功能，用 `recordDecision` |
 | `pending` | 无 | 发消息时做出的判断，等它的那一轮开始时由核心认领 | #2 |
 | `said` | 无 | 用户本人这一轮说的话（已脱敏和截断）：空闲时发的那条消息开始新的一组，这一轮进行中发的消息追加进去，其他来源的 prompt 不动它；派出 agent 和 Workflow 里 agent 的判断把它当作 `user_message` | #6 写，#8 读 |
 | `midturn` | `main:<turnId>` | 中途重判自己的记录：步数、最近 16 步的文字和工具调用（各带结局）、`failures`（失败的工具调用，不含 hook 拦截和拒绝）、`hookBlocks`、最近一次重判和升档在第几步 | #5 |
 | `mainStep` | 无 | 主 agent 正在进行的一步 `{ turnId, index }`（`tool.call` 上没有 turnId，靠它对上） | #5 |
-| `demand` | `main:<turnId>` | 别的功能要求的一次重判 `{ trouble, atLeast, at }`，见下「中途重判」 | #7 写，#5 读 |
+| `demand` | `main:<turnId>` | 别的功能要求的一次重判 `{ trouble, atLeast, at }`，见下「中途重判」。#7 最后没有用它（见下「强制升档」），入口保留 | 谁要用谁写，#5 读 |
 
 `planStep` 按以下规则决定每一步发出什么：
 
 - effort：主 agent 有 lock 时用 lock。否则取这一轮的 `effort`（非主 agent 这一轮没有时，用它在 `agents` 里的计划），再抬到 `floor`（取这一轮和 agent 计划中较高的 floor）。没有任何 effort 但有 floor 时，抬高的是引擎自己的 effort。什么都没有时用引擎的 effort。
-- model：主 agent 永远不改。其他 agent 用这一轮的 `model`，没有时用 `agents` 计划里的。
-- 引擎没有给 effort（haiku 这类模型）或给的是数字时，不改 effort。
+- model：主 agent 永远不改。其他 agent 用这一轮的 `model`，没有时用 `agents` 计划里的。**计划表里的 model 要写完整的模型 ID**（`decision/model-ids.ts` 的 `modelId('sonnet')`），不能写别名：`turn.step` 的 model 原样发给 API，写 `haiku` 得到 404，agent 失败（#9 实测）。只有 `agent.spawn` 会解析别名，#6 在那里写别名。
+- 引擎没有给 effort（haiku 这类模型）或给的是数字时，不改 effort。所以把 haiku 的 agent 换成别的模型时，那一步没有 effort 可改，用新模型的默认 effort。
 
 其他约定：
 
@@ -318,11 +368,11 @@ types/index.d.ts            $.state 的契约（PluginState）
 - 读改写用 `update(cell, change)`，它按版本号做比较后写入，冲突时重试；`change` 必须是纯函数。改主 agent 某一轮的 effort 用 `revise(record, effort)`，它会同时更新 `decisions` 和 `changes`。
 - 新的计数（例如 #7 的失败次数）放在自己的 key 下，id 同样用 `turnKey`，并在契约里加上相应的一段。
 - 表项不会被删除。每条记录很小，一个会话里的增长可以忽略。
-- `workflows`（每个 Workflow 运行一条）和 `returned`（退回过的 Workflow）是 #8 自己的记录，核心不读，也不是计划表的一部分；见下面「Workflow 脚本的读取和改写」。
+- `workflows`（每个 Workflow 运行一条）和 `returned`（退回过的 Workflow）是 #8 自己的记录，核心不读，也不是计划表的一部分；见下面「Workflow 脚本的读取和改写」。`labelRuns`（#9 在 agent 启动时要处理的运行，最近 8 个）同样是 #9 自己的记录，见下面「Workflow 兜底（#9）」。
 
 ### 在 turn.step 上注册一层
 
-如果某项功能需要在某一步发出前做决定（#5 取预判结果、#7 判断是否卡住、#9 按 label 查表），就在自己的文件里注册一层，写好计划表，再交给下一层：
+如果某项功能需要在某一步发出前做决定（#5 取预判结果、#7 判断是否卡住、#9 按 label 查表，见 `features/workflow-labels.ts`），就在自己的文件里注册一层，写好计划表，再交给下一层：
 
 ```ts
 on('turn.step', { turnId: /(?:)/ }, async function* ($, e, next) {
@@ -388,6 +438,25 @@ effort 问题的档位描述是共用的：用 `effortQuestion(instructions, ctx
 
 读不了的调用要留意：prompt 放在数据里的 fan-out（`QUESTIONS.map((q) => () => agent(q.prompt, { label: q.label }))`，或 `` agent(`${CONTEXT}\n\n${l.prompt}`) ``）这里读不到任务内容，也不能在一个调用点上给每一行定不同的模型，所以整个调用点保持原样（`left` 计入，主 agent 被告知）。这一类要靠 #9 在运行时按每个 agent 的 label 和它实际收到的 prompt 来判断。用本机 `~/.claude/projects` 里已有的 16 个主 agent 写的真实脚本（共 50 个调用点，不含本票的探针）试过：44 个调用点的 prompt 说明了要做什么（多数是 `` `${COMMON} YOUR TOPIC: ...` `` 这样的模板），6 个读不了（1 个整个是运行时拼的，5 个是 `` `${CONTEXT}\n\n${l.prompt}` `` 这样的共用上下文加表里的一行）；改写后的脚本用 Node 的解析器检查过，都能解析。
 
+### Workflow 兜底（#9）
+
+#9 不改写用 `scriptPath` 或 `name` 提交的脚本（上节说的「去掉 `scriptPath` 再传 `script`」）：那样运行的是另一份脚本，主 agent 手里的文件和实际运行的对不上，恢复运行时每个 `agent()` 的缓存 key（prompt 和选项的哈希）也会失配；在 agent 的请求上设置则不动脚本。它也不读 #8 的 `workflows` 记录：那里只有调用的个数，没有是哪几个，直接交来的脚本由 #9 自己再读一遍（纯函数，几毫秒）。
+
+`features/workflow-labels.ts` 注册三层，都带 matcher：
+
+- `tool.describe`（`{ tool: 'Workflow' }`）：在引擎的描述后面附 `LABEL_HINT`。引擎每个会话只问一次并一直沿用（`$.ui.invalidate('tool.describe')` 之前），所以文字是常量，不拼会话内容；开关变化也不重新问。
+- `tool.call`（`{ tool: 'Workflow' }`）：在入口里注册在 `workflow-agents` 之后，即在它内层：那个功能问完决策模型、把脚本交下来之后才轮到这里，所以它还在问的时候，别的运行里启动的 agent 不用等这里（见下文的 `launching`）。工具返回后读运行用的脚本：直接交来的读 `e.script`（那个功能交下来的那份：它写进去的调用多了选项，留下的调用照旧），其他读工具结果的 `scriptPath`。这里附的说明排在 `workflow-agents` 的说明之前（外层的功能在内层返回之后才追加自己的）。`scriptPath`、`name`、恢复的运行，各调用用 #8 的 `workflowBatches`、`readOutcomes` 判断；直接交来的不再问，`workflowBatches(...).skipped` 就是 #8 没问的调用（读不了的 prompt、超出上限的）。结果写进 `$.state` 的 `labelRuns`：`{ runId, dir, workflow, description, sites }`，`dir` 是工具结果的 `transcriptDir`，`sites` 是各调用的 `RunSite`（`match` 怎么认 label，`route` 是 `set`（运行开始时定的模型家族和 effort）、`runtime`（agent 启动时判断）或 `script`（照脚本）；脚本读不了时 `sites` 为 `null`）。没有要处理的调用就不记。
+- `turn.step`（`{ agentId: /(?:)/ }`，在核心外层）：只在 `e.index === 0` 时动手。`agents[agentId]` 已经有计划（#6 派出的 agent，或者引擎重发的第 0 步）就不管。否则从新到旧读各运行的 `journal.jsonl`，按 `agentId` 找 `started` 行拿到 label，`sitesFor(label, sites)` 找调用：字符串 label 精确匹配，模板和「prompt 开头」其次，运行时才算的 label 作通配，只在前两者都对不上时用。所有候选的 route 相同就用它；`set` 直接写计划，`runtime`、对不上或候选不一致时，`decideAtStart` 读 `agent-<agentId>.jsonl`（每 25 毫秒看一次，最多 400 毫秒）、用 `taskOf` 去掉引擎的外框，拼成一个只有一个调用的 `ParsedWorkflow`，同样经 `workflowBatches`、`readOutcomes` 问决策模型。写计划用 `agentPlan`：只在要换家族时写 model（`modelFamily(e.model)` 比较家族，因为引擎重试后会出现 `claude-sonnet-5` 这样的 ID），写完整 ID。
+
+几处要留意的引擎行为：
+
+- **运行的第一个 agent 可能在 `tool.call` 处理完之前就到第 0 步**（实测相差 1–10 毫秒）。`tool.call` 在 `next(e)` 之前把一个 Promise 放进模块级的 `launching`，处理完再交出它记下的运行；第 0 步在已记录的运行里找不到这个 agent、又有正在处理的调用时，等它们（最多到这一步的 9 秒期限），再在交出来的运行里找。所以这段时间里启动的、和本功能无关的 agent（别的运行的、没有计划的派出 agent）也会等一下：通常只是工具启动的那几毫秒；`scriptPath`、`name` 和恢复的运行要加上运行开始时问决策模型的时间。
+- **运行要从模块内存交出来，不能等完再读 `$.state`**：一次 dispatch 里的 `$.state.get` 读的是这次 dispatch 开始那一刻（d.ts：Every `get` of one dispatch reads one moment），等待期间 `tool.call` 写进去的 `labelRuns`，这一步再读也读不到（kit 实测）。同一次 dispatch 里外层写、内层读不受影响（见下文「已实测的引擎行为」第一条）。
+- **`$` 只能传给文件顶层声明的函数**（validate 和加载器都检查）：`routeAgent`、`decideAtStart`、`readTask` 都在顶层，`ctx` 和设置作参数传进去。
+- `decision/workflow-script.ts` 的 `AgentCall` 为此多了 `labelKind`（`none`、`string`、`template`、`dynamic`）：只有不写 label 的调用，引擎才按 prompt 开头记 label；写了但运行时才算出来的（`label: q.label`、展开的对象里可能带的）不能这样认。`decision/workflow.ts` 导出了 `whyOf`，给主 agent 的说明和 #8 用同样的写法。
+
+测试用 `tests/support/workflow-run.ts` 的 `runWorld($, on, options)`：它在 `workflowWorld` 之上按实测的格式扮演运行目录。`w.started(runId, agentId, label, phase?)` 往 journal 加一行 `started`（第一次先写 `launched`），`w.transcript(runId, agentId, task)` 写 agent 的 transcript（外框加两格缩进），`w.agentStep(agentId, { index, model, effort })` 发出这个 agent 的一步（turnId 是 `turn-<agentId>`），`w.describeWorkflow(text)` 像引擎那样问一次 Workflow 工具的描述，`w.disk` 可以随时增删文件（测「transcript 晚到」就在 `w.clock.advance` 之间写进去）。运行目录是 `runDir(runId)`，`name` 提交和直接交来的脚本存在 `persisted(runId)`（工具桩结果里的路径）。
+
 ### 中途重判（#5）
 
 `features/midturn-effort.ts` 注册三层，都带 matcher：
@@ -423,6 +492,26 @@ const request = mergeParts(midturnState(row.zh, { steps: 4, tokens: 2000 }), [mi
 - 评测变量：`midturnState` 的第三个参数 `{ currentEffort: false }`、`{ counts: false }` 可以去掉当前档位和计数（指南 §4.1 担心当前档位会产生锚定）；`midturnEffortPart({ language: 'zh' })` 是中文问题；`{ trouble: true }` 加上「卡住」的说明，006、017、051、053、056、057 这几题可以对比带与不带。
 - 线上请求和评测集有两处不同：线上请求在工具开始执行时发出，所以最新一步里正在运行的工具写「进行中：」（评测集里没有这种结果）；线上的一句话结果只有结局加上调用在做什么（例如 `失败：server/proxy.ts`），评测集的结果是人写的摘要、信息更多（例如 `失败：old_string 未找到`）。要量出这个差距，可以把评测集的结果截成「前缀 + 文件名」再跑一遍。
 - #14 照这些做成了 `eval/lib/effort-midturn.ts`，见下文「评测」。
+
+### 强制升档（#7）
+
+`features/escalation.ts` 在入口里注册在 `registerMidturnEffort` **之前**（更外层），带三个 hook：
+
+- `classic.PreToolUse`：和中途重判一样包一层，按 `tool_use_id` 记下被 settings hook 拦下的调用（模块里的 Set，最近 256 个；热重载后丢失，之后拿它做摘要时这些调用会读成「失败」而不是「被 hook 拦截」，计数不受影响，因为计数在调用刚结束时就做完了）。这个事件在子 agent 的调用上也触发，id 和 `tool.call` 的一致（真实引擎实测），但事件本身不带 `agentId`。
+- `tool.call`：每个循环（主 agent、派出 agent、Workflow agent）结束的调用，用 `outcomeOf` 分类，失败和被拦下的各记一笔到 `escalation` 的记录里：主 agent 的 id 是 `main`（记录里的 `turnId` 是它属于的那一轮，新的一轮的第 0 步把记录清空），派出 agent 的 id 是 `agentId`。只看引擎的调用（`next.origin.plugin === 'engine'`），不看别的插件的 `$.tool.call`。用户拒绝（`outcomeOf` 的 `denied`）不记。
+- `turn.step`：每一步发出前，`consider` 看这个循环计入的失败（失败 +，开关 `hook-block-failures` 开着时再加被拦下的，各减去 `base`，即上次清零时的数）够不够 `escalateAfter`、`raises` 够不够 `escalateLimit`。够了就：主 agent 走 `forMain`，派出 agent 走 `forAgent`。
+
+**为什么在 `turn.step` 里问，而不用中途重判的 `demand`。** `demand` 的 `atLeast` 在 `settle` 里无条件抬上去，也不往回报任何结果；澄清后的规则要求升档取决于同一个请求里的第二个回答（是不是预期内），一轮最多升几次又要数「真的升了」的次数，用 `demand` 就得在 #5 的文件里改三处（发请求时加问题、`settle` 里读、把结果带回来），而且升档就挂在 `/dp midturn-effort` 的开关下（关掉中途重判会让强制升档悄悄失效），回答晚到（`rejudgeWaitMs` 默认 300 ms，Clef 要 0.6–1.4 秒）时还会在不知道是不是预期内的情况下就升。所以这项功能自己拥有这次再判断：直接复用 #5 的纯函数（`midturnState`、`midturnEffortPart(ask, { trouble: true })`、`judgeMidturn`），在步开始时发出并等完整的回答（最多 `timeoutMs`），只在卡住时发生，代价是这个请求不能和工具执行重叠。`demand` 的入口保留给以后的功能。
+
+**注册顺序有讲究。** 这一步里中途重判自己的回答（#5 的 `turn.step` 层）也可能到了：如果本功能在它之内，那个回答可能先把这一轮降一档，再轮到这里按降过的档位「升一档」，净效果为零；注册在它之外，升档先写进计划表，它读到的 `current` 已经包含这次升档，`floor` 又保证它降不到这一档以下。`tests/escalation.test.ts` 里有一个测试专门卡这件事（把这一行挪到 `registerMidturnEffort` 之后，它会失败）。
+
+**主 agent（`forMain`）。** 锁定了 effort 时什么都不做；这一步没有 effort 档位时什么都不做。`current` 是这一轮的 `effort`（没有经过路由时是引擎的）抬到 `floor`；`forcedTarget(current, mode)` 算出强制升到哪一档，没有（`one-level` 在 xhigh，`max` 在 max）就清零、记一条决策、不问。问的请求是中途重判的 state（`message` 是这一轮的消息，`recent_steps` 取自 `$.session.messages()` 里最近一条用户说的话之后的各步，`stepsFromRows`；`counts` 是这一轮的总数，`trouble` 是 `troubleText` 写的一句英文）加两个问题：`midturn.level`（带 `trouble` 的 effort 问题）和 `escalation.expected`（Noul）。回答：`escalation.expected` 的概率达到 `thetaExpected` 就是预期内，清零，把 `midturn.level` 的回答交给 `judgeMidturn` 做普通重判；否则（包括没回答）`floor` 抬到强制升的档位，`effort` 用 `revise` 设到 `raisedLevel`（强制升的档位，或决策模型自己的判断，更高且有把握时）；这一轮没有经过路由（`effort` 为 `null`）时只写 `floor`，免得它因为 `decisions` 变成 1 而被中途重判当成已经路由的一轮。写 `floor` 而不只是 `effort`，是为了让这次升档在这一轮里不会被中途重判降掉（它的 `atLeast` 就是 `floor`）；代价是这一轮剩下的步骤都不会低于强制升的那一档（`forcedTarget` 的结果）。
+
+**派出 agent（`forAgent`）。** 这个 agent 的计划在 `agents` 表里（#6 写的，没有就空）。引擎给的这一步有 effort 档位时，和主 agent 一样算 `current`、`forcedTarget`，把计划的 `floor` 抬上去；没有档位又是 haiku（`modelFamily(e.model)`）时，把计划的 `model` 设成 `escalateHaikuTo`，核心的 `planStep` 之后每一步都发这个模型。agent 的任务和最近几步取自 `$.session.messages({ agentId })`：第一条有文字的 user 行是它的任务（作为 `message`），其余按 `stepsFromRows` 处理；读不到（Workflow 的 agent，引擎对 mod 返回 `{ deny }`）就不问决策模型，按规则升。haiku 只问 `escalation.expected`，其他 agent 同时问 effort。
+
+**换模型要完整的 id。** 实测（2.1.289）：`turn.step` 的 `model` 写别名 `sonnet`，主 agent 会 `unrecognized_model` 退出，子 agent 会以 `model_not_found`（HTTP 404）提前结束；写 `claude-sonnet-5-5` 在一个 haiku agent 运行到一半时换上，后面的步骤都由 sonnet 回答，agent 正常完成（`usage.model` 可见）。`agent.spawn` 的返回里的 `model` 是解析后的完整 id（`sonnet` 解析成 `claude-sonnet-5-5`，`haiku` 是 `claude-haiku-4-5-20251001`），但 mod 没有办法在一个 agent 运行中把别名解析成 id，所以换成哪个 id 是个选项（`escalateHaikuTo`）。id 写错的后果是这个 agent 提前结束；没有做事先验证（可以用一次 `$.model.complete({ model, prompt: 'ok', maxTokens: 1 })` 试探，留给以后）。
+
+**给 #14、#17：怎么评测这个新问题。** `decision/escalation.ts` 导出了 `expectedFailurePart(ask)`（`escalation.expected`，中英文两种写法）、`readExpected`、`troubleText`；请求的拼法见上，评测集 `effort-midturn` 每题的 `zh` 或 `en` 对象就是 `MidturnInput`，加上 `trouble` 就是线上请求（`scripts/decide-stuck.ts` 就这样发一道题）。评测要新的标注（这些失败是不是预期内的：TDD 红灯、没结果的搜索、探测……对比真的卡住的），现有的 006、017、051、053、056、057 几题只有「带不带 trouble」的对比。见上「待评测」里 11 个手写场景的数字。
 
 ### 登记功能开关
 
@@ -516,7 +605,9 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 |---|---|---|
 | `skillCatalog` | 本会话的 skill 目录 `{ skills }`，每个 skill 带 `file`、`profileKey` 和 `profile`（#11，画像写好之前是 `null`）；`null` 表示要重新读 | `features/skills.ts`（读目录，后台写好画像时用 `update` 放进去）；它没读时，`features/find-skill.ts` |
 | `skillsShown` | 这段对话里描述过的 skill（再推荐时只写名字）；`/compact`、`/clear` 后清空 | `features/skills.ts` |
-| `skillListing` | 对主 agent 列表的回答：`withheld`（连同引擎的原文）、`passed` 或 `restored`（开关关掉后已经随消息补给主 agent） | `features/skills.ts` |
+| `skillListing` | 对主 agent 列表的回答：`withheld`（换成了提示，记下引擎的原文）、`passed` 或 `restored`（开关关掉后已经随消息补给主 agent） | `features/skills.ts` |
+
+**列表的提示**（`features/skills.ts` 的 `LISTING_HINT` 和 `LISTING_HINT_WITHOUT_FIND_SKILL`）。`prompt.attachment` 拦下主 agent 的列表时，回答 `trimListing` 留下的常驻清单（引擎的标题加 `skillsAlwaysListed` 里的条目），空一行，再接提示；没有常驻清单时只有提示。用哪一句由回答时的 `isOn('find-skill')` 决定：skills 功能在自己的文件里写 find-skill 的开关名（字面量，和 `skill-profiles` 一样），不在 register 里判断。debug log 那一行末尾写 `the note names find_skill` 或 `the note leaves find_skill out (switched off)`。两句都是常量：不拼进 skill 的名字、数量或任何会话内容。改它们的文字会改变每个会话第一条消息的前缀，测试（`tests/skills.test.ts`）里有一字不差的原文，要一起改。kit 每次 `w.listing()` 都会重新调用 hook，不模拟引擎「整段对话沿用一个回答」，所以测试只能断言回答稳定、按回答时的开关选句，不能断言「对话中途不变」。
 
 ### find_skill（#12）
 
@@ -575,6 +666,7 @@ test('……', { options: { typesafeApiKey: 'k' } }, async ($, on) => {
 - `w.step({ index, answer, tools })` 还可以让这一步像真实引擎那样流出文字（`answer`），并在流还没结束时依次执行工具调用（`tools`，每个是 `{ tool, input, ends }`），所以功能的 `tool.call` hook 是在这一步之内触发的。`ends` 决定调用的结局：`{ text }`（成功，默认 `ok`）、`{ error }`（工具报错；用户在权限对话框里拒绝时也是这样，文字是引擎的那句话）、`{ blockedByHook }`（PreToolUse settings hook 拒绝，工具不会执行）。到达工具的调用记在 `w.toolCalls`（参数是经过 mod 各层改写后的样子；被 hook 拦下的调用不在其中）。`jev(levels, { confidence })` 可以指定回答的置信度（默认 0.7）。例子见 `tests/midturn-effort.test.ts`。
 - `w.spawn({ prompt, description, subagentType, model, fork, isTeammate })` 模拟主 agent 调用 Agent 工具，返回 `{ model, agentId }`（agent 按到达引擎的顺序命名为 a1、a2……）；`spawned` 记录每次派发到达引擎时的样子。拿到的 `agentId` 传给 `w.step` 就是这个 agent 的步。
 - Workflow 的测试用 `tests/support/workflow.ts` 的 `workflowWorld($, on, options)`：它先注册带 matcher `{ tool: 'Workflow' }` 的 Workflow 工具桩，再调用 `world()`，所以 `world()` 以后再加 `tool.call` 桩也不冲突（但同一个测试里要先于它注册）。`w.workflow({ script | scriptPath | name, args, resumeFromRunId })` 调用工具；`w.reached` 记录到达工具的每次调用（`launched: false` 是工具因语法错误拒绝的）；`w.records()` 读回 mod 写进 `$.state` 的 `workflows`，`w.stateWrites` 是它所有的 `$.state` 写入；选项 `parseError` 和 `fails` 让工具拒绝某个脚本。`siteJev((i) => ({ model, effort, nouls }))` 按脚本里的第 i 个调用回答，`clefSiteJev` 是它的 Clef 版（同时检查 Clef 的输入规则）。
+- Workflow agent 启动时的测试（#9）用 `tests/support/workflow-run.ts` 的 `runWorld`：它在 `workflowWorld` 之上写运行目录（journal、transcript）、回答 `tool.describe`，见上文「Workflow 兜底（#9）」。agent 启动时当场判断的请求只有一个调用，part 是 `agent-0`，所以 `siteJev` 的下标 0 也会回答它；同一个测试里要区分运行开始时和 agent 启动时的回答，就按请求的序号 `n` 分别作答。
 - 要模拟别的功能已经写好的计划表，就在测试里回答 `state.get`，见 `tests/plan-table.test.ts` 的 `table()`。
 - 每个测试都要断言一个实际产物（发出的请求、某一步的 effort、状态行），否则可能空过。例如不给 origin 时 hook 会被跳过；没有 `http.fetch` 桩时 fetch 会失败、走放行分支，「effort 不变」照样成立。
 - `world()` 总会装上 `mock.clock(on)`。测超时时，先 `const p = w.submit(...)`，再依次 `await w.clock.settle()`、`await w.clock.advance(ms)`、`await p`。
@@ -663,9 +755,9 @@ eval/
   - effort 在 `accept.effort` 里算对。`accept.effort` 是所有可接受模型共用的一组档位，没有按模型分开，所以 accept 有两个模型时，任一个模型配任一个可接受档位都算对（例如 subagent-089 的 opus/low、029 的 sonnet/xhigh）。审核逐题看过这些组合，都说得通；以后加题要留意双模型的 accept 会不会放进不合理的组合。选 haiku 时不设 effort（null），只有 haiku 本身可接受时才算对；其他模型必须有一个档位。
   - 整题（联合）：模型和 effort 都对。gold 命中另报。
   - 答错的方向：`model-under`、`model-over`（比所有可接受的模型都便宜、都贵），`effort-under`、`effort-over`（低于、高于所有可接受的档位，不设 effort 算作最低），`effort-none`（该有档位却没有）。
-  - 没有做出决定的题算错，并写明原因：请求失败；回答里没有关于这个 agent 的答案；去掉用户排除的模型之后没有模型可选（用户排除了所有可选模型，或者回答把概率全给了被排除的模型），mod 这时让 agent 按主 agent 原来的要求启动，评测无从评分。
+  - 没有做出决定的题算错，并写明原因：请求失败；回答里没有关于这个 agent 的答案；用户排除了所有可选模型，没有模型可选，mod 这时让 agent 按主 agent 原来的要求启动，评测无从评分。回答把概率全给了被排除的模型时不再算没有决定：选离它最近的、没被排除的模型（subagent-058，#6 的补丁）。
 - **指标**（共用指标之外）：模型、effort、整题各自的中英准确率；每个 `priority:*` 情形（用户点名、保留主 agent 的指定、推翻主 agent 的指定、无指定）和每类 agent（普通派发、workflow）的错题数，分模型和 effort；每个情形里模型是谁定的（`user` 用户点名，`decided` 决策模型选的，`requested` 保留主 agent 的指定）；模型和 effort 各自的中英一致率；常数基线（总是 haiku、总是 sonnet 的某一档……），以及只看模型、只看 effort 时最好的常数。
-- **门槛不重新请求。** `agentOverride`（推翻主 agent 的指定所需的置信度）、点名和排除的门槛 `thetaNamed`、`requested_fits` 的门槛 `thetaFit`（只有 noul 变体问）和 `thetaMax` 都只影响怎么读回答。每个答案都保存了原始回答：`p_model` 是模型问题各选项的概率，`p_effort` 是各档的概率（从低到高），`nouls` 是各是非题的概率，另有 `source`、`pick`、`confidence`。汇总里的 `breakdown.sweeps` 在一组门槛值上用这些回答重新做决定、重新评分（`redecide`），不再发请求；按语言分别校准门槛（#17）就从这里出发。
+- **门槛不重新请求。** `agentOverride`（推翻主 agent 的指定所需的置信度）、点名和排除的门槛 `thetaNamed`、`requested_fits` 的门槛 `thetaFit`（只有 noul 变体问）和 `thetaMax` 都只影响怎么读回答。每个答案都保存了原始回答：`p_model` 是模型问题各选项的概率，`p_effort` 是各档的概率（从低到高），`nouls` 是各是非题的概率，`p_named_effort` 是点名 effort 一题各选项的概率（消息里有可能点名 effort 的字眼时才有，`named_effort` 是读出来的那一档），另有 `source`、`pick`、`confidence`。汇总里的 `breakdown.sweeps` 在一组门槛值上用这些回答重新做决定、重新评分（`redecide`），不再发请求；按语言分别校准门槛（#17）就从这里出发。
 - **标注约定**（起草和审核时定下的，加题时照此标注）：
   - workflow 题的 `description` 为 null；`agent_type` 只在脚本给 `agent()` 传了 agent 类型时才有值；fan-out 题的 `label` 和 `prompt` 保留 `${file}` 这类占位符。
   - 模型是 haiku 时 effort 为 null；`accept.effort` 含 null，当且仅当 `accept.model` 含 haiku。
@@ -680,7 +772,8 @@ eval/
   - 四个变体相差不大，整题都在 68–71%（中文）、65–68%（英文），两次运行里没有哪个变体在两种语言上都稳定好于 `models-hint`。
   - 门槛（用同一批回答重新决定）：`agentOverride` 从 0.6 降到 0.4–0.5，`models-hint` 两次都是中文 +3、英文 +2 个百分点；永不推翻（1）降到 65%/62%。`thetaMax` 0.3 比 0.5 高 1–2 个百分点；`thetaNamed` 0.7 中文 +1。这些都是在同一套题上扫出来的，校准时要防过拟合。
   - Clef 抽样（每个 `priority:*` 情形 3 题，共 12 题 × 中英，`models-hint`，`--option timeoutMs=3000`）：24 个请求都有回答，Clef 接受派出 agent 的问题；整题中英各 8/12（同样 12 题上 Jev 中文 9/12、英文 7/12），中英答案完全一致；延迟 p50 802 ms、p90 1047 ms、最长 1925 ms，都在 3000 ms 之内；26.5k input token，约 0.006 美元。
-- **已知的问题题**：subagent-021 两种语言都错，但原因不同：中文是决策模型以 0.895 的置信度推翻了主 agent 的 opus（推翻门槛的校准问题），英文是把「之前让 sonnet 生成的」当成了点名（0.57）。点名问题的误判都在英文、概率 0.5–0.6（021 的 sonnet、100 的 fable），中文有一次（038 的 haiku）。subagent-023 两种语言都判成 sonnet xhigh（gold medium）。subagent-012 的用户点名了 effort：用户已经拍板「点名的 effort 也绝不推翻」，mod 还没有实现（#8 合入后另做补丁），这两次答对只是因为决策模型自己也判了 low。subagent-058 在 `work-*` 变体里没有决定：用户排除了主 agent 指定的 opus，回答又把概率全给了 opus 那一项，剩下的模型没有概率；mod 遇到这种情况会让 agent 按主 agent 原来的指定启动，也就是用户排除的那个模型（`models-hint` 下没有出现）。
+- **已知的问题题**：subagent-021 两种语言都错，但原因不同：中文是决策模型以 0.895 的置信度推翻了主 agent 的 opus（推翻门槛的校准问题），英文是把「之前让 sonnet 生成的」当成了点名（0.57）。点名问题的误判都在英文、概率 0.5–0.6（021 的 sonnet、100 的 fable），中文有一次（038 的 haiku）。subagent-023 两种语言都判成 sonnet xhigh（gold medium）。subagent-012 的用户点名了 effort：用户拍板「点名的 effort 也绝不推翻」，当时 mod 还没有实现，这两次答对只是因为决策模型自己也判了 low。subagent-058 在 `work-*` 变体里没有决定：用户排除了 opus，回答又把概率全给了 opus 那一项，剩下的模型没有概率；当时的 mod 遇到这种情况会让 agent 按原来的指定启动，也就是用户排除的那个模型（`models-hint` 下没有出现）。这两件事都由 #6 的补丁修了，见下一条。
+- **点名 effort 和排除模型的补丁（#6、#8，2026-10-04，jev-1.13.0）**：补丁前后各跑一次全量（四个变体 × 中英 × 100 题，各约 0.043 美元；补丁前一次是用补丁前的代码在同一套题上重跑的，不是上面第二次运行）：`2026-10-04-jev-named-effort-before.json`、`2026-10-04-jev-named-effort-after.json`。subagent-058：`work-hint`、`work-noul` 里中英四个答案，补丁前都是没有决定（会启动 opus），补丁后都是 sonnet xhigh，对；`models-*` 两个变体前后都是 sonnet xhigh。subagent-012：八个答案前后都是 sonnet low，对；补丁后的 low 是点名 effort 一题读出来的（`named_effort` 概率 1.0 给 low，中英都是），不再靠决策模型自己的 effort 打分（0.67–0.70 给 low，碰巧一致），所以这题不能区分补丁前后。`priority:user` 的 17 题，四个变体、中英，前后都是 17/17。点名 effort 一题只在消息里有可能点名 effort 的字眼时才问：全量里中文 7 题、英文 6 题出现，决策模型判为没有点名的概率都在 0.91 以上（002、047、057、058、060、077–079、085–087），只有 012 判为点名。整体准确率前后在噪声之内（`models-hint` 中文 69%→70%、英文 69%→68%），逐题变化的题都不在这两件事上（run 之间的随机波动）。
 
 #### skill 匹配（skill，#16）
 
@@ -730,6 +823,15 @@ eval/
 - 本机已有的真实脚本经过真实 Jev（Node 里直接用 `parseWorkflow`、`workflowBatches`、`readOutcomes`）：4–7 个调用点的脚本各发一个请求（8–10 个问题，4.0–4.7k 输入 token，545–686 毫秒；每个调用的问题文字约 600 token，所以输入的大小随调用数增长，不受 `contextTokens` 限制，那只管 state），决定多是 sonnet low 或 medium，只有一个涉及付费和购物车的步骤是 xhigh。
 - 退回模式（真实引擎）：主 agent 读到拒绝文字后照着改并重新提交，原话是「路由插件（Dispatch Pilot）拦下了这次提交，并给每个 agent 指定了 model 和 effort。我把这些选项写进对应的 agent() 调用，其余内容不变，重新提交」；第二次提交直接放行（没有第二次决策请求），agent 按写进去的模型和 effort 运行。
 - 主 agent 自己写 Workflow 时常把 prompt 放进数组再 `map`，这样的调用点这里读不了（见上节）；要测改写，得让它把每个 `agent()` 单独写出来。
+- Workflow 兜底（#9，`claude -p --allowedTools "Workflow"`，sonnet 作主 agent，jev-pilot 已关，`--strict-mcp-config`；探针 mod 在 scratchpad，已清理）：
+  - **`turn.step` 的 model 原样发给 API，不解析别名。** 在 workflow agent 的每一步写 `model: 'haiku'`：debug log 是 `dispatching to firstParty model=haiku`，API 回 404 `model: haiku`，引擎打印 `[claude-code:unrecognized_model]`，这个 agent 以 null 结束。写 `claude-haiku-4-5` 则每一步都正常，`usage.model` 是 `claude-haiku-4-5-20251001`，请求里的 `medium` effort 被引擎去掉。404 之后引擎重试那一步时 `e.model` 是 `claude-sonnet-5`（不是 `claude-sonnet-5-5`），所以比较模型要按家族。
+  - **journal 的格式**：第一行 `{"type":"launched"}`；每个 agent 在第 0 步之前写一行 `{"type":"started","key":"v2:<hash>","agentId":"...","label":"..."}`，脚本调用过 `phase()` 时多一个 `"phase"`；agent 结束时写 `{"type":"result","key":...,"agentId":...,"result":...}`。
+  - **不写 label 时**，journal 的 `label` 是 prompt：空白折叠成一个空格、截到 60 个字符（`'Short first line.\nReply with exactly ...'` 记成 `"Short first line. Reply with exactly the word named and noth"`），`agent-<agentId>.meta.json` 的 `description` 也是它；写了 label 时两处都是 label。meta.json 在第 0 步之前就在。
+  - **agent 第 0 步开始时，它的 transcript（`agent-<agentId>.jsonl`）还不在磁盘上**（5 个 agent 都是），50–110 毫秒后出现，第 0 步被 hook 挡着时也会写入。第一行是 user 消息：`[Workflow harness — computed task] ... The computed task text follows:\n` 加上任务，任务每一行前面缩进两个空格（空行也是）。
+  - **`name` 按脚本 `meta.name` 解析，不是文件名**：`.claude/workflows/probe-file.js`（`meta.name: 'probe-named'`）用 `name: 'probe-named'` 运行。`name` 提交时 `e` 的键是 `name`、`tool`、`tool_use_id`，结果的 `scriptPath` 是会话目录下的持久化副本（`workflows/scripts/<name>-<runId>.js`）；`scriptPath` 提交时结果的 `scriptPath` 就是那个文件，每次运行一个新的 `runId` 和 `transcriptDir`。
+  - **运行的第一个 agent 可能比 Workflow 的 `tool.call` hook 先动**：探针的 hook 在 `next(e)` 返回后记下运行目录，第一个 agent 的第 0 步比它早 1 毫秒；装上本 mod 后，第一个 agent 在工具调用处理完之前约 10 毫秒启动，第 0 步等它处理完才发出。fan-out 的几个 agent 的第 0 步相隔 3 毫秒。
+  - **常驻提示到达主 agent**：`tool.describe` 在 Workflow 的描述后面附的文字，主 agent 能原样引用出来。
+  - **端到端**（不用 key：先加载的探针插件替 `$.http.fetch` 回答 `api.typesafe.ai` 的请求，`next` 不往下走；另一个后加载的探针记下每一步发出的样子）：`scriptPath` 提交的脚本里，带 label 的调用、不写 label 的调用都在运行开始时判断，各自的 agent 每一步按 `claude-haiku-4-5` 发出、由 `claude-haiku-4-5-20251001` 作答；prompt 是数据的调用，agent 启动时等 transcript（约 100 毫秒）再判断，每一步按 `claude-opus-5-5`、`high` 发出。状态行 `by label: routed 3 agents`，主 agent 读到了说明。直接交来的脚本（本功能注册在 `workflow-agents` 内层之后）：`workflow-agents` 把带 label 的调用写成 haiku，那个 agent 每一步是引擎按脚本解析的 `claude-haiku-4-5-20251001`；prompt 是数据的调用由本功能在 agent 启动时判断，按 `claude-opus-5-5`、`high` 发出；状态行 `workflow routed 1 agent (1 as written) | by label: routed 1 agent`。两段说明作为同一个 `hook_additional_context` 附件到达主 agent，本功能的在前。用假 key 时（请求得到 401）各 agent 按引擎原样运行，状态行写明 `jev: key refused (HTTP 401)`。
 - 斜杠命令作为 `claude -p` 的整个 prompt 时在本地运行，不调用模型（`claude -p "/dp"`）。引擎会在命令回答的前面加上插件名（`dispatch-pilot: ...`），所以命令的文字自己不要再带前缀。`--input-format stream-json` 里连续发多条用户消息，其中的 `/dp ...` 照常当斜杠命令处理，`$.state` 在同一个进程里跨消息保留。
 - `$.command.register` 在 `session.start` 的 `next(e)` 之后调用，命令当场被列出；`$.store` 在 `next(e)` 之前就能读，读到上次保存的内容，两次 `claude -p` 之间也保留（文件在配置目录的 `plugins/store/` 下，`--plugin-dir` 加载时叫 `dispatch-pilot_inline-<hash>.json`）。
 - `session.measure` 在订阅会话里每个主线程轮次后触发一次，读数有 `context`（`tokens`、`window`、`percent`）、`rateLimits`（`five_hour` 和 `seven_day`，各带 `percentUsed` 和 `resetsAt`）和 `cost.usd`；matcher `{ context: { window: /(?:)/ } }` 在真实引擎里命中。headless 下状态行以 `ui_status` 事件输出（也写进 debug log），`to: 'debug'` 的日志不会出现在输出流里。
@@ -747,6 +849,15 @@ eval/
   - 它是延迟加载的工具：模型先调用 `ToolSearch`（`select:mcp__dispatch-pilot__find_skill`）加载它，再调用。
   - 假 key 得到 Jev 的 401：工具立即回答 `find_skill could not rate the skills (jev: key refused (HTTP 401)). ...`，状态行是 `dp effort xhigh (not routed) | jev: key refused (HTTP 401) | find_skill failed (jev: key refused (HTTP 401))`。之后模型用 Skill 工具按名字加载 `pr`，得到 `Launching skill: pr`（列表这时是隐藏的）。
   - 用 Node 把 find_skill 的同一个请求发给真实的 Jev（jev-1.13.0，12 个本机 skill，约 1,070 input token，273–500 ms）：`write the description of a pull request` 和 `写 PR 的说明` 都是 `pr` 1.00；`fill in a form in a PDF file` 是 `anthropic-skills:pdf` 1.00；`rename a variable across the repo` 的 none 是 0.97，不返回 skill。
+- 列表换成提示（#12 的后续补丁；`claude -p --output-format stream-json --verbose`，主 agent 是 Opus 5.5，`--plugin-dir`、`--strict-mcp-config`，jev-pilot 已关，真实的 TypeSafe key 只放在 `--settings` 的 `pluginConfigs` 里，`skillsMax` 0（不推荐任何 skill，列表照样隐藏），`skillsProfilesPerSession` 0）：
+  - 回答换成提示后，引擎记下 `prompt.attachment skill_listing: dispatch-pilot (user) rewrote it (18397 -> 360 characters)`（清空时是 `left it out (18397 characters)`）。
+  - 场景：一条需要 skill、发消息时却没有推荐它的消息：「下面这个改动要合进 main，帮我写一段 PR 描述，直接把正文给我，不用创建 PR。改动的要点都在这里，不用去看代码：……」（四条要点，和 skill 无关）。本机有 `pr` skill（`Use when writing a PR body.`）；这条消息第一段 `pr` 1.00，第二段 0.83–0.85，默认设置下会推荐，这里 `skillsMax` 0 所以没有推荐。
+  - 没有提示（本补丁之前，列表整段清空）：3 次都在第一步直接写正文，没有调用 ToolSearch、`find_skill` 或 Skill。
+  - 有提示：3 次同样直接写正文，没有调用 `find_skill`。
+  - 对照（不配 key，mod 不动列表，`find_skill` 不注册，主 agent 读完整的列表）：1 次，第一步就是 `Skill {"skill":"pr"}`，按 `pr` 写正文。Skill 工具的描述要求先加载匹配的 skill，列表里有 `pr` 这一行就够了。
+  - 另试过一句更主动的提示：第二句换成 find_skill 描述里的「何时用」（`When the work at hand might have a skill you have not been shown (a file format, a service or its tooling, or a way of working such as reviewing, planning, testing or releasing), call the find_skill tool ... before you start ...`，535 个字符）。3 次也都直接写正文，所以没有采用。
+  - 消息开头加上「先查一下有没有适合写 PR 描述的 skill，有的话加载它、按它来写」时，有提示和没有提示各跑 1 次，路径完全相同：`ToolSearch`（`select:mcp__dispatch-pilot__find_skill`）→ `find_skill`（`write a pull request description`）→ `Skill {"skill":"pr"}`，引擎记 `SkillTool returning 3 newMessages for skill pr`，正文按 `pr` 的模板写。真实 Jev 的两段：第一段 `pr` 1.00（347–362 ms，6,973 input token），第二段 fits `pr` 0.91–0.93（313–332 ms，809 input token），状态行 `dp effort low | find_skill pr`。这补上了上面只用假 key 验证过的一段：真实 key 下 `find_skill` 返回的 skill 能直接用 Skill 工具加载。
+  - 结论：提示让主 agent 知道 skill 被藏起来了，也写出了 `find_skill` 的全名和加载方法，但没有让主 agent 在推荐漏掉时主动去查；被要求查时，有没有提示它都能从延迟加载的工具名找到 `find_skill`。推荐漏掉的消息仍然拿不到 skill，见「待评测」。
 - skill 画像和两段排序（#11，`claude -p --input-format stream-json --model haiku`，`--plugin-dir`、`--strict-mcp-config`，jev-pilot 已关，真实的 TypeSafe key 只放在 `--settings` 的 `pluginConfigs` 里，`skillsProfilesPerSession` 3）：
   - 会话开始：`skills: 66 the main agent can load, 21 only you can start (...)`，`skill profiles: 0 kept, 87 to write with haiku (at most 3 this session)`。画像在后台写，不挡消息：第一条消息（不需要 skill）的请求 535 ms 返回（6,386 input token），第一段没有 skill 到 0.1，不发第二个请求。
   - `$.model.complete` 在后台照常工作（调用它的 hook 早已返回）：引擎记 `$.model.complete (dispatch-pilot): claude-haiku-4-5-20251001 answered in 2189ms, 457 chars`。三份画像各 2.2、2.3、2.6 秒，输入 1.8–2.5k token、输出约 200 token；写完记 `84 left to write at a later session start`。store 里每份 446–521 字节，中英文都简洁、贴切（例如 `code-review` 的「何时不用」写的是「代码检查、单元测试或性能分析等工具化任务」）。
@@ -757,3 +868,9 @@ eval/
 - **在 `tool.call` 里发出、不等待的 `$.http.fetch`，hook 返回后照常完成**，在之后另一次 dispatch（下一步的 `turn.step`）里取用没有问题；它回调里的 `$.clock.now()` 也照常可用。实测：Sonnet 5.5，每步重判，Jev 回答用了 313–330 ms，都在下一步开始前到达。
 - **Sonnet 5.5 上一轮中途改 effort 不会返回 400**（#5 的验证项）。用一个每步改 effort 的探针 mod 测了三种配置，每轮 4–5 步，都正常完成：思考开着（默认），low → high → medium → high；`"alwaysThinkingEnabled": false`，同样的序列；`MAX_THINKING_TOKENS=0`，high → xhigh → low → max。API 文档说的 400 是 `thinking: {type: "between_tools"}` 加上与当前不同的逐条消息 effort（`messages.N: output_config.effort ... differs from ... in effect`），以及 `between_tools` 配 `xhigh`/`max`；Claude Code 2.1.289 在上面几种配置下都没有触发它（没有抓原始请求体，只看结果）。改档也没有打断缓存：每一步都从缓存读到整个前缀（约 2.85 万 token，新写入 0），没有因为改档重新写缓存。所以 Sonnet 5.5 上不需要关掉中途重判。
 - PreToolUse settings hook 拒绝一个调用时，`tool.call` 拿到的是 `{ isError: true, text: <拒绝理由> }`，和工具自己报错一样；包一层 `classic.PreToolUse`，按 `tool_use_id` 才能区分（kit 实测，真实引擎里这一层照常触发）。用户在权限对话框里拒绝、或权限规则拒绝时，错误文字是 Claude Code 固定的几句（`The user doesn't want to proceed with this tool use...`、`Permission to use ... has been denied`、`Permission for this tool use was denied...`），从 2.1.289 的二进制里查到；kit 里无法触发真实的权限对话框，只能按这些文字模拟。
+- 强制升档（#7，`claude -p` 实测，jev-pilot 已关）：
+  - **`turn.step` 的 `model` 不认别名。** 把一个 haiku 步骤的 `model` 改成 `sonnet`：主 agent 报 `[claude-code:unrecognized_model] ... There's an issue with the selected model (sonnet)`，进程退出码 1；子 agent 报 `Agent terminated early due to an API error: ... (error type model_not_found, HTTP 404 ...)`。改成 `claude-sonnet-5-5` 则正常：一个 haiku 子 agent（`claude-haiku-4-5-20251001`，引擎给它的步骤没有 effort）从第 1 步起每一步都发 `claude-sonnet-5-5`，`turn.step` 结果的 `usage.model` 也是它，agent 正常交回结果。引擎每一步都还是把原来的 haiku 当作这一步的 `e.model`（改写不改变引擎下一步给的值），所以要在每一步都改。
+  - **`agent.spawn` 的 `next(e)` 返回的 `model` 是解析后的完整 id**：`sonnet` 解析成 `claude-sonnet-5-5`，`haiku` 解析成 `claude-haiku-4-5-20251001`。
+  - **`classic.PreToolUse` 在子 agent 的调用上也触发**，事件里没有 `agentId`（字段是 `tool`、`tool_use_id` 和工具自己的参数），`tool_use_id` 和这个调用的 `tool.call` 一致。settings hook 退出码 2 拦下调用时，`classic.PreToolUse` 的结果是 `{ deny: "PreToolUse:Bash hook error: [...]: <hook 的 stderr>" }`，`tool.call` 的结果是 `{ isError: true, text: <同一段> }`。
+  - **一个运行中的子 agent 的记录可以在 `tool.call` 里读到**：`$.session.messages({ agentId })` 返回的第 0 行是 user 行，文字就是主 agent 写给它的任务；助手的输出每个 block 一行（有一行文字是空的，多半是思考块），一个调用的 `toolUses` 项在这个调用的 `tool.call` 刚结束时还没有 `text`，到下一次读时才带着 `text` 和 `isError`；工具结果是文字为空、带 `toolResults` 的 user 行。下一步的 `turn.step` 开始时，上一步所有调用的结果都已经在里面。
+  - **端到端**（决策请求由一个排在 dispatch-pilot 之后、拦 `http.fetch` 的探针 mod 用固定回答作答，不联网）：主 agent 在 Opus 5.5 上，开始时决定 medium，连续两次 `cat` 不存在的文件（`Bash` 报错）后，第 2 步发出前发出 `[midturn.level, escalation.expected]` 的请求，state 里 `trouble` 是 `2 tool calls have failed while working on this request`，`recent_steps` 是真实记录里的两步（`Failed: Read first nonexistent file`），回答「不是预期内」（p 0.05），探针看到第 2 步的 `effort=high`，模型仍是 `claude-opus-5-5`；一个被决定用 haiku 的 agent 连续两次失败后，第 2 步前发出只带 `escalation.expected` 的请求，探针看到这一步和之后的步骤都是 `claude-sonnet-5-5`，第三条命令成功，agent 正常交回结果。

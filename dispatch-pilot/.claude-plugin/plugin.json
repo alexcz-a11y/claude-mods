@@ -1,7 +1,7 @@
 {
   "name": "dispatch-pilot",
   "version": "0.1.0",
-  "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message, sets it on every request of the turn, and decides it again every few steps while the turn runs. The main agent's model never changes, so the prompt cache survives. It also keeps the full skill listing out of the main agent's context and suggests the few skills that fit each message; mid-turn, the main agent can look skills up with the find_skill tool.",
+  "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message, sets it on every request of the turn, and decides it again every few steps while the turn runs. The main agent's model never changes, so the prompt cache survives. It also keeps the full skill listing out of the main agent's context and suggests the few skills that fit each message; mid-turn, the main agent can look skills up with the find_skill tool. When an agent's tool calls keep failing it raises that agent's effort (a failing haiku agent goes on as sonnet), unless the failures are what the work expects.",
   "author": {
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
@@ -97,6 +97,37 @@
       "title": "Wait for a late re-decision (ms)",
       "description": "A re-decision is asked while a tool runs; if it is not back when the next request goes out, that request waits this long for it (0 to 2000), then keeps the effort it had and the status line says so.",
       "default": 300
+    },
+    "escalateAfter": {
+      "type": "number",
+      "title": "Failed tool calls before escalating",
+      "description": "The main agent, or an agent it dispatched, whose tool calls have failed this many times is asked about again and raised to a higher effort (1 to 20), unless the failures are what the work expects (a test written to fail first, a search that finds nothing). A call you refused yourself never counts; one of your own hooks blocked counts only after /dp hook-block-failures on.",
+      "default": 2
+    },
+    "escalateMode": {
+      "type": "string",
+      "title": "How escalating raises the effort",
+      "description": "one-level: one level up, never past xhigh (the decision model's own pick may go higher when it is sure). max: straight to max. A haiku agent has no effort to raise: it is switched to the model below instead.",
+      "options": ["one-level", "max"],
+      "default": "one-level"
+    },
+    "escalateLimit": {
+      "type": "number",
+      "title": "Escalations per turn",
+      "description": "How many times one turn of the main agent (or one dispatched agent) may be raised for failing tool calls (0 to 10). The failures count from zero again after each escalation.",
+      "default": 2
+    },
+    "thetaExpected": {
+      "type": "number",
+      "title": "Threshold to find failures expected",
+      "description": "When the decision model rates the failures at least this likely to be what the work expects (0 to 1), nothing is forced: the failures start counting from zero and the effort is left to the ordinary mid-turn rules. Low on purpose: measured on a few hand-written cases, Jev rates failures that are expected 0.15 to 0.72 and ones that are not 0.09 to 0.16 (Clef 0.27 to 0.90 and 0.03 to 0.11).",
+      "default": 0.25
+    },
+    "escalateHaikuTo": {
+      "type": "string",
+      "title": "Model a failing haiku agent switches to",
+      "description": "A haiku agent has no effort to raise, so when its tool calls keep failing it goes on as this model for the rest of its run. A full model id, because the engine takes no alias for a step; empty: never switch.",
+      "default": "claude-sonnet-5-5"
     },
     "agentFable": {
       "type": "boolean",

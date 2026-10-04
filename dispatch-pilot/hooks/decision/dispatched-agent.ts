@@ -10,7 +10,7 @@
 // the effort a Score with the levels every effort question shares.
 
 import { clipToTokens, estimateTokens } from './context.ts'
-import { DEFAULT_ASK, effortQuestion, pickEffort, readEffort, type Effort, type EffortAsk, type EffortReading, type Language } from './effort.ts'
+import { DEFAULT_ASK, EFFORTS, effortQuestion, pickEffort, readEffort, type Effort, type EffortAsk, type EffortReading, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import type { Answer, Part, Question, State } from './system-one.ts'
 
@@ -71,6 +71,10 @@ export const MODEL = 'model'
 export const EFFORT = 'effort'
 export const NAMED = 'named'
 export const BANNED = 'banned'
+/** The question of which effort, if any, the person asks for; asked only when their words may name one (`mentionsEffort`). */
+export const NAMED_EFFORT = 'named_effort'
+/** The named-effort question's option for no effort asked for. */
+const NO_EFFORT = 'none'
 export const REQUESTED_FITS = 'requested_fits'
 
 /** The kind of work each model suits (jev-pilot's TIER_CRITERIA, measured on 40 real briefs; guide §4.2), and the option name for it. */
@@ -235,6 +239,60 @@ function bannedQuestion(model: AgentModel, language: Language, field: string): Q
   }
 }
 
+/**
+ * Whether the person's words may name an effort: a cheap sign of text, only to
+ * decide whether the named-effort question is worth its place in the request.
+ * It is no judgment (spec #1): the decision model reads the words, and says
+ * whether an effort is asked for and which. So it errs wide: a level's name,
+ * "effort", or how hard to think, in either language.
+ */
+export function mentionsEffort(text: string): boolean {
+  return /effort|\bx-?high\b|extra[- ]high|\b(?:low|medium|high|max|maximum)\b|think|reason|推理|思考|思维|努力|强度|力度|档|拉满|开满|最低|最高|超高|极高/i.test(text)
+}
+
+/**
+ * Whether the person asks for an effort for the agent that carries out the
+ * brief, and which: one of the five levels, or none. Like a model's name, a
+ * level's name in their words is no request by itself; the decision model
+ * reads it in context, and an effort asked for another part of the work is none.
+ */
+function namedEffortQuestion(language: Language, field: string): Question {
+  if (language === 'zh') {
+    return {
+      type: 'choice',
+      instructions: {
+        问题: `\`user_message\` 是否明确要求 \`${field}\` 里的工作用某一档 effort（思考强度）？要求的是哪一档？`,
+        范围: '为所有派出的 agent 或这一轮全部工作要求的档位，也管这项工作；只给 `' + field + '` 以外的另一部分工作要求的档位不管。',
+        不算: '只说「多想想」「别想太久」而没点名档位、只是提到某一档（讨论、比较、以前的设置、不想要的档位），都选 none。',
+      },
+      criteria: {
+        [NO_EFFORT]: '用户没有为这项工作要求任何一档 effort。',
+        low: '用户要求这项工作（或所有派出的 agent）用 low 档，例如「effort 开 low」「用最低档思考」。',
+        medium: '用户要求这项工作（或所有派出的 agent）用 medium 档，例如「effort 用 medium」「中档就行」。',
+        high: '用户要求这项工作（或所有派出的 agent）用 high 档，例如「effort 开 high」「用高档」。',
+        xhigh: '用户要求这项工作（或所有派出的 agent）用 xhigh 档，例如「effort 开 xhigh」「超高档」。',
+        max: '用户要求这项工作（或所有派出的 agent）用 max 档，例如「effort 拉满」「用 max」「最高档」。',
+      },
+    }
+  }
+  return {
+    type: 'choice',
+    instructions: {
+      question: `Does \`user_message\` explicitly ask for a particular effort level (how hard the agent thinks) for the work in \`${field}\`, and which one?`,
+      scope: `A level asked for every agent, or for all the work this turn, covers this work too; a level asked only for a different part of the work than \`${field}\` does not.`,
+      not_a_request: 'Asking to think more or less without naming a level, or mentioning a level only in passing (discussed or compared, an earlier setting, a level the person does not want), asks for none.',
+    },
+    criteria: {
+      [NO_EFFORT]: 'The person asks for no effort level for this work.',
+      low: 'The person asks for low effort for this work or for every agent: "effort low", "set effort to low", "run it at low effort".',
+      medium: 'The person asks for medium effort for this work or for every agent: "effort medium", "medium effort is enough".',
+      high: 'The person asks for high effort for this work or for every agent: "effort high", "use high effort".',
+      xhigh: 'The person asks for xhigh (extra high) effort for this work or for every agent: "effort xhigh", "extra high effort".',
+      max: 'The person asks for max effort for this work or for every agent: "effort max", "max effort", "all the way up".',
+    },
+  }
+}
+
 /** The models whose names `text` mentions, in any case and inside ids (`claude-sonnet-5-5`); cheapest first. */
 export function mentionedModels(text: string): AgentModel[] {
   const lower = text.toLowerCase()
@@ -267,6 +325,8 @@ export function dispatchPart(dispatch: Dispatch, shape: DispatchShape = {}): Par
   const mentioned = mentionedModels(dispatch.user_message)
   for (const model of mentioned) questions[`${NAMED}.${model}`] = namedQuestion(model, ask.language, field)
   for (const model of mentioned) questions[`${BANNED}.${model}`] = bannedQuestion(model, ask.language, field)
+  // Asked when the person's words may name an effort: one they ask for is used.
+  if (mentionsEffort(dispatch.user_message)) questions[NAMED_EFFORT] = namedEffortQuestion(ask.language, field)
   return { part: shape.part ?? AGENT_PART, questions }
 }
 
@@ -323,14 +383,24 @@ export type DispatchDecision = {
   /** The effort of the agent's steps; null for haiku (it takes none) or without a usable answer. */
   effort: Effort | null
   source: ModelSource
-  /** The decision model's pick among the options not ruled out, with its confidence among them; null without a usable answer. */
-  pick: { model: AgentModel; confidence: number } | null
+  /**
+   * The decision model's pick among the options not ruled out, with its
+   * confidence among them; null without a usable answer. `nearest` is set when
+   * the answer gave the options left no probability (all of it was on a model
+   * the person ruled out): the pick is then the option nearest to the model
+   * the decision model chose, at confidence 0.
+   */
+  pick: { model: AgentModel; confidence: number; nearest?: true } | null
   /** The models the person ruled out for this agent. */
   banned: AgentModel[]
   /** The effort answer's level probabilities, also when unused (haiku); null without a usable answer. */
   reading: EffortReading | null
   /** False when neither the model nor the effort question got a usable answer: a failed request. */
   answered: boolean
+  /** The effort the person asked for, as the decision model read their words, whether or not it could be set (haiku takes none); null when none. */
+  namedEffort?: Effort | null
+  /** Whose the effort is: the person's (`user`, the one they named), the decision model's, or none (haiku, or no usable answer). */
+  effortSource?: 'user' | 'decided' | 'none'
 }
 
 /**
@@ -338,8 +408,11 @@ export type DispatchDecision = {
  * within the part, as `answersFor` gives them). Priority (spec #33, #34): a
  * model the person names for the work; else the decision model's pick, which
  * replaces the main agent's only when it is sure enough (`thetaOverride`). A
- * model the person rules out is neither picked nor kept: the pick is the most
- * probable of the other options, its confidence taken among them.
+ * model the person rules out is neither picked nor kept, in any branch: the
+ * pick is the most probable of the other options, its confidence taken among
+ * them, and when the answer gives them no probability at all, the option
+ * nearest to the one it chose. An effort the person names is the agent's
+ * effort, over the decided one (haiku takes none).
  */
 export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispatch: Dispatch, settings: DispatchSettings): DispatchDecision {
   const ask = { ...DEFAULT_DISPATCH_ASK, ...settings.ask }
@@ -350,13 +423,14 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
     return answer?.type === 'noul' && answer.noul >= threshold && model !== named
   })
   const models = (settings.models ?? DEFAULT_AGENT_MODELS).filter((model) => !banned.includes(model))
-  const pick = readPick(answers[MODEL], models, ask.options)
   const reading = readEffort(answers[EFFORT])
   const requested = modelFamily(dispatch.requested_model)
+  // Without probability on the options left, a model ruled out is still not the agent's: the nearest option takes its place.
+  const pick = readPick(answers[MODEL], models, ask.options) ?? (banned.length > 0 ? nearestPick(answers[MODEL], models, banned, requested, ask.options) : null)
   // In the requested_fits variant the pick must also be said not to fit.
   const fits = answers[REQUESTED_FITS]
   const misfit = ask.requested !== 'noul' || fits?.type !== 'noul' || fits.noul < (settings.thetaFit ?? 0.5)
-  const overridden = pick !== null && pick.model !== requested && pick.confidence >= settings.thetaOverride && misfit
+  const overridden = pick !== null && pick.nearest !== true && pick.model !== requested && pick.confidence >= settings.thetaOverride && misfit
   let model: AgentModel | null = pick?.model ?? null
   let source: ModelSource = model === null ? 'none' : 'decided'
   if (named !== null) {
@@ -366,9 +440,80 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
     model = requested
     source = 'requested'
   }
-  const effort = model === 'haiku' || reading === null ? null : pickEffort(reading, settings.thetaMax)
+  // An effort the person names is the agent's, over the decided one; haiku takes none either way.
+  const namedEffort = readNamedEffort(answers[NAMED_EFFORT], threshold)
+  const decided = reading === null ? null : pickEffort(reading, settings.thetaMax)
+  const effort = model === 'haiku' ? null : (namedEffort ?? decided)
+  const effortSource = effort === null ? 'none' : namedEffort !== null ? 'user' : 'decided'
   const answered = answers[MODEL]?.type === 'choice' || reading !== null
-  return { model, effort, source, pick, banned, reading, answered }
+  return { model, effort, source, pick, banned, reading, answered, namedEffort, effortSource }
+}
+
+/**
+ * The effort the person asks for: the level the named-effort answer favours,
+ * when it beats "none" and reaches `threshold` of the answer's probability;
+ * null otherwise (no answer, none asked for, or too unsure).
+ */
+function readNamedEffort(answer: Answer | undefined, threshold: number): Effort | null {
+  if (answer === undefined || answer.type !== 'choice') return null
+  const sum = [NO_EFFORT, ...EFFORTS].reduce((total, name) => total + (answer.probabilities[name] ?? 0), 0)
+  if (!(sum > 0)) return null
+  let best: Effort | null = null
+  let top = 0
+  for (const level of EFFORTS) {
+    const p = (answer.probabilities[level] ?? 0) / sum
+    if (p > top) {
+      best = level
+      top = p
+    }
+  }
+  const none = (answer.probabilities[NO_EFFORT] ?? 0) / sum
+  return best !== null && top >= threshold && top > none ? best : null
+}
+
+/**
+ * The pick when the options left (`models`, those the person did not rule out)
+ * have no probability in the answer: the option nearest, among the models, to
+ * the one the decision model chose, else to the main agent's pick, else to a
+ * model ruled out; a tie goes to the cheaper. Confidence 0: it is no sure
+ * choice, only a model that is not ruled out. Null when no option is left.
+ */
+function nearestPick(answer: Answer | undefined, models: readonly AgentModel[], banned: readonly AgentModel[], requested: AgentModel | null, options: DispatchAsk['options']): DispatchDecision['pick'] {
+  let anchor: AgentModel | null = null
+  if (answer?.type === 'choice') {
+    let top = 0
+    for (const model of AGENT_MODELS) {
+      const p = answer.probabilities[optionOf(model, options)] ?? 0
+      if (p > top) {
+        anchor = model
+        top = p
+      }
+    }
+  }
+  const at = AGENT_MODELS.indexOf(anchor ?? requested ?? banned[0] ?? 'sonnet')
+  let best: AgentModel | null = null
+  for (const model of models) {
+    if (best === null || Math.abs(AGENT_MODELS.indexOf(model) - at) < Math.abs(AGENT_MODELS.indexOf(best) - at)) best = model
+  }
+  return best === null ? null : { model: best, confidence: 0, nearest: true }
+}
+
+/**
+ * What the log says of a decision beyond whose model it is: the models ruled
+ * out and what stood in for them, and the effort the person asked for.
+ */
+export function decisionNotes(decision: DispatchDecision): string[] {
+  const notes: string[] = []
+  if (decision.banned.length > 0) notes.push(`ruled out ${decision.banned.join(', ')}`)
+  if (decision.pick?.nearest === true) notes.push(`the answer left no probability on the other models, nearest ${decision.pick.model} taken`)
+  if (decision.namedEffort != null) {
+    notes.push(
+      decision.effortSource === 'user'
+        ? `effort named in your message (${decision.namedEffort})`
+        : `effort ${decision.namedEffort} asked for in your message, not set: ${decision.model ?? 'the model'} takes no effort`,
+    )
+  }
+  return notes
 }
 
 /** The model whose `<prefix>.<model>` yes/no answer is highest and reaches `threshold`; null when none does. */
@@ -386,7 +531,7 @@ function mostLikely(answers: Readonly<Record<string, Answer>>, prefix: string, t
 }
 
 /** The most probable option of the model question, and its confidence; null when the answer is missing or names no option. */
-function readPick(answer: Answer | undefined, models: readonly AgentModel[], options: DispatchAsk['options']): { model: AgentModel; confidence: number } | null {
+function readPick(answer: Answer | undefined, models: readonly AgentModel[], options: DispatchAsk['options']): DispatchDecision['pick'] {
   if (answer === undefined || answer.type !== 'choice') return null
   const p = models.map((model) => answer.probabilities[optionOf(model, options)] ?? 0)
   const sum = p.reduce((a, b) => a + b, 0)

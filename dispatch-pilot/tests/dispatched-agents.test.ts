@@ -18,6 +18,8 @@ type AgentAnswers = {
   effort?: readonly number[]
   /** Each yes/no question's answer by its id within the part (`named.haiku`); the rest get 0. */
   nouls?: Record<string, number>
+  /** The named-effort question's probability for each option (`none`, `low` .. `max`); without it the answer is `none`. */
+  namedEffort?: Record<string, number>
 }
 
 /** Jev answering a dispatched agent's request: every question it asked, by type. */
@@ -29,7 +31,8 @@ function agentJev(answers: AgentAnswers) {
       const local = id.slice(id.indexOf('.') + 1)
       if (question.type === 'choice') {
         const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
-        const probabilities = Object.fromEntries(options.map((option) => [option, answers.model?.[option] ?? 0]))
+        const given = local === 'named_effort' ? (answers.namedEffort ?? { none: 1 }) : answers.model
+        const probabilities = Object.fromEntries(options.map((option) => [option, given?.[option] ?? 0]))
         const choice = options.reduce((best, option) => ((probabilities[option] ?? 0) > (probabilities[best] ?? 0) ? option : best), options[0] ?? '')
         out[id] = { type: 'choice', choice, probabilities, confidence: 0.5 }
       } else if (question.type === 'score') {
@@ -160,7 +163,93 @@ test("a model the person rules out is not used: the decision model's next choice
   expect(w.spawned.map((s) => s.model)).toEqual(['sonnet', 'sonnet'])
 })
 
-test('agents dispatched together are each decided on their own, and each starts as soon as its own answer is in', { options: KEY }, async ($, on) => {
+test('a model the person rules out is never the one the agent starts on, whichever way the answer leans: all its probability on the model ruled out, with or without the main agent asking for it', { options: KEY }, async ($, on) => {
+  // The answer puts everything on opus and nothing on the models left; the person ruled opus out.
+  const w = world($, on, { backend: (request, n) => (n === 1 ? agentJev({})(request) : agentJev({ model: { opus: 1 }, nouls: { 'banned.opus': 0.92 } })(request)) })
+  await w.submit('这周额度快用完了，派 agent 的时候别用 opus。帮我想想消息队列从 RabbitMQ 换到 Kafka 值不值得')
+  await w.spawn({ prompt: '评估把消息队列从 RabbitMQ 换成 Kafka 是否值得：对比三种做法，给出建议、迁移成本和风险。', description: '评估 MQ 迁移' })
+  await w.spawn({ prompt: '列出 12 个服务里依赖消息优先级和延迟队列插件的地方。', description: '查 MQ 特性依赖', model: 'opus' })
+  await w.spawn({ prompt: '把 RabbitMQ 的死信队列配置整理成表。', description: '整理死信队列', model: 'claude-opus-5-5' })
+
+  // The nearest model that is left, not the one ruled out.
+  expect(w.spawned.map((s) => s.model)).toEqual(['sonnet', 'sonnet', 'sonnet'])
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/ruled out opus.*no probability.*nearest sonnet/))
+})
+
+test("a request that failed as a whole decided nothing, so a model the person ruled out is not known: the agent starts as the main agent asked", { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: () => ({ status: 500, body: 'Internal Server Error' }) })
+  await w.submit('派 agent 的时候别用 opus')
+  await w.spawn({ prompt: 'Summarize what src/billing/invoice.ts does.', model: 'opus' })
+
+  expect(w.spawned.map((s) => s.model)).toEqual(['opus'])
+  expect(w.status()).toContain('agent not routed (jev: HTTP 500)')
+})
+
+test("an effort the person asks for in this turn's message is the effort of the agent, over the one the decision model would give; the decision model judges whether it was asked for", { options: KEY }, async ($, on) => {
+  const w = world($, on, {
+    backend: (request, n) =>
+      agentJev(
+        // Requests 1 and 3 are the messages' own (main effort); 2 and 4 the agents'.
+        n === 2
+          ? { model: { haiku: 0.1, sonnet: 0.8, opus: 0.1 }, effort: [0, 0, 0.1, 0.8, 0.1], namedEffort: { none: 0.05, low: 0.9, medium: 0.05 } }
+          : n === 4
+            ? { model: { haiku: 0.1, sonnet: 0.8, opus: 0.1 }, effort: [0, 0, 0.1, 0.8, 0.1], namedEffort: { none: 0.9, high: 0.1 } }
+            : {},
+      )(request),
+  })
+  await w.submit('用 sonnet、effort 开 low 跑就行，就是把 eslint 报的 unused imports 清掉')
+  const first = await w.spawn({ prompt: 'Run `pnpm lint` and remove every import flagged as unused.', description: 'Remove unused imports', model: 'sonnet' })
+  await w.step({ index: 0, turnId: 'sub-1', agentId: first.agentId, model: 'claude-sonnet-5-5', effort: 'medium' })
+  // A message that only mentions a level asks for none: the decided effort stands.
+  await w.submit('这个重构的 effort 通常要 high 才够，你看着办')
+  const second = await w.spawn({ prompt: 'Refactor the retry logic in src/net across the three clients.', description: 'Refactor retry' })
+  await w.step({ index: 0, turnId: 'sub-2', agentId: second.agentId, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  expect(Object.keys(w.requests[1]?.body.questions)).toContain('agent.named_effort')
+  expect(w.steps.map((s) => `${String(s.agentId)} ${String(s.effort)}`)).toEqual([`${first.agentId} low`, `${second.agentId} xhigh`])
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^sonnet low for "Remove unused imports".*effort named in your message \(low\)/))
+})
+
+test("a message with no word about effort asks no named-effort question: the cheap text sign decides whether to ask, the decision model what the words mean", { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: agentJev({ model: { sonnet: 1 } }) })
+  await w.submit('给 utils/date.ts 补几个边界情况的单测')
+  await w.spawn({ prompt: '为 src/utils/date.ts 写 vitest 单测。', description: '补单测' })
+
+  expect(Object.keys(w.requests[1]?.body.questions).filter((id) => id.includes('effort'))).toEqual(['agent.effort'])
+})
+
+test('an effort the person asks for all the agents of the turn reaches each of them', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: agentJev({ model: { haiku: 0.1, sonnet: 0.8, opus: 0.1 }, effort: [0, 0, 0.1, 0.8, 0.1], namedEffort: { none: 0.03, high: 0.95, max: 0.02 } }) })
+  await w.submit('这次所有 agent 的 effort 都开 high，先查一下登录模块再写测试')
+  const a = await w.spawn({ prompt: 'Read src/auth/login.ts and explain the flow.', description: 'Explain login' })
+  const b = await w.spawn({ prompt: 'Write unit tests for src/auth/login.ts.', description: 'Login tests' })
+  await w.step({ index: 0, turnId: 'sub-1', agentId: a.agentId, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.step({ index: 0, turnId: 'sub-2', agentId: b.agentId, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['high', 'high'])
+})
+
+test('a named effort needs the answer to be sure (0.5 for the level asked, as for a model): a half-hearted yes leaves the decided effort', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: agentJev({ model: { sonnet: 1 }, effort: [0, 0, 1, 0, 0], namedEffort: { none: 0.3, low: 0.4, medium: 0.3 } }) })
+  await w.submit('effort 低一点也行吧')
+  const started = await w.spawn({ prompt: 'Write unit tests for src/cache/lru.ts.' })
+  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['high'])
+})
+
+test('an agent that goes to haiku takes no effort, named or not: the person is not overruled but the log says what was asked and why it was not set', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.05, opus: 0.05 }, effort: [1, 0, 0, 0, 0], namedEffort: { none: 0, xhigh: 1 } }) })
+  await w.submit('所有 agent 的 effort 都用 xhigh')
+  const started = await w.spawn({ prompt: 'List every file under src/ that imports legacyAuth. Report file:line only.', description: 'Find legacyAuth imports' })
+  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-haiku-4-5', effort: null })
+
+  expect(w.spawned.map((s) => s.model)).toEqual(['haiku'])
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['undefined'])
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^haiku for .*effort xhigh asked for in your message, not set: haiku takes no effort/))
+})
+
+test('agents dispatched together are each decided on their own, and each starts as soon as its own answer is in',{ options: KEY }, async ($, on) => {
   const w = world($, on, {
     backend: (request) =>
       String(request.body.state.brief.prompt).startsWith('Design')

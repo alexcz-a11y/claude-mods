@@ -14,6 +14,7 @@ import type { Asked, Failure } from './backend.ts'
 import { estimateTokens } from './context.ts'
 import {
   decideDispatch,
+  decisionNotes,
   dispatchBrief,
   dispatchPart,
   dispatchState,
@@ -184,10 +185,11 @@ function writeFor(call: AgentCall, decision: DispatchDecision): CallWrite | null
   // The model the script wrote stands when the decision keeps it or names the same one; one it chooses when it runs is not touched.
   const written = call.model.kind === 'literal' ? modelFamily(call.model.value) : null
   if (decision.model !== null && call.model.kind !== 'dynamic' && decision.source !== 'requested' && decision.model !== written) write.model = decision.model
-  // The effort decided replaces the script's own; one the script works out when it runs is not touched.
+  // The effort decided replaces the script's own; one the script works out when it runs is not touched,
+  // unless the person asked for an effort: that one is never overruled, whatever the script does.
   // Haiku takes no effort: one the script wrote is taken out.
   if (decision.effort !== null) {
-    if (call.effort.kind === 'none' || (call.effort.kind === 'literal' && call.effort.value !== decision.effort)) write.effort = decision.effort
+    if (call.effort.kind === 'none' || (call.effort.kind === 'literal' && call.effort.value !== decision.effort) || (call.effort.kind === 'dynamic' && decision.effortSource === 'user')) write.effort = decision.effort
   } else if (decision.model === 'haiku' && call.model.kind !== 'dynamic' && call.effort.kind === 'literal') {
     write.effort = null
   }
@@ -216,13 +218,13 @@ export function reasonOf(decision: DispatchDecision, requested: string | null, t
   else if (decision.source === 'decided') parts.push(requested !== null && requested !== decision.model ? `decided over the script's ${requested}` : 'decided')
   else parts.push("the engine's model kept")
   if (pick !== null) parts.push(pick)
-  if (decision.banned.length > 0) parts.push(`ruled out ${decision.banned.join(', ')}`)
+  parts.push(...decisionNotes(decision))
   if (decision.reading !== null) parts.push(`effort p ${EFFORTS.map((level, i) => `${level} ${(decision.reading?.probabilities[i] ?? 0).toFixed(2)}`).join(', ')}`)
   return parts.join('; ')
 }
 
 /** Why a call got the model and effort it did, in a few words for the main agent: whose model it is, how sure the decision model was, how likely its effort level. */
-function whyOf(decision: DispatchDecision): string {
+export function whyOf(decision: DispatchDecision): string {
   const model =
     decision.source === 'user'
       ? 'model: you asked for it'
@@ -235,11 +237,15 @@ function whyOf(decision: DispatchDecision): string {
   const effort =
     decision.effort === null
       ? decision.model === 'haiku'
-        ? 'haiku takes no effort'
+        ? decision.namedEffort != null
+          ? `haiku takes no effort, so the ${decision.namedEffort} you asked for is not set`
+          : 'haiku takes no effort'
         : ''
-      : decision.reading === null
-        ? ''
-        : `effort: p ${(decision.reading.probabilities[level] ?? 0).toFixed(2)}`
+      : decision.effortSource === 'user'
+        ? 'effort: you asked for it'
+        : decision.reading === null
+          ? ''
+          : `effort: p ${(decision.reading.probabilities[level] ?? 0).toFixed(2)}`
   return [model, effort].filter((part) => part !== '').join('; ')
 }
 
