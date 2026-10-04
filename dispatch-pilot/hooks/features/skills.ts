@@ -399,7 +399,11 @@ export function registerSkills(on: On, ctx: Ctx): void {
 /**
  * What the main agent reads in place of the skill listing: where the skills
  * went and how to come by one. Fixed text, naming no skill: the engine keeps
- * the answer for the conversation, and it is part of the prompt cache.
+ * the answer for the conversation, and it is part of the prompt cache. It
+ * names find_skill in full and says it may need ToolSearch: the tool is
+ * deferred, so until loaded the main agent sees only its name. (A wording that
+ * also said when to look, in find_skill's own words, did no better on a real
+ * engine; README, 已实测.)
  */
 const LISTING_HINT =
   "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it. For any other skill, call the find_skill tool (mcp__dispatch-pilot__find_skill; load it with ToolSearch first if it is deferred) with a few words on the work, then load a skill it returns with the Skill tool by its exact name."
