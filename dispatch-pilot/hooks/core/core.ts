@@ -11,6 +11,9 @@
 //
 // The core owns the unmatched registration of these events; a feature always
 // registers them with a matcher (README, 开发).
+//
+// Switched off (`/dp off`, core/switches.ts) the core stands down: prompt.submit
+// asks nothing and turn.step sends every step as the engine made it.
 
 import type { HttpInit, On } from 'claude-code'
 import { messageText, turnStartState } from '../decision/context.ts'
@@ -20,6 +23,7 @@ import { collect, type Contribution, type PartOutcome } from './ballot.ts'
 import { newTurn, planStep, takePending, turnKey, update, type Cell, type PendingDecision } from './plans.ts'
 import type { Ctx } from './setup.ts'
 import { setStatus } from './status.ts'
+import { masterOn } from './switches.ts'
 
 const PENDING = { plugin: 'dispatch-pilot', key: 'pending' } as const
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
@@ -32,7 +36,8 @@ const entering: string[] = []
 export function registerCore(on: On, ctx: Ctx): void {
   on('prompt.submit', async ($, e, next) => {
     const ballot = collect(e.text)
-    if (ballot.length === 0) return next(e)
+    // Switched off (/dp off): whatever was put in the ballot is not asked.
+    if (ballot.length === 0 || !masterOn()) return next(e)
     const ids = ballot.flatMap((part) => Object.keys(part.questions).map((id) => `${part.part}.${id}`)).join(', ')
     const startedAt = await $.clock.now()
     const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
@@ -78,6 +83,8 @@ export function registerCore(on: On, ctx: Ctx): void {
   })
 
   on('turn.step', async function* ($, e, next) {
+    // Switched off (/dp off): every step goes out as the engine made it, lock or no lock.
+    if (!masterOn()) return yield* next(e)
     const agentId = e.agentId
     const { value: turn } = await $.state.get({ ...TURNS, id: turnKey(e.turnId, agentId) })
     const { value: agent } = agentId === undefined ? { value: undefined } : await $.state.get({ ...AGENTS, id: agentId })

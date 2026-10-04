@@ -7,6 +7,7 @@
 
 import type { PluginOptions } from 'claude-code'
 import type { Backend } from '../decision/backend.ts'
+import { clefBackend } from '../decision/clef.ts'
 import type { ContextLimits } from '../decision/context.ts'
 import { DEFAULT_ASK, type EffortAsk } from '../decision/effort.ts'
 import { jevBackend } from '../decision/jev.ts'
@@ -43,7 +44,13 @@ export function setup(options: PluginOptions): Ctx {
       tokens: Math.round(numberIn(options.contextTokens, 100, 16000, 2000)),
     },
   }
-  return { config, backend: jevBackend(config.typesafeApiKey), ask: DEFAULT_ASK, options }
+  // One decision model or the other, as the person chose: only that one is built, and there is no fallback.
+  // (The engine reads a value outside the option's list as the default, jev.)
+  const backend =
+    stringOf(options.decisionModel, 'jev') === 'clef'
+      ? clefBackend({ accountId: stringOf(options.cloudflareAccountId, '').trim(), apiToken: stringOf(options.cloudflareApiToken, '').trim() })
+      : jevBackend(config.typesafeApiKey)
+  return { config, backend, ask: DEFAULT_ASK, options }
 }
 
 /** A numeric option clamped to [min, max]; `fallback` when it is not a number. */
