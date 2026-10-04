@@ -1,7 +1,7 @@
 {
   "name": "dispatch-pilot",
   "version": "0.1.0",
-  "description": "Dispatch Pilot: a decision model outside Claude (Jev) picks the main agent's reasoning effort each time you send a message, and that effort holds on every request of the turn. The main agent's model never changes, so the prompt cache survives.",
+  "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message, and that effort holds on every request of the turn. The main agent's model never changes, so the prompt cache survives.",
   "author": {
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
@@ -10,17 +10,38 @@
   "license": "MIT",
   "types": "./types/index.d.ts",
   "userConfig": {
+    "decisionModel": {
+      "type": "string",
+      "title": "Decision model",
+      "description": "Which model makes the decisions: jev (TypeSafe; needs the TypeSafe API key) or clef (Cloudflare Workers AI; needs the Cloudflare account ID and API token). The other is never used as a fallback: when the chosen one fails, the message goes on unrouted. Clef answers more slowly than Jev, so raise the decision timeout (about 3000 ms) when you choose it.",
+      "options": ["jev", "clef"],
+      "default": "jev"
+    },
     "typesafeApiKey": {
       "type": "string",
       "title": "TypeSafe API key",
-      "description": "Key for TypeSafe's System One API, where Jev runs. Without one, nothing is sent and every turn keeps the session's effort.",
+      "description": "Key for TypeSafe's System One API, where Jev runs (used when the decision model is jev). Without one, nothing is sent and every turn keeps the session's effort.",
+      "default": "",
+      "sensitive": true
+    },
+    "cloudflareAccountId": {
+      "type": "string",
+      "title": "Cloudflare account ID",
+      "description": "The Cloudflare account that runs Workers AI (used when the decision model is clef). It is part of the request address, which Claude Code's debug log records. Without it, nothing is sent and every turn keeps the session's effort.",
+      "default": "",
+      "sensitive": true
+    },
+    "cloudflareApiToken": {
+      "type": "string",
+      "title": "Cloudflare Workers AI API token",
+      "description": "A Cloudflare API token that can run Workers AI (used when the decision model is clef): in the dashboard, Workers AI, Use REST API, Create a Workers AI API Token. Without one, nothing is sent and every turn keeps the session's effort.",
       "default": "",
       "sensitive": true
     },
     "timeoutMs": {
       "type": "number",
       "title": "Decision timeout (ms)",
-      "description": "How long a message waits for the decision model (200 to 8000). Past it the message goes on unrouted, at the session's effort, and the status line says so.",
+      "description": "How long a message waits for the decision model (200 to 8000). Past it the message goes on unrouted, at the session's effort, and the status line says so. Clef answers more slowly than Jev (a first request often takes 1.5 s or more): about 3000 suits it.",
       "default": 1500
     },
     "contextMessages": {

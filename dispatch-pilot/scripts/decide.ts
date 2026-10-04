@@ -1,14 +1,17 @@
-// One message's effort decision against the real Jev, outside Claude Code:
-// the same request the mod sends (the shared decision module), sent from
+// One message's effort decision against the real Jev or Clef, outside Claude
+// Code: the same request the mod sends (the shared decision module), sent from
 // Node. For a manual check and as the starting point of the eval (#4).
 //
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' [--zh] [--choice] [--timeout 5000]
+//   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_AUTH_TOKEN=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' --clef
 //
-// Prints the request (questions, state) and the answer: each level's
-// probability, the confidence, the picked level, the latency. The key is
-// read from the environment and never printed. Node 22.18+ runs .ts as is.
+// Jev unless `--clef`. Prints the request (questions, state) and the answer:
+// each level's probability, the confidence, the picked level, the latency.
+// Credentials are read from the environment and never printed. Node 22.18+
+// runs .ts as is.
 
-import type { BackendIo } from '../hooks/decision/backend.ts'
+import type { Backend, BackendIo } from '../hooks/decision/backend.ts'
+import { clefBackend } from '../hooks/decision/clef.ts'
 import { turnStartState } from '../hooks/decision/context.ts'
 import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { jevBackend } from '../hooks/decision/jev.ts'
@@ -22,13 +25,25 @@ const value = (name: string) => {
 }
 const prompt = args.find((arg, i) => !arg.startsWith('--') && args[i - 1] !== '--timeout')
 if (!prompt) {
-  console.error('usage: node scripts/decide.ts <message> [--zh] [--choice] [--timeout ms]')
+  console.error('usage: node scripts/decide.ts <message> [--zh] [--choice] [--clef] [--timeout ms]')
   process.exit(2)
 }
-const apiKey = process.env.TYPESAFE_API_KEY ?? ''
-if (!apiKey) {
-  console.error('TYPESAFE_API_KEY is not set')
-  process.exit(2)
+let backend: Backend
+if (flag('--clef')) {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? ''
+  const apiToken = process.env.CLOUDFLARE_AUTH_TOKEN ?? ''
+  if (!accountId || !apiToken) {
+    console.error('CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AUTH_TOKEN must both be set')
+    process.exit(2)
+  }
+  backend = clefBackend({ accountId, apiToken })
+} else {
+  const apiKey = process.env.TYPESAFE_API_KEY ?? ''
+  if (!apiKey) {
+    console.error('TYPESAFE_API_KEY is not set')
+    process.exit(2)
+  }
+  backend = jevBackend(apiKey)
 }
 
 // Node's fetch and timers in place of $.http.fetch and $.clock.sleep.
@@ -52,20 +67,21 @@ const request = mergeParts(turnStartState({ prompt, messages: [], limits: { mess
 console.log(JSON.stringify({ questions: Object.keys(request.questions), state: request.state }))
 
 const started = performance.now()
-const asked = await jevBackend(apiKey).ask(io, request, Number(value('--timeout') ?? 5000))
+const asked = await backend.ask(io, request, Number(value('--timeout') ?? 5000))
 const ms = Math.round(performance.now() - started)
 if (!asked.ok) {
-  console.log(JSON.stringify({ ok: false, failure: asked.failure, ms }))
+  console.log(JSON.stringify({ ok: false, backend: backend.name, failure: asked.failure, ms }))
   process.exit(1)
 }
 const reading = readEffort(answersFor(part, asked.answers)[LEVEL])
 if (reading === null) {
-  console.log(JSON.stringify({ ok: false, failure: 'no effort answer', answers: asked.answers, ms }))
+  console.log(JSON.stringify({ ok: false, backend: backend.name, failure: 'no effort answer', answers: asked.answers, ms }))
   process.exit(1)
 }
 console.log(
   JSON.stringify({
     ok: true,
+    backend: backend.name,
     model: asked.model,
     inputTokens: asked.inputTokens,
     ms,
