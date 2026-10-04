@@ -5,7 +5,7 @@
 ## 证据来源与标注约定
 
 - **d.ts（最权威）**：用一次性 probe mod 让本机 Claude Code 生成的类型声明。路径是
-  `/private/tmp/claude-501/-Users-alexnear-Documents-claude-mods/1f101c25-8304-40c4-9c1f-92fbce1f2228/scratchpad/probe-mod/.claude-plugin/types/claude-code/index.d.ts`，下文简写为 `d.ts:<行号>`。第 1 行写明 `// Written by Claude Code 2.1.289.`，第 4 行写明 `EARLY ACCESS: this surface may change between releases without notice.`。内置工具的输入输出类型在同目录的 `claude-code-tools/index.d.ts`，简写为 `tools.d.ts:<行号>`。这两个文件在 scratchpad 里，会被清理；按文末"复现"一节跑一次 `--plugin-dir` 就会重新生成，行号以 2.1.289 为准。
+  `<scratchpad>/probe-mod/.claude-plugin/types/claude-code/index.d.ts`，下文简写为 `d.ts:<行号>`。第 1 行写明 `// Written by Claude Code 2.1.289.`，第 4 行写明 `EARLY ACCESS: this surface may change between releases without notice.`。内置工具的输入输出类型在同目录的 `claude-code-tools/index.d.ts`，简写为 `tools.d.ts:<行号>`。这两个文件在 scratchpad 里，会被清理；按文末"复现"一节跑一次 `--plugin-dir` 就会重新生成，行号以 2.1.289 为准。
 - **官方文档**：mods 的 [events](https://code.claude.com/docs/en/plugins/mods/events)、[api](https://code.claude.com/docs/en/plugins/mods/api)、[reference](https://code.claude.com/docs/en/plugins/mods/reference)，以及 [workflows](https://code.claude.com/docs/en/workflows)、[skills](https://code.claude.com/docs/en/skills)、[Claude Code prompt caching](https://code.claude.com/docs/en/prompt-caching)，还有 API 文档 [effort](https://platform.claude.com/docs/en/build-with-claude/effort) 和 [prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)。reference 页自己说 GitHub 上的 `claude-code.d.ts` 可能比本机版本旧，冲突时以本机生成的为准，所以本文没有用 GitHub 那份。
 - **实测**：在 scratchpad 跑了 4 次 `command claude -p`，都用 `--settings '{"enabledPlugins":{"jev-pilot@jev-pilot":false}}'` 关掉本机已装的 jev-pilot，避免它也改 effort 和 model 干扰结果（debug log 确认只加载了 probe-mod 和内置 mod）。probe 把每个事件写成一行 JSON，日志文件和行号如下（也都在 scratchpad 里）：
   - run 1：只为生成类型，`probe-run1.log`。
@@ -13,7 +13,7 @@
   - run B：Workflow 工具跑一个只含一个 `agent()` 的脚本，再启动一个普通 Agent。产物是 `probe-events-runB.jsonl` 和 `probe-run3.log`。
   - run C：`ANTHROPIC_LOG=debug`，看请求头和请求体的结构，并对 Haiku 4.5 子代理强行设 effort。产物是 `probe-events-runC.jsonl`、`probe-run4.out`（SDK 日志）和 `probe-run4.log`。
   - 所有 run 的主模型都是 `claude-opus-5-5`（`probe-events-runA.jsonl:53`），用的是订阅登录（请求头带 `oauth-2025-04-20`，`probe-run4.out:37`），会话默认 effort 是 `xhigh`。
-- **第三方实现（只作旁证）**：本机装着 jev-pilot 0.12.1（作者 Ahmed Akram，MIT），它做的就是这类路由：主循环 effort、子代理 model 和 effort、skill 推荐。路径是 `/Users/alexnear/.claude/plugins/cache/jev-pilot/jev-pilot/0.12.1/`。它的做法只能证明"这样写能跑"，不是官方保证。
+- **第三方实现（只作旁证）**：本机装着 jev-pilot 0.12.1（作者 Ahmed Akram，MIT），它做的就是这类路由：主循环 effort、子代理 model 和 effort、skill 推荐。路径是 `~/.claude/plugins/cache/jev-pilot/jev-pilot/0.12.1/`。它的做法只能证明"这样写能跑"，不是官方保证。
 - 每条结论都标了来源：**[读]** 表示来自 d.ts 或文档，**[测]** 表示本次 probe 实际观察到，**[旁证]** 表示来自 jev-pilot。
 
 ## 结论速览

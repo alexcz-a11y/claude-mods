@@ -1,0 +1,4 @@
+{
+  "description": "Dispatch Pilot: one hooks module; the entry registers each feature, then the core",
+  "modules": ["./dispatch-pilot.ts"]
+}

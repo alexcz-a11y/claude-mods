@@ -1,0 +1,210 @@
+// Seam 1: the world beneath dispatch-pilot in `claude plugin test`.
+//
+// Everything registered here sits beneath the mod: it answers the mod's `$`
+// calls (the decision backend at `http.fetch`, the disk at `fs.*`, the
+// transcript at `session.messages`) and plays the engine at the bottom of the
+// events the mod passes on, recording what reached it. Assertions read those
+// records: what the mod sent to the backend, what each model request went out
+// with, what the status line said.
+//
+// Not a test file (no `.test.ts`), so `claude plugin test` only runs it through
+// the tests that import it. Register it before the test's first `$` call.
+
+import { mock } from 'claude-code/testing'
+import type { Engine, MockClock } from 'claude-code/testing'
+import type { On, PromptOrigin, SessionMessage } from 'claude-code'
+
+/** One request the mod sent through `$.http.fetch`, its JSON body parsed. */
+export type Sent = {
+  url: string
+  method: string | undefined
+  headers: Record<string, string>
+  // The body as JSON (what the backend reads); untyped on purpose: tests read
+  // the wire format the way the backend would.
+  body: any
+}
+
+/** How the fake backend answers one request. */
+export type Reply =
+  /** An HTTP response; a non-string body is sent as JSON. */
+  | { status: number; body: unknown }
+  /** `$.http.fetch` rejects, as when the network is down. */
+  | { reject: string }
+  /** The reply, after `after` ms of mock time (`w.clock.advance`). */
+  | { after: number; reply: Reply }
+
+/** One model request as it reached the engine, after every hook of the mod. */
+export type Step = { turnId: string; index: number; model: string; effort: unknown; agentId: string | undefined }
+
+export type WorldOptions = {
+  /** Answers each backend request (`n` counts from 1). Without one, every request gets HTTP 500. */
+  backend?: (request: Sent, n: number) => Reply | Promise<Reply>
+  /** The transcript `$.session.messages()` returns. */
+  messages?: SessionMessage[]
+  /** Files the mod can read, by absolute path (`$.fs.read`, `$.fs.exists`). */
+  disk?: Record<string, string>
+  /** What the hooks beneath the mod (other plugins, settings hooks) do to a prompt. */
+  beneath?: {
+    /** The text the turn starts with, when a hook beneath rewrote the prompt. */
+    rewrite?: (text: string) => string
+    /** A reason to refuse the prompt (it never enters, no turn starts). */
+    drop?: (text: string) => string | undefined
+  }
+}
+
+export type SubmitOptions = {
+  /** Where the prompt came from; the person's own Enter by default. */
+  origin?: PromptOrigin
+  /** Typed while this turn ran (mid-turn): no turn starts for it now. */
+  turnId?: string
+  /** The person asked it to wait its turn (`chat:queueSubmit`). */
+  wait?: boolean
+}
+
+export type StepOptions = {
+  index: number
+  /** The turn the request belongs to; the last turn started by default. */
+  turnId?: string
+  /** The model the engine resolved for this request. */
+  model?: string
+  /** The effort the engine asks for; `null` for a model without effort (the field is left out). */
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number | null
+  /** A dispatched or workflow agent's loop; absent on the main agent. */
+  agentId?: string
+}
+
+export type World = ReturnType<typeof world>
+
+export function world($: Engine, on: On, options: WorldOptions = {}) {
+  const clock: MockClock = mock.clock(on)
+  const requests: Sent[] = []
+  const statuses: (string | undefined)[] = []
+  const logs: { text: string; to: string | undefined }[] = []
+  const steps: Step[] = []
+  const prompts: { text: string; context: readonly string[] | undefined; origin: unknown }[] = []
+  const turnIds: string[] = []
+  const disk = options.disk ?? {}
+
+  async function answer(reply: Reply): Promise<{ value: { status: number; ok: boolean; headers: Record<string, string>; text: string } } | { deny: string }> {
+    if ('after' in reply) {
+      await clock.sleep(reply.after)
+      return answer(reply.reply)
+    }
+    if ('reject' in reply) return { deny: reply.reject }
+    const text = typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body)
+    return { value: { status: reply.status, ok: reply.status >= 200 && reply.status < 300, headers: {}, text } }
+  }
+
+  on('http.fetch', async (_$, e) => {
+    let body: unknown = e.init?.body
+    try {
+      body = JSON.parse(String(e.init?.body))
+    } catch {
+      // not JSON: kept as sent
+    }
+    const sent: Sent = { url: e.url, method: e.init?.method, headers: { ...(e.init?.headers ?? {}) }, body }
+    requests.push(sent)
+    const reply = options.backend ? await options.backend(sent, requests.length) : { status: 500, body: 'no backend in this test' }
+    return answer(reply)
+  })
+  on('session.messages', () => ({ value: options.messages ?? [] }))
+  on('fs.read', (_$, e) => (e.path in disk ? { value: disk[e.path] as string } : { deny: `ENOENT: ${e.path}` }))
+  on('fs.exists', (_$, e) => ({ value: e.path in disk }))
+  on('ui.status', (_$, e) => {
+    statuses.push(e.text)
+    return { value: undefined }
+  })
+  on('ui.log', (_$, e) => {
+    logs.push({ text: e.text, to: e.to })
+    return { value: undefined }
+  })
+  // The engine at the bottom of prompt.submit: a prompt submitted while the
+  // session is idle starts its turn inside `next(e)`, as Claude Code does
+  // (turn.start fires before prompt.submit's next resolves); one typed during
+  // a turn (`turnId`) is queued and starts nothing now.
+  on('prompt.submit', async (_$, e) => {
+    const dropped = options.beneath?.drop?.(e.text)
+    if (dropped !== undefined) return { drop: dropped }
+    const text = options.beneath?.rewrite?.(e.text) ?? e.text
+    prompts.push({ text, context: e.context, origin: e.origin })
+    if (e.turnId === undefined) {
+      const turnId = `t${turnIds.length + 1}`
+      turnIds.push(turnId)
+      await $.turn.start({ text, turnId })
+    }
+    return { text, context: e.context }
+  })
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('turn.step', async function* (_$, e) {
+    steps.push({ turnId: e.turnId, index: e.index, model: e.model, effort: e.effort, agentId: e.agentId })
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use' as const, usage: null }
+  })
+
+  return {
+    clock,
+    requests,
+    statuses,
+    logs,
+    steps,
+    prompts,
+    turnIds,
+    /** The status line as last set (`undefined` once cleared or never set). */
+    status: () => statuses.at(-1),
+    /** Submits a prompt the way the engine does; resolves when it entered (or was queued). */
+    submit: (text: string, submit: SubmitOptions = {}) =>
+      $.prompt.submit({
+        text,
+        wait: submit.wait ?? false,
+        origin: submit.origin ?? { kind: 'composer' },
+        ...(submit.turnId !== undefined ? { turnId: submit.turnId } : {}),
+      }),
+    /** Starts a turn for a prompt that waited in the queue; resolves to its id. */
+    startTurn: async (text: string) => {
+      const turnId = `t${turnIds.length + 1}`
+      turnIds.push(turnId)
+      await $.turn.start({ text, turnId })
+      return turnId
+    },
+    /** Sends one model request through the mod, drained to its end. */
+    step: async (step: StepOptions) => {
+      const effort = step.effort === undefined ? 'xhigh' : step.effort
+      const input = {
+        turnId: step.turnId ?? turnIds.at(-1) ?? 't0',
+        index: step.index,
+        model: step.model ?? 'claude-opus-5-5',
+        messageCount: 1,
+        ...(effort === null ? {} : { effort }),
+        ...(step.agentId !== undefined ? { agentId: step.agentId } : {}),
+      }
+      for await (const _chunk of $.turn.step(input)) {
+        // drained: the hooks run as the stream is read
+      }
+    },
+  }
+}
+
+/**
+ * A Jev answer to every question of the request it replies to: each `score`
+ * question gets `levels` as its probabilities (lowest level first), each
+ * `choice` the option named in `choice` (or its first), each `noul` 0.5.
+ */
+export function jev(levels: readonly number[], extra: { status?: number; choice?: string } = {}) {
+  return (request: Sent): Reply => {
+    const answers: Record<string, unknown> = {}
+    const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
+    for (const [id, question] of Object.entries(questions)) {
+      if (question.type === 'score') {
+        const probabilities = Object.fromEntries(levels.map((p, i) => [String(i), p]))
+        const score = levels.reduce((sum, p, i) => sum + p * i, 0)
+        answers[id] = { type: 'score', score, legend: {}, probabilities, confidence: 0.7 }
+      } else if (question.type === 'choice') {
+        const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
+        const pick = extra.choice ?? options[0] ?? ''
+        answers[id] = { type: 'choice', choice: pick, probabilities: Object.fromEntries(options.map((o) => [o, o === pick ? 1 : 0])), confidence: 1 }
+      } else {
+        answers[id] = { type: 'noul', noul: 0.5 }
+      }
+    }
+    return { status: extra.status ?? 200, body: { model: 'jev-1.13.0', answers, usage: { input_tokens: 300, output_tokens: 0 } } }
+  }
+}
