@@ -94,6 +94,13 @@ declare module 'claude-code' {
         /** Which demand this is: a new value is a new demand. */
         at: number
       }>
+      /**
+       * The person's own words this turn, masked and clipped, oldest first: the
+       * last message they sent while the session was idle, then the ones they
+       * typed while its turn ran (at most 8). A dispatched agent's decision reads
+       * them as `user_message`.
+       */
+      said: string[]
     }
   }
 }

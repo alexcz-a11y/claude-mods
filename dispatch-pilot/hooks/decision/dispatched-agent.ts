@@ -1,0 +1,406 @@
+// A dispatched agent's model and effort: the questions the decision model
+// answers when the main agent starts an agent, and how the answers become the
+// model it runs on and the effort of its steps.
+//
+// Pure (see system-one.ts). The input is the eval item's shape
+// (subagent.jsonl's `zh` / `en`), so the eval (#15) builds the same request
+// from an item as the mod builds from an agent.spawn. Written to TypeSafe's
+// guide (docs/research/typesafe-question-guide.md §4.2): the model is a Choice
+// whose options describe the work each suits (jev-pilot's measured wording),
+// the effort a Score with the levels every effort question shares.
+
+import { clipToTokens, estimateTokens } from './context.ts'
+import { DEFAULT_ASK, effortQuestion, pickEffort, readEffort, type Effort, type EffortAsk, type EffortReading, type Language } from './effort.ts'
+import { redactSecrets } from './redact.ts'
+import type { Answer, Part, Question, State } from './system-one.ts'
+
+/** The models a dispatched agent can run on, cheapest first: the Agent tool's own aliases. */
+export const AGENT_MODELS = ['haiku', 'sonnet', 'opus', 'fable'] as const
+export type AgentModel = (typeof AGENT_MODELS)[number]
+/** The options the decision model chooses from unless the person adds fable. */
+export const DEFAULT_AGENT_MODELS: readonly AgentModel[] = ['haiku', 'sonnet', 'opus']
+
+/** One dispatched agent as its decision reads it: the eval item's fields. */
+export type Dispatch = {
+  /** The person's own words this turn; '' when there are none. */
+  user_message: string
+  /** The agent type (`general-purpose`, `Explore`, a plugin's agent); null when none was named. */
+  agent_type: string | null
+  /** The few words the main agent described the task with; null for a workflow's agent. */
+  description: string | null
+  /** The task the agent is given. */
+  prompt: string
+  /** The model the main agent asked for (an alias such as `sonnet`, or an id); null when it named none. */
+  requested_model: string | null
+  /** `agent` (the Agent tool, the default) or `workflow` (an `agent()` of a Workflow script). */
+  kind?: 'agent' | 'workflow'
+  /** What the workflow as a whole is for (a workflow's agent only). */
+  workflow_description?: string | null
+  /** The `agent()` call's label (a workflow's agent only). */
+  label?: string | null
+}
+
+/** How the questions are asked: eval variables (spec #70, guide §4.2); the defaults are the spec's. */
+export type DispatchAsk = EffortAsk & {
+  /** The model question's option names: the models themselves (spec), or the kind of work each suits (guide §4.2). */
+  options: 'models' | 'work'
+  /**
+   * The main agent's pick: a strong hint inside the model question (spec), or
+   * kept out of it and asked about on its own, `requested_fits`, so it cannot
+   * anchor the model question (guide §4.2).
+   */
+  requested: 'hint' | 'noul'
+}
+export const DEFAULT_DISPATCH_ASK: DispatchAsk = { ...DEFAULT_ASK, options: 'models', requested: 'hint' }
+
+/** What a request about one agent is built from, besides the agent. */
+export type DispatchShape = {
+  /** The models the decision model may choose (cheapest first); DEFAULT_AGENT_MODELS by default. */
+  models?: readonly AgentModel[]
+  ask?: Partial<DispatchAsk>
+  /** The part's name: question ids are `<part>.<id>`. `agent` by default. */
+  part?: string
+  /** The state field that holds the agent's brief. `brief` by default. */
+  field?: string
+}
+
+export const AGENT_PART = 'agent'
+export const BRIEF = 'brief'
+/** The question ids within the part; a yes/no question about one model is `<prefix>.<model>`. */
+export const MODEL = 'model'
+export const EFFORT = 'effort'
+export const NAMED = 'named'
+export const BANNED = 'banned'
+export const REQUESTED_FITS = 'requested_fits'
+
+/** The kind of work each model suits (jev-pilot's TIER_CRITERIA, measured on 40 real briefs; guide §4.2), and the option name for it. */
+const KINDS: Record<Language, Record<AgentModel, { work: string; choose_for: string; not_for: string }>> = {
+  en: {
+    haiku: {
+      work: 'read_and_report',
+      choose_for:
+        'Read-only lookups where a mistake is cheap to spot: search or list files, find where something is defined, read files, logs or test output and report what is there, run a command and report the result.',
+      not_for: 'Anything that writes or changes files, or that needs a judgment call.',
+    },
+    sonnet: {
+      work: 'specified_work',
+      choose_for:
+        'Read-only work that needs understanding (summarize or explain code, research across many files, review a diff and report the findings), and code changes with a clear spec and a way to check the result: a bug whose cause is known, a feature to a written spec, tests for existing code, a scoped refactor.',
+      not_for: 'Design, an open spec, a bug whose cause is unknown, or long work across many components.',
+    },
+    opus: {
+      work: 'judgment_work',
+      choose_for:
+        'Work that needs careful judgment or runs long: design, a change whose spec is open or that nothing can check, a bug whose cause is unknown, long multi-step work across many components, security, data migrations, production or money.',
+      not_for: 'Mechanical or well-specified work that a written plan and a test already cover.',
+    },
+    // Anthropic's positioning: the most capable model, for the most demanding
+    // reasoning and long-horizon agentic work, priced above Opus.
+    fable: {
+      work: 'frontier_work',
+      choose_for:
+        'The most demanding reasoning, worth the strongest model at a higher cost: a rigorous proof, a novel algorithm or architecture with no known answer, or a long autonomous task that earlier careful attempts did not crack.',
+      not_for: 'Work a careful senior engineer can do: design, debugging, refactors, reviews, security or migrations, however important.',
+    },
+  },
+  zh: {
+    haiku: {
+      work: 'read_and_report',
+      choose_for: '出错也容易发现的只读查询：搜索或列出文件，找某个东西在哪里定义，读文件、日志或测试输出并汇报内容，执行一条命令并汇报结果。',
+      not_for: '任何要写入或修改文件、或需要判断的工作。',
+    },
+    sonnet: {
+      work: 'specified_work',
+      choose_for:
+        '需要理解的只读工作（总结或解释代码、跨很多文件调研、审查一份 diff 并汇报发现），以及需求明确、结果可以检验的代码修改：原因已知的 bug、按书面需求实现的功能、给现有代码写测试、范围明确的重构。',
+      not_for: '设计、需求不明确、原因未知的 bug，或跨很多组件的长时间工作。',
+    },
+    opus: {
+      work: 'judgment_work',
+      choose_for:
+        '需要审慎判断或耗时很长的工作：设计、需求不明确或无从检验的修改、原因未知的 bug、跨很多组件的多步骤长时间工作、安全、数据迁移、生产环境或涉及钱的工作。',
+      not_for: '书面计划和测试已经覆盖的机械性或需求明确的工作。',
+    },
+    fable: {
+      work: 'frontier_work',
+      choose_for: '最高难度、值得为最强的模型多付成本的推理：严格的证明、没有现成答案的全新算法或架构，或之前认真尝试都没能解决的长时间自主任务。',
+      not_for: '细心的资深工程师能做好的工作：设计、调试、重构、审查、安全或迁移，无论多重要。',
+    },
+  },
+}
+
+/** The option fields' names in each language (the model reads them: guide Q9). */
+const FIELDS: Record<Language, { choose_for: string; not_for: string }> = {
+  en: { choose_for: 'choose_for', not_for: 'not_for' },
+  zh: { choose_for: '适用', not_for: '不适用' },
+}
+
+/**
+ * The model question's instructions; `field` is the brief's state field.
+ * `requested` is the option the main agent asked for: the spec's strong hint,
+ * in a field of its own (code-provided data, guide Q8).
+ */
+function modelInstructions(language: Language, options: DispatchAsk['options'], field: string, requested: string | null): Record<string, string> {
+  if (language === 'zh') {
+    return {
+      问题: options === 'work' ? `哪个选项是能把 \`${field}\` 做好的最便宜的一类模型？` : `哪个模型是能把 \`${field}\` 做好的最便宜的一个？`,
+      关注: `评的是 \`${field}.prompt\` 要求的工作：要读什么、判断什么、写什么、检查什么。`,
+      ...(requested === null ? {} : { 指定: `写 \`${field}\` 的主 agent 指定了 ${requested}。除非这项工作明显更适合别的选项，否则选 ${requested}。` }),
+    }
+  }
+  return {
+    question: options === 'work' ? `Which option is the cheapest kind of model that can carry out \`${field}\` well?` : `Which model is the cheapest one that can carry out \`${field}\` well?`,
+    focus: `Judge the work that \`${field}.prompt\` asks for: what has to be read, decided, written and checked.`,
+    ...(requested === null ? {} : { requested: `The main agent that wrote \`${field}\` asked for ${requested}. Choose ${requested} unless the work clearly fits another option better.` }),
+  }
+}
+
+/** The effort question's instructions (jev-pilot's SUBAGENT_EFFORT_INSTRUCTIONS: 14 real briefs rated xhigh went from 10 to 1; guide §4.2). */
+function effortInstructions(language: Language, field: string): Record<string, string> {
+  if (language === 'zh') {
+    return {
+      问题: `一个子 agent 要完成 \`${field}\`，需要多少逐步推理？`,
+      执行: `如果 \`${field}\` 已经写明了要改的文件、步骤和测试，设计就已经做完了，照着做只是执行。只有它本身要求设计、原因未知，或需要尚未写出的推理时，才评得更高。`,
+      评什么: '评的是工作本身，而不是话题听起来有多重要：审查一份小 diff 是常规工作，即使涉及安全。',
+    }
+  }
+  return {
+    question: `How much step-by-step reasoning does a subagent need to carry out \`${field}\`?`,
+    execution: `A brief that already names the files, the steps and the tests has done the design: carrying it out is execution. Rate higher only when \`${field}\` itself asks for design, an unknown cause, or reasoning that is not already written out.`,
+    rate: 'Rate the work, not how important the topic sounds: reviewing a small diff is ordinary work, even for security.',
+  }
+}
+
+/** The option name of a model in the model question. */
+function optionOf(model: AgentModel, options: DispatchAsk['options']): string {
+  return options === 'work' ? KINDS.en[model].work : model
+}
+
+/**
+ * Whether the person asks for `model` to carry out the brief. A model's name
+ * in their words is no request by itself: the decision model reads it in
+ * context, so a mention as a product, as what wrote earlier code, as the one
+ * not to use, or for another part of the work (the eval's traps) is a no.
+ */
+function namedQuestion(model: AgentModel, language: Language, field: string): Question {
+  const title = model.charAt(0).toUpperCase() + model.slice(1)
+  if (language === 'zh') {
+    return {
+      type: 'noul',
+      instructions: { 模型: model, 问题: `\`user_message\` 是否要求用 \`模型\` 来做 \`${field}\` 里的工作？` },
+      criteria: {
+        true: `用户要求这项工作（或所有派出的 agent）用这个模型，例如「用 ${model}」「这活儿 ${model} 就够了」「派个 ${model} 去查」「这次所有 agent 都用 ${model}」「用 ${title} 跑」。`,
+        false: `只是提到这个模型：作为讨论或比较的产品、作为之前写某段代码的模型、作为不要用的模型，或者是给 \`${field}\` 以外的另一部分工作点名的模型。`,
+      },
+    }
+  }
+  return {
+    type: 'noul',
+    instructions: { model, question: `Does \`user_message\` ask for \`model\` to carry out the work in \`${field}\`?` },
+    criteria: {
+      true: `The person asks for this model for this work, or for every agent: "use ${model}", "${model} is enough for this", "send ${model} to look into it", "every agent uses ${model} this time", "run it on ${title}".`,
+      false: `The model is only mentioned: as a product being discussed or compared, as what wrote some earlier code, as a model not to use, or as the model for a different part of the work than \`${field}\`.`,
+    },
+  }
+}
+
+/** Whether the work in the brief is within what the main agent's pick covers (the `requested: 'noul'` variant). */
+function requestedFitsQuestion(model: AgentModel, language: Language, field: string): Question {
+  const kind = KINDS[language][model]
+  const names = FIELDS[language]
+  const covers = { [names.choose_for]: kind.choose_for, [names.not_for]: kind.not_for }
+  if (language === 'zh') return { type: 'noul', instructions: { 指定: covers, 问题: `\`${field}\` 要求的工作是否在 \`指定\` 覆盖的范围内？` } }
+  return { type: 'noul', instructions: { requested: covers, question: `Is the work that \`${field}\` asks for within what \`requested\` covers?` } }
+}
+
+/** Whether the person rules `model` out for the brief ("别用 opus"): the model is then not used for it. */
+function bannedQuestion(model: AgentModel, language: Language, field: string): Question {
+  if (language === 'zh') {
+    return {
+      type: 'noul',
+      instructions: { 模型: model, 问题: `\`user_message\` 是否排除了用 \`模型\` 来做 \`${field}\` 里的工作？` },
+      criteria: {
+        true: `用户说这项工作（或所有派出的 agent）不要用这个模型，例如「别用 ${model}」「别再用 ${model} 了」「${model} 太贵了，换个便宜的」。`,
+        false: `要求用这个模型、只是提到它，或者排除它的是 \`${field}\` 以外的另一部分工作。`,
+      },
+    }
+  }
+  return {
+    type: 'noul',
+    instructions: { model, question: `Does \`user_message\` rule out \`model\` for the work in \`${field}\`?` },
+    criteria: {
+      true: `The person says not to use this model for this work or for any agent: "don't use ${model}", "no more ${model}", "${model} is too expensive, use something cheaper".`,
+      false: `The model is asked for, only mentioned, or ruled out for a different part of the work than \`${field}\`.`,
+    },
+  }
+}
+
+/** The models whose names `text` mentions, in any case and inside ids (`claude-sonnet-5-5`); cheapest first. */
+export function mentionedModels(text: string): AgentModel[] {
+  const lower = text.toLowerCase()
+  return AGENT_MODELS.filter((model) => lower.includes(model))
+}
+
+/** The questions about one dispatched agent, as one part of a request. */
+export function dispatchPart(dispatch: Dispatch, shape: DispatchShape = {}): Part {
+  const ask = { ...DEFAULT_DISPATCH_ASK, ...shape.ask }
+  const field = shape.field ?? BRIEF
+  const models = shape.models ?? DEFAULT_AGENT_MODELS
+  const names = FIELDS[ask.language]
+  const criteria = Object.fromEntries(
+    models.map((model) => {
+      const kind = KINDS[ask.language][model]
+      return [optionOf(model, ask.options), { [names.choose_for]: kind.choose_for, [names.not_for]: kind.not_for }]
+    }),
+  )
+  // The main agent's pick, when it is one of the options.
+  const family = modelFamily(dispatch.requested_model)
+  const requested = family !== null && models.includes(family) ? family : null
+  const hint = requested !== null && ask.requested === 'hint' ? optionOf(requested, ask.options) : null
+  const questions: Record<string, Question> = {
+    [MODEL]: { type: 'choice', instructions: modelInstructions(ask.language, ask.options, field, hint), criteria },
+    [EFFORT]: effortQuestion(effortInstructions(ask.language, field), ask),
+  }
+  if (requested !== null && ask.requested === 'noul') questions[REQUESTED_FITS] = requestedFitsQuestion(requested, ask.language, field)
+  // Asked of every model the person's words mention, offered or not: a model
+  // they name is used even when it is not among the options.
+  const mentioned = mentionedModels(dispatch.user_message)
+  for (const model of mentioned) questions[`${NAMED}.${model}`] = namedQuestion(model, ask.language, field)
+  for (const model of mentioned) questions[`${BANNED}.${model}`] = bannedQuestion(model, ask.language, field)
+  return { part: shape.part ?? AGENT_PART, questions }
+}
+
+/** The person's words take at most this share of the state's budget; the brief has the rest. */
+const WORDS_SHARE = 1 / 3
+/** A text cut to fit keeps this share of its budget for its end. */
+const TAIL_SHARE = 0.3
+
+/** The brief of one agent as the decision model reads it: secrets masked, the prompt cut to `tokens`. */
+export function dispatchBrief(dispatch: Dispatch, tokens: number): Record<string, string> {
+  const brief: Record<string, string> = {}
+  const short = (text: string, budget: number) => clipToTokens(redactSecrets(text).replace(/\s+/g, ' ').trim(), budget, TAIL_SHARE)
+  if (dispatch.description) brief.description = short(dispatch.description, 60)
+  if (dispatch.agent_type) brief.agent_type = short(dispatch.agent_type, 30)
+  if (dispatch.workflow_description) brief.workflow_description = short(dispatch.workflow_description, 200)
+  if (dispatch.label) brief.label = short(dispatch.label, 60)
+  const used = Object.values(brief).reduce((sum, text) => sum + estimateTokens(text) + 4, 0)
+  brief.prompt = clipToTokens(redactSecrets(dispatch.prompt), Math.max(tokens - used, 100), TAIL_SHARE)
+  return brief
+}
+
+/**
+ * The state of a request about one agent: `{ brief, user_message }`, the
+ * brief first (what every question is about). The person's words take at
+ * most a third of `tokens`; the brief has the rest.
+ */
+export function dispatchState(dispatch: Dispatch, tokens: number, field: string = BRIEF): State {
+  const words = clipToTokens(redactSecrets(dispatch.user_message), Math.floor(tokens * WORDS_SHARE), TAIL_SHARE)
+  return { [field]: dispatchBrief(dispatch, tokens - estimateTokens(words)), user_message: words }
+}
+
+/** What decides an agent's model and effort from the answers. */
+export type DispatchSettings = DispatchShape & {
+  /** The decision model's pick replaces the main agent's only at this confidence or above. */
+  thetaOverride: number
+  /** `max` only when its own probability reaches this. */
+  thetaMax: number
+  /** A model counts as named by the person when its yes/no answer reaches this; 0.5 by default. */
+  thetaNamed?: number
+  /** `requested: 'noul'` only: the main agent's pick goes only when `requested_fits` is below this; 0.5 by default. */
+  thetaFit?: number
+}
+
+/**
+ * Where the model came from: the person named it, the decision model chose
+ * it, the main agent's pick was kept, or nothing applies (the engine's choice
+ * stands).
+ */
+export type ModelSource = 'user' | 'decided' | 'requested' | 'none'
+
+export type DispatchDecision = {
+  /** The model to start the agent on; null: no usable answer, the engine's choice stands. */
+  model: AgentModel | null
+  /** The effort of the agent's steps; null for haiku (it takes none) or without a usable answer. */
+  effort: Effort | null
+  source: ModelSource
+  /** The decision model's pick among the options not ruled out, with its confidence among them; null without a usable answer. */
+  pick: { model: AgentModel; confidence: number } | null
+  /** The models the person ruled out for this agent. */
+  banned: AgentModel[]
+  /** The effort answer's level probabilities, also when unused (haiku); null without a usable answer. */
+  reading: EffortReading | null
+  /** False when neither the model nor the effort question got a usable answer: a failed request. */
+  answered: boolean
+}
+
+/**
+ * The model and effort for one agent, from its part's answers (by their ids
+ * within the part, as `answersFor` gives them). Priority (spec #33, #34): a
+ * model the person names for the work; else the decision model's pick, which
+ * replaces the main agent's only when it is sure enough (`thetaOverride`). A
+ * model the person rules out is neither picked nor kept: the pick is the most
+ * probable of the other options, its confidence taken among them.
+ */
+export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispatch: Dispatch, settings: DispatchSettings): DispatchDecision {
+  const ask = { ...DEFAULT_DISPATCH_ASK, ...settings.ask }
+  const threshold = settings.thetaNamed ?? 0.5
+  const named = mostLikely(answers, NAMED, threshold)
+  const banned = AGENT_MODELS.filter((model) => {
+    const answer = answers[`${BANNED}.${model}`]
+    return answer?.type === 'noul' && answer.noul >= threshold && model !== named
+  })
+  const models = (settings.models ?? DEFAULT_AGENT_MODELS).filter((model) => !banned.includes(model))
+  const pick = readPick(answers[MODEL], models, ask.options)
+  const reading = readEffort(answers[EFFORT])
+  const requested = modelFamily(dispatch.requested_model)
+  // In the requested_fits variant the pick must also be said not to fit.
+  const fits = answers[REQUESTED_FITS]
+  const misfit = ask.requested !== 'noul' || fits?.type !== 'noul' || fits.noul < (settings.thetaFit ?? 0.5)
+  const overridden = pick !== null && pick.model !== requested && pick.confidence >= settings.thetaOverride && misfit
+  let model: AgentModel | null = pick?.model ?? null
+  let source: ModelSource = model === null ? 'none' : 'decided'
+  if (named !== null) {
+    model = named
+    source = 'user'
+  } else if (requested !== null && !banned.includes(requested) && !overridden) {
+    model = requested
+    source = 'requested'
+  }
+  const effort = model === 'haiku' || reading === null ? null : pickEffort(reading, settings.thetaMax)
+  const answered = answers[MODEL]?.type === 'choice' || reading !== null
+  return { model, effort, source, pick, banned, reading, answered }
+}
+
+/** The model whose `<prefix>.<model>` yes/no answer is highest and reaches `threshold`; null when none does. */
+function mostLikely(answers: Readonly<Record<string, Answer>>, prefix: string, threshold: number): AgentModel | null {
+  let best: AgentModel | null = null
+  let top = threshold
+  for (const model of AGENT_MODELS) {
+    const answer = answers[`${prefix}.${model}`]
+    if (answer?.type === 'noul' && answer.noul >= top && (best === null || answer.noul > top)) {
+      best = model
+      top = answer.noul
+    }
+  }
+  return best
+}
+
+/** The most probable option of the model question, and its confidence; null when the answer is missing or names no option. */
+function readPick(answer: Answer | undefined, models: readonly AgentModel[], options: DispatchAsk['options']): { model: AgentModel; confidence: number } | null {
+  if (answer === undefined || answer.type !== 'choice') return null
+  const p = models.map((model) => answer.probabilities[optionOf(model, options)] ?? 0)
+  const sum = p.reduce((a, b) => a + b, 0)
+  if (!(sum > 0)) return null
+  let best = 0
+  for (let i = 1; i < p.length; i++) if ((p[i] ?? 0) > (p[best] ?? 0)) best = i
+  const top = (p[best] ?? 0) / sum
+  const n = models.length
+  return { model: models[best] as AgentModel, confidence: n > 1 ? (top - 1 / n) / (1 - 1 / n) : 1 }
+}
+
+/** The model family an alias or id names (`claude-sonnet-5-5` is sonnet); null for none or an unknown one. */
+export function modelFamily(model: string | null | undefined): AgentModel | null {
+  if (!model) return null
+  const lower = model.toLowerCase()
+  return AGENT_MODELS.find((family) => lower.includes(family)) ?? null
+}
