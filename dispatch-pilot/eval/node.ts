@@ -10,6 +10,7 @@ import { homedir } from 'node:os'
 import { basename, join, relative, resolve } from 'node:path'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { isKind, parseJsonl, type Kind } from './lib/datasets.ts'
+import type { SuiteHost } from './lib/suite.ts'
 
 /** The mod's directory (dispatch-pilot/). */
 export const MOD_DIR = resolve(import.meta.dirname, '..')
@@ -40,8 +41,26 @@ export function readDataset(path: string): { text: string; items: Record<string,
 
 /** The skill catalog beside a skill dataset, when there is one. */
 export function readCatalog(datasetPath: string): unknown {
-  const path = join(resolve(datasetPath, '..'), 'skill-catalog.json')
-  return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined
+  return nodeHost(datasetPath).beside('skill-catalog.json')
+}
+
+/**
+ * What a suite may read besides the items of the dataset at `datasetPath`
+ * (SuiteHost), over Node's file system; `onBeside` hears of each file it
+ * reads beside the dataset, with its text (the results record its hash).
+ */
+export function nodeHost(datasetPath: string, onBeside?: (name: string, text: string) => void): SuiteHost {
+  const dir = resolve(datasetPath, '..')
+  return {
+    beside: (name) => {
+      const path = join(dir, name)
+      if (!existsSync(path)) return undefined
+      const text = readFileSync(path, 'utf8')
+      onBeside?.(name, text)
+      return JSON.parse(text)
+    },
+    read: async (path) => readFileSync(path.replace(/^~(?=\/|$)/, homedir()), 'utf8'),
+  }
 }
 
 /** Where credentials are read when the environment does not have them. */

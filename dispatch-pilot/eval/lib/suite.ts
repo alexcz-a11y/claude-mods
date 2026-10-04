@@ -51,6 +51,18 @@ export type Grade = { correct: boolean; exact: boolean; miss?: string; parts?: R
 
 export type AnyItem = Item<unknown, unknown, unknown>
 
+/**
+ * What a suite may read besides its items, from the machine the eval runs on
+ * (the skill suite: the catalog and the profiles beside its dataset, the
+ * skills' SKILL.md files). eval/node.ts provides it over Node's file system.
+ */
+export type SuiteHost = {
+  /** A JSON file beside the dataset, parsed; undefined when there is none. */
+  beside: (name: string) => unknown
+  /** A text file by its path (`~` the home directory); rejects when it cannot be read. */
+  read: (path: string) => Promise<string>
+}
+
 export type Suite<I extends AnyItem, P> = {
   /** The dataset it reads: eval/datasets/<name>.jsonl. */
   name: string
@@ -67,6 +79,20 @@ export type Suite<I extends AnyItem, P> = {
   baselines?: Readonly<Record<string, (item: I) => P>>
   /** The questions a variant asks, recorded with the results (what a prompt change changes). */
   questions: (variant: string) => unknown
+  /**
+   * Optional: the requests an item may send at most, for a suite that asks
+   * again once it has read an answer (the skill suite's second stage); the
+   * estimate (eval/run.ts --estimate) counts them. Without it the estimate
+   * counts what `decide` sends before any answer comes back.
+   */
+  estimate?: (item: I, language: Language, variant: string, settings: Settings) => Promise<readonly DecisionRequest[]>
+  /**
+   * Optional: what a suite built from more than its items read (SuiteHost),
+   * recorded with the results; eval/run.ts prints its `warnings` (the skill
+   * suite: SKILL.md files that differ from the catalog snapshot, skills
+   * without a profile).
+   */
+  about?: Readonly<Record<string, unknown>> & { warnings?: readonly string[] }
   /**
    * Optional: the suite's own figures for one variant's answers, beside the
    * ones every suite gets (metrics.ts), saved in that variant's summary as
