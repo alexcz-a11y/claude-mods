@@ -11,9 +11,57 @@
 
 import type { Config } from '../../hooks/core/setup.ts'
 import { turnStartState, type ContextMessage } from '../../hooks/decision/context.ts'
-import { turnStartEffortPart, type EffortAsk } from '../../hooks/decision/effort.ts'
-import { mergeParts, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
+import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart, type Effort, type EffortAsk } from '../../hooks/decision/effort.ts'
+import { answersFor, mergeParts, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
 import type { ContextEntry, EffortSubmitItem, Language } from './datasets.ts'
+import type { Grade, Suite } from './suite.ts'
+
+/** The variants by name: `<question language>-<primitive>`; the first is how the mod asks today (DEFAULT_ASK). */
+export const SUBMIT_VARIANTS: Readonly<Record<string, EffortAsk>> = {
+  'en-score': { language: 'en', primitive: 'score' },
+  'zh-score': { language: 'zh', primitive: 'score' },
+  'en-choice': { language: 'en', primitive: 'choice' },
+  'zh-choice': { language: 'zh', primitive: 'choice' },
+}
+
+function variantAsk(variant: string): EffortAsk {
+  const ask = SUBMIT_VARIANTS[variant]
+  if (ask === undefined) throw new RangeError(`no variant "${variant}" (${Object.keys(SUBMIT_VARIANTS).join(', ')})`)
+  return ask
+}
+
+/**
+ * An effort scores against an item's levels: right when it is acceptable,
+ * exact when it is gold; a wrong one is `under` (below every acceptable
+ * level) or `over`. Shared with the other effort suites.
+ */
+export function gradeEffort(item: { gold: Effort; accept: readonly Effort[] }, effort: Effort): Grade {
+  const at = EFFORTS.indexOf(effort)
+  const lowest = Math.min(...item.accept.map((level) => EFFORTS.indexOf(level)))
+  const correct = item.accept.includes(effort)
+  return { correct, exact: effort === item.gold, ...(correct ? {} : { miss: at < lowest ? 'under' : 'over' }) }
+}
+
+export const effortSubmit: Suite<EffortSubmitItem, Effort> = {
+  name: 'effort-submit',
+  variants: Object.keys(SUBMIT_VARIANTS),
+  async decide(item, language, variant, ask, settings) {
+    const { request, part } = submitRequest(item, language, variantAsk(variant), settings)
+    const { asked } = await ask(request)
+    if (!asked.ok) return { ok: false, failure: `${asked.failure.kind}: ${asked.failure.detail}` }
+    const reading = readEffort(answersFor(part, asked.answers)[LEVEL])
+    if (reading === null) return { ok: false, failure: 'parse: no effort answer' }
+    return {
+      ok: true,
+      prediction: pickEffort(reading, settings.thetaMax),
+      detail: { p: reading.probabilities.map((p) => Math.round(p * 1000) / 1000), confidence: reading.confidence },
+    }
+  },
+  grade: gradeEffort,
+  show: (effort) => effort,
+  constants: EFFORTS,
+  questions: (variant) => turnStartEffortPart(variantAsk(variant)).questions,
+}
 
 /**
  * The conversation as the mod reads it from `$.session.messages()`: each
