@@ -1,7 +1,7 @@
 {
   "name": "dispatch-pilot",
   "version": "0.1.0",
-  "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message, and that effort holds on every request of the turn. The main agent's model never changes, so the prompt cache survives.",
+  "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message, and that effort holds on every request of the turn. The main agent's model never changes, so the prompt cache survives. It also keeps the full skill listing out of the main agent's context and suggests the few skills that fit each message.",
   "author": {
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
