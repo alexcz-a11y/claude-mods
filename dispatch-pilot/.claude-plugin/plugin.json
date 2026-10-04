@@ -10,10 +10,31 @@
   "license": "MIT",
   "types": "./types/index.d.ts",
   "userConfig": {
+    "decisionModel": {
+      "type": "string",
+      "title": "Decision model",
+      "description": "Which model makes the decisions: jev (TypeSafe; needs the TypeSafe API key) or clef (Cloudflare Workers AI; needs the Cloudflare account ID and API token). The other is never used as a fallback: when the chosen one fails, the message goes on unrouted.",
+      "options": ["jev", "clef"],
+      "default": "jev"
+    },
     "typesafeApiKey": {
       "type": "string",
       "title": "TypeSafe API key",
-      "description": "Key for TypeSafe's System One API, where Jev runs. Without one, nothing is sent and every turn keeps the session's effort.",
+      "description": "Key for TypeSafe's System One API, where Jev runs (used when the decision model is jev). Without one, nothing is sent and every turn keeps the session's effort.",
+      "default": "",
+      "sensitive": true
+    },
+    "cloudflareAccountId": {
+      "type": "string",
+      "title": "Cloudflare account ID",
+      "description": "The Cloudflare account that runs Workers AI (used when the decision model is clef). It is part of the request address, which Claude Code's debug log records. Without it, nothing is sent and every turn keeps the session's effort.",
+      "default": "",
+      "sensitive": true
+    },
+    "cloudflareApiToken": {
+      "type": "string",
+      "title": "Cloudflare Workers AI API token",
+      "description": "A Cloudflare API token that can run Workers AI (used when the decision model is clef): in the dashboard, Workers AI, Use REST API, Create a Workers AI API Token. Without one, nothing is sent and every turn keeps the session's effort.",
       "default": "",
       "sensitive": true
     },
