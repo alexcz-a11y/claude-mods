@@ -90,6 +90,7 @@
 
 - 做法：新写 `eval/probe-truncation.ts`。state 里放已知长度（约 1k、2k、3k、6k 估算 token）的无关填充，另有一个只有读到才答得出的探针事实，分别放在 state 开头（对照）和末尾；问题是一个 Choice，问探针的内容。中英各一遍。另发 2 个「长问题」探针：决定答案的选项放在约 8k token 的 criteria 列表末尾，看截断是否也作用于问题（skill 画像在 criteria 里）。每个请求同时记下 `usage.input_tokens` 和延迟，用来核对 1.4 节的延迟关系。Jev 发同样的请求作对照。
 - 规模：Clef 18 个请求，约 7.5 万 token，约 1.7k neurons，今天剩下的额度够；Jev 约 11 万 token，约 0.005 美元。
+- 脚本已经写好：`eval/probe-truncation.ts`（`--estimate` 只估算，`--show <名字>` 打印某个探针的请求，都不发请求），设计依据和运行状态见第 8 节。
 - 结论直接影响后面：如果 Clef 真的只读前约 2k，Clef 的 2k 以上的格子都不用测，`contextTokens` 对 Clef 的上限就是 2k；如果问题（criteria）也被截断，Clef 读不到排在后面的 skill，带画像或描述的 skill 排序在 Clef 上都不可靠，E3 的 Clef 抽样就不必做，D2 里 Clef 那一半直接变成「选 Clef 时默认关掉 skill 推荐」。
 
 ### E2 问题用英文还是中文写（第 2 条）
@@ -203,3 +204,31 @@ Clef 的 subagent 只有 12 题抽样。全量 1 次（选定的问题语言；�
 
 - 精简方案：代码和数据约 1–1.5 个工作日（含一次审核往返），Jev 运行约 1 小时，Clef 3 个日历日（包括今天）；D1 选 b 时再加约半天和 2 个日历日。
 - 完整方案：约 2–3 个工作日，Jev 运行约 2 小时；Clef 在免费额度内约 12 个日历日，开通 Workers Paid 则一两天。
+
+## 8. 拍板结果和之后的变化（2026-10-05）
+
+### 8.1 用户的决定
+
+- **方案：** 完整方案，开通 Workers Paid（已开通，`~/.config/dispatch-pilot/eval.env` 里有 `CLOUDFLARE_WORKERS_PAID=yes`）。跑会超出每日免费额度的 Clef 任务之前，先确认这个标记还在。
+- **D1：** 做长上下文补充集（effort-submit 30 题、effort-midturn 20 题），另行起草，由 Opus 5.5 high 审核；路径另行通知。E4b 按第 3 节做。
+- **D2：** 按第 5 节的顺序，先评测裁剪画像（只留英文字段）。选 Clef 时，发消息时的 skill 推荐默认关闭（可以用 `/dp skills on` 打开），`find_skill` 保留；Clef 用裁剪后的画像能在 3 秒内答完，就重新默认打开。这一条要写进按后端取的默认值（D3）。
+- **D3–D7：** 按第 5 节的预判做，由数据决定，结论写进本文件。
+- **开工时间：** 第二阶段等第 1 轮代码审查的修复（`dp/review-fixes`）合入、补充集审核完成之后，从最新的 `dp/integration` 开始。
+
+### 8.2 代码审查修复对本方案的影响
+
+修复会改评测框架的保真度：卡住请求的拼装、Workflow 分批、`counts.failures` 的语义、工具结果的渲染、超时计数、`--option` 的布尔值、中英差距的判定（差距小于 3 个百分点才算通过），以及发给决策模型的问题措辞（改用术语表的词）。对本方案的影响：
+
+- **已存的回答只能当预览。** 问题措辞一变，`results/` 里各次运行的回答就不再代表 mod 发出的请求。第 3 节里「直接共用已有的回答」的默认格（E4a）和离线门槛扫描（E0b）都要改用修复之后的新运行；E10 本来就在最终写法上重新跑、在它的回答上校准门槛，不受影响。多出的费用很小：E4a 的默认格重新问一遍（effort-submit 和 midturn 各 200 个请求 × 3 次，Jev 约 0.04 美元；Clef 的默认格并入 E10 的运行）。
+- **中英差距的门槛按新的判定**：差距必须小于 3 个百分点。`en-choice` 那种正好 −3 的不再算通过。
+
+### 8.3 审查提出、属于本票的两件事
+
+- **故事 70：派出 agent 和 skill 两套补中文问法。** 已在 E2 里（subagent 中文问题 3 次、skill `profiles` 中文问题 2 次，Clef 的 subagent 中文问题 1 次），完整方案都做。
+- **skill 带画像时差距 −3.7。** E0c 的预览（旧措辞）显示 `skillsMinRelevance` 取 0.75 时是 −2.3。在 E10 的最终运行上定默认值并附证据（几次运行的平均和单次最差都要小于 3 个百分点）；做不到就按 AC 另开新票。
+
+### 8.4 E1 截断探针：脚本已写好，还没有运行
+
+- **设计依据。** Clef 的开源权重附带的编码代码（Hugging Face 上 `Cloudflare/clef` 的 `joint_schema_model.py`）里，state 的截断只保留开头：先 `state_ids[:max_state_tokens]`，再截到 `max_length` 减去问题和固定前后缀之后剩下的长度（`max_length` 默认 16,384）；问题从不截断，问题本身超过 `max_length` 时直接报错。官方模型页仍然只写「Long text state is truncated to fit the model's token limit」，上下文窗口 65,536；Workers AI 上实际用的 `max_state_tokens` 和 `max_length` 没有公开。所以有两件事要量：state 有没有一个约 2k 的上限；以及问题很长时（skill 第一段约 1.5 万 Clef token）留给 state 的位置会不会被挤小。后者如果成立，带画像的 skill 请求里 effort 问题读到的 state 也被截了，和 D2 有关。
+- **探针。** 9 个请求：一次热身；英文 state 约 1.2k、2.4k、4.8k、9.6k 估算 token，中文约 1.2k、2.4k、4.8k，`recent_context` 的开头、中间、末尾各藏一个事实，各用一个带「没有说」选项的 Choice 问；再加一个约 1.5 万 Clef token 的长问题（72 个目录条目，正确答案是最后一个，同时测问题是否被截断）配 1.2k 的 state。每个回答都记下后端计的 input token 和耗时（顺带核对 1.4 节的延迟关系），Jev 发同样的请求作对照。约 1,000 neurons（约 0.011 美元）、Jev 约 0.003 美元。
+- **为什么还没跑。** 2026-10-05 运行 `node dispatch-pilot/eval/probe-truncation.ts` 时，权限分类器以「真实交易」为由拒绝了这次会产生费用的请求。要跑它，需要用户自己运行这条命令，或者在设置里允许这类命令；结果会存到 `eval/results/probes/<日期>-truncation.json`，表格打印在终端。
