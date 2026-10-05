@@ -428,14 +428,19 @@ function sweeps(items: readonly AgentItem[], answered: Record<Language, Answered
  * model to start the agent on.
  */
 export function redecide(item: AgentItem, language: Language, detail: Readonly<Record<string, unknown>>, shape: DispatchSettings): AgentAnswer | null {
+  const decision = decideDispatch(answersOf(detail), item[language], shape)
+  return decision.answered && decision.model !== null ? { model: decision.model, effort: decision.effort } : null
+}
+
+/** The answers a run kept of one decision (detailOf), as the decision module reads them. */
+export function answersOf(detail: Readonly<Record<string, unknown>>): Record<string, Answer> {
   const answers: Record<string, Answer> = {}
   const { p_model: model, p_effort: effort, nouls, p_named_effort: namedEffort } = detail
   if (isRecord(namedEffort)) answers[NAMED_EFFORT] = { type: 'choice', choice: '', probabilities: namedEffort as Record<string, number>, confidence: null }
   if (isRecord(model)) answers[MODEL] = { type: 'choice', choice: '', probabilities: model as Record<string, number>, confidence: null }
   if (Array.isArray(effort)) answers[EFFORT] = { type: 'score', score: Number.NaN, probabilities: Object.fromEntries(effort.map((p, i) => [String(i), Number(p)])), confidence: null }
   if (isRecord(nouls)) for (const [id, p] of Object.entries(nouls)) answers[id] = { type: 'noul', noul: Number(p) }
-  const decision = decideDispatch(answers, item[language], shape)
-  return decision.answered && decision.model !== null ? { model: decision.model, effort: decision.effort } : null
+  return answers
 }
 
 /** A dispatch that brings out every kind of question a variant asks: a main agent's pick, a model the person mentions. */
