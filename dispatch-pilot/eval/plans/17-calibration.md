@@ -323,3 +323,7 @@ node dispatch-pilot/eval/probe-truncation.ts --backend clef --only warmup,en-480
 E2–E4、E6–E10 的运行都没有做；长上下文补充集没有做；E7 的档位描述改动（审核规则 R4，「写测试」整体放在 high）没有做；E3 的画像裁剪（只留英文字段）没有评测，也没有改。E9 的「两类 skill 分开问」已经在第 1 轮审查的修复里实现（`skills.which` 和 `skills.hint` 两题），但没有重跑。E5（Workflow 一个请求放几个 agent）同样没有跑：`subagent` 评测已经有 `models-hint-single` 变体可以对照。故事 70（E2 里派出 agent 和 skill 的中文问法）在第 2 轮审查的修复里补上了评测的变体：`subagent` 的 `models-hint-zh`、`skill` 的 `profiles-zh`，只有定义和不联网的请求测试，没有运行（只跑这两个变体约 200 和 436 个请求，Jev 约 0.03 和 0.37 美元，估算）。
 
 没有新开 GitHub issue；要不要为这些开后续票，由用户决定。
+
+### 8.8.4 之后按 AA 基准校正（0.2.2，用户 2026-10-05 确认）
+
+按 Artificial Analysis 智力指数 v4.3.2 的十个分项校正了模型选项文字、effort 的取法、中途门槛和各模型的 effort 下限，并让报告开始的轮次也走 effort 路由、让 Jev 的上下文按请求种类分开取。依据、数字和来源 URL 在 `docs/research/aa-benchmarks-2026-10.md`，规则的说明在 `DEVELOPMENT.md` 的「按 AA 基准校正」。这一节和 8.8.1 里的几处默认值有关系：`thetaUp` 0.4 改 0.3、`thetaDown` 0.6 改 0.75、`holdSteps` 3 改 5，是按 AA 的方向定的，不是按评测集挑的；`contextTokens` 的 Jev 默认值 6000 只是带 skill 题的请求的值，其余种类 24000。仍然没有跑任何对比或扫描评测：已存的回答按新规则离线重算（`eval/rescore.ts`，零费用），派出 agent 的新模型选项文字要用户重跑 `subagent` 评测（约 0.011 美元）。
