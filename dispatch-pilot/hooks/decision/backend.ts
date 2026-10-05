@@ -83,6 +83,19 @@ export async function postJson(
   }
 }
 
+/** A request's outcome as every debug-log line about one writes it: `answered in 310 ms by jev-1.13.0 (626 input tokens)`, or the failure. */
+export function describeAsked(asked: Asked, ms: number): string {
+  if (!asked.ok) return `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)`
+  const by = asked.model === null ? '' : ` by ${asked.model}`
+  const tokens = asked.inputTokens === null ? '' : ` (${asked.inputTokens} input tokens)`
+  return `answered in ${ms} ms${by}${tokens}`
+}
+
+/** What went wrong, in one line for the debug log. */
+export function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 /** A non-2xx response as a failure, with the start of its body for the log. */
 export function httpFailure(response: HttpResponse): Failure {
   const status = response.status

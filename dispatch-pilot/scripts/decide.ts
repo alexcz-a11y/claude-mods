@@ -1,21 +1,23 @@
 // One message's effort decision against the real Jev or Clef, outside Claude
-// Code: the same request the mod sends (the shared decision module), sent from
-// Node. For a manual check and as the starting point of the eval (#4).
+// Code: the request the mod sends when the person sends that message with no
+// conversation before it (the shared decision module), with the mod's settings
+// as the manifest's defaults give them, sent from Node. For a manual check.
 //
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' [--zh] [--choice] [--timeout 5000]
 //   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_AUTH_TOKEN=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' --clef
 //
-// Jev unless `--clef`. Prints the request (questions, state) and the answer:
-// each level's probability, the confidence, the picked level, the latency.
-// Credentials are read from the environment and never printed. Node 22.18+
-// runs .ts as is.
+// Jev unless `--clef`. `--zh` and `--choice` ask as the eval's variants do.
+// Prints the request (questions, state) and the answer: each level's
+// probability, the confidence, the level the mod picks (thetaMax from the
+// manifest), the latency. `--timeout` defaults to the mod's timeoutMs.
+// Credentials come from the environment or ~/.config/dispatch-pilot/eval.env
+// (as the eval reads them) and are never printed. Node 22.18+ runs .ts as is.
 
-import type { Backend, BackendIo } from '../hooks/decision/backend.ts'
-import { clefBackend } from '../hooks/decision/clef.ts'
 import { turnStartState } from '../hooks/decision/context.ts'
 import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart } from '../hooks/decision/effort.ts'
-import { jevBackend } from '../hooks/decision/jev.ts'
 import { answersFor, mergeParts } from '../hooks/decision/system-one.ts'
+import { optionsFrom, settingsFrom } from '../eval/lib/suite.ts'
+import { backendFor, nodeIo, readManifest } from '../eval/node.ts'
 
 const args = process.argv.slice(2)
 const flag = (name: string) => args.includes(name)
@@ -28,46 +30,21 @@ if (!prompt) {
   console.error('usage: node scripts/decide.ts <message> [--zh] [--choice] [--clef] [--timeout ms]')
   process.exit(2)
 }
-let backend: Backend
-if (flag('--clef')) {
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? ''
-  const apiToken = process.env.CLOUDFLARE_AUTH_TOKEN ?? ''
-  if (!accountId || !apiToken) {
-    console.error('CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AUTH_TOKEN must both be set')
-    process.exit(2)
-  }
-  backend = clefBackend({ accountId, apiToken })
-} else {
-  const apiKey = process.env.TYPESAFE_API_KEY ?? ''
-  if (!apiKey) {
-    console.error('TYPESAFE_API_KEY is not set')
-    process.exit(2)
-  }
-  backend = jevBackend(apiKey)
-}
-
-// Node's fetch and timers in place of $.http.fetch and $.clock.sleep.
-const io: BackendIo = {
-  fetch: async (url, init) => {
-    const response = await fetch(url, { method: init.method, headers: init.headers, body: init.body })
-    return { status: response.status, ok: response.ok, headers: Object.fromEntries(response.headers), text: await response.text() }
-  },
-  sleep: (ms, signal) =>
-    new Promise((resolve, reject) => {
-      const timer = setTimeout(resolve, ms)
-      signal.addEventListener('abort', () => {
-        clearTimeout(timer)
-        reject(new Error('aborted'))
-      })
-    }),
+const settings = settingsFrom(optionsFrom(readManifest().userConfig ?? {}, []))
+let backend
+try {
+  backend = backendFor(flag('--clef') ? 'clef' : 'jev').backend
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(2)
 }
 
 const part = turnStartEffortPart({ language: flag('--zh') ? 'zh' : 'en', primitive: flag('--choice') ? 'choice' : 'score' })
-const request = mergeParts(turnStartState({ prompt, messages: [], limits: { messages: 0, tokens: 2000 } }), [part])
+const request = mergeParts(turnStartState({ prompt, messages: [], limits: settings.context }), [part])
 console.log(JSON.stringify({ questions: Object.keys(request.questions), state: request.state }))
 
 const started = performance.now()
-const asked = await backend.ask(io, request, Number(value('--timeout') ?? 5000))
+const asked = await backend.ask(nodeIo, request, Number(value('--timeout') ?? settings.timeoutMs))
 const ms = Math.round(performance.now() - started)
 if (!asked.ok) {
   console.log(JSON.stringify({ ok: false, backend: backend.name, failure: asked.failure, ms }))
@@ -87,6 +64,6 @@ console.log(
     ms,
     probabilities: Object.fromEntries(EFFORTS.map((level, i) => [level, Number((reading.probabilities[i] ?? 0).toFixed(3))])),
     confidence: reading.confidence,
-    effort: pickEffort(reading, 0.5),
+    effort: pickEffort(reading, settings.thetaMax),
   }),
 )

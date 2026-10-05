@@ -5,10 +5,12 @@
 
 import type { SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
-import { briefOf, expectedFailurePart, stepsFromRows, type TranscriptRow } from '../hooks/decision/escalation.ts'
+import { briefOf, expectedFailurePart, rowsFromTranscript, stepsFromRows, type TranscriptRow } from '../hooks/decision/escalation.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { midturnEffortPart, midturnState, type MidturnInput } from '../hooks/decision/midturn.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
+import { siteJev } from './support/workflow.ts'
+import { runDir, runWorld } from './support/workflow-run.ts'
 import { jev, world, type Reply, type Sent, type ToolRun } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
@@ -79,6 +81,63 @@ test('two failed tool calls: the next step is asked about again, with the troubl
   expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level,escalation.expected'])
   expect(w.requests[1]?.body.state.trouble).toBe('2 tool calls have failed while working on this request')
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'high'])
+})
+
+test('the re-decision goes out as the call that reaches the threshold ends, before the next step: that step only takes the answer (story 18)', { options: ONLY }, async ($, on) => {
+  const w = world($, on, { backend: answers(MEDIUM) })
+  await w.submit('把登录模块重构成三层，并补上测试')
+  await w.step(failing(0))
+  // Asked within step 0, as its second call failed; step 1 has not begun.
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level,escalation.expected'])
+  expect(w.requests[1]?.body.state.step).toBe(1)
+  await w.step({ index: 1 })
+
+  expect(w.requests).toHaveLength(2)
+  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'high'])
+})
+
+test('an answer not back by the next step: the step waits rejudgeWaitMs, goes out as it was and says so; the raise comes with the answer, at a later step', { options: { ...ONLY, rejudgeWaitMs: 300 } }, async ($, on) => {
+  const quick = answers(MEDIUM)
+  // The stuck answer takes a second of (mock) time, within the request's own timeout (timeoutMs, 1500).
+  const w = world($, on, { backend: (request) => (kind(request) === 'midturn.level,escalation.expected' ? { after: 1000, reply: quick(request) } : quick(request)) })
+  await w.submit('把登录模块重构成三层')
+  await w.step(failing(0))
+  const late = w.step({ index: 1 })
+  await w.clock.settle()
+  await w.clock.advance(300)
+  await late
+  expect(w.status()).toBe('dp effort medium | failed 2 (late)')
+
+  await w.clock.advance(700) // the answer comes
+  await w.step({ index: 2 })
+  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'high'])
+  expect(w.status()).toBe('dp effort high | failed 2, raised 1')
+})
+
+test('the failures a request carries are those since the counts last started over: after a raise, the mid-turn re-decision counts from zero again (one counter for both)', { options: { ...KEY, rejudgeEvery: 3 } }, async ($, on) => {
+  const w = world($, on, { backend: answers(MEDIUM, { levels: MEDIUM }) })
+  await w.submit('把登录模块重构成三层')
+  await w.step(failing(0)) // two failures: raised at step 1, the counts start over
+  await w.step(failingOnce(1)) // one more
+  await w.step({ index: 2, tools: [{ tool: 'Read', input: { file_path: '/repo/src/auth/index.ts' } }] }) // its call asks for step 3
+
+  const midturn = w.requests.filter((request) => kind(request) === 'midturn.level')
+  expect(midturn).toHaveLength(1)
+  expect(midturn[0]?.body.state.counts).toEqual({ judgments: 2, changes: 1, failures: 1, hook_blocks: 0 })
+})
+
+test('with escalation off the failures are still counted for the mid-turn re-decision, and nothing is raised', { options: { ...KEY, rejudgeEvery: 1 } }, async ($, on) => {
+  const w = world($, on, { backend: answers(MEDIUM, { levels: MEDIUM }), store: {}, session: true })
+  await w.start()
+  await w.command('dp', 'escalation off')
+  await w.submit('把登录模块重构成三层')
+  await w.step(failing(0))
+  await w.step({ index: 1, tools: [{ tool: 'Read', input: { file_path: '/repo/src/auth/index.ts' } }] })
+  await w.step({ index: 2 })
+
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level', 'midturn.level'])
+  expect(w.requests[2]?.body.state.counts).toEqual({ judgments: 2, changes: 0, failures: 2, hook_blocks: 0 })
+  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium'])
 })
 
 test('a call the person refused is never a failure, however often they refuse, and no hook block either (even with hook blocks counting)', { options: ONLY }, async ($, on) => {
@@ -388,6 +447,19 @@ test("a mid-turn re-decision due at the same step cannot undercut the raise: the
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'high', 'high', 'high'])
 })
 
+test('a forced raise holds for holdSteps steps, then the ordinary re-decisions may lower it again (story 21, decision 4 of review 1)', { options: { ...KEY, rejudgeEvery: 1, holdSteps: 3 } }, async ($, on) => {
+  // Every mid-turn answer says low, surely; the stuck re-decision says medium and not expected.
+  const w = world($, on, { backend: (request, n) => (n > 1 && kind(request) === 'midturn.level' ? jev(LOW, { confidence: 0.9 })(request) : answers(MEDIUM)(request)) })
+  await w.submit('把登录模块重构成三层')
+  await w.step(failing(0)) // two failures: step 1 is forced up a level
+  const reading = (index: number) => ({ index, tools: [{ tool: 'Read', input: { file_path: `/repo/src/f${index}.ts` } }] })
+  for (const index of [1, 2, 3, 4]) await w.step(reading(index))
+  await w.step({ index: 5 })
+
+  // Raised at step 1; steps 2 and 3 are within holdSteps; from step 4 the floor is gone and each sure low drops one level.
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'high', 'high', 'high', 'medium', 'low'])
+})
+
 test("the status line shows the turn's failed calls, the calls a hook blocked (whether or not they count) and the raises, once there is something to show", { options: ONLY }, async ($, on) => {
   const w = world($, on, { backend: answers(MEDIUM) })
   await w.submit('把登录模块重构成三层')
@@ -524,13 +596,31 @@ test('a haiku agent has no effort to raise: it goes on as sonnet, named by its f
   expect(log[0]).toContain('a haiku agent has no effort to raise, so it is switched to claude-sonnet-5-5; not expected (p 0.10, thetaExpected 0.25)')
 })
 
-test('escalateHaikuTo names the model a failing haiku agent is switched to', { options: { ...ONLY, escalateHaikuTo: 'claude-sonnet-9-9' } }, async ($, on) => {
-  const w = world($, on, { backend: withAgents({ model: { haiku: 1 } }), messages: agentRows })
+for (const [written, sent] of [
+  ['claude-sonnet-9-9', 'claude-sonnet-9-9'],
+  ['opus', 'claude-opus-5-5'],
+  ['Sonnet', 'claude-sonnet-5-5'],
+] as const) {
+  test(`escalateHaikuTo ${JSON.stringify(written)}: a failing haiku agent goes on as ${sent} (an alias becomes the id a step must name: the engine takes no alias there)`, { options: { ...ONLY, escalateHaikuTo: written } }, async ($, on) => {
+    const w = world($, on, { backend: withAgents({ model: { haiku: 1 } }), messages: agentRows })
+    const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Find the auth failures' })) as { agentId: string }
+    await w.step(agentStep(agentId, 0, { ...HAIKU, tools: agentFailing }))
+    await w.step(agentStep(agentId, 1, HAIKU))
+
+    expect(w.steps.map((s) => s.model)).toEqual(['claude-haiku-4-5-20251001', sent])
+  })
+}
+
+test('an escalateHaikuTo that names no model the mod knows switches nothing, and the log says so', { options: { ...ONLY, escalateHaikuTo: 'gpt-5' } }, async ($, on) => {
+  const w = world($, on, { backend: withAgents({ model: { haiku: 1 } }), messages: agentRows, store: {}, session: true })
+  await w.start()
   const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Find the auth failures' })) as { agentId: string }
   await w.step(agentStep(agentId, 0, { ...HAIKU, tools: agentFailing }))
   await w.step(agentStep(agentId, 1, HAIKU))
 
-  expect(w.steps.map((s) => s.model)).toEqual(['claude-haiku-4-5-20251001', 'claude-sonnet-9-9'])
+  expect(w.steps.map((s) => s.model)).toEqual(['claude-haiku-4-5-20251001', 'claude-haiku-4-5-20251001'])
+  const log = (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' escalation: '))
+  expect(log[0]).toContain('escalateHaikuTo names no model this mod knows ("gpt-5")')
 })
 
 test('failures the decision model finds expected change nothing about an agent, haiku or not', { options: ONLY }, async ($, on) => {
@@ -557,6 +647,63 @@ test("an agent whose transcript cannot be read (a workflow's) is raised without 
   expect(log[0]).toContain('effort high (was medium) for agent wf1, step 1 (2 failed tool calls): forced one level up; no transcript of this agent to read, so not asked whether the failures were expected')
 })
 
+/** A workflow agent's transcript file as the engine writes it (2.1.289): its framed task, then each step's blocks and each call's result. */
+function agentTranscript(task: string, steps: { text: string; calls: { id: string; command: string; description: string; error?: string }[] }[]): string {
+  const frame = "[Workflow harness — computed task] The task text below was computed at runtime by a workflow script. The computed task text follows:\n"
+  const rows: unknown[] = [{ type: 'user', message: { role: 'user', content: `${frame}${task.split('\n').map((line) => `  ${line}`).join('\n')}` } }, { type: 'attachment', attachment: { type: 'environment' } }]
+  for (const step of steps) {
+    rows.push({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'thinking', thinking: '' }] } })
+    rows.push({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: step.text }] } })
+    for (const call of step.calls) rows.push({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: call.id, name: 'Bash', input: { command: call.command, description: call.description } }] } })
+    for (const call of step.calls) rows.push({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: call.id, content: call.error ?? 'ok', ...(call.error === undefined ? {} : { is_error: true }) }] } })
+  }
+  return `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`
+}
+
+test("a workflow agent's failures are asked about from its transcript on disk: its task and its steps, as for any agent", { options: ONLY }, async ($, on) => {
+  on('session.messages', { agentId: /(?:)/ }, () => ({ value: { deny: "wa1 is not one of this session's agents" } }) as never)
+  const script = `export const meta = { name: 'fix', description: 'Fix the flaky checkout test', phases: [] }
+const fixed = await agent('Find why checkout.spec.ts times out intermittently and fix the cause.', { label: 'fix' })
+return fixed
+`
+  const w = runWorld($, on, {
+    disk: { '/work/fix.js': script },
+    backend: (request) => (kind(request) === 'midturn.level,escalation.expected' ? answers(MEDIUM, { expected: 0.9 })(request) : siteJev(() => ({ model: { sonnet: 0.9 }, effort: [0, 1, 0, 0, 0] }))(request)),
+  })
+  await w.workflow({ scriptPath: '/work/fix.js' })
+  w.started('wf_test-1', 'wa1', 'fix')
+  w.disk[`${runDir('wf_test-1')}/agent-wa1.jsonl`] = agentTranscript('Find why checkout.spec.ts times out intermittently and fix the cause.', [
+    {
+      text: 'Running the checkout tests first.',
+      calls: [
+        { id: 'toolu_1', command: 'npx playwright test checkout', description: 'Run the checkout tests', error: 'Timeout of 30000ms exceeded' },
+        { id: 'toolu_2', command: 'npx playwright test checkout --retries 0', description: 'Run them again without retries', error: 'Timeout of 30000ms exceeded' },
+      ],
+    },
+  ])
+  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium', tools: agentFailing })
+  await w.agentStep('wa1', { index: 1, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  const asked = w.requests.filter((request) => kind(request) === 'midturn.level,escalation.expected')
+  expect(asked).toHaveLength(1)
+  expect(asked[0]?.body.state.user_message).toBe('Find why checkout.spec.ts times out intermittently and fix the cause.')
+  expect(asked[0]?.body.state.recent_steps).toEqual([
+    { assistant_text: 'Running the checkout tests first.', tools: [{ name: 'Bash', result: 'Failed: Run the checkout tests' }, { name: 'Bash', result: 'Failed: Run them again without retries' }] },
+  ])
+  // Found expected: nothing is forced.
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'medium'])
+})
+
+test('a dispatched agent whose failures are found expected is re-decided by the effort answer, as the main agent is', { options: ONLY }, async ($, on) => {
+  const w = world($, on, { backend: withAgents({ model: { sonnet: 1 }, effort: MEDIUM }, { levels: LOW, confidence: 0.9, expected: 0.9 }), messages: agentRows })
+  const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Fix auth tests' })) as { agentId: string }
+  await w.step(agentStep(agentId, 0, { tools: agentFailing }))
+  await w.step(agentStep(agentId, 1))
+
+  // The answer says low, surely: an ordinary re-decision lowers it one level.
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'low'])
+})
+
 test('an agent is raised at most escalateLimit times, and a one-level raise stops at xhigh', { options: ONLY }, async ($, on) => {
   const w = world($, on, { backend: withAgents({ model: { sonnet: 1 }, effort: LOW }), messages: agentRows })
   const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Fix auth tests' })) as { agentId: string }
@@ -573,6 +720,24 @@ test('an agent is raised at most escalateLimit times, and a one-level raise stop
 
 const call = (id: string, description: string, isError?: true) => ({ tool_use_id: id, tool: 'Bash', input: { description }, text: isError ? 'FAIL' : 'ok', ...(isError ? { isError } : {}) })
 const REMINDER = '<system-reminder>The task tools have not been used recently.</system-reminder>'
+
+test("an agent's transcript file reads as the session's rows: its task unframed (a relayed request of the person, as earlier engines write first, left out), each step's text and calls, and how each call ended", () => {
+  const relayed = { type: 'user', message: { role: 'user', content: '[Workflow harness — user request] The harness relays, verbatim and indented below, the user request.\n  fix checkout' } }
+  const transcript = [
+    JSON.stringify(relayed),
+    agentTranscript('Find why checkout.spec.ts times out.\nFix the cause.', [
+      { text: 'Running it first.', calls: [{ id: 'toolu_1', command: 'npx playwright test checkout', description: 'Run the checkout test', error: 'Timeout of 30000ms exceeded' }] },
+      { text: 'Reading the spec.', calls: [{ id: 'toolu_2', command: 'cat checkout.spec.ts', description: 'Read the spec' }] },
+    ]),
+  ].join('\n')
+  const rows = rowsFromTranscript(transcript)
+
+  expect(briefOf(rows)).toBe('Find why checkout.spec.ts times out.\nFix the cause.')
+  expect(stepsFromRows(rows, { language: 'en' })).toEqual([
+    { assistant_text: 'Running it first.', tools: [{ name: 'Bash', result: 'Failed: Run the checkout test' }] },
+    { assistant_text: 'Reading the spec.', tools: [{ name: 'Bash', result: 'Success: Read the spec' }] },
+  ])
+})
 
 test('a user row that only holds a system reminder is not something the person said: the steps before it stay, and the task is what was said', () => {
   const rows: TranscriptRow[] = [
@@ -602,7 +767,7 @@ test('what a person said last starts the window: the steps of the turn before ar
   expect(stepsFromRows(rows, { language: 'en' })).toEqual([{ assistant_text: '开始。', tools: [{ name: 'Bash', result: 'Success: Look around' }] }])
 })
 
-test('a call a hook refused reads as blocked in the steps, a call the person refused as refused, any other error as failed', () => {
+test('a call seen ending reads as it ended (a hook refused it; it failed though the transcript holds no result yet), a call the person refused as refused, any other error as failed', () => {
   const rows: TranscriptRow[] = [
     { role: 'user', text: 'push it', toolUses: [] },
     {
@@ -612,17 +777,20 @@ test('a call a hook refused reads as blocked in the steps, a call the person ref
         { tool_use_id: 'h', tool: 'Bash', input: { description: 'Push main' }, text: 'blocked by policy', isError: true },
         { tool_use_id: 'p', tool: 'Bash', input: { description: 'Delete build' }, text: REFUSED_AT_PROMPT, isError: true },
         { tool_use_id: 'f', tool: 'Bash', input: { description: 'Run tests' }, text: 'FAIL', isError: true },
+        // Just ended: the transcript has no result for it yet.
+        { tool_use_id: 'n', tool: 'Bash', input: { description: 'Run tests again' } },
       ],
     },
   ]
 
-  expect(stepsFromRows(rows, { language: 'en', blocked: (id) => id === 'h' })).toEqual([
+  expect(stepsFromRows(rows, { language: 'en', ended: (id) => (id === 'h' ? 'blocked' : id === 'n' ? 'failed' : undefined) })).toEqual([
     {
       assistant_text: '',
       tools: [
         { name: 'Bash', result: 'Blocked by hook: Push main' },
         { name: 'Bash', result: 'Denied by user: Delete build' },
         { name: 'Bash', result: 'Failed: Run tests' },
+        { name: 'Bash', result: 'Failed: Run tests again' },
       ],
     },
   ])

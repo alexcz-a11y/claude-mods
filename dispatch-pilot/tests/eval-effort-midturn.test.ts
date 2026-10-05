@@ -5,12 +5,12 @@
 // current level as a baseline, accuracy by the way the level should move).
 
 import { expect, test } from 'claude-code/testing'
-import type { PluginOptions } from 'claude-code'
+import type { PluginOptions, SessionMessage } from 'claude-code'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import type { Effort } from '../hooks/decision/effort.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import type { EffortMidturnItem } from '../eval/lib/datasets.ts'
-import { effortMidturn, midturnRequest, troubleOf } from '../eval/lib/effort-midturn.ts'
+import { effortMidturn, midturnRequest } from '../eval/lib/effort-midturn.ts'
 import { summarize } from '../eval/lib/metrics.ts'
 import { runSuite, type Row } from '../eval/lib/runner.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
@@ -45,11 +45,13 @@ const TURNS: Record<'zh' | 'en', Turn> = {
 }
 
 /**
- * The turn above as an item: what the mod reads when the third step's call
- * starts (the re-decision for step 3, every 3 steps by default). Unlike a
- * dataset row, its latest call is still running ("进行中：", "Running: "):
- * a live request goes out as a call starts, a dataset row only holds calls
- * that have ended.
+ * The turn above as an item, as the dataset writes it: each call's input (the
+ * arguments that say what it worked on) and its result in the dataset's own
+ * words, what came of it included. It is what the mod reads when the third
+ * step's call starts (the re-decision for step 3, every 3 steps by default).
+ * Unlike a dataset row, its latest call is still running ("进行中",
+ * "Running"): a live request goes out as a call starts, a dataset row only
+ * holds calls that have ended.
  */
 const ITEM: EffortMidturnItem = {
   id: 'midturn-900',
@@ -59,9 +61,9 @@ const ITEM: EffortMidturnItem = {
     current_effort: 'high',
     counts: { judgments: 1, changes: 0, failures: 1, hook_blocks: 0 },
     recent_steps: [
-      { assistant_text: '先看看日志。', tools: [{ name: 'Bash', result: '成功：查看最近的日志' }] },
-      { assistant_text: '读一下代理配置。', tools: [{ name: 'Read', result: '失败：server/proxy.ts' }] },
-      { assistant_text: '换个路径再读。', tools: [{ name: 'Read', result: '进行中：src/proxy.ts' }] },
+      { assistant_text: '先看看日志。', tools: [{ name: 'Bash', result: '成功：最近 50 行里有 3 次 upstream timeout', input: { command: 'tail -n 50 logs/app.log', description: '查看最近的日志' } }] },
+      { assistant_text: '读一下代理配置。', tools: [{ name: 'Read', result: '失败：文件不存在', input: { file_path: '/repo/src/server/proxy.ts' } }] },
+      { assistant_text: '换个路径再读。', tools: [{ name: 'Read', result: '进行中', input: { file_path: '/repo/src/proxy.ts' } }] },
     ],
   },
   en: {
@@ -70,9 +72,9 @@ const ITEM: EffortMidturnItem = {
     current_effort: 'high',
     counts: { judgments: 1, changes: 0, failures: 1, hook_blocks: 0 },
     recent_steps: [
-      { assistant_text: 'Checking the logs first.', tools: [{ name: 'Bash', result: 'Success: Show the latest log lines' }] },
-      { assistant_text: 'Reading the proxy config.', tools: [{ name: 'Read', result: 'Failed: server/proxy.ts' }] },
-      { assistant_text: 'Trying another path.', tools: [{ name: 'Read', result: 'Running: src/proxy.ts' }] },
+      { assistant_text: 'Checking the logs first.', tools: [{ name: 'Bash', result: 'Success: 3 upstream timeouts in the last 50 lines', input: { command: 'tail -n 50 logs/app.log', description: 'Show the latest log lines' } }] },
+      { assistant_text: 'Reading the proxy config.', tools: [{ name: 'Read', result: 'Failed: the file does not exist', input: { file_path: '/repo/src/server/proxy.ts' } }] },
+      { assistant_text: 'Trying another path.', tools: [{ name: 'Read', result: 'Running', input: { file_path: '/repo/src/proxy.ts' } }] },
     ],
   },
   gold: 'high',
@@ -96,12 +98,21 @@ for (const language of ['zh', 'en'] as const) {
     const { request } = midturnRequest(ITEM, language, 'en-score', settingsFrom({}))
     expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level'])
     expect(w.requests[1]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
-    // What the request holds, so the equality above is not two empty things.
+    // What the request holds, so the equality above is not two empty things;
+    // each call as the mod writes it, from how it ended and what it worked on: never what came of it.
     expect(request.state.current_effort).toBe('high')
     expect((request.state.recent_steps as unknown[]).length).toBe(3)
     expect(Object.keys(request.questions)).toEqual(['midturn.level'])
+    expect(JSON.stringify(request)).not.toContain('upstream')
   })
 }
+
+test("the raw-results variant sends each call's result as the dataset writes it, what came of it included: the gap to what the mod sends", () => {
+  const lines = (variant: string) =>
+    (midturnRequest(ITEM, 'zh', variant, settingsFrom({})).request.state.recent_steps as { tools: { result: string }[] }[]).flatMap((step) => step.tools.map((tool) => tool.result))
+  expect(lines('en-score')).toEqual(['成功：查看最近的日志', '失败：server/proxy.ts', '进行中：src/proxy.ts'])
+  expect(lines('raw-results')).toEqual(['成功：最近 50 行里有 3 次 upstream timeout', '失败：文件不存在', '进行中'])
+})
 
 test("the eval reads the re-decision's limits as the mod does: the latest rejudgeSteps steps, within contextTokens", { options: { typesafeApiKey: 'k', rejudgeSteps: 2, contextTokens: 300 } }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
@@ -112,7 +123,7 @@ test("the eval reads the re-decision's limits as the mod does: the latest rejudg
   expect((request.state.recent_steps as { assistant_text: string }[]).map((step) => step.assistant_text)).toEqual(['读一下代理配置。', '换个路径再读。'])
 })
 
-/** Two failed test runs: the point where #7 demands a re-decision with a trouble. */
+/** Two failed test runs: the point where #7 asks again about a stuck turn, with its trouble. */
 const STUCK: EffortMidturnItem = {
   id: 'midturn-901',
   zh: {
@@ -121,12 +132,12 @@ const STUCK: EffortMidturnItem = {
     current_effort: 'high',
     counts: { judgments: 1, changes: 0, failures: 2, hook_blocks: 0 },
     recent_steps: [
-      { assistant_text: '先跑一下测试。', tools: [{ name: 'Bash', result: '失败：跑单元测试' }] },
+      { assistant_text: '先跑一下测试。', tools: [{ name: 'Bash', result: '失败：session 相关的 2 个用例失败', input: { command: 'npm test', description: '跑单元测试' } }] },
       {
         assistant_text: '改一下过期判断再跑。',
         tools: [
-          { name: 'Edit', result: '成功：auth/session.ts' },
-          { name: 'Bash', result: '失败：再跑单元测试' },
+          { name: 'Edit', result: '成功：过期判断改成 >=', input: { file_path: '/repo/src/auth/session.ts' } },
+          { name: 'Bash', result: '失败：还是那 2 个用例失败', input: { command: 'npm test', description: '再跑单元测试' } },
         ],
       },
     ],
@@ -137,12 +148,12 @@ const STUCK: EffortMidturnItem = {
     current_effort: 'high',
     counts: { judgments: 1, changes: 0, failures: 2, hook_blocks: 0 },
     recent_steps: [
-      { assistant_text: 'Running the tests first.', tools: [{ name: 'Bash', result: 'Failed: Run the unit tests' }] },
+      { assistant_text: 'Running the tests first.', tools: [{ name: 'Bash', result: 'Failed: 2 session cases fail', input: { command: 'npm test', description: 'Run the unit tests' } }] },
       {
         assistant_text: 'Fixing the expiry check and running them again.',
         tools: [
-          { name: 'Edit', result: 'Success: auth/session.ts' },
-          { name: 'Bash', result: 'Failed: Run the unit tests again' },
+          { name: 'Edit', result: 'Success: the expiry check is now >=', input: { file_path: '/repo/src/auth/session.ts' } },
+          { name: 'Bash', result: 'Failed: the same 2 cases still fail', input: { command: 'npm test', description: 'Run the unit tests again' } },
         ],
       },
     ],
@@ -154,13 +165,26 @@ const STUCK: EffortMidturnItem = {
   tags: ['stuck'],
 }
 
-// (#7's own trigger, `escalateAfter`, is kept out of the way: it asks for its own re-decision and does not take this entry.)
-test("the trouble variant is the mod's re-decision when #7 demands one: its trouble in the state, no call still running, and the question says what to do with it", { options: { typesafeApiKey: 'k', rejudgeEvery: 0, escalateAfter: 20 } }, async ($, on) => {
-  // #7's demand, written once the second failure is in (after step 1's calls ended).
-  let stuck = false
-  const demand = { trouble: troubleOf(2), atLeast: 'xhigh', at: 1 }
-  on('state.get', async (_$, e, next) => (e.key === 'demand' && e.id === 'main:t1' && stuck ? { value: { value: demand, version: 1 } } : next(e)))
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
+/**
+ * The turn of STUCK as `$.session.messages()` holds it the moment its second
+ * test run has failed (`ids`: the calls' ids, in order): the person's message,
+ * then its two steps; the second run has no result in it yet.
+ */
+function stuckRows(ids: readonly string[]): SessionMessage[] {
+  const [first = '', edit = '', second = ''] = ids
+  return [
+    { role: 'user', text: STUCK.zh.message, toolUses: [] },
+    { role: 'assistant', text: '先跑一下测试。', toolUses: [{ tool_use_id: first, tool: 'Bash', input: { command: 'npm test', description: '跑单元测试' }, text: 'FAIL src/auth.test.ts', isError: true }] },
+    { role: 'user', text: '', toolUses: [], toolResults: [{ tool_use_id: first, text: 'FAIL src/auth.test.ts', isError: true }] },
+    { role: 'assistant', text: '改一下过期判断再跑。', toolUses: [{ tool_use_id: edit, tool: 'Edit', input: { file_path: '/repo/src/auth/session.ts', old_string: 'a', new_string: 'b' }, text: 'ok' }] },
+    { role: 'assistant', text: '', toolUses: [{ tool_use_id: second, tool: 'Bash', input: { command: 'npm test', description: '再跑单元测试' } }] },
+  ]
+}
+
+test("the trouble variant asks a stuck item exactly what the mod asks a turn whose failures reach escalateAfter: the trouble, the effort question with its flag, and whether the failures were expected", { options: { typesafeApiKey: 'k', rejudgeEvery: 0 } }, async ($, on) => {
+  let calls: readonly { id: string }[] = []
+  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), messages: () => stuckRows(calls.map((call) => call.id)) })
+  calls = w.toolCalls
   await w.submit(STUCK.zh.message)
   await w.step({ index: 0, answer: '先跑一下测试。', tools: [{ tool: 'Bash', input: { command: 'npm test', description: '跑单元测试' }, ends: { error: 'FAIL src/auth.test.ts' } }] })
   await w.step({
@@ -171,14 +195,15 @@ test("the trouble variant is the mod's re-decision when #7 demands one: its trou
       { tool: 'Bash', input: { command: 'npm test', description: '再跑单元测试' }, ends: { error: 'FAIL src/auth.test.ts' } },
     ],
   })
-  stuck = true
-  await w.step({ index: 2 })
 
   const { request } = midturnRequest(STUCK, 'zh', 'trouble', settingsFrom({ rejudgeEvery: 0 }))
-  expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level'])
+  // Asked as the second failed run ended, for step 2.
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level,escalation.expected'])
   expect(w.requests[1]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
+  // What the request holds, so the equality above is not two empty things.
   expect(request.state.trouble).toBe('2 tool calls have failed while working on this request')
-  expect(JSON.stringify(request.questions)).toContain('`trouble`')
+  expect(request.state.step).toBe(2)
+  expect(Object.keys(request.questions)).toEqual(['midturn.level', 'escalation.expected'])
 })
 
 /**
@@ -317,9 +342,21 @@ test('the report scores keeping the current level as a baseline, and gives the a
   ])
 })
 
-test('below the failures that make #7 demand a re-decision, the trouble variant asks as the mod does every N steps', () => {
+test('below escalateAfter the trouble variant asks as the mod does every N steps; escalateAfter is read as the mod reads it', () => {
   const settings = settingsFrom({})
   expect(ITEM.zh.counts.failures).toBe(1)
   expect(midturnRequest(ITEM, 'zh', 'trouble', settings)).toEqual(midturnRequest(ITEM, 'zh', 'en-score', settings))
   expect(midturnRequest(STUCK, 'zh', 'trouble', settings)).not.toEqual(midturnRequest(STUCK, 'zh', 'en-score', settings))
+  // With escalateAfter 3, two failures are not yet a stuck turn.
+  const later = settingsFrom({ escalateAfter: 3 })
+  expect(midturnRequest(STUCK, 'zh', 'trouble', later)).toEqual(midturnRequest(STUCK, 'zh', 'en-score', later))
+})
+
+test("under the trouble variant a stuck item's answer about whether its failures were expected is recorded beside the effort it picked (not graded)", async () => {
+  const net = network(() => ({ levels: [0, 0, 0, 1, 0], confidence: 0.8 }))
+  const rows = await run([STUCK], net, ['trouble'])
+
+  expect(Object.keys(net.bodies[0]?.questions)).toEqual(['midturn.level', 'escalation.expected'])
+  // Seam 1's Jev answers every yes/no question 0.5.
+  expect(rows.map((row) => `${row.language} ${row.shown} expected ${String(row.detail?.expected)}`)).toEqual(['zh xhigh expected 0.5', 'en xhigh expected 0.5'])
 })

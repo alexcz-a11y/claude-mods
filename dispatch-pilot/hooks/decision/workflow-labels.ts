@@ -14,7 +14,7 @@
 // Pure (see system-one.ts).
 
 import type { Failure } from './backend.ts'
-import { modelFamily, type AgentModel } from './dispatched-agent.ts'
+import { modelFamily, termsOf, type AgentModel, type Terms } from './dispatched-agent.ts'
 import type { Effort } from './effort.ts'
 import { modelId } from './model-ids.ts'
 import type { AgentCall, Written } from './workflow-script.ts'
@@ -52,26 +52,32 @@ export type RunSite = {
   model: Written
   effort: Written
   agentType: string | null
+  /** The person's terms for the call's work, as its decision read them (null: none, or not decided yet); its agents' plans keep them. */
+  terms: Terms | null
 }
 
 /** The routes of a script's calls, from what was decided about them when the run started (`readOutcomes`). */
 export function sitesOf(calls: readonly AgentCall[], outcomes: readonly CallOutcome[]): RunSite[] {
-  return calls.map((call, index) => siteOf(call, routeOf(outcomes[index])))
+  return calls.map((call, index) => {
+    const outcome = outcomes[index]
+    return siteOf(call, routeOf(outcome), outcome === undefined || outcome.kind === 'left' ? null : termsOf(outcome.decision))
+  })
 }
 
 /**
  * The routes of the calls of a script the main agent sent inline: the
  * workflow-agents feature asked about every call but those in `skipped` (a
  * prompt it cannot read, a call past what it asks about), and wrote what it
- * could into the script; those are decided as their agents start.
+ * could into the script; those are decided as their agents start. `terms`:
+ * what its decisions read of the person's terms for each call, by index.
  */
-export function inlineSites(calls: readonly AgentCall[], skipped: readonly Skipped[]): RunSite[] {
+export function inlineSites(calls: readonly AgentCall[], skipped: readonly Skipped[], terms: readonly (Terms | null)[] = []): RunSite[] {
   const left = new Set(skipped.map((skip) => skip.index))
-  return calls.map((call) => siteOf(call, left.has(call.index) ? { kind: 'runtime' } : { kind: 'script' }))
+  return calls.map((call) => siteOf(call, left.has(call.index) ? { kind: 'runtime' } : { kind: 'script' }, terms[call.index] ?? null))
 }
 
-function siteOf(call: AgentCall, route: SiteRoute): RunSite {
-  return { line: call.line, label: call.label, match: matchOf(call), route, model: call.model, effort: call.effort, agentType: call.agentType }
+function siteOf(call: AgentCall, route: SiteRoute, terms: Terms | null): RunSite {
+  return { line: call.line, label: call.label, match: matchOf(call), route, model: call.model, effort: call.effort, agentType: call.agentType, terms }
 }
 
 function routeOf(outcome: CallOutcome | undefined): SiteRoute {
@@ -207,10 +213,29 @@ export function sitesFor(label: string, sites: readonly RunSite[]): RunSite[] {
 
 /** What the engine writes before a workflow agent's task, up to the task itself (2.1.289); each line of the task follows indented by two spaces. */
 const TASK_FOLLOWS = 'The computed task text follows:\n'
+/** How the frame starts in which the engine relays the person's request to a workflow agent, before its task (seen on 2.1.281-2.1.282). */
+const RELAYED_REQUEST = '[Workflow harness — user request]'
+
+/** The task a script computed, without the frame the engine puts around it; null when `text` is not such a frame. */
+export function computedTask(text: string): string | null {
+  const at = text.indexOf(TASK_FOLLOWS)
+  if (at < 0) return null
+  return text
+    .slice(at + TASK_FOLLOWS.length)
+    .split('\n')
+    .map((taskLine) => (taskLine.startsWith('  ') ? taskLine.slice(2) : taskLine))
+    .join('\n')
+}
+
+/** Whether `text` is the frame in which the engine relays the person's request to a workflow agent (not the agent's task). */
+export function isRelayedRequest(text: string): boolean {
+  return text.trimStart().startsWith(RELAYED_REQUEST)
+}
 
 /**
  * The task a workflow agent was given, from its transcript
- * (`agent-<agentId>.jsonl`): the first user message, without the frame the
+ * (`agent-<agentId>.jsonl`): the first user message (past one that relays
+ * the person's request, as some engines write first), without the frame the
  * engine puts around a task a script computed. Null when the transcript holds
  * no such message (yet).
  */
@@ -225,13 +250,8 @@ export function taskOf(transcript: string): string | null {
     if (row.type !== 'user' || row.message?.role !== 'user') continue
     const content = row.message.content
     const text = typeof content === 'string' ? content : Array.isArray(content) ? content.map((block: { text?: unknown }) => (typeof block?.text === 'string' ? block.text : '')).join('') : ''
-    const at = text.indexOf(TASK_FOLLOWS)
-    if (at < 0) return text.trim() === '' ? null : text
-    return text
-      .slice(at + TASK_FOLLOWS.length)
-      .split('\n')
-      .map((taskLine) => (taskLine.startsWith('  ') ? taskLine.slice(2) : taskLine))
-      .join('\n')
+    if (isRelayedRequest(text)) continue
+    return computedTask(text) ?? (text.trim() === '' ? null : text)
   }
   return null
 }
@@ -283,6 +303,12 @@ export function launchNote(
     ? "Dispatch Pilot (the user's routing plugin) chose a model and an effort for the agent() calls of this Workflow. The script is unchanged: each agent gets its call's choice as it starts, found by its label."
     : "Dispatch Pilot (the user's routing plugin) decides the model and effort of this Workflow's agents as each one starts. The script is unchanged."
   return [header, ...lines].join('\n')
+}
+
+/** The person's terms every one of `sites` carries; null when they carry none, or not the same. */
+export function sharedTerms(sites: readonly RunSite[]): Terms | null {
+  const first = sites[0]?.terms ?? null
+  return first !== null && sites.every((site) => JSON.stringify(site.terms) === JSON.stringify(first)) ? first : null
 }
 
 /** Whether two routes set the same thing. */

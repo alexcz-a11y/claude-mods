@@ -59,16 +59,16 @@ test('a dispatched agent starts on the model decided for it, and every one of it
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent.model', 'agent.effort'])
 })
 
-test('an agent sent to haiku gets no effort: its steps go out with whatever effort the engine gives, whatever the effort answer says', { options: KEY }, async ($, on) => {
+test('an agent sent to haiku gets no effort: its steps go out without one, whatever the effort answer says (spec #32)', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.08, opus: 0.02 }, effort: [0, 0, 0, 1, 0] }) })
   const started = await w.spawn({ prompt: 'List every file under src/ that imports legacyAuth. Report file:line only.', description: 'Find legacyAuth imports', subagentType: 'Explore' })
   // Haiku takes no effort: the engine sends none.
   await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-haiku-4-5', effort: null })
-  // Were the engine to send one, the mod would not change it.
+  // Were the engine to send one, the mod would take it off.
   await w.step({ index: 1, turnId: 'sub-1', agentId: started.agentId, model: 'claude-haiku-4-5', effort: 'medium' })
 
   expect(w.spawned.map((s) => s.model)).toEqual(['haiku'])
-  expect(w.steps.map((s) => String(s.effort))).toEqual(['undefined', 'medium'])
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['undefined', 'undefined'])
 })
 
 test("the main agent's pick reaches the decision model as a hint, and stands unless it is sure of another one (agentOverride, default 0.6)", { options: KEY }, async ($, on) => {

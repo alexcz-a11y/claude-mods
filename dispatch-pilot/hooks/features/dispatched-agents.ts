@@ -13,26 +13,16 @@
 // Its switch is `dispatched-agents` (`/dp dispatched-agents off`).
 
 import type { HttpInit, On } from 'claude-code'
-import type { Asked } from '../decision/backend.ts'
+import { type Asked, describeAsked } from '../decision/backend.ts'
 import { messageText } from '../decision/context.ts'
-import {
-  DEFAULT_AGENT_MODELS,
-  decideDispatch,
-  decisionNotes,
-  dispatchPart,
-  dispatchState,
-  modelFamily,
-  type Dispatch,
-  type DispatchDecision,
-  type DispatchSettings,
-} from '../decision/dispatched-agent.ts'
+import { decideDispatch, decisionNotes, dispatchPart, dispatchState, modelFamily, termsOf, type Dispatch, type DispatchDecision } from '../decision/dispatched-agent.ts'
 import { EFFORTS } from '../decision/effort.ts'
-import { redactSecrets } from '../decision/redact.ts'
+import { quoteStart } from '../decision/redact.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
-import { numberIn, type Ctx } from '../core/setup.ts'
+import { dispatchSettings, type Ctx } from '../core/setup.ts'
 import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
@@ -47,12 +37,7 @@ const MAX_SAID = 8
 
 export function registerDispatchedAgents(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: "decides each dispatched agent's model and effort when it is spawned", segments: ['agent'] })
-  const settings: DispatchSettings = {
-    models: ctx.options.agentFable === true ? [...DEFAULT_AGENT_MODELS, 'fable'] : DEFAULT_AGENT_MODELS,
-    ask: ctx.ask,
-    thetaOverride: numberIn(ctx.options.agentOverride, 0, 1, 0.6),
-    thetaMax: ctx.config.thetaMax,
-  }
+  const settings = dispatchSettings(ctx)
 
   // The person's words this turn: a message sent while idle starts them
   // afresh, one typed during the turn joins them. Other prompts (an agent's
@@ -87,7 +72,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
     }
     const show = (line: string | undefined) => $.ui.status(line)
-    const about = `${quote(e.description)} (${e.subagentType})`
+    const about = `${quoteStart(e.description)} (${e.subagentType})`
     const startedAt = await $.clock.now()
     const asked = await ctx.backend.ask(io, request, ctx.config.timeoutMs)
     const ms = (await $.clock.now()) - startedAt
@@ -107,11 +92,12 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     if (result.deny !== undefined) return result
     // The agent has started: nothing after this may fail its spawn.
     try {
-      // Only the effort goes into the plan: the model is set on the spawn,
-      // and a planned model would also pin every step against the engine's
-      // overload fallback.
-      if (result.agentId !== undefined && decision.effort !== null) {
-        await $.state.set({ ...AGENTS, id: result.agentId }, { effort: decision.effort, floor: null, model: null })
+      // The effort and the person's terms go into the plan (what changes the agent later keeps to the
+      // terms); the model is set on the spawn, and a planned model would also pin every step against the
+      // engine's overload fallback.
+      const terms = termsOf(decision)
+      if (result.agentId !== undefined && (decision.effort !== null || terms !== null)) {
+        await $.state.set({ ...AGENTS, id: result.agentId }, { effort: decision.effort, floor: null, model: null, terms })
       }
       const model = decision.model ?? modelFamily(result.model) ?? result.model
       const outcome = decision.effort === null ? model : `${model} ${decision.effort}`
@@ -130,14 +116,6 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
   })
 }
 
-/** A request's outcome for the debug log. */
-function describeAsked(asked: Asked, ms: number): string {
-  if (!asked.ok) return `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)`
-  const by = asked.model === null ? '' : ` by ${asked.model}`
-  const tokens = asked.inputTokens === null ? '' : ` (${asked.inputTokens} input tokens)`
-  return `answered in ${ms} ms${by}${tokens}`
-}
-
 /** Why the agent goes out as it does: whose model it is, the decision model's pick, what was ruled out, the effort answer. */
 function reasonOf(decision: DispatchDecision, requested: string | null, thetaOverride: number): string {
   const pick = decision.pick === null ? null : `pick ${decision.pick.model}, confidence ${decision.pick.confidence.toFixed(2)}`
@@ -150,10 +128,4 @@ function reasonOf(decision: DispatchDecision, requested: string | null, thetaOve
   parts.push(...decisionNotes(decision))
   if (decision.reading !== null) parts.push(`effort p ${EFFORTS.map((level, i) => `${level} ${(decision.reading?.probabilities[i] ?? 0).toFixed(2)}`).join(', ')}`)
   return parts.join('; ')
-}
-
-/** The start of a text for the debug log, secrets masked. */
-function quote(text: string): string {
-  const flat = redactSecrets(text).replace(/\s+/g, ' ').trim()
-  return JSON.stringify(flat.length > 40 ? `${flat.slice(0, 40)}...` : flat)
 }

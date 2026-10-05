@@ -1,42 +1,45 @@
 // The skill catalog: which skills the session has, who may start each one,
-// and what each is for. The skills feature (#10) suggests from it, and so
-// will the bilingual portraits (#11) and the find_skill tool (#12). Also the
-// engine's skill listing, read and trimmed.
+// and what each is for. The skills feature (#10) suggests from it, the
+// find_skill tool (#12) answers from it, and its bilingual profiles (#11,
+// core/profiles.ts) are written for it. Also the engine's skill listing, read
+// and trimmed, and how the ranking is described and set up.
 //
 // Pure: no `$`. Whatever reads the session (commands, settings, disk) comes
 // in as closures the hook that owns `$` builds (README, 开发).
 
-import type { PluginOptions } from 'claude-code'
 import type { Language } from '../decision/effort.ts'
-import { questionBudget, SHORTLIST_FLOOR, type RankerSettings, type SkillOption, type SkillRanking } from '../decision/skills.ts'
-import { numberIn } from './setup.ts'
+import { questionBudget, SHORTLIST_FLOOR, type RankerSettings, type SkillOption, type SkillRanking, type SkillShare } from '../decision/skills.ts'
+import type { Config } from './setup.ts'
 
 /**
  * What the two stages of a ranking said, for a decision's reason: the skills
- * stage one put forward with their shares, and none's; how well each fits by
- * stage two, or that stage one put none forward.
+ * the main agent can load that stage one put forward with their shares, and
+ * none's (`first`); the same of its question on the skills only the person
+ * can start, when it was asked (`hint`); how well each fits by stage two, or
+ * that stage one put none forward.
  */
 export function describeStages(ranking: SkillRanking): string {
+  const shares = (shortlist: readonly SkillShare[], none: number) => [...shortlist.map((entry) => `${entry.name} ${entry.share.toFixed(2)}`), `none ${none.toFixed(2)}`].join(', ')
   const shortlist = ranking.shortlist ?? []
-  const first = [...shortlist.map((entry) => `${entry.name} ${entry.share.toFixed(2)}`), `none ${ranking.none.toFixed(2)}`].join(', ')
+  const hint = ranking.hints === undefined ? '' : `; hint ${shares(ranking.hints.shortlist, ranking.hints.none)}`
   const second =
-    shortlist.length === 0
+    shortlist.length + (ranking.hints?.shortlist.length ?? 0) === 0
       ? `no skill rated ${SHORTLIST_FLOOR.toFixed(2)} or more`
       : `fits ${ranking.ranked.map((entry) => `${entry.name} ${entry.relevance.toFixed(2)}`).join(', ')}`
-  return `first ${first}; ${second}`
+  return `first ${shares(shortlist, ranking.none)}${hint}; ${second}`
 }
 
 /**
- * How skills are ranked (`modRanker`'s settings), read from the person's
- * options the same way wherever skills are ranked: the message's suggestions
- * and find_skill (#12). Stage one's question fits beside the state the
- * person's context budget allows; stage two may take up to `timeoutMs` (a
- * message's gets only what its first request left of it, features/skills.ts).
+ * How skills are ranked (`modRanker`'s settings), from the person's options
+ * (core/setup.ts), the same wherever skills are ranked: the message's
+ * suggestions and find_skill (#12). Stage one's question fits beside the state
+ * the person's context budget allows; stage two may take up to `timeoutMs` (a
+ * caller with less left tells `rank` so: features/skills.ts, find-skill.ts).
  */
-export function rankingSettings(ctx: { options: PluginOptions; config: { timeoutMs: number; context: { tokens: number } }; ask: { language: Language } }): RankerSettings {
+export function rankingSettings(ctx: { config: Pick<Config, 'timeoutMs' | 'context' | 'skills'>; ask: { language: Language } }): RankerSettings {
   return {
     language: ctx.ask.language,
-    shortlist: Math.round(numberIn(ctx.options.skillsShortlist, 1, 10, 4)),
+    shortlist: ctx.config.skills.shortlist,
     questionTokens: questionBudget(ctx.config.context.tokens),
     timeoutMs: ctx.config.timeoutMs,
   }

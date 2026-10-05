@@ -21,6 +21,7 @@ import { decisionLine, MAX_DECISIONS, type DecisionEntry } from '../core/decisio
 import type { Ctx } from '../core/setup.ts'
 import { pauseStatus, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn, listSwitches, loadOverrides, masterOn, overrides, parseOverrides, setMaster, setSwitch } from '../core/switches.ts'
+import { errorText } from '../decision/backend.ts'
 
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
@@ -172,8 +173,4 @@ function describeSignals(measure: SessionMeasureInput): string {
   const limits = rateLimits.length === 0 ? 'n/a' : rateLimits.map((limit) => `${limit.kind} ${limit.percentUsed}%${limit.resetsAt === undefined ? '' : ` resets ${limit.resetsAt}`}`).join(', ')
   const spent = cost === undefined ? 'n/a' : `$${cost.usd.toFixed(4)}`
   return `signals: context ${fill}; limits ${limits}; cost ${spent}; changed ${measure.changed.join(', ')}`
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

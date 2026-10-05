@@ -39,8 +39,15 @@ test('the same answer for the same item and language counts as same; each number
   ])
 })
 
-test('only variants both runs asked are compared, and only answers both runs have', () => {
+test('only variants both runs asked are compared', () => {
   const a = run({ 'q1 zh': 'high', 'q2 zh': 'low' }, { zh: 1, en: 1, agree: 1, p50: 300 })
   const b = { summary: { variants: [] }, answers: [{ id: 'q1', language: 'zh', 'zh-choice': { answer: 'high' } }] }
   expect(compareRuns(a, b)).toEqual([])
+})
+
+test('only answers both runs have are compared: an item one run has no answer for (or failed) is left out of the count', () => {
+  const a = run({ 'q1 zh': 'high', 'q2 zh': 'low', 'q3 zh': 'medium' }, { zh: 1, en: 1, agree: 1, p50: 300 })
+  // q2: b failed it (no answer); q3: b did not ask it at all.
+  const b = { ...run({ 'q1 zh': 'high' }, { zh: 1, en: 1, agree: 1, p50: 300 }), answers: [{ id: 'q1', language: 'zh', 'en-score': { answer: 'high' } }, { id: 'q2', language: 'zh', 'en-score': { failure: 'timeout' } }] }
+  expect(compareRuns(a, b).map(({ same, compared }) => ({ same, compared }))).toEqual([{ same: 1, compared: 1 }])
 })

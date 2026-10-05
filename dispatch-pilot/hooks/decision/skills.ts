@@ -1,15 +1,19 @@
 // How the decision model ranks the session's skills for a message, in two
 // stages (#11), and how the ranking becomes the skills suggested.
 //
-//   stage one  one Choice over every skill and "(none)", in the message's one
-//              decision request (`skills.which`): a skill is offered by its
-//              bilingual profile when one is written (`SkillProfile`), else by
-//              its description. Only for ranking: its shares are relative.
+//   stage one  in the message's one decision request, a Choice over the
+//              skills the main agent can load and "(none)" (`skills.which`),
+//              and one over those only the person can start and "(none)"
+//              (`skills.hint`): asked apart, a skill of one kind that fits
+//              outright takes no share from the other kind. A skill is offered
+//              by its bilingual profile when one is written (`SkillProfile`),
+//              else by its description. Only for ranking: its shares are
+//              relative.
 //   stage two  a request of its own about the same state, for the few skills
-//              stage one rated highest: each re-read with the opening of its
-//              SKILL.md, a yes/no `skills.fits.<i>` each (the absolute
-//              relevance shown and compared with the threshold) and a Choice
-//              `skills.best` between them (breaks ties).
+//              of each question stage one rated highest: each re-read with
+//              the opening of its SKILL.md, a yes/no `skills.fits.<i>` each
+//              (the absolute relevance shown and compared with the threshold)
+//              and a Choice `skills.best` between them (breaks ties).
 //
 // `modRanker` is the one entry: the message's suggestions (features/
 // skills.ts) and find_skill (#12, features/find-skill.ts) rank through it, and
@@ -47,9 +51,10 @@ export type SkillProfile = {
  */
 export type SkillOption = { name: string; description: string; by: 'model' | 'person'; profile?: SkillProfile | null }
 
-/** The skills part's name and its questions' ids: `skills.which` (stage one), `skills.best` and `skills.fits.<i>` (stage two). */
+/** The skills part's name and its questions' ids: `skills.which` and `skills.hint` (stage one), `skills.best` and `skills.fits.<i>` (stage two). */
 export const SKILLS_PART = 'skills'
 export const WHICH = 'which'
+export const HINT = 'hint'
 export const BEST = 'best'
 export const FITS = 'fits'
 /** The option that says no skill fits; parentheses keep it apart from any skill's name. */
@@ -69,6 +74,26 @@ const WHICH_INSTRUCTIONS: Record<Language, Readonly<Record<string, string>>> = {
     看什么: '按请求要做的工作类型来匹配（例如排查故障、做计划、审查、设计、写文档），而不只是看消息里提到的产品或技术。',
     平台: '针对某个产品或平台的 skill，只有在 `user_message` 或 `recent_context` 表明这里用的正是那个产品时才合适；否则选通用的 skill，或者都不选。',
     简短回复: '如果 `user_message` 只是同意、让继续或选一个选项（例如“go ahead”“1”“继续”），按它所同意的那项工作来判断；那项工作写在 `recent_context` 的末尾。',
+  },
+}
+
+/**
+ * The question on the skills only the person can start: what fits is judged
+ * as for those the main agent can load; it says who starts them, so a skill
+ * is not passed over for being one the model cannot load.
+ */
+const HINT_INSTRUCTIONS: Record<Language, Readonly<Record<string, string>>> = {
+  en: {
+    question: 'Which of these skills, if any, is the right one for the work that `user_message` asks for, given `recent_context`? The user starts these skills themselves, by typing their name.',
+    focus: WHICH_INSTRUCTIONS.en.focus as string,
+    platforms: WHICH_INSTRUCTIONS.en.platforms as string,
+    short_replies: WHICH_INSTRUCTIONS.en.short_replies as string,
+  },
+  zh: {
+    问题: '结合 `recent_context`，要完成 `user_message` 所要求的工作，下面哪个 skill 合适？这些 skill 由用户自己输入名字来启动。如果都不合适，选「都不合适」。',
+    看什么: WHICH_INSTRUCTIONS.zh['看什么'] as string,
+    平台: WHICH_INSTRUCTIONS.zh['平台'] as string,
+    简短回复: WHICH_INSTRUCTIONS.zh['简短回复'] as string,
   },
 }
 
@@ -153,25 +178,38 @@ export function questionBudget(contextTokens: number): number {
 
 /**
  * The part a message's decision request carries for the skills (stage one):
- * one Choice, `skills.which`, over `options` in their order and then
+ * `which`, a Choice over the skills the main agent can load (`by: 'model'`),
+ * and `hint`, one over those only the person can start (`by: 'person'`),
+ * each only when it has a skill to offer (`skillsChoice`; `budget` holds for
+ * each). Null when there is no skill to ask about.
+ */
+export function skillsPart(options: readonly SkillOption[], ask: { language?: Language; budget?: number } = {}): Part | null {
+  const language = ask.language ?? 'en'
+  const budget = ask.budget ?? Number.POSITIVE_INFINITY
+  const loadable = options.filter((option) => option.by === 'model')
+  const persons = options.filter((option) => option.by === 'person')
+  const questions: Record<string, Question> = {}
+  if (loadable.length > 0) questions[WHICH] = skillsChoice(loadable, WHICH_INSTRUCTIONS[language], language, budget)
+  if (persons.length > 0) questions[HINT] = skillsChoice(persons, HINT_INSTRUCTIONS[language], language, budget)
+  return Object.keys(questions).length === 0 ? null : { part: SKILLS_PART, questions }
+}
+
+/**
+ * One question of stage one: a Choice over `options` in their order and then
  * "(none)", each skill described by its profile (`profileFields`) when it
  * has one, else by its description; past MAX_CHOICE_OPTIONS - 1 skills, the
  * rest are left out. Within `budget` (estimated tokens of the question):
  * past it every profile drops its "not for" fields, then the last skills are
  * described by their descriptions instead, from the end, until it fits.
- * Null when there is no skill to ask about.
  */
-export function skillsPart(options: readonly SkillOption[], ask: { language?: Language; budget?: number } = {}): Part | null {
-  if (options.length === 0) return null
-  const language = ask.language ?? 'en'
+function skillsChoice(options: readonly SkillOption[], instructions: Readonly<Record<string, string>>, language: Language, budget: number): Question {
   const offered = options.slice(0, MAX_CHOICE_OPTIONS - 1)
   const question = (criteria: readonly (Text | null)[]): Question => {
     const named: Record<string, Text | null> = {}
     offered.forEach((option, i) => (named[option.name] = criteria[i] ?? null))
     named[NO_SKILL] = NO_SKILL_CRITERION[language]
-    return { type: 'choice', instructions: WHICH_INSTRUCTIONS[language], criteria: named }
+    return { type: 'choice', instructions, criteria: named }
   }
-  const budget = ask.budget ?? Number.POSITIVE_INFINITY
   const described = (option: SkillOption): Text | null => option.description.trim() || null
   const full = offered.map((option) => (option.profile ? profileFields(option.profile) : described(option)))
   const size = (criteria: readonly (Text | null)[]) => estimateTokens(JSON.stringify(question(criteria)))
@@ -189,7 +227,7 @@ export function skillsPart(options: readonly SkillOption[], ask: { language?: La
       if (total <= budget) total = size(criteria)
     }
   }
-  return { part: SKILLS_PART, questions: { [WHICH]: question(criteria) } }
+  return question(criteria)
 }
 
 /** A skill stage two re-reads, with the opening of its SKILL.md (null when it could not be read). */
@@ -211,7 +249,7 @@ function detailOf(candidate: Candidate): Record<string, string> {
  * between them when there are two or more (Clef refuses a Choice of one).
  * Null for no candidate.
  */
-export function rerankPart(candidates: readonly Candidate[], ask: { language?: Language } = {}): Part | null {
+export function stageTwoPart(candidates: readonly Candidate[], ask: { language?: Language } = {}): Part | null {
   if (candidates.length === 0) return null
   const language = ask.language ?? 'en'
   const details = candidates.map(detailOf)
@@ -236,7 +274,7 @@ export type SkillsItem = { message: string; recent_context: readonly ContextMess
 
 /**
  * The decision request the mod sends when the person sends `item.message`:
- * the shared state, the effort question, then the skills question over
+ * the shared state, the effort question, then the skills questions over
  * `options` (stage one; the `ranker`'s when given), in the ballot's order.
  * `part` reads the skills answers back (`answersFor(part, answers)`, then
  * `ranker.rank` with `request.state`); null when there is no option, and the
@@ -255,39 +293,56 @@ export function skillsRequest(
 
 /**
  * The options ranked, most relevant first, and the share stage one left on
- * "(none)". Two-stage rankings carry what stage one put forward (`shortlist`,
- * with each skill's share) and, when stage two did not answer, why
- * (`failed`): then `ranked` is empty.
+ * "(none)" in its question on the skills the main agent can load (1 when
+ * that question was not asked). Two-stage rankings carry what that question
+ * put forward (`shortlist`, with each skill's share), what the question on
+ * the skills only the person can start put forward when it was asked
+ * (`hints`), and, when stage two did not answer, why (`failed`): then
+ * `ranked` is empty.
  *
  * Relevance is absolute in a two-stage ranking: the second stage's yes/no
  * fit, each skill judged on its own. In stage one alone (`readSkills`,
- * `choiceRanker`) it is the option's share of the Choice: relative, the shares
- * of all options and "(none)" summing to 1.
+ * `readHints`) it is the option's share of its Choice: relative, the shares
+ * of the question's options and "(none)" summing to 1.
  */
 export type SkillRanking = {
   ranked: readonly { name: string; relevance: number }[]
   none: number
-  shortlist?: readonly { name: string; share: number }[]
+  shortlist?: readonly SkillShare[]
+  hints?: { shortlist: readonly SkillShare[]; none: number }
   failed?: Failure
 }
 
+/** A skill stage one put forward, with its share of its question. */
+export type SkillShare = { name: string; share: number }
+
 /**
- * The ranking `skills.which` gives (the part's answers, under its own ids):
- * normalized, since backends round; options the question did not offer are
- * ignored. Null when there is no usable answer.
+ * The ranking `skills.which` gives of the skills the main agent can load
+ * (the part's answers, under its own ids): normalized, since backends round;
+ * options the question did not offer are ignored. Null when there is no
+ * usable answer.
  */
 export function readSkills(answers: Readonly<Record<string, Answer>>, options: readonly SkillOption[]): SkillRanking | null {
-  const which = answers[WHICH]
-  if (which === undefined || which.type !== 'choice') return null
+  return readChoice(answers[WHICH], options.filter((option) => option.by === 'model'))
+}
+
+/** The ranking `skills.hint` gives of the skills only the person can start, read as `readSkills` reads its question. */
+export function readHints(answers: Readonly<Record<string, Answer>>, options: readonly SkillOption[]): SkillRanking | null {
+  return readChoice(answers[HINT], options.filter((option) => option.by === 'person'))
+}
+
+/** One question of stage one, answered, as a ranking of `options`; null when there is no usable answer. */
+function readChoice(answer: Answer | undefined, options: readonly SkillOption[]): SkillRanking | null {
+  if (answer === undefined || answer.type !== 'choice') return null
   const order = new Map(options.map((option, i) => [option.name, i]))
-  const offered = Object.entries(which.probabilities).filter(([name]) => order.has(name) || name === NO_SKILL)
+  const offered = Object.entries(answer.probabilities).filter(([name]) => order.has(name) || name === NO_SKILL)
   const sum = offered.reduce((total, [, p]) => total + p, 0)
   if (!(sum > 0)) return null
   const ranked = offered
     .filter(([name]) => name !== NO_SKILL)
     .map(([name, p]) => ({ name, relevance: p / sum }))
     .sort((a, b) => b.relevance - a.relevance || (order.get(a.name) ?? 0) - (order.get(b.name) ?? 0))
-  return { ranked, none: (which.probabilities[NO_SKILL] ?? 0) / sum }
+  return { ranked, none: (answer.probabilities[NO_SKILL] ?? 0) / sum }
 }
 
 /**
@@ -296,7 +351,7 @@ export function readSkills(answers: Readonly<Record<string, Answer>>, options: r
  * gave more, then to the candidates' order. A candidate whose `fits` is
  * missing is left out; null when none came back.
  */
-export function readRerank(answers: Readonly<Record<string, Answer>>, candidates: readonly Candidate[]): SkillRanking['ranked'] | null {
+export function readStageTwo(answers: Readonly<Record<string, Answer>>, candidates: readonly Candidate[]): SkillRanking['ranked'] | null {
   const best = answers[BEST]
   const share = (name: string) => (best?.type === 'choice' ? (best.probabilities[name] ?? 0) : 0)
   const read = candidates.flatMap((candidate, i) => {
@@ -309,10 +364,10 @@ export function readRerank(answers: Readonly<Record<string, Answer>>, candidates
 }
 
 /**
- * How a message's skills are ranked: the question the ranker adds to the
- * message's decision request (`part`, stage one), and how its answers become
- * a ranking (`rank`; given the state stage one was asked about, so a second
- * stage can ask about the same).
+ * How a message's skills are ranked: the questions the ranker adds to the
+ * message's decision request (`part`, stage one), and how their answers
+ * become a ranking (`rank`; given the state stage one was asked about, so a
+ * second stage can ask about the same).
  */
 export type SkillRanker = {
   part: (options: readonly SkillOption[]) => Part | null
@@ -321,14 +376,6 @@ export type SkillRanker = {
 
 /** What `rank` is told: the state stage one was asked about, and how long stage two may take (the ranker's own when left out). */
 export type RankAsked = { state: State; timeoutMs?: number }
-
-/** #10's ranker, stage one alone: relevance is each option's share of the Choice (`readSkills`). */
-export function choiceRanker(ask: { language?: Language } = {}): SkillRanker {
-  return {
-    part: (options) => skillsPart(options, ask),
-    rank: async (answers, options) => readSkills(answers, options),
-  }
-}
 
 /** What the mod's ranker needs of the host, as closures (each caller builds them over its own `$`, the eval over Node). */
 export type SkillRankerIo = {
@@ -342,9 +389,9 @@ export type SkillRankerIo = {
 export type RankerSettings = {
   /** The questions' language (the state keeps the person's own words either way). */
   language?: Language
-  /** How many of stage one's best stage two re-reads (one `fits` each). */
+  /** How many of stage one's best skills the main agent can load stage two re-reads (one `fits` each); see `shortlistCounts`. */
   shortlist: number
-  /** The most stage one's question may take, in estimated tokens (`questionBudget`); unbounded when left out. */
+  /** The most each question of stage one may take, in estimated tokens (`questionBudget`); unbounded when left out. */
   questionTokens?: number
   /** How long stage two may take, unless `rank` is told less. */
   timeoutMs: number
@@ -363,16 +410,27 @@ export const SHORTLIST_FLOOR = 0.1
 export const MAX_SHORTLIST = 63
 
 /**
+ * How many of each stage-one question's best skills stage two re-reads at
+ * most: of those the main agent can load, `shortlist` (at least one, and
+ * leaving room for the others within MAX_SHORTLIST); of those only the person
+ * can start, MAX_HINTS (no more are pointed out for a message).
+ */
+export function shortlistCounts(shortlist: number): { model: number; person: number } {
+  return { model: Math.max(1, Math.min(MAX_SHORTLIST - MAX_HINTS, Math.round(shortlist))), person: MAX_HINTS }
+}
+
+/**
  * The ranker the mod rates the session's skills with, wherever it does:
  * beside each message (features/skills.ts) and when the main agent calls
  * find_skill (features/find-skill.ts, #12). One entry, so the two always rank
  * alike. It needs `$` (a request of its own, files to read), so it takes
  * closures (`io`), which each caller builds in its own hook.
  *
- * Two stages (#11). `part(options)` is stage one, the question the caller
- * sends (in the message's ballot, or on its own); with its answers,
+ * Two stages (#11). `part(options)` is stage one, the questions the caller
+ * sends (in the message's ballot, or on its own); with their answers,
  * `rank(answers, options, { state, timeoutMs? })` sends stage two about the
- * same state, for the SHORTLIST_FLOOR-passing best `settings.shortlist`.
+ * same state, for each question's SHORTLIST_FLOOR-passing best
+ * (`shortlistCounts`), side by side.
  *
  * `rank` resolves null when stage one gave no usable answer; a ranking with
  * nothing in `ranked` when nothing passed the floor, or with `failed` when
@@ -384,11 +442,16 @@ export function modRanker(io: SkillRankerIo, settings: RankerSettings): SkillRan
   const part = (options: readonly SkillOption[]) => skillsPart(options, { language, ...(settings.questionTokens === undefined ? {} : { budget: settings.questionTokens }) })
   const rank = async (answers: Readonly<Record<string, Answer>>, options: readonly SkillOption[], asked: RankAsked): Promise<SkillRanking | null> => {
     const first = readSkills(answers, options)
-    if (first === null) return null
-    const count = Math.max(1, Math.min(MAX_SHORTLIST, Math.round(settings.shortlist)))
-    const shortlist = first.ranked.filter((entry) => entry.relevance >= SHORTLIST_FLOOR).slice(0, count)
-    const put = shortlist.map((entry) => ({ name: entry.name, share: entry.relevance }))
-    if (shortlist.length === 0) return { ranked: [], none: first.none, shortlist: put }
+    const hints = readHints(answers, options)
+    if (first === null && hints === null) return null
+    const counts = shortlistCounts(settings.shortlist)
+    const best = (reading: SkillRanking | null, count: number) => (reading?.ranked ?? []).filter((entry) => entry.relevance >= SHORTLIST_FLOOR).slice(0, count)
+    const loadable = best(first, counts.model)
+    const persons = best(hints, counts.person)
+    const shares = (entries: SkillRanking['ranked']): SkillShare[] => entries.map((entry) => ({ name: entry.name, share: entry.relevance }))
+    const put = { none: first?.none ?? 1, shortlist: shares(loadable), ...(hints === null ? {} : { hints: { shortlist: shares(persons), none: hints.none } }) }
+    const shortlist = [...loadable, ...persons]
+    if (shortlist.length === 0) return { ranked: [], ...put }
     const byName = new Map(options.map((option) => [option.name, option]))
     const candidates = await Promise.all(
       shortlist.map(async (entry): Promise<Candidate> => {
@@ -396,14 +459,14 @@ export function modRanker(io: SkillRankerIo, settings: RankerSettings): SkillRan
         return { option, opening: await io.opening(option).catch(() => null) }
       }),
     )
-    const second = rerankPart(candidates, { language }) as Part
+    const second = stageTwoPart(candidates, { language }) as Part
     const timeoutMs = Math.floor(asked.timeoutMs ?? settings.timeoutMs)
     const asked2: Asked =
       timeoutMs >= 1 ? await io.ask(mergeParts(asked.state, [second]), timeoutMs) : { ok: false, failure: { kind: 'timeout', detail: 'no time left for the second request' } }
-    if (!asked2.ok) return { ranked: [], none: first.none, shortlist: put, failed: asked2.failure }
-    const ranked = readRerank(answersFor(second, asked2.answers), candidates)
-    if (ranked === null) return { ranked: [], none: first.none, shortlist: put, failed: { kind: 'parse', detail: 'no fits answer' } }
-    return { ranked, none: first.none, shortlist: put }
+    if (!asked2.ok) return { ranked: [], ...put, failed: asked2.failure }
+    const ranked = readStageTwo(answersFor(second, asked2.answers), candidates)
+    if (ranked === null) return { ranked: [], ...put, failed: { kind: 'parse', detail: 'no fits answer' } }
+    return { ranked, ...put }
   }
   return { part, rank }
 }

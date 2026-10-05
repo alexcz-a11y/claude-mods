@@ -141,6 +141,12 @@ test("an effort the person names: asked only when their words may name one; the 
   expect(mentionsEffort('all agents at extra high please')).toBe(true)
   expect(mentionsEffort('推理强度拉满')).toBe(true)
   expect(mentionsEffort('给 utils/date.ts 补几个边界情况的单测')).toBe(false)
+  // "think" and "reason" alone are everyday words: only a way of asking for more thought counts.
+  expect(mentionsEffort('I think the cache is stale; find the reason it never refreshes')).toBe(false)
+  expect(mentionsEffort('Is this a reasonable fix? Rethink the retry loop if not.')).toBe(false)
+  expect(mentionsEffort('think hard about the locking before you touch it')).toBe(true)
+  expect(mentionsEffort('give the review agent more reasoning, the diff is subtle')).toBe(true)
+  expect(mentionsEffort('ultrathink this one')).toBe(true)
   const part = dispatchPart({ ...REVIEW, user_message: '这次所有 agent 的 effort 都开 high' })
   const question = part.questions.named_effort
   expect(question?.type === 'choice' && Object.keys(question.criteria)).toEqual(['none', 'low', 'medium', 'high', 'xhigh', 'max'])

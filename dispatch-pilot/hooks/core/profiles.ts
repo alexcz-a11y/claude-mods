@@ -10,19 +10,15 @@
 // profile's store key (from the SKILL.md, so an edited file gets a new one)
 // and keeps the profiles within their share of the store's 4 MiB.
 
-import type { PluginOptions } from 'claude-code'
 import { clipToTokens } from '../decision/context.ts'
 import { redactSecrets } from '../decision/redact.ts'
 import type { SkillProfile } from '../decision/skills.ts'
-import { stringOf } from './setup.ts'
 import { loadCatalog, type CatalogIo, type CatalogSkill } from './skills.ts'
 
 /** Bumped when the prompt changes: every profile is written again. */
 export const PROFILE_VERSION = 1
 /** A profile's store key is this prefix and a hash of what it was written from. */
 export const PROFILE_PREFIX = 'profile.'
-/** The cheap model, unless the person names another (`skillsProfileModel`). */
-export const DEFAULT_PROFILE_MODEL = 'haiku'
 /** How much of a SKILL.md the model reads: its start, where a skill says what it is for. */
 export const SOURCE_TOKENS = 3000
 /** The reply's cap, and how long one completion may take. */
@@ -38,11 +34,6 @@ export const ZH_CHARS = 60
  */
 export const MAX_PROFILES = 500
 export const EVICT_TO = 400
-
-/** The model that writes profiles, as the person set it (`skillsProfileModel`); it is part of every profile's key. */
-export function profileModel(ctx: { options: PluginOptions }): string {
-  return stringOf(ctx.options.skillsProfileModel, DEFAULT_PROFILE_MODEL).trim() || DEFAULT_PROFILE_MODEL
-}
 
 export const PROFILE_SYSTEM =
   'You write short routing profiles of Claude Code skills. A router that reads requests written in Chinese or English uses them to decide whether a skill fits a request. Reply with one JSON object and nothing else.'

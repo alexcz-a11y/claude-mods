@@ -14,7 +14,7 @@
 // Pure: no Node API. The tests and the Node scripts import it as it is.
 
 import { EFFORTS, isEffort, type Effort } from '../../hooks/decision/effort.ts'
-import type { MidturnInput } from '../../hooks/decision/midturn.ts'
+import { DETAIL_KEYS, OUTCOME_WORDS, type MidturnInput } from '../../hooks/decision/midturn.ts'
 
 export const KINDS = ['effort-submit', 'effort-midturn', 'subagent', 'skill'] as const
 export type Kind = (typeof KINDS)[number]
@@ -46,26 +46,38 @@ export type SubmitAsked = { message: string; recent_context: ContextEntry[] }
 export type EffortSubmitItem = Item<SubmitAsked, Effort, Effort[]>
 
 /**
+ * One tool call of an effort-midturn row: its name; `input`, the arguments
+ * that say what it worked on (only those the mod's toolDetail reads,
+ * DETAIL_KEYS; never what it wrote or returned); `result`, how it ended (the
+ * words the mod's line starts with) and, in the dataset's own words, what
+ * came of it. The mod never sends what came of a call: the suite writes each
+ * call's line from its outcome and `input`, as the mod does.
+ */
+export type MidturnRowTool = { name: string; result: string; input: Readonly<Record<string, string>> }
+export type MidturnRowStep = { assistant_text: string; tools: readonly MidturnRowTool[] }
+
+/**
  * effort-midturn: a snippet of a turn as the mid-turn re-decision reads it,
  * field for field (MidturnInput): the person's message, the step about to go
- * out, the level it goes at, the turn's counts and its latest steps. A row
- * has no `trouble`; a suite adds one where #7 would.
+ * out, the level it goes at, the turn's counts and its latest steps, each
+ * call as the dataset writes it (MidturnRowTool). A row has no `trouble`; a
+ * suite adds one where #7 would.
  */
-export type MidturnAsked = Omit<MidturnInput, 'trouble'>
+export type MidturnAsked = Omit<MidturnInput, 'trouble' | 'recent_steps'> & { recent_steps: readonly MidturnRowStep[] }
 export type EffortMidturnItem = Item<MidturnAsked, Effort, Effort[]>
 
-/** subagent: the models a dispatched agent can be given (fable only where an item really needs it). */
+/** `subagent` (dispatched agents): the models a dispatched agent can be given (fable only where an item really needs it). */
 export const MODELS = ['haiku', 'sonnet', 'opus', 'fable'] as const
 export type Model = (typeof MODELS)[number]
 
 /**
- * subagent: one dispatch through the Agent tool (`kind: 'agent'`, with its
+ * `subagent` (dispatched agents): one dispatch through the Agent tool (`kind: 'agent'`, with its
  * `description` and `agent_type`) or one `agent()` of a Workflow script
  * (`kind: 'workflow'`, with the workflow's description and the agent's
  * `label`; `agent_type` only when the script passes one). The prompt and
  * label keep placeholders such as `${file}`.
  */
-export type SubagentAsked = {
+export type AgentAsked = {
   user_message: string
   kind: 'agent' | 'workflow'
   agent_type: string | null
@@ -76,8 +88,8 @@ export type SubagentAsked = {
   label: string | null
 }
 /** haiku takes no effort (null); any other model one level. */
-export type SubagentAnswer = { model: Model; effort: Effort | null }
-export type SubagentItem = Item<SubagentAsked, SubagentAnswer, { model: Model[]; effort: (Effort | null)[] }>
+export type AgentAnswer = { model: Model; effort: Effort | null }
+export type AgentItem = Item<AgentAsked, AgentAnswer, { model: Model[]; effort: (Effort | null)[] }>
 
 /**
  * skill: what to recommend for a message, by skill name as the main agent's
@@ -180,8 +192,8 @@ const RULES: Record<Kind, (item: Record<string, unknown>, add: Add) => void> = {
     if (Array.isArray(item.accept) && item.accept.length > 2) add(`accept ${JSON.stringify(item.accept)} is wider than at most two levels`)
   },
   subagent: (item, add) => {
-    checkSubagentAsked(item, add)
-    checkSubagentAnswer(item, add)
+    checkAgentAsked(item, add)
+    checkAgentAnswer(item, add)
     checkPriority(item, add)
     checkFable(item, add)
   },
@@ -257,10 +269,14 @@ function checkSubmitAsked(item: Record<string, unknown>, add: Add): void {
   })
 }
 
-/** How a tool call ended, as each tool result of a midturn item starts. */
+/**
+ * How a tool call ended, as each tool result of a midturn item starts: the
+ * words the mod's line starts with (OUTCOME_WORDS), then `：` or `: `. A row
+ * holds only calls that have ended, so none is still running.
+ */
 const OUTCOMES: Record<Language, readonly string[]> = {
-  zh: ['成功：', '失败：', '被 hook 拦截：', '用户拒绝：'],
-  en: ['Success: ', 'Failed: ', 'Blocked by hook: ', 'Denied by user: '],
+  zh: (['ok', 'failed', 'blocked', 'denied'] as const).map((outcome) => `${OUTCOME_WORDS.zh[outcome]}：`),
+  en: (['ok', 'failed', 'blocked', 'denied'] as const).map((outcome) => `${OUTCOME_WORDS.en[outcome]}: `),
 }
 const COUNTS = ['judgments', 'changes', 'failures', 'hook_blocks'] as const
 
@@ -268,9 +284,11 @@ const COUNTS = ['judgments', 'changes', 'failures', 'hook_blocks'] as const
  * `{ message, step, current_effort, counts, recent_steps }` in both languages:
  * the step (`turn.step`'s index, from 0), the current level and the counts
  * the same in both, the recent steps oldest first, the same tools in both,
- * each result starting with how the call ended (`成功：` / `Success: ` ...).
- * `counts.failures` counts since the last forced escalation; hook blocks and
- * denials are not failures.
+ * each result starting with how the call ended (`成功：` / `Success: ` ...),
+ * each input the same in both but for its description. `counts.failures`
+ * counts since the counts last started over (the turn's start, or a forced
+ * escalation), as the mod counts them; hook blocks and denials are not
+ * failures.
  */
 function checkMidturnAsked(item: Record<string, unknown>, add: Add): void {
   const steps: Partial<Record<Language, unknown[]>> = {}
@@ -310,6 +328,11 @@ function checkMidturnAsked(item: Record<string, unknown>, add: Add): void {
       if (tool.name !== twin.name) add(`recent_steps[${i}].tools[${j}].name differs between zh and en`)
       const [a, b] = [outcome(tool.result, 'zh'), outcome(twin.result, 'en')]
       if (a !== -1 && b !== -1 && a !== b) add(`recent_steps[${i}].tools[${j}] outcome differs between zh and en`)
+      // What a call worked on is the same in both languages; its description is the model's words, in the turn's language.
+      if (!isRecord(tool.input) || !isRecord(twin.input)) return
+      for (const key of new Set([...Object.keys(tool.input), ...Object.keys(twin.input)])) {
+        if (key === 'description' ? key in tool.input !== key in twin.input : tool.input[key] !== twin.input[key]) add(`recent_steps[${i}].tools[${j}].input.${key} differs between zh and en`)
+      }
     })
   })
 }
@@ -322,9 +345,14 @@ function checkRecentStep(step: unknown, language: Language, at: string, add: Add
   step.tools.forEach((tool, j) => {
     const where = `${at}.tools[${j}]`
     if (!isRecord(tool)) return add(`${where} must be an object`)
-    exactKeys(tool, ['name', 'result'], where, add)
+    exactKeys(tool, ['name', 'result', 'input'], where, add)
     if (!nonEmpty(tool.name)) add(`${where}.name must be a tool name`)
     if (outcome(tool.result, language) === -1) add(`${where}.result must start with one of ${OUTCOMES[language].map((p) => JSON.stringify(p)).join(', ')}`)
+    if (!isRecord(tool.input)) return add(`${where}.input must be an object (the arguments that say what the call worked on; {} for none)`)
+    for (const [key, value] of Object.entries(tool.input)) {
+      if (!(DETAIL_KEYS as readonly string[]).includes(key)) add(`${where}.input has ${key}: an input holds only ${DETAIL_KEYS.join(', ')}`)
+      else if (!nonEmpty(value)) add(`${where}.input.${key} must be a non-empty string`)
+    }
   })
 }
 
@@ -333,13 +361,13 @@ function outcome(result: unknown, language: Language): number {
   return typeof result === 'string' ? OUTCOMES[language].findIndex((prefix) => result.startsWith(prefix)) : -1
 }
 
-const SUBAGENT_FIELDS = ['user_message', 'kind', 'agent_type', 'description', 'prompt', 'requested_model', 'workflow_description', 'label'] as const
+const AGENT_FIELDS = ['user_message', 'kind', 'agent_type', 'description', 'prompt', 'requested_model', 'workflow_description', 'label'] as const
 
 /** Both languages: the same kind, agent type, requested model and label; the fields each kind sets, and only those. */
-function checkSubagentAsked(item: Record<string, unknown>, add: Add): void {
+function checkAgentAsked(item: Record<string, unknown>, add: Add): void {
   for (const language of LANGUAGES) {
     const asked = item[language] as Record<string, unknown>
-    exactKeys(asked, SUBAGENT_FIELDS, language, add)
+    exactKeys(asked, AGENT_FIELDS, language, add)
     for (const field of ['user_message', 'prompt'] as const) if (!nonEmpty(asked[field])) add(`${language}.${field} must be a non-empty string`)
     if (asked.agent_type !== null && !nonEmpty(asked.agent_type)) add(`${language}.agent_type must be a name or null`)
     if (asked.requested_model !== null && !isModel(asked.requested_model)) add(`${language}.requested_model must be one of ${MODELS.join(', ')} or null`)
@@ -361,7 +389,7 @@ function checkSubagentAsked(item: Record<string, unknown>, add: Add): void {
 }
 
 /** `gold` one model and its effort (null for haiku); `accept` the acceptable models and efforts, null among the efforts exactly when haiku is among the models. */
-function checkSubagentAnswer(item: Record<string, unknown>, add: Add): void {
+function checkAgentAnswer(item: Record<string, unknown>, add: Add): void {
   const { gold, accept } = item
   if (!isRecord(gold) || !isModel(gold.model)) add(`gold must be { model: ${MODELS.join(' | ')}, effort }`)
   else if (gold.model === 'haiku' && gold.effort !== null) add('gold: haiku takes no effort (null)')
@@ -489,6 +517,7 @@ function nonEmpty(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== ''
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+/** A JSON object (not null, not an array). */
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

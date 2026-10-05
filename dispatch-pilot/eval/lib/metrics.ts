@@ -4,7 +4,11 @@
 //   with no answer counts as wrong; how many failed is beside it), and how
 //   often the answer was the gold one;
 // - the gap, Chinese accuracy minus English, and whether it passes the
-//   spec's bar (Chinese at most 3 points below English);
+//   spec's bar (Chinese less than 3 points below English: decision 2 of
+//   review 1);
+// - answers that came after the mod's wait (`slowMs`, its timeoutMs): how
+//   many in each language, and the accuracy the mod would have had, those
+//   counted as no decision (`inTime`);
 // - agreement: of the items answered in both languages, how many got the
 //   same answer in both;
 // - latency over answered requests: p50 and p90 by nearest rank, the max,
@@ -27,7 +31,7 @@ import type { Language } from './datasets.ts'
 import type { Row } from './runner.ts'
 import type { AnyItem, Settings, Suite } from './suite.ts'
 
-/** Chinese may be this far below English (spec: 中文准确率比英文低不超过 3 个百分点). */
+/** Chinese must be less than this far below English (spec: 中文准确率比英文低不超过 3 个百分点; exactly 3 points below fails, decision 2 of review 1). */
 export const MAX_GAP = 0.03
 
 export type LanguageSummary = {
@@ -40,6 +44,10 @@ export type LanguageSummary = {
   misses: Record<string, number>
   /** Each part's accuracy (a suite that grades parts): items whose answer got that part right, over all items. */
   parts?: Record<string, number>
+  /** Answers that took longer than the mod waits (`slowMs`): the mod would have gone on without them. */
+  late: number
+  /** Accuracy as the mod would have had it: a late answer counts as no decision (wrong). */
+  inTime: number
 }
 
 export type TagSummary = {
@@ -108,8 +116,8 @@ function partNames(parts: readonly (Readonly<Record<string, boolean>> | null | u
 
 function summarizeVariant(items: readonly AnyItem[], rows: readonly Row<unknown>[], variant: string, slowMs: number, parts: readonly string[]): VariantSummary {
   const of = (language: Language) => rows.filter((row) => row.language === language)
-  const zh = languageSummary(items.length, of('zh'), parts)
-  const en = languageSummary(items.length, of('en'), parts)
+  const zh = languageSummary(items.length, of('zh'), parts, slowMs)
+  const en = languageSummary(items.length, of('en'), parts, slowMs)
   const gap = round(zh.accuracy - en.accuracy)
 
   const byId = (language: Language) => new Map(of(language).map((row) => [row.id, row]))
@@ -144,7 +152,7 @@ function summarizeVariant(items: readonly AnyItem[], rows: readonly Row<unknown>
     zh,
     en,
     gap,
-    pass: gap >= -MAX_GAP,
+    pass: gap > -MAX_GAP,
     agreement: { items: both, same, rate: both === 0 ? null : rate(same, both) },
     latency: { answers: times.length, p50: nearestRank(times, 0.5), p90: nearestRank(times, 0.9), max: times.at(-1) ?? null, slow: times.filter((ms) => ms > slowMs).length },
     tags: [...tags]
@@ -153,7 +161,8 @@ function summarizeVariant(items: readonly AnyItem[], rows: readonly Row<unknown>
   }
 }
 
-function languageSummary(items: number, rows: readonly Row<unknown>[], parts: readonly string[]): LanguageSummary {
+function languageSummary(items: number, rows: readonly Row<unknown>[], parts: readonly string[], slowMs: number): LanguageSummary {
+  const late = (row: Row<unknown>) => row.ms !== null && row.ms > slowMs
   const misses: Record<string, number> = {}
   for (const row of rows) if (row.miss !== null) misses[row.miss] = (misses[row.miss] ?? 0) + 1
   return {
@@ -164,16 +173,19 @@ function languageSummary(items: number, rows: readonly Row<unknown>[], parts: re
     exact: rate(rows.filter((row) => row.exact).length, items),
     misses,
     ...(parts.length > 0 ? { parts: Object.fromEntries(parts.map((name) => [name, rate(rows.filter((row) => row.parts?.[name] === true).length, items)])) } : {}),
+    late: rows.filter(late).length,
+    inTime: rate(rows.filter((row) => row.correct && !late(row)).length, items),
   }
 }
 
 /** The value at rank ceil(p·n) of the sorted values (nearest rank); null for none. */
-function nearestRank(sorted: readonly number[], p: number): number | null {
+export function nearestRank(sorted: readonly number[], p: number): number | null {
   if (sorted.length === 0) return null
   return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)] as number
 }
 
-function rate(count: number, of: number): number {
+/** count over of, rounded to four places; 0 when there is nothing to count over. */
+export function rate(count: number, of: number): number {
   return of === 0 ? 0 : round(count / of)
 }
 

@@ -70,6 +70,27 @@ for (const language of ['zh', 'en'] as const) {
   })
 }
 
+// With the skills switch on (its default) the mod's request also asks about the
+// session's skills. Questions in one request are answered each on its own, the
+// state alone their context (TypeSafe's guide, S1 and Q12), so the eval asks the
+// effort question alone: the same state, the same question. Its latency is not
+// the message's: the skill eval's first stage is that request.
+test("with skills to ask about, the mod's request holds the eval's state and effort question as they are, the skills questions beside them", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+  const skills = {
+    commands: [{ name: 'tdd', description: 'Test-driven development.', source: 'user' as const }],
+    listed: [{ name: 'tdd', source: 'userSettings', tokens: 20 }],
+  }
+  const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(ITEM.zh.recent_context), skills })
+  await w.submit(ITEM.zh.message)
+
+  const { request } = submitRequest(ITEM, 'zh', { language: 'en', primitive: 'score' }, settingsFrom({}))
+  const sent = w.requests[0]?.body
+  expect(Object.keys(sent.questions)).toEqual(['effort.level', 'skills.which'])
+  expect(sent.state).toEqual(request.state)
+  expect(sent.questions['effort.level']).toEqual(request.questions['effort.level'])
+  expect(Object.keys(request.questions)).toEqual(['effort.level'])
+})
+
 test("the eval cuts the conversation to the mod's limits as the mod does", { options: { typesafeApiKey: 'k', contextMessages: 2, contextTokens: 100 } }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(ITEM.zh.recent_context) })
   await w.submit(ITEM.zh.message)

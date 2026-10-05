@@ -53,8 +53,8 @@ export type Step = { turnId: string; index: number; model: string; effort: unkno
 export type WorldOptions = {
   /** Answers each backend request (`n` counts from 1). Without one, every request gets HTTP 500. */
   backend?: (request: Sent, n: number) => Reply | Promise<Reply>
-  /** The transcript `$.session.messages()` returns. */
-  messages?: SessionMessage[]
+  /** The transcript `$.session.messages()` returns: as given, or as a function gives it at each call (one that grows as the turn goes). */
+  messages?: SessionMessage[] | (() => SessionMessage[])
   /** Files the mod can read, by absolute path (`$.fs.read`, `$.fs.exists`). */
   disk?: Record<string, string>
   /**
@@ -183,7 +183,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const steps: Step[] = []
   const prompts: { text: string; context: readonly string[] | undefined; origin: unknown }[] = []
   const turnIds: string[] = []
-  const toolCalls: { tool: string; input: Record<string, unknown>; isError: boolean; text: string | undefined }[] = []
+  const toolCalls: { tool: string; id: string; input: Record<string, unknown>; isError: boolean; text: string | undefined }[] = []
   const spawned: Spawned[] = []
   const completions: ModelCompleteRequest[] = []
   let calls = 0
@@ -234,7 +234,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     completions.push(e)
     return options.model ? complete(await options.model(e, completions.length)) : { deny: 'no model in this test' }
   })
-  on('session.messages', () => ({ value: options.messages ?? [] }))
+  on('session.messages', () => ({ value: typeof options.messages === 'function' ? options.messages() : (options.messages ?? []) }))
   on('fs.read', (_$, e) => (e.path in disk ? { value: disk[e.path] as string } : { deny: `ENOENT: ${e.path}` }))
   on('fs.exists', (_$, e) => ({ value: e.path in disk || Object.keys(disk).some((path) => path.startsWith(`${e.path}/`)) }))
   // A directory of the disk: what lies directly under it, a file or a directory (one holding files further down).
@@ -342,11 +342,11 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   // The tools themselves: each call that reaches them is recorded with its
   // arguments as they arrived (after every hook of the mod) and how it ended.
   on('tool.call', (_$, e) => {
-    const { tool, tool_use_id: _id, agentId: _agent, ...input } = e as { tool: string; tool_use_id?: string; agentId?: string } & Record<string, unknown>
+    const { tool, tool_use_id: id, agentId: _agent, ...input } = e as { tool: string; tool_use_id?: string; agentId?: string } & Record<string, unknown>
     const end = ending ?? { text: 'ok' }
     const failed = 'error' in end
     const text = failed ? end.error : 'text' in end ? end.text : 'ok'
-    toolCalls.push({ tool, input, isError: failed, text })
+    toolCalls.push({ tool, id: id ?? '', input, isError: failed, text })
     return failed ? { result: text, text, isError: true as const } : { result: text, text }
   })
 
@@ -367,7 +367,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     storedKeys: (): string[] => [...store.keys()],
     /** Every completion the mod asked of `$.model.complete`, as it reached the model. */
     completions,
-    /** Every tool call that reached the tools, its arguments as they arrived (a hook's rewrite included) and how it ended; a call a hook refused is not in it. */
+    /** Every tool call that reached the tools, its id, its arguments as they arrived (a hook's rewrite included) and how it ended; a call a hook refused is not in it. */
     toolCalls,
     /** The status line as last set (`undefined` once cleared or never set). */
     status: () => statuses.at(-1),
@@ -491,14 +491,15 @@ export function isSecondSkillsRequest(request: Sent): boolean {
 
 /**
  * Jev answering both requests a message's skills take (#11): the first (each
- * Score `levels`, effort medium by default; `skills.which` these `shares`),
- * and the second, where each `skills.fits.<i>` is the fit `fits` gives the
- * skill its instructions name (0 when left out) and `skills.best` puts all on
- * the best-fitting one.
+ * Score `levels`, effort medium by default; `skills.which`, the skills the
+ * main agent can load, and `skills.hint`, those only the person can start,
+ * each these `shares` of its own options), and the second, where each
+ * `skills.fits.<i>` is the fit `fits` gives the skill its instructions name
+ * (0 when left out) and `skills.best` puts all on the best-fitting one.
  */
 export function rates(shares: Record<string, number>, fits: Record<string, number> = {}, levels: readonly number[] = [0, 1, 0, 0, 0]) {
   return (request: Sent): Reply => {
-    if (!isSecondSkillsRequest(request)) return jev(levels, { shares: { 'skills.which': shares } })(request)
+    if (!isSecondSkillsRequest(request)) return jev(levels, { shares: { 'skills.which': shares, 'skills.hint': shares } })(request)
     const questions = request.body.questions as Record<string, { instructions?: { skill?: { name?: string } } }>
     const nouls: Record<string, number> = {}
     for (const [id, question] of Object.entries(questions)) {

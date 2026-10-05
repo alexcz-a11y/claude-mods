@@ -10,7 +10,8 @@
 // 2 and 684-1134 ms at 4, so latency is only the mod's at 1; more is faster
 // for accuracy alone), --timeout 10000 (ms per attempt),
 // --retries 2, --option contextTokens=4000 (one of the mod's options, as
-// /config sets it; the manifest's defaults otherwise), --max-usd 1 (refuse a
+// /config sets it, read by the type the manifest gives it: a number, true or
+// false, or text; the manifest's defaults otherwise), --max-usd 1 (refuse a
 // run estimated to cost more), --label <word>, --no-save.
 //
 // Credentials: TYPESAFE_API_KEY for Jev; CLOUDFLARE_ACCOUNT_ID and
@@ -19,28 +20,29 @@
 //
 // Saves eval/results/<suite>/<date>-<backend>[-<label>].json: the settings,
 // the backend and the model that answered, hashes of the dataset and of the
-// decision module, the questions each variant asked, the summary, and every
-// answer (one line per item and language).
+// code the requests and grades come from (the mod's hooks, the eval's
+// suites), the questions each variant asked, the summary, and every answer
+// (one line per item and language).
 
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { PluginOptions } from 'claude-code'
 import type { Backend } from '../hooks/decision/backend.ts'
-import { CLEF_MODEL, clefBackend } from '../hooks/decision/clef.ts'
+import { CLEF_MODEL } from '../hooks/decision/clef.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
-import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
 import { summarize, type Summary } from './lib/metrics.ts'
 import { runSuite, type Row } from './lib/runner.ts'
-import { settingsFrom } from './lib/suite.ts'
+import { optionsFrom, settingsFrom } from './lib/suite.ts'
 import { SUITES } from './lib/suites.ts'
-import { CREDENTIALS_FILE, MOD_DIR, RESULTS_DIR, REVIEW_DIR, credential, datasetFile, nodeHost, nodeIo, readCatalog, readDataset, shown } from './node.ts'
+import { RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, modCode, nodeHost, nodeIo, readDataset, readManifest, shown } from './node.ts'
 
 /** Input price per million tokens; output is free on both (docs.typesafe.ai/models, the Clef model page; 2026-10-04). */
-const PRICES: Readonly<Record<string, number>> = { jev: 0.042, clef: 0.24, 'clef-flash': 0.09 }
+const PRICES: Readonly<Record<string, number>> = { jev: 0.042, clef: 0.24 }
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -71,12 +73,13 @@ const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <sui
 const entry = SUITES[name] ?? fail(`no suite for "${name}" yet (suites: ${Object.keys(SUITES).join(', ')})`)
 const { kind, path } = datasetFile(name)
 const dataset = readDataset(path)
-const checked = validateDataset(kind, dataset.items, { catalog: kind === 'skill' ? readCatalog(path) : undefined })
+const checked = validateDataset(kind, dataset.items, { catalog: catalogFor(kind, path) })
 if (dataset.errors.length + checked.errors.length > 0) fail(`${shown(path)} is not valid; run eval/validate.ts ${name}`)
 const sha = (text: string) => createHash('sha256').update(text).digest('hex')
-// A suite that reads more than its items (the skill suite) is built from what lies beside its dataset; the results hash those files too.
+// A suite built when the run starts gets what lies beside its dataset (the skill suite; the results hash those files
+// too) and every item of the dataset (the `subagent` suite asks about a Workflow's agents together).
 const beside: Record<string, string> = {}
-const suite = typeof entry === 'function' ? await entry(nodeHost(path, (file, text) => (beside[file] = sha(text)))) : entry
+const suite = typeof entry === 'function' ? await entry(nodeHost(path, (file, text) => (beside[file] = sha(text))), dataset.items) : entry
 for (const warning of suite.about?.warnings ?? []) console.log(`warning: ${warning}`)
 
 const variants = values.variants?.split(',') ?? suite.variants
@@ -91,15 +94,14 @@ if (values.ids !== undefined) {
 if (values.limit !== undefined) items = items.slice(0, Number(values.limit))
 
 // The mod's settings as the engine hands them over: the manifest's defaults, then --option.
-const manifest = JSON.parse(readFileSync(join(MOD_DIR, '.claude-plugin', 'plugin.json'), 'utf8')) as { userConfig?: Record<string, { default?: unknown; sensitive?: boolean }> }
-const options: Record<string, unknown> = Object.fromEntries(Object.entries(manifest.userConfig ?? {}).map(([key, spec]) => [key, spec.default]))
-for (const assignment of values.option) {
-  const [key, value] = assignment.split(/=(.*)/s, 2)
-  if (!key || value === undefined) fail(`--option takes name=value, not ${assignment}`)
-  options[key] = value !== '' && Number.isFinite(Number(value)) ? Number(value) : value
+const manifest = readManifest()
+let options: Record<string, unknown>
+try {
+  // The decision model is the backend under evaluation (--backend), whatever the manifest's default says.
+  options = { ...optionsFrom(manifest.userConfig ?? {}, values.option), decisionModel: values.backend }
+} catch (error) {
+  fail(error instanceof Error ? error.message : String(error))
 }
-// The decision model is the backend under evaluation (--backend), whatever the manifest's default says.
-options.decisionModel = values.backend
 const settings = settingsFrom(options as PluginOptions)
 
 const backendName = values.backend
@@ -135,22 +137,13 @@ if (values.estimate) process.exit(0)
 const maxUsd = Number(values['max-usd'])
 if (estimatedUsd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothing sent`)
 
-const secrets: string[] = []
-async function makeBackend(): Promise<Backend> {
-  if (backendName === 'jev') {
-    const key = credential('TYPESAFE_API_KEY') ?? fail(`no TYPESAFE_API_KEY in the environment or ${CREDENTIALS_FILE}`)
-    secrets.push(key)
-    return jevBackend(key, { model })
-  }
-  if (backendName === 'clef') {
-    const accountId = credential('CLOUDFLARE_ACCOUNT_ID') ?? fail(`no CLOUDFLARE_ACCOUNT_ID in the environment or ${CREDENTIALS_FILE}`)
-    const apiToken = credential('CLOUDFLARE_AUTH_TOKEN') ?? fail(`no CLOUDFLARE_AUTH_TOKEN in the environment or ${CREDENTIALS_FILE}`)
-    secrets.push(accountId, apiToken)
-    return clefBackend({ accountId, apiToken })
-  }
-  return fail(`no backend "${backendName}" (jev, clef)`)
+let chosen: { backend: Backend; secrets: string[] }
+try {
+  chosen = backendFor(backendName, backendName === 'jev' ? model : undefined)
+} catch (error) {
+  fail(error instanceof Error ? error.message : String(error))
 }
-const backend = await makeBackend()
+const { backend, secrets } = chosen
 
 const started = new Date()
 const rows: Row<unknown>[] = await runSuite(suite, items, {
@@ -180,7 +173,6 @@ const requests = rows.reduce((sum, row) => sum + (row.requests ?? 1), 0)
 console.log(`answers ${rows.length}, requests ${requests} (attempts ${rows.reduce((sum, row) => sum + row.attempts, 0)}), input tokens ${inputTokens}, about $${usd.toFixed(4)}; answered by ${answeredBy.join(', ') || 'none'}`)
 
 if (!values['no-save']) {
-  const decisionDir = join(MOD_DIR, 'hooks', 'decision')
   const reviewPath = join(REVIEW_DIR, `${kind}.review.jsonl`)
   const decided = existsSync(reviewPath) ? new Set(readFileSync(reviewPath, 'utf8').split('\n').flatMap((line) => (line.trim() ? [JSON.parse(line).id] : []))).size : 0
   const result = {
@@ -195,7 +187,8 @@ if (!values['no-save']) {
       ...(Object.keys(beside).length === 0 ? {} : { beside }),
       review: { file: existsSync(reviewPath) ? shown(reviewPath) : null, decided },
     },
-    code: Object.fromEntries(readdirSync(decisionDir).sort().map((file) => [`hooks/decision/${file}`, sha(readFileSync(join(decisionDir, file), 'utf8')).slice(0, 16)])),
+    // Every file of the mod and of the eval's suites a request or a grade may come from.
+    code: modCode(),
     settings: {
       context: settings.context,
       thetaMax: settings.thetaMax,
@@ -265,6 +258,9 @@ function report(summary: Summary): void {
         String(v.zh.failed + v.en.failed),
       ]),
     )
+  }
+  for (const v of summary.variants) {
+    console.log(`${v.variant}: within the mod's wait (${settings.timeoutMs} ms; a later answer counted as none) right zh/en: ${pct(v.zh.inTime)}/${pct(v.en.inTime)}; late answers zh/en: ${v.zh.late}/${v.en.late}`)
   }
   for (const v of summary.variants) {
     const parts = Object.keys(v.zh.parts ?? {})
