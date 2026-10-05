@@ -11,10 +11,13 @@
 // (features/skill-profiles.ts writes them in the background at session
 // start), by its description until then.
 //
-// Its switch is `skills` (`/dp skills off`, and `/dp off`): off, nothing is
-// suggested and the main agent gets the listing back: a listing the engine
-// asks about from then on passes as it is, and one already withheld in this
-// conversation (the engine keeps that answer) goes beside the next message.
+// Its switch is `skills` (`/dp skills off`, and `/dp off`). It starts on with
+// Jev and off with Clef (core/setup.ts BACKEND_DEFAULTS: Clef's first stage
+// takes longer than a message can wait); `/dp skills on` turns it on with
+// either. Off, nothing is suggested and the main agent gets the listing back:
+// a listing the engine asks about from then on passes as it is, and one
+// already withheld in this conversation (the engine keeps that answer) goes
+// beside the next message.
 // `skill-profiles` switches the profiles alone (neither written nor offered).
 // The find_skill tool (#12) has a switch of its own.
 
@@ -31,7 +34,7 @@ import { isPersonsMessage } from '../core/prompts.ts'
 import type { Ctx } from '../core/setup.ts'
 import { describeStages, listingNames, rankingSettings, trimListing, type CatalogSkill } from '../core/skills.ts'
 import { failureText, setStatus } from '../core/status.ts'
-import { defineSwitch, isOn } from '../core/switches.ts'
+import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 
 const SHOWN = { plugin: 'dispatch-pilot', key: 'skillsShown' } as const
 const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
@@ -98,7 +101,8 @@ async function openingOf($: EngineInterface, catalog: readonly CatalogSkill[], n
 }
 
 export function registerSkills(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: 'suggests the skills that fit each message; the full skill listing stays out', segments: ['skills'] })
+  // On or off until the person flips it, by the decision model: off with Clef, whose first stage takes longer than a message can wait.
+  defineSwitch({ name: SWITCH, info: 'suggests the skills that fit each message; the full skill listing stays out', default: ctx.config.skills.suggestByDefault, segments: ['skills'] })
   defineSwitch({ name: PROFILES, info: 'rates skills by bilingual profiles a cheap model writes once per SKILL.md version (off: by description)' })
 
   /** Skills the main agent keeps in its listing (names as the listing spells them). */
@@ -131,7 +135,12 @@ export function registerSkills(on: On, ctx: Ctx): void {
   // outside this feature, once this is done.
   on('session.start', { cwd: /(?:)/ }, async ($, e, next) => {
     const result = await next(e)
-    if (!isOn(SWITCH)) return result
+    if (!isOn(SWITCH)) {
+      if (masterOn() && !ctx.config.skills.suggestByDefault) {
+        $.ui.log(`skills: off with ${ctx.config.backend} until /dp skills on, so the main agent keeps the skill listing (find_skill still answers)`, { to: 'debug' })
+      }
+      return result
+    }
     if (!active()) {
       $.ui.log('skills: no decision model is set up, so the main agent keeps the skill listing and nothing is suggested', { to: 'debug' })
       return result

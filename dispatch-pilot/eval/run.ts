@@ -8,11 +8,15 @@
 // --limit N (all items), --concurrency 1 (Jev answers one key's requests one
 // after another: on 2026-10-04 the p50 was 271 ms at 1 in flight, 543 ms at
 // 2 and 684-1134 ms at 4, so latency is only the mod's at 1; more is faster
-// for accuracy alone), --timeout 10000 (ms per attempt),
+// for accuracy alone), --timeout <ms> (per attempt: by default four times the
+// mod's timeoutMs for the backend, at least 10000, so a slow answer is still
+// measured; the summary counts the answers later than the mod would wait),
 // --retries 2, --option contextTokens=4000 (one of the mod's options, as
 // /config sets it, read by the type the manifest gives it: a number, true or
-// false, or text; the manifest's defaults otherwise), --max-usd 1 (refuse a
-// run estimated to cost more), --label <word>, --no-save.
+// false, or text; the manifest's defaults otherwise, and for the options whose
+// default depends on the decision model, the backend's: core/setup.ts
+// BACKEND_DEFAULTS), --max-usd 1 (refuse a run estimated to cost more),
+// --label <word>, --no-save.
 //
 // Credentials: TYPESAFE_API_KEY for Jev; CLOUDFLARE_ACCOUNT_ID and
 // CLOUDFLARE_AUTH_TOKEN for Clef: the environment first, then
@@ -37,7 +41,7 @@ import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
 import { summarize, type Summary } from './lib/metrics.ts'
 import { runSuite, type Row } from './lib/runner.ts'
-import { optionsFrom, settingsFrom } from './lib/suite.ts'
+import { optionsFor, settingsFrom } from './lib/suite.ts'
 import { SUITES } from './lib/suites.ts'
 import { RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, modCode, nodeHost, nodeIo, readDataset, readManifest, shown } from './node.ts'
 
@@ -54,7 +58,7 @@ const { values, positionals } = parseArgs({
     ids: { type: 'string' },
     limit: { type: 'string' },
     concurrency: { type: 'string', default: '1' },
-    timeout: { type: 'string', default: '10000' },
+    timeout: { type: 'string' },
     retries: { type: 'string', default: '2' },
     option: { type: 'string', multiple: true, default: [] },
     estimate: { type: 'boolean', default: false },
@@ -93,18 +97,21 @@ if (values.ids !== undefined) {
 }
 if (values.limit !== undefined) items = items.slice(0, Number(values.limit))
 
-// The mod's settings as the engine hands them over: the manifest's defaults, then --option.
+// The mod's settings as the engine hands them over: the manifest's defaults, then --option; what the manifest leaves
+// unset, the backend's defaults (readConfig).
 const manifest = readManifest()
+const backendName = values.backend
+if (backendName !== 'jev' && backendName !== 'clef') fail(`no backend "${backendName}" (jev, clef)`)
 let options: Record<string, unknown>
 try {
   // The decision model is the backend under evaluation (--backend), whatever the manifest's default says.
-  options = { ...optionsFrom(manifest.userConfig ?? {}, values.option), decisionModel: values.backend }
+  options = optionsFor(backendName, manifest.userConfig ?? {}, values.option)
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 }
 const settings = settingsFrom(options as PluginOptions)
-
-const backendName = values.backend
+/** How long one attempt may take: --timeout, else four times the mod's timeoutMs for this backend, at least 10 s. */
+const attemptMs = values.timeout === undefined ? Math.max(10_000, 4 * settings.timeoutMs) : Number(values.timeout)
 if (backendName === 'clef' && values.model !== undefined && values.model !== CLEF_MODEL) fail(`the Clef backend asks ${CLEF_MODEL} only`)
 const model = backendName === 'clef' ? CLEF_MODEL : (values.model ?? JEV_MODEL)
 const price = PRICES[backendName === 'jev' ? 'jev' : model] ?? fail(`no price known for ${backendName} ${model}`)
@@ -154,7 +161,7 @@ const rows: Row<unknown>[] = await runSuite(suite, items, {
   settings,
   variants,
   languages,
-  timeoutMs: Number(values.timeout),
+  timeoutMs: attemptMs,
   retries: Number(values.retries),
   concurrency: Number(values.concurrency),
   onRow: (_row, done, total) => {
@@ -195,8 +202,10 @@ if (!values['no-save']) {
       timeoutMs: settings.timeoutMs,
       // Every option as the run read it (a feature's own, such as agentOverride), less the sensitive ones.
       options: Object.fromEntries(Object.entries(options).filter(([key]) => manifest.userConfig?.[key]?.sensitive !== true)),
+      // The options the run left unset, with the value the backend's defaults gave each (core/setup.ts BACKEND_DEFAULTS).
+      backendDefaults: Object.fromEntries(settings.defaults.used),
     },
-    run: { items: items.length, variants, languages, timeoutMs: Number(values.timeout), retries: Number(values.retries), concurrency: Number(values.concurrency), requests, attempts: rows.reduce((sum, row) => sum + row.attempts, 0), inputTokens, usd: Number(usd.toFixed(4)) },
+    run: { items: items.length, variants, languages, timeoutMs: attemptMs, retries: Number(values.retries), concurrency: Number(values.concurrency), requests, attempts: rows.reduce((sum, row) => sum + row.attempts, 0), inputTokens, usd: Number(usd.toFixed(4)) },
     questions: Object.fromEntries(variants.map((variant) => [variant, suite.questions(variant)])),
     ...(suite.scoring === undefined ? {} : { scoring: suite.scoring }),
     ...(suite.about === undefined ? {} : { about: suite.about }),

@@ -13,7 +13,7 @@
     "decisionModel": {
       "type": "string",
       "title": "Decision model",
-      "description": "Which model makes the decisions: jev (TypeSafe; needs the TypeSafe API key) or clef (Cloudflare Workers AI; needs the Cloudflare account ID and API token). The other is never used as a fallback: when the chosen one fails, the message goes on unrouted. Clef answers more slowly than Jev, so raise the decision timeout (about 3000 ms) when you choose it.",
+      "description": "Which model makes the decisions: jev (TypeSafe; needs the TypeSafe API key) or clef (Cloudflare Workers AI; needs the Cloudflare account ID and API token). The other is never used as a fallback: when the chosen one fails, the message goes on unrouted. Some options default by the model chosen: with Clef, which answers more slowly and sometimes reads only the start of a long request, the decision timeout is 3000 ms, the context budget at most 2000 tokens, and skill suggestions start off (/dp skills on turns them on).",
       "options": ["jev", "clef"],
       "default": "jev"
     },
@@ -41,26 +41,22 @@
     "timeoutMs": {
       "type": "number",
       "title": "Decision timeout (ms)",
-      "description": "How long a message waits for the decision model (200 to 8000). Past it the message goes on unrouted, at the session's effort, and the status line says so. Clef answers more slowly than Jev (a first request often takes 1.5 s or more): about 3000 suits it.",
-      "default": 1500
+      "description": "How long a message waits for the decision model (200 to 8000). Past it the message goes on unrouted, at the session's effort, and the status line says so. Default: 1500 with Jev, 3000 with Clef, which answers more slowly (a first request often takes 1.5 s or more)."
     },
     "contextMessages": {
       "type": "number",
       "title": "Recent messages sent",
-      "description": "How many recent messages the decision model reads beside yours (0 to 32): their text and the names of the tools they called, never file contents or tool output, secrets masked.",
-      "default": 4
+      "description": "How many recent messages the decision model reads beside yours (0 to 32): their text and the names of the tools they called, never file contents or tool output, secrets masked. Default 4 with either decision model (not calibrated for Clef: Jev's value)."
     },
     "contextTokens": {
       "type": "number",
       "title": "Context budget (tokens)",
-      "description": "How many tokens your message and the recent messages may take together (100 to 16000), counted the same way for Chinese and English; older messages are dropped first.",
-      "default": 2000
+      "description": "How many tokens your message and the recent messages may take together (100 to 16000; with Clef at most 2000), counted the same way for Chinese and English; older messages are dropped first. Default 2000 with either decision model. With Clef a larger value reads as 2000: Clef sometimes reads only about the first 2,100 tokens of what it is sent, and the newest messages come last, so they would be the ones lost."
     },
     "thetaMax": {
       "type": "number",
       "title": "Threshold for max effort",
-      "description": "The main agent goes to max only when the decision model gives max at least this probability (0 to 1); otherwise it gets the most likely of the other levels.",
-      "default": 0.5
+      "description": "The main agent goes to max only when the decision model gives max at least this probability (0 to 1); otherwise it gets the most likely of the other levels. Default 0.5 with either decision model (not calibrated for Clef: Jev's value)."
     },
     "rejudgeEvery": {
       "type": "number",
@@ -71,14 +67,12 @@
     "thetaUp": {
       "type": "number",
       "title": "Threshold to raise effort mid-turn",
-      "description": "A re-decision raises the effort only when the decision model's confidence is at least this (0 to 1).",
-      "default": 0.4
+      "description": "A re-decision raises the effort only when the decision model's confidence is at least this (0 to 1). Default 0.4 with either decision model (not calibrated for Clef, whose confidence runs much lower than Jev's: Jev's value)."
     },
     "thetaDown": {
       "type": "number",
       "title": "Threshold to lower effort mid-turn",
-      "description": "A re-decision lowers the effort, by one level at most, only when the decision model's confidence is at least this (0 to 1; never below the raise threshold).",
-      "default": 0.6
+      "description": "A re-decision lowers the effort, by one level at most, only when the decision model's confidence is at least this (0 to 1; never below the raise threshold). Default 0.6 with either decision model (not calibrated for Clef: Jev's value)."
     },
     "holdSteps": {
       "type": "number",
@@ -89,8 +83,7 @@
     "rejudgeSteps": {
       "type": "number",
       "title": "Recent steps read when re-deciding",
-      "description": "How many of the turn's latest steps the decision model reads when it re-decides (1 to 16): the main agent's last text and the tools it called with how each ended, never file contents or tool output, secrets masked. The context budget bounds them too.",
-      "default": 4
+      "description": "How many of the turn's latest steps the decision model reads when it re-decides (1 to 16): the main agent's last text and the tools it called with how each ended, never file contents or tool output, secrets masked. The context budget bounds them too. Default 4 with either decision model (not calibrated for Clef: Jev's value)."
     },
     "rejudgeWaitMs": {
       "type": "number",
@@ -120,8 +113,7 @@
     "thetaExpected": {
       "type": "number",
       "title": "Threshold to find failures expected",
-      "description": "When the decision model rates the failures at least this likely to be what the work expects (0 to 1), nothing is forced: the failures start counting from zero and the effort is left to the ordinary mid-turn rules. Low on purpose: measured on a few hand-written cases, Jev rates failures that are expected 0.15 to 0.72 and ones that are not 0.09 to 0.16 (Clef 0.27 to 0.90 and 0.03 to 0.11).",
-      "default": 0.25
+      "description": "When the decision model rates the failures at least this likely to be what the work expects (0 to 1), nothing is forced: the failures start counting from zero and the effort is left to the ordinary mid-turn rules. Low on purpose: measured on a few hand-written cases, Jev rates failures that are expected 0.15 to 0.72 and ones that are not 0.09 to 0.16 (Clef 0.27 to 0.90 and 0.03 to 0.11). Default 0.25 with either decision model (not calibrated for Clef: Jev's value)."
     },
     "escalateHaikuTo": {
       "type": "string",
@@ -138,8 +130,7 @@
     "agentOverride": {
       "type": "number",
       "title": "Confidence to override the main agent's model pick",
-      "description": "When the main agent names a model for an agent it dispatches, the decision model's pick replaces it only at this confidence or above (0 to 1). A model you name yourself in your message is never replaced.",
-      "default": 0.6
+      "description": "When the main agent names a model for an agent it dispatches, the decision model's pick replaces it only at this confidence or above (0 to 1). A model you name yourself in your message is never replaced. Default 0.6 with either decision model (not calibrated for Clef: Jev's value)."
     },
     "skillsMax": {
       "type": "number",
@@ -150,8 +141,7 @@
     "skillsMinRelevance": {
       "type": "number",
       "title": "Least relevance to suggest",
-      "description": "The relevance a skill needs to be suggested (0 to 1): how likely the decision model judges that the skill does the kind of work the message asks for, each skill judged on its own after its instructions are re-read.",
-      "default": 0.7
+      "description": "The relevance a skill needs to be suggested (0 to 1): how likely the decision model judges that the skill does the kind of work the message asks for, each skill judged on its own after its instructions are re-read. Default 0.75 with either decision model (not calibrated for Clef: Jev's value)."
     },
     "skillsShortlist": {
       "type": "number",
@@ -194,8 +184,7 @@
     "findSkillMinRelevance": {
       "type": "number",
       "title": "Least relevance find_skill returns",
-      "description": "The relevance a skill needs for find_skill to return it (0 to 1): how likely the decision model judges that the skill does the kind of work the main agent names, each skill judged on its own after its instructions are re-read.",
-      "default": 0.5
+      "description": "The relevance a skill needs for find_skill to return it (0 to 1): how likely the decision model judges that the skill does the kind of work the main agent names, each skill judged on its own after its instructions are re-read. Default 0.5 with either decision model (not calibrated for Clef: Jev's value)."
     },
     "workflowMode": {
       "type": "string",

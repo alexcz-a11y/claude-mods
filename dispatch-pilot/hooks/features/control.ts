@@ -18,7 +18,7 @@
 import type { On, SessionMeasureInput } from 'claude-code'
 import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
 import { decisionLine, MAX_DECISIONS, type DecisionEntry } from '../core/decisions.ts'
-import type { Ctx } from '../core/setup.ts'
+import { describeDefaults, type Ctx } from '../core/setup.ts'
 import { pauseStatus, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn, listSwitches, loadOverrides, masterOn, overrides, parseOverrides, setMaster, setSwitch } from '../core/switches.ts'
 import { errorText } from '../decision/backend.ts'
@@ -28,13 +28,15 @@ const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 /** The switches the person flipped, in $.store. */
 const SWITCHES_KEY = 'switches'
 
-export function registerControl(on: On, _ctx: Ctx): void {
+export function registerControl(on: On, ctx: Ctx): void {
   defineSwitch({ name: 'signals', info: 'records context, limit and cost readings in the debug log; no decision uses them' })
 
   // Under a match-all matcher: other features set themselves up at session start too.
   on('session.start', { cwd: /(?:)/ }, async ($, e, next) => {
     // The person's switches first: the features beneath read them while the session starts.
     loadOverrides(await $.store.get(SWITCHES_KEY).catch(() => undefined))
+    // Which options the decision model's defaults decided (core/setup.ts BACKEND_DEFAULTS).
+    $.ui.log(describeDefaults(ctx.config), { to: 'debug' })
     const result = await next(e)
     if (!masterOn()) pauseStatus(true, (line) => $.ui.status(line))
     await $.command

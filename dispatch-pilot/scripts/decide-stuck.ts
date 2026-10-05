@@ -2,7 +2,8 @@
 // the request the mod sends when a loop's tool calls keep failing
 // (`stuckRequest`: the mid-turn effort question with the trouble flag, and
 // whether the failures were expected), with the mod's settings as the
-// manifest's defaults give them, sent from Node. For a manual check.
+// manifest's defaults and the chosen decision model's give them (core/setup.ts
+// BACKEND_DEFAULTS), sent from Node. For a manual check.
 //
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-stuck.ts <input.json> [--zh] [--steps 4] [--timeout 5000]
 //   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_AUTH_TOKEN=... node dispatch-pilot/scripts/decide-stuck.ts <input.json> --clef
@@ -12,7 +13,8 @@
 // working on this request`), each tool's line as the mod writes it. `--zh`
 // asks the questions in Chinese; `--steps` overrides rejudgeSteps. Prints the
 // probability that the failures are expected, the effort levels'
-// probabilities and the latency. `--timeout` defaults to the mod's timeoutMs.
+// probabilities and the latency. `--timeout` defaults to the mod's timeoutMs
+// for the decision model asked.
 // Credentials come from the environment or ~/.config/dispatch-pilot/eval.env
 // and are never printed. Node 22.18+ runs .ts as is.
 
@@ -21,7 +23,7 @@ import { readExpected, stuckRequest } from '../hooks/decision/escalation.ts'
 import { EFFORTS, pickEffort, readEffort } from '../hooks/decision/effort.ts'
 import { MIDTURN_LEVEL, type MidturnInput } from '../hooks/decision/midturn.ts'
 import { answersFor, type Part } from '../hooks/decision/system-one.ts'
-import { optionsFrom, settingsFrom } from '../eval/lib/suite.ts'
+import { optionsFor, settingsFrom } from '../eval/lib/suite.ts'
 import { backendFor, nodeIo, readManifest } from '../eval/node.ts'
 
 const args = process.argv.slice(2)
@@ -35,10 +37,11 @@ if (!file) {
   console.error('usage: node scripts/decide-stuck.ts <input.json> [--zh] [--clef] [--steps 4] [--timeout ms]')
   process.exit(2)
 }
-const settings = settingsFrom(optionsFrom(readManifest().userConfig ?? {}, value('--steps') === undefined ? [] : [`rejudgeSteps=${value('--steps')}`]))
+const chosen = flag('--clef') ? 'clef' : 'jev'
+const settings = settingsFrom(optionsFor(chosen, readManifest().userConfig ?? {}, value('--steps') === undefined ? [] : [`rejudgeSteps=${value('--steps')}`]))
 let backend
 try {
-  backend = backendFor(flag('--clef') ? 'clef' : 'jev').backend
+  backend = backendFor(chosen).backend
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error))
   process.exit(2)

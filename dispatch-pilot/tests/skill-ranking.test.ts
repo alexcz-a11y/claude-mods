@@ -132,6 +132,8 @@ test('Clef takes the second request with a Choice between the skills re-read (it
     skills: SKILLS,
     disk: FILES,
   })
+  // With Clef the suggestions start off (tests/backend-defaults.test.ts): the person turns them on.
+  await w.command('dp', 'skills on')
   await w.submit('先写一个失败的测试')
   expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([
     ['effort.level', 'skills.which'],

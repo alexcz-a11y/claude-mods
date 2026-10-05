@@ -9,7 +9,7 @@
 import type { PluginOptions } from 'claude-code'
 import type { Asked, Failure } from '../../hooks/decision/backend.ts'
 import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
-import { readConfig, type Config } from '../../hooks/core/setup.ts'
+import { readConfig, type BackendName, type Config } from '../../hooks/core/setup.ts'
 import type { Item, Language } from './datasets.ts'
 import type { VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
@@ -20,10 +20,22 @@ export type Settings = Config
 /**
  * The mod's settings for the given options, read where the mod reads them
  * (`readConfig`: the same bounds and the same defaults), so a suite asks with
- * the limits the mod runs with. The eval passes the manifest's defaults.
+ * the limits the mod runs with. The eval passes the manifest's defaults and
+ * the decision model under evaluation (`optionsFor`): what the manifest
+ * leaves unset takes that model's defaults (core/setup.ts BACKEND_DEFAULTS).
  */
 export function settingsFrom(options: PluginOptions): Settings {
   return readConfig(options)
+}
+
+/**
+ * The options a run or a script hands the mod for `backend` (`decisionModel`),
+ * as the engine would: the manifest's defaults, then each `name=value`
+ * (`optionsFrom`). The options whose default depends on the decision model
+ * have none in the manifest, so `readConfig` gives them `backend`'s.
+ */
+export function optionsFor(backend: BackendName, userConfig: Readonly<Record<string, OptionSpec>>, assignments: readonly string[] = []): PluginOptions {
+  return { ...optionsFrom(userConfig, assignments), decisionModel: backend }
 }
 
 /** An option as the manifest (`userConfig` in .claude-plugin/plugin.json) declares it: the part read here. */

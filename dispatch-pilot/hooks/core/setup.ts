@@ -5,7 +5,11 @@
 // written once, and every feature (and the eval, which builds its requests
 // from the same Config) reads the value from `ctx.config`. The fallbacks are
 // the manifest's defaults (the engine fills those in; a test or the eval may
-// leave an option out).
+// leave an option out), except for the options whose default depends on the
+// decision model: those have no default in the manifest, so the engine
+// passes nothing for them until the person sets one, and their defaults are
+// in BACKEND_DEFAULTS below, the one table the mod, the eval and
+// scripts/decide*.ts read them from.
 
 import type { PluginOptions } from 'claude-code'
 import type { Backend } from '../decision/backend.ts'
@@ -19,7 +23,88 @@ import type { MidturnLimits, MidturnRules } from '../decision/midturn.ts'
 import { resolveModel, type ResolvedModel } from '../decision/model-ids.ts'
 import type { SkillPolicy } from '../decision/skills.ts'
 
+/** The decision models the person can choose (`decisionModel`). */
+export type BackendName = 'jev' | 'clef'
+
+/** The decision model the options choose: Jev unless they say clef (the engine reads a value outside the option's list as its default, jev). */
+export function backendNameOf(options: PluginOptions): BackendName {
+  return stringOf(options.decisionModel, 'jev') === 'clef' ? 'clef' : 'jev'
+}
+
+/** The options whose default depends on the decision model: the manifest gives them none. */
+export const PER_BACKEND_OPTIONS = [
+  'timeoutMs',
+  'contextMessages',
+  'contextTokens',
+  'rejudgeSteps',
+  'thetaUp',
+  'thetaDown',
+  'thetaMax',
+  'thetaExpected',
+  'agentOverride',
+  'skillsMinRelevance',
+  'findSkillMinRelevance',
+] as const
+export type PerBackendOption = (typeof PER_BACKEND_OPTIONS)[number]
+
+/**
+ * What one decision model brings: each option's default where the person left
+ * it unset, the most `contextTokens` reads as, and whether skills are
+ * suggested beside each message until the person flips it (`/dp skills
+ * on|off`).
+ */
+export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
+  /** `contextTokens` above this reads as this. */
+  contextTokensMax: number
+  /** Whether the `skills` switch (suggestions beside each message, the listing withheld) starts on. */
+  suggestSkills: boolean
+}
+
+/** Jev's: the values the eval of #4, #14, #15 and #16 set or kept (README, 配置). */
+const JEV_DEFAULTS: BackendDefaults = {
+  timeoutMs: 1500,
+  contextMessages: 4,
+  contextTokens: 2000,
+  contextTokensMax: 16000,
+  rejudgeSteps: 4,
+  thetaUp: 0.4,
+  thetaDown: 0.6,
+  thetaMax: 0.5,
+  thetaExpected: 0.25,
+  agentOverride: 0.6,
+  // #16, both runs on the old wording: from 0.7 to 0.75 the Chinese-English gap of the skill suggestions went from -3.7 to -2.3 points.
+  skillsMinRelevance: 0.75,
+  findSkillMinRelevance: 0.5,
+  suggestSkills: true,
+}
+
+/**
+ * The defaults by decision model: the only place they are written. Clef is
+ * not calibrated (#17 ran no comparison, by the person's decision): it takes
+ * Jev's values, except where Clef was measured.
+ */
+export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = {
+  jev: JEV_DEFAULTS,
+  clef: {
+    ...JEV_DEFAULTS,
+    // Clef answers in 0.6-1.4 s once the connection is up, and a cold connection's first request took 1.8 s (README, 待评测).
+    timeoutMs: 3000,
+    // Clef sometimes reads only the first ~2.1k tokens of a state (#17: 4 long states of 18 were cut there, plan 8.7), and the
+    // newest messages and steps come last in it: 2000 estimated tokens (about 1.6-1.8k as Clef counts them) stay within that.
+    contextTokensMax: 2000,
+    // The skills' first stage, with every profile, took Clef 3.7-7.9 s (#16): past any wait a message can afford.
+    suggestSkills: false,
+  },
+}
+
 export type Config = {
+  /** The decision model the options were read for: its defaults (BACKEND_DEFAULTS) stand for what the person left unset. */
+  backend: BackendName
+  /**
+   * What came from that decision model's defaults (for the debug log, describeDefaults): the options the person left
+   * unset, with the value each took, and an option set above that model's most, read as the most.
+   */
+  defaults: { used: readonly (readonly [PerBackendOption, number])[]; capped: readonly { option: PerBackendOption; set: number; read: number }[] }
   typesafeApiKey: string
   /** How long a decision request may take before the prompt goes on without it. */
   timeoutMs: number
@@ -63,6 +148,8 @@ export type Config = {
   }
   /** Skills (#10, #11, #12). */
   skills: {
+    /** Whether the `skills` switch starts on (the decision model's default; `/dp skills on|off` flips it). */
+    suggestByDefault: boolean
     /** What a message is suggested: at most `max`, from `minRelevance`. */
     suggest: SkillPolicy
     /** What find_skill returns: at most `max`, from `minRelevance`. */
@@ -92,33 +179,55 @@ export type Ctx = {
 export function setup(options: PluginOptions): Ctx {
   const config = readConfig(options)
   // One decision model or the other, as the person chose: only that one is built, and there is no fallback.
-  // (The engine reads a value outside the option's list as the default, jev.)
   const backend =
-    stringOf(options.decisionModel, 'jev') === 'clef'
+    config.backend === 'clef'
       ? clefBackend({ accountId: stringOf(options.cloudflareAccountId, '').trim(), apiToken: stringOf(options.cloudflareApiToken, '').trim() })
       : jevBackend(config.typesafeApiKey)
   return { config, backend, ask: DEFAULT_ASK }
 }
 
-/** The person's options, each within its bounds, the manifest's default where one is missing or of the wrong type. */
+/**
+ * The person's options, each within its bounds; where one is missing or of
+ * the wrong type, the manifest's default, or for an option whose default
+ * depends on the decision model (PER_BACKEND_OPTIONS), that model's
+ * (BACKEND_DEFAULTS). `contextTokens` reads at most that model's most.
+ */
 export function readConfig(options: PluginOptions): Config {
+  const backend = backendNameOf(options)
+  const defaults = BACKEND_DEFAULTS[backend]
+  const used: (readonly [PerBackendOption, number])[] = []
+  const capped: { option: PerBackendOption; set: number; read: number }[] = []
+  /** A per-backend option: the person's value within [min, max], else the decision model's default (noted for the log). */
+  const own = (option: PerBackendOption, min: number, max: number, round = false) => {
+    const set = options[option]
+    if (typeof set !== 'number' || !Number.isFinite(set)) {
+      used.push([option, defaults[option]])
+      return defaults[option]
+    }
+    const read = numberIn(set, min, max, defaults[option])
+    const value = round ? Math.round(read) : read
+    if (set > max) capped.push({ option, set, read: value })
+    return value
+  }
   const whole = (value: unknown, min: number, max: number, fallback: number) => Math.round(numberIn(value, min, max, fallback))
-  const thetaMax = numberIn(options.thetaMax, 0, 1, 0.5)
-  const context = { messages: whole(options.contextMessages, 0, 32, 4), tokens: whole(options.contextTokens, 100, 16000, 2000) }
+  const thetaMax = own('thetaMax', 0, 1)
+  const context = { messages: own('contextMessages', 0, 32, true), tokens: own('contextTokens', 100, defaults.contextTokensMax, true) }
   const haikuToWritten = stringOf(options.escalateHaikuTo, 'sonnet').trim()
-  return {
+  const config: Config = {
+    backend,
+    defaults: { used, capped },
     typesafeApiKey: stringOf(options.typesafeApiKey, '').trim(),
     // A hook's own budget is 10 s and the timer's wait counts toward it.
-    timeoutMs: numberIn(options.timeoutMs, 200, 8000, 1500),
+    timeoutMs: own('timeoutMs', 200, 8000),
     thetaMax,
     context,
     midturn: {
       every: whole(options.rejudgeEvery, 0, 50, 3),
       waitMs: whole(options.rejudgeWaitMs, 0, 2000, 300),
-      limits: { steps: whole(options.rejudgeSteps, 1, 16, 4), tokens: context.tokens },
+      limits: { steps: own('rejudgeSteps', 1, 16, true), tokens: context.tokens },
       rules: {
-        thetaUp: numberIn(options.thetaUp, 0, 1, 0.4),
-        thetaDown: numberIn(options.thetaDown, 0, 1, 0.6),
+        thetaUp: own('thetaUp', 0, 1),
+        thetaDown: own('thetaDown', 0, 1),
         thetaMax,
         holdSteps: whole(options.holdSteps, 0, 50, 3),
       },
@@ -127,18 +236,19 @@ export function readConfig(options: PluginOptions): Config {
       after: whole(options.escalateAfter, 1, 20, 2),
       mode: RAISE_MODES.find((mode) => mode === options.escalateMode) ?? 'one-level',
       limit: whole(options.escalateLimit, 0, 10, 2),
-      thetaExpected: numberIn(options.thetaExpected, 0, 1, 0.25),
+      thetaExpected: own('thetaExpected', 0, 1),
       haikuTo: haikuToWritten === '' ? null : resolveModel(haikuToWritten),
       haikuToWritten,
     },
     agents: {
       models: options.agentFable === true ? [...DEFAULT_AGENT_MODELS, 'fable'] : DEFAULT_AGENT_MODELS,
-      thetaOverride: numberIn(options.agentOverride, 0, 1, 0.6),
+      thetaOverride: own('agentOverride', 0, 1),
       workflowMode: stringOf(options.workflowMode, 'rewrite') === 'return' ? 'return' : 'rewrite',
     },
     skills: {
-      suggest: { max: whole(options.skillsMax, 0, 10, 3), minRelevance: numberIn(options.skillsMinRelevance, 0, 1, 0.7) },
-      find: { max: whole(options.findSkillMax, 1, 10, 5), minRelevance: numberIn(options.findSkillMinRelevance, 0, 1, 0.5) },
+      suggestByDefault: defaults.suggestSkills,
+      suggest: { max: whole(options.skillsMax, 0, 10, 3), minRelevance: own('skillsMinRelevance', 0, 1) },
+      find: { max: whole(options.findSkillMax, 1, 10, 5), minRelevance: own('findSkillMinRelevance', 0, 1) },
       shortlist: whole(options.skillsShortlist, 1, 10, 4),
       alwaysListed: namesOf(options.skillsAlwaysListed),
       neverSuggested: namesOf(options.skillsNeverSuggested),
@@ -146,6 +256,23 @@ export function readConfig(options: PluginOptions): Config {
       profilesPerSession: whole(options.skillsProfilesPerSession, 0, 500, 30),
     },
   }
+  // In the table's order, whatever order they were read in.
+  used.sort((a, b) => PER_BACKEND_OPTIONS.indexOf(a[0]) - PER_BACKEND_OPTIONS.indexOf(b[0]))
+  return config
+}
+
+/**
+ * One debug-log line on what the decision model's defaults decided, e.g.
+ * `settings for clef: left unset, so clef's defaults: timeoutMs 3000, ...;
+ * skill suggestions off until /dp skills on; contextTokens 4000 reads as 2000,
+ * the most with clef`.
+ */
+export function describeDefaults(config: Pick<Config, 'backend' | 'defaults' | 'skills'>): string {
+  const { backend, defaults } = config
+  const used = defaults.used.length === 0 ? 'every option set' : `left unset, so ${backend}'s defaults: ${defaults.used.map(([option, value]) => `${option} ${value}`).join(', ')}`
+  const skills = config.skills.suggestByDefault ? 'skill suggestions on until /dp skills off' : 'skill suggestions off until /dp skills on'
+  const capped = defaults.capped.map((cap) => `; ${cap.option} ${cap.set} reads as ${cap.read}, the most with ${backend}`).join('')
+  return `settings for ${backend}: ${used}; ${skills}${capped}`
 }
 
 /**

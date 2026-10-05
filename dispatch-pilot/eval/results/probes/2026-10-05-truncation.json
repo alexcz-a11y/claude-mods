@@ -1,0 +1,583 @@
+{
+  "probe": "state truncation (#17)",
+  "date": "2026-10-05T06:07:03.781Z",
+  "backends": {
+    "clef": {
+      "asked": "clef",
+      "answeredBy": [
+        "clef"
+      ]
+    },
+    "jev": {
+      "asked": "jev-latest",
+      "answeredBy": [
+        "jev-1.13.0"
+      ]
+    }
+  },
+  "design": "Three facts in recent_context (start, middle, end), each asked as a Choice with not_stated among the options; a ladder of state sizes (estimated tokens, as the mod counts them); one probe with a question of about 15k tokens as Clef counts them (72 catalog entries) beside a 1.2k state, whose right answer is its last option. facts_at: where each fact begins, in estimated tokens from the start of the state as sent.",
+  "probes": [
+    {
+      "name": "warmup",
+      "language": "en",
+      "bulk": false,
+      "estimated": {
+        "state": 32,
+        "questions": 74
+      },
+      "facts_at": {
+        "start": 19
+      },
+      "clef": {
+        "input_tokens": 268,
+        "ms": 2123,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 0.98,
+            "p_not_stated": 0.004
+          }
+        }
+      },
+      "jev": {
+        "input_tokens": 440,
+        "ms": 1486,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "en-1200",
+      "language": "en",
+      "bulk": false,
+      "estimated": {
+        "state": 1189,
+        "questions": 224
+      },
+      "facts_at": {
+        "start": 19,
+        "middle": 583,
+        "end": 1175
+      },
+      "clef": {
+        "input_tokens": 1620,
+        "ms": 875,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 0.977,
+            "p_not_stated": 0.007
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 0.972,
+            "p_not_stated": 0.011
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 0.969,
+            "p_not_stated": 0.012
+          }
+        }
+      },
+      "jev": {
+        "input_tokens": 1726,
+        "ms": 455,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "en-2400",
+      "language": "en",
+      "bulk": false,
+      "estimated": {
+        "state": 2322,
+        "questions": 224
+      },
+      "facts_at": {
+        "start": 19,
+        "middle": 1161,
+        "end": 2308
+      },
+      "clef": {
+        "input_tokens": 2599,
+        "ms": 1135,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 0.979,
+            "p_not_stated": 0.007
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 0.971,
+            "p_not_stated": 0.011
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 0.971,
+            "p_not_stated": 0.011
+          }
+        }
+      },
+      "jev": {
+        "input_tokens": 2717,
+        "ms": 450,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "en-4800",
+      "language": "en",
+      "bulk": false,
+      "estimated": {
+        "state": 4629,
+        "questions": 224
+      },
+      "facts_at": {
+        "start": 19,
+        "middle": 2295,
+        "end": 4615
+      },
+      "clef": {
+        "input_tokens": 2650,
+        "ms": 1134,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 0.97,
+            "p_not_stated": 0.012
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 0.96,
+            "p_not_stated": 0.018
+          },
+          "end": {
+            "choice": "not_stated",
+            "right": false,
+            "p_right": 0.005,
+            "p_not_stated": 0.974
+          }
+        }
+      },
+      "jev": {
+        "input_tokens": 4808,
+        "ms": 491,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "en-9600",
+      "language": "en",
+      "bulk": false,
+      "estimated": {
+        "state": 9238,
+        "questions": 224
+      },
+      "facts_at": {
+        "start": 19,
+        "middle": 4601,
+        "end": 9224
+      },
+      "clef": {
+        "input_tokens": 8798,
+        "ms": 2357,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 0.981,
+            "p_not_stated": 0.006
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 0.97,
+            "p_not_stated": 0.012
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 0.973,
+            "p_not_stated": 0.01
+          }
+        }
+      },
+      "jev": {
+        "input_tokens": 8990,
+        "ms": 532,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "zh-1200",
+      "language": "zh",
+      "bulk": false,
+      "estimated": {
+        "state": 1205,
+        "questions": 246
+      },
+      "facts_at": {
+        "start": 23,
+        "middle": 601,
+        "end": 1190
+      },
+      "clef": {
+        "input_tokens": 1531,
+        "ms": 1284,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 0.968,
+            "p_not_stated": 0.006
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 0.986,
+            "p_not_stated": 0.005
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 0.979,
+            "p_not_stated": 0.008
+          }
+        }
+      },
+      "jev": {
+        "input_tokens": 2135,
+        "ms": 356,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 0.99,
+            "p_not_stated": 0.01
+          }
+        }
+      }
+    },
+    {
+      "name": "zh-2400",
+      "language": "zh",
+      "bulk": false,
+      "estimated": {
+        "state": 2359,
+        "questions": 246
+      },
+      "facts_at": {
+        "start": 23,
+        "middle": 1178,
+        "end": 2344
+      },
+      "clef": {
+        "input_tokens": 2451,
+        "ms": 898,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 0.961,
+            "p_not_stated": 0.007
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 0.986,
+            "p_not_stated": 0.005
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 0.978,
+            "p_not_stated": 0.009
+          }
+        }
+      },
+      "jev": {
+        "input_tokens": 3503,
+        "ms": 368,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 0.99,
+            "p_not_stated": 0.01
+          }
+        }
+      }
+    },
+    {
+      "name": "zh-4800",
+      "language": "zh",
+      "bulk": false,
+      "estimated": {
+        "state": 4655,
+        "questions": 246
+      },
+      "facts_at": {
+        "start": 23,
+        "middle": 2313,
+        "end": 4640
+      },
+      "clef": {
+        "input_tokens": 4335,
+        "ms": 1226,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 0.971,
+            "p_not_stated": 0.006
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 0.985,
+            "p_not_stated": 0.005
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 0.98,
+            "p_not_stated": 0.008
+          }
+        }
+      },
+      "jev": {
+        "input_tokens": 6274,
+        "ms": 395,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 0.99,
+            "p_not_stated": 0.01
+          }
+        }
+      }
+    },
+    {
+      "name": "en-1200-bulk",
+      "language": "en",
+      "bulk": true,
+      "estimated": {
+        "state": 1205,
+        "questions": 13437
+      },
+      "facts_at": {
+        "start": 35,
+        "middle": 599,
+        "end": 1191
+      },
+      "clef": {
+        "input_tokens": 13162,
+        "ms": 2587,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 0.969,
+            "p_not_stated": 0.013
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 0.968,
+            "p_not_stated": 0.012
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 0.969,
+            "p_not_stated": 0.013
+          },
+          "bulk": {
+            "choice": "entry_71",
+            "right": true,
+            "p_right": 0.693,
+            "p_not_stated": 0
+          }
+        }
+      },
+      "jev": {
+        "input_tokens": 12993,
+        "ms": 450,
+        "attempts": 1,
+        "answers": {
+          "start": {
+            "choice": "vermilion",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "middle": {
+            "choice": "lantern",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "end": {
+            "choice": "okonkwo",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          },
+          "bulk": {
+            "choice": "entry_71",
+            "right": true,
+            "p_right": 1,
+            "p_not_stated": 0
+          }
+        }
+      }
+    }
+  ]
+}

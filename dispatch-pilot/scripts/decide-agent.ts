@@ -1,6 +1,7 @@
 // One dispatched agent's decision against the real Jev or Clef, outside Claude
 // Code: the request the mod sends at agent.spawn (the shared decision module),
-// with the mod's settings as the manifest's defaults give them, built from an
+// with the mod's settings as the manifest's defaults and the chosen decision
+// model's give them (core/setup.ts BACKEND_DEFAULTS), built from an
 // item of the eval set (subagent.jsonl) or from a JSON object with the same
 // fields, and sent from Node. For a manual check.
 //
@@ -15,7 +16,7 @@
 // as the mod keeps them for the turn (masked, cut to contextTokens). Prints
 // the request (question ids, state), the answers that matter, the decision
 // and, for an eval item, its gold. `--timeout` defaults to the mod's
-// timeoutMs. Credentials come from the environment or
+// timeoutMs for the decision model asked. Credentials come from the environment or
 // ~/.config/dispatch-pilot/eval.env and are never printed. A Workflow item is
 // asked about on its own here; the eval asks it with its script's other calls.
 
@@ -25,7 +26,7 @@ import { messageText } from '../hooks/decision/context.ts'
 import { decideDispatch, dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { DEFAULT_ASK } from '../hooks/decision/effort.ts'
 import { answersFor, mergeParts } from '../hooks/decision/system-one.ts'
-import { optionsFrom, settingsFrom } from '../eval/lib/suite.ts'
+import { optionsFor, settingsFrom } from '../eval/lib/suite.ts'
 import { backendFor, nodeIo, readManifest } from '../eval/node.ts'
 
 const args = process.argv.slice(2)
@@ -56,11 +57,12 @@ if (file !== undefined) {
   }
   written = JSON.parse(json) as Dispatch
 }
-// The manifest's defaults, as the engine hands them to the mod; --fable turns agentFable on.
-const settings = settingsFrom(optionsFrom(readManifest().userConfig ?? {}, flag('--fable') ? ['agentFable=true'] : []))
+// The manifest's defaults and the decision model's, as the engine and the mod give them; --fable turns agentFable on.
+const chosen = flag('--clef') ? 'clef' : 'jev'
+const settings = settingsFrom(optionsFor(chosen, readManifest().userConfig ?? {}, flag('--fable') ? ['agentFable=true'] : []))
 let backend
 try {
-  backend = backendFor(flag('--clef') ? 'clef' : 'jev').backend
+  backend = backendFor(chosen).backend
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error))
   process.exit(2)
