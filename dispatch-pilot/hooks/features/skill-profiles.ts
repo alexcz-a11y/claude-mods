@@ -16,7 +16,6 @@ import { errorText } from '../decision/backend.ts'
 import { update, type Cell } from '../core/plans.ts'
 import {
   evictions,
-  MAX_PROFILES,
   PROFILE_MAX_TOKENS,
   PROFILE_PREFIX,
   PROFILE_SYSTEM,
@@ -24,6 +23,7 @@ import {
   profileKey,
   profilePrompt,
   readProfile,
+  storedBytes,
   storedProfile,
   withProfile,
   type StoredProfile,
@@ -149,15 +149,21 @@ async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly Cat
   }
 }
 
-/** Past MAX_PROFILES profiles in the store, the oldest written that this session does not use are deleted. */
+/** Past MAX_PROFILES profiles in the store, or MAX_PROFILE_BYTES of them, the oldest written that this session does not use are deleted. */
 async function dropOldProfiles($: EngineInterface, catalog: readonly CatalogSkill[]): Promise<void> {
   try {
     const keys = (await $.store.keys()).filter((key) => key.startsWith(PROFILE_PREFIX))
-    if (keys.length <= MAX_PROFILES) return
-    const entries = await Promise.all(keys.map(async (key) => ({ key, at: writtenAt(await $.store.get(key).catch(() => null)) })))
+    const entries = await Promise.all(
+      keys.map(async (key) => {
+        const value = await $.store.get(key).catch(() => null)
+        return { key, at: writtenAt(value), bytes: storedBytes(key, value) }
+      }),
+    )
     const drop = evictions(entries, new Set(catalog.flatMap((skill) => (typeof skill.profileKey === 'string' ? [skill.profileKey] : []))))
+    if (drop.length === 0) return
     for (const key of drop) await $.store.delete(key)
-    $.ui.log(`skill profiles: dropped the ${drop.length} oldest of ${keys.length} kept`, { to: 'debug' })
+    const bytes = entries.reduce((sum, entry) => sum + entry.bytes, 0)
+    $.ui.log(`skill profiles: dropped the ${drop.length} oldest of ${keys.length} kept (${Math.round(bytes / 1024)} KB)`, { to: 'debug' })
   } catch (error) {
     $.ui.log(`skill profiles: could not tidy the store (${errorText(error)})`, { to: 'debug' })
   }

@@ -34,6 +34,14 @@ export const ZH_CHARS = 60
  */
 export const MAX_PROFILES = 500
 export const EVICT_TO = 400
+/**
+ * And at most this many bytes of them (key and JSON value), whatever their
+ * count: entries another version wrote may be bigger. Past it the oldest go
+ * the same way, down to EVICT_TO_BYTES. Half the store's 4 MiB, the rest left
+ * to the mod's other keys.
+ */
+export const MAX_PROFILE_BYTES = 2 * 1024 * 1024
+export const EVICT_TO_BYTES = 1.5 * 1024 * 1024
 
 export const PROFILE_SYSTEM =
   'You write short routing profiles of Claude Code skills. A router that reads requests written in Chinese or English uses them to decide whether a skill fits a request. Reply with one JSON object and nothing else.'
@@ -151,15 +159,32 @@ export function withProfile(skills: readonly CatalogSkill[], key: string, profil
   return skills.map((skill) => (skill.profileKey === key ? { ...skill, profile } : skill))
 }
 
+/** A stored profile as eviction weighs it: its key, when it was written, its size in bytes (`storedBytes`). */
+export type StoredEntry = { key: string; at: number; bytes: number }
+
+/** What a store entry takes: its key and its value as JSON, in UTF-8 bytes. */
+export function storedBytes(key: string, value: unknown): number {
+  return new TextEncoder().encode(key + (JSON.stringify(value) ?? '')).length
+}
+
 /**
  * The profiles to drop from the store: none while it holds at most
- * MAX_PROFILES; past it, the oldest written among those not in `keep` (the
- * session's), until EVICT_TO remain.
+ * MAX_PROFILES of them and MAX_PROFILE_BYTES; past either, the oldest written
+ * among those not in `keep` (the session's), until at most EVICT_TO remain and
+ * they take at most EVICT_TO_BYTES.
  */
-export function evictions(entries: readonly { key: string; at: number }[], keep: ReadonlySet<string>): string[] {
-  if (entries.length <= MAX_PROFILES) return []
-  const spare = entries.filter((entry) => !keep.has(entry.key)).sort((a, b) => a.at - b.at)
-  return spare.slice(0, entries.length - EVICT_TO).map((entry) => entry.key)
+export function evictions(entries: readonly StoredEntry[], keep: ReadonlySet<string>): string[] {
+  let count = entries.length
+  let bytes = entries.reduce((sum, entry) => sum + entry.bytes, 0)
+  if (count <= MAX_PROFILES && bytes <= MAX_PROFILE_BYTES) return []
+  const drop: string[] = []
+  for (const entry of entries.filter((one) => !keep.has(one.key)).sort((a, b) => a.at - b.at)) {
+    if (count <= EVICT_TO && bytes <= EVICT_TO_BYTES) break
+    drop.push(entry.key)
+    count--
+    bytes -= entry.bytes
+  }
+  return drop
 }
 
 function profileFrom(value: unknown): SkillProfile | null {
