@@ -326,7 +326,8 @@ function ratedNetwork() {
 
 async function runFour() {
   const suite = await skillSuite({ catalog: CATALOG, profiles: PROFILES, read })
-  const settings = settingsFrom({})
+  // The bar these answers were written around (a en's code-review at 0.72 passes it), not today's default of 0.75.
+  const settings = settingsFrom({ skillsMinRelevance: 0.7 })
   const rows = await runSuite(suite, FOUR, { backend: jevBackend('k'), ...ratedNetwork(), settings, variants: ['profiles'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
   return { rows, summary: summarize(suite, FOUR, rows, { slowMs: 1500, settings }) }
 }

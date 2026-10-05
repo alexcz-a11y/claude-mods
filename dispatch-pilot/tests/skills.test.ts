@@ -175,6 +175,8 @@ test('Clef chosen without its Cloudflare credentials could suggest nothing eithe
 test('Clef takes both skills requests as they are (its input rules hold), and the listing is withheld', { options: CLEF_OPTIONS }, async ($, on) => {
   // Clef's answer puts the whole Choice on its first option (tdd), so a second request re-reads it.
   const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), skills: SKILLS })
+  // With Clef the suggestions start off (tests/backend-defaults.test.ts): the person turns them on.
+  await w.command('dp', 'skills on')
   await w.submit('先写一个失败的测试')
   expect(w.requests).toHaveLength(2)
   expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], []])
@@ -281,6 +283,7 @@ test('skills only the person can start (disable-model-invocation in their SKILL.
 test('Clef takes stage one with both its Choices, and the second request over skills of both kinds (its input rules hold)', { options: CLEF_OPTIONS }, async ($, on) => {
   // Clef's answer puts each whole Choice on its first option: tdd, and grill-me.
   const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), skills: WITH_PERSONS, disk: PERSON_FILES })
+  await w.command('dp', 'skills on')
   await w.submit('这个方案往死里挑刺，再补测试')
   expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([
     ['effort.level', 'skills.which', 'skills.hint'],
@@ -497,7 +500,8 @@ test('at session start the skills are read, and the debug log says what was foun
   // No store in this world: no profile can be kept, so none is written (#11).
   const w = world($, on, { skills: WITH_PERSONS, disk: PERSON_FILES, session: true })
   await w.start()
-  expect(w.logs).toEqual([
+  // The skills features' lines (the settings line at session start is tests/backend-defaults.test.ts's).
+  expect(w.logs.filter((log) => log.text.startsWith('skill'))).toEqual([
     { text: 'skills: 3 the main agent can load, 2 only you can start (/grill-me /ship:release); the listing is withheld from the main agent', to: 'debug' },
     { text: 'skill profiles: the store cannot be read, so no profile is kept or written; skills are rated by their descriptions', to: 'debug' },
   ])
@@ -507,7 +511,7 @@ test('at session start the skills are read, and the debug log says what was foun
 test('without a decision model the debug log says the listing stays', async ($, on) => {
   const w = world($, on, { skills: SKILLS, session: true })
   await w.start()
-  expect(w.logs.map((log) => log.text)).toEqual(['skills: no decision model is set up, so the main agent keeps the skill listing and nothing is suggested'])
+  expect(w.logs.map((log) => log.text).filter((text) => text.startsWith('skill'))).toEqual(['skills: no decision model is set up, so the main agent keeps the skill listing and nothing is suggested'])
 })
 
 test('the skills switch is listed by /dp with what it does', { options: KEY }, async ($, on) => {

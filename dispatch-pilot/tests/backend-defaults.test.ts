@@ -1,0 +1,187 @@
+// The defaults that depend on the decision model (#17, D3): the manifest gives
+// those options none, so the engine (and the kit, which loads options the same
+// way) passes nothing for them until the person sets one, and the mod takes
+// the chosen model's from core/setup.ts BACKEND_DEFAULTS. Seam 1 for what
+// reaches the backend and the status line; the shared reading (readConfig,
+// which the eval and scripts/decide*.ts use too) directly.
+
+import { expect, test } from 'claude-code/testing'
+import { BACKEND_DEFAULTS, PER_BACKEND_OPTIONS, readConfig } from '../hooks/core/setup.ts'
+import { estimateTokens } from '../hooks/decision/context.ts'
+import { optionsFor, settingsFrom } from '../eval/lib/suite.ts'
+import { CLEF_OPTIONS, clef } from './support/cloudflare.ts'
+import type { SkillsWorld } from './support/world.ts'
+import { jev, rates, world } from './support/world.ts'
+
+const JEV = { typesafeApiKey: 'ts-test-key' }
+const CHOSEN = [
+  { name: 'Jev', options: JEV },
+  { name: 'Clef', options: CLEF_OPTIONS },
+] as const
+
+/** A message 5000 tokens long as the mod counts them (one a Chinese character). */
+const LONG = '把登录模块重构成三层'.repeat(500)
+
+/** How many of the mod's tokens the first request's user_message took. */
+function messageTokens(w: { requests: { body: any }[] }): number {
+  return estimateTokens(String(w.requests[0]?.body.state.user_message))
+}
+
+test("with Jev, a message waits 1500 ms for the decision (Jev's default)", { options: JEV }, async ($, on) => {
+  const w = world($, on, { backend: (request) => ({ after: 60_000, reply: jev([0, 0, 1, 0, 0])(request) }) })
+  const submitting = w.submit('看看这个报错是怎么回事')
+  await w.clock.settle()
+  await w.clock.advance(1500)
+  await submitting
+  await w.step({ index: 0, effort: 'xhigh' })
+  expect(w.status()).toBe('dp effort xhigh (not routed) | jev: no answer in 1500 ms')
+})
+
+test("with Clef, a message waits 3000 ms (Clef's default): nothing the manifest declares stands in for it", { options: CLEF_OPTIONS }, async ($, on) => {
+  const w = world($, on, { backend: (request) => ({ after: 60_000, reply: clef([0, 0, 1, 0, 0])(request) }) })
+  let answered = false
+  const submitting = w.submit('看看这个报错是怎么回事').then(() => (answered = true))
+  await w.clock.settle()
+  await w.clock.advance(1500)
+  await w.clock.settle()
+  // Still waiting at Jev's 1500 ms.
+  expect(answered).toBe(false)
+  await w.clock.advance(1500)
+  await submitting
+  await w.step({ index: 0, effort: 'xhigh' })
+  expect(w.status()).toBe('dp effort xhigh (not routed) | clef: no answer in 3000 ms')
+})
+
+for (const chosen of CHOSEN) {
+  test(`a timeout the person sets holds with ${chosen.name} as well`, { options: { ...chosen.options, timeoutMs: 2500 } }, async ($, on) => {
+    const reply = chosen.name === 'Jev' ? jev([0, 0, 1, 0, 0]) : clef([0, 0, 1, 0, 0])
+    const w = world($, on, { backend: (request) => ({ after: 60_000, reply: reply(request) }) })
+    const submitting = w.submit('看看这个报错是怎么回事')
+    await w.clock.settle()
+    await w.clock.advance(2500)
+    await submitting
+    await w.step({ index: 0, effort: 'xhigh' })
+    expect(w.status()).toBe(`dp effort xhigh (not routed) | ${chosen.name.toLowerCase()}: no answer in 2500 ms`)
+  })
+}
+
+// The context budget: 2000 by default with either; a budget the person sets holds, except that Clef reads one above
+// 2000 as 2000 (it sometimes reads only the first ~2.1k tokens of a state, and the newest messages come last).
+const BUDGETS = [
+  { name: 'Jev, by default', options: JEV, budget: 2000 },
+  { name: 'Jev, set to 4000', options: { ...JEV, contextTokens: 4000 }, budget: 4000 },
+  { name: 'Clef, by default', options: CLEF_OPTIONS, budget: 2000 },
+  { name: 'Clef, set to 4000 (read as 2000)', options: { ...CLEF_OPTIONS, contextTokens: 4000 }, budget: 2000 },
+  { name: 'Clef, set to 1500', options: { ...CLEF_OPTIONS, contextTokens: 1500 }, budget: 1500 },
+] as const
+
+for (const { name, options, budget } of BUDGETS) {
+  test(`the context budget with ${name} is ${budget} tokens: a long message is cut to it`, { options }, async ($, on) => {
+    const w = world($, on, { backend: 'cloudflareAccountId' in options ? clef([0, 1, 0, 0, 0]) : jev([0, 1, 0, 0, 0]) })
+    await w.submit(LONG)
+    expect(messageTokens(w)).toBeLessThanOrEqual(budget)
+    expect(messageTokens(w)).toBeGreaterThan(budget - 50)
+  })
+}
+
+const SKILLS: SkillsWorld = {
+  commands: [
+    { name: 'tdd', description: 'Test-driven development. Use when the user wants to build features or fix bugs test-first.', source: 'user' },
+    { name: 'code-review', description: 'Review the changes since a fixed point along two axes: Standards and Spec.', source: 'user' },
+  ],
+  listed: [
+    { name: 'tdd', source: 'userSettings', tokens: 52 },
+    { name: 'code-review', source: 'userSettings', tokens: 144 },
+  ],
+}
+const LISTING = [
+  'The following skills are available for use with the Skill tool:',
+  '',
+  '- tdd: Test-driven development. Use when the user wants to build features or fix bugs test-first.',
+  '- code-review: Review the changes since a fixed point along two axes: Standards and Spec.',
+].join('\n')
+
+test('with Jev, skills are suggested beside each message by default: the listing is withheld and the request asks about them', { options: JEV }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS })
+  await w.submit('先写一个失败的测试')
+  expect(Object.keys(w.requests[0]?.body.questions)).toContain('skills.which')
+  expect(await w.listing(LISTING)).not.toEqual({ text: LISTING })
+})
+
+test('with Clef, skill suggestions start off: the main agent keeps its listing and no skill is asked about, until /dp skills on', { options: CLEF_OPTIONS }, async ($, on) => {
+  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), skills: SKILLS })
+  await w.submit('先写一个失败的测试')
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
+  expect(await w.listing(LISTING)).toEqual({ text: LISTING })
+  expect(await w.command('dp')).toMatch(/\boff +skills +suggests the skills that fit each message/)
+
+  expect(await w.command('dp', 'skills on')).toMatch(/^skills is on/)
+  await w.submit('再写一个失败的测试')
+  expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['effort.level', 'skills.which'])
+})
+
+test('with Clef, find_skill still answers while the suggestions are off', { options: CLEF_OPTIONS }, async ($, on) => {
+  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), skills: SKILLS, session: true })
+  await w.start()
+  expect(await w.command('dp')).toMatch(/\bon +find-skill /)
+  const answer = await w.findSkill('write a failing test first')
+  expect(w.requests.length).toBeGreaterThan(0)
+  expect(String(answer.result)).not.toContain('switched off')
+})
+
+test('skillsMinRelevance is 0.75 by default: a skill that fits at 0.72 is not suggested, one at 0.78 is', { options: JEV }, async ($, on) => {
+  const w = world($, on, { backend: rates({ tdd: 0.5, 'code-review': 0.4, '(none)': 0.1 }, { tdd: 0.78, 'code-review': 0.72 }), skills: SKILLS })
+  await w.submit('先写测试，再审一下这个分支')
+  const block = w.prompts[0]?.context?.[0] ?? ''
+  expect(block).toContain('- tdd (relevance 0.78)')
+  expect(block).not.toContain('code-review')
+})
+
+test('a relevance bar the person sets is the one used', { options: { ...JEV, skillsMinRelevance: 0.7 } }, async ($, on) => {
+  const w = world($, on, { backend: rates({ tdd: 0.5, 'code-review': 0.4, '(none)': 0.1 }, { tdd: 0.78, 'code-review': 0.72 }), skills: SKILLS })
+  await w.submit('先写测试，再审一下这个分支')
+  expect(w.prompts[0]?.context?.[0]).toContain('- code-review (relevance 0.72)')
+})
+
+test("at session start the debug log says which options took the decision model's defaults, and one cut to Clef's most", { options: { ...CLEF_OPTIONS, contextTokens: 4000, thetaUp: 0.3 } }, async ($, on) => {
+  const w = world($, on, { session: true })
+  await w.start()
+  expect(w.logs.map((log) => log.text)).toContain(
+    "settings for clef: left unset, so clef's defaults: timeoutMs 3000, contextMessages 4, rejudgeSteps 4, thetaDown 0.6, thetaMax 0.5, thetaExpected 0.25, agentOverride 0.6, skillsMinRelevance 0.75, findSkillMinRelevance 0.5; skill suggestions off until /dp skills on; contextTokens 4000 reads as 2000, the most with clef",
+  )
+})
+
+// The reading the mod, the eval and scripts/decide*.ts share.
+
+test("readConfig: an option left unset takes the decision model's default; Clef's are Jev's but for its timeout, its context budget's most and the skill suggestions", () => {
+  const jevConfig = readConfig({})
+  expect([jevConfig.backend, jevConfig.timeoutMs, jevConfig.context, jevConfig.skills.suggest.minRelevance, jevConfig.skills.suggestByDefault]).toEqual(['jev', 1500, { messages: 4, tokens: 2000 }, 0.75, true])
+  const clefConfig = readConfig({ decisionModel: 'clef' })
+  expect([clefConfig.backend, clefConfig.timeoutMs, clefConfig.context, clefConfig.skills.suggest.minRelevance, clefConfig.skills.suggestByDefault]).toEqual(['clef', 3000, { messages: 4, tokens: 2000 }, 0.75, false])
+  expect(clefConfig.midturn.rules).toEqual(jevConfig.midturn.rules)
+  expect([clefConfig.escalation.thetaExpected, clefConfig.agents.thetaOverride, clefConfig.skills.find.minRelevance]).toEqual([0.25, 0.6, 0.5])
+  // Not calibrated for Clef: Jev's values, but for these three.
+  expect({ ...BACKEND_DEFAULTS.clef, timeoutMs: BACKEND_DEFAULTS.jev.timeoutMs, contextTokensMax: BACKEND_DEFAULTS.jev.contextTokensMax, suggestSkills: true }).toEqual(BACKEND_DEFAULTS.jev)
+  expect(clefConfig.defaults.used.map(([option]) => option)).toEqual([...PER_BACKEND_OPTIONS])
+})
+
+test('readConfig: a value the person sets is the one used with either decision model; Clef reads a context budget above 2000 as 2000', () => {
+  for (const decisionModel of ['jev', 'clef']) {
+    const config = readConfig({ decisionModel, timeoutMs: 2500, contextMessages: 8, thetaUp: 0.3, thetaDown: 0.7, skillsMinRelevance: 0.6, agentOverride: 0.45, contextTokens: 1200 })
+    expect([config.timeoutMs, config.context, config.midturn.rules.thetaUp, config.midturn.rules.thetaDown, config.skills.suggest.minRelevance, config.agents.thetaOverride]).toEqual([2500, { messages: 8, tokens: 1200 }, 0.3, 0.7, 0.6, 0.45])
+    expect(config.defaults.used.map(([option]) => option)).not.toContain('timeoutMs')
+  }
+  expect(readConfig({ contextTokens: 4000 }).context.tokens).toBe(4000)
+  const capped = readConfig({ decisionModel: 'clef', contextTokens: 4000 })
+  expect(capped.context.tokens).toBe(2000)
+  expect(capped.midturn.limits.tokens).toBe(2000)
+  expect(capped.defaults.capped).toEqual([{ option: 'contextTokens', set: 4000, read: 2000 }])
+})
+
+test("the eval and scripts/decide*.ts read the same table: a run for Clef gets Clef's defaults for what the manifest leaves without one", () => {
+  const userConfig = { timeoutMs: { type: 'number' }, contextTokens: { type: 'number' }, skillsMax: { type: 'number', default: 3 } }
+  const clefSettings = settingsFrom(optionsFor('clef', userConfig))
+  expect([clefSettings.backend, clefSettings.timeoutMs, clefSettings.skills.suggest.max]).toEqual(['clef', 3000, 3])
+  expect(settingsFrom(optionsFor('jev', userConfig)).timeoutMs).toBe(1500)
+  expect(settingsFrom(optionsFor('clef', userConfig, ['contextTokens=4000'])).context.tokens).toBe(2000)
+})

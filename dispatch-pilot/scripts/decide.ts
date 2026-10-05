@@ -1,22 +1,24 @@
 // One message's effort decision against the real Jev or Clef, outside Claude
 // Code: the request the mod sends when the person sends that message with no
 // conversation before it (the shared decision module), with the mod's settings
-// as the manifest's defaults give them, sent from Node. For a manual check.
+// as the manifest's defaults and the chosen decision model's give them
+// (core/setup.ts BACKEND_DEFAULTS), sent from Node. For a manual check.
 //
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' [--zh] [--choice] [--timeout 5000]
 //   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_AUTH_TOKEN=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' --clef
 //
 // Jev unless `--clef`. `--zh` and `--choice` ask as the eval's variants do.
 // Prints the request (questions, state) and the answer: each level's
-// probability, the confidence, the level the mod picks (thetaMax from the
-// manifest), the latency. `--timeout` defaults to the mod's timeoutMs.
+// probability, the confidence, the level the mod picks (the mod's thetaMax),
+// the latency. `--timeout` defaults to the mod's timeoutMs for the decision
+// model asked (Jev's or Clef's).
 // Credentials come from the environment or ~/.config/dispatch-pilot/eval.env
 // (as the eval reads them) and are never printed. Node 22.18+ runs .ts as is.
 
 import { turnStartState } from '../hooks/decision/context.ts'
 import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { answersFor, mergeParts } from '../hooks/decision/system-one.ts'
-import { optionsFrom, settingsFrom } from '../eval/lib/suite.ts'
+import { optionsFor, settingsFrom } from '../eval/lib/suite.ts'
 import { backendFor, nodeIo, readManifest } from '../eval/node.ts'
 
 const args = process.argv.slice(2)
@@ -30,10 +32,11 @@ if (!prompt) {
   console.error('usage: node scripts/decide.ts <message> [--zh] [--choice] [--clef] [--timeout ms]')
   process.exit(2)
 }
-const settings = settingsFrom(optionsFrom(readManifest().userConfig ?? {}, []))
+const chosen = flag('--clef') ? 'clef' : 'jev'
+const settings = settingsFrom(optionsFor(chosen, readManifest().userConfig ?? {}))
 let backend
 try {
-  backend = backendFor(flag('--clef') ? 'clef' : 'jev').backend
+  backend = backendFor(chosen).backend
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error))
   process.exit(2)
