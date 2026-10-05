@@ -1,12 +1,12 @@
 // The person's own terms for an agent's work (点名、排除: the model and the
-// effort they named, the models they ruled out), kept in the agent's plan
-// (decision 6 of review 1): whatever changes the agent's model or effort later
-// keeps to them, the forced raise (#7) included. Seam 1: the person's message
-// and the agents' spawns and steps in; what each step reaches the engine with,
-// the requests, the decision log out.
+// effort they named, the models they ruled out), kept in the agent's plan:
+// whatever changes the agent's model or effort later keeps to them, the forced
+// raise (#7) included, and they win over a model or effort a Workflow script
+// works out when it runs. Seam 1: the person's message and the agents' spawns
+// and steps in; what each step reaches the engine with, the requests, the
+// decision log out.
 
 import { expect, test } from 'claude-code/testing'
-import type { On } from 'claude-code'
 import { siteJev, type SiteAnswer } from './support/workflow.ts'
 import { runWorld } from './support/workflow-run.ts'
 import { world, type Reply, type Sent, type ToolRun } from './support/world.ts'
@@ -139,15 +139,14 @@ test('an effort the person named for an agent is not raised when its calls keep 
 })
 
 // A Workflow's agents: the label fallback (#9) plans them as they start, the
-// forced raise (#7) goes by the model the plan put them on (F4 of review 1).
+// forced raise (#7) goes by the model the plan put them on, not the one the
+// engine names for the step.
 
 /** A script the main agent saved earlier and runs again by its path. */
 const SAVED = '/work/.claude/workflow-scripts/fix.js'
 
-/** The engine keeps a workflow agent's transcript from the mod (`$.session.messages` refuses its id). */
-function noTranscripts(on: On) {
-  on('session.messages', { agentId: /(?:)/ }, () => ({ value: { deny: "not one of this session's agents" } }) as never)
-}
+/** The engine keeps a workflow agent's transcript from the mod (`$.session.messages` refuses its id): world's `messages`. */
+const NO_TRANSCRIPTS = { messages: (asked: { agentId?: string }) => (asked.agentId === undefined ? [] : { deny: "not one of this session's agents" }) }
 
 /** One step of a workflow agent, on the model and effort the engine resolved for it. */
 const workflowStep = (index: number, model: string, effort: 'low' | 'medium' | 'high' | 'xhigh' | null, tools?: ToolRun[]) => ({ index, model, effort, ...(tools === undefined ? {} : { tools }) })
@@ -156,12 +155,11 @@ const workflowStep = (index: number, model: string, effort: 'low' | 'medium' | '
 const oneCall = (call: SiteAnswer) => siteJev((i) => (i === 0 ? call : {}))
 
 test('a workflow agent the label fallback sent to haiku is switched to sonnet when its calls keep failing: by the model the plan put it on, not the one the engine named', { options: ONLY }, async ($, on) => {
-  noTranscripts(on)
   const script = `export const meta = { name: 'scan', description: 'List what imports legacyAuth', phases: [] }
 const found = await agent('List every file under src/ that imports legacyAuth. Report file:line only.', { label: 'scan' })
 return found
 `
-  const w = runWorld($, on, { disk: { [SAVED]: script }, backend: oneCall({ model: { haiku: 0.9 } }) })
+  const w = runWorld($, on, { ...NO_TRANSCRIPTS, disk: { [SAVED]: script }, backend: oneCall({ model: { haiku: 0.9 } }) })
   await w.workflow({ scriptPath: SAVED })
   w.started('wf_test-1', 'wa1', 'scan')
   await w.agentStep('wa1', workflowStep(0, 'claude-opus-5-5', 'xhigh', failing))
@@ -172,12 +170,11 @@ return found
 })
 
 test('a workflow agent the label fallback moved off haiku onto opus goes out at its planned effort, and is raised a level when its calls keep failing', { options: ONLY }, async ($, on) => {
-  noTranscripts(on)
   const script = `export const meta = { name: 'fix', description: 'Fix the flaky checkout test', phases: [] }
 const fixed = await agent('Find why checkout.spec.ts times out intermittently and fix the cause; no retries.', { model: 'haiku', label: 'fix' })
 return fixed
 `
-  const w = runWorld($, on, { disk: { [SAVED]: script }, backend: oneCall({ model: { opus: 0.9 }, effort: [0, 0, 1, 0, 0] }) })
+  const w = runWorld($, on, { ...NO_TRANSCRIPTS, disk: { [SAVED]: script }, backend: oneCall({ model: { opus: 0.9 }, effort: [0, 0, 1, 0, 0] }) })
   await w.workflow({ scriptPath: SAVED })
   w.started('wf_test-1', 'wa1', 'fix')
   // The engine resolved the script's haiku: no effort on the step.
@@ -214,12 +211,11 @@ return done
 })
 
 test("a haiku the person named for a call of a script the main agent sent stays that agent's model however its calls fail", { options: ONLY }, async ($, on) => {
-  noTranscripts(on)
   const script = `export const meta = { name: 'scan', description: 'List what imports legacyAuth', phases: [] }
 const found = await agent('List every file under src/ that imports legacyAuth. Report file:line only.', { label: 'scan' })
 return found
 `
-  const w = runWorld($, on, { backend: oneCall({ model: { haiku: 0.9 }, nouls: { 'named.haiku': 0.9 } }), store: {}, session: true })
+  const w = runWorld($, on, { ...NO_TRANSCRIPTS, backend: oneCall({ model: { haiku: 0.9 }, nouls: { 'named.haiku': 0.9 } }), store: {}, session: true })
   await w.start()
   await w.submit('用 haiku 列一下哪些文件引用了 legacyAuth')
   await w.workflow({ script })

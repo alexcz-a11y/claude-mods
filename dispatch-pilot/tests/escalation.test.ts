@@ -633,9 +633,11 @@ test('failures the decision model finds expected change nothing about an agent, 
   expect(sonnet.requests.filter((r) => 'escalation.expected' in r.body.questions)).toHaveLength(1)
 })
 
+/** The engine keeps a workflow agent's transcript from the mod: `$.session.messages` refuses its id. */
+const refusing = (agentId: string) => (asked: { agentId?: string }) => (asked.agentId === undefined ? [] : { deny: `${agentId} is not one of this session's agents` })
+
 test("an agent whose transcript cannot be read (a workflow's) is raised without being asked whether its failures were expected", { options: ONLY }, async ($, on) => {
-  on('session.messages', { agentId: /(?:)/ }, () => ({ value: { deny: "wf1 is not one of this session's agents" } }))
-  const w = world($, on, { backend: withAgents({ model: { sonnet: 1 } }), store: {}, session: true })
+  const w = world($, on, { backend: withAgents({ model: { sonnet: 1 } }), store: {}, session: true, messages: refusing('wf1') })
   await w.start()
   await w.step(agentStep('wf1', 0, { effort: 'medium', tools: agentFailing }))
   await w.step(agentStep('wf1', 1, { effort: 'medium' }))
@@ -661,12 +663,12 @@ function agentTranscript(task: string, steps: { text: string; calls: { id: strin
 }
 
 test("a workflow agent's failures are asked about from its transcript on disk: its task and its steps, as for any agent", { options: ONLY }, async ($, on) => {
-  on('session.messages', { agentId: /(?:)/ }, () => ({ value: { deny: "wa1 is not one of this session's agents" } }) as never)
   const script = `export const meta = { name: 'fix', description: 'Fix the flaky checkout test', phases: [] }
 const fixed = await agent('Find why checkout.spec.ts times out intermittently and fix the cause.', { label: 'fix' })
 return fixed
 `
   const w = runWorld($, on, {
+    messages: refusing('wa1'),
     disk: { '/work/fix.js': script },
     backend: (request) => (kind(request) === 'midturn.level,escalation.expected' ? answers(MEDIUM, { expected: 0.9 })(request) : siteJev(() => ({ model: { sonnet: 0.9 }, effort: [0, 1, 0, 0, 0] }))(request)),
   })
