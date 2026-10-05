@@ -62,7 +62,7 @@ test('accuracy counts an unanswered item as wrong; gold hits, misses, the zh-en 
   expect(summary?.zh).toEqual({ items: 4, answered: 3, failed: 1, accuracy: 0.5, exact: 0.25, misses: { over: 1 }, late: 0, inTime: 0.5 })
   // en: a, b, c acceptable and gold; d went under. c (600 ms) and d (700 ms) came after 500 ms.
   expect(summary?.en).toEqual({ items: 4, answered: 4, failed: 0, accuracy: 0.75, exact: 0.75, misses: { under: 1 }, late: 2, inTime: 0.5 })
-  // Chinese is 25 points below English: past the spec's 3 points.
+  // Chinese is 25 points below English: past the 4-point bar.
   expect(summary?.gap).toBe(-0.25)
   expect(summary?.pass).toBe(false)
   // Answered in both languages: a, b, c; the same level only for c.
@@ -77,17 +77,21 @@ test("answers that came after the mod's wait are counted apart: accuracy in time
   expect([summary?.en.accuracy, summary?.en.inTime, summary?.en.late]).toEqual([0.75, 0.5, 2])
 })
 
-/** 100 items each answered right in English, and right in Chinese for the first `zh`. */
-function rated(zh: number) {
-  const items = Array.from({ length: 100 }, (_, i) => item(`i${i}`, 'high', ['high'], []))
+/** `n` items each answered right in English, and right in Chinese for the first `zh`. */
+function rated(zh: number, n = 100) {
+  const items = Array.from({ length: n }, (_, i) => item(`i${i}`, 'high', ['high'], []))
   const rows = items.flatMap((it, i) => (['zh', 'en'] as const).map((language) => ({ ...row('a', language, language === 'en' || i < zh ? 'high' : 'low', 100), id: it.id })))
   const graded = rows.map((r) => ({ ...r, correct: r.prediction === 'high', exact: r.prediction === 'high', miss: r.prediction === 'high' ? null : 'under' }))
   return summarize(effortSubmit, items, graded, { slowMs: 500 }).variants[0]
 }
 
-test('Chinese passes when it is less than 3 points below English: 2 points below passes, 3 points below does not (decision 2 of review 1)', () => {
-  expect([rated(98)?.gap, rated(98)?.pass]).toEqual([-0.02, true])
-  expect([rated(97)?.gap, rated(97)?.pass]).toEqual([-0.03, false])
+// The bar is the person's (2026-10-05): Chinese at most 4 points below English, exactly 4.0 passing. The spec said 3.
+test('Chinese passes when it is at most 4 points below English: 3 and 4.0 points below pass, 4.01 and 5 do not', () => {
+  expect([rated(97)?.gap, rated(97)?.pass]).toEqual([-0.03, true])
+  expect([rated(96)?.gap, rated(96)?.pass]).toEqual([-0.04, true])
+  const past = rated(9599, 10_000)
+  expect([past?.gap, past?.pass]).toEqual([-0.0401, false])
+  expect([rated(95)?.gap, rated(95)?.pass]).toEqual([-0.05, false])
 })
 
 test('latency is over answered requests, nearest rank; slow counts those over the given limit', () => {

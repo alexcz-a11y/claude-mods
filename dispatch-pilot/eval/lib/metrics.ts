@@ -3,9 +3,8 @@
 // - accuracy in each language: acceptable answers over all items (an item
 //   with no answer counts as wrong; how many failed is beside it), and how
 //   often the answer was the gold one;
-// - the gap, Chinese accuracy minus English, and whether it passes the
-//   spec's bar (Chinese less than 3 points below English: decision 2 of
-//   review 1);
+// - the gap, Chinese accuracy minus English, and whether it passes the bar
+//   (Chinese at most 4 points below English, exactly 4 passing: MAX_GAP);
 // - answers that came after the mod's wait (`slowMs`, its timeoutMs): how
 //   many in each language, and the accuracy the mod would have had, those
 //   counted as no decision (`inTime`);
@@ -31,8 +30,12 @@ import type { Language } from './datasets.ts'
 import type { Row } from './runner.ts'
 import type { AnyItem, Settings, Suite } from './suite.ts'
 
-/** Chinese must be less than this far below English (spec: 中文准确率比英文低不超过 3 个百分点; exactly 3 points below fails, decision 2 of review 1). */
-export const MAX_GAP = 0.03
+/**
+ * Chinese may be at most this far below English: exactly 4 points below
+ * passes, 4.01 does not. The person's bar since 2026-10-05; the spec said 3
+ * (中文准确率比英文低不超过 3 个百分点).
+ */
+export const MAX_GAP = 0.04
 
 export type LanguageSummary = {
   items: number
@@ -152,7 +155,7 @@ function summarizeVariant(items: readonly AnyItem[], rows: readonly Row<unknown>
     zh,
     en,
     gap,
-    pass: gap > -MAX_GAP,
+    pass: passes(gap),
     agreement: { items: both, same, rate: both === 0 ? null : rate(same, both) },
     latency: { answers: times.length, p50: nearestRank(times, 0.5), p90: nearestRank(times, 0.9), max: times.at(-1) ?? null, slow: times.filter((ms) => ms > slowMs).length },
     tags: [...tags]
@@ -176,6 +179,11 @@ function languageSummary(items: number, rows: readonly Row<unknown>[], parts: re
     late: rows.filter(late).length,
     inTime: rate(rows.filter((row) => row.correct && !late(row)).length, items),
   }
+}
+
+/** Whether a gap (Chinese accuracy minus English, rounded to four places) is within the bar: at most MAX_GAP below. */
+export function passes(gap: number): boolean {
+  return round(gap) >= -MAX_GAP
 }
 
 /** The value at rank ceil(p·n) of the sorted values (nearest rank); null for none. */
