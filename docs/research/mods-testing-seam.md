@@ -2,7 +2,7 @@
 
 实测日期 2026-10-04。环境：Claude Code **2.1.289**（`claude --version`；`types/claude-code/index.d.ts` 第 1 行 `// Written by Claude Code 2.1.289.`），Node **v26.5.0**，tsc **7.0.2**。
 
-> **移入仓库时的说明（#2，2026-10-04）**：本笔记原在会话 scratchpad（下文的 `NOTES`），那个目录已被清理，`NOTES/probe-*` 的源码没有保留。最小模板的全文仍在第 3 节；按本笔记做法写成的实际脚手架是 `dispatch-pilot/tests/support/world.ts`，用法见 `dispatch-pilot/README.md` 的「开发」一节。实现 #2 时又实测了几项，见第 10 节。下文其余内容保持原样。
+> **移入仓库时的说明（#2，2026-10-04）**：本笔记原在会话 scratchpad（下文的 `NOTES`），那个目录已被清理，`NOTES/probe-*` 的源码没有保留。最小模板的全文仍在第 3 节；按本笔记做法写成的实际脚手架是 `dispatch-pilot/tests/support/world.ts`，用法见 `dispatch-pilot/DEVELOPMENT.md` 的「开发」一节。实现 #2 时又实测了几项，见第 10 节。下文其余内容保持原样。
 
 本笔记原所在目录（下文简称 `NOTES`，已清理）：
 `<scratchpad>/notes`

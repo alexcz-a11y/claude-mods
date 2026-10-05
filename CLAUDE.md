@@ -43,6 +43,7 @@ settings hook 是 settings 文件里配置的 shell 命令、HTTP 请求或 prom
 │   └── <mod>.mjs|ts|tsx         # ES module，导出 register(on, options)
 ├── types/index.d.ts             # 手写的 PluginState 契约，需提交；只在用到 $.state 时需要
 ├── tests/*.test.ts(x)           # 可选
+├── DEVELOPMENT.md               # 可选：结构、测试写法、已实测的引擎行为等开发说明，README 只写给使用者
 └── README.md                    # 说明用途、运行方式，并注明测试时的 Claude Code 版本
 ```
 

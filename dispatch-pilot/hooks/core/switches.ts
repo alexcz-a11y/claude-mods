@@ -4,7 +4,7 @@
 //
 //   defineSwitch({ name: 'main-effort', info: "decides the main agent's effort", segments: ['decision'] })
 //
-// and asks `isOn('main-effort')` where it would act (README, 开发).
+// and asks `isOn('main-effort')` where it would act (DEVELOPMENT.md, 开发).
 //
 // Pure module state, no `$`. What the person flipped is kept in $.store by the
 // command and loaded back at session start (`loadOverrides`, `overrides`), so

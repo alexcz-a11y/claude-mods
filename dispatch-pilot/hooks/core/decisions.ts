@@ -10,7 +10,7 @@
 //   )
 //
 // where `DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const` is
-// the file's own literal ref (README, 开发). Pure: no `$`.
+// the file's own literal ref (DEVELOPMENT.md, 开发). Pure: no `$`.
 
 import { update, type Cell } from './plans.ts'
 

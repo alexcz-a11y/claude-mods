@@ -15,7 +15,7 @@
 >
 > - 0 节第 1 条已用真实的 Clef 确认：答案在 `result.answers`，`result.model` 是 `clef`（没有版本号），`result.usage` 有 `input_tokens` 和 `output_tokens`。用户的凭证 wizard 存下的原始响应是一个 Noul：`{"result":{"model":"clef","answers":{"ok":{"type":"noul","noul":0.9815}},"usage":{"input_tokens":151,"output_tokens":0}},"success":true,"errors":[],"messages":[]}`；effort 的 Score 问题经 `scripts/decide.ts --clef` 实测，同样读得出来。
 > - 失败外壳（假 token 实测）：HTTP 401，`{"result":null,"success":false,"errors":[{"code":10000,"message":"Authentication error"}],"messages":[]}`。3.4 节的分类已实现：错误码 3036 记为 `quota`（状态行 `clef: daily quota used up`），3040、3007、3008 记为 `busy`，其余按 HTTP 状态。5035 这类账号或套餐问题（HTTP 403）暂时和 401 一样显示为 `key refused (HTTP 403)`，原因在 debug log 里。
-> - 6 节第 2 条（state 前约 2K token）仍待评测，留给 #17，见 README 的「待评测」。#3 测得的基线：一条中文消息、不带上下文的 effort 请求，Clef 报 460 input tokens，Jev 报 626。
+> - 6 节第 2 条（state 前约 2K token）仍待评测，留给 #17，见 `dispatch-pilot/DEVELOPMENT.md` 的「待评测」（#17 已经测了，见那里的「Clef 截断 state」）。#3 测得的基线：一条中文消息、不带上下文的 effort 请求，Clef 报 460 input tokens，Jev 报 626。
 > - 6 节第 12 条（连接复用）的数据：Node 的 fetch 连发 6 次同一个请求，Clef 第一次 1.8 秒、之后 0.6–1.4 秒，Jev 第一次 0.57 秒、之后 0.28–0.33 秒；真实引擎里 `$.http.fetch` 到 Cloudflare 的冷连接用了 1.3 秒才拿到 401。默认的 `timeoutMs` 1500 对 Clef 偏紧，由 #17 按 p50 和 p90 定默认值。
 > - 0 节第 2 条：核心的问题 ID（`effort.level`）符合 Clef 的字符集。`tests/clef.test.ts` 用按 Cloudflare 的 schema 写的检查（`tests/support/cloudflare.ts` 的 `clefInputProblems`）确认真实发出的请求满足 Clef 的输入规则，后续的票新增问题时可以用同一个检查。
 
