@@ -7,22 +7,25 @@
 // in as closures the hook that owns `$` builds (README, 开发).
 
 import type { Language } from '../decision/effort.ts'
-import { questionBudget, SHORTLIST_FLOOR, type RankerSettings, type SkillOption, type SkillRanking } from '../decision/skills.ts'
+import { questionBudget, SHORTLIST_FLOOR, type RankerSettings, type SkillOption, type SkillRanking, type SkillShare } from '../decision/skills.ts'
 import type { Config } from './setup.ts'
 
 /**
  * What the two stages of a ranking said, for a decision's reason: the skills
- * stage one put forward with their shares, and none's; how well each fits by
- * stage two, or that stage one put none forward.
+ * the main agent can load that stage one put forward with their shares, and
+ * none's (`first`); the same of its question on the skills only the person
+ * can start, when it was asked (`hint`); how well each fits by stage two, or
+ * that stage one put none forward.
  */
 export function describeStages(ranking: SkillRanking): string {
+  const shares = (shortlist: readonly SkillShare[], none: number) => [...shortlist.map((entry) => `${entry.name} ${entry.share.toFixed(2)}`), `none ${none.toFixed(2)}`].join(', ')
   const shortlist = ranking.shortlist ?? []
-  const first = [...shortlist.map((entry) => `${entry.name} ${entry.share.toFixed(2)}`), `none ${ranking.none.toFixed(2)}`].join(', ')
+  const hint = ranking.hints === undefined ? '' : `; hint ${shares(ranking.hints.shortlist, ranking.hints.none)}`
   const second =
-    shortlist.length === 0
+    shortlist.length + (ranking.hints?.shortlist.length ?? 0) === 0
       ? `no skill rated ${SHORTLIST_FLOOR.toFixed(2)} or more`
       : `fits ${ranking.ranked.map((entry) => `${entry.name} ${entry.relevance.toFixed(2)}`).join(', ')}`
-  return `first ${first}; ${second}`
+  return `first ${shares(shortlist, ranking.none)}${hint}; ${second}`
 }
 
 /**

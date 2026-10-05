@@ -233,6 +233,13 @@ export function registerSkills(on: On, ctx: Ctx): void {
    * register: the person's switches are loaded at session start.
    */
   const active = () => isOn(SWITCH) && ctx.backend.configured !== false
+  /**
+   * Whether the listing is withheld for this catalog: only while some skill
+   * in it could be suggested (one the main agent can load, not in
+   * skillsNeverSuggested). Withheld, the listing comes back only as
+   * suggestions; with none to make, it stays.
+   */
+  const withholds = (catalog: readonly CatalogSkill[]) => catalog.some((skill) => skill.by === 'model' && !neverSuggested.has(skill.name))
 
   // Every plugin loaded (after the others' session.start, so their commands
   // are listed): the session's skills, read afresh, and a line saying what
@@ -254,7 +261,8 @@ export function registerSkills(on: On, ctx: Ctx): void {
     const persons = catalog.filter((skill) => skill.by === 'person').map((skill) => `/${skill.name}`)
     const models = catalog.length - persons.length
     const only = persons.length > 0 ? `, ${persons.length} only you can start (${persons.join(' ')})` : ''
-    $.ui.log(`skills: ${models} the main agent can load${only}; the listing is withheld from the main agent`, { to: 'debug' })
+    const listing = withholds(catalog) ? 'the listing is withheld from the main agent' : 'the main agent keeps the skill listing, since no skill in it could be suggested'
+    $.ui.log(`skills: ${models} the main agent can load${only}; ${listing}`, { to: 'debug' })
     if (!isOn(PROFILES)) return result
     if (!read.store) {
       $.ui.log('skill profiles: the store cannot be read, so no profile is kept or written; skills are rated by their descriptions', { to: 'debug' })
@@ -274,8 +282,9 @@ export function registerSkills(on: On, ctx: Ctx): void {
   // A dispatched agent's (and a workflow agent's) reaches it untouched.
   on('prompt.attachment', { type: 'skill_listing' }, async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
-    // Skills that cannot be suggested stay listed.
-    if (!active() || (await sessionCatalog($, profiles.model)) === null) {
+    // Skills that cannot be suggested stay listed: no decision model, no catalog, or none in it to suggest.
+    const catalog = active() ? await sessionCatalog($, profiles.model) : null
+    if (catalog === null || !withholds(catalog)) {
       await $.state.set(LISTING, { answered: 'passed', text: '' })
       return next(e)
     }

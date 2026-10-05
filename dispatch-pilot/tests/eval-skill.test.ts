@@ -169,12 +169,13 @@ for (const language of ['zh', 'en'] as const) {
     expect(w.requests).toHaveLength(2)
     expect(net.bodies).toEqual(w.requests.map((request) => request.body))
     // What the two requests hold, so the equality above is not two empty things:
-    // every skill the main agent can load, then the person's own, each by its profile;
+    // every skill the main agent can load in one question, the person's own in another, each by its profile;
     const which = w.requests[0]?.body.questions['skills.which']
-    expect(Object.keys(which.criteria)).toEqual(['tdd', 'run', 'code-review', 'grill-me', '(none)'])
+    expect(Object.keys(which.criteria)).toEqual(['tdd', 'run', 'code-review', '(none)'])
     expect(which.criteria.run).toMatchObject({ what: 'run: what it does', 用途: 'run：用途' })
+    expect(Object.keys(w.requests[0]?.body.questions['skills.hint'].criteria)).toEqual(['grill-me', '(none)'])
     expect(String(w.requests[0]?.body.state.recent_context)).toContain('[tools: Grep, Read]')
-    // the second re-reads the three rated 0.1 or more, with the opening of each SKILL.md.
+    // the second re-reads the three rated 0.1 or more in their question, with the opening of each SKILL.md.
     expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['skills.best', 'skills.fits.0', 'skills.fits.1', 'skills.fits.2'])
     expect(w.requests[1]?.body.questions['skills.fits.2'].instructions.skill.opening).toContain('Interview me relentlessly')
   })
@@ -330,14 +331,21 @@ async function runFour() {
   return { rows, summary: summarize(suite, FOUR, rows, { slowMs: 1500, settings }) }
 }
 
-test('what an answer records: what stage one put forward, how well each fits by stage two, how long each stage took', async () => {
+test('what an answer records: what stage one put forward (the skills the main agent can load, then those only the person can start), how well each fits by stage two, how long each stage took', async () => {
   const { rows } = await runFour()
   const row = (key: string) => rows.find((r) => `${r.id} ${r.language}` === key)
 
-  expect(row('a en')?.detail).toEqual({ first: [{ name: 'tdd', share: 0.5 }, { name: 'code-review', share: 0.4 }], none: 0.1, fits: [{ name: 'tdd', relevance: 0.75 }, { name: 'code-review', relevance: 0.72 }], stages_ms: [300, 200] })
+  expect(row('a en')?.detail).toEqual({
+    first: [{ name: 'tdd', share: 0.5 }, { name: 'code-review', share: 0.4 }],
+    none: 0.1,
+    hints: [],
+    fits: [{ name: 'tdd', relevance: 0.75 }, { name: 'code-review', relevance: 0.72 }],
+    stages_ms: [300, 200],
+  })
   expect(row('a en')?.shown).toBe('code-review, tdd')
+  expect(row('c zh')?.detail).toEqual({ first: [], none: 1, hints: [{ name: 'grill-me', share: 0.6 }], fits: [{ name: 'grill-me', relevance: 0.85 }], stages_ms: [300, 200] })
   // Nothing put forward: no second request.
-  expect(row('b zh')?.detail).toEqual({ first: [], none: 1, fits: [], stages_ms: [300] })
+  expect(row('b zh')?.detail).toEqual({ first: [], none: 1, hints: [], fits: [], stages_ms: [300] })
   expect(row('b zh')?.ms).toBe(300)
   expect(rows.map((r) => `${r.id} ${r.language}: ${r.shown} ${r.correct ? 'right' : `wrong (${r.miss})`}`)).toEqual([
     'a zh: tdd right',
@@ -398,14 +406,15 @@ test("both relevance bars are swept over the answers already given, by language;
   })
 })
 
-test('what each variant asks is recorded with the results: the effort question, stage one over every skill offered, and the questions of stage two', async () => {
+test('what each variant asks is recorded with the results: the effort question, stage one over every skill offered (in its two questions), and the questions of stage two', async () => {
   const suite = await skillSuite({ catalog: CATALOG, profiles: PROFILES, read })
   const profiles = suite.questions('profiles') as { first: Record<string, { criteria?: Record<string, unknown> }>; second: Record<string, unknown> }
   const descriptions = suite.questions('descriptions') as typeof profiles
 
-  expect(Object.keys(profiles.first)).toEqual(['effort.level', 'skills.which'])
-  expect(profiles.first['skills.which']?.criteria?.['grill-me']).toMatchObject({ what: 'grill-me: what it does' })
-  expect(descriptions.first['skills.which']?.criteria?.['grill-me']).toBe(GRILL_DESCRIPTION)
+  expect(Object.keys(profiles.first)).toEqual(['effort.level', 'skills.which', 'skills.hint'])
+  expect(profiles.first['skills.which']?.criteria?.tdd).toMatchObject({ what: 'tdd: what it does' })
+  expect(profiles.first['skills.hint']?.criteria?.['grill-me']).toMatchObject({ what: 'grill-me: what it does' })
+  expect(descriptions.first['skills.hint']?.criteria?.['grill-me']).toBe(GRILL_DESCRIPTION)
   expect(Object.keys(profiles.second)).toEqual(['skills.best', 'skills.fits.0', 'skills.fits.1'])
 })
 
@@ -422,8 +431,9 @@ test('the estimate counts both stages: stage one as asked, and stage two as if s
   expect(fitted(planned[1]?.questions ?? {})).toEqual(['tdd', 'run', 'code-review', 'grill-me'])
   expect(planned[1]?.state).toEqual(planned[0]?.state)
 
+  // skillsShortlist counts the skills the main agent can load; up to two only the person can start come beside them.
   const two = (await suite.estimate?.(ITEM, 'zh', 'profiles', settingsFrom({ skillsShortlist: 2 }))) ?? []
-  expect(fitted(two[1]?.questions ?? {})).toEqual(['tdd', 'run'])
+  expect(fitted(two[1]?.questions ?? {})).toEqual(['tdd', 'run', 'grill-me'])
 })
 
 test('what the suite read besides its items is recorded with the results, and a warning says what does not match the snapshot', async () => {

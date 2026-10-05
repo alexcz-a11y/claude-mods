@@ -77,7 +77,7 @@ _Avoid_: skill 库、候选池
 _Avoid_: skill 摘要、skill 简介
 
 **两段排序（Two-Stage Ranking）**：
-skill 推荐和 `find_skill` 共用的排序：第一段在一个 Choice 问题里给全部 skill 排序（只用来排序），第二段对排在前面的几个补读 SKILL.md 开头，逐个判断是否合适，得出相关度。
+skill 推荐和 `find_skill` 共用的排序：第一段用 Choice 问题给 skill 排序（只用来排序）：主 agent 能加载的一题，只能由用户触发的另一题（`find_skill` 只问前一题）；第二段对每题排在前面的几个补读 SKILL.md 开头，逐个判断是否合适，得出相关度。
 _Avoid_: 复排、rerank（只指第二段时可以说「第二段」）
 
 **skill 推荐（Skill Suggestion）**：

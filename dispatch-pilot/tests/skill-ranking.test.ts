@@ -1,5 +1,6 @@
 // Skills ranked in two stages (#11): the message's one decision request rates
-// every skill (stage one, a Choice over all of them); a second request re-reads
+// every skill (stage one, a Choice over those the main agent can load and one
+// over those only the person can start); a second request re-reads
 // the opening of the few rated highest and judges each on its own (stage two,
 // one yes/no `fits` per skill), and that absolute fit is the relevance the main
 // agent is shown. Seam 1: engine events in; what reaches the decision model,

@@ -491,14 +491,15 @@ export function isSecondSkillsRequest(request: Sent): boolean {
 
 /**
  * Jev answering both requests a message's skills take (#11): the first (each
- * Score `levels`, effort medium by default; `skills.which` these `shares`),
- * and the second, where each `skills.fits.<i>` is the fit `fits` gives the
- * skill its instructions name (0 when left out) and `skills.best` puts all on
- * the best-fitting one.
+ * Score `levels`, effort medium by default; `skills.which`, the skills the
+ * main agent can load, and `skills.hint`, those only the person can start,
+ * each these `shares` of its own options), and the second, where each
+ * `skills.fits.<i>` is the fit `fits` gives the skill its instructions name
+ * (0 when left out) and `skills.best` puts all on the best-fitting one.
  */
 export function rates(shares: Record<string, number>, fits: Record<string, number> = {}, levels: readonly number[] = [0, 1, 0, 0, 0]) {
   return (request: Sent): Reply => {
-    if (!isSecondSkillsRequest(request)) return jev(levels, { shares: { 'skills.which': shares } })(request)
+    if (!isSecondSkillsRequest(request)) return jev(levels, { shares: { 'skills.which': shares, 'skills.hint': shares } })(request)
     const questions = request.body.questions as Record<string, { instructions?: { skill?: { name?: string } } }>
     const nouls: Record<string, number> = {}
     for (const [id, question] of Object.entries(questions)) {

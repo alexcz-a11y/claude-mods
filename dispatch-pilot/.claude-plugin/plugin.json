@@ -156,7 +156,7 @@
     "skillsShortlist": {
       "type": "number",
       "title": "Skills re-read in the second stage",
-      "description": "How many of the skills rated highest for a message are re-read with the opening of their instructions and judged one by one (1 to 10). The second request goes out only when some skill is rated at least 0.05, and both requests together wait at most the decision timeout.",
+      "description": "How many of the skills the main agent can load, rated highest for a message, are re-read with the opening of their instructions and judged one by one (1 to 10); at most 2 of the skills only you can start are re-read beside them. A skill is re-read only when the first request rated it at least 0.1, and both requests together wait at most the decision timeout.",
       "default": 4
     },
     "skillsProfileModel": {

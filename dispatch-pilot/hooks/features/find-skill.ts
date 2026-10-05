@@ -135,11 +135,12 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
     if (query === '') return { result: 'find_skill needs a query: a few words on the kind of work you need a skill for.' }
     const show = (text: string) => setStatus('find-skill', text, (line) => $.ui.status(line))
     try {
-      // The skills a message would be asked about: those only the person can start among them, so
-      // the shares compare with the suggestions beside a message (they never come back, below);
-      // each by its profile, as beside a message, unless profiles are switched off.
+      // The skills the main agent can load, as a message asks about them: their question of stage
+      // one is the very one beside a message (those only the person can start have one of their
+      // own, which is not asked: they never come back); each by its profile, as beside a message,
+      // unless profiles are switched off.
       const known = await sessionCatalog($, model)
-      const candidates = known?.filter((skill) => !neverSuggested.has(skill.name)).map((skill) => (isOn(PROFILES) ? skill : { ...skill, profile: null })) ?? null
+      const candidates = known?.filter((skill) => skill.by === 'model' && !neverSuggested.has(skill.name)).map((skill) => (isOn(PROFILES) ? skill : { ...skill, profile: null })) ?? null
       if (candidates === null) {
         show("find_skill failed (the session's skills could not be read)")
         return { result: `find_skill could not read this session's skills. ${CARRY_ON}` }
@@ -159,11 +160,14 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       }
 
       // The same state as beside a message, the work named in place of the message; the
-      // ranker's second request (#11) asks about the same.
+      // ranker's second request (#11) asks about the same. Both requests share one wait, as
+      // beside a message: the second gets what the first left of timeoutMs (the hook has 10 s).
+      const startedAt = await $.clock.now()
       const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
       const request = mergeParts(turnStartState({ prompt: query, messages, limits: ctx.config.context }), [part])
       const asked = await askLogged($, ctx, 'request', about, request, ctx.config.timeoutMs)
-      const ranked = asked.ok ? await ranker.rank(answersFor(part, asked.answers), candidates, { state: request.state }) : null
+      const left = ctx.config.timeoutMs - ((await $.clock.now()) - startedAt)
+      const ranked = asked.ok ? await ranker.rank(answersFor(part, asked.answers), candidates, { state: request.state, timeoutMs: left }) : null
       const failure = !asked.ok ? asked.failure : ranked === null ? { kind: 'parse' as const, detail: 'no answer about the skills' } : ranked.failed
       if (ranked === null || failure !== undefined) {
         const why = failureText(ctx.backend.name, failure ?? { kind: 'parse', detail: 'no answer about the skills' })
@@ -172,7 +176,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       }
       const ranking = ranked
 
-      // Only skills the main agent can load come back; one only the person can start is never named to it.
+      // Only skills the main agent can load were asked about, and they alone can come back.
       const { suggest } = pickSkills(ranking, candidates, policy)
       const names = suggest.map((skill) => skill.name).join(', ')
       await recordDecision(

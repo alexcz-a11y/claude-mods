@@ -5,11 +5,10 @@
 
 import { expect, test } from 'claude-code/testing'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
-import { choiceRanker, pickSkills, readSkills, skillsPart, skillsRequest, type SkillOption } from '../hooks/decision/skills.ts'
-import { answersFor } from '../hooks/decision/system-one.ts'
+import { pickSkills, readHints, readSkills, skillsPart, skillsRequest, type SkillOption } from '../hooks/decision/skills.ts'
 import { CLEF_OPTIONS, clef, clefInputProblems } from './support/cloudflare.ts'
-import type { SkillsWorld } from './support/world.ts'
-import { jev, rates, world } from './support/world.ts'
+import type { Reply, Sent, SkillsWorld } from './support/world.ts'
+import { isSecondSkillsRequest, jev, rates, world } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
 
@@ -150,6 +149,24 @@ test('without a TypeSafe key nothing could suggest a skill, so the main agent ke
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
 })
 
+// Withheld, the listing could only come back as suggestions: with no skill the
+// main agent can load left to suggest, it stays.
+test('with no skill the main agent can load to suggest, the main agent keeps its listing, and the debug log says why', { options: KEY }, async ($, on) => {
+  const w = world($, on, {
+    skills: { commands: [{ name: 'grill-me', description: 'Interview the user relentlessly about a plan.', source: 'user' }], listed: [] },
+    disk: { '/home/u/.claude/skills/grill-me/SKILL.md': '---\nname: grill-me\ndisable-model-invocation: true\n---\nAsk.\n' },
+    session: true,
+  })
+  await w.start()
+  expect(await w.listing(LISTING)).toEqual({ text: LISTING })
+  expect(w.logs.map((log) => log.text)).toContain('skills: 0 the main agent can load, 1 only you can start (/grill-me); the main agent keeps the skill listing, since no skill in it could be suggested')
+})
+
+test('every skill the main agent can load in skillsNeverSuggested: none could be suggested, so the listing stays', { options: { ...KEY, skillsNeverSuggested: ['tdd', 'code-review', 'anthropic-skills:computer-use'] } }, async ($, on) => {
+  const w = world($, on, { skills: SKILLS })
+  expect(await w.listing(LISTING)).toEqual({ text: LISTING })
+})
+
 test('Clef chosen without its Cloudflare credentials could suggest nothing either, so the main agent keeps its listing', { options: { decisionModel: 'clef' } }, async ($, on) => {
   const w = world($, on, { skills: SKILLS })
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
@@ -248,12 +265,76 @@ const PERSON_FILES: Record<string, string> = {
   '/home/u/.claude/plugins/cache/acme/ship/1.0.0/skills/release/SKILL.md': '---\nname: release\ndisable-model-invocation: "true"\n---\nRelease.\n',
 }
 
-test('skills only the person can start (disable-model-invocation in their SKILL.md) are asked about too; one switched off in settings is not', { options: KEY }, async ($, on) => {
+test('skills only the person can start (disable-model-invocation in their SKILL.md) are asked about in a question of their own; one switched off in settings is not', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({}), skills: WITH_PERSONS, disk: PERSON_FILES })
   await w.submit('这个方案往死里挑刺')
-  const which = w.requests[0]?.body.questions['skills.which']
-  expect(Object.keys(which.criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:computer-use', 'grill-me', 'ship:release', '(none)'])
-  expect(which.criteria['grill-me']).toBe('Interview the user relentlessly about a plan until every branch is resolved.')
+  const questions = w.requests[0]?.body.questions
+  expect(Object.keys(questions)).toEqual(['effort.level', 'skills.which', 'skills.hint'])
+  expect(Object.keys(questions['skills.which'].criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:computer-use', '(none)'])
+  const hint = questions['skills.hint']
+  expect(hint.type).toBe('choice')
+  expect(Object.keys(hint.criteria)).toEqual(['grill-me', 'ship:release', '(none)'])
+  expect(hint.criteria['grill-me']).toBe('Interview the user relentlessly about a plan until every branch is resolved.')
+  expect(JSON.stringify(hint.instructions)).toContain('The user starts these skills themselves')
+})
+
+test('Clef takes stage one with both its Choices, and the second request over skills of both kinds (its input rules hold)', { options: CLEF_OPTIONS }, async ($, on) => {
+  // Clef's answer puts each whole Choice on its first option: tdd, and grill-me.
+  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), skills: WITH_PERSONS, disk: PERSON_FILES })
+  await w.submit('这个方案往死里挑刺，再补测试')
+  expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([
+    ['effort.level', 'skills.which', 'skills.hint'],
+    ['skills.best', 'skills.fits.0', 'skills.fits.1'],
+  ])
+  expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], []])
+})
+
+/**
+ * Jev answering as one Choice shares its probability: each option of a
+ * skills Choice gets its weight over the weights of the options asked beside
+ * it; the second request gets `fits`.
+ */
+function competing(weights: Record<string, number>, fits: Record<string, number>) {
+  return (request: Sent): Reply => {
+    if (isSecondSkillsRequest(request)) return rates({}, fits)(request)
+    const shares: Record<string, Record<string, number>> = {}
+    for (const [id, question] of Object.entries(request.body.questions as Record<string, { type: string; criteria?: Record<string, unknown> }>)) {
+      if (question.type !== 'choice' || !id.startsWith('skills.')) continue
+      const options = Object.keys(question.criteria ?? {})
+      const sum = options.reduce((total, option) => total + (weights[option] ?? 0), 0)
+      shares[id] = Object.fromEntries(options.map((option) => [option, sum > 0 ? (weights[option] ?? 0) / sum : 0]))
+    }
+    return jev([0, 1, 0, 0, 0], { shares })(request)
+  }
+}
+
+// The eval's 033 and 090: a skill only the person can start that fits the
+// message outright took nearly all of one shared Choice, and the skill the
+// main agent should load got too little to be re-read. Asked apart, each
+// question shares its own probability.
+test('a skill only the person can start that fits outright takes nothing from the skills the main agent can load: both are re-read, one suggested, one pointed out', { options: { ...KEY, skillsMinRelevance: 0.5 } }, async ($, on) => {
+  const w = world($, on, { backend: competing({ 'grill-me': 98, 'code-review': 1, '(none)': 1 }, { 'code-review': 0.9, 'grill-me': 0.95 }), skills: WITH_PERSONS, disk: PERSON_FILES })
+  await w.submit('这个方案往死里挑刺，再审一下改动')
+  await w.step({ index: 0 })
+
+  expect(Object.keys(w.requests[1]?.body.questions ?? {})).toEqual(['skills.best', 'skills.fits.0', 'skills.fits.1'])
+  expect(w.prompts[0]?.context?.[0]).toContain('- code-review (relevance 0.90): ')
+  expect(w.status()).toBe('dp effort medium | skills code-review | try /grill-me')
+})
+
+test('with only skills the person can start to ask about, the hint is still asked, and the main agent keeps its listing', { options: { ...KEY, skillsMinRelevance: 0.5 } }, async ($, on) => {
+  const w = world($, on, {
+    backend: rates({ 'grill-me': 0.7, '(none)': 0.3 }, { 'grill-me': 0.9 }),
+    skills: { commands: [{ name: 'grill-me', description: 'Interview the user relentlessly about a plan.', source: 'user' }], listed: [] },
+    disk: { '/home/u/.claude/skills/grill-me/SKILL.md': '---\nname: grill-me\ndisable-model-invocation: true\n---\nAsk.\n' },
+  })
+  expect(await w.listing(LISTING)).toEqual({ text: LISTING })
+  await w.submit('这个方案往死里挑刺')
+  await w.step({ index: 0 })
+
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'skills.hint'])
+  expect(w.prompts[0]?.context).toBeUndefined()
+  expect(w.status()).toBe('dp effort medium | try /grill-me')
 })
 
 test('a skill only the person can start is never suggested to the main agent: the status line names it for them', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
@@ -265,6 +346,36 @@ test('a skill only the person can start is never suggested to the main agent: th
   expect(block).toContain('- code-review (relevance 0.30): ')
   expect(block).not.toContain('grill-me')
   expect(w.status()).toBe('dp effort medium | skills code-review | try /grill-me')
+})
+
+// A project's own skills: `$.command.list()` gives a project's file the same
+// source as the person's own (`user`: CommandSource in Claude Code's types),
+// and the context counts a listed one as `projectSettings`. Both are read
+// under the session's working directory.
+const PROJECT: SkillsWorld = {
+  commands: [
+    { name: 'deploy-docs', description: 'Build the docs site and deploy it.', source: 'user' },
+    { name: 'release-notes', description: 'Write the release notes for a tag.', source: 'user' },
+  ],
+  listed: [{ name: 'deploy-docs', source: 'projectSettings', tokens: 20 }],
+  cwd: '/work',
+}
+const PROJECT_FILES: Record<string, string> = {
+  '/work/.claude/skills/deploy-docs/SKILL.md': '---\nname: deploy-docs\n---\nRun the docs build, then push the site.\n',
+  '/work/.claude/skills/release-notes/SKILL.md': '---\nname: release-notes\ndisable-model-invocation: true\n---\nList the merged changes since the last tag.\n',
+}
+
+test("a project's own skills are read under its working directory: one the main agent can load is re-read from there, one only the person can start is pointed out", { options: { ...KEY, skillsMinRelevance: 0.5 } }, async ($, on) => {
+  const w = world($, on, { backend: rates({ 'deploy-docs': 0.7, 'release-notes': 0.6, '(none)': 0.1 }, { 'deploy-docs': 0.9, 'release-notes': 0.85 }), skills: PROJECT, disk: PROJECT_FILES })
+  await w.submit('发版：更新文档站，再写这次的发布说明')
+  await w.step({ index: 0 })
+
+  const fits = Object.values(w.requests[1]?.body.questions ?? {}).flatMap((question: any) => (question.type === 'noul' ? [question.instructions.skill] : []))
+  expect(fits.map((skill: any) => [skill.name, skill.opening])).toEqual([
+    ['deploy-docs', 'Run the docs build, then push the site.'],
+    ['release-notes', 'List the merged changes since the last tag.'],
+  ])
+  expect(w.status()).toBe('dp effort medium | skills deploy-docs | try /release-notes')
 })
 
 /** Answers each message's two skills requests by the message they ask about: `byMessage[text]` is `[shares, fits]`. */
@@ -370,8 +481,9 @@ test('a skill the listing still shows (skillsAlwaysListed) is suggested by name 
 test('skills named in skillsNeverSuggested are never offered, to the main agent or to the person', { options: { ...KEY, skillsNeverSuggested: ['code-review', 'grill-me'] } }, async ($, on) => {
   const w = world($, on, { backend: rates({}), skills: WITH_PERSONS, disk: PERSON_FILES })
   await w.submit('审一下这个分支')
-  const which = w.requests[0]?.body.questions['skills.which']
-  expect(Object.keys(which.criteria)).toEqual(['tdd', 'anthropic-skills:computer-use', 'ship:release', '(none)'])
+  const questions = w.requests[0]?.body.questions
+  expect(Object.keys(questions['skills.which'].criteria)).toEqual(['tdd', 'anthropic-skills:computer-use', '(none)'])
+  expect(Object.keys(questions['skills.hint'].criteria)).toEqual(['ship:release', '(none)'])
 })
 
 test("when the session's skills cannot be read, nothing is asked about them and the main agent keeps its listing", { options: KEY }, async ($, on) => {
@@ -429,10 +541,11 @@ test('each decision about the skills goes to the decision log (/dp log) and the 
   await w.submit('这个方案往死里挑刺')
   await w.submit('这个报错什么意思')
 
-  // What the first stage put forward (its shares), how each fits on its own (the second stage), the bar.
-  const first = 'suggested tdd, code-review for "先写一个失败的测试再实现登录限流": first tdd 0.62, code-review 0.23, none 0.14; fits tdd 0.97, code-review 0.41; suggested from 0.20, at most 3'
-  const second = 'suggested no skill; try /grill-me for "这个方案往死里挑刺": first grill-me 0.40, none 0.60; fits grill-me 0.93; suggested from 0.20, at most 3'
-  const third = 'suggested no skill for "这个报错什么意思": first none 0.98; no skill rated 0.10 or more; suggested from 0.20, at most 3'
+  // What the first stage put forward (its shares: the skills the main agent can load, then those only the person
+  // can start, each question's own), how each fits on its own (the second stage), the bar.
+  const first = 'suggested tdd, code-review for "先写一个失败的测试再实现登录限流": first tdd 0.62, code-review 0.23, none 0.14; hint none 1.00; fits tdd 0.97, code-review 0.41; suggested from 0.20, at most 3'
+  const second = 'suggested no skill; try /grill-me for "这个方案往死里挑刺": first none 1.00; hint grill-me 0.40, none 0.60; fits grill-me 0.93; suggested from 0.20, at most 3'
+  const third = 'suggested no skill for "这个报错什么意思": first none 0.98; hint none 1.00; no skill rated 0.10 or more; suggested from 0.20, at most 3'
   expect(w.logs.filter((log) => log.text.startsWith('suggested '))).toEqual([
     { text: first, to: 'debug' },
     { text: second, to: 'debug' },
@@ -491,16 +604,26 @@ const OPTIONS: SkillOption[] = [
   { name: 'grill-me', description: 'Interview the user relentlessly about a plan.', by: 'person' },
 ]
 
-test('the skills question in each language: the same options in the same order, "(none)" last; no options, no question', () => {
+test("stage one's questions in each language: the skills the main agent can load in one Choice, those only the person can start in another, the same options in the same order, \"(none)\" last in each; no options, no question", () => {
   const en = skillsPart(OPTIONS)
   const zh = skillsPart(OPTIONS, { language: 'zh' })
-  const criteria = (part: typeof en) => (part?.questions.which?.type === 'choice' ? part.questions.which.criteria : {})
-  expect(Object.keys(criteria(en))).toEqual(['pr', 'code-review', 'grill-me', '(none)'])
-  expect(Object.keys(criteria(zh))).toEqual(['pr', 'code-review', 'grill-me', '(none)'])
-  expect(criteria(zh).pr).toBe('Use when writing a PR body.')
+  const criteria = (part: typeof en, id: string) => {
+    const question = part?.questions[id]
+    return question?.type === 'choice' ? question.criteria : {}
+  }
+  expect(Object.keys(en?.questions ?? {})).toEqual(['which', 'hint'])
+  expect(Object.keys(criteria(en, 'which'))).toEqual(['pr', 'code-review', '(none)'])
+  expect(Object.keys(criteria(zh, 'which'))).toEqual(['pr', 'code-review', '(none)'])
+  expect(Object.keys(criteria(en, 'hint'))).toEqual(['grill-me', '(none)'])
+  expect(Object.keys(criteria(zh, 'hint'))).toEqual(['grill-me', '(none)'])
+  expect(criteria(zh, 'which').pr).toBe('Use when writing a PR body.')
   expect(JSON.stringify(zh?.questions.which?.instructions)).toContain('`user_message`')
   expect(JSON.stringify(zh?.questions.which?.instructions)).toMatch(/应该加载/)
   expect(JSON.stringify(en?.questions.which?.instructions)).not.toMatch(/应该加载/)
+  expect(JSON.stringify(zh?.questions.hint?.instructions)).toMatch(/用户自己输入/)
+  // Only one kind of skill: only its question.
+  expect(Object.keys(skillsPart(OPTIONS.filter((option) => option.by === 'model'))?.questions ?? {})).toEqual(['which'])
+  expect(Object.keys(skillsPart(OPTIONS.filter((option) => option.by === 'person'))?.questions ?? {})).toEqual(['hint'])
   expect(skillsPart([])).toBeNull()
 })
 
@@ -514,7 +637,7 @@ test('a Choice takes at most 255 options: past 254 skills the rest are left out,
 })
 
 test('an answer reads back as a ranking: shares normalized, names not offered ignored, a tie in the options order', () => {
-  const answer = { which: { type: 'choice' as const, choice: 'ghost', probabilities: { 'code-review': 0.2, pr: 0.2, ghost: 0.5, '(none)': 0.4 }, confidence: 0.2 } }
+  const answer = { which: { type: 'choice' as const, choice: 'ghost', probabilities: { 'code-review': 0.2, pr: 0.2, ghost: 0.5, 'grill-me': 0.3, '(none)': 0.4 }, confidence: 0.2 } }
   const ranking = readSkills(answer, OPTIONS)
   expect(ranking?.ranked.map((entry) => entry.name)).toEqual(['pr', 'code-review'])
   expect(ranking?.ranked.map((entry) => entry.relevance)).toEqual([0.25, 0.25])
@@ -524,6 +647,14 @@ test('an answer reads back as a ranking: shares normalized, names not offered ig
   expect(readSkills({ which: { type: 'choice', choice: '', probabilities: {}, confidence: null } }, OPTIONS)).toBeNull()
 })
 
+test('the hint question reads back the same way, over the skills only the person can start', () => {
+  const answer = { hint: { type: 'choice' as const, choice: 'grill-me', probabilities: { 'grill-me': 0.3, pr: 0.9, '(none)': 0.2 }, confidence: 0.5 } }
+  const ranking = readHints(answer, OPTIONS)
+  expect(ranking?.ranked).toEqual([{ name: 'grill-me', relevance: 0.6 }])
+  expect(ranking?.none).toBe(0.4)
+  expect(readHints({}, OPTIONS)).toBeNull()
+})
+
 test('what a ranking suggests: skills the main agent can load at or above minRelevance, at most max; the person-only ones apart, at most two', () => {
   const ranking = { ranked: [{ name: 'grill-me', relevance: 0.5 }, { name: 'code-review', relevance: 0.3 }, { name: 'pr', relevance: 0.15 }], none: 0.05 }
   const picks = pickSkills(ranking, OPTIONS, { max: 3, minRelevance: 0.2 })
@@ -531,13 +662,4 @@ test('what a ranking suggests: skills the main agent can load at or above minRel
   expect(picks.hint.map((skill) => skill.name)).toEqual(['grill-me'])
   expect(pickSkills(ranking, OPTIONS, { max: 0, minRelevance: 0 }).suggest).toEqual([])
   expect(pickSkills(ranking, OPTIONS, { max: 3, minRelevance: 0.1 }).suggest.map((skill) => skill.name)).toEqual(['code-review', 'pr'])
-})
-
-test('#10’s ranker, the first stage alone, still ranks by each option’s share of the Choice', async () => {
-  const ranker = choiceRanker()
-  const part = ranker.part(OPTIONS)
-  expect(part).toEqual(skillsPart(OPTIONS))
-  const answers = { 'skills.which': { type: 'choice', choice: 'pr', probabilities: { pr: 0.7, 'code-review': 0.1, 'grill-me': 0, '(none)': 0.2 }, confidence: 0.6 } }
-  const ranking = await ranker.rank(answersFor(part!, answers), OPTIONS, { state: {} })
-  expect(ranking?.ranked[0]).toEqual({ name: 'pr', relevance: 0.7 })
 })

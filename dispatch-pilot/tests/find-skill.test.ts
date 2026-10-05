@@ -103,15 +103,16 @@ test('the decision model reads the work the main agent names and the recent conv
   expect(w.requests[1]?.body.state).toEqual(w.requests[0]?.body.state)
 })
 
-test('find_skill asks the very question a message asks about the skills: the same skills in the same order (those only the person can start among them), in the same words', { options: KEY }, async ($, on) => {
+test('find_skill asks the very question a message asks about the skills the main agent can load: the same skills in the same order, in the same words; the question on those only the person can start it leaves out', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: PERSON_FILES })
   await w.submit('先把合同里的表格填好')
   await w.findSkill('fill in a form in a PDF')
 
   expect(w.requests).toHaveLength(2)
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'skills.which', 'skills.hint'])
   const beside = w.requests[0]?.body.questions['skills.which']
-  expect(Object.keys(beside.criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:pdf', 'grill-me', '(none)'])
-  expect(w.requests[1]?.body.questions['skills.which']).toEqual(beside)
+  expect(Object.keys(beside.criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:pdf', '(none)'])
+  expect(w.requests[1]?.body.questions).toEqual({ 'skills.which': beside })
 })
 
 test('find_skill speaks only when called: the steps around the call ask nothing about skills, and its answer is the tool result alone', { options: KEY }, async ($, on) => {
@@ -123,7 +124,7 @@ test('find_skill speaks only when called: the steps around the call ask nothing 
   await w.step({ index: 2 })
 
   // The message's two requests, then the call's two: none for the steps.
-  expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([['effort.level', 'skills.which'], ['skills.fits.0'], ['skills.which'], ['skills.fits.0']])
+  expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([['effort.level', 'skills.which', 'skills.hint'], ['skills.fits.0'], ['skills.which'], ['skills.fits.0']])
   expect(answer.context).toBeUndefined()
 })
 
@@ -167,9 +168,10 @@ test('a second request that fails is a failure: find_skill says it could not rat
 
 // ---- Skills that never come back -------------------------------------------------
 
-test('a skill only the person can start never comes back to the main agent, even as the best fit', { options: KEY }, async ($, on) => {
+test('a skill only the person can start is neither asked about nor returned to the main agent, however well it would fit', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({ 'grill-me': 0.55, 'code-review': 0.3, '(none)': 0.15 }, { 'grill-me': 0.97, 'code-review': 0.62 }), skills: SKILLS, disk: PERSON_FILES })
   const answer = String((await w.findSkill('poke holes in this plan')).result)
+  expect(JSON.stringify(w.requests.map((request) => request.body.questions))).not.toContain('grill-me')
   expect(answer).toContain(`\n- code-review (relevance 0.62): ${REVIEW_DESCRIPTION}`)
   expect(answer).not.toContain('grill-me')
 })
@@ -207,7 +209,7 @@ test('find_skill has a switch of its own: with the suggestions off since an earl
   await w.start()
   const answer = String((await w.findSkill('write the tests first')).result)
 
-  expect(Object.keys(w.requests[0]?.body.questions['skills.which'].criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:pdf', 'grill-me', '(none)'])
+  expect(Object.keys(w.requests[0]?.body.questions['skills.which'].criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:pdf', '(none)'])
   expect(answer).toContain('\n- tdd (relevance 0.80): ')
 })
 
@@ -230,6 +232,22 @@ test('no answer within timeoutMs: find_skill stops waiting and says so; the stat
 
   expect(answer.result).toBe(`find_skill could not rate the skills (jev: no answer in 800 ms). ${SKILL_TOOL_LINE}`)
   expect(w.status()).toBe('dp find_skill failed (jev: no answer in 800 ms)')
+})
+
+// The hook has 10 seconds; timeoutMs is at most 8000, so the two requests share it, as beside a message.
+test('both requests share one wait: the second gets what the first left of timeoutMs, and given up, find_skill says so', { options: { ...KEY, timeoutMs: 1500 } }, async ($, on) => {
+  const answer1 = rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 })
+  // The first request answers after 400 ms; the second would take a minute.
+  const w = world($, on, { backend: (request) => (isSecondSkillsRequest(request) ? { after: 60_000, reply: answer1(request) } : { after: 400, reply: answer1(request) }), skills: SKILLS, disk: PERSON_FILES })
+  const calling = w.findSkill('write the tests first')
+  await w.clock.settle()
+  await w.clock.advance(400)
+  await w.clock.advance(1100)
+  const answer = await calling
+
+  expect(w.requests).toHaveLength(2)
+  expect(answer.result).toBe(`find_skill could not rate the skills (jev: no answer in 1100 ms). ${SKILL_TOOL_LINE}`)
+  expect(w.status()).toBe('dp find_skill failed (jev: no answer in 1100 ms)')
 })
 
 test('an answer that leaves the skills question out is a failure too', { options: KEY }, async ($, on) => {

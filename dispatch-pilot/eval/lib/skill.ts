@@ -17,13 +17,14 @@ import { lookUpProfiles } from '../../hooks/core/profiles.ts'
 import { rankingSettings, type CatalogSkill } from '../../hooks/core/skills.ts'
 import { DEFAULT_ASK } from '../../hooks/decision/effort.ts'
 import {
-  MAX_SHORTLIST,
   modRanker,
   pickSkills,
+  readHints,
   readSkills,
-  rerankPart,
+  shortlistCounts,
   skillOpening,
   skillsRequest,
+  stageTwoPart,
   type SkillPolicy,
   type SkillRanker,
   type SkillRankerIo,
@@ -131,7 +132,7 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
     skillsRequest({ message: asked.message, recent_context: contextMessages(asked.recent_context) }, options, { limits: settings.context, ranker })
   /** Stage two's request for these candidates, about stage one's state. */
   const secondRequest = (state: DecisionRequest['state'], options: readonly CatalogSkill[], candidates: readonly CatalogSkill[]) =>
-    mergeParts(state, [rerankPart(candidates.map((option) => ({ option, opening: openingOf(options, option.name) })), { language: DEFAULT_ASK.language }) as Part])
+    mergeParts(state, [stageTwoPart(candidates.map((option) => ({ option, opening: openingOf(options, option.name) })), { language: DEFAULT_ASK.language }) as Part])
   const unsent: SkillRankerIo['ask'] = async () => ({ ok: false, failure: { kind: 'config', detail: 'not sent' } })
 
   // What each variant asks under the manifest's defaults, recorded with the
@@ -193,24 +194,27 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
       return {
         ok: true,
         prediction: { suggest: suggest.map((skill) => skill.name), hint: hint.map((skill) => skill.name) },
-        detail: detailOf(readSkills(answers, options), ranking, stages),
+        detail: detailOf(readSkills(answers, options), readHints(answers, options), ranking, stages),
       }
     },
     grade: gradeSkills,
     show: showAnswer,
     constants: [{ suggest: [], hint: [] }],
     questions: (variant) => asks[variant],
-    // Stage one as decide asks it, and stage two as if stage one had put a
-    // full shortlist forward: the skills the item wants (acceptable, then
-    // hinted) first, then the others in order.
+    // Stage one as decide asks it, and stage two as if each question of
+    // stage one had put a full shortlist forward: of the skills the main
+    // agent can load, the acceptable ones first, then the others in order; of
+    // those only the person can start, the hinted ones first.
     async estimate(item, language, variant, settings) {
       const options = await offered(variant, settings)
       const { request, part } = firstRequest(item[language], options, settings, rankerFor(options, settings, unsent))
       if (part === null) return [request]
-      const wanted = [...item.accept, ...item.user_only_hint]
-      const ordered = [...wanted.flatMap((name) => options.filter((option) => option.name === name)), ...options.filter((option) => !wanted.includes(option.name))]
-      const count = Math.max(1, Math.min(MAX_SHORTLIST, rankingSettings({ config: settings, ask: DEFAULT_ASK }).shortlist))
-      return [request, secondRequest(request.state, options, ordered.slice(0, count))]
+      const counts = shortlistCounts(rankingSettings({ config: settings, ask: DEFAULT_ASK }).shortlist)
+      const fullest = (by: CatalogSkill['by'], wanted: readonly string[], count: number) => {
+        const mine = options.filter((option) => option.by === by)
+        return [...wanted.flatMap((name) => mine.filter((option) => option.name === name)), ...mine.filter((option) => !wanted.includes(option.name))].slice(0, count)
+      }
+      return [request, secondRequest(request.state, options, [...fullest('model', item.accept, counts.model), ...fullest('person', item.user_only_hint, counts.person)])]
     },
     breakdown: (items, rows, _variant, settings) => {
       const never = new Set(settings.skills.neverSuggested)
@@ -322,15 +326,19 @@ function findPolicy(settings: Settings): SkillPolicy {
 
 /**
  * What a run keeps of an answer: stage one's five highest shares (0.01 and
- * up) and none's; stage two's fit for each skill stage one put forward, in
- * the ranking's order and as answered (the relevance the bars compare, kept
- * whole so a sweep at the run's own bar is the run); how long each stage's
- * request took, in ms.
+ * up) of the skills the main agent can load (`first`) and none's, and of
+ * those only the person can start (`hints`, when that question was asked);
+ * stage two's fit for each skill stage one put forward, in the ranking's
+ * order and as answered (the relevance the bars compare, kept whole so a
+ * sweep at the run's own bar is the run); how long each stage's request
+ * took, in ms.
  */
-function detailOf(first: SkillRanking | null, ranking: SkillRanking, stages: readonly number[]): Record<string, unknown> {
+function detailOf(first: SkillRanking | null, hints: SkillRanking | null, ranking: SkillRanking, stages: readonly number[]): Record<string, unknown> {
+  const top = (reading: SkillRanking | null) => (reading?.ranked ?? []).filter((entry) => entry.relevance >= 0.01).slice(0, 5).map((entry) => ({ name: entry.name, share: round(entry.relevance) }))
   return {
-    first: (first?.ranked ?? []).filter((entry) => entry.relevance >= 0.01).slice(0, 5).map((entry) => ({ name: entry.name, share: round(entry.relevance) })),
+    first: top(first),
     none: round(ranking.none),
+    ...(ranking.hints === undefined ? {} : { hints: top(hints) }),
     fits: ranking.ranked.map((entry) => ({ name: entry.name, relevance: entry.relevance })),
     stages_ms: stages.map((ms) => Math.round(ms)),
   }
