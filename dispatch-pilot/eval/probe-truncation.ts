@@ -1,8 +1,11 @@
 // Does Clef read the whole of a long state? (#17: 验证 Clef 是否截断 state)
 //
 //   node dispatch-pilot/eval/probe-truncation.ts --estimate          what it would send and cost; nothing is sent
-//   node dispatch-pilot/eval/probe-truncation.ts                     Clef, then Jev as the control
+//   node dispatch-pilot/eval/probe-truncation.ts                     the ladder: Clef, then Jev as the control
 //   node dispatch-pilot/eval/probe-truncation.ts --backend clef      one backend only
+//   node dispatch-pilot/eval/probe-truncation.ts --only en-4800:6,en-3200:3 --backend clef
+//                                                                    named probes only, each as often as its count says
+//   node dispatch-pilot/eval/probe-truncation.ts --show en-2400-bulk96   one probe's request; nothing is sent
 //
 // Third-party pages say Workers AI reads only about the first 2K tokens of a
 // state; Cloudflare's schema says only that a long text state "is truncated
@@ -14,12 +17,18 @@
 // with a Choice that offers "not stated": a fact that was cut off is answered
 // "not stated", or guessed. The ladder grows the state (English to about 9.6k
 // tokens, Chinese to 4.8k, counted as the mod estimates tokens). One more
-// probe puts a long question (about 12k tokens of criteria as Clef counts
-// them) beside a short state: whether the questions are cut (it asks about
-// the last of the options), and whether they eat the state's room (at this
-// size the whole request stays under the encoder's default 16,384, so a
-// bigger question is needed to settle that). Every answer is kept with the
-// input tokens the backend counted and how long it took.
+// probe of the ladder puts a long question (about 12k tokens of criteria as
+// Clef counts them) beside a short state: whether the questions are cut (it
+// asks about the last of the options). Two probes are sent only when named
+// (--only): `en-3200`, a state between the ladder's rungs, and
+// `en-2400-bulk96`, a question of about 15.4k tokens beside a 2.4k state, so
+// that the request (about 18k) passes the encoder's default `max_length`
+// (16,384): whether a long question eats the state's room. Every answer is
+// kept with the input tokens the backend counted and how long it took.
+//
+// --only takes probe names, each optionally with `:<count>`; --repeat is the
+// count of a name without one (1 by default). Repeats go out in rounds (each
+// named probe once, then again), so they spread over the run.
 //
 // Credentials as eval/run.ts reads them (the environment, then
 // ~/.config/dispatch-pilot/eval.env); never printed or saved. Saves
@@ -44,6 +53,8 @@ const { values } = parseArgs({
     backend: { type: 'string', default: 'both' },
     estimate: { type: 'boolean', default: false },
     show: { type: 'string' },
+    only: { type: 'string' },
+    repeat: { type: 'string', default: '1' },
     timeout: { type: 'string', default: '30000' },
     retries: { type: 'string', default: '2' },
     'no-save': { type: 'boolean', default: false },
@@ -147,20 +158,23 @@ function factQuestion(position: Position, language: Language): ChoiceQuestion {
 }
 
 /**
- * The long question: catalog entries, each about one ticket reference; the
- * one the message names is the last. Meant to be sized like the skill
- * request's first stage with every profile (about 15k tokens as Clef counts
- * them); on 2026-10-05 Clef counted the whole probe at 13,162 tokens, so the
- * question is about 11.9k, and with the 1.2k state the request stays under
- * 16,384 (the open-source encoder's default `max_length`).
+ * The long question: `entries` catalog entries, each about one ticket
+ * reference; the one the message names is the last. With 72 entries (the
+ * ladder's `en-1200-bulk`) Clef counted the whole probe at 13,162 tokens on
+ * 2026-10-05, so the question is about 11.9k, about 160 a entry; with 96
+ * (`en-2400-bulk96`) it is about 15.4k, about the skill request's first
+ * stage with every profile.
  */
 const WANTED = 'ZEPHYR-ORCHID'
-const BULK_ENTRIES = 72
-function bulkQuestion(): ChoiceQuestion {
-  const first = ['ALPINE', 'BRAMBLE', 'CINDER', 'DELTA', 'EMBER', 'FJORD', 'GLACIER', 'HOLLOW', 'INDIGO', 'JASPER', 'KESTREL', 'LAGOON']
-  const second = ['ASTER', 'BIRCH', 'CEDAR', 'DAHLIA', 'ELM', 'FERN', 'GORSE']
-  const references = first.flatMap((a) => second.map((b) => `${a}-${b}`)).slice(0, BULK_ENTRIES - 1)
-  references.push(WANTED)
+const FIRST = ['ALPINE', 'BRAMBLE', 'CINDER', 'DELTA', 'EMBER', 'FJORD', 'GLACIER', 'HOLLOW', 'INDIGO', 'JASPER', 'KESTREL', 'LAGOON']
+/** The ladder's references (the first 71 of them), then more for a bigger question; the ladder's question stays as it was sent. */
+const REFERENCES = [
+  ...FIRST.flatMap((a) => ['ASTER', 'BIRCH', 'CEDAR', 'DAHLIA', 'ELM', 'FERN', 'GORSE'].map((b) => `${a}-${b}`)),
+  ...FIRST.flatMap((a) => ['HAZEL', 'IRIS'].map((b) => `${a}-${b}`)),
+]
+function bulkQuestion(entries: number): ChoiceQuestion {
+  if (entries < 2 || entries > REFERENCES.length + 1 || entries > 100) throw new RangeError(`a long question of ${entries} entries: 2 to ${Math.min(100, REFERENCES.length + 1)}`)
+  const references = [...REFERENCES.slice(0, entries - 1), WANTED]
   const entry = (i: number, reference: string) =>
     `Catalog entry ${i} covers ticket reference ${reference}. It records a routine maintenance request filed by the facilities group: ` +
     'the request lists the building wing, the floor, the kind of fixture involved and the preferred time window, and notes that the work needs no special access. ' +
@@ -170,36 +184,48 @@ function bulkQuestion(): ChoiceQuestion {
   return {
     type: 'choice',
     instructions: 'Which catalog entry is for the ticket reference that `user_message` gives?',
-    criteria: Object.fromEntries(references.map((reference, i) => [`entry_${String(i).padStart(2, '0')}`, entry(i, reference)])),
+    criteria: Object.fromEntries(references.map((reference, i) => [entryId(i), entry(i, reference)])),
   }
 }
-const BULK_RIGHT = `entry_${String(BULK_ENTRIES - 1).padStart(2, '0')}`
+function entryId(i: number): string {
+  return `entry_${String(i).padStart(2, '0')}`
+}
 
 // ---- The probes ------------------------------------------------------------
 
-type Probe = { name: string; language: Language; stateTokens: number; bulk: boolean; part: Part; request: DecisionRequest }
+/** A probe: its request, and the long question's entries (0 without one). */
+type Probe = { name: string; language: Language; stateTokens: number; bulk: number; part: Part; request: DecisionRequest }
 
-function probe(language: Language, stateTokens: number, bulk = false): Probe {
+function probe(language: Language, stateTokens: number, bulk = 0): Probe {
   const questions: Record<string, ChoiceQuestion> = Object.fromEntries(POSITIONS.map((position) => [position, factQuestion(position, language)]))
-  if (bulk) questions.bulk = bulkQuestion()
+  if (bulk > 0) questions.bulk = bulkQuestion(bulk)
   const part: Part = { part: 'probe', questions }
-  const message = bulk ? `Find the catalog entry for ticket reference ${WANTED}, then ${SUMMARIZE.en.charAt(0).toLowerCase()}${SUMMARIZE.en.slice(1)}` : SUMMARIZE[language]
+  const message = bulk > 0 ? `Find the catalog entry for ticket reference ${WANTED}, then ${SUMMARIZE.en.charAt(0).toLowerCase()}${SUMMARIZE.en.slice(1)}` : SUMMARIZE[language]
   const state = { user_message: message, recent_context: notes(language, stateTokens) }
-  return { name: `${language}-${stateTokens}${bulk ? '-bulk' : ''}`, language, stateTokens, bulk, part, request: mergeParts(state, [part]) }
+  const suffix = bulk === 0 ? '' : bulk === 72 ? '-bulk' : `-bulk${bulk}`
+  return { name: `${language}-${stateTokens}${suffix}`, language, stateTokens, bulk, part, request: mergeParts(state, [part]) }
 }
 
 const WARMUP: Probe = (() => {
   const part: Part = { part: 'probe', questions: { start: factQuestion('start', 'en') } }
   const state = { user_message: SUMMARIZE.en, recent_context: FACTS.en.start }
-  return { name: 'warmup', language: 'en', stateTokens: 0, bulk: false, part, request: mergeParts(state, [part]) }
+  return { name: 'warmup', language: 'en', stateTokens: 0, bulk: 0, part, request: mergeParts(state, [part]) }
 })()
 
-const PROBES: Probe[] = [
+/** The ladder: what a run sends unless --only names others. */
+const LADDER: Probe[] = [
   WARMUP,
   ...[1200, 2400, 4800, 9600].map((tokens) => probe('en', tokens)),
   ...[1200, 2400, 4800].map((tokens) => probe('zh', tokens)),
-  probe('en', 1200, true),
+  probe('en', 1200, 72),
 ]
+/** Sent only when named. */
+const NAMED_ONLY: Probe[] = [probe('en', 3200), probe('en', 2400, 96)]
+const ALL = [...LADDER, ...NAMED_ONLY]
+
+function byName(name: string): Probe {
+  return ALL.find((one) => one.name === name) ?? fail(`no probe "${name}" (${ALL.map((one) => one.name).join(', ')})`)
+}
 
 /** Where each fact sits in the state, in estimated tokens from its start (the state as JSON, as it is sent). */
 function factOffsets(p: Probe): Partial<Record<Position, number>> {
@@ -212,29 +238,55 @@ function factOffsets(p: Probe): Partial<Record<Position, number>> {
   return out
 }
 
-const sizes = PROBES.map((p) => ({ state: estimateTokens(JSON.stringify(p.request.state)), questions: estimateTokens(JSON.stringify(p.request.questions)) }))
+function sizeOf(p: Probe): { state: number; questions: number } {
+  return { state: estimateTokens(JSON.stringify(p.request.state)), questions: estimateTokens(JSON.stringify(p.request.questions)) }
+}
 
 // --show <probe>: the request it sends, as JSON; nothing is sent.
 if (values.show !== undefined) {
-  const p = PROBES.find((one) => one.name === values.show) ?? fail(`no probe "${values.show}" (${PROBES.map((one) => one.name).join(', ')})`)
+  const p = byName(values.show)
   console.log(JSON.stringify(p.request, null, 2))
   console.log(`facts at (estimated tokens from the start of the state): ${JSON.stringify(factOffsets(p))}`)
   process.exit(0)
 }
 
+// ---- What this run sends -----------------------------------------------------
+
+const repeat = Number(values.repeat)
+if (!Number.isInteger(repeat) || repeat < 1) fail(`--repeat takes a whole number of 1 or more, not ${values.repeat}`)
+/** Each probe this run sends, with how many times. */
+const selected: { probe: Probe; count: number }[] =
+  values.only === undefined
+    ? LADDER.map((p) => ({ probe: p, count: repeat }))
+    : values.only.split(',').map((entry) => {
+        const [name, count] = entry.trim().split(':', 2) as [string, string | undefined]
+        const times = count === undefined ? repeat : Number(count)
+        if (!Number.isInteger(times) || times < 1) fail(`--only ${entry}: the count after ":" is a whole number of 1 or more`)
+        return { probe: byName(name), count: times }
+      })
+if (new Set(selected.map((one) => one.probe.name)).size !== selected.length) fail('--only names a probe twice: give it a count instead (name:count)')
+/** The sends in rounds: every selected probe once, then those asked for again, and so on. */
+const schedule: Probe[] = []
+for (let round = 0; round < Math.max(...selected.map((one) => one.count)); round++) for (const one of selected) if (one.count > round) schedule.push(one.probe)
+
 // ---- Estimate ----------------------------------------------------------------
 
 const backends = values.backend === 'both' ? ['clef', 'jev'] : [values.backend]
 for (const name of backends) if (name !== 'clef' && name !== 'jev') fail(`no backend "${name}" (clef, jev, both)`)
-// As eval/run.ts: the mod's estimate times what Jev counted (1.6); Clef counts about 0.68 of what Jev does (#17's plan, 1.5).
-const estimated = sizes.reduce((sum, s) => sum + s.state + s.questions, 0)
-const PRICE: Record<string, { factor: number; usd: number }> = { jev: { factor: 1.6, usd: 0.042 }, clef: { factor: 1.6 * 0.68, usd: 0.24 } }
-for (const [i, p] of PROBES.entries()) console.log(`${p.name.padEnd(14)} state ~${sizes[i]?.state} tokens, questions ~${sizes[i]?.questions}`)
+for (const { probe: p, count } of selected) {
+  const size = sizeOf(p)
+  console.log(`${p.name.padEnd(16)} x${count}  state ~${size.state} tokens, questions ~${size.questions}`)
+}
+// As eval/run.ts: the mod's estimate times what Jev counted (1.6). Clef counts about what Jev does
+// on long English text and about 0.7 of it on Chinese (#17's plan, 8.5): 1.1 overall stays on the high side.
+const estimated = schedule.reduce((sum, p) => sum + sizeOf(p).state + sizeOf(p).questions, 0)
+const PRICE: Record<string, { factor: number; usd: number }> = { jev: { factor: 1.6, usd: 0.042 }, clef: { factor: 1.1, usd: 0.24 } }
 for (const name of backends) {
   const price = PRICE[name] as { factor: number; usd: number }
   const tokens = Math.round(estimated * price.factor)
-  console.log(`${name}: ${PROBES.length} requests, about ${tokens} input tokens, about $${((tokens * price.usd) / 1e6).toFixed(4)}${name === 'clef' ? `, about ${Math.round(tokens / 45)} neurons` : ''}`)
+  console.log(`${name}: ${schedule.length} requests, about ${tokens} input tokens, about $${((tokens * price.usd) / 1e6).toFixed(4)}${name === 'clef' ? `, about ${Math.round(tokens / 45)} neurons` : ''}`)
 }
+if (backends.includes('clef')) console.log(`Workers Paid marker (CLOUDFLARE_WORKERS_PAID in ${CREDENTIALS_FILE}): ${credential('CLOUDFLARE_WORKERS_PAID') === 'yes' ? 'yes' : 'not set'}`)
 if (values.estimate) process.exit(0)
 
 // ---- Send --------------------------------------------------------------------
@@ -271,27 +323,29 @@ function readProbe(p: Probe, asked: Asked): Record<string, Read> | null {
   for (const id of Object.keys(p.part.questions)) {
     const answer = answers[id]
     if (answer?.type !== 'choice') continue
-    const right = id === 'bulk' ? BULK_RIGHT : ASKED[id as Position].right
+    const right = id === 'bulk' ? entryId(p.bulk - 1) : ASKED[id as Position].right
     const round = (x: number | undefined) => Math.round((x ?? 0) * 1000) / 1000
     out[id] = { choice: answer.choice, right: answer.choice === right, p_right: round(answer.probabilities[right]), p_not_stated: round(answer.probabilities.not_stated) }
   }
   return out
 }
 
+type Run = { input_tokens: number | null; ms: number; attempts: number; answers: Record<string, Read> | null } | { failure: string; ms: number; attempts: number }
+
 const started = new Date()
-const results: Record<string, unknown>[] = PROBES.map((p, i) => ({ name: p.name, language: p.language, bulk: p.bulk, estimated: sizes[i], facts_at: factOffsets(p) }))
+const runs = new Map<string, Record<string, Run[]>>(selected.map(({ probe: p }) => [p.name, {}]))
 const models: Record<string, string[]> = {}
 for (const name of backends) {
   const backend = makeBackend(name)
   const answeredBy: string[] = (models[name] = [])
   console.log(`\n${name}:`)
-  console.log(`${'probe'.padEnd(14)} ${'input tok'.padStart(9)} ${'ms'.padStart(6)}  start / middle / end / bulk (right: p of the right option; otherwise p of not stated)`)
-  for (const [i, p] of PROBES.entries()) {
+  console.log(`${'probe'.padEnd(16)} ${'input tok'.padStart(9)} ${'ms'.padStart(6)}  start / middle / end / bulk (right: p of the right option; otherwise p of not stated)`)
+  for (const p of schedule) {
     const { asked, ms, attempts } = await send(backend, p.request)
     const read = readProbe(p, asked)
     if (asked.ok && asked.model !== null && !answeredBy.includes(asked.model)) answeredBy.push(asked.model)
-    const row = results[i] as Record<string, unknown>
-    row[name] = asked.ok ? { input_tokens: asked.inputTokens, ms, attempts, answers: read } : { failure: `${asked.failure.kind}: ${asked.failure.detail}`, ms, attempts }
+    const own = runs.get(p.name) as Record<string, Run[]>
+    ;(own[name] ??= []).push(asked.ok ? { input_tokens: asked.inputTokens, ms, attempts, answers: read } : { failure: `${asked.failure.kind}: ${asked.failure.detail}`, ms, attempts })
     const cell = (id: string) => {
       const r = read?.[id]
       if (r === undefined) return '-'
@@ -299,7 +353,16 @@ for (const name of backends) {
       return `${r.choice === 'not_stated' ? 'not stated' : `wrong (${r.choice})`} ${r.p_not_stated}`
     }
     const line = asked.ok ? [...POSITIONS, 'bulk'].filter((id) => id in p.part.questions).map(cell).join(' / ') : `failed: ${asked.failure.kind}`
-    console.log(`${p.name.padEnd(14)} ${String(asked.ok ? (asked.inputTokens ?? '-') : '-').padStart(9)} ${String(ms).padStart(6)}  ${line}`)
+    console.log(`${p.name.padEnd(16)} ${String(asked.ok ? (asked.inputTokens ?? '-') : '-').padStart(9)} ${String(ms).padStart(6)}  ${line}`)
+  }
+  // Each probe sent more than once: how often each fact was read, and the token counts.
+  for (const { probe: p, count } of selected) {
+    if (count < 2) continue
+    const sent = runs.get(p.name)?.[name] ?? []
+    const answered = sent.filter((run): run is Extract<Run, { answers: unknown }> => 'answers' in run)
+    const read = (id: string) => `${id} ${answered.filter((run) => run.answers?.[id]?.right === true).length}/${answered.length}`
+    const facts = [...POSITIONS, 'bulk'].filter((id) => id in p.part.questions).map(read).join(', ')
+    console.log(`  ${p.name}: read ${facts}; input tokens ${answered.map((run) => run.input_tokens ?? '-').join(', ')}${sent.length > answered.length ? `; ${sent.length - answered.length} failed` : ''}`)
   }
 }
 
@@ -307,12 +370,13 @@ if (!values['no-save']) {
   const result = {
     probe: 'state truncation (#17)',
     date: started.toISOString(),
+    selection: { only: values.only ?? null, repeat },
     backends: Object.fromEntries(backends.map((name) => [name, { asked: name === 'clef' ? CLEF_MODEL : JEV_MODEL, answeredBy: models[name] ?? [] }])),
     design:
-      'Three facts in recent_context (start, middle, end), each asked as a Choice with not_stated among the options; a ladder of state sizes (estimated tokens, as the mod counts them); ' +
-      `one probe with a long question (${BULK_ENTRIES} catalog entries, about 12k tokens as Clef counts them) beside a 1.2k state, whose right answer is its last option. ` +
-      'facts_at: where each fact begins, in estimated tokens from the start of the state as sent.',
-    probes: results,
+      'Three facts in recent_context (start, middle, end), each asked as a Choice with not_stated among the options; states of several sizes (estimated tokens, as the mod counts them). ' +
+      'A probe whose name ends in -bulk<n> also asks a long question of n catalog entries (-bulk alone: 72) whose right answer is its last option; its user_message names the entry. ' +
+      'facts_at: where each fact begins, in estimated tokens from the start of the state as sent. Each backend holds one run per time the probe was sent, in the order sent (rounds: every probe once, then again).',
+    probes: selected.map(({ probe: p, count }) => ({ name: p.name, language: p.language, bulk: p.bulk, sent: count, estimated: sizeOf(p), facts_at: factOffsets(p), ...runs.get(p.name) })),
   }
   const text = `${JSON.stringify(result, null, 2)}\n`
   if (secrets.some((secret) => secret !== '' && text.includes(secret))) fail('the results would hold a credential: not saved')
