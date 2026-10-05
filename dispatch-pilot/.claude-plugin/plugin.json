@@ -1,6 +1,6 @@
 {
   "name": "dispatch-pilot",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message, sets it on every request of the turn, and decides it again every few steps while the turn runs. It also picks the model and effort of each agent the main agent dispatches and of each agent a Workflow script starts. The main agent's model never changes, so the prompt cache survives (on a Claude Code subscription; not on Bedrock, Vertex or a gateway, where switching effort breaks the cache). It also keeps the full skill listing out of the main agent's context and suggests the few skills that fit each message; mid-turn, the main agent can look skills up with the find_skill tool. When an agent's tool calls keep failing it raises that agent's effort (a failing haiku agent goes on as sonnet), unless the failures are what the work expects.",
   "author": {
     "name": "alexcz-a11y",
@@ -13,7 +13,7 @@
     "decisionModel": {
       "type": "string",
       "title": "Decision model",
-      "description": "Which model makes the decisions: jev (TypeSafe; needs the TypeSafe API key) or clef (Cloudflare Workers AI; needs the Cloudflare account ID and API token). The other is never used as a fallback: when the chosen one fails, the message goes on unrouted. Some options default by the model chosen: with Clef, which answers more slowly and sometimes reads only the start of a long request, the decision timeout is 3000 ms, the context budget at most 2000 tokens, and skill suggestions start off (/dp skills on turns them on).",
+      "description": "Which model makes the decisions: jev (TypeSafe; needs the TypeSafe API key) or clef (Cloudflare Workers AI; needs the Cloudflare account ID and API token). The other is never used as a fallback: when the chosen one fails, the message goes on unrouted. Some options default by the model chosen. With Jev they are set to what Jev accepts (up to 32 recent messages and 16 steps within a 6000-token context budget). With Clef, which answers more slowly and sometimes reads only the start of a long request, the decision timeout is 3000 ms, the context budget at most 2000 tokens (4 messages, 4 steps), and skill suggestions start off (/dp skills on turns them on).",
       "options": ["jev", "clef"],
       "default": "jev"
     },
@@ -46,12 +46,12 @@
     "contextMessages": {
       "type": "number",
       "title": "Recent messages sent",
-      "description": "How many recent messages the decision model reads beside yours (0 to 32): their text and the names of the tools they called, never file contents or tool output, secrets masked. Default 4 with either decision model (not calibrated for Clef: Jev's value)."
+      "description": "How many recent messages the decision model reads beside yours (0 to 32): their text and the names of the tools they called, never file contents or tool output, secrets masked. Default 32 with Jev (the context budget, not this count, ends what is sent), 4 with Clef."
     },
     "contextTokens": {
       "type": "number",
       "title": "Context budget (tokens)",
-      "description": "How many tokens your message and the recent messages may take together (100 to 16000; with Clef at most 2000), counted the same way for Chinese and English; older messages are dropped first. Default 2000 with either decision model. With Clef a larger value reads as 2000: Clef sometimes reads only about the first 2,100 tokens of what it is sent, and the newest messages come last, so they would be the ones lost."
+      "description": "How many tokens your message and the recent messages may take together (100 to 16000; with Clef at most 2000), counted the same way for Chinese and English; older messages are dropped first. Default 6000 with Jev: with the skill suggestions' request, which carries every skill's profile (about 22k tokens as Jev counts them), it keeps the state plus the longest question within Jev's 32k. If decisions time out more often, set it lower. Default 2000 with Clef, and a larger value reads as 2000: Clef sometimes reads only about the first 2,100 tokens of what it is sent, and the newest messages come last, so they would be the ones lost."
     },
     "thetaMax": {
       "type": "number",
@@ -83,7 +83,7 @@
     "rejudgeSteps": {
       "type": "number",
       "title": "Recent steps read when re-deciding",
-      "description": "How many of the turn's latest steps the decision model reads when it re-decides (1 to 16): the main agent's last text and the tools it called with how each ended, never file contents or tool output, secrets masked. The context budget bounds them too. Default 4 with either decision model (not calibrated for Clef: Jev's value)."
+      "description": "How many of the turn's latest steps the decision model reads when it re-decides (1 to 16): the main agent's last text and the tools it called with how each ended, never file contents or tool output, secrets masked. The context budget bounds them too. Default 16 with Jev (the context budget, not this count, ends what is sent), 4 with Clef."
     },
     "rejudgeWaitMs": {
       "type": "number",

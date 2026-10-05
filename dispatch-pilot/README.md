@@ -32,7 +32,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 ### 开销
 
-- **决策请求。** 评测里 800 个 effort 请求共 614,292 input token（平均约 770 个），Jev 约 0.026 美元。Clef 在 Workers AI 每天免费的 10,000 neurons 之内：200 个 effort 请求约 2,300 neurons。
+- **决策请求。** 评测里 800 个 effort 请求共 614,292 input token（平均约 770 个），Jev 约 0.026 美元。评测的上下文很短；Jev 的 state 现在最多约 6.7k token，一个这样的 effort 请求不到 0.0003 美元（Jev 只按输入计费，每百万 token 0.042 美元），带 skill 推荐的约 2.9 万 token，约 0.0012 美元。Clef 在 Workers AI 每天免费的 10,000 neurons 之内：200 个 effort 请求约 2,300 neurons。
 - **skill 推荐。** 打开后，每条消息的第一个请求还带着本会话每个 skill 的名字和画像：111 个 skill 都写好画像时约 2.19 万 input token（不带画像约 8.6k）；第一段分到 0.1 以上的 skill 才会发第二个请求，约 1.3k。作为交换，隐藏 skill 列表每个会话省下约 6.6k input token（本机 66 个 skill 时实测），换成的提示只有 360 个字符。
 - **skill 画像**用你自己的 Claude 登录写（模型是 `skillsProfileModel`），算在你的用量里：每份约 2k 输入和 200 输出 token，每个 SKILL.md 版本只写一次，每次会话开始最多写 `skillsProfilesPerSession` 份。
 - `claude plugin details dispatch-pilot@alex-mods`（2.1.289）显示 0 个组件、常驻开销约 0 token：它看不到 mod 在运行时附加和替换的内容。
@@ -90,7 +90,7 @@ export CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=...
 jq -n '{decisionModel: "clef", cloudflareAccountId: env.CLOUDFLARE_ACCOUNT_ID, cloudflareApiToken: env.CLOUDFLARE_API_TOKEN}' | claude plugin configure dispatch-pilot@alex-mods --values-stdin
 ```
 
-`decisionModel` 在 `/config` 里是下拉选择，也可以在那里改成 `clef`。Clef 和 Jev 有几处不同，见「配置」和「局限和待评测」。
+`decisionModel` 在 `/config` 里是下拉选择，也可以在那里改成 `clef`。Clef 和 Jev 有几处不同，见「改用 Clef 的注意事项」。
 
 ## 更新
 
@@ -135,7 +135,9 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 
 选项留空就按所选的决策模型取默认值：`timeoutMs`、`contextMessages`、`contextTokens`、`thetaMax`、`thetaUp`、`thetaDown`、`rejudgeSteps`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance` 这 11 项在 manifest 里没有默认值，所以 `/config` 里显示为空，你不设时 Dispatch Pilot 按 `decisionModel` 取表里 Jev 或 Clef 那一列。你自己设了某一项，两个决策模型都用你设的值（`contextTokens` 在 Clef 下最多 2000，设得更大也按 2000 算）。会话开始时 debug log 会写一行哪些选项用了默认值。
 
-下表的 Jev 和 Clef 两列是各自的默认值。`起点`：这个默认值是暂定的起点，还没有评测数据支持。`未校准`：Clef 沿用 Jev 的值，没有在 Clef 上量过。没有标注的，是按测到的数据定的，或者本来就不需要校准。
+**默认值是按 Jev 的上下文上限配置的。** Jev 一个请求最多收 64k token，其中 state 加上最长的那一道题不能超过 32k。最长的题是发消息时 skill 推荐的第一段（111 个 skill 带画像时 Jev 计约 2.19 万 token），所以 `contextTokens` 的默认值取 6000：state 最多约 6.7k（Jev 的计数），加上那一题约 28.6k，在 32k 的 90% 以内，整个请求在 64k 之内，而且这个值正好让每个 skill 的画像不被裁短。`contextMessages` 和 `rejudgeSteps` 取 manifest 允许的最大值（32 条、16 步），让 token 预算而不是条数决定发多少，旧的消息、步骤放不下就整条丢掉。仍然只发文字和工具名，不发工具的输入和输出。这样配置是为了让 Jev 看到尽量多的信息；它没有评测过：评测用的是 4 条、2000 个 token、4 步，更多上下文是否真的判得更准没有数据，延迟见「局限和待评测」。计算过程见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「Jev 的上下文默认值怎么算」。Clef 的默认值不变，另有限制，见「改用 Clef 的注意事项」。
+
+下表的 Jev 和 Clef 两列是各自的默认值。`起点`：这个默认值是暂定的起点，还没有评测数据支持。`未校准`：Clef 沿用 Jev 的值，没有在 Clef 上量过。`按 Jev 的上限`：按上面的算法取 Jev 能接受的最大值，没有评测。没有标注的，是按测到的数据定的，或者本来就不需要校准。
 
 ### 决策模型和密钥
 
@@ -151,8 +153,8 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 | 选项 | 作用 | Jev | Clef |
 |---|---|---|---|
 | `timeoutMs` | 一条消息等决策模型的最长时间（200–8000 毫秒），超过就不经路由地放行 | `1500` | `3000` Clef 更慢 |
-| `contextMessages` | 随你的消息一起发的最近消息条数（0–32） | `4` 起点 | `4` 未校准 |
-| `contextTokens` | 发给决策模型的 state 的 token 预算（100–16000）：你的消息加上最近的消息，按发出去的样子数（连同字段名和转义），中英文按同一个尺度数，旧消息先丢 | `2000` 起点 | `2000` 最多 2000 |
+| `contextMessages` | 随你的消息一起发的最近消息条数（0–32）。Jev 取上限，由 `contextTokens` 决定实际发多少 | `32` 按 Jev 的上限 | `4` 保持接入时的值 |
+| `contextTokens` | 发给决策模型的 state 的 token 预算（100–16000）：你的消息加上最近的消息，按发出去的样子数（连同字段名和转义），中英文按同一个尺度数，旧消息先丢 | `6000` 按 Jev 的上限 | `2000` 最多 2000 |
 
 ### 一轮中的 effort
 
@@ -160,7 +162,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 |---|---|---|---|
 | `thetaMax` | 用 `max` 所需的最低概率（0–1）；发消息时、中途重判和派出 agent 的 effort 都用这个门槛 | `0.5` 起点 | `0.5` 未校准 |
 | `rejudgeEvery` | 一轮进行中每隔几步重判一次（0–50）；0 表示不按步数重判，派出 agent、启动 Workflow、加载 skill 时仍会重判 | `3` 起点 | `3` 起点 |
-| `rejudgeSteps` | 重判时决策模型读到的最近步数（1–16） | `4` 起点 | `4` 未校准 |
+| `rejudgeSteps` | 重判时决策模型读到的最近步数（1–16）。Jev 取上限，由 `contextTokens` 决定实际发多少 | `16` 按 Jev 的上限 | `4` 保持接入时的值 |
 | `rejudgeWaitMs` | 重判的回答还没到时，下一步最多再等多久（0–2000 毫秒），然后沿用原来的 effort | `300` | `300` |
 | `thetaUp` | 中途升档所需的最低置信度（0–1）。Clef 的置信度比 Jev 低得多，这个值下它很少改档 | `0.4` 起点 | `0.4` 未校准 |
 | `thetaDown` | 中途降档所需的最低置信度（0–1，低于 `thetaUp` 时按 `thetaUp` 算），一次只降一档 | `0.6` 起点 | `0.6` 未校准 |
@@ -200,6 +202,16 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 | `findSkillMax` | `find_skill` 一次最多返回几个 skill（1–10） | `5` | `5` |
 | `findSkillMinRelevance` | `find_skill` 返回一个 skill 所需的最低相关度（0–1），比推荐的门槛低：这是主 agent 主动问的，它会自己看描述再决定 | `0.5` 起点 | `0.5` 未校准 |
 
+## 改用 Clef 的注意事项
+
+Clef 只是接入了，没有像 Jev 那样校准。把 `decisionModel` 改成 `clef` 之前（怎么填密钥见「安装」），先知道这几点：
+
+- **上下文的上限强制是 2000。** Clef 有时只读 state 开头约 2100 个 token，后面的内容会被丢掉，而最近的消息排在后面。所以选 Clef 时，`contextTokens` 的默认值是 2000，最多也只能是 2000，设得更大也按 2000 算；`contextMessages` 和 `rejudgeSteps` 的默认值是 4。Jev 的默认值（6000、32、16）不会带到 Clef。你自己设过这三项的话，换到 Clef 后 `contextMessages` 和 `rejudgeSteps` 仍用你设的值，`contextTokens` 超过 2000 的按 2000 算（会话开始时 debug log 有一行写明）。
+- **`timeoutMs` 是 3000。** Clef 比 Jev 慢，连接建立后 0.6–1.4 秒，冷连接的第一次请求要 1.8 秒，所以默认等 3000 毫秒，Jev 是 1500。
+- **发消息时的 skill 推荐默认关闭。** 带画像的 skill 第一段要 3.7–7.9 秒，超过一条消息能等的时间。要用的话，`/dp skills on` 打开，但每条消息都可能因此超时。
+- **`find_skill` 在 Clef 下第一段只用描述。** 它的两个请求合计最多等 8 秒（不看 `timeoutMs`），第一个请求只按描述排序，不带画像。这两点按测到的延迟定，不是配置项。
+- **各个门槛没有为 Clef 校准过。** `thetaMax`、`thetaUp`、`thetaDown`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance` 用的都是 Jev 的值。Clef 的置信度比 Jev 低得多（中位数 0.24 对 0.66），所以在 `thetaUp`、`thetaDown` 的默认值下，Clef 很少在一轮中途改档。
+
 ## 控制：`/dp`
 
 ```
@@ -228,7 +240,8 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 - fork 出来的 agent（它总是用父 agent 的模型）和 agent team 的 teammate（它会长期存在、处理很多任务，派出时的一次判断看不到这些任务）不处理。
 - **主 agent 在推荐漏掉时不会自己去用 `find_skill`。** 一条要写 PR 描述、却没有推荐 `pr` 的消息，有提示、没有提示、提示写得更主动，主 agent 都直接写了正文；被明确要求查时，它能找到 `find_skill` 并用上。所以漏掉的推荐，目前只靠发消息时的推荐。
 - Jev 对同一个 key 的并发请求像是依次处理。Workflow 里 prompt 是数据的调用（fan-out）在 agent 启动时当场判断，几个 agent 几毫秒内一起启动，排在后面的可能超时，那些 agent 按引擎原样启动。
-- **Clef 只接入，没有校准。** 除 `timeoutMs` 和 `contextTokens` 的上限以外，Clef 的默认值都沿用 Jev 的；它的置信度比 Jev 低得多（中位数 0.24 对 0.66），在 `thetaUp`、`thetaDown` 的默认值下很少改档。Clef 比 Jev 慢（连接建立后 0.6–1.4 秒，冷连接的第一次请求 1.8 秒），所以选 Clef 时 `timeoutMs` 的默认值比 Jev 的长。带画像的 skill 第一段要 3.7–7.9 秒，超过一条消息能等的时间，所以选 Clef 时发消息的 skill 推荐默认关闭。`find_skill` 是主 agent 自己的调用，可以多等一会儿：选 Clef 时它的两个请求合计最多等 8 秒，第一段只用描述（111 个 skill 的描述约 8.6k token，Clef 约 1.7–2.4 秒），按延迟定，没有校准。Clef 还会截断过长的 state，所以选 Clef 时 `contextTokens` 最多 2000（见下面的「Clef 截断 state」）。
+- **Jev 的请求比以前大，延迟会多一点。** 默认值把 Jev 的 state 放到最多约 6.7k token（`contextTokens` 6000），发消息时带 skill 推荐的请求最多约 2.9 万 token。已有的实测：Jev 处理 2.19 万 token（skill 第一段，带全部画像）时 p50 约 560 毫秒、p90 约 615 毫秒；另一次整体偏慢的运行里，这一段 218 条中有 24 条（约 11%）超过 1500 毫秒，这些消息的决策整个超时，effort 也没有经过路由。按每多 1k token 约多 13 毫秒外推，现在的 state 再多约 80 毫秒，慢的时段超过 1500 毫秒的消息会比 11% 更多；这是外推，没有在新默认值上量过。如果状态行里 `no answer in 1500 ms` 变多，可以把 `contextTokens` 调小（每少 1k 约快 13 毫秒），或者把 `timeoutMs` 调大；skill 那一题本身有 2.2 万 token，想去掉这部分延迟只能 `/dp skills off`。
+- **Clef 只接入，没有校准。** 除 `timeoutMs`、`contextTokens` 的上限、上下文的三项默认值（Clef 保持接入时的 2000、4、4，Jev 取上限）以外，Clef 的默认值都沿用 Jev 的；它的置信度比 Jev 低得多（中位数 0.24 对 0.66），在 `thetaUp`、`thetaDown` 的默认值下很少改档。Clef 比 Jev 慢（连接建立后 0.6–1.4 秒，冷连接的第一次请求 1.8 秒），所以选 Clef 时 `timeoutMs` 的默认值比 Jev 的长。带画像的 skill 第一段要 3.7–7.9 秒，超过一条消息能等的时间，所以选 Clef 时发消息的 skill 推荐默认关闭。`find_skill` 是主 agent 自己的调用，可以多等一会儿：选 Clef 时它的两个请求合计最多等 8 秒，第一段只用描述（111 个 skill 的描述约 8.6k token，Clef 约 1.7–2.4 秒），按延迟定，没有校准。Clef 还会截断过长的 state，所以选 Clef 时 `contextTokens` 最多 2000（见下面的「Clef 截断 state」）。
 - 大多数默认值是暂定的起点（表里标了 `起点`）：评测数据只够定下少数几项，其余的见下面的「还没有数据的事」。
 
 **问题用什么语言写。** 选 Jev 时，发消息时判断主 agent effort 的那一个问题用中文写；其余问题（一轮中途重判、派出 agent、Workflow 里的 agent、卡住时的强制升档、skill 推荐和 `find_skill`）都用英文。选 Clef 时全部用英文。依据是 `effort-submit` 在现在的问法上的对比（Jev，各 1 次）：用中文问，中文题 85.0%、英文题 89.0%；用英文问，79.0%、78.0%。同样的请求之前跑过 3 次，中文问法也都高约 8 个百分点。其余问题在现在的问法上没有中文问法的数据，Clef 也没有，所以都没有改。派出 agent 和 skill 的评测已经有中文问法的变体（`models-hint-zh`、`profiles-zh`），还没有运行。发消息时的请求里，中文的 effort 问题和英文的 skill 问题放在一起，这种混合的请求没有单独评测过。
@@ -239,7 +252,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 
 **还没有数据的事**（每一条的数字和依据见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「待评测」）：
 
-- **上下文的范围。** 随消息发出的最近几条消息和 token 预算（2、4、8、16 条 × 1k–8k token）没有扫描：现有评测集的上下文太短，扫描测不出差别。`contextMessages` 和 `contextTokens` 的默认值都是起点；选 Clef 时 `contextTokens` 最多 2000（见下面的「Clef 截断 state」）。
+- **上下文的范围。** 随消息发出的最近几条消息和 token 预算（2、4、8、16 条 × 1k–8k token）没有扫描：现有评测集的上下文太短，扫描测不出差别。Jev 的 `contextMessages`、`contextTokens`、`rejudgeSteps` 默认值是按 Jev 的上限算的（见「配置」），不是按准确率挑的：更多的上下文是不是让 Jev 判得更准、旧消息会不会干扰当前这条，都没有数据，各个门槛也是在 4 条、2000 个 token、4 步的设置上定的。选 Clef 时 `contextTokens` 最多 2000（见下面的「Clef 截断 state」）。
 - **按语言分别定门槛。** 各个置信度门槛都是中英文共用一个值，没有按语言分别校准。
 - **中途重判的默认值和写法。** `thetaUp`、`thetaDown`、`holdSteps`、`rejudgeEvery`、`rejudgeSteps` 的默认值都是起点（参考了 jev-pilot 实测的升档门槛 0.3/0.5、降档 0.6），没有按语言分别校准；state 里放不放当前档位和计数、问题用英文还是中文，也都没有结论。Clef 的置信度比 Jev 低得多，门槛要按后端分别校准，现在两个决策模型用同一组起点值。
 - **「预期内失败」这一问的写法和门槛。** `thetaExpected` 的默认值来自 11 个手写场景的小实验，样本太小，只能当起点；`escalateMode`、`escalateAfter` 和 `escalateLimit` 没有评测方法，按使用体验调。
@@ -266,7 +279,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 - 中英差距的门槛是中文比英文低不超过 4 个百分点，正好低 4 个百分点也算通过。上面四行都在门槛之内：`effort-submit` 那一次正好是 −4.0，`skill` 是 −3.7。
 - Jev 单个 effort 请求的延迟 p50 约 0.28–0.42 秒，p90 约 0.32–0.46 秒；skill 带画像的第一段 p50 约 0.56–0.67 秒。
 - Clef 只做了抽样：`effort-submit` 200 个请求，准确率 74%（p50 699 ms）；其中 5 个请求是评测重试之后才答上的，mod 不重试，按 mod 的等法算是中文 74%、英文 71%。`effort-midturn` 选出的档位更准（85% / 87%），但置信度低，默认门槛挡住大部分改档，实际发出的档位只有 58% / 57%；派出 agent 12 题，skill 3 题。
-- **`effort-submit` 之外的三行是 2026-10-04 测的**，之后问题改过措辞，没有重跑，只能当预览（见「局限和待评测」）。`subagent` 和 `skill` 的中文问法变体（`models-hint-zh`、`profiles-zh`）未运行。单次运行有波动：同一配置跑两次，单项准确率相差 0–4 个百分点，和 4 个百分点的门槛同一量级。
+- **`effort-submit` 之外的三行是 2026-10-04 测的**，之后问题改过措辞，没有重跑，只能当预览（见「局限和待评测」）。`subagent` 和 `skill` 的中文问法变体（`models-hint-zh`、`profiles-zh`）未运行。单次运行有波动：同一配置跑两次，单项准确率相差 0–4 个百分点，和 4 个百分点的门槛同一量级。评测的设置是 4 条消息、2000 个 token、4 步，不是 0.2.1 起 Jev 的默认值（32、6000、16）；评测集的上下文很短，离线重建请求核对过，换成新默认值后 `effort-submit` 的 200 个请求里 state 变了 2 个，`effort-midturn` 200 个里变了 10 个，`skill` 和 `subagent` 没有变，所以这些数字仍可以参考，但不是在新默认值上量的。
 
 变体、指标、常数基线、门槛的离线重扫、已知的问题题和复现的命令，见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「评测（接缝 2）」。
 

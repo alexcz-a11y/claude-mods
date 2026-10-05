@@ -19,30 +19,31 @@ const ZH = '上周的事故复盘里提到权限判断有漏洞，'
 const EN = "Last week's incident review said the permission checks have holes. "
 
 /**
- * An agent item longer than every budget: the person's message is cut twice
- * (to the context budget when it is kept for the turn, then to a third of it
- * in the agent's state) and the prompt once; both hold a secret. The message
+ * An agent item longer than every budget (Jev's default is 6000 tokens): the
+ * person's message is cut twice (to the context budget when it is kept for the
+ * turn, then to a third of it in the agent's state) and the prompt once; both
+ * hold a secret. The message
  * names a model at its end, and mentions another in the middle that the
  * first cut drops.
  */
 const LONG: AgentItem = {
   id: 'subagent-900',
   zh: {
-    user_message: `${ZH.repeat(120)}（上次那版是 haiku 写的）${ZH.repeat(80)}密钥是 ${SECRET}，别外传。这次用 opus 认真审一下`,
+    user_message: `${ZH.repeat(400)}（上次那版是 haiku 写的）${ZH.repeat(300)}密钥是 ${SECRET}，别外传。这次用 opus 认真审一下`,
     kind: 'agent',
     agent_type: 'general-purpose',
     description: '审查权限改动',
-    prompt: `${'逐条核对 src/policies/ 下每条规则与新的同部门规则是否冲突，'.repeat(120)}token ${SECRET}，最后用表格汇报发现。`,
+    prompt: `${'逐条核对 src/policies/ 下每条规则与新的同部门规则是否冲突，'.repeat(400)}token ${SECRET}，最后用表格汇报发现。`,
     requested_model: 'sonnet',
     workflow_description: null,
     label: null,
   },
   en: {
-    user_message: `${EN.repeat(120)}(haiku wrote the last version) ${EN.repeat(80)}The key is ${SECRET}, keep it private. Use opus to review it carefully this time.`,
+    user_message: `${EN.repeat(400)}(haiku wrote the last version) ${EN.repeat(300)}The key is ${SECRET}, keep it private. Use opus to review it carefully this time.`,
     kind: 'agent',
     agent_type: 'general-purpose',
     description: 'Review permission change',
-    prompt: `${'Check each rule under src/policies/ against the new same-department rule. '.repeat(120)}Token ${SECRET}. Report the findings as a table.`,
+    prompt: `${'Check each rule under src/policies/ against the new same-department rule. '.repeat(400)}Token ${SECRET}. Report the findings as a table.`,
     requested_model: 'sonnet',
     workflow_description: null,
     label: null,

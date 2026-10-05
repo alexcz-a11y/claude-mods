@@ -62,9 +62,10 @@ function same(value: string, expected: string): boolean {
 
 /**
  * Whether Clef's value for a per-backend option is Jev's, taken as it is: not
- * measured on Clef. Its context budget keeps Jev's value but is Clef's own
- * measurement (#17: Clef sometimes reads only the start of a long state), as
- * the most it reads, which Jev's budget does not have.
+ * measured on Clef. A value of Clef's own (one that differs from Jev's) is not
+ * borrowed. A context budget that happens to equal Jev's is still Clef's own
+ * measurement when Clef has a most of its own (#17: Clef sometimes reads only
+ * the start of a long state), which Jev's budget does not have.
  */
 function borrowedByClef(option: PerBackendOption, defaults: Readonly<Record<BackendName, BackendDefaults>>): boolean {
   const measured = option === 'contextTokens' && defaults.clef.contextTokensMax !== defaults.jev.contextTokensMax

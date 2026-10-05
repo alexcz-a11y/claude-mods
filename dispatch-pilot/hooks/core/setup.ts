@@ -75,13 +75,22 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
   turnStartLanguage: Language
 }
 
-/** Jev's: the values the eval of #4, #14, #15 and #16 set or kept (README, 配置 has the table; DEVELOPMENT.md, 配置 what each rests on). */
+/**
+ * Jev's: the values the eval of #4, #14, #15 and #16 set or kept (README, 配置 has the table; DEVELOPMENT.md, 配置 what each rests on),
+ * except the three that say how much Jev reads of the conversation: by the person's decision ("the more it is given, the
+ * better it judges"), those are set to what Jev accepts, not to what the eval ran (4 messages, 2000 tokens, 4 steps; the
+ * eval sets are too short to tell, and no comparison was run). Jev takes 64k tokens a request and 32k for "the state and
+ * the longest question". The longest question is the first stage of the skills (111 skills with profiles: about 16k tokens
+ * as the mod counts, 21.9k as Jev does), which shares its request with the state, so `contextTokens` is what that leaves,
+ * 6000 (DEVELOPMENT.md, 配置, 「Jev 的上下文默认值怎么算」; tests/backend-defaults.test.ts checks the sum). The two counts
+ * that fill it are at their most: `contextMessages` 32 and `rejudgeSteps` 16, so the token budget, not the count, ends what is sent.
+ */
 const JEV_DEFAULTS: BackendDefaults = {
   timeoutMs: 1500,
-  contextMessages: 4,
-  contextTokens: 2000,
+  contextMessages: 32,
+  contextTokens: 6000,
   contextTokensMax: 16000,
-  rejudgeSteps: 4,
+  rejudgeSteps: 16,
   thetaUp: 0.4,
   thetaDown: 0.6,
   thetaMax: 0.5,
@@ -101,7 +110,8 @@ const JEV_DEFAULTS: BackendDefaults = {
 /**
  * The defaults by decision model: the only place they are written. Clef is
  * not calibrated (#17 ran no comparison, by the person's decision): it takes
- * Jev's values, except where Clef was measured.
+ * Jev's values, except where Clef was measured, and the three that say how much
+ * is read of the conversation, which stay as they were when Clef was connected.
  */
 export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = {
   jev: JEV_DEFAULTS,
@@ -111,7 +121,12 @@ export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = 
     timeoutMs: 3000,
     // Clef sometimes reads only the first ~2.1k tokens of a state (#17: 4 long states of 18 were cut there, plan 8.7), and the
     // newest messages and steps come last in it: 2000 estimated tokens (about 1.6-1.8k as Clef counts them) stay within that.
+    // The counts stay as they were when Clef was connected: more messages or steps would only fill the same 2000 tokens
+    // with older ones, which Clef has not been measured on.
+    contextTokens: 2000,
     contextTokensMax: 2000,
+    contextMessages: 4,
+    rejudgeSteps: 4,
     // The skills' first stage, with every profile, took Clef 3.7-7.9 s (#16): past any wait a message can afford.
     suggestSkills: false,
     // find_skill is the main agent's own call, which can wait longer than a message; set by latency, not calibrated.
