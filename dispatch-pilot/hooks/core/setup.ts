@@ -1,0 +1,394 @@
+// The options the person set (userConfig), read once per load into what every
+// feature receives: `ctx`. Pure: no `$`.
+//
+// Every option is read here, and only here: its bounds and its fallback are
+// written once, and every feature (and the eval, which builds its requests
+// from the same Config) reads the value from `ctx.config`. The fallbacks are
+// the manifest's defaults (the engine fills those in; a test or the eval may
+// leave an option out), except for the options whose default depends on the
+// decision model: those have no default in the manifest, so the engine
+// passes nothing for them until the person sets one, and their defaults are
+// in BACKEND_DEFAULTS below, the one table the mod, the eval and
+// scripts/decide*.ts read them from.
+
+import type { PluginOptions } from 'claude-code'
+import type { Backend } from '../decision/backend.ts'
+import { clefBackend } from '../decision/clef.ts'
+import type { ContextLimits } from '../decision/context.ts'
+import { DEFAULT_AGENT_MODELS, type AgentModel, type DispatchAsk, type DispatchSettings } from '../decision/dispatched-agent.ts'
+import { DEFAULT_ASK, type EffortAsk, type Language } from '../decision/effort.ts'
+import { RAISE_MODES, type RaiseMode } from '../decision/escalation.ts'
+import { jevBackend } from '../decision/jev.ts'
+import type { MidturnLimits, MidturnRules } from '../decision/midturn.ts'
+import { resolveModel, type ResolvedModel } from '../decision/model-ids.ts'
+import type { SkillPolicy } from '../decision/skills.ts'
+
+/** The decision models the person can choose (`decisionModel`). */
+export type BackendName = 'jev' | 'clef'
+
+/** The decision model the options choose: Jev unless they say clef (the engine reads a value outside the option's list as its default, jev). */
+export function backendNameOf(options: PluginOptions): BackendName {
+  return stringOf(options.decisionModel, 'jev') === 'clef' ? 'clef' : 'jev'
+}
+
+/** The options whose default depends on the decision model: the manifest gives them none. */
+export const PER_BACKEND_OPTIONS = [
+  'timeoutMs',
+  'contextMessages',
+  'contextTokens',
+  'rejudgeSteps',
+  'thetaUp',
+  'thetaDown',
+  'thetaMax',
+  'thetaExpected',
+  'agentOverride',
+  'skillsMinRelevance',
+  'findSkillMinRelevance',
+] as const
+export type PerBackendOption = (typeof PER_BACKEND_OPTIONS)[number]
+
+/**
+ * The kinds of request whose state has a budget of its own (`contextTokens`
+ * reads by kind): a message that carries the skills' question (and find_skill's
+ * first stage) is `Config.context`; the rest are these. `rejudge` is a
+ * mid-turn re-decision and a stuck one.
+ */
+export const CONTEXT_KINDS = ['messagePlain', 'rejudge', 'agent', 'workflow'] as const
+export type ContextKind = (typeof CONTEXT_KINDS)[number]
+
+/**
+ * What one decision model brings: each option's default where the person left
+ * it unset, the most `contextTokens` reads as, and whether skills are
+ * suggested beside each message until the person flips it (`/dp skills
+ * on|off`).
+ */
+export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
+  /** `contextTokens` above this reads as this. */
+  contextTokensMax: number
+  /**
+   * What the state of each other kind of request may take, in estimated tokens (`contextTokens` is the message that carries the
+   * skills' question). Not options: each is the most that kind's longest question leaves, worked out in DEVELOPMENT.md (配置,
+   * 「Jev 的上下文默认值怎么算」) and checked by tests/backend-defaults.test.ts. What the person sets as `contextTokens` holds for
+   * every kind, each taking the smaller of it and its own.
+   */
+  contextByKind: Readonly<Record<ContextKind, number>>
+  /** Whether the `skills` switch (suggestions beside each message, the listing withheld) starts on. */
+  suggestSkills: boolean
+  /**
+   * How long find_skill's two requests may take in all, in ms; null: as long
+   * as a message waits (`timeoutMs`). Not an option: set by the latency
+   * measured, not calibrated. A hook has 10 s of its own, and the timer's wait
+   * counts toward it (the mods reference, Limits): this leaves room for the rest.
+   */
+  findSkillWaitMs: number | null
+  /** Whether find_skill's first request offers a skill by its profile (else by its description); the second re-reads it by both. */
+  findSkillProfiles: boolean
+  /**
+   * The language the effort question beside each message is written in
+   * (`turnStartEffortPart`); every other question keeps `ctx.ask`'s. Not an
+   * option: set by the eval (effort-submit, `zh-score` against `en-score`).
+   */
+  turnStartLanguage: Language
+}
+
+/**
+ * Jev's: the values the eval of #4, #14, #15 and #16 set or kept (README, 配置 has the table; DEVELOPMENT.md, 配置 what each rests on),
+ * except the three that say how much Jev reads of the conversation: by the person's decision ("the more it is given, the
+ * better it judges"), those are set to what Jev accepts, not to what the eval ran (4 messages, 2000 tokens, 4 steps; the
+ * eval sets are too short to tell, and no comparison was run). Jev takes 64k tokens a request and 32k for "the state and
+ * the longest question". The longest question is the first stage of the skills (111 skills with profiles: about 16k tokens
+ * as the mod counts, 21.9k as Jev does), which shares its request with the state, so `contextTokens` is what that leaves,
+ * 6000 (DEVELOPMENT.md, 配置, 「Jev 的上下文默认值怎么算」; tests/backend-defaults.test.ts checks the sum). The two counts
+ * that fill it are at their most: `contextMessages` 32 and `rejudgeSteps` 16, so the token budget, not the count, ends what is sent.
+ */
+const JEV_DEFAULTS: BackendDefaults = {
+  timeoutMs: 1500,
+  contextMessages: 32,
+  contextTokens: 6000,
+  contextTokensMax: 16000,
+  // Every other kind of request has questions of at most 700 tokens as Jev counts them (the effort question 421, a re-decision's
+  // 295 with its trouble, an agent's 457, nine of them 1,836): the state plus the longest of them within 28,800 (90% of 32k)
+  // allows about 25,400 estimated tokens, and 24000 is the round number below it. A Workflow batch (at most 8 agents' questions,
+  // 20,100 in all) and the whole request stay within 57,600 (90% of 64k) too.
+  contextByKind: { messagePlain: 24000, rejudge: 24000, agent: 24000, workflow: 24000 },
+  rejudgeSteps: 16,
+  // Raising is easy, lowering is hard (AA: a Sonnet 5.5 at medium scores 41 on the index and at high 47, at low 36; Terminal-Bench
+  // 20.7% at low against 43.9% at high): 0.4 to 0.3 for a raise, 0.6 to 0.75 for a lowering, 3 to 5 steps held after a raise.
+  // The lowering gate came back down to 0.55 in 0.2.3: with 0.75 the level sent was too high too often (too high 11.5/11.0% to
+  // 19.5/17.5%); a scan of the stored effort-midturn answers (eval/rescore.ts --theta-down) found none of 0.55 to 0.75 to bring it back, and 0.55 is the one with the least too high and too low together.
+  thetaUp: 0.3,
+  thetaDown: 0.55,
+  thetaMax: 0.5,
+  thetaExpected: 0.25,
+  agentOverride: 0.6,
+  // #16, both runs on the old wording: from 0.7 to 0.75 the Chinese-English gap of the skill suggestions went from -3.7 to -2.3 points.
+  skillsMinRelevance: 0.75,
+  findSkillMinRelevance: 0.5,
+  suggestSkills: true,
+  findSkillWaitMs: null,
+  findSkillProfiles: true,
+  // effort-submit on the current wording, one run each (2026-10-05): asked in Chinese, Chinese items 85% and English
+  // items 89%; asked in English, 79% and 78%. The questions asked later have no data in Chinese and stay in English.
+  turnStartLanguage: 'zh',
+}
+
+/**
+ * The defaults by decision model: the only place they are written. Clef is
+ * not calibrated (#17 ran no comparison, by the person's decision): it takes
+ * Jev's values, except where Clef was measured, and the three that say how much
+ * is read of the conversation, which stay as they were when Clef was connected.
+ */
+export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = {
+  jev: JEV_DEFAULTS,
+  clef: {
+    ...JEV_DEFAULTS,
+    // Clef answers in 0.6-1.4 s once the connection is up, and a cold connection's first request took 1.8 s (DEVELOPMENT.md, 待评测).
+    timeoutMs: 3000,
+    // Clef sometimes reads only the first ~2.1k tokens of a state (#17: 4 long states of 18 were cut there, plan 8.7), and the
+    // newest messages and steps come last in it: 2000 estimated tokens (about 1.6-1.8k as Clef counts them) stay within that.
+    // The counts stay as they were when Clef was connected: more messages or steps would only fill the same 2000 tokens
+    // with older ones, which Clef has not been measured on.
+    contextTokens: 2000,
+    contextTokensMax: 2000,
+    contextByKind: { messagePlain: 2000, rejudge: 2000, agent: 2000, workflow: 2000 },
+    contextMessages: 4,
+    rejudgeSteps: 4,
+    // The skills' first stage, with every profile, took Clef 3.7-7.9 s (#16): past any wait a message can afford.
+    suggestSkills: false,
+    // find_skill is the main agent's own call, which can wait longer than a message; set by latency, not calibrated.
+    // Its first stage by descriptions: 111 skills' come to about 8.6k tokens, 1.7-2.4 s on Clef (#17's probe at 8.8k),
+    // and the second stage 0.5-0.8 s (#16), well within 8000 ms; with every profile the first stage alone took 3.7-7.9 s.
+    findSkillWaitMs: 8000,
+    findSkillProfiles: false,
+    // Clef has never been asked in Chinese on the current wording.
+    turnStartLanguage: 'en',
+  },
+}
+
+export type Config = {
+  /** The decision model the options were read for: its defaults (BACKEND_DEFAULTS) stand for what the person left unset. */
+  backend: BackendName
+  /**
+   * What came from that decision model's defaults (for the debug log, describeDefaults): the options the person left
+   * unset, with the value each took, and an option set above that model's most, read as the most.
+   */
+  defaults: { used: readonly (readonly [PerBackendOption, number])[]; capped: readonly { option: PerBackendOption; set: number; read: number }[] }
+  typesafeApiKey: string
+  /** Clef's credentials (sensitive; '' when not set): the account ID Workers AI runs in, and the API token. */
+  cloudflare: { accountId: string; apiToken: string }
+  /** How long a decision request may take before the prompt goes on without it. */
+  timeoutMs: number
+  /** The language of the effort question beside each message (the decision model's: BACKEND_DEFAULTS turnStartLanguage). */
+  turnStartLanguage: Language
+  /** `max` only when its own probability reaches this. */
+  thetaMax: number
+  /**
+   * What the decision model reads of the conversation: how many recent messages, how many tokens in all. The tokens are the
+   * budget of a message that carries the skills' question (and of find_skill's first stage); the other kinds of request have
+   * theirs in `contextByKind` (a mid-turn re-decision's in `midturn.limits`, too).
+   */
+  context: ContextLimits
+  /** The tokens the state of each other kind of request may take: the decision model's default for the kind, or what the person set if smaller. */
+  contextByKind: Readonly<Record<ContextKind, number>>
+  /** The main agent's effort decided again while a turn runs (#5); a stuck loop's re-decision (#7) reads its loop the same way. */
+  midturn: {
+    /** Re-decide at every step whose index is a multiple of this; 0 for never. */
+    every: number
+    /** How long a step waits for a re-decision (or a stuck one) not back yet. */
+    waitMs: number
+    /** What a re-decision reads: the latest steps, within the context budget. */
+    limits: MidturnLimits
+    /** How an answer moves the level: thetaUp, thetaDown, thetaMax, holdSteps. */
+    rules: MidturnRules
+  }
+  /** Forced escalation (#7). */
+  escalation: {
+    /** Counted failures that make a loop stuck. */
+    after: number
+    mode: RaiseMode
+    /** Forced raises a loop gets at most. */
+    limit: number
+    /** The failures count as expected when the answer reaches this probability. */
+    thetaExpected: number
+    /** The model a failing haiku agent is switched to, resolved to a full id; null: never switch (left empty, or a name no model family has). */
+    haikuTo: ResolvedModel | null
+    /** `escalateHaikuTo` as the person wrote it, for the log when it names no model. */
+    haikuToWritten: string
+  }
+  /** Dispatched agents and a Workflow's agents (#6, #8, #9). */
+  agents: {
+    /** The models the decision model may choose, cheapest first (fable with `agentFable`). */
+    models: readonly AgentModel[]
+    /** The decision model's pick replaces the main agent's (or the script's) only at this confidence or above. */
+    thetaOverride: number
+    /** `rewrite` writes a Workflow's decisions into its script; `return` sends the Workflow back with them, once. */
+    workflowMode: 'rewrite' | 'return'
+  }
+  /** Skills (#10, #11, #12). */
+  skills: {
+    /** Whether the `skills` switch starts on (the decision model's default; `/dp skills on|off` flips it). */
+    suggestByDefault: boolean
+    /** What a message is suggested: at most `max`, from `minRelevance`. */
+    suggest: SkillPolicy
+    /** What find_skill returns: at most `max`, from `minRelevance`. */
+    find: SkillPolicy
+    /** How long find_skill's two requests may take in all (the decision model's: BACKEND_DEFAULTS findSkillWaitMs). */
+    findWaitMs: number
+    /** Whether find_skill's first request offers skills by their profiles (the decision model's: findSkillProfiles). */
+    findByProfile: boolean
+    /** How many of stage one's best stage two re-reads. */
+    shortlist: number
+    /** Skills the main agent keeps in its listing (names as the listing spells them). */
+    alwaysListed: readonly string[]
+    /** Skills never offered, to the main agent or to the person. */
+    neverSuggested: readonly string[]
+    /** The model that writes skill profiles; part of every profile's key. */
+    profileModel: string
+    /** How many missing profiles a session start writes at most. */
+    profilesPerSession: number
+  }
+}
+
+/** What the entry hands every feature's register: data and pure functions, never `$`. */
+export type Ctx = {
+  config: Config
+  /** The decision model the person chose. */
+  backend: Backend
+  /** How effort questions are asked: eval variables, the spec's defaults in the mod. */
+  ask: EffortAsk
+}
+
+export function setup(options: PluginOptions): Ctx {
+  const config = readConfig(options)
+  // One decision model or the other, as the person chose: only that one is built, and there is no fallback.
+  const backend = config.backend === 'clef' ? clefBackend(config.cloudflare) : jevBackend(config.typesafeApiKey)
+  return { config, backend, ask: DEFAULT_ASK }
+}
+
+/**
+ * The person's options, each within its bounds; where one is missing or of
+ * the wrong type, the manifest's default, or for an option whose default
+ * depends on the decision model (PER_BACKEND_OPTIONS), that model's
+ * (BACKEND_DEFAULTS). `contextTokens` reads at most that model's most.
+ */
+export function readConfig(options: PluginOptions): Config {
+  const backend = backendNameOf(options)
+  const defaults = BACKEND_DEFAULTS[backend]
+  const used: (readonly [PerBackendOption, number])[] = []
+  const capped: { option: PerBackendOption; set: number; read: number }[] = []
+  /** A per-backend option: the person's value within [min, max], else the decision model's default (noted for the log). */
+  const own = (option: PerBackendOption, min: number, max: number, round = false) => {
+    const set = options[option]
+    if (typeof set !== 'number' || !Number.isFinite(set)) {
+      used.push([option, defaults[option]])
+      return defaults[option]
+    }
+    const read = numberIn(set, min, max, defaults[option])
+    const value = round ? Math.round(read) : read
+    if (set > max) capped.push({ option, set, read: value })
+    return value
+  }
+  const whole = (value: unknown, min: number, max: number, fallback: number) => Math.round(numberIn(value, min, max, fallback))
+  const thetaMax = own('thetaMax', 0, 1)
+  // `contextTokens` by kind of request: unset, each kind's own (BACKEND_DEFAULTS); set, the smaller of it and each kind's.
+  const contextTokens = own('contextTokens', 100, defaults.contextTokensMax, true)
+  const contextSet = typeof options.contextTokens === 'number' && Number.isFinite(options.contextTokens)
+  const byKind = (cap: number) => (contextSet ? Math.min(contextTokens, cap) : cap)
+  const context = { messages: own('contextMessages', 0, 32, true), tokens: byKind(defaults.contextTokens) }
+  const contextByKind = Object.fromEntries(CONTEXT_KINDS.map((kind) => [kind, byKind(defaults.contextByKind[kind])])) as Record<ContextKind, number>
+  const haikuToWritten = stringOf(options.escalateHaikuTo, 'sonnet').trim()
+  // A hook's own budget is 10 s and the timer's wait counts toward it.
+  const timeoutMs = own('timeoutMs', 200, 8000)
+  const config: Config = {
+    backend,
+    defaults: { used, capped },
+    typesafeApiKey: stringOf(options.typesafeApiKey, '').trim(),
+    cloudflare: { accountId: stringOf(options.cloudflareAccountId, '').trim(), apiToken: stringOf(options.cloudflareApiToken, '').trim() },
+    timeoutMs,
+    turnStartLanguage: defaults.turnStartLanguage,
+    thetaMax,
+    context,
+    contextByKind,
+    midturn: {
+      every: whole(options.rejudgeEvery, 0, 50, 3),
+      waitMs: whole(options.rejudgeWaitMs, 0, 2000, 300),
+      limits: { steps: own('rejudgeSteps', 1, 16, true), tokens: contextByKind.rejudge },
+      rules: {
+        thetaUp: own('thetaUp', 0, 1),
+        thetaDown: own('thetaDown', 0, 1),
+        thetaMax,
+        holdSteps: whole(options.holdSteps, 0, 50, 5),
+      },
+    },
+    escalation: {
+      after: whole(options.escalateAfter, 1, 20, 2),
+      mode: RAISE_MODES.find((mode) => mode === options.escalateMode) ?? 'one-level',
+      limit: whole(options.escalateLimit, 0, 10, 2),
+      thetaExpected: own('thetaExpected', 0, 1),
+      haikuTo: haikuToWritten === '' ? null : resolveModel(haikuToWritten),
+      haikuToWritten,
+    },
+    agents: {
+      models: options.agentFable === true ? [...DEFAULT_AGENT_MODELS, 'fable'] : DEFAULT_AGENT_MODELS,
+      thetaOverride: own('agentOverride', 0, 1),
+      workflowMode: stringOf(options.workflowMode, 'rewrite') === 'return' ? 'return' : 'rewrite',
+    },
+    skills: {
+      suggestByDefault: defaults.suggestSkills,
+      suggest: { max: whole(options.skillsMax, 0, 10, 3), minRelevance: own('skillsMinRelevance', 0, 1) },
+      find: { max: whole(options.findSkillMax, 1, 10, 5), minRelevance: own('findSkillMinRelevance', 0, 1) },
+      findWaitMs: defaults.findSkillWaitMs ?? timeoutMs,
+      findByProfile: defaults.findSkillProfiles,
+      shortlist: whole(options.skillsShortlist, 1, 10, 4),
+      alwaysListed: namesOf(options.skillsAlwaysListed),
+      neverSuggested: namesOf(options.skillsNeverSuggested),
+      profileModel: stringOf(options.skillsProfileModel, DEFAULT_PROFILE_MODEL).trim() || DEFAULT_PROFILE_MODEL,
+      profilesPerSession: whole(options.skillsProfilesPerSession, 0, 500, 30),
+    },
+  }
+  // In the table's order, whatever order they were read in.
+  used.sort((a, b) => PER_BACKEND_OPTIONS.indexOf(a[0]) - PER_BACKEND_OPTIONS.indexOf(b[0]))
+  return config
+}
+
+/**
+ * One debug-log line on what the decision model's defaults decided, e.g.
+ * `settings for clef: left unset, so clef's defaults: timeoutMs 3000, ...;
+ * skill suggestions off until /dp skills on; contextTokens 4000 reads as 2000,
+ * the most with clef`.
+ */
+export function describeDefaults(config: Pick<Config, 'backend' | 'defaults' | 'skills'>): string {
+  const { backend, defaults } = config
+  const used = defaults.used.length === 0 ? 'every option set' : `left unset, so ${backend}'s defaults: ${defaults.used.map(([option, value]) => `${option} ${value}`).join(', ')}`
+  const skills = config.skills.suggestByDefault ? 'skill suggestions on until /dp skills off' : 'skill suggestions off until /dp skills on'
+  const capped = defaults.capped.map((cap) => `; ${cap.option} ${cap.set} reads as ${cap.read}, the most with ${backend}`).join('')
+  return `settings for ${backend}: ${used}; ${skills}${capped}`
+}
+
+/**
+ * How an agent's model and effort are decided (decision/dispatched-agent.ts):
+ * the same for a dispatched agent (#6) and a Workflow's agents (#8, #9), and
+ * for the eval; `ask` is how its questions are written (the eval's variants).
+ */
+export function dispatchSettings(ctx: { config: Pick<Config, 'agents' | 'thetaMax'>; ask: EffortAsk }, ask: Partial<DispatchAsk> = {}): DispatchSettings {
+  return { models: ctx.config.agents.models, ask: { ...ctx.ask, ...ask }, thetaOverride: ctx.config.agents.thetaOverride, thetaMax: ctx.config.thetaMax }
+}
+
+/** The cheap model that writes skill profiles, unless the person names another (`skillsProfileModel`). */
+export const DEFAULT_PROFILE_MODEL = 'haiku'
+
+/** A numeric option clamped to [min, max]; `fallback` when it is not a number. */
+export function numberIn(value: unknown, min: number, max: number, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
+}
+
+/** A string option; `fallback` when it is not a string. A sensitive one never set arrives as ''. */
+export function stringOf(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value : fallback
+}
+
+/** A list-of-names option (`multiple` in the manifest; a comma-separated string also reads): trimmed, empty ones dropped. */
+export function namesOf(value: unknown): string[] {
+  const items = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : []
+  return items.flatMap((item) => (typeof item === 'string' && item.trim() !== '' ? [item.trim()] : []))
+}

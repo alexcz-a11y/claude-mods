@@ -5,5 +5,11 @@
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "dispatch-pilot",
+      "source": "./dispatch-pilot",
+      "description": "A decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message (and when an agent's report starts a turn) and re-decides it as the turn runs; it also picks the model and effort of each agent the main agent dispatches and of each agent a Workflow script starts (by Artificial Analysis benchmarks), and suggests the few skills that fit your message instead of the full skill listing. The main agent's model never changes, so the prompt cache survives. For Claude Code subscriptions only: on Bedrock, Vertex or a gateway, switching effort breaks the cache."
+    }
+  ]
 }

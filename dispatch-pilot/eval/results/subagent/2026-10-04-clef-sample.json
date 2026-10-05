@@ -1,0 +1,929 @@
+{
+  "suite": "subagent",
+  "label": "sample",
+  "date": "2026-10-04T19:53:16.339Z",
+  "backend": {
+    "name": "clef",
+    "model": "clef",
+    "answeredBy": [
+      "clef"
+    ]
+  },
+  "dataset": {
+    "path": "eval/datasets/subagent.jsonl",
+    "items": 100,
+    "sha256": "0d26a9fd19bfba02ab8acc78a283232e4df85a73ae494f0458a6d24c44ee5a0b",
+    "review": {
+      "file": "eval/review/subagent.review.jsonl",
+      "decided": 100
+    }
+  },
+  "code": {
+    "hooks/decision/backend.ts": "354b7d97b9a4cd18",
+    "hooks/decision/clef.ts": "34c14983049e117b",
+    "hooks/decision/context.ts": "2feed4cd04f8180a",
+    "hooks/decision/dispatched-agent.ts": "4b79102b2e94182a",
+    "hooks/decision/effort.ts": "2ecf88f631f7f29a",
+    "hooks/decision/jev.ts": "a66929030d2270c2",
+    "hooks/decision/redact.ts": "18690060278627bb",
+    "hooks/decision/system-one.ts": "6a9ddc59b5808743"
+  },
+  "settings": {
+    "context": {
+      "messages": 4,
+      "tokens": 2000
+    },
+    "thetaMax": 0.5,
+    "timeoutMs": 3000,
+    "options": {
+      "decisionModel": "clef",
+      "timeoutMs": 3000,
+      "contextMessages": 4,
+      "contextTokens": 2000,
+      "thetaMax": 0.5,
+      "agentFable": false,
+      "agentOverride": 0.6
+    }
+  },
+  "run": {
+    "items": 12,
+    "variants": [
+      "models-hint"
+    ],
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "timeoutMs": 10000,
+    "retries": 2,
+    "concurrency": 1,
+    "requests": 24,
+    "attempts": 24,
+    "inputTokens": 26554,
+    "usd": 0.0064
+  },
+  "questions": {
+    "models-hint": {
+      "model": {
+        "type": "choice",
+        "instructions": {
+          "question": "Which model is the cheapest one that can carry out `brief` well?",
+          "focus": "Judge the work that `brief.prompt` asks for: what has to be read, decided, written and checked.",
+          "requested": "The main agent that wrote `brief` asked for opus. Choose opus unless the work clearly fits another option better."
+        },
+        "criteria": {
+          "haiku": {
+            "choose_for": "Read-only lookups where a mistake is cheap to spot: search or list files, find where something is defined, read files, logs or test output and report what is there, run a command and report the result.",
+            "not_for": "Anything that writes or changes files, or that needs a judgment call."
+          },
+          "sonnet": {
+            "choose_for": "Read-only work that needs understanding (summarize or explain code, research across many files, review a diff and report the findings), and code changes with a clear spec and a way to check the result: a bug whose cause is known, a feature to a written spec, tests for existing code, a scoped refactor.",
+            "not_for": "Design, an open spec, a bug whose cause is unknown, or long work across many components."
+          },
+          "opus": {
+            "choose_for": "Work that needs careful judgment or runs long: design, a change whose spec is open or that nothing can check, a bug whose cause is unknown, long multi-step work across many components, security, data migrations, production or money.",
+            "not_for": "Mechanical or well-specified work that a written plan and a test already cover."
+          }
+        }
+      },
+      "effort": {
+        "type": "score",
+        "instructions": {
+          "question": "How much step-by-step reasoning does a subagent need to carry out `brief`?",
+          "execution": "A brief that already names the files, the steps and the tests has done the design: carrying it out is execution. Rate higher only when `brief` itself asks for design, an unknown cause, or reasoning that is not already written out.",
+          "rate": "Rate the work, not how important the topic sounds: reviewing a small diff is ordinary work, even for security."
+        },
+        "criteria": [
+          "Answered from what is already known, or mechanical work with nothing to work out: a lookup, a single command, a rename or find-and-replace (even across many files), a search that lists what it finds, formatting, a one-line change.",
+          "An ordinary, well-specified change to one or a few files, or a direct question about code already in view.",
+          "A change across several files that needs working out, a bug whose cause is described but has to be traced, writing tests, or reviewing a diff with care.",
+          "Design across several components, a bug whose cause is unknown, a refactor with many dependents, or careful reasoning about concurrency, performance or failure modes.",
+          "Novel architecture, a security or data-integrity question, a failure that resisted earlier attempts, or work where a subtle mistake is costly and hard to undo."
+        ]
+      },
+      "named.opus": {
+        "type": "noul",
+        "instructions": {
+          "model": "opus",
+          "question": "Does `user_message` ask for `model` to carry out the work in `brief`?"
+        },
+        "criteria": {
+          "true": "The person asks for this model for this work, or for every agent: \"use opus\", \"opus is enough for this\", \"send opus to look into it\", \"every agent uses opus this time\", \"run it on Opus\".",
+          "false": "The model is only mentioned: as a product being discussed or compared, as what wrote some earlier code, as a model not to use, or as the model for a different part of the work than `brief`."
+        }
+      },
+      "banned.opus": {
+        "type": "noul",
+        "instructions": {
+          "model": "opus",
+          "question": "Does `user_message` rule out `model` for the work in `brief`?"
+        },
+        "criteria": {
+          "true": "The person says not to use this model for this work or for any agent: \"don't use opus\", \"no more opus\", \"opus is too expensive, use something cheaper\".",
+          "false": "The model is asked for, only mentioned, or ruled out for a different part of the work than `brief`."
+        }
+      }
+    }
+  },
+  "scoring": "model: right when in accept.model. effort: right when in accept.effort, one set of levels shared by every acceptable model, so with two acceptable models either model with any acceptable level counts (e.g. subagent-089 opus/low); haiku runs without an effort (null), right exactly when haiku is acceptable; any other model needs a level. Whole answer (accuracy): both right; exact: the gold model and effort. No decision (a failed request, no answer about the agent, no model left once the models the person ruled out are taken away) is wrong.",
+  "summary": {
+    "items": 12,
+    "variants": [
+      {
+        "variant": "models-hint",
+        "zh": {
+          "items": 12,
+          "answered": 12,
+          "failed": 0,
+          "accuracy": 0.6667,
+          "exact": 0.4167,
+          "misses": {
+            "model-over effort-over": 1,
+            "effort-over": 2,
+            "model-under effort-under": 1
+          },
+          "parts": {
+            "model": 0.8333,
+            "effort": 0.6667
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.6667
+        },
+        "en": {
+          "items": 12,
+          "answered": 12,
+          "failed": 0,
+          "accuracy": 0.6667,
+          "exact": 0.4167,
+          "misses": {
+            "model-over effort-over": 1,
+            "effort-over": 2,
+            "model-under effort-under": 1
+          },
+          "parts": {
+            "model": 0.8333,
+            "effort": 0.6667
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.6667
+        },
+        "gap": 0,
+        "pass": true,
+        "agreement": {
+          "items": 12,
+          "same": 12,
+          "rate": 1
+        },
+        "latency": {
+          "answers": 24,
+          "p50": 802,
+          "p90": 1047,
+          "max": 1925,
+          "slow": 0
+        },
+        "tags": [
+          {
+            "tag": "priority:main-overridden",
+            "items": 3,
+            "wrong": {
+              "zh": 3,
+              "en": 3
+            },
+            "parts": {
+              "model": {
+                "zh": 2,
+                "en": 2
+              },
+              "effort": {
+                "zh": 3,
+                "en": 3
+              }
+            }
+          },
+          {
+            "tag": "mixed-accept",
+            "items": 3,
+            "wrong": {
+              "zh": 2,
+              "en": 2
+            },
+            "parts": {
+              "model": {
+                "zh": 1,
+                "en": 1
+              },
+              "effort": {
+                "zh": 2,
+                "en": 2
+              }
+            }
+          },
+          {
+            "tag": "design",
+            "items": 2,
+            "wrong": {
+              "zh": 1,
+              "en": 1
+            },
+            "parts": {
+              "model": {
+                "zh": 0,
+                "en": 0
+              },
+              "effort": {
+                "zh": 1,
+                "en": 1
+              }
+            }
+          },
+          {
+            "tag": "fan-out",
+            "items": 2,
+            "wrong": {
+              "zh": 1,
+              "en": 1
+            },
+            "parts": {
+              "model": {
+                "zh": 0,
+                "en": 0
+              },
+              "effort": {
+                "zh": 1,
+                "en": 1
+              }
+            }
+          },
+          {
+            "tag": "priority:main-kept",
+            "items": 3,
+            "wrong": {
+              "zh": 1,
+              "en": 1
+            },
+            "parts": {
+              "model": {
+                "zh": 0,
+                "en": 0
+              },
+              "effort": {
+                "zh": 1,
+                "en": 1
+              }
+            }
+          },
+          {
+            "tag": "review",
+            "items": 2,
+            "wrong": {
+              "zh": 1,
+              "en": 1
+            },
+            "parts": {
+              "model": {
+                "zh": 1,
+                "en": 1
+              },
+              "effort": {
+                "zh": 1,
+                "en": 1
+              }
+            }
+          },
+          {
+            "tag": "search",
+            "items": 2,
+            "wrong": {
+              "zh": 1,
+              "en": 1
+            },
+            "parts": {
+              "model": {
+                "zh": 1,
+                "en": 1
+              },
+              "effort": {
+                "zh": 1,
+                "en": 1
+              }
+            }
+          },
+          {
+            "tag": "security",
+            "items": 2,
+            "wrong": {
+              "zh": 1,
+              "en": 1
+            },
+            "parts": {
+              "model": {
+                "zh": 0,
+                "en": 0
+              },
+              "effort": {
+                "zh": 1,
+                "en": 1
+              }
+            }
+          },
+          {
+            "tag": "concurrency",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "model": {
+                "zh": 0,
+                "en": 0
+              },
+              "effort": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "long-but-easy",
+            "items": 2,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "model": {
+                "zh": 0,
+                "en": 0
+              },
+              "effort": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "per-file",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "model": {
+                "zh": 0,
+                "en": 0
+              },
+              "effort": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "priority:none",
+            "items": 3,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "model": {
+                "zh": 0,
+                "en": 0
+              },
+              "effort": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "priority:user",
+            "items": 3,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "model": {
+                "zh": 0,
+                "en": 0
+              },
+              "effort": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "refactor",
+            "items": 3,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "model": {
+                "zh": 0,
+                "en": 0
+              },
+              "effort": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "template-prompt",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "model": {
+                "zh": 0,
+                "en": 0
+              },
+              "effort": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "tests",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "model": {
+                "zh": 0,
+                "en": 0
+              },
+              "effort": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "trivial",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "model": {
+                "zh": 0,
+                "en": 0
+              },
+              "effort": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          }
+        ],
+        "breakdown": {
+          "agreement": {
+            "items": 12,
+            "model": 1,
+            "effort": 1
+          },
+          "kinds": [
+            {
+              "kind": "agent",
+              "items": 8,
+              "wrong": {
+                "zh": 2,
+                "en": 2
+              },
+              "parts": {
+                "model": {
+                  "zh": 1,
+                  "en": 1
+                },
+                "effort": {
+                  "zh": 2,
+                  "en": 2
+                }
+              }
+            },
+            {
+              "kind": "workflow",
+              "items": 4,
+              "wrong": {
+                "zh": 2,
+                "en": 2
+              },
+              "parts": {
+                "model": {
+                  "zh": 1,
+                  "en": 1
+                },
+                "effort": {
+                  "zh": 2,
+                  "en": 2
+                }
+              }
+            }
+          ],
+          "sources": {
+            "priority:user": {
+              "zh": {
+                "user": 3
+              },
+              "en": {
+                "user": 3
+              }
+            },
+            "priority:main-kept": {
+              "zh": {
+                "requested": 3
+              },
+              "en": {
+                "requested": 3
+              }
+            },
+            "priority:main-overridden": {
+              "zh": {
+                "requested": 2,
+                "decided": 1
+              },
+              "en": {
+                "requested": 2,
+                "decided": 1
+              }
+            },
+            "priority:none": {
+              "zh": {
+                "decided": 3
+              },
+              "en": {
+                "decided": 3
+              }
+            }
+          },
+          "sweeps": {
+            "thetaOverride": [
+              {
+                "value": 0.3,
+                "zh": {
+                  "model": 0.9167,
+                  "effort": 0.75,
+                  "joint": 0.75
+                },
+                "en": {
+                  "model": 0.9167,
+                  "effort": 0.75,
+                  "joint": 0.75
+                }
+              },
+              {
+                "value": 0.4,
+                "zh": {
+                  "model": 1,
+                  "effort": 0.8333,
+                  "joint": 0.8333
+                },
+                "en": {
+                  "model": 0.9167,
+                  "effort": 0.75,
+                  "joint": 0.75
+                }
+              },
+              {
+                "value": 0.5,
+                "zh": {
+                  "model": 0.9167,
+                  "effort": 0.75,
+                  "joint": 0.75
+                },
+                "en": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                }
+              },
+              {
+                "value": 0.6,
+                "current": true,
+                "zh": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                },
+                "en": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                }
+              },
+              {
+                "value": 0.7,
+                "zh": {
+                  "model": 0.75,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                },
+                "en": {
+                  "model": 0.75,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                }
+              },
+              {
+                "value": 0.8,
+                "zh": {
+                  "model": 0.75,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                },
+                "en": {
+                  "model": 0.75,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                }
+              },
+              {
+                "value": 0.9,
+                "zh": {
+                  "model": 0.75,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                },
+                "en": {
+                  "model": 0.75,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                }
+              },
+              {
+                "value": 1,
+                "zh": {
+                  "model": 0.75,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                },
+                "en": {
+                  "model": 0.75,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                }
+              }
+            ],
+            "thetaNamed": [
+              {
+                "value": 0.3,
+                "zh": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                },
+                "en": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                }
+              },
+              {
+                "value": 0.5,
+                "current": true,
+                "zh": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                },
+                "en": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                }
+              },
+              {
+                "value": 0.7,
+                "zh": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                },
+                "en": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                }
+              },
+              {
+                "value": 0.9,
+                "zh": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                },
+                "en": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                }
+              }
+            ],
+            "thetaMax": [
+              {
+                "value": 0.3,
+                "zh": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                },
+                "en": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                }
+              },
+              {
+                "value": 0.5,
+                "current": true,
+                "zh": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                },
+                "en": {
+                  "model": 0.8333,
+                  "effort": 0.6667,
+                  "joint": 0.6667
+                }
+              },
+              {
+                "value": 0.7,
+                "zh": {
+                  "model": 0.8333,
+                  "effort": 0.75,
+                  "joint": 0.75
+                },
+                "en": {
+                  "model": 0.8333,
+                  "effort": 0.8333,
+                  "joint": 0.8333
+                }
+              },
+              {
+                "value": 0.9,
+                "zh": {
+                  "model": 0.8333,
+                  "effort": 0.8333,
+                  "joint": 0.8333
+                },
+                "en": {
+                  "model": 0.8333,
+                  "effort": 0.8333,
+                  "joint": 0.8333
+                }
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "constants": [
+      {
+        "answer": "haiku",
+        "accuracy": 0.4167,
+        "exact": 0.4167,
+        "parts": {
+          "model": 0.4167,
+          "effort": 0.4167
+        }
+      },
+      {
+        "answer": "sonnet low",
+        "accuracy": 0.1667,
+        "exact": 0,
+        "parts": {
+          "model": 0.3333,
+          "effort": 0.25
+        }
+      },
+      {
+        "answer": "sonnet medium",
+        "accuracy": 0.0833,
+        "exact": 0.0833,
+        "parts": {
+          "model": 0.3333,
+          "effort": 0.1667
+        }
+      },
+      {
+        "answer": "sonnet high",
+        "accuracy": 0.1667,
+        "exact": 0.1667,
+        "parts": {
+          "model": 0.3333,
+          "effort": 0.4167
+        }
+      },
+      {
+        "answer": "sonnet xhigh",
+        "accuracy": 0.1667,
+        "exact": 0,
+        "parts": {
+          "model": 0.3333,
+          "effort": 0.4167
+        }
+      },
+      {
+        "answer": "sonnet max",
+        "accuracy": 0,
+        "exact": 0,
+        "parts": {
+          "model": 0.3333,
+          "effort": 0
+        }
+      },
+      {
+        "answer": "opus low",
+        "accuracy": 0.0833,
+        "exact": 0.0833,
+        "parts": {
+          "model": 0.5,
+          "effort": 0.25
+        }
+      },
+      {
+        "answer": "opus medium",
+        "accuracy": 0.0833,
+        "exact": 0,
+        "parts": {
+          "model": 0.5,
+          "effort": 0.1667
+        }
+      },
+      {
+        "answer": "opus high",
+        "accuracy": 0.4167,
+        "exact": 0.1667,
+        "parts": {
+          "model": 0.5,
+          "effort": 0.4167
+        }
+      },
+      {
+        "answer": "opus xhigh",
+        "accuracy": 0.4167,
+        "exact": 0.0833,
+        "parts": {
+          "model": 0.5,
+          "effort": 0.4167
+        }
+      },
+      {
+        "answer": "opus max",
+        "accuracy": 0,
+        "exact": 0,
+        "parts": {
+          "model": 0.5,
+          "effort": 0
+        }
+      }
+    ]
+  },
+  "resummarized": {
+    "date": "2026-10-05",
+    "by": "eval/resummarize.ts",
+    "what": "each variant's pass by the bar of 2026-10-05 (Chinese at most 4 points below English, exactly 4 passing); each language's late, retried and inTime from the answers kept here (an answer that took more attempts than requests is no decision in time: the mod never retries)"
+  },
+  "answers": [
+    {"id":"subagent-001","language":"zh","state":{"brief":{"description":"补 date 工具单测","agent_type":"general-purpose","prompt":"为 src/utils/date.ts 的 `parseRelative`、`toBusinessDay`、`diffInWorkdays` 写 vitest 单测，覆盖：跨月、跨年、闰年 2 月 29 日、Asia/Shanghai 与 UTC 的日期边界差异、节假日表为空。测试写在 src/utils/__tests__/date.test.ts，`pnpm vitest run src/utils` 全部通过。不要改 date.ts 本身；如果发现实现有 bug，写一个标注 `it.fails` 的用例并在结果里说明。"},"user_message":"给 utils/date.ts 补几个边界情况的单测，用 haiku 跑就行，省点额度"},"models-hint":{"answer":"haiku","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"user","pick":"sonnet","confidence":0.496,"p_model":{"haiku":0.1105,"sonnet":0.6638,"opus":0.2257},"p_effort":[0.0371,0.317,0.5494,0.0705,0.026],"nouls":{"named.haiku":0.98,"banned.haiku":0.0223},"ms":1925,"attempts":1,"tokens":1276,"model":"clef"}},
+    {"id":"subagent-001","language":"en","state":{"brief":{"description":"Add date util tests","agent_type":"general-purpose","prompt":"Write vitest unit tests for `parseRelative`, `toBusinessDay` and `diffInWorkdays` in src/utils/date.ts, covering: crossing a month, crossing a year, February 29 in a leap year, date-boundary differences between Asia/Shanghai and UTC, and an empty holiday table. Put the tests in src/utils/__tests__/date.test.ts; `pnpm vitest run src/utils` must pass. Don't change date.ts itself; if you find a bug in the implementation, write a case marked `it.fails` and explain it in your result."},"user_message":"Add some edge-case unit tests for utils/date.ts. Just run it with haiku to save some quota."},"models-hint":{"answer":"haiku","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"user","pick":"sonnet","confidence":0.393,"p_model":{"haiku":0.1645,"sonnet":0.5951,"opus":0.2404},"p_effort":[0.0349,0.3231,0.5669,0.0509,0.0242],"nouls":{"named.haiku":0.9854,"banned.haiku":0.025},"ms":956,"attempts":1,"tokens":1276,"model":"clef"}},
+    {"id":"subagent-002","language":"zh","state":{"brief":{"description":"Switch README to pnpm","agent_type":"general-purpose","prompt":"In README.md and docs/getting-started.md, replace npm commands with pnpm equivalents: `npm install` → `pnpm install`, `npm run <x>` → `pnpm <x>`, `npx <y>` → `pnpm dlx <y>`, `npm i -g` → `pnpm add -g`. Then grep the rest of docs/ and scripts/ for instructions that still tell users to use npm and list them (file:line) without editing them."},"user_message":"用 opus 把 README 里的安装命令从 npm 改成 pnpm，顺便看看还有哪些文档也要改"},"models-hint":{"answer":"opus low","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"user","pick":"sonnet","confidence":0.317,"p_model":{"haiku":0.2469,"sonnet":0.5445,"opus":0.2086},"p_effort":[0.5447,0.3369,0.0952,0.0144,0.0088],"nouls":{"named.opus":0.9808,"banned.opus":0.0407},"ms":815,"attempts":1,"tokens":1283,"model":"clef"}},
+    {"id":"subagent-002","language":"en","state":{"brief":{"description":"Switch README to pnpm","agent_type":"general-purpose","prompt":"In README.md and docs/getting-started.md, replace npm commands with pnpm equivalents: `npm install` → `pnpm install`, `npm run <x>` → `pnpm <x>`, `npx <y>` → `pnpm dlx <y>`, `npm i -g` → `pnpm add -g`. Then grep the rest of docs/ and scripts/ for instructions that still tell users to use npm and list them (file:line) without editing them."},"user_message":"Use opus to change the install commands in the README from npm to pnpm, and while you're at it, see which other docs need changing too."},"models-hint":{"answer":"opus low","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"user","pick":"sonnet","confidence":0.332,"p_model":{"haiku":0.2352,"sonnet":0.5544,"opus":0.2104},"p_effort":[0.5319,0.3489,0.0936,0.0163,0.0093],"nouls":{"named.opus":0.9823,"banned.opus":0.0191},"ms":667,"attempts":1,"tokens":1292,"model":"clef"}},
+    {"id":"subagent-014","language":"zh","state":{"brief":{"description":"Review refresh rotation PR","agent_type":"code-reviewer","prompt":"Review the diff of PR #482 (`gh pr diff 482`). Focus on refresh token rotation: reuse detection (a rotated-out token being presented again), two tabs refreshing at the same moment, a refresh request that fails after the server has rotated but before the client has stored the new token, and token family revocation. Report concrete issues with file:line and a scenario that triggers each; no style nits."},"user_message":"这个 PR 改了 refresh token 轮换的逻辑，你帮我仔细看看有没有坑"},"models-hint":{"answer":"opus xhigh","correct":true,"gold":false,"parts":{"model":true,"effort":true},"source":"requested","pick":"sonnet","confidence":0.238,"p_model":{"haiku":0.0505,"sonnet":0.4917,"opus":0.4578},"p_effort":[0.0105,0.0526,0.1607,0.4312,0.345],"nouls":{},"ms":802,"attempts":1,"tokens":928,"model":"clef"}},
+    {"id":"subagent-014","language":"en","state":{"brief":{"description":"Review refresh rotation PR","agent_type":"code-reviewer","prompt":"Review the diff of PR #482 (`gh pr diff 482`). Focus on refresh token rotation: reuse detection (a rotated-out token being presented again), two tabs refreshing at the same moment, a refresh request that fails after the server has rotated but before the client has stored the new token, and token family revocation. Report concrete issues with file:line and a scenario that triggers each; no style nits."},"user_message":"This PR changes the refresh token rotation logic. Take a careful look and see if there are any pitfalls."},"models-hint":{"answer":"opus xhigh","correct":true,"gold":false,"parts":{"model":true,"effort":true},"source":"requested","pick":"sonnet","confidence":0.276,"p_model":{"haiku":0.0527,"sonnet":0.5173,"opus":0.43},"p_effort":[0.01,0.055,0.1676,0.4193,0.3481],"nouls":{},"ms":720,"attempts":1,"tokens":933,"model":"clef"}},
+    {"id":"subagent-015","language":"zh","state":{"brief":{"description":"整理 CHANGELOG 格式","agent_type":"general-purpose","prompt":"按 docs/changelog-style.md 改写 CHANGELOG.md 中 v3.0.0 到 v3.8.2 的条目，规则：\n1. 版本标题改成 `## [3.x.y] - YYYY-MM-DD`，日期用对应 git tag 的日期（`git log -1 --format=%as v3.x.y`）；\n2. 条目按 Added / Changed / Fixed / Removed 分组：`feat:` → Added，`fix:` → Fixed，`refactor:`、`perf:` → Changed，`remove:` → Removed，`chore:`、`ci:` 直接删掉；\n3. PR 号统一写成 `(#123)` 放在行尾；\n4. 条目原文措辞一个字都不要改；\n5. v2.x 及更早的版本不要动。\n改完跑 `npx markdownlint-cli2 CHANGELOG.md`，有报错就按提示修到通过。"},"user_message":"CHANGELOG 里 v3 的条目按新格式整理一下，格式规范我写在 docs/changelog-style.md 了"},"models-hint":{"answer":"haiku","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"requested","pick":"sonnet","confidence":0.307,"p_model":{"haiku":0.1032,"sonnet":0.5379,"opus":0.3589},"p_effort":[0.2419,0.5661,0.1449,0.0279,0.0192],"nouls":{},"ms":856,"attempts":1,"tokens":1060,"model":"clef"}},
+    {"id":"subagent-015","language":"en","state":{"brief":{"description":"Reformat CHANGELOG entries","agent_type":"general-purpose","prompt":"Rewrite the entries from v3.0.0 to v3.8.2 in CHANGELOG.md according to docs/changelog-style.md. Rules:\n1. Change each version heading to `## [3.x.y] - YYYY-MM-DD`, using the date of the matching git tag (`git log -1 --format=%as v3.x.y`);\n2. Group entries under Added / Changed / Fixed / Removed: `feat:` → Added, `fix:` → Fixed, `refactor:` and `perf:` → Changed, `remove:` → Removed; delete `chore:` and `ci:` entries outright;\n3. Write every PR number as `(#123)` at the end of the line;\n4. Don't change a single word of the original entry text;\n5. Don't touch v2.x or anything earlier.\nWhen you're done, run `npx markdownlint-cli2 CHANGELOG.md` and fix whatever it reports until it passes."},"user_message":"Reformat the v3 entries in CHANGELOG to the new format. I wrote the style spec in docs/changelog-style.md."},"models-hint":{"answer":"haiku","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"requested","pick":"sonnet","confidence":0.343,"p_model":{"haiku":0.0991,"sonnet":0.562,"opus":0.3389},"p_effort":[0.2409,0.5994,0.1176,0.0257,0.0164],"nouls":{},"ms":636,"attempts":1,"tokens":1056,"model":"clef"}},
+    {"id":"subagent-024","language":"zh","state":{"brief":{"description":"List all TODOs","agent_type":"general-purpose","prompt":"Grep the repo for TODO, FIXME and XXX comments (skip vendor/, node_modules/ and generated files under src/gen/). Output a markdown table: file, line, comment text, and the author of that line from `git blame`. Sort by file path. Don't modify anything."},"user_message":"仓库里 TODO 越堆越多，给我拉个清单看看"},"models-hint":{"answer":"opus low","correct":false,"gold":false,"miss":"model-over effort-over","parts":{"model":false,"effort":false},"source":"requested","pick":"haiku","confidence":0.514,"p_model":{"haiku":0.6759,"sonnet":0.2612,"opus":0.0629},"p_effort":[0.6948,0.2286,0.0574,0.0112,0.008],"nouls":{},"ms":646,"attempts":1,"tokens":895,"model":"clef"}},
+    {"id":"subagent-024","language":"en","state":{"brief":{"description":"List all TODOs","agent_type":"general-purpose","prompt":"Grep the repo for TODO, FIXME and XXX comments (skip vendor/, node_modules/ and generated files under src/gen/). Output a markdown table: file, line, comment text, and the author of that line from `git blame`. Sort by file path. Don't modify anything."},"user_message":"The TODOs in this repo keep piling up. Pull together a list so I can take a look."},"models-hint":{"answer":"opus low","correct":false,"gold":false,"miss":"model-over effort-over","parts":{"model":false,"effort":false},"source":"requested","pick":"haiku","confidence":0.407,"p_model":{"haiku":0.6048,"sonnet":0.3221,"opus":0.0731},"p_effort":[0.6345,0.2736,0.0725,0.0116,0.0078],"nouls":{},"ms":526,"attempts":1,"tokens":904,"model":"clef"}},
+    {"id":"subagent-025","language":"zh","state":{"brief":{"description":"设计多租户隔离方案","agent_type":"Plan","prompt":"调研当前的数据访问层（src/db、src/repositories、prisma/schema.prisma），设计多租户数据隔离方案：比较 schema-per-tenant、共享表 + tenant_id + Postgres RLS、每个租户独立数据库三种做法，结合我们现有的 Prisma 用法、迁移流程和后台报表的跨租户查询需求，给出推荐和分阶段落地计划，列出主要风险（数据泄漏、迁移停机、连接数）。不要改代码。"},"user_message":"我们要支持多租户了，先出个数据隔离的方案，别急着写代码"},"models-hint":{"answer":"opus max","correct":false,"gold":false,"miss":"effort-over","parts":{"model":true,"effort":false},"source":"decided","pick":"opus","confidence":0.619,"p_model":{"haiku":0.0559,"sonnet":0.1979,"opus":0.7462},"p_effort":[0.006,0.0117,0.0183,0.2636,0.7004],"nouls":{},"ms":812,"attempts":1,"tokens":934,"model":"clef"}},
+    {"id":"subagent-025","language":"en","state":{"brief":{"description":"Design multi-tenant isolation","agent_type":"Plan","prompt":"Study the current data access layer (src/db, src/repositories, prisma/schema.prisma) and design a multi-tenant data isolation scheme: compare schema-per-tenant, shared tables + tenant_id + Postgres RLS, and a separate database per tenant. Taking into account how we currently use Prisma, our migration process, and the admin reports' need for cross-tenant queries, give a recommendation and a phased rollout plan, and list the main risks (data leaks, migration downtime, connection counts). Don't change any code."},"user_message":"We need to support multi-tenancy. Come up with a data isolation plan first — don't rush into writing code."},"models-hint":{"answer":"opus max","correct":false,"gold":false,"miss":"effort-over","parts":{"model":true,"effort":false},"source":"decided","pick":"opus","confidence":0.611,"p_model":{"haiku":0.0539,"sonnet":0.2057,"opus":0.7404},"p_effort":[0.0064,0.0137,0.0201,0.2712,0.6886],"nouls":{},"ms":855,"attempts":1,"tokens":959,"model":"clef"}},
+    {"id":"subagent-035","language":"zh","state":{"brief":{"description":"查找 moment 用法","agent_type":"Explore","prompt":"在整个仓库里（排除 node_modules、dist、.next、coverage）找出所有 import 或 require `moment` 和 `moment-timezone` 的地方。按文件列出：路径、行号、用到的 API（如 `moment().format`、`moment.duration`、`.tz(...)`、`.locale('zh-cn')`）。最后给出文件总数和各 API 的出现次数。只汇报，不要改任何文件。"},"user_message":"项目里还有不少地方在用 moment，我想换成 dayjs，先帮我摸个底"},"models-hint":{"answer":"haiku","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"decided","pick":"haiku","confidence":0.207,"p_model":{"haiku":0.4711,"sonnet":0.4589,"opus":0.07},"p_effort":[0.7235,0.1693,0.0773,0.021,0.0089],"nouls":{},"ms":701,"attempts":1,"tokens":900,"model":"clef"}},
+    {"id":"subagent-035","language":"en","state":{"brief":{"description":"Find moment usages","agent_type":"Explore","prompt":"Across the whole repo (excluding node_modules, dist, .next and coverage), find every place that imports or requires `moment` or `moment-timezone`. List by file: path, line number, and the APIs used (e.g. `moment().format`, `moment.duration`, `.tz(...)`, `.locale('zh-cn')`). Finish with the total number of files and how many times each API appears. Report only; don't modify any files."},"user_message":"There are still quite a few places in the project using moment. I want to switch to dayjs — first help me get a picture of where it's used."},"models-hint":{"answer":"haiku","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"decided","pick":"haiku","confidence":0.254,"p_model":{"haiku":0.5025,"sonnet":0.4205,"opus":0.077},"p_effort":[0.772,0.1373,0.0652,0.018,0.0075],"nouls":{},"ms":1103,"attempts":1,"tokens":920,"model":"clef"}},
+    {"id":"subagent-036","language":"zh","state":{"brief":{"description":"重命名 apiBaseUrl 配置项","agent_type":"general-purpose","prompt":"把配置项 `apiBaseUrl` 全部重命名为 `apiBaseURL`。涉及范围（我已经 grep 过，共 23 个文件）：\n1. src/config/schema.ts 里 zod schema 的字段名；\n2. src/config/defaults.ts、src/config/load.ts；\n3. apps/web、apps/admin、apps/mobile 下所有读取 `config.apiBaseUrl` 的地方（共 17 处）；\n4. .env.example 里的注释；\n5. docs/configuration.md 和 docs/zh/configuration.md 里的表格。\n环境变量名 `API_BASE_URL` 不变。不要改任何逻辑，只改名字。改完后跑 `pnpm typecheck` 和 `pnpm test config`，都通过就结束；如果有失败，贴出错误，不要自己猜着修。"},"user_message":"配置里的 apiBaseUrl 统一改成 apiBaseURL，跟后端的命名对齐"},"models-hint":{"answer":"sonnet low","correct":true,"gold":false,"parts":{"model":true,"effort":true},"source":"decided","pick":"sonnet","confidence":0.273,"p_model":{"haiku":0.1993,"sonnet":0.5151,"opus":0.2856},"p_effort":[0.8964,0.051,0.0274,0.0165,0.0087],"nouls":{},"ms":881,"attempts":1,"tokens":997,"model":"clef"}},
+    {"id":"subagent-036","language":"en","state":{"brief":{"description":"Rename apiBaseUrl config key","agent_type":"general-purpose","prompt":"Rename the config key `apiBaseUrl` to `apiBaseURL` everywhere. Scope (I've already grepped it — 23 files in total):\n1. the field name in the zod schema in src/config/schema.ts;\n2. src/config/defaults.ts and src/config/load.ts;\n3. every read of `config.apiBaseUrl` under apps/web, apps/admin and apps/mobile (17 places);\n4. the comment in .env.example;\n5. the tables in docs/configuration.md and docs/zh/configuration.md.\nThe environment variable name `API_BASE_URL` stays the same. Don't change any logic — only the name. When you're done, run `pnpm typecheck` and `pnpm test config`; if both pass, you're finished. If anything fails, paste the error and don't guess at a fix."},"user_message":"Rename apiBaseUrl to apiBaseURL everywhere in the config so it matches the backend's naming."},"models-hint":{"answer":"sonnet low","correct":true,"gold":false,"parts":{"model":true,"effort":true},"source":"decided","pick":"sonnet","confidence":0.281,"p_model":{"haiku":0.1934,"sonnet":0.5205,"opus":0.2861},"p_effort":[0.8725,0.0601,0.0363,0.0205,0.0106],"nouls":{},"ms":614,"attempts":1,"tokens":993,"model":"clef"}},
+    {"id":"subagent-062","language":"zh","state":{"brief":{"workflow_description":"将 src/components 下 38 个 Options API 组件迁移到 <script setup>：逐文件并行迁移 → 统一类型检查与测试 → 修复失败 → 整体评审","label":"migrate:${file}","prompt":"把 ${file} 从 Options API 改写成 `<script setup lang=\"ts\">`。规则：`data` → `ref`/`reactive`；`computed` → `computed()`；`methods` → 普通函数；`watch` 保留 `immediate`/`deep` 选项；`props` 用 `defineProps` 并保留默认值（对象和数组默认值保持工厂函数）；`this.$emit` 改成 `defineEmits` 并补全声明；生命周期钩子按官方对照表映射。如果组件用了 mixins，不要改，在结果里写 `HAS_MIXIN`。不要改模板和样式，不要碰其他文件。"},"user_message":"把 src/components 下所有还在用 Options API 的组件迁到 `<script setup>`，一个文件一个 agent 并行搞，迁完统一跑类型检查和测试，最后整体 review 一遍"},"models-hint":{"answer":"sonnet medium","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"decided","pick":"sonnet","confidence":0.328,"p_model":{"haiku":0.0855,"sonnet":0.5522,"opus":0.3623},"p_effort":[0.0966,0.7317,0.0725,0.0763,0.0229],"nouls":{},"ms":912,"attempts":1,"tokens":1023,"model":"clef"}},
+    {"id":"subagent-062","language":"en","state":{"brief":{"workflow_description":"Migrate 38 Options API components under src/components to <script setup>: migrate each file in parallel → run type check and tests together → fix failures → review the whole change","label":"migrate:${file}","prompt":"Rewrite ${file} from the Options API to `<script setup lang=\"ts\">`. Rules: `data` → `ref`/`reactive`; `computed` → `computed()`; `methods` → plain functions; `watch` keeps its `immediate`/`deep` options; `props` use `defineProps` and keep their defaults (object and array defaults stay factory functions); `this.$emit` becomes `defineEmits` with complete declarations; map lifecycle hooks using the official table. If the component uses mixins, don't change it — write `HAS_MIXIN` in your result. Don't change the template or styles, and don't touch any other file."},"user_message":"Migrate every component under src/components that still uses the Options API to `<script setup>`. Run them in parallel, one agent per file; after the migration, run the type check and tests in one go, and finally review the whole thing."},"models-hint":{"answer":"sonnet medium","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"decided","pick":"sonnet","confidence":0.263,"p_model":{"haiku":0.0743,"sonnet":0.5089,"opus":0.4168},"p_effort":[0.1204,0.4744,0.1753,0.1917,0.0382],"nouls":{},"ms":681,"attempts":1,"tokens":1022,"model":"clef"}},
+    {"id":"subagent-065","language":"zh","state":{"brief":{"workflow_description":"将 src/components 下 38 个 Options API 组件迁移到 <script setup>：逐文件并行迁移 → 统一类型检查与测试 → 修复失败 → 整体评审","label":"review","prompt":"审查本次迁移的完整 diff（`git diff main -- src/components`），重点找行为变化：`watch` 的 `immediate`/`deep` 是否丢失；`emits` 是否漏声明；props 默认值（尤其对象和数组的工厂函数）是否正确；`this.$refs` 改成模板 ref 后访问时机是否变化；生命周期钩子映射是否正确；标了 `HAS_MIXIN` 的组件是否确实没被改动。只报告确定的问题，附文件:行号和修复建议。"},"user_message":"把 src/components 下所有还在用 Options API 的组件迁到 `<script setup>`，一个文件一个 agent 并行搞，迁完统一跑类型检查和测试，最后整体 review 一遍"},"models-hint":{"answer":"haiku","correct":false,"gold":false,"miss":"model-under effort-under","parts":{"model":false,"effort":false},"source":"requested","pick":"sonnet","confidence":0.464,"p_model":{"haiku":0.0817,"sonnet":0.6425,"opus":0.2758},"p_effort":[0.0307,0.1294,0.6332,0.14,0.0667],"nouls":{},"ms":902,"attempts":1,"tokens":1012,"model":"clef"}},
+    {"id":"subagent-065","language":"en","state":{"brief":{"workflow_description":"Migrate 38 Options API components under src/components to <script setup>: migrate each file in parallel → run type check and tests together → fix failures → review the whole change","label":"review","prompt":"Review the full diff of this migration (`git diff main -- src/components`), focusing on behavior changes: whether `watch` lost `immediate`/`deep`; whether any `emits` are undeclared; whether props defaults are correct (especially factory functions for objects and arrays); whether access timing changed after `this.$refs` became template refs; whether lifecycle hooks were mapped correctly; and whether components marked `HAS_MIXIN` really were left untouched. Report only definite problems, with file:line and a suggested fix."},"user_message":"Migrate every component under src/components that still uses the Options API to `<script setup>`. Run them in parallel, one agent per file; after the migration, run the type check and tests in one go, and finally review the whole thing."},"models-hint":{"answer":"haiku","correct":false,"gold":false,"miss":"model-under effort-under","parts":{"model":false,"effort":false},"source":"requested","pick":"sonnet","confidence":0.362,"p_model":{"haiku":0.0883,"sonnet":0.5749,"opus":0.3368},"p_effort":[0.0418,0.1786,0.6249,0.1118,0.0429],"nouls":{},"ms":768,"attempts":1,"tokens":1010,"model":"clef"}},
+    {"id":"subagent-069","language":"zh","state":{"brief":{"workflow_description":"上线前安全审查：按模块并行审计（auth / payments / admin）→ 逐条验证可利用性、剔除误报 → 汇总报告","label":"audit:admin","prompt":"审计 src/admin/（共 6 个路由，都要求管理员登录）在上线前的安全问题：管理员权限校验是否在每个路由都生效、能否通过修改请求参数操作其他租户的数据、批量导出接口有没有数量和字段限制、操作日志能否被绕过。每个发现给出文件:行号、触发方式、严重级别和置信度。不要修改代码。"},"user_message":"上线前做一轮安全审查：auth、payments、admin 三个模块各派一个 agent 并行审，然后逐条验证发现的问题是不是真的能利用，最后出个报告"},"models-hint":{"answer":"sonnet max","correct":false,"gold":false,"miss":"effort-over","parts":{"model":true,"effort":false},"source":"requested","pick":"opus","confidence":0.516,"p_model":{"haiku":0.0796,"sonnet":0.2434,"opus":0.677},"p_effort":[0.0182,0.0811,0.1118,0.0915,0.6974],"nouls":{},"ms":778,"attempts":1,"tokens":964,"model":"clef"}},
+    {"id":"subagent-069","language":"en","state":{"brief":{"workflow_description":"Pre-launch security review: audit modules in parallel (auth / payments / admin) → verify the exploitability of each finding and drop false positives → compile the report","label":"audit:admin","prompt":"Audit src/admin/ (6 routes in total, all requiring an admin login) for security issues before launch: whether the admin permission check takes effect on every route, whether another tenant's data can be manipulated by changing request parameters, whether the bulk export endpoint limits the number of rows and fields, and whether the audit log can be bypassed. For each finding, give file:line, how to trigger it, severity and your confidence. Don't modify any code."},"user_message":"Do a security review before launch: send one agent each to audit the auth, payments and admin modules in parallel, then verify one by one whether the findings are actually exploitable, and finally produce a report."},"models-hint":{"answer":"sonnet max","correct":false,"gold":false,"miss":"effort-over","parts":{"model":true,"effort":false},"source":"requested","pick":"opus","confidence":0.488,"p_model":{"haiku":0.0722,"sonnet":0.269,"opus":0.6588},"p_effort":[0.0181,0.0871,0.1211,0.0873,0.6864],"nouls":{},"ms":691,"attempts":1,"tokens":987,"model":"clef"}},
+    {"id":"subagent-085","language":"zh","state":{"brief":{"workflow_description":"拆分 src/lib/utils.ts（约 3100 行）：设计模块划分 → 按映射表批量更新 import → 跑测试并修复","label":"design-split","prompt":"分析 src/lib/utils.ts 的 140 个导出函数及其相互依赖，设计拆分方案：按领域分成若干模块（如 date、money、string、dom），避免循环依赖，标出被 50 个以上文件引用的高风险函数。输出：模块列表、每个函数的归属、新文件路径、需要暂时保留的兼容 re-export，以及一张「旧导入 → 新模块」的映射表。"},"user_message":"utils.ts 太大了要拆。用 opus 先把拆分方案想清楚，然后让 haiku 去批量改 import，最后用 sonnet 跑测试修问题"},"models-hint":{"answer":"opus xhigh","correct":true,"gold":false,"parts":{"model":true,"effort":true},"source":"user","pick":"opus","confidence":0.351,"p_model":{"haiku":0.0664,"sonnet":0.3662,"opus":0.5674},"p_effort":[0.0448,0.0279,0.0617,0.7265,0.1391],"nouls":{"named.haiku":0.4608,"named.sonnet":0.0542,"named.opus":0.9766,"banned.haiku":0.0183,"banned.sonnet":0.0148,"banned.opus":0.1951},"ms":882,"attempts":1,"tokens":1958,"model":"clef"}},
+    {"id":"subagent-085","language":"en","state":{"brief":{"workflow_description":"Split src/lib/utils.ts (about 3,100 lines): design the module split → bulk-update imports from the mapping table → run tests and fix","label":"design-split","prompt":"Analyze the 140 exported functions in src/lib/utils.ts and their interdependencies, and design a split: divide them by domain into several modules (e.g. date, money, string, dom), avoid circular dependencies, and flag high-risk functions referenced by more than 50 files. Output: the module list, which module each function goes to, the new file paths, the compatibility re-exports to keep for now, and an \"old import → new module\" mapping table."},"user_message":"utils.ts is too big and needs splitting. Use opus to think the split through first, then have haiku update the imports in bulk, and finally use sonnet to run the tests and fix any problems."},"models-hint":{"answer":"opus xhigh","correct":true,"gold":false,"parts":{"model":true,"effort":true},"source":"user","pick":"opus","confidence":0.331,"p_model":{"haiku":0.0891,"sonnet":0.3571,"opus":0.5538},"p_effort":[0.068,0.0446,0.074,0.7157,0.0977],"nouls":{"named.haiku":0.785,"named.sonnet":0.09,"named.opus":0.9754,"banned.haiku":0.0166,"banned.sonnet":0.0143,"banned.opus":0.1405},"ms":1047,"attempts":1,"tokens":1972,"model":"clef"}}
+  ]
+}
