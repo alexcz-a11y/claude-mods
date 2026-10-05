@@ -320,6 +320,6 @@ node dispatch-pilot/eval/probe-truncation.ts --backend clef --only warmup,en-480
 
 ### 8.8.3 没做的实验
 
-E2–E4、E6–E10 的运行都没有做；长上下文补充集没有做；E7 的档位描述改动（审核规则 R4，「写测试」整体放在 high）没有做；E3 的画像裁剪（只留英文字段）没有评测，也没有改。E9 的「两类 skill 分开问」已经在第 1 轮审查的修复里实现（`skills.which` 和 `skills.hint` 两题），但没有重跑。E5（Workflow 一个请求放几个 agent）同样没有跑：`subagent` 评测已经有 `models-hint-single` 变体可以对照。
+E2–E4、E6–E10 的运行都没有做；长上下文补充集没有做；E7 的档位描述改动（审核规则 R4，「写测试」整体放在 high）没有做；E3 的画像裁剪（只留英文字段）没有评测，也没有改。E9 的「两类 skill 分开问」已经在第 1 轮审查的修复里实现（`skills.which` 和 `skills.hint` 两题），但没有重跑。E5（Workflow 一个请求放几个 agent）同样没有跑：`subagent` 评测已经有 `models-hint-single` 变体可以对照。故事 70（E2 里派出 agent 和 skill 的中文问法）在第 2 轮审查的修复里补上了评测的变体：`subagent` 的 `models-hint-zh`、`skill` 的 `profiles-zh`，只有定义和不联网的请求测试，没有运行（只跑这两个变体约 200 和 436 个请求，Jev 约 0.03 和 0.37 美元，估算）。
 
 没有新开 GitHub issue；要不要为这些开后续票，由用户决定。

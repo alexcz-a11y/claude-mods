@@ -163,6 +163,28 @@ test("the single variant asks about each of a Workflow's agents in a request of 
   expect(Object.keys(synth.state)).toEqual(['brief_1', 'user_message'])
 })
 
+/** Whether a value holds Chinese text anywhere. */
+const hasChinese = (value: unknown) => /[一-鿿]/.test(JSON.stringify(value))
+
+test('the models-hint-zh variant asks what models-hint asks, every question written in Chinese: the same state, the same questions in the same order', async () => {
+  for (const [item, dataset] of [
+    [LONG, [LONG]],
+    [SCAN, [SCAN, SYNTH]],
+  ] as const) {
+    const english = await evalRequest(item, 'en', {}, dataset, 'models-hint')
+    const chinese = await evalRequest(item, 'en', {}, dataset, 'models-hint-zh')
+    expect(chinese.state).toEqual(english.state)
+    expect(Object.keys(chinese.questions)).toEqual(Object.keys(english.questions))
+    expect(hasChinese(english.questions)).toBe(false)
+    for (const [id, question] of Object.entries(chinese.questions)) expect([id, hasChinese(question)]).toEqual([id, true])
+  }
+  // The questions as the mod writes them in Chinese (decision/dispatched-agent.ts), the brief's field named in them.
+  const asked = await evalRequest(LONG, 'zh', {}, [LONG], 'models-hint-zh')
+  expect(asked.questions['agent.model']?.instructions).toMatchObject({ 问题: '哪个模型是能把 `brief` 做好的最便宜的一个？' })
+  expect(JSON.stringify(asked.questions['agent.model']?.instructions)).toContain('写 `brief` 的主 agent 指定了 sonnet')
+  expect(asked.questions['agent.effort']?.instructions).toMatchObject({ 问题: '一个派出的 agent 要完成 `brief`，需要多少逐步推理？' })
+})
+
 test("from the same answers the eval decides each of a Workflow's agents as the mod writes it into the script", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
   const answers = siteJev((i) =>
     i === 0 ? { model: { haiku: 0.05, sonnet: 0.15, opus: 0.8 }, effort: [0, 0, 0.1, 0.8, 0.1] } : { model: { haiku: 0.1, sonnet: 0.8, opus: 0.1 }, effort: [0, 0.8, 0.2, 0, 0] },
