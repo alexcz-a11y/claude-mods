@@ -68,7 +68,7 @@ declare module 'claude-code' {
       /**
        * The mid-turn re-decision's own record of a main turn (#5), id
        * `main:<turnId>` (turnKey): its steps, the tool calls they made and how
-       * they ended, and when its effort was last asked about and raised.
+       * they ended, and when its effort was last asked about.
        */
       midturn: StateFamily<{
         /** Steps the turn has made: the latest step's index + 1. */
@@ -77,12 +77,6 @@ declare module 'claude-code' {
         engine: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
         /** The step the latest re-decision was asked for; null before the first. */
         askedFor: number | null
-        /** The `at` of the last `demand` asked about (each is asked once); null for none. */
-        served: number | null
-        /** The turn's tool calls that failed (not counting hook blocks and denials). */
-        failures: number
-        /** The turn's tool calls a hook refused. */
-        hookBlocks: number
         /** The latest steps, oldest first (at most 16): the last text written and the tools called, each with how it ended. */
         recent: {
           index: number
@@ -93,26 +87,12 @@ declare module 'claude-code' {
       /** The main agent's step in progress (its tool calls carry no turn id); null before the first. */
       mainStep: { turnId: string; index: number } | null
       /**
-       * A re-decision another feature asks of the mid-turn feature, id
-       * `main:<turnId>`: #7 writes one when the turn is stuck. It is asked at
-       * the turn's next tool call (or next step) with `trouble` in the
-       * decision model's state, and the turn goes at least to `atLeast`
-       * whatever the answer (or with no answer). Each `at` (a number the
-       * writer increases) is asked once. Written by #7, read by #5.
-       */
-      demand: StateFamily<{
-        /** What has gone wrong, in one English sentence for the decision model: "2 tool calls in a row have failed ...". */
-        trouble: string
-        /** The lowest level the turn may go at from then on; null for none. */
-        atLeast: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        /** Which demand this is: a new value is a new demand. */
-        at: number
-      }>
-      /**
-       * Failed tool calls piling up in one loop (#7), id `main` for the main
-       * agent (its counts are those of the turn `turnId`; a new turn starts them
-       * afresh) or the agentId of a dispatched or workflow agent (counted for as
-       * long as it lives). Written by features/escalation.ts only.
+       * Each loop's failed tool calls and forced raises (#7), id `main` for the
+       * main agent (its counts are those of the turn `turnId`; a new turn starts
+       * them afresh) or the agentId of a dispatched or workflow agent (counted
+       * for as long as it lives). The one count of failures: the mid-turn
+       * re-decision (#5) sends the main agent's in its counts. Written by
+       * features/escalation.ts only.
        */
       escalation: StateFamily<{
         /** The main turn the counts belong to; '' for an agent. */
@@ -121,12 +101,20 @@ declare module 'claude-code' {
         failures: number
         /** Tool calls a hook refused. */
         hookBlocks: number
-        /** What escalating (or deciding the failures were expected) has already dealt with: the counts at that moment. */
+        /** The counts when they last started over (a forced raise, failures found expected, nothing left to raise): what is counted is the rest. */
         base: { failures: number; hookBlocks: number }
         /** Forced raises so far (an expected-failure verdict is not one). */
         raises: number
-        /** The step a stuck re-decision was last made for; null before the first. */
-        askedAt: number | null
+        /** The loop's latest step, the engine's effort and model on it: what a stuck re-decision asked as a call ends reads. */
+        step: number | null
+        engine: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+        model: string | null
+        /** The step a stuck re-decision was last asked for; null before the first. */
+        askedFor: number | null
+        /** An agent's step at its latest forced raise (the main agent's is its turn's `raisedAt`); null before one. */
+        raisedAt: number | null
+        /** The escalation switch was off when the loop was last seen: what was counted meanwhile is written off once it is on. */
+        paused: boolean
       }>
       /**
        * The person's own words this turn, masked and clipped, oldest first: the
@@ -142,30 +130,11 @@ declare module 'claude-code' {
        */
       returned: string[]
       /**
-       * What the workflow-agents feature did with each Workflow run, id = the
-       * run's id (`runId` of the Workflow tool's result). Written as the tool
-       * returns, a few milliseconds before the run's first agent takes a step
-       * (16 ms measured on 2.1.289): a reader on that step may find nothing yet.
-       */
-      workflows: StateFamily<{
-        /** Whether model and effort were written into the run's script; the persisted script (`scriptPath`) holds them. */
-        rewritten: boolean
-        /**
-         * When not: why, in a word. `scriptPath`, `name` or `resume` (an input it does not rewrite),
-         * `unreadable` (a script it cannot read, or none of whose agent() prompts it can), `failed` (no
-         * decision), `second` (return mode: the Workflow was sent back before), `no agents`,
-         * `rewrite failed` (the tool refused the rewritten script; the original ran).
-         */
-        reason: string
-        /** The agent() calls it decided, by label (null: the call has none, or its label is built when the script runs). */
-        agents: { label: string | null; model: string | null; effort: string | null }[]
-        /** The agent() calls it left as the script wrote them. */
-        left: number
-      }>
-      /**
-       * The Workflow runs whose agents the workflow-labels feature (#9) routes
-       * as each one starts, by the label the run's journal records for it;
-       * newest last, at most 8. Written when the run's tool call returns.
+       * The Workflow runs of the session, as the workflow-labels feature (#9)
+       * records them when the run's tool call returns (newest last, at most 8):
+       * it routes their agents as each one starts, by the label the run's
+       * journal records for it; the escalation feature (#7) reads a workflow
+       * agent's transcript in the run's directory.
        */
       labelRuns: {
         /** The run's id (`runId` of the Workflow tool's result). */

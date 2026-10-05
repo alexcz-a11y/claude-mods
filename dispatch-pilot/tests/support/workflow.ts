@@ -89,8 +89,6 @@ export function workflowWorld($: Engine, on: On, options: WorkflowWorldOptions =
     reached,
     /** Every value the mod wrote to `$.state`, in order (`key`, the family's `id`, the value). */
     stateWrites,
-    /** What the mod recorded of the Workflow runs, by run id (the last record of each). */
-    records: (): Record<string, unknown> => Object.fromEntries(stateWrites.filter((write) => write.key === 'workflows' && write.id !== undefined).map((write) => [write.id as string, write.value])),
     /** The main agent calls the Workflow tool: resolves to what the tool, or a hook of the mod, answered. */
     workflow: (input: WorkflowInput) => $.tool.call({ tool: 'Workflow', ...input }),
   }

@@ -1,72 +1,87 @@
 // Feature: a loop whose tool calls keep failing goes up a level (#7).
 //
-// Every failed tool call of the main agent and of the agents it dispatches is
-// counted (a call the person refused is not; one a hook blocked only when the
-// `hook-block-failures` switch says so). When a loop has `escalateAfter`
-// counted failures, the decision model is asked again at that loop's next step:
-// the same effort question as mid-turn (with the `trouble` flag) and one more,
-// whether the failures are what the work expects (a test written to fail
-// first, a search that finds nothing) or a sign it is stuck. Expected: the
-// counts start over and nothing is forced. Otherwise (also when no answer
-// comes) the loop goes up: one level (at most to xhigh) or straight to max,
-// never below that level again, at most `escalateLimit` times per turn.
+// Every tool call of the main agent and of the agents it dispatches is told
+// apart as it ends (core/outcomes.ts), and each loop's failures are counted
+// here, in one record (`escalation`) that the mid-turn re-decision (#5) sends
+// in its counts too: a call the person refused is no failure, one a hook
+// blocked counts toward escalating only with `hook-block-failures` on, and
+// the counts start over whenever this feature deals with them (a forced
+// raise, failures found expected, or nothing left to raise).
 //
-// This feature owns that whole re-decision. It sits above the mid-turn feature
-// (the entry registers it first), so a step's own mid-turn answer finds the
-// raise already in the turn's plan and cannot undercut it.
+// When a loop's counted failures reach `escalateAfter`, the decision model is
+// asked at once, as the call that reaches them ends (story 18): the mid-turn
+// effort question with the trouble, and whether the failures are what the
+// work expects (a test written to fail first, a search that finds nothing).
+// The loop's next step takes the answer, waiting `rejudgeWaitMs` at most, as
+// a mid-turn re-decision does; an answer later than that is taken at a later
+// step. Expected: the counts start over and the answer is an ordinary
+// re-decision. Otherwise (also when no answer comes) the loop goes up: one
+// level (at most to xhigh) or straight to max, at most `escalateLimit` times
+// per turn (per run, for an agent); a haiku agent, which takes no effort,
+// goes on as another model. The person's terms for an agent's work hold
+// (core/plans.ts `AgentPlan`).
+//
+// It sits above the mid-turn feature (the entry registers it first), so a
+// step's own mid-turn answer finds the raise already in the turn's plan and
+// cannot undercut it.
 
 import type { EngineInterface, HttpInit, On, TurnStepInput } from 'claude-code'
-import type { Asked, Failure } from '../decision/backend.ts'
+import { describeAsked, errorText, type Failure } from '../decision/backend.ts'
 import { AGENT_MODELS, modelFamily, type AgentModel, type Terms } from '../decision/dispatched-agent.ts'
-import { briefOf, expectedFailurePart, forcedTarget, raisedLevel, readExpected, stepsFromRows, troubleText, type RaiseMode } from '../decision/escalation.ts'
-import { EFFORTS, higherEffort, isEffort, readEffort, type Effort, type EffortReading } from '../decision/effort.ts'
-import {
-  contentLanguage,
-  judgeMidturn,
-  MIDTURN_LEVEL,
-  midturnEffortPart,
-  midturnState,
-  outcomeOf,
-  verdictReason,
-  type MidturnInput,
-  type MidturnLimits,
-  type MidturnRules,
-  type MidturnShow,
-} from '../decision/midturn.ts'
+import { briefOf, forcedTarget, raisedLevel, readExpected, rowsFromTranscript, stepsFromRows, stuckRequest, troubleText, type RaiseMode, type TranscriptRow } from '../decision/escalation.ts'
+import { higherEffort, isEffort, readEffort, readingText, type Effort, type EffortReading } from '../decision/effort.ts'
+import { contentLanguage, judgeMidturn, MIDTURN_LEVEL, outcomeOf, verdictReason, type MidturnInput, type MidturnLimits, type MidturnRules } from '../decision/midturn.ts'
 import { modelId, type ResolvedModel } from '../decision/model-ids.ts'
-import { redactSecrets } from '../decision/redact.ts'
-import { answersFor, mergeParts } from '../decision/system-one.ts'
+import { quoteStart } from '../decision/redact.ts'
+import { answersFor } from '../decision/system-one.ts'
+import { startedIn } from '../decision/workflow-labels.ts'
 import { recordDecision, type DecisionEntry } from '../core/decisions.ts'
+import { endedAs, noteEnded, wasBlocked } from '../core/outcomes.ts'
 import { floorHeld, forced, newTurn, redecided, turnKey, update, type AgentPlan, type Cell, type TurnRecord } from '../core/plans.ts'
 import type { Ctx } from '../core/setup.ts'
 import { failureText, setStatus } from '../core/status.ts'
-import { defineSwitch, isOn } from '../core/switches.ts'
+import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 
 const ESCALATION = { plugin: 'dispatch-pilot', key: 'escalation' } as const
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
 const AGENTS = { plugin: 'dispatch-pilot', key: 'agents' } as const
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
-const MIDTURN = { plugin: 'dispatch-pilot', key: 'midturn' } as const
+const RUNS = { plugin: 'dispatch-pilot', key: 'labelRuns' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** The feature's switch (`/dp escalation on|off`). */
 const SWITCH = 'escalation'
 /** Whether a call one of the person's hooks blocked counts as a failure (`/dp hook-block-failures on|off`); off by default. */
 const BLOCKS_SWITCH = 'hook-block-failures'
-/** The id of the main agent's counts in the `escalation` table. */
+/** The id of the main agent's record in the `escalation` table. */
 const MAIN_ID = 'main'
 
-/** The feature's own record of one loop (`escalation` in types/index.d.ts). */
-type Strain = {
+/** One loop's failed calls and forced raises (`escalation` in types/index.d.ts): the main agent's for one turn, an agent's for its run. */
+type LoopRecord = {
+  /** The main turn the counts belong to; '' for an agent. */
   turnId: string
+  /** Calls that failed, and calls a hook refused, since the loop began. */
   failures: number
   hookBlocks: number
-  base: { failures: number; hookBlocks: number }
+  /** The counts when they last started over: what is counted is the rest. */
+  base: Counted
+  /** Forced raises so far (failures found expected are not one). */
   raises: number
-  askedAt: number | null
+  /** The loop's latest step, the engine's effort and model on it: what a re-decision asked as a call ends reads. */
+  step: number | null
+  engine: Effort | null
+  model: string | null
+  /** The step a stuck re-decision was last asked for; null before the first. */
+  askedFor: number | null
+  /** An agent's step at its latest raise (the main agent's is its turn's `raisedAt`); null before one. */
+  raisedAt: number | null
+  /** The escalation switch was off when the loop was last seen: what was counted meanwhile is written off once it is back on. */
+  paused: boolean
 }
 
-/** What the feature runs with: the shared ctx and its own options. */
+type Counted = { failures: number; hookBlocks: number }
+
+/** What the feature runs with: the shared ctx and the options it reads. */
 type Settings = {
   ctx: Ctx
   /** Counted failures that make a loop stuck. */
@@ -85,7 +100,32 @@ type Settings = {
   /** The mid-turn rules: what a raise the decision model itself suggests needs, and how an ordinary re-decision moves the level. */
   rules: MidturnRules
   limits: MidturnLimits
+  /** How long a step waits for a stuck re-decision not back yet. */
+  waitMs: number
 }
+
+/** What the decision model made of a stuck loop. */
+type Stuck = {
+  /** The effort answer; null when it was not asked or not answered. */
+  reading: EffortReading | null
+  /** The probability that the failures were expected; null without an answer. */
+  expected: number | null
+  /** Why the question went unanswered, when it did. */
+  failure: Failure | null
+  /** No transcript of the loop could be read: nothing was asked. */
+  unread: boolean
+}
+
+/**
+ * A stuck re-decision on its way, or answered and not yet taken, by loop id:
+ * asked for step `forStep` (of turn `turnId`, for the main agent), about the
+ * counts in `covered` (what starts over once it is dealt with). `answer`
+ * never rejects; once it resolves, `settled` holds it and `ms` how long it took.
+ * Promises cannot live in $.state: a reload drops them, and the loop's next
+ * step asks again.
+ */
+type Asking = { forStep: number; turnId: string; covered: Counted; about: string; answer: Promise<Stuck>; settled: Stuck | null; ms: number }
+const asking = new Map<string, Asking>()
 
 export function registerEscalation(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: 'raises the effort of an agent whose tool calls keep failing', segments: ['escalation', 'agentEscalation'] })
@@ -102,244 +142,330 @@ export function registerEscalation(on: On, ctx: Ctx): void {
     models: agents.models,
     rules: midturn.rules,
     limits: midturn.limits,
+    waitMs: midturn.waitMs,
   }
-
-  // Wraps the PreToolUse settings hooks (they run beneath it): `tool.call` only sees their refusal as an error
-  // carrying the hook's reason, so the call's id is noted here (it is the same in both events, in any loop).
-  on('classic.PreToolUse', { tool: /(?:)/ }, async ($, e, next) => {
-    const decided = await next(e)
-    if (decided.deny !== undefined && e.tool_use_id) blocked(e.tool_use_id)
-    return decided
-  })
 
   on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {
     const result = await next(e)
-    // The calls the model made, not another plugin's `$.tool.call`.
-    if (next.origin.plugin !== 'engine' || !isOn(SWITCH)) return result
+    // The calls the model made, not another plugin's `$.tool.call`; counted while Dispatch Pilot is on, whatever this
+    // feature's switch says (the mid-turn re-decision sends the counts too).
+    if (next.origin.plugin !== 'engine' || !masterOn()) return result
     try {
+      const ended = outcomeOf(e.tool, result, wasBlocked(e.tool_use_id))
+      noteEnded(e.tool_use_id, ended)
       // A refusal by a plugin's tool.call hook (`{ deny }`) is nobody's failure and no settings hook's block: the
       // Workflow feature's hand-back of a script is one. Only what the tool reported, and what the settings hooks refused, count.
-      const outcome = typeof result.deny === 'string' ? 'ok' : outcomeOf(e.tool, result, wasBlocked(e.tool_use_id))
-      if (outcome === 'failed' || outcome === 'blocked') {
-        const ref = { ...ESCALATION, id: e.agentId ?? MAIN_ID }
-        const cell: Cell<Strain> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
-        const counted = await update(cell, (r) => {
-          const record = r ?? fresh('')
-          return outcome === 'failed' ? { ...record, failures: record.failures + 1 } : { ...record, hookBlocks: record.hookBlocks + 1 }
-        })
-        if (e.agentId === undefined) showCounts($, counted, undefined)
-        else showCounts($, null, counted)
-      }
+      if (typeof result.deny === 'string' || (ended !== 'failed' && ended !== 'blocked')) return result
+      const id = e.agentId ?? MAIN_ID
+      const ref = { ...ESCALATION, id }
+      const cell: Cell<LoopRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
+      const record = await update(cell, (r) => {
+        const loop = r ?? fresh('')
+        return ended === 'failed' ? { ...loop, failures: loop.failures + 1 } : { ...loop, hookBlocks: loop.hookBlocks + 1 }
+      })
+      if (!isOn(SWITCH)) return result
+      showCounts($, id, record, null)
+      // The call that reaches the threshold asks at once: the answer is for the loop's next step (once per step).
+      if (record.step !== null && record.askedFor !== record.step + 1) await launch($, settings, id, e.agentId, record, record.step + 1)
     } catch (error) {
-      $.ui.log(`escalation: ${describe(error)}`, { to: 'debug' })
+      $.ui.log(`escalation: ${errorText(error)}`, { to: 'debug' })
     }
     return result
   })
 
   on('turn.step', { turnId: /(?:)/ }, async function* ($, e, next) {
-    if (isOn(SWITCH)) {
+    if (masterOn()) {
       try {
-        await consider($, settings, e)
+        await atStep($, settings, e)
       } catch (error) {
-        $.ui.log(`escalation: ${describe(error)}`, { to: 'debug' })
+        $.ui.log(`escalation: ${errorText(error)}`, { to: 'debug' })
       }
     }
     return yield* next(e)
   })
 }
 
-/** What `consider` hands the loop-specific parts: the step, the loop's record and what the failures add up to. */
-type Loop = {
-  s: Settings
-  e: TurnStepInput
-  /** The loop's counts. */
-  cell: Cell<Strain>
-  record: Strain
-  /** The failures (and, when the switch says so, hook blocks) counted since the counts last started over. */
-  counted: { failures: number; hookBlocks: number }
-  total: number
-}
-
 /**
- * At a loop's step: when its counted failures have reached the threshold,
- * asks the decision model and, unless the failures were expected, raises the
- * loop. The raise is written into the plan table; the core sends it with this
- * step.
+ * At a loop's step: keeps where the loop is (a new main turn starts its counts
+ * afresh), then takes the stuck re-decision meant for this step and applies
+ * it. With none on its way while the counted failures call for one (nothing
+ * to raise when the call ended, or a reload dropped the request), deals with
+ * them here: written off when nothing can be raised, else asked now.
  */
-async function consider($: EngineInterface, s: Settings, e: TurnStepInput): Promise<void> {
+async function atStep($: EngineInterface, s: Settings, e: TurnStepInput): Promise<void> {
   const main = e.agentId === undefined
-  const ref = { ...ESCALATION, id: e.agentId ?? MAIN_ID }
-  const cell: Cell<Strain> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
-  const { value: record } = await $.state.get(ref)
-  if (main && record?.turnId !== e.turnId) {
-    // A new main turn: what the one before counted is over.
-    await update(cell, () => fresh(e.turnId))
+  const id = e.agentId ?? MAIN_ID
+  const ref = { ...ESCALATION, id }
+  const cell: Cell<LoopRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
+  const engine = isEffort(e.effort) ? e.effort : null
+  const on = isOn(SWITCH)
+  let turned = false
+  let record = await update(cell, (r) => {
+    turned = main && (r === undefined || r.turnId !== e.turnId)
+    const loop = turned || r === undefined ? fresh(main ? e.turnId : '') : r
+    // Back on after being off: what was counted meanwhile is written off, so it is counted from here on.
+    const written = on && loop.paused ? { ...loop, base: { failures: loop.failures, hookBlocks: loop.hookBlocks }, paused: false } : loop
+    return { ...written, step: e.index, engine, model: e.model, paused: !on }
+  })
+  if (turned) {
+    // A new main turn: what the one before counted, and asked, is over.
+    asking.delete(MAIN_ID)
     latestAgent = null
-    showCounts($, null, undefined)
+    showCounts($, MAIN_ID, null, null)
+  }
+  if (!on) return
+
+  let pending = asking.get(id)
+  if (pending === undefined || (main && pending.turnId !== e.turnId) || pending.forStep > e.index) {
+    if (pending !== undefined) return
+    // No re-decision on its way, though the counted failures may call for one: nothing could be raised when
+    // the call ended, or a reload dropped the request. Dealt with here: written off, or asked now.
+    const counted = countedOf(record)
+    if (counted.failures + counted.hookBlocks < s.after || record.raises >= s.limit || record.askedFor === e.index || s.ctx.backend.configured === false) return
+    record = await update(cell, (r) => ({ ...(r ?? record), askedFor: e.index }))
+    const raise = await raiseOf($, s, id, e.agentId, record, e.index)
+    if (raise.kind === 'none') return
+    if (raise.kind === 'keep') {
+      await settle($, cell, id, countedNow(record), false)
+      const brief = e.agentId === undefined ? '' : briefOf((await agentRows($, e.agentId)) ?? [])
+      await decide($, { outcome: raise.outcome, about: aboutOf(e.agentId, brief, e.index, counted), reason: raise.reason })
+      return
+    }
+    await launch($, s, id, e.agentId, record, e.index)
+    pending = asking.get(id)
+    if (pending === undefined) return
+  }
+  const answer = pending.settled ?? (await within($, pending.answer, s.waitMs))
+  if (answer === null) {
+    // Not back yet: the step goes as it is, and the answer is taken at a later step (as a mid-turn re-decision's).
+    showCounts($, id, record, 'late')
     return
   }
-  if (record === undefined) return
-  const counted = {
-    failures: record.failures - record.base.failures,
-    hookBlocks: isOn(BLOCKS_SWITCH) ? record.hookBlocks - record.base.hookBlocks : 0,
-  }
-  const total = counted.failures + counted.hookBlocks
-  if (total < s.after || record.raises >= s.limit || record.askedAt === e.index) return
-  // Without a decision model set up the mod does nothing at all.
-  if (s.ctx.backend.configured === false) return
-  const loop: Loop = { s, e, cell, record, counted, total }
-  await (main ? forMain($, loop) : forAgent($, loop))
+  asking.delete(id)
+  await apply($, s, e, cell, pending.covered, pending.about, answer)
 }
 
-/** The main agent: the turn goes up (its plan's floor too), unless the person's lock holds the effort. */
-async function forMain($: EngineInterface, loop: Loop): Promise<void> {
-  const { s, e, cell, record, counted, total } = loop
-  const { value: lock = null } = await $.state.get(LOCK)
-  if (lock !== null) return
+/** What a stuck loop's re-decision would do, from where the loop stands. */
+type Raise =
+  /** Leave the loop be: the person's lock holds the main agent's effort, or the step takes no effort level. */
+  | { kind: 'none' }
+  /** Nothing to raise: the failures are written off, and the decision recorded. */
+  | { kind: 'keep'; outcome: string; reason: string }
+  /** A higher effort, from `current`. */
+  | { kind: 'level'; current: Effort; target: Effort }
+  /** Another model (a haiku agent: it takes no effort). */
+  | { kind: 'model'; from: string; to: ResolvedModel; note: string }
 
-  const key = turnKey(e.turnId, undefined)
-  const turnRef = { ...TURNS, id: key }
-  const turnCell: Cell<TurnRecord> = { get: () => $.state.get(turnRef), set: (value, options) => $.state.set(turnRef, value, options) }
-  const { value: turn } = await $.state.get(turnRef)
-  const plan = turn ?? newTurn('', null, false)
-  // A step that takes no effort level (a model without one, or a numeric setting) cannot be raised.
-  const engine = isEffort(e.effort) ? e.effort : null
-  if (engine === null) return
-  const floor = floorHeld(plan, e.index)
-  const current = higherEffort(plan.effort ?? engine, floor) as Effort
-  const about = `step ${e.index} (${total} failed tool calls)`
+/**
+ * What raising the loop would be at step `at`, by its plan: the main agent's
+ * turn (unless the person locked its effort), or an agent's effective model
+ * (the plan's, else the engine's) and the person's terms for its work.
+ */
+async function raiseOf($: EngineInterface, s: Settings, id: string, agentId: string | undefined, record: LoopRecord, at: number): Promise<Raise> {
+  const top = (current: Effort) => ({ kind: 'keep' as const, outcome: `effort ${current} (kept)`, reason: s.mode === 'max' ? 'already at max' : 'a one-level raise stops at xhigh' })
+  if (agentId === undefined) {
+    const { value: lock = null } = await $.state.get(LOCK)
+    if (lock !== null || record.engine === null) return { kind: 'none' }
+    const { value: turn } = await $.state.get({ ...TURNS, id: turnKey(record.turnId, undefined) })
+    const current = higherEffort(turn?.effort ?? record.engine, floorHeld(turn, at)) as Effort
+    const target = forcedTarget(current, s.mode)
+    return target === null ? top(current) : { kind: 'level', current, target }
+  }
+  const { value: planned } = await $.state.get({ ...AGENTS, id })
+  const model = planned?.model ?? record.model ?? ''
+  const family = modelFamily(model)
+  // A model the mod does not know, and that takes no effort level: nothing to raise.
+  if (family === null && record.engine === null) return { kind: 'none' }
+  if (family === 'haiku') {
+    const to = haikuSwitch(s, planned?.terms ?? null)
+    return 'why' in to ? { kind: 'keep', outcome: `model ${model} (kept)`, reason: to.why } : { kind: 'model', from: model, to: to.to, note: to.note }
+  }
+  const named = planned?.terms?.effort ?? null
+  if (named !== null) return { kind: 'keep', outcome: `effort ${named} (kept)`, reason: `${named} is the effort you named for it` }
+  // Without a level of its own (moved off a model that takes none), its steps go at the engine's own for an agent: medium (measured on 2.1.289).
+  const current = higherEffort(planned?.effort ?? record.engine ?? 'medium', planned?.floor ?? null) as Effort
   const target = forcedTarget(current, s.mode)
-  if (target === null) {
-    // Nowhere to go: the failures are written off so this does not come up at every step.
-    await settle($, loop, false)
-    await decide($, { outcome: `effort ${current} (kept)`, about, reason: s.mode === 'max' ? 'already at max' : 'a one-level raise stops at xhigh' })
-    return
-  }
-
-  const rows = await $.session.messages().catch(() => [])
-  const input: MidturnInput = {
-    message: plan.prompt,
-    step: e.index,
-    current_effort: current,
-    counts: { judgments: plan.decisions, changes: plan.changes, failures: record.failures, hook_blocks: record.hookBlocks },
-    recent_steps: stepsFromRows(rows, { language: contentLanguage(plan.prompt), blocked: wasBlocked }),
-    trouble: troubleText(counted),
-  }
-  const answer = await askStuck($, loop, input, {}, true, about)
-  const p = answer.expected
-  if (p !== null && p >= s.thetaExpected) {
-    // Expected: nothing is forced; the answer's effort is an ordinary re-decision (of a turn the person started, as mid-turn).
-    const sinceRaise = plan.raisedAt == null ? null : e.index - plan.raisedAt
-    const position = { current, sinceRaise, atLeast: floor }
-    const reading = answer.reading
-    const verdict = reading !== null && plan.person === true ? judgeMidturn(reading, position, s.rules) : null
-    const level = verdict?.effort ?? current
-    if (verdict !== null) await update(turnCell, (r) => redecided(r ?? plan, current, level, e.index))
-    await settle($, loop, false)
-    const why = `the failures are expected (p ${p.toFixed(2)}, thetaExpected ${s.thetaExpected.toFixed(2)}), so nothing is forced`
-    await decide($, {
-      outcome: `effort ${level} ${level === current ? '(kept)' : `(was ${current})`}`,
-      about,
-      reason: verdict === null || reading === null ? why : `${why}; ${describeReading(reading)}; ${verdictReason(verdict, position, s.rules)}`,
-    })
-    return
-  }
-
-  // Raised from this step on; for holdSteps steps nothing lowers it below the forced level (decision 4 of review 1).
-  const level = raisedLevel(answer.reading, target, s.rules)
-  await update(turnCell, (r) => forced(r ?? plan, level, target, e.index, s.rules.holdSteps))
-  await settle($, loop, true)
-  await decide($, { outcome: `effort ${level} (was ${current})`, about, reason: raiseReason(s, answer, level, target) })
+  return target === null ? top(current) : { kind: 'level', current, target }
 }
 
 /**
- * A dispatched (or workflow) agent, by its effective model: the plan's, else
- * the engine's (a model the label fallback or an earlier raise put it on).
- * Its effort goes up for the rest of its run; a haiku agent, which has no
- * effort to raise, is switched to the model `escalateHaikuTo` names instead.
- * The person's terms for its work hold: a haiku they named stays, a model
- * they ruled out is never switched to (the next one up is), an effort they
- * named is not raised. Its task and steps are read from its own transcript,
- * which a workflow's agent does not have: that one is raised without asking
- * whether its failures were expected.
+ * Sends the stuck re-decision for the loop's step `forStep`, when its counted
+ * failures call for one and there is something to raise; the answer waits in
+ * `asking` for that step. Once per step, one at a time per loop.
  */
-async function forAgent($: EngineInterface, loop: Loop): Promise<void> {
-  const { s, e, cell, record, counted, total } = loop
-  const id = e.agentId as string
-  const planRef = { ...AGENTS, id }
-  const planCell: Cell<AgentPlan> = { get: () => $.state.get(planRef), set: (value, options) => $.state.set(planRef, value, options) }
-  const { value: planned } = await $.state.get(planRef)
-  const plan: AgentPlan = planned ?? { effort: null, floor: null, model: null, terms: null }
-  const model = plan.model ?? e.model
-  const family = modelFamily(model)
-  const engine = isEffort(e.effort) ? e.effort : null
-  // A model the mod does not know, and that takes no effort level: nothing to raise.
-  if (family === null && engine === null) return
-  const found = await $.session.messages({ agentId: id }).catch(() => null)
-  const rows = Array.isArray(found) ? found : null
-  const brief = rows === null ? '' : briefOf(rows)
-  const label = brief === '' ? `agent ${id}` : `agent ${quote(brief)}`
-  const about = `${label}, step ${e.index} (${total} failed tool calls)`
-  /** Nothing to force: the failures are written off so this does not come up at every step. */
-  const keep = async (outcome: string, reason: string) => {
-    await settle($, loop, false)
-    await decide($, { outcome, about, reason })
-  }
+async function launch($: EngineInterface, s: Settings, id: string, agentId: string | undefined, record: LoopRecord, forStep: number): Promise<void> {
+  const counted = countedOf(record)
+  if (counted.failures + counted.hookBlocks < s.after || record.raises >= s.limit || s.ctx.backend.configured === false || asking.has(id)) return
+  const raise = await raiseOf($, s, id, agentId, record, forStep)
+  if (raise.kind !== 'level' && raise.kind !== 'model') return
+  const ref = { ...ESCALATION, id }
+  const cell: Cell<LoopRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
+  await update(cell, (r) => ({ ...(r ?? record), askedFor: forStep }))
+  // What the counts say since they last started over, and what they start over from once this is dealt with.
+  const since = { failures: record.failures - record.base.failures, hookBlocks: record.hookBlocks - record.base.hookBlocks }
+  const entry: Asking = { forStep, turnId: record.turnId, covered: countedNow(record), about: '', answer: Promise.resolve(UNREAD), settled: null, ms: 0 }
 
-  // What the raise is: another model (haiku takes no effort), or a level.
-  let current: Effort | null = null
-  let target: Effort | null = null
-  let switchTo: ResolvedModel | null = null
-  let switchNote = ''
-  if (family === 'haiku') {
-    const to = haikuSwitch(s, plan.terms)
-    if ('why' in to) return keep(`model ${model} (kept)`, to.why)
-    switchTo = to.to
-    switchNote = to.note
-  } else {
-    const named = plan.terms?.effort ?? null
-    if (named !== null) return keep(`effort ${named} (kept)`, `${named} is the effort you named for it`)
-    // Without a level of its own (moved off a model that takes none), its steps go at the engine's own for an agent: medium (measured on 2.1.289).
-    current = higherEffort(plan.effort ?? engine ?? 'medium', plan.floor) as Effort
-    target = forcedTarget(current, s.mode)
-    if (target === null) return keep(`effort ${current} (kept)`, s.mode === 'max' ? 'already at max' : 'a one-level raise stops at xhigh')
-  }
-
-  let answer: Stuck = { reading: null, expected: null, failure: null }
-  if (rows !== null) {
-    const input: MidturnInput = {
-      message: brief,
-      step: e.index,
-      current_effort: current ?? 'medium',
-      counts: { judgments: 1 + record.raises, changes: record.raises, failures: record.failures, hook_blocks: record.hookBlocks },
-      recent_steps: stepsFromRows(rows, { language: contentLanguage(brief), blocked: wasBlocked }),
+  let input: MidturnInput
+  if (agentId === undefined) {
+    const { value: turn } = await $.state.get({ ...TURNS, id: turnKey(record.turnId, undefined) })
+    const plan = turn ?? newTurn('', null, false)
+    const rows = (await $.session.messages().catch(() => [])) as TranscriptRow[]
+    entry.about = aboutOf(undefined, '', forStep, counted)
+    input = {
+      message: plan.prompt,
+      step: forStep,
+      current_effort: raise.kind === 'level' ? raise.current : 'medium',
+      counts: { judgments: plan.decisions, changes: plan.changes, failures: since.failures, hook_blocks: since.hookBlocks },
+      recent_steps: stepsFromRows(rows, { language: contentLanguage(plan.prompt), ended: endedAs }),
       trouble: troubleText(counted),
     }
-    answer = await askStuck($, loop, input, current === null ? { currentEffort: false } : {}, current !== null, about)
+  } else {
+    const rows = await agentRows($, agentId)
+    const brief = rows === null ? '' : briefOf(rows)
+    entry.about = aboutOf(agentId, brief, forStep, counted)
+    if (rows === null) {
+      // No transcript to read (a workflow agent whose run the mod did not record): raised without asking.
+      entry.settled = UNREAD
+      asking.set(id, entry)
+      return
+    }
+    input = {
+      message: brief,
+      step: forStep,
+      current_effort: raise.kind === 'level' ? raise.current : 'medium',
+      counts: { judgments: 1 + record.raises, changes: record.raises, failures: since.failures, hook_blocks: since.hookBlocks },
+      recent_steps: stepsFromRows(rows, { language: contentLanguage(brief), ended: endedAs }),
+      trouble: troubleText(counted),
+    }
+  }
+  // A haiku agent takes no effort: only whether its failures were expected is asked.
+  const { request, effortPart, expectedPart } = stuckRequest(input, { limits: s.limits, ask: s.ctx.ask, effort: raise.kind === 'level' })
+  const io = {
+    fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+    sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+  }
+  const startedAt = await $.clock.now()
+  entry.answer = s.ctx.backend.ask(io, request, s.ctx.config.timeoutMs).then(async (asked): Promise<Stuck> => {
+    entry.ms = (await $.clock.now()) - startedAt
+    $.ui.log(`request [${Object.keys(request.questions).join(', ')}] for ${entry.about} to ${s.ctx.backend.name}: ${describeAsked(asked, entry.ms)}`, { to: 'debug' })
+    let stuck: Stuck = { reading: null, expected: null, failure: null, unread: false }
+    if (!asked.ok) stuck = { ...stuck, failure: asked.failure }
+    else {
+      const expected = readExpected(answersFor(expectedPart, asked.answers))
+      stuck = {
+        reading: effortPart === null ? null : readEffort(answersFor(effortPart, asked.answers)[MIDTURN_LEVEL]),
+        expected,
+        failure: expected === null ? { kind: 'parse', detail: 'no answer to the question' } : null,
+        unread: false,
+      }
+    }
+    entry.settled = stuck
+    return stuck
+  })
+  asking.set(id, entry)
+}
+
+/** The answer when nothing could be asked: no transcript of the agent to read. */
+const UNREAD: Stuck = { reading: null, expected: null, failure: null, unread: true }
+
+/** Resolves to `answer` when it comes within `ms`, else to null. */
+async function within<T>($: EngineInterface, answer: Promise<T>, ms: number): Promise<T | null> {
+  const stop = new AbortController()
+  const timer = $.clock.sleep(ms, { signal: stop.signal }).then(
+    () => null,
+    () => null,
+  )
+  const first = await Promise.race([answer, timer])
+  stop.abort()
+  return first
+}
+
+/**
+ * Applies a stuck re-decision's answer at step `e`, to the loop as it stands
+ * now (a re-decision may have moved it since the question went out): expected
+ * failures leave an ordinary re-decision; otherwise the loop goes up (or, when
+ * it can no longer, its failures are written off). Either way the counts the
+ * question covered start over.
+ */
+async function apply($: EngineInterface, s: Settings, e: TurnStepInput, cell: Cell<LoopRecord>, covered: Counted, about: string, answer: Stuck): Promise<void> {
+  const id = e.agentId ?? MAIN_ID
+  const { value: record } = await cell.get()
+  if (record === undefined) return
+  const raise = await raiseOf($, s, id, e.agentId, record, e.index)
+  if (raise.kind === 'none') return
+  if (raise.kind === 'keep') {
+    await settle($, cell, id, covered, false)
+    await decide($, { outcome: raise.outcome, about, reason: raise.reason })
+    return
   }
   const p = answer.expected
   if (p !== null && p >= s.thetaExpected) {
-    await settle($, loop, false)
+    const why = `the failures are expected (p ${p.toFixed(2)}, thetaExpected ${s.thetaExpected.toFixed(2)}), so nothing is forced`
+    if (raise.kind === 'model') {
+      await settle($, cell, id, covered, false)
+      await decide($, { outcome: `model ${raise.from} (kept)`, about, reason: why })
+      return
+    }
+    // Expected: nothing is forced; the answer's effort is an ordinary re-decision, as mid-turn.
+    const level = await redecide($, s, e, record, raise.current, answer.reading)
+    await settle($, cell, id, covered, false)
     await decide($, {
-      outcome: current === null ? `model ${model} (kept)` : `effort ${current} (kept)`,
+      outcome: `effort ${level.effort} ${level.effort === raise.current ? '(kept)' : `(was ${raise.current})`}`,
       about,
-      reason: `the failures are expected (p ${p.toFixed(2)}, thetaExpected ${s.thetaExpected.toFixed(2)}), so nothing is forced`,
+      reason: level.why === null ? why : `${why}; ${level.why}`,
     })
     return
   }
 
-  if (switchTo !== null) {
-    const to = switchTo
-    await update(planCell, (r) => ({ ...(r ?? plan), model: to.id }))
-    await settle($, loop, true)
-    await decide($, { outcome: `model ${to.id} (was ${model})`, about, reason: `a haiku agent has no effort to raise, so it is switched to ${to.id}${switchNote}; ${knownReason(s, answer, rows === null)}` })
+  if (raise.kind === 'model') {
+    const ref = { ...AGENTS, id }
+    const planCell: Cell<AgentPlan> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
+    await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), model: raise.to.id }))
+    await settle($, cell, id, covered, true, e.index)
+    await decide($, { outcome: `model ${raise.to.id} (was ${raise.from})`, about, reason: `a haiku agent has no effort to raise, so it is switched to ${raise.to.id}${raise.note}; ${knownReason(s, answer)}` })
     return
   }
-  // The raise holds for the rest of the agent's run: nothing re-decides an agent mid-run, so it goes into its effort.
-  const level = raisedLevel(answer.reading, target as Effort, s.rules)
-  await update(planCell, (r) => ({ ...(r ?? plan), effort: level }))
-  await settle($, loop, true)
-  await decide($, { outcome: `effort ${level} (was ${current})`, about, reason: raiseReason(s, answer, level, target as Effort, rows === null) })
+  const level = raisedLevel(answer.reading, raise.target, s.rules)
+  if (e.agentId === undefined) {
+    // Raised from this step on; for holdSteps steps nothing lowers it below the forced level (decision 4 of review 1).
+    const ref = { ...TURNS, id: turnKey(e.turnId, undefined) }
+    const turnCell: Cell<TurnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
+    await update(turnCell, (r) => forced(r ?? newTurn('', null, false), level, raise.target, e.index, s.rules.holdSteps))
+  } else {
+    // The raise holds for the rest of the agent's run: nothing re-decides an agent mid-run, so it goes into its effort.
+    const ref = { ...AGENTS, id }
+    const planCell: Cell<AgentPlan> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
+    await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), effort: level }))
+  }
+  await settle($, cell, id, covered, true, e.index)
+  await decide($, { outcome: `effort ${level} (was ${raise.current})`, about, reason: raiseReason(s, answer, level, raise.target) })
+}
+
+/**
+ * An ordinary re-decision from a stuck loop's effort answer, its failures
+ * found expected: the main agent's turn by the mid-turn rules (a turn the
+ * person started, as mid-turn), an agent's plan the same way. The level it
+ * goes on at, and why (null when there was nothing to decide from).
+ */
+async function redecide($: EngineInterface, s: Settings, e: TurnStepInput, record: LoopRecord, current: Effort, reading: EffortReading | null): Promise<{ effort: Effort; why: string | null }> {
+  if (reading === null) return { effort: current, why: null }
+  if (e.agentId === undefined) {
+    const ref = { ...TURNS, id: turnKey(e.turnId, undefined) }
+    const turnCell: Cell<TurnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
+    const { value: turn } = await turnCell.get()
+    if (turn?.person !== true) return { effort: current, why: null }
+    const position = { current, sinceRaise: turn.raisedAt == null ? null : e.index - turn.raisedAt, atLeast: floorHeld(turn, e.index) }
+    const verdict = judgeMidturn(reading, position, s.rules)
+    await update(turnCell, (r) => redecided(r ?? turn, current, verdict.effort, e.index))
+    return { effort: verdict.effort, why: `${readingText(reading)}; ${verdictReason(verdict, position, s.rules)}` }
+  }
+  const ref = { ...AGENTS, id: e.agentId }
+  const planCell: Cell<AgentPlan> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
+  const { value: plan } = await planCell.get()
+  const position = { current, sinceRaise: record.raisedAt === null ? null : e.index - record.raisedAt, atLeast: plan?.floor ?? null }
+  const verdict = judgeMidturn(reading, position, s.rules)
+  if (verdict.effort !== current) await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), effort: verdict.effort }))
+  return { effort: verdict.effort, why: `${readingText(reading)}; ${verdictReason(verdict, position, s.rules)}` }
 }
 
 /**
@@ -361,34 +487,29 @@ function haikuSwitch(s: Settings, terms: Terms | null): { to: ResolvedModel; not
   return { why: `every model above haiku is ruled out for it (${above.join(', ')})` }
 }
 
-/** What the decision model made of a stuck loop. */
-type Stuck = {
-  /** The effort answer; null when it was not asked or not answered. */
-  reading: EffortReading | null
-  /** The probability that the failures were expected; null without an answer. */
-  expected: number | null
-  /** Why the question went unanswered, when it did. */
-  failure: Failure | null
+/**
+ * An agent's transcript: as the session gives it, or for a workflow's agent
+ * (the engine keeps it from the mod) from the run's directory on disk, found by
+ * the runs the workflow-labels feature records; null when neither can be read.
+ */
+async function agentRows($: EngineInterface, agentId: string): Promise<TranscriptRow[] | null> {
+  const found: unknown = await $.session.messages({ agentId }).catch(() => null)
+  if (Array.isArray(found)) return found as TranscriptRow[]
+  const { value: runs = [] } = await $.state.get(RUNS)
+  for (const run of [...runs].reverse()) {
+    const journal = await $.fs.read(`${run.dir}/journal.jsonl`).catch(() => null)
+    if (journal === null || startedIn(journal, agentId) === null) continue
+    const text = await $.fs.read(`${run.dir}/agent-${agentId}.jsonl`).catch(() => null)
+    return text === null ? null : rowsFromTranscript(text)
+  }
+  return null
 }
 
-/** Asks the stuck re-decision's request (the mid-turn effort question with the trouble flag, if `withEffort`, and whether the failures were expected); never throws. */
-async function askStuck($: EngineInterface, loop: Loop, input: MidturnInput, show: MidturnShow, withEffort: boolean, about: string): Promise<Stuck> {
-  const { s } = loop
-  const effortPart = midturnEffortPart(s.ctx.ask, { trouble: true })
-  const expectedPart = expectedFailurePart(s.ctx.ask)
-  const request = mergeParts(midturnState(input, s.limits, show), withEffort ? [effortPart, expectedPart] : [expectedPart])
-  const io = {
-    fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
-    sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
-  }
-  const startedAt = await $.clock.now()
-  const asked = await s.ctx.backend.ask(io, request, s.ctx.config.timeoutMs)
-  const ms = (await $.clock.now()) - startedAt
-  $.ui.log(`request [${Object.keys(request.questions).join(', ')}] for ${about} to ${s.ctx.backend.name}: ${describeAsked(asked, ms)}`, { to: 'debug' })
-  if (!asked.ok) return { reading: null, expected: null, failure: asked.failure }
-  const reading = withEffort ? readEffort(answersFor(effortPart, asked.answers)[MIDTURN_LEVEL]) : null
-  const expected = readExpected(answersFor(expectedPart, asked.answers))
-  return { reading, expected, failure: expected === null ? { kind: 'parse', detail: 'no answer to the question' } : null }
+/** What a decision about the loop is about: its step and the failures, and for an agent its task (`brief`, '' when unknown). */
+function aboutOf(agentId: string | undefined, brief: string, at: number, counted: Counted): string {
+  const failed = `${counted.failures + counted.hookBlocks} failed tool calls`
+  if (agentId === undefined) return `step ${at} (${failed})`
+  return `${brief === '' ? `agent ${agentId}` : `agent ${quoteStart(brief)}`}, step ${at} (${failed})`
 }
 
 /** Records a decision of this feature (debug log and `/dp log`). */
@@ -398,99 +519,65 @@ async function decide($: EngineInterface, decision: { outcome: string; about: st
 }
 
 /** Why a forced raise went where it did, for the decision log. */
-function raiseReason(s: Settings, answer: Stuck, level: Effort, target: Effort, unread = false): string {
+function raiseReason(s: Settings, answer: Stuck, level: Effort, target: Effort): string {
   const how = s.mode === 'max' ? 'forced to max' : 'forced one level up'
   const higher = level === target ? '' : `, the answer's own pick is higher`
-  return `${how}${higher}; ${knownReason(s, answer, unread)}${answer.reading === null ? '' : `; ${describeReading(answer.reading)}`}`
+  return `${how}${higher}; ${knownReason(s, answer)}${answer.reading === null ? '' : `; ${readingText(answer.reading)}`}`
 }
 
 /** Whether the failures were known to be expected, for the decision log: why they were not. */
-function knownReason(s: Settings, answer: Stuck, unread: boolean): string {
-  if (unread) return 'no transcript of this agent to read, so not asked whether the failures were expected'
+function knownReason(s: Settings, answer: Stuck): string {
+  if (answer.unread) return 'no transcript of this agent to read, so not asked whether the failures were expected'
   if (answer.expected !== null) return `not expected (p ${answer.expected.toFixed(2)}, thetaExpected ${s.thetaExpected.toFixed(2)})`
   return `no answer (${failureText(s.ctx.backend.name, answer.failure ?? { kind: 'parse', detail: 'no answer to the question' })})`
 }
 
-/** The calls a PreToolUse hook refused, by tool_use_id (the latest ones). */
-const blockedIds = new Set<string>()
-const MAX_BLOCKED = 256
+function fresh(turnId: string): LoopRecord {
+  return { turnId, failures: 0, hookBlocks: 0, base: { failures: 0, hookBlocks: 0 }, raises: 0, step: null, engine: null, model: null, askedFor: null, raisedAt: null, paused: false }
+}
 
-function blocked(id: string): void {
-  blockedIds.add(id)
-  for (const old of blockedIds) {
-    if (blockedIds.size <= MAX_BLOCKED) break
-    blockedIds.delete(old)
+/** The failures counted toward escalating: since the counts last started over, hook blocks only when they count. */
+function countedOf(record: LoopRecord): Counted {
+  return {
+    failures: record.failures - record.base.failures,
+    hookBlocks: isOn(BLOCKS_SWITCH) ? record.hookBlocks - record.base.hookBlocks : 0,
   }
 }
 
-function wasBlocked(id: string): boolean {
-  return blockedIds.has(id)
+/** The counts as they stand: where they start over from once the failures are dealt with. */
+function countedNow(record: LoopRecord): Counted {
+  return { failures: record.failures, hookBlocks: record.hookBlocks }
 }
 
-function fresh(turnId: string): Strain {
-  return { turnId, failures: 0, hookBlocks: 0, base: { failures: 0, hookBlocks: 0 }, raises: 0, askedAt: null }
-}
-
-/** Settles the loop's counts (see `settled`) and shows them. */
-async function settle($: EngineInterface, loop: Loop, raised: boolean): Promise<void> {
-  const { cell, e } = loop
-  const main = e.agentId === undefined
-  const record = await update(cell, (r) => settled(r ?? fresh(main ? e.turnId : ''), e.index, raised))
-  showCounts($, main ? record : null, main ? undefined : record)
+/** The loop's counts start over from `covered` (a raise counts as one), and are shown. */
+async function settle($: EngineInterface, cell: Cell<LoopRecord>, id: string, covered: Counted, raised: boolean, at?: number): Promise<void> {
+  const record = await update(cell, (r) => ({
+    ...(r ?? fresh('')),
+    base: { failures: Math.max(covered.failures, r?.base.failures ?? 0), hookBlocks: Math.max(covered.hookBlocks, r?.base.hookBlocks ?? 0) },
+    raises: (r?.raises ?? 0) + (raised ? 1 : 0),
+    ...(raised && at !== undefined ? { raisedAt: at } : {}),
+  }))
+  showCounts($, id, record, null)
 }
 
 /** The latest agent whose calls failed, for the status line (lost on a reload, until its next failure). */
-let latestAgent: Strain | null = null
+let latestAgent: { record: LoopRecord; note: 'late' | null } | null = null
 
-/**
- * Shows the counts: `main` is the main agent's record (null: none to show),
- * `agent` an agent's, which then is the latest one shown; `undefined` leaves
- * what is shown for it.
- */
-function showCounts($: EngineInterface, main: Strain | null, agent: Strain | undefined): void {
+/** Shows a loop's counts: the main agent's segment, or the latest agent's (null record: none to show for main). `note`: `late`. */
+function showCounts($: EngineInterface, id: string, record: LoopRecord | null, note: 'late' | null): void {
   const show = (line: string | undefined) => $.ui.status(line)
-  if (agent === undefined && main === null) latestAgent = null
-  if (agent !== undefined) latestAgent = agent
-  else setStatus('escalation', countsText(main), show)
-  setStatus('agentEscalation', countsText(latestAgent, 'agent '), show)
+  if (id === MAIN_ID) setStatus('escalation', countsText(record, '', note), show)
+  else if (record !== null) latestAgent = { record, note }
+  setStatus('agentEscalation', latestAgent === null ? null : countsText(latestAgent.record, 'agent ', latestAgent.note), show)
 }
 
-/** `failed 2, blocked 1, raised 1`: the counts that are not zero; null when all are. */
-function countsText(record: Strain | null, prefix = ''): string | null {
+/** `failed 2, blocked 1, raised 1`: the counts that are not zero (null when all are), and `(late)` while a stuck answer is not back. */
+function countsText(record: LoopRecord | null, prefix: string, note: 'late' | null): string | null {
   if (record === null) return null
   const parts = [
     record.failures > 0 ? `failed ${record.failures}` : '',
     record.hookBlocks > 0 ? `blocked ${record.hookBlocks}` : '',
     record.raises > 0 ? `raised ${record.raises}` : '',
   ].filter((part) => part !== '')
-  return parts.length === 0 ? null : `${prefix}${parts.join(', ')}`
-}
-
-/** The record once the failures counted so far are dealt with (written off, or answered by a raise, which counts). */
-function settled(record: Strain, index: number, raised: boolean): Strain {
-  return { ...record, base: { failures: record.failures, hookBlocks: record.hookBlocks }, raises: record.raises + (raised ? 1 : 0), askedAt: index }
-}
-
-/** Every level's probability and the backend's confidence, for the decision log. */
-function describeReading(reading: EffortReading): string {
-  const levels = EFFORTS.map((level, i) => `${level} ${(reading.probabilities[i] ?? 0).toFixed(2)}`).join(', ')
-  return `p ${levels}; confidence ${reading.confidence === null ? 'n/a' : reading.confidence.toFixed(2)}`
-}
-
-/** A request's outcome for the debug log, as the other features write theirs. */
-function describeAsked(asked: Asked, ms: number): string {
-  if (!asked.ok) return `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)`
-  const by = asked.model === null ? '' : ` by ${asked.model}`
-  const tokens = asked.inputTokens === null ? '' : ` (${asked.inputTokens} input tokens)`
-  return `answered in ${ms} ms${by}${tokens}`
-}
-
-/** The start of a text for the debug log, secrets masked. */
-function quote(text: string): string {
-  const flat = redactSecrets(text).replace(/\s+/g, ' ').trim()
-  return JSON.stringify(flat.length > 40 ? `${flat.slice(0, 40)}...` : flat)
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return parts.length === 0 ? null : `${prefix}${parts.join(', ')}${note === null ? '' : ` (${note})`}`
 }

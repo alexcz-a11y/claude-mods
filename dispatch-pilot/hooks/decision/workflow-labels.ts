@@ -213,10 +213,29 @@ export function sitesFor(label: string, sites: readonly RunSite[]): RunSite[] {
 
 /** What the engine writes before a workflow agent's task, up to the task itself (2.1.289); each line of the task follows indented by two spaces. */
 const TASK_FOLLOWS = 'The computed task text follows:\n'
+/** How the frame starts in which the engine relays the person's request to a workflow agent, before its task (seen on 2.1.281-2.1.282). */
+const RELAYED_REQUEST = '[Workflow harness — user request]'
+
+/** The task a script computed, without the frame the engine puts around it; null when `text` is not such a frame. */
+export function computedTask(text: string): string | null {
+  const at = text.indexOf(TASK_FOLLOWS)
+  if (at < 0) return null
+  return text
+    .slice(at + TASK_FOLLOWS.length)
+    .split('\n')
+    .map((taskLine) => (taskLine.startsWith('  ') ? taskLine.slice(2) : taskLine))
+    .join('\n')
+}
+
+/** Whether `text` is the frame in which the engine relays the person's request to a workflow agent (not the agent's task). */
+export function isRelayedRequest(text: string): boolean {
+  return text.trimStart().startsWith(RELAYED_REQUEST)
+}
 
 /**
  * The task a workflow agent was given, from its transcript
- * (`agent-<agentId>.jsonl`): the first user message, without the frame the
+ * (`agent-<agentId>.jsonl`): the first user message (past one that relays
+ * the person's request, as some engines write first), without the frame the
  * engine puts around a task a script computed. Null when the transcript holds
  * no such message (yet).
  */
@@ -231,13 +250,8 @@ export function taskOf(transcript: string): string | null {
     if (row.type !== 'user' || row.message?.role !== 'user') continue
     const content = row.message.content
     const text = typeof content === 'string' ? content : Array.isArray(content) ? content.map((block: { text?: unknown }) => (typeof block?.text === 'string' ? block.text : '')).join('') : ''
-    const at = text.indexOf(TASK_FOLLOWS)
-    if (at < 0) return text.trim() === '' ? null : text
-    return text
-      .slice(at + TASK_FOLLOWS.length)
-      .split('\n')
-      .map((taskLine) => (taskLine.startsWith('  ') ? taskLine.slice(2) : taskLine))
-      .join('\n')
+    if (isRelayedRequest(text)) continue
+    return computedTask(text) ?? (text.trim() === '' ? null : text)
   }
   return null
 }

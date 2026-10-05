@@ -168,9 +168,9 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
             setStatus('labels', some ? `by label: ${undecided} call${undecided === 1 ? '' : 's'} not decided (${why})` : `by label: not routed (${why})`, show)
           }
         }
-        // Every call the script's, none with the person's terms to keep: nothing for this feature to do.
-        if (sites.every((site) => site.route.kind === 'script' && site.terms === null)) return result
       }
+      // Every launched run is recorded, even one whose calls all run as the script says: the escalation feature (#7)
+      // finds a workflow agent's transcript, which the engine keeps from the mod, in its run's directory.
       const run: LabelRun = { runId: launched.runId, dir: launched.dir, workflow: parsed?.meta.name ?? launched.workflow, description: parsed?.meta.description ?? null, sites }
       const runs: Cell<LabelRun[]> = { get: () => $.state.get(RUNS), set: (value, options) => $.state.set(RUNS, value, options) }
       await update(runs, (list) => [...(list ?? []).filter((kept) => kept.runId !== run.runId), run].slice(-MAX_RUNS))

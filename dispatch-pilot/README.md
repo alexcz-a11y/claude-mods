@@ -74,16 +74,16 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 
 ### 卡住时强制升档
 
-- **记什么。** 主 agent 和它派出的每个 agent，工具调用出错一次记一次。**你自己拒绝的调用从不算**。被你自己的 settings hook 拦下的调用，只有打开 `/dp hook-block-failures on` 才算失败（默认关闭，免得你的 PreToolUse hook 正常拦截时误触发升档）。不管开关，状态行都显示失败次数和被 hook 拦下的次数。
-- **什么时候问。** 一个循环（主 agent 的这一轮，或一个派出 agent）里计入的失败满 `escalateAfter` 次（默认 2），它的下一步发出之前，Dispatch Pilot 再问一次决策模型。同一个请求里问两件事：剩下的工作还需要多少逐步推理（和中途重判是同一个问题，带上「卡住」的说明，见上文），以及这些失败是不是**预期内的**：TDD 里先写下、要看它红的测试，没找到东西而以非零退出的搜索，探测某样东西是否存在的命令。「预期内」由决策模型结合你的消息和最近几步判断，不靠关键词匹配；回答的概率达到 `thetaExpected`（默认 0.25）就算预期内。发出的内容和别的决策请求一样：只有文字和工具名，加上每个调用做了什么（`description`、文件路径的最后两段、命令的第一行），不含工具输出，脱敏，受 `contextTokens` 限制。最近几步取自对话的记录（主 agent 的，或这个 agent 自己的），所以一个 agent 的任务和它做过的事决策模型都看得到。
-- **预期内。** 不强制升档，失败计数清零，这次回答里的 effort 按普通的中途重判规则处理（`thetaUp`、`thetaDown`、`holdSteps`）。
+- **记什么。** 主 agent 和它派出的每个 agent（包括 Workflow 里的），工具调用出错一次记一次。**你自己拒绝的调用从不算**。被你自己的 settings hook 拦下的调用，只有打开 `/dp hook-block-failures on` 才算失败（默认关闭，免得你的 PreToolUse hook 正常拦截时误触发升档）。不管开关，状态行都显示失败次数和被 hook 拦下的次数。这是唯一的一份失败计数：中途重判发给决策模型的 `counts` 也用它，两边都是「自上次清零以来」的数（强制升档、判为预期内、没有可升的而清零）。`/dp escalation off` 只停升档，计数照常（中途重判还要用）；再打开时，关着期间记下的失败清零，从打开起重新算。
+- **什么时候问。** 一个循环（主 agent 的这一轮，或一个派出 agent）里计入的失败满 `escalateAfter` 次（默认 2），**在那个失败的调用一结束时**就问决策模型（故事 18），它的下一步只取回答：回答还没到时最多再等 `rejudgeWaitMs`（默认 300 毫秒），仍然没有就照原样发出这一步、状态行注明 `(late)`，回答到了以后在再下一步生效，和中途重判一样。同一个请求里问两件事：剩下的工作还需要多少逐步推理（和中途重判是同一个问题，带上「卡住」的说明，见上文），以及这些失败是不是**预期内的**：TDD 里先写下、要看它红的测试，没找到东西而以非零退出的搜索，探测某样东西是否存在的命令。「预期内」由决策模型结合你的消息和最近几步判断，不靠关键词匹配；回答的概率达到 `thetaExpected`（默认 0.25）就算预期内。发出的内容和别的决策请求一样：只有文字和工具名，加上每个调用做了什么（`description`、文件路径的最后两段、命令的第一行），不含工具输出，脱敏，受 `contextTokens` 限制。最近几步取自对话的记录（主 agent 的，或这个 agent 自己的；Workflow 里的 agent 的记录引擎不给 mod 读，就读它在运行目录里的 `agent-<agentId>.jsonl`），所以一个 agent 的任务和它做过的事决策模型都看得到。
+- **预期内。** 不强制升档，失败计数清零，这次回答里的 effort 按普通的中途重判规则处理（`thetaUp`、`thetaDown`、`holdSteps`）：主 agent 改这一轮的 effort，派出 agent 改它自己的 effort。
 - **否则**（包括决策模型超时、出错、没回答这个问题：不知道是不是预期内，就当不是）：强制升档，升档后失败计数清零。
   - **主 agent**：这一轮从这一步起至少升一档（`escalateMode` 是 `one-level` 时最高到 xhigh，是 `max` 时直接升到 max），之后 `holdSteps` 步之内不会被中途重判降到这一档以下，过了这几步照常防抖。决策模型自己给的判断更高、而且有足够把握（`thetaUp`）时，采用它的（强制的下限最高到 xhigh，决策模型自己的判断要到 max 仍须过 `thetaMax`）。一轮最多升 `escalateLimit` 次（默认 2），之后失败照常记、状态行照常显示，但不再升。
   - **派出 agent**：按它在计划表里的有效模型处理（兜底功能换过的模型算数）。它的 effort 升上去之后一直保持到它结束（派出 agent 没有中途重判），其余同上。**haiku 没有 effort 可升**，所以改用 `escalateHaikuTo`（默认 `sonnet`）接着做：写别名或完整的模型 id 都可以，mod 会换成步骤需要的完整 id（实测引擎对每一步的模型不认别名，`sonnet` 会让这个 agent 以 `model_not_found` 提前结束）；写的不是任何已知模型时不换，并记一条决策。换模型之后引擎仍然按 haiku 算、不给这个 agent 的步骤带 effort，所以 sonnet 先用自己的默认档；再卡住时从 medium（引擎给 agent 步骤的默认档，实测）往上升，核心把升到的档位补进每一步。换模型只影响这个 agent 自己的缓存。haiku agent 只问「是不是预期内」，不问 effort。
   - **你的约束优先**：你为这个 agent 点名了 haiku，就不换模型；你排除了 `escalateHaikuTo` 的模型，就换成没被排除的上一档（只在 agent 可用的模型里选），都被排除就不换；你点名了 effort，就不升。这几种情况都不问决策模型，失败计数清零，记一条决策说明原因。
   - 已经到顶（`one-level` 的 xhigh，`max` 的 max）：没有可升的，不问决策模型，失败计数清零，记一条决策。
-- **不动的情况。** 你用 `/dp lock` 锁定了 effort（锁定优先）；没有配置决策模型；主 agent 这一步的模型不接受 effort 档位。主 agent 这一轮开始时没有经过路由（决策失败）也照样升：升的是会话自己的 effort。Workflow 里的 agent 的记录读不到（引擎不给 mod 读它），所以它只升、不问是不是预期内。
-- **状态行。** 主 agent 这一轮的计数在 `midturn` 那一段后面，例如 `dp effort high | steps 5, judged 3, changed 1 | failed 2, blocked 1, raised 1`（`blocked` 是被 hook 拦下的次数，`raised` 是强制升档的次数）；最近一个有失败的派出 agent 的计数跟在 `agent` 那一段后面，例如 `agent sonnet medium | agent failed 2, raised 1`。新的一轮从零开始。
+- **不动的情况。** 你用 `/dp lock` 锁定了 effort（锁定优先）；没有配置决策模型；主 agent 这一步的模型不接受 effort 档位。主 agent 这一轮开始时没有经过路由（决策失败）也照样升：升的是会话自己的 effort。Workflow 里的 agent 的记录要从它的运行目录读，运行目录由兜底功能（`workflow-labels`）在运行开始时记下；这项功能关着时读不到，这样的 agent 只升、不问是不是预期内。
+- **状态行。** 主 agent 这一轮的计数在 `midturn` 那一段后面，例如 `dp effort high | steps 5, judged 3, changed 1 | failed 2, blocked 1, raised 1`（`blocked` 是被 hook 拦下的次数，`raised` 是强制升档的次数，回答迟到时后面加 `(late)`）；最近一个有失败的派出 agent 的计数跟在 `agent` 那一段后面，例如 `agent sonnet medium | agent failed 2, raised 1`。新的一轮从零开始。
 - **记录。** 每次强制升档、「预期内失败、没有升档」和「已经到顶」都记进 `/dp log` 和 debug log，例如 `#4 escalation: effort high (was medium) for step 2 (2 failed tool calls): forced one level up; not expected (p 0.05, thetaExpected 0.25); p low 0.00, medium 1.00, ...`。`/dp escalation off` 单独关掉这项功能；`/dp hook-block-failures on` 让被 hook 拦下的调用也算失败。
 
 ### 失败时放行
@@ -269,10 +269,11 @@ hooks/
 │   ├── workflow-agents.ts  提交 Workflow 时判断脚本里每个 agent() 的模型和 effort，写进脚本或退回（#8）
 │   └── workflow-labels.ts  脚本写不进去的 Workflow：运行开始时判断各调用，agent 启动时按 label 写计划表；Workflow 工具描述里的常驻提示（#9）
 ├── core/                   各功能共用的机制，不含具体功能
-│   ├── core.ts             核心的 hook：发消息时的决策请求、一轮的开始、每一步的写入
+│   ├── core.ts             核心的 hook：发消息时的决策请求、一轮的开始、每一步的写入、认出 settings hook 拦下的调用
 │   ├── ballot.ts           一条消息的「投票箱」：各功能放进问题，由核心一次发出
 │   ├── decisions.ts        决策日志：recordDecision，各功能记录自己的每个决定（debug log 和 /dp log）
 │   ├── plans.ts            计划表的类型和纯函数（planStep 决定每一步发出什么）
+│   ├── outcomes.ts         工具调用的结局：哪些被 settings hook 拦下（核心的 classic.PreToolUse 记）、每个调用怎么结束的（#7 记），#5 和 #7 共用
 │   ├── profiles.ts         skill 画像（#11）：给模型的提示、读回答、store 的键和淘汰、readSessionSkills（目录加画像）
 │   ├── prompts.ts          isPersonsMessage：判断哪些 prompt 是用户本人的新消息
 │   ├── skills.ts           skill 目录：loadCatalog（经闭包读命令、引擎的 skill 清单、settings、磁盘，找到每个 skill 的文件）；读和裁剪 skill 列表（#10）；rankingSettings、describeStages（#11）
@@ -284,7 +285,7 @@ hooks/
     ├── effort.ts           effort 问题（英文或中文 × Score 或 Choice）、读回答、选档位
     ├── midturn.ts          中途重判：state（与评测集 effort-midturn 同形）、问题、防抖规则、工具调用的一句话结果
     ├── dispatched-agent.ts 派出 agent 的问题（模型 Choice + effort Score + 点名模型、排除模型、点名 effort）、按优先级读回答
-    ├── escalation.ts       强制升档：「失败是不是预期内」的问题、升到哪一档的规则、从对话记录取最近几步（#7）
+    ├── escalation.ts       强制升档：卡住时的请求（stuckRequest，线上和评测共用）、「失败是不是预期内」的问题、升到哪一档的规则、从对话记录或 agent 的记录文件取任务和最近几步（#7）
     ├── workflow.ts         Workflow 脚本里各个 agent() 的请求（分批）、读回答、写进什么、告诉主 agent 什么（#8）
     ├── workflow-script.ts  读 Workflow 脚本（找 agent() 调用和它的选项）、把模型和 effort 写进去（#8）
     ├── workflow-labels.ts  Workflow 兜底：journal 里的 label 对应哪个 agent() 调用、从 transcript 取任务、给主 agent 的说明（#9）
@@ -332,10 +333,10 @@ types/index.d.ts            $.state 的契约（PluginState）
   | `session.start` | `{ cwd: /(?:)/ }` | 已实测（`features/control.ts` 用它），每个功能的 session.start 都这样写 |
   | `session.measure` | `{ context: { window: /(?:)/ } }` | 已实测，`window` 每次都有 |
   | `command.run` | `{ command: 'dp' }` | 已实测，只处理自己的命令 |
-  | `classic.PreToolUse` | `{ tool: /(?:)/ }` | 已实测（kit 和真实引擎），`features/midturn-effort.ts` 用它认出 settings hook 拦下的调用 |
+  | `classic.PreToolUse` | `{ tool: /(?:)/ }` | 已实测（kit 和真实引擎）；认出 settings hook 拦下的调用由核心做（不带 matcher，`core/outcomes.ts`），功能不必再包这一层 |
 
   其他事件请选一个每次都存在的字段。字段不存在时 matcher 不会命中，hook 会被静默跳过，所以新写的 matcher 要有测试覆盖。
-- **`$` 只能在 hook 所在的文件里使用**，不能传给从别的文件导入的函数，否则加载时会被拒绝。同一个文件里的函数可以接收 `$` 当参数（`forMain($, loop)`），但不能把 `$` 放进对象字面量（例如 `{ $, s, e }`）：加载时报 `$ itself is put in an object`（#7 撞到的），要写成单独的参数。共用的逻辑写成纯函数；需要 `$` 的能力时，让函数接收闭包，例如 `BackendIo`（`{ fetch: (u, i) => $.http.fetch(u, i), sleep: (ms, s) => $.clock.sleep(ms, { signal: s }) }`）或 `$.state` 的 `Cell`（`{ get: () => $.state.get(REF), set: (v, o) => $.state.set(REF, v, o) }`）。`ctx` 里只有数据和纯函数。
+- **`$` 只能在 hook 所在的文件里使用**，不能传给从别的文件导入的函数，否则加载时会被拒绝。同一个文件里的函数可以接收 `$` 当参数（`launch($, s, ...)`），但不能把 `$` 放进对象字面量（例如 `{ $, s, e }`）：加载时报 `$ itself is put in an object`（#7 撞到的），要写成单独的参数。共用的逻辑写成纯函数；需要 `$` 的能力时，让函数接收闭包，例如 `BackendIo`（`{ fetch: (u, i) => $.http.fetch(u, i), sleep: (ms, s) => $.clock.sleep(ms, { signal: s }) }`）或 `$.state` 的 `Cell`（`{ get: () => $.state.get(REF), set: (v, o) => $.state.set(REF, v, o) }`）。`ctx` 里只有数据和纯函数。
 - **`$.state` 的 ref 在每个文件里各自写成字面量常量**，例如 `const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const`，family 写成 `{ ...TURNS, id }`。validate 要求 `plugin` 和 `key` 是字面量。
 - **每个字段只由一个 hook 写出。** 主 agent 的 effort 和非主 agent 的 model 只由核心的 `turn.step` 写出。功能通过计划表影响它们，不要在自己的 `turn.step` 里改 `e.effort` 或 `e.model`：内层的改写会覆盖外层，而核心在最内层。
 - **主 agent 永远不写 model**（ADR 0001）。`planStep` 从结构上保证这一点：主 agent 的步最多只改 effort。
@@ -350,14 +351,13 @@ types/index.d.ts            $.state 的契约（PluginState）
 | `turns` | `turnKey(turnId, agentId)`，即 `main:<turnId>` 或 `<agentId>:<turnId>` | 一轮的计划 `{ effort, floor, model }`，另有 `prompt`（主 agent 这一轮的消息，已脱敏和截断）、`decisions`、`changes`、`person`（这一轮是不是你本人的消息开始的，那次判断成功与否都算）、`floorUntil`（`floor` 从第几步起不再生效；`null` 表示整轮）、`raisedAt`（最近一次升档在第几步：中途重判的升档和强制升档） | #2 发消息时写（核心的 `turn.start` 建记录）；#5 中途重判用 `redecided` 写；#7 强制升档用 `forced` 写：`effort` 设到升到的档位，`floor` 是强制的那一档、到 `floorUntil`（升档那步加 `holdSteps`）为止，`raisedAt` 是这一步 |
 | `agents` | `agentId` | 一个派出 agent 或 Workflow agent 所有轮的计划 `{ effort, floor, model, terms }`；`terms` 是你对这项工作的约束 `{ model, effort, banned }`（点名的模型、点名的 effort、排除的模型，决策模型读你的话得出；没有就是 `null`），后面改它模型或 effort 的功能都照办 | #6 在 `agent.spawn` 时写 effort 和 `terms`（haiku 不写 effort；model 已经改在派发上，表里留 `null`，免得每一步都把引擎过载时换用的模型改回去）；#9 在 Workflow agent 的第 0 步写（model 只在要换家族时写，写完整 ID；#8 已经写进脚本的调用只写 `terms`）；#7 强制升档时写 `effort`，把 haiku 换成别的模型时写 `model`（完整的模型 id，每一步都发出） |
 | `workflowTerms` | Workflow 调用的 `tool_use_id` | #8 判断出的、你对直接交来的脚本里每个调用的约束（按调用序号，没有就是 `null`）；同一次调用里 #9 在内层读它，把约束交给这些 agent 的计划 | #8 在调用工具之前写 |
-| `escalation` | `main`（主 agent，记录里的 `turnId` 是它所属的那一轮）或 `agentId` | #7 自己的记录：失败次数、被 hook 拦下的次数、清零的基数 `base`、强制升档的次数、最近一次再判断是为第几步做的 | #7 |
+| `escalation` | `main`（主 agent，记录里的 `turnId` 是它所属的那一轮）或 `agentId` | 每个循环唯一的失败计数：失败次数、被 hook 拦下的次数、清零的基数 `base`（计入的是减去它之后的数）、强制升档的次数、这个循环最近一步的序号和引擎给的 effort、model（调用结束时就发的再判断要读）、最近一次再判断是为第几步问的、派出 agent 最近一次升档在第几步 | #7 写；#5 读主 agent 的，作为请求里的 `counts` |
 | `lock` | 无 | 用户锁定的主 agent effort，`null` 表示没有锁定 | #13：`/dp lock`、`/dp unlock`（`features/control.ts`） |
 | `decisionLog` | 无 | 各功能记录的决策，最近 50 条，`/dp log` 显示（见下「记录一次决策」） | 各功能，用 `recordDecision` |
 | `pending` | 无 | 发消息时做出的判断，等它的那一轮开始时由核心认领 | #2 |
 | `said` | 无 | 用户本人这一轮说的话（已脱敏和截断）：空闲时发的那条消息开始新的一组，这一轮进行中发的消息追加进去，其他来源的 prompt 不动它；派出 agent 和 Workflow 里 agent 的判断把它当作 `user_message` | #6 写，#8 读 |
-| `midturn` | `main:<turnId>` | 中途重判自己的记录：步数、最近 16 步的文字和工具调用（各带结局）、`failures`（失败的工具调用，不含 hook 拦截和拒绝）、`hookBlocks`、最近一次重判是为第几步问的 | #5 |
+| `midturn` | `main:<turnId>` | 中途重判自己的记录：步数、最近 16 步的文字和工具调用（各带结局）、最近一次重判是为第几步问的 | #5 |
 | `mainStep` | 无 | 主 agent 正在进行的一步 `{ turnId, index }`（`tool.call` 上没有 turnId，靠它对上） | #5 |
-| `demand` | `main:<turnId>` | 别的功能要求的一次重判 `{ trouble, atLeast, at }`，见下「中途重判」。#7 最后没有用它（见下「强制升档」），入口保留 | 谁要用谁写，#5 读 |
 
 `planStep` 按以下规则决定每一步发出什么：
 
@@ -371,7 +371,7 @@ types/index.d.ts            $.state 的契约（PluginState）
 - 读改写用 `update(cell, change)`，它按版本号做比较后写入，冲突时重试；`change` 必须是纯函数。改主 agent 某一轮的 effort 用 `revise(record, effort)`，它会同时更新 `decisions` 和 `changes`。
 - 新的计数（例如 #7 的失败次数）放在自己的 key 下，id 同样用 `turnKey`，并在契约里加上相应的一段。
 - 表项不会被删除。每条记录很小，一个会话里的增长可以忽略。
-- `workflows`（每个 Workflow 运行一条）和 `returned`（退回过的 Workflow）是 #8 自己的记录，核心不读，也不是计划表的一部分；见下面「Workflow 脚本的读取和改写」。`labelRuns`（#9 在 agent 启动时要处理的运行，最近 8 个）同样是 #9 自己的记录，见下面「Workflow 兜底（#9）」。
+- `returned`（退回过的 Workflow）是 #8 自己的记录，核心不读，也不是计划表的一部分；见下面「Workflow 脚本的读取和改写」。`labelRuns`（本会话启动过的 Workflow 运行，最近 8 个）是 #9 的记录，#7 也读它来找 Workflow agent 的记录文件，见下面「Workflow 兜底（#9）」。
 
 ### 在 turn.step 上注册一层
 
@@ -437,18 +437,18 @@ effort 问题的档位描述是共用的：用 `effortQuestion(instructions, ctx
 
 `decision/workflow.ts` 把调用变成决策请求（`workflowBatches`：同一请求里的 part 是 `agent-<n>`，state 字段是 `brief_<n>`，`n` 是调用在脚本里的序号，所以分成几批后 ID 仍不重复）、读回答（`readOutcomes`：每个调用的结果是 `written`、`kept` 或 `left`）、写给主 agent 和状态行的文字。两个模块都是纯的，#9 可以直接复用：用 `scriptPath` 或 `name` 提交的脚本，只要它用 `$.fs.read` 读到了文本，就可以同样 `parseWorkflow`、`workflowBatches`、`readOutcomes`；要改写的话，得去掉 `scriptPath`（它优先于 `script`）再传 `script`。
 
-**给 #9：`$.state` 的 `workflows`。** 每个启动了的 Workflow 运行一条，id 是工具结果里的 `runId`：`{ rewritten, reason, agents, left }`。`rewritten` 表示脚本里写进了模型和 effort（持久化的脚本文件里也有）；`agents` 是判断过的调用（label 为 `null` 表示没有 label，或 label 是运行时才算出来的），带它们跑的模型和 effort；`left` 是保持脚本原样的调用数；`reason` 在没改写时说明为什么：`scriptPath`、`name`、`resume`（这三种输入不改写）、`unreadable`（读不了的脚本，或所有调用的 prompt 都读不了）、`failed`（决策模型没答）、`second`（退回模式的第二次提交）、`no agents`、`rewrite failed`（改写后的脚本被工具拒绝，改用了原脚本）。写入发生在工具返回之后、状态行和决策日志之前，但运行的第一个 agent 在工具返回后约 16 毫秒（2.1.289 实测）就走到第 0 步，读的一方可能还读不到：读不到时按「没改写」处理，或稍等再读。
+**给 #9：`$.state` 的 `workflowTerms`。** 直接交来的脚本，#8 在调用工具之前把它读出的、你对每个调用的约束（`termsOf(decision)`，按调用序号，没有就是 `null`；一个都没有就不写）写在这次 Workflow 调用的 `tool_use_id` 下；#9 在内层、同一次调用里读它，放进各调用的 `RunSite.terms`，这些调用的 agent 启动时把约束写进计划。（以前 #8 还按 `runId` 记过一份每次运行的摘要 `workflows`，没有任何功能读它，已删掉。）
 
 读不了的调用要留意：prompt 放在数据里的 fan-out（`QUESTIONS.map((q) => () => agent(q.prompt, { label: q.label }))`，或 `` agent(`${CONTEXT}\n\n${l.prompt}`) ``）这里读不到任务内容，也不能在一个调用点上给每一行定不同的模型，所以整个调用点保持原样（`left` 计入，主 agent 被告知）。这一类要靠 #9 在运行时按每个 agent 的 label 和它实际收到的 prompt 来判断。用本机 `~/.claude/projects` 里已有的 16 个主 agent 写的真实脚本（共 50 个调用点，不含本票的探针）试过：44 个调用点的 prompt 说明了要做什么（多数是 `` `${COMMON} YOUR TOPIC: ...` `` 这样的模板），6 个读不了（1 个整个是运行时拼的，5 个是 `` `${CONTEXT}\n\n${l.prompt}` `` 这样的共用上下文加表里的一行）；改写后的脚本用 Node 的解析器检查过，都能解析。
 
 ### Workflow 兜底（#9）
 
-#9 不改写用 `scriptPath` 或 `name` 提交的脚本（上节说的「去掉 `scriptPath` 再传 `script`」）：那样运行的是另一份脚本，主 agent 手里的文件和实际运行的对不上，恢复运行时每个 `agent()` 的缓存 key（prompt 和选项的哈希）也会失配；在 agent 的请求上设置则不动脚本。它也不读 #8 的 `workflows` 记录：那里只有调用的个数，没有是哪几个，直接交来的脚本由 #9 自己再读一遍（纯函数，几毫秒）。
+#9 不改写用 `scriptPath` 或 `name` 提交的脚本（上节说的「去掉 `scriptPath` 再传 `script`」）：那样运行的是另一份脚本，主 agent 手里的文件和实际运行的对不上，恢复运行时每个 `agent()` 的缓存 key（prompt 和选项的哈希）也会失配；在 agent 的请求上设置则不动脚本。直接交来的脚本由 #9 自己再读一遍（纯函数，几毫秒），#8 只经 `workflowTerms` 交来你对各调用的约束。
 
 `features/workflow-labels.ts` 注册三层，都带 matcher：
 
 - `tool.describe`（`{ tool: 'Workflow' }`）：在引擎的描述后面附 `LABEL_HINT`。引擎每个会话只问一次并一直沿用（`$.ui.invalidate('tool.describe')` 之前），所以文字是常量，不拼会话内容；开关变化也不重新问。
-- `tool.call`（`{ tool: 'Workflow' }`）：在入口里注册在 `workflow-agents` 之后，即在它内层：那个功能问完决策模型、把脚本交下来之后才轮到这里，所以它还在问的时候，别的运行里启动的 agent 不用等这里（见下文的 `launching`）。工具返回后读运行用的脚本：直接交来的读 `e.script`（那个功能交下来的那份：它写进去的调用多了选项，留下的调用照旧），其他读工具结果的 `scriptPath`。这里附的说明排在 `workflow-agents` 的说明之前（外层的功能在内层返回之后才追加自己的）。`scriptPath`、`name`、恢复的运行，各调用用 #8 的 `workflowBatches`、`readOutcomes` 判断；直接交来的不再问，`workflowBatches(...).skipped` 就是 #8 没问的调用（读不了的 prompt、超出上限的）。结果写进 `$.state` 的 `labelRuns`：`{ runId, dir, workflow, description, sites }`，`dir` 是工具结果的 `transcriptDir`，`sites` 是各调用的 `RunSite`（`match` 怎么认 label，`route` 是 `set`（运行开始时定的模型家族和 effort）、`runtime`（agent 启动时判断）或 `script`（照脚本）；脚本读不了时 `sites` 为 `null`）。没有要处理的调用就不记。
+- `tool.call`（`{ tool: 'Workflow' }`）：在入口里注册在 `workflow-agents` 之后，即在它内层：那个功能问完决策模型、把脚本交下来之后才轮到这里，所以它还在问的时候，别的运行里启动的 agent 不用等这里（见下文的 `launching`）。工具返回后读运行用的脚本：直接交来的读 `e.script`（那个功能交下来的那份：它写进去的调用多了选项，留下的调用照旧），其他读工具结果的 `scriptPath`。这里附的说明排在 `workflow-agents` 的说明之前（外层的功能在内层返回之后才追加自己的）。`scriptPath`、`name`、恢复的运行，各调用用 #8 的 `workflowBatches`、`readOutcomes` 判断；直接交来的不再问，`workflowBatches(...).skipped` 就是 #8 没问的调用（读不了的 prompt、超出上限的）。结果写进 `$.state` 的 `labelRuns`：`{ runId, dir, workflow, description, sites }`，`dir` 是工具结果的 `transcriptDir`，`sites` 是各调用的 `RunSite`（`match` 怎么认 label，`route` 是 `set`（运行开始时定的模型家族和 effort）、`runtime`（agent 启动时判断）或 `script`（照脚本），`terms` 是你对这个调用的约束；脚本读不了时 `sites` 为 `null`）。每个启动了的运行都记（没有 `agent()` 的除外），调用全都照脚本的也记：#7 要从这里找到 Workflow agent 的运行目录，读它的记录文件。
 - `turn.step`（`{ agentId: /(?:)/ }`，在核心外层）：只在 `e.index === 0` 时动手。`agents[agentId]` 已经有计划（#6 派出的 agent，或者引擎重发的第 0 步）就不管。否则从新到旧读各运行的 `journal.jsonl`，按 `agentId` 找 `started` 行拿到 label，`sitesFor(label, sites)` 找调用：字符串 label 精确匹配，模板和「prompt 开头」其次，运行时才算的 label 作通配，只在前两者都对不上时用。所有候选的 route 相同就用它；`script`（#8 已经写进脚本）只在候选带着同样的约束（`RunSite.terms`，#8 经 `workflowTerms` 交来）时写一份只有 `terms` 的计划，`set` 直接写计划（连同 `terms`），`runtime`、对不上或候选不一致时，`decideAtStart` 读 `agent-<agentId>.jsonl`（每 25 毫秒看一次，最多 400 毫秒）、用 `taskOf` 去掉引擎的外框，拼成一个只有一个调用的 `ParsedWorkflow`，同样经 `workflowBatches`、`readOutcomes` 问决策模型。写计划用 `agentPlan`：只在要换家族时写 model（`modelFamily(e.model)` 比较家族，因为引擎重试后会出现 `claude-sonnet-5` 这样的 ID），写完整 ID。
 
 几处要留意的引擎行为：
@@ -462,26 +462,14 @@ effort 问题的档位描述是共用的：用 `effortQuestion(instructions, ctx
 
 ### 中途重判（#5）
 
-`features/midturn-effort.ts` 注册三层，都带 matcher：
+`features/midturn-effort.ts` 注册两层，都带 matcher：
 
-- `tool.call`：只看主 agent 自己的调用（`e.agentId` 为空，并且 `next.origin.plugin === 'engine'`，排除插件的 `$.tool.call`）。调用开始时，如果这是重判的时机，就拼好请求、发出去但不等待，把 Promise 放进模块级的 Map（`$.state` 只收 JSON）；调用结束后，把结局记进 `midturn`。
-- `classic.PreToolUse`：settings hook 拒绝的调用在 `tool.call` 里只是一个错误（理由是错误文字），所以在这里按 `tool_use_id` 记下来。
-- `turn.step`（在核心之外）：取这一步的回答，必要时等 `rejudgeWaitMs`，按防抖规则写 `turns[main:<turnId>]`（有变化时用 `revise`），再交给核心；同时边转发边收集这一步的文字。
+- `tool.call`：只看主 agent 自己的调用（`e.agentId` 为空，并且 `next.origin.plugin === 'engine'`，排除插件的 `$.tool.call`）。调用开始时，如果这是重判的时机，就拼好请求、发出去但不等待，把 Promise 放进模块级的 Map（`$.state` 只收 JSON）；调用结束后，把结局记进 `midturn`（被 settings hook 拦下的，由核心的 `classic.PreToolUse` 记在 `core/outcomes.ts`，这里用 `wasBlocked` 认出来）。
+- `turn.step`（在核心之外）：取这一步的回答，必要时等 `rejudgeWaitMs`，按防抖规则写 `turns[main:<turnId>]`（用 `redecided`：有变化时改 effort，升档时记 `raisedAt`），再交给核心；同时边转发边收集这一步的文字。
 
-同一步只问一次：并行的几个调用里只有第一个发请求，`midturn.askedFor` 记下已经问过的步。热重载后计数和摘要都在 `$.state` 里；在途的回答在模块里，会丢，那一步就沿用原来的 effort。
+同一步只问一次：并行的几个调用里只有第一个发请求，`midturn.askedFor` 记下已经问过的步。热重载后摘要在 `$.state` 里；在途的回答在模块里，会丢，那一步就沿用原来的 effort。
 
-**给 #7（失败计数和强制升档）的入口。** 要求一次带「卡住」标记的重判，就写 `demand[main:<turnId>]`：
-
-```ts
-const DEMAND = { plugin: 'dispatch-pilot', key: 'demand' } as const
-await $.state.set({ ...DEMAND, id: turnKey(turnId, undefined) }, {
-  trouble: '2 tool calls in a row have failed while working on this request', // 一句英文，原样放进决策模型的 state
-  atLeast: 'high',  // 这一轮至少升到的档位（通常是当前档位的上一档）；null 表示不限
-  at: 3,            // 这是第几次要求：值变了才算新的要求，每个值只问一次
-})
-```
-
-`midturn-effort` 在下一次机会发出这个请求：主 agent 的下一个工具调用开始时、当前调用结束时（`demand` 在调用期间写入时），或者下一步开始时。请求的 state 里带上 `trouble`，问题里加一句「`trouble` 说明出了什么问题，评解决它需要多少推理」。结果不低于 `atLeast`，不受 `thetaDown` 和 `holdSteps` 的限制；回答失败或迟到时也照样升到 `atLeast`。失败和 hook 拦截的次数已经在 `midturn` 里（`failures`、`hookBlocks`，从这一轮开始累计，用户拒绝不计入），#7 在此基础上实现阈值、「hook 拦截算不算失败」的开关和升档后清零（自己记一个基数即可）。结局的分类是 `decision/midturn.ts` 的 `outcomeOf`：用户拒绝按 Claude Code 自己的文字认（`The user doesn't want to proceed with this tool use`、`Permission to use ...`、`Permission for this ...`），MCP 工具的错误文字是它自己写的，一律算失败。
+**失败计数不在这里。** 请求里的 `counts.failures`、`counts.hook_blocks` 读 #7 的 `escalation[main]`（这一轮的那一份），都是「自上次清零以来」的数：只有一份计数，#7 维护，开关 `escalation` 关着也照常计数。结局的分类是 `decision/midturn.ts` 的 `outcomeOf`：用户拒绝按 Claude Code 自己的文字认（`The user doesn't want to proceed with this tool use`、`Permission to use ...`、`Permission for this ...`），MCP 工具的错误文字是它自己写的，一律算失败。卡住时的那次再判断由 #7 自己发（见下节），这里不再有别的功能「要求一次重判」的入口（以前的 `demand` 没有人写，已删掉）。
 
 **给 #14（中途重判的评测）。** 评测集 `effort-midturn` 每题的 `zh` 或 `en` 对象就是 `MidturnInput`，可以直接传进去：
 
@@ -492,29 +480,30 @@ const request = mergeParts(midturnState(row.zh, { steps: 4, tokens: 2000 }), [mi
 ```
 
 - `judgeMidturn(reading, { current, sinceRaise, atLeast }, { thetaUp, thetaDown, thetaMax, holdSteps })` 就是 mod 用的防抖规则，返回 `{ effort, why, picked, confidence }`：`picked` 是不加防抖时选的档位，`effort` 是 mod 发出的档位，两者都可以拿去和 `gold`、`accept` 比较。
-- 评测变量：`midturnState` 的第三个参数 `{ currentEffort: false }`、`{ counts: false }` 可以去掉当前档位和计数（指南 §4.1 担心当前档位会产生锚定）；`midturnEffortPart({ language: 'zh' })` 是中文问题；`{ trouble: true }` 加上「卡住」的说明，006、017、051、053、056、057 这几题可以对比带与不带。
-- 线上请求和评测集有两处不同：线上请求在工具开始执行时发出，所以最新一步里正在运行的工具写「进行中：」（评测集里没有这种结果）；线上的一句话结果只有结局加上调用在做什么（例如 `失败：server/proxy.ts`），评测集的结果是人写的摘要、信息更多（例如 `失败：old_string 未找到`）。要量出这个差距，可以把评测集的结果截成「前缀 + 文件名」再跑一遍。
+- 评测变量：`midturnState` 的第三个参数 `{ currentEffort: false }`、`{ counts: false }` 可以去掉当前档位和计数（指南 §4.1 担心当前档位会产生锚定）；`midturnEffortPart({ language: 'zh' })` 是中文问题。卡住时的请求用 `decision/escalation.ts` 的 `stuckRequest`（见下节）。
+- 线上请求在工具开始执行时发出，所以最新一步里正在运行的工具写「进行中：」（评测集里没有这种结果）。
 - #14 照这些做成了 `eval/lib/effort-midturn.ts`，见下文「评测」。
 
 ### 强制升档（#7）
 
-`features/escalation.ts` 在入口里注册在 `registerMidturnEffort` **之前**（更外层），带三个 hook：
+`features/escalation.ts` 在入口里注册在 `registerMidturnEffort` **之前**（更外层），带两个 hook：
 
-- `classic.PreToolUse`：和中途重判一样包一层，按 `tool_use_id` 记下被 settings hook 拦下的调用（模块里的 Set，最近 256 个；热重载后丢失，之后拿它做摘要时这些调用会读成「失败」而不是「被 hook 拦截」，计数不受影响，因为计数在调用刚结束时就做完了）。这个事件在子 agent 的调用上也触发，id 和 `tool.call` 的一致（真实引擎实测），但事件本身不带 `agentId`。
-- `tool.call`：每个循环（主 agent、派出 agent、Workflow agent）结束的调用，用 `outcomeOf` 分类，失败和被拦下的各记一笔到 `escalation` 的记录里：主 agent 的 id 是 `main`（记录里的 `turnId` 是它属于的那一轮，新的一轮的第 0 步把记录清空），派出 agent 的 id 是 `agentId`。只看引擎的调用（`next.origin.plugin === 'engine'`），不看别的插件的 `$.tool.call`。用户拒绝（`outcomeOf` 的 `denied`）不记。
-- `turn.step`：每一步发出前，`consider` 看这个循环计入的失败（失败 +，开关 `hook-block-failures` 开着时再加被拦下的，各减去 `base`，即上次清零时的数）够不够 `escalateAfter`、`raises` 够不够 `escalateLimit`。够了就：主 agent 走 `forMain`，派出 agent 走 `forAgent`。
+- `tool.call`：每个循环（主 agent、派出 agent、Workflow agent）结束的调用，用 `outcomeOf` 分类（`wasBlocked` 认出 settings hook 拦下的，见 `core/outcomes.ts`），并用 `noteEnded` 记下结局；失败和被拦下的各记一笔到 `escalation` 的记录里：主 agent 的 id 是 `main`（记录里的 `turnId` 是它属于的那一轮，新的一轮的第 0 步把记录清空），派出 agent 的 id 是 `agentId`。只看引擎的调用（`next.origin.plugin === 'engine'`），不看别的插件的 `$.tool.call`；别的插件的 `tool.call` hook 回答的 `{ deny }`（#8 退回 Workflow）不记。用户拒绝（`outcomeOf` 的 `denied`）不记。计数在总开关开着时一直做，不看 `escalation` 自己的开关（中途重判也要用这份计数）。计入的失败（失败，加上开关 `hook-block-failures` 开着时被拦下的，各减去 `base`，即上次清零时的数）够 `escalateAfter`、`raises` 还不到 `escalateLimit` 时，`launch` 当场发出再判断（故事 18），回答为这个循环的下一步留在模块级的 Map 里（`asking`）。
+- `turn.step`：每一步记下这个循环在哪一步、引擎给的 effort 和 model（调用结束时发的请求要读）；`escalation` 关着时记 `paused`，再打开时把关着期间的失败清零。然后取为这一步发的回答（`within` 最多等 `rejudgeWaitMs`；还没到就照原样发出这一步，状态行加 `(late)`，回答留给后面的步），交给 `apply`。没有在途的请求、计入的失败却已够数时（调用结束时没有可升的，或热重载丢了请求），在这里处理：没有可升的就清零、记一条决策；否则当场发出，同样短等。
 
-**为什么在 `turn.step` 里问，而不用中途重判的 `demand`。** `demand` 的 `atLeast` 在 `settle` 里无条件抬上去，也不往回报任何结果；澄清后的规则要求升档取决于同一个请求里的第二个回答（是不是预期内），一轮最多升几次又要数「真的升了」的次数，用 `demand` 就得在 #5 的文件里改三处（发请求时加问题、`settle` 里读、把结果带回来），而且升档就挂在 `/dp midturn-effort` 的开关下（关掉中途重判会让强制升档悄悄失效），回答晚到（`rejudgeWaitMs` 默认 300 ms，Clef 要 0.6–1.4 秒）时还会在不知道是不是预期内的情况下就升。所以这项功能自己拥有这次再判断：直接复用 #5 的纯函数（`midturnState`、`midturnEffortPart(ask, { trouble: true })`、`judgeMidturn`），在步开始时发出并等完整的回答（最多 `timeoutMs`），只在卡住时发生，代价是这个请求不能和工具执行重叠。`demand` 的入口保留给以后的功能。
+**再判断在调用结束时发，而不在下一步开始时同步等**（故事 18）：下一步只取结果，和中途重判一样短等、迟到就留给后面的步。代价是回答迟到时升档晚一步。请求由 `decision/escalation.ts` 的 `stuckRequest` 拼（中途重判的 state 加 `trouble`，`midturn.level` 带卡住说明，再加 `escalation.expected`），评测的 `trouble` 变体用的是同一个函数。最近几步取自记录：调用刚结束时记录里还没有它的结果，`stepsFromRows` 用 `noteEnded` 记下的结局（`endedAs`）补上，所以刚失败的调用不会读成「成功」。
 
-**注册顺序有讲究。** 这一步里中途重判自己的回答（#5 的 `turn.step` 层）也可能到了：如果本功能在它之内，那个回答可能先把这一轮降一档，再轮到这里按降过的档位「升一档」，净效果为零；注册在它之外，升档先写进计划表，它读到的 `current` 已经包含这次升档，`floor` 又保证它降不到这一档以下。`tests/escalation.test.ts` 里有一个测试专门卡这件事（把这一行挪到 `registerMidturnEffort` 之后，它会失败）。
+**注册顺序有讲究。** 这一步里中途重判自己的回答（#5 的 `turn.step` 层）也可能到了：如果本功能在它之内，那个回答可能先把这一轮降一档，再轮到这里按降过的档位「升一档」，净效果为零；注册在它之外，升档先写进计划表，它读到的 `current` 已经包含这次升档，`floor` 和 `raisedAt` 又保证它在 `holdSteps` 步内降不到这一档以下。`tests/escalation.test.ts` 里有一个测试专门卡这件事（把这一行挪到 `registerMidturnEffort` 之后，它会失败）。
 
-**主 agent（`forMain`）。** 锁定了 effort 时什么都不做；这一步没有 effort 档位时什么都不做。`current` 是这一轮的 `effort`（没有经过路由时是引擎的）抬到 `floor`；`forcedTarget(current, mode)` 算出强制升到哪一档，没有（`one-level` 在 xhigh，`max` 在 max）就清零、记一条决策、不问。问的请求是中途重判的 state（`message` 是这一轮的消息，`recent_steps` 取自 `$.session.messages()` 里最近一条用户说的话之后的各步，`stepsFromRows`；`counts` 是这一轮的总数，`trouble` 是 `troubleText` 写的一句英文）加两个问题：`midturn.level`（带 `trouble` 的 effort 问题）和 `escalation.expected`（Noul）。回答：`escalation.expected` 的概率达到 `thetaExpected` 就是预期内，清零，把 `midturn.level` 的回答交给 `judgeMidturn` 做普通重判（只对你本人的消息开始的一轮，和中途重判一样）；否则（包括没回答）用 `forced` 写这一轮：`effort` 设到 `raisedLevel`（强制升的档位，或决策模型自己的判断，更高且有把握时），`floor` 是强制升的档位、只管到 `floorUntil`（这一步加 `holdSteps`），`raisedAt` 是这一步。这一轮没有经过路由时也一样写 `effort`：中途重判看的是 `person`，不是 `decisions`。`floor` 带期限、`raisedAt` 让中途重判在 `holdSteps` 步内不降（故事 21），过后照常防抖（编排者决定 4）。
+**升什么（`raiseOf`），按这个循环此刻的样子算，发请求时和取回答时各算一次**（中间可能被重判改过）：
+- 主 agent：锁定了 effort、或这一步没有 effort 档位时什么都不做。`current` 是这一轮的 `effort`（没有经过路由时是引擎的）抬到还在生效的 `floor`；`forcedTarget(current, mode)` 算出强制升到哪一档，没有（`one-level` 在 xhigh，`max` 在 max）就清零、记一条决策、不问。请求的 `message` 是这一轮的消息，`recent_steps` 取自 `$.session.messages()` 里最近一条用户说的话之后的各步，`counts` 里的失败是自上次清零以来的数。
+- 派出 agent：计划在 `agents` 表里（#6 或 #9 写的，没有就空），按有效模型（计划的 `model`，没有才是引擎的）处理。有效模型是 haiku 时换模型：`haikuSwitch` 按 `terms` 和 `escalateHaikuTo` 定换成哪个（你点名的 haiku 不换；被你排除的换成没被排除的上一档），只问 `escalation.expected`。否则升 effort：你点名了 effort 就不升；`current` 是计划的 `effort`（没有时是引擎的，再没有就是 medium：从 haiku 换走的 agent，引擎不给 effort）。任务和最近几步取自 `$.session.messages({ agentId })`；Workflow 的 agent（引擎对 mod 返回 `{ deny }`）从 `labelRuns` 记下的运行目录读 `agent-<agentId>.jsonl`，`rowsFromTranscript` 读成同样的行（任务去掉引擎的外框，引擎转述的用户请求不算任务）；都读不到就不问，按规则升。
 
-**派出 agent（`forAgent`）。** 这个 agent 的计划在 `agents` 表里（#6 或 #9 写的，没有就空），按有效模型（计划的 `model`，没有才是引擎的 `e.model`）处理。有效模型是 haiku 时换模型：`haikuSwitch` 按 `terms` 和 `escalateHaikuTo` 定换成哪个（你点名的 haiku 不换；被你排除的换成没被排除的上一档），把计划的 `model` 设成它的完整 id，核心的 `planStep` 之后每一步都发这个模型。否则升 effort：你点名了 effort 就不升；`current` 是计划的 `effort`（没有时是引擎的，再没有就是 medium：从 haiku 换走的 agent，引擎不给 effort），`forcedTarget` 算出目标，升到的档位写进计划的 `effort`，一直保持到它结束。agent 的任务和最近几步取自 `$.session.messages({ agentId })`：第一条有文字的 user 行是它的任务（作为 `message`），其余按 `stepsFromRows` 处理；读不到（Workflow 的 agent，引擎对 mod 返回 `{ deny }`）就不问决策模型，按规则升。haiku 只问 `escalation.expected`，其他 agent 同时问 effort。
+**`apply`。** `escalation.expected` 的概率达到 `thetaExpected` 就是预期内：清零，把 `midturn.level` 的回答交给 `judgeMidturn` 做普通重判（主 agent 只对你本人的消息开始的一轮；派出 agent 改它计划里的 effort，`raisedAt` 记在它的 `escalation` 记录里）。否则（包括没回答）：主 agent 用 `forced` 写这一轮（`effort` 设到 `raisedLevel`，`floor` 是强制升的档位、只管到 `floorUntil`，`raisedAt` 是这一步；没有经过路由的一轮也一样写，中途重判看的是 `person`，不是 `decisions`）；派出 agent 把升到的档位写进计划的 `effort`（一直保持到它结束），或把计划的 `model` 设成换到的完整 id。清零以请求发出时的计数为准，之后又失败的照常计入。
 
 **换模型要完整的 id。** 实测（2.1.289）：`turn.step` 的 `model` 写别名 `sonnet`，主 agent 会 `unrecognized_model` 退出，子 agent 会以 `model_not_found`（HTTP 404）提前结束；写 `claude-sonnet-5-5` 在一个 haiku agent 运行到一半时换上，后面的步骤都由 sonnet 回答，agent 正常完成（`usage.model` 可见）。`agent.spawn` 的返回里的 `model` 是解析后的完整 id（`sonnet` 解析成 `claude-sonnet-5-5`，`haiku` 是 `claude-haiku-4-5-20251001`），但 mod 没有办法在一个 agent 运行中让引擎解析别名，所以 `escalateHaikuTo` 由 `decision/model-ids.ts` 的 `resolveModel` 解析：别名换成 `MODEL_IDS` 里的完整 id，带家族名的完整 id 原样用，别的值不换（记一条决策）。
 
-**给 #14、#17：怎么评测这个新问题。** `decision/escalation.ts` 导出了 `expectedFailurePart(ask)`（`escalation.expected`，中英文两种写法）、`readExpected`、`troubleText`；请求的拼法见上，评测集 `effort-midturn` 每题的 `zh` 或 `en` 对象就是 `MidturnInput`，加上 `trouble` 就是线上请求（`scripts/decide-stuck.ts` 就这样发一道题）。评测要新的标注（这些失败是不是预期内的：TDD 红灯、没结果的搜索、探测……对比真的卡住的），现有的 006、017、051、053、056、057 几题只有「带不带 trouble」的对比。见上「待评测」里 11 个手写场景的数字。
+**给 #14、#17：怎么评测这个新问题。** `decision/escalation.ts` 导出了 `stuckRequest(input, { limits, ask, effort })`（线上就用它拼）、`expectedFailurePart(ask)`（`escalation.expected`，中英文两种写法）、`readExpected`、`troubleText`。评测集 `effort-midturn` 每题的 `zh` 或 `en` 对象就是 `MidturnInput`，加上 `troubleText` 写的 `trouble` 就是线上请求：评测的 `trouble` 变体对计入的失败达到 `escalateAfter` 的题这样发，并把「预期内」的回答记在逐题答案的 `expected` 里（不计分）；`scripts/decide-stuck.ts` 也这样发一道题。评测还缺一个标注（这些失败是不是预期内的：TDD 红灯、没结果的搜索、探测……对比真的卡住的），现有的 006、017、051、053、056、057 几题只有「带不带 trouble」的对比。见上「待评测」里 11 个手写场景的数字。
 
 ### 登记功能开关
 
@@ -724,8 +713,8 @@ eval/
 #### 一轮中途的 effort（effort-midturn，#14）
 
 - **评测集** `datasets/effort-midturn.jsonl`：100 题，中英对照，74 题 hard。每题是一段真实执行轨迹的片段：本轮用户的消息、即将发出的那一步（`step`，从 0 数，就是 `turn.step` 的 `index`）、这一轮现在的档位、计数（判断次数、档位变化次数、失败的工具调用数、被 hook 拦截的次数）和最近几步（主 agent 在那一步最后写的文字、调用的工具和一句话结果，结果以「成功：」「失败：」「被 hook 拦截：」「用户拒绝：」开头）。答案是从这一步到下一次重判之前的工作需要的档位：相对现在的档位，32 题该升、30 题该降、38 题该保持；`accept` 最多两档宽。审核（Opus 5.5 high 的审核会话，用户同意以它的结论为准）同意 96 题、改 1 题、备注 3 题；记录和总结在 `review/effort-midturn.review.jsonl`、`review/effort-midturn.review-summary.md`。总结末尾一节写了之后的处理：midturn-006 按用户在 issue #1 的拍板撤回了审核者的修改（计划内的 TDD 红灯不强制升档，accept 仍是 `[medium]`），053、087 改写了理由，090 在题面里补了一句「等结果都回来再综合」。
-- **请求与 mod 相同。** 每题的 `zh` 或 `en` 对象就是 `MidturnInput`：suite 用 `midturnState`、`midturnEffortPart` 拼请求，`rejudgeSteps`、`thetaUp`、`thetaDown`、`holdSteps` 按 `features/midturn-effort.ts` 的读法从选项读。`tests/eval-effort-midturn.test.ts` 用 world 核对三种情形下评测发的请求与 mod 发的逐字相同：每隔 N 步的重判（mod 的请求在最新一步里有一个「进行中：」的调用，测试里的题照样写进去，评测集的题没有这种结果）、改过 `rejudgeSteps` 和 `contextTokens` 的重判、#7 要求的带 `trouble` 的重判（这时没有进行中的调用，形状和评测集的题完全一样）；还核对了同样的回答下，评测记下的 `sent` 就是 mod 下一步发出的档位。
-- **变体**：`en-score`（mod 现在的问法）、`zh-score`（问题用中文写）、`no-current-effort` 和 `no-counts`（state 里去掉当前档位或计数；指南 §4.1 担心当前档位会产生锚定）、`trouble`（失败满 2 次的 6 题带上「卡住」说明和对应的问题指令，和 #7 要求重判时一样；其余 94 题的请求与 `en-score` 相同，所以这个变体的整体数字也反映了重复提问的波动）。`trouble` 的那句话（`troubleOf`）暂代 #7 的写法，#7 合入后改用 #7 的。
+- **请求与 mod 相同。** 每题的 `zh` 或 `en` 对象就是 `MidturnInput`：suite 用 `midturnState`、`midturnEffortPart` 拼请求，`rejudgeSteps`、`thetaUp`、`thetaDown`、`holdSteps` 由 mod 自己的 `readConfig` 读出。`tests/eval-effort-midturn.test.ts` 用 world 核对三种情形下评测发的请求与 mod 发的逐字相同：每隔 N 步的重判（mod 的请求在最新一步里有一个「进行中：」的调用，测试里的题照样写进去，评测集的题没有这种结果）、改过 `rejudgeSteps` 和 `contextTokens` 的重判、主 agent 卡住时 #7 发的再判断（`stuckRequest`：带 `trouble` 的 effort 问题加 `escalation.expected`，在第二次失败的调用结束时发出，这时没有进行中的调用，形状和评测集的题完全一样）；还核对了同样的回答下，评测记下的 `sent` 就是 mod 下一步发出的档位。
+- **变体**：`en-score`（mod 现在的问法）、`zh-score`（问题用中文写）、`no-current-effort` 和 `no-counts`（state 里去掉当前档位或计数；指南 §4.1 担心当前档位会产生锚定）、`trouble`（计入的失败达到 `escalateAfter`（默认 2）的 6 题照 #7 的 `stuckRequest` 发：带上「卡住」说明、对应的问题指令和「是不是预期内」一题，那一题的回答记在逐题答案的 `expected` 里、不计分；其余 94 题的请求与 `en-score` 相同，所以这个变体的整体数字也反映了重复提问的波动）。题里的 `counts.failures` 是「自上次清零以来」的失败，和 mod 的计数同义（mod 只有一份计数，中途重判和 #7 都用它）。2026-10-04 的结果是改用 `stuckRequest` 之前跑的（那时只问 `midturn.level`），要由 #17 重跑。
 - **评分口径**：回答选出的档位（`pickEffort`：概率最高的一档，`max` 要过 `thetaMax`）在 `accept` 里算对，评测集标的就是这个判断。mod 随后实际发出的档位记在逐题答案的 `sent` 里（`judgeMidturn`：升档要置信度过 `thetaUp`，降档要过 `thetaDown` 而且一次只降一档），`why` 是原因，另有各档概率 `p` 和 `confidence`：#17 校准门槛时可以用同一批回答重新判断，不必重新请求。评测集不记录上次升档在第几步，所以 `holdSteps` 不起作用；强制升档的下限也不加：失败是不是预期内的，按用户的拍板由 #7 让决策模型判断。
 - **指标**（共用指标之外）：「每题都保持当前档」的基线（`current`，52%，gold 命中 38%）；按 gold 相对当前档该升、该降、该保持分组的中英准确率（汇总里的 `breakdown.directions`）；`sent` 的中英准确率（`breakdown.sent`）。`sent` 的准确率有上限：5 题（007、061、066、068、091）可接受的档位都比当前档低两档以上，mod 一次只降一档，这 5 题的 `sent` 不可能对。
 - **结果**（2026-10-04，审核后的评测集，设置取 manifest 的默认值：`rejudgeSteps` 4、`contextTokens` 2000、`thetaUp` 0.4、`thetaDown` 0.6、`thetaMax` 0.5，`--concurrency 1`）。Jev 用同一配置跑了两次：`results/effort-midturn/2026-10-04-jev-first.json` 在合入 #15 之前跑，`2026-10-04-jev-reviewed.json` 在合入之后跑。两次发的请求逐字相同（评测集和拼请求的文件哈希都一样），只是第一次的汇总早于 #15 的 `breakdown`：分组的数字在 `groups` 里，没有 `sent` 的准确率。每次 1000 个请求、908,778 input token、约 0.038 美元，没有失败。Clef 只跑了默认变体一次（`2026-10-04-clef-wiring.json`，`--option timeoutMs=3000`）：200 个请求、125,190 input token，没有失败，也没有重试。

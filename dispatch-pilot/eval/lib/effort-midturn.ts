@@ -13,11 +13,14 @@
 // probability and the confidence, to calibrate those thresholds (#17). A row
 // does not say when the turn last went up, so the mod's hold after a raise
 // (holdSteps) is never in play here; nor is a forced raise's floor: whether
-// failures force one is the decision model's call under #7.
+// failures force one is the decision model's call under #7. Under the
+// trouble variant a stuck item is asked what #7 asks (`stuckRequest`), and the
+// answer to whether its failures were expected is recorded beside it.
 //
 // Pure: no Node API.
 
 import { DEFAULT_ASK, EFFORTS, isEffort, readEffort, type Effort, type EffortAsk } from '../../hooks/decision/effort.ts'
+import { expectedFailurePart, readExpected, stuckRequest, troubleText } from '../../hooks/decision/escalation.ts'
 import {
   judgeMidturn,
   midturnEffortPart,
@@ -37,8 +40,8 @@ import type { Settings, Suite } from './suite.ts'
 /**
  * One way of asking (an eval variable): how the question is written, what
  * the state shows (the guide's §4.1 worries the current level anchors the
- * answer), and whether a turn that is stuck carries a `trouble`, as #7 has
- * the mod do.
+ * answer), and whether a turn whose failures reach escalateAfter is asked
+ * what the escalation feature (#7) asks a stuck turn.
  */
 type MidturnVariant = { ask: EffortAsk; show: MidturnShow; trouble: boolean }
 
@@ -55,20 +58,6 @@ function variantOf(variant: string): MidturnVariant {
   const how = MIDTURN_VARIANTS[variant]
   if (how === undefined) throw new RangeError(`no variant "${variant}" (${Object.keys(MIDTURN_VARIANTS).join(', ')})`)
   return how
-}
-
-/** Failed calls at which #7 demands a re-decision with a trouble: its default threshold (spec: M, 2). */
-export const TROUBLE_FAILURES = 2
-
-/**
- * The trouble a stuck turn's re-decision carries: one English sentence, as
- * #7 writes it into its demand (README, 中途重判). Until #7 lands this
- * stands in for its words; once it does, take them from #7 so the eval asks
- * what the mod asks. Not "in a row": the count runs since the last forced
- * raise, with other calls between the failures.
- */
-export function troubleOf(failures: number): string {
-  return `${failures} tool calls have failed while working on this request`
 }
 
 /** What the re-decision reads, as the mod reads it (core/setup.ts): the latest `rejudgeSteps` steps, within `contextTokens`. */
@@ -108,16 +97,24 @@ export const effortMidturn: Suite<EffortMidturnItem, Effort> = {
   name: 'effort-midturn',
   variants: Object.keys(MIDTURN_VARIANTS),
   async decide(item, language, variant, ask, settings) {
-    const { request, part } = midturnRequest(item, language, variant, settings)
+    const { request, part, expectedPart } = midturnRequest(item, language, variant, settings)
     const { asked } = await ask(request)
     if (!asked.ok) return { ok: false, failure: `${asked.failure.kind}: ${asked.failure.detail}` }
     const reading = readEffort(answersFor(part, asked.answers)[MIDTURN_LEVEL])
     if (reading === null) return { ok: false, failure: 'parse: no effort answer' }
     const verdict = judgeMidturn(reading, { current: item[language].current_effort, sinceRaise: null }, midturnRules(settings))
+    // A stuck item's answer to whether its failures were expected, kept for calibrating thetaExpected (#17); not graded.
+    const expected = expectedPart === null ? null : readExpected(answersFor(expectedPart, asked.answers))
     return {
       ok: true,
       prediction: verdict.picked,
-      detail: { p: reading.probabilities.map((p) => Math.round(p * 1000) / 1000), confidence: reading.confidence, sent: verdict.effort, why: verdict.why },
+      detail: {
+        p: reading.probabilities.map((p) => Math.round(p * 1000) / 1000),
+        confidence: reading.confidence,
+        sent: verdict.effort,
+        why: verdict.why,
+        ...(expected === null ? {} : { expected: Math.round(expected * 1000) / 1000 }),
+      },
     }
   },
   grade: gradeEffort,
@@ -125,9 +122,11 @@ export const effortMidturn: Suite<EffortMidturnItem, Effort> = {
   constants: EFFORTS,
   // Never moving the level: the answer a re-decision is worth nothing against.
   baselines: { current: (item) => item.zh.current_effort },
+  // What a variant asks; the trouble variant, of a stuck item, what #7 asks.
   questions: (variant) => {
     const how = variantOf(variant)
-    return midturnEffortPart(how.ask, { trouble: how.trouble }).questions
+    if (!how.trouble) return midturnEffortPart(how.ask).questions
+    return { ...midturnEffortPart(how.ask, { trouble: true }).questions, ...expectedFailurePart(how.ask).questions }
   },
   breakdown: (items, rows): MidturnBreakdown => {
     const answers = (language: Language) => new Map(rows.filter((row) => row.language === language).map((row) => [row.id, row]))
@@ -166,15 +165,23 @@ export const effortMidturn: Suite<EffortMidturnItem, Effort> = {
 
 /**
  * The request the mod sends mid-turn for the item's turn in `language`,
- * asked as `variant` says. A trouble goes only where #7 would demand a
- * re-decision (TROUBLE_FAILURES failed calls); elsewhere the trouble variant
- * asks as the mod does every N steps.
+ * asked as `variant` says. Under the trouble variant, an item whose counted
+ * failures reach `escalateAfter` is asked what the escalation feature (#7)
+ * asks of a stuck turn (`stuckRequest`: the trouble, the effort question with
+ * its trouble flag, and whether the failures were expected; `expectedPart`
+ * reads the last); the others as the mod asks every N steps. The item's
+ * failures are those since the counts last started over, as the mod counts
+ * them; hook blocks count toward escalating only with `hook-block-failures`
+ * on, off by default, so the trouble names failures only.
  */
-export function midturnRequest(item: EffortMidturnItem, language: Language, variant: string, settings: Settings): { request: DecisionRequest; part: Part } {
+export function midturnRequest(item: EffortMidturnItem, language: Language, variant: string, settings: Settings): { request: DecisionRequest; part: Part; expectedPart: Part | null } {
   const how = variantOf(variant)
   const asked = item[language]
-  const stuck = how.trouble && asked.counts.failures >= TROUBLE_FAILURES
-  const input: MidturnInput = stuck ? { ...asked, trouble: troubleOf(asked.counts.failures) } : asked
-  const part = midturnEffortPart(how.ask, { trouble: stuck })
-  return { request: mergeParts(midturnState(input, midturnLimits(settings), how.show), [part]), part }
+  if (how.trouble && asked.counts.failures >= settings.escalation.after) {
+    const input: MidturnInput = { ...asked, trouble: troubleText({ failures: asked.counts.failures, hookBlocks: 0 }) }
+    const { request, effortPart, expectedPart } = stuckRequest(input, { limits: midturnLimits(settings), ask: how.ask, effort: true })
+    return { request, part: effortPart as Part, expectedPart }
+  }
+  const part = midturnEffortPart(how.ask)
+  return { request: mergeParts(midturnState(asked, midturnLimits(settings), how.show), [part]), part, expectedPart: null }
 }

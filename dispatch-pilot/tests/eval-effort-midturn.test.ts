@@ -5,12 +5,12 @@
 // current level as a baseline, accuracy by the way the level should move).
 
 import { expect, test } from 'claude-code/testing'
-import type { PluginOptions } from 'claude-code'
+import type { PluginOptions, SessionMessage } from 'claude-code'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import type { Effort } from '../hooks/decision/effort.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import type { EffortMidturnItem } from '../eval/lib/datasets.ts'
-import { effortMidturn, midturnRequest, troubleOf } from '../eval/lib/effort-midturn.ts'
+import { effortMidturn, midturnRequest } from '../eval/lib/effort-midturn.ts'
 import { summarize } from '../eval/lib/metrics.ts'
 import { runSuite, type Row } from '../eval/lib/runner.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
@@ -154,13 +154,26 @@ const STUCK: EffortMidturnItem = {
   tags: ['stuck'],
 }
 
-// (#7's own trigger, `escalateAfter`, is kept out of the way: it asks for its own re-decision and does not take this entry.)
-test("the trouble variant is the mod's re-decision when #7 demands one: its trouble in the state, no call still running, and the question says what to do with it", { options: { typesafeApiKey: 'k', rejudgeEvery: 0, escalateAfter: 20 } }, async ($, on) => {
-  // #7's demand, written once the second failure is in (after step 1's calls ended).
-  let stuck = false
-  const demand = { trouble: troubleOf(2), atLeast: 'xhigh', at: 1 }
-  on('state.get', async (_$, e, next) => (e.key === 'demand' && e.id === 'main:t1' && stuck ? { value: { value: demand, version: 1 } } : next(e)))
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
+/**
+ * The turn of STUCK as `$.session.messages()` holds it the moment its second
+ * test run has failed (`ids`: the calls' ids, in order): the person's message,
+ * then its two steps; the second run has no result in it yet.
+ */
+function stuckRows(ids: readonly string[]): SessionMessage[] {
+  const [first = '', edit = '', second = ''] = ids
+  return [
+    { role: 'user', text: STUCK.zh.message, toolUses: [] },
+    { role: 'assistant', text: '先跑一下测试。', toolUses: [{ tool_use_id: first, tool: 'Bash', input: { command: 'npm test', description: '跑单元测试' }, text: 'FAIL src/auth.test.ts', isError: true }] },
+    { role: 'user', text: '', toolUses: [], toolResults: [{ tool_use_id: first, text: 'FAIL src/auth.test.ts', isError: true }] },
+    { role: 'assistant', text: '改一下过期判断再跑。', toolUses: [{ tool_use_id: edit, tool: 'Edit', input: { file_path: '/repo/src/auth/session.ts', old_string: 'a', new_string: 'b' }, text: 'ok' }] },
+    { role: 'assistant', text: '', toolUses: [{ tool_use_id: second, tool: 'Bash', input: { command: 'npm test', description: '再跑单元测试' } }] },
+  ]
+}
+
+test("the trouble variant asks a stuck item exactly what the mod asks a turn whose failures reach escalateAfter: the trouble, the effort question with its flag, and whether the failures were expected", { options: { typesafeApiKey: 'k', rejudgeEvery: 0 } }, async ($, on) => {
+  let calls: readonly { id: string }[] = []
+  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), messages: () => stuckRows(calls.map((call) => call.id)) })
+  calls = w.toolCalls
   await w.submit(STUCK.zh.message)
   await w.step({ index: 0, answer: '先跑一下测试。', tools: [{ tool: 'Bash', input: { command: 'npm test', description: '跑单元测试' }, ends: { error: 'FAIL src/auth.test.ts' } }] })
   await w.step({
@@ -171,14 +184,15 @@ test("the trouble variant is the mod's re-decision when #7 demands one: its trou
       { tool: 'Bash', input: { command: 'npm test', description: '再跑单元测试' }, ends: { error: 'FAIL src/auth.test.ts' } },
     ],
   })
-  stuck = true
-  await w.step({ index: 2 })
 
   const { request } = midturnRequest(STUCK, 'zh', 'trouble', settingsFrom({ rejudgeEvery: 0 }))
-  expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level'])
+  // Asked as the second failed run ended, for step 2.
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level,escalation.expected'])
   expect(w.requests[1]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
+  // What the request holds, so the equality above is not two empty things.
   expect(request.state.trouble).toBe('2 tool calls have failed while working on this request')
-  expect(JSON.stringify(request.questions)).toContain('`trouble`')
+  expect(request.state.step).toBe(2)
+  expect(Object.keys(request.questions)).toEqual(['midturn.level', 'escalation.expected'])
 })
 
 /**
@@ -317,9 +331,21 @@ test('the report scores keeping the current level as a baseline, and gives the a
   ])
 })
 
-test('below the failures that make #7 demand a re-decision, the trouble variant asks as the mod does every N steps', () => {
+test('below escalateAfter the trouble variant asks as the mod does every N steps; escalateAfter is read as the mod reads it', () => {
   const settings = settingsFrom({})
   expect(ITEM.zh.counts.failures).toBe(1)
   expect(midturnRequest(ITEM, 'zh', 'trouble', settings)).toEqual(midturnRequest(ITEM, 'zh', 'en-score', settings))
   expect(midturnRequest(STUCK, 'zh', 'trouble', settings)).not.toEqual(midturnRequest(STUCK, 'zh', 'en-score', settings))
+  // With escalateAfter 3, two failures are not yet a stuck turn.
+  const later = settingsFrom({ escalateAfter: 3 })
+  expect(midturnRequest(STUCK, 'zh', 'trouble', later)).toEqual(midturnRequest(STUCK, 'zh', 'en-score', later))
+})
+
+test("under the trouble variant a stuck item's answer about whether its failures were expected is recorded beside the effort it picked (not graded)", async () => {
+  const net = network(() => ({ levels: [0, 0, 0, 1, 0], confidence: 0.8 }))
+  const rows = await run([STUCK], net, ['trouble'])
+
+  expect(Object.keys(net.bodies[0]?.questions)).toEqual(['midturn.level', 'escalation.expected'])
+  // Seam 1's Jev answers every yes/no question 0.5.
+  expect(rows.map((row) => `${row.language} ${row.shown} expected ${String(row.detail?.expected)}`)).toEqual(['zh xhigh expected 0.5', 'en xhigh expected 0.5'])
 })

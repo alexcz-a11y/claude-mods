@@ -167,10 +167,9 @@ return answers
   expect(w.reached.map((r) => r.script)).toEqual([table])
   expect((result.context ?? []).join('\n')).toMatch(/agent\(\) at line 3: left as written \(its prompt is built when the script runs\)/)
   expect(w.status()).toBe('dp workflow not routed (its prompt is built when the script runs)')
-  expect(w.records()).toEqual({ 'wf_test-1': { rewritten: false, reason: 'unreadable', agents: [], left: 1 } })
 })
 
-test("a Workflow given by scriptPath or by name, or resumed from an earlier run, goes through as it is, nothing is asked, and its run is recorded as not rewritten", { options: KEY }, async ($, on) => {
+test("a Workflow given by scriptPath or by name, or resumed from an earlier run, goes through as it is, and nothing is asked", { options: KEY }, async ($, on) => {
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 1 } })) })
   const statuses: (string | undefined)[] = []
   await w.workflow({ scriptPath: '/home/u/.claude/projects/p/s1/workflows/scripts/tidy-wf_old.js' })
@@ -188,11 +187,6 @@ test("a Workflow given by scriptPath or by name, or resumed from an earlier run,
     { name: 'review-changes', launched: true },
     { script: TIDY, resumeFromRunId: 'wf_old', launched: true },
   ])
-  expect(w.records()).toEqual({
-    'wf_test-1': { rewritten: false, reason: 'scriptPath', agents: [], left: 0 },
-    'wf_test-2': { rewritten: false, reason: 'name', agents: [], left: 0 },
-    'wf_test-3': { rewritten: false, reason: 'resume', agents: [], left: 0 },
-  })
 })
 
 test("a model the person names for the work in this turn's message wins over the decision model and the script", { options: KEY }, async ($, on) => {
@@ -425,7 +419,6 @@ test("a rewritten script the tool cannot parse is started as the main agent wrot
   expect(result.isError).toBeUndefined()
   expect((result.context ?? []).join('\n')).toMatch(/could not use.*started it as you wrote it/s)
   expect(w.status()).toBe('dp workflow not routed (the rewritten script did not parse)')
-  expect(w.records()).toEqual({ 'wf_test-1': { rewritten: false, reason: 'rewrite failed', agents: [], left: 2 } })
 })
 
 test("a script the tool refuses for a reason that is not the rewrite's goes back to the main agent as the tool said it, with no second try", { options: KEY }, async ($, on) => {
@@ -489,34 +482,24 @@ test("each agent's decision is logged with its reason: in the debug log, never i
   expect(log[2]).toMatch(/^#2 workflow-agents: opus high for "review" \(workflow tidy-api\): decided; pick opus, confidence 0\.85; effort p /)
 })
 
-test("a run is recorded in $.state by its id as soon as the tool launches it, before the decisions are logged: what was decided, by label, and what was left", { options: KEY }, async ($, on) => {
+test("the person's terms for each call are kept, before the tool runs, for the plans of the call's agents (read beneath, in the same call, by the label fallback)", { options: KEY }, async ($, on) => {
+  const w = workflowWorld($, on, { backend: siteJev((i): SiteAnswer => (i === 0 ? { model: { haiku: 0.9 }, nouls: { 'named.haiku': 0.9 } } : { model: { opus: 0.9 }, effort: [0, 0, 1, 0, 0] })) })
+  await w.submit('rename 那步用 haiku 就行')
+  await w.workflow({ script: TIDY })
+
+  const kept = w.stateWrites.filter((write) => write.key === 'workflowTerms')
+  expect(kept).toHaveLength(1)
+  expect(kept[0]?.value).toEqual([{ model: 'haiku', effort: null, banned: [] }, null])
+  // Written before anything reached the tool.
+  expect(w.stateWrites.findIndex((write) => write.key === 'workflowTerms')).toBeLessThan(w.stateWrites.findIndex((write) => write.key === 'labelRuns'))
+})
+
+test('a Workflow with nothing the person asked of its calls keeps no terms', { options: KEY }, async ($, on) => {
   const w = workflowWorld($, on, { backend: siteJev(BOTH_ROUTED) })
   await w.workflow({ script: TIDY })
 
-  expect(w.records()).toEqual({
-    'wf_test-1': {
-      rewritten: true,
-      reason: '',
-      agents: [
-        { label: 'rename', model: 'sonnet', effort: 'high' },
-        { label: 'review', model: 'opus', effort: 'high' },
-      ],
-      left: 0,
-    },
-  })
-  // The run's first agent steps within milliseconds of the launch: nothing may come before the record.
-  expect(w.stateWrites.map((write) => write.key)).toEqual(['workflows', 'decisionLog', 'decisionLog'])
-})
-
-test("a record the state cannot keep does not stop the Workflow: it runs as rewritten, the main agent is told, and the debug log says the run was not recorded", { options: KEY }, async ($, on) => {
-  on('state.set', { key: 'workflows' }, () => ({ deny: 'the state is full' }))
-  const w = workflowWorld($, on, { backend: siteJev(BOTH_ROUTED) })
-  const result = await w.workflow({ script: TIDY })
-
-  expect(w.reached).toHaveLength(1)
   expect(w.reached[0]?.script).toContain("model: 'sonnet'")
-  expect((result.context ?? []).join('\n')).toContain('"rename": sonnet high')
-  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^workflow wf_test-1 launched, but not recorded: .*the state is full/))
+  expect(w.stateWrites.filter((write) => write.key === 'workflowTerms')).toEqual([])
 })
 
 test("when the script already has what the decisions say, nothing is written, and the main agent is not told it was", { options: KEY }, async ($, on) => {
@@ -531,7 +514,6 @@ return a
   const told = (result.context ?? []).join('\n')
   expect(told).toMatch(/"summary": kept as written \(haiku\)/)
   expect(told).not.toMatch(/wrote them into the script/)
-  expect(w.records()['wf_test-1']).toMatchObject({ rewritten: false, reason: '', agents: [{ label: 'summary', model: 'haiku', effort: null }], left: 0 })
 })
 
 test('a script that cannot be read, one with no agent() call, and one given by path with its text beside it all go through as they are', { options: KEY }, async ($, on) => {
@@ -545,7 +527,11 @@ test('a script that cannot be read, one with no agent() call, and one given by p
 
   expect(w.requests).toHaveLength(0)
   expect(w.reached.map((r) => r.script)).toEqual([broken, none, TIDY])
-  expect(Object.values(w.records()).map((record) => (record as { reason: string }).reason)).toEqual(['unreadable', 'no agents', 'scriptPath'])
+  expect(w.logs.map((log) => log.text).filter((text) => text.startsWith('workflow let through as it is'))).toEqual([
+    'workflow let through as it is: unreadable',
+    'workflow let through as it is: no agents',
+    'workflow let through as it is: scriptPath',
+  ])
 })
 
 test("the decision model reads each agent as a dispatched agent: its prompt (secrets masked), label, agent type and the workflow's description, with fable among the options when agentFable is on", { options: { ...KEY, agentFable: true } }, async ($, on) => {
@@ -589,7 +575,6 @@ test('no answer within timeoutMs: the script goes through as written, the tool a
   expect(w.reached.map((r) => r.script)).toEqual([TIDY])
   expect(result.context).toBeUndefined()
   expect(w.status()).toBe('dp workflow not routed (jev: no answer in 800 ms)')
-  expect(w.records()).toEqual({ 'wf_test-1': { rewritten: false, reason: 'failed', agents: [], left: 2 } })
 })
 
 const failures: { name: string; reply: Reply; status: string }[] = [

@@ -37,3 +37,9 @@ export function redactSecrets(text: string): string {
   for (const [pattern, replacement] of PATTERNS) out = out.replace(pattern, replacement)
   return out
 }
+
+/** The start of a text as the decision log quotes it: secrets masked, whitespace collapsed, cut at 40 characters, in quotes. */
+export function quoteStart(text: string): string {
+  const flat = redactSecrets(text).replace(/\s+/g, ' ').trim()
+  return JSON.stringify(flat.length > 40 ? `${flat.slice(0, 40)}...` : flat)
+}
