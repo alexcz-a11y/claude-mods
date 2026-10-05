@@ -114,8 +114,10 @@ const JEV_DEFAULTS: BackendDefaults = {
   rejudgeSteps: 16,
   // Raising is easy, lowering is hard (AA: a Sonnet 5.5 at medium scores 41 on the index and at high 47, at low 36; Terminal-Bench
   // 20.7% at low against 43.9% at high): 0.4 to 0.3 for a raise, 0.6 to 0.75 for a lowering, 3 to 5 steps held after a raise.
+  // The lowering gate came back down to 0.55 in 0.2.3: with 0.75 the level sent was too high too often (too high 11.5/11.0% to
+  // 19.5/17.5%); a scan of the stored effort-midturn answers (eval/rescore.ts --theta-down) found none of 0.55 to 0.75 to bring it back, and 0.55 is the one with the least too high and too low together.
   thetaUp: 0.3,
-  thetaDown: 0.75,
+  thetaDown: 0.55,
   thetaMax: 0.5,
   thetaExpected: 0.25,
   agentOverride: 0.6,

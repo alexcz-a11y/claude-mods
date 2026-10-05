@@ -1,6 +1,6 @@
 {
   "name": "dispatch-pilot",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message (and when an agent's report or a task notice starts a turn), sets it on every request of the turn, and decides it again every few steps while the turn runs. It also picks the model and effort of each agent the main agent dispatches and of each agent a Workflow script starts, by Artificial Analysis benchmarks (sonnet and opus at medium effort at least). The main agent's model never changes, so the prompt cache survives (on a Claude Code subscription; not on Bedrock, Vertex or a gateway, where switching effort breaks the cache). It also keeps the full skill listing out of the main agent's context and suggests the few skills that fit each message; mid-turn, the main agent can look skills up with the find_skill tool. When an agent's tool calls keep failing it raises that agent's effort (a failing haiku agent goes on as sonnet), unless the failures are what the work expects.",
   "author": {
     "name": "alexcz-a11y",
@@ -72,7 +72,7 @@
     "thetaDown": {
       "type": "number",
       "title": "Threshold to lower effort mid-turn",
-      "description": "A re-decision lowers the effort, by one level at most, only when the decision model's confidence is at least this (0 to 1; never below the raise threshold). Default 0.75 with either decision model (not calibrated for Clef: Jev's value)."
+      "description": "A re-decision lowers the effort, by one level at most, only when the decision model's confidence is at least this (0 to 1; never below the raise threshold). Default 0.55 with either decision model (not calibrated for Clef: Jev's value)."
     },
     "holdSteps": {
       "type": "number",
