@@ -93,7 +93,7 @@ const KINDS: Record<Language, Record<AgentModel, { work: string; choose_for: str
     haiku: {
       work: 'read_and_report',
       choose_for:
-        'A read-only lookup that takes one or two steps, where a mistake is cheap to spot: find where something is defined, list the files that match, read a file, a log or test output and report what is there, run one command and report the result.',
+        'A read-only lookup that takes a step or two to run, whose result is only gathered and laid out as asked (a list, a table, a count), where a mistake is cheap to spot: search the repository for a pattern, find where something is defined, list the files that match, read a file, a log or test output and report what is there, run a command and report the result.',
       not_for: 'An exploration that needs many tool calls in a row, and anything that writes or changes files or needs a judgment call.',
     },
     sonnet: {
@@ -122,7 +122,7 @@ const KINDS: Record<Language, Record<AgentModel, { work: string; choose_for: str
   zh: {
     haiku: {
       work: 'read_and_report',
-      choose_for: '一两步就能完成、出错也容易发现的只读查找：找某个东西在哪里定义，列出匹配的文件，读一个文件、日志或测试输出并汇报内容，执行一条命令并汇报结果。',
+      choose_for: '一两步就能跑完、结果只需要收集起来并按要求排版（列表、表格、计数）、出错也容易发现的只读查找：在仓库里搜索某个模式，找某个东西在哪里定义，列出匹配的文件，读一个文件、日志或测试输出并汇报内容，执行一条命令并汇报结果。',
       not_for: '需要连续很多步工具调用的探查，以及任何要写入或修改文件、或需要判断的工作。',
     },
     sonnet: {
