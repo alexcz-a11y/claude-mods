@@ -447,7 +447,7 @@ test("a mid-turn re-decision due at the same step cannot undercut the raise: the
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'high', 'high', 'high'])
 })
 
-test('a forced raise holds for holdSteps steps, then the ordinary re-decisions may lower it again (story 21, decision 4 of review 1)', { options: { ...KEY, rejudgeEvery: 1, holdSteps: 3 } }, async ($, on) => {
+test('a forced raise holds for holdSteps steps, then the ordinary re-decisions may lower it again (story 21)',{ options: { ...KEY, rejudgeEvery: 1, holdSteps: 3 } }, async ($, on) => {
   // Every mid-turn answer says low, surely; the stuck re-decision says medium and not expected.
   const w = world($, on, { backend: (request, n) => (n > 1 && kind(request) === 'midturn.level' ? jev(LOW, { confidence: 0.9 })(request) : answers(MEDIUM)(request)) })
   await w.submit('把登录模块重构成三层')

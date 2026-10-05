@@ -79,7 +79,7 @@ export function redecided(record: TurnRecord, current: Effort, next: Effort, at:
 /**
  * The record after a forced raise at step `at` (#7): the effort decided as
  * `level`, at least `floor` from this step until `holdSteps` steps later
- * (decision 4 of review 1: then the ordinary re-decisions take over), and
+ * (then the ordinary re-decisions take over), and
  * marked raised here, so a re-decision does not lower it within those steps.
  */
 export function forced(record: TurnRecord, level: Effort, floor: Effort, at: number, holdSteps: number): TurnRecord {

@@ -437,7 +437,7 @@ async function apply($: EngineInterface, s: Settings, e: TurnStepInput, cell: Ce
   }
   const level = raisedLevel(answer.reading, raise.target, s.rules)
   if (e.agentId === undefined) {
-    // Raised from this step on; for holdSteps steps nothing lowers it below the forced level (decision 4 of review 1).
+    // Raised from this step on; for holdSteps steps nothing lowers it below the forced level, then ordinary re-decisions take over.
     const ref = { ...TURNS, id: turnKey(e.turnId, undefined) }
     const turnCell: Cell<TurnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
     await update(turnCell, (r) => forced(r ?? newTurn('', null, false), level, raise.target, e.index, s.rules.holdSteps))

@@ -266,7 +266,7 @@ test('no re-decision while the person has locked the effort', { options: { ...KE
   expect(w.steps.map((s) => String(s.effort))).toEqual(['high', 'high'])
 })
 
-test("a turn the person's message started is re-decided even when its start was not decided (the request failed): from the session's own effort (decision 5 of review 1)", { options: { ...KEY, rejudgeEvery: 1 } }, async ($, on) => {
+test("a turn the person's message started is re-decided even when its start was not decided (the request failed): from the session's own effort",{ options: { ...KEY, rejudgeEvery: 1 } }, async ($, on) => {
   const w = world($, on, { backend: (request, n) => (n === 1 ? { status: 500, body: 'down' } : answers(MEDIUM, { levels: XHIGH, confidence: 0.9 })(request)) })
   await w.submit('把这个死锁查清楚')
   await w.step({ ...working(0), effort: 'medium' })

@@ -204,7 +204,7 @@ function writeFor(call: AgentCall, decision: DispatchDecision): CallWrite | null
   const write: CallWrite = {}
   // The model the script wrote stands when the decision keeps it or names the same one. One it works out when it
   // runs stands too, unless the person named a model or ruled some out: their terms win over the script's, so the
-  // decided model is written in its place (decision 6 of review 1).
+  // decided model is written in its place.
   const written = call.model.kind === 'literal' ? modelFamily(call.model.value) : null
   const overScript = call.model.kind !== 'dynamic' || decision.source === 'user' || decision.banned.length > 0
   if (decision.model !== null && overScript && decision.source !== 'requested' && decision.model !== written) write.model = decision.model

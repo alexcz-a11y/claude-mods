@@ -189,8 +189,9 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
     $.state.get(FAILURES),
     $.clock.now(),
   ])
-  // Only a turn the person's own message started is re-decided: decided at its start or not (decision 5 of review 1);
-  // never without a decision model set up (every request would fail at once).
+  // Only a turn the person's own message started is re-decided, whether its start was decided or not (that request
+  // may have failed: then from the session's own effort); never without a decision model set up (every request would
+  // fail at once).
   if (turn === undefined || turn.person !== true || lock !== null || record === undefined || record.engine === null || s.ctx.backend.configured === false) return
   const reason = PHASE_TOOLS.has(starting.name) ? starting.name : s.every > 0 && upcoming % s.every === 0 ? `every ${s.every} steps` : null
   if (reason === null || record.askedFor === upcoming || inFlight.get(key)?.forStep === upcoming) return
