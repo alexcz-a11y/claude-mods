@@ -30,6 +30,13 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 - Jev 的请求发往 TypeSafe（`api.typesafe.ai`），Clef 的发往 Cloudflare（`api.cloudflare.com`）。Cloudflare account ID 是请求地址的一部分，Claude Code 自己的 debug log 会记下请求地址，所以它会出现在那里；mod 自己写的日志行会把它遮掉。
 - 每次请求的结果和每个决定都写进 debug log（`claude --debug-file <路径>`），不进入会话。
 
+### 开销
+
+- **决策请求。** 评测里 800 个 effort 请求共 614,292 input token（平均约 770 个），Jev 约 0.026 美元。Clef 在 Workers AI 每天免费的 10,000 neurons 之内：200 个 effort 请求约 2,300 neurons。
+- **skill 推荐。** 打开后，每条消息的第一个请求还带着本会话每个 skill 的名字和画像：111 个 skill 都写好画像时约 2.19 万 input token（不带画像约 8.6k）；第一段分到 0.1 以上的 skill 才会发第二个请求，约 1.3k。作为交换，隐藏 skill 列表每个会话省下约 6.6k input token（本机 66 个 skill 时实测），换成的提示只有 360 个字符。
+- **skill 画像**用你自己的 Claude 登录写（`skillsProfileModel`，默认 haiku），算在你的用量里：每份约 2k 输入和 200 输出 token，每个 SKILL.md 版本只写一次，每次会话开始最多写 `skillsProfilesPerSession`（默认 30）份。
+- `claude plugin details dispatch-pilot@alex-mods`（2.1.289）显示 0 个组件、常驻开销约 0 token：它看不到 mod 在运行时附加和替换的内容。
+
 ## 要求
 
 - **Claude Code 2.1.287 及以上**，mod 在 Claude Code 里默认启用。测试用的是 Claude Code 2.1.289（Opus 5.5，订阅登录）、jev-1.13.0 和 Clef（Cloudflare Workers AI，2026-10-04）；跑 `eval/` 和 `scripts/` 里的 Node 脚本用的是 Node 26.5，用 mod 本身不需要 Node。
@@ -47,7 +54,7 @@ claude plugin install dispatch-pilot@alex-mods --scope user
 
 **Jev（默认）。** TypeSafe 的 API key 有两种填法：
 
-1. 启用 mod 时，在 Claude Code 弹出的配置对话框里填，输入会被遮住。
+1. 在 Claude Code 里运行 `/plugin configure dispatch-pilot@alex-mods`（启用 mod 时也会弹出同样的配置对话框），在对话框里填；输入会被遮住。
 2. 在命令行从 stdin 传进去（需要 `jq`）：
 
    ```bash
@@ -75,7 +82,7 @@ jq -n '{decisionModel: "clef", cloudflareAccountId: env.CLOUDFLARE_ACCOUNT_ID, c
 
 Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 agent 的 effort，会互相覆盖。已经装了 jev-pilot 的话，按这个顺序切换：
 
-1. **先在 jev-pilot 还启用的会话里运行 `/jev-pilot:setup restore`。** 它把 `/jev-pilot:setup` 写进 settings 的 skill 设置（`skillOverrides`）恢复成原样，并删掉备份。这条命令是 jev-pilot 自己的，只有它加载着才能用，所以要在停用它之前运行。不恢复的话，那些 skill 会一直对主 agent 隐藏，Dispatch Pilot 也推荐不了它们。没有运行过 `/jev-pilot:setup` 的话，这一步可以跳过。
+1. **先在 jev-pilot 还启用的会话里运行 `/jev-pilot:setup restore`。** 它把 `/jev-pilot:setup` 改过的 skill 设置（settings 里的 `skillOverrides`）恢复成原样，并删掉备份。这条命令是 jev-pilot 自己的，只有它加载着才能用，所以要在停用它之前运行。不恢复的话，那些 skill 会一直对主 agent 隐藏，Dispatch Pilot 也推荐不了它们。没有运行过 `/jev-pilot:setup` 的话，这一步可以跳过。
 2. 停用 jev-pilot：`claude plugin disable jev-pilot@jev-pilot`。
 3. 重启 Claude Code：已经开着的会话还带着 jev-pilot，要重启。
 4. **之后只用 `claude` 启动，不要用 `claude-jev`。** jev-pilot 的 marketplace 安装停用之后，`claude-jev` 启动器会改用 `--plugin-dir` 加载它在 `~/.claude/plugins/marketplaces/jev-pilot` 里的本地副本，jev-pilot 又被加载进来（还会起它自己的 router），两者就又撞在一起了。
@@ -84,7 +91,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 
 选项的值存在两个地方：
 
-- **敏感项**（`typesafeApiKey`、`cloudflareAccountId`、`cloudflareApiToken`）存进平台的安全凭据存储（Claude Code 文档的说法），输入时被遮住，不在 `/config` 里出现。用启用 mod 时的对话框，或者 `claude plugin configure ... --values-stdin` 填，见「安装」。
+- **敏感项**（`typesafeApiKey`、`cloudflareAccountId`、`cloudflareApiToken`）存进平台的安全凭据存储（Claude Code 文档的说法），输入时被遮住，不在 `/config` 里出现。用配置对话框（`/plugin configure dispatch-pilot@alex-mods`），或者 `claude plugin configure ... --values-stdin` 填，见「安装」。
 - **其他选项**存在 user settings 的 `pluginConfigs` 下，在 `/config` 面板里一项一行，可以直接改（需要 Claude Code 2.1.269 及以上）。两个列表项 `skillsAlwaysListed` 和 `skillsNeverSuggested` 不在 `/config` 里出现，要在 `~/.claude/settings.json` 里写成字符串数组。项目和本地 settings 里的 `pluginConfigs` 会被 Claude Code 忽略。
 
 ```json
@@ -215,7 +222,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 - **Clef 的延迟和 `timeoutMs`。** Jev 第一次 0.57 秒，之后 0.28–0.33 秒；Clef 第一次 1.8 秒，之后 0.6–1.4 秒（200 个请求依次发送：p50 699 ms，p90 929 ms，只有 1 条超过 1500 ms）。所以 Clef 的默认 `timeoutMs` 是 3000，没有再细调。
 - **派出 agent 的门槛。** `agentOverride` 0.6 在两次 Jev 运行里都不是最好（0.4–0.5 时整题中文 +3、英文 +2 个百分点）；点名的门槛 0.5 偏低；`thetaMax` 0.3 比 0.5 好 1–2 个百分点。#17 没有改这几个门槛。
 - **Workflow agent 启动时当场判断的排队。** 一次启动很多个 prompt 是数据的 agent 时，排在后面的会等到超时。常见的 fan-out（几个到十几个 agent）有多少能在 `timeoutMs` 之内答上，还没有量过。
-- **skill 推荐的门槛和准确率。** 带画像的线上设置，中文 79.8%、英文 83.5%，差 3.7 个百分点，没过 spec 的门槛；`skillsMinRelevance` 0.75 时差距缩到 −2.3。`skillsShortlist` 和第二段的下限 0.1、第一段拆成两题之后的新问法、用中文写问题、画像只用英文、Choice 选项的顺序对 Jev 的影响，都没有评测。
+- **skill 推荐的门槛和准确率。** 带画像的线上设置，中文 79.8%、英文 83.5%，差 3.7 个百分点，没过「中文比英文低不到 3 个百分点」的要求；`skillsMinRelevance` 0.75 时差距缩到 −2.3。`skillsShortlist` 和第二段的下限 0.1、第一段拆成两题之后的新问法、用中文写问题、画像只用英文、Choice 选项的顺序对 Jev 的影响，都没有评测。
 - **主 agent 会不会主动用 `find_skill`。** 见上面的局限。其他场景（文件格式、某个服务的工具、一轮中途才出现的需要）、其他模型，以及「每轮先查」这类更强的写法值不值得它多出的两步，还没有评测。
 - **skill 请求的大小和延迟。** 带全部画像的第一段约 2.19 万 input token（111 个 skill，Jev 计），Jev 第一段 p50 0.56–0.67 秒，慢的时段 p90 到 1.65 秒；Clef 带画像的第一段 3.7–7.9 秒。把第一段单独发、只留英文字段的裁剪画像，没有评测。
 - **一个请求里放几个 Workflow 调用，准确率会不会降。** 一个脚本最多 8 个 `agent()` 共用一个请求，其他调用的说明对每个问题来说是无关内容，可能降低准确率。`subagent` 评测里有一个一个请求一个调用的对照变体，没有跑过。
