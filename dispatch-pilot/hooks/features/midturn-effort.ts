@@ -39,7 +39,7 @@ import {
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { revise, turnKey, update, type Cell, type TurnRecord } from '../core/plans.ts'
-import { numberIn, type Ctx } from '../core/setup.ts'
+import type { Ctx } from '../core/setup.ts'
 import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
@@ -119,18 +119,7 @@ const blockedByHook = new Set<string>()
 
 export function registerMidturnEffort(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: "re-decides the main agent's effort while a turn runs", segments: ['midturn'] })
-  const settings: Settings = {
-    ctx,
-    every: Math.round(numberIn(ctx.options.rejudgeEvery, 0, 50, 3)),
-    waitMs: Math.round(numberIn(ctx.options.rejudgeWaitMs, 0, 2000, 300)),
-    rules: {
-      thetaUp: numberIn(ctx.options.thetaUp, 0, 1, 0.4),
-      thetaDown: numberIn(ctx.options.thetaDown, 0, 1, 0.6),
-      thetaMax: ctx.config.thetaMax,
-      holdSteps: Math.round(numberIn(ctx.options.holdSteps, 0, 50, 3)),
-    },
-    limits: { steps: Math.round(numberIn(ctx.options.rejudgeSteps, 1, 16, 4)), tokens: ctx.config.context.tokens },
-  }
+  const settings: Settings = { ctx, ...ctx.config.midturn }
 
   // Wraps the PreToolUse settings hooks (they run beneath, as this event's core) to see which calls they refuse.
   on('classic.PreToolUse', { tool: /(?:)/ }, async ($, e, next) => {

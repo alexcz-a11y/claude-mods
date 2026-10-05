@@ -15,24 +15,14 @@
 import type { HttpInit, On } from 'claude-code'
 import type { Asked } from '../decision/backend.ts'
 import { messageText } from '../decision/context.ts'
-import {
-  DEFAULT_AGENT_MODELS,
-  decideDispatch,
-  decisionNotes,
-  dispatchPart,
-  dispatchState,
-  modelFamily,
-  type Dispatch,
-  type DispatchDecision,
-  type DispatchSettings,
-} from '../decision/dispatched-agent.ts'
+import { decideDispatch, decisionNotes, dispatchPart, dispatchState, modelFamily, type Dispatch, type DispatchDecision } from '../decision/dispatched-agent.ts'
 import { EFFORTS } from '../decision/effort.ts'
 import { redactSecrets } from '../decision/redact.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
-import { numberIn, type Ctx } from '../core/setup.ts'
+import { dispatchSettings, type Ctx } from '../core/setup.ts'
 import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
@@ -47,12 +37,7 @@ const MAX_SAID = 8
 
 export function registerDispatchedAgents(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: "decides each dispatched agent's model and effort when it is spawned", segments: ['agent'] })
-  const settings: DispatchSettings = {
-    models: ctx.options.agentFable === true ? [...DEFAULT_AGENT_MODELS, 'fable'] : DEFAULT_AGENT_MODELS,
-    ask: ctx.ask,
-    thetaOverride: numberIn(ctx.options.agentOverride, 0, 1, 0.6),
-    thetaMax: ctx.config.thetaMax,
-  }
+  const settings = dispatchSettings(ctx)
 
   // The person's words this turn: a message sent while idle starts them
   // afresh, one typed during the turn joins them. Other prompts (an agent's

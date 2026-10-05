@@ -9,26 +9,21 @@
 import type { PluginOptions } from 'claude-code'
 import type { Asked } from '../../hooks/decision/backend.ts'
 import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
-import { setup, type Config } from '../../hooks/core/setup.ts'
+import { readConfig, type Config } from '../../hooks/core/setup.ts'
 import type { Item, Language } from './datasets.ts'
 import type { VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
 
-/**
- * The mod's settings: what every feature shares (`Config`), and the options
- * themselves, for a suite whose feature reads its own (subagent:
- * `agentOverride`, `agentFable`; effort-midturn: `rejudgeSteps` and the
- * mid-turn thresholds).
- */
-export type Settings = Config & { options: PluginOptions }
+/** The mod's settings: every option as the mod reads it (core/setup.ts `Config`). */
+export type Settings = Config
 
 /**
- * The mod's settings for the given options, read the way the mod reads them
- * (`setup`: the same defaults and the same clamping), so a suite asks with
+ * The mod's settings for the given options, read where the mod reads them
+ * (`readConfig`: the same bounds and the same defaults), so a suite asks with
  * the limits the mod runs with. The eval passes the manifest's defaults.
  */
 export function settingsFrom(options: PluginOptions): Settings {
-  return { ...setup(options).config, options }
+  return readConfig(options)
 }
 
 /** One request a suite sent: the backend's outcome, how long the answered attempt took, how many attempts it took. */

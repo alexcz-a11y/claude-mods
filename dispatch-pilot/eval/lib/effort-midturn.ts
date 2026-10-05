@@ -17,7 +17,6 @@
 //
 // Pure: no Node API.
 
-import { numberIn } from '../../hooks/core/setup.ts'
 import { DEFAULT_ASK, EFFORTS, isEffort, readEffort, type Effort, type EffortAsk } from '../../hooks/decision/effort.ts'
 import {
   judgeMidturn,
@@ -72,24 +71,14 @@ export function troubleOf(failures: number): string {
   return `${failures} tool calls have failed while working on this request`
 }
 
-/**
- * What the re-decision reads, from the mod's settings as the feature reads
- * them (features/midturn-effort.ts, with the same bounds and defaults): the
- * latest `rejudgeSteps` steps, within `contextTokens`.
- */
+/** What the re-decision reads, as the mod reads it (core/setup.ts): the latest `rejudgeSteps` steps, within `contextTokens`. */
 export function midturnLimits(settings: Settings): MidturnLimits {
-  return { steps: Math.round(numberIn(settings.options.rejudgeSteps, 1, 16, 4)), tokens: settings.context.tokens }
+  return settings.midturn.limits
 }
 
-/** How an answer moves the level, from the mod's settings as the feature reads them (the same bounds and defaults). */
+/** How an answer moves the level, as the mod reads it (core/setup.ts). */
 export function midturnRules(settings: Settings): MidturnRules {
-  const { options } = settings
-  return {
-    thetaUp: numberIn(options.thetaUp, 0, 1, 0.4),
-    thetaDown: numberIn(options.thetaDown, 0, 1, 0.6),
-    thetaMax: settings.thetaMax,
-    holdSteps: Math.round(numberIn(options.holdSteps, 0, 50, 3)),
-  }
+  return settings.midturn.rules
 }
 
 const DIRECTIONS = ['up', 'down', 'keep'] as const

@@ -21,12 +21,12 @@
 
 import type { HttpInit, On, ToolCallResult } from 'claude-code'
 import type { Asked } from '../decision/backend.ts'
-import { DEFAULT_AGENT_MODELS, modelFamily, type DispatchSettings } from '../decision/dispatched-agent.ts'
+import { modelFamily } from '../decision/dispatched-agent.ts'
 import { parseWorkflow, rewriteWorkflow, type ParsedWorkflow } from '../decision/workflow-script.ts'
 import { callName, outcomeOf, readOutcomes, reasonOf, returnNote, rewriteNote, statusText, workflowBatches, workflowFingerprint, type CallOutcome } from '../decision/workflow.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
-import { numberIn, stringOf, type Ctx } from '../core/setup.ts'
+import { dispatchSettings, type Ctx } from '../core/setup.ts'
 import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
@@ -54,15 +54,10 @@ type Route =
 
 export function registerWorkflowAgents(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: 'decides the model and effort of each agent() of a Workflow script when the main agent submits it', segments: ['workflow'] })
-  const settings: DispatchSettings = {
-    models: ctx.options.agentFable === true ? [...DEFAULT_AGENT_MODELS, 'fable'] : DEFAULT_AGENT_MODELS,
-    ask: ctx.ask,
-    thetaOverride: numberIn(ctx.options.agentOverride, 0, 1, 0.6),
-    thetaMax: ctx.config.thetaMax,
-  }
+  const settings = dispatchSettings(ctx)
   const describe = (failure: Parameters<typeof failureText>[1]) => failureText(ctx.backend.name, failure)
   // `rewrite` (the default) writes the decisions into the script; `return` sends the Workflow back with them, once.
-  const sendBack = stringOf(ctx.options.workflowMode, 'rewrite') === 'return'
+  const sendBack = ctx.config.agents.workflowMode === 'return'
 
   on('tool.call', { tool: 'Workflow' }, async ($, e, next) => {
     if (e.tool !== 'Workflow' || !isOn(SWITCH)) return next(e)

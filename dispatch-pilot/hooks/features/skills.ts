@@ -35,7 +35,6 @@ import {
   PROFILE_SYSTEM,
   PROFILE_TIMEOUT_MS,
   profileKey,
-  profileModel,
   profilePrompt,
   readProfile,
   readSessionSkills,
@@ -44,7 +43,7 @@ import {
   type StoredProfile,
 } from '../core/profiles.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
-import { namesOf, numberIn, type Ctx } from '../core/setup.ts'
+import type { Ctx } from '../core/setup.ts'
 import { describeStages, listingNames, rankingSettings, trimListing, type CatalogSkill } from '../core/skills.ts'
 import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
@@ -219,21 +218,14 @@ export function registerSkills(on: On, ctx: Ctx): void {
   defineSwitch({ name: PROFILES, info: 'rates skills by bilingual profiles a cheap model writes once per SKILL.md version (off: by description)' })
 
   /** Skills the main agent keeps in its listing (names as the listing spells them). */
-  const alwaysListed = new Set(namesOf(ctx.options.skillsAlwaysListed))
+  const alwaysListed = new Set(ctx.config.skills.alwaysListed)
   /** Skills never offered, to the main agent or to the person. */
-  const neverSuggested = new Set(namesOf(ctx.options.skillsNeverSuggested))
-  const policy: SkillPolicy = {
-    max: Math.round(numberIn(ctx.options.skillsMax, 0, 10, 3)),
-    minRelevance: numberIn(ctx.options.skillsMinRelevance, 0, 1, 0.7),
-  }
+  const neverSuggested = new Set(ctx.config.skills.neverSuggested)
+  const policy: SkillPolicy = ctx.config.skills.suggest
   /** How the skills are ranked: by the mod's ranker (`modRanker`, built for each message), as find_skill (#12) ranks them too. */
   const ranking = rankingSettings(ctx)
   /** How profiles are written. */
-  const profiles: ProfileSettings = {
-    model: profileModel(ctx),
-    perSession: Math.round(numberIn(ctx.options.skillsProfilesPerSession, 0, 500, 30)),
-    skip: neverSuggested,
-  }
+  const profiles: ProfileSettings = { model: ctx.config.skills.profileModel, perSession: ctx.config.skills.profilesPerSession, skip: neverSuggested }
   /**
    * Whether the feature is at work now: its switch (and the master switch)
    * on, and a decision model set up to suggest (without one, withholding the

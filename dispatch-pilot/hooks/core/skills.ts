@@ -6,10 +6,9 @@
 // Pure: no `$`. Whatever reads the session (commands, settings, disk) comes
 // in as closures the hook that owns `$` builds (README, 开发).
 
-import type { PluginOptions } from 'claude-code'
 import type { Language } from '../decision/effort.ts'
 import { questionBudget, SHORTLIST_FLOOR, type RankerSettings, type SkillOption, type SkillRanking } from '../decision/skills.ts'
-import { numberIn } from './setup.ts'
+import type { Config } from './setup.ts'
 
 /**
  * What the two stages of a ranking said, for a decision's reason: the skills
@@ -27,16 +26,16 @@ export function describeStages(ranking: SkillRanking): string {
 }
 
 /**
- * How skills are ranked (`modRanker`'s settings), read from the person's
- * options the same way wherever skills are ranked: the message's suggestions
- * and find_skill (#12). Stage one's question fits beside the state the
- * person's context budget allows; stage two may take up to `timeoutMs` (a
- * message's gets only what its first request left of it, features/skills.ts).
+ * How skills are ranked (`modRanker`'s settings), from the person's options
+ * (core/setup.ts), the same wherever skills are ranked: the message's
+ * suggestions and find_skill (#12). Stage one's question fits beside the state
+ * the person's context budget allows; stage two may take up to `timeoutMs` (a
+ * caller with less left tells `rank` so: features/skills.ts, find-skill.ts).
  */
-export function rankingSettings(ctx: { options: PluginOptions; config: { timeoutMs: number; context: { tokens: number } }; ask: { language: Language } }): RankerSettings {
+export function rankingSettings(ctx: { config: Pick<Config, 'timeoutMs' | 'context' | 'skills'>; ask: { language: Language } }): RankerSettings {
   return {
     language: ctx.ask.language,
-    shortlist: Math.round(numberIn(ctx.options.skillsShortlist, 1, 10, 4)),
+    shortlist: ctx.config.skills.shortlist,
     questionTokens: questionBudget(ctx.config.context.tokens),
     timeoutMs: ctx.config.timeoutMs,
   }

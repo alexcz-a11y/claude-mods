@@ -18,7 +18,7 @@
 import type { EngineInterface, HttpInit, On, TurnStepInput } from 'claude-code'
 import type { Asked, Failure } from '../decision/backend.ts'
 import { modelFamily } from '../decision/dispatched-agent.ts'
-import { briefOf, expectedFailurePart, forcedTarget, raisedLevel, readExpected, RAISE_MODES, stepsFromRows, troubleText, type RaiseMode } from '../decision/escalation.ts'
+import { briefOf, expectedFailurePart, forcedTarget, raisedLevel, readExpected, stepsFromRows, troubleText, type RaiseMode } from '../decision/escalation.ts'
 import { EFFORTS, higherEffort, isEffort, readEffort, type Effort, type EffortReading } from '../decision/effort.ts'
 import {
   contentLanguage,
@@ -37,7 +37,7 @@ import { redactSecrets } from '../decision/redact.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { recordDecision, type DecisionEntry } from '../core/decisions.ts'
 import { newTurn, revise, turnKey, update, type Cell, type TurnRecord } from '../core/plans.ts'
-import { numberIn, stringOf, type Ctx } from '../core/setup.ts'
+import type { Ctx } from '../core/setup.ts'
 import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
@@ -88,20 +88,16 @@ type Settings = {
 export function registerEscalation(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: 'raises the effort of an agent whose tool calls keep failing', segments: ['escalation', 'agentEscalation'] })
   defineSwitch({ name: BLOCKS_SWITCH, info: 'counts a call one of your hooks blocked as a failure when deciding to escalate', default: false })
+  const { escalation, midturn } = ctx.config
   const settings: Settings = {
     ctx,
-    after: Math.round(numberIn(ctx.options.escalateAfter, 1, 20, 2)),
-    mode: RAISE_MODES.find((mode) => mode === ctx.options.escalateMode) ?? 'one-level',
-    limit: Math.round(numberIn(ctx.options.escalateLimit, 0, 10, 2)),
-    thetaExpected: numberIn(ctx.options.thetaExpected, 0, 1, 0.25),
-    haikuTo: stringOf(ctx.options.escalateHaikuTo, 'claude-sonnet-5-5').trim(),
-    rules: {
-      thetaUp: numberIn(ctx.options.thetaUp, 0, 1, 0.4),
-      thetaDown: numberIn(ctx.options.thetaDown, 0, 1, 0.6),
-      thetaMax: ctx.config.thetaMax,
-      holdSteps: Math.round(numberIn(ctx.options.holdSteps, 0, 50, 3)),
-    },
-    limits: { steps: Math.round(numberIn(ctx.options.rejudgeSteps, 1, 16, 4)), tokens: ctx.config.context.tokens },
+    after: escalation.after,
+    mode: escalation.mode,
+    limit: escalation.limit,
+    thetaExpected: escalation.thetaExpected,
+    haikuTo: escalation.haikuTo?.id ?? '',
+    rules: midturn.rules,
+    limits: midturn.limits,
   }
 
   // Wraps the PreToolUse settings hooks (they run beneath it): `tool.call` only sees their refusal as an error

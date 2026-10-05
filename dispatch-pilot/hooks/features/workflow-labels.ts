@@ -18,14 +18,14 @@
 
 import type { EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
 import type { Asked } from '../decision/backend.ts'
-import { DEFAULT_AGENT_MODELS, modelFamily, type AgentModel, type DispatchSettings } from '../decision/dispatched-agent.ts'
+import { modelFamily, type AgentModel, type DispatchSettings } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
 import { agentPlan, inlineSites, isTaskStart, launchNote, sameRoute, sitesFor, sitesOf, startedIn, taskOf, type Given, type JournalStart, type RunSite } from '../decision/workflow-labels.ts'
 import { parseWorkflow, type AgentCall, type ParsedWorkflow } from '../decision/workflow-script.ts'
 import { callName, outcomeOf, readOutcomes, reasonOf, workflowBatches } from '../decision/workflow.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
-import { numberIn, type Ctx } from '../core/setup.ts'
+import { dispatchSettings, type Ctx } from '../core/setup.ts'
 import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
@@ -75,12 +75,7 @@ const launching = new Set<Promise<LabelRun | null>>()
 
 export function registerWorkflowLabels(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: 'sets the model and effort of each Workflow agent when it starts, by its label, where the script could not be written into', segments: ['labels'] })
-  const settings: DispatchSettings = {
-    models: ctx.options.agentFable === true ? [...DEFAULT_AGENT_MODELS, 'fable'] : DEFAULT_AGENT_MODELS,
-    ask: ctx.ask,
-    thetaOverride: numberIn(ctx.options.agentOverride, 0, 1, 0.6),
-    thetaMax: ctx.config.thetaMax,
-  }
+  const settings = dispatchSettings(ctx)
 
   // The standing hint: the engine renders a tool's description once per session
   // and keeps it, so the words never change and the prompt cache holds.

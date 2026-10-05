@@ -14,7 +14,7 @@
 //
 // Pure: no Node API.
 
-import { numberIn } from '../../hooks/core/setup.ts'
+import { dispatchSettings } from '../../hooks/core/setup.ts'
 import { messageText } from '../../hooks/decision/context.ts'
 import {
   AGENT_MODELS,
@@ -31,7 +31,7 @@ import {
   type DispatchDecision,
   type DispatchSettings,
 } from '../../hooks/decision/dispatched-agent.ts'
-import { EFFORTS, type Effort } from '../../hooks/decision/effort.ts'
+import { DEFAULT_ASK, EFFORTS, type Effort } from '../../hooks/decision/effort.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
 import { PRIORITIES, type Language, type SubagentAnswer, type SubagentItem } from './datasets.ts'
 import type { Row } from './runner.ts'
@@ -52,18 +52,13 @@ function variantAsk(variant: string): DispatchAsk {
 }
 
 /**
- * What decides an agent, read from the options as features/dispatched-agents.ts
- * reads them (tests/eval-subagent.test.ts holds the two together): fable is
+ * What decides an agent, as the mod decides it (core/setup.ts
+ * `dispatchSettings`, the one features/dispatched-agents.ts uses): fable is
  * offered when `agentFable` is on; `agentOverride` is how sure the decision
  * model must be to replace the main agent's pick.
  */
-function dispatchSettings(settings: Settings, ask: DispatchAsk): DispatchSettings {
-  return {
-    models: settings.options.agentFable === true ? [...DEFAULT_AGENT_MODELS, 'fable'] : DEFAULT_AGENT_MODELS,
-    ask,
-    thetaOverride: numberIn(settings.options.agentOverride, 0, 1, 0.6),
-    thetaMax: settings.thetaMax,
-  }
+function agentSettings(settings: Settings, ask: DispatchAsk): DispatchSettings {
+  return dispatchSettings({ config: settings, ask: DEFAULT_ASK }, ask)
 }
 
 /** The request the mod sends about the item's agent in `language`, asked as `variant` says. */
@@ -71,7 +66,7 @@ function subagentRequest(item: SubagentItem, language: Language, variant: string
   const asked = item[language]
   // The person's words as the mod keeps them for the turn (`said`): masked and cut to the context budget.
   const dispatch: Dispatch = { ...asked, user_message: messageText(asked.user_message, settings.context.tokens) }
-  const shape = dispatchSettings(settings, variantAsk(variant))
+  const shape = agentSettings(settings, variantAsk(variant))
   const part = dispatchPart(dispatch, shape)
   return { request: mergeParts(dispatchState(dispatch, settings.context.tokens), [part]), part, dispatch, shape }
 }
@@ -291,7 +286,7 @@ export type SubagentBreakdown = {
  * asked again, and graded. An unanswered item stays wrong.
  */
 function sweeps(items: readonly SubagentItem[], answered: Record<Language, Answered>, ask: DispatchAsk, settings: Settings): Partial<Record<Threshold, Swept[]>> {
-  const run: Required<Pick<DispatchSettings, Threshold>> & DispatchSettings = { ...dispatchSettings(settings, ask), thetaNamed: 0.5, thetaFit: 0.5 }
+  const run: Required<Pick<DispatchSettings, Threshold>> & DispatchSettings = { ...agentSettings(settings, ask), thetaNamed: 0.5, thetaFit: 0.5 }
   const out: Partial<Record<Threshold, Swept[]>> = {}
   for (const name of Object.keys(SWEPT) as Threshold[]) {
     if (name === 'thetaFit' && ask.requested !== 'noul') continue

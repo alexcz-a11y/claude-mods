@@ -20,8 +20,8 @@ import { redactSecrets } from '../decision/redact.ts'
 import { modRanker, pickSkills, skillOpening, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
 import { answersFor, mergeParts, type DecisionRequest } from '../decision/system-one.ts'
 import { recordDecision } from '../core/decisions.ts'
-import { profileModel, readSessionSkills } from '../core/profiles.ts'
-import { namesOf, numberIn, type Ctx } from '../core/setup.ts'
+import { readSessionSkills } from '../core/profiles.ts'
+import type { Ctx } from '../core/setup.ts'
 import { describeStages, rankingSettings, type CatalogSkill } from '../core/skills.ts'
 import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
@@ -100,15 +100,12 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: "answers the main agent's find_skill: the skills that fit the work it names", segments: ['find-skill'] })
 
   /** Skills never offered (the option the skills feature reads too). */
-  const neverSuggested = new Set(namesOf(ctx.options.skillsNeverSuggested))
-  const policy: SkillPolicy = {
-    max: Math.round(numberIn(ctx.options.findSkillMax, 1, 10, 5)),
-    minRelevance: numberIn(ctx.options.findSkillMinRelevance, 0, 1, 0.5),
-  }
+  const neverSuggested = new Set(ctx.config.skills.neverSuggested)
+  const policy: SkillPolicy = ctx.config.skills.find
   /** How the mod's ranker ranks: the settings it rates the skills beside each message with. */
   const rankBy = rankingSettings(ctx)
   /** The model whose profiles the skills are offered by (#11). */
-  const model = profileModel(ctx)
+  const model = ctx.config.skills.profileModel
 
   // Registered once every plugin is loaded, under a match-all matcher (other
   // features set themselves up at session start too). Without a decision

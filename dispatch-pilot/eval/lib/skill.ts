@@ -13,8 +13,7 @@
 //
 // Pure: no Node API. What it reads besides its items comes in as SkillSources.
 
-import { lookUpProfiles, profileModel } from '../../hooks/core/profiles.ts'
-import { namesOf, numberIn } from '../../hooks/core/setup.ts'
+import { lookUpProfiles } from '../../hooks/core/profiles.ts'
 import { rankingSettings, type CatalogSkill } from '../../hooks/core/skills.ts'
 import { DEFAULT_ASK } from '../../hooks/decision/effort.ts'
 import {
@@ -98,7 +97,7 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
 
   /** The skills offered under `variant` and the person's options, as the mod offers them for a message. */
   const offered = async (variant: string, settings: Settings): Promise<CatalogSkill[]> => {
-    const model = profileModel({ options: settings.options })
+    const model = settings.skills.profileModel
     let found = profiled.get(model)
     if (found === undefined) {
       const io = {
@@ -112,7 +111,7 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
       found = lookUpProfiles(skills, io, model).then((looked) => looked.skills)
       profiled.set(model, found)
     }
-    const never = new Set(namesOf(settings.options.skillsNeverSuggested))
+    const never = new Set(settings.skills.neverSuggested)
     const kept = (await found).filter((skill) => !never.has(skill.name))
     if (variant === 'descriptions') return kept.map((skill) => ({ ...skill, profile: null }))
     if (variant === 'profiles') return kept
@@ -126,7 +125,7 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
   }
   /** The mod's ranker under the person's settings; `ask` sends stage two. */
   const rankerFor = (options: readonly CatalogSkill[], settings: Settings, ask: SkillRankerIo['ask']): SkillRanker =>
-    modRanker({ ask, opening: async (option) => openingOf(options, option.name) }, rankingSettings({ options: settings.options, config: settings, ask: DEFAULT_ASK }))
+    modRanker({ ask, opening: async (option) => openingOf(options, option.name) }, rankingSettings({ config: settings, ask: DEFAULT_ASK }))
   /** Stage one's request, as the mod sends it when the person sends this message after this conversation. */
   const firstRequest = (asked: SubmitAsked, options: readonly CatalogSkill[], settings: Settings, ranker: SkillRanker) =>
     skillsRequest({ message: asked.message, recent_context: contextMessages(asked.recent_context) }, options, { limits: settings.context, ranker })
@@ -160,7 +159,7 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
   const skillsCount = (names: readonly string[]) => `${names.length} ${names.length === 1 ? 'skill' : 'skills'}`
   const about = {
     skills: { offered: skills.length, model: skills.filter((skill) => skill.by === 'model').length, person: skills.filter((skill) => skill.by === 'person').length },
-    profiles: { model: profileModel(defaults), with: skills.length - without.length, without },
+    profiles: { model: defaults.skills.profileModel, with: skills.length - without.length, without },
     files: { read: filed.length - unreadable.length, unreadable, changed },
     warnings: [
       ...(changed.length > 0 ? [`SKILL.md differs from the snapshot for ${skillsCount(changed)}: ${changed.join(', ')}`] : []),
@@ -210,11 +209,11 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
       if (part === null) return [request]
       const wanted = [...item.accept, ...item.user_only_hint]
       const ordered = [...wanted.flatMap((name) => options.filter((option) => option.name === name)), ...options.filter((option) => !wanted.includes(option.name))]
-      const count = Math.max(1, Math.min(MAX_SHORTLIST, rankingSettings({ options: settings.options, config: settings, ask: DEFAULT_ASK }).shortlist))
+      const count = Math.max(1, Math.min(MAX_SHORTLIST, rankingSettings({ config: settings, ask: DEFAULT_ASK }).shortlist))
       return [request, secondRequest(request.state, options, ordered.slice(0, count))]
     },
     breakdown: (items, rows, _variant, settings) => {
-      const never = new Set(namesOf(settings.options.skillsNeverSuggested))
+      const never = new Set(settings.skills.neverSuggested)
       return skillBreakdown(items, rows, skills.filter((skill) => !never.has(skill.name)), settings)
     },
     report: reportLines,
@@ -311,14 +310,14 @@ function showAnswer(answer: SkillAnswer): string {
   return answer.hint.length === 0 ? suggested : `${suggested} | try ${[...answer.hint].sort().map((name) => `/${name}`).join(' ')}`
 }
 
-/** How many skills a message is shown at most, and the least relevance one needs, read as features/skills.ts reads them. */
+/** How many skills a message is shown at most, and the least relevance one needs, as the mod reads them (core/setup.ts). */
 function suggestPolicy(settings: Settings): SkillPolicy {
-  return { max: Math.round(numberIn(settings.options.skillsMax, 0, 10, 3)), minRelevance: numberIn(settings.options.skillsMinRelevance, 0, 1, 0.7) }
+  return settings.skills.suggest
 }
 
-/** How many skills find_skill returns at most, and the least relevance one needs, read as features/find-skill.ts reads them. */
+/** How many skills find_skill returns at most, and the least relevance one needs, as the mod reads them (core/setup.ts). */
 function findPolicy(settings: Settings): SkillPolicy {
-  return { max: Math.round(numberIn(settings.options.findSkillMax, 1, 10, 5)), minRelevance: numberIn(settings.options.findSkillMinRelevance, 0, 1, 0.5) }
+  return settings.skills.find
 }
 
 /**
