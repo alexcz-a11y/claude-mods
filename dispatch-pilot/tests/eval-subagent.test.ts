@@ -1,16 +1,17 @@
 // The subagent suite of the eval (seam 2): what it sends for an item is what
 // the mod sends when the person sends that message and the main agent then
-// dispatches that agent, and what it decides from an answer is what the mod
-// does with the same answer (checked against the mod itself, through seam 1's
-// world).
+// dispatches that agent, or submits the Workflow script whose agent() it is,
+// and what it decides from an answer is what the mod does with the same
+// answer (checked against the mod itself, through seam 1's world).
 
 import { expect, test } from 'claude-code/testing'
 import type { PluginOptions } from 'claude-code'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import type { Language, SubagentItem } from '../eval/lib/datasets.ts'
-import { subagent } from '../eval/lib/subagent.ts'
+import { subagentSuite } from '../eval/lib/subagent.ts'
 import { settingsFrom, type Ask } from '../eval/lib/suite.ts'
+import { siteJev, workflowWorld } from './support/workflow.ts'
 import { jev, world } from './support/world.ts'
 
 const SECRET = 'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWx'
@@ -53,14 +54,17 @@ const LONG: SubagentItem = {
   tags: ['security', 'priority:user'],
 }
 
-/** The request the eval sends for `item` in `language` (asked of no backend: the request is all that is read). */
-async function evalRequest(item: SubagentItem, language: Language, options: PluginOptions = {}): Promise<DecisionRequest> {
+/**
+ * The request the eval sends for `item` in `language` (asked of no backend:
+ * the request is all that is read), its suite built over `dataset`.
+ */
+async function evalRequest(item: SubagentItem, language: Language, options: PluginOptions = {}, dataset: readonly SubagentItem[] = [item], variant = 'models-hint'): Promise<DecisionRequest> {
   let sent: DecisionRequest | undefined
   const ask: Ask = async (request) => {
     sent = request
     return { request, asked: { ok: false, failure: { kind: 'config', detail: 'not sent' } }, ms: 0, attempts: 1 }
   }
-  await subagent.decide(item, language, 'models-hint', ask, settingsFrom(options))
+  await subagentSuite(dataset).decide(item, language, variant, ask, settingsFrom(options))
   if (sent === undefined) throw new Error('the suite sent no request')
   return sent
 }
@@ -93,32 +97,89 @@ for (const language of ['zh', 'en'] as const) {
   })
 }
 
-test("a Workflow's agent() is asked about like a dispatched agent, one agent a request, the workflow's description and its label in the brief, placeholders as written", async () => {
-  // The mod has no Workflow event to compare with until #8; #8 decides each agent() with the same decision module.
-  const item: SubagentItem = {
-    ...LONG,
-    id: 'subagent-901',
-    zh: {
-      user_message: '把 12 个包的重试实现盘点一下',
-      kind: 'workflow',
-      agent_type: null,
-      description: null,
-      prompt: '在 packages/${pkg} 里找出所有与重试相关的代码，每处列出文件:行号和退避策略。',
-      requested_model: 'opus',
-      workflow_description: '盘点 12 个包的重试实现：按包并行扫描 → 汇总判断是否值得统一',
-      label: 'scan:${pkg}',
-    },
-    tags: ['fan-out', 'priority:main-overridden'],
-  }
-  const request = await evalRequest(item, 'zh')
-
-  expect(request.state).toEqual({
-    brief: { workflow_description: item.zh.workflow_description, label: 'scan:${pkg}', prompt: item.zh.prompt },
-    user_message: '把 12 个包的重试实现盘点一下',
+/** A Workflow's agent() as the dataset writes it: one item per call, the script's description and the person's message the same in each. */
+function workflowItem(id: string, call: { prompt: Record<Language, string>; label: string; requested_model: SubagentItem['zh']['requested_model'] }): SubagentItem {
+  const asked = (language: Language): SubagentItem['zh'] => ({
+    user_message: language === 'zh' ? '我们每个包的重试逻辑都不太一样，帮我摸个底，看看值不值得统一' : 'Every package retries in its own way. Take stock and tell me whether it is worth unifying.',
+    kind: 'workflow',
+    agent_type: null,
+    description: null,
+    prompt: call.prompt[language],
+    requested_model: call.requested_model,
+    workflow_description: language === 'zh' ? '盘点 12 个包的重试实现：按包并行扫描 → 汇总判断是否值得统一' : 'Audit the retry code of 12 packages: scan each package in parallel, then judge whether to unify',
+    label: call.label,
   })
-  expect(Object.keys(request.questions)).toEqual(['agent.model', 'agent.effort'])
-  // The pick the script wrote for the agent() is the main agent's: a hint in the model question.
-  expect(JSON.stringify(request.questions['agent.model'])).toContain('asked for opus')
+  return { id, zh: asked('zh'), en: asked('en'), gold: { model: 'sonnet', effort: 'medium' }, accept: { model: ['sonnet'], effort: ['medium'] }, rationale: '理由', difficulty: 'hard', tags: ['fan-out'] }
+}
+
+// Two calls of one script: a fan-out over the packages, the main agent's opus written in it, then a summary.
+const SCAN = workflowItem('subagent-901', {
+  prompt: { zh: '在 packages/${pkg} 里找出所有与重试相关的代码，每处列出文件:行号和退避策略。', en: 'Find every piece of retry code in packages/${pkg}; list file:line and the backoff of each.' },
+  label: 'scan:${pkg}',
+  requested_model: 'opus',
+})
+const SYNTH = workflowItem('subagent-902', {
+  prompt: { zh: '读各包的扫描结果，判断重试实现是否值得统一，给出建议和迁移顺序。', en: "Read every package's scan, judge whether the retry code is worth unifying, and propose an order to migrate." },
+  label: 'synthesize',
+  requested_model: null,
+})
+
+/** The script the main agent submits for SCAN and SYNTH: their calls in the items' order. */
+function retryScript(language: Language): string {
+  return [
+    `export const meta = { name: 'retry-audit', description: ${JSON.stringify(SCAN[language].workflow_description)}, phases: [] }`,
+    'const scans = await Promise.all(PACKAGES.map((pkg) => agent(`' + SCAN[language].prompt + '`, { label: `scan:${pkg}`, model: \'opus\' })))',
+    `const summary = await agent(${JSON.stringify(SYNTH[language].prompt)}, { label: 'synthesize' })`,
+    'return summary',
+    '',
+  ].join('\n')
+}
+
+for (const language of ['zh', 'en'] as const) {
+  test(`a Workflow's agents are asked about as the mod asks about the agent() calls of the script the main agent submits: in one request, a part and a brief each (${language})`, { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+    const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 0.1, sonnet: 0.8, opus: 0.1 } })) })
+    await w.submit(SCAN[language].user_message)
+    await w.workflow({ script: retryScript(language) })
+
+    const forScan = await evalRequest(SCAN, language, {}, [SCAN, SYNTH])
+    const forSynth = await evalRequest(SYNTH, language, {}, [SCAN, SYNTH])
+    // requests[0] is the main agent's effort, decided when the message was sent; then the script's one request.
+    expect(w.requests).toHaveLength(2)
+    expect(w.requests[1]?.body).toEqual({ model: JEV_MODEL, state: forScan.state, questions: forScan.questions })
+    expect(forSynth).toEqual(forScan)
+    // What the request holds, so the equality above is not two empty things.
+    expect(Object.keys(forScan.questions)).toEqual(['agent-0.model', 'agent-0.effort', 'agent-1.model', 'agent-1.effort'])
+    expect(forScan.state.brief_0).toEqual({ workflow_description: SCAN[language].workflow_description, label: 'scan:${pkg}', prompt: SCAN[language].prompt })
+    // The pick the script wrote for the call is the main agent's: a hint in its model question.
+    expect(JSON.stringify(forScan.questions['agent-0.model'])).toContain('asked for opus')
+  })
+}
+
+test("the single variant asks about each of a Workflow's agents in a request of its own, with the part and the brief the script's request gives it", async () => {
+  const scan = await evalRequest(SCAN, 'zh', {}, [SCAN, SYNTH], 'models-hint-single')
+  const synth = await evalRequest(SYNTH, 'zh', {}, [SCAN, SYNTH], 'models-hint-single')
+  expect(Object.keys(scan.questions)).toEqual(['agent-0.model', 'agent-0.effort'])
+  expect(Object.keys(synth.questions)).toEqual(['agent-1.model', 'agent-1.effort'])
+  expect(Object.keys(synth.state)).toEqual(['brief_1', 'user_message'])
+})
+
+test("from the same answers the eval decides each of a Workflow's agents as the mod writes it into the script", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+  const answers = siteJev((i) =>
+    i === 0 ? { model: { haiku: 0.05, sonnet: 0.15, opus: 0.8 }, effort: [0, 0, 0.1, 0.8, 0.1] } : { model: { haiku: 0.1, sonnet: 0.8, opus: 0.1 }, effort: [0, 0.8, 0.2, 0, 0] },
+  )
+  const w = workflowWorld($, on, { backend: answers })
+  await w.submit(SCAN.zh.user_message)
+  const told = ((await w.workflow({ script: retryScript('zh') })).context ?? []).join('\n')
+
+  const suite = subagentSuite([SCAN, SYNTH])
+  const ask: Ask = async (request) => {
+    const reply = answers({ url: '', method: 'POST', headers: {}, body: request }) as { body: { answers: Record<string, never> } }
+    return { request, asked: { ok: true, answers: reply.body.answers, model: 'jev-1.13.0', inputTokens: 400 }, ms: 0, attempts: 1 }
+  }
+  const decided = await Promise.all([SCAN, SYNTH].map((item) => suite.decide(item, 'zh', 'models-hint', ask, settingsFrom({}))))
+  expect(decided.map((one) => (one.ok ? `${one.prediction.model} ${one.prediction.effort}` : one.failure))).toEqual(['opus xhigh', 'sonnet medium'])
+  expect(told).toContain('"scan:${pkg}": opus xhigh')
+  expect(told).toContain('"synthesize": sonnet medium')
 })
 
 /** A decision model's answers about one agent: the model question's probabilities, the effort levels', and yes/no answers by id within the part (0 otherwise). */
@@ -179,7 +240,7 @@ test("the eval decides an agent as the mod does from the same answers, under the
     await w.step({ index: 0, turnId: `sub-${item.id}`, agentId: started.agentId, model: 'claude-sonnet-5-5', effort: 'low' })
     mod.push(`${item.id}: ${String(w.spawned.at(-1)?.model)} ${String(w.steps.at(-1)?.effort)}`)
 
-    const decided = await subagent.decide(
+    const decided = await subagentSuite([item]).decide(
       item,
       'zh',
       'models-hint',

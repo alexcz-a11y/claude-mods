@@ -1,16 +1,26 @@
 // The subagent suite: a dispatched agent's model and effort (#6's feature),
 // decided once, when the main agent dispatches the agent; and an agent() of
-// a Workflow script, decided the same way, one agent a request, its brief
-// holding the workflow's description and the agent's label (#8). An item is
-// one such agent: the person's message this turn and the agent's brief as the
-// main agent wrote it. The request is built by the decision module the mod
-// uses (hooks/decision/dispatched-agent.ts), with the mod's settings, so the
-// eval measures the prompt the mod sends.
+// a Workflow script, decided the same way (#8). An item is one such agent:
+// the person's message this turn and the agent's brief as the main agent
+// wrote it. The requests are built by the decision modules the mod uses
+// (hooks/decision/dispatched-agent.ts; for a Workflow's agents,
+// hooks/decision/workflow.ts), with the mod's settings, so the eval measures
+// the prompt the mod sends.
+//
+// A Workflow's agents are asked about as #8 asks about a script's agent()
+// calls: the dataset's items of one workflow (the same description and the
+// same message) stand for its calls, in the dataset's order, and share
+// requests as `workflowBatches` groups them, each in a part and a brief of its
+// own. Each item sends its script's request (the one holding its call) and
+// reads its own part; the others' answers in it are not used, so a run sends
+// a script's request once per item of it.
 //
 // Variants (spec #70, guide §4.2): the model question's options named by the
 // models (the mod today) or by the kind of work each suits (`work`); the main
 // agent's pick a hint inside the model question (the mod today) or a question
-// of its own, `requested_fits` (`noul`).
+// of its own, `requested_fits` (`noul`); `-single`: each of a Workflow's
+// agents in a request of its own (a dispatched agent is asked as in
+// `models-hint`).
 //
 // Pure: no Node API.
 
@@ -31,24 +41,35 @@ import {
   type DispatchDecision,
   type DispatchSettings,
 } from '../../hooks/decision/dispatched-agent.ts'
+import type { Asked } from '../../hooks/decision/backend.ts'
 import { DEFAULT_ASK, EFFORTS, type Effort } from '../../hooks/decision/effort.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
+import { MAX_PER_REQUEST, readOutcomes, workflowBatches } from '../../hooks/decision/workflow.ts'
+import type { AgentCall, ParsedWorkflow } from '../../hooks/decision/workflow-script.ts'
 import { PRIORITIES, type Language, type SubagentAnswer, type SubagentItem } from './datasets.ts'
 import type { Row } from './runner.ts'
-import type { Grade, Settings, Suite } from './suite.ts'
+import type { Ask, Decided, Grade, Settings, Suite } from './suite.ts'
 
-/** The variants by name: `<option names>-<the main agent's pick>`; the first is how the mod asks today (DEFAULT_DISPATCH_ASK). */
-export const SUBAGENT_VARIANTS: Readonly<Record<string, DispatchAsk>> = {
-  'models-hint': DEFAULT_DISPATCH_ASK,
-  'work-hint': { ...DEFAULT_DISPATCH_ASK, options: 'work' },
-  'models-noul': { ...DEFAULT_DISPATCH_ASK, requested: 'noul' },
-  'work-noul': { ...DEFAULT_DISPATCH_ASK, options: 'work', requested: 'noul' },
+/** How a variant asks: the questions (`ask`), and how many of a Workflow's agents share a request at most. */
+type SubagentVariant = { ask: DispatchAsk; perRequest: number }
+
+/** The variants by name: `<option names>-<the main agent's pick>[-single]`; the first is how the mod asks today (DEFAULT_DISPATCH_ASK, MAX_PER_REQUEST). */
+export const SUBAGENT_VARIANTS: Readonly<Record<string, SubagentVariant>> = {
+  'models-hint': { ask: DEFAULT_DISPATCH_ASK, perRequest: MAX_PER_REQUEST },
+  'work-hint': { ask: { ...DEFAULT_DISPATCH_ASK, options: 'work' }, perRequest: MAX_PER_REQUEST },
+  'models-noul': { ask: { ...DEFAULT_DISPATCH_ASK, requested: 'noul' }, perRequest: MAX_PER_REQUEST },
+  'work-noul': { ask: { ...DEFAULT_DISPATCH_ASK, options: 'work', requested: 'noul' }, perRequest: MAX_PER_REQUEST },
+  'models-hint-single': { ask: DEFAULT_DISPATCH_ASK, perRequest: 1 },
+}
+
+function variantOf(variant: string): SubagentVariant {
+  const known = SUBAGENT_VARIANTS[variant]
+  if (known === undefined) throw new RangeError(`no variant "${variant}" (${Object.keys(SUBAGENT_VARIANTS).join(', ')})`)
+  return known
 }
 
 function variantAsk(variant: string): DispatchAsk {
-  const ask = SUBAGENT_VARIANTS[variant]
-  if (ask === undefined) throw new RangeError(`no variant "${variant}" (${Object.keys(SUBAGENT_VARIANTS).join(', ')})`)
-  return ask
+  return variantOf(variant).ask
 }
 
 /**
@@ -61,7 +82,7 @@ function agentSettings(settings: Settings, ask: DispatchAsk): DispatchSettings {
   return dispatchSettings({ config: settings, ask: DEFAULT_ASK }, ask)
 }
 
-/** The request the mod sends about the item's agent in `language`, asked as `variant` says. */
+/** The request the mod sends about the item's dispatched agent in `language`, asked as `variant` says. */
 function subagentRequest(item: SubagentItem, language: Language, variant: string, settings: Settings): { request: DecisionRequest; part: Part; dispatch: Dispatch; shape: DispatchSettings } {
   const asked = item[language]
   // The person's words as the mod keeps them for the turn (`said`): masked and cut to the context budget.
@@ -69,6 +90,87 @@ function subagentRequest(item: SubagentItem, language: Language, variant: string
   const shape = agentSettings(settings, variantAsk(variant))
   const part = dispatchPart(dispatch, shape)
   return { request: mergeParts(dispatchState(dispatch, settings.context.tokens), [part]), part, dispatch, shape }
+}
+
+/**
+ * The agent() calls of the workflow a Workflow item belongs to, in
+ * `language`: the dataset's items with its description and its message, in
+ * the dataset's order (the item itself among them, last when the dataset
+ * does not hold it).
+ */
+function workflowOf(dataset: readonly SubagentItem[], item: SubagentItem, language: Language): SubagentItem[] {
+  const key = (one: SubagentItem) => `${one[language].workflow_description ?? ''}\n${one[language].user_message}`
+  const mine = dataset.filter((one) => one[language].kind === 'workflow' && key(one) === key(item))
+  return mine.some((one) => one.id === item.id) ? mine : [...mine, item]
+}
+
+/** The script those items' calls stand for, as #8 reads a submitted one: its description, and each call's prompt, label, agent type and model as written. */
+function scriptOf(items: readonly SubagentItem[], language: Language): ParsedWorkflow {
+  return {
+    script: '',
+    meta: { name: null, description: items[0]?.[language].workflow_description ?? null },
+    calls: items.map((one, index): AgentCall => {
+      const asked = one[language]
+      return {
+        index,
+        line: index + 1,
+        prompt: asked.prompt,
+        label: asked.label,
+        labelKind: asked.label === null ? 'none' : asked.label.includes('${') ? 'template' : 'string',
+        agentType: asked.agent_type,
+        model: asked.requested_model === null ? { kind: 'none' } : { kind: 'literal', value: asked.requested_model },
+        effort: { kind: 'none' },
+        edit: null,
+      }
+    }),
+  }
+}
+
+/**
+ * A Workflow item decided as #8 decides its call: the request holding the
+ * call among its script's (`workflowBatches`, at most `perRequest` calls a
+ * request; the dataset's scripts have at most 4 calls, within its
+ * MAX_REQUESTS), read as #8 reads it (`readOutcomes`).
+ */
+async function decideWorkflowAgent(dataset: readonly SubagentItem[], item: SubagentItem, language: Language, variant: string, ask: Ask, settings: Settings): Promise<Decided<SubagentAnswer>> {
+  const group = workflowOf(dataset, item, language)
+  const index = group.findIndex((one) => one.id === item.id)
+  const parsed = scriptOf(group, language)
+  // The person's words as #8 reads them: the turn's, as the mod keeps them (masked and cut to the context budget).
+  const words = messageText(item[language].user_message, settings.context.tokens)
+  const { ask: asking, perRequest } = variantOf(variant)
+  const shape = agentSettings(settings, asking)
+  const plan = workflowBatches(parsed, words, shape, settings.context.tokens, perRequest)
+  const at = plan.batches.findIndex((batch) => batch.calls.includes(index))
+  const batch = plan.batches[at]
+  if (batch === undefined) {
+    const reason = plan.skipped.find((skip) => skip.index === index)?.reason ?? 'unanswered'
+    return { ok: false, failure: reason === 'unreadable' ? 'left: its prompt does not say what the work is (left to #9)' : `left: ${reason}` }
+  }
+  const { asked } = await ask(batch.request)
+  if (!asked.ok) return { ok: false, failure: `${asked.failure.kind}: ${asked.failure.detail}` }
+  const results: Asked[] = []
+  results[at] = asked
+  const outcome = readOutcomes(parsed, plan, results, words, shape)[index]
+  if (outcome === undefined || outcome.kind === 'left') return { ok: false, failure: 'parse: no answer about the agent' }
+  return predictionOf(answersFor(batch.parts[batch.calls.indexOf(index)] as Part, asked.answers), outcome.decision, shape)
+}
+
+/**
+ * What the mod starts the agent with for a decision: without an answer about
+ * the agent, or a model to start it on, it goes out as the main agent asked
+ * (no decision). A model ruled out that the answer favours is replaced by the
+ * nearest one left: there is always a model, unless none is left.
+ */
+function predictionOf(answers: Readonly<Record<string, Answer>>, decision: DispatchDecision, shape: DispatchSettings): Decided<SubagentAnswer> {
+  if (!decision.answered) return { ok: false, failure: 'parse: no answer about the agent' }
+  if (decision.model === null) {
+    const { banned } = decision
+    const left = (shape.models ?? DEFAULT_AGENT_MODELS).filter((model) => !banned.includes(model))
+    if (banned.length > 0 && left.length === 0) return { ok: false, failure: `none: every model offered was ruled out: ${banned.join(', ')}` }
+    return { ok: false, failure: 'parse: no model answer' }
+  }
+  return { ok: true, prediction: { model: decision.model, effort: decision.effort }, detail: detailOf(answers, decision) }
 }
 
 /**
@@ -135,27 +237,28 @@ function detailOf(answers: Readonly<Record<string, Answer>>, decision: DispatchD
   }
 }
 
-export const subagent: Suite<SubagentItem, SubagentAnswer> = {
+/**
+ * The subagent suite over `dataset`, the items of the run's dataset: a
+ * Workflow item is asked about with the other agent() calls of its workflow
+ * (`workflowOf`), as the mod asks about the script.
+ */
+export function subagentSuite(dataset: readonly SubagentItem[]): Suite<SubagentItem, SubagentAnswer> {
+  return { ...SUITE, decide: (item, language, variant, ask, settings) => decideAgent(dataset, item, language, variant, ask, settings) }
+}
+
+/** An item decided as the mod decides its agent: a dispatched agent on its own, a Workflow's agent with its script's. */
+async function decideAgent(dataset: readonly SubagentItem[], item: SubagentItem, language: Language, variant: string, ask: Ask, settings: Settings): Promise<Decided<SubagentAnswer>> {
+  if (item[language].kind === 'workflow') return decideWorkflowAgent(dataset, item, language, variant, ask, settings)
+  const { request, part, dispatch, shape } = subagentRequest(item, language, variant, settings)
+  const { asked } = await ask(request)
+  if (!asked.ok) return { ok: false, failure: `${asked.failure.kind}: ${asked.failure.detail}` }
+  const answers = answersFor(part, asked.answers)
+  return predictionOf(answers, decideDispatch(answers, dispatch, shape), shape)
+}
+
+const SUITE: Omit<Suite<SubagentItem, SubagentAnswer>, 'decide'> = {
   name: 'subagent',
   variants: Object.keys(SUBAGENT_VARIANTS),
-  async decide(item, language, variant, ask, settings) {
-    const { request, part, dispatch, shape } = subagentRequest(item, language, variant, settings)
-    const { asked } = await ask(request)
-    if (!asked.ok) return { ok: false, failure: `${asked.failure.kind}: ${asked.failure.detail}` }
-    const answers = answersFor(part, asked.answers)
-    const decision = decideDispatch(answers, dispatch, shape)
-    // As the mod: without an answer about the agent, or a model to start it on, the agent goes out as the main agent asked.
-    // (A model ruled out that the answer favours is replaced by the nearest one left: there is always a model, unless none is left.)
-    if (!decision.answered) return { ok: false, failure: 'parse: no answer about the agent' }
-    if (decision.model === null) {
-      const { banned } = decision
-      const left = (shape.models ?? DEFAULT_AGENT_MODELS).filter((model) => !banned.includes(model))
-      if (banned.length === 0) return { ok: false, failure: 'parse: no model answer' }
-      if (left.length === 0) return { ok: false, failure: `none: every model offered was ruled out: ${banned.join(', ')}` }
-    }
-    if (decision.model === null) return { ok: false, failure: 'parse: no model answer' }
-    return { ok: true, prediction: { model: decision.model, effort: decision.effort }, detail: detailOf(answers, decision) }
-  },
   grade: gradeAgent,
   breakdown: (items, rows, variant, settings): SubagentBreakdown => {
     const [zh, en] = [answersIn(rows, 'zh'), answersIn(rows, 'en')]

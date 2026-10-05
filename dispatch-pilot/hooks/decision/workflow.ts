@@ -92,7 +92,7 @@ function withoutPlaceholders(template: string): string {
 /** At most this many calls of a script are asked about. */
 export const MAX_CALLS = 24
 /** At most this many calls share one request: every question reads the whole state, so each brief added to it dilutes the others (guide §2.1 S5, S6). */
-const MAX_PER_REQUEST = 8
+export const MAX_PER_REQUEST = 8
 /** At most this many requests are sent for one script, all at once. */
 export const MAX_REQUESTS = 4
 /** A call's brief takes this many tokens at most, and the briefs of a request at least this many each. */
@@ -103,10 +103,17 @@ const MIN_BRIEF = 150
  * The requests that ask about the script's calls, and the calls they leave
  * out. Calls share a request while their briefs fit the state's budget
  * (`tokens`: the person's words a third at most, the briefs the rest), their
- * questions fit the 64 a request may hold, and no more than MAX_PER_REQUEST
- * do. What does not fit in MAX_REQUESTS requests (or in MAX_CALLS calls) is left out.
+ * questions fit the 64 a request may hold, and no more than `perRequest` do
+ * (MAX_PER_REQUEST in the mod; the eval asks with 1 to compare). What does
+ * not fit in MAX_REQUESTS requests (or in MAX_CALLS calls) is left out.
  */
-export function workflowBatches(parsed: ParsedWorkflow, words: string, settings: DispatchSettings, tokens: number): { batches: Batch[]; skipped: Skipped[] } {
+export function workflowBatches(
+  parsed: ParsedWorkflow,
+  words: string,
+  settings: DispatchSettings,
+  tokens: number,
+  perRequest = MAX_PER_REQUEST,
+): { batches: Batch[]; skipped: Skipped[] } {
   const skipped: Skipped[] = []
   const readable = parsed.calls.filter((call) => {
     const tells = tellsTheWork(call.prompt)
@@ -131,7 +138,7 @@ export function workflowBatches(parsed: ParsedWorkflow, words: string, settings:
     const size = Object.values(brief).reduce((sum, text) => sum + estimateTokens(text) + 4, 0)
     const questions = Object.keys(part.questions).length
     let group = groups.at(-1)
-    if (group === undefined || group.calls.length >= MAX_PER_REQUEST || group.used + size > room || group.questions + questions > MAX_QUESTIONS) {
+    if (group === undefined || group.calls.length >= perRequest || group.used + size > room || group.questions + questions > MAX_QUESTIONS) {
       if (groups.length >= MAX_REQUESTS) {
         skipped.push({ index: call.index, reason: 'capped' })
         continue

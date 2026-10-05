@@ -76,9 +76,10 @@ const dataset = readDataset(path)
 const checked = validateDataset(kind, dataset.items, { catalog: kind === 'skill' ? readCatalog(path) : undefined })
 if (dataset.errors.length + checked.errors.length > 0) fail(`${shown(path)} is not valid; run eval/validate.ts ${name}`)
 const sha = (text: string) => createHash('sha256').update(text).digest('hex')
-// A suite that reads more than its items (the skill suite) is built from what lies beside its dataset; the results hash those files too.
+// A suite built when the run starts gets what lies beside its dataset (the skill suite; the results hash those files
+// too) and every item of the dataset (the subagent suite asks about a Workflow's agents together).
 const beside: Record<string, string> = {}
-const suite = typeof entry === 'function' ? await entry(nodeHost(path, (file, text) => (beside[file] = sha(text)))) : entry
+const suite = typeof entry === 'function' ? await entry(nodeHost(path, (file, text) => (beside[file] = sha(text))), dataset.items) : entry
 for (const warning of suite.about?.warnings ?? []) console.log(`warning: ${warning}`)
 
 const variants = values.variants?.split(',') ?? suite.variants
