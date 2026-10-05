@@ -77,29 +77,41 @@ export const NAMED_EFFORT = 'named_effort'
 const NO_EFFORT = 'none'
 export const REQUESTED_FITS = 'requested_fits'
 
-/** The kind of work each model suits (jev-pilot's TIER_CRITERIA, measured on 40 real briefs; guide §4.2), and the option name for it. */
+/**
+ * The kind of work each model suits, and the option name for it. Written from
+ * Artificial Analysis' Intelligence Index v4.3.2 (docs/research/aa-benchmarks-2026-10.md),
+ * each option one situation, never a degree (guide §2.4):
+ * - Haiku 4.5 scores 0% on Terminal-Bench and 3.2% on AutomationBench: it is for a lookup of one or two steps, not a long
+ *   run of tool calls, not a write, not a judgment.
+ * - Sonnet 5.5 matches or beats Opus 5.5 on terminal work, automation and knowledge work (Terminal-Bench 63.6% against
+ *   59.6%, AutomationBench 71.8% against 69.5%) and trails it where facts, hard reasoning and scientific code decide
+ *   (Omniscience 32 against 46, HLE -6.4, SciCode -5.9).
+ * - Opus 5.5 takes those; Fable 5.1 leads Opus nowhere on AA at 2.5 times the price, so its text stays and it stays off by default.
+ */
 const KINDS: Record<Language, Record<AgentModel, { work: string; choose_for: string; not_for: string }>> = {
   en: {
     haiku: {
       work: 'read_and_report',
       choose_for:
-        'Read-only lookups where a mistake is cheap to spot: search or list files, find where something is defined, read files, logs or test output and report what is there, run a command and report the result.',
-      not_for: 'Anything that writes or changes files, or that needs a judgment call.',
+        'A read-only lookup that takes one or two steps, where a mistake is cheap to spot: find where something is defined, list the files that match, read a file, a log or test output and report what is there, run one command and report the result.',
+      not_for: 'An exploration that needs many tool calls in a row, and anything that writes or changes files or needs a judgment call.',
     },
     sonnet: {
       work: 'specified_work',
       choose_for:
-        'Read-only work that needs understanding (summarize or explain code, research across many files, review a diff and report the findings), and code changes with a clear spec and a way to check the result: a bug whose cause is known, a feature to a written spec, tests for existing code, a scoped refactor.',
-      not_for: 'Design, an open spec, a bug whose cause is unknown, or long work across many components.',
+        'Most work that carries something out: terminal and shell work, code changes with a clear requirement (a bug whose cause is known, a feature to a written spec, tests for existing code, a scoped refactor, a change across several files), automation steps, and research or review of material in the repository reported back.',
+      not_for:
+        'Work whose conclusion depends on facts from outside the repository (how an API behaves, a standard, differences between versions) where a wrong recollection is costly, hard reasoning, a design from an open requirement, or a bug whose cause is unknown.',
     },
     opus: {
       work: 'judgment_work',
       choose_for:
-        'Work that needs careful judgment or runs long: design, a change whose spec is open or that nothing can check, a bug whose cause is unknown, long multi-step work across many components, security, data migrations, production or money.',
-      not_for: 'Mechanical or well-specified work that a written plan and a test already cover.',
+        'Research or an answer that depends on accurate factual knowledge; hard reasoning, design, or a bug whose cause is unknown; scientific, numerical or algorithmic code; security, data migrations, production or work that involves money.',
+      not_for: 'Work that carries something out which a written plan and tests already cover.',
     },
     // Anthropic's positioning: the most capable model, for the most demanding
-    // reasoning and long-horizon agentic work, priced above Opus.
+    // reasoning and long-horizon agentic work, priced above Opus. AA shows it
+    // ahead of Opus 5.5 in no area, at 2.5 times the price.
     fable: {
       work: 'frontier_work',
       choose_for:
@@ -110,20 +122,19 @@ const KINDS: Record<Language, Record<AgentModel, { work: string; choose_for: str
   zh: {
     haiku: {
       work: 'read_and_report',
-      choose_for: '出错也容易发现的只读查询：搜索或列出文件，找某个东西在哪里定义，读文件、日志或测试输出并汇报内容，执行一条命令并汇报结果。',
-      not_for: '任何要写入或修改文件、或需要判断的工作。',
+      choose_for: '一两步就能完成、出错也容易发现的只读查找：找某个东西在哪里定义，列出匹配的文件，读一个文件、日志或测试输出并汇报内容，执行一条命令并汇报结果。',
+      not_for: '需要连续很多步工具调用的探查，以及任何要写入或修改文件、或需要判断的工作。',
     },
     sonnet: {
       work: 'specified_work',
       choose_for:
-        '需要理解的只读工作（总结或解释代码、跨很多文件调研、审查一份 diff 并汇报发现），以及需求明确、结果可以检验的代码修改：原因已知的 bug、按书面需求实现的功能、给现有代码写测试、范围明确的重构。',
-      not_for: '设计、需求不明确、原因未知的 bug，或跨很多组件的长时间工作。',
+        '大多数负责执行的工作：终端和 shell 操作，需求明确的代码修改（原因已知的 bug、按书面需求实现的功能、给现有代码写测试、范围明确的重构、跨几个文件的修改），自动化流程的步骤，以及对仓库内材料的调研或审查并汇报。',
+      not_for: '结论取决于仓库外的事实（API 的行为、标准、版本之间的差异）而且记错代价高的工作、难推理的工作、需求不明确的设计，或原因未知的 bug。',
     },
     opus: {
       work: 'judgment_work',
-      choose_for:
-        '需要审慎判断或耗时很长的工作：设计、需求不明确或无从检验的修改、原因未知的 bug、跨很多组件的多步骤长时间工作、安全、数据迁移、生产环境或涉及钱的工作。',
-      not_for: '书面计划和测试已经覆盖的机械性或需求明确的工作。',
+      choose_for: '依赖准确事实知识的调研或解答；难推理的工作、设计，或原因未知的 bug；科学、数值或算法类代码；安全、数据迁移、生产环境或涉及钱的工作。',
+      not_for: '书面计划和测试已经覆盖的执行类工作。',
     },
     fable: {
       work: 'frontier_work',

@@ -207,7 +207,7 @@ test("requested_fits variant: the main agent's pick is no hint but a question of
   const part = dispatchPart(REVIEW, shape)
   expect(Object.keys(part.questions)).toEqual(['model', 'effort', 'requested_fits'])
   expect(JSON.stringify(part.questions.model?.instructions)).not.toContain('opus')
-  expect(JSON.stringify(part.questions.requested_fits?.instructions)).toContain('careful judgment')
+  expect(JSON.stringify(part.questions.requested_fits?.instructions)).toContain('hard reasoning')
 
   // Sure of haiku (confidence 0.85): the pick goes only if it does not fit.
   const settings = { ...shape, thetaOverride: 0.6, thetaMax: 0.5 }
