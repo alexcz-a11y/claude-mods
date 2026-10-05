@@ -11,7 +11,7 @@
 //   classic.PreToolUse  notes the calls a settings hook refused (core/outcomes.ts)
 //
 // The core owns the unmatched registration of these events; a feature always
-// registers them with a matcher (README, 开发).
+// registers them with a matcher (DEVELOPMENT.md, 开发).
 //
 // Switched off (`/dp off`, core/switches.ts) the core stands down: prompt.submit
 // asks nothing and turn.step sends every step as the engine made it.

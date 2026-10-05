@@ -81,7 +81,7 @@
 - **E0a 网格去重**（1.1 节已做）。运行器加按请求内容去重的缓存后，扫描只发不同的请求。
 - **E0b 门槛重扫，按后端、按语言**（第 1 条）：
   - effort-submit 的 `thetaMax`：已存的各档概率 `p` 重新 `pickEffort`。Jev 3 次 × 4 个变体，Clef 1 次 `en-score`。
-  - midturn 的 `thetaUp`、`thetaDown`、`thetaMax`：已存 `p` 和 `confidence`，用 `judgeMidturn` 重新判断，评 `sent`。midturn 还没有 `breakdown.sweeps`，第二阶段补上（同 subagent 的写法）。Clef 的 confidence 中位数 0.24（Jev 0.66），另扫一种读法：Clef 改看概率最高那一档的概率（README「待评测」提过）。Jev 2 次 × 5 个变体，Clef 1 次。
+  - midturn 的 `thetaUp`、`thetaDown`、`thetaMax`：已存 `p` 和 `confidence`，用 `judgeMidturn` 重新判断，评 `sent`。midturn 还没有 `breakdown.sweeps`，第二阶段补上（同 subagent 的写法）。Clef 的 confidence 中位数 0.24（Jev 0.66），另扫一种读法：Clef 改看概率最高那一档的概率（DEVELOPMENT.md「待评测」提过）。Jev 2 次 × 5 个变体，Clef 1 次。
   - subagent 的 `agentOverride`、`thetaNamed`、`thetaMax`：已有 `breakdown.sweeps`，Jev 4 次。Clef 只有 24 个回答，要 E6。
   - skill 的 `skillsMinRelevance`、`findSkillMinRelevance`：已有 sweeps，Jev 2 次。`skillsShortlist` 1–3 和第二段下限 0.1 以上也能离线模拟：已存第一段前 5 名的份额（`first`）和第二段的相关度（`fits`），按第一段的顺序取前 k 个、只保留它们的 `fits` 即可；短名单 5 个以上或下限低于 0.1 要重新请求（每次约 0.21 美元，完整方案可选）。
   - `thetaExpected` 没有可用的数据，要 E8。
@@ -110,7 +110,7 @@
 
 - **E3a 生产形状下的 effort 准确率**：effort-submit 的题按线上的样子附上 skill 问题（带画像）再问，看 effort 的准确率和单独问时是否不同。现在的 effort-submit 评测只测单独的 effort 请求，而线上打开 skill 推荐时从来不是单独的。Jev 1 次（选定的问题语言），200 个请求 × 约 2.2 万 token，约 0.18 美元。没有离线的办法。
 - **E3b 裁剪画像**：skill suite 加两种裁剪变体：T1 只用英文画像（去掉三个中文字段，第一段估计约 1.4 万 Jev token）；T2 英文、只留「用途」和「何时用」（再去掉「何时不用」）。另有一个不用改代码的近似：`--option contextTokens=8000` 时 `questionBudget` 会先去掉「不用于」字段、再把末尾的 skill 改回描述（1.1 节表里 skill 8k 那一列）。Jev 每种裁剪 2 次，每次约 0.13 美元。
-- **E3c 拆成两个并行请求的延迟**：同一个 key 并发发出 effort 请求和 skill 请求，20 条消息、40 个请求，看 Jev 是否把它们依次处理（README 实测：2 个并发时 p50 从约 280 ms 变成约 540 ms）。约 0.02 美元。拆开之后准确率不会变（同一个 state、同样的问题，只是分开发），所以不需要跑全量。
+- **E3c 拆成两个并行请求的延迟**：同一个 key 并发发出 effort 请求和 skill 请求，20 条消息、40 个请求，看 Jev 是否把它们依次处理（DEVELOPMENT.md「评测」实测：2 个并发时 p50 从约 280 ms 变成约 540 ms）。约 0.02 美元。拆开之后准确率不会变（同一个 state、同样的问题，只是分开发），所以不需要跑全量。
 - **Clef**：不跑全量。在 E3b 选出的最小裁剪上抽 10 题 × 中英（20 个回答，约 20 万 Clef token，4.4k neurons），只看延迟和是否答得上。
 - 预判和要拍板的问题见 D2。
 
@@ -301,7 +301,7 @@ node dispatch-pilot/eval/probe-truncation.ts --backend clef --only warmup,en-480
   - effort-midturn（Jev 2 次，5 个变体）：−2 到 +3，都通过；Clef `en-score` −2，通过。
   - subagent（Jev 3 次，4 个变体）：0 到 +6（中文都不低于英文），都通过。
   - skill（Jev 2 次）：`profiles` 在 0.7 下 −3.67，两次都不通过（新旧规则都不通过）；在新的默认值 0.75 下 −1.84、−2.76，通过。`descriptions` 在 0.7 下 −1.84、−0.92，0.75 下 −1.84、−2.75，都通过。
-- **文档。** README 的配置表和「按决策模型取的默认值」、「待评测」开头的各验收项状态、「评测」一节开头的说明（那些数字都是修复之前的问法测得的，修复后没有重跑），以及本节。
+- **文档。** README 的配置表和「按决策模型取的默认值」、「待评测」开头的各验收项状态、「评测」一节开头的说明（那些数字都是修复之前的问法测得的，修复后没有重跑），以及本节。（#18 把「待评测」「评测」和「配置」的完整说明放进了 DEVELOPMENT.md，README 只留概要和配置表。）
 
 ### 8.8.2 每条验收项的状态
 

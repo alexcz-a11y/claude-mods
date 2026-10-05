@@ -60,7 +60,7 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
   suggestSkills: boolean
 }
 
-/** Jev's: the values the eval of #4, #14, #15 and #16 set or kept (README, 配置). */
+/** Jev's: the values the eval of #4, #14, #15 and #16 set or kept (README, 配置 has the table; DEVELOPMENT.md, 配置 what each rests on). */
 const JEV_DEFAULTS: BackendDefaults = {
   timeoutMs: 1500,
   contextMessages: 4,
@@ -87,7 +87,7 @@ export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = 
   jev: JEV_DEFAULTS,
   clef: {
     ...JEV_DEFAULTS,
-    // Clef answers in 0.6-1.4 s once the connection is up, and a cold connection's first request took 1.8 s (README, 待评测).
+    // Clef answers in 0.6-1.4 s once the connection is up, and a cold connection's first request took 1.8 s (DEVELOPMENT.md, 待评测).
     timeoutMs: 3000,
     // Clef sometimes reads only the first ~2.1k tokens of a state (#17: 4 long states of 18 were cut there, plan 8.7), and the
     // newest messages and steps come last in it: 2000 estimated tokens (about 1.6-1.8k as Clef counts them) stay within that.

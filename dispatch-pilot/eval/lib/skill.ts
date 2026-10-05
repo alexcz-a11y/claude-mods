@@ -355,7 +355,7 @@ function fitsOf(row: Row<SkillAnswer> | undefined): Fit[] | null {
 
 /**
  * The situations the dataset was written to cover, each a group of items
- * (README, 评测): no skill fits; a skill fits (in Chinese: a Chinese request
+ * (DEVELOPMENT.md, 评测): no skill fits; a skill fits (in Chinese: a Chinese request
  * matched to a skill described in English); several skills fit in part;
  * look-alike names; a word that lures; a skill only the person can start;
  * work only the conversation before the message names.

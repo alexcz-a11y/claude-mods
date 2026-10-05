@@ -5,7 +5,7 @@
 // first. Features go above the core so that on every event they share, each
 // feature has run before the core finishes the event (sends the decision
 // request, writes the step). To add a feature: one file, one line here,
-// above `registerCore` (README, 开发).
+// above `registerCore` (DEVELOPMENT.md, 开发).
 
 import type { Register } from 'claude-code'
 import { registerCore } from './core/core.ts'

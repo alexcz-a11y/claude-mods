@@ -5,7 +5,7 @@
 // and trimmed, and how the ranking is described and set up.
 //
 // Pure: no `$`. Whatever reads the session (commands, settings, disk) comes
-// in as closures the hook that owns `$` builds (README, 开发).
+// in as closures the hook that owns `$` builds (DEVELOPMENT.md, 开发).
 
 import type { Language } from '../decision/effort.ts'
 import { questionBudget, SHORTLIST_FLOOR, type RankerSettings, type SkillOption, type SkillRanking, type SkillShare } from '../decision/skills.ts'

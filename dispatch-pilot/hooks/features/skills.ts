@@ -174,7 +174,7 @@ export function registerSkills(on: On, ctx: Ctx): void {
     const kept = trimListing(e.text, alwaysListed)
     const keptNames = kept === null ? 'none' : listingNames(kept).join(', ')
     // Picked as the engine asks, by the switch as it stands: the engine keeps the answer for the
-    // conversation, so a later `/dp find-skill on|off` shows from the next one (README).
+    // conversation, so a later `/dp find-skill on|off` shows from the next one (DEVELOPMENT.md, 它做什么).
     const findSkill = isOn(FIND_SKILL)
     const hint = findSkill ? LISTING_HINT : LISTING_HINT_WITHOUT_FIND_SKILL
     const noted = findSkill ? 'the note names find_skill' : 'the note leaves find_skill out (switched off)'
@@ -287,7 +287,7 @@ export function registerSkills(on: On, ctx: Ctx): void {
  * names find_skill in full and says it may need ToolSearch: the tool is
  * deferred, so until loaded the main agent sees only its name. (A wording that
  * also said when to look, in find_skill's own words, did no better on a real
- * engine; README, 已实测.)
+ * engine; DEVELOPMENT.md, 已实测的引擎行为.)
  */
 const LISTING_HINT =
   "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it. For any other skill, call the find_skill tool (mcp__dispatch-pilot__find_skill; load it with ToolSearch first if it is deferred) with a few words on the work, then load a skill it returns with the Skill tool by its exact name."

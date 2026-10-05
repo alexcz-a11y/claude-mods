@@ -60,5 +60,5 @@ claude-api 的描述是为了让它自己尽量被触发而写的，范围极宽
 以上是审核者的原文。审核记录 109 行照原样提交，`apply-review.ts skill --from <审核记录>` 应用后校验通过，再应用一次不会有改动。之后的处理如下：
 
 - **4 题的理由已改写。** 017 改为 herdr 是干扰项、run 是中立（这题什么都不该推荐，推了 run 仍算错，只是不算踩干扰项）；042 改为 openai-image 是中立（和 banner-design 一起推不扣分，只推它算未命中）；084 改为 pr 是中立、两个 gold 并列；100 改为 run 和 ego-browser 并列 gold，run 排第一。只改了这 4 行的 `rationale`，其他行逐字不变。
-- **评分口径已按「附」实现**（`eval/lib/skill.ts` 的 `gradeSkills`，写进 README 和结果文件的 `scoring`）。答案分两部分：`suggest`（推荐给主 agent 的 skill）和 `hint`（状态行提示用户的、只能由用户触发的 skill，mod 每条消息最多提示 2 个）。gold 为空时什么都不推才算对；否则推荐里至少有一个在 accept、而且没有 must_not 才算对，中立 skill 和 accept 里的一起推不扣分，只推中立 skill 算未命中；user_only_hint 为空时什么都不提示才算对，否则至少提示一个其中的 skill 才算对。两部分都对才算整题对。gold 精确命中率另报：推荐的正好是 gold、提示的正好是 user_only_hint。常数基线「每题都不推荐、不提示」整题对 22 / 109（20.2%），就是上面的「完全不该推荐任何 skill」那 22 题。
+- **评分口径已按「附」实现**（`eval/lib/skill.ts` 的 `gradeSkills`，写进 DEVELOPMENT.md 的「评测」和结果文件的 `scoring`）。答案分两部分：`suggest`（推荐给主 agent 的 skill）和 `hint`（状态行提示用户的、只能由用户触发的 skill，mod 每条消息最多提示 2 个）。gold 为空时什么都不推才算对；否则推荐里至少有一个在 accept、而且没有 must_not 才算对，中立 skill 和 accept 里的一起推不扣分，只推中立 skill 算未命中；user_only_hint 为空时什么都不提示才算对，否则至少提示一个其中的 skill 才算对。两部分都对才算整题对。gold 精确命中率另报：推荐的正好是 gold、提示的正好是 user_only_hint。常数基线「每题都不推荐、不提示」整题对 22 / 109（20.2%），就是上面的「完全不该推荐任何 skill」那 22 题。
 - **依赖桌面 app 的 skill**（built-in-browser 等）没有移到中立：评测用的快照来自 `claude -p` 会话，这些 skill 在其中照样列给主 agent，和线上一致。

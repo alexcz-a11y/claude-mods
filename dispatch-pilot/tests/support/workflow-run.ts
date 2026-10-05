@@ -4,7 +4,7 @@
 // changing it.
 //
 // Each run's directory is the tool result's `transcriptDir`. What the engine
-// writes there was measured on 2.1.289 (README, 已实测的引擎行为):
+// writes there was measured on 2.1.289 (DEVELOPMENT.md, 已实测的引擎行为):
 //   journal.jsonl            `{"type":"launched"}` at launch, then one `started`
 //                            line per agent before its first step: its id and
 //                            label (an agent() without a label is recorded under
