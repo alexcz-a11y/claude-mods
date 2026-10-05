@@ -65,7 +65,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       requested_model: e.model ?? null,
     }
     const part = dispatchPart(dispatch, settings)
-    const request = mergeParts(dispatchState(dispatch, ctx.config.context.tokens), [part])
+    const request = mergeParts(dispatchState(dispatch, ctx.config.contextByKind.agent), [part])
     const io = {
       fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
       sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),

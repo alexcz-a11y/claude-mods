@@ -73,23 +73,35 @@ for (const chosen of CHOSEN) {
   })
 }
 
-// The context budget: 6000 by default with Jev (what its 32k for the state and the longest question leaves beside the
-// skills' question, DEVELOPMENT.md, 配置), 2000 with Clef; a budget the person sets holds, except that Jev reads one above
-// the manifest's 16000 as 16000 and Clef one above 2000 as 2000 (it sometimes reads only the first ~2.1k tokens of a
-// state, and the newest messages come last).
+// The context budget by kind of request (core/setup.ts BACKEND_DEFAULTS contextByKind): with Jev, a message that carries the
+// skills' question (and find_skill's first stage) 6000 tokens, every other kind of request 24000 (what 32k for the state and
+// the longest question leaves beside a question of at most 700 tokens, DEVELOPMENT.md, 配置); 2000 with Clef for all. A budget
+// the person sets holds for every kind, each kind taking the smaller of it and its own: Jev reads one above the manifest's
+// 16000 as 16000 and Clef one above 2000 as 2000 (it sometimes reads only the first ~2.1k tokens of a state, and the newest
+// messages come last).
+const SKILLS_WORLD: SkillsWorld = {
+  commands: [{ name: 'tdd', description: 'Test-driven development. Use when the user wants to build features or fix bugs test-first.', source: 'user' }],
+  listed: [{ name: 'tdd', source: 'userSettings', tokens: 52 }],
+}
 const BUDGETS = [
-  { name: 'Jev, by default', options: JEV, budget: 6000 },
+  { name: 'Jev, by default', options: JEV, budget: 24000 },
   { name: 'Jev, set to 4000', options: { ...JEV, contextTokens: 4000 }, budget: 4000 },
   { name: 'Jev, set to 16000', options: { ...JEV, contextTokens: 16000 }, budget: 16000 },
+  { name: 'Jev with skill suggestions, by default', options: JEV, budget: 6000, skills: true },
+  { name: 'Jev with skill suggestions, set to 4000', options: { ...JEV, contextTokens: 4000 }, budget: 4000, skills: true },
+  { name: 'Jev with skill suggestions, set to 16000 (read as 6000 for that request)', options: { ...JEV, contextTokens: 16000 }, budget: 6000, skills: true },
   { name: 'Clef, by default', options: CLEF_OPTIONS, budget: 2000 },
   { name: 'Clef, set to 4000 (read as 2000)', options: { ...CLEF_OPTIONS, contextTokens: 4000 }, budget: 2000 },
   { name: 'Clef, set to 1500', options: { ...CLEF_OPTIONS, contextTokens: 1500 }, budget: 1500 },
 ] as const
 
-for (const { name, options, budget } of BUDGETS) {
-  test(`the context budget with ${name} is ${budget} tokens: a long message is cut to it`, { options }, async ($, on) => {
-    const w = world($, on, { backend: 'cloudflareAccountId' in options ? clef([0, 1, 0, 0, 0]) : jev([0, 1, 0, 0, 0]) })
+for (const { name, options, budget, ...more } of BUDGETS) {
+  test(`the context budget of a message with ${name} is ${budget} tokens: a long message is cut to it`, { options }, async ($, on) => {
+    const skills = 'skills' in more
+    const clefChosen = 'cloudflareAccountId' in options
+    const w = world($, on, { backend: clefChosen ? clef([0, 1, 0, 0, 0]) : skills ? rates({ tdd: 0.5, '(none)': 0.5 }, { tdd: 0.5 }) : jev([0, 1, 0, 0, 0]), ...(skills ? { skills: SKILLS_WORLD } : {}) })
     await w.submit(LONG)
+    if (skills) expect(Object.keys(w.requests[0]?.body.questions)).toContain('skills.which')
     expect(messageTokens(w)).toBeLessThanOrEqual(budget)
     expect(messageTokens(w)).toBeGreaterThan(budget - 50)
   })
@@ -255,7 +267,7 @@ test("at session start the debug log says which options took the decision model'
 test("readConfig: an option left unset takes the decision model's default; Clef's are Jev's but for its timeout, the three that say how much is read (kept as they were), the skill suggestions and find_skill's wait and first request", () => {
   const jevConfig = readConfig({})
   expect([jevConfig.backend, jevConfig.timeoutMs, jevConfig.context, jevConfig.skills.suggest.minRelevance, jevConfig.skills.suggestByDefault]).toEqual(['jev', 1500, { messages: 32, tokens: 6000 }, 0.75, true])
-  expect(jevConfig.midturn.limits).toEqual({ steps: 16, tokens: 6000 })
+  expect(jevConfig.midturn.limits).toEqual({ steps: 16, tokens: 24000 })
   expect([jevConfig.skills.findWaitMs, jevConfig.skills.findByProfile]).toEqual([1500, true])
   const clefConfig = readConfig({ decisionModel: 'clef' })
   expect([clefConfig.backend, clefConfig.timeoutMs, clefConfig.context, clefConfig.skills.suggest.minRelevance, clefConfig.skills.suggestByDefault]).toEqual(['clef', 3000, { messages: 4, tokens: 2000 }, 0.75, false])
@@ -264,7 +276,7 @@ test("readConfig: an option left unset takes the decision model's default; Clef'
   expect(clefConfig.midturn.rules).toEqual(jevConfig.midturn.rules)
   expect([clefConfig.escalation.thetaExpected, clefConfig.agents.thetaOverride, clefConfig.skills.find.minRelevance]).toEqual([0.25, 0.6, 0.5])
   // Not calibrated for Clef: Jev's values, but for these, each set for Clef (measured, or kept as it was when Clef was connected).
-  const own = { timeoutMs: 1500, contextMessages: 32, contextTokens: 6000, contextTokensMax: 16000, rejudgeSteps: 16, suggestSkills: true, findSkillWaitMs: null, findSkillProfiles: true, turnStartLanguage: 'zh' }
+  const own = { timeoutMs: 1500, contextMessages: 32, contextTokens: 6000, contextTokensMax: 16000, contextByKind: { messagePlain: 24000, rejudge: 24000, agent: 24000, workflow: 24000 }, rejudgeSteps: 16, suggestSkills: true, findSkillWaitMs: null, findSkillProfiles: true, turnStartLanguage: 'zh' }
   expect({ ...BACKEND_DEFAULTS.clef, ...own }).toEqual(BACKEND_DEFAULTS.jev)
   expect(clefConfig.defaults.used.map(([option]) => option)).toEqual([...PER_BACKEND_OPTIONS])
 })
@@ -272,11 +284,29 @@ test("readConfig: an option left unset takes the decision model's default; Clef'
 // Raising is easy, lowering is hard (AA's scores fall steeply as effort falls, DEVELOPMENT.md, 「按 AA 基准校正」): the
 // mid-turn gates, the same for both decision models.
 test('the mid-turn gates by default: a raise needs 0.3, a lowering 0.75 and no raise in the last 5 steps; Clef reads the same', () => {
-  for (const options of [{}, { decisionModel: 'clef' }]) {
+  for (const options of [{}, { decisionModel: 'clef' }] as Record<string, string>[]) {
     expect(readConfig(options).midturn.rules).toEqual({ thetaUp: 0.3, thetaDown: 0.75, thetaMax: 0.5, holdSteps: 5 })
   }
   // What the person sets is what is used.
   expect(readConfig({ thetaUp: 0.4, thetaDown: 0.6, holdSteps: 3 }).midturn.rules).toMatchObject({ thetaUp: 0.4, thetaDown: 0.6, holdSteps: 3 })
+})
+
+// The budget by kind of request, as readConfig gives it: `context` is the message that carries the skills' question (and
+// find_skill's first stage), `contextByKind` has the others.
+test("readConfig: the context budget is read by kind of request: Jev 6000 with the skills' question and 24000 for the rest, Clef 2000 for all; a value the person sets caps each kind at the smaller", () => {
+  const kinds = (options: Record<string, string | number>) => {
+    const config = readConfig(options)
+    return { message: config.context.tokens, ...config.contextByKind, rejudge: config.midturn.limits.tokens }
+  }
+  expect(kinds({})).toEqual({ message: 6000, messagePlain: 24000, rejudge: 24000, agent: 24000, workflow: 24000 })
+  expect(kinds({ decisionModel: 'clef' })).toEqual({ message: 2000, messagePlain: 2000, rejudge: 2000, agent: 2000, workflow: 2000 })
+  // A budget the person sets applies to every kind, none above its own most.
+  expect(kinds({ contextTokens: 4000 })).toEqual({ message: 4000, messagePlain: 4000, rejudge: 4000, agent: 4000, workflow: 4000 })
+  expect(kinds({ contextTokens: 16000 })).toEqual({ message: 6000, messagePlain: 16000, rejudge: 16000, agent: 16000, workflow: 16000 })
+  expect(kinds({ decisionModel: 'clef', contextTokens: 1500 })).toEqual({ message: 1500, messagePlain: 1500, rejudge: 1500, agent: 1500, workflow: 1500 })
+  expect(kinds({ decisionModel: 'clef', contextTokens: 9000 })).toEqual({ message: 2000, messagePlain: 2000, rejudge: 2000, agent: 2000, workflow: 2000 })
+  // The debug log's note on a value cut down is about the person's setting against the manifest's and Clef's most, not each kind.
+  expect(readConfig({ contextTokens: 16000 }).defaults.capped).toEqual([])
 })
 
 // Jev's context defaults are the most it accepts (DEVELOPMENT.md, 配置, 「Jev 的上下文默认值怎么算」), not what the eval ran
@@ -292,9 +322,8 @@ const QUESTION_REAL_PER_ESTIMATED = 21_900 / 16_000
 /** The first stage of the skills with every profile of 111 skills, as Jev reported it: the longest question there is, in message requests and in find_skill's. */
 const SKILLS_FIRST_STAGE_REAL = 21_900
 
-test("Jev's context budget by default keeps the state plus the longest question within 32k, and the whole request within 64k, in every kind of request, with room to spare", () => {
-  const budget = BACKEND_DEFAULTS.jev.contextTokens
-  const real = budget * STATE_REAL_PER_ESTIMATED
+test("Jev's context budget by default, kind of request by kind, keeps the state plus the longest question within 32k and the whole request within 64k, with room to spare", () => {
+  const config = readConfig({})
   const size = (part: { questions: Record<string, unknown> }) => {
     const sizes = Object.values(part.questions).map((question) => estimateTokens(JSON.stringify(question)) * QUESTION_REAL_PER_ESTIMATED)
     return { longest: Math.max(...sizes), total: sizes.reduce((sum, n) => sum + n, 0) }
@@ -302,31 +331,61 @@ test("Jev's context budget by default keeps the state plus the longest question 
   const mentions = { user_message: 'Use opus, ask for effort max, do not use haiku, sonnet is fine for the rest', agent_type: 'general-purpose', description: 'd', prompt: 'p', requested_model: 'sonnet' }
   const effort = size(turnStartEffortPart({ language: 'zh' }))
   const agent = size(dispatchPart(mentions, { models: [...DEFAULT_AGENT_MODELS, 'fable'] }))
+  const rejudge = size(midturnEffortPart({}, { trouble: true }))
+  // Each kind of request: the budget its state takes, the longest question it carries and all its questions together (Jev's count).
   const kinds = {
     // The first stage of the skills shares the request with the effort question and, for the skills only the person can start, a second question as long.
-    'a message, skills on': { longest: SKILLS_FIRST_STAGE_REAL, total: 2 * SKILLS_FIRST_STAGE_REAL + effort.total },
-    "find_skill's first stage": { longest: SKILLS_FIRST_STAGE_REAL, total: SKILLS_FIRST_STAGE_REAL },
-    'a message, skills off': effort,
-    'a mid-turn re-decision': size(midturnEffortPart({}, { trouble: true })),
-    'a stuck re-decision': { longest: size(midturnEffortPart({}, { trouble: true })).longest, total: size(midturnEffortPart({}, { trouble: true })).total + size(expectedFailurePart({})).total },
-    'a dispatched agent': agent,
+    'a message, skills on': { budget: config.context.tokens, longest: SKILLS_FIRST_STAGE_REAL, total: 2 * SKILLS_FIRST_STAGE_REAL + effort.total },
+    "find_skill's first stage": { budget: config.context.tokens, longest: SKILLS_FIRST_STAGE_REAL, total: SKILLS_FIRST_STAGE_REAL },
+    'a message, skills off': { budget: config.contextByKind.messagePlain, ...effort },
+    'a mid-turn re-decision': { budget: config.midturn.limits.tokens, ...rejudge },
+    'a stuck re-decision': { budget: config.midturn.limits.tokens, longest: rejudge.longest, total: rejudge.total + size(expectedFailurePart({})).total },
+    'a dispatched agent': { budget: config.contextByKind.agent, ...agent },
     // At most 8 calls share a request, each with the questions of an agent (a Workflow's state is at most a third of the budget and the briefs, within it).
-    'a Workflow batch': { longest: agent.longest, total: 8 * agent.total },
+    'a Workflow batch': { budget: config.contextByKind.workflow, longest: agent.longest, total: 8 * agent.total },
   }
-  const over = Object.entries(kinds).flatMap(([kind, { longest, total }]) => [
-    ...(real + longest > JEV_LIMIT.stateAndQuestion * USED ? [`${kind}: state plus its longest question is ${Math.round(real + longest)}`] : []),
-    ...(real + total > JEV_LIMIT.request * USED ? [`${kind}: the whole request is ${Math.round(real + total)}`] : []),
-  ])
+  const over = Object.entries(kinds).flatMap(([kind, { budget, longest, total }]) => {
+    const real = budget * STATE_REAL_PER_ESTIMATED
+    return [
+      ...(real + longest > JEV_LIMIT.stateAndQuestion * USED ? [`${kind}: state plus its longest question is ${Math.round(real + longest)}`] : []),
+      ...(real + total > JEV_LIMIT.request * USED ? [`${kind}: the whole request is ${Math.round(real + total)}`] : []),
+    ]
+  })
   expect(over).toEqual([])
-  // The default is the most that leaves that room: 500 tokens more would not.
-  const more = (budget + 500) * STATE_REAL_PER_ESTIMATED
-  expect(more + SKILLS_FIRST_STAGE_REAL).toBeGreaterThan(JEV_LIMIT.stateAndQuestion * USED)
+  // The skills' kinds take the most that leaves that room: 500 tokens more would not.
+  const budget = config.context.tokens
+  expect((budget + 500) * STATE_REAL_PER_ESTIMATED + SKILLS_FIRST_STAGE_REAL).toBeGreaterThan(JEV_LIMIT.stateAndQuestion * USED)
+  // The other kinds take a round number below what their longest question leaves (about 25,400 to 25,600): the longest of them, a dispatched agent's request, is the one that sets it.
+  for (const tokens of [config.contextByKind.messagePlain, config.midturn.limits.tokens, config.contextByKind.agent, config.contextByKind.workflow]) expect(tokens).toBe(24000)
+  expect(25_000 * STATE_REAL_PER_ESTIMATED + agent.longest).toBeLessThanOrEqual(JEV_LIMIT.stateAndQuestion * USED)
   // The profiles of 111 skills (16k by the mod's count) are cut by `questionBudget` once the state leaves less than they need, 10% to spare: the default leaves them whole.
   expect(questionBudget(budget)).toBeGreaterThanOrEqual(16_000 * 1.1)
   expect(questionBudget(budget + 500)).toBeLessThan(16_000 * 1.1)
   // Whatever budget the person sets within the manifest's most, the skills' question is cut so that state and question still fit 32k.
   const most = BACKEND_DEFAULTS.jev.contextTokensMax
   expect(most * STATE_REAL_PER_ESTIMATED + questionBudget(most) * QUESTION_REAL_PER_ESTIMATED).toBeLessThanOrEqual(JEV_LIMIT.stateAndQuestion)
+  // And what is read of a budget the person sets never exceeds a kind's own: the skills' kinds stay at 6000 whatever is set.
+  expect(readConfig({ contextTokens: most }).context.tokens).toBe(6000)
+})
+
+test("with Jev, a dispatched agent's state and a mid-turn re-decision's message take up to 24000 tokens (a Workflow's briefs too): their questions are short", { options: { ...JEV, rejudgeEvery: 1 } }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]) })
+  await w.submit(LONG)
+  const reading = (index: number) => ({ index, answer: `step ${index}`, tools: [{ tool: 'Read', input: { file_path: `/repo/src/f${index}.ts` } }] })
+  await w.step(reading(0))
+  await w.step(reading(1))
+  await w.step({ index: 2 })
+  await w.spawn({ prompt: LONG, description: 'Check the cache config' })
+
+  const stateOf = (id: string) => w.requests.find((request) => id in request.body.questions)?.body.state
+  const agent = stateOf('agent.model')
+  expect(sentTokens(agent)).toBeLessThanOrEqual(24000)
+  expect(sentTokens(agent)).toBeGreaterThan(23000)
+  // The re-decision keeps the turn's message to half of its budget.
+  const midturn = stateOf('midturn.level')
+  expect(estimateTokens(String(midturn.user_message))).toBeLessThanOrEqual(12000)
+  expect(estimateTokens(String(midturn.user_message))).toBeGreaterThan(11000)
+  expect(sentTokens(midturn)).toBeLessThanOrEqual(24000)
 })
 
 test('with Clef a message carries 4 recent messages by default, however many there are', { options: CLEF_OPTIONS }, async ($, on) => {
@@ -365,7 +424,8 @@ test('readConfig: a value the person sets is the one used with either decision m
   expect(readConfig({ contextTokens: 4000 }).context.tokens).toBe(4000)
   // Jev's most is the manifest's: a value above it reads as 16000, and the debug log says so.
   const jevCapped = readConfig({ contextTokens: 20000 })
-  expect(jevCapped.context.tokens).toBe(16000)
+  expect(jevCapped.contextByKind.agent).toBe(16000)
+  expect(jevCapped.context.tokens).toBe(6000)
   expect(jevCapped.defaults.capped).toEqual([{ option: 'contextTokens', set: 20000, read: 16000 }])
   const capped = readConfig({ decisionModel: 'clef', contextTokens: 4000 })
   expect(capped.context.tokens).toBe(2000)

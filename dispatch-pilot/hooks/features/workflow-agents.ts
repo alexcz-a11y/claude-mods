@@ -113,7 +113,7 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
         fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
         sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
       }
-      const plan = workflowBatches(parsed, words, settings, ctx.config.context.tokens)
+      const plan = workflowBatches(parsed, words, settings, ctx.config.contextByKind.workflow)
       const timeoutMs = batchesTimeoutMs(ctx.config.timeoutMs, plan.batches.length)
       const asked = await Promise.all(
         plan.batches.map(async (batch) => {

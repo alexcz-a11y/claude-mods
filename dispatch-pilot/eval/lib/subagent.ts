@@ -96,7 +96,7 @@ function agentRequest(item: AgentItem, language: Language, variant: string, sett
   const dispatch: Dispatch = { ...asked, user_message: messageText(asked.user_message, settings.context.tokens) }
   const shape = agentSettings(settings, variantAsk(variant))
   const part = dispatchPart(dispatch, shape)
-  return { request: mergeParts(dispatchState(dispatch, settings.context.tokens), [part]), part, dispatch, shape }
+  return { request: mergeParts(dispatchState(dispatch, settings.contextByKind.agent), [part]), part, dispatch, shape }
 }
 
 /**
@@ -147,7 +147,7 @@ async function decideWorkflowAgent(dataset: readonly AgentItem[], item: AgentIte
   const words = messageText(item[language].user_message, settings.context.tokens)
   const { ask: asking, perRequest } = variantOf(variant)
   const shape = agentSettings(settings, asking)
-  const plan = workflowBatches(parsed, words, shape, settings.context.tokens, perRequest)
+  const plan = workflowBatches(parsed, words, shape, settings.contextByKind.workflow, perRequest)
   const at = plan.batches.findIndex((batch) => batch.calls.includes(index))
   const batch = plan.batches[at]
   if (batch === undefined) {
