@@ -270,7 +270,8 @@ test('what the mod sends is exactly what the decision module builds, so the eval
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), messages: TRANSCRIPT })
   await w.submit('改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉')
 
-  const built = mergeParts(turnStartState({ prompt: '改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉', messages: TRANSCRIPT, limits: { messages: 4, tokens: 2000 } }), [turnStartEffortPart()])
+  // Jev is asked about the effort in Chinese (core/setup.ts BACKEND_DEFAULTS turnStartLanguage).
+  const built = mergeParts(turnStartState({ prompt: '改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉', messages: TRANSCRIPT, limits: { messages: 4, tokens: 2000 } }), [turnStartEffortPart({ language: 'zh' })])
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, ...built })
 })
 

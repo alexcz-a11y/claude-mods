@@ -16,7 +16,7 @@ import type { Backend } from '../decision/backend.ts'
 import { clefBackend } from '../decision/clef.ts'
 import type { ContextLimits } from '../decision/context.ts'
 import { DEFAULT_AGENT_MODELS, type AgentModel, type DispatchAsk, type DispatchSettings } from '../decision/dispatched-agent.ts'
-import { DEFAULT_ASK, type EffortAsk } from '../decision/effort.ts'
+import { DEFAULT_ASK, type EffortAsk, type Language } from '../decision/effort.ts'
 import { RAISE_MODES, type RaiseMode } from '../decision/escalation.ts'
 import { jevBackend } from '../decision/jev.ts'
 import type { MidturnLimits, MidturnRules } from '../decision/midturn.ts'
@@ -67,6 +67,12 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
   findSkillWaitMs: number | null
   /** Whether find_skill's first request offers a skill by its profile (else by its description); the second re-reads it by both. */
   findSkillProfiles: boolean
+  /**
+   * The language the effort question beside each message is written in
+   * (`turnStartEffortPart`); every other question keeps `ctx.ask`'s. Not an
+   * option: set by the eval (effort-submit, `zh-score` against `en-score`).
+   */
+  turnStartLanguage: Language
 }
 
 /** Jev's: the values the eval of #4, #14, #15 and #16 set or kept (README, 配置 has the table; DEVELOPMENT.md, 配置 what each rests on). */
@@ -87,6 +93,9 @@ const JEV_DEFAULTS: BackendDefaults = {
   suggestSkills: true,
   findSkillWaitMs: null,
   findSkillProfiles: true,
+  // effort-submit on the current wording, one run each (2026-10-05): asked in Chinese, Chinese items 85% and English
+  // items 89%; asked in English, 79% and 78%. The questions asked later have no data in Chinese and stay in English.
+  turnStartLanguage: 'zh',
 }
 
 /**
@@ -110,6 +119,8 @@ export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = 
     // and the second stage 0.5-0.8 s (#16), well within 8000 ms; with every profile the first stage alone took 3.7-7.9 s.
     findSkillWaitMs: 8000,
     findSkillProfiles: false,
+    // Clef has never been asked in Chinese on the current wording.
+    turnStartLanguage: 'en',
   },
 }
 
@@ -124,6 +135,8 @@ export type Config = {
   typesafeApiKey: string
   /** How long a decision request may take before the prompt goes on without it. */
   timeoutMs: number
+  /** The language of the effort question beside each message (the decision model's: BACKEND_DEFAULTS turnStartLanguage). */
+  turnStartLanguage: Language
   /** `max` only when its own probability reaches this. */
   thetaMax: number
   /** What the decision model reads of the conversation: how many recent messages, how many tokens in all. */
@@ -240,6 +253,7 @@ export function readConfig(options: PluginOptions): Config {
     defaults: { used, capped },
     typesafeApiKey: stringOf(options.typesafeApiKey, '').trim(),
     timeoutMs,
+    turnStartLanguage: defaults.turnStartLanguage,
     thetaMax,
     context,
     midturn: {

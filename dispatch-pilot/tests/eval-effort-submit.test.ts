@@ -4,10 +4,13 @@
 
 import { expect, test } from 'claude-code/testing'
 import type { SessionMessage } from 'claude-code'
+import { CLEF_MODEL } from '../hooks/decision/clef.ts'
+import type { EffortAsk } from '../hooks/decision/effort.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import type { ContextEntry, EffortSubmitItem } from '../eval/lib/datasets.ts'
-import { submitRequest } from '../eval/lib/effort-submit.ts'
+import { modVariant, submitRequest, SUBMIT_VARIANTS } from '../eval/lib/effort-submit.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
+import { CLEF_OPTIONS, clef } from './support/cloudflare.ts'
 import { jev, world } from './support/world.ts'
 
 /** An item as the dataset writes it: a short follow-up whose meaning is in the conversation before it. */
@@ -55,19 +58,30 @@ function transcript(context: readonly ContextEntry[]): SessionMessage[] {
   })
 }
 
-for (const language of ['zh', 'en'] as const) {
-  test(`the eval's request for an item is the mod's request for that message after that conversation (${language})`, { options: { typesafeApiKey: 'k' } }, async ($, on) => {
-    const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(ITEM[language].recent_context) })
-    await w.submit(ITEM[language].message)
+// The mod asks Jev as the `zh-score` variant and Clef as `en-score` (modVariant: the effort question beside a
+// message is in the decision model's language).
+const BACKENDS = [
+  { name: 'Jev', options: { typesafeApiKey: 'k' }, variant: 'zh-score', reply: jev([0, 0, 0.2, 0.7, 0.1]), model: JEV_MODEL },
+  { name: 'Clef', options: CLEF_OPTIONS, variant: 'en-score', reply: clef([0, 0, 0.2, 0.7, 0.1]), model: CLEF_MODEL },
+] as const
 
-    const { request } = submitRequest(ITEM, language, { language: 'en', primitive: 'score' }, settingsFrom({}))
-    expect(w.requests).toHaveLength(1)
-    expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
-    // What the request holds, so the equality above is not two empty things.
-    expect(request.state.user_message).toContain('[REDACTED]')
-    expect(String(request.state.recent_context)).toContain('[tools: Grep, Read x2]')
-    expect(String(request.state.recent_context)).not.toContain('FILE CONTENT')
-  })
+for (const chosen of BACKENDS) {
+  for (const language of ['zh', 'en'] as const) {
+    test(`with ${chosen.name}, the eval's ${chosen.variant} request for an item is the mod's request for that message after that conversation (${language})`, { options: chosen.options }, async ($, on) => {
+      const w = world($, on, { backend: chosen.reply, messages: transcript(ITEM[language].recent_context) })
+      await w.submit(ITEM[language].message)
+
+      const settings = settingsFrom(chosen.options)
+      expect(modVariant(settings)).toBe(chosen.variant)
+      const { request } = submitRequest(ITEM, language, SUBMIT_VARIANTS[chosen.variant] as EffortAsk, settings)
+      expect(w.requests).toHaveLength(1)
+      expect(w.requests[0]?.body).toEqual({ model: chosen.model, state: request.state, questions: request.questions })
+      // What the request holds, so the equality above is not two empty things.
+      expect(request.state.user_message).toContain('[REDACTED]')
+      expect(String(request.state.recent_context)).toContain('[tools: Grep, Read x2]')
+      expect(String(request.state.recent_context)).not.toContain('FILE CONTENT')
+    })
+  }
 }
 
 // With the skills switch on (its default) the mod's request also asks about the
@@ -83,7 +97,7 @@ test("with skills to ask about, the mod's request holds the eval's state and eff
   const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(ITEM.zh.recent_context), skills })
   await w.submit(ITEM.zh.message)
 
-  const { request } = submitRequest(ITEM, 'zh', { language: 'en', primitive: 'score' }, settingsFrom({}))
+  const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({}))
   const sent = w.requests[0]?.body
   expect(Object.keys(sent.questions)).toEqual(['effort.level', 'skills.which'])
   expect(sent.state).toEqual(request.state)
@@ -95,7 +109,7 @@ test("the eval cuts the conversation to the mod's limits as the mod does", { opt
   const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(ITEM.zh.recent_context) })
   await w.submit(ITEM.zh.message)
 
-  const { request } = submitRequest(ITEM, 'zh', { language: 'en', primitive: 'score' }, settingsFrom({ contextMessages: 2, contextTokens: 100 }))
+  const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({ contextMessages: 2, contextTokens: 100 }))
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   expect(String(request.state.recent_context)).not.toContain('登录接口')
 })

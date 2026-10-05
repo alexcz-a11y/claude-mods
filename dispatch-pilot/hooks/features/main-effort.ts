@@ -39,7 +39,8 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
     }
 
     contribute(e.text, {
-      ...turnStartEffortPart(ctx.ask),
+      // Written in the decision model's language for this question (Chinese with Jev); the other questions keep ctx.ask's.
+      ...turnStartEffortPart({ ...ctx.ask, language: ctx.config.turnStartLanguage }),
       settle: async (outcome) => {
         const show = (line: string | undefined) => $.ui.status(line)
         if (!outcome.ok) {

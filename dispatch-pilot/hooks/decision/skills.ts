@@ -276,18 +276,22 @@ export type SkillsItem = { message: string; recent_context: readonly ContextMess
  * The decision request the mod sends when the person sends `item.message`:
  * the shared state, the effort question, then the skills questions over
  * `options` (stage one; the `ranker`'s when given), in the ballot's order.
- * `part` reads the skills answers back (`answersFor(part, answers)`, then
- * `ranker.rank` with `request.state`); null when there is no option, and the
- * request then asks about effort alone.
+ * The effort question is written in `effortLanguage` when given (the mod's
+ * for its decision model: core/setup.ts BACKEND_DEFAULTS turnStartLanguage),
+ * the skills questions as `ask` (or the ranker) says. `part` reads the skills
+ * answers back (`answersFor(part, answers)`, then `ranker.rank` with
+ * `request.state`); null when there is no option, and the request then asks
+ * about effort alone.
  */
 export function skillsRequest(
   item: SkillsItem,
   options: readonly SkillOption[],
-  settings: { limits: ContextLimits; ask?: Partial<EffortAsk>; ranker?: Pick<SkillRanker, 'part'> },
+  settings: { limits: ContextLimits; ask?: Partial<EffortAsk>; effortLanguage?: Language; ranker?: Pick<SkillRanker, 'part'> },
 ): { request: DecisionRequest; part: Part | null } {
   const part = settings.ranker ? settings.ranker.part(options) : skillsPart(options, { language: settings.ask?.language, budget: questionBudget(settings.limits.tokens) })
   const state = turnStartState({ prompt: item.message, messages: item.recent_context, limits: settings.limits })
-  const request = mergeParts(state, [turnStartEffortPart(settings.ask), ...(part === null ? [] : [part])])
+  const effort = turnStartEffortPart({ ...settings.ask, ...(settings.effortLanguage === undefined ? {} : { language: settings.effortLanguage }) })
+  const request = mergeParts(state, [effort, ...(part === null ? [] : [part])])
   return { request, part }
 }
 

@@ -127,9 +127,9 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
   /** The mod's ranker under the person's settings; `ask` sends stage two. */
   const rankerFor = (offeredSkills: readonly CatalogSkill[], settings: Settings, ask: SkillRankerIo['ask']): SkillRanker =>
     modRanker({ ask, opening: async (option) => openingOf(offeredSkills, option.name) }, rankingSettings({ config: settings, ask: DEFAULT_ASK }))
-  /** Stage one's request, as the mod sends it when the person sends this message after this conversation. */
+  /** Stage one's request, as the mod sends it when the person sends this message after this conversation (its effort question in the run's decision model's language). */
   const firstRequest = (asked: SubmitAsked, offeredSkills: readonly CatalogSkill[], settings: Settings, ranker: SkillRanker) =>
-    skillsRequest({ message: asked.message, recent_context: contextMessages(asked.recent_context) }, offeredSkills, { limits: settings.context, ranker })
+    skillsRequest({ message: asked.message, recent_context: contextMessages(asked.recent_context) }, offeredSkills, { limits: settings.context, effortLanguage: settings.turnStartLanguage, ranker })
   /** Stage two's request for these candidates, about stage one's state. */
   const secondRequest = (state: DecisionRequest['state'], offeredSkills: readonly CatalogSkill[], candidates: readonly CatalogSkill[]) =>
     mergeParts(state, [stageTwoPart(candidates.map((option) => ({ option, opening: openingOf(offeredSkills, option.name) })), { language: DEFAULT_ASK.language }) as Part])

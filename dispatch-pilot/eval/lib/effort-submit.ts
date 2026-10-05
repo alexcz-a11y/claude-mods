@@ -16,12 +16,22 @@ import { answersFor, mergeParts, type DecisionRequest, type Part } from '../../h
 import type { ContextEntry, EffortSubmitItem, Language } from './datasets.ts'
 import { requestFailed, variantIn, type Grade, type Suite } from './suite.ts'
 
-/** The variants by name: `<question language>-<primitive>`; the first is how the mod asks today (DEFAULT_ASK). */
+/**
+ * The variants by name: `<question language>-<primitive>`. The mod asks as
+ * `zh-score` with Jev and as `en-score` with Clef (`modVariant`: the effort
+ * question beside a message is written in the decision model's language,
+ * core/setup.ts BACKEND_DEFAULTS turnStartLanguage).
+ */
 export const SUBMIT_VARIANTS: Readonly<Record<string, EffortAsk>> = {
   'en-score': { language: 'en', primitive: 'score' },
   'zh-score': { language: 'zh', primitive: 'score' },
   'en-choice': { language: 'en', primitive: 'choice' },
   'zh-choice': { language: 'zh', primitive: 'choice' },
+}
+
+/** The variant that asks as the mod asks with the settings' decision model. */
+export function modVariant(settings: Pick<Config, 'turnStartLanguage'>): string {
+  return `${settings.turnStartLanguage}-score`
 }
 
 function variantAsk(variant: string): EffortAsk {

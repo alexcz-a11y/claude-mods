@@ -186,6 +186,42 @@ test("with Clef and the suggestions off, no skill profile is written: find_skill
   expect(w.requests[0]?.body.questions['skills.which'].criteria.tdd).toBe(SKILLS.commands?.[0]?.description)
 })
 
+// The effort question beside each message is written in the decision model's language: Chinese with Jev (on the
+// current wording, 2026-10-05: asked in Chinese, Chinese items 85% and English 89%; asked in English, 79% and 78%),
+// English with Clef (never measured in Chinese). Every other question stays in English: none has data in Chinese.
+
+test("with Jev, the effort question beside a message is written in Chinese; the skills questions in its request, and the second request's, stay in English", { options: JEV }, async ($, on) => {
+  const w = world($, on, { backend: rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 }), skills: SKILLS })
+  await w.submit('先写一个失败的测试')
+
+  const effort = w.requests[0]?.body.questions['effort.level']
+  expect(Object.keys(effort.instructions)).toEqual(['问题', '评什么', '简短回复'])
+  expect(effort.criteria[0]).toMatch(/^凭已知信息就能回答/)
+  expect(Object.keys(w.requests[0]?.body.questions['skills.which'].instructions)).toContain('question')
+  expect(Object.keys(w.requests[1]?.body.questions['skills.fits.0'].instructions)).toContain('question')
+})
+
+test('with Clef, the effort question beside a message is written in English', { options: CLEF_OPTIONS }, async ($, on) => {
+  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]) })
+  await w.submit('先写一个失败的测试')
+
+  const effort = w.requests[0]?.body.questions['effort.level']
+  expect(Object.keys(effort.instructions)).toEqual(['question', 'rate', 'short_replies'])
+  expect(effort.criteria[0]).toMatch(/^Answered from what is already known/)
+})
+
+test("with Jev, the questions asked later stay in English: a mid-turn re-decision's and a dispatched agent's", { options: JEV }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]) })
+  await w.submit('先写一个失败的测试')
+  await w.step({ index: 0, effort: 'medium', tools: [{ tool: 'Skill', input: { skill: 'tdd' } }] })
+  await w.spawn({ prompt: 'Run the tests and report what fails.', description: 'Run the tests' })
+
+  const midturn = w.requests.find((request) => 'midturn.level' in request.body.questions)
+  expect(Object.keys(midturn?.body.questions['midturn.level'].instructions)).toEqual(['question', 'rate'])
+  const agent = w.requests.find((request) => 'agent.effort' in request.body.questions)
+  expect(Object.keys(agent?.body.questions['agent.effort'].instructions)).toContain('question')
+})
+
 test('skillsMinRelevance is 0.75 by default: a skill that fits at 0.72 is not suggested, one at 0.78 is', { options: JEV }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 0.5, 'code-review': 0.4, '(none)': 0.1 }, { tdd: 0.78, 'code-review': 0.72 }), skills: SKILLS })
   await w.submit('先写测试，再审一下这个分支')
@@ -220,7 +256,7 @@ test("readConfig: an option left unset takes the decision model's default; Clef'
   expect(clefConfig.midturn.rules).toEqual(jevConfig.midturn.rules)
   expect([clefConfig.escalation.thetaExpected, clefConfig.agents.thetaOverride, clefConfig.skills.find.minRelevance]).toEqual([0.25, 0.6, 0.5])
   // Not calibrated for Clef: Jev's values, but for these, each measured on Clef.
-  const measured = { timeoutMs: 1500, contextTokensMax: 16000, suggestSkills: true, findSkillWaitMs: null, findSkillProfiles: true }
+  const measured = { timeoutMs: 1500, contextTokensMax: 16000, suggestSkills: true, findSkillWaitMs: null, findSkillProfiles: true, turnStartLanguage: 'zh' }
   expect({ ...BACKEND_DEFAULTS.clef, ...measured }).toEqual(BACKEND_DEFAULTS.jev)
   expect(clefConfig.defaults.used.map(([option]) => option)).toEqual([...PER_BACKEND_OPTIONS])
 })
