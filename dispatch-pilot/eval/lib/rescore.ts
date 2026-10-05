@@ -1,7 +1,8 @@
 // Stored answers decided again under the rules of the AA routing (README, 「它做什么」; DEVELOPMENT.md,
 // 「按 AA 基准校正」), each against the rule before it (0.2.1), without asking again: the effort a
 // level-probability answer picks (the level above the most likely one taken at 0.3 or more), the level a
-// mid-turn answer sends (the gates 0.3 up and 0.75 down against 0.4 and 0.6), and a dispatched agent's
+// mid-turn answer sends (the gates the mod ships, 0.3 up and since 0.2.3 0.55 down, against 0.4 and 0.6;
+// `scanThetaDown` runs the lowering gate over a list of values), and a dispatched agent's
 // effort lifted to its model's floor. Nothing here asks a decision model: every figure comes from the
 // probabilities a result file kept (`p`, `p_effort` ...), graded against the dataset as the suites grade.
 //
@@ -139,6 +140,34 @@ export function rescoreMidturn(result: StoredAnswers, items: readonly EffortMidt
         now: tally(rows.map(({ item, reading, current }) => ({ item, effort: judgeMidturn(reading, { current, sinceRaise: null }, { ...rules, thetaMax }).effort }))),
       },
     ]
+  })
+}
+
+/** The level a mid-turn variant sends at one `thetaDown`, over the answers of one language (`both`: all of them). */
+export type ThetaDownRow = { variant: string; language: Language | 'both'; thetaDown: number; sent: Tally }
+
+/**
+ * A scan of the lowering gate over the stored answers of an effort-midturn result: for each variant, each language
+ * and both together, each of `thetas`, the level the mod goes on at (`judgeMidturn`, `rules` otherwise as the mod
+ * ships them, `thetaMax` as the run had it) graded as `sent`. Only `thetaDown` differs from row to row; nothing is
+ * asked again.
+ */
+export function scanThetaDown(result: StoredAnswers, items: readonly EffortMidturnItem[], thetas: readonly number[], rules: MidturnRules = readConfig({}).midturn.rules): ThetaDownRow[] {
+  const { thetaMax } = result.settings
+  return result.summary.variants.flatMap(({ variant }) => {
+    const rows = rowsOf(result, items, variant, 'p').map(({ item, language, detail }) => ({ item, language, reading: readingOf(detail), current: item[language].current_effort }))
+    return thetas.flatMap((thetaDown) =>
+      (['both', 'zh', 'en'] as const).map((language) => ({
+        variant,
+        language,
+        thetaDown,
+        sent: tally(
+          rows
+            .filter((row) => language === 'both' || row.language === language)
+            .map(({ item, reading, current }) => ({ item, effort: judgeMidturn(reading, { current, sinceRaise: null }, { ...rules, thetaDown, thetaMax }).effort })),
+        ),
+      })),
+    )
   })
 }
 

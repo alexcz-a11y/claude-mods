@@ -4,7 +4,8 @@
 // out by hand from the probabilities each stored answer holds. Pure, no `$`.
 
 import { expect, test } from 'claude-code/testing'
-import { legacyPickEffort, rescoreAgents, rescoreMidturn, rescoreSubmit } from '../eval/lib/rescore.ts'
+import { readConfig } from '../hooks/core/setup.ts'
+import { legacyPickEffort, rescoreAgents, rescoreMidturn, rescoreSubmit, scanThetaDown } from '../eval/lib/rescore.ts'
 import type { AgentItem, EffortMidturnItem, EffortSubmitItem } from '../eval/lib/datasets.ts'
 
 const submit = (id: string, gold: EffortSubmitItem['gold'], accept: EffortSubmitItem['accept']): EffortSubmitItem => ({
@@ -58,7 +59,7 @@ const midturn = (id: string, gold: EffortMidturnItem['gold'], accept: EffortMidt
   return { id, zh: asked, en: asked, gold, accept, rationale: '理由', difficulty: 'hard', tags: [] }
 }
 
-test('the level a mid-turn answer sends: the gates of before (0.4 up, 0.6 down) and of now (0.3 up, 0.75 down), each with its own pick', () => {
+test('the level a mid-turn answer sends: the gates of before (0.4 up, 0.6 down) and the gates given (here those of 0.2.2, 0.3 up, 0.75 down), each with its own pick', () => {
   const items = [midturn('a', 'high', ['high'], 'medium'), midturn('b', 'low', ['low', 'medium'], 'high')]
   const result = stored('en-score', [
     // Up to high, confidence 0.35: before it was not sure enough (stays medium), now it is (0.3).
@@ -66,7 +67,7 @@ test('the level a mid-turn answer sends: the gates of before (0.4 up, 0.6 down) 
     // Down to low, confidence 0.7: before sure enough (one level, to medium), now not (0.75): stays high.
     ['b', 'zh', { p: [0.6, 0.4, 0, 0, 0], confidence: 0.7, sent: 'medium', why: 'down' }],
   ])
-  const [picked, sent] = rescoreMidturn(result, items)
+  const [picked, sent] = rescoreMidturn(result, items, { thetaUp: 0.3, thetaDown: 0.75, thetaMax: 0.5, holdSteps: 5 })
   expect([picked?.what, sent?.what]).toEqual(['picked', 'sent'])
   // Picked before: a high (right), b low (right). Now: a high (right), b low then the level above, medium (right).
   expect(picked?.before).toEqual({ n: 2, accuracy: 1, gold: 1, over: 0, under: 0 })
@@ -96,4 +97,36 @@ test("a dispatched agent's effort: the rule before against the pick, the level a
   const [row] = rescoreAgents(result, items)
   expect(row?.before).toEqual({ n: 2, accuracy: 0, gold: 0, over: 0, under: 1, effort: 0 })
   expect(row?.now).toEqual({ n: 2, accuracy: 1, gold: 1, over: 0, under: 0, effort: 1 })
+})
+
+test('a thetaDown scan: the level sent at each gate over the same stored answers, the other rules unchanged, for both languages and for each', () => {
+  const items = [midturn('a', 'low', ['low', 'medium'], 'high'), midturn('b', 'high', ['high'], 'medium'), midturn('c', 'low', ['low'], 'medium')]
+  const result = stored('zh-score', [
+    // Low at 0.75, confidence 0.7, at high: down to medium (right, not gold) when the gate is 0.7 or lower, stays high (too high) at 0.75.
+    ['a', 'zh', { p: [0.75, 0.25, 0, 0, 0], confidence: 0.7 }],
+    // High at 0.8, confidence 0.9, at medium: a raise, so the gate for a lowering does not touch it (right, gold).
+    ['b', 'zh', { p: [0, 0.2, 0.8, 0, 0], confidence: 0.9 }],
+    ['b', 'en', { p: [0, 0.2, 0.8, 0, 0], confidence: 0.9 }],
+    // Low at 0.8, confidence 0.6, at medium: down to low (gold) from 0.6 down, stays medium (too high) above it.
+    ['c', 'en', { p: [0.8, 0.2, 0, 0, 0], confidence: 0.6 }],
+  ])
+  const scan = scanThetaDown(result, items, [0.55, 0.65, 0.75])
+  const at = (language: string, thetaDown: number) => scan.find((row) => row.variant === 'zh-score' && row.language === language && row.thetaDown === thetaDown)?.sent
+  expect(scan.length).toBe(9)
+  expect(at('both', 0.55)).toEqual({ n: 4, accuracy: 1, gold: 0.75, over: 0, under: 0 })
+  expect(at('both', 0.65)).toEqual({ n: 4, accuracy: 0.75, gold: 0.5, over: 0.25, under: 0 })
+  expect(at('both', 0.75)).toEqual({ n: 4, accuracy: 0.5, gold: 0.5, over: 0.5, under: 0 })
+  expect(at('zh', 0.55)).toEqual({ n: 2, accuracy: 1, gold: 0.5, over: 0, under: 0 })
+  expect(at('zh', 0.75)).toEqual({ n: 2, accuracy: 0.5, gold: 0.5, over: 0.5, under: 0 })
+  expect(at('en', 0.55)).toEqual({ n: 2, accuracy: 1, gold: 1, over: 0, under: 0 })
+  expect(at('en', 0.65)).toEqual({ n: 2, accuracy: 0.5, gold: 0.5, over: 0.5, under: 0 })
+})
+
+test('a thetaDown scan: at the gate the mod shipped with, the figures are what rescoreMidturn gives for `sent`', () => {
+  const items = [midturn('a', 'low', ['low', 'medium'], 'high')]
+  const result = stored('en-score', [['a', 'zh', { p: [0.75, 0.25, 0, 0, 0], confidence: 0.7 }]])
+  const [row] = scanThetaDown(result, items, [readConfig({}).midturn.rules.thetaDown])
+  const [, sent] = rescoreMidturn(result, items)
+  expect(row?.language).toBe('both')
+  expect(row?.sent).toEqual(sent?.now)
 })
