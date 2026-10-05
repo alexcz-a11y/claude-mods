@@ -10,11 +10,16 @@
 
 ## 安装
 
+`dispatch-pilot` 还在 `dp/integration` 分支上，没有合并到 `main`；`main` 上的 marketplace 还没有列出任何 mod。合并到 `main` 之前，请从本地克隆安装：检出 `dp/integration`，再用克隆的路径添加 marketplace。
+
 ```bash
-claude plugin marketplace add alexcz-a11y/claude-mods
+git clone --branch dp/integration https://github.com/alexcz-a11y/claude-mods.git
+claude plugin marketplace add ./claude-mods
 claude plugin install dispatch-pilot@alex-mods --scope user
 ```
 
-mod 需要 Claude Code 2.1.287 及以上。每个 mod 的要求、配置和用法见它自己的 README。
+也可以在添加 marketplace 时指定分支：`claude plugin marketplace add alexcz-a11y/claude-mods#dp/integration`。合并到 `main` 之后，去掉 `#dp/integration` 即可。装好后重启 Claude Code，或者在开着的会话里运行 `/reload-plugins`。
+
+mod 需要 Claude Code 2.1.287 及以上。每个 mod 的要求、配置、更新和用法见它自己的 README。
 
 写 mod 的约定、测试和发布方式见 [CLAUDE.md](CLAUDE.md)。

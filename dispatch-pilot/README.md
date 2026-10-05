@@ -45,16 +45,30 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 ## 安装
 
+Dispatch Pilot 还在 `dp/integration` 分支上，没有合并到 `main`。`main` 上的 marketplace 还没有列出任何 mod，所以添加 `alexcz-a11y/claude-mods` 之后装不上。合并到 `main` 之前，请从本地克隆安装：检出 `dp/integration`，再用克隆的路径添加 marketplace。
+
 ```bash
-claude plugin marketplace add alexcz-a11y/claude-mods
+git clone --branch dp/integration https://github.com/alexcz-a11y/claude-mods.git
+claude plugin marketplace add ./claude-mods
 claude plugin install dispatch-pilot@alex-mods --scope user
 ```
 
-装好后重启 Claude Code。在会话里运行 `/plugin`，看到 `1 mod active · dispatch-pilot` 说明 mod 已经加载；运行 `/dp` 会列出各项功能的开关。接着给它一个决策模型的密钥。
+已经有克隆的，在克隆里 `git checkout dp/integration`，再把克隆的路径交给 `marketplace add`；相对路径要以 `./` 或 `../` 开头，否则会被当成 GitHub 仓库。从本地目录添加的 marketplace，Claude Code 直接从那个目录加载 mod，所以克隆里检出的是哪个版本，用的就是哪个版本。
+
+也可以不克隆，在添加 marketplace 时指定分支，让 Claude Code 从 GitHub 取：
+
+```bash
+claude plugin marketplace add alexcz-a11y/claude-mods#dp/integration
+claude plugin install dispatch-pilot@alex-mods --scope user
+```
+
+合并到 `main` 之后，去掉 `#dp/integration` 即可。
+
+在 shell 里装好的 mod，下次启动 Claude Code 时才加载：装好后重启 Claude Code，或者在已经开着的会话里运行 `/reload-plugins`。在会话里运行 `/plugin`，看到 `1 mod active · dispatch-pilot` 说明 mod 已经加载；运行 `/dp` 会列出各项功能的开关。接着给它一个决策模型的密钥。
 
 **Jev（默认）。** TypeSafe 的 API key 有两种填法：
 
-1. 在 Claude Code 里运行 `/plugin configure dispatch-pilot@alex-mods`（启用 mod 时也会弹出同样的配置对话框），在对话框里填；输入会被遮住。
+1. 在 Claude Code 的会话里运行 `/plugin configure dispatch-pilot@alex-mods`，在弹出的配置对话框里填；输入会被遮住。在会话里用 `/plugin` 安装时也会弹出这个对话框；在 shell 里用 `claude plugin install` 安装不会弹，装好后用这条命令，或者用第 2 种填法。
 2. 在命令行从 stdin 传进去（需要 `jq`）：
 
    ```bash
@@ -64,7 +78,7 @@ claude plugin install dispatch-pilot@alex-mods --scope user
 
 **不要用 `claude plugin install --config typesafeApiKey=...` 传密钥，也不要用 `jq --arg`**：它们的值会出现在进程参数里，同一台机器上的 `ps` 看得到。把密钥放进环境变量时，用 `read -rs TYPESAFE_API_KEY && export TYPESAFE_API_KEY` 代替上面的 `export` 一行：粘贴密钥后回车，不回显，值也不会留在 shell 历史里。
 
-`--values-stdin` 读一个 JSON 对象，值都是单行字符串，没写到的选项保持原值。不带参数运行 `claude plugin configure dispatch-pilot@alex-mods` 会列出所有选项，并标出哪些还没有设置。
+`--values-stdin` 读一个 JSON 对象，值都是单行字符串，没写到的选项保持原值。保存之后要重启 Claude Code 才生效，命令也会提示 `Configuration saved. Restart Claude Code to apply it.`。不带参数运行 `claude plugin configure dispatch-pilot@alex-mods` 会列出所有选项，并标出哪些还没有设置。
 
 **Clef。** 要填两个键，并把 `decisionModel` 改成 `clef`：
 
@@ -77,6 +91,21 @@ jq -n '{decisionModel: "clef", cloudflareAccountId: env.CLOUDFLARE_ACCOUNT_ID, c
 ```
 
 `decisionModel` 在 `/config` 里是下拉选择，也可以在那里改成 `clef`。Clef 和 Jev 有几处不同，见「配置」和「局限和待评测」。
+
+## 更新
+
+从 GitHub 添加 marketplace 的（`#dp/integration` 那种装法），在 shell 里运行：
+
+```bash
+claude plugin marketplace update alex-mods
+claude plugin update dispatch-pilot@alex-mods
+```
+
+第一条刷新 marketplace 的列表，第二条更新 mod。更新之后重启 Claude Code，或者在开着的会话里运行 `/reload-plugins`。
+
+`claude plugin update` 看的是版本号（`.claude-plugin/plugin.json` 的 `version`）：版本号和你装的一样，它就回答已经是最新版本（`is already at the latest version`），不换掉本机的副本，哪怕分支上已经有新的提交。新的版本会升版本号。这个 marketplace 默认不自动更新；要打开，在会话里运行 `/plugin`，到 Marketplaces 里选 `alex-mods`，再选 Enable auto-update。自动更新同样只在版本号变了时才换。
+
+从本地克隆安装的，不用 `claude plugin update`：在克隆里取新的提交（例如 `git -C claude-mods pull`），然后重启 Claude Code 或运行 `/reload-plugins`。Claude Code 直接从克隆加载 mod，不看版本号。
 
 ## 从 jev-pilot 切换
 
