@@ -5,9 +5,11 @@
 //   often the answer was the gold one;
 // - the gap, Chinese accuracy minus English, and whether it passes the bar
 //   (Chinese at most 4 points below English, exactly 4 passing: MAX_GAP);
-// - answers that came after the mod's wait (`slowMs`, its timeoutMs): how
-//   many in each language, and the accuracy the mod would have had, those
-//   counted as no decision (`inTime`);
+// - answers the mod would not have had: those that came after its wait
+//   (`slowMs`, its timeoutMs) and those the eval got only by asking again
+//   (more attempts than requests: the mod never retries); how many of each
+//   in each language, and the accuracy the mod would have had, both counted
+//   as no decision (`inTime`);
 // - agreement: of the items answered in both languages, how many got the
 //   same answer in both;
 // - latency over answered requests: p50 and p90 by nearest rank, the max,
@@ -49,7 +51,9 @@ export type LanguageSummary = {
   parts?: Record<string, number>
   /** Answers that took longer than the mod waits (`slowMs`): the mod would have gone on without them. */
   late: number
-  /** Accuracy as the mod would have had it: a late answer counts as no decision (wrong). */
+  /** Answers the eval got only by asking again (more attempts than requests): the mod, which never retries, would have had none. */
+  retried: number
+  /** Accuracy as the mod would have had it: a late or retried answer counts as no decision (wrong). */
   inTime: number
 }
 
@@ -165,7 +169,6 @@ function summarizeVariant(items: readonly AnyItem[], rows: readonly Row<unknown>
 }
 
 function languageSummary(items: number, rows: readonly Row<unknown>[], parts: readonly string[], slowMs: number): LanguageSummary {
-  const late = (row: Row<unknown>) => row.ms !== null && row.ms > slowMs
   const misses: Record<string, number> = {}
   for (const row of rows) if (row.miss !== null) misses[row.miss] = (misses[row.miss] ?? 0) + 1
   return {
@@ -176,8 +179,27 @@ function languageSummary(items: number, rows: readonly Row<unknown>[], parts: re
     exact: rate(rows.filter((row) => row.exact).length, items),
     misses,
     ...(parts.length > 0 ? { parts: Object.fromEntries(parts.map((name) => [name, rate(rows.filter((row) => row.parts?.[name] === true).length, items)])) } : {}),
+    ...inTimeOf(rows, items, slowMs),
+  }
+}
+
+/** What an answer needs to tell whether the mod would have had it. */
+export type Timed = Pick<Row<unknown>, 'ok' | 'correct' | 'ms' | 'attempts' | 'requests'>
+
+/**
+ * What the mod would have had of one language's answers: those that came
+ * after its wait (`late`: past `slowMs`), those the eval got only by asking
+ * again (`retried`: more attempts than requests; the mod never retries), and
+ * the accuracy without either (`inTime`, over `items`). eval/resummarize.ts
+ * applies it to the answers a result file holds.
+ */
+export function inTimeOf(rows: readonly Timed[], items: number, slowMs: number): Pick<LanguageSummary, 'late' | 'retried' | 'inTime'> {
+  const late = (row: Timed) => row.ms !== null && row.ms > slowMs
+  const retried = (row: Timed) => row.ok && row.attempts > (row.requests ?? 1)
+  return {
     late: rows.filter(late).length,
-    inTime: rate(rows.filter((row) => row.correct && !late(row)).length, items),
+    retried: rows.filter(retried).length,
+    inTime: rate(rows.filter((row) => row.correct && !late(row) && !retried(row)).length, items),
   }
 }
 

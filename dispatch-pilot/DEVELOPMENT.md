@@ -273,6 +273,7 @@ node dispatch-pilot/eval/run.ts skill --label <名字>      # 用真实 Jev 跑 
 node dispatch-pilot/eval/profiles.ts [--estimate]         # 给快照里的 skill 写画像（每个 skill 一次 claude -p --model haiku，用你的订阅额度），存进 eval/datasets/skill-profiles.json
 node dispatch-pilot/eval/apply-review.ts effort-submit --from <审核记录.jsonl>  # 应用用户的审核决定，再校验
 node dispatch-pilot/eval/compare.ts <结果 a.json> <结果 b.json>                # 两次运行逐项对照，不发请求
+node dispatch-pilot/eval/resummarize.ts [--dry-run] [<结果.json> ...]          # 按存着的逐题答案重算汇总里的门槛和 inTime（指标改了时），不发请求
 node dispatch-pilot/eval/probe-truncation.ts --estimate   # Clef 截断 state 的探针（#17）：只估算；--show <名字> 打印一个探针的请求；不带这两个就发真实请求（Clef，Jev 对照）
 ```
 
@@ -719,14 +720,15 @@ eval/
 ├── results/<类>/*.json     每次运行的结果：设置、答题的模型版本、汇总、逐题答案
 ├── results/probes/*.json   Clef 截断 state 的探针结果（#17，probe-truncation.ts 写）
 ├── plans/17-calibration.md #17 的方案、拍板、探针的结果和范围缩减
-├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、compare、各类题型的 suite
-└── validate.ts、run.ts、apply-review.ts、compare.ts、profiles.ts、probe-truncation.ts、node.ts   Node 脚本
+├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、resummarize、compare、docs、各类题型的 suite
+└── validate.ts、run.ts、apply-review.ts、compare.ts、resummarize.ts、profiles.ts、probe-truncation.ts、node.ts   Node 脚本
 ```
 
 - **测到的就是线上的请求。** 每类题型的 suite 用 mod 自己拼请求的函数（`hooks/decision/` 的各个模块，加上 `hooks/core/` 里读设置的 `setup.ts`、读 skill 目录和画像的 `skills.ts`、`profiles.ts`），设置取 manifest 的默认值，manifest 没有默认值的选项取 `--backend` 那个决策模型的（`core/setup.ts` 的 `BACKEND_DEFAULTS`，结果文件的 `settings.backendDefaults` 记着取了哪些），经 mod 自己的 `readConfig()` 读出（`--option contextTokens=4000` 可以改，按 manifest 写的类型读：数字、`true`/`false` 或文字；manifest 里没有的名字、类型不对的值直接报错），所以范围、缺省值和 mod 完全一样。`tests/eval-effort-submit.test.ts` 用 world 核对：同一条消息和对话，评测发的请求与 mod 发的逐字相同。
 - **effort-submit 只问 effort。** skill 推荐开着时（默认开），mod 发消息时的请求里还有 skill 的问题。同一个请求里的问题各自独立作答，只以 state 为上下文，看不到彼此（TypeSafe 的说明，指南 S1、Q12），所以 effort 题单独问得到的就是线上的回答；`tests/eval-effort-submit.test.ts` 核对了带 skill 问题时，mod 请求里的 state 和 effort 问题与评测的逐字相同。延迟不同：带着 skill 问题（尤其是写好画像以后）的请求更大、更慢，消息的实际延迟看 skill 评测的第一段（那就是发消息时的整个请求），effort-submit 的延迟只是单问 effort 的。
 - **变量。** effort-submit 有四个变体：`en-score`（mod 现在的问法）、`zh-score`、`en-choice`、`zh-choice`，即问题用英文还是中文写、用 Score 还是 Choice 问；用户的原文总是照搬进 state。每题的中文版和英文版都问。
-- **指标**（`lib/metrics.ts`）：每个变体的中文、英文准确率（答案在可接受集合里；没答上的算错，另列条数），gold 命中率，答偏的方向，中英差距和 spec 的门槛（中文比英文低不到 3 个百分点才算通过，正好低 3 个百分点不通过：编排者决定 2），中英一致率，延迟 p50 和 p90（以及超过 mod 超时的条数），按 tag 分组的错题数；另报「每题都答同一档」的常数基线。评测每次最多等 `--timeout`（默认是这个后端的 `timeoutMs` 的 4 倍、至少 10 秒：Jev 10 秒，Clef 12 秒）还会重试，mod 只等 `timeoutMs`：超过 `timeoutMs` 才来的回答另列，每种语言的条数（`late`）和把它们算作没有决定的准确率（`inTime`，mod 里这些消息拿不到回答），`run.ts` 每个变体打印一行。
+- **指标**（`lib/metrics.ts`）：每个变体的中文、英文准确率（答案在可接受集合里；没答上的算错，另列条数），gold 命中率，答偏的方向，中英差距和门槛（中文比英文低不超过 4 个百分点就算通过，正好低 4 个百分点也通过：用户 2026-10-05 定的，原来的 spec 写的是 3 个百分点；`MAX_GAP`、`passes`），中英一致率，延迟 p50 和 p90（以及超过 mod 超时的条数），按 tag 分组的错题数；另报「每题都答同一档」的常数基线。评测每次最多等 `--timeout`（默认是这个后端的 `timeoutMs` 的 4 倍、至少 10 秒：Jev 10 秒，Clef 12 秒），失败（繁忙、断线、超时）还会重试；mod 只等 `timeoutMs`，也从不重试。所以 mod 拿不到的回答另列：超过 `timeoutMs` 才来的（`late`），和评测重试之后才答上的（`retried`：尝试的次数多于请求数），每种语言各记条数，再给出把它们都算作没有决定的准确率（`inTime`），`run.ts` 每个变体打印一行。
+- **已存结果的汇总可以离线重算。** 指标的算法改了时（例如门槛从 3 个百分点改成 4 个，`inTime` 开始扣掉重试过的回答），`node dispatch-pilot/eval/resummarize.ts` 按结果文件里存着的逐题答案重算每种语言的 `late`、`retried`、`inTime` 和每个变体的 `pass`（`lib/resummarize.ts`），不发请求，其余字段原样保留，并在文件里加一段 `resummarized` 说明何时、重算了什么。2026-10-05 已经对 `results/` 下的全部结果重算过一次。准确率、一致率、`breakdown` 这些的算法没有变，不重算。
 - **延迟只在 `--concurrency 1`（默认）时可信。** 实测 Jev 对同一个 key 的并发请求像是依次处理：p50 在 1 个并发时约 270–290 ms，2 个时约 540 ms，4 个时 700–1100 ms。
 - **单次运行有波动。** 2026-10-04 用同一配置跑了两次（`results/effort-submit/` 里的两份 preliminary），四个变体分别有 192、192、191、193 / 200 个答案相同，单项准确率相差 0–3 个百分点，zh-score 的中英差距一次是 −2、一次是 −4，和 3 个百分点的门槛同一量级。比较写法或判断门槛时多跑几次，用 `compare.ts` 对照。
 - **结果文件**记录后端、请求的模型和响应里的模型版本、日期、变量、mod 的设置（包括除敏感字段外的全部选项）、评测集和代码的哈希（`hooks/` 下 mod 的全部文件，加上 `eval/lib/` 的 suite：请求和评分都出自它们）、每个变体问的问题、汇总，以及逐题答案（每个档位的概率和 confidence，供以后离线校准门槛；分部分评分的题型另有 `parts`），不含凭证。判断提示词有没有变，看拼请求的文件（effort-submit 是 `system-one.ts`、`effort.ts`、`context.ts`、`redact.ts`）和记录下来的问题；`backend.ts`、`clef.ts` 这类文件变了不影响请求内容。凭证按「进程环境变量优先，其次 `~/.config/dispatch-pilot/eval.env`」读取。

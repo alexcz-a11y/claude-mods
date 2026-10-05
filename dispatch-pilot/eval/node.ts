@@ -129,6 +129,13 @@ export function backendFor(name: string, model?: string): { backend: Backend; se
   throw new Error(`no backend "${name}" (jev, clef)`)
 }
 
+/** A result file's text: pretty JSON, each answer on a line of its own (eval/run.ts writes it, eval/resummarize.ts rewrites it). */
+export function formatResult(result: Record<string, unknown> & { answers: readonly unknown[] }): string {
+  const { answers, ...head } = result
+  const top = JSON.stringify(head, null, 2)
+  return `${top.slice(0, -2)},\n  "answers": [\n${answers.map((answer) => `    ${JSON.stringify(answer)}`).join(',\n')}\n  ]\n}\n`
+}
+
 /** Node's fetch and timers as a backend's host. */
 export const nodeIo: BackendIo = {
   fetch: async (url, init) => {

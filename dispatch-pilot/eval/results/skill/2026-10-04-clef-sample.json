@@ -1110,7 +1110,10 @@
           "parts": {
             "suggest": 1,
             "hint": 1
-          }
+          },
+          "late": 3,
+          "retried": 1,
+          "inTime": 0
         },
         "en": {
           "items": 3,
@@ -1122,7 +1125,10 @@
           "parts": {
             "suggest": 1,
             "hint": 1
-          }
+          },
+          "late": 3,
+          "retried": 0,
+          "inTime": 0
         },
         "gap": 0,
         "pass": true,
@@ -1752,6 +1758,11 @@
         }
       }
     ]
+  },
+  "resummarized": {
+    "date": "2026-10-05",
+    "by": "eval/resummarize.ts",
+    "what": "each variant's pass by the bar of 2026-10-05 (Chinese at most 4 points below English, exactly 4 passing); each language's late, retried and inTime from the answers kept here (an answer that took more attempts than requests is no decision in time: the mod never retries)"
   },
   "answers": [
     {"id":"skill-001","language":"zh","state":{"user_message":"从 main 切出来到现在这一坨改动，跟 #7 那张票要的东西对得上吗？顺手看看有没有踩 CLAUDE.md 里那几条红线","recent_context":""},"profiles":{"answer":"code-review","correct":true,"gold":true,"parts":{"suggest":true,"hint":true},"first":[{"name":"code-review","share":0.827},{"name":"claude-md-management:claude-md-improver","share":0.019},{"name":"security-review","share":0.018}],"none":0.011,"fits":[{"name":"code-review","relevance":0.9854}],"stages_ms":[4732,608],"ms":5340,"attempts":2,"tokens":15921,"model":"clef"}},

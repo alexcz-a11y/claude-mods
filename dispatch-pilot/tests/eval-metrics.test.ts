@@ -59,9 +59,9 @@ test('accuracy counts an unanswered item as wrong; gold hits, misses, the zh-en 
   const [summary] = summarize(effortSubmit, ITEMS, ROWS, { slowMs: 500 }).variants
   expect(summary?.variant).toBe('en-score')
   // zh: a and c acceptable of 4; c is gold; d failed; b went over. Every answer came within 500 ms.
-  expect(summary?.zh).toEqual({ items: 4, answered: 3, failed: 1, accuracy: 0.5, exact: 0.25, misses: { over: 1 }, late: 0, inTime: 0.5 })
+  expect(summary?.zh).toEqual({ items: 4, answered: 3, failed: 1, accuracy: 0.5, exact: 0.25, misses: { over: 1 }, late: 0, retried: 0, inTime: 0.5 })
   // en: a, b, c acceptable and gold; d went under. c (600 ms) and d (700 ms) came after 500 ms.
-  expect(summary?.en).toEqual({ items: 4, answered: 4, failed: 0, accuracy: 0.75, exact: 0.75, misses: { under: 1 }, late: 2, inTime: 0.5 })
+  expect(summary?.en).toEqual({ items: 4, answered: 4, failed: 0, accuracy: 0.75, exact: 0.75, misses: { under: 1 }, late: 2, retried: 0, inTime: 0.5 })
   // Chinese is 25 points below English: past the 4-point bar.
   expect(summary?.gap).toBe(-0.25)
   expect(summary?.pass).toBe(false)
@@ -75,6 +75,24 @@ test("answers that came after the mod's wait are counted apart: accuracy in time
   const [summary] = summarize(effortSubmit, ITEMS, ROWS, { slowMs: 500 }).variants
   // en: a (200 ms) and b (100 ms) are right in time; c is right but late, d late and wrong.
   expect([summary?.en.accuracy, summary?.en.inTime, summary?.en.late]).toEqual([0.75, 0.5, 2])
+})
+
+// The mod never asks again: an answer the eval got only on a later attempt (the first was busy, dropped or too
+// slow) is one the mod would not have had, however fast that attempt was.
+test('an answer that took more attempts than requests is not in time: counted apart as retried, and as no decision in time', () => {
+  const rows = ROWS.map((r) => (r.id === 'a' && r.language === 'en' ? { ...r, attempts: 2 } : r))
+  const [summary] = summarize(effortSubmit, ITEMS, rows, { slowMs: 500 }).variants
+  // en: a is right but was retried; c is right but late; d is late and wrong; b alone is right in time.
+  expect([summary?.en.accuracy, summary?.en.retried, summary?.en.late, summary?.en.inTime]).toEqual([0.75, 1, 2, 0.25])
+  expect(summary?.zh.retried).toBe(0)
+})
+
+test('an item that sends two requests (the skill suite) is retried only past two attempts', () => {
+  const twice = ROWS.map((r) => (r.id === 'b' && r.language === 'en' ? { ...r, requests: 2, attempts: 2 } : r))
+  expect(summarize(effortSubmit, ITEMS, twice, { slowMs: 500 }).variants[0]?.en.retried).toBe(0)
+  const thrice = ROWS.map((r) => (r.id === 'b' && r.language === 'en' ? { ...r, requests: 2, attempts: 3 } : r))
+  const [summary] = summarize(effortSubmit, ITEMS, thrice, { slowMs: 500 }).variants
+  expect([summary?.en.retried, summary?.en.inTime]).toEqual([1, 0.25])
 })
 
 /** `n` items each answered right in English, and right in Chinese for the first `zh`. */

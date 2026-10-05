@@ -145,7 +145,10 @@
           "parts": {
             "model": 0.8333,
             "effort": 0.6667
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.6667
         },
         "en": {
           "items": 12,
@@ -161,7 +164,10 @@
           "parts": {
             "model": 0.8333,
             "effort": 0.6667
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.6667
         },
         "gap": 0,
         "pass": true,
@@ -888,6 +894,11 @@
         }
       }
     ]
+  },
+  "resummarized": {
+    "date": "2026-10-05",
+    "by": "eval/resummarize.ts",
+    "what": "each variant's pass by the bar of 2026-10-05 (Chinese at most 4 points below English, exactly 4 passing); each language's late, retried and inTime from the answers kept here (an answer that took more attempts than requests is no decision in time: the mod never retries)"
   },
   "answers": [
     {"id":"subagent-001","language":"zh","state":{"brief":{"description":"补 date 工具单测","agent_type":"general-purpose","prompt":"为 src/utils/date.ts 的 `parseRelative`、`toBusinessDay`、`diffInWorkdays` 写 vitest 单测，覆盖：跨月、跨年、闰年 2 月 29 日、Asia/Shanghai 与 UTC 的日期边界差异、节假日表为空。测试写在 src/utils/__tests__/date.test.ts，`pnpm vitest run src/utils` 全部通过。不要改 date.ts 本身；如果发现实现有 bug，写一个标注 `it.fails` 的用例并在结果里说明。"},"user_message":"给 utils/date.ts 补几个边界情况的单测，用 haiku 跑就行，省点额度"},"models-hint":{"answer":"haiku","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"user","pick":"sonnet","confidence":0.496,"p_model":{"haiku":0.1105,"sonnet":0.6638,"opus":0.2257},"p_effort":[0.0371,0.317,0.5494,0.0705,0.026],"nouls":{"named.haiku":0.98,"banned.haiku":0.0223},"ms":1925,"attempts":1,"tokens":1276,"model":"clef"}},

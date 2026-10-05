@@ -351,7 +351,10 @@
           "parts": {
             "model": 0.83,
             "effort": 0.74
-          }
+          },
+          "late": 1,
+          "retried": 0,
+          "inTime": 0.68
         },
         "en": {
           "items": 100,
@@ -369,7 +372,10 @@
           "parts": {
             "model": 0.82,
             "effort": 0.7
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.66
         },
         "gap": 0.03,
         "pass": true,
@@ -1540,7 +1546,10 @@
           "parts": {
             "model": 0.81,
             "effort": 0.73
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.68
         },
         "en": {
           "items": 100,
@@ -1559,7 +1568,10 @@
           "parts": {
             "model": 0.79,
             "effort": 0.7
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.66
         },
         "gap": 0.02,
         "pass": true,
@@ -2731,7 +2743,10 @@
           "parts": {
             "model": 0.84,
             "effort": 0.73
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.7
         },
         "en": {
           "items": 100,
@@ -2749,7 +2764,10 @@
           "parts": {
             "model": 0.83,
             "effort": 0.71
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.68
         },
         "gap": 0.02,
         "pass": true,
@@ -3962,7 +3980,10 @@
           "parts": {
             "model": 0.83,
             "effort": 0.76
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.71
         },
         "en": {
           "items": 100,
@@ -3981,7 +4002,10 @@
           "parts": {
             "model": 0.78,
             "effort": 0.7
-          }
+          },
+          "late": 1,
+          "retried": 0,
+          "inTime": 0.64
         },
         "gap": 0.06,
         "pass": true,
@@ -5279,6 +5303,11 @@
         }
       }
     ]
+  },
+  "resummarized": {
+    "date": "2026-10-05",
+    "by": "eval/resummarize.ts",
+    "what": "each variant's pass by the bar of 2026-10-05 (Chinese at most 4 points below English, exactly 4 passing); each language's late, retried and inTime from the answers kept here (an answer that took more attempts than requests is no decision in time: the mod never retries)"
   },
   "answers": [
     {"id":"subagent-001","language":"zh","state":{"brief":{"description":"补 date 工具单测","agent_type":"general-purpose","prompt":"为 src/utils/date.ts 的 `parseRelative`、`toBusinessDay`、`diffInWorkdays` 写 vitest 单测，覆盖：跨月、跨年、闰年 2 月 29 日、Asia/Shanghai 与 UTC 的日期边界差异、节假日表为空。测试写在 src/utils/__tests__/date.test.ts，`pnpm vitest run src/utils` 全部通过。不要改 date.ts 本身；如果发现实现有 bug，写一个标注 `it.fails` 的用例并在结果里说明。"},"user_message":"给 utils/date.ts 补几个边界情况的单测，用 haiku 跑就行，省点额度"},"models-hint":{"answer":"haiku","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"user","pick":"sonnet","confidence":0.97,"p_model":{"sonnet":0.98,"opus":0,"haiku":0.02},"p_effort":[0,0.14,0.86,0,0],"nouls":{"named.haiku":0.94,"banned.haiku":0.05},"ms":615,"attempts":1,"tokens":1439,"model":"jev-1.13.0"},"work-hint":{"answer":"haiku","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"user","pick":"sonnet","confidence":1,"p_model":{"read_and_report":0,"specified_work":1,"judgment_work":0},"p_effort":[0,0.16,0.84,0,0],"nouls":{"named.haiku":0.94,"banned.haiku":0.05},"ms":362,"attempts":1,"tokens":1445,"model":"jev-1.13.0"},"models-noul":{"answer":"haiku","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"user","pick":"sonnet","confidence":0.97,"p_model":{"sonnet":0.98,"opus":0,"haiku":0.02},"p_effort":[0,0.18,0.8200000000000001,0,0],"nouls":{"named.haiku":0.94,"banned.haiku":0.06},"ms":458,"attempts":1,"tokens":1439,"model":"jev-1.13.0"},"work-noul":{"answer":"haiku","correct":true,"gold":true,"parts":{"model":true,"effort":true},"source":"user","pick":"sonnet","confidence":1,"p_model":{"specified_work":1,"judgment_work":0,"read_and_report":0},"p_effort":[0,0.15,0.85,0,0],"nouls":{"named.haiku":0.94,"banned.haiku":0.05},"ms":272,"attempts":1,"tokens":1445,"model":"jev-1.13.0"}},

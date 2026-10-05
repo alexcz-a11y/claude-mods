@@ -43,7 +43,7 @@ import { summarize, type Summary } from './lib/metrics.ts'
 import { runSuite, type Row } from './lib/runner.ts'
 import { optionsFor, settingsFrom } from './lib/suite.ts'
 import { SUITES } from './lib/suites.ts'
-import { RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, modCode, nodeHost, nodeIo, readDataset, readManifest, shown } from './node.ts'
+import { RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, formatResult, modCode, nodeHost, nodeIo, readDataset, readManifest, shown } from './node.ts'
 
 /** Input price per million tokens; output is free on both (docs.typesafe.ai/models, the Clef model page; 2026-10-04). */
 const PRICES: Readonly<Record<string, number>> = { jev: 0.042, clef: 0.24 }
@@ -212,7 +212,7 @@ if (!values['no-save']) {
     summary,
     answers: answersByItem(rows),
   }
-  const text = format(result)
+  const text = formatResult(result)
   if (secrets.some((secret) => secret !== '' && text.includes(secret))) fail('the results would hold a credential: not saved')
   const dir = join(RESULTS_DIR, suite.name)
   mkdirSync(dir, { recursive: true })
@@ -239,13 +239,6 @@ function answersByItem(rows: readonly Row<unknown>[]): Record<string, unknown>[]
   return [...groups.values()]
 }
 
-/** Pretty JSON, with each answer line on one line. */
-function format(result: Record<string, unknown> & { answers: readonly unknown[] }): string {
-  const { answers, ...head } = result
-  const top = JSON.stringify(head, null, 2)
-  return `${top.slice(0, -2)},\n  "answers": [\n${answers.map((answer) => `    ${JSON.stringify(answer)}`).join(',\n')}\n  ]\n}\n`
-}
-
 function report(summary: Summary): void {
   const pct = (rate: number | null) => (rate === null ? '-' : `${(rate * 100).toFixed(1)}%`)
   const pad = (cells: readonly string[]) => cells.map((cell, i) => (i === 0 ? cell.padEnd(10) : cell.padStart(8))).join(' ')
@@ -269,7 +262,9 @@ function report(summary: Summary): void {
     )
   }
   for (const v of summary.variants) {
-    console.log(`${v.variant}: within the mod's wait (${settings.timeoutMs} ms; a later answer counted as none) right zh/en: ${pct(v.zh.inTime)}/${pct(v.en.inTime)}; late answers zh/en: ${v.zh.late}/${v.en.late}`)
+    console.log(
+      `${v.variant}: as the mod would have had it (within ${settings.timeoutMs} ms, at the first attempt; a later or retried answer counted as none) right zh/en: ${pct(v.zh.inTime)}/${pct(v.en.inTime)}; late answers zh/en: ${v.zh.late}/${v.en.late}; retried zh/en: ${v.zh.retried}/${v.en.retried}`,
+    )
   }
   for (const v of summary.variants) {
     const parts = Object.keys(v.zh.parts ?? {})
