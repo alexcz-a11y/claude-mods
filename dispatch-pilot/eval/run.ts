@@ -30,19 +30,19 @@ import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { PluginOptions } from 'claude-code'
 import type { Backend } from '../hooks/decision/backend.ts'
-import { CLEF_MODEL, clefBackend } from '../hooks/decision/clef.ts'
+import { CLEF_MODEL } from '../hooks/decision/clef.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
-import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
 import { summarize, type Summary } from './lib/metrics.ts'
 import { runSuite, type Row } from './lib/runner.ts'
 import { optionsFrom, settingsFrom } from './lib/suite.ts'
 import { SUITES } from './lib/suites.ts'
-import { CREDENTIALS_FILE, RESULTS_DIR, REVIEW_DIR, credential, datasetFile, modCode, nodeHost, nodeIo, readCatalog, readDataset, readManifest, shown } from './node.ts'
+import { RESULTS_DIR, REVIEW_DIR, backendFor, datasetFile, modCode, nodeHost, nodeIo, readCatalog, readDataset, readManifest, shown } from './node.ts'
 
 /** Input price per million tokens; output is free on both (docs.typesafe.ai/models, the Clef model page; 2026-10-04). */
-const PRICES: Readonly<Record<string, number>> = { jev: 0.042, clef: 0.24, 'clef-flash': 0.09 }
+const PRICES: Readonly<Record<string, number>> = { jev: 0.042, clef: 0.24 }
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -77,7 +77,7 @@ const checked = validateDataset(kind, dataset.items, { catalog: kind === 'skill'
 if (dataset.errors.length + checked.errors.length > 0) fail(`${shown(path)} is not valid; run eval/validate.ts ${name}`)
 const sha = (text: string) => createHash('sha256').update(text).digest('hex')
 // A suite built when the run starts gets what lies beside its dataset (the skill suite; the results hash those files
-// too) and every item of the dataset (the subagent suite asks about a Workflow's agents together).
+// too) and every item of the dataset (the `subagent` suite asks about a Workflow's agents together).
 const beside: Record<string, string> = {}
 const suite = typeof entry === 'function' ? await entry(nodeHost(path, (file, text) => (beside[file] = sha(text))), dataset.items) : entry
 for (const warning of suite.about?.warnings ?? []) console.log(`warning: ${warning}`)
@@ -137,22 +137,13 @@ if (values.estimate) process.exit(0)
 const maxUsd = Number(values['max-usd'])
 if (estimatedUsd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothing sent`)
 
-const secrets: string[] = []
-async function makeBackend(): Promise<Backend> {
-  if (backendName === 'jev') {
-    const key = credential('TYPESAFE_API_KEY') ?? fail(`no TYPESAFE_API_KEY in the environment or ${CREDENTIALS_FILE}`)
-    secrets.push(key)
-    return jevBackend(key, { model })
-  }
-  if (backendName === 'clef') {
-    const accountId = credential('CLOUDFLARE_ACCOUNT_ID') ?? fail(`no CLOUDFLARE_ACCOUNT_ID in the environment or ${CREDENTIALS_FILE}`)
-    const apiToken = credential('CLOUDFLARE_AUTH_TOKEN') ?? fail(`no CLOUDFLARE_AUTH_TOKEN in the environment or ${CREDENTIALS_FILE}`)
-    secrets.push(accountId, apiToken)
-    return clefBackend({ accountId, apiToken })
-  }
-  return fail(`no backend "${backendName}" (jev, clef)`)
+let chosen: { backend: Backend; secrets: string[] }
+try {
+  chosen = backendFor(backendName, backendName === 'jev' ? model : undefined)
+} catch (error) {
+  fail(error instanceof Error ? error.message : String(error))
 }
-const backend = await makeBackend()
+const { backend, secrets } = chosen
 
 const started = new Date()
 const rows: Row<unknown>[] = await runSuite(suite, items, {

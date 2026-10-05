@@ -58,9 +58,17 @@ test('at session start find_skill is registered: it takes a query, and its descr
 })
 
 test('without a decision model find_skill is not registered: nothing could rate the skills, and the main agent keeps its full listing', async ($, on) => {
+  const listing = [
+    'The following skills are available for use with the Skill tool:',
+    '',
+    `- tdd: ${SKILLS.commands[0]?.description}`,
+    `- code-review: ${REVIEW_DESCRIPTION}`,
+    `- anthropic-skills:pdf: ${PDF_DESCRIPTION}`,
+  ].join('\n')
   const w = world($, on, { skills: SKILLS, session: true })
   await w.start()
   expect(w.tools).toEqual([])
+  expect(await w.listing(listing)).toEqual({ text: listing })
 })
 
 // ---- What it asks and what it answers -------------------------------------------

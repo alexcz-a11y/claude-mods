@@ -144,8 +144,8 @@ test('effort-midturn: the turn so far is the same in both languages, each tool r
   expect(errors.length).toBe(9) // 008: its counts also differ from en's
 })
 
-/** A well-formed subagent item: one dispatch (`agent`) or one `agent()` of a Workflow script (`workflow`). */
-function subagent(id: string, kind: 'agent' | 'workflow', change: (item: any) => void = () => {}): any {
+/** A well-formed item of the dispatched agents' dataset (subagent.jsonl): one dispatch (`agent`) or one `agent()` of a Workflow script (`workflow`). */
+function dispatched(id: string, kind: 'agent' | 'workflow', change: (item: any) => void = () => {}): any {
   const asked = (language: 'zh' | 'en') => ({
     user_message: language === 'zh' ? '查一下哪些文件还在用旧的日志库' : 'Find which files still use the old logging library.',
     kind,
@@ -170,28 +170,28 @@ function subagent(id: string, kind: 'agent' | 'workflow', change: (item: any) =>
   return item
 }
 
-test('subagent: haiku goes with no effort and any other model with a level; the dispatch kind fixes which fields are set; priority tags agree with the answer', () => {
-  expect(validateDataset('subagent', [subagent('subagent-001', 'agent'), subagent('subagent-002', 'workflow')]).errors).toEqual([])
+test('dispatched agents (subagent.jsonl): haiku goes with no effort and any other model with a level; the dispatch kind fixes which fields are set; priority tags agree with the answer', () => {
+  expect(validateDataset('subagent', [dispatched('subagent-001', 'agent'), dispatched('subagent-002', 'workflow')]).errors).toEqual([])
 
   const items = [
-    subagent('subagent-001', 'agent', (i) => (i.gold = { model: 'haiku', effort: 'low' })),
-    subagent('subagent-002', 'agent', (i) => (i.gold = { model: 'sonnet', effort: null })),
-    subagent('subagent-003', 'agent', (i) => (i.accept = { model: ['haiku', 'sonnet'], effort: ['low'] })), // haiku accepted, null not
-    subagent('subagent-004', 'agent', (i) => (i.accept = { model: ['haiku', 'sonnet'], effort: [null, 'low', 'high'] })),
-    subagent('subagent-005', 'workflow', (i) => (i.en.label = null)),
-    subagent('subagent-006', 'agent', (i) => (i.zh.workflow_description = '一个工作流')),
-    subagent('subagent-007', 'agent', (i) => (i.en.requested_model = 'opus')),
-    subagent('subagent-008', 'agent', (i) => (i.tags = ['search'])), // no priority tag
-    subagent('subagent-009', 'agent', (i) => {
+    dispatched('subagent-001', 'agent', (i) => (i.gold = { model: 'haiku', effort: 'low' })),
+    dispatched('subagent-002', 'agent', (i) => (i.gold = { model: 'sonnet', effort: null })),
+    dispatched('subagent-003', 'agent', (i) => (i.accept = { model: ['haiku', 'sonnet'], effort: ['low'] })), // haiku accepted, null not
+    dispatched('subagent-004', 'agent', (i) => (i.accept = { model: ['haiku', 'sonnet'], effort: [null, 'low', 'high'] })),
+    dispatched('subagent-005', 'workflow', (i) => (i.en.label = null)),
+    dispatched('subagent-006', 'agent', (i) => (i.zh.workflow_description = '一个工作流')),
+    dispatched('subagent-007', 'agent', (i) => (i.en.requested_model = 'opus')),
+    dispatched('subagent-008', 'agent', (i) => (i.tags = ['search'])), // no priority tag
+    dispatched('subagent-009', 'agent', (i) => {
       // The person named sonnet: it must be the only acceptable model.
       i.tags = ['priority:user']
       i.gold = { model: 'sonnet', effort: 'low' }
     }),
-    subagent('subagent-010', 'agent', (i) => {
+    dispatched('subagent-010', 'agent', (i) => {
       i.zh.requested_model = i.en.requested_model = 'opus'
       i.tags = ['priority:main-kept'] // kept, yet gold is not opus
     }),
-    subagent('subagent-011', 'agent', (i) => {
+    dispatched('subagent-011', 'agent', (i) => {
       i.gold = { model: 'fable', effort: 'max' }
       i.accept = { model: ['fable'], effort: ['max'] } // fable without its tag
     }),

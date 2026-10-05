@@ -4,14 +4,14 @@
 // effort-midturn, #15 subagent, #16 skill). A suite that needs more than one
 // item at a time is built when a run starts: from what the host gives it
 // (SuiteHost: the skill suite's catalog, profiles and SKILL.md files), or
-// from the dataset's items (the subagent suite: a Workflow's agents are asked
+// from the dataset's items (the `subagent` suite: a Workflow's agents are asked
 // about together).
 
 import { effortMidturn } from './effort-midturn.ts'
 import { effortSubmit } from './effort-submit.ts'
 import { skillSuite } from './skill.ts'
-import { subagentSuite } from './subagent.ts'
-import type { SubagentItem } from './datasets.ts'
+import { agentSuite } from './subagent.ts'
+import type { AgentItem } from './datasets.ts'
 import type { Suite, SuiteHost } from './suite.ts'
 
 /** A suite built when a run starts, from the host and every item of the dataset (not only those the run asks). */
@@ -22,6 +22,6 @@ export type SuiteFactory = (host: SuiteHost, items: readonly unknown[]) => Promi
 export const SUITES: Readonly<Record<string, Suite<any, any> | SuiteFactory>> = {
   'effort-submit': effortSubmit,
   'effort-midturn': effortMidturn,
-  subagent: async (_host, items) => subagentSuite(items as readonly SubagentItem[]),
+  subagent: async (_host, items) => agentSuite(items as readonly AgentItem[]),
   skill: (host) => skillSuite({ catalog: host.beside('skill-catalog.json'), profiles: host.beside('skill-profiles.json'), read: host.read }),
 }

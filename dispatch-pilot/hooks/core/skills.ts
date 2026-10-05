@@ -1,7 +1,8 @@
 // The skill catalog: which skills the session has, who may start each one,
-// and what each is for. The skills feature (#10) suggests from it, and so
-// will the bilingual portraits (#11) and the find_skill tool (#12). Also the
-// engine's skill listing, read and trimmed.
+// and what each is for. The skills feature (#10) suggests from it, the
+// find_skill tool (#12) answers from it, and its bilingual profiles (#11,
+// core/profiles.ts) are written for it. Also the engine's skill listing, read
+// and trimmed, and how the ranking is described and set up.
 //
 // Pure: no `$`. Whatever reads the session (commands, settings, disk) comes
 // in as closures the hook that owns `$` builds (README, 开发).

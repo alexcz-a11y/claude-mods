@@ -163,13 +163,13 @@ function modelInstructions(language: Language, options: DispatchAsk['options'], 
 function effortInstructions(language: Language, field: string): Record<string, string> {
   if (language === 'zh') {
     return {
-      问题: `一个子 agent 要完成 \`${field}\`，需要多少逐步推理？`,
+      问题: `一个派出的 agent 要完成 \`${field}\`，需要多少逐步推理？`,
       执行: `如果 \`${field}\` 已经写明了要改的文件、步骤和测试，设计就已经做完了，照着做只是执行。只有它本身要求设计、原因未知，或需要尚未写出的推理时，才评得更高。`,
       评什么: '评的是工作本身，而不是话题听起来有多重要：审查一份小 diff 是常规工作，即使涉及安全。',
     }
   }
   return {
-    question: `How much step-by-step reasoning does a subagent need to carry out \`${field}\`?`,
+    question: `How much step-by-step reasoning does a dispatched agent need to carry out \`${field}\`?`,
     execution: `A brief that already names the files, the steps and the tests has done the design: carrying it out is execution. Rate higher only when \`${field}\` itself asks for design, an unknown cause, or reasoning that is not already written out.`,
     rate: 'Rate the work, not how important the topic sounds: reviewing a small diff is ordinary work, even for security.',
   }
@@ -247,8 +247,17 @@ function bannedQuestion(model: AgentModel, language: Language, field: string): Q
  * "effort", or how hard to think, in either language.
  */
 export function mentionsEffort(text: string): boolean {
-  return /effort|\bx-?high\b|extra[- ]high|\b(?:low|medium|high|max|maximum)\b|think|reason|推理|思考|思维|努力|强度|力度|档|拉满|开满|最低|最高|超高|极高/i.test(text)
+  return EFFORT_WORDS.test(text)
 }
+
+/**
+ * Words that may ask for an effort: a level's name, or a way of asking for
+ * more (or less) thought. "think" and "reason" alone are everyday words ("I
+ * think", "the reason"), so in English only a phrase counts ("think hard",
+ * "more reasoning", "ultrathink").
+ */
+const EFFORT_WORDS =
+  /effort|\bx-?high\b|extra[- ]high|\b(?:low|medium|high|max|maximum)\b|ultrathink|\bthink(?:ing)?\s+(?:hard|harder|deep(?:ly|er)?|long(?:er)?|carefully|more|less)\b|\b(?:more|less|deep(?:er)?|extra|maximum|minimal|careful)\s+(?:reasoning|thinking|thought)\b|\breasoning\s+(?:effort|level|budget)\b|推理|思考|思维|努力|强度|力度|档|拉满|开满|最低|最高|超高|极高/i
 
 /**
  * Whether the person asks for an effort for the agent that carries out the

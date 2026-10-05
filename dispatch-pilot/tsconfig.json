@@ -3,8 +3,10 @@
   // extends the one Claude Code generates in .claude-plugin/types/ (not
   // committed: load the mod once with --plugin-dir to create it), and allows
   // the `.ts` endings the relative imports need so Node can run them as well.
+  // `tsc -p` only checks types: nothing is emitted beside the sources.
   "extends": "./.claude-plugin/types/tsconfig.json",
   "compilerOptions": {
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "noEmit": true
   }
 }

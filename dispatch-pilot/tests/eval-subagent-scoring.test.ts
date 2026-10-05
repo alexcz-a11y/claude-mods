@@ -1,4 +1,4 @@
-// Scoring the subagent suite (seam 2): each answer graded on its model and
+// Scoring the `subagent` suite of dispatched agents (seam 2): each answer graded on its model and
 // its effort against the item's acceptable sets, then the run's figures. The
 // backend is Jev's own client (jevBackend) over a fake network, so only the
 // network is pretend; the expected grades are worked out by hand.
@@ -6,15 +6,15 @@
 import { expect, test } from 'claude-code/testing'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { jevBackend } from '../hooks/decision/jev.ts'
-import type { SubagentItem } from '../eval/lib/datasets.ts'
+import type { AgentItem } from '../eval/lib/datasets.ts'
 import { summarize } from '../eval/lib/metrics.ts'
 import { runSuite, type Row } from '../eval/lib/runner.ts'
-import { subagentSuite } from '../eval/lib/subagent.ts'
+import { agentSuite } from '../eval/lib/subagent.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
 
 /** An agent item whose message is `<id>（中文）` / `<id> (English)`, so the fake network knows what it is asked about. */
-function item(id: string, gold: SubagentItem['gold'], accept: SubagentItem['accept'], more: { requested?: SubagentItem['zh']['requested_model']; tags?: string[]; kind?: 'agent' | 'workflow'; words?: string } = {}): SubagentItem {
-  const asked = (message: string): SubagentItem['zh'] => {
+function item(id: string, gold: AgentItem['gold'], accept: AgentItem['accept'], more: { requested?: AgentItem['zh']['requested_model']; tags?: string[]; kind?: 'agent' | 'workflow'; words?: string } = {}): AgentItem {
+  const asked = (message: string): AgentItem['zh'] => {
     const workflow = more.kind === 'workflow'
     return {
       user_message: message,
@@ -102,7 +102,7 @@ test('each answer is graded on its model and on its effort; haiku carries no eff
     'd zh': { model: HAIKU, effort: MAX },
     'd en': { model: OPUS, effort: MAX },
   })
-  const rows = await runSuite(subagentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['models-hint'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['models-hint'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
   expect(rows.map(line)).toEqual([
     'a zh: opus low wrong (effort-under); model right, effort wrong',
@@ -154,8 +154,8 @@ const SIX_ANSWERS: Record<string, Answers> = {
 
 async function runSix() {
   const settings = settingsFrom({})
-  const rows = await runSuite(subagentSuite(SIX), SIX, { backend: jevBackend('k'), ...network(SIX_ANSWERS), settings, variants: ['models-hint'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
-  return summarize(subagentSuite(SIX), SIX, rows, { slowMs: 1500, settings })
+  const rows = await runSuite(agentSuite(SIX), SIX, { backend: jevBackend('k'), ...network(SIX_ANSWERS), settings, variants: ['models-hint'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  return summarize(agentSuite(SIX), SIX, rows, { slowMs: 1500, settings })
 }
 
 test('a run reports the model, the effort and the whole answer right in each language, by tag, and for each constant answer', async () => {
@@ -217,11 +217,11 @@ test("thresholds are swept over the answers already given, nothing asked again; 
 })
 
 test("in the noul variants the main agent's pick goes only when the work is also outside it (requested_fits under thetaFit), swept as well", async () => {
-  const items = [SIX[3] as SubagentItem]
+  const items = [SIX[3] as AgentItem]
   const settings = settingsFrom({ agentOverride: 0.7 })
   const net = network({ 'd zh': { model: HAIKU, effort: MAX, nouls: { requested_fits: 0.4 } }, 'd en': { model: HAIKU, effort: MAX, nouls: { requested_fits: 0.6 } } })
-  const rows = await runSuite(subagentSuite(items), items, { backend: jevBackend('k'), ...net, settings, variants: ['models-noul'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
-  const [v] = summarize(subagentSuite(items), items, rows, { slowMs: 1500, settings }).variants
+  const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings, variants: ['models-noul'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  const [v] = summarize(agentSuite(items), items, rows, { slowMs: 1500, settings }).variants
   const sweeps = v?.breakdown?.sweeps as Record<string, Swept[]>
 
   // Sure of haiku (0.85 over agentOverride 0.7); the opus pick goes only where it is said not to fit (zh 0.4).
@@ -234,7 +234,7 @@ test("in the noul variants the main agent's pick goes only when the work is also
 test('what an answer records: where its model came from, the pick and its confidence, and the raw answers to decide again from', async () => {
   const items = [item('d', { model: 'opus', effort: 'max' }, { model: ['opus'], effort: ['xhigh', 'max'] }, { requested: 'opus', tags: ['priority:main-kept'], words: ' 别用 sonnet' })]
   const net = network({ 'd zh': { model: { haiku: 0.9, sonnet: 0.02, opus: 0.08 }, effort: MAX, nouls: { 'named.sonnet': 0.1, 'banned.sonnet': 0.95 } } })
-  const [row] = await runSuite(subagentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['models-hint'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  const [row] = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['models-hint'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
   expect(row?.shown).toBe('haiku')
   // Among the models not ruled out (haiku, opus): p 0.9 / 0.98 is confidence 0.84.
@@ -260,7 +260,7 @@ test('no decision is a failure that says why (no answer about the agent, every m
     'f zh': {},
     'g zh': { model: { haiku: 0, sonnet: 0, opus: 1 }, effort: LOW, nouls: { 'banned.opus': 0.9 } },
   })
-  const rows = await runSuite(subagentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['models-hint'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['models-hint'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
   expect(rows.map(line)).toEqual([
     'e zh: no answer (none: every model offered was ruled out: haiku, sonnet, opus)',

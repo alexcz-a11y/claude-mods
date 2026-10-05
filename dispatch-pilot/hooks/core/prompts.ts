@@ -7,7 +7,7 @@ import type { PromptOrigin } from 'claude-code'
  * True for a message the person sent: typed at the terminal (`composer`),
  * through the Remote Control bridge, as the SDK host's turn (`claude -p`),
  * pinged from Slack by the session's owner, or submitted by a plugin as the
- * person's own words. False for the rest (a subagent's hand-back, a
+ * person's own words. False for the rest (a dispatched agent's hand-back, a
  * background task's notice, a peer session, a schedule, a plugin speaking for
  * itself), for a typed slash command and for an empty prompt.
  */

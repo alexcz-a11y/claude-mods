@@ -127,7 +127,7 @@ export type Suite<I extends AnyItem, P> = {
   /**
    * Optional: the suite's own figures for one variant's answers, beside the
    * ones every suite gets (metrics.ts), saved in that variant's summary as
-   * `breakdown` (subagent: where models came from, thresholds swept).
+   * `breakdown` (`subagent`: where models came from, thresholds swept).
    */
   breakdown?: (items: readonly I[], rows: readonly Row<P>[], variant: string, settings: Settings) => Readonly<Record<string, unknown>>
   /** Optional: lines eval/run.ts prints about one variant's summary, after the figures every suite gets. */

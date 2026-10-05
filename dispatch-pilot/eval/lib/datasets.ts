@@ -66,18 +66,18 @@ export type MidturnRowStep = { assistant_text: string; tools: readonly MidturnRo
 export type MidturnAsked = Omit<MidturnInput, 'trouble' | 'recent_steps'> & { recent_steps: readonly MidturnRowStep[] }
 export type EffortMidturnItem = Item<MidturnAsked, Effort, Effort[]>
 
-/** subagent: the models a dispatched agent can be given (fable only where an item really needs it). */
+/** `subagent` (dispatched agents): the models a dispatched agent can be given (fable only where an item really needs it). */
 export const MODELS = ['haiku', 'sonnet', 'opus', 'fable'] as const
 export type Model = (typeof MODELS)[number]
 
 /**
- * subagent: one dispatch through the Agent tool (`kind: 'agent'`, with its
+ * `subagent` (dispatched agents): one dispatch through the Agent tool (`kind: 'agent'`, with its
  * `description` and `agent_type`) or one `agent()` of a Workflow script
  * (`kind: 'workflow'`, with the workflow's description and the agent's
  * `label`; `agent_type` only when the script passes one). The prompt and
  * label keep placeholders such as `${file}`.
  */
-export type SubagentAsked = {
+export type AgentAsked = {
   user_message: string
   kind: 'agent' | 'workflow'
   agent_type: string | null
@@ -88,8 +88,8 @@ export type SubagentAsked = {
   label: string | null
 }
 /** haiku takes no effort (null); any other model one level. */
-export type SubagentAnswer = { model: Model; effort: Effort | null }
-export type SubagentItem = Item<SubagentAsked, SubagentAnswer, { model: Model[]; effort: (Effort | null)[] }>
+export type AgentAnswer = { model: Model; effort: Effort | null }
+export type AgentItem = Item<AgentAsked, AgentAnswer, { model: Model[]; effort: (Effort | null)[] }>
 
 /**
  * skill: what to recommend for a message, by skill name as the main agent's
@@ -192,8 +192,8 @@ const RULES: Record<Kind, (item: Record<string, unknown>, add: Add) => void> = {
     if (Array.isArray(item.accept) && item.accept.length > 2) add(`accept ${JSON.stringify(item.accept)} is wider than at most two levels`)
   },
   subagent: (item, add) => {
-    checkSubagentAsked(item, add)
-    checkSubagentAnswer(item, add)
+    checkAgentAsked(item, add)
+    checkAgentAnswer(item, add)
     checkPriority(item, add)
     checkFable(item, add)
   },
@@ -361,13 +361,13 @@ function outcome(result: unknown, language: Language): number {
   return typeof result === 'string' ? OUTCOMES[language].findIndex((prefix) => result.startsWith(prefix)) : -1
 }
 
-const SUBAGENT_FIELDS = ['user_message', 'kind', 'agent_type', 'description', 'prompt', 'requested_model', 'workflow_description', 'label'] as const
+const AGENT_FIELDS = ['user_message', 'kind', 'agent_type', 'description', 'prompt', 'requested_model', 'workflow_description', 'label'] as const
 
 /** Both languages: the same kind, agent type, requested model and label; the fields each kind sets, and only those. */
-function checkSubagentAsked(item: Record<string, unknown>, add: Add): void {
+function checkAgentAsked(item: Record<string, unknown>, add: Add): void {
   for (const language of LANGUAGES) {
     const asked = item[language] as Record<string, unknown>
-    exactKeys(asked, SUBAGENT_FIELDS, language, add)
+    exactKeys(asked, AGENT_FIELDS, language, add)
     for (const field of ['user_message', 'prompt'] as const) if (!nonEmpty(asked[field])) add(`${language}.${field} must be a non-empty string`)
     if (asked.agent_type !== null && !nonEmpty(asked.agent_type)) add(`${language}.agent_type must be a name or null`)
     if (asked.requested_model !== null && !isModel(asked.requested_model)) add(`${language}.requested_model must be one of ${MODELS.join(', ')} or null`)
@@ -389,7 +389,7 @@ function checkSubagentAsked(item: Record<string, unknown>, add: Add): void {
 }
 
 /** `gold` one model and its effort (null for haiku); `accept` the acceptable models and efforts, null among the efforts exactly when haiku is among the models. */
-function checkSubagentAnswer(item: Record<string, unknown>, add: Add): void {
+function checkAgentAnswer(item: Record<string, unknown>, add: Add): void {
   const { gold, accept } = item
   if (!isRecord(gold) || !isModel(gold.model)) add(`gold must be { model: ${MODELS.join(' | ')}, effort }`)
   else if (gold.model === 'haiku' && gold.effort !== null) add('gold: haiku takes no effort (null)')

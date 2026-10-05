@@ -1,4 +1,4 @@
-// The subagent suite of the eval (seam 2): what it sends for an item is what
+// The `subagent` suite of the eval, dispatched agents (seam 2): what it sends for an item is what
 // the mod sends when the person sends that message and the main agent then
 // dispatches that agent, or submits the Workflow script whose agent() it is,
 // and what it decides from an answer is what the mod does with the same
@@ -8,8 +8,8 @@ import { expect, test } from 'claude-code/testing'
 import type { PluginOptions } from 'claude-code'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
-import type { Language, SubagentItem } from '../eval/lib/datasets.ts'
-import { subagentSuite } from '../eval/lib/subagent.ts'
+import type { Language, AgentItem } from '../eval/lib/datasets.ts'
+import { agentSuite } from '../eval/lib/subagent.ts'
 import { settingsFrom, type Ask } from '../eval/lib/suite.ts'
 import { siteJev, workflowWorld } from './support/workflow.ts'
 import { jev, world } from './support/world.ts'
@@ -25,7 +25,7 @@ const EN = "Last week's incident review said the permission checks have holes. "
  * names a model at its end, and mentions another in the middle that the
  * first cut drops.
  */
-const LONG: SubagentItem = {
+const LONG: AgentItem = {
   id: 'subagent-900',
   zh: {
     user_message: `${ZH.repeat(120)}（上次那版是 haiku 写的）${ZH.repeat(80)}密钥是 ${SECRET}，别外传。这次用 opus 认真审一下`,
@@ -58,13 +58,13 @@ const LONG: SubagentItem = {
  * The request the eval sends for `item` in `language` (asked of no backend:
  * the request is all that is read), its suite built over `dataset`.
  */
-async function evalRequest(item: SubagentItem, language: Language, options: PluginOptions = {}, dataset: readonly SubagentItem[] = [item], variant = 'models-hint'): Promise<DecisionRequest> {
+async function evalRequest(item: AgentItem, language: Language, options: PluginOptions = {}, dataset: readonly AgentItem[] = [item], variant = 'models-hint'): Promise<DecisionRequest> {
   let sent: DecisionRequest | undefined
   const ask: Ask = async (request) => {
     sent = request
     return { request, asked: { ok: false, failure: { kind: 'config', detail: 'not sent' } }, ms: 0, attempts: 1 }
   }
-  await subagentSuite(dataset).decide(item, language, variant, ask, settingsFrom(options))
+  await agentSuite(dataset).decide(item, language, variant, ask, settingsFrom(options))
   if (sent === undefined) throw new Error('the suite sent no request')
   return sent
 }
@@ -98,8 +98,8 @@ for (const language of ['zh', 'en'] as const) {
 }
 
 /** A Workflow's agent() as the dataset writes it: one item per call, the script's description and the person's message the same in each. */
-function workflowItem(id: string, call: { prompt: Record<Language, string>; label: string; requested_model: SubagentItem['zh']['requested_model'] }): SubagentItem {
-  const asked = (language: Language): SubagentItem['zh'] => ({
+function workflowItem(id: string, call: { prompt: Record<Language, string>; label: string; requested_model: AgentItem['zh']['requested_model'] }): AgentItem {
+  const asked = (language: Language): AgentItem['zh'] => ({
     user_message: language === 'zh' ? '我们每个包的重试逻辑都不太一样，帮我摸个底，看看值不值得统一' : 'Every package retries in its own way. Take stock and tell me whether it is worth unifying.',
     kind: 'workflow',
     agent_type: null,
@@ -171,7 +171,7 @@ test("from the same answers the eval decides each of a Workflow's agents as the 
   await w.submit(SCAN.zh.user_message)
   const told = ((await w.workflow({ script: retryScript('zh') })).context ?? []).join('\n')
 
-  const suite = subagentSuite([SCAN, SYNTH])
+  const suite = agentSuite([SCAN, SYNTH])
   const ask: Ask = async (request) => {
     const reply = answers({ url: '', method: 'POST', headers: {}, body: request }) as { body: { answers: Record<string, never> } }
     return { request, asked: { ok: true, answers: reply.body.answers, model: 'jev-1.13.0', inputTokens: 400 }, ms: 0, attempts: 1 }
@@ -198,8 +198,8 @@ function answersTo(questions: Readonly<Record<string, { type: string }>>, answer
 }
 
 /** An agent item (zh only is asked here); `asked` fills in the brief. */
-function agentItem(id: string, asked: Partial<SubagentItem['zh']>): SubagentItem {
-  const zh: SubagentItem['zh'] = {
+function agentItem(id: string, asked: Partial<AgentItem['zh']>): AgentItem {
+  const zh: AgentItem['zh'] = {
     user_message: '看一下',
     kind: 'agent',
     agent_type: 'general-purpose',
@@ -214,7 +214,7 @@ function agentItem(id: string, asked: Partial<SubagentItem['zh']>): SubagentItem
 }
 
 test("the eval decides an agent as the mod does from the same answers, under the mod's options (agentOverride, agentFable)", { options: { typesafeApiKey: 'k', agentOverride: 0.9, agentFable: true } }, async ($, on) => {
-  const cases: { item: SubagentItem; answers: Answers }[] = [
+  const cases: { item: AgentItem; answers: Answers }[] = [
     // Of four options p 0.9 is confidence 0.87: under agentOverride 0.9, the main agent's opus stands.
     { item: agentItem('keep', { requested_model: 'opus' }), answers: { model: { haiku: 0.9, sonnet: 0.05, opus: 0.05, fable: 0 }, effort: [0, 0, 0, 1, 0] } },
     // fable is offered (agentFable): sure enough to replace the main agent's sonnet.
@@ -240,7 +240,7 @@ test("the eval decides an agent as the mod does from the same answers, under the
     await w.step({ index: 0, turnId: `sub-${item.id}`, agentId: started.agentId, model: 'claude-sonnet-5-5', effort: 'low' })
     mod.push(`${item.id}: ${String(w.spawned.at(-1)?.model)} ${String(w.steps.at(-1)?.effort)}`)
 
-    const decided = await subagentSuite([item]).decide(
+    const decided = await agentSuite([item]).decide(
       item,
       'zh',
       'models-hint',

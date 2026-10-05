@@ -9,7 +9,9 @@ import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join, relative, resolve } from 'node:path'
-import type { BackendIo } from '../hooks/decision/backend.ts'
+import type { Backend, BackendIo } from '../hooks/decision/backend.ts'
+import { clefBackend } from '../hooks/decision/clef.ts'
+import { jevBackend } from '../hooks/decision/jev.ts'
 import { isKind, parseJsonl, type Kind } from './lib/datasets.ts'
 import type { OptionSpec, SuiteHost } from './lib/suite.ts'
 
@@ -104,6 +106,27 @@ export function credential(name: string): string | undefined {
     return value || undefined
   }
   return undefined
+}
+
+/**
+ * The decision backend under evaluation (`jev` or `clef`), with the
+ * credentials it needs (`credential`); `secrets` are those values, to keep
+ * them out of anything written. Throws, saying what is missing, when a
+ * credential is not found or the backend is not known.
+ */
+export function backendFor(name: string, model?: string): { backend: Backend; secrets: string[] } {
+  if (name === 'jev') {
+    const key = credential('TYPESAFE_API_KEY')
+    if (key === undefined) throw new Error(`no TYPESAFE_API_KEY in the environment or ${CREDENTIALS_FILE}`)
+    return { backend: jevBackend(key, model === undefined ? {} : { model }), secrets: [key] }
+  }
+  if (name === 'clef') {
+    const accountId = credential('CLOUDFLARE_ACCOUNT_ID')
+    const apiToken = credential('CLOUDFLARE_AUTH_TOKEN')
+    if (accountId === undefined || apiToken === undefined) throw new Error(`CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AUTH_TOKEN must both be in the environment or ${CREDENTIALS_FILE}`)
+    return { backend: clefBackend({ accountId, apiToken }), secrets: [accountId, apiToken] }
+  }
+  throw new Error(`no backend "${name}" (jev, clef)`)
 }
 
 /** Node's fetch and timers as a backend's host. */
