@@ -450,7 +450,7 @@ test("a fork (it always runs on its parent's model) and a teammate (it lives acr
 
 test("the decision reads the person's words this turn: the message that started it and those typed during it, masked; no other prompt", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { sonnet: 1 } }) })
-  await w.submit('把登录模块拆成三层，测试账号的 token 是 ghp_abcdefghijklmnopqrstuvwxyz0123456789')
+  await w.submit('把登录模块拆成三层，测试账号的 token 是 ghp' + '_abcdefghijklmnopqrstuvwxyz0123456789')
   await w.submit('另外，测试那部分单独派个 agent', { turnId: 't1' })
   await w.submit('<task-notification>agent a1 finished</task-notification>', { origin: { kind: 'task-notification' }, turnId: 't1' })
   await w.spawn({ prompt: 'Write the tests for the three new layers.' })

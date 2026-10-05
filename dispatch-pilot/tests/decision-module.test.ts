@@ -160,12 +160,12 @@ test('the message comes first in the budget; older messages are dropped whole, t
 
 test('common secret formats are masked, ordinary text is not', () => {
   const cases: [string, string][] = [
-    ['key sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWx in env', 'key [REDACTED] in env'],
+    ['key sk-ant-' + 'api03-AbCdEfGhIjKlMnOpQrStUvWx in env', 'key [REDACTED] in env'],
     ['OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwx', 'OPENAI_API_KEY=[REDACTED]'],
-    ['token ghp_abcdefghijklmnopqrstuvwxyz0123456789 leaked', 'token [REDACTED] leaked'],
+    ['token ghp' + '_abcdefghijklmnopqrstuvwxyz0123456789 leaked', 'token [REDACTED] leaked'],
     ['aws AKIAIOSFODNN7EXAMPLE id', 'aws [REDACTED] id'],
-    ['slack xoxb-123456789012-abcdefghijkl', 'slack [REDACTED]'],
-    ['google AIzaSyA-abcdefghijklmnopqrstuvwxyz12345 key', 'google [REDACTED] key'],
+    ['slack xox' + 'b-123456789012-abcdefghijkl', 'slack [REDACTED]'],
+    ['google AIza' + 'SyA-abcdefghijklmnopqrstuvwxyz12345 key', 'google [REDACTED] key'],
     ['Authorization: Bearer abcdef0123456789abcdef', 'Authorization: Bearer [REDACTED]'],
     ['db postgres://admin:hunter2pass@db.internal:5432/app', 'db postgres://admin:[REDACTED]@db.internal:5432/app'],
     ['password: "correct horse battery"', 'password: "[REDACTED]"'],
