@@ -424,6 +424,8 @@ export type DispatchDecision = {
   namedEffort?: Effort | null
   /** Whose the effort is: the person's (`user`, the one they named), the decision model's, or none (haiku, or no usable answer). */
   effortSource?: 'user' | 'decided' | 'none'
+  /** The decided effort the floor lifted `effort` from; unset when the floor lifted nothing. */
+  liftedFrom?: Effort
 }
 
 /**
@@ -463,14 +465,36 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
     model = requested
     source = 'requested'
   }
-  // An effort the person names is the agent's, over the decided one; haiku takes none either way.
+  // An effort the person names is the agent's, over the decided one; haiku takes none either way. The decided one
+  // is lifted to its model's floor; the person's never is.
   const namedEffort = readNamedEffort(answers[NAMED_EFFORT], threshold)
   const decided = reading === null ? null : pickEffort(reading, settings.thetaMax)
-  const effort = model === 'haiku' ? null : (namedEffort ?? decided)
+  const floor = reading === null ? null : effortFloor(model, reading)
+  const lifted = decided !== null && floor !== null && EFFORTS.indexOf(floor) > EFFORTS.indexOf(decided) ? floor : null
+  const effort = model === 'haiku' ? null : (namedEffort ?? lifted ?? decided)
   const effortSource = effort === null ? 'none' : namedEffort !== null ? 'user' : 'decided'
   const answered = answers[MODEL]?.type === 'choice' || reading !== null
-  return { model, effort, source, pick, banned, reading, answered, namedEffort, effortSource }
+  return { model, effort, source, pick, banned, reading, answered, namedEffort, effortSource, ...(namedEffort === null && model !== 'haiku' && lifted !== null && decided !== null ? { liftedFrom: decided } : {}) }
 }
+
+/**
+ * The least effort an agent on `model` goes at, from the answer about its
+ * effort; null for none (haiku takes no effort, fable has no floor). Raising
+ * is easy, lowering is hard: on AA's Intelligence Index (v4.3.2) Sonnet 5.5
+ * scores 36 at low, 41 at medium, 47 at high (Terminal-Bench 20.7%, 29.8%,
+ * 43.9%) and Opus 5.5 42, 51, 54 (Terminal-Bench 31.3%, 52.5%, 56.6%): Sonnet
+ * loses most below high, Opus little above medium. So Sonnet goes at high at
+ * least, at medium only when the answer puts `SONNET_LOW` on low; Opus at
+ * medium at least. Not settings: set from the AA numbers (docs/research/aa-benchmarks-2026-10.md).
+ */
+export function effortFloor(model: AgentModel | null, reading: EffortReading): Effort | null {
+  if (model === 'sonnet') return (reading.probabilities[0] ?? 0) >= SONNET_LOW ? 'medium' : 'high'
+  if (model === 'opus') return 'medium'
+  return null
+}
+
+/** Sonnet's floor drops from high to medium only when the answer gives low at least this probability. */
+export const SONNET_LOW = 0.8
 
 /**
  * The effort the person asks for: the level the named-effort answer favours,
@@ -552,6 +576,7 @@ export function decisionNotes(decision: DispatchDecision): string[] {
   const notes: string[] = []
   if (decision.banned.length > 0) notes.push(`ruled out ${decision.banned.join(', ')}`)
   if (decision.pick?.nearest === true) notes.push(`the answer left no probability on the other models, nearest ${decision.pick.model} taken`)
+  if (decision.liftedFrom !== undefined && decision.effort !== null) notes.push(`effort lifted from ${decision.liftedFrom} to ${decision.effort} (floor for ${decision.model ?? 'the model'})`)
   if (decision.namedEffort != null) {
     notes.push(
       decision.effortSource === 'user'

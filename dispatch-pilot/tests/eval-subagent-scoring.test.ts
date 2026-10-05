@@ -105,13 +105,14 @@ test('each answer is graded on its model and on its effort; haiku carries no eff
   const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['models-hint'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
   expect(rows.map(line)).toEqual([
-    'a zh: opus low wrong (effort-under); model right, effort wrong',
+    // The effort decided is lifted to the model's floor (opus medium, sonnet high; sonnet medium when low has 0.8): low is not an answer for either.
+    'a zh: opus medium wrong (effort-under); model right, effort wrong',
     'a en: sonnet high right, gold; model right, effort right',
-    'b zh: sonnet medium wrong (model-over effort-over); model wrong, effort wrong',
+    'b zh: sonnet high wrong (model-over effort-over); model wrong, effort wrong',
     'b en: haiku right, gold; model right, effort right',
-    'c zh: sonnet low right; model right, effort right',
-    // accept.effort is one set for every acceptable model: low is acceptable whatever the model.
-    'c en: opus low wrong (model-over); model wrong, effort right',
+    // accept.effort is one set for every acceptable model: low is acceptable whatever the model, but neither can be at low.
+    'c zh: sonnet medium wrong (effort-over); model right, effort wrong',
+    'c en: opus medium wrong (model-over effort-over); model wrong, effort wrong',
     // Without effort (haiku) where a level is needed: the effort misses too, below.
     'd zh: haiku wrong (model-under effort-under); model wrong, effort wrong',
     'd en: opus max right, gold; model right, effort right',
@@ -121,12 +122,12 @@ test('each answer is graded on its model and on its effort; haiku carries no eff
 /**
  * Six items and how each was answered (models-hint, the mod's thresholds),
  * zh | en, with the parts right (model, effort):
- *   a  opus low (model) | sonnet high (both)
- *   b  sonnet medium (none) | haiku (both)
- *   c  sonnet low (both) | opus low (effort)
+ *   a  opus medium (model; low lifted to the floor) | sonnet high (both)
+ *   b  sonnet high (none; medium lifted to the floor) | haiku (both)
+ *   c  sonnet medium (model; low lifted to the floor) | opus medium (none)
  *   d  haiku over the main agent's opus, sure at 0.85 (none) | opus max, its pick kept (both)
- *   w  sonnet medium (both) | sonnet high (both)      a workflow's agent
- *   u  sonnet, named at 0.8 (both) | haiku, named at only 0.3 (none)
+ *   w  sonnet high (both; medium lifted to the floor) | sonnet high (both)      a workflow's agent
+ *   u  sonnet, named at 0.8 (both; its low lifted to medium) | haiku, named at only 0.3 (none)
  */
 const SIX = [
   item('a', { model: 'sonnet', effort: 'high' }, { model: ['sonnet', 'opus'], effort: ['high', 'xhigh'] }),
@@ -161,13 +162,13 @@ async function runSix() {
 test('a run reports the model, the effort and the whole answer right in each language, by tag, and for each constant answer', async () => {
   const summary = await runSix()
   const [v] = summary.variants
-  // zh: model a c w u, effort c w u, both c w u; en: model a b d w, effort all but u, both a b d w.
-  expect(v?.zh.parts).toEqual({ model: 0.6667, effort: 0.5 })
-  expect(v?.zh.accuracy).toBe(0.5)
-  expect(v?.en.parts).toEqual({ model: 0.6667, effort: 0.8333 })
+  // zh: model a c w u, effort w u, both w u; en: model a b d w, effort a b d w, both a b d w.
+  expect(v?.zh.parts).toEqual({ model: 0.6667, effort: 0.3333 })
+  expect(v?.zh.accuracy).toBe(0.3333)
+  expect(v?.en.parts).toEqual({ model: 0.6667, effort: 0.6667 })
   expect(v?.en.accuracy).toBe(0.6667)
   expect(v?.tags).toEqual([
-    { tag: 'priority:none', items: 4, wrong: { zh: 2, en: 1 }, parts: { model: { zh: 1, en: 1 }, effort: { zh: 2, en: 0 } } },
+    { tag: 'priority:none', items: 4, wrong: { zh: 3, en: 1 }, parts: { model: { zh: 1, en: 1 }, effort: { zh: 3, en: 1 } } },
     { tag: 'priority:main-kept', items: 1, wrong: { zh: 1, en: 0 }, parts: { model: { zh: 1, en: 0 }, effort: { zh: 1, en: 0 } } },
     { tag: 'priority:user', items: 1, wrong: { zh: 0, en: 1 }, parts: { model: { zh: 0, en: 1 }, effort: { zh: 0, en: 1 } } },
     { tag: 'fan-out', items: 1, wrong: { zh: 0, en: 0 }, parts: { model: { zh: 0, en: 0 }, effort: { zh: 0, en: 0 } } },
@@ -180,10 +181,10 @@ test('a run reports the model, the effort and the whole answer right in each lan
 test("the suite's own figures: each part agreed on in both languages, each kind of agent, where the model came from in each priority case", async () => {
   const [v] = (await runSix()).variants
   expect(v?.breakdown).toMatchObject({
-    // Answered in both languages: all six; the same model only for w, the same effort only for c.
-    agreement: { items: 6, model: 0.1667, effort: 0.1667 },
+    // Answered in both languages: all six; the same model only for w, the same effort for c (medium, medium) and w (high).
+    agreement: { items: 6, model: 0.1667, effort: 0.3333 },
     kinds: [
-      { kind: 'agent', items: 5, wrong: { zh: 3, en: 2 }, parts: { model: { zh: 2, en: 2 }, effort: { zh: 3, en: 1 } } },
+      { kind: 'agent', items: 5, wrong: { zh: 4, en: 2 }, parts: { model: { zh: 2, en: 2 }, effort: { zh: 4, en: 2 } } },
       { kind: 'workflow', items: 1, wrong: { zh: 0, en: 0 }, parts: { model: { zh: 0, en: 0 }, effort: { zh: 0, en: 0 } } },
     ],
     // d: overridden in zh, the main agent's pick kept in en; u: named in zh only.
@@ -203,14 +204,14 @@ test("thresholds are swept over the answers already given, nothing asked again; 
   const sweeps = v?.breakdown?.sweeps as Record<string, Swept[]>
   const at = (name: string, value: number) => sweeps[name]?.find((swept) => swept.value === value)
 
-  expect(at('thetaOverride', 0.6)).toEqual({ value: 0.6, current: true, zh: { model: 0.6667, effort: 0.5, joint: 0.5 }, en: { model: 0.6667, effort: 0.8333, joint: 0.6667 } })
+  expect(at('thetaOverride', 0.6)).toEqual({ value: 0.6, current: true, zh: { model: 0.6667, effort: 0.3333, joint: 0.3333 }, en: { model: 0.6667, effort: 0.6667, joint: 0.6667 } })
   // At 0.9 the main agent's opus stands on d in zh (haiku was 0.85 sure), and opus max is right.
-  expect(at('thetaOverride', 0.9)).toEqual({ value: 0.9, zh: { model: 0.8333, effort: 0.6667, joint: 0.6667 }, en: { model: 0.6667, effort: 0.8333, joint: 0.6667 } })
+  expect(at('thetaOverride', 0.9)).toEqual({ value: 0.9, zh: { model: 0.8333, effort: 0.5, joint: 0.5 }, en: { model: 0.6667, effort: 0.6667, joint: 0.6667 } })
   expect(sweeps.thetaOverride?.map((swept) => swept.value)).toEqual([0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1])
   // At 0.3 sonnet counts as named on u in en (0.3) as well; at 0.9 not even in zh (0.8).
   expect(at('thetaNamed', 0.5)?.current).toBe(true)
-  expect(at('thetaNamed', 0.3)?.en).toEqual({ model: 0.8333, effort: 1, joint: 0.8333 })
-  expect(at('thetaNamed', 0.9)?.zh).toEqual({ model: 0.5, effort: 0.3333, joint: 0.3333 })
+  expect(at('thetaNamed', 0.3)?.en).toEqual({ model: 0.8333, effort: 0.8333, joint: 0.8333 })
+  expect(at('thetaNamed', 0.9)?.zh).toEqual({ model: 0.5, effort: 0.1667, joint: 0.1667 })
   expect(sweeps.thetaMax?.find((swept) => swept.current)?.value).toBe(0.5)
   // requested_fits is asked only when the main agent's pick is a question of its own (noul).
   expect(sweeps.thetaFit).toBeUndefined()
@@ -253,7 +254,7 @@ test('no decision is a failure that says why (no answer about the agent, every m
     item('e', { model: 'sonnet', effort: 'low' }, { model: ['sonnet'], effort: ['low'] }, { words: ' 别用 haiku、sonnet 和 opus' }),
     item('f', { model: 'sonnet', effort: 'low' }, { model: ['sonnet'], effort: ['low'] }),
     // The main agent's opus is ruled out, and the answer puts everything on opus: the nearest model left, sonnet, is the decision (subagent-058).
-    item('g', { model: 'sonnet', effort: 'low' }, { model: ['sonnet'], effort: ['low'] }, { requested: 'opus', words: ' 别用 opus', tags: ['priority:main-overridden'] }),
+    item('g', { model: 'sonnet', effort: 'medium' }, { model: ['sonnet'], effort: ['medium'] }, { requested: 'opus', words: ' 别用 opus', tags: ['priority:main-overridden'] }),
   ]
   const net = network({
     'e zh': { model: SONNET, effort: LOW, nouls: { 'banned.haiku': 0.9, 'banned.sonnet': 0.9, 'banned.opus': 0.9 } },
@@ -265,6 +266,6 @@ test('no decision is a failure that says why (no answer about the agent, every m
   expect(rows.map(line)).toEqual([
     'e zh: no answer (none: every model offered was ruled out: haiku, sonnet, opus)',
     'f zh: no answer (parse: no answer about the agent)',
-    'g zh: sonnet low right, gold; model right, effort right',
+    'g zh: sonnet medium right, gold; model right, effort right',
   ])
 })

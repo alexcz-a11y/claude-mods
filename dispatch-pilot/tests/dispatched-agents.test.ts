@@ -59,6 +59,25 @@ test('a dispatched agent starts on the model decided for it, and every one of it
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent.model', 'agent.effort'])
 })
 
+test("an agent's effort is lifted to its model's floor, and the log says so: sonnet high (medium when low has 0.8), opus medium; the person's effort is never lifted", { options: KEY }, async ($, on) => {
+  const w = world($, on, {
+    backend: (request) => {
+      const prompt = String(request.body.state.brief.prompt)
+      if (prompt.startsWith('A')) return agentJev({ model: { sonnet: 1 }, effort: [0.5, 0.5, 0, 0, 0] })(request)
+      if (prompt.startsWith('B')) return agentJev({ model: { sonnet: 1 }, effort: [0.9, 0.1, 0, 0, 0] })(request)
+      if (prompt.startsWith('C')) return agentJev({ model: { opus: 1 }, effort: [1, 0, 0, 0, 0] })(request)
+      return agentJev({ model: { opus: 1 }, effort: [0, 0, 0, 1, 0], namedEffort: { none: 0.02, low: 0.96, medium: 0.02 } })(request)
+    },
+  })
+  await w.submit('先看看，D 那个 effort 用 low')
+  const spawned = [await w.spawn({ prompt: 'A: list the open TODOs.' }), await w.spawn({ prompt: 'B: rename the helper.' }), await w.spawn({ prompt: 'C: summarize the log.' }), await w.spawn({ prompt: 'D: check the lock.' })]
+  for (const [i, started] of spawned.entries()) await w.step({ index: 0, turnId: `sub-${i}`, agentId: started.agentId, model: i < 2 ? 'claude-sonnet-5-5' : 'claude-opus-5-5', effort: 'xhigh' })
+
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['high', 'medium', 'medium', 'low'])
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^sonnet high for .*effort lifted from medium to high \(floor for sonnet\)/))
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^opus medium for .*effort lifted from low to medium \(floor for opus\)/))
+})
+
 test('an agent sent to haiku gets no effort: its steps go out without one, whatever the effort answer says (spec #32)', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.08, opus: 0.02 }, effort: [0, 0, 0, 1, 0] }) })
   const started = await w.spawn({ prompt: 'List every file under src/ that imports legacyAuth. Report file:line only.', description: 'Find legacyAuth imports', subagentType: 'Explore' })
@@ -254,7 +273,7 @@ test('agents dispatched together are each decided on their own, and each starts 
     backend: (request) =>
       String(request.body.state.brief.prompt).startsWith('Design')
         ? { after: 1000, reply: agentJev({ model: { haiku: 0.05, sonnet: 0.05, opus: 0.9 }, effort: [0, 0, 0, 1, 0] })(request) }
-        : agentJev({ model: { haiku: 0.05, sonnet: 0.9, opus: 0.05 }, effort: [0, 1, 0, 0, 0] })(request),
+        : agentJev({ model: { haiku: 0.05, sonnet: 0.9, opus: 0.05 }, effort: [0, 0, 1, 0, 0] })(request),
   })
   // One assistant message with two Agent calls: two spawns at once.
   const designing = w.spawn({ prompt: 'Design the cache invalidation across the three services.', description: 'Design cache invalidation' })
@@ -266,11 +285,11 @@ test('agents dispatched together are each decided on their own, and each starts 
   await w.clock.advance(1000)
   const design = await designing
   await w.step({ index: 0, turnId: 'sub-1', agentId: design.agentId, model: 'claude-opus-5-5', effort: 'medium' })
-  await w.step({ index: 0, turnId: 'sub-2', agentId: tests.agentId, model: 'claude-sonnet-5-5', effort: 'high' })
+  await w.step({ index: 0, turnId: 'sub-2', agentId: tests.agentId, model: 'claude-sonnet-5-5', effort: 'medium' })
 
   expect(w.requests.map((r) => r.body.state.brief.description).sort()).toEqual(['Design cache invalidation', 'LRU tests'])
   expect(w.spawned.map((s) => `${s.description}: ${String(s.model)}`)).toEqual(['LRU tests: sonnet', 'Design cache invalidation: opus'])
-  expect(w.steps.map((s) => `${String(s.agentId)} ${String(s.effort)}`)).toEqual([`${design.agentId} xhigh`, `${tests.agentId} medium`])
+  expect(w.steps.map((s) => `${String(s.agentId)} ${String(s.effort)}`)).toEqual([`${design.agentId} xhigh`, `${tests.agentId} high`])
 })
 
 test("what the mod sends about an agent is exactly what the decision module builds from the eval item's fields, so the eval measures the live request (spec #67)", { options: KEY }, async ($, on) => {
@@ -298,13 +317,14 @@ test("with Clef as the decision model, the agent's request passes Clef's input r
   const w = world($, on, { backend: clef([0, 1, 0, 0, 0], { choice: 'sonnet' }) })
   await w.submit('别用 opus 了，用 sonnet 就行：给 src/cache/lru.ts 补单测')
   const started = await w.spawn({ prompt: 'Write unit tests for src/cache/lru.ts covering eviction order.', description: 'LRU tests', model: 'opus' })
-  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-sonnet-5-5', effort: 'high' })
+  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-sonnet-5-5', effort: 'low' })
 
   const sent = w.requests[1]
   expect(sent?.url).toBe(CLEF_URL)
   expect(clefInputProblems(sent?.body)).toEqual([])
   expect(Object.keys(sent?.body.questions)).toEqual(['agent.model', 'agent.effort', 'agent.named.sonnet', 'agent.named.opus', 'agent.banned.sonnet', 'agent.banned.opus'])
-  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium'])
+  // Clef answered medium; a sonnet agent goes at high at least.
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['high'])
 })
 
 test('agentFable adds fable to the models the decision model may choose for an agent', { options: { ...KEY, agentFable: true } }, async ($, on) => {

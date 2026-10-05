@@ -258,9 +258,11 @@ export function whyOf(decision: DispatchDecision): string {
         : ''
       : decision.effortSource === 'user'
         ? 'effort: you asked for it'
-        : decision.reading === null
-          ? ''
-          : `effort: p ${(decision.reading.probabilities[level] ?? 0).toFixed(2)}`
+        : decision.liftedFrom !== undefined
+          ? `effort: ${decision.liftedFrom} lifted to ${decision.effort}, the floor for ${decision.model ?? 'its model'}`
+          : decision.reading === null
+            ? ''
+            : `effort: p ${(decision.reading.probabilities[level] ?? 0).toFixed(2)}`
   return [model, effort].filter((part) => part !== '').join('; ')
 }
 
