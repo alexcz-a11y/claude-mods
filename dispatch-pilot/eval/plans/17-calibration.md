@@ -1,5 +1,7 @@
 # #17 上下文范围扫描与门槛校准：第二阶段方案
 
+> **2026-10-05 更新：范围已缩减。** 按用户的决定，#17 不再跑任何对比或扫描评测，只做了不花钱的收尾。现状、每条验收项的状态和没做的实验见 8.8 节；第 0–7 节的方案和预算作废，只留作记录。8.4–8.7 节的 Clef 截断探针已经做完，结论有效。
+
 这是 #17 第一阶段的交付：设计、估算、待拍板的问题。第一阶段没有发出任何会产生费用的请求；下文的数字来自 `run.ts --estimate`、已存结果的离线重算，以及各票实测过的 token 数和延迟。用户确认方案和预算之后再进入第二阶段。
 
 ## 0. 结论先行
@@ -280,3 +282,39 @@ node dispatch-pilot/eval/probe-truncation.ts --backend clef --only warmup,en-480
 - **问题不截断，长问题也不会把 state 挤短。** 96 个选项、约 1.54 万 token 的问题，Clef 两次都选对了最后一项；整条请求约 1.8 万 token，越过了开源代码默认的 16,384，同一请求里 2.4k 的 state 也完整读到。所以线上 skill 第一段（问题约 1.5 万 token）不会让同一请求里的 effort 问题少读 state，D2 不用为此担心。
 - **AC「验证 Clef 是否截断 state」的结论：** 会截断，但时有时无（约五分之一的长请求），截断时只读 state 开头约 2.1k Clef token，问题从不截断。mod 把最重要的字段放在 state 最前（`user_message`、`brief`），已经尽量不吃亏；但最近的对话和步骤是按时间顺序排在最后的，截断先丢它们。所以选 Clef 时 `contextTokens` 的默认值和上限都定在 2000（约 1.6–1.8k Clef token，在截断位置之内），在第二阶段按后端取默认值（D3）时实现，并在 README 写明原因；E4b 里 Clef 只跑 1k、2k 两列。
 - **延迟（补充 1.4 节）：** 没截断时，4.3–4.7k token 1.1–1.9 秒，8.8k 1.7–2.1 秒，1.8 万 3.5–4.2 秒；截断的请求 1.0–1.2 秒。
+
+## 8.8 范围缩减（用户决定，2026-10-05）
+
+用户的原话：「那我觉得我们没有必要再跑任何对比测试了 但是我们仍然要做clef接入 提供给有需要的人 我们自己就用jev即可」。所以 #17 不再跑任何评测，Jev 和 Clef 都不跑；长上下文补充集也取消了。仓库 `.claude/settings.local.json` 里为评测加的三条放行规则已按用户的要求删除。Clef 只保留接入，供需要的人用；用户自己用 Jev。
+
+### 8.8.1 做了什么（都不花钱）
+
+- **按决策模型取默认值（D3，按第 5 节的做法 (i)）。** `core/setup.ts` 的 `BACKEND_DEFAULTS` 是唯一一张表：`PER_BACKEND_OPTIONS` 里的 11 个选项（`timeoutMs`、`contextMessages`、`contextTokens`、`rejudgeSteps`、`thetaUp`、`thetaDown`、`thetaMax`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance`）各有一个默认值，另有 `contextTokensMax` 和 `suggestSkills`。这 11 个选项在 manifest 里去掉了 `default`，说明文字写出各决策模型的默认值。`readConfig` 按 `decisionModel` 取表里的值；mod、`scripts/decide*.ts` 和评测（`eval/lib/suite.ts` 的 `optionsFor`）都经它取值。`scripts/decide*.ts` 的 `--timeout` 默认就是所选模型的 `timeoutMs`；`eval/run.ts` 的 `--timeout` 是评测每次尝试的耐心，默认是它的 4 倍、至少 10 秒（Jev 10 秒，Clef 12 秒）。
+  - Clef：`timeoutMs` 3000；`contextTokens` 默认 2000，上限也是 2000（设得更大按 2000 算，原因是 8.7 节的截断结论）；发消息时的 skill 推荐（`skills` 开关）默认关闭，`/dp skills on` 打开，`find_skill` 保留。
+  - Jev：默认值都和以前一样，只有 `skillsMinRelevance` 改成 0.75（下一条）。
+  - 其余选项两个模型用同一个值（就是原来的默认值），说明和 README 里标为「Clef 未校准，暂沿用 Jev 的值」。`thetaNamed`、`thetaFit` 是代码里的常量，没有动。
+  - **不写 `default` 的字段，引擎确实不传：** kit 里，`tests/backend-defaults.test.ts` 的「with Clef, a message waits 3000 ms」在 1500 ms 时仍在等、3000 ms 时超时，说明没有任何值顶替；生成的类型里 kit 的 `TestOptions` 写明「`register(on, options)` receives them as a load does: unlisted values unset, defaults filled in」；真实引擎里，2026-10-05 用 `command claude -p "/dp" --plugin-dir ./dispatch-pilot --strict-mcp-config --settings '{"enabledPlugins":{"jev-pilot@jev-pilot":false}}' --debug-file <文件>` 跑了一次（没有配置密钥，没有发出任何 Jev 或 Clef 请求；debug log 里唯一的 `$.http.fetch` 是引擎自己的遥测），debug log 写着 `settings for jev: left unset, so jev's defaults: timeoutMs 1500, contextMessages 4, contextTokens 2000, rejudgeSteps 4, thetaUp 0.4, thetaDown 0.6, thetaMax 0.5, thetaExpected 0.25, agentOverride 0.6, skillsMinRelevance 0.75, findSkillMinRelevance 0.5; skill suggestions on until /dp skills off`。
+  - 接缝 1 的测试（`tests/backend-defaults.test.ts`）覆盖：两个模型各自的默认值（超时、上下文预算、skill 推荐的开关、`skillsMinRelevance`）；Clef 的 `contextTokens` 上限；你设了值时两个模型都用你的值；会话开始时 debug log 写的那一行；`readConfig` 和评测的 `optionsFor` 取的是同一张表。
+- **`skillsMinRelevance` 默认改成 0.75。** 依据是 E0c 的离线重算（#16 两次 Jev 运行已存的 `breakdown.sweeps`）：带画像时，0.7 下中英差距两次都是 −3.67；0.75 下是 −1.84 和 −2.76，平均 −2.3。这是第 1 轮审查修复之前的问法上的预览，修复后没有重跑。
+- **离线重判中英差距（按新规则：中文比英文低不到 3 个百分点才算通过）。** 只读已存结果的 `summary` 和 `breakdown.sweeps`，没有发请求，也没有写新工具：
+  - effort-submit（Jev 3 次）：`en-score` 0、+2、0，通过；`zh-score` 0、0、−1，通过；`zh-choice` −1、−2、−1，通过；`en-choice` 三次都是 −3.0，按新规则不通过（它不是发布配置）。Clef `en-score` 0，通过。
+  - effort-midturn（Jev 2 次，5 个变体）：−2 到 +3，都通过；Clef `en-score` −2，通过。
+  - subagent（Jev 3 次，4 个变体）：0 到 +6（中文都不低于英文），都通过。
+  - skill（Jev 2 次）：`profiles` 在 0.7 下 −3.67，两次都不通过；在新的默认值 0.75 下 −1.84、−2.76，通过。`descriptions` 在 0.7 下 −1.84、−0.92，0.75 下 −1.84、−2.75，都通过。
+- **文档。** README 的配置表和「按决策模型取的默认值」、「待评测」开头的各验收项状态、「评测」一节开头的说明（那些数字都是修复之前的问法测得的，修复后没有重跑），以及本节。
+
+### 8.8.2 每条验收项的状态
+
+- **AC1 上下文范围扫描：没有做。** 原因见 1.1 节：现有评测集的上下文太短，16 格里请求几乎都一样；长上下文补充集也按用户的决定没有做。默认值保持 Jev 4 条 × 2000 token；Clef 按截断的结论定为 2000，并且最多 2000。
+- **AC2 Jev 和 Clef 各一套默认值、写回 mod 的配置：已做**（8.8.1 第一条）。
+- **AC3 置信度门槛按语言分别校准：没有做。**
+- **AC4 问题用英文还是中文写：保持英文**，`DEFAULT_ASK` 不改。线索：修复之前的问法上，effort-submit 的 `zh-score` 比 `en-score` 高约 8 个百分点（3 次运行都是）。
+- **AC5 验证 Clef 是否截断 state：已做**（8.4–8.7 节）。会截断，但时有时无：超过约 2.1k token 的 18 个 state 截了 4 个，截断时只留开头约 2.1k 个 Clef token；问题不截断。
+- **AC6 中文准确率比英文低不超过 3 个百分点：** 按离线数据（修复之前的问法），发布配置的中英差距都小于 3 个百分点（skill 带画像时靠 `skillsMinRelevance` 0.75）；`en-choice` 的 −3.0 不通过，但它不是发布配置，记在这里。这一条没有在新问法上验证。
+- **AC7 需要真实密钥、会产生少量费用：已做。** 只有截断探针花了钱，两轮合计约 0.036 美元（Clef 约 14.2 万 token，约 0.034 美元；Jev 约 4.4 万 token，约 0.002 美元）。
+
+### 8.8.3 没做的实验
+
+E2–E4、E6–E10 的运行都没有做；长上下文补充集没有做；E7 的档位描述改动（审核规则 R4，「写测试」整体放在 high）没有做；E3 的画像裁剪（只留英文字段）没有评测，也没有改。E9 的「两类 skill 分开问」已经在第 1 轮审查的修复里实现（`skills.which` 和 `skills.hint` 两题），但没有重跑。E5（Workflow 一个请求放几个 agent）同样没有跑：`subagent` 评测已经有 `models-hint-single` 变体可以对照。
+
+没有新开 GitHub issue；要不要为这些开后续票，由编排者去问用户。
