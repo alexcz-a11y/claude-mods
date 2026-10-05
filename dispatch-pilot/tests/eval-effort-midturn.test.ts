@@ -45,11 +45,13 @@ const TURNS: Record<'zh' | 'en', Turn> = {
 }
 
 /**
- * The turn above as an item: what the mod reads when the third step's call
- * starts (the re-decision for step 3, every 3 steps by default). Unlike a
- * dataset row, its latest call is still running ("进行中：", "Running: "):
- * a live request goes out as a call starts, a dataset row only holds calls
- * that have ended.
+ * The turn above as an item, as the dataset writes it: each call's input (the
+ * arguments that say what it worked on) and its result in the dataset's own
+ * words, what came of it included. It is what the mod reads when the third
+ * step's call starts (the re-decision for step 3, every 3 steps by default).
+ * Unlike a dataset row, its latest call is still running ("进行中",
+ * "Running"): a live request goes out as a call starts, a dataset row only
+ * holds calls that have ended.
  */
 const ITEM: EffortMidturnItem = {
   id: 'midturn-900',
@@ -59,9 +61,9 @@ const ITEM: EffortMidturnItem = {
     current_effort: 'high',
     counts: { judgments: 1, changes: 0, failures: 1, hook_blocks: 0 },
     recent_steps: [
-      { assistant_text: '先看看日志。', tools: [{ name: 'Bash', result: '成功：查看最近的日志' }] },
-      { assistant_text: '读一下代理配置。', tools: [{ name: 'Read', result: '失败：server/proxy.ts' }] },
-      { assistant_text: '换个路径再读。', tools: [{ name: 'Read', result: '进行中：src/proxy.ts' }] },
+      { assistant_text: '先看看日志。', tools: [{ name: 'Bash', result: '成功：最近 50 行里有 3 次 upstream timeout', input: { command: 'tail -n 50 logs/app.log', description: '查看最近的日志' } }] },
+      { assistant_text: '读一下代理配置。', tools: [{ name: 'Read', result: '失败：文件不存在', input: { file_path: '/repo/src/server/proxy.ts' } }] },
+      { assistant_text: '换个路径再读。', tools: [{ name: 'Read', result: '进行中', input: { file_path: '/repo/src/proxy.ts' } }] },
     ],
   },
   en: {
@@ -70,9 +72,9 @@ const ITEM: EffortMidturnItem = {
     current_effort: 'high',
     counts: { judgments: 1, changes: 0, failures: 1, hook_blocks: 0 },
     recent_steps: [
-      { assistant_text: 'Checking the logs first.', tools: [{ name: 'Bash', result: 'Success: Show the latest log lines' }] },
-      { assistant_text: 'Reading the proxy config.', tools: [{ name: 'Read', result: 'Failed: server/proxy.ts' }] },
-      { assistant_text: 'Trying another path.', tools: [{ name: 'Read', result: 'Running: src/proxy.ts' }] },
+      { assistant_text: 'Checking the logs first.', tools: [{ name: 'Bash', result: 'Success: 3 upstream timeouts in the last 50 lines', input: { command: 'tail -n 50 logs/app.log', description: 'Show the latest log lines' } }] },
+      { assistant_text: 'Reading the proxy config.', tools: [{ name: 'Read', result: 'Failed: the file does not exist', input: { file_path: '/repo/src/server/proxy.ts' } }] },
+      { assistant_text: 'Trying another path.', tools: [{ name: 'Read', result: 'Running', input: { file_path: '/repo/src/proxy.ts' } }] },
     ],
   },
   gold: 'high',
@@ -96,12 +98,21 @@ for (const language of ['zh', 'en'] as const) {
     const { request } = midturnRequest(ITEM, language, 'en-score', settingsFrom({}))
     expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level'])
     expect(w.requests[1]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
-    // What the request holds, so the equality above is not two empty things.
+    // What the request holds, so the equality above is not two empty things;
+    // each call as the mod writes it, from how it ended and what it worked on: never what came of it.
     expect(request.state.current_effort).toBe('high')
     expect((request.state.recent_steps as unknown[]).length).toBe(3)
     expect(Object.keys(request.questions)).toEqual(['midturn.level'])
+    expect(JSON.stringify(request)).not.toContain('upstream')
   })
 }
+
+test("the raw-results variant sends each call's result as the dataset writes it, what came of it included: the gap to what the mod sends", () => {
+  const lines = (variant: string) =>
+    (midturnRequest(ITEM, 'zh', variant, settingsFrom({})).request.state.recent_steps as { tools: { result: string }[] }[]).flatMap((step) => step.tools.map((tool) => tool.result))
+  expect(lines('en-score')).toEqual(['成功：查看最近的日志', '失败：server/proxy.ts', '进行中：src/proxy.ts'])
+  expect(lines('raw-results')).toEqual(['成功：最近 50 行里有 3 次 upstream timeout', '失败：文件不存在', '进行中'])
+})
 
 test("the eval reads the re-decision's limits as the mod does: the latest rejudgeSteps steps, within contextTokens", { options: { typesafeApiKey: 'k', rejudgeSteps: 2, contextTokens: 300 } }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
@@ -121,12 +132,12 @@ const STUCK: EffortMidturnItem = {
     current_effort: 'high',
     counts: { judgments: 1, changes: 0, failures: 2, hook_blocks: 0 },
     recent_steps: [
-      { assistant_text: '先跑一下测试。', tools: [{ name: 'Bash', result: '失败：跑单元测试' }] },
+      { assistant_text: '先跑一下测试。', tools: [{ name: 'Bash', result: '失败：session 相关的 2 个用例失败', input: { command: 'npm test', description: '跑单元测试' } }] },
       {
         assistant_text: '改一下过期判断再跑。',
         tools: [
-          { name: 'Edit', result: '成功：auth/session.ts' },
-          { name: 'Bash', result: '失败：再跑单元测试' },
+          { name: 'Edit', result: '成功：过期判断改成 >=', input: { file_path: '/repo/src/auth/session.ts' } },
+          { name: 'Bash', result: '失败：还是那 2 个用例失败', input: { command: 'npm test', description: '再跑单元测试' } },
         ],
       },
     ],
@@ -137,12 +148,12 @@ const STUCK: EffortMidturnItem = {
     current_effort: 'high',
     counts: { judgments: 1, changes: 0, failures: 2, hook_blocks: 0 },
     recent_steps: [
-      { assistant_text: 'Running the tests first.', tools: [{ name: 'Bash', result: 'Failed: Run the unit tests' }] },
+      { assistant_text: 'Running the tests first.', tools: [{ name: 'Bash', result: 'Failed: 2 session cases fail', input: { command: 'npm test', description: 'Run the unit tests' } }] },
       {
         assistant_text: 'Fixing the expiry check and running them again.',
         tools: [
-          { name: 'Edit', result: 'Success: auth/session.ts' },
-          { name: 'Bash', result: 'Failed: Run the unit tests again' },
+          { name: 'Edit', result: 'Success: the expiry check is now >=', input: { file_path: '/repo/src/auth/session.ts' } },
+          { name: 'Bash', result: 'Failed: the same 2 cases still fail', input: { command: 'npm test', description: 'Run the unit tests again' } },
         ],
       },
     ],

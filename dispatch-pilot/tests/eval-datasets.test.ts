@@ -85,7 +85,13 @@ function midturn(id: string, change: (item: any) => void = () => {}): any {
     recent_steps: [
       {
         assistant_text: language === 'zh' ? '跑一下，预期全部失败。' : 'Running them; I expect them all to fail.',
-        tools: [{ name: 'Bash', result: language === 'zh' ? '失败：7 个新用例失败' : 'Failed: the 7 new cases failed' }],
+        tools: [
+          {
+            name: 'Bash',
+            result: language === 'zh' ? '失败：7 个新用例失败' : 'Failed: the 7 new cases failed',
+            input: { command: 'npx vitest run duration', description: language === 'zh' ? '跑 duration 的测试' : 'Run the duration tests' },
+          },
+        ],
       },
     ],
   })
@@ -93,6 +99,21 @@ function midturn(id: string, change: (item: any) => void = () => {}): any {
   change(item)
   return item
 }
+
+test("effort-midturn: each tool call's input holds only the arguments that say what it worked on, the same in both languages but for its description", () => {
+  const items = [
+    midturn('midturn-001', (i) => delete i.zh.recent_steps[0].tools[0].input),
+    midturn('midturn-002', (i) => (i.en.recent_steps[0].tools[0].input.new_string = 'expect(parseDuration("1h")).toBe(3600)')),
+    midturn('midturn-003', (i) => (i.en.recent_steps[0].tools[0].input.command = 'npx vitest run')),
+    midturn('midturn-004', (i) => (i.zh.recent_steps[0].tools[0].input.command = '')),
+  ]
+  const { errors } = validateDataset('effort-midturn', items)
+  const of = (id: string) => errors.filter((e) => e.startsWith(`${id}:`)).join('\n')
+  expect(of('midturn-001')).toMatch(/zh\.recent_steps\[0\]\.tools\[0\]\.input must be an object/)
+  expect(of('midturn-002')).toMatch(/en\.recent_steps\[0\]\.tools\[0\]\.input has new_string: an input holds only description, skill, name, file_path, notebook_path, pattern, query, url, command/)
+  expect(of('midturn-003')).toMatch(/recent_steps\[0\]\.tools\[0\]\.input\.command differs between zh and en/)
+  expect(of('midturn-004')).toMatch(/zh\.recent_steps\[0\]\.tools\[0\]\.input\.command must be a non-empty string/)
+})
 
 test('effort-midturn: the turn so far is the same in both languages, each tool result says how it ended, accept is at most two levels', () => {
   expect(validateDataset('effort-midturn', [midturn('midturn-001')])).toEqual({ errors: [], warnings: [] })

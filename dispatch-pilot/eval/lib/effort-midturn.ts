@@ -22,17 +22,21 @@
 import { DEFAULT_ASK, EFFORTS, isEffort, readEffort, type Effort, type EffortAsk } from '../../hooks/decision/effort.ts'
 import { expectedFailurePart, readExpected, stuckRequest, troubleText } from '../../hooks/decision/escalation.ts'
 import {
+  contentLanguage,
   judgeMidturn,
   midturnEffortPart,
   midturnState,
   MIDTURN_LEVEL,
+  outcomeOfLine,
+  resultLine,
+  toolDetail,
   type MidturnInput,
   type MidturnLimits,
   type MidturnRules,
   type MidturnShow,
 } from '../../hooks/decision/midturn.ts'
 import { answersFor, mergeParts, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
-import type { EffortMidturnItem, Language } from './datasets.ts'
+import type { EffortMidturnItem, Language, MidturnAsked, MidturnRowTool } from './datasets.ts'
 import { gradeEffort } from './effort-submit.ts'
 import type { Row } from './runner.ts'
 import type { Settings, Suite } from './suite.ts'
@@ -40,18 +44,22 @@ import type { Settings, Suite } from './suite.ts'
 /**
  * One way of asking (an eval variable): how the question is written, what
  * the state shows (the guide's §4.1 worries the current level anchors the
- * answer), and whether a turn whose failures reach escalateAfter is asked
- * what the escalation feature (#7) asks a stuck turn.
+ * answer), whether a turn whose failures reach escalateAfter is asked what
+ * the escalation feature (#7) asks a stuck turn, and how each call's line is
+ * written: as the mod writes it (`rendered`: its outcome and what it worked
+ * on) or as the dataset does (`raw`: what came of it too, which the mod never
+ * sends; to measure the gap).
  */
-type MidturnVariant = { ask: EffortAsk; show: MidturnShow; trouble: boolean }
+type MidturnVariant = { ask: EffortAsk; show: MidturnShow; trouble: boolean; results: 'rendered' | 'raw' }
 
 /** The variants by name; the first is how the mod asks today. */
 export const MIDTURN_VARIANTS: Readonly<Record<string, MidturnVariant>> = {
-  'en-score': { ask: DEFAULT_ASK, show: {}, trouble: false },
-  'zh-score': { ask: { language: 'zh', primitive: 'score' }, show: {}, trouble: false },
-  'no-current-effort': { ask: DEFAULT_ASK, show: { currentEffort: false }, trouble: false },
-  'no-counts': { ask: DEFAULT_ASK, show: { counts: false }, trouble: false },
-  trouble: { ask: DEFAULT_ASK, show: {}, trouble: true },
+  'en-score': { ask: DEFAULT_ASK, show: {}, trouble: false, results: 'rendered' },
+  'zh-score': { ask: { language: 'zh', primitive: 'score' }, show: {}, trouble: false, results: 'rendered' },
+  'no-current-effort': { ask: DEFAULT_ASK, show: { currentEffort: false }, trouble: false, results: 'rendered' },
+  'no-counts': { ask: DEFAULT_ASK, show: { counts: false }, trouble: false, results: 'rendered' },
+  trouble: { ask: DEFAULT_ASK, show: {}, trouble: true, results: 'rendered' },
+  'raw-results': { ask: DEFAULT_ASK, show: {}, trouble: false, results: 'raw' },
 }
 
 function variantOf(variant: string): MidturnVariant {
@@ -176,7 +184,7 @@ export const effortMidturn: Suite<EffortMidturnItem, Effort> = {
  */
 export function midturnRequest(item: EffortMidturnItem, language: Language, variant: string, settings: Settings): { request: DecisionRequest; part: Part; expectedPart: Part | null } {
   const how = variantOf(variant)
-  const asked = item[language]
+  const asked = midturnInput(item[language], how.results)
   if (how.trouble && asked.counts.failures >= settings.escalation.after) {
     const input: MidturnInput = { ...asked, trouble: troubleText({ failures: asked.counts.failures, hookBlocks: 0 }) }
     const { request, effortPart, expectedPart } = stuckRequest(input, { limits: midturnLimits(settings), ask: how.ask, effort: true })
@@ -184,4 +192,19 @@ export function midturnRequest(item: EffortMidturnItem, language: Language, vari
   }
   const part = midturnEffortPart(how.ask)
   return { request: mergeParts(midturnState(asked, midturnLimits(settings), how.show), [part]), part, expectedPart: null }
+}
+
+/**
+ * A row as the mod's re-decision reads its turn (MidturnInput): each call's
+ * line written as the mod writes it (`resultLine` of how the call ended and
+ * what `toolDetail` reads of its input, in the language of the message), or
+ * under `raw`, the dataset's result as it is.
+ */
+export function midturnInput(asked: MidturnAsked, results: 'rendered' | 'raw' = 'rendered'): MidturnInput {
+  const language = contentLanguage(asked.message)
+  const line = (tool: MidturnRowTool) => {
+    const outcome = outcomeOfLine(tool.result)
+    return results === 'raw' || outcome === null ? tool.result : resultLine(outcome, toolDetail(tool.input), language)
+  }
+  return { ...asked, recent_steps: asked.recent_steps.map((step) => ({ assistant_text: step.assistant_text, tools: step.tools.map((tool) => ({ name: tool.name, result: line(tool) })) })) }
 }

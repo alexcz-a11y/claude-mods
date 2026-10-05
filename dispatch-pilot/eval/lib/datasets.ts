@@ -14,7 +14,7 @@
 // Pure: no Node API. The tests and the Node scripts import it as it is.
 
 import { EFFORTS, isEffort, type Effort } from '../../hooks/decision/effort.ts'
-import type { MidturnInput } from '../../hooks/decision/midturn.ts'
+import { DETAIL_KEYS, OUTCOME_WORDS, type MidturnInput } from '../../hooks/decision/midturn.ts'
 
 export const KINDS = ['effort-submit', 'effort-midturn', 'subagent', 'skill'] as const
 export type Kind = (typeof KINDS)[number]
@@ -46,12 +46,24 @@ export type SubmitAsked = { message: string; recent_context: ContextEntry[] }
 export type EffortSubmitItem = Item<SubmitAsked, Effort, Effort[]>
 
 /**
+ * One tool call of an effort-midturn row: its name; `input`, the arguments
+ * that say what it worked on (only those the mod's toolDetail reads,
+ * DETAIL_KEYS; never what it wrote or returned); `result`, how it ended (the
+ * words the mod's line starts with) and, in the dataset's own words, what
+ * came of it. The mod never sends what came of a call: the suite writes each
+ * call's line from its outcome and `input`, as the mod does.
+ */
+export type MidturnRowTool = { name: string; result: string; input: Readonly<Record<string, string>> }
+export type MidturnRowStep = { assistant_text: string; tools: readonly MidturnRowTool[] }
+
+/**
  * effort-midturn: a snippet of a turn as the mid-turn re-decision reads it,
  * field for field (MidturnInput): the person's message, the step about to go
- * out, the level it goes at, the turn's counts and its latest steps. A row
- * has no `trouble`; a suite adds one where #7 would.
+ * out, the level it goes at, the turn's counts and its latest steps, each
+ * call as the dataset writes it (MidturnRowTool). A row has no `trouble`; a
+ * suite adds one where #7 would.
  */
-export type MidturnAsked = Omit<MidturnInput, 'trouble'>
+export type MidturnAsked = Omit<MidturnInput, 'trouble' | 'recent_steps'> & { recent_steps: readonly MidturnRowStep[] }
 export type EffortMidturnItem = Item<MidturnAsked, Effort, Effort[]>
 
 /** subagent: the models a dispatched agent can be given (fable only where an item really needs it). */
@@ -257,10 +269,14 @@ function checkSubmitAsked(item: Record<string, unknown>, add: Add): void {
   })
 }
 
-/** How a tool call ended, as each tool result of a midturn item starts. */
+/**
+ * How a tool call ended, as each tool result of a midturn item starts: the
+ * words the mod's line starts with (OUTCOME_WORDS), then `：` or `: `. A row
+ * holds only calls that have ended, so none is still running.
+ */
 const OUTCOMES: Record<Language, readonly string[]> = {
-  zh: ['成功：', '失败：', '被 hook 拦截：', '用户拒绝：'],
-  en: ['Success: ', 'Failed: ', 'Blocked by hook: ', 'Denied by user: '],
+  zh: (['ok', 'failed', 'blocked', 'denied'] as const).map((outcome) => `${OUTCOME_WORDS.zh[outcome]}：`),
+  en: (['ok', 'failed', 'blocked', 'denied'] as const).map((outcome) => `${OUTCOME_WORDS.en[outcome]}: `),
 }
 const COUNTS = ['judgments', 'changes', 'failures', 'hook_blocks'] as const
 
@@ -268,9 +284,11 @@ const COUNTS = ['judgments', 'changes', 'failures', 'hook_blocks'] as const
  * `{ message, step, current_effort, counts, recent_steps }` in both languages:
  * the step (`turn.step`'s index, from 0), the current level and the counts
  * the same in both, the recent steps oldest first, the same tools in both,
- * each result starting with how the call ended (`成功：` / `Success: ` ...).
- * `counts.failures` counts since the last forced escalation; hook blocks and
- * denials are not failures.
+ * each result starting with how the call ended (`成功：` / `Success: ` ...),
+ * each input the same in both but for its description. `counts.failures`
+ * counts since the counts last started over (the turn's start, or a forced
+ * escalation), as the mod counts them; hook blocks and denials are not
+ * failures.
  */
 function checkMidturnAsked(item: Record<string, unknown>, add: Add): void {
   const steps: Partial<Record<Language, unknown[]>> = {}
@@ -310,6 +328,11 @@ function checkMidturnAsked(item: Record<string, unknown>, add: Add): void {
       if (tool.name !== twin.name) add(`recent_steps[${i}].tools[${j}].name differs between zh and en`)
       const [a, b] = [outcome(tool.result, 'zh'), outcome(twin.result, 'en')]
       if (a !== -1 && b !== -1 && a !== b) add(`recent_steps[${i}].tools[${j}] outcome differs between zh and en`)
+      // What a call worked on is the same in both languages; its description is the model's words, in the turn's language.
+      if (!isRecord(tool.input) || !isRecord(twin.input)) return
+      for (const key of new Set([...Object.keys(tool.input), ...Object.keys(twin.input)])) {
+        if (key === 'description' ? key in tool.input !== key in twin.input : tool.input[key] !== twin.input[key]) add(`recent_steps[${i}].tools[${j}].input.${key} differs between zh and en`)
+      }
     })
   })
 }
@@ -322,9 +345,14 @@ function checkRecentStep(step: unknown, language: Language, at: string, add: Add
   step.tools.forEach((tool, j) => {
     const where = `${at}.tools[${j}]`
     if (!isRecord(tool)) return add(`${where} must be an object`)
-    exactKeys(tool, ['name', 'result'], where, add)
+    exactKeys(tool, ['name', 'result', 'input'], where, add)
     if (!nonEmpty(tool.name)) add(`${where}.name must be a tool name`)
     if (outcome(tool.result, language) === -1) add(`${where}.result must start with one of ${OUTCOMES[language].map((p) => JSON.stringify(p)).join(', ')}`)
+    if (!isRecord(tool.input)) return add(`${where}.input must be an object (the arguments that say what the call worked on; {} for none)`)
+    for (const [key, value] of Object.entries(tool.input)) {
+      if (!(DETAIL_KEYS as readonly string[]).includes(key)) add(`${where}.input has ${key}: an input holds only ${DETAIL_KEYS.join(', ')}`)
+      else if (!nonEmpty(value)) add(`${where}.input.${key} must be a non-empty string`)
+    }
   })
 }
 

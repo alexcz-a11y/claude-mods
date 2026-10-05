@@ -54,17 +54,27 @@ export type MidturnInput = {
  */
 export type Outcome = 'ok' | 'failed' | 'blocked' | 'denied' | 'running'
 
-/** The words a tool's line starts with, in the language of the turn (the eval set's two). */
-const OUTCOME: Record<Language, Record<Outcome, string>> = {
+/** The words a tool's line starts with, in the language of the turn (the eval set's two); a dataset row's result starts with them too. */
+export const OUTCOME_WORDS: Readonly<Record<Language, Readonly<Record<Outcome, string>>>> = {
   zh: { ok: '成功', failed: '失败', blocked: '被 hook 拦截', denied: '用户拒绝', running: '进行中' },
   en: { ok: 'Success', failed: 'Failed', blocked: 'Blocked by hook', denied: 'Denied by user', running: 'Running' },
 }
 
 /** A tool's one-line result: "成功：src/a.ts", "Failed: Run the tests"; the outcome alone when there is nothing to name. */
 export function resultLine(outcome: Outcome, detail: string, language: Language): string {
-  const head = OUTCOME[language][outcome]
+  const head = OUTCOME_WORDS[language][outcome]
   if (!detail) return head
   return language === 'zh' ? `${head}：${detail}` : `${head}: ${detail}`
+}
+
+/** How a line says its call ended, by the words it starts with (alone, or before `：` or `: `); null when it starts with none. */
+export function outcomeOfLine(line: string): Outcome | null {
+  for (const words of Object.values(OUTCOME_WORDS)) {
+    for (const [outcome, head] of Object.entries(words)) {
+      if (line === head || line.startsWith(`${head}：`) || line.startsWith(`${head}: `)) return outcome as Outcome
+    }
+  }
+  return null
 }
 
 /** The language a turn is in, for the words around its content: Chinese once its message has a Han character. */
@@ -74,6 +84,9 @@ export function contentLanguage(text: string): Language {
 
 /** At most this many tokens name what a tool call worked on. */
 const DETAIL_TOKENS = 24
+
+/** The arguments `toolDetail` reads, in the order it takes them (the eval's dataset gives a call these and no others). */
+export const DETAIL_KEYS = ['description', 'skill', 'name', 'file_path', 'notebook_path', 'pattern', 'query', 'url', 'command'] as const
 
 /**
  * What a tool call worked on, from the few arguments that say so without
