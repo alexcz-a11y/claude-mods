@@ -10,7 +10,7 @@
 
 import type { On } from 'claude-code'
 import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart, type Effort, type EffortReading } from '../decision/effort.ts'
-import { redactSecrets } from '../decision/redact.ts'
+import { quoteStart } from '../decision/redact.ts'
 import { contribute } from '../core/ballot.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { addPending, revise, turnKey, update, type Cell, type PendingDecision, type TurnRecord } from '../core/plans.ts'
@@ -58,7 +58,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
         await recordDecision(
           { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
           (line) => $.ui.log(line, { to: 'debug' }),
-          { feature: 'main-effort', outcome: `effort ${effort}`, about: quote(e.text), reason: describeReading(reading, effort, ctx.config.thetaMax) },
+          { feature: 'main-effort', outcome: `effort ${effort}`, about: quoteStart(e.text), reason: describeReading(reading, effort, ctx.config.thetaMax) },
         )
         await wait(effort)
         const running = e.turnId
@@ -78,12 +78,6 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
     }
     return result
   })
-}
-
-/** The start of a message for the debug log, secrets masked. */
-function quote(text: string): string {
-  const flat = redactSecrets(text).replace(/\s+/g, ' ').trim()
-  return JSON.stringify(flat.length > 40 ? `${flat.slice(0, 40)}...` : flat)
 }
 
 /** Why a level was picked: every level's probability, `max` held back below thetaMax when it was the most likely, and the backend's confidence. */

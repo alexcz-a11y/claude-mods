@@ -46,9 +46,10 @@ import { DEFAULT_ASK, EFFORTS, type Effort } from '../../hooks/decision/effort.t
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
 import { MAX_PER_REQUEST, readOutcomes, workflowBatches } from '../../hooks/decision/workflow.ts'
 import type { AgentCall, ParsedWorkflow } from '../../hooks/decision/workflow-script.ts'
-import { PRIORITIES, type Language, type AgentAnswer, type AgentItem } from './datasets.ts'
+import { isRecord, PRIORITIES, type AgentAnswer, type AgentItem, type Language } from './datasets.ts'
+import { rate } from './metrics.ts'
 import type { Row } from './runner.ts'
-import type { Ask, Decided, Grade, Settings, Suite } from './suite.ts'
+import { requestFailed, variantIn, type Ask, type Decided, type Grade, type Settings, type Suite } from './suite.ts'
 
 /** How a variant asks: the questions (`ask`), and how many of a Workflow's agents share a request at most. */
 type AgentVariant = { ask: DispatchAsk; perRequest: number }
@@ -63,9 +64,7 @@ export const AGENT_VARIANTS: Readonly<Record<string, AgentVariant>> = {
 }
 
 function variantOf(variant: string): AgentVariant {
-  const known = AGENT_VARIANTS[variant]
-  if (known === undefined) throw new RangeError(`no variant "${variant}" (${Object.keys(AGENT_VARIANTS).join(', ')})`)
-  return known
+  return variantIn(AGENT_VARIANTS, variant)
 }
 
 function variantAsk(variant: string): DispatchAsk {
@@ -148,7 +147,7 @@ async function decideWorkflowAgent(dataset: readonly AgentItem[], item: AgentIte
     return { ok: false, failure: reason === 'unreadable' ? 'left: its prompt does not say what the work is (left to #9)' : `left: ${reason}` }
   }
   const { asked } = await ask(batch.request)
-  if (!asked.ok) return { ok: false, failure: `${asked.failure.kind}: ${asked.failure.detail}` }
+  if (!asked.ok) return requestFailed(asked.failure)
   const results: Asked[] = []
   results[at] = asked
   const outcome = readOutcomes(parsed, plan, results, words, shape)[index]
@@ -251,7 +250,7 @@ async function decideAgent(dataset: readonly AgentItem[], item: AgentItem, langu
   if (item[language].kind === 'workflow') return decideWorkflowAgent(dataset, item, language, variant, ask, settings)
   const { request, part, dispatch, shape } = agentRequest(item, language, variant, settings)
   const { asked } = await ask(request)
-  if (!asked.ok) return { ok: false, failure: `${asked.failure.kind}: ${asked.failure.detail}` }
+  if (!asked.ok) return requestFailed(asked.failure)
   const answers = answersFor(part, asked.answers)
   return predictionOf(answers, decideDispatch(answers, dispatch, shape), shape)
 }
@@ -427,14 +426,6 @@ export function redecide(item: AgentItem, language: Language, detail: Readonly<R
   if (isRecord(nouls)) for (const [id, p] of Object.entries(nouls)) answers[id] = { type: 'noul', noul: Number(p) }
   const decision = decideDispatch(answers, item[language], shape)
   return decision.answered && decision.model !== null ? { model: decision.model, effort: decision.effort } : null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function rate(count: number, of: number): number {
-  return of === 0 ? 0 : Math.round((count / of) * 10_000) / 10_000
 }
 
 /** A dispatch that brings out every kind of question a variant asks: a main agent's pick, a model the person mentions. */

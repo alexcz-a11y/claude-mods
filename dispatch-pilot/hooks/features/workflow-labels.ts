@@ -17,7 +17,7 @@
 // Its switch is `workflow-labels` (`/dp workflow-labels off`).
 
 import type { EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
-import type { Asked } from '../decision/backend.ts'
+import { type Asked, describeAsked, errorText } from '../decision/backend.ts'
 import { modelFamily, termsOf, type AgentModel, type DispatchSettings, type Terms } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
 import {
@@ -36,7 +36,7 @@ import {
   type RunSite,
 } from '../decision/workflow-labels.ts'
 import { parseWorkflow, type AgentCall, type ParsedWorkflow } from '../decision/workflow-script.ts'
-import { callName, outcomeOf, readOutcomes, reasonOf, workflowBatches } from '../decision/workflow.ts'
+import { batchesTimeoutMs, callName, outcomeOf, readOutcomes, reasonOf, workflowBatches } from '../decision/workflow.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
@@ -101,7 +101,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
   })
 
   on('tool.call', { tool: 'Workflow' }, async ($, e, next) => {
-    if (e.tool !== 'Workflow' || !isOn(SWITCH) || !ctx.backend.configured) return next(e)
+    if (!isOn(SWITCH) || !ctx.backend.configured) return next(e)
     const show = (line: string | undefined) => $.ui.status(line)
     const log = (line: string) => $.ui.log(line, { to: 'debug' })
     let settled: (run: LabelRun | null) => void = () => {}
@@ -137,8 +137,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
             fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
             sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
           }
-          // Concurrent requests to one key can queue behind each other: each gets a share more time.
-          const timeoutMs = Math.min(8000, ctx.config.timeoutMs * plan.batches.length)
+          const timeoutMs = batchesTimeoutMs(ctx.config.timeoutMs, plan.batches.length)
           const asked = await Promise.all(
             plan.batches.map(async (batch) => {
               const startedAt = await $.clock.now()
@@ -180,7 +179,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
     } catch (error) {
       // The tool itself failed: as it did. Otherwise the run goes on as the tool started it.
       if (result === undefined) throw error
-      log(`workflow-labels: the run's agents are not routed by label: ${describe(error)}`)
+      log(`workflow-labels: the run's agents are not routed by label: ${errorText(error)}`)
       setStatus('labels', 'by label: not routed (error: see the debug log)', show)
       return result
     } finally {
@@ -195,7 +194,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
     try {
       await routeAgent($, ctx, settings, agentId, e.model)
     } catch (error) {
-      $.ui.log(`workflow-labels: agent ${agentId} is not routed: ${describe(error)}`, { to: 'debug' })
+      $.ui.log(`workflow-labels: agent ${agentId} is not routed: ${errorText(error)}`, { to: 'debug' })
       setStatus('labels', 'by label: not routed (error: see the debug log)', (line) => $.ui.status(line))
     }
     return yield* next(e)
@@ -237,11 +236,9 @@ async function routeAgent($: EngineInterface, ctx: Ctx, settings: DispatchSettin
     tally.reason = decided.reason
   }
   tallies.set(run.runId, tally)
+  // As many runs as are recorded: an older one's agents have started long since.
+  for (const runId of tallies.keys()) if (tallies.size > MAX_RUNS) tallies.delete(runId)
   setStatus('labels', tallyText(tally), (line) => $.ui.status(line))
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /** The run of `runs` that `agentId` started in, newest first, and what its journal says of it; null when it is in none. */
@@ -267,7 +264,7 @@ async function settleLaunches($: EngineInterface, deadline: number): Promise<Lab
   return recorded
 }
 
-/** How the agents of each run fared, by run id, for the status line (module state: a reload starts it afresh). */
+/** How the agents of each run fared, by run id, for the status line: the latest MAX_RUNS runs (module state: a reload starts it afresh). */
 const tallies = new Map<string, { routed: number; failed: number; reason: string }>()
 
 /** The status line's words about one run: how many of its agents were routed as they started, and why some were not. */
@@ -357,14 +354,6 @@ async function readTask($: EngineInterface, dir: string, agentId: string, deadli
 function routeOf(sites: readonly RunSite[]): RunSite['route'] | null {
   const first = sites[0]
   return first !== undefined && sites.every((site) => sameRoute(site.route, first.route)) ? first.route : null
-}
-
-/** A request's outcome for the debug log. */
-function describeAsked(asked: Asked, ms: number): string {
-  if (!asked.ok) return `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)`
-  const by = asked.model === null ? '' : ` by ${asked.model}`
-  const tokens = asked.inputTokens === null ? '' : ` (${asked.inputTokens} input tokens)`
-  return `answered in ${ms} ms${by}${tokens}`
 }
 
 /** The run the Workflow tool's result says it launched: its id, its directory, the script it runs and the workflow's name. */

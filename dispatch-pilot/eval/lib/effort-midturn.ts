@@ -39,7 +39,8 @@ import { answersFor, mergeParts, type DecisionRequest, type Part } from '../../h
 import type { EffortMidturnItem, Language, MidturnAsked, MidturnRowTool } from './datasets.ts'
 import { gradeEffort } from './effort-submit.ts'
 import type { Row } from './runner.ts'
-import type { Settings, Suite } from './suite.ts'
+import { rate } from './metrics.ts'
+import { requestFailed, variantIn, type Settings, type Suite } from './suite.ts'
 
 /**
  * One way of asking (an eval variable): how the question is written, what
@@ -63,9 +64,7 @@ export const MIDTURN_VARIANTS: Readonly<Record<string, MidturnVariant>> = {
 }
 
 function variantOf(variant: string): MidturnVariant {
-  const how = MIDTURN_VARIANTS[variant]
-  if (how === undefined) throw new RangeError(`no variant "${variant}" (${Object.keys(MIDTURN_VARIANTS).join(', ')})`)
-  return how
+  return variantIn(MIDTURN_VARIANTS, variant)
 }
 
 /** What the re-decision reads, as the mod reads it (core/setup.ts): the latest `rejudgeSteps` steps, within `contextTokens`. */
@@ -97,17 +96,13 @@ type MidturnBreakdown = {
   sent: Record<Language, number>
 }
 
-function rate(count: number, of: number): number {
-  return of === 0 ? 0 : Math.round((count / of) * 10_000) / 10_000
-}
-
 export const effortMidturn: Suite<EffortMidturnItem, Effort> = {
   name: 'effort-midturn',
   variants: Object.keys(MIDTURN_VARIANTS),
   async decide(item, language, variant, ask, settings) {
     const { request, part, expectedPart } = midturnRequest(item, language, variant, settings)
     const { asked } = await ask(request)
-    if (!asked.ok) return { ok: false, failure: `${asked.failure.kind}: ${asked.failure.detail}` }
+    if (!asked.ok) return requestFailed(asked.failure)
     const reading = readEffort(answersFor(part, asked.answers)[MIDTURN_LEVEL])
     if (reading === null) return { ok: false, failure: 'parse: no effort answer' }
     const verdict = judgeMidturn(reading, { current: item[language].current_effort, sinceRaise: null }, midturnRules(settings))

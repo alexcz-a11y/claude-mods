@@ -25,7 +25,7 @@ import type { HttpInit, On } from 'claude-code'
 import { describeAsked, errorText } from '../decision/backend.ts'
 import { modelFamily, termsOf } from '../decision/dispatched-agent.ts'
 import { parseWorkflow, rewriteWorkflow, type ParsedWorkflow } from '../decision/workflow-script.ts'
-import { callName, outcomeOf, readOutcomes, reasonOf, returnNote, rewriteNote, statusText, workflowBatches, workflowFingerprint, type CallOutcome } from '../decision/workflow.ts'
+import { batchesTimeoutMs, callName, outcomeOf, readOutcomes, reasonOf, returnNote, rewriteNote, statusText, workflowBatches, workflowFingerprint, type CallOutcome } from '../decision/workflow.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
@@ -114,8 +114,7 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
         sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
       }
       const plan = workflowBatches(parsed, words, settings, ctx.config.context.tokens)
-      // Concurrent requests to one key can queue behind each other: each gets a share more time (a hook has 10 s).
-      const timeoutMs = Math.min(BATCHES_BUDGET_MS, ctx.config.timeoutMs * plan.batches.length)
+      const timeoutMs = batchesTimeoutMs(ctx.config.timeoutMs, plan.batches.length)
       const asked = await Promise.all(
         plan.batches.map(async (batch) => {
           const startedAt = await $.clock.now()
@@ -181,6 +180,3 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
     return note === null ? result : { ...result, context: [...(result.context ?? []), note] }
   })
 }
-
-/** The most the requests about one script wait together: a hook has 10 s of its own. */
-const BATCHES_BUDGET_MS = 8000

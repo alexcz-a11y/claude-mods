@@ -517,6 +517,7 @@ function nonEmpty(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== ''
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+/** A JSON object (not null, not an array). */
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

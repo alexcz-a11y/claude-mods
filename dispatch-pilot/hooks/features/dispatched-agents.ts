@@ -13,11 +13,11 @@
 // Its switch is `dispatched-agents` (`/dp dispatched-agents off`).
 
 import type { HttpInit, On } from 'claude-code'
-import type { Asked } from '../decision/backend.ts'
+import { type Asked, describeAsked } from '../decision/backend.ts'
 import { messageText } from '../decision/context.ts'
 import { decideDispatch, decisionNotes, dispatchPart, dispatchState, modelFamily, termsOf, type Dispatch, type DispatchDecision } from '../decision/dispatched-agent.ts'
 import { EFFORTS } from '../decision/effort.ts'
-import { redactSecrets } from '../decision/redact.ts'
+import { quoteStart } from '../decision/redact.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
@@ -72,7 +72,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
     }
     const show = (line: string | undefined) => $.ui.status(line)
-    const about = `${quote(e.description)} (${e.subagentType})`
+    const about = `${quoteStart(e.description)} (${e.subagentType})`
     const startedAt = await $.clock.now()
     const asked = await ctx.backend.ask(io, request, ctx.config.timeoutMs)
     const ms = (await $.clock.now()) - startedAt
@@ -116,14 +116,6 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
   })
 }
 
-/** A request's outcome for the debug log. */
-function describeAsked(asked: Asked, ms: number): string {
-  if (!asked.ok) return `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)`
-  const by = asked.model === null ? '' : ` by ${asked.model}`
-  const tokens = asked.inputTokens === null ? '' : ` (${asked.inputTokens} input tokens)`
-  return `answered in ${ms} ms${by}${tokens}`
-}
-
 /** Why the agent goes out as it does: whose model it is, the decision model's pick, what was ruled out, the effort answer. */
 function reasonOf(decision: DispatchDecision, requested: string | null, thetaOverride: number): string {
   const pick = decision.pick === null ? null : `pick ${decision.pick.model}, confidence ${decision.pick.confidence.toFixed(2)}`
@@ -136,10 +128,4 @@ function reasonOf(decision: DispatchDecision, requested: string | null, thetaOve
   parts.push(...decisionNotes(decision))
   if (decision.reading !== null) parts.push(`effort p ${EFFORTS.map((level, i) => `${level} ${(decision.reading?.probabilities[i] ?? 0).toFixed(2)}`).join(', ')}`)
   return parts.join('; ')
-}
-
-/** The start of a text for the debug log, secrets masked. */
-function quote(text: string): string {
-  const flat = redactSecrets(text).replace(/\s+/g, ' ').trim()
-  return JSON.stringify(flat.length > 40 ? `${flat.slice(0, 40)}...` : flat)
 }

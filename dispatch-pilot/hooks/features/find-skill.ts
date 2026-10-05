@@ -14,9 +14,9 @@
 // switched off, it says so when called.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import type { Asked } from '../decision/backend.ts'
+import { type Asked, describeAsked } from '../decision/backend.ts'
 import { turnStartState } from '../decision/context.ts'
-import { redactSecrets } from '../decision/redact.ts'
+import { quoteStart } from '../decision/redact.ts'
 import { modRanker, pickSkills, skillOpening, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
 import { answersFor, mergeParts, type DecisionRequest } from '../decision/system-one.ts'
 import { recordDecision } from '../core/decisions.ts'
@@ -145,7 +145,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
         show("find_skill failed (the session's skills could not be read)")
         return { result: `find_skill could not read this session's skills. ${CARRY_ON}` }
       }
-      const about = `for find_skill ${quote(query)}`
+      const about = `for find_skill ${quoteStart(query)}`
       const ranker = modRanker(
         {
           ask: (request, timeoutMs) => askLogged($, ctx, 'second request', about, request, timeoutMs),
@@ -182,7 +182,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       await recordDecision(
         { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
         (line) => $.ui.log(line, { to: 'debug' }),
-        { feature: SWITCH, outcome: suggest.length > 0 ? `found ${names}` : 'found no skill', about: quote(query), reason: describeRanking(ranking, policy) },
+        { feature: SWITCH, outcome: suggest.length > 0 ? `found ${names}` : 'found no skill', about: quoteStart(query), reason: describeRanking(ranking, policy) },
       )
       show(`find_skill ${suggest.length > 0 ? names : 'none'}`)
       return { result: found(query, suggest, policy) }
@@ -192,20 +192,6 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       return { result: `find_skill could not rate the skills (an error in Dispatch Pilot, written to the debug log). ${CARRY_ON}` }
     }
   })
-}
-
-/** The start of a text for the debug log, secrets masked. */
-function quote(text: string): string {
-  const flat = redactSecrets(text).replace(/\s+/g, ' ').trim()
-  return JSON.stringify(flat.length > 40 ? `${flat.slice(0, 40)}...` : flat)
-}
-
-/** A request's outcome for the debug log. */
-function describeAsked(asked: Asked, ms: number): string {
-  if (!asked.ok) return `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)`
-  const by = asked.model === null ? '' : ` by ${asked.model}`
-  const tokens = asked.inputTokens === null ? '' : ` (${asked.inputTokens} input tokens)`
-  return `answered in ${ms} ms${by}${tokens}`
 }
 
 /** Why: what each stage of the ranking said (`describeStages`), and the bar a skill had to reach. */

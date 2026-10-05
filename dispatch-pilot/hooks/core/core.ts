@@ -19,7 +19,7 @@
 import type { HttpInit, On } from 'claude-code'
 import { messageText, turnStartState } from '../decision/context.ts'
 import { answersFor, mergeParts, type State } from '../decision/system-one.ts'
-import type { Asked } from '../decision/backend.ts'
+import { type Asked, describeAsked } from '../decision/backend.ts'
 import { collect, type Contribution, type PartOutcome } from './ballot.ts'
 import { noteBlocked } from './outcomes.ts'
 import { newTurn, planStep, takePending, turnKey, update, type Cell, type PendingDecision } from './plans.ts'
@@ -110,14 +110,6 @@ export function registerCore(on: On, ctx: Ctx): void {
     }
     return yield* next(step)
   })
-}
-
-/** A request's outcome for the debug log. */
-function describeAsked(asked: Asked, ms: number): string {
-  if (!asked.ok) return `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)`
-  const by = asked.model === null ? '' : ` by ${asked.model}`
-  const tokens = asked.inputTokens === null ? '' : ` (${asked.inputTokens} input tokens)`
-  return `answered in ${ms} ms${by}${tokens}`
 }
 
 /** Hands each part its outcome (in parallel) and gathers the context blocks they return, in ballot order. */

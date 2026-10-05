@@ -63,9 +63,9 @@ export function readDataset(path: string): { text: string; items: Record<string,
   return { text, ...parseJsonl(text) }
 }
 
-/** The skill catalog beside a skill dataset, when there is one. */
-export function readCatalog(datasetPath: string): unknown {
-  return nodeHost(datasetPath).beside('skill-catalog.json')
+/** What checking a dataset of `kind` reads besides its items: the skill catalog beside a skill dataset; nothing for the others. */
+export function catalogFor(kind: Kind, datasetPath: string): unknown {
+  return kind === 'skill' ? nodeHost(datasetPath).beside('skill-catalog.json') : undefined
 }
 
 /**

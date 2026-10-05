@@ -95,6 +95,18 @@ export const MAX_CALLS = 24
 export const MAX_PER_REQUEST = 8
 /** At most this many requests are sent for one script, all at once. */
 export const MAX_REQUESTS = 4
+
+/** The most a script's requests may wait in all: the hook has 10 seconds, and what follows them must still fit. */
+export const BATCHES_BUDGET_MS = 8000
+
+/**
+ * How long each of a script's requests may wait: sent at once to one key,
+ * they can queue behind each other, so each gets the mod's timeout once per
+ * request, within BATCHES_BUDGET_MS.
+ */
+export function batchesTimeoutMs(timeoutMs: number, requests: number): number {
+  return Math.min(BATCHES_BUDGET_MS, timeoutMs * Math.max(1, requests))
+}
 /** A call's brief takes this many tokens at most, and the briefs of a request at least this many each. */
 const MAX_BRIEF = 400
 const MIN_BRIEF = 150

@@ -14,7 +14,7 @@ import { turnStartState, type ContextMessage } from '../../hooks/decision/contex
 import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart, type Effort, type EffortAsk } from '../../hooks/decision/effort.ts'
 import { answersFor, mergeParts, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
 import type { ContextEntry, EffortSubmitItem, Language } from './datasets.ts'
-import type { Grade, Suite } from './suite.ts'
+import { requestFailed, variantIn, type Grade, type Suite } from './suite.ts'
 
 /** The variants by name: `<question language>-<primitive>`; the first is how the mod asks today (DEFAULT_ASK). */
 export const SUBMIT_VARIANTS: Readonly<Record<string, EffortAsk>> = {
@@ -25,9 +25,7 @@ export const SUBMIT_VARIANTS: Readonly<Record<string, EffortAsk>> = {
 }
 
 function variantAsk(variant: string): EffortAsk {
-  const ask = SUBMIT_VARIANTS[variant]
-  if (ask === undefined) throw new RangeError(`no variant "${variant}" (${Object.keys(SUBMIT_VARIANTS).join(', ')})`)
-  return ask
+  return variantIn(SUBMIT_VARIANTS, variant)
 }
 
 /**
@@ -48,7 +46,7 @@ export const effortSubmit: Suite<EffortSubmitItem, Effort> = {
   async decide(item, language, variant, ask, settings) {
     const { request, part } = submitRequest(item, language, variantAsk(variant), settings)
     const { asked } = await ask(request)
-    if (!asked.ok) return { ok: false, failure: `${asked.failure.kind}: ${asked.failure.detail}` }
+    if (!asked.ok) return requestFailed(asked.failure)
     const reading = readEffort(answersFor(part, asked.answers)[LEVEL])
     if (reading === null) return { ok: false, failure: 'parse: no effort answer' }
     return {

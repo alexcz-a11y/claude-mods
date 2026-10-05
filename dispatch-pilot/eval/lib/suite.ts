@@ -7,7 +7,7 @@
 // Pure: no Node API.
 
 import type { PluginOptions } from 'claude-code'
-import type { Asked } from '../../hooks/decision/backend.ts'
+import type { Asked, Failure } from '../../hooks/decision/backend.ts'
 import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
 import { readConfig, type Config } from '../../hooks/core/setup.ts'
 import type { Item, Language } from './datasets.ts'
@@ -60,6 +60,18 @@ export function optionsFrom(userConfig: Readonly<Record<string, OptionSpec>>, as
     }
   }
   return options
+}
+
+/** A variant's settings from a suite's table of them; throws, naming the variants there are, for a name not in it. */
+export function variantIn<T>(table: Readonly<Record<string, T>>, name: string): T {
+  const found = table[name]
+  if (found === undefined) throw new RangeError(`no variant "${name}" (${Object.keys(table).join(', ')})`)
+  return found
+}
+
+/** No decision, the request having failed: the row says how (`kind: detail`). */
+export function requestFailed(failure: Failure): { ok: false; failure: string } {
+  return { ok: false, failure: `${failure.kind}: ${failure.detail}` }
 }
 
 /** One request a suite sent: the backend's outcome, how long the answered attempt took, how many attempts it took. */

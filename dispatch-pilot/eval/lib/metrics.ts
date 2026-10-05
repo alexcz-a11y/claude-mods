@@ -179,12 +179,13 @@ function languageSummary(items: number, rows: readonly Row<unknown>[], parts: re
 }
 
 /** The value at rank ceil(p·n) of the sorted values (nearest rank); null for none. */
-function nearestRank(sorted: readonly number[], p: number): number | null {
+export function nearestRank(sorted: readonly number[], p: number): number | null {
   if (sorted.length === 0) return null
   return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)] as number
 }
 
-function rate(count: number, of: number): number {
+/** count over of, rounded to four places; 0 when there is nothing to count over. */
+export function rate(count: number, of: number): number {
   return of === 0 ? 0 : round(count / of)
 }
 

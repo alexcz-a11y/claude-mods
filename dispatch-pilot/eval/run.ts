@@ -39,7 +39,7 @@ import { summarize, type Summary } from './lib/metrics.ts'
 import { runSuite, type Row } from './lib/runner.ts'
 import { optionsFrom, settingsFrom } from './lib/suite.ts'
 import { SUITES } from './lib/suites.ts'
-import { RESULTS_DIR, REVIEW_DIR, backendFor, datasetFile, modCode, nodeHost, nodeIo, readCatalog, readDataset, readManifest, shown } from './node.ts'
+import { RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, modCode, nodeHost, nodeIo, readDataset, readManifest, shown } from './node.ts'
 
 /** Input price per million tokens; output is free on both (docs.typesafe.ai/models, the Clef model page; 2026-10-04). */
 const PRICES: Readonly<Record<string, number>> = { jev: 0.042, clef: 0.24 }
@@ -73,7 +73,7 @@ const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <sui
 const entry = SUITES[name] ?? fail(`no suite for "${name}" yet (suites: ${Object.keys(SUITES).join(', ')})`)
 const { kind, path } = datasetFile(name)
 const dataset = readDataset(path)
-const checked = validateDataset(kind, dataset.items, { catalog: kind === 'skill' ? readCatalog(path) : undefined })
+const checked = validateDataset(kind, dataset.items, { catalog: catalogFor(kind, path) })
 if (dataset.errors.length + checked.errors.length > 0) fail(`${shown(path)} is not valid; run eval/validate.ts ${name}`)
 const sha = (text: string) => createHash('sha256').update(text).digest('hex')
 // A suite built when the run starts gets what lies beside its dataset (the skill suite; the results hash those files
