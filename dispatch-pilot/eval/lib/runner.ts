@@ -67,7 +67,36 @@ export type Row<P> = {
   state: State | null
 }
 
-const TRANSIENT: readonly Failure['kind'][] = ['busy', 'network', 'timeout']
+/** The failures worth asking again: the backend was busy, the connection dropped, or the answer was slow. */
+export const TRANSIENT: readonly Failure['kind'][] = ['busy', 'network', 'timeout']
+
+/**
+ * How long one attempt may take unless the person says: four times the mod's
+ * timeoutMs, at least 10 s, so that a slow answer is still measured (and a
+ * cold connection's first request does not fail outright); the summary counts
+ * the answers that came later than the mod would have waited.
+ */
+export function attemptMs(modTimeoutMs: number): number {
+  return Math.max(10_000, 4 * modTimeoutMs)
+}
+
+/** What asking again needs: the backend and its host, how long an attempt may take, how often to retry, the clock and the pause. */
+export type Retrying = { backend: Backend; io: BackendIo; timeoutMs: number; retries: number; now: () => number; pause: (ms: number) => Promise<void> }
+
+/**
+ * One request, asked again after a busy, network or timeout failure (after
+ * 1 s, then 2 s, ...) up to `retries` more times: the answered (or last)
+ * attempt's outcome, how long that attempt took, and how many there were.
+ */
+export async function askRetrying(request: Sent['request'], options: Retrying): Promise<Sent> {
+  for (let attempt = 1; ; attempt++) {
+    const started = options.now()
+    const asked = await options.backend.ask(options.io, request, options.timeoutMs)
+    const ms = options.now() - started
+    if (asked.ok || attempt > options.retries || !TRANSIENT.includes(asked.failure.kind)) return { request, asked, ms, attempts: attempt }
+    await options.pause(1000 * 2 ** (attempt - 1))
+  }
+}
 
 export async function runSuite<I extends AnyItem, P>(suite: Suite<I, P>, items: readonly I[], options: RunOptions): Promise<Row<P>[]> {
   const languages = options.languages ?? LANGUAGES
@@ -90,17 +119,9 @@ export async function runSuite<I extends AnyItem, P>(suite: Suite<I, P>, items: 
 async function answer<I extends AnyItem, P>(suite: Suite<I, P>, item: I, language: Language, variant: string, options: RunOptions): Promise<Row<P>> {
   const sent: Sent[] = []
   const ask: Ask = async (request) => {
-    for (let attempt = 1; ; attempt++) {
-      const started = options.now()
-      const asked = await options.backend.ask(options.io, request, options.timeoutMs)
-      const ms = options.now() - started
-      if (asked.ok || attempt > options.retries || !TRANSIENT.includes(asked.failure.kind)) {
-        const one: Sent = { request, asked, ms, attempts: attempt }
-        sent.push(one)
-        return one
-      }
-      await options.pause(1000 * 2 ** (attempt - 1))
-    }
+    const one = await askRetrying(request, options)
+    sent.push(one)
+    return one
   }
   const decided = await suite.decide(item, language, variant, ask, options.settings).catch((error: unknown): { ok: false; failure: string } => ({
     ok: false,

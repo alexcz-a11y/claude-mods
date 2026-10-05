@@ -40,13 +40,10 @@ import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
 import { summarize, type Summary } from './lib/metrics.ts'
-import { runSuite, type Row } from './lib/runner.ts'
+import { attemptMs as defaultAttemptMs, runSuite, type Row } from './lib/runner.ts'
 import { optionsFor, settingsFrom } from './lib/suite.ts'
 import { SUITES } from './lib/suites.ts'
-import { RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, formatResult, modCode, nodeHost, nodeIo, readDataset, readManifest, shown } from './node.ts'
-
-/** Input price per million tokens; output is free on both (docs.typesafe.ai/models, the Clef model page; 2026-10-04). */
-const PRICES: Readonly<Record<string, number>> = { jev: 0.042, clef: 0.24 }
+import { PRICES, RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, formatResult, modCode, nodeHost, nodeIo, readDataset, readManifest, shown } from './node.ts'
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -110,11 +107,11 @@ try {
   fail(error instanceof Error ? error.message : String(error))
 }
 const settings = settingsFrom(options as PluginOptions)
-/** How long one attempt may take: --timeout, else four times the mod's timeoutMs for this backend, at least 10 s. */
-const attemptMs = values.timeout === undefined ? Math.max(10_000, 4 * settings.timeoutMs) : Number(values.timeout)
+/** How long one attempt may take: --timeout, else four times the mod's timeoutMs for this backend, at least 10 s (lib/runner.ts). */
+const attemptMs = values.timeout === undefined ? defaultAttemptMs(settings.timeoutMs) : Number(values.timeout)
 if (backendName === 'clef' && values.model !== undefined && values.model !== CLEF_MODEL) fail(`the Clef backend asks ${CLEF_MODEL} only`)
 const model = backendName === 'clef' ? CLEF_MODEL : (values.model ?? JEV_MODEL)
-const price = PRICES[backendName === 'jev' ? 'jev' : model] ?? fail(`no price known for ${backendName} ${model}`)
+const price = PRICES[backendName]
 
 // The estimate: the requests a run sends (a suite that asks again after
 // reading an answer says what it may send at most: Suite.estimate; another

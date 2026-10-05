@@ -9,7 +9,7 @@ import { EFFORTS } from '../hooks/decision/effort.ts'
 import { jevBackend } from '../hooks/decision/jev.ts'
 import type { EffortSubmitItem } from '../eval/lib/datasets.ts'
 import { effortSubmit } from '../eval/lib/effort-submit.ts'
-import { runSuite } from '../eval/lib/runner.ts'
+import { attemptMs, runSuite } from '../eval/lib/runner.ts'
 import { optionsFrom, settingsFrom } from '../eval/lib/suite.ts'
 
 function item(id: string, message: string, gold: EffortSubmitItem['gold'], accept: EffortSubmitItem['accept'], tags: string[] = []): EffortSubmitItem {
@@ -157,4 +157,10 @@ test('an --option the manifest does not have, or a value its type cannot take, i
   expect(() => optionsFrom(USER_CONFIG, ['agentFable=yes'])).toThrow('agentFable takes true or false, not "yes"')
   expect(() => optionsFrom(USER_CONFIG, ['contextTokens=lots'])).toThrow('contextTokens takes a number, not "lots"')
   expect(() => optionsFrom(USER_CONFIG, ['contextTokens'])).toThrow('--option takes name=value, not contextTokens')
+})
+
+// How long the eval (and scripts/decide*.ts) gives one attempt unless told: four times the mod's timeoutMs, at least
+// 10 s, so a slow answer is still measured and a cold connection's first request does not fail outright.
+test("an attempt may take four times the mod's timeoutMs, at least 10 s: Jev's 1500 ms gives 10 s, Clef's 3000 ms 12 s", () => {
+  expect([attemptMs(settingsFrom({}).timeoutMs), attemptMs(settingsFrom({ decisionModel: 'clef' }).timeoutMs), attemptMs(5000)]).toEqual([10_000, 12_000, 20_000])
 })

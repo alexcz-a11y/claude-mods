@@ -13,8 +13,8 @@
 // working on this request`), each tool's line as the mod writes it. `--zh`
 // asks the questions in Chinese; `--steps` overrides rejudgeSteps. Prints the
 // probability that the failures are expected, the effort levels'
-// probabilities and the latency. `--timeout` defaults to the mod's timeoutMs
-// for the decision model asked.
+// probabilities and the latency. `--timeout` defaults to what the eval gives
+// one attempt (four times the mod's timeoutMs, at least 10 s).
 // Credentials come from the environment or ~/.config/dispatch-pilot/eval.env
 // and are never printed. Node 22.18+ runs .ts as is.
 
@@ -23,40 +23,28 @@ import { readExpected, stuckRequest } from '../hooks/decision/escalation.ts'
 import { EFFORTS, pickEffort, readEffort } from '../hooks/decision/effort.ts'
 import { MIDTURN_LEVEL, type MidturnInput } from '../hooks/decision/midturn.ts'
 import { answersFor, type Part } from '../hooks/decision/system-one.ts'
-import { optionsFor, settingsFrom } from '../eval/lib/suite.ts'
-import { backendFor, nodeIo, readManifest } from '../eval/node.ts'
+import { attemptMs } from '../eval/lib/runner.ts'
+import { nodeIo, scriptArgs, scriptDecision } from '../eval/node.ts'
 
-const args = process.argv.slice(2)
-const flag = (name: string) => args.includes(name)
-const value = (name: string) => {
-  const at = args.indexOf(name)
-  return at >= 0 ? args[at + 1] : undefined
-}
-const file = args.find((arg, i) => !arg.startsWith('--') && args[i - 1] !== '--timeout' && args[i - 1] !== '--steps')
+const USAGE = 'node scripts/decide-stuck.ts <input.json> [--zh] [--clef] [--steps 4] [--timeout ms]'
+const { values, positionals } = scriptArgs(USAGE, { zh: { type: 'boolean' }, steps: { type: 'string' } })
+const file = positionals[0]
 if (!file) {
-  console.error('usage: node scripts/decide-stuck.ts <input.json> [--zh] [--clef] [--steps 4] [--timeout ms]')
+  console.error(`usage: ${USAGE}`)
   process.exit(2)
 }
-const chosen = flag('--clef') ? 'clef' : 'jev'
-const settings = settingsFrom(optionsFor(chosen, readManifest().userConfig ?? {}, value('--steps') === undefined ? [] : [`rejudgeSteps=${value('--steps')}`]))
-let backend
-try {
-  backend = backendFor(chosen).backend
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error))
-  process.exit(2)
-}
+const { settings, backend } = scriptDecision(values.clef === true, typeof values.steps === 'string' ? [`rejudgeSteps=${values.steps}`] : [])
 
 const input = JSON.parse(readFileSync(file, 'utf8')) as MidturnInput
 const { request, effortPart, expectedPart } = stuckRequest(input, {
   limits: settings.midturn.limits,
-  ask: { language: flag('--zh') ? 'zh' : 'en', primitive: 'score' },
+  ask: { language: values.zh === true ? 'zh' : 'en', primitive: 'score' },
   effort: true,
 })
 console.log(JSON.stringify({ questions: Object.keys(request.questions), state: request.state }))
 
 const started = performance.now()
-const asked = await backend.ask(nodeIo, request, Number(value('--timeout') ?? settings.timeoutMs))
+const asked = await backend.ask(nodeIo, request, Number(values.timeout ?? attemptMs(settings.timeoutMs)))
 const ms = Math.round(performance.now() - started)
 if (!asked.ok) {
   console.log(JSON.stringify({ ok: false, backend: backend.name, failure: asked.failure, ms }))
