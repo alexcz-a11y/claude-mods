@@ -10,7 +10,7 @@ import { jevBackend } from '../hooks/decision/jev.ts'
 import type { EffortSubmitItem } from '../eval/lib/datasets.ts'
 import { effortSubmit } from '../eval/lib/effort-submit.ts'
 import { runSuite } from '../eval/lib/runner.ts'
-import { settingsFrom } from '../eval/lib/suite.ts'
+import { optionsFrom, settingsFrom } from '../eval/lib/suite.ts'
 
 function item(id: string, message: string, gold: EffortSubmitItem['gold'], accept: EffortSubmitItem['accept'], tags: string[] = []): EffortSubmitItem {
   return {
@@ -130,4 +130,31 @@ test('a busy backend is asked again after a pause; a refused key is not; an unan
   expect(rows[1]?.failure).toMatch(/^config: HTTP 401/)
   // One pause of a second before the second attempt.
   expect(net.pauses).toEqual([1000])
+})
+
+// The options a run asks with: what the engine hands the mod (the manifest's
+// defaults), then each `--option name=value`, read by the type the manifest
+// gives the option.
+const USER_CONFIG = {
+  contextTokens: { type: 'number', default: 2000 },
+  agentFable: { type: 'boolean', default: false },
+  workflowMode: { type: 'string', default: 'rewrite' },
+  skillsNeverSuggested: { type: 'string', multiple: true, default: [] },
+}
+
+test('a run reads each --option by the type the manifest gives it: a number, true or false, or the text; the rest keep their defaults', () => {
+  const options = optionsFrom(USER_CONFIG, ['agentFable=true', 'contextTokens=4000', 'skillsNeverSuggested=tdd,pdf'])
+  expect(options).toEqual({ contextTokens: 4000, agentFable: true, workflowMode: 'rewrite', skillsNeverSuggested: 'tdd,pdf' })
+  // Read as the mod reads them: fable offered, the two skills never suggested.
+  const settings = settingsFrom(options)
+  expect(settings.agents.models).toContain('fable')
+  expect(settings.skills.neverSuggested).toEqual(['tdd', 'pdf'])
+  expect(optionsFrom(USER_CONFIG, ['agentFable=false']).agentFable).toBe(false)
+})
+
+test('an --option the manifest does not have, or a value its type cannot take, is refused with the reason', () => {
+  expect(() => optionsFrom(USER_CONFIG, ['contextToken=4000'])).toThrow('no option "contextToken" in the manifest')
+  expect(() => optionsFrom(USER_CONFIG, ['agentFable=yes'])).toThrow('agentFable takes true or false, not "yes"')
+  expect(() => optionsFrom(USER_CONFIG, ['contextTokens=lots'])).toThrow('contextTokens takes a number, not "lots"')
+  expect(() => optionsFrom(USER_CONFIG, ['contextTokens'])).toThrow('--option takes name=value, not contextTokens')
 })

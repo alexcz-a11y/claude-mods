@@ -9,7 +9,7 @@
 import { expect, test } from 'claude-code/testing'
 import { CLEF_OPTIONS, clefInputProblems } from './support/cloudflare.ts'
 import { clefSiteJev, siteJev, type SiteAnswer } from './support/workflow.ts'
-import { persisted, runWorld } from './support/workflow-run.ts'
+import { persisted, runDir, runWorld } from './support/workflow-run.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
 
@@ -150,7 +150,8 @@ test("an agent whose own decision fails goes out as the engine made it; the stat
     await w.agentStep(agentId, { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
   }
 
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium', 'wa2 claude-haiku-4-5 medium'])
+  // The agent sent to haiku goes out without the engine's effort: haiku takes none (spec #32).
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium', 'wa2 claude-haiku-4-5 undefined'])
   expect(w.status()).toBe('dp workflow not routed (given by path) | by label: routed 1 agent (1 not: jev: HTTP 500)')
 })
 
@@ -373,10 +374,11 @@ test('a Workflow given by name is read from the copy the tool runs, and a templa
     await w.agentStep(agentId, { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
   }
 
+  // The check agent goes to haiku: without the engine's xhigh, which haiku does not take (spec #32).
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual([
     'wa1 claude-sonnet-5-5 medium',
     'wa2 claude-sonnet-5-5 medium',
-    'wa3 claude-haiku-4-5 xhigh',
+    'wa3 claude-haiku-4-5 undefined',
   ])
 })
 
@@ -398,7 +400,7 @@ return [a, b]
   w.started('wf_test-1', 'wa2', 'Review src/billing/invoice.ts for rounding errors in the inv')
   await w.agentStep('wa2', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
 
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-haiku-4-5 medium', 'wa2 claude-opus-5-5 high'])
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-haiku-4-5 undefined', 'wa2 claude-opus-5-5 high'])
 })
 
 /** A script this feature cannot read: its meta is not an object literal. */
@@ -424,6 +426,19 @@ test("each agent of a script that cannot be read is decided when it starts, from
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent-0.model', 'agent-0.effort'])
   expect(w.requests[0]?.body.state.brief_0).toEqual({ label: 'first', prompt: 'Find why the nightly import drops rows whose\ncurrency is missing, and fix it.' })
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 xhigh'])
+})
+
+test("an agent's transcript that relays the person's request before its task (as earlier engines write it) is decided from its task, not the relayed request", { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: siteJev(() => ({ model: { opus: 0.9 }, effort: [0, 0, 0, 1, 0] })) })
+  await w.workflow({ scriptPath: SAVED })
+  w.started('wf_test-1', 'wa1', 'first')
+  w.transcript('wf_test-1', 'wa1', 'Find why the nightly import drops rows, and fix it.')
+  const path = `${runDir('wf_test-1')}/agent-wa1.jsonl`
+  const relayed = { type: 'user', message: { role: 'user', content: '[Workflow harness — user request] The harness relays, verbatim and indented below, the user request.\n  look at the importer' } }
+  w.disk[path] = `${JSON.stringify(relayed)}\n${w.disk[path] ?? ''}`
+  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  expect(w.requests[0]?.body.state.brief_0.prompt).toBe('Find why the nightly import drops rows, and fix it.')
 })
 
 test("an agent's task is not on disk yet when its first step begins: the step waits for the engine to write it (50-110 ms on 2.1.289), then goes out decided", { options: KEY }, async ($, on) => {

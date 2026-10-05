@@ -85,7 +85,13 @@ function midturn(id: string, change: (item: any) => void = () => {}): any {
     recent_steps: [
       {
         assistant_text: language === 'zh' ? '跑一下，预期全部失败。' : 'Running them; I expect them all to fail.',
-        tools: [{ name: 'Bash', result: language === 'zh' ? '失败：7 个新用例失败' : 'Failed: the 7 new cases failed' }],
+        tools: [
+          {
+            name: 'Bash',
+            result: language === 'zh' ? '失败：7 个新用例失败' : 'Failed: the 7 new cases failed',
+            input: { command: 'npx vitest run duration', description: language === 'zh' ? '跑 duration 的测试' : 'Run the duration tests' },
+          },
+        ],
       },
     ],
   })
@@ -93,6 +99,21 @@ function midturn(id: string, change: (item: any) => void = () => {}): any {
   change(item)
   return item
 }
+
+test("effort-midturn: each tool call's input holds only the arguments that say what it worked on, the same in both languages but for its description", () => {
+  const items = [
+    midturn('midturn-001', (i) => delete i.zh.recent_steps[0].tools[0].input),
+    midturn('midturn-002', (i) => (i.en.recent_steps[0].tools[0].input.new_string = 'expect(parseDuration("1h")).toBe(3600)')),
+    midturn('midturn-003', (i) => (i.en.recent_steps[0].tools[0].input.command = 'npx vitest run')),
+    midturn('midturn-004', (i) => (i.zh.recent_steps[0].tools[0].input.command = '')),
+  ]
+  const { errors } = validateDataset('effort-midturn', items)
+  const of = (id: string) => errors.filter((e) => e.startsWith(`${id}:`)).join('\n')
+  expect(of('midturn-001')).toMatch(/zh\.recent_steps\[0\]\.tools\[0\]\.input must be an object/)
+  expect(of('midturn-002')).toMatch(/en\.recent_steps\[0\]\.tools\[0\]\.input has new_string: an input holds only description, skill, name, file_path, notebook_path, pattern, query, url, command/)
+  expect(of('midturn-003')).toMatch(/recent_steps\[0\]\.tools\[0\]\.input\.command differs between zh and en/)
+  expect(of('midturn-004')).toMatch(/zh\.recent_steps\[0\]\.tools\[0\]\.input\.command must be a non-empty string/)
+})
 
 test('effort-midturn: the turn so far is the same in both languages, each tool result says how it ended, accept is at most two levels', () => {
   expect(validateDataset('effort-midturn', [midturn('midturn-001')])).toEqual({ errors: [], warnings: [] })
@@ -123,8 +144,8 @@ test('effort-midturn: the turn so far is the same in both languages, each tool r
   expect(errors.length).toBe(9) // 008: its counts also differ from en's
 })
 
-/** A well-formed subagent item: one dispatch (`agent`) or one `agent()` of a Workflow script (`workflow`). */
-function subagent(id: string, kind: 'agent' | 'workflow', change: (item: any) => void = () => {}): any {
+/** A well-formed item of the dispatched agents' dataset (subagent.jsonl): one dispatch (`agent`) or one `agent()` of a Workflow script (`workflow`). */
+function dispatched(id: string, kind: 'agent' | 'workflow', change: (item: any) => void = () => {}): any {
   const asked = (language: 'zh' | 'en') => ({
     user_message: language === 'zh' ? '查一下哪些文件还在用旧的日志库' : 'Find which files still use the old logging library.',
     kind,
@@ -149,28 +170,28 @@ function subagent(id: string, kind: 'agent' | 'workflow', change: (item: any) =>
   return item
 }
 
-test('subagent: haiku goes with no effort and any other model with a level; the dispatch kind fixes which fields are set; priority tags agree with the answer', () => {
-  expect(validateDataset('subagent', [subagent('subagent-001', 'agent'), subagent('subagent-002', 'workflow')]).errors).toEqual([])
+test('dispatched agents (subagent.jsonl): haiku goes with no effort and any other model with a level; the dispatch kind fixes which fields are set; priority tags agree with the answer', () => {
+  expect(validateDataset('subagent', [dispatched('subagent-001', 'agent'), dispatched('subagent-002', 'workflow')]).errors).toEqual([])
 
   const items = [
-    subagent('subagent-001', 'agent', (i) => (i.gold = { model: 'haiku', effort: 'low' })),
-    subagent('subagent-002', 'agent', (i) => (i.gold = { model: 'sonnet', effort: null })),
-    subagent('subagent-003', 'agent', (i) => (i.accept = { model: ['haiku', 'sonnet'], effort: ['low'] })), // haiku accepted, null not
-    subagent('subagent-004', 'agent', (i) => (i.accept = { model: ['haiku', 'sonnet'], effort: [null, 'low', 'high'] })),
-    subagent('subagent-005', 'workflow', (i) => (i.en.label = null)),
-    subagent('subagent-006', 'agent', (i) => (i.zh.workflow_description = '一个工作流')),
-    subagent('subagent-007', 'agent', (i) => (i.en.requested_model = 'opus')),
-    subagent('subagent-008', 'agent', (i) => (i.tags = ['search'])), // no priority tag
-    subagent('subagent-009', 'agent', (i) => {
+    dispatched('subagent-001', 'agent', (i) => (i.gold = { model: 'haiku', effort: 'low' })),
+    dispatched('subagent-002', 'agent', (i) => (i.gold = { model: 'sonnet', effort: null })),
+    dispatched('subagent-003', 'agent', (i) => (i.accept = { model: ['haiku', 'sonnet'], effort: ['low'] })), // haiku accepted, null not
+    dispatched('subagent-004', 'agent', (i) => (i.accept = { model: ['haiku', 'sonnet'], effort: [null, 'low', 'high'] })),
+    dispatched('subagent-005', 'workflow', (i) => (i.en.label = null)),
+    dispatched('subagent-006', 'agent', (i) => (i.zh.workflow_description = '一个工作流')),
+    dispatched('subagent-007', 'agent', (i) => (i.en.requested_model = 'opus')),
+    dispatched('subagent-008', 'agent', (i) => (i.tags = ['search'])), // no priority tag
+    dispatched('subagent-009', 'agent', (i) => {
       // The person named sonnet: it must be the only acceptable model.
       i.tags = ['priority:user']
       i.gold = { model: 'sonnet', effort: 'low' }
     }),
-    subagent('subagent-010', 'agent', (i) => {
+    dispatched('subagent-010', 'agent', (i) => {
       i.zh.requested_model = i.en.requested_model = 'opus'
       i.tags = ['priority:main-kept'] // kept, yet gold is not opus
     }),
-    subagent('subagent-011', 'agent', (i) => {
+    dispatched('subagent-011', 'agent', (i) => {
       i.gold = { model: 'fable', effort: 'max' }
       i.accept = { model: ['fable'], effort: ['max'] } // fable without its tag
     }),

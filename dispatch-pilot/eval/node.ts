@@ -5,12 +5,15 @@
 // Node only (fs, process): the tests never import this file; they import the
 // pure modules under lib/. Node 22.18+ runs .ts as is.
 
-import { existsSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join, relative, resolve } from 'node:path'
-import type { BackendIo } from '../hooks/decision/backend.ts'
+import type { Backend, BackendIo } from '../hooks/decision/backend.ts'
+import { clefBackend } from '../hooks/decision/clef.ts'
+import { jevBackend } from '../hooks/decision/jev.ts'
 import { isKind, parseJsonl, type Kind } from './lib/datasets.ts'
-import type { SuiteHost } from './lib/suite.ts'
+import type { OptionSpec, SuiteHost } from './lib/suite.ts'
 
 /** The mod's directory (dispatch-pilot/). */
 export const MOD_DIR = resolve(import.meta.dirname, '..')
@@ -18,6 +21,27 @@ export const EVAL_DIR = join(MOD_DIR, 'eval')
 export const DATASETS_DIR = join(EVAL_DIR, 'datasets')
 export const REVIEW_DIR = join(EVAL_DIR, 'review')
 export const RESULTS_DIR = join(EVAL_DIR, 'results')
+
+/** The mod's manifest (.claude-plugin/plugin.json): its options as the engine reads them (`optionsFrom` takes them). */
+export function readManifest(): { userConfig?: Record<string, OptionSpec & { sensitive?: boolean }> } {
+  return JSON.parse(readFileSync(join(MOD_DIR, '.claude-plugin', 'plugin.json'), 'utf8'))
+}
+
+/**
+ * A short hash of every file a run's requests and grades come from, by its
+ * path under the mod: the mod's hooks (the features, the core and the
+ * decision modules the suites import) and the eval's suites (eval/lib).
+ * Two runs with the same hashes asked and graded the same way.
+ */
+export function modCode(): Record<string, string> {
+  const files = [join(MOD_DIR, 'hooks'), join(EVAL_DIR, 'lib')].flatMap((dir) =>
+    (readdirSync(dir, { recursive: true }) as string[])
+      .map((name) => join(dir, name))
+      .filter((path) => statSync(path).isFile())
+      .sort(),
+  )
+  return Object.fromEntries(files.map((path) => [relative(MOD_DIR, path), createHash('sha256').update(readFileSync(path, 'utf8')).digest('hex').slice(0, 16)]))
+}
 
 /** A path as the scripts print it: relative to the mod when inside it. */
 export function shown(path: string): string {
@@ -39,9 +63,9 @@ export function readDataset(path: string): { text: string; items: Record<string,
   return { text, ...parseJsonl(text) }
 }
 
-/** The skill catalog beside a skill dataset, when there is one. */
-export function readCatalog(datasetPath: string): unknown {
-  return nodeHost(datasetPath).beside('skill-catalog.json')
+/** What checking a dataset of `kind` reads besides its items: the skill catalog beside a skill dataset; nothing for the others. */
+export function catalogFor(kind: Kind, datasetPath: string): unknown {
+  return kind === 'skill' ? nodeHost(datasetPath).beside('skill-catalog.json') : undefined
 }
 
 /**
@@ -82,6 +106,27 @@ export function credential(name: string): string | undefined {
     return value || undefined
   }
   return undefined
+}
+
+/**
+ * The decision backend under evaluation (`jev` or `clef`), with the
+ * credentials it needs (`credential`); `secrets` are those values, to keep
+ * them out of anything written. Throws, saying what is missing, when a
+ * credential is not found or the backend is not known.
+ */
+export function backendFor(name: string, model?: string): { backend: Backend; secrets: string[] } {
+  if (name === 'jev') {
+    const key = credential('TYPESAFE_API_KEY')
+    if (key === undefined) throw new Error(`no TYPESAFE_API_KEY in the environment or ${CREDENTIALS_FILE}`)
+    return { backend: jevBackend(key, model === undefined ? {} : { model }), secrets: [key] }
+  }
+  if (name === 'clef') {
+    const accountId = credential('CLOUDFLARE_ACCOUNT_ID')
+    const apiToken = credential('CLOUDFLARE_AUTH_TOKEN')
+    if (accountId === undefined || apiToken === undefined) throw new Error(`CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AUTH_TOKEN must both be in the environment or ${CREDENTIALS_FILE}`)
+    return { backend: clefBackend({ accountId, apiToken }), secrets: [accountId, apiToken] }
+  }
+  throw new Error(`no backend "${name}" (jev, clef)`)
 }
 
 /** Node's fetch and timers as a backend's host. */

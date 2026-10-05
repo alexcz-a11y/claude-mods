@@ -8,6 +8,7 @@
 //                  was decided at
 //   turn.step      the one writer of effort (and of a non-main loop's model):
 //                  sends every step as the plan table says
+//   classic.PreToolUse  notes the calls a settings hook refused (core/outcomes.ts)
 //
 // The core owns the unmatched registration of these events; a feature always
 // registers them with a matcher (README, 开发).
@@ -18,8 +19,9 @@
 import type { HttpInit, On } from 'claude-code'
 import { messageText, turnStartState } from '../decision/context.ts'
 import { answersFor, mergeParts, type State } from '../decision/system-one.ts'
-import type { Asked } from '../decision/backend.ts'
+import { type Asked, describeAsked } from '../decision/backend.ts'
 import { collect, type Contribution, type PartOutcome } from './ballot.ts'
+import { noteBlocked } from './outcomes.ts'
 import { newTurn, planStep, takePending, turnKey, update, type Cell, type PendingDecision } from './plans.ts'
 import type { Ctx } from './setup.ts'
 import { setStatus } from './status.ts'
@@ -78,10 +80,20 @@ export function registerCore(on: On, ctx: Ctx): void {
       taken = took.taken
       return took.rest
     })
-    // The turn's message as the decision model read it (later decisions about the turn reuse it).
+    // The turn's message as the decision model read it (later decisions about the turn reuse it). A pending
+    // entry, decided or not, says the person's own message started the turn (only such a turn is re-decided).
     const prompt = messageText(e.text, ctx.config.context.tokens)
-    await $.state.set({ ...TURNS, id: turnKey(e.turnId, undefined) }, newTurn(prompt, (taken as PendingDecision | null)?.effort ?? null))
+    const own = taken as PendingDecision | null
+    await $.state.set({ ...TURNS, id: turnKey(e.turnId, undefined) }, newTurn(prompt, own?.effort ?? null, own !== null))
     return next(e)
+  })
+
+  // Beneath every feature's tool.call: which calls a PreToolUse settings hook refused (the call itself then only
+  // sees an error), for the features that count failures and read a loop's steps (core/outcomes.ts).
+  on('classic.PreToolUse', async ($, e, next) => {
+    const decided = await next(e)
+    if (decided.deny !== undefined && e.tool_use_id) noteBlocked(e.tool_use_id)
+    return decided
   })
 
   on('turn.step', async function* ($, e, next) {
@@ -98,14 +110,6 @@ export function registerCore(on: On, ctx: Ctx): void {
     }
     return yield* next(step)
   })
-}
-
-/** A request's outcome for the debug log. */
-function describeAsked(asked: Asked, ms: number): string {
-  if (!asked.ok) return `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)`
-  const by = asked.model === null ? '' : ` by ${asked.model}`
-  const tokens = asked.inputTokens === null ? '' : ` (${asked.inputTokens} input tokens)`
-  return `answered in ${ms} ms${by}${tokens}`
 }
 
 /** Hands each part its outcome (in parallel) and gathers the context blocks they return, in ballot order. */

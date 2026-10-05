@@ -92,9 +92,21 @@ function withoutPlaceholders(template: string): string {
 /** At most this many calls of a script are asked about. */
 export const MAX_CALLS = 24
 /** At most this many calls share one request: every question reads the whole state, so each brief added to it dilutes the others (guide §2.1 S5, S6). */
-const MAX_PER_REQUEST = 8
+export const MAX_PER_REQUEST = 8
 /** At most this many requests are sent for one script, all at once. */
 export const MAX_REQUESTS = 4
+
+/** The most a script's requests may wait in all: the hook has 10 seconds, and what follows them must still fit. */
+export const BATCHES_BUDGET_MS = 8000
+
+/**
+ * How long each of a script's requests may wait: sent at once to one key,
+ * they can queue behind each other, so each gets the mod's timeout once per
+ * request, within BATCHES_BUDGET_MS.
+ */
+export function batchesTimeoutMs(timeoutMs: number, requests: number): number {
+  return Math.min(BATCHES_BUDGET_MS, timeoutMs * Math.max(1, requests))
+}
 /** A call's brief takes this many tokens at most, and the briefs of a request at least this many each. */
 const MAX_BRIEF = 400
 const MIN_BRIEF = 150
@@ -103,10 +115,17 @@ const MIN_BRIEF = 150
  * The requests that ask about the script's calls, and the calls they leave
  * out. Calls share a request while their briefs fit the state's budget
  * (`tokens`: the person's words a third at most, the briefs the rest), their
- * questions fit the 64 a request may hold, and no more than MAX_PER_REQUEST
- * do. What does not fit in MAX_REQUESTS requests (or in MAX_CALLS calls) is left out.
+ * questions fit the 64 a request may hold, and no more than `perRequest` do
+ * (MAX_PER_REQUEST in the mod; the eval asks with 1 to compare). What does
+ * not fit in MAX_REQUESTS requests (or in MAX_CALLS calls) is left out.
  */
-export function workflowBatches(parsed: ParsedWorkflow, words: string, settings: DispatchSettings, tokens: number): { batches: Batch[]; skipped: Skipped[] } {
+export function workflowBatches(
+  parsed: ParsedWorkflow,
+  words: string,
+  settings: DispatchSettings,
+  tokens: number,
+  perRequest = MAX_PER_REQUEST,
+): { batches: Batch[]; skipped: Skipped[] } {
   const skipped: Skipped[] = []
   const readable = parsed.calls.filter((call) => {
     const tells = tellsTheWork(call.prompt)
@@ -131,7 +150,7 @@ export function workflowBatches(parsed: ParsedWorkflow, words: string, settings:
     const size = Object.values(brief).reduce((sum, text) => sum + estimateTokens(text) + 4, 0)
     const questions = Object.keys(part.questions).length
     let group = groups.at(-1)
-    if (group === undefined || group.calls.length >= MAX_PER_REQUEST || group.used + size > room || group.questions + questions > MAX_QUESTIONS) {
+    if (group === undefined || group.calls.length >= perRequest || group.used + size > room || group.questions + questions > MAX_QUESTIONS) {
       if (groups.length >= MAX_REQUESTS) {
         skipped.push({ index: call.index, reason: 'capped' })
         continue
@@ -182,15 +201,19 @@ export function readOutcomes(parsed: ParsedWorkflow, plan: { batches: readonly B
 /** What to write into a call for its decision; null when there is nothing to write. */
 function writeFor(call: AgentCall, decision: DispatchDecision): CallWrite | null {
   const write: CallWrite = {}
-  // The model the script wrote stands when the decision keeps it or names the same one; one it chooses when it runs is not touched.
+  // The model the script wrote stands when the decision keeps it or names the same one. One it works out when it
+  // runs stands too, unless the person named a model or ruled some out: their terms win over the script's, so the
+  // decided model is written in its place (decision 6 of review 1).
   const written = call.model.kind === 'literal' ? modelFamily(call.model.value) : null
-  if (decision.model !== null && call.model.kind !== 'dynamic' && decision.source !== 'requested' && decision.model !== written) write.model = decision.model
+  const overScript = call.model.kind !== 'dynamic' || decision.source === 'user' || decision.banned.length > 0
+  if (decision.model !== null && overScript && decision.source !== 'requested' && decision.model !== written) write.model = decision.model
   // The effort decided replaces the script's own; one the script works out when it runs is not touched,
   // unless the person asked for an effort: that one is never overruled, whatever the script does.
   // Haiku takes no effort: one the script wrote is taken out.
+  const runsOn = write.model ?? written
   if (decision.effort !== null) {
     if (call.effort.kind === 'none' || (call.effort.kind === 'literal' && call.effort.value !== decision.effort) || (call.effort.kind === 'dynamic' && decision.effortSource === 'user')) write.effort = decision.effort
-  } else if (decision.model === 'haiku' && call.model.kind !== 'dynamic' && call.effort.kind === 'literal') {
+  } else if (runsOn === 'haiku' && call.effort.kind === 'literal') {
     write.effort = null
   }
   return write.model === undefined && write.effort === undefined ? null : write

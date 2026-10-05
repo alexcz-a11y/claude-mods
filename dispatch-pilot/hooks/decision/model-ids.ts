@@ -13,7 +13,7 @@
 //
 // Pure (see system-one.ts).
 
-import type { AgentModel } from './dispatched-agent.ts'
+import { AGENT_MODELS, modelFamily, type AgentModel } from './dispatched-agent.ts'
 
 export const MODEL_IDS: Readonly<Record<AgentModel, string>> = {
   haiku: 'claude-haiku-4-5',
@@ -26,4 +26,20 @@ export const MODEL_IDS: Readonly<Record<AgentModel, string>> = {
 /** The id a step names to run on `family`. */
 export function modelId(family: AgentModel): string {
   return MODEL_IDS[family]
+}
+
+/** A model a person or an option names, as a step names it: its family and the full id. */
+export type ResolvedModel = { family: AgentModel; id: string }
+
+/**
+ * A model as written in an option: a family's alias (`sonnet`) is resolved to
+ * its id (MODEL_IDS), an id that names a family (`claude-sonnet-5-5`) is kept as
+ * it is; null for anything else (no family to tell, so no step may name it).
+ */
+export function resolveModel(written: string): ResolvedModel | null {
+  const name = written.trim()
+  const alias = AGENT_MODELS.find((family) => family === name.toLowerCase())
+  if (alias !== undefined) return { family: alias, id: modelId(alias) }
+  const family = modelFamily(name)
+  return family === null ? null : { family, id: name }
 }

@@ -10,7 +10,7 @@ import { readdirSync } from 'node:fs'
 import { basename } from 'node:path'
 import { parseArgs } from 'node:util'
 import { validateDataset } from './lib/datasets.ts'
-import { DATASETS_DIR, datasetFile, readCatalog, readDataset } from './node.ts'
+import { DATASETS_DIR, catalogFor, datasetFile, readDataset } from './node.ts'
 
 const { positionals } = parseArgs({ allowPositionals: true, options: {} })
 const names = positionals.length > 0 ? positionals : readdirSync(DATASETS_DIR).filter((file) => file.endsWith('.jsonl')).map((file) => basename(file, '.jsonl'))
@@ -19,7 +19,7 @@ let failed = false
 for (const name of names) {
   const { kind, path } = datasetFile(name)
   const { items, errors: unreadable } = readDataset(path)
-  const { errors, warnings } = validateDataset(kind, items, { catalog: kind === 'skill' ? readCatalog(path) : undefined })
+  const { errors, warnings } = validateDataset(kind, items, { catalog: catalogFor(kind, path) })
   const all = [...unreadable, ...errors]
   const hard = items.filter((item) => item.difficulty === 'hard').length
   console.log(`${basename(path)}: ${items.length} items (${hard} hard): ${all.length === 0 ? 'ok' : `${all.length} errors`}`)

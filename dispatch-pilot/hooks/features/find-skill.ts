@@ -14,14 +14,14 @@
 // switched off, it says so when called.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import type { Asked } from '../decision/backend.ts'
+import { type Asked, describeAsked } from '../decision/backend.ts'
 import { turnStartState } from '../decision/context.ts'
-import { redactSecrets } from '../decision/redact.ts'
+import { quoteStart } from '../decision/redact.ts'
 import { modRanker, pickSkills, skillOpening, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
 import { answersFor, mergeParts, type DecisionRequest } from '../decision/system-one.ts'
 import { recordDecision } from '../core/decisions.ts'
-import { profileModel, readSessionSkills } from '../core/profiles.ts'
-import { namesOf, numberIn, type Ctx } from '../core/setup.ts'
+import { readSessionSkills } from '../core/profiles.ts'
+import type { Ctx } from '../core/setup.ts'
 import { describeStages, rankingSettings, type CatalogSkill } from '../core/skills.ts'
 import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
@@ -100,15 +100,12 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: "answers the main agent's find_skill: the skills that fit the work it names", segments: ['find-skill'] })
 
   /** Skills never offered (the option the skills feature reads too). */
-  const neverSuggested = new Set(namesOf(ctx.options.skillsNeverSuggested))
-  const policy: SkillPolicy = {
-    max: Math.round(numberIn(ctx.options.findSkillMax, 1, 10, 5)),
-    minRelevance: numberIn(ctx.options.findSkillMinRelevance, 0, 1, 0.5),
-  }
+  const neverSuggested = new Set(ctx.config.skills.neverSuggested)
+  const policy: SkillPolicy = ctx.config.skills.find
   /** How the mod's ranker ranks: the settings it rates the skills beside each message with. */
   const rankBy = rankingSettings(ctx)
   /** The model whose profiles the skills are offered by (#11). */
-  const model = profileModel(ctx)
+  const model = ctx.config.skills.profileModel
 
   // Registered once every plugin is loaded, under a match-all matcher (other
   // features set themselves up at session start too). Without a decision
@@ -138,16 +135,17 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
     if (query === '') return { result: 'find_skill needs a query: a few words on the kind of work you need a skill for.' }
     const show = (text: string) => setStatus('find-skill', text, (line) => $.ui.status(line))
     try {
-      // The skills a message would be asked about: those only the person can start among them, so
-      // the shares compare with the suggestions beside a message (they never come back, below);
-      // each by its profile, as beside a message, unless profiles are switched off.
+      // The skills the main agent can load, as a message asks about them: their question of stage
+      // one is the very one beside a message (those only the person can start have one of their
+      // own, which is not asked: they never come back); each by its profile, as beside a message,
+      // unless profiles are switched off.
       const known = await sessionCatalog($, model)
-      const candidates = known?.filter((skill) => !neverSuggested.has(skill.name)).map((skill) => (isOn(PROFILES) ? skill : { ...skill, profile: null })) ?? null
+      const candidates = known?.filter((skill) => skill.by === 'model' && !neverSuggested.has(skill.name)).map((skill) => (isOn(PROFILES) ? skill : { ...skill, profile: null })) ?? null
       if (candidates === null) {
         show("find_skill failed (the session's skills could not be read)")
         return { result: `find_skill could not read this session's skills. ${CARRY_ON}` }
       }
-      const about = `for find_skill ${quote(query)}`
+      const about = `for find_skill ${quoteStart(query)}`
       const ranker = modRanker(
         {
           ask: (request, timeoutMs) => askLogged($, ctx, 'second request', about, request, timeoutMs),
@@ -162,11 +160,14 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       }
 
       // The same state as beside a message, the work named in place of the message; the
-      // ranker's second request (#11) asks about the same.
+      // ranker's second request (#11) asks about the same. Both requests share one wait, as
+      // beside a message: the second gets what the first left of timeoutMs (the hook has 10 s).
+      const startedAt = await $.clock.now()
       const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
       const request = mergeParts(turnStartState({ prompt: query, messages, limits: ctx.config.context }), [part])
       const asked = await askLogged($, ctx, 'request', about, request, ctx.config.timeoutMs)
-      const ranked = asked.ok ? await ranker.rank(answersFor(part, asked.answers), candidates, { state: request.state }) : null
+      const left = ctx.config.timeoutMs - ((await $.clock.now()) - startedAt)
+      const ranked = asked.ok ? await ranker.rank(answersFor(part, asked.answers), candidates, { state: request.state, timeoutMs: left }) : null
       const failure = !asked.ok ? asked.failure : ranked === null ? { kind: 'parse' as const, detail: 'no answer about the skills' } : ranked.failed
       if (ranked === null || failure !== undefined) {
         const why = failureText(ctx.backend.name, failure ?? { kind: 'parse', detail: 'no answer about the skills' })
@@ -175,13 +176,13 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       }
       const ranking = ranked
 
-      // Only skills the main agent can load come back; one only the person can start is never named to it.
+      // Only skills the main agent can load were asked about, and they alone can come back.
       const { suggest } = pickSkills(ranking, candidates, policy)
       const names = suggest.map((skill) => skill.name).join(', ')
       await recordDecision(
         { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
         (line) => $.ui.log(line, { to: 'debug' }),
-        { feature: SWITCH, outcome: suggest.length > 0 ? `found ${names}` : 'found no skill', about: quote(query), reason: describeRanking(ranking, policy) },
+        { feature: SWITCH, outcome: suggest.length > 0 ? `found ${names}` : 'found no skill', about: quoteStart(query), reason: describeRanking(ranking, policy) },
       )
       show(`find_skill ${suggest.length > 0 ? names : 'none'}`)
       return { result: found(query, suggest, policy) }
@@ -191,20 +192,6 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       return { result: `find_skill could not rate the skills (an error in Dispatch Pilot, written to the debug log). ${CARRY_ON}` }
     }
   })
-}
-
-/** The start of a text for the debug log, secrets masked. */
-function quote(text: string): string {
-  const flat = redactSecrets(text).replace(/\s+/g, ' ').trim()
-  return JSON.stringify(flat.length > 40 ? `${flat.slice(0, 40)}...` : flat)
-}
-
-/** A request's outcome for the debug log. */
-function describeAsked(asked: Asked, ms: number): string {
-  if (!asked.ok) return `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)`
-  const by = asked.model === null ? '' : ` by ${asked.model}`
-  const tokens = asked.inputTokens === null ? '' : ` (${asked.inputTokens} input tokens)`
-  return `answered in ${ms} ms${by}${tokens}`
 }
 
 /** Why: what each stage of the ranking said (`describeStages`), and the bar a skill had to reach. */

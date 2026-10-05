@@ -255,55 +255,34 @@ test('/dp midturn-effort off stops the re-decisions; switched on again they resu
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium', 'medium', 'xhigh'])
 })
 
-/** Another feature's demand for a re-decision of turn t1 (what #7 writes when the turn is stuck), once `when()` holds. */
-function demand(on: Parameters<typeof world>[1], when: () => boolean = () => true) {
-  const asked = { trouble: '2 tool calls in a row have failed while working on this request', atLeast: 'high', at: 1 }
-  on('state.get', async (_$, e, next) => (e.key === 'demand' && e.id === 'main:t1' && when() ? { value: { value: asked, version: 1 } } : next(e)))
-  return asked
-}
-
-test('a re-decision another feature asks for (#7, the turn is stuck) goes out with its trouble, once, and the turn goes at least to the level it asks', { options: { ...KEY, rejudgeEvery: 0 } }, async ($, on) => {
-  const asked = demand(on)
-  const w = world($, on, { backend: answers(MEDIUM, { levels: MEDIUM, confidence: 0.9 }) })
-  await w.submit('把登录模块重构成三层')
-  await w.step(working(0)) // its call takes the demand
-  await w.step(working(1)) // the same demand is not asked again
-  await w.step({ index: 2 })
-
-  expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level'])
-  expect(w.requests[1]?.body.state.trouble).toBe(asked.trouble)
-  expect(JSON.stringify(w.requests[1]?.body.questions)).toContain('`trouble`')
-  // The answer says medium; the demand asks for at least high.
-  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'high', 'high'])
-})
-
-test('a demand that comes after the call ended is asked at the next step; if that answer fails, the turn still goes to the level asked', { options: { ...KEY, rejudgeEvery: 0 } }, async ($, on) => {
-  let ended = false
-  demand(on, () => ended)
-  const w = world($, on, { backend: (request) => (kind(request) === 'midturn.level' ? { status: 500, body: 'down' } : jev(MEDIUM)(request)) })
-  await w.submit('把登录模块重构成三层')
-  await w.step(working(0))
-  ended = true // written after the call ended (by a hook outside this one)
-  await w.step({ index: 1 })
-
-  expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level'])
-  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'high'])
-})
-
-test('no re-decision while the person has locked the effort, nor in a turn that was not routed when it started', { options: { ...KEY, rejudgeEvery: 1 } }, async ($, on) => {
-  let locked: string | null = 'high'
-  on('state.get', async (_$, e, next) => (e.key === 'lock' ? { value: { value: locked, version: 1 } } : next(e)))
-  const w = world($, on, { backend: (request, n) => (n === 1 ? jev(MEDIUM)(request) : { status: 500, body: 'down' }) })
-  // Locked: the turn goes at the lock, and nothing is asked mid-turn.
+test('no re-decision while the person has locked the effort', { options: { ...KEY, rejudgeEvery: 1 } }, async ($, on) => {
+  on('state.get', async (_$, e, next) => (e.key === 'lock' ? { value: { value: 'high', version: 1 } } : next(e)))
+  const w = world($, on, { backend: answers(MEDIUM, { levels: XHIGH, confidence: 0.9 }) })
   await w.submit('把这个死锁查清楚')
   await w.step(working(0))
   await w.step(working(1))
-  // Unlocked, but this turn's decision failed (HTTP 500): it keeps the session's effort to the end.
-  locked = null
-  await w.submit('再看看别的')
-  await w.step({ ...working(0), effort: 'xhigh' })
-  await w.step({ ...working(1), effort: 'xhigh' })
 
-  expect(w.requests.map(kind)).toEqual(['effort.level', 'effort.level'])
-  expect(w.steps.map((s) => `${s.turnId}:${String(s.effort)}`)).toEqual(['t1:high', 't1:high', 't2:xhigh', 't2:xhigh'])
+  expect(w.requests.map(kind)).toEqual(['effort.level'])
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['high', 'high'])
+})
+
+test("a turn the person's message started is re-decided even when its start was not decided (the request failed): from the session's own effort (decision 5 of review 1)", { options: { ...KEY, rejudgeEvery: 1 } }, async ($, on) => {
+  const w = world($, on, { backend: (request, n) => (n === 1 ? { status: 500, body: 'down' } : answers(MEDIUM, { levels: XHIGH, confidence: 0.9 })(request)) })
+  await w.submit('把这个死锁查清楚')
+  await w.step({ ...working(0), effort: 'medium' })
+  await w.step({ ...working(1), effort: 'medium' })
+
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level', 'midturn.level'])
+  expect(w.requests[1]?.body.state.current_effort).toBe('medium')
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'xhigh'])
+})
+
+test('a turn the person did not start (an agent handing its result back, a background task) is never re-decided', { options: { ...KEY, rejudgeEvery: 1 } }, async ($, on) => {
+  const w = world($, on, { backend: answers(MEDIUM, { levels: XHIGH, confidence: 0.9 }) })
+  await w.submit('<task-notification>the build finished</task-notification>', { origin: { kind: 'task-notification' } })
+  await w.step({ ...working(0), effort: 'medium' })
+  await w.step({ ...working(1), effort: 'medium' })
+
+  expect(w.requests).toHaveLength(0)
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'medium'])
 })

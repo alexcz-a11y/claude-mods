@@ -16,7 +16,7 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { validateDataset } from './lib/datasets.ts'
 import { applyReview } from './lib/review.ts'
-import { REVIEW_DIR, datasetFile, readCatalog, readDataset, shown } from './node.ts'
+import { REVIEW_DIR, catalogFor, datasetFile, readDataset, shown } from './node.ts'
 
 const { values, positionals } = parseArgs({ allowPositionals: true, options: { from: { type: 'string' }, 'dry-run': { type: 'boolean', default: false } } })
 const name = positionals[0]
@@ -32,7 +32,7 @@ if (!existsSync(source)) {
   process.exit(2)
 }
 
-const catalog = kind === 'skill' ? readCatalog(path) : undefined
+const catalog = catalogFor(kind, path)
 const datasetText = readFileSync(path, 'utf8')
 const reviewed = applyReview(kind, datasetText, readFileSync(source, 'utf8'), { catalog })
 const { agree, edit, note } = reviewed.verdicts

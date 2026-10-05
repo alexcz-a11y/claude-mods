@@ -7,28 +7,71 @@
 // Pure: no Node API.
 
 import type { PluginOptions } from 'claude-code'
-import type { Asked } from '../../hooks/decision/backend.ts'
+import type { Asked, Failure } from '../../hooks/decision/backend.ts'
 import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
-import { setup, type Config } from '../../hooks/core/setup.ts'
+import { readConfig, type Config } from '../../hooks/core/setup.ts'
 import type { Item, Language } from './datasets.ts'
 import type { VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
 
-/**
- * The mod's settings: what every feature shares (`Config`), and the options
- * themselves, for a suite whose feature reads its own (subagent:
- * `agentOverride`, `agentFable`; effort-midturn: `rejudgeSteps` and the
- * mid-turn thresholds).
- */
-export type Settings = Config & { options: PluginOptions }
+/** The mod's settings: every option as the mod reads it (core/setup.ts `Config`). */
+export type Settings = Config
 
 /**
- * The mod's settings for the given options, read the way the mod reads them
- * (`setup`: the same defaults and the same clamping), so a suite asks with
+ * The mod's settings for the given options, read where the mod reads them
+ * (`readConfig`: the same bounds and the same defaults), so a suite asks with
  * the limits the mod runs with. The eval passes the manifest's defaults.
  */
 export function settingsFrom(options: PluginOptions): Settings {
-  return { ...setup(options).config, options }
+  return readConfig(options)
+}
+
+/** An option as the manifest (`userConfig` in .claude-plugin/plugin.json) declares it: the part read here. */
+export type OptionSpec = { type?: string; default?: unknown }
+
+/**
+ * The options a run hands the mod, as the engine would: each option's
+ * default from the manifest, then each `name=value` (`--option`), read by the
+ * type the manifest gives the option: a number, `true` or `false`, else the
+ * text as written (a list of names takes them comma-separated, as the mod
+ * reads such an option). Throws, saying why, for a name the manifest does not
+ * have or a value its type cannot take.
+ */
+export function optionsFrom(userConfig: Readonly<Record<string, OptionSpec>>, assignments: readonly string[]): PluginOptions {
+  const options: Record<string, string | number | boolean | readonly string[]> = {}
+  for (const [name, spec] of Object.entries(userConfig)) {
+    const value = spec.default
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') options[name] = value
+    else if (Array.isArray(value)) options[name] = value.filter((entry): entry is string => typeof entry === 'string')
+  }
+  for (const assignment of assignments) {
+    const [name, value] = assignment.split(/=(.*)/s, 2)
+    if (!name || value === undefined) throw new Error(`--option takes name=value, not ${assignment}`)
+    const spec = userConfig[name]
+    if (spec === undefined) throw new Error(`no option "${name}" in the manifest`)
+    if (spec.type === 'number') {
+      if (value.trim() === '' || !Number.isFinite(Number(value))) throw new Error(`${name} takes a number, not ${JSON.stringify(value)}`)
+      options[name] = Number(value)
+    } else if (spec.type === 'boolean') {
+      if (value !== 'true' && value !== 'false') throw new Error(`${name} takes true or false, not ${JSON.stringify(value)}`)
+      options[name] = value === 'true'
+    } else {
+      options[name] = value
+    }
+  }
+  return options
+}
+
+/** A variant's settings from a suite's table of them; throws, naming the variants there are, for a name not in it. */
+export function variantIn<T>(table: Readonly<Record<string, T>>, name: string): T {
+  const found = table[name]
+  if (found === undefined) throw new RangeError(`no variant "${name}" (${Object.keys(table).join(', ')})`)
+  return found
+}
+
+/** No decision, the request having failed: the row says how (`kind: detail`). */
+export function requestFailed(failure: Failure): { ok: false; failure: string } {
+  return { ok: false, failure: `${failure.kind}: ${failure.detail}` }
 }
 
 /** One request a suite sent: the backend's outcome, how long the answered attempt took, how many attempts it took. */
@@ -96,7 +139,7 @@ export type Suite<I extends AnyItem, P> = {
   /**
    * Optional: the suite's own figures for one variant's answers, beside the
    * ones every suite gets (metrics.ts), saved in that variant's summary as
-   * `breakdown` (subagent: where models came from, thresholds swept).
+   * `breakdown` (`subagent`: where models came from, thresholds swept).
    */
   breakdown?: (items: readonly I[], rows: readonly Row<P>[], variant: string, settings: Settings) => Readonly<Record<string, unknown>>
   /** Optional: lines eval/run.ts prints about one variant's summary, after the figures every suite gets. */

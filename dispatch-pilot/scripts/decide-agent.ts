@@ -1,8 +1,8 @@
 // One dispatched agent's decision against the real Jev or Clef, outside Claude
-// Code: the same request the mod sends at agent.spawn (the shared decision
-// module), built from an item of the eval set (subagent.jsonl) or from a JSON
-// object with the same fields. For a manual check and as the starting point of
-// the eval (#15).
+// Code: the request the mod sends at agent.spawn (the shared decision module),
+// with the mod's settings as the manifest's defaults give them, built from an
+// item of the eval set (subagent.jsonl) or from a JSON object with the same
+// fields, and sent from Node. For a manual check.
 //
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-agent.ts --file subagent.jsonl --id subagent-011 [--lang en]
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-agent.ts '{"user_message":"...","agent_type":"Explore","description":"...","prompt":"...","requested_model":null}'
@@ -11,17 +11,22 @@
 // Jev unless `--clef`. Variants (eval variables): --zh (questions in
 // Chinese), --work (options named by the kind of work), --noul (the main
 // agent's pick asked about on its own), --choice (effort as a Choice), --fable
-// (fable among the options). Prints the request (question ids, state), the
-// answers that matter, the decision and, for an eval item, its gold.
-// Credentials are read from the environment and never printed. Node 22.18+
-// runs .ts as is.
+// (fable among the options, as agentFable does). The person's words are kept
+// as the mod keeps them for the turn (masked, cut to contextTokens). Prints
+// the request (question ids, state), the answers that matter, the decision
+// and, for an eval item, its gold. `--timeout` defaults to the mod's
+// timeoutMs. Credentials come from the environment or
+// ~/.config/dispatch-pilot/eval.env and are never printed. A Workflow item is
+// asked about on its own here; the eval asks it with its script's other calls.
 
 import { readFileSync } from 'node:fs'
-import type { Backend, BackendIo } from '../hooks/decision/backend.ts'
-import { clefBackend } from '../hooks/decision/clef.ts'
-import { AGENT_MODELS, DEFAULT_AGENT_MODELS, decideDispatch, dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
-import { jevBackend } from '../hooks/decision/jev.ts'
+import { dispatchSettings } from '../hooks/core/setup.ts'
+import { messageText } from '../hooks/decision/context.ts'
+import { decideDispatch, dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
+import { DEFAULT_ASK } from '../hooks/decision/effort.ts'
 import { answersFor, mergeParts } from '../hooks/decision/system-one.ts'
+import { optionsFrom, settingsFrom } from '../eval/lib/suite.ts'
+import { backendFor, nodeIo, readManifest } from '../eval/node.ts'
 
 const args = process.argv.slice(2)
 const flag = (name: string) => args.includes(name)
@@ -30,7 +35,7 @@ const value = (name: string) => {
   return at >= 0 ? args[at + 1] : undefined
 }
 
-let dispatch: Dispatch
+let written: Dispatch
 let gold: unknown = undefined
 const file = value('--file')
 if (file !== undefined) {
@@ -41,7 +46,7 @@ if (file !== undefined) {
     console.error(`no item ${id} in ${file}`)
     process.exit(2)
   }
-  dispatch = item[value('--lang') ?? 'zh'] as Dispatch
+  written = item[value('--lang') ?? 'zh'] as Dispatch
   gold = { gold: item.gold, accept: item.accept }
 } else {
   const json = args.find((arg) => arg.startsWith('{'))
@@ -49,67 +54,41 @@ if (file !== undefined) {
     console.error('usage: node scripts/decide-agent.ts (--file <jsonl> --id <id> [--lang en] | <item JSON>) [--zh] [--work] [--noul] [--choice] [--fable] [--clef] [--timeout ms]')
     process.exit(2)
   }
-  dispatch = JSON.parse(json) as Dispatch
+  written = JSON.parse(json) as Dispatch
 }
-let backend: Backend
-if (flag('--clef')) {
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? ''
-  const apiToken = process.env.CLOUDFLARE_AUTH_TOKEN ?? ''
-  if (!accountId || !apiToken) {
-    console.error('CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AUTH_TOKEN must both be set')
-    process.exit(2)
-  }
-  backend = clefBackend({ accountId, apiToken })
-} else {
-  const apiKey = process.env.TYPESAFE_API_KEY ?? ''
-  if (!apiKey) {
-    console.error('TYPESAFE_API_KEY is not set')
-    process.exit(2)
-  }
-  backend = jevBackend(apiKey)
+// The manifest's defaults, as the engine hands them to the mod; --fable turns agentFable on.
+const settings = settingsFrom(optionsFrom(readManifest().userConfig ?? {}, flag('--fable') ? ['agentFable=true'] : []))
+let backend
+try {
+  backend = backendFor(flag('--clef') ? 'clef' : 'jev').backend
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(2)
 }
 
-// Node's fetch and timers in place of $.http.fetch and $.clock.sleep.
-const io: BackendIo = {
-  fetch: async (url, init) => {
-    const response = await fetch(url, { method: init.method, headers: init.headers, body: init.body })
-    return { status: response.status, ok: response.ok, headers: Object.fromEntries(response.headers), text: await response.text() }
+const shape = dispatchSettings(
+  { config: settings, ask: DEFAULT_ASK },
+  {
+    language: flag('--zh') ? 'zh' : 'en',
+    primitive: flag('--choice') ? 'choice' : 'score',
+    options: flag('--work') ? 'work' : 'models',
+    requested: flag('--noul') ? 'noul' : 'hint',
   },
-  sleep: (ms, signal) =>
-    new Promise((resolve, reject) => {
-      const timer = setTimeout(resolve, ms)
-      signal.addEventListener('abort', () => {
-        clearTimeout(timer)
-        reject(new Error('aborted'))
-      })
-    }),
-}
-
-// The mod's settings: its defaults (agentOverride 0.6, thetaMax 0.5, the context budget 2000).
-const settings = {
-  models: flag('--fable') ? AGENT_MODELS : DEFAULT_AGENT_MODELS,
-  ask: {
-    language: flag('--zh') ? ('zh' as const) : ('en' as const),
-    primitive: flag('--choice') ? ('choice' as const) : ('score' as const),
-    options: flag('--work') ? ('work' as const) : ('models' as const),
-    requested: flag('--noul') ? ('noul' as const) : ('hint' as const),
-  },
-  thetaOverride: 0.6,
-  thetaMax: 0.5,
-}
-const part = dispatchPart(dispatch, settings)
-const request = mergeParts(dispatchState(dispatch, 2000), [part])
+)
+const dispatch: Dispatch = { ...written, user_message: messageText(written.user_message, settings.context.tokens) }
+const part = dispatchPart(dispatch, shape)
+const request = mergeParts(dispatchState(dispatch, settings.context.tokens), [part])
 console.log(JSON.stringify({ questions: Object.keys(request.questions), state: request.state }))
 
 const started = performance.now()
-const asked = await backend.ask(io, request, Number(value('--timeout') ?? 5000))
+const asked = await backend.ask(nodeIo, request, Number(value('--timeout') ?? settings.timeoutMs))
 const ms = Math.round(performance.now() - started)
 if (!asked.ok) {
   console.log(JSON.stringify({ ok: false, backend: backend.name, failure: asked.failure, ms }))
   process.exit(1)
 }
 const answers = answersFor(part, asked.answers)
-const decision = decideDispatch(answers, dispatch, settings)
+const decision = decideDispatch(answers, dispatch, shape)
 const brief = Object.fromEntries(
   Object.entries(answers).map(([id, answer]) => [id, answer.type === 'noul' ? Number(answer.noul.toFixed(3)) : answer.probabilities]),
 )

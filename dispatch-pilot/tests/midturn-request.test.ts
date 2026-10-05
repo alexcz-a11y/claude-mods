@@ -6,6 +6,7 @@
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { turnStartEffortPart } from '../hooks/decision/effort.ts'
+import { troubleText } from '../hooks/decision/escalation.ts'
 import {
   contentLanguage,
   judgeMidturn,
@@ -70,8 +71,8 @@ test('the request is one Score question on the same five levels as at the turn s
   expect(JSON.stringify(zh?.instructions)).not.toMatch(/step-by-step/)
 })
 
-test("a re-decision another feature asks for carries its trouble right after the message, and the question says what to do with it", () => {
-  const trouble = '2 tool calls in a row have failed while working on this request'
+test("a stuck turn's re-decision (#7) carries its trouble right after the message, and the question says what to do with it", () => {
+  const trouble = troubleText({ failures: 2, hookBlocks: 0 })
   const state = midturnState({ ...ROW, trouble }, LIMITS)
   expect(Object.keys(state)).toEqual(['user_message', 'trouble', 'step', 'current_effort', 'counts', 'recent_steps'])
   expect(state.trouble).toBe(trouble)

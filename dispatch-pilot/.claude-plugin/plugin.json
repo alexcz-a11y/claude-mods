@@ -1,7 +1,7 @@
 {
   "name": "dispatch-pilot",
   "version": "0.1.0",
-  "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message, sets it on every request of the turn, and decides it again every few steps while the turn runs. The main agent's model never changes, so the prompt cache survives. It also keeps the full skill listing out of the main agent's context and suggests the few skills that fit each message; mid-turn, the main agent can look skills up with the find_skill tool. When an agent's tool calls keep failing it raises that agent's effort (a failing haiku agent goes on as sonnet), unless the failures are what the work expects.",
+  "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message, sets it on every request of the turn, and decides it again every few steps while the turn runs. The main agent's model never changes, so the prompt cache survives (on a Claude Code subscription; not on Bedrock, Vertex or a gateway, where switching effort breaks the cache). It also keeps the full skill listing out of the main agent's context and suggests the few skills that fit each message; mid-turn, the main agent can look skills up with the find_skill tool. When an agent's tool calls keep failing it raises that agent's effort (a failing haiku agent goes on as sonnet), unless the failures are what the work expects.",
   "author": {
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
@@ -126,8 +126,8 @@
     "escalateHaikuTo": {
       "type": "string",
       "title": "Model a failing haiku agent switches to",
-      "description": "A haiku agent has no effort to raise, so when its tool calls keep failing it goes on as this model for the rest of its run. A full model id, because the engine takes no alias for a step; empty: never switch.",
-      "default": "claude-sonnet-5-5"
+      "description": "A haiku agent has no effort to raise, so when its tool calls keep failing it goes on as this model for the rest of its run: sonnet, opus or fable, or a full model id. An alias is turned into the full id a step needs (the engine takes no alias for a step); a model you named for the agent's work, or ruled out, holds over it. Empty: never switch.",
+      "default": "sonnet"
     },
     "agentFable": {
       "type": "boolean",
@@ -156,7 +156,7 @@
     "skillsShortlist": {
       "type": "number",
       "title": "Skills re-read in the second stage",
-      "description": "How many of the skills rated highest for a message are re-read with the opening of their instructions and judged one by one (1 to 10). The second request goes out only when some skill is rated at least 0.05, and both requests together wait at most the decision timeout.",
+      "description": "How many of the skills the main agent can load, rated highest for a message, are re-read with the opening of their instructions and judged one by one (1 to 10); at most 2 of the skills only you can start are re-read beside them. A skill is re-read only when the first request rated it at least 0.1, and both requests together wait at most the decision timeout.",
       "default": 4
     },
     "skillsProfileModel": {

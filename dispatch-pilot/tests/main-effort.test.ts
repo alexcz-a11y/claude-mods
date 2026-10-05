@@ -140,7 +140,7 @@ test("what is not the person's own new message is not decided, and changes no tu
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
   await w.submit('把这个模块重构一下')
   await w.step({ index: 0 })
-  // Delivered into the running turn t1: a subagent's hand-back, a background task's notice.
+  // Delivered into the running turn t1: a dispatched agent's hand-back, a background task's notice.
   await w.submit('<agent-message from="a1">done</agent-message>', { origin: { kind: 'peer' }, turnId: 't1' })
   await w.submit('Background task "build" completed', { origin: { kind: 'task-notification' }, turnId: 't1' })
   await w.step({ index: 1 })
