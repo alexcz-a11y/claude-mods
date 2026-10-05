@@ -5,9 +5,14 @@
 // reaches the backend and the status line; the shared reading (readConfig,
 // which the eval and scripts/decide*.ts use too) directly.
 
+import type { SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
-import { BACKEND_DEFAULTS, PER_BACKEND_OPTIONS, readConfig } from '../hooks/core/setup.ts'
+import { BACKEND_DEFAULTS, dispatchSettings, PER_BACKEND_OPTIONS, readConfig } from '../hooks/core/setup.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
+import { DEFAULT_ASK } from '../hooks/decision/effort.ts'
+import { midturnState } from '../hooks/decision/midturn.ts'
+import { workflowBatches } from '../hooks/decision/workflow.ts'
+import { parseWorkflow } from '../hooks/decision/workflow-script.ts'
 import { optionsFor, settingsFrom } from '../eval/lib/suite.ts'
 import { CLEF_OPTIONS, clef } from './support/cloudflare.ts'
 import type { SkillsWorld } from './support/world.ts'
@@ -83,6 +88,49 @@ for (const { name, options, budget } of BUDGETS) {
     expect(messageTokens(w)).toBeGreaterThan(budget - 50)
   })
 }
+
+// Clef's encoder renders a state as compact JSON with its keys sorted (`json.dumps(..., sort_keys=True)` in
+// Cloudflare/clef's joint_schema_model.py) and keeps its head: there the person's message comes after
+// recent_context, recent_steps or brief. So no field order is relied on: the budget holds for the whole state as
+// sent, field names, quotes and escapes included, which keeps all of it before the cut.
+
+/** JSON as a person may paste it: each quote and backslash of it escaped once more in the state as sent. */
+const PASTED = '{"id": 17, "name": "session-cache", "tags": ["auth", "ttl"], "path": "C:\\\\cache\\\\sessions"}\n'.repeat(200)
+
+/** A state as sent, in the mod's tokens. */
+const sentTokens = (state: unknown) => estimateTokens(JSON.stringify(state))
+
+test("with Clef, a message's state as sent keeps within the 2000-token budget: the message and the conversation before it, quotes and escapes counted", { options: CLEF_OPTIONS }, async ($, on) => {
+  const messages = Array.from({ length: 8 }, (_, i): SessionMessage => ({ role: i % 2 === 0 ? 'user' : 'assistant', text: PASTED.slice(0, 3000), toolUses: [] }))
+  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), messages })
+  await w.submit(PASTED)
+  expect(sentTokens(w.requests[0]?.body.state)).toBeLessThanOrEqual(2000)
+  // The budget is used, not thrown away.
+  expect(sentTokens(w.requests[0]?.body.state)).toBeGreaterThan(1800)
+})
+
+test("with Clef, a dispatched agent's state as sent keeps within the budget too: its brief and the person's words", { options: CLEF_OPTIONS }, async ($, on) => {
+  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]) })
+  await w.submit(PASTED)
+  await w.spawn({ prompt: PASTED, description: 'Check the cache config' })
+  const asked = w.requests.find((request) => 'agent.model' in request.body.questions)
+  expect(sentTokens(asked?.body.state)).toBeLessThanOrEqual(2000)
+  expect(sentTokens(asked?.body.state)).toBeGreaterThan(1800)
+})
+
+test("a Workflow's requests and a mid-turn state keep within the budget as sent (seam 2: what the mod and the eval build)", () => {
+  const prompt = PASTED.slice(0, 2400)
+  const calls = Array.from({ length: 8 }, (_, i) => `const r${i} = await agent(${JSON.stringify(prompt)}, { label: 'step-${i}' })`).join('\n')
+  const parsed = parseWorkflow(`export const meta = { name: 'big', description: 'Check every cache', phases: [] }\n${calls}\nreturn r0\n`)
+  if (parsed === null) throw new Error('the script did not parse')
+  const { batches } = workflowBatches(parsed, PASTED, dispatchSettings({ config: readConfig(CLEF_OPTIONS), ask: DEFAULT_ASK }), 2000)
+  expect(batches.length).toBeGreaterThan(0)
+  for (const batch of batches) expect(sentTokens(batch.request.state)).toBeLessThanOrEqual(2000)
+
+  const steps = Array.from({ length: 4 }, () => ({ assistant_text: PASTED.slice(0, 600), tools: [{ name: 'Bash', result: `Failed: ${PASTED.slice(0, 200)}` }] }))
+  const state = midturnState({ message: PASTED, step: 3, current_effort: 'high', counts: { judgments: 1, changes: 0, failures: 2, hook_blocks: 0 }, recent_steps: steps }, { steps: 4, tokens: 2000 })
+  expect(sentTokens(state)).toBeLessThanOrEqual(2000)
+})
 
 const SKILLS: SkillsWorld = {
   commands: [

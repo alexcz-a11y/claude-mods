@@ -123,7 +123,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 |---|---|---|---|
 | `timeoutMs` | 一条消息等决策模型的最长时间（200–8000 毫秒），超过就不经路由地放行 | `1500` | `3000` Clef 更慢 |
 | `contextMessages` | 随你的消息一起发的最近消息条数（0–32） | `4` | `4` 未校准 |
-| `contextTokens` | 你的消息加上最近消息的 token 预算（100–16000），中英文按同一个尺度数，旧消息先丢 | `2000` | `2000` 最多 2000 |
+| `contextTokens` | 发给决策模型的 state 的 token 预算（100–16000）：你的消息加上最近的消息，按发出去的样子数（连同字段名和转义），中英文按同一个尺度数，旧消息先丢 | `2000` | `2000` 最多 2000 |
 
 ### 一轮中的 effort
 
@@ -218,7 +218,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 
 - **中途重判的默认值和写法。** `thetaUp` 0.4、`thetaDown` 0.6、`holdSteps` 3、`rejudgeEvery` 3、`rejudgeSteps` 4 都是起点（参考了 jev-pilot 实测的升档 0.3/0.5、降档 0.6），没有按语言分别校准；state 里放不放当前档位和计数、问题用英文还是中文，也都没有结论。Clef 的置信度比 Jev 低得多，门槛要按后端分别校准，现在两个决策模型用同一组起点值。
 - **「预期内失败」这一问的写法和门槛。** `thetaExpected` 0.25 来自 11 个手写场景的小实验，样本太小，只能当起点；`escalateMode`、`escalateAfter` 和 `escalateLimit` 没有评测方法，按使用体验调。
-- **Clef 截断 state（#17 已测）。** Clef 会截断超过约 2.1k token 的 state，但时有时无：超过的 18 个 state 里截了 4 个（英文 4/14，中文 0/4）。截断时只留 state 开头约 2.1k 个 Clef token，后面的事实都答「没有说」；问题不截断。Jev 全部答对。mod 把最要紧的字段放在 state 最前，但最近的消息和步骤按时间排在最后，截断先丢它们，所以选 Clef 时 `contextTokens` 最多 2000。
+- **Clef 截断 state（#17 已测）。** Clef 会截断超过约 2.1k token 的 state，但时有时无：超过的 18 个 state 里截了 4 个（英文 4/14，中文 0/4）。截断时只留 state 开头约 2.1k 个 Clef token，后面的事实都答「没有说」；问题不截断。Jev 全部答对。截断留下的是 state 序列化之后的开头，而 Clef 开源的编码代码序列化时按键名排序，你的消息（`user_message`）排在最近的对话（`recent_context`）之后；线上怎么排不知道，所以 mod 不靠字段的顺序，而是让发出去的整个 state（连同字段名、引号和转义）都在 `contextTokens` 之内，选 Clef 时它最多 2000。按 mod 的估算，2000 个 token 的散文约是 1.6–1.8k 个 Clef token，在截断位置之内。代码、日志、JSON 这类符号多的内容，mod 的估算（约 4 个字符算 1 个 token）可能偏少，满是这类内容的 state 可能越过约 2.1k，没有量过；常贴大段代码又选了 Clef 的话，可以把 `contextTokens` 设小一些（例如 1500）。
 - **Clef 的延迟和 `timeoutMs`。** Jev 第一次 0.57 秒，之后 0.28–0.33 秒；Clef 第一次 1.8 秒，之后 0.6–1.4 秒（200 个请求依次发送：p50 699 ms，p90 929 ms，只有 1 条超过 1500 ms）。所以 Clef 的默认 `timeoutMs` 是 3000，没有再细调。
 - **派出 agent 的门槛。** `agentOverride` 0.6 在两次 Jev 运行里都不是最好（0.4–0.5 时整题中文 +3、英文 +2 个百分点）；点名的门槛 0.5 偏低；`thetaMax` 0.3 比 0.5 好 1–2 个百分点。#17 没有改这几个门槛。
 - **Workflow agent 启动时当场判断的排队。** 一次启动很多个 prompt 是数据的 agent 时，排在后面的会等到超时。常见的 fan-out（几个到十几个 agent）有多少能在 `timeoutMs` 之内答上，还没有量过。

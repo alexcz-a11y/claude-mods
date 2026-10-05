@@ -9,7 +9,7 @@
 // whose options describe the work each suits (jev-pilot's measured wording),
 // the effort a Score with the levels every effort question shares.
 
-import { clipToTokens, estimateTokens } from './context.ts'
+import { clipToTokens, estimateTokens, withinTokens } from './context.ts'
 import { DEFAULT_ASK, EFFORTS, effortQuestion, pickEffort, readEffort, type Effort, type EffortAsk, type EffortReading, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import type { Answer, Part, Question, State } from './system-one.ts'
@@ -359,12 +359,20 @@ export function dispatchBrief(dispatch: Dispatch, tokens: number): Record<string
 
 /**
  * The state of a request about one agent: `{ brief, user_message }`, the
- * brief first (what every question is about). The person's words take at
- * most a third of `tokens`; the brief has the rest.
+ * brief first (what every question is about), within `tokens` as it is sent
+ * (`withinTokens`). The person's words take at most a third of the budget;
+ * the brief has the rest.
  */
 export function dispatchState(dispatch: Dispatch, tokens: number, field: string = BRIEF): State {
-  const words = clipToTokens(redactSecrets(dispatch.user_message), Math.floor(tokens * WORDS_SHARE), TAIL_SHARE)
-  return { [field]: dispatchBrief(dispatch, tokens - estimateTokens(words)), user_message: words }
+  return withinTokens((budget) => {
+    const words = dispatchWords(dispatch.user_message, budget)
+    return { [field]: dispatchBrief(dispatch, budget - estimateTokens(words)), user_message: words }
+  }, tokens)
+}
+
+/** The person's words as a request about an agent (or a Workflow's agents) reads them: secrets masked, at most a third of `tokens`. */
+export function dispatchWords(text: string, tokens: number): string {
+  return clipToTokens(redactSecrets(text), Math.floor(tokens * WORDS_SHARE), TAIL_SHARE)
 }
 
 /** What decides an agent's model and effort from the answers. */

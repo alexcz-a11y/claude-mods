@@ -288,8 +288,10 @@ test("the turn's record keeps its message masked and cut to the context budget, 
   expect(record?.prompt.startsWith('把 token=[REDACTED] 换成读环境变量。')).toBe(true)
   expect(record?.prompt).not.toContain('abcd1234efgh5678')
   expect(estimateTokens(record?.prompt ?? '')).toBeLessThanOrEqual(100)
-  // The same text the decision model was shown as user_message.
-  expect(record?.prompt).toBe(w.requests[0]?.body.state.user_message)
+  // The decision model was shown the same message, masked the same, a little shorter: the budget holds for its whole state as sent.
+  const shown = String(w.requests[0]?.body.state.user_message)
+  expect(shown.startsWith('把 token=[REDACTED] 换成读环境变量。')).toBe(true)
+  expect(estimateTokens(JSON.stringify(w.requests[0]?.body.state))).toBeLessThanOrEqual(100)
 })
 
 test('contextMessages 0: only the message itself goes', { options: { ...KEY, contextMessages: 0 } }, async ($, on) => {

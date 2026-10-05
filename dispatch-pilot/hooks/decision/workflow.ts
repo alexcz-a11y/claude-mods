@@ -11,13 +11,13 @@
 // Pure (see system-one.ts).
 
 import type { Asked, Failure } from './backend.ts'
-import { estimateTokens } from './context.ts'
+import { estimateTokens, withinTokens } from './context.ts'
 import {
   decideDispatch,
   decisionNotes,
   dispatchBrief,
   dispatchPart,
-  dispatchState,
+  dispatchWords,
   modelFamily,
   type Dispatch,
   type DispatchDecision,
@@ -132,11 +132,11 @@ export function workflowBatches(
     if (!tells) skipped.push({ index: call.index, reason: 'unreadable' })
     return tells
   })
-  const first = readable[0]
-  if (first === undefined) return { batches: [], skipped }
-  // The person's words as a dispatched agent's decision reads them, shared by every call.
-  const user = dispatchState(callDispatch(first, parsed.meta, words), tokens).user_message as string
-  const room = Math.max(MIN_BRIEF, tokens - estimateTokens(user))
+  if (readable.length === 0) return { batches: [], skipped }
+  // The person's words as a dispatched agent's decision reads them, shared by every call. Sizes are of the state
+  // as sent (field names, quotes and escapes counted), so a request's whole state keeps within `tokens`.
+  const user = dispatchWords(words, tokens)
+  const room = Math.max(MIN_BRIEF, tokens - estimateTokens(JSON.stringify({ user_message: user })))
   type Group = { state: Record<string, unknown>; parts: Part[]; calls: number[]; used: number; questions: number }
   const groups: Group[] = []
   for (const [position, call] of readable.entries()) {
@@ -146,8 +146,9 @@ export function workflowBatches(
     }
     const dispatch = callDispatch(call, parsed.meta, words)
     const part = dispatchPart(dispatch, shapeOf(call.index, settings))
-    const brief = dispatchBrief(dispatch, Math.min(MAX_BRIEF, room))
-    const size = Object.values(brief).reduce((sum, text) => sum + estimateTokens(text) + 4, 0)
+    const field = `brief_${call.index}`
+    const brief = withinTokens((budget) => dispatchBrief(dispatch, budget), Math.min(MAX_BRIEF, room))
+    const size = estimateTokens(JSON.stringify({ [field]: brief }))
     const questions = Object.keys(part.questions).length
     let group = groups.at(-1)
     if (group === undefined || group.calls.length >= perRequest || group.used + size > room || group.questions + questions > MAX_QUESTIONS) {
@@ -158,7 +159,7 @@ export function workflowBatches(
       group = { state: {}, parts: [], calls: [], used: 0, questions: 0 }
       groups.push(group)
     }
-    group.state[`brief_${call.index}`] = brief
+    group.state[field] = brief
     group.parts.push(part)
     group.calls.push(call.index)
     group.used += size

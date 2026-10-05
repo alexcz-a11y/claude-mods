@@ -114,7 +114,7 @@ Cloudflare / Clef：
 对本 mod 的含义（推断）：
 
 - state 用对象，字段名直接描述含义：`user_message`、`recent_context`、`signals`、`brief`……问题里用反引号点名字段（见 2.2 Q6）。
-- **把最关键的字段放在对象最前面**（`user_message` / `brief` 先于 `recent_context`）。JS 对象的字符串键按插入顺序序列化；如果 Clef 真的只读前约 2K token（第三方说法，见第 6 节），被截掉的是排在后面的上下文。
+- **把最关键的字段放在对象最前面**（`user_message` / `brief` 先于 `recent_context`）。JS 对象的字符串键按插入顺序序列化；如果 Clef 真的只读前约 2K token（第三方说法，见第 6 节），被截掉的是排在后面的上下文。**更正（#17 之后）：** 这一点对 Clef 不成立。Clef 开源的编码代码（Hugging Face 上 `Cloudflare/clef` 的 `joint_schema_model.py`，`render()`）序列化 state 时按键名排序（`json.dumps(..., sort_keys=True)`），插入顺序在它那里不起作用，`user_message` 反而排在 `recent_context` 之后。Dispatch Pilot 因此改为让整个 state 都在 Clef 的截断位置之内（`dispatch-pilot/DEVELOPMENT.md` 的「待评测」，「Clef 截断 state」一条）。
 - 不发送文件内容和工具输出原文，与 jev-pilot 的做法一致（`J/hooks/context.ts:1-9`："Only message text and tool names travel, never a tool's input or output"）。
 - state 里的用户文本可能带有试图左右判断的字句（S8）。路由判断的风险不高，但 criteria 要写得明确。
 

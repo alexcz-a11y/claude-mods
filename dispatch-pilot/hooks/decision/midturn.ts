@@ -7,7 +7,7 @@
 // `recent_steps`), field for field, so the eval (#14) builds exactly the
 // request the mod sends from a dataset row (spec #67).
 
-import { clipToTokens, estimateTokens, messageText } from './context.ts'
+import { clipToTokens, estimateTokens, messageText, withinTokens } from './context.ts'
 import { DEFAULT_ASK, EFFORTS, effortQuestion, pickEffort, type Effort, type EffortAsk, type EffortReading, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import type { Part, State } from './system-one.ts'
@@ -134,7 +134,7 @@ export function outcomeOf(tool: string, ending: ToolEnding, blockedByHook: boole
 export type MidturnLimits = {
   /** How many of the latest steps go along. */
   steps: number
-  /** How many tokens the state may take: the message first (at most half), the steps in what is left. */
+  /** How many tokens the state may take as it is sent: the message's share first (at most half), the steps in what is left. */
   tokens: number
 }
 
@@ -150,14 +150,21 @@ const RESULT_TOKENS = 80
 
 /**
  * The state of a mid-turn decision request:
- * `{ user_message, trouble?, step, current_effort, counts, recent_steps }`,
- * the message first (Clef may read only the start of a state). Secrets are
- * masked everywhere. The message takes at most half of `limits.tokens`; the
- * latest `limits.steps` steps fill what is left, newest first, an older step
- * dropped whole rather than squeezed; the newest always goes, its text cut to
- * fit. A dataset row short enough goes as it is.
+ * `{ user_message, trouble?, step, current_effort, counts, recent_steps }`.
+ * Secrets are masked everywhere. Sizes are of the state as sent (its fields
+ * and each step measured as JSON), so the whole of it keeps within
+ * `limits.tokens`: no field is safe for coming first (Clef's encoder sorts a
+ * state's keys, then reads its head; context.ts `withinTokens`). The message
+ * takes at most half; the latest `limits.steps` steps fill what is left,
+ * newest first, an older step dropped whole rather than squeezed; the newest
+ * always goes, its text cut to fit. A dataset row short enough goes as it is.
  */
 export function midturnState(input: MidturnInput, limits: MidturnLimits, show: MidturnShow = {}): State {
+  return withinTokens((tokens) => midturnFields(input, { ...limits, tokens }, show), limits.tokens)
+}
+
+/** The fields of a mid-turn state within `limits.tokens`, each measured as it is sent (the newest step's text is cut by its own measure). */
+function midturnFields(input: MidturnInput, limits: MidturnLimits, show: MidturnShow): State {
   const head = {
     user_message: messageText(input.message, Math.floor(limits.tokens / 2)),
     ...(input.trouble ? { trouble: input.trouble } : {}),
