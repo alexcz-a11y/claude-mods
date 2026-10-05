@@ -242,11 +242,11 @@ test('a relevance bar the person sets is the one used', { options: { ...JEV, ski
   expect(w.prompts[0]?.context?.[0]).toContain('- code-review (relevance 0.72)')
 })
 
-test("at session start the debug log says which options took the decision model's defaults, and one cut to Clef's most", { options: { ...CLEF_OPTIONS, contextTokens: 4000, thetaUp: 0.3 } }, async ($, on) => {
+test("at session start the debug log says which options took the decision model's defaults, and one cut to Clef's most", { options: { ...CLEF_OPTIONS, contextTokens: 4000, thetaUp: 0.35 } }, async ($, on) => {
   const w = world($, on, { session: true })
   await w.start()
   expect(w.logs.map((log) => log.text)).toContain(
-    "settings for clef: left unset, so clef's defaults: timeoutMs 3000, contextMessages 4, rejudgeSteps 4, thetaDown 0.6, thetaMax 0.5, thetaExpected 0.25, agentOverride 0.6, skillsMinRelevance 0.75, findSkillMinRelevance 0.5; skill suggestions off until /dp skills on; contextTokens 4000 reads as 2000, the most with clef",
+    "settings for clef: left unset, so clef's defaults: timeoutMs 3000, contextMessages 4, rejudgeSteps 4, thetaDown 0.75, thetaMax 0.5, thetaExpected 0.25, agentOverride 0.6, skillsMinRelevance 0.75, findSkillMinRelevance 0.5; skill suggestions off until /dp skills on; contextTokens 4000 reads as 2000, the most with clef",
   )
 })
 
@@ -267,6 +267,16 @@ test("readConfig: an option left unset takes the decision model's default; Clef'
   const own = { timeoutMs: 1500, contextMessages: 32, contextTokens: 6000, contextTokensMax: 16000, rejudgeSteps: 16, suggestSkills: true, findSkillWaitMs: null, findSkillProfiles: true, turnStartLanguage: 'zh' }
   expect({ ...BACKEND_DEFAULTS.clef, ...own }).toEqual(BACKEND_DEFAULTS.jev)
   expect(clefConfig.defaults.used.map(([option]) => option)).toEqual([...PER_BACKEND_OPTIONS])
+})
+
+// Raising is easy, lowering is hard (AA's scores fall steeply as effort falls, DEVELOPMENT.md, 「按 AA 基准校正」): the
+// mid-turn gates, the same for both decision models.
+test('the mid-turn gates by default: a raise needs 0.3, a lowering 0.75 and no raise in the last 5 steps; Clef reads the same', () => {
+  for (const options of [{}, { decisionModel: 'clef' }]) {
+    expect(readConfig(options).midturn.rules).toEqual({ thetaUp: 0.3, thetaDown: 0.75, thetaMax: 0.5, holdSteps: 5 })
+  }
+  // What the person sets is what is used.
+  expect(readConfig({ thetaUp: 0.4, thetaDown: 0.6, holdSteps: 3 }).midturn.rules).toMatchObject({ thetaUp: 0.4, thetaDown: 0.6, holdSteps: 3 })
 })
 
 // Jev's context defaults are the most it accepts (DEVELOPMENT.md, 配置, 「Jev 的上下文默认值怎么算」), not what the eval ran

@@ -91,8 +91,10 @@ const JEV_DEFAULTS: BackendDefaults = {
   contextTokens: 6000,
   contextTokensMax: 16000,
   rejudgeSteps: 16,
-  thetaUp: 0.4,
-  thetaDown: 0.6,
+  // Raising is easy, lowering is hard (AA: a Sonnet 5.5 at medium scores 41 on the index and at high 47, at low 36; Terminal-Bench
+  // 20.7% at low against 43.9% at high): 0.4 to 0.3 for a raise, 0.6 to 0.75 for a lowering, 3 to 5 steps held after a raise.
+  thetaUp: 0.3,
+  thetaDown: 0.75,
   thetaMax: 0.5,
   thetaExpected: 0.25,
   agentOverride: 0.6,
@@ -279,7 +281,7 @@ export function readConfig(options: PluginOptions): Config {
         thetaUp: own('thetaUp', 0, 1),
         thetaDown: own('thetaDown', 0, 1),
         thetaMax,
-        holdSteps: whole(options.holdSteps, 0, 50, 3),
+        holdSteps: whole(options.holdSteps, 0, 50, 5),
       },
     },
     escalation: {

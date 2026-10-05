@@ -67,18 +67,18 @@
     "thetaUp": {
       "type": "number",
       "title": "Threshold to raise effort mid-turn",
-      "description": "A re-decision raises the effort only when the decision model's confidence is at least this (0 to 1). Default 0.4 with either decision model (not calibrated for Clef, whose confidence runs much lower than Jev's: Jev's value)."
+      "description": "A re-decision raises the effort only when the decision model's confidence is at least this (0 to 1). Default 0.3 with either decision model (not calibrated for Clef, whose confidence runs much lower than Jev's: Jev's value)."
     },
     "thetaDown": {
       "type": "number",
       "title": "Threshold to lower effort mid-turn",
-      "description": "A re-decision lowers the effort, by one level at most, only when the decision model's confidence is at least this (0 to 1; never below the raise threshold). Default 0.6 with either decision model (not calibrated for Clef: Jev's value)."
+      "description": "A re-decision lowers the effort, by one level at most, only when the decision model's confidence is at least this (0 to 1; never below the raise threshold). Default 0.75 with either decision model (not calibrated for Clef: Jev's value)."
     },
     "holdSteps": {
       "type": "number",
       "title": "Steps before effort may drop after a raise",
       "description": "After a re-decision raises the effort, it does not lower it again for this many steps (0 to 50).",
-      "default": 3
+      "default": 5
     },
     "rejudgeSteps": {
       "type": "number",
