@@ -83,7 +83,7 @@
 - **E0a 网格去重**（1.1 节已做）。运行器加按请求内容去重的缓存后，扫描只发不同的请求。
 - **E0b 门槛重扫，按后端、按语言**（第 1 条）：
   - effort-submit 的 `thetaMax`：已存的各档概率 `p` 重新 `pickEffort`。Jev 3 次 × 4 个变体，Clef 1 次 `en-score`。
-  - midturn 的 `thetaUp`、`thetaDown`、`thetaMax`：已存 `p` 和 `confidence`，用 `judgeMidturn` 重新判断，评 `sent`。midturn 还没有 `breakdown.sweeps`，第二阶段补上（同 subagent 的写法）。Clef 的 confidence 中位数 0.24（Jev 0.66），另扫一种读法：Clef 改看概率最高那一档的概率（DEVELOPMENT.md「待评测」提过）。Jev 2 次 × 5 个变体，Clef 1 次。
+  - midturn 的 `thetaUp`、`thetaDown`、`thetaMax`：已存 `p` 和 `confidence`，用 `judgeMidturn` 重新判断，评 `sent`。midturn 还没有 `breakdown.sweeps`，第二阶段补上（同 subagent 的写法）。Clef 的 confidence 中位数 0.24（Jev 0.66），另扫一种读法：Clef 改看概率最高那一档的概率（DEVELOPMENT.md「评测（接缝 2）」里「一轮中途的 effort（effort-midturn，#14）」一节的 `sent` 一条提过）。Jev 2 次 × 5 个变体，Clef 1 次。
   - subagent 的 `agentOverride`、`thetaNamed`、`thetaMax`：已有 `breakdown.sweeps`，Jev 4 次。Clef 只有 24 个回答，要 E6。
   - skill 的 `skillsMinRelevance`、`findSkillMinRelevance`：已有 sweeps，Jev 2 次。`skillsShortlist` 1–3 和第二段下限 0.1 以上也能离线模拟：已存第一段前 5 名的份额（`first`）和第二段的相关度（`fits`），按第一段的顺序取前 k 个、只保留它们的 `fits` 即可；短名单 5 个以上或下限低于 0.1 要重新请求（每次约 0.21 美元，完整方案可选）。
   - `thetaExpected` 没有可用的数据，要 E8。
