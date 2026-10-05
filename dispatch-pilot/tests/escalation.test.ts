@@ -482,9 +482,9 @@ test("an agent's failed calls and raises show beside the agent's own segment", {
   const w = world($, on, { backend: withAgents({ model: { sonnet: 1 }, effort: MEDIUM }), messages: agentRows })
   const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Fix auth tests' })) as { agentId: string }
   await w.step(agentStep(agentId, 0, { tools: agentFailing }))
-  expect(w.status()).toBe('dp agent sonnet high | agent failed 2')
+  expect(w.status()).toBe('dp agent sonnet medium | agent failed 2')
   await w.step(agentStep(agentId, 1))
-  expect(w.status()).toBe('dp agent sonnet high | agent failed 2, raised 1')
+  expect(w.status()).toBe('dp agent sonnet medium | agent failed 2, raised 1')
 })
 
 test('a new turn starts the count and the limit afresh', { options: ONLY }, async ($, on) => {
@@ -565,8 +565,7 @@ test("a dispatched agent whose tool calls keep failing goes up a level on every 
   await w.step(agentStep(agentId, 1))
   await w.step(agentStep(agentId, 2))
 
-  // A sonnet agent starts at high at least (its model's floor); the raise goes one level up from there.
-  expect(w.steps.map((s) => String(s.effort))).toEqual(['high', 'xhigh', 'xhigh'])
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'high', 'high'])
   const asked = w.requests.filter((r) => 'escalation.expected' in r.body.questions)
   expect(asked).toHaveLength(1)
   expect(asked[0]?.body.state.user_message).toBe(agentRows[0]?.text)
@@ -630,8 +629,7 @@ test('failures the decision model finds expected change nothing about an agent, 
   await sonnet.step(agentStep(agentId, 0, { tools: agentFailing }))
   await sonnet.step(agentStep(agentId, 1))
 
-  // The answer to the stuck request says medium, surely enough to lower it a level; a sonnet agent goes at high at least.
-  expect(sonnet.steps.map((s) => String(s.effort))).toEqual(['high', 'high'])
+  expect(sonnet.steps.map((s) => String(s.effort))).toEqual(['medium', 'medium'])
   expect(sonnet.requests.filter((r) => 'escalation.expected' in r.body.questions)).toHaveLength(1)
 })
 
@@ -694,8 +692,8 @@ return fixed
   expect(asked[0]?.body.state.recent_steps).toEqual([
     { assistant_text: 'Running the checkout tests first.', tools: [{ name: 'Bash', result: 'Failed: Run the checkout tests' }, { name: 'Bash', result: 'Failed: Run them again without retries' }] },
   ])
-  // Found expected: nothing is forced. The agent was decided at its start (sonnet at high at least), and its re-decision, which says medium, goes no lower.
-  expect(w.steps.map((s) => String(s.effort))).toEqual(['high', 'high'])
+  // Found expected: nothing is forced.
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'medium'])
 })
 
 test("with workflow-labels switched off, a workflow agent's failures are still asked about from its transcript: this feature notes each run's directory itself", { options: ONLY }, async ($, on) => {
@@ -732,9 +730,9 @@ test('a dispatched agent whose failures are found expected is re-decided by the 
   await w.step(agentStep(agentId, 0, { tools: agentFailing }))
   await w.step(agentStep(agentId, 1))
 
-  // The agent starts at high (the floor of a sonnet agent). The answer says low, surely: an ordinary re-decision lowers it
-  // one level, to medium, where the floor stops it: low has 0.9, the 0.8 that drops a sonnet agent's floor to medium.
-  expect(w.steps.map((s) => String(s.effort))).toEqual(['high', 'medium'])
+  // The agent starts at medium. The answer says low, surely: an ordinary re-decision would lower it one level, to low, but a
+  // sonnet agent goes at medium at least (its model's floor), so it stays.
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'medium'])
 })
 
 test('an agent is raised at most escalateLimit times, and a one-level raise stops at xhigh', { options: ONLY }, async ($, on) => {

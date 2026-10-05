@@ -167,18 +167,16 @@ test("an effort the person names: asked only when their words may name one; the 
   expect(haiku).toMatchObject({ model: 'haiku', effort: null, namedEffort: 'high', effortSource: 'none' })
 })
 
-test("a model's effort floor (AA: sonnet's scores fall steeply with effort): sonnet goes at high at least, at medium when low has 0.8; opus at medium at least; haiku takes none; the person's effort is never lifted", () => {
+test("a model's effort floor (AA: sonnet's scores fall steeply below medium): sonnet and opus at medium at least; haiku takes none; the person's effort is never lifted", () => {
   const as = (model: 'haiku' | 'sonnet' | 'opus' | 'fable', levels: number[], more: Record<string, Answer> = {}) =>
     decideDispatch({ model: choice({ [model]: 1 }), effort: score(levels), ...more }, { ...REVIEW, requested_model: null }, { ...SETTINGS, models: AGENT_MODELS })
-  // Sonnet: low, or low with a medium raised to at least high.
-  expect(as('sonnet', [0.5, 0.5, 0, 0, 0])).toMatchObject({ model: 'sonnet', effort: 'high', liftedFrom: 'medium' })
-  expect(as('sonnet', [0.7, 0.3, 0, 0, 0])).toMatchObject({ effort: 'high', liftedFrom: 'medium' })
-  expect(as('sonnet', [0, 1, 0, 0, 0])).toMatchObject({ effort: 'high', liftedFrom: 'medium' })
-  // Low has 0.8 (or more): medium is the floor.
+  // Sonnet: medium at least, whatever low says (the answer's level is picked first: the level above is taken at 0.3).
+  expect(as('sonnet', [1, 0, 0, 0, 0])).toMatchObject({ model: 'sonnet', effort: 'medium', liftedFrom: 'low' })
   expect(as('sonnet', [0.8, 0.2, 0, 0, 0])).toMatchObject({ effort: 'medium', liftedFrom: 'low' })
-  expect(as('sonnet', [1, 0, 0, 0, 0])).toMatchObject({ effort: 'medium', liftedFrom: 'low' })
-  expect(as('sonnet', [0.79, 0.21, 0, 0, 0])).toMatchObject({ effort: 'high' })
+  expect(as('sonnet', [0.7, 0.3, 0, 0, 0])).toMatchObject({ effort: 'medium' })
+  expect(as('sonnet', [0.7, 0.3, 0, 0, 0]).liftedFrom).toBeUndefined()
   // Not lifted when already there or above.
+  expect(as('sonnet', [0, 1, 0, 0, 0])).toMatchObject({ effort: 'medium' })
   expect(as('sonnet', [0, 0, 1, 0, 0])).toMatchObject({ effort: 'high' })
   expect(as('sonnet', [0, 0, 0, 1, 0]).liftedFrom).toBeUndefined()
   expect(as('sonnet', [0, 0, 0, 1, 0])).toMatchObject({ effort: 'xhigh' })
@@ -194,6 +192,7 @@ test("a model's effort floor (AA: sonnet's scores fall steeply with effort): son
   expect(as('sonnet', [0, 0, 0, 1, 0], low)).toMatchObject({ effort: 'low', effortSource: 'user' })
   expect(as('opus', [0, 0, 0, 1, 0], low)).toMatchObject({ effort: 'low', effortSource: 'user' })
   expect(as('sonnet', [0, 0, 0, 1, 0], low).liftedFrom).toBeUndefined()
+  expect(as('sonnet', [1, 0, 0, 0, 0], low)).toMatchObject({ effort: 'low', effortSource: 'user' })
   // The person naming the model does not lift the effort of its own decision less than the floor says.
   expect(decideDispatch({ model: choice({ haiku: 1 }), effort: score([1, 0, 0, 0, 0]), 'named.sonnet': noul(0.9) }, { ...REVIEW, user_message: '用 sonnet 跑', requested_model: null }, SETTINGS)).toMatchObject({ model: 'sonnet', source: 'user', effort: 'medium' })
   // No effort answer: nothing is decided about it, whatever the model.

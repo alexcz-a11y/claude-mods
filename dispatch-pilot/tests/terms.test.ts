@@ -207,7 +207,7 @@ return done
   await w.submit('别用 opus，太贵。把 src/net 的重试逻辑重构一下')
   await w.workflow({ script })
 
-  expect(w.reached[0]?.script).toContain("{ model: 'sonnet', label: 'refactor', effort: 'high' }")
+  expect(w.reached[0]?.script).toContain("{ model: 'sonnet', label: 'refactor', effort: 'medium' }")
 })
 
 test("a haiku the person named for a call of a script the main agent sent stays that agent's model however its calls fail", { options: ONLY }, async ($, on) => {

@@ -59,12 +59,12 @@ test('a dispatched agent starts on the model decided for it, and every one of it
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent.model', 'agent.effort'])
 })
 
-test("an agent's effort is lifted to its model's floor, and the log says so: sonnet high (medium when low has 0.8), opus medium; the person's effort is never lifted", { options: KEY }, async ($, on) => {
+test("an agent's effort is lifted to its model's floor, and the log says so: sonnet and opus at medium at least; the person's effort is never lifted", { options: KEY }, async ($, on) => {
   const w = world($, on, {
     backend: (request) => {
       const prompt = String(request.body.state.brief.prompt)
-      if (prompt.startsWith('A')) return agentJev({ model: { sonnet: 1 }, effort: [0.5, 0.5, 0, 0, 0] })(request)
-      if (prompt.startsWith('B')) return agentJev({ model: { sonnet: 1 }, effort: [0.9, 0.1, 0, 0, 0] })(request)
+      if (prompt.startsWith('A')) return agentJev({ model: { sonnet: 1 }, effort: [0.75, 0.25, 0, 0, 0] })(request)
+      if (prompt.startsWith('B')) return agentJev({ model: { sonnet: 1 }, effort: [0, 0, 1, 0, 0] })(request)
       if (prompt.startsWith('C')) return agentJev({ model: { opus: 1 }, effort: [1, 0, 0, 0, 0] })(request)
       return agentJev({ model: { opus: 1 }, effort: [0, 0, 0, 1, 0], namedEffort: { none: 0.02, low: 0.96, medium: 0.02 } })(request)
     },
@@ -73,8 +73,8 @@ test("an agent's effort is lifted to its model's floor, and the log says so: son
   const spawned = [await w.spawn({ prompt: 'A: list the open TODOs.' }), await w.spawn({ prompt: 'B: rename the helper.' }), await w.spawn({ prompt: 'C: summarize the log.' }), await w.spawn({ prompt: 'D: check the lock.' })]
   for (const [i, started] of spawned.entries()) await w.step({ index: 0, turnId: `sub-${i}`, agentId: started.agentId, model: i < 2 ? 'claude-sonnet-5-5' : 'claude-opus-5-5', effort: 'xhigh' })
 
-  expect(w.steps.map((s) => String(s.effort))).toEqual(['high', 'medium', 'medium', 'low'])
-  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^sonnet high for .*effort lifted from medium to high \(floor for sonnet\)/))
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'high', 'medium', 'low'])
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^sonnet medium for .*effort lifted from low to medium \(floor for sonnet\)/))
   expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^opus medium for .*effort lifted from low to medium \(floor for opus\)/))
 })
 
@@ -323,8 +323,8 @@ test("with Clef as the decision model, the agent's request passes Clef's input r
   expect(sent?.url).toBe(CLEF_URL)
   expect(clefInputProblems(sent?.body)).toEqual([])
   expect(Object.keys(sent?.body.questions)).toEqual(['agent.model', 'agent.effort', 'agent.named.sonnet', 'agent.named.opus', 'agent.banned.sonnet', 'agent.banned.opus'])
-  // Clef answered medium; a sonnet agent goes at high at least.
-  expect(w.steps.map((s) => String(s.effort))).toEqual(['high'])
+  // Clef answered medium; a sonnet agent goes at medium at least.
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium'])
 })
 
 test('agentFable adds fable to the models the decision model may choose for an agent', { options: { ...KEY, agentFable: true } }, async ($, on) => {

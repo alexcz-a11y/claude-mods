@@ -480,7 +480,7 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
   // is lifted to its model's floor; the person's never is.
   const namedEffort = readNamedEffort(answers[NAMED_EFFORT], threshold)
   const decided = reading === null ? null : pickEffort(reading, settings.thetaMax)
-  const floor = reading === null ? null : effortFloor(model, reading)
+  const floor = reading === null ? null : effortFloor(model)
   const lifted = decided !== null && floor !== null && EFFORTS.indexOf(floor) > EFFORTS.indexOf(decided) ? floor : null
   const effort = model === 'haiku' ? null : (namedEffort ?? lifted ?? decided)
   const effortSource = effort === null ? 'none' : namedEffort !== null ? 'user' : 'decided'
@@ -489,23 +489,20 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
 }
 
 /**
- * The least effort an agent on `model` goes at, from the answer about its
- * effort; null for none (haiku takes no effort, fable has no floor). Raising
- * is easy, lowering is hard: on AA's Intelligence Index (v4.3.2) Sonnet 5.5
- * scores 36 at low, 41 at medium, 47 at high (Terminal-Bench 20.7%, 29.8%,
- * 43.9%) and Opus 5.5 42, 51, 54 (Terminal-Bench 31.3%, 52.5%, 56.6%): Sonnet
- * loses most below high, Opus little above medium. So Sonnet goes at high at
- * least, at medium only when the answer puts `SONNET_LOW` on low; Opus at
- * medium at least. Not settings: set from the AA numbers (docs/research/aa-benchmarks-2026-10.md).
+ * The least effort an agent on `model` goes at; null for none (haiku takes no
+ * effort, fable has no floor). Raising is easy, lowering is hard: on AA's
+ * Intelligence Index (v4.3.2) Sonnet 5.5 scores 36 at low, 41 at medium, 47 at
+ * high (Terminal-Bench 20.7%, 29.8%, 43.9%) and Opus 5.5 42, 51, 54
+ * (Terminal-Bench 31.3%, 52.5%, 56.6%): both lose most below medium, so both
+ * go at medium at least. (0.2.2 first held sonnet at high; on the eval the
+ * dataset's gold, the cheapest level that does the work, was passed by 10
+ * points more often, results/subagent/2026-10-05-jev-aa-routing.json, and the
+ * floor went down to medium.) Not settings: set from the AA numbers
+ * (docs/research/aa-benchmarks-2026-10.md).
  */
-export function effortFloor(model: AgentModel | null, reading: EffortReading): Effort | null {
-  if (model === 'sonnet') return (reading.probabilities[0] ?? 0) >= SONNET_LOW ? 'medium' : 'high'
-  if (model === 'opus') return 'medium'
-  return null
+export function effortFloor(model: AgentModel | null): Effort | null {
+  return model === 'sonnet' || model === 'opus' ? 'medium' : null
 }
-
-/** Sonnet's floor drops from high to medium only when the answer gives low at least this probability. */
-export const SONNET_LOW = 0.8
 
 /**
  * The effort the person asks for: the level the named-effort answer favours,

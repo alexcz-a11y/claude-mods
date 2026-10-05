@@ -105,10 +105,10 @@ test('each answer is graded on its model and on its effort; haiku carries no eff
   const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['models-hint'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
   expect(rows.map(line)).toEqual([
-    // The effort decided is lifted to the model's floor (opus medium, sonnet high; sonnet medium when low has 0.8): low is not an answer for either.
+    // The effort decided is lifted to the model's floor (sonnet and opus at medium): low is not an answer for either.
     'a zh: opus medium wrong (effort-under); model right, effort wrong',
     'a en: sonnet high right, gold; model right, effort right',
-    'b zh: sonnet high wrong (model-over effort-over); model wrong, effort wrong',
+    'b zh: sonnet medium wrong (model-over effort-over); model wrong, effort wrong',
     'b en: haiku right, gold; model right, effort right',
     // accept.effort is one set for every acceptable model: low is acceptable whatever the model, but neither can be at low.
     'c zh: sonnet medium wrong (effort-over); model right, effort wrong',
@@ -123,10 +123,10 @@ test('each answer is graded on its model and on its effort; haiku carries no eff
  * Six items and how each was answered (models-hint, the mod's thresholds),
  * zh | en, with the parts right (model, effort):
  *   a  opus medium (model; low lifted to the floor) | sonnet high (both)
- *   b  sonnet high (none; medium lifted to the floor) | haiku (both)
+ *   b  sonnet medium (none) | haiku (both)
  *   c  sonnet medium (model; low lifted to the floor) | opus medium (none)
  *   d  haiku over the main agent's opus, sure at 0.85 (none) | opus max, its pick kept (both)
- *   w  sonnet high (both; medium lifted to the floor) | sonnet high (both)      a workflow's agent
+ *   w  sonnet medium (both) | sonnet high (both)      a workflow's agent
  *   u  sonnet, named at 0.8 (both; its low lifted to medium) | haiku, named at only 0.3 (none)
  */
 const SIX = [
@@ -181,8 +181,8 @@ test('a run reports the model, the effort and the whole answer right in each lan
 test("the suite's own figures: each part agreed on in both languages, each kind of agent, where the model came from in each priority case", async () => {
   const [v] = (await runSix()).variants
   expect(v?.breakdown).toMatchObject({
-    // Answered in both languages: all six; the same model only for w, the same effort for c (medium, medium) and w (high).
-    agreement: { items: 6, model: 0.1667, effort: 0.3333 },
+    // Answered in both languages: all six; the same model only for w, the same effort only for c (medium, medium).
+    agreement: { items: 6, model: 0.1667, effort: 0.1667 },
     kinds: [
       { kind: 'agent', items: 5, wrong: { zh: 4, en: 2 }, parts: { model: { zh: 2, en: 2 }, effort: { zh: 4, en: 2 } } },
       { kind: 'workflow', items: 1, wrong: { zh: 0, en: 0 }, parts: { model: { zh: 0, en: 0 }, effort: { zh: 0, en: 0 } } },

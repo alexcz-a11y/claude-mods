@@ -200,9 +200,9 @@ test("from the same answers the eval decides each of a Workflow's agents as the 
     return { request, asked: { ok: true, answers: reply.body.answers, model: 'jev-1.13.0', inputTokens: 400 }, ms: 0, attempts: 1 }
   }
   const decided = await Promise.all([SCAN, SYNTH].map((item) => suite.decide(item, 'zh', 'models-hint', ask, settingsFrom({}))))
-  expect(decided.map((one) => (one.ok ? `${one.prediction.model} ${one.prediction.effort}` : one.failure))).toEqual(['opus xhigh', 'sonnet high'])
+  expect(decided.map((one) => (one.ok ? `${one.prediction.model} ${one.prediction.effort}` : one.failure))).toEqual(['opus xhigh', 'sonnet medium'])
   expect(told).toContain('"scan:${pkg}": opus xhigh')
-  expect(told).toContain('"synthesize": sonnet high')
+  expect(told).toContain('"synthesize": sonnet medium')
 })
 
 /** A decision model's answers about one agent: the model question's probabilities, the effort levels', and yes/no answers by id within the part (0 otherwise). */
@@ -273,6 +273,6 @@ test("the eval decides an agent as the mod does from the same answers, under the
     // An agent on haiku goes out at the engine's effort (`low` in this step).
     evaluated.push(decided.ok ? `${item.id}: ${decided.prediction.model} ${decided.prediction.effort ?? 'low'}` : `${item.id}: ${decided.failure}`)
   }
-  expect(mod).toEqual(['keep: opus xhigh', 'fable: fable max', 'named: sonnet high', 'haiku: haiku low'])
+  expect(mod).toEqual(['keep: opus xhigh', 'fable: fable max', 'named: sonnet medium', 'haiku: haiku low'])
   expect(evaluated).toEqual(mod)
 })

@@ -81,13 +81,13 @@ const agent = (id: string, gold: AgentItem['gold'], accept: AgentItem['accept'])
   return { id, zh: asked, en: asked, gold, accept, rationale: '理由', difficulty: 'hard', tags: [] }
 }
 
-test("a dispatched agent's effort: the rule before against the pick, the level above and the model's floor, the model decided as it was stored", () => {
-  const items = [agent('a', { model: 'sonnet', effort: 'high' }, { model: ['sonnet'], effort: ['high', 'xhigh'] }), agent('b', { model: 'opus', effort: 'medium' }, { model: ['opus'], effort: ['medium', 'high'] })]
+test("a dispatched agent's effort: the rule before against the pick, the level above and the model's floor (sonnet and opus at medium), the model decided as it was stored", () => {
+  const items = [agent('a', { model: 'sonnet', effort: 'medium' }, { model: ['sonnet'], effort: ['medium', 'high'] }), agent('b', { model: 'opus', effort: 'medium' }, { model: ['opus'], effort: ['medium', 'high'] })]
   const result = stored(
     'models-hint',
     [
-      // sonnet, medium 0.8: medium before (too low), high now (the floor; gold).
-      ['a', 'zh', { source: 'decided', p_model: { haiku: 0, sonnet: 1, opus: 0 }, p_effort: [0.2, 0.8, 0, 0, 0], nouls: {} }],
+      // sonnet, low 1: low before (too low), medium now (the floor; gold).
+      ['a', 'zh', { source: 'decided', p_model: { haiku: 0, sonnet: 1, opus: 0 }, p_effort: [1, 0, 0, 0, 0], nouls: {} }],
       // opus, low 1: low before (too low), medium now (the floor; gold).
       ['b', 'zh', { source: 'decided', p_model: { haiku: 0, sonnet: 0, opus: 1 }, p_effort: [1, 0, 0, 0, 0], nouls: {} }],
     ],

@@ -459,7 +459,7 @@ async function redecide($: EngineInterface, s: Settings, e: TurnStepInput, recor
   const planCell: Cell<AgentPlan> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
   const { value: plan } = await planCell.get()
   // A routed agent's re-decision goes no lower than its model's floor either (effortFloor): its effort was decided with it.
-  const floor = higherEffort(plan?.floor ?? null, plan?.effort == null ? null : effortFloor(modelFamily(plan.model ?? record.model ?? ''), reading))
+  const floor = higherEffort(plan?.floor ?? null, plan?.effort == null ? null : effortFloor(modelFamily(plan.model ?? record.model ?? '')))
   const position = { current, sinceRaise: record.raisedAt === null ? null : e.index - record.raisedAt, atLeast: floor }
   const verdict = judgeMidturn(reading, position, s.rules)
   if (verdict.effort !== current) await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), effort: verdict.effort }))

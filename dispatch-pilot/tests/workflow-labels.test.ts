@@ -41,8 +41,8 @@ test('an agent of a Workflow given by scriptPath goes out, on every step, with t
   await w.agentStep('wa2', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
 
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual([
-    'wa1 claude-sonnet-5-5 high',
-    'wa1 claude-sonnet-5-5 high',
+    'wa1 claude-sonnet-5-5 medium',
+    'wa1 claude-sonnet-5-5 medium',
     'wa2 claude-opus-5-5 high',
   ])
 })
@@ -62,7 +62,7 @@ test("an agent that takes its first step while its run is still being set up (th
   await w.clock.advance(300)
   await call
   await step
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 high'])
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
 })
 
 test("the Workflow tool's description tells the main agent to give every agent() call a fixed, unique label, in words that never change, so the prompt cache holds", { options: KEY }, async ($, on) => {
@@ -87,7 +87,7 @@ test("without a decision model to ask, or with workflow-labels off when the tool
   expect((await w.describeWorkflow(engine)).description).toBe(engine)
 })
 
-/** The decisions about TIDY's two calls: the rename to sonnet high, the review to opus high. */
+/** The decisions about TIDY's two calls: the rename to sonnet medium, the review to opus high. */
 const TIDY_DECIDED = siteJev((i): SiteAnswer => (i === 0 ? { model: { sonnet: 0.9 }, effort: [0, 1, 0, 0, 0] } : { model: { opus: 0.9 }, effort: [0, 0, 1, 0, 0] }))
 
 test('/dp workflow-labels off: no agent is routed and no run recorded, nothing is asked, its status segment goes, and the Workflow tool is described as the engine has it; on brings it all back', { options: KEY }, async ($, on) => {
@@ -111,7 +111,7 @@ test('/dp workflow-labels off: no agent is routed and no run recorded, nothing i
   expect(w.requests).toHaveLength(2)
   w.started('wf_test-3', 'wa3', 'review')
   await w.agentStep('wa3', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 high', 'wa2 claude-opus-5-5 xhigh', 'wa3 claude-opus-5-5 high'])
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium', 'wa2 claude-opus-5-5 xhigh', 'wa3 claude-opus-5-5 high'])
 })
 
 test('/dp off stands the fallback down too: nothing is asked when a Workflow starts or when its agents do, and every step goes out as the engine made it', { options: KEY }, async ($, on) => {
@@ -191,12 +191,12 @@ test("each decision is logged with its reason, in the debug log and /dp log, nev
   await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
 
   const shown = await w.command('dp', 'log')
-  expect(shown).toMatch(/workflow-labels: sonnet high for "rename" \(workflow tidy-api\): decided; pick sonnet, confidence 1\.00; effort lifted from medium to high \(floor for sonnet\); effort p low 0\.00, medium 1\.00/)
+  expect(shown).toMatch(/workflow-labels: sonnet medium for "rename" \(workflow tidy-api\): decided; pick sonnet, confidence 1\.00; effort p low 0\.00, medium 1\.00/)
   expect(shown).toMatch(/workflow-labels: opus high for "review" \(workflow tidy-api\): decided; pick opus/)
   // (The tool's result names the workflow; this stub's does not, so it is `unnamed` here.)
-  expect(shown).toMatch(/workflow-labels: sonnet high for "first" \(agent wa1, workflow \S+\): from its task as it started; decided; pick sonnet/)
+  expect(shown).toMatch(/workflow-labels: sonnet medium for "first" \(agent wa1, workflow \S+\): from its task as it started; decided; pick sonnet/)
   const debug = w.logs.filter((log) => log.to === 'debug').map((log) => log.text)
-  expect(debug.some((line) => line.startsWith('sonnet high for "rename" (workflow tidy-api): decided'))).toBe(true)
+  expect(debug.some((line) => line.startsWith('sonnet medium for "rename" (workflow tidy-api): decided'))).toBe(true)
   expect(w.logs.every((log) => log.to === 'debug')).toBe(true)
 })
 
@@ -212,7 +212,7 @@ return { edited, found }
   expect(told).toBe(
     [
       "Dispatch Pilot (the user's routing plugin) chose a model and an effort for the agent() calls of this Workflow. The script is unchanged: each agent gets its call's choice as it starts, found by its label.",
-      '- "rename": sonnet high (model: decided, confidence 1.00; effort: medium lifted to high, the floor for sonnet)',
+      '- "rename": sonnet medium (model: decided, confidence 1.00; effort: p 1.00)',
       '- agent() at line 3: decided as each of its agents starts, from its label and its task',
     ].join('\n'),
   )
@@ -376,8 +376,8 @@ test('a Workflow given by name is read from the copy the tool runs, and a templa
 
   // The check agent goes to haiku: without the engine's xhigh, which haiku does not take (spec #32).
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual([
-    'wa1 claude-sonnet-5-5 high',
-    'wa2 claude-sonnet-5-5 high',
+    'wa1 claude-sonnet-5-5 medium',
+    'wa2 claude-sonnet-5-5 medium',
     'wa3 claude-haiku-4-5 undefined',
   ])
 })

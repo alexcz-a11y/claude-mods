@@ -34,7 +34,7 @@ test('each agent() of a submitted script is written with the model and effort de
 
   // The tool ran the script with each call's model and effort written in, and nothing else changed.
   expect(w.reached.map((r) => r.script)).toEqual([
-    TIDY.replace("{ label: 'rename' }", "{ label: 'rename', model: 'sonnet', effort: 'high' }").replace("properties: { risky: { type: 'array' } } } }", "properties: { risky: { type: 'array' } } }, model: 'opus', effort: 'xhigh' }"),
+    TIDY.replace("{ label: 'rename' }", "{ label: 'rename', model: 'sonnet', effort: 'medium' }").replace("properties: { risky: { type: 'array' } } } }", "properties: { risky: { type: 'array' } } }, model: 'opus', effort: 'xhigh' }"),
   ])
   // One request asked about both agents, each in its own part, each brief in its own state field.
   expect(w.requests).toHaveLength(1)
@@ -47,7 +47,7 @@ test('each agent() of a submitted script is written with the model and effort de
   expect(w.requests[0]?.body.state.brief_1.label).toBe('review')
   // The main agent reads what was written, per agent.
   const told = (result.context ?? []).join('\n')
-  expect(told).toContain('"rename": sonnet high (model: decided, confidence 0.70; effort: medium lifted to high, the floor for sonnet)')
+  expect(told).toContain('"rename": sonnet medium (model: decided, confidence 0.70; effort: p 0.80)')
   expect(told).toContain('"review": opus xhigh (model: decided, confidence 0.85; effort: p 0.80)')
   expect(w.status()).toBe('dp workflow routed 2 agents')
 })
@@ -90,7 +90,7 @@ return owners
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 0.1, sonnet: 0.8, opus: 0.1 }, effort: [0.1, 0.8, 0.1, 0, 0] })) })
   await w.workflow({ script: todos })
 
-  expect(w.reached.map((r) => r.script)).toEqual([todos.replace("label: 'todos' }", "label: 'todos', effort: 'high' }")])
+  expect(w.reached.map((r) => r.script)).toEqual([todos.replace("label: 'todos' }", "label: 'todos', effort: 'medium' }")])
 })
 
 test('a call site that runs many times is decided once: a pipeline over files has one decision per stage, whatever the label and prompt interpolate', { options: KEY }, async ($, on) => {
@@ -105,7 +105,7 @@ return results
   expect(w.requests[0]?.body.state.brief_0.label).toBe('migrate:${file}')
   expect(w.requests[0]?.body.state.brief_0.prompt).toBe('Replace the old logger calls in ${file} with the new API; do not change behaviour.')
   expect(w.reached.map((r) => r.script)).toEqual([
-    migrate.replace('{ label: `migrate:${file}` }', "{ label: `migrate:${file}`, model: 'sonnet', effort: 'high' }").replace('{ label: `check:${file}` }', "{ label: `check:${file}`, model: 'haiku' }"),
+    migrate.replace('{ label: `migrate:${file}` }', "{ label: `migrate:${file}`, model: 'sonnet', effort: 'medium' }").replace('{ label: `check:${file}` }', "{ label: `check:${file}`, model: 'haiku' }"),
   ])
 })
 
@@ -275,14 +275,14 @@ test("in return mode the first submission is refused with each agent's recommend
   expect(w.reached).toEqual([])
   expect(first.deny).toMatch(/Dispatch Pilot/)
   expect(first.deny).toMatch(/did not start this Workflow/)
-  expect(first.deny).toMatch(/"rename": model: 'sonnet', effort: 'high'/)
+  expect(first.deny).toMatch(/"rename": model: 'sonnet', effort: 'medium'/)
   expect(first.deny).toMatch(/"review": model: 'opus', effort: 'xhigh'/)
   expect(first.deny).toMatch(/submit the same script again/i)
   expect(first.deny).toMatch(/plugin's policy.*the user set/i)
   expect(w.status()).toBe('dp workflow sent back (2 agents)')
 
   // The main agent writes the options in, as told: the prompts are the ones it sent.
-  const written = TIDY.replace("{ label: 'rename' }", "{ label: 'rename', model: 'sonnet', effort: 'high' }")
+  const written = TIDY.replace("{ label: 'rename' }", "{ label: 'rename', model: 'sonnet', effort: 'medium' }")
   const second = await w.workflow({ script: written })
   expect(second.deny).toBeUndefined()
   expect(w.reached.map((r) => r.script)).toEqual([written])
