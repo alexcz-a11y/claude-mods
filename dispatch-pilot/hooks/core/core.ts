@@ -22,7 +22,7 @@ import { answersFor, mergeParts, type State } from '../decision/system-one.ts'
 import { type Asked, describeAsked } from '../decision/backend.ts'
 import { collect, type Contribution, type PartOutcome } from './ballot.ts'
 import { noteBlocked } from './outcomes.ts'
-import { newTurn, planStep, takePending, turnKey, update, type Cell, type PendingDecision } from './plans.ts'
+import { newTurn, planStep, replace, takePending, turnKey, type Cell, type PendingDecision } from './plans.ts'
 import type { Ctx } from './setup.ts'
 import { setStatus } from './status.ts'
 import { masterOn } from './switches.ts'
@@ -74,16 +74,12 @@ export function registerCore(on: On, ctx: Ctx): void {
     // Its own prompt's decision: the prompt now entering (whatever an inner
     // hook made of its text), else a queued prompt with the turn's text.
     const texts = entering.length === 1 ? [entering[0] as string, e.text] : [e.text]
-    let taken: PendingDecision | null = null
-    await update(pending, (list) => {
-      const took = takePending(list ?? [], texts)
-      taken = took.taken
-      return took.rest
-    })
+    const { before } = await replace(pending, (list) => takePending(list ?? [], texts).rest)
+    // What the landed write took out of the list it found.
+    const own = takePending(before ?? [], texts).taken
     // The turn's message as the decision model read it (later decisions about the turn reuse it). A pending
     // entry, decided or not, says the person's own message started the turn (only such a turn is re-decided).
     const prompt = messageText(e.text, ctx.config.context.tokens)
-    const own = taken as PendingDecision | null
     await $.state.set({ ...TURNS, id: turnKey(e.turnId, undefined) }, newTurn(prompt, own?.effort ?? null, own !== null))
     return next(e)
   })

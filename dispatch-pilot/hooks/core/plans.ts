@@ -190,10 +190,20 @@ export type Cell<T> = {
  * may run more than once: keep it pure.
  */
 export async function update<T>(cell: Cell<T>, change: (current: T | undefined) => T, attempts = 8): Promise<T> {
+  return (await replace(cell, change, attempts)).after
+}
+
+/**
+ * `update`, resolving to both the value the landed write replaced (`before`)
+ * and the one it wrote (`after`): a caller that needs to know what the write
+ * found reads it from `before`, so `change` stays pure (it may run more than
+ * once, and only its last run counts).
+ */
+export async function replace<T>(cell: Cell<T>, change: (current: T | undefined) => T, attempts = 8): Promise<{ before: T | undefined; after: T }> {
   for (let attempt = 0; attempt < attempts; attempt++) {
     const { value, version } = await cell.get()
     const next = change(value)
-    if ((await cell.set(next, { ifVersion: version })).isSet) return next
+    if ((await cell.set(next, { ifVersion: version })).isSet) return { before: value, after: next }
   }
   throw new Error(`$.state write lost to other writers ${attempts} times in a row`)
 }

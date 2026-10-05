@@ -133,6 +133,8 @@ export type Config = {
    */
   defaults: { used: readonly (readonly [PerBackendOption, number])[]; capped: readonly { option: PerBackendOption; set: number; read: number }[] }
   typesafeApiKey: string
+  /** Clef's credentials (sensitive; '' when not set): the account ID Workers AI runs in, and the API token. */
+  cloudflare: { accountId: string; apiToken: string }
   /** How long a decision request may take before the prompt goes on without it. */
   timeoutMs: number
   /** The language of the effort question beside each message (the decision model's: BACKEND_DEFAULTS turnStartLanguage). */
@@ -212,10 +214,7 @@ export type Ctx = {
 export function setup(options: PluginOptions): Ctx {
   const config = readConfig(options)
   // One decision model or the other, as the person chose: only that one is built, and there is no fallback.
-  const backend =
-    config.backend === 'clef'
-      ? clefBackend({ accountId: stringOf(options.cloudflareAccountId, '').trim(), apiToken: stringOf(options.cloudflareApiToken, '').trim() })
-      : jevBackend(config.typesafeApiKey)
+  const backend = config.backend === 'clef' ? clefBackend(config.cloudflare) : jevBackend(config.typesafeApiKey)
   return { config, backend, ask: DEFAULT_ASK }
 }
 
@@ -252,6 +251,7 @@ export function readConfig(options: PluginOptions): Config {
     backend,
     defaults: { used, capped },
     typesafeApiKey: stringOf(options.typesafeApiKey, '').trim(),
+    cloudflare: { accountId: stringOf(options.cloudflareAccountId, '').trim(), apiToken: stringOf(options.cloudflareApiToken, '').trim() },
     timeoutMs,
     turnStartLanguage: defaults.turnStartLanguage,
     thetaMax,

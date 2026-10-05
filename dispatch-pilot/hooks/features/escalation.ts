@@ -37,7 +37,7 @@ import { answersFor } from '../decision/system-one.ts'
 import { startedIn } from '../decision/workflow-labels.ts'
 import { recordDecision, type DecisionEntry } from '../core/decisions.ts'
 import { endedAs, noteEnded, wasBlocked } from '../core/outcomes.ts'
-import { floorHeld, forced, newTurn, redecided, turnKey, update, type AgentPlan, type Cell, type TurnRecord } from '../core/plans.ts'
+import { floorHeld, forced, newTurn, redecided, replace, turnKey, update, type AgentPlan, type Cell, type TurnRecord } from '../core/plans.ts'
 import type { Ctx } from '../core/setup.ts'
 import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
@@ -199,15 +199,16 @@ async function atStep($: EngineInterface, s: Settings, e: TurnStepInput): Promis
   const cell: Cell<LoopRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
   const engine = isEffort(e.effort) ? e.effort : null
   const on = isOn(SWITCH)
-  let turned = false
-  let record = await update(cell, (r) => {
-    turned = main && (r === undefined || r.turnId !== e.turnId)
-    const loop = turned || r === undefined ? fresh(main ? e.turnId : '') : r
+  /** Whether a record belongs to an earlier main turn (or there is none): this step starts the turn's counts afresh. */
+  const startsTurn = (r: LoopRecord | undefined) => main && (r === undefined || r.turnId !== e.turnId)
+  const { before, after } = await replace(cell, (r) => {
+    const loop = startsTurn(r) || r === undefined ? fresh(main ? e.turnId : '') : r
     // Back on after being off: what was counted meanwhile is written off, so it is counted from here on.
     const written = on && loop.paused ? { ...loop, base: { failures: loop.failures, hookBlocks: loop.hookBlocks }, paused: false } : loop
     return { ...written, step: e.index, engine, model: e.model, paused: !on }
   })
-  if (turned) {
+  let record = after
+  if (startsTurn(before)) {
     // A new main turn: what the one before counted, and asked, is over.
     asking.delete(MAIN_ID)
     latestAgent = null
