@@ -9,7 +9,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 决策模型只负责给出判断，不参与回答你。每个判断都记进决策日志（`/dp log`），状态行写明结果。
 
 - **主 agent 的 effort。** 你每发一条消息，Dispatch Pilot 把这条消息和最近几条消息发给决策模型，问它这项工作需要多少逐步推理，得到 low、medium、high、xhigh、max 五档各自的概率。取概率最高的一档，并列时取较高的一档；如果高一档的概率也有 0.3 以上，就再往上取一档（升高容易：低估一档要付出质量，高估一档只多花 token）；`max` 只在它自己的概率达到 `thetaMax` 时才用。这一轮的每个模型请求都按这一档发出。一轮进行中，每隔几步（`rejudgeEvery`），以及主 agent 派出 agent、启动 Workflow 或加载 skill 时，会再判断一次（中途重判）；升档和降档都有防抖：升档要置信度达到 `thetaUp`（0.3），降档要达到 `thetaDown`（0.75）而且一次只降一档，升档之后 `holdSteps`（5）步之内不降。派出 agent 交回结果、后台任务结束，会话空闲时它们会开始主 agent 的新一轮，这样的一轮也走同样的判断：决策模型读到的是那条报告的文字，不推荐 skill，也不在这一轮中途重判（会话自己的 xhigh 用在只是看一眼结果上是浪费）；报告送进一轮正在进行的对话时不另外判断。其他会话的消息、插件自己发的消息、斜杠命令和空消息都不判断。
-- **派出 agent 的模型和 effort。** 主 agent 用 Agent 工具派出一个 agent 时，决策模型为它选模型（默认在 haiku、sonnet、opus 中选，打开 `agentFable` 后加入 fable）和 effort；选了 haiku 就不设 effort，haiku 不支持。三个模型的分工按 Artificial Analysis 的基准定（见下面的「模型和 effort 的依据」）：haiku 只做一两步就能完成的只读查找，sonnet 承担大多数执行类工作（终端、需求明确的代码修改、自动化、调研汇报），opus 做依赖准确事实知识的调研、难推理、设计、原因未知的 bug、科学或算法类代码，以及安全、迁移、生产和涉及钱的工作；fable 在 AA 上没有领先 Opus 的地方，价格是 2.5 倍，所以仍默认关闭。决策出来的 effort 不低于所选模型的下限：sonnet 至少 high（决策模型对 low 的把握有 0.8 以上时放到 medium），opus 至少 medium，haiku 不带 effort。你在消息里点名的模型或 effort（「用 opus」「effort 开 low」）一定照办，下限和往上取的一档都不会改你点名的值，你排除的模型（「别用 opus」）不会用（决策请求整体失败时除外，见「局限和待评测」）。主 agent 自己为这个 agent 指定了模型时，只有决策模型选了别的、而且置信度达到 `agentOverride` 才推翻它。
+- **派出 agent 的模型和 effort。** 主 agent 用 Agent 工具派出一个 agent 时，决策模型为它选模型（默认在 haiku、sonnet、opus 中选，打开 `agentFable` 后加入 fable）和 effort；选了 haiku 就不设 effort，haiku 不支持。三个模型的分工按 Artificial Analysis 的基准定（见下面的「模型和 effort 的依据」）：haiku 只做一两步就能跑完、结果只需要收集起来并按要求排版的只读查找，sonnet 承担大多数执行类工作（终端、需求明确的代码修改、自动化、调研汇报），opus 做需要审慎判断或细微错误代价高的工作（安全、并发、涉及钱、迁移、生产）、难推理、设计、原因未知的 bug、科学或算法类代码，以及结论取决于记忆中的事实、而且无法在仓库或文档里查证的调研；fable 在 AA 上没有领先 Opus 的地方，价格是 2.5 倍，所以仍默认关闭。决策出来的 effort 不低于所选模型的下限：sonnet 和 opus 至少 medium，haiku 不带 effort。你在消息里点名的模型或 effort（「用 opus」「effort 开 low」）一定照办，下限和往上取的一档都不会改你点名的值，你排除的模型（「别用 opus」）不会用（决策请求整体失败时除外，见「局限和待评测」）。主 agent 自己为这个 agent 指定了模型时，只有决策模型选了别的、而且置信度达到 `agentOverride` 才推翻它。
 - **Workflow 里的 agent。** 主 agent 提交 Workflow 脚本时，对脚本里每个 `agent()` 调用点做同样的判断，把模型和 effort 写进脚本再运行，并告诉主 agent 写了什么；`workflowMode` 选 `return` 时改为退回脚本，附上逐个调用的推荐，让主 agent 自己写进去。脚本写不进去的（用 `scriptPath` 或 `name` 提交、恢复的运行、读不了的脚本），在每个 agent 启动时按它的 label 设置，这叫兜底。
 - **卡住时强制升档。** 主 agent 或派出 agent 的工具调用接连失败 `escalateAfter` 次时，再问决策模型一次，把它的 effort 升一档（`escalateMode` 选 `max` 则直接升到 max）；haiku 没有 effort 可升，改用 sonnet 接着做（`escalateHaikuTo`）。这些失败本来就在意料之中的，例如先写下、要看它红的测试，或者没找到东西而以非零退出的搜索，不升档；是不是预期内失败由决策模型判断，不靠关键词。你自己拒绝的调用从不算失败。
 - **skill。** 主 agent 不再读完整的 skill 列表（装的 skill 多时这一段很长），读到的是一句固定的提示。改由决策模型在你发消息时，从本会话的 skill 里挑出相关的几个，连同名字、描述和相关度附在消息后面交给主 agent；只能由你触发的 skill 不推荐给主 agent，只在状态行提示你。一轮进行中，主 agent 还可以用 `find_skill` 工具按几个词查 skill。skill 本身和 Skill 工具都不变，主 agent 仍然可以按名字加载任何 skill。
@@ -252,7 +252,7 @@ Clef 只是接入了，没有像 Jev 那样校准。把 `decisionModel` 改成 `
 
 **中文和英文的差距。** 门槛是中文准确率比英文低不超过 4 个百分点，正好低 4 个百分点也算通过。现在的配置（Jev，effort 用中文问）在 `effort-submit` 上那一次正好差 −4.0，同样的请求之前 3 次是 0、0、−1；而中文题的准确率比用英文问时高 6 个百分点。其余三套评测都在门槛之内（见「评测」），但都是改措辞之前测的。
 
-**模型选项的文字改了，评测要重跑。** 派出 agent 的模型选项按 AA 的基准重写了（haiku、sonnet、opus 各一种情形），已存的 `subagent` 回答不再代表现在发出的请求，所以那一行数字对模型这一部分已经过时；effort 这一部分可以用已存的概率按新规则离线重算（`node dispatch-pilot/eval/rescore.ts`，结果在 [docs/research/aa-benchmarks-2026-10.md](../docs/research/aa-benchmarks-2026-10.md)：往上取一档和模型下限让偏低基本不变、偏高多了约 8 个百分点，准确率降约 8 个百分点，因为数据集的 gold 没有按 AA 重标）。新文字的效果要重跑 `subagent` 评测（Jev 约 0.011 美元）。
+**派出 agent 的模型文字按 AA 的基准重写，并用真实的 Jev 调过。** 重写后的第一次评测（`models-hint`，100 题中英各一遍）整体从 70%/68% 掉到 60%/58%（模型部分 82/81，effort 部分 64/62）。之后调了三轮文字和 sonnet 的 effort 下限（sonnet 从 high 降到 medium），最后一版是整体 69%/68%、模型部分 89%/91%、effort 部分 71%/71%，同一版重复一次是 69%/67%、89%/90%、71%/71%。和重写之前（70%/68%，85%/85%，74%/72%）比，模型部分更好，effort 部分低 3 到 1 个百分点：往上取一档和模型下限让偏高多了、gold 命中从 50%/48% 变成 44%/44%，因为数据集的 gold 是按「够用的最便宜档」标的，没有按 AA 重标。注意这三轮文字是对着这 100 题的错题调的，所以最后的模型部分是在调过的题上量的，对没见过的请求会低一些。逐轮的表、发消息和中途重判的真实对照在 [docs/research/aa-benchmarks-2026-10.md](../docs/research/aa-benchmarks-2026-10.md) 的第六节。
 
 **问题的文字一改，评测就要重跑。** 发给决策模型的问题、指令和选项描述是被测的对象：改了哪一处，用到它的评测都要重跑，旧结果只能对照。中途重判的工具行和 `trouble` 变体、派出 agent 的 effort 问题和 Workflow 题的合并提问、skill 第一段拆成两题，这几处在评测之后改过，没有重跑，所以下面「评测」里这三套的数字只能当预览；`effort-submit` 的请求没有变。每处改动的清单见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「待评测」。
 
@@ -260,7 +260,7 @@ Clef 只是接入了，没有像 Jev 那样校准。把 `decisionModel` 改成 `
 
 - **上下文的范围。** 随消息发出的最近几条消息和 token 预算（2、4、8、16 条 × 1k–8k token）没有扫描：现有评测集的上下文太短，扫描测不出差别。Jev 的 `contextMessages`、`contextTokens`、`rejudgeSteps` 默认值是按 Jev 的上限算的（见「配置」），不是按准确率挑的：更多的上下文是不是让 Jev 判得更准、旧消息会不会干扰当前这条，都没有数据，各个门槛也是在 4 条、2000 个 token、4 步的设置上定的。选 Clef 时 `contextTokens` 最多 2000（见下面的「Clef 截断 state」）。
 - **按语言分别定门槛。** 各个置信度门槛都是中英文共用一个值，没有按语言分别校准。
-- **中途重判的默认值和写法。** `thetaUp` 0.3、`thetaDown` 0.75、`holdSteps` 5 是按 AA 的基准定的方向（升高容易、降低难），具体数值没有在评测集上扫过：用已存的回答离线重算，`sent`（中途重判后走的档）偏低少了、偏高多了，准确率在中文问法上升 2.5 个百分点、其余变体降 2 到 6 个百分点，见 [docs/research/aa-benchmarks-2026-10.md](../docs/research/aa-benchmarks-2026-10.md)；`rejudgeEvery`、`rejudgeSteps` 的默认值仍是起点。这些都没有按语言分别校准；state 里放不放当前档位和计数、问题用英文还是中文，也没有结论。Clef 的置信度比 Jev 低得多，门槛要按后端分别校准，现在两个决策模型用同一组值。
+- **中途重判的默认值和写法。** `thetaUp` 0.3、`thetaDown` 0.75、`holdSteps` 5 是按 AA 的基准定的方向（升高容易、降低难），具体数值没有在评测集上扫过：真实的 Jev 评测（`en-score` 和 `zh-score`，和 0.2.1 的规则比）上，回答选出的档偏低少了 5.5 到 7.5 个百分点、准确率不降（+1 和 +4）；但中途重判后实际走的档（`sent`）偏低只少 2 到 6 个百分点，偏高多 6 到 8 个百分点，准确率在英文问法上降 6 个百分点、中文问法上持平，原因是 `thetaDown` 抬到 0.75 之后该降的一轮降不下来，见 [docs/research/aa-benchmarks-2026-10.md](../docs/research/aa-benchmarks-2026-10.md) 的第六节；`rejudgeEvery`、`rejudgeSteps` 的默认值仍是起点。这些都没有按语言分别校准；state 里放不放当前档位和计数、问题用英文还是中文，也没有结论。Clef 的置信度比 Jev 低得多，门槛要按后端分别校准，现在两个决策模型用同一组值。
 - **「预期内失败」这一问的写法和门槛。** `thetaExpected` 的默认值来自 11 个手写场景的小实验，样本太小，只能当起点；`escalateMode`、`escalateAfter` 和 `escalateLimit` 没有评测方法，按使用体验调。
 - **Clef 截断 state（已测）。** Clef 会截断超过约 2.1k token 的 state，但时有时无：超过的 18 个 state 里截了 4 个（英文 4/14，中文 0/4）。截断时只留 state 开头约 2.1k 个 Clef token，后面的事实都答「没有说」；问题不截断。Jev 全部答对。截断留下的是 state 序列化之后的开头，而 Clef 开源的编码代码序列化时按键名排序，你的消息（`user_message`）排在最近的对话（`recent_context`）之后；线上怎么排不知道，所以 mod 不靠字段的顺序，而是让发出去的整个 state（连同字段名、引号和转义）都在 `contextTokens` 之内，选 Clef 时它最多 2000。按 mod 的估算，2000 个 token 的散文约是 1.6–1.8k 个 Clef token，在截断位置之内。代码、日志、JSON 这类符号多的内容，mod 的估算（约 4 个字符算 1 个 token）可能偏少，满是这类内容的 state 可能越过约 2.1k，没有量过；常贴大段代码又选了 Clef 的话，可以把 `contextTokens` 设小一些（例如 1500）。
 - **Clef 的延迟和 `timeoutMs`。** Jev 第一次 0.57 秒，之后 0.28–0.33 秒；Clef 第一次 1.8 秒，之后 0.6–1.4 秒（200 个请求依次发送：p50 699 ms，p90 929 ms，只有 1 条超过 1500 ms）。Clef 的 `timeoutMs` 默认值按这些数字留了余量，没有再细调。
@@ -278,14 +278,14 @@ Clef 只是接入了，没有像 Jev 那样校准。把 `decisionModel` 改成 `
 | 评测集 | 测什么 | 线上的问法，Jev（jev-1.13.0），中文 / 英文 |
 |---|---|---|
 | `effort-submit`（100 题） | 发消息时的 effort | 85.0% / 89.0%（中文问法，1 次运行；同样的请求之前 3 次的平均是 87.3% / 87.7%） |
-| `effort-midturn`（100 题） | 一轮中途的 effort | 73% / 74%，第二次运行 |
-| `subagent`（100 题） | 派出 agent 和 Workflow 里 agent 的模型加 effort，两样都对才算对 | 69% / 66% |
+| `effort-midturn`（100 题） | 一轮中途的 effort | 77% / 72%（`en-score`，0.2.2 的规则，2026-10-05）；之前 73% / 74% |
+| `subagent`（100 题） | 派出 agent 和 Workflow 里 agent 的模型加 effort，两样都对才算对 | 69% / 68%（`models-hint`，0.2.2 的文字和规则，2026-10-05，重复一次是 69% / 67%）；之前 70% / 68% |
 | `skill`（109 题） | skill 推荐，带画像 | 79.8% / 83.5% |
 
 - 中英差距的门槛是中文比英文低不超过 4 个百分点，正好低 4 个百分点也算通过。上面四行都在门槛之内：`effort-submit` 那一次正好是 −4.0，`skill` 是 −3.7。
 - Jev 单个 effort 请求的延迟 p50 约 0.28–0.42 秒，p90 约 0.32–0.46 秒；skill 带画像的第一段 p50 约 0.56–0.67 秒。
 - Clef 只做了抽样：`effort-submit` 200 个请求，准确率 74%（p50 699 ms）；其中 5 个请求是评测重试之后才答上的，mod 不重试，按 mod 的等法算是中文 74%、英文 71%。`effort-midturn` 选出的档位更准（85% / 87%），但置信度低，默认门槛挡住大部分改档，实际发出的档位只有 58% / 57%；派出 agent 12 题，skill 3 题。
-- **`effort-submit` 之外的三行是 2026-10-04 测的**，之后问题改过措辞，没有重跑，只能当预览（见「局限和待评测」）。`subagent` 和 `skill` 的中文问法变体（`models-hint-zh`、`profiles-zh`）未运行。单次运行有波动：同一配置跑两次，单项准确率相差 0–4 个百分点，和 4 个百分点的门槛同一量级。评测的设置是 4 条消息、2000 个 token、4 步，不是 0.2.1 起 Jev 的默认值（32、6000、16）；评测集的上下文很短，离线重建请求核对过，换成新默认值后 `effort-submit` 的 200 个请求里 state 变了 2 个，`effort-midturn` 200 个里变了 10 个，`skill` 和 `subagent` 没有变，所以这些数字仍可以参考，但不是在新默认值上量的。
+- **`skill` 一行是 2026-10-04 测的**，之后问题改过措辞，没有重跑，只能当预览（见「局限和待评测」）；`effort-submit`、`effort-midturn` 的数字和 `subagent` 的 `models-hint` 是 2026-10-05 在 0.2.2 的规则和文字上重跑的（`subagent` 的其余变体没有重跑）。`subagent` 和 `skill` 的中文问法变体（`models-hint-zh`、`profiles-zh`）未运行。单次运行有波动：同一配置跑两次，单项准确率相差 0–4 个百分点，和 4 个百分点的门槛同一量级。评测的设置是 4 条消息、2000 个 token、4 步，不是 0.2.1 起 Jev 的默认值（32、6000、16）；评测集的上下文很短，离线重建请求核对过，换成新默认值后 `effort-submit` 的 200 个请求里 state 变了 2 个，`effort-midturn` 200 个里变了 10 个，`skill` 和 `subagent` 没有变，所以这些数字仍可以参考，但不是在新默认值上量的。
 
 变体、指标、常数基线、门槛的离线重扫、已知的问题题和复现的命令，见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「评测（接缝 2）」。
 

@@ -81,12 +81,18 @@ export const REQUESTED_FITS = 'requested_fits'
  * The kind of work each model suits, and the option name for it. Written from
  * Artificial Analysis' Intelligence Index v4.3.2 (docs/research/aa-benchmarks-2026-10.md),
  * each option one situation, never a degree (guide §2.4):
- * - Haiku 4.5 scores 0% on Terminal-Bench and 3.2% on AutomationBench: it is for a lookup of one or two steps, not a long
- *   run of tool calls, not a write, not a judgment.
+ * - Haiku 4.5 scores 0% on Terminal-Bench and 3.2% on AutomationBench: it is for a lookup of one or two steps whose result
+ *   is only gathered and laid out as asked, not a long run of tool calls, not a write, not a judgment.
  * - Sonnet 5.5 matches or beats Opus 5.5 on terminal work, automation and knowledge work (Terminal-Bench 63.6% against
  *   59.6%, AutomationBench 71.8% against 69.5%) and trails it where facts, hard reasoning and scientific code decide
  *   (Omniscience 32 against 46, HLE -6.4, SciCode -5.9).
  * - Opus 5.5 takes those; Fable 5.1 leads Opus nowhere on AA at 2.5 times the price, so its text stays and it stays off by default.
+ *
+ * The wording was then tuned against the real decision model, three rounds on the `subagent` eval (DEVELOPMENT.md, 「按 AA
+ * 基准校正」, 评测迭代): opus's "facts" clause alone drew research that can be checked in documents (it goes to sonnet), and
+ * narrowing it alone sent the security, concurrency and design work to sonnet, so the careful-judgment frame leads and the
+ * recalled-facts clause comes last; haiku's "one or two steps" was read as one trivial thing, so it says what such a lookup
+ * returns. Tuned on the same 100 items it is measured on.
  */
 const KINDS: Record<Language, Record<AgentModel, { work: string; choose_for: string; not_for: string }>> = {
   en: {

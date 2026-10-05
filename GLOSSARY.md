@@ -49,7 +49,7 @@ _Avoid_: 会话、任务（会话指整个 Claude Code 上下文，任务指派�
 _Avoid_: 保底、最低档
 
 **模型下限（Model Floor）**：
-按所选模型给派出 agent 的 effort 设的最低一档（`effortFloor`）：sonnet 至少 high，决策模型对 low 的把握有 0.8 以上时放到 medium；opus 至少 medium；haiku 不带 effort。它抬高的是决策出来的 effort；用户点名的 effort 和模型永远优先，不受它管。和上面的「下限（Floor）」不是一回事：那一个由强制升档写进计划表，这一个由模型决定。
+按所选模型给派出 agent 的 effort 设的最低一档（`effortFloor`）：sonnet 和 opus 都至少 medium；haiku 不带 effort。它抬高的是决策出来的 effort；用户点名的 effort 和模型永远优先，不受它管。和上面的「下限（Floor）」不是一回事：那一个由强制升档写进计划表，这一个由模型决定。
 _Avoid_: 下限（单说「下限」指计划表里的那一个）
 
 **预期内失败（Expected Failure）**：

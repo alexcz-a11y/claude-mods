@@ -25,8 +25,8 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 ### 派出 agent
 
 - 主 agent 用 Agent 工具派出一个 agent 时，Dispatch Pilot 在它启动前问一次决策模型，同一个请求里问两件事：它该用哪个模型（默认在 haiku、sonnet、opus 中选，打开 `agentFable` 后加入 fable），以及它的每一步该用哪档 effort。模型直接改在这次派发上；effort 在这个 agent 的每一步都重新设置。选了 haiku 就不设 effort（haiku 不支持）。
-- **模型选项的文字**（`decision/dispatched-agent.ts` 的 `KINDS`，中英两版）按 AA 的基准写，每个选项描述一种情形：haiku 是一两步就能完成的只读查找（不适合：要连续很多步工具调用的探查，以及任何写入或判断）；sonnet 承担大多数执行类工作（终端操作、需求明确的代码修改、跨文件修改、自动化步骤、对仓库内材料的调研或审查）（不适合：结论取决于仓库外的事实知识而且记错代价高的工作、难推理、需求不明确的设计、原因未知的 bug）；opus 是依赖准确事实知识的调研或解答、难推理、设计、原因未知的 bug、科学或算法类代码、安全、迁移、生产和涉及钱的工作（不适合：书面计划和测试已经覆盖的执行类工作）；fable 的文字不变，仍默认关闭。选项名、`work` 键和问题的结构都没有变。写法遵循 `docs/research/typesafe-question-guide.md`。
-- **effort 的下限**（`effortFloor`）：决策出来的 effort 不低于所选模型的下限。sonnet 至少 high，只有 effort 回答里 low 的概率有 `SONNET_LOW`（0.8）以上时放到 medium；opus 至少 medium；haiku 不带 effort，fable 没有下限（两个常量都在 `decision/dispatched-agent.ts`，不是配置项，Clef 同样适用）。下限用在决策的 effort 上，所以派出 agent 和 Workflow 里的 `agent()` 都受它管；你点名的 effort 不受下限影响（见下一条）。卡住后「预期内」的那次中途重判，对已经有 effort 的 agent 也不降到它的下限以下（`features/escalation.ts` 的 `redecide`）。决策日志会写 `effort lifted from medium to high (floor for sonnet)`。
+- **模型选项的文字**（`decision/dispatched-agent.ts` 的 `KINDS`，中英两版）按 AA 的基准写，每个选项描述一种情形：haiku 是一两步就能跑完、结果只需要收集起来并按要求排版（列表、表格、计数）的只读查找（不适合：要连续很多步工具调用的探查，以及任何写入或判断）；sonnet 承担大多数执行类工作（终端操作、需求明确的代码修改、跨文件修改、自动化步骤、对仓库内材料的调研或审查）（不适合：结论取决于仓库外的事实知识而且记错代价高的工作、难推理、需求不明确的设计、原因未知的 bug）；opus 是需要审慎判断或细微错误代价高的工作（安全、并发、涉及钱、数据迁移、生产）、难推理、设计、原因未知的 bug、科学或算法类代码，以及结论取决于记忆中的事实、而且无法在仓库或文档里查证的调研或解答（不适合：书面计划和测试已经覆盖的执行类工作）；fable 的文字不变，仍默认关闭。选项名、`work` 键和问题的结构都没有变。写法遵循 `docs/research/typesafe-question-guide.md`。
+- **effort 的下限**（`effortFloor`）：决策出来的 effort 不低于所选模型的下限。sonnet 和 opus 至少 medium；haiku 不带 effort，fable 没有下限（`decision/dispatched-agent.ts` 里的常量，不是配置项，Clef 同样适用）。0.2.2 的第一版把 sonnet 的下限放在 high（low 的概率 ≥ 0.8 才放到 medium），第一次真实评测里 effort 部分从 74/72 掉到 64/62，所以降到 medium（见「按 AA 基准校正」的「评测迭代」）。下限用在决策的 effort 上，所以派出 agent 和 Workflow 里的 `agent()` 都受它管；你点名的 effort 不受下限影响（见下一条）。卡住后「预期内」的那次中途重判，对已经有 effort 的 agent 也不降到它的下限以下（`features/escalation.ts` 的 `redecide`）。决策日志会写 `effort lifted from low to medium (floor for sonnet)`。
 - 发给决策模型的是主 agent 写给这个 agent 的任务（`prompt`）、简短描述、agent 类型，以及你这一轮说的话：开始这一轮的那条消息，加上这一轮进行中你又发的消息。和发消息时一样，发送前对 secret 脱敏，总长度按 token 预算（`contextTokens`）截断，你的话最多占三分之一。
 - 模型的优先级：
   1. 你在这一轮的消息里为这项工作点名的模型，一定照办，即使它不在可选范围内（例如没打开 `agentFable` 时点名 fable）。
@@ -268,7 +268,7 @@ Q 取 Jev 的计数：skill 第一段 21,900，其余的题按「估算 × 1.37�
 1. **派出 agent 的模型选项文字**（`KINDS`）：haiku 只做一两步就能完成的只读查找（Terminal-Bench 0%，AutomationBench 3.2%，HLE 10.4%）；sonnet 承担大多数执行类工作（终端、自动化、知识工作上与 Opus 持平或略高；Omniscience 32 对 46，幻觉率 47%，HLE 差 6.4，SciCode 差 5.9）；opus 管依赖事实知识的调研、难推理、设计、原因未知的 bug、科学或算法类代码和高风险工作；fable 文字不变，仍默认关闭（AA 上没有领先 Opus 5.5 的地方，价格 2.5 倍）。选项名、`work` 键、问题结构都不变。
 2. **effort 往上取一档**（`pickEffort`、`ROUND_UP` 0.3）：先取概率最高的一档，高一档的概率也有 0.3 以上就往上取一档，只取一次；`max` 仍要它自己的概率达到 `thetaMax`（不论它是最高的一档还是往上取会到的那一档）。发消息时、中途重判（`judgeMidturn`）、卡住时的强制升档（`raisedLevel`）、派出 agent 的 effort 都用这一个函数。
 3. **中途门槛**：`thetaUp` 0.4 改 0.3，`thetaDown` 0.6 改 0.75（每次最多降一档的规则保留），`holdSteps` 3 改 5。`thetaUp`、`thetaDown` 在 `BACKEND_DEFAULTS`，`holdSteps` 是 manifest 的默认值（同时是 `readConfig` 的后备值），README 的配置表同步。
-4. **按模型设 effort 下限**（`effortFloor`、`SONNET_LOW` 0.8）：sonnet 默认至少 high，effort 回答里 low 的概率有 0.8 以上时放到 medium；opus 至少 medium；haiku 不带 effort；fable 没有。用在派出 agent 和 Workflow 里 `agent()` 的决策上；你点名的 effort 和模型永远优先，下限和往上取的一档都不碰它们（`decideDispatch` 里 `namedEffort ?? lifted ?? decided`）；主 agent 自己的 effort 不受下限管（它没有模型可选）。对已经有 effort 的 agent，卡住后「预期内」的重判也不降到它的下限以下。
+4. **按模型设 effort 下限**（`effortFloor`）：sonnet 和 opus 至少 medium；haiku 不带 effort；fable 没有。用在派出 agent 和 Workflow 里 `agent()` 的决策上；你点名的 effort 和模型永远优先，下限和往上取的一档都不碰它们（`decideDispatch` 里 `namedEffort ?? lifted ?? decided`）；主 agent 自己的 effort 不受下限管（它没有模型可选）。对已经有 effort 的 agent，卡住后「预期内」的重判也不降到它的下限以下。
 5. **报告开始的轮次也走 effort 路由**（见「它做什么」）：`origin.kind` 是 `peer`（子 agent 交回的结果）或 `task-notification`，没有 `turnId`；用的是同一题，`user_message` 换成报告的文字；不问 skill，状态里的预算取 `messagePlain`；用户的锁定优先；决策日志记作 `main-effort (agent report)`；这一轮不做中途重判。这是 `core/prompts.ts` 的 `startsReportTurn`（其他非本人的 origin 保持不判断），`PendingDecision.report` 让 `turn.start` 把这一轮记成不是本人开始的。生成的类型（`PromptOrigin`）和 `docs/research/mods-api-routing-capabilities.md` 说明了这两个 origin：`peer` 是另一个会话或 agent 的模型，`task-notification` 是后台任务的通知，闲置时到达的开始新的一轮（`turnId` 不在），送进正在进行的一轮的带着那一轮的 `turnId`。
 6. **Jev 的上下文按请求种类分开取**（见「Jev 的上下文默认值怎么算」）。
 
@@ -285,11 +285,26 @@ Q 取 Jev 的计数：skill 第一段 21,900，其余的题按「估算 × 1.37�
 
 Sonnet 5.5 在 low、medium、high、max 的指数是 36、41、47、56（Terminal-Bench 20.7%、29.8%、43.9%、63.6%）；Opus 5.5 是 42、51、54、58。低估一档要付的质量大，高估一档只多花 token，所以往上取、抬下限、抬降档门槛。
 
-**离线重算（零费用）。** `node dispatch-pilot/eval/rescore.ts [--markdown]`（`eval/lib/rescore.ts`，`tests/eval-rescore.test.ts` 用手算的小例子测过）读 `eval/results/` 里已存的回答，用 0.2.1 的规则和现在的规则各选一次档，和数据集的 gold、accept 比较，报告准确率、gold 命中率、偏高率、偏低率；不发请求，不改结果文件。旧规则作为 `legacyPickEffort` 和 `LEGACY_RULES` 留在评测库里。在已存的回答上：准确率略降（effort-submit Jev 的变化在 -1.5 到 +2 个百分点之间，派出 agent 降 7.5 到 8.5 个百分点），偏低减少（effort-submit 少 1.5 到 3.5 个百分点，中途重判的 `picked` 少 2 到 4 个），偏高增加；数据集的 gold 是按「够用的最便宜档」标的，没有参考 AA，所以这个方向是规则的本意，不是变差。完整的表在研究笔记里。派出 agent 的模型选项文字改了，已存的模型回答不再代表新请求：模型这一部分原样取已存的，新文字的效果要重跑 `subagent` 评测（Jev 约 0.011 美元，由用户运行，评测命令见「开发」里的「评测」）。
+**离线重算（零费用）。** `node dispatch-pilot/eval/rescore.ts [--markdown]`（`eval/lib/rescore.ts`，`tests/eval-rescore.test.ts` 用手算的小例子测过）读 `eval/results/` 里已存的回答，用 0.2.1 的规则和现在的规则各选一次档，和数据集的 gold、accept 比较，报告准确率、gold 命中率、偏高率、偏低率；不发请求，不改结果文件。旧规则作为 `legacyPickEffort` 和 `LEGACY_RULES` 留在评测库里。`node dispatch-pilot/eval/real.ts <结果文件> ...` 对 effort 两套评测按存着的回答原样算同样的四项（`sent` 另列一行），用来对照真实运行的前后。在已存的回答上：准确率略降（effort-submit Jev 的变化在 -1.5 到 +2 个百分点之间，派出 agent 降 7.5 到 8.5 个百分点），偏低减少（effort-submit 少 1.5 到 3.5 个百分点，中途重判的 `picked` 少 2 到 4 个），偏高增加；数据集的 gold 是按「够用的最便宜档」标的，没有参考 AA，所以这个方向是规则的本意，不是变差。完整的表在研究笔记里。离线重算改不了模型文字，所以模型文字和 sonnet 的下限用真实调用调过（下一小节）。
+
+### 评测迭代（真实的 Jev，用户授权，约 0.10 美元）
+
+用户先跑了一次 `subagent`（`models-hint`）：整体 70/68 掉到 60/58，模型部分 85/85 到 82/81（model-over 从 8/10 题增加到 12/12 题），effort 部分 74/72 到 64/62。用户决定：sonnet 的下限降到 medium、收窄 opus 的「适合」、用真实调用调（总花费上限 0.25 美元，每次只改一处文字，最多 5 轮）。逐轮的结果（整体、模型部分、effort 部分，中/英）：
+
+| 版本 | 改了什么 | 整体 | 模型 | effort | model-over | model-under |
+|---|---|---|---|---|---|---|
+| 0.2.1 | （改动前） | 70/68 | 85/85 | 74/72 | 8/10 | 7/5 |
+| `aa-routing` | 第一版 0.2.2：sonnet 下限 high，opus 原文 | 60/58 | 82/81 | 64/62 | 12/12 | 6/7 |
+| `aa-iter1` | sonnet 下限 medium；opus 只留「记忆中的事实、无法在仓库或文档里查证」 | 59/56 | 77/77 | 67/64 | 10/11 | 13/12 |
+| `aa-iter2` | opus 先写「需要审慎判断或细微错误代价高」，记忆中的事实放最后 | 64/61 | 84/84 | 67/65 | 10/10 | 6/6 |
+| `aa-iter3` | haiku 写成「结果只需收集并按要求排版的查找」 | 69/68 | 89/91 | 71/71 | 6/4 | 5/5 |
+| `aa-iter3-repeat` | 同一版重复一次 | 69/67 | 89/90 | 71/71 | 6/4 | 5/6 |
+
+结论：目标（模型部分回到 85% 附近或更高，model-over 不比改动前多，effort 部分比第一次真实运行高）都达到。限制：(1) 同一版重复时差在 1 个百分点以内，但版本之间小于约 2 个百分点的差别不能当结论；(2) 三轮文字是看着这 100 题的错题改的，最后的模型部分是在调过的题上量的，对没见过的请求大概率更低，低多少没有量；(3) effort 部分比改动前低 3 到 1 个百分点，是往上取一档和模型下限的代价，gold 命中 50/48 变 44/44。每一轮的原因、发消息和中途重判的真实对照（`effort-submit` 准确率不变；`effort-midturn` 的 `picked` 偏低少 5.5 到 7.5 个百分点，`sent` 的偏高多 6 到 8 个百分点，因为 `thetaDown` 0.75 让该降的一轮降不下来）和花费在 `docs/research/aa-benchmarks-2026-10.md` 的第六节。结果文件：`eval/results/subagent/2026-10-05-jev-aa-*.json`、`eval/results/effort-submit/2026-10-05-jev-aa-final.json`、`eval/results/effort-midturn/2026-10-05-jev-aa-final.json`。
 
 ## 待评测
 
-**0.2.2（按 AA 基准校正）之后没有评测的：** 派出 agent 的模型选项新文字（haiku、sonnet、opus 的情形）没有重跑 `subagent` 评测，已存的模型回答不代表新请求，要用户运行（Jev 约 0.011 美元）；往上取一档（0.3）、`thetaUp`/`thetaDown`/`holdSteps`（0.3、0.75、5）、`SONNET_LOW`（0.8）都是按 AA 的方向定的，没有在评测集上扫这些值，离线重算只说明规则怎么改变已存回答的选档（见「按 AA 基准校正」）；各种类的 state 预算（6000 和 24000）没有量延迟和准确率；报告开始的轮次（agent 交回的结果、任务通知）用的那一题没有专门的评测集，题和发消息时的相同，它们的 `user_message` 是报告文字而不是你的话，决策模型对这样的输入判得准不准没有数据。
+**0.2.2（按 AA 基准校正）之后仍然没有数据的：** 往上取一档（0.3）、`thetaUp`/`thetaDown`/`holdSteps`（0.3、0.75、5）、各个下限只和 0.2.1 的规则各比了一次（见「按 AA 基准校正」的「评测迭代」），没有扫这些值；派出 agent 的模型文字是对着这 100 题调的，没有在没见过的请求上量；各种类的 state 预算（6000 和 24000）没有量延迟和准确率；报告开始的轮次（agent 交回的结果、任务通知）用的那一题没有专门的评测集，题和发消息时的相同，它们的 `user_message` 是报告文字而不是你的话，决策模型对这样的输入判得准不准没有数据。
 
 **按用户的决定（2026-10-05），#17 不再跑任何对比或扫描评测。** 用户的原话：「那我觉得我们没有必要再跑任何对比测试了 但是我们仍然要做clef接入 提供给有需要的人 我们自己就用jev即可」。所以 Clef 只保留接入，下面列的事大多仍然没有数据；#17 只做了不花钱的收尾（按决策模型取默认值、`skillsMinRelevance` 改成 0.75、文档）和之前已经跑完的 Clef 截断探针。#17 各验收项的状态：
 
