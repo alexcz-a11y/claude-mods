@@ -5,12 +5,13 @@
 // Node only (fs, process): the tests never import this file; they import the
 // pure modules under lib/. Node 22.18+ runs .ts as is.
 
-import { existsSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join, relative, resolve } from 'node:path'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { isKind, parseJsonl, type Kind } from './lib/datasets.ts'
-import type { SuiteHost } from './lib/suite.ts'
+import type { OptionSpec, SuiteHost } from './lib/suite.ts'
 
 /** The mod's directory (dispatch-pilot/). */
 export const MOD_DIR = resolve(import.meta.dirname, '..')
@@ -18,6 +19,27 @@ export const EVAL_DIR = join(MOD_DIR, 'eval')
 export const DATASETS_DIR = join(EVAL_DIR, 'datasets')
 export const REVIEW_DIR = join(EVAL_DIR, 'review')
 export const RESULTS_DIR = join(EVAL_DIR, 'results')
+
+/** The mod's manifest (.claude-plugin/plugin.json): its options as the engine reads them (`optionsFrom` takes them). */
+export function readManifest(): { userConfig?: Record<string, OptionSpec & { sensitive?: boolean }> } {
+  return JSON.parse(readFileSync(join(MOD_DIR, '.claude-plugin', 'plugin.json'), 'utf8'))
+}
+
+/**
+ * A short hash of every file a run's requests and grades come from, by its
+ * path under the mod: the mod's hooks (the features, the core and the
+ * decision modules the suites import) and the eval's suites (eval/lib).
+ * Two runs with the same hashes asked and graded the same way.
+ */
+export function modCode(): Record<string, string> {
+  const files = [join(MOD_DIR, 'hooks'), join(EVAL_DIR, 'lib')].flatMap((dir) =>
+    (readdirSync(dir, { recursive: true }) as string[])
+      .map((name) => join(dir, name))
+      .filter((path) => statSync(path).isFile())
+      .sort(),
+  )
+  return Object.fromEntries(files.map((path) => [relative(MOD_DIR, path), createHash('sha256').update(readFileSync(path, 'utf8')).digest('hex').slice(0, 16)]))
+}
 
 /** A path as the scripts print it: relative to the mod when inside it. */
 export function shown(path: string): string {

@@ -26,6 +26,42 @@ export function settingsFrom(options: PluginOptions): Settings {
   return readConfig(options)
 }
 
+/** An option as the manifest (`userConfig` in .claude-plugin/plugin.json) declares it: the part read here. */
+export type OptionSpec = { type?: string; default?: unknown }
+
+/**
+ * The options a run hands the mod, as the engine would: each option's
+ * default from the manifest, then each `name=value` (`--option`), read by the
+ * type the manifest gives the option: a number, `true` or `false`, else the
+ * text as written (a list of names takes them comma-separated, as the mod
+ * reads such an option). Throws, saying why, for a name the manifest does not
+ * have or a value its type cannot take.
+ */
+export function optionsFrom(userConfig: Readonly<Record<string, OptionSpec>>, assignments: readonly string[]): PluginOptions {
+  const options: Record<string, string | number | boolean | readonly string[]> = {}
+  for (const [name, spec] of Object.entries(userConfig)) {
+    const value = spec.default
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') options[name] = value
+    else if (Array.isArray(value)) options[name] = value.filter((entry): entry is string => typeof entry === 'string')
+  }
+  for (const assignment of assignments) {
+    const [name, value] = assignment.split(/=(.*)/s, 2)
+    if (!name || value === undefined) throw new Error(`--option takes name=value, not ${assignment}`)
+    const spec = userConfig[name]
+    if (spec === undefined) throw new Error(`no option "${name}" in the manifest`)
+    if (spec.type === 'number') {
+      if (value.trim() === '' || !Number.isFinite(Number(value))) throw new Error(`${name} takes a number, not ${JSON.stringify(value)}`)
+      options[name] = Number(value)
+    } else if (spec.type === 'boolean') {
+      if (value !== 'true' && value !== 'false') throw new Error(`${name} takes true or false, not ${JSON.stringify(value)}`)
+      options[name] = value === 'true'
+    } else {
+      options[name] = value
+    }
+  }
+  return options
+}
+
 /** One request a suite sent: the backend's outcome, how long the answered attempt took, how many attempts it took. */
 export type Sent = { request: DecisionRequest; asked: Asked; ms: number; attempts: number }
 
