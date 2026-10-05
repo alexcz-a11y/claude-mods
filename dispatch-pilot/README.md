@@ -49,24 +49,12 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 ## 安装
 
-Dispatch Pilot 还在 `dp/integration` 分支上，没有合并到 `main`。`main` 上的 marketplace 还没有列出任何 mod，所以添加 `alexcz-a11y/claude-mods` 之后装不上。合并到 `main` 之前，请从本地克隆安装：检出 `dp/integration`，再用克隆的路径添加 marketplace。
-
 ```bash
-git clone --branch dp/integration https://github.com/alexcz-a11y/claude-mods.git
-claude plugin marketplace add ./claude-mods
+claude plugin marketplace add alexcz-a11y/claude-mods
 claude plugin install dispatch-pilot@alex-mods --scope user
 ```
 
-已经有克隆的，在克隆里 `git checkout dp/integration`，再把克隆的路径交给 `marketplace add`；相对路径要以 `./` 或 `../` 开头，否则会被当成 GitHub 仓库。从本地目录添加的 marketplace，Claude Code 直接从那个目录加载 mod，所以克隆里检出的是哪个版本，用的就是哪个版本。
-
-也可以不克隆，在添加 marketplace 时指定分支，让 Claude Code 从 GitHub 取：
-
-```bash
-claude plugin marketplace add alexcz-a11y/claude-mods#dp/integration
-claude plugin install dispatch-pilot@alex-mods --scope user
-```
-
-合并到 `main` 之后，去掉 `#dp/integration` 即可。
+想改 mod 或者试未发布的改动时，也可以从本地克隆添加：`claude plugin marketplace add ./claude-mods`（相对路径要以 `./` 或 `../` 开头，否则会被当成 GitHub 仓库）。从本地目录添加的 marketplace，Claude Code 直接从那个目录加载 mod，克隆里检出的是哪个版本，用的就是哪个版本。
 
 在 shell 里装好的 mod，下次启动 Claude Code 时才加载：装好后重启 Claude Code，或者在已经开着的会话里运行 `/reload-plugins`。在会话里运行 `/plugin`，看到 `1 mod active · dispatch-pilot` 说明 mod 已经加载；运行 `/dp` 会列出各项功能的开关。接着给它一个决策模型的密钥。
 
@@ -98,7 +86,7 @@ jq -n '{decisionModel: "clef", cloudflareAccountId: env.CLOUDFLARE_ACCOUNT_ID, c
 
 ## 更新
 
-从 GitHub 添加 marketplace 的（`#dp/integration` 那种装法），在 shell 里运行：
+从 GitHub 添加 marketplace 的，在 shell 里运行：
 
 ```bash
 claude plugin marketplace update alex-mods
