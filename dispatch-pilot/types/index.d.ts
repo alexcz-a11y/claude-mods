@@ -14,7 +14,7 @@ declare module 'claude-code' {
        * first, at most 16. `effort` null: the decision failed (the turn is
        * still the person's own, so mid-turn re-decisions may route it).
        */
-      pending: { text: string; effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null; at: number }[]
+      pending: { text: string; effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null; at: number; report?: true }[]
       /**
        * One record per turn of each loop, id `<loop>:<turnId>` where loop is
        * `main` or the agentId. The core's turn.step writer sends what it says.
