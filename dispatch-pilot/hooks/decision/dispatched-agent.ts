@@ -77,29 +77,47 @@ export const NAMED_EFFORT = 'named_effort'
 const NO_EFFORT = 'none'
 export const REQUESTED_FITS = 'requested_fits'
 
-/** The kind of work each model suits (jev-pilot's TIER_CRITERIA, measured on 40 real briefs; guide §4.2), and the option name for it. */
+/**
+ * The kind of work each model suits, and the option name for it. Written from
+ * Artificial Analysis' Intelligence Index v4.3.2 (docs/research/aa-benchmarks-2026-10.md),
+ * each option one situation, never a degree (guide §2.4):
+ * - Haiku 4.5 scores 0% on Terminal-Bench and 3.2% on AutomationBench: it is for a lookup of one or two steps whose result
+ *   is only gathered and laid out as asked, not a long run of tool calls, not a write, not a judgment.
+ * - Sonnet 5.5 matches or beats Opus 5.5 on terminal work, automation and knowledge work (Terminal-Bench 63.6% against
+ *   59.6%, AutomationBench 71.8% against 69.5%) and trails it where facts, hard reasoning and scientific code decide
+ *   (Omniscience 32 against 46, HLE -6.4, SciCode -5.9).
+ * - Opus 5.5 takes those; Fable 5.1 leads Opus nowhere on AA at 2.5 times the price, so its text stays and it stays off by default.
+ *
+ * The wording was then tuned against the real decision model, three rounds on the `subagent` eval (DEVELOPMENT.md, 「按 AA
+ * 基准校正」, 评测迭代): opus's "facts" clause alone drew research that can be checked in documents (it goes to sonnet), and
+ * narrowing it alone sent the security, concurrency and design work to sonnet, so the careful-judgment frame leads and the
+ * recalled-facts clause comes last; haiku's "one or two steps" was read as one trivial thing, so it says what such a lookup
+ * returns. Tuned on the same 100 items it is measured on.
+ */
 const KINDS: Record<Language, Record<AgentModel, { work: string; choose_for: string; not_for: string }>> = {
   en: {
     haiku: {
       work: 'read_and_report',
       choose_for:
-        'Read-only lookups where a mistake is cheap to spot: search or list files, find where something is defined, read files, logs or test output and report what is there, run a command and report the result.',
-      not_for: 'Anything that writes or changes files, or that needs a judgment call.',
+        'A read-only lookup that takes a step or two to run, whose result is only gathered and laid out as asked (a list, a table, a count), where a mistake is cheap to spot: search the repository for a pattern, find where something is defined, list the files that match, read a file, a log or test output and report what is there, run a command and report the result.',
+      not_for: 'An exploration that needs many tool calls in a row, and anything that writes or changes files or needs a judgment call.',
     },
     sonnet: {
       work: 'specified_work',
       choose_for:
-        'Read-only work that needs understanding (summarize or explain code, research across many files, review a diff and report the findings), and code changes with a clear spec and a way to check the result: a bug whose cause is known, a feature to a written spec, tests for existing code, a scoped refactor.',
-      not_for: 'Design, an open spec, a bug whose cause is unknown, or long work across many components.',
+        'Most work that carries something out: terminal and shell work, code changes with a clear requirement (a bug whose cause is known, a feature to a written spec, tests for existing code, a scoped refactor, a change across several files), automation steps, and research or review of material in the repository reported back.',
+      not_for:
+        'Work whose conclusion depends on facts from outside the repository (how an API behaves, a standard, differences between versions) where a wrong recollection is costly, hard reasoning, a design from an open requirement, or a bug whose cause is unknown.',
     },
     opus: {
       work: 'judgment_work',
       choose_for:
-        'Work that needs careful judgment or runs long: design, a change whose spec is open or that nothing can check, a bug whose cause is unknown, long multi-step work across many components, security, data migrations, production or money.',
-      not_for: 'Mechanical or well-specified work that a written plan and a test already cover.',
+        'Work that needs careful judgment or where a subtle mistake is costly: security, concurrency, money, data migrations or production; hard reasoning, design, or a bug whose cause is unknown; scientific, numerical or algorithmic code; research or an answer whose conclusion rests on facts recalled from memory that cannot be checked in the repository or in documents.',
+      not_for: 'Work that carries something out which a written plan and tests already cover.',
     },
     // Anthropic's positioning: the most capable model, for the most demanding
-    // reasoning and long-horizon agentic work, priced above Opus.
+    // reasoning and long-horizon agentic work, priced above Opus. AA shows it
+    // ahead of Opus 5.5 in no area, at 2.5 times the price.
     fable: {
       work: 'frontier_work',
       choose_for:
@@ -110,20 +128,19 @@ const KINDS: Record<Language, Record<AgentModel, { work: string; choose_for: str
   zh: {
     haiku: {
       work: 'read_and_report',
-      choose_for: '出错也容易发现的只读查询：搜索或列出文件，找某个东西在哪里定义，读文件、日志或测试输出并汇报内容，执行一条命令并汇报结果。',
-      not_for: '任何要写入或修改文件、或需要判断的工作。',
+      choose_for: '一两步就能跑完、结果只需要收集起来并按要求排版（列表、表格、计数）、出错也容易发现的只读查找：在仓库里搜索某个模式，找某个东西在哪里定义，列出匹配的文件，读一个文件、日志或测试输出并汇报内容，执行一条命令并汇报结果。',
+      not_for: '需要连续很多步工具调用的探查，以及任何要写入或修改文件、或需要判断的工作。',
     },
     sonnet: {
       work: 'specified_work',
       choose_for:
-        '需要理解的只读工作（总结或解释代码、跨很多文件调研、审查一份 diff 并汇报发现），以及需求明确、结果可以检验的代码修改：原因已知的 bug、按书面需求实现的功能、给现有代码写测试、范围明确的重构。',
-      not_for: '设计、需求不明确、原因未知的 bug，或跨很多组件的长时间工作。',
+        '大多数负责执行的工作：终端和 shell 操作，需求明确的代码修改（原因已知的 bug、按书面需求实现的功能、给现有代码写测试、范围明确的重构、跨几个文件的修改），自动化流程的步骤，以及对仓库内材料的调研或审查并汇报。',
+      not_for: '结论取决于仓库外的事实（API 的行为、标准、版本之间的差异）而且记错代价高的工作、难推理的工作、需求不明确的设计，或原因未知的 bug。',
     },
     opus: {
       work: 'judgment_work',
-      choose_for:
-        '需要审慎判断或耗时很长的工作：设计、需求不明确或无从检验的修改、原因未知的 bug、跨很多组件的多步骤长时间工作、安全、数据迁移、生产环境或涉及钱的工作。',
-      not_for: '书面计划和测试已经覆盖的机械性或需求明确的工作。',
+      choose_for: '需要审慎判断、或一个细微错误就代价高昂的工作：安全、并发、涉及钱、数据迁移或生产环境；难推理的工作、设计，或原因未知的 bug；科学、数值或算法类代码；结论取决于记忆中的事实、而且无法在仓库或文档里查证的调研或解答。',
+      not_for: '书面计划和测试已经覆盖的执行类工作。',
     },
     fable: {
       work: 'frontier_work',
@@ -424,6 +441,8 @@ export type DispatchDecision = {
   namedEffort?: Effort | null
   /** Whose the effort is: the person's (`user`, the one they named), the decision model's, or none (haiku, or no usable answer). */
   effortSource?: 'user' | 'decided' | 'none'
+  /** The decided effort the floor lifted `effort` from; unset when the floor lifted nothing. */
+  liftedFrom?: Effort
 }
 
 /**
@@ -463,13 +482,32 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
     model = requested
     source = 'requested'
   }
-  // An effort the person names is the agent's, over the decided one; haiku takes none either way.
+  // An effort the person names is the agent's, over the decided one; haiku takes none either way. The decided one
+  // is lifted to its model's floor; the person's never is.
   const namedEffort = readNamedEffort(answers[NAMED_EFFORT], threshold)
   const decided = reading === null ? null : pickEffort(reading, settings.thetaMax)
-  const effort = model === 'haiku' ? null : (namedEffort ?? decided)
+  const floor = reading === null ? null : effortFloor(model)
+  const lifted = decided !== null && floor !== null && EFFORTS.indexOf(floor) > EFFORTS.indexOf(decided) ? floor : null
+  const effort = model === 'haiku' ? null : (namedEffort ?? lifted ?? decided)
   const effortSource = effort === null ? 'none' : namedEffort !== null ? 'user' : 'decided'
   const answered = answers[MODEL]?.type === 'choice' || reading !== null
-  return { model, effort, source, pick, banned, reading, answered, namedEffort, effortSource }
+  return { model, effort, source, pick, banned, reading, answered, namedEffort, effortSource, ...(namedEffort === null && model !== 'haiku' && lifted !== null && decided !== null ? { liftedFrom: decided } : {}) }
+}
+
+/**
+ * The least effort an agent on `model` goes at; null for none (haiku takes no
+ * effort, fable has no floor). Raising is easy, lowering is hard: on AA's
+ * Intelligence Index (v4.3.2) Sonnet 5.5 scores 36 at low, 41 at medium, 47 at
+ * high (Terminal-Bench 20.7%, 29.8%, 43.9%) and Opus 5.5 42, 51, 54
+ * (Terminal-Bench 31.3%, 52.5%, 56.6%): both lose most below medium, so both
+ * go at medium at least. (0.2.2 first held sonnet at high; on the eval the
+ * dataset's gold, the cheapest level that does the work, was passed by 10
+ * points more often, results/subagent/2026-10-05-jev-aa-routing.json, and the
+ * floor went down to medium.) Not settings: set from the AA numbers
+ * (docs/research/aa-benchmarks-2026-10.md).
+ */
+export function effortFloor(model: AgentModel | null): Effort | null {
+  return model === 'sonnet' || model === 'opus' ? 'medium' : null
 }
 
 /**
@@ -552,6 +590,7 @@ export function decisionNotes(decision: DispatchDecision): string[] {
   const notes: string[] = []
   if (decision.banned.length > 0) notes.push(`ruled out ${decision.banned.join(', ')}`)
   if (decision.pick?.nearest === true) notes.push(`the answer left no probability on the other models, nearest ${decision.pick.model} taken`)
+  if (decision.liftedFrom !== undefined && decision.effort !== null) notes.push(`effort lifted from ${decision.liftedFrom} to ${decision.effort} (floor for ${decision.model ?? 'the model'})`)
   if (decision.namedEffort != null) {
     notes.push(
       decision.effortSource === 'user'

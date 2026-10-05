@@ -730,8 +730,9 @@ test('a dispatched agent whose failures are found expected is re-decided by the 
   await w.step(agentStep(agentId, 0, { tools: agentFailing }))
   await w.step(agentStep(agentId, 1))
 
-  // The answer says low, surely: an ordinary re-decision lowers it one level.
-  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'low'])
+  // The agent starts at medium. The answer says low, surely: an ordinary re-decision would lower it one level, to low, but a
+  // sonnet agent goes at medium at least (its model's floor), so it stays.
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'medium'])
 })
 
 test('an agent is raised at most escalateLimit times, and a one-level raise stops at xhigh', { options: ONLY }, async ($, on) => {
@@ -742,7 +743,8 @@ test('an agent is raised at most escalateLimit times, and a one-level raise stop
   await w.step(agentStep(agentId, 2, { tools: agentFailing }))
   await w.step(agentStep(agentId, 3))
 
-  expect(w.steps.map((s) => String(s.effort))).toEqual(['low', 'medium', 'high', 'high'])
+  // The decided low (0.9) is lifted to the sonnet floor, medium; each of the two raises goes up one level.
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'high', 'xhigh', 'xhigh'])
   expect(w.requests.filter((r) => 'escalation.expected' in r.body.questions)).toHaveLength(2)
 })
 

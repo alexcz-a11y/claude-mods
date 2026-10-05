@@ -127,7 +127,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
         // and when they cannot be read, that feature could not route the script either.
         const said = given === 'script' ? await $.state.get(SAID).then((read) => read.value ?? [], () => []) : ((await $.state.get(SAID)).value ?? [])
         const words = said.join('\n')
-        const plan = workflowBatches(parsed, words, settings, ctx.config.context.tokens)
+        const plan = workflowBatches(parsed, words, settings, ctx.config.contextByKind.workflow)
         if (given === 'script') {
           // workflow-agents asked about the rest when the script was sent, and left the person's terms for each call.
           const { value: terms = [] } = await $.state.get({ ...TERMS, id: e.tool_use_id }).catch(() => ({ value: undefined }))
@@ -303,7 +303,7 @@ async function decideAtStart(
     edit: null,
   }
   const parsed: ParsedWorkflow = { script: '', meta: { name: agent.run.workflow, description: agent.run.description }, calls: [call] }
-  const plan = workflowBatches(parsed, words, settings, ctx.config.context.tokens)
+  const plan = workflowBatches(parsed, words, settings, ctx.config.contextByKind.workflow)
   const batch = plan.batches[0]
   if (batch === undefined) return { ok: false, reason: 'its task says nothing of the work' }
   const timeoutMs = Math.min(ctx.config.timeoutMs, agent.deadline - (await $.clock.now()))

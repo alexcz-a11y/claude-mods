@@ -43,7 +43,7 @@ export type TurnRecord = Plan & {
  * A prompt's decided effort, waiting for the turn the prompt starts. `effort`
  * null: the person's message whose decision failed (its turn is still theirs).
  */
-export type PendingDecision = { text: string; effort: Effort | null; at: number }
+export type PendingDecision = { text: string; effort: Effort | null; at: number; /** A report (a dispatched agent's hand-back, a task notice) started this turn, not the person's own message. */ report?: true }
 
 /** The main agent's name wherever loops go by agent: in turn keys (`main:<turnId>`) and as its id in the `escalation` table. */
 export const MAIN = 'main'

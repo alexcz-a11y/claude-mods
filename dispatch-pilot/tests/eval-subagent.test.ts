@@ -19,7 +19,7 @@ const ZH = '上周的事故复盘里提到权限判断有漏洞，'
 const EN = "Last week's incident review said the permission checks have holes. "
 
 /**
- * An agent item longer than every budget (Jev's default is 6000 tokens): the
+ * An agent item longer than every budget (Jev's default for an agent's request is 24000 tokens): the
  * person's message is cut twice (to the context budget when it is kept for the
  * turn, then to a third of it in the agent's state) and the prompt once; both
  * hold a secret. The message
@@ -33,7 +33,7 @@ const LONG: AgentItem = {
     kind: 'agent',
     agent_type: 'general-purpose',
     description: '审查权限改动',
-    prompt: `${'逐条核对 src/policies/ 下每条规则与新的同部门规则是否冲突，'.repeat(400)}token ${SECRET}，最后用表格汇报发现。`,
+    prompt: `${'逐条核对 src/policies/ 下每条规则与新的同部门规则是否冲突，'.repeat(1500)}token ${SECRET}，最后用表格汇报发现。`,
     requested_model: 'sonnet',
     workflow_description: null,
     label: null,
@@ -43,7 +43,7 @@ const LONG: AgentItem = {
     kind: 'agent',
     agent_type: 'general-purpose',
     description: 'Review permission change',
-    prompt: `${'Check each rule under src/policies/ against the new same-department rule. '.repeat(400)}Token ${SECRET}. Report the findings as a table.`,
+    prompt: `${'Check each rule under src/policies/ against the new same-department rule. '.repeat(2500)}Token ${SECRET}. Report the findings as a table.`,
     requested_model: 'sonnet',
     workflow_description: null,
     label: null,

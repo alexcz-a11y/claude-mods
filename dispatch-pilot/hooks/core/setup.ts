@@ -48,6 +48,15 @@ export const PER_BACKEND_OPTIONS = [
 export type PerBackendOption = (typeof PER_BACKEND_OPTIONS)[number]
 
 /**
+ * The kinds of request whose state has a budget of its own (`contextTokens`
+ * reads by kind): a message that carries the skills' question (and find_skill's
+ * first stage) is `Config.context`; the rest are these. `rejudge` is a
+ * mid-turn re-decision and a stuck one.
+ */
+export const CONTEXT_KINDS = ['messagePlain', 'rejudge', 'agent', 'workflow'] as const
+export type ContextKind = (typeof CONTEXT_KINDS)[number]
+
+/**
  * What one decision model brings: each option's default where the person left
  * it unset, the most `contextTokens` reads as, and whether skills are
  * suggested beside each message until the person flips it (`/dp skills
@@ -56,6 +65,13 @@ export type PerBackendOption = (typeof PER_BACKEND_OPTIONS)[number]
 export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
   /** `contextTokens` above this reads as this. */
   contextTokensMax: number
+  /**
+   * What the state of each other kind of request may take, in estimated tokens (`contextTokens` is the message that carries the
+   * skills' question). Not options: each is the most that kind's longest question leaves, worked out in DEVELOPMENT.md (配置,
+   * 「Jev 的上下文默认值怎么算」) and checked by tests/backend-defaults.test.ts. What the person sets as `contextTokens` holds for
+   * every kind, each taking the smaller of it and its own.
+   */
+  contextByKind: Readonly<Record<ContextKind, number>>
   /** Whether the `skills` switch (suggestions beside each message, the listing withheld) starts on. */
   suggestSkills: boolean
   /**
@@ -90,9 +106,16 @@ const JEV_DEFAULTS: BackendDefaults = {
   contextMessages: 32,
   contextTokens: 6000,
   contextTokensMax: 16000,
+  // Every other kind of request has questions of at most 700 tokens as Jev counts them (the effort question 421, a re-decision's
+  // 295 with its trouble, an agent's 457, nine of them 1,836): the state plus the longest of them within 28,800 (90% of 32k)
+  // allows about 25,400 estimated tokens, and 24000 is the round number below it. A Workflow batch (at most 8 agents' questions,
+  // 20,100 in all) and the whole request stay within 57,600 (90% of 64k) too.
+  contextByKind: { messagePlain: 24000, rejudge: 24000, agent: 24000, workflow: 24000 },
   rejudgeSteps: 16,
-  thetaUp: 0.4,
-  thetaDown: 0.6,
+  // Raising is easy, lowering is hard (AA: a Sonnet 5.5 at medium scores 41 on the index and at high 47, at low 36; Terminal-Bench
+  // 20.7% at low against 43.9% at high): 0.4 to 0.3 for a raise, 0.6 to 0.75 for a lowering, 3 to 5 steps held after a raise.
+  thetaUp: 0.3,
+  thetaDown: 0.75,
   thetaMax: 0.5,
   thetaExpected: 0.25,
   agentOverride: 0.6,
@@ -125,6 +148,7 @@ export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = 
     // with older ones, which Clef has not been measured on.
     contextTokens: 2000,
     contextTokensMax: 2000,
+    contextByKind: { messagePlain: 2000, rejudge: 2000, agent: 2000, workflow: 2000 },
     contextMessages: 4,
     rejudgeSteps: 4,
     // The skills' first stage, with every profile, took Clef 3.7-7.9 s (#16): past any wait a message can afford.
@@ -156,8 +180,14 @@ export type Config = {
   turnStartLanguage: Language
   /** `max` only when its own probability reaches this. */
   thetaMax: number
-  /** What the decision model reads of the conversation: how many recent messages, how many tokens in all. */
+  /**
+   * What the decision model reads of the conversation: how many recent messages, how many tokens in all. The tokens are the
+   * budget of a message that carries the skills' question (and of find_skill's first stage); the other kinds of request have
+   * theirs in `contextByKind` (a mid-turn re-decision's in `midturn.limits`, too).
+   */
   context: ContextLimits
+  /** The tokens the state of each other kind of request may take: the decision model's default for the kind, or what the person set if smaller. */
+  contextByKind: Readonly<Record<ContextKind, number>>
   /** The main agent's effort decided again while a turn runs (#5); a stuck loop's re-decision (#7) reads its loop the same way. */
   midturn: {
     /** Re-decide at every step whose index is a multiple of this; 0 for never. */
@@ -258,7 +288,12 @@ export function readConfig(options: PluginOptions): Config {
   }
   const whole = (value: unknown, min: number, max: number, fallback: number) => Math.round(numberIn(value, min, max, fallback))
   const thetaMax = own('thetaMax', 0, 1)
-  const context = { messages: own('contextMessages', 0, 32, true), tokens: own('contextTokens', 100, defaults.contextTokensMax, true) }
+  // `contextTokens` by kind of request: unset, each kind's own (BACKEND_DEFAULTS); set, the smaller of it and each kind's.
+  const contextTokens = own('contextTokens', 100, defaults.contextTokensMax, true)
+  const contextSet = typeof options.contextTokens === 'number' && Number.isFinite(options.contextTokens)
+  const byKind = (cap: number) => (contextSet ? Math.min(contextTokens, cap) : cap)
+  const context = { messages: own('contextMessages', 0, 32, true), tokens: byKind(defaults.contextTokens) }
+  const contextByKind = Object.fromEntries(CONTEXT_KINDS.map((kind) => [kind, byKind(defaults.contextByKind[kind])])) as Record<ContextKind, number>
   const haikuToWritten = stringOf(options.escalateHaikuTo, 'sonnet').trim()
   // A hook's own budget is 10 s and the timer's wait counts toward it.
   const timeoutMs = own('timeoutMs', 200, 8000)
@@ -271,15 +306,16 @@ export function readConfig(options: PluginOptions): Config {
     turnStartLanguage: defaults.turnStartLanguage,
     thetaMax,
     context,
+    contextByKind,
     midturn: {
       every: whole(options.rejudgeEvery, 0, 50, 3),
       waitMs: whole(options.rejudgeWaitMs, 0, 2000, 300),
-      limits: { steps: own('rejudgeSteps', 1, 16, true), tokens: context.tokens },
+      limits: { steps: own('rejudgeSteps', 1, 16, true), tokens: contextByKind.rejudge },
       rules: {
         thetaUp: own('thetaUp', 0, 1),
         thetaDown: own('thetaDown', 0, 1),
         thetaMax,
-        holdSteps: whole(options.holdSteps, 0, 50, 3),
+        holdSteps: whole(options.holdSteps, 0, 50, 5),
       },
     },
     escalation: {

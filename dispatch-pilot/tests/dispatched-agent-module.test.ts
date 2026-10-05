@@ -5,7 +5,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
-import { AGENT_MODELS, decideDispatch, dispatchBrief, dispatchPart, dispatchState, mentionsEffort, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
+import { AGENT_MODELS, decideDispatch, dispatchBrief, dispatchPart, dispatchReason, dispatchState, mentionsEffort, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { mergeParts, QUESTION_ID, type Answer } from '../hooks/decision/system-one.ts'
 
 /** subagent.jsonl's item shape (`zh`). */
@@ -167,12 +167,46 @@ test("an effort the person names: asked only when their words may name one; the 
   expect(haiku).toMatchObject({ model: 'haiku', effort: null, namedEffort: 'high', effortSource: 'none' })
 })
 
+test("a model's effort floor (AA: sonnet's scores fall steeply below medium): sonnet and opus at medium at least; haiku takes none; the person's effort is never lifted", () => {
+  const as = (model: 'haiku' | 'sonnet' | 'opus' | 'fable', levels: number[], more: Record<string, Answer> = {}) =>
+    decideDispatch({ model: choice({ [model]: 1 }), effort: score(levels), ...more }, { ...REVIEW, requested_model: null }, { ...SETTINGS, models: AGENT_MODELS })
+  // Sonnet: medium at least, whatever low says (the answer's level is picked first: the level above is taken at 0.3).
+  expect(as('sonnet', [1, 0, 0, 0, 0])).toMatchObject({ model: 'sonnet', effort: 'medium', liftedFrom: 'low' })
+  expect(as('sonnet', [0.8, 0.2, 0, 0, 0])).toMatchObject({ effort: 'medium', liftedFrom: 'low' })
+  expect(as('sonnet', [0.7, 0.3, 0, 0, 0])).toMatchObject({ effort: 'medium' })
+  expect(as('sonnet', [0.7, 0.3, 0, 0, 0]).liftedFrom).toBeUndefined()
+  // Not lifted when already there or above.
+  expect(as('sonnet', [0, 1, 0, 0, 0])).toMatchObject({ effort: 'medium' })
+  expect(as('sonnet', [0, 0, 1, 0, 0])).toMatchObject({ effort: 'high' })
+  expect(as('sonnet', [0, 0, 0, 1, 0]).liftedFrom).toBeUndefined()
+  expect(as('sonnet', [0, 0, 0, 1, 0])).toMatchObject({ effort: 'xhigh' })
+  // Opus: medium at least.
+  expect(as('opus', [1, 0, 0, 0, 0])).toMatchObject({ model: 'opus', effort: 'medium', liftedFrom: 'low' })
+  expect(as('opus', [0, 1, 0, 0, 0])).toMatchObject({ effort: 'medium' })
+  expect(as('opus', [0, 0, 1, 0, 0])).toMatchObject({ effort: 'high' })
+  // Haiku takes no effort; fable has no floor.
+  expect(as('haiku', [1, 0, 0, 0, 0])).toMatchObject({ model: 'haiku', effort: null })
+  expect(as('fable', [1, 0, 0, 0, 0])).toMatchObject({ model: 'fable', effort: 'low' })
+  // An effort the person names is theirs: no floor lifts it.
+  const low = { named_effort: choice({ none: 0.05, low: 0.9, medium: 0.05 }) }
+  expect(as('sonnet', [0, 0, 0, 1, 0], low)).toMatchObject({ effort: 'low', effortSource: 'user' })
+  expect(as('opus', [0, 0, 0, 1, 0], low)).toMatchObject({ effort: 'low', effortSource: 'user' })
+  expect(as('sonnet', [0, 0, 0, 1, 0], low).liftedFrom).toBeUndefined()
+  expect(as('sonnet', [1, 0, 0, 0, 0], low)).toMatchObject({ effort: 'low', effortSource: 'user' })
+  // The person naming the model does not lift the effort of its own decision less than the floor says.
+  expect(decideDispatch({ model: choice({ haiku: 1 }), effort: score([1, 0, 0, 0, 0]), 'named.sonnet': noul(0.9) }, { ...REVIEW, user_message: '用 sonnet 跑', requested_model: null }, SETTINGS)).toMatchObject({ model: 'sonnet', source: 'user', effort: 'medium' })
+  // No effort answer: nothing is decided about it, whatever the model.
+  expect(decideDispatch({ model: choice({ sonnet: 1 }) }, { ...REVIEW, requested_model: null }, SETTINGS)).toMatchObject({ model: 'sonnet', effort: null })
+  // The log says what the floor did.
+  expect(dispatchReason(as('sonnet', [1, 0, 0, 0, 0]), null, 0.6, 'the main agent')).toContain('effort lifted from low to medium (floor for sonnet)')
+})
+
 test("requested_fits variant: the main agent's pick is no hint but a question of its own, and goes only when the work is also outside what it covers", () => {
   const shape = { ask: { requested: 'noul' as const } }
   const part = dispatchPart(REVIEW, shape)
   expect(Object.keys(part.questions)).toEqual(['model', 'effort', 'requested_fits'])
   expect(JSON.stringify(part.questions.model?.instructions)).not.toContain('opus')
-  expect(JSON.stringify(part.questions.requested_fits?.instructions)).toContain('careful judgment')
+  expect(JSON.stringify(part.questions.requested_fits?.instructions)).toContain('hard reasoning')
 
   // Sure of haiku (confidence 0.85): the pick goes only if it does not fit.
   const settings = { ...shape, thetaOverride: 0.6, thetaMax: 0.5 }

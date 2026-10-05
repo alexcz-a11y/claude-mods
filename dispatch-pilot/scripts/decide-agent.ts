@@ -75,7 +75,7 @@ const shape = dispatchSettings(
 )
 const dispatch: Dispatch = { ...written, user_message: messageText(written.user_message, settings.context.tokens) }
 const part = dispatchPart(dispatch, shape)
-const request = mergeParts(dispatchState(dispatch, settings.context.tokens), [part])
+const request = mergeParts(dispatchState(dispatch, settings.contextByKind.agent), [part])
 console.log(JSON.stringify({ questions: Object.keys(request.questions), state: request.state }))
 
 const started = performance.now()

@@ -18,6 +18,7 @@
 
 import type { HttpInit, On } from 'claude-code'
 import { messageText, turnStartState } from '../decision/context.ts'
+import { SKILLS_PART } from '../decision/skills.ts'
 import { answersFor, mergeParts, type State } from '../decision/system-one.ts'
 import { type Asked, describeAsked, errorText } from '../decision/backend.ts'
 import { collect, type Contribution, type PartOutcome } from './ballot.ts'
@@ -46,7 +47,9 @@ export function registerCore(on: On, ctx: Ctx): void {
     let asked: Asked
     let state: State = {}
     try {
-      const request = mergeParts(turnStartState({ prompt: e.text, messages, limits: ctx.config.context }), ballot)
+      // The state's budget follows the request's longest question: the skills' question leaves less than any other.
+      const tokens = ballot.some((part) => part.part === SKILLS_PART) ? ctx.config.context.tokens : ctx.config.contextByKind.messagePlain
+      const request = mergeParts(turnStartState({ prompt: e.text, messages, limits: { ...ctx.config.context, tokens } }), ballot)
       state = request.state
       const io = {
         fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
@@ -78,9 +81,10 @@ export function registerCore(on: On, ctx: Ctx): void {
     // What the landed write took out of the list it found.
     const own = takePending(before ?? [], texts).taken
     // The turn's message as the decision model read it (later decisions about the turn reuse it). A pending
-    // entry, decided or not, says the person's own message started the turn (only such a turn is re-decided).
-    const prompt = messageText(e.text, ctx.config.context.tokens)
-    await $.state.set({ ...TURNS, id: turnKey(e.turnId, undefined) }, newTurn(prompt, own?.effort ?? null, own !== null))
+    // entry, decided or not, says the person's own message started the turn (only such a turn is re-decided);
+    // one marked `report` says a report did (decided at its start, not re-decided).
+    const prompt = messageText(e.text, ctx.config.contextByKind.rejudge)
+    await $.state.set({ ...TURNS, id: turnKey(e.turnId, undefined) }, newTurn(prompt, own?.effort ?? null, own !== null && own.report !== true))
     return next(e)
   })
 

@@ -233,7 +233,7 @@ test('each re-decision is recorded with why it went where it did (debug log and 
   const mine = (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' midturn-effort: '))
   expect(mine).toEqual([
     '#2 midturn-effort: effort xhigh (was medium) for step 2 (every 2 steps): p low 0.00, medium 0.00, high 0.10, xhigh 0.80, max 0.10; confidence 0.80; up',
-    '#3 midturn-effort: effort xhigh (kept) for step 4 (every 2 steps): p low 0.90, medium 0.10, high 0.00, xhigh 0.00, max 0.00; confidence 0.90; held: raised 2 steps ago (holdSteps 3)',
+    '#3 midturn-effort: effort xhigh (kept) for step 4 (every 2 steps): p low 0.90, medium 0.10, high 0.00, xhigh 0.00, max 0.00; confidence 0.90; held: raised 2 steps ago (holdSteps 5)',
   ])
   expect(w.logs.filter((l) => l.text.startsWith('effort xhigh (was medium) for step 2')).map((l) => l.to)).toEqual(['debug'])
 })
@@ -283,6 +283,7 @@ test('a turn the person did not start (an agent handing its result back, a backg
   await w.step({ ...working(0), effort: 'medium' })
   await w.step({ ...working(1), effort: 'medium' })
 
-  expect(w.requests).toHaveLength(0)
+  // The report's own turn start is decided; the re-decisions never follow.
+  expect(w.requests.map(kind)).toEqual(['effort.level'])
   expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'medium'])
 })

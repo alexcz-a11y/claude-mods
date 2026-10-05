@@ -1,7 +1,7 @@
 {
   "name": "dispatch-pilot",
-  "version": "0.2.1",
-  "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message, sets it on every request of the turn, and decides it again every few steps while the turn runs. It also picks the model and effort of each agent the main agent dispatches and of each agent a Workflow script starts. The main agent's model never changes, so the prompt cache survives (on a Claude Code subscription; not on Bedrock, Vertex or a gateway, where switching effort breaks the cache). It also keeps the full skill listing out of the main agent's context and suggests the few skills that fit each message; mid-turn, the main agent can look skills up with the find_skill tool. When an agent's tool calls keep failing it raises that agent's effort (a failing haiku agent goes on as sonnet), unless the failures are what the work expects.",
+  "version": "0.2.2",
+  "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message (and when an agent's report or a task notice starts a turn), sets it on every request of the turn, and decides it again every few steps while the turn runs. It also picks the model and effort of each agent the main agent dispatches and of each agent a Workflow script starts, by Artificial Analysis benchmarks (sonnet and opus at medium effort at least). The main agent's model never changes, so the prompt cache survives (on a Claude Code subscription; not on Bedrock, Vertex or a gateway, where switching effort breaks the cache). It also keeps the full skill listing out of the main agent's context and suggests the few skills that fit each message; mid-turn, the main agent can look skills up with the find_skill tool. When an agent's tool calls keep failing it raises that agent's effort (a failing haiku agent goes on as sonnet), unless the failures are what the work expects.",
   "author": {
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
@@ -13,7 +13,7 @@
     "decisionModel": {
       "type": "string",
       "title": "Decision model",
-      "description": "Which model makes the decisions: jev (TypeSafe; needs the TypeSafe API key) or clef (Cloudflare Workers AI; needs the Cloudflare account ID and API token). The other is never used as a fallback: when the chosen one fails, the message goes on unrouted. Some options default by the model chosen. With Jev they are set to what Jev accepts (up to 32 recent messages and 16 steps within a 6000-token context budget). With Clef, which answers more slowly and sometimes reads only the start of a long request, the decision timeout is 3000 ms, the context budget at most 2000 tokens (4 messages, 4 steps), and skill suggestions start off (/dp skills on turns them on).",
+      "description": "Which model makes the decisions: jev (TypeSafe; needs the TypeSafe API key) or clef (Cloudflare Workers AI; needs the Cloudflare account ID and API token). The other is never used as a fallback: when the chosen one fails, the message goes on unrouted. Some options default by the model chosen. With Jev they are set to what Jev accepts (up to 32 recent messages and 16 steps; a context budget of 6000 tokens for a message that carries the skill question, 24000 for the other requests). With Clef, which answers more slowly and sometimes reads only the start of a long request, the decision timeout is 3000 ms, the context budget at most 2000 tokens for every kind of request (4 messages, 4 steps), and skill suggestions start off (/dp skills on turns them on).",
       "options": ["jev", "clef"],
       "default": "jev"
     },
@@ -51,7 +51,7 @@
     "contextTokens": {
       "type": "number",
       "title": "Context budget (tokens)",
-      "description": "How many tokens your message and the recent messages may take together (100 to 16000; with Clef at most 2000), counted the same way for Chinese and English; older messages are dropped first. Default 6000 with Jev: with the skill suggestions' request, which carries every skill's profile (about 22k tokens as Jev counts them), it keeps the state plus the longest question within Jev's 32k. If decisions time out more often, set it lower. Default 2000 with Clef, and a larger value reads as 2000: Clef sometimes reads only about the first 2,100 tokens of what it is sent, and the newest messages come last, so they would be the ones lost."
+      "description": "How many tokens your message and the recent messages may take together (100 to 16000; with Clef at most 2000), counted the same way for Chinese and English; older messages are dropped first. Read by kind of request: with Jev, 6000 for a message that carries the skill suggestions' question (and find_skill's first stage), which holds every skill's profile (about 22k tokens as Jev counts them) and so must keep the state plus the question within Jev's 32k, and 24000 for the other requests (a message without the skill question, a re-decision, a dispatched agent, a Workflow batch), whose questions are short. A value you set holds for every kind, each kind taking the smaller of it and its own. If decisions time out more often, set it lower. Default 2000 with Clef for every kind, and a larger value reads as 2000: Clef sometimes reads only about the first 2,100 tokens of what it is sent, and the newest messages come last, so they would be the ones lost."
     },
     "thetaMax": {
       "type": "number",
@@ -67,18 +67,18 @@
     "thetaUp": {
       "type": "number",
       "title": "Threshold to raise effort mid-turn",
-      "description": "A re-decision raises the effort only when the decision model's confidence is at least this (0 to 1). Default 0.4 with either decision model (not calibrated for Clef, whose confidence runs much lower than Jev's: Jev's value)."
+      "description": "A re-decision raises the effort only when the decision model's confidence is at least this (0 to 1). Default 0.3 with either decision model (not calibrated for Clef, whose confidence runs much lower than Jev's: Jev's value)."
     },
     "thetaDown": {
       "type": "number",
       "title": "Threshold to lower effort mid-turn",
-      "description": "A re-decision lowers the effort, by one level at most, only when the decision model's confidence is at least this (0 to 1; never below the raise threshold). Default 0.6 with either decision model (not calibrated for Clef: Jev's value)."
+      "description": "A re-decision lowers the effort, by one level at most, only when the decision model's confidence is at least this (0 to 1; never below the raise threshold). Default 0.75 with either decision model (not calibrated for Clef: Jev's value)."
     },
     "holdSteps": {
       "type": "number",
       "title": "Steps before effort may drop after a raise",
       "description": "After a re-decision raises the effort, it does not lower it again for this many steps (0 to 50).",
-      "default": 3
+      "default": 5
     },
     "rejudgeSteps": {
       "type": "number",

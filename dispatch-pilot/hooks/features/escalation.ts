@@ -27,7 +27,7 @@
 
 import type { EngineInterface, HttpInit, On, TurnStepInput } from 'claude-code'
 import { describeAsked, errorText, within, type Failure } from '../decision/backend.ts'
-import { AGENT_MODELS, modelFamily, type AgentModel, type Terms } from '../decision/dispatched-agent.ts'
+import { AGENT_MODELS, effortFloor, modelFamily, type AgentModel, type Terms } from '../decision/dispatched-agent.ts'
 import { briefOf, forcedTarget, raisedLevel, readExpected, rowsFromTranscript, stepsFromRows, stuckRequest, troubleText, type RaiseMode, type TranscriptRow } from '../decision/escalation.ts'
 import { higherEffort, isEffort, readEffort, readingText, type Effort, type EffortReading } from '../decision/effort.ts'
 import { contentLanguage, judgeMidturn, MIDTURN_LEVEL, outcomeOf, verdictReason, type MidturnInput, type MidturnLimits, type MidturnRules } from '../decision/midturn.ts'
@@ -458,7 +458,9 @@ async function redecide($: EngineInterface, s: Settings, e: TurnStepInput, recor
   const ref = { ...AGENTS, id: e.agentId }
   const planCell: Cell<AgentPlan> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
   const { value: plan } = await planCell.get()
-  const position = { current, sinceRaise: record.raisedAt === null ? null : e.index - record.raisedAt, atLeast: plan?.floor ?? null }
+  // A routed agent's re-decision goes no lower than its model's floor either (effortFloor): its effort was decided with it.
+  const floor = higherEffort(plan?.floor ?? null, plan?.effort == null ? null : effortFloor(modelFamily(plan.model ?? record.model ?? '')))
+  const position = { current, sinceRaise: record.raisedAt === null ? null : e.index - record.raisedAt, atLeast: floor }
   const verdict = judgeMidturn(reading, position, s.rules)
   if (verdict.effort !== current) await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), effort: verdict.effort }))
   return { effort: verdict.effort, why: `${readingText(reading)}; ${verdictReason(verdict, position, s.rules)}` }

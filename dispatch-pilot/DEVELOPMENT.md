@@ -16,21 +16,23 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 ## 它做什么
 
 - 你发出一条消息时（在终端输入、用 `claude -p`、通过 Remote Control 或 Slack，或由插件代你输入），Dispatch Pilot 把这条消息和最近几条对话发给决策模型（Jev 或 Clef），问它「这项工作需要多少逐步推理」。它给出 low、medium、high、xhigh、max 五档各自的概率。
-- 取概率最高的一档，并列时取较高的一档。`max` 只在它自己的概率达到 `thetaMax` 时才使用，否则取其余四档中概率最高的一档。
+- 取概率最高的一档，并列时取较高的一档；然后，如果高一档的概率也有 `ROUND_UP`（0.3，`decision/effort.ts` 的常量，不是配置项）以上，就往上取一档（只取一次）。`max` 只在它自己的概率达到 `thetaMax` 时才使用，不论它是概率最高的一档，还是往上取一档会到的那一档；否则取其余四档中的那一档。依据见「按 AA 基准校正」。发消息时、中途重判、卡住时的强制升档和派出 agent 的 effort 都用这同一个函数（`pickEffort`）。
 - 这一轮的每个模型请求都按这一档发出。Claude Code 每一步都会把 effort 恢复成会话设置，所以每一步都要重新设置。模型按引擎给的原样发出，包括引擎过载时自动换用的模型。
 - 一轮进行中你又发了一条消息：这条消息会在下一步送进当前这一轮，所以它的判断从下一步起接管这一轮。
-- 不是你本人发的新消息（派出 agent 交回的结果、后台任务通知、其他会话的消息、插件自己发的消息）、斜杠命令和空消息都不判断，也不改变任何一轮的 effort。
+- 不是你本人发的新消息的，分两种。**报告开始的一轮**：派出 agent 交回的结果（`origin.kind` 是 `peer`）或后台任务通知（`task-notification`），在会话空闲时到达（没有 `turnId`），会开始主 agent 的新一轮；这一轮也走同样的 effort 判断，请求里的 `user_message` 是那段报告的文字（截断、脱敏和你的消息一样），只问 effort 这一题，不问 skill（它不是你的请求，所以状态里的预算按没有 skill 题的发消息取，见「Jev 的上下文默认值怎么算」），这一轮不做中途重判（`turns[].person` 为 false），你用 `/dp lock` 锁定的 effort 仍然优先。决策记作 `main-effort (agent report)`，与你的消息的决策区分；判断失败时和你的消息一样用会话自己的 effort，状态行写原因，成功就不再写 `(not routed)`。报告送进一轮正在进行的对话（带 `turnId`）时不开始新的一轮，不判断，也不改变那一轮的 effort。**其余**（其他会话的消息、定时任务、插件自己发的消息）、斜杠命令和空消息都不判断，也不改变任何一轮的 effort。
 - 派出 agent 见「派出 agent」一节，Workflow 里的 agent 见「Workflow 里的 agent」一节。
 
 ### 派出 agent
 
 - 主 agent 用 Agent 工具派出一个 agent 时，Dispatch Pilot 在它启动前问一次决策模型，同一个请求里问两件事：它该用哪个模型（默认在 haiku、sonnet、opus 中选，打开 `agentFable` 后加入 fable），以及它的每一步该用哪档 effort。模型直接改在这次派发上；effort 在这个 agent 的每一步都重新设置。选了 haiku 就不设 effort（haiku 不支持）。
+- **模型选项的文字**（`decision/dispatched-agent.ts` 的 `KINDS`，中英两版）按 AA 的基准写，每个选项描述一种情形：haiku 是一两步就能跑完、结果只需要收集起来并按要求排版（列表、表格、计数）的只读查找（不适合：要连续很多步工具调用的探查，以及任何写入或判断）；sonnet 承担大多数执行类工作（终端操作、需求明确的代码修改、跨文件修改、自动化步骤、对仓库内材料的调研或审查）（不适合：结论取决于仓库外的事实知识而且记错代价高的工作、难推理、需求不明确的设计、原因未知的 bug）；opus 是需要审慎判断或细微错误代价高的工作（安全、并发、涉及钱、数据迁移、生产）、难推理、设计、原因未知的 bug、科学或算法类代码，以及结论取决于记忆中的事实、而且无法在仓库或文档里查证的调研或解答（不适合：书面计划和测试已经覆盖的执行类工作）；fable 的文字不变，仍默认关闭。选项名、`work` 键和问题的结构都没有变。写法遵循 `docs/research/typesafe-question-guide.md`。
+- **effort 的下限**（`effortFloor`）：决策出来的 effort 不低于所选模型的下限。sonnet 和 opus 至少 medium；haiku 不带 effort，fable 没有下限（`decision/dispatched-agent.ts` 里的常量，不是配置项，Clef 同样适用）。0.2.2 的第一版把 sonnet 的下限放在 high（low 的概率 ≥ 0.8 才放到 medium），第一次真实评测里 effort 部分从 74/72 掉到 64/62，所以降到 medium（见「按 AA 基准校正」的「评测迭代」）。下限用在决策的 effort 上，所以派出 agent 和 Workflow 里的 `agent()` 都受它管；你点名的 effort 不受下限影响（见下一条）。卡住后「预期内」的那次中途重判，对已经有 effort 的 agent 也不降到它的下限以下（`features/escalation.ts` 的 `redecide`）。决策日志会写 `effort lifted from low to medium (floor for sonnet)`。
 - 发给决策模型的是主 agent 写给这个 agent 的任务（`prompt`）、简短描述、agent 类型，以及你这一轮说的话：开始这一轮的那条消息，加上这一轮进行中你又发的消息。和发消息时一样，发送前对 secret 脱敏，总长度按 token 预算（`contextTokens`）截断，你的话最多占三分之一。
 - 模型的优先级：
   1. 你在这一轮的消息里为这项工作点名的模型，一定照办，即使它不在可选范围内（例如没打开 `agentFable` 时点名 fable）。
   2. 否则用决策模型选的模型。
   3. 主 agent 自己指定了模型时，这个指定作为强提示交给决策模型；只有决策模型选了别的模型、而且置信度达到 `agentOverride` 时才推翻，否则保留主 agent 的指定。
-- effort 的优先级：你在这一轮的消息里为这项工作点名的 effort（「effort 开 low」「这次所有 agent 都用 high」），一定照办，也不会被推翻；否则用决策模型给的 effort（#6 的补丁，与点名模型同样对待）。点名了哪一档由决策模型判断（请求里的 `named_effort`：没有点名 / low / medium / high / xhigh / max，最可能的一档不是「没有点名」并且概率达到 `thetaNamed` 0.5 才算），不靠关键词匹配；只有消息里出现可能点名 effort 的字眼（effort、档位名、推理、思考、强度、拉满……；英文的 think、reason 太常用，只认 think hard、more reasoning、ultrathink 这样的说法）时才在请求里加这一题，只是为了省 token，判断仍交给决策模型。点名只管它说的那项工作，「这次所有 agent」管这一轮全部 agent。模型最后是 haiku 时 effort 无法设置：不设，并在 `/dp log` 里写明「要求了什么、为什么没设」。Workflow 里的 `agent()` 同样：点名的 effort 写进脚本，盖过脚本里写的 effort，也盖过脚本在运行时才算出来的 effort。
+- effort 的优先级：你在这一轮的消息里为这项工作点名的 effort（「effort 开 low」「这次所有 agent 都用 high」），一定照办，也不会被推翻（模型的下限和往上取的一档都不碰它）；否则用决策模型给的 effort，抬到所选模型的下限（#6 的补丁，与点名模型同样对待）。点名了哪一档由决策模型判断（请求里的 `named_effort`：没有点名 / low / medium / high / xhigh / max，最可能的一档不是「没有点名」并且概率达到 `thetaNamed` 0.5 才算），不靠关键词匹配；只有消息里出现可能点名 effort 的字眼（effort、档位名、推理、思考、强度、拉满……；英文的 think、reason 太常用，只认 think hard、more reasoning、ultrathink 这样的说法）时才在请求里加这一题，只是为了省 token，判断仍交给决策模型。点名只管它说的那项工作，「这次所有 agent」管这一轮全部 agent。模型最后是 haiku 时 effort 无法设置：不设，并在 `/dp log` 里写明「要求了什么、为什么没设」。Workflow 里的 `agent()` 同样：点名的 effort 写进脚本，盖过脚本里写的 effort，也盖过脚本在运行时才算出来的 effort。
 - 你在消息里排除的模型（例如「这周额度快用完了，别用 opus」）在任何情况下都不会成为 agent 启动的模型：不论决策模型是不确定、置信度低，还是把概率全给了被排除的那个模型，也不论主 agent 是否指定了它。决策模型在其余模型里最看好的那个会被选中；回答没有给其余模型任何概率时，选离它的选择最近的那个（并列取便宜的，置信度记 0），`/dp log` 里写明。只有整个决策请求失败（没有任何判断）时才照常放行，按主 agent 原来的要求启动：这时你排除的模型仍可能启动。这是有意的取舍：哪些模型被排除，是决策模型从你的话里读出来的，没有它的回答就无从知道；mod 不改用关键词去猜，以免把只是提到某个模型的话当成排除。
 - 你点名的模型、点名的 effort 和排除的模型记进这个 agent 的计划（计划表 `agents` 的 `terms`），之后会改它模型或 effort 的功能都照办：卡住时强制升档不会把你点名的 haiku 换成 sonnet，不会换上你排除的模型（改换没被排除的上一档，都被排除就不换），也不会抬高你点名的 effort；核心每一步都按你点名的 effort 发出，不受升档的下限影响。Workflow 里的 agent 同样（见下两节）。
 - 「点名」和「排除」都由决策模型结合上下文判断，而不是看消息里有没有模型名：模型名只是作为产品被讨论（「比较一下 haiku 和 sonnet」）、说的是之前写代码的模型、是否定说法（「别用 opus 了，用 haiku 就行」里的 opus），或者点名针对的是另一项工作（「调研那种活儿用 haiku，实现你看着办」之于实现的 agent），都不算为这个 agent 点名。消息里提到了哪个模型，请求里才问它是否被点名或排除。
@@ -74,9 +76,9 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 
 - 一轮进行中，每到第 N 步（`rejudgeEvery`，例如 3 就是第 3、6、9……步，从 0 数），以及主 agent 派出 agent、启动 Workflow 或加载 skill 时，Dispatch Pilot 再问一次决策模型：剩下的工作还需要多少逐步推理。只判断 effort，不推荐 skill。
 - 问题在主 agent 的工具开始执行时就发出，工具运行期间得到回答，下一步发出前取用，所以一般不增加等待。回答还没到时，下一步最多再等 `rejudgeWaitMs`；仍然没有就沿用上一步的 effort，状态行注明 `(late)`，这个回答到了以后用在再下一步。请求失败时同样沿用，状态行写明原因。
-- 防抖：升档要求决策模型的置信度不低于 `thetaUp`；降档要求不低于 `thetaDown`（更高的门槛），而且每次只降一档；升档后 `holdSteps` 步之内不降档（中途重判的升档和卡住时的强制升档都算）；用 `max` 仍要它自己的概率达到 `thetaMax`。
+- 防抖：升档要求决策模型的置信度不低于 `thetaUp`（0.3）；降档要求不低于 `thetaDown`（0.75，更高的门槛），而且每次只降一档；升档后 `holdSteps`（5）步之内不降档（中途重判的升档和卡住时的强制升档都算）；用 `max` 仍要它自己的概率达到 `thetaMax`。回答里的档位按 `pickEffort` 取（高一档的概率有 0.3 以上就取高一档）。升高容易、降低难的依据见「按 AA 基准校正」；这三个值是按 AA 的方向定的，没有在评测集上扫过。
 - 决策模型读到的是：这一轮你的消息，即将发出的是第几步，当前的 effort，这一轮的计数（判断次数、档位变化次数、失败的工具调用数、被 hook 拦截的次数），以及最近 `rejudgeSteps` 步的摘要。每一步的摘要是主 agent 在那一步最后写的文字，加上它调用的工具和一句话结果，结果以「成功：」「失败：」「被 hook 拦截：」「用户拒绝：」开头（你的消息不含中文时用 `Success:`、`Failed:`、`Blocked by hook:`、`Denied by user:`），正在运行的那个工具写「进行中：」。结果后面只说明这次调用在做什么：调用自带的 `description`、skill 或 Workflow 的名字、文件路径的最后两段、搜索的 pattern 或 query、URL，或者 shell 命令的第一行。**不包含文件内容、工具写入的内容和工具输出**；同样脱敏，同样受 `contextTokens` 限制（你的消息最多占一半）。
-- 这些情况不重判：你用 `/dp lock` 锁定了 effort；这一轮不是你本人的消息开始的（agent 交回的结果、后台任务通知等），整轮都用会话自己的 effort；`main-effort` 关着（这时发消息不经过它，也认不出这一轮是你开始的）；没有配置决策模型；模型不接受 effort 档位（haiku 这类）。你本人的消息开始的一轮，即使发消息时那次判断失败（出错或超时），也照常中途重判，从会话自己的 effort 起算。`/dp midturn-effort off` 关掉这项功能。
+- 这些情况不重判：你用 `/dp lock` 锁定了 effort；这一轮不是你本人的消息开始的（agent 交回的结果、后台任务通知等：它们开始的一轮在开始时判断一次，之后不重判）；`main-effort` 关着（这时发消息不经过它，也认不出这一轮是你开始的）；没有配置决策模型；模型不接受 effort 档位（haiku 这类）。你本人的消息开始的一轮，即使发消息时那次判断失败（出错或超时），也照常中途重判，从会话自己的 effort 起算。`/dp midturn-effort off` 关掉这项功能。
 - 这一轮第一次重判之后，状态行多出一段，例如 `dp effort xhigh | steps 7, judged 3, changed 1`：已经发出的步数、这一轮的判断次数（包括发消息时的那一次）、档位变化的次数。
 - 每次重判都记进 debug log 和 `/dp log`，例如 `#5 midturn-effort: effort xhigh (was medium) for step 3 (every 3 steps): p low 0.00, medium 0.05, high 0.15, xhigh 0.70, max 0.10; confidence 0.80; up`。
 - 在 Sonnet 5.5 上也照常重判：实测一轮中途改 effort 不会返回 400（见「开发」里的「已实测的引擎行为」）。
@@ -178,14 +180,14 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 | `cloudflareApiToken` | 选 `clef` 时用：能调用 Workers AI 的 Cloudflare API token（控制台里 Workers AI，Use REST API，Create a Workers AI API Token），是敏感字段。为空时不发送任何请求。 |
 | `timeoutMs` | 等待决策模型的最长时间，范围 200–8000 毫秒。Clef 比 Jev 慢：连接建立后 0.6–1.4 秒，冷连接的第一次请求 1.8 秒（见「待评测」）。 |
 | `contextMessages` | 随你的消息一起发送的最近消息条数，范围 0–32。选 Jev 时取上限：真正限制发多少的是 `contextTokens`，放不下的旧消息整条丢掉。选 Clef 时仍是接入时的值（见「Jev 的上下文默认值怎么算」）。 |
-| `contextTokens` | 发给决策模型的 state 的 token 预算，范围 100–16000：你的消息加上最近对话，按发出去的样子数（整个 state 序列化成 JSON，连同字段名、引号和转义）。选 Jev 时的默认值按 Jev 的上限算出来（见「Jev 的上下文默认值怎么算」）。**选 Clef 时最多 2000**，设得更大也按 2000 算：Clef 有时只读序列化后 state 开头约 2.1k 个 token（#17 的探针，见「待评测」），而它序列化时按键名排序，哪个字段在前不由 mod 决定，所以整个 state 都要在截断位置之内。 |
+| `contextTokens` | 发给决策模型的 state 的 token 预算，范围 100–16000：你的消息加上最近对话，按发出去的样子数（整个 state 序列化成 JSON，连同字段名、引号和转义）。选 Jev 时的默认值按 Jev 的上限算出来，而且按请求的种类分开取：带 skill 题的请求一个值，其余种类一个更大的值；你设了值，每个种类取它和自己上限里较小的一个（见「Jev 的上下文默认值怎么算」）。**选 Clef 时最多 2000**，所有种类都是 2000，设得更大也按 2000 算：Clef 有时只读序列化后 state 开头约 2.1k 个 token（#17 的探针，见「待评测」），而它序列化时按键名排序，哪个字段在前不由 mod 决定，所以整个 state 都要在截断位置之内。 |
 | `thetaMax` | 使用 `max` 所需的最低概率，范围 0–1。发消息时、一轮中途和派出 agent（包括 Workflow 里的）的 effort 都用这个门槛。 |
 | `rejudgeEvery` | 一轮进行中每到第几步重新判断一次，范围 0–50；0 表示不按步数重判（派出 agent、启动 Workflow、加载 skill 时仍会重判）。 |
 | `rejudgeSteps` | 重判时决策模型读到的最近步数，范围 1–16。选 Jev 时取上限，`contextTokens` 同样是真正的限制；选 Clef 时仍是接入时的值。 |
 | `rejudgeWaitMs` | 重判的回答还没到时，下一步最多再等多久，范围 0–2000 毫秒。 |
-| `thetaUp` | 中途升档所需的最低置信度，范围 0–1。Clef 的 confidence 比 Jev 低得多（#14：中位数 0.24 对 0.66），这个值下 Clef 很少改档。 |
-| `thetaDown` | 中途降档所需的最低置信度，范围 0–1；低于 `thetaUp` 时按 `thetaUp` 算。 |
-| `holdSteps` | 中途升档之后，多少步之内不降档，范围 0–50。 |
+| `thetaUp` | 中途升档所需的最低置信度，范围 0–1。默认值在 README 的配置表里；0.2.2 起按 AA 的基准往下调（升高容易，见「按 AA 基准校正」）。Clef 的 confidence 比 Jev 低得多（#14：中位数 0.24 对 0.66），这个值下它能升档。 |
+| `thetaDown` | 中途降档所需的最低置信度，范围 0–1；低于 `thetaUp` 时按 `thetaUp` 算。0.2.2 起按 AA 的基准往上调（降低难）；Clef 的置信度很少到这么高，所以它在中途几乎不降档。 |
+| `holdSteps` | 中途升档之后，多少步之内不降档，范围 0–50。0.2.2 起调大（见「按 AA 基准校正」）。 |
 | `escalateAfter` | 一个循环（主 agent 的一轮，或一个派出 agent）里计入的失败满几次，就问决策模型并强制升档（除非是预期内的），范围 1–20。 |
 | `escalateMode` | 强制升档的方式，在 `/config` 里是下拉选择：`one-level` 升一档，最高到 xhigh（决策模型自己有把握给更高时可以更高）；`max` 直接升到 max。 |
 | `escalateLimit` | 一轮（或一个派出 agent）最多强制升档几次，范围 0–10；升档后失败计数清零。 |
@@ -238,7 +240,20 @@ Q 取 Jev 的计数：skill 第一段 21,900，其余的题按「估算 × 1.37�
 
 **取值。** 最紧的是带 skill 推荐的发消息请求和 `find_skill`：C ≤ 6,210，取整到 6000。验算：6000 × 1.11 = 6,670，加 21,900 是 28,570，在 32k 的 89%；整个请求最坏 51,000（两道 skill 题都按最长算），在 64k 的 80%。同一个 6000 让 `questionBudget(6000)` 是 17,700，比 16k 的画像宽 10%，画像不会被裁；再大 500，`questionBudget` 就小于 17.6k，画像开始被裁，所以 6000 也是不裁画像的最大整数档。如果 skill 变多、题长过预算，`questionBudget` 会裁题，不会让 state 加题越过 32k：在 C 取上限 16000 时，16000 × 1.11 + 7,700 × 1.37 = 28,300 仍在 32k 之内。state 里有估算偏少的内容（代码、JSON）时，6000 的余量约 3,400 token，真实 token 数到估算的 1.68 倍才会越过。
 
-**为什么是一个数，不按请求分开取。** 只有带 skill 推荐的发消息请求和 `find_skill` 受 skill 那一题限制；中途重判、派出 agent、Workflow 的最长一题不到 700 token，按算式能到 25k 以上。但 `contextTokens` 是一个选项、一个预算，发消息、`find_skill`、中途重判、卡住、派出 agent、Workflow 的请求构造和评测、脚本都读同一个 `config.context`，要分开得改十来处调用（`core/core.ts`、`features/find-skill.ts`、`core/skills.ts`、`features/dispatched-agents.ts`、`features/workflow-*.ts`、`eval/lib/` 的三套、`scripts/decide*.ts`），不在这次「只动 `BACKEND_DEFAULTS` 和 manifest」的范围里，所以取最紧的那一种。分开取的好处也不大：一轮 16 步、每步 3 个工具调用，重判的 state 约 5.8k（每步文字最多 120、每个工具行最多 80 token），6000 基本装得下；派出 agent 的任务 prompt 分到预算的三分之二，约 4k，少有更长的。要分开取的话，上表就是各自的上限。manifest 的上限 16000 不用放宽：算出来的默认值在它之内，而 16000 也不会让任何一种请求越过 32k（上面验算过）。
+**按请求的种类分开取（0.2.2）。** 0.2.1 取了最紧的 6000 一个数，因为带 skill 推荐的发消息请求和 `find_skill` 的第一段受那道 2.2 万 token 的题限制，而其余种类的最长一题不到 700 token，按上表在 32k 的 90% 以内能放约 25k。用户要「尽量给 Jev 更多信息」，所以 0.2.2 把 state 的预算按种类分开：
+
+| 种类 | `Config` 里的位置 | Jev | Clef |
+|---|---|---|---|
+| 发消息，带 skill 题；`find_skill` 的第一段 | `config.context.tokens` | 6000 | 2000 |
+| 发消息，没有 skill 题（skill 推荐关着，或这一轮是报告开始的） | `config.contextByKind.messagePlain` | 24000 | 2000 |
+| 中途重判，卡住时的重判 | `config.contextByKind.rejudge`（也是 `config.midturn.limits.tokens`） | 24000 | 2000 |
+| 派出 agent | `config.contextByKind.agent` | 24000 | 2000 |
+| 一批 Workflow 调用 | `config.contextByKind.workflow` | 24000 | 2000 |
+
+- 这些值是 `core/setup.ts` 的 `BACKEND_DEFAULTS` 里的内部常量（`contextTokens` 是带 skill 题的那一种，`contextByKind` 是其余几种），不是配置项。其余种类取 24000：上表里它们的 C 上限是 25,400–25,600，取整到 24000；验算 1.11 × 24000 = 26,640，加最长的题（派出 agent 约 630）是 27,270，在 28,800 之内；Workflow 一批（最多 8 个调用，题合计约 20,100）是 46,740，在 57,600 之内。所有种类的 C 加上它最长的题，都用同一个算式在 `tests/backend-defaults.test.ts` 的「Jev's context budget by default, kind of request by kind…」里量过：题用真实的构造函数量（`turnStartEffortPart`、`midturnEffortPart`、`expectedFailurePart`、`dispatchPart`），每个种类断言 C × 1.11 加最长的题不超过 28,800，整个请求不超过 57,600。
+- `contextTokens` 是用户的覆盖值：设了，所有种类都用它，但每个种类各取它和自己的上限里较小的一个（设 4000 是所有种类 4000，设 16000 是带 skill 题的 6000、其余 16000）；没设，每个种类取自己的默认值。manifest 的范围 100–16000 没有放宽。`readConfig` 里 `byKind` 做这件事，`describeDefaults` 的那一行 debug log 只报 `contextTokens` 本身。
+- 谁读哪一个：`core/core.ts` 按这次请求有没有 skill 的 part 选 `context.tokens` 或 `messagePlain`；`features/dispatched-agents.ts` 用 `agent`；`features/workflow-agents.ts`、`features/workflow-labels.ts` 用 `workflow`；`features/escalation.ts` 和 `features/midturn-effort.ts` 用 `midturn.limits`（即 `rejudge`）；`features/find-skill.ts` 和 `core/skills.ts` 仍用 `context.tokens`；评测里的 `eval/lib/subagent.ts` 和 `scripts/decide-agent.ts` 也读 `agent`、`workflow`。你的话（`said`，`dispatched-agents.ts` 在 `prompt.submit` 时存下的每一轮的消息）和一轮记录里的消息（`turns[].prompt`，之后的重判读它）各有一份截断：`said` 仍按 `context.tokens`（6000，它要存进 `$.state`，最多 8 条），`turns[].prompt` 按 `rejudge`；发给决策模型的 state 再按各自种类的预算截。
+- 延迟：没有量过，只有外推（每 1k token 约 13 ms）：state 满了的非 skill 请求比 0.2.1 多约 2.4 万 token，约 0.3 秒；这些请求的 effort 题、重判题都很短，慢的时段超时的消息会比以前多一些，没有量。超时变多就把 `contextTokens` 调小，或把 `timeoutMs` 调大。
 
 **`contextMessages` 和 `rejudgeSteps`。** 默认值 4 条、4 步，在 6000 个 token 里装不满：一条助手的回复就常有几百 token。所以 Jev 取 manifest 范围的上限，32 条和 16 步，让 token 预算而不是条数决定发多少：从最新的往前装，放不下的旧消息（旧步骤）整条丢掉，不挤压。消息都很短时 32 条也只有一两千 token。这只是个上限，不是目标；发出去的仍然只有文字和工具名，不发工具的输入和输出，脱敏，这条隐私设计没有改。Clef 的 `contextTokens` 只有 2000，两项都保持接入时的 4，条数再多也只是用更旧的消息填同一个预算，没在 Clef 上量过。
 
@@ -246,7 +261,50 @@ Q 取 Jev 的计数：skill 第一段 21,900，其余的题按「估算 × 1.37�
 
 **延迟和花费。** 已有的实测：Jev 处理 2.19 万 token 的 skill 第一段，第一次运行 p50 561 ms、p90 615 ms；8.6k 时 317 / 362 ms；0.8k 时 p50 约 280 ms；约每多 1k token 多 13 ms；第二次运行整体慢（各时段都慢，不集中在某一段），218 条里有 24 条（约 11%）第一段就超过 1500 ms。新默认值让 state 最多到 6.7k（真实 token；以前最多 2.2k，评测里的更短），带 skill 推荐的请求最多到约 2.9 万，按每 1k token 多 13 ms 外推，p50 比评测时最多多约 80 ms（外推，没有实测）；慢的时段超过 1500 ms 的消息会比约 11% 更多，多多少没有量。不带 skill 推荐的 effort 请求，state 满了也只有 6.7k，估计 p50 在 0.4 秒上下。超时的消息不经路由，用会话自己的 effort（见「失败时放行」）。超时变多就调小 `contextTokens`（每少 1k 约快 13 ms，但 skill 的那一题仍是 2.2 万，要快得多得 `/dp skills off`）。花费：Jev 只按输入计费，每百万 token 0.042 美元；一个 state 满了的 effort 请求约 6.7k token，不到 0.0003 美元，带 skill 推荐的约 2.9 万 token，约 0.0012 美元。
 
+## 按 AA 基准校正（0.2.2）
+
+用户 2026-10-05 要求按 Artificial Analysis 智力指数 v4.3.2 的十个分项校正模型选择和 effort 规则。原始数据、来源 URL 和已存评测回答按新规则离线重算的结果在 `docs/research/aa-benchmarks-2026-10.md`。改了这几处，每一处都是代码里的常量或 `BACKEND_DEFAULTS`，不进 `userConfig`（除了本来就是配置项的三个门槛），Clef 同样适用（Clef 的门槛本来就没校准）：
+
+1. **派出 agent 的模型选项文字**（`KINDS`）：haiku 只做一两步就能完成的只读查找（Terminal-Bench 0%，AutomationBench 3.2%，HLE 10.4%）；sonnet 承担大多数执行类工作（终端、自动化、知识工作上与 Opus 持平或略高；Omniscience 32 对 46，幻觉率 47%，HLE 差 6.4，SciCode 差 5.9）；opus 管依赖事实知识的调研、难推理、设计、原因未知的 bug、科学或算法类代码和高风险工作；fable 文字不变，仍默认关闭（AA 上没有领先 Opus 5.5 的地方，价格 2.5 倍）。选项名、`work` 键、问题结构都不变。
+2. **effort 往上取一档**（`pickEffort`、`ROUND_UP` 0.3）：先取概率最高的一档，高一档的概率也有 0.3 以上就往上取一档，只取一次；`max` 仍要它自己的概率达到 `thetaMax`（不论它是最高的一档还是往上取会到的那一档）。发消息时、中途重判（`judgeMidturn`）、卡住时的强制升档（`raisedLevel`）、派出 agent 的 effort 都用这一个函数。
+3. **中途门槛**：`thetaUp` 0.4 改 0.3，`thetaDown` 0.6 改 0.75（每次最多降一档的规则保留），`holdSteps` 3 改 5。`thetaUp`、`thetaDown` 在 `BACKEND_DEFAULTS`，`holdSteps` 是 manifest 的默认值（同时是 `readConfig` 的后备值），README 的配置表同步。
+4. **按模型设 effort 下限**（`effortFloor`）：sonnet 和 opus 至少 medium；haiku 不带 effort；fable 没有。用在派出 agent 和 Workflow 里 `agent()` 的决策上；你点名的 effort 和模型永远优先，下限和往上取的一档都不碰它们（`decideDispatch` 里 `namedEffort ?? lifted ?? decided`）；主 agent 自己的 effort 不受下限管（它没有模型可选）。对已经有 effort 的 agent，卡住后「预期内」的重判也不降到它的下限以下。
+5. **报告开始的轮次也走 effort 路由**（见「它做什么」）：`origin.kind` 是 `peer`（子 agent 交回的结果）或 `task-notification`，没有 `turnId`；用的是同一题，`user_message` 换成报告的文字；不问 skill，状态里的预算取 `messagePlain`；用户的锁定优先；决策日志记作 `main-effort (agent report)`；这一轮不做中途重判。这是 `core/prompts.ts` 的 `startsReportTurn`（其他非本人的 origin 保持不判断），`PendingDecision.report` 让 `turn.start` 把这一轮记成不是本人开始的。生成的类型（`PromptOrigin`）和 `docs/research/mods-api-routing-capabilities.md` 说明了这两个 origin：`peer` 是另一个会话或 agent 的模型，`task-notification` 是后台任务的通知，闲置时到达的开始新的一轮（`turnId` 不在），送进正在进行的一轮的带着那一轮的 `turnId`。
+6. **Jev 的上下文按请求种类分开取**（见「Jev 的上下文默认值怎么算」）。
+
+**依据的数字**（max 档，Haiku 取 Reasoning；各 effort 档见研究笔记）：
+
+| 项 | Haiku 4.5 | Sonnet 5.5 | Opus 5.5 | Fable 5.1 |
+|---|---|---|---|---|
+| Intelligence Index v4.3.2 | 17 | 56 | 58 | 53 |
+| Terminal-Bench 4.0 | 0.0% | 63.6% | 59.6% | 52.0% |
+| AutomationBench-AA | 3.2% | 71.8% | 69.5% | 59.4% |
+| SciCode | 42.2% | 61.0% | 66.9% | 63.1% |
+| Humanity's Last Exam | 10.4% | 55.0% | 61.4% | 59.1% |
+| AA-Omniscience | -4 | 32 | 46 | 43 |
+
+Sonnet 5.5 在 low、medium、high、max 的指数是 36、41、47、56（Terminal-Bench 20.7%、29.8%、43.9%、63.6%）；Opus 5.5 是 42、51、54、58。低估一档要付的质量大，高估一档只多花 token，所以往上取、抬下限、抬降档门槛。
+
+**离线重算（零费用）。** `node dispatch-pilot/eval/rescore.ts [--markdown]`（`eval/lib/rescore.ts`，`tests/eval-rescore.test.ts` 用手算的小例子测过）读 `eval/results/` 里已存的回答，用 0.2.1 的规则和现在的规则各选一次档，和数据集的 gold、accept 比较，报告准确率、gold 命中率、偏高率、偏低率；不发请求，不改结果文件。旧规则作为 `legacyPickEffort` 和 `LEGACY_RULES` 留在评测库里。`node dispatch-pilot/eval/real.ts <结果文件> ...` 对 effort 两套评测按存着的回答原样算同样的四项（`sent` 另列一行），用来对照真实运行的前后。在已存的回答上：准确率略降（effort-submit Jev 的变化在 -1.5 到 +2 个百分点之间，派出 agent 降 7.5 到 8.5 个百分点），偏低减少（effort-submit 少 1.5 到 3.5 个百分点，中途重判的 `picked` 少 2 到 4 个），偏高增加；数据集的 gold 是按「够用的最便宜档」标的，没有参考 AA，所以这个方向是规则的本意，不是变差。完整的表在研究笔记里。离线重算改不了模型文字，所以模型文字和 sonnet 的下限用真实调用调过（下一小节）。
+
+### 评测迭代（真实的 Jev，用户授权，约 0.10 美元）
+
+用户先跑了一次 `subagent`（`models-hint`）：整体 70/68 掉到 60/58，模型部分 85/85 到 82/81（model-over 从 8/10 题增加到 12/12 题），effort 部分 74/72 到 64/62。用户决定：sonnet 的下限降到 medium、收窄 opus 的「适合」、用真实调用调（总花费上限 0.25 美元，每次只改一处文字，最多 5 轮）。逐轮的结果（整体、模型部分、effort 部分，中/英）：
+
+| 版本 | 改了什么 | 整体 | 模型 | effort | model-over | model-under |
+|---|---|---|---|---|---|---|
+| 0.2.1 | （改动前） | 70/68 | 85/85 | 74/72 | 8/10 | 7/5 |
+| `aa-routing` | 第一版 0.2.2：sonnet 下限 high，opus 原文 | 60/58 | 82/81 | 64/62 | 12/12 | 6/7 |
+| `aa-iter1` | sonnet 下限 medium；opus 只留「记忆中的事实、无法在仓库或文档里查证」 | 59/56 | 77/77 | 67/64 | 10/11 | 13/12 |
+| `aa-iter2` | opus 先写「需要审慎判断或细微错误代价高」，记忆中的事实放最后 | 64/61 | 84/84 | 67/65 | 10/10 | 6/6 |
+| `aa-iter3` | haiku 写成「结果只需收集并按要求排版的查找」 | 69/68 | 89/91 | 71/71 | 6/4 | 5/5 |
+| `aa-iter3-repeat` | 同一版重复一次 | 69/67 | 89/90 | 71/71 | 6/4 | 5/6 |
+
+结论：目标（模型部分回到 85% 附近或更高，model-over 不比改动前多，effort 部分比第一次真实运行高）都达到。限制：(1) 同一版重复时差在 1 个百分点以内，但版本之间小于约 2 个百分点的差别不能当结论；(2) 三轮文字是看着这 100 题的错题改的，最后的模型部分是在调过的题上量的，对没见过的请求大概率更低，低多少没有量；(3) effort 部分比改动前低 3 到 1 个百分点，是往上取一档和模型下限的代价，gold 命中 50/48 变 44/44。每一轮的原因、发消息和中途重判的真实对照（`effort-submit` 准确率不变；`effort-midturn` 的 `picked` 偏低少 5.5 到 7.5 个百分点，`sent` 的偏高多 6 到 8 个百分点，因为 `thetaDown` 0.75 让该降的一轮降不下来）和花费在 `docs/research/aa-benchmarks-2026-10.md` 的第六节。结果文件：`eval/results/subagent/2026-10-05-jev-aa-*.json`、`eval/results/effort-submit/2026-10-05-jev-aa-final.json`、`eval/results/effort-midturn/2026-10-05-jev-aa-final.json`。
+
 ## 待评测
+
+**0.2.2（按 AA 基准校正）之后仍然没有数据的：** 往上取一档（0.3）、`thetaUp`/`thetaDown`/`holdSteps`（0.3、0.75、5）、各个下限只和 0.2.1 的规则各比了一次（见「按 AA 基准校正」的「评测迭代」），没有扫这些值；派出 agent 的模型文字是对着这 100 题调的，没有在没见过的请求上量；各种类的 state 预算（6000 和 24000）没有量延迟和准确率；报告开始的轮次（agent 交回的结果、任务通知）用的那一题没有专门的评测集，题和发消息时的相同，它们的 `user_message` 是报告文字而不是你的话，决策模型对这样的输入判得准不准没有数据。
 
 **按用户的决定（2026-10-05），#17 不再跑任何对比或扫描评测。** 用户的原话：「那我觉得我们没有必要再跑任何对比测试了 但是我们仍然要做clef接入 提供给有需要的人 我们自己就用jev即可」。所以 Clef 只保留接入，下面列的事大多仍然没有数据；#17 只做了不花钱的收尾（按决策模型取默认值、`skillsMinRelevance` 改成 0.75、文档）和之前已经跑完的 Clef 截断探针。#17 各验收项的状态：
 
@@ -312,6 +370,7 @@ node dispatch-pilot/eval/profiles.ts [--estimate]         # 给快照里的 skil
 node dispatch-pilot/eval/apply-review.ts effort-submit --from <审核记录.jsonl>  # 应用用户的审核决定，再校验
 node dispatch-pilot/eval/compare.ts <结果 a.json> <结果 b.json>                # 两次运行逐项对照，不发请求
 node dispatch-pilot/eval/resummarize.ts [--dry-run] [<结果.json> ...]          # 按存着的逐题答案重算汇总里的门槛和 inTime（指标改了时），不发请求
+node dispatch-pilot/eval/rescore.ts [--markdown] [<结果.json> ...]                # 按存着的各档概率，用 0.2.1 的规则和现在的规则各选一次档，对照 gold，不发请求、不改文件
 node dispatch-pilot/eval/probe-truncation.ts --estimate   # Clef 截断 state 的探针（#17）：只估算；--show <名字> 打印一个探针的请求；不带这两个就发真实请求（Clef，Jev 对照）
 ```
 
@@ -758,8 +817,8 @@ eval/
 ├── results/<类>/*.json     每次运行的结果：设置、答题的模型版本、汇总、逐题答案
 ├── results/probes/*.json   Clef 截断 state 的探针结果（#17，probe-truncation.ts 写）
 ├── plans/17-calibration.md #17 的方案、拍板、探针的结果和范围缩减
-├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、resummarize、compare、docs、各类题型的 suite
-└── validate.ts、run.ts、apply-review.ts、compare.ts、resummarize.ts、profiles.ts、probe-truncation.ts、node.ts   Node 脚本
+├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、resummarize、rescore、compare、docs、各类题型的 suite
+└── validate.ts、run.ts、apply-review.ts、compare.ts、resummarize.ts、rescore.ts、profiles.ts、probe-truncation.ts、node.ts   Node 脚本
 ```
 
 - **测到的就是线上的请求。** 每类题型的 suite 用 mod 自己拼请求的函数（`hooks/decision/` 的各个模块，加上 `hooks/core/` 里读设置的 `setup.ts`、读 skill 目录和画像的 `skills.ts`、`profiles.ts`），设置取 manifest 的默认值，manifest 没有默认值的选项取 `--backend` 那个决策模型的（`core/setup.ts` 的 `BACKEND_DEFAULTS`，结果文件的 `settings.backendDefaults` 记着取了哪些），经 mod 自己的 `readConfig()` 读出（`--option contextTokens=4000` 可以改，按 manifest 写的类型读：数字、`true`/`false` 或文字；manifest 里没有的名字、类型不对的值直接报错），所以范围、缺省值和 mod 完全一样。`tests/eval-effort-submit.test.ts` 用 world 核对：同一条消息和对话，评测发的请求与 mod 发的逐字相同。

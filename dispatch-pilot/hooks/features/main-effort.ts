@@ -1,7 +1,11 @@
 // Feature: the main agent's effort, decided each time the person sends a
-// message. It adds the effort question to the message's ballot (the core
-// sends it); the answer becomes the effort of the turn the message starts,
-// on every step of that turn (the core's turn.step writer).
+// message, and when a report starts a turn of its own: a dispatched agent's
+// hand-back or a background task's notice reaching the idle session (those
+// turns are usually a look at a result and the next dispatch; the session's own
+// effort would be a waste). It adds the effort question to the message's ballot
+// (the core sends it); the answer becomes the effort of the turn the message
+// starts, on every step of that turn (the core's turn.step writer). A report's
+// text is read as the message; its turn is not re-decided mid-turn.
 //
 // A message typed while a turn runs (`e.turnId`) is delivered into that turn
 // at its next step (a `queued_command` attachment; measured on 2.1.289), so
@@ -14,7 +18,7 @@ import { quoteStart } from '../decision/redact.ts'
 import { contribute } from '../core/ballot.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { addPending, revise, turnKey, update, type Cell, type PendingDecision, type TurnRecord } from '../core/plans.ts'
-import { isPersonsMessage } from '../core/prompts.ts'
+import { isPersonsMessage, startsReportTurn } from '../core/prompts.ts'
 import type { Ctx } from '../core/setup.ts'
 import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
@@ -27,13 +31,15 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
   defineSwitch({ name: 'main-effort', info: "decides the main agent's effort when you send a message", segments: ['decision'] })
 
   on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
-    if (!isPersonsMessage(e) || !isOn('main-effort')) return next(e)
+    // The person's own message, or a report that starts a turn of its own (a dispatched agent's hand-back, a task notice).
+    const report = !isPersonsMessage(e) && startsReportTurn(e)
+    if ((!isPersonsMessage(e) && !report) || !isOn('main-effort')) return next(e)
     const pending: Cell<PendingDecision[]> = { get: () => $.state.get(PENDING), set: (value, options) => $.state.set(PENDING, value, options) }
     let added: PendingDecision | null = null
 
     /** The message waits for its turn, decided or not: the turn it starts is the person's own (mid-turn re-decisions are for such turns). */
     const wait = async (effort: Effort | null) => {
-      const entry: PendingDecision = { text: e.text, effort, at: await $.clock.now() }
+      const entry: PendingDecision = { text: e.text, effort, at: await $.clock.now(), ...(report ? { report: true as const } : {}) }
       await update(pending, (list) => addPending(list ?? [], entry))
       added = entry
     }
@@ -59,7 +65,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
         await recordDecision(
           { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
           (line) => $.ui.log(line, { to: 'debug' }),
-          { feature: 'main-effort', outcome: `effort ${effort}`, about: quoteStart(e.text), reason: describeReading(reading, effort, ctx.config.thetaMax) },
+          { feature: report ? 'main-effort (agent report)' : 'main-effort', outcome: `effort ${effort}`, about: quoteStart(e.text), reason: describeReading(reading, effort, ctx.config.thetaMax) },
         )
         await wait(effort)
         const running = e.turnId

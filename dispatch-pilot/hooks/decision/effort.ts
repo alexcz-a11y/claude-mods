@@ -92,8 +92,19 @@ export function readEffort(answer: Answer | undefined): EffortReading | null {
 }
 
 /**
+ * The level above the most probable one is taken instead when it has at least
+ * this probability: raising is easy (a level too low costs the work its
+ * quality, a level too high only tokens; AA's scores fall steeply with effort,
+ * DEVELOPMENT.md, 「按 AA 基准校正」). Not a setting: set from the stored answers
+ * (eval/resummarize.ts), like the other internal constants.
+ */
+export const ROUND_UP = 0.3
+
+/**
  * The level to use: the most probable one, a tie going to the higher level;
- * `max` only when its own probability reaches `thetaMax`, else the most
+ * then the level above it when that one has at least `ROUND_UP` (once, never
+ * further). `max` only when its own probability reaches `thetaMax`, whether it
+ * is the most probable level or the one a raise would reach; else the most
  * probable of the others.
  */
 export function pickEffort(reading: EffortReading, thetaMax: number): Effort {
@@ -103,8 +114,11 @@ export function pickEffort(reading: EffortReading, thetaMax: number): Effort {
     for (let i = 1; i < count; i++) if ((p[i] ?? 0) >= (p[best] ?? 0)) best = i
     return best
   }
+  const last = EFFORTS.length - 1
   let level = top(EFFORTS.length)
-  if (level === EFFORTS.length - 1 && (p[level] ?? 0) < thetaMax) level = top(EFFORTS.length - 1)
+  if (level === last && (p[level] ?? 0) < thetaMax) level = top(last)
+  const above = level + 1
+  if (above <= last && (p[above] ?? 0) >= ROUND_UP && (above < last || (p[above] ?? 0) >= thetaMax)) level = above
   return EFFORTS[level] as Effort
 }
 
