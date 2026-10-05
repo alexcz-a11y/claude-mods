@@ -106,7 +106,7 @@ const KINDS: Record<Language, Record<AgentModel, { work: string; choose_for: str
     opus: {
       work: 'judgment_work',
       choose_for:
-        'Research or an answer whose conclusion rests on facts recalled from memory that cannot be checked in the repository or in documents; hard reasoning, design, or a bug whose cause is unknown; scientific, numerical or algorithmic code; security, data migrations, production or work that involves money.',
+        'Work that needs careful judgment or where a subtle mistake is costly: security, concurrency, money, data migrations or production; hard reasoning, design, or a bug whose cause is unknown; scientific, numerical or algorithmic code; research or an answer whose conclusion rests on facts recalled from memory that cannot be checked in the repository or in documents.',
       not_for: 'Work that carries something out which a written plan and tests already cover.',
     },
     // Anthropic's positioning: the most capable model, for the most demanding
@@ -133,7 +133,7 @@ const KINDS: Record<Language, Record<AgentModel, { work: string; choose_for: str
     },
     opus: {
       work: 'judgment_work',
-      choose_for: '结论取决于记忆中的事实、而且无法在仓库或文档里查证的调研或解答；难推理的工作、设计，或原因未知的 bug；科学、数值或算法类代码；安全、数据迁移、生产环境或涉及钱的工作。',
+      choose_for: '需要审慎判断、或一个细微错误就代价高昂的工作：安全、并发、涉及钱、数据迁移或生产环境；难推理的工作、设计，或原因未知的 bug；科学、数值或算法类代码；结论取决于记忆中的事实、而且无法在仓库或文档里查证的调研或解答。',
       not_for: '书面计划和测试已经覆盖的执行类工作。',
     },
     fable: {
