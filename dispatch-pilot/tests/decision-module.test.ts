@@ -53,6 +53,26 @@ test('an answer reads back the same from a Score and a Choice: normalized, ties 
   expect(readEffort({ type: 'score', score: 0, probabilities: {}, confidence: null })).toBeNull()
 })
 
+test('raising is easy: the level above the most probable one is taken when it has 0.3 or more, once, and max only past thetaMax', () => {
+  const read = (probabilities: number[]) => ({ probabilities, confidence: 0.6 })
+  // The level above the most probable one has 0.3: one level up (0.3 itself counts).
+  expect(pickEffort(read([0, 0.5, 0.3, 0.2, 0]), 0.5)).toBe('high')
+  expect(pickEffort(read([0.6, 0.3, 0.1, 0, 0]), 0.5)).toBe('medium')
+  // Just under 0.3: the most probable level stays.
+  expect(pickEffort(read([0, 0.5, 0.29, 0.21, 0]), 0.5)).toBe('medium')
+  // One level only, whatever lies further up.
+  expect(pickEffort(read([0, 0.4, 0.3, 0.3, 0]), 0.5)).toBe('high')
+  // Only the level directly above counts: a level two up with 0.3 does not pull it.
+  expect(pickEffort(read([0, 0.5, 0.2, 0.3, 0]), 0.5)).toBe('medium')
+  // Nothing above the top.
+  expect(pickEffort(read([0, 0, 0.1, 0.1, 0.8]), 0.5)).toBe('max')
+  // max is not reached by a raise unless its own probability reaches thetaMax.
+  expect(pickEffort(read([0, 0, 0.2, 0.5, 0.3]), 0.5)).toBe('xhigh')
+  expect(pickEffort(read([0, 0, 0.2, 0.4, 0.4]), 0.5)).toBe('xhigh')
+  expect(pickEffort(read([0, 0, 0.2, 0.3, 0.5]), 0.5)).toBe('max')
+  expect(pickEffort(read([0, 0, 0.2, 0.5, 0.3]), 0.3)).toBe('max')
+})
+
 test('several parts share one request; each gets back its own answers under its own ids', () => {
   const skills: Part = {
     part: 'skills',
