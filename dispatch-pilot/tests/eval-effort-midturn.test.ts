@@ -123,7 +123,7 @@ test("the eval reads the re-decision's limits as the mod does: the latest rejudg
   expect((request.state.recent_steps as { assistant_text: string }[]).map((step) => step.assistant_text)).toEqual(['读一下代理配置。', '换个路径再读。'])
 })
 
-/** Two failed test runs: the point where #7 demands a re-decision with a trouble. */
+/** Two failed test runs: the point where #7 asks again about a stuck turn, with its trouble. */
 const STUCK: EffortMidturnItem = {
   id: 'midturn-901',
   zh: {
