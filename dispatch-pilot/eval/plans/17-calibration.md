@@ -293,14 +293,14 @@ node dispatch-pilot/eval/probe-truncation.ts --backend clef --only warmup,en-480
   - Clef：`timeoutMs` 3000；`contextTokens` 默认 2000，上限也是 2000（设得更大按 2000 算，原因是 8.7 节的截断结论）；发消息时的 skill 推荐（`skills` 开关）默认关闭，`/dp skills on` 打开，`find_skill` 保留。
   - Jev：默认值都和以前一样，只有 `skillsMinRelevance` 改成 0.75（下一条）。
   - 其余选项两个模型用同一个值（就是原来的默认值），说明和 README 里标为「Clef 未校准，暂沿用 Jev 的值」。`thetaNamed`、`thetaFit` 是代码里的常量，没有动。
-  - **不写 `default` 的字段，引擎确实不传：** kit 里，`tests/backend-defaults.test.ts` 的「with Clef, a message waits 3000 ms」在 1500 ms 时仍在等、3000 ms 时超时，说明没有任何值顶替；生成的类型里 kit 的 `TestOptions` 写明「`register(on, options)` receives them as a load does: unlisted values unset, defaults filled in」；真实引擎里，2026-10-05 用 `command claude -p "/dp" --plugin-dir ./dispatch-pilot --strict-mcp-config --settings '{"enabledPlugins":{"jev-pilot@jev-pilot":false}}' --debug-file <文件>` 跑了一次（没有配置密钥，没有发出任何 Jev 或 Clef 请求；debug log 里唯一的 `$.http.fetch` 是引擎自己的遥测），debug log 写着 `settings for jev: left unset, so jev's defaults: timeoutMs 1500, contextMessages 4, contextTokens 2000, rejudgeSteps 4, thetaUp 0.4, thetaDown 0.6, thetaMax 0.5, thetaExpected 0.25, agentOverride 0.6, skillsMinRelevance 0.75, findSkillMinRelevance 0.5; skill suggestions on until /dp skills off`。
+  - **不写 `default` 的字段，引擎确实不传：** kit 里，`tests/backend-defaults.test.ts` 的「with Clef, a message waits 3000 ms」在 1500 ms 时仍在等、3000 ms 时超时，说明没有任何值顶替；生成的类型里 kit 的 `TestOptions` 写明「`register(on, options)` receives them as a load does: unlisted values unset, defaults filled in」；真实引擎里，2026-10-05 用 `command claude -p "/dp" --plugin-dir ./dispatch-pilot --strict-mcp-config --settings '{"enabledPlugins":{"jev-pilot@jev-pilot":false}}' --debug-file <临时文件>` 跑了一次（没有配置密钥，没有发出任何 Jev 或 Clef 请求；debug log 里唯一的 `$.http.fetch` 是引擎自己的遥测；日志在临时目录，没有提交，这一行的写法由 `tests/backend-defaults.test.ts` 在会话开始时断言），debug log 写着 `settings for jev: left unset, so jev's defaults: timeoutMs 1500, contextMessages 4, contextTokens 2000, rejudgeSteps 4, thetaUp 0.4, thetaDown 0.6, thetaMax 0.5, thetaExpected 0.25, agentOverride 0.6, skillsMinRelevance 0.75, findSkillMinRelevance 0.5; skill suggestions on until /dp skills off`。
   - 接缝 1 的测试（`tests/backend-defaults.test.ts`）覆盖：两个模型各自的默认值（超时、上下文预算、skill 推荐的开关、`skillsMinRelevance`）；Clef 的 `contextTokens` 上限；你设了值时两个模型都用你的值；会话开始时 debug log 写的那一行；`readConfig` 和评测的 `optionsFor` 取的是同一张表。
 - **`skillsMinRelevance` 默认改成 0.75。** 依据是 E0c 的离线重算（#16 两次 Jev 运行已存的 `breakdown.sweeps`）：带画像时，0.7 下中英差距两次都是 −3.67；0.75 下是 −1.84 和 −2.76，平均 −2.3。这是第 1 轮审查修复之前的问法上的预览，修复后没有重跑。
 - **离线重判中英差距（按新规则：中文比英文低不到 3 个百分点才算通过）。** 只读已存结果的 `summary` 和 `breakdown.sweeps`，没有发请求，也没有写新工具：
   - effort-submit（Jev 3 次）：`en-score` 0、+2、0，通过；`zh-score` 0、0、−1，通过；`zh-choice` −1、−2、−1，通过；`en-choice` 三次都是 −3.0，按新规则不通过（它不是发布配置）。Clef `en-score` 0，通过。
   - effort-midturn（Jev 2 次，5 个变体）：−2 到 +3，都通过；Clef `en-score` −2，通过。
   - subagent（Jev 3 次，4 个变体）：0 到 +6（中文都不低于英文），都通过。
-  - skill（Jev 2 次）：`profiles` 在 0.7 下 −3.67，两次都不通过；在新的默认值 0.75 下 −1.84、−2.76，通过。`descriptions` 在 0.7 下 −1.84、−0.92，0.75 下 −1.84、−2.75，都通过。
+  - skill（Jev 2 次）：`profiles` 在 0.7 下 −3.67，两次都不通过（新旧规则都不通过）；在新的默认值 0.75 下 −1.84、−2.76，通过。`descriptions` 在 0.7 下 −1.84、−0.92，0.75 下 −1.84、−2.75，都通过。
 - **文档。** README 的配置表和「按决策模型取的默认值」、「待评测」开头的各验收项状态、「评测」一节开头的说明（那些数字都是修复之前的问法测得的，修复后没有重跑），以及本节。
 
 ### 8.8.2 每条验收项的状态
