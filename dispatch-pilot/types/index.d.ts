@@ -194,12 +194,14 @@ declare module 'claude-code' {
       skillsShown: string[]
       /**
        * The session's skills (hooks/core/skills.ts `CatalogSkill`), read once
-       * per session (#10; #11 reads it too). find_skill (#12) reads it, and
-       * reads and keeps it itself when the skills feature did not. `file` is
-       * the SKILL.md (or command file) found on disk, null when none (a
-       * built-in skill); `profileKey` the store key of its profile (#11,
-       * core/profiles.ts), `profile` that profile once written (null until
-       * then). null: read it again.
+       * per session by the skills feature (#10). The skill-profiles feature
+       * (#11, features/skill-profiles.ts) reads it and puts each profile in
+       * as it is written. find_skill (#12) reads it, and reads and keeps it
+       * itself when the skills feature did not. `file` is the SKILL.md (or
+       * command file) found on disk, null when none (a built-in skill);
+       * `profileKey` the store key of its profile (core/profiles.ts),
+       * `profile` that profile once written (null until then). null: read it
+       * again.
        */
       skillCatalog: {
         skills: {
