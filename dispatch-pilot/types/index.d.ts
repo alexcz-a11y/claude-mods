@@ -130,11 +130,22 @@ declare module 'claude-code' {
        */
       returned: string[]
       /**
+       * The directories of the session's Workflow runs, as the escalation
+       * feature (#7) notes them when a run's tool call returns (newest last, at
+       * most 8), whatever the other features' switches say: it reads a workflow
+       * agent's transcript there (the engine keeps it from `$.session.messages`).
+       */
+      workflowRuns: {
+        /** The run's id (`runId` of the Workflow tool's result). */
+        runId: string
+        /** The run's directory (`transcriptDir`): its journal.jsonl, and each agent's transcript. */
+        dir: string
+      }[]
+      /**
        * The Workflow runs of the session, as the workflow-labels feature (#9)
        * records them when the run's tool call returns (newest last, at most 8):
        * it routes their agents as each one starts, by the label the run's
-       * journal records for it; the escalation feature (#7) reads a workflow
-       * agent's transcript in the run's directory.
+       * journal records for it.
        */
       labelRuns: {
         /** The run's id (`runId` of the Workflow tool's result). */

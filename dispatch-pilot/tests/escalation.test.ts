@@ -696,6 +696,34 @@ return fixed
   expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'medium'])
 })
 
+test("with workflow-labels switched off, a workflow agent's failures are still asked about from its transcript: this feature notes each run's directory itself", { options: ONLY }, async ($, on) => {
+  const script = `export const meta = { name: 'fix', description: 'Fix the flaky checkout test', phases: [] }
+const fixed = await agent('Find why checkout.spec.ts times out intermittently and fix the cause.', { label: 'fix' })
+return fixed
+`
+  const w = runWorld($, on, { messages: refusing('wa1'), disk: { '/work/fix.js': script }, backend: answers(MEDIUM, { expected: 0.9 }) })
+  await w.command('dp', 'workflow-labels off')
+  await w.workflow({ scriptPath: '/work/fix.js' })
+  w.started('wf_test-1', 'wa1', 'fix')
+  w.disk[`${runDir('wf_test-1')}/agent-wa1.jsonl`] = agentTranscript('Find why checkout.spec.ts times out intermittently and fix the cause.', [
+    {
+      text: 'Running the checkout tests first.',
+      calls: [
+        { id: 'toolu_1', command: 'npx playwright test checkout', description: 'Run the checkout tests', error: 'Timeout of 30000ms exceeded' },
+        { id: 'toolu_2', command: 'npx playwright test checkout --retries 0', description: 'Run them again without retries', error: 'Timeout of 30000ms exceeded' },
+      ],
+    },
+  ])
+  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium', tools: agentFailing })
+  await w.agentStep('wa1', { index: 1, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  // Nothing was decided at the run's start (the fallback is off): the one request is the stuck agent's.
+  expect(w.requests.map(kind)).toEqual(['midturn.level,escalation.expected'])
+  expect(w.requests[0]?.body.state.user_message).toBe('Find why checkout.spec.ts times out intermittently and fix the cause.')
+  // Found expected: nothing is forced.
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'medium'])
+})
+
 test('a dispatched agent whose failures are found expected is re-decided by the effort answer, as the main agent is', { options: ONLY }, async ($, on) => {
   const w = world($, on, { backend: withAgents({ model: { sonnet: 1 }, effort: MEDIUM }, { levels: LOW, confidence: 0.9, expected: 0.9 }), messages: agentRows })
   const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Fix auth tests' })) as { agentId: string }

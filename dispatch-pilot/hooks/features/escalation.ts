@@ -46,8 +46,11 @@ const ESCALATION = { plugin: 'dispatch-pilot', key: 'escalation' } as const
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
 const AGENTS = { plugin: 'dispatch-pilot', key: 'agents' } as const
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
-const RUNS = { plugin: 'dispatch-pilot', key: 'labelRuns' } as const
+const RUNS = { plugin: 'dispatch-pilot', key: 'workflowRuns' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+
+/** At most this many Workflow runs' directories are kept. */
+const MAX_RUNS = 8
 
 /** The feature's switch (`/dp escalation on|off`). */
 const SWITCH = 'escalation'
@@ -151,6 +154,12 @@ export function registerEscalation(on: On, ctx: Ctx): void {
     // feature's switch says (the mid-turn re-decision sends the counts too).
     if (next.origin.plugin !== 'engine' || !masterOn()) return result
     try {
+      // A Workflow's run: its directory holds each of its agents' transcripts, which the engine keeps from the mod.
+      const run = e.tool === 'Workflow' ? launchedRun(result.result) : null
+      if (run !== null) {
+        const runs: Cell<{ runId: string; dir: string }[]> = { get: () => $.state.get(RUNS), set: (value, options) => $.state.set(RUNS, value, options) }
+        await update(runs, (list) => [...(list ?? []).filter((kept) => kept.runId !== run.runId), run].slice(-MAX_RUNS))
+      }
       const ended = outcomeOf(e.tool, result, wasBlocked(e.tool_use_id))
       noteEnded(e.tool_use_id, ended)
       // A refusal by a plugin's tool.call hook (`{ deny }`) is nobody's failure and no settings hook's block: the
@@ -488,10 +497,17 @@ function haikuSwitch(s: Settings, terms: Terms | null): { to: ResolvedModel; not
   return { why: `every model above haiku is ruled out for it (${above.join(', ')})` }
 }
 
+/** The run a Workflow tool's result says it launched: its id and its directory; null for none (refused, failed). */
+function launchedRun(result: unknown): { runId: string; dir: string } | null {
+  if (typeof result !== 'object' || result === null) return null
+  const { runId, transcriptDir } = result as { runId?: unknown; transcriptDir?: unknown }
+  return typeof runId === 'string' && typeof transcriptDir === 'string' ? { runId, dir: transcriptDir } : null
+}
+
 /**
  * An agent's transcript: as the session gives it, or for a workflow's agent
- * (the engine keeps it from the mod) from the run's directory on disk, found by
- * the runs the workflow-labels feature records; null when neither can be read.
+ * (the engine keeps it from the mod) from the run's directory on disk, found
+ * among the runs this feature noted; null when neither can be read.
  */
 async function agentRows($: EngineInterface, agentId: string): Promise<TranscriptRow[] | null> {
   const found: unknown = await $.session.messages({ agentId }).catch(() => null)

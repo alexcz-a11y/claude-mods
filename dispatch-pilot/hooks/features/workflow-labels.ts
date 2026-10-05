@@ -168,8 +168,8 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
           }
         }
       }
-      // Every launched run is recorded, even one whose calls all run as the script says: the escalation feature (#7)
-      // finds a workflow agent's transcript, which the engine keeps from the mod, in its run's directory.
+      // Every launched run is recorded, even one whose calls all run as the script says: their agents' plans still
+      // take the person's terms for the calls' work as they start.
       const run: LabelRun = { runId: launched.runId, dir: launched.dir, workflow: parsed?.meta.name ?? launched.workflow, description: parsed?.meta.description ?? null, sites }
       const runs: Cell<LabelRun[]> = { get: () => $.state.get(RUNS), set: (value, options) => $.state.set(RUNS, value, options) }
       await update(runs, (list) => [...(list ?? []).filter((kept) => kept.runId !== run.runId), run].slice(-MAX_RUNS))
