@@ -38,7 +38,7 @@ import {
 } from '../decision/midturn.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { recordDecision } from '../core/decisions.ts'
-import { revise, turnKey, update, type Cell, type TurnRecord } from '../core/plans.ts'
+import { floorHeld, redecided, revise, turnKey, update, type Cell, type TurnRecord } from '../core/plans.ts'
 import type { Ctx } from '../core/setup.ts'
 import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
@@ -60,7 +60,6 @@ type MidturnRecord = {
   steps: number
   engine: Effort | null
   askedFor: number | null
-  raisedAt: number | null
   served: number | null
   failures: number
   hookBlocks: number
@@ -224,14 +223,16 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
     $.state.get({ ...DEMAND, id: key }),
     $.clock.now(),
   ])
-  if (turn === undefined || turn.decisions < 1 || lock !== null || record === undefined || record.engine === null) return
+  // Only a turn the person's own message started is re-decided: decided at its start or not (decision 5 of review 1);
+  // never without a decision model set up (every request would fail at once).
+  if (turn === undefined || turn.person !== true || lock !== null || record === undefined || record.engine === null || s.ctx.backend.configured === false) return
   const flying = inFlight.get(key)
   const demand: Demand | null = asked !== undefined && asked.at !== record.served && flying?.demand !== asked.at ? asked : null
   const reason =
     demand !== null ? 'trouble' : starting === null ? null : PHASE_TOOLS.has(starting.name) ? starting.name : s.every > 0 && upcoming % s.every === 0 ? `every ${s.every} steps` : null
   if (reason === null) return
   if (demand === null && (record.askedFor === upcoming || flying?.forStep === upcoming)) return
-  const current = higherEffort(turn.effort ?? record.engine, turn.floor) as Effort
+  const current = higherEffort(turn.effort ?? record.engine, floorHeld(turn, upcoming)) as Effort
   const input: MidturnInput = {
     message: turn.prompt,
     step: upcoming,
@@ -297,11 +298,10 @@ async function settle($: EngineInterface, s: Settings, e: { index: number; effor
     $.state.get(LOCK),
   ])
   if (turn === undefined || record === undefined || lock !== null || engine === null) return null
-  const current = higherEffort(turn.effort ?? engine, turn.floor) as Effort
+  const floor = floorHeld(turn, e.index)
+  const current = higherEffort(turn.effort ?? engine, floor) as Effort
   const ref = { ...TURNS, id: key }
   const turnCell: Cell<TurnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
-  const own = { ...MIDTURN, id: key }
-  const ownCell: Cell<MidturnRecord> = { get: () => $.state.get(own), set: (value, options) => $.state.set(own, value, options) }
   const log: Cell<{ n: number; feature: string; outcome: string; about: string; reason: string }[]> = {
     get: () => $.state.get(DECISIONS),
     set: (value, options) => $.state.set(DECISIONS, value, options),
@@ -322,8 +322,7 @@ async function settle($: EngineInterface, s: Settings, e: { index: number; effor
     const lifted = pending.atLeast === null ? current : (higherEffort(current, pending.atLeast) as Effort)
     pending.atLeast = null
     if (lifted !== current) {
-      await update(turnCell, (r) => moved(r ?? turn, current, lifted))
-      await update(ownCell, (r) => ({ ...(r ?? fresh()), raisedAt: e.index }))
+      await update(turnCell, (r) => ({ ...moved(r ?? turn, current, lifted), raisedAt: e.index }))
       await recordDecision(log, (line) => $.ui.log(line, { to: 'debug' }), {
         feature: SWITCH,
         outcome: `effort ${lifted} (was ${current})`,
@@ -334,11 +333,10 @@ async function settle($: EngineInterface, s: Settings, e: { index: number; effor
     return note
   }
 
-  const sinceRaise = record.raisedAt === null ? null : e.index - record.raisedAt
-  const position = { current, sinceRaise, atLeast: higherEffort(turn.floor, pending.atLeast) }
+  const sinceRaise = turn.raisedAt == null ? null : e.index - turn.raisedAt
+  const position = { current, sinceRaise, atLeast: higherEffort(floor, pending.atLeast) }
   const verdict = judgeMidturn(reading, position, s.rules)
-  await update(turnCell, (r) => decided(r ?? turn, current, verdict.effort))
-  if (EFFORTS.indexOf(verdict.effort) > EFFORTS.indexOf(current)) await update(ownCell, (r) => ({ ...(r ?? fresh()), raisedAt: e.index }))
+  await update(turnCell, (r) => redecided(r ?? turn, current, verdict.effort, e.index))
   await recordDecision(log, (line) => $.ui.log(line, { to: 'debug' }), {
     feature: SWITCH,
     outcome: `effort ${verdict.effort} ${verdict.effort === current ? '(kept)' : `(was ${current})`}`,
@@ -359,7 +357,7 @@ function segment(record: MidturnRecord, turn: TurnRecord | undefined, note: stri
 }
 
 function fresh(): MidturnRecord {
-  return { steps: 0, engine: null, askedFor: null, raisedAt: null, served: null, failures: 0, hookBlocks: 0, recent: [] }
+  return { steps: 0, engine: null, askedFor: null, served: null, failures: 0, hookBlocks: 0, recent: [] }
 }
 
 /**
@@ -403,11 +401,6 @@ function withText(record: MidturnRecord, index: number, text: string): MidturnRe
   if (at >= 0) recent[at] = { ...(recent[at] as StepRecord), text }
   else recent.push({ index, text, tools: [] })
   return { ...record, recent: recent.sort((a, b) => a.index - b.index).slice(-MAX_RECENT) }
-}
-
-/** The turn's record after a re-decision: its effort set when the level moves (counted as a change), the decision counted either way. */
-function decided(record: TurnRecord, current: Effort, next: Effort): TurnRecord {
-  return next === current ? { ...record, decisions: record.decisions + 1 } : revise({ ...record, effort: current }, next)
 }
 
 /** The turn's record lifted to `next` with no decision behind it (a demand's level, its answer missing): a change, not a decision. */

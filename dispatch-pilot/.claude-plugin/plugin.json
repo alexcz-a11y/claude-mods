@@ -126,8 +126,8 @@
     "escalateHaikuTo": {
       "type": "string",
       "title": "Model a failing haiku agent switches to",
-      "description": "A haiku agent has no effort to raise, so when its tool calls keep failing it goes on as this model for the rest of its run. A full model id, because the engine takes no alias for a step; empty: never switch.",
-      "default": "claude-sonnet-5-5"
+      "description": "A haiku agent has no effort to raise, so when its tool calls keep failing it goes on as this model for the rest of its run: sonnet, opus or fable, or a full model id. An alias is turned into the full id a step needs (the engine takes no alias for a step); a model you named for the agent's work, or ruled out, holds over it. Empty: never switch.",
+      "default": "sonnet"
     },
     "agentFable": {
       "type": "boolean",

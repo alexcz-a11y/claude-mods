@@ -3,7 +3,8 @@
 // core's turn.step writer reads them on every step.
 
 import type { TurnStepInput } from 'claude-code'
-import { higherEffort, isEffort, type Effort } from '../decision/effort.ts'
+import { modelFamily, type Terms } from '../decision/dispatched-agent.ts'
+import { EFFORTS, higherEffort, isEffort, type Effort } from '../decision/effort.ts'
 
 /** What a loop's steps go out with. Each slot has its owner; the writer combines them (planStep). */
 export type Plan = {
@@ -11,9 +12,16 @@ export type Plan = {
   effort: Effort | null
   /** No step goes below it (forced raises); null for none. */
   floor: Effort | null
-  /** The model a dispatched or workflow agent's steps name; null leaves the engine's. Never applied to main (ADR 0001). */
+  /** The model a dispatched or workflow agent's steps name (a full id); null leaves the engine's. Never applied to main (ADR 0001). */
   model: string | null
 }
+
+/**
+ * A dispatched or workflow agent's plan for all its turns: a Plan, and the
+ * person's own terms for its work (the model and the effort they named, the
+ * models they ruled out), which everything that writes the plan keeps to.
+ */
+export type AgentPlan = Plan & { terms: Terms | null }
 
 /** One turn of one loop: its plan, plus what the decisions about it need to know. */
 export type TurnRecord = Plan & {
@@ -23,10 +31,19 @@ export type TurnRecord = Plan & {
   decisions: number
   /** Times the routed effort moved from one decided level to another. */
   changes: number
+  /** Whether the person's own message started the turn, decided at its start or not: only such a turn is re-decided mid-turn. */
+  person: boolean
+  /** The step from which `floor` no longer holds (a forced raise holds for holdSteps); null: for the rest of the turn. */
+  floorUntil: number | null
+  /** The step the turn's effort last went up mid-turn (a re-decision's raise or a forced one); null when it has not. */
+  raisedAt: number | null
 }
 
-/** A prompt's decided effort, waiting for the turn the prompt starts. */
-export type PendingDecision = { text: string; effort: Effort; at: number }
+/**
+ * A prompt's decided effort, waiting for the turn the prompt starts. `effort`
+ * null: the person's message whose decision failed (its turn is still theirs).
+ */
+export type PendingDecision = { text: string; effort: Effort | null; at: number }
 
 /** The loop name of the main agent in turn keys. */
 export const MAIN = 'main'
@@ -36,16 +53,37 @@ export function turnKey(turnId: string, agentId: string | undefined): string {
   return `${agentId ?? MAIN}:${turnId}`
 }
 
-/** A main turn's record as it starts, with the effort its prompt was decided at (or none). */
-export function newTurn(prompt: string, effort: Effort | null): TurnRecord {
-  return { effort, floor: null, model: null, prompt, decisions: effort === null ? 0 : 1, changes: 0 }
+/** A main turn's record as it starts: with the effort its prompt was decided at (or none), and whether the person's message started it. */
+export function newTurn(prompt: string, effort: Effort | null, person: boolean): TurnRecord {
+  return { effort, floor: null, model: null, prompt, decisions: effort === null ? 0 : 1, changes: 0, person, floorUntil: null, raisedAt: null }
 }
 
 /** The record after a new decision for the turn (`record` undefined: a turn whose start was not seen). */
 export function revise(record: TurnRecord | undefined, effort: Effort): TurnRecord {
-  const base = record ?? newTurn('', null)
+  const base = record ?? newTurn('', null, false)
   const moved = base.effort !== null && base.effort !== effort
   return { ...base, effort, decisions: base.decisions + 1, changes: base.changes + (moved ? 1 : 0) }
+}
+
+/**
+ * The record after an ordinary re-decision (mid-turn, #5) for step `at`,
+ * the turn at `current` then: the effort set when the level moves (a change),
+ * the step marked when it goes up, the decision counted either way.
+ */
+export function redecided(record: TurnRecord, current: Effort, next: Effort, at: number): TurnRecord {
+  if (next === current) return { ...record, decisions: record.decisions + 1 }
+  const moved = revise({ ...record, effort: current }, next)
+  return EFFORTS.indexOf(next) > EFFORTS.indexOf(current) ? { ...moved, raisedAt: at } : moved
+}
+
+/**
+ * The record after a forced raise at step `at` (#7): the effort decided as
+ * `level`, at least `floor` from this step until `holdSteps` steps later
+ * (decision 4 of review 1: then the ordinary re-decisions take over), and
+ * marked raised here, so a re-decision does not lower it within those steps.
+ */
+export function forced(record: TurnRecord, level: Effort, floor: Effort, at: number, holdSteps: number): TurnRecord {
+  return { ...revise(record, level), floor, floorUntil: at + holdSteps, raisedAt: at }
 }
 
 /** At most this many decisions wait for their turns. */
@@ -75,42 +113,69 @@ export type StepPlans = {
   /** The person's lock on the main agent's effort; ignored on other loops. */
   lock: Effort | null
   /** The plan of the step's turn (`turns`, by turnKey). */
-  turn: Plan | undefined
+  turn: (Plan & { floorUntil?: number | null }) | undefined
   /** The plan of the step's agent for all its turns (`agents`, by agentId); ignored on main. */
-  agent: Plan | undefined
+  agent: (Plan & { terms?: Terms | null }) | undefined
 }
 
 /** Where a step's effort came from: the person's lock, a plan, or the engine (nothing planned). */
 export type EffortSource = 'locked' | 'planned' | 'engine'
 
 /**
- * The step as the plans say to send it. Effort: on main, a lock wins;
- * otherwise the routed effort (the turn's, else on another loop its agent's),
- * lifted to the floor (the higher of the turn's and the agent's), a floor
- * lifting the engine's own effort when nothing is routed. Model: never on the
- * main agent (ADR 0001); on another loop the turn's, else its agent's. A step
- * without effort (a model that takes none) or with a numeric one keeps it.
+ * The step as the plans say to send it.
+ *
+ * Model: never on the main agent (ADR 0001); on another loop the turn's, else
+ * its agent's, else the engine's: the step's effective model.
+ *
+ * Effort: on main, a lock wins. Otherwise an effort the person named for the
+ * agent's work wins (no floor lifts it); else the routed effort (the turn's,
+ * else on another loop its agent's), lifted to the floor (the higher of the
+ * turn's and the agent's, each while it holds: a floor with an end stops at
+ * `floorUntil`), a floor lifting the engine's own effort when nothing is
+ * routed. An agent whose effective model is haiku goes without an effort,
+ * whatever the engine or a plan asks (spec #32). An agent planned off a model
+ * without effort (the engine gave its step none, reckoning with haiku) onto
+ * one that takes an effort gets its planned effort. A step with a numeric
+ * effort keeps it.
  */
 export function planStep(e: TurnStepInput, plans: StepPlans): { step: TurnStepInput; source: EffortSource } {
   const main = e.agentId === undefined
   const agent = main ? undefined : plans.agent
   const engine = isEffort(e.effort) ? e.effort : null
+  const model = main ? null : (plans.turn?.model ?? agent?.model ?? null)
+  const family = modelFamily(model ?? e.model)
   let effort: Effort | null
   let source: EffortSource
   if (main && plans.lock !== null) {
     effort = plans.lock
     source = 'locked'
   } else {
+    const named = agent?.terms?.effort ?? null
     const routed = plans.turn?.effort ?? agent?.effort ?? null
-    const floor = higherEffort(plans.turn?.floor ?? null, agent?.floor ?? null)
-    effort = floor === null ? routed : higherEffort(routed ?? engine, floor)
+    const floor = higherEffort(floorHeld(plans.turn, e.index), floorHeld(agent, e.index))
+    effort = named ?? (floor === null ? routed : higherEffort(routed ?? engine, floor))
     source = effort === null ? 'engine' : 'planned'
   }
-  const model = main ? null : (plans.turn?.model ?? agent?.model ?? null)
   let step = e
-  if (effort !== null && engine !== null && effort !== engine) step = { ...step, effort }
+  if (!main && family === 'haiku') {
+    if (step.effort !== undefined) {
+      const { effort: _none, ...rest } = step
+      step = rest
+    }
+  } else if (effort !== null) {
+    if (engine !== null && effort !== engine) step = { ...step, effort }
+    // The engine gave the step no effort because it reckoned with another family (one without effort): the plan's model takes one.
+    else if (e.effort === undefined && model !== null && family !== null && modelFamily(e.model) !== family) step = { ...step, effort }
+  }
   if (model !== null && model !== e.model) step = { ...step, model }
   return { step, source }
+}
+
+/** A plan's floor where it still holds at step `index`: a floor with an end (`floorUntil`) holds for the steps before it. */
+export function floorHeld(plan: (Plan & { floorUntil?: number | null }) | undefined, index: number): Effort | null {
+  if (plan === undefined || plan.floor === null) return null
+  const until = plan.floorUntil ?? null
+  return until === null || index < until ? plan.floor : null
 }
 
 /** A $.state value reached through closures (the hook that owns `$` builds them). */

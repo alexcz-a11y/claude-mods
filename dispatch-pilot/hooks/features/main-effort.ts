@@ -31,17 +31,26 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
     const pending: Cell<PendingDecision[]> = { get: () => $.state.get(PENDING), set: (value, options) => $.state.set(PENDING, value, options) }
     let added: PendingDecision | null = null
 
+    /** The message waits for its turn, decided or not: the turn it starts is the person's own (mid-turn re-decisions are for such turns). */
+    const wait = async (effort: Effort | null) => {
+      const entry: PendingDecision = { text: e.text, effort, at: await $.clock.now() }
+      await update(pending, (list) => addPending(list ?? [], entry))
+      added = entry
+    }
+
     contribute(e.text, {
       ...turnStartEffortPart(ctx.ask),
       settle: async (outcome) => {
         const show = (line: string | undefined) => $.ui.status(line)
         if (!outcome.ok) {
           setStatus('decision', failureText(ctx.backend.name, outcome.failure), show)
+          await wait(null)
           return
         }
         const reading = readEffort(outcome.answers[LEVEL])
         if (reading === null) {
           setStatus('decision', failureText(ctx.backend.name, { kind: 'parse', detail: 'no effort answer' }), show)
+          await wait(null)
           return
         }
         setStatus('decision', null, show)
@@ -51,9 +60,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
           (line) => $.ui.log(line, { to: 'debug' }),
           { feature: 'main-effort', outcome: `effort ${effort}`, about: quote(e.text), reason: describeReading(reading, effort, ctx.config.thetaMax) },
         )
-        const entry: PendingDecision = { text: e.text, effort, at: await $.clock.now() }
-        await update(pending, (list) => addPending(list ?? [], entry))
-        added = entry
+        await wait(effort)
         const running = e.turnId
         if (running !== undefined) {
           const ref = { ...TURNS, id: turnKey(running, undefined) }

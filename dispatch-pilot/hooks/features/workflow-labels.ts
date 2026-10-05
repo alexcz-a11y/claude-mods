@@ -18,9 +18,23 @@
 
 import type { EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
 import type { Asked } from '../decision/backend.ts'
-import { modelFamily, type AgentModel, type DispatchSettings } from '../decision/dispatched-agent.ts'
+import { modelFamily, termsOf, type AgentModel, type DispatchSettings, type Terms } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
-import { agentPlan, inlineSites, isTaskStart, launchNote, sameRoute, sitesFor, sitesOf, startedIn, taskOf, type Given, type JournalStart, type RunSite } from '../decision/workflow-labels.ts'
+import {
+  agentPlan,
+  inlineSites,
+  isTaskStart,
+  launchNote,
+  sameRoute,
+  sharedTerms,
+  sitesFor,
+  sitesOf,
+  startedIn,
+  taskOf,
+  type Given,
+  type JournalStart,
+  type RunSite,
+} from '../decision/workflow-labels.ts'
 import { parseWorkflow, type AgentCall, type ParsedWorkflow } from '../decision/workflow-script.ts'
 import { callName, outcomeOf, readOutcomes, reasonOf, workflowBatches } from '../decision/workflow.ts'
 import { recordDecision } from '../core/decisions.ts'
@@ -32,6 +46,7 @@ import { defineSwitch, isOn } from '../core/switches.ts'
 const SAID = { plugin: 'dispatch-pilot', key: 'said' } as const
 const AGENTS = { plugin: 'dispatch-pilot', key: 'agents' } as const
 const RUNS = { plugin: 'dispatch-pilot', key: 'labelRuns' } as const
+const TERMS = { plugin: 'dispatch-pilot', key: 'workflowTerms' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
@@ -114,8 +129,9 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
         const words = said.join('\n')
         const plan = workflowBatches(parsed, words, settings, ctx.config.context.tokens)
         if (given === 'script') {
-          // workflow-agents asked about the rest when the script was sent.
-          sites = inlineSites(parsed.calls, plan.skipped)
+          // workflow-agents asked about the rest when the script was sent, and left the person's terms for each call.
+          const { value: terms = [] } = await $.state.get({ ...TERMS, id: e.tool_use_id }).catch(() => ({ value: undefined }))
+          sites = inlineSites(parsed.calls, plan.skipped, terms)
         } else {
           const io = {
             fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
@@ -152,8 +168,8 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
             setStatus('labels', some ? `by label: ${undecided} call${undecided === 1 ? '' : 's'} not decided (${why})` : `by label: not routed (${why})`, show)
           }
         }
-        // Nothing for this feature to do: every call is the script's.
-        if (sites.every((site) => site.route.kind === 'script')) return result
+        // Every call the script's, none with the person's terms to keep: nothing for this feature to do.
+        if (sites.every((site) => site.route.kind === 'script' && site.terms === null)) return result
       }
       const run: LabelRun = { runId: launched.runId, dir: launched.dir, workflow: parsed?.meta.name ?? launched.workflow, description: parsed?.meta.description ?? null, sites }
       const runs: Cell<LabelRun[]> = { get: () => $.state.get(RUNS), set: (value, options) => $.state.set(RUNS, value, options) }
@@ -198,16 +214,24 @@ async function routeAgent($: EngineInterface, ctx: Ctx, settings: DispatchSettin
   const { run, start } = found
   const candidates = run.sites === null ? [] : sitesFor(start.label, run.sites)
   const route = run.sites === null ? null : routeOf(candidates)
-  if (route?.kind === 'script') return
+  if (route?.kind === 'script') {
+    // The script runs it as written (workflow-agents wrote into it); the person's terms for its work still go into its plan.
+    const terms = sharedTerms(candidates)
+    if (terms !== null) await $.state.set({ ...AGENTS, id: agentId }, { effort: null, floor: null, model: null, terms })
+    return
+  }
   const decided: Decided =
     route?.kind === 'set'
-      ? { ok: true, route }
+      ? { ok: true, route, terms: sharedTerms(candidates) }
       : await decideAtStart($, ctx, settings, { run, agentId, label: start.label, site: candidates.length === 1 ? candidates[0] : undefined, deadline })
   const tally = tallies.get(run.runId) ?? { routed: 0, failed: 0, reason: '' }
   if (decided.ok) {
     tally.routed++
     const plan = decided.route === null ? null : agentPlan(decided.route, stepModel)
-    if (plan !== null && (plan.model !== null || plan.effort !== null)) await $.state.set({ ...AGENTS, id: agentId }, { effort: plan.effort, floor: null, model: plan.model })
+    const terms = decided.terms
+    if ((plan !== null && (plan.model !== null || plan.effort !== null)) || terms !== null) {
+      await $.state.set({ ...AGENTS, id: agentId }, { effort: plan?.effort ?? null, floor: null, model: plan?.model ?? null, terms })
+    }
   } else {
     tally.failed++
     tally.reason = decided.reason
@@ -254,8 +278,8 @@ function tallyText(tally: { routed: number; failed: number; reason: string }): s
   return `by label: ${routed} (${tally.failed} not: ${tally.reason})`
 }
 
-/** What deciding one agent came to: what to set on its steps (null: what it runs with already), or why there is no decision. */
-type Decided = { ok: true; route: AgentRoute | null } | { ok: false; reason: string }
+/** What deciding one agent came to: what to set on its steps (null: what it runs with already) and the person's terms for its work, or why there is no decision. */
+type Decided = { ok: true; route: AgentRoute | null; terms: Terms | null } | { ok: false; reason: string }
 
 /**
  * Decides one agent as it starts, from the task in its transcript, as the
@@ -310,8 +334,9 @@ async function decideAtStart(
     about,
     reason: `from its task as it started; ${reasonOf(outcome.decision, call.model.kind === 'literal' ? modelFamily(call.model.value) : null, settings.thetaOverride)}`,
   })
-  if (outcome.kind === 'kept') return { ok: true, route: null }
-  return { ok: true, route: { model: outcome.write.model === undefined ? null : (outcome.write.model as AgentModel), effort: typeof outcome.write.effort === 'string' ? (outcome.write.effort as Effort) : null } }
+  const terms = termsOf(outcome.decision)
+  if (outcome.kind === 'kept') return { ok: true, route: null, terms }
+  return { ok: true, route: { model: outcome.write.model === undefined ? null : (outcome.write.model as AgentModel), effort: typeof outcome.write.effort === 'string' ? (outcome.write.effort as Effort) : null }, terms }
 }
 
 /** The task in an agent's transcript, waiting briefly for the engine to write it; null when it is not there in time. */

@@ -21,7 +21,7 @@
 
 import type { HttpInit, On, ToolCallResult } from 'claude-code'
 import type { Asked } from '../decision/backend.ts'
-import { modelFamily } from '../decision/dispatched-agent.ts'
+import { modelFamily, termsOf } from '../decision/dispatched-agent.ts'
 import { parseWorkflow, rewriteWorkflow, type ParsedWorkflow } from '../decision/workflow-script.ts'
 import { callName, outcomeOf, readOutcomes, reasonOf, returnNote, rewriteNote, statusText, workflowBatches, workflowFingerprint, type CallOutcome } from '../decision/workflow.ts'
 import { recordDecision } from '../core/decisions.ts'
@@ -33,6 +33,7 @@ import { defineSwitch, isOn } from '../core/switches.ts'
 const SAID = { plugin: 'dispatch-pilot', key: 'said' } as const
 const WORKFLOWS = { plugin: 'dispatch-pilot', key: 'workflows' } as const
 const RETURNED = { plugin: 'dispatch-pilot', key: 'returned' } as const
+const TERMS = { plugin: 'dispatch-pilot', key: 'workflowTerms' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
@@ -164,6 +165,11 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
     }
 
     const { parsed, outcomes, script } = route
+    // The person's terms for each call, for the agents' plans as they start (the workflow-labels feature, beneath, reads them in this same call).
+    const terms = outcomes.map((outcome) => (outcome.kind === 'left' ? null : termsOf(outcome.decision)))
+    if (terms.some((one) => one !== null)) {
+      await $.state.set({ ...TERMS, id: e.tool_use_id }, terms).catch((error: unknown) => log(`workflow ${JSON.stringify(parsed.meta.name)}: the person's terms were not kept for its agents: ${String(error)}`))
+    }
     let result = await next(script === null ? e : { ...e, script })
     let rewritten = script !== null
     // The tool parses a script before it starts anything (measured on 2.1.289): a rewrite it cannot parse is dropped, once.

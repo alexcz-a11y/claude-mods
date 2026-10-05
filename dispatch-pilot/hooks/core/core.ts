@@ -78,9 +78,11 @@ export function registerCore(on: On, ctx: Ctx): void {
       taken = took.taken
       return took.rest
     })
-    // The turn's message as the decision model read it (later decisions about the turn reuse it).
+    // The turn's message as the decision model read it (later decisions about the turn reuse it). A pending
+    // entry, decided or not, says the person's own message started the turn (only such a turn is re-decided).
     const prompt = messageText(e.text, ctx.config.context.tokens)
-    await $.state.set({ ...TURNS, id: turnKey(e.turnId, undefined) }, newTurn(prompt, (taken as PendingDecision | null)?.effort ?? null))
+    const own = taken as PendingDecision | null
+    await $.state.set({ ...TURNS, id: turnKey(e.turnId, undefined) }, newTurn(prompt, own?.effort ?? null, own !== null))
     return next(e)
   })
 

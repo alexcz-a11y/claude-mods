@@ -150,7 +150,8 @@ test("an agent whose own decision fails goes out as the engine made it; the stat
     await w.agentStep(agentId, { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
   }
 
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium', 'wa2 claude-haiku-4-5 medium'])
+  // The agent sent to haiku goes out without the engine's effort: haiku takes none (spec #32).
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium', 'wa2 claude-haiku-4-5 undefined'])
   expect(w.status()).toBe('dp workflow not routed (given by path) | by label: routed 1 agent (1 not: jev: HTTP 500)')
 })
 
@@ -373,10 +374,11 @@ test('a Workflow given by name is read from the copy the tool runs, and a templa
     await w.agentStep(agentId, { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
   }
 
+  // The check agent goes to haiku: without the engine's xhigh, which haiku does not take (spec #32).
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual([
     'wa1 claude-sonnet-5-5 medium',
     'wa2 claude-sonnet-5-5 medium',
-    'wa3 claude-haiku-4-5 xhigh',
+    'wa3 claude-haiku-4-5 undefined',
   ])
 })
 
@@ -398,7 +400,7 @@ return [a, b]
   w.started('wf_test-1', 'wa2', 'Review src/billing/invoice.ts for rounding errors in the inv')
   await w.agentStep('wa2', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
 
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-haiku-4-5 medium', 'wa2 claude-opus-5-5 high'])
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-haiku-4-5 undefined', 'wa2 claude-opus-5-5 high'])
 })
 
 /** A script this feature cannot read: its meta is not an object literal. */

@@ -499,6 +499,29 @@ function nearestPick(answer: Answer | undefined, models: readonly AgentModel[], 
 }
 
 /**
+ * The person's own terms for one agent's work, as the decision model read
+ * their words: the model they named (点名) and the effort they named, the
+ * models they ruled out (排除). Kept in the agent's plan (core/plans.ts), so
+ * that whatever changes its model or effort later keeps to them.
+ */
+export type Terms = {
+  /** The model they named for the work; null for none. */
+  model: AgentModel | null
+  /** The effort they named for the work, whether or not its model takes one; null for none. */
+  effort: Effort | null
+  /** The models they ruled out for the work. */
+  banned: AgentModel[]
+}
+
+/** The terms a decision read from the person's words; null when they named nothing and ruled nothing out. */
+export function termsOf(decision: DispatchDecision): Terms | null {
+  const model = decision.source === 'user' ? decision.model : null
+  const effort = decision.namedEffort ?? null
+  if (model === null && effort === null && decision.banned.length === 0) return null
+  return { model, effort, banned: [...decision.banned] }
+}
+
+/**
  * What the log says of a decision beyond whose model it is: the models ruled
  * out and what stood in for them, and the effort the person asked for.
  */

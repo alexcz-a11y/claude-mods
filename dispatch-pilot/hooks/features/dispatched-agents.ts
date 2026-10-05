@@ -15,7 +15,7 @@
 import type { HttpInit, On } from 'claude-code'
 import type { Asked } from '../decision/backend.ts'
 import { messageText } from '../decision/context.ts'
-import { decideDispatch, decisionNotes, dispatchPart, dispatchState, modelFamily, type Dispatch, type DispatchDecision } from '../decision/dispatched-agent.ts'
+import { decideDispatch, decisionNotes, dispatchPart, dispatchState, modelFamily, termsOf, type Dispatch, type DispatchDecision } from '../decision/dispatched-agent.ts'
 import { EFFORTS } from '../decision/effort.ts'
 import { redactSecrets } from '../decision/redact.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
@@ -92,11 +92,12 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     if (result.deny !== undefined) return result
     // The agent has started: nothing after this may fail its spawn.
     try {
-      // Only the effort goes into the plan: the model is set on the spawn,
-      // and a planned model would also pin every step against the engine's
-      // overload fallback.
-      if (result.agentId !== undefined && decision.effort !== null) {
-        await $.state.set({ ...AGENTS, id: result.agentId }, { effort: decision.effort, floor: null, model: null })
+      // The effort and the person's terms go into the plan (what changes the agent later keeps to the
+      // terms); the model is set on the spawn, and a planned model would also pin every step against the
+      // engine's overload fallback.
+      const terms = termsOf(decision)
+      if (result.agentId !== undefined && (decision.effort !== null || terms !== null)) {
+        await $.state.set({ ...AGENTS, id: result.agentId }, { effort: decision.effort, floor: null, model: null, terms })
       }
       const model = decision.model ?? modelFamily(result.model) ?? result.model
       const outcome = decision.effort === null ? model : `${model} ${decision.effort}`

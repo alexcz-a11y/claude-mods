@@ -388,6 +388,19 @@ test("a mid-turn re-decision due at the same step cannot undercut the raise: the
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'high', 'high', 'high'])
 })
 
+test('a forced raise holds for holdSteps steps, then the ordinary re-decisions may lower it again (story 21, decision 4 of review 1)', { options: { ...KEY, rejudgeEvery: 1, holdSteps: 3 } }, async ($, on) => {
+  // Every mid-turn answer says low, surely; the stuck re-decision says medium and not expected.
+  const w = world($, on, { backend: (request, n) => (n > 1 && kind(request) === 'midturn.level' ? jev(LOW, { confidence: 0.9 })(request) : answers(MEDIUM)(request)) })
+  await w.submit('把登录模块重构成三层')
+  await w.step(failing(0)) // two failures: step 1 is forced up a level
+  const reading = (index: number) => ({ index, tools: [{ tool: 'Read', input: { file_path: `/repo/src/f${index}.ts` } }] })
+  for (const index of [1, 2, 3, 4]) await w.step(reading(index))
+  await w.step({ index: 5 })
+
+  // Raised at step 1; steps 2 and 3 are within holdSteps; from step 4 the floor is gone and each sure low drops one level.
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'high', 'high', 'high', 'medium', 'low'])
+})
+
 test("the status line shows the turn's failed calls, the calls a hook blocked (whether or not they count) and the raises, once there is something to show", { options: ONLY }, async ($, on) => {
   const w = world($, on, { backend: answers(MEDIUM) })
   await w.submit('把登录模块重构成三层')
@@ -524,13 +537,31 @@ test('a haiku agent has no effort to raise: it goes on as sonnet, named by its f
   expect(log[0]).toContain('a haiku agent has no effort to raise, so it is switched to claude-sonnet-5-5; not expected (p 0.10, thetaExpected 0.25)')
 })
 
-test('escalateHaikuTo names the model a failing haiku agent is switched to', { options: { ...ONLY, escalateHaikuTo: 'claude-sonnet-9-9' } }, async ($, on) => {
-  const w = world($, on, { backend: withAgents({ model: { haiku: 1 } }), messages: agentRows })
+for (const [written, sent] of [
+  ['claude-sonnet-9-9', 'claude-sonnet-9-9'],
+  ['opus', 'claude-opus-5-5'],
+  ['Sonnet', 'claude-sonnet-5-5'],
+] as const) {
+  test(`escalateHaikuTo ${JSON.stringify(written)}: a failing haiku agent goes on as ${sent} (an alias becomes the id a step must name: the engine takes no alias there)`, { options: { ...ONLY, escalateHaikuTo: written } }, async ($, on) => {
+    const w = world($, on, { backend: withAgents({ model: { haiku: 1 } }), messages: agentRows })
+    const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Find the auth failures' })) as { agentId: string }
+    await w.step(agentStep(agentId, 0, { ...HAIKU, tools: agentFailing }))
+    await w.step(agentStep(agentId, 1, HAIKU))
+
+    expect(w.steps.map((s) => s.model)).toEqual(['claude-haiku-4-5-20251001', sent])
+  })
+}
+
+test('an escalateHaikuTo that names no model the mod knows switches nothing, and the log says so', { options: { ...ONLY, escalateHaikuTo: 'gpt-5' } }, async ($, on) => {
+  const w = world($, on, { backend: withAgents({ model: { haiku: 1 } }), messages: agentRows, store: {}, session: true })
+  await w.start()
   const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Find the auth failures' })) as { agentId: string }
   await w.step(agentStep(agentId, 0, { ...HAIKU, tools: agentFailing }))
   await w.step(agentStep(agentId, 1, HAIKU))
 
-  expect(w.steps.map((s) => s.model)).toEqual(['claude-haiku-4-5-20251001', 'claude-sonnet-9-9'])
+  expect(w.steps.map((s) => s.model)).toEqual(['claude-haiku-4-5-20251001', 'claude-haiku-4-5-20251001'])
+  const log = (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' escalation: '))
+  expect(log[0]).toContain('escalateHaikuTo names no model this mod knows ("gpt-5")')
 })
 
 test('failures the decision model finds expected change nothing about an agent, haiku or not', { options: ONLY }, async ($, on) => {

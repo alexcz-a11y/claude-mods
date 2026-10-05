@@ -182,15 +182,19 @@ export function readOutcomes(parsed: ParsedWorkflow, plan: { batches: readonly B
 /** What to write into a call for its decision; null when there is nothing to write. */
 function writeFor(call: AgentCall, decision: DispatchDecision): CallWrite | null {
   const write: CallWrite = {}
-  // The model the script wrote stands when the decision keeps it or names the same one; one it chooses when it runs is not touched.
+  // The model the script wrote stands when the decision keeps it or names the same one. One it works out when it
+  // runs stands too, unless the person named a model or ruled some out: their terms win over the script's, so the
+  // decided model is written in its place (decision 6 of review 1).
   const written = call.model.kind === 'literal' ? modelFamily(call.model.value) : null
-  if (decision.model !== null && call.model.kind !== 'dynamic' && decision.source !== 'requested' && decision.model !== written) write.model = decision.model
+  const overScript = call.model.kind !== 'dynamic' || decision.source === 'user' || decision.banned.length > 0
+  if (decision.model !== null && overScript && decision.source !== 'requested' && decision.model !== written) write.model = decision.model
   // The effort decided replaces the script's own; one the script works out when it runs is not touched,
   // unless the person asked for an effort: that one is never overruled, whatever the script does.
   // Haiku takes no effort: one the script wrote is taken out.
+  const runsOn = write.model ?? written
   if (decision.effort !== null) {
     if (call.effort.kind === 'none' || (call.effort.kind === 'literal' && call.effort.value !== decision.effort) || (call.effort.kind === 'dynamic' && decision.effortSource === 'user')) write.effort = decision.effort
-  } else if (decision.model === 'haiku' && call.model.kind !== 'dynamic' && call.effort.kind === 'literal') {
+  } else if (runsOn === 'haiku' && call.effort.kind === 'literal') {
     write.effort = null
   }
   return write.model === undefined && write.effort === undefined ? null : write

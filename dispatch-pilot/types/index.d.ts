@@ -9,10 +9,12 @@ declare module 'claude-code' {
   interface PluginState {
     'dispatch-pilot': {
       /**
-       * Effort decided for a prompt at prompt.submit, waiting for the turn that
-       * prompt starts (core's turn.start takes it); oldest first, at most 16.
+       * Effort decided for the person's message at prompt.submit, waiting for
+       * the turn that message starts (core's turn.start takes it); oldest
+       * first, at most 16. `effort` null: the decision failed (the turn is
+       * still the person's own, so mid-turn re-decisions may route it).
        */
-      pending: { text: string; effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; at: number }[]
+      pending: { text: string; effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null; at: number }[]
       /**
        * One record per turn of each loop, id `<loop>:<turnId>` where loop is
        * `main` or the agentId. The core's turn.step writer sends what it says.
@@ -20,7 +22,7 @@ declare module 'claude-code' {
       turns: StateFamily<{
         /** The routed effort: the latest decision; null leaves the engine's. */
         effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        /** No step of the turn goes below it (forced raises); null for none. */
+        /** No step of the turn goes below it while it holds (forced raises); null for none. */
         floor: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
         /** The model to name, for a dispatched or workflow agent only; never sent for main. */
         model: string | null
@@ -30,16 +32,30 @@ declare module 'claude-code' {
         decisions: number
         /** Times the routed effort moved from one decided level to another. */
         changes: number
+        /** Whether the person's own message started the turn (decided at its start or not). */
+        person: boolean
+        /** The step from which `floor` no longer holds; null: for the rest of the turn. */
+        floorUntil: number | null
+        /** The step the turn's effort last went up mid-turn (re-decided or forced); null when it has not. */
+        raisedAt: number | null
       }>
       /**
        * A plan for every turn of one dispatched or workflow agent, id = agentId
        * (written at agent.spawn, or once the agent is known); a turn-level
-       * plan of that agent wins over it slot by slot.
+       * plan of that agent wins over it slot by slot. `terms`: what the person
+       * asked of its work in their own words (the model and the effort they
+       * named, the models they ruled out); whatever changes the agent's model
+       * or effort keeps to them.
        */
       agents: StateFamily<{
         effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
         floor: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
         model: string | null
+        terms: {
+          model: 'haiku' | 'sonnet' | 'opus' | 'fable' | null
+          effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+          banned: ('haiku' | 'sonnet' | 'opus' | 'fable')[]
+        } | null
       }>
       /**
        * What the features recorded about their decisions (core/decisions.ts),
@@ -61,8 +77,6 @@ declare module 'claude-code' {
         engine: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
         /** The step the latest re-decision was asked for; null before the first. */
         askedFor: number | null
-        /** The step from which a re-decision last raised the effort; null when none did. */
-        raisedAt: number | null
         /** The `at` of the last `demand` asked about (each is asked once); null for none. */
         served: number | null
         /** The turn's tool calls that failed (not counting hook blocks and denials). */
@@ -182,8 +196,27 @@ declare module 'claude-code' {
           model: { kind: 'none' } | { kind: 'literal'; value: string } | { kind: 'dynamic' }
           effort: { kind: 'none' } | { kind: 'literal'; value: string } | { kind: 'dynamic' }
           agentType: string | null
+          /** The person's terms for the call's work, as its decision read them; its agents' plans keep them. */
+          terms: {
+            model: 'haiku' | 'sonnet' | 'opus' | 'fable' | null
+            effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+            banned: ('haiku' | 'sonnet' | 'opus' | 'fable')[]
+          } | null
         }[] | null
       }[]
+      /**
+       * What the workflow-agents feature (#8) read of the person's terms for
+       * each agent() call of a script the main agent sent inline (by the
+       * call's index; null for none), id = the Workflow call's tool_use_id.
+       * Written before the tool runs, read by the workflow-labels feature (#9)
+       * within the same call, so the agents of the calls #8 wrote into get the
+       * terms in their plans as they start.
+       */
+      workflowTerms: StateFamily<({
+        model: 'haiku' | 'sonnet' | 'opus' | 'fable' | null
+        effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+        banned: ('haiku' | 'sonnet' | 'opus' | 'fable')[]
+      } | null)[]>
       /**
        * Skills the main agent has had described beside a message in this
        * conversation (#10): suggested again, they are only named. Emptied by
