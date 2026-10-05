@@ -20,7 +20,7 @@
 // agent's pick a hint inside the model question (the mod today) or a question
 // of its own, `requested_fits` (`noul`); `-single`: each of a Workflow's
 // agents in a request of its own (a dispatched agent is asked as in
-// `models-hint`).
+// `models-hint`); `-zh`: `models-hint` with every question in Chinese.
 //
 // Pure: no Node API.
 
@@ -33,6 +33,8 @@ import {
   EFFORT,
   MODEL,
   NAMED_EFFORT,
+  THETA_FIT,
+  THETA_NAMED,
   decideDispatch,
   dispatchPart,
   dispatchState,
@@ -54,13 +56,19 @@ import { requestFailed, variantIn, type Ask, type Decided, type Grade, type Sett
 /** How a variant asks: the questions (`ask`), and how many of a Workflow's agents share a request at most. */
 type AgentVariant = { ask: DispatchAsk; perRequest: number }
 
-/** The variants by name: `<option names>-<the main agent's pick>[-single]`; the first is how the mod asks today (DEFAULT_DISPATCH_ASK, MAX_PER_REQUEST). */
+/**
+ * The variants by name: `<option names>-<the main agent's pick>[-single|-zh]`;
+ * the first is how the mod asks today (DEFAULT_DISPATCH_ASK, MAX_PER_REQUEST).
+ * `-zh` writes every question in Chinese (the decision module's own Chinese
+ * questions), the request otherwise the same.
+ */
 export const AGENT_VARIANTS: Readonly<Record<string, AgentVariant>> = {
   'models-hint': { ask: DEFAULT_DISPATCH_ASK, perRequest: MAX_PER_REQUEST },
   'work-hint': { ask: { ...DEFAULT_DISPATCH_ASK, options: 'work' }, perRequest: MAX_PER_REQUEST },
   'models-noul': { ask: { ...DEFAULT_DISPATCH_ASK, requested: 'noul' }, perRequest: MAX_PER_REQUEST },
   'work-noul': { ask: { ...DEFAULT_DISPATCH_ASK, options: 'work', requested: 'noul' }, perRequest: MAX_PER_REQUEST },
   'models-hint-single': { ask: DEFAULT_DISPATCH_ASK, perRequest: 1 },
+  'models-hint-zh': { ask: { ...DEFAULT_DISPATCH_ASK, language: 'zh' }, perRequest: MAX_PER_REQUEST },
 }
 
 function variantOf(variant: string): AgentVariant {
@@ -388,7 +396,9 @@ export type AgentBreakdown = {
  * asked again, and graded. An unanswered item stays wrong.
  */
 function sweeps(items: readonly AgentItem[], answered: Record<Language, Answered>, ask: DispatchAsk, settings: Settings): Partial<Record<Threshold, Swept[]>> {
-  const run: Required<Pick<DispatchSettings, Threshold>> & DispatchSettings = { ...agentSettings(settings, ask), thetaNamed: 0.5, thetaFit: 0.5 }
+  const base = agentSettings(settings, ask)
+  // The thresholds as the mod reads the answers: the ones it has no option for at their defaults.
+  const run: Required<Pick<DispatchSettings, Threshold>> & DispatchSettings = { ...base, thetaNamed: base.thetaNamed ?? THETA_NAMED, thetaFit: base.thetaFit ?? THETA_FIT }
   const out: Partial<Record<Threshold, Swept[]>> = {}
   for (const name of Object.keys(SWEPT) as Threshold[]) {
     if (name === 'thetaFit' && ask.requested !== 'noul') continue

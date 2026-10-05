@@ -9,7 +9,7 @@
 // in case the turn ends first and the message starts a turn of its own.
 
 import type { On } from 'claude-code'
-import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart, type Effort, type EffortReading } from '../decision/effort.ts'
+import { EFFORTS, LEVEL, pickEffort, readEffort, readingText, turnStartEffortPart, type Effort, type EffortReading } from '../decision/effort.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { contribute } from '../core/ballot.ts'
 import { recordDecision } from '../core/decisions.ts'
@@ -39,7 +39,8 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
     }
 
     contribute(e.text, {
-      ...turnStartEffortPart(ctx.ask),
+      // Written in the decision model's language for this question (Chinese with Jev); the other questions keep ctx.ask's.
+      ...turnStartEffortPart({ ...ctx.ask, language: ctx.config.turnStartLanguage }),
       settle: async (outcome) => {
         const show = (line: string | undefined) => $.ui.status(line)
         if (!outcome.ok) {
@@ -83,8 +84,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
 /** Why a level was picked: every level's probability, `max` held back below thetaMax when it was the most likely, and the backend's confidence. */
 function describeReading(reading: EffortReading, picked: Effort, thetaMax: number): string {
   const p = reading.probabilities
-  const levels = EFFORTS.map((level, i) => `${level} ${(p[i] ?? 0).toFixed(2)}`).join(', ')
   const max = p[EFFORTS.length - 1] ?? 0
-  const held = picked !== 'max' && p.every((other) => other <= max) ? `; max is below thetaMax ${thetaMax.toFixed(2)}` : ''
-  return `p ${levels}${held}; confidence ${reading.confidence === null ? 'n/a' : reading.confidence.toFixed(2)}`
+  const held = picked !== 'max' && p.every((other) => other <= max)
+  return readingText(reading, held ? `max is below thetaMax ${thetaMax.toFixed(2)}` : undefined)
 }

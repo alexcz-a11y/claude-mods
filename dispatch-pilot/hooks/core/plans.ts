@@ -45,7 +45,7 @@ export type TurnRecord = Plan & {
  */
 export type PendingDecision = { text: string; effort: Effort | null; at: number }
 
-/** The loop name of the main agent in turn keys. */
+/** The main agent's name wherever loops go by agent: in turn keys (`main:<turnId>`) and as its id in the `escalation` table. */
 export const MAIN = 'main'
 
 /** The turns-table id of a step's turn: `main:<turnId>` or `<agentId>:<turnId>`. */
@@ -79,7 +79,7 @@ export function redecided(record: TurnRecord, current: Effort, next: Effort, at:
 /**
  * The record after a forced raise at step `at` (#7): the effort decided as
  * `level`, at least `floor` from this step until `holdSteps` steps later
- * (decision 4 of review 1: then the ordinary re-decisions take over), and
+ * (then the ordinary re-decisions take over), and
  * marked raised here, so a re-decision does not lower it within those steps.
  */
 export function forced(record: TurnRecord, level: Effort, floor: Effort, at: number, holdSteps: number): TurnRecord {
@@ -190,10 +190,20 @@ export type Cell<T> = {
  * may run more than once: keep it pure.
  */
 export async function update<T>(cell: Cell<T>, change: (current: T | undefined) => T, attempts = 8): Promise<T> {
+  return (await replace(cell, change, attempts)).after
+}
+
+/**
+ * `update`, resolving to both the value the landed write replaced (`before`)
+ * and the one it wrote (`after`): a caller that needs to know what the write
+ * found reads it from `before`, so `change` stays pure (it may run more than
+ * once, and only its last run counts).
+ */
+export async function replace<T>(cell: Cell<T>, change: (current: T | undefined) => T, attempts = 8): Promise<{ before: T | undefined; after: T }> {
   for (let attempt = 0; attempt < attempts; attempt++) {
     const { value, version } = await cell.get()
     const next = change(value)
-    if ((await cell.set(next, { ifVersion: version })).isSet) return next
+    if ((await cell.set(next, { ifVersion: version })).isSet) return { before: value, after: next }
   }
   throw new Error(`$.state write lost to other writers ${attempts} times in a row`)
 }

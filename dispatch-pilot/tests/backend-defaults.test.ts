@@ -5,9 +5,14 @@
 // reaches the backend and the status line; the shared reading (readConfig,
 // which the eval and scripts/decide*.ts use too) directly.
 
+import type { SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
-import { BACKEND_DEFAULTS, PER_BACKEND_OPTIONS, readConfig } from '../hooks/core/setup.ts'
+import { BACKEND_DEFAULTS, dispatchSettings, PER_BACKEND_OPTIONS, readConfig } from '../hooks/core/setup.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
+import { DEFAULT_ASK } from '../hooks/decision/effort.ts'
+import { midturnState } from '../hooks/decision/midturn.ts'
+import { workflowBatches } from '../hooks/decision/workflow.ts'
+import { parseWorkflow } from '../hooks/decision/workflow-script.ts'
 import { optionsFor, settingsFrom } from '../eval/lib/suite.ts'
 import { CLEF_OPTIONS, clef } from './support/cloudflare.ts'
 import type { SkillsWorld } from './support/world.ts'
@@ -84,6 +89,49 @@ for (const { name, options, budget } of BUDGETS) {
   })
 }
 
+// Clef's encoder renders a state as compact JSON with its keys sorted (`json.dumps(..., sort_keys=True)` in
+// Cloudflare/clef's joint_schema_model.py) and keeps its head: there the person's message comes after
+// recent_context, recent_steps or brief. So no field order is relied on: the budget holds for the whole state as
+// sent, field names, quotes and escapes included, which keeps all of it before the cut.
+
+/** JSON as a person may paste it: each quote and backslash of it escaped once more in the state as sent. */
+const PASTED = '{"id": 17, "name": "session-cache", "tags": ["auth", "ttl"], "path": "C:\\\\cache\\\\sessions"}\n'.repeat(200)
+
+/** A state as sent, in the mod's tokens. */
+const sentTokens = (state: unknown) => estimateTokens(JSON.stringify(state))
+
+test("with Clef, a message's state as sent keeps within the 2000-token budget: the message and the conversation before it, quotes and escapes counted", { options: CLEF_OPTIONS }, async ($, on) => {
+  const messages = Array.from({ length: 8 }, (_, i): SessionMessage => ({ role: i % 2 === 0 ? 'user' : 'assistant', text: PASTED.slice(0, 3000), toolUses: [] }))
+  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), messages })
+  await w.submit(PASTED)
+  expect(sentTokens(w.requests[0]?.body.state)).toBeLessThanOrEqual(2000)
+  // The budget is used, not thrown away.
+  expect(sentTokens(w.requests[0]?.body.state)).toBeGreaterThan(1800)
+})
+
+test("with Clef, a dispatched agent's state as sent keeps within the budget too: its brief and the person's words", { options: CLEF_OPTIONS }, async ($, on) => {
+  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]) })
+  await w.submit(PASTED)
+  await w.spawn({ prompt: PASTED, description: 'Check the cache config' })
+  const asked = w.requests.find((request) => 'agent.model' in request.body.questions)
+  expect(sentTokens(asked?.body.state)).toBeLessThanOrEqual(2000)
+  expect(sentTokens(asked?.body.state)).toBeGreaterThan(1800)
+})
+
+test("a Workflow's requests and a mid-turn state keep within the budget as sent (seam 2: what the mod and the eval build)", () => {
+  const prompt = PASTED.slice(0, 2400)
+  const calls = Array.from({ length: 8 }, (_, i) => `const r${i} = await agent(${JSON.stringify(prompt)}, { label: 'step-${i}' })`).join('\n')
+  const parsed = parseWorkflow(`export const meta = { name: 'big', description: 'Check every cache', phases: [] }\n${calls}\nreturn r0\n`)
+  if (parsed === null) throw new Error('the script did not parse')
+  const { batches } = workflowBatches(parsed, PASTED, dispatchSettings({ config: readConfig(CLEF_OPTIONS), ask: DEFAULT_ASK }), 2000)
+  expect(batches.length).toBeGreaterThan(0)
+  for (const batch of batches) expect(sentTokens(batch.request.state)).toBeLessThanOrEqual(2000)
+
+  const steps = Array.from({ length: 4 }, () => ({ assistant_text: PASTED.slice(0, 600), tools: [{ name: 'Bash', result: `Failed: ${PASTED.slice(0, 200)}` }] }))
+  const state = midturnState({ message: PASTED, step: 3, current_effort: 'high', counts: { judgments: 1, changes: 0, failures: 2, hook_blocks: 0 }, recent_steps: steps }, { steps: 4, tokens: 2000 })
+  expect(sentTokens(state)).toBeLessThanOrEqual(2000)
+})
+
 const SKILLS: SkillsWorld = {
   commands: [
     { name: 'tdd', description: 'Test-driven development. Use when the user wants to build features or fix bugs test-first.', source: 'user' },
@@ -129,6 +177,51 @@ test('with Clef, find_skill still answers while the suggestions are off', { opti
   expect(String(answer.result)).not.toContain('switched off')
 })
 
+test("with Clef and the suggestions off, no skill profile is written: find_skill's first request offers skills by their descriptions with Clef, so nothing would read one", { options: CLEF_OPTIONS }, async ($, on) => {
+  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), skills: SKILLS, store: {}, session: true, model: () => ({ text: '{}' }) })
+  await w.start()
+  await w.clock.settle()
+  expect(w.completions).toHaveLength(0)
+  await w.findSkill('write a failing test first')
+  expect(w.requests[0]?.body.questions['skills.which'].criteria.tdd).toBe(SKILLS.commands?.[0]?.description)
+})
+
+// The effort question beside each message is written in the decision model's language: Chinese with Jev (on the
+// current wording, 2026-10-05: asked in Chinese, Chinese items 85% and English 89%; asked in English, 79% and 78%),
+// English with Clef (never measured in Chinese). Every other question stays in English: none has data in Chinese.
+
+test("with Jev, the effort question beside a message is written in Chinese; the skills questions in its request, and the second request's, stay in English", { options: JEV }, async ($, on) => {
+  const w = world($, on, { backend: rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 }), skills: SKILLS })
+  await w.submit('先写一个失败的测试')
+
+  const effort = w.requests[0]?.body.questions['effort.level']
+  expect(Object.keys(effort.instructions)).toEqual(['问题', '评什么', '简短回复'])
+  expect(effort.criteria[0]).toMatch(/^凭已知信息就能回答/)
+  expect(Object.keys(w.requests[0]?.body.questions['skills.which'].instructions)).toContain('question')
+  expect(Object.keys(w.requests[1]?.body.questions['skills.fits.0'].instructions)).toContain('question')
+})
+
+test('with Clef, the effort question beside a message is written in English', { options: CLEF_OPTIONS }, async ($, on) => {
+  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]) })
+  await w.submit('先写一个失败的测试')
+
+  const effort = w.requests[0]?.body.questions['effort.level']
+  expect(Object.keys(effort.instructions)).toEqual(['question', 'rate', 'short_replies'])
+  expect(effort.criteria[0]).toMatch(/^Answered from what is already known/)
+})
+
+test("with Jev, the questions asked later stay in English: a mid-turn re-decision's and a dispatched agent's", { options: JEV }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]) })
+  await w.submit('先写一个失败的测试')
+  await w.step({ index: 0, effort: 'medium', tools: [{ tool: 'Skill', input: { skill: 'tdd' } }] })
+  await w.spawn({ prompt: 'Run the tests and report what fails.', description: 'Run the tests' })
+
+  const midturn = w.requests.find((request) => 'midturn.level' in request.body.questions)
+  expect(Object.keys(midturn?.body.questions['midturn.level'].instructions)).toEqual(['question', 'rate'])
+  const agent = w.requests.find((request) => 'agent.effort' in request.body.questions)
+  expect(Object.keys(agent?.body.questions['agent.effort'].instructions)).toContain('question')
+})
+
 test('skillsMinRelevance is 0.75 by default: a skill that fits at 0.72 is not suggested, one at 0.78 is', { options: JEV }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 0.5, 'code-review': 0.4, '(none)': 0.1 }, { tdd: 0.78, 'code-review': 0.72 }), skills: SKILLS })
   await w.submit('先写测试，再审一下这个分支')
@@ -153,16 +246,24 @@ test("at session start the debug log says which options took the decision model'
 
 // The reading the mod, the eval and scripts/decide*.ts share.
 
-test("readConfig: an option left unset takes the decision model's default; Clef's are Jev's but for its timeout, its context budget's most and the skill suggestions", () => {
+test("readConfig: an option left unset takes the decision model's default; Clef's are Jev's but for its timeout, its context budget's most, the skill suggestions and find_skill's wait and first request", () => {
   const jevConfig = readConfig({})
   expect([jevConfig.backend, jevConfig.timeoutMs, jevConfig.context, jevConfig.skills.suggest.minRelevance, jevConfig.skills.suggestByDefault]).toEqual(['jev', 1500, { messages: 4, tokens: 2000 }, 0.75, true])
+  expect([jevConfig.skills.findWaitMs, jevConfig.skills.findByProfile]).toEqual([1500, true])
   const clefConfig = readConfig({ decisionModel: 'clef' })
   expect([clefConfig.backend, clefConfig.timeoutMs, clefConfig.context, clefConfig.skills.suggest.minRelevance, clefConfig.skills.suggestByDefault]).toEqual(['clef', 3000, { messages: 4, tokens: 2000 }, 0.75, false])
+  expect([clefConfig.skills.findWaitMs, clefConfig.skills.findByProfile]).toEqual([8000, false])
   expect(clefConfig.midturn.rules).toEqual(jevConfig.midturn.rules)
   expect([clefConfig.escalation.thetaExpected, clefConfig.agents.thetaOverride, clefConfig.skills.find.minRelevance]).toEqual([0.25, 0.6, 0.5])
-  // Not calibrated for Clef: Jev's values, but for these three.
-  expect({ ...BACKEND_DEFAULTS.clef, timeoutMs: BACKEND_DEFAULTS.jev.timeoutMs, contextTokensMax: BACKEND_DEFAULTS.jev.contextTokensMax, suggestSkills: true }).toEqual(BACKEND_DEFAULTS.jev)
+  // Not calibrated for Clef: Jev's values, but for these, each measured on Clef.
+  const measured = { timeoutMs: 1500, contextTokensMax: 16000, suggestSkills: true, findSkillWaitMs: null, findSkillProfiles: true, turnStartLanguage: 'zh' }
+  expect({ ...BACKEND_DEFAULTS.clef, ...measured }).toEqual(BACKEND_DEFAULTS.jev)
   expect(clefConfig.defaults.used.map(([option]) => option)).toEqual([...PER_BACKEND_OPTIONS])
+})
+
+test("find_skill's wait follows the message's with Jev, timeoutMs set or not; with Clef it is 8000 ms whatever timeoutMs says", () => {
+  expect(readConfig({ timeoutMs: 2500 }).skills.findWaitMs).toBe(2500)
+  expect(readConfig({ decisionModel: 'clef', timeoutMs: 5000 }).skills.findWaitMs).toBe(8000)
 })
 
 test('readConfig: a value the person sets is the one used with either decision model; Clef reads a context budget above 2000 as 2000', () => {

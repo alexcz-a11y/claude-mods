@@ -53,7 +53,8 @@ test('what the mod sends to Clef is the decision module\'s request with the mode
 
   const built = mergeParts(turnStartState({ prompt: '改吧', messages: TRANSCRIPT, limits: { messages: 4, tokens: 2000 } }), [turnStartEffortPart()])
   expect(w.requests[0]?.body).toEqual({ model: 'clef', ...built })
-  // The message leads the state: Clef may read only the start of a long one.
+  // Sent with the message first, as the question guide asks. Clef's encoder sorts a state's keys before it reads its
+  // head, so no order is relied on with Clef: the budget holds for the whole state (tests/backend-defaults.test.ts).
   expect(Object.keys(w.requests[0]?.body.state)).toEqual(['user_message', 'recent_context'])
 })
 

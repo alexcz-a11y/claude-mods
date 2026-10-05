@@ -576,10 +576,11 @@ test('what the mod sends is exactly what the decision module builds from a messa
     { name: 'grill-me', description: 'Interview the user relentlessly about a plan until every branch is resolved.', by: 'person' },
     { name: 'ship:release', description: 'Cut a release: tag, changelog, publish.', by: 'person' },
   ]
+  // The effort question as Jev is asked it: in Chinese (core/setup.ts BACKEND_DEFAULTS turnStartLanguage); the skills questions in English.
   const { request } = skillsRequest(
     { message: '要，先写失败的测试', recent_context: [{ role: 'user', text: '登录接口加个限流' }, { role: 'assistant', text: '好的，要先写测试吗？', toolUses: [{ tool: 'Read' }] }] },
     options,
-    { limits: { messages: 4, tokens: 2000 } },
+    { limits: { messages: 4, tokens: 2000 }, effortLanguage: 'zh' },
   )
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, ...request })
 })

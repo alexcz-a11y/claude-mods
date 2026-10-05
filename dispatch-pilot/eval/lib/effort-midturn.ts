@@ -31,8 +31,6 @@ import {
   resultLine,
   toolDetail,
   type MidturnInput,
-  type MidturnLimits,
-  type MidturnRules,
   type MidturnShow,
 } from '../../hooks/decision/midturn.ts'
 import { answersFor, mergeParts, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
@@ -67,16 +65,6 @@ function variantOf(variant: string): MidturnVariant {
   return variantIn(MIDTURN_VARIANTS, variant)
 }
 
-/** What the re-decision reads, as the mod reads it (core/setup.ts): the latest `rejudgeSteps` steps, within `contextTokens`. */
-export function midturnLimits(settings: Settings): MidturnLimits {
-  return settings.midturn.limits
-}
-
-/** How an answer moves the level, as the mod reads it (core/setup.ts). */
-export function midturnRules(settings: Settings): MidturnRules {
-  return settings.midturn.rules
-}
-
 const DIRECTIONS = ['up', 'down', 'keep'] as const
 type Direction = (typeof DIRECTIONS)[number]
 
@@ -105,7 +93,7 @@ export const effortMidturn: Suite<EffortMidturnItem, Effort> = {
     if (!asked.ok) return requestFailed(asked.failure)
     const reading = readEffort(answersFor(part, asked.answers)[MIDTURN_LEVEL])
     if (reading === null) return { ok: false, failure: 'parse: no effort answer' }
-    const verdict = judgeMidturn(reading, { current: item[language].current_effort, sinceRaise: null }, midturnRules(settings))
+    const verdict = judgeMidturn(reading, { current: item[language].current_effort, sinceRaise: null }, settings.midturn.rules)
     // A stuck item's answer to whether its failures were expected, kept for calibrating thetaExpected (#17); not graded.
     const expected = expectedPart === null ? null : readExpected(answersFor(expectedPart, asked.answers))
     return {
@@ -182,11 +170,11 @@ export function midturnRequest(item: EffortMidturnItem, language: Language, vari
   const asked = midturnInput(item[language], how.results)
   if (how.trouble && asked.counts.failures >= settings.escalation.after) {
     const input: MidturnInput = { ...asked, trouble: troubleText({ failures: asked.counts.failures, hookBlocks: 0 }) }
-    const { request, effortPart, expectedPart } = stuckRequest(input, { limits: midturnLimits(settings), ask: how.ask, effort: true })
+    const { request, effortPart, expectedPart } = stuckRequest(input, { limits: settings.midturn.limits, ask: how.ask, effort: true })
     return { request, part: effortPart as Part, expectedPart }
   }
   const part = midturnEffortPart(how.ask)
-  return { request: mergeParts(midturnState(asked, midturnLimits(settings), how.show), [part]), part, expectedPart: null }
+  return { request: mergeParts(midturnState(asked, settings.midturn.limits, how.show), [part]), part, expectedPart: null }
 }
 
 /**

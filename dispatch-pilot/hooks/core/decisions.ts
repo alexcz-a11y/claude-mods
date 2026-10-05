@@ -12,6 +12,7 @@
 // where `DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const` is
 // the file's own literal ref (DEVELOPMENT.md, 开发). Pure: no `$`.
 
+import { errorText } from '../decision/backend.ts'
 import { update, type Cell } from './plans.ts'
 
 /** What a feature records. */
@@ -47,7 +48,7 @@ export async function recordDecision(cell: Cell<DecisionEntry[]>, log: (line: st
   try {
     await update(cell, (list) => append(list ?? [], decision))
   } catch (error) {
-    log(`decision not kept for /dp log: ${error instanceof Error ? error.message : String(error)}`)
+    log(`decision not kept for /dp log: ${errorText(error)}`)
   }
 }
 

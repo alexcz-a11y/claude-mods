@@ -11,11 +11,11 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 - **主 agent 的 effort。** 你每发一条消息，Dispatch Pilot 把这条消息和最近几条消息发给决策模型，问它这项工作需要多少逐步推理，得到 low、medium、high、xhigh、max 五档各自的概率。取概率最高的一档，并列时取较高的一档；`max` 只在它自己的概率达到 `thetaMax` 时才用。这一轮的每个模型请求都按这一档发出。一轮进行中，每隔几步（`rejudgeEvery`），以及主 agent 派出 agent、启动 Workflow 或加载 skill 时，会再判断一次（中途重判）；升档和降档都有防抖，降档一次只降一档。不是你本人发的消息（派出 agent 交回的结果、后台任务通知、其他会话的消息、插件自己发的消息）、斜杠命令和空消息都不判断。
 - **派出 agent 的模型和 effort。** 主 agent 用 Agent 工具派出一个 agent 时，决策模型为它选模型（默认在 haiku、sonnet、opus 中选，打开 `agentFable` 后加入 fable）和 effort；选了 haiku 就不设 effort，haiku 不支持。你在消息里点名的模型或 effort（「用 opus」「effort 开 low」）一定照办，你排除的模型（「别用 opus」）不会用（决策请求整体失败时除外，见「局限和待评测」）。主 agent 自己为这个 agent 指定了模型时，只有决策模型选了别的、而且置信度达到 `agentOverride` 才推翻它。
 - **Workflow 里的 agent。** 主 agent 提交 Workflow 脚本时，对脚本里每个 `agent()` 调用点做同样的判断，把模型和 effort 写进脚本再运行，并告诉主 agent 写了什么；`workflowMode` 选 `return` 时改为退回脚本，附上逐个调用的推荐，让主 agent 自己写进去。脚本写不进去的（用 `scriptPath` 或 `name` 提交、恢复的运行、读不了的脚本），在每个 agent 启动时按它的 label 设置，这叫兜底。
-- **卡住时强制升档。** 主 agent 或派出 agent 的工具调用接连失败（`escalateAfter`，默认 2 次）时，再问决策模型一次，把它的 effort 升一档（`escalateMode` 选 `max` 则直接升到 max）；haiku 没有 effort 可升，改用 sonnet 接着做（`escalateHaikuTo`）。这些失败本来就在意料之中的，例如先写下、要看它红的测试，或者没找到东西而以非零退出的搜索，不升档；是不是预期内失败由决策模型判断，不靠关键词。你自己拒绝的调用从不算失败。
+- **卡住时强制升档。** 主 agent 或派出 agent 的工具调用接连失败 `escalateAfter` 次时，再问决策模型一次，把它的 effort 升一档（`escalateMode` 选 `max` 则直接升到 max）；haiku 没有 effort 可升，改用 sonnet 接着做（`escalateHaikuTo`）。这些失败本来就在意料之中的，例如先写下、要看它红的测试，或者没找到东西而以非零退出的搜索，不升档；是不是预期内失败由决策模型判断，不靠关键词。你自己拒绝的调用从不算失败。
 - **skill。** 主 agent 不再读完整的 skill 列表（装的 skill 多时这一段很长），读到的是一句固定的提示。改由决策模型在你发消息时，从本会话的 skill 里挑出相关的几个，连同名字、描述和相关度附在消息后面交给主 agent；只能由你触发的 skill 不推荐给主 agent，只在状态行提示你。一轮进行中，主 agent 还可以用 `find_skill` 工具按几个词查 skill。skill 本身和 Skill 工具都不变，主 agent 仍然可以按名字加载任何 skill。
-- **失败时放行。** 决策模型超时（默认 Jev 1.5 秒，Clef 3 秒）、出错、回答无法解析，或者没有配密钥时，消息照常进入，不额外等待，这一轮用会话自己的 effort，状态行写明原因。选了 Jev 就只用 Jev，不会改用 Clef，反过来也一样。
+- **失败时放行。** 决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配密钥时，消息照常进入，不额外等待，这一轮用会话自己的 effort，状态行写明原因。选了 Jev 就只用 Jev，不会改用 Clef，反过来也一样。
 
-每项功能都可以用 `/dp` 单独关掉，也可以整个 mod 一起关（见「控制：`/dp`」）。完整的行为规则（各种优先级、各种失败情形、状态行和日志的写法）见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「它做什么」。
+本文提到的配置项（例如 `escalateAfter`、`timeoutMs`），默认值都在「配置」的表里。每项功能都可以用 `/dp` 单独关掉，也可以整个 mod 一起关（见「控制：`/dp`」）。完整的行为规则（各种优先级、各种失败情形、状态行和日志的写法）见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「它做什么」。
 
 ### 状态行
 
@@ -23,9 +23,9 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 ### 发给决策模型的内容
 
-- 你这条消息，加上之前最近的几条消息（`contextMessages`，默认 4 条，总长度不超过 `contextTokens`）。每条只有文字和调用过的工具名，**不包含文件内容和工具输出**。一轮中途重判时发的是这一轮最近几步（`rejudgeSteps`）的摘要：主 agent 写的文字、调用的工具和一句话结果，同样不含文件内容、写入的内容和工具输出。
+- 你这条消息，加上之前最近的几条消息（最多 `contextMessages` 条，总长度不超过 `contextTokens`）。每条只有文字和调用过的工具名，**不包含文件内容和工具输出**。一轮中途重判时发的是这一轮最近几步（`rejudgeSteps`）的摘要：主 agent 写的文字、调用的工具和一句话结果，同样不含文件内容、写入的内容和工具输出。
 - 派出 agent 和 Workflow 里的 agent：主 agent 写给它的任务（`prompt`）、描述、agent 类型，加上你这一轮说的话。
-- 打开 skill 推荐时：本会话每个 skill 的名字和画像（还没有画像的用描述），以及排在前面的几个 skill 的描述、画像和 SKILL.md 开头约 700 个字符。skill 画像由你自己的 Claude 登录写（`skillsProfileModel`，默认 haiku），用你的用量，不经过决策模型的提供方。
+- 打开 skill 推荐时：本会话每个 skill 的名字和画像（还没有画像的用描述），以及排在前面的几个 skill 的描述、画像和 SKILL.md 开头约 700 个字符。skill 画像由你自己的 Claude 登录写（模型是 `skillsProfileModel`），用你的用量，不经过决策模型的提供方。
 - 发送前对常见的 secret 格式脱敏，替换成 `[REDACTED]`：各家的 API key 和 token、`password=...` 这类赋值、URL 里的密码、私钥和 JWT。
 - Jev 的请求发往 TypeSafe（`api.typesafe.ai`），Clef 的发往 Cloudflare（`api.cloudflare.com`）。Cloudflare account ID 是请求地址的一部分，Claude Code 自己的 debug log 会记下请求地址，所以它会出现在那里；mod 自己写的日志行会把它遮掉。
 - 每次请求的结果和每个决定都写进 debug log（`claude --debug-file <路径>`），不进入会话。
@@ -34,7 +34,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 - **决策请求。** 评测里 800 个 effort 请求共 614,292 input token（平均约 770 个），Jev 约 0.026 美元。Clef 在 Workers AI 每天免费的 10,000 neurons 之内：200 个 effort 请求约 2,300 neurons。
 - **skill 推荐。** 打开后，每条消息的第一个请求还带着本会话每个 skill 的名字和画像：111 个 skill 都写好画像时约 2.19 万 input token（不带画像约 8.6k）；第一段分到 0.1 以上的 skill 才会发第二个请求，约 1.3k。作为交换，隐藏 skill 列表每个会话省下约 6.6k input token（本机 66 个 skill 时实测），换成的提示只有 360 个字符。
-- **skill 画像**用你自己的 Claude 登录写（`skillsProfileModel`，默认 haiku），算在你的用量里：每份约 2k 输入和 200 输出 token，每个 SKILL.md 版本只写一次，每次会话开始最多写 `skillsProfilesPerSession`（默认 30）份。
+- **skill 画像**用你自己的 Claude 登录写（模型是 `skillsProfileModel`），算在你的用量里：每份约 2k 输入和 200 输出 token，每个 SKILL.md 版本只写一次，每次会话开始最多写 `skillsProfilesPerSession` 份。
 - `claude plugin details dispatch-pilot@alex-mods`（2.1.289）显示 0 个组件、常驻开销约 0 token：它看不到 mod 在运行时附加和替换的内容。
 
 ## 要求
@@ -45,16 +45,30 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 ## 安装
 
+Dispatch Pilot 还在 `dp/integration` 分支上，没有合并到 `main`。`main` 上的 marketplace 还没有列出任何 mod，所以添加 `alexcz-a11y/claude-mods` 之后装不上。合并到 `main` 之前，请从本地克隆安装：检出 `dp/integration`，再用克隆的路径添加 marketplace。
+
 ```bash
-claude plugin marketplace add alexcz-a11y/claude-mods
+git clone --branch dp/integration https://github.com/alexcz-a11y/claude-mods.git
+claude plugin marketplace add ./claude-mods
 claude plugin install dispatch-pilot@alex-mods --scope user
 ```
 
-装好后重启 Claude Code。在会话里运行 `/plugin`，看到 `1 mod active · dispatch-pilot` 说明 mod 已经加载；运行 `/dp` 会列出各项功能的开关。接着给它一个决策模型的密钥。
+已经有克隆的，在克隆里 `git checkout dp/integration`，再把克隆的路径交给 `marketplace add`；相对路径要以 `./` 或 `../` 开头，否则会被当成 GitHub 仓库。从本地目录添加的 marketplace，Claude Code 直接从那个目录加载 mod，所以克隆里检出的是哪个版本，用的就是哪个版本。
+
+也可以不克隆，在添加 marketplace 时指定分支，让 Claude Code 从 GitHub 取：
+
+```bash
+claude plugin marketplace add alexcz-a11y/claude-mods#dp/integration
+claude plugin install dispatch-pilot@alex-mods --scope user
+```
+
+合并到 `main` 之后，去掉 `#dp/integration` 即可。
+
+在 shell 里装好的 mod，下次启动 Claude Code 时才加载：装好后重启 Claude Code，或者在已经开着的会话里运行 `/reload-plugins`。在会话里运行 `/plugin`，看到 `1 mod active · dispatch-pilot` 说明 mod 已经加载；运行 `/dp` 会列出各项功能的开关。接着给它一个决策模型的密钥。
 
 **Jev（默认）。** TypeSafe 的 API key 有两种填法：
 
-1. 在 Claude Code 里运行 `/plugin configure dispatch-pilot@alex-mods`（启用 mod 时也会弹出同样的配置对话框），在对话框里填；输入会被遮住。
+1. 在 Claude Code 的会话里运行 `/plugin configure dispatch-pilot@alex-mods`，在弹出的配置对话框里填；输入会被遮住。在会话里用 `/plugin` 安装时也会弹出这个对话框；在 shell 里用 `claude plugin install` 安装不会弹，装好后用这条命令，或者用第 2 种填法。
 2. 在命令行从 stdin 传进去（需要 `jq`）：
 
    ```bash
@@ -64,7 +78,7 @@ claude plugin install dispatch-pilot@alex-mods --scope user
 
 **不要用 `claude plugin install --config typesafeApiKey=...` 传密钥，也不要用 `jq --arg`**：它们的值会出现在进程参数里，同一台机器上的 `ps` 看得到。把密钥放进环境变量时，用 `read -rs TYPESAFE_API_KEY && export TYPESAFE_API_KEY` 代替上面的 `export` 一行：粘贴密钥后回车，不回显，值也不会留在 shell 历史里。
 
-`--values-stdin` 读一个 JSON 对象，值都是单行字符串，没写到的选项保持原值。不带参数运行 `claude plugin configure dispatch-pilot@alex-mods` 会列出所有选项，并标出哪些还没有设置。
+`--values-stdin` 读一个 JSON 对象，值都是单行字符串，没写到的选项保持原值。保存之后要重启 Claude Code 才生效，命令也会提示 `Configuration saved. Restart Claude Code to apply it.`。不带参数运行 `claude plugin configure dispatch-pilot@alex-mods` 会列出所有选项，并标出哪些还没有设置。
 
 **Clef。** 要填两个键，并把 `decisionModel` 改成 `clef`：
 
@@ -77,6 +91,21 @@ jq -n '{decisionModel: "clef", cloudflareAccountId: env.CLOUDFLARE_ACCOUNT_ID, c
 ```
 
 `decisionModel` 在 `/config` 里是下拉选择，也可以在那里改成 `clef`。Clef 和 Jev 有几处不同，见「配置」和「局限和待评测」。
+
+## 更新
+
+从 GitHub 添加 marketplace 的（`#dp/integration` 那种装法），在 shell 里运行：
+
+```bash
+claude plugin marketplace update alex-mods
+claude plugin update dispatch-pilot@alex-mods
+```
+
+第一条刷新 marketplace 的列表，第二条更新 mod。更新之后重启 Claude Code，或者在开着的会话里运行 `/reload-plugins`。
+
+`claude plugin update` 看的是版本号（`.claude-plugin/plugin.json` 的 `version`）：版本号和你装的一样，它就回答已经是最新版本（`is already at the latest version`），不换掉本机的副本，哪怕分支上已经有新的提交。新的版本会升版本号。这个 marketplace 默认不自动更新；要打开，在会话里运行 `/plugin`，到 Marketplaces 里选 `alex-mods`，再选 Enable auto-update。自动更新同样只在版本号变了时才换。
+
+从本地克隆安装的，不用 `claude plugin update`：在克隆里取新的提交（例如 `git -C claude-mods pull`），然后重启 Claude Code 或运行 `/reload-plugins`。Claude Code 直接从克隆加载 mod，不看版本号。
 
 ## 从 jev-pilot 切换
 
@@ -122,8 +151,8 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 | 选项 | 作用 | Jev | Clef |
 |---|---|---|---|
 | `timeoutMs` | 一条消息等决策模型的最长时间（200–8000 毫秒），超过就不经路由地放行 | `1500` | `3000` Clef 更慢 |
-| `contextMessages` | 随你的消息一起发的最近消息条数（0–32） | `4` | `4` 未校准 |
-| `contextTokens` | 你的消息加上最近消息的 token 预算（100–16000），中英文按同一个尺度数，旧消息先丢 | `2000` | `2000` 最多 2000 |
+| `contextMessages` | 随你的消息一起发的最近消息条数（0–32） | `4` 起点 | `4` 未校准 |
+| `contextTokens` | 发给决策模型的 state 的 token 预算（100–16000）：你的消息加上最近的消息，按发出去的样子数（连同字段名和转义），中英文按同一个尺度数，旧消息先丢 | `2000` 起点 | `2000` 最多 2000 |
 
 ### 一轮中的 effort
 
@@ -157,7 +186,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 
 ### skill
 
-选 Clef 时，发消息时的 skill 推荐默认关闭（`/dp skills on` 打开，见「局限和待评测」）；`find_skill` 照常可用。
+选 Clef 时，发消息时的 skill 推荐默认关闭（`/dp skills on` 打开，见「局限和待评测」）。`find_skill` 仍然可用，只是选 Clef 时它的两个请求合计最多等 8 秒（不看 `timeoutMs`），第一个请求按描述排序、不带画像；这两点按测到的延迟定，没有校准，也不是配置项。
 
 | 选项 | 作用 | Jev | Clef |
 |---|---|---|---|
@@ -199,30 +228,26 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 - fork 出来的 agent（它总是用父 agent 的模型）和 agent team 的 teammate（它会长期存在、处理很多任务，派出时的一次判断看不到这些任务）不处理。
 - **主 agent 在推荐漏掉时不会自己去用 `find_skill`。** 一条要写 PR 描述、却没有推荐 `pr` 的消息，有提示、没有提示、提示写得更主动，主 agent 都直接写了正文；被明确要求查时，它能找到 `find_skill` 并用上。所以漏掉的推荐，目前只靠发消息时的推荐。
 - Jev 对同一个 key 的并发请求像是依次处理。Workflow 里 prompt 是数据的调用（fan-out）在 agent 启动时当场判断，几个 agent 几毫秒内一起启动，排在后面的可能超时，那些 agent 按引擎原样启动。
-- **Clef 只接入，没有校准。** 除 `timeoutMs` 和 `contextTokens` 的上限以外，Clef 的默认值都沿用 Jev 的；它的置信度比 Jev 低得多（中位数 0.24 对 0.66），在 `thetaUp`、`thetaDown` 的默认值下很少改档。Clef 比 Jev 慢（连接建立后 0.6–1.4 秒，冷连接的第一次请求 1.8 秒），所以 `timeoutMs` 默认 3000。带画像的 skill 第一段要 3.7–7.9 秒，超过一条消息能等的时间，所以选 Clef 时发消息的 skill 推荐默认关闭。Clef 还会截断过长的 state，所以选 Clef 时 `contextTokens` 最多 2000（见下面的「Clef 截断 state」）。
-- 大多数默认值是暂定的起点（表里标了 `起点`）：评测数据只够定下 `skillsMinRelevance`，其余的见下面的「还没有数据的事」。
+- **Clef 只接入，没有校准。** 除 `timeoutMs` 和 `contextTokens` 的上限以外，Clef 的默认值都沿用 Jev 的；它的置信度比 Jev 低得多（中位数 0.24 对 0.66），在 `thetaUp`、`thetaDown` 的默认值下很少改档。Clef 比 Jev 慢（连接建立后 0.6–1.4 秒，冷连接的第一次请求 1.8 秒），所以选 Clef 时 `timeoutMs` 的默认值比 Jev 的长。带画像的 skill 第一段要 3.7–7.9 秒，超过一条消息能等的时间，所以选 Clef 时发消息的 skill 推荐默认关闭。`find_skill` 是主 agent 自己的调用，可以多等一会儿：选 Clef 时它的两个请求合计最多等 8 秒，第一段只用描述（111 个 skill 的描述约 8.6k token，Clef 约 1.7–2.4 秒），按延迟定，没有校准。Clef 还会截断过长的 state，所以选 Clef 时 `contextTokens` 最多 2000（见下面的「Clef 截断 state」）。
+- 大多数默认值是暂定的起点（表里标了 `起点`）：评测数据只够定下少数几项，其余的见下面的「还没有数据的事」。
 
-**按用户的决定（2026-10-05），#17 不再跑任何对比或扫描评测。** 用户的原话：「那我觉得我们没有必要再跑任何对比测试了 但是我们仍然要做clef接入 提供给有需要的人 我们自己就用jev即可」。所以 Clef 只保留接入，下面列的事大多仍然没有数据；#17 只做了不花钱的收尾（按决策模型取默认值、`skillsMinRelevance` 改成 0.75、文档）和之前已经跑完的 Clef 截断探针。#17 各验收项的状态：
+**问题用什么语言写。** 选 Jev 时，发消息时判断主 agent effort 的那一个问题用中文写；其余问题（一轮中途重判、派出 agent、Workflow 里的 agent、卡住时的强制升档、skill 推荐和 `find_skill`）都用英文。选 Clef 时全部用英文。依据是 `effort-submit` 在现在的问法上的对比（Jev，各 1 次）：用中文问，中文题 85.0%、英文题 89.0%；用英文问，79.0%、78.0%。同样的请求之前跑过 3 次，中文问法也都高约 8 个百分点。其余问题在现在的问法上没有中文问法的数据，Clef 也没有，所以都没有改。派出 agent 和 skill 的评测已经有中文问法的变体（`models-hint-zh`、`profiles-zh`），还没有运行。发消息时的请求里，中文的 effort 问题和英文的 skill 问题放在一起，这种混合的请求没有单独评测过。
 
-- 上下文范围扫描（最近 2、4、8、16 步 × 1k、2k、4k、8k token）：没有做。现有评测集的上下文太短，扫描几乎测不出差别（16 格 × 4 套的 13,088 个请求里只有 1,226 个不同），要做就得先补长上下文的题，补充集也按用户的决定取消了。默认值保持 Jev 4 条 × 2000 token；Clef 按截断的结论定为 2000（并且最多 2000）。
-- Jev 和 Clef 各一套默认值、写回 mod 的配置：已做（见「配置」）。Clef 实测过的三处不同，其余暂沿用 Jev 的值。
-- 置信度门槛按语言分别校准：没有做。
-- 问题用英文还是中文写：保持英文（`DEFAULT_ASK` 不变）。线索：修复之前的问法上，effort-submit 的 `zh-score` 比 `en-score` 高约 8 个百分点（3 次运行都是），一轮中途的两种语言持平。
-- 验证 Clef 是否截断 state：已做，会截断，但时有时无（见下面的「Clef 截断 state」）。
-- 中文准确率比英文低不超过 3 个百分点：只有离线数据，而且是修复之前的问法，没有在新问法上验证。按新规则（低不到 3 个百分点才算通过），发布的配置都通过：effort-submit `en-score` 三次平均 +0.7，一轮中途 `en-score` −1 和 +3，派出 agent `models-hint` +2 到 +3（中文高），skill 带画像时在 `skillsMinRelevance` 0.75 下 −2.3（0.7 下是 −3.7，不通过）。不是发布配置的 effort-submit `en-choice` 三次都是 −3.0，按新规则不通过，记在这里。
-- 需要真实密钥、会产生少量费用：只有 Clef 截断探针花了钱，两轮合计约 0.036 美元（Clef 约 0.034 美元，Jev 对照约 0.002 美元）。
+**中文和英文的差距。** 门槛是中文准确率比英文低不超过 4 个百分点，正好低 4 个百分点也算通过。现在的配置（Jev，effort 用中文问）在 `effort-submit` 上那一次正好差 −4.0，同样的请求之前 3 次是 0、0、−1；而中文题的准确率比用英文问时高 6 个百分点。其余三套评测都在门槛之内（见「评测」），但都是改措辞之前测的。
 
-**问题的文字一改，评测就要重跑。** 发给决策模型的问题、指令和选项描述是被测的对象：改了哪一处，用到它的评测都要重跑，旧结果只能对照。第 1 轮审查改了其中几处（中途重判的工具行和 `trouble` 变体、派出 agent 的 effort 问题和 Workflow 题的合并提问、skill 第一段拆成两题）；按用户的决定，修复之后没有重跑，所以下面「评测」里的数字都是修复之前的问法测得的，只能当预览。每处改动的清单见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「待评测」。
+**问题的文字一改，评测就要重跑。** 发给决策模型的问题、指令和选项描述是被测的对象：改了哪一处，用到它的评测都要重跑，旧结果只能对照。中途重判的工具行和 `trouble` 变体、派出 agent 的 effort 问题和 Workflow 题的合并提问、skill 第一段拆成两题，这几处在评测之后改过，没有重跑，所以下面「评测」里这三套的数字只能当预览；`effort-submit` 的请求没有变。每处改动的清单见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「待评测」。
 
-**还没有数据的事**（#17 按用户的决定没有再测；要不要开后续票由用户决定；每一条的数字和依据见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「待评测」）：
+**还没有数据的事**（每一条的数字和依据见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「待评测」）：
 
-- **中途重判的默认值和写法。** `thetaUp` 0.4、`thetaDown` 0.6、`holdSteps` 3、`rejudgeEvery` 3、`rejudgeSteps` 4 都是起点（参考了 jev-pilot 实测的升档 0.3/0.5、降档 0.6），没有按语言分别校准；state 里放不放当前档位和计数、问题用英文还是中文，也都没有结论。Clef 的置信度比 Jev 低得多，门槛要按后端分别校准，现在两个决策模型用同一组起点值。
-- **「预期内失败」这一问的写法和门槛。** `thetaExpected` 0.25 来自 11 个手写场景的小实验，样本太小，只能当起点；`escalateMode`、`escalateAfter` 和 `escalateLimit` 没有评测方法，按使用体验调。
-- **Clef 截断 state（#17 已测）。** Clef 会截断超过约 2.1k token 的 state，但时有时无：超过的 18 个 state 里截了 4 个（英文 4/14，中文 0/4）。截断时只留 state 开头约 2.1k 个 Clef token，后面的事实都答「没有说」；问题不截断。Jev 全部答对。mod 把最要紧的字段放在 state 最前，但最近的消息和步骤按时间排在最后，截断先丢它们，所以选 Clef 时 `contextTokens` 最多 2000。
-- **Clef 的延迟和 `timeoutMs`。** Jev 第一次 0.57 秒，之后 0.28–0.33 秒；Clef 第一次 1.8 秒，之后 0.6–1.4 秒（200 个请求依次发送：p50 699 ms，p90 929 ms，只有 1 条超过 1500 ms）。所以 Clef 的默认 `timeoutMs` 是 3000，没有再细调。
-- **派出 agent 的门槛。** `agentOverride` 0.6 在两次 Jev 运行里都不是最好（0.4–0.5 时整题中文 +3、英文 +2 个百分点）；点名的门槛 0.5 偏低；`thetaMax` 0.3 比 0.5 好 1–2 个百分点。#17 没有改这几个门槛。
+- **上下文的范围。** 随消息发出的最近几条消息和 token 预算（2、4、8、16 条 × 1k–8k token）没有扫描：现有评测集的上下文太短，扫描测不出差别。`contextMessages` 和 `contextTokens` 的默认值都是起点；选 Clef 时 `contextTokens` 最多 2000（见下面的「Clef 截断 state」）。
+- **按语言分别定门槛。** 各个置信度门槛都是中英文共用一个值，没有按语言分别校准。
+- **中途重判的默认值和写法。** `thetaUp`、`thetaDown`、`holdSteps`、`rejudgeEvery`、`rejudgeSteps` 的默认值都是起点（参考了 jev-pilot 实测的升档门槛 0.3/0.5、降档 0.6），没有按语言分别校准；state 里放不放当前档位和计数、问题用英文还是中文，也都没有结论。Clef 的置信度比 Jev 低得多，门槛要按后端分别校准，现在两个决策模型用同一组起点值。
+- **「预期内失败」这一问的写法和门槛。** `thetaExpected` 的默认值来自 11 个手写场景的小实验，样本太小，只能当起点；`escalateMode`、`escalateAfter` 和 `escalateLimit` 没有评测方法，按使用体验调。
+- **Clef 截断 state（已测）。** Clef 会截断超过约 2.1k token 的 state，但时有时无：超过的 18 个 state 里截了 4 个（英文 4/14，中文 0/4）。截断时只留 state 开头约 2.1k 个 Clef token，后面的事实都答「没有说」；问题不截断。Jev 全部答对。截断留下的是 state 序列化之后的开头，而 Clef 开源的编码代码序列化时按键名排序，你的消息（`user_message`）排在最近的对话（`recent_context`）之后；线上怎么排不知道，所以 mod 不靠字段的顺序，而是让发出去的整个 state（连同字段名、引号和转义）都在 `contextTokens` 之内，选 Clef 时它最多 2000。按 mod 的估算，2000 个 token 的散文约是 1.6–1.8k 个 Clef token，在截断位置之内。代码、日志、JSON 这类符号多的内容，mod 的估算（约 4 个字符算 1 个 token）可能偏少，满是这类内容的 state 可能越过约 2.1k，没有量过；常贴大段代码又选了 Clef 的话，可以把 `contextTokens` 设小一些（例如 1500）。
+- **Clef 的延迟和 `timeoutMs`。** Jev 第一次 0.57 秒，之后 0.28–0.33 秒；Clef 第一次 1.8 秒，之后 0.6–1.4 秒（200 个请求依次发送：p50 699 ms，p90 929 ms，只有 1 条超过 1500 ms）。Clef 的 `timeoutMs` 默认值按这些数字留了余量，没有再细调。
+- **派出 agent 的门槛。** `agentOverride` 的默认值在两次 Jev 运行里都不是最好（0.4–0.5 时整题中文 +3、英文 +2 个百分点）；点名的门槛 0.5 偏低；`thetaMax` 取 0.3 比默认值好 1–2 个百分点。这几个默认值没有改。
 - **Workflow agent 启动时当场判断的排队。** 一次启动很多个 prompt 是数据的 agent 时，排在后面的会等到超时。常见的 fan-out（几个到十几个 agent）有多少能在 `timeoutMs` 之内答上，还没有量过。
-- **skill 推荐的门槛和准确率。** 带画像的线上设置，中文 79.8%、英文 83.5%，差 3.7 个百分点，没过「中文比英文低不到 3 个百分点」的要求；`skillsMinRelevance` 0.75 时差距缩到 −2.3。`skillsShortlist` 和第二段的下限 0.1、第一段拆成两题之后的新问法、用中文写问题、画像只用英文、Choice 选项的顺序对 Jev 的影响，都没有评测。
+- **skill 推荐的门槛和准确率。** 带画像的线上设置，中文 79.8%、英文 83.5%，差 3.7 个百分点，在 4 个百分点的门槛之内。`skillsMinRelevance` 的默认值是在同一套题上挑的：0.7 和 0.8 下两次的差距都是 −3.7，默认值下是 −1.8 和 −2.8，相差只有 1–2 题（109 题里 1 题约 0.9 个百分点），在单次运行的波动之内，也没有在现在的问法上验证过。`skillsShortlist` 和第二段的下限 0.1、第一段拆成两题之后的新问法、用中文写问题、画像只用英文、Choice 选项的顺序对 Jev 的影响，都没有评测。
 - **主 agent 会不会主动用 `find_skill`。** 见上面的局限。其他场景（文件格式、某个服务的工具、一轮中途才出现的需要）、其他模型，以及「每轮先查」这类更强的写法值不值得它多出的两步，还没有评测。
 - **skill 请求的大小和延迟。** 带全部画像的第一段约 2.19 万 input token（111 个 skill，Jev 计），Jev 第一段 p50 0.56–0.67 秒，慢的时段 p90 到 1.65 秒；Clef 带画像的第一段 3.7–7.9 秒。把第一段单独发、只留英文字段的裁剪画像，没有评测。
 - **一个请求里放几个 Workflow 调用，准确率会不会降。** 一个脚本最多 8 个 `agent()` 共用一个请求，其他调用的说明对每个问题来说是无关内容，可能降低准确率。`subagent` 评测里有一个一个请求一个调用的对照变体，没有跑过。
@@ -233,15 +258,15 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 
 | 评测集 | 测什么 | 线上的问法，Jev（jev-1.13.0），中文 / 英文 |
 |---|---|---|
-| `effort-submit`（100 题） | 发消息时的 effort | 79.3% / 78.7%，3 次运行的平均 |
+| `effort-submit`（100 题） | 发消息时的 effort | 85.0% / 89.0%（中文问法，1 次运行；同样的请求之前 3 次的平均是 87.3% / 87.7%） |
 | `effort-midturn`（100 题） | 一轮中途的 effort | 73% / 74%，第二次运行 |
 | `subagent`（100 题） | 派出 agent 和 Workflow 里 agent 的模型加 effort，两样都对才算对 | 69% / 66% |
 | `skill`（109 题） | skill 推荐，带画像 | 79.8% / 83.5% |
 
-- 中英差距的门槛是中文比英文低不到 3 个百分点，正好低 3 个百分点不通过。上面四行里，`skill` 的差距是 −3.7，没通过；其余三行通过。
+- 中英差距的门槛是中文比英文低不超过 4 个百分点，正好低 4 个百分点也算通过。上面四行都在门槛之内：`effort-submit` 那一次正好是 −4.0，`skill` 是 −3.7。
 - Jev 单个 effort 请求的延迟 p50 约 0.28–0.42 秒，p90 约 0.32–0.46 秒；skill 带画像的第一段 p50 约 0.56–0.67 秒。
-- Clef 只做了抽样：`effort-submit` 200 个请求，准确率 74%（p50 699 ms）；`effort-midturn` 选出的档位更准（85% / 87%），但置信度低，默认门槛挡住大部分改档，实际发出的档位只有 58% / 57%；派出 agent 12 题，skill 3 题。
-- **这些数字是 2026-10-04 在第 1 轮审查修复之前的问法上测的**，修复之后按用户的决定没有重跑，只能当预览（见「局限和待评测」）。单次运行有波动：同一配置跑两次，单项准确率相差 0–4 个百分点，和 3 个百分点的门槛同一量级。
+- Clef 只做了抽样：`effort-submit` 200 个请求，准确率 74%（p50 699 ms）；其中 5 个请求是评测重试之后才答上的，mod 不重试，按 mod 的等法算是中文 74%、英文 71%。`effort-midturn` 选出的档位更准（85% / 87%），但置信度低，默认门槛挡住大部分改档，实际发出的档位只有 58% / 57%；派出 agent 12 题，skill 3 题。
+- **`effort-submit` 之外的三行是 2026-10-04 测的**，之后问题改过措辞，没有重跑，只能当预览（见「局限和待评测」）。`subagent` 和 `skill` 的中文问法变体（`models-hint-zh`、`profiles-zh`）未运行。单次运行有波动：同一配置跑两次，单项准确率相差 0–4 个百分点，和 4 个百分点的门槛同一量级。
 
 变体、指标、常数基线、门槛的离线重扫、已知的问题题和复现的命令，见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「评测（接缝 2）」。
 

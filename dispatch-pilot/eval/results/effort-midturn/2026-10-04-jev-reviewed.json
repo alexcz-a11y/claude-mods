@@ -178,7 +178,10 @@
           "misses": {
             "under": 19,
             "over": 8
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.73
         },
         "en": {
           "items": 100,
@@ -189,7 +192,10 @@
           "misses": {
             "under": 21,
             "over": 5
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.74
         },
         "gap": -0.01,
         "pass": true,
@@ -1011,7 +1017,10 @@
           "misses": {
             "under": 23,
             "over": 4
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.73
         },
         "en": {
           "items": 100,
@@ -1022,7 +1031,10 @@
           "misses": {
             "under": 23,
             "over": 5
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.72
         },
         "gap": 0.01,
         "pass": true,
@@ -1844,7 +1856,10 @@
           "misses": {
             "under": 19,
             "over": 7
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.74
         },
         "en": {
           "items": 100,
@@ -1855,7 +1870,10 @@
           "misses": {
             "under": 19,
             "over": 6
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.75
         },
         "gap": -0.01,
         "pass": true,
@@ -2677,7 +2695,10 @@
           "misses": {
             "over": 7,
             "under": 18
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.75
         },
         "en": {
           "items": 100,
@@ -2688,7 +2709,10 @@
           "misses": {
             "under": 21,
             "over": 5
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.74
         },
         "gap": 0.01,
         "pass": true,
@@ -3510,7 +3534,10 @@
           "misses": {
             "under": 18,
             "over": 7
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.75
         },
         "en": {
           "items": 100,
@@ -3521,7 +3548,10 @@
           "misses": {
             "under": 19,
             "over": 8
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.73
         },
         "gap": 0.02,
         "pass": true,
@@ -4365,6 +4395,11 @@
         "exact": 0.38
       }
     ]
+  },
+  "resummarized": {
+    "date": "2026-10-05",
+    "by": "eval/resummarize.ts",
+    "what": "each variant's pass by the bar of 2026-10-05 (Chinese at most 4 points below English, exactly 4 passing); each language's late, retried and inTime from the answers kept here (an answer that took more attempts than requests is no decision in time: the mod never retries)"
   },
   "answers": [
     {"id":"midturn-001","language":"zh","state":{"user_message":"给 `src/utils/duration.ts` 加一个 `parseDuration`，支持 `1h30m`、`45s` 这种写法，先写测试再实现","step":3,"current_effort":"medium","counts":{"judgments":2,"changes":0,"failures":1,"hook_blocks":0},"recent_steps":[{"assistant_text":"先看一下现有的 duration 工具和测试风格。","tools":[{"name":"Read","result":"成功：src/utils/duration.ts，现有一个 formatDuration 函数，约 40 行"},{"name":"Glob","result":"成功：找到 src/utils/__tests__/duration.test.ts"}]},{"assistant_text":"按 TDD，先补 parseDuration 的用例：正常组合、单一单位、非法输入。","tools":[{"name":"Edit","result":"成功：duration.test.ts 新增 7 个 parseDuration 用例"}]},{"assistant_text":"跑一下，预期全部失败，因为函数还不存在。","tools":[{"name":"Bash","result":"失败：npx vitest run duration：7 个新用例失败（parseDuration is not a function），原有 5 个通过"}]}]},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0,0.93,0.07,0,0],"confidence":0.94,"sent":"medium","why":"same","ms":608,"attempts":1,"tokens":918,"model":"jev-1.13.0"},"zh-score":{"answer":"medium","correct":true,"gold":true,"p":[0,0.94,0.06,0,0],"confidence":0.95,"sent":"medium","why":"same","ms":281,"attempts":1,"tokens":1016,"model":"jev-1.13.0"},"no-current-effort":{"answer":"medium","correct":true,"gold":true,"p":[0,0.93,0.07,0,0],"confidence":0.94,"sent":"medium","why":"same","ms":280,"attempts":1,"tokens":908,"model":"jev-1.13.0"},"no-counts":{"answer":"medium","correct":true,"gold":true,"p":[0,0.92,0.08,0,0],"confidence":0.93,"sent":"medium","why":"same","ms":285,"attempts":1,"tokens":883,"model":"jev-1.13.0"},"trouble":{"answer":"medium","correct":true,"gold":true,"p":[0,0.91,0.09,0,0],"confidence":0.93,"sent":"medium","why":"same","ms":744,"attempts":1,"tokens":918,"model":"jev-1.13.0"}},

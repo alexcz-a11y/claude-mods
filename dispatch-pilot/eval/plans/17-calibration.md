@@ -4,6 +4,8 @@
 
 这是 #17 第一阶段的交付：设计、估算、待拍板的问题。第一阶段没有发出任何会产生费用的请求；下文的数字来自 `run.ts --estimate`、已存结果的离线重算，以及各票实测过的 token 数和延迟。用户确认方案和预算之后再进入第二阶段。
 
+> **第 0–7 节是第一阶段的方案，其中大部分没有执行。** 用户拍板（8.1 节）之后，范围又按 8.8 节缩减：这里设计的对比和扫描评测（E2–E10、长上下文补充集）都没有照方案跑，只做了 E1 的截断探针（8.4–8.7 节）和不花钱的收尾；另外用户在 2026-10-05 自己跑了一次 effort-submit 的问题语言对比（E2 的一小部分，见 8.8.2 的 AC4）。第 0–7 节的方案、预算和预判保留原样，作为历史记录，不代表现状；现状和每条验收项的状态见 8.8 节。
+
 ## 0. 结论先行
 
 - **AC 要求的「2、4、8、16 步 × 1k、2k、4k、8k token」扫描，在现有四套评测集上几乎是空操作**（第 1.1 节）。现有题目的上下文太短：effort-submit 75 题没有上下文、24 题只有 2 条；state 最大只有约 420 token，token 预算一格也起不了作用；16 格 × 4 套共 13,088 个请求里，不同的只有 1,226 个，其中 818 个（默认格）已经有回答。照原样跑，「中文准确率距最好不超过 1 个百分点的最小组合」会由波动决定，结果必然是最小的那一格（2 条 × 1k），但这并不说明真实会话里 1k 就够。要让这条 AC 有实验依据，需要一个长上下文的补充评测集（拍板 D1）。
@@ -81,7 +83,7 @@
 - **E0a 网格去重**（1.1 节已做）。运行器加按请求内容去重的缓存后，扫描只发不同的请求。
 - **E0b 门槛重扫，按后端、按语言**（第 1 条）：
   - effort-submit 的 `thetaMax`：已存的各档概率 `p` 重新 `pickEffort`。Jev 3 次 × 4 个变体，Clef 1 次 `en-score`。
-  - midturn 的 `thetaUp`、`thetaDown`、`thetaMax`：已存 `p` 和 `confidence`，用 `judgeMidturn` 重新判断，评 `sent`。midturn 还没有 `breakdown.sweeps`，第二阶段补上（同 subagent 的写法）。Clef 的 confidence 中位数 0.24（Jev 0.66），另扫一种读法：Clef 改看概率最高那一档的概率（DEVELOPMENT.md「待评测」提过）。Jev 2 次 × 5 个变体，Clef 1 次。
+  - midturn 的 `thetaUp`、`thetaDown`、`thetaMax`：已存 `p` 和 `confidence`，用 `judgeMidturn` 重新判断，评 `sent`。midturn 还没有 `breakdown.sweeps`，第二阶段补上（同 subagent 的写法）。Clef 的 confidence 中位数 0.24（Jev 0.66），另扫一种读法：Clef 改看概率最高那一档的概率（DEVELOPMENT.md「评测（接缝 2）」里「一轮中途的 effort（effort-midturn，#14）」一节的 `sent` 一条提过）。Jev 2 次 × 5 个变体，Clef 1 次。
   - subagent 的 `agentOverride`、`thetaNamed`、`thetaMax`：已有 `breakdown.sweeps`，Jev 4 次。Clef 只有 24 个回答，要 E6。
   - skill 的 `skillsMinRelevance`、`findSkillMinRelevance`：已有 sweeps，Jev 2 次。`skillsShortlist` 1–3 和第二段下限 0.1 以上也能离线模拟：已存第一段前 5 名的份额（`first`）和第二段的相关度（`fits`），按第一段的顺序取前 k 个、只保留它们的 `fits` 即可；短名单 5 个以上或下限低于 0.1 要重新请求（每次约 0.21 美元，完整方案可选）。
   - `thetaExpected` 没有可用的数据，要 E8。
@@ -98,7 +100,7 @@
 ### E2 问题用英文还是中文写（第 2 条）
 
 - 已有数据：Jev 上 effort-submit 的 `zh-score` 比 `en-score` 高约 8 个百分点（3 次，稳定）；midturn 两种语言持平；`en-choice` 的中英差距 3 次都正好是 −3（没有余量），所以 Choice 不考虑，保持 Score。
-- 缺的：subagent 和 skill 没有中文问题的变体（`dispatched-agent.ts`、`skillsPart`、`rerankPart` 都已经支持中文，评测的 suite 只是没开出来）；Clef 只跑过英文问题。
+- 缺的：subagent 和 skill 没有中文问题的变体（`dispatched-agent.ts`、`skillsPart`、`stageTwoPart` 都已经支持中文，评测的 suite 只是没开出来）；Clef 只跑过英文问题。
 - 要跑的：
   - Jev：subagent `models-hint` 的中文问题 3 次（600 个请求，约 0.03 美元）；skill `profiles` 的中文问题 2 次（约 0.42 美元；精简方案不跑，或在 E3 选出的裁剪画像上跑 1 次，约 0.13 美元）。
   - Clef：effort-submit `zh-score` 1 次（2.5k neurons，排在 E1 之后的第一个付费 Clef 运行）；midturn `zh-score` 1 次（2.8k，只在完整方案）；subagent 中文问题全量 1 次（4.9k，完整方案；它同时是 E6 的数据）。
@@ -253,7 +255,7 @@ Clef 的 subagent 只有 12 题抽样。全量 1 次（选定的问题语言；�
 - **Clef 会截断 state，但不是每次都截。** 英文 4.8k 那一次，Clef 只计了 2,650 个 token（同样的请求 Jev 计 4,808），末尾的事实答「没有说」，概率 0.974；开头和中间（约 2.3k 估算 token 处）的事实都答对了。所以那一次 state 只保留了开头约 2.1k 个 Clef token（2,650 减去问题、字段名和模板约 500–550；由这一组请求的计数推算），和第三方说的「约前 2K token」一致，而且计费的 token 也是截断之后的。可是更长的英文 9.6k（Clef 计 8,798）和中文 4.8k（4,335）都完整读到了末尾。三个超过约 2.1k 的 state 里截了一个：截断时有时无，可能取决于请求落到哪一组服务上。这一轮只有一个截断的样本，截断的比例和确切的上限要靠重复测（见 8.6）。
 - **问题不截断。** 约 1.19 万 token 的问题，Clef 选对了它的最后一项（概率 0.693，比 Jev 的 1.0 低，但对了）；同一请求里 1.2k 的 state 也完整读到。问题很长时会不会挤掉 state（开源代码里的 `max_length`），这一次没有测出来：整条请求只有 13,162，低于 16,384。线上 skill 第一段约 1.5 万 Clef token，配上 1.5k 以上的 state 才会越过 16,384，要用更大的问题再测一次。
 - **对 mod 的影响：**
-  - **选 Clef 时 `contextTokens` 不能超过约 2000。** mod 估算的 token 比 Clef 计的多（按这一组请求的增量，英文约 1.1–1.15 倍、中文约 1.25 倍），所以 2000 估算 token 的 state 约是 1.6–1.8k Clef token，在约 2.1k 的上限之内，截断时也不丢东西。超过这个值，截断就可能发生；而 mod 的 state 把最近的对话按时间顺序放（`recent_context` 最新的一条在最后，midturn 的 `recent_steps` 最新的一步在最后），截掉的正好是最新、最要紧的那部分。第二阶段按后端取默认值时（D3），Clef 的 `contextTokens` 默认值不超过 2000，并考虑把 Clef 的上限也截在 2000（用户设得更大时按 2000 算，并在说明里写原因）；这比把顺序倒过来简单。E4b 里 Clef 本来只跑 1k、2k 两列，不变。
+  - **选 Clef 时 `contextTokens` 不能超过约 2000。** mod 估算的 token 比 Clef 计的多（按这一组请求的增量，英文约 1.1–1.15 倍、中文约 1.25 倍），所以 2000 估算 token 的 state 约是 1.6–1.8k Clef token，在约 2.1k 的上限之内，截断时也不丢东西。超过这个值，截断就可能发生；而 mod 的 state 把最近的对话按时间顺序放（`recent_context` 最新的一条在最后，midturn 的 `recent_steps` 最新的一步在最后），截掉的正好是最新、最要紧的那部分（字段之间的顺序也靠不住，见 8.7 节末尾的更正）。第二阶段按后端取默认值时（D3），Clef 的 `contextTokens` 默认值不超过 2000，并考虑把 Clef 的上限也截在 2000（用户设得更大时按 2000 算，并在说明里写原因）；这比把顺序倒过来简单。E4b 里 Clef 本来只跑 1k、2k 两列，不变。
   - **AC 的延迟条件对 Clef 也宽松一些。** 这一轮 Clef 在 1.5–4.3k token 时 0.9–1.3 秒，8.8k 时 2.4 秒，13.2k（带 72 个选项的 Choice）时 2.6 秒，比 1.4 节按 skill 第一段推的「每 1k 多 250 ms」快；不过每个大小只有一个样本，延迟仍以 E4、E10 的成批运行为准。
   - **费用换算要分语言。** Clef 和 Jev 计的 token 之比：中文 state 约 0.69–0.72，英文 state 约 0.94–1.01；Jev 每个请求还多约 170 个固定的 token（热身请求 440 对 268）。1.5 节的 0.68 是从短请求和中文多的请求得来的，对英文为主的大请求偏低。受影响最大的是 E3、E10 里只留英文字段的画像：Clef 的 skill 全量按 1:1 算约 7.4 万 neurons（第 4 节按 0.68 算的是 4.8 万），E3 的 Clef 抽样和 E4b 也略多；完整方案的 Clef 总量改按约 15 万 neurons 算，用量约 1.7 美元。已开通 Workers Paid，不影响方案。
 
@@ -280,7 +282,8 @@ node dispatch-pilot/eval/probe-truncation.ts --backend clef --only warmup,en-480
 - **Clef 会截断 state，大约每四五个长请求截一次。** 两轮合起来，state 超过上限（约 2.1k Clef token）的请求有 18 个（英文 14 个、中文 4 个），截了 4 个，约 22%；英文 4/14，中文 0/4（样本小，看不出语言的差别）。只有 18 个样本，真实比例大致在 6%–48% 之间。
 - **截断的位置是固定的：只留 state 的开头约 2.1k 个 Clef token。** 4 次截断里，不论 state 原来是 3.2k、4.8k 还是 9.6k，Clef 计的都正好是 2,650 个 token（这组探针的问题和模板约占 510），开头的事实每次都读到，超过这个位置的都答「没有说」（英文 9.6k 那一次连中间约 4k 处的事实也丢了）。计费也按截断后的 token 算。哪一次会截看不出规律，连续发同一个请求也是有时截、有时不截，像是取决于请求落到哪一组服务上。
 - **问题不截断，长问题也不会把 state 挤短。** 96 个选项、约 1.54 万 token 的问题，Clef 两次都选对了最后一项；整条请求约 1.8 万 token，越过了开源代码默认的 16,384，同一请求里 2.4k 的 state 也完整读到。所以线上 skill 第一段（问题约 1.5 万 token）不会让同一请求里的 effort 问题少读 state，D2 不用为此担心。
-- **AC「验证 Clef 是否截断 state」的结论：** 会截断，但时有时无（约五分之一的长请求），截断时只读 state 开头约 2.1k Clef token，问题从不截断。mod 把最重要的字段放在 state 最前（`user_message`、`brief`），已经尽量不吃亏；但最近的对话和步骤是按时间顺序排在最后的，截断先丢它们。所以选 Clef 时 `contextTokens` 的默认值和上限都定在 2000（约 1.6–1.8k Clef token，在截断位置之内），在第二阶段按后端取默认值（D3）时实现，并在 README 写明原因；E4b 里 Clef 只跑 1k、2k 两列。
+- **AC「验证 Clef 是否截断 state」的结论：** 会截断，但时有时无（约五分之一的长请求），截断时只读 state 开头约 2.1k Clef token，问题从不截断。所以选 Clef 时 `contextTokens` 的默认值和上限都定在 2000（散文约 1.6–1.8k Clef token，在截断位置之内），在第二阶段按后端取默认值（D3）时实现，并在 README 写明原因；E4b 里 Clef 只跑 1k、2k 两列。
+- **更正（#17 之后）：字段的顺序靠不住。** 这一节原来写「mod 把最重要的字段放在 state 最前（`user_message`、`brief`），已经尽量不吃亏」，这不成立：Clef 开源的编码代码序列化 state 时按键名排序（`render()` 用 `json.dumps(..., separators=(",", ":"), sort_keys=True)`），这样 `user_message` 反而在 `recent_context`、`recent_steps`、`brief` 之后，截断最先丢它；线上怎么排没有公开。所以 2000 这个上限的作用是让整个 state 都在截断位置之内，与顺序无关。为此 `contextTokens` 改成约束发出去的整个 state（序列化成 JSON 的样子，字段名、引号和转义都算，`decision/context.ts` 的 `withinTokens`）：之前不算这些，贴进来的 JSON 或代码会让 2000 的 state 序列化后到约 2,470 个估算 token。代码这类符号多的内容，mod 的估算可能比 Clef 的计数少，满是代码的 2000 个估算 token 可能越过约 2.1k，没有量过，README 写明了。
 - **延迟（补充 1.4 节）：** 没截断时，4.3–4.7k token 1.1–1.9 秒，8.8k 1.7–2.1 秒，1.8 万 3.5–4.2 秒；截断的请求 1.0–1.2 秒。
 
 ## 8.8 范围缩减（用户决定，2026-10-05）
@@ -289,18 +292,20 @@ node dispatch-pilot/eval/probe-truncation.ts --backend clef --only warmup,en-480
 
 ### 8.8.1 做了什么（都不花钱）
 
-- **按决策模型取默认值（D3，按第 5 节的做法 (i)）。** `core/setup.ts` 的 `BACKEND_DEFAULTS` 是唯一一张表：`PER_BACKEND_OPTIONS` 里的 11 个选项（`timeoutMs`、`contextMessages`、`contextTokens`、`rejudgeSteps`、`thetaUp`、`thetaDown`、`thetaMax`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance`）各有一个默认值，另有 `contextTokensMax` 和 `suggestSkills`。这 11 个选项在 manifest 里去掉了 `default`，说明文字写出各决策模型的默认值。`readConfig` 按 `decisionModel` 取表里的值；mod、`scripts/decide*.ts` 和评测（`eval/lib/suite.ts` 的 `optionsFor`）都经它取值。`scripts/decide*.ts` 的 `--timeout` 默认就是所选模型的 `timeoutMs`；`eval/run.ts` 的 `--timeout` 是评测每次尝试的耐心，默认是它的 4 倍、至少 10 秒（Jev 10 秒，Clef 12 秒）。
-  - Clef：`timeoutMs` 3000；`contextTokens` 默认 2000，上限也是 2000（设得更大按 2000 算，原因是 8.7 节的截断结论）；发消息时的 skill 推荐（`skills` 开关）默认关闭，`/dp skills on` 打开，`find_skill` 保留。
+- **按决策模型取默认值（D3，按第 5 节的做法 (i)）。** `core/setup.ts` 的 `BACKEND_DEFAULTS` 是唯一一张表：`PER_BACKEND_OPTIONS` 里的 11 个选项（`timeoutMs`、`contextMessages`、`contextTokens`、`rejudgeSteps`、`thetaUp`、`thetaDown`、`thetaMax`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance`）各有一个默认值，另有 `contextTokensMax` 和 `suggestSkills`。这 11 个选项在 manifest 里去掉了 `default`，说明文字写出各决策模型的默认值。`readConfig` 按 `decisionModel` 取表里的值；mod、`scripts/decide*.ts` 和评测（`eval/lib/suite.ts` 的 `optionsFor`）都经它取值。`eval/run.ts` 的 `--timeout` 是评测每次尝试的耐心，默认是所选模型 `timeoutMs` 的 4 倍、至少 10 秒（Jev 10 秒，Clef 12 秒）；`scripts/decide*.ts` 的 `--timeout` 当时默认就是 `timeoutMs`，冷连接的第一次请求容易超时，#17 之后改成和评测同一条规则（`eval/lib/runner.ts` 的 `attemptMs`）。
+  - Clef：`timeoutMs` 3000；`contextTokens` 默认 2000，上限也是 2000（设得更大按 2000 算，原因是 8.7 节的截断结论）；发消息时的 skill 推荐（`skills` 开关）默认关闭，`/dp skills on` 打开，`find_skill` 保留。#17 之后又补了一条：`find_skill` 的两个请求在 Clef 下只等 3000 毫秒的话，带画像的第一段（3.7–7.9 秒）必然超时，所以选 Clef 时它合计最多等 8000 毫秒（hook 的上限是 10 秒），第一段只用描述（111 个 skill 约 8.6k token，按 8.7 节的探针约 1.7–2.4 秒），第二段照样带画像。这两个值在 `BACKEND_DEFAULTS`（`findSkillWaitMs`、`findSkillProfiles`），按延迟定，没有校准，不是配置项。
   - Jev：默认值都和以前一样，只有 `skillsMinRelevance` 改成 0.75（下一条）。
   - 其余选项两个模型用同一个值（就是原来的默认值），说明和 README 里标为「Clef 未校准，暂沿用 Jev 的值」。`thetaNamed`、`thetaFit` 是代码里的常量，没有动。
   - **不写 `default` 的字段，引擎确实不传：** kit 里，`tests/backend-defaults.test.ts` 的「with Clef, a message waits 3000 ms」在 1500 ms 时仍在等、3000 ms 时超时，说明没有任何值顶替；生成的类型里 kit 的 `TestOptions` 写明「`register(on, options)` receives them as a load does: unlisted values unset, defaults filled in」；真实引擎里，2026-10-05 用 `command claude -p "/dp" --plugin-dir ./dispatch-pilot --strict-mcp-config --settings '{"enabledPlugins":{"jev-pilot@jev-pilot":false}}' --debug-file <临时文件>` 跑了一次（没有配置密钥，没有发出任何 Jev 或 Clef 请求；debug log 里唯一的 `$.http.fetch` 是引擎自己的遥测；日志在临时目录，没有提交，这一行的写法由 `tests/backend-defaults.test.ts` 在会话开始时断言），debug log 写着 `settings for jev: left unset, so jev's defaults: timeoutMs 1500, contextMessages 4, contextTokens 2000, rejudgeSteps 4, thetaUp 0.4, thetaDown 0.6, thetaMax 0.5, thetaExpected 0.25, agentOverride 0.6, skillsMinRelevance 0.75, findSkillMinRelevance 0.5; skill suggestions on until /dp skills off`。
   - 接缝 1 的测试（`tests/backend-defaults.test.ts`）覆盖：两个模型各自的默认值（超时、上下文预算、skill 推荐的开关、`skillsMinRelevance`）；Clef 的 `contextTokens` 上限；你设了值时两个模型都用你的值；会话开始时 debug log 写的那一行；`readConfig` 和评测的 `optionsFor` 取的是同一张表。
 - **`skillsMinRelevance` 默认改成 0.75。** 依据是 E0c 的离线重算（#16 两次 Jev 运行已存的 `breakdown.sweeps`）：带画像时，0.7 下中英差距两次都是 −3.67；0.75 下是 −1.84 和 −2.76，平均 −2.3。这是第 1 轮审查修复之前的问法上的预览，修复后没有重跑。
-- **离线重判中英差距（按新规则：中文比英文低不到 3 个百分点才算通过）。** 只读已存结果的 `summary` 和 `breakdown.sweeps`，没有发请求，也没有写新工具：
-  - effort-submit（Jev 3 次）：`en-score` 0、+2、0，通过；`zh-score` 0、0、−1，通过；`zh-choice` −1、−2、−1，通过；`en-choice` 三次都是 −3.0，按新规则不通过（它不是发布配置）。Clef `en-score` 0，通过。
+- **离线重判中英差距（按当时的规则：中文比英文低不到 3 个百分点才算通过）。** 只读已存结果的 `summary` 和 `breakdown.sweeps`，没有发请求，也没有写新工具：
+  - effort-submit（Jev 3 次）：`en-score` 0、+2、0，通过；`zh-score` 0、0、−1，通过；`zh-choice` −1、−2、−1，通过；`en-choice` 三次都是 −3.0，按当时的规则不通过（它不是发布配置）。Clef `en-score` 0，通过。
   - effort-midturn（Jev 2 次，5 个变体）：−2 到 +3，都通过；Clef `en-score` −2，通过。
   - subagent（Jev 3 次，4 个变体）：0 到 +6（中文都不低于英文），都通过。
-  - skill（Jev 2 次）：`profiles` 在 0.7 下 −3.67，两次都不通过（新旧规则都不通过）；在新的默认值 0.75 下 −1.84、−2.76，通过。`descriptions` 在 0.7 下 −1.84、−0.92，0.75 下 −1.84、−2.75，都通过。
+  - skill（Jev 2 次）：`profiles` 在 0.7 下 −3.67，两次都不通过；在新的默认值 0.75 下 −1.84、−2.76，通过。`descriptions` 在 0.7 下 −1.84、−0.92，0.75 下 −1.84、−2.75，都通过。
+  - **门槛之后改成了 4 个百分点**（用户 2026-10-05 的决定，原来的 spec 写的是 3）：中文比英文低不超过 4 个百分点就算通过，正好 4.0 也通过。按新门槛，上面这些都通过，包括 `en-choice` 的 −3.0 和 `profiles` 在 0.7 下的 −3.67。已存结果的 `pass` 已用 `eval/resummarize.ts` 按新门槛重算（同时重算了 `inTime`：重试之后才答上的回答也算没有决定，因为 mod 不重试）。
+- **`skillsMinRelevance` 的 0.75 是在同一套题上挑的。** 0.7 和 0.8 下两次都是 −3.67，0.75 下是 −1.84 和 −2.76，相差只有 1–2 题（109 题里 1 题约 0.92 个百分点），这个「通过」在单次运行的波动之内，也没有在新措辞上验证；按 4 个百分点的新门槛，三个值都通过。默认值没有改。
 - **文档。** README 的配置表和「按决策模型取的默认值」、「待评测」开头的各验收项状态、「评测」一节开头的说明（那些数字都是修复之前的问法测得的，修复后没有重跑），以及本节。（#18 把「待评测」「评测」和「配置」的完整说明放进了 DEVELOPMENT.md，README 只留概要和配置表。）
 
 ### 8.8.2 每条验收项的状态
@@ -308,13 +313,13 @@ node dispatch-pilot/eval/probe-truncation.ts --backend clef --only warmup,en-480
 - **AC1 上下文范围扫描：没有做。** 原因见 1.1 节：现有评测集的上下文太短，16 格里请求几乎都一样；长上下文补充集也按用户的决定没有做。默认值保持 Jev 4 条 × 2000 token；Clef 按截断的结论定为 2000，并且最多 2000。
 - **AC2 Jev 和 Clef 各一套默认值、写回 mod 的配置：已做**（8.8.1 第一条）。
 - **AC3 置信度门槛按语言分别校准：没有做。**
-- **AC4 问题用英文还是中文写：保持英文**，`DEFAULT_ASK` 不改。线索：修复之前的问法上，effort-submit 的 `zh-score` 比 `en-score` 高约 8 个百分点（3 次运行都是）。
+- **AC4 问题用英文还是中文写：已改，只改了一个问题。** 用户先选了「先测再定」，在新措辞上（代码基点 9ec9c42）跑了一次 effort-submit（`results/effort-submit/2026-10-05-jev-ac4-question-language.json`，Jev，`zh-score` 和 `en-score` 各 1 次，400 个请求，0.0126 美元）：用中文问，中文题 85.0%、英文题 89.0%（差距 −4.0）；用英文问，79.0%、78.0%（+1.0）；p50 都是 282 ms，没有迟到的回答。这次的请求和 2026-10-04 的 3 次逐字相同，那 3 次里中文问法也都高约 8 个百分点，方向一致。按事先说好的规则（中文问法领先 3 个百分点以上就改），Jev 在发消息时判断 effort 的那一个问题改用中文：`BACKEND_DEFAULTS` 的 `turnStartLanguage`（Jev `zh`，Clef `en`），不是配置项，接缝 1 的测试核对 Jev 下这一题是中文、Clef 下是英文、同一个请求里的其他问题仍是英文。只改这一个：中途重判、派出 agent、Workflow、卡住时的强制升档、skill 这些问题在新措辞上没有中文问法的数据；Clef 没有中文问法的数据，全部保持英文。同一个请求里中文的 effort 问题和英文的 skill 问题混在一起，这种情况没有测过。
 - **AC5 验证 Clef 是否截断 state：已做**（8.4–8.7 节）。会截断，但时有时无：超过约 2.1k token 的 18 个 state 截了 4 个，截断时只留开头约 2.1k 个 Clef token；问题不截断。
-- **AC6 中文准确率比英文低不超过 3 个百分点：** 按离线数据（修复之前的问法），发布配置的中英差距都小于 3 个百分点（skill 带画像时靠 `skillsMinRelevance` 0.75）；`en-choice` 的 −3.0 不通过，但它不是发布配置，记在这里。这一条没有在新问法上验证。
-- **AC7 需要真实密钥、会产生少量费用：已做。** 只有截断探针花了钱，两轮合计约 0.036 美元（Clef 约 14.2 万 token，约 0.034 美元；Jev 约 4.4 万 token，约 0.002 美元）。
+- **AC6 中文准确率比英文低多少：按新门槛通过。** 用户 2026-10-05 把门槛从 spec 的 3 个百分点改成 4 个百分点（低不超过 4 个百分点就通过，正好 4.0 也通过；`eval/lib/metrics.ts`）。发布的配置（Jev，effort 用中文问）在 effort-submit 上单次运行的差距是 −4.0，按新门槛通过，不需要另开票；中文题的准确率比用英文问时高 6 个百分点。同样的请求在 2026-10-04 的 3 次里是 0、0、−1。其余几套是新措辞之前的离线数据，按新门槛都通过（见 8.8.1）。
+- **AC7 需要真实密钥、会产生少量费用：已做。** 截断探针两轮合计约 0.036 美元（Clef 约 14.2 万 token，约 0.034 美元；Jev 约 4.4 万 token，约 0.002 美元）；AC4 的问题语言对比 0.0126 美元（用户跑的）。
 
 ### 8.8.3 没做的实验
 
-E2–E4、E6–E10 的运行都没有做；长上下文补充集没有做；E7 的档位描述改动（审核规则 R4，「写测试」整体放在 high）没有做；E3 的画像裁剪（只留英文字段）没有评测，也没有改。E9 的「两类 skill 分开问」已经在第 1 轮审查的修复里实现（`skills.which` 和 `skills.hint` 两题），但没有重跑。E5（Workflow 一个请求放几个 agent）同样没有跑：`subagent` 评测已经有 `models-hint-single` 变体可以对照。
+E2–E4、E6–E10 的运行都没有做；长上下文补充集没有做；E7 的档位描述改动（审核规则 R4，「写测试」整体放在 high）没有做；E3 的画像裁剪（只留英文字段）没有评测，也没有改。E9 的「两类 skill 分开问」已经在第 1 轮审查的修复里实现（`skills.which` 和 `skills.hint` 两题），但没有重跑。E5（Workflow 一个请求放几个 agent）同样没有跑：`subagent` 评测已经有 `models-hint-single` 变体可以对照。故事 70（E2 里派出 agent 和 skill 的中文问法）在第 2 轮审查的修复里补上了评测的变体：`subagent` 的 `models-hint-zh`、`skill` 的 `profiles-zh`，只有定义和不联网的请求测试，没有运行（只跑这两个变体约 200 和 436 个请求，Jev 约 0.03 和 0.37 美元，估算）。
 
-没有新开 GitHub issue；要不要为这些开后续票，由编排者去问用户。
+没有新开 GitHub issue；要不要为这些开后续票，由用户决定。

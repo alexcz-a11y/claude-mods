@@ -15,10 +15,11 @@
 // (fable among the options, as agentFable does). The person's words are kept
 // as the mod keeps them for the turn (masked, cut to contextTokens). Prints
 // the request (question ids, state), the answers that matter, the decision
-// and, for an eval item, its gold. `--timeout` defaults to the mod's
-// timeoutMs for the decision model asked. Credentials come from the environment or
-// ~/.config/dispatch-pilot/eval.env and are never printed. A Workflow item is
-// asked about on its own here; the eval asks it with its script's other calls.
+// and, for an eval item, its gold. `--timeout` defaults to what the eval gives
+// one attempt (four times the mod's timeoutMs, at least 10 s). Credentials
+// come from the environment or ~/.config/dispatch-pilot/eval.env and are never
+// printed. A Workflow item is asked about on its own here; the eval asks it
+// with its script's other calls.
 
 import { readFileSync } from 'node:fs'
 import { dispatchSettings } from '../hooks/core/setup.ts'
@@ -26,55 +27,50 @@ import { messageText } from '../hooks/decision/context.ts'
 import { decideDispatch, dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { DEFAULT_ASK } from '../hooks/decision/effort.ts'
 import { answersFor, mergeParts } from '../hooks/decision/system-one.ts'
-import { optionsFor, settingsFrom } from '../eval/lib/suite.ts'
-import { backendFor, nodeIo, readManifest } from '../eval/node.ts'
+import { attemptMs } from '../eval/lib/runner.ts'
+import { nodeIo, scriptArgs, scriptDecision } from '../eval/node.ts'
 
-const args = process.argv.slice(2)
-const flag = (name: string) => args.includes(name)
-const value = (name: string) => {
-  const at = args.indexOf(name)
-  return at >= 0 ? args[at + 1] : undefined
-}
+const USAGE = 'node scripts/decide-agent.ts (--file <jsonl> --id <id> [--lang en] | <item JSON>) [--zh] [--work] [--noul] [--choice] [--fable] [--clef] [--timeout ms]'
+const { values, positionals } = scriptArgs(USAGE, {
+  file: { type: 'string' },
+  id: { type: 'string' },
+  lang: { type: 'string' },
+  zh: { type: 'boolean' },
+  work: { type: 'boolean' },
+  noul: { type: 'boolean' },
+  choice: { type: 'boolean' },
+  fable: { type: 'boolean' },
+})
 
 let written: Dispatch
 let gold: unknown = undefined
-const file = value('--file')
-if (file !== undefined) {
-  const id = value('--id')
-  const lines = readFileSync(file, 'utf8').split('\n').filter((line) => line.trim() !== '')
-  const item = lines.map((line) => JSON.parse(line) as Record<string, unknown>).find((entry) => entry.id === id)
+if (typeof values.file === 'string') {
+  const lines = readFileSync(values.file, 'utf8').split('\n').filter((line) => line.trim() !== '')
+  const item = lines.map((line) => JSON.parse(line) as Record<string, unknown>).find((entry) => entry.id === values.id)
   if (!item) {
-    console.error(`no item ${id} in ${file}`)
+    console.error(`no item ${String(values.id)} in ${values.file}`)
     process.exit(2)
   }
-  written = item[value('--lang') ?? 'zh'] as Dispatch
+  written = item[typeof values.lang === 'string' ? values.lang : 'zh'] as Dispatch
   gold = { gold: item.gold, accept: item.accept }
 } else {
-  const json = args.find((arg) => arg.startsWith('{'))
+  const json = positionals.find((arg) => arg.startsWith('{'))
   if (!json) {
-    console.error('usage: node scripts/decide-agent.ts (--file <jsonl> --id <id> [--lang en] | <item JSON>) [--zh] [--work] [--noul] [--choice] [--fable] [--clef] [--timeout ms]')
+    console.error(`usage: ${USAGE}`)
     process.exit(2)
   }
   written = JSON.parse(json) as Dispatch
 }
 // The manifest's defaults and the decision model's, as the engine and the mod give them; --fable turns agentFable on.
-const chosen = flag('--clef') ? 'clef' : 'jev'
-const settings = settingsFrom(optionsFor(chosen, readManifest().userConfig ?? {}, flag('--fable') ? ['agentFable=true'] : []))
-let backend
-try {
-  backend = backendFor(chosen).backend
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error))
-  process.exit(2)
-}
+const { settings, backend } = scriptDecision(values.clef === true, values.fable === true ? ['agentFable=true'] : [])
 
 const shape = dispatchSettings(
   { config: settings, ask: DEFAULT_ASK },
   {
-    language: flag('--zh') ? 'zh' : 'en',
-    primitive: flag('--choice') ? 'choice' : 'score',
-    options: flag('--work') ? 'work' : 'models',
-    requested: flag('--noul') ? 'noul' : 'hint',
+    language: values.zh === true ? 'zh' : 'en',
+    primitive: values.choice === true ? 'choice' : 'score',
+    options: values.work === true ? 'work' : 'models',
+    requested: values.noul === true ? 'noul' : 'hint',
   },
 )
 const dispatch: Dispatch = { ...written, user_message: messageText(written.user_message, settings.context.tokens) }
@@ -83,7 +79,7 @@ const request = mergeParts(dispatchState(dispatch, settings.context.tokens), [pa
 console.log(JSON.stringify({ questions: Object.keys(request.questions), state: request.state }))
 
 const started = performance.now()
-const asked = await backend.ask(nodeIo, request, Number(value('--timeout') ?? settings.timeoutMs))
+const asked = await backend.ask(nodeIo, request, Number(values.timeout ?? attemptMs(settings.timeoutMs)))
 const ms = Math.round(performance.now() - started)
 if (!asked.ok) {
   console.log(JSON.stringify({ ok: false, backend: backend.name, failure: asked.failure, ms }))

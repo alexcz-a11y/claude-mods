@@ -37,12 +37,13 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
-import type { Asked, Backend, Failure } from '../hooks/decision/backend.ts'
-import { CLEF_MODEL, clefBackend } from '../hooks/decision/clef.ts'
+import type { Asked, Backend } from '../hooks/decision/backend.ts'
+import { CLEF_MODEL } from '../hooks/decision/clef.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
-import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { answersFor, mergeParts, type ChoiceQuestion, type DecisionRequest, type Part } from '../hooks/decision/system-one.ts'
-import { CREDENTIALS_FILE, RESULTS_DIR, credential, nodeIo, shown } from './node.ts'
+import { askRetrying } from './lib/runner.ts'
+import { CREDENTIALS_FILE, PRICES, RESULTS_DIR, backendFor, credential, nodeIo, shown } from './node.ts'
 
 type Language = 'en' | 'zh'
 type Position = 'start' | 'middle' | 'end'
@@ -280,11 +281,10 @@ for (const { probe: p, count } of selected) {
 // As eval/run.ts: the mod's estimate times what Jev counted (1.6). Clef counts about what Jev does
 // on long English text and about 0.7 of it on Chinese (#17's plan, 8.5): 1.1 overall stays on the high side.
 const estimated = schedule.reduce((sum, p) => sum + sizeOf(p).state + sizeOf(p).questions, 0)
-const PRICE: Record<string, { factor: number; usd: number }> = { jev: { factor: 1.6, usd: 0.042 }, clef: { factor: 1.1, usd: 0.24 } }
+const FACTOR: Record<string, number> = { jev: 1.6, clef: 1.1 }
 for (const name of backends) {
-  const price = PRICE[name] as { factor: number; usd: number }
-  const tokens = Math.round(estimated * price.factor)
-  console.log(`${name}: ${schedule.length} requests, about ${tokens} input tokens, about $${((tokens * price.usd) / 1e6).toFixed(4)}${name === 'clef' ? `, about ${Math.round(tokens / 45)} neurons` : ''}`)
+  const tokens = Math.round(estimated * (FACTOR[name] ?? 1.6))
+  console.log(`${name}: ${schedule.length} requests, about ${tokens} input tokens, about $${((tokens * PRICES[name as 'jev' | 'clef']) / 1e6).toFixed(4)}${name === 'clef' ? `, about ${Math.round(tokens / 45)} neurons` : ''}`)
 }
 if (backends.includes('clef')) console.log(`Workers Paid marker (CLOUDFLARE_WORKERS_PAID in ${CREDENTIALS_FILE}): ${credential('CLOUDFLARE_WORKERS_PAID') === 'yes' ? 'yes' : 'not set'}`)
 if (values.estimate) process.exit(0)
@@ -292,27 +292,28 @@ if (values.estimate) process.exit(0)
 // ---- Send --------------------------------------------------------------------
 
 const secrets: string[] = []
+/** The backend asked, with the credentials the eval reads (eval/node.ts backendFor); exits when one is missing. */
 function makeBackend(name: string): Backend {
-  if (name === 'jev') {
-    const key = credential('TYPESAFE_API_KEY') ?? fail(`no TYPESAFE_API_KEY in the environment or ${CREDENTIALS_FILE}`)
-    secrets.push(key)
-    return jevBackend(key, { model: JEV_MODEL })
+  try {
+    const made = backendFor(name, name === 'jev' ? JEV_MODEL : undefined)
+    secrets.push(...made.secrets)
+    return made.backend
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error))
   }
-  const accountId = credential('CLOUDFLARE_ACCOUNT_ID') ?? fail(`no CLOUDFLARE_ACCOUNT_ID in the environment or ${CREDENTIALS_FILE}`)
-  const apiToken = credential('CLOUDFLARE_AUTH_TOKEN') ?? fail(`no CLOUDFLARE_AUTH_TOKEN in the environment or ${CREDENTIALS_FILE}`)
-  secrets.push(accountId, apiToken)
-  return clefBackend({ accountId, apiToken })
 }
 
-const TRANSIENT: readonly Failure['kind'][] = ['busy', 'network', 'timeout']
+/** One probe's request, asked again after a busy, network or timeout failure as the eval's runner does (eval/lib/runner.ts askRetrying). */
 async function send(backend: Backend, request: DecisionRequest): Promise<{ asked: Asked; ms: number; attempts: number }> {
-  for (let attempt = 1; ; attempt++) {
-    const started = performance.now()
-    const asked = await backend.ask(nodeIo, request, Number(values.timeout))
-    const ms = Math.round(performance.now() - started)
-    if (asked.ok || attempt > Number(values.retries) || !TRANSIENT.includes(asked.failure.kind)) return { asked, ms, attempts: attempt }
-    await new Promise((done) => setTimeout(done, 1000 * 2 ** (attempt - 1)))
-  }
+  const sent = await askRetrying(request, {
+    backend,
+    io: nodeIo,
+    timeoutMs: Number(values.timeout),
+    retries: Number(values.retries),
+    now: () => performance.now(),
+    pause: (ms) => new Promise((done) => setTimeout(done, ms)),
+  })
+  return { asked: sent.asked, ms: Math.round(sent.ms), attempts: sent.attempts }
 }
 
 type Read = { choice: string; right: boolean; p_right: number; p_not_stated: number }

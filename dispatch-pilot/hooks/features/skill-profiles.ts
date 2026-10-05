@@ -6,9 +6,9 @@
 //
 // It works on the session's skills as the skills feature reads them at
 // session start (`$.state`'s skillCatalog), so it registers outside that
-// feature: its session.start goes on once the skills are read. The profiles'
-// switch, `skill-profiles`, is defined by the skills feature (which stops
-// offering profiles while it is off); off, none is written either. Nothing is
+// feature: its session.start goes on once the skills are read. Its switch,
+// `skill-profiles`, is registered here; off, none is written, and the skills
+// feature and find_skill offer every skill by its description. Nothing is
 // written while the skills switch is off or no decision model is set up.
 
 import type { EngineInterface, ModelCompleteResult, On } from 'claude-code'
@@ -16,7 +16,6 @@ import { errorText } from '../decision/backend.ts'
 import { update, type Cell } from '../core/plans.ts'
 import {
   evictions,
-  MAX_PROFILES,
   PROFILE_MAX_TOKENS,
   PROFILE_PREFIX,
   PROFILE_SYSTEM,
@@ -24,19 +23,20 @@ import {
   profileKey,
   profilePrompt,
   readProfile,
+  storedBytes,
   storedProfile,
   withProfile,
   type StoredProfile,
 } from '../core/profiles.ts'
 import type { Ctx } from '../core/setup.ts'
 import type { CatalogSkill } from '../core/skills.ts'
-import { isOn } from '../core/switches.ts'
+import { defineSwitch, isOn } from '../core/switches.ts'
 
 const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
 
 /** The skills feature's switch: profiles serve its suggestions. */
 const SKILLS = 'skills'
-/** The profiles' own switch (defined by the skills feature): written at session start, and offered in the ranking. */
+/** The profiles' own switch: written at session start, and offered in the ranking (the skills feature and find_skill read it too). */
 const PROFILES = 'skill-profiles'
 
 /** Profiles are being written now (one batch at a time). */
@@ -46,6 +46,7 @@ let writing = false
 type ProfileSettings = { model: string; perSession: number; skip: ReadonlySet<string> }
 
 export function registerSkillProfiles(on: On, ctx: Ctx): void {
+  defineSwitch({ name: PROFILES, info: 'rates skills by bilingual profiles a cheap model writes once per SKILL.md version (off: by description)' })
   const settings: ProfileSettings = { model: ctx.config.skills.profileModel, perSession: ctx.config.skills.profilesPerSession, skip: new Set(ctx.config.skills.neverSuggested) }
 
   // Once the skills feature (inside this one) has read the session's skills: a
@@ -149,15 +150,21 @@ async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly Cat
   }
 }
 
-/** Past MAX_PROFILES profiles in the store, the oldest written that this session does not use are deleted. */
+/** Past MAX_PROFILES profiles in the store, or MAX_PROFILE_BYTES of them, the oldest written that this session does not use are deleted. */
 async function dropOldProfiles($: EngineInterface, catalog: readonly CatalogSkill[]): Promise<void> {
   try {
     const keys = (await $.store.keys()).filter((key) => key.startsWith(PROFILE_PREFIX))
-    if (keys.length <= MAX_PROFILES) return
-    const entries = await Promise.all(keys.map(async (key) => ({ key, at: writtenAt(await $.store.get(key).catch(() => null)) })))
+    const entries = await Promise.all(
+      keys.map(async (key) => {
+        const value = await $.store.get(key).catch(() => null)
+        return { key, at: writtenAt(value), bytes: storedBytes(key, value) }
+      }),
+    )
     const drop = evictions(entries, new Set(catalog.flatMap((skill) => (typeof skill.profileKey === 'string' ? [skill.profileKey] : []))))
+    if (drop.length === 0) return
     for (const key of drop) await $.store.delete(key)
-    $.ui.log(`skill profiles: dropped the ${drop.length} oldest of ${keys.length} kept`, { to: 'debug' })
+    const bytes = entries.reduce((sum, entry) => sum + entry.bytes, 0)
+    $.ui.log(`skill profiles: dropped the ${drop.length} oldest of ${keys.length} kept (${Math.round(bytes / 1024)} KB)`, { to: 'debug' })
   } catch (error) {
     $.ui.log(`skill profiles: could not tidy the store (${errorText(error)})`, { to: 'debug' })
   }

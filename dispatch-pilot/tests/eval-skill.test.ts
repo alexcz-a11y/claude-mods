@@ -419,6 +419,35 @@ test('what each variant asks is recorded with the results: the effort question, 
   expect(Object.keys(profiles.second)).toEqual(['skills.best', 'skills.fits.0', 'skills.fits.1'])
 })
 
+test("the profiles-zh variant asks what profiles asks, with the skill questions of both stages in Chinese; the effort question beside them is the same (the run's decision model's)", async () => {
+  const suite = await skillSuite({ catalog: CATALOG, profiles: PROFILES, read })
+  type Body = { state: unknown; questions: Record<string, { instructions?: Record<string, unknown>; criteria?: Record<string, unknown> }> }
+  const sent = async (variant: string): Promise<Body[]> => {
+    const net = network(ANSWER)
+    await runSuite(suite, [ITEM], { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: [variant], languages: ['en'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+    return net.bodies as Body[]
+  }
+  const english = await sent('profiles')
+  const chinese = await sent('profiles-zh')
+
+  // Both stages, about the same state, the same questions in the same order, over the same skills.
+  expect(chinese).toHaveLength(2)
+  expect(chinese.map((body) => body.state)).toEqual(english.map((body) => body.state))
+  expect(chinese.map((body) => Object.keys(body.questions))).toEqual(english.map((body) => Object.keys(body.questions)))
+  expect(Object.keys(chinese[0]?.questions['skills.which']?.criteria ?? {})).toEqual(['tdd', 'run', 'code-review', '(none)'])
+  expect(chinese[0]?.questions['effort.level']).toEqual(english[0]?.questions['effort.level'])
+  // The skill questions as the mod's ranker writes them in Chinese (decision/skills.ts).
+  expect(chinese[0]?.questions['skills.which']?.instructions?.问题).toBe('结合 `recent_context`，要完成 `user_message` 所要求的工作，应该加载下面哪个 skill？如果都不合适，选「都不合适」。')
+  expect(chinese[0]?.questions['skills.hint']?.instructions?.问题).toBe('结合 `recent_context`，要完成 `user_message` 所要求的工作，下面哪个 skill 合适？这些 skill 由用户自己输入名字来启动。如果都不合适，选「都不合适」。')
+  expect(chinese[1]?.questions['skills.best']?.instructions?.问题).toBe('结合 `recent_context`，要完成 `user_message` 所要求的工作，下面这些 skill 中正好有一个最该加载。是哪一个？')
+  expect(chinese[1]?.questions['skills.fits.0']?.instructions?.问题).toBe('结合 `recent_context`，`skill` 是否正好做 `user_message` 所要求的那种工作？')
+  expect(english[1]?.questions['skills.fits.0']?.instructions?.question).toBe('Does `skill` do the specific kind of work that `user_message` asks for, given `recent_context`?')
+  // What the variant asks is recorded with the results in Chinese too.
+  const recorded = suite.questions('profiles-zh') as { first: Body['questions']; second: Body['questions'] }
+  expect(recorded.first['skills.which']?.instructions?.问题).toBe(chinese[0]?.questions['skills.which']?.instructions?.问题)
+  expect(Object.keys(recorded.second['skills.fits.0']?.instructions ?? {})).toContain('问题')
+})
+
 test('the estimate counts both stages: stage one as asked, and stage two as if stage one put a full shortlist forward (the skills the item wants first)', async () => {
   const suite = await skillSuite({ catalog: CATALOG, profiles: PROFILES, read })
   const net = network(ANSWER)

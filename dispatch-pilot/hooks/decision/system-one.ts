@@ -20,7 +20,12 @@ export type ChoiceAnswer = { type: 'choice'; choice: string; probabilities: Read
 export type NoulAnswer = { type: 'noul'; noul: number }
 export type Answer = ScoreAnswer | ChoiceAnswer | NoulAnswer
 
-/** What every question of a request reads: one object, its most important field first. */
+/**
+ * What every question of a request reads: one object, its most important
+ * field first (the question guide's advice). Clef sorts the keys before it
+ * reads a long state's head, so no field relies on its place: the state
+ * builders keep the whole state within its budget (context.ts `withinTokens`).
+ */
 export type State = Readonly<Record<string, unknown>>
 
 /** One decision request, less the backend's own fields (`model`). */

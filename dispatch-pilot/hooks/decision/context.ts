@@ -20,7 +20,7 @@ export type ContextMessage = {
 export type ContextLimits = {
   /** How many recent messages go along (consecutive rows of one speaker count as one); 0 for none. */
   messages: number
-  /** How many tokens the whole state may take: the message first, the recent conversation in what is left. */
+  /** How many tokens the whole state may take as it is sent: the message's share first, the recent conversation in what is left. */
   tokens: number
 }
 
@@ -142,15 +142,40 @@ export type TurnStartInput = {
 }
 
 /**
+ * The state `build(budget)` makes, kept within `tokens` as it is sent: as
+ * JSON, its field names, quotes and escapes counted, which pasted JSON or code
+ * can swell by a fifth. No field is safe for coming first: Clef's encoder
+ * renders a state as JSON with its keys sorted and reads only its head when it
+ * is long (#17), so the whole of it must fit. Built again, with the budget
+ * cut by as much as it came out over, while it does (a few times at most).
+ */
+export function withinTokens<S extends State>(build: (budget: number) => S, tokens: number): S {
+  let budget = tokens
+  let state = build(budget)
+  for (let tries = 0; tries < 4; tries++) {
+    const sent = estimateTokens(JSON.stringify(state))
+    if (sent <= tokens) break
+    budget = Math.min(budget - 1, Math.floor((budget * tokens) / sent))
+    state = build(budget)
+  }
+  return state
+}
+
+/**
  * The state of a message's decision request: `{ user_message, recent_context }`,
- * the message first (Clef may read only the start of a state). The message
- * takes what it needs of `limits.tokens`; recent messages fill what is left,
- * newest first, an older one dropped whole rather than squeezed; the newest is
- * always sent, cut to fit if it must be.
+ * within `limits.tokens` as it is sent (`withinTokens`). The message takes what
+ * it needs of the budget; recent messages fill what is left, newest first, an
+ * older one dropped whole rather than squeezed; the newest is always sent, cut
+ * to fit if it must be.
  */
 export function turnStartState(input: TurnStartInput): State {
-  const message = messageText(input.prompt, input.limits.tokens)
-  let room = input.limits.tokens - estimateTokens(message)
+  return withinTokens((tokens) => turnStartFields(input, tokens), input.limits.tokens)
+}
+
+/** The fields of a message's state, with `tokens` for the message and the recent conversation. */
+function turnStartFields(input: TurnStartInput, tokens: number): State {
+  const message = messageText(input.prompt, tokens)
+  let room = tokens - estimateTokens(message)
   const kept: string[] = []
   const lines = recentLines(input.messages, input.prompt, input.limits.messages)
   for (let i = lines.length - 1; i >= 0 && room >= MIN_LINE; i--) {

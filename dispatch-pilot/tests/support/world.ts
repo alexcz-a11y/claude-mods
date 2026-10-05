@@ -53,8 +53,12 @@ export type Step = { turnId: string; index: number; model: string; effort: unkno
 export type WorldOptions = {
   /** Answers each backend request (`n` counts from 1). Without one, every request gets HTTP 500. */
   backend?: (request: Sent, n: number) => Reply | Promise<Reply>
-  /** The transcript `$.session.messages()` returns: as given, or as a function gives it at each call (one that grows as the turn goes). */
-  messages?: SessionMessage[] | (() => SessionMessage[])
+  /**
+   * The transcript `$.session.messages()` returns: as given, or as a function gives it at each call (one that grows
+   * as the turn goes), told what was asked: `{ agentId }` for an agent's, which it may refuse with `{ deny }` as the
+   * engine refuses a workflow agent's.
+   */
+  messages?: SessionMessage[] | ((asked: { agentId?: string }) => SessionMessage[] | { deny: string })
   /** Files the mod can read, by absolute path (`$.fs.read`, `$.fs.exists`). */
   disk?: Record<string, string>
   /**
@@ -234,7 +238,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     completions.push(e)
     return options.model ? complete(await options.model(e, completions.length)) : { deny: 'no model in this test' }
   })
-  on('session.messages', () => ({ value: typeof options.messages === 'function' ? options.messages() : (options.messages ?? []) }))
+  on('session.messages', (_$, e) => ({ value: (typeof options.messages === 'function' ? options.messages({ ...(e.agentId === undefined ? {} : { agentId: e.agentId }) }) : (options.messages ?? [])) as never }))
   on('fs.read', (_$, e) => (e.path in disk ? { value: disk[e.path] as string } : { deny: `ENOENT: ${e.path}` }))
   on('fs.exists', (_$, e) => ({ value: e.path in disk || Object.keys(disk).some((path) => path.startsWith(`${e.path}/`)) }))
   // A directory of the disk: what lies directly under it, a file or a directory (one holding files further down).

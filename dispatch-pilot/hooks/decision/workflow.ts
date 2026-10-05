@@ -11,13 +11,13 @@
 // Pure (see system-one.ts).
 
 import type { Asked, Failure } from './backend.ts'
-import { estimateTokens } from './context.ts'
+import { estimateTokens, withinTokens } from './context.ts'
 import {
   decideDispatch,
-  decisionNotes,
   dispatchBrief,
   dispatchPart,
-  dispatchState,
+  dispatchReason,
+  dispatchWords,
   modelFamily,
   type Dispatch,
   type DispatchDecision,
@@ -132,11 +132,11 @@ export function workflowBatches(
     if (!tells) skipped.push({ index: call.index, reason: 'unreadable' })
     return tells
   })
-  const first = readable[0]
-  if (first === undefined) return { batches: [], skipped }
-  // The person's words as a dispatched agent's decision reads them, shared by every call.
-  const user = dispatchState(callDispatch(first, parsed.meta, words), tokens).user_message as string
-  const room = Math.max(MIN_BRIEF, tokens - estimateTokens(user))
+  if (readable.length === 0) return { batches: [], skipped }
+  // The person's words as a dispatched agent's decision reads them, shared by every call. Sizes are of the state
+  // as sent (field names, quotes and escapes counted), so a request's whole state keeps within `tokens`.
+  const user = dispatchWords(words, tokens)
+  const room = Math.max(MIN_BRIEF, tokens - estimateTokens(JSON.stringify({ user_message: user })))
   type Group = { state: Record<string, unknown>; parts: Part[]; calls: number[]; used: number; questions: number }
   const groups: Group[] = []
   for (const [position, call] of readable.entries()) {
@@ -146,8 +146,9 @@ export function workflowBatches(
     }
     const dispatch = callDispatch(call, parsed.meta, words)
     const part = dispatchPart(dispatch, shapeOf(call.index, settings))
-    const brief = dispatchBrief(dispatch, Math.min(MAX_BRIEF, room))
-    const size = Object.values(brief).reduce((sum, text) => sum + estimateTokens(text) + 4, 0)
+    const field = `brief_${call.index}`
+    const brief = withinTokens((budget) => dispatchBrief(dispatch, budget), Math.min(MAX_BRIEF, room))
+    const size = estimateTokens(JSON.stringify({ [field]: brief }))
     const questions = Object.keys(part.questions).length
     let group = groups.at(-1)
     if (group === undefined || group.calls.length >= perRequest || group.used + size > room || group.questions + questions > MAX_QUESTIONS) {
@@ -158,7 +159,7 @@ export function workflowBatches(
       group = { state: {}, parts: [], calls: [], used: 0, questions: 0 }
       groups.push(group)
     }
-    group.state[`brief_${call.index}`] = brief
+    group.state[field] = brief
     group.parts.push(part)
     group.calls.push(call.index)
     group.used += size
@@ -203,7 +204,7 @@ function writeFor(call: AgentCall, decision: DispatchDecision): CallWrite | null
   const write: CallWrite = {}
   // The model the script wrote stands when the decision keeps it or names the same one. One it works out when it
   // runs stands too, unless the person named a model or ruled some out: their terms win over the script's, so the
-  // decided model is written in its place (decision 6 of review 1).
+  // decided model is written in its place.
   const written = call.model.kind === 'literal' ? modelFamily(call.model.value) : null
   const overScript = call.model.kind !== 'dynamic' || decision.source === 'user' || decision.banned.length > 0
   if (decision.model !== null && overScript && decision.source !== 'requested' && decision.model !== written) write.model = decision.model
@@ -232,18 +233,9 @@ export function outcomeOf(call: AgentCall, decision: DispatchDecision): string {
   return decision.effort === null ? model : `${model} ${decision.effort}`
 }
 
-/** Why a call is routed as it is: whose model it is, the decision model's pick, what was ruled out, the effort answer. */
+/** Why a call is routed as it is (`dispatchReason`, a kept model being the script's). */
 export function reasonOf(decision: DispatchDecision, requested: string | null, thetaOverride: number): string {
-  const pick = decision.pick === null ? null : `pick ${decision.pick.model}, confidence ${decision.pick.confidence.toFixed(2)}`
-  const parts: string[] = []
-  if (decision.source === 'user') parts.push('named in your message')
-  else if (decision.source === 'requested') parts.push(`the script's ${requested} kept${decision.pick !== null && decision.pick.model !== requested ? ` (below agentOverride ${thetaOverride.toFixed(2)})` : ''}`)
-  else if (decision.source === 'decided') parts.push(requested !== null && requested !== decision.model ? `decided over the script's ${requested}` : 'decided')
-  else parts.push("the engine's model kept")
-  if (pick !== null) parts.push(pick)
-  parts.push(...decisionNotes(decision))
-  if (decision.reading !== null) parts.push(`effort p ${EFFORTS.map((level, i) => `${level} ${(decision.reading?.probabilities[i] ?? 0).toFixed(2)}`).join(', ')}`)
-  return parts.join('; ')
+  return dispatchReason(decision, requested, thetaOverride, "the script's")
 }
 
 /** Why a call got the model and effort it did, in a few words for the main agent: whose model it is, how sure the decision model was, how likely its effort level. */

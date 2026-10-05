@@ -1304,7 +1304,10 @@
           "parts": {
             "suggest": 0.8073,
             "hint": 0.9908
-          }
+          },
+          "late": 23,
+          "retried": 0,
+          "inTime": 0.6422
         },
         "en": {
           "items": 109,
@@ -1323,10 +1326,13 @@
           "parts": {
             "suggest": 0.8532,
             "hint": 0.9817
-          }
+          },
+          "late": 22,
+          "retried": 0,
+          "inTime": 0.6789
         },
         "gap": -0.0367,
-        "pass": false,
+        "pass": true,
         "agreement": {
           "items": 109,
           "same": 96,
@@ -2216,7 +2222,10 @@
           "parts": {
             "suggest": 0.844,
             "hint": 0.9725
-          }
+          },
+          "late": 8,
+          "retried": 0,
+          "inTime": 0.7706
         },
         "en": {
           "items": 109,
@@ -2233,7 +2242,10 @@
           "parts": {
             "suggest": 0.8532,
             "hint": 0.9725
-          }
+          },
+          "late": 5,
+          "retried": 0,
+          "inTime": 0.7982
         },
         "gap": -0.0092,
         "pass": true,
@@ -3115,6 +3127,11 @@
         }
       }
     ]
+  },
+  "resummarized": {
+    "date": "2026-10-05",
+    "by": "eval/resummarize.ts",
+    "what": "each variant's pass by the bar of 2026-10-05 (Chinese at most 4 points below English, exactly 4 passing); each language's late, retried and inTime from the answers kept here (an answer that took more attempts than requests is no decision in time: the mod never retries)"
   },
   "answers": [
     {"id":"skill-001","language":"zh","state":{"user_message":"从 main 切出来到现在这一坨改动，跟 #7 那张票要的东西对得上吗？顺手看看有没有踩 CLAUDE.md 里那几条红线","recent_context":""},"profiles":{"answer":"code-review","correct":true,"gold":true,"parts":{"suggest":true,"hint":true},"first":[{"name":"code-review","share":1}],"none":0,"fits":[{"name":"code-review","relevance":0.91}],"stages_ms":[3154,466],"ms":3620,"attempts":2,"tokens":22894,"model":"jev-1.13.0"},"descriptions":{"answer":"code-review","correct":true,"gold":true,"parts":{"suggest":true,"hint":true},"first":[{"name":"code-review","share":1}],"none":0,"fits":[{"name":"code-review","relevance":0.9}],"stages_ms":[787,351],"ms":1139,"attempts":2,"tokens":9424,"model":"jev-1.13.0"}},

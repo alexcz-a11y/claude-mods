@@ -17,7 +17,7 @@
 // Its switch is `workflow-labels` (`/dp workflow-labels off`).
 
 import type { EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
-import { type Asked, describeAsked, errorText } from '../decision/backend.ts'
+import { type Asked, describeAsked, errorText, within } from '../decision/backend.ts'
 import { modelFamily, termsOf, type AgentModel, type DispatchSettings, type Terms } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
 import {
@@ -168,8 +168,8 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
           }
         }
       }
-      // Every launched run is recorded, even one whose calls all run as the script says: the escalation feature (#7)
-      // finds a workflow agent's transcript, which the engine keeps from the mod, in its run's directory.
+      // Every launched run is recorded, even one whose calls all run as the script says: their agents' plans still
+      // take the person's terms for the calls' work as they start.
       const run: LabelRun = { runId: launched.runId, dir: launched.dir, workflow: parsed?.meta.name ?? launched.workflow, description: parsed?.meta.description ?? null, sites }
       const runs: Cell<LabelRun[]> = { get: () => $.state.get(RUNS), set: (value, options) => $.state.set(RUNS, value, options) }
       await update(runs, (list) => [...(list ?? []).filter((kept) => kept.runId !== run.runId), run].slice(-MAX_RUNS))
@@ -256,11 +256,8 @@ async function settleLaunches($: EngineInterface, deadline: number): Promise<Lab
   const recorded: LabelRun[] = []
   const left = deadline - (await $.clock.now())
   if (left <= 0) return recorded
-  const stop = new AbortController()
-  const timer = $.clock.sleep(left, { signal: stop.signal }).catch(() => undefined)
   const all = Promise.all([...launching].map((launch) => launch.then((run) => (run === null ? undefined : recorded.push(run)))))
-  await Promise.race([all, timer])
-  stop.abort()
+  await within((ms, signal) => $.clock.sleep(ms, { signal }), all, left, undefined)
   return recorded
 }
 

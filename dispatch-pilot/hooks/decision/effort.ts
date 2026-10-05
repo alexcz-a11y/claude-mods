@@ -108,10 +108,18 @@ export function pickEffort(reading: EffortReading, thetaMax: number): Effort {
   return EFFORTS[level] as Effort
 }
 
-/** Every level's probability and the backend's confidence, as the decision log gives them: `p low 0.00, medium 0.05, ...; confidence 0.80`. */
-export function readingText(reading: EffortReading): string {
-  const levels = EFFORTS.map((level, i) => `${level} ${(reading.probabilities[i] ?? 0).toFixed(2)}`).join(', ')
-  return `p ${levels}; confidence ${reading.confidence === null ? 'n/a' : reading.confidence.toFixed(2)}`
+/** Every level's probability, as the decision log gives them: `low 0.00, medium 0.05, ...`. */
+export function levelsText(reading: EffortReading): string {
+  return EFFORTS.map((level, i) => `${level} ${(reading.probabilities[i] ?? 0).toFixed(2)}`).join(', ')
+}
+
+/**
+ * Every level's probability and the backend's confidence, as the decision log
+ * gives them: `p low 0.00, medium 0.05, ...; confidence 0.80`, with `note`
+ * (why a level was held back) between the two.
+ */
+export function readingText(reading: EffortReading, note?: string): string {
+  return `p ${levelsText(reading)}${note === undefined ? '' : `; ${note}`}; confidence ${reading.confidence === null ? 'n/a' : reading.confidence.toFixed(2)}`
 }
 
 export function isEffort(value: unknown): value is Effort {

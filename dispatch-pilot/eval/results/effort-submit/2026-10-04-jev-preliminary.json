@@ -138,7 +138,10 @@
           "misses": {
             "over": 17,
             "under": 4
-          }
+          },
+          "late": 1,
+          "retried": 0,
+          "inTime": 0.78
         },
         "en": {
           "items": 100,
@@ -149,7 +152,10 @@
           "misses": {
             "over": 18,
             "under": 5
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.77
         },
         "gap": 0.02,
         "pass": true,
@@ -491,7 +497,10 @@
           "misses": {
             "over": 6,
             "under": 9
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.85
         },
         "en": {
           "items": 100,
@@ -502,7 +511,10 @@
           "misses": {
             "under": 7,
             "over": 6
-          }
+          },
+          "late": 1,
+          "retried": 0,
+          "inTime": 0.86
         },
         "gap": -0.02,
         "pass": true,
@@ -844,7 +856,10 @@
           "misses": {
             "under": 7,
             "over": 9
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.84
         },
         "en": {
           "items": 100,
@@ -855,7 +870,10 @@
           "misses": {
             "under": 6,
             "over": 10
-          }
+          },
+          "late": 1,
+          "retried": 0,
+          "inTime": 0.83
         },
         "gap": 0,
         "pass": true,
@@ -1197,7 +1215,10 @@
           "misses": {
             "under": 11,
             "over": 4
-          }
+          },
+          "late": 1,
+          "retried": 0,
+          "inTime": 0.84
         },
         "en": {
           "items": 100,
@@ -1208,7 +1229,10 @@
           "misses": {
             "under": 10,
             "over": 3
-          }
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.87
         },
         "gap": -0.02,
         "pass": true,
@@ -1567,6 +1591,11 @@
         "exact": 0.08
       }
     ]
+  },
+  "resummarized": {
+    "date": "2026-10-05",
+    "by": "eval/resummarize.ts",
+    "what": "each variant's pass by the bar of 2026-10-05 (Chinese at most 4 points below English, exactly 4 passing); each language's late, retried and inTime from the answers kept here (an answer that took more attempts than requests is no decision in time: the mod never retries)"
   },
   "answers": [
     {"id":"submit-001","language":"zh","state":{"user_message":"先说下背景：我们这周在把整个后端从 docker-compose 迁到 k8s，redis、postgres、kafka 都要搬，下周还要上 Istio，事情一大堆。不过这些你都先不用管，redis 新版本的兼容性我已经在 staging 验证过了。现在只要你把 `docker-compose.yml` 里 redis 的镜像从 `redis:6.2-alpine` 改成 `redis:7.2-alpine`，别的一个字都不要动。","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.99,0.01,0,0,0],"confidence":0.99,"ms":2484,"attempts":1,"tokens":748,"model":"jev-1.13.0"},"zh-score":{"answer":"low","correct":true,"gold":true,"p":[0.98,0.02,0,0,0],"confidence":0.98,"ms":744,"attempts":1,"tokens":873,"model":"jev-1.13.0"},"en-choice":{"answer":"low","correct":true,"gold":true,"p":[1,0,0,0,0],"confidence":0.99,"ms":779,"attempts":1,"tokens":783,"model":"jev-1.13.0"},"zh-choice":{"answer":"low","correct":true,"gold":true,"p":[1,0,0,0,0],"confidence":0.99,"ms":622,"attempts":1,"tokens":908,"model":"jev-1.13.0"}},

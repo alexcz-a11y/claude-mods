@@ -67,17 +67,28 @@ export async function postJson(
   timeoutMs: number,
   classify: (response: HttpResponse) => Failure = httpFailure,
 ): Promise<Posted> {
-  const stop = new AbortController()
-  const timer = io.sleep(timeoutMs, stop.signal).then(
-    (): Posted => ({ ok: false, failure: { kind: 'timeout', detail: `no answer in ${timeoutMs} ms` } }),
-    (): Posted => ({ ok: false, failure: { kind: 'timeout', detail: `no answer in ${timeoutMs} ms` } }),
-  )
   const call = io.fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }).then(
     (response): Posted => (response.ok ? { ok: true, response } : { ok: false, failure: classify(response) }),
-    (error: unknown): Posted => ({ ok: false, failure: { kind: 'network', detail: String(error instanceof Error ? error.message : error) } }),
+    (error: unknown): Posted => ({ ok: false, failure: { kind: 'network', detail: errorText(error) } }),
+  )
+  const late: Posted = { ok: false, failure: { kind: 'timeout', detail: `no answer in ${timeoutMs} ms` } }
+  return within(io.sleep, call, timeoutMs, late)
+}
+
+/**
+ * What `promise` comes to when it settles within `ms`, else `late`; the timer
+ * is called off either way. A promise that loses keeps running (a caller may
+ * still take its answer later). `sleep` is the host's, as BackendIo has it:
+ * `(ms, signal) => $.clock.sleep(ms, { signal })` in a hook.
+ */
+export async function within<T, L>(sleep: BackendIo['sleep'], promise: Promise<T>, ms: number, late: L): Promise<T | L> {
+  const stop = new AbortController()
+  const timer = sleep(ms, stop.signal).then(
+    () => late,
+    () => late,
   )
   try {
-    return await Promise.race([call, timer])
+    return await Promise.race([promise, timer])
   } finally {
     stop.abort()
   }

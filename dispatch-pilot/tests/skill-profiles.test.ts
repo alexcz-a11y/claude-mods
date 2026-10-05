@@ -200,6 +200,25 @@ test('past 500 profiles in the store, the oldest written that the session does n
   expect(await criterionOf(w, 'tdd', '先写一个失败的测试')).toEqual(offered('tdd'))
 })
 
+// The store holds 4 MiB in all for every key of the mod: the profiles keep within 2 MiB of it, whatever their count.
+test('past 2 MiB of profiles in the store, however few they are, the oldest written that the session does not use are dropped, down to 1.5 MiB', { options: KEY }, async ($, on) => {
+  const old: Record<string, unknown> = {}
+  // 300 profiles of about 8 KB each (written by some other version, with more in them): about 2.4 MB.
+  for (let i = 0; i < 300; i++) old[`profile.big${String(i).padStart(3, '0')}`] = { name: `big-${i}`, at: i, profile: profileOf(`big-${i}`), notes: 'x'.repeat(8000) }
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: old, session: true, model: writer() })
+  await w.start()
+  await w.clock.settle()
+
+  const kept = w.storedKeys().filter((key) => key.startsWith('profile.'))
+  const bytes = kept.reduce((sum, key) => sum + key.length + new TextEncoder().encode(JSON.stringify(w.stored(key))).length, 0)
+  expect(bytes).toBeLessThanOrEqual(1.5 * 1024 * 1024)
+  expect(bytes).toBeGreaterThan(1.4 * 1024 * 1024)
+  // The oldest went first; the session's own three, just written, stay.
+  expect(kept).not.toContain('profile.big000')
+  expect(kept).toContain('profile.big299')
+  expect(kept.filter((key) => !key.startsWith('profile.big'))).toHaveLength(3)
+})
+
 test('with skill-profiles switched off none is written and the skills are offered by their descriptions; switched on, the kept ones are offered again', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: writer() })
   await w.start()

@@ -19,7 +19,7 @@
 // stream ends. This layer keeps the text of the step as it streams.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { describeAsked, errorText, type Asked } from '../decision/backend.ts'
+import { describeAsked, errorText, within, type Asked } from '../decision/backend.ts'
 import { messageText } from '../decision/context.ts'
 import { higherEffort, isEffort, readEffort, readingText, type Effort } from '../decision/effort.ts'
 import {
@@ -41,7 +41,7 @@ import {
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { wasBlocked } from '../core/outcomes.ts'
-import { floorHeld, redecided, turnKey, update, type Cell, type TurnRecord } from '../core/plans.ts'
+import { floorHeld, MAIN, redecided, turnKey, update, type Cell, type TurnRecord } from '../core/plans.ts'
 import type { Ctx } from '../core/setup.ts'
 import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
@@ -49,7 +49,7 @@ import { defineSwitch, isOn } from '../core/switches.ts'
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
 const MIDTURN = { plugin: 'dispatch-pilot', key: 'midturn' } as const
 const MAIN_STEP = { plugin: 'dispatch-pilot', key: 'mainStep' } as const
-const FAILURES = { plugin: 'dispatch-pilot', key: 'escalation', id: 'main' } as const
+const FAILURES = { plugin: 'dispatch-pilot', key: 'escalation', id: MAIN } as const
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
@@ -121,7 +121,7 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
         const at = step.index
         const ref = { ...MIDTURN, id: turnKey(step.turnId, undefined) }
         const cell: Cell<MidturnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
-        await update(cell, (r) => withTool(r ?? fresh(), at, ended))
+        await update(cell, (r) => withTool(r ?? newRecord(), at, ended))
       } catch (error) {
         $.ui.log(`midturn: ${errorText(error)}`, { to: 'debug' })
       }
@@ -138,12 +138,12 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
       for (const old of [...inFlight.keys()]) if (old !== key) inFlight.delete(old)
     }
     try {
-      const note = await settle($, settings, e, key)
+      const note = await takeAnswer($, settings, e, key)
       const engine = isEffort(e.effort) ? e.effort : null
       await $.state.set(MAIN_STEP, { turnId: e.turnId, index: e.index })
       const ref = { ...MIDTURN, id: key }
       const cell: Cell<MidturnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
-      const record = await update(cell, (r) => ({ ...(r === undefined || e.index === 0 ? fresh() : r), steps: e.index + 1, engine }))
+      const record = await update(cell, (r) => ({ ...(r === undefined || e.index === 0 ? newRecord() : r), steps: e.index + 1, engine }))
       const { value: turn } = await $.state.get({ ...TURNS, id: key })
       setStatus('midturn', segment(record, turn, note), (line) => $.ui.status(line))
     } catch (error) {
@@ -166,7 +166,7 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
       const text = messageText(result.answer, settings.limits.tokens)
       const ref = { ...MIDTURN, id: key }
       const cell: Cell<MidturnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
-      await update(cell, (r) => withText(r ?? fresh(), e.index, text))
+      await update(cell, (r) => withText(r ?? newRecord(), e.index, text))
     } catch (error) {
       $.ui.log(`midturn: ${errorText(error)}`, { to: 'debug' })
     }
@@ -189,8 +189,9 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
     $.state.get(FAILURES),
     $.clock.now(),
   ])
-  // Only a turn the person's own message started is re-decided: decided at its start or not (decision 5 of review 1);
-  // never without a decision model set up (every request would fail at once).
+  // Only a turn the person's own message started is re-decided, whether its start was decided or not (that request
+  // may have failed: then from the session's own effort); never without a decision model set up (every request would
+  // fail at once).
   if (turn === undefined || turn.person !== true || lock !== null || record === undefined || record.engine === null || s.ctx.backend.configured === false) return
   const reason = PHASE_TOOLS.has(starting.name) ? starting.name : s.every > 0 && upcoming % s.every === 0 ? `every ${s.every} steps` : null
   if (reason === null || record.askedFor === upcoming || inFlight.get(key)?.forStep === upcoming) return
@@ -216,7 +217,7 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
   inFlight.set(key, entry)
   const ref = { ...MIDTURN, id: key }
   const cell: Cell<MidturnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
-  await update(cell, (r) => ({ ...(r ?? fresh()), askedFor: upcoming }))
+  await update(cell, (r) => ({ ...(r ?? newRecord()), askedFor: upcoming }))
 }
 
 /**
@@ -242,18 +243,12 @@ function countsOf(turn: TurnRecord, turnId: string, failures: { turnId: string; 
  * later step. Resolves to what the status line should add: `late`, or why
  * there is no answer; null otherwise.
  */
-async function settle($: EngineInterface, s: Settings, e: { index: number; effort?: unknown }, key: string): Promise<string | null> {
+async function takeAnswer($: EngineInterface, s: Settings, e: { index: number; effort?: unknown }, key: string): Promise<string | null> {
   const pending = inFlight.get(key)
   if (pending === undefined || pending.forStep > e.index) return null
   let asked = pending.settled
   if (asked === null) {
-    const stop = new AbortController()
-    const timer = $.clock.sleep(s.waitMs, { signal: stop.signal }).then(
-      () => null,
-      () => null,
-    )
-    asked = await Promise.race([pending.answer, timer])
-    stop.abort()
+    asked = await within((ms, signal) => $.clock.sleep(ms, { signal }), pending.answer, s.waitMs, null)
   }
   if (asked === null) return 'late'
   inFlight.delete(key)
@@ -291,7 +286,7 @@ function segment(record: MidturnRecord, turn: TurnRecord | undefined, note: stri
   return `steps ${record.steps}, judged ${turn.decisions}, changed ${turn.changes}${note === null ? '' : ` (${note})`}`
 }
 
-function fresh(): MidturnRecord {
+function newRecord(): MidturnRecord {
   return { steps: 0, engine: null, askedFor: null, recent: [] }
 }
 

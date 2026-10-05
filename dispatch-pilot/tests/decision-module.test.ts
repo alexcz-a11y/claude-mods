@@ -81,7 +81,7 @@ test('a part may add state fields of its own after the shared ones; a field two 
   const question = { type: 'noul' as const, instructions: 'Does a platform skill fit `user_message`?' }
   const skills: Part = { part: 'skills', questions: { fit: question }, state: { project_platforms: 'Cloudflare Workers' } }
   const request = mergeParts(STATE, [turnStartEffortPart(), skills])
-  // The message stays first: Clef may read only the start of a long state.
+  // The message stays first, as the question guide asks (Clef's encoder sorts the keys: no order is relied on there).
   expect(Object.keys(request.state)).toEqual(['user_message', 'recent_context', 'project_platforms'])
   expect(request.state.project_platforms).toBe('Cloudflare Workers')
 
@@ -107,12 +107,12 @@ test('tokens, not characters: Chinese and English texts of the same token estima
   expect(estimateTokens(zh)).toBe(450)
   expect(estimateTokens(en)).toBe(450)
 
-  const fromZh = turnStartState({ prompt: zh, messages: [], limits: LIMITS }).user_message as string
-  const fromEn = turnStartState({ prompt: en, messages: [], limits: LIMITS }).user_message as string
-  for (const cut of [fromZh, fromEn]) {
-    expect(estimateTokens(cut)).toBeLessThanOrEqual(100)
-    expect(estimateTokens(cut)).toBeGreaterThan(90)
-  }
+  const stateZh = turnStartState({ prompt: zh, messages: [], limits: LIMITS })
+  const stateEn = turnStartState({ prompt: en, messages: [], limits: LIMITS })
+  const [fromZh, fromEn] = [stateZh.user_message as string, stateEn.user_message as string]
+  for (const cut of [fromZh, fromEn]) expect(estimateTokens(cut)).toBeGreaterThan(80)
+  // The budget holds for the whole state as sent: the field names and the JSON around the message take the rest.
+  for (const state of [stateZh, stateEn]) expect(estimateTokens(JSON.stringify(state))).toBeLessThanOrEqual(100)
   // The same budget holds about four times as many English characters.
   expect(fromEn.length).toBeGreaterThan(fromZh.length * 3)
   // A message too long keeps its beginning and its end.

@@ -9,11 +9,12 @@ import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join, relative, resolve } from 'node:path'
+import { parseArgs } from 'node:util'
 import type { Backend, BackendIo } from '../hooks/decision/backend.ts'
 import { clefBackend } from '../hooks/decision/clef.ts'
 import { jevBackend } from '../hooks/decision/jev.ts'
 import { isKind, parseJsonl, type Kind } from './lib/datasets.ts'
-import type { OptionSpec, SuiteHost } from './lib/suite.ts'
+import { optionsFor, settingsFrom, type OptionSpec, type SuiteHost } from './lib/suite.ts'
 
 /** The mod's directory (dispatch-pilot/). */
 export const MOD_DIR = resolve(import.meta.dirname, '..')
@@ -23,7 +24,7 @@ export const REVIEW_DIR = join(EVAL_DIR, 'review')
 export const RESULTS_DIR = join(EVAL_DIR, 'results')
 
 /** The mod's manifest (.claude-plugin/plugin.json): its options as the engine reads them (`optionsFrom` takes them). */
-export function readManifest(): { userConfig?: Record<string, OptionSpec & { sensitive?: boolean }> } {
+export function readManifest(): { userConfig?: Record<string, OptionSpec> } {
   return JSON.parse(readFileSync(join(MOD_DIR, '.claude-plugin', 'plugin.json'), 'utf8'))
 }
 
@@ -127,6 +128,47 @@ export function backendFor(name: string, model?: string): { backend: Backend; se
     return { backend: clefBackend({ accountId, apiToken }), secrets: [accountId, apiToken] }
   }
   throw new Error(`no backend "${name}" (jev, clef)`)
+}
+
+/** A result file's text: pretty JSON, each answer on a line of its own (eval/run.ts writes it, eval/resummarize.ts rewrites it). */
+export function formatResult(result: Record<string, unknown> & { answers: readonly unknown[] }): string {
+  const { answers, ...head } = result
+  const top = JSON.stringify(head, null, 2)
+  return `${top.slice(0, -2)},\n  "answers": [\n${answers.map((answer) => `    ${JSON.stringify(answer)}`).join(',\n')}\n  ]\n}\n`
+}
+
+/** Input price per million tokens, by backend; output is free on both (docs.typesafe.ai/models, the Clef model page; 2026-10-04). */
+export const PRICES: Readonly<Record<'jev' | 'clef', number>> = { jev: 0.042, clef: 0.24 }
+
+/**
+ * What scripts/decide*.ts share, read with node:util parseArgs: `--clef`
+ * (Jev otherwise), `--timeout <ms>`, and each script's own flags (`extra`).
+ * Exits 2 with `usage` for a flag it does not know.
+ */
+export function scriptArgs(usage: string, extra: Record<string, { type: 'string' | 'boolean' }>): { values: Record<string, string | boolean | undefined>; positionals: string[] } {
+  try {
+    return parseArgs({ allowPositionals: true, options: { clef: { type: 'boolean' }, timeout: { type: 'string' }, ...extra } }) as { values: Record<string, string | boolean | undefined>; positionals: string[] }
+  } catch (error) {
+    console.error(`${error instanceof Error ? error.message : String(error)}\nusage: ${usage}`)
+    process.exit(2)
+  }
+}
+
+/**
+ * The decision model a script asks, with the mod's settings for it (the
+ * manifest's defaults, its defaults where the manifest has none, then
+ * `assignments` as --option gives them) and its backend (credentials as the
+ * eval reads them, never printed). Exits 2 when a credential is missing.
+ */
+export function scriptDecision(clef: boolean, assignments: readonly string[] = []): { settings: ReturnType<typeof settingsFrom>; backend: Backend } {
+  const chosen = clef ? 'clef' : 'jev'
+  const settings = settingsFrom(optionsFor(chosen, readManifest().userConfig ?? {}, assignments))
+  try {
+    return { settings, backend: backendFor(chosen).backend }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(2)
+  }
 }
 
 /** Node's fetch and timers as a backend's host. */

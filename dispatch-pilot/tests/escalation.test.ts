@@ -447,7 +447,7 @@ test("a mid-turn re-decision due at the same step cannot undercut the raise: the
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'high', 'high', 'high'])
 })
 
-test('a forced raise holds for holdSteps steps, then the ordinary re-decisions may lower it again (story 21, decision 4 of review 1)', { options: { ...KEY, rejudgeEvery: 1, holdSteps: 3 } }, async ($, on) => {
+test('a forced raise holds for holdSteps steps, then the ordinary re-decisions may lower it again (story 21)',{ options: { ...KEY, rejudgeEvery: 1, holdSteps: 3 } }, async ($, on) => {
   // Every mid-turn answer says low, surely; the stuck re-decision says medium and not expected.
   const w = world($, on, { backend: (request, n) => (n > 1 && kind(request) === 'midturn.level' ? jev(LOW, { confidence: 0.9 })(request) : answers(MEDIUM)(request)) })
   await w.submit('把登录模块重构成三层')
@@ -633,9 +633,11 @@ test('failures the decision model finds expected change nothing about an agent, 
   expect(sonnet.requests.filter((r) => 'escalation.expected' in r.body.questions)).toHaveLength(1)
 })
 
+/** The engine keeps a workflow agent's transcript from the mod: `$.session.messages` refuses its id. */
+const refusing = (agentId: string) => (asked: { agentId?: string }) => (asked.agentId === undefined ? [] : { deny: `${agentId} is not one of this session's agents` })
+
 test("an agent whose transcript cannot be read (a workflow's) is raised without being asked whether its failures were expected", { options: ONLY }, async ($, on) => {
-  on('session.messages', { agentId: /(?:)/ }, () => ({ value: { deny: "wf1 is not one of this session's agents" } }))
-  const w = world($, on, { backend: withAgents({ model: { sonnet: 1 } }), store: {}, session: true })
+  const w = world($, on, { backend: withAgents({ model: { sonnet: 1 } }), store: {}, session: true, messages: refusing('wf1') })
   await w.start()
   await w.step(agentStep('wf1', 0, { effort: 'medium', tools: agentFailing }))
   await w.step(agentStep('wf1', 1, { effort: 'medium' }))
@@ -661,12 +663,12 @@ function agentTranscript(task: string, steps: { text: string; calls: { id: strin
 }
 
 test("a workflow agent's failures are asked about from its transcript on disk: its task and its steps, as for any agent", { options: ONLY }, async ($, on) => {
-  on('session.messages', { agentId: /(?:)/ }, () => ({ value: { deny: "wa1 is not one of this session's agents" } }) as never)
   const script = `export const meta = { name: 'fix', description: 'Fix the flaky checkout test', phases: [] }
 const fixed = await agent('Find why checkout.spec.ts times out intermittently and fix the cause.', { label: 'fix' })
 return fixed
 `
   const w = runWorld($, on, {
+    messages: refusing('wa1'),
     disk: { '/work/fix.js': script },
     backend: (request) => (kind(request) === 'midturn.level,escalation.expected' ? answers(MEDIUM, { expected: 0.9 })(request) : siteJev(() => ({ model: { sonnet: 0.9 }, effort: [0, 1, 0, 0, 0] }))(request)),
   })
@@ -690,6 +692,34 @@ return fixed
   expect(asked[0]?.body.state.recent_steps).toEqual([
     { assistant_text: 'Running the checkout tests first.', tools: [{ name: 'Bash', result: 'Failed: Run the checkout tests' }, { name: 'Bash', result: 'Failed: Run them again without retries' }] },
   ])
+  // Found expected: nothing is forced.
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'medium'])
+})
+
+test("with workflow-labels switched off, a workflow agent's failures are still asked about from its transcript: this feature notes each run's directory itself", { options: ONLY }, async ($, on) => {
+  const script = `export const meta = { name: 'fix', description: 'Fix the flaky checkout test', phases: [] }
+const fixed = await agent('Find why checkout.spec.ts times out intermittently and fix the cause.', { label: 'fix' })
+return fixed
+`
+  const w = runWorld($, on, { messages: refusing('wa1'), disk: { '/work/fix.js': script }, backend: answers(MEDIUM, { expected: 0.9 }) })
+  await w.command('dp', 'workflow-labels off')
+  await w.workflow({ scriptPath: '/work/fix.js' })
+  w.started('wf_test-1', 'wa1', 'fix')
+  w.disk[`${runDir('wf_test-1')}/agent-wa1.jsonl`] = agentTranscript('Find why checkout.spec.ts times out intermittently and fix the cause.', [
+    {
+      text: 'Running the checkout tests first.',
+      calls: [
+        { id: 'toolu_1', command: 'npx playwright test checkout', description: 'Run the checkout tests', error: 'Timeout of 30000ms exceeded' },
+        { id: 'toolu_2', command: 'npx playwright test checkout --retries 0', description: 'Run them again without retries', error: 'Timeout of 30000ms exceeded' },
+      ],
+    },
+  ])
+  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium', tools: agentFailing })
+  await w.agentStep('wa1', { index: 1, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  // Nothing was decided at the run's start (the fallback is off): the one request is the stuck agent's.
+  expect(w.requests.map(kind)).toEqual(['midturn.level,escalation.expected'])
+  expect(w.requests[0]?.body.state.user_message).toBe('Find why checkout.spec.ts times out intermittently and fix the cause.')
   // Found expected: nothing is forced.
   expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'medium'])
 })

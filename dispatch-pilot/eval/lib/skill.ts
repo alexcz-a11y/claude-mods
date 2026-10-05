@@ -8,8 +8,11 @@
 // (hooks/decision/skills.ts: skillsRequest, then modRanker's second stage),
 // with the mod's settings, so the eval measures what the mod sends.
 //
-// Variants: `profiles` (the mod once its profiles are written) and
-// `descriptions` (before they are, or with `skill-profiles` off).
+// Variants: `profiles` (the mod once its profiles are written),
+// `descriptions` (before they are, or with `skill-profiles` off), and
+// `profiles-zh` (`profiles` with the skill questions of both stages in
+// Chinese, as the mod's ranker writes them when told to; the mod asks them in
+// English).
 //
 // Pure: no Node API. What it reads besides its items comes in as SkillSources.
 
@@ -35,7 +38,7 @@ import { isRecord, type Language, type SkillItem, type SubmitAsked } from './dat
 import { contextMessages } from './effort-submit.ts'
 import { nearestRank, rate, type VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
-import { requestFailed, settingsFrom, type Grade, type Settings, type Suite } from './suite.ts'
+import { requestFailed, settingsFrom, variantIn, type Grade, type Settings, type Suite } from './suite.ts'
 
 /** What the suite decides for a message: the skills the main agent is shown, and those only the person can start, hinted on the status line. */
 export type SkillAnswer = { suggest: string[]; hint: string[] }
@@ -50,8 +53,21 @@ export type SkillSources = {
   read: (path: string) => Promise<string>
 }
 
+/**
+ * How a variant asks: whether each skill is offered by its profile, and the
+ * language of the skill questions of both stages. The effort question beside
+ * them is always the run's decision model's (`turnStartLanguage`).
+ */
+type SkillVariant = { profiles: boolean; language: Language }
+
 /** The variants by name; the first is how the mod asks once its profiles are written. */
-export const SKILL_VARIANTS = ['profiles', 'descriptions'] as const
+const SKILL_VARIANT_TABLE: Readonly<Record<string, SkillVariant>> = {
+  profiles: { profiles: true, language: DEFAULT_ASK.language },
+  descriptions: { profiles: false, language: DEFAULT_ASK.language },
+  'profiles-zh': { profiles: true, language: 'zh' },
+}
+
+export const SKILL_VARIANTS: readonly string[] = Object.keys(SKILL_VARIANT_TABLE)
 
 /**
  * The session's skills in the snapshot as the mod's catalog holds them
@@ -114,25 +130,25 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
     }
     const never = new Set(settings.skills.neverSuggested)
     const kept = (await found).filter((skill) => !never.has(skill.name))
-    if (variant === 'descriptions') return kept.map((skill) => ({ ...skill, profile: null }))
-    if (variant === 'profiles') return kept
-    throw new RangeError(`no variant "${variant}" (${SKILL_VARIANTS.join(', ')})`)
+    return variantIn(SKILL_VARIANT_TABLE, variant).profiles ? kept : kept.map((skill) => ({ ...skill, profile: null }))
   }
+  /** The language `variant` writes the skill questions in. */
+  const wordingOf = (variant: string): Language => variantIn(SKILL_VARIANT_TABLE, variant).language
 
   /** The opening of a skill's SKILL.md as stage two reads it (null without one), as the mod reads it for its catalog's skill of that name. */
   const openingOf = (offeredSkills: readonly CatalogSkill[], name: string): string | null => {
     const text = markdown(offeredSkills.find((skill) => skill.name === name)?.file ?? null)
     return text === null ? null : skillOpening(text)
   }
-  /** The mod's ranker under the person's settings; `ask` sends stage two. */
-  const rankerFor = (offeredSkills: readonly CatalogSkill[], settings: Settings, ask: SkillRankerIo['ask']): SkillRanker =>
-    modRanker({ ask, opening: async (option) => openingOf(offeredSkills, option.name) }, rankingSettings({ config: settings, ask: DEFAULT_ASK }))
-  /** Stage one's request, as the mod sends it when the person sends this message after this conversation. */
+  /** The mod's ranker under the person's settings, its questions in `wording`; `ask` sends stage two. */
+  const rankerFor = (offeredSkills: readonly CatalogSkill[], settings: Settings, ask: SkillRankerIo['ask'], wording: Language): SkillRanker =>
+    modRanker({ ask, opening: async (option) => openingOf(offeredSkills, option.name) }, rankingSettings({ config: settings, ask: { language: wording } }))
+  /** Stage one's request, as the mod sends it when the person sends this message after this conversation (its effort question in the run's decision model's language). */
   const firstRequest = (asked: SubmitAsked, offeredSkills: readonly CatalogSkill[], settings: Settings, ranker: SkillRanker) =>
-    skillsRequest({ message: asked.message, recent_context: contextMessages(asked.recent_context) }, offeredSkills, { limits: settings.context, ranker })
-  /** Stage two's request for these candidates, about stage one's state. */
-  const secondRequest = (state: DecisionRequest['state'], offeredSkills: readonly CatalogSkill[], candidates: readonly CatalogSkill[]) =>
-    mergeParts(state, [stageTwoPart(candidates.map((option) => ({ option, opening: openingOf(offeredSkills, option.name) })), { language: DEFAULT_ASK.language }) as Part])
+    skillsRequest({ message: asked.message, recent_context: contextMessages(asked.recent_context) }, offeredSkills, { limits: settings.context, effortLanguage: settings.turnStartLanguage, ranker })
+  /** Stage two's request for these candidates, about stage one's state, its questions in `wording`. */
+  const secondRequest = (state: DecisionRequest['state'], offeredSkills: readonly CatalogSkill[], candidates: readonly CatalogSkill[], wording: Language) =>
+    mergeParts(state, [stageTwoPart(candidates.map((option) => ({ option, opening: openingOf(offeredSkills, option.name) })), { language: wording }) as Part])
   const unsent: SkillRankerIo['ask'] = async () => ({ ok: false, failure: { kind: 'config', detail: 'not sent' } })
 
   // What each variant asks under the manifest's defaults, recorded with the
@@ -141,8 +157,9 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
   const asks: Record<string, unknown> = {}
   for (const variant of SKILL_VARIANTS) {
     const offeredSkills = await offered(variant, defaults)
-    const { request } = firstRequest({ message: '', recent_context: [] }, offeredSkills, defaults, rankerFor(offeredSkills, defaults, unsent))
-    asks[variant] = { first: request.questions, second: secondRequest(request.state, offeredSkills, offeredSkills.slice(0, 2)).questions }
+    const wording = wordingOf(variant)
+    const { request } = firstRequest({ message: '', recent_context: [] }, offeredSkills, defaults, rankerFor(offeredSkills, defaults, unsent, wording))
+    asks[variant] = { first: request.questions, second: secondRequest(request.state, offeredSkills, offeredSkills.slice(0, 2), wording).questions }
   }
 
   // What was read, against the snapshot the dataset was written for: each
@@ -176,11 +193,16 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
       const offeredSkills = await offered(variant, settings)
       // How long each stage's answered request took, in order.
       const stages: number[] = []
-      const ranker = rankerFor(offeredSkills, settings, async (request) => {
-        const sent = await ask(request)
-        stages.push(sent.ms)
-        return sent.asked
-      })
+      const ranker = rankerFor(
+        offeredSkills,
+        settings,
+        async (request) => {
+          const sent = await ask(request)
+          stages.push(sent.ms)
+          return sent.asked
+        },
+        wordingOf(variant),
+      )
       const { request, part } = firstRequest(item[language], offeredSkills, settings, ranker)
       if (part === null) return { ok: false, failure: 'request: no skill to offer' }
       const first = await ask(request)
@@ -207,14 +229,15 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
     // those only the person can start, the hinted ones first.
     async estimate(item, language, variant, settings) {
       const offeredSkills = await offered(variant, settings)
-      const { request, part } = firstRequest(item[language], offeredSkills, settings, rankerFor(offeredSkills, settings, unsent))
+      const wording = wordingOf(variant)
+      const { request, part } = firstRequest(item[language], offeredSkills, settings, rankerFor(offeredSkills, settings, unsent, wording))
       if (part === null) return [request]
-      const counts = shortlistCounts(rankingSettings({ config: settings, ask: DEFAULT_ASK }).shortlist)
+      const counts = shortlistCounts(rankingSettings({ config: settings, ask: { language: wording } }).shortlist)
       const fullest = (by: CatalogSkill['by'], wanted: readonly string[], count: number) => {
         const mine = offeredSkills.filter((option) => option.by === by)
         return [...wanted.flatMap((name) => mine.filter((option) => option.name === name)), ...mine.filter((option) => !wanted.includes(option.name))].slice(0, count)
       }
-      return [request, secondRequest(request.state, offeredSkills, [...fullest('model', item.accept, counts.model), ...fullest('person', item.user_only_hint, counts.person)])]
+      return [request, secondRequest(request.state, offeredSkills, [...fullest('model', item.accept, counts.model), ...fullest('person', item.user_only_hint, counts.person)], wording)]
     },
     breakdown: (items, rows, _variant, settings) => {
       const never = new Set(settings.skills.neverSuggested)

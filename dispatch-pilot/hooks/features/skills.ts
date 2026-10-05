@@ -43,7 +43,7 @@ const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** The feature's switch: the suggestions, and with them the withheld listing. */
 const SWITCH = 'skills'
-/** The profiles' switch, defined here (features/skill-profiles.ts writes them): off, skills are offered by their descriptions. */
+/** The profiles' switch (features/skill-profiles.ts registers it and writes them): off, skills are offered by their descriptions. */
 const PROFILES = 'skill-profiles'
 /** The find_skill tool's switch (features/find-skill.ts): the note in place of the listing names the tool only while it is on. */
 const FIND_SKILL = 'find-skill'
@@ -103,7 +103,6 @@ async function openingOf($: EngineInterface, catalog: readonly CatalogSkill[], n
 export function registerSkills(on: On, ctx: Ctx): void {
   // On or off until the person flips it, by the decision model: off with Clef, whose first stage takes longer than a message can wait.
   defineSwitch({ name: SWITCH, info: 'suggests the skills that fit each message; the full skill listing stays out', default: ctx.config.skills.suggestByDefault, segments: ['skills'] })
-  defineSwitch({ name: PROFILES, info: 'rates skills by bilingual profiles a cheap model writes once per SKILL.md version (off: by description)' })
 
   /** Skills the main agent keeps in its listing (names as the listing spells them). */
   const alwaysListed = new Set(ctx.config.skills.alwaysListed)
