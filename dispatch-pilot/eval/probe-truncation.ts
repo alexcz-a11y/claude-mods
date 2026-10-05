@@ -14,10 +14,12 @@
 // with a Choice that offers "not stated": a fact that was cut off is answered
 // "not stated", or guessed. The ladder grows the state (English to about 9.6k
 // tokens, Chinese to 4.8k, counted as the mod estimates tokens). One more
-// probe puts a long question (about 15k tokens of criteria) beside a short
-// state: whether the questions eat the state's room, and, by asking about the
-// last of its options, whether the questions themselves are cut. Every answer
-// is kept with the input tokens the backend counted and how long it took.
+// probe puts a long question (about 12k tokens of criteria as Clef counts
+// them) beside a short state: whether the questions are cut (it asks about
+// the last of the options), and whether they eat the state's room (at this
+// size the whole request stays under the encoder's default 16,384, so a
+// bigger question is needed to settle that). Every answer is kept with the
+// input tokens the backend counted and how long it took.
 //
 // Credentials as eval/run.ts reads them (the environment, then
 // ~/.config/dispatch-pilot/eval.env); never printed or saved. Saves
@@ -146,9 +148,11 @@ function factQuestion(position: Position, language: Language): ChoiceQuestion {
 
 /**
  * The long question: catalog entries, each about one ticket reference; the
- * one the message names is the last. Sized like the skill request's first
- * stage with every profile (about 15k tokens as Clef counts them), the
- * largest question the mod sends.
+ * one the message names is the last. Meant to be sized like the skill
+ * request's first stage with every profile (about 15k tokens as Clef counts
+ * them); on 2026-10-05 Clef counted the whole probe at 13,162 tokens, so the
+ * question is about 11.9k, and with the 1.2k state the request stays under
+ * 16,384 (the open-source encoder's default `max_length`).
  */
 const WANTED = 'ZEPHYR-ORCHID'
 const BULK_ENTRIES = 72
@@ -306,7 +310,7 @@ if (!values['no-save']) {
     backends: Object.fromEntries(backends.map((name) => [name, { asked: name === 'clef' ? CLEF_MODEL : JEV_MODEL, answeredBy: models[name] ?? [] }])),
     design:
       'Three facts in recent_context (start, middle, end), each asked as a Choice with not_stated among the options; a ladder of state sizes (estimated tokens, as the mod counts them); ' +
-      `one probe with a question of about 15k tokens as Clef counts them (${BULK_ENTRIES} catalog entries) beside a 1.2k state, whose right answer is its last option. ` +
+      `one probe with a long question (${BULK_ENTRIES} catalog entries, about 12k tokens as Clef counts them) beside a 1.2k state, whose right answer is its last option. ` +
       'facts_at: where each fact begins, in estimated tokens from the start of the state as sent.',
     probes: results,
   }
