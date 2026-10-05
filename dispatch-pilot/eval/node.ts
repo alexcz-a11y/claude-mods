@@ -24,7 +24,7 @@ export const REVIEW_DIR = join(EVAL_DIR, 'review')
 export const RESULTS_DIR = join(EVAL_DIR, 'results')
 
 /** The mod's manifest (.claude-plugin/plugin.json): its options as the engine reads them (`optionsFrom` takes them). */
-export function readManifest(): { userConfig?: Record<string, OptionSpec & { sensitive?: boolean }> } {
+export function readManifest(): { userConfig?: Record<string, OptionSpec> } {
   return JSON.parse(readFileSync(join(MOD_DIR, '.claude-plugin', 'plugin.json'), 'utf8'))
 }
 

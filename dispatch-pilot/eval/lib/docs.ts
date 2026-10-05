@@ -17,9 +17,7 @@
 // cell holds a `|`.
 
 import { BACKEND_DEFAULTS, PER_BACKEND_OPTIONS, type BackendDefaults, type BackendName, type PerBackendOption } from '../../hooks/core/setup.ts'
-
-/** An option as plugin.json declares it; the check reads its `default`. */
-export type OptionDecl = { type?: string; default?: unknown; sensitive?: boolean; multiple?: boolean; options?: readonly string[] }
+import type { OptionSpec } from './suite.ts'
 
 type Row = { option: string; cells: string[] }
 
@@ -78,7 +76,7 @@ function borrowedByClef(option: PerBackendOption, defaults: Readonly<Record<Back
  * when it is in step with `userConfig` (plugin.json) and the decision models'
  * defaults (core/setup.ts BACKEND_DEFAULTS).
  */
-export function checkConfigTable(readme: string, userConfig: Readonly<Record<string, OptionDecl>>, defaults: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS): string[] {
+export function checkConfigTable(readme: string, userConfig: Readonly<Record<string, OptionSpec>>, defaults: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS): string[] {
   const rows = configRows(readme)
   if (rows === null) return ['the README has no "## 配置" section']
   const problems: string[] = []

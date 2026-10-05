@@ -38,8 +38,13 @@ export function optionsFor(backend: BackendName, userConfig: Readonly<Record<str
   return { ...optionsFrom(userConfig, assignments), decisionModel: backend }
 }
 
-/** An option as the manifest (`userConfig` in .claude-plugin/plugin.json) declares it: the part read here. */
-export type OptionSpec = { type?: string; default?: unknown }
+/**
+ * An option as the manifest (`userConfig` in .claude-plugin/plugin.json)
+ * declares it, the parts the eval reads: its type and default (here), whether
+ * it is sensitive (left out of result files, run.ts), and the default again
+ * for the README's configuration table (docs.ts).
+ */
+export type OptionSpec = { type?: string; default?: unknown; sensitive?: boolean }
 
 /**
  * The options a run hands the mod, as the engine would: each option's
