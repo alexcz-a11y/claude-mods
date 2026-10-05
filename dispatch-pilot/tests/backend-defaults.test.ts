@@ -129,6 +129,15 @@ test('with Clef, find_skill still answers while the suggestions are off', { opti
   expect(String(answer.result)).not.toContain('switched off')
 })
 
+test("with Clef and the suggestions off, no skill profile is written: find_skill's first request offers skills by their descriptions with Clef, so nothing would read one", { options: CLEF_OPTIONS }, async ($, on) => {
+  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), skills: SKILLS, store: {}, session: true, model: () => ({ text: '{}' }) })
+  await w.start()
+  await w.clock.settle()
+  expect(w.completions).toHaveLength(0)
+  await w.findSkill('write a failing test first')
+  expect(w.requests[0]?.body.questions['skills.which'].criteria.tdd).toBe(SKILLS.commands?.[0]?.description)
+})
+
 test('skillsMinRelevance is 0.75 by default: a skill that fits at 0.72 is not suggested, one at 0.78 is', { options: JEV }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 0.5, 'code-review': 0.4, '(none)': 0.1 }, { tdd: 0.78, 'code-review': 0.72 }), skills: SKILLS })
   await w.submit('先写测试，再审一下这个分支')
@@ -153,16 +162,24 @@ test("at session start the debug log says which options took the decision model'
 
 // The reading the mod, the eval and scripts/decide*.ts share.
 
-test("readConfig: an option left unset takes the decision model's default; Clef's are Jev's but for its timeout, its context budget's most and the skill suggestions", () => {
+test("readConfig: an option left unset takes the decision model's default; Clef's are Jev's but for its timeout, its context budget's most, the skill suggestions and find_skill's wait and first request", () => {
   const jevConfig = readConfig({})
   expect([jevConfig.backend, jevConfig.timeoutMs, jevConfig.context, jevConfig.skills.suggest.minRelevance, jevConfig.skills.suggestByDefault]).toEqual(['jev', 1500, { messages: 4, tokens: 2000 }, 0.75, true])
+  expect([jevConfig.skills.findWaitMs, jevConfig.skills.findByProfile]).toEqual([1500, true])
   const clefConfig = readConfig({ decisionModel: 'clef' })
   expect([clefConfig.backend, clefConfig.timeoutMs, clefConfig.context, clefConfig.skills.suggest.minRelevance, clefConfig.skills.suggestByDefault]).toEqual(['clef', 3000, { messages: 4, tokens: 2000 }, 0.75, false])
+  expect([clefConfig.skills.findWaitMs, clefConfig.skills.findByProfile]).toEqual([8000, false])
   expect(clefConfig.midturn.rules).toEqual(jevConfig.midturn.rules)
   expect([clefConfig.escalation.thetaExpected, clefConfig.agents.thetaOverride, clefConfig.skills.find.minRelevance]).toEqual([0.25, 0.6, 0.5])
-  // Not calibrated for Clef: Jev's values, but for these three.
-  expect({ ...BACKEND_DEFAULTS.clef, timeoutMs: BACKEND_DEFAULTS.jev.timeoutMs, contextTokensMax: BACKEND_DEFAULTS.jev.contextTokensMax, suggestSkills: true }).toEqual(BACKEND_DEFAULTS.jev)
+  // Not calibrated for Clef: Jev's values, but for these, each measured on Clef.
+  const measured = { timeoutMs: 1500, contextTokensMax: 16000, suggestSkills: true, findSkillWaitMs: null, findSkillProfiles: true }
+  expect({ ...BACKEND_DEFAULTS.clef, ...measured }).toEqual(BACKEND_DEFAULTS.jev)
   expect(clefConfig.defaults.used.map(([option]) => option)).toEqual([...PER_BACKEND_OPTIONS])
+})
+
+test("find_skill's wait follows the message's with Jev, timeoutMs set or not; with Clef it is 8000 ms whatever timeoutMs says", () => {
+  expect(readConfig({ timeoutMs: 2500 }).skills.findWaitMs).toBe(2500)
+  expect(readConfig({ decisionModel: 'clef', timeoutMs: 5000 }).skills.findWaitMs).toBe(8000)
 })
 
 test('readConfig: a value the person sets is the one used with either decision model; Clef reads a context budget above 2000 as 2000', () => {

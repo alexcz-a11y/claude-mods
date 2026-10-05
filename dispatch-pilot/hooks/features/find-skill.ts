@@ -106,6 +106,8 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
   const rankBy = rankingSettings(ctx)
   /** The model whose profiles the skills are offered by (#11). */
   const model = ctx.config.skills.profileModel
+  /** How long the call's two requests may take in all, and whether the first offers skills by their profiles: the decision model's. */
+  const { findWaitMs: waitMs, findByProfile } = ctx.config.skills
 
   // Registered once every plugin is loaded, under a match-all matcher (other
   // features set themselves up at session start too). Without a decision
@@ -153,20 +155,23 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
         },
         rankBy,
       )
-      const part = ranker.part(candidates)
+      // The first request offers each skill by its profile where the decision model can read them all in time
+      // (BACKEND_DEFAULTS findSkillProfiles: not Clef), else by its description; the second re-reads by both.
+      const part = ranker.part(findByProfile ? candidates : candidates.map((skill) => ({ ...skill, profile: null })))
       if (part === null) {
         show('find_skill none')
         return { result: `This session has no skill that find_skill could return. ${CARRY_ON}` }
       }
 
-      // The same state as beside a message, the work named in place of the message; the
-      // ranker's second request (#11) asks about the same. Both requests share one wait, as
-      // beside a message: the second gets what the first left of timeoutMs (the hook has 10 s).
+      // The same state as beside a message, the work named in place of the message; the ranker's second
+      // request (#11) asks about the same. Both requests share one wait: the second gets what the first left
+      // of it. The wait is the decision model's (findWaitMs: a message's timeoutMs with Jev, 8000 ms with Clef),
+      // within the hook's own 10 s.
       const startedAt = await $.clock.now()
       const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
       const request = mergeParts(turnStartState({ prompt: query, messages, limits: ctx.config.context }), [part])
-      const asked = await askLogged($, ctx, 'request', about, request, ctx.config.timeoutMs)
-      const left = ctx.config.timeoutMs - ((await $.clock.now()) - startedAt)
+      const asked = await askLogged($, ctx, 'request', about, request, waitMs)
+      const left = waitMs - ((await $.clock.now()) - startedAt)
       const ranked = asked.ok ? await ranker.rank(answersFor(part, asked.answers), candidates, { state: request.state, timeoutMs: left }) : null
       const failure = !asked.ok ? asked.failure : ranked === null ? { kind: 'parse' as const, detail: 'no answer about the skills' } : ranked.failed
       if (ranked === null || failure !== undefined) {

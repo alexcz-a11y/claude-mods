@@ -58,6 +58,15 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
   contextTokensMax: number
   /** Whether the `skills` switch (suggestions beside each message, the listing withheld) starts on. */
   suggestSkills: boolean
+  /**
+   * How long find_skill's two requests may take in all, in ms; null: as long
+   * as a message waits (`timeoutMs`). Not an option: set by the latency
+   * measured, not calibrated. A hook has 10 s of its own, and the timer's wait
+   * counts toward it (the mods reference, Limits): this leaves room for the rest.
+   */
+  findSkillWaitMs: number | null
+  /** Whether find_skill's first request offers a skill by its profile (else by its description); the second re-reads it by both. */
+  findSkillProfiles: boolean
 }
 
 /** Jev's: the values the eval of #4, #14, #15 and #16 set or kept (README, 配置 has the table; DEVELOPMENT.md, 配置 what each rests on). */
@@ -76,6 +85,8 @@ const JEV_DEFAULTS: BackendDefaults = {
   skillsMinRelevance: 0.75,
   findSkillMinRelevance: 0.5,
   suggestSkills: true,
+  findSkillWaitMs: null,
+  findSkillProfiles: true,
 }
 
 /**
@@ -94,6 +105,11 @@ export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = 
     contextTokensMax: 2000,
     // The skills' first stage, with every profile, took Clef 3.7-7.9 s (#16): past any wait a message can afford.
     suggestSkills: false,
+    // find_skill is the main agent's own call, which can wait longer than a message; set by latency, not calibrated.
+    // Its first stage by descriptions: 111 skills' come to about 8.6k tokens, 1.7-2.4 s on Clef (#17's probe at 8.8k),
+    // and the second stage 0.5-0.8 s (#16), well within 8000 ms; with every profile the first stage alone took 3.7-7.9 s.
+    findSkillWaitMs: 8000,
+    findSkillProfiles: false,
   },
 }
 
@@ -154,6 +170,10 @@ export type Config = {
     suggest: SkillPolicy
     /** What find_skill returns: at most `max`, from `minRelevance`. */
     find: SkillPolicy
+    /** How long find_skill's two requests may take in all (the decision model's: BACKEND_DEFAULTS findSkillWaitMs). */
+    findWaitMs: number
+    /** Whether find_skill's first request offers skills by their profiles (the decision model's: findSkillProfiles). */
+    findByProfile: boolean
     /** How many of stage one's best stage two re-reads. */
     shortlist: number
     /** Skills the main agent keeps in its listing (names as the listing spells them). */
@@ -213,12 +233,13 @@ export function readConfig(options: PluginOptions): Config {
   const thetaMax = own('thetaMax', 0, 1)
   const context = { messages: own('contextMessages', 0, 32, true), tokens: own('contextTokens', 100, defaults.contextTokensMax, true) }
   const haikuToWritten = stringOf(options.escalateHaikuTo, 'sonnet').trim()
+  // A hook's own budget is 10 s and the timer's wait counts toward it.
+  const timeoutMs = own('timeoutMs', 200, 8000)
   const config: Config = {
     backend,
     defaults: { used, capped },
     typesafeApiKey: stringOf(options.typesafeApiKey, '').trim(),
-    // A hook's own budget is 10 s and the timer's wait counts toward it.
-    timeoutMs: own('timeoutMs', 200, 8000),
+    timeoutMs,
     thetaMax,
     context,
     midturn: {
@@ -249,6 +270,8 @@ export function readConfig(options: PluginOptions): Config {
       suggestByDefault: defaults.suggestSkills,
       suggest: { max: whole(options.skillsMax, 0, 10, 3), minRelevance: own('skillsMinRelevance', 0, 1) },
       find: { max: whole(options.findSkillMax, 1, 10, 5), minRelevance: own('findSkillMinRelevance', 0, 1) },
+      findWaitMs: defaults.findSkillWaitMs ?? timeoutMs,
+      findByProfile: defaults.findSkillProfiles,
       shortlist: whole(options.skillsShortlist, 1, 10, 4),
       alwaysListed: namesOf(options.skillsAlwaysListed),
       neverSuggested: namesOf(options.skillsNeverSuggested),

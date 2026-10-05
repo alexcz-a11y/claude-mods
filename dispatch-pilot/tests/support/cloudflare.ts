@@ -70,12 +70,21 @@ export function clefInputProblems(body: any): string[] {
  * answers), in Cloudflare's envelope, with the model "clef" (no version number).
  */
 export function clef(levels: readonly number[], extra: { choice?: string } = {}) {
+  return asClef(jev(levels, extra))
+}
+
+/**
+ * Clef answering as `answer` answers (a reply in Jev's shape: `jev(...)`,
+ * `rates(...)` of world.ts), in Cloudflare's envelope, refusing what Workers
+ * AI refuses as `clef` does.
+ */
+export function asClef(answer: (request: Sent) => Reply) {
   return (request: Sent): Reply => {
     if (request.headers.authorization !== `Bearer ${TOKEN}`) return cloudflareError(401, 10000, 'Authentication error')
     if (request.url !== CLEF_URL) return cloudflareError(404, 7003, 'No route for the URI')
     const problems = clefInputProblems(request.body)
     if (problems.length > 0) return cloudflareError(400, 5006, `AiError: ${problems.join('; ')}`)
-    const { body } = jev(levels, extra)(request) as { body: { answers: unknown } }
+    const { body } = answer(request) as { body: { answers: unknown } }
     return { status: 200, body: { result: { model: 'clef', answers: body.answers, usage: { input_tokens: 151, output_tokens: 0 } }, success: true, errors: [], messages: [] } }
   }
 }
