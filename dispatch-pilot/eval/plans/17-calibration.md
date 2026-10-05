@@ -297,11 +297,13 @@ node dispatch-pilot/eval/probe-truncation.ts --backend clef --only warmup,en-480
   - **不写 `default` 的字段，引擎确实不传：** kit 里，`tests/backend-defaults.test.ts` 的「with Clef, a message waits 3000 ms」在 1500 ms 时仍在等、3000 ms 时超时，说明没有任何值顶替；生成的类型里 kit 的 `TestOptions` 写明「`register(on, options)` receives them as a load does: unlisted values unset, defaults filled in」；真实引擎里，2026-10-05 用 `command claude -p "/dp" --plugin-dir ./dispatch-pilot --strict-mcp-config --settings '{"enabledPlugins":{"jev-pilot@jev-pilot":false}}' --debug-file <临时文件>` 跑了一次（没有配置密钥，没有发出任何 Jev 或 Clef 请求；debug log 里唯一的 `$.http.fetch` 是引擎自己的遥测；日志在临时目录，没有提交，这一行的写法由 `tests/backend-defaults.test.ts` 在会话开始时断言），debug log 写着 `settings for jev: left unset, so jev's defaults: timeoutMs 1500, contextMessages 4, contextTokens 2000, rejudgeSteps 4, thetaUp 0.4, thetaDown 0.6, thetaMax 0.5, thetaExpected 0.25, agentOverride 0.6, skillsMinRelevance 0.75, findSkillMinRelevance 0.5; skill suggestions on until /dp skills off`。
   - 接缝 1 的测试（`tests/backend-defaults.test.ts`）覆盖：两个模型各自的默认值（超时、上下文预算、skill 推荐的开关、`skillsMinRelevance`）；Clef 的 `contextTokens` 上限；你设了值时两个模型都用你的值；会话开始时 debug log 写的那一行；`readConfig` 和评测的 `optionsFor` 取的是同一张表。
 - **`skillsMinRelevance` 默认改成 0.75。** 依据是 E0c 的离线重算（#16 两次 Jev 运行已存的 `breakdown.sweeps`）：带画像时，0.7 下中英差距两次都是 −3.67；0.75 下是 −1.84 和 −2.76，平均 −2.3。这是第 1 轮审查修复之前的问法上的预览，修复后没有重跑。
-- **离线重判中英差距（按新规则：中文比英文低不到 3 个百分点才算通过）。** 只读已存结果的 `summary` 和 `breakdown.sweeps`，没有发请求，也没有写新工具：
-  - effort-submit（Jev 3 次）：`en-score` 0、+2、0，通过；`zh-score` 0、0、−1，通过；`zh-choice` −1、−2、−1，通过；`en-choice` 三次都是 −3.0，按新规则不通过（它不是发布配置）。Clef `en-score` 0，通过。
+- **离线重判中英差距（按当时的规则：中文比英文低不到 3 个百分点才算通过）。** 只读已存结果的 `summary` 和 `breakdown.sweeps`，没有发请求，也没有写新工具：
+  - effort-submit（Jev 3 次）：`en-score` 0、+2、0，通过；`zh-score` 0、0、−1，通过；`zh-choice` −1、−2、−1，通过；`en-choice` 三次都是 −3.0，按当时的规则不通过（它不是发布配置）。Clef `en-score` 0，通过。
   - effort-midturn（Jev 2 次，5 个变体）：−2 到 +3，都通过；Clef `en-score` −2，通过。
   - subagent（Jev 3 次，4 个变体）：0 到 +6（中文都不低于英文），都通过。
-  - skill（Jev 2 次）：`profiles` 在 0.7 下 −3.67，两次都不通过（新旧规则都不通过）；在新的默认值 0.75 下 −1.84、−2.76，通过。`descriptions` 在 0.7 下 −1.84、−0.92，0.75 下 −1.84、−2.75，都通过。
+  - skill（Jev 2 次）：`profiles` 在 0.7 下 −3.67，两次都不通过；在新的默认值 0.75 下 −1.84、−2.76，通过。`descriptions` 在 0.7 下 −1.84、−0.92，0.75 下 −1.84、−2.75，都通过。
+  - **门槛之后改成了 4 个百分点**（用户 2026-10-05 的决定，原来的 spec 写的是 3）：中文比英文低不超过 4 个百分点就算通过，正好 4.0 也通过。按新门槛，上面这些都通过，包括 `en-choice` 的 −3.0 和 `profiles` 在 0.7 下的 −3.67。已存结果的 `pass` 已用 `eval/resummarize.ts` 按新门槛重算（同时重算了 `inTime`：重试之后才答上的回答也算没有决定，因为 mod 不重试）。
+- **`skillsMinRelevance` 的 0.75 是在同一套题上挑的。** 0.7 和 0.8 下两次都是 −3.67，0.75 下是 −1.84 和 −2.76，相差只有 1–2 题（109 题里 1 题约 0.92 个百分点），这个「通过」在单次运行的波动之内，也没有在新措辞上验证；按 4 个百分点的新门槛，三个值都通过。默认值没有改。
 - **文档。** README 的配置表和「按决策模型取的默认值」、「待评测」开头的各验收项状态、「评测」一节开头的说明（那些数字都是修复之前的问法测得的，修复后没有重跑），以及本节。（#18 把「待评测」「评测」和「配置」的完整说明放进了 DEVELOPMENT.md，README 只留概要和配置表。）
 
 ### 8.8.2 每条验收项的状态
@@ -309,13 +311,13 @@ node dispatch-pilot/eval/probe-truncation.ts --backend clef --only warmup,en-480
 - **AC1 上下文范围扫描：没有做。** 原因见 1.1 节：现有评测集的上下文太短，16 格里请求几乎都一样；长上下文补充集也按用户的决定没有做。默认值保持 Jev 4 条 × 2000 token；Clef 按截断的结论定为 2000，并且最多 2000。
 - **AC2 Jev 和 Clef 各一套默认值、写回 mod 的配置：已做**（8.8.1 第一条）。
 - **AC3 置信度门槛按语言分别校准：没有做。**
-- **AC4 问题用英文还是中文写：保持英文**，`DEFAULT_ASK` 不改。线索：修复之前的问法上，effort-submit 的 `zh-score` 比 `en-score` 高约 8 个百分点（3 次运行都是）。
+- **AC4 问题用英文还是中文写：已改，只改了一个问题。** 用户先选了「先测再定」，在新措辞上（代码基点 9ec9c42）跑了一次 effort-submit（`results/effort-submit/2026-10-05-jev-ac4-question-language.json`，Jev，`zh-score` 和 `en-score` 各 1 次，400 个请求，0.0126 美元）：用中文问，中文题 85.0%、英文题 89.0%（差距 −4.0）；用英文问，79.0%、78.0%（+1.0）；p50 都是 282 ms，没有迟到的回答。这次的请求和 2026-10-04 的 3 次逐字相同，那 3 次里中文问法也都高约 8 个百分点，方向一致。按事先说好的规则（中文问法领先 3 个百分点以上就改），Jev 在发消息时判断 effort 的那一个问题改用中文：`BACKEND_DEFAULTS` 的 `turnStartLanguage`（Jev `zh`，Clef `en`），不是配置项，接缝 1 的测试核对 Jev 下这一题是中文、Clef 下是英文、同一个请求里的其他问题仍是英文。只改这一个：中途重判、派出 agent、Workflow、卡住时的强制升档、skill 这些问题在新措辞上没有中文问法的数据；Clef 没有中文问法的数据，全部保持英文。同一个请求里中文的 effort 问题和英文的 skill 问题混在一起，这种情况没有测过。
 - **AC5 验证 Clef 是否截断 state：已做**（8.4–8.7 节）。会截断，但时有时无：超过约 2.1k token 的 18 个 state 截了 4 个，截断时只留开头约 2.1k 个 Clef token；问题不截断。
-- **AC6 中文准确率比英文低不超过 3 个百分点：** 按离线数据（修复之前的问法），发布配置的中英差距都小于 3 个百分点（skill 带画像时靠 `skillsMinRelevance` 0.75）；`en-choice` 的 −3.0 不通过，但它不是发布配置，记在这里。这一条没有在新问法上验证。
-- **AC7 需要真实密钥、会产生少量费用：已做。** 只有截断探针花了钱，两轮合计约 0.036 美元（Clef 约 14.2 万 token，约 0.034 美元；Jev 约 4.4 万 token，约 0.002 美元）。
+- **AC6 中文准确率比英文低多少：按新门槛通过。** 用户 2026-10-05 把门槛从 spec 的 3 个百分点改成 4 个百分点（低不超过 4 个百分点就通过，正好 4.0 也通过；`eval/lib/metrics.ts`）。发布的配置（Jev，effort 用中文问）在 effort-submit 上单次运行的差距是 −4.0，按新门槛通过，不需要另开票；中文题的准确率比用英文问时高 6 个百分点。同样的请求在 2026-10-04 的 3 次里是 0、0、−1。其余几套是新措辞之前的离线数据，按新门槛都通过（见 8.8.1）。
+- **AC7 需要真实密钥、会产生少量费用：已做。** 截断探针两轮合计约 0.036 美元（Clef 约 14.2 万 token，约 0.034 美元；Jev 约 4.4 万 token，约 0.002 美元）；AC4 的问题语言对比 0.0126 美元（用户跑的）。
 
 ### 8.8.3 没做的实验
 
 E2–E4、E6–E10 的运行都没有做；长上下文补充集没有做；E7 的档位描述改动（审核规则 R4，「写测试」整体放在 high）没有做；E3 的画像裁剪（只留英文字段）没有评测，也没有改。E9 的「两类 skill 分开问」已经在第 1 轮审查的修复里实现（`skills.which` 和 `skills.hint` 两题），但没有重跑。E5（Workflow 一个请求放几个 agent）同样没有跑：`subagent` 评测已经有 `models-hint-single` 变体可以对照。
 
-没有新开 GitHub issue；要不要为这些开后续票，由编排者去问用户。
+没有新开 GitHub issue；要不要为这些开后续票，由用户决定。
