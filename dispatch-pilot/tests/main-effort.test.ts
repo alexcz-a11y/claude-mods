@@ -144,16 +144,73 @@ test("what is not the person's own new message is not decided, and changes no tu
   await w.submit('<agent-message from="a1">done</agent-message>', { origin: { kind: 'peer' }, turnId: 't1' })
   await w.submit('Background task "build" completed', { origin: { kind: 'task-notification' }, turnId: 't1' })
   await w.step({ index: 1 })
-  // While idle, a notice starts a turn of its own (t2): not decided, the engine's effort.
-  await w.submit('Background task "lint" completed', { origin: { kind: 'task-notification' } })
-  await w.step({ index: 0, effort: 'medium' })
-  // Nor a plugin's own message, a typed slash command or an empty prompt (t3, t4, t5).
+  // Nor a plugin's own message, a typed slash command or an empty prompt (t2, t3, t4).
   await w.submit('dashboard refreshed', { origin: { kind: 'plugin', name: 'other-mod' } })
   await w.submit('/compact keep the API notes')
   await w.submit('   ')
 
   expect(w.requests).toHaveLength(1)
-  expect(w.steps.map((s) => `${s.turnId}:${String(s.effort)}`)).toEqual(['t1:high', 't1:high', 't2:medium'])
+  expect(w.steps.map((s) => `${s.turnId}:${String(s.effort)}`)).toEqual(['t1:high', 't1:high'])
+})
+
+// A turn that a dispatched agent's hand-back or a background task's notice starts (the session was idle: no running turn
+// to join) is the main agent's turn like any other: it gets the same effort question, the report's text read as the message.
+// Nothing is asked about skills (it is no request of the person's), and a lock of the person's still holds.
+
+const REPORTS = [
+  { name: 'a background task notice', origin: { kind: 'task-notification' } as const, text: 'Background task "lint" completed' },
+  { name: "a dispatched agent's hand-back", origin: { kind: 'peer' } as const, text: '<agent-message from="a1">tests pass, 3 files changed</agent-message>' },
+]
+
+for (const report of REPORTS) {
+  test(`${report.name} that starts a turn gets the effort question, and the turn goes out at the decided effort`, { options: KEY }, async ($, on) => {
+    const w = world($, on, { backend: jev([0.9, 0.1, 0, 0, 0]) })
+    await w.submit(report.text, { origin: report.origin })
+    await w.step({ index: 0, effort: 'xhigh' })
+
+    expect(w.requests).toHaveLength(1)
+    expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
+    expect(w.requests[0]?.body.state.user_message).toBe(report.text)
+    expect(w.steps.map((s) => String(s.effort))).toEqual(['low'])
+    // Routed: the status line does not say it was not.
+    expect(w.status()).toBe('dp effort low')
+    expect(w.logs.map((l) => l.text)).toContainEqual(expect.stringMatching(/^effort low for /))
+    expect(await w.command('dp', 'log')).toMatch(/main-effort \(agent report\): effort low/)
+  })
+}
+
+test('a report that starts a turn is asked no skill question, though a message of the person is', { options: KEY }, async ($, on) => {
+  const skills = { commands: [{ name: 'tdd', description: 'Test-driven development.', source: 'user' as const }], listed: [{ name: 'tdd', source: 'userSettings', tokens: 52 }] }
+  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills })
+  await w.submit('先写一个失败的测试')
+  await w.submit('Background task "lint" completed', { origin: { kind: 'task-notification' } })
+
+  expect(Object.keys(w.requests[0]?.body.questions)).toContain('skills.which')
+  expect(Object.keys(w.requests.at(-1)?.body.questions)).toEqual(['effort.level'])
+})
+
+test("the person's lock holds over a report's decision: the turn goes out at the locked effort", { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: jev([1, 0, 0, 0, 0]), session: true })
+  await w.start()
+  await w.command('dp', 'lock max')
+  await w.submit('Background task "lint" completed', { origin: { kind: 'task-notification' } })
+  await w.step({ index: 0, effort: 'xhigh' })
+
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['max'])
+  expect(w.status()).toContain('effort max (locked)')
+})
+
+test('a report delivered into a running turn starts no turn and is not decided; a failed decision for one that does leaves the engine effort and says why', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: (request, n) => (n === 1 ? jev([0, 0, 1, 0, 0])(request) : { status: 500, body: 'down' }) })
+  await w.submit('把这个模块重构一下')
+  await w.step({ index: 0 })
+  await w.submit('<agent-message from="a1">done</agent-message>', { origin: { kind: 'peer' }, turnId: 't1' })
+  expect(w.requests).toHaveLength(1)
+
+  await w.submit('Background task "lint" completed', { origin: { kind: 'task-notification' } })
+  await w.step({ index: 0, effort: 'medium' })
+  expect(w.steps.map((s) => `${s.turnId}:${String(s.effort)}`)).toEqual(['t1:high', 't2:medium'])
+  expect(w.status()).toBe('dp effort medium (not routed) | jev: HTTP 500')
 })
 
 test('a message the person sends from claude -p, the Remote Control bridge, Slack or as typed by a plugin for them is decided', { options: KEY }, async ($, on) => {

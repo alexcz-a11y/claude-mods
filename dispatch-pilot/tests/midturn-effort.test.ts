@@ -283,6 +283,7 @@ test('a turn the person did not start (an agent handing its result back, a backg
   await w.step({ ...working(0), effort: 'medium' })
   await w.step({ ...working(1), effort: 'medium' })
 
-  expect(w.requests).toHaveLength(0)
+  // The report's own turn start is decided; the re-decisions never follow.
+  expect(w.requests.map(kind)).toEqual(['effort.level'])
   expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'medium'])
 })
