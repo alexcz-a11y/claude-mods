@@ -14,9 +14,9 @@ import type { Asked, Failure } from './backend.ts'
 import { estimateTokens, withinTokens } from './context.ts'
 import {
   decideDispatch,
-  decisionNotes,
   dispatchBrief,
   dispatchPart,
+  dispatchReason,
   dispatchWords,
   modelFamily,
   type Dispatch,
@@ -233,18 +233,9 @@ export function outcomeOf(call: AgentCall, decision: DispatchDecision): string {
   return decision.effort === null ? model : `${model} ${decision.effort}`
 }
 
-/** Why a call is routed as it is: whose model it is, the decision model's pick, what was ruled out, the effort answer. */
+/** Why a call is routed as it is (`dispatchReason`, a kept model being the script's). */
 export function reasonOf(decision: DispatchDecision, requested: string | null, thetaOverride: number): string {
-  const pick = decision.pick === null ? null : `pick ${decision.pick.model}, confidence ${decision.pick.confidence.toFixed(2)}`
-  const parts: string[] = []
-  if (decision.source === 'user') parts.push('named in your message')
-  else if (decision.source === 'requested') parts.push(`the script's ${requested} kept${decision.pick !== null && decision.pick.model !== requested ? ` (below agentOverride ${thetaOverride.toFixed(2)})` : ''}`)
-  else if (decision.source === 'decided') parts.push(requested !== null && requested !== decision.model ? `decided over the script's ${requested}` : 'decided')
-  else parts.push("the engine's model kept")
-  if (pick !== null) parts.push(pick)
-  parts.push(...decisionNotes(decision))
-  if (decision.reading !== null) parts.push(`effort p ${EFFORTS.map((level, i) => `${level} ${(decision.reading?.probabilities[i] ?? 0).toFixed(2)}`).join(', ')}`)
-  return parts.join('; ')
+  return dispatchReason(decision, requested, thetaOverride, "the script's")
 }
 
 /** Why a call got the model and effort it did, in a few words for the main agent: whose model it is, how sure the decision model was, how likely its effort level. */

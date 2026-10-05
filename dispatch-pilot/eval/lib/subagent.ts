@@ -33,6 +33,8 @@ import {
   EFFORT,
   MODEL,
   NAMED_EFFORT,
+  THETA_FIT,
+  THETA_NAMED,
   decideDispatch,
   dispatchPart,
   dispatchState,
@@ -388,7 +390,9 @@ export type AgentBreakdown = {
  * asked again, and graded. An unanswered item stays wrong.
  */
 function sweeps(items: readonly AgentItem[], answered: Record<Language, Answered>, ask: DispatchAsk, settings: Settings): Partial<Record<Threshold, Swept[]>> {
-  const run: Required<Pick<DispatchSettings, Threshold>> & DispatchSettings = { ...agentSettings(settings, ask), thetaNamed: 0.5, thetaFit: 0.5 }
+  const base = agentSettings(settings, ask)
+  // The thresholds as the mod reads the answers: the ones it has no option for at their defaults.
+  const run: Required<Pick<DispatchSettings, Threshold>> & DispatchSettings = { ...base, thetaNamed: base.thetaNamed ?? THETA_NAMED, thetaFit: base.thetaFit ?? THETA_FIT }
   const out: Partial<Record<Threshold, Swept[]>> = {}
   for (const name of Object.keys(SWEPT) as Threshold[]) {
     if (name === 'thetaFit' && ask.requested !== 'noul') continue

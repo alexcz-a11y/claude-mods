@@ -10,7 +10,7 @@
 // the effort a Score with the levels every effort question shares.
 
 import { clipToTokens, estimateTokens, withinTokens } from './context.ts'
-import { DEFAULT_ASK, EFFORTS, effortQuestion, pickEffort, readEffort, type Effort, type EffortAsk, type EffortReading, type Language } from './effort.ts'
+import { DEFAULT_ASK, EFFORTS, effortQuestion, levelsText, pickEffort, readEffort, type Effort, type EffortAsk, type EffortReading, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import type { Answer, Part, Question, State } from './system-one.ts'
 
@@ -375,15 +375,21 @@ export function dispatchWords(text: string, tokens: number): string {
   return clipToTokens(redactSecrets(text), Math.floor(tokens * WORDS_SHARE), TAIL_SHARE)
 }
 
+/** A model counts as named (or ruled out) by the person when its yes/no answer reaches this, unless the settings say otherwise (`thetaNamed`). */
+export const THETA_NAMED = 0.5
+
+/** Asked with `requested: 'noul'`: the main agent's pick goes only when `requested_fits` is below this, unless the settings say otherwise (`thetaFit`). */
+export const THETA_FIT = 0.5
+
 /** What decides an agent's model and effort from the answers. */
 export type DispatchSettings = DispatchShape & {
   /** The decision model's pick replaces the main agent's only at this confidence or above. */
   thetaOverride: number
   /** `max` only when its own probability reaches this. */
   thetaMax: number
-  /** A model counts as named by the person when its yes/no answer reaches this; 0.5 by default. */
+  /** A model counts as named by the person when its yes/no answer reaches this; THETA_NAMED by default. */
   thetaNamed?: number
-  /** `requested: 'noul'` only: the main agent's pick goes only when `requested_fits` is below this; 0.5 by default. */
+  /** `requested: 'noul'` only: the main agent's pick goes only when `requested_fits` is below this; THETA_FIT by default. */
   thetaFit?: number
 }
 
@@ -433,7 +439,7 @@ export type DispatchDecision = {
  */
 export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispatch: Dispatch, settings: DispatchSettings): DispatchDecision {
   const ask = { ...DEFAULT_DISPATCH_ASK, ...settings.ask }
-  const threshold = settings.thetaNamed ?? 0.5
+  const threshold = settings.thetaNamed ?? THETA_NAMED
   const named = mostLikely(answers, NAMED, threshold)
   const banned = AGENT_MODELS.filter((model) => {
     const answer = answers[`${BANNED}.${model}`]
@@ -446,7 +452,7 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
   const pick = readPick(answers[MODEL], models, ask.options) ?? (banned.length > 0 ? nearestPick(answers[MODEL], models, banned, requested, ask.options) : null)
   // In the requested_fits variant the pick must also be said not to fit.
   const fits = answers[REQUESTED_FITS]
-  const misfit = ask.requested !== 'noul' || fits?.type !== 'noul' || fits.noul < (settings.thetaFit ?? 0.5)
+  const misfit = ask.requested !== 'noul' || fits?.type !== 'noul' || fits.noul < (settings.thetaFit ?? THETA_FIT)
   const overridden = pick !== null && pick.nearest !== true && pick.model !== requested && pick.confidence >= settings.thetaOverride && misfit
   let model: AgentModel | null = pick?.model ?? null
   let source: ModelSource = model === null ? 'none' : 'decided'
@@ -554,6 +560,25 @@ export function decisionNotes(decision: DispatchDecision): string[] {
     )
   }
   return notes
+}
+
+/**
+ * Why an agent goes out as it does, for the decision log: whose model it is
+ * (`asker` is whose pick a kept model was: "the main agent's" for a
+ * dispatched agent, "the script's" for a Workflow's), the decision model's
+ * pick, what was ruled out, the effort answer.
+ */
+export function dispatchReason(decision: DispatchDecision, requested: string | null, thetaOverride: number, asker: string): string {
+  const pick = decision.pick === null ? null : `pick ${decision.pick.model}, confidence ${decision.pick.confidence.toFixed(2)}`
+  const parts: string[] = []
+  if (decision.source === 'user') parts.push('named in your message')
+  else if (decision.source === 'requested') parts.push(`${asker} ${requested} kept${decision.pick !== null && decision.pick.model !== requested ? ` (below agentOverride ${thetaOverride.toFixed(2)})` : ''}`)
+  else if (decision.source === 'decided') parts.push(requested !== null && requested !== decision.model ? `decided over ${asker} ${requested}` : 'decided')
+  else parts.push("the engine's model kept")
+  if (pick !== null) parts.push(pick)
+  parts.push(...decisionNotes(decision))
+  if (decision.reading !== null) parts.push(`effort p ${levelsText(decision.reading)}`)
+  return parts.join('; ')
 }
 
 /** The model whose `<prefix>.<model>` yes/no answer is highest and reaches `threshold`; null when none does. */

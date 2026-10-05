@@ -45,7 +45,7 @@ export type TurnRecord = Plan & {
  */
 export type PendingDecision = { text: string; effort: Effort | null; at: number }
 
-/** The loop name of the main agent in turn keys. */
+/** The main agent's name wherever loops go by agent: in turn keys (`main:<turnId>`) and as its id in the `escalation` table. */
 export const MAIN = 'main'
 
 /** The turns-table id of a step's turn: `main:<turnId>` or `<agentId>:<turnId>`. */

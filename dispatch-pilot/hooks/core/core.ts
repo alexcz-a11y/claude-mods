@@ -19,7 +19,7 @@
 import type { HttpInit, On } from 'claude-code'
 import { messageText, turnStartState } from '../decision/context.ts'
 import { answersFor, mergeParts, type State } from '../decision/system-one.ts'
-import { type Asked, describeAsked } from '../decision/backend.ts'
+import { type Asked, describeAsked, errorText } from '../decision/backend.ts'
 import { collect, type Contribution, type PartOutcome } from './ballot.ts'
 import { noteBlocked } from './outcomes.ts'
 import { newTurn, planStep, replace, takePending, turnKey, type Cell, type PendingDecision } from './plans.ts'
@@ -55,7 +55,7 @@ export function registerCore(on: On, ctx: Ctx): void {
       asked = await ctx.backend.ask(io, request, ctx.config.timeoutMs)
     } catch (error) {
       // A part's malformed questions: nothing was sent.
-      asked = { ok: false, failure: { kind: 'request', detail: String(error instanceof Error ? error.message : error) } }
+      asked = { ok: false, failure: { kind: 'request', detail: errorText(error) } }
     }
     const ms = (await $.clock.now()) - startedAt
     $.ui.log(`request [${ids}] to ${ctx.backend.name}: ${describeAsked(asked, ms)}`, { to: 'debug' })

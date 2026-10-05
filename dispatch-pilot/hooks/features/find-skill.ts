@@ -14,7 +14,7 @@
 // switched off, it says so when called.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { type Asked, describeAsked } from '../decision/backend.ts'
+import { type Asked, describeAsked, errorText } from '../decision/backend.ts'
 import { turnStartState } from '../decision/context.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { modRanker, pickSkills, skillOpening, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
@@ -119,7 +119,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       const { tool } = await $.tool.register({ name: TOOL, description: DESCRIPTION, inputSchema: INPUT })
       if (tool !== TOOL_CALLED) $.ui.log(`find_skill is registered as ${tool}, but the hook answers ${TOOL_CALLED}: its calls will fail`, { to: 'debug' })
     } catch (error) {
-      $.ui.log(`find_skill was not registered: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+      $.ui.log(`find_skill was not registered: ${errorText(error)}`, { to: 'debug' })
     }
     return result
   })
@@ -192,7 +192,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       show(`find_skill ${suggest.length > 0 ? names : 'none'}`)
       return { result: found(query, suggest, policy) }
     } catch (error) {
-      $.ui.log(`find_skill failed: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+      $.ui.log(`find_skill failed: ${errorText(error)}`, { to: 'debug' })
       show('find_skill failed (see the debug log)')
       return { result: `find_skill could not rate the skills (an error in Dispatch Pilot, written to the debug log). ${CARRY_ON}` }
     }

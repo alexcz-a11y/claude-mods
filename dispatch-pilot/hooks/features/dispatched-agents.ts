@@ -15,8 +15,7 @@
 import type { HttpInit, On } from 'claude-code'
 import { type Asked, describeAsked } from '../decision/backend.ts'
 import { messageText } from '../decision/context.ts'
-import { decideDispatch, decisionNotes, dispatchPart, dispatchState, modelFamily, termsOf, type Dispatch, type DispatchDecision } from '../decision/dispatched-agent.ts'
-import { EFFORTS } from '../decision/effort.ts'
+import { decideDispatch, dispatchPart, dispatchReason, dispatchState, modelFamily, termsOf, type Dispatch } from '../decision/dispatched-agent.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { recordDecision } from '../core/decisions.ts'
@@ -107,25 +106,11 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       await recordDecision(
         { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
         (line) => $.ui.log(line, { to: 'debug' }),
-        { feature: SWITCH, outcome, about, reason: reasonOf(decision, modelFamily(e.model), settings.thetaOverride) },
+        { feature: SWITCH, outcome, about, reason: dispatchReason(decision, modelFamily(e.model), settings.thetaOverride, "the main agent's") },
       )
     } catch (error) {
       $.ui.log(`agent ${about} started (${result.agentId ?? 'no id'}), but its plan was not recorded: ${String(error)}`, { to: 'debug' })
     }
     return result
   })
-}
-
-/** Why the agent goes out as it does: whose model it is, the decision model's pick, what was ruled out, the effort answer. */
-function reasonOf(decision: DispatchDecision, requested: string | null, thetaOverride: number): string {
-  const pick = decision.pick === null ? null : `pick ${decision.pick.model}, confidence ${decision.pick.confidence.toFixed(2)}`
-  const parts: string[] = []
-  if (decision.source === 'user') parts.push('named in your message')
-  else if (decision.source === 'requested') parts.push(`the main agent's ${requested} kept${decision.pick !== null && decision.pick.model !== requested ? ` (below agentOverride ${thetaOverride.toFixed(2)})` : ''}`)
-  else if (decision.source === 'decided') parts.push(requested !== null && requested !== decision.model ? `decided over the main agent's ${requested}` : 'decided')
-  else parts.push("the engine's model kept")
-  if (pick !== null) parts.push(pick)
-  parts.push(...decisionNotes(decision))
-  if (decision.reading !== null) parts.push(`effort p ${EFFORTS.map((level, i) => `${level} ${(decision.reading?.probabilities[i] ?? 0).toFixed(2)}`).join(', ')}`)
-  return parts.join('; ')
 }
