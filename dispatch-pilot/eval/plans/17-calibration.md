@@ -327,3 +327,7 @@ E2–E4、E6–E10 的运行都没有做；长上下文补充集没有做；E7 �
 ### 8.8.4 之后按 AA 基准校正（0.2.2，用户 2026-10-05 确认）
 
 按 Artificial Analysis 智力指数 v4.3.2 的十个分项校正了模型选项文字、effort 的取法、中途门槛和各模型的 effort 下限，并让报告开始的轮次也走 effort 路由、让 Jev 的上下文按请求种类分开取。依据、数字和来源 URL 在 `docs/research/aa-benchmarks-2026-10.md`，规则的说明在 `DEVELOPMENT.md` 的「按 AA 基准校正」。这一节和 8.8.1 里的几处默认值有关系：`thetaUp` 0.4 改 0.3、`thetaDown` 0.6 改 0.75、`holdSteps` 3 改 5，是按 AA 的方向定的，不是按评测集挑的；`contextTokens` 的 Jev 默认值 6000 只是带 skill 题的请求的值，其余种类 24000。之后用户授权用真实的 Jev 调了派出 agent 的文字和 sonnet 的 effort 下限（三轮，约 0.10 美元）：见 `DEVELOPMENT.md` 的「按 AA 基准校正」的「评测迭代」和 `docs/research/aa-benchmarks-2026-10.md` 第六节；#17 没有扫描评测的决定本身没有变。
+
+### 8.8.4 之后降档门槛调回 0.55（0.2.3，用户 2026-10-05 同意）
+
+0.2.2 的 `thetaDown` 0.75 让真实运行里 `effort-midturn` 的 `sent` 偏高从 11.5% / 11.0% 涨到 19.5% / 17.5%（`en-score` / `zh-score`），用户认为实际走的档偏高太多，同意调低、值靠数据定。零费用的扫描（`eval/rescore.ts --theta-down`，在 `2026-10-05-jev-aa-final.json` 已存的概率和 confidence 上只改 `thetaDown`）：0.55 到 0.75 里没有一个值让偏高回到 11%–12%，偏低都低于对照组（12.0、15.5），按规则（都不满足就取偏高加偏低最小的）选 0.55，`BACKEND_DEFAULTS` 里 Jev 和 Clef 一样，version 0.2.3。真实验证（Jev，`2026-10-05-jev-theta-down.json`，约 0.0149 美元）：`sent` 偏高 16.0 / 16.0，偏低 11.0 / 9.5，准确率 73.0 / 74.5；偏高比 0.75 低 3.5 / 1.5 个点，但没有回到对照组。`en-score` 的 −3.5 有一部分是运行波动（同一批回答离线算是 −2.0），其余变化在单次运行的 ±2 个点以内。表和说明在 `DEVELOPMENT.md` 的「降档门槛（0.2.3）」。

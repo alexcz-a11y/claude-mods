@@ -169,7 +169,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 | `rejudgeSteps` | 重判时决策模型读到的最近步数（1–16）。Jev 取上限，由 `contextTokens` 决定实际发多少 | `16` 按 Jev 的上限 | `4` 保持接入时的值 |
 | `rejudgeWaitMs` | 重判的回答还没到时，下一步最多再等多久（0–2000 毫秒），然后沿用原来的 effort | `300` | `300` |
 | `thetaUp` | 中途升档所需的最低置信度（0–1）。Clef 的置信度比 Jev 低得多，这个值下它很少改档 | `0.3` 按 AA 基准 | `0.3` 未校准 |
-| `thetaDown` | 中途降档所需的最低置信度（0–1，低于 `thetaUp` 时按 `thetaUp` 算），一次只降一档 | `0.75` 按 AA 基准 | `0.75` 未校准 |
+| `thetaDown` | 中途降档所需的最低置信度（0–1，低于 `thetaUp` 时按 `thetaUp` 算），一次只降一档 | `0.55` 按已存的评测回答扫出 | `0.55` 未校准 |
 | `holdSteps` | 升档之后多少步之内不降档（0–50） | `5` 按 AA 基准 | `5` 起点 |
 
 ### 卡住时强制升档
@@ -214,7 +214,7 @@ Clef 只是接入了，没有像 Jev 那样校准。把 `decisionModel` 改成 `
 - **`timeoutMs` 是 3000。** Clef 比 Jev 慢，连接建立后 0.6–1.4 秒，冷连接的第一次请求要 1.8 秒，所以默认等 3000 毫秒，Jev 是 1500。
 - **发消息时的 skill 推荐默认关闭。** 带画像的 skill 第一段要 3.7–7.9 秒，超过一条消息能等的时间。要用的话，`/dp skills on` 打开，但每条消息都可能因此超时。
 - **`find_skill` 在 Clef 下第一段只用描述。** 它的两个请求合计最多等 8 秒（不看 `timeoutMs`），第一个请求只按描述排序，不带画像。这两点按测到的延迟定，不是配置项。
-- **各个门槛没有为 Clef 校准过。** `thetaMax`、`thetaUp`、`thetaDown`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance` 用的都是 Jev 的值。Clef 的置信度比 Jev 低得多（中位数 0.24 对 0.66），所以在 `thetaUp` 0.3 下它升得动，在 `thetaDown` 0.75 下几乎降不下来：中途的 effort 基本只升不降，直到这一轮结束。
+- **各个门槛没有为 Clef 校准过。** `thetaMax`、`thetaUp`、`thetaDown`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance` 用的都是 Jev 的值。Clef 的置信度比 Jev 低得多（中位数 0.24 对 0.66），所以在 `thetaUp` 0.3 下它升得动，在 `thetaDown` 0.55 下也几乎降不下来（p90 才 0.50）：中途的 effort 基本只升不降，直到这一轮结束。
 
 ## 控制：`/dp`
 
@@ -278,7 +278,7 @@ Clef 只是接入了，没有像 Jev 那样校准。把 `decisionModel` 改成 `
 | 评测集 | 测什么 | 线上的问法，Jev（jev-1.13.0），中文 / 英文 |
 |---|---|---|
 | `effort-submit`（100 题） | 发消息时的 effort | 85.0% / 89.0%（中文问法，1 次运行；同样的请求之前 3 次的平均是 87.3% / 87.7%） |
-| `effort-midturn`（100 题） | 一轮中途的 effort | 77% / 72%（`en-score`，0.2.2 的规则，2026-10-05）；之前 73% / 74% |
+| `effort-midturn`（100 题） | 一轮中途的 effort | 77% / 75%（`en-score`，0.2.3 的规则，2026-10-05）；0.2.2 是 77% / 72%，之前 73% / 74% |
 | `subagent`（100 题） | 派出 agent 和 Workflow 里 agent 的模型加 effort，两样都对才算对 | 69% / 68%（`models-hint`，0.2.2 的文字和规则，2026-10-05，重复一次是 69% / 67%）；之前 70% / 68% |
 | `skill`（109 题） | skill 推荐，带画像 | 79.8% / 83.5% |
 
