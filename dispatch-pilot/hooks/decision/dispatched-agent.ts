@@ -605,6 +605,27 @@ export function decisionNotes(decision: DispatchDecision): string[] {
 }
 
 /**
+ * What the decision log keeps of a decision beyond its words, for the card that shows why: the effort levels'
+ * probabilities, the confidence of the model pick (else of the effort answer), the effort rules' working and
+ * the model's floor when it lifted the effort. Each is left out when the decision has none.
+ */
+export function dispatchEvidence(decision: DispatchDecision): {
+  probs?: Record<Effort, number>
+  conf?: number
+  trace?: EffortTrace['steps']
+  floor?: { from: Effort; to: Effort; model: AgentModel }
+} {
+  const conf = decision.pick?.confidence ?? decision.reading?.confidence ?? null
+  const levels = decision.reading?.probabilities
+  return {
+    ...(levels === undefined ? {} : { probs: Object.fromEntries(EFFORTS.map((level, i) => [level, levels[i] ?? 0])) as Record<Effort, number> }),
+    ...(conf === null ? {} : { conf }),
+    ...(decision.trace === null ? {} : { trace: decision.trace.steps }),
+    ...(decision.liftedFrom !== undefined && decision.effort !== null && decision.model !== null ? { floor: { from: decision.liftedFrom, to: decision.effort, model: decision.model } } : {}),
+  }
+}
+
+/**
  * Why an agent goes out as it does, for the decision log: whose model it is
  * (`asker` is whose pick a kept model was: "the main agent's" for a
  * dispatched agent, "the script's" for a Workflow's), the decision model's

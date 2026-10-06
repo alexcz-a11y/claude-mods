@@ -76,6 +76,8 @@ export type BoardNode = {
   why?: string
   failure?: NodeFailure
   decision?: number
+  /** The Workflow it belongs to (a Workflow agent, or the call of the script that stands for it before it starts). */
+  workflow?: { id: string; name: string }
 }
 
 export type Board = { turn: number; nodes: BoardNode[] }
@@ -116,10 +118,19 @@ type About = {
   forTurn?: 'current' | 'next'
   /** What it was about, for the log: the start of the message, an agent's label. */
   subject?: string
-  /** How to start the agent's node when the board has none yet (the main agent's is known). */
-  node?: { kind: 'agent' | 'wf'; name: string; type: string }
+  /**
+   * How to start the agent's node when the board has none yet (the main agent's is known). `state`: `running` by
+   * default, `queued` for a decision made for a turn to come or for a Workflow call whose agent has not started.
+   * `workflow`: the Workflow the agent (or its call) belongs to.
+   */
+  node?: { kind: 'agent' | 'wf'; name: string; type: string; state?: AgentState; workflow?: { id: string; name: string } }
   /** Whether it left the agent routed (a decision) or not (a failure): the node's `routed`. Left as it is when not given. */
   routed?: boolean
+  /**
+   * The id of the node that stood for this agent before it started (a Workflow call, queued): the agent's node
+   * takes its place, and the decision made for the call, its model and its effort, when it has them.
+   */
+  replaces?: string
 }
 
 /** A decision made. */
@@ -134,12 +145,35 @@ export type Decided = About & {
   trace?: RuleStep[]
   floor?: LogEntry['floor']
   mid?: LogEntry['mid']
+  /** The model and effort it decided, by family and level, for an agent that has not taken a step yet (its first reading replaces them). */
+  model?: Model
+  effort?: Effort
+  /** Whose choice the model was (the person's words, or the main agent's pick that stood) and whether the effort was the person's: the old status line says so. */
+  modelBy?: 'person' | 'main-agent'
+  effortBy?: 'person'
+  /** A Workflow call: the decision changed what the script says (false: the script's own stood), and it was sent back to the main agent to write in (return mode). */
+  written?: boolean
+  sentBack?: true
 }
 
 /** A decision the feature could not make: the decision request failed. Not an entry of the log; it says why on the agent's node. */
 export type NotDecided = About & { failure: NodeFailure }
 
-export type ReportedDecision = Decided | NotDecided
+/**
+ * No decision was asked for, or none could be made without a failed request: why the agent (or the Workflow) runs
+ * as it was written, in a few words. Not a log entry. `asWritten`: by design, not a miss (the Workflow was already
+ * sent back once). `offBoard`: nothing to show on the board, only the old status line is to say it (a script
+ * with no agent() call).
+ */
+export type Left = About & { why: string; asWritten?: true; offBoard?: true }
+
+/**
+ * An agent whose decision was made earlier, for its call, has started: the agent is on the board as the one the
+ * decision routed. Not a log entry (the decision is, since it was made).
+ */
+export type Started = About & { started: true; model?: Model; effort?: Effort }
+
+export type ReportedDecision = Decided | NotDecided | Left | Started
 
 /** What one model request went out with, as the core sends it. */
 export type StepReading = {
@@ -171,46 +205,139 @@ export type ReportIo = {
  * segment the feature owns. Never throws.
  */
 export async function reportDecision(io: ReportIo, decision: ReportedDecision): Promise<void> {
+  return reportDecisions(io, [decision])
+}
+
+/**
+ * Reports the decisions of one event together, the several agents of a Workflow
+ * for one: one write to the log, one to the board, and the old line, which
+ * sums them up, sent once. Each is what `reportDecision` makes of it alone, in
+ * the order given. Never throws.
+ */
+export async function reportDecisions(io: ReportIo, decisions: readonly ReportedDecision[]): Promise<void> {
+  const last = decisions.at(-1)
+  if (last === undefined) return
   try {
-    // Which turn it is for. A board that cannot be read does not stop the decision from being logged (as turn 1).
+    // Which turn each is for. A board that cannot be read does not stop a decision from being logged (as turn 1).
     const board = await read(io.board).catch((error: unknown) => {
       io.debug(`board not read: ${errorText(error)}`)
       return EMPTY
     })
-    const turn = board.turn + (decision.forTurn === 'next' ? 1 : 0)
-    let n: number | undefined
-    if (!('failure' in decision)) {
-      io.debug(decisionLine(decision))
+    const turnOf = (decision: ReportedDecision) => board.turn + (decision.forTurn === 'next' ? 1 : 0)
+    const made = decisions.filter(isDecided)
+    for (const decision of made) io.debug(decisionLine(decision))
+    // The number of each decision in the log, in the order made.
+    const numbers: number[] = []
+    if (made.length > 0) {
       try {
-        const kept = await update(io.decisions, (list) => appendEntry(list ?? [], entryOf(decision, turn)))
-        n = kept.at(-1)?.n
+        await update(io.decisions, (list) => {
+          numbers.length = 0
+          let all = list ?? []
+          for (const decision of made) {
+            all = appendEntry(all, entryOf(decision, turnOf(decision)))
+            numbers.push(all.at(-1)?.n ?? 0)
+          }
+          return all
+        })
       } catch (error) {
+        numbers.length = 0
         io.debug(`decision not kept for /dp log: ${errorText(error)}`)
       }
     }
     let after = board
     try {
-      after = await update(io.board, (current) => withNode(current ?? EMPTY, turn, decision, n))
+      after = await update(io.board, (current) => {
+        let next = current ?? EMPTY
+        let at = 0
+        for (const decision of decisions) {
+          const n = isDecided(decision) ? numbers[at++] : undefined
+          if (!('offBoard' in decision)) next = withNode(next, turnOf(decision), decision, n)
+        }
+        return next
+      })
     } catch (error) {
       io.debug(`decision not kept on the board: ${errorText(error)}`)
     }
-    for (const old of LEGACY[decision.feature.split(' ')[0] as string]?.(decision, after) ?? []) setStatus(old.segment, old.text, io.status)
+    for (const old of LEGACY[last.feature.split(' ')[0] as string]?.(last, after, decisions) ?? []) setStatus(old.segment, old.text, io.status)
   } catch (error) {
     io.debug(`decision not reported: ${errorText(error)}`)
   }
 }
 
+/** A decision that was made (the others say why there is none, or that an agent started). */
+function isDecided(decision: ReportedDecision): decision is Decided {
+  return 'outcome' in decision
+}
+
 /**
  * The old status line's segments that the board renders, by the feature that
- * decides what they say (its switch name): each is handed the decision and the
- * board with it on (every agent's node of the latest turns, so a segment that
- * sums up several agents reads them there), and says what its segments now
- * read (`null`: nothing). A feature's migration adds its line here and drops
- * its own `setStatus`; the whole line goes with step 2.
+ * decides what they say (its switch name): each is handed the decision (the
+ * last of an event's), the board with it on (every agent's node of the latest
+ * turns, so a segment that sums up several agents reads them there) and all
+ * the decisions of the event, and says what its segments now read (`null`:
+ * nothing). A feature's migration adds its line here and drops its own
+ * `setStatus`; the whole line goes with step 2.
  */
-const LEGACY: Record<string, (decision: ReportedDecision, board: Board) => { segment: Segment; text: string | null }[]> = {
+const LEGACY: Record<string, (decision: ReportedDecision, board: Board, event: readonly ReportedDecision[]) => { segment: Segment; text: string | null }[]> = {
   // Why the person's message got no decision: the failed request, until a decision comes back.
   'main-effort': (decision) => [{ segment: 'decision', text: 'failure' in decision ? failureText(decision.failure.backend, decision.failure) : null }],
+  // The latest dispatched agent: its model and effort and whose choice they were, or why it is not routed.
+  'dispatched-agents': (decision) => {
+    if ('failure' in decision) return [{ segment: 'agent', text: `agent not routed (${failureText(decision.failure.backend, decision.failure)})` }]
+    if (!isDecided(decision)) return []
+    const whose = decision.modelBy === 'person' ? ' (you)' : decision.modelBy === 'main-agent' ? ' (kept)' : decision.effortBy === 'person' ? ' (effort: you)' : ''
+    return [{ segment: 'agent', text: `agent ${decision.outcome}${whose}` }]
+  },
+  // A Workflow script's calls: how many were routed, left as written, and why.
+  'workflow-agents': (_decision, _board, event) => {
+    const first = event[0]
+    if (first === undefined) return []
+    // Said of the Workflow as a whole (not of one of its calls).
+    if (event.length === 1 && 'why' in first && first.node?.workflow === undefined) {
+      return [{ segment: 'workflow', text: 'offBoard' in first ? null : `workflow ${'asWritten' in first ? 'runs as written' : 'not routed'} (${first.why})` }]
+    }
+    const decided = event.filter(isDecided)
+    const sentBack = decided.filter((decision) => decision.written === true)
+    if (decided.some((decision) => decision.sentBack === true)) return [{ segment: 'workflow', text: `workflow sent back (${sentBack.length} agent${sentBack.length === 1 ? '' : 's'})` }]
+    const left = event.filter((decision) => !isDecided(decision))
+    const failure = left.find((decision) => 'failure' in decision)
+    const failed = failure !== undefined && 'failure' in failure ? failureText(failure.failure.backend, failure.failure) : null
+    if (decided.length === 0) {
+      const one = left[0]
+      return [{ segment: 'workflow', text: `workflow not routed (${one === undefined ? 'no agent() calls' : (failed ?? whyOf(one))})` }]
+    }
+    const rest = left.length === 0 ? '' : ` (${left.length} as written${failed === null ? '' : `: ${failed}`})`
+    return [{ segment: 'workflow', text: `workflow routed ${decided.length} agent${decided.length === 1 ? '' : 's'}${rest}` }]
+  },
+  // A Workflow run's agents routed by their labels: what was decided for its calls when it started, then how its agents fared as each one started.
+  'workflow-labels': (decision, board, event) => {
+    const first = event[0]
+    if (first === undefined) return []
+    const run = decision.node?.workflow
+    // An agent has started: the run's tally.
+    if (run !== undefined && decision.node?.state !== 'queued') {
+      const started = board.nodes.filter((node) => node.workflow?.id === run.id && node.state !== 'queued')
+      const routed = started.filter((node) => node.routed).length
+      const failed = started.filter((node) => !node.routed)
+      const reason = failed.at(-1)?.why ?? ''
+      const got = `routed ${routed} agent${routed === 1 ? '' : 's'}`
+      return [{ segment: 'labels', text: failed.length === 0 ? `by label: ${got}` : routed === 0 ? `by label: not routed (${reason})` : `by label: ${got} (${failed.length} not: ${reason})` }]
+    }
+    // The run's own set-up failed.
+    if (event.length === 1 && 'why' in first && first.node?.workflow === undefined) return [{ segment: 'labels', text: `by label: not routed (${first.why})` }]
+    // The calls decided as the run started: said only when a request failed.
+    const undecided = event.filter((one) => 'failure' in one)
+    const failure = undecided[0]
+    if (failure === undefined || !('failure' in failure)) return []
+    const why = failureText(failure.failure.backend, failure.failure)
+    if (event.some(isDecided)) return [{ segment: 'labels', text: `by label: ${undecided.length} call${undecided.length === 1 ? '' : 's'} not decided (${why})` }]
+    return [{ segment: 'labels', text: `by label: not routed (${why})` }]
+  },
+}
+
+/** Why a decision that was not made says the agent is not routed: the failure in the old status words, else its own. */
+function whyOf(decision: ReportedDecision): string {
+  return 'failure' in decision ? failureText(decision.failure.backend, decision.failure) : 'why' in decision ? decision.why : ''
 }
 
 // ---- entry 2: a reading -------------------------------------------------------
@@ -315,19 +442,34 @@ const EMPTY: Board = { turn: 0, nodes: [] }
 
 function newNode(turn: number, id: string, node: About['node'], state: AgentState): BoardNode {
   if (id === 'main') return { turn, id, kind: 'main', name: '主 agent', type: 'main', state, t0: 0, routed: false }
-  return { turn, id, kind: node?.kind ?? 'agent', name: node?.name ?? id, type: node?.type ?? 'agent', state, t0: 0, routed: false }
+  return { turn, id, kind: node?.kind ?? 'agent', name: node?.name ?? id, type: node?.type ?? 'agent', state: node?.state ?? state, t0: 0, routed: false, ...(node?.workflow === undefined ? {} : { workflow: node.workflow }) }
 }
 
 /** The board with the decision on its agent's node of `turn` (the node made when there is none), `n` the decision's number in the log when it has one. */
 function withNode(board: Board, turn: number, decision: ReportedDecision, n: number | undefined): Board {
   const old = board.nodes.find((node) => node.turn === turn && node.id === decision.agent)
-  const base = old ?? newNode(turn, decision.agent, decision.node, decision.forTurn === 'next' ? 'queued' : 'running')
+  // The node that stood for the agent before it started gives it what was decided for it, and goes.
+  const stood = old === undefined && decision.replaces !== undefined ? board.nodes.find((node) => node.id === decision.replaces) : undefined
+  const inherited = stood === undefined ? {} : { ...(stood.decision === undefined ? {} : { decision: stood.decision }), ...(stood.model === undefined ? {} : { model: stood.model }), ...(stood.effort === undefined ? {} : { effort: stood.effort }) }
+  const base = old ?? { ...newNode(turn, decision.agent, decision.node, decision.forTurn === 'next' ? 'queued' : 'running'), ...inherited }
   const routed = decision.routed === undefined ? {} : { routed: decision.routed }
-  const next: BoardNode =
-    'failure' in decision
-      ? { ...base, ...routed, why: failureText(decision.failure.backend, decision.failure), failure: decision.failure }
-      : { ...(decision.routed === true ? without(base, 'why', 'failure') : base), ...routed, ...(n === undefined ? {} : { decision: n }) }
-  return { ...board, nodes: [...board.nodes.filter((node) => node !== old), next] }
+  let next: BoardNode
+  if ('failure' in decision) {
+    next = { ...base, ...routed, why: failureText(decision.failure.backend, decision.failure), failure: decision.failure }
+  } else if ('why' in decision) {
+    next = { ...without(base, 'failure'), routed: false, why: decision.why }
+  } else if ('started' in decision) {
+    next = { ...without(base, 'why', 'failure'), routed: true, state: 'running', ...(decision.model === undefined ? {} : { model: decision.model }), ...(decision.effort === undefined ? {} : { effort: decision.effort }) }
+  } else {
+    next = {
+      ...(decision.routed === true ? without(base, 'why', 'failure') : base),
+      ...routed,
+      ...(decision.model === undefined ? {} : { model: decision.model }),
+      ...(decision.effort === undefined ? {} : { effort: decision.effort }),
+      ...(n === undefined ? {} : { decision: n }),
+    }
+  }
+  return { ...board, nodes: [...board.nodes.filter((node) => node !== old && node !== stood), next] }
 }
 
 /** The value of a cell, or the empty board. */
