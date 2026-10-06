@@ -267,7 +267,7 @@ export function whyOf(decision: DispatchDecision): string {
 }
 
 /** Why a call was left as the script wrote it, in a few words. */
-function leftText(outcome: Extract<CallOutcome, { kind: 'left' }>, describe: (failure: Failure) => string): string {
+export function leftText(outcome: Extract<CallOutcome, { kind: 'left' }>, describe: (failure: Failure) => string): string {
   switch (outcome.reason) {
     case 'unreadable':
       return 'its prompt is built when the script runs'

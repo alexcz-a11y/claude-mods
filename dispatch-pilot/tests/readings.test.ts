@@ -91,7 +91,7 @@ test('a fan-out of Workflow agents stepping at once each get their row: no readi
   for (const id of ids) w.started('wf_test-1', id, `review-${id}`)
   await Promise.all(ids.map((id) => w.agentStep(id, { index: 0, model: 'claude-sonnet-5-5', effort: 'low' })))
 
-  expect((await w.board()).agents.map((node) => node.id).sort()).toEqual([...ids].sort())
+  expect((await w.board()).agents.map((node) => node.id).filter((id) => id.startsWith('wa')).sort()).toEqual([...ids].sort())
   expect(w.logs.filter((line) => line.text.startsWith('reading not kept'))).toEqual([])
 })
 
@@ -208,7 +208,8 @@ test("a dispatched agent is queued from its spawn to its first step, running unt
   await w.complete({ agentId: 'a1', durationMs: 4200 })
   const done = (await w.board()).agents[0]
   expect(done).toMatchObject({ state: 'done', t0: 3.5, dur: 4.2 })
-  expect(done?.why).toBeUndefined()
+  // Nobody decided its model and effort (there is no key): that is the one thing its node says of it.
+  expect(done?.why).toBe('jev: no TypeSafe API key: set typesafeApiKey')
 })
 
 test('a loop that ends in an error, a refusal or an interruption is failed, and says which; the main agent too', async ($, on) => {

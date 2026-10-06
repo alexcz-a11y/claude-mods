@@ -4,7 +4,7 @@
 // and effort when each one starts, by its label. Seam 1: the Workflow tool call
 // and the agents' steps in, the run's journal and transcripts on the disk
 // beneath `$.fs`; out, the model and effort each step goes out with, the
-// decision requests, what the main agent is told, the status line.
+// decision requests, what the main agent is told, the board (`w.board()`), the status line (a few tests).
 
 import { expect, test } from 'claude-code/testing'
 import { CLEF_OPTIONS, clefInputProblems } from './support/cloudflare.ts'
@@ -45,6 +45,20 @@ test('an agent of a Workflow given by scriptPath goes out, on every step, with t
     'wa1 claude-sonnet-5-5 medium',
     'wa2 claude-opus-5-5 high',
   ])
+
+  // The board: the run's agents as they started, each linked to the decision made for its call; the Workflow itself not routed by the call.
+  const board = await w.board()
+  const started = board.agents.filter((node) => node.id.startsWith('wa'))
+  expect(started.map((node) => [node.id, node.kind, node.name, node.state, node.model, node.effort, node.routed])).toEqual([
+    ['wa1', 'wf', 'rename', 'running', 'sonnet', 'medium', true],
+    ['wa2', 'wf', 'review', 'running', 'opus', 'high', true],
+  ])
+  expect(started.map((node) => board.log.find((entry) => entry.n === node.decision)?.subject)).toEqual(['"rename" (workflow tidy-api)', '"review" (workflow tidy-api)'])
+  expect(new Set(started.map((node) => node.workflow?.id)).size).toBe(1)
+  // The calls' own nodes are gone: their agents started.
+  expect(board.agents.filter((node) => node.state === 'queued')).toEqual([])
+  expect(board.agents.find((node) => !node.id.startsWith('wa'))).toMatchObject({ kind: 'wf', routed: false, why: 'given by path' })
+  expect(board.log.map((entry) => entry.feature)).toEqual(['workflow-labels', 'workflow-labels'])
 })
 
 test("an agent that takes its first step while its run is still being set up (the run starts before the tool call returns) waits for it, then goes out decided", { options: KEY }, async ($, on) => {
@@ -97,6 +111,7 @@ test('/dp workflow-labels off: no agent is routed and no run recorded, nothing i
   w.started('wf_test-1', 'wa1', 'rename')
   await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
   expect(w.status()).toBe('dp workflow not routed (given by path) | by label: routed 1 agent')
+  expect((await w.board()).agents.filter((node) => node.id === 'wa1')).toMatchObject([{ routed: true, model: 'sonnet' }])
 
   expect(await w.command('dp', 'workflow-labels off')).toContain('workflow-labels is off')
   expect(w.status()).toBe('dp workflow not routed (given by path)')
@@ -124,6 +139,7 @@ test('/dp off stands the fallback down too: nothing is asked when a Workflow sta
 
   expect(w.requests).toHaveLength(0)
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
+  expect((await w.board()).agents).toEqual([])
   expect(w.status()).toBe('dp off')
 })
 
@@ -132,6 +148,11 @@ test('a decision request that fails when the run starts leaves its agents as the
   const result = await w.workflow({ scriptPath: SAVED })
   expect(result.isError).toBeUndefined()
   expect(w.status()).toBe('dp workflow not routed (given by path) | by label: not routed (jev: HTTP 500)')
+  // Each call of the script is on the board as not routed, with why: its agents have not started.
+  expect((await w.board()).agents.filter((node) => node.state === 'queued').map((node) => [node.name, node.routed, node.why, node.failure?.kind])).toEqual([
+    ['rename', false, 'jev: HTTP 500', 'http'],
+    ['review', false, 'jev: HTTP 500', 'http'],
+  ])
 
   w.started('wf_test-1', 'wa1', 'rename')
   await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
@@ -153,6 +174,40 @@ test("an agent whose own decision fails goes out as the engine made it; the stat
   // The agent sent to haiku goes out without the engine's effort: haiku takes none (spec #32).
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium', 'wa2 claude-haiku-4-5 undefined'])
   expect(w.status()).toBe('dp workflow not routed (given by path) | by label: routed 1 agent (1 not: jev: HTTP 500)')
+  // Each agent has its own node: the one that failed says why, the one that was routed says what it got.
+  const board = await w.board()
+  expect(board.agents.filter((node) => node.id.startsWith('wa')).map((node) => [node.id, node.routed, node.why, node.model])).toEqual([
+    ['wa1', false, 'jev: HTTP 500', 'sonnet'],
+    ['wa2', true, undefined, 'haiku'],
+  ])
+  expect(board.agents.find((node) => node.id === 'wa1')?.failure).toMatchObject({ backend: 'jev', kind: 'http', status: 500 })
+  expect(board.log.map((entry) => entry.agent)).toEqual(['wa2'])
+})
+
+test("each agent of a script that cannot be read has its own decision on the board, from its own task: model, effort, and the log entry", { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, {
+    disk: { [SAVED]: FROZEN },
+    backend: (request) =>
+      siteJev((): SiteAnswer => (String(request.body.state.brief_0.prompt).startsWith('Find') ? { model: { opus: 0.9 }, effort: [0, 0, 0, 1, 0] } : { model: { haiku: 0.9 } }))(request),
+  })
+  await w.workflow({ scriptPath: SAVED })
+  w.started('wf_test-1', 'wa1', 'first')
+  w.transcript('wf_test-1', 'wa1', 'Find why the nightly import drops rows, and fix it.')
+  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  w.started('wf_test-1', 'wa2', 'second')
+  w.transcript('wf_test-1', 'wa2', 'List the files under src/import and report their sizes.')
+  await w.agentStep('wa2', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  const board = await w.board()
+  const started = board.agents.filter((node) => node.id.startsWith('wa'))
+  expect(started.map((node) => [node.id, node.name, node.model, node.effort, node.routed])).toEqual([
+    ['wa1', 'first', 'opus', 'xhigh', true],
+    ['wa2', 'second', 'haiku', undefined, true],
+  ])
+  expect(started.map((node) => board.log.find((entry) => entry.n === node.decision)?.agent)).toEqual(['wa1', 'wa2'])
+  expect(board.log[0]).toMatchObject({ feature: 'workflow-labels', subject: expect.stringContaining('"first" (agent wa1, workflow') })
+  expect(board.log[0]?.reason).toMatch(/^from its task as it started; decided; pick opus/)
+  expect(board.log[0]?.trace?.map((step) => step.rule)).toContain('top')
 })
 
 test("an error of the feature's own when the run starts leaves the tool's result as it was, and the status line says to look in the debug log", { options: KEY }, async ($, on) => {
@@ -165,6 +220,11 @@ test("an error of the feature's own when the run starts leaves the tool's result
   expect(result.text).toContain('Workflow launched in background')
   expect(w.reached).toEqual([{ scriptPath: SAVED, launched: true }])
   expect(w.status()).toBe('dp workflow not routed (given by path) | by label: not routed (error: see the debug log)')
+  // The decisions made for the calls stand in the log; the run was not recorded, so the board says why nothing will come of them.
+  expect((await w.board()).agents.slice(-2).map((node) => [node.routed, node.why])).toEqual([
+    [false, 'error: see the debug log'],
+    [false, 'given by path'],
+  ])
   expect(w.logs.some((log) => log.to === 'debug' && log.text.includes('the state cannot be written'))).toBe(true)
 })
 
@@ -176,6 +236,7 @@ test("an error of the feature's own as an agent starts lets the step go out as t
 
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 xhigh'])
   expect(w.status()).toBe('dp by label: not routed (error: see the debug log)')
+  expect((await w.board()).agents.map((node) => [node.id, node.routed, node.why])).toEqual([['wa1', false, 'error: see the debug log']])
   expect(w.logs.some((log) => log.to === 'debug' && log.text.includes('the state cannot be read'))).toBe(true)
 })
 
@@ -255,6 +316,12 @@ test("an agent the run's journal does not list (yet), or that started in no run 
   expect(w.requests).toHaveLength(1)
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 xhigh', 'a1 claude-sonnet-5-5 low'])
   expect(w.status()).toBe('dp workflow not routed (given by path)')
+  // The calls decided when the run started are still waiting for their agents, which never came.
+  expect((await w.board()).agents.map((node) => [node.name, node.state])).toEqual([
+    ['rename', 'queued'],
+    ['review', 'queued'],
+    ['tidy', 'done'],
+  ])
 })
 
 test("a resumed run keeps its script as sent, so the cache of each agent() still matches; its agents get their calls' choices as they start", { options: KEY }, async ($, on) => {
@@ -300,6 +367,7 @@ test('no answer within timeoutMs as an agent starts: it goes out as the engine m
   await step
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
   expect(w.status()).toBe('dp workflow not routed (given by path) | by label: not routed (jev: no answer in 800 ms)')
+  expect((await w.board()).agents.find((node) => node.id === 'wa1')).toMatchObject({ routed: false, why: 'jev: no answer in 800 ms', failure: { backend: 'jev', kind: 'timeout' } })
 })
 
 test("with Clef as the decision model, the request made as an agent starts passes Clef's input rules", { options: CLEF_OPTIONS }, async ($, on) => {
@@ -471,6 +539,9 @@ test("an agent whose task does not reach the disk within 400 ms goes out as the 
   expect(w.requests).toHaveLength(0)
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
   expect(w.status()).toBe('dp workflow not routed (given by path) | by label: not routed (task not on disk in time)')
+  const board = await w.board()
+  expect(board.agents.find((node) => node.id === 'wa1')).toMatchObject({ routed: false, why: 'task not on disk in time' })
+  expect(board.agents.find((node) => node.id === 'wa1')?.failure).toBeUndefined()
 })
 
 test("in a script the main agent sends, the calls workflow-agents left as written (their prompt is data) are decided as each agent starts; the agents of the calls it wrote into are left alone", { options: KEY }, async ($, on) => {
@@ -503,4 +574,16 @@ return summary
     prompt: 'Is every route under src/api/admin checked for the admin role? Cite the file and line of each gap.',
   })
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 max', 'wa2 claude-haiku-4-5 undefined'])
+
+  // The board: the summary's agent took the place of its call's node, with the decision workflow-agents made for it (haiku, which the
+  // script was given); the data-driven call's agent was decided as it started. No call is left waiting.
+  const board = await w.board()
+  const agents = board.agents.filter((node) => node.id.startsWith('wa'))
+  expect(agents.map((node) => [node.id, node.name, node.state, node.model, node.routed])).toEqual([
+    ['wa1', 'q-auth', 'running', 'opus', true],
+    ['wa2', 'summary', 'running', 'haiku', true],
+  ])
+  expect(board.log.find((entry) => entry.n === agents[1]?.decision)).toMatchObject({ feature: 'workflow-agents', model: 'haiku', subject: '"summary" (workflow answers)' })
+  expect(board.log.find((entry) => entry.n === agents[0]?.decision)).toMatchObject({ feature: 'workflow-labels', agent: 'wa1' })
+  expect(board.agents.filter((node) => node.state === 'queued')).toEqual([])
 })

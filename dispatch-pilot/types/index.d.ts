@@ -137,6 +137,11 @@ declare module 'claude-code' {
           /** The `n` of its decision in `decisionLog`. */
           decision?: number
           /**
+           * The Workflow it belongs to, `id` = the Workflow tool call's id: a Workflow agent, or, before it
+           * starts, the call of the script that stands for it (id `<tool_use_id>#<index>`, state `queued`).
+           */
+          workflow?: { id: string; name: string }
+          /**
            * The main agent's mid-turn re-decisions this turn (midturn-effort): steps made, decisions (the turn's
            * own at its start included), level changes. `late`: the answer for the step is not back; `failure`: the
            * latest request failed. Absent until the turn was re-decided once.
@@ -185,6 +190,9 @@ declare module 'claude-code' {
           to: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
           model: 'haiku' | 'sonnet' | 'opus' | 'fable'
         }
+        /** The model (by family) and the effort an agent was decided to run with: a dispatched or Workflow agent's decision; its node says what its steps went out with. */
+        model?: 'haiku' | 'sonnet' | 'opus' | 'fable'
+        effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
         /** A mid-turn re-decision: the effort it was at, the level the answer picked, where it ended, and why it did not move (`held`). */
         mid?: {
           current: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
@@ -291,6 +299,8 @@ declare module 'claude-code' {
       labelRuns: {
         /** The run's id (`runId` of the Workflow tool's result). */
         runId: string
+        /** The Workflow tool call that launched it: the id its agents' nodes on the board are grouped under (absent in a run an earlier load of the mod recorded: `runId` stands for it). */
+        callId?: string
         /** The run's directory (`transcriptDir`): its journal.jsonl, and each agent's transcript. */
         dir: string
         /** The script's `meta` name and description; null when it has none (or could not be read). */
