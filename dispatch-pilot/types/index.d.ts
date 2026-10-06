@@ -177,7 +177,7 @@ declare module 'claude-code' {
         }[]
       }
       /**
-       * What the features decided and why (core/report.ts `reportDecision`),
+       * What the features decided and why (core/report.ts `report`, a `decision`),
        * oldest first: the
        * last 20 turns, at most 300 entries. `n` counts the session's entries
        * from 1; it is what `/dp log` and the debug log's `#n` show.
@@ -420,8 +420,8 @@ declare module 'claude-code' {
         }[]
       } | null
       /**
-       * How writing the session's skill profiles went (#33; the 「决定汇报」 module's `reportProfiles`,
-       * core/report.ts, from the events of features/skill-profiles.ts): one record per session start,
+       * How writing the session's skill profiles went (#33; the 「决定汇报」 module, core/report.ts
+       * `report` with `profiles`, from the events of features/skill-profiles.ts): one record per session start,
        * replaced by the next. Written as the profiles are, so a screen can say 生成中 2/5. Absent until
        * a session start reported one (no record while the skills or skill-profiles switch is off).
        * Counts: `kept` profiles already there (another session's included), `planned` the most this

@@ -42,7 +42,7 @@ import {
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { wasBlocked } from '../core/outcomes.ts'
 import { floorHeld, MAIN, redecided, turnKey, update, type Cell, type TurnRecord } from '../core/plans.ts'
-import { reportDecision, reportTally, type NodeFailure, type ReportIo } from '../core/report.ts'
+import { report, type NodeFailure, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
@@ -147,14 +147,16 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
       const record = await update(cell, (r) => ({ ...(r === undefined || e.index === 0 ? newRecord() : r), steps: e.index + 1, engine }))
       const { value: turn } = await $.state.get({ ...TURNS, id: key })
       // Quiet until the turn has been re-decided once (so a short turn shows nothing).
-      await reportTally(ioOf($), {
-        feature: 'midturn-effort',
-        agent: 'main',
-        steps: record.steps,
-        judged: turn?.decisions ?? 0,
-        changed: turn?.changes ?? 0,
-        quiet: record.askedFor === null || turn === undefined,
-        ...(note === null ? {} : 'late' in note ? { late: true as const } : { failure: note.failure }),
+      await report(ioOf($), {
+        tally: {
+          feature: 'midturn-effort',
+          agent: 'main',
+          steps: record.steps,
+          judged: turn?.decisions ?? 0,
+          changed: turn?.changes ?? 0,
+          quiet: record.askedFor === null || turn === undefined,
+          ...(note === null ? {} : 'late' in note ? { late: true as const } : { failure: note.failure }),
+        },
       })
     } catch (error) {
       $.ui.log(`midturn: ${errorText(error)}`, { to: 'debug' })
@@ -278,18 +280,20 @@ async function takeAnswer($: EngineInterface, s: Settings, e: { index: number; e
   const verdict = judgeMidturn(reading, position, s.rules)
   await update(turnCell, (r) => redecided(r ?? turn, current, verdict.effort, e.index))
   // Beside the turn's own decision (the node's link to it stays), with the rules' working: the answer's pick, then the move.
-  await reportDecision(ioOf($), {
-    feature: SWITCH,
-    agent: 'main',
-    aside: true,
-    subject: `第 ${e.index} 步（${pending.reason}）`,
-    outcome: `effort ${verdict.effort}${verdict.effort === current ? '（保持）' : `（原 ${current}）`}`,
-    reason: `${readingText(reading)}；${verdictReason(verdict, position, s.rules)}`,
-    tone: verdict.effort === current ? 'info' : 'ok',
-    probs: probsOf(reading),
-    conf: verdict.confidence,
-    trace: [...verdict.trace.pick.steps, ...verdict.trace.steps],
-    mid: midturnRecord(verdict, position, s.rules),
+  await report(ioOf($), {
+    decision: {
+      feature: SWITCH,
+      agent: 'main',
+      aside: true,
+      subject: `第 ${e.index} 步（${pending.reason}）`,
+      outcome: `effort ${verdict.effort}${verdict.effort === current ? '（保持）' : `（原 ${current}）`}`,
+      reason: `${readingText(reading)}；${verdictReason(verdict, position, s.rules)}`,
+      tone: verdict.effort === current ? 'info' : 'ok',
+      probs: probsOf(reading),
+      conf: verdict.confidence,
+      trace: [...verdict.trace.pick.steps, ...verdict.trace.steps],
+      mid: midturnRecord(verdict, position, s.rules),
+    },
   })
   return null
 }
@@ -335,7 +339,7 @@ function withText(record: MidturnRecord, index: number, text: string): MidturnRe
   return { ...record, recent: recent.sort((a, b) => a.index - b.index).slice(-MAX_RECENT) }
 }
 
-/** What the decision report needs of the host: its two cells, the debug log and the old status line. */
+/** What the decision report needs of the host: its two cells, the debug log, the clock and the toast. */
 function ioOf($: EngineInterface): ReportIo {
   return {
     board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },

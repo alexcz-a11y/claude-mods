@@ -31,7 +31,7 @@ import { commandOf } from '../core/commands.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { readSessionSkills } from '../core/profiles.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
-import { reportDecision, type ReportIo } from '../core/report.ts'
+import { report, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { describeStages, listingNames, rankingSettings, trimListing, type CatalogSkill } from '../core/skills.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
@@ -237,20 +237,22 @@ export function registerSkills(on: On, ctx: Ctx): void {
         const ranked = outcome.ok ? await ranker.rank(outcome.answers, catalog, { state: outcome.state, timeoutMs: left }) : null
         if (ranked === null) {
           if (outcome.ok) $.ui.log(`skills for ${quoteStart(e.text)}: no answer about the skills`, { to: 'debug' })
-          await reportDecision(io, { ...about, skipped: 'unanswered' as const })
+          await report(io, { decision: { ...about, skipped: 'unanswered' as const } })
           return
         }
         if (ranked.failed !== undefined) {
           $.ui.log(`skills for ${quoteStart(e.text)}: not rated, the second request failed (${ranked.failed.kind}: ${ranked.failed.detail})`, { to: 'debug' })
-          await reportDecision(io, { ...about, failure: { backend: ctx.backend.name, ...ranked.failed } })
+          await report(io, { decision: { ...about, failure: { backend: ctx.backend.name, ...ranked.failed } } })
           return
         }
         const { suggest, hint } = pickSkills(ranked, catalog, policy)
-        await reportDecision(io, {
-          ...about,
-          outcome: describePicks(suggest, hint),
-          reason: describeRanking(ranked, policy),
-          skills: { suggest: suggest.map(({ name, relevance }) => ({ name, relevance })), try: hint.map(({ name, relevance }) => ({ name, relevance })) },
+        await report(io, {
+          decision: {
+            ...about,
+            outcome: describePicks(suggest, hint),
+            reason: describeRanking(ranked, policy),
+            skills: { suggest: suggest.map(({ name, relevance }) => ({ name, relevance })), try: hint.map(({ name, relevance }) => ({ name, relevance })) },
+          },
         })
         const { value: before = [] } = await $.state.get(SHOWN)
         const known = new Set([...before, ...alwaysListed])

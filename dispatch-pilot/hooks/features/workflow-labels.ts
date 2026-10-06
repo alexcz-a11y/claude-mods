@@ -38,7 +38,7 @@ import {
 import { parseWorkflow, type AgentCall, type ParsedWorkflow } from '../decision/workflow-script.ts'
 import { batchesTimeoutMs, callResult, readOutcomes, reasonOf, workflowBatches } from '../decision/workflow.ts'
 import { update, type Cell } from '../core/plans.ts'
-import { reportDecision, reportDecisions, type Decided, type ReportIo } from '../core/report.ts'
+import { callNodeId, report, type Decided, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import { callReports, workflowCallTitle, workflowLeft } from '../core/workflow-report.ts'
@@ -104,13 +104,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
   on('tool.call', { tool: 'Workflow' }, async ($, e, next) => {
     if (!isOn(SWITCH) || !ctx.backend.configured) return next(e)
     const log = (line: string) => $.ui.log(line, { to: 'debug' })
-    const reporting: ReportIo = {
-      board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
-      decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
-      debug: log,
-      now: () => $.clock.now(),
-      toast: (text) => $.ui.toast(text),
-    }
+    const reporting = reportingOf($)
     let settled: (run: LabelRun | null) => void = () => {}
     const launch = new Promise<LabelRun | null>((resolve) => (settled = resolve))
     launching.add(launch)
@@ -157,7 +151,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
           sites = sitesOf(parsed.calls, outcomes)
           decided = { calls: parsed.calls, outcomes, describe: (failure) => failureText(ctx.backend.name, failure) }
           // One report for each call: the decisions made, and why the others wait for their agents or are left as written.
-          await reportDecisions(reporting, callReports(SWITCH, { id: e.tool_use_id, parsed }, outcomes, { backend: ctx.backend.name, thetaOverride: settings.thetaOverride }))
+          await report(reporting, { decisions: callReports(SWITCH, { id: e.tool_use_id, parsed }, outcomes, { backend: ctx.backend.name, thetaOverride: settings.thetaOverride }) })
         }
       }
       // Every launched run is recorded, even one whose calls all run as the script says: their agents' plans still
@@ -172,7 +166,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       // The tool itself failed: as it did. Otherwise the run goes on as the tool started it.
       if (result === undefined) throw error
       log(`workflow-labels: the run's agents are not routed by label: ${errorText(error)}`)
-      await reportDecisions(reporting, [workflowLeft(SWITCH, { id: e.tool_use_id, title: workflowCallTitle(e) }, '出错了，详见 debug log', { agent: `${e.tool_use_id}:labels` })])
+      await report(reporting, { decision: workflowLeft(SWITCH, { id: e.tool_use_id, title: workflowCallTitle(e) }, '出错了，详见 debug log', { agent: `${e.tool_use_id}:labels` }) })
       return result
     } finally {
       launching.delete(launch)
@@ -187,7 +181,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       await routeAgent($, ctx, settings, agentId, e.model)
     } catch (error) {
       $.ui.log(`workflow-labels: agent ${agentId} is not routed: ${errorText(error)}`, { to: 'debug' })
-      await reportDecision(reportingOf($), { feature: SWITCH, agent: agentId, why: '出错了，详见 debug log', subject: agentId, node: { kind: 'wf', name: agentId, type: 'workflow', state: 'running' } })
+      await report(reportingOf($), { decision: { feature: SWITCH, agent: agentId, why: '出错了，详见 debug log', subject: agentId, node: { kind: 'wf', name: agentId, type: 'workflow', state: 'running' } } })
     }
     return yield* next(e)
   })
@@ -223,19 +217,19 @@ async function routeAgent($: EngineInterface, ctx: Ctx, settings: DispatchSettin
     agent: agentId,
     subject: JSON.stringify(start.label),
     node: { kind: 'wf' as const, name: start.label, type: site?.agentType ?? 'workflow', state: 'running' as const, workflow: { id: callId, name: run.workflow ?? '未命名' } },
-    ...(site === undefined || run.sites === null ? {} : { replaces: `${callId}#${run.sites.indexOf(site)}` }),
+    ...(site === undefined || run.sites === null ? {} : { replaces: callNodeId(callId, run.sites.indexOf(site)) }),
   }
   const reporting = reportingOf($)
   if (settled.ok) {
     const plan = settled.route === null ? null : agentPlan(settled.route, stepModel)
     // The decision made as the agent starts has its entry now; one made with its run is the entry that stands for its call.
-    await reportDecision(reporting, settled.decision === null ? { ...about, started: true } : { ...about, routed: true, ...settled.decision })
+    await report(reporting, { decision: settled.decision === null ? { ...about, started: true } : { ...about, routed: true, ...settled.decision } })
     const terms = settled.terms
     if ((plan !== null && (plan.model !== null || plan.effort !== null)) || terms !== null) {
       await $.state.set({ ...AGENTS, id: agentId }, { effort: plan?.effort ?? null, floor: null, model: plan?.model ?? null, terms })
     }
   } else {
-    await reportDecision(reporting, settled.failure === undefined ? { ...about, why: settled.reason } : { ...about, routed: false, failure: { backend: ctx.backend.name, ...settled.failure } })
+    await report(reporting, { decision: settled.failure === undefined ? { ...about, why: settled.reason } : { ...about, routed: false, failure: { backend: ctx.backend.name, ...settled.failure } } })
   }
 }
 

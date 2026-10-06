@@ -22,7 +22,7 @@
 
 import type { On, SessionMeasureInput } from 'claude-code'
 import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
-import { decisionLine, LOG_ENTRIES, reportSwitch, type LogEntry, type SwitchIo } from '../core/report.ts'
+import { decisionLine, LOG_ENTRIES, report, type LogEntry, type SwitchIo } from '../core/report.ts'
 import { describeDefaults, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, listSwitches, loadOverrides, masterOn, overrides, parseOverrides, setMaster, setSwitch } from '../core/switches.ts'
 import { errorText } from '../decision/backend.ts'
@@ -103,7 +103,7 @@ export function registerControl(on: On, ctx: Ctx): void {
         }
         case 'master':
           setMaster(command.on)
-          reportSwitch(reporting, { master: command.on })
+          await report(reporting, { switched: { master: command.on } })
           return { text: `Dispatch Pilot 已${command.on ? '打开' : '关闭'}${await save('master')}` }
         case 'switch': {
           const spec = listSwitches().find((s) => s.name === command.name)
@@ -111,7 +111,7 @@ export function registerControl(on: On, ctx: Ctx): void {
             const names = listSwitches().map((s) => s.name).join(', ')
             return { text: `没有叫「${command.name}」的开关（现有：${names}）` }
           }
-          reportSwitch(reporting, { feature: spec.name, on: command.on })
+          await report(reporting, { switched: { feature: spec.name, on: command.on } })
           return { text: `${spec.name} 已${command.on ? '打开' : '关闭'}：${spec.info}${await save(spec.name)}` }
         }
         case 'lock': {

@@ -17,7 +17,7 @@ import type { RenderNode } from 'claude-code'
 import type { Effort } from '../decision/effort.ts'
 import type { Model, Reading } from '../core/report.ts'
 import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, fit, MODEL_BG, mmss, MUTED, OK, padLeft, pct, ribbonCells, rgb, SKILL, soft, SPIN, stateGlyph, WARN, type Raster, type TT } from './kit.tsx'
-import type { AgentRow, BandEvent, ScreenView, Tone } from './view.ts'
+import { isWholeWorkflow, type AgentRow, type BandEvent, type ScreenView, type Tone } from './view.ts'
 
 /** What the band is laid out in: `bodyColumns` and `maxRows` of its props. */
 export type BandSize = { cols: number; rows: number }
@@ -255,7 +255,7 @@ function barColor(row: AgentRow): number {
 function agentRow(t: TT, view: ScreenView, row: AgentRow, i: number, cols: ReturnType<typeof columnsOf>, act: BandActs, Ribbon: Raster | undefined) {
   const { Box, Button, Text } = t
   const { node } = row
-  const whole = node.kind === 'wf' && node.workflow === undefined && !node.id.includes('#')
+  const whole = isWholeWorkflow(node)
   const span = Math.max(view.elapsed, ...view.rows.map((one) => one.to ?? one.from), 1)
   const done = node.state === 'done' && !row.selected
   return (

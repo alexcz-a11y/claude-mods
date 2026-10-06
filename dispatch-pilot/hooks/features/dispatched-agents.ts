@@ -20,7 +20,7 @@ import { quoteStart } from '../decision/redact.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
-import { reportDecision, type ReportIo } from '../core/report.ts'
+import { report, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
@@ -89,7 +89,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     const notRouted = async (failure: Failure) => {
       const started = await next(e)
       if (started.deny !== undefined) return started
-      await reportDecision(reporting, { ...reportOf(started.agentId ?? e.tool_use_id), routed: false, failure: { backend: ctx.backend.name, ...failure } })
+      await report(reporting, { decision: { ...reportOf(started.agentId ?? e.tool_use_id), routed: false, failure: { backend: ctx.backend.name, ...failure } } })
       return started
     }
     if (!asked.ok) return notRouted(asked.failure)
@@ -111,16 +111,16 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       const family = decision.model ?? modelFamily(result.model)
       const model = family ?? result.model
       const outcome = decision.effort === null ? model : `${model} ${decision.effort}`
-      await reportDecision(reporting, {
-        ...reportOf(result.agentId ?? e.tool_use_id),
-        routed: true,
-        outcome,
-        reason: dispatchReason(decision, modelFamily(e.model), settings.thetaOverride, '主 agent 指定的'),
-        ...dispatchEvidence(decision),
-        ...(family === null ? {} : { model: family }),
-        ...(decision.effort === null ? {} : { effort: decision.effort }),
-        // Whose choice it is: the model's, when the person's or the main agent's; else the effort's, when the person's.
-        ...(decision.source === 'user' ? { modelBy: 'person' as const } : decision.source === 'requested' ? { modelBy: 'main-agent' as const } : decision.effortSource === 'user' ? { effortBy: 'person' as const } : {}),
+      await report(reporting, {
+        decision: {
+          ...reportOf(result.agentId ?? e.tool_use_id),
+          routed: true,
+          outcome,
+          reason: dispatchReason(decision, modelFamily(e.model), settings.thetaOverride, '主 agent 指定的'),
+          ...dispatchEvidence(decision),
+          ...(family === null ? {} : { model: family }),
+          ...(decision.effort === null ? {} : { effort: decision.effort }),
+        },
       })
     } catch (error) {
       $.ui.log(`agent ${about} started (${result.agentId ?? 'no id'}), but its plan was not recorded: ${String(error)}`, { to: 'debug' })

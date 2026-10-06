@@ -24,7 +24,7 @@ import { contribute } from '../core/ballot.ts'
 import { commandOf, commandState } from '../core/commands.ts'
 import { addPending, revise, turnKey, update, type Cell, type PendingDecision, type TurnRecord } from '../core/plans.ts'
 import { isPersonsMessage, startsReportTurn } from '../core/prompts.ts'
-import { reportDecision, type ReportIo } from '../core/report.ts'
+import { report, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
@@ -52,19 +52,19 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
 
   on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
     // The person's own message, or a report that starts a turn of its own (a dispatched agent's hand-back, a task notice).
-    const report = !isPersonsMessage(e) && startsReportTurn(e)
-    if ((!isPersonsMessage(e) && !report) || !isOn('main-effort')) return next(e)
+    const handBack = !isPersonsMessage(e) && startsReportTurn(e)
+    if ((!isPersonsMessage(e) && !handBack) || !isOn('main-effort')) return next(e)
     const pending: Cell<PendingDecision[]> = { get: () => $.state.get(PENDING), set: (value, options) => $.state.set(PENDING, value, options) }
     let added: PendingDecision | null = null
 
     /** The message waits for its turn, decided or not: the turn it starts is the person's own (mid-turn re-decisions are for such turns). */
     const wait = async (effort: Effort | null) => {
-      const entry: PendingDecision = { text: e.text, effort, at: await $.clock.now(), ...(report ? { report: true as const } : {}) }
+      const entry: PendingDecision = { text: e.text, effort, at: await $.clock.now(), ...(handBack ? { report: true as const } : {}) }
       await update(pending, (list) => addPending(list ?? [], entry))
       added = entry
     }
 
-    const ran = report ? null : commandOf(e.text)
+    const ran = handBack ? null : commandOf(e.text)
     const command = ran === null ? null : await describeCommand($, ran.command)
 
     contribute(e.text, {
@@ -80,30 +80,32 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
           toast: (text) => $.ui.toast(text),
         }
         // About the main agent of the turn this message starts, or of the one running when it was typed into it.
-        const about = { feature: report ? 'main-effort (agent report)' : 'main-effort', agent: 'main', forTurn: e.turnId === undefined ? ('next' as const) : ('current' as const), subject: quoteStart(e.text) }
+        const about = { feature: handBack ? 'main-effort (agent report)' : 'main-effort', agent: 'main', forTurn: e.turnId === undefined ? ('next' as const) : ('current' as const), subject: quoteStart(e.text) }
         if (!outcome.ok) {
-          await reportDecision(io, { ...about, routed: false, failure: { backend: ctx.backend.name, ...outcome.failure } })
+          await report(io, { decision: { ...about, routed: false, failure: { backend: ctx.backend.name, ...outcome.failure } } })
           await wait(null)
           return
         }
         const reading = readEffort(outcome.answers[LEVEL])
         if (reading === null) {
-          await reportDecision(io, { ...about, routed: false, failure: { backend: ctx.backend.name, kind: 'parse', detail: 'no effort answer' } })
+          await report(io, { decision: { ...about, routed: false, failure: { backend: ctx.backend.name, kind: 'parse', detail: 'no effort answer' } } })
           await wait(null)
           return
         }
         // pickEffort's rules with their working: the board shows the steps, never recomputes them (#23).
         const { effort, steps } = traceEffort(reading, ctx.config.thetaMax)
-        await reportDecision(io, {
-          ...about,
-          routed: true,
-          outcome: `effort ${effort}`,
-          // The level as data: what reads the log (the band, the pane) never reads it out of the words.
-          effort,
-          reason: describeReading(reading, effort, ctx.config.thetaMax),
-          probs: probsOf(reading),
-          ...(reading.confidence === null ? {} : { conf: reading.confidence }),
-          trace: steps,
+        await report(io, {
+          decision: {
+            ...about,
+            routed: true,
+            outcome: `effort ${effort}`,
+            // The level as data: what reads the log (the band, the pane) never reads it out of the words.
+            effort,
+            reason: describeReading(reading, effort, ctx.config.thetaMax),
+            probs: probsOf(reading),
+            ...(reading.confidence === null ? {} : { conf: reading.confidence }),
+            trace: steps,
+          },
         })
         await wait(effort)
         const running = e.turnId

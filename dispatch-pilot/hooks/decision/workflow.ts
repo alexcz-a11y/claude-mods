@@ -237,7 +237,12 @@ export function outcomeOf(call: AgentCall, decision: DispatchDecision): string {
 
 /** How a call is named to the person: its label, else where it is. */
 export function callTitle(call: AgentCall): string {
-  return call.label !== null ? JSON.stringify(call.label) : `第 ${call.line} 行的 agent()`
+  return call.label !== null ? JSON.stringify(call.label) : callPlace(call)
+}
+
+/** Where a call is, for the person: `第 3 行的 agent()`. */
+export function callPlace(call: AgentCall): string {
+  return `第 ${call.line} 行的 agent()`
 }
 
 /** `outcomeOf`, for the person. */

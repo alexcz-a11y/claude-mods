@@ -27,7 +27,7 @@ import { termsOf } from '../decision/dispatched-agent.ts'
 import { parseWorkflow, rewriteWorkflow, type ParsedWorkflow } from '../decision/workflow-script.ts'
 import { batchesTimeoutMs, readOutcomes, returnNote, rewriteNote, workflowBatches, workflowFingerprint, type CallOutcome } from '../decision/workflow.ts'
 import { update, type Cell } from '../core/plans.ts'
-import { reportDecisions, type ReportIo } from '../core/report.ts'
+import { report, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import { callReports, workflowCallTitle, workflowLeft } from '../core/workflow-report.ts'
@@ -77,10 +77,10 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
       toast: (text) => $.ui.toast(text),
     }
     /** The Workflow as a whole is not routed: say why on the board (null: nothing to say of it). */
-    const notRouted = (why: string | null, extra: { asWritten?: true } = {}) => reportDecisions(reporting, [workflowLeft(SWITCH, { id: e.tool_use_id, title: workflowCallTitle(e) }, why, extra)])
+    const notRouted = (why: string | null, extra: { asWritten?: true } = {}) => report(reporting, { decision: workflowLeft(SWITCH, { id: e.tool_use_id, title: workflowCallTitle(e) }, why, extra) })
     /** One report for each call of the script: the decisions made, and why the others are left as written. */
     const reportCalls = (parsed: ParsedWorkflow, outcomes: readonly CallOutcome[], options: { suffix?: string; sentBack?: true } = {}) =>
-      reportDecisions(reporting, callReports(SWITCH, { id: e.tool_use_id, parsed }, outcomes, { backend: ctx.backend.name, thetaOverride: settings.thetaOverride, ...options }))
+      report(reporting, { decisions: callReports(SWITCH, { id: e.tool_use_id, parsed }, outcomes, { backend: ctx.backend.name, thetaOverride: settings.thetaOverride, ...options }) })
 
     /** Settles what to do with this submission: asks the decision model, and reads its answers. */
     const decide = async (): Promise<Route> => {

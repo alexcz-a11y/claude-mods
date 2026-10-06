@@ -203,7 +203,7 @@ test('a module the tree does not list, and a line for a module that is gone, are
 test('files that hand the report their data, and only plumb the host to it, pass', () => {
   expect(
     checkOneWriter({
-      'features/main-effort.ts': "const io = { debug: log, now: () => $.clock.now(), toast: (text) => $.ui.toast(text) }\nawait reportDecision(io, decision)\nconst why = failureText(name, failure)",
+      'features/main-effort.ts': "const io = { debug: log, now: () => $.clock.now(), toast: (text) => $.ui.toast(text) }\nawait report(io, { decision })\nconst why = failureText(name, failure)",
       'core/report.ts': "function stepIo($) { return { toast: (text) => $.ui.toast(text) } }\nio.toast(`主 agent 未路由：${why}`)",
       'board/screens.tsx': "$.ui.invalidate('ui.render')",
     }),
@@ -221,7 +221,7 @@ test('a file that draws on the status row, the report included, raises a toast i
 })
 
 test('skill-profiles holds only the debug closure of `$.ui`: a log line, a toast or a status of its own is a problem', () => {
-  const closure = "const io = { debug: (line) => $.ui.log(line, { to: 'debug' }), profiles }\nawait reportProfiles(io, event)"
+  const closure = "const io = { debug: (line) => $.ui.log(line, { to: 'debug' }), profiles }\nawait report(io, { profiles: event })"
   expect(checkOneWriter({ 'features/skill-profiles.ts': closure })).toEqual([])
   // Other files may log: the rule is skill-profiles'.
   expect(checkOneWriter({ 'features/skills.ts': "$.ui.log('skills: 3', { to: 'debug' })" })).toEqual([])

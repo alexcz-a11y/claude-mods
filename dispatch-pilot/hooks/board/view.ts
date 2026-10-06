@@ -14,7 +14,7 @@
 // comes in the decision report's words (English until #32).
 
 import { isEffort, type Effort } from '../decision/effort.ts'
-import { ENDED_WORDS, failureWords, type Board, type BoardNode, type BoardNote, type LogEntry, type Model, type Reading, type ReadingChange, type RuleStep } from '../core/report.ts'
+import { callWorkflowOf, ENDED_WORDS, failureWords, type Board, type BoardNode, type BoardNote, type LogEntry, type Model, type Reading, type ReadingChange, type RuleStep } from '../core/report.ts'
 import type { BoardPart } from '../core/switches.ts'
 import { mmss, pct } from './kit.tsx'
 
@@ -94,9 +94,14 @@ export type ScreenView = {
 /** The spinner turns one frame each `TICK_MS`; the screens redraw at that pace while an agent runs. */
 export const TICK_MS = 200
 
-/** A Workflow call's node, standing for an agent that has not started: `<tool_use_id>#<index>`. */
+/** A Workflow call's node, standing for an agent that has not started (`callNodeId`). */
 export function isCallNode(node: BoardNode): boolean {
-  return node.id.includes('#')
+  return callWorkflowOf(node.id) !== null
+}
+
+/** A Workflow not routed as a whole (given by path, an error): one node for all its agents, neither an agent's nor a call's. */
+export function isWholeWorkflow(node: BoardNode): boolean {
+  return node.kind === 'wf' && node.workflow === undefined && !isCallNode(node)
 }
 
 /** A node of the turn still going: running, or waiting to start (a dispatched agent spawned, a decision for a turn about to begin). */
@@ -173,7 +178,7 @@ export function screenView(input: ScreenInput): ScreenView {
 
 // ---- status cells ---------------------------------------------------------------
 
-/** How a loop's turn ended, in the board's words (`reportEnd`), as the band says it. */
+/** How a loop's turn ended, in the board's words (`ENDED_WORDS`, a failed loop's `why`), as the band says it. */
 const ENDED = new Set<string>(Object.values(ENDED_WORDS))
 
 /**
@@ -254,10 +259,10 @@ function workflowOf(entry: LogEntry, nodes: readonly BoardNode[]): { id: string;
   const agent = entry.agent ?? ''
   const node = nodes.find((one) => one.id === agent)
   if (node?.workflow !== undefined) return node.workflow
-  const at = agent.indexOf('#')
-  if (at < 0) return null
+  const id = callWorkflowOf(agent)
+  if (id === null) return null
   const name = /（Workflow ([^）]*)）$/.exec(entry.subject)?.[1] ?? 'Workflow'
-  return { id: agent.slice(0, at), name }
+  return { id, name }
 }
 
 /** Whether an entry moved the level it is about: a re-decision that changed it, a forced raise. */
