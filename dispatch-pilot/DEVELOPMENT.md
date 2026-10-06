@@ -435,6 +435,7 @@ hooks/
 │   ├── core.ts             核心的 hook：发消息时的决策请求、一轮的开始、每一步的写入、认出 settings hook 拦下的调用、记下用户运行的命令
 │   ├── ballot.ts           一条消息的「投票箱」：各功能放进问题，由核心一次发出
 │   ├── report.ts           「决定汇报」module（ADR 0004）：两个入口 reportDecision 和 reportStep，看板数据（`board`）和决策日志（`decisionLog`）的唯一写入者；自带一个 turn.start hook 记轮数
+│   ├── workflow-report.ts  Workflow 的两个功能（workflow-agents、workflow-labels）交给 report.ts 的东西：每个 agent() 调用一份报告（`callReports`）、整个 Workflow 没走路由的说明（`workflowLeft`）、没读全脚本时 Workflow 的名字
 │   ├── decisions.ts        旧的记录入口 recordDecision：还没迁到 reportDecision 的功能在用，写进同一份决策日志；功能迁完后删除
 │   ├── plans.ts            计划表的类型和纯函数（planStep 决定每一步发出什么）
 │   ├── outcomes.ts         工具调用的结局：哪些被 settings hook 拦下（核心的 classic.PreToolUse 记）、每个调用怎么结束的（#7 记），#5 和 #7 共用
@@ -715,7 +716,11 @@ await reportDecision(io, { feature: 'main-effort', agent: 'main', forTurn: 'next
 - 没能做出决定（`NotDecided`）：带 `failure`（`{ backend, kind, detail, status? }`，后端名加 `Failure`）。它不进决策日志、不写 debug log（和以前一样，请求本身已经由核心记在 debug log 里），只写到 agent 的节点上：`why` 是简短的原因，`failure` 是完整的，`routed` 照 `routed` 字段。
 - `forTurn: 'next'`：在这一轮开始之前做的决定（`prompt.submit` 里，这条消息将开始一轮），归到将开始的那一轮；`'current'`（默认）：正在进行的这一轮，例如在一轮中途发的消息。轮数由 module 自己的 `turn.start` hook 数，从 1 开始。
 - 一个 agent 在看板上还没有节点时，第一份报告建它：主 agent 的名字是「主 agent」；其他 agent 带 `node: { kind, name, type }`。
-- 旧状态行的段：`LEGACY` 表按功能名（开关名）列出 module 替它渲染的段，每行是 `(decision, board) => [{ segment, text }]`：拿到这条决定和写入后的看板（最近两轮每个 agent 的节点），返回这些段现在该写什么（`null` 清掉）。现在只有 `main-effort` 的 `decision`；功能迁移时在这张表里加自己一行、去掉自己的 `setStatus`，要汇总多个 agent 的段（Workflow 的几个 agent）就从 `board.nodes` 里算。`effort` 段由 `reportStep` 渲染。
+- 旧状态行的段：`LEGACY` 表按功能名（开关名）列出 module 替它渲染的段，每行是 `(decision, board, event) => [{ segment, text }]`：拿到这条决定（一次事件里最后一条）、写入后的看板（最近两轮每个 agent 的节点）和这次事件的全部决定，返回这些段现在该写什么（`null` 清掉，`[]` 不动）。现在有 `main-effort`（`decision`）、`dispatched-agents`（`agent`）、`workflow-agents`（`workflow`）和 `workflow-labels`（`labels`）；功能迁移时在这张表里加自己一行、去掉自己的 `setStatus`。`effort` 段由 `reportStep` 渲染。
+- 一次事件有几个决定时（一个 Workflow 的几个 agent）用 `reportDecisions(io, [..])`：日志和看板各写一次，旧状态行也只发一次；`reportDecision` 是只有一条的特例。
+- 决定的几种形状，都用 `feature`、`agent`、`subject`、`node` 说是谁的：`Decided`（上面）还可以带 `model`、`effort`（决定了的模型家族和档位，agent 还没走第一步时节点就有它们，第一次读数会替换）；`NotDecided`（失败）；`Left`（`why`：没有请求失败、只是这个 agent 或 Workflow 按原样运行，例如「its prompt is built when the script runs」「given by path」；`asWritten` 是设计如此，`offBoard` 是看板上没有什么可写的）；`Started`（`started: true`：它的决定早先为它的调用做过，现在 agent 启动了，不另记日志）。
+- 节点的 `node.state`（`queued`：还没启动）、`node.workflow`（所属 Workflow）和 `replaces`（这个 agent 启动前，是哪个节点替它占着位置：新节点接过它的 `decision`、`model`、`effort`，旧节点撤掉）。
+- Workflow 的 agent 启动前没有 id，所以脚本里的每个 `agent()` 调用在看板上占一个 `wf` 节点，状态 `queued`，id 是 `<Workflow 工具调用的 tool_use_id>#<调用的序号>`，`workflow` 是 `{ id: tool_use_id, name }`。整个 Workflow 没走路由（用路径或名字提交、脚本读不了、出错）是一个 id 为 `tool_use_id` 的节点，状态 `done`，`why` 说明原因。按 label 兜底时 agent 启动，节点换成 agent 自己（id 是 agentId，`replaces` 指向它的调用）；只认得出一个调用的才换，同一个 label 对应几个调用的不换。workflow-agents 写进脚本的调用，它们的 agent 启动时目前没有换掉：留给「读数」票（#27）按 label 对上。
 
 **入口二：`reportStep(io, { agentId?, model, effort?, source })`。** 一步发出的读数：模型（按家族记）、effort、有没有路由（`source` 是 `planStep` 的 `locked | planned | engine`）。只观察，从不改写。读数和节点不同才写看板。现在核心在 `turn.step` 里为主 agent 的每一步调用它；「读数」票（#27）把它做成每个 agent 的收集器，签名不变。
 
