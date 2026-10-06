@@ -219,3 +219,15 @@ test('a feature that sets a status segment, pauses the line, records a decision 
   })
   expect(problems.map((problem) => problem.split(':')[0])).toEqual(['`features/a.ts`', '`features/a.ts`', '`features/b.ts`', '`features/b.ts`', '`features/c.ts`', '`core/core.ts`'])
 })
+
+test('skill-profiles holds only the debug closure of `$.ui`: a log line, a toast or a status of its own is a problem', () => {
+  const closure = "const io = { debug: (line) => $.ui.log(line, { to: 'debug' }), profiles }\nawait reportProfiles(io, event)"
+  expect(checkOneWriter({ 'features/skill-profiles.ts': closure })).toEqual([])
+  // Other files may log: the rule is skill-profiles'.
+  expect(checkOneWriter({ 'features/skills.ts': "$.ui.log('skills: 3', { to: 'debug' })" })).toEqual([])
+  for (const direct of ["$.ui.log('skill profiles: 3 kept', { to: 'debug' })", "$.ui.toast('profiles failed')"]) {
+    const problems = checkOneWriter({ 'features/skill-profiles.ts': `${closure}\n${direct}` })
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toMatch(/^`features\/skill-profiles\.ts`: uses `\$\.ui` itself/)
+  }
+})

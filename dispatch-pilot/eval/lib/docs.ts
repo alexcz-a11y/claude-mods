@@ -169,6 +169,8 @@ const WRITERS = ['core/report.ts', 'core/status.ts']
  * `status: (line) => $.ui.status(line)`.
  */
 export function checkOneWriter(sources: Readonly<Record<string, string>>): string[] {
+  // The files that show people nothing themselves (#33): the debug log closure they hand the report is the only `$.ui` they hold.
+  const silent: [string, RegExp, string][] = [['features/skill-profiles.ts', /\$\.ui\./, 'uses `$.ui` itself (a log line, a toast, the status row)']]
   const rules: [RegExp, string][] = [
     [/^import (?!type\b)[^\n]*from '[^']*\bstatus\.ts'/m, 'imports core/status.ts'],
     [/^import (?!type\b)[^\n]*from '[^']*\bdecisions\.ts'/m, 'imports core/decisions.ts'],
@@ -182,6 +184,8 @@ export function checkOneWriter(sources: Readonly<Record<string, string>>): strin
     if (WRITERS.includes(path)) continue
     const code = text.split('status: (line) => $.ui.status(line)').join('')
     for (const [pattern, what] of rules) if (pattern.test(code)) problems.push(`\`${path}\`: ${what}; hand the decision report the data instead (ADR 0004)`)
+    const quiet = code.split("debug: (line) => $.ui.log(line, { to: 'debug' })").join('')
+    for (const [file, pattern, what] of silent) if (path === file && pattern.test(quiet)) problems.push(`\`${path}\`: ${what}; hand the decision report the data instead (ADR 0004)`)
   }
   return problems
 }
