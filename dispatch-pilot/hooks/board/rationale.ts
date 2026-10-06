@@ -335,9 +335,12 @@ export function profilesLine(profiles: ProfilesState): { text: string; tone: 'mu
   return { text: `skill 画像：${counts}`, tone: profiles.failed > 0 ? 'warn' : 'muted' }
 }
 
-/** What is switched off, in one line; null when everything is on. */
-export function offLine(master: boolean, off: readonly string[]): string | null {
-  if (!master) return 'Dispatch Pilot 已关：不发决策请求，每一步照引擎原样发出（/dp on 打开）'
-  if (off.length === 0) return null
-  return `已关的功能：${off.join(' · ')}（/dp <名字> on 打开）`
+/** The pane's top line when the whole mod is switched off; null while it is on. */
+export function offLine(master: boolean): string | null {
+  return master ? null : 'Dispatch Pilot 已关：不发决策请求，每一步照引擎原样发出（/dp on 打开）'
+}
+
+/** A switch's state in the word the pane lists it with (every switch is listed, the ones that are off in grey). */
+export function switchWord(on: boolean): string {
+  return on ? '开' : '关'
 }

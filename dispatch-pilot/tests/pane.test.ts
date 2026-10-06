@@ -330,18 +330,38 @@ test('the skill profiles stopped say why, with the stop\'s own words, and what i
   expect(line).toContain('延后 2')
 })
 
-test('what is switched off is listed in grey at the top, with the skill profiles; the profiles are left out while skills or skill-profiles is off', { options: KEY }, async ($, on) => {
+/** The state word and ink a switch is listed with at the pane's top. */
+async function listed(ui: Ui, name: string) {
+  const item = await ui.find({ key: `pane-switch-${name}` })
+  const ink = (item?.children?.[0] as Drawn | undefined)?.props?.color
+  return { text: shown(item).trim(), color: ink }
+}
+
+test('every feature switch is listed at the top with its state, the ones off in grey (default-off ones included); the skill profiles line is left out while skills or skill-profiles is off', { options: KEY }, async ($, on) => {
   const w = world($, on, { store: {}, seed: { profiles: profiles() } })
   await w.command('dp', 'midturn-effort off')
   await w.command('dp', 'skill-profiles off')
   const ui = await w.pane()
-  const off = await ui.find({ key: 'pane-off' })
-  expect(shown(off)).toMatch(/已关的功能：.*midturn-effort.*skill-profiles/)
+  expect(await ui.find({ key: 'pane-off' })).toBeUndefined()
+  const names = (await ui.findAll({ type: 'Box' })).filter((box) => box.key?.startsWith('pane-switch-')).map((box) => box.key?.slice('pane-switch-'.length))
+  expect(names).toEqual(expect.arrayContaining(['main-effort', 'midturn-effort', 'dispatched-agents', 'workflow-agents', 'workflow-labels', 'escalation', 'skills', 'skill-profiles', 'find-skill', 'hook-block-failures', 'signals']))
+  expect(await listed(ui, 'main-effort')).toMatchObject({ text: 'main-effort 开', color: undefined })
+  expect(await listed(ui, 'midturn-effort')).toMatchObject({ text: 'midturn-effort 关', color: 'inactive' })
+  expect(await listed(ui, 'skill-profiles')).toMatchObject({ text: 'skill-profiles 关', color: 'inactive' })
+  expect(await listed(ui, 'hook-block-failures')).toMatchObject({ text: 'hook-block-failures 关', color: 'inactive' })
   expect(await ui.find({ key: 'pane-profiles' })).toBeUndefined()
   await w.command('dp', 'skill-profiles on')
   await ui.redraw()
-  expect(shown(await ui.find({ key: 'pane-off' }))).not.toContain('skill-profiles')
+  expect(await listed(ui, 'skill-profiles')).toMatchObject({ text: 'skill-profiles 开', color: undefined })
   expect(await ui.find({ key: 'pane-profiles' })).toBeDefined()
+})
+
+test('with the whole mod off the pane says so, and still lists the switches', { options: KEY }, async ($, on) => {
+  const w = world($, on, { store: {} })
+  await w.command('dp', 'off')
+  const ui = await w.pane()
+  expect(shown(await ui.find({ key: 'pane-off' }))).toContain('Dispatch Pilot 已关')
+  expect(await ui.find({ key: 'pane-switch-main-effort' })).toBeDefined()
 })
 
 test('the session start\'s profiles entry is in the log under its turn, its tone as #33 set it', async ($, on) => {
@@ -389,6 +409,8 @@ test("on a surface other than the terminal the pane is the same pane in text: th
     expect(mids.join('\n')).toMatch(/\.80 ≥ \.30 升档线.*升到 xhigh/)
     expect(mids.join('\n')).toMatch(/建议 low · 当前 xhigh.*防抖中，还差 1 步/)
     expect(shown(await ui.find({ key: 'pane-log-head' }))).toContain('决策日志')
+    expect(await listed(ui, 'main-effort'), surface).toMatchObject({ text: 'main-effort 开', color: undefined })
+    expect(await listed(ui, 'hook-block-failures'), surface).toMatchObject({ text: 'hook-block-failures 关', color: 'inactive' })
     expect((await ui.findAll({ type: 'Button' })).filter((button) => button.key === 'pane-prev' || button.key === 'pane-next')).toHaveLength(2)
     expect(inventory(await ui.drawn()).types.has('Raster'), surface).toBe(false)
     await ui.unmount()

@@ -1,5 +1,5 @@
 // The rationale pane on the terminal (spec #22 「依据面板」, prototype D): at
-// its top, what is switched off, the lock and how the skill profiles went (in
+// its top, every feature switch with its state (the ones off in grey), the lock and how the skill profiles went (in
 // grey); ‹ 上一个 (p) / 下一个 › (n); the rounded card of the agent picked (its
 // state and why not routed, the model it was given and why, the effort
 // probabilities, the rules' working step by step, the result, the main agent's
@@ -38,6 +38,7 @@ import {
   pageTo,
   profilesLine,
   stepLines,
+  switchWord,
   verdictWords,
   type Card,
   type LogGroup,
@@ -52,8 +53,8 @@ export type PaneInput = {
   log: readonly LogEntry[]
   /** How the session's skill profiles went; null when there is no record, or the skills or skill-profiles switch is off. */
   profiles: ProfilesState | null
-  /** The features switched off, by switch name. */
-  off: readonly string[]
+  /** Every feature's switch by name with its state, in registration order. */
+  switches: readonly { name: string; on: boolean }[]
   master: boolean
   /** The person's lock on the main agent's effort. */
   lock: Effort | null
@@ -142,11 +143,26 @@ export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, r
 function topLines(t: TT, input: PaneInput, cols: number, act: PaneActs): RenderNode[] {
   const { Box, Button, Text } = t
   const rows: RenderNode[] = []
-  const off = offLine(input.master, input.off)
+  const off = offLine(input.master)
   if (off !== null) {
     rows.push(
       <Box key="pane-off" width={cols}>
         <Text color={MUTED} wrap="wrap">{off}</Text>
+      </Box>,
+    )
+  }
+  if (input.switches.length > 0) {
+    // Every switch with its state: the ones that are off in grey, the ones that are on in the pane's own ink.
+    rows.push(
+      <Box key="pane-switches" width={cols} flexWrap="wrap">
+        <Box flexShrink={0}>
+          <Text color={MUTED}>{'功能（/dp <名字> on|off）  '}</Text>
+        </Box>
+        {input.switches.map((one) => (
+          <Box key={`pane-switch-${one.name}`} flexShrink={0}>
+            <Text {...(one.on ? {} : { color: MUTED })}>{`${one.name} ${switchWord(one.on)}  `}</Text>
+          </Box>
+        ))}
       </Box>,
     )
   }

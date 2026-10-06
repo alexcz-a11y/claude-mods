@@ -146,7 +146,7 @@ export function registerScreens(on: On): void {
       const entries = log.value ?? []
       const state = kept.value ?? NO_PANE_STATE
       const shown = isOn('skills') && isOn('skill-profiles') ? (profiles.value ?? null) : null
-      const input = { view, log: entries, profiles: shown, off: listSwitches().filter((s) => !s.on).map((s) => s.name), master: masterOn(), lock: lock.value ?? null, state }
+      const input = { view, log: entries, profiles: shown, switches: listSwitches().map((s) => ({ name: s.name, on: s.on })), master: masterOn(), lock: lock.value ?? null, state }
       const act = {
         pick: (row: AgentRow) => void pick($, row).catch(() => undefined),
         fold: (turn: number, open: boolean) => void $.state.set(PANE_VIEW, withFold(state, turn, open, entries)).catch(() => undefined),
