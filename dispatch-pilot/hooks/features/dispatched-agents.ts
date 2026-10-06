@@ -10,12 +10,17 @@
 // calls) each get their own request and start as soon as their own answer is
 // in. A failed or late answer lets the agent start as the main agent asked.
 //
+// The main agent reads, after the Agent tool's result, the model and effort its
+// agent started with and whose choice the model was (#34): agent.spawn runs
+// inside the Agent tool call, under its id, so the spawn leaves the note for the
+// call to append.
+//
 // Its switch is `dispatched-agents` (`/dp dispatched-agents off`).
 
 import type { HttpInit, On } from 'claude-code'
 import { describeAsked, type Failure } from '../decision/backend.ts'
 import { messageText } from '../decision/context.ts'
-import { decideDispatch, dispatchEvidence, dispatchPart, dispatchReason, dispatchState, modelFamily, termsOf, type Dispatch } from '../decision/dispatched-agent.ts'
+import { decideDispatch, dispatchEvidence, dispatchNote, dispatchPart, dispatchReason, dispatchState, modelFamily, termsOf, type Dispatch, type DispatchNote } from '../decision/dispatched-agent.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { update, type Cell } from '../core/plans.ts'
@@ -31,6 +36,13 @@ const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'dispatched-agents'
+/**
+ * The notes spawns left for their Agent tool calls, by the call's tool_use_id: written by the agent.spawn inside the
+ * call, taken as the call returns. A module variable (CLAUDE.md): a hot reload while an agent runs loses only that
+ * agent's note. At most MAX_NOTES are kept, for calls whose result never came back.
+ */
+const notes = new Map<string, string>()
+const MAX_NOTES = 32
 /** At most this many of the person's messages are kept for one turn. */
 const MAX_SAID = 8
 
@@ -52,10 +64,30 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     return result
   })
 
+  // The note the spawn left for its Agent tool call goes beside the tool's result; a call whose spawn left none (a fork,
+  // a teammate, a refused spawn) is answered as it is.
+  on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
+    const result = await next(e)
+    const note = notes.get(e.tool_use_id)
+    notes.delete(e.tool_use_id)
+    if (note === undefined || result.deny !== undefined) return result
+    return { ...result, context: [...(result.context ?? []), note] }
+  })
+
   on('agent.spawn', { tool_use_id: /(?:)/ }, async ($, e, next) => {
     // A fork always runs on its parent's model. A teammate lives across many
     // tasks that one decision at its spawn cannot see.
-    if (e.fork || e.isTeammate || !isOn(SWITCH)) return next(e)
+    if (e.fork || e.isTeammate) return next(e)
+    /** Leaves the note for the Agent tool call this spawn belongs to. */
+    const leave = (note: DispatchNote) => {
+      notes.set(e.tool_use_id, dispatchNote(note))
+      while (notes.size > MAX_NOTES) notes.delete(notes.keys().next().value as string)
+    }
+    if (!isOn(SWITCH)) {
+      const started = await next(e)
+      if (started.deny === undefined) leave({ routed: false, started: modelFamily(started.model) ?? started.model, why: 'off' })
+      return started
+    }
     const { value: said = [] } = await $.state.get(SAID)
     const dispatch: Dispatch = {
       user_message: said.join('\n'),
@@ -90,6 +122,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       const started = await next(e)
       if (started.deny !== undefined) return started
       await report(reporting, { decision: { ...reportOf(started.agentId ?? e.tool_use_id), routed: false, failure: { backend: ctx.backend.name, ...failure } } })
+      leave({ routed: false, started: modelFamily(started.model) ?? started.model, why: { failure, backend: ctx.backend.name } })
       return started
     }
     if (!asked.ok) return notRouted(asked.failure)
@@ -122,6 +155,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
           ...(decision.effort === null ? {} : { effort: decision.effort }),
         },
       })
+      leave({ routed: true, decision, started: result.model, requested: modelFamily(e.model), thetaOverride: settings.thetaOverride })
     } catch (error) {
       $.ui.log(`agent ${about} started (${result.agentId ?? 'no id'}), but its plan was not recorded: ${String(error)}`, { to: 'debug' })
     }

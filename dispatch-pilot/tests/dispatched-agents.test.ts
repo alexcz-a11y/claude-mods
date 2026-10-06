@@ -544,3 +544,62 @@ test("the decision reads the person's words this turn: the message that started 
   const words = w.requests.filter((r) => 'agent.model' in r.body.questions).map((r) => r.body.state.user_message)
   expect(words).toEqual(['把登录模块拆成三层，测试账号的 token 是 [REDACTED]\n另外，测试那部分单独派个 agent', '好，提交吧'])
 })
+
+// What the main agent reads after the Agent tool's result (#34): the model and effort the agent started with, and
+// whose choice the model was. The note is the model's, in English.
+
+/** The note the mod put beside an Agent tool result: the context lines that name Dispatch Pilot. */
+function noteOf(result: { context?: readonly string[] }): string | undefined {
+  return result.context?.find((line) => line.includes('Dispatch Pilot'))
+}
+
+test("the Agent tool's result tells the main agent the model and effort its agent started with, and that its pick was overridden, with the confidence (#34)", { options: KEY }, async ($, on) => {
+  // Of three options, p 0.9 is confidence 0.85: over agentOverride 0.6.
+  const w = world($, on, { backend: agentJev({ model: { haiku: 0.05, sonnet: 0.9, opus: 0.05 }, effort: [0, 0.1, 0.8, 0.1, 0] }) })
+  const result = await w.agentTool({ prompt: 'Rename getUser to fetchUser across src/api and run `pnpm test api`.', description: 'Rename getUser', model: 'opus' })
+
+  expect(w.spawned.map((s) => s.model)).toEqual(['sonnet'])
+  const note = noteOf(result)
+  expect(note).toContain('sonnet at effort high')
+  expect(note).toMatch(/overrode the opus you asked for.*confidence 0\.85.*0\.60/)
+})
+
+test("the note says whose choice the model was: the main agent's pick kept, the user's named model, the decision model's with no pick (#34)", { options: KEY }, async ($, on) => {
+  const unsure = { haiku: 0.5, sonnet: 0.3, opus: 0.2 }
+  const w = world($, on, {
+    backend: (request) => {
+      // The message's own effort request has no brief.
+      const prompt = String(request.body.state.brief?.prompt ?? '')
+      if (prompt.startsWith('A')) return agentJev({ model: unsure })(request)
+      if (prompt.startsWith('B')) return agentJev({ model: { opus: 0.95, haiku: 0.02, sonnet: 0.03 }, nouls: { 'named.haiku': 0.93 } })(request)
+      return agentJev({ model: { haiku: 0.05, sonnet: 0.9, opus: 0.05 } })(request)
+    },
+  })
+  await w.submit('B 那个用 haiku 跑就行')
+  await w.step({ index: 0 })
+  const kept = noteOf(await w.agentTool({ prompt: 'A: run `pnpm lint` and list the warnings.', model: 'opus' }))
+  const named = noteOf(await w.agentTool({ prompt: 'B: list the TODOs under src/.', model: 'sonnet' }))
+  const decided = noteOf(await w.agentTool({ prompt: 'C: rename the helper.' }))
+
+  expect(kept).toMatch(/kept the opus you asked for/)
+  expect(named).toMatch(/haiku.*the user named it/)
+  expect(named).toContain('haiku takes no effort')
+  expect(decided).toMatch(/sonnet.*chosen by its decision model \(confidence 0\.85\)/)
+})
+
+test('an agent that was not routed: the note says it started as the main agent asked, and why (#34)', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: () => ({ status: 500, body: 'Internal Server Error' }) })
+  const failed = noteOf(await w.agentTool({ prompt: 'Summarize what src/billing/invoice.ts does.', model: 'sonnet' }))
+  expect(failed).toMatch(/did not route this agent \(jev: HTTP 500\).*as you asked.*sonnet/)
+
+  await w.command('dp', 'dispatched-agents off')
+  const off = noteOf(await w.agentTool({ prompt: 'List the files under src/.', model: 'opus' }))
+  expect(off).toMatch(/switched off.*as you asked.*opus/)
+})
+
+test('a spawn refused beneath gets no note: the tool reports the refusal and nothing else (#34)', { options: KEY }, async ($, on) => {
+  on('agent.spawn', { tool_use_id: /(?:)/ }, () => ({ deny: 'agents are not allowed here' }))
+  const w = world($, on, { backend: agentJev({ model: { sonnet: 1 } }) })
+  const result = await w.agentTool({ prompt: 'Summarize what src/billing/invoice.ts does.' })
+  expect(noteOf(result)).toBeUndefined()
+})

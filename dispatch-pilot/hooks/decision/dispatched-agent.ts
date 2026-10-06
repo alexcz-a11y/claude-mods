@@ -11,6 +11,7 @@
 
 import { clipToTokens, estimateTokens, withinTokens } from './context.ts'
 import { DEFAULT_ASK, EFFORTS, effortQuestion, levelsText, pickEffort, probsOf, readEffort, traceEffort, type Effort, type EffortAsk, type EffortTrace, type EffortReading, type Language } from './effort.ts'
+import { failureText, type Failure } from './backend.ts'
 import { redactSecrets } from './redact.ts'
 import type { Answer, Part, Question, State } from './system-one.ts'
 
@@ -642,6 +643,49 @@ export function dispatchReason(decision: DispatchDecision, requested: string | n
   parts.push(...decisionNotes(decision))
   if (decision.reading !== null) parts.push(`effort 概率 ${levelsText(decision.reading)}`)
   return parts.join('；')
+}
+
+/**
+ * What the main agent reads after the Agent tool's result (#34; the model's words, English): the model and the
+ * effort its agent started with and whose choice the model was, or that the agent was not routed and why.
+ * `started` is the model the engine started it on; `requested` the main agent's pick (by family).
+ */
+export type DispatchNote =
+  | { routed: true; decision: DispatchDecision; started: string; requested: AgentModel | null; thetaOverride: number }
+  | { routed: false; started: string; why: { failure: Failure; backend: string } | 'off' }
+
+export function dispatchNote(note: DispatchNote): string {
+  const head = "Dispatch Pilot (the user's routing plugin)"
+  const policy = "This is the user's routing policy: only a model the user names in their message is never changed."
+  if (!note.routed) {
+    const why = note.why === 'off' ? 'has its dispatched-agents feature switched off, so it did not route this agent' : `did not route this agent (${failureText(note.why.backend, note.why.failure)})`
+    return `${head} ${why}: it started as you asked, on ${note.started}, at the session's effort.`
+  }
+  const { decision, requested } = note
+  const model = decision.model ?? modelFamily(note.started) ?? note.started
+  const on = decision.effort === null ? `on ${model}` : `on ${model} at effort ${decision.effort}`
+  const pick = decision.pick
+  const whose =
+    decision.source === 'user'
+      ? 'the user named it'
+      : decision.source === 'requested'
+        ? `kept the ${requested} you asked for${pick !== null && pick.model !== requested ? ` (its decision model leaned to ${pick.model} at confidence ${pick.confidence.toFixed(2)}, under the ${note.thetaOverride.toFixed(2)} it takes to override you)` : ''}`
+        : decision.source === 'decided' && pick !== null
+          ? requested !== null && requested !== decision.model
+            ? `overrode the ${requested} you asked for: its decision model chose ${pick.model} at confidence ${pick.confidence.toFixed(2)}, over the ${note.thetaOverride.toFixed(2)} it takes to override you`
+            : `chosen by its decision model (confidence ${pick.confidence.toFixed(2)})`
+          : "the engine's"
+  const effort =
+    decision.effort === null
+      ? decision.model === 'haiku'
+        ? 'haiku takes no effort'
+        : "the session's"
+      : decision.effortSource === 'user'
+        ? 'the user named it'
+        : decision.liftedFrom !== undefined
+          ? `${decision.liftedFrom} lifted to ${decision.effort}, the floor for ${model}`
+          : 'chosen by its decision model'
+  return `${head} started this agent ${on}. Model: ${whose}. Effort: ${effort}. ${policy}`
 }
 
 /** The model whose `<prefix>.<model>` yes/no answer is highest and reaches `threshold`; null when none does. */

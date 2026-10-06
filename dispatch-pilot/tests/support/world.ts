@@ -227,6 +227,22 @@ export type SpawnOptions = {
   isTeammate?: true
 }
 
+/** The agent.spawn the engine raises for one Agent tool call (`id`, the call's tool_use_id). */
+function spawnInput(id: string, spawn: SpawnOptions) {
+  return {
+    tool_use_id: id,
+    provider: { plugin: 'engine', tier: 'core' } as const,
+    parentModel: 'claude-opus-5-5',
+    background: false,
+    fork: spawn.fork ?? false,
+    prompt: spawn.prompt,
+    description: spawn.description ?? 'task',
+    subagentType: spawn.subagentType ?? 'general-purpose',
+    ...(spawn.model !== undefined ? { model: spawn.model } : {}),
+    ...(spawn.isTeammate ? { isTeammate: true as const } : {}),
+  }
+}
+
 export type World = ReturnType<typeof world>
 
 export function world($: Engine, on: On, options: WorldOptions = {}) {
@@ -247,6 +263,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   /** How often the mod asked the engine's roster (`$.agent.list()`), and every file it read (`$.fs.read`), in order. */
   const looked = { roster: 0, files: [] as string[] }
   let calls = 0
+  /** The Agent tool calls `agentTool` made: the engine spawns their agents inside them. */
+  const agentCalls = new Set<string>()
   const disk = options.disk ?? {}
   const agents: AgentInfo[] = Array.isArray(options.agents) ? [...options.agents] : []
   const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
@@ -474,8 +492,22 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   on('classic.PreToolUse', () => (ending !== undefined && 'blockedByHook' in ending ? { deny: ending.blockedByHook } : {}))
   // The tools themselves: each call that reaches them is recorded with its
   // arguments as they arrived (after every hook of the mod) and how it ended.
-  on('tool.call', (_$, e) => {
+  on('tool.call', async (_$, e) => {
     const { tool, tool_use_id: id, agentId: _agent, ...input } = e as { tool: string; tool_use_id?: string; agentId?: string } & Record<string, unknown>
+    // The Agent tool spawns its agent inside the call, under the call's id, and returns once the agent has reported
+    // (measured on 2.1.291 with docs/research/event-probe): for the calls `agentTool` makes; a step's Agent call
+    // (`tools`) only reaches the tool, as before.
+    if (tool === 'Agent' && id !== undefined && agentCalls.has(id)) {
+      const started = await $.agent.spawn(spawnInput(id ?? `toolu_${++calls}`, {
+        prompt: String(input.prompt ?? ''),
+        ...(typeof input.description === 'string' ? { description: input.description } : {}),
+        ...(typeof input.subagent_type === 'string' ? { subagentType: input.subagent_type } : {}),
+        ...(typeof input.model === 'string' ? { model: input.model } : {}),
+      }))
+      const text = started.deny ?? `agent ${started.agentId ?? ''} reported`
+      toolCalls.push({ tool, id: id ?? '', input, isError: started.deny !== undefined, text })
+      return started.deny !== undefined ? { result: text, text, isError: true as const } : { result: text, text }
+    }
     const end = ending ?? { text: 'ok' }
     const failed = 'error' in end
     const text = failed ? end.error : 'text' in end ? end.text : 'ok'
@@ -585,19 +617,23 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       return turnId
     },
     /** The main agent calls the Agent tool: resolves to the started agent's `{ model, agentId }`, or `{ deny }`. */
-    spawn: (spawn: SpawnOptions) =>
-      $.agent.spawn({
-        tool_use_id: `toolu_${++calls}`,
-        provider: { plugin: 'engine', tier: 'core' },
-        parentModel: 'claude-opus-5-5',
-        background: false,
-        fork: spawn.fork ?? false,
+    spawn: (spawn: SpawnOptions) => $.agent.spawn(spawnInput(`toolu_${++calls}`, spawn)),
+    /**
+     * The main agent calls the Agent tool, and the engine spawns the agent inside the call (as `spawn` does); resolves to
+     * the tool's result as the main agent reads it, `context` included.
+     */
+    agentTool: (spawn: Omit<SpawnOptions, 'fork' | 'isTeammate'>) => {
+      const id = `toolu_${++calls}`
+      agentCalls.add(id)
+      return $.tool.call({
+        tool: 'Agent',
+        tool_use_id: id,
         prompt: spawn.prompt,
         description: spawn.description ?? 'task',
-        subagentType: spawn.subagentType ?? 'general-purpose',
+        subagent_type: spawn.subagentType ?? 'general-purpose',
         ...(spawn.model !== undefined ? { model: spawn.model } : {}),
-        ...(spawn.isTeammate ? { isTeammate: true as const } : {}),
-      }),
+      } as never)
+    },
     /** The session starts (needs `session`): the mod sets itself up and registers its commands. */
     start: () => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true }),
     /** The engine reports the session's context, limits and cost (needs `session`). */

@@ -56,6 +56,20 @@ export function register(on) {
     return yield* next(e)
   })
 
+  on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
+    $.ui.log(`${seq()} tool.call(Agent) BEFORE tool_use_id=${e.tool_use_id} background=${e.run_in_background} agentId=${e.agentId}`, { to: 'debug' })
+    const r = await next(e)
+    $.ui.log(`${seq()} tool.call(Agent) AFTER keys=[${keys(r)}] context=${r && r.context ? r.context.length : 'none'} text=${JSON.stringify(cut(r && r.text, 160))}`, { to: 'debug' })
+    return r
+  })
+
+  on('agent.spawn', async ($, e, next) => {
+    $.ui.log(`${seq()} agent.spawn BEFORE tool_use_id=${e.tool_use_id} background=${e.background} model=${e.model} type=${e.subagentType}`, { to: 'debug' })
+    const r = await next(e)
+    $.ui.log(`${seq()} agent.spawn AFTER agentId=${r && r.agentId} model=${r && r.model}`, { to: 'debug' })
+    return r
+  })
+
   on('turn.complete', async ($, e, next) => {
     $.ui.log(`${seq()} turn.complete keys=[${keys(e)}] ${cut(e, 200)}`, { to: 'debug' })
     return next(e)

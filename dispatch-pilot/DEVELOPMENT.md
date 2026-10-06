@@ -40,6 +40,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - 不处理的 agent：fork 出来的 agent（它总是用父 agent 的模型）和 agent team 的 teammate（它会长期存在、处理很多任务，派出时的一次判断看不到这些任务）。
 - 失败时放行：决策模型超时、出错或回答无法解析时，agent 按主 agent 原来的要求启动，用引擎自己的 effort，看板上它那一行写「未路由」和原因，并弹一个 toast。
 - 每个决定都记进 `/dp log`：选了什么模型和 effort、是哪个 agent、理由（模型是谁定的、决策模型的选择和置信度、被排除的模型、effort 各档的概率）。`/dp dispatched-agents off` 单独关掉这项功能，之后派出的 agent 都按主 agent 原来的要求启动。
+- **告诉主 agent**（#34）。Agent 工具的结果后面附一段英文说明（`decision/dispatched-agent.ts` 的 `dispatchNote`）：这个 agent 以什么模型和 effort 启动，模型是谁定的（你点名的、保留了主 agent 的指定、决策模型推翻了指定并写出置信度和 `agentOverride`、没有指定时决策模型选的），effort 是谁定的；没路由（决策请求失败、功能关着）时写原因和它按主 agent 的要求启动。fork、teammate 和被拒绝启动的派出不附。`agent.spawn` 在 Agent 工具调用里面触发，用同一个 `tool_use_id`，所以 spawn 把说明留在模块变量里，Agent 的 `tool.call` 返回时取走（热重载时正在跑的 agent 会少这一段）。
 
 ### Workflow 里的 agent
 
@@ -1061,7 +1062,8 @@ eval/
 - 全屏且终端够宽时，`$.ui.open` 的面板停靠在对话右边（窗口 194 列时面板约 76 列）；不够宽（97 列）时在 prompt 上方，占用 band 的行。Claude 跟着窗口缩放要 5 到 12 秒，中间会经过约 25 和 52 列。从 band 的数字键 `onPress` 里打开不带 `focus`，下一个数字键仍落在 band 上。
 - 非终端端：Raster 被拒；Desktop 的页面拒收 2000 个节点以上的树，而 `$.ui.mount` 只按引擎的 20000 校验，所以测试自己数节点。没有在真实的 Desktop 上看过。
 
-- 在同一个 dispatch 里，外层 hook 写入的 `$.state`，内层 hook 马上就能读到（kit 和真实引擎都实测过）。
+- 在同一个 dispatch 里，外层 hook 写入的 `$.state`，内层 hook 马上就能读到（kit 和真实引擎都实测过）。反过来不行（kit，#34）：嵌套事件（Agent 的 `tool.call` 里的 `agent.spawn`）的 hook 写入的 `$.state`，外层 hook 在 `next(e)` 返回后读不到，写入返回 `isSet: true`，读到的仍是旧值。
+- Agent 工具（2.1.291，`docs/research/event-probe/` 测的）：`agent.spawn` 嵌在 `tool.call`（`tool: 'Agent'`）里面，两者的 `tool_use_id` 相同；前台 agent 的 `tool.call` 在它的 `turn.complete` 之后才返回，结果的 `text` 是它交回的报告。
 - 外层 hook 的 `$` 被闭包带进内层 hook 后可以照常调用（kit 和真实引擎）。
 - `prompt.submit` 的 text 与随后 `turn.start` 的 text 完全相同（命令轮除外，见下一条），`turn.start` 在 `prompt.submit` 的 `next(e)` 里面触发。只有主 agent 的轮才有 `turn.start`。
 - 斜杠命令（2.1.291，`-p` 和交互式一致，用 `docs/research/event-probe/` 测的）：prompt 命令（skill、markdown 命令）依次触发 `command.run`（`command` 是引擎解析后的名字，插件命令带插件名，如 `my-plugin:cmd`；`args` 是输入的其余部分）、嵌在它里面的 `skill.prompt`（展开后的正文）、`prompt.submit`（text 是输入的原文 `/name args`）、`turn.start`（text 是 `<command-message>name</command-message>`、`<command-name>/name</command-name>`、`<command-args>args</command-args>` 拼成的命令消息）。本地命令（`/dp`、`/usage`、`/context`）只触发 `command.run`，不触发 `prompt.submit`，不开始一轮。以 `/` 开头但不是命令的文字（`/Users/...`、`/nosuchcmd`）当普通消息提交，没有 `command.run`。`$.command.list()` 的 `source` 只有 `builtin`、`user`、`plugin`、`mcp`，分不出 skill 和本地命令。
