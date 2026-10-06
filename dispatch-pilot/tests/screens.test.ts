@@ -484,20 +484,21 @@ for (const { model, effort } of [
   { model: 'haiku', effort: undefined },
 ] as const) {
   for (const running of [0, 3, 12]) {
-    test(`the footer's tag on a surface other than the terminal is at most 24 characters, and says the same: the state glyph, the main agent's model·effort, +N agents running (${model}·${String(effort)}, ${running} running)`, async ($, on) => {
-      const w = world($, on, { seed: { board: boardOf(model, effort, running) } })
-      for (const surface of SURFACES) {
-        const ui = await w.footer({ surface })
-        const text = shown(await ui.find({ key: 'dp-footer' }))
-        expect([...text].length, `${surface}: ${text}`).toBeLessThanOrEqual(24)
-        expect(cellsOf(text)).toBeLessThanOrEqual(24)
-        // With room, the whole readout: the model and the effort in full.
-        expect(text).toContain(effort === undefined ? model : `${model}·${effort}`)
-        if (running > 0) expect(text).toContain(`+${running}`)
-        expect(inventory(await ui.drawn()).types.has('Raster')).toBe(false)
-        await ui.unmount()
-      }
-    })
+    for (const mode of [undefined, 'focus'] as const) {
+      test(`the footer's tag on a surface other than the terminal adds at most 24 characters, its gap included, and says the same: the state glyph, the main agent's model·effort, +N agents running (${model}·${String(effort)}, ${running} running, ${mode ?? 'no mode'} beside it)`, async ($, on) => {
+        const w = world($, on, { seed: { board: boardOf(model, effort, running) }, ...(mode === undefined ? {} : { beneath: { render: { SessionMode: mode } } }) })
+        for (const surface of SURFACES) {
+          const ui = await w.footer({ surface })
+          const text = shown(await ui.find({ key: 'dp-footer' }))
+          expect(addedCells(await ui.drawn(), mode), `${surface}: ${text}`).toBeLessThanOrEqual(24)
+          // With room, the whole readout: the model and the effort in full.
+          expect(text).toContain(effort === undefined ? model : `${model}·${effort}`)
+          if (running > 0) expect(text).toContain(`+${running}`)
+          expect(inventory(await ui.drawn()).types.has('Raster')).toBe(false)
+          await ui.unmount()
+        }
+      })
+    }
   }
 }
 
@@ -539,14 +540,34 @@ const FOOTERS: { model: 'haiku' | 'sonnet' | 'opus' | 'fable'; effort: 'medium' 
 
 for (const { model, effort } of FOOTERS) {
   for (const running of [0, 3, 12]) {
-    test(`the footer takes at most 12 columns: the state glyph, the main agent's model·effort, +N agents running (${model}·${String(effort)}, ${running} running)`, async ($, on) => {
-      const w = world($, on, { seed: { board: boardOf(model, effort, running) } })
-      const text = shown(await (await w.footer()).find({ key: 'dp-footer' }))
-      expect(cellsOf(text)).toBeLessThanOrEqual(12)
-      // The effort (or, short of room, its short form) is always there, and the running agents; the model while it fits.
-      if (effort !== undefined) expect(text).toMatch(effort === 'xhigh' ? /xhi/ : /med/)
-      if (running > 0) expect(text).toContain(`+${running}`)
-      if (running === 0) expect(text).toContain(model)
-    })
+    for (const mode of [undefined, 'focus'] as const) {
+      test(`the footer adds at most 12 columns to what the engine draws there, its gap included: the state glyph, the main agent's model·effort, +N agents running (${model}·${String(effort)}, ${running} running, ${mode ?? 'no mode'} beside it)`, async ($, on) => {
+        const w = world($, on, { seed: { board: boardOf(model, effort, running) }, ...(mode === undefined ? {} : { beneath: { render: { SessionMode: mode } } }) })
+        const ui = await w.footer()
+        const text = shown(await ui.find({ key: 'dp-footer' }))
+        expect(addedCells(await ui.drawn(), mode), text).toBeLessThanOrEqual(12)
+        // The effort (or, short of room, its short form) is always there, and the running agents; the model while it fits.
+        if (effort !== undefined) expect(text).toMatch(effort === 'xhigh' ? /xhi/ : /med/)
+        if (running > 0) expect(text).toContain(`+${running}`)
+        if (running === 0 && mode === undefined) expect(text).toContain(model)
+      })
+    }
   }
+}
+
+/** The cells a drawn element takes on the terminal, laid out as Ink does: a Text its text; a Box its children side by side and the gaps between them (a column Box, its widest child). */
+function cellsWide(element: unknown): number {
+  if (typeof element === 'string' || typeof element === 'number') return cellsOf(String(element))
+  if (element === null || typeof element !== 'object') return 0
+  const { type, children = [], props = {} } = element as Drawn
+  if (type === 'Text') return cellsOf(shown(element))
+  const kids = Array.isArray(props.children) ? props.children : children
+  const widths = kids.map(cellsWide)
+  if (props.flexDirection === 'column') return Math.max(0, ...widths)
+  return widths.reduce((sum, w) => sum + w, 0) + Number(props.gap ?? props.columnGap ?? 0) * Math.max(0, kids.length - 1)
+}
+
+/** What the mod added to the footer: the whole drawing's width less what the engine (or `mode`, another mod's drawing) took. */
+function addedCells(drawn: unknown, mode: string | undefined): number {
+  return cellsWide(drawn) - (mode === undefined ? 0 : cellsOf(mode))
 }

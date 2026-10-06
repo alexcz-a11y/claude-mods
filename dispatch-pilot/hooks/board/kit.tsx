@@ -62,6 +62,17 @@ export function nodeCount(node: RenderNode): number {
   return 1 + ('children' in node && node.children !== undefined ? node.children.reduce((sum, child) => sum + nodeCount(child), 0) : 0)
 }
 
+/**
+ * Whether a drawn tree shows anything: some text, or a Button's label, anywhere in it. The engine's own drawing
+ * (`type: 'engine'`) cannot be looked into: `engine` says whether it shows something (the footer's, its modes).
+ */
+export function showsText(node: RenderNode, engine: boolean): boolean {
+  if (typeof node === 'string') return node.trim() !== ''
+  if (node.type === 'engine') return engine
+  if (node.type === 'Button') return node.props.label !== ''
+  return 'children' in node && node.children !== undefined && node.children.some((child: RenderNode) => showsText(child, engine))
+}
+
 // ---- cell widths --------------------------------------------------------------
 
 /** The cells one code point takes on the terminal: CJK and fullwidth two, combining marks none. */
