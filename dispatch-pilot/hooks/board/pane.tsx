@@ -17,7 +17,7 @@
 import type { RenderNode } from 'claude-code'
 import type { Effort } from '../decision/effort.ts'
 import { EFFORTS } from '../decision/effort.ts'
-import { failureWords, type LogEntry, type ProfilesState, type Tone as LogTone } from '../core/report.ts'
+import { type LogEntry, type ProfilesState, type Tone as LogTone } from '../core/report.ts'
 import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, meterCells, MODEL_BG, MUTED, OK, pct, SKILL, softColor, stackCells, stateGlyph, WARN, width, type T } from './kit.tsx'
 import {
   cardOf,
@@ -75,6 +75,8 @@ const MARK: Record<StepMark, { glyph: string; color: string }> = {
 const LABEL = 8
 /** The column a mid-turn re-decision's number takes. */
 const NUMBER = 6
+/** From this many cells the card's model chip and effort tag sit beside the agent's name; narrower, under it. */
+const HEAD_BESIDE = 48
 
 export function paneTree(t: T, input: PaneInput, cols: number, act: PaneActs) {
   const { Box, Button, Text } = t
@@ -104,7 +106,7 @@ export function paneTree(t: T, input: PaneInput, cols: number, act: PaneActs) {
         )}
       </Box>
       {topLines(t, input, cols, act)}
-      <Box key="pane-nav" width={cols}>
+      <Box key="pane-nav" width={cols} flexWrap="wrap">
         <Box flexShrink={0}>
           <Button key="pane-prev" label="‹ 上一个 (p)" hotkey="p" onPress={() => (prev === null ? undefined : act.pick(prev))} />
         </Box>
@@ -210,16 +212,16 @@ function hang(t: T, key: string, label: string, content: RenderNode, w: number, 
   )
 }
 
-/** The words of a not-routed reason's kind, and where its details are. */
+/** What each kind of failed request means (`Failure.kind`), beside its name. */
 const FAILURE_KINDS: Record<string, string> = {
-  config: '没配好，或 key 被拒绝',
-  timeout: '超时',
-  network: '连不上',
-  busy: '繁忙',
-  quota: '额度用完',
-  http: 'HTTP 出错',
-  parse: '回答读不懂',
-  request: '请求本身出错',
+  config: '没有配置决策模型，或 key 被拒绝',
+  timeout: '在 timeoutMs 内没有回答',
+  network: '网络不通，请求没有发出去',
+  busy: '决策模型一时繁忙（HTTP 429 之类）',
+  quota: '决策模型的额度用完了',
+  http: '决策模型回了一个 HTTP 错误',
+  parse: '回答里没有能用的判断',
+  request: '请求本身出了错',
 }
 
 function cardRows(t: T, card: Card, input: PaneInput, w: number): RenderNode[] {
@@ -239,14 +241,8 @@ function cardRows(t: T, card: Card, input: PaneInput, w: number): RenderNode[] {
       {value}
     </Text>
   )
-  const rows: RenderNode[] = [
-    <Box key="pane-card-head" width={w}>
-      <Box width={2} flexShrink={0}>
-        {main ? <Text color={node.routed ? ACCENT : WARN}>◆</Text> : stateGlyph(t, node.state, input.view.frame, node.routed)}
-      </Box>
-      <Box flexGrow={1} flexShrink={1}>
-        <Text bold wrap="wrap">{node.name}</Text>
-      </Box>
+  const readout = (
+    <Box flexShrink={0}>
       <Box width={9} flexShrink={0}>
         <Text> </Text>
         {chip(t, node.model, node.routed)}
@@ -255,11 +251,34 @@ function cardRows(t: T, card: Card, input: PaneInput, w: number): RenderNode[] {
         <Text> </Text>
         {effortTag(t, node.effort, 12)}
       </Box>
+    </Box>
+  )
+  // Narrow, the readout goes under the name: the name keeps its room.
+  const beside = w >= HEAD_BESIDE
+  const rows: RenderNode[] = [
+    <Box key="pane-card-head" width={w}>
+      <Box width={2} flexShrink={0}>
+        {main ? <Text color={node.routed ? ACCENT : WARN}>◆</Text> : stateGlyph(t, node.state, input.view.frame, node.routed)}
+      </Box>
+      <Box flexGrow={1} flexShrink={1}>
+        <Text bold wrap="wrap">{node.name}</Text>
+      </Box>
+      {beside ? readout : null}
     </Box>,
+    ...(beside
+      ? []
+      : [
+          <Box key="pane-card-readout" width={w}>
+            <Box width={1} flexShrink={0}>
+              <Text> </Text>
+            </Box>
+            {readout}
+          </Box>,
+        ]),
     hang(t, 'pane-card-state', '状态', text(row.status.text, TONE_COLOR[row.status.tone]), w),
   ]
   if (node.failure !== undefined) {
-    rows.push(hang(t, 'pane-card-failure', '原因', text(`${failureWords(node.failure)}（${FAILURE_KINDS[node.failure.kind] ?? node.failure.kind}）`, WARN), w))
+    rows.push(hang(t, 'pane-card-kind', '类型', text(`${node.failure.kind}：${FAILURE_KINDS[node.failure.kind] ?? '其他'}`), w))
     rows.push(hang(t, 'pane-card-backend', '后端', text(node.failure.backend), w))
     rows.push(hang(t, 'pane-card-detail', '细节', text(node.why ?? node.failure.detail), w))
     rows.push(hang(t, 'pane-card-where', '排查', text('debug log（claude --debug-file <路径>）里有这次请求的那一行，写着它发了什么、等了多久、怎么失败的', MUTED), w))

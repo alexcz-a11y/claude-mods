@@ -133,7 +133,7 @@ test('not routed: the card says why in a few words, then the failure in full (it
 
   const ui = await w.pane()
   expect(shown(await ui.find({ key: 'pane-card-state' }))).toContain('未路由 · 决策模型出错')
-  expect(shown(await ui.find({ key: 'pane-card-failure' }))).toContain('HTTP 出错')
+  expect(shown(await ui.find({ key: 'pane-card-kind' }))).toContain('http')
   expect(shown(await ui.find({ key: 'pane-card-backend' }))).toContain('jev')
   expect(shown(await ui.find({ key: 'pane-card-detail' }))).toContain('jev: HTTP 500')
   expect(shown(await ui.find({ key: 'pane-card-where' }))).toContain('debug log')
@@ -200,6 +200,16 @@ test('in the docked pane of 75 columns nothing is cut: a long name and a long re
   // The bars narrow with the pane, the short rows stay one line.
   const bars = (await ui.findAll({ type: 'Raster' })).map((raster) => Number(raster.props?.columns))
   expect(bars.every((columns) => columns >= 8 && columns <= 20)).toBe(true)
+})
+
+test('squeezed under 48 columns (an inline pane on a narrow terminal) the model chip and effort go under the name, and still nothing is cut', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 0.05, 0.6, 0.35, 0]) })
+  await w.submit('这个方案往死里挑刺')
+  await w.step({ index: 0, model: 'claude-opus-5-5' })
+  const ui = await w.pane({ columns: 40, placement: 'inline' })
+  expect(shown(await ui.find({ key: 'pane-card-head' }))).not.toContain('opus')
+  expect(shown(await ui.find({ key: 'pane-card-readout' }))).toMatch(/opus.*xhigh/)
+  expect(shown(await ui.drawn())).not.toContain('…')
 })
 
 // ---- paging, picking, folding ----------------------------------------------------------
