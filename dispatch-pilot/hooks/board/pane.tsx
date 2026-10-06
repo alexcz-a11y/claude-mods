@@ -357,7 +357,10 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
   return rows
 }
 
-/** A decision's rows on the card: the model it gave and why (an agent's), the effort's probabilities, the rules' working, the result. */
+/**
+ * A decision's rows on the card: the model it gave (an agent's; the main agent's model is never decided) and why,
+ * the effort's probabilities, the rules' working, the result; the main agent's confidence, which only goes on record.
+ */
 function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, raster: Raster | undefined): RenderNode[] {
   const { Text } = t
   const rows: RenderNode[] = []
@@ -375,7 +378,7 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, raster: 
       ),
     )
   }
-  if (!main) rows.push(hang(t, 'pane-card-reason', '理由', <Text color={MUTED} wrap="wrap">{entry.reason}</Text>, w))
+  rows.push(hang(t, 'pane-card-reason', '理由', <Text color={MUTED} wrap="wrap">{entry.reason}</Text>, w))
   const level = levelOf(entry)
   if (entry.probs !== undefined) rows.push(hang(t, 'pane-card-probs', 'effort', probsLine(t, 'pane-card-probs-bar', entry.probs, level, w - LABEL, raster), w))
   rows.push(...traceRows(t, 'pane-card-step', entry.trace ?? [], w))

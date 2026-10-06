@@ -72,7 +72,7 @@ async function steps(ui: Ui, prefix = 'pane-card-step-'): Promise<string[]> {
   return (await ui.findAll({ type: 'Box' })).filter((box) => box.key?.startsWith(prefix)).map((box) => shown(box))
 }
 
-test("the main agent's card: the effort's probabilities, the rules' working step by step, the result, and that its confidence only goes on record", { options: KEY }, async ($, on) => {
+test("the main agent's card: why, the effort's probabilities, the rules' working step by step, the result, and its confidence, which only goes on record", { options: KEY }, async ($, on) => {
   // high most likely, xhigh close behind: the round-up takes xhigh.
   const w = world($, on, { backend: jev([0, 0.05, 0.6, 0.35, 0], { confidence: 0.25 }) })
   await w.submit('这个方案往死里挑刺')
@@ -80,6 +80,10 @@ test("the main agent's card: the effort's probabilities, the rules' working step
 
   const ui = await w.pane()
   expect(shown(await ui.find({ key: 'pane-head' }))).toContain('主 agent')
+  // Why, in the decision report's own words, as for any agent (spec story 24).
+  const reason = (await w.board()).log.find((entry) => entry.feature === 'main-effort')?.reason ?? ''
+  expect(reason).toContain('置信度 0.25')
+  expect(shown(await ui.find({ key: 'pane-card-reason' }))).toContain(reason)
   expect(shown(await ui.find({ key: 'pane-card-probs' }))).toMatch(/low \.00 medium \.05 high \.60 xhigh \.35 max \.00/)
   expect(await ui.find({ key: 'pane-card-probs-bar' })).toMatchObject({ type: 'Raster' })
   const rules = await steps(ui)
