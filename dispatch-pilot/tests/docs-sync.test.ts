@@ -230,3 +230,10 @@ test('skill-profiles holds only the debug closure of `$.ui`: a log line, a toast
     expect(problems).toContainEqual(expect.stringMatching(/^`features\/skill-profiles\.ts`: uses `\$\.ui` itself/))
   }
 })
+
+test('the decision report has two entries, `report` and `reportStep`: a third exported report function is a problem', () => {
+  const two = 'export async function report(io, what) {}\nexport async function reportStep(io, step) {}\nexport function unplacedText(reason) {}\nfunction reportEnd(io, end) {}'
+  expect(checkOneWriter({ 'core/report.ts': two })).toEqual([])
+  const problems = checkOneWriter({ 'core/report.ts': `${two}\nexport async function reportTally(io, tally) {}\nexport const reportSwitch = (io, change) => {}` })
+  expect(problems).toEqual([expect.stringMatching(/^`core\/report\.ts`: exports `reportTally`/), expect.stringMatching(/^`core\/report\.ts`: exports `reportSwitch`/)])
+})

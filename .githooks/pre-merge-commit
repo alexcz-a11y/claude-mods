@@ -1,0 +1,5 @@
+#!/bin/zsh
+# Runs scripts/check.sh before a merge commit: git calls this hook, not
+# pre-commit, when a merge goes through without conflicts.
+# Skip one merge with `git merge --no-verify`.
+exec "$(git rev-parse --show-toplevel)/scripts/check.sh"

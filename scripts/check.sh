@@ -34,10 +34,18 @@ step "marketplace manifest" command claude plugin validate .
 for mod in $mods; do
   step "$mod: tests" command claude plugin test "./$mod"
   step "$mod: validate --strict" command claude plugin validate "./$mod" --strict
-  if [[ -f $mod/tsconfig.json && -d $mod/.claude-plugin/types ]]; then
-    step "$mod: tsc" tsc -p "./$mod" --noEmit
-  else
-    print -r -- "skip  $mod: tsc (load it once with --plugin-dir to generate .claude-plugin/types)"
+  if [[ -f $mod/tsconfig.json ]]; then
+    # The generated types are gitignored, so a fresh worktree has none: take the main checkout's.
+    main=${${(f)"$(git worktree list --porcelain)"}[1]#worktree }
+    if [[ ! -d $mod/.claude-plugin/types && $main != $ROOT && -d $main/$mod/.claude-plugin/types ]]; then
+      cp -R "$main/$mod/.claude-plugin/types" "$mod/.claude-plugin/types" && print -r -- "note  $mod: copied .claude-plugin/types from $main"
+    fi
+    if [[ -d $mod/.claude-plugin/types ]]; then
+      step "$mod: tsc" tsc -p "./$mod" --noEmit
+    else
+      print -r -- "FAIL  $mod: tsc has no types: load the mod once with --plugin-dir to generate .claude-plugin/types"
+      failed=1
+    fi
   fi
   [[ -f $mod/eval/validate.ts ]] && step "$mod: eval/validate.ts" node "$mod/eval/validate.ts"
 done

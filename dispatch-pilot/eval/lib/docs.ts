@@ -182,6 +182,12 @@ export function checkOneWriter(sources: Readonly<Record<string, string>>): strin
     for (const [pattern, what] of rules) if (pattern.test(code)) problems.push(`\`${path}\`: ${what}; hand the decision report the data instead (ADR 0004)`)
     const quiet = code.split("debug: (line) => $.ui.log(line, { to: 'debug' })").join('')
     for (const [file, pattern, what] of silent) if (path === file && pattern.test(quiet)) problems.push(`\`${path}\`: ${what}; hand the decision report the data instead (ADR 0004)`)
+    // The report's two entries (spec #22): features and screens call `report`, the core `reportStep`.
+    if (path === 'core/report.ts') {
+      for (const [, name] of code.matchAll(/export\s+(?:async\s+)?(?:function\s+|const\s+)(report\w*)/g)) {
+        if (name !== 'report' && name !== 'reportStep') problems.push(`\`${path}\`: exports \`${name}\`, a third entry; give \`report\` a new kind of \`Reported\` instead (spec #22: two entries)`)
+      }
+    }
   }
   return problems
 }
