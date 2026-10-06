@@ -31,7 +31,6 @@ settings hook 是 settings 文件里配置的 shell 命令、HTTP 请求或 prom
 - 多个 mod 挂在同一事件上时，按加载顺序执行：先加载的最先看到事件，最后看到结果。
 - 同一事件不带 matcher 注册两次会报错。
 - 渲染 hook 的 props 在 `e.props` 上，`e` 顶层只有 `component`、`surface`、`requestId` 和 `viewport`。不需要绘制时返回 `next(e)`。
-- 界面里用单宽字符，不要用 emoji。
 
 ## 单个 mod 的结构
 
