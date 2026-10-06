@@ -13,6 +13,7 @@
 import { mock } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
 import type {
+  AgentInfo,
   CommandInfo,
   CommandSpec,
   ContextSkill,
@@ -32,6 +33,7 @@ import type {
 /** The board's `$.state` values, as the contract declares them (types/index.d.ts): the board data tests assert on. */
 export type BoardNode = PluginState['dispatch-pilot']['board']['nodes'][number]
 export type LogEntry = PluginState['dispatch-pilot']['decisionLog'][number]
+export type ReadingChange = NonNullable<PluginState['dispatch-pilot']['board']['changes']>[number]
 
 /**
  * The board data as `w.board()` reads it from `$.state` (spec #22 「数据」): `turn`, `nodes` and `log` are the
@@ -41,6 +43,10 @@ export type LogEntry = PluginState['dispatch-pilot']['decisionLog'][number]
 export type BoardView = {
   turn: number
   nodes: BoardNode[]
+  /** Reading changes of the latest turns' agents (`board.changes`), oldest first. */
+  changes: ReadingChange[]
+  /** When the latest turns started, by turn (`board.starts`, `$.clock.now()` ms). */
+  starts: { turn: number; at: number }[]
   log: LogEntry[]
   main: BoardNode | undefined
   agents: BoardNode[]
@@ -79,6 +85,11 @@ export type WorldOptions = {
   messages?: SessionMessage[] | ((asked: { agentId?: string }) => SessionMessage[] | { deny: string })
   /** Files the mod can read, by absolute path (`$.fs.read`, `$.fs.exists`). */
   disk?: Record<string, string>
+  /**
+   * The agents `$.agent.list()` names (dispatched agents, not a Workflow's): as the engine lists them, which a test
+   * changes through `w.agents` as agents come and go. `{ deny }`: the roster cannot be read.
+   */
+  agents?: AgentInfo[] | { deny: string }
   /**
    * The mod's `$.store`, seeded with these values; what the mod writes is read back with `w.stored(key)`.
    * Without it every `$.store` call rejects, as when the store file cannot be read or written.
@@ -215,6 +226,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const completions: ModelCompleteRequest[] = []
   let calls = 0
   const disk = options.disk ?? {}
+  const agents: AgentInfo[] = Array.isArray(options.agents) ? [...options.agents] : []
   const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
   const commands: CommandSpec[] = []
   /** The text a command's turn starts with, by the prompt it was submitted as (`/name args`): the engine's command message. */
@@ -364,6 +376,9 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     return { text, context: e.context }
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  // The engine's roster of the agents it spawned (a Workflow's agents are not in it), and where a loop's turn ends.
+  on('agent.list', () => (options.agents !== undefined && !Array.isArray(options.agents) ? { deny: options.agents.deny } : { value: agents }))
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
   // The engine's own command beneath `command.run`: a prompt command (a skill, a markdown command) prints nothing.
   on('command.run', () => ({}))
   // The engine at the bottom of agent.spawn: it starts the agent on the model
@@ -412,6 +427,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     prompts,
     turnIds,
     spawned,
+    /** The roster `$.agent.list()` answers: a test adds an agent as the engine would list it, or takes it away. */
+    agents,
     commands,
     tools,
     /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */
@@ -433,7 +450,15 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       const turn = board?.turn ?? 0
       const nodes = board?.nodes ?? []
       const current = nodes.filter((node) => node.turn === turn)
-      return { turn, nodes, log: (held.decisionLog.value as LogEntry[] | undefined) ?? [], main: current.find((node) => node.id === 'main'), agents: current.filter((node) => node.id !== 'main') }
+      return {
+        turn,
+        nodes,
+        changes: board?.changes ?? [],
+        starts: board?.starts ?? [],
+        log: (held.decisionLog.value as LogEntry[] | undefined) ?? [],
+        main: current.find((node) => node.id === 'main'),
+        agents: current.filter((node) => node.id !== 'main'),
+      }
     },
     /** Submits a prompt the way the engine does; resolves when it entered (or was queued). */
     submit: (text: string, submit: SubmitOptions = {}) =>
@@ -499,6 +524,21 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     /** The engine's skill listing as one request of a loop carries it (`agentId`: a dispatched agent's; needs `skills`); resolves to what the model reads. */
     listing: (text: string, agentId?: string) =>
       $.prompt.attachment({ type: 'skill_listing', text, origin: { kind: 'engine' }, ...(agentId !== undefined ? { agentId } : {}) }),
+    /**
+     * A loop's turn ends: the main agent's by default (the last turn started), an agent's with `agentId`
+     * (its loop carries its own turn id, `turn-<agentId>` as `agentStep` makes it). `reason` is `answer` unless said.
+     */
+    complete: (done: { agentId?: string; turnId?: string; reason?: 'answer' | 'aborted' | 'error'; durationMs?: number } = {}) => {
+      const reason = done.reason ?? 'answer'
+      return $.turn.complete({
+        answer: reason === 'answer' ? 'done' : '',
+        durationMs: done.durationMs ?? 1000,
+        isAborted: reason === 'aborted',
+        turnId: done.turnId ?? (done.agentId === undefined ? (turnIds.at(-1) ?? 't0') : `turn-${done.agentId}`),
+        reason,
+        ...(done.agentId !== undefined ? { agentId: done.agentId } : {}),
+      })
+    },
     /** Sends one model request through the mod, drained to its end (its text streamed, its tools run). */
     step: async (step: StepOptions) => {
       streaming = { answer: step.answer, tools: step.tools }
