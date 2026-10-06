@@ -115,3 +115,30 @@ export function httpFailure(response: HttpResponse): Failure {
   if (status === 429 || status === 502 || status === 503 || status === 529) return { kind: 'busy', status, detail }
   return { kind: 'http', status, detail }
 }
+
+/**
+ * A failed decision request in a few words: `jev: no answer in 1500 ms`,
+ * `jev: key refused (HTTP 401)`. The words of the board's "not routed" reason
+ * (core/report.ts), of the log's reasons and of what the model is told when a
+ * request fails (a Workflow note, a find_skill answer), so they stay as they are.
+ */
+export function failureText(backend: string, failure: Failure): string {
+  switch (failure.kind) {
+    case 'config':
+      return failure.status === undefined ? `${backend}: ${failure.detail}` : `${backend}: key refused (HTTP ${failure.status})`
+    case 'timeout':
+      return `${backend}: ${failure.detail}`
+    case 'network':
+      return `${backend}: unreachable`
+    case 'busy':
+      return `${backend}: busy (HTTP ${failure.status ?? '?'})`
+    case 'quota':
+      return `${backend}: daily quota used up`
+    case 'http':
+      return `${backend}: HTTP ${failure.status ?? '?'}`
+    case 'parse':
+      return `${backend}: unreadable answer`
+    case 'request':
+      return `${backend}: bad request (see debug log)`
+  }
+}

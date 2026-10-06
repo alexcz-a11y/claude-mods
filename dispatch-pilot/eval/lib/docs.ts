@@ -156,3 +156,32 @@ export function checkStructureTree(development: string, modules: readonly string
     ...listed.filter((entry) => !modules.includes(entry)).map((entry) => `\`${entry}\`: in DEVELOPMENT.md's 「结构」 tree, but hooks/ has no such module`),
   ]
 }
+
+/** Where the old status line and the decision log are written: the decision report (core/report.ts) and the line it draws (core/status.ts). */
+const WRITERS = ['core/report.ts', 'core/status.ts']
+
+/**
+ * ADR 0004: the decision report is the one writer of what people see. Every
+ * module but the report's own (`sources`: text by path relative to hooks/)
+ * must leave the old status line (`core/status.ts`: `setStatus`, `pauseStatus`)
+ * and the old decision recorder (`core/decisions.ts`: `recordDecision`) alone,
+ * and may reach `$.ui.status` only as the host closure it hands the report,
+ * `status: (line) => $.ui.status(line)`.
+ */
+export function checkOneWriter(sources: Readonly<Record<string, string>>): string[] {
+  const rules: [RegExp, string][] = [
+    [/^import (?!type\b)[^\n]*from '[^']*\bstatus\.ts'/m, 'imports core/status.ts'],
+    [/^import (?!type\b)[^\n]*from '[^']*\bdecisions\.ts'/m, 'imports core/decisions.ts'],
+    [/\bsetStatus\(/, 'calls setStatus'],
+    [/\bpauseStatus\(/, 'calls pauseStatus'],
+    [/\brecordDecision\(/, 'calls recordDecision'],
+    [/\$\.ui\.status\(/, 'draws on `$.ui.status` directly'],
+  ]
+  const problems: string[] = []
+  for (const [path, text] of Object.entries(sources)) {
+    if (WRITERS.includes(path)) continue
+    const code = text.split('status: (line) => $.ui.status(line)').join('')
+    for (const [pattern, what] of rules) if (pattern.test(code)) problems.push(`\`${path}\`: ${what}; hand the decision report the data instead (ADR 0004)`)
+  }
+  return problems
+}

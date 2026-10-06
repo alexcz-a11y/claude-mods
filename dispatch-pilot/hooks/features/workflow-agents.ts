@@ -22,14 +22,13 @@
 // Its switch is `workflow-agents` (`/dp workflow-agents off`).
 
 import type { HttpInit, On } from 'claude-code'
-import { describeAsked, errorText } from '../decision/backend.ts'
+import { describeAsked, errorText, failureText } from '../decision/backend.ts'
 import { termsOf } from '../decision/dispatched-agent.ts'
 import { parseWorkflow, rewriteWorkflow, type ParsedWorkflow } from '../decision/workflow-script.ts'
 import { batchesTimeoutMs, readOutcomes, returnNote, rewriteNote, workflowBatches, workflowFingerprint, type CallOutcome } from '../decision/workflow.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { reportDecisions, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
-import { failureText } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import { callReports, workflowCallTitle, workflowLeft } from '../core/workflow-report.ts'
 

@@ -11,7 +11,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { BACKEND_DEFAULTS } from '../hooks/core/setup.ts'
-import { checkConfigTable, checkStructureTree } from '../eval/lib/docs.ts'
+import { checkConfigTable, checkOneWriter, checkStructureTree } from '../eval/lib/docs.ts'
 
 /** The decision models' defaults as these tests state them: Clef's timeout is its own, its other values are Jev's. */
 const DEFAULTS = {
@@ -195,4 +195,27 @@ test('a module the tree does not list, and a line for a module that is gone, are
   expect(problems).toHaveLength(2)
   expect(problems[0]).toMatch(/`core\/commands\.ts`.*no line/)
   expect(problems[1]).toMatch(/`core\/prompts\.ts`.*no such module/)
+})
+
+// ADR 0004: the decision report is the one writer of what people see. The old status line and the old decision
+// recorder are reached only through core/report.ts; a feature hands over structured data (#28).
+
+test('files that hand the report their data, and only plumb the host to it, pass', () => {
+  expect(
+    checkOneWriter({
+      'features/main-effort.ts': "const io = { debug: log, status: (line) => $.ui.status(line) }\nawait reportDecision(io, decision)\nconst why = failureText(name, failure)",
+      'core/report.ts': "import { setStatus } from './status.ts'\nsetStatus('effort', text, io.status)",
+      'core/status.ts': 'export function setStatus() {}',
+    }),
+  ).toEqual([])
+})
+
+test('a feature that sets a status segment, pauses the line, records a decision itself or draws on the status row is a problem', () => {
+  const problems = checkOneWriter({
+    'features/a.ts': "import { setStatus } from '../core/status.ts'\nsetStatus('agent', null, show)",
+    'features/b.ts': "pauseStatus(true, show)\nawait recordDecision(cell, log, decision)",
+    'features/c.ts': "$.ui.status('dp effort high')",
+    'core/core.ts': "import { recordDecision } from './decisions.ts'",
+  })
+  expect(problems.map((problem) => problem.split(':')[0])).toEqual(['`features/a.ts`', '`features/a.ts`', '`features/b.ts`', '`features/b.ts`', '`features/c.ts`', '`core/core.ts`'])
 })

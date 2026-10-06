@@ -26,7 +26,7 @@
 // cannot undercut it.
 
 import type { EngineInterface, HttpInit, On, TurnStepInput } from 'claude-code'
-import { describeAsked, errorText, within, type Failure } from '../decision/backend.ts'
+import { describeAsked, errorText, failureText, within, type Failure } from '../decision/backend.ts'
 import { AGENT_MODELS, effortFloor, modelFamily, type AgentModel, type Terms } from '../decision/dispatched-agent.ts'
 import { briefOf, forcedTarget, readExpected, rowsFromTranscript, stepsFromRows, stuckRequest, traceRaise, troubleText, type RaiseMode, type TranscriptRow } from '../decision/escalation.ts'
 import { higherEffort, isEffort, probsOf, readEffort, readingText, type Effort, type EffortReading } from '../decision/effort.ts'
@@ -39,7 +39,6 @@ import { endedAs, noteEnded, wasBlocked } from '../core/outcomes.ts'
 import { floorHeld, forced, MAIN, newTurn, redecided, replace, turnKey, update, type AgentPlan, type Cell, type TurnRecord } from '../core/plans.ts'
 import { reportDecision, reportTally, type Decided, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
-import { failureText } from '../core/status.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 
 const ESCALATION = { plugin: 'dispatch-pilot', key: 'escalation' } as const

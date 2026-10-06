@@ -17,9 +17,8 @@
 
 import type { On, SessionMeasureInput } from 'claude-code'
 import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
-import { decisionLine, LOG_ENTRIES, type LogEntry } from '../core/report.ts'
+import { decisionLine, LOG_ENTRIES, reportSwitch, type LogEntry, type ReportIo } from '../core/report.ts'
 import { describeDefaults, type Ctx } from '../core/setup.ts'
-import { pauseStatus, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn, listSwitches, loadOverrides, masterOn, overrides, parseOverrides, setMaster, setSwitch } from '../core/switches.ts'
 import { errorText } from '../decision/backend.ts'
 
@@ -38,7 +37,7 @@ export function registerControl(on: On, ctx: Ctx): void {
     // Which options the decision model's defaults decided (core/setup.ts BACKEND_DEFAULTS).
     $.ui.log(describeDefaults(ctx.config), { to: 'debug' })
     const result = await next(e)
-    if (!masterOn()) pauseStatus(true, (line) => $.ui.status(line))
+    if (!masterOn()) reportSwitch({ status: (line) => $.ui.status(line) }, { master: false })
     await $.command
       .register({
         name: 'dp',
@@ -64,7 +63,7 @@ export function registerControl(on: On, ctx: Ctx): void {
 
   on('command.run', { command: 'dp' }, async ($, e) => {
     const command = parseControl(e.args)
-    const show = (line: string | undefined) => $.ui.status(line)
+    const reporting: Pick<ReportIo, 'status'> = { status: (line) => $.ui.status(line) }
     // Keeps one switch as the person just flipped it, beside whatever another session saved meanwhile;
     // says so when it cannot.
     const save = async (name: string) => {
@@ -87,7 +86,7 @@ export function registerControl(on: On, ctx: Ctx): void {
         }
         case 'master':
           setMaster(command.on)
-          pauseStatus(!command.on, show)
+          reportSwitch(reporting, { master: command.on })
           return { text: `Dispatch Pilot is ${command.on ? 'on' : 'off'}${await save('master')}` }
         case 'switch': {
           const spec = listSwitches().find((s) => s.name === command.name)
@@ -95,7 +94,7 @@ export function registerControl(on: On, ctx: Ctx): void {
             const names = listSwitches().map((s) => s.name).join(', ')
             return { text: `no switch named "${command.name}" (switches: ${names})` }
           }
-          if (!command.on) for (const segment of spec.segments) setStatus(segment, null, show)
+          if (!command.on) reportSwitch(reporting, { off: spec.segments })
           return { text: `${spec.name} is ${command.on ? 'on' : 'off'} (${spec.info})${await save(spec.name)}` }
         }
         case 'lock': {

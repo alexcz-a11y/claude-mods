@@ -3,7 +3,7 @@
 // new screens replace it, the old status line are all written here, from the
 // same structured data in $.state (types/index.d.ts: `board`, `decisionLog`).
 //
-// Three entries, and nothing else is for a feature to call:
+// Four entries, and nothing else is for a feature to call:
 //
 //   reportDecision(io, decision)   a feature hands over a decision it made (or the
 //                                  reason it could not make one): which feature,
@@ -21,6 +21,9 @@
 //                                  decision: the mid-turn re-decisions of the main
 //                                  agent's turn, each loop's failed calls and forced
 //                                  raises. On the agent's node.
+//   reportSwitch(io, change)       the person switched the mod, or one feature, off or
+//                                  on (the control feature's `/dp`): what the old status
+//                                  line says of it.
 //
 // The module also keeps the board's turn count and the agents' lifecycle with
 // hooks of its own (`registerReport`, which sees `turn.start`, `agent.spawn` and
@@ -42,12 +45,12 @@
 // throws: a report that cannot be kept must not stop the decision or the step.
 
 import type { EngineInterface, On } from 'claude-code'
-import { errorText, type Failure } from '../decision/backend.ts'
+import { errorText, failureText, type Failure } from '../decision/backend.ts'
 import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
 import { startedIn } from '../decision/workflow-labels.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
-import { failureText, setStatus, type Segment } from './status.ts'
+import { pauseStatus, setStatus, type Segment } from './status.ts'
 
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
@@ -368,8 +371,8 @@ function isDecided(decision: ReportedDecision): decision is Decided {
  * last of an event's), the board with it on (every agent's node of the latest
  * turns, so a segment that sums up several agents reads them there) and all
  * the decisions of the event, and says what its segments now read (`null`:
- * nothing). A feature's migration adds its line here and drops its own
- * `setStatus`; the whole line goes with step 2.
+ * nothing). Every feature's line is here; the whole table goes with the old
+ * line, when the new screens replace it (#29).
  */
 const LEGACY: Record<string, (decision: ReportedDecision, board: Board, event: readonly ReportedDecision[]) => { segment: Segment; text: string | null }[]> = {
   // Why the person's message got no decision: the failed request, until a decision comes back.
@@ -649,6 +652,28 @@ let latestAgent: { counts: { failed: number; blocked: number; raised: number }; 
 function countsText(counts: { failed: number; blocked: number; raised: number }, prefix: string, late: boolean): string | null {
   const parts = [counts.failed > 0 ? `failed ${counts.failed}` : '', counts.blocked > 0 ? `blocked ${counts.blocked}` : '', counts.raised > 0 ? `raised ${counts.raised}` : ''].filter((part) => part !== '')
   return parts.length === 0 ? null : `${prefix}${parts.join(', ')}${late ? ' (late)' : ''}`
+}
+
+// ---- entry 4: a switch --------------------------------------------------------
+
+/** What the person flipped with `/dp`: the whole mod, or one feature off (the status line segments its switch owns, `defineSwitch`'s `segments`). */
+export type Switched = { master: boolean } | { off: readonly Segment[] }
+
+/**
+ * Reports a switch the person flipped (the control feature's `/dp`, and the
+ * session start with the mod already off). On the old status line: while the mod
+ * is off it says only `dp off` and starts empty when switched on again; a
+ * feature switched off loses its segments, so an old failure does not stay. The
+ * board and the decision log are untouched: what the new screens do with a
+ * feature that is off is #29's. Never throws.
+ */
+export function reportSwitch(io: Pick<ReportIo, 'status'>, change: Switched): void {
+  try {
+    if ('master' in change) pauseStatus(!change.master, io.status)
+    else for (const segment of change.off) setStatus(segment, null, io.status)
+  } catch {
+    // a status line that cannot be drawn is skipped
+  }
 }
 
 /**

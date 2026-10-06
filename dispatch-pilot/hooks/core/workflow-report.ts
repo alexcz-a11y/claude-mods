@@ -11,11 +11,11 @@
 //
 // Pure (see report.ts: `$` stays in the hook owner's file).
 
+import { failureText } from '../decision/backend.ts'
 import { dispatchEvidence, modelFamily } from '../decision/dispatched-agent.ts'
 import { parseWorkflow, type ParsedWorkflow } from '../decision/workflow-script.ts'
 import { callName, leftText, outcomeOf, reasonOf, type CallOutcome } from '../decision/workflow.ts'
 import type { Left, ReportedDecision } from './report.ts'
-import { failureText } from './status.ts'
 
 /** The Workflow call a report is about: the tool call's id, and the script it ran, as far as it was read. */
 export type WorkflowRun = { id: string; parsed: ParsedWorkflow }

@@ -1,32 +1,28 @@
-// The status line: one row for the whole mod, built from named segments that
-// different features own, joined in a fixed order. A feature sets its own
-// segment and the line is sent only when it changed.
+// The old status line: one row for the whole mod, built from named segments,
+// joined in a fixed order and sent only when it changed. It is drawn from the
+// board data and the decisions, and core/report.ts is its only caller
+// (tests/report.test.ts checks that no feature touches it). The whole line goes
+// when the new screens replace it (ADR 0004, #29).
 //
 // ASCII only: CLAUDE.md asks for single-width characters in the interface,
 // and CJK characters are double-width, so the line is English.
 //
-// Pure module state (lost on a hot reload until the next segment is set). The
-// segments the decision report owns (`effort`, `decision`) are written by it
-// alone, from the board data it keeps in $.state (core/report.ts); the others
-// are still set by their features until those move to the report, and the
-// whole line goes when the new screens replace it (ADR 0004).
-
-import type { Failure } from '../decision/backend.ts'
+// Pure module state (lost on a hot reload until the next segment is set).
 
 /**
- * The segments, in the order they show. Add yours here when a feature needs
- * one; each is set by its owner only.
- *   effort    the decision report (core/report.ts `reportStep`, called by the core's turn.step writer): the main turn's effort as it goes out
- *   midturn   the midturn-effort feature: the turn's steps, decisions and changes, once re-decided
- *   escalation the escalation feature: failed tool calls, hook blocks and forced raises, once there is one
- *   decision  the decision report (`reportDecision`, handed the decision by the main-effort feature): why the message got no decision
- *   skills    the skills feature: the skills suggested for the latest message,
- *             and the person-only ones to try
- *   find-skill  the find-skill feature: what the main agent's latest find_skill returned, or why it failed
- *   agent     the dispatched-agents feature: the latest dispatched agent's model and effort, or why it got none
- *   agentEscalation  the escalation feature: failed tool calls, hook blocks and forced raises of the latest agent that had any
- *   workflow  the workflow-agents feature: how the latest Workflow's agents were routed, or why they were not
- *   labels    the workflow-labels feature: how many agents of the latest Workflow it routed as they started, and why not
+ * The segments, in the order they show, and what the decision report draws in
+ * each (`reportStep`, `reportDecision(s)`, `reportTally`; the feature named is
+ * the one whose switch owns it, `defineSwitch`'s `segments`).
+ *   effort    the main turn's effort as it goes out (reportStep; no feature's switch owns it, only `/dp off` hides it)
+ *   midturn   midturn-effort: the turn's steps, decisions and changes, once re-decided
+ *   escalation escalation: failed tool calls, hook blocks and forced raises, once there is one
+ *   decision  main-effort: why the message got no decision
+ *   skills    skills: the skills suggested for the latest message, and the person-only ones to try
+ *   find-skill  find-skill: what the main agent's latest find_skill returned, or why it failed
+ *   agent     dispatched-agents: the latest dispatched agent's model and effort, or why it got none
+ *   agentEscalation  escalation: failed tool calls, hook blocks and forced raises of the latest agent that had any
+ *   workflow  workflow-agents: how the latest Workflow's agents were routed, or why they were not
+ *   labels    workflow-labels: how many agents of the latest Workflow it routed as they started, and why not
  */
 const ORDER = ['effort', 'midturn', 'escalation', 'decision', 'skills', 'find-skill', 'agent', 'agentEscalation', 'workflow', 'labels'] as const
 export type Segment = (typeof ORDER)[number]
@@ -49,7 +45,7 @@ export function setStatus(segment: Segment, text: string | null, show: (line: st
 /**
  * While Dispatch Pilot is switched off the row says only `dp off`, whatever the
  * segments hold; switched on again it starts empty, until the features set
- * their segments anew. Only the control feature calls this.
+ * their segments anew. Reached through the report's `reportSwitch`.
  */
 export function pauseStatus(value: boolean, show: (line: string | undefined) => void): void {
   if (value === paused) return
@@ -64,26 +60,4 @@ function refresh(show: (line: string | undefined) => void): void {
   if (line === shown) return
   shown = line
   show(line)
-}
-
-/** A failed decision request in a few words, for the status line. */
-export function failureText(backend: string, failure: Failure): string {
-  switch (failure.kind) {
-    case 'config':
-      return failure.status === undefined ? `${backend}: ${failure.detail}` : `${backend}: key refused (HTTP ${failure.status})`
-    case 'timeout':
-      return `${backend}: ${failure.detail}`
-    case 'network':
-      return `${backend}: unreachable`
-    case 'busy':
-      return `${backend}: busy (HTTP ${failure.status ?? '?'})`
-    case 'quota':
-      return `${backend}: daily quota used up`
-    case 'http':
-      return `${backend}: HTTP ${failure.status ?? '?'}`
-    case 'parse':
-      return `${backend}: unreadable answer`
-    case 'request':
-      return `${backend}: bad request (see debug log)`
-  }
 }
