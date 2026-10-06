@@ -431,12 +431,12 @@ test("each dispatched agent's decision is logged with its reason: in the debug l
   expect(w.logs.length).toBeGreaterThan(0)
   expect(w.logs.every((log) => log.to === 'debug')).toBe(true)
   expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^sonnet high for "Rename getUser" \(general-purpose\): .*confidence 0\.85/))
-  expect(await w.command('dp', 'log')).toMatch(/#1 dispatched-agents: sonnet high for "Rename getUser" \(general-purpose\): .*confidence 0\.85/)
+  expect(await w.command('dp', 'log 10')).toMatch(/#1 dispatched-agents: sonnet high for "Rename getUser" \(general-purpose\): .*confidence 0\.85/)
 })
 
 test('/dp dispatched-agents off lets agents start as the main agent sent them, with nothing asked; on brings the decisions back', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.05, opus: 0.05 }, effort: [0, 1, 0, 0, 0] }) })
-  expect(await w.command('dp')).toMatch(/\bon +dispatched-agents +\S/)
+  expect(await w.command('dp', 'status')).toMatch(/\bon +dispatched-agents +\S/)
   await w.spawn({ prompt: 'List the files under src/.' })
   expect((await w.board()).agents).toMatchObject([{ state: 'queued', routed: true, decision: 1 }])
   expect((await w.board()).log).toMatchObject([{ feature: 'dispatched-agents', model: 'haiku', outcome: 'haiku' }])

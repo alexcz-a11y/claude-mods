@@ -122,6 +122,8 @@ export type WorldOptions = {
     drop?: (text: string) => string | undefined
     /** What another mod drew in a render site beneath this one, by component (`AbovePrompt`, `SessionMode`): a line of text. */
     render?: Partial<Record<RenderComponent, string>>
+    /** Why the surface places no pane the mod opens (`$.ui.open` answers `{ isPlaced: false, reason }`); every pane is placed when left out. */
+    unplaced?: string
   }
   /**
    * The session's skills (#10): what `$.command.list()`, `$.session.usage({ breakdown })`, `$.settings.read`,
@@ -232,6 +234,9 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const requests: Sent[] = []
   const statuses: (string | undefined)[] = []
   const toasts: { text: string; at: number }[] = []
+  /** The panes the mod has open on the surface, as `$.ui.panes()` lists them. */
+  const panes: { id: string; title: string; focus: boolean; closeOnEscape: boolean; placed: boolean }[] = []
+  const paneActs: { act: 'open' | 'close'; id: string; focus: boolean }[] = []
   const logs: { text: string; to: string | undefined }[] = []
   const steps: Step[] = []
   const prompts: { text: string; context: readonly string[] | undefined; origin: unknown }[] = []
@@ -379,6 +384,24 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     toasts.push({ text: e.text, at: clock.now() })
     return { value: undefined }
   })
+  // The surface's panes: the ones the mod opened and has not closed, each placed unless `beneath.unplaced` says why
+  // not; every open and close is recorded in `w.paneActs`.
+  on('ui.open', (_$, e) => {
+    const placed = options.beneath?.unplaced === undefined
+    const pane = { id: e.id, title: e.title ?? e.id, focus: e.focus === true, closeOnEscape: e.closeOnEscape === true, placed }
+    const at = panes.findIndex((open) => open.id === e.id)
+    if (at < 0) panes.push(pane)
+    else panes[at] = pane
+    paneActs.push({ act: 'open', id: e.id, focus: pane.focus })
+    return { value: placed ? { isPlaced: true as const } : { isPlaced: false as const, reason: options.beneath?.unplaced as string } }
+  })
+  on('ui.close', (_$, e) => {
+    const at = panes.findIndex((open) => open.id === e.id)
+    if (at >= 0) panes.splice(at, 1)
+    paneActs.push({ act: 'close', id: e.id, focus: false })
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({ value: panes.map((pane) => ({ id: pane.id, title: pane.title, isShown: pane.placed, isFocused: pane.focus && pane.placed, isPlaced: pane.placed })) }))
   // The engine's own drawing beneath the mod's render hooks: what another mod drew in the same place, when the
   // test says one did (`beneath.render`), else an empty box.
   on('ui.render', (_$, e) => {
@@ -475,6 +498,25 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     toolCalls,
     /** Every toast the mod raised, its text and when (mock clock ms). */
     toasts,
+    /** The panes the mod has open now (`id`, whether it asked for the keyboard, whether the surface placed it). */
+    panes,
+    /** Every `$.ui.open` and `$.ui.close` of the mod, in order. */
+    paneActs,
+    /**
+     * Draws the rationale pane (`Pane`, requestId `id`) through the mod as a surface would, the board as it stands: a
+     * body of `columns` cells (75 is the dock beside a 170-column transcript), docked unless `placement` says inline.
+     */
+    pane: (at: { id?: string; columns?: number; rows?: number; placement?: 'dock' | 'inline'; surface?: RenderSurface; focused?: boolean } = {}) => {
+      const props: RenderPropsOf['Pane'] = {
+        title: '依据',
+        isFocused: at.focused ?? true,
+        bodyColumns: at.columns ?? 75,
+        placement: at.placement ?? 'dock',
+        scroll: { offset: 0, bodyRows: at.rows ?? 40 },
+        view: {},
+      }
+      return $.ui.mount({ plugin: 'dispatch-pilot', surface: at.surface ?? 'terminal', component: 'Pane', requestId: at.id ?? 'dp-rationale', props, viewport: { columns: 170, rows: 50, isFullscreen: true } })
+    },
     /**
      * Draws the band above the prompt (`AbovePrompt`) through the mod as a surface would, the board as it stands:
      * a terminal of `columns` (the band lays out in five fewer, the engine's `[-]`) and a band of `rows`, a turn

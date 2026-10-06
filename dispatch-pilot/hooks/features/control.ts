@@ -1,11 +1,16 @@
 // Feature: the person's control over Dispatch Pilot, the `/dp` command.
 //
-//   /dp                  what is on, the lock
+//   /dp                  opens the rationale pane (依据面板), or closes it when open
+//   /dp log              opens the same pane (the old habit's name for it)
+//   /dp status           what is on, the lock
 //   /dp on | off         the whole mod
 //   /dp <name> on | off  one feature (each registers its own, core/switches.ts)
 //   /dp lock <effort>    hold the main agent at that effort on every step
 //   /dp unlock           release it
-//   /dp log [N]          the last N decisions and why (10 by default)
+//   /dp log N            the last N decisions and why, in the conversation
+//
+// A pane the surface does not place (one that places no panes) is closed again
+// at once, and the answer says so (spec #22: no pane left open and waiting).
 //
 // What the person flips is kept in $.store and loaded back at session start.
 // The engine puts the plugin's name before a command's answer, so the texts
@@ -21,6 +26,7 @@ import { decisionLine, LOG_ENTRIES, reportSwitch, type LogEntry, type SwitchIo }
 import { describeDefaults, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, listSwitches, loadOverrides, masterOn, overrides, parseOverrides, setMaster, setSwitch } from '../core/switches.ts'
 import { errorText } from '../decision/backend.ts'
+import { PANE_COLUMNS, PANE_ID, PANE_TITLE } from '../board/rationale.ts'
 
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
@@ -40,8 +46,8 @@ export function registerControl(on: On, ctx: Ctx): void {
     await $.command
       .register({
         name: 'dp',
-        description: 'Dispatch Pilot: switches, effort lock, recent decisions',
-        argumentHint: '[on|off | <name> on|off | lock <effort> | unlock | log [N]]',
+        description: 'Dispatch Pilot: the rationale pane, switches, effort lock, recent decisions',
+        argumentHint: '[log | status | on|off | <name> on|off | lock <effort> | unlock | log N]',
         immediate: true,
       })
       .catch((error) => $.ui.log(`/dp was not registered: ${errorText(error)}`, { to: 'debug' }))
@@ -80,6 +86,17 @@ export function registerControl(on: On, ctx: Ctx): void {
     }
     try {
       switch (command.kind) {
+        case 'pane': {
+          // `/dp` toggles; `/dp log` only opens (and asks for the keys again).
+          if (command.toggle && (await $.ui.panes()).some((pane) => pane.id === PANE_ID)) {
+            await $.ui.close({ id: PANE_ID })
+            return { text: '依据面板已关闭' }
+          }
+          const opened = await $.ui.open({ id: PANE_ID, title: PANE_TITLE, focus: true, closeOnEscape: true, columns: PANE_COLUMNS })
+          if (opened.isPlaced) return { text: '依据面板已打开：p / n 翻看 agent，Esc 关闭' }
+          await $.ui.close({ id: PANE_ID })
+          return { text: `依据面板没有放出来（${opened.reason}），已经关上；/dp log 10 在对话里列出最近 10 条决定` }
+        }
         case 'status': {
           const { value: lock = null } = await $.state.get(LOCK)
           return { text: describeStatus(lock) }
@@ -120,6 +137,7 @@ export function registerControl(on: On, ctx: Ctx): void {
 }
 
 type Control =
+  | { kind: 'pane'; toggle: boolean }
   | { kind: 'status' }
   | { kind: 'master'; on: boolean }
   | { kind: 'switch'; name: string; on: boolean }
@@ -128,27 +146,25 @@ type Control =
   | { kind: 'log'; count: number }
   | { kind: 'unknown' }
 
-/** How many decisions `/dp log` shows when not told. */
-const DEFAULT_LOG = 10
-
 /** The words after `/dp`, case and spacing aside. */
 function parseControl(args: string): Control {
   const words = args.trim().toLowerCase().split(/\s+/).filter(Boolean)
   const [first, second] = words
-  if (words.length === 0 || (words.length === 1 && first === 'status')) return { kind: 'status' }
+  if (words.length === 0) return { kind: 'pane', toggle: true }
+  if (words.length === 1 && first === 'status') return { kind: 'status' }
   if (words.length === 1 && (first === 'on' || first === 'off')) return { kind: 'master', on: first === 'on' }
   if (words.length === 1 && first === 'unlock') return { kind: 'unlock' }
   if (words.length === 2 && first === 'lock' && second === 'off') return { kind: 'unlock' }
   if (words.length === 2 && first === 'lock' && isEffort(second)) return { kind: 'lock', effort: second }
-  if (words.length === 1 && first === 'log') return { kind: 'log', count: DEFAULT_LOG }
+  if (words.length === 1 && first === 'log') return { kind: 'pane', toggle: false }
   if (words.length === 2 && first === 'log' && /^[1-9]\d*$/.test(second ?? '')) return { kind: 'log', count: Math.min(LOG_ENTRIES, Number(second)) }
   if (words.length === 2 && first !== undefined && (second === 'on' || second === 'off')) return { kind: 'switch', name: first, on: second === 'on' }
   return { kind: 'unknown' }
 }
 
-const USAGE = `/dp on|off | /dp <name> on|off | /dp lock <${EFFORTS.join('|')}> | /dp unlock | /dp log [N]`
+const USAGE = `/dp (the rationale pane) | /dp status | /dp on|off | /dp <name> on|off | /dp lock <${EFFORTS.join('|')}> | /dp unlock | /dp log N`
 
-/** `/dp`'s answer: whether the mod is on, the lock, each feature's switch. */
+/** `/dp status`'s answer: whether the mod is on, the lock, each feature's switch. */
 function describeStatus(lock: Effort | null): string {
   const switches = listSwitches()
   const width = Math.max(0, ...switches.map((s) => s.name.length))
@@ -160,7 +176,7 @@ function describeStatus(lock: Effort | null): string {
   ].join('\n')
 }
 
-/** `/dp log`'s answer: the decisions, oldest first, each with its reason. */
+/** `/dp log N`'s answer: the decisions, oldest first, each with its reason. */
 function describeDecisions(entries: readonly LogEntry[]): string {
   if (entries.length === 0) return 'no decisions recorded yet'
   const header = `the last ${entries.length === 1 ? 'decision' : `${entries.length} decisions`}, newest last`

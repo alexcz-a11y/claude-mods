@@ -174,7 +174,7 @@ for (const report of REPORTS) {
     expect(w.steps.map((s) => String(s.effort))).toEqual(['low'])
     expect((await w.board()).main).toMatchObject({ effort: 'low', routed: true })
     expect(w.logs.map((l) => l.text)).toContainEqual(expect.stringMatching(/^effort low for /))
-    expect(await w.command('dp', 'log')).toMatch(/main-effort \(agent report\): effort low/)
+    expect(await w.command('dp', 'log 10')).toMatch(/main-effort \(agent report\): effort low/)
   })
 }
 

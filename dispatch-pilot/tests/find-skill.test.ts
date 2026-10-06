@@ -197,7 +197,7 @@ test('skills named in skillsNeverSuggested are neither asked about nor returned'
 
 test('switched off (/dp find-skill off), find_skill says so when called and asks nothing; /dp lists its switch', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 1 }), skills: SKILLS, disk: PERSON_FILES })
-  expect(await w.command('dp')).toMatch(/\bon +find-skill +answers the main agent's find_skill/)
+  expect(await w.command('dp', 'status')).toMatch(/\bon +find-skill +answers the main agent's find_skill/)
   await w.command('dp', 'find-skill off')
   const answer = await w.findSkill('write the tests first')
 
@@ -408,7 +408,7 @@ test('each call goes to the debug log (its requests, what it returned and why) a
     { text: decision, to: 'debug' },
     { text: 'request [skills.which] to jev for find_skill "review a branch before merging": http: HTTP 500: boom (0 ms)', to: 'debug' },
   ])
-  expect((await w.command('dp', 'log')).split('\n')).toEqual(['the last decision, newest last', `#1 find-skill: ${decision}`])
+  expect((await w.command('dp', 'log 10')).split('\n')).toEqual(['the last decision, newest last', `#1 find-skill: ${decision}`])
   expect((await w.board()).log.map((entry) => [entry.n, entry.feature, entry.skills?.suggest.map((skill) => skill.name)])).toEqual([[1, 'find-skill', ['anthropic-skills:pdf', 'code-review']]])
 })
 

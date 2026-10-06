@@ -237,7 +237,7 @@ test('each re-decision is recorded with why it went where it did (debug log, /dp
   for (const index of [0, 1, 2, 3]) await w.step(working(index))
   await w.step({ index: 4 })
 
-  const mine = (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' midturn-effort: '))
+  const mine = (await w.command('dp', 'log 10')).split('\n').filter((line) => line.includes(' midturn-effort: '))
   expect(mine).toEqual([
     '#2 midturn-effort: effort xhigh (was medium) for step 2 (every 2 steps): p low 0.00, medium 0.00, high 0.10, xhigh 0.80, max 0.10; confidence 0.80; up',
     '#3 midturn-effort: effort xhigh (kept) for step 4 (every 2 steps): p low 0.90, medium 0.10, high 0.00, xhigh 0.00, max 0.00; confidence 0.90; held: raised 2 steps ago (holdSteps 5)',

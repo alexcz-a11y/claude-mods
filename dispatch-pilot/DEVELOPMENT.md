@@ -108,8 +108,9 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - **prompt 上方的 band。** 一轮进行中，顶上一条状态条（第几轮、用时、agent 的运行 / 完成 / 失败 / 排队数、Workflow 的进度、中途重判的次数），下面每个 agent 一行：主 agent 在最前，其余按开始的先后，各带数字键（0 是主 agent，1–9 按先后）、名字（太长时末尾截断）、模型标签、effort 标签、状态符号、一条时间色带（同一根时间轴，看得出谁和谁并行），最后是状态格：运行或完成了多久、失败、排队，或者「未路由 · 原因」（决策模型超时、出错、没配好、功能已关……，完整的原因在依据面板）。再下面是这一轮的事件流：每个决定、中途重判和强制升档（一次改档只算一条，写从哪档到哪档、置信度和门槛）、skill 推荐和「可试 /x」、skill 查询，以及请求失败、回答迟到这类以前只在状态行出现的事。一轮结束后 band 折成一行：主 agent 的模型·effort、这一档是怎么来的（例如「上取一档 xhigh .35」，或未路由的原因）、「可试 /x」、agent 的结果。引擎给 band 不到 4 行时，退成一行摘要。同一位置上别的 mod 画的内容保留在上面。
 - **脚部右端的摘要。** 不超过 12 列：状态符号（有 agent 在跑时是转圈）、主 agent 的模型·effort、`+N` 个运行中的 agent；放不下时 effort 先写短（`xhi`），再省掉模型。band 收起时也看得到。
 - **toast。** 路由失败（主 agent 或某个 agent 的决策请求失败）时弹一个，写谁没路由、原因和细节；引擎会丢掉同一个插件 2 秒内的第二个 toast，所以紧接着的失败只在看板上。
-- 关掉的功能（`/dp <功能> off`）的决定、事件和它拥有的部分（中途重判的次数、失败计数）不出现在 band 和脚部；`/dp off` 时 band 上没有 Dispatch Pilot 的内容，脚部写 `○ dp 已关`。skill 画像的进度从不出现在这两处（#33，留给依据面板）。
-- Desktop 等其他端在 #31 之前只画引擎和其他 mod 的内容。
+- 关掉的功能（`/dp <功能> off`）的决定、事件和它拥有的部分（中途重判的次数、失败计数）不出现在 band 和脚部；`/dp off` 时 band 上没有 Dispatch Pilot 的内容，脚部写 `○ dp 已关`。skill 画像的进度从不出现在这两处（#33，在依据面板顶部）。
+- **依据面板（`/dp`，`/dp log` 是别名）。** 全屏且终端够宽时停靠在对话右边（约 75 列），否则在 prompt 上方。顶部灰字写已关的功能、锁定，以及本会话 skill 画像的情况（「skill 画像：保留 52 · 新写 3 · 失败 1」，写的过程中「生成中 2/5」，停写时写原因；有失败时按 `f` 列出失败的 skill 和原因）。下面是「‹ 上一个 (p) / 下一个 › (n)」，按 band 的顺序翻看 agent；在 band 上按数字键（空的 prompt 里）也直接选中一个 agent 并打开面板，面板不抢键盘，可以接着按别的数字。圆角框里是选中 agent 的依据卡片：状态，没路由的原因（几个字，再写失败的类型、决策模型、细节和去 debug log 哪里看），给它的模型和理由（派出 agent、Workflow agent），各档 effort 的概率条，规则推演（最可能 → max 门槛 → 上取一档 → 模型下限 → 下限或强制升档，每一步写它做了什么），结果；主 agent 还注明发消息时的置信度只记录、不参与选档，列出这一轮的强制升档和每次中途重判（建议档、当前档、带门槛刻度的置信条和结论：升档、降档、降档被拦、防抖中还差 N 步、保持）。卡片只画决定时存下的推演，从不重新计算。再下面是决策日志，按轮分组、最新的一轮在前，每条带编号、结果（颜色、字重和 ✔ ⚠ ✘ 符号）、模型和 effort、是哪项功能针对什么、各档概率和理由；每轮有一个字母键（`a` 起，跳过 `p`、`n`、`f`，20 轮各有一个）折叠或展开，最新两轮默认展开。面板窄时文字悬挂缩进换行，不截断。`Esc` 关掉面板，`/dp` 再输一次也关掉。面板没被放出来时（比如接着的端不放面板）立即关掉，并在回复里说明原因，可以改用 `/dp log 10` 在对话里看。
+- Desktop 等其他端在 #31 之前只画引擎和其他 mod 的内容（依据面板也是）。
 
 ### 发给决策模型的内容
 
@@ -152,18 +153,20 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 ### 控制：`/dp`
 
 ```
-/dp                    是否开启、effort 的锁定状态、各项功能的开关
+/dp                    打开依据面板；已经打开时关掉它
+/dp log                打开依据面板（老习惯的别名，不会关掉它）
+/dp status             是否开启、effort 的锁定状态、各项功能的开关
 /dp on | off           总开关。关闭后不发任何决策请求，每一步都按引擎原样发出（锁定也不生效），脚部写 ○ dp 已关
-/dp <功能> on | off    单项功能的开关，例如 /dp main-effort off（功能名见 /dp 的列表）
+/dp <功能> on | off    单项功能的开关，例如 /dp main-effort off（功能名见 /dp status 的列表）
 /dp lock <档位>        把主 agent 的 effort 锁在 low、medium、high、xhigh 或 max，这一轮的每一步和之后的每一轮都用它，优先于决策
 /dp unlock             解除锁定（也可以写 /dp lock off）
-/dp log [N]            最近 N 次决策和理由，最新的在最后（默认 10，最多 300；日志保留最近 20 轮、最多 300 条）
+/dp log N              在对话里列出最近 N 次决策和理由，最新的在最后（最多 300；日志保留最近 20 轮、最多 300 条）
 ```
 
 - 命令在一轮进行中也立即执行：锁定或解锁从下一步起生效。
 - 开关保存在 `$.store`，下次启动会话时还是你离开时的样子；只保存和默认值不同的开关，所以一个新增的功能默认开着。几个会话同时在用时，改动不会覆盖别的会话刚保存的开关，但已经在运行的会话要到下次启动才会读到。
 - 锁定只在当前会话里有效，`/dp unlock` 或会话结束时解除。锁定期间决策照常进行并记录（锁定优先），不想为此等决策模型的话，用 `/dp main-effort off`。
-- `/dp log` 显示每项功能记录的决策：做了什么决定、针对哪条消息、理由（决策模型给出的各档概率和置信度，被 `thetaMax` 压下的 `max` 会注明）。同样的内容也写进 debug log。
+- `/dp log N` 列出每项功能记录的决策：做了什么决定、针对哪条消息、理由（决策模型给出的各档概率和置信度，被 `thetaMax` 压下的 `max` 会注明）。同样的内容也写进 debug log，依据面板的决策日志也是这些条目。
 - 会话的读数（上下文占用、5 小时和 7 天限额的百分比、会话花费）每次变化时写一行进 debug log，例如 `signals: context 3% (28866/1000000 tokens); limits five_hour 26% resets ..., seven_day 50% resets ...; cost $0.1433; changed context, rateLimits, cost`。这些读数只是记录，不参与任何决策，留给以后设计「省额度模式」用；`/dp signals off` 可以停止记录。
 
 ## 配置
@@ -432,11 +435,13 @@ hooks/
 │   ├── workflow-agents.ts  提交 Workflow 时判断脚本里每个 agent() 的模型和 effort，写进脚本或退回（#8）
 │   └── workflow-labels.ts  脚本写不进去的 Workflow：运行开始时判断各调用，agent 启动时按 label 写计划表；Workflow 工具描述里的常驻提示（#9）
 ├── board/                  看板的画面（ADR 0004）：只画「决定汇报」的数据，功能不碰
-│   ├── screens.tsx         两个 ui.render hook：prompt 上方的 band（AbovePrompt）和脚部右端的摘要（SessionMode）；按 e.surface 分支，终端画完整的设计，别的端先交给引擎（#31）；数字键选中 agent（$.state 的 selected）
+│   ├── screens.tsx         三个 ui.render hook：prompt 上方的 band（AbovePrompt）、脚部右端的摘要（SessionMode）和依据面板（Pane，requestId dp-rationale）；按 e.surface 分支，终端画完整的设计，别的端先交给引擎（#31）；数字键选中 agent（$.state 的 selected）并打开依据面板
 │   ├── view.ts             从看板数据算出画面要的东西（ScreenView）：哪一轮、按开始先后排的 agent 行、事件流、一轮结束后的一行；关掉的功能不出现，skill 画像从不出现
 │   ├── band.tsx            终端的 band：状态条、每个 agent 一行（数字键、名字、模型标签、effort 标签、状态符号、时间色带、状态格）、事件流；空闲一行；不到 4 行时一行摘要
 │   ├── footer.tsx          终端的脚部摘要：状态符号、主 agent 的模型·effort、+N，最多 12 列
-│   └── kit.tsx             视觉语言：色板、effort 色阶、模型标签、单元格宽度、Raster 的格子和时间色带
+│   ├── rationale.ts        依据面板看到的东西（纯函数）：选中的 agent 和它的决定（cardOf）、规则推演每一步的说法（stepLines，只读存下的步骤，不重算）、中途重判的结论（midVerdict）、按轮分组的日志和折叠键（logGroups）、顶部的已关功能和 skill 画像（offLine、profilesLine）；面板的 id
+│   ├── pane.tsx            终端的依据面板：顶部灰字（已关的功能、锁定、skill 画像）、‹ 上一个 (p) / 下一个 › (n)、圆角的依据卡片、按轮分组的决策日志；悬挂缩进，不截断
+│   └── kit.tsx             视觉语言：色板、effort 色阶、模型标签、单元格宽度、Raster 的格子、时间色带、概率条和置信条
 ├── core/                   各功能共用的机制，不含具体功能
 │   ├── core.ts             核心的 hook：发消息时的决策请求、一轮的开始、每一步的写入、认出 settings hook 拦下的调用、记下用户运行的命令
 │   ├── ballot.ts           一条消息的「投票箱」：各功能放进问题，由核心一次发出
@@ -524,7 +529,7 @@ types/index.d.ts            $.state 的契约（PluginState）
 | `escalation` | `main`（主 agent，记录里的 `turnId` 是它所属的那一轮）或 `agentId` | 每个循环唯一的失败计数：失败次数、被 hook 拦下的次数、清零的基数 `base`（计入的是减去它之后的数）、强制升档的次数、这个循环最近一步的序号和引擎给的 effort、model（调用结束时就发的再判断要读）、最近一次再判断是为第几步问的、派出 agent 最近一次升档在第几步 | #7 写；#5 读主 agent 的，作为请求里的 `counts` |
 | `lock` | 无 | 用户锁定的主 agent effort，`null` 表示没有锁定 | #13：`/dp lock`、`/dp unlock`（`features/control.ts`） |
 | `board` | 无 | 看板数据：`turn`（本会话开始的主 agent 轮数）、`starts`（最近两轮的开始时间）、`changes`（读数的变化事件）和 `nodes`（最近两轮每个 agent 的一个节点：模型、effort、是否路由、未路由的原因、对应的决策编号，以及中途重判的计数 `midturn` 和失败计数 `counts`），见「记录一次决策」 | 「决定汇报」module（`core/report.ts`）：`reportDecision`、`reportStep`、`reportTally`、自己的 hook |
-| `decisionLog` | 无 | 各功能记录的决策，最近 20 轮、最多 300 条，`/dp log` 显示（见下「记录一次决策」） | 「决定汇报」module |
+| `decisionLog` | 无 | 各功能记录的决策，最近 20 轮、最多 300 条，依据面板（`/dp`）按轮分组显示，`/dp log N` 在对话里列出（见下「记录一次决策」） | 「决定汇报」module |
 | `pending` | 无 | 发消息时做出的判断，等它的那一轮开始时由核心认领 | #2 |
 | `said` | 无 | 用户本人这一轮说的话（已脱敏和截断）：空闲时发的那条消息开始新的一组，这一轮进行中发的消息追加进去，其他来源的 prompt 不动它；派出 agent 和 Workflow 里 agent 的判断把它当作 `user_message` | #6 写，#8 读 |
 | `midturn` | `main:<turnId>` | 中途重判自己的记录：步数、最近 16 步的文字和工具调用（各带结局）、最近一次重判是为第几步问的 | #5 |
@@ -828,7 +833,9 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 
 ### 画面（看板）
 
-`hooks/board/` 画「决定汇报」的数据，自己不写看板（只写看板之外的一个视图状态：`$.state` 的 `selected`，band 上数字键选中的 agent，给依据面板 #30 用）。`screens.tsx` 有两个 `ui.render` hook（`AbovePrompt`、`SessionMode`，各带 matcher），按 `e.surface` 分支：终端画 band 和脚部摘要，其他端暂时直接 `return next(e)`（#31 补纯文字版）；两处都先 `await next(e)`，把引擎和别的 mod 的内容放在前面。画的时候从 `$.state` 读 `board`、`decisionLog`、`selected`（画的时候读就订阅了，数据一变宿主就重画），交给 `view.ts` 的 `screenView` 算出 `ScreenView`（哪一轮、agent 行、事件流、一轮结束后的摘要），`band.tsx`、`footer.tsx` 只画它。有 agent 在跑时，每 `TICK_MS`（200 ms）用 `$.clock.after` 要一帧（转圈、用时、色带），没有在跑的就不再要。终端的 band 不超过 16 行；多出来的 agent 和事件各折成一行（「另有 N 个 agent」「更早 N 个事件」），留下主 agent、在跑的（按开始先后，保住数字键）和最新的两个事件。行宽按 `bodyColumns` 分配：状态格、effort 先变窄，不到 6 格时去掉时间色带，所以一行永远不折行；固定宽度的格子都 `flexShrink={0}`。新增要在看板上显示的东西，先扩充决定或 note 的结构（`report.ts`），再在 `view.ts` 里算、在 `band.tsx` 里画。
+`hooks/board/` 画「决定汇报」的数据，自己不写看板（只写看板之外的两个视图状态：`$.state` 的 `selected`，band 上数字键或面板上 p / n 选中的 agent；`paneView`，依据面板里折叠或展开的轮、是否列出失败的 skill；都只在按键的 `onPress` 里写）。`screens.tsx` 有三个 `ui.render` hook（`AbovePrompt`、`SessionMode`、`Pane` 加 `requestId: 'dp-rationale'`，各带 matcher），按 `e.surface` 分支：终端画 band 和脚部摘要，其他端暂时直接 `return next(e)`（#31 补纯文字版）；两处都先 `await next(e)`，把引擎和别的 mod 的内容放在前面。画的时候从 `$.state` 读 `board`、`decisionLog`、`selected`（画的时候读就订阅了，数据一变宿主就重画），交给 `view.ts` 的 `screenView` 算出 `ScreenView`（哪一轮、agent 行、事件流、一轮结束后的摘要），`band.tsx`、`footer.tsx` 只画它。有 agent 在跑时，每 `TICK_MS`（200 ms）用 `$.clock.after` 要一帧（转圈、用时、色带），没有在跑的就不再要。终端的 band 不超过 16 行；多出来的 agent 和事件各折成一行（「另有 N 个 agent」「更早 N 个事件」），留下主 agent、在跑的（按开始先后，保住数字键）和最新的两个事件。行宽按 `bodyColumns` 分配：状态格、effort 先变窄，不到 6 格时去掉时间色带，所以一行永远不折行；固定宽度的格子都 `flexShrink={0}`。新增要在看板上显示的东西，先扩充决定或 note 的结构（`report.ts`），再在 `view.ts` 里算、在 `band.tsx` 里画。
+
+依据面板（`pane.tsx`，从 `rationale.ts` 的纯函数取东西画）用的是同一个 `ScreenView`：卡片是 `view.rows` 里选中的那一行（没选、或选中的已经不在看板上时是主 agent），p / n 沿 `view.rows` 移动、到头停住；卡片上的决定是节点的 `decision` 指向的日志条目，强制升档是同一个 agent 的 `escalation` 条目（带 `forced`），中途重判是主 agent 这一轮带 `mid` 的条目。规则推演的每一行由 `stepLines` 从存下的步骤（`trace`）写出，生效与否看步骤自己的 `applied`；中途重判的结论（`midVerdict`）看 `suggest`、`hold`、`theta-up`/`theta-down`、`floor` 这几步，置信条的刻度是步骤里的 `threshold`。不要从 `probs` 或配置里的门槛重新算：卡片要和规则的实际行为一致（ADR 0004、#23）。面板里没有截断：名字、理由、主题都放进带固定宽度标签列的行里换行（`hang`），`Text` 一律 `wrap="wrap"`；概率条和置信条在 8 到 20 格之间随宽度变化；卡片不到 48 格宽时（窄终端上的内联面板），模型标签和 effort 移到名字下面一行。失败的请求在卡片上分几行写：类型（`Failure.kind` 和它的意思）、后端、细节（`failureText`）、去 debug log 哪里看。打开面板的地方有三处：`/dp`（开关，`focus` + `closeOnEscape`）、`/dp log`（只打开）、band 的数字键（`onPress` 里打开，不要 `focus`，这样下一个数字键还在 band 上起作用）；`$.ui.open` 回答 `isPlaced: false` 时都立刻 `$.ui.close`（命令在回复里说明，数字键只写 debug log：按键是用户请求的打开，终端上总会放出来）。面板的字母键只在面板拿到键盘时起作用（ctrl+x tab 或 `/dp`）。
 
 ### 配置项
 
@@ -838,7 +845,7 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 
 ### 测试怎么写（接缝 1）
 
-测试只看 mod 对外的行为：发进事件，检查到达引擎和决策后端的东西，包括每一步的 effort 和 model、请求的内容、附加的 context、看板数据（`w.board()`）、toast（`w.toasts`）和 debug log；画面用 `w.band({ columns, rows, isWorking, surface })`、`w.footer({ modes, surface })` 经 `$.ui.mount` 画出来，按 key 找元素（`band-strip`、`band-agent-<i>`、`band-pick-<数字>`、`band-event-<i>`、`band-idle`、`band-squeezed`、`dp-footer`），断言里面的数据而不是整行文字（`tests/screens.test.ts`）。`w.statuses` 记着 `$.ui.status` 的每次调用，只用来断言它从未被调用（ADR 0004）。不测内部函数。评测（接缝 2）用到的纯函数是另一个公开接口，可以直接测：`decision/` 的各个模块（拼请求、读回答，`tests/decision-module.test.ts` 等），以及评测也 import 的 `core/setup.ts`（`readConfig`、`dispatchSettings`）、`core/skills.ts`（`rankingSettings`、`describeStages`、读目录）和 `core/profiles.ts`（画像的键和查找）。
+测试只看 mod 对外的行为：发进事件，检查到达引擎和决策后端的东西，包括每一步的 effort 和 model、请求的内容、附加的 context、看板数据（`w.board()`）、toast（`w.toasts`）和 debug log；画面用 `w.band({ columns, rows, isWorking, surface })`、`w.footer({ modes, surface })`、`w.pane({ columns, rows, placement, surface })` 经 `$.ui.mount` 画出来，按 key 找元素（`band-strip`、`band-agent-<i>`、`band-pick-<数字>`、`band-event-<i>`、`band-idle`、`band-squeezed`、`dp-footer`；面板的 `pane-head`、`pane-off`、`pane-profiles`、`pane-card`、`pane-card-<部分>`、`pane-card-step-<i>`、`pane-mid-<n>`、`pane-prev`、`pane-next`、`pane-fold-<轮>`、`pane-entry-<n>`），断言里面的数据而不是整行文字（`tests/screens.test.ts`、`tests/pane.test.ts`）。world 在 mod 之下回答 `ui.open`、`ui.close`、`ui.panes`：`w.panes` 是现在开着的面板，`w.paneActs` 记着每次打开和关闭；`beneath: { unplaced: '<原因>' }` 让每次打开都回答 `isPlaced: false`。同一个面板在一个测试里只能 mount 一次（第二次 mount 会报错），之后用 `redraw()`。`w.statuses` 记着 `$.ui.status` 的每次调用，只用来断言它从未被调用（ADR 0004）。不测内部函数。评测（接缝 2）用到的纯函数是另一个公开接口，可以直接测：`decision/` 的各个模块（拼请求、读回答，`tests/decision-module.test.ts` 等），以及评测也 import 的 `core/setup.ts`（`readConfig`、`dispatchSettings`）、`core/skills.ts`（`rankingSettings`、`describeStages`、读目录）和 `core/profiles.ts`（画像的键和查找）。
 
 ```ts
 import { expect, test } from 'claude-code/testing'

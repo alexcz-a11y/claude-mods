@@ -37,10 +37,10 @@ test('a lock outlives the turn it was set in, /dp shows it, and /dp lock off rel
   await w.submit('再改一个')
   await w.step({ index: 0, effort: 'medium' })
   expect(w.steps.map((s) => s.effort)).toEqual(['xhigh', 'xhigh'])
-  expect(await w.command('dp')).toContain('Effort lock: xhigh.')
+  expect(await w.command('dp', 'status')).toContain('Effort lock: xhigh.')
 
   expect(await w.command('dp', 'lock off')).toContain('unlocked')
-  expect(await w.command('dp')).toContain('Effort lock: none.')
+  expect(await w.command('dp', 'status')).toContain('Effort lock: none.')
   await w.step({ index: 1, effort: 'medium' })
   expect(w.steps.at(-1)?.effort).toBe('low')
 })
@@ -84,10 +84,10 @@ test('while Dispatch Pilot is off a lock has no effect, and the command says so'
 test('/dp lists the switch each feature registered; a feature switched off asks nothing, and /dp <name> on brings it back', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })
 
-  expect(await w.command('dp')).toMatch(/\bon +main-effort +\S/)
+  expect(await w.command('dp', 'status')).toMatch(/\bon +main-effort +\S/)
 
   expect(await w.command('dp', 'main-effort off')).toContain('main-effort is off')
-  expect(await w.command('dp')).toMatch(/\boff +main-effort +\S/)
+  expect(await w.command('dp', 'status')).toMatch(/\boff +main-effort +\S/)
   await w.submit('把登录模块重构成三层')
   await w.step({ index: 0, effort: 'xhigh' })
   expect(w.requests).toHaveLength(0)
@@ -118,8 +118,8 @@ test('the command takes any case and spacing, and what it does not understand ch
   for (const args of ['lock', 'lock turbo', 'lock high now', 'log 0', 'log many', 'log 2 3', 'main-effort', 'main-effort maybe', 'frobnicate']) {
     expect(await w.command('dp', args)).toMatch(/^not understood\.\n.*\/dp lock <low\|medium\|high\|xhigh\|max>/)
   }
-  expect(await w.command('dp')).toContain('Effort lock: none.')
-  expect(await w.command('dp')).toMatch(/\boff +main-effort +\S/)
+  expect(await w.command('dp', 'status')).toContain('Effort lock: none.')
+  expect(await w.command('dp', 'status')).toMatch(/\boff +main-effort +\S/)
 })
 
 // ---- What the person flipped is kept ---------------------------------------
@@ -153,7 +153,7 @@ test('a new session starts as the person left it: Dispatch Pilot off stays off, 
   expect(w.commands.map((c) => ({ name: c.name, immediate: c.immediate }))).toEqual([{ name: 'dp', immediate: true }])
   await w.submit('把登录模块重构成三层')
   expect(w.requests).toHaveLength(0)
-  expect(await w.command('dp')).toContain('Dispatch Pilot is off')
+  expect(await w.command('dp', 'status')).toContain('Dispatch Pilot is off')
 })
 
 test('a feature the person left off stays off in the next session', { options: KEY }, async ($, on) => {
@@ -162,7 +162,7 @@ test('a feature the person left off stays off in the next session', { options: K
   await w.start()
   await w.submit('把登录模块重构成三层')
   expect(w.requests).toHaveLength(0)
-  expect(await w.command('dp')).toMatch(/\boff +main-effort +\S/)
+  expect(await w.command('dp', 'status')).toMatch(/\boff +main-effort +\S/)
 })
 
 test('a store that holds anything but switches leaves everything on', { options: KEY }, async ($, on) => {
@@ -171,7 +171,7 @@ test('a store that holds anything but switches leaves everything on', { options:
   await w.start()
   await w.submit('把登录模块重构成三层')
   expect(w.requests).toHaveLength(1)
-  expect(await w.command('dp')).toContain('Dispatch Pilot is on')
+  expect(await w.command('dp', 'status')).toContain('Dispatch Pilot is on')
 })
 
 test('with no store to read or write, the switches work for the session and the command says they are not saved', { options: KEY }, async ($, on) => {
@@ -196,13 +196,13 @@ test('a /dp the engine refuses to register does not stop the session, and the de
 
 test('/dp log shows the last decisions with their reasons, newest last; /dp log N the last N; the same lines go to the debug log, not the conversation', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: (request, n) => jev(n === 1 ? [0.05, 0.1, 0.6, 0.2, 0.05] : [0.9, 0.05, 0.05, 0, 0])(request) })
-  expect(await w.command('dp', 'log')).toBe('no decisions recorded yet')
+  expect(await w.command('dp', 'log 10')).toBe('no decisions recorded yet')
 
   await w.submit('把登录模块重构成三层')
   await w.submit('改个错别字')
   const first = 'effort high for "把登录模块重构成三层": p low 0.05, medium 0.10, high 0.60, xhigh 0.20, max 0.05; confidence 0.70'
   const second = 'effort low for "改个错别字": p low 0.90, medium 0.05, high 0.05, xhigh 0.00, max 0.00; confidence 0.70'
-  expect((await w.command('dp', 'log')).split('\n')).toEqual(['the last 2 decisions, newest last', `#1 main-effort: ${first}`, `#2 main-effort: ${second}`])
+  expect((await w.command('dp', 'log 10')).split('\n')).toEqual(['the last 2 decisions, newest last', `#1 main-effort: ${first}`, `#2 main-effort: ${second}`])
   expect((await w.command('dp', 'log 1')).split('\n')).toEqual(['the last decision, newest last', `#2 main-effort: ${second}`])
 
   const decisions = w.logs.filter((l) => l.text.startsWith('effort '))
@@ -218,7 +218,7 @@ test('a decision that thetaMax held back says so in its reason', { options: { ..
   const w = world($, on, { backend: jev([0, 0.1, 0.15, 0.25, 0.5]) })
   await w.submit('设计一个跨区域的数据迁移方案，保证零停机')
 
-  expect((await w.command('dp', 'log')).split('\n')[1]).toBe(
+  expect((await w.command('dp', 'log 10')).split('\n')[1]).toBe(
     '#1 main-effort: effort xhigh for "设计一个跨区域的数据迁移方案，保证零停机": p low 0.00, medium 0.10, high 0.15, xhigh 0.25, max 0.50; max is below thetaMax 0.60; confidence 0.70',
   )
 })
@@ -228,10 +228,10 @@ test('the decision log lives in $.state, so a hot reload of the mod keeps it', {
   const left = [{ n: 7, turn: 3, feature: 'main-effort', tone: 'ok' as const, outcome: 'effort max', subject: '"迁移"', reason: 'p max 0.80' }]
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), seed: { log: left } })
 
-  expect((await w.command('dp', 'log')).split('\n')).toEqual(['the last decision, newest last', '#7 main-effort: effort max for "迁移": p max 0.80'])
+  expect((await w.command('dp', 'log 10')).split('\n')).toEqual(['the last decision, newest last', '#7 main-effort: effort max for "迁移": p max 0.80'])
   // The numbering goes on from what it left.
   await w.submit('接着做')
-  expect((await w.command('dp', 'log')).split('\n').at(-1)).toContain('#8 main-effort: effort high for "接着做"')
+  expect((await w.command('dp', 'log 10')).split('\n').at(-1)).toContain('#8 main-effort: effort high for "接着做"')
 })
 
 test('the decision log keeps the last 20 turns', { options: KEY }, async ($, on) => {
@@ -301,7 +301,7 @@ test('the signals switch stops the recording, and so does switching Dispatch Pil
   const w = world($, on, { session: true })
   const reading = { context: { tokens: 1000, window: 200_000, percent: 1 }, rateLimits: [], changed: ['context' as const] }
 
-  expect(await w.command('dp')).toMatch(/\bon +signals +\S/)
+  expect(await w.command('dp', 'status')).toMatch(/\bon +signals +\S/)
   await w.command('dp', 'signals off')
   await w.measure(reading)
   expect(w.logs).toEqual([])
