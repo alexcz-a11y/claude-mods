@@ -1,0 +1,6 @@
+{
+  "name": "board-scenes",
+  "version": "0.0.1",
+  "description": "Probe: answers dispatch-pilot's reads of the board, the decision log and the skill-profile record with fixed scenes, so its band, footer and rationale pane can be looked at without any model or decision request.",
+  "author": { "name": "alexcz-a11y" }
+}

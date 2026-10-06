@@ -64,6 +64,7 @@ claude --debug-file ./mod-debug.log --plugin-dir ./<mod>   # 调试；日志里�
 scripts/check.sh [<mod>]                             # 提交前的全部检查：test、validate --strict、tsc、<mod>/eval/validate.ts、marketplace 清单
 scripts/test-one.sh <mod> <file.test.ts>...          # 只跑指定的测试文件（其余临时移走，退出时放回）
 docs/research/event-probe/run.sh "<prompt>"          # 实测引擎在某种输入下发哪些事件、什么顺序
+claude --plugin-dir ./dispatch-pilot --plugin-dir ./docs/research/board-scenes   # 用固定场景目测 dispatch-pilot 的看板和依据面板（herdr 里的做法见它的 README）
 ```
 
 pre-commit 和 pre-merge-commit hook 都跑 `scripts/check.sh`（无冲突的合并只触发后者），每个 clone 用 `git config core.hooksPath .githooks` 打开一次。
