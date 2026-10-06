@@ -75,6 +75,28 @@ declare module 'claude-code' {
        */
       board: {
         turn: number
+        /**
+         * When the latest turns started (`$.clock.now()`, ms), by turn, as the module's `turn.start` hook saw it:
+         * what a node's `t0`, a change's `at` and the band's elapsed time count from. Absent in a board an earlier
+         * version wrote.
+         */
+        starts?: { turn: number; at: number }[]
+        /**
+         * The readings that changed, oldest first: an agent's model (by family) or effort differing from its
+         * previous step's in the same turn. The first reading of a node is no change. Kept for the nodes' turns.
+         * Absent in a board an earlier version wrote.
+         */
+        changes?: {
+          /** The turn of the agent's node, and the agent (`main`, or the agentId). */
+          turn: number
+          id: string
+          /** Seconds from the start of that turn to the step that read the change. */
+          at: number
+          /** The `n` of the last `decisionLog` entry when it was read (0: none yet): the event stream places it after that entry. */
+          after: number
+          from: { model?: 'haiku' | 'sonnet' | 'opus' | 'fable'; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number }
+          to: { model?: 'haiku' | 'sonnet' | 'opus' | 'fable'; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number }
+        }[]
         nodes: {
           /** The turn it belongs to. */
           turn: number
@@ -89,10 +111,15 @@ declare module 'claude-code' {
           model?: 'haiku' | 'sonnet' | 'opus' | 'fable'
           /** The effort of its latest step as it went out (a level, or the engine's integer budget); absent for a model without effort. */
           effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number
+          /**
+           * `queued`: spawned (or decided for) and no step yet; `running`: its latest step has been read and its loop
+           * has not ended; `done`: its loop ended with an answer; `failed`: it ended in an error, a refusal or an
+           * interruption (`why` says which).
+           */
           state: 'queued' | 'running' | 'done' | 'failed'
-          /** Seconds from the start of the turn to the start of the agent. */
+          /** Seconds from the start of the turn to the start of the agent (its first step; for a queued agent, its spawn). 0 for the main agent. */
           t0: number
-          /** Seconds it ran; absent while it runs. */
+          /** Seconds it ran, as its loop's `turn.complete` reports; absent while it runs. */
           dur?: number
           /** Whether its steps go out as Dispatch Pilot decided (or the person locked); false: as the engine made them (未路由). */
           routed: boolean
@@ -114,6 +141,20 @@ declare module 'claude-code' {
            * starts, the call of the script that stands for it (id `<tool_use_id>#<index>`, state `queued`).
            */
           workflow?: { id: string; name: string }
+          /**
+           * The main agent's mid-turn re-decisions this turn (midturn-effort): steps made, decisions (the turn's
+           * own at its start included), level changes. `late`: the answer for the step is not back; `failure`: the
+           * latest request failed. Absent until the turn was re-decided once.
+           */
+          midturn?: {
+            steps: number
+            judged: number
+            changed: number
+            late?: true
+            failure?: { backend: string; kind: 'config' | 'timeout' | 'network' | 'busy' | 'quota' | 'http' | 'parse' | 'request'; detail: string; status?: number }
+          }
+          /** The failed tool calls, hook blocks and forced raises of the agent's loop (escalation); absent while none. `late`: a stuck re-decision is not back. */
+          counts?: { failed: number; blocked: number; raised: number; late?: true }
         }[]
       }
       /**
@@ -149,13 +190,27 @@ declare module 'claude-code' {
           to: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
           model: 'haiku' | 'sonnet' | 'opus' | 'fable'
         }
+        /** The model (by family) and the effort an agent was decided to run with: a dispatched or Workflow agent's decision; its node says what its steps went out with. */
+        model?: 'haiku' | 'sonnet' | 'opus' | 'fable'
+        effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
         /** A mid-turn re-decision: the effort it was at, the level the answer picked, where it ended, and why it did not move (`held`). */
         mid?: {
           current: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
           picked: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
           result: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          /** The confidence the move needed (thetaUp for a raise, thetaDown for a lowering); absent while the lowering was held, and when the answer was the level itself. */
+          threshold?: number
+          /** Why a lowering did not happen: it was held after a raise. */
           held?: string
+          /** The steps still to wait before a held lowering may go through. */
+          remaining?: number
         }
+        /** A raise the failures forced (escalation): what it went from and to (levels, or for a haiku agent models), and the level it keeps the agent at least at. */
+        forced?: { kind: 'effort' | 'model'; from: string; to: string; floor?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' }
+        /** The skills a message or a find_skill call got: those suggested to the main agent, and those only the person can start (「可试 /x」), each with its relevance. */
+        skills?: { suggest: { name: string; relevance: number }[]; try: { name: string; relevance: number }[] }
+        /** The loop's counts when it was raised (escalation). */
+        counts?: { failed: number; blocked: number; raised: number }
       }[]
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null

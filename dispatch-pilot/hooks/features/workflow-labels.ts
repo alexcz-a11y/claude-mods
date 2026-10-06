@@ -229,12 +229,7 @@ async function routeAgent($: EngineInterface, ctx: Ctx, settings: DispatchSettin
   if (settled.ok) {
     const plan = settled.route === null ? null : agentPlan(settled.route, stepModel)
     // The decision made as the agent starts has its entry now; one made with its run is the entry that stands for its call.
-    await reportDecision(
-      reporting,
-      settled.decision === null
-        ? { ...about, started: true, ...(settled.route?.model == null ? {} : { model: settled.route.model }), ...(settled.route?.effort == null ? {} : { effort: settled.route.effort }) }
-        : { ...about, routed: true, ...settled.decision },
-    )
+    await reportDecision(reporting, settled.decision === null ? { ...about, started: true } : { ...about, routed: true, ...settled.decision })
     const terms = settled.terms
     if ((plan !== null && (plan.model !== null || plan.effort !== null)) || terms !== null) {
       await $.state.set({ ...AGENTS, id: agentId }, { effort: plan?.effort ?? null, floor: null, model: plan?.model ?? null, terms })

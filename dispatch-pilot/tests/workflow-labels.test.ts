@@ -177,7 +177,7 @@ test("an agent whose own decision fails goes out as the engine made it; the stat
   // Each agent has its own node: the one that failed says why, the one that was routed says what it got.
   const board = await w.board()
   expect(board.agents.filter((node) => node.id.startsWith('wa')).map((node) => [node.id, node.routed, node.why, node.model])).toEqual([
-    ['wa1', false, 'jev: HTTP 500', undefined],
+    ['wa1', false, 'jev: HTTP 500', 'sonnet'],
     ['wa2', true, undefined, 'haiku'],
   ])
   expect(board.agents.find((node) => node.id === 'wa1')?.failure).toMatchObject({ backend: 'jev', kind: 'http', status: 500 })
@@ -574,4 +574,16 @@ return summary
     prompt: 'Is every route under src/api/admin checked for the admin role? Cite the file and line of each gap.',
   })
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 max', 'wa2 claude-haiku-4-5 undefined'])
+
+  // The board: the summary's agent took the place of its call's node, with the decision workflow-agents made for it (haiku, which the
+  // script was given); the data-driven call's agent was decided as it started. No call is left waiting.
+  const board = await w.board()
+  const agents = board.agents.filter((node) => node.id.startsWith('wa'))
+  expect(agents.map((node) => [node.id, node.name, node.state, node.model, node.routed])).toEqual([
+    ['wa1', 'q-auth', 'running', 'opus', true],
+    ['wa2', 'summary', 'running', 'haiku', true],
+  ])
+  expect(board.log.find((entry) => entry.n === agents[1]?.decision)).toMatchObject({ feature: 'workflow-agents', model: 'haiku', subject: '"summary" (workflow answers)' })
+  expect(board.log.find((entry) => entry.n === agents[0]?.decision)).toMatchObject({ feature: 'workflow-labels', agent: 'wa1' })
+  expect(board.agents.filter((node) => node.state === 'queued')).toEqual([])
 })

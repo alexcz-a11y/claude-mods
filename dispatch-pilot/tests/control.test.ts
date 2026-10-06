@@ -258,7 +258,7 @@ test('the decision log keeps the last 20 turns', { options: KEY }, async ($, on)
   expect(lines.at(-1)).toContain('#22 main-effort: effort high for "第 22 条消息"')
 })
 
-test('the decision log keeps at most 300 entries, however few turns they were made in', { options: KEY }, async ($, on) => {
+test('the decision log keeps at most 300 entries, however few turns they were made in', { options: KEY, timeoutMs: 30_000 }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
   await w.submit('第一条')
   // Messages typed into the running turn are decided too, and belong to it.

@@ -1,16 +1,27 @@
 // Skills (#10): the main agent's skill listing withheld, and the skills that
 // fit each message the person sends suggested beside it. Seam 1: engine
-// events in; what reaches the model, the decision backend and the status line
-// out.
+// events in; what reaches the model, the decision backend and the board data
+// (`w.board()`; the old status line in a few tests) out.
 
 import { expect, test } from 'claude-code/testing'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { pickSkills, readHints, readSkills, skillsPart, skillsRequest, type SkillOption } from '../hooks/decision/skills.ts'
 import { CLEF_OPTIONS, clef, clefInputProblems } from './support/cloudflare.ts'
 import type { Reply, Sent, SkillsWorld } from './support/world.ts'
-import { isSecondSkillsRequest, jev, rates, world } from './support/world.ts'
+import { isSecondSkillsRequest, jev, rates, world, type World } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
+
+/** The skills decisions the board keeps, oldest first. */
+async function skillDecisions(w: World) {
+  return (await w.board()).log.filter((entry) => entry.feature === 'skills')
+}
+
+/** The names the latest skills decision suggested to the main agent, and pointed out to the person (「可试 /x」). */
+async function picked(w: World) {
+  const skills = (await skillDecisions(w)).at(-1)?.skills
+  return { suggest: skills?.suggest.map((skill) => skill.name), try: skills?.try.map((skill) => skill.name) }
+}
 
 // What the engine lists for the main agent at the first request of a session.
 const LISTING = [
@@ -322,6 +333,11 @@ test('a skill only the person can start that fits outright takes nothing from th
 
   expect(Object.keys(w.requests[1]?.body.questions ?? {})).toEqual(['skills.best', 'skills.fits.0', 'skills.fits.1'])
   expect(w.prompts[0]?.context?.[0]).toContain('- code-review (relevance 0.90): ')
+  expect(await picked(w)).toEqual({ suggest: ['code-review'], try: ['grill-me'] })
+  const [entry] = await skillDecisions(w)
+  expect(entry).toMatchObject({ turn: 1, agent: 'main', tone: 'ok', subject: '"这个方案往死里挑刺，再审一下改动"', outcome: 'suggested code-review; try /grill-me' })
+  expect(entry?.skills?.try[0]?.relevance).toBeGreaterThan(0.9)
+  // The old status line says the same until it goes.
   expect(w.status()).toBe('dp effort medium | skills code-review | try /grill-me')
 })
 
@@ -337,10 +353,10 @@ test('with only skills the person can start to ask about, the hint is still aske
 
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'skills.hint'])
   expect(w.prompts[0]?.context).toBeUndefined()
-  expect(w.status()).toBe('dp effort medium | try /grill-me')
+  expect(await picked(w)).toEqual({ suggest: [], try: ['grill-me'] })
 })
 
-test('a skill only the person can start is never suggested to the main agent: the status line names it for them', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
+test('a skill only the person can start is never suggested to the main agent: the board data names it for them (可试 /x)', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
   const w = world($, on, { backend: rates({ 'grill-me': 0.55, 'code-review': 0.3, '(none)': 0.15 }, { 'grill-me': 0.95, 'code-review': 0.3 }), skills: WITH_PERSONS, disk: PERSON_FILES })
   await w.submit('这个方案往死里挑刺，问到我答不上来为止')
   await w.step({ index: 0 })
@@ -348,7 +364,7 @@ test('a skill only the person can start is never suggested to the main agent: th
   const block = w.prompts[0]?.context?.[0] ?? ''
   expect(block).toContain('- code-review (relevance 0.30): ')
   expect(block).not.toContain('grill-me')
-  expect(w.status()).toBe('dp effort medium | skills code-review | try /grill-me')
+  expect(await picked(w)).toEqual({ suggest: ['code-review'], try: ['grill-me'] })
 })
 
 // A project's own skills: `$.command.list()` gives a project's file the same
@@ -378,7 +394,7 @@ test("a project's own skills are read under its working directory: one the main 
     ['deploy-docs', 'Run the docs build, then push the site.'],
     ['release-notes', 'List the merged changes since the last tag.'],
   ])
-  expect(w.status()).toBe('dp effort medium | skills deploy-docs | try /release-notes')
+  expect(await picked(w)).toEqual({ suggest: ['deploy-docs'], try: ['release-notes'] })
 })
 
 /** Answers each message's two skills requests by the message they ask about: `byMessage[text]` is `[shares, fits]`. */
@@ -389,28 +405,35 @@ function byMessage(answers: Record<string, [Record<string, number>, Record<strin
   }
 }
 
-test('the status line names the skills suggested for the latest message, and none once nothing fits', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
+test('each message gets its own skills decision: the skills suggested, and none once nothing fits', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
   const w = world($, on, { backend: byMessage({ 先写失败的测试: [{ tdd: 0.7, '(none)': 0.3 }, { tdd: 0.9 }] }), skills: SKILLS })
   await w.submit('先写失败的测试')
   await w.step({ index: 0 })
+  expect(await picked(w)).toEqual({ suggest: ['tdd'], try: [] })
   expect(w.status()).toBe('dp effort medium | skills tdd')
   await w.submit('这个报错是什么意思？')
   await w.step({ index: 0 })
+  expect(await picked(w)).toEqual({ suggest: [], try: [] })
+  expect((await skillDecisions(w)).map((entry) => [entry.turn, entry.outcome])).toEqual([
+    [1, 'suggested tdd'],
+    [2, 'suggested no skill'],
+  ])
   expect(w.status()).toBe('dp effort medium')
 })
 
-test("a failed decision request suggests nothing, and the last message's skills leave the status line", { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
+test("a failed decision request suggests nothing: no skills decision for that message, and its main agent's node says why", { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
   // The first message's two requests are answered; the next message's first request is refused.
   const w = world($, on, { backend: (request, n) => (n <= 2 ? rates({ tdd: 0.7, '(none)': 0.3 }, { tdd: 0.9 })(request) : { status: 503, body: 'overloaded' }), skills: SKILLS })
   await w.submit('先写失败的测试')
   await w.step({ index: 0 })
-  expect(w.status()).toBe('dp effort medium | skills tdd')
+  expect(await picked(w)).toEqual({ suggest: ['tdd'], try: [] })
   await w.submit('然后把限流也加上')
   await w.step({ index: 0, effort: 'xhigh' })
 
   expect(w.requests).toHaveLength(3)
   expect(w.prompts[1]?.context).toBeUndefined()
-  expect(w.status()).toBe('dp effort xhigh (not routed) | jev: busy (HTTP 503)')
+  expect((await skillDecisions(w)).map((entry) => entry.turn)).toEqual([1])
+  expect((await w.board()).main).toMatchObject({ turn: 2, routed: false, why: 'jev: busy (HTTP 503)' })
 })
 
 test('an answer that leaves the skills question out suggests nothing, and the effort still goes through', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
@@ -427,7 +450,9 @@ test('an answer that leaves the skills question out suggests nothing, and the ef
   await w.step({ index: 0, effort: 'xhigh' })
 
   expect(w.prompts[1]?.context).toBeUndefined()
-  expect(w.status()).toBe('dp effort medium')
+  // The first message was rated, the second got nothing about the skills: no decision for it, and the effort's went through.
+  expect((await skillDecisions(w)).map((entry) => entry.turn)).toEqual([1])
+  expect((await w.board()).main).toMatchObject({ turn: 2, routed: true })
 })
 
 const TDD_DESCRIPTION = 'Test-driven development. Use when the user wants to build features or fix bugs test-first.'

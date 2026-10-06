@@ -1,7 +1,7 @@
 // find_skill (#12): mid-turn, the main agent asks for the skills that fit a
 // piece of work. Seam 1: the engine's session start and tool call in; what
-// reaches the decision backend, the tool's answer, the status line and the
-// logs out.
+// reaches the decision backend, the tool's answer, the board data and the
+// logs out; the old status line, in the tests of what it says of a failed call.
 
 import { expect, test } from 'claude-code/testing'
 import { profileKey } from '../hooks/core/profiles.ts'
@@ -367,7 +367,7 @@ test('an error of its own still gets the main agent an answer, and the status li
 
 // ---- The status line and the logs -------------------------------------------------
 
-test('the status line names what find_skill returned last, which takes the place of an earlier failure', { options: KEY }, async ($, on) => {
+test('each call that rates the skills is a decision on the board data: what find_skill returned, or that no skill fits; a failed call is none, and the status line says what came last', { options: KEY }, async ($, on) => {
   const pdf = rates({ 'anthropic-skills:pdf': 0.7, 'code-review': 0.2, '(none)': 0.1 }, { 'anthropic-skills:pdf': 0.95, 'code-review': 0.5 })
   const w = world($, on, {
     backend: (request, n) => (n === 1 ? { status: 503, body: 'overloaded' } : request.body.state.user_message === 'rename a variable' ? rates({ '(none)': 1 })(request) : pdf(request)),
@@ -375,10 +375,20 @@ test('the status line names what find_skill returned last, which takes the place
     disk: PERSON_FILES,
   })
   await w.findSkill('fill in a form in a PDF')
+  expect((await w.board()).log).toEqual([])
   await w.findSkill('fill in a form in a PDF')
   expect(w.status()).toBe('dp find_skill anthropic-skills:pdf, code-review')
   await w.findSkill('rename a variable')
   expect(w.status()).toBe('dp find_skill none')
+
+  const [found, none] = (await w.board()).log
+  expect(found).toMatchObject({ n: 1, feature: 'find-skill', agent: 'main', tone: 'ok', subject: '"fill in a form in a PDF"', outcome: 'found anthropic-skills:pdf, code-review' })
+  expect(found?.skills?.suggest.map((skill) => [skill.name, skill.relevance])).toEqual([
+    ['anthropic-skills:pdf', 0.95],
+    ['code-review', 0.5],
+  ])
+  expect(found?.skills?.try).toEqual([])
+  expect(none).toMatchObject({ n: 2, tone: 'info', subject: '"rename a variable"', outcome: 'found no skill', skills: { suggest: [], try: [] } })
 })
 
 test('each call goes to the debug log (its requests, what it returned and why) and its decision to /dp log, never into the conversation', { options: KEY }, async ($, on) => {
@@ -401,6 +411,7 @@ test('each call goes to the debug log (its requests, what it returned and why) a
     { text: 'request [skills.which] to jev for find_skill "review a branch before merging": http: HTTP 500: boom (0 ms)', to: 'debug' },
   ])
   expect((await w.command('dp', 'log')).split('\n')).toEqual(['the last decision, newest last', `#1 find-skill: ${decision}`])
+  expect((await w.board()).log.map((entry) => [entry.n, entry.feature, entry.skills?.suggest.map((skill) => skill.name)])).toEqual([[1, 'find-skill', ['anthropic-skills:pdf', 'code-review']]])
 })
 
 // ---- Calls it does not rate -------------------------------------------------------

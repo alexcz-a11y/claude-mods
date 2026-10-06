@@ -51,11 +51,15 @@ test('each agent() of a submitted script is written with the model and effort de
   expect(told).toContain('"review": opus xhigh (model: decided, confidence 0.85; effort: p 0.80)')
   expect(w.status()).toBe('dp workflow routed 2 agents')
 
-  // The board has one node for each agent, before any of them starts: its label, model, effort, and the log entry it came from.
+  // The board has one node for each agent, before any of them starts: its label, and the log entry it came from, with the model and effort decided.
   const board = await w.board()
-  expect(board.agents.map((node) => [node.kind, node.name, node.state, node.model, node.effort, node.routed])).toEqual([
-    ['wf', 'rename', 'queued', 'sonnet', 'medium', true],
-    ['wf', 'review', 'queued', 'opus', 'xhigh', true],
+  expect(board.agents.map((node) => [node.kind, node.name, node.state, node.routed])).toEqual([
+    ['wf', 'rename', 'queued', true],
+    ['wf', 'review', 'queued', true],
+  ])
+  expect(board.log.map((entry) => [entry.model, entry.effort])).toEqual([
+    ['sonnet', 'medium'],
+    ['opus', 'xhigh'],
   ])
   expect(board.agents.map((node) => node.workflow?.name)).toEqual(['tidy-api', 'tidy-api'])
   expect(new Set(board.agents.map((node) => node.workflow?.id)).size).toBe(1)
@@ -318,9 +322,13 @@ test("in return mode the first submission is refused with each agent's recommend
   expect(w.status()).toBe('dp workflow sent back (2 agents)')
   // The decisions are on the board as the recommendations they are: the agents have not started.
   const sent = await w.board()
-  expect(sent.agents.map((node) => [node.name, node.state, node.model, node.effort])).toEqual([
-    ['rename', 'queued', 'sonnet', 'medium'],
-    ['review', 'queued', 'opus', 'xhigh'],
+  expect(sent.agents.map((node) => [node.name, node.state, node.routed])).toEqual([
+    ['rename', 'queued', true],
+    ['review', 'queued', true],
+  ])
+  expect(sent.log.map((entry) => [entry.model, entry.effort])).toEqual([
+    ['sonnet', 'medium'],
+    ['opus', 'xhigh'],
   ])
   expect(sent.log.map((entry) => entry.outcome)).toEqual(['sonnet medium (sent back)', 'opus xhigh (sent back)'])
 
@@ -397,8 +405,9 @@ test('a script with many agent() calls is asked about in several requests sent t
   // Every one of the 20 has its own node and its own entry in the log.
   const board = await w.board()
   expect(board.agents).toHaveLength(20)
-  expect(board.agents.every((node) => node.routed && node.model === 'sonnet' && node.effort === 'high')).toBe(true)
+  expect(board.agents.every((node) => node.routed)).toBe(true)
   expect(board.log).toHaveLength(20)
+  expect(board.log.every((entry) => entry.model === 'sonnet' && entry.effort === 'high')).toBe(true)
   expect(new Set(board.agents.map((node) => node.decision)).size).toBe(20)
 })
 

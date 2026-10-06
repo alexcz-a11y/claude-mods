@@ -19,14 +19,15 @@ import { turnStartState } from '../decision/context.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { modRanker, pickSkills, skillOpening, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
 import { answersFor, mergeParts, type DecisionRequest } from '../decision/system-one.ts'
-import { recordDecision } from '../core/decisions.ts'
 import { readSessionSkills } from '../core/profiles.ts'
+import { reportDecision, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { describeStages, rankingSettings, type CatalogSkill } from '../core/skills.ts'
-import { failureText, setStatus } from '../core/status.ts'
+import { failureText } from '../core/status.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 
 const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
@@ -135,7 +136,14 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
     }
     const query = typeof e.query === 'string' ? e.query.replace(/\s+/g, ' ').trim() : ''
     if (query === '') return { result: 'find_skill needs a query: a few words on the kind of work you need a skill for.' }
-    const show = (text: string) => setStatus('find-skill', text, (line) => $.ui.status(line))
+    const io: ReportIo = {
+      board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+      decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+      debug: (line) => $.ui.log(line, { to: 'debug' }),
+      status: (line) => $.ui.status(line),
+    }
+    // The main agent's own call, beside its decision for the turn: in the log, not on its node.
+    const report = { feature: SWITCH, agent: 'main', aside: true as const }
     try {
       // The skills the main agent can load, as a message asks about them: their question of stage
       // one is the very one beside a message (those only the person can start have one of their
@@ -144,7 +152,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       const known = await sessionCatalog($, model)
       const candidates = known?.filter((skill) => skill.by === 'model' && !neverSuggested.has(skill.name)).map((skill) => (isOn(PROFILES) ? skill : { ...skill, profile: null })) ?? null
       if (candidates === null) {
-        show("find_skill failed (the session's skills could not be read)")
+        await reportDecision(io, { ...report, skipped: 'unread' as const })
         return { result: `find_skill could not read this session's skills. ${CARRY_ON}` }
       }
       const about = `for find_skill ${quoteStart(query)}`
@@ -159,7 +167,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       // (BACKEND_DEFAULTS findSkillProfiles: not Clef), else by its description; the second re-reads by both.
       const part = ranker.part(findByProfile ? candidates : candidates.map((skill) => ({ ...skill, profile: null })))
       if (part === null) {
-        show('find_skill none')
+        await reportDecision(io, { ...report, skipped: 'none' as const })
         return { result: `This session has no skill that find_skill could return. ${CARRY_ON}` }
       }
 
@@ -175,8 +183,9 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       const ranked = asked.ok ? await ranker.rank(answersFor(part, asked.answers), candidates, { state: request.state, timeoutMs: left }) : null
       const failure = !asked.ok ? asked.failure : ranked === null ? { kind: 'parse' as const, detail: 'no answer about the skills' } : ranked.failed
       if (ranked === null || failure !== undefined) {
-        const why = failureText(ctx.backend.name, failure ?? { kind: 'parse', detail: 'no answer about the skills' })
-        show(`find_skill failed (${why})`)
+        const lost = failure ?? { kind: 'parse' as const, detail: 'no answer about the skills' }
+        const why = failureText(ctx.backend.name, lost)
+        await reportDecision(io, { ...report, failure: { backend: ctx.backend.name, ...lost } })
         return { result: `find_skill could not rate the skills (${why}). ${CARRY_ON}` }
       }
       const ranking = ranked
@@ -184,16 +193,18 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       // Only skills the main agent can load were asked about, and they alone can come back.
       const { suggest } = pickSkills(ranking, candidates, policy)
       const names = suggest.map((skill) => skill.name).join(', ')
-      await recordDecision(
-        { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
-        (line) => $.ui.log(line, { to: 'debug' }),
-        { feature: SWITCH, outcome: suggest.length > 0 ? `found ${names}` : 'found no skill', about: quoteStart(query), reason: describeRanking(ranking, policy) },
-      )
-      show(`find_skill ${suggest.length > 0 ? names : 'none'}`)
+      await reportDecision(io, {
+        ...report,
+        subject: quoteStart(query),
+        outcome: suggest.length > 0 ? `found ${names}` : 'found no skill',
+        reason: describeRanking(ranking, policy),
+        tone: suggest.length > 0 ? 'ok' : 'info',
+        skills: { suggest: suggest.map(({ name, relevance }) => ({ name, relevance })), try: [] },
+      })
       return { result: found(query, suggest, policy) }
     } catch (error) {
       $.ui.log(`find_skill failed: ${errorText(error)}`, { to: 'debug' })
-      show('find_skill failed (see the debug log)')
+      await reportDecision(io, { ...report, skipped: 'error' as const })
       return { result: `find_skill could not rate the skills (an error in Dispatch Pilot, written to the debug log). ${CARRY_ON}` }
     }
   })

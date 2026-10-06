@@ -320,13 +320,23 @@ test('agents dispatched together each have their own decision on the board: mode
 
   const board = await w.board()
   expect(board.agents).toHaveLength(2)
-  expect(board.agents.find((node) => node.id === design.agentId)).toMatchObject({ kind: 'agent', name: 'Design cache invalidation', type: 'Plan', state: 'running', model: 'opus', effort: 'xhigh', routed: true })
-  expect(board.agents.find((node) => node.id === tests.agentId)).toMatchObject({ kind: 'agent', name: 'LRU tests', model: 'sonnet', effort: 'high', routed: true })
-  // Each node points at its own entry of the log, and the entry says whose it is.
+  // Spawned, not stepped yet: queued, routed as decided, each linked to its own entry of the log, which says what was decided.
+  expect(board.agents.find((node) => node.id === design.agentId)).toMatchObject({ kind: 'agent', name: 'Design cache invalidation', type: 'Plan', state: 'queued', routed: true })
+  expect(board.agents.find((node) => node.id === tests.agentId)).toMatchObject({ kind: 'agent', name: 'LRU tests', state: 'queued', routed: true })
   for (const node of board.agents) {
     const entry = board.log.find((kept) => kept.n === node.decision)
     expect(entry).toMatchObject({ feature: 'dispatched-agents', agent: node.id, tone: 'ok', turn: 1 })
   }
+  expect(board.agents.map((node) => board.log.find((kept) => kept.n === node.decision)).map((entry) => [entry?.model, entry?.effort])).toEqual([
+    ['opus', 'xhigh'],
+    ['sonnet', 'high'],
+  ])
+  // Their first steps are what the nodes read: the model and effort that went out, routed as decided.
+  await w.step({ index: 0, turnId: 'sub-1', agentId: design.agentId, model: 'claude-opus-5-5', effort: 'medium' })
+  await w.step({ index: 0, turnId: 'sub-2', agentId: tests.agentId, model: 'claude-sonnet-5-5', effort: 'medium' })
+  const read = (await w.board()).agents
+  expect(read.find((node) => node.id === design.agentId)).toMatchObject({ state: 'running', model: 'opus', effort: 'xhigh', routed: true })
+  expect(read.find((node) => node.id === tests.agentId)).toMatchObject({ state: 'running', model: 'sonnet', effort: 'high', routed: true })
   expect(board.log.filter((entry) => entry.feature === 'dispatched-agents').map((entry) => entry.outcome)).toEqual(['opus xhigh', 'sonnet high'])
   expect(board.log.find((entry) => entry.agent === design.agentId)?.reason).toMatch(/confidence 0\.85/)
 })
@@ -412,7 +422,7 @@ test("the status line shows the latest dispatched agent's model and effort, and 
 
   expect(lines).toEqual(['dp agent sonnet high', 'dp agent opus medium (kept)', 'dp agent haiku (you)'])
   // The board keeps every one of them.
-  expect((await w.board()).nodes.filter((node) => node.kind === 'agent').map((node) => [node.model, node.effort])).toEqual([
+  expect((await w.board()).log.filter((entry) => entry.feature === 'dispatched-agents').map((entry) => [entry.model, entry.effort])).toEqual([
     ['sonnet', 'high'],
     ['opus', 'medium'],
     ['haiku', undefined],
@@ -433,7 +443,8 @@ test('/dp dispatched-agents off lets agents start as the main agent sent them, w
   const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.05, opus: 0.05 }, effort: [0, 1, 0, 0, 0] }) })
   expect(await w.command('dp')).toMatch(/\bon +dispatched-agents +\S/)
   await w.spawn({ prompt: 'List the files under src/.' })
-  expect((await w.board()).agents).toMatchObject([{ model: 'haiku', routed: true }])
+  expect((await w.board()).agents).toMatchObject([{ state: 'queued', routed: true, decision: 1 }])
+  expect((await w.board()).log).toMatchObject([{ feature: 'dispatched-agents', model: 'haiku', outcome: 'haiku' }])
   expect(w.status()).toBe('dp agent haiku')
 
   expect(await w.command('dp', 'dispatched-agents off')).toContain('dispatched-agents is off')
@@ -456,7 +467,9 @@ test('/dp off stands dispatched agents down too: nothing is asked and the agent 
 
   expect(w.requests).toHaveLength(0)
   expect(w.spawned.map((s) => s.model)).toEqual(['sonnet'])
-  expect((await w.board()).agents).toEqual([])
+  // Nothing was decided: the agent is on the board all the same, and not routed.
+  expect((await w.board()).agents).toMatchObject([{ state: 'queued', routed: false }])
+  expect((await w.board()).log).toEqual([])
   expect(w.status()).toBe('dp off')
 })
 

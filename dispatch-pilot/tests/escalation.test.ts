@@ -1,5 +1,6 @@
 // Forced escalation (#7): seam 1 (engine events in; what reaches the engine,
-// the decision backend and the status line out). A loop whose tool calls keep
+// the decision backend and the board data, `w.board()`, out; the old status
+// line in a few tests). A loop whose tool calls keep
 // failing is asked about again, with the trouble and the question whether the
 // failures were expected, and goes up a level (or to max) unless they were.
 
@@ -11,9 +12,15 @@ import { midturnEffortPart, midturnState, type MidturnInput } from '../hooks/dec
 import { mergeParts } from '../hooks/decision/system-one.ts'
 import { siteJev } from './support/workflow.ts'
 import { runDir, runWorld } from './support/workflow-run.ts'
-import { jev, world, type Reply, type Sent, type ToolRun } from './support/world.ts'
+import { jev, world, type Reply, type Sent, type ToolRun, type World } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
+
+/** The escalation decisions the board keeps, oldest first. */
+async function escalations(w: World) {
+  return (await w.board()).log.filter((entry) => entry.feature === 'escalation')
+}
+
 /** No periodic mid-turn re-decisions (they have their own tests): the only requests are this feature's. */
 const ONLY = { ...KEY, rejudgeEvery: 0 }
 
@@ -81,6 +88,30 @@ test('two failed tool calls: the next step is asked about again, with the troubl
   expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level,escalation.expected'])
   expect(w.requests[1]?.body.state.trouble).toBe('2 tool calls have failed while working on this request')
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'high'])
+
+  // The forced raise is a decision on the board data: from, to and the floor it holds, the rules' working, the loop's counts.
+  const [raise] = await escalations(w)
+  expect(raise).toMatchObject({
+    turn: 1,
+    agent: 'main',
+    tone: 'warn',
+    outcome: 'effort high (was medium)',
+    subject: 'step 1 (2 failed tool calls)',
+    forced: { kind: 'effort', from: 'medium', to: 'high', floor: 'high' },
+    counts: { failed: 2, blocked: 0, raised: 1 },
+  })
+  expect(raise?.trace?.map((step) => [step.rule, step.applied, step.level])).toEqual([
+    ['forced-raise', true, 'high'],
+    ['top', true, 'medium'],
+    ['max-gate', false, 'medium'],
+    ['round-up', false, 'medium'],
+    ['theta-up', true, undefined],
+    ['higher-of', false, 'high'],
+  ])
+  expect(raise?.trace?.[0]).toMatchObject({ from: 'medium', mode: 'one-level' })
+  expect(raise?.trace?.[4]).toMatchObject({ confidence: 0.8, threshold: 0.3 })
+  // Beside the turn's own decision: the node keeps its link to that one, and shows the counts.
+  expect((await w.board()).main).toMatchObject({ decision: 1, routed: true, counts: { failed: 2, blocked: 0, raised: 1 } })
 })
 
 test('the re-decision goes out as the call that reaches the threshold ends, before the next step: that step only takes the answer (story 18)', { options: ONLY }, async ($, on) => {
@@ -106,11 +137,13 @@ test('an answer not back by the next step: the step waits rejudgeWaitMs, goes ou
   await w.clock.settle()
   await w.clock.advance(300)
   await late
+  expect((await w.board()).main?.counts).toEqual({ failed: 2, blocked: 0, raised: 0, late: true })
   expect(w.status()).toBe('dp effort medium | failed 2 (late)')
 
   await w.clock.advance(700) // the answer comes
   await w.step({ index: 2 })
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'high'])
+  expect((await w.board()).main?.counts).toEqual({ failed: 2, blocked: 0, raised: 1 })
   expect(w.status()).toBe('dp effort high | failed 2, raised 1')
 })
 
@@ -177,7 +210,7 @@ test("a call a plugin's own tool.call hook refused (as Dispatch Pilot hands a Wo
 
   expect(w.requests.map(kind)).toEqual(['effort.level'])
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium'])
-  expect(w.status()).toBe('dp effort medium')
+  expect((await w.board()).main?.counts).toBeUndefined()
 })
 
 test('with the hook-block-failures switch on, the same blocks count: the loop is asked about, and goes one level higher', { options: ONLY }, async ($, on) => {
@@ -213,6 +246,10 @@ test('a one-level raise stops at xhigh: a loop already there is not asked about 
   expect(w.steps.map((s) => s.effort)).toEqual(['xhigh', 'xhigh'])
   const log = (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' escalation: '))
   expect(log).toEqual(['#2 escalation: effort xhigh (kept) for step 1 (2 failed tool calls): a one-level raise stops at xhigh'])
+  // Nothing was forced: a decision to leave it, with no raise on it.
+  const [kept] = await escalations(w)
+  expect(kept).toMatchObject({ tone: 'info', outcome: 'effort xhigh (kept)', counts: { failed: 2, blocked: 0, raised: 0 } })
+  expect(kept?.forced).toBeUndefined()
 })
 
 test('the decision model can put the loop higher than one level when it is sure; never lower than one level', { options: ONLY }, async ($, on) => {
@@ -298,6 +335,11 @@ test('an expected verdict leaves an ordinary re-decision: the answer moves the l
   await calm.step({ index: 1 })
 
   expect(calm.steps.map((s) => s.effort)).toEqual(['high', 'medium'])
+  // The same working as a mid-turn re-decision's: the answer's pick, the level it suggested and the confidence it was held to.
+  const [expected] = await escalations(calm)
+  expect(expected).toMatchObject({ tone: 'ok', outcome: 'effort medium (was high)', conf: 0.9, mid: { current: 'high', picked: 'low', result: 'medium', threshold: 0.55 } })
+  expect(expected?.forced).toBeUndefined()
+  expect(expected?.trace?.map((step) => step.rule)).toContain('theta-down')
 })
 
 test('failures that are not expected raise the loop, whatever else the answer says about the effort', { options: ONLY }, async ($, on) => {
@@ -340,6 +382,10 @@ test('without an answer (the request failed, or it left the question out) the fa
   const log = (await down.command('dp', 'log')).split('\n').filter((line) => line.includes(' escalation: '))
   expect(log[0]).toContain('effort high (was medium) for step 1 (2 failed tool calls): forced one level up')
   expect(log[0]).toContain('no answer (jev: busy (HTTP 503))')
+  // Without an answer the rules' working is the raise alone.
+  const [raise] = await escalations(down)
+  expect(raise?.forced).toEqual({ kind: 'effort', from: 'medium', to: 'high', floor: 'high' })
+  expect(raise?.trace?.map((step) => step.rule)).toEqual(['forced-raise'])
 })
 
 /** A tool call as the transcript holds it once it has failed. */
@@ -460,30 +506,42 @@ test('a forced raise holds for holdSteps steps, then the ordinary re-decisions m
   expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'high', 'high', 'high', 'medium', 'low'])
 })
 
-test("the status line shows the turn's failed calls, the calls a hook blocked (whether or not they count) and the raises, once there is something to show", { options: ONLY }, async ($, on) => {
+test("the main agent's node shows the turn's failed calls, the calls a hook blocked (whether or not they count) and the raises, once there is something to show", { options: ONLY }, async ($, on) => {
   const w = world($, on, { backend: answers(MEDIUM) })
   await w.submit('把登录模块重构成三层')
   await w.step({ index: 0 })
+  expect((await w.board()).main?.counts).toBeUndefined()
   expect(w.status()).toBe('dp effort medium')
   await w.step(failingOnce(1))
+  expect((await w.board()).main?.counts).toEqual({ failed: 1, blocked: 0, raised: 0 })
   expect(w.status()).toBe('dp effort medium | failed 1')
   await w.step(calls(2, BLOCKED))
+  expect((await w.board()).main?.counts).toEqual({ failed: 1, blocked: 2, raised: 0 })
   expect(w.status()).toBe('dp effort medium | failed 1, blocked 2')
   await w.step(failingOnce(3)) // the second counted failure: asked about at the next step
   await w.step({ index: 4 })
+  expect((await w.board()).main?.counts).toEqual({ failed: 2, blocked: 2, raised: 1 })
   expect(w.status()).toBe('dp effort high | failed 2, blocked 2, raised 1')
 
+  // A new turn starts the counts afresh: its own node has none.
   await w.submit('再看看另一个模块')
   await w.step({ index: 0 })
+  expect((await w.board()).main).toMatchObject({ turn: 2 })
+  expect((await w.board()).main?.counts).toBeUndefined()
   expect(w.status()).toBe('dp effort medium')
 })
 
-test("an agent's failed calls and raises show beside the agent's own segment", { options: ONLY }, async ($, on) => {
+test("an agent's failed calls and raises show on the agent's own node", { options: ONLY }, async ($, on) => {
   const w = world($, on, { backend: withAgents({ model: { sonnet: 1 }, effort: MEDIUM }), messages: agentRows })
   const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Fix auth tests' })) as { agentId: string }
   await w.step(agentStep(agentId, 0, { tools: agentFailing }))
+  expect((await w.board()).agents.find((node) => node.id === agentId)?.counts).toEqual({ failed: 2, blocked: 0, raised: 0 })
   expect(w.status()).toBe('dp agent sonnet medium | agent failed 2')
   await w.step(agentStep(agentId, 1))
+  const board = await w.board()
+  expect(board.agents.find((node) => node.id === agentId)?.counts).toEqual({ failed: 2, blocked: 0, raised: 1 })
+  expect(board.main?.counts).toBeUndefined()
+  expect(board.log.filter((entry) => entry.feature === 'escalation')).toMatchObject([{ agent: agentId, forced: { kind: 'effort', from: 'medium', to: 'high', floor: 'high' }, counts: { failed: 2, blocked: 0, raised: 1 } }])
   expect(w.status()).toBe('dp agent sonnet medium | agent failed 2, raised 1')
 })
 
@@ -594,6 +652,9 @@ test('a haiku agent has no effort to raise: it goes on as sonnet, named by its f
   expect(log).toHaveLength(1)
   expect(log[0]).toContain('model claude-sonnet-5-5 (was claude-haiku-4-5-20251001) for agent "Make the failing auth tests pass: run `p...", step 1 (2 failed tool calls)')
   expect(log[0]).toContain('a haiku agent has no effort to raise, so it is switched to claude-sonnet-5-5; not expected (p 0.10, thetaExpected 0.25)')
+  const [switched] = await escalations(w)
+  expect(switched).toMatchObject({ agent: agentId, tone: 'warn', forced: { kind: 'model', from: 'claude-haiku-4-5-20251001', to: 'claude-sonnet-5-5' }, counts: { failed: 2, blocked: 0, raised: 1 } })
+  expect(switched?.forced?.floor).toBeUndefined()
 })
 
 for (const [written, sent] of [
