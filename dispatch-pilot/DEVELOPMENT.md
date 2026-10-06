@@ -756,7 +756,7 @@ await reportDecision(io, { feature: 'main-effort', agent: 'main', forTurn: 'next
 - **给模型看的**：Workflow 的改写说明、退回说明和启动说明、skill 推荐的文字块、`find_skill` 的回答和工具描述、列表位置上的提示、Workflow 工具描述后面的常驻提示，一律英文，一字不改。`tests/model-facing.test.ts` 钉住两种 Workflow 说明（改写、退回）和失败的话的英文写法（`failureText`、`leftText`、`whyOf`）；skill 推荐的文字块、`find_skill` 的回答和启动说明由 `skills.test.ts`、`skill-ranking.test.ts`、`find-skill.test.ts`、`workflow-labels.test.ts` 逐字断言。
 - **同一个概念给人和给模型的两份文字分开写**：`callName` 和 `callTitle`、`outcomeOf` 和 `callResult`、`leftText` 和 `leftWords`、`failureText` 和 `failureLine`，前者给模型（和 debug log），后者给人。改给人的一份，不要碰给模型的一份。
 - **debug log 的诊断行**（请求的结果、`session.measure` 的读数、错误、画面没画出来的原因）是写给开发者的，保持英文。「决定」那一行和决策日志是同一份文字，所以是中文。
-- 界面要判断一条日志是什么时，看结构化的字段（`sentBack`、`forced`、`mid`、`skills`、`model`、`effort`），不要去匹配文字；`view.ts` 里只剩一处按「（Workflow 名）」取名字的回退，节点上有 Workflow 的信息时不用它。
+- 界面要判断一条日志是什么时，看结构化的字段（`sentBack`、`forced`、`mid`、`skills`、`model`、`effort`），不要去匹配文字：主 agent 的 effort 决定也带 `effort`，band 和面板的档位都由 `view.ts` 的 `levelOf` 从这些字段读（`effort`，没有就是规则推演最后一步的 `level`，再没有是中途重判的 `mid.result`），不读 `outcome`；`view.ts` 里只剩一处按「（Workflow 名）」取名字的回退，节点上有 Workflow 的信息时不用它。
 - `tests/human-words.test.ts` 断言失败的话和 skill 画像失败原因的中文，并扫一遍一轮之后看板、日志和 `/dp` 的回答里没有留下 `HTTP`、`thetaMax`、`kept`、`confidence` 这类英文。
 
 ### 会话的读数

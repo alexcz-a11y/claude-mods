@@ -18,7 +18,7 @@
 // in case the turn ends first and the message starts a turn of its own.
 
 import type { EngineInterface, On } from 'claude-code'
-import { EFFORTS, LEVEL, readEffort, readingText, traceEffort, turnStartEffortPart, type Effort, type EffortReading } from '../decision/effort.ts'
+import { EFFORTS, LEVEL, probsOf, readEffort, readingText, traceEffort, turnStartEffortPart, type Effort, type EffortReading } from '../decision/effort.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { contribute } from '../core/ballot.ts'
 import { commandOf, commandState } from '../core/commands.ts'
@@ -98,8 +98,10 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
           ...about,
           routed: true,
           outcome: `effort ${effort}`,
+          // The level as data: what reads the log (the band, the pane) never reads it out of the words.
+          effort,
           reason: describeReading(reading, effort, ctx.config.thetaMax),
-          probs: Object.fromEntries(EFFORTS.map((level, i) => [level, reading.probabilities[i] ?? 0])) as Record<Effort, number>,
+          probs: probsOf(reading),
           ...(reading.confidence === null ? {} : { conf: reading.confidence }),
           trace: steps,
         })

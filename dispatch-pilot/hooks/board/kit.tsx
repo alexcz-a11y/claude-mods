@@ -51,11 +51,6 @@ export const MODEL_INK = '#14171C'
 /** A running agent's glyph, one frame per tick. */
 export const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
-/** Whether an effort the engine sent is one of the five levels (it may be an integer budget). */
-export function isLevel(effort: unknown): effort is Effort {
-  return typeof effort === 'string' && (EFFORTS as readonly string[]).includes(effort)
-}
-
 /** How many nodes a drawn tree has: Desktop refuses one of 2000 (the engine's own limit is 20000, and a test's mount does not check it). */
 export function nodeCount(node: RenderNode): number {
   if (typeof node === 'string') return 1

@@ -55,7 +55,7 @@
 import type { EngineInterface, On } from 'claude-code'
 import { errorText, failureLine, type Failure } from '../decision/backend.ts'
 import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
-import type { Effort } from '../decision/effort.ts'
+import { isEffort, type Effort } from '../decision/effort.ts'
 import { startedIn } from '../decision/workflow-labels.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
 
@@ -165,7 +165,7 @@ export type LogEntry = {
   conf?: number
   trace?: RuleStep[]
   floor?: { from: Effort; to: Effort; model: Model }
-  /** The model (by family) and effort an agent was decided to run with; the agent's node says what its steps went out with. */
+  /** The model (by family) and effort an agent was decided to run with (the main agent: its effort only); the agent's node says what its steps went out with. */
   model?: Model
   effort?: Effort
   mid?: { current: Effort; picked: Effort; result: Effort; threshold?: number; held?: string; remaining?: number }
@@ -493,7 +493,7 @@ export async function reportStep(io: StepIo, step: StepReading): Promise<void> {
   const id = step.agentId ?? 'main'
   const main = step.agentId === undefined
   const family = modelFamily(step.model)
-  const effort = step.effort === undefined ? undefined : typeof step.effort === 'number' ? step.effort : isLevel(step.effort) ? step.effort : undefined
+  const effort = typeof step.effort === 'number' || isEffort(step.effort) ? step.effort : undefined
   const reading: Reading = { ...(family === null ? {} : { model: family }), ...(effort === undefined ? {} : { effort }) }
   // `source`: the engine's own effort goes out unless a plan sets it. An agent that was decided to run as it does has no plan
   // to say so (haiku takes no effort, a Workflow script was written into): its reading is checked against its decision below.
@@ -700,10 +700,6 @@ function withTally(board: Board, tally: Tallied, when: { now: number; logged: nu
   if (old !== undefined && JSON.stringify(old) === JSON.stringify(next)) return undefined
   const changed = { ...board, nodes: [...board.nodes.filter((node) => node !== old), next] }
   return notes.length === 0 ? changed : withNotes(changed, notes)
-}
-
-function isLevel(value: string): value is Effort {
-  return value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max'
 }
 
 /** Who a loop with no node is, from what the engine and the Workflow journals say; null: not an agent the board shows. */

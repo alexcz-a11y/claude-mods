@@ -30,8 +30,6 @@ import {
   entryVerb,
   FAILURES_KEY,
   FEATURE_WORDS,
-  featureOf,
-  levelOf,
   logGroups,
   midVerdict,
   offLine,
@@ -45,7 +43,7 @@ import {
   type PaneState,
   type StepMark,
 } from './rationale.ts'
-import type { AgentRow, ScreenView, Tone } from './view.ts'
+import { featureOf, levelOf, type AgentRow, type ScreenView, type Tone } from './view.ts'
 
 /** What the pane is drawn from. */
 export type PaneInput = {

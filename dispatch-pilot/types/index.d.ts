@@ -211,7 +211,11 @@ declare module 'claude-code' {
           to: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
           model: 'haiku' | 'sonnet' | 'opus' | 'fable'
         }
-        /** The model (by family) and the effort an agent was decided to run with: a dispatched or Workflow agent's decision; its node says what its steps went out with. */
+        /**
+         * The model (by family) and the effort an agent was decided to run with: a dispatched or Workflow agent's
+         * decision (the model, the effort), the main agent's effort decision (the effort only); its node says what its
+         * steps went out with. The screens read the level from here, never from `outcome`'s words.
+         */
         model?: 'haiku' | 'sonnet' | 'opus' | 'fable'
         effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
         /** A mid-turn re-decision: the effort it was at, the level the answer picked, where it ended, and why it did not move (`held`). */

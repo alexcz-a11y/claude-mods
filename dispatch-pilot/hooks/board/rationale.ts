@@ -14,10 +14,10 @@
 // `reason` and a node's `why` come in the decision report's words (English
 // until #32).
 
-import type { Effort } from '../decision/effort.ts'
+import { isEffort, type Effort } from '../decision/effort.ts'
 import type { LogEntry, ProfilesState, RuleStep, Tone } from '../core/report.ts'
-import { isLevel, pct } from './kit.tsx'
-import type { AgentRow, ScreenView } from './view.ts'
+import { pct } from './kit.tsx'
+import { featureOf, type AgentRow, type ScreenView } from './view.ts'
 
 /** The pane's id: `$.ui.open`, `$.ui.close` and the `ui.render` hook's `requestId`. */
 export const PANE_ID = 'dp-rationale'
@@ -42,11 +42,6 @@ export const FOLD_KEYS = ['a', 'b', 'c', 'd', 'e', 'g', 'h', 'i', 'j', 'k', 'l',
 export const FAILURES_KEY = 'f'
 /** How many of the newest turns are open until the person folds them; older ones are folded. */
 export const OPEN_TURNS = 2
-
-/** The feature an entry is of: its switch name (`main-effort (agent report)` is main-effort's). */
-export function featureOf(feature: string): string {
-  return feature.split(' ')[0] ?? feature
-}
 
 // ---- the card -------------------------------------------------------------------
 
@@ -148,14 +143,6 @@ function stepLine(step: RuleStep, top: RuleStep | undefined): StepLine {
   }
 }
 
-/** The level a decision ended at: the effort it decided, else the rules' last step's level, else a re-decision's result. */
-export function levelOf(entry: LogEntry): Effort | undefined {
-  if (entry.effort !== undefined) return entry.effort
-  const last = entry.trace?.at(-1)?.level
-  if (isLevel(last)) return last
-  return entry.mid?.result
-}
-
 /** A mid-turn re-decision as the card's row says it: what it suggested, how sure it was against the line it had to pass, where it ended. */
 export type MidVerdict = {
   picked: Effort
@@ -212,7 +199,7 @@ export function midVerdict(entry: LogEntry): MidVerdict | null {
     kind,
     line: kind === 'held' ? 'down' : line,
     ...(kind === 'held' && remaining !== undefined ? { remaining } : {}),
-    ...(floor !== undefined && isLevel(floor.floor) ? { floor: floor.floor } : {}),
+    ...(floor !== undefined && isEffort(floor.floor) ? { floor: floor.floor } : {}),
   }
 }
 

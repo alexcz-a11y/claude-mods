@@ -13,10 +13,10 @@
 // The words are the screens' own (Chinese, GLOSSARY terms); `why` on a node
 // comes in the decision report's words (English until #32).
 
-import type { Effort } from '../decision/effort.ts'
+import { isEffort, type Effort } from '../decision/effort.ts'
 import { ENDED_WORDS, failureWords, type Board, type BoardNode, type BoardNote, type LogEntry, type Model, type Reading, type ReadingChange, type RuleStep } from '../core/report.ts'
 import type { BoardPart } from '../core/switches.ts'
-import { isLevel, mmss, pct } from './kit.tsx'
+import { mmss, pct } from './kit.tsx'
 
 /** What the screens are drawn from. */
 export type ScreenInput = {
@@ -105,7 +105,7 @@ function active(node: BoardNode): boolean {
 }
 
 /** The feature an entry or a note is of: its switch name (`main-effort (agent report)` is main-effort's). */
-function featureOf(feature: string): string {
+export function featureOf(feature: string): string {
   return feature.split(' ')[0] ?? feature
 }
 
@@ -334,7 +334,7 @@ function explained(change: ReadingChange, changes: readonly ReadingChange[], log
 /** A decision about one agent's route: who, what it got, why in a few words. */
 function decidedOf(entry: LogEntry, nodes: readonly BoardNode[]): BandEvent {
   const main = entry.agent === 'main'
-  const level = isLevel(entry.effort) ? entry.effort : main ? levelOf(entry) : undefined
+  const level = main ? levelOf(entry) : entry.effort
   return {
     at: entry.at ?? 0,
     kind: 'decided',
@@ -347,12 +347,15 @@ function decidedOf(entry: LogEntry, nodes: readonly BoardNode[]): BandEvent {
   }
 }
 
-/** The level the main agent's decision picked: the rules' last step, else the outcome's word. */
-function levelOf(entry: LogEntry): Effort | undefined {
+/**
+ * The level a decision ended at, from its own fields (never its words): the effort it decided, else the rules' last
+ * step's level (an entry an earlier version wrote), else a re-decision's result.
+ */
+export function levelOf(entry: LogEntry): Effort | undefined {
+  if (entry.effort !== undefined) return entry.effort
   const last = entry.trace?.at(-1)?.level
-  if (isLevel(last)) return last
-  const word = /\b(low|medium|high|xhigh|max)\b/.exec(entry.outcome)?.[1]
-  return isLevel(word) ? word : undefined
+  if (isEffort(last)) return last
+  return entry.mid?.result
 }
 
 // ---- the summary --------------------------------------------------------------
