@@ -1,0 +1,3 @@
+# Dispatch Pilot：给人看的输出只有一个写入者，终端停用 `$.ui.status`
+
+Dispatch Pilot 给人看的输出（看板、依据面板、决策日志、debug log）只由「决定汇报」module 写出。各功能不再自己拼状态文字，而是交给它一条结构化的决定：哪项功能、针对哪个 agent、结果、原因，以及规则推演（`pickEffort`、`judgeMidturn` 在给出结果时一并返回，界面只画不重算）。每个 agent 的读数（实际发出的模型和 effort）由它从 `turn.step` 收集，只读不写，`e.effort`、`e.model` 仍只由核心写出（ADR 0003）。数据存在 `$.state`，热重载不丢；band、footer 和 Pane 都只从这一份数据画。终端上不再调用 `$.ui.status`：它前面的 ⚠ 关不掉，一行放不下多个 agent 而被截断，状态段每段只存一条，同时派出几个 agent 时只剩最后一个。这一行也是所有 surface 共用的，所以 Desktop 在正式的 Svg 版做出来之前，拿同一份 band 的纯文字版，再加一个 `SessionMode` 小标签。考虑过的另一条路是保留 `$.ui.status`、只把文字改短改成中文；放弃它，是因为截断和「只显示一个 agent」都出在这一行本身。代价是测试不再断言状态字符串，改为断言看板数据，另写少量渲染测试；新增给人看的信息时，要先扩充决定的结构。
