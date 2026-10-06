@@ -431,6 +431,12 @@ hooks/
 │   ├── skills.ts           对主 agent 隐藏 skill 列表、换成一句提示，发消息时推荐 skill（#10）
 │   ├── workflow-agents.ts  提交 Workflow 时判断脚本里每个 agent() 的模型和 effort，写进脚本或退回（#8）
 │   └── workflow-labels.ts  脚本写不进去的 Workflow：运行开始时判断各调用，agent 启动时按 label 写计划表；Workflow 工具描述里的常驻提示（#9）
+├── board/                  看板的画面（ADR 0004）：只画「决定汇报」的数据，功能不碰
+│   ├── screens.tsx         两个 ui.render hook：prompt 上方的 band（AbovePrompt）和脚部右端的摘要（SessionMode）；按 e.surface 分支，终端画完整的设计，别的端先交给引擎（#31）；数字键选中 agent（$.state 的 selected）
+│   ├── view.ts             从看板数据算出画面要的东西（ScreenView）：哪一轮、按开始先后排的 agent 行、事件流、一轮结束后的一行；关掉的功能不出现，skill 画像从不出现
+│   ├── band.tsx            终端的 band：状态条、每个 agent 一行（数字键、名字、模型标签、effort 标签、状态符号、时间色带、状态格）、事件流；空闲一行；不到 4 行时一行摘要
+│   ├── footer.tsx          终端的脚部摘要：状态符号、主 agent 的模型·effort、+N，最多 12 列
+│   └── kit.tsx             视觉语言：色板、effort 色阶、模型标签、单元格宽度、Raster 的格子和时间色带
 ├── core/                   各功能共用的机制，不含具体功能
 │   ├── core.ts             核心的 hook：发消息时的决策请求、一轮的开始、每一步的写入、认出 settings hook 拦下的调用、记下用户运行的命令
 │   ├── ballot.ts           一条消息的「投票箱」：各功能放进问题，由核心一次发出
