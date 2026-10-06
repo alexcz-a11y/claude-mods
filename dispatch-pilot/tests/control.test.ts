@@ -19,7 +19,6 @@ test('/dp lock holds the main agent at that effort on every step, over the decis
   await w.step({ index: 1, effort: 'medium' })
   expect(w.steps.map((s) => s.effort)).toEqual(['max', 'max'])
   expect((await w.board()).main).toMatchObject({ effort: 'max', locked: true })
-  expect(w.status()).toBe('dp effort max (locked)')
 
   // Released in the middle of the turn: the decision takes over from the next step.
   expect(await w.command('dp', 'unlock')).toContain('unlocked')
@@ -48,16 +47,15 @@ test('a lock outlives the turn it was set in, /dp shows it, and /dp lock off rel
 
 // ---- The master switch ------------------------------------------------------
 
-test('/dp off stands the whole mod down: nothing is asked, every step goes out as the engine made it, the status line says off; /dp on brings the decisions back', { options: KEY }, async ($, on) => {
+test('/dp off stands the whole mod down: nothing is asked, every step goes out as the engine made it; /dp on brings the decisions back', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })
 
   expect(await w.command('dp', 'off')).toContain('off')
-  expect(w.status()).toBe('dp off')
   await w.submit('把登录模块重构成三层')
   await w.step({ index: 0, effort: 'xhigh' })
   expect(w.requests).toHaveLength(0)
   expect(w.steps.map((s) => s.effort)).toEqual(['xhigh'])
-  expect(w.status()).toBe('dp off')
+  expect((await w.board()).main).toBeUndefined()
 
   expect(await w.command('dp', 'on')).toContain('on')
   await w.submit('再看看别的模块')
@@ -101,16 +99,6 @@ test('/dp lists the switch each feature registered; a feature switched off asks 
   await w.step({ index: 0, effort: 'xhigh' })
   expect(w.requests).toHaveLength(1)
   expect(w.steps.at(-1)?.effort).toBe('high')
-})
-
-test('a feature switched off takes what it showed off the status line', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: () => ({ status: 401, body: { detail: 'Invalid API key' } }) })
-  await w.submit('解释一下这个函数做了什么')
-  await w.step({ index: 0, effort: 'medium' })
-  expect(w.status()).toBe('dp effort medium (not routed) | jev: key refused (HTTP 401)')
-
-  await w.command('dp', 'main-effort off')
-  expect(w.status()).toBe('dp effort medium (not routed)')
 })
 
 test('a switch nobody registered is refused and nothing changes', { options: KEY }, async ($, on) => {
@@ -158,12 +146,11 @@ test('flipping a switch keeps what another session saved meanwhile', { options: 
   expect(w.stored('switches')).toEqual({ master: false, 'future-feature': false })
 })
 
-test('a new session starts as the person left it: Dispatch Pilot off stays off, the status line says so, and /dp is registered to run mid-turn', { options: KEY }, async ($, on) => {
+test('a new session starts as the person left it: Dispatch Pilot off stays off, and /dp is registered to run mid-turn', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), store: { switches: { master: false } }, session: true })
 
   await w.start()
   expect(w.commands.map((c) => ({ name: c.name, immediate: c.immediate }))).toEqual([{ name: 'dp', immediate: true }])
-  expect(w.status()).toBe('dp off')
   await w.submit('把登录模块重构成三层')
   expect(w.requests).toHaveLength(0)
   expect(await w.command('dp')).toContain('Dispatch Pilot is off')

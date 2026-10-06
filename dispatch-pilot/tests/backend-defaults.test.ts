@@ -2,7 +2,7 @@
 // those options none, so the engine (and the kit, which loads options the same
 // way) passes nothing for them until the person sets one, and the mod takes
 // the chosen model's from core/setup.ts BACKEND_DEFAULTS. Seam 1 for what
-// reaches the backend and the status line; the shared reading (readConfig,
+// reaches the backend and the board; the shared reading (readConfig,
 // which the eval and scripts/decide*.ts use too) directly.
 
 import type { SessionMessage } from 'claude-code'

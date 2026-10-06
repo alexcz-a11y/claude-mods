@@ -97,6 +97,25 @@ declare module 'claude-code' {
           from: { model?: 'haiku' | 'sonnet' | 'opus' | 'fable'; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number }
           to: { model?: 'haiku' | 'sonnet' | 'opus' | 'fable'; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number }
         }[]
+        /**
+         * What a feature met beside an agent's route, for the band's event stream, oldest first (at most 50, of
+         * the nodes' turns): a request that failed (`failed`: `why` in a few words), one that gave nothing to use
+         * (`skipped`: `why` is `unanswered`, `unread`, `none` or `error`), an answer not back in time (`late`).
+         * Absent in a board an earlier version wrote.
+         */
+        notes?: {
+          turn: number
+          /** `main`, or the agentId it was about. */
+          id: string
+          /** The feature's switch name. */
+          feature: string
+          /** Seconds from the start of that turn. */
+          at: number
+          /** The `n` of the last `decisionLog` entry when it was written. */
+          after: number
+          kind: 'failed' | 'skipped' | 'late'
+          why: string
+        }[]
         nodes: {
           /** The turn it belongs to. */
           turn: number
@@ -167,6 +186,8 @@ declare module 'claude-code' {
         n: number
         /** The turn it was made for (`board.turn`'s numbering). */
         turn: number
+        /** Seconds from the start of that turn to when it was reported (0 for a decision made before the turn started); absent in an entry an earlier version wrote. */
+        at?: number
         /** Who decided: the feature's switch name (a report's decision adds ` (agent report)`). */
         feature: string
         /** `main`, or the agentId it was about; absent for an entry of a feature not yet migrated, and for the session's (`skill-profiles`, #33). */
@@ -212,6 +233,11 @@ declare module 'claude-code' {
         /** The loop's counts when it was raised (escalation). */
         counts?: { failed: number; blocked: number; raised: number }
       }[]
+      /**
+       * The agent the person picked on the band (its digit key, 0 the main agent), for the rationale pane:
+       * its node's turn and id. Null, or absent, until one is picked. Written by the band's buttons only.
+       */
+      selected: { turn: number; id: string } | null
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
       /**

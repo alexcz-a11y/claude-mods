@@ -90,7 +90,7 @@ type AgentRoute = { model: AgentModel | null; effort: Effort | null }
 const launching = new Set<Promise<LabelRun | null>>()
 
 export function registerWorkflowLabels(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: 'sets the model and effort of each Workflow agent when it starts, by its label, where the script could not be written into', segments: ['labels'] })
+  defineSwitch({ name: SWITCH, info: 'sets the model and effort of each Workflow agent when it starts, by its label, where the script could not be written into' })
   const settings = dispatchSettings(ctx)
 
   // The standing hint: the engine renders a tool's description once per session
@@ -108,7 +108,8 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
       decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
       debug: log,
-      status: (line) => $.ui.status(line),
+      now: () => $.clock.now(),
+      toast: (text) => $.ui.toast(text),
     }
     let settled: (run: LabelRun | null) => void = () => {}
     const launch = new Promise<LabelRun | null>((resolve) => (settled = resolve))
@@ -244,7 +245,8 @@ function reportingOf($: EngineInterface): ReportIo {
     board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
     decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
     debug: (line) => $.ui.log(line, { to: 'debug' }),
-    status: (line) => $.ui.status(line),
+    now: () => $.clock.now(),
+    toast: (text) => $.ui.toast(text),
   }
 }
 

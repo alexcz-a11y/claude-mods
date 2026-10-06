@@ -157,32 +157,28 @@ export function checkStructureTree(development: string, modules: readonly string
   ]
 }
 
-/** Where the old status line and the decision log are written: the decision report (core/report.ts) and the line it draws (core/status.ts). */
-const WRITERS = ['core/report.ts', 'core/status.ts']
+/** The host closure through which a feature's report raises a toast (core/report.ts `ReportIo.toast`): the one way to `$.ui.toast`. */
+const TOAST_CLOSURE = 'toast: (text) => $.ui.toast(text)'
 
 /**
- * ADR 0004: the decision report is the one writer of what people see. Every
- * module but the report's own (`sources`: text by path relative to hooks/)
- * must leave the old status line (`core/status.ts`: `setStatus`, `pauseStatus`)
- * and the old decision recorder (`core/decisions.ts`: `recordDecision`) alone,
- * and may reach `$.ui.status` only as the host closure it hands the report,
- * `status: (line) => $.ui.status(line)`.
+ * ADR 0004: the decision report is the one writer of what people see, and the
+ * terminal no longer has a status row (#29). No module (`sources`: text by
+ * path relative to hooks/) draws on `$.ui.status`, the report's own included;
+ * a toast is raised only by the report, reached through the host closure a
+ * file hands it, `toast: (text) => $.ui.toast(text)`; the old status line's
+ * and decision recorder's calls are gone for good.
  */
 export function checkOneWriter(sources: Readonly<Record<string, string>>): string[] {
   // The files that show people nothing themselves (#33): the debug log closure they hand the report is the only `$.ui` they hold.
   const silent: [string, RegExp, string][] = [['features/skill-profiles.ts', /\$\.ui\./, 'uses `$.ui` itself (a log line, a toast, the status row)']]
   const rules: [RegExp, string][] = [
-    [/^import (?!type\b)[^\n]*from '[^']*\bstatus\.ts'/m, 'imports core/status.ts'],
-    [/^import (?!type\b)[^\n]*from '[^']*\bdecisions\.ts'/m, 'imports core/decisions.ts'],
-    [/\bsetStatus\(/, 'calls setStatus'],
-    [/\bpauseStatus\(/, 'calls pauseStatus'],
-    [/\brecordDecision\(/, 'calls recordDecision'],
-    [/\$\.ui\.status\(/, 'draws on `$.ui.status` directly'],
+    [/\$\.ui\.status\(/, 'draws on the status row (`$.ui.status`), which the band and the footer replace'],
+    [/\$\.ui\.toast\(/, 'raises a toast itself'],
+    [/\b(?:setStatus|pauseStatus|recordDecision)\(/, 'calls a writer of the old status line or decision log'],
   ]
   const problems: string[] = []
   for (const [path, text] of Object.entries(sources)) {
-    if (WRITERS.includes(path)) continue
-    const code = text.split('status: (line) => $.ui.status(line)').join('')
+    const code = text.split(TOAST_CLOSURE).join('')
     for (const [pattern, what] of rules) if (pattern.test(code)) problems.push(`\`${path}\`: ${what}; hand the decision report the data instead (ADR 0004)`)
     const quiet = code.split("debug: (line) => $.ui.log(line, { to: 'debug' })").join('')
     for (const [file, pattern, what] of silent) if (path === file && pattern.test(quiet)) problems.push(`\`${path}\`: ${what}; hand the decision report the data instead (ADR 0004)`)

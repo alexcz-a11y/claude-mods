@@ -125,8 +125,8 @@ export function registerCore(on: On, ctx: Ctx): void {
       board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
       decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
       debug: (line) => $.ui.log(line, { to: 'debug' }),
-      status: (line) => $.ui.status(line),
       now: () => $.clock.now(),
+      toast: (text) => $.ui.toast(text),
       agents: () => $.agent.list(),
       runDirs: async () => {
         const [noted, labelled] = await Promise.all([$.state.get(WORKFLOW_RUNS), $.state.get(LABEL_RUNS)])

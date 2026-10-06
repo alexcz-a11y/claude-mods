@@ -35,7 +35,7 @@ const SWITCH = 'dispatched-agents'
 const MAX_SAID = 8
 
 export function registerDispatchedAgents(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: "decides each dispatched agent's model and effort when it is spawned", segments: ['agent'] })
+  defineSwitch({ name: SWITCH, info: "decides each dispatched agent's model and effort when it is spawned" })
   const settings = dispatchSettings(ctx)
 
   // The person's words this turn: a message sent while idle starts them
@@ -74,7 +74,8 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
       decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
       debug: (line) => $.ui.log(line, { to: 'debug' }),
-      status: (line) => $.ui.status(line),
+      now: () => $.clock.now(),
+      toast: (text) => $.ui.toast(text),
     }
     const about = `${quoteStart(e.description)} (${e.subagentType})`
     /** What every report of this agent says of it; its id is known once it has started (a spawn is not yet an agent). */

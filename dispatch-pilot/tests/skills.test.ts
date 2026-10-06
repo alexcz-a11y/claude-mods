@@ -1,7 +1,7 @@
 // Skills (#10): the main agent's skill listing withheld, and the skills that
 // fit each message the person sends suggested beside it. Seam 1: engine
 // events in; what reaches the model, the decision backend and the board data
-// (`w.board()`; the old status line in a few tests) out.
+// (`w.board()`) out.
 
 import { expect, test } from 'claude-code/testing'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
@@ -337,8 +337,6 @@ test('a skill only the person can start that fits outright takes nothing from th
   const [entry] = await skillDecisions(w)
   expect(entry).toMatchObject({ turn: 1, agent: 'main', tone: 'ok', subject: '"这个方案往死里挑刺，再审一下改动"', outcome: 'suggested code-review; try /grill-me' })
   expect(entry?.skills?.try[0]?.relevance).toBeGreaterThan(0.9)
-  // The old status line says the same until it goes.
-  expect(w.status()).toBe('dp effort medium | skills code-review | try /grill-me')
 })
 
 test('with only skills the person can start to ask about, the hint is still asked, and the main agent keeps its listing', { options: { ...KEY, skillsMinRelevance: 0.5 } }, async ($, on) => {
@@ -410,7 +408,6 @@ test('each message gets its own skills decision: the skills suggested, and none 
   await w.submit('先写失败的测试')
   await w.step({ index: 0 })
   expect(await picked(w)).toEqual({ suggest: ['tdd'], try: [] })
-  expect(w.status()).toBe('dp effort medium | skills tdd')
   await w.submit('这个报错是什么意思？')
   await w.step({ index: 0 })
   expect(await picked(w)).toEqual({ suggest: [], try: [] })
@@ -418,7 +415,6 @@ test('each message gets its own skills decision: the skills suggested, and none 
     [1, 'suggested tdd'],
     [2, 'suggested no skill'],
   ])
-  expect(w.status()).toBe('dp effort medium')
 })
 
 test("a failed decision request suggests nothing: no skills decision for that message, and its main agent's node says why", { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {

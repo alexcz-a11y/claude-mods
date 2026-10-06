@@ -101,7 +101,7 @@ const inFlight = new Map<string, InFlight>()
 const streamed = new Map<string, { index: number; block: number; text: string }>()
 
 export function registerMidturnEffort(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: "re-decides the main agent's effort while a turn runs", segments: ['midturn'] })
+  defineSwitch({ name: SWITCH, info: "re-decides the main agent's effort while a turn runs", parts: ['midturn'] })
   const settings: Settings = { ctx, ...ctx.config.midturn }
 
   on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {
@@ -341,6 +341,7 @@ function ioOf($: EngineInterface): ReportIo {
     board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
     decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
     debug: (line) => $.ui.log(line, { to: 'debug' }),
-    status: (line) => $.ui.status(line),
+    now: () => $.clock.now(),
+    toast: (text) => $.ui.toast(text),
   }
 }

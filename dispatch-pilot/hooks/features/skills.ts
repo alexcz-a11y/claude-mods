@@ -103,7 +103,7 @@ async function openingOf($: EngineInterface, catalog: readonly CatalogSkill[], n
 
 export function registerSkills(on: On, ctx: Ctx): void {
   // On or off until the person flips it, by the decision model: off with Clef, whose first stage takes longer than a message can wait.
-  defineSwitch({ name: SWITCH, info: 'suggests the skills that fit each message; the full skill listing stays out', default: ctx.config.skills.suggestByDefault, segments: ['skills'] })
+  defineSwitch({ name: SWITCH, info: 'suggests the skills that fit each message; the full skill listing stays out', default: ctx.config.skills.suggestByDefault })
 
   /** Skills the main agent keeps in its listing (names as the listing spells them). */
   const alwaysListed = new Set(ctx.config.skills.alwaysListed)
@@ -227,7 +227,8 @@ export function registerSkills(on: On, ctx: Ctx): void {
           board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
           decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
           debug: (line) => $.ui.log(line, { to: 'debug' }),
-          status: (line) => $.ui.status(line),
+          now: () => $.clock.now(),
+          toast: (text) => $.ui.toast(text),
         }
         // Beside the main agent's own decision for the message: in the log, not on its node.
         const about = { feature: SWITCH, agent: 'main', aside: true as const, forTurn: e.turnId === undefined ? ('next' as const) : ('current' as const), subject: quoteStart(e.text) }

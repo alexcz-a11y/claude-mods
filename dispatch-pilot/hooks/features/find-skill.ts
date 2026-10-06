@@ -97,7 +97,7 @@ async function openingOf($: EngineInterface, catalog: readonly CatalogSkill[], n
 }
 
 export function registerFindSkill(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: "answers the main agent's find_skill: the skills that fit the work it names", segments: ['find-skill'] })
+  defineSwitch({ name: SWITCH, info: "answers the main agent's find_skill: the skills that fit the work it names" })
 
   /** Skills never offered (the option the skills feature reads too). */
   const neverSuggested = new Set(ctx.config.skills.neverSuggested)
@@ -139,7 +139,8 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
       decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
       debug: (line) => $.ui.log(line, { to: 'debug' }),
-      status: (line) => $.ui.status(line),
+      now: () => $.clock.now(),
+      toast: (text) => $.ui.toast(text),
     }
     // The main agent's own call, beside its decision for the turn: in the log, not on its node.
     const report = { feature: SWITCH, agent: 'main', aside: true as const }

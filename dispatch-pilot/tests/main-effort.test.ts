@@ -64,19 +64,15 @@ test("a dispatched agent's steps go out as the engine sent them", { options: KEY
   ])
 })
 
-test("the main agent's node shows the effort the turn goes out at, and the old status line draws it from there", { options: KEY }, async ($, on) => {
+test("the main agent's node shows the effort each turn goes out at", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: (request, n) => jev(n === 1 ? [0.05, 0.1, 0.7, 0.1, 0.05] : [0.9, 0.05, 0.05, 0, 0])(request) })
   await w.submit('把登录模块重构成三层')
   await w.step({ index: 0 })
   expect((await w.board()).main).toMatchObject({ turn: 1, effort: 'high', routed: true })
-  expect(w.status()).toBe('dp effort high')
   await w.step({ index: 1 })
   await w.submit('好，提交吧')
   await w.step({ index: 0 })
   expect((await w.board()).main).toMatchObject({ turn: 2, effort: 'low', routed: true })
-  expect(w.status()).toBe('dp effort low')
-  // Set when it changes, not on every step.
-  expect(w.statuses).toEqual(['dp effort high', 'dp effort low'])
 })
 
 test('no answer within timeoutMs: the prompt goes in without waiting longer, the turn keeps the engine effort, the board says why', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
@@ -96,18 +92,18 @@ test('no answer within timeoutMs: the prompt goes in without waiting longer, the
   expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: false, failure: { backend: 'jev', kind: 'timeout' } })
 })
 
-// `kind` is what the board records of the failure; `status` the old status line's words for it.
-const failures: { name: string; reply: Reply; kind: string; status: string }[] = [
-  { name: 'the key is refused (401)', reply: { status: 401, body: { detail: 'Invalid API key' } }, kind: 'config', status: 'jev: key refused (HTTP 401)' },
-  { name: 'rate limited (429)', reply: { status: 429, body: { detail: 'Too Many Requests' } }, kind: 'busy', status: 'jev: busy (HTTP 429)' },
-  { name: 'a server error (500)', reply: { status: 500, body: 'Internal Server Error' }, kind: 'http', status: 'jev: HTTP 500' },
-  { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }, kind: 'network', status: 'jev: unreachable' },
-  { name: 'a 200 that is not an answer', reply: { status: 200, body: '<html>maintenance</html>' }, kind: 'parse', status: 'jev: unreadable answer' },
-  { name: 'an answer without the effort question', reply: { status: 200, body: { model: 'jev-1.13.0', answers: {} } }, kind: 'parse', status: 'jev: unreadable answer' },
+// `kind` is what the board records of the failure; `why` its words for it.
+const failures: { name: string; reply: Reply; kind: string; why: string }[] = [
+  { name: 'the key is refused (401)', reply: { status: 401, body: { detail: 'Invalid API key' } }, kind: 'config', why: 'jev: key refused (HTTP 401)' },
+  { name: 'rate limited (429)', reply: { status: 429, body: { detail: 'Too Many Requests' } }, kind: 'busy', why: 'jev: busy (HTTP 429)' },
+  { name: 'a server error (500)', reply: { status: 500, body: 'Internal Server Error' }, kind: 'http', why: 'jev: HTTP 500' },
+  { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }, kind: 'network', why: 'jev: unreachable' },
+  { name: 'a 200 that is not an answer', reply: { status: 200, body: '<html>maintenance</html>' }, kind: 'parse', why: 'jev: unreadable answer' },
+  { name: 'an answer without the effort question', reply: { status: 200, body: { model: 'jev-1.13.0', answers: {} } }, kind: 'parse', why: 'jev: unreadable answer' },
 ]
 
 for (const failure of failures) {
-  test(`${failure.name}: the turn keeps the engine effort and the board says why (and the old status line)`, { options: KEY }, async ($, on) => {
+  test(`${failure.name}: the turn keeps the engine effort and the board says why`, { options: KEY }, async ($, on) => {
     const w = world($, on, { backend: () => failure.reply })
     await w.submit('解释一下这个函数做了什么')
     await w.step({ index: 0, effort: 'medium' })
@@ -115,8 +111,7 @@ for (const failure of failures) {
     expect(w.requests).toHaveLength(1)
     expect(w.prompts).toHaveLength(1)
     expect(w.steps.map((s) => s.effort)).toEqual(['medium'])
-    expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, failure: { backend: 'jev', kind: failure.kind } })
-    expect(w.status()).toBe(`dp effort medium (not routed) | ${failure.status}`)
+    expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, why: failure.why, failure: { backend: 'jev', kind: failure.kind } })
   })
 }
 
@@ -130,14 +125,15 @@ test('no TypeSafe key: nothing is sent, the turn keeps the engine effort, the bo
   expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, failure: { backend: 'jev', kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey' } })
 })
 
-test('a decision that comes back after a failure clears the reason from the status line', { options: KEY }, async ($, on) => {
+test('a decision that comes back after a failure leaves no reason on the next turn', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: (request, n) => (n === 1 ? { status: 503, body: 'overloaded' } : jev([0, 1, 0, 0, 0])(request)) })
   await w.submit('第一条')
   await w.step({ index: 0, effort: 'xhigh' })
-  expect(w.status()).toBe('dp effort xhigh (not routed) | jev: busy (HTTP 503)')
+  expect((await w.board()).main).toMatchObject({ routed: false, why: 'jev: busy (HTTP 503)' })
   await w.submit('第二条')
   await w.step({ index: 0, effort: 'xhigh' })
-  expect(w.status()).toBe('dp effort medium')
+  expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: true })
+  expect((await w.board()).main?.why).toBeUndefined()
 })
 
 test("what is not the person's own new message is not decided, and changes no turn's effort", { options: KEY }, async ($, on) => {

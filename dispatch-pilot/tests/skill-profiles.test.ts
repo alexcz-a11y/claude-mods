@@ -423,16 +423,11 @@ test('the state survives a hot reload: what an earlier load kept is there, and t
 })
 
 test('no toast and no status line: the profiles are shown nowhere but the board data and the debug log', { options: KEY }, async ($, on) => {
-  const toasts: string[] = []
-  on('ui.toast', (_$, e) => {
-    toasts.push(e.text)
-    return { value: undefined }
-  })
   const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: writer({ tdd: { fails: 'api-error' } }) })
   await w.start()
   await w.clock.settle()
-  expect(toasts).toEqual([])
-  expect(w.status()).toBeUndefined()
+  expect(w.toasts).toEqual([])
+  expect(w.statuses).toEqual([])
   expect(w.logs.every((log) => log.to === 'debug')).toBe(true)
 })
 

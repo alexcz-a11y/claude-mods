@@ -1,7 +1,8 @@
 // The decision report (「决定汇报」, ADR 0004): the one writer of what Dispatch
-// Pilot shows people. The board, the decision log, the debug log and, until the
-// new screens replace it, the old status line are all written here, from the
-// same structured data in $.state (types/index.d.ts: `board`, `decisionLog`).
+// Pilot shows people. The board, the decision log, the debug log and the toast
+// of a failed route are all written here, from the same structured data in
+// $.state (types/index.d.ts: `board`, `decisionLog`); the screens (hooks/board/)
+// only draw that data.
 //
 // These entries, and nothing else, are for a feature to call:
 //
@@ -10,8 +11,9 @@
 //                                  about which agent, the outcome, why, and the
 //                                  rules' working when there is one. Written to the
 //                                  decision log, the agent's node on the board, the
-//                                  debug log. `reportDecisions` hands over several
-//                                  at once (the agent() calls of a Workflow script).
+//                                  debug log; a route that failed raises a toast.
+//                                  `reportDecisions` hands over several at once (the
+//                                  agent() calls of a Workflow script).
 //   reportStep(io, step)           the reading of one model request: the model and
 //                                  effort an agent's step went out with, whoever's
 //                                  loop it is. Only observes, never decides anything
@@ -22,8 +24,8 @@
 //                                  agent's turn, each loop's failed calls and forced
 //                                  raises. On the agent's node.
 //   reportSwitch(io, change)       the person switched the mod, or one feature, off or
-//                                  on (the control feature's `/dp`): what the old status
-//                                  line says of it.
+//                                  on (the control feature's `/dp`): the screens draw
+//                                  again, leaving out what a feature that is off owns.
 //   reportProfiles(io, event)      how writing the session's skill profiles goes
 //                                  (features/skill-profiles.ts, #33): the debug lines,
 //                                  `$.state`'s `skillProfiles` as they are written, and
@@ -41,7 +43,8 @@
 //     board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
 //     decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
 //     debug: (line) => $.ui.log(line, { to: 'debug' }),
-//     status: (line) => $.ui.status(line),
+//     now: () => $.clock.now(),
+//     toast: (text) => $.ui.toast(text),
 //   }
 //
 // where `BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const` and
@@ -55,7 +58,6 @@ import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
 import { startedIn } from '../decision/workflow-labels.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
-import { pauseStatus, setStatus, type Segment } from './status.ts'
 
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
@@ -117,18 +119,42 @@ export type ReadingChange = {
   to: Reading
 }
 
+/**
+ * What a feature met beside an agent's route that is neither a decision nor the route itself, for the band's
+ * event stream (types/index.d.ts, `board.notes`): a request that failed (`failed`, `why` its words), one that
+ * gave nothing to use (`skipped`, `why` the Skip), an answer not back in time (`late`, `why` '').
+ */
+export type BoardNote = {
+  turn: number
+  /** `main`, or the agentId it was about. */
+  id: string
+  feature: string
+  /** Seconds from the start of `turn`. */
+  at: number
+  /** The `n` of the decision log's last entry when it was written. */
+  after: number
+  kind: 'failed' | 'skipped' | 'late'
+  why: string
+}
+
 export type Board = {
   turn: number
   /** When the latest turns started (`$.clock.now()`), by turn. */
   starts?: { turn: number; at: number }[]
   changes?: ReadingChange[]
+  notes?: BoardNote[]
   nodes: BoardNode[]
 }
+
+/** The board keeps at most this many notes (those of the nodes' turns). */
+const NOTES_KEPT = 50
 
 /** One decision as the log keeps it. */
 export type LogEntry = {
   n: number
   turn: number
+  /** Seconds from the start of `turn` to when it was reported (0 for a decision made before its turn started); absent in an entry an earlier version wrote. */
+  at?: number
   feature: string
   agent?: string
   tone: Tone
@@ -270,12 +296,10 @@ export type StepReading = {
 export type RosterAgent = { id: string; name?: string; description: string; type: string }
 
 /**
- * What the readings need beyond `ReportIo`: the clock, the roster of dispatched agents, and the directories of
- * the session's Workflow runs (to tell a Workflow's agent, and its label, from the journal). `stepIo($)` builds it.
+ * What the readings need beyond `ReportIo`: the roster of dispatched agents, and the directories of the session's
+ * Workflow runs (to tell a Workflow's agent, and its label, from the journal). `stepIo($)` builds it.
  */
 export type StepIo = ReportIo & {
-  /** `() => $.clock.now()` */
-  now: () => Promise<number>
   /** `() => $.agent.list()`: dispatched agents only, a Workflow's are not in it. */
   agents: () => Promise<readonly RosterAgent[]>
   /** The run directories the mod noted (`workflowRuns`, `labelRuns`), oldest first. */
@@ -290,16 +314,19 @@ export type ReportIo = {
   decisions: Cell<LogEntry[]>
   /** `(line) => $.ui.log(line, { to: 'debug' })` */
   debug: (line: string) => void
-  /** `(line) => $.ui.status(line)`: the old status line, which goes when the new screens replace it. */
-  status: (line: string | undefined) => void
+  /** `() => $.clock.now()`: when a decision, a reading or a note is reported. */
+  now: () => Promise<number>
+  /** The host's toast, as `toast: (text) => $.ui.toast(text)`: a route that failed. */
+  toast: (text: string) => void
 }
 
 // ---- entry 1: a decision ------------------------------------------------------
 
 /**
  * Reports a decision: the debug log line and the decision log entry (a
- * decision made), the agent's node on the board, and the old status line's
- * segment the feature owns. Never throws.
+ * decision made), the agent's node on the board, a note for the band when a
+ * request beside the route came to nothing, and a toast when the agent's
+ * route failed. Never throws.
  */
 export async function reportDecision(io: ReportIo, decision: ReportedDecision): Promise<void> {
   return reportDecisions(io, [decision])
@@ -307,19 +334,19 @@ export async function reportDecision(io: ReportIo, decision: ReportedDecision): 
 
 /**
  * Reports the decisions of one event together, the several agents of a Workflow
- * for one: one write to the log, one to the board, and the old line, which
- * sums them up, sent once. Each is what `reportDecision` makes of it alone, in
+ * for one: one write to the log, one to the board, and at most one toast for
+ * the routes that failed. Each is what `reportDecision` makes of it alone, in
  * the order given. Never throws.
  */
 export async function reportDecisions(io: ReportIo, decisions: readonly ReportedDecision[]): Promise<void> {
-  const last = decisions.at(-1)
-  if (last === undefined) return
+  if (decisions.length === 0) return
   try {
     // Which turn each is for. A board that cannot be read does not stop a decision from being logged (as turn 1).
     const board = await read(io.board).catch((error: unknown) => {
       io.debug(`board not read: ${errorText(error)}`)
       return EMPTY
     })
+    const now = await io.now()
     const turnOf = (decision: ReportedDecision) => board.turn + (decision.forTurn === 'next' ? 1 : 0)
     const made = decisions.filter(isDecided)
     for (const decision of made) io.debug(decisionLine(decision))
@@ -331,7 +358,7 @@ export async function reportDecisions(io: ReportIo, decisions: readonly Reported
           numbers.length = 0
           let all = list ?? []
           for (const decision of made) {
-            all = appendEntry(all, entryOf(decision, turnOf(decision)))
+            all = appendEntry(all, entryOf(decision, turnOf(decision), elapsed(board, turnOf(decision), now)))
             numbers.push(all.at(-1)?.n ?? 0)
           }
           return all
@@ -341,10 +368,17 @@ export async function reportDecisions(io: ReportIo, decisions: readonly Reported
         io.debug(`decision not kept for /dp log: ${errorText(error)}`)
       }
     }
+    // A request beside the route that came to nothing: a note for the band's event stream, after the log's last entry.
+    const noted = decisions.filter((decision) => 'skipped' in decision || ('failure' in decision && decision.aside === true))
+    const logged = noted.length === 0 ? 0 : (numbers.at(-1) ?? (await lastLogged(io)))
+    const notes = noted.map((decision): BoardNote => {
+      const of = { turn: turnOf(decision), id: decision.agent, feature: decision.feature, at: elapsed(board, turnOf(decision), now), after: logged }
+      return 'skipped' in decision ? { ...of, kind: 'skipped', why: decision.skipped } : { ...of, kind: 'failed', why: 'failure' in decision ? failureText(decision.failure.backend, decision.failure) : '' }
+    })
     let after = board
-    // A decision beside the agent's route, one that is only for the old line, is not on the board.
+    // A decision beside the agent's route is not on its node; a Workflow with nothing to show is not on the board.
     const onBoard = (decision: ReportedDecision) => decision.aside !== true && !('skipped' in decision) && !('offBoard' in decision)
-    if (decisions.some(onBoard)) {
+    if (decisions.some(onBoard) || notes.length > 0) {
       try {
         after = await update(io.board, (current) => {
           let next = current ?? EMPTY
@@ -353,13 +387,15 @@ export async function reportDecisions(io: ReportIo, decisions: readonly Reported
             const n = isDecided(decision) ? numbers[at++] : undefined
             if (onBoard(decision)) next = withNode(next, turnOf(decision), decision as Decided | NotDecided | Left | Started, n)
           }
-          return next
+          return notes.length === 0 ? next : withNotes(next, notes)
         })
       } catch (error) {
         io.debug(`decision not kept on the board: ${errorText(error)}`)
       }
     }
-    for (const old of LEGACY[last.feature.split(' ')[0] as string]?.(last, after, decisions) ?? []) setStatus(old.segment, old.text, io.status)
+    // The routes that failed: a toast, so the person notices; the board says the rest.
+    const failed = decisions.filter((decision): decision is NotDecided => 'failure' in decision && decision.aside !== true)
+    if (failed.length > 0) toastOnce(io, now, failedText(failed, after, turnOf))
   } catch (error) {
     io.debug(`decision not reported: ${errorText(error)}`)
   }
@@ -370,107 +406,48 @@ function isDecided(decision: ReportedDecision): decision is Decided {
   return 'outcome' in decision
 }
 
+/** The `n` of the decision log's last entry (0: none, or the log cannot be read). */
+async function lastLogged(io: ReportIo): Promise<number> {
+  try {
+    return ((await io.decisions.get()).value ?? []).at(-1)?.n ?? 0
+  } catch {
+    return 0
+  }
+}
+
+/** The engine drops a plugin's second toast within this many milliseconds of its last one (measured on 2.1.289). */
+const TOAST_GAP_MS = 2000
+
+/** When the last toast was raised (module state: a hot reload forgets it, and the next toast may then be one the engine drops). */
+let toastedAt = Number.NEGATIVE_INFINITY
+
 /**
- * The old status line's segments that the board renders, by the feature that
- * decides what they say (its switch name): each is handed the decision (the
- * last of an event's), the board with it on (every agent's node of the latest
- * turns, so a segment that sums up several agents reads them there) and all
- * the decisions of the event, and says what its segments now read (`null`:
- * nothing). Every feature's line is here; the whole table goes with the old
- * line, when the new screens replace it (#29).
+ * Raises the toast unless one was raised within `TOAST_GAP_MS`, which the engine would drop: the failures that
+ * follow one closely are on the board all the same.
  */
-const LEGACY: Record<string, (decision: ReportedDecision, board: Board, event: readonly ReportedDecision[]) => { segment: Segment; text: string | null }[]> = {
-  // Why the person's message got no decision: the failed request, until a decision comes back.
-  'main-effort': (decision) => [{ segment: 'decision', text: 'failure' in decision ? failureText(decision.failure.backend, decision.failure) : null }],
-  // The latest dispatched agent: its model and effort and whose choice they were, or why it is not routed.
-  'dispatched-agents': (decision) => {
-    if ('failure' in decision) return [{ segment: 'agent', text: `agent not routed (${failureText(decision.failure.backend, decision.failure)})` }]
-    if (!isDecided(decision)) return []
-    const whose = decision.modelBy === 'person' ? ' (you)' : decision.modelBy === 'main-agent' ? ' (kept)' : decision.effortBy === 'person' ? ' (effort: you)' : ''
-    return [{ segment: 'agent', text: `agent ${decision.outcome}${whose}` }]
-  },
-  // A Workflow script's calls: how many were routed, left as written, and why.
-  'workflow-agents': (_decision, _board, event) => {
-    const first = event[0]
-    if (first === undefined) return []
-    // Said of the Workflow as a whole (not of one of its calls).
-    if (event.length === 1 && 'why' in first && first.node?.workflow === undefined) {
-      return [{ segment: 'workflow', text: 'offBoard' in first ? null : `workflow ${'asWritten' in first ? 'runs as written' : 'not routed'} (${first.why})` }]
-    }
-    const decided = event.filter(isDecided)
-    const sentBack = decided.filter((decision) => decision.written === true)
-    if (decided.some((decision) => decision.sentBack === true)) return [{ segment: 'workflow', text: `workflow sent back (${sentBack.length} agent${sentBack.length === 1 ? '' : 's'})` }]
-    const left = event.filter((decision) => !isDecided(decision))
-    const failure = left.find((decision) => 'failure' in decision)
-    const failed = failure !== undefined && 'failure' in failure ? failureText(failure.failure.backend, failure.failure) : null
-    if (decided.length === 0) {
-      const one = left[0]
-      return [{ segment: 'workflow', text: `workflow not routed (${one === undefined ? 'no agent() calls' : (failed ?? whyOf(one))})` }]
-    }
-    const rest = left.length === 0 ? '' : ` (${left.length} as written${failed === null ? '' : `: ${failed}`})`
-    return [{ segment: 'workflow', text: `workflow routed ${decided.length} agent${decided.length === 1 ? '' : 's'}${rest}` }]
-  },
-  // A Workflow run's agents routed by their labels: what was decided for its calls when it started, then how its agents fared as each one started.
-  'workflow-labels': (decision, board, event) => {
-    const first = event[0]
-    if (first === undefined) return []
-    const run = decision.node?.workflow
-    // An agent has started: the run's tally.
-    if (run !== undefined && decision.node?.state !== 'queued') {
-      const started = board.nodes.filter((node) => node.workflow?.id === run.id && node.state !== 'queued')
-      const routed = started.filter((node) => node.routed).length
-      const failed = started.filter((node) => !node.routed)
-      const reason = failed.at(-1)?.why ?? ''
-      const got = `routed ${routed} agent${routed === 1 ? '' : 's'}`
-      return [{ segment: 'labels', text: failed.length === 0 ? `by label: ${got}` : routed === 0 ? `by label: not routed (${reason})` : `by label: ${got} (${failed.length} not: ${reason})` }]
-    }
-    // The run's own set-up failed.
-    if (event.length === 1 && 'why' in first && first.node?.workflow === undefined) return [{ segment: 'labels', text: `by label: not routed (${first.why})` }]
-    // The calls decided as the run started: said only when a request failed.
-    const undecided = event.filter((one) => 'failure' in one)
-    const failure = undecided[0]
-    if (failure === undefined || !('failure' in failure)) return []
-    const why = failureText(failure.failure.backend, failure.failure)
-    if (event.some(isDecided)) return [{ segment: 'labels', text: `by label: ${undecided.length} call${undecided.length === 1 ? '' : 's'} not decided (${why})` }]
-    return [{ segment: 'labels', text: `by label: not routed (${why})` }]
-  },
-  // The skills suggested for the message, and the ones to try; or why none were rated.
-  skills: (decision) => [
-    {
-      segment: 'skills',
-      text: 'outcome' in decision ? (decision.skills === undefined ? null : skillsText(decision.skills)) : 'failure' in decision ? `skills not rated (${failureText(decision.failure.backend, decision.failure)})` : null,
-    },
-  ],
-  // What find_skill returned, or why it failed.
-  'find-skill': (decision) => [
-    {
-      segment: 'find-skill',
-      text:
-        'outcome' in decision
-          ? `find_skill ${decision.skills === undefined || decision.skills.suggest.length === 0 ? 'none' : decision.skills.suggest.map((skill) => skill.name).join(', ')}`
-          : 'failure' in decision
-            ? `find_skill failed (${failureText(decision.failure.backend, decision.failure)})`
-            : 'skipped' in decision
-              ? decision.skipped === 'none'
-                ? 'find_skill none'
-                : `find_skill failed (${decision.skipped === 'unread' ? "the session's skills could not be read" : 'see the debug log'})`
-              : null,
-    },
-  ],
+function toastOnce(io: ReportIo, now: number, text: string): void {
+  if (now - toastedAt < TOAST_GAP_MS) return
+  toastedAt = now
+  try {
+    io.toast(text)
+  } catch {
+    // a toast that cannot be shown is skipped: the board has it
+  }
 }
 
-/** Why a decision that was not made says the agent is not routed: the failure in the old status words, else its own. */
-function whyOf(decision: ReportedDecision): string {
-  return 'failure' in decision ? failureText(decision.failure.backend, decision.failure) : 'why' in decision ? decision.why : ''
+/** The toast for the routes of one event that failed: who is not routed, and why (the first failure's words). */
+function failedText(failed: readonly NotDecided[], board: Board, turnOf: (decision: ReportedDecision) => number): string {
+  const first = failed[0] as NotDecided
+  const why = failureText(first.failure.backend, first.failure)
+  if (failed.length > 1) return `${failed.length} 个 agent 未路由：${why}`
+  if (first.agent === 'main') return `主 agent 未路由：${why}`
+  const name = board.nodes.find((node) => node.turn === turnOf(first) && node.id === first.agent)?.name ?? first.node?.name ?? first.agent
+  return `「${name.length > 24 ? `${name.slice(0, 23)}…` : name}」未路由：${why}`
 }
 
-/** The skills segment: the skills suggested, then those for the person to start (`try /x`); null for neither. */
-function skillsText(picked: SkillsPicked): string | null {
-  const parts = [
-    ...(picked.suggest.length > 0 ? [`skills ${picked.suggest.map((skill) => skill.name).join(', ')}`] : []),
-    ...(picked.try.length > 0 ? [`try ${picked.try.map((skill) => `/${skill.name}`).join(' ')}`] : []),
-  ]
-  return parts.length > 0 ? parts.join(' | ') : null
+/** The board with the notes added: those of turns older than the nodes' dropped, and the oldest past `NOTES_KEPT`. */
+function withNotes(board: Board, notes: readonly BoardNote[]): Board {
+  return { ...board, notes: [...(board.notes ?? []), ...notes].filter((note) => note.turn >= board.turn - 1).slice(-NOTES_KEPT) }
 }
 
 // ---- entry 2: a reading -------------------------------------------------------
@@ -544,9 +521,6 @@ export async function reportStep(io: StepIo, step: StepReading): Promise<void> {
   } catch (error) {
     io.debug(`reading not kept on the board: ${errorText(error)}`)
   }
-  // The old status line's `effort` segment: the main agent's effort as it goes out. Set at every step
-  // (the line itself is sent only when it changes), for a switch or /dp off may have taken it away.
-  if (main && step.effort !== undefined) setStatus('effort', `effort ${String(step.effort)}${locked ? ' (locked)' : routed ? '' : ' (not routed)'}`, io.status)
 }
 
 /** How a loop's turn ended (`turn.complete`). */
@@ -627,74 +601,64 @@ export async function reportSpawn(io: StepIo, spawn: { agentId: string; name?: s
  * Reports what a feature counts as its loop goes, which is no decision: the
  * mid-turn re-decision's steps, decisions and changes of the main agent's
  * turn, and each loop's failed tool calls and forced raises. On the agent's
- * node of the current turn (`midturn`, `counts`), and on the old status
- * line's segments of those features. Writes the board only when the node
- * changed. Never throws.
+ * node of the current turn (`midturn`, `counts`); an answer that is late, or a
+ * re-decision's request that failed, is also a note for the band's event
+ * stream. Writes the board only when the node changed. Never throws.
  */
 export async function reportTally(io: ReportIo, tally: Tallied): Promise<void> {
   try {
-    await modify(io.board, (current) => withTally(current ?? EMPTY, tally))
+    const noteworthy = tally.late === true || ('failure' in tally && tally.failure !== undefined)
+    const now = await io.now()
+    const logged = noteworthy ? await lastLogged(io) : 0
+    await modify(io.board, (current) => withTally(current ?? EMPTY, tally, { now, logged }))
   } catch (error) {
     io.debug(`tally not kept on the board: ${errorText(error)}`)
   }
-  if (tally.feature === 'midturn-effort') {
-    const note = tally.late === true ? ' (late)' : tally.failure === undefined ? '' : ` (${failureText(tally.failure.backend, tally.failure)})`
-    setStatus('midturn', tally.quiet ? null : `steps ${tally.steps}, judged ${tally.judged}, changed ${tally.changed}${note}`, io.status)
-    return
-  }
-  // The old line shows the main agent's counts, and the latest agent's that had any (lost with the turn, and with a reload).
-  const counts = { failed: tally.failed, blocked: tally.blocked, raised: tally.raised }
-  if (tally.turnStart === true) latestAgent = null
-  if (tally.agent === 'main') setStatus('escalation', countsText(counts, '', tally.late === true), io.status)
-  else latestAgent = { counts, late: tally.late === true }
-  setStatus('agentEscalation', latestAgent === null ? null : countsText(latestAgent.counts, 'agent ', latestAgent.late), io.status)
-}
-
-/** The latest agent whose calls failed, for the old status line. */
-let latestAgent: { counts: { failed: number; blocked: number; raised: number }; late: boolean } | null = null
-
-/** `failed 2, blocked 1, raised 1`: the counts that are not zero (null when all are), and `(late)` while a stuck answer is not back. */
-function countsText(counts: { failed: number; blocked: number; raised: number }, prefix: string, late: boolean): string | null {
-  const parts = [counts.failed > 0 ? `failed ${counts.failed}` : '', counts.blocked > 0 ? `blocked ${counts.blocked}` : '', counts.raised > 0 ? `raised ${counts.raised}` : ''].filter((part) => part !== '')
-  return parts.length === 0 ? null : `${prefix}${parts.join(', ')}${late ? ' (late)' : ''}`
 }
 
 // ---- entry 4: a switch --------------------------------------------------------
 
-/** What the person flipped with `/dp`: the whole mod, or one feature off (the status line segments its switch owns, `defineSwitch`'s `segments`). */
-export type Switched = { master: boolean } | { off: readonly Segment[] }
+/** What the person flipped with `/dp`: the whole mod, or one feature. */
+export type Switched = { master: boolean } | { feature: string; on: boolean }
+
+/** What a switch needs of the host: `() => $.ui.invalidate('ui.render')`, the screens drawn again. */
+export type SwitchIo = { redraw: () => void }
 
 /**
- * Reports a switch the person flipped (the control feature's `/dp`, and the
- * session start with the mod already off). On the old status line: while the mod
- * is off it says only `dp off` and starts empty when switched on again; a
- * feature switched off loses its segments, so an old failure does not stay. The
- * board and the decision log are untouched: what the new screens do with a
- * feature that is off is #29's. Never throws.
+ * Reports a switch the person flipped (the control feature's `/dp`). The board
+ * and the decision log keep what they hold: the screens read the switches as
+ * they draw, and leave out what a feature that is off owns (its decisions, the
+ * parts of the nodes it writes, `defineSwitch`'s `parts`), so they are drawn
+ * again now. Never throws.
  */
-export function reportSwitch(io: Pick<ReportIo, 'status'>, change: Switched): void {
+export function reportSwitch(io: SwitchIo, _change: Switched): void {
   try {
-    if ('master' in change) pauseStatus(!change.master, io.status)
-    else for (const segment of change.off) setStatus(segment, null, io.status)
+    io.redraw()
   } catch {
-    // a status line that cannot be drawn is skipped
+    // a redraw that cannot be asked for waits for the next change of the board
   }
 }
 
 /**
  * The board with the tally on its agent's node (the main agent's of the turn running, an agent's where its steps
- * go on: `continuing`); undefined when the node already says it, or there is nothing to say. A loop with no node
- * is no agent of the board (the readings make nodes), the main agent's is made.
+ * go on: `continuing`), and a note when an answer just went late or a request just failed; undefined when the
+ * node already says it, or there is nothing to say. A loop with no node is no agent of the board (the readings
+ * make nodes), the main agent's is made.
  */
-function withTally(board: Board, tally: Tallied): Board | undefined {
+function withTally(board: Board, tally: Tallied, when: { now: number; logged: number }): Board | undefined {
   const main = tally.agent === 'main'
   const old = main ? mainNode(board) : continuing(board, tally.agent)
   if (old === undefined && !main) return undefined
   let next: BoardNode
+  const notes: BoardNote[] = []
+  const note = (turn: number, kind: BoardNote['kind'], why: string) =>
+    notes.push({ turn, id: tally.agent, feature: tally.feature, at: elapsed(board, turn, when.now), after: when.logged, kind, why })
   if (tally.feature === 'midturn-effort') {
     if (tally.quiet) return undefined
     const midturn = { steps: tally.steps, judged: tally.judged, changed: tally.changed, ...(tally.late === true ? { late: true as const } : {}), ...(tally.failure === undefined ? {} : { failure: tally.failure }) }
     next = { ...(old ?? newNode(board.turn, tally.agent, undefined, 'running')), midturn }
+    if (tally.late === true && old?.midturn?.late !== true) note(next.turn, 'late', '')
+    if (tally.failure !== undefined && JSON.stringify(old?.midturn?.failure) !== JSON.stringify(tally.failure)) note(next.turn, 'failed', failureText(tally.failure.backend, tally.failure))
   } else {
     const any = tally.failed + tally.blocked + tally.raised > 0
     if (old === undefined && !any) return undefined
@@ -702,9 +666,11 @@ function withTally(board: Board, tally: Tallied): Board | undefined {
     next = any
       ? { ...base, counts: { failed: tally.failed, blocked: tally.blocked, raised: tally.raised, ...(tally.late === true ? { late: true as const } : {}) } }
       : without(base, 'counts')
+    if (tally.late === true && old?.counts?.late !== true) note(next.turn, 'late', '')
   }
   if (old !== undefined && JSON.stringify(old) === JSON.stringify(next)) return undefined
-  return { ...board, nodes: [...board.nodes.filter((node) => node !== old), next] }
+  const changed = { ...board, nodes: [...board.nodes.filter((node) => node !== old), next] }
+  return notes.length === 0 ? changed : withNotes(changed, notes)
 }
 
 function isLevel(value: string): value is Effort {
@@ -827,6 +793,7 @@ export function startTurn(board: Board | undefined, now: number): Board {
     turn,
     starts: [...(board?.starts ?? []).filter((start) => kept(start.turn)), { turn, at: now }],
     ...(board?.changes === undefined ? {} : { changes: board.changes.filter((change) => kept(change.turn)) }),
+    ...(board?.notes === undefined ? {} : { notes: board.notes.filter((note) => kept(note.turn)) }),
     nodes: (board?.nodes ?? []).filter((node) => kept(node.turn)),
   }
 }
@@ -840,8 +807,8 @@ function stepIo($: EngineInterface): StepIo {
     board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
     decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
     debug: (line) => $.ui.log(line, { to: 'debug' }),
-    status: (line) => $.ui.status(line),
     now: () => $.clock.now(),
+    toast: (text) => $.ui.toast(text),
     agents: () => $.agent.list(),
     runDirs: async () => {
       const [noted, labelled] = await Promise.all([$.state.get(WORKFLOW_RUNS), $.state.get(LABEL_RUNS)])
@@ -899,9 +866,10 @@ export function appendEntry(list: readonly LogEntry[], entry: Omit<LogEntry, 'n'
   return all.filter((kept) => kept.turn > latest - LOG_TURNS).slice(-LOG_ENTRIES)
 }
 
-function entryOf(decision: Decided, turn: number): Omit<LogEntry, 'n'> {
+function entryOf(decision: Decided, turn: number, at: number): Omit<LogEntry, 'n'> {
   return {
     turn,
+    at,
     feature: decision.feature,
     agent: decision.agent,
     tone: decision.tone ?? 'ok',

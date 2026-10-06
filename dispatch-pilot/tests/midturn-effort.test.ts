@@ -1,6 +1,6 @@
 // The main agent's effort, re-decided while a turn runs (#5): seam 1 (engine
 // events in; what reaches the engine, the decision backend, the board data
-// (`w.board()`) and, in a few tests, the old status line out).
+// (`w.board()`) out).
 
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
@@ -169,13 +169,14 @@ test('an answer not back by its step: the step waits rejudgeWaitMs, keeps the ef
   await w.clock.advance(300)
   await late
   expect((await w.board()).main?.midturn).toEqual({ steps: 3, judged: 1, changed: 0, late: true })
-  expect(w.status()).toBe('dp effort medium | steps 3, judged 1, changed 0 (late)')
+  // One note for the band's event stream, at the step that waited.
+  expect((await w.board()).notes).toMatchObject([{ turn: 1, id: 'main', feature: 'midturn-effort', kind: 'late' }])
 
   await w.clock.advance(700) // the answer comes
   await w.step({ index: 3 })
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium', 'xhigh'])
   expect((await w.board()).main?.midturn).toEqual({ steps: 4, judged: 2, changed: 1 })
-  expect(w.status()).toBe('dp effort xhigh | steps 4, judged 2, changed 1')
+  expect((await w.board()).notes).toHaveLength(1)
 })
 
 const REFUSED_AT_PROMPT =

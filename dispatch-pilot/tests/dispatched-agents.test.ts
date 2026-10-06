@@ -1,7 +1,7 @@
 // Dispatched agents: each agent the main agent starts gets its own decision on
 // its model and effort at agent.spawn. Seam 1: engine events in; out, what the
 // spawn and the agent's steps reach the engine with, the request the decision
-// model got, the board (`w.board()`), the old status line (a few tests), the decision log.
+// model got, the board (`w.board()`), the decision log.
 
 import { expect, test } from 'claude-code/testing'
 import { dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
@@ -400,7 +400,7 @@ test('agentFable adds fable to the models the decision model may choose for an a
   expect(w.spawned.map((s) => s.model)).toEqual(['fable'])
 })
 
-test("the status line shows the latest dispatched agent's model and effort, and whose choice the model was", { options: KEY }, async ($, on) => {
+test("the board keeps every dispatched agent's decision: the model and effort decided, whoever's choice the model was", { options: KEY }, async ($, on) => {
   const w = world($, on, {
     backend: (request, n) =>
       agentJev(
@@ -411,17 +411,12 @@ test("the status line shows the latest dispatched agent's model and effort, and 
             : { model: { opus: 1 }, nouls: { 'named.haiku': 0.9 } },
       )(request),
   })
-  const lines: (string | undefined)[] = []
   await w.spawn({ prompt: 'Write tests for src/cache/lru.ts.' })
-  lines.push(w.status())
   await w.spawn({ prompt: 'Review the diff of src/policies/document.ts.', model: 'opus' })
-  lines.push(w.status())
   await w.submit('这次用 haiku 把日志里的报错列出来就行')
   await w.spawn({ prompt: 'List the errors in logs/app.log.' })
-  lines.push(w.status())
 
-  expect(lines).toEqual(['dp agent sonnet high', 'dp agent opus medium (kept)', 'dp agent haiku (you)'])
-  // The board keeps every one of them.
+  // The decision model's sonnet, the main agent's opus it kept, the person's haiku.
   expect((await w.board()).log.filter((entry) => entry.feature === 'dispatched-agents').map((entry) => [entry.model, entry.effort])).toEqual([
     ['sonnet', 'high'],
     ['opus', 'medium'],
@@ -439,16 +434,14 @@ test("each dispatched agent's decision is logged with its reason: in the debug l
   expect(await w.command('dp', 'log')).toMatch(/#1 dispatched-agents: sonnet high for "Rename getUser" \(general-purpose\): .*confidence 0\.85/)
 })
 
-test('/dp dispatched-agents off lets agents start as the main agent sent them, with nothing asked and its status segment gone; on brings the decisions back', { options: KEY }, async ($, on) => {
+test('/dp dispatched-agents off lets agents start as the main agent sent them, with nothing asked; on brings the decisions back', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.05, opus: 0.05 }, effort: [0, 1, 0, 0, 0] }) })
   expect(await w.command('dp')).toMatch(/\bon +dispatched-agents +\S/)
   await w.spawn({ prompt: 'List the files under src/.' })
   expect((await w.board()).agents).toMatchObject([{ state: 'queued', routed: true, decision: 1 }])
   expect((await w.board()).log).toMatchObject([{ feature: 'dispatched-agents', model: 'haiku', outcome: 'haiku' }])
-  expect(w.status()).toBe('dp agent haiku')
 
   expect(await w.command('dp', 'dispatched-agents off')).toContain('dispatched-agents is off')
-  expect(w.status()).toBeUndefined()
   const started = await w.spawn({ prompt: 'List the files under test/.', model: 'opus' })
   await w.step({ index: 0, turnId: 'sub-2', agentId: started.agentId, model: 'claude-opus-5-5', effort: 'xhigh' })
   expect(w.requests).toHaveLength(1)
@@ -470,10 +463,9 @@ test('/dp off stands dispatched agents down too: nothing is asked and the agent 
   // Nothing was decided: the agent is on the board all the same, and not routed.
   expect((await w.board()).agents).toMatchObject([{ state: 'queued', routed: false }])
   expect((await w.board()).log).toEqual([])
-  expect(w.status()).toBe('dp off')
 })
 
-test('no answer within timeoutMs: the agent starts then, on the model it was given, at the engine effort, and the status line says why', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
+test('no answer within timeoutMs: the agent starts then, on the model it was given, at the engine effort, and the board says why', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
   const w = world($, on, { backend: (request) => ({ after: 60_000, reply: agentJev({ model: { haiku: 1 } })(request) }) })
   const spawning = w.spawn({ prompt: 'Profile the checkout endpoint and find the slow query.', description: 'Profile checkout', model: 'opus' })
   await w.clock.settle()
@@ -486,15 +478,15 @@ test('no answer within timeoutMs: the agent starts then, on the model it was giv
   expect((await w.board()).agents).toMatchObject([{ id: started.agentId, routed: false, why: 'jev: no answer in 800 ms', failure: { backend: 'jev', kind: 'timeout' } }])
 })
 
-const failures: { name: string; reply: Reply; status: string }[] = [
-  { name: 'the key is refused (401)', reply: { status: 401, body: { detail: 'Invalid API key' } }, status: 'jev: key refused (HTTP 401)' },
-  { name: 'a server error (500)', reply: { status: 500, body: 'Internal Server Error' }, status: 'jev: HTTP 500' },
-  { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }, status: 'jev: unreachable' },
-  { name: "an answer without the agent's questions", reply: { status: 200, body: { model: 'jev-1.13.0', answers: {} } }, status: 'jev: unreadable answer' },
+const failures: { name: string; reply: Reply; why: string }[] = [
+  { name: 'the key is refused (401)', reply: { status: 401, body: { detail: 'Invalid API key' } }, why: 'jev: key refused (HTTP 401)' },
+  { name: 'a server error (500)', reply: { status: 500, body: 'Internal Server Error' }, why: 'jev: HTTP 500' },
+  { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }, why: 'jev: unreachable' },
+  { name: "an answer without the agent's questions", reply: { status: 200, body: { model: 'jev-1.13.0', answers: {} } }, why: 'jev: unreadable answer' },
 ]
 
 for (const failure of failures) {
-  test(`${failure.name}: the agent starts on the model it was given, at the engine effort, and the status line says why`, { options: KEY }, async ($, on) => {
+  test(`${failure.name}: the agent starts on the model it was given, at the engine effort, and the board says why`, { options: KEY }, async ($, on) => {
     const w = world($, on, { backend: () => failure.reply })
     const started = await w.spawn({ prompt: 'Summarize what src/billing/invoice.ts does.', description: 'Explain invoice.ts', model: 'sonnet' })
     await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-sonnet-5-5', effort: 'high' })
@@ -502,11 +494,11 @@ for (const failure of failures) {
     expect(w.requests).toHaveLength(1)
     expect(w.spawned.map((s) => s.model)).toEqual(['sonnet'])
     expect(w.steps.map((s) => String(s.effort))).toEqual(['high'])
-    expect((await w.board()).agents).toMatchObject([{ id: started.agentId, name: 'Explain invoice.ts', routed: false, why: failure.status }])
+    expect((await w.board()).agents).toMatchObject([{ id: started.agentId, name: 'Explain invoice.ts', routed: false, why: failure.why }])
   })
 }
 
-test('no TypeSafe key: nothing is sent, the agent starts as the main agent asked, and the status line says to set the key', async ($, on) => {
+test('no TypeSafe key: nothing is sent, the agent starts as the main agent asked, and the board says to set the key', async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 1 } }) })
   await w.spawn({ prompt: 'Summarize what src/billing/invoice.ts does.', model: 'sonnet' })
 

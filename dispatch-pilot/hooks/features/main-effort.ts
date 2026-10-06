@@ -48,7 +48,7 @@ async function describeCommand($: EngineInterface, name: string): Promise<Readon
 }
 
 export function registerMainEffort(on: On, ctx: Ctx): void {
-  defineSwitch({ name: 'main-effort', info: "decides the main agent's effort when you send a message", segments: ['decision'] })
+  defineSwitch({ name: 'main-effort', info: "decides the main agent's effort when you send a message" })
 
   on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
     // The person's own message, or a report that starts a turn of its own (a dispatched agent's hand-back, a task notice).
@@ -76,7 +76,8 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
           board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
           decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
           debug: (line) => $.ui.log(line, { to: 'debug' }),
-          status: (line) => $.ui.status(line),
+          now: () => $.clock.now(),
+          toast: (text) => $.ui.toast(text),
         }
         // About the main agent of the turn this message starts, or of the one running when it was typed into it.
         const about = { feature: report ? 'main-effort (agent report)' : 'main-effort', agent: 'main', forTurn: e.turnId === undefined ? ('next' as const) : ('current' as const), subject: quoteStart(e.text) }

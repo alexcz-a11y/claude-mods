@@ -183,19 +183,19 @@ for (const language of ['zh', 'en'] as const) {
 
 /**
  * The same answers under some of the person's options: what the mod shows the
- * main agent and the person (its status line's skills), and what the eval
- * records for the item.
+ * main agent and the person (the skills its decision suggests, and those it
+ * names for the person to try), and what the eval records for the item.
  */
-const PICKS: { options: PluginOptions; status: string; shown: string }[] = [
-  { options: {}, status: 'dp effort medium | skills tdd | try /grill-me', shown: 'tdd | try /grill-me' },
+const PICKS: { options: PluginOptions; suggest: string[]; tried: string[]; shown: string }[] = [
+  { options: {}, suggest: ['tdd'], tried: ['grill-me'], shown: 'tdd | try /grill-me' },
   // grill-me fits 0.81, tdd 0.93.
-  { options: { skillsMinRelevance: 0.85 }, status: 'dp effort medium | skills tdd', shown: 'tdd' },
-  { options: { skillsMax: 0 }, status: 'dp effort medium | try /grill-me', shown: 'none | try /grill-me' },
+  { options: { skillsMinRelevance: 0.85 }, suggest: ['tdd'], tried: [], shown: 'tdd' },
+  { options: { skillsMax: 0 }, suggest: [], tried: ['grill-me'], shown: 'none | try /grill-me' },
   // Never offered: stage one rates the rest, and tdd is neither asked about nor suggested.
-  { options: { skillsNeverSuggested: ['tdd'] }, status: 'dp effort medium | try /grill-me', shown: 'none | try /grill-me' },
+  { options: { skillsNeverSuggested: ['tdd'] }, suggest: [], tried: ['grill-me'], shown: 'none | try /grill-me' },
 ]
 
-for (const { options, status, shown } of PICKS) {
+for (const { options, suggest, tried, shown } of PICKS) {
   test(`from the same answers the eval suggests and hints what the mod does, under the person's options (${JSON.stringify(options)})`, { options: { typesafeApiKey: 'k', ...options } }, async ($, on) => {
     const w = world($, on, { backend: ANSWER, skills: SKILLS, disk: DISK, store: STORE, messages: transcript(ITEM.zh.recent_context) })
     await w.submit(ITEM.zh.message)
@@ -205,7 +205,9 @@ for (const { options, status, shown } of PICKS) {
     const net = network(ANSWER)
     const [row] = await runSuite(suite, [ITEM], { backend: jevBackend('k'), ...net, settings: settingsFrom(options), variants: ['profiles'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
-    expect(w.status()).toBe(status)
+    const picked = (await w.board()).log.findLast((entry) => entry.feature === 'skills')?.skills
+    expect(picked?.suggest.map((skill) => skill.name)).toEqual(suggest)
+    expect(picked?.try.map((skill) => skill.name)).toEqual(tried)
     expect(row?.shown).toBe(shown)
     expect(net.bodies).toEqual(w.requests.map((request) => request.body))
   })

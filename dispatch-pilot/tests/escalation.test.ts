@@ -127,7 +127,7 @@ test('the re-decision goes out as the call that reaches the threshold ends, befo
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'high'])
 })
 
-test('an answer not back by the next step: the step waits rejudgeWaitMs, goes out as it was and says so; the raise comes with the answer, at a later step', { options: { ...ONLY, rejudgeWaitMs: 300 } }, async ($, on) => {
+test('an answer not back by the next step: the step waits rejudgeWaitMs, goes out as it was and the board notes it; the raise comes with the answer, at a later step', { options: { ...ONLY, rejudgeWaitMs: 300 } }, async ($, on) => {
   const quick = answers(MEDIUM)
   // The stuck answer takes a second of (mock) time, within the request's own timeout (timeoutMs, 1500).
   const w = world($, on, { backend: (request) => (kind(request) === 'midturn.level,escalation.expected' ? { after: 1000, reply: quick(request) } : quick(request)) })
@@ -138,13 +138,12 @@ test('an answer not back by the next step: the step waits rejudgeWaitMs, goes ou
   await w.clock.advance(300)
   await late
   expect((await w.board()).main?.counts).toEqual({ failed: 2, blocked: 0, raised: 0, late: true })
-  expect(w.status()).toBe('dp effort medium | failed 2 (late)')
+  expect((await w.board()).notes).toMatchObject([{ turn: 1, id: 'main', feature: 'escalation', kind: 'late' }])
 
   await w.clock.advance(700) // the answer comes
   await w.step({ index: 2 })
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'high'])
   expect((await w.board()).main?.counts).toEqual({ failed: 2, blocked: 0, raised: 1 })
-  expect(w.status()).toBe('dp effort high | failed 2, raised 1')
 })
 
 test('the failures a request carries are those since the counts last started over: after a raise, the mid-turn re-decision counts from zero again (one counter for both)', { options: { ...KEY, rejudgeEvery: 3 } }, async ($, on) => {
@@ -511,24 +510,19 @@ test("the main agent's node shows the turn's failed calls, the calls a hook bloc
   await w.submit('把登录模块重构成三层')
   await w.step({ index: 0 })
   expect((await w.board()).main?.counts).toBeUndefined()
-  expect(w.status()).toBe('dp effort medium')
   await w.step(failingOnce(1))
   expect((await w.board()).main?.counts).toEqual({ failed: 1, blocked: 0, raised: 0 })
-  expect(w.status()).toBe('dp effort medium | failed 1')
   await w.step(calls(2, BLOCKED))
   expect((await w.board()).main?.counts).toEqual({ failed: 1, blocked: 2, raised: 0 })
-  expect(w.status()).toBe('dp effort medium | failed 1, blocked 2')
   await w.step(failingOnce(3)) // the second counted failure: asked about at the next step
   await w.step({ index: 4 })
   expect((await w.board()).main?.counts).toEqual({ failed: 2, blocked: 2, raised: 1 })
-  expect(w.status()).toBe('dp effort high | failed 2, blocked 2, raised 1')
 
   // A new turn starts the counts afresh: its own node has none.
   await w.submit('再看看另一个模块')
   await w.step({ index: 0 })
   expect((await w.board()).main).toMatchObject({ turn: 2 })
   expect((await w.board()).main?.counts).toBeUndefined()
-  expect(w.status()).toBe('dp effort medium')
 })
 
 test("an agent's failed calls and raises show on the agent's own node", { options: ONLY }, async ($, on) => {
@@ -536,13 +530,11 @@ test("an agent's failed calls and raises show on the agent's own node", { option
   const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Fix auth tests' })) as { agentId: string }
   await w.step(agentStep(agentId, 0, { tools: agentFailing }))
   expect((await w.board()).agents.find((node) => node.id === agentId)?.counts).toEqual({ failed: 2, blocked: 0, raised: 0 })
-  expect(w.status()).toBe('dp agent sonnet medium | agent failed 2')
   await w.step(agentStep(agentId, 1))
   const board = await w.board()
   expect(board.agents.find((node) => node.id === agentId)?.counts).toEqual({ failed: 2, blocked: 0, raised: 1 })
   expect(board.main?.counts).toBeUndefined()
   expect(board.log.filter((entry) => entry.feature === 'escalation')).toMatchObject([{ agent: agentId, forced: { kind: 'effort', from: 'medium', to: 'high', floor: 'high' }, counts: { failed: 2, blocked: 0, raised: 1 } }])
-  expect(w.status()).toBe('dp agent sonnet medium | agent failed 2, raised 1')
 })
 
 test('a new turn starts the count and the limit afresh', { options: ONLY }, async ($, on) => {

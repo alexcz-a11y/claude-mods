@@ -129,7 +129,7 @@ type Asking = { forStep: number; turnId: string; covered: Counted; about: string
 const asking = new Map<string, Asking>()
 
 export function registerEscalation(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: 'raises the effort of an agent whose tool calls keep failing', segments: ['escalation', 'agentEscalation'] })
+  defineSwitch({ name: SWITCH, info: 'raises the effort of an agent whose tool calls keep failing', parts: ['counts'] })
   defineSwitch({ name: BLOCKS_SWITCH, info: 'counts a call one of your hooks blocked as a failure when deciding to escalate', default: false })
   const { escalation, midturn, agents } = ctx.config
   const settings: Settings = {
@@ -552,7 +552,8 @@ function ioOf($: EngineInterface): ReportIo {
     board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
     decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
     debug: (line) => $.ui.log(line, { to: 'debug' }),
-    status: (line) => $.ui.status(line),
+    now: () => $.clock.now(),
+    toast: (text) => $.ui.toast(text),
   }
 }
 

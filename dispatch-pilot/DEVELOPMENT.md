@@ -442,8 +442,7 @@ hooks/
 │   ├── commands.ts         命令轮（#19）：command.run 记下的命令和随后提交的 prompt 对上，命令在决策请求里的说明，从引擎的命令消息读回输入的命令
 │   ├── prompts.ts          isPersonsMessage：判断哪些 prompt 是用户本人的新消息
 │   ├── skills.ts           skill 目录：loadCatalog（经闭包读命令、引擎的 skill 清单、settings、磁盘，找到每个 skill 的文件）；读和裁剪 skill 列表（#10）；rankingSettings、describeStages（#11）
-│   ├── status.ts           状态行：由各段组成，每段只有一个主人；已迁到 report.ts 的段（`effort`、`decision`）由它从看板数据渲染
-│   ├── switches.ts         开关：总开关和各功能的开关，defineSwitch 登记、isOn 判断
+│   ├── switches.ts         开关：总开关和各功能的开关，defineSwitch 登记、isOn 判断；isShown：一项功能拥有的看板部分（parts）此刻画不画
 │   └── setup.ts            把 userConfig 读成 ctx：每个选项的范围和缺省值只在这里（Config），以及决策后端
 └── decision/               决策请求模块：纯模块，不依赖 $，Node 可以直接 import（#4 的评测会用）
     ├── system-one.ts       System One 请求和回答的类型；mergeParts、answersFor
