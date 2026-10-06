@@ -38,7 +38,7 @@ export type Asked =
   | { ok: false; failure: Failure }
 
 export type Backend = {
-  /** Its name in the status line and the debug log. */
+  /** Its name on the board and in the debug log. */
   name: string
   /**
    * False when the person has not set it up (no key): every `ask` fails at

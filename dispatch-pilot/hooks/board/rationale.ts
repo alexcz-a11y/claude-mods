@@ -11,8 +11,8 @@
 // step's own `applied`.
 //
 // The words are the pane's own (Chinese, GLOSSARY terms); a log entry's
-// `reason` and a node's `why` come in the decision report's words (English
-// until #32).
+// `reason` and a node's `why` come in the decision report's words (Chinese
+// too, #32).
 
 import { isEffort, type Effort } from '../decision/effort.ts'
 import type { LogEntry, ProfilesState, RuleStep, Tone } from '../core/report.ts'

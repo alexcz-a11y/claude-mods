@@ -352,7 +352,7 @@ export function returnNote(parsed: ParsedWorkflow, outcomes: readonly CallOutcom
  * What the main agent reads after the Workflow tool's result: a line for each
  * call the decisions touched or left. Null when there is nothing for it to
  * know: no call was decided, and none was left for a reason it could change
- * (a decision model that did not answer is the status line's to report).
+ * (a decision model that did not answer is the board's to report).
  */
 export function rewriteNote(parsed: ParsedWorkflow, outcomes: readonly CallOutcome[], describe: (failure: Failure) => string): string | null {
   const decided = outcomes.some((outcome) => outcome.kind !== 'left')

@@ -11,7 +11,7 @@
 // profiles' state and log entry are never shown (#33).
 //
 // The words are the screens' own (Chinese, GLOSSARY terms); `why` on a node
-// comes in the decision report's words (English until #32).
+// comes in the decision report's words (Chinese too, #32).
 
 import { isEffort, type Effort } from '../decision/effort.ts'
 import { callWorkflowOf, ENDED_WORDS, failureWords, type Board, type BoardNode, type BoardNote, type LogEntry, type Model, type Reading, type ReadingChange, type RuleStep } from '../core/report.ts'

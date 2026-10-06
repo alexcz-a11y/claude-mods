@@ -48,7 +48,7 @@ function withoutSecrets(text: string, { accountId, apiToken }: CloudflareCredent
   return [apiToken, accountId].reduce((out, secret) => (secret ? out.split(secret).join('[REDACTED]') : out), text)
 }
 
-/** What to set when a credential is missing (the status line shows it as it is); null when both are there. */
+/** What to set when a credential is missing (the board shows it, in the person's words: failureLine); null when both are there. */
 function missingCredentials({ accountId, apiToken }: CloudflareCredentials): string | null {
   if (!accountId && !apiToken) return 'no Cloudflare account ID or API token: set cloudflareAccountId and cloudflareApiToken'
   if (!accountId) return 'no Cloudflare account ID: set cloudflareAccountId'

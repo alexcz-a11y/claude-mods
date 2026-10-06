@@ -120,7 +120,7 @@ export function registerCore(on: On, ctx: Ctx): void {
     const { value: agent } = agentId === undefined ? { value: undefined } : await $.state.get({ ...AGENTS, id: agentId })
     const { value: lock = null } = agentId === undefined ? await $.state.get(LOCK) : { value: null }
     const { step, source } = planStep(e, { lock, turn, agent })
-    // What the step goes out with, for the board: every loop's, the main agent's (and the status line it draws) included.
+    // What the step goes out with, for the board: every loop's, the main agent's included.
     const io: StepIo = {
       board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
       decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
