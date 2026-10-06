@@ -434,9 +434,8 @@ hooks/
 ├── core/                   各功能共用的机制，不含具体功能
 │   ├── core.ts             核心的 hook：发消息时的决策请求、一轮的开始、每一步的写入、认出 settings hook 拦下的调用、记下用户运行的命令
 │   ├── ballot.ts           一条消息的「投票箱」：各功能放进问题，由核心一次发出
-│   ├── report.ts           「决定汇报」module（ADR 0004）：三个入口 reportDecision、reportStep 和 reportTally，看板数据（`board`）和决策日志（`decisionLog`）的唯一写入者；自带 turn.start、agent.spawn、turn.complete 三个只看不改的 hook，记轮数和各个 agent 的开始、排队、结束
+│   ├── report.ts           「决定汇报」module（ADR 0004）：四个入口 reportDecision、reportStep、reportTally 和 reportSwitch，看板数据（`board`）和决策日志（`decisionLog`）的唯一写入者；自带 turn.start、agent.spawn、turn.complete 三个只看不改的 hook，记轮数和各个 agent 的开始、排队、结束
 │   ├── workflow-report.ts  Workflow 的两个功能（workflow-agents、workflow-labels）交给 report.ts 的东西：每个 agent() 调用一份报告（`callReports`）、整个 Workflow 没走路由的说明（`workflowLeft`）、没读全脚本时 Workflow 的名字
-│   ├── decisions.ts        旧的记录入口 recordDecision：还没迁到 reportDecision 的功能在用，写进同一份决策日志；功能迁完后删除
 │   ├── plans.ts            计划表的类型和纯函数（planStep 决定每一步发出什么）
 │   ├── outcomes.ts         工具调用的结局：哪些被 settings hook 拦下（核心的 classic.PreToolUse 记）、每个调用怎么结束的（#7 记），#5 和 #7 共用
 │   ├── profiles.ts         skill 画像（#11）：给模型的提示、读回答、store 的键和淘汰、readSessionSkills（目录加画像）
@@ -520,7 +519,7 @@ types/index.d.ts            $.state 的契约（PluginState）
 | `escalation` | `main`（主 agent，记录里的 `turnId` 是它所属的那一轮）或 `agentId` | 每个循环唯一的失败计数：失败次数、被 hook 拦下的次数、清零的基数 `base`（计入的是减去它之后的数）、强制升档的次数、这个循环最近一步的序号和引擎给的 effort、model（调用结束时就发的再判断要读）、最近一次再判断是为第几步问的、派出 agent 最近一次升档在第几步 | #7 写；#5 读主 agent 的，作为请求里的 `counts` |
 | `lock` | 无 | 用户锁定的主 agent effort，`null` 表示没有锁定 | #13：`/dp lock`、`/dp unlock`（`features/control.ts`） |
 | `board` | 无 | 看板数据：`turn`（本会话开始的主 agent 轮数）、`starts`（最近两轮的开始时间）、`changes`（读数的变化事件）和 `nodes`（最近两轮每个 agent 的一个节点：模型、effort、是否路由、未路由的原因、对应的决策编号，以及中途重判的计数 `midturn` 和失败计数 `counts`），见「记录一次决策」 | 「决定汇报」module（`core/report.ts`）：`reportDecision`、`reportStep`、`reportTally`、自己的 hook |
-| `decisionLog` | 无 | 各功能记录的决策，最近 20 轮、最多 300 条，`/dp log` 显示（见下「记录一次决策」） | 「决定汇报」module；还没迁走的功能经 `recordDecision` 写进同一份 |
+| `decisionLog` | 无 | 各功能记录的决策，最近 20 轮、最多 300 条，`/dp log` 显示（见下「记录一次决策」） | 「决定汇报」module |
 | `pending` | 无 | 发消息时做出的判断，等它的那一轮开始时由核心认领 | #2 |
 | `said` | 无 | 用户本人这一轮说的话（已脱敏和截断）：空闲时发的那条消息开始新的一组，这一轮进行中发的消息追加进去，其他来源的 prompt 不动它；派出 agent 和 Workflow 里 agent 的判断把它当作 `user_message` | #6 写，#8 读 |
 | `midturn` | `main:<turnId>` | 中途重判自己的记录：步数、最近 16 步的文字和工具调用（各带结局）、最近一次重判是为第几步问的 | #5 |
@@ -686,7 +685,7 @@ defineSwitch({ name: 'main-effort', info: "decides the main agent's effort when 
 - 在发消息、每一步、事件发生的时候判断，不要在 register 里判断：register 时还没有读到用户保存的开关（`features/control.ts` 在 `session.start` 里读，热重载后会重新读）。
 - `name`：小写字母、数字和 `-`，以字母开头；不能是 `/dp` 自己的词（`master`、`on`、`off`、`all`、`reset`、`status`、`help`、`lock`、`unlock`、`log`），否则登记时抛错。建议和功能的文件名一致。重复登记同一个名字会替换前一次。
 - `info`：一行英文（ASCII），显示在 `/dp` 的列表里。
-- `segments`（可选）：这项功能拥有的状态行段（`core/status.ts` 的 `Segment`）。用户关掉这项功能时，`/dp` 会把这些段从状态行上撤掉，免得旧的报错一直挂着。
+- `segments`（可选）：这项功能拥有的状态行段（`core/status.ts` 的 `Segment`）。用户关掉这项功能时，`/dp` 经 `reportSwitch` 把这些段从状态行上撤掉，免得旧的报错一直挂着。
 - `default: false`（可选）：默认关闭；不写就默认开启。
 - `$.store` 的 `switches` 里只存用户改过的、和默认值不同的开关（总开关的键是 `master`）。`/dp` 保存时只改动这一个开关，别的会话存下的其他项原样保留，未知的名字也保留（功能改名或回退版本时不丢用户的选择）。
 
@@ -718,7 +717,7 @@ await reportDecision(io, { feature: 'main-effort', agent: 'main', forTurn: 'next
 - `forTurn: 'next'`：在这一轮开始之前做的决定（`prompt.submit` 里，这条消息将开始一轮），归到将开始的那一轮；`'current'`（默认）：正在进行的这一轮，例如在一轮中途发的消息。轮数由 module 自己的 `turn.start` hook 数，从 1 开始。
 - 什么也没决定、也不是失败的请求时（`Skipped`，必带 `aside`）：`skipped` 是 `unanswered`（回答里没有 skill 那一题）、`unread`（读不到会话的 skill）、`none`（没有可评分的 skill）或 `error`（插件自己出错，debug log 有）。不进决策日志，也不上看板，只供旧状态行说话，随第 2 步一起去掉。旁支的失败（`failure` 加 `aside`，例如第二段 skill 请求失败）同样只给旧状态行用。
 - 一个 agent 在看板上还没有节点时，第一份报告建它：主 agent 的名字是「主 agent」；其他 agent 带 `node: { kind, name, type }`。
-- 旧状态行的段：`LEGACY` 表按功能名（开关名）列出 module 替它渲染的段，每行是 `(decision, board, event) => [{ segment, text }]`：拿到这条决定（一次事件里最后一条）、写入后的看板（最近两轮每个 agent 的节点）和这次事件的全部决定，返回这些段现在该写什么（`null` 清掉，`[]` 不动）。现在有 `main-effort`（`decision`）、`dispatched-agents`（`agent`）、`workflow-agents`（`workflow`）、`workflow-labels`（`labels`）、`skills`（`skills`）和 `find-skill`（`find-skill`）（中途重判和 escalation 的段由 `reportTally` 渲染）；功能迁移时在这张表里加自己一行、去掉自己的 `setStatus`。`effort` 段由 `reportStep` 渲染。
+- 旧状态行的段：`LEGACY` 表按功能名（开关名）列出 module 替它渲染的段，每行是 `(decision, board, event) => [{ segment, text }]`：拿到这条决定（一次事件里最后一条）、写入后的看板（最近两轮每个 agent 的节点）和这次事件的全部决定，返回这些段现在该写什么（`null` 清掉，`[]` 不动）。现在有 `main-effort`（`decision`）、`dispatched-agents`（`agent`）、`workflow-agents`（`workflow`）、`workflow-labels`（`labels`）、`skills`（`skills`）和 `find-skill`（`find-skill`）（中途重判和 escalation 的段由 `reportTally` 渲染）；新功能在这张表里加自己一行；功能自己不调用 `setStatus`（`eval/validate.ts` 的「一个写入者」检查会拦）。`effort` 段由 `reportStep` 渲染。
 - 一次事件有几个决定时（一个 Workflow 的几个 agent）用 `reportDecisions(io, [..])`：日志和看板各写一次，旧状态行也只发一次；`reportDecision` 是只有一条的特例。
 - 决定的几种形状，都用 `feature`、`agent`、`subject`、`node` 说是谁的：`Decided`（上面）还可以带 `model`、`effort`（决定了的模型家族和档位，记在决策日志的条目上，不写到节点上：节点的 `model`、`effort` 只是读数，见入口二）；`NotDecided`（失败）；`Left`（`why`：没有请求失败、只是这个 agent 或 Workflow 按原样运行，例如「its prompt is built when the script runs」「given by path」；`asWritten` 是设计如此，`offBoard` 是看板上没有什么可写的）；`Started`（`started: true`：它的决定早先为它的调用做过，现在 agent 启动了，不另记日志）。
 - 节点的 `node.state`（`queued`：还没启动）、`node.workflow`（所属 Workflow）和 `replaces`（这个 agent 启动前，是哪个节点替它占着位置：新节点接过它的 `decision` 链接，旧节点撤掉）。
@@ -733,7 +732,9 @@ await reportDecision(io, { feature: 'main-effort', agent: 'main', forTurn: 'next
 
 **入口三：`reportTally(io, tally)`。** 功能一路数着的计数，不是决定：`midturn-effort` 的步数、决定数、改档数（`quiet` 为真时，这一轮还没重判过，什么也不显示）和 `late`、`failure`（这一步的重判答案没回来，或请求失败），写到主 agent 本轮节点的 `midturn`；`escalation` 每个循环（主 agent 或某个 agent）的失败、阻塞、升档计数，写到那个 agent 本轮节点的 `counts`（全是 0 时去掉；一轮开始时主 agent 的计数归零，交 `turnStart`）。节点没变就不写看板；没有节点的 agent 循环不是看板上的 agent（节点由 `agent.spawn` 和读数建），它的计数不上看板，主 agent 的节点没有就建。旧状态行的 `midturn`、`escalation`、`agentEscalation` 三段也从它渲染（`agentEscalation` 是最近一个出过错的 agent，存在 module 变量里，热重载丢失，和以前一样）。
 
-**旧入口 `recordDecision`（`core/decisions.ts`）。** 还没迁走的功能照旧调用它：同样的调用、同样的 debug log 一行，条目写进同一份决策日志（`tone` 是 `info`，`turn` 取日志里最大的轮数，因为它不知道自己是哪一轮）。每迁一项功能就去掉它的调用，最后一项迁完删除这个文件。
+**入口四：`reportSwitch(io, change)`。** 用户用 `/dp` 开关时交给 module（只有 `features/control.ts` 用）：`{ master: boolean }` 是总开关（关着时旧状态行只写 `dp off`，打开时清空各段，等功能再写），`{ off: segments }` 是某项功能关掉了，撤掉它拥有的段（`defineSwitch` 的 `segments`）。`io` 只要 `status` 一个闭包。看板和决策日志不动；功能关掉后新画面怎么处理是 #29 的事。
+
+**一个写入者。** 功能里不调用 `setStatus`、`pauseStatus`，不碰 `core/status.ts`（旧状态行的实现，只有 `report.ts` 引用它），旧的 `recordDecision` 已经删除；`$.ui.status` 只以 `status: (line) => $.ui.status(line)` 这个交给 `ReportIo` 的闭包出现。`eval/validate.ts` 的一个写入者检查（`checkOneWriter`，`tests/docs-sync.test.ts` 测它）读 hooks/ 全部源码来保证这一点；#29 停用 `$.ui.status` 时，连这个闭包一起去掉。`failureText`（后端失败的一句话）在 `decision/backend.ts`，看板的 `why`、日志的理由和给模型看的文字（Workflow 的改写说明、find_skill 的回答）都用它，文字不变。
 
 - debug log 里那一行是 `<outcome> for <subject>: <reason>`；`/dp log` 里是 `#<n> <feature>: ` 加同样的一行。
 - 只记决定，不记失败的请求：请求的结果已经由核心写进 debug log。重判、强制升档、派出 agent 的模型选择、skill 推荐，都应该各记一条。
@@ -817,11 +818,11 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 - `core/setup.ts` 按 `decisionModel` 二选一，只构造被选中的那个后端；失败时不会改用另一个。
 - `Backend.configured` 为 `false` 表示用户还没配好这个后端（Jev 没有 key，Clef 缺 account ID 或 token），这时它的每次 `ask` 都会立刻以 `config` 失败返回。拿东西去换决策的功能，在这种情况下不应该动手：skill 推荐在这时不隐藏列表。新增后端时，要按自己的凭证设置这个字段。
 
-失败的分类见 `Failure.kind`（`config`、`timeout`、`network`、`busy`、`quota`、`http`、`parse`、`request`），对应的状态行文字见 `core/status.ts` 的 `failureText`。要给第三个后端留位置时，同样新建 `decision/<name>.ts` 实现 `Backend`，再在 `setup()` 里加一个分支。
+失败的分类见 `Failure.kind`（`config`、`timeout`、`network`、`busy`、`quota`、`http`、`parse`、`request`），对应的一句话见 `decision/backend.ts` 的 `failureText`。要给第三个后端留位置时，同样新建 `decision/<name>.ts` 实现 `Backend`，再在 `setup()` 里加一个分支。
 
 ### 状态行
 
-旧状态行从看板数据渲染：`effort` 段（主 agent 这一步发出的 effort，后面带 `(locked)` 或 `(not routed)`）由 `reportStep` 设，`decision`、`skills`、`find-skill` 段由 `reportDecision` 设，`midturn`、`escalation`、`agentEscalation` 段由 `reportTally` 设；还没迁走的功能照旧调用 `setStatus(segment, text | null, (line) => $.ui.status(line))`。各段按 `core/status.ts` 里 `ORDER` 的顺序显示，整行内容变化时才发送。新功能需要一段时，就在 `ORDER` 里加上，并且只由这项功能自己写。文字只用 ASCII。总开关关着时整行只显示 `dp off`（`pauseStatus`，只有 `features/control.ts` 调用），各段照常记着，打开总开关时清空。
+旧状态行从看板数据渲染：`effort` 段（主 agent 这一步发出的 effort，后面带 `(locked)` 或 `(not routed)`）由 `reportStep` 设，`decision`、`skills`、`find-skill` 段由 `reportDecision` 设，`midturn`、`escalation`、`agentEscalation` 段由 `reportTally` 设；各段按 `core/status.ts` 里 `ORDER` 的顺序显示，整行内容变化时才发送。新功能需要一段时，就在 `ORDER` 里加上，并且只由「决定汇报」写。文字只用 ASCII。总开关关着时整行只显示 `dp off`（`reportSwitch`，只有 `features/control.ts` 调用），各段照常记着，打开总开关时清空。
 
 ### 配置项
 

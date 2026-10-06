@@ -158,8 +158,8 @@ declare module 'claude-code' {
         }[]
       }
       /**
-       * What the features decided and why (core/report.ts `reportDecision`;
-       * core/decisions.ts for the features not yet migrated), oldest first: the
+       * What the features decided and why (core/report.ts `reportDecision`),
+       * oldest first: the
        * last 20 turns, at most 300 entries. `n` counts the session's entries
        * from 1; it is what `/dp log` and the debug log's `#n` show.
        */

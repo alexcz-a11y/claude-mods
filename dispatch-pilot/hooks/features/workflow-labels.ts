@@ -17,7 +17,7 @@
 // Its switch is `workflow-labels` (`/dp workflow-labels off`).
 
 import type { EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
-import { describeAsked, errorText, within, type Failure } from '../decision/backend.ts'
+import { describeAsked, errorText, failureText, within, type Failure } from '../decision/backend.ts'
 import { dispatchEvidence, modelFamily, termsOf, type AgentModel, type DispatchSettings, type Terms } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
 import {
@@ -40,7 +40,6 @@ import { batchesTimeoutMs, outcomeOf, readOutcomes, reasonOf, workflowBatches } 
 import { update, type Cell } from '../core/plans.ts'
 import { reportDecision, reportDecisions, type Decided, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
-import { failureText } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import { callReports, workflowCallTitle, workflowLeft } from '../core/workflow-report.ts'
 
