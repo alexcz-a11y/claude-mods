@@ -711,7 +711,7 @@ await reportDecision(io, { feature: 'main-effort', agent: 'main', forTurn: 'next
   failure: { backend: 'jev', kind: 'timeout', detail: 'no answer in 800 ms' } }) // 决策模型没给出决定
 ```
 
-- 决定（`Decided`）：`feature`（开关名；报告开始的一轮写 `main-effort (agent report)`）、`agent`（`main` 或 agentId）、`outcome`（几个词：`effort high`）、`reason`（理由，一行英文）、`subject`（针对什么：消息的开头、agent 的 label）、`forTurn`、`routed`、`tone`（默认 `ok`），以及可选的 `probs`、`conf`、`trace`（规则推演）、`floor`、`mid`。每个决定写一条 debug log（`<outcome> for <subject>: <reason>`）和一条决策日志，并写到那个 agent 在这一轮的节点上（`decision` 是日志编号）。`routed: true` 同时清掉节点上旧的 `why` 和 `failure`。
+- 决定（`Decided`）：`feature`（开关名；报告开始的一轮写 `main-effort (agent report)`）、`agent`（`main` 或 agentId）、`outcome`（几个词：`effort high`）、`reason`（理由，一行英文）、`subject`（针对什么：消息的开头、agent 的 label）、`forTurn`、`routed`、`tone`（默认 `ok`），以及可选的 `probs`、`conf`、`trace`（规则推演）、`floor`、`mid`。每个决定写一条 debug log（`<outcome> for <subject>: <reason>`）和一条决策日志，并写到那个 agent 在这一轮的节点上（`decision` 是日志编号）。`routed: true` 同时清掉节点上旧的 `why` 和 `failure`。`trace` 直接交规则自己给出的步骤（`decision/effort.ts` 的 `traceEffort(...).steps`；中途重判交 `[...trace.pick.steps, ...trace.steps]`），不要另行计算：主 agent 的 effort 决定（`features/main-effort.ts`）已经这样带上。
 - 没能做出决定（`NotDecided`）：带 `failure`（`{ backend, kind, detail, status? }`，后端名加 `Failure`）。它不进决策日志、不写 debug log（和以前一样，请求本身已经由核心记在 debug log 里），只写到 agent 的节点上：`why` 是简短的原因，`failure` 是完整的，`routed` 照 `routed` 字段。
 - `forTurn: 'next'`：在这一轮开始之前做的决定（`prompt.submit` 里，这条消息将开始一轮），归到将开始的那一轮；`'current'`（默认）：正在进行的这一轮，例如在一轮中途发的消息。轮数由 module 自己的 `turn.start` hook 数，从 1 开始。
 - 一个 agent 在看板上还没有节点时，第一份报告建它：主 agent 的名字是「主 agent」；其他 agent 带 `node: { kind, name, type }`。

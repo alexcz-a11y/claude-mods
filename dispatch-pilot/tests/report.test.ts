@@ -30,6 +30,21 @@ test("a decided message is on the board: its decision in the log, linked from th
   expect(board.main).toMatchObject({ turn: 1, id: 'main', kind: 'main', name: '主 agent', routed: true, decision: 1 })
 })
 
+test("the main agent's decision carries the rule trace that picked its level: max held back, the round-up blocked by it", { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 0.05, 0.1, 0.4, 0.45]) })
+  await w.submit('把登录模块重构成三层，并补上测试')
+
+  const entry = (await w.board()).log[0]
+  expect(entry).toMatchObject({ outcome: 'effort xhigh' })
+  expect(entry?.trace?.map((step) => [step.rule, step.applied, step.level])).toEqual([
+    ['top', true, 'max'],
+    ['max-gate', true, 'xhigh'],
+    ['round-up', false, 'xhigh'],
+  ])
+  expect(entry?.trace?.[1]).toMatchObject({ thetaMax: 0.5 })
+  expect(entry?.trace?.[2]).toMatchObject({ above: 'max', blockedByMax: true, threshold: 0.3 })
+})
+
 // ---- a decision that could not be made ----------------------------------------
 
 const FAILED: { name: string; backend: () => Reply; why: string; failure: Record<string, unknown> }[] = [

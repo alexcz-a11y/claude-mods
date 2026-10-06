@@ -18,7 +18,7 @@
 // in case the turn ends first and the message starts a turn of its own.
 
 import type { EngineInterface, On } from 'claude-code'
-import { EFFORTS, LEVEL, pickEffort, readEffort, readingText, turnStartEffortPart, type Effort, type EffortReading } from '../decision/effort.ts'
+import { EFFORTS, LEVEL, readEffort, readingText, traceEffort, turnStartEffortPart, type Effort, type EffortReading } from '../decision/effort.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { contribute } from '../core/ballot.ts'
 import { commandOf, commandState } from '../core/commands.ts'
@@ -91,7 +91,8 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
           await wait(null)
           return
         }
-        const effort = pickEffort(reading, ctx.config.thetaMax)
+        // pickEffort's rules with their working: the board shows the steps, never recomputes them (#23).
+        const { effort, steps } = traceEffort(reading, ctx.config.thetaMax)
         await reportDecision(io, {
           ...about,
           routed: true,
@@ -99,6 +100,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
           reason: describeReading(reading, effort, ctx.config.thetaMax),
           probs: Object.fromEntries(EFFORTS.map((level, i) => [level, reading.probabilities[i] ?? 0])) as Record<Effort, number>,
           ...(reading.confidence === null ? {} : { conf: reading.confidence }),
+          trace: steps,
         })
         await wait(effort)
         const running = e.turnId
