@@ -60,7 +60,7 @@ type Route =
   | { kind: 'start'; parsed: ParsedWorkflow; outcomes: CallOutcome[]; script: string | null }
 
 export function registerWorkflowAgents(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: 'decides the model and effort of each agent() of a Workflow script when the main agent submits it', segments: ['workflow'] })
+  defineSwitch({ name: SWITCH, info: 'decides the model and effort of each agent() of a Workflow script when the main agent submits it' })
   const settings = dispatchSettings(ctx)
   const describe = (failure: Parameters<typeof failureText>[1]) => failureText(ctx.backend.name, failure)
   // `rewrite` (the default) writes the decisions into the script; `return` sends the Workflow back with them, once.
@@ -73,7 +73,8 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
       board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
       decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
       debug: log,
-      status: (line) => $.ui.status(line),
+      now: () => $.clock.now(),
+      toast: (text) => $.ui.toast(text),
     }
     /** The Workflow as a whole is not routed: say why on the board (null: nothing to say of it). */
     const notRouted = (why: string | null, extra: { asWritten?: true } = {}) => reportDecisions(reporting, [workflowLeft(SWITCH, { id: e.tool_use_id, title: workflowCallTitle(e) }, why, extra)])

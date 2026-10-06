@@ -5,7 +5,8 @@
 // transcript at `session.messages`) and plays the engine at the bottom of the
 // events the mod passes on, recording what reached it. Assertions read those
 // records: what the mod sent to the backend, what each model request went out
-// with, what the status line said.
+// with, the toasts it raised; the screens it draws are mounted through it
+// (`w.band()`, `w.footer()`).
 //
 // Not a test file (no `.test.ts`), so `claude plugin test` only runs it through
 // the tests that import it. Register it before the test's first `$` call.
@@ -22,6 +23,10 @@ import type {
   On,
   PluginState,
   PromptOrigin,
+  RenderComponent,
+  RenderElement,
+  RenderPropsOf,
+  RenderSurface,
   SessionContextBreakdown,
   SessionMeasureInput,
   SessionMessage,
@@ -34,6 +39,7 @@ import type {
 export type BoardNode = PluginState['dispatch-pilot']['board']['nodes'][number]
 export type LogEntry = PluginState['dispatch-pilot']['decisionLog'][number]
 export type ReadingChange = NonNullable<PluginState['dispatch-pilot']['board']['changes']>[number]
+export type BoardNote = NonNullable<PluginState['dispatch-pilot']['board']['notes']>[number]
 /** The skill profiles' state (`skillProfiles`, #33): the session's one record of writing them. */
 export type ProfilesState = NonNullable<PluginState['dispatch-pilot']['skillProfiles']>
 
@@ -49,6 +55,8 @@ export type BoardView = {
   changes: ReadingChange[]
   /** When the latest turns started, by turn (`board.starts`, `$.clock.now()` ms). */
   starts: { turn: number; at: number }[]
+  /** What the features met beside the agents' routes (`board.notes`): a failed request, an answer of no use, a late one. */
+  notes: BoardNote[]
   log: LogEntry[]
   /** The skill profiles' state (#33); undefined before the session start reported one. */
   profiles: ProfilesState | undefined
@@ -112,6 +120,8 @@ export type WorldOptions = {
     rewrite?: (text: string) => string
     /** A reason to refuse the prompt (it never enters, no turn starts). */
     drop?: (text: string) => string | undefined
+    /** What another mod drew in a render site beneath this one, by component (`AbovePrompt`, `SessionMode`): a line of text. */
+    render?: Partial<Record<RenderComponent, string>>
   }
   /**
    * The session's skills (#10): what `$.command.list()`, `$.session.usage({ breakdown })`, `$.settings.read`,
@@ -221,6 +231,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const clock: MockClock = mock.clock(on)
   const requests: Sent[] = []
   const statuses: (string | undefined)[] = []
+  const toasts: { text: string; at: number }[] = []
   const logs: { text: string; to: string | undefined }[] = []
   const steps: Step[] = []
   const prompts: { text: string; context: readonly string[] | undefined; origin: unknown }[] = []
@@ -359,9 +370,21 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     held.skillProfiles = { value: JSON.parse(JSON.stringify(e.value)), version: held.skillProfiles.version + 1 }
     return { value: { isSet: true, version: held.skillProfiles.version } }
   })
+  // The status row the mod must never draw on (ADR 0004): recorded, so a test can say it stayed empty.
   on('ui.status', (_$, e) => {
     statuses.push(e.text)
     return { value: undefined }
+  })
+  on('ui.toast', (_$, e) => {
+    toasts.push({ text: e.text, at: clock.now() })
+    return { value: undefined }
+  })
+  // The engine's own drawing beneath the mod's render hooks: what another mod drew in the same place, when the
+  // test says one did (`beneath.render`), else an empty box.
+  on('ui.render', (_$, e) => {
+    const { Box, Text } = _$.ui.resolve(e)
+    const other = options.beneath?.render?.[e.component]
+    return (other === undefined ? h(Box, { key: 'engine' }) : h(Text, { key: 'beneath' }, other)) as RenderElement
   })
   on('ui.log', (_$, e) => {
     logs.push({ text: e.text, to: e.to })
@@ -450,8 +473,29 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     completions,
     /** Every tool call that reached the tools, its id, its arguments as they arrived (a hook's rewrite included) and how it ended; a call a hook refused is not in it. */
     toolCalls,
-    /** The status line as last set (`undefined` once cleared or never set). Only for the tests of the old line itself: everything else asserts `board()`. */
-    status: () => statuses.at(-1),
+    /** Every toast the mod raised, its text and when (mock clock ms). */
+    toasts,
+    /**
+     * Draws the band above the prompt (`AbovePrompt`) through the mod as a surface would, the board as it stands:
+     * a terminal of `columns` (the band lays out in five fewer, the engine's `[-]`) and a band of `rows`, a turn
+     * running unless `isWorking` says not. Later board writes show after `redraw()`.
+     */
+    band: (at: { columns?: number; rows?: number; isWorking?: boolean; surface?: RenderSurface; hasSurvey?: boolean } = {}) => {
+      const columns = at.columns ?? 180
+      const rows = at.rows ?? 12
+      const props: RenderPropsOf['AbovePrompt'] = {
+        hasSurvey: at.hasSurvey ?? false,
+        isWorking: at.isWorking ?? true,
+        maxRows: rows,
+        bodyColumns: columns - 5,
+        scroll: { offset: 0, bodyRows: rows - 1 },
+        view: {},
+      }
+      return $.ui.mount({ plugin: 'dispatch-pilot', surface: at.surface ?? 'terminal', component: 'AbovePrompt', props, viewport: { columns, rows: 50, isFullscreen: true } })
+    },
+    /** Draws the right end of the prompt footer (`SessionMode`) through the mod, the engine's own modes given. */
+    footer: (at: { modes?: readonly string[]; surface?: RenderSurface } = {}) =>
+      $.ui.mount({ plugin: 'dispatch-pilot', surface: at.surface ?? 'terminal', component: 'SessionMode', props: { modes: at.modes ?? [] } }),
     /**
      * The board data the mod keeps in `$.state` (the 「决定汇报」 module, core/report.ts): what a screen would draw
      * and what a test asserts on instead of a string. Reads the state as it stands now.
@@ -466,6 +510,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
         nodes,
         changes: board?.changes ?? [],
         starts: board?.starts ?? [],
+        notes: board?.notes ?? [],
         log: (held.decisionLog.value as LogEntry[] | undefined) ?? [],
         profiles: (held.skillProfiles.value as ProfilesState | undefined) ?? undefined,
         main: current.find((node) => node.id === 'main'),

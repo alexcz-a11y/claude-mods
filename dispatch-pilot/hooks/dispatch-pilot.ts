@@ -8,6 +8,7 @@
 // above `registerCore` (DEVELOPMENT.md, 开发).
 
 import type { Register } from 'claude-code'
+import { registerScreens } from './board/screens.tsx'
 import { registerCore } from './core/core.ts'
 import { registerReport } from './core/report.ts'
 import { setup } from './core/setup.ts'
@@ -27,6 +28,8 @@ export const register: Register = (on, options) => {
 
   // The decision report keeps the board's turn count: outermost, so a turn is counted before anything beneath reads the board.
   registerReport(on)
+  // The screens draw the report's data (the band, the footer); no feature touches them.
+  registerScreens(on)
 
   // Features, outermost first.
   registerControl(on, ctx)

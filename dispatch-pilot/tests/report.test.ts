@@ -1,5 +1,5 @@
 // The decision-report module (「决定汇报」, core/report.ts, ADR 0004) at seam 1: engine events in, the board data
-// in $.state out (`w.board()`), plus what the old status line, `/dp log` and the debug log say of it.
+// in $.state out (`w.board()`), plus what `/dp log` and the debug log say of it.
 
 import { expect, test } from 'claude-code/testing'
 import { jev, world, type Reply } from './support/world.ts'
@@ -206,7 +206,7 @@ test('the board lives in $.state, so a hot reload of the mod keeps it: the count
   expect(board.main).toMatchObject({ turn: 4, effort: 'low', decision: 1 })
 })
 
-test('a board that cannot be read stops nothing either: the decision is still logged and applied, the old status line still says the effort', { options: KEY }, async ($, on) => {
+test('a board that cannot be read stops nothing either: the decision is still logged and applied', { options: KEY }, async ($, on) => {
   on('state.get', { plugin: 'dispatch-pilot', key: 'board' }, () => ({ deny: 'the state cannot be read' }))
   const w = world($, on, { backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })
   await w.submit('把登录模块重构成三层')
@@ -215,7 +215,6 @@ test('a board that cannot be read stops nothing either: the decision is still lo
   expect(w.steps.map((s) => s.effort)).toEqual(['high'])
   expect((await w.board()).log.map((entry) => entry.outcome)).toEqual(['effort high'])
   expect(w.logs.map((l) => l.text)).toContainEqual(expect.stringMatching(/^board not read: /))
-  expect(w.status()).toBe('dp effort high')
 })
 
 test('a board that cannot be written stops nothing: the decision is applied and logged, the debug log says what was lost', { options: KEY }, async ($, on) => {

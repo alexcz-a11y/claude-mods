@@ -2,15 +2,21 @@
 // The person flips them with `/dp` (features/control.ts); the core and the
 // features read them here. A feature registers its switch in its register:
 //
-//   defineSwitch({ name: 'main-effort', info: "decides the main agent's effort", segments: ['decision'] })
+//   defineSwitch({ name: 'midturn-effort', info: "re-decides the main agent's effort while a turn runs", parts: ['midturn'] })
 //
-// and asks `isOn('main-effort')` where it would act (DEVELOPMENT.md, 开发).
+// and asks `isOn('midturn-effort')` where it would act (DEVELOPMENT.md, 开发).
+// The screens ask the same as they draw: a feature that is off leaves its
+// decisions and the board parts it owns off the band and the footer.
 //
 // Pure module state, no `$`. What the person flipped is kept in $.store by the
 // command and loaded back at session start (`loadOverrides`, `overrides`), so
 // a hot reload, which resets this module, loses nothing.
 
-import type { Segment } from './status.ts'
+/**
+ * The parts of the agents' nodes on the board a feature writes, beside its decisions in the log (which are its
+ * own by its name): `midturn`, the main agent's mid-turn re-decisions; `counts`, a loop's failed calls and forced raises.
+ */
+export type BoardPart = 'midturn' | 'counts'
 
 export type SwitchSpec = {
   /** What the person types in `/dp <name> on|off`: lowercase letters, digits and `-`, starting with a letter. */
@@ -19,12 +25,12 @@ export type SwitchSpec = {
   info: string
   /** Whether it is on until the person flips it; on when left out. */
   default?: boolean
-  /** The status line segments the feature owns, taken off the line when the person switches it off. */
-  segments?: readonly Segment[]
+  /** The board parts the feature owns: the screens leave them out while it is off. */
+  parts?: readonly BoardPart[]
 }
 
 /** A registered switch. */
-type Registered = { name: string; info: string; default: boolean; segments: readonly Segment[] }
+type Registered = { name: string; info: string; default: boolean; parts: readonly BoardPart[] }
 /** A registered switch as `/dp` lists it, with its state. */
 export type SwitchInfo = Registered & { on: boolean }
 
@@ -44,7 +50,7 @@ export function defineSwitch(spec: SwitchSpec): void {
   if (!NAME.test(spec.name) || RESERVED.includes(spec.name)) {
     throw new Error(`switch name "${spec.name}" is not allowed: use lowercase letters, digits and "-", and none of ${RESERVED.join(', ')}`)
   }
-  specs.set(spec.name, { name: spec.name, info: spec.info, default: spec.default ?? true, segments: spec.segments ?? [] })
+  specs.set(spec.name, { name: spec.name, info: spec.info, default: spec.default ?? true, parts: spec.parts ?? [] })
 }
 
 /** Whether Dispatch Pilot as a whole is on. Off: no decision is asked and every step goes out as the engine made it. */
@@ -60,6 +66,11 @@ export function setMaster(on: boolean): void {
 /** Whether a feature may act: the master switch is on and so is the feature's own. A name nobody registered counts as on. */
 export function isOn(name: string): boolean {
   return masterOn() && (flipped[name] ?? specs.get(name)?.default ?? true)
+}
+
+/** Whether the screens show a board part: the mod is on, and so is every feature that owns the part. */
+export function isShown(part: BoardPart): boolean {
+  return masterOn() && [...specs.values()].every((spec) => !spec.parts.includes(part) || isOn(spec.name))
 }
 
 /** Flips one feature's switch; false (nothing changed) when no feature registered that name. */

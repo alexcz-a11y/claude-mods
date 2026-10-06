@@ -40,7 +40,7 @@ if (everything || positionals.includes('docs')) {
   for (const problem of problems) console.log(`  ${problem}`)
   if (problems.length > 0) failed = true
   const hooks = join(MOD_DIR, 'hooks')
-  const modules = readdirSync(hooks, { recursive: true, encoding: 'utf8' }).filter((path) => path.endsWith('.ts')).map((path) => path.split('\\').join('/'))
+  const modules = readdirSync(hooks, { recursive: true, encoding: 'utf8' }).filter((path) => /\.tsx?$/.test(path)).map((path) => path.split('\\').join('/'))
   const drift = checkStructureTree(readFileSync(join(MOD_DIR, 'DEVELOPMENT.md'), 'utf8'), modules)
   console.log(`DEVELOPMENT.md structure tree: ${drift.length === 0 ? 'ok' : `${drift.length} problems`}`)
   for (const problem of drift) console.log(`  ${problem}`)
