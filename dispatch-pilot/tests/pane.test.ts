@@ -264,6 +264,29 @@ test("a digit on the band picks an agent and brings up the pane on its card, wit
   expect((await band.findAll({ type: 'Box' })).filter((box) => box.key?.startsWith('band-agent-')).map((box) => shown(box).startsWith('▌'))).toEqual([false, true, false])
 })
 
+test("a digit whose pane the surface does not place tells the person so in a toast (why, and where else to look), no more than one within two seconds; the pane is closed again", { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, { backend: jev([0, 1, 0, 0, 0], { choice: 'sonnet' }), beneath: { unplaced: 'the attached desktop places no panes' } })
+  await w.submit('派个 agent')
+  await w.step({ index: 0 })
+  const one = await w.spawn({ prompt: 'Review the diff.', description: '审查' })
+  await w.agentStep(one.agentId ?? '', { index: 0, model: 'claude-sonnet-5-5' })
+
+  const band = await w.band()
+  await band.press({ key: 'band-pick-1' })
+  expect(w.panes).toEqual([])
+  expect(w.paneActs.map((act) => act.act)).toEqual(['open', 'close'])
+  expect(w.toasts).toHaveLength(1)
+  expect(w.toasts[0]?.text).toContain('依据面板没有放出来')
+  expect(w.toasts[0]?.text).toContain('the attached desktop places no panes')
+  expect(w.toasts[0]?.text).toContain('/dp log 10')
+  // Pressed again at once: the engine would drop a second toast, so none is raised; later, one is.
+  await band.press({ key: 'band-pick-0' })
+  expect(w.toasts).toHaveLength(1)
+  await w.clock.advance(2500)
+  await band.press({ key: 'band-pick-0' })
+  expect(w.toasts).toHaveLength(2)
+})
+
 test('the decision log is grouped by turn, newest first, each with its letter key; a turn folds and opens again with its key; older turns start folded', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
   for (const text of ['第一条消息', '第二条消息', '第三条消息']) {

@@ -22,7 +22,7 @@
 
 import type { On, SessionMeasureInput } from 'claude-code'
 import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
-import { decisionLine, LOG_ENTRIES, report, type LogEntry, type SwitchIo } from '../core/report.ts'
+import { decisionLine, LOG_ENTRIES, report, unplacedText, type LogEntry, type SwitchIo } from '../core/report.ts'
 import { describeDefaults, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, listSwitches, loadOverrides, masterOn, overrides, parseOverrides, setMaster, setSwitch } from '../core/switches.ts'
 import { errorText } from '../decision/backend.ts'
@@ -95,7 +95,7 @@ export function registerControl(on: On, ctx: Ctx): void {
           const opened = await $.ui.open({ id: PANE_ID, title: PANE_TITLE, focus: true, closeOnEscape: true, columns: PANE_COLUMNS })
           if (opened.isPlaced) return { text: '依据面板已打开：p / n 翻看 agent，Esc 关闭' }
           await $.ui.close({ id: PANE_ID })
-          return { text: `依据面板没有放出来（${opened.reason}），已经关上；/dp log 10 在对话里列出最近 10 条决定` }
+          return { text: unplacedText(opened.reason) }
         }
         case 'status': {
           const { value: lock = null } = await $.state.get(LOCK)

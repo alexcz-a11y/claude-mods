@@ -15,6 +15,7 @@
 // story 38); the pane is Dispatch Pilot's own.
 
 import type { EngineInterface, On, Timer } from 'claude-code'
+import { report, type NoticeIo } from '../core/report.ts'
 import { isOn, isShown, listSwitches, masterOn } from '../core/switches.ts'
 import { bandTree } from './band.tsx'
 import { FOOTER_COLUMNS, footerTree, TAG_CHARS } from './footer.tsx'
@@ -90,13 +91,15 @@ export function registerScreens(on: On): void {
       const view = await viewOf($, e.props.isWorking)
       tick($, view)
       // A digit picks an agent and brings up its card: a press is the person's asking, so the pane is placed at
-      // any width; it opens without taking the keys, so the next digit still picks. One not placed is closed again.
+      // any width; it opens without taking the keys, so the next digit still picks. One not placed is closed again,
+      // and the decision report tells the person why in a toast.
       const select = async (row: AgentRow) => {
         await pick($, row)
         const opened = await $.ui.open({ id: PANE_ID, title: PANE_TITLE, closeOnEscape: true, columns: PANE_COLUMNS })
         if (!opened.isPlaced) {
           await $.ui.close({ id: PANE_ID })
-          $.ui.log(`rationale pane not placed (${opened.reason}), closed again`, { to: 'debug' })
+          const io: NoticeIo = { debug: (line) => $.ui.log(line, { to: 'debug' }), now: () => $.clock.now(), toast: (text) => $.ui.toast(text) }
+          await report(io, { unplaced: { reason: opened.reason } })
         }
       }
       const tree = bandTree(t, view, { cols: e.props.bodyColumns, rows: e.props.maxRows }, { select: (row) => void select(row).catch(() => undefined) }, ribbon)

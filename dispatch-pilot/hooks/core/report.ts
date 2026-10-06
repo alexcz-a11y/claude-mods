@@ -349,9 +349,14 @@ export type Reported =
   | { switched: Switched }
   /** How writing the session's skill profiles goes (`ProfileEvent`). */
   | { profiles: ProfileEvent }
+  /** A pane the person asked for (a digit on the band) that the surface did not place, with the surface's reason; it was closed again. */
+  | { unplaced: { reason: string } }
 
-/** The host closures each kind of report needs: a switch only the redraw, the skill profiles their own state, the rest a `ReportIo`. */
-export type IoOf<R extends Reported> = R extends { switched: Switched } ? SwitchIo : R extends { profiles: ProfileEvent } ? ProfilesIo : ReportIo
+/** What a toast of its own needs of the host: the debug log, the clock and the toast. */
+export type NoticeIo = Pick<ReportIo, 'debug' | 'now' | 'toast'>
+
+/** The host closures each kind of report needs: a switch only the redraw, the skill profiles their own state, a pane not placed the toast, the rest a `ReportIo`. */
+export type IoOf<R extends Reported> = R extends { switched: Switched } ? SwitchIo : R extends { profiles: ProfileEvent } ? ProfilesIo : R extends { unplaced: unknown } ? NoticeIo : ReportIo
 
 /**
  * Entry one (记一条决定): reports what a feature hands over, by its kind; `io` is what that kind needs of the host
@@ -363,7 +368,26 @@ export async function report<R extends Reported>(io: IoOf<R>, what: R): Promise<
   if ('decisions' in item) return reportDecisions(io as ReportIo, item.decisions)
   if ('tally' in item) return reportTally(io as ReportIo, item.tally)
   if ('switched' in item) return reportSwitch(io as SwitchIo, item.switched)
-  return reportProfiles(io as ProfilesIo, item.profiles)
+  if ('profiles' in item) return reportProfiles(io as ProfilesIo, item.profiles)
+  return reportUnplaced(io as NoticeIo, item.unplaced)
+}
+
+/** The rationale pane was not placed, in the person's words: why (the surface's own reason), and where to look instead. */
+export function unplacedText(reason: string): string {
+  return `依据面板没有放出来（${reason}），已经关上；/dp log 10 在对话里列出最近 10 条决定`
+}
+
+/**
+ * A pane the person asked for that the surface did not place: the debug line, and a toast so they know (the `/dp`
+ * command says it in its answer instead), unless a toast went up within `TOAST_GAP_MS`. Never throws.
+ */
+async function reportUnplaced(io: NoticeIo, unplaced: { reason: string }): Promise<void> {
+  try {
+    io.debug(`rationale pane not placed (${unplaced.reason}), closed again`)
+    toastOnce(io, await io.now(), unplacedText(unplaced.reason))
+  } catch {
+    // a notice that cannot be given leaves the pane closed all the same
+  }
 }
 
 /**
@@ -459,7 +483,7 @@ let toastedAt = Number.NEGATIVE_INFINITY
  * Raises the toast unless one was raised within `TOAST_GAP_MS`, which the engine would drop: the failures that
  * follow one closely are on the board all the same.
  */
-function toastOnce(io: ReportIo, now: number, text: string): void {
+function toastOnce(io: Pick<ReportIo, 'toast'>, now: number, text: string): void {
   if (now - toastedAt < TOAST_GAP_MS) return
   toastedAt = now
   try {
