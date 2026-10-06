@@ -7,15 +7,21 @@
 // starts, on every step of that turn (the core's turn.step writer). A report's
 // text is read as the message; its turn is not re-decided mid-turn.
 //
+// A command turn (#19: `/implement #19`, a skill or markdown command the
+// person typed) is decided like their message: the decision model reads the
+// command as typed and what the command is for (core/commands.ts), never the
+// prompt it expands to.
+//
 // A message typed while a turn runs (`e.turnId`) is delivered into that turn
 // at its next step (a `queued_command` attachment; measured on 2.1.289), so
 // its decision takes the running turn from then on. It also waits as pending,
 // in case the turn ends first and the message starts a turn of its own.
 
-import type { On } from 'claude-code'
+import type { EngineInterface, On } from 'claude-code'
 import { EFFORTS, LEVEL, pickEffort, readEffort, readingText, turnStartEffortPart, type Effort, type EffortReading } from '../decision/effort.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { contribute } from '../core/ballot.ts'
+import { commandOf, commandState } from '../core/commands.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { addPending, revise, turnKey, update, type Cell, type PendingDecision, type TurnRecord } from '../core/plans.ts'
 import { isPersonsMessage, startsReportTurn } from '../core/prompts.ts'
@@ -26,6 +32,20 @@ import { defineSwitch, isOn } from '../core/switches.ts'
 const PENDING = { plugin: 'dispatch-pilot', key: 'pending' } as const
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
+
+/**
+ * What a command turn's command is for: its skill in the session's catalog as
+ * the skills feature read it (by its profile while profiles are on), else the
+ * command as `$.command.list()` describes it.
+ */
+async function describeCommand($: EngineInterface, name: string): Promise<Readonly<Record<string, string>> | null> {
+  const { value: catalog } = await $.state.get(CATALOG)
+  const found = catalog?.skills.find((skill) => skill.name === name)
+  const skill = found && !isOn('skill-profiles') ? { ...found, profile: null } : found
+  const listed = skill?.description ? undefined : (await $.command.list().catch(() => [])).find((command) => command.name === name)?.description
+  return commandState(name, skill, listed)
+}
 
 export function registerMainEffort(on: On, ctx: Ctx): void {
   defineSwitch({ name: 'main-effort', info: "decides the main agent's effort when you send a message", segments: ['decision'] })
@@ -44,9 +64,13 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
       added = entry
     }
 
+    const ran = report ? null : commandOf(e.text)
+    const command = ran === null ? null : await describeCommand($, ran.command)
+
     contribute(e.text, {
       // Written in the decision model's language for this question (Chinese with Jev); the other questions keep ctx.ask's.
       ...turnStartEffortPart({ ...ctx.ask, language: ctx.config.turnStartLanguage }),
+      ...(command === null ? {} : { state: { command } }),
       settle: async (outcome) => {
         const show = (line: string | undefined) => $.ui.status(line)
         if (!outcome.ok) {

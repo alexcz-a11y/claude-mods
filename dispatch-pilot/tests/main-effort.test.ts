@@ -144,9 +144,9 @@ test("what is not the person's own new message is not decided, and changes no tu
   await w.submit('<agent-message from="a1">done</agent-message>', { origin: { kind: 'peer' }, turnId: 't1' })
   await w.submit('Background task "build" completed', { origin: { kind: 'task-notification' }, turnId: 't1' })
   await w.step({ index: 1 })
-  // Nor a plugin's own message, a typed slash command or an empty prompt (t2, t3, t4).
+  // Nor a plugin's own message or an empty prompt (t2, t3). A local command (/compact) submits no prompt at all.
   await w.submit('dashboard refreshed', { origin: { kind: 'plugin', name: 'other-mod' } })
-  await w.submit('/compact keep the API notes')
+  await w.command('compact', 'keep the API notes')
   await w.submit('   ')
 
   expect(w.requests).toHaveLength(1)

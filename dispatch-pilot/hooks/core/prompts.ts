@@ -9,11 +9,17 @@ import type { PromptOrigin } from 'claude-code'
  * pinged from Slack by the session's owner, or submitted by a plugin as the
  * person's own words. False for the rest (a dispatched agent's hand-back, a
  * background task's notice, a peer session, a schedule, a plugin speaking for
- * itself), for a typed slash command and for an empty prompt.
+ * itself) and for an empty prompt.
+ *
+ * A prompt command the person typed (a skill, a markdown command: `/name
+ * args`) is their message too: it starts a turn (a command turn,
+ * core/commands.ts). A local command (`/dp`, `/clear`) never reaches
+ * prompt.submit, and a text that only starts with a slash (`/Users/...`) is
+ * an ordinary message (measured on 2.1.291).
  */
 export function isPersonsMessage(e: { text: string; origin?: PromptOrigin }): boolean {
   const text = e.text.trim()
-  if (text === '' || text.startsWith('/')) return false
+  if (text === '') return false
   // `origin` is always set by the engine; tests that leave it out get false.
   const origin = e.origin
   switch (origin?.kind) {
@@ -43,6 +49,6 @@ export function isPersonsMessage(e: { text: string; origin?: PromptOrigin }): bo
  */
 export function startsReportTurn(e: { text: string; origin?: PromptOrigin; turnId?: string }): boolean {
   const text = e.text.trim()
-  if (text === '' || text.startsWith('/') || e.turnId !== undefined) return false
+  if (text === '' || e.turnId !== undefined) return false
   return e.origin?.kind === 'task-notification' || e.origin?.kind === 'peer'
 }

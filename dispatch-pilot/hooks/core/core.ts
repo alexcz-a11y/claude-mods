@@ -9,6 +9,8 @@
 //   turn.step      the one writer of effort (and of a non-main loop's model):
 //                  sends every step as the plan table says
 //   classic.PreToolUse  notes the calls a settings hook refused (core/outcomes.ts)
+//   command.run    notes the command the person runs: the prompt that follows
+//                  may be its command turn (core/commands.ts)
 //
 // The core owns the unmatched registration of these events; a feature always
 // registers them with a matcher (DEVELOPMENT.md, 开发).
@@ -22,6 +24,7 @@ import { SKILLS_PART } from '../decision/skills.ts'
 import { answersFor, mergeParts, type State } from '../decision/system-one.ts'
 import { type Asked, describeAsked, errorText } from '../decision/backend.ts'
 import { collect, type Contribution, type PartOutcome } from './ballot.ts'
+import { forgetCommand, noteCommand, typedCommand } from './commands.ts'
 import { noteBlocked } from './outcomes.ts'
 import { newTurn, planStep, replace, takePending, turnKey, type Cell, type PendingDecision } from './plans.ts'
 import type { Ctx } from './setup.ts'
@@ -38,6 +41,8 @@ const entering: string[] = []
 
 export function registerCore(on: On, ctx: Ctx): void {
   on('prompt.submit', async ($, e, next) => {
+    // Every feature above has seen whether this is a command turn.
+    forgetCommand(e.text)
     const ballot = collect(e.text)
     // Switched off (/dp off): whatever was put in the ballot is not asked.
     if (ballot.length === 0 || !masterOn()) return next(e)
@@ -72,18 +77,25 @@ export function registerCore(on: On, ctx: Ctx): void {
     }
   })
 
+  on('command.run', async ($, e, next) => {
+    noteCommand(e)
+    return next(e)
+  })
+
   on('turn.start', async ($, e, next) => {
     const pending: Cell<PendingDecision[]> = { get: () => $.state.get(PENDING), set: (value, options) => $.state.set(PENDING, value, options) }
+    // A command turn starts with the engine's command message: the prompt was the command as typed.
+    const started = typedCommand(e.text) ?? e.text
     // Its own prompt's decision: the prompt now entering (whatever an inner
     // hook made of its text), else a queued prompt with the turn's text.
-    const texts = entering.length === 1 ? [entering[0] as string, e.text] : [e.text]
+    const texts = entering.length === 1 ? [entering[0] as string, started] : [started]
     const { before } = await replace(pending, (list) => takePending(list ?? [], texts).rest)
     // What the landed write took out of the list it found.
     const own = takePending(before ?? [], texts).taken
     // The turn's message as the decision model read it (later decisions about the turn reuse it). A pending
     // entry, decided or not, says the person's own message started the turn (only such a turn is re-decided);
     // one marked `report` says a report did (decided at its start, not re-decided).
-    const prompt = messageText(e.text, ctx.config.contextByKind.rejudge)
+    const prompt = messageText(started, ctx.config.contextByKind.rejudge)
     await $.state.set({ ...TURNS, id: turnKey(e.turnId, undefined) }, newTurn(prompt, own?.effort ?? null, own !== null && own.report !== true))
     return next(e)
   })

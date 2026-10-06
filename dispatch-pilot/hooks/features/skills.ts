@@ -27,6 +27,7 @@ import { quoteStart } from '../decision/redact.ts'
 import { modRanker, pickSkills, relevanceBlock, skillOpening, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
 import { contribute } from '../core/ballot.ts'
+import { commandOf } from '../core/commands.ts'
 import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { readSessionSkills } from '../core/profiles.ts'
@@ -198,6 +199,8 @@ export function registerSkills(on: On, ctx: Ctx): void {
       if (result.drop !== undefined) await $.state.set(LISTING, listing)
       return result
     }
+    // A command turn: the person has picked the work already (#19).
+    if (commandOf(e.text) !== null) return next(e)
     const known = await sessionCatalog($, profileModel)
     // Profiles switched off: every skill is offered by its description.
     const catalog = known?.filter((skill) => !neverSuggested.has(skill.name)).map((skill) => (isOn(PROFILES) ? skill : { ...skill, profile: null })) ?? null
