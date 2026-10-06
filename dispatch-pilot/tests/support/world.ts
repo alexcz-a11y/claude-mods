@@ -19,6 +19,7 @@ import type {
   ModelCompleteRequest,
   ModelCompleteResult,
   On,
+  PluginState,
   PromptOrigin,
   SessionContextBreakdown,
   SessionMeasureInput,
@@ -27,6 +28,23 @@ import type {
   SettingsSource,
   ToolSpec,
 } from 'claude-code'
+
+/** The board's `$.state` values, as the contract declares them (types/index.d.ts): the board data tests assert on. */
+export type BoardNode = PluginState['dispatch-pilot']['board']['nodes'][number]
+export type LogEntry = PluginState['dispatch-pilot']['decisionLog'][number]
+
+/**
+ * The board data as `w.board()` reads it from `$.state` (spec #22 「数据」): `turn`, `nodes` and `log` are the
+ * stored values (an empty board before anything was reported); `main` and `agents` are the nodes of the current
+ * turn, split for convenience: the main agent's, and those of the dispatched and Workflow agents.
+ */
+export type BoardView = {
+  turn: number
+  nodes: BoardNode[]
+  log: LogEntry[]
+  main: BoardNode | undefined
+  agents: BoardNode[]
+}
 
 /** One request the mod sent through `$.http.fetch`, its JSON body parsed. */
 export type Sent = {
@@ -86,6 +104,11 @@ export type WorldOptions = {
    * Without it those calls reject, and the skills feature finds no skills.
    */
   skills?: SkillsWorld
+  /**
+   * The board data an earlier load of the mod left in `$.state` (a hot reload keeps it): the mod finds it as it
+   * starts. Whatever the board starts with, `w.board()` reads what stands now.
+   */
+  seed?: { board?: PluginState['dispatch-pilot']['board']; log?: LogEntry[] }
   /**
    * The model behind `$.model.complete` (#11 writes skill profiles with it): answers each completion
    * (`n` counts from 1); every one is recorded in `w.completions`. Without it every completion is refused.
@@ -292,6 +315,25 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     on('settings.read', (_$, e) => ({ value: e?.source === undefined ? {} : { skillOverrides: skills.overrides?.[e.source] ?? {} } }))
     on('prompt.attachment', (_$, e) => ({ text: e.text }))
   }
+  // The board data (the 「决定汇报」 module's `board` and `decisionLog`) is kept here, not in the kit's state: the test
+  // body has no `$.state` to read it back with, and `options.seed` can stand for what an earlier load left. Versions
+  // work as the host's do (a write lands unless `ifVersion` is stale), and values go through JSON as they would.
+  const held: { board: { value: unknown; version: number }; decisionLog: { value: unknown; version: number } } = {
+    board: { value: options.seed?.board, version: options.seed?.board === undefined ? 0 : 1 },
+    decisionLog: { value: options.seed?.log, version: options.seed?.log === undefined ? 0 : 1 },
+  }
+  on('state.get', { plugin: 'dispatch-pilot', key: 'board' }, () => ({ value: { value: held.board.value as never, version: held.board.version } }))
+  on('state.get', { plugin: 'dispatch-pilot', key: 'decisionLog' }, () => ({ value: { value: held.decisionLog.value as never, version: held.decisionLog.version } }))
+  on('state.set', { plugin: 'dispatch-pilot', key: 'board' }, (_$, e) => {
+    if (e.ifVersion !== undefined && e.ifVersion !== held.board.version) return { value: { isSet: false, version: held.board.version } }
+    held.board = { value: JSON.parse(JSON.stringify(e.value)), version: held.board.version + 1 }
+    return { value: { isSet: true, version: held.board.version } }
+  })
+  on('state.set', { plugin: 'dispatch-pilot', key: 'decisionLog' }, (_$, e) => {
+    if (e.ifVersion !== undefined && e.ifVersion !== held.decisionLog.version) return { value: { isSet: false, version: held.decisionLog.version } }
+    held.decisionLog = { value: JSON.parse(JSON.stringify(e.value)), version: held.decisionLog.version + 1 }
+    return { value: { isSet: true, version: held.decisionLog.version } }
+  })
   on('ui.status', (_$, e) => {
     statuses.push(e.text)
     return { value: undefined }
@@ -373,8 +415,19 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     completions,
     /** Every tool call that reached the tools, its id, its arguments as they arrived (a hook's rewrite included) and how it ended; a call a hook refused is not in it. */
     toolCalls,
-    /** The status line as last set (`undefined` once cleared or never set). */
+    /** The status line as last set (`undefined` once cleared or never set). Only for the tests of the old line itself: everything else asserts `board()`. */
     status: () => statuses.at(-1),
+    /**
+     * The board data the mod keeps in `$.state` (the 「决定汇报」 module, core/report.ts): what a screen would draw
+     * and what a test asserts on instead of a string. Reads the state as it stands now.
+     */
+    board: async (): Promise<BoardView> => {
+      const board = held.board.value as PluginState['dispatch-pilot']['board'] | undefined
+      const turn = board?.turn ?? 0
+      const nodes = board?.nodes ?? []
+      const current = nodes.filter((node) => node.turn === turn)
+      return { turn, nodes, log: (held.decisionLog.value as LogEntry[] | undefined) ?? [], main: current.find((node) => node.id === 'main'), agents: current.filter((node) => node.id !== 'main') }
+    },
     /** Submits a prompt the way the engine does; resolves when it entered (or was queued). */
     submit: (text: string, submit: SubmitOptions = {}) =>
       $.prompt.submit({

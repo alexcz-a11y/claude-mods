@@ -17,7 +17,7 @@
 
 import type { On, SessionMeasureInput } from 'claude-code'
 import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
-import { decisionLine, MAX_DECISIONS, type DecisionEntry } from '../core/decisions.ts'
+import { decisionLine, LOG_ENTRIES, type LogEntry } from '../core/report.ts'
 import { describeDefaults, type Ctx } from '../core/setup.ts'
 import { pauseStatus, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn, listSwitches, loadOverrides, masterOn, overrides, parseOverrides, setMaster, setSwitch } from '../core/switches.ts'
@@ -142,7 +142,7 @@ function parseControl(args: string): Control {
   if (words.length === 2 && first === 'lock' && second === 'off') return { kind: 'unlock' }
   if (words.length === 2 && first === 'lock' && isEffort(second)) return { kind: 'lock', effort: second }
   if (words.length === 1 && first === 'log') return { kind: 'log', count: DEFAULT_LOG }
-  if (words.length === 2 && first === 'log' && /^[1-9]\d*$/.test(second ?? '')) return { kind: 'log', count: Math.min(MAX_DECISIONS, Number(second)) }
+  if (words.length === 2 && first === 'log' && /^[1-9]\d*$/.test(second ?? '')) return { kind: 'log', count: Math.min(LOG_ENTRIES, Number(second)) }
   if (words.length === 2 && first !== undefined && (second === 'on' || second === 'off')) return { kind: 'switch', name: first, on: second === 'on' }
   return { kind: 'unknown' }
 }
@@ -162,7 +162,7 @@ function describeStatus(lock: Effort | null): string {
 }
 
 /** `/dp log`'s answer: the decisions, oldest first, each with its reason. */
-function describeDecisions(entries: readonly DecisionEntry[]): string {
+function describeDecisions(entries: readonly LogEntry[]): string {
   if (entries.length === 0) return 'no decisions recorded yet'
   const header = `the last ${entries.length === 1 ? 'decision' : `${entries.length} decisions`}, newest last`
   return [header, ...entries.map((entry) => `#${entry.n} ${entry.feature}: ${decisionLine(entry)}`)].join('\n')

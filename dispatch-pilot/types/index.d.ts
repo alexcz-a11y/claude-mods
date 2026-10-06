@@ -2,8 +2,9 @@
 // committed; `claude plugin validate` checks every $.state read and write
 // against it. No top-level export: a contract declares types and nothing else.
 //
-// The shapes mirror hooks/core/plans.ts (Plan, TurnRecord, PendingDecision);
-// tsc checks the two agree wherever the hooks read or write these values.
+// The shapes mirror hooks/core/plans.ts (Plan, TurnRecord, PendingDecision) and
+// hooks/core/report.ts (Board, BoardNode, LogEntry); tsc checks the two agree
+// wherever the hooks read or write these values.
 
 declare module 'claude-code' {
   interface PluginState {
@@ -58,11 +59,99 @@ declare module 'claude-code' {
         } | null
       }>
       /**
-       * What the features recorded about their decisions (core/decisions.ts),
-       * oldest first, at most 50: what `/dp log` shows. `n` counts the session's
-       * decisions from 1.
+       * The board (the 「决定汇报」 module, core/report.ts; GLOSSARY 看板): what
+       * every screen of Dispatch Pilot draws from, with `decisionLog` below.
+       * Written by that module only (the features hand it decisions, the core
+       * hands it readings), read by anything that draws or tests.
+       *
+       * `turn` counts the main agent's turns the session has started (the
+       * module's own `turn.start` hook); the person's first message is turn 1.
+       * A decision made before its turn starts is filed under the turn to come
+       * (`turn + 1`), so its node is already there when the turn begins.
+       *
+       * `nodes` are the agents of the latest turns, the current one and the one
+       * before it (the band folds a finished turn into one line, so it still
+       * needs it); each turn has one node per agent, the main agent's `main`.
        */
-      decisionLog: { n: number; feature: string; outcome: string; about: string; reason: string }[]
+      board: {
+        turn: number
+        nodes: {
+          /** The turn it belongs to. */
+          turn: number
+          /** `main` for the main agent, else the agentId of a dispatched or Workflow agent. */
+          id: string
+          kind: 'main' | 'agent' | 'wf'
+          /** What the person reads: 主 agent, the agent's name or description, a Workflow agent's label. */
+          name: string
+          /** `main`, the agent type (`Explore`), or `workflow`. */
+          type: string
+          /** The model of its latest step, by family; absent before its first step or for a model of no known family. */
+          model?: 'haiku' | 'sonnet' | 'opus' | 'fable'
+          /** The effort of its latest step as it went out (a level, or the engine's integer budget); absent for a model without effort. */
+          effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number
+          state: 'queued' | 'running' | 'done' | 'failed'
+          /** Seconds from the start of the turn to the start of the agent. */
+          t0: number
+          /** Seconds it ran; absent while it runs. */
+          dur?: number
+          /** Whether its steps go out as Dispatch Pilot decided (or the person locked); false: as the engine made them (未路由). */
+          routed: boolean
+          /** The person's lock (`/dp lock`) holds the main agent's effort. */
+          locked?: true
+          /** Why it is not routed, or failed, in a few words. */
+          why?: string
+          /** The failed decision request behind `why`, for the rationale card. */
+          failure?: {
+            backend: string
+            kind: 'config' | 'timeout' | 'network' | 'busy' | 'quota' | 'http' | 'parse' | 'request'
+            detail: string
+            status?: number
+          }
+          /** The `n` of its decision in `decisionLog`. */
+          decision?: number
+        }[]
+      }
+      /**
+       * What the features decided and why (core/report.ts `reportDecision`;
+       * core/decisions.ts for the features not yet migrated), oldest first: the
+       * last 20 turns, at most 300 entries. `n` counts the session's entries
+       * from 1; it is what `/dp log` and the debug log's `#n` show.
+       */
+      decisionLog: {
+        n: number
+        /** The turn it was made for (`board.turn`'s numbering). */
+        turn: number
+        /** Who decided: the feature's switch name (a report's decision adds ` (agent report)`). */
+        feature: string
+        /** `main`, or the agentId it was about; absent for an entry of a feature not yet migrated. */
+        agent?: string
+        tone: 'ok' | 'warn' | 'fail' | 'info'
+        /** What was decided, in a few words: `effort high`. */
+        outcome: string
+        /** What it was about: the start of the message, an agent's label. */
+        subject: string
+        /** Why: what the decision model said, the rule that applied. */
+        reason: string
+        /** The decision model's probability of each effort level. */
+        probs?: { low: number; medium: number; high: number; xhigh: number; max: number }
+        /** The decision model's confidence. */
+        conf?: number
+        /** The rules' working, step by step (`pickEffort`, `judgeMidturn`): each step names its rule and whether it took effect; the rest of its fields are the rule's own. */
+        trace?: { rule: string; applied: boolean; [field: string]: string | number | boolean | null }[]
+        /** The model's floor lifted the effort (`from` to `to`, because of `model`). */
+        floor?: {
+          from: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          to: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          model: 'haiku' | 'sonnet' | 'opus' | 'fable'
+        }
+        /** A mid-turn re-decision: the effort it was at, the level the answer picked, where it ended, and why it did not move (`held`). */
+        mid?: {
+          current: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          picked: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          result: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          held?: string
+        }
+      }[]
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
       /**

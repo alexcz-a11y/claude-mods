@@ -5,17 +5,21 @@
 // ASCII only: CLAUDE.md asks for single-width characters in the interface,
 // and CJK characters are double-width, so the line is English.
 //
-// Pure module state (lost on a hot reload until the next segment is set).
+// Pure module state (lost on a hot reload until the next segment is set). The
+// segments the decision report owns (`effort`, `decision`) are written by it
+// alone, from the board data it keeps in $.state (core/report.ts); the others
+// are still set by their features until those move to the report, and the
+// whole line goes when the new screens replace it (ADR 0004).
 
 import type { Failure } from '../decision/backend.ts'
 
 /**
  * The segments, in the order they show. Add yours here when a feature needs
  * one; each is set by its owner only.
- *   effort    the core's turn.step writer: the main turn's effort as it goes out
+ *   effort    the decision report (core/report.ts `reportStep`, called by the core's turn.step writer): the main turn's effort as it goes out
  *   midturn   the midturn-effort feature: the turn's steps, decisions and changes, once re-decided
  *   escalation the escalation feature: failed tool calls, hook blocks and forced raises, once there is one
- *   decision  the main-effort feature: why the message got no decision
+ *   decision  the decision report (`reportDecision`, handed the decision by the main-effort feature): why the message got no decision
  *   skills    the skills feature: the skills suggested for the latest message,
  *             and the person-only ones to try
  *   find-skill  the find-skill feature: what the main agent's latest find_skill returned, or why it failed
