@@ -133,6 +133,31 @@ test('a turn with several agents: the main agent first, then each in the order i
   expect(new Set(ribbons.map((ribbon) => ribbon.props.columns)).size).toBe(1)
 })
 
+/** The widths an agent row's cells were given, in order (a cell without a width counts 0). */
+function cellWidths(row: Drawn): number[] {
+  return (row.children ?? []).map((cell) => Number((cell as Drawn).props?.width ?? 0))
+}
+
+for (const columns of [60, 90, 120, 180]) {
+  test(`at ${columns} columns no agent row is wider than the band, and its cells keep their widths (a row never wraps)`, { options: KEY }, async ($, on) => {
+    const w = runWorld($, on, { backend: jev([0, 0.1, 0.2, 0.7, 0], { choice: 'sonnet' }) })
+    await w.submit('把这几个模块都审查一遍')
+    await w.step({ index: 0 })
+    const first = await w.spawn({ prompt: 'Review src/auth/login.ts and list the risks.', description: '审查登录模块，再把发现的每个风险写成一条带复现步骤的说明' })
+    await w.agentStep(first.agentId ?? '', { index: 0, model: 'claude-sonnet-5-5' })
+
+    const rows = (await (await w.band({ columns })).findAll({ type: 'Box' })).filter((box) => box.key?.startsWith('band-agent-'))
+    expect(rows).toHaveLength(2)
+    for (const row of rows) {
+      expect(cellWidths(row).reduce((sum, cell) => sum + cell, 0)).toBeLessThanOrEqual(columns - 5)
+      expect((row.children ?? []).every((cell) => (cell as Drawn).props?.flexShrink === 0)).toBe(true)
+    }
+    // The ribbon has room from 60 columns up; the name is cut, never wrapped.
+    expect((await (await w.band({ columns })).findAll({ type: 'Raster' })).length).toBe(2)
+    expect(shown(rows[1])).toContain('…')
+  })
+}
+
 /** The script of a Workflow with three agent() calls. */
 const AUDIT = `export const meta = { name: 'audit', description: 'Audit three modules', phases: [] }
 const a = await agent('Audit src/auth and list the risks.', { label: 'audit:auth' })
