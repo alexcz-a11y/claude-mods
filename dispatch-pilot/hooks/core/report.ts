@@ -505,7 +505,7 @@ export async function reportStep(io: StepIo, step: StepReading): Promise<void> {
     const peek = await read(io.board)
     const before = main ? mainNode(peek) : continuing(peek, id)
     // A node that has not begun is named now (the roster may know it only from here on); one that has keeps its name.
-    const identity = main || (before !== undefined && begun(before)) ? null : await identify(io, id)
+    const identity = main || (before !== undefined && begun(before)) ? null : await lookUp(io, id)
     if (!main && before === undefined && identity === null) return
     const prior = main ? undefined : (before ?? callNodeOf(peek, identity))
     if (!routed && prior?.routed === true && prior.decision !== undefined) routed = await wentOutAsDecided(io, prior.decision, reading)
@@ -565,7 +565,9 @@ export async function reportEnd(io: StepIo, end: LoopEnd): Promise<void> {
     const now = await io.now()
     const peek = await read(io.board)
     const known = main ? mainNode(peek) : continuing(peek, id)
-    const identity = main || known !== undefined ? null : await identify(io, id)
+    // The loop is over: whatever its steps missed, it is looked up once more in full.
+    missed.delete(id)
+    const identity = main || known !== undefined ? null : (await identify(io, id, { roster: true, dirs: await runDirsOf(io) })).identity
     if (!main && known === undefined && identity === null) return
     const seen = main || known !== undefined ? now : (firstSeen.get(id) ?? now - end.durationMs)
     await modify(
@@ -707,23 +709,71 @@ function isLevel(value: string): value is Effort {
 /** Who a loop with no node is, from what the engine and the Workflow journals say; null: not an agent the board shows. */
 type Identity = { kind: 'agent' | 'wf'; name: string; type: string }
 
-async function identify(io: StepIo, id: string): Promise<Identity | null> {
-  try {
-    const info = (await io.agents()).find((agent) => agent.id === id)
-    if (info !== undefined) return { kind: 'agent', name: info.name !== undefined && info.name !== '' ? info.name : info.description !== '' ? info.description : id, type: info.type }
-  } catch (error) {
-    io.debug(`agent roster not read: ${errorText(error)}`)
+/**
+ * Who a loop is, by the roster (`roster`) and the journals of the run directories `dirs` (null: none read). `read`
+ * is false when the directories or a journal could not be read, so a miss may not be one.
+ */
+async function identify(io: StepIo, id: string, look: { roster: boolean; dirs: readonly string[] | null }): Promise<{ identity: Identity | null; read: boolean }> {
+  if (look.roster) {
+    try {
+      const info = (await io.agents()).find((agent) => agent.id === id)
+      if (info !== undefined) return { identity: { kind: 'agent', name: info.name !== undefined && info.name !== '' ? info.name : info.description !== '' ? info.description : id, type: info.type }, read: true }
+    } catch (error) {
+      io.debug(`agent roster not read: ${errorText(error)}`)
+    }
   }
+  if (look.dirs === null) return { identity: null, read: false }
   try {
     // A Workflow's agents are in no roster: the journal of the run it started in has the label it started under.
-    for (const dir of [...(await io.runDirs())].reverse()) {
+    for (const dir of [...look.dirs].reverse()) {
       const journal = await io.journal(dir)
       const start = journal === null ? null : startedIn(journal, id)
-      if (start !== null) return { kind: 'wf', name: start.label, type: 'workflow' }
+      if (start !== null) return { identity: { kind: 'wf', name: start.label, type: 'workflow' }, read: true }
     }
   } catch (error) {
     io.debug(`workflow journals not read: ${errorText(error)}`)
+    return { identity: null, read: false }
   }
+  return { identity: null, read: true }
+}
+
+/** The session's Workflow run directories, oldest first; null when they cannot be read. */
+async function runDirsOf(io: StepIo): Promise<readonly string[] | null> {
+  try {
+    return await io.runDirs()
+  } catch (error) {
+    io.debug(`workflow journals not read: ${errorText(error)}`)
+    return null
+  }
+}
+
+/**
+ * The loops a step found no one to be, by id: how many of its steps have looked, and the run directories whose
+ * journals it was looked for in (null: they could not be read). Module state: a hot reload forgets it, and costs each
+ * such loop one full look-up more.
+ */
+const missed = new Map<string, { sightings: number; dirs: string | null }>()
+const MISSED_KEPT = 64
+
+/**
+ * `identify` for a step, at most as often as the answer can change: the first step of a loop no one knows (an engine
+ * fork) reads the roster and every run's journal, and its later steps would read them all again. After a miss, the
+ * journals are read again only once the session has another run directory (a Workflow's agent can step before its run
+ * is recorded), or after they could not be read; the roster at the loop's 2nd, 4th, 8th... step (an agent it lists late).
+ */
+async function lookUp(io: StepIo, id: string): Promise<Identity | null> {
+  const miss = missed.get(id)
+  const sightings = (miss?.sightings ?? 0) + 1
+  const roster = miss === undefined || (sightings & (sightings - 1)) === 0
+  const dirs = await runDirsOf(io)
+  const seen = dirs === null ? null : dirs.join('\n')
+  const journals = miss === undefined || seen === null || miss.dirs === null ? roster : seen !== miss.dirs
+  const found = roster || journals ? await identify(io, id, { roster, dirs: journals ? dirs : null }) : { identity: null, read: true }
+  // The newest miss goes last, so the oldest go first past `MISSED_KEPT`.
+  missed.delete(id)
+  if (found.identity !== null) return found.identity
+  missed.set(id, { sightings, dirs: !journals ? (miss?.dirs ?? null) : found.read ? seen : null })
+  for (const key of missed.keys()) if (missed.size > MISSED_KEPT) missed.delete(key)
   return null
 }
 
