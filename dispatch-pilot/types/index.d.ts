@@ -234,10 +234,18 @@ declare module 'claude-code' {
         counts?: { failed: number; blocked: number; raised: number }
       }[]
       /**
-       * The agent the person picked on the band (its digit key, 0 the main agent), for the rationale pane:
-       * its node's turn and id. Null, or absent, until one is picked. Written by the band's buttons only.
+       * The agent the person picked on the band (its digit key, 0 the main agent) or paged to in the rationale
+       * pane (p / n), whose card the pane shows: its node's turn and id. Null, or absent, until one is picked.
+       * Written by the band's and the pane's buttons only.
        */
       selected: { turn: number; id: string } | null
+      /**
+       * The rationale pane's own view (hooks/board/rationale.ts `PaneState`): the turns of the decision log the
+       * person folded (`open` false) or opened, the others as the pane leaves them (the newest two open); whether
+       * the skills that got no profile are listed. Absent until the person pressed one of its keys. Written by
+       * the pane's buttons only.
+       */
+      paneView: { folds: { turn: number; open: boolean }[]; failures: boolean }
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
       /**

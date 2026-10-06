@@ -108,7 +108,7 @@ test('with the skills switch off (/dp skills off, kept from an earlier session),
   await w.submit('先写一个失败的测试')
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
-  expect(await w.command('dp')).toMatch(/\boff +skills +\S/)
+  expect(await w.command('dp', 'status')).toMatch(/\boff +skills +\S/)
 })
 
 // The engine keeps its answer about the listing for the conversation (a
@@ -537,7 +537,7 @@ test('without a decision model the debug log says the listing stays', async ($, 
 
 test('the skills switch is listed by /dp with what it does', { options: KEY }, async ($, on) => {
   const w = world($, on, { skills: SKILLS })
-  expect(await w.command('dp')).toMatch(/\bon +skills +suggests the skills that fit each message/)
+  expect(await w.command('dp', 'status')).toMatch(/\bon +skills +suggests the skills that fit each message/)
 })
 
 test('each listing withheld from the main agent is noted in the debug log, with what it kept and whether the note names find_skill', { options: { ...KEY, skillsAlwaysListed: ['tdd'] } }, async ($, on) => {
@@ -576,7 +576,7 @@ test('each decision about the skills goes to the decision log (/dp log) and the 
     { text: second, to: 'debug' },
     { text: third, to: 'debug' },
   ])
-  const log = await w.command('dp', 'log')
+  const log = await w.command('dp', 'log 10')
   expect(log).toContain(`skills: ${first}`)
   expect(log).toContain(`skills: ${second}`)
 })

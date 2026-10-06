@@ -502,7 +502,7 @@ test("an error in the mod itself lets the script through as the main agent wrote
 
 test('/dp workflow-agents off lets Workflows through as the main agent wrote them, with nothing asked; on brings the decisions back', { options: KEY }, async ($, on) => {
   const w = workflowWorld($, on, { backend: siteJev(BOTH_ROUTED) })
-  expect(await w.command('dp')).toMatch(/\bon +workflow-agents +\S/)
+  expect(await w.command('dp', 'status')).toMatch(/\bon +workflow-agents +\S/)
   await w.workflow({ script: TIDY })
   expect((await w.board()).agents).toHaveLength(2)
 
@@ -535,7 +535,7 @@ test("each agent's decision is logged with its reason: in the debug log, never i
   expect(w.logs.length).toBeGreaterThan(0)
   expect(w.logs.every((log) => log.to === 'debug')).toBe(true)
   expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^request \[agent-0\.model, agent-0\.effort, agent-1\.model, agent-1\.effort\] to jev for workflow "tidy-api": answered in \d+ ms/))
-  const log = (await w.command('dp', 'log')).split('\n')
+  const log = (await w.command('dp', 'log 10')).split('\n')
   expect(log[0]).toBe('the last 2 decisions, newest last')
   expect(log[1]).toMatch(/^#1 workflow-agents: sonnet high for "rename" \(workflow tidy-api\): decided; pick sonnet, confidence 0\.70; effort p /)
   expect(log[2]).toMatch(/^#2 workflow-agents: opus high for "review" \(workflow tidy-api\): decided; pick opus, confidence 0\.85; effort p /)

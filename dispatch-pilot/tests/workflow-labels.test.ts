@@ -106,7 +106,7 @@ const TIDY_DECIDED = siteJev((i): SiteAnswer => (i === 0 ? { model: { sonnet: 0.
 
 test('/dp workflow-labels off: no agent is routed and no run recorded, nothing is asked, and the Workflow tool is described as the engine has it; on brings it all back', { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { disk: { [SAVED]: TIDY }, backend: TIDY_DECIDED })
-  expect(await w.command('dp')).toMatch(/\bon +workflow-labels +\S/)
+  expect(await w.command('dp', 'status')).toMatch(/\bon +workflow-labels +\S/)
   await w.workflow({ scriptPath: SAVED })
   w.started('wf_test-1', 'wa1', 'rename')
   await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
@@ -244,7 +244,7 @@ test("each decision is logged with its reason, in the debug log and /dp log, nev
   w.transcript('wf_test-2', 'wa1', 'Find why the nightly import drops rows, and fix it.')
   await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
 
-  const shown = await w.command('dp', 'log')
+  const shown = await w.command('dp', 'log 10')
   expect(shown).toMatch(/workflow-labels: sonnet medium for "rename" \(workflow tidy-api\): decided; pick sonnet, confidence 1\.00; effort p low 0\.00, medium 1\.00/)
   expect(shown).toMatch(/workflow-labels: opus high for "review" \(workflow tidy-api\): decided; pick opus/)
   // (The tool's result names the workflow; this stub's does not, so it is `unnamed` here.)

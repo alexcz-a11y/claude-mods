@@ -179,7 +179,7 @@ test('with Clef, skill suggestions start off: the main agent keeps its listing a
   await w.submit('先写一个失败的测试')
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
-  expect(await w.command('dp')).toMatch(/\boff +skills +suggests the skills that fit each message/)
+  expect(await w.command('dp', 'status')).toMatch(/\boff +skills +suggests the skills that fit each message/)
 
   expect(await w.command('dp', 'skills on')).toMatch(/^skills is on/)
   await w.submit('再写一个失败的测试')
@@ -189,7 +189,7 @@ test('with Clef, skill suggestions start off: the main agent keeps its listing a
 test('with Clef, find_skill still answers while the suggestions are off', { options: CLEF_OPTIONS }, async ($, on) => {
   const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), skills: SKILLS, session: true })
   await w.start()
-  expect(await w.command('dp')).toMatch(/\bon +find-skill /)
+  expect(await w.command('dp', 'status')).toMatch(/\bon +find-skill /)
   const answer = await w.findSkill('write a failing test first')
   expect(w.requests.length).toBeGreaterThan(0)
   expect(String(answer.result)).not.toContain('switched off')

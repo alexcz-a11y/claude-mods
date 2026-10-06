@@ -188,7 +188,7 @@ test('a call the person refused is never a failure, however often they refuse, a
 test('a call one of your hooks blocked is not a failure unless the hook-block-failures switch is on (it is off by default)', { options: ONLY }, async ($, on) => {
   const w = world($, on, { backend: answers(MEDIUM), store: {}, session: true })
   await w.start()
-  expect(await w.command('dp')).toContain('off  hook-block-failures')
+  expect(await w.command('dp', 'status')).toContain('off  hook-block-failures')
   await w.submit('把 main 分支推上去')
   await w.step(calls(0, BLOCKED))
   await w.step(calls(1, BLOCKED))
@@ -243,7 +243,7 @@ test('a one-level raise stops at xhigh: a loop already there is not asked about 
 
   expect(w.requests.map(kind)).toEqual(['effort.level'])
   expect(w.steps.map((s) => s.effort)).toEqual(['xhigh', 'xhigh'])
-  const log = (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' escalation: '))
+  const log = (await w.command('dp', 'log 10')).split('\n').filter((line) => line.includes(' escalation: '))
   expect(log).toEqual(['#2 escalation: effort xhigh (kept) for step 1 (2 failed tool calls): a one-level raise stops at xhigh'])
   // Nothing was forced: a decision to leave it, with no raise on it.
   const [kept] = await escalations(w)
@@ -323,7 +323,7 @@ test('failures the decision model finds expected (a test written to fail first) 
 
   expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level,escalation.expected', 'midturn.level,escalation.expected'])
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium', 'medium', 'medium'])
-  const log = (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' escalation: '))
+  const log = (await w.command('dp', 'log 10')).split('\n').filter((line) => line.includes(' escalation: '))
   expect(log[0]).toContain('#2 escalation: effort medium (kept) for step 1 (2 failed tool calls): the failures are expected (p 0.90, thetaExpected 0.25), so nothing is forced; ')
 })
 
@@ -378,7 +378,7 @@ test('without an answer (the request failed, or it left the question out) the fa
   await down.step({ index: 1 })
 
   expect(down.steps.map((s) => s.effort)).toEqual(['medium', 'high'])
-  const log = (await down.command('dp', 'log')).split('\n').filter((line) => line.includes(' escalation: '))
+  const log = (await down.command('dp', 'log 10')).split('\n').filter((line) => line.includes(' escalation: '))
   expect(log[0]).toContain('effort high (was medium) for step 1 (2 failed tool calls): forced one level up')
   expect(log[0]).toContain('no answer (jev: busy (HTTP 503))')
   // Without an answer the rules' working is the raise alone.
@@ -640,7 +640,7 @@ test('a haiku agent has no effort to raise: it goes on as sonnet, named by its f
   // A haiku agent's effort is not asked about: only whether the failures were expected.
   expect(Object.keys(asked[0]?.body.questions)).toEqual(['escalation.expected'])
   expect(asked[0]?.body.state.current_effort).toBeUndefined()
-  const log = (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' escalation: '))
+  const log = (await w.command('dp', 'log 10')).split('\n').filter((line) => line.includes(' escalation: '))
   expect(log).toHaveLength(1)
   expect(log[0]).toContain('model claude-sonnet-5-5 (was claude-haiku-4-5-20251001) for agent "Make the failing auth tests pass: run `p...", step 1 (2 failed tool calls)')
   expect(log[0]).toContain('a haiku agent has no effort to raise, so it is switched to claude-sonnet-5-5; not expected (p 0.10, thetaExpected 0.25)')
@@ -672,7 +672,7 @@ test('an escalateHaikuTo that names no model the mod knows switches nothing, and
   await w.step(agentStep(agentId, 1, HAIKU))
 
   expect(w.steps.map((s) => s.model)).toEqual(['claude-haiku-4-5-20251001', 'claude-haiku-4-5-20251001'])
-  const log = (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' escalation: '))
+  const log = (await w.command('dp', 'log 10')).split('\n').filter((line) => line.includes(' escalation: '))
   expect(log[0]).toContain('escalateHaikuTo names no model this mod knows ("gpt-5")')
 })
 
@@ -698,7 +698,7 @@ test("an agent whose transcript cannot be read (a workflow's) is raised without 
 
   expect(w.requests).toHaveLength(0)
   expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'high', 'high'])
-  const log = (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' escalation: '))
+  const log = (await w.command('dp', 'log 10')).split('\n').filter((line) => line.includes(' escalation: '))
   expect(log[0]).toContain('effort high (was medium) for agent wf1, step 1 (2 failed tool calls): forced one level up; no transcript of this agent to read, so not asked whether the failures were expected')
 })
 

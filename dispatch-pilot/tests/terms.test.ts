@@ -73,7 +73,7 @@ const HAIKU = 'claude-haiku-4-5-20251001'
 
 /** The decision log's escalation lines, as /dp log shows them. */
 async function escalations(w: ReturnType<typeof world>): Promise<string[]> {
-  return (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' escalation: '))
+  return (await w.command('dp', 'log 10')).split('\n').filter((line) => line.includes(' escalation: '))
 }
 
 test('a haiku the person named for an agent stays its model however its calls fail: it is not switched to sonnet, and the log says why', { options: ONLY }, async ($, on) => {

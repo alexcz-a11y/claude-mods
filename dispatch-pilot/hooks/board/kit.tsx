@@ -221,6 +221,11 @@ export function soft(hex: string): number {
   return (mix(16) << 16) | (mix(8) << 8) | mix(0)
 }
 
+/** `soft`, as the `#rrggbb` a Text's colour takes: a level not picked. */
+export function softColor(hex: string): string {
+  return `#${soft(hex).toString(16).padStart(6, '0')}`
+}
+
 /** The ribbon's empty track. */
 const TRACK = rgb('#8A9099')
 /** The left eighths, for where a bar ends inside a cell. */
@@ -248,6 +253,75 @@ export function ribbonCells(from: number, to: number | null, span: number, colum
     else if (covered <= 0.06) out.push(['─', TRACK, DEFAULT])
     else if (c < start) out.push(['▐', color, DEFAULT])
     else out.push([EIGHTHS[Math.max(1, Math.min(7, Math.round(covered * 8)))] ?? '▌', color, DEFAULT])
+  }
+  return packCells(out)
+}
+
+/** Two colours mixed, `f` of the way from `a` to `b`. */
+function mix(a: number, b: number, f: number): number {
+  const ch = (shift: number) => Math.round(((a >> shift) & 255) * (1 - f) + ((b >> shift) & 255) * f)
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0)
+}
+
+/** The effort ramp's colour at `f` in 0..1, between its five stops. */
+export function rampAt(f: number): number {
+  const stops = EFFORTS.map((level) => rgb(EFFORT_COLOR[level]))
+  const x = Math.max(0, Math.min(1, f)) * (stops.length - 1)
+  const i = Math.min(stops.length - 2, Math.floor(x))
+  return mix(stops[i] ?? 0, stops[i + 1] ?? 0, x - i)
+}
+
+/**
+ * One 100% stacked bar of the effort probabilities, `columns` cells: a segment per level in its ramp colour (the
+ * levels not picked softened), a boundary inside a cell drawn with an eighth block, left colour on right colour.
+ */
+export function stackCells(probs: Record<Effort, number>, picked: Effort | undefined, columns: number): string {
+  const total = EFFORTS.reduce((sum, level) => sum + probs[level], 0) || 1
+  const colorOf = (level: Effort) => (level === picked || picked === undefined ? rgb(EFFORT_COLOR[level]) : soft(EFFORT_COLOR[level]))
+  const edges: { level: Effort; from: number; to: number }[] = []
+  let at = 0
+  for (const level of EFFORTS) {
+    const w = (probs[level] / total) * columns
+    edges.push({ level, from: at, to: at + w })
+    at += w
+  }
+  const out: RasterCell[] = []
+  for (let c = 0; c < columns; c++) {
+    const here = edges.filter((edge) => edge.to > c + 0.001 && edge.from < c + 0.999).map((edge) => ({ level: edge.level, w: Math.min(edge.to, c + 1) - Math.max(edge.from, c) }))
+    const widest = [...here].sort((a, b) => b.w - a.w)[0]
+    if (widest === undefined) {
+      out.push([' ', DEFAULT, DEFAULT])
+      continue
+    }
+    if (here.length === 1 || widest.w > 0.94) {
+      out.push(['█', colorOf(widest.level), DEFAULT])
+      continue
+    }
+    const left = here[0] ?? widest
+    const right = here.at(-1) ?? widest
+    out.push([EIGHTHS[Math.max(1, Math.min(7, Math.round(left.w * 8)))] ?? '▌', colorOf(left.level), colorOf(right.level)])
+  }
+  return packCells(out)
+}
+
+/** The tick's colours: past the line, short of it. */
+const PASSED = rgb('#2BAE9C')
+const SHORT = rgb('#D1A21F')
+
+/**
+ * A confidence meter, `columns` cells: filled to `conf` along the ramp's cool half, a thin track beyond, and a tick
+ * at `threshold` (green when `passed`, amber when not; none when no line was asked).
+ */
+export function meterCells(conf: number, threshold: number | undefined, passed: boolean | null, columns: number): string {
+  const tick = threshold === undefined ? -1 : Math.min(columns - 1, Math.round(threshold * columns))
+  const fill = Math.max(0, Math.min(1, conf)) * columns
+  const out: RasterCell[] = []
+  for (let c = 0; c < columns; c++) {
+    const color = rampAt(0.2 + (c / columns) * 0.4)
+    if (c === tick) out.push(['┃', passed === true ? PASSED : SHORT, c < fill ? color : DEFAULT])
+    else if (c + 1 <= fill) out.push(['█', color, DEFAULT])
+    else if (c < fill) out.push(['▌', color, DEFAULT])
+    else out.push(['─', TRACK, DEFAULT])
   }
   return packCells(out)
 }
