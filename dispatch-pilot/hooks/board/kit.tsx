@@ -11,6 +11,7 @@
 import type { Elements, RenderNode } from 'claude-code'
 import { EFFORTS, type Effort } from '../decision/effort.ts'
 import type { AgentState, Model } from '../core/report.ts'
+import type { StatusTone } from './view.ts'
 
 /** The terminal's element table: what the Raster parts draw with. */
 export type T = Elements['terminal']
@@ -29,6 +30,9 @@ export const WARN = 'warning'
 export const MUTED = 'inactive'
 /** A skill for the person to try (「可试 /x」). */
 export const SKILL = 'suggestion'
+
+/** An agent's status cell, by its tone (the band's row, the card's state). */
+export const STATUS_COLOR: Record<StatusTone, string> = { run: ACCENT, done: MUTED, fail: BAD, warn: WARN, muted: MUTED }
 
 /** The effort ramp, cool to hot: low to max. */
 export const EFFORT_COLOR: Record<Effort, string> = {

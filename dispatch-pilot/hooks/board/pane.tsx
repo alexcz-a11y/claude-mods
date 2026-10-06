@@ -24,8 +24,8 @@ import type { RenderNode } from 'claude-code'
 import { failureMeaning } from '../decision/backend.ts'
 import type { Effort } from '../decision/effort.ts'
 import { EFFORTS } from '../decision/effort.ts'
-import { type LogEntry, type ProfilesState, type Tone as LogTone } from '../core/report.ts'
-import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, meterCells, MODEL_BG, MUTED, OK, pct, SKILL, softColor, stackCells, stateGlyph, WARN, width, type Raster, type TT } from './kit.tsx'
+import { type LogEntry, type ProfilesState, type Tone } from '../core/report.ts'
+import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, meterCells, MODEL_BG, MUTED, OK, pct, SKILL, softColor, stackCells, stateGlyph, STATUS_COLOR, WARN, width, type Raster, type TT } from './kit.tsx'
 import {
   cardOf,
   entryVerb,
@@ -43,7 +43,7 @@ import {
   type PaneState,
   type StepMark,
 } from './rationale.ts'
-import { FEATURE_WORDS, featureOf, levelOf, type AgentRow, type ScreenView, type Tone } from './view.ts'
+import { FEATURE_WORDS, featureOf, levelOf, type AgentRow, type ScreenView } from './view.ts'
 
 /** What the pane is drawn from. */
 export type PaneInput = {
@@ -68,11 +68,10 @@ export type PaneActs = {
   failures: (open: boolean) => void
 }
 
-const TONE_COLOR: Record<Tone, string> = { run: ACCENT, done: MUTED, fail: BAD, warn: WARN, muted: MUTED }
-const LOG_COLOR: Record<LogTone, string> = { ok: OK, warn: WARN, fail: BAD, info: MUTED }
-const LOG_GLYPH: Record<LogTone, string> = { ok: '✔', warn: '⚠', fail: '✘', info: '·' }
+const LOG_COLOR: Record<Tone, string> = { ok: OK, warn: WARN, fail: BAD, info: MUTED }
+const LOG_GLYPH: Record<Tone, string> = { ok: '✔', warn: '⚠', fail: '✘', info: '·' }
 /** The order a turn's header counts its tones in. */
-const LOG_TONES: readonly LogTone[] = ['ok', 'info', 'warn', 'fail']
+const LOG_TONES: readonly Tone[] = ['ok', 'info', 'warn', 'fail']
 const MARK: Record<StepMark, { glyph: string; color: string }> = {
   hit: { glyph: '●', color: ACCENT },
   pass: { glyph: '○', color: MUTED },
@@ -287,7 +286,7 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
             {readout}
           </Box>,
         ]),
-    hang(t, 'pane-card-state', '状态', text(row.status.text, TONE_COLOR[row.status.tone]), w),
+    hang(t, 'pane-card-state', '状态', text(row.status.text, STATUS_COLOR[row.status.tone]), w),
   ]
   if (node.failure !== undefined) {
     rows.push(hang(t, 'pane-card-kind', '类型', text(failureMeaning(node.failure.kind)), w))

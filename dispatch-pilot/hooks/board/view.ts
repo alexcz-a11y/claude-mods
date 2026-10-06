@@ -37,8 +37,8 @@ export type ScreenInput = {
   isWorking: boolean
 }
 
-/** How a status cell reads: its tone picks the colour. */
-export type Tone = 'run' | 'done' | 'fail' | 'warn' | 'muted'
+/** How an agent's status cell reads: its tone picks the colour (kit.tsx `STATUS_COLOR`). Not a log entry's `Tone`. */
+export type StatusTone = 'run' | 'done' | 'fail' | 'warn' | 'muted'
 
 /** One agent of the turn, as a row of the band. */
 export type AgentRow = {
@@ -49,7 +49,7 @@ export type AgentRow = {
   from: number
   to: number | null
   /** What its status cell says. */
-  status: { tone: Tone; text: string }
+  status: { tone: StatusTone; text: string }
   /** The person picked it (`selected`). */
   selected: boolean
 }
