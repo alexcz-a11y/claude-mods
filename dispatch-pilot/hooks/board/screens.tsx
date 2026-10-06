@@ -3,8 +3,9 @@
 // summary at the right end of the footer (`SessionMode`) and the rationale pane
 // (`Pane`, the pane `/dp` opens). One hook tree for every surface, branching on
 // `e.surface`: the terminal draws the full design (band.tsx, footer.tsx,
-// pane.tsx); the other surfaces get the engine's own drawing for now (their
-// plain-text band, footer tag and pane are #31's).
+// pane.tsx) with its Raster; every other surface gets the same trees in plain
+// text, without a Raster (the tag in the footer in at most 24 characters, the
+// log in a window short of Desktop's 2000 nodes), until the Svg versions.
 //
 // Each hook reads the board, the log and the agent the person picked from
 // $.state while it draws, so the host draws it again when they change; while
@@ -16,8 +17,9 @@
 import type { EngineInterface, On, Timer } from 'claude-code'
 import { isOn, isShown, listSwitches, masterOn } from '../core/switches.ts'
 import { bandTree } from './band.tsx'
-import { footerTree } from './footer.tsx'
+import { footerTree, TAG_CHARS } from './footer.tsx'
 import { paneTree } from './pane.tsx'
+import { nodeCount } from './kit.tsx'
 import { NO_PANE_STATE, PANE_COLUMNS, PANE_ID, PANE_TITLE, withFold } from './rationale.ts'
 import { screenView, TICK_MS, type AgentRow, type ScreenView } from './view.ts'
 
@@ -27,6 +29,16 @@ const SELECTED = { plugin: 'dispatch-pilot', key: 'selected' } as const
 const PROFILES = { plugin: 'dispatch-pilot', key: 'skillProfiles' } as const
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const PANE_VIEW = { plugin: 'dispatch-pilot', key: 'paneView' } as const
+
+/** The log's windows for a surface that refuses a large tree, widest first: what the pane keeps of the log and of the re-decisions. */
+const WINDOWS = [
+  { entries: 40, mids: 20 },
+  { entries: 16, mids: 8 },
+  { entries: 4, mids: 3 },
+  { entries: 0, mids: 0 },
+] as const
+/** A tree this big is drawn again in the next window: Desktop refuses 2000. */
+const MOST_NODES = 1800
 
 /** The next frame asked for while an agent runs (module state: a hot reload cancels it with the old module, and the next draw asks again). */
 let ticking: Timer | null = null
@@ -69,10 +81,12 @@ async function pick($: EngineInterface, row: AgentRow): Promise<void> {
 export function registerScreens(on: On): void {
   // The band above the prompt.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
+    if (e.props.hasSurvey) return next(e)
     const own = await next(e)
     try {
       const t = $.ui.resolve(e)
+      // The time ribbons are the terminal's Raster; elsewhere the rows are the same without them.
+      const ribbon = e.surface === 'terminal' ? $.ui.resolve(e).Raster : undefined
       const view = await viewOf($, e.props.isWorking)
       tick($, view)
       // A digit picks an agent and brings up its card: a press is the person's asking, so the pane is placed at
@@ -85,7 +99,7 @@ export function registerScreens(on: On): void {
           $.ui.log(`rationale pane not placed (${opened.reason}), closed again`, { to: 'debug' })
         }
       }
-      const tree = bandTree(t, view, { cols: e.props.bodyColumns, rows: e.props.maxRows }, { select: (row) => void select(row).catch(() => undefined) })
+      const tree = bandTree(t, view, { cols: e.props.bodyColumns, rows: e.props.maxRows }, { select: (row) => void select(row).catch(() => undefined) }, ribbon)
       if (tree === null) return own
       const { Box } = t
       return (
@@ -103,13 +117,12 @@ export function registerScreens(on: On): void {
 
   // The right end of the footer, beside the engine's modes.
   on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
-    if (e.surface !== 'terminal') return next(e)
     const own = await next(e)
     try {
       const t = $.ui.resolve(e)
       const view = await viewOf($, false)
       tick($, view)
-      const tree = footerTree(t, view)
+      const tree = footerTree(t, view, e.surface === 'terminal' ? undefined : TAG_CHARS)
       if (tree === null) return own
       const { Box } = t
       return (
@@ -126,7 +139,6 @@ export function registerScreens(on: On): void {
 
   // The rationale pane (`/dp`): the card of the agent picked, the decision log.
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e, next) => {
-    if (e.surface !== 'terminal') return next(e)
     try {
       const t = $.ui.resolve(e)
       const [view, log, profiles, lock, kept] = await Promise.all([viewOf($, false), $.state.get(DECISIONS), $.state.get(PROFILES), $.state.get(LOCK), $.state.get(PANE_VIEW)])
@@ -134,16 +146,20 @@ export function registerScreens(on: On): void {
       const entries = log.value ?? []
       const state = kept.value ?? NO_PANE_STATE
       const shown = isOn('skills') && isOn('skill-profiles') ? (profiles.value ?? null) : null
-      return paneTree(
-        t,
-        { view, log: entries, profiles: shown, off: listSwitches().filter((s) => !s.on).map((s) => s.name), master: masterOn(), lock: lock.value ?? null, state },
-        e.props.bodyColumns,
-        {
-          pick: (row) => void pick($, row).catch(() => undefined),
-          fold: (turn, open) => void $.state.set(PANE_VIEW, withFold(state, turn, open, entries)).catch(() => undefined),
-          failures: (open) => void $.state.set(PANE_VIEW, { ...state, failures: open }).catch(() => undefined),
-        },
-      )
+      const input = { view, log: entries, profiles: shown, off: listSwitches().filter((s) => !s.on).map((s) => s.name), master: masterOn(), lock: lock.value ?? null, state }
+      const act = {
+        pick: (row: AgentRow) => void pick($, row).catch(() => undefined),
+        fold: (turn: number, open: boolean) => void $.state.set(PANE_VIEW, withFold(state, turn, open, entries)).catch(() => undefined),
+        failures: (open: boolean) => void $.state.set(PANE_VIEW, { ...state, failures: open }).catch(() => undefined),
+      }
+      if (e.surface === 'terminal') return paneTree(t, input, e.props.bodyColumns, act, $.ui.resolve(e).Raster)
+      // Elsewhere: the same pane in text, in the widest window of the log that stays short of Desktop's 2000 nodes.
+      let tree = paneTree(t, { ...input, window: WINDOWS[0] }, e.props.bodyColumns, act)
+      for (const window of WINDOWS.slice(1)) {
+        if (nodeCount(tree) < MOST_NODES) break
+        tree = paneTree(t, { ...input, window }, e.props.bodyColumns, act)
+      }
+      return tree
     } catch (error) {
       $.ui.log(`rationale pane not drawn: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
       return next(e)

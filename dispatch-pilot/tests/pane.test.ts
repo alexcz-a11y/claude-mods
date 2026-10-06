@@ -353,8 +353,101 @@ test('the session start\'s profiles entry is in the log under its turn, its tone
   expect(row).toContain('tdd: the reply is not a profile')
 })
 
-test('on a surface other than the terminal the pane is the engine\'s own drawing for now (#31 draws its text)', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
-  await w.submit('改个错别字')
-  expect(await (await w.pane({ surface: 'desktop' })).find({ key: 'pane' })).toBeUndefined()
+// ---- the other surfaces: the same pane in text (#31) -------------------------------
+
+const SURFACES = ['desktop', 'vscode', 'mobile'] as const
+
+/** The element types in a drawn tree and how many nodes it has (Desktop refuses a tree of 2000). */
+function inventory(element: unknown, seen: { types: Set<string>; nodes: number } = { types: new Set(), nodes: 0 }) {
+  if (typeof element === 'string') {
+    seen.nodes += 1
+    return seen
+  }
+  if (element === null || typeof element !== 'object') return seen
+  const { type, children = [], props = {} } = element as Drawn
+  seen.nodes += 1
+  if (type !== undefined) seen.types.add(type)
+  for (const child of Array.isArray(props.children) ? props.children : children) inventory(child, seen)
+  return seen
+}
+
+test("on a surface other than the terminal the pane is the same pane in text: the card with the probabilities as numbers, the rules' working, the mid-turn meter as its line, the log; no Raster", { options: { ...KEY, rejudgeEvery: 2, holdSteps: 3 } }, async ($, on) => {
+  const LOW = [0.9, 0.1, 0, 0, 0]
+  const XHIGH = [0, 0, 0.1, 0.8, 0.1]
+  const w = world($, on, { backend: answers([0, 0.7, 0.3, 0, 0], { levels: XHIGH, confidence: 0.8 }, { levels: LOW, confidence: 0.5 }) })
+  await w.submit('这个方案往死里挑刺')
+  for (const index of [0, 1, 2, 3, 4, 5]) await w.step({ index, answer: `第 ${index} 步`, tools: [{ tool: 'Read', input: { file_path: `/repo/f${index}.ts` } }] })
+
+  for (const surface of SURFACES) {
+    const ui = await w.pane({ surface })
+    expect(shown(await ui.find({ key: 'pane-head' })), surface).toContain('主 agent')
+    expect(shown(await ui.find({ key: 'pane-card-probs' }))).toMatch(/low \.00 medium \.70 high \.30 xhigh \.00 max \.00/)
+    const rules = await steps(ui)
+    expect(rules[0]).toMatch(/●.*最可能.*medium \.70/)
+    const mids = (await ui.findAll({ type: 'Box' })).filter((box) => /^pane-mid-\d+$/.test(box.key ?? '')).map((box) => shown(box))
+    expect(mids.length).toBeGreaterThan(0)
+    expect(mids.join('\n')).toMatch(/\.80 ≥ \.30 升档线.*升到 xhigh/)
+    expect(mids.join('\n')).toMatch(/建议 low · 当前 xhigh.*防抖中，还差 1 步/)
+    expect(shown(await ui.find({ key: 'pane-log-head' }))).toContain('决策日志')
+    expect((await ui.findAll({ type: 'Button' })).filter((button) => button.key === 'pane-prev' || button.key === 'pane-next')).toHaveLength(2)
+    expect(inventory(await ui.drawn()).types.has('Raster'), surface).toBe(false)
+    await ui.unmount()
+  }
+})
+
+test("on a surface other than the terminal p and n still page, and the log still folds", { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, { backend: jev([0, 1, 0, 0, 0], { choice: 'sonnet' }) })
+  await w.submit('派个 agent')
+  await w.step({ index: 0 })
+  const one = await w.spawn({ prompt: 'Review the diff.', description: '审查' })
+  await w.agentStep(one.agentId ?? '', { index: 0, model: 'claude-sonnet-5-5' })
+  await w.complete()
+  const ui = await w.pane({ surface: 'desktop' })
+  await ui.press({ key: 'pane-next' })
+  expect(shown(await ui.find({ key: 'pane-head' }))).toMatch(/审查.*2\/2/)
+  expect(await ui.find({ key: 'pane-entry-1' })).toBeDefined()
+  await ui.press({ key: 'pane-fold-1' })
+  expect(await ui.find({ key: 'pane-entry-1' })).toBeUndefined()
+})
+
+test('a long log and a long turn do not make the pane a tree of 2000 nodes (Desktop would refuse it): the entries and re-decisions drawn are the latest, and the pane says how many are left out', async ($, on) => {
+  const trace: LogEntry['trace'] = [
+    { rule: 'top', applied: true, level: 'high', p: 0.6, tie: false },
+    { rule: 'max-gate', applied: false, level: 'high', p: 0, thetaMax: 0.5 },
+    { rule: 'round-up', applied: false, level: 'high', above: 'xhigh', p: 0.2, threshold: 0.3, blockedByMax: false, thetaMax: 0.5 },
+  ]
+  const probs = { low: 0, medium: 0.1, high: 0.6, xhigh: 0.2, max: 0.1 }
+  const turns = Array.from({ length: 5 }, (_, i) => i + 1)
+  const log: LogEntry[] = turns.flatMap((turn) =>
+    Array.from({ length: 60 }, (_, j) => ({ n: turn * 1000 + j, turn, at: j, feature: 'dispatched-agents', agent: `a${j}`, tone: 'ok' as const, outcome: 'model sonnet', model: 'sonnet' as const, effort: 'medium' as const, subject: `agent ${j}`, reason: 'pick sonnet: the work is a small review', probs, trace })),
+  )
+  const mid = (n: number) => ({ n, turn: 5, at: n, feature: 'midturn-effort', agent: 'main', tone: 'ok' as const, outcome: 'effort kept', subject: `step ${n} (every 3 steps)`, reason: 'suggested the same', conf: 0.5, mid: { picked: 'high' as const, current: 'high' as const, result: 'high' as const }, trace: [{ rule: 'suggest', applied: true, picked: 'high', current: 'high', direction: 'same' }] })
+  const mids = Array.from({ length: 60 }, (_, i) => mid(9000 + i))
+  const board = { turn: 5, starts: [{ turn: 5, at: 0 }], nodes: [{ turn: 5, id: 'main', kind: 'main' as const, name: '主 agent', type: 'main', model: 'opus' as const, effort: 'high' as const, state: 'running' as const, t0: 0, routed: true, decision: 5000 }] }
+  const w = world($, on, { seed: { board, log: [...mids, ...log] } })
+
+  const ui = await w.pane({ surface: 'desktop' })
+  const seen = inventory(await ui.drawn())
+  expect(seen.nodes).toBeLessThan(2000)
+  expect(seen.types.has('Raster')).toBe(false)
+  expect(shown(await ui.find({ key: 'pane-log-more-5' }))).toMatch(/更早 \d+ 条/)
+  expect(await ui.find({ key: 'pane-mid-more' })).toBeDefined()
+  // The newest are the ones kept.
+  expect(await ui.find({ key: 'pane-entry-5059' })).toBeDefined()
+  expect(await ui.find({ key: 'pane-entry-5000' })).toBeUndefined()
+  // The terminal draws it all.
+  const terminal = await w.pane()
+  expect(await terminal.find({ key: 'pane-entry-5000' })).toBeDefined()
+  expect(await terminal.find({ key: 'pane-mid-more' })).toBeUndefined()
+})
+
+test('entries too big for the usual window (each lists dozens of skills) are drawn in a smaller one, still under 2000 nodes, the newest kept', async ($, on) => {
+  const suggest = Array.from({ length: 40 }, (_, i) => ({ name: `skill-${i}`, relevance: 0.9 }))
+  const log: LogEntry[] = Array.from({ length: 60 }, (_, j) => ({ n: j + 1, turn: 1, at: j, feature: 'skills', agent: 'main', tone: 'ok' as const, outcome: 'suggested', subject: `request ${j}`, reason: 'relevant', skills: { suggest, try: [] } }))
+  const w = world($, on, { seed: { board: { turn: 1, nodes: [] }, log } })
+  const ui = await w.pane({ surface: 'desktop' })
+  expect(inventory(await ui.drawn()).nodes).toBeLessThan(2000)
+  expect(await ui.find({ key: 'pane-entry-60' })).toBeDefined()
+  expect(await ui.find({ key: 'pane-entry-1' })).toBeUndefined()
+  expect(shown(await ui.find({ key: 'pane-log-more-1' }))).toMatch(/更早 \d+ 条/)
 })
