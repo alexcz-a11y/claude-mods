@@ -73,6 +73,8 @@ export type PaneActs = {
 const TONE_COLOR: Record<Tone, string> = { run: ACCENT, done: MUTED, fail: BAD, warn: WARN, muted: MUTED }
 const LOG_COLOR: Record<LogTone, string> = { ok: OK, warn: WARN, fail: BAD, info: MUTED }
 const LOG_GLYPH: Record<LogTone, string> = { ok: '✔', warn: '⚠', fail: '✘', info: '·' }
+/** The order a turn's header counts its tones in. */
+const LOG_TONES: readonly LogTone[] = ['ok', 'info', 'warn', 'fail']
 const MARK: Record<StepMark, { glyph: string; color: string }> = {
   hit: { glyph: '●', color: ACCENT },
   pass: { glyph: '○', color: MUTED },
@@ -522,9 +524,8 @@ function groupRows(t: TT, group: LogGroup, cols: number, act: PaneActs, raster: 
         <Box flexShrink={0}>
           <Text>
             <Text color={MUTED}>{`  ${group.entries.length} 条`}</Text>
-            {counts.ok + counts.info > 0 ? <Text color={OK}>{` ✔${counts.ok + counts.info}`}</Text> : null}
-            {counts.warn > 0 ? <Text color={WARN}>{` ⚠${counts.warn}`}</Text> : null}
-            {counts.fail > 0 ? <Text color={BAD}>{` ✘${counts.fail}`}</Text> : null}
+            {/* By the glyph and colour each of its rows draws. */}
+            {LOG_TONES.map((tone) => (counts[tone] > 0 ? <Text color={LOG_COLOR[tone]}>{` ${LOG_GLYPH[tone]}${counts[tone]}`}</Text> : null))}
           </Text>
         </Box>
       </Box>

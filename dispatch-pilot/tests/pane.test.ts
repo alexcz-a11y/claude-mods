@@ -287,6 +287,18 @@ test('the decision log is grouped by turn, newest first, each with its letter ke
   expect(await entries()).toEqual(['pane-entry-3', 'pane-entry-2', 'pane-entry-1'])
 })
 
+test("a turn's header counts its entries by the glyph each row draws: ✔ the decisions made, · the plain records, ⚠ and ✘", async ($, on) => {
+  const entry = (n: number, tone: LogEntry['tone']) => ({ n, turn: 1, at: 0, feature: 'midturn-effort', agent: 'main', tone, outcome: 'effort high', subject: `第 ${n} 步`, reason: 'x' })
+  const w = world($, on, { seed: { board: { turn: 1, nodes: [] }, log: [entry(1, 'ok'), entry(2, 'ok'), entry(3, 'info'), entry(4, 'warn'), entry(5, 'info'), entry(6, 'info')] } })
+  const ui = await w.pane()
+  const head = shown(((await ui.find({ key: 'pane-turn-1' })) as Drawn).children?.[0])
+  expect(head).toContain('6 条 ✔2 ·3 ⚠1')
+  expect(head).not.toContain('✘')
+  // Each row's own glyph says the same.
+  const glyphs = (await ui.findAll({ type: 'Box' })).filter((box) => box.key?.startsWith('pane-entry-')).map((box) => shown(box).slice(0, 1))
+  expect(glyphs).toEqual(['✔', '✔', '·', '⚠', '·', '·'])
+})
+
 test('the log keeps twenty turns, and each has its own fold key: none of them p, n or f', async ($, on) => {
   const log = Array.from({ length: 20 }, (_, i) => ({ n: i + 1, turn: i + 1, at: 0, feature: 'main-effort', agent: 'main', tone: 'ok' as const, outcome: 'effort high', subject: `"消息 ${i + 1}"`, reason: 'p high 1.00' }))
   const w = world($, on, { seed: { board: { turn: 20, nodes: [] }, log } })
