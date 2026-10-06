@@ -591,14 +591,14 @@ export function termsOf(decision: DispatchDecision): Terms | null {
  */
 export function decisionNotes(decision: DispatchDecision): string[] {
   const notes: string[] = []
-  if (decision.banned.length > 0) notes.push(`ruled out ${decision.banned.join(', ')}`)
-  if (decision.pick?.nearest === true) notes.push(`the answer left no probability on the other models, nearest ${decision.pick.model} taken`)
-  if (decision.liftedFrom !== undefined && decision.effort !== null) notes.push(`effort lifted from ${decision.liftedFrom} to ${decision.effort} (floor for ${decision.model ?? 'the model'})`)
+  if (decision.banned.length > 0) notes.push(`排除了 ${decision.banned.join('、')}`)
+  if (decision.pick?.nearest === true) notes.push(`回答没给其余模型留下概率，取最接近的 ${decision.pick.model}`)
+  if (decision.liftedFrom !== undefined && decision.effort !== null) notes.push(`effort 从 ${decision.liftedFrom} 抬到 ${decision.effort}（模型下限：${decision.model ?? '这个模型'}）`)
   if (decision.namedEffort != null) {
     notes.push(
       decision.effortSource === 'user'
-        ? `effort named in your message (${decision.namedEffort})`
-        : `effort ${decision.namedEffort} asked for in your message, not set: ${decision.model ?? 'the model'} takes no effort`,
+        ? `你在消息里点名了 effort（${decision.namedEffort}）`
+        : `你在消息里要 effort ${decision.namedEffort}，没有设置：${decision.model ?? '这个模型'} 不带 effort`,
     )
   }
   return notes
@@ -626,22 +626,22 @@ export function dispatchEvidence(decision: DispatchDecision): {
 }
 
 /**
- * Why an agent goes out as it does, for the decision log: whose model it is
- * (`asker` is whose pick a kept model was: "the main agent's" for a
- * dispatched agent, "the script's" for a Workflow's), the decision model's
- * pick, what was ruled out, the effort answer.
+ * Why an agent goes out as it does, for the decision log (Chinese: the person's
+ * words): whose model it is (`asker` is whose pick a kept model was: "主 agent"
+ * for a dispatched agent, "脚本" for a Workflow's), the decision model's pick,
+ * what was ruled out, the effort answer.
  */
 export function dispatchReason(decision: DispatchDecision, requested: string | null, thetaOverride: number, asker: string): string {
-  const pick = decision.pick === null ? null : `pick ${decision.pick.model}, confidence ${decision.pick.confidence.toFixed(2)}`
+  const pick = decision.pick === null ? null : `选 ${decision.pick.model}，置信度 ${decision.pick.confidence.toFixed(2)}`
   const parts: string[] = []
-  if (decision.source === 'user') parts.push('named in your message')
-  else if (decision.source === 'requested') parts.push(`${asker} ${requested} kept${decision.pick !== null && decision.pick.model !== requested ? ` (below agentOverride ${thetaOverride.toFixed(2)})` : ''}`)
-  else if (decision.source === 'decided') parts.push(requested !== null && requested !== decision.model ? `decided over ${asker} ${requested}` : 'decided')
-  else parts.push("the engine's model kept")
+  if (decision.source === 'user') parts.push('你在消息里点名了模型')
+  else if (decision.source === 'requested') parts.push(`沿用${asker} ${requested}${decision.pick !== null && decision.pick.model !== requested ? `（置信度没到推翻门槛 ${thetaOverride.toFixed(2)}）` : ''}`)
+  else if (decision.source === 'decided') parts.push(requested !== null && requested !== decision.model ? `已决定，不用${asker} ${requested}` : '已决定')
+  else parts.push('沿用引擎的模型')
   if (pick !== null) parts.push(pick)
   parts.push(...decisionNotes(decision))
-  if (decision.reading !== null) parts.push(`effort p ${levelsText(decision.reading)}`)
-  return parts.join('; ')
+  if (decision.reading !== null) parts.push(`effort 概率 ${levelsText(decision.reading)}`)
+  return parts.join('；')
 }
 
 /** The model whose `<prefix>.<model>` yes/no answer is highest and reaches `threshold`; null when none does. */

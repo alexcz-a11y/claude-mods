@@ -108,7 +108,7 @@ test('with the skills switch off (/dp skills off, kept from an earlier session),
   await w.submit('先写一个失败的测试')
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
-  expect(await w.command('dp', 'status')).toMatch(/\boff +skills +\S/)
+  expect(await w.command('dp', 'status')).toMatch(/关 +skills +\S/)
 })
 
 // The engine keeps its answer about the listing for the conversation (a
@@ -335,7 +335,7 @@ test('a skill only the person can start that fits outright takes nothing from th
   expect(w.prompts[0]?.context?.[0]).toContain('- code-review (relevance 0.90): ')
   expect(await picked(w)).toEqual({ suggest: ['code-review'], try: ['grill-me'] })
   const [entry] = await skillDecisions(w)
-  expect(entry).toMatchObject({ turn: 1, agent: 'main', tone: 'ok', subject: '"这个方案往死里挑刺，再审一下改动"', outcome: 'suggested code-review; try /grill-me' })
+  expect(entry).toMatchObject({ turn: 1, agent: 'main', tone: 'ok', subject: '"这个方案往死里挑刺，再审一下改动"', outcome: '推荐 code-review；可试 /grill-me' })
   expect(entry?.skills?.try[0]?.relevance).toBeGreaterThan(0.9)
 })
 
@@ -412,8 +412,8 @@ test('each message gets its own skills decision: the skills suggested, and none 
   await w.step({ index: 0 })
   expect(await picked(w)).toEqual({ suggest: [], try: [] })
   expect((await skillDecisions(w)).map((entry) => [entry.turn, entry.outcome])).toEqual([
-    [1, 'suggested tdd'],
-    [2, 'suggested no skill'],
+    [1, '推荐 tdd'],
+    [2, '没有推荐 skill'],
   ])
 })
 
@@ -429,7 +429,7 @@ test("a failed decision request suggests nothing: no skills decision for that me
   expect(w.requests).toHaveLength(3)
   expect(w.prompts[1]?.context).toBeUndefined()
   expect((await skillDecisions(w)).map((entry) => entry.turn)).toEqual([1])
-  expect((await w.board()).main).toMatchObject({ turn: 2, routed: false, why: 'jev: busy (HTTP 503)' })
+  expect((await w.board()).main).toMatchObject({ turn: 2, routed: false, why: 'jev：繁忙（状态码 503）' })
 })
 
 test('an answer that leaves the skills question out suggests nothing, and the effort still goes through', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
@@ -537,7 +537,7 @@ test('without a decision model the debug log says the listing stays', async ($, 
 
 test('the skills switch is listed by /dp with what it does', { options: KEY }, async ($, on) => {
   const w = world($, on, { skills: SKILLS })
-  expect(await w.command('dp', 'status')).toMatch(/\bon +skills +suggests the skills that fit each message/)
+  expect(await w.command('dp', 'status')).toMatch(/开 +skills +给每条消息推荐合适的 skill/)
 })
 
 test('each listing withheld from the main agent is noted in the debug log, with what it kept and whether the note names find_skill', { options: { ...KEY, skillsAlwaysListed: ['tdd'] } }, async ($, on) => {
@@ -568,17 +568,17 @@ test('each decision about the skills goes to the decision log (/dp log) and the 
 
   // What the first stage put forward (its shares: the skills the main agent can load, then those only the person
   // can start, each question's own), how each fits on its own (the second stage), the bar.
-  const first = 'suggested tdd, code-review for "先写一个失败的测试再实现登录限流": first tdd 0.62, code-review 0.23, none 0.14; hint none 1.00; fits tdd 0.97, code-review 0.41; suggested from 0.20, at most 3'
-  const second = 'suggested no skill; try /grill-me for "这个方案往死里挑刺": first none 1.00; hint grill-me 0.40, none 0.60; fits grill-me 0.93; suggested from 0.20, at most 3'
-  const third = 'suggested no skill for "这个报错什么意思": first none 0.98; hint none 1.00; no skill rated 0.10 or more; suggested from 0.20, at most 3'
-  expect(w.logs.filter((log) => log.text.startsWith('suggested '))).toEqual([
+  const first = '推荐 tdd、code-review · "先写一个失败的测试再实现登录限流"：第一段 tdd 0.62、code-review 0.23、都不合适 0.14；只能你触发的 都不合适 1.00；第二段相关度 tdd 0.97、code-review 0.41；相关度 0.20 起推荐，最多 3 个'
+  const second = '没有推荐 skill；可试 /grill-me · "这个方案往死里挑刺"：第一段 都不合适 1.00；只能你触发的 grill-me 0.40、都不合适 0.60；第二段相关度 grill-me 0.93；相关度 0.20 起推荐，最多 3 个'
+  const third = '没有推荐 skill · "这个报错什么意思"：第一段 都不合适 0.98；只能你触发的 都不合适 1.00；没有 skill 的份额到 0.10；相关度 0.20 起推荐，最多 3 个'
+  expect(w.logs.filter((log) => log.text.startsWith('推荐 ') || log.text.startsWith('没有推荐 '))).toEqual([
     { text: first, to: 'debug' },
     { text: second, to: 'debug' },
     { text: third, to: 'debug' },
   ])
   const log = await w.command('dp', 'log 10')
-  expect(log).toContain(`skills: ${first}`)
-  expect(log).toContain(`skills: ${second}`)
+  expect(log).toContain(`skills：${first}`)
+  expect(log).toContain(`skills：${second}`)
 })
 
 test('what the mod sends is exactly what the decision module builds from a message and its recent context, so the eval measures the live request (spec #67)', { options: KEY }, async ($, on) => {

@@ -1,5 +1,5 @@
 // The rationale pane on the terminal (spec #22 「依据面板」, prototype D): at
-// its top, what is switched off, the lock and how the skill profiles went (in
+// its top, every feature switch with its state (the ones off in grey), the lock and how the skill profiles went (in
 // grey); ‹ 上一个 (p) / 下一个 › (n); the rounded card of the agent picked (its
 // state and why not routed, the model it was given and why, the effort
 // probabilities, the rules' working step by step, the result, the main agent's
@@ -38,6 +38,7 @@ import {
   pageTo,
   profilesLine,
   stepLines,
+  switchWord,
   verdictWords,
   type Card,
   type LogGroup,
@@ -52,8 +53,8 @@ export type PaneInput = {
   log: readonly LogEntry[]
   /** How the session's skill profiles went; null when there is no record, or the skills or skill-profiles switch is off. */
   profiles: ProfilesState | null
-  /** The features switched off, by switch name. */
-  off: readonly string[]
+  /** Every feature's switch by name with its state, in registration order. */
+  switches: readonly { name: string; on: boolean }[]
   master: boolean
   /** The person's lock on the main agent's effort. */
   lock: Effort | null
@@ -142,11 +143,26 @@ export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, r
 function topLines(t: TT, input: PaneInput, cols: number, act: PaneActs): RenderNode[] {
   const { Box, Button, Text } = t
   const rows: RenderNode[] = []
-  const off = offLine(input.master, input.off)
+  const off = offLine(input.master)
   if (off !== null) {
     rows.push(
       <Box key="pane-off" width={cols}>
         <Text color={MUTED} wrap="wrap">{off}</Text>
+      </Box>,
+    )
+  }
+  if (input.switches.length > 0) {
+    // Every switch with its state: the ones that are off in grey, the ones that are on in the pane's own ink.
+    rows.push(
+      <Box key="pane-switches" width={cols} flexWrap="wrap">
+        <Box flexShrink={0}>
+          <Text color={MUTED}>{'功能（/dp <名字> on|off）  '}</Text>
+        </Box>
+        {input.switches.map((one) => (
+          <Box key={`pane-switch-${one.name}`} flexShrink={0}>
+            <Text {...(one.on ? {} : { color: MUTED })}>{`${one.name} ${switchWord(one.on)}  `}</Text>
+          </Box>
+        ))}
       </Box>,
     )
   }
@@ -222,12 +238,12 @@ function hang(t: TT, key: string, label: string, content: RenderNode, w: number,
 
 /** What each kind of failed request means (`Failure.kind`), beside its name. */
 const FAILURE_KINDS: Record<string, string> = {
-  config: '没有配置决策模型，或 key 被拒绝',
-  timeout: '在 timeoutMs 内没有回答',
+  config: '没有配好决策模型的密钥或账号，或者密钥被拒绝',
+  timeout: '没有在等待时间内回答',
   network: '网络不通，请求没有发出去',
-  busy: '决策模型一时繁忙（HTTP 429 之类）',
+  busy: '决策模型一时繁忙（状态码 429 之类）',
   quota: '决策模型的额度用完了',
-  http: '决策模型回了一个 HTTP 错误',
+  http: '决策模型回了一个出错的状态码',
   parse: '回答里没有能用的判断',
   request: '请求本身出了错',
 }
@@ -286,7 +302,7 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
     hang(t, 'pane-card-state', '状态', text(row.status.text, TONE_COLOR[row.status.tone]), w),
   ]
   if (node.failure !== undefined) {
-    rows.push(hang(t, 'pane-card-kind', '类型', text(`${node.failure.kind}：${FAILURE_KINDS[node.failure.kind] ?? '其他'}`), w))
+    rows.push(hang(t, 'pane-card-kind', '类型', text(FAILURE_KINDS[node.failure.kind] ?? '其他'), w))
     rows.push(hang(t, 'pane-card-backend', '后端', text(node.failure.backend), w))
     rows.push(hang(t, 'pane-card-detail', '细节', text(node.why ?? node.failure.detail), w))
     rows.push(hang(t, 'pane-card-where', '排查', text('debug log（claude --debug-file <路径>）里有这次请求的那一行，写着它发了什么、等了多久、怎么失败的', MUTED), w))
@@ -416,13 +432,6 @@ function probsLine(t: TT, key: string, probs: Record<Effort, number>, picked: Ef
   )
 }
 
-/** A step's subject as the card says it: `第 3 步（every 3 steps）`. */
-function stepOf(subject: string): string {
-  const step = /^step (\d+)(?: \((.*)\))?$/.exec(subject)
-  if (step === null) return subject
-  return `第 ${step[1]} 步${step[2] === undefined ? '' : `（${step[2]}）`}`
-}
-
 /** One mid-turn re-decision: its number and step, the level suggested and the current one; the confidence meter with its line's tick, and the conclusion. */
 function midRow(t: TT, entry: LogEntry, w: number, Meter: Raster | undefined) {
   const { Box, Text } = t
@@ -441,7 +450,7 @@ function midRow(t: TT, entry: LogEntry, w: number, Meter: Raster | undefined) {
         </Box>
         <Box flexGrow={1} flexShrink={1}>
           <Text wrap="wrap">
-            <Text color={MUTED}>{`${stepOf(entry.subject)} · 建议 `}</Text>
+            <Text color={MUTED}>{`${entry.subject} · 建议 `}</Text>
             {level(verdict.picked)}
             <Text color={MUTED}>{' · 当前 '}</Text>
             {level(verdict.current)}

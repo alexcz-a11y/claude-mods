@@ -225,7 +225,7 @@ test('with skill-profiles switched off none is written and the skills are offere
   await w.clock.settle()
   expect(w.completions).toHaveLength(3)
 
-  expect(await w.command('dp', 'skill-profiles off')).toMatch(/^skill-profiles is off/)
+  expect(await w.command('dp', 'skill-profiles off')).toMatch(/^skill-profiles 已关闭/)
   expect(await criterionOf(w, 'tdd', '先写一个失败的测试')).toBe(TDD_DESCRIPTION)
   await w.start()
   await w.clock.settle()
@@ -281,8 +281,8 @@ test('a skill with no profile is named with why; the ones written are only count
     failed: 2,
     deferred: 0,
     failures: [
-      { name: 'tdd', reason: 'the reply is not a profile' },
-      { name: 'code-review', reason: 'empty-reply' },
+      { name: 'tdd', reason: '回复不是画像' },
+      { name: 'code-review', reason: '模型回了空内容' },
     ],
   })
   expect(board.log).toHaveLength(1)
@@ -291,8 +291,8 @@ test('a skill with no profile is named with why; the ones written are only count
     turn: 1,
     feature: 'skill-profiles',
     tone: 'warn',
-    outcome: 'profiles: 2 failed',
-    reason: '0 kept, 1 written, 2 failed (tdd: the reply is not a profile; code-review: empty-reply)',
+    outcome: '画像：2 个失败',
+    reason: '保留 0 · 新写 1 · 失败 2（tdd：回复不是画像；code-review：模型回了空内容）',
   })
   // A decision log entry is no agent's: it is on no node.
   expect(board.nodes).toEqual([])
@@ -312,7 +312,7 @@ test('the state follows the writing: planned, written so far, and the skills lef
   expect((await w.board()).profiles).toMatchObject({ phase: 'writing', planned: 2, written: 1 })
   await w.clock.advance(30_000)
   expect((await w.board()).profiles).toMatchObject({ phase: 'done', planned: 2, written: 2, deferred: 1 })
-  expect((await w.board()).log).toMatchObject([{ feature: 'skill-profiles', tone: 'ok', outcome: 'profiles ready', reason: '0 kept, 2 written, 1 left for later' }])
+  expect((await w.board()).log).toMatchObject([{ feature: 'skill-profiles', tone: 'ok', outcome: '画像就绪', reason: '保留 0 · 新写 2 · 延后 1' }])
 
   // The next session start: two are kept, the last is written.
   await w.start()
@@ -336,10 +336,10 @@ test('an API error stops the writing: the state says why, the skills not tried a
     written: 1,
     failed: 0,
     deferred: 2,
-    stop: { reason: 'api-error', detail: 'an API error, HTTP 529 overloaded' },
+    stop: { reason: 'api-error', detail: '接口出错（状态码 529 overloaded）' },
     failures: [],
   })
-  expect(board.log).toMatchObject([{ feature: 'skill-profiles', tone: 'fail', outcome: 'profiles stopped', reason: 'haiku answered with an API error, HTTP 529 overloaded; 0 kept, 1 written, 2 left for later' }])
+  expect(board.log).toMatchObject([{ feature: 'skill-profiles', tone: 'fail', outcome: '画像停写', reason: 'haiku 返回了接口错误：接口出错（状态码 529 overloaded）；保留 0 · 新写 1 · 延后 2' }])
 })
 
 test('a model the engine refuses stops the writing: the state keeps the engine\'s words', { options: KEY }, async ($, on) => {
@@ -350,7 +350,7 @@ test('a model the engine refuses stops the writing: the state keeps the engine\'
   const { profiles, log } = await w.board()
   expect(profiles).toMatchObject({ phase: 'stopped', written: 0, deferred: 3, stop: { reason: 'model-refused' } })
   expect(profiles?.stop?.detail).toContain('model claude-nonexistent is not available')
-  expect(log).toMatchObject([{ tone: 'fail', outcome: 'profiles stopped' }])
+  expect(log).toMatchObject([{ tone: 'fail', outcome: '画像停写' }])
 })
 
 test('a store that will not keep a profile stops the writing, naming the skill', { options: KEY }, async ($, on) => {
@@ -361,7 +361,7 @@ test('a store that will not keep a profile stops the writing, naming the skill',
 
   const { profiles, log } = await w.board()
   expect(profiles).toMatchObject({ phase: 'stopped', written: 0, deferred: 3, stop: { reason: 'store-write' } })
-  expect(profiles?.stop?.detail).toMatch(/^tdd: .*disk full/)
+  expect(profiles?.stop?.detail).toMatch(/^tdd：.*disk full/)
   expect(log).toMatchObject([{ tone: 'fail' }])
 })
 
@@ -373,7 +373,7 @@ test('a store that cannot be read: stopped before anything is written, all the s
 
   const { profiles, log } = await w.board()
   expect(profiles).toEqual({ phase: 'stopped', turn: 1, model: 'haiku', kept: 0, planned: 0, written: 0, failed: 0, deferred: 3, stop: { reason: 'store-read', detail: '' }, failures: [] })
-  expect(log).toMatchObject([{ tone: 'fail', outcome: 'profiles stopped', reason: 'the store cannot be read, so no profile is kept or written; 0 kept, 0 written, 3 left for later' }])
+  expect(log).toMatchObject([{ tone: 'fail', outcome: '画像停写', reason: '读不到本地存储，不保留也不写；保留 0 · 新写 0 · 延后 3' }])
   expect(w.completions).toHaveLength(0)
 })
 
@@ -388,7 +388,7 @@ test('switched off while it writes, it stops and the entry is info: the person d
 
   const { profiles, log } = await w.board()
   expect(profiles).toMatchObject({ phase: 'stopped', written: 1, deferred: 2, stop: { reason: 'off', detail: '' } })
-  expect(log).toMatchObject([{ tone: 'info', outcome: 'profiles stopped' }])
+  expect(log).toMatchObject([{ tone: 'info', outcome: '画像停写' }])
 })
 
 test('nothing to write is a session start too: one entry, ok, and a start again at the same turn (a hot reload) takes its place', { options: KEY }, async ($, on) => {
@@ -399,7 +399,7 @@ test('nothing to write is a session start too: one entry, ok, and a start again 
   await w.clock.settle()
   const { profiles, log } = await w.board()
   expect(profiles).toMatchObject({ phase: 'done', kept: 3, planned: 0 })
-  expect(log).toMatchObject([{ n: 1, feature: 'skill-profiles', tone: 'ok', reason: '3 kept, 0 written' }])
+  expect(log).toMatchObject([{ n: 1, feature: 'skill-profiles', tone: 'ok', reason: '保留 3 · 新写 0' }])
 })
 
 test('with skill-profiles switched off at the session start there is no state and no entry', { options: KEY }, async ($, on) => {

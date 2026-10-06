@@ -48,7 +48,7 @@ async function describeCommand($: EngineInterface, name: string): Promise<Readon
 }
 
 export function registerMainEffort(on: On, ctx: Ctx): void {
-  defineSwitch({ name: 'main-effort', info: "decides the main agent's effort when you send a message" })
+  defineSwitch({ name: 'main-effort', info: '发消息时决定主 agent 的 effort' })
 
   on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
     // The person's own message, or a report that starts a turn of its own (a dispatched agent's hand-back, a task notice).
@@ -128,5 +128,5 @@ function describeReading(reading: EffortReading, picked: Effort, thetaMax: numbe
   const p = reading.probabilities
   const max = p[EFFORTS.length - 1] ?? 0
   const held = picked !== 'max' && p.every((other) => other <= max)
-  return readingText(reading, held ? `max is below thetaMax ${thetaMax.toFixed(2)}` : undefined)
+  return readingText(reading, held ? `max 的概率没到 max 门槛 ${thetaMax.toFixed(2)}` : undefined)
 }

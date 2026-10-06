@@ -11,10 +11,10 @@
 //
 // Pure (see report.ts: `$` stays in the hook owner's file).
 
-import { failureText } from '../decision/backend.ts'
+import { failureLine } from '../decision/backend.ts'
 import { dispatchEvidence, modelFamily } from '../decision/dispatched-agent.ts'
 import { parseWorkflow, type ParsedWorkflow } from '../decision/workflow-script.ts'
-import { callName, leftText, outcomeOf, reasonOf, type CallOutcome } from '../decision/workflow.ts'
+import { callResult, callTitle, leftWords, reasonOf, type CallOutcome } from '../decision/workflow.ts'
 import type { Left, ReportedDecision } from './report.ts'
 
 /** The Workflow call a report is about: the tool call's id, and the script it ran, as far as it was read. */
@@ -22,7 +22,7 @@ export type WorkflowRun = { id: string; parsed: ParsedWorkflow }
 
 /** The Workflow a script is, in a few words: its name. */
 export function workflowTitle(parsed: ParsedWorkflow): string {
-  return parsed.meta.name ?? 'unnamed'
+  return parsed.meta.name ?? '未命名'
 }
 
 /** What a Workflow tool call is called when its script is not (all) read: the name or the path it was given, else the script's own name. */
@@ -52,11 +52,11 @@ export function callReports(
     const about = {
       feature,
       agent: `${run.id}#${call.index}`,
-      subject: `${callName(call)} (workflow ${title})`,
-      node: { kind: 'wf' as const, name: call.label ?? `agent() at line ${call.line}`, type: call.agentType ?? 'workflow', state: 'queued' as const, workflow: { id: run.id, name: title } },
+      subject: `${callTitle(call)}（Workflow ${title}）`,
+      node: { kind: 'wf' as const, name: call.label ?? `第 ${call.line} 行的 agent()`, type: call.agentType ?? 'workflow', state: 'queued' as const, workflow: { id: run.id, name: title } },
     }
     if (outcome.kind === 'left') {
-      return [outcome.failure !== undefined ? { ...about, routed: false, failure: { backend: options.backend, ...outcome.failure } } : { ...about, why: leftText(outcome, (failure) => failureText(options.backend, failure)) }]
+      return [outcome.failure !== undefined ? { ...about, routed: false, failure: { backend: options.backend, ...outcome.failure } } : { ...about, why: leftWords(outcome, (failure) => failureLine(options.backend, failure)) }]
     }
     const decision = outcome.decision
     const requested = call.model.kind === 'literal' ? modelFamily(call.model.value) : null
@@ -65,7 +65,7 @@ export function callReports(
       {
         ...about,
         routed: true,
-        outcome: `${outcomeOf(call, decision)}${options.suffix ?? ''}`,
+        outcome: `${callResult(call, decision)}${options.suffix ?? ''}`,
         reason: reasonOf(decision, requested, options.thetaOverride),
         ...dispatchEvidence(decision),
         ...(family === null ? {} : { model: family }),

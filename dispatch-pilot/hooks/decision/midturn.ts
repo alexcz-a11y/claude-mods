@@ -351,23 +351,23 @@ export function midturnRecord(verdict: MidturnVerdict, position: MidturnPosition
   }
 }
 
-/** Why a verdict went where it did, in a few words for the decision log: `up`, `held: raised 2 steps ago (holdSteps 3)`. */
+/** Why a verdict went where it did, in a few words for the decision log: `升档`, `防抖中：2 步前升过档（3 步内不降）`. */
 export function verdictReason(verdict: MidturnVerdict, position: MidturnPosition, rules: MidturnRules): string {
   switch (verdict.why) {
     case 'up':
-      return 'up'
+      return '升档'
     case 'down':
-      return `down one level, toward ${verdict.picked}`
+      return `降一档，朝 ${verdict.picked}`
     case 'held':
-      return `held: raised ${position.sinceRaise ?? 0} steps ago (holdSteps ${rules.holdSteps})`
+      return `防抖中：${position.sinceRaise ?? 0} 步前升过档（${rules.holdSteps} 步内不降）`
     case 'unsure': {
       const up = EFFORTS.indexOf(verdict.picked) > EFFORTS.indexOf(position.current)
       const needed = up ? rules.thetaUp : Math.max(rules.thetaDown, rules.thetaUp)
-      return `${verdict.picked} not sure enough (needs ${up ? 'thetaUp' : 'thetaDown'} ${needed.toFixed(2)})`
+      return `${verdict.picked} 把握不够（需要${up ? '升档' : '降档'}门槛 ${needed.toFixed(2)}）`
     }
     case 'same':
-      return 'same level'
+      return '档位不变'
     case 'lifted':
-      return `lifted to ${verdict.effort}, the least asked for`
+      return `抬到 ${verdict.effort}，下限要求的最低一档`
   }
 }

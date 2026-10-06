@@ -14,7 +14,7 @@
 // comes in the decision report's words (English until #32).
 
 import type { Effort } from '../decision/effort.ts'
-import { failureWords, type Board, type BoardNode, type BoardNote, type LogEntry, type Model, type Reading, type ReadingChange, type RuleStep } from '../core/report.ts'
+import { ENDED_WORDS, failureWords, type Board, type BoardNode, type BoardNote, type LogEntry, type Model, type Reading, type ReadingChange, type RuleStep } from '../core/report.ts'
 import type { BoardPart } from '../core/switches.ts'
 import { isLevel, mmss, pct } from './kit.tsx'
 
@@ -174,7 +174,7 @@ export function screenView(input: ScreenInput): ScreenView {
 // ---- status cells ---------------------------------------------------------------
 
 /** How a loop's turn ended, in the board's words (`reportEnd`), as the band says it. */
-const ENDED: Record<string, string> = { error: '出错', refused: '拒绝回答', aborted: '被中断' }
+const ENDED = new Set<string>(Object.values(ENDED_WORDS))
 
 /**
  * Why an agent runs as the engine made it, in a few words: the failed request's kind (the details are the card's),
@@ -198,7 +198,7 @@ function mainStatus(node: BoardNode, entries: readonly LogEntry[], input: Screen
 /** An agent's cell: failed and why, not routed and why, how long it has run or ran, queued; its failed calls and raises after. */
 function agentStatus(node: BoardNode, from: number, to: number | null, showCounts: boolean, input: ScreenInput): AgentRow['status'] {
   const extra = showCounts && node.counts !== undefined ? countsText(node.counts) : ''
-  if (node.state === 'failed') return { tone: 'fail', text: node.why !== undefined && node.why in ENDED ? `失败 · ${ENDED[node.why]}` : '失败' }
+  if (node.state === 'failed') return { tone: 'fail', text: node.why !== undefined && ENDED.has(node.why) ? `失败 · ${node.why}` : '失败' }
   if (!node.routed && node.state !== 'queued') return { tone: 'warn', text: `未路由 · ${notRoutedWhy(node, input)}${extra}` }
   if (node.state === 'queued') return { tone: 'muted', text: node.routed || (node.why === undefined && node.failure === undefined) ? '排队' : `排队 · 未路由 · ${notRoutedWhy(node, input)}` }
   const ran = to === null ? 0 : to - from
@@ -256,7 +256,7 @@ function workflowOf(entry: LogEntry, nodes: readonly BoardNode[]): { id: string;
   if (node?.workflow !== undefined) return node.workflow
   const at = agent.indexOf('#')
   if (at < 0) return null
-  const name = /\(workflow ([^)]*)\)$/.exec(entry.subject)?.[1] ?? 'Workflow'
+  const name = /（Workflow ([^）]*)）$/.exec(entry.subject)?.[1] ?? 'Workflow'
   return { id: agent.slice(0, at), name }
 }
 
@@ -281,7 +281,7 @@ function eventsOf(board: Board, log: readonly LogEntry[], nodes: readonly BoardN
     else {
       const models: Partial<Record<Model, number>> = {}
       for (const entry of entries) if (entry.model !== undefined) models[entry.model] = (models[entry.model] ?? 0) + 1
-      add({ at: first.at ?? 0, kind: 'workflow', name: flow?.name ?? 'Workflow', calls: entries.length, models, sentBack: entries.some((entry) => entry.outcome.endsWith('(sent back)')), byLabel: featureOf(first.feature) === 'workflow-labels' }, first.n)
+      add({ at: first.at ?? 0, kind: 'workflow', name: flow?.name ?? 'Workflow', calls: entries.length, models, sentBack: entries.some((entry) => entry.sentBack === true), byLabel: featureOf(first.feature) === 'workflow-labels' }, first.n)
     }
     group = null
   }

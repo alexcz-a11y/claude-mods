@@ -115,7 +115,7 @@ test('both requests share the message’s wait: the second gets what the first l
   expect(w.prompts[0]?.context).toBeUndefined()
   // The effort still went through; the second request had 1100 ms and got nothing, so no skills decision: a note says why.
   expect((await w.board()).log.filter((entry) => entry.feature === 'skills')).toEqual([])
-  expect((await w.board()).notes).toMatchObject([{ turn: 1, id: 'main', feature: 'skills', kind: 'failed', why: 'jev: no answer in 1100 ms' }])
+  expect((await w.board()).notes).toMatchObject([{ turn: 1, id: 'main', feature: 'skills', kind: 'failed', why: 'jev：1100 毫秒内没有回答' }])
 })
 
 test('Clef takes the second request with a Choice between the skills re-read (its input rules hold)', { options: { ...CLEF_OPTIONS, skillsMinRelevance: 0.5 } }, async ($, on) => {
@@ -152,7 +152,7 @@ test('a second request that fails suggests nothing and leaves no skills decision
   await w.step({ index: 0 })
   expect(w.prompts[0]?.context).toBeUndefined()
   expect((await w.board()).log.filter((entry) => entry.feature === 'skills')).toEqual([])
-  expect((await w.board()).notes).toMatchObject([{ feature: 'skills', kind: 'failed', why: 'jev: busy (HTTP 503)' }])
+  expect((await w.board()).notes).toMatchObject([{ feature: 'skills', kind: 'failed', why: 'jev：繁忙（状态码 503）' }])
   refuse = false
   await w.submit('再写一个失败的测试')
   await w.step({ index: 0 })

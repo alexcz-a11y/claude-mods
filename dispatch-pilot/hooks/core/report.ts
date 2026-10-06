@@ -53,7 +53,7 @@
 // throws: a report that cannot be kept must not stop the decision or the step.
 
 import type { EngineInterface, On } from 'claude-code'
-import { errorText, failureText, type Failure } from '../decision/backend.ts'
+import { errorText, failureLine, type Failure } from '../decision/backend.ts'
 import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
 import { startedIn } from '../decision/workflow-labels.ts'
@@ -172,6 +172,8 @@ export type LogEntry = {
   forced?: ForcedRaise
   skills?: SkillsPicked
   counts?: { failed: number; blocked: number; raised: number }
+  /** A Workflow call's decision that was sent back to the main agent to write in (return mode). */
+  sentBack?: true
 }
 
 /** A raise the failures forced: the level (or, for a haiku agent, the model) it went from and to, and the level it holds the agent at least at. */
@@ -373,7 +375,7 @@ export async function reportDecisions(io: ReportIo, decisions: readonly Reported
     const logged = noted.length === 0 ? 0 : (numbers.at(-1) ?? (await lastLogged(io)))
     const notes = noted.map((decision): BoardNote => {
       const of = { turn: turnOf(decision), id: decision.agent, feature: decision.feature, at: elapsed(board, turnOf(decision), now), after: logged }
-      return 'skipped' in decision ? { ...of, kind: 'skipped', why: decision.skipped } : { ...of, kind: 'failed', why: 'failure' in decision ? failureText(decision.failure.backend, decision.failure) : '' }
+      return 'skipped' in decision ? { ...of, kind: 'skipped', why: decision.skipped } : { ...of, kind: 'failed', why: 'failure' in decision ? failureLine(decision.failure.backend, decision.failure) : '' }
     })
     let after = board
     // A decision beside the agent's route is not on its node; a Workflow with nothing to show is not on the board.
@@ -447,7 +449,7 @@ export function failureWords(failure: Failure): string {
     case 'quota':
       return '决策模型额度用完'
     case 'config':
-      return failure.status === undefined ? '决策模型没配好' : '决策模型拒绝了 key'
+      return failure.status === undefined ? '决策模型没配好' : '决策模型拒绝了密钥'
     case 'http':
       return '决策模型出错'
     case 'parse':
@@ -460,7 +462,7 @@ export function failureWords(failure: Failure): string {
 /** The toast for the routes of one event that failed: who is not routed, and why (the first failure's words, then its details). */
 function failedText(failed: readonly NotDecided[], board: Board, turnOf: (decision: ReportedDecision) => number): string {
   const first = failed[0] as NotDecided
-  const why = `${failureWords(first.failure)}（${failureText(first.failure.backend, first.failure)}）`
+  const why = `${failureWords(first.failure)}（${failureLine(first.failure.backend, first.failure)}）`
   if (failed.length > 1) return `${failed.length} 个 agent 未路由：${why}`
   if (first.agent === 'main') return `主 agent 未路由：${why}`
   const name = board.nodes.find((node) => node.turn === turnOf(first) && node.id === first.agent)?.name ?? first.node?.name ?? first.agent
@@ -545,6 +547,9 @@ export async function reportStep(io: StepIo, step: StepReading): Promise<void> {
   }
 }
 
+/** Why an agent's turn did not end in an answer, in the board's words (a node's `why` when it failed and nothing else said). */
+export const ENDED_WORDS = { error: '出错', refusal: '拒绝回答', aborted: '被中断' } as const
+
 /** How a loop's turn ended (`turn.complete`). */
 export type LoopEnd = { agentId?: string; reason: 'answer' | 'aborted' | 'refusal' | 'error'; durationMs: number }
 
@@ -578,7 +583,7 @@ export async function reportEnd(io: StepIo, end: LoopEnd): Promise<void> {
           ...(old === undefined && !main ? { t0: elapsed(board, turn, seen) } : {}),
           state: failed ? 'failed' : 'done',
           dur: Math.round(end.durationMs) / 1000,
-          ...(failed && base.why === undefined ? { why: end.reason === 'aborted' ? 'aborted' : end.reason === 'refusal' ? 'refused' : 'error' } : {}),
+          ...(failed && base.why === undefined ? { why: end.reason === 'aborted' ? ENDED_WORDS.aborted : end.reason === 'refusal' ? ENDED_WORDS.refusal : ENDED_WORDS.error } : {}),
         }
         return { ...board, nodes: [...board.nodes.filter((node) => node !== old && node !== stood), next] }
       },
@@ -680,7 +685,7 @@ function withTally(board: Board, tally: Tallied, when: { now: number; logged: nu
     const midturn = { steps: tally.steps, judged: tally.judged, changed: tally.changed, ...(tally.late === true ? { late: true as const } : {}), ...(tally.failure === undefined ? {} : { failure: tally.failure }) }
     next = { ...(old ?? newNode(board.turn, tally.agent, undefined, 'running')), midturn }
     if (tally.late === true && old?.midturn?.late !== true) note(next.turn, 'late', '')
-    if (tally.failure !== undefined && JSON.stringify(old?.midturn?.failure) !== JSON.stringify(tally.failure)) note(next.turn, 'failed', failureText(tally.failure.backend, tally.failure))
+    if (tally.failure !== undefined && JSON.stringify(old?.midturn?.failure) !== JSON.stringify(tally.failure)) note(next.turn, 'failed', failureLine(tally.failure.backend, tally.failure))
   } else {
     const any = tally.failed + tally.blocked + tally.raised > 0
     if (old === undefined && !any) return undefined
@@ -876,9 +881,9 @@ export function registerReport(on: On): void {
 
 // ---- the log ------------------------------------------------------------------
 
-/** A decision as one line: `effort high for "the message": why`. The debug log's line, and `/dp log`'s after `#n feature: `. */
+/** A decision as one line: `effort high · "the message"：why`. The debug log's line, and `/dp log N`'s after `#n feature：`. */
 export function decisionLine(decision: { outcome: string; subject?: string; reason: string }): string {
-  return `${decision.outcome}${decision.subject ? ` for ${decision.subject}` : ''}: ${decision.reason}`
+  return `${decision.outcome}${decision.subject ? ` · ${decision.subject}` : ''}：${decision.reason}`
 }
 
 /** The list with `entry` added last, numbered, the entries of turns older than the latest `LOG_TURNS` dropped, and then the oldest past `LOG_ENTRIES`. */
@@ -908,6 +913,7 @@ function entryOf(decision: Decided, turn: number, at: number): Omit<LogEntry, 'n
     ...(decision.forced === undefined ? {} : { forced: decision.forced }),
     ...(decision.skills === undefined ? {} : { skills: decision.skills }),
     ...(decision.counts === undefined ? {} : { counts: decision.counts }),
+    ...(decision.sentBack === true ? { sentBack: true as const } : {}),
   }
 }
 
@@ -930,7 +936,7 @@ function withNode(board: Board, turn: number, decision: Decided | NotDecided | L
   const routed = decision.routed === undefined ? {} : { routed: decision.routed }
   let next: BoardNode
   if ('failure' in decision) {
-    next = { ...base, ...routed, why: failureText(decision.failure.backend, decision.failure), failure: decision.failure }
+    next = { ...base, ...routed, why: failureLine(decision.failure.backend, decision.failure), failure: decision.failure }
   } else if ('why' in decision) {
     next = { ...without(base, 'failure'), routed: false, why: decision.why }
   } else if ('started' in decision) {
@@ -1105,6 +1111,19 @@ function profilesBegin(event: Extract<ProfileEvent, { event: 'start' | 'unreadab
   return { phase: planned > 0 ? 'writing' : 'done', turn, model: event.model, kept: event.offered - event.due, planned, written: 0, failed: 0, deferred: event.due - planned, failures: [] }
 }
 
+/**
+ * What the model's reply for a skill said it failed with (the engine's reason, as the feature words it), in the
+ * person's words: `empty-reply`, `an API error, HTTP 529 overloaded`. What the server said of itself stays as it
+ * said it; anything this does not know is left as it is.
+ */
+export function profileWhy(why: string): string {
+  if (why === 'empty-reply') return '模型回了空内容'
+  if (why === 'aborted') return '请求被中断'
+  const api = /^an API error, HTTP (\S+)(?: (.*))?$/.exec(why)
+  if (api !== null) return `接口出错（状态码 ${api[1]}${api[2] === undefined || api[2] === '' ? '' : ` ${api[2]}`}）`
+  return why
+}
+
 /** The state after an event that comes while the profiles are being written. */
 function profilesAdvance(state: ProfilesState, event: ProfileEvent): ProfilesState {
   switch (event.event) {
@@ -1114,7 +1133,7 @@ function profilesAdvance(state: ProfilesState, event: ProfileEvent): ProfilesSta
       return { ...state, written: state.written + 1 }
     case 'failed':
     case 'unfit': {
-      const reason = event.event === 'failed' ? event.why : 'the reply is not a profile'
+      const reason = event.event === 'failed' ? profileWhy(event.why) : '回复不是画像'
       const failures = state.failures.length < PROFILES_FAILURES_KEPT ? [...state.failures, { name: event.skill, reason }] : state.failures
       return { ...state, failed: state.failed + 1, failures }
     }
@@ -1122,7 +1141,7 @@ function profilesAdvance(state: ProfilesState, event: ProfileEvent): ProfilesSta
       return { ...state, phase: 'done', deferred: event.left }
     case 'stop': {
       const cause = event.cause
-      const detail = cause.reason === 'api-error' ? cause.why : cause.reason === 'store-write' ? `${cause.skill}: ${cause.detail}` : cause.reason === 'off' ? '' : cause.detail
+      const detail = cause.reason === 'api-error' ? profileWhy(cause.why) : cause.reason === 'store-write' ? `${cause.skill}：${cause.detail}` : cause.reason === 'off' ? '' : cause.detail
       return { ...state, phase: 'stopped', deferred: event.left, stop: { reason: cause.reason, detail } }
     }
     default:
@@ -1143,30 +1162,30 @@ const PROFILES_NAMED = 3
 
 function profilesEntry(state: ProfilesState): Omit<LogEntry, 'n'> {
   const stopped = state.phase === 'stopped'
-  const counts = [`${state.kept} kept`, `${state.written} written`, ...(state.failed > 0 ? [`${state.failed} failed`] : []), ...(state.deferred > 0 ? [`${state.deferred} left for later`] : [])].join(', ')
-  const named = state.failures.slice(0, PROFILES_NAMED).map((failure) => `${failure.name}: ${failure.reason}`)
-  const failed = state.failed > 0 ? ` (${named.join('; ')}${state.failed > named.length ? `; and ${state.failed - named.length} more` : ''})` : ''
+  const counts = [`保留 ${state.kept}`, `新写 ${state.written}`, ...(state.failed > 0 ? [`失败 ${state.failed}`] : []), ...(state.deferred > 0 ? [`延后 ${state.deferred}`] : [])].join(' · ')
+  const named = state.failures.slice(0, PROFILES_NAMED).map((failure) => `${failure.name}：${failure.reason}`)
+  const failed = state.failed > 0 ? `（${named.join('；')}${state.failed > named.length ? `；另有 ${state.failed - named.length} 个` : ''}）` : ''
   const stop = state.stop
   const why =
     stop === undefined
       ? ''
       : stop.reason === 'store-read'
-        ? 'the store cannot be read, so no profile is kept or written'
+        ? '读不到本地存储，不保留也不写'
         : stop.reason === 'model-refused'
-          ? `${state.model} was refused (${stop.detail})`
+          ? `引擎拒绝了 ${state.model}（${stop.detail}）`
           : stop.reason === 'api-error'
-            ? `${state.model} answered with ${stop.detail}`
+            ? `${state.model} 返回了接口错误：${stop.detail}`
             : stop.reason === 'store-write'
-              ? `the store did not keep a profile (${stop.detail})`
+              ? `本地存储存不下画像（${stop.detail}）`
               : stop.reason === 'off'
-                ? 'switched off while writing'
-                : `stopped by an error (${stop.detail})`
+                ? '写的过程中被关掉了'
+                : `出错了（${stop.detail}）`
   return {
     turn: state.turn,
     feature: 'skill-profiles',
     tone: stopped ? (stop?.reason === 'off' ? 'info' : 'fail') : state.failed > 0 ? 'warn' : 'ok',
-    outcome: stopped ? 'profiles stopped' : state.failed > 0 ? `profiles: ${state.failed} failed` : 'profiles ready',
+    outcome: stopped ? '画像停写' : state.failed > 0 ? `画像：${state.failed} 个失败` : '画像就绪',
     subject: '',
-    reason: `${stopped ? `${why}; ` : ''}${counts}${failed}`,
+    reason: `${stopped ? `${why}；` : ''}${counts}${failed}`,
   }
 }

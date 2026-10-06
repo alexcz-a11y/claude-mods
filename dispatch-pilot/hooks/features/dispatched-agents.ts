@@ -35,7 +35,7 @@ const SWITCH = 'dispatched-agents'
 const MAX_SAID = 8
 
 export function registerDispatchedAgents(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: "decides each dispatched agent's model and effort when it is spawned" })
+  defineSwitch({ name: SWITCH, info: '主 agent 派出 agent 时决定它的模型和 effort' })
   const settings = dispatchSettings(ctx)
 
   // The person's words this turn: a message sent while idle starts them
@@ -77,7 +77,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       now: () => $.clock.now(),
       toast: (text) => $.ui.toast(text),
     }
-    const about = `${quoteStart(e.description)} (${e.subagentType})`
+    const about = `${quoteStart(e.description)}（${e.subagentType}）`
     /** What every report of this agent says of it; its id is known once it has started (a spawn is not yet an agent). */
     const reportOf = (agent: string) => ({ feature: SWITCH, agent, subject: about, node: { kind: 'agent' as const, name: e.name ?? (e.description === '' ? e.subagentType : e.description), type: e.subagentType } })
     const startedAt = await $.clock.now()
@@ -113,7 +113,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
         ...reportOf(result.agentId ?? e.tool_use_id),
         routed: true,
         outcome,
-        reason: dispatchReason(decision, modelFamily(e.model), settings.thetaOverride, "the main agent's"),
+        reason: dispatchReason(decision, modelFamily(e.model), settings.thetaOverride, '主 agent 指定的'),
         ...dispatchEvidence(decision),
         ...(family === null ? {} : { model: family }),
         ...(decision.effort === null ? {} : { effort: decision.effort }),

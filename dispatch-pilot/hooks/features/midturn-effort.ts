@@ -101,7 +101,7 @@ const inFlight = new Map<string, InFlight>()
 const streamed = new Map<string, { index: number; block: number; text: string }>()
 
 export function registerMidturnEffort(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: "re-decides the main agent's effort while a turn runs", parts: ['midturn'] })
+  defineSwitch({ name: SWITCH, info: '一轮进行中重新判断主 agent 的 effort', parts: ['midturn'] })
   const settings: Settings = { ctx, ...ctx.config.midturn }
 
   on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {
@@ -203,7 +203,7 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
   // may have failed: then from the session's own effort); never without a decision model set up (every request would
   // fail at once).
   if (turn === undefined || turn.person !== true || lock !== null || record === undefined || record.engine === null || s.ctx.backend.configured === false) return
-  const reason = PHASE_TOOLS.has(starting.name) ? starting.name : s.every > 0 && upcoming % s.every === 0 ? `every ${s.every} steps` : null
+  const reason = PHASE_TOOLS.has(starting.name) ? starting.name : s.every > 0 && upcoming % s.every === 0 ? `每 ${s.every} 步` : null
   if (reason === null || record.askedFor === upcoming || inFlight.get(key)?.forStep === upcoming) return
   const input: MidturnInput = {
     message: turn.prompt,
@@ -282,9 +282,9 @@ async function takeAnswer($: EngineInterface, s: Settings, e: { index: number; e
     feature: SWITCH,
     agent: 'main',
     aside: true,
-    subject: `step ${e.index} (${pending.reason})`,
-    outcome: `effort ${verdict.effort} ${verdict.effort === current ? '(kept)' : `(was ${current})`}`,
-    reason: `${readingText(reading)}; ${verdictReason(verdict, position, s.rules)}`,
+    subject: `第 ${e.index} 步（${pending.reason}）`,
+    outcome: `effort ${verdict.effort}${verdict.effort === current ? '（保持）' : `（原 ${current}）`}`,
+    reason: `${readingText(reading)}；${verdictReason(verdict, position, s.rules)}`,
     tone: verdict.effort === current ? 'info' : 'ok',
     probs: probsOf(reading),
     conf: verdict.confidence,

@@ -257,7 +257,7 @@ export function entryVerb(entry: LogEntry): string {
       return '已决定'
     case 'workflow-agents':
     case 'workflow-labels':
-      return entry.outcome.endsWith('(sent back)') ? '退回改写' : '已决定'
+      return entry.sentBack === true ? '退回改写' : '已决定'
     case 'midturn-effort': {
       const verdict = midVerdict(entry)
       if (verdict === null) return '已重判'
@@ -315,10 +315,10 @@ export function withFold(state: PaneState, turn: number, open: boolean, log: rea
 
 /** Why writing the profiles stopped, in a few words (the stop's `detail` follows in its own words). */
 const STOPPED: Record<NonNullable<ProfilesState['stop']>['reason'], (model: string) => string> = {
-  'store-read': () => '读不到 store，不保留也不写',
+  'store-read': () => '读不到本地存储，不保留也不写',
   'model-refused': (model) => `引擎拒绝了 ${model}`,
-  'api-error': (model) => `${model} 返回了 API 错误`,
-  'store-write': () => 'store 存不下画像',
+  'api-error': (model) => `${model} 返回了接口错误`,
+  'store-write': () => '本地存储存不下画像',
   off: () => '写的过程中被关掉了',
   error: () => '出错了',
 }
@@ -335,9 +335,12 @@ export function profilesLine(profiles: ProfilesState): { text: string; tone: 'mu
   return { text: `skill 画像：${counts}`, tone: profiles.failed > 0 ? 'warn' : 'muted' }
 }
 
-/** What is switched off, in one line; null when everything is on. */
-export function offLine(master: boolean, off: readonly string[]): string | null {
-  if (!master) return 'Dispatch Pilot 已关：不发决策请求，每一步照引擎原样发出（/dp on 打开）'
-  if (off.length === 0) return null
-  return `已关的功能：${off.join(' · ')}（/dp <名字> on 打开）`
+/** The pane's top line when the whole mod is switched off; null while it is on. */
+export function offLine(master: boolean): string | null {
+  return master ? null : 'Dispatch Pilot 已关：不发决策请求，每一步照引擎原样发出（/dp on 打开）'
+}
+
+/** A switch's state in the word the pane lists it with (every switch is listed, the ones that are off in grey). */
+export function switchWord(on: boolean): string {
+  return on ? '开' : '关'
 }

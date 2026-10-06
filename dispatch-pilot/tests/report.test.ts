@@ -21,7 +21,7 @@ test("a decided message is on the board: its decision in the log, linked from th
     tone: 'ok',
     outcome: 'effort high',
     subject: '"把登录模块重构成三层，并补上测试"',
-    reason: 'p low 0.05, medium 0.10, high 0.70, xhigh 0.10, max 0.05; confidence 0.70',
+    reason: '概率 low 0.05, medium 0.10, high 0.70, xhigh 0.10, max 0.05；置信度 0.70',
     conf: 0.7,
   })
   // The decision model's levels, as it gave them (the reading normalizes them, so to two decimals).
@@ -48,10 +48,10 @@ test("the main agent's decision carries the rule trace that picked its level: ma
 // ---- a decision that could not be made ----------------------------------------
 
 const FAILED: { name: string; backend: () => Reply; why: string; failure: Record<string, unknown> }[] = [
-  { name: 'no answer in time', backend: () => ({ after: 60_000, reply: { status: 200, body: {} } }), why: 'jev: no answer in 800 ms', failure: { backend: 'jev', kind: 'timeout', detail: 'no answer in 800 ms' } },
-  { name: 'the key is refused', backend: () => ({ status: 401, body: { detail: 'Invalid API key' } }), why: 'jev: key refused (HTTP 401)', failure: { backend: 'jev', kind: 'config', status: 401 } },
-  { name: 'the network is down', backend: () => ({ reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }), why: 'jev: unreachable', failure: { backend: 'jev', kind: 'network' } },
-  { name: 'an answer without the effort question', backend: () => ({ status: 200, body: { model: 'jev-1.13.0', answers: {} } }), why: 'jev: unreadable answer', failure: { backend: 'jev', kind: 'parse', detail: 'no effort answer' } },
+  { name: 'no answer in time', backend: () => ({ after: 60_000, reply: { status: 200, body: {} } }), why: 'jev：800 毫秒内没有回答', failure: { backend: 'jev', kind: 'timeout', detail: 'no answer in 800 ms' } },
+  { name: 'the key is refused', backend: () => ({ status: 401, body: { detail: 'Invalid API key' } }), why: 'jev：密钥被拒绝（状态码 401）', failure: { backend: 'jev', kind: 'config', status: 401 } },
+  { name: 'the network is down', backend: () => ({ reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }), why: 'jev：连不上', failure: { backend: 'jev', kind: 'network' } },
+  { name: 'an answer without the effort question', backend: () => ({ status: 200, body: { model: 'jev-1.13.0', answers: {} } }), why: 'jev：回答读不懂', failure: { backend: 'jev', kind: 'parse', detail: 'no effort answer' } },
 ]
 
 for (const failed of FAILED) {
@@ -76,7 +76,7 @@ test('a decision that comes back after a failure leaves the next turn routed, wi
   const w = world($, on, { backend: (request, n) => (n === 1 ? { status: 503, body: 'overloaded' } : jev([0, 1, 0, 0, 0])(request)) })
   await w.submit('第一条')
   await w.step({ index: 0, effort: 'xhigh' })
-  expect((await w.board()).main).toMatchObject({ turn: 1, routed: false, why: 'jev: busy (HTTP 503)' })
+  expect((await w.board()).main).toMatchObject({ turn: 1, routed: false, why: 'jev：繁忙（状态码 503）' })
 
   await w.submit('第二条')
   await w.step({ index: 0, effort: 'xhigh' })

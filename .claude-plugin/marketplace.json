@@ -9,7 +9,7 @@
     {
       "name": "dispatch-pilot",
       "source": "./dispatch-pilot",
-      "description": "A decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message (and when an agent's report starts a turn) and re-decides it as the turn runs; it also picks the model and effort of each agent the main agent dispatches and of each agent a Workflow script starts (by Artificial Analysis benchmarks), and suggests the few skills that fit your message instead of the full skill listing. The main agent's model never changes, so the prompt cache survives. For Claude Code subscriptions only: on Bedrock, Vertex or a gateway, switching effort breaks the cache."
+      "description": "Claude 之外的决策模型（Jev 或 Clef，二选一）在你每次发消息时决定主 agent 的 effort（agent 交回的报告开始一轮时也一样），一轮进行中重新判断；也为主 agent 派出的 agent 和 Workflow 脚本里的 agent 按 Artificial Analysis 的基准选模型和 effort，并在你发消息时推荐合适的几个 skill，代替完整的 skill 列表。判断和依据都在看板和依据面板上。主 agent 的模型从不改变，所以 prompt cache 不受影响。只面向 Claude Code 订阅：Bedrock、Vertex 和网关上切换 effort 会让缓存失效。"
     }
   ]
 }

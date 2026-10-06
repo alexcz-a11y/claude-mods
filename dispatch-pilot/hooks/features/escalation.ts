@@ -26,7 +26,7 @@
 // cannot undercut it.
 
 import type { EngineInterface, HttpInit, On, TurnStepInput } from 'claude-code'
-import { describeAsked, errorText, failureText, within, type Failure } from '../decision/backend.ts'
+import { describeAsked, errorText, failureLine, within, type Failure } from '../decision/backend.ts'
 import { AGENT_MODELS, effortFloor, modelFamily, type AgentModel, type Terms } from '../decision/dispatched-agent.ts'
 import { briefOf, forcedTarget, readExpected, rowsFromTranscript, stepsFromRows, stuckRequest, traceRaise, troubleText, type RaiseMode, type TranscriptRow } from '../decision/escalation.ts'
 import { higherEffort, isEffort, probsOf, readEffort, readingText, type Effort, type EffortReading } from '../decision/effort.ts'
@@ -129,8 +129,8 @@ type Asking = { forStep: number; turnId: string; covered: Counted; about: string
 const asking = new Map<string, Asking>()
 
 export function registerEscalation(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: 'raises the effort of an agent whose tool calls keep failing', parts: ['counts'] })
-  defineSwitch({ name: BLOCKS_SWITCH, info: 'counts a call one of your hooks blocked as a failure when deciding to escalate', default: false })
+  defineSwitch({ name: SWITCH, info: '工具调用接连失败的 agent，强制升高它的 effort', parts: ['counts'] })
+  defineSwitch({ name: BLOCKS_SWITCH, info: '判断要不要强制升档时，把被你的 hook 拦下的调用也算失败', default: false })
   const { escalation, midturn, agents } = ctx.config
   const settings: Settings = {
     ctx,
@@ -269,7 +269,7 @@ type Raise =
  * (the plan's, else the engine's) and the person's terms for its work.
  */
 async function raiseOf($: EngineInterface, s: Settings, id: string, agentId: string | undefined, record: LoopRecord, at: number): Promise<Raise> {
-  const top = (current: Effort) => ({ kind: 'keep' as const, outcome: `effort ${current} (kept)`, reason: s.mode === 'max' ? 'already at max' : 'a one-level raise stops at xhigh' })
+  const top = (current: Effort) => ({ kind: 'keep' as const, outcome: `effort ${current}（保持）`, reason: s.mode === 'max' ? '已经是 max' : '升一档最高到 xhigh' })
   if (agentId === undefined) {
     const { value: lock = null } = await $.state.get(LOCK)
     if (lock !== null || record.engine === null) return { kind: 'none' }
@@ -285,10 +285,10 @@ async function raiseOf($: EngineInterface, s: Settings, id: string, agentId: str
   if (family === null && record.engine === null) return { kind: 'none' }
   if (family === 'haiku') {
     const to = haikuSwitch(s, planned?.terms ?? null)
-    return 'why' in to ? { kind: 'keep', outcome: `model ${model} (kept)`, reason: to.why } : { kind: 'model', from: model, to: to.to, note: to.note }
+    return 'why' in to ? { kind: 'keep', outcome: `model ${model}（保持）`, reason: to.why } : { kind: 'model', from: model, to: to.to, note: to.note }
   }
   const named = planned?.terms?.effort ?? null
-  if (named !== null) return { kind: 'keep', outcome: `effort ${named} (kept)`, reason: `${named} is the effort you named for it` }
+  if (named !== null) return { kind: 'keep', outcome: `effort ${named}（保持）`, reason: `${named} 是你给它点名的 effort` }
   // Without a level of its own (moved off a model that takes none), its steps go at the engine's own for an agent: medium (measured on 2.1.289).
   const current = higherEffort(planned?.effort ?? record.engine ?? 'medium', planned?.floor ?? null) as Effort
   const target = forcedTarget(current, s.mode)
@@ -395,19 +395,19 @@ async function apply($: EngineInterface, s: Settings, e: TurnStepInput, cell: Ce
   }
   const p = answer.expected
   if (p !== null && p >= s.thetaExpected) {
-    const why = `the failures are expected (p ${p.toFixed(2)}, thetaExpected ${s.thetaExpected.toFixed(2)}), so nothing is forced`
+    const why = `这些失败是预期内的（概率 ${p.toFixed(2)}，预期内失败门槛 ${s.thetaExpected.toFixed(2)}），不强制升档`
     if (raise.kind === 'model') {
       const kept = await startOver($, cell, id, covered, false)
-      await decide($, id, kept, { outcome: `model ${raise.from} (kept)`, about, reason: why, tone: 'info' })
+      await decide($, id, kept, { outcome: `model ${raise.from}（保持）`, about, reason: why, tone: 'info' })
       return
     }
     // Expected: nothing is forced; the answer's effort is an ordinary re-decision, as mid-turn.
     const level = await redecide($, s, e, record, raise.current, answer.reading)
     const kept = await startOver($, cell, id, covered, false)
     await decide($, id, kept, {
-      outcome: `effort ${level.effort} ${level.effort === raise.current ? '(kept)' : `(was ${raise.current})`}`,
+      outcome: `effort ${level.effort}${level.effort === raise.current ? '（保持）' : `（原 ${raise.current}）`}`,
       about,
-      reason: level.why === null ? why : `${why}; ${level.why}`,
+      reason: level.why === null ? why : `${why}；${level.why}`,
       tone: level.effort === raise.current ? 'info' : 'ok',
       ...(level.working === undefined
         ? {}
@@ -427,9 +427,9 @@ async function apply($: EngineInterface, s: Settings, e: TurnStepInput, cell: Ce
     await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), model: raise.to.id }))
     const raised = await startOver($, cell, id, covered, true, e.index)
     await decide($, id, raised, {
-      outcome: `model ${raise.to.id} (was ${raise.from})`,
+      outcome: `model ${raise.to.id}（原 ${raise.from}）`,
       about,
-      reason: `a haiku agent has no effort to raise, so it is switched to ${raise.to.id}${raise.note}; ${knownReason(s, answer)}`,
+      reason: `haiku 没有 effort 可升，改用 ${raise.to.id}${raise.note}；${knownReason(s, answer)}`,
       tone: 'warn',
       forced: { kind: 'model', from: raise.from, to: raise.to.id },
     })
@@ -449,7 +449,7 @@ async function apply($: EngineInterface, s: Settings, e: TurnStepInput, cell: Ce
   }
   const raised = await startOver($, cell, id, covered, true, e.index)
   await decide($, id, raised, {
-    outcome: `effort ${level} (was ${raise.current})`,
+    outcome: `effort ${level}（原 ${raise.current}）`,
     about,
     reason: raiseReason(s, answer, level, raise.target),
     tone: 'warn',
@@ -482,7 +482,7 @@ async function redecide(
     const position = { current, sinceRaise: turn.raisedAt == null ? null : e.index - turn.raisedAt, atLeast: floorHeld(turn, e.index) }
     const verdict = judgeMidturn(reading, position, s.rules)
     await update(turnCell, (r) => redecided(r ?? turn, current, verdict.effort, e.index))
-    return { effort: verdict.effort, why: `${readingText(reading)}; ${verdictReason(verdict, position, s.rules)}`, working: { reading, verdict, position } }
+    return { effort: verdict.effort, why: `${readingText(reading)}；${verdictReason(verdict, position, s.rules)}`, working: { reading, verdict, position } }
   }
   const ref = { ...AGENTS, id: e.agentId }
   const planCell: Cell<AgentPlan> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
@@ -492,7 +492,7 @@ async function redecide(
   const position = { current, sinceRaise: record.raisedAt === null ? null : e.index - record.raisedAt, atLeast: floor }
   const verdict = judgeMidturn(reading, position, s.rules)
   if (verdict.effort !== current) await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), effort: verdict.effort }))
-  return { effort: verdict.effort, why: `${readingText(reading)}; ${verdictReason(verdict, position, s.rules)}`, working: { reading, verdict, position } }
+  return { effort: verdict.effort, why: `${readingText(reading)}；${verdictReason(verdict, position, s.rules)}`, working: { reading, verdict, position } }
 }
 
 /**
@@ -503,15 +503,15 @@ async function redecide(
  * ruled out.
  */
 function haikuSwitch(s: Settings, terms: Terms | null): { to: ResolvedModel; note: string } | { why: string } {
-  if (terms?.model === 'haiku') return { why: 'haiku is the model you named for it' }
+  if (terms?.model === 'haiku') return { why: 'haiku 是你给它点名的模型' }
   const to = s.haikuTo
-  if (to === null) return { why: s.haikuToWritten === '' ? 'escalateHaikuTo names no model' : `escalateHaikuTo names no model this mod knows (${JSON.stringify(s.haikuToWritten)})` }
+  if (to === null) return { why: s.haikuToWritten === '' ? '没有设置失败的 haiku 改用哪个模型' : `设置的改用模型 ${JSON.stringify(s.haikuToWritten)} 这个 mod 不认识` }
   const banned = terms?.banned ?? []
   if (!banned.includes(to.family)) return { to, note: '' }
   const up = AGENT_MODELS.slice(AGENT_MODELS.indexOf(to.family) + 1).find((family) => s.models.includes(family) && !banned.includes(family))
-  if (up !== undefined) return { to: { family: up, id: modelId(up) }, note: ` (${to.family} is ruled out for it)` }
+  if (up !== undefined) return { to: { family: up, id: modelId(up) }, note: `（${to.family} 被你排除了）` }
   const above = AGENT_MODELS.filter((family) => family !== 'haiku' && banned.includes(family))
-  return { why: `every model above haiku is ruled out for it (${above.join(', ')})` }
+  return { why: `haiku 以上的模型都被你排除了（${above.join('、')}）` }
 }
 
 /** The run a Workflow tool's result says it launched: its id and its directory; null for none (refused, failed). */
@@ -541,9 +541,9 @@ async function agentRows($: EngineInterface, agentId: string): Promise<Transcrip
 
 /** What a decision about the loop is about: its step and the failures, and for an agent its task (`brief`, '' when unknown). */
 function aboutOf(agentId: string | undefined, brief: string, at: number, counted: Counted): string {
-  const failed = `${counted.failures + counted.hookBlocks} failed tool calls`
-  if (agentId === undefined) return `step ${at} (${failed})`
-  return `${brief === '' ? `agent ${agentId}` : `agent ${quoteStart(brief)}`}, step ${at} (${failed})`
+  const failed = `工具调用失败 ${counted.failures + counted.hookBlocks} 次`
+  if (agentId === undefined) return `第 ${at} 步（${failed}）`
+  return `${brief === '' ? `agent ${agentId}` : `agent ${quoteStart(brief)}`}，第 ${at} 步（${failed}）`
 }
 
 /** What the decision report needs of the host: its two cells, the debug log and the old status line. */
@@ -578,16 +578,16 @@ async function decide($: EngineInterface, id: string, record: LoopRecord, said: 
 
 /** Why a forced raise went where it did, for the decision log. */
 function raiseReason(s: Settings, answer: Stuck, level: Effort, target: Effort): string {
-  const how = s.mode === 'max' ? 'forced to max' : 'forced one level up'
-  const higher = level === target ? '' : `, the answer's own pick is higher`
-  return `${how}${higher}; ${knownReason(s, answer)}${answer.reading === null ? '' : `; ${readingText(answer.reading)}`}`
+  const how = s.mode === 'max' ? '强制升到 max' : '强制升一档'
+  const higher = level === target ? '' : '，回答自己的判断更高'
+  return `${how}${higher}；${knownReason(s, answer)}${answer.reading === null ? '' : `；${readingText(answer.reading)}`}`
 }
 
 /** Whether the failures were known to be expected, for the decision log: why they were not. */
 function knownReason(s: Settings, answer: Stuck): string {
-  if (answer.unread) return 'no transcript of this agent to read, so not asked whether the failures were expected'
-  if (answer.expected !== null) return `not expected (p ${answer.expected.toFixed(2)}, thetaExpected ${s.thetaExpected.toFixed(2)})`
-  return `no answer (${failureText(s.ctx.backend.name, answer.failure ?? { kind: 'parse', detail: 'no answer to the question' })})`
+  if (answer.unread) return '读不到这个 agent 的记录，没有问这些失败是不是预期内的'
+  if (answer.expected !== null) return `不是预期内的失败（概率 ${answer.expected.toFixed(2)}，预期内失败门槛 ${s.thetaExpected.toFixed(2)}）`
+  return `决策模型没有回答（${failureLine(s.ctx.backend.name, answer.failure ?? { kind: 'parse', detail: 'no answer to the question' })}）`
 }
 
 function newLoop(turnId: string): LoopRecord {

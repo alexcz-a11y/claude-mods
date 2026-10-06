@@ -26,7 +26,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 
 - 主 agent 用 Agent 工具派出一个 agent 时，Dispatch Pilot 在它启动前问一次决策模型，同一个请求里问两件事：它该用哪个模型（默认在 haiku、sonnet、opus 中选，打开 `agentFable` 后加入 fable），以及它的每一步该用哪档 effort。模型直接改在这次派发上；effort 在这个 agent 的每一步都重新设置。选了 haiku 就不设 effort（haiku 不支持）。
 - **模型选项的文字**（`decision/dispatched-agent.ts` 的 `KINDS`，中英两版）按 AA 的基准写，每个选项描述一种情形：haiku 是一两步就能跑完、结果只需要收集起来并按要求排版（列表、表格、计数）的只读查找（不适合：要连续很多步工具调用的探查，以及任何写入或判断）；sonnet 承担大多数执行类工作（终端操作、需求明确的代码修改、跨文件修改、自动化步骤、对仓库内材料的调研或审查）（不适合：结论取决于仓库外的事实知识而且记错代价高的工作、难推理、需求不明确的设计、原因未知的 bug）；opus 是需要审慎判断或细微错误代价高的工作（安全、并发、涉及钱、数据迁移、生产）、难推理、设计、原因未知的 bug、科学或算法类代码，以及结论取决于记忆中的事实、而且无法在仓库或文档里查证的调研或解答（不适合：书面计划和测试已经覆盖的执行类工作）；fable 的文字不变，仍默认关闭。选项名、`work` 键和问题的结构都没有变。写法遵循 `docs/research/typesafe-question-guide.md`。
-- **effort 的下限**（`effortFloor`）：决策出来的 effort 不低于所选模型的下限。sonnet 和 opus 至少 medium；haiku 不带 effort，fable 没有下限（`decision/dispatched-agent.ts` 里的常量，不是配置项，Clef 同样适用）。0.2.2 的第一版把 sonnet 的下限放在 high（low 的概率 ≥ 0.8 才放到 medium），第一次真实评测里 effort 部分从 74/72 掉到 64/62，所以降到 medium（见「按 AA 基准校正」的「评测迭代」）。下限用在决策的 effort 上，所以派出 agent 和 Workflow 里的 `agent()` 都受它管；你点名的 effort 不受下限影响（见下一条）。卡住后「预期内」的那次中途重判，对已经有 effort 的 agent 也不降到它的下限以下（`features/escalation.ts` 的 `redecide`）。决策日志会写 `effort lifted from low to medium (floor for sonnet)`。
+- **effort 的下限**（`effortFloor`）：决策出来的 effort 不低于所选模型的下限。sonnet 和 opus 至少 medium；haiku 不带 effort，fable 没有下限（`decision/dispatched-agent.ts` 里的常量，不是配置项，Clef 同样适用）。0.2.2 的第一版把 sonnet 的下限放在 high（low 的概率 ≥ 0.8 才放到 medium），第一次真实评测里 effort 部分从 74/72 掉到 64/62，所以降到 medium（见「按 AA 基准校正」的「评测迭代」）。下限用在决策的 effort 上，所以派出 agent 和 Workflow 里的 `agent()` 都受它管；你点名的 effort 不受下限影响（见下一条）。卡住后「预期内」的那次中途重判，对已经有 effort 的 agent 也不降到它的下限以下（`features/escalation.ts` 的 `redecide`）。决策日志会写「effort 从 low 抬到 medium（模型下限：sonnet）」。
 - 发给决策模型的是主 agent 写给这个 agent 的任务（`prompt`）、简短描述、agent 类型，以及你这一轮说的话：开始这一轮的那条消息，加上这一轮进行中你又发的消息。和发消息时一样，发送前对 secret 脱敏，总长度按 token 预算（`contextTokens`）截断，你的话最多占三分之一。
 - 模型的优先级：
   1. 你在这一轮的消息里为这项工作点名的模型，一定照办，即使它不在可选范围内（例如没打开 `agentFable` 时点名 fable）。
@@ -55,7 +55,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - **失败时放行。** 决策模型超时、出错或回答不完整时，这个请求里的调用保持原样，看板上这些调用写「未路由」和原因（并弹一个 toast）；这个功能自己出错时，整个脚本照原样运行。改写后的脚本如果被工具判为语法错误（工具在启动任何 agent 之前检查），就改用主 agent 原来的脚本再提交一次，并告诉主 agent。
 - **不改写的输入。** 用 `scriptPath` 或 `name` 提交的脚本（这里读不到内容，由 #9 在 agent 启动时设置）；带 `resumeFromRunId` 恢复的运行（缓存按每个 `agent()` 的 prompt 和选项匹配，改写会让已完成的 agent 重跑；#9 在 agent 启动时设置，不动脚本，所以缓存照样命中）；没有 `agent()` 的脚本。
 - **退回模式**（配置 `workflowMode` 选 `return`）：不改写，拒绝这次提交，把逐个调用的决定写成给主 agent 的改写说明：要加什么选项，并说明这是路由插件的策略、是你设的。主 agent 照着改好再提交，这第二次提交直接放行，不再问决策模型。「同一个 Workflow」按脚本 `meta.name` 和各调用的 prompt 判断，主 agent 只加选项不影响它；退回过的 Workflow 记在 `$.state`（最近 16 个）。没有要写的（脚本已经是对的）、决策模型没答、读不了的脚本，都不退回。
-- **每个决定记进 `/dp log`**，每个调用一条，例如 `sonnet medium for "rename" (workflow tidy-api): decided; pick sonnet, confidence 0.70; effort p ...`；退回模式的决定后面加 `(sent back)`。`/dp workflow-agents off` 单独关掉这项功能，之后 Workflow 照主 agent 写的运行。
+- **每个决定记进 `/dp log`**，每个调用一条，例如 `sonnet medium · "rename"（Workflow tidy-api）：已决定；选 sonnet，置信度 0.70；effort 概率 ...`；退回模式的决定后面加「（已退回）」，日志条目带 `sentBack`。`/dp workflow-agents off` 单独关掉这项功能，之后 Workflow 照主 agent 写的运行。
 
 ### Workflow 兜底：agent 启动时按 label 设置
 
@@ -69,7 +69,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - **常驻提示。** Workflow 工具的描述后面附一段固定的话，请主 agent 给每个 `agent()` 写固定且唯一的 label（对每一项都运行的调用，写固定前缀加这一项，例如 `` `audit:${file}` ``）。引擎在会话里第一次给出工具描述时问一次，之后一直沿用，所以文字固定，不影响 prompt cache；只在配置了决策模型、`workflow-labels` 开着时附上。
 - **告诉主 agent。** 工具结果后面附一段说明：运行开始时每个调用定了什么、哪些调用在 agent 启动时再判断；读不了的脚本说明每个 agent 都在启动时判断。主 agent 直接交来的脚本，上一节已经说明了写进去的调用，这里只补一句：保持原样的调用由 agent 启动时判断。
 - **失败时放行。** 决策模型失败或超时、任务没有及时写到磁盘、或者这个功能自己出错时，agent 按引擎原样启动，看板上它那一行写明原因。
-- **看板和日志。** 按 label 设置的每个 agent 在 band 上有自己的一行（它的 label、模型、effort；没设置成的写「未路由」和原因，例如 `task not on disk in time`），运行开始时判断过的调用在事件流里合成一条（「Workflow <名字> · 按 label N 个 agent()」）。运行开始时判断过的调用、启动时当场判断的 agent，各记一条进 `/dp log` 和 debug log，例如 `opus high for "q-license" (agent a25d..., workflow e2e-labels): from its task as it started; decided; pick opus, ...`。`/dp workflow-labels off` 单独关掉这项功能。
+- **看板和日志。** 按 label 设置的每个 agent 在 band 上有自己的一行（它的 label、模型、effort；没设置成的写「未路由」和原因，例如「它的任务没能及时读到」），运行开始时判断过的调用在事件流里合成一条（「Workflow <名字> · 按 label N 个 agent()」）。运行开始时判断过的调用、启动时当场判断的 agent，各记一条进 `/dp log` 和 debug log，例如 `opus high · "q-license"（agent a25d...，Workflow e2e-labels）：按它启动时的任务；已决定；选 opus，...`。`/dp workflow-labels off` 单独关掉这项功能。
 - **限制。** 当场判断是一个 agent 一个请求。一次启动很多个 prompt 是数据的 agent 时（fan-out），这些请求同时发给决策模型，而 Jev 对同一个 key 的并发请求像是依次处理，排在后面的可能超时，那些 agent 按引擎原样启动。强制升档（#7）按计划表里的有效模型判断（计划的 `model`，没有才看引擎的）：被换成 haiku 的 agent 卡住时换模型，从 haiku 换走的照常升 effort。
 
 ### 一轮中途重新判断
@@ -80,7 +80,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - 决策模型读到的是：这一轮你的消息，即将发出的是第几步，当前的 effort，这一轮的计数（判断次数、档位变化次数、失败的工具调用数、被 hook 拦截的次数），以及最近 `rejudgeSteps` 步的摘要。每一步的摘要是主 agent 在那一步最后写的文字，加上它调用的工具和一句话结果，结果以「成功：」「失败：」「被 hook 拦截：」「用户拒绝：」开头（你的消息不含中文时用 `Success:`、`Failed:`、`Blocked by hook:`、`Denied by user:`），正在运行的那个工具写「进行中：」。结果后面只说明这次调用在做什么：调用自带的 `description`、skill 或 Workflow 的名字、文件路径的最后两段、搜索的 pattern 或 query、URL，或者 shell 命令的第一行。**不包含文件内容、工具写入的内容和工具输出**；同样脱敏，同样受 `contextTokens` 限制（你的消息最多占一半）。
 - 这些情况不重判：你用 `/dp lock` 锁定了 effort；这一轮不是你本人的消息开始的（agent 交回的结果、后台任务通知等：它们开始的一轮在开始时判断一次，之后不重判）；`main-effort` 关着（这时发消息不经过它，也认不出这一轮是你开始的）；没有配置决策模型；模型不接受 effort 档位（haiku 这类）。你本人的消息开始的一轮，即使发消息时那次判断失败（出错或超时），也照常中途重判，从会话自己的 effort 起算。`/dp midturn-effort off` 关掉这项功能。
 - 这一轮第一次重判之后，band 的状态条写出这一轮的判断次数（包括发消息时的那一次）和档位变化的次数，例如 `中途重判 3 次 · 改档 1`；每次改档是事件流里的一条（从哪档到哪档、置信度和门槛）。
-- 每次重判都记进 debug log 和 `/dp log`，例如 `#5 midturn-effort: effort xhigh (was medium) for step 3 (every 3 steps): p low 0.00, medium 0.05, high 0.15, xhigh 0.70, max 0.10; confidence 0.80; up`。
+- 每次重判都记进 debug log 和 `/dp log`，例如 `#5 midturn-effort：effort xhigh（原 medium） · 第 3 步（每 3 步）：概率 low 0.00, medium 0.05, high 0.15, xhigh 0.70, max 0.10；置信度 0.80；升档`。
 - 在 Sonnet 5.5 上也照常重判：实测一轮中途改 effort 不会返回 400（见「开发」里的「已实测的引擎行为」）。
 
 ### 卡住时强制升档
@@ -95,11 +95,11 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
   - 已经到顶（`one-level` 的 xhigh，`max` 的 max）：没有可升的，不问决策模型，失败计数清零，记一条决策。
 - **不动的情况。** 你用 `/dp lock` 锁定了 effort（锁定优先）；没有配置决策模型；主 agent 这一步的模型不接受 effort 档位。主 agent 这一轮开始时没有经过路由（决策失败）也照样升：升的是会话自己的 effort。Workflow 里的 agent 的记录要从它的运行目录读，运行目录由这项功能自己在 Workflow 工具返回时记下（不看别的功能的开关），所以 `workflow-labels` 关着时也照样问；只有记录文件读不到时，这样的 agent 才只升、不问是不是预期内。
 - **看板。** 每个循环（主 agent 的这一轮，或一个派出 agent）的那一行写它的计数，例如 `失败 2 · 拦截 1 · 升档 1`（拦截是被 hook 拦下的次数，升档是强制升档的次数）；每次强制升档是事件流里的一条（从哪档到哪档、失败了几次），回答迟到时记一条「迟到」。新的一轮从零开始。
-- **记录。** 每次强制升档、「预期内失败、没有升档」和「已经到顶」都记进 `/dp log` 和 debug log，例如 `#4 escalation: effort high (was medium) for step 2 (2 failed tool calls): forced one level up; not expected (p 0.05, thetaExpected 0.25); p low 0.00, medium 1.00, ...`。`/dp escalation off` 单独关掉这项功能；`/dp hook-block-failures on` 让被 hook 拦下的调用也算失败。
+- **记录。** 每次强制升档、「预期内失败、没有升档」和「已经到顶」都记进 `/dp log` 和 debug log，例如 `#4 escalation：effort high（原 medium） · 第 2 步（工具调用失败 2 次）：强制升一档；不是预期内的失败（概率 0.05，预期内失败门槛 0.25）；概率 low 0.00, medium 1.00, ...`。`/dp escalation off` 单独关掉这项功能；`/dp hook-block-failures on` 让被 hook 拦下的调用也算失败。
 
 ### 失败时放行
 
-如果决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配置 key（Clef 是 account ID 和 token），消息照常进入，不会额外等待，这一轮使用会话自己的 effort。看板上主 agent 那一行写「未路由」和几个字的原因（「决策模型超时」「决策模型拒绝了 key」），同时弹一个 toast 写明细节，例如 `jev: no answer in 1500 ms`、`clef: key refused (HTTP 401)`。选了其中一个就只用它，失败时不会改用另一个。Clef 的免费额度当天用完时写 `clef: daily quota used up`（Cloudflare 的错误码 3036），和一时繁忙的 `clef: busy (HTTP 429)`（错误码 3040）区分开：两者的 HTTP 状态都是 429。
+如果决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配置 key（Clef 是 account ID 和 token），消息照常进入，不会额外等待，这一轮使用会话自己的 effort。看板上主 agent 那一行写「未路由」和几个字的原因（「决策模型超时」「决策模型拒绝了密钥」），同时弹一个 toast 写明细节，例如 `jev：1500 毫秒内没有回答`、`clef：密钥被拒绝（状态码 401）`。选了其中一个就只用它，失败时不会改用另一个。Clef 的免费额度当天用完时写 `clef：今天的额度用完了`（Cloudflare 的错误码 3036），和一时繁忙的 `clef：繁忙（状态码 429）`（错误码 3040）区分开：两者的状态码都是 429。
 
 ### 看板
 
@@ -109,7 +109,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - **脚部右端的摘要。** 不超过 12 列：状态符号（有 agent 在跑时是转圈）、主 agent 的模型·effort、`+N` 个运行中的 agent；放不下时 effort 先写短（`xhi`），再省掉模型。band 收起时也看得到。
 - **toast。** 路由失败（主 agent 或某个 agent 的决策请求失败）时弹一个，写谁没路由、原因和细节；引擎会丢掉同一个插件 2 秒内的第二个 toast，所以紧接着的失败只在看板上。
 - 关掉的功能（`/dp <功能> off`）的决定、事件和它拥有的部分（中途重判的次数、失败计数）不出现在 band 和脚部；`/dp off` 时 band 上没有 Dispatch Pilot 的内容，脚部写 `○ dp 已关`。skill 画像的进度从不出现在这两处（#33，在依据面板顶部）。
-- **依据面板（`/dp`，`/dp log` 是别名）。** 全屏且终端够宽时停靠在对话右边（约 75 列），否则在 prompt 上方。顶部灰字写已关的功能、锁定，以及本会话 skill 画像的情况（「skill 画像：保留 52 · 新写 3 · 失败 1」，写的过程中「生成中 2/5」，停写时写原因；有失败时按 `f` 列出失败的 skill 和原因）。下面是「‹ 上一个 (p) / 下一个 › (n)」，按 band 的顺序翻看 agent；在 band 上按数字键（空的 prompt 里）也直接选中一个 agent 并打开面板，面板不抢键盘，可以接着按别的数字。圆角框里是选中 agent 的依据卡片：状态，没路由的原因（几个字，再写失败的类型、决策模型、细节和去 debug log 哪里看），给它的模型和理由（派出 agent、Workflow agent），各档 effort 的概率条，规则推演（最可能 → max 门槛 → 上取一档 → 模型下限 → 下限或强制升档，每一步写它做了什么），结果；主 agent 还注明发消息时的置信度只记录、不参与选档，列出这一轮的强制升档和每次中途重判（建议档、当前档、带门槛刻度的置信条和结论：升档、降档、降档被拦、防抖中还差 N 步、保持）。卡片只画决定时存下的推演，从不重新计算。再下面是决策日志，按轮分组、最新的一轮在前，每条带编号、结果（颜色、字重和 ✔ ⚠ ✘ 符号）、模型和 effort、是哪项功能针对什么、各档概率和理由；每轮有一个字母键（`a` 起，跳过 `p`、`n`、`f`，20 轮各有一个）折叠或展开，最新两轮默认展开。面板窄时文字悬挂缩进换行，不截断。`Esc` 关掉面板，`/dp` 再输一次也关掉。面板没被放出来时（比如接着的端不放面板）立即关掉，并在回复里说明原因，可以改用 `/dp log 10` 在对话里看。
+- **依据面板（`/dp`，`/dp log` 是别名）。** 全屏且终端够宽时停靠在对话右边（约 75 列），否则在 prompt 上方。顶部灰字列出每项功能的开关状态（名字加「开」或「关」，关着的用灰色，默认关的 `hook-block-failures` 也在内；整个 mod 关着时另有一行说明）、锁定，以及本会话 skill 画像的情况（「skill 画像：保留 52 · 新写 3 · 失败 1」，写的过程中「生成中 2/5」，停写时写原因；有失败时按 `f` 列出失败的 skill 和原因）。下面是「‹ 上一个 (p) / 下一个 › (n)」，按 band 的顺序翻看 agent；在 band 上按数字键（空的 prompt 里）也直接选中一个 agent 并打开面板，面板不抢键盘，可以接着按别的数字。圆角框里是选中 agent 的依据卡片：状态，没路由的原因（几个字，再写失败的类型、决策模型、细节和去 debug log 哪里看），给它的模型和理由（派出 agent、Workflow agent），各档 effort 的概率条，规则推演（最可能 → max 门槛 → 上取一档 → 模型下限 → 下限或强制升档，每一步写它做了什么），结果；主 agent 还注明发消息时的置信度只记录、不参与选档，列出这一轮的强制升档和每次中途重判（建议档、当前档、带门槛刻度的置信条和结论：升档、降档、降档被拦、防抖中还差 N 步、保持）。卡片只画决定时存下的推演，从不重新计算。再下面是决策日志，按轮分组、最新的一轮在前，每条带编号、结果（颜色、字重和 ✔ ⚠ ✘ 符号）、模型和 effort、是哪项功能针对什么、各档概率和理由；每轮有一个字母键（`a` 起，跳过 `p`、`n`、`f`，20 轮各有一个）折叠或展开，最新两轮默认展开。面板窄时文字悬挂缩进换行，不截断。`Esc` 关掉面板，`/dp` 再输一次也关掉。面板没被放出来时（比如接着的端不放面板）立即关掉，并在回复里说明原因，可以改用 `/dp log 10` 在对话里看。
 - **Desktop 等非终端端（#31）。** 同一份 band、脚部和依据面板，纯文字，一个 Raster 都没有（Raster 在这些端被拒）：band 的每行少了时间色带（名字多得到那几列），概率只写数字（`low .00 medium .05 …`），中途重判的置信条只剩那一行字（`.50 < .55 降档线 → …`）。脚部标签沿用同一个排法，预算放宽到 24 个字符（Desktop 的脚部 chip 最宽 24ch，超出会被截）。Desktop 不画 PromptHint，这里也不用它。Desktop 页面拒收 2000 个节点以上的树：面板在非终端上只画日志最新的 40 条和最新的 20 次中途重判，更早的写「更早 N 条没有画出」；树仍超过 1800 个节点就换更小的窗口（16/8、4/3、0/0）。没在 Desktop 上亲眼看过，只测了树（`$.ui.mount`，surface 为 `desktop`、`vscode`、`mobile`）。
 
 ### 发给决策模型的内容
@@ -125,7 +125,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附件（`skill_listing`）交给主 agent，装的 skill 多时这一段很长：本机 66 个 skill，实测每个会话多出约 6.6k input token。Dispatch Pilot 对主 agent 拦下这条附件（ADR 0002），换成一句固定的提示，改为在你每次发消息时推荐相关的几个：
 
 - **推荐分两段。** 第一段和 effort 在同一个决策请求里，多问一个问题：在本会话主 agent 能加载的 skill 中，加上「都不合适」，哪个最适合这条消息要做的工作？装了只能由你本人触发的 skill 时，再单独问一题同样的问题（它们放在一题里会和能加载的 skill 互相抢概率）。每个 skill 用它的画像描述（见下一条），还没有画像的用描述。每题的概率在它的选项之间加起来为 1，只用来排序。第一段分到 0.1 以上的 skill 里，能加载的最多取前 `skillsShortlist` 个，只能由你触发的最多取 2 个，一起进入第二段：再发一个请求，问的是同样的消息和对话，补上每个 skill 的 SKILL.md 正文开头，对每个 skill 单独问「它是否正好做这条消息要做的那种工作」，回答的概率（0 到 1）就是相关度，是绝对值，几个 skill 可以同时很高，也可以都很低。相关度不低于 `skillsMinRelevance` 的 skill，最多 `skillsMax` 个，按相关度从高到低写成一个文字块附在消息后面交给主 agent，内容是名字、相关度和描述。主 agent 用 Skill 工具按名字加载，也可以不理会。没有合适的就不附任何东西；第一段没有哪个 skill 到 0.1 时不发第二个请求。
-- **两个请求共用一次等待。** 消息最多等 `timeoutMs`：第二个请求只能用第一个请求剩下的时间。第二个请求超时或失败时，这条消息不推荐 skill，照常进入，看板的事件流记一条失败和原因，例如 `jev: no answer in 1100 ms`；effort 的判断不受影响。实测（真实引擎、Jev）第一段约 0.3–0.5 秒，第二段约 0.26 秒，合计在 1.5 秒之内。
+- **两个请求共用一次等待。** 消息最多等 `timeoutMs`：第二个请求只能用第一个请求剩下的时间。第二个请求超时或失败时，这条消息不推荐 skill，照常进入，看板的事件流记一条失败和原因，例如 `jev：1100 毫秒内没有回答`；effort 的判断不受影响。实测（真实引擎、Jev）第一段约 0.3–0.5 秒，第二段约 0.26 秒，合计在 1.5 秒之内。
 - **中英双语的 skill 画像。** 会话开始时，Dispatch Pilot 在后台让一个便宜的模型（`skillsProfileModel`，通过你自己的 Claude Code 登录调用，算在你的用量里）读每个 skill 的 SKILL.md，写一份简短的画像：做什么、什么时候用、什么时候不用，英文和中文各一份。这样中文消息也能对上英文描述的 skill，「什么时候不用」还能挡掉似是而非的匹配。画像按 SKILL.md 的内容（以及模型名、提示词版本）做哈希，存在 `$.store` 里，下次会话直接用；SKILL.md 改了才重写。每次会话开始最多写 `skillsProfilesPerSession` 份（0 表示不写），其余留给以后的会话，第一次装了很多 skill 时不会一下子花掉很多用量。写的过程不阻塞你的消息：写好一份用一份，还没写好或写失败的 skill 用名字和描述。没有 SKILL.md 的 skill（内置 skill）从描述写画像。每份画像的每个字段都有长度上限，最多保留 500 份、合计最多 2 MiB（超过任何一个，就删掉最早写的、本会话不用的，删到 400 份以内、1.5 MiB 以内），在 `$.store` 4 MiB 的总上限里通常只占几百 KB。`/dp skill-profiles off` 停止写画像，并改回只用名字和描述排序。实测 haiku 写一份约 2.2–2.6 秒、约 2k 输入和 200 输出 token。
 - **已经推荐过的只再提名字。** 同一段对话里描述过一次的 skill，再推荐时只写名字和相关度。`/compact` 和 `/clear` 之后重新给描述。
 - **只能由你触发的 skill**（SKILL.md 的 frontmatter 写了 `disable-model-invocation: true`）从不推荐给主 agent，Skill 工具也加载不了它们。合适时看板提示你自己输入，例如「可试 /grill-me」。settings 的 `skillOverrides` 设成 `off` 的 skill 不提示。
@@ -147,8 +147,8 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 - **不返回的 skill。** 只能由你本人触发的 skill 和 `skillsNeverSuggested` 里的 skill 既不问也不返回。派出 agent 调用时，工具让它从自己的 skill 列表里挑（派出 agent 的列表没有隐藏），不发请求。
 - **不影响缓存。** 工具在会话开始时注册（只在配置了决策模型时），描述固定不变，不含任何会话内容。实测它是延迟加载的工具：主 agent 的工具列表里先只有它的名字，用 ToolSearch 加载之后才调用。主 agent 的 skill 列表换成的那句提示写出了它的全名，并说明要先用 ToolSearch 加载（见上一节）。
 - **开关。** `/dp find-skill off`（以及 `/dp off`）之后，工具仍然注册着，调用时只回答它已关闭、可以用 `/dp find-skill on` 打开，不发请求；列表位置上的提示也不再提它，从下一段对话起生效（见上一节）。它和 skill 推荐的开关 `skills` 互相独立：推荐关掉时 `find_skill` 仍然回答（会话开始没有读 skill 目录的话，第一次调用时再读）。
-- **失败时放行。** 决策模型超时、出错、回答里没有 skill 问题（两个请求中任何一个），读不到本会话的 skill，或者 mod 自己出错时，工具都立即回答失败的原因，并提示主 agent 不用 skill 继续，或者按名字加载已知的 skill。看板的事件流记一条失败和原因，例如 `jev: no answer in 1500 ms`。
-- **看板和日志。** 每次查询是事件流里的一条：查了什么、返回了哪些 skill（带相关度），没有合适的写「没有合适的 skill」。每次查询的两个请求都写进 debug log，结果记进决策日志（`/dp log`）和 debug log，例如 `found code-review for "review a branch before merging": first code-review 1.00, none 0.00; fits code-review 0.95; returned from 0.50, at most 5`。
+- **失败时放行。** 决策模型超时、出错、回答里没有 skill 问题（两个请求中任何一个），读不到本会话的 skill，或者 mod 自己出错时，工具都立即回答失败的原因，并提示主 agent 不用 skill 继续，或者按名字加载已知的 skill。看板的事件流记一条失败和原因，例如 `jev：1500 毫秒内没有回答`。
+- **看板和日志。** 每次查询是事件流里的一条：查了什么、返回了哪些 skill（带相关度），没有合适的写「没有合适的 skill」。每次查询的两个请求都写进 debug log，结果记进决策日志（`/dp log`）和 debug log，例如 `查到 code-review · "review a branch before merging"：第一段 code-review 1.00、都不合适 0.00；第二段相关度 code-review 0.95；相关度 0.50 起返回，最多 5 个`。
 
 ### 控制：`/dp`
 
@@ -166,7 +166,7 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 - 命令在一轮进行中也立即执行：锁定或解锁从下一步起生效。
 - 开关保存在 `$.store`，下次启动会话时还是你离开时的样子；只保存和默认值不同的开关，所以一个新增的功能默认开着。几个会话同时在用时，改动不会覆盖别的会话刚保存的开关，但已经在运行的会话要到下次启动才会读到。
 - 锁定只在当前会话里有效，`/dp unlock` 或会话结束时解除。锁定期间决策照常进行并记录（锁定优先），不想为此等决策模型的话，用 `/dp main-effort off`。
-- `/dp log N` 列出每项功能记录的决策：做了什么决定、针对哪条消息、理由（决策模型给出的各档概率和置信度，被 `thetaMax` 压下的 `max` 会注明）。同样的内容也写进 debug log，依据面板的决策日志也是这些条目。
+- `/dp log N` 列出每项功能记录的决策：做了什么决定、针对哪条消息、理由（决策模型给出的各档概率和置信度，被 `thetaMax` 压下的 `max` 会注明）。`/dp`、`/dp status`、`/dp log N` 和各开关的回答都是中文，格式见下面的「语言」。同样的内容也写进 debug log，依据面板的决策日志也是这些条目。
 - 会话的读数（上下文占用、5 小时和 7 天限额的百分比、会话花费）每次变化时写一行进 debug log，例如 `signals: context 3% (28866/1000000 tokens); limits five_hour 26% resets ..., seven_day 50% resets ...; cost $0.1433; changed context, rateLimits, cost`。这些读数只是记录，不参与任何决策，留给以后设计「省额度模式」用；`/dp signals off` 可以停止记录。
 
 ## 配置
@@ -416,7 +416,7 @@ mod 根目录的 `tsconfig.json` 是手写的。它继承生成的配置，并�
 
 用 `claude -p` 在真实引擎里跑时，要带 `--strict-mcp-config` 和 `--settings '{"enabledPlugins":{"jev-pilot@jev-pilot":false}}'`（jev-pilot 不停用会和本 mod 抢 effort），并且不配密钥；`claude -p "/dp"` 这样把斜杠命令当整个 prompt 的运行在本地完成，不调用模型，也不发决策请求。
 
-**发版（#18）。** 递增 `.claude-plugin/plugin.json` 的 `version`；marketplace 条目不写版本，两处不会不一致。不升 `version` 就推新的提交，从 GitHub 装的用户拿不到：`claude plugin update` 和自动更新都先算出版本（plugin.json 的 `version` 优先，其次 marketplace 条目的，两处都没写才用提交的 SHA），和 `installed_plugins.json` 记的相同就不换缓存里的副本（Claude Code 文档 plugins/loading 的「Versions and updates」），重新运行 `plugin install` 也只会报已经装过。从本地目录添加 marketplace 的用户不受影响：mod 从那个目录原地加载，不看 `version`（见「已实测的引擎行为（2.1.289）」里「从 marketplace 安装」那一条）。开发时不用安装，用 `--plugin-dir` 加载（上面的命令），保存就热重载。`claude plugin tag ./dispatch-pilot` 会建 `dispatch-pilot--v<version>` 的 git tag，并核对 plugin.json 和 marketplace 条目一致（`--dry-run` 只打印，不建）。0.2.0 还没有打 tag：按用户的决定，只推送分支，不合并 main，也不打 tag（`--dry-run` 核对过 plugin.json 和 marketplace 条目一致，会建的 tag 是 `dispatch-pilot--v0.2.0`）。
+**发版（#18）。** 递增 `.claude-plugin/plugin.json` 的 `version`；marketplace 条目不写版本，两处不会不一致。不升 `version` 就推新的提交，从 GitHub 装的用户拿不到：`claude plugin update` 和自动更新都先算出版本（plugin.json 的 `version` 优先，其次 marketplace 条目的，两处都没写才用提交的 SHA），和 `installed_plugins.json` 记的相同就不换缓存里的副本（Claude Code 文档 plugins/loading 的「Versions and updates」），重新运行 `plugin install` 也只会报已经装过。从本地目录添加 marketplace 的用户不受影响：mod 从那个目录原地加载，不看 `version`（见「已实测的引擎行为（2.1.289）」里「从 marketplace 安装」那一条）。开发时不用安装，用 `--plugin-dir` 加载（上面的命令），保存就热重载。`claude plugin tag ./dispatch-pilot` 会建 `dispatch-pilot--v<version>` 的 git tag，并核对 plugin.json 和 marketplace 条目一致（`--dry-run` 只打印，不建）。0.2.0 还没有打 tag：按用户的决定，只推送分支，不合并 main，也不打 tag（`--dry-run` 核对过 plugin.json 和 marketplace 条目一致，会建的 tag 是 `dispatch-pilot--v0.2.0`）。0.3.0（看板、依据面板、中文界面）已经升了版本号；发布本身（推送、合并 main、打 tag `dispatch-pilot--v0.3.0`、从 marketplace 装一遍并端到端走一遍）等用户批准之后再做，还没有做。
 
 ### 结构
 
@@ -439,8 +439,8 @@ hooks/
 │   ├── view.ts             从看板数据算出画面要的东西（ScreenView）：哪一轮、按开始先后排的 agent 行、事件流、一轮结束后的一行；关掉的功能不出现，skill 画像从不出现
 │   ├── band.tsx            终端的 band：状态条、每个 agent 一行（数字键、名字、模型标签、effort 标签、状态符号、时间色带、状态格）、事件流；空闲一行；不到 4 行时一行摘要
 │   ├── footer.tsx          终端的脚部摘要：状态符号、主 agent 的模型·effort、+N，最多 12 列
-│   ├── rationale.ts        依据面板看到的东西（纯函数）：选中的 agent 和它的决定（cardOf）、规则推演每一步的说法（stepLines，只读存下的步骤，不重算）、中途重判的结论（midVerdict）、按轮分组的日志和折叠键（logGroups）、顶部的已关功能和 skill 画像（offLine、profilesLine）；面板的 id
-│   ├── pane.tsx            终端的依据面板：顶部灰字（已关的功能、锁定、skill 画像）、‹ 上一个 (p) / 下一个 › (n)、圆角的依据卡片、按轮分组的决策日志；悬挂缩进，不截断
+│   ├── rationale.ts        依据面板看到的东西（纯函数）：选中的 agent 和它的决定（cardOf）、规则推演每一步的说法（stepLines，只读存下的步骤，不重算）、中途重判的结论（midVerdict）、按轮分组的日志和折叠键（logGroups）、顶部每项功能的开关（`switchWord`；整个 mod 关着时的 `offLine`）和 skill 画像（`profilesLine`）；面板的 id
+│   ├── pane.tsx            终端的依据面板：顶部灰字（每项功能的开关状态、锁定、skill 画像）、‹ 上一个 (p) / 下一个 › (n)、圆角的依据卡片、按轮分组的决策日志；悬挂缩进，不截断
 │   └── kit.tsx             视觉语言：色板、effort 色阶、模型标签、单元格宽度、Raster 的格子、时间色带、概率条和置信条
 ├── core/                   各功能共用的机制，不含具体功能
 │   ├── core.ts             核心的 hook：发消息时的决策请求、一轮的开始、每一步的写入、认出 settings hook 拦下的调用、记下用户运行的命令
@@ -686,7 +686,7 @@ const request = mergeParts(midturnState(row.zh, { steps: 4, tokens: 2000 }), [mi
 每项功能在自己的 register 里登记一个开关，一行：
 
 ```ts
-defineSwitch({ name: 'midturn-effort', info: "re-decides the main agent's effort while a turn runs", parts: ['midturn'] })
+defineSwitch({ name: 'midturn-effort', info: '一轮进行中重新判断主 agent 的 effort', parts: ['midturn'] })
 ```
 
 `/dp` 的列表里会自动出现它，`/dp midturn-effort off` 可以关掉它，状态存进 `$.store`，不需要别的接线。功能在要动手的地方用 `isOn(name)` 判断，例如 `if (!isPersonsMessage(e) || !isOn('main-effort')) return next(e)`。
@@ -694,7 +694,7 @@ defineSwitch({ name: 'midturn-effort', info: "re-decides the main agent's effort
 - `isOn` 同时看总开关：总开关关着时它对所有功能都返回 false，功能不必再单独判断总开关。总开关关着时核心也自己放行：`prompt.submit` 不发决策请求，`turn.step` 不改写任何一步（锁定也不生效），band 上没有 Dispatch Pilot 的内容，脚部只写 `○ dp 已关`。
 - 在发消息、每一步、事件发生的时候判断，不要在 register 里判断：register 时还没有读到用户保存的开关（`features/control.ts` 在 `session.start` 里读，热重载后会重新读）。
 - `name`：小写字母、数字和 `-`，以字母开头；不能是 `/dp` 自己的词（`master`、`on`、`off`、`all`、`reset`、`status`、`help`、`lock`、`unlock`、`log`），否则登记时抛错。建议和功能的文件名一致。重复登记同一个名字会替换前一次。
-- `info`：一行英文（ASCII），显示在 `/dp` 的列表里。
+- `info`：一行中文，显示在 `/dp status` 的列表和开关的回答里。名字是用户要输入的，保持 ASCII；`info` 是给人看的，不受字符宽度的限制，终端和别的端都用同一份（band、脚部和面板不再靠一行状态行，没有「只准单宽字符」这条约定）。
 - `parts`（可选）：这项功能写在看板节点上的部分（`core/switches.ts` 的 `BoardPart`：`midturn` 是中途重判的次数，`counts` 是失败计数）。功能的决定和事件凭开关名就是它的（日志条目和 note 的 `feature`），不用登记。关掉这项功能时，画面（`hooks/board/`）在画的时候用 `isOn(name)` 和 `isShown(part)` 把它们都略过，`/dp` 经 `reportSwitch` 让画面重画一次；看板数据和决策日志不动，打开后照常出现。
 - `default: false`（可选）：默认关闭；不写就默认开启。
 - `$.store` 的 `switches` 里只存用户改过的、和默认值不同的开关（总开关的键是 `master`）。`/dp` 保存时只改动这一个开关，别的会话存下的其他项原样保留，未知的名字也保留（功能改名或回退版本时不丢用户的选择）。
@@ -717,26 +717,26 @@ const io: ReportIo = {
   toast: (text) => $.ui.toast(text),
 }
 await reportDecision(io, { feature: 'main-effort', agent: 'main', forTurn: 'next', subject: '"把登录模块重构成三层"', routed: true,
-  outcome: 'effort high', reason: 'p low 0.05, ...; confidence 0.70', probs: { low: 0.05, /* ... */ max: 0.05 }, conf: 0.7 })
+  outcome: 'effort high', reason: '概率 low 0.05, ...；置信度 0.70', probs: { low: 0.05, /* ... */ max: 0.05 }, conf: 0.7 })
 await reportDecision(io, { feature: 'main-effort', agent: 'main', forTurn: 'next', subject: '"..."', routed: false,
   failure: { backend: 'jev', kind: 'timeout', detail: 'no answer in 800 ms' } }) // 决策模型没给出决定
 ```
 
-- 决定（`Decided`）：`feature`（开关名；报告开始的一轮写 `main-effort (agent report)`）、`agent`（`main` 或 agentId）、`outcome`（几个词：`effort high`）、`reason`（理由，一行英文）、`subject`（针对什么：消息的开头、agent 的 label）、`forTurn`、`routed`、`tone`（默认 `ok`），以及可选的 `probs`、`conf`、`trace`（规则推演）、`floor`、`mid`（中途重判：当前档 `current`、建议档 `picked`、结果 `result`、置信度门槛 `threshold`、防抖时还差几步 `remaining` 和原因 `held`）、`forced`（强制升档：`kind` 是 `effort` 或 `model`，`from` → `to`，和它保住的下限 `floor`）、`skills`（skill 推荐：`suggest` 给主 agent 的，`try` 只能由用户触发的，即「可试 /x」，各带相关度）、`counts`（这个 agent 的失败、阻塞、升档计数）、`aside`。每个决定写一条 debug log（`<outcome> for <subject>: <reason>`）和一条决策日志（带 `at`：从那一轮开始的秒数，事件流按它排），并写到那个 agent 在这一轮的节点上（`decision` 是日志编号）。`routed: true` 同时清掉节点上旧的 `why` 和 `failure`。`trace` 直接交规则自己给出的步骤（`decision/effort.ts` 的 `traceEffort(...).steps`；中途重判交 `[...trace.pick.steps, ...trace.steps]`，`midturnRecord(verdict, position, rules)` 给出 `mid`；强制升档交 `decision/escalation.ts` 的 `traceRaise(...).steps`），不要另行计算：主 agent 的 effort 决定（`features/main-effort.ts`）、中途重判（`features/midturn-effort.ts`）和强制升档（`features/escalation.ts`）已经这样带上。
+- 决定（`Decided`）：`feature`（开关名；报告开始的一轮写 `main-effort (agent report)`）、`agent`（`main` 或 agentId）、`outcome`（几个词：`effort high`）、`reason`（理由，一行中文）、`subject`（针对什么：消息的开头、agent 的 label）、`forTurn`、`routed`、`tone`（默认 `ok`），以及可选的 `probs`、`conf`、`trace`（规则推演）、`floor`、`mid`（中途重判：当前档 `current`、建议档 `picked`、结果 `result`、置信度门槛 `threshold`、防抖时还差几步 `remaining` 和原因 `held`）、`forced`（强制升档：`kind` 是 `effort` 或 `model`，`from` → `to`，和它保住的下限 `floor`）、`skills`（skill 推荐：`suggest` 给主 agent 的，`try` 只能由用户触发的，即「可试 /x」，各带相关度）、`counts`（这个 agent 的失败、阻塞、升档计数）、`aside`。每个决定写一条 debug log（`<outcome> · <subject>：<reason>`，和决策日志里的字一样）和一条决策日志（带 `at`：从那一轮开始的秒数，事件流按它排），并写到那个 agent 在这一轮的节点上（`decision` 是日志编号）。`routed: true` 同时清掉节点上旧的 `why` 和 `failure`。`trace` 直接交规则自己给出的步骤（`decision/effort.ts` 的 `traceEffort(...).steps`；中途重判交 `[...trace.pick.steps, ...trace.steps]`，`midturnRecord(verdict, position, rules)` 给出 `mid`；强制升档交 `decision/escalation.ts` 的 `traceRaise(...).steps`），不要另行计算：主 agent 的 effort 决定（`features/main-effort.ts`）、中途重判（`features/midturn-effort.ts`）和强制升档（`features/escalation.ts`）已经这样带上。
 - 旁支决定（`aside: true`）：中途重判、强制升档和 skill 推荐是主 agent（或某个 agent）那一轮的路由之外的决定：写决策日志和 debug log，不碰 agent 的节点（节点的 `decision` 链接、`routed`、`why` 仍是路由自己的）。同一个 agent 的节点上，这几项功能的计数另走 `reportTally`。
-- 没能做出决定（`NotDecided`）：带 `failure`（`{ backend, kind, detail, status? }`，后端名加 `Failure`）。它不进决策日志、不写 debug log（和以前一样，请求本身已经由核心记在 debug log 里），只写到 agent 的节点上：`why` 是简短的原因，`failure` 是完整的，`routed` 照 `routed` 字段。不是旁支的（这个 agent 的路由失败了）还弹一个 toast：一次事件最多一个，写谁没路由、`failureWords` 的几个字和 `failureText` 的细节；离上一个 toast 不到 2 秒的不弹（引擎会丢掉，看板上照样有）。
+- 没能做出决定（`NotDecided`）：带 `failure`（`{ backend, kind, detail, status? }`，后端名加 `Failure`）。它不进决策日志、不写 debug log（和以前一样，请求本身已经由核心记在 debug log 里），只写到 agent 的节点上：`why` 是简短的原因（`failureLine` 的中文，例如 `jev：1500 毫秒内没有回答`），`failure` 是完整的，`routed` 照 `routed` 字段。不是旁支的（这个 agent 的路由失败了）还弹一个 toast：一次事件最多一个，写谁没路由、`failureWords` 的几个字和 `failureLine` 的细节；离上一个 toast 不到 2 秒的不弹（引擎会丢掉，看板上照样有）。
 - `forTurn: 'next'`：在这一轮开始之前做的决定（`prompt.submit` 里，这条消息将开始一轮），归到将开始的那一轮；`'current'`（默认）：正在进行的这一轮，例如在一轮中途发的消息。轮数由 module 自己的 `turn.start` hook 数，从 1 开始。
-- 什么也没决定、也不是失败的请求时（`Skipped`，必带 `aside`）：`skipped` 是 `unanswered`（回答里没有 skill 那一题）、`unread`（读不到会话的 skill）、`none`（没有可评分的 skill）或 `error`（插件自己出错，debug log 有）。不进决策日志，也不在节点上，在看板的 `notes` 里记一条 `{ turn, id, feature, at, after, kind: 'skipped', why: <skipped> }`，band 的事件流画它。旁支的失败（`failure` 加 `aside`，例如第二段 skill 请求失败、find_skill 的请求失败）同样记一条 note，`kind: 'failed'`、`why` 是 `failureText`；不弹 toast（那个 agent 的路由还在）。
+- 什么也没决定、也不是失败的请求时（`Skipped`，必带 `aside`）：`skipped` 是 `unanswered`（回答里没有 skill 那一题）、`unread`（读不到会话的 skill）、`none`（没有可评分的 skill）或 `error`（插件自己出错，debug log 有）。不进决策日志，也不在节点上，在看板的 `notes` 里记一条 `{ turn, id, feature, at, after, kind: 'skipped', why: <skipped> }`，band 的事件流画它。旁支的失败（`failure` 加 `aside`，例如第二段 skill 请求失败、find_skill 的请求失败）同样记一条 note，`kind: 'failed'`、`why` 是 `failureLine`；不弹 toast（那个 agent 的路由还在）。
 - 一个 agent 在看板上还没有节点时，第一份报告建它：主 agent 的名字是「主 agent」；其他 agent 带 `node: { kind, name, type }`。
 - 一次事件有几个决定时（一个 Workflow 的几个 agent）用 `reportDecisions(io, [..])`：日志和看板各写一次，toast 也最多一个；`reportDecision` 是只有一条的特例。
-- 决定的几种形状，都用 `feature`、`agent`、`subject`、`node` 说是谁的：`Decided`（上面）还可以带 `model`、`effort`（决定了的模型家族和档位，记在决策日志的条目上，不写到节点上：节点的 `model`、`effort` 只是读数，见入口二）；`NotDecided`（失败）；`Left`（`why`：没有请求失败、只是这个 agent 或 Workflow 按原样运行，例如「its prompt is built when the script runs」「given by path」；`asWritten` 是设计如此，`offBoard` 是看板上没有什么可写的）；`Started`（`started: true`：它的决定早先为它的调用做过，现在 agent 启动了，不另记日志）。
+- 决定的几种形状，都用 `feature`、`agent`、`subject`、`node` 说是谁的：`Decided`（上面）还可以带 `model`、`effort`（决定了的模型家族和档位，记在决策日志的条目上，不写到节点上：节点的 `model`、`effort` 只是读数，见入口二）；`NotDecided`（失败）；`Left`（`why`：没有请求失败、只是这个 agent 或 Workflow 按原样运行，例如「它的 prompt 要等脚本运行时才拼出来」「按路径提交，没有改写」；`asWritten` 是设计如此，`offBoard` 是看板上没有什么可写的）；`Started`（`started: true`：它的决定早先为它的调用做过，现在 agent 启动了，不另记日志）。
 - 节点的 `node.state`（`queued`：还没启动）、`node.workflow`（所属 Workflow）和 `replaces`（这个 agent 启动前，是哪个节点替它占着位置：新节点接过它的 `decision` 链接，旧节点撤掉）。
 - Workflow 的 agent 启动前没有 id，所以脚本里的每个 `agent()` 调用在看板上占一个 `wf` 节点，状态 `queued`，id 是 `<Workflow 工具调用的 tool_use_id>#<调用的序号>`，`workflow` 是 `{ id: tool_use_id, name }`，`decision` 指向它的日志条目（条目上有决定的 `model`、`effort`）。整个 Workflow 没走路由（用路径或名字提交、脚本读不了、出错）是一个 id 为 `tool_use_id` 的节点，状态 `done`，`why` 说明原因。按 label 兜底时 agent 启动，节点换成 agent 自己（id 是 agentId，`replaces` 指向它的调用）；只认得出一个调用的才换，同一个 label 对应几个调用的不换。workflow-agents 写进脚本的调用：agent 第一步由读数认出它的 label 时，换掉名字相同、还在排队的调用节点（`reportStep`，同一个 Workflow 下）。
 
 **入口二：`reportStep(io, { agentId?, model, effort?, source })`。** 一步发出的读数：模型（按家族记）、effort、有没有路由（`source` 是 `planStep` 的 `locked | planned | engine`）。只观察，从不改写。核心在 `turn.step` 里为每个 loop（主 agent、派出 agent、Workflow agent）的每一步调用它，传的是核心发出的模型和 effort；没有另外一个读数的 hook，也不放在核心之上或之下。`io` 是 `StepIo`（`ReportIo` 加 `agents`、`runDirs`、`journal`），核心自己写这些闭包（`$` 只跟进同文件的函数，不能传给 import 来的函数）。
   - 节点：agent 的节点在它第一步（或 `agent.spawn` 返回时，见下）建；名字取 `$.agent.list()` 的 `name`，没有就取 `description`；`$.agent.list()` 里没有的，到会话的 Workflow 运行目录（`workflowRuns` 和 `labelRuns` 记下的）的 `journal.jsonl` 里找它的 `started` 行，取 label（没写 label 时就是 prompt 的前 60 个字符，不处理），`kind: 'wf'`、`type: 'workflow'`。两处都不认的 loop（引擎自己的压缩、记忆 fork）不上看板。Workflow 的第一个 agent 可能比 Workflow 的 `tool.call` 记下运行目录还早走第 0 步，所以认不出时不建节点，记下第一次见到的时间（模块变量，热重载丢了的代价是起点晚一步），下一步或它这个 loop 结束时再认，起点（`t0`）仍是第一次见到的那一步。
   - 时间：`board.starts` 记最近两轮各自开始的 `$.clock.now()`（模块自己的 `turn.start` hook 写）；`t0` 是从它所在那一轮开始到 agent 第一步的秒数（主 agent 恒为 0；排队中的派出 agent 是 spawn 的时刻，第一步时改成第一步的时刻），`dur` 是它这个 loop 的 `turn.complete` 的 `durationMs`（秒）。一个 agent 在下一轮开始时还在跑，就留在它开始的那一轮的节点里继续更新；已经结束的 agent 再走一步，同一轮里重新变成 `running`（去掉 `dur`），隔了一轮就在新一轮建新节点。
-  - 状态：`queued`（`agent.spawn` 返回了 agentId，还没走第一步；Workflow agent 看不到排队，它的 `started` 行紧挨着第 0 步）→ `running`（每个读数）→ `done`（`turn.complete` 的 `reason` 是 `answer`）或 `failed`（`error`、`refusal`、`aborted`；没有别的原因时 `why` 写 `error`、`refused`、`aborted`）。Workflow agent 的 `turn.complete` 实测会触发（2.1.291，带 `agentId`，`reason: 'answer'`），主 agent 的那一轮可以比它们先结束。
+  - 状态：`queued`（`agent.spawn` 返回了 agentId，还没走第一步；Workflow agent 看不到排队，它的 `started` 行紧挨着第 0 步）→ `running`（每个读数）→ `done`（`turn.complete` 的 `reason` 是 `answer`）或 `failed`（`error`、`refusal`、`aborted`；没有别的原因时 `why` 写 `出错`、`拒绝回答`、`被中断`，即 `ENDED_WORDS`）。Workflow agent 的 `turn.complete` 实测会触发（2.1.291，带 `agentId`，`reason: 'answer'`），主 agent 的那一轮可以比它们先结束。
   - 变化事件：同一个 agent 同一轮里，读数（模型的家族，或 effort）和上一步不同才在 `board.changes` 记一条 `{ turn, id, at, after, from, to }`（`at`：从那一轮开始的秒数；`after`：这时决策日志最后一条的 `n`，事件流按它把变化排在决定之后）。第一次读数不算变化；`claude-sonnet-5` 和 `claude-sonnet-5-5` 同一家族不算；haiku 没有 effort，所以不带 effort 的读数照常记，从 haiku 换到别的家族是一条变化。
   - 生命周期的三个 hook（`registerReport`，都只看不改）：`turn.start`（轮数和开始时间）、`agent.spawn`（`next` 返回后给派出 agent 建一个排队的节点，别的功能先建了就只改成排队）、`turn.complete`（节点的 `done`/`failed` 和 `dur`）。
 
@@ -744,11 +744,20 @@ await reportDecision(io, { feature: 'main-effort', agent: 'main', forTurn: 'next
 
 **入口四：`reportSwitch(io, change)`。** 用户用 `/dp` 开关时交给 module（只有 `features/control.ts` 用）：`{ master: boolean }` 或 `{ feature, on }`。`io` 是 `SwitchIo`，只有 `redraw: () => $.ui.invalidate('ui.render')`：画面在画的时候读开关（`isOn`、`isShown`），开关一变就重画一次。看板和决策日志不动。
 
-**一个写入者。** 没有文件调用 `$.ui.status`（终端不再用它，#29），`report.ts` 也不例外；toast 只由 `report.ts` 弹，各文件只以 `toast: (text) => $.ui.toast(text)` 这个交给 `ReportIo` 的闭包碰 `$.ui.toast`；旧的 `setStatus`、`pauseStatus`、`recordDecision` 都已删除。`eval/validate.ts` 的一个写入者检查（`checkOneWriter`，`tests/docs-sync.test.ts` 测它）读 hooks/ 全部源码（`.ts` 和 `.tsx`）来保证这一点。`features/skill-profiles.ts` 另外连 `$.ui.log` 也不直接调（debug 闭包 `debug: (line) => $.ui.log(line, { to: 'debug' })` 除外）。`failureText`（后端失败的一句话）在 `decision/backend.ts`，看板的 `why`、日志的理由和给模型看的文字（Workflow 的改写说明、find_skill 的回答）都用它，文字不变；band 上的短原因是 `report.ts` 的 `failureWords`。
+**一个写入者。** 没有文件调用 `$.ui.status`（终端不再用它，#29），`report.ts` 也不例外；toast 只由 `report.ts` 弹，各文件只以 `toast: (text) => $.ui.toast(text)` 这个交给 `ReportIo` 的闭包碰 `$.ui.toast`；旧的 `setStatus`、`pauseStatus`、`recordDecision` 都已删除。`eval/validate.ts` 的一个写入者检查（`checkOneWriter`，`tests/docs-sync.test.ts` 测它）读 hooks/ 全部源码（`.ts` 和 `.tsx`）来保证这一点。`features/skill-profiles.ts` 另外连 `$.ui.log` 也不直接调（debug 闭包 `debug: (line) => $.ui.log(line, { to: 'debug' })` 除外）。后端失败的一句话有两份，都在 `decision/backend.ts`：`failureText` 是英文，给模型看的文字（Workflow 的改写说明、启动说明、find_skill 的回答）和 debug log 用它，一字不改；`failureLine` 是中文，看板的 `why`、日志的理由、事件流和 toast 用它。band 上的短原因是 `report.ts` 的 `failureWords`。
 
-- debug log 里那一行是 `<outcome> for <subject>: <reason>`；`/dp log` 里是 `#<n> <feature>: ` 加同样的一行。
+- debug log 里那一行是 `<outcome> · <subject>：<reason>`；`/dp log N` 里是 `#<n> <feature>：` 加同样的一行。
 - 只记决定，不记失败的请求：请求的结果已经由核心写进 debug log。重判、强制升档、派出 agent 的模型选择、skill 推荐，都应该各记一条。
 - 决策日志保留最近 20 轮（按条目的 `turn`）、最多 300 条，更早的丢弃；看板的节点只留当前一轮和上一轮。
+
+### 语言：给人看的是中文，给模型看的是英文（#32）
+
+- **给人看的**：看板、依据面板、决策日志（`outcome`、`subject`、`reason`）、toast、`/dp` 各子命令和各开关的回答、开关的 `info`、README、`plugin.json` 里的说明，一律中文，用词照 GLOSSARY。模型名和 effort 档名照 `/model`、`/effort` 的写法（`sonnet`、`xhigh`）；`agent`、`skill`、`Workflow`、`effort`、`prompt` 这些 GLOSSARY 里保留的词照用。不留英文缩写：`HTTP 401` 写「状态码 401」，`ms` 写「毫秒」，`p` 写「概率」，`thetaUp` 这类配置项的内部名写成它的意思（「升档门槛」）。用户要输入的名字（开关名、命令的参数、配置项名）保持原样。
+- **给模型看的**：Workflow 的改写说明、退回说明和启动说明、skill 推荐的文字块、`find_skill` 的回答和工具描述、列表位置上的提示、Workflow 工具描述后面的常驻提示，一律英文，一字不改。`tests/model-facing.test.ts` 钉住两种 Workflow 说明（改写、退回）和失败的话的英文写法（`failureText`、`leftText`、`whyOf`）；skill 推荐的文字块、`find_skill` 的回答和启动说明由 `skills.test.ts`、`skill-ranking.test.ts`、`find-skill.test.ts`、`workflow-labels.test.ts` 逐字断言。
+- **同一个概念给人和给模型的两份文字分开写**：`callName` 和 `callTitle`、`outcomeOf` 和 `callResult`、`leftText` 和 `leftWords`、`failureText` 和 `failureLine`，前者给模型（和 debug log），后者给人。改给人的一份，不要碰给模型的一份。
+- **debug log 的诊断行**（请求的结果、`session.measure` 的读数、错误、画面没画出来的原因）是写给开发者的，保持英文。「决定」那一行和决策日志是同一份文字，所以是中文。
+- 界面要判断一条日志是什么时，看结构化的字段（`sentBack`、`forced`、`mid`、`skills`、`model`、`effort`），不要去匹配文字；`view.ts` 里只剩一处按「（Workflow 名）」取名字的回退，节点上有 Workflow 的信息时不用它。
+- `tests/human-words.test.ts` 断言失败的话和 skill 画像失败原因的中文，并扫一遍一轮之后看板、日志和 `/dp` 的回答里没有留下 `HTTP`、`thetaMax`、`kept`、`confidence` 这类英文。
 
 ### 会话的读数
 
@@ -835,7 +844,7 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 
 `hooks/board/` 画「决定汇报」的数据，自己不写看板（只写看板之外的两个视图状态：`$.state` 的 `selected`，band 上数字键或面板上 p / n 选中的 agent；`paneView`，依据面板里折叠或展开的轮、是否列出失败的 skill；都只在按键的 `onPress` 里写）。`screens.tsx` 有三个 `ui.render` hook（`AbovePrompt`、`SessionMode`、`Pane` 加 `requestId: 'dp-rationale'`，各带 matcher），按 `e.surface` 分支：终端把自己的 `Raster` 构造器交给 `bandTree` / `paneTree`（画时间色带和概率条），其他端不交，画的是同一棵树去掉这些（脚部标签的预算 `TAG_CHARS` 24，面板的日志按 `WINDOWS` 开窗口，树超过 1800 个节点就换小一档，因为 Desktop 页面拒收 2000 个）；band 和脚部都先 `await next(e)`，把引擎和别的 mod 的内容放在前面。画的时候从 `$.state` 读 `board`、`decisionLog`、`selected`（画的时候读就订阅了，数据一变宿主就重画），交给 `view.ts` 的 `screenView` 算出 `ScreenView`（哪一轮、agent 行、事件流、一轮结束后的摘要），`band.tsx`、`footer.tsx` 只画它。有 agent 在跑时，每 `TICK_MS`（200 ms）用 `$.clock.after` 要一帧（转圈、用时、色带），没有在跑的就不再要。终端的 band 不超过 16 行；多出来的 agent 和事件各折成一行（「另有 N 个 agent」「更早 N 个事件」），留下主 agent、在跑的（按开始先后，保住数字键）和最新的两个事件。行宽按 `bodyColumns` 分配：状态格、effort 先变窄，不到 6 格时去掉时间色带，所以一行永远不折行；固定宽度的格子都 `flexShrink={0}`。新增要在看板上显示的东西，先扩充决定或 note 的结构（`report.ts`），再在 `view.ts` 里算、在 `band.tsx` 里画。
 
-依据面板（`pane.tsx`，从 `rationale.ts` 的纯函数取东西画）用的是同一个 `ScreenView`：卡片是 `view.rows` 里选中的那一行（没选、或选中的已经不在看板上时是主 agent），p / n 沿 `view.rows` 移动、到头停住；卡片上的决定是节点的 `decision` 指向的日志条目，强制升档是同一个 agent 的 `escalation` 条目（带 `forced`），中途重判是主 agent 这一轮带 `mid` 的条目。规则推演的每一行由 `stepLines` 从存下的步骤（`trace`）写出，生效与否看步骤自己的 `applied`；中途重判的结论（`midVerdict`）看 `suggest`、`hold`、`theta-up`/`theta-down`、`floor` 这几步，置信条的刻度是步骤里的 `threshold`。不要从 `probs` 或配置里的门槛重新算：卡片要和规则的实际行为一致（ADR 0004、#23）。面板里没有截断：名字、理由、主题都放进带固定宽度标签列的行里换行（`hang`），`Text` 一律 `wrap="wrap"`；概率条和置信条在 8 到 20 格之间随宽度变化；卡片不到 48 格宽时（窄终端上的内联面板），模型标签和 effort 移到名字下面一行。失败的请求在卡片上分几行写：类型（`Failure.kind` 和它的意思）、后端、细节（`failureText`）、去 debug log 哪里看。打开面板的地方有三处：`/dp`（开关，`focus` + `closeOnEscape`）、`/dp log`（只打开）、band 的数字键（`onPress` 里打开，不要 `focus`，这样下一个数字键还在 band 上起作用）；`$.ui.open` 回答 `isPlaced: false` 时都立刻 `$.ui.close`（命令在回复里说明，数字键只写 debug log：按键是用户请求的打开，终端上总会放出来）。面板的字母键只在面板拿到键盘时起作用（ctrl+x tab 或 `/dp`）。
+依据面板（`pane.tsx`，从 `rationale.ts` 的纯函数取东西画）用的是同一个 `ScreenView`：卡片是 `view.rows` 里选中的那一行（没选、或选中的已经不在看板上时是主 agent），p / n 沿 `view.rows` 移动、到头停住；卡片上的决定是节点的 `decision` 指向的日志条目，强制升档是同一个 agent 的 `escalation` 条目（带 `forced`），中途重判是主 agent 这一轮带 `mid` 的条目。规则推演的每一行由 `stepLines` 从存下的步骤（`trace`）写出，生效与否看步骤自己的 `applied`；中途重判的结论（`midVerdict`）看 `suggest`、`hold`、`theta-up`/`theta-down`、`floor` 这几步，置信条的刻度是步骤里的 `threshold`。不要从 `probs` 或配置里的门槛重新算：卡片要和规则的实际行为一致（ADR 0004、#23）。面板里没有截断：名字、理由、主题都放进带固定宽度标签列的行里换行（`hang`），`Text` 一律 `wrap="wrap"`；概率条和置信条在 8 到 20 格之间随宽度变化；卡片不到 48 格宽时（窄终端上的内联面板），模型标签和 effort 移到名字下面一行。失败的请求在卡片上分几行写：类型（`Failure.kind` 的中文意思）、后端、细节（`failureLine`）、去 debug log 哪里看。打开面板的地方有三处：`/dp`（开关，`focus` + `closeOnEscape`）、`/dp log`（只打开）、band 的数字键（`onPress` 里打开，不要 `focus`，这样下一个数字键还在 band 上起作用）；`$.ui.open` 回答 `isPlaced: false` 时都立刻 `$.ui.close`（命令在回复里说明，数字键只写 debug log：按键是用户请求的打开，终端上总会放出来）。面板的字母键只在面板拿到键盘时起作用（ctrl+x tab 或 `/dp`）。
 
 ### 配置项
 
@@ -845,7 +854,7 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 
 ### 测试怎么写（接缝 1）
 
-测试只看 mod 对外的行为：发进事件，检查到达引擎和决策后端的东西，包括每一步的 effort 和 model、请求的内容、附加的 context、看板数据（`w.board()`）、toast（`w.toasts`）和 debug log；画面用 `w.band({ columns, rows, isWorking, surface })`、`w.footer({ modes, surface })`、`w.pane({ columns, rows, placement, surface })` 经 `$.ui.mount` 画出来，按 key 找元素（`band-strip`、`band-agent-<i>`、`band-pick-<数字>`、`band-event-<i>`、`band-idle`、`band-squeezed`、`dp-footer`；面板的 `pane-head`、`pane-off`、`pane-profiles`、`pane-card`、`pane-card-<部分>`、`pane-card-step-<i>`、`pane-mid-<n>`、`pane-prev`、`pane-next`、`pane-fold-<轮>`、`pane-entry-<n>`），断言里面的数据而不是整行文字（`tests/screens.test.ts`、`tests/pane.test.ts`）。world 在 mod 之下回答 `ui.open`、`ui.close`、`ui.panes`：`w.panes` 是现在开着的面板，`w.paneActs` 记着每次打开和关闭；`beneath: { unplaced: '<原因>' }` 让每次打开都回答 `isPlaced: false`。同一个面板在一个测试里只能 mount 一次（第二次 mount 会报错），之后用 `redraw()`。`w.statuses` 记着 `$.ui.status` 的每次调用，只用来断言它从未被调用（ADR 0004）。非终端端的画面用 `surface: 'desktop'`（以及 `vscode`、`mobile`）mount：断言树里没有 `Raster`、节点数不到 2000（`$.ui.mount` 只按引擎的 20000 校验，Desktop 的 2000 要自己数，两个测试文件里各有一个 `inventory`），脚部标签不超过 24 个字符。不测内部函数。评测（接缝 2）用到的纯函数是另一个公开接口，可以直接测：`decision/` 的各个模块（拼请求、读回答，`tests/decision-module.test.ts` 等），以及评测也 import 的 `core/setup.ts`（`readConfig`、`dispatchSettings`）、`core/skills.ts`（`rankingSettings`、`describeStages`、读目录）和 `core/profiles.ts`（画像的键和查找）。
+测试只看 mod 对外的行为：发进事件，检查到达引擎和决策后端的东西，包括每一步的 effort 和 model、请求的内容、附加的 context、看板数据（`w.board()`）、toast（`w.toasts`）和 debug log；画面用 `w.band({ columns, rows, isWorking, surface })`、`w.footer({ modes, surface })`、`w.pane({ columns, rows, placement, surface })` 经 `$.ui.mount` 画出来，按 key 找元素（`band-strip`、`band-agent-<i>`、`band-pick-<数字>`、`band-event-<i>`、`band-idle`、`band-squeezed`、`dp-footer`；面板的 `pane-head`、`pane-off`（整个 mod 关着）、`pane-switches`、`pane-switch-<功能名>`、`pane-profiles`、`pane-card`、`pane-card-<部分>`、`pane-card-step-<i>`、`pane-mid-<n>`、`pane-prev`、`pane-next`、`pane-fold-<轮>`、`pane-entry-<n>`），断言里面的数据而不是整行文字（`tests/screens.test.ts`、`tests/pane.test.ts`）。world 在 mod 之下回答 `ui.open`、`ui.close`、`ui.panes`：`w.panes` 是现在开着的面板，`w.paneActs` 记着每次打开和关闭；`beneath: { unplaced: '<原因>' }` 让每次打开都回答 `isPlaced: false`。同一个面板在一个测试里只能 mount 一次（第二次 mount 会报错），之后用 `redraw()`。`w.statuses` 记着 `$.ui.status` 的每次调用，只用来断言它从未被调用（ADR 0004）。非终端端的画面用 `surface: 'desktop'`（以及 `vscode`、`mobile`）mount：断言树里没有 `Raster`、节点数不到 2000（`$.ui.mount` 只按引擎的 20000 校验，Desktop 的 2000 要自己数，两个测试文件里各有一个 `inventory`），脚部标签不超过 24 个字符。不测内部函数。评测（接缝 2）用到的纯函数是另一个公开接口，可以直接测：`decision/` 的各个模块（拼请求、读回答，`tests/decision-module.test.ts` 等），以及评测也 import 的 `core/setup.ts`（`readConfig`、`dispatchSettings`）、`core/skills.ts`（`rankingSettings`、`describeStages`、读目录）和 `core/profiles.ts`（画像的键和查找）。
 
 ```ts
 import { expect, test } from 'claude-code/testing'
@@ -1028,9 +1037,17 @@ eval/
   - **第二段确认了诱导**：041（「这个会话想从 Opus 切到 Sonnet，命令怎么敲」，claude-api 0.91–0.93）、050（问 Graphiti 的一个参数，research 0.74–0.86），017（后台挂着 dev server，run 0.70–0.79，中立但这题不该推荐；8 次里错 7 次）。画像的「何时不用」没有挡住它们。
   - **第二段过严**：096（「ctrl+r 老跟 tmux 撞键」，第一段 keybindings-help 0.71–0.94，第二段只给 0.08–0.46）；018（在输入框上方常驻一条横栏，正是 plugin-authoring 说的 band，第二段只给 0.33–0.68，`profiles` 下还推了中立的 ui-ux-pro-max）；052（claude-api 和 typesafe-ai 之间拿不准，相关度都在 0.6 以下；053、109 也是 8 次里错 7 次）；099 只在 `profiles` 下错（code-review 0.52–0.65，security-review 在第一段只分到 0.03–0.05）。
 
-### 已实测的引擎行为（2.1.289）
+### 已实测的引擎行为（2.1.289；看板部分 2.1.291）
 
-详细记录见 `docs/research/mods-testing-seam.md` 的第 10 节。
+详细记录见 `docs/research/mods-testing-seam.md` 的第 10 节。0.3.0 的看板取代了状态行：下面 0.2.x 时代的条目里写到的状态行（`dp effort ...`、`failed 2, blocked 1`）是当时的实测，保留原样；现在同样的信息在看板和依据面板上。
+
+看板（#29–#31，2.1.291；画面在 iTerm2 加 herdr 里看过）：
+
+- `$.ui.toast` 同一个插件 2 秒内的第二个会被引擎丢掉（2.1.289 实测，debug log 写 `within 2000ms of the last; dropped`），所以「决定汇报」自己合并：一次事件最多一个，离上一个不到 2 秒的不弹。
+- 在 `ui.render` hook 里用 `$.clock.after` 要下一帧可以用（转圈、用时、时间色带靠它），没有在跑的 agent 就不再要。
+- 固定宽度的格子在行太宽时会被 Ink 缩窄，所以每个固定格子都要 `flexShrink={0}`，宽度从 `bodyColumns` 里预算。
+- 全屏且终端够宽时，`$.ui.open` 的面板停靠在对话右边（窗口 194 列时面板约 76 列）；不够宽（97 列）时在 prompt 上方，占用 band 的行。Claude 跟着窗口缩放要 5 到 12 秒，中间会经过约 25 和 52 列。从 band 的数字键 `onPress` 里打开不带 `focus`，下一个数字键仍落在 band 上。
+- 非终端端：Raster 被拒；Desktop 的页面拒收 2000 个节点以上的树，而 `$.ui.mount` 只按引擎的 20000 校验，所以测试自己数节点。没有在真实的 Desktop 上看过。
 
 - 在同一个 dispatch 里，外层 hook 写入的 `$.state`，内层 hook 马上就能读到（kit 和真实引擎都实测过）。
 - 外层 hook 的 `$` 被闭包带进内层 hook 后可以照常调用（kit 和真实引擎）。
