@@ -40,7 +40,7 @@ import { errorText, type Failure } from '../decision/backend.ts'
 import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
-import { failureText, setStatus } from './status.ts'
+import { failureText, setStatus, type Segment } from './status.ts'
 
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 
@@ -188,13 +188,13 @@ export async function reportDecision(io: ReportIo, decision: ReportedDecision): 
         io.debug(`decision not kept for /dp log: ${errorText(error)}`)
       }
     }
+    let after = board
     try {
-      await update(io.board, (current) => withNode(current ?? EMPTY, turn, decision, n))
+      after = await update(io.board, (current) => withNode(current ?? EMPTY, turn, decision, n))
     } catch (error) {
       io.debug(`decision not kept on the board: ${errorText(error)}`)
     }
-    const old = LEGACY[decision.feature.split(' ')[0] as string]?.(decision)
-    if (old !== undefined) setStatus(old.segment, old.text, io.status)
+    for (const old of LEGACY[decision.feature.split(' ')[0] as string]?.(decision, after) ?? []) setStatus(old.segment, old.text, io.status)
   } catch (error) {
     io.debug(`decision not reported: ${errorText(error)}`)
   }
@@ -202,13 +202,15 @@ export async function reportDecision(io: ReportIo, decision: ReportedDecision): 
 
 /**
  * The old status line's segments that the board renders, by the feature that
- * decides what they say (its switch name): each reads the decision it is
- * handed, which is what it writes to the board. A feature's migration adds its
- * line here and drops its own `setStatus`; the line goes with step 2.
+ * decides what they say (its switch name): each is handed the decision and the
+ * board with it on (every agent's node of the latest turns, so a segment that
+ * sums up several agents reads them there), and says what its segments now
+ * read (`null`: nothing). A feature's migration adds its line here and drops
+ * its own `setStatus`; the whole line goes with step 2.
  */
-const LEGACY: Record<string, (decision: ReportedDecision) => { segment: 'decision'; text: string | null }> = {
+const LEGACY: Record<string, (decision: ReportedDecision, board: Board) => { segment: Segment; text: string | null }[]> = {
   // Why the person's message got no decision: the failed request, until a decision comes back.
-  'main-effort': (decision) => ({ segment: 'decision', text: 'failure' in decision ? failureText(decision.failure.backend, decision.failure) : null }),
+  'main-effort': (decision) => [{ segment: 'decision', text: 'failure' in decision ? failureText(decision.failure.backend, decision.failure) : null }],
 }
 
 // ---- entry 2: a reading -------------------------------------------------------

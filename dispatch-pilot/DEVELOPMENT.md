@@ -714,7 +714,7 @@ await reportDecision(io, { feature: 'main-effort', agent: 'main', forTurn: 'next
 - 没能做出决定（`NotDecided`）：带 `failure`（`{ backend, kind, detail, status? }`，后端名加 `Failure`）。它不进决策日志、不写 debug log（和以前一样，请求本身已经由核心记在 debug log 里），只写到 agent 的节点上：`why` 是简短的原因，`failure` 是完整的，`routed` 照 `routed` 字段。
 - `forTurn: 'next'`：在这一轮开始之前做的决定（`prompt.submit` 里，这条消息将开始一轮），归到将开始的那一轮；`'current'`（默认）：正在进行的这一轮，例如在一轮中途发的消息。轮数由 module 自己的 `turn.start` hook 数，从 1 开始。
 - 一个 agent 在看板上还没有节点时，第一份报告建它：主 agent 的名字是「主 agent」；其他 agent 带 `node: { kind, name, type }`。
-- 旧状态行的段：`LEGACY` 表按功能名（开关名）列出 module 替它渲染的段，现在只有 `main-effort` 的 `decision`；功能迁移时在这张表里加自己一行、去掉自己的 `setStatus`。`effort` 段由 `reportStep` 渲染。
+- 旧状态行的段：`LEGACY` 表按功能名（开关名）列出 module 替它渲染的段，每行是 `(decision, board) => [{ segment, text }]`：拿到这条决定和写入后的看板（最近两轮每个 agent 的节点），返回这些段现在该写什么（`null` 清掉）。现在只有 `main-effort` 的 `decision`；功能迁移时在这张表里加自己一行、去掉自己的 `setStatus`，要汇总多个 agent 的段（Workflow 的几个 agent）就从 `board.nodes` 里算。`effort` 段由 `reportStep` 渲染。
 
 **入口二：`reportStep(io, { agentId?, model, effort?, source })`。** 一步发出的读数：模型（按家族记）、effort、有没有路由（`source` 是 `planStep` 的 `locked | planned | engine`）。只观察，从不改写。读数和节点不同才写看板。现在核心在 `turn.step` 里为主 agent 的每一步调用它；「读数」票（#27）把它做成每个 agent 的收集器，签名不变。
 
