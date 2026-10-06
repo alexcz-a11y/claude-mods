@@ -1,0 +1,17 @@
+◆ dispatch-pilot  第 9 轮 · 把 hooks 里的 status 逻辑拆成独立…   A · Cockpit · many [-]
+主 agent  ▰▰▰▰▱ xhigh  已决定 · 置信 0.52 · xhigh 概率 0.62
+派出 agent  运行 6  完成 4  失败 1  升级 1
+⠸ Write types              sonnet  ▰▰▰▱▱ high   0:58
+⠸ Write status tests       sonnet  ▰▰▰▰▱ xhigh  ↑ high→xhigh
+⠸ Port effort segment      sonnet  ▰▰▱▱▱ medium 0:52
+⠸ Port skills segment      sonnet  ▰▰▱▱▱ medium 0:52
+✘ Run eslint               haiku   ▰▱▱▱▱ low    ✘ 失败
+⋯ 另有 6 个：运行 2 · 完成 4
+技能 tdd .82  ·  codebase-design .78
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                dp ▰▰▰▰▱ xhigh 6/11 ✘1

@@ -1,0 +1,10 @@
+▌ ◆ 0: 主 agent  ▰▰▰▰▱ xhigh  已决定 · 置信 0.25                 C · Tree · running [-]
+  ├─ ⠇ 1: Research mod UI surfaces      sonnet  ▰▰▱▱▱ medium 运行 0:10
+  └─ ⚑ 技能  research .86  ·  plugin-authoring .80
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                     dp ◆ xhigh ├1 ⠇1

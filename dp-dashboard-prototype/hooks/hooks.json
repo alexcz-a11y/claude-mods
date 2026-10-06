@@ -1,0 +1,4 @@
+{
+  "description": "PROTOTYPE: one hooks module; three UI variants of dispatch-pilot, fake data",
+  "modules": ["./dp-dashboard-prototype.tsx"]
+}

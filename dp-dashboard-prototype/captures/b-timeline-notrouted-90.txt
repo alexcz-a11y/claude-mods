@@ -1,0 +1,11 @@
+◆ 第 8 轮 ▏ ▰▰▰▰▱ xhigh 未路由 ▏ agent ⠇1 ✔1               B · Timeline · notrouted [-]
+0:00 ┬ ◆ 主 agent ▰▰▰▰▱ xhigh  未路由 · 斜杠命令开头的消息不走路由
+0:05 ├ ✔ 派出     #35   haiku   ▰▱▱▱▱ low    Grep dispatch-pilot … 完成 0:07
+0:08 └ ⠇ 派出      ·    opus*   ▰▰▰▰▱ xhigh  Check marketplace ma… 未路由 · jev: n…
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                    dp ⠇1 · opus·xhigh

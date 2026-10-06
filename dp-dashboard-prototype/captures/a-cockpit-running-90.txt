@@ -1,0 +1,12 @@
+◆ dispatch-pilot  第 7 轮 · 目前状态栏那个三角形感叹号为什…   A · Cockpit · running [-]
+主 agent  ▰▰▰▰▱ xhigh  已决定 · 置信 0.25 · xhigh 概率 0.59，置信偏低，仍取最可能…
+派出 agent  运行 1
+⠴ Research mod UI surfaces   sonnet  ▰▰▱▱▱ medium 0:10
+技能 research .86  ·  plugin-authoring .80
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                    dp ▰▰▰▰▱ xhigh 1/1

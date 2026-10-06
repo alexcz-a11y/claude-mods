@@ -1,0 +1,13 @@
+▌ ◆ 0: 主 agent  ▰▰▰▰▱ xhigh  已决定 · 置信 0.25  · 第 6 步 保持   C · Tree · stuck [-]
+  ├─ ✔ 1: Review ADR drafts           opus    ▰▰▰▰▱ xhigh  完成 0:52
+  ├─ ⠸ 2: Write migration tests       sonnet  ▰▰▰▰▱ xhigh  ↑ high→xhigh
+  ├─ ✘ 3: Probe Desktop renderer      sonnet  ▰▰▰▱▱ high   失败 · Bash 连…
+  ├─ ⠸ 4: Draft release notes         fable   ▰▰▱▱▱ medium 运行 0:57
+  └─ ⚑ 技能  research .86  ·  plugin-authoring .80
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                dp ◆ xhigh ├4 ⠸2 ✔1 ✘1

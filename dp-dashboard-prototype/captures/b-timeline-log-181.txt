@@ -1,0 +1,50 @@
+ ▝▝   ▝▝   ~/Documents/claude-mods-prototype                                               │                                                                       ✕
+                                                                                           │◆ 决定记录  共 19 条，按轮分组                          原型 B · Timeline
+                                                                                           │点击轮标题折叠 / 展开，或聚焦面板后按 1 2 3；/dpp fold <轮>
+❯ /clear                                                                                   │
+                                                                                           │1: ▾ 第 8 轮  /ask-matt 这个状态栏该怎么改                  3 条 ✔1 ⚠1 ✘1
+❯ /dpp b                                                                                   ││ #34  未路由           ▰▰▰▰▱ xhigh
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 agents                          ││ main-effort       “/ask-matt 这个状态栏该怎么改”
+                                                                                           ││ 斜杠命令开头的消息不走路由；沿用当前 xhigh
+❯ /dpp scene running                                                                       ││ #35  已决定   haiku   ▰▱▱▱▱ low
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 running                         ││ dispatched-agents “Grep dispatch-pilot hooks”（Explore）
+                                                                                           ││ ████████████▊████▎█▊  low .64 med .22 high .09 xhi .04 max .01
+❯ /dpp scene agents                                                                        ││ 置信 0.71 · 只读检索，选 haiku
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 agents                          ││ #36  路由失败
+                                                                                           ││ dispatched-agents “Check marketplace manifest”（general-purpose）
+❯ /dpp scene workflow                                                                      ││ jev: no answer in 1500 ms；沿用主 agent 的 opus · xhigh
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 workflow                        │
+                                                                                           │2: ▾ 第 7 轮  目前状态栏那个三角形感叹号为什么一直在        11 条 ✔10 ⚠1
+❯ /dpp scene stuck                                                                         ││ #23  已决定           ▰▰▰▰▱ xhigh
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 stuck                           ││ main-effort       “目前状态栏那个三角形感叹号为什么一直在…”
+                                                                                           ││ ████▋██▍███████████▎  low .23 med .02 high .12 xhi .59 max .04
+❯ /dpp scene notrouted                                                                     ││ 置信 0.25 · xhigh 概率 0.59，置信偏低，仍取最可能档位
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 notrouted                       ││ #24  已建议
+                                                                                           ││ skills            research、plugin-authoring
+❯ /dpp scene many                                                                          ││ research .86  plugin-authoring .80  grill-with-docs .46
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 many                            ││ #25  已决定   sonnet  ▰▰▰▰▱ xhigh
+                                                                                           ││ workflow-agents   “sweep:types”（Workflow mod-ui-surfaces-research）
+❯ /dpp scene idle                                                                          ││ █▎███████▍██████████  low .06 med .14 high .27 xhi .48 max .05
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 idle                            ││ 置信 0.79 · 选 sonnet
+                                                                                           ││ #26  已决定   opus    ▰▰▰▰▱ xhigh
+❯ /dpp scene agents                                                                        ││ workflow-agents   “verify:cross-check”（Workflow mod-ui-surfaces-rese…
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 agents                          ││ ▋█▎██▊████████████▎█  low .03 med .08 high .18 xhi .62 max .09
+                                                                                           ││ 置信 0.71 · 选 opus
+❯ /dpp log                                                                                 ││ #27  已决定   haiku   ▰▱▱▱▱ low
+  ⎿  dp-dashboard-prototype: dpp: 诊断面板已打开 · 原型 B · Timeline · 场景 agents         ││ dispatched-agents “Grep dispatch-pilot hooks”（Explore）
+◆ 第 7 轮 ▏ ▰▰▰▰▱ xhigh 已决定 ▏ agent ⠴3 ✔2 ✘1  ▏ 技能 2        B · Timeline · agents [-] ││ ████████████▊████▎█▊  low .64 med .22 high .09 xhi .04 max .01
+     ┊  更早 2 个事件 · /dpp log                                                           ││ 置信 0.71 · 只读检索，选 haiku
+0:06 ├ ✔ 派出     #20   sonnet  ▰▰▱▱▱ medium Research mod UI surfaces 完成 0:41            ││ #28  已决定   opus    ▰▰▰▰▱ xhigh
+0:09 ├ ✔ 派出     #27   haiku   ▰▱▱▱▱ low    Grep dispatch-pilot hoo… 完成 0:07            ││ dispatched-agents “Review ADR drafts”（general-purpose）
+0:31 ├ ⠴ 派出     #28   opus    ▰▰▰▰▱ xhigh  Review ADR drafts        运行 1:07            ││ ▍▊███▋████████████▊█  low .02 med .07 high .19 xhi .66 max .06
+0:48 ├ ⠴ 派出     #29   sonnet  ▰▰▰▰▱ xhigh  Write migration tests    运行 0:50            ││ 置信 0.66 · 需要跨文档判断，选 opus
+0:52 ├ ✘ 派出     #32   sonnet  ▰▰▰▱▱ high   Probe Desktop renderer   失败 · Bash 连…      ││ #29  已决定   sonnet  ▰▰▰▱▱ high
+1:03 ├ ⠴ 派出     #31   fable   ▰▰▱▱▱ medium Draft release notes      运行 0:35            ││ dispatched-agents “Write migration tests”（general-purpose）
+1:10 └ ↑ 升级     #29 Write migration tests  high → xhigh  失败2 阻塞…                     ││ █▍███████████▊█████▎  low .07 med .18 high .44 xhi .27 max .04
+                                                                                           │
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboard  Out: —  Reset: 2hr 27m  Weekly: 83.0%  Weekly Fable: 2.0%  Style: Co...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                                                                                            dp ⠴3 · fable·medium ✘1

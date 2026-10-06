@@ -1,0 +1,49 @@
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 running
+
+❯ /dpp scene agents
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 agents
+
+❯ /dpp scene workflow
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 workflow
+
+❯ /dpp scene stuck
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 stuck
+
+❯ /dpp scene notrouted
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 notrouted
+
+❯ /dpp scene many
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 many
+
+❯ /dpp scene idle
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 idle
+
+❯ /dpp scene agents
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 agents
+
+❯ /dpp log
+  ⎿  dp-dashboard-prototype: dpp: 诊断面板已打开 · 原型 A · Cockpit · 场景 agents
+╭────────────────────────────────────────────────────────────────────────────────────✕─╮
+│ ◆ 决定记录  共 19 条                                                原型 A · Cockpit │
+│ 概率条 5 格依次为 low medium high xhigh max · 亮色 = 选中档位                        │
+│                                                                                      │
+│ ▎ #18  已决定           ▰▰▰▰▱ xhigh                                      main-effort │
+│ ▎      “调研 mod 在终端和 Desktop 怎么画界面”                                        │
+│ ▎      ▁▂▃█▂  置信 0.62 · xhigh 概率 0.68，明显最高                                  │
+│ ▎ #19  已建议                                                                 skills │
+│ ▎      research、plugin-authoring                                                    │
+│ ▎      ▇▇▄    research .88  plugin-authoring .83  grill-with-docs .41                │
+│ ▎ #20  已决定   sonnet  ▰▰▱▱▱ medium                               dispatched-agents │
+│ ▎      “Research mod UI surfaces”（general-purpose）                                 │
+│ ▎      █▄▂▃·  置信 0.40 · 选 sonnet；effort 由 low 抬到 medium（sonnet 的下限）      │
+│ ▎ #21  保持             ▰▰▰▰▱ xhigh                                   midturn-effort │
+│ ▎      第 2 步（Agent）                                                              │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+dp ▰▰▰▰▱ xhigh 3/6 ✘1  原型 A · Cockpit · 场景 agents                               [-]
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                 dp ▰▰▰▰▱ xhigh 3/6 ✘1

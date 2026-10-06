@@ -1,0 +1,10 @@
+{
+  "name": "dp-dashboard-prototype",
+  "version": "0.0.1",
+  "description": "PROTOTYPE: three throwaway variants (Cockpit, Timeline, Tree) of dispatch-pilot's terminal UI, with fake data, switchable with /dpp.",
+  "author": {
+    "name": "alexcz-a11y",
+    "url": "https://github.com/alexcz-a11y"
+  },
+  "license": "MIT"
+}

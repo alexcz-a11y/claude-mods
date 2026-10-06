@@ -1,0 +1,49 @@
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 running
+
+❯ /dpp scene agents
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 agents
+
+❯ /dpp scene workflow
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 workflow
+
+❯ /dpp scene stuck
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 stuck
+
+❯ /dpp scene notrouted
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 notrouted
+
+❯ /dpp scene many
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 many
+
+❯ /dpp scene idle
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 idle
+
+❯ /dpp scene agents
+  ⎿  dp-dashboard-prototype: dpp: 原型 B · Timeline · 场景 agents
+
+❯ /dpp log
+  ⎿  dp-dashboard-prototype: dpp: 诊断面板已打开 · 原型 B · Timeline · 场景 agents
+╭────────────────────────────────────────────────────────────────────────────────────✕─╮
+│ ◆ 决定记录  共 19 条，按轮分组                                     原型 B · Timeline │
+│ 点击轮标题折叠 / 展开，或聚焦面板后按 1 2 3；/dpp fold <轮>                          │
+│                                                                                      │
+│ 1: ▾ 第 8 轮  /ask-matt 这个状态栏该怎么改                             3 条 ✔1 ⚠1 ✘1 │
+│ │ #34  未路由           ▰▰▰▰▱ xhigh                                                  │
+│ │ main-effort       “/ask-matt 这个状态栏该怎么改”                                   │
+│ │ 斜杠命令开头的消息不走路由；沿用当前 xhigh                                         │
+│ │ #35  已决定   haiku   ▰▱▱▱▱ low                                                    │
+│ │ dispatched-agents “Grep dispatch-pilot hooks”（Explore）                           │
+│ │ ████████████▊████▎█▊  low .64 med .22 high .09 xhi .04 max .01                     │
+│ │ 置信 0.71 · 只读检索，选 haiku                                                     │
+│ │ #36  路由失败                                                                      │
+│ │ dispatched-agents “Check marketplace manifest”（general-purpose）                  │
+│ │ jev: no answer in 1500 ms；沿用主 agent 的 opus · xhigh                            │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+dp ⠙3 · fable·medium ✘1  原型 B · Timeline · 场景 agents                            [-]
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                               dp ⠙3 · fable·medium ✘1

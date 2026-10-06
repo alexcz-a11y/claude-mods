@@ -1,0 +1,15 @@
+◆ 第 7 轮 ▏ ▰▰▰▰▱ xhigh 已决定 ▏ agent ⠧2 ✔1 ✘1  ▏ 技能 2      B · Timeline · stuck [-]
+0:00 ┬ ◆ 主 agent ▰▰▰▰▱ xhigh  已决定 · 置信 0.25
+0:01 ├ ⚑ 技能     research .86  ·  plugin-authoring .80
+0:31 ├ ✔ 派出     #28   opus    ▰▰▰▰▱ xhigh  Review ADR drafts     完成 0:52
+0:48 ├ ⠧ 派出     #29   sonnet  ▰▰▰▰▱ xhigh  Write migration tests 运行 1:12
+0:52 ├ ✘ 派出     #32   sonnet  ▰▰▰▱▱ high   Probe Desktop render… 失败 · Bash 连…
+1:03 ├ ⠧ 派出     #31   fable   ▰▰▱▱▱ medium Draft release notes   运行 0:57
+1:10 └ ↑ 升级     #29 Write migration tests  high → xhigh  失败2 …
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                               dp ⠧2 · fable·medium ✘1

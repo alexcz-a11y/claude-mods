@@ -1,0 +1,49 @@
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 agents
+
+❯ /dpp scene workflow
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 workflow
+
+❯ /dpp scene stuck
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 stuck
+
+❯ /dpp scene notrouted
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 notrouted
+
+❯ /dpp scene many
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 many
+
+❯ /dpp scene idle
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 idle
+
+❯ /dpp scene agents
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 agents
+
+❯ /dpp sel 4
+  ⎿  dp-dashboard-prototype: dpp: 选中 节点 4
+
+❯ /dpp log
+  ⎿  dp-dashboard-prototype: dpp: 诊断面板已打开 · 原型 C · Tree · 场景 agents
+╭────────────────────────────────────────────────────────────────────────────────────✕─╮
+│ ◆ 节点详情  5 / 7                                                      原型 C · Tree │
+│ [ ‹ 上一个 ] [ 下一个 › ]  数字键直接选；/dpp sel <n>                                │
+│ ▌ Write migration tests                                                              │
+│ ⠏ Write migration tests  #29   运行 0:52                                             │
+│ general-purpose · 开始于 0:48                                                        │
+│                                                                                      │
+│ 模型     sonnet    ▰▰▰▰▱ xhigh                                                       │
+│ 置信    ██████████▍          0.52                                                    │
+│ 理由    起步 high（0.44）；工具连续失败后被提升到 xhigh                              │
+│ 升级    high → xhigh  失败 2 · 阻塞 1 · 提升 1                                       │
+│                                                                                      │
+│ 起步 effort 概率（high 起步，后被提升）                                              │
+│ low     ██▌                                  .07                                     │
+│ medium  ██████▌                              .18                                     │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+dp ◆ xhigh ├6 ⠏3 ✔2 ✘1  原型 C · Tree · 场景 agents                                 [-]
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                dp ◆ xhigh ├6 ⠏3 ✔2 ✘1

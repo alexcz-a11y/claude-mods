@@ -1,0 +1,50 @@
+                                                                                           │                                                                       ✕
+                                                                                           │◆ 决定记录  共 19 条                                     原型 A · Cockpit
+❯ /clear                                                                                   │概率条 5 格依次为 low medium high xhigh max · 亮色 = 选中档位
+                                                                                           │
+❯ /dpp a                                                                                   │▎ #18  已决定           ▰▰▰▰▱ xhigh                           main-effort
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 agents                           │▎      “调研 mod 在终端和 Desktop 怎么画界面”
+                                                                                           │▎      ▁▂▃█▂  置信 0.62 · xhigh 概率 0.68，明显最高
+❯ /dpp scene running                                                                       │▎ #19  已建议                                                      skills
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 running                          │▎      research、plugin-authoring
+                                                                                           │▎      ▇▇▄    research .88  plugin-authoring .83  grill-with-docs .41
+❯ /dpp scene agents                                                                        │▎ #20  已决定   sonnet  ▰▰▱▱▱ medium                    dispatched-agents
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 agents                           │▎      “Research mod UI surfaces”（general-purpose）
+                                                                                           │▎      █▄▂▃·  置信 0.40 · 选 sonnet；effort 由 low 抬到 medium（sonnet…
+❯ /dpp scene workflow                                                                      │▎ #21  保持             ▰▰▰▰▱ xhigh                        midturn-effort
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 workflow                         │▎      第 2 步（Agent）
+                                                                                           │▎      ▂▂▂█▁  置信 0.55 · 与当前档位相同，不改
+❯ /dpp scene stuck                                                                         │▎ #22  保持             ▰▰▰▰▱ xhigh                        midturn-effort
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 stuck                            │▎      第 5 步（Read）
+                                                                                           │▎      ▂▂▂█▂  置信 0.49 · 与当前档位相同，不改
+❯ /dpp scene notrouted                                                                     │▎ #23  已决定           ▰▰▰▰▱ xhigh                           main-effort
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 notrouted                        │▎      “目前状态栏那个三角形感叹号为什么一直在…”
+                                                                                           │▎      ▄▁▂█▁  置信 0.25 · xhigh 概率 0.59，置信偏低，仍取最可能档位
+❯ /dpp scene many                                                                          │▎ #24  已建议                                                      skills
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 many                             │▎      research、plugin-authoring
+                                                                                           │▎      ▇▇▄    research .86  plugin-authoring .80  grill-with-docs .46
+❯ /dpp scene idle                                                                          │▎ #25  已决定   sonnet  ▰▰▰▰▱ xhigh                       workflow-agents
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 idle                             │▎      “sweep:types”（Workflow mod-ui-surfaces-research）
+                                                                                           │▎      ▂▃▅█▂  置信 0.79 · 选 sonnet
+❯ /dpp scene agents                                                                        │▎ #26  已决定   opus    ▰▰▰▰▱ xhigh                       workflow-agents
+  ⎿  dp-dashboard-prototype: dpp: 原型 A · Cockpit · 场景 agents                           │▎      “verify:cross-check”（Workflow mod-ui-surfaces-research）
+                                                                                           │▎      ▁▂▃█▂  置信 0.71 · 选 opus
+❯ /dpp log                                                                                 │▎ #27  已决定   haiku   ▰▱▱▱▱ low                       dispatched-agents
+  ⎿  dp-dashboard-prototype: dpp: 诊断面板已打开 · 原型 A · Cockpit · 场景 agents          │▎      “Grep dispatch-pilot hooks”（Explore）
+◆ dispatch-pilot  第 7 轮 · 目前状态栏那个三角形感叹号为什么一…   A · Cockpit · agents [-] │▎      █▃▂▁▁  置信 0.71 · 只读检索，选 haiku
+主 agent  ▰▰▰▰▱ xhigh  已决定 · 置信 0.25 · xhigh 概率 0.59，置信偏低，仍取最可能档位      │▎ #28  已决定   opus    ▰▰▰▰▱ xhigh                     dispatched-agents
+派出 agent  运行 3  完成 2  失败 1  升级 1                                                 │▎      “Review ADR drafts”（general-purpose）
+✔ Research mod UI surfaces    sonnet  ▰▰▱▱▱ medium 0:41                                    │▎      ▁▂▃█▂  置信 0.66 · 需要跨文档判断，选 opus
+✔ Grep dispatch-pilot hooks   haiku   ▰▱▱▱▱ low    0:07                                    │▎ #29  已决定   sonnet  ▰▰▰▱▱ high                      dispatched-agents
+⠧ Review ADR drafts           opus    ▰▰▰▰▱ xhigh  1:07                                    │▎      “Write migration tests”（general-purpose）
+⠧ Write migration tests       sonnet  ▰▰▰▰▱ xhigh  ↑ high→xhigh                            │▎      ▂▄█▅▂  置信 0.52 · 选 sonnet；起步 high
+⠧ Draft release notes         fable   ▰▰▱▱▱ medium 0:35                                    │▎ #30  已提升           ▰▰▰▰▱ xhigh                            escalation
+✘ Probe Desktop renderer      sonnet  ▰▰▰▱▱ high   ✘ 失败                                  │▎      “Write migration tests”：失败 2、阻塞 1、提升 1
+技能 research .86  ·  plugin-authoring .80                                                 │▎      ·····  effort 由 high 提到 xhigh（一档）
+                                                                                           │
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboard  Out: —  Reset: 2hr 31m  Weekly: 83.0%  Weekly Fable: 2.0%  Style: Co...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                                                                                              dp ▰▰▰▰▱ xhigh 3/6 ✘1

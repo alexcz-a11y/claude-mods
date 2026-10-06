@@ -1,0 +1,18 @@
+▌ ◆ 0: 主 agent  ▰▰▰▰▱ xhigh  已决定 · 置信 0.52                                                                         第 9 轮 2:22  原型 C · Tree · 场景 many [-]
+  ├─ ✔ 1: Map status call sites       haiku   ▰▱▱▱▱ low    完成 0:09
+  ├─ ⠏ 5: Write types                 sonnet  ▰▰▰▱▱ high   运行 0:58
+  ├─ ⠏ 6: Write status tests          sonnet  ▰▰▰▰▱ xhigh  ↑ high→xhigh · 失败2 阻塞0 提升1
+  ├─ ⠏ 7: Port effort segment         sonnet  ▰▰▱▱▱ medium 运行 0:52
+  ├─ ⠏ 8: Port skills segment         sonnet  ▰▰▱▱▱ medium 运行 0:52
+  ├─ ⠏ 9: Update README               fable   ▰▱▱▱▱ low    运行 0:41
+  ├─ ✘ 10: Run eslint                 haiku   ▰▱▱▱▱ low    失败 · eslint 退出码 2，已放弃
+  ├─ ⠏ 11: Review diff                opus    ▰▰▰▰▱ xhigh  运行 0:24
+  ├─ ⋯ 另有 3 个：完成 3
+  └─ ⚑ 技能  tdd .82  ·  codebase-design .78
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboard  Out: —  Reset: 2hr 31m  Weekly: 83.0%  Weekly Fable: 2.0%  Style: Co...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                                                                                            dp ◆ xhigh ├11 ⠏6 ✔4 ✘1

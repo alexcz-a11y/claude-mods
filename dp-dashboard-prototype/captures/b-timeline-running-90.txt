@@ -1,0 +1,11 @@
+◆ 第 7 轮 ▏ ▰▰▰▰▱ xhigh 已决定 ▏ agent ⠹1  ▏ 技能 2          B · Timeline · running [-]
+0:00 ┬ ◆ 主 agent ▰▰▰▰▱ xhigh  已决定 · 置信 0.25
+0:01 ├ ⚑ 技能     research .86  ·  plugin-authoring .80
+0:06 └ ⠹ 派出     #20   sonnet  ▰▰▱▱▱ medium Research mod UI surf… 运行 0:10
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                 dp ⠹1 · sonnet·medium

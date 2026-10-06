@@ -1,0 +1,15 @@
+◆ dispatch-pilot  第 7 轮 · 1:13 · 目前状态栏那个三角形感叹号为什么一直在                                                       原型 A · Cockpit · 场景 workflow [-]
+主 agent · 已锁定           派出 agent  完成 1                                                Workflow mod-ui-surfaces-research
+                ◥◤          ✔ #27  Grep dispatch-pilot hooks   haiku   ▰▱▱▱▱ low    0:07      ██████████▓▓▓▓▁▁  5 / 8
+████ ████ ████ ████ ▄▄▄▄                                                                       haiku ×1  sonnet ×4  opus ×2
+low                  max                                                                      ⠸ ▰▰▰▰▱ verify:cross-check
+xhigh                                                                                         ⠸ ▰▰▰▱▱ verify:claims
+你用 /effort 锁定了 xhigh…                                                                    技能
+                                                                                              research                   ████▎ .86
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboard  Out: —  Reset: 2hr 32m  Weekly: 83.0%  Weekly Fable: 2.0%  Style: Co...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                                                                                                 dp ▰▰▰▰▱ xhigh 2/9

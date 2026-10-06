@@ -1,0 +1,14 @@
+◆ dispatch-pilot  第 8 轮 · 0:23 · /ask-matt 这个状态栏该怎么改                                                                原型 A · Cockpit · 场景 notrouted [-]
+主 agent · 未路由           派出 agent  运行 1  完成 1                                                                   技能  本轮无建议
+                ◥◤          ⠦  ·   Check marketplace manifest   opus*   ▰▰▰▰▱ xhigh  未路由 · jev: no answer in 1500 ms
+████ ████ ████ ████ ▄▄▄▄    ✔ #35  Grep dispatch-pilot hooks    haiku   ▰▱▱▱▱ low    0:07
+low                  max
+xhigh   沿用当前档位
+斜杠命令开头的消息不走路由
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboard  Out: —  Reset: 2hr 32m  Weekly: 83.0%  Weekly Fable: 2.0%  Style: Co...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                                                                                          dp ▰▰▰▰▱ xhigh 1/2 未路由

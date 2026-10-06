@@ -1,0 +1,16 @@
+◆ 第 7 轮 ▏ ▰▰▰▰▱ xhigh 已锁定 ▏ agent ⠴2 ✔6  ▏ WF 5/8 ▏ …  B · Timeline · workflow [-]
+     ┊  更早 4 个事件 · /dpp log
+0:12 ├ ✔ 派出     #25   sonnet  ▰▰▰▰▱ xhigh  sweep:types           完成 0:24
+0:12 ├ ✔ 派出     #27   sonnet  ▰▰▰▱▱ high   sweep:docs            完成 0:19
+0:12 ├ ✔ 派出     #28   haiku   ▰▰▱▱▱ medium sweep:probes          完成 0:11
+0:13 ├ ✔ 派出     #29   sonnet  ▰▰▰▱▱ high   sweep:desktop         完成 0:27
+0:13 ├ ✔ 派出     #30   sonnet  ▰▰▰▱▱ high   sweep:terminal        完成 0:31
+0:40 ├ ⠴ 派出     #26   opus    ▰▰▰▰▱ xhigh  verify:cross-check    运行 0:33
+0:44 └ ⠴ 派出     #31   opus    ▰▰▰▱▱ high   verify:claims         运行 0:29
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                     dp ⠴2 · opus·high

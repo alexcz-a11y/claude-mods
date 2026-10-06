@@ -1,0 +1,17 @@
+◆ dispatch-pilot  第 7 轮 · 目前状态栏那个三角形感叹号为什…    A · Cockpit · agents [-]
+主 agent  ▰▰▰▰▱ xhigh  已决定 · 置信 0.25 · xhigh 概率 0.59，置信偏低，仍取最可能…
+派出 agent  运行 3  完成 2  失败 1  升级 1
+✔ Research mod UI surfaces    sonnet  ▰▰▱▱▱ medium 0:41
+✔ Grep dispatch-pilot hooks   haiku   ▰▱▱▱▱ low    0:07
+⠧ Review ADR drafts           opus    ▰▰▰▰▱ xhigh  1:05
+⠧ Write migration tests       sonnet  ▰▰▰▰▱ xhigh  ↑ high→xhigh
+⠧ Draft release notes         fable   ▰▰▱▱▱ medium 0:33
+✘ Probe Desktop renderer      sonnet  ▰▰▰▱▱ high   ✘ 失败
+技能 research .86  ·  plugin-authoring .80
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                 dp ▰▰▰▰▱ xhigh 3/6 ✘1

@@ -1,0 +1,50 @@
+                                                                                           │                                                                       ✕
+  ⎿  dp-dashboard-prototype: dpp: 诊断面板已关闭                                           │◆ 节点详情  5 / 7                                           原型 C · Tree
+                                                                                           │[ ‹ 上一个 ] [ 下一个 › ]  数字键直接选；/dpp sel <n>
+❯ /dpp c                                                                                   │
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 agents                              │  ◆ 0: 主 agent                                               xhigh
+                                                                                           │  ✔ 1: Research mod UI surfaces                                sonnet
+❯ /dpp scene running                                                                       │  ✔ 2: Grep dispatch-pilot hooks                               haiku
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 running                             │  ⠸ 3: Review ADR drafts                                       opus
+                                                                                           │▌ ⠸ 4: Write migration tests                                   sonnet
+❯ /dpp scene agents                                                                        │  ⠸ 5: Draft release notes                                     fable
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 agents                              │  ✘ 6: Probe Desktop renderer                                  sonnet
+                                                                                           │────────────────────────────────────────────────────────────────────────
+❯ /dpp scene workflow                                                                      │⠸ Write migration tests  #29   运行 0:52
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 workflow                            │general-purpose · 开始于 0:48
+                                                                                           │
+❯ /dpp scene stuck                                                                         │模型     sonnet    ▰▰▰▰▱ xhigh
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 stuck                               │置信    ██████████▍          0.52
+                                                                                           │理由    起步 high（0.44）；工具连续失败后被提升到 xhigh
+❯ /dpp scene notrouted                                                                     │升级    high → xhigh  失败 2 · 阻塞 1 · 提升 1
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 notrouted                           │
+                                                                                           │起步 effort 概率（high 起步，后被提升）
+❯ /dpp scene many                                                                          │low     ██▌                                  .07
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 many                                │medium  ██████▌                              .18
+                                                                                           │high    ███████████████▉                     .44  ◂ 选中
+❯ /dpp scene idle                                                                          │xhigh   █████████▊                           .27
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 idle                                │max     █▌                                   .04
+                                                                                           │
+❯ /dpp scene agents                                                                        │
+  ⎿  dp-dashboard-prototype: dpp: 原型 C · Tree · 场景 agents                              │
+                                                                                           │
+❯ /dpp sel 4                                                                               │
+  ⎿  dp-dashboard-prototype: dpp: 选中 节点 4                                              │
+                                                                                           │
+❯ /dpp log                                                                                 │
+  ⎿  dp-dashboard-prototype: dpp: 诊断面板已打开 · 原型 C · Tree · 场景 agents             │
+  ◆ 0: 主 agent  ▰▰▰▰▱ xhigh  已决定 · 置信 0.25  · 第 4 步 保持     C · Tree · agents [-] │
+  ├─ ✔ 1: Research mod UI surfaces       sonnet  ▰▰▱▱▱ medium 完成 0:41                    │
+  ├─ ✔ 2: Grep dispatch-pilot hooks      haiku   ▰▱▱▱▱ low    完成 0:07                    │
+  ├─ ⠸ 3: Review ADR drafts              opus    ▰▰▰▰▱ xhigh  运行 1:09                    │
+▌ ├─ ⠸ 4: Write migration tests          sonnet  ▰▰▰▰▱ xhigh  ↑ high→xhigh                 │
+  ├─ ⠸ 5: Draft release notes            fable   ▰▰▱▱▱ medium 运行 0:37                    │
+  ├─ ✘ 6: Probe Desktop renderer         sonnet  ▰▰▰▱▱ high   失败 · Bash 连…              │
+  └─ ⚑ 技能  research .86  ·  plugin-authoring .80                                         │
+                                                                                           │
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboard  Out: —  Reset: 2hr 30m  Weekly: 83.0%  Weekly Fable: 2.0%  Style: Co...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                                                                                             dp ◆ xhigh ├6 ⠸3 ✔2 ✘1

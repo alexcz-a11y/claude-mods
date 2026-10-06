@@ -1,0 +1,62 @@
+                                                                                                                                │                                                                           ✕
+ ▐▛███▛█   Claude Code v2.1.289                                                                                                 │◆ 依据  0/6 · 主 agent                                   原型 D · 时间线+依据
+▝▜██████▀  Opus 5.5 with xhigh effort · Claude Max                                                                              │[ ‹ 上一个 ] [ 下一个 › ]  band 里按 0-9 直接选
+ ▝▝   ▝▝   ~/Documents/claude-mods-prototype                                                                                    │
+                                                                                                                                │╭───────────────────────────────────────────────────────────────────────────╮
+                                                                                                                                ││ ◆ 主 agent  ▰▰▰▰▱ xhigh                                                   │
+❯ /dpp scene agents                                                                                                             ││   effort  ████▋██▍███████████▎  low .23 med .02 high .12 xhi .59 max .04  │
+  ⎿  dp-dashboard-prototype: dpp: 原型 D · 时间线+依据 · 场景 agents                                                            ││   ├ ● 最可能   xhigh .59                                                  │
+                                                                                                                                ││   └ ○ 上取一档 max .04 < .30，不上取                                      │
+❯ /dpp sel 4                                                                                                                    ││   结果  ▰▰▰▰▱ xhigh   置信 .25：发消息时只记录，不参与选档                │
+  ⎿  dp-dashboard-prototype: dpp: 选中 节点 4                                                                                   ││                                                                           │
+                                                                                                                                ││   中途重判  升档要置信 ≥ .30，降档要 ≥ .55 且一次一档，升档后 5 步内不降  │
+❯ /dpp log                                                                                                                      ││   #33  第 6 步（Edit）   建议 high   当前 xhigh                           │
+  ⎿  dp-dashboard-prototype: dpp: 诊断面板已打开 · 原型 D · 时间线+依据 · 场景 agents                                           ││        ██████▌──┃────── .42 < .55 降档线  → 保持 xhigh                    │
+                                                                                                                                ││   #34  第 9 步（Bash）   建议 medium 当前 xhigh                           │
+⏺ dp-dashboard-prototype: reloaded (3 hooks: session.start, command.run, ui.render)                                             ││        █████████┃█▌──── .71 ≥ .55 降档线  → 保持 xhigh · 还差 3 步        │
+                                                                                                                                │╰───────────────────────────────────────────────────────────────────────────╯
+❯ /dpp sel 0                                                                                                                    │
+  ⎿  dp-dashboard-prototype: dpp: 选中 主 agent                                                                                 │◆ 决定记录  共 20 条，按轮分组 · 按 a b c 折叠
+                                                                                                                                │a: ▾ 第 8 轮  /ask-matt 这个状态栏该怎么改                      3 条 ✔1 ⚠1 ✘1
+⏺ dp-dashboard-prototype: reloaded (3 hooks: session.start, command.run, ui.render)                                             ││ #35  未路由           ▰▰▰▰▱ xhigh
+                                                                                                                                ││ main-effort       “/ask-matt 这个状态栏该怎么改”
+❯ /dpp sel 1                                                                                                                    ││ 斜杠命令开头的消息不走路由；沿用当前 xhigh
+  ⎿  dp-dashboard-prototype: dpp: 选中 节点 1                                                                                   ││ #36  已决定   haiku   ▰▱▱▱▱ low
+                                                                                                                                ││ dispatched-agents “Grep dispatch-pilot hooks”（Explore）
+❯ /dpp sel 0                                                                                                                    ││ ████████████▊████▎█▊  low .64 med .22 high .09 xhi .04 max .01
+  ⎿  dp-dashboard-prototype: dpp: 选中 主 agent                                                                                 ││ 置信 0.71 · 只读检索，选 haiku
+                                                                                                                                ││ #37  路由失败
+                                                                                                                                ││ dispatched-agents “Check marketplace manifest”（general-purpose）
+                                                                                                                                ││ jev: no answer in 1500 ms；沿用主 agent 的 opus · xhigh
+                                                                                                                                │b: ▾ 第 7 轮  目前状态栏那个三角形感叹号为什么一直在            12 条 ✔11 ⚠1
+                                                                                                                                ││ #23  已决定           ▰▰▰▰▱ xhigh
+                                                                                                                                ││ main-effort       “目前状态栏那个三角形感叹号为什么一直在…”
+                                                                                                                                ││ ████▋██▍███████████▎  low .23 med .02 high .12 xhi .59 max .04
+                                                                                                                                ││ 置信 0.25 · xhigh 概率 0.59，置信偏低，仍取最可能档位
+                                                                                                                                ││ #24  已建议
+                                                                                                                                ││ skills            research、plugin-authoring
+                                                                                                                                ││ research .86  plugin-authoring .80  grill-with-docs .46
+                                                                                                                                ││ #25  已决定   sonnet  ▰▰▰▰▱ xhigh
+                                                                                                                                ││ workflow-agents   “sweep:types”（Workflow mod-ui-surfaces-research）
+                                                                                                                                ││ █▎███████▍██████████  low .06 med .14 high .27 xhi .48 max .05
+                                                                                                                                ││ 置信 0.79 · 选 sonnet
+                                                                                                                                ││ #26  已决定   opus    ▰▰▰▰▱ xhigh
+                                                                                                                                ││ workflow-agents   “verify:cross-check”（Workflow mod-ui-surfaces-research…
+                                                                                                                                ││ ▋█▎██▊████████████▎█  low .03 med .08 high .18 xhi .62 max .09
+                                                                                                                                ││ 置信 0.71 · 选 opus
+                                                                                                                                ││ #27  已决定   haiku   ▰▱▱▱▱ low
+◆ 第 7 轮 1:41  ▏ 主 ▰▰▰▰▱ xhigh 已决定  ▏ agent ⠏3 ✔2 ✘1   ▏ 技能 2                     原型 D · 时间线+依据 · 场景 agents [-] ││ dispatched-agents “Grep dispatch-pilot hooks”（Explore）
+       ┊  更早 2 个事件 · 0-9 选中 · /dpp log 看依据                                                                            ││ ████████████▊████▎█▊  low .64 med .22 high .09 xhi .04 max .01
+ 0:06 ├ ✔ 派出     #20   sonnet  ▰▰▱▱▱ medium 1: Research mod UI surfaces          完成 0:41                                    ││ 置信 0.71 · 只读检索，选 haiku
+ 0:09 ├ ✔ 派出     #27   haiku   ▰▱▱▱▱ low    2: Grep dispatch-pilot hooks         完成 0:07                                    ││ #28  已决定   opus    ▰▰▰▰▱ xhigh
+ 0:31 ├ ⠏ 派出     #28   opus    ▰▰▰▰▱ xhigh  3: Review ADR drafts                 运行 1:10                                    ││ dispatched-agents “Review ADR drafts”（general-purpose）
+ 0:48 ├ ⠏ 派出     #29   sonnet  ▰▰▰▰▱ xhigh  4: Write migration tests             运行 0:53                                    ││ ▍▊███▋████████████▊█  low .02 med .07 high .19 xhi .66 max .06
+ 0:52 ├ ✘ 派出     #32   sonnet  ▰▰▰▱▱ high   5: Probe Desktop renderer            失败 · Bash 连续失败 2 次，已…               ││ 置信 0.66 · 需要跨文档判断，选 opus
+ 1:03 ├ ⠏ 派出     #31   fable   ▰▰▱▱▱ medium 6: Draft release notes               运行 0:38                                    ││ #29  已决定   sonnet  ▰▰▰▱▱ high
+ 1:10 └ ↑ 升级     #29 Write migration tests  high → xhigh  失败2 阻塞1 提升1                                                   ││ dispatched-agents “Write migration tests”（general-purpose）
+                                                                                                                                │
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                                                                                                     dp ⠏3 · fable·medium ✘1
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

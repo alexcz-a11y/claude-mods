@@ -1,0 +1,15 @@
+▌ ◆ 0: 主 agent  ▰▰▰▰▱ xhigh  已决定 · 置信 0.25  · 第 4 步 保持  C · Tree · agents [-]
+  ├─ ✔ 1: Research mod UI surfaces       sonnet  ▰▰▱▱▱ medium 完成 0:41
+  ├─ ✔ 2: Grep dispatch-pilot hooks      haiku   ▰▱▱▱▱ low    完成 0:07
+  ├─ ⠋ 3: Review ADR drafts              opus    ▰▰▰▰▱ xhigh  运行 1:05
+  ├─ ⠋ 4: Write migration tests          sonnet  ▰▰▰▰▱ xhigh  ↑ high→xhigh
+  ├─ ⠋ 5: Draft release notes            fable   ▰▰▱▱▱ medium 运行 0:33
+  ├─ ✘ 6: Probe Desktop renderer         sonnet  ▰▰▰▱▱ high   失败 · Bash 连…
+  └─ ⚑ 技能  research .86  ·  plugin-authoring .80
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                dp ◆ xhigh ├6 ⠋3 ✔2 ✘1

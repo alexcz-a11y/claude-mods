@@ -1,0 +1,13 @@
+◆ dispatch-pilot  第 7 轮 · 目前状态栏那个三角形感叹号为…    A · Cockpit · workflow [-]
+主 agent  ▰▰▰▰▱ xhigh  已锁定 · 你用 /effort 锁定了 xhigh，本轮不再路由
+派出 agent  完成 1
+✔ Grep dispatch-pilot hooks   haiku   ▰▱▱▱▱ low    0:07
+Workflow mod-ui-surfaces-research  ▰▰▰▰▰▱▱▱ 5/8  运行：verify:cross-check opus·xhi…
+技能 research .86
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                    dp ▰▰▰▰▱ xhigh 2/9

@@ -1,0 +1,16 @@
+◆ 第 9 轮 ▏ ▰▰▰▰▱ xhigh 已决定 ▏ agent ⠋6 ✔4 ✘1  ▏ 技能 2       B · Timeline · many [-]
+     ┊  更早 7 个事件 · /dpp log
+1:26 ├ ⠋ 派出     #45   sonnet  ▰▰▰▰▱ xhigh  Write status tests    运行 0:56
+1:30 ├ ⠋ 派出     #46   sonnet  ▰▰▱▱▱ medium Port effort segment   运行 0:52
+1:30 ├ ⠋ 派出     #47   sonnet  ▰▰▱▱▱ medium Port skills segment   运行 0:52
+1:41 ├ ⠋ 派出     #48   fable   ▰▱▱▱▱ low    Update README         运行 0:41
+1:44 ├ ✘ 派出     #49   haiku   ▰▱▱▱▱ low    Run eslint            失败 · eslint …
+1:48 ├ ↑ 升级     #45 Write status tests  high → xhigh  失败2 阻塞…
+1:58 └ ⠋ 派出     #50   opus    ▰▰▰▰▱ xhigh  Review diff           运行 0:24
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                 dp ⠋6 · opus·xhigh ✘1

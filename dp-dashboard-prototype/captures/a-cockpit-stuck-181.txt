@@ -1,0 +1,14 @@
+◆ dispatch-pilot  第 7 轮 · 2:00 · 目前状态栏那个三角形感叹号为什么一直在                                                          原型 A · Cockpit · 场景 stuck [-]
+主 agent · 已决定           派出 agent  运行 2  完成 1  失败 1  升级 1                                              技能
+                ◥◤          ✔ #28  Review ADR drafts        opus    ▰▰▰▰▱ xhigh  0:52                               research                   ████▎ .86
+████ ████ ████ ████ ▄▄▄▄    ⠴ #29  Write migration tests    sonnet  ▰▰▰▰▱ xhigh  ↑ high→xhigh  失败2 阻塞1 提升1    plugin-authoring           ████  .80
+low                  max    ✘ #32  Probe Desktop renderer   sonnet  ▰▰▰▱▱ high   Bash 连续失败 2 次，已放弃
+xhigh   置信 0.25           ⠴ #31  Draft release notes      fable   ▰▰▱▱▱ medium 0:57
+xhigh 概率 0.59，置信偏低…
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboard  Out: —  Reset: 2hr 32m  Weekly: 83.0%  Weekly Fable: 2.0%  Style: Co...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                                                                                              dp ▰▰▰▰▱ xhigh 2/4 ✘1

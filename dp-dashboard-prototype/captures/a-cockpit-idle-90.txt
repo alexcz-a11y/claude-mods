@@ -1,0 +1,9 @@
+◆ dispatch-pilot  第 7 轮 · 目前状态栏那个三角形感叹号为什么…    A · Cockpit · idle [-]
+空闲 · 上一轮 ▰▰▰▰▱ xhigh · 5 个 agent 全部完成（1 次升级） · 技能 research .86  p…
+
+────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboa...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                   dp ▰▰▰▰▱ xhigh 空闲

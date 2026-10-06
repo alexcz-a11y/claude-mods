@@ -1,0 +1,11 @@
+◆ 第 7 轮 0:16  ▏ 主 ▰▰▰▰▱ xhigh 已决定  ▏ agent ⠧1   ▏ 技能 2                                                                  原型 B · Timeline · 场景 running [-]
+0:00 ┬ ◆ 主 agent ▰▰▰▰▱ xhigh  已决定 · 置信 0.25
+0:01 ├ ⚑ 技能     research .86  ·  plugin-authoring .80
+0:06 └ ⠧ 派出     #20   sonnet  ▰▰▱▱▱ medium Research mod UI surfaces           运行 0:10
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 5.5  Thinking: xhigh  Ctx(u) Used: 0.0%  ⎇ prototype/dp-dashboard  Out: —  Reset: 2hr 27m  Weekly: 83.0%  Weekly Fable: 2.0%  Style: Co...
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+                                                                                                                                              dp ⠧1 · sonnet·medium
