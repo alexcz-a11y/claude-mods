@@ -194,6 +194,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const disk = options.disk ?? {}
   const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
   const commands: CommandSpec[] = []
+  /** The text a command's turn starts with, by the prompt it was submitted as (`/name args`): the engine's command message. */
+  const commandTurns = new Map<string, string>()
   const tools: Required<ToolSpec>[] = []
   /** What the step being sent streams and runs (set by `step()`, read by the engine's turn.step below). */
   let streaming: Pick<StepOptions, 'answer' | 'tools'> = {}
@@ -309,14 +311,19 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     if (dropped !== undefined) return { drop: dropped }
     const text = options.beneath?.rewrite?.(e.text) ?? e.text
     prompts.push({ text, context: e.context, origin: e.origin })
+    // A command's turn starts with its command message, not the prompt as typed (measured on 2.1.291).
+    const started = commandTurns.get(e.text) ?? text
+    commandTurns.delete(e.text)
     if (e.turnId === undefined) {
       const turnId = `t${turnIds.length + 1}`
       turnIds.push(turnId)
-      await $.turn.start({ text, turnId })
+      await $.turn.start({ text: started, turnId })
     }
     return { text, context: e.context }
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  // The engine's own command beneath `command.run`: a prompt command (a skill, a markdown command) prints nothing.
+  on('command.run', () => ({}))
   // The engine at the bottom of agent.spawn: it starts the agent on the model
   // it is handed (the parent's when none) and names it a1, a2, ... in the
   // order the spawns reach it.
@@ -411,6 +418,21 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     /** Runs a slash command as the person types it (`/dp lock max` is `command('dp', 'lock max')`); resolves to the text it printed. */
     command: async (name: string, args = '') =>
       (await $.command.run({ command: name, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })).text ?? '',
+    /**
+     * The person types a prompt command (a skill, a markdown command): as Claude Code runs one (measured on 2.1.291),
+     * `command.run` first, then the prompt as typed (`/name args`) is submitted, and its turn starts with the
+     * engine's command message. A local command (`/dp`, `/usage`) is `command(...)`: it submits nothing.
+     */
+    slash: async (name: string, args = '', submit: SubmitOptions & { as?: string } = {}) => {
+      const origin = submit.origin ?? { kind: 'composer' }
+      await $.command.run({ command: name, args, origin, presentation: { isFullscreen: false, columns: 80 } })
+      // `as`: the name the person typed, when the engine resolves it to another (a plugin's command typed without its plugin's name).
+      const typedName = submit.as ?? name
+      const typed = args === '' ? `/${typedName}` : `/${typedName} ${args}`
+      const message = `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>${args === '' ? '' : `\n<command-args>${args}</command-args>`}`
+      commandTurns.set(typed, message)
+      return $.prompt.submit({ text: typed, wait: submit.wait ?? false, origin, ...(submit.turnId !== undefined ? { turnId: submit.turnId } : {}) })
+    },
     /** The person's `/compact` of the main conversation (needs `session`). */
     compact: () => $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'earlier work', toolUses: [] }] }),
     /** The person's `/clear` (needs `session`): the conversation ends, the process goes on, no session.start follows. */

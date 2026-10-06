@@ -1,0 +1,5 @@
+#!/bin/zsh
+# Runs scripts/check.sh before every commit. Turn on once per clone:
+#   git config core.hooksPath .githooks
+# Skip one commit with `git commit --no-verify`.
+exec "$(git rev-parse --show-toplevel)/scripts/check.sh"

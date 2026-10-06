@@ -11,7 +11,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { BACKEND_DEFAULTS } from '../hooks/core/setup.ts'
-import { checkConfigTable } from '../eval/lib/docs.ts'
+import { checkConfigTable, checkStructureTree } from '../eval/lib/docs.ts'
 
 /** The decision models' defaults as these tests state them: Clef's timeout is its own, its other values are Jev's. */
 const DEFAULTS = {
@@ -168,4 +168,31 @@ test("Clef's context budget keeps Jev's default and is still measured: it is cap
   const defaults = { jev: { ...BACKEND_DEFAULTS.jev, contextTokens: 2000, contextTokensMax: 16000 }, clef: { ...BACKEND_DEFAULTS.jev, contextTokens: 2000, contextTokensMax: 2000 } }
   expect(checkConfigTable(readme(['| `contextTokens` | Context budget | `2000` | `2000`，最多 2000 |']), manifest, defaults)).toEqual([])
   expect(checkConfigTable(readme(['| `contextTokens` | Context budget | `2000` | `2000` 未校准 |']), manifest, defaults)).toHaveLength(1)
+})
+
+// DEVELOPMENT.md's 「结构」 tree against the modules under hooks/: every module has its line, under its folder.
+
+/** A DEVELOPMENT.md whose 「结构」 tree lists these lines. */
+function development(lines: readonly string[]): string {
+  return ['# 开发', '', '### 结构', '', '```', 'hooks/', ...lines, '```', '', '### 测试'].join('\n')
+}
+
+const TREE = [
+  '├── dispatch-pilot.ts       入口',
+  '├── features/               每项功能一个文件',
+  '│   └── main-effort.ts      发消息时判断主 agent 的 effort',
+  '├── core/                   共用的机制',
+  '│   ├── core.ts             核心的 hook',
+  '│   └── prompts.ts          isPersonsMessage',
+]
+
+test('a tree that lists every module under its folder passes', () => {
+  expect(checkStructureTree(development(TREE), ['dispatch-pilot.ts', 'features/main-effort.ts', 'core/core.ts', 'core/prompts.ts'])).toEqual([])
+})
+
+test('a module the tree does not list, and a line for a module that is gone, are both problems', () => {
+  const problems = checkStructureTree(development(TREE), ['dispatch-pilot.ts', 'features/main-effort.ts', 'core/core.ts', 'core/commands.ts'])
+  expect(problems).toHaveLength(2)
+  expect(problems[0]).toMatch(/`core\/commands\.ts`.*no line/)
+  expect(problems[1]).toMatch(/`core\/prompts\.ts`.*no such module/)
 })
