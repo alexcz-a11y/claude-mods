@@ -55,7 +55,7 @@ let writing = false
 type ProfileSettings = { model: string; perSession: number; skip: ReadonlySet<string> }
 
 export function registerSkillProfiles(on: On, ctx: Ctx): void {
-  defineSwitch({ name: PROFILES, info: 'rates skills by bilingual profiles a cheap model writes once per SKILL.md version (off: by description)' })
+  defineSwitch({ name: PROFILES, info: '按 skill 画像给 skill 排序：便宜的模型每个 SKILL.md 版本写一次中英文画像（关掉就按描述排序）' })
   const settings: ProfileSettings = { model: ctx.config.skills.profileModel, perSession: ctx.config.skills.profilesPerSession, skip: new Set(ctx.config.skills.neverSuggested) }
 
   // Once the skills feature (inside this one) has read the session's skills: a

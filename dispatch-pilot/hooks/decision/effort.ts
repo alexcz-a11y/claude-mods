@@ -193,11 +193,11 @@ export function probsOf(reading: EffortReading): Record<Effort, number> {
 
 /**
  * Every level's probability and the backend's confidence, as the decision log
- * gives them: `p low 0.00, medium 0.05, ...; confidence 0.80`, with `note`
+ * gives them: `概率 low 0.00, medium 0.05, ...；置信度 0.80`, with `note`
  * (why a level was held back) between the two.
  */
 export function readingText(reading: EffortReading, note?: string): string {
-  return `p ${levelsText(reading)}${note === undefined ? '' : `; ${note}`}; confidence ${reading.confidence === null ? 'n/a' : reading.confidence.toFixed(2)}`
+  return `概率 ${levelsText(reading)}${note === undefined ? '' : `；${note}`}；置信度 ${reading.confidence === null ? '没有' : reading.confidence.toFixed(2)}`
 }
 
 export function isEffort(value: unknown): value is Effort {

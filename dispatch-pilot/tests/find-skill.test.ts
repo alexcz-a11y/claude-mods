@@ -173,7 +173,7 @@ test('a second request that fails is a failure: find_skill says it could not rat
   const answer = await w.findSkill('write the tests first')
 
   expect(answer.result).toBe(`find_skill could not rate the skills (jev: busy (HTTP 503)). ${SKILL_TOOL_LINE}`)
-  expect((await w.board()).notes).toMatchObject([{ feature: 'find-skill', kind: 'failed', why: 'jev: busy (HTTP 503)' }])
+  expect((await w.board()).notes).toMatchObject([{ feature: 'find-skill', kind: 'failed', why: 'jev：繁忙（状态码 503）' }])
 })
 
 // ---- Skills that never come back -------------------------------------------------
@@ -197,7 +197,7 @@ test('skills named in skillsNeverSuggested are neither asked about nor returned'
 
 test('switched off (/dp find-skill off), find_skill says so when called and asks nothing; /dp lists its switch', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 1 }), skills: SKILLS, disk: PERSON_FILES })
-  expect(await w.command('dp', 'status')).toMatch(/\bon +find-skill +answers the main agent's find_skill/)
+  expect(await w.command('dp', 'status')).toMatch(/开 +find-skill +回答主 agent 的 find_skill/)
   await w.command('dp', 'find-skill off')
   const answer = await w.findSkill('write the tests first')
 
@@ -230,7 +230,7 @@ test('a failed decision request: find_skill answers at once that it could not ra
   const answer = await w.findSkill('fill in a form in a PDF')
 
   expect(answer.result).toBe(`find_skill could not rate the skills (jev: busy (HTTP 503)). ${SKILL_TOOL_LINE}`)
-  expect((await w.board()).notes).toMatchObject([{ feature: 'find-skill', kind: 'failed', why: 'jev: busy (HTTP 503)' }])
+  expect((await w.board()).notes).toMatchObject([{ feature: 'find-skill', kind: 'failed', why: 'jev：繁忙（状态码 503）' }])
 })
 
 test('no answer within timeoutMs: find_skill stops waiting and says so; the board notes it', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
@@ -241,7 +241,7 @@ test('no answer within timeoutMs: find_skill stops waiting and says so; the boar
   const answer = await calling
 
   expect(answer.result).toBe(`find_skill could not rate the skills (jev: no answer in 800 ms). ${SKILL_TOOL_LINE}`)
-  expect((await w.board()).notes).toMatchObject([{ feature: 'find-skill', kind: 'failed', why: 'jev: no answer in 800 ms' }])
+  expect((await w.board()).notes).toMatchObject([{ feature: 'find-skill', kind: 'failed', why: 'jev：800 毫秒内没有回答' }])
 })
 
 // The hook has 10 seconds; timeoutMs is at most 8000, so the two requests share it, as beside a message.
@@ -257,7 +257,7 @@ test('both requests share one wait: the second gets what the first left of timeo
 
   expect(w.requests).toHaveLength(2)
   expect(answer.result).toBe(`find_skill could not rate the skills (jev: no answer in 1100 ms). ${SKILL_TOOL_LINE}`)
-  expect((await w.board()).notes).toMatchObject([{ feature: 'find-skill', kind: 'failed', why: 'jev: no answer in 1100 ms' }])
+  expect((await w.board()).notes).toMatchObject([{ feature: 'find-skill', kind: 'failed', why: 'jev：1100 毫秒内没有回答' }])
 })
 
 // ---- By decision model: how long the call waits, what its first request offers ----------
@@ -342,7 +342,7 @@ test('an answer that leaves the skills question out is a failure too', { options
   const answer = await w.findSkill('write the tests first')
 
   expect(answer.result).toBe(`find_skill could not rate the skills (jev: unreadable answer). ${SKILL_TOOL_LINE}`)
-  expect((await w.board()).notes).toMatchObject([{ feature: 'find-skill', kind: 'failed', why: 'jev: unreadable answer' }])
+  expect((await w.board()).notes).toMatchObject([{ feature: 'find-skill', kind: 'failed', why: 'jev：回答读不懂' }])
 })
 
 test("when the session's skills cannot be read, find_skill says so and asks nothing", { options: KEY }, async ($, on) => {
@@ -380,13 +380,13 @@ test('each call that rates the skills is a decision on the board data: what find
   await w.findSkill('rename a variable')
 
   const [found, none] = (await w.board()).log
-  expect(found).toMatchObject({ n: 1, feature: 'find-skill', agent: 'main', tone: 'ok', subject: '"fill in a form in a PDF"', outcome: 'found anthropic-skills:pdf, code-review' })
+  expect(found).toMatchObject({ n: 1, feature: 'find-skill', agent: 'main', tone: 'ok', subject: '"fill in a form in a PDF"', outcome: '查到 anthropic-skills:pdf、code-review' })
   expect(found?.skills?.suggest.map((skill) => [skill.name, skill.relevance])).toEqual([
     ['anthropic-skills:pdf', 0.95],
     ['code-review', 0.5],
   ])
   expect(found?.skills?.try).toEqual([])
-  expect(none).toMatchObject({ n: 2, tone: 'info', subject: '"rename a variable"', outcome: 'found no skill', skills: { suggest: [], try: [] } })
+  expect(none).toMatchObject({ n: 2, tone: 'info', subject: '"rename a variable"', outcome: '没查到 skill', skills: { suggest: [], try: [] } })
 })
 
 test('each call goes to the debug log (its requests, what it returned and why) and its decision to /dp log, never into the conversation', { options: KEY }, async ($, on) => {
@@ -401,14 +401,14 @@ test('each call goes to the debug log (its requests, what it returned and why) a
 
   // What each stage said: the first request's shares of the skills it put forward, the second's fits.
   const decision =
-    'found anthropic-skills:pdf, code-review for "fill in a form in a PDF": first anthropic-skills:pdf 0.70, code-review 0.20, none 0.08; fits anthropic-skills:pdf 0.93, code-review 0.61; returned from 0.50, at most 5'
+    '查到 anthropic-skills:pdf、code-review · "fill in a form in a PDF"：第一段 anthropic-skills:pdf 0.70、code-review 0.20、都不合适 0.08；第二段相关度 anthropic-skills:pdf 0.93、code-review 0.61；相关度 0.50 起返回，最多 5 个'
   expect(w.logs).toEqual([
     { text: 'request [skills.which] to jev for find_skill "fill in a form in a PDF": answered in 0 ms by jev-1.13.0 (300 input tokens)', to: 'debug' },
     { text: 'second request [skills.best, skills.fits.0, skills.fits.1] to jev for find_skill "fill in a form in a PDF": answered in 0 ms by jev-1.13.0 (300 input tokens)', to: 'debug' },
     { text: decision, to: 'debug' },
     { text: 'request [skills.which] to jev for find_skill "review a branch before merging": http: HTTP 500: boom (0 ms)', to: 'debug' },
   ])
-  expect((await w.command('dp', 'log 10')).split('\n')).toEqual(['the last decision, newest last', `#1 find-skill: ${decision}`])
+  expect((await w.command('dp', 'log 10')).split('\n')).toEqual(['最近 1 条决定，最新的在最后', `#1 find-skill：${decision}`])
   expect((await w.board()).log.map((entry) => [entry.n, entry.feature, entry.skills?.suggest.map((skill) => skill.name)])).toEqual([[1, 'find-skill', ['anthropic-skills:pdf', 'code-review']]])
 })
 

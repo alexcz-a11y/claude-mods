@@ -198,7 +198,7 @@ test("a model's effort floor (AA: sonnet's scores fall steeply below medium): so
   // No effort answer: nothing is decided about it, whatever the model.
   expect(decideDispatch({ model: choice({ sonnet: 1 }) }, { ...REVIEW, requested_model: null }, SETTINGS)).toMatchObject({ model: 'sonnet', effort: null })
   // The log says what the floor did.
-  expect(dispatchReason(as('sonnet', [1, 0, 0, 0, 0]), null, 0.6, 'the main agent')).toContain('effort lifted from low to medium (floor for sonnet)')
+  expect(dispatchReason(as('sonnet', [1, 0, 0, 0, 0]), null, 0.6, '主 agent')).toContain('effort 从 low 抬到 medium（模型下限：sonnet）')
 })
 
 test("requested_fits variant: the main agent's pick is no hint but a question of its own, and goes only when the work is also outside what it covers", () => {

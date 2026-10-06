@@ -118,9 +118,9 @@ export function httpFailure(response: HttpResponse): Failure {
 
 /**
  * A failed decision request in a few words: `jev: no answer in 1500 ms`,
- * `jev: key refused (HTTP 401)`. The words of the board's "not routed" reason
- * (core/report.ts), of the log's reasons and of what the model is told when a
- * request fails (a Workflow note, a find_skill answer), so they stay as they are.
+ * `jev: key refused (HTTP 401)`. English: what the model is told when a request
+ * fails (a Workflow note, a find_skill answer) and the debug log's words, which
+ * stay as they are. What a person reads is `failureLine`.
  */
 export function failureText(backend: string, failure: Failure): string {
   switch (failure.kind) {
@@ -140,5 +140,37 @@ export function failureText(backend: string, failure: Failure): string {
       return `${backend}: unreadable answer`
     case 'request':
       return `${backend}: bad request (see debug log)`
+  }
+}
+
+/**
+ * The same, for the person: the board's reason an agent is not routed, the
+ * toast, the card and the decision log's reasons. Chinese, `jev：1500 毫秒内没有回答`,
+ * `jev：密钥被拒绝（状态码 401）`; the model never reads it.
+ */
+export function failureLine(backend: string, failure: Failure): string {
+  switch (failure.kind) {
+    case 'config': {
+      if (failure.status !== undefined) return `${backend}：密钥被拒绝（状态码 ${failure.status}）`
+      // Nothing was sent: what is not set up (the option names are the ones the person types).
+      const missing = ['typesafeApiKey', 'cloudflareAccountId', 'cloudflareApiToken'].filter((option) => failure.detail.includes(option))
+      return missing.length === 0 ? `${backend}：没有配好密钥或账号` : `${backend}：没有填 ${missing.join(' 和 ')}`
+    }
+    case 'timeout': {
+      const ms = /\b(\d+) ms\b/.exec(failure.detail)?.[1]
+      return ms === undefined ? `${backend}：没有及时回答` : `${backend}：${ms} 毫秒内没有回答`
+    }
+    case 'network':
+      return `${backend}：连不上`
+    case 'busy':
+      return `${backend}：繁忙（状态码 ${failure.status ?? '?'}）`
+    case 'quota':
+      return `${backend}：今天的额度用完了`
+    case 'http':
+      return `${backend}：出错（状态码 ${failure.status ?? '?'}）`
+    case 'parse':
+      return `${backend}：回答读不懂`
+    case 'request':
+      return `${backend}：请求出错（详见 debug log）`
   }
 }

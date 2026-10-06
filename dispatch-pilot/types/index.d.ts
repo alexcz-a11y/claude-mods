@@ -232,6 +232,8 @@ declare module 'claude-code' {
         skills?: { suggest: { name: string; relevance: number }[]; try: { name: string; relevance: number }[] }
         /** The loop's counts when it was raised (escalation). */
         counts?: { failed: number; blocked: number; raised: number }
+        /** A Workflow call's decision that was sent back to the main agent to write in (return mode). */
+        sentBack?: true
       }[]
       /**
        * The agent the person picked on the band (its digit key, 0 the main agent) or paged to in the rationale

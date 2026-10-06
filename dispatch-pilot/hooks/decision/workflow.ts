@@ -233,9 +233,35 @@ export function outcomeOf(call: AgentCall, decision: DispatchDecision): string {
   return decision.effort === null ? model : `${model} ${decision.effort}`
 }
 
-/** Why a call is routed as it is (`dispatchReason`, a kept model being the script's). */
+// What the person reads of the same (the board, the decision log): Chinese. The words above are the main agent's.
+
+/** How a call is named to the person: its label, else where it is. */
+export function callTitle(call: AgentCall): string {
+  return call.label !== null ? JSON.stringify(call.label) : `第 ${call.line} 行的 agent()`
+}
+
+/** `outcomeOf`, for the person. */
+export function callResult(call: AgentCall, decision: DispatchDecision): string {
+  const model = decision.model ?? (call.model.kind === 'literal' ? (modelFamily(call.model.value) ?? call.model.value) : '会话的模型')
+  return decision.effort === null ? model : `${model} ${decision.effort}`
+}
+
+/** Why a call is routed as it is, for the person (`dispatchReason`, a kept model being the script's). */
 export function reasonOf(decision: DispatchDecision, requested: string | null, thetaOverride: number): string {
-  return dispatchReason(decision, requested, thetaOverride, "the script's")
+  return dispatchReason(decision, requested, thetaOverride, '脚本指定的')
+}
+
+/** `leftText`, for the person. */
+export function leftWords(outcome: Extract<CallOutcome, { kind: 'left' }>, describe: (failure: Failure) => string): string {
+  switch (outcome.reason) {
+    case 'unreadable':
+      return '它的 prompt 要等脚本运行时才拼出来'
+    case 'capped':
+      return '脚本里的 agent() 比一次问得过来的多'
+    case 'failed':
+    case 'unanswered':
+      return outcome.failure === undefined ? '决策模型没有回答' : describe(outcome.failure)
+  }
 }
 
 /** Why a call got the model and effort it did, in a few words for the main agent: whose model it is, how sure the decision model was, how likely its effort level. */
@@ -277,16 +303,6 @@ export function leftText(outcome: Extract<CallOutcome, { kind: 'left' }>, descri
     case 'unanswered':
       return outcome.failure === undefined ? 'no answer from the decision model' : describe(outcome.failure)
   }
-}
-
-/** The status line's words about a Workflow: how many agents were routed, how many were left as written, and why when none was. */
-export function statusText(outcomes: readonly CallOutcome[], describe: (failure: Failure) => string): string {
-  const left = outcomes.filter((outcome): outcome is Extract<CallOutcome, { kind: 'left' }> => outcome.kind === 'left')
-  const decided = outcomes.length - left.length
-  const failure = left.find((outcome) => outcome.failure !== undefined)?.failure
-  if (decided === 0) return `workflow not routed (${left[0] === undefined ? 'no agent() calls' : failure !== undefined ? describe(failure) : leftText(left[0], describe)})`
-  const rest = left.length === 0 ? '' : ` (${left.length} as written${failure === undefined ? '' : `: ${describe(failure)}`})`
-  return `workflow routed ${decided} agent${decided === 1 ? '' : 's'}${rest}`
 }
 
 /**

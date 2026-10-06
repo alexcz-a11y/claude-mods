@@ -97,7 +97,7 @@ async function openingOf($: EngineInterface, catalog: readonly CatalogSkill[], n
 }
 
 export function registerFindSkill(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: "answers the main agent's find_skill: the skills that fit the work it names" })
+  defineSwitch({ name: SWITCH, info: '回答主 agent 的 find_skill：挑出适合它说的那项工作的 skill' })
 
   /** Skills never offered (the option the skills feature reads too). */
   const neverSuggested = new Set(ctx.config.skills.neverSuggested)
@@ -192,11 +192,11 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
 
       // Only skills the main agent can load were asked about, and they alone can come back.
       const { suggest } = pickSkills(ranking, candidates, policy)
-      const names = suggest.map((skill) => skill.name).join(', ')
+      const names = suggest.map((skill) => skill.name).join('、')
       await reportDecision(io, {
         ...report,
         subject: quoteStart(query),
-        outcome: suggest.length > 0 ? `found ${names}` : 'found no skill',
+        outcome: suggest.length > 0 ? `查到 ${names}` : '没查到 skill',
         reason: describeRanking(ranking, policy),
         tone: suggest.length > 0 ? 'ok' : 'info',
         skills: { suggest: suggest.map(({ name, relevance }) => ({ name, relevance })), try: [] },
@@ -212,7 +212,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
 
 /** Why: what each stage of the ranking said (`describeStages`), and the bar a skill had to reach. */
 function describeRanking(ranking: SkillRanking, policy: SkillPolicy): string {
-  return `${describeStages(ranking)}; returned from ${policy.minRelevance.toFixed(2)}, at most ${policy.max}`
+  return `${describeStages(ranking)}；相关度 ${policy.minRelevance.toFixed(2)} 起返回，最多 ${policy.max} 个`
 }
 
 /** The answer: the skills that fit, each by name, relevance and description, most relevant first; or that none does. */

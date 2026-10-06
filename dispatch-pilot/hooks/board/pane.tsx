@@ -238,12 +238,12 @@ function hang(t: TT, key: string, label: string, content: RenderNode, w: number,
 
 /** What each kind of failed request means (`Failure.kind`), beside its name. */
 const FAILURE_KINDS: Record<string, string> = {
-  config: '没有配置决策模型，或 key 被拒绝',
-  timeout: '在 timeoutMs 内没有回答',
+  config: '没有配好决策模型的密钥或账号，或者密钥被拒绝',
+  timeout: '没有在等待时间内回答',
   network: '网络不通，请求没有发出去',
-  busy: '决策模型一时繁忙（HTTP 429 之类）',
+  busy: '决策模型一时繁忙（状态码 429 之类）',
   quota: '决策模型的额度用完了',
-  http: '决策模型回了一个 HTTP 错误',
+  http: '决策模型回了一个出错的状态码',
   parse: '回答里没有能用的判断',
   request: '请求本身出了错',
 }
@@ -302,7 +302,7 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
     hang(t, 'pane-card-state', '状态', text(row.status.text, TONE_COLOR[row.status.tone]), w),
   ]
   if (node.failure !== undefined) {
-    rows.push(hang(t, 'pane-card-kind', '类型', text(`${node.failure.kind}：${FAILURE_KINDS[node.failure.kind] ?? '其他'}`), w))
+    rows.push(hang(t, 'pane-card-kind', '类型', text(FAILURE_KINDS[node.failure.kind] ?? '其他'), w))
     rows.push(hang(t, 'pane-card-backend', '后端', text(node.failure.backend), w))
     rows.push(hang(t, 'pane-card-detail', '细节', text(node.why ?? node.failure.detail), w))
     rows.push(hang(t, 'pane-card-where', '排查', text('debug log（claude --debug-file <路径>）里有这次请求的那一行，写着它发了什么、等了多久、怎么失败的', MUTED), w))
@@ -432,13 +432,6 @@ function probsLine(t: TT, key: string, probs: Record<Effort, number>, picked: Ef
   )
 }
 
-/** A step's subject as the card says it: `第 3 步（every 3 steps）`. */
-function stepOf(subject: string): string {
-  const step = /^step (\d+)(?: \((.*)\))?$/.exec(subject)
-  if (step === null) return subject
-  return `第 ${step[1]} 步${step[2] === undefined ? '' : `（${step[2]}）`}`
-}
-
 /** One mid-turn re-decision: its number and step, the level suggested and the current one; the confidence meter with its line's tick, and the conclusion. */
 function midRow(t: TT, entry: LogEntry, w: number, Meter: Raster | undefined) {
   const { Box, Text } = t
@@ -457,7 +450,7 @@ function midRow(t: TT, entry: LogEntry, w: number, Meter: Raster | undefined) {
         </Box>
         <Box flexGrow={1} flexShrink={1}>
           <Text wrap="wrap">
-            <Text color={MUTED}>{`${stepOf(entry.subject)} · 建议 `}</Text>
+            <Text color={MUTED}>{`${entry.subject} · 建议 `}</Text>
             {level(verdict.picked)}
             <Text color={MUTED}>{' · 当前 '}</Text>
             {level(verdict.current)}

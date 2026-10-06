@@ -41,9 +41,9 @@ test("a route that fails raises a toast naming who is not routed and why; the bo
   expect(w.toasts[0]?.text).toContain('主 agent')
   expect(w.toasts[0]?.text).toContain('未路由')
   // In a few words, and the details.
-  expect(w.toasts[0]?.text).toContain('决策模型拒绝了 key')
-  expect(w.toasts[0]?.text).toContain('jev: key refused (HTTP 401)')
-  expect((await w.board()).nodes.find((node) => node.id === 'main')).toMatchObject({ routed: false, why: 'jev: key refused (HTTP 401)' })
+  expect(w.toasts[0]?.text).toContain('决策模型拒绝了密钥')
+  expect(w.toasts[0]?.text).toContain('jev：密钥被拒绝（状态码 401）')
+  expect((await w.board()).nodes.find((node) => node.id === 'main')).toMatchObject({ routed: false, why: 'jev：密钥被拒绝（状态码 401）' })
 })
 
 test('a decision made raises no toast', { options: KEY }, async ($, on) => {
@@ -71,7 +71,7 @@ test('a failed request beside the route (the skills, a re-decision) raises no to
   await w.step({ index: 1 })
   // The re-decision asked as the agent was dispatched failed: a note for the band, no toast.
   expect(w.requests).toHaveLength(2)
-  expect((await w.board()).notes).toMatchObject([{ turn: 1, id: 'main', feature: 'midturn-effort', kind: 'failed', why: 'jev: HTTP 500' }])
+  expect((await w.board()).notes).toMatchObject([{ turn: 1, id: 'main', feature: 'midturn-effort', kind: 'failed', why: 'jev：出错（状态码 500）' }])
   expect(w.toasts).toEqual([])
 })
 
@@ -255,7 +255,7 @@ test('what only the old status line used to say is in the stream now: a re-decis
   await w.step({ index: 1 })
 
   const events = await eventRows(await w.band())
-  expect(events.at(-1)).toMatch(/失败.*中途重判失败 · jev: HTTP 500/)
+  expect(events.at(-1)).toMatch(/失败.*中途重判失败 · jev：出错（状态码 500）/)
 })
 
 // ---- what is switched off, what is picked, what is never shown -------------------------
@@ -323,8 +323,8 @@ test("a digit picks an agent for the rationale pane: its row is marked, and the 
 })
 
 test('the skill profiles are never shown on the band or in the footer: neither their state nor their log entry', { options: KEY }, async ($, on) => {
-  const profiles = { phase: 'writing' as const, turn: 1, model: 'haiku', kept: 3, planned: 5, written: 2, failed: 1, deferred: 4, failures: [{ name: 'tdd', reason: 'the reply is not a profile' }] }
-  const entry = { n: 1, turn: 1, at: 0, feature: 'skill-profiles', tone: 'warn' as const, outcome: 'profiles: 1 failed', subject: '', reason: '3 kept, 2 written, 1 failed (tdd: the reply is not a profile)' }
+  const profiles = { phase: 'writing' as const, turn: 1, model: 'haiku', kept: 3, planned: 5, written: 2, failed: 1, deferred: 4, failures: [{ name: 'tdd', reason: '回复不是画像' }] }
+  const entry = { n: 1, turn: 1, at: 0, feature: 'skill-profiles', tone: 'warn' as const, outcome: '画像：1 个失败', subject: '', reason: '保留 3 · 新写 2 · 失败 1（tdd：回复不是画像）' }
   const w = runWorld($, on, { backend: jev([0, 1, 0, 0, 0]), seed: { profiles, log: [entry] } })
   await w.submit('改个错别字')
   await w.step({ index: 0 })

@@ -60,7 +60,7 @@ type Route =
   | { kind: 'start'; parsed: ParsedWorkflow; outcomes: CallOutcome[]; script: string | null }
 
 export function registerWorkflowAgents(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: 'decides the model and effort of each agent() of a Workflow script when the main agent submits it' })
+  defineSwitch({ name: SWITCH, info: '主 agent 提交 Workflow 时，决定脚本里每个 agent() 的模型和 effort' })
   const settings = dispatchSettings(ctx)
   const describe = (failure: Parameters<typeof failureText>[1]) => failureText(ctx.backend.name, failure)
   // `rewrite` (the default) writes the decisions into the script; `return` sends the Workflow back with them, once.
@@ -87,18 +87,18 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
       // What this does not rewrite: a script given by path or name, or resumed (its cache matches on each call's prompt and options).
       const given: PassReason | null = e.scriptPath !== undefined ? 'scriptPath' : e.script === undefined || e.name !== undefined ? 'name' : e.resumeFromRunId !== undefined ? 'resume' : null
       if (given !== null || e.script === undefined) {
-        const how = given === 'scriptPath' ? 'given by path' : given === 'resume' ? 'resumed from an earlier run' : 'given by name'
+        const how = given === 'scriptPath' ? '按路径提交，没有改写' : given === 'resume' ? '接着早先的运行，没有改写' : '按名字提交，没有改写'
         return { kind: 'pass', reason: given ?? 'name', why: how }
       }
 
       const parsed = parseWorkflow(e.script)
-      if (parsed === null) return { kind: 'pass', reason: 'unreadable', why: 'script not readable' }
+      if (parsed === null) return { kind: 'pass', reason: 'unreadable', why: '读不懂这个脚本' }
       if (parsed.calls.length === 0) return { kind: 'pass', reason: 'no agents', why: null }
 
       // A Workflow already sent back runs as it is submitted, whatever the second submission says.
       const fingerprint = workflowFingerprint(parsed)
       if (sendBack && ((await $.state.get(RETURNED)).value ?? []).includes(fingerprint)) {
-        return { kind: 'pass', reason: 'second', why: 'sent back once before', asWritten: true }
+        return { kind: 'pass', reason: 'second', why: '早先退回过一次，这次照原样运行', asWritten: true }
       }
 
       const { value: said = [] } = await $.state.get(SAID)
@@ -126,7 +126,7 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
       if (sendBack && written > 0) {
         const returned: Cell<string[]> = { get: () => $.state.get(RETURNED), set: (value, options) => $.state.set(RETURNED, value, options) }
         await update(returned, (list) => [...(list ?? []), fingerprint].slice(-MAX_RETURNED))
-        await reportCalls(parsed, outcomes, { suffix: ' (sent back)', sentBack: true })
+        await reportCalls(parsed, outcomes, { suffix: '（已退回）', sentBack: true })
         return { kind: 'refuse', deny: returnNote(parsed, outcomes) }
       }
       return { kind: 'start', parsed, outcomes, script: written > 0 ? rewriteWorkflow(parsed, writes) : null }
@@ -137,7 +137,7 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
       route = await decide()
     } catch (error) {
       log(`workflow routing failed, the script goes through as written: ${errorText(error)}`)
-      await notRouted('error: see the debug log')
+      await notRouted('出错了，详见 debug log')
       return next(e)
     }
     if (route.kind === 'refuse') return { deny: route.deny }
@@ -160,7 +160,7 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
       log(`workflow ${JSON.stringify(parsed.meta.name)}: the tool could not parse the rewritten script (${(result.text ?? '').slice(0, 160)}); started as written`)
       result = await next(e)
       if (result.isError !== true && result.deny === undefined) {
-        await notRouted('the rewritten script did not parse')
+        await notRouted('改写后的脚本解析不了')
         const told = "Dispatch Pilot (the user's routing plugin) wrote a model and an effort into this Workflow's agent() calls, but the tool could not use the rewritten script, so it started it as you wrote it."
         return { ...result, context: [...(result.context ?? []), told] }
       }

@@ -94,12 +94,12 @@ test('no answer within timeoutMs: the prompt goes in without waiting longer, the
 
 // `kind` is what the board records of the failure; `why` its words for it.
 const failures: { name: string; reply: Reply; kind: string; why: string }[] = [
-  { name: 'the key is refused (401)', reply: { status: 401, body: { detail: 'Invalid API key' } }, kind: 'config', why: 'jev: key refused (HTTP 401)' },
-  { name: 'rate limited (429)', reply: { status: 429, body: { detail: 'Too Many Requests' } }, kind: 'busy', why: 'jev: busy (HTTP 429)' },
-  { name: 'a server error (500)', reply: { status: 500, body: 'Internal Server Error' }, kind: 'http', why: 'jev: HTTP 500' },
-  { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }, kind: 'network', why: 'jev: unreachable' },
-  { name: 'a 200 that is not an answer', reply: { status: 200, body: '<html>maintenance</html>' }, kind: 'parse', why: 'jev: unreadable answer' },
-  { name: 'an answer without the effort question', reply: { status: 200, body: { model: 'jev-1.13.0', answers: {} } }, kind: 'parse', why: 'jev: unreadable answer' },
+  { name: 'the key is refused (401)', reply: { status: 401, body: { detail: 'Invalid API key' } }, kind: 'config', why: 'jev：密钥被拒绝（状态码 401）' },
+  { name: 'rate limited (429)', reply: { status: 429, body: { detail: 'Too Many Requests' } }, kind: 'busy', why: 'jev：繁忙（状态码 429）' },
+  { name: 'a server error (500)', reply: { status: 500, body: 'Internal Server Error' }, kind: 'http', why: 'jev：出错（状态码 500）' },
+  { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }, kind: 'network', why: 'jev：连不上' },
+  { name: 'a 200 that is not an answer', reply: { status: 200, body: '<html>maintenance</html>' }, kind: 'parse', why: 'jev：回答读不懂' },
+  { name: 'an answer without the effort question', reply: { status: 200, body: { model: 'jev-1.13.0', answers: {} } }, kind: 'parse', why: 'jev：回答读不懂' },
 ]
 
 for (const failure of failures) {
@@ -129,7 +129,7 @@ test('a decision that comes back after a failure leaves no reason on the next tu
   const w = world($, on, { backend: (request, n) => (n === 1 ? { status: 503, body: 'overloaded' } : jev([0, 1, 0, 0, 0])(request)) })
   await w.submit('第一条')
   await w.step({ index: 0, effort: 'xhigh' })
-  expect((await w.board()).main).toMatchObject({ routed: false, why: 'jev: busy (HTTP 503)' })
+  expect((await w.board()).main).toMatchObject({ routed: false, why: 'jev：繁忙（状态码 503）' })
   await w.submit('第二条')
   await w.step({ index: 0, effort: 'xhigh' })
   expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: true })
@@ -173,8 +173,8 @@ for (const report of REPORTS) {
     expect(w.requests[0]?.body.state.user_message).toBe(report.text)
     expect(w.steps.map((s) => String(s.effort))).toEqual(['low'])
     expect((await w.board()).main).toMatchObject({ effort: 'low', routed: true })
-    expect(w.logs.map((l) => l.text)).toContainEqual(expect.stringMatching(/^effort low for /))
-    expect(await w.command('dp', 'log 10')).toMatch(/main-effort \(agent report\): effort low/)
+    expect(w.logs.map((l) => l.text)).toContainEqual(expect.stringMatching(/^effort low · /))
+    expect(await w.command('dp', 'log 10')).toMatch(/main-effort \(agent report\)：effort low/)
   })
 }
 
@@ -365,7 +365,7 @@ test('each request and decision is written to the debug log, never into the conv
   expect(w.logs.map((l) => l.to)).toEqual(['debug', 'debug', 'debug'])
   expect(w.logs.map((l) => l.text)).toEqual([
     'request [effort.level] to jev: answered in 0 ms by jev-1.13.0 (300 input tokens)',
-    'effort high for "把登录模块重构成三层": p low 0.05, medium 0.10, high 0.60, xhigh 0.20, max 0.05; confidence 0.70',
+    'effort high · "把登录模块重构成三层"：概率 low 0.05, medium 0.10, high 0.60, xhigh 0.20, max 0.05；置信度 0.70',
     'request [effort.level] to jev: http: HTTP 500: boom (0 ms)',
   ])
 })

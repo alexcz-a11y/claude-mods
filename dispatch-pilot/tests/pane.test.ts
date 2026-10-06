@@ -56,10 +56,10 @@ test('a pane the surface does not place is closed again at once, and the person 
 test('/dp status says what is on and the lock; /dp log N lists the last N decisions in the conversation, as /dp and /dp log did', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
   await w.submit('改个错别字')
-  expect(await w.command('dp', 'status')).toContain('Effort lock: none.')
+  expect(await w.command('dp', 'status')).toContain('effort 锁定：没有。')
   const lines = (await w.command('dp', 'log 1')).split('\n')
-  expect(lines[0]).toBe('the last decision, newest last')
-  expect(lines[1]).toContain('#1 main-effort: effort high')
+  expect(lines[0]).toBe('最近 1 条决定，最新的在最后')
+  expect(lines[1]).toContain('#1 main-effort：effort high')
   expect(w.panes).toEqual([])
 })
 
@@ -120,7 +120,7 @@ test("a dispatched agent's card: the model it was given, how sure the decision m
   expect(shown(await ui.find({ key: 'pane-head' }))).toContain('审查登录模块')
   expect(shown(await ui.find({ key: 'pane-card-model' }))).toMatch(/sonnet.*置信 1\.0/)
   // Why, in the decision report's own words.
-  expect(shown(await ui.find({ key: 'pane-card-reason' }))).toContain('pick sonnet')
+  expect(shown(await ui.find({ key: 'pane-card-reason' }))).toContain('选 sonnet')
   const rules = await steps(ui)
   expect(rules.at(-1)).toMatch(/▲.*模型下限.*sonnet 至少 medium，low 抬到 medium/)
   expect(shown(await ui.find({ key: 'pane-card-result' }))).toContain('medium')
@@ -133,9 +133,9 @@ test('not routed: the card says why in a few words, then the failure in full (it
 
   const ui = await w.pane()
   expect(shown(await ui.find({ key: 'pane-card-state' }))).toContain('未路由 · 决策模型出错')
-  expect(shown(await ui.find({ key: 'pane-card-kind' }))).toContain('http')
+  expect(shown(await ui.find({ key: 'pane-card-kind' }))).toContain('出错的状态码')
   expect(shown(await ui.find({ key: 'pane-card-backend' }))).toContain('jev')
-  expect(shown(await ui.find({ key: 'pane-card-detail' }))).toContain('jev: HTTP 500')
+  expect(shown(await ui.find({ key: 'pane-card-detail' }))).toContain('jev：出错（状态码 500）')
   expect(shown(await ui.find({ key: 'pane-card-where' }))).toContain('debug log')
   // Nothing decided: no probabilities, no rules.
   expect(await ui.find({ key: 'pane-card-probs' })).toBeUndefined()
@@ -300,7 +300,7 @@ test('the log keeps twenty turns, and each has its own fold key: none of them p,
 
 /** The skill profiles' state as #33 keeps it. */
 function profiles(over: Partial<ProfilesState> = {}): ProfilesState {
-  return { phase: 'done' as const, turn: 1, model: 'haiku', kept: 52, planned: 4, written: 3, failed: 1, deferred: 0, failures: [{ name: 'tdd', reason: 'the reply is not a profile' }], ...over }
+  return { phase: 'done' as const, turn: 1, model: 'haiku', kept: 52, planned: 4, written: 3, failed: 1, deferred: 0, failures: [{ name: 'tdd', reason: '回复不是画像' }], ...over }
 }
 
 test('the skill profiles at the top: how many kept, written and failed once done; 生成中 N/M while writing; why it stopped; the failed skills listed on their key', { options: KEY }, async ($, on) => {
@@ -311,7 +311,7 @@ test('the skill profiles at the top: how many kept, written and failed once done
   expect(await ui.find({ key: 'pane-profile-failure-0' })).toBeUndefined()
   expect((await ui.find({ key: 'pane-profile-failures' }))?.props?.hotkey).toBe('f')
   await ui.press({ key: 'pane-profile-failures' })
-  expect(shown(await ui.find({ key: 'pane-profile-failure-0' }))).toMatch(/tdd.*the reply is not a profile/)
+  expect(shown(await ui.find({ key: 'pane-profile-failure-0' }))).toMatch(/tdd.*回复不是画像/)
   await ui.press({ key: 'pane-profile-failures' })
   expect(await ui.find({ key: 'pane-profile-failure-0' })).toBeUndefined()
 })
@@ -324,9 +324,9 @@ test('the skill profiles while they are written say 生成中 written/planned', 
 })
 
 test('the skill profiles stopped say why, with the stop\'s own words, and what is left for later', async ($, on) => {
-  const w = world($, on, { seed: { profiles: profiles({ phase: 'stopped', written: 1, failed: 0, failures: [], deferred: 2, stop: { reason: 'api-error', detail: 'an API error, HTTP 529 overloaded' } }) } })
+  const w = world($, on, { seed: { profiles: profiles({ phase: 'stopped', written: 1, failed: 0, failures: [], deferred: 2, stop: { reason: 'api-error', detail: '接口出错（状态码 529 overloaded）' } }) } })
   const line = shown(await (await w.pane()).find({ key: 'pane-profiles' }))
-  expect(line).toMatch(/已停写.*haiku.*API 错误.*HTTP 529 overloaded/)
+  expect(line).toMatch(/已停写.*haiku.*接口错误.*状态码 529 overloaded/)
   expect(line).toContain('延后 2')
 })
 
@@ -365,12 +365,12 @@ test('with the whole mod off the pane says so, and still lists the switches', { 
 })
 
 test('the session start\'s profiles entry is in the log under its turn, its tone as #33 set it', async ($, on) => {
-  const entry = { n: 1, turn: 1, at: 0, feature: 'skill-profiles', tone: 'warn' as const, outcome: 'profiles: 1 failed', subject: '', reason: '52 kept, 3 written, 1 failed (tdd: the reply is not a profile)' }
+  const entry = { n: 1, turn: 1, at: 0, feature: 'skill-profiles', tone: 'warn' as const, outcome: '画像：1 个失败', subject: '', reason: '保留 52 · 新写 3 · 失败 1（tdd：回复不是画像）' }
   const w = world($, on, { seed: { board: { turn: 1, nodes: [] }, log: [entry], profiles: profiles() } })
   const row = shown(await (await w.pane()).find({ key: 'pane-entry-1' }))
   expect(row).toMatch(/⚠#1 画像有失败/)
   expect(row).toContain('skill 画像')
-  expect(row).toContain('tdd: the reply is not a profile')
+  expect(row).toContain('tdd：回复不是画像')
 })
 
 // ---- the other surfaces: the same pane in text (#31) -------------------------------
@@ -443,7 +443,7 @@ test('a long log and a long turn do not make the pane a tree of 2000 nodes (Desk
   const log: LogEntry[] = turns.flatMap((turn) =>
     Array.from({ length: 60 }, (_, j) => ({ n: turn * 1000 + j, turn, at: j, feature: 'dispatched-agents', agent: `a${j}`, tone: 'ok' as const, outcome: 'model sonnet', model: 'sonnet' as const, effort: 'medium' as const, subject: `agent ${j}`, reason: 'pick sonnet: the work is a small review', probs, trace })),
   )
-  const mid = (n: number) => ({ n, turn: 5, at: n, feature: 'midturn-effort', agent: 'main', tone: 'ok' as const, outcome: 'effort kept', subject: `step ${n} (every 3 steps)`, reason: 'suggested the same', conf: 0.5, mid: { picked: 'high' as const, current: 'high' as const, result: 'high' as const }, trace: [{ rule: 'suggest', applied: true, picked: 'high', current: 'high', direction: 'same' }] })
+  const mid = (n: number) => ({ n, turn: 5, at: n, feature: 'midturn-effort', agent: 'main', tone: 'ok' as const, outcome: 'effort kept', subject: `第 ${n} 步（每 3 步）`, reason: '档位不变', conf: 0.5, mid: { picked: 'high' as const, current: 'high' as const, result: 'high' as const }, trace: [{ rule: 'suggest', applied: true, picked: 'high', current: 'high', direction: 'same' }] })
   const mids = Array.from({ length: 60 }, (_, i) => mid(9000 + i))
   const board = { turn: 5, starts: [{ turn: 5, at: 0 }], nodes: [{ turn: 5, id: 'main', kind: 'main' as const, name: '主 agent', type: 'main', model: 'opus' as const, effort: 'high' as const, state: 'running' as const, t0: 0, routed: true, decision: 5000 }] }
   const w = world($, on, { seed: { board, log: [...mids, ...log] } })

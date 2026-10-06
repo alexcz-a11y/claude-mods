@@ -209,7 +209,7 @@ test("a dispatched agent is queued from its spawn to its first step, running unt
   const done = (await w.board()).agents[0]
   expect(done).toMatchObject({ state: 'done', t0: 3.5, dur: 4.2 })
   // Nobody decided its model and effort (there is no key): that is the one thing its node says of it.
-  expect(done?.why).toBe('jev: no TypeSafe API key: set typesafeApiKey')
+  expect(done?.why).toBe('jev：没有填 typesafeApiKey')
 })
 
 test('a loop that ends in an error, a refusal or an interruption is failed, and says which; the main agent too', async ($, on) => {
@@ -225,8 +225,8 @@ test('a loop that ends in an error, a refusal or an interruption is failed, and 
 
   const board = await w.board()
   expect(board.agents.map((node) => [node.id, node.state, node.why])).toEqual([
-    ['a1', 'failed', 'error'],
-    ['a2', 'failed', 'aborted'],
+    ['a1', 'failed', '出错'],
+    ['a2', 'failed', '被中断'],
   ])
   // Its own reason for not being routed (no decision key here) stays the reason it shows.
   expect(board.main).toMatchObject({ state: 'failed', dur: 9, failure: { kind: 'config' } })

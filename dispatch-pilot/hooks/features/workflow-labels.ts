@@ -17,7 +17,7 @@
 // Its switch is `workflow-labels` (`/dp workflow-labels off`).
 
 import type { EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
-import { describeAsked, errorText, failureText, within, type Failure } from '../decision/backend.ts'
+import { describeAsked, errorText, failureLine, failureText, within, type Failure } from '../decision/backend.ts'
 import { dispatchEvidence, modelFamily, termsOf, type AgentModel, type DispatchSettings, type Terms } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
 import {
@@ -36,7 +36,7 @@ import {
   type RunSite,
 } from '../decision/workflow-labels.ts'
 import { parseWorkflow, type AgentCall, type ParsedWorkflow } from '../decision/workflow-script.ts'
-import { batchesTimeoutMs, outcomeOf, readOutcomes, reasonOf, workflowBatches } from '../decision/workflow.ts'
+import { batchesTimeoutMs, callResult, readOutcomes, reasonOf, workflowBatches } from '../decision/workflow.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { reportDecision, reportDecisions, type Decided, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
@@ -90,7 +90,7 @@ type AgentRoute = { model: AgentModel | null; effort: Effort | null }
 const launching = new Set<Promise<LabelRun | null>>()
 
 export function registerWorkflowLabels(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: 'sets the model and effort of each Workflow agent when it starts, by its label, where the script could not be written into' })
+  defineSwitch({ name: SWITCH, info: 'Workflow 里脚本改写不到的 agent，启动时按 label 设定模型和 effort' })
   const settings = dispatchSettings(ctx)
 
   // The standing hint: the engine renders a tool's description once per session
@@ -172,7 +172,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       // The tool itself failed: as it did. Otherwise the run goes on as the tool started it.
       if (result === undefined) throw error
       log(`workflow-labels: the run's agents are not routed by label: ${errorText(error)}`)
-      await reportDecisions(reporting, [workflowLeft(SWITCH, { id: e.tool_use_id, title: workflowCallTitle(e) }, 'error: see the debug log', { agent: `${e.tool_use_id}:labels` })])
+      await reportDecisions(reporting, [workflowLeft(SWITCH, { id: e.tool_use_id, title: workflowCallTitle(e) }, '出错了，详见 debug log', { agent: `${e.tool_use_id}:labels` })])
       return result
     } finally {
       launching.delete(launch)
@@ -187,7 +187,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       await routeAgent($, ctx, settings, agentId, e.model)
     } catch (error) {
       $.ui.log(`workflow-labels: agent ${agentId} is not routed: ${errorText(error)}`, { to: 'debug' })
-      await reportDecision(reportingOf($), { feature: SWITCH, agent: agentId, why: 'error: see the debug log', subject: agentId, node: { kind: 'wf', name: agentId, type: 'workflow', state: 'running' } })
+      await reportDecision(reportingOf($), { feature: SWITCH, agent: agentId, why: '出错了，详见 debug log', subject: agentId, node: { kind: 'wf', name: agentId, type: 'workflow', state: 'running' } })
     }
     return yield* next(e)
   })
@@ -222,7 +222,7 @@ async function routeAgent($: EngineInterface, ctx: Ctx, settings: DispatchSettin
     feature: SWITCH,
     agent: agentId,
     subject: JSON.stringify(start.label),
-    node: { kind: 'wf' as const, name: start.label, type: site?.agentType ?? 'workflow', state: 'running' as const, workflow: { id: callId, name: run.workflow ?? 'unnamed' } },
+    node: { kind: 'wf' as const, name: start.label, type: site?.agentType ?? 'workflow', state: 'running' as const, workflow: { id: callId, name: run.workflow ?? '未命名' } },
     ...(site === undefined || run.sites === null ? {} : { replaces: `${callId}#${run.sites.indexOf(site)}` }),
   }
   const reporting = reportingOf($)
@@ -288,7 +288,7 @@ async function decideAtStart(
   agent: { run: LabelRun; agentId: string; label: string; site: RunSite | undefined; deadline: number },
 ): Promise<Settled> {
   const task = await readTask($, agent.run.dir, agent.agentId, agent.deadline)
-  if (task === null) return { ok: false, reason: 'task not on disk in time' }
+  if (task === null) return { ok: false, reason: '它的任务没能及时读到' }
   const { value: said = [] } = await $.state.get(SAID)
   const words = said.join('\n')
   const site = agent.site
@@ -307,30 +307,30 @@ async function decideAtStart(
   const parsed: ParsedWorkflow = { script: '', meta: { name: agent.run.workflow, description: agent.run.description }, calls: [call] }
   const plan = workflowBatches(parsed, words, settings, ctx.config.contextByKind.workflow)
   const batch = plan.batches[0]
-  if (batch === undefined) return { ok: false, reason: 'its task says nothing of the work' }
+  if (batch === undefined) return { ok: false, reason: '它的任务里没说要做什么' }
   const timeoutMs = Math.min(ctx.config.timeoutMs, agent.deadline - (await $.clock.now()))
-  if (timeoutMs < MIN_ASK_MS) return { ok: false, reason: 'no time left to ask' }
+  if (timeoutMs < MIN_ASK_MS) return { ok: false, reason: '没有时间再问决策模型了' }
   const io = {
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
     sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
   }
   const startedAt = await $.clock.now()
   const asked = await ctx.backend.ask(io, batch.request, timeoutMs)
-  const about = `${JSON.stringify(agent.label)} (agent ${agent.agentId}, workflow ${agent.run.workflow ?? 'unnamed'})`
+  const about = `${JSON.stringify(agent.label)}（agent ${agent.agentId}，Workflow ${agent.run.workflow ?? '未命名'}）`
   const log = (line: string) => $.ui.log(line, { to: 'debug' })
   log(`request [${Object.keys(batch.request.questions).join(', ')}] to ${ctx.backend.name} for ${about}: ${describeAsked(asked, (await $.clock.now()) - startedAt)}`)
   const outcome = readOutcomes(parsed, plan, [asked], words, settings)[0]
   if (outcome === undefined || outcome.kind === 'left') {
     const failure = outcome?.kind === 'left' ? outcome.failure : undefined
-    return { ok: false, reason: failure === undefined ? 'no answer from the decision model' : failureText(ctx.backend.name, failure), ...(failure === undefined ? {} : { failure }) }
+    return { ok: false, reason: failure === undefined ? '决策模型没有回答' : failureLine(ctx.backend.name, failure), ...(failure === undefined ? {} : { failure }) }
   }
   const requested = call.model.kind === 'literal' ? modelFamily(call.model.value) : null
   const family = outcome.decision.model ?? requested
   const decision = {
     // The entry's subject is the agent as it is told here, not the call.
     subject: about,
-    outcome: outcomeOf(call, outcome.decision),
-    reason: `from its task as it started; ${reasonOf(outcome.decision, requested, settings.thetaOverride)}`,
+    outcome: callResult(call, outcome.decision),
+    reason: `按它启动时的任务；${reasonOf(outcome.decision, requested, settings.thetaOverride)}`,
     ...dispatchEvidence(outcome.decision),
     ...(family === null ? {} : { model: family }),
     ...(outcome.decision.effort === null ? {} : { effort: outcome.decision.effort }),

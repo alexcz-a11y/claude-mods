@@ -34,7 +34,7 @@ const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const SWITCHES_KEY = 'switches'
 
 export function registerControl(on: On, ctx: Ctx): void {
-  defineSwitch({ name: 'signals', info: 'records context, limit and cost readings in the debug log; no decision uses them' })
+  defineSwitch({ name: 'signals', info: '把上下文、限额和花费的读数记进 debug log，不参与任何决策' })
 
   // Under a match-all matcher: other features set themselves up at session start too.
   on('session.start', { cwd: /(?:)/ }, async ($, e, next) => {
@@ -46,7 +46,7 @@ export function registerControl(on: On, ctx: Ctx): void {
     await $.command
       .register({
         name: 'dp',
-        description: 'Dispatch Pilot: the rationale pane, switches, effort lock, recent decisions',
+        description: 'Dispatch Pilot：依据面板、功能开关、effort 锁定、最近的决定',
         argumentHint: '[log | status | on|off | <name> on|off | lock <effort> | unlock | log N]',
         immediate: true,
       })
@@ -81,7 +81,7 @@ export function registerControl(on: On, ctx: Ctx): void {
         await $.store.set(SWITCHES_KEY, saved)
         return ''
       } catch {
-        return ' (not saved: the store is unavailable, so this lasts until the session ends)'
+        return '（没有保存：本地存储用不了，只在这个会话里有效）'
       }
     }
     try {
@@ -104,34 +104,34 @@ export function registerControl(on: On, ctx: Ctx): void {
         case 'master':
           setMaster(command.on)
           reportSwitch(reporting, { master: command.on })
-          return { text: `Dispatch Pilot is ${command.on ? 'on' : 'off'}${await save('master')}` }
+          return { text: `Dispatch Pilot 已${command.on ? '打开' : '关闭'}${await save('master')}` }
         case 'switch': {
           const spec = listSwitches().find((s) => s.name === command.name)
           if (spec === undefined || !setSwitch(command.name, command.on)) {
             const names = listSwitches().map((s) => s.name).join(', ')
-            return { text: `no switch named "${command.name}" (switches: ${names})` }
+            return { text: `没有叫「${command.name}」的开关（现有：${names}）` }
           }
           reportSwitch(reporting, { feature: spec.name, on: command.on })
-          return { text: `${spec.name} is ${command.on ? 'on' : 'off'} (${spec.info})${await save(spec.name)}` }
+          return { text: `${spec.name} 已${command.on ? '打开' : '关闭'}：${spec.info}${await save(spec.name)}` }
         }
         case 'lock': {
           await $.state.set(LOCK, command.effort)
-          const inert = masterOn() ? '' : ' (Dispatch Pilot is off: /dp on to apply it)'
-          return { text: `the main agent is locked at ${command.effort} effort on every step${inert}; /dp unlock releases it` }
+          const inert = masterOn() ? '' : '（Dispatch Pilot 关着：/dp on 才生效）'
+          return { text: `主 agent 已锁在 ${command.effort}：每一步都用这一档${inert}；/dp unlock 解除` }
         }
         case 'unlock':
           await $.state.set(LOCK, null)
-          return { text: 'unlocked, effort goes back to the decisions' }
+          return { text: '已解除锁定，effort 回到按决定走' }
         case 'log': {
           const { value: kept = [] } = await $.state.get(DECISIONS)
           return { text: describeDecisions(kept.slice(-command.count)) }
         }
         case 'unknown':
-          return { text: `not understood.\n${USAGE}` }
+          return { text: `没看懂这条命令。\n${USAGE}` }
       }
     } catch (error) {
       // Always answer: a failing command must not leave the person without a word.
-      return { text: `failed (${errorText(error)})` }
+      return { text: `出错了（${errorText(error)}）` }
     }
   })
 }
@@ -162,25 +162,25 @@ function parseControl(args: string): Control {
   return { kind: 'unknown' }
 }
 
-const USAGE = `/dp (the rationale pane) | /dp status | /dp on|off | /dp <name> on|off | /dp lock <${EFFORTS.join('|')}> | /dp unlock | /dp log N`
+const USAGE = `/dp（依据面板） | /dp status | /dp on|off | /dp <功能名> on|off | /dp lock <${EFFORTS.join('|')}> | /dp unlock | /dp log N`
 
 /** `/dp status`'s answer: whether the mod is on, the lock, each feature's switch. */
 function describeStatus(lock: Effort | null): string {
   const switches = listSwitches()
   const width = Math.max(0, ...switches.map((s) => s.name.length))
   return [
-    `Dispatch Pilot is ${masterOn() ? 'on' : 'off'}. Effort lock: ${lock ?? 'none'}.`,
-    'Switches (/dp <name> on|off):',
-    ...switches.map((s) => `  ${s.on ? 'on ' : 'off'}  ${s.name.padEnd(width)}  ${s.info}`),
+    `Dispatch Pilot ${masterOn() ? '开着' : '关着'}。effort 锁定：${lock ?? '没有'}。`,
+    '功能开关（/dp <功能名> on|off）：',
+    ...switches.map((s) => `  ${s.on ? '开' : '关'}  ${s.name.padEnd(width)}  ${s.info}`),
     USAGE,
   ].join('\n')
 }
 
 /** `/dp log N`'s answer: the decisions, oldest first, each with its reason. */
 function describeDecisions(entries: readonly LogEntry[]): string {
-  if (entries.length === 0) return 'no decisions recorded yet'
-  const header = `the last ${entries.length === 1 ? 'decision' : `${entries.length} decisions`}, newest last`
-  return [header, ...entries.map((entry) => `#${entry.n} ${entry.feature}: ${decisionLine(entry)}`)].join('\n')
+  if (entries.length === 0) return '还没有记下任何决定'
+  const header = `最近 ${entries.length} 条决定，最新的在最后`
+  return [header, ...entries.map((entry) => `#${entry.n} ${entry.feature}：${decisionLine(entry)}`)].join('\n')
 }
 
 /** One measurement as a debug-log line: what the engine reported, `n/a` for what it has no figure for. */

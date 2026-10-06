@@ -103,7 +103,7 @@ async function openingOf($: EngineInterface, catalog: readonly CatalogSkill[], n
 
 export function registerSkills(on: On, ctx: Ctx): void {
   // On or off until the person flips it, by the decision model: off with Clef, whose first stage takes longer than a message can wait.
-  defineSwitch({ name: SWITCH, info: 'suggests the skills that fit each message; the full skill listing stays out', default: ctx.config.skills.suggestByDefault })
+  defineSwitch({ name: SWITCH, info: '给每条消息推荐合适的 skill，完整的 skill 列表不再交给主 agent', default: ctx.config.skills.suggestByDefault })
 
   /** Skills the main agent keeps in its listing (names as the listing spells them). */
   const alwaysListed = new Set(ctx.config.skills.alwaysListed)
@@ -312,11 +312,11 @@ function restoredListing(text: string): string {
 
 /** Why: what each stage of the ranking said (`describeStages`), and the bar a skill had to reach. */
 function describeRanking(ranking: SkillRanking, policy: SkillPolicy): string {
-  return `${describeStages(ranking)}; suggested from ${policy.minRelevance.toFixed(2)}, at most ${policy.max}`
+  return `${describeStages(ranking)}；相关度 ${policy.minRelevance.toFixed(2)} 起推荐，最多 ${policy.max} 个`
 }
 
 /** What the message got: the skills suggested, then those for the person to start. */
 function describePicks(suggest: readonly SkillPick[], hint: readonly SkillPick[]): string {
-  const suggested = suggest.length > 0 ? `suggested ${suggest.map((skill) => skill.name).join(', ')}` : 'suggested no skill'
-  return hint.length > 0 ? `${suggested}; try ${hint.map((skill) => `/${skill.name}`).join(' ')}` : suggested
+  const suggested = suggest.length > 0 ? `推荐 ${suggest.map((skill) => skill.name).join('、')}` : '没有推荐 skill'
+  return hint.length > 0 ? `${suggested}；可试 ${hint.map((skill) => `/${skill.name}`).join(' ')}` : suggested
 }

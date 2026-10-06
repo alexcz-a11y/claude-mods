@@ -53,11 +53,11 @@ test('an agent of a Workflow given by scriptPath goes out, on every step, with t
     ['wa1', 'wf', 'rename', 'running', 'sonnet', 'medium', true],
     ['wa2', 'wf', 'review', 'running', 'opus', 'high', true],
   ])
-  expect(started.map((node) => board.log.find((entry) => entry.n === node.decision)?.subject)).toEqual(['"rename" (workflow tidy-api)', '"review" (workflow tidy-api)'])
+  expect(started.map((node) => board.log.find((entry) => entry.n === node.decision)?.subject)).toEqual(['"rename"（Workflow tidy-api）', '"review"（Workflow tidy-api）'])
   expect(new Set(started.map((node) => node.workflow?.id)).size).toBe(1)
   // The calls' own nodes are gone: their agents started.
   expect(board.agents.filter((node) => node.state === 'queued')).toEqual([])
-  expect(board.agents.find((node) => !node.id.startsWith('wa'))).toMatchObject({ kind: 'wf', routed: false, why: 'given by path' })
+  expect(board.agents.find((node) => !node.id.startsWith('wa'))).toMatchObject({ kind: 'wf', routed: false, why: '按路径提交，没有改写' })
   expect(board.log.map((entry) => entry.feature)).toEqual(['workflow-labels', 'workflow-labels'])
 })
 
@@ -106,13 +106,13 @@ const TIDY_DECIDED = siteJev((i): SiteAnswer => (i === 0 ? { model: { sonnet: 0.
 
 test('/dp workflow-labels off: no agent is routed and no run recorded, nothing is asked, and the Workflow tool is described as the engine has it; on brings it all back', { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { disk: { [SAVED]: TIDY }, backend: TIDY_DECIDED })
-  expect(await w.command('dp', 'status')).toMatch(/\bon +workflow-labels +\S/)
+  expect(await w.command('dp', 'status')).toMatch(/开 +workflow-labels +\S/)
   await w.workflow({ scriptPath: SAVED })
   w.started('wf_test-1', 'wa1', 'rename')
   await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
   expect((await w.board()).agents.filter((node) => node.id === 'wa1')).toMatchObject([{ routed: true, model: 'sonnet' }])
 
-  expect(await w.command('dp', 'workflow-labels off')).toContain('workflow-labels is off')
+  expect(await w.command('dp', 'workflow-labels off')).toContain('workflow-labels 已关闭')
   w.started('wf_test-1', 'wa2', 'review')
   await w.agentStep('wa2', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
   await w.workflow({ scriptPath: SAVED })
@@ -146,8 +146,8 @@ test('a decision request that fails when the run starts leaves its agents as the
   expect(result.isError).toBeUndefined()
   // Each call of the script is on the board as not routed, with why: its agents have not started.
   expect((await w.board()).agents.filter((node) => node.state === 'queued').map((node) => [node.name, node.routed, node.why, node.failure?.kind])).toEqual([
-    ['rename', false, 'jev: HTTP 500', 'http'],
-    ['review', false, 'jev: HTTP 500', 'http'],
+    ['rename', false, 'jev：出错（状态码 500）', 'http'],
+    ['review', false, 'jev：出错（状态码 500）', 'http'],
   ])
 
   w.started('wf_test-1', 'wa1', 'rename')
@@ -172,7 +172,7 @@ test("an agent whose own decision fails goes out as the engine made it; the boar
   // Each agent has its own node: the one that failed says why, the one that was routed says what it got.
   const board = await w.board()
   expect(board.agents.filter((node) => node.id.startsWith('wa')).map((node) => [node.id, node.routed, node.why, node.model])).toEqual([
-    ['wa1', false, 'jev: HTTP 500', 'sonnet'],
+    ['wa1', false, 'jev：出错（状态码 500）', 'sonnet'],
     ['wa2', true, undefined, 'haiku'],
   ])
   expect(board.agents.find((node) => node.id === 'wa1')?.failure).toMatchObject({ backend: 'jev', kind: 'http', status: 500 })
@@ -200,8 +200,8 @@ test("each agent of a script that cannot be read has its own decision on the boa
     ['wa2', 'second', 'haiku', undefined, true],
   ])
   expect(started.map((node) => board.log.find((entry) => entry.n === node.decision)?.agent)).toEqual(['wa1', 'wa2'])
-  expect(board.log[0]).toMatchObject({ feature: 'workflow-labels', subject: expect.stringContaining('"first" (agent wa1, workflow') })
-  expect(board.log[0]?.reason).toMatch(/^from its task as it started; decided; pick opus/)
+  expect(board.log[0]).toMatchObject({ feature: 'workflow-labels', subject: expect.stringContaining('"first"（agent wa1，Workflow') })
+  expect(board.log[0]?.reason).toMatch(/^按它启动时的任务；已决定；选 opus/)
   expect(board.log[0]?.trace?.map((step) => step.rule)).toContain('top')
 })
 
@@ -216,8 +216,8 @@ test("an error of the feature's own when the run starts leaves the tool's result
   expect(w.reached).toEqual([{ scriptPath: SAVED, launched: true }])
   // The decisions made for the calls stand in the log; the run was not recorded, so the board says why nothing will come of them.
   expect((await w.board()).agents.slice(-2).map((node) => [node.routed, node.why])).toEqual([
-    [false, 'error: see the debug log'],
-    [false, 'given by path'],
+    [false, '出错了，详见 debug log'],
+    [false, '按路径提交，没有改写'],
   ])
   expect(w.logs.some((log) => log.to === 'debug' && log.text.includes('the state cannot be written'))).toBe(true)
 })
@@ -229,7 +229,7 @@ test("an error of the feature's own as an agent starts lets the step go out as t
   await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
 
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 xhigh'])
-  expect((await w.board()).agents.map((node) => [node.id, node.routed, node.why])).toEqual([['wa1', false, 'error: see the debug log']])
+  expect((await w.board()).agents.map((node) => [node.id, node.routed, node.why])).toEqual([['wa1', false, '出错了，详见 debug log']])
   expect(w.logs.some((log) => log.to === 'debug' && log.text.includes('the state cannot be read'))).toBe(true)
 })
 
@@ -245,12 +245,12 @@ test("each decision is logged with its reason, in the debug log and /dp log, nev
   await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
 
   const shown = await w.command('dp', 'log 10')
-  expect(shown).toMatch(/workflow-labels: sonnet medium for "rename" \(workflow tidy-api\): decided; pick sonnet, confidence 1\.00; effort p low 0\.00, medium 1\.00/)
-  expect(shown).toMatch(/workflow-labels: opus high for "review" \(workflow tidy-api\): decided; pick opus/)
+  expect(shown).toMatch(/workflow-labels：sonnet medium · "rename"（Workflow tidy-api）：已决定；选 sonnet，置信度 1\.00；effort 概率 low 0\.00, medium 1\.00/)
+  expect(shown).toMatch(/workflow-labels：opus high · "review"（Workflow tidy-api）：已决定；选 opus/)
   // (The tool's result names the workflow; this stub's does not, so it is `unnamed` here.)
-  expect(shown).toMatch(/workflow-labels: sonnet medium for "first" \(agent wa1, workflow \S+\): from its task as it started; decided; pick sonnet/)
+  expect(shown).toMatch(/workflow-labels：sonnet medium · "first"（agent wa1，Workflow \S+）：按它启动时的任务；已决定；选 sonnet/)
   const debug = w.logs.filter((log) => log.to === 'debug').map((log) => log.text)
-  expect(debug.some((line) => line.startsWith('sonnet medium for "rename" (workflow tidy-api): decided'))).toBe(true)
+  expect(debug.some((line) => line.startsWith('sonnet medium · "rename"（Workflow tidy-api）：已决定'))).toBe(true)
   expect(w.logs.every((log) => log.to === 'debug')).toBe(true)
 })
 
@@ -358,7 +358,7 @@ test('no answer within timeoutMs as an agent starts: it goes out as the engine m
   await w.clock.advance(800)
   await step
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
-  expect((await w.board()).agents.find((node) => node.id === 'wa1')).toMatchObject({ routed: false, why: 'jev: no answer in 800 ms', failure: { backend: 'jev', kind: 'timeout' } })
+  expect((await w.board()).agents.find((node) => node.id === 'wa1')).toMatchObject({ routed: false, why: 'jev：800 毫秒内没有回答', failure: { backend: 'jev', kind: 'timeout' } })
 })
 
 test("with Clef as the decision model, the request made as an agent starts passes Clef's input rules", { options: CLEF_OPTIONS }, async ($, on) => {
@@ -530,7 +530,7 @@ test("an agent whose task does not reach the disk within 400 ms goes out as the 
   expect(w.requests).toHaveLength(0)
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
   const board = await w.board()
-  expect(board.agents.find((node) => node.id === 'wa1')).toMatchObject({ routed: false, why: 'task not on disk in time' })
+  expect(board.agents.find((node) => node.id === 'wa1')).toMatchObject({ routed: false, why: '它的任务没能及时读到' })
   expect(board.agents.find((node) => node.id === 'wa1')?.failure).toBeUndefined()
 })
 
@@ -573,7 +573,7 @@ return summary
     ['wa1', 'q-auth', 'running', 'opus', true],
     ['wa2', 'summary', 'running', 'haiku', true],
   ])
-  expect(board.log.find((entry) => entry.n === agents[1]?.decision)).toMatchObject({ feature: 'workflow-agents', model: 'haiku', subject: '"summary" (workflow answers)' })
+  expect(board.log.find((entry) => entry.n === agents[1]?.decision)).toMatchObject({ feature: 'workflow-agents', model: 'haiku', subject: '"summary"（Workflow answers）' })
   expect(board.log.find((entry) => entry.n === agents[0]?.decision)).toMatchObject({ feature: 'workflow-labels', agent: 'wa1' })
   expect(board.agents.filter((node) => node.state === 'queued')).toEqual([])
 })

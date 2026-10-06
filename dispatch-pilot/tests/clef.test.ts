@@ -38,7 +38,7 @@ test('the debug log says the request went to Clef, who answered it and how many 
   expect(w.logs.map((entry) => entry.to)).toEqual(['debug', 'debug'])
   expect(w.logs.map((entry) => entry.text)).toEqual([
     'request [effort.level] to clef: answered in 0 ms by clef (151 input tokens)',
-    'effort high for "把登录模块重构成三层": p low 0.05, medium 0.10, high 0.60, xhigh 0.20, max 0.05; confidence 0.70',
+    'effort high · "把登录模块重构成三层"：概率 low 0.05, medium 0.10, high 0.60, xhigh 0.20, max 0.05；置信度 0.70',
   ])
 })
 
@@ -116,18 +116,18 @@ test('no answer within timeoutMs: the prompt goes in without waiting longer, the
 // busy moment (both are 429).
 const BARE_ANSWER = { 'effort.level': { type: 'score', score: 2, legend: {}, probabilities: { 0: 0, 1: 0, 2: 1, 3: 0, 4: 0 }, confidence: 1 } }
 const failures: { name: string; reply: Reply; why: string }[] = [
-  { name: 'the token is refused (401, 10000)', reply: cloudflareError(401, 10000, 'Authentication error'), why: 'clef: key refused (HTTP 401)' },
-  { name: 'the account may not run Clef (403, 5035)', reply: cloudflareError(403, 5035, 'This model requires a Workers Paid plan'), why: 'clef: key refused (HTTP 403)' },
-  { name: 'the free daily allowance is used up (429, 3036)', reply: cloudflareError(429, 3036, "You have used up your daily free allocation of 10,000 neurons. Please upgrade to Cloudflare's Workers Paid plan if you would like to continue usage."), why: 'clef: daily quota used up' },
-  { name: 'capacity is exceeded for the moment (429, 3040)', reply: cloudflareError(429, 3040, 'Capacity temporarily exceeded, please try again.'), why: 'clef: busy (HTTP 429)' },
-  { name: 'Cloudflare timed the request out (408, 3007)', reply: cloudflareError(408, 3007, 'Request timeout'), why: 'clef: busy (HTTP 408)' },
-  { name: 'the request was refused as malformed (400, 5006)', reply: cloudflareError(400, 5006, 'AiError: model must be "clef"'), why: 'clef: HTTP 400' },
-  { name: 'a server error with no Cloudflare body (500)', reply: { status: 500, body: 'Internal Server Error' }, why: 'clef: HTTP 500' },
-  { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.cloudflare.com' }, why: 'clef: unreachable' },
-  { name: 'a 200 that is not JSON', reply: { status: 200, body: '<html>maintenance</html>' }, why: 'clef: unreadable answer' },
-  { name: 'a 200 whose envelope says it failed', reply: { status: 200, body: { result: null, success: false, errors: [{ code: 7003, message: 'No route for the URI' }], messages: [] } }, why: 'clef: unreadable answer' },
-  { name: 'answers outside the envelope, as Jev sends them', reply: { status: 200, body: { model: 'clef', answers: BARE_ANSWER, usage: { input_tokens: 151, output_tokens: 0 } } }, why: 'clef: unreadable answer' },
-  { name: 'an answer without the effort question', reply: { status: 200, body: { result: { model: 'clef', answers: {}, usage: { input_tokens: 151, output_tokens: 0 } }, success: true, errors: [], messages: [] } }, why: 'clef: unreadable answer' },
+  { name: 'the token is refused (401, 10000)', reply: cloudflareError(401, 10000, 'Authentication error'), why: 'clef：密钥被拒绝（状态码 401）' },
+  { name: 'the account may not run Clef (403, 5035)', reply: cloudflareError(403, 5035, 'This model requires a Workers Paid plan'), why: 'clef：密钥被拒绝（状态码 403）' },
+  { name: 'the free daily allowance is used up (429, 3036)', reply: cloudflareError(429, 3036, "You have used up your daily free allocation of 10,000 neurons. Please upgrade to Cloudflare's Workers Paid plan if you would like to continue usage."), why: 'clef：今天的额度用完了' },
+  { name: 'capacity is exceeded for the moment (429, 3040)', reply: cloudflareError(429, 3040, 'Capacity temporarily exceeded, please try again.'), why: 'clef：繁忙（状态码 429）' },
+  { name: 'Cloudflare timed the request out (408, 3007)', reply: cloudflareError(408, 3007, 'Request timeout'), why: 'clef：繁忙（状态码 408）' },
+  { name: 'the request was refused as malformed (400, 5006)', reply: cloudflareError(400, 5006, 'AiError: model must be "clef"'), why: 'clef：出错（状态码 400）' },
+  { name: 'a server error with no Cloudflare body (500)', reply: { status: 500, body: 'Internal Server Error' }, why: 'clef：出错（状态码 500）' },
+  { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.cloudflare.com' }, why: 'clef：连不上' },
+  { name: 'a 200 that is not JSON', reply: { status: 200, body: '<html>maintenance</html>' }, why: 'clef：回答读不懂' },
+  { name: 'a 200 whose envelope says it failed', reply: { status: 200, body: { result: null, success: false, errors: [{ code: 7003, message: 'No route for the URI' }], messages: [] } }, why: 'clef：回答读不懂' },
+  { name: 'answers outside the envelope, as Jev sends them', reply: { status: 200, body: { model: 'clef', answers: BARE_ANSWER, usage: { input_tokens: 151, output_tokens: 0 } } }, why: 'clef：回答读不懂' },
+  { name: 'an answer without the effort question', reply: { status: 200, body: { result: { model: 'clef', answers: {}, usage: { input_tokens: 151, output_tokens: 0 } }, success: true, errors: [], messages: [] } }, why: 'clef：回答读不懂' },
 ]
 
 for (const failure of failures) {
@@ -146,9 +146,9 @@ for (const failure of failures) {
 // One decision model or the other, never both: a missing credential of the
 // chosen one is not made up for with the other's key.
 const unconfigured: { name: string; options: Record<string, string>; why: string }[] = [
-  { name: 'neither the account ID nor the token', options: {}, why: 'clef: no Cloudflare account ID or API token: set cloudflareAccountId and cloudflareApiToken' },
-  { name: 'no account ID', options: { cloudflareApiToken: TOKEN }, why: 'clef: no Cloudflare account ID: set cloudflareAccountId' },
-  { name: 'no token', options: { cloudflareAccountId: ACCOUNT }, why: 'clef: no Cloudflare API token: set cloudflareApiToken' },
+  { name: 'neither the account ID nor the token', options: {}, why: 'clef：没有填 cloudflareAccountId 和 cloudflareApiToken' },
+  { name: 'no account ID', options: { cloudflareApiToken: TOKEN }, why: 'clef：没有填 cloudflareAccountId' },
+  { name: 'no token', options: { cloudflareAccountId: ACCOUNT }, why: 'clef：没有填 cloudflareApiToken' },
 ]
 
 for (const { name, options, why } of unconfigured) {
