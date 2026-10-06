@@ -109,6 +109,22 @@ function active(node: BoardNode): boolean {
   return node.state === 'running' || (node.state === 'queued' && !isCallNode(node))
 }
 
+/**
+ * The words a person reads for each feature (an entry's, a note's), the band's and the pane's alike: the GLOSSARY's
+ * terms (强制升档, 中途重判, 兜底, skill 推荐, skill 查询, skill 画像). A feature it lacks is called by its switch name.
+ */
+export const FEATURE_WORDS: Readonly<Record<string, string>> = {
+  'main-effort': '主 agent 的 effort',
+  'dispatched-agents': '派出 agent',
+  'workflow-agents': 'Workflow 里的 agent',
+  'workflow-labels': 'Workflow 兜底',
+  'midturn-effort': '中途重判',
+  escalation: '强制升档',
+  skills: 'skill 推荐',
+  'find-skill': 'skill 查询',
+  'skill-profiles': 'skill 画像',
+}
+
 /** The feature an entry or a note is of: its switch name (`main-effort (agent report)` is main-effort's). */
 export function featureOf(feature: string): string {
   return feature.split(' ')[0] ?? feature

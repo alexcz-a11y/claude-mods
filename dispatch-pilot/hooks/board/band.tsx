@@ -17,7 +17,7 @@ import type { RenderNode } from 'claude-code'
 import type { Effort } from '../decision/effort.ts'
 import type { Model, Reading } from '../core/report.ts'
 import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, fit, MODEL_BG, mmss, MUTED, OK, padLeft, pct, ribbonCells, rgb, SKILL, soft, SPIN, stateGlyph, WARN, type Raster, type TT } from './kit.tsx'
-import { isWholeWorkflow, type AgentRow, type BandEvent, type ScreenView, type Tone } from './view.ts'
+import { FEATURE_WORDS, isWholeWorkflow, type AgentRow, type BandEvent, type ScreenView, type Tone } from './view.ts'
 
 /** What the band is laid out in: `bodyColumns` and `maxRows` of its props. */
 export type BandSize = { cols: number; rows: number }
@@ -286,15 +286,6 @@ function agentRow(t: TT, view: ScreenView, row: AgentRow, i: number, cols: Retur
 }
 
 // ---- events ------------------------------------------------------------------
-
-/** The words a person reads for a feature a note is about. */
-const FEATURE_WORDS: Record<string, string> = {
-  skills: 'skill 推荐',
-  'find-skill': 'skill 查询',
-  'midturn-effort': '中途重判',
-  escalation: '卡住时的再判断',
-  'main-effort': '主 agent 的判断',
-}
 
 const SKIPPED: Record<string, string> = {
   unanswered: '回答里没有这一题',

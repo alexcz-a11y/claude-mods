@@ -326,6 +326,20 @@ test("a turn's header counts its entries by the glyph each row draws: ✔ the de
   expect(glyphs).toEqual(['✔', '✔', '·', '⚠', '·', '·'])
 })
 
+test('the band and the pane call each feature by the same GLOSSARY word: 强制升档, Workflow 兜底', async ($, on) => {
+  const board = { turn: 1, starts: [{ turn: 1, at: 0 }], nodes: [{ turn: 1, id: 'main', kind: 'main' as const, name: '主 agent', type: 'main', state: 'running' as const, t0: 0, routed: true }], notes: [{ turn: 1, id: 'main', feature: 'escalation', at: 2, after: 2, kind: 'late' as const, why: '' }] }
+  const log: LogEntry[] = [
+    { n: 1, turn: 1, at: 1, feature: 'workflow-labels', agent: 'wa1', tone: 'ok', outcome: 'sonnet high', subject: '"audit"（agent wa1，Workflow audit）', reason: 'x' },
+    { n: 2, turn: 1, at: 2, feature: 'escalation', agent: 'main', tone: 'info', outcome: 'effort high（保持）', subject: '第 2 步（工具调用失败 2 次）', reason: 'x' },
+  ]
+  const w = world($, on, { seed: { board, log } })
+  const band = shown(await (await w.band()).drawn())
+  expect(band).toContain('强制升档的回答没赶上这一步')
+  const pane = await w.pane()
+  expect(shown(await pane.find({ key: 'pane-entry-2' }))).toContain('强制升档  第 2 步')
+  expect(shown(await pane.find({ key: 'pane-entry-1' }))).toContain('Workflow 兜底')
+})
+
 test('the log keeps twenty turns, and each has its own fold key: none of them p, n or f', async ($, on) => {
   const log = Array.from({ length: 20 }, (_, i) => ({ n: i + 1, turn: i + 1, at: 0, feature: 'main-effort', agent: 'main', tone: 'ok' as const, outcome: 'effort high', subject: `"消息 ${i + 1}"`, reason: 'p high 1.00' }))
   const w = world($, on, { seed: { board: { turn: 20, nodes: [] }, log } })

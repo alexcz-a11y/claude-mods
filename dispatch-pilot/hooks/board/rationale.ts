@@ -222,19 +222,6 @@ export function verdictWords(verdict: MidVerdict): string {
 
 // ---- the log ----------------------------------------------------------------------
 
-/** The words a person reads for the feature an entry is of. */
-export const FEATURE_WORDS: Record<string, string> = {
-  'main-effort': '主 agent',
-  'dispatched-agents': '派出 agent',
-  'workflow-agents': 'Workflow',
-  'workflow-labels': 'Workflow label',
-  'midturn-effort': '中途重判',
-  escalation: '卡住时再判断',
-  skills: 'skill 推荐',
-  'find-skill': 'skill 查询',
-  'skill-profiles': 'skill 画像',
-}
-
 /** What an entry did, in a word or two: the log's verb, coloured by its tone. */
 export function entryVerb(entry: LogEntry): string {
   const feature = featureOf(entry.feature)
