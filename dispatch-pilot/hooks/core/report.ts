@@ -3,7 +3,7 @@
 // new screens replace it, the old status line are all written here, from the
 // same structured data in $.state (types/index.d.ts: `board`, `decisionLog`).
 //
-// Four entries, and nothing else is for a feature to call:
+// These entries, and nothing else, are for a feature to call:
 //
 //   reportDecision(io, decision)   a feature hands over a decision it made (or the
 //                                  reason it could not make one): which feature,
@@ -24,6 +24,11 @@
 //   reportSwitch(io, change)       the person switched the mod, or one feature, off or
 //                                  on (the control feature's `/dp`): what the old status
 //                                  line says of it.
+//   reportProfiles(io, event)      how writing the session's skill profiles goes
+//                                  (features/skill-profiles.ts, #33): the debug lines,
+//                                  `$.state`'s `skillProfiles` as they are written, and
+//                                  the session start's one decision log entry. `io` is
+//                                  a `ProfilesIo`, not a `ReportIo`.
 //
 // The module also keeps the board's turn count and the agents' lifecycle with
 // hooks of its own (`registerReport`, which sees `turn.start`, `agent.spawn` and
@@ -971,4 +976,207 @@ function without<T extends object, K extends keyof T>(value: T, ...keys: K[]): O
   const rest = { ...value }
   for (const key of keys) delete rest[key]
   return rest
+}
+
+// ---- entry 5: the skill profiles ------------------------------------------------
+
+/** Why writing the profiles stopped for the session (types/index.d.ts, `skillProfiles.stop`). */
+export type ProfilesStopReason = 'store-read' | 'model-refused' | 'api-error' | 'store-write' | 'off' | 'error'
+
+/** How writing the session's skill profiles went (#33; types/index.d.ts, `skillProfiles`). */
+export type ProfilesState = {
+  phase: 'writing' | 'done' | 'stopped'
+  /** The turn the session start belongs to: the turn of its decision log entry. */
+  turn: number
+  model: string
+  kept: number
+  planned: number
+  written: number
+  failed: number
+  deferred: number
+  stop?: { reason: ProfilesStopReason; detail: string }
+  failures: { name: string; reason: string }[]
+}
+
+/** The failed skills the state names; `failed` still counts every one. */
+export const PROFILES_FAILURES_KEPT = 50
+
+/** What `reportProfiles` needs of the host: the board (for the turn), the decision log, the debug log, and the state it keeps. */
+export type ProfilesIo = Pick<ReportIo, 'board' | 'decisions' | 'debug'> & { profiles: Cell<ProfilesState> }
+
+/** Why the writing stopped, with what the debug line and the state say of it. */
+export type ProfilesStop =
+  | { reason: 'model-refused'; model: string; detail: string }
+  | { reason: 'api-error'; skill: string; why: string; ms: number }
+  | { reason: 'store-write'; skill: string; detail: string }
+  | { reason: 'off' }
+  | { reason: 'error'; detail: string }
+
+/**
+ * What happens as the skill profiles are written (features/skill-profiles.ts), in the order it happens. `left`:
+ * the skills lacking a profile that this session did not get to.
+ */
+export type ProfileEvent =
+  /** The session start has read the catalog: `offered` skills can have one, `due` of them lack one; at most `perSession` are written. */
+  | { event: 'start'; model: string; perSession: number; offered: number; due: number }
+  /** The store cannot be read: nothing is kept or written. */
+  | { event: 'unreadable'; model: string; offered: number }
+  /** Another session wrote the profile meanwhile: it is kept. */
+  | { event: 'found' }
+  | { event: 'written'; skill: string; model: string; ms: number; input: number; output: number }
+  /** The model gave no profile for the skill (`why`: the reply's reason); the writing goes on. */
+  | { event: 'failed'; skill: string; why: string; ms: number }
+  /** The reply for the skill is no profile; the writing goes on. */
+  | { event: 'unfit'; skill: string; ms: number; text: string }
+  /** The session's most is written; `left` is what no longer fits (the debug line counts what is not written, failed included). */
+  | { event: 'quota'; perSession: number; left: number }
+  /** The loop is over, as it should be. */
+  | { event: 'finish'; left: number }
+  | { event: 'stop'; cause: ProfilesStop; left: number }
+  /** The store's oldest profiles were dropped (`total` kept before, `kb` of them). */
+  | { event: 'tidied'; dropped: number; total: number; kb: number }
+  | { event: 'tidy-failed'; detail: string }
+
+/**
+ * Reports one thing that happened while the skill profiles were being written: the debug log line (the words
+ * the feature used to log itself), the state `skillProfiles`, kept up to date as the profiles are written, and,
+ * when the writing ends (`finish`, `stop`, or a session start with nothing to write), the session's one entry in the
+ * decision log: tone `ok`, `warn` when a skill failed, `fail` when the writing stopped (`info` when the person
+ * switched it off meanwhile). Not on the board's nodes, in no band or footer, and no toast. Never throws.
+ */
+export async function reportProfiles(io: ProfilesIo, event: ProfileEvent): Promise<void> {
+  try {
+    const line = profilesLine(event)
+    if (line !== null) io.debug(line)
+    if (event.event === 'tidied' || event.event === 'tidy-failed') return
+    let after: ProfilesState | undefined
+    if (event.event === 'start' || event.event === 'unreadable') {
+      // A board that cannot be read puts the session start at turn 1, where the first message will be.
+      const turn = Math.max(1, (await read(io.board).catch(() => EMPTY)).turn)
+      const first = profilesBegin(event, turn)
+      await modify(io.profiles, () => (after = first))
+    } else {
+      await modify(io.profiles, (current) => {
+        after = current !== undefined && current.phase === 'writing' ? profilesAdvance(current, event) : undefined
+        return after
+      })
+    }
+    if (after !== undefined && after.phase !== 'writing') await update(io.decisions, (list) => profilesLogged(list ?? [], after as ProfilesState))
+  } catch (error) {
+    try {
+      io.debug(`skill profiles not reported: ${errorText(error)}`)
+    } catch {
+      // nowhere left to say it
+    }
+  }
+}
+
+/** The debug log's line for an event; null when it has none. */
+function profilesLine(event: ProfileEvent): string | null {
+  switch (event.event) {
+    case 'start':
+      return `skill profiles: ${event.offered - event.due} kept, ${event.due} to write with ${event.model} (at most ${event.perSession} this session)`
+    case 'unreadable':
+      return 'skill profiles: the store cannot be read, so no profile is kept or written; skills are rated by their descriptions'
+    case 'found':
+      return null
+    case 'written':
+      return `skill profile written for ${event.skill} by ${event.model} in ${event.ms} ms (${event.input} input, ${event.output} output tokens)`
+    case 'failed':
+      return `skill profiles: no profile for ${event.skill} (${event.why}, ${event.ms} ms)`
+    case 'unfit':
+      return `skill profiles: the reply for ${event.skill} is not a profile (${event.ms} ms): ${JSON.stringify(event.text.slice(0, 80))}`
+    case 'quota':
+      return `skill profiles: ${event.left} left to write at a later session start (at most ${event.perSession} each)`
+    case 'finish':
+      return null
+    case 'stop': {
+      const cause = event.cause
+      const more = 'no more profiles are written this session'
+      if (cause.reason === 'model-refused') return `skill profiles: ${cause.model} was refused (${cause.detail}); ${more}`
+      if (cause.reason === 'api-error') return `skill profiles: no profile for ${cause.skill} (${cause.why}, ${cause.ms} ms); ${more}`
+      if (cause.reason === 'store-write') return `skill profiles: the store did not keep the profile of ${cause.skill} (${cause.detail}); ${more}`
+      if (cause.reason === 'error') return `skill profiles: stopped writing (${cause.detail})`
+      return null
+    }
+    case 'tidied':
+      return `skill profiles: dropped the ${event.dropped} oldest of ${event.total} kept (${event.kb} KB)`
+    case 'tidy-failed':
+      return `skill profiles: could not tidy the store (${event.detail})`
+  }
+}
+
+/** The state a session start begins with. Nothing to write (or no store to keep it): it is over at once. */
+function profilesBegin(event: Extract<ProfileEvent, { event: 'start' | 'unreadable' }>, turn: number): ProfilesState {
+  if (event.event === 'unreadable') {
+    return { phase: 'stopped', turn, model: event.model, kept: 0, planned: 0, written: 0, failed: 0, deferred: event.offered, stop: { reason: 'store-read', detail: '' }, failures: [] }
+  }
+  const planned = event.due > 0 ? Math.max(0, Math.min(event.due, event.perSession)) : 0
+  return { phase: planned > 0 ? 'writing' : 'done', turn, model: event.model, kept: event.offered - event.due, planned, written: 0, failed: 0, deferred: event.due - planned, failures: [] }
+}
+
+/** The state after an event that comes while the profiles are being written. */
+function profilesAdvance(state: ProfilesState, event: ProfileEvent): ProfilesState {
+  switch (event.event) {
+    case 'found':
+      return { ...state, kept: state.kept + 1 }
+    case 'written':
+      return { ...state, written: state.written + 1 }
+    case 'failed':
+    case 'unfit': {
+      const reason = event.event === 'failed' ? event.why : 'the reply is not a profile'
+      const failures = state.failures.length < PROFILES_FAILURES_KEPT ? [...state.failures, { name: event.skill, reason }] : state.failures
+      return { ...state, failed: state.failed + 1, failures }
+    }
+    case 'finish':
+      return { ...state, phase: 'done', deferred: event.left }
+    case 'stop': {
+      const cause = event.cause
+      const detail = cause.reason === 'api-error' ? cause.why : cause.reason === 'store-write' ? `${cause.skill}: ${cause.detail}` : cause.reason === 'off' ? '' : cause.detail
+      return { ...state, phase: 'stopped', deferred: event.left, stop: { reason: cause.reason, detail } }
+    }
+    default:
+      return state
+  }
+}
+
+/** The log with the session's profiles entry: a start again at the same turn (a hot reload) takes the place of the one before. */
+function profilesLogged(list: readonly LogEntry[], state: ProfilesState): LogEntry[] {
+  const entry = profilesEntry(state)
+  const at = list.findIndex((kept) => kept.feature === 'skill-profiles' && kept.turn === state.turn)
+  if (at < 0) return appendEntry(list, entry)
+  return list.map((kept, i) => (i === at ? { n: kept.n, ...entry } : kept))
+}
+
+/** How many failed skills the entry's reason names. */
+const PROFILES_NAMED = 3
+
+function profilesEntry(state: ProfilesState): Omit<LogEntry, 'n'> {
+  const stopped = state.phase === 'stopped'
+  const counts = [`${state.kept} kept`, `${state.written} written`, ...(state.failed > 0 ? [`${state.failed} failed`] : []), ...(state.deferred > 0 ? [`${state.deferred} left for later`] : [])].join(', ')
+  const named = state.failures.slice(0, PROFILES_NAMED).map((failure) => `${failure.name}: ${failure.reason}`)
+  const failed = state.failed > 0 ? ` (${named.join('; ')}${state.failed > named.length ? `; and ${state.failed - named.length} more` : ''})` : ''
+  const stop = state.stop
+  const why =
+    stop === undefined
+      ? ''
+      : stop.reason === 'store-read'
+        ? 'the store cannot be read, so no profile is kept or written'
+        : stop.reason === 'model-refused'
+          ? `${state.model} was refused (${stop.detail})`
+          : stop.reason === 'api-error'
+            ? `${state.model} answered with ${stop.detail}`
+            : stop.reason === 'store-write'
+              ? `the store did not keep a profile (${stop.detail})`
+              : stop.reason === 'off'
+                ? 'switched off while writing'
+                : `stopped by an error (${stop.detail})`
+  return {
+    turn: state.turn,
+    feature: 'skill-profiles',
+    tone: stopped ? (stop?.reason === 'off' ? 'info' : 'fail') : state.failed > 0 ? 'warn' : 'ok',
+    outcome: stopped ? 'profiles stopped' : state.failed > 0 ? `profiles: ${state.failed} failed` : 'profiles ready',
+    subject: '',
+    reason: `${stopped ? `${why}; ` : ''}${counts}${failed}`,
+  }
 }

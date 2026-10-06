@@ -169,7 +169,7 @@ declare module 'claude-code' {
         turn: number
         /** Who decided: the feature's switch name (a report's decision adds ` (agent report)`). */
         feature: string
-        /** `main`, or the agentId it was about; absent for an entry of a feature not yet migrated. */
+        /** `main`, or the agentId it was about; absent for an entry of a feature not yet migrated, and for the session's (`skill-profiles`, #33). */
         agent?: string
         tone: 'ok' | 'warn' | 'fail' | 'info'
         /** What was decided, in a few words: `effort high`. */
@@ -379,6 +379,33 @@ declare module 'claude-code' {
           } | null
         }[]
       } | null
+      /**
+       * How writing the session's skill profiles went (#33; the 「决定汇报」 module's `reportProfiles`,
+       * core/report.ts, from the events of features/skill-profiles.ts): one record per session start,
+       * replaced by the next. Written as the profiles are, so a screen can say 生成中 2/5. Absent until
+       * a session start reported one (no record while the skills or skill-profiles switch is off).
+       * Counts: `kept` profiles already there (another session's included), `planned` the most this
+       * session writes (the ones lacking, capped by skillsProfilesPerSession), `written` this session's
+       * own, `failed` skills it got no profile for (`failures` names them, at most 50), `deferred` the
+       * ones left for a later session start. The ones written are not named.
+       */
+      skillProfiles: {
+        /** `writing`: the background writing is going on; `done`: it ended as it should; `stopped`: it gave up for this session (`stop` says why). */
+        phase: 'writing' | 'done' | 'stopped'
+        /** The turn the session start belongs to (`board.turn`, or 1 before the first message): the turn of its decision log entry. */
+        turn: number
+        /** The model that writes them (`skillsProfileModel`). */
+        model: string
+        kept: number
+        planned: number
+        written: number
+        failed: number
+        deferred: number
+        /** Why it stopped: `store-read` the store cannot be read, `model-refused` the engine refused the model, `api-error` the model answered with an API error, `store-write` the store would not keep a profile, `off` the person switched it off meanwhile, `error` something broke. `detail`: the words of it; '' when there are none. Only with `phase: 'stopped'`. */
+        stop?: { reason: 'store-read' | 'model-refused' | 'api-error' | 'store-write' | 'off' | 'error'; detail: string }
+        /** The skills a profile was not written for, in the order they failed, with why in a few words. */
+        failures: { name: string; reason: string }[]
+      }
       /**
        * How the skills feature answered the main agent's skill listing, which
        * the engine keeps for the conversation (#10): `withheld` (with the

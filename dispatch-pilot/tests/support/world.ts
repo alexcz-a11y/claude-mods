@@ -34,6 +34,8 @@ import type {
 export type BoardNode = PluginState['dispatch-pilot']['board']['nodes'][number]
 export type LogEntry = PluginState['dispatch-pilot']['decisionLog'][number]
 export type ReadingChange = NonNullable<PluginState['dispatch-pilot']['board']['changes']>[number]
+/** The skill profiles' state (`skillProfiles`, #33): the session's one record of writing them. */
+export type ProfilesState = NonNullable<PluginState['dispatch-pilot']['skillProfiles']>
 
 /**
  * The board data as `w.board()` reads it from `$.state` (spec #22 「数据」): `turn`, `nodes` and `log` are the
@@ -48,6 +50,8 @@ export type BoardView = {
   /** When the latest turns started, by turn (`board.starts`, `$.clock.now()` ms). */
   starts: { turn: number; at: number }[]
   log: LogEntry[]
+  /** The skill profiles' state (#33); undefined before the session start reported one. */
+  profiles: ProfilesState | undefined
   main: BoardNode | undefined
   agents: BoardNode[]
 }
@@ -119,7 +123,7 @@ export type WorldOptions = {
    * The board data an earlier load of the mod left in `$.state` (a hot reload keeps it): the mod finds it as it
    * starts. Whatever the board starts with, `w.board()` reads what stands now.
    */
-  seed?: { board?: PluginState['dispatch-pilot']['board']; log?: LogEntry[] }
+  seed?: { board?: PluginState['dispatch-pilot']['board']; log?: LogEntry[]; profiles?: ProfilesState }
   /**
    * The model behind `$.model.complete` (#11 writes skill profiles with it): answers each completion
    * (`n` counts from 1); every one is recorded in `w.completions`. Without it every completion is refused.
@@ -332,9 +336,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   // The board data (the 「决定汇报」 module's `board` and `decisionLog`) is kept here, not in the kit's state: the test
   // body has no `$.state` to read it back with, and `options.seed` can stand for what an earlier load left. Versions
   // work as the host's do (a write lands unless `ifVersion` is stale), and values go through JSON as they would.
-  const held: { board: { value: unknown; version: number }; decisionLog: { value: unknown; version: number } } = {
+  const held: { board: { value: unknown; version: number }; decisionLog: { value: unknown; version: number }; skillProfiles: { value: unknown; version: number } } = {
     board: { value: options.seed?.board, version: options.seed?.board === undefined ? 0 : 1 },
     decisionLog: { value: options.seed?.log, version: options.seed?.log === undefined ? 0 : 1 },
+    skillProfiles: { value: options.seed?.profiles, version: options.seed?.profiles === undefined ? 0 : 1 },
   }
   on('state.get', { plugin: 'dispatch-pilot', key: 'board' }, () => ({ value: { value: held.board.value as never, version: held.board.version } }))
   on('state.get', { plugin: 'dispatch-pilot', key: 'decisionLog' }, () => ({ value: { value: held.decisionLog.value as never, version: held.decisionLog.version } }))
@@ -347,6 +352,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     if (e.ifVersion !== undefined && e.ifVersion !== held.decisionLog.version) return { value: { isSet: false, version: held.decisionLog.version } }
     held.decisionLog = { value: JSON.parse(JSON.stringify(e.value)), version: held.decisionLog.version + 1 }
     return { value: { isSet: true, version: held.decisionLog.version } }
+  })
+  on('state.get', { plugin: 'dispatch-pilot', key: 'skillProfiles' }, () => ({ value: { value: held.skillProfiles.value as never, version: held.skillProfiles.version } }))
+  on('state.set', { plugin: 'dispatch-pilot', key: 'skillProfiles' }, (_$, e) => {
+    if (e.ifVersion !== undefined && e.ifVersion !== held.skillProfiles.version) return { value: { isSet: false, version: held.skillProfiles.version } }
+    held.skillProfiles = { value: JSON.parse(JSON.stringify(e.value)), version: held.skillProfiles.version + 1 }
+    return { value: { isSet: true, version: held.skillProfiles.version } }
   })
   on('ui.status', (_$, e) => {
     statuses.push(e.text)
@@ -456,6 +467,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
         changes: board?.changes ?? [],
         starts: board?.starts ?? [],
         log: (held.decisionLog.value as LogEntry[] | undefined) ?? [],
+        profiles: (held.skillProfiles.value as ProfilesState | undefined) ?? undefined,
         main: current.find((node) => node.id === 'main'),
         agents: current.filter((node) => node.id !== 'main'),
       }
