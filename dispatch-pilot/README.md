@@ -212,7 +212,7 @@ Clef 只是接入了，没有像 Jev 那样校准。把 `decisionModel` 改成 `
 /dp <功能> on | off    单项功能的开关，例如 /dp main-effort off（功能名见 /dp 的列表）
 /dp lock <档位>        把主 agent 的 effort 锁在 low、medium、high、xhigh 或 max，这一轮的每一步和之后的每一轮都用它，优先于决策
 /dp unlock             解除锁定（也可以写 /dp lock off）
-/dp log [N]            最近 N 次决策和理由，最新的在最后（默认 10，最多 50）
+/dp log [N]            最近 N 次决策和理由，最新的在最后（默认 10，最多 300；日志保留最近 20 轮、最多 300 条）
 ```
 
 - 命令在一轮进行中也立即执行：锁定或解锁从下一步起生效。
