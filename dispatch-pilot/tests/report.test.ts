@@ -6,7 +6,7 @@ import { jev, world, type Reply } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
 
-test("a decided message is on the board: its decision in the log, linked from the main agent's node of the turn it starts", { options: KEY }, async ($, on) => {
+test("a decided message is on the board: its decision in the log (the level decided as data, beside its words), linked from the main agent's node of the turn it starts", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })
   await w.submit('把登录模块重构成三层，并补上测试')
 
@@ -19,6 +19,7 @@ test("a decided message is on the board: its decision in the log, linked from th
     feature: 'main-effort',
     agent: 'main',
     tone: 'ok',
+    effort: 'high',
     outcome: 'effort high',
     subject: '"把登录模块重构成三层，并补上测试"',
     reason: '概率 low 0.05, medium 0.10, high 0.70, xhigh 0.10, max 0.05；置信度 0.70',

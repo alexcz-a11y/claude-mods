@@ -11,12 +11,13 @@
 // profiles' state and log entry are never shown (#33).
 //
 // The words are the screens' own (Chinese, GLOSSARY terms); `why` on a node
-// comes in the decision report's words (English until #32).
+// comes in the decision report's words (Chinese too, #32).
 
-import type { Effort } from '../decision/effort.ts'
-import { ENDED_WORDS, failureWords, type Board, type BoardNode, type BoardNote, type LogEntry, type Model, type Reading, type ReadingChange, type RuleStep } from '../core/report.ts'
+import { failureWords } from '../decision/backend.ts'
+import { isEffort, type Effort } from '../decision/effort.ts'
+import { callWorkflowOf, ENDED_WORDS, type Board, type BoardNode, type BoardNote, type LogEntry, type Model, type Reading, type ReadingChange, type RuleStep } from '../core/report.ts'
 import type { BoardPart } from '../core/switches.ts'
-import { isLevel, mmss, pct } from './kit.tsx'
+import { mmss, pct } from './kit.tsx'
 
 /** What the screens are drawn from. */
 export type ScreenInput = {
@@ -36,8 +37,8 @@ export type ScreenInput = {
   isWorking: boolean
 }
 
-/** How a status cell reads: its tone picks the colour. */
-export type Tone = 'run' | 'done' | 'fail' | 'warn' | 'muted'
+/** How an agent's status cell reads: its tone picks the colour (kit.tsx `STATUS_COLOR`). Not a log entry's `Tone`. */
+export type StatusTone = 'run' | 'done' | 'fail' | 'warn' | 'muted'
 
 /** One agent of the turn, as a row of the band. */
 export type AgentRow = {
@@ -48,7 +49,7 @@ export type AgentRow = {
   from: number
   to: number | null
   /** What its status cell says. */
-  status: { tone: Tone; text: string }
+  status: { tone: StatusTone; text: string }
   /** The person picked it (`selected`). */
   selected: boolean
 }
@@ -94,9 +95,14 @@ export type ScreenView = {
 /** The spinner turns one frame each `TICK_MS`; the screens redraw at that pace while an agent runs. */
 export const TICK_MS = 200
 
-/** A Workflow call's node, standing for an agent that has not started: `<tool_use_id>#<index>`. */
+/** A Workflow call's node, standing for an agent that has not started (`callNodeId`). */
 export function isCallNode(node: BoardNode): boolean {
-  return node.id.includes('#')
+  return callWorkflowOf(node.id) !== null
+}
+
+/** A Workflow not routed as a whole (given by path, an error): one node for all its agents, neither an agent's nor a call's. */
+export function isWholeWorkflow(node: BoardNode): boolean {
+  return node.kind === 'wf' && node.workflow === undefined && !isCallNode(node)
 }
 
 /** A node of the turn still going: running, or waiting to start (a dispatched agent spawned, a decision for a turn about to begin). */
@@ -104,8 +110,24 @@ function active(node: BoardNode): boolean {
   return node.state === 'running' || (node.state === 'queued' && !isCallNode(node))
 }
 
+/**
+ * The words a person reads for each feature (an entry's, a note's), the band's and the pane's alike: the GLOSSARY's
+ * terms (强制升档, 中途重判, 兜底, skill 推荐, skill 查询, skill 画像). A feature it lacks is called by its switch name.
+ */
+export const FEATURE_WORDS: Readonly<Record<string, string>> = {
+  'main-effort': '主 agent 的 effort',
+  'dispatched-agents': '派出 agent',
+  'workflow-agents': 'Workflow 里的 agent',
+  'workflow-labels': 'Workflow 兜底',
+  'midturn-effort': '中途重判',
+  escalation: '强制升档',
+  skills: 'skill 推荐',
+  'find-skill': 'skill 查询',
+  'skill-profiles': 'skill 画像',
+}
+
 /** The feature an entry or a note is of: its switch name (`main-effort (agent report)` is main-effort's). */
-function featureOf(feature: string): string {
+export function featureOf(feature: string): string {
   return feature.split(' ')[0] ?? feature
 }
 
@@ -173,7 +195,7 @@ export function screenView(input: ScreenInput): ScreenView {
 
 // ---- status cells ---------------------------------------------------------------
 
-/** How a loop's turn ended, in the board's words (`reportEnd`), as the band says it. */
+/** How a loop's turn ended, in the board's words (`ENDED_WORDS`, a failed loop's `why`), as the band says it. */
 const ENDED = new Set<string>(Object.values(ENDED_WORDS))
 
 /**
@@ -254,10 +276,10 @@ function workflowOf(entry: LogEntry, nodes: readonly BoardNode[]): { id: string;
   const agent = entry.agent ?? ''
   const node = nodes.find((one) => one.id === agent)
   if (node?.workflow !== undefined) return node.workflow
-  const at = agent.indexOf('#')
-  if (at < 0) return null
+  const id = callWorkflowOf(agent)
+  if (id === null) return null
   const name = /（Workflow ([^）]*)）$/.exec(entry.subject)?.[1] ?? 'Workflow'
-  return { id: agent.slice(0, at), name }
+  return { id, name }
 }
 
 /** Whether an entry moved the level it is about: a re-decision that changed it, a forced raise. */
@@ -334,7 +356,7 @@ function explained(change: ReadingChange, changes: readonly ReadingChange[], log
 /** A decision about one agent's route: who, what it got, why in a few words. */
 function decidedOf(entry: LogEntry, nodes: readonly BoardNode[]): BandEvent {
   const main = entry.agent === 'main'
-  const level = isLevel(entry.effort) ? entry.effort : main ? levelOf(entry) : undefined
+  const level = main ? levelOf(entry) : entry.effort
   return {
     at: entry.at ?? 0,
     kind: 'decided',
@@ -347,12 +369,15 @@ function decidedOf(entry: LogEntry, nodes: readonly BoardNode[]): BandEvent {
   }
 }
 
-/** The level the main agent's decision picked: the rules' last step, else the outcome's word. */
-function levelOf(entry: LogEntry): Effort | undefined {
+/**
+ * The level a decision ended at, from its own fields (never its words): the effort it decided, else the rules' last
+ * step's level (an entry an earlier version wrote), else a re-decision's result.
+ */
+export function levelOf(entry: LogEntry): Effort | undefined {
+  if (entry.effort !== undefined) return entry.effort
   const last = entry.trace?.at(-1)?.level
-  if (isLevel(last)) return last
-  const word = /\b(low|medium|high|xhigh|max)\b/.exec(entry.outcome)?.[1]
-  return isLevel(word) ? word : undefined
+  if (isEffort(last)) return last
+  return entry.mid?.result
 }
 
 // ---- the summary --------------------------------------------------------------

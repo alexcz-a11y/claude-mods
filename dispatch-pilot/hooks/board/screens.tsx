@@ -15,11 +15,13 @@
 // story 38); the pane is Dispatch Pilot's own.
 
 import type { EngineInterface, On, Timer } from 'claude-code'
+import { errorText } from '../decision/backend.ts'
+import { report, type NoticeIo } from '../core/report.ts'
 import { isOn, isShown, listSwitches, masterOn } from '../core/switches.ts'
 import { bandTree } from './band.tsx'
-import { footerTree, TAG_CHARS } from './footer.tsx'
+import { FOOTER_COLUMNS, footerTree, TAG_CHARS } from './footer.tsx'
 import { paneTree } from './pane.tsx'
-import { nodeCount } from './kit.tsx'
+import { nodeCount, showsText } from './kit.tsx'
 import { NO_PANE_STATE, PANE_COLUMNS, PANE_ID, PANE_TITLE, withFold } from './rationale.ts'
 import { screenView, TICK_MS, type AgentRow, type ScreenView } from './view.ts'
 
@@ -90,13 +92,15 @@ export function registerScreens(on: On): void {
       const view = await viewOf($, e.props.isWorking)
       tick($, view)
       // A digit picks an agent and brings up its card: a press is the person's asking, so the pane is placed at
-      // any width; it opens without taking the keys, so the next digit still picks. One not placed is closed again.
+      // any width; it opens without taking the keys, so the next digit still picks. One not placed is closed again,
+      // and the decision report tells the person why in a toast.
       const select = async (row: AgentRow) => {
         await pick($, row)
         const opened = await $.ui.open({ id: PANE_ID, title: PANE_TITLE, closeOnEscape: true, columns: PANE_COLUMNS })
         if (!opened.isPlaced) {
           await $.ui.close({ id: PANE_ID })
-          $.ui.log(`rationale pane not placed (${opened.reason}), closed again`, { to: 'debug' })
+          const io: NoticeIo = { debug: (line) => $.ui.log(line, { to: 'debug' }), now: () => $.clock.now(), toast: (text) => $.ui.toast(text) }
+          await report(io, { unplaced: { reason: opened.reason } })
         }
       }
       const tree = bandTree(t, view, { cols: e.props.bodyColumns, rows: e.props.maxRows }, { select: (row) => void select(row).catch(() => undefined) }, ribbon)
@@ -110,7 +114,7 @@ export function registerScreens(on: On): void {
       )
     } catch (error) {
       // A band that cannot be drawn leaves the place to the others.
-      $.ui.log(`band not drawn: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+      $.ui.log(`band not drawn: ${errorText(error)}`, { to: 'debug' })
       return own
     }
   })
@@ -122,17 +126,19 @@ export function registerScreens(on: On): void {
       const t = $.ui.resolve(e)
       const view = await viewOf($, false)
       tick($, view)
-      const tree = footerTree(t, view, e.surface === 'terminal' ? undefined : TAG_CHARS)
+      // A column between the engine's modes (or another mod's drawing) and the tag, when there are any: it counts in what the tag adds.
+      const gap = showsText(own, e.props.modes.length > 0) ? 1 : 0
+      const tree = footerTree(t, view, (e.surface === 'terminal' ? FOOTER_COLUMNS : TAG_CHARS) - gap)
       if (tree === null) return own
       const { Box } = t
       return (
-        <Box gap={1}>
+        <Box gap={gap}>
           {own}
           {tree}
         </Box>
       )
     } catch (error) {
-      $.ui.log(`footer not drawn: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+      $.ui.log(`footer not drawn: ${errorText(error)}`, { to: 'debug' })
       return own
     }
   })
@@ -161,7 +167,7 @@ export function registerScreens(on: On): void {
       }
       return tree
     } catch (error) {
-      $.ui.log(`rationale pane not drawn: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+      $.ui.log(`rationale pane not drawn: ${errorText(error)}`, { to: 'debug' })
       return next(e)
     }
   })

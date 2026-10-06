@@ -1,43 +1,43 @@
 // The decision report (「决定汇报」, ADR 0004): the one writer of what Dispatch
-// Pilot shows people. The board, the decision log, the debug log and the toast
-// of a failed route are all written here, from the same structured data in
-// $.state (types/index.d.ts: `board`, `decisionLog`); the screens (hooks/board/)
-// only draw that data.
+// Pilot shows people. The board, the decision log, the debug log and the toasts
+// are all written here, from the same structured data in $.state
+// (types/index.d.ts: `board`, `decisionLog`, `skillProfiles`); the screens
+// (hooks/board/) only draw that data.
 //
-// These entries, and nothing else, are for a feature to call:
+// Two entries, and nothing else, are for others to call:
 //
-//   reportDecision(io, decision)   a feature hands over a decision it made (or the
-//                                  reason it could not make one): which feature,
-//                                  about which agent, the outcome, why, and the
-//                                  rules' working when there is one. Written to the
-//                                  decision log, the agent's node on the board, the
-//                                  debug log; a route that failed raises a toast.
-//                                  `reportDecisions` hands over several at once (the
-//                                  agent() calls of a Workflow script).
-//   reportStep(io, step)           the reading of one model request: the model and
-//                                  effort an agent's step went out with, whoever's
-//                                  loop it is. Only observes, never decides anything
-//                                  (ADR 0003). The core calls it from its `turn.step`,
-//                                  which knows what the step goes out with.
-//   reportTally(io, tally)         what a feature counts as its loop goes, which is no
-//                                  decision: the mid-turn re-decisions of the main
-//                                  agent's turn, each loop's failed calls and forced
-//                                  raises. On the agent's node.
-//   reportSwitch(io, change)       the person switched the mod, or one feature, off or
-//                                  on (the control feature's `/dp`): the screens draw
-//                                  again, leaving out what a feature that is off owns.
-//   reportProfiles(io, event)      how writing the session's skill profiles goes
-//                                  (features/skill-profiles.ts, #33): the debug lines,
-//                                  `$.state`'s `skillProfiles` as they are written, and
-//                                  the session start's one decision log entry. `io` is
-//                                  a `ProfilesIo`, not a `ReportIo`.
+//   report(io, what)        记一条决定: a feature (or a screen) hands over one
+//                           thing to show, tagged by its kind (`Reported`):
+//                           `decision`, a decision it made or why it could not
+//                           make one (which feature, about which agent, the
+//                           outcome, why, the rules' working when there is one:
+//                           the decision log, the agent's node, the debug log; a
+//                           route that failed raises a toast); `decisions`,
+//                           several of one event (the agent() calls of a
+//                           Workflow script: one write each, one toast at most);
+//                           `tally`, what a feature counts as a loop goes (the
+//                           mid-turn re-decisions, a loop's failed calls and
+//                           forced raises: on the agent's node); `switched`, the
+//                           person flipped the mod or a feature (`/dp`: the
+//                           screens draw again); `profiles`, how writing the
+//                           session's skill profiles goes (#33); `unplaced`, a
+//                           pane the person asked for that the surface did not
+//                           place (a toast). `io` is what that kind needs of the
+//                           host (`IoOf`): a `ReportIo` for most.
+//   reportStep(io, step)    记一步读数: the reading of one model request, the
+//                           model and effort an agent's step went out with,
+//                           whoever's loop it is. Only observes, never decides
+//                           anything (ADR 0003). The core calls it from its
+//                           `turn.step`, which knows what the step goes out with.
 //
-// The module also keeps the board's turn count and the agents' lifecycle with
-// hooks of its own (`registerReport`, which sees `turn.start`, `agent.spawn` and
-// `turn.complete` and changes nothing in them); a feature never touches that.
+// The rest of a loop's life (spawned, ended) and the board's turn count the
+// module hears with hooks of its own (`registerReport`, which the entry file
+// registers first: `turn.start`, `agent.spawn`, `turn.complete`, changing nothing
+// in them); nobody calls those. What else is exported (`decisionLine`,
+// `appendEntry`, `startTurn`, `profileWhy`, the types) only shapes or reads data.
 //
-// Pure but for that hook: `$` stays in the hook owner's file (it may not cross
-// an import), so the caller builds a `ReportIo` of closures:
+// Pure but for those hooks: `$` stays in the hook owner's file (it may not cross
+// an import), so the caller builds its io of closures, a `ReportIo` as:
 //
 //   const io: ReportIo = {
 //     board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
@@ -53,9 +53,9 @@
 // throws: a report that cannot be kept must not stop the decision or the step.
 
 import type { EngineInterface, On } from 'claude-code'
-import { errorText, failureLine, type Failure } from '../decision/backend.ts'
+import { errorText, failureLine, failureWords, type Failure } from '../decision/backend.ts'
 import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
-import type { Effort } from '../decision/effort.ts'
+import { isEffort, type Effort } from '../decision/effort.ts'
 import { startedIn } from '../decision/workflow-labels.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
 
@@ -81,7 +81,10 @@ export type NodeFailure = Failure & { backend: string }
 /** One agent of one turn on the board. */
 export type BoardNode = {
   turn: number
-  /** `main`, or the agentId. */
+  /**
+   * `main`, the agentId, or for a Workflow's agent not started yet the id of its call (`callNodeId`), for a
+   * Workflow not routed as a whole its tool call's id.
+   */
   id: string
   kind: 'main' | 'agent' | 'wf'
   name: string
@@ -98,7 +101,7 @@ export type BoardNode = {
   decision?: number
   /** The Workflow it belongs to (a Workflow agent, or the call of the script that stands for it before it starts). */
   workflow?: { id: string; name: string }
-  /** The main agent's mid-turn re-decisions of the turn: steps made, decisions, level changes; `late`: an answer is not back, `failure`: the latest request failed. Escalation's. */
+  /** The main agent's mid-turn re-decisions of the turn: steps made, decisions, level changes; `late`: an answer is not back, `failure`: the latest request failed. midturn-effort's. */
   midturn?: { steps: number; judged: number; changed: number; late?: true; failure?: NodeFailure }
   /** The failed tool calls, hook blocks and forced raises of the agent's loop (the escalation feature counts them); absent while none. */
   counts?: { failed: number; blocked: number; raised: number; late?: true }
@@ -106,6 +109,20 @@ export type BoardNode = {
 
 /** What an agent's step read: its model by family and its effort as it went out (absent: a model without effort). */
 export type Reading = { model?: Model; effort?: Effort | number }
+
+/**
+ * The id of the node a Workflow call of a script stands on until its agent starts (an agent of a Workflow has no id
+ * before): `<tool_use_id>#<index>`, the Workflow tool call's own id and the call's place in the script.
+ */
+export function callNodeId(workflow: string, index: number): string {
+  return `${workflow}#${index}`
+}
+
+/** The Workflow tool call a call's node (`callNodeId`) belongs to; null for any other node. */
+export function callWorkflowOf(id: string): string | null {
+  const at = id.indexOf('#')
+  return at < 0 ? null : id.slice(0, at)
+}
 
 /** One reading that differed from the agent's previous one in the same turn (types/index.d.ts, `board.changes`). */
 export type ReadingChange = {
@@ -165,7 +182,7 @@ export type LogEntry = {
   conf?: number
   trace?: RuleStep[]
   floor?: { from: Effort; to: Effort; model: Model }
-  /** The model (by family) and effort an agent was decided to run with; the agent's node says what its steps went out with. */
+  /** The model (by family) and effort an agent was decided to run with (the main agent: its effort only); the agent's node says what its steps went out with. */
   model?: Model
   effort?: Effort
   mid?: { current: Effort; picked: Effort; result: Effort; threshold?: number; held?: string; remaining?: number }
@@ -236,11 +253,7 @@ export type Decided = About & {
   /** The model (by family) and the effort it decided for an agent: in the log entry, since the node's own are what its steps read. */
   model?: Model
   effort?: Effort
-  /** Whose choice the model was (the person's words, or the main agent's pick that stood) and whether the effort was the person's: the old status line says so. */
-  modelBy?: 'person' | 'main-agent'
-  effortBy?: 'person'
-  /** A Workflow call: the decision changed what the script says (false: the script's own stood), and it was sent back to the main agent to write in (return mode). */
-  written?: boolean
+  /** A Workflow call's decision that was sent back to the main agent to write in (return mode). */
   sentBack?: true
   forced?: ForcedRaise
   skills?: SkillsPicked
@@ -252,9 +265,9 @@ export type NotDecided = About & { failure: NodeFailure }
 
 /**
  * No decision was asked for, or none could be made without a failed request: why the agent (or the Workflow) runs
- * as it was written, in a few words. Not a log entry. `asWritten`: by design, not a miss (the Workflow was already
- * sent back once). `offBoard`: nothing to show on the board, only the old status line is to say it (a script
- * with no agent() call).
+ * as it was written, in a few words, on its node. Not a log entry. `asWritten`: by design, not a miss (the Workflow
+ * was already sent back once). `offBoard`: nothing to show at all, so nothing is written (a script with no agent()
+ * call).
  */
 export type Left = About & { why: string; asWritten?: true; offBoard?: true }
 
@@ -267,15 +280,15 @@ export type Started = About & { started: true }
 /**
  * Why a feature that was asked for something said nothing, when that is neither a decision nor a failed request:
  * the answer said nothing about the skills (`unanswered`), the session's skills could not be read (`unread`),
- * there was no skill to rate (`none`), an error of the mod's own (`error`; the debug log has it). Not in the log,
- * not on the board: the old status line says it, until it goes.
+ * there was no skill to rate (`none`), an error of the mod's own (`error`; the debug log has it). Not in the log and
+ * on no node: a note on the board (`board.notes`, kind `skipped`), which the band's event stream draws.
  */
 export type Skip = 'unanswered' | 'unread' | 'none' | 'error'
 export type Skipped = About & { skipped: Skip; aside: true }
 
 export type ReportedDecision = Decided | NotDecided | Left | Started | Skipped
 
-/** What a feature counts as its loop goes (`reportTally`), not a decision of its own. */
+/** What a feature counts as its loop goes (`report`'s `tally`), not a decision of its own. */
 export type Tallied =
   /** The main agent's turn as the mid-turn re-decision sees it. `quiet`: not re-decided yet this turn (nothing to show). `late`: the answer for this step is not back; `failure`: its request failed. */
   | { feature: 'midturn-effort'; agent: 'main'; steps: number; judged: number; changed: number; quiet: boolean; late?: true; failure?: NodeFailure }
@@ -322,25 +335,68 @@ export type ReportIo = {
   toast: (text: string) => void
 }
 
-// ---- entry 1: a decision ------------------------------------------------------
+// ---- entry one (记一条决定): what a feature hands over ----------------------------
+
+/** What `report` is handed, one kind at a time (see the top of the file). */
+export type Reported =
+  /** A decision made, or why none was (`ReportedDecision`). */
+  | { decision: ReportedDecision }
+  /** The decisions of one event, in the order made: one write to the log and one to the board, at most one toast. */
+  | { decisions: readonly ReportedDecision[] }
+  /** What a feature counts as a loop goes (`Tallied`). */
+  | { tally: Tallied }
+  /** The person flipped the mod or a feature (`/dp`). */
+  | { switched: Switched }
+  /** How writing the session's skill profiles goes (`ProfileEvent`). */
+  | { profiles: ProfileEvent }
+  /** A pane the person asked for (a digit on the band) that the surface did not place, with the surface's reason; it was closed again. */
+  | { unplaced: { reason: string } }
+
+/** What a toast of its own needs of the host: the debug log, the clock and the toast. */
+export type NoticeIo = Pick<ReportIo, 'debug' | 'now' | 'toast'>
+
+/** The host closures each kind of report needs: a switch only the redraw, the skill profiles their own state, a pane not placed the toast, the rest a `ReportIo`. */
+export type IoOf<R extends Reported> = R extends { switched: Switched } ? SwitchIo : R extends { profiles: ProfileEvent } ? ProfilesIo : R extends { unplaced: unknown } ? NoticeIo : ReportIo
 
 /**
- * Reports a decision: the debug log line and the decision log entry (a
- * decision made), the agent's node on the board, a note for the band when a
- * request beside the route came to nothing, and a toast when the agent's
- * route failed. Never throws.
+ * Entry one (记一条决定): reports what a feature hands over, by its kind; `io` is what that kind needs of the host
+ * (`IoOf`). Never throws.
  */
-export async function reportDecision(io: ReportIo, decision: ReportedDecision): Promise<void> {
-  return reportDecisions(io, [decision])
+export async function report<R extends Reported>(io: IoOf<R>, what: R): Promise<void> {
+  const item: Reported = what
+  if ('decision' in item) return reportDecisions(io as ReportIo, [item.decision])
+  if ('decisions' in item) return reportDecisions(io as ReportIo, item.decisions)
+  if ('tally' in item) return reportTally(io as ReportIo, item.tally)
+  if ('switched' in item) return reportSwitch(io as SwitchIo, item.switched)
+  if ('profiles' in item) return reportProfiles(io as ProfilesIo, item.profiles)
+  return reportUnplaced(io as NoticeIo, item.unplaced)
+}
+
+/** The rationale pane was not placed, in the person's words: why (the surface's own reason), and where to look instead. */
+export function unplacedText(reason: string): string {
+  return `依据面板没有放出来（${reason}），已经关上；/dp log 10 在对话里列出最近 10 条决定`
 }
 
 /**
- * Reports the decisions of one event together, the several agents of a Workflow
- * for one: one write to the log, one to the board, and at most one toast for
- * the routes that failed. Each is what `reportDecision` makes of it alone, in
- * the order given. Never throws.
+ * A pane the person asked for that the surface did not place: the debug line, and a toast so they know (the `/dp`
+ * command says it in its answer instead), unless a toast went up within `TOAST_GAP_MS`. Never throws.
  */
-export async function reportDecisions(io: ReportIo, decisions: readonly ReportedDecision[]): Promise<void> {
+async function reportUnplaced(io: NoticeIo, unplaced: { reason: string }): Promise<void> {
+  try {
+    io.debug(`rationale pane not placed (${unplaced.reason}), closed again`)
+    toastOnce(io, await io.now(), unplacedText(unplaced.reason))
+  } catch {
+    // a notice that cannot be given leaves the pane closed all the same
+  }
+}
+
+/**
+ * The decisions of one event (a single one, or the several agents of a Workflow): the debug log line and the
+ * decision log entry of each decision made, the agents' nodes on the board, a note for the band when a request
+ * beside a route came to nothing, and a toast when a route failed. One write to the log, one to the board, at
+ * most one toast; each is what it would make of it alone, in the order given. Never throws.
+ */
+async function reportDecisions(io: ReportIo, decisions: readonly ReportedDecision[]): Promise<void> {
   if (decisions.length === 0) return
   try {
     // Which turn each is for. A board that cannot be read does not stop a decision from being logged (as turn 1).
@@ -427,35 +483,13 @@ let toastedAt = Number.NEGATIVE_INFINITY
  * Raises the toast unless one was raised within `TOAST_GAP_MS`, which the engine would drop: the failures that
  * follow one closely are on the board all the same.
  */
-function toastOnce(io: ReportIo, now: number, text: string): void {
+function toastOnce(io: Pick<ReportIo, 'toast'>, now: number, text: string): void {
   if (now - toastedAt < TOAST_GAP_MS) return
   toastedAt = now
   try {
     io.toast(text)
   } catch {
     // a toast that cannot be shown is skipped: the board has it
-  }
-}
-
-/** A failed decision request in a few words, as the band says why an agent is not routed (the toast and the card add the details). */
-export function failureWords(failure: Failure): string {
-  switch (failure.kind) {
-    case 'timeout':
-      return '决策模型超时'
-    case 'network':
-      return '连不上决策模型'
-    case 'busy':
-      return '决策模型繁忙'
-    case 'quota':
-      return '决策模型额度用完'
-    case 'config':
-      return failure.status === undefined ? '决策模型没配好' : '决策模型拒绝了密钥'
-    case 'http':
-      return '决策模型出错'
-    case 'parse':
-      return '读不懂决策模型的回答'
-    case 'request':
-      return '决策请求出错'
   }
 }
 
@@ -474,13 +508,13 @@ function withNotes(board: Board, notes: readonly BoardNote[]): Board {
   return { ...board, notes: [...(board.notes ?? []), ...notes].filter((note) => note.turn >= board.turn - 1).slice(-NOTES_KEPT) }
 }
 
-// ---- entry 2: a reading -------------------------------------------------------
+// ---- entry two (记一步读数): a step's reading ----------------------------------------
 
 /** How many writes may be lost to other writers in a row: a Workflow's agents step within milliseconds of each other. */
 const READING_ATTEMPTS = 32
 
 /**
- * Reports the reading of one step: the model (by family) and the effort it
+ * Entry two (记一步读数): reports the reading of one step, the model (by family) and the effort it
  * went out with, whether the effort was routed, and that the agent is running.
  * Reading never changes what is sent. The agent's node is made at its first
  * step when the board has none (named from the roster of dispatched agents, or
@@ -493,7 +527,7 @@ export async function reportStep(io: StepIo, step: StepReading): Promise<void> {
   const id = step.agentId ?? 'main'
   const main = step.agentId === undefined
   const family = modelFamily(step.model)
-  const effort = step.effort === undefined ? undefined : typeof step.effort === 'number' ? step.effort : isLevel(step.effort) ? step.effort : undefined
+  const effort = typeof step.effort === 'number' || isEffort(step.effort) ? step.effort : undefined
   const reading: Reading = { ...(family === null ? {} : { model: family }), ...(effort === undefined ? {} : { effort }) }
   // `source`: the engine's own effort goes out unless a plan sets it. An agent that was decided to run as it does has no plan
   // to say so (haiku takes no effort, a Workflow script was written into): its reading is checked against its decision below.
@@ -505,7 +539,7 @@ export async function reportStep(io: StepIo, step: StepReading): Promise<void> {
     const peek = await read(io.board)
     const before = main ? mainNode(peek) : continuing(peek, id)
     // A node that has not begun is named now (the roster may know it only from here on); one that has keeps its name.
-    const identity = main || (before !== undefined && begun(before)) ? null : await identify(io, id)
+    const identity = main || (before !== undefined && begun(before)) ? null : await lookUp(io, id)
     if (!main && before === undefined && identity === null) return
     const prior = main ? undefined : (before ?? callNodeOf(peek, identity))
     if (!routed && prior?.routed === true && prior.decision !== undefined) routed = await wentOutAsDecided(io, prior.decision, reading)
@@ -558,14 +592,16 @@ export type LoopEnd = { agentId?: string; reason: 'answer' | 'aborted' | 'refusa
  * why, when nothing else said), for as long as it ran. The main agent's turn
  * ends its own node; an agent's, its own, wherever its turn's node is. Never throws.
  */
-export async function reportEnd(io: StepIo, end: LoopEnd): Promise<void> {
+async function reportEnd(io: StepIo, end: LoopEnd): Promise<void> {
   const id = end.agentId ?? 'main'
   const main = end.agentId === undefined
   try {
     const now = await io.now()
     const peek = await read(io.board)
     const known = main ? mainNode(peek) : continuing(peek, id)
-    const identity = main || known !== undefined ? null : await identify(io, id)
+    // The loop is over: whatever its steps missed, it is looked up once more in full.
+    missed.delete(id)
+    const identity = main || known !== undefined ? null : (await identify(io, id, { roster: true, dirs: await runDirsOf(io) })).identity
     if (!main && known === undefined && identity === null) return
     const seen = main || known !== undefined ? now : (firstSeen.get(id) ?? now - end.durationMs)
     await modify(
@@ -600,7 +636,7 @@ export async function reportEnd(io: StepIo, end: LoopEnd): Promise<void> {
  * made (or, when a decision about it made one, marked queued from now); the
  * agent's own first step starts it. Never throws.
  */
-export async function reportSpawn(io: StepIo, spawn: { agentId: string; name?: string; description: string; type: string }): Promise<void> {
+async function reportSpawn(io: StepIo, spawn: { agentId: string; name?: string; description: string; type: string }): Promise<void> {
   try {
     const now = await io.now()
     await modify(
@@ -622,7 +658,7 @@ export async function reportSpawn(io: StepIo, spawn: { agentId: string; name?: s
   }
 }
 
-// ---- entry 3: a tally ---------------------------------------------------------
+// ---- what `report` does with a tally --------------------------------------------
 
 /**
  * Reports what a feature counts as its loop goes, which is no decision: the
@@ -632,7 +668,7 @@ export async function reportSpawn(io: StepIo, spawn: { agentId: string; name?: s
  * re-decision's request that failed, is also a note for the band's event
  * stream. Writes the board only when the node changed. Never throws.
  */
-export async function reportTally(io: ReportIo, tally: Tallied): Promise<void> {
+async function reportTally(io: ReportIo, tally: Tallied): Promise<void> {
   try {
     const noteworthy = tally.late === true || ('failure' in tally && tally.failure !== undefined)
     const now = await io.now()
@@ -643,7 +679,7 @@ export async function reportTally(io: ReportIo, tally: Tallied): Promise<void> {
   }
 }
 
-// ---- entry 4: a switch --------------------------------------------------------
+// ---- what `report` does with a switch -------------------------------------------
 
 /** What the person flipped with `/dp`: the whole mod, or one feature. */
 export type Switched = { master: boolean } | { feature: string; on: boolean }
@@ -658,7 +694,7 @@ export type SwitchIo = { redraw: () => void }
  * parts of the nodes it writes, `defineSwitch`'s `parts`), so they are drawn
  * again now. Never throws.
  */
-export function reportSwitch(io: SwitchIo, _change: Switched): void {
+function reportSwitch(io: SwitchIo, _change: Switched): void {
   try {
     io.redraw()
   } catch {
@@ -700,30 +736,74 @@ function withTally(board: Board, tally: Tallied, when: { now: number; logged: nu
   return notes.length === 0 ? changed : withNotes(changed, notes)
 }
 
-function isLevel(value: string): value is Effort {
-  return value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max'
-}
-
 /** Who a loop with no node is, from what the engine and the Workflow journals say; null: not an agent the board shows. */
 type Identity = { kind: 'agent' | 'wf'; name: string; type: string }
 
-async function identify(io: StepIo, id: string): Promise<Identity | null> {
-  try {
-    const info = (await io.agents()).find((agent) => agent.id === id)
-    if (info !== undefined) return { kind: 'agent', name: info.name !== undefined && info.name !== '' ? info.name : info.description !== '' ? info.description : id, type: info.type }
-  } catch (error) {
-    io.debug(`agent roster not read: ${errorText(error)}`)
+/**
+ * Who a loop is, by the roster (`roster`) and the journals of the run directories `dirs` (null: none read). `read`
+ * is false when the directories or a journal could not be read, so a miss may not be one.
+ */
+async function identify(io: StepIo, id: string, look: { roster: boolean; dirs: readonly string[] | null }): Promise<{ identity: Identity | null; read: boolean }> {
+  if (look.roster) {
+    try {
+      const info = (await io.agents()).find((agent) => agent.id === id)
+      if (info !== undefined) return { identity: { kind: 'agent', name: info.name !== undefined && info.name !== '' ? info.name : info.description !== '' ? info.description : id, type: info.type }, read: true }
+    } catch (error) {
+      io.debug(`agent roster not read: ${errorText(error)}`)
+    }
   }
+  if (look.dirs === null) return { identity: null, read: false }
   try {
     // A Workflow's agents are in no roster: the journal of the run it started in has the label it started under.
-    for (const dir of [...(await io.runDirs())].reverse()) {
+    for (const dir of [...look.dirs].reverse()) {
       const journal = await io.journal(dir)
       const start = journal === null ? null : startedIn(journal, id)
-      if (start !== null) return { kind: 'wf', name: start.label, type: 'workflow' }
+      if (start !== null) return { identity: { kind: 'wf', name: start.label, type: 'workflow' }, read: true }
     }
   } catch (error) {
     io.debug(`workflow journals not read: ${errorText(error)}`)
+    return { identity: null, read: false }
   }
+  return { identity: null, read: true }
+}
+
+/** The session's Workflow run directories, oldest first; null when they cannot be read. */
+async function runDirsOf(io: StepIo): Promise<readonly string[] | null> {
+  try {
+    return await io.runDirs()
+  } catch (error) {
+    io.debug(`workflow journals not read: ${errorText(error)}`)
+    return null
+  }
+}
+
+/**
+ * The loops a step found no one to be, by id: how many of its steps have looked, and the run directories whose
+ * journals it was looked for in (null: they could not be read). Module state: a hot reload forgets it, and costs each
+ * such loop one full look-up more.
+ */
+const missed = new Map<string, { sightings: number; dirs: string | null }>()
+const MISSED_KEPT = 64
+
+/**
+ * `identify` for a step, at most as often as the answer can change: the first step of a loop no one knows (an engine
+ * fork) reads the roster and every run's journal, and its later steps would read them all again. After a miss, the
+ * journals are read again only once the session has another run directory (a Workflow's agent can step before its run
+ * is recorded), or after they could not be read; the roster at the loop's 2nd, 4th, 8th... step (an agent it lists late).
+ */
+async function lookUp(io: StepIo, id: string): Promise<Identity | null> {
+  const miss = missed.get(id)
+  const sightings = (miss?.sightings ?? 0) + 1
+  const roster = miss === undefined || (sightings & (sightings - 1)) === 0
+  const dirs = await runDirsOf(io)
+  const seen = dirs === null ? null : dirs.join('\n')
+  const journals = miss === undefined || seen === null || miss.dirs === null ? roster : seen !== miss.dirs
+  const found = roster || journals ? await identify(io, id, { roster, dirs: journals ? dirs : null }) : { identity: null, read: true }
+  // The newest miss goes last, so the oldest go first past `MISSED_KEPT`.
+  missed.delete(id)
+  if (found.identity !== null) return found.identity
+  missed.set(id, { sightings, dirs: !journals ? (miss?.dirs ?? null) : found.read ? seen : null })
+  for (const key of missed.keys()) if (missed.size > MISSED_KEPT) missed.delete(key)
   return null
 }
 
@@ -750,7 +830,7 @@ function seenAt(id: string, now: number): number {
  */
 function callNodeOf(board: Board, identity: Identity | null | undefined): BoardNode | undefined {
   if (identity === null || identity === undefined || identity.kind !== 'wf') return undefined
-  return board.nodes.find((node) => node.kind === 'wf' && node.state === 'queued' && node.workflow !== undefined && node.id.startsWith(`${node.workflow.id}#`) && node.name === identity.name)
+  return board.nodes.find((node) => node.kind === 'wf' && node.state === 'queued' && node.workflow !== undefined && callWorkflowOf(node.id) === node.workflow.id && node.name === identity.name)
 }
 
 /** What a Workflow's agent takes over from the node its call stood for: the Workflow, the decision made for it, and why it was left as written (when its steps go out unrouted). */
@@ -974,7 +1054,7 @@ function without<T extends object, K extends keyof T>(value: T, ...keys: K[]): O
   return rest
 }
 
-// ---- entry 5: the skill profiles ------------------------------------------------
+// ---- what `report` does with the skill profiles' events ----------------------------
 
 /** Why writing the profiles stopped for the session (types/index.d.ts, `skillProfiles.stop`). */
 export type ProfilesStopReason = 'store-read' | 'model-refused' | 'api-error' | 'store-write' | 'off' | 'error'
@@ -997,7 +1077,7 @@ export type ProfilesState = {
 /** The failed skills the state names; `failed` still counts every one. */
 export const PROFILES_FAILURES_KEPT = 50
 
-/** What `reportProfiles` needs of the host: the board (for the turn), the decision log, the debug log, and the state it keeps. */
+/** What the skill profiles' report needs of the host: the board (for the turn), the decision log, the debug log, and the state it keeps. */
 export type ProfilesIo = Pick<ReportIo, 'board' | 'decisions' | 'debug'> & { profiles: Cell<ProfilesState> }
 
 /** Why the writing stopped, with what the debug line and the state say of it. */
@@ -1040,7 +1120,7 @@ export type ProfileEvent =
  * decision log: tone `ok`, `warn` when a skill failed, `fail` when the writing stopped (`info` when the person
  * switched it off meanwhile). Not on the board's nodes, in no band or footer, and no toast. Never throws.
  */
-export async function reportProfiles(io: ProfilesIo, event: ProfileEvent): Promise<void> {
+async function reportProfiles(io: ProfilesIo, event: ProfileEvent): Promise<void> {
   try {
     const line = profilesLine(event)
     if (line !== null) io.debug(line)

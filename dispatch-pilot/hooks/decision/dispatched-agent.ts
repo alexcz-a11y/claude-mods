@@ -10,7 +10,7 @@
 // the effort a Score with the levels every effort question shares.
 
 import { clipToTokens, estimateTokens, withinTokens } from './context.ts'
-import { DEFAULT_ASK, EFFORTS, effortQuestion, levelsText, pickEffort, readEffort, traceEffort, type Effort, type EffortAsk, type EffortTrace, type EffortReading, type Language } from './effort.ts'
+import { DEFAULT_ASK, EFFORTS, effortQuestion, levelsText, pickEffort, probsOf, readEffort, traceEffort, type Effort, type EffortAsk, type EffortTrace, type EffortReading, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import type { Answer, Part, Question, State } from './system-one.ts'
 
@@ -616,9 +616,9 @@ export function dispatchEvidence(decision: DispatchDecision): {
   floor?: { from: Effort; to: Effort; model: AgentModel }
 } {
   const conf = decision.pick?.confidence ?? decision.reading?.confidence ?? null
-  const levels = decision.reading?.probabilities
+  const reading = decision.reading
   return {
-    ...(levels === undefined ? {} : { probs: Object.fromEntries(EFFORTS.map((level, i) => [level, levels[i] ?? 0])) as Record<Effort, number> }),
+    ...(reading === undefined || reading === null ? {} : { probs: probsOf(reading) }),
     ...(conf === null ? {} : { conf }),
     ...(decision.trace === null ? {} : { trace: decision.trace.steps }),
     ...(decision.liftedFrom !== undefined && decision.effort !== null && decision.model !== null ? { floor: { from: decision.liftedFrom, to: decision.effort, model: decision.model } } : {}),

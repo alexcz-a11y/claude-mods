@@ -237,7 +237,12 @@ export function outcomeOf(call: AgentCall, decision: DispatchDecision): string {
 
 /** How a call is named to the person: its label, else where it is. */
 export function callTitle(call: AgentCall): string {
-  return call.label !== null ? JSON.stringify(call.label) : `第 ${call.line} 行的 agent()`
+  return call.label !== null ? JSON.stringify(call.label) : callPlace(call)
+}
+
+/** Where a call is, for the person: `第 3 行的 agent()`. */
+export function callPlace(call: AgentCall): string {
+  return `第 ${call.line} 行的 agent()`
 }
 
 /** `outcomeOf`, for the person. */
@@ -347,7 +352,7 @@ export function returnNote(parsed: ParsedWorkflow, outcomes: readonly CallOutcom
  * What the main agent reads after the Workflow tool's result: a line for each
  * call the decisions touched or left. Null when there is nothing for it to
  * know: no call was decided, and none was left for a reason it could change
- * (a decision model that did not answer is the status line's to report).
+ * (a decision model that did not answer is the board's to report).
  */
 export function rewriteNote(parsed: ParsedWorkflow, outcomes: readonly CallOutcome[], describe: (failure: Failure) => string): string | null {
   const decided = outcomes.some((outcome) => outcome.kind !== 'left')

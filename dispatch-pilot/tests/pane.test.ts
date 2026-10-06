@@ -72,7 +72,7 @@ async function steps(ui: Ui, prefix = 'pane-card-step-'): Promise<string[]> {
   return (await ui.findAll({ type: 'Box' })).filter((box) => box.key?.startsWith(prefix)).map((box) => shown(box))
 }
 
-test("the main agent's card: the effort's probabilities, the rules' working step by step, the result, and that its confidence only goes on record", { options: KEY }, async ($, on) => {
+test("the main agent's card: why, the effort's probabilities, the rules' working step by step, the result, and its confidence, which only goes on record", { options: KEY }, async ($, on) => {
   // high most likely, xhigh close behind: the round-up takes xhigh.
   const w = world($, on, { backend: jev([0, 0.05, 0.6, 0.35, 0], { confidence: 0.25 }) })
   await w.submit('这个方案往死里挑刺')
@@ -80,6 +80,10 @@ test("the main agent's card: the effort's probabilities, the rules' working step
 
   const ui = await w.pane()
   expect(shown(await ui.find({ key: 'pane-head' }))).toContain('主 agent')
+  // Why, in the decision report's own words, as for any agent (spec story 24).
+  const reason = (await w.board()).log.find((entry) => entry.feature === 'main-effort')?.reason ?? ''
+  expect(reason).toContain('置信度 0.25')
+  expect(shown(await ui.find({ key: 'pane-card-reason' }))).toContain(reason)
   expect(shown(await ui.find({ key: 'pane-card-probs' }))).toMatch(/low \.00 medium \.05 high \.60 xhigh \.35 max \.00/)
   expect(await ui.find({ key: 'pane-card-probs-bar' })).toMatchObject({ type: 'Raster' })
   const rules = await steps(ui)
@@ -260,6 +264,29 @@ test("a digit on the band picks an agent and brings up the pane on its card, wit
   expect((await band.findAll({ type: 'Box' })).filter((box) => box.key?.startsWith('band-agent-')).map((box) => shown(box).startsWith('▌'))).toEqual([false, true, false])
 })
 
+test("a digit whose pane the surface does not place tells the person so in a toast (why, and where else to look), no more than one within two seconds; the pane is closed again", { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, { backend: jev([0, 1, 0, 0, 0], { choice: 'sonnet' }), beneath: { unplaced: 'the attached desktop places no panes' } })
+  await w.submit('派个 agent')
+  await w.step({ index: 0 })
+  const one = await w.spawn({ prompt: 'Review the diff.', description: '审查' })
+  await w.agentStep(one.agentId ?? '', { index: 0, model: 'claude-sonnet-5-5' })
+
+  const band = await w.band()
+  await band.press({ key: 'band-pick-1' })
+  expect(w.panes).toEqual([])
+  expect(w.paneActs.map((act) => act.act)).toEqual(['open', 'close'])
+  expect(w.toasts).toHaveLength(1)
+  expect(w.toasts[0]?.text).toContain('依据面板没有放出来')
+  expect(w.toasts[0]?.text).toContain('the attached desktop places no panes')
+  expect(w.toasts[0]?.text).toContain('/dp log 10')
+  // Pressed again at once: the engine would drop a second toast, so none is raised; later, one is.
+  await band.press({ key: 'band-pick-0' })
+  expect(w.toasts).toHaveLength(1)
+  await w.clock.advance(2500)
+  await band.press({ key: 'band-pick-0' })
+  expect(w.toasts).toHaveLength(2)
+})
+
 test('the decision log is grouped by turn, newest first, each with its letter key; a turn folds and opens again with its key; older turns start folded', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
   for (const text of ['第一条消息', '第二条消息', '第三条消息']) {
@@ -285,6 +312,32 @@ test('the decision log is grouped by turn, newest first, each with its letter ke
   expect(await entries()).toEqual(['pane-entry-2', 'pane-entry-1'])
   await ui.press({ key: 'pane-fold-3' })
   expect(await entries()).toEqual(['pane-entry-3', 'pane-entry-2', 'pane-entry-1'])
+})
+
+test("a turn's header counts its entries by the glyph each row draws: ✔ the decisions made, · the plain records, ⚠ and ✘", async ($, on) => {
+  const entry = (n: number, tone: LogEntry['tone']) => ({ n, turn: 1, at: 0, feature: 'midturn-effort', agent: 'main', tone, outcome: 'effort high', subject: `第 ${n} 步`, reason: 'x' })
+  const w = world($, on, { seed: { board: { turn: 1, nodes: [] }, log: [entry(1, 'ok'), entry(2, 'ok'), entry(3, 'info'), entry(4, 'warn'), entry(5, 'info'), entry(6, 'info')] } })
+  const ui = await w.pane()
+  const head = shown(((await ui.find({ key: 'pane-turn-1' })) as Drawn).children?.[0])
+  expect(head).toContain('6 条 ✔2 ·3 ⚠1')
+  expect(head).not.toContain('✘')
+  // Each row's own glyph says the same.
+  const glyphs = (await ui.findAll({ type: 'Box' })).filter((box) => box.key?.startsWith('pane-entry-')).map((box) => shown(box).slice(0, 1))
+  expect(glyphs).toEqual(['✔', '✔', '·', '⚠', '·', '·'])
+})
+
+test('the band and the pane call each feature by the same GLOSSARY word: 强制升档, Workflow 兜底', async ($, on) => {
+  const board = { turn: 1, starts: [{ turn: 1, at: 0 }], nodes: [{ turn: 1, id: 'main', kind: 'main' as const, name: '主 agent', type: 'main', state: 'running' as const, t0: 0, routed: true }], notes: [{ turn: 1, id: 'main', feature: 'escalation', at: 2, after: 2, kind: 'late' as const, why: '' }] }
+  const log: LogEntry[] = [
+    { n: 1, turn: 1, at: 1, feature: 'workflow-labels', agent: 'wa1', tone: 'ok', outcome: 'sonnet high', subject: '"audit"（agent wa1，Workflow audit）', reason: 'x' },
+    { n: 2, turn: 1, at: 2, feature: 'escalation', agent: 'main', tone: 'info', outcome: 'effort high（保持）', subject: '第 2 步（工具调用失败 2 次）', reason: 'x' },
+  ]
+  const w = world($, on, { seed: { board, log } })
+  const band = shown(await (await w.band()).drawn())
+  expect(band).toContain('强制升档的回答没赶上这一步')
+  const pane = await w.pane()
+  expect(shown(await pane.find({ key: 'pane-entry-2' }))).toContain('强制升档  第 2 步')
+  expect(shown(await pane.find({ key: 'pane-entry-1' }))).toContain('Workflow 兜底')
 })
 
 test('the log keeps twenty turns, and each has its own fold key: none of them p, n or f', async ($, on) => {

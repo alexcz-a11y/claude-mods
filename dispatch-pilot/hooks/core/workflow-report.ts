@@ -14,8 +14,8 @@
 import { failureLine } from '../decision/backend.ts'
 import { dispatchEvidence, modelFamily } from '../decision/dispatched-agent.ts'
 import { parseWorkflow, type ParsedWorkflow } from '../decision/workflow-script.ts'
-import { callResult, callTitle, leftWords, reasonOf, type CallOutcome } from '../decision/workflow.ts'
-import type { Left, ReportedDecision } from './report.ts'
+import { callPlace, callResult, callTitle, leftWords, reasonOf, type CallOutcome } from '../decision/workflow.ts'
+import { callNodeId, type Left, type ReportedDecision } from './report.ts'
 
 /** The Workflow call a report is about: the tool call's id, and the script it ran, as far as it was read. */
 export type WorkflowRun = { id: string; parsed: ParsedWorkflow }
@@ -51,9 +51,10 @@ export function callReports(
     if (call === undefined) return []
     const about = {
       feature,
-      agent: `${run.id}#${call.index}`,
+      agent: callNodeId(run.id, call.index),
       subject: `${callTitle(call)}（Workflow ${title}）`,
-      node: { kind: 'wf' as const, name: call.label ?? `第 ${call.line} 行的 agent()`, type: call.agentType ?? 'workflow', state: 'queued' as const, workflow: { id: run.id, name: title } },
+      // Named as its agent will be (the journal's label), so that agent takes its place when it starts.
+      node: { kind: 'wf' as const, name: call.label ?? callPlace(call), type: call.agentType ?? 'workflow', state: 'queued' as const, workflow: { id: run.id, name: title } },
     }
     if (outcome.kind === 'left') {
       return [outcome.failure !== undefined ? { ...about, routed: false, failure: { backend: options.backend, ...outcome.failure } } : { ...about, why: leftWords(outcome, (failure) => failureLine(options.backend, failure)) }]
@@ -70,7 +71,6 @@ export function callReports(
         ...dispatchEvidence(decision),
         ...(family === null ? {} : { model: family }),
         ...(decision.effort === null ? {} : { effort: decision.effort }),
-        written: outcome.kind === 'written',
         ...(options.sentBack === true ? { sentBack: true as const } : {}),
       },
     ]

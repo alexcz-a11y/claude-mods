@@ -21,17 +21,15 @@
 // line when they fit; the bars narrow with the pane.
 
 import type { RenderNode } from 'claude-code'
+import { failureMeaning } from '../decision/backend.ts'
 import type { Effort } from '../decision/effort.ts'
 import { EFFORTS } from '../decision/effort.ts'
-import { type LogEntry, type ProfilesState, type Tone as LogTone } from '../core/report.ts'
-import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, meterCells, MODEL_BG, MUTED, OK, pct, SKILL, softColor, stackCells, stateGlyph, WARN, width, type Raster, type TT } from './kit.tsx'
+import { type LogEntry, type ProfilesState, type Tone } from '../core/report.ts'
+import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, meterCells, MODEL_BG, MUTED, OK, pct, SKILL, softColor, stackCells, stateGlyph, STATUS_COLOR, WARN, width, type Raster, type TT } from './kit.tsx'
 import {
   cardOf,
   entryVerb,
   FAILURES_KEY,
-  FEATURE_WORDS,
-  featureOf,
-  levelOf,
   logGroups,
   midVerdict,
   offLine,
@@ -45,7 +43,7 @@ import {
   type PaneState,
   type StepMark,
 } from './rationale.ts'
-import type { AgentRow, ScreenView, Tone } from './view.ts'
+import { FEATURE_WORDS, featureOf, levelOf, type AgentRow, type ScreenView } from './view.ts'
 
 /** What the pane is drawn from. */
 export type PaneInput = {
@@ -70,9 +68,10 @@ export type PaneActs = {
   failures: (open: boolean) => void
 }
 
-const TONE_COLOR: Record<Tone, string> = { run: ACCENT, done: MUTED, fail: BAD, warn: WARN, muted: MUTED }
-const LOG_COLOR: Record<LogTone, string> = { ok: OK, warn: WARN, fail: BAD, info: MUTED }
-const LOG_GLYPH: Record<LogTone, string> = { ok: '✔', warn: '⚠', fail: '✘', info: '·' }
+const LOG_COLOR: Record<Tone, string> = { ok: OK, warn: WARN, fail: BAD, info: MUTED }
+const LOG_GLYPH: Record<Tone, string> = { ok: '✔', warn: '⚠', fail: '✘', info: '·' }
+/** The order a turn's header counts its tones in. */
+const LOG_TONES: readonly Tone[] = ['ok', 'info', 'warn', 'fail']
 const MARK: Record<StepMark, { glyph: string; color: string }> = {
   hit: { glyph: '●', color: ACCENT },
   pass: { glyph: '○', color: MUTED },
@@ -236,18 +235,6 @@ function hang(t: TT, key: string, label: string, content: RenderNode, w: number,
   )
 }
 
-/** What each kind of failed request means (`Failure.kind`), beside its name. */
-const FAILURE_KINDS: Record<string, string> = {
-  config: '没有配好决策模型的密钥或账号，或者密钥被拒绝',
-  timeout: '没有在等待时间内回答',
-  network: '网络不通，请求没有发出去',
-  busy: '决策模型一时繁忙（状态码 429 之类）',
-  quota: '决策模型的额度用完了',
-  http: '决策模型回了一个出错的状态码',
-  parse: '回答里没有能用的判断',
-  request: '请求本身出了错',
-}
-
 function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster | undefined): RenderNode[] {
   const { Box, Text } = t
   const row = card.row
@@ -299,10 +286,10 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
             {readout}
           </Box>,
         ]),
-    hang(t, 'pane-card-state', '状态', text(row.status.text, TONE_COLOR[row.status.tone]), w),
+    hang(t, 'pane-card-state', '状态', text(row.status.text, STATUS_COLOR[row.status.tone]), w),
   ]
   if (node.failure !== undefined) {
-    rows.push(hang(t, 'pane-card-kind', '类型', text(FAILURE_KINDS[node.failure.kind] ?? '其他'), w))
+    rows.push(hang(t, 'pane-card-kind', '类型', text(failureMeaning(node.failure.kind)), w))
     rows.push(hang(t, 'pane-card-backend', '后端', text(node.failure.backend), w))
     rows.push(hang(t, 'pane-card-detail', '细节', text(node.why ?? node.failure.detail), w))
     rows.push(hang(t, 'pane-card-where', '排查', text('debug log（claude --debug-file <路径>）里有这次请求的那一行，写着它发了什么、等了多久、怎么失败的', MUTED), w))
@@ -355,7 +342,10 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
   return rows
 }
 
-/** A decision's rows on the card: the model it gave and why (an agent's), the effort's probabilities, the rules' working, the result. */
+/**
+ * A decision's rows on the card: the model it gave (an agent's; the main agent's model is never decided) and why,
+ * the effort's probabilities, the rules' working, the result; the main agent's confidence, which only goes on record.
+ */
 function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, raster: Raster | undefined): RenderNode[] {
   const { Text } = t
   const rows: RenderNode[] = []
@@ -373,7 +363,7 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, raster: 
       ),
     )
   }
-  if (!main) rows.push(hang(t, 'pane-card-reason', '理由', <Text color={MUTED} wrap="wrap">{entry.reason}</Text>, w))
+  rows.push(hang(t, 'pane-card-reason', '理由', <Text color={MUTED} wrap="wrap">{entry.reason}</Text>, w))
   const level = levelOf(entry)
   if (entry.probs !== undefined) rows.push(hang(t, 'pane-card-probs', 'effort', probsLine(t, 'pane-card-probs-bar', entry.probs, level, w - LABEL, raster), w))
   rows.push(...traceRows(t, 'pane-card-step', entry.trace ?? [], w))
@@ -522,9 +512,8 @@ function groupRows(t: TT, group: LogGroup, cols: number, act: PaneActs, raster: 
         <Box flexShrink={0}>
           <Text>
             <Text color={MUTED}>{`  ${group.entries.length} 条`}</Text>
-            {counts.ok + counts.info > 0 ? <Text color={OK}>{` ✔${counts.ok + counts.info}`}</Text> : null}
-            {counts.warn > 0 ? <Text color={WARN}>{` ⚠${counts.warn}`}</Text> : null}
-            {counts.fail > 0 ? <Text color={BAD}>{` ✘${counts.fail}`}</Text> : null}
+            {/* By the glyph and colour each of its rows draws. */}
+            {LOG_TONES.map((tone) => (counts[tone] > 0 ? <Text color={LOG_COLOR[tone]}>{` ${LOG_GLYPH[tone]}${counts[tone]}`}</Text> : null))}
           </Text>
         </Box>
       </Box>

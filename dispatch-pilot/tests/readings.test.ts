@@ -4,7 +4,7 @@
 // backend, so every step goes out as the engine made it and the board shows what that was.
 
 import { expect, test } from 'claude-code/testing'
-import { runWorld } from './support/workflow-run.ts'
+import { runDir, runWorld } from './support/workflow-run.ts'
 
 /** A Workflow with one agent() call, as the main agent hands it to the tool. */
 const SCRIPT = `export const meta = { name: 'audit', description: 'audit the api', phases: [] }
@@ -62,6 +62,27 @@ test("a loop nobody launched (an engine fork) is not an agent of the board; one 
   w.agents.push({ id: 'fork-1', description: '总结上下文', type: 'general-purpose', status: 'running' })
   await w.agentStep('fork-1', { index: 1, model: 'claude-haiku-4-5-20251001', effort: null })
   expect((await w.board()).agents).toMatchObject([{ id: 'fork-1', name: '总结上下文', model: 'haiku' }])
+})
+
+test("a loop nobody knows is not looked up again at every step: its journals once more only when another Workflow run is recorded, the roster only now and then", async ($, on) => {
+  const w = runWorld($, on, {})
+  await w.submit('改个错别字')
+  await w.workflow({ script: SCRIPT })
+  w.started('wf_test-1', 'wa1', 'review-auth')
+  const journal = (runId: string) => `${runDir(runId)}/journal.jsonl`
+  const fork = async () => (await w.board()).agents.filter((node) => node.id === 'fork-1')
+  for (const index of [0, 1, 2, 3, 4, 5, 6, 7]) await w.agentStep('fork-1', { index, model: 'claude-haiku-4-5-20251001', effort: null })
+  expect(await fork()).toEqual([])
+  expect(w.looked.files.filter((path) => path === journal('wf_test-1'))).toHaveLength(1)
+  // The roster at the loop's 1st, 2nd, 4th and 8th step: an agent it lists late is still found.
+  expect(w.looked.roster).toBe(4)
+
+  // A run recorded later may have started it: its journals are read again at the next step.
+  await w.workflow({ script: SCRIPT })
+  w.started('wf_test-2', 'fork-1', 'late-label')
+  await w.agentStep('fork-1', { index: 8, model: 'claude-haiku-4-5-20251001', effort: null })
+  expect(w.looked.files.filter((path) => path === journal('wf_test-2'))).toHaveLength(1)
+  expect(await fork()).toMatchObject([{ id: 'fork-1', kind: 'wf', name: 'late-label' }])
 })
 
 test("a Workflow agent whose run is not yet recorded when it starts is found by a later step, and starts when it first stepped", async ($, on) => {

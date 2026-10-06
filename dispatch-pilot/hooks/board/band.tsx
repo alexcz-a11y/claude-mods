@@ -16,8 +16,8 @@
 import type { RenderNode } from 'claude-code'
 import type { Effort } from '../decision/effort.ts'
 import type { Model, Reading } from '../core/report.ts'
-import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, fit, MODEL_BG, mmss, MUTED, OK, padLeft, pct, ribbonCells, rgb, SKILL, soft, SPIN, stateGlyph, WARN, type Raster, type TT } from './kit.tsx'
-import type { AgentRow, BandEvent, ScreenView, Tone } from './view.ts'
+import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, fit, MODEL_BG, mmss, MUTED, OK, padLeft, pct, ribbonCells, rgb, SKILL, soft, SPIN, stateGlyph, STATUS_COLOR, WARN, type Raster, type TT } from './kit.tsx'
+import { FEATURE_WORDS, isWholeWorkflow, type AgentRow, type BandEvent, type ScreenView } from './view.ts'
 
 /** What the band is laid out in: `bodyColumns` and `maxRows` of its props. */
 export type BandSize = { cols: number; rows: number }
@@ -32,7 +32,6 @@ const SQUEEZED = 4
 /** Where to read the rest. */
 const HINT = '/dp log 看依据'
 
-const TONE_COLOR: Record<Tone, string> = { run: ACCENT, done: MUTED, fail: BAD, warn: WARN, muted: MUTED }
 
 /** The band's tree (`raster`: the terminal's Raster constructor, for the time ribbons; none, none drawn), or null when there is nothing of Dispatch Pilot's to show (switched off, no turn yet). */
 export function bandTree(t: TT, view: ScreenView, size: BandSize, act: BandActs, raster?: Raster): RenderNode | null {
@@ -116,7 +115,7 @@ function squeezedLine(t: TT, view: ScreenView, cols: number) {
           <Text>
             <Text color={MUTED}>{' · 主 agent '}</Text>
             {readout(t, main.node.model, main.node.effort, main.node.routed)}
-            <Text color={TONE_COLOR[main.status.tone]}>{` ${main.status.text}`}</Text>
+            <Text color={STATUS_COLOR[main.status.tone]}>{` ${main.status.text}`}</Text>
           </Text>
         )}
         <Text color={MUTED}>{' · agent '}</Text>
@@ -255,7 +254,7 @@ function barColor(row: AgentRow): number {
 function agentRow(t: TT, view: ScreenView, row: AgentRow, i: number, cols: ReturnType<typeof columnsOf>, act: BandActs, Ribbon: Raster | undefined) {
   const { Box, Button, Text } = t
   const { node } = row
-  const whole = node.kind === 'wf' && node.workflow === undefined && !node.id.includes('#')
+  const whole = isWholeWorkflow(node)
   const span = Math.max(view.elapsed, ...view.rows.map((one) => one.to ?? one.from), 1)
   const done = node.state === 'done' && !row.selected
   return (
@@ -279,22 +278,13 @@ function agentRow(t: TT, view: ScreenView, row: AgentRow, i: number, cols: Retur
         </Box>
       )}
       <Box width={cols.status} flexShrink={0}>
-        <Text color={TONE_COLOR[row.status.tone]} wrap="truncate-end">{row.status.text}</Text>
+        <Text color={STATUS_COLOR[row.status.tone]} wrap="truncate-end">{row.status.text}</Text>
       </Box>
     </Box>
   )
 }
 
 // ---- events ------------------------------------------------------------------
-
-/** The words a person reads for a feature a note is about. */
-const FEATURE_WORDS: Record<string, string> = {
-  skills: 'skill 推荐',
-  'find-skill': 'skill 查询',
-  'midturn-effort': '中途重判',
-  escalation: '卡住时的再判断',
-  'main-effort': '主 agent 的判断',
-}
 
 const SKIPPED: Record<string, string> = {
   unanswered: '回答里没有这一题',

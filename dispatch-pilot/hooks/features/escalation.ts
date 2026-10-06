@@ -37,7 +37,7 @@ import { answersFor } from '../decision/system-one.ts'
 import { startedIn } from '../decision/workflow-labels.ts'
 import { endedAs, noteEnded, wasBlocked } from '../core/outcomes.ts'
 import { floorHeld, forced, MAIN, newTurn, redecided, replace, turnKey, update, type AgentPlan, type Cell, type TurnRecord } from '../core/plans.ts'
-import { reportDecision, reportTally, type Decided, type ReportIo } from '../core/report.ts'
+import { report, type Decided, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 
@@ -546,7 +546,7 @@ function aboutOf(agentId: string | undefined, brief: string, at: number, counted
   return `${brief === '' ? `agent ${agentId}` : `agent ${quoteStart(brief)}`}，第 ${at} 步（${failed}）`
 }
 
-/** What the decision report needs of the host: its two cells, the debug log and the old status line. */
+/** What the decision report needs of the host: its two cells, the debug log, the clock and the toast. */
 function ioOf($: EngineInterface): ReportIo {
   return {
     board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
@@ -566,13 +566,15 @@ type Said = Pick<Decided, 'outcome' | 'reason' | 'tone' | 'probs' | 'conf' | 'tr
  */
 async function decide($: EngineInterface, id: string, record: LoopRecord, said: Said): Promise<void> {
   const { about, ...rest } = said
-  await reportDecision(ioOf($), {
-    ...rest,
-    feature: SWITCH,
-    agent: id,
-    aside: true,
-    subject: about,
-    counts: { failed: record.failures, blocked: record.hookBlocks, raised: record.raises },
+  await report(ioOf($), {
+    decision: {
+      ...rest,
+      feature: SWITCH,
+      agent: id,
+      aside: true,
+      subject: about,
+      counts: { failed: record.failures, blocked: record.hookBlocks, raised: record.raises },
+    },
   })
 }
 
@@ -620,17 +622,19 @@ async function startOver($: EngineInterface, cell: Cell<LoopRecord>, id: string,
 }
 
 /**
- * Reports a loop's counts (the board's node of it, and the old status line): the main agent's, or an agent's
- * (null record: the main agent's start over with a new turn). `note`: `late`.
+ * Reports a loop's counts (on the board's node of it): the main agent's, or an agent's (null record: the main
+ * agent's start over with a new turn). `note`: `late`, a note for the band's event stream too.
  */
 async function showCounts($: EngineInterface, id: string, record: LoopRecord | null, note: 'late' | null): Promise<void> {
-  await reportTally(ioOf($), {
-    feature: 'escalation',
-    agent: id,
-    failed: record?.failures ?? 0,
-    blocked: record?.hookBlocks ?? 0,
-    raised: record?.raises ?? 0,
-    ...(note === null ? {} : { late: true as const }),
-    ...(record === null ? { turnStart: true as const } : {}),
+  await report(ioOf($), {
+    tally: {
+      feature: 'escalation',
+      agent: id,
+      failed: record?.failures ?? 0,
+      blocked: record?.hookBlocks ?? 0,
+      raised: record?.raises ?? 0,
+      ...(note === null ? {} : { late: true as const }),
+      ...(record === null ? { turnStart: true as const } : {}),
+    },
   })
 }

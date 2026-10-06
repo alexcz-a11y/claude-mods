@@ -72,11 +72,6 @@ export function traceRaise(
   return { level, steps }
 }
 
-/** The level a forced raise ends at: `traceRaise`'s level. */
-export function raisedLevel(reading: EffortReading | null, target: Effort, rules: { thetaUp: number; thetaMax: number }): Effort {
-  return traceRaise(reading, { from: target, target, mode: 'one-level' }, rules).level
-}
-
 /** What went wrong, in one English sentence for the decision model's state (`trouble`): `2 tool calls have failed while working on this request`. */
 export function troubleText(counted: { failures: number; hookBlocks: number }): string {
   const n = counted.failures + counted.hookBlocks

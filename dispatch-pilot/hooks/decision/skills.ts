@@ -46,7 +46,7 @@ export type SkillProfile = {
  * A skill the decision model may name. `by` says who can start it: `model`,
  * the main agent with the Skill tool; `person`, only the person by typing
  * `/name` (its SKILL.md sets `disable-model-invocation: true`): such a skill
- * is never suggested to the main agent, the status line names it instead.
+ * is never suggested to the main agent, the board names it instead (可试 /x).
  * `profile`, when one is written, describes it in place of the description.
  */
 export type SkillOption = { name: string; description: string; by: 'model' | 'person'; profile?: SkillProfile | null }
@@ -488,7 +488,7 @@ export const MAX_HINTS = 2
  * What the message gets: `suggest`, the most relevant skills the main agent
  * can load (at least `minRelevance`, at most `max`); `hint`, the most
  * relevant ones only the person can start (at least `minRelevance`, at most
- * MAX_HINTS), for the status line, never for the main agent.
+ * MAX_HINTS), for the board (可试 /x), never for the main agent.
  */
 export function pickSkills(ranking: SkillRanking, options: readonly SkillOption[], policy: SkillPolicy): { suggest: SkillPick[]; hint: SkillPick[] } {
   const byName = new Map(options.map((option) => [option.name, option]))

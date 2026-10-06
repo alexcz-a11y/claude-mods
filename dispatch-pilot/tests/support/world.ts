@@ -244,6 +244,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const toolCalls: { tool: string; id: string; input: Record<string, unknown>; isError: boolean; text: string | undefined }[] = []
   const spawned: Spawned[] = []
   const completions: ModelCompleteRequest[] = []
+  /** How often the mod asked the engine's roster (`$.agent.list()`), and every file it read (`$.fs.read`), in order. */
+  const looked = { roster: 0, files: [] as string[] }
   let calls = 0
   const disk = options.disk ?? {}
   const agents: AgentInfo[] = Array.isArray(options.agents) ? [...options.agents] : []
@@ -296,7 +298,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     return options.model ? complete(await options.model(e, completions.length)) : { deny: 'no model in this test' }
   })
   on('session.messages', (_$, e) => ({ value: (typeof options.messages === 'function' ? options.messages({ ...(e.agentId === undefined ? {} : { agentId: e.agentId }) }) : (options.messages ?? [])) as never }))
-  on('fs.read', (_$, e) => (e.path in disk ? { value: disk[e.path] as string } : { deny: `ENOENT: ${e.path}` }))
+  on('fs.read', (_$, e) => {
+    looked.files.push(e.path)
+    return e.path in disk ? { value: disk[e.path] as string } : { deny: `ENOENT: ${e.path}` }
+  })
   on('fs.exists', (_$, e) => ({ value: e.path in disk || Object.keys(disk).some((path) => path.startsWith(`${e.path}/`)) }))
   // A directory of the disk: what lies directly under it, a file or a directory (one holding files further down).
   on('fs.list', (_$, e) => {
@@ -434,7 +439,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   // The engine's roster of the agents it spawned (a Workflow's agents are not in it), and where a loop's turn ends.
-  on('agent.list', () => (options.agents !== undefined && !Array.isArray(options.agents) ? { deny: options.agents.deny } : { value: agents }))
+  on('agent.list', () => {
+    looked.roster += 1
+    return options.agents !== undefined && !Array.isArray(options.agents) ? { deny: options.agents.deny } : { value: agents }
+  })
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   // The engine's own command beneath `command.run`: a prompt command (a skill, a markdown command) prints nothing.
   on('command.run', () => ({}))
@@ -486,6 +494,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     spawned,
     /** The roster `$.agent.list()` answers: a test adds an agent as the engine would list it, or takes it away. */
     agents,
+    /** What the mod looked up: how often it read the roster (`roster`), and the files it read, in order (`files`). */
+    looked,
     commands,
     tools,
     /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */

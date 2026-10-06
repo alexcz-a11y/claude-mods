@@ -11,6 +11,7 @@
 import type { Elements, RenderNode } from 'claude-code'
 import { EFFORTS, type Effort } from '../decision/effort.ts'
 import type { AgentState, Model } from '../core/report.ts'
+import type { StatusTone } from './view.ts'
 
 /** The terminal's element table: what the Raster parts draw with. */
 export type T = Elements['terminal']
@@ -29,6 +30,9 @@ export const WARN = 'warning'
 export const MUTED = 'inactive'
 /** A skill for the person to try (「可试 /x」). */
 export const SKILL = 'suggestion'
+
+/** An agent's status cell, by its tone (the band's row, the card's state). */
+export const STATUS_COLOR: Record<StatusTone, string> = { run: ACCENT, done: MUTED, fail: BAD, warn: WARN, muted: MUTED }
 
 /** The effort ramp, cool to hot: low to max. */
 export const EFFORT_COLOR: Record<Effort, string> = {
@@ -51,15 +55,21 @@ export const MODEL_INK = '#14171C'
 /** A running agent's glyph, one frame per tick. */
 export const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
-/** Whether an effort the engine sent is one of the five levels (it may be an integer budget). */
-export function isLevel(effort: unknown): effort is Effort {
-  return typeof effort === 'string' && (EFFORTS as readonly string[]).includes(effort)
-}
-
 /** How many nodes a drawn tree has: Desktop refuses one of 2000 (the engine's own limit is 20000, and a test's mount does not check it). */
 export function nodeCount(node: RenderNode): number {
   if (typeof node === 'string') return 1
   return 1 + ('children' in node && node.children !== undefined ? node.children.reduce((sum, child) => sum + nodeCount(child), 0) : 0)
+}
+
+/**
+ * Whether a drawn tree shows anything: some text, or a Button's label, anywhere in it. The engine's own drawing
+ * (`type: 'engine'`) cannot be looked into: `engine` says whether it shows something (the footer's, its modes).
+ */
+export function showsText(node: RenderNode, engine: boolean): boolean {
+  if (typeof node === 'string') return node.trim() !== ''
+  if (node.type === 'engine') return engine
+  if (node.type === 'Button') return node.props.label !== ''
+  return 'children' in node && node.children !== undefined && node.children.some((child: RenderNode) => showsText(child, engine))
 }
 
 // ---- cell widths --------------------------------------------------------------

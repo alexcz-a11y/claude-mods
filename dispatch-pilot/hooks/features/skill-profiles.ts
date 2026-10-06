@@ -11,8 +11,8 @@
 // feature and find_skill offer every skill by its description. Nothing is
 // written while the skills switch is off or no decision model is set up.
 //
-// What it does is told to the decision report (core/report.ts, `reportProfiles`;
-// ADR 0004), which writes the debug log lines, keeps `$.state`'s `skillProfiles`
+// What it does is told to the decision report (core/report.ts, `report` with
+// `profiles`; ADR 0004), which writes the debug log lines, keeps `$.state`'s `skillProfiles`
 // up to date as the profiles are written and adds the session's entry to the
 // decision log. This file shows people nothing itself.
 
@@ -33,7 +33,7 @@ import {
   withProfile,
   type StoredProfile,
 } from '../core/profiles.ts'
-import { reportProfiles, type ProfileEvent, type ProfilesIo, type ProfilesStop } from '../core/report.ts'
+import { report, type ProfileEvent, type ProfilesIo, type ProfilesStop } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import type { CatalogSkill } from '../core/skills.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
@@ -69,11 +69,11 @@ export function registerSkillProfiles(on: On, ctx: Ctx): void {
     // A store that cannot be read keeps nothing: every session would write every profile again.
     const offered = catalog.filter((skill) => !settings.skip.has(skill.name))
     if (!(await $.store.keys().then(() => true, () => false))) {
-      await reportProfiles(profilesIo($), { event: 'unreadable', model: settings.model, offered: offered.length })
+      await report(profilesIo($), { profiles: { event: 'unreadable', model: settings.model, offered: offered.length } })
       return result
     }
     const due = offered.filter((skill) => !skill.profile).length
-    await reportProfiles(profilesIo($), { event: 'start', model: settings.model, perSession: settings.perSession, offered: offered.length, due })
+    await report(profilesIo($), { profiles: { event: 'start', model: settings.model, perSession: settings.perSession, offered: offered.length, due } })
     // In the background: the session goes on, and each profile is used as soon as it is written.
     if (due > 0 && settings.perSession > 0) void writeProfiles($, ctx, catalog, settings).catch(() => undefined)
     return result
@@ -95,7 +95,7 @@ async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly Cat
   if (writing) return
   writing = true
   const io = profilesIo($)
-  const report = (event: ProfileEvent) => reportProfiles(io, event)
+  const tell = (event: ProfileEvent) => report(io, { profiles: event })
   const cell: Cell<{ skills: CatalogSkill[] } | null> = { get: () => $.state.get(CATALOG), set: (value, options) => $.state.set(CATALOG, value, options) }
   const due = catalog.filter((skill) => !skill.profile && typeof skill.profileKey === 'string' && !settings.skip.has(skill.name))
   let written = 0
@@ -104,7 +104,7 @@ async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly Cat
   let stopped = false
   const stop = async (cause: ProfilesStop) => {
     stopped = true
-    await report({ event: 'stop', cause, left: due.length - tried })
+    await tell({ event: 'stop', cause, left: due.length - tried })
   }
   try {
     for (const skill of due) {
@@ -113,7 +113,7 @@ async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly Cat
         break
       }
       if (written >= settings.perSession) {
-        await report({ event: 'quota', perSession: settings.perSession, left: due.length - written })
+        await tell({ event: 'quota', perSession: settings.perSession, left: due.length - written })
         break
       }
       const markdown = skill.file === null ? null : await $.fs.read(skill.file).catch(() => null)
@@ -123,7 +123,7 @@ async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly Cat
       if (kept !== null) {
         await update(cell, (value) => (value ? { skills: withProfile(value.skills, key, kept) } : null))
         tried++
-        await report({ event: 'found' })
+        await tell({ event: 'found' })
         continue
       }
       const startedAt = await $.clock.now()
@@ -142,13 +142,13 @@ async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly Cat
           break
         }
         tried++
-        await report({ event: 'failed', skill: skill.name, why, ms })
+        await tell({ event: 'failed', skill: skill.name, why, ms })
         continue
       }
       const profile = readProfile(reply.text)
       if (profile === null) {
         tried++
-        await report({ event: 'unfit', skill: skill.name, ms, text: reply.text })
+        await tell({ event: 'unfit', skill: skill.name, ms, text: reply.text })
         continue
       }
       const entry: StoredProfile = { name: skill.name, at: await $.clock.now(), profile }
@@ -161,10 +161,10 @@ async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly Cat
       await update(cell, (value) => (value ? { skills: withProfile(value.skills, key, profile) } : null))
       written++
       tried++
-      await report({ event: 'written', skill: skill.name, model: settings.model, ms, input: reply.usage.input_tokens, output: reply.usage.output_tokens })
+      await tell({ event: 'written', skill: skill.name, model: settings.model, ms, input: reply.usage.input_tokens, output: reply.usage.output_tokens })
     }
     await dropOldProfiles($, catalog)
-    if (!stopped) await report({ event: 'finish', left: due.length - tried })
+    if (!stopped) await tell({ event: 'finish', left: due.length - tried })
   } catch (error) {
     // The session went away under it (its `$` refused), or a bug: either way the session is not held up.
     await stop({ reason: 'error', detail: errorText(error) })
@@ -187,9 +187,9 @@ async function dropOldProfiles($: EngineInterface, catalog: readonly CatalogSkil
     if (drop.length === 0) return
     for (const key of drop) await $.store.delete(key)
     const bytes = entries.reduce((sum, entry) => sum + entry.bytes, 0)
-    await reportProfiles(profilesIo($), { event: 'tidied', dropped: drop.length, total: keys.length, kb: Math.round(bytes / 1024) })
+    await report(profilesIo($), { profiles: { event: 'tidied', dropped: drop.length, total: keys.length, kb: Math.round(bytes / 1024) } })
   } catch (error) {
-    await reportProfiles(profilesIo($), { event: 'tidy-failed', detail: errorText(error) })
+    await report(profilesIo($), { profiles: { event: 'tidy-failed', detail: errorText(error) } })
   }
 }
 
