@@ -10,7 +10,7 @@
 // the effort a Score with the levels every effort question shares.
 
 import { clipToTokens, estimateTokens, withinTokens } from './context.ts'
-import { DEFAULT_ASK, EFFORTS, effortQuestion, levelsText, pickEffort, readEffort, type Effort, type EffortAsk, type EffortReading, type Language } from './effort.ts'
+import { DEFAULT_ASK, EFFORTS, effortQuestion, levelsText, pickEffort, readEffort, traceEffort, type Effort, type EffortAsk, type EffortTrace, type EffortReading, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import type { Answer, Part, Question, State } from './system-one.ts'
 
@@ -441,6 +441,8 @@ export type DispatchDecision = {
   namedEffort?: Effort | null
   /** Whose the effort is: the person's (`user`, the one they named), the decision model's, or none (haiku, or no usable answer). */
   effortSource?: 'user' | 'decided' | 'none'
+  /** The effort rules' working for the decided effort (with the model's floor); the person's named effort is not in it. Null without a usable answer. */
+  trace: EffortTrace | null
   /** The decided effort the floor lifted `effort` from; unset when the floor lifted nothing. */
   liftedFrom?: Effort
 }
@@ -485,13 +487,14 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
   // An effort the person names is the agent's, over the decided one; haiku takes none either way. The decided one
   // is lifted to its model's floor; the person's never is.
   const namedEffort = readNamedEffort(answers[NAMED_EFFORT], threshold)
-  const decided = reading === null ? null : pickEffort(reading, settings.thetaMax)
   const floor = reading === null ? null : effortFloor(model)
+  const trace = reading === null ? null : traceEffort(reading, settings.thetaMax, { model: { name: model ?? 'none', floor } })
+  const decided = reading === null ? null : pickEffort(reading, settings.thetaMax)
   const lifted = decided !== null && floor !== null && EFFORTS.indexOf(floor) > EFFORTS.indexOf(decided) ? floor : null
   const effort = model === 'haiku' ? null : (namedEffort ?? lifted ?? decided)
   const effortSource = effort === null ? 'none' : namedEffort !== null ? 'user' : 'decided'
   const answered = answers[MODEL]?.type === 'choice' || reading !== null
-  return { model, effort, source, pick, banned, reading, answered, namedEffort, effortSource, ...(namedEffort === null && model !== 'haiku' && lifted !== null && decided !== null ? { liftedFrom: decided } : {}) }
+  return { model, effort, source, pick, banned, reading, answered, namedEffort, effortSource, trace, ...(namedEffort === null && model !== 'haiku' && lifted !== null && decided !== null ? { liftedFrom: decided } : {}) }
 }
 
 /**
