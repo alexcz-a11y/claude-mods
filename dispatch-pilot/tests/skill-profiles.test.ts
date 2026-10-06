@@ -225,7 +225,7 @@ test('with skill-profiles switched off none is written and the skills are offere
   await w.clock.settle()
   expect(w.completions).toHaveLength(3)
 
-  expect(await w.command('dp', 'skill-profiles off')).toMatch(/^skill-profiles is off/)
+  expect(await w.command('dp', 'skill-profiles off')).toMatch(/^skill-profiles 已关闭/)
   expect(await criterionOf(w, 'tdd', '先写一个失败的测试')).toBe(TDD_DESCRIPTION)
   await w.start()
   await w.clock.settle()
@@ -248,6 +248,187 @@ test('the second request re-reads a skill by its profile as well as its descript
     ...offered('tdd'),
     opening: '# Test-Driven Development Write one failing test, then only the code that makes it pass.',
   })
+})
+
+// ---- the board data (#33): the profiles' state and the decision log entry the panel shows ----
+
+test('the board data says how writing the profiles went: phase, kept, planned, written, failed and deferred', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: writer() })
+  await w.start()
+  await w.clock.settle()
+  expect((await w.board()).profiles).toEqual({ phase: 'done', turn: 1, model: 'haiku', kept: 0, planned: 3, written: 3, failed: 0, deferred: 0, failures: [] })
+
+  // The next session start: all three are kept now, nothing is written.
+  await w.start()
+  await w.clock.settle()
+  expect((await w.board()).profiles).toEqual({ phase: 'done', turn: 1, model: 'haiku', kept: 3, planned: 0, written: 0, failed: 0, deferred: 0, failures: [] })
+})
+
+test('a skill with no profile is named with why; the ones written are only counted, and the session start has one decision log entry: warn', { options: KEY }, async ($, on) => {
+  const replies: Record<string, Completion> = { tdd: { text: 'Sorry, I cannot help with that.' }, 'code-review': { fails: 'empty-reply' } }
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: writer(replies) })
+  await w.start()
+  await w.clock.settle()
+
+  const board = await w.board()
+  expect(board.profiles).toEqual({
+    phase: 'done',
+    turn: 1,
+    model: 'haiku',
+    kept: 0,
+    planned: 3,
+    written: 1,
+    failed: 2,
+    deferred: 0,
+    failures: [
+      { name: 'tdd', reason: '回复不是画像' },
+      { name: 'code-review', reason: '模型回了空内容' },
+    ],
+  })
+  expect(board.log).toHaveLength(1)
+  expect(board.log[0]).toMatchObject({
+    n: 1,
+    turn: 1,
+    feature: 'skill-profiles',
+    tone: 'warn',
+    outcome: '画像：2 个失败',
+    reason: '保留 0 · 新写 1 · 失败 2（tdd：回复不是画像；code-review：模型回了空内容）',
+  })
+  // A decision log entry is no agent's: it is on no node.
+  expect(board.nodes).toEqual([])
+})
+
+test('the state follows the writing: planned, written so far, and the skills left for a later session start', { options: { ...KEY, skillsProfilesPerSession: 2 } }, async ($, on) => {
+  const write = writer()
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: (request) => ({ after: 30_000, reply: write(request) }) })
+  await w.start()
+  await w.clock.settle()
+  // 生成中 0/2: two of the three are to be written this session, the third waits.
+  expect((await w.board()).profiles).toMatchObject({ phase: 'writing', kept: 0, planned: 2, written: 0, failed: 0, deferred: 1 })
+  // No entry in the decision log until it is over.
+  expect((await w.board()).log).toEqual([])
+
+  await w.clock.advance(30_000)
+  expect((await w.board()).profiles).toMatchObject({ phase: 'writing', planned: 2, written: 1 })
+  await w.clock.advance(30_000)
+  expect((await w.board()).profiles).toMatchObject({ phase: 'done', planned: 2, written: 2, deferred: 1 })
+  expect((await w.board()).log).toMatchObject([{ feature: 'skill-profiles', tone: 'ok', outcome: '画像就绪', reason: '保留 0 · 新写 2 · 延后 1' }])
+
+  // The next session start: two are kept, the last is written.
+  await w.start()
+  await w.clock.settle()
+  await w.clock.advance(30_000)
+  expect((await w.board()).profiles).toMatchObject({ phase: 'done', kept: 2, planned: 1, written: 1, deferred: 0 })
+})
+
+test('an API error stops the writing: the state says why, the skills not tried are left for later, and the decision log entry is fail', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: (_request, n) => (n === 1 ? { text: JSON.stringify(profileOf('tdd')) } : { fails: 'api-error' }) })
+  await w.start()
+  await w.clock.settle()
+
+  const board = await w.board()
+  expect(board.profiles).toEqual({
+    phase: 'stopped',
+    turn: 1,
+    model: 'haiku',
+    kept: 0,
+    planned: 3,
+    written: 1,
+    failed: 0,
+    deferred: 2,
+    stop: { reason: 'api-error', detail: '接口出错（状态码 529 overloaded）' },
+    failures: [],
+  })
+  expect(board.log).toMatchObject([{ feature: 'skill-profiles', tone: 'fail', outcome: '画像停写', reason: 'haiku 返回了接口错误：接口出错（状态码 529 overloaded）；保留 0 · 新写 1 · 延后 2' }])
+})
+
+test('a model the engine refuses stops the writing: the state keeps the engine\'s words', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: () => ({ reject: 'model claude-nonexistent is not available' }) })
+  await w.start()
+  await w.clock.settle()
+
+  const { profiles, log } = await w.board()
+  expect(profiles).toMatchObject({ phase: 'stopped', written: 0, deferred: 3, stop: { reason: 'model-refused' } })
+  expect(profiles?.stop?.detail).toContain('model claude-nonexistent is not available')
+  expect(log).toMatchObject([{ tone: 'fail', outcome: '画像停写' }])
+})
+
+test('a store that will not keep a profile stops the writing, naming the skill', { options: KEY }, async ($, on) => {
+  on('store.set', { key: /^profile\./ }, () => ({ deny: 'disk full' }))
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: writer() })
+  await w.start()
+  await w.clock.settle()
+
+  const { profiles, log } = await w.board()
+  expect(profiles).toMatchObject({ phase: 'stopped', written: 0, deferred: 3, stop: { reason: 'store-write' } })
+  expect(profiles?.stop?.detail).toMatch(/^tdd：.*disk full/)
+  expect(log).toMatchObject([{ tone: 'fail' }])
+})
+
+test('a store that cannot be read: stopped before anything is written, all the skills left for later', { options: KEY }, async ($, on) => {
+  // No `store` in the world: every `$.store` call rejects.
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), session: true, model: writer() })
+  await w.start()
+  await w.clock.settle()
+
+  const { profiles, log } = await w.board()
+  expect(profiles).toEqual({ phase: 'stopped', turn: 1, model: 'haiku', kept: 0, planned: 0, written: 0, failed: 0, deferred: 3, stop: { reason: 'store-read', detail: '' }, failures: [] })
+  expect(log).toMatchObject([{ tone: 'fail', outcome: '画像停写', reason: '读不到本地存储，不保留也不写；保留 0 · 新写 0 · 延后 3' }])
+  expect(w.completions).toHaveLength(0)
+})
+
+test('switched off while it writes, it stops and the entry is info: the person did it, nothing failed', { options: KEY }, async ($, on) => {
+  const write = writer()
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: (request) => ({ after: 30_000, reply: write(request) }) })
+  await w.start()
+  await w.clock.settle()
+  await w.command('dp', 'skill-profiles off')
+  await w.clock.advance(30_000)
+  await w.clock.settle()
+
+  const { profiles, log } = await w.board()
+  expect(profiles).toMatchObject({ phase: 'stopped', written: 1, deferred: 2, stop: { reason: 'off', detail: '' } })
+  expect(log).toMatchObject([{ tone: 'info', outcome: '画像停写' }])
+})
+
+test('nothing to write is a session start too: one entry, ok, and a start again at the same turn (a hot reload) takes its place', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: writer() })
+  await w.start()
+  await w.clock.settle()
+  await w.start()
+  await w.clock.settle()
+  const { profiles, log } = await w.board()
+  expect(profiles).toMatchObject({ phase: 'done', kept: 3, planned: 0 })
+  expect(log).toMatchObject([{ n: 1, feature: 'skill-profiles', tone: 'ok', reason: '保留 3 · 新写 0' }])
+})
+
+test('with skill-profiles switched off at the session start there is no state and no entry', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: writer() })
+  await w.command('dp', 'skill-profiles off')
+  await w.start()
+  await w.clock.settle()
+  expect((await w.board()).profiles).toBeUndefined()
+  expect((await w.board()).log).toEqual([])
+})
+
+test('the state survives a hot reload: what an earlier load kept is there, and the new session start replaces it as the profiles are written again', { options: KEY }, async ($, on) => {
+  const seed = { phase: 'writing' as const, turn: 4, model: 'haiku', kept: 0, planned: 5, written: 2, failed: 0, deferred: 0, failures: [] }
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: writer(), seed: { profiles: seed, board: { turn: 4, nodes: [] } } })
+  expect((await w.board()).profiles).toEqual(seed)
+  await w.start()
+  await w.clock.settle()
+  // The session start at turn 4 again: its own record, and its entry at the turn it started in.
+  expect((await w.board()).profiles).toMatchObject({ phase: 'done', turn: 4, planned: 3, written: 3 })
+  expect((await w.board()).log).toMatchObject([{ feature: 'skill-profiles', turn: 4, tone: 'ok' }])
+})
+
+test('no toast and no status line: the profiles are shown nowhere but the board data and the debug log', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: writer({ tdd: { fails: 'api-error' } }) })
+  await w.start()
+  await w.clock.settle()
+  expect(w.toasts).toEqual([])
+  expect(w.statuses).toEqual([])
+  expect(w.logs.every((log) => log.to === 'debug')).toBe(true)
 })
 
 test('an API error or a model the engine refuses stops the writing for the session: the skills keep their descriptions, nothing waits', { options: KEY }, async ($, on) => {

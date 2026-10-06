@@ -108,18 +108,77 @@ export const ROUND_UP = 0.3
  * probable of the others.
  */
 export function pickEffort(reading: EffortReading, thetaMax: number): Effort {
+  return traceEffort(reading, thetaMax).effort
+}
+
+/**
+ * One step of the effort rules, in the order they run. `level` is the level
+ * after the step, `applied` whether the step changed or decided anything
+ * (`top` always does). Data only: whoever draws the steps words them and
+ * never recomputes them (ADR 0004).
+ */
+export type EffortStep =
+  /** The most probable level; `tie`: another level had the same probability and the higher one won. */
+  | { rule: 'top'; applied: true; level: Effort; p: number; tie: boolean }
+  /** `max` held back: it was the most probable but `p` < `thetaMax`, so the most probable of the others is taken. */
+  | { rule: 'max-gate'; applied: boolean; level: Effort; p: number; thetaMax: number }
+  /** The level above (`above`, null at the top) taken when its `p` ≥ `threshold`; `blockedByMax`: it was `max`, enough for the threshold but under `thetaMax`. */
+  | { rule: 'round-up'; applied: boolean; level: Effort; above: Effort | null; p: number; threshold: number; blockedByMax: boolean; thetaMax: number }
+  /** The agent's model has a floor (sonnet and opus: medium; `floor` null for none) and the level was under it. */
+  | { rule: 'model-floor'; applied: boolean; level: Effort; from: Effort; model: string; floor: Effort | null }
+  /** The plan's floor, or a forced raise (`forced`), lifted the level. */
+  | { rule: 'plan-floor'; applied: boolean; level: Effort; from: Effort; floor: Effort | null; forced: boolean }
+
+/** The result of the effort rules and the steps that led to it (the last step's `level` is `effort`). */
+export type EffortTrace = { effort: Effort; steps: EffortStep[] }
+
+/** What lifts the picked level afterwards: the model's floor and the plan's floor or forced raise. Each step appears in the trace only when given. */
+export type EffortLifts = {
+  model?: { name: string; floor: Effort | null }
+  plan?: { floor: Effort | null; forced?: boolean }
+}
+
+/**
+ * `pickEffort` with its working: the steps the rules walked (`top`,
+ * `max-gate`, `round-up`, then `model-floor` and `plan-floor` when `lifts`
+ * gives them), each saying whether it took effect. `pickEffort` is this
+ * function's `effort`: one set of rules, never two.
+ */
+export function traceEffort(reading: EffortReading, thetaMax: number, lifts: EffortLifts = {}): EffortTrace {
   const p = reading.probabilities
+  const at = (i: number): number => p[i] ?? 0
   const top = (count: number): number => {
     let best = 0
-    for (let i = 1; i < count; i++) if ((p[i] ?? 0) >= (p[best] ?? 0)) best = i
+    for (let i = 1; i < count; i++) if (at(i) >= at(best)) best = i
     return best
   }
   const last = EFFORTS.length - 1
+  const name = (i: number): Effort => EFFORTS[i] as Effort
+  const steps: EffortStep[] = []
   let level = top(EFFORTS.length)
-  if (level === last && (p[level] ?? 0) < thetaMax) level = top(last)
+  steps.push({ rule: 'top', applied: true, level: name(level), p: at(level), tie: p.some((other, i) => i !== level && other === at(level)) })
+  const gated = level === last && at(level) < thetaMax
+  if (gated) level = top(last)
+  steps.push({ rule: 'max-gate', applied: gated, level: name(level), p: at(last), thetaMax })
   const above = level + 1
-  if (above <= last && (p[above] ?? 0) >= ROUND_UP && (above < last || (p[above] ?? 0) >= thetaMax)) level = above
-  return EFFORTS[level] as Effort
+  const aboveP = above <= last ? at(above) : 0
+  const blockedByMax = above === last && aboveP >= ROUND_UP && aboveP < thetaMax
+  const raised = above <= last && aboveP >= ROUND_UP && (above < last || aboveP >= thetaMax)
+  if (raised) level = above
+  steps.push({ rule: 'round-up', applied: raised, level: name(level), above: above <= last ? name(above) : null, p: aboveP, threshold: ROUND_UP, blockedByMax, thetaMax })
+
+  const lift = (from: number, floor: Effort | null): number => (floor !== null && EFFORTS.indexOf(floor) > from ? EFFORTS.indexOf(floor) : from)
+  if (lifts.model !== undefined) {
+    const from = level
+    level = lift(level, lifts.model.floor)
+    steps.push({ rule: 'model-floor', applied: level !== from, level: name(level), from: name(from), model: lifts.model.name, floor: lifts.model.floor })
+  }
+  if (lifts.plan !== undefined) {
+    const from = level
+    level = lift(level, lifts.plan.floor)
+    steps.push({ rule: 'plan-floor', applied: level !== from, level: name(level), from: name(from), floor: lifts.plan.floor, forced: lifts.plan.forced === true })
+  }
+  return { effort: name(level), steps }
 }
 
 /** Every level's probability, as the decision log gives them: `low 0.00, medium 0.05, ...`. */
@@ -127,13 +186,18 @@ export function levelsText(reading: EffortReading): string {
   return EFFORTS.map((level, i) => `${level} ${(reading.probabilities[i] ?? 0).toFixed(2)}`).join(', ')
 }
 
+/** Every level's probability, by level, for the board's data. */
+export function probsOf(reading: EffortReading): Record<Effort, number> {
+  return Object.fromEntries(EFFORTS.map((level, i) => [level, reading.probabilities[i] ?? 0])) as Record<Effort, number>
+}
+
 /**
  * Every level's probability and the backend's confidence, as the decision log
- * gives them: `p low 0.00, medium 0.05, ...; confidence 0.80`, with `note`
+ * gives them: `概率 low 0.00, medium 0.05, ...；置信度 0.80`, with `note`
  * (why a level was held back) between the two.
  */
 export function readingText(reading: EffortReading, note?: string): string {
-  return `p ${levelsText(reading)}${note === undefined ? '' : `; ${note}`}; confidence ${reading.confidence === null ? 'n/a' : reading.confidence.toFixed(2)}`
+  return `概率 ${levelsText(reading)}${note === undefined ? '' : `；${note}`}；置信度 ${reading.confidence === null ? '没有' : reading.confidence.toFixed(2)}`
 }
 
 export function isEffort(value: unknown): value is Effort {

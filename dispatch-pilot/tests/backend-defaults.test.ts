@@ -2,7 +2,7 @@
 // those options none, so the engine (and the kit, which loads options the same
 // way) passes nothing for them until the person sets one, and the mod takes
 // the chosen model's from core/setup.ts BACKEND_DEFAULTS. Seam 1 for what
-// reaches the backend and the status line; the shared reading (readConfig,
+// reaches the backend and the board; the shared reading (readConfig,
 // which the eval and scripts/decide*.ts use too) directly.
 
 import type { SessionMessage } from 'claude-code'
@@ -42,7 +42,7 @@ test("with Jev, a message waits 1500 ms for the decision (Jev's default)", { opt
   await w.clock.advance(1500)
   await submitting
   await w.step({ index: 0, effort: 'xhigh' })
-  expect(w.status()).toBe('dp effort xhigh (not routed) | jev: no answer in 1500 ms')
+  expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: false, failure: { backend: 'jev', kind: 'timeout', detail: 'no answer in 1500 ms' } })
 })
 
 test("with Clef, a message waits 3000 ms (Clef's default): nothing the manifest declares stands in for it", { options: CLEF_OPTIONS }, async ($, on) => {
@@ -57,7 +57,7 @@ test("with Clef, a message waits 3000 ms (Clef's default): nothing the manifest 
   await w.clock.advance(1500)
   await submitting
   await w.step({ index: 0, effort: 'xhigh' })
-  expect(w.status()).toBe('dp effort xhigh (not routed) | clef: no answer in 3000 ms')
+  expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: false, failure: { backend: 'clef', kind: 'timeout', detail: 'no answer in 3000 ms' } })
 })
 
 for (const chosen of CHOSEN) {
@@ -69,7 +69,7 @@ for (const chosen of CHOSEN) {
     await w.clock.advance(2500)
     await submitting
     await w.step({ index: 0, effort: 'xhigh' })
-    expect(w.status()).toBe(`dp effort xhigh (not routed) | ${chosen.name.toLowerCase()}: no answer in 2500 ms`)
+    expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: false, failure: { backend: chosen.name.toLowerCase(), kind: 'timeout', detail: 'no answer in 2500 ms' } })
   })
 }
 
@@ -179,9 +179,9 @@ test('with Clef, skill suggestions start off: the main agent keeps its listing a
   await w.submit('先写一个失败的测试')
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
-  expect(await w.command('dp')).toMatch(/\boff +skills +suggests the skills that fit each message/)
+  expect(await w.command('dp', 'status')).toMatch(/关 +skills +给每条消息推荐合适的 skill/)
 
-  expect(await w.command('dp', 'skills on')).toMatch(/^skills is on/)
+  expect(await w.command('dp', 'skills on')).toMatch(/^skills 已打开/)
   await w.submit('再写一个失败的测试')
   expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['effort.level', 'skills.which'])
 })
@@ -189,7 +189,7 @@ test('with Clef, skill suggestions start off: the main agent keeps its listing a
 test('with Clef, find_skill still answers while the suggestions are off', { options: CLEF_OPTIONS }, async ($, on) => {
   const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), skills: SKILLS, session: true })
   await w.start()
-  expect(await w.command('dp')).toMatch(/\bon +find-skill /)
+  expect(await w.command('dp', 'status')).toMatch(/开 +find-skill /)
   const answer = await w.findSkill('write a failing test first')
   expect(w.requests.length).toBeGreaterThan(0)
   expect(String(answer.result)).not.toContain('switched off')

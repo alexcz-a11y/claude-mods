@@ -21,11 +21,12 @@
 import type { EngineInterface, HttpInit, On } from 'claude-code'
 import { describeAsked, errorText, within, type Asked } from '../decision/backend.ts'
 import { messageText } from '../decision/context.ts'
-import { higherEffort, isEffort, readEffort, readingText, type Effort } from '../decision/effort.ts'
+import { higherEffort, isEffort, probsOf, readEffort, readingText, type Effort } from '../decision/effort.ts'
 import {
   contentLanguage,
   judgeMidturn,
   midturnEffortPart,
+  midturnRecord,
   midturnState,
   MIDTURN_LEVEL,
   outcomeOf,
@@ -39,11 +40,10 @@ import {
   type Outcome,
 } from '../decision/midturn.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
-import { recordDecision } from '../core/decisions.ts'
 import { wasBlocked } from '../core/outcomes.ts'
 import { floorHeld, MAIN, redecided, turnKey, update, type Cell, type TurnRecord } from '../core/plans.ts'
+import { report, type NodeFailure, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
-import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
@@ -51,6 +51,7 @@ const MIDTURN = { plugin: 'dispatch-pilot', key: 'midturn' } as const
 const MAIN_STEP = { plugin: 'dispatch-pilot', key: 'mainStep' } as const
 const FAILURES = { plugin: 'dispatch-pilot', key: 'escalation', id: MAIN } as const
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** The feature's switch (`/dp midturn-effort on|off`). */
@@ -100,7 +101,7 @@ const inFlight = new Map<string, InFlight>()
 const streamed = new Map<string, { index: number; block: number; text: string }>()
 
 export function registerMidturnEffort(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: "re-decides the main agent's effort while a turn runs", segments: ['midturn'] })
+  defineSwitch({ name: SWITCH, info: '一轮进行中重新判断主 agent 的 effort', parts: ['midturn'] })
   const settings: Settings = { ctx, ...ctx.config.midturn }
 
   on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {
@@ -145,7 +146,18 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
       const cell: Cell<MidturnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
       const record = await update(cell, (r) => ({ ...(r === undefined || e.index === 0 ? newRecord() : r), steps: e.index + 1, engine }))
       const { value: turn } = await $.state.get({ ...TURNS, id: key })
-      setStatus('midturn', segment(record, turn, note), (line) => $.ui.status(line))
+      // Quiet until the turn has been re-decided once (so a short turn shows nothing).
+      await report(ioOf($), {
+        tally: {
+          feature: 'midturn-effort',
+          agent: 'main',
+          steps: record.steps,
+          judged: turn?.decisions ?? 0,
+          changed: turn?.changes ?? 0,
+          quiet: record.askedFor === null || turn === undefined,
+          ...(note === null ? {} : 'late' in note ? { late: true as const } : { failure: note.failure }),
+        },
+      })
     } catch (error) {
       $.ui.log(`midturn: ${errorText(error)}`, { to: 'debug' })
     }
@@ -193,7 +205,7 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
   // may have failed: then from the session's own effort); never without a decision model set up (every request would
   // fail at once).
   if (turn === undefined || turn.person !== true || lock !== null || record === undefined || record.engine === null || s.ctx.backend.configured === false) return
-  const reason = PHASE_TOOLS.has(starting.name) ? starting.name : s.every > 0 && upcoming % s.every === 0 ? `every ${s.every} steps` : null
+  const reason = PHASE_TOOLS.has(starting.name) ? starting.name : s.every > 0 && upcoming % s.every === 0 ? `每 ${s.every} 步` : null
   if (reason === null || record.askedFor === upcoming || inFlight.get(key)?.forStep === upcoming) return
   const input: MidturnInput = {
     message: turn.prompt,
@@ -240,17 +252,17 @@ function countsOf(turn: TurnRecord, turnId: string, failures: { turnId: string; 
  * Takes the re-decision meant for this step, if any, and writes what it
  * decides into the turn's plan. An answer not back yet gets `waitMs` more;
  * still none, the step keeps the effort it had and the answer stays for a
- * later step. Resolves to what the status line should add: `late`, or why
- * there is no answer; null otherwise.
+ * later step. Resolves to what the tally should add: `late`, or the failed
+ * request that is why there is no answer; null otherwise.
  */
-async function takeAnswer($: EngineInterface, s: Settings, e: { index: number; effort?: unknown }, key: string): Promise<string | null> {
+async function takeAnswer($: EngineInterface, s: Settings, e: { index: number; effort?: unknown }, key: string): Promise<{ late: true } | { failure: NodeFailure } | null> {
   const pending = inFlight.get(key)
   if (pending === undefined || pending.forStep > e.index) return null
   let asked = pending.settled
   if (asked === null) {
     asked = await within((ms, signal) => $.clock.sleep(ms, { signal }), pending.answer, s.waitMs, null)
   }
-  if (asked === null) return 'late'
+  if (asked === null) return { late: true }
   inFlight.delete(key)
   $.ui.log(`request [midturn.${MIDTURN_LEVEL}] for step ${pending.forStep} (${pending.reason}) to ${s.ctx.backend.name}: ${describeAsked(asked, pending.ms)}`, { to: 'debug' })
   const engine = isEffort(e.effort) ? e.effort : null
@@ -259,7 +271,7 @@ async function takeAnswer($: EngineInterface, s: Settings, e: { index: number; e
   const floor = floorHeld(turn, e.index)
   const current = higherEffort(turn.effort ?? engine, floor) as Effort
   const reading = asked.ok ? readEffort(answersFor(midturnEffortPart(s.ctx.ask), asked.answers)[MIDTURN_LEVEL]) : null
-  if (reading === null) return asked.ok ? failureText(s.ctx.backend.name, { kind: 'parse', detail: 'no effort answer' }) : failureText(s.ctx.backend.name, asked.failure)
+  if (reading === null) return { failure: { backend: s.ctx.backend.name, ...(asked.ok ? { kind: 'parse' as const, detail: 'no effort answer' } : asked.failure) } }
 
   const ref = { ...TURNS, id: key }
   const turnCell: Cell<TurnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
@@ -267,23 +279,23 @@ async function takeAnswer($: EngineInterface, s: Settings, e: { index: number; e
   const position = { current, sinceRaise, atLeast: floor }
   const verdict = judgeMidturn(reading, position, s.rules)
   await update(turnCell, (r) => redecided(r ?? turn, current, verdict.effort, e.index))
-  await recordDecision({ get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) }, (line) => $.ui.log(line, { to: 'debug' }), {
-    feature: SWITCH,
-    outcome: `effort ${verdict.effort} ${verdict.effort === current ? '(kept)' : `(was ${current})`}`,
-    about: `step ${e.index} (${pending.reason})`,
-    reason: `${readingText(reading)}; ${verdictReason(verdict, position, s.rules)}`,
+  // Beside the turn's own decision (the node's link to it stays), with the rules' working: the answer's pick, then the move.
+  await report(ioOf($), {
+    decision: {
+      feature: SWITCH,
+      agent: 'main',
+      aside: true,
+      subject: `第 ${e.index} 步（${pending.reason}）`,
+      outcome: `effort ${verdict.effort}${verdict.effort === current ? '（保持）' : `（原 ${current}）`}`,
+      reason: `${readingText(reading)}；${verdictReason(verdict, position, s.rules)}`,
+      tone: verdict.effort === current ? 'info' : 'ok',
+      probs: probsOf(reading),
+      conf: verdict.confidence,
+      trace: [...verdict.trace.pick.steps, ...verdict.trace.steps],
+      mid: midturnRecord(verdict, position, s.rules),
+    },
   })
   return null
-}
-
-/**
- * The feature's status segment: how many steps the turn has made, how many
- * decisions and level changes it had, once it has been re-decided (so a
- * short turn stays quiet); none at a turn's first step.
- */
-function segment(record: MidturnRecord, turn: TurnRecord | undefined, note: string | null): string | null {
-  if (record.askedFor === null || turn === undefined) return null
-  return `steps ${record.steps}, judged ${turn.decisions}, changed ${turn.changes}${note === null ? '' : ` (${note})`}`
 }
 
 function newRecord(): MidturnRecord {
@@ -325,4 +337,15 @@ function withText(record: MidturnRecord, index: number, text: string): MidturnRe
   if (at >= 0) recent[at] = { ...(recent[at] as StepRecord), text }
   else recent.push({ index, text, tools: [] })
   return { ...record, recent: recent.sort((a, b) => a.index - b.index).slice(-MAX_RECENT) }
+}
+
+/** What the decision report needs of the host: its two cells, the debug log, the clock and the toast. */
+function ioOf($: EngineInterface): ReportIo {
+  return {
+    board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+    decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+    debug: (line) => $.ui.log(line, { to: 'debug' }),
+    now: () => $.clock.now(),
+    toast: (text) => $.ui.toast(text),
+  }
 }

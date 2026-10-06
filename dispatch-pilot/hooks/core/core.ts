@@ -28,13 +28,17 @@ import { forgetCommand, noteCommand, typedCommand } from './commands.ts'
 import { noteBlocked } from './outcomes.ts'
 import { newTurn, planStep, replace, takePending, turnKey, type Cell, type PendingDecision } from './plans.ts'
 import type { Ctx } from './setup.ts'
-import { setStatus } from './status.ts'
+import { reportStep, type StepIo } from './report.ts'
 import { masterOn } from './switches.ts'
 
 const PENDING = { plugin: 'dispatch-pilot', key: 'pending' } as const
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
 const AGENTS = { plugin: 'dispatch-pilot', key: 'agents' } as const
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
+const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+const WORKFLOW_RUNS = { plugin: 'dispatch-pilot', key: 'workflowRuns' } as const
+const LABEL_RUNS = { plugin: 'dispatch-pilot', key: 'labelRuns' } as const
 
 /** Prompts whose prompt.submit is letting them in right now: a turn that starts meanwhile is theirs. */
 const entering: string[] = []
@@ -116,10 +120,24 @@ export function registerCore(on: On, ctx: Ctx): void {
     const { value: agent } = agentId === undefined ? { value: undefined } : await $.state.get({ ...AGENTS, id: agentId })
     const { value: lock = null } = agentId === undefined ? await $.state.get(LOCK) : { value: null }
     const { step, source } = planStep(e, { lock, turn, agent })
-    if (agentId === undefined && step.effort !== undefined) {
-      const note = source === 'locked' ? ' (locked)' : source === 'engine' ? ' (not routed)' : ''
-      setStatus('effort', `effort ${String(step.effort)}${note}`, (line) => $.ui.status(line))
+    // What the step goes out with, for the board: every loop's, the main agent's included.
+    const io: StepIo = {
+      board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+      decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+      debug: (line) => $.ui.log(line, { to: 'debug' }),
+      now: () => $.clock.now(),
+      toast: (text) => $.ui.toast(text),
+      agents: () => $.agent.list(),
+      runDirs: async () => {
+        const [noted, labelled] = await Promise.all([$.state.get(WORKFLOW_RUNS), $.state.get(LABEL_RUNS)])
+        return [...new Set([...(noted.value ?? []), ...(labelled.value ?? [])].map((run) => run.dir))]
+      },
+      journal: async (dir) => {
+        const path = `${dir}/journal.jsonl`
+        return (await $.fs.exists(path)) ? await $.fs.read(path).catch(() => null) : null
+      },
     }
+    await reportStep(io, { ...(agentId === undefined ? {} : { agentId }), model: step.model, effort: step.effort, source })
     return yield* next(step)
   })
 }

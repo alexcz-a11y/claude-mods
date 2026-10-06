@@ -38,7 +38,7 @@ export type Asked =
   | { ok: false; failure: Failure }
 
 export type Backend = {
-  /** Its name in the status line and the debug log. */
+  /** Its name on the board and in the debug log. */
   name: string
   /**
    * False when the person has not set it up (no key): every `ask` fails at
@@ -114,4 +114,82 @@ export function httpFailure(response: HttpResponse): Failure {
   if (status === 401 || status === 403) return { kind: 'config', status, detail }
   if (status === 429 || status === 502 || status === 503 || status === 529) return { kind: 'busy', status, detail }
   return { kind: 'http', status, detail }
+}
+
+/**
+ * A failed decision request in a few words: `jev: no answer in 1500 ms`,
+ * `jev: key refused (HTTP 401)`. English: what the model is told when a request
+ * fails (a Workflow note, a find_skill answer) and the debug log's words, which
+ * stay as they are. What a person reads is `failureLine`.
+ */
+export function failureText(backend: string, failure: Failure): string {
+  switch (failure.kind) {
+    case 'config':
+      return failure.status === undefined ? `${backend}: ${failure.detail}` : `${backend}: key refused (HTTP ${failure.status})`
+    case 'timeout':
+      return `${backend}: ${failure.detail}`
+    case 'network':
+      return `${backend}: unreachable`
+    case 'busy':
+      return `${backend}: busy (HTTP ${failure.status ?? '?'})`
+    case 'quota':
+      return `${backend}: daily quota used up`
+    case 'http':
+      return `${backend}: HTTP ${failure.status ?? '?'}`
+    case 'parse':
+      return `${backend}: unreadable answer`
+    case 'request':
+      return `${backend}: bad request (see debug log)`
+  }
+}
+
+/**
+ * What a person reads of each kind of failed request, in one table (Chinese; the model's words are `failureText`):
+ * `words`, a few of them (the band's not-routed cell, the toast's start); `means`, what the kind is (the card's
+ * row beside the kind); `line`, the request's failure with its details (the board's `why`, the toast, the card, the
+ * decision log's reasons): `jev：1500 毫秒内没有回答`, `jev：密钥被拒绝（状态码 401）`.
+ */
+const FAILURE_WORDS: { readonly [K in Failure['kind']]: { words: (failure: Failure) => string; means: string; line: (backend: string, failure: Failure) => string } } = {
+  config: {
+    words: (failure) => (failure.status === undefined ? '决策模型没配好' : '决策模型拒绝了密钥'),
+    means: '没有配好决策模型的密钥或账号，或者密钥被拒绝',
+    line: (backend, failure) => {
+      if (failure.status !== undefined) return `${backend}：密钥被拒绝（状态码 ${failure.status}）`
+      // Nothing was sent: what is not set up (the option names are the ones the person types).
+      const missing = ['typesafeApiKey', 'cloudflareAccountId', 'cloudflareApiToken'].filter((option) => failure.detail.includes(option))
+      return missing.length === 0 ? `${backend}：没有配好密钥或账号` : `${backend}：没有填 ${missing.join(' 和 ')}`
+    },
+  },
+  timeout: {
+    words: () => '决策模型超时',
+    means: '没有在等待时间内回答',
+    line: (backend, failure) => {
+      const ms = /\b(\d+) ms\b/.exec(failure.detail)?.[1]
+      return ms === undefined ? `${backend}：没有及时回答` : `${backend}：${ms} 毫秒内没有回答`
+    },
+  },
+  network: { words: () => '连不上决策模型', means: '网络不通，请求没有发出去', line: (backend) => `${backend}：连不上` },
+  busy: { words: () => '决策模型繁忙', means: '决策模型一时繁忙（状态码 429 之类）', line: (backend, failure) => `${backend}：繁忙（状态码 ${failure.status ?? '?'}）` },
+  quota: { words: () => '决策模型额度用完', means: '决策模型的额度用完了', line: (backend) => `${backend}：今天的额度用完了` },
+  http: { words: () => '决策模型出错', means: '决策模型回了一个出错的状态码', line: (backend, failure) => `${backend}：出错（状态码 ${failure.status ?? '?'}）` },
+  parse: { words: () => '读不懂决策模型的回答', means: '回答里没有能用的判断', line: (backend) => `${backend}：回答读不懂` },
+  request: { words: () => '决策请求出错', means: '请求本身出了错', line: (backend) => `${backend}：请求出错（详见 debug log）` },
+}
+
+/**
+ * The failure for the person, with its details: the board's reason an agent is not routed, the toast, the card and
+ * the decision log's reasons (`FAILURE_WORDS`'s `line`); the model never reads it.
+ */
+export function failureLine(backend: string, failure: Failure): string {
+  return FAILURE_WORDS[failure.kind].line(backend, failure)
+}
+
+/** The failure in a few words, as the band says why an agent is not routed (the toast and the card add the details). */
+export function failureWords(failure: Failure): string {
+  return FAILURE_WORDS[failure.kind].words(failure)
+}
+
+/** What a kind of failure is, as the card says it beside the kind. */
+export function failureMeaning(kind: Failure['kind']): string {
+  return FAILURE_WORDS[kind].means
 }

@@ -13,20 +13,20 @@
 // Its switch is `dispatched-agents` (`/dp dispatched-agents off`).
 
 import type { HttpInit, On } from 'claude-code'
-import { type Asked, describeAsked } from '../decision/backend.ts'
+import { describeAsked, type Failure } from '../decision/backend.ts'
 import { messageText } from '../decision/context.ts'
-import { decideDispatch, dispatchPart, dispatchReason, dispatchState, modelFamily, termsOf, type Dispatch } from '../decision/dispatched-agent.ts'
+import { decideDispatch, dispatchEvidence, dispatchPart, dispatchReason, dispatchState, modelFamily, termsOf, type Dispatch } from '../decision/dispatched-agent.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
-import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
+import { report, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
-import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
 const AGENTS = { plugin: 'dispatch-pilot', key: 'agents' } as const
 const SAID = { plugin: 'dispatch-pilot', key: 'said' } as const
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
@@ -35,7 +35,7 @@ const SWITCH = 'dispatched-agents'
 const MAX_SAID = 8
 
 export function registerDispatchedAgents(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: "decides each dispatched agent's model and effort when it is spawned", segments: ['agent'] })
+  defineSwitch({ name: SWITCH, info: '主 agent 派出 agent 时决定它的模型和 effort' })
   const settings = dispatchSettings(ctx)
 
   // The person's words this turn: a message sent while idle starts them
@@ -70,21 +70,31 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
       sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
     }
-    const show = (line: string | undefined) => $.ui.status(line)
-    const about = `${quoteStart(e.description)} (${e.subagentType})`
+    const reporting: ReportIo = {
+      board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+      decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+      debug: (line) => $.ui.log(line, { to: 'debug' }),
+      now: () => $.clock.now(),
+      toast: (text) => $.ui.toast(text),
+    }
+    const about = `${quoteStart(e.description)}（${e.subagentType}）`
+    /** What every report of this agent says of it; its id is known once it has started (a spawn is not yet an agent). */
+    const reportOf = (agent: string) => ({ feature: SWITCH, agent, subject: about, node: { kind: 'agent' as const, name: e.name ?? (e.description === '' ? e.subagentType : e.description), type: e.subagentType } })
     const startedAt = await $.clock.now()
     const asked = await ctx.backend.ask(io, request, ctx.config.timeoutMs)
     const ms = (await $.clock.now()) - startedAt
     $.ui.log(`request [${Object.keys(request.questions).join(', ')}] to ${ctx.backend.name} for agent ${about}: ${describeAsked(asked, ms)}`, { to: 'debug' })
-    if (!asked.ok) {
-      setStatus('agent', `agent not routed (${failureText(ctx.backend.name, asked.failure)})`, show)
-      return next(e)
+    // The agent starts as the main agent asked; the board says why it was not routed, once it has an id to say it of.
+    // A spawn refused beneath started no agent: there is nothing to say of it.
+    const notRouted = async (failure: Failure) => {
+      const started = await next(e)
+      if (started.deny !== undefined) return started
+      await report(reporting, { decision: { ...reportOf(started.agentId ?? e.tool_use_id), routed: false, failure: { backend: ctx.backend.name, ...failure } } })
+      return started
     }
+    if (!asked.ok) return notRouted(asked.failure)
     const decision = decideDispatch(answersFor(part, asked.answers), dispatch, settings)
-    if (!decision.answered) {
-      setStatus('agent', `agent not routed (${failureText(ctx.backend.name, { kind: 'parse', detail: 'no answer about the agent' })})`, show)
-      return next(e)
-    }
+    if (!decision.answered) return notRouted({ kind: 'parse', detail: 'no answer about the agent' })
     // The main agent's pick, when it stands, goes on as the main agent wrote it.
     const spawn = decision.model !== null && decision.model !== modelFamily(e.model) ? { ...e, model: decision.model } : e
     const result = await next(spawn)
@@ -98,16 +108,20 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       if (result.agentId !== undefined && (decision.effort !== null || terms !== null)) {
         await $.state.set({ ...AGENTS, id: result.agentId }, { effort: decision.effort, floor: null, model: null, terms })
       }
-      const model = decision.model ?? modelFamily(result.model) ?? result.model
+      const family = decision.model ?? modelFamily(result.model)
+      const model = family ?? result.model
       const outcome = decision.effort === null ? model : `${model} ${decision.effort}`
-      // Whose choice it is: the model's, when the person's or the main agent's; else the effort's, when the person's.
-      const whose = decision.source === 'user' ? ' (you)' : decision.source === 'requested' ? ' (kept)' : decision.effortSource === 'user' ? ' (effort: you)' : ''
-      setStatus('agent', `agent ${outcome}${whose}`, show)
-      await recordDecision(
-        { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
-        (line) => $.ui.log(line, { to: 'debug' }),
-        { feature: SWITCH, outcome, about, reason: dispatchReason(decision, modelFamily(e.model), settings.thetaOverride, "the main agent's") },
-      )
+      await report(reporting, {
+        decision: {
+          ...reportOf(result.agentId ?? e.tool_use_id),
+          routed: true,
+          outcome,
+          reason: dispatchReason(decision, modelFamily(e.model), settings.thetaOverride, '主 agent 指定的'),
+          ...dispatchEvidence(decision),
+          ...(family === null ? {} : { model: family }),
+          ...(decision.effort === null ? {} : { effort: decision.effort }),
+        },
+      })
     } catch (error) {
       $.ui.log(`agent ${about} started (${result.agentId ?? 'no id'}), but its plan was not recorded: ${String(error)}`, { to: 'debug' })
     }

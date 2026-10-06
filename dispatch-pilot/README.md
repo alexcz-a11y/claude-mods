@@ -6,24 +6,40 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 ## 它做什么
 
-决策模型只负责给出判断，不参与回答你。每个判断都记进决策日志（`/dp log`），状态行写明结果。
+决策模型只负责给出判断，不参与回答你。每个判断的结果写在看板上，依据记进决策日志，在依据面板里看（`/dp`），也可以用 `/dp log N` 在对话里列出。
 
 - **主 agent 的 effort。** 你每发一条消息，Dispatch Pilot 把这条消息和最近几条消息发给决策模型，问它这项工作需要多少逐步推理，得到 low、medium、high、xhigh、max 五档各自的概率。取概率最高的一档，并列时取较高的一档；如果高一档的概率也有 0.3 以上，就再往上取一档（升高容易：低估一档要付出质量，高估一档只多花 token）；`max` 只在它自己的概率达到 `thetaMax` 时才用。这一轮的每个模型请求都按这一档发出。一轮进行中，每隔几步（`rejudgeEvery`），以及主 agent 派出 agent、启动 Workflow 或加载 skill 时，会再判断一次（中途重判）；升档和降档都有防抖：升档要置信度达到 `thetaUp`（0.3），降档要达到 `thetaDown`（0.75）而且一次只降一档，升档之后 `holdSteps`（5）步之内不降。派出 agent 交回结果、后台任务结束，会话空闲时它们会开始主 agent 的新一轮，这样的一轮也走同样的判断：决策模型读到的是那条报告的文字，不推荐 skill，也不在这一轮中途重判（会话自己的 xhigh 用在只是看一眼结果上是浪费）；报告送进一轮正在进行的对话时不另外判断。其他会话的消息、插件自己发的消息和空消息都不判断。你输入的 skill 或 markdown 命令（例如 `/implement #19`）开始的一轮也照常判断：决策模型读你输入的命令和参数，以及这个命令是做什么的，不读命令展开后的正文；参数里的点名照样算；这样的一轮不推荐 skill。`/dp`、`/clear` 这类本地命令不开始一轮，也就不判断。
 - **派出 agent 的模型和 effort。** 主 agent 用 Agent 工具派出一个 agent 时，决策模型为它选模型（默认在 haiku、sonnet、opus 中选，打开 `agentFable` 后加入 fable）和 effort；选了 haiku 就不设 effort，haiku 不支持。三个模型的分工按 Artificial Analysis 的基准定（见下面的「模型和 effort 的依据」）：haiku 只做一两步就能跑完、结果只需要收集起来并按要求排版的只读查找，sonnet 承担大多数执行类工作（终端、需求明确的代码修改、自动化、调研汇报），opus 做需要审慎判断或细微错误代价高的工作（安全、并发、涉及钱、迁移、生产）、难推理、设计、原因未知的 bug、科学或算法类代码，以及结论取决于记忆中的事实、而且无法在仓库或文档里查证的调研；fable 在 AA 上没有领先 Opus 的地方，价格是 2.5 倍，所以仍默认关闭。决策出来的 effort 不低于所选模型的下限：sonnet 和 opus 至少 medium，haiku 不带 effort。你在消息里点名的模型或 effort（「用 opus」「effort 开 low」）一定照办，下限和往上取的一档都不会改你点名的值，你排除的模型（「别用 opus」）不会用（决策请求整体失败时除外，见「局限和待评测」）。主 agent 自己为这个 agent 指定了模型时，只有决策模型选了别的、而且置信度达到 `agentOverride` 才推翻它。
 - **Workflow 里的 agent。** 主 agent 提交 Workflow 脚本时，对脚本里每个 `agent()` 调用点做同样的判断，把模型和 effort 写进脚本再运行，并告诉主 agent 写了什么；`workflowMode` 选 `return` 时改为退回脚本，附上逐个调用的推荐，让主 agent 自己写进去。脚本写不进去的（用 `scriptPath` 或 `name` 提交、恢复的运行、读不了的脚本），在每个 agent 启动时按它的 label 设置，这叫兜底。
 - **卡住时强制升档。** 主 agent 或派出 agent 的工具调用接连失败 `escalateAfter` 次时，再问决策模型一次，把它的 effort 升一档（`escalateMode` 选 `max` 则直接升到 max）；haiku 没有 effort 可升，改用 sonnet 接着做（`escalateHaikuTo`）。这些失败本来就在意料之中的，例如先写下、要看它红的测试，或者没找到东西而以非零退出的搜索，不升档；是不是预期内失败由决策模型判断，不靠关键词。你自己拒绝的调用从不算失败。
-- **skill。** 主 agent 不再读完整的 skill 列表（装的 skill 多时这一段很长），读到的是一句固定的提示。改由决策模型在你发消息时，从本会话的 skill 里挑出相关的几个，连同名字、描述和相关度附在消息后面交给主 agent；只能由你触发的 skill 不推荐给主 agent，只在状态行提示你。一轮进行中，主 agent 还可以用 `find_skill` 工具按几个词查 skill。skill 本身和 Skill 工具都不变，主 agent 仍然可以按名字加载任何 skill。
-- **失败时放行。** 决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配密钥时，消息照常进入，不额外等待，这一轮用会话自己的 effort，状态行写明原因。选了 Jev 就只用 Jev，不会改用 Clef，反过来也一样。
+- **skill。** 主 agent 不再读完整的 skill 列表（装的 skill 多时这一段很长），读到的是一句固定的提示。改由决策模型在你发消息时，从本会话的 skill 里挑出相关的几个，连同名字、描述和相关度附在消息后面交给主 agent；只能由你触发的 skill 不推荐给主 agent，只在看板上提示你（「可试 /x」）。一轮进行中，主 agent 还可以用 `find_skill` 工具按几个词查 skill。skill 本身和 Skill 工具都不变，主 agent 仍然可以按名字加载任何 skill。
+- **失败时放行。** 决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配密钥时，消息照常进入，不额外等待，这一轮用会话自己的 effort，看板上写明原因，并弹一个 toast。选了 Jev 就只用 Jev，不会改用 Clef，反过来也一样。
 
-本文提到的配置项（例如 `escalateAfter`、`timeoutMs`），默认值都在「配置」的表里。每项功能都可以用 `/dp` 单独关掉，也可以整个 mod 一起关（见「控制：`/dp`」）。完整的行为规则（各种优先级、各种失败情形、状态行和日志的写法）见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「它做什么」。
+本文提到的配置项（例如 `escalateAfter`、`timeoutMs`），默认值都在「配置」的表里。每项功能都可以用 `/dp` 单独关掉，也可以整个 mod 一起关（见「控制：`/dp`」）。完整的行为规则（各种优先级、各种失败情形、看板和日志的写法）见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「它做什么」。
 
 ### 模型和 effort 的依据
 
 模型的分工、往上取一档、中途的门槛和各模型的 effort 下限，都按 Artificial Analysis（AA）Intelligence Index v4.3.2 的十个分项校正过。几个要点：Sonnet 5.5 的分数随 effort 掉得很快（Terminal-Bench：low 20.7%、medium 29.8%、high 43.9%、max 63.6%；指数 36、41、47、56），所以低估 sonnet 的代价大；Opus 5.5 在 medium 就有 51；Sonnet 与 Opus 在终端、自动化、知识工作上持平或略高，拉开的是事实知识（Omniscience 32 对 46）、难推理（HLE 差 6.4）和科学代码（SciCode 差 5.9）；Haiku 4.5 在 Terminal-Bench 上是 0%。数字、来源和已存评测回答按新规则离线重算的结果见 [docs/research/aa-benchmarks-2026-10.md](../docs/research/aa-benchmarks-2026-10.md)。
 
-### 状态行
+### 看板
 
-状态行只有一行，例如 `dp effort high`。`(not routed)` 表示这一轮没有经过路由，用的是会话自己的 effort，后面写原因，例如 `jev: no answer in 1500 ms`；`(locked)` 表示你用 `/dp lock` 锁定了 effort；`dp off` 表示整个 mod 关着。派出 agent、提交 Workflow、推荐 skill、`find_skill` 和强制升档之后，状态行后面会再加一段，例如 `agent sonnet high`、`skills tdd, code-review`、`failed 2, blocked 1, raised 1`。状态行只用英文和 ASCII，界面里不用双宽字符。状态行前面的 ⚠ 和 `dispatch-pilot:` 前缀是 Claude Code 给插件状态行加的样式，和引擎自己的固定提示一样，不表示出错；mod 只传文字，改不了它。`claude -p` 没有状态行，内容写进 debug log。
+看板是 Dispatch Pilot 常驻的界面，只显示读数和结论，依据放在依据面板里。给人看的文字都是中文，模型名和 effort 档名照 `/model`、`/effort` 的写法。
+
+- **prompt 上方的 band。** 一轮进行中，顶上一条状态条：第几轮、用时、agent 的运行 / 完成 / 失败 / 排队数、Workflow 的进度、中途重判的次数。下面每个 agent 一行：主 agent 在最前，其余按开始的先后，各带数字键（0 是主 agent，1 到 9 按先后）、名字、模型和 effort、状态，以及一条时间色带（同一根时间轴，看得出谁和谁并行）。状态格写运行或完成了多久、失败、排队，或者「未路由 · 原因」。再下面是这一轮的事件流：每个决定、中途重判和强制升档（一次改档只算一条，写从哪档到哪档）、skill 推荐和「可试 /x」、`find_skill` 的查询，以及请求失败、回答迟到。一轮结束后 band 折成一行：主 agent 的模型和 effort、这一档是怎么来的、「可试 /x」。引擎给 band 的行数不到 4 行时，退成一行摘要。
+- **脚部右端的摘要。** 连同和左边隔开的一列，不超过 12 列：状态符号、主 agent 的模型和 effort、`+N` 个运行中的 agent；放不下时 effort 先写短（`xhi`），再省掉模型。
+- **未路由。** 一轮或一个 agent 的模型和 effort 照引擎原样发出、没有经过 Dispatch Pilot 的决定，看板上总写原因：决策模型超时、连不上、繁忙、额度用完、密钥被拒绝、没配好、回答读不懂，或者功能已关。路由失败时还会弹一个 toast，写谁没路由和原因。
+- **选中一个 agent。** 在空的 prompt 里按它的数字键，依据面板就打开在它的卡片上。
+- **别的端。** Desktop 等不支持时间色带和概率条的端画同样内容的纯文字版：band 的每行没有时间色带，脚部是一个不超过 24 个字符的标签（同样连隔开的那一列算在内）。没在 Desktop 上亲眼看过。
+- 关掉的功能（`/dp <功能> off`）的决定、事件和计数不出现在 band 和脚部；`/dp off` 时 band 上没有 Dispatch Pilot 的内容，脚部写 `○ dp 已关`。`claude -p` 没有界面，内容写进 debug log。
+
+### 依据面板
+
+`/dp` 打开依据面板，再输一次或按 `Esc` 关掉；`/dp log` 也是打开它。全屏且终端够宽时它停靠在对话右边（约 75 列），否则在 prompt 上方。面板窄时文字换行缩进，不截断。
+
+- **顶部**（灰字）：每项功能的开关状态（名字加「开」或「关」，关着的用灰色，默认关的 `hook-block-failures` 也在内）、`/dp lock` 的锁定，以及本会话 skill 画像的情况（`skill 画像：保留 52 · 新写 3 · 失败 1`；写的过程中是「生成中 2/5」；停写时写原因；有失败时按 `f` 列出失败的 skill 和原因）。
+- **依据卡片。** 「‹ 上一个 (p) / 下一个 › (n)」按 band 的顺序翻看 agent。卡片是选中 agent 的依据：状态；没路由时几个字的原因，再写失败的类型、决策模型、细节和去 debug log 哪里看；给它的模型（派出 agent 和 Workflow 里的 agent）和理由（主 agent 也有）；各档 effort 的概率；规则推演，从决策模型给的概率走到最终的 effort，每一步写它做了什么（最可能的一档、max 门槛、上取一档、模型下限、下限或强制升档）；结果。主 agent 的卡片还注明发消息时的置信度只记录、不参与选档，并列出这一轮的强制升档和每次中途重判（建议档、当前档、带门槛刻度的置信条，和结论：升档、降档、降档被拦、防抖中还差几步、保持）。卡片只画决定时存下的推演，从不重新计算。
+- **决策日志。** 按轮分组，最新的一轮在前，每条带编号、结果（颜色和 ✔ · ⚠ ✘ 符号；每轮的标题按同样的符号计数）、模型和 effort、是哪项功能针对什么、各档概率和理由。每轮有一个字母键（从 `a` 起，跳过 `p`、`n`、`f`）折叠或展开，最新两轮默认展开。日志保留最近 20 轮、最多 300 条。
+- 面板的按键只在面板拿到键盘时有用（`/dp` 打开时会拿键盘；在 band 上按数字键打开的不抢键盘，可以接着按别的数字）。面板没被放出来时（比如接着的端不放面板）会立即关掉，并说明原因（`/dp` 在回复里说，按数字键打开的弹一个 toast），这时用 `/dp log 10` 在对话里看。
 
 ### 发给决策模型的内容
 
@@ -43,7 +59,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 ## 要求
 
-- **Claude Code 2.1.287 及以上**，mod 在 Claude Code 里默认启用。测试用的是 Claude Code 2.1.289（Opus 5.5，订阅登录）、jev-1.13.0 和 Clef（Cloudflare Workers AI，2026-10-04）；跑 `eval/` 和 `scripts/` 里的 Node 脚本用的是 Node 26.5，用 mod 本身不需要 Node。
+- **Claude Code 2.1.287 及以上**，mod 在 Claude Code 里默认启用。**测试用的是 Claude Code 2.1.291**（订阅登录，看板和依据面板在终端里看过）、jev-1.13.0 和 Clef（Cloudflare Workers AI，2026-10-04）；缓存和评测的实测是在 2.1.289 上做的；跑 `eval/` 和 `scripts/` 里的 Node 脚本用的是 Node 26.5，用 mod 本身不需要 Node。
 - **只支持 Claude Code 订阅**（ADR 0001，`docs/adr/0001-main-agent-effort-only-no-model-switch.md`）。Dispatch Pilot 每轮、每一步都改主 agent 的 effort，但从不改它的模型：换模型必然让 prompt cache 失效，而在订阅下，同一个模型内切换 effort 保留缓存（2.1.289 上 Opus 5.5 加订阅实测）。Bedrock、Vertex 和各种网关上切换 effort 会让缓存失效，不在支持范围内。Claude Code 的文档只点名了 Opus 5.5、Sonnet 5.5 和 Fable 5.1 保留缓存，其他大多数模型上每档 effort 各有一份缓存，切换会重算整段请求（见 `docs/research/decision-models-and-caching.md` 的 3.4）。
 - **一个决策模型的账号。** Jev 要 TypeSafe 的 API key；Clef 要 Cloudflare 的 account ID 和一个能调用 Workers AI 的 API token。不配密钥时 mod 不发任何请求，每一轮都按会话自己的 effort 走。
 
@@ -56,7 +72,7 @@ claude plugin install dispatch-pilot@alex-mods --scope user
 
 想改 mod 或者试未发布的改动时，也可以从本地克隆添加：`claude plugin marketplace add ./claude-mods`（相对路径要以 `./` 或 `../` 开头，否则会被当成 GitHub 仓库）。从本地目录添加的 marketplace，Claude Code 直接从那个目录加载 mod，克隆里检出的是哪个版本，用的就是哪个版本。
 
-在 shell 里装好的 mod，下次启动 Claude Code 时才加载：装好后重启 Claude Code，或者在已经开着的会话里运行 `/reload-plugins`。在会话里运行 `/plugin`，看到 `1 mod active · dispatch-pilot` 说明 mod 已经加载；运行 `/dp` 会列出各项功能的开关。接着给它一个决策模型的密钥。
+在 shell 里装好的 mod，下次启动 Claude Code 时才加载：装好后重启 Claude Code，或者在已经开着的会话里运行 `/reload-plugins`。在会话里运行 `/plugin`，看到 `1 mod active · dispatch-pilot` 说明 mod 已经加载；运行 `/dp` 会打开依据面板，`/dp status` 列出各项功能的开关。接着给它一个决策模型的密钥。
 
 **Jev（默认）。** TypeSafe 的 API key 有两种填法：
 
@@ -207,19 +223,21 @@ Clef 只是接入了，没有像 Jev 那样校准。把 `decisionModel` 改成 `
 ## 控制：`/dp`
 
 ```
-/dp                    是否开启、effort 的锁定状态、各项功能的开关
-/dp on | off           总开关。关闭后不发任何决策请求，每一步都按引擎原样发出（锁定也不生效），状态行写 dp off
-/dp <功能> on | off    单项功能的开关，例如 /dp main-effort off（功能名见 /dp 的列表）
+/dp                    打开依据面板；已经打开时关掉它
+/dp log                打开依据面板（老习惯的别名，不会关掉它）
+/dp status             是否开启、effort 的锁定状态、各项功能的开关
+/dp on | off           总开关。关闭后不发任何决策请求，每一步都按引擎原样发出（锁定也不生效），脚部写 ○ dp 已关
+/dp <功能> on | off    单项功能的开关，例如 /dp main-effort off（功能名见 /dp status 的列表）
 /dp lock <档位>        把主 agent 的 effort 锁在 low、medium、high、xhigh 或 max，这一轮的每一步和之后的每一轮都用它，优先于决策
 /dp unlock             解除锁定（也可以写 /dp lock off）
-/dp log [N]            最近 N 次决策和理由，最新的在最后（默认 10，最多 50）
+/dp log N              在对话里列出最近 N 次决策和理由，最新的在最后（最多 300；日志保留最近 20 轮、最多 300 条）
 ```
 
 - 命令在一轮进行中也立即执行：锁定或解锁从下一步起生效。
 - 功能的开关是 `main-effort`、`midturn-effort`、`dispatched-agents`、`workflow-agents`、`workflow-labels`、`escalation`、`skills`、`skill-profiles`、`find-skill` 和 `signals`；另有 `hook-block-failures`，默认关闭，打开后你自己的 settings hook 拦下的调用也算失败，参与强制升档。
 - 开关保存下来，下次启动会话时还是你离开时的样子；只保存和默认值不同的开关，所以一个新增的功能默认开着。
 - 锁定只在当前会话里有效，`/dp unlock` 或会话结束时解除。锁定期间决策照常进行并记录，不想为此等决策模型的话，用 `/dp main-effort off`。
-- `/dp log` 显示每项功能记录的决策：做了什么决定、针对哪条消息、理由（决策模型给出的各档概率和置信度）。同样的内容也写进 debug log。
+- 依据面板的决策日志和 `/dp log N` 显示每项功能记录的决策：做了什么决定、针对哪条消息、理由（决策模型给出的各档概率和置信度）。同样的内容也写进 debug log，不进入对话。
 - 信号（上下文占用、5 小时和 7 天限额的百分比、会话花费）每次变化时写一行进 debug log，只是记录，不参与任何决策；`/dp signals off` 可以停止记录。
 - 暂时不想用就 `/dp off`；彻底停用就 `claude plugin disable dispatch-pilot@alex-mods`。
 
@@ -232,7 +250,7 @@ Clef 只是接入了，没有像 Jev 那样校准。把 `decisionModel` 改成 `
 - fork 出来的 agent（它总是用父 agent 的模型）和 agent team 的 teammate（它会长期存在、处理很多任务，派出时的一次判断看不到这些任务）不处理。
 - **主 agent 在推荐漏掉时不会自己去用 `find_skill`。** 一条要写 PR 描述、却没有推荐 `pr` 的消息，有提示、没有提示、提示写得更主动，主 agent 都直接写了正文；被明确要求查时，它能找到 `find_skill` 并用上。所以漏掉的推荐，目前只靠发消息时的推荐。
 - Jev 对同一个 key 的并发请求像是依次处理。Workflow 里 prompt 是数据的调用（fan-out）在 agent 启动时当场判断，几个 agent 几毫秒内一起启动，排在后面的可能超时，那些 agent 按引擎原样启动。
-- **Jev 的请求比以前大，延迟会多一点。** 默认值把 Jev 的 state 放到最多约 6.7k token（带 skill 题的请求，`contextTokens` 6000），发消息时带 skill 推荐的请求最多约 2.9 万 token；其余种类的 state 最多 24000（约 2.67 万 token），中途重判、派出 agent 和关着 skill 推荐的发消息请求，满了的话比以前多约 2.4 万 token，按每 1k 约 13 毫秒外推，最多多约 0.3 秒（同样是外推，没有量过）。已有的实测：Jev 处理 2.19 万 token（skill 第一段，带全部画像）时 p50 约 560 毫秒、p90 约 615 毫秒；另一次整体偏慢的运行里，这一段 218 条中有 24 条（约 11%）超过 1500 毫秒，这些消息的决策整个超时，effort 也没有经过路由。按每多 1k token 约多 13 毫秒外推，现在的 state 再多约 80 毫秒，慢的时段超过 1500 毫秒的消息会比 11% 更多；这是外推，没有在新默认值上量过。如果状态行里 `no answer in 1500 ms` 变多，可以把 `contextTokens` 调小（每少 1k 约快 13 毫秒），或者把 `timeoutMs` 调大；skill 那一题本身有 2.2 万 token，想去掉这部分延迟只能 `/dp skills off`。
+- **Jev 的请求比以前大，延迟会多一点。** 默认值把 Jev 的 state 放到最多约 6.7k token（带 skill 题的请求，`contextTokens` 6000），发消息时带 skill 推荐的请求最多约 2.9 万 token；其余种类的 state 最多 24000（约 2.67 万 token），中途重判、派出 agent 和关着 skill 推荐的发消息请求，满了的话比以前多约 2.4 万 token，按每 1k 约 13 毫秒外推，最多多约 0.3 秒（同样是外推，没有量过）。已有的实测：Jev 处理 2.19 万 token（skill 第一段，带全部画像）时 p50 约 560 毫秒、p90 约 615 毫秒；另一次整体偏慢的运行里，这一段 218 条中有 24 条（约 11%）超过 1500 毫秒，这些消息的决策整个超时，effort 也没有经过路由。按每多 1k token 约多 13 毫秒外推，现在的 state 再多约 80 毫秒，慢的时段超过 1500 毫秒的消息会比 11% 更多；这是外推，没有在新默认值上量过。如果看板上「决策模型超时」变多，可以把 `contextTokens` 调小（每少 1k 约快 13 毫秒），或者把 `timeoutMs` 调大；skill 那一题本身有 2.2 万 token，想去掉这部分延迟只能 `/dp skills off`。
 - **Clef 只接入，没有校准。** 除 `timeoutMs`、`contextTokens` 的上限、上下文的三项默认值（Clef 保持接入时的 2000、4、4，Jev 取上限）以外，Clef 的默认值都沿用 Jev 的；它的置信度比 Jev 低得多（中位数 0.24 对 0.66），在 `thetaUp` 0.3 下升得动，在 `thetaDown` 0.75 下几乎降不下来。Clef 比 Jev 慢（连接建立后 0.6–1.4 秒，冷连接的第一次请求 1.8 秒），所以选 Clef 时 `timeoutMs` 的默认值比 Jev 的长。带画像的 skill 第一段要 3.7–7.9 秒，超过一条消息能等的时间，所以选 Clef 时发消息的 skill 推荐默认关闭。`find_skill` 是主 agent 自己的调用，可以多等一会儿：选 Clef 时它的两个请求合计最多等 8 秒，第一段只用描述（111 个 skill 的描述约 8.6k token，Clef 约 1.7–2.4 秒），按延迟定，没有校准。Clef 还会截断过长的 state，所以选 Clef 时 `contextTokens` 最多 2000（见下面的「Clef 截断 state」）。
 - 大多数默认值是暂定的起点（表里标了 `起点`）：评测数据只够定下少数几项，其余的见下面的「还没有数据的事」。
 

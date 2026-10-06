@@ -5,7 +5,8 @@
 // transcript at `session.messages`) and plays the engine at the bottom of the
 // events the mod passes on, recording what reached it. Assertions read those
 // records: what the mod sent to the backend, what each model request went out
-// with, what the status line said.
+// with, the toasts it raised; the screens it draws are mounted through it
+// (`w.band()`, `w.footer()`).
 //
 // Not a test file (no `.test.ts`), so `claude plugin test` only runs it through
 // the tests that import it. Register it before the test's first `$` call.
@@ -13,13 +14,19 @@
 import { mock } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
 import type {
+  AgentInfo,
   CommandInfo,
   CommandSpec,
   ContextSkill,
   ModelCompleteRequest,
   ModelCompleteResult,
   On,
+  PluginState,
   PromptOrigin,
+  RenderComponent,
+  RenderElement,
+  RenderPropsOf,
+  RenderSurface,
   SessionContextBreakdown,
   SessionMeasureInput,
   SessionMessage,
@@ -27,6 +34,35 @@ import type {
   SettingsSource,
   ToolSpec,
 } from 'claude-code'
+
+/** The board's `$.state` values, as the contract declares them (types/index.d.ts): the board data tests assert on. */
+export type BoardNode = PluginState['dispatch-pilot']['board']['nodes'][number]
+export type LogEntry = PluginState['dispatch-pilot']['decisionLog'][number]
+export type ReadingChange = NonNullable<PluginState['dispatch-pilot']['board']['changes']>[number]
+export type BoardNote = NonNullable<PluginState['dispatch-pilot']['board']['notes']>[number]
+/** The skill profiles' state (`skillProfiles`, #33): the session's one record of writing them. */
+export type ProfilesState = NonNullable<PluginState['dispatch-pilot']['skillProfiles']>
+
+/**
+ * The board data as `w.board()` reads it from `$.state` (spec #22 「数据」): `turn`, `nodes` and `log` are the
+ * stored values (an empty board before anything was reported); `main` and `agents` are the nodes of the current
+ * turn, split for convenience: the main agent's, and those of the dispatched and Workflow agents.
+ */
+export type BoardView = {
+  turn: number
+  nodes: BoardNode[]
+  /** Reading changes of the latest turns' agents (`board.changes`), oldest first. */
+  changes: ReadingChange[]
+  /** When the latest turns started, by turn (`board.starts`, `$.clock.now()` ms). */
+  starts: { turn: number; at: number }[]
+  /** What the features met beside the agents' routes (`board.notes`): a failed request, an answer of no use, a late one. */
+  notes: BoardNote[]
+  log: LogEntry[]
+  /** The skill profiles' state (#33); undefined before the session start reported one. */
+  profiles: ProfilesState | undefined
+  main: BoardNode | undefined
+  agents: BoardNode[]
+}
 
 /** One request the mod sent through `$.http.fetch`, its JSON body parsed. */
 export type Sent = {
@@ -62,6 +98,11 @@ export type WorldOptions = {
   /** Files the mod can read, by absolute path (`$.fs.read`, `$.fs.exists`). */
   disk?: Record<string, string>
   /**
+   * The agents `$.agent.list()` names (dispatched agents, not a Workflow's): as the engine lists them, which a test
+   * changes through `w.agents` as agents come and go. `{ deny }`: the roster cannot be read.
+   */
+  agents?: AgentInfo[] | { deny: string }
+  /**
    * The mod's `$.store`, seeded with these values; what the mod writes is read back with `w.stored(key)`.
    * Without it every `$.store` call rejects, as when the store file cannot be read or written.
    */
@@ -79,6 +120,10 @@ export type WorldOptions = {
     rewrite?: (text: string) => string
     /** A reason to refuse the prompt (it never enters, no turn starts). */
     drop?: (text: string) => string | undefined
+    /** What another mod drew in a render site beneath this one, by component (`AbovePrompt`, `SessionMode`): a line of text. */
+    render?: Partial<Record<RenderComponent, string>>
+    /** Why the surface places no pane the mod opens (`$.ui.open` answers `{ isPlaced: false, reason }`); every pane is placed when left out. */
+    unplaced?: string
   }
   /**
    * The session's skills (#10): what `$.command.list()`, `$.session.usage({ breakdown })`, `$.settings.read`,
@@ -86,6 +131,11 @@ export type WorldOptions = {
    * Without it those calls reject, and the skills feature finds no skills.
    */
   skills?: SkillsWorld
+  /**
+   * The board data an earlier load of the mod left in `$.state` (a hot reload keeps it): the mod finds it as it
+   * starts. Whatever the board starts with, `w.board()` reads what stands now.
+   */
+  seed?: { board?: PluginState['dispatch-pilot']['board']; log?: LogEntry[]; profiles?: ProfilesState }
   /**
    * The model behind `$.model.complete` (#11 writes skill profiles with it): answers each completion
    * (`n` counts from 1); every one is recorded in `w.completions`. Without it every completion is refused.
@@ -183,6 +233,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const clock: MockClock = mock.clock(on)
   const requests: Sent[] = []
   const statuses: (string | undefined)[] = []
+  const toasts: { text: string; at: number }[] = []
+  /** The panes the mod has open on the surface, as `$.ui.panes()` lists them. */
+  const panes: { id: string; title: string; focus: boolean; closeOnEscape: boolean; placed: boolean }[] = []
+  const paneActs: { act: 'open' | 'close'; id: string; focus: boolean }[] = []
   const logs: { text: string; to: string | undefined }[] = []
   const steps: Step[] = []
   const prompts: { text: string; context: readonly string[] | undefined; origin: unknown }[] = []
@@ -190,8 +244,11 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const toolCalls: { tool: string; id: string; input: Record<string, unknown>; isError: boolean; text: string | undefined }[] = []
   const spawned: Spawned[] = []
   const completions: ModelCompleteRequest[] = []
+  /** How often the mod asked the engine's roster (`$.agent.list()`), and every file it read (`$.fs.read`), in order. */
+  const looked = { roster: 0, files: [] as string[] }
   let calls = 0
   const disk = options.disk ?? {}
+  const agents: AgentInfo[] = Array.isArray(options.agents) ? [...options.agents] : []
   const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
   const commands: CommandSpec[] = []
   /** The text a command's turn starts with, by the prompt it was submitted as (`/name args`): the engine's command message. */
@@ -241,7 +298,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     return options.model ? complete(await options.model(e, completions.length)) : { deny: 'no model in this test' }
   })
   on('session.messages', (_$, e) => ({ value: (typeof options.messages === 'function' ? options.messages({ ...(e.agentId === undefined ? {} : { agentId: e.agentId }) }) : (options.messages ?? [])) as never }))
-  on('fs.read', (_$, e) => (e.path in disk ? { value: disk[e.path] as string } : { deny: `ENOENT: ${e.path}` }))
+  on('fs.read', (_$, e) => {
+    looked.files.push(e.path)
+    return e.path in disk ? { value: disk[e.path] as string } : { deny: `ENOENT: ${e.path}` }
+  })
   on('fs.exists', (_$, e) => ({ value: e.path in disk || Object.keys(disk).some((path) => path.startsWith(`${e.path}/`)) }))
   // A directory of the disk: what lies directly under it, a file or a directory (one holding files further down).
   on('fs.list', (_$, e) => {
@@ -294,9 +354,65 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     on('settings.read', (_$, e) => ({ value: e?.source === undefined ? {} : { skillOverrides: skills.overrides?.[e.source] ?? {} } }))
     on('prompt.attachment', (_$, e) => ({ text: e.text }))
   }
+  // The board data (the 「决定汇报」 module's `board` and `decisionLog`) is kept here, not in the kit's state: the test
+  // body has no `$.state` to read it back with, and `options.seed` can stand for what an earlier load left. Versions
+  // work as the host's do (a write lands unless `ifVersion` is stale), and values go through JSON as they would.
+  const held: { board: { value: unknown; version: number }; decisionLog: { value: unknown; version: number }; skillProfiles: { value: unknown; version: number } } = {
+    board: { value: options.seed?.board, version: options.seed?.board === undefined ? 0 : 1 },
+    decisionLog: { value: options.seed?.log, version: options.seed?.log === undefined ? 0 : 1 },
+    skillProfiles: { value: options.seed?.profiles, version: options.seed?.profiles === undefined ? 0 : 1 },
+  }
+  on('state.get', { plugin: 'dispatch-pilot', key: 'board' }, () => ({ value: { value: held.board.value as never, version: held.board.version } }))
+  on('state.get', { plugin: 'dispatch-pilot', key: 'decisionLog' }, () => ({ value: { value: held.decisionLog.value as never, version: held.decisionLog.version } }))
+  on('state.set', { plugin: 'dispatch-pilot', key: 'board' }, (_$, e) => {
+    if (e.ifVersion !== undefined && e.ifVersion !== held.board.version) return { value: { isSet: false, version: held.board.version } }
+    held.board = { value: JSON.parse(JSON.stringify(e.value)), version: held.board.version + 1 }
+    return { value: { isSet: true, version: held.board.version } }
+  })
+  on('state.set', { plugin: 'dispatch-pilot', key: 'decisionLog' }, (_$, e) => {
+    if (e.ifVersion !== undefined && e.ifVersion !== held.decisionLog.version) return { value: { isSet: false, version: held.decisionLog.version } }
+    held.decisionLog = { value: JSON.parse(JSON.stringify(e.value)), version: held.decisionLog.version + 1 }
+    return { value: { isSet: true, version: held.decisionLog.version } }
+  })
+  on('state.get', { plugin: 'dispatch-pilot', key: 'skillProfiles' }, () => ({ value: { value: held.skillProfiles.value as never, version: held.skillProfiles.version } }))
+  on('state.set', { plugin: 'dispatch-pilot', key: 'skillProfiles' }, (_$, e) => {
+    if (e.ifVersion !== undefined && e.ifVersion !== held.skillProfiles.version) return { value: { isSet: false, version: held.skillProfiles.version } }
+    held.skillProfiles = { value: JSON.parse(JSON.stringify(e.value)), version: held.skillProfiles.version + 1 }
+    return { value: { isSet: true, version: held.skillProfiles.version } }
+  })
+  // The status row the mod must never draw on (ADR 0004): recorded, so a test can say it stayed empty.
   on('ui.status', (_$, e) => {
     statuses.push(e.text)
     return { value: undefined }
+  })
+  on('ui.toast', (_$, e) => {
+    toasts.push({ text: e.text, at: clock.now() })
+    return { value: undefined }
+  })
+  // The surface's panes: the ones the mod opened and has not closed, each placed unless `beneath.unplaced` says why
+  // not; every open and close is recorded in `w.paneActs`.
+  on('ui.open', (_$, e) => {
+    const placed = options.beneath?.unplaced === undefined
+    const pane = { id: e.id, title: e.title ?? e.id, focus: e.focus === true, closeOnEscape: e.closeOnEscape === true, placed }
+    const at = panes.findIndex((open) => open.id === e.id)
+    if (at < 0) panes.push(pane)
+    else panes[at] = pane
+    paneActs.push({ act: 'open', id: e.id, focus: pane.focus })
+    return { value: placed ? { isPlaced: true as const } : { isPlaced: false as const, reason: options.beneath?.unplaced as string } }
+  })
+  on('ui.close', (_$, e) => {
+    const at = panes.findIndex((open) => open.id === e.id)
+    if (at >= 0) panes.splice(at, 1)
+    paneActs.push({ act: 'close', id: e.id, focus: false })
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({ value: panes.map((pane) => ({ id: pane.id, title: pane.title, isShown: pane.placed, isFocused: pane.focus && pane.placed, isPlaced: pane.placed })) }))
+  // The engine's own drawing beneath the mod's render hooks: what another mod drew in the same place, when the
+  // test says one did (`beneath.render`), else an empty box.
+  on('ui.render', (_$, e) => {
+    const { Box, Text } = _$.ui.resolve(e)
+    const other = options.beneath?.render?.[e.component]
+    return (other === undefined ? h(Box, { key: 'engine' }) : h(Text, { key: 'beneath' }, other)) as RenderElement
   })
   on('ui.log', (_$, e) => {
     logs.push({ text: e.text, to: e.to })
@@ -322,6 +438,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     return { text, context: e.context }
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  // The engine's roster of the agents it spawned (a Workflow's agents are not in it), and where a loop's turn ends.
+  on('agent.list', () => {
+    looked.roster += 1
+    return options.agents !== undefined && !Array.isArray(options.agents) ? { deny: options.agents.deny } : { value: agents }
+  })
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
   // The engine's own command beneath `command.run`: a prompt command (a skill, a markdown command) prints nothing.
   on('command.run', () => ({}))
   // The engine at the bottom of agent.spawn: it starts the agent on the model
@@ -370,6 +492,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     prompts,
     turnIds,
     spawned,
+    /** The roster `$.agent.list()` answers: a test adds an agent as the engine would list it, or takes it away. */
+    agents,
+    /** What the mod looked up: how often it read the roster (`roster`), and the files it read, in order (`files`). */
+    looked,
     commands,
     tools,
     /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */
@@ -380,8 +506,69 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     completions,
     /** Every tool call that reached the tools, its id, its arguments as they arrived (a hook's rewrite included) and how it ended; a call a hook refused is not in it. */
     toolCalls,
-    /** The status line as last set (`undefined` once cleared or never set). */
-    status: () => statuses.at(-1),
+    /** Every toast the mod raised, its text and when (mock clock ms). */
+    toasts,
+    /** The panes the mod has open now (`id`, whether it asked for the keyboard, whether the surface placed it). */
+    panes,
+    /** Every `$.ui.open` and `$.ui.close` of the mod, in order. */
+    paneActs,
+    /**
+     * Draws the rationale pane (`Pane`, requestId `id`) through the mod as a surface would, the board as it stands: a
+     * body of `columns` cells (75 is the dock beside a 170-column transcript), docked unless `placement` says inline.
+     */
+    pane: (at: { id?: string; columns?: number; rows?: number; placement?: 'dock' | 'inline'; surface?: RenderSurface; focused?: boolean } = {}) => {
+      const props: RenderPropsOf['Pane'] = {
+        title: '依据',
+        isFocused: at.focused ?? true,
+        bodyColumns: at.columns ?? 75,
+        placement: at.placement ?? 'dock',
+        scroll: { offset: 0, bodyRows: at.rows ?? 40 },
+        view: {},
+      }
+      return $.ui.mount({ plugin: 'dispatch-pilot', surface: at.surface ?? 'terminal', component: 'Pane', requestId: at.id ?? 'dp-rationale', props, viewport: { columns: 170, rows: 50, isFullscreen: true } })
+    },
+    /**
+     * Draws the band above the prompt (`AbovePrompt`) through the mod as a surface would, the board as it stands:
+     * a terminal of `columns` (the band lays out in five fewer, the engine's `[-]`) and a band of `rows`, a turn
+     * running unless `isWorking` says not. Later board writes show after `redraw()`.
+     */
+    band: (at: { columns?: number; rows?: number; isWorking?: boolean; surface?: RenderSurface; hasSurvey?: boolean } = {}) => {
+      const columns = at.columns ?? 180
+      const rows = at.rows ?? 12
+      const props: RenderPropsOf['AbovePrompt'] = {
+        hasSurvey: at.hasSurvey ?? false,
+        isWorking: at.isWorking ?? true,
+        maxRows: rows,
+        bodyColumns: columns - 5,
+        scroll: { offset: 0, bodyRows: rows - 1 },
+        view: {},
+      }
+      return $.ui.mount({ plugin: 'dispatch-pilot', surface: at.surface ?? 'terminal', component: 'AbovePrompt', props, viewport: { columns, rows: 50, isFullscreen: true } })
+    },
+    /** Draws the right end of the prompt footer (`SessionMode`) through the mod, the engine's own modes given. */
+    footer: (at: { modes?: readonly string[]; surface?: RenderSurface } = {}) =>
+      $.ui.mount({ plugin: 'dispatch-pilot', surface: at.surface ?? 'terminal', component: 'SessionMode', props: { modes: at.modes ?? [] } }),
+    /**
+     * The board data the mod keeps in `$.state` (the 「决定汇报」 module, core/report.ts): what a screen would draw
+     * and what a test asserts on instead of a string. Reads the state as it stands now.
+     */
+    board: async (): Promise<BoardView> => {
+      const board = held.board.value as PluginState['dispatch-pilot']['board'] | undefined
+      const turn = board?.turn ?? 0
+      const nodes = board?.nodes ?? []
+      const current = nodes.filter((node) => node.turn === turn)
+      return {
+        turn,
+        nodes,
+        changes: board?.changes ?? [],
+        starts: board?.starts ?? [],
+        notes: board?.notes ?? [],
+        log: (held.decisionLog.value as LogEntry[] | undefined) ?? [],
+        profiles: (held.skillProfiles.value as ProfilesState | undefined) ?? undefined,
+        main: current.find((node) => node.id === 'main'),
+        agents: current.filter((node) => node.id !== 'main'),
+      }
+    },
     /** Submits a prompt the way the engine does; resolves when it entered (or was queued). */
     submit: (text: string, submit: SubmitOptions = {}) =>
       $.prompt.submit({
@@ -446,6 +633,21 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     /** The engine's skill listing as one request of a loop carries it (`agentId`: a dispatched agent's; needs `skills`); resolves to what the model reads. */
     listing: (text: string, agentId?: string) =>
       $.prompt.attachment({ type: 'skill_listing', text, origin: { kind: 'engine' }, ...(agentId !== undefined ? { agentId } : {}) }),
+    /**
+     * A loop's turn ends: the main agent's by default (the last turn started), an agent's with `agentId`
+     * (its loop carries its own turn id, `turn-<agentId>` as `agentStep` makes it). `reason` is `answer` unless said.
+     */
+    complete: (done: { agentId?: string; turnId?: string; reason?: 'answer' | 'aborted' | 'error'; durationMs?: number } = {}) => {
+      const reason = done.reason ?? 'answer'
+      return $.turn.complete({
+        answer: reason === 'answer' ? 'done' : '',
+        durationMs: done.durationMs ?? 1000,
+        isAborted: reason === 'aborted',
+        turnId: done.turnId ?? (done.agentId === undefined ? (turnIds.at(-1) ?? 't0') : `turn-${done.agentId}`),
+        reason,
+        ...(done.agentId !== undefined ? { agentId: done.agentId } : {}),
+      })
+    },
     /** Sends one model request through the mod, drained to its end (its text streamed, its tools run). */
     step: async (step: StepOptions) => {
       streaming = { answer: step.answer, tools: step.tools }

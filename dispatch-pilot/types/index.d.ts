@@ -2,8 +2,9 @@
 // committed; `claude plugin validate` checks every $.state read and write
 // against it. No top-level export: a contract declares types and nothing else.
 //
-// The shapes mirror hooks/core/plans.ts (Plan, TurnRecord, PendingDecision);
-// tsc checks the two agree wherever the hooks read or write these values.
+// The shapes mirror hooks/core/plans.ts (Plan, TurnRecord, PendingDecision) and
+// hooks/core/report.ts (Board, BoardNode, LogEntry); tsc checks the two agree
+// wherever the hooks read or write these values.
 
 declare module 'claude-code' {
   interface PluginState {
@@ -58,11 +59,199 @@ declare module 'claude-code' {
         } | null
       }>
       /**
-       * What the features recorded about their decisions (core/decisions.ts),
-       * oldest first, at most 50: what `/dp log` shows. `n` counts the session's
-       * decisions from 1.
+       * The board (the 「决定汇报」 module, core/report.ts; GLOSSARY 看板): what
+       * every screen of Dispatch Pilot draws from, with `decisionLog` below.
+       * Written by that module only (the features hand it decisions, the core
+       * hands it readings), read by anything that draws or tests.
+       *
+       * `turn` counts the main agent's turns the session has started (the
+       * module's own `turn.start` hook); the person's first message is turn 1.
+       * A decision made before its turn starts is filed under the turn to come
+       * (`turn + 1`), so its node is already there when the turn begins.
+       *
+       * `nodes` are the agents of the latest turns, the current one and the one
+       * before it (the band folds a finished turn into one line, so it still
+       * needs it); each turn has one node per agent, the main agent's `main`.
        */
-      decisionLog: { n: number; feature: string; outcome: string; about: string; reason: string }[]
+      board: {
+        turn: number
+        /**
+         * When the latest turns started (`$.clock.now()`, ms), by turn, as the module's `turn.start` hook saw it:
+         * what a node's `t0`, a change's `at` and the band's elapsed time count from. Absent in a board an earlier
+         * version wrote.
+         */
+        starts?: { turn: number; at: number }[]
+        /**
+         * The readings that changed, oldest first: an agent's model (by family) or effort differing from its
+         * previous step's in the same turn. The first reading of a node is no change. Kept for the nodes' turns.
+         * Absent in a board an earlier version wrote.
+         */
+        changes?: {
+          /** The turn of the agent's node, and the agent (`main`, or the agentId). */
+          turn: number
+          id: string
+          /** Seconds from the start of that turn to the step that read the change. */
+          at: number
+          /** The `n` of the last `decisionLog` entry when it was read (0: none yet): the event stream places it after that entry. */
+          after: number
+          from: { model?: 'haiku' | 'sonnet' | 'opus' | 'fable'; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number }
+          to: { model?: 'haiku' | 'sonnet' | 'opus' | 'fable'; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number }
+        }[]
+        /**
+         * What a feature met beside an agent's route, for the band's event stream, oldest first (at most 50, of
+         * the nodes' turns): a request that failed (`failed`: `why` in a few words), one that gave nothing to use
+         * (`skipped`: `why` is `unanswered`, `unread`, `none` or `error`), an answer not back in time (`late`).
+         * Absent in a board an earlier version wrote.
+         */
+        notes?: {
+          turn: number
+          /** `main`, or the agentId it was about. */
+          id: string
+          /** The feature's switch name. */
+          feature: string
+          /** Seconds from the start of that turn. */
+          at: number
+          /** The `n` of the last `decisionLog` entry when it was written. */
+          after: number
+          kind: 'failed' | 'skipped' | 'late'
+          why: string
+        }[]
+        nodes: {
+          /** The turn it belongs to. */
+          turn: number
+          /** `main` for the main agent, else the agentId of a dispatched or Workflow agent. */
+          id: string
+          kind: 'main' | 'agent' | 'wf'
+          /** What the person reads: 主 agent, the agent's name or description, a Workflow agent's label. */
+          name: string
+          /** `main`, the agent type (`Explore`), or `workflow`. */
+          type: string
+          /** The model of its latest step, by family; absent before its first step or for a model of no known family. */
+          model?: 'haiku' | 'sonnet' | 'opus' | 'fable'
+          /** The effort of its latest step as it went out (a level, or the engine's integer budget); absent for a model without effort. */
+          effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number
+          /**
+           * `queued`: spawned (or decided for) and no step yet; `running`: its latest step has been read and its loop
+           * has not ended; `done`: its loop ended with an answer; `failed`: it ended in an error, a refusal or an
+           * interruption (`why` says which).
+           */
+          state: 'queued' | 'running' | 'done' | 'failed'
+          /** Seconds from the start of the turn to the start of the agent (its first step; for a queued agent, its spawn). 0 for the main agent. */
+          t0: number
+          /** Seconds it ran, as its loop's `turn.complete` reports; absent while it runs. */
+          dur?: number
+          /** Whether its steps go out as Dispatch Pilot decided (or the person locked); false: as the engine made them (未路由). */
+          routed: boolean
+          /** The person's lock (`/dp lock`) holds the main agent's effort. */
+          locked?: true
+          /** Why it is not routed, or failed, in a few words. */
+          why?: string
+          /** The failed decision request behind `why`, for the rationale card. */
+          failure?: {
+            backend: string
+            kind: 'config' | 'timeout' | 'network' | 'busy' | 'quota' | 'http' | 'parse' | 'request'
+            detail: string
+            status?: number
+          }
+          /** The `n` of its decision in `decisionLog`. */
+          decision?: number
+          /**
+           * The Workflow it belongs to, `id` = the Workflow tool call's id: a Workflow agent, or, before it
+           * starts, the call of the script that stands for it (id `<tool_use_id>#<index>`, state `queued`).
+           */
+          workflow?: { id: string; name: string }
+          /**
+           * The main agent's mid-turn re-decisions this turn (midturn-effort): steps made, decisions (the turn's
+           * own at its start included), level changes. `late`: the answer for the step is not back; `failure`: the
+           * latest request failed. Absent until the turn was re-decided once.
+           */
+          midturn?: {
+            steps: number
+            judged: number
+            changed: number
+            late?: true
+            failure?: { backend: string; kind: 'config' | 'timeout' | 'network' | 'busy' | 'quota' | 'http' | 'parse' | 'request'; detail: string; status?: number }
+          }
+          /** The failed tool calls, hook blocks and forced raises of the agent's loop (escalation); absent while none. `late`: a stuck re-decision is not back. */
+          counts?: { failed: number; blocked: number; raised: number; late?: true }
+        }[]
+      }
+      /**
+       * What the features decided and why (core/report.ts `report`, a `decision`),
+       * oldest first: the
+       * last 20 turns, at most 300 entries. `n` counts the session's entries
+       * from 1; it is what `/dp log` and the debug log's `#n` show.
+       */
+      decisionLog: {
+        n: number
+        /** The turn it was made for (`board.turn`'s numbering). */
+        turn: number
+        /** Seconds from the start of that turn to when it was reported (0 for a decision made before the turn started); absent in an entry an earlier version wrote. */
+        at?: number
+        /** Who decided: the feature's switch name (a report's decision adds ` (agent report)`). */
+        feature: string
+        /** `main`, or the agentId it was about; absent for an entry of a feature not yet migrated, and for the session's (`skill-profiles`, #33). */
+        agent?: string
+        tone: 'ok' | 'warn' | 'fail' | 'info'
+        /** What was decided, in a few words: `effort high`. */
+        outcome: string
+        /** What it was about: the start of the message, an agent's label. */
+        subject: string
+        /** Why: what the decision model said, the rule that applied. */
+        reason: string
+        /** The decision model's probability of each effort level. */
+        probs?: { low: number; medium: number; high: number; xhigh: number; max: number }
+        /** The decision model's confidence. */
+        conf?: number
+        /** The rules' working, step by step (`pickEffort`, `judgeMidturn`): each step names its rule and whether it took effect; the rest of its fields are the rule's own. */
+        trace?: { rule: string; applied: boolean; [field: string]: string | number | boolean | null }[]
+        /** The model's floor lifted the effort (`from` to `to`, because of `model`). */
+        floor?: {
+          from: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          to: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          model: 'haiku' | 'sonnet' | 'opus' | 'fable'
+        }
+        /**
+         * The model (by family) and the effort an agent was decided to run with: a dispatched or Workflow agent's
+         * decision (the model, the effort), the main agent's effort decision (the effort only); its node says what its
+         * steps went out with. The screens read the level from here, never from `outcome`'s words.
+         */
+        model?: 'haiku' | 'sonnet' | 'opus' | 'fable'
+        effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+        /** A mid-turn re-decision: the effort it was at, the level the answer picked, where it ended, and why it did not move (`held`). */
+        mid?: {
+          current: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          picked: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          result: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          /** The confidence the move needed (thetaUp for a raise, thetaDown for a lowering); absent while the lowering was held, and when the answer was the level itself. */
+          threshold?: number
+          /** Why a lowering did not happen: it was held after a raise. */
+          held?: string
+          /** The steps still to wait before a held lowering may go through. */
+          remaining?: number
+        }
+        /** A raise the failures forced (escalation): what it went from and to (levels, or for a haiku agent models), and the level it keeps the agent at least at. */
+        forced?: { kind: 'effort' | 'model'; from: string; to: string; floor?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' }
+        /** The skills a message or a find_skill call got: those suggested to the main agent, and those only the person can start (「可试 /x」), each with its relevance. */
+        skills?: { suggest: { name: string; relevance: number }[]; try: { name: string; relevance: number }[] }
+        /** The loop's counts when it was raised (escalation). */
+        counts?: { failed: number; blocked: number; raised: number }
+        /** A Workflow call's decision that was sent back to the main agent to write in (return mode). */
+        sentBack?: true
+      }[]
+      /**
+       * The agent the person picked on the band (its digit key, 0 the main agent) or paged to in the rationale
+       * pane (p / n), whose card the pane shows: its node's turn and id. Null, or absent, until one is picked.
+       * Written by the band's and the pane's buttons only.
+       */
+      selected: { turn: number; id: string } | null
+      /**
+       * The rationale pane's own view (hooks/board/rationale.ts `PaneState`): the turns of the decision log the
+       * person folded (`open` false) or opened, the others as the pane leaves them (the newest two open); whether
+       * the skills that got no profile are listed. Absent until the person pressed one of its keys. Written by
+       * the pane's buttons only.
+       */
+      paneView: { folds: { turn: number; open: boolean }[]; failures: boolean }
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
       /**
@@ -150,6 +339,8 @@ declare module 'claude-code' {
       labelRuns: {
         /** The run's id (`runId` of the Workflow tool's result). */
         runId: string
+        /** The Workflow tool call that launched it: the id its agents' nodes on the board are grouped under (absent in a run an earlier load of the mod recorded: `runId` stands for it). */
+        callId?: string
         /** The run's directory (`transcriptDir`): its journal.jsonl, and each agent's transcript. */
         dir: string
         /** The script's `meta` name and description; null when it has none (or could not be read). */
@@ -228,6 +419,33 @@ declare module 'claude-code' {
           } | null
         }[]
       } | null
+      /**
+       * How writing the session's skill profiles went (#33; the 「决定汇报」 module, core/report.ts
+       * `report` with `profiles`, from the events of features/skill-profiles.ts): one record per session start,
+       * replaced by the next. Written as the profiles are, so a screen can say 生成中 2/5. Absent until
+       * a session start reported one (no record while the skills or skill-profiles switch is off).
+       * Counts: `kept` profiles already there (another session's included), `planned` the most this
+       * session writes (the ones lacking, capped by skillsProfilesPerSession), `written` this session's
+       * own, `failed` skills it got no profile for (`failures` names them, at most 50), `deferred` the
+       * ones left for a later session start. The ones written are not named.
+       */
+      skillProfiles: {
+        /** `writing`: the background writing is going on; `done`: it ended as it should; `stopped`: it gave up for this session (`stop` says why). */
+        phase: 'writing' | 'done' | 'stopped'
+        /** The turn the session start belongs to (`board.turn`, or 1 before the first message): the turn of its decision log entry. */
+        turn: number
+        /** The model that writes them (`skillsProfileModel`). */
+        model: string
+        kept: number
+        planned: number
+        written: number
+        failed: number
+        deferred: number
+        /** Why it stopped: `store-read` the store cannot be read, `model-refused` the engine refused the model, `api-error` the model answered with an API error, `store-write` the store would not keep a profile, `off` the person switched it off meanwhile, `error` something broke. `detail`: the words of it; '' when there are none. Only with `phase: 'stopped'`. */
+        stop?: { reason: 'store-read' | 'model-refused' | 'api-error' | 'store-write' | 'off' | 'error'; detail: string }
+        /** The skills a profile was not written for, in the order they failed, with why in a few words. */
+        failures: { name: string; reason: string }[]
+      }
       /**
        * How the skills feature answered the main agent's skill listing, which
        * the engine keeps for the conversation (#10): `withheld` (with the

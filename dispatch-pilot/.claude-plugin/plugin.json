@@ -1,7 +1,7 @@
 {
   "name": "dispatch-pilot",
-  "version": "0.2.4",
-  "description": "Dispatch Pilot: a decision model outside Claude (Jev or Clef, your choice) picks the main agent's reasoning effort each time you send a message (and when an agent's report or a task notice starts a turn), sets it on every request of the turn, and decides it again every few steps while the turn runs. It also picks the model and effort of each agent the main agent dispatches and of each agent a Workflow script starts, by Artificial Analysis benchmarks (sonnet and opus at medium effort at least). The main agent's model never changes, so the prompt cache survives (on a Claude Code subscription; not on Bedrock, Vertex or a gateway, where switching effort breaks the cache). It also keeps the full skill listing out of the main agent's context and suggests the few skills that fit each message; mid-turn, the main agent can look skills up with the find_skill tool. When an agent's tool calls keep failing it raises that agent's effort (a failing haiku agent goes on as sonnet), unless the failures are what the work expects.",
+  "version": "0.3.0",
+  "description": "Dispatch Pilot：一个在 Claude 之外的决策模型（Jev 或 Clef，二选一）在你每次发消息时决定主 agent 这一轮的 effort，每一步都按这一档发出，一轮进行中每隔几步再判断一次；也为主 agent 派出的每个 agent 和 Workflow 脚本里的每个 agent 按 Artificial Analysis 的基准选模型和 effort（sonnet 和 opus 至少 medium）。主 agent 的模型从不改变，prompt cache 不受影响（只在 Claude Code 订阅下成立；Bedrock、Vertex 和网关上切换 effort 会让缓存失效）。它还不让主 agent 读完整的 skill 列表，改为在你发消息时推荐合适的几个，一轮中途主 agent 可以用 find_skill 工具查 skill。agent 的工具调用接连失败时强制升高它的 effort（失败的 haiku agent 改用 sonnet），除非这些失败本来就在意料之中。所有判断和理由都放在看板上：prompt 上方的 band 列出本轮每个 agent 的模型和 effort，脚部一个短摘要，/dp 打开的依据面板写明每个决定的依据和决策日志。",
   "author": {
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
@@ -12,184 +12,184 @@
   "userConfig": {
     "decisionModel": {
       "type": "string",
-      "title": "Decision model",
-      "description": "Which model makes the decisions: jev (TypeSafe; needs the TypeSafe API key) or clef (Cloudflare Workers AI; needs the Cloudflare account ID and API token). The other is never used as a fallback: when the chosen one fails, the message goes on unrouted. Some options default by the model chosen. With Jev they are set to what Jev accepts (up to 32 recent messages and 16 steps; a context budget of 6000 tokens for a message that carries the skill question, 24000 for the other requests). With Clef, which answers more slowly and sometimes reads only the start of a long request, the decision timeout is 3000 ms, the context budget at most 2000 tokens for every kind of request (4 messages, 4 steps), and skill suggestions start off (/dp skills on turns them on).",
+      "title": "决策模型",
+      "description": "由哪个模型做决定：jev（TypeSafe，要 TypeSafe 的 API key）或 clef（Cloudflare Workers AI，要 Cloudflare 的 account ID 和 API token）。另一个从不当备用：选中的出错时，消息不经路由地放行。有几项选项的默认值随所选的决策模型而定。选 Jev 时取 Jev 能接受的值（最近 32 条消息、16 步；带 skill 题的消息请求上下文预算 6000 token，其余请求 24000）。选 Clef 时（它答得慢，有时只读长请求的开头）决策超时是 3000 毫秒，所有请求的上下文预算最多 2000 token（4 条消息、4 步），skill 推荐默认关闭（/dp skills on 打开）。",
       "options": ["jev", "clef"],
       "default": "jev"
     },
     "typesafeApiKey": {
       "type": "string",
       "title": "TypeSafe API key",
-      "description": "Key for TypeSafe's System One API, where Jev runs (used when the decision model is jev). Without one, nothing is sent and every turn keeps the session's effort.",
+      "description": "TypeSafe System One 的 API key，Jev 在那里运行（决策模型选 jev 时用）。没有它就不发任何请求，每一轮都按会话自己的 effort 走。",
       "default": "",
       "sensitive": true
     },
     "cloudflareAccountId": {
       "type": "string",
       "title": "Cloudflare account ID",
-      "description": "The Cloudflare account that runs Workers AI (used when the decision model is clef). It is part of the request address, which Claude Code's debug log records. Without it, nothing is sent and every turn keeps the session's effort.",
+      "description": "运行 Workers AI 的 Cloudflare account ID（决策模型选 clef 时用）。它是请求地址的一部分，Claude Code 的 debug log 会记下请求地址。没有它就不发任何请求，每一轮都按会话自己的 effort 走。",
       "default": "",
       "sensitive": true
     },
     "cloudflareApiToken": {
       "type": "string",
       "title": "Cloudflare Workers AI API token",
-      "description": "A Cloudflare API token that can run Workers AI (used when the decision model is clef): in the dashboard, Workers AI, Use REST API, Create a Workers AI API Token. Without one, nothing is sent and every turn keeps the session's effort.",
+      "description": "能调用 Workers AI 的 Cloudflare API token（决策模型选 clef 时用）：在控制台的 Workers AI 页面选 Use REST API，再点 Create a Workers AI API Token。没有它就不发任何请求，每一轮都按会话自己的 effort 走。",
       "default": "",
       "sensitive": true
     },
     "timeoutMs": {
       "type": "number",
-      "title": "Decision timeout (ms)",
-      "description": "How long a message waits for the decision model (200 to 8000). Past it the message goes on unrouted, at the session's effort, and the status line says so. Default: 1500 with Jev, 3000 with Clef, which answers more slowly (a first request often takes 1.5 s or more)."
+      "title": "决策超时（毫秒）",
+      "description": "一条消息最多等决策模型多久（200 到 8000）。超过就不经路由地放行，按会话自己的 effort 走，看板上写明原因。默认：Jev 1500，Clef 3000（Clef 答得慢，第一个请求常要 1.5 秒以上）。"
     },
     "contextMessages": {
       "type": "number",
-      "title": "Recent messages sent",
-      "description": "How many recent messages the decision model reads beside yours (0 to 32): their text and the names of the tools they called, never file contents or tool output, secrets masked. Default 32 with Jev (the context budget, not this count, ends what is sent), 4 with Clef."
+      "title": "随消息发送的最近消息条数",
+      "description": "决策模型除了你的消息，还读几条最近的消息（0 到 32）：只有文字和调用过的工具名，从不含文件内容和工具输出，secret 已脱敏。默认：Jev 32（实际发多少由上下文预算决定，不是这个条数），Clef 4。"
     },
     "contextTokens": {
       "type": "number",
-      "title": "Context budget (tokens)",
-      "description": "How many tokens your message and the recent messages may take together (100 to 16000; with Clef at most 2000), counted the same way for Chinese and English; older messages are dropped first. Read by kind of request: with Jev, 6000 for a message that carries the skill suggestions' question (and find_skill's first stage), which holds every skill's profile (about 22k tokens as Jev counts them) and so must keep the state plus the question within Jev's 32k, and 24000 for the other requests (a message without the skill question, a re-decision, a dispatched agent, a Workflow batch), whose questions are short. A value you set holds for every kind, each kind taking the smaller of it and its own. If decisions time out more often, set it lower. Default 2000 with Clef for every kind, and a larger value reads as 2000: Clef sometimes reads only about the first 2,100 tokens of what it is sent, and the newest messages come last, so they would be the ones lost."
+      "title": "上下文预算（token）",
+      "description": "你的消息加上最近的消息一共最多占多少 token（100 到 16000；Clef 最多 2000），中英文按同一个尺度数，旧消息先丢。按请求的种类取：选 Jev 时，带 skill 推荐那一题的消息（以及 find_skill 的第一段）取 6000，因为它带着每个 skill 的画像（约 2.2 万 token，按 Jev 的算法），state 加这一题必须留在 Jev 的 32k 之内；其余请求（不带 skill 题的消息、重判、派出 agent、一批 Workflow 调用）题目都很短，取 24000。你自己设了值，每个种类都取它和自己上限里较小的一个。决策超时变多时，把它调小。选 Clef 时所有种类默认 2000，设得更大也按 2000 算：Clef 有时只读发出内容的前约 2100 token，最新的消息排在最后，会先被丢掉。"
     },
     "thetaMax": {
       "type": "number",
-      "title": "Threshold for max effort",
-      "description": "The main agent goes to max only when the decision model gives max at least this probability (0 to 1); otherwise it gets the most likely of the other levels. Default 0.5 with either decision model (not calibrated for Clef: Jev's value)."
+      "title": "用 max 的门槛",
+      "description": "决策模型给 max 的概率至少达到它（0 到 1），主 agent 才用 max；否则取其余几档里最可能的。默认 0.5，两个决策模型都一样（Clef 没有校准过，沿用 Jev 的值）。"
     },
     "rejudgeEvery": {
       "type": "number",
-      "title": "Re-decide effort every N steps",
-      "description": "While a turn runs, the main agent's effort is decided again at every Nth step (0 to 50; 0 turns this off). Dispatching an agent, starting a Workflow or loading a skill also re-decides it.",
+      "title": "每几步重新判断一次 effort",
+      "description": "一轮进行中，主 agent 的 effort 每隔这么多步重新判断一次（0 到 50；0 表示不按步数重判）。主 agent 派出 agent、启动 Workflow 或加载 skill 时也会重判。",
       "default": 3
     },
     "thetaUp": {
       "type": "number",
-      "title": "Threshold to raise effort mid-turn",
-      "description": "A re-decision raises the effort only when the decision model's confidence is at least this (0 to 1). Default 0.3 with either decision model (not calibrated for Clef, whose confidence runs much lower than Jev's: Jev's value)."
+      "title": "中途升档的门槛",
+      "description": "重判时，决策模型的置信度至少达到它（0 到 1）才会升档。默认 0.3，两个决策模型都一样（Clef 的置信度比 Jev 低得多，这个值没有为它校准，沿用 Jev 的）。"
     },
     "thetaDown": {
       "type": "number",
-      "title": "Threshold to lower effort mid-turn",
-      "description": "A re-decision lowers the effort, by one level at most, only when the decision model's confidence is at least this (0 to 1; never below the raise threshold). Default 0.55 with either decision model (not calibrated for Clef: Jev's value)."
+      "title": "中途降档的门槛",
+      "description": "重判时，决策模型的置信度至少达到它（0 到 1，不低于升档门槛）才会降档，一次最多降一档。默认 0.55，两个决策模型都一样（没有为 Clef 校准，沿用 Jev 的）。"
     },
     "holdSteps": {
       "type": "number",
-      "title": "Steps before effort may drop after a raise",
-      "description": "After a re-decision raises the effort, it does not lower it again for this many steps (0 to 50).",
+      "title": "升档后多少步内不降",
+      "description": "重判升档之后，这么多步（0 到 50）之内不再降档。",
       "default": 5
     },
     "rejudgeSteps": {
       "type": "number",
-      "title": "Recent steps read when re-deciding",
-      "description": "How many of the turn's latest steps the decision model reads when it re-decides (1 to 16): the main agent's last text and the tools it called with how each ended, never file contents or tool output, secrets masked. The context budget bounds them too. Default 16 with Jev (the context budget, not this count, ends what is sent), 4 with Clef."
+      "title": "重判时读的最近步数",
+      "description": "重判时决策模型读这一轮最近的几步（1 到 16）：主 agent 写的最后一段文字和它调用的工具、每个调用怎么结束的，从不含文件内容和工具输出，secret 已脱敏；上下文预算也限制它。默认：Jev 16（实际发多少由上下文预算决定，不是这个步数），Clef 4。"
     },
     "rejudgeWaitMs": {
       "type": "number",
-      "title": "Wait for a late re-decision (ms)",
-      "description": "A re-decision is asked while a tool runs; if it is not back when the next request goes out, that request waits this long for it (0 to 2000), then keeps the effort it had and the status line says so.",
+      "title": "等迟到的重判多久（毫秒）",
+      "description": "重判在工具运行时就发出；下一个请求发出时它还没回来，就最多再等这么久（0 到 2000），然后沿用原来的 effort，看板的事件流记一条「迟到」。",
       "default": 300
     },
     "escalateAfter": {
       "type": "number",
-      "title": "Failed tool calls before escalating",
-      "description": "The main agent, or an agent it dispatched, whose tool calls have failed this many times is asked about again and raised to a higher effort (1 to 20), unless the failures are what the work expects (a test written to fail first, a search that finds nothing). A call you refused yourself never counts; one of your own hooks blocked counts only after /dp hook-block-failures on.",
+      "title": "失败几次后强制升档",
+      "description": "主 agent 或它派出的 agent，工具调用失败满这么多次（1 到 20）就再问一次决策模型并升高 effort，除非这些失败本来就在意料之中（先写下要看它红的测试、没找到东西的搜索）。你自己拒绝的调用从不算；被你自己的 hook 拦下的调用要 /dp hook-block-failures on 之后才算。",
       "default": 2
     },
     "escalateMode": {
       "type": "string",
-      "title": "How escalating raises the effort",
-      "description": "one-level: one level up, never past xhigh (the decision model's own pick may go higher when it is sure). max: straight to max. A haiku agent has no effort to raise: it is switched to the model below instead.",
+      "title": "强制升档怎么升",
+      "description": "one-level：升一档，最高到 xhigh（决策模型自己有把握时可以更高）。max：直接升到 max。haiku agent 没有 effort 可升，改用下面的模型。",
       "options": ["one-level", "max"],
       "default": "one-level"
     },
     "escalateLimit": {
       "type": "number",
-      "title": "Escalations per turn",
-      "description": "How many times one turn of the main agent (or one dispatched agent) may be raised for failing tool calls (0 to 10). The failures count from zero again after each escalation.",
+      "title": "每轮最多升档几次",
+      "description": "主 agent 的一轮（或一个派出 agent）最多因为工具调用失败升几次档（0 到 10）。每次升档之后，失败从零重新数。",
       "default": 2
     },
     "thetaExpected": {
       "type": "number",
-      "title": "Threshold to find failures expected",
-      "description": "When the decision model rates the failures at least this likely to be what the work expects (0 to 1), nothing is forced: the failures start counting from zero and the effort is left to the ordinary mid-turn rules. Low on purpose: measured on a few hand-written cases, Jev rates failures that are expected 0.15 to 0.72 and ones that are not 0.09 to 0.16 (Clef 0.27 to 0.90 and 0.03 to 0.11). Default 0.25 with either decision model (not calibrated for Clef: Jev's value)."
+      "title": "认定失败是预期内的门槛",
+      "description": "决策模型认为这些失败是预期内的概率至少达到它（0 到 1），就不强制升档：失败从零重新数，effort 交给普通的中途重判规则。故意取得低：在几个手写场景上量过，Jev 给预期内的失败 0.15 到 0.72，给不是预期内的 0.09 到 0.16（Clef 是 0.27 到 0.90 和 0.03 到 0.11）。默认 0.25，两个决策模型都一样（没有为 Clef 校准，沿用 Jev 的）。"
     },
     "escalateHaikuTo": {
       "type": "string",
-      "title": "Model a failing haiku agent switches to",
-      "description": "A haiku agent has no effort to raise, so when its tool calls keep failing it goes on as this model for the rest of its run: sonnet, opus or fable, or a full model id. An alias is turned into the full id a step needs (the engine takes no alias for a step); a model you named for the agent's work, or ruled out, holds over it. Empty: never switch.",
+      "title": "失败的 haiku agent 改用哪个模型",
+      "description": "haiku 没有 effort 可升，所以它的工具调用接连失败时，这个 agent 接下来改用这个模型：sonnet、opus 或 fable，或者完整的模型 id。别名会换成这一步需要的完整 id（引擎不认别名）；你为这个 agent 的工作点名的模型、排除的模型优先。留空表示不换。",
       "default": "sonnet"
     },
     "agentFable": {
       "type": "boolean",
-      "title": "Let dispatched agents run on fable",
-      "description": "Adds fable to the models the decision model may choose for an agent the main agent dispatches (haiku, sonnet and opus otherwise). Fable costs more than opus. A model you name yourself in your message is used either way.",
+      "title": "派出的 agent 可以用 fable",
+      "description": "把 fable 加进决策模型可以为派出的 agent 选的模型（不加是 haiku、sonnet 和 opus）。fable 比 opus 贵。你在消息里自己点名的模型，不管这个开关都照用。",
       "default": false
     },
     "agentOverride": {
       "type": "number",
-      "title": "Confidence to override the main agent's model pick",
-      "description": "When the main agent names a model for an agent it dispatches, the decision model's pick replaces it only at this confidence or above (0 to 1). A model you name yourself in your message is never replaced. Default 0.6 with either decision model (not calibrated for Clef: Jev's value)."
+      "title": "推翻主 agent 选的模型所需的置信度",
+      "description": "主 agent 为它派出的 agent 指定了模型时，决策模型的选择置信度至少达到它（0 到 1）才会推翻。你在消息里自己点名的模型从不被推翻。默认 0.6，两个决策模型都一样（没有为 Clef 校准，沿用 Jev 的）。"
     },
     "skillsMax": {
       "type": "number",
-      "title": "Skills suggested at most",
-      "description": "How many skills one message gets suggested at most (0 to 10); fewer, or none, when fewer reach the relevance below.",
+      "title": "最多推荐几个 skill",
+      "description": "一条消息最多推荐几个 skill（0 到 10）；达到下面的相关度的不够，就更少，或者一个也没有。",
       "default": 3
     },
     "skillsMinRelevance": {
       "type": "number",
-      "title": "Least relevance to suggest",
-      "description": "The relevance a skill needs to be suggested (0 to 1): how likely the decision model judges that the skill does the kind of work the message asks for, each skill judged on its own after its instructions are re-read. Default 0.75 with either decision model (not calibrated for Clef: Jev's value)."
+      "title": "推荐所需的最低相关度",
+      "description": "一个 skill 要被推荐至少要有的相关度（0 到 1）：决策模型认为这个 skill 正好做这条消息要做的那种工作的概率，每个 skill 重读开头的说明后单独判断。默认 0.75，两个决策模型都一样（没有为 Clef 校准，沿用 Jev 的）。"
     },
     "skillsShortlist": {
       "type": "number",
-      "title": "Skills re-read in the second stage",
-      "description": "How many of the skills the main agent can load, rated highest for a message, are re-read with the opening of their instructions and judged one by one (1 to 10); at most 2 of the skills only you can start are re-read beside them. A skill is re-read only when the first request rated it at least 0.1, and both requests together wait at most the decision timeout.",
+      "title": "第二段补读几个 skill",
+      "description": "主 agent 能加载的 skill 里，第一段给分最高的几个会补读 SKILL.md 开头、逐个判断（1 到 10）；另外最多 2 个只能由你触发的 skill 一起补读。第一段给分不到 0.1 的 skill 不补读；两段请求合计最多等决策超时那么久。",
       "default": 4
     },
     "skillsProfileModel": {
       "type": "string",
-      "title": "Model that writes skill profiles",
-      "description": "The model (an alias such as haiku, or a full model id) that writes each skill a short profile in English and Chinese from its SKILL.md, once per version of the file, so the decision model can match a request in either language. It runs in the background through your Claude Code login and uses your plan's usage. A new model writes every profile again.",
+      "title": "写 skill 画像的模型",
+      "description": "用哪个模型（别名如 haiku，或完整的模型 id）读每个 skill 的 SKILL.md，写一份中英文的简短画像，每个 SKILL.md 版本只写一次，让决策模型中英文都能对上。它在后台通过你的 Claude Code 登录运行，用的是你套餐的用量。换了模型，所有画像重写。",
       "default": "haiku"
     },
     "skillsProfilesPerSession": {
       "type": "number",
-      "title": "Skill profiles written per session",
-      "description": "How many missing skill profiles are written at most each time a session starts (0 to 500; 0 writes none). The rest wait for later sessions, so a first run with many skills spreads its cost.",
+      "title": "每个会话最多写几份 skill 画像",
+      "description": "每次会话开始，最多写几份还没有的 skill 画像（0 到 500；0 表示不写）。其余留给以后的会话，第一次装了很多 skill 时，用量被摊开。",
       "default": 30
     },
     "skillsAlwaysListed": {
       "type": "string",
       "multiple": true,
-      "title": "Skills always listed",
-      "description": "Skills the main agent keeps seeing in its skill listing, by the name the listing gives them (a synced skill with its prefix, such as anthropic-skills:pdf). Every other skill is left out of the listing and suggested only when a message needs it.",
+      "title": "一直列出的 skill",
+      "description": "主 agent 一直在 skill 列表里看到的 skill，写列表里的名字（同步来的 skill 带前缀，例如 anthropic-skills:pdf）。其余的 skill 不在列表里，只在消息需要时才推荐。",
       "default": []
     },
     "skillsNeverSuggested": {
       "type": "string",
       "multiple": true,
-      "title": "Skills never suggested",
-      "description": "Skills never suggested to the main agent nor pointed out to you, by the name the listing gives them. They stay installed: the Skill tool still loads one by name. find_skill never returns them either.",
+      "title": "从不推荐的 skill",
+      "description": "从不推荐给主 agent、也不提示你的 skill，写列表里的名字。它们照常安装，Skill 工具仍能按名字加载；find_skill 也从不返回它们。",
       "default": []
     },
     "findSkillMax": {
       "type": "number",
-      "title": "Skills find_skill returns at most",
-      "description": "How many skills the main agent's find_skill tool returns for one query at most (1 to 10); fewer, or none, when fewer reach the relevance below.",
+      "title": "find_skill 最多返回几个 skill",
+      "description": "主 agent 的 find_skill 工具对一次查询最多返回几个 skill（1 到 10）；达到下面的相关度的不够，就更少，或者一个也没有。",
       "default": 5
     },
     "findSkillMinRelevance": {
       "type": "number",
-      "title": "Least relevance find_skill returns",
-      "description": "The relevance a skill needs for find_skill to return it (0 to 1): how likely the decision model judges that the skill does the kind of work the main agent names, each skill judged on its own after its instructions are re-read. Default 0.5 with either decision model (not calibrated for Clef: Jev's value)."
+      "title": "find_skill 返回所需的最低相关度",
+      "description": "find_skill 要返回一个 skill 至少要有的相关度（0 到 1）：决策模型认为这个 skill 正好做主 agent 说的那项工作的概率，每个 skill 重读开头的说明后单独判断。默认 0.5，两个决策模型都一样（没有为 Clef 校准，沿用 Jev 的）。"
     },
     "workflowMode": {
       "type": "string",
-      "title": "How Workflow agents are routed",
-      "description": "rewrite: when the main agent submits a Workflow, the model and effort decided for each agent() call are written into the script before it runs, and the main agent is told what was written. return: the first submission of a Workflow is refused with the recommendation for each agent() call, for the main agent to write in itself; the same Workflow submitted again runs as written.",
+      "title": "Workflow 里的 agent 怎么路由",
+      "description": "rewrite：主 agent 提交 Workflow 时，为每个 agent() 调用决定的模型和 effort 写进脚本再运行，并告诉主 agent 写了什么。return：第一次提交被拒绝，附上每个 agent() 调用的推荐，让主 agent 自己写进去；同一个 Workflow 再提交一次就照原样运行。",
       "options": ["rewrite", "return"],
       "default": "rewrite"
     }

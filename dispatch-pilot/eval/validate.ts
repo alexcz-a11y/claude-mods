@@ -1,13 +1,13 @@
 // Checks eval datasets against their format (lib/datasets.ts states it), the
 // README's configuration table against plugin.json and the decision models'
-// defaults, and DEVELOPMENT.md's 「结构」 tree against the modules under hooks/
-// (lib/docs.ts): the checks of the docs a test file cannot make, for it cannot
+// defaults, DEVELOPMENT.md's 「结构」 tree against the modules under hooks/, and
+// that only the decision report writes the screens (lib/docs.ts): the checks of the docs a test file cannot make, for it cannot
 // read the files.
 //
 //   node dispatch-pilot/eval/validate.ts                      every eval/datasets/*.jsonl, then the README's configuration table
 //   node dispatch-pilot/eval/validate.ts effort-submit        eval/datasets/effort-submit.jsonl
 //   node dispatch-pilot/eval/validate.ts path/to/skill.jsonl  a file elsewhere (skill-catalog.json beside it)
-//   node dispatch-pilot/eval/validate.ts docs                 only the docs: the configuration table and the 「结构」 tree
+//   node dispatch-pilot/eval/validate.ts docs                 only the docs: the configuration table, the 「结构」 tree and the one-writer check
 //
 // Exits 1 when any item or row breaks a rule; warnings (dataset-wide quotas) do not fail.
 
@@ -15,7 +15,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { validateDataset } from './lib/datasets.ts'
-import { checkConfigTable, checkStructureTree } from './lib/docs.ts'
+import { checkConfigTable, checkOneWriter, checkStructureTree } from './lib/docs.ts'
 import { DATASETS_DIR, MOD_DIR, catalogFor, datasetFile, readDataset, readManifest } from './node.ts'
 
 const { positionals } = parseArgs({ allowPositionals: true, options: {} })
@@ -40,10 +40,14 @@ if (everything || positionals.includes('docs')) {
   for (const problem of problems) console.log(`  ${problem}`)
   if (problems.length > 0) failed = true
   const hooks = join(MOD_DIR, 'hooks')
-  const modules = readdirSync(hooks, { recursive: true, encoding: 'utf8' }).filter((path) => path.endsWith('.ts')).map((path) => path.split('\\').join('/'))
+  const modules = readdirSync(hooks, { recursive: true, encoding: 'utf8' }).filter((path) => /\.tsx?$/.test(path)).map((path) => path.split('\\').join('/'))
   const drift = checkStructureTree(readFileSync(join(MOD_DIR, 'DEVELOPMENT.md'), 'utf8'), modules)
   console.log(`DEVELOPMENT.md structure tree: ${drift.length === 0 ? 'ok' : `${drift.length} problems`}`)
   for (const problem of drift) console.log(`  ${problem}`)
   if (drift.length > 0) failed = true
+  const writers = checkOneWriter(Object.fromEntries(modules.map((path) => [path, readFileSync(join(hooks, path), 'utf8')])))
+  console.log(`hooks/ one writer of the screens (ADR 0004): ${writers.length === 0 ? 'ok' : `${writers.length} problems`}`)
+  for (const problem of writers) console.log(`  ${problem}`)
+  if (writers.length > 0) failed = true
 }
 process.exit(failed ? 1 : 0)

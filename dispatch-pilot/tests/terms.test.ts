@@ -73,7 +73,7 @@ const HAIKU = 'claude-haiku-4-5-20251001'
 
 /** The decision log's escalation lines, as /dp log shows them. */
 async function escalations(w: ReturnType<typeof world>): Promise<string[]> {
-  return (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' escalation: '))
+  return (await w.command('dp', 'log 10')).split('\n').filter((line) => line.includes(' escalation：'))
 }
 
 test('a haiku the person named for an agent stays its model however its calls fail: it is not switched to sonnet, and the log says why', { options: ONLY }, async ($, on) => {
@@ -90,8 +90,8 @@ test('a haiku the person named for an agent stays its model however its calls fa
   expect(w.requests.filter((r) => 'escalation.expected' in r.body.questions)).toHaveLength(0)
   const log = await escalations(w)
   expect(log).toHaveLength(1)
-  expect(log[0]).toContain(`model ${HAIKU} (kept) for agent`)
-  expect(log[0]).toContain('haiku is the model you named for it')
+  expect(log[0]).toContain(`model ${HAIKU}（保持） · agent`)
+  expect(log[0]).toContain('haiku 是你给它点名的模型')
 })
 
 test('a model the person ruled out is never the one a failing haiku agent is switched to: it goes on as the next model up that is not ruled out', { options: ONLY }, async ($, on) => {
@@ -104,8 +104,8 @@ test('a model the person ruled out is never the one a failing haiku agent is swi
 
   expect(w.steps.map((s) => s.model)).toEqual([HAIKU, 'claude-opus-5-5'])
   const log = await escalations(w)
-  expect(log[0]).toContain(`model claude-opus-5-5 (was ${HAIKU})`)
-  expect(log[0]).toContain('sonnet is ruled out for it')
+  expect(log[0]).toContain(`model claude-opus-5-5（原 ${HAIKU}）`)
+  expect(log[0]).toContain('sonnet 被你排除了')
 })
 
 test('when the person ruled out every model above haiku that agents may run on, the failing haiku agent stays on haiku, and the log says why', { options: ONLY }, async ($, on) => {
@@ -118,8 +118,8 @@ test('when the person ruled out every model above haiku that agents may run on, 
 
   expect(w.steps.map((s) => s.model)).toEqual([HAIKU, HAIKU])
   const log = await escalations(w)
-  expect(log[0]).toContain(`model ${HAIKU} (kept)`)
-  expect(log[0]).toContain('every model above haiku is ruled out for it (sonnet, opus)')
+  expect(log[0]).toContain(`model ${HAIKU}（保持）`)
+  expect(log[0]).toContain('haiku 以上的模型都被你排除了（sonnet、opus）')
 })
 
 test('an effort the person named for an agent is not raised when its calls keep failing', { options: ONLY }, async ($, on) => {
@@ -134,8 +134,8 @@ test('an effort the person named for an agent is not raised when its calls keep 
   expect(w.steps.map((s) => String(s.effort))).toEqual(['low', 'low', 'low'])
   expect(w.requests.filter((r) => 'escalation.expected' in r.body.questions)).toHaveLength(0)
   const log = await escalations(w)
-  expect(log[0]).toContain('effort low (kept)')
-  expect(log[0]).toContain('low is the effort you named for it')
+  expect(log[0]).toContain('effort low（保持）')
+  expect(log[0]).toContain('low 是你给它点名的 effort')
 })
 
 // A Workflow's agents: the label fallback (#9) plans them as they start, the
@@ -226,5 +226,5 @@ return found
 
   expect(w.steps.map((s) => s.model)).toEqual([HAIKU, HAIKU])
   const log = await escalations(w)
-  expect(log[0]).toContain('haiku is the model you named for it')
+  expect(log[0]).toContain('haiku 是你给它点名的模型')
 })

@@ -10,7 +10,7 @@
 // value means yes, `criteria.true` is yes. The mod and the eval build it with
 // `stuckRequest` (spec #67).
 
-import { DEFAULT_ASK, EFFORTS, higherEffort, pickEffort, type Effort, type EffortAsk, type EffortReading, type Language } from './effort.ts'
+import { DEFAULT_ASK, EFFORTS, higherEffort, traceEffort, type Effort, type EffortAsk, type EffortReading, type EffortStep, type Language } from './effort.ts'
 import { midturnEffortPart, midturnState, outcomeOf, resultLine, toolDetail, type MidturnInput, type MidturnLimits, type MidturnStep, type MidturnTool, type Outcome } from './midturn.ts'
 import { mergeParts, type Answer, type DecisionRequest, type Part, type Question } from './system-one.ts'
 import { computedTask, isRelayedRequest } from './workflow-labels.ts'
@@ -35,15 +35,41 @@ export function forcedTarget(current: Effort, mode: RaiseMode): Effort | null {
 }
 
 /**
- * The level a forced raise ends at: `target` (the one level, or max, the
- * failures force), or the decision model's own pick when that is higher and
- * its answer is sure enough (`thetaUp`, as for any mid-turn raise); `max` only
- * past `thetaMax`, as everywhere.
+ * One step of a forced raise's working, besides the effort rules' own (`EffortStep`) that read the answer's pick.
+ * Data only, like them (ADR 0004).
  */
-export function raisedLevel(reading: EffortReading | null, target: Effort, rules: { thetaUp: number; thetaMax: number }): Effort {
-  if (reading === null) return target
+export type RaiseStep =
+  /** The failures force the loop from `from` to `level` (one level up, or max: `mode`). */
+  | { rule: 'forced-raise'; applied: true; level: Effort; from: Effort; mode: RaiseMode }
+  /** The answer's own pick counts only when it is sure enough: `confidence` >= `threshold` (thetaUp). */
+  | { rule: 'theta-up'; applied: boolean; confidence: number; threshold: number }
+  /** The higher of the forced level (`from`) and the answer's pick; `applied` when the pick was higher. */
+  | { rule: 'higher-of'; applied: boolean; level: Effort; from: Effort }
+
+/**
+ * The level a forced raise ends at, with its working: `target` (the one level,
+ * or max, the failures force, from `from`), or the decision model's own pick
+ * when that is higher and its answer is sure enough (`thetaUp`, as for any
+ * mid-turn raise); `max` only past `thetaMax`, as everywhere. The steps are the
+ * forced raise, then (with an answer) the effort rules' walk to its pick, the
+ * confidence check and the comparison.
+ */
+export function traceRaise(
+  reading: EffortReading | null,
+  forced: { from: Effort; target: Effort; mode: RaiseMode },
+  rules: { thetaUp: number; thetaMax: number },
+): { level: Effort; steps: (EffortStep | RaiseStep)[] } {
+  const { target } = forced
+  const steps: (EffortStep | RaiseStep)[] = [{ rule: 'forced-raise', applied: true, level: target, from: forced.from, mode: forced.mode }]
+  if (reading === null) return { level: target, steps }
+  const pick = traceEffort(reading, rules.thetaMax)
   const confidence = reading.confidence ?? Math.max(...reading.probabilities)
-  return confidence >= rules.thetaUp ? (higherEffort(target, pickEffort(reading, rules.thetaMax)) as Effort) : target
+  const sure = confidence >= rules.thetaUp
+  steps.push(...pick.steps, { rule: 'theta-up', applied: sure, confidence, threshold: rules.thetaUp })
+  if (!sure) return { level: target, steps }
+  const level = higherEffort(target, pick.effort) as Effort
+  steps.push({ rule: 'higher-of', applied: level !== target, level, from: target })
+  return { level, steps }
 }
 
 /** What went wrong, in one English sentence for the decision model's state (`trouble`): `2 tool calls have failed while working on this request`. */

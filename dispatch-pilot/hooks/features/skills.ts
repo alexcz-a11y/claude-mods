@@ -4,8 +4,8 @@
 // (the find_skill tool, while its switch is on). Instead, each time the
 // person sends a message, the decision model ranks the skills against it in
 // two stages (decision/skills.ts) and the few that fit are suggested beside
-// the message. Skills only the person can start are pointed out on the status
-// line instead.
+// the message. Skills only the person can start are pointed out to the person
+// instead (「可试 /x」 on the board), never to the main agent.
 //
 // The ranking offers a skill by its bilingual profile once one is written
 // (features/skill-profiles.ts writes them in the background at session
@@ -28,18 +28,18 @@ import { modRanker, pickSkills, relevanceBlock, skillOpening, type SkillPick, ty
 import type { DecisionRequest } from '../decision/system-one.ts'
 import { contribute } from '../core/ballot.ts'
 import { commandOf } from '../core/commands.ts'
-import { recordDecision } from '../core/decisions.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { readSessionSkills } from '../core/profiles.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
+import { report, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { describeStages, listingNames, rankingSettings, trimListing, type CatalogSkill } from '../core/skills.ts'
-import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 
 const SHOWN = { plugin: 'dispatch-pilot', key: 'skillsShown' } as const
 const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
 const LISTING = { plugin: 'dispatch-pilot', key: 'skillListing' } as const
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** The feature's switch: the suggestions, and with them the withheld listing. */
@@ -103,7 +103,7 @@ async function openingOf($: EngineInterface, catalog: readonly CatalogSkill[], n
 
 export function registerSkills(on: On, ctx: Ctx): void {
   // On or off until the person flips it, by the decision model: off with Clef, whose first stage takes longer than a message can wait.
-  defineSwitch({ name: SWITCH, info: 'suggests the skills that fit each message; the full skill listing stays out', default: ctx.config.skills.suggestByDefault, segments: ['skills'] })
+  defineSwitch({ name: SWITCH, info: '给每条消息推荐合适的 skill，完整的 skill 列表不再交给主 agent', default: ctx.config.skills.suggestByDefault })
 
   /** Skills the main agent keeps in its listing (names as the listing spells them). */
   const alwaysListed = new Set(ctx.config.skills.alwaysListed)
@@ -223,27 +223,37 @@ export function registerSkills(on: On, ctx: Ctx): void {
     contribute(e.text, {
       ...part,
       settle: async (outcome) => {
-        const show = (line: string | undefined) => $.ui.status(line)
+        const io: ReportIo = {
+          board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+          decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+          debug: (line) => $.ui.log(line, { to: 'debug' }),
+          now: () => $.clock.now(),
+          toast: (text) => $.ui.toast(text),
+        }
+        // Beside the main agent's own decision for the message: in the log, not on its node.
+        const about = { feature: SWITCH, agent: 'main', aside: true as const, forTurn: e.turnId === undefined ? ('next' as const) : ('current' as const), subject: quoteStart(e.text) }
         const left = ctx.config.timeoutMs - ((await $.clock.now()) - startedAt)
-        // No answer (the decision segment says why) or none about the skills: nothing suggested.
+        // No answer (the main-effort decision says why) or none about the skills: nothing suggested.
         const ranked = outcome.ok ? await ranker.rank(outcome.answers, catalog, { state: outcome.state, timeoutMs: left }) : null
         if (ranked === null) {
           if (outcome.ok) $.ui.log(`skills for ${quoteStart(e.text)}: no answer about the skills`, { to: 'debug' })
-          setStatus('skills', null, show)
+          await report(io, { decision: { ...about, skipped: 'unanswered' as const } })
           return
         }
         if (ranked.failed !== undefined) {
           $.ui.log(`skills for ${quoteStart(e.text)}: not rated, the second request failed (${ranked.failed.kind}: ${ranked.failed.detail})`, { to: 'debug' })
-          setStatus('skills', `skills not rated (${failureText(ctx.backend.name, ranked.failed)})`, show)
+          await report(io, { decision: { ...about, failure: { backend: ctx.backend.name, ...ranked.failed } } })
           return
         }
         const { suggest, hint } = pickSkills(ranked, catalog, policy)
-        await recordDecision(
-          { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
-          (line) => $.ui.log(line, { to: 'debug' }),
-          { feature: SWITCH, outcome: describePicks(suggest, hint), about: quoteStart(e.text), reason: describeRanking(ranked, policy) },
-        )
-        setStatus('skills', statusText(suggest, hint), show)
+        await report(io, {
+          decision: {
+            ...about,
+            outcome: describePicks(suggest, hint),
+            reason: describeRanking(ranked, policy),
+            skills: { suggest: suggest.map(({ name, relevance }) => ({ name, relevance })), try: hint.map(({ name, relevance }) => ({ name, relevance })) },
+          },
+        })
         const { value: before = [] } = await $.state.get(SHOWN)
         const known = new Set([...before, ...alwaysListed])
         const block = relevanceBlock(suggest, known)
@@ -304,20 +314,11 @@ function restoredListing(text: string): string {
 
 /** Why: what each stage of the ranking said (`describeStages`), and the bar a skill had to reach. */
 function describeRanking(ranking: SkillRanking, policy: SkillPolicy): string {
-  return `${describeStages(ranking)}; suggested from ${policy.minRelevance.toFixed(2)}, at most ${policy.max}`
+  return `${describeStages(ranking)}；相关度 ${policy.minRelevance.toFixed(2)} 起推荐，最多 ${policy.max} 个`
 }
 
 /** What the message got: the skills suggested, then those for the person to start. */
 function describePicks(suggest: readonly SkillPick[], hint: readonly SkillPick[]): string {
-  const suggested = suggest.length > 0 ? `suggested ${suggest.map((skill) => skill.name).join(', ')}` : 'suggested no skill'
-  return hint.length > 0 ? `${suggested}; try ${hint.map((skill) => `/${skill.name}`).join(' ')}` : suggested
-}
-
-/** The status line's skills segment: the skills suggested, then those for the person to start; null for neither. */
-function statusText(suggest: readonly SkillPick[], hint: readonly SkillPick[]): string | null {
-  const parts = [
-    ...(suggest.length > 0 ? [`skills ${suggest.map((skill) => skill.name).join(', ')}`] : []),
-    ...(hint.length > 0 ? [`try ${hint.map((skill) => `/${skill.name}`).join(' ')}`] : []),
-  ]
-  return parts.length > 0 ? parts.join(' | ') : null
+  const suggested = suggest.length > 0 ? `推荐 ${suggest.map((skill) => skill.name).join('、')}` : '没有推荐 skill'
+  return hint.length > 0 ? `${suggested}；可试 ${hint.map((skill) => `/${skill.name}`).join(' ')}` : suggested
 }

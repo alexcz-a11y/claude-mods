@@ -18,19 +18,19 @@
 // in case the turn ends first and the message starts a turn of its own.
 
 import type { EngineInterface, On } from 'claude-code'
-import { EFFORTS, LEVEL, pickEffort, readEffort, readingText, turnStartEffortPart, type Effort, type EffortReading } from '../decision/effort.ts'
+import { EFFORTS, LEVEL, probsOf, readEffort, readingText, traceEffort, turnStartEffortPart, type Effort, type EffortReading } from '../decision/effort.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { contribute } from '../core/ballot.ts'
 import { commandOf, commandState } from '../core/commands.ts'
-import { recordDecision } from '../core/decisions.ts'
 import { addPending, revise, turnKey, update, type Cell, type PendingDecision, type TurnRecord } from '../core/plans.ts'
 import { isPersonsMessage, startsReportTurn } from '../core/prompts.ts'
+import { report, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
-import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
 const PENDING = { plugin: 'dispatch-pilot', key: 'pending' } as const
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
 
@@ -48,23 +48,23 @@ async function describeCommand($: EngineInterface, name: string): Promise<Readon
 }
 
 export function registerMainEffort(on: On, ctx: Ctx): void {
-  defineSwitch({ name: 'main-effort', info: "decides the main agent's effort when you send a message", segments: ['decision'] })
+  defineSwitch({ name: 'main-effort', info: '发消息时决定主 agent 的 effort' })
 
   on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
     // The person's own message, or a report that starts a turn of its own (a dispatched agent's hand-back, a task notice).
-    const report = !isPersonsMessage(e) && startsReportTurn(e)
-    if ((!isPersonsMessage(e) && !report) || !isOn('main-effort')) return next(e)
+    const handBack = !isPersonsMessage(e) && startsReportTurn(e)
+    if ((!isPersonsMessage(e) && !handBack) || !isOn('main-effort')) return next(e)
     const pending: Cell<PendingDecision[]> = { get: () => $.state.get(PENDING), set: (value, options) => $.state.set(PENDING, value, options) }
     let added: PendingDecision | null = null
 
     /** The message waits for its turn, decided or not: the turn it starts is the person's own (mid-turn re-decisions are for such turns). */
     const wait = async (effort: Effort | null) => {
-      const entry: PendingDecision = { text: e.text, effort, at: await $.clock.now(), ...(report ? { report: true as const } : {}) }
+      const entry: PendingDecision = { text: e.text, effort, at: await $.clock.now(), ...(handBack ? { report: true as const } : {}) }
       await update(pending, (list) => addPending(list ?? [], entry))
       added = entry
     }
 
-    const ran = report ? null : commandOf(e.text)
+    const ran = handBack ? null : commandOf(e.text)
     const command = ran === null ? null : await describeCommand($, ran.command)
 
     contribute(e.text, {
@@ -72,25 +72,41 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
       ...turnStartEffortPart({ ...ctx.ask, language: ctx.config.turnStartLanguage }),
       ...(command === null ? {} : { state: { command } }),
       settle: async (outcome) => {
-        const show = (line: string | undefined) => $.ui.status(line)
+        const io: ReportIo = {
+          board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+          decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+          debug: (line) => $.ui.log(line, { to: 'debug' }),
+          now: () => $.clock.now(),
+          toast: (text) => $.ui.toast(text),
+        }
+        // About the main agent of the turn this message starts, or of the one running when it was typed into it.
+        const about = { feature: handBack ? 'main-effort (agent report)' : 'main-effort', agent: 'main', forTurn: e.turnId === undefined ? ('next' as const) : ('current' as const), subject: quoteStart(e.text) }
         if (!outcome.ok) {
-          setStatus('decision', failureText(ctx.backend.name, outcome.failure), show)
+          await report(io, { decision: { ...about, routed: false, failure: { backend: ctx.backend.name, ...outcome.failure } } })
           await wait(null)
           return
         }
         const reading = readEffort(outcome.answers[LEVEL])
         if (reading === null) {
-          setStatus('decision', failureText(ctx.backend.name, { kind: 'parse', detail: 'no effort answer' }), show)
+          await report(io, { decision: { ...about, routed: false, failure: { backend: ctx.backend.name, kind: 'parse', detail: 'no effort answer' } } })
           await wait(null)
           return
         }
-        setStatus('decision', null, show)
-        const effort = pickEffort(reading, ctx.config.thetaMax)
-        await recordDecision(
-          { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
-          (line) => $.ui.log(line, { to: 'debug' }),
-          { feature: report ? 'main-effort (agent report)' : 'main-effort', outcome: `effort ${effort}`, about: quoteStart(e.text), reason: describeReading(reading, effort, ctx.config.thetaMax) },
-        )
+        // pickEffort's rules with their working: the board shows the steps, never recomputes them (#23).
+        const { effort, steps } = traceEffort(reading, ctx.config.thetaMax)
+        await report(io, {
+          decision: {
+            ...about,
+            routed: true,
+            outcome: `effort ${effort}`,
+            // The level as data: what reads the log (the band, the pane) never reads it out of the words.
+            effort,
+            reason: describeReading(reading, effort, ctx.config.thetaMax),
+            probs: probsOf(reading),
+            ...(reading.confidence === null ? {} : { conf: reading.confidence }),
+            trace: steps,
+          },
+        })
         await wait(effort)
         const running = e.turnId
         if (running !== undefined) {
@@ -116,5 +132,5 @@ function describeReading(reading: EffortReading, picked: Effort, thetaMax: numbe
   const p = reading.probabilities
   const max = p[EFFORTS.length - 1] ?? 0
   const held = picked !== 'max' && p.every((other) => other <= max)
-  return readingText(reading, held ? `max is below thetaMax ${thetaMax.toFixed(2)}` : undefined)
+  return readingText(reading, held ? `max 的概率没到 max 门槛 ${thetaMax.toFixed(2)}` : undefined)
 }

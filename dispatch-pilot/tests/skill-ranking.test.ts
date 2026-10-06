@@ -4,7 +4,7 @@
 // the opening of the few rated highest and judges each on its own (stage two,
 // one yes/no `fits` per skill), and that absolute fit is the relevance the main
 // agent is shown. Seam 1: engine events in; what reaches the decision model,
-// the main agent and the status line out.
+// the main agent and the board out.
 
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
@@ -95,7 +95,7 @@ test("a plugin's skill is re-read from its SKILL.md, also where the plugin's man
   expect(second['skills.fits.1'].instructions.skill.opening).toBe('Build, then push to the host.')
 })
 
-test('both requests share the message’s wait: the second gets what the first left of timeoutMs, and given up, the message goes on with nothing suggested and the status line says why', { options: { ...KEY, timeoutMs: 1500 } }, async ($, on) => {
+test('both requests share the message’s wait: the second gets what the first left of timeoutMs, and given up, the message goes on with nothing suggested and the board notes why', { options: { ...KEY, timeoutMs: 1500 } }, async ($, on) => {
   const answer = rates({ tdd: 0.62, '(none)': 0.38 }, { tdd: 0.97 })
   const w = world($, on, {
     // The first request answers after 400 ms; the second would take a minute.
@@ -113,8 +113,9 @@ test('both requests share the message’s wait: the second gets what the first l
   expect(w.requests).toHaveLength(2)
   expect(w.prompts).toHaveLength(1)
   expect(w.prompts[0]?.context).toBeUndefined()
-  // The effort still went through; the skills say the second request had 1100 ms and got nothing.
-  expect(w.status()).toBe('dp effort medium | skills not rated (jev: no answer in 1100 ms)')
+  // The effort still went through; the second request had 1100 ms and got nothing, so no skills decision: a note says why.
+  expect((await w.board()).log.filter((entry) => entry.feature === 'skills')).toEqual([])
+  expect((await w.board()).notes).toMatchObject([{ turn: 1, id: 'main', feature: 'skills', kind: 'failed', why: 'jev：1100 毫秒内没有回答' }])
 })
 
 test('Clef takes the second request with a Choice between the skills re-read (its input rules hold)', { options: { ...CLEF_OPTIONS, skillsMinRelevance: 0.5 } }, async ($, on) => {
@@ -143,18 +144,19 @@ test('Clef takes the second request with a Choice between the skills re-read (it
   expect(w.prompts[0]?.context?.[0]).toContain(`- tdd (relevance 0.97): ${TDD_DESCRIPTION}`)
 })
 
-test('a second request that fails suggests nothing, and the status line says so until a message is rated again', { options: KEY }, async ($, on) => {
+test('a second request that fails suggests nothing and leaves no skills decision (a note on the board says why) until a message is rated again', { options: KEY }, async ($, on) => {
   const answer = rates({ tdd: 0.62, '(none)': 0.38 }, { tdd: 0.97 })
   let refuse = true
   const w = world($, on, { backend: (request) => (isSecondSkillsRequest(request) && refuse ? { status: 503, body: 'overloaded' } : answer(request)), skills: SKILLS, disk: FILES })
   await w.submit('先写一个失败的测试')
   await w.step({ index: 0 })
   expect(w.prompts[0]?.context).toBeUndefined()
-  expect(w.status()).toBe('dp effort medium | skills not rated (jev: busy (HTTP 503))')
+  expect((await w.board()).log.filter((entry) => entry.feature === 'skills')).toEqual([])
+  expect((await w.board()).notes).toMatchObject([{ feature: 'skills', kind: 'failed', why: 'jev：繁忙（状态码 503）' }])
   refuse = false
   await w.submit('再写一个失败的测试')
   await w.step({ index: 0 })
-  expect(w.status()).toBe('dp effort medium | skills tdd')
+  expect((await w.board()).log.filter((entry) => entry.feature === 'skills').map((entry) => [entry.turn, entry.skills?.suggest.map((skill) => skill.name)])).toEqual([[2, ['tdd']]])
 })
 
 // The decision module's interface (pure): what the eval (#16) and find_skill

@@ -8,7 +8,7 @@
 // request the mod sends from a dataset row (spec #67).
 
 import { clipToTokens, estimateTokens, messageText, withinTokens } from './context.ts'
-import { DEFAULT_ASK, EFFORTS, effortQuestion, pickEffort, type Effort, type EffortAsk, type EffortReading, type Language } from './effort.ts'
+import { DEFAULT_ASK, EFFORTS, effortQuestion, traceEffort, type Effort, type EffortAsk, type EffortReading, type EffortTrace, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import type { Part, State } from './system-one.ts'
 
@@ -249,8 +249,36 @@ export type MidturnPosition = {
 /** Why a decision left the level where it did; `lifted`: brought up to `atLeast`. */
 export type MidturnWhy = 'same' | 'up' | 'down' | 'unsure' | 'held' | 'lifted'
 
-/** A mid-turn decision: the level to go on at and why, with what the answer said (its pick and how sure it was). */
-export type MidturnVerdict = { effort: Effort; why: MidturnWhy; picked: Effort; confidence: number }
+/**
+ * One step of a mid-turn decision, in the order the rules ran; only the steps
+ * reached are there (a held lowering never gets to the threshold). `applied`:
+ * the step let the move through (a threshold passed) or changed the level
+ * (a hold, a floor). Data only, like `EffortStep`.
+ */
+export type MidturnRuleStep =
+  /** The answer's level against the current one. */
+  | { rule: 'suggest'; applied: true; picked: Effort; current: Effort; direction: 'up' | 'down' | 'same' }
+  /** A lowering waits `holdSteps` after a raise: `applied` while it still waits, `remaining` steps more (0 when not). */
+  | { rule: 'hold'; applied: boolean; sinceRaise: number | null; holdSteps: number; remaining: number }
+  /** A raise needs `confidence` >= `threshold` (thetaUp); `applied` when it has it. */
+  | { rule: 'theta-up'; applied: boolean; confidence: number; threshold: number }
+  /** A lowering needs `confidence` >= `threshold` (the higher of thetaDown and thetaUp). */
+  | { rule: 'theta-down'; applied: boolean; confidence: number; threshold: number }
+  /** A lowering goes one level only: from the current level to `level`. */
+  | { rule: 'one-step'; applied: true; from: Effort; level: Effort }
+  /** The least level (a forced raise, or the turn's floor); `applied` when it lifted `from` to `level`. */
+  | { rule: 'floor'; applied: boolean; floor: Effort; from: Effort; level: Effort }
+
+/** A mid-turn decision's working: how the answer's level was picked, the confidence used, the steps after it, and the result. */
+export type MidturnTrace = {
+  pick: EffortTrace
+  confidence: { value: number; from: 'backend' | 'probability' }
+  steps: MidturnRuleStep[]
+  result: Effort
+}
+
+/** A mid-turn decision: the level to go on at and why, with what the answer said (its pick and how sure it was) and the rules' working. */
+export type MidturnVerdict = { effort: Effort; why: MidturnWhy; picked: Effort; confidence: number; trace: MidturnTrace }
 
 /**
  * The level the turn goes on at after a mid-turn answer: the answer's level
@@ -264,37 +292,82 @@ export type MidturnVerdict = { effort: Effort; why: MidturnWhy; picked: Effort; 
  */
 export function judgeMidturn(reading: EffortReading, position: MidturnPosition, rules: MidturnRules): MidturnVerdict {
   const { current } = position
-  const picked = pickEffort(reading, rules.thetaMax)
+  const pick = traceEffort(reading, rules.thetaMax)
+  const picked = pick.effort
   const confidence = reading.confidence ?? Math.max(...reading.probabilities)
   const at = (level: Effort) => EFFORTS.indexOf(level)
   const floor = position.atLeast ?? null
-  const verdict = (effort: Effort, why: MidturnWhy): MidturnVerdict =>
-    floor !== null && at(effort) < at(floor) ? { effort: floor, why: 'lifted', picked, confidence } : { effort, why, picked, confidence }
-  if (at(picked) > at(current)) return confidence >= rules.thetaUp ? verdict(picked, 'up') : verdict(current, 'unsure')
-  if (at(picked) < at(current)) {
-    if (position.sinceRaise !== null && position.sinceRaise < rules.holdSteps) return verdict(current, 'held')
-    return confidence >= Math.max(rules.thetaDown, rules.thetaUp) ? verdict(EFFORTS[at(current) - 1] as Effort, 'down') : verdict(current, 'unsure')
+  const direction = at(picked) > at(current) ? 'up' : at(picked) < at(current) ? 'down' : 'same'
+  const steps: MidturnRuleStep[] = [{ rule: 'suggest', applied: true, picked, current, direction }]
+  const verdict = (effort: Effort, why: MidturnWhy): MidturnVerdict => {
+    let result = effort
+    let final = why
+    if (floor !== null) {
+      const lifted = at(effort) < at(floor)
+      steps.push({ rule: 'floor', applied: lifted, floor, from: effort, level: lifted ? floor : effort })
+      if (lifted) {
+        result = floor
+        final = 'lifted'
+      }
+    }
+    return { effort: result, why: final, picked, confidence, trace: { pick, confidence: { value: confidence, from: reading.confidence === null ? 'probability' : 'backend' }, steps, result } }
+  }
+  if (direction === 'up') {
+    const sure = confidence >= rules.thetaUp
+    steps.push({ rule: 'theta-up', applied: sure, confidence, threshold: rules.thetaUp })
+    return sure ? verdict(picked, 'up') : verdict(current, 'unsure')
+  }
+  if (direction === 'down') {
+    const held = position.sinceRaise !== null && position.sinceRaise < rules.holdSteps
+    steps.push({ rule: 'hold', applied: held, sinceRaise: position.sinceRaise, holdSteps: rules.holdSteps, remaining: held ? rules.holdSteps - (position.sinceRaise as number) : 0 })
+    if (held) return verdict(current, 'held')
+    const needed = Math.max(rules.thetaDown, rules.thetaUp)
+    const sure = confidence >= needed
+    steps.push({ rule: 'theta-down', applied: sure, confidence, threshold: needed })
+    if (!sure) return verdict(current, 'unsure')
+    const level = EFFORTS[at(current) - 1] as Effort
+    steps.push({ rule: 'one-step', applied: true, from: current, level })
+    return verdict(level, 'down')
   }
   return verdict(current, 'same')
 }
 
-/** Why a verdict went where it did, in a few words for the decision log: `up`, `held: raised 2 steps ago (holdSteps 3)`. */
+/**
+ * What a verdict says for the board: the level the answer suggested, the one the turn was at, where it ended;
+ * the confidence the move needed (`threshold`: thetaUp for a raise, thetaDown for a lowering; none when the
+ * answer was the level itself, or a held lowering never got to it); and for a held lowering why and how many
+ * steps are left of the wait (`remaining`).
+ */
+export function midturnRecord(verdict: MidturnVerdict, position: MidturnPosition, rules: MidturnRules): { current: Effort; picked: Effort; result: Effort; threshold?: number; held?: string; remaining?: number } {
+  const steps = verdict.trace.steps
+  const needed = steps.find((step) => step.rule === 'theta-up' || step.rule === 'theta-down')
+  const hold = steps.find((step): step is Extract<MidturnRuleStep, { rule: 'hold' }> => step.rule === 'hold' && step.applied)
+  return {
+    current: position.current,
+    picked: verdict.picked,
+    result: verdict.effort,
+    ...(needed === undefined ? {} : { threshold: needed.threshold }),
+    ...(hold === undefined ? {} : { held: verdictReason(verdict, position, rules), remaining: hold.remaining }),
+  }
+}
+
+/** Why a verdict went where it did, in a few words for the decision log: `升档`, `防抖中：2 步前升过档（3 步内不降）`. */
 export function verdictReason(verdict: MidturnVerdict, position: MidturnPosition, rules: MidturnRules): string {
   switch (verdict.why) {
     case 'up':
-      return 'up'
+      return '升档'
     case 'down':
-      return `down one level, toward ${verdict.picked}`
+      return `降一档，朝 ${verdict.picked}`
     case 'held':
-      return `held: raised ${position.sinceRaise ?? 0} steps ago (holdSteps ${rules.holdSteps})`
+      return `防抖中：${position.sinceRaise ?? 0} 步前升过档（${rules.holdSteps} 步内不降）`
     case 'unsure': {
       const up = EFFORTS.indexOf(verdict.picked) > EFFORTS.indexOf(position.current)
       const needed = up ? rules.thetaUp : Math.max(rules.thetaDown, rules.thetaUp)
-      return `${verdict.picked} not sure enough (needs ${up ? 'thetaUp' : 'thetaDown'} ${needed.toFixed(2)})`
+      return `${verdict.picked} 把握不够（需要${up ? '升档' : '降档'}门槛 ${needed.toFixed(2)}）`
     }
     case 'same':
-      return 'same level'
+      return '档位不变'
     case 'lifted':
-      return `lifted to ${verdict.effort}, the least asked for`
+      return `抬到 ${verdict.effort}，下限要求的最低一档`
   }
 }

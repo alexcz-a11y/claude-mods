@@ -10,6 +10,11 @@
 // `skill-profiles`, is registered here; off, none is written, and the skills
 // feature and find_skill offer every skill by its description. Nothing is
 // written while the skills switch is off or no decision model is set up.
+//
+// What it does is told to the decision report (core/report.ts, `report` with
+// `profiles`; ADR 0004), which writes the debug log lines, keeps `$.state`'s `skillProfiles`
+// up to date as the profiles are written and adds the session's entry to the
+// decision log. This file shows people nothing itself.
 
 import type { EngineInterface, ModelCompleteResult, On } from 'claude-code'
 import { errorText } from '../decision/backend.ts'
@@ -28,11 +33,15 @@ import {
   withProfile,
   type StoredProfile,
 } from '../core/profiles.ts'
+import { report, type ProfileEvent, type ProfilesIo, type ProfilesStop } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import type { CatalogSkill } from '../core/skills.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
 const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
+const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+const PROFILES_STATE = { plugin: 'dispatch-pilot', key: 'skillProfiles' } as const
 
 /** The skills feature's switch: profiles serve its suggestions. */
 const SKILLS = 'skills'
@@ -46,7 +55,7 @@ let writing = false
 type ProfileSettings = { model: string; perSession: number; skip: ReadonlySet<string> }
 
 export function registerSkillProfiles(on: On, ctx: Ctx): void {
-  defineSwitch({ name: PROFILES, info: 'rates skills by bilingual profiles a cheap model writes once per SKILL.md version (off: by description)' })
+  defineSwitch({ name: PROFILES, info: '按 skill 画像给 skill 排序：便宜的模型每个 SKILL.md 版本写一次中英文画像（关掉就按描述排序）' })
   const settings: ProfileSettings = { model: ctx.config.skills.profileModel, perSession: ctx.config.skills.profilesPerSession, skip: new Set(ctx.config.skills.neverSuggested) }
 
   // Once the skills feature (inside this one) has read the session's skills: a
@@ -58,13 +67,13 @@ export function registerSkillProfiles(on: On, ctx: Ctx): void {
     if (!value) return result
     const catalog = value.skills
     // A store that cannot be read keeps nothing: every session would write every profile again.
+    const offered = catalog.filter((skill) => !settings.skip.has(skill.name))
     if (!(await $.store.keys().then(() => true, () => false))) {
-      $.ui.log('skill profiles: the store cannot be read, so no profile is kept or written; skills are rated by their descriptions', { to: 'debug' })
+      await report(profilesIo($), { profiles: { event: 'unreadable', model: settings.model, offered: offered.length } })
       return result
     }
-    const offered = catalog.filter((skill) => !settings.skip.has(skill.name))
     const due = offered.filter((skill) => !skill.profile).length
-    $.ui.log(`skill profiles: ${offered.length - due} kept, ${due} to write with ${settings.model} (at most ${settings.perSession} this session)`, { to: 'debug' })
+    await report(profilesIo($), { profiles: { event: 'start', model: settings.model, perSession: settings.perSession, offered: offered.length, due } })
     // In the background: the session goes on, and each profile is used as soon as it is written.
     if (due > 0 && settings.perSession > 0) void writeProfiles($, ctx, catalog, settings).catch(() => undefined)
     return result
@@ -85,14 +94,26 @@ export function registerSkillProfiles(on: On, ctx: Ctx): void {
 async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly CatalogSkill[], settings: ProfileSettings): Promise<void> {
   if (writing) return
   writing = true
+  const io = profilesIo($)
+  const tell = (event: ProfileEvent) => report(io, { profiles: event })
   const cell: Cell<{ skills: CatalogSkill[] } | null> = { get: () => $.state.get(CATALOG), set: (value, options) => $.state.set(CATALOG, value, options) }
   const due = catalog.filter((skill) => !skill.profile && typeof skill.profileKey === 'string' && !settings.skip.has(skill.name))
   let written = 0
+  // The skills dealt with (written, kept by another session, or failed): what is left of `due` is for a later session start.
+  let tried = 0
+  let stopped = false
+  const stop = async (cause: ProfilesStop) => {
+    stopped = true
+    await tell({ event: 'stop', cause, left: due.length - tried })
+  }
   try {
     for (const skill of due) {
-      if (!isOn(SKILLS) || !isOn(PROFILES) || ctx.backend.configured === false) break
+      if (!isOn(SKILLS) || !isOn(PROFILES) || ctx.backend.configured === false) {
+        await stop({ reason: 'off' })
+        break
+      }
       if (written >= settings.perSession) {
-        $.ui.log(`skill profiles: ${due.length - written} left to write at a later session start (at most ${settings.perSession} each)`, { to: 'debug' })
+        await tell({ event: 'quota', perSession: settings.perSession, left: due.length - written })
         break
       }
       const markdown = skill.file === null ? null : await $.fs.read(skill.file).catch(() => null)
@@ -101,6 +122,8 @@ async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly Cat
       const kept = storedProfile(await $.store.get(key).catch(() => undefined))
       if (kept !== null) {
         await update(cell, (value) => (value ? { skills: withProfile(value.skills, key, kept) } : null))
+        tried++
+        await tell({ event: 'found' })
         continue
       }
       const startedAt = await $.clock.now()
@@ -108,43 +131,43 @@ async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly Cat
       try {
         reply = await $.model.complete({ model: settings.model, system: PROFILE_SYSTEM, prompt: profilePrompt(skill, markdown), maxTokens: PROFILE_MAX_TOKENS, timeoutMs: PROFILE_TIMEOUT_MS })
       } catch (error) {
-        $.ui.log(`skill profiles: ${settings.model} was refused (${errorText(error)}); no more profiles are written this session`, { to: 'debug' })
+        await stop({ reason: 'model-refused', model: settings.model, detail: errorText(error) })
         break
       }
       const ms = (await $.clock.now()) - startedAt
       if (!reply.isAnswered) {
         const why = reply.reason === 'api-error' ? `an API error, HTTP ${reply.status ?? 'none'} ${reply.error}` : reply.reason
         if (reply.reason === 'api-error') {
-          $.ui.log(`skill profiles: no profile for ${skill.name} (${why}, ${ms} ms); no more profiles are written this session`, { to: 'debug' })
+          await stop({ reason: 'api-error', skill: skill.name, why, ms })
           break
         }
-        $.ui.log(`skill profiles: no profile for ${skill.name} (${why}, ${ms} ms)`, { to: 'debug' })
+        tried++
+        await tell({ event: 'failed', skill: skill.name, why, ms })
         continue
       }
       const profile = readProfile(reply.text)
       if (profile === null) {
-        $.ui.log(`skill profiles: the reply for ${skill.name} is not a profile (${ms} ms): ${JSON.stringify(reply.text.slice(0, 80))}`, { to: 'debug' })
+        tried++
+        await tell({ event: 'unfit', skill: skill.name, ms, text: reply.text })
         continue
       }
       const entry: StoredProfile = { name: skill.name, at: await $.clock.now(), profile }
       try {
         await $.store.set(key, entry)
       } catch (error) {
-        $.ui.log(`skill profiles: the store did not keep the profile of ${skill.name} (${errorText(error)}); no more profiles are written this session`, { to: 'debug' })
+        await stop({ reason: 'store-write', skill: skill.name, detail: errorText(error) })
         break
       }
       await update(cell, (value) => (value ? { skills: withProfile(value.skills, key, profile) } : null))
       written++
-      $.ui.log(`skill profile written for ${skill.name} by ${settings.model} in ${ms} ms (${reply.usage.input_tokens} input, ${reply.usage.output_tokens} output tokens)`, { to: 'debug' })
+      tried++
+      await tell({ event: 'written', skill: skill.name, model: settings.model, ms, input: reply.usage.input_tokens, output: reply.usage.output_tokens })
     }
     await dropOldProfiles($, catalog)
+    if (!stopped) await tell({ event: 'finish', left: due.length - tried })
   } catch (error) {
     // The session went away under it (its `$` refused), or a bug: either way the session is not held up.
-    try {
-      $.ui.log(`skill profiles: stopped writing (${errorText(error)})`, { to: 'debug' })
-    } catch {
-      // nowhere left to say it
-    }
+    await stop({ reason: 'error', detail: errorText(error) })
   } finally {
     writing = false
   }
@@ -164,9 +187,19 @@ async function dropOldProfiles($: EngineInterface, catalog: readonly CatalogSkil
     if (drop.length === 0) return
     for (const key of drop) await $.store.delete(key)
     const bytes = entries.reduce((sum, entry) => sum + entry.bytes, 0)
-    $.ui.log(`skill profiles: dropped the ${drop.length} oldest of ${keys.length} kept (${Math.round(bytes / 1024)} KB)`, { to: 'debug' })
+    await report(profilesIo($), { profiles: { event: 'tidied', dropped: drop.length, total: keys.length, kb: Math.round(bytes / 1024) } })
   } catch (error) {
-    $.ui.log(`skill profiles: could not tidy the store (${errorText(error)})`, { to: 'debug' })
+    await report(profilesIo($), { profiles: { event: 'tidy-failed', detail: errorText(error) } })
+  }
+}
+
+/** What the decision report needs of the session, as closures over `$` (`$` cannot cross an import). */
+function profilesIo($: EngineInterface): ProfilesIo {
+  return {
+    board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+    decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+    debug: (line) => $.ui.log(line, { to: 'debug' }),
+    profiles: { get: () => $.state.get(PROFILES_STATE), set: (value, options) => $.state.set(PROFILES_STATE, value, options) },
   }
 }
 

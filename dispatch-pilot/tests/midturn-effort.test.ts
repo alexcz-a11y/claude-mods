@@ -1,6 +1,6 @@
 // The main agent's effort, re-decided while a turn runs (#5): seam 1 (engine
-// events in; what reaches the engine, the decision backend and the status
-// line out).
+// events in; what reaches the engine, the decision backend, the board data
+// (`w.board()`) out).
 
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
@@ -168,12 +168,15 @@ test('an answer not back by its step: the step waits rejudgeWaitMs, keeps the ef
   await w.clock.settle() // step 2 is now waiting for the answer
   await w.clock.advance(300)
   await late
-  expect(w.status()).toBe('dp effort medium | steps 3, judged 1, changed 0 (late)')
+  expect((await w.board()).main?.midturn).toEqual({ steps: 3, judged: 1, changed: 0, late: true })
+  // One note for the band's event stream, at the step that waited.
+  expect((await w.board()).notes).toMatchObject([{ turn: 1, id: 'main', feature: 'midturn-effort', kind: 'late' }])
 
   await w.clock.advance(700) // the answer comes
   await w.step({ index: 3 })
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium', 'xhigh'])
-  expect(w.status()).toBe('dp effort xhigh | steps 4, judged 2, changed 1')
+  expect((await w.board()).main?.midturn).toEqual({ steps: 4, judged: 2, changed: 1 })
+  expect((await w.board()).notes).toHaveLength(1)
 })
 
 const REFUSED_AT_PROMPT =
@@ -211,7 +214,7 @@ test("a call a PreToolUse hook blocks, or the person refuses, reads as such and 
   expect(w.toolCalls[0]?.input).toEqual({ command: 'rm -rf build', description: '删除构建目录' })
 })
 
-test('a re-decision that fails leaves the effort as it was, and the status line says why', { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {
+test('a re-decision that fails leaves the effort as it was, and the main agent\'s node says why', { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {
   const w = world($, on, { backend: (request) => (kind(request) === 'midturn.level' ? { status: 503, body: 'overloaded' } : jev(MEDIUM)(request)) })
   await w.submit('把这个死锁查清楚')
   await w.step(working(0))
@@ -220,28 +223,59 @@ test('a re-decision that fails leaves the effort as it was, and the status line 
 
   expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level'])
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium'])
-  expect(w.status()).toBe('dp effort medium | steps 3, judged 1, changed 0 (jev: busy (HTTP 503))')
+  const board = await w.board()
+  expect(board.main?.midturn).toEqual({ steps: 3, judged: 1, changed: 0, failure: { backend: 'jev', kind: 'busy', detail: expect.anything(), status: 503 } })
+  // The turn's own decision stays the route's: a failed re-decision neither unroutes the turn nor enters the log.
+  expect(board.main).toMatchObject({ routed: true, decision: 1 })
+  expect(board.log.map((entry) => entry.feature)).toEqual(['main-effort'])
 })
 
-test('each re-decision is recorded with why it went where it did (debug log and /dp log)', { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {
+test('each re-decision is recorded with why it went where it did (debug log, /dp log and the board data)', { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {
   const w = world($, on, { backend: answers(MEDIUM, { levels: XHIGH, confidence: 0.8 }, { levels: LOW, confidence: 0.9 }), store: {}, session: true })
   await w.start()
   await w.submit('把登录模块重构成三层')
   for (const index of [0, 1, 2, 3]) await w.step(working(index))
   await w.step({ index: 4 })
 
-  const mine = (await w.command('dp', 'log')).split('\n').filter((line) => line.includes(' midturn-effort: '))
+  const mine = (await w.command('dp', 'log 10')).split('\n').filter((line) => line.includes(' midturn-effort：'))
   expect(mine).toEqual([
-    '#2 midturn-effort: effort xhigh (was medium) for step 2 (every 2 steps): p low 0.00, medium 0.00, high 0.10, xhigh 0.80, max 0.10; confidence 0.80; up',
-    '#3 midturn-effort: effort xhigh (kept) for step 4 (every 2 steps): p low 0.90, medium 0.10, high 0.00, xhigh 0.00, max 0.00; confidence 0.90; held: raised 2 steps ago (holdSteps 5)',
+    '#2 midturn-effort：effort xhigh（原 medium） · 第 2 步（每 2 步）：概率 low 0.00, medium 0.00, high 0.10, xhigh 0.80, max 0.10；置信度 0.80；升档',
+    '#3 midturn-effort：effort xhigh（保持） · 第 4 步（每 2 步）：概率 low 0.90, medium 0.10, high 0.00, xhigh 0.00, max 0.00；置信度 0.90；防抖中：2 步前升过档（5 步内不降）',
   ])
-  expect(w.logs.filter((l) => l.text.startsWith('effort xhigh (was medium) for step 2')).map((l) => l.to)).toEqual(['debug'])
+  expect(w.logs.filter((l) => l.text.startsWith('effort xhigh（原 medium） · 第 2 步')).map((l) => l.to)).toEqual(['debug'])
+
+  // The board keeps them structured: suggested level, current level, confidence, the threshold it was held to, the hold's steps left, the rules' working.
+  const board = await w.board()
+  const [raised, held] = board.log.filter((entry) => entry.feature === 'midturn-effort')
+  expect(raised).toMatchObject({
+    n: 2,
+    turn: 1,
+    agent: 'main',
+    tone: 'ok',
+    subject: '第 2 步（每 2 步）',
+    conf: 0.8,
+    mid: { current: 'medium', picked: 'xhigh', result: 'xhigh', threshold: 0.3 },
+  })
+  expect(raised?.mid?.held).toBeUndefined()
+  expect(raised?.trace?.map((step) => [step.rule, step.applied])).toEqual([
+    ['top', true],
+    ['max-gate', false],
+    ['round-up', false],
+    ['suggest', true],
+    ['theta-up', true],
+  ])
+  expect(held).toMatchObject({ n: 3, tone: 'info', conf: 0.9, mid: { current: 'xhigh', picked: 'low', result: 'xhigh', remaining: 3 } })
+  expect(held?.mid?.held).toContain('2 步前升过档')
+  expect(held?.mid?.threshold).toBeUndefined()
+  expect(held?.trace?.at(-1)).toMatchObject({ rule: 'hold', applied: true, remaining: 3 })
+  // The turn's own decision stays the node's link: a re-decision is beside the route.
+  expect(board.main).toMatchObject({ decision: 1, routed: true, midturn: { steps: 5, judged: 3, changed: 1 } })
 })
 
 test('/dp midturn-effort off stops the re-decisions; switched on again they resume', { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {
   const w = world($, on, { backend: answers(MEDIUM, { levels: XHIGH, confidence: 0.8 }), store: {}, session: true })
   await w.start()
-  expect(await w.command('dp', 'midturn-effort off')).toContain('midturn-effort is off')
+  expect(await w.command('dp', 'midturn-effort off')).toContain('midturn-effort 已关闭')
   await w.submit('把登录模块重构成三层')
   await w.step(working(0))
   await w.step(working(1))

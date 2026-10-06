@@ -19,14 +19,14 @@ import type { Config } from './setup.ts'
  * that stage one put none forward.
  */
 export function describeStages(ranking: SkillRanking): string {
-  const shares = (shortlist: readonly SkillShare[], none: number) => [...shortlist.map((entry) => `${entry.name} ${entry.share.toFixed(2)}`), `none ${none.toFixed(2)}`].join(', ')
+  const shares = (shortlist: readonly SkillShare[], none: number) => [...shortlist.map((entry) => `${entry.name} ${entry.share.toFixed(2)}`), `都不合适 ${none.toFixed(2)}`].join('、')
   const shortlist = ranking.shortlist ?? []
-  const hint = ranking.hints === undefined ? '' : `; hint ${shares(ranking.hints.shortlist, ranking.hints.none)}`
+  const hint = ranking.hints === undefined ? '' : `；只能你触发的 ${shares(ranking.hints.shortlist, ranking.hints.none)}`
   const second =
     shortlist.length + (ranking.hints?.shortlist.length ?? 0) === 0
-      ? `no skill rated ${SHORTLIST_FLOOR.toFixed(2)} or more`
-      : `fits ${ranking.ranked.map((entry) => `${entry.name} ${entry.relevance.toFixed(2)}`).join(', ')}`
-  return `first ${shares(shortlist, ranking.none)}${hint}; ${second}`
+      ? `没有 skill 的份额到 ${SHORTLIST_FLOOR.toFixed(2)}`
+      : `第二段相关度 ${ranking.ranked.map((entry) => `${entry.name} ${entry.relevance.toFixed(2)}`).join('、')}`
+  return `第一段 ${shares(shortlist, ranking.none)}${hint}；${second}`
 }
 
 /**

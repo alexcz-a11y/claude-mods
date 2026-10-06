@@ -11,7 +11,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { BACKEND_DEFAULTS } from '../hooks/core/setup.ts'
-import { checkConfigTable, checkStructureTree } from '../eval/lib/docs.ts'
+import { checkConfigTable, checkOneWriter, checkStructureTree } from '../eval/lib/docs.ts'
 
 /** The decision models' defaults as these tests state them: Clef's timeout is its own, its other values are Jev's. */
 const DEFAULTS = {
@@ -195,4 +195,38 @@ test('a module the tree does not list, and a line for a module that is gone, are
   expect(problems).toHaveLength(2)
   expect(problems[0]).toMatch(/`core\/commands\.ts`.*no line/)
   expect(problems[1]).toMatch(/`core\/prompts\.ts`.*no such module/)
+})
+
+// ADR 0004: the decision report is the one writer of what people see, and no screen of the mod is the status row
+// (#29): a feature hands over structured data, and reaches the toast only through the closure it hands the report.
+
+test('files that hand the report their data, and only plumb the host to it, pass', () => {
+  expect(
+    checkOneWriter({
+      'features/main-effort.ts': "const io = { debug: log, now: () => $.clock.now(), toast: (text) => $.ui.toast(text) }\nawait report(io, { decision })\nconst why = failureText(name, failure)",
+      'core/report.ts': "function stepIo($) { return { toast: (text) => $.ui.toast(text) } }\nio.toast(`主 agent 未路由：${why}`)",
+      'board/screens.tsx': "$.ui.invalidate('ui.render')",
+    }),
+  ).toEqual([])
+})
+
+test('a file that draws on the status row, the report included, raises a toast itself, or calls a writer of the old line is a problem', () => {
+  const problems = checkOneWriter({
+    'core/report.ts': "status: (line) => $.ui.status(line),\n$.ui.status('dp effort high')",
+    'features/a.ts': "$.ui.toast('jev: HTTP 500')",
+    'features/b.ts': "setStatus('agent', null, show)\nawait recordDecision(cell, log, decision)",
+    'board/band.tsx': '$.ui.status(undefined)',
+  })
+  expect(problems.map((problem) => problem.split(':')[0])).toEqual(['`core/report.ts`', '`features/a.ts`', '`features/b.ts`', '`board/band.tsx`'])
+})
+
+test('skill-profiles holds only the debug closure of `$.ui`: a log line, a toast or a status of its own is a problem', () => {
+  const closure = "const io = { debug: (line) => $.ui.log(line, { to: 'debug' }), profiles }\nawait report(io, { profiles: event })"
+  expect(checkOneWriter({ 'features/skill-profiles.ts': closure })).toEqual([])
+  // Other files may log: the rule is skill-profiles'.
+  expect(checkOneWriter({ 'features/skills.ts': "$.ui.log('skills: 3', { to: 'debug' })" })).toEqual([])
+  for (const direct of ["$.ui.log('skill profiles: 3 kept', { to: 'debug' })", "$.ui.toast('profiles failed')"]) {
+    const problems = checkOneWriter({ 'features/skill-profiles.ts': `${closure}\n${direct}` })
+    expect(problems).toContainEqual(expect.stringMatching(/^`features\/skill-profiles\.ts`: uses `\$\.ui` itself/))
+  }
 })

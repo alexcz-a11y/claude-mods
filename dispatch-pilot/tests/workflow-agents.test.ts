@@ -2,7 +2,7 @@
 // of its script gets its own decision on model and effort, written into the
 // script before the tool runs it. Seam 1: the Workflow tool call in; out, the
 // script that reaches the tool, the decision requests, what the main agent is
-// told, the status line, the decision log, `$.state`.
+// told, the board (`w.board()`), the decision log, `$.state`.
 
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
@@ -49,7 +49,28 @@ test('each agent() of a submitted script is written with the model and effort de
   const told = (result.context ?? []).join('\n')
   expect(told).toContain('"rename": sonnet medium (model: decided, confidence 0.70; effort: p 0.80)')
   expect(told).toContain('"review": opus xhigh (model: decided, confidence 0.85; effort: p 0.80)')
-  expect(w.status()).toBe('dp workflow routed 2 agents')
+
+  // The board has one node for each agent, before any of them starts: its label, and the log entry it came from, with the model and effort decided.
+  const board = await w.board()
+  expect(board.agents.map((node) => [node.kind, node.name, node.state, node.routed])).toEqual([
+    ['wf', 'rename', 'queued', true],
+    ['wf', 'review', 'queued', true],
+  ])
+  expect(board.log.map((entry) => [entry.model, entry.effort])).toEqual([
+    ['sonnet', 'medium'],
+    ['opus', 'xhigh'],
+  ])
+  expect(board.agents.map((node) => node.workflow?.name)).toEqual(['tidy-api', 'tidy-api'])
+  expect(new Set(board.agents.map((node) => node.workflow?.id)).size).toBe(1)
+  expect(new Set(board.agents.map((node) => node.id)).size).toBe(2)
+  expect(board.agents.map((node) => board.log.find((entry) => entry.n === node.decision)?.subject)).toEqual(['"rename"（Workflow tidy-api）', '"review"（Workflow tidy-api）'])
+  expect(board.log.map((entry) => [entry.feature, entry.agent === board.agents[0]?.id || entry.agent === board.agents[1]?.id, entry.tone])).toEqual([
+    ['workflow-agents', true, 'ok'],
+    ['workflow-agents', true, 'ok'],
+  ])
+  expect(board.log[1]).toMatchObject({ outcome: 'opus xhigh' })
+  expect(Math.round((board.log[1]?.conf ?? 0) * 100) / 100).toBe(0.85)
+  expect(board.log[1]?.trace?.map((step) => step.rule)).toEqual(['top', 'max-gate', 'round-up', 'model-floor'])
 })
 
 test('an agent sent to haiku gets no effort: the one the script wrote is taken out, whatever the effort answer says', { options: KEY }, async ($, on) => {
@@ -122,7 +143,11 @@ return [a, b]
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent-1.model', 'agent-1.effort'])
   expect(w.reached.map((r) => r.script)).toEqual([mixed.replace("{ label: 'static' }", "{ label: 'static', model: 'haiku' }")])
   expect((result.context ?? []).join('\n')).toMatch(/agent\(\) at line 2: left as written \(its prompt is built when the script runs\)/)
-  expect(w.status()).toBe('dp workflow routed 1 agent (1 as written)')
+  // The call left as written is on the board too, with why.
+  expect((await w.board()).agents.map((node) => [node.name, node.routed, node.why, node.decision === undefined])).toEqual([
+    ['第 2 行的 agent()', false, '它的 prompt 要等脚本运行时才拼出来', true],
+    ['static', true, undefined, false],
+  ])
 })
 
 test("a template that is only what ${...} fills in says nothing of the work, so its call is left as written; one with words of its own beside the placeholders is asked about", { options: KEY }, async ($, on) => {
@@ -139,7 +164,10 @@ return verdict
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent-1.model', 'agent-1.effort'])
   expect(w.reached.map((r) => r.script)).toEqual([shared.replace("{ label: 'verify:all' }", "{ label: 'verify:all', model: 'sonnet', effort: 'high' }")])
   expect((result.context ?? []).join('\n')).toContain('"review:${l.key}": left as written (its prompt is built when the script runs)')
-  expect(w.status()).toBe('dp workflow routed 1 agent (1 as written)')
+  expect((await w.board()).agents.map((node) => [node.name, node.routed, node.why])).toEqual([
+    ['review:${l.key}', false, '它的 prompt 要等脚本运行时才拼出来'],
+    ['verify:all', true, undefined],
+  ])
 })
 
 test("a short prompt with nothing to fill in is the whole task: it is asked about like any other", { options: KEY }, async ($, on) => {
@@ -166,21 +194,24 @@ return answers
   expect(w.requests).toHaveLength(0)
   expect(w.reached.map((r) => r.script)).toEqual([table])
   expect((result.context ?? []).join('\n')).toMatch(/agent\(\) at line 3: left as written \(its prompt is built when the script runs\)/)
-  expect(w.status()).toBe('dp workflow not routed (its prompt is built when the script runs)')
+  expect((await w.board()).agents.map((node) => [node.name, node.routed, node.why])).toEqual([
+    ['第 3 行的 agent()', false, '它的 prompt 要等脚本运行时才拼出来'],
+  ])
+  expect((await w.board()).log).toEqual([])
 })
 
 test("a Workflow given by scriptPath or by name, or resumed from an earlier run, goes through as it is, and nothing is asked", { options: KEY }, async ($, on) => {
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 1 } })) })
-  const statuses: (string | undefined)[] = []
   await w.workflow({ scriptPath: '/home/u/.claude/projects/p/s1/workflows/scripts/tidy-wf_old.js' })
-  statuses.push(w.status())
   await w.workflow({ name: 'review-changes', args: { base: 'main' } })
-  statuses.push(w.status())
   await w.workflow({ script: TIDY, resumeFromRunId: 'wf_old' })
-  statuses.push(w.status())
 
-  // The status line speaks of the latest Workflow, so it says each time that this one was not routed.
-  expect(statuses).toEqual(['dp workflow not routed (given by path)', 'dp workflow not routed (given by name)', 'dp workflow not routed (resumed from an earlier run)'])
+  // The board keeps each one, with why, as a node of its own: no agent of theirs is known yet.
+  expect((await w.board()).agents.map((node) => [node.kind, node.type, node.name, node.routed, node.why])).toEqual([
+    ['wf', 'workflow', 'tidy-wf_old', false, '按路径提交，没有改写'],
+    ['wf', 'workflow', 'review-changes', false, '按名字提交，没有改写'],
+    ['wf', 'workflow', 'tidy-api', false, '接着早先的运行，没有改写'],
+  ])
   expect(w.requests).toHaveLength(0)
   expect(w.reached).toEqual([
     { scriptPath: '/home/u/.claude/projects/p/s1/workflows/scripts/tidy-wf_old.js', launched: true },
@@ -246,7 +277,7 @@ return files
 
   expect(w.reached.map((r) => r.script)).toEqual([scan.replace("{ label: 'scan', effort: 'low' }", "{ label: 'scan', model: 'haiku' }")])
   expect((result.context ?? []).join('\n')).toContain('"scan": haiku (model: decided, confidence 0.85; haiku takes no effort, so the xhigh you asked for is not set)')
-  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/effort xhigh asked for in your message, not set: haiku takes no effort/))
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/你在消息里要 effort xhigh，没有设置：haiku 不带 effort/))
 })
 
 test("a model the person rules out is never written into a call, even when the answer puts all its probability on it: the nearest model left is", { options: KEY }, async ($, on) => {
@@ -279,7 +310,17 @@ test("in return mode the first submission is refused with each agent's recommend
   expect(first.deny).toMatch(/"review": model: 'opus', effort: 'xhigh'/)
   expect(first.deny).toMatch(/submit the same script again/i)
   expect(first.deny).toMatch(/plugin's policy.*the user set/i)
-  expect(w.status()).toBe('dp workflow sent back (2 agents)')
+  // The decisions are on the board as the recommendations they are: the agents have not started.
+  const sent = await w.board()
+  expect(sent.agents.map((node) => [node.name, node.state, node.routed])).toEqual([
+    ['rename', 'queued', true],
+    ['review', 'queued', true],
+  ])
+  expect(sent.log.map((entry) => [entry.model, entry.effort])).toEqual([
+    ['sonnet', 'medium'],
+    ['opus', 'xhigh'],
+  ])
+  expect(sent.log.map((entry) => entry.outcome)).toEqual(['sonnet medium（已退回）', 'opus xhigh（已退回）'])
 
   // The main agent writes the options in, as told: the prompts are the ones it sent.
   const written = TIDY.replace("{ label: 'rename' }", "{ label: 'rename', model: 'sonnet', effort: 'medium' }")
@@ -319,7 +360,10 @@ test('in return mode a Workflow is not sent back when the decision model did not
   const w = workflowWorld($, on, { backend: () => ({ status: 500, body: 'Internal Server Error' }) })
   expect((await w.workflow({ script: TIDY })).deny).toBeUndefined()
   expect(w.reached.map((r) => r.script)).toEqual([TIDY])
-  expect(w.status()).toBe('dp workflow not routed (jev: HTTP 500)')
+  expect((await w.board()).agents.map((node) => [node.name, node.routed, node.why])).toEqual([
+    ['rename', false, 'jev：出错（状态码 500）'],
+    ['review', false, 'jev：出错（状态码 500）'],
+  ])
 })
 
 /** A script with `count` agent() calls in one parallel(), each its own call site. */
@@ -346,7 +390,13 @@ test('a script with many agent() calls is asked about in several requests sent t
   expect(ids.map((list) => list.length)).toEqual([16, 16, 8])
   expect(ids.flat().sort()).toEqual(Array.from({ length: 20 }, (_, i) => [`agent-${i}.effort`, `agent-${i}.model`]).flat().sort())
   expect((w.reached[0]?.script ?? '').match(/\{ label: 'pkg-\d+', model: 'sonnet', effort: 'high' \}/g)).toHaveLength(20)
-  expect(w.status()).toBe('dp workflow routed 20 agents')
+  // Every one of the 20 has its own node and its own entry in the log.
+  const board = await w.board()
+  expect(board.agents).toHaveLength(20)
+  expect(board.agents.every((node) => node.routed)).toBe(true)
+  expect(board.log).toHaveLength(20)
+  expect(board.log.every((entry) => entry.model === 'sonnet' && entry.effort === 'high')).toBe(true)
+  expect(new Set(board.agents.map((node) => node.decision)).size).toBe(20)
 })
 
 test("a request holds at most 64 questions: the models the person's words mention add questions to each call, so fewer calls share a request", { options: KEY }, async ($, on) => {
@@ -356,7 +406,7 @@ test("a request holds at most 64 questions: the models the person's words mentio
   await w.workflow({ script: manyAgents(12) })
 
   expect(w.requests.slice(1).map((request) => Object.keys(request.body.questions).length)).toEqual([60, 60])
-  expect(w.status()).toBe('dp workflow routed 12 agents')
+  expect((await w.board()).agents.filter((node) => node.routed)).toHaveLength(12)
 })
 
 test("with Clef as the decision model, every request about a script's agents passes Clef's input rules", { options: CLEF_OPTIONS }, async ($, on) => {
@@ -367,7 +417,7 @@ test("with Clef as the decision model, every request about a script's agents pas
   expect(w.requests.length).toBeGreaterThan(2)
   expect(w.requests.flatMap((request) => clefInputProblems(request.body))).toEqual([])
   expect(w.requests.every((request) => request.url === CLEF_URL)).toBe(true)
-  expect(w.status()).toBe('dp workflow routed 14 agents')
+  expect((await w.board()).agents.filter((node) => node.routed)).toHaveLength(14)
 })
 
 test('the agents beyond the first 24 are left as written, and the main agent is told', { options: KEY }, async ($, on) => {
@@ -379,10 +429,12 @@ test('the agents beyond the first 24 are left as written, and the main agent is 
   expect(script.match(/model: 'sonnet'/g)).toHaveLength(24)
   expect(script).toContain("{ label: 'pkg-24' }")
   expect((result.context ?? []).join('\n')).toMatch(/"pkg-24": left as written \(the script has more agent\(\) calls than are asked about\)/)
-  expect(w.status()).toBe('dp workflow routed 24 agents (6 as written)')
+  const board = await w.board()
+  expect(board.agents.filter((node) => node.routed)).toHaveLength(24)
+  expect(board.agents.filter((node) => !node.routed).map((node) => node.why)).toEqual(Array(6).fill('脚本里的 agent() 比一次问得过来的多'))
 })
 
-test("a request that fails leaves only its own calls as written: the others are routed, and the status line says why", { options: KEY }, async ($, on) => {
+test("a request that fails leaves only its own calls as written: the others are routed, and the board says why", { options: KEY }, async ($, on) => {
   const w = workflowWorld($, on, { backend: (request, n) => (n === 2 ? { status: 500, body: 'Internal Server Error' } : siteJev(() => ({ model: { sonnet: 1 } }))(request)) })
   await w.workflow({ script: manyAgents(20) })
 
@@ -390,7 +442,12 @@ test("a request that fails leaves only its own calls as written: the others are 
   expect(script.match(/model: 'sonnet'/g)).toHaveLength(12)
   expect(script).toContain("{ label: 'pkg-8' }")
   expect(script).toContain("model: 'sonnet', effort: 'high' }")
-  expect(w.status()).toBe('dp workflow routed 12 agents (8 as written: jev: HTTP 500)')
+  const board = await w.board()
+  expect(board.agents.filter((node) => node.routed)).toHaveLength(12)
+  expect(board.agents.filter((node) => !node.routed).map((node) => node.why)).toEqual(Array(8).fill('jev：出错（状态码 500）'))
+  expect(board.agents.find((node) => !node.routed)?.failure).toMatchObject({ backend: 'jev', kind: 'http', status: 500 })
+  // Only the calls decided are in the log.
+  expect(board.log).toHaveLength(12)
 })
 
 test("the state of each request stays within the context budget: long prompts are cut, and fewer calls share a request", { options: { ...KEY, contextTokens: 900 } }, async ($, on) => {
@@ -418,7 +475,9 @@ test("a rewritten script the tool cannot parse is started as the main agent wrot
   ])
   expect(result.isError).toBeUndefined()
   expect((result.context ?? []).join('\n')).toMatch(/could not use.*started it as you wrote it/s)
-  expect(w.status()).toBe('dp workflow not routed (the rewritten script did not parse)')
+  // What was decided did not take effect: the board says the Workflow ran as written, and nothing was logged as decided.
+  expect((await w.board()).agents.map((node) => [node.kind, node.routed, node.why])).toEqual([['wf', false, '改写后的脚本解析不了']])
+  expect((await w.board()).log).toEqual([])
 })
 
 test("a script the tool refuses for a reason that is not the rewrite's goes back to the main agent as the tool said it, with no second try", { options: KEY }, async ($, on) => {
@@ -430,26 +489,26 @@ test("a script the tool refuses for a reason that is not the rewrite's goes back
   expect(result.text).toContain('Workflow needs permission to run')
 })
 
-test("an error in the mod itself lets the script through as the main agent wrote it, and the status line says to look in the debug log", { options: KEY }, async ($, on) => {
+test("an error in the mod itself lets the script through as the main agent wrote it, and the board says to look in the debug log", { options: KEY }, async ($, on) => {
   on('state.get', async (_$, e, next) => (e.key === 'said' ? { deny: 'the state cannot be read' } : next(e)))
   const w = workflowWorld($, on, { backend: siteJev(BOTH_ROUTED) })
   const result = await w.workflow({ script: TIDY })
 
   expect(result.deny).toBeUndefined()
   expect(w.reached.map((r) => r.script)).toEqual([TIDY])
-  expect(w.status()).toBe('dp workflow not routed (error: see the debug log)')
+  expect((await w.board()).agents.map((node) => [node.kind, node.routed, node.why])).toEqual([['wf', false, '出错了，详见 debug log']])
   expect(w.logs.some((log) => log.to === 'debug' && log.text.includes('the state cannot be read'))).toBe(true)
 })
 
-test('/dp workflow-agents off lets Workflows through as the main agent wrote them, with nothing asked and its status segment gone; on brings the decisions back', { options: KEY }, async ($, on) => {
+test('/dp workflow-agents off lets Workflows through as the main agent wrote them, with nothing asked; on brings the decisions back', { options: KEY }, async ($, on) => {
   const w = workflowWorld($, on, { backend: siteJev(BOTH_ROUTED) })
-  expect(await w.command('dp')).toMatch(/\bon +workflow-agents +\S/)
+  expect(await w.command('dp', 'status')).toMatch(/开 +workflow-agents +\S/)
   await w.workflow({ script: TIDY })
-  expect(w.status()).toBe('dp workflow routed 2 agents')
+  expect((await w.board()).agents).toHaveLength(2)
 
-  expect(await w.command('dp', 'workflow-agents off')).toContain('workflow-agents is off')
-  expect(w.status()).toBeUndefined()
+  expect(await w.command('dp', 'workflow-agents off')).toContain('workflow-agents 已关闭')
   const result = await w.workflow({ script: TIDY })
+  expect((await w.board()).agents).toHaveLength(2)
   expect(w.requests).toHaveLength(1)
   expect(w.reached.map((r) => r.script === TIDY)).toEqual([false, true])
   expect(result.context).toBeUndefined()
@@ -466,7 +525,7 @@ test('/dp off stands Workflow routing down too: nothing is asked, and the script
 
   expect(w.requests).toHaveLength(0)
   expect(w.reached.map((r) => r.script)).toEqual([TIDY])
-  expect(w.status()).toBe('dp off')
+  expect((await w.board()).agents).toEqual([])
 })
 
 test("each agent's decision is logged with its reason: in the debug log, never in the conversation, and in /dp log", { options: KEY }, async ($, on) => {
@@ -476,10 +535,10 @@ test("each agent's decision is logged with its reason: in the debug log, never i
   expect(w.logs.length).toBeGreaterThan(0)
   expect(w.logs.every((log) => log.to === 'debug')).toBe(true)
   expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^request \[agent-0\.model, agent-0\.effort, agent-1\.model, agent-1\.effort\] to jev for workflow "tidy-api": answered in \d+ ms/))
-  const log = (await w.command('dp', 'log')).split('\n')
-  expect(log[0]).toBe('the last 2 decisions, newest last')
-  expect(log[1]).toMatch(/^#1 workflow-agents: sonnet high for "rename" \(workflow tidy-api\): decided; pick sonnet, confidence 0\.70; effort p /)
-  expect(log[2]).toMatch(/^#2 workflow-agents: opus high for "review" \(workflow tidy-api\): decided; pick opus, confidence 0\.85; effort p /)
+  const log = (await w.command('dp', 'log 10')).split('\n')
+  expect(log[0]).toBe('最近 2 条决定，最新的在最后')
+  expect(log[1]).toMatch(/^#1 workflow-agents：sonnet high · "rename"（Workflow tidy-api）：已决定；选 sonnet，置信度 0\.70；effort 概率 /)
+  expect(log[2]).toMatch(/^#2 workflow-agents：opus high · "review"（Workflow tidy-api）：已决定；选 opus，置信度 0\.85；effort 概率 /)
 })
 
 test("the person's terms for each call are kept, before the tool runs, for the plans of the call's agents (read beneath, in the same call, by the label fallback)", { options: KEY }, async ($, on) => {
@@ -521,9 +580,14 @@ test('a script that cannot be read, one with no agent() call, and one given by p
   const broken = `${TIDY}const oops = await agent('never closed\n`
   const none = `export const meta = { name: 'none', description: 'Only a sub-workflow', phases: [] }\nreturn await workflow('review-changes')\n`
   await w.workflow({ script: broken })
-  expect(w.status()).toBe('dp workflow not routed (script not readable)')
   await w.workflow({ script: none })
   await w.workflow({ script: TIDY, scriptPath: '/home/u/.claude/projects/p/s1/workflows/scripts/tidy-wf_old.js' })
+
+  // The unreadable and the path-given ones are on the board with why; one with no agent() call has nothing to show.
+  expect((await w.board()).agents.map((node) => [node.routed, node.why])).toEqual([
+    [false, '读不懂这个脚本'],
+    [false, '按路径提交，没有改写'],
+  ])
 
   expect(w.requests).toHaveLength(0)
   expect(w.reached.map((r) => r.script)).toEqual([broken, none, TIDY])
@@ -565,7 +629,7 @@ test("the person's words go to the decision model once for the whole script, mas
   expect(Object.keys(w.requests[1]?.body.state)).toEqual(['brief_0', 'brief_1', 'user_message'])
 })
 
-test('no answer within timeoutMs: the script goes through as written, the tool answers as it always does, and the status line says why', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
+test('no answer within timeoutMs: the script goes through as written, the tool answers as it always does, and the board says why', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
   const w = workflowWorld($, on, { backend: (request) => ({ after: 60_000, reply: siteJev(() => ({ model: { haiku: 1 } }))(request) }) })
   const running = w.workflow({ script: TIDY })
   await w.clock.settle()
@@ -574,33 +638,42 @@ test('no answer within timeoutMs: the script goes through as written, the tool a
 
   expect(w.reached.map((r) => r.script)).toEqual([TIDY])
   expect(result.context).toBeUndefined()
-  expect(w.status()).toBe('dp workflow not routed (jev: no answer in 800 ms)')
+  expect((await w.board()).agents.map((node) => [node.name, node.routed, node.why, node.failure?.kind])).toEqual([
+    ['rename', false, 'jev：800 毫秒内没有回答', 'timeout'],
+    ['review', false, 'jev：800 毫秒内没有回答', 'timeout'],
+  ])
 })
 
-const failures: { name: string; reply: Reply; status: string }[] = [
-  { name: 'the key is refused (401)', reply: { status: 401, body: { detail: 'Invalid API key' } }, status: 'jev: key refused (HTTP 401)' },
-  { name: 'a server error (500)', reply: { status: 500, body: 'Internal Server Error' }, status: 'jev: HTTP 500' },
-  { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }, status: 'jev: unreachable' },
-  { name: "an answer without the agents' questions", reply: { status: 200, body: { model: 'jev-1.13.0', answers: {} } }, status: 'jev: unreadable answer' },
+const failures: { name: string; reply: Reply; why: string }[] = [
+  { name: 'the key is refused (401)', reply: { status: 401, body: { detail: 'Invalid API key' } }, why: 'jev：密钥被拒绝（状态码 401）' },
+  { name: 'a server error (500)', reply: { status: 500, body: 'Internal Server Error' }, why: 'jev：出错（状态码 500）' },
+  { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }, why: 'jev：连不上' },
+  { name: "an answer without the agents' questions", reply: { status: 200, body: { model: 'jev-1.13.0', answers: {} } }, why: 'jev：回答读不懂' },
 ]
 
 for (const failure of failures) {
-  test(`${failure.name}: the script goes through as written, and the status line says why`, { options: KEY }, async ($, on) => {
+  test(`${failure.name}: the script goes through as written, and the board says why`, { options: KEY }, async ($, on) => {
     const w = workflowWorld($, on, { backend: () => failure.reply })
     const result = await w.workflow({ script: TIDY })
 
     expect(w.requests).toHaveLength(1)
     expect(w.reached.map((r) => r.script)).toEqual([TIDY])
     expect(result.context).toBeUndefined()
-    expect(w.status()).toBe(`dp workflow not routed (${failure.status})`)
+    expect((await w.board()).agents.map((node) => [node.name, node.routed, node.why])).toEqual([
+      ['rename', false, failure.why],
+      ['review', false, failure.why],
+    ])
   })
 }
 
-test('no TypeSafe key: nothing is sent, the script goes through as written, and the status line says to set the key', async ($, on) => {
+test('no TypeSafe key: nothing is sent, the script goes through as written, and the board says to set the key', async ($, on) => {
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 1 } })) })
   await w.workflow({ script: TIDY })
 
   expect(w.requests).toHaveLength(0)
   expect(w.reached.map((r) => r.script)).toEqual([TIDY])
-  expect(w.status()).toBe('dp workflow not routed (jev: no TypeSafe API key: set typesafeApiKey)')
+  expect((await w.board()).agents.map((node) => [node.name, node.routed, node.why, node.failure?.kind])).toEqual([
+    ['rename', false, 'jev：没有填 typesafeApiKey', 'config'],
+    ['review', false, 'jev：没有填 typesafeApiKey', 'config'],
+  ])
 })
