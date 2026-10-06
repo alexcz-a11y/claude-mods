@@ -49,7 +49,7 @@ settings hook 是 settings 文件里配置的 shell 命令、HTTP 请求或 prom
 - 没有构建步骤，Claude Code 直接加载 `.js`、`.mjs`、`.ts`、`.tsx` 等文件，`.tsx` 和 `.jsx` 支持 JSX。
 - `.claude-plugin/types/` 是 Claude Code 每次通过 `--plugin-dir` 加载 mod 时生成的类型和 tsconfig。它是当前版本事件和 `$` API 的权威来源，比网页文档更准，但不提交（已写入 `.gitignore`）。
 - 如果 mod 自己没有 `tsconfig.json`，Claude Code 会在 mod 根目录生成一个。这个文件依赖已被忽略的 `.claude-plugin/types/`，所以不要提交；playground 里的 mod 也都不提交它。没有把它写进 `.gitignore`，是为了避免以后手写的 tsconfig 被悄悄忽略。
-- 热重载会重新执行 `register`，`session.start` 也会再触发一次，模块级变量会被重置。需要保留的值放进 `$.state`；跨会话共享的放进 `$.store`，它本机共享、总上限 4 MiB，存放在 `~/.claude/plugins/store/`。
+- 热重载会重新执行 `register`，`session.start` 也会再触发一次，模块级变量会被重置。要跨热重载保留的值放进 `$.state`；只在相邻两个事件之间传递、丢了代价很小的值（例如 dispatch-pilot 的投票箱和命令轮的命令记录）可以放模块级变量，在注释里写明丢了的代价；跨会话共享的放进 `$.store`，它本机共享、总上限 4 MiB，存放在 `~/.claude/plugins/store/`。
 
 ## 常用命令（在仓库根目录执行，`<mod>` 换成子目录名）
 
@@ -61,10 +61,15 @@ command claude plugin test ./<mod>                   # 运行该目录下全部 
 tsc -p ./<mod>                                       # 用生成的 tsconfig.json 做类型检查（需要先加载过一次 mod）
 claude -p "/<command>" --plugin-dir ./<mod>          # 非交互地验证 mod 注册的命令
 claude --debug-file ./mod-debug.log --plugin-dir ./<mod>   # 调试；日志里出现 "hooks module <mod>@inline loaded" 说明加载成功
+scripts/check.sh [<mod>]                             # 提交前的全部检查：test、validate --strict、tsc、<mod>/eval/validate.ts、marketplace 清单
+scripts/test-one.sh <mod> <file.test.ts>...          # 只跑指定的测试文件（其余临时移走，退出时放回）
+docs/research/event-probe/run.sh "<prompt>"          # 实测引擎在某种输入下发哪些事件、什么顺序
 ```
 
+pre-commit hook 跑 `scripts/check.sh`，每个 clone 用 `git config core.hooksPath .githooks` 打开一次。
+
 - `claude plugin test` 用 `command claude` 调用。如果 shell 里 `claude` 是带参数的 alias，它会报 `not run from this spelling` 并拒绝运行。
-- 无法只运行单个测试：不支持过滤参数、单文件路径和 `.only`。想单独跑某个测试，只能临时把其他测试移走。
+- `claude plugin test` 不支持过滤参数、单文件路径和 `.only`，单跑测试用 `scripts/test-one.sh`。
 - 在会话中执行 `/plugin`，会显示类似 `1 mod active · <mod>` 的一行，用来确认 mod 已加载。
 
 ## 测试（`claude-code/testing`）

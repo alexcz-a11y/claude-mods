@@ -1,0 +1,6 @@
+{
+  "name": "event-probe",
+  "version": "0.0.1",
+  "description": "Observer: logs the order and payloads of the engine's events around a turn, to answer what the engine sends when.",
+  "author": { "name": "alexcz-a11y" }
+}

@@ -1,4 +1,5 @@
-// The README's configuration table against what the mod ships (#18). Pure: no
+// The README's configuration table against what the mod ships (#18), and
+// DEVELOPMENT.md's 「结构」 tree against the modules under hooks/. Pure: no
 // `$`, no fs. The tests feed it tables of their own (tests/docs-sync.test.ts);
 // `node dispatch-pilot/eval/validate.ts` runs it on the real README.md and
 // plugin.json, which a test file cannot read.
@@ -124,4 +125,34 @@ export function checkConfigTable(readme: string, userConfig: Readonly<Record<str
     }
   }
   return problems
+}
+
+/**
+ * DEVELOPMENT.md's 「结构」 tree against the modules under hooks/ (`modules`:
+ * paths relative to hooks/, such as `core/commands.ts`): every module has a
+ * line under its folder, and every line names a module that exists. The tree
+ * is the code block after `### 结构`, up to the first line that leaves hooks/
+ * (`scripts/...`); a folder is a line ending in `/`.
+ */
+export function checkStructureTree(development: string, modules: readonly string[]): string[] {
+  const start = development.indexOf('### 结构')
+  if (start < 0) return ['DEVELOPMENT.md has no "### 结构" section']
+  const block = /```\n([\s\S]*?)```/.exec(development.slice(start))?.[1]
+  if (block === undefined) return ['the 「结构」 section has no tree']
+  const listed: string[] = []
+  let folder = ''
+  for (const line of block.split('\n').slice(1)) {
+    const entry = /^[│ ]*[├└]── (\S+)/.exec(line)?.[1]
+    if (entry === undefined) break
+    if (entry.endsWith('/')) {
+      folder = entry
+      continue
+    }
+    // A line at the top of the tree is hooks/ itself.
+    listed.push(/^[├└]/.test(line) ? entry : `${folder}${entry}`)
+  }
+  return [
+    ...modules.filter((module) => !listed.includes(module)).map((module) => `\`${module}\`: no line in DEVELOPMENT.md's 「结构」 tree`),
+    ...listed.filter((entry) => !modules.includes(entry)).map((entry) => `\`${entry}\`: in DEVELOPMENT.md's 「结构」 tree, but hooks/ has no such module`),
+  ]
 }

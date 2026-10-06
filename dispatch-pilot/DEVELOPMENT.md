@@ -986,7 +986,8 @@ eval/
 
 - 在同一个 dispatch 里，外层 hook 写入的 `$.state`，内层 hook 马上就能读到（kit 和真实引擎都实测过）。
 - 外层 hook 的 `$` 被闭包带进内层 hook 后可以照常调用（kit 和真实引擎）。
-- `prompt.submit` 的 text 与随后 `turn.start` 的 text 完全相同，`turn.start` 在 `prompt.submit` 的 `next(e)` 里面触发。只有主 agent 的轮才有 `turn.start`。
+- `prompt.submit` 的 text 与随后 `turn.start` 的 text 完全相同（命令轮除外，见下一条），`turn.start` 在 `prompt.submit` 的 `next(e)` 里面触发。只有主 agent 的轮才有 `turn.start`。
+- 斜杠命令（2.1.291，`-p` 和交互式一致，用 `docs/research/event-probe/` 测的）：prompt 命令（skill、markdown 命令）依次触发 `command.run`（`command` 是引擎解析后的名字，插件命令带插件名，如 `my-plugin:cmd`；`args` 是输入的其余部分）、嵌在它里面的 `skill.prompt`（展开后的正文）、`prompt.submit`（text 是输入的原文 `/name args`）、`turn.start`（text 是 `<command-message>name</command-message>`、`<command-name>/name</command-name>`、`<command-args>args</command-args>` 拼成的命令消息）。本地命令（`/dp`、`/usage`、`/context`）只触发 `command.run`，不触发 `prompt.submit`，不开始一轮。以 `/` 开头但不是命令的文字（`/Users/...`、`/nosuchcmd`）当普通消息提交，没有 `command.run`。`$.command.list()` 的 `source` 只有 `builtin`、`user`、`plugin`、`mcp`，分不出 skill 和本地命令。
 - 一轮进行中用户发的新消息：`prompt.submit` 带着这一轮的 `turnId`，消息在下一步作为 `queued_command` 附件送进同一轮，不会开始新的一轮。
 - `$.session.messages()` 里，助手的输出每个 block 一行，工具结果是没有文字的 user 行，user 行只包含用户输入的文字。
 - debug log 不会记录 `pluginConfigs` 里的 option 值（用假 key 验证过）。
