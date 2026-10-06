@@ -28,7 +28,7 @@ test('with Clef chosen, the decision goes to Cloudflare Workers AI and its answe
   expect(Object.keys(request?.body.questions)).toEqual(['effort.level'])
   // The answer is read from the envelope's result: high is the most likely level.
   expect(w.steps.map((s) => s.effort)).toEqual(['high'])
-  expect(w.status()).toBe('dp effort high')
+  expect((await w.board()).main).toMatchObject({ effort: 'high', routed: true })
 })
 
 test('the debug log says the request went to Clef, who answered it and how many tokens it read', { options: CLEF_OPTIONS }, async ($, on) => {
@@ -94,7 +94,7 @@ for (const [name, reply] of [
   })
 }
 
-test('no answer within timeoutMs: the prompt goes in without waiting longer, the turn keeps the engine effort, the status line says why', { options: { ...CLEF_OPTIONS, timeoutMs: 800 } }, async ($, on) => {
+test('no answer within timeoutMs: the prompt goes in without waiting longer, the turn keeps the engine effort, the board says why', { options: { ...CLEF_OPTIONS, timeoutMs: 800 } }, async ($, on) => {
   // Clef answers only after a minute of (mock) time.
   const w = world($, on, { backend: (request) => ({ after: 60_000, reply: clef([0, 0, 1, 0, 0])(request) }) })
 
@@ -107,7 +107,7 @@ test('no answer within timeoutMs: the prompt goes in without waiting longer, the
   expect(w.requests).toHaveLength(1)
   expect(w.prompts).toHaveLength(1)
   expect(w.steps.map((s) => s.effort)).toEqual(['xhigh'])
-  expect(w.status()).toBe('dp effort xhigh (not routed) | clef: no answer in 800 ms')
+  expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: false, failure: { backend: 'clef', kind: 'timeout', detail: 'no answer in 800 ms' } })
 })
 
 // What Cloudflare answers when it does not answer: its error body is
@@ -131,7 +131,7 @@ const failures: { name: string; reply: Reply; status: string }[] = [
 ]
 
 for (const failure of failures) {
-  test(`${failure.name}: the turn keeps the engine effort and the status line says why`, { options: CLEF_OPTIONS }, async ($, on) => {
+  test(`${failure.name}: the turn keeps the engine effort and the board says why (and the old status line, in Clef's words)`, { options: CLEF_OPTIONS }, async ($, on) => {
     const w = world($, on, { backend: () => failure.reply })
     await w.submit('解释一下这个函数做了什么')
     await w.step({ index: 0, effort: 'medium' })
@@ -139,6 +139,7 @@ for (const failure of failures) {
     expect(w.requests).toHaveLength(1)
     expect(w.prompts).toHaveLength(1)
     expect(w.steps.map((s) => s.effort)).toEqual(['medium'])
+    expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, failure: { backend: 'clef' } })
     expect(w.status()).toBe(`dp effort medium (not routed) | ${failure.status}`)
   })
 }
@@ -160,6 +161,7 @@ for (const { name, options, status } of unconfigured) {
     expect(w.requests).toHaveLength(0)
     expect(w.prompts).toHaveLength(1)
     expect(w.steps.map((s) => s.effort)).toEqual(['medium'])
+    expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, failure: { backend: 'clef', kind: 'config' } })
     expect(w.status()).toBe(`dp effort medium (not routed) | ${status}`)
   })
 }

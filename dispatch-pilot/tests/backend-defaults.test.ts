@@ -42,7 +42,7 @@ test("with Jev, a message waits 1500 ms for the decision (Jev's default)", { opt
   await w.clock.advance(1500)
   await submitting
   await w.step({ index: 0, effort: 'xhigh' })
-  expect(w.status()).toBe('dp effort xhigh (not routed) | jev: no answer in 1500 ms')
+  expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: false, failure: { backend: 'jev', kind: 'timeout', detail: 'no answer in 1500 ms' } })
 })
 
 test("with Clef, a message waits 3000 ms (Clef's default): nothing the manifest declares stands in for it", { options: CLEF_OPTIONS }, async ($, on) => {
@@ -57,7 +57,7 @@ test("with Clef, a message waits 3000 ms (Clef's default): nothing the manifest 
   await w.clock.advance(1500)
   await submitting
   await w.step({ index: 0, effort: 'xhigh' })
-  expect(w.status()).toBe('dp effort xhigh (not routed) | clef: no answer in 3000 ms')
+  expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: false, failure: { backend: 'clef', kind: 'timeout', detail: 'no answer in 3000 ms' } })
 })
 
 for (const chosen of CHOSEN) {
@@ -69,7 +69,7 @@ for (const chosen of CHOSEN) {
     await w.clock.advance(2500)
     await submitting
     await w.step({ index: 0, effort: 'xhigh' })
-    expect(w.status()).toBe(`dp effort xhigh (not routed) | ${chosen.name.toLowerCase()}: no answer in 2500 ms`)
+    expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: false, failure: { backend: chosen.name.toLowerCase(), kind: 'timeout', detail: 'no answer in 2500 ms' } })
   })
 }
 
