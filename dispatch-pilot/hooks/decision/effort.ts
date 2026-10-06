@@ -186,6 +186,11 @@ export function levelsText(reading: EffortReading): string {
   return EFFORTS.map((level, i) => `${level} ${(reading.probabilities[i] ?? 0).toFixed(2)}`).join(', ')
 }
 
+/** Every level's probability, by level, for the board's data. */
+export function probsOf(reading: EffortReading): Record<Effort, number> {
+  return Object.fromEntries(EFFORTS.map((level, i) => [level, reading.probabilities[i] ?? 0])) as Record<Effort, number>
+}
+
 /**
  * Every level's probability and the backend's confidence, as the decision log
  * gives them: `p low 0.00, medium 0.05, ...; confidence 0.80`, with `note`

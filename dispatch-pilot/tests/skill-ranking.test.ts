@@ -113,7 +113,8 @@ test('both requests share the message’s wait: the second gets what the first l
   expect(w.requests).toHaveLength(2)
   expect(w.prompts).toHaveLength(1)
   expect(w.prompts[0]?.context).toBeUndefined()
-  // The effort still went through; the skills say the second request had 1100 ms and got nothing.
+  // The effort still went through; the second request had 1100 ms and got nothing, so no skills decision: only the old status line says why.
+  expect((await w.board()).log.filter((entry) => entry.feature === 'skills')).toEqual([])
   expect(w.status()).toBe('dp effort medium | skills not rated (jev: no answer in 1100 ms)')
 })
 
@@ -143,17 +144,19 @@ test('Clef takes the second request with a Choice between the skills re-read (it
   expect(w.prompts[0]?.context?.[0]).toContain(`- tdd (relevance 0.97): ${TDD_DESCRIPTION}`)
 })
 
-test('a second request that fails suggests nothing, and the status line says so until a message is rated again', { options: KEY }, async ($, on) => {
+test('a second request that fails suggests nothing and leaves no skills decision (the status line says why) until a message is rated again', { options: KEY }, async ($, on) => {
   const answer = rates({ tdd: 0.62, '(none)': 0.38 }, { tdd: 0.97 })
   let refuse = true
   const w = world($, on, { backend: (request) => (isSecondSkillsRequest(request) && refuse ? { status: 503, body: 'overloaded' } : answer(request)), skills: SKILLS, disk: FILES })
   await w.submit('先写一个失败的测试')
   await w.step({ index: 0 })
   expect(w.prompts[0]?.context).toBeUndefined()
+  expect((await w.board()).log.filter((entry) => entry.feature === 'skills')).toEqual([])
   expect(w.status()).toBe('dp effort medium | skills not rated (jev: busy (HTTP 503))')
   refuse = false
   await w.submit('再写一个失败的测试')
   await w.step({ index: 0 })
+  expect((await w.board()).log.filter((entry) => entry.feature === 'skills').map((entry) => [entry.turn, entry.skills?.suggest.map((skill) => skill.name)])).toEqual([[2, ['tdd']]])
   expect(w.status()).toBe('dp effort medium | skills tdd')
 })
 
