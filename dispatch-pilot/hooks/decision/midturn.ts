@@ -332,6 +332,25 @@ export function judgeMidturn(reading: EffortReading, position: MidturnPosition, 
   return verdict(current, 'same')
 }
 
+/**
+ * What a verdict says for the board: the level the answer suggested, the one the turn was at, where it ended;
+ * the confidence the move needed (`threshold`: thetaUp for a raise, thetaDown for a lowering; none when the
+ * answer was the level itself, or a held lowering never got to it); and for a held lowering why and how many
+ * steps are left of the wait (`remaining`).
+ */
+export function midturnRecord(verdict: MidturnVerdict, position: MidturnPosition, rules: MidturnRules): { current: Effort; picked: Effort; result: Effort; threshold?: number; held?: string; remaining?: number } {
+  const steps = verdict.trace.steps
+  const needed = steps.find((step) => step.rule === 'theta-up' || step.rule === 'theta-down')
+  const hold = steps.find((step): step is Extract<MidturnRuleStep, { rule: 'hold' }> => step.rule === 'hold' && step.applied)
+  return {
+    current: position.current,
+    picked: verdict.picked,
+    result: verdict.effort,
+    ...(needed === undefined ? {} : { threshold: needed.threshold }),
+    ...(hold === undefined ? {} : { held: verdictReason(verdict, position, rules), remaining: hold.remaining }),
+  }
+}
+
 /** Why a verdict went where it did, in a few words for the decision log: `up`, `held: raised 2 steps ago (holdSteps 3)`. */
 export function verdictReason(verdict: MidturnVerdict, position: MidturnPosition, rules: MidturnRules): string {
   switch (verdict.why) {

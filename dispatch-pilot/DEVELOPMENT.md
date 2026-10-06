@@ -434,7 +434,7 @@ hooks/
 ├── core/                   各功能共用的机制，不含具体功能
 │   ├── core.ts             核心的 hook：发消息时的决策请求、一轮的开始、每一步的写入、认出 settings hook 拦下的调用、记下用户运行的命令
 │   ├── ballot.ts           一条消息的「投票箱」：各功能放进问题，由核心一次发出
-│   ├── report.ts           「决定汇报」module（ADR 0004）：两个入口 reportDecision 和 reportStep，看板数据（`board`）和决策日志（`decisionLog`）的唯一写入者；自带 turn.start、agent.spawn、turn.complete 三个只看不改的 hook，记轮数和各个 agent 的开始、排队、结束
+│   ├── report.ts           「决定汇报」module（ADR 0004）：三个入口 reportDecision、reportStep 和 reportTally，看板数据（`board`）和决策日志（`decisionLog`）的唯一写入者；自带 turn.start、agent.spawn、turn.complete 三个只看不改的 hook，记轮数和各个 agent 的开始、排队、结束
 │   ├── decisions.ts        旧的记录入口 recordDecision：还没迁到 reportDecision 的功能在用，写进同一份决策日志；功能迁完后删除
 │   ├── plans.ts            计划表的类型和纯函数（planStep 决定每一步发出什么）
 │   ├── outcomes.ts         工具调用的结局：哪些被 settings hook 拦下（核心的 classic.PreToolUse 记）、每个调用怎么结束的（#7 记），#5 和 #7 共用
@@ -518,7 +518,7 @@ types/index.d.ts            $.state 的契约（PluginState）
 | `workflowTerms` | Workflow 调用的 `tool_use_id` | #8 判断出的、你对直接交来的脚本里每个调用的约束（按调用序号，没有就是 `null`）；同一次调用里 #9 在内层读它，把约束交给这些 agent 的计划 | #8 在调用工具之前写 |
 | `escalation` | `main`（主 agent，记录里的 `turnId` 是它所属的那一轮）或 `agentId` | 每个循环唯一的失败计数：失败次数、被 hook 拦下的次数、清零的基数 `base`（计入的是减去它之后的数）、强制升档的次数、这个循环最近一步的序号和引擎给的 effort、model（调用结束时就发的再判断要读）、最近一次再判断是为第几步问的、派出 agent 最近一次升档在第几步 | #7 写；#5 读主 agent 的，作为请求里的 `counts` |
 | `lock` | 无 | 用户锁定的主 agent effort，`null` 表示没有锁定 | #13：`/dp lock`、`/dp unlock`（`features/control.ts`） |
-| `board` | 无 | 看板数据：`turn`（本会话开始的主 agent 轮数）、`starts`（最近两轮的开始时间）、`changes`（读数的变化事件）和 `nodes`（最近两轮每个 agent 的一个节点：模型、effort、是否路由、未路由的原因、对应的决策编号），见「记录一次决策」 | 「决定汇报」module（`core/report.ts`）：`reportDecision`、`reportStep`、自己的 turn.start hook |
+| `board` | 无 | 看板数据：`turn`（本会话开始的主 agent 轮数）、`starts`（最近两轮的开始时间）、`changes`（读数的变化事件）和 `nodes`（最近两轮每个 agent 的一个节点：模型、effort、是否路由、未路由的原因、对应的决策编号，以及中途重判的计数 `midturn` 和失败计数 `counts`），见「记录一次决策」 | 「决定汇报」module（`core/report.ts`）：`reportDecision`、`reportStep`、`reportTally`、自己的 hook |
 | `decisionLog` | 无 | 各功能记录的决策，最近 20 轮、最多 300 条，`/dp log` 显示（见下「记录一次决策」） | 「决定汇报」module；还没迁走的功能经 `recordDecision` 写进同一份 |
 | `pending` | 无 | 发消息时做出的判断，等它的那一轮开始时由核心认领 | #2 |
 | `said` | 无 | 用户本人这一轮说的话（已脱敏和截断）：空闲时发的那条消息开始新的一组，这一轮进行中发的消息追加进去，其他来源的 prompt 不动它；派出 agent 和 Workflow 里 agent 的判断把它当作 `user_message` | #6 写，#8 读 |
@@ -691,7 +691,7 @@ defineSwitch({ name: 'main-effort', info: "decides the main agent's effort when 
 
 ### 记录一次决策
 
-给人看的东西只由「决定汇报」module（`core/report.ts`，ADR 0004）写出：看板数据、决策日志、debug log，以及新界面落地之前的旧状态行。功能不拼状态文字，也不直接写决策日志：它只交一条结构化的决定。module 对外只有两个入口，下面的两个函数都不会抛错（存不进 `$.state` 时在 debug log 里说一声，决定和这一步照常生效）。
+给人看的东西只由「决定汇报」module（`core/report.ts`，ADR 0004）写出：看板数据、决策日志、debug log，以及新界面落地之前的旧状态行。功能不拼状态文字，也不直接写决策日志：它只交一条结构化的决定。module 对外有三个入口，下面的函数都不会抛错（存不进 `$.state` 时在 debug log 里说一声，决定和这一步照常生效）。
 
 **入口一：`reportDecision(io, decision)`。** `$` 不能越过 import，所以调用方在自己的文件里用 `$` 搭一个 `ReportIo`（四个闭包），文件顶部写自己的字面量 ref：
 
@@ -711,11 +711,13 @@ await reportDecision(io, { feature: 'main-effort', agent: 'main', forTurn: 'next
   failure: { backend: 'jev', kind: 'timeout', detail: 'no answer in 800 ms' } }) // 决策模型没给出决定
 ```
 
-- 决定（`Decided`）：`feature`（开关名；报告开始的一轮写 `main-effort (agent report)`）、`agent`（`main` 或 agentId）、`outcome`（几个词：`effort high`）、`reason`（理由，一行英文）、`subject`（针对什么：消息的开头、agent 的 label）、`forTurn`、`routed`、`tone`（默认 `ok`），以及可选的 `probs`、`conf`、`trace`（规则推演）、`floor`、`mid`。每个决定写一条 debug log（`<outcome> for <subject>: <reason>`）和一条决策日志，并写到那个 agent 在这一轮的节点上（`decision` 是日志编号）。`routed: true` 同时清掉节点上旧的 `why` 和 `failure`。`trace` 直接交规则自己给出的步骤（`decision/effort.ts` 的 `traceEffort(...).steps`；中途重判交 `[...trace.pick.steps, ...trace.steps]`），不要另行计算：主 agent 的 effort 决定（`features/main-effort.ts`）已经这样带上。
+- 决定（`Decided`）：`feature`（开关名；报告开始的一轮写 `main-effort (agent report)`）、`agent`（`main` 或 agentId）、`outcome`（几个词：`effort high`）、`reason`（理由，一行英文）、`subject`（针对什么：消息的开头、agent 的 label）、`forTurn`、`routed`、`tone`（默认 `ok`），以及可选的 `probs`、`conf`、`trace`（规则推演）、`floor`、`mid`（中途重判：当前档 `current`、建议档 `picked`、结果 `result`、置信度门槛 `threshold`、防抖时还差几步 `remaining` 和原因 `held`）、`forced`（强制升档：`kind` 是 `effort` 或 `model`，`from` → `to`，和它保住的下限 `floor`）、`skills`（skill 推荐：`suggest` 给主 agent 的，`try` 只能由用户触发的，即「可试 /x」，各带相关度）、`counts`（这个 agent 的失败、阻塞、升档计数）、`aside`。每个决定写一条 debug log（`<outcome> for <subject>: <reason>`）和一条决策日志，并写到那个 agent 在这一轮的节点上（`decision` 是日志编号）。`routed: true` 同时清掉节点上旧的 `why` 和 `failure`。`trace` 直接交规则自己给出的步骤（`decision/effort.ts` 的 `traceEffort(...).steps`；中途重判交 `[...trace.pick.steps, ...trace.steps]`，`midturnRecord(verdict, position, rules)` 给出 `mid`；强制升档交 `decision/escalation.ts` 的 `traceRaise(...).steps`），不要另行计算：主 agent 的 effort 决定（`features/main-effort.ts`）、中途重判（`features/midturn-effort.ts`）和强制升档（`features/escalation.ts`）已经这样带上。
+- 旁支决定（`aside: true`）：中途重判、强制升档和 skill 推荐是主 agent（或某个 agent）那一轮的路由之外的决定：写决策日志和 debug log，不碰 agent 的节点（节点的 `decision` 链接、`routed`、`why` 仍是路由自己的）。同一个 agent 的节点上，这几项功能的计数另走 `reportTally`。
 - 没能做出决定（`NotDecided`）：带 `failure`（`{ backend, kind, detail, status? }`，后端名加 `Failure`）。它不进决策日志、不写 debug log（和以前一样，请求本身已经由核心记在 debug log 里），只写到 agent 的节点上：`why` 是简短的原因，`failure` 是完整的，`routed` 照 `routed` 字段。
 - `forTurn: 'next'`：在这一轮开始之前做的决定（`prompt.submit` 里，这条消息将开始一轮），归到将开始的那一轮；`'current'`（默认）：正在进行的这一轮，例如在一轮中途发的消息。轮数由 module 自己的 `turn.start` hook 数，从 1 开始。
+- 什么也没决定、也不是失败的请求时（`Skipped`，必带 `aside`）：`skipped` 是 `unanswered`（回答里没有 skill 那一题）、`unread`（读不到会话的 skill）、`none`（没有可评分的 skill）或 `error`（插件自己出错，debug log 有）。不进决策日志，也不上看板，只供旧状态行说话，随第 2 步一起去掉。旁支的失败（`failure` 加 `aside`，例如第二段 skill 请求失败）同样只给旧状态行用。
 - 一个 agent 在看板上还没有节点时，第一份报告建它：主 agent 的名字是「主 agent」；其他 agent 带 `node: { kind, name, type }`。
-- 旧状态行的段：`LEGACY` 表按功能名（开关名）列出 module 替它渲染的段，每行是 `(decision, board) => [{ segment, text }]`：拿到这条决定和写入后的看板（最近两轮每个 agent 的节点），返回这些段现在该写什么（`null` 清掉）。现在只有 `main-effort` 的 `decision`；功能迁移时在这张表里加自己一行、去掉自己的 `setStatus`，要汇总多个 agent 的段（Workflow 的几个 agent）就从 `board.nodes` 里算。`effort` 段由 `reportStep` 渲染。
+- 旧状态行的段：`LEGACY` 表按功能名（开关名）列出 module 替它渲染的段，每行是 `(decision, board) => [{ segment, text }]`：拿到这条决定和写入后的看板（最近两轮每个 agent 的节点），返回这些段现在该写什么（`null` 清掉）。现在有 `main-effort` 的 `decision`、`skills` 的 `skills` 和 `find-skill` 的 `find-skill`（中途重判和 escalation 的段由 `reportTally` 渲染）；功能迁移时在这张表里加自己一行、去掉自己的 `setStatus`，要汇总多个 agent 的段（Workflow 的几个 agent）就从 `board.nodes` 里算。`effort` 段由 `reportStep` 渲染。
 
 **入口二：`reportStep(io, { agentId?, model, effort?, source })`。** 一步发出的读数：模型（按家族记）、effort、有没有路由（`source` 是 `planStep` 的 `locked | planned | engine`）。只观察，从不改写。核心在 `turn.step` 里为每个 loop（主 agent、派出 agent、Workflow agent）的每一步调用它，传的是核心发出的模型和 effort；没有另外一个读数的 hook，也不放在核心之上或之下。`io` 是 `StepIo`（`ReportIo` 加 `now`、`agents`、`runDirs`、`journal`），核心自己写这些闭包（`$` 只跟进同文件的函数，不能传给 import 来的函数）。
   - 节点：agent 的节点在它第一步（或 `agent.spawn` 返回时，见下）建；名字取 `$.agent.list()` 的 `name`，没有就取 `description`；`$.agent.list()` 里没有的，到会话的 Workflow 运行目录（`workflowRuns` 和 `labelRuns` 记下的）的 `journal.jsonl` 里找它的 `started` 行，取 label（没写 label 时就是 prompt 的前 60 个字符，不处理），`kind: 'wf'`、`type: 'workflow'`。两处都不认的 loop（引擎自己的压缩、记忆 fork）不上看板。Workflow 的第一个 agent 可能比 Workflow 的 `tool.call` 记下运行目录还早走第 0 步，所以认不出时不建节点，记下第一次见到的时间（模块变量，热重载丢了的代价是起点晚一步），下一步或它这个 loop 结束时再认，起点（`t0`）仍是第一次见到的那一步。
@@ -723,6 +725,8 @@ await reportDecision(io, { feature: 'main-effort', agent: 'main', forTurn: 'next
   - 状态：`queued`（`agent.spawn` 返回了 agentId，还没走第一步；Workflow agent 看不到排队，它的 `started` 行紧挨着第 0 步）→ `running`（每个读数）→ `done`（`turn.complete` 的 `reason` 是 `answer`）或 `failed`（`error`、`refusal`、`aborted`；没有别的原因时 `why` 写 `error`、`refused`、`aborted`）。Workflow agent 的 `turn.complete` 实测会触发（2.1.291，带 `agentId`，`reason: 'answer'`），主 agent 的那一轮可以比它们先结束。
   - 变化事件：同一个 agent 同一轮里，读数（模型的家族，或 effort）和上一步不同才在 `board.changes` 记一条 `{ turn, id, at, after, from, to }`（`at`：从那一轮开始的秒数；`after`：这时决策日志最后一条的 `n`，事件流按它把变化排在决定之后）。第一次读数不算变化；`claude-sonnet-5` 和 `claude-sonnet-5-5` 同一家族不算；haiku 没有 effort，所以不带 effort 的读数照常记，从 haiku 换到别的家族是一条变化。
   - 生命周期的三个 hook（`registerReport`，都只看不改）：`turn.start`（轮数和开始时间）、`agent.spawn`（`next` 返回后给派出 agent 建一个排队的节点，别的功能先建了就只改成排队）、`turn.complete`（节点的 `done`/`failed` 和 `dur`）。
+
+**入口三：`reportTally(io, tally)`。** 功能一路数着的计数，不是决定：`midturn-effort` 的步数、决定数、改档数（`quiet` 为真时，这一轮还没重判过，什么也不显示）和 `late`、`failure`（这一步的重判答案没回来，或请求失败），写到主 agent 本轮节点的 `midturn`；`escalation` 每个循环（主 agent 或某个 agent）的失败、阻塞、升档计数，写到那个 agent 本轮节点的 `counts`（全是 0 时去掉；一轮开始时主 agent 的计数归零，交 `turnStart`）。节点没变就不写看板；没有节点的 agent 循环不是看板上的 agent（节点由 `agent.spawn` 和读数建），它的计数不上看板，主 agent 的节点没有就建。旧状态行的 `midturn`、`escalation`、`agentEscalation` 三段也从它渲染（`agentEscalation` 是最近一个出过错的 agent，存在 module 变量里，热重载丢失，和以前一样）。
 
 **旧入口 `recordDecision`（`core/decisions.ts`）。** 还没迁走的功能照旧调用它：同样的调用、同样的 debug log 一行，条目写进同一份决策日志（`tone` 是 `info`，`turn` 取日志里最大的轮数，因为它不知道自己是哪一轮）。每迁一项功能就去掉它的调用，最后一项迁完删除这个文件。
 
@@ -795,8 +799,8 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 - **回答。** `tool.call` 的 matcher 是 `{ tool: 'mcp__dispatch-pilot__find_skill' }`。hook 直接返回 `{ result: <文字> }`，从不调用 `next`（没有别人回答这个工具，落空的调用会失败）。照官方文档的写法，失败也作为普通的 `result` 返回，用文字说明，不用 `isError`。
 - **请求。** state 是 `turnStartState({ prompt: query, messages: $.session.messages(), limits: ctx.config.context })`；问题是 `modRanker(io, rankingSettings(ctx)).part(candidates)`，只有 `skills.which`；候选是目录里主 agent 能加载的 skill 去掉 `skillsNeverSuggested`，所以这一题和发消息时的 `skills.which` 一字不差（`skill-profiles` 关着时去掉画像，和发消息时一样）；只能由你触发的 skill 不问（它们反正不返回）。选 Clef 时第一段的候选去掉画像（`ctx.config.skills.findByProfile` 为 false），第二段照样带。请求带着 `ctx.config.skills.findWaitMs`（Jev 是 `timeoutMs`，Clef 是 8000）发给 `ctx.backend`，回答连同这个请求的 `state` 交给 `ranker.rank`，第二段只能用这段等待剩下的时间：两段共用一次等待，不是各等一次（各等一次的话，`timeoutMs` 最多 8000，两段就可能到 16 秒，超过 hook 的 10 秒），再经 `pickSkills(ranking, candidates, { max: findSkillMax, minRelevance: findSkillMinRelevance })`，只返回 `suggest`（`by: 'model'`）。第二段失败（`ranking.failed`）和第一段失败一样回答「无法评分」。`io` 的 `ask` 和 `opening` 在 `tool.call` 里用这次调用的 `$` 构造。
 - **判断顺序。** 总开关、`find-skill` 开关、派出 agent（`e.agentId`，指回它自己的列表）、空查询：这几步不发请求，也不动状态行。之后读目录、发请求，结果或失败原因写进状态行。
-- **状态行段 `find-skill`**（`core/status.ts` 的 `ORDER` 里排在 `skills` 之后）：`find_skill <名字>`、`find_skill none` 或 `find_skill failed (<原因>)`。`/dp find-skill off` 会撤掉这一段。
-- **日志。** 每次发出的请求写一行（`request [skills.which] to jev for find_skill "<查询>": ...`，第二段是 `second request [skills.best, skills.fits.0, ...] to jev for find_skill "<查询>": ...`）；得到排序后用 `recordDecision` 记一条（feature `find-skill`，outcome `found <名字>` 或 `found no skill`，reason 是 `describeStages` 写出的两段结果和门槛）。失败只有请求那几行。
+- **状态行段 `find-skill`**（`core/status.ts` 的 `ORDER` 里排在 `skills` 之后；由「决定汇报」从这次调用的决定渲染）：`find_skill <名字>`、`find_skill none` 或 `find_skill failed (<原因>)`。`/dp find-skill off` 会撤掉这一段。
+- **日志。** 每次发出的请求写一行（`request [skills.which] to jev for find_skill "<查询>": ...`，第二段是 `second request [skills.best, skills.fits.0, ...] to jev for find_skill "<查询>": ...`）；得到排序后用 `reportDecision` 记一条旁支决定（feature `find-skill`，outcome `found <名字>` 或 `found no skill`，reason 是 `describeStages` 写出的两段结果和门槛，`skills.suggest` 带名字和相关度）。失败只有请求那几行（和旧状态行的一段），不进决策日志。
 - **自己出错时。** 读 `$.state` 失败这类错误由 hook 捕获，照样回答失败，并在状态行和 debug log 说明，不让调用落空。
 
 ### 决策后端
@@ -812,7 +816,7 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 
 ### 状态行
 
-旧状态行从看板数据渲染：`effort` 段（主 agent 这一步发出的 effort，后面带 `(locked)` 或 `(not routed)`）由 `reportStep` 设，`decision` 段（这条消息为什么没有决定）由 `reportDecision` 设；还没迁走的功能照旧调用 `setStatus(segment, text | null, (line) => $.ui.status(line))`。各段按 `core/status.ts` 里 `ORDER` 的顺序显示，整行内容变化时才发送。新功能需要一段时，就在 `ORDER` 里加上，并且只由这项功能自己写。文字只用 ASCII。总开关关着时整行只显示 `dp off`（`pauseStatus`，只有 `features/control.ts` 调用），各段照常记着，打开总开关时清空。
+旧状态行从看板数据渲染：`effort` 段（主 agent 这一步发出的 effort，后面带 `(locked)` 或 `(not routed)`）由 `reportStep` 设，`decision`、`skills`、`find-skill` 段由 `reportDecision` 设，`midturn`、`escalation`、`agentEscalation` 段由 `reportTally` 设；还没迁走的功能照旧调用 `setStatus(segment, text | null, (line) => $.ui.status(line))`。各段按 `core/status.ts` 里 `ORDER` 的顺序显示，整行内容变化时才发送。新功能需要一段时，就在 `ORDER` 里加上，并且只由这项功能自己写。文字只用 ASCII。总开关关着时整行只显示 `dp off`（`pauseStatus`，只有 `features/control.ts` 调用），各段照常记着，打开总开关时清空。
 
 ### 配置项
 

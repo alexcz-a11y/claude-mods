@@ -136,6 +136,20 @@ declare module 'claude-code' {
           }
           /** The `n` of its decision in `decisionLog`. */
           decision?: number
+          /**
+           * The main agent's mid-turn re-decisions this turn (midturn-effort): steps made, decisions (the turn's
+           * own at its start included), level changes. `late`: the answer for the step is not back; `failure`: the
+           * latest request failed. Absent until the turn was re-decided once.
+           */
+          midturn?: {
+            steps: number
+            judged: number
+            changed: number
+            late?: true
+            failure?: { backend: string; kind: 'config' | 'timeout' | 'network' | 'busy' | 'quota' | 'http' | 'parse' | 'request'; detail: string; status?: number }
+          }
+          /** The failed tool calls, hook blocks and forced raises of the agent's loop (escalation); absent while none. `late`: a stuck re-decision is not back. */
+          counts?: { failed: number; blocked: number; raised: number; late?: true }
         }[]
       }
       /**
@@ -176,8 +190,19 @@ declare module 'claude-code' {
           current: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
           picked: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
           result: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          /** The confidence the move needed (thetaUp for a raise, thetaDown for a lowering); absent while the lowering was held, and when the answer was the level itself. */
+          threshold?: number
+          /** Why a lowering did not happen: it was held after a raise. */
           held?: string
+          /** The steps still to wait before a held lowering may go through. */
+          remaining?: number
         }
+        /** A raise the failures forced (escalation): what it went from and to (levels, or for a haiku agent models), and the level it keeps the agent at least at. */
+        forced?: { kind: 'effort' | 'model'; from: string; to: string; floor?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' }
+        /** The skills a message or a find_skill call got: those suggested to the main agent, and those only the person can start (「可试 /x」), each with its relevance. */
+        skills?: { suggest: { name: string; relevance: number }[]; try: { name: string; relevance: number }[] }
+        /** The loop's counts when it was raised (escalation). */
+        counts?: { failed: number; blocked: number; raised: number }
       }[]
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null

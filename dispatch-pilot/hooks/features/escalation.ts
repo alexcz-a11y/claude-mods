@@ -28,18 +28,18 @@
 import type { EngineInterface, HttpInit, On, TurnStepInput } from 'claude-code'
 import { describeAsked, errorText, within, type Failure } from '../decision/backend.ts'
 import { AGENT_MODELS, effortFloor, modelFamily, type AgentModel, type Terms } from '../decision/dispatched-agent.ts'
-import { briefOf, forcedTarget, raisedLevel, readExpected, rowsFromTranscript, stepsFromRows, stuckRequest, troubleText, type RaiseMode, type TranscriptRow } from '../decision/escalation.ts'
-import { higherEffort, isEffort, readEffort, readingText, type Effort, type EffortReading } from '../decision/effort.ts'
-import { contentLanguage, judgeMidturn, MIDTURN_LEVEL, outcomeOf, verdictReason, type MidturnInput, type MidturnLimits, type MidturnRules } from '../decision/midturn.ts'
+import { briefOf, forcedTarget, readExpected, rowsFromTranscript, stepsFromRows, stuckRequest, traceRaise, troubleText, type RaiseMode, type TranscriptRow } from '../decision/escalation.ts'
+import { higherEffort, isEffort, probsOf, readEffort, readingText, type Effort, type EffortReading } from '../decision/effort.ts'
+import { contentLanguage, judgeMidturn, MIDTURN_LEVEL, midturnRecord, outcomeOf, verdictReason, type MidturnInput, type MidturnLimits, type MidturnPosition, type MidturnRules, type MidturnVerdict } from '../decision/midturn.ts'
 import { modelId, type ResolvedModel } from '../decision/model-ids.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { answersFor } from '../decision/system-one.ts'
 import { startedIn } from '../decision/workflow-labels.ts'
-import { recordDecision, type DecisionEntry } from '../core/decisions.ts'
 import { endedAs, noteEnded, wasBlocked } from '../core/outcomes.ts'
 import { floorHeld, forced, MAIN, newTurn, redecided, replace, turnKey, update, type AgentPlan, type Cell, type TurnRecord } from '../core/plans.ts'
+import { reportDecision, reportTally, type Decided, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
-import { failureText, setStatus } from '../core/status.ts'
+import { failureText } from '../core/status.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 
 const ESCALATION = { plugin: 'dispatch-pilot', key: 'escalation' } as const
@@ -47,6 +47,7 @@ const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
 const AGENTS = { plugin: 'dispatch-pilot', key: 'agents' } as const
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const RUNS = { plugin: 'dispatch-pilot', key: 'workflowRuns' } as const
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** At most this many Workflow runs' directories are kept. */
@@ -171,7 +172,7 @@ export function registerEscalation(on: On, ctx: Ctx): void {
         return ended === 'failed' ? { ...loop, failures: loop.failures + 1 } : { ...loop, hookBlocks: loop.hookBlocks + 1 }
       })
       if (!isOn(SWITCH)) return result
-      showCounts($, id, record, null)
+      await showCounts($, id, record, null)
       // The call that reaches the threshold asks at once: the answer is for the loop's next step (once per step).
       if (record.step !== null && record.askedFor !== record.step + 1) await launch($, settings, id, e.agentId, record, record.step + 1)
     } catch (error) {
@@ -218,8 +219,7 @@ async function atStep($: EngineInterface, s: Settings, e: TurnStepInput): Promis
   if (startsTurn(before)) {
     // A new main turn: what the one before counted, and asked, is over.
     asking.delete(MAIN)
-    latestAgent = null
-    showCounts($, MAIN, null, null)
+    await showCounts($, MAIN, null, null)
   }
   if (!on) return
 
@@ -234,9 +234,9 @@ async function atStep($: EngineInterface, s: Settings, e: TurnStepInput): Promis
     const raise = await raiseOf($, s, id, e.agentId, record, e.index)
     if (raise.kind === 'none') return
     if (raise.kind === 'keep') {
-      await startOver($, cell, id, countedNow(record), false)
+      const kept = await startOver($, cell, id, countedNow(record), false)
       const brief = e.agentId === undefined ? '' : briefOf((await agentRows($, e.agentId)) ?? [])
-      await decide($, { outcome: raise.outcome, about: aboutOf(e.agentId, brief, e.index, counted), reason: raise.reason })
+      await decide($, id, kept, { outcome: raise.outcome, about: aboutOf(e.agentId, brief, e.index, counted), reason: raise.reason, tone: 'info' })
       return
     }
     await launch($, s, id, e.agentId, record, e.index)
@@ -246,7 +246,7 @@ async function atStep($: EngineInterface, s: Settings, e: TurnStepInput): Promis
   const answer = pending.settled ?? (await within((ms, signal) => $.clock.sleep(ms, { signal }), pending.answer, s.waitMs, null))
   if (answer === null) {
     // Not back yet: the step goes as it is, and the answer is taken at a later step (as a mid-turn re-decision's).
-    showCounts($, id, record, 'late')
+    await showCounts($, id, record, 'late')
     return
   }
   asking.delete(id)
@@ -390,25 +390,34 @@ async function apply($: EngineInterface, s: Settings, e: TurnStepInput, cell: Ce
   const raise = await raiseOf($, s, id, e.agentId, record, e.index)
   if (raise.kind === 'none') return
   if (raise.kind === 'keep') {
-    await startOver($, cell, id, covered, false)
-    await decide($, { outcome: raise.outcome, about, reason: raise.reason })
+    const kept = await startOver($, cell, id, covered, false)
+    await decide($, id, kept, { outcome: raise.outcome, about, reason: raise.reason, tone: 'info' })
     return
   }
   const p = answer.expected
   if (p !== null && p >= s.thetaExpected) {
     const why = `the failures are expected (p ${p.toFixed(2)}, thetaExpected ${s.thetaExpected.toFixed(2)}), so nothing is forced`
     if (raise.kind === 'model') {
-      await startOver($, cell, id, covered, false)
-      await decide($, { outcome: `model ${raise.from} (kept)`, about, reason: why })
+      const kept = await startOver($, cell, id, covered, false)
+      await decide($, id, kept, { outcome: `model ${raise.from} (kept)`, about, reason: why, tone: 'info' })
       return
     }
     // Expected: nothing is forced; the answer's effort is an ordinary re-decision, as mid-turn.
     const level = await redecide($, s, e, record, raise.current, answer.reading)
-    await startOver($, cell, id, covered, false)
-    await decide($, {
+    const kept = await startOver($, cell, id, covered, false)
+    await decide($, id, kept, {
       outcome: `effort ${level.effort} ${level.effort === raise.current ? '(kept)' : `(was ${raise.current})`}`,
       about,
       reason: level.why === null ? why : `${why}; ${level.why}`,
+      tone: level.effort === raise.current ? 'info' : 'ok',
+      ...(level.working === undefined
+        ? {}
+        : {
+            probs: probsOf(level.working.reading),
+            conf: level.working.verdict.confidence,
+            trace: [...level.working.verdict.trace.pick.steps, ...level.working.verdict.trace.steps],
+            mid: midturnRecord(level.working.verdict, level.working.position, s.rules),
+          }),
     })
     return
   }
@@ -417,11 +426,17 @@ async function apply($: EngineInterface, s: Settings, e: TurnStepInput, cell: Ce
     const ref = { ...AGENTS, id }
     const planCell: Cell<AgentPlan> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
     await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), model: raise.to.id }))
-    await startOver($, cell, id, covered, true, e.index)
-    await decide($, { outcome: `model ${raise.to.id} (was ${raise.from})`, about, reason: `a haiku agent has no effort to raise, so it is switched to ${raise.to.id}${raise.note}; ${knownReason(s, answer)}` })
+    const raised = await startOver($, cell, id, covered, true, e.index)
+    await decide($, id, raised, {
+      outcome: `model ${raise.to.id} (was ${raise.from})`,
+      about,
+      reason: `a haiku agent has no effort to raise, so it is switched to ${raise.to.id}${raise.note}; ${knownReason(s, answer)}`,
+      tone: 'warn',
+      forced: { kind: 'model', from: raise.from, to: raise.to.id },
+    })
     return
   }
-  const level = raisedLevel(answer.reading, raise.target, s.rules)
+  const { level, steps } = traceRaise(answer.reading, { from: raise.current, target: raise.target, mode: s.mode }, s.rules)
   if (e.agentId === undefined) {
     // Raised from this step on; for holdSteps steps nothing lowers it below the forced level, then ordinary re-decisions take over.
     const ref = { ...TURNS, id: turnKey(e.turnId, undefined) }
@@ -433,8 +448,16 @@ async function apply($: EngineInterface, s: Settings, e: TurnStepInput, cell: Ce
     const planCell: Cell<AgentPlan> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
     await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), effort: level }))
   }
-  await startOver($, cell, id, covered, true, e.index)
-  await decide($, { outcome: `effort ${level} (was ${raise.current})`, about, reason: raiseReason(s, answer, level, raise.target) })
+  const raised = await startOver($, cell, id, covered, true, e.index)
+  await decide($, id, raised, {
+    outcome: `effort ${level} (was ${raise.current})`,
+    about,
+    reason: raiseReason(s, answer, level, raise.target),
+    tone: 'warn',
+    forced: { kind: 'effort', from: raise.current, to: level, floor: raise.target },
+    trace: steps,
+    ...(answer.reading === null ? {} : { probs: probsOf(answer.reading), ...(answer.reading.confidence === null ? {} : { conf: answer.reading.confidence }) }),
+  })
 }
 
 /**
@@ -443,7 +466,14 @@ async function apply($: EngineInterface, s: Settings, e: TurnStepInput, cell: Ce
  * person started, as mid-turn), an agent's plan the same way. The level it
  * goes on at, and why (null when there was nothing to decide from).
  */
-async function redecide($: EngineInterface, s: Settings, e: TurnStepInput, record: LoopRecord, current: Effort, reading: EffortReading | null): Promise<{ effort: Effort; why: string | null }> {
+async function redecide(
+  $: EngineInterface,
+  s: Settings,
+  e: TurnStepInput,
+  record: LoopRecord,
+  current: Effort,
+  reading: EffortReading | null,
+): Promise<{ effort: Effort; why: string | null; working?: { reading: EffortReading; verdict: MidturnVerdict; position: MidturnPosition } }> {
   if (reading === null) return { effort: current, why: null }
   if (e.agentId === undefined) {
     const ref = { ...TURNS, id: turnKey(e.turnId, undefined) }
@@ -453,7 +483,7 @@ async function redecide($: EngineInterface, s: Settings, e: TurnStepInput, recor
     const position = { current, sinceRaise: turn.raisedAt == null ? null : e.index - turn.raisedAt, atLeast: floorHeld(turn, e.index) }
     const verdict = judgeMidturn(reading, position, s.rules)
     await update(turnCell, (r) => redecided(r ?? turn, current, verdict.effort, e.index))
-    return { effort: verdict.effort, why: `${readingText(reading)}; ${verdictReason(verdict, position, s.rules)}` }
+    return { effort: verdict.effort, why: `${readingText(reading)}; ${verdictReason(verdict, position, s.rules)}`, working: { reading, verdict, position } }
   }
   const ref = { ...AGENTS, id: e.agentId }
   const planCell: Cell<AgentPlan> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
@@ -463,7 +493,7 @@ async function redecide($: EngineInterface, s: Settings, e: TurnStepInput, recor
   const position = { current, sinceRaise: record.raisedAt === null ? null : e.index - record.raisedAt, atLeast: floor }
   const verdict = judgeMidturn(reading, position, s.rules)
   if (verdict.effort !== current) await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), effort: verdict.effort }))
-  return { effort: verdict.effort, why: `${readingText(reading)}; ${verdictReason(verdict, position, s.rules)}` }
+  return { effort: verdict.effort, why: `${readingText(reading)}; ${verdictReason(verdict, position, s.rules)}`, working: { reading, verdict, position } }
 }
 
 /**
@@ -517,10 +547,33 @@ function aboutOf(agentId: string | undefined, brief: string, at: number, counted
   return `${brief === '' ? `agent ${agentId}` : `agent ${quoteStart(brief)}`}, step ${at} (${failed})`
 }
 
-/** Records a decision of this feature (debug log and `/dp log`). */
-async function decide($: EngineInterface, decision: { outcome: string; about: string; reason: string }): Promise<void> {
-  const decisions: Cell<DecisionEntry[]> = { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) }
-  await recordDecision(decisions, (line) => $.ui.log(line, { to: 'debug' }), { feature: SWITCH, ...decision })
+/** What the decision report needs of the host: its two cells, the debug log and the old status line. */
+function ioOf($: EngineInterface): ReportIo {
+  return {
+    board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+    decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+    debug: (line) => $.ui.log(line, { to: 'debug' }),
+    status: (line) => $.ui.status(line),
+  }
+}
+
+/** What a decision of this feature says, besides who it is about and the loop's counts (`decide` adds them). */
+type Said = Pick<Decided, 'outcome' | 'reason' | 'tone' | 'probs' | 'conf' | 'trace' | 'floor' | 'mid' | 'forced'> & { about: string }
+
+/**
+ * Reports a decision of this feature (debug log, `/dp log`, the board data), about loop `id`
+ * (`main`, or an agent's id) and with its counts as they stand. Beside the loop's own route: not on its node.
+ */
+async function decide($: EngineInterface, id: string, record: LoopRecord, said: Said): Promise<void> {
+  const { about, ...rest } = said
+  await reportDecision(ioOf($), {
+    ...rest,
+    feature: SWITCH,
+    agent: id,
+    aside: true,
+    subject: about,
+    counts: { failed: record.failures, blocked: record.hookBlocks, raised: record.raises },
+  })
 }
 
 /** Why a forced raise went where it did, for the decision log. */
@@ -555,34 +608,29 @@ function countedNow(record: LoopRecord): Counted {
 }
 
 /** The loop's counts start over from `covered` (a raise counts as one), and are shown. */
-async function startOver($: EngineInterface, cell: Cell<LoopRecord>, id: string, covered: Counted, raised: boolean, at?: number): Promise<void> {
+async function startOver($: EngineInterface, cell: Cell<LoopRecord>, id: string, covered: Counted, raised: boolean, at?: number): Promise<LoopRecord> {
   const record = await update(cell, (r) => ({
     ...(r ?? newLoop('')),
     base: { failures: Math.max(covered.failures, r?.base.failures ?? 0), hookBlocks: Math.max(covered.hookBlocks, r?.base.hookBlocks ?? 0) },
     raises: (r?.raises ?? 0) + (raised ? 1 : 0),
     ...(raised && at !== undefined ? { raisedAt: at } : {}),
   }))
-  showCounts($, id, record, null)
+  await showCounts($, id, record, null)
+  return record
 }
 
-/** The latest agent whose calls failed, for the status line (lost on a reload, until its next failure). */
-let latestAgent: { record: LoopRecord; note: 'late' | null } | null = null
-
-/** Shows a loop's counts: the main agent's segment, or the latest agent's (null record: none to show for main). `note`: `late`. */
-function showCounts($: EngineInterface, id: string, record: LoopRecord | null, note: 'late' | null): void {
-  const show = (line: string | undefined) => $.ui.status(line)
-  if (id === MAIN) setStatus('escalation', countsText(record, '', note), show)
-  else if (record !== null) latestAgent = { record, note }
-  setStatus('agentEscalation', latestAgent === null ? null : countsText(latestAgent.record, 'agent ', latestAgent.note), show)
-}
-
-/** `failed 2, blocked 1, raised 1`: the counts that are not zero (null when all are), and `(late)` while a stuck answer is not back. */
-function countsText(record: LoopRecord | null, prefix: string, note: 'late' | null): string | null {
-  if (record === null) return null
-  const parts = [
-    record.failures > 0 ? `failed ${record.failures}` : '',
-    record.hookBlocks > 0 ? `blocked ${record.hookBlocks}` : '',
-    record.raises > 0 ? `raised ${record.raises}` : '',
-  ].filter((part) => part !== '')
-  return parts.length === 0 ? null : `${prefix}${parts.join(', ')}${note === null ? '' : ` (${note})`}`
+/**
+ * Reports a loop's counts (the board's node of it, and the old status line): the main agent's, or an agent's
+ * (null record: the main agent's start over with a new turn). `note`: `late`.
+ */
+async function showCounts($: EngineInterface, id: string, record: LoopRecord | null, note: 'late' | null): Promise<void> {
+  await reportTally(ioOf($), {
+    feature: 'escalation',
+    agent: id,
+    failed: record?.failures ?? 0,
+    blocked: record?.hookBlocks ?? 0,
+    raised: record?.raises ?? 0,
+    ...(note === null ? {} : { late: true as const }),
+    ...(record === null ? { turnStart: true as const } : {}),
+  })
 }
