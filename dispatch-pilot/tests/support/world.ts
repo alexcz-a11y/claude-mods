@@ -498,14 +498,14 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     // (measured on 2.1.291 with docs/research/event-probe): for the calls `agentTool` makes; a step's Agent call
     // (`tools`) only reaches the tool, as before.
     if (tool === 'Agent' && id !== undefined && agentCalls.has(id)) {
-      const started = await $.agent.spawn(spawnInput(id ?? `toolu_${++calls}`, {
+      const started = await $.agent.spawn(spawnInput(id, {
         prompt: String(input.prompt ?? ''),
         ...(typeof input.description === 'string' ? { description: input.description } : {}),
         ...(typeof input.subagent_type === 'string' ? { subagentType: input.subagent_type } : {}),
         ...(typeof input.model === 'string' ? { model: input.model } : {}),
       }))
       const text = started.deny ?? `agent ${started.agentId ?? ''} reported`
-      toolCalls.push({ tool, id: id ?? '', input, isError: started.deny !== undefined, text })
+      toolCalls.push({ tool, id, input, isError: started.deny !== undefined, text })
       return started.deny !== undefined ? { result: text, text, isError: true as const } : { result: text, text }
     }
     const end = ending ?? { text: 'ok' }

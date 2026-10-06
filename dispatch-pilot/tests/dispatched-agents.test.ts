@@ -603,3 +603,15 @@ test('a spawn refused beneath gets no note: the tool reports the refusal and not
   const result = await w.agentTool({ prompt: 'Summarize what src/billing/invoice.ts does.' })
   expect(noteOf(result)).toBeUndefined()
 })
+
+test('an Agent tool call that ends refused after its agent started gets no note, and leaves none behind for another call (#34)', { options: KEY }, async ($, on) => {
+  // Something beneath refuses the call once its agent has started.
+  on('tool.call', { tool: 'Agent' }, async (_$, e, next) => {
+    await next(e)
+    return { deny: 'the call was cancelled' }
+  })
+  const w = world($, on, { backend: agentJev({ model: { sonnet: 1 } }) })
+  const refused = await w.agentTool({ prompt: 'Summarize what src/billing/invoice.ts does.' })
+  expect(refused).toMatchObject({ deny: 'the call was cancelled' })
+  expect(noteOf(refused)).toBeUndefined()
+})

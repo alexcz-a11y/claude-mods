@@ -38,10 +38,12 @@ const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const SWITCH = 'dispatched-agents'
 /**
  * The notes spawns left for their Agent tool calls, by the call's tool_use_id: written by the agent.spawn inside the
- * call, taken as the call returns. A module variable (CLAUDE.md): a hot reload while an agent runs loses only that
- * agent's note. At most MAX_NOTES are kept, for calls whose result never came back.
+ * call, taken as the call returns. A module variable (CLAUDE.md): the kit's `$.state` does not show the outer hook
+ * what the nested spawn wrote (DEVELOPMENT.md 已实测, not yet measured on the engine), and a hot reload while an
+ * agent runs loses only that agent's note. At most MAX_NOTES are kept: past that (calls whose result never came
+ * back, or more agents running at once) the oldest go.
  */
-const notes = new Map<string, string>()
+const pendingNotes = new Map<string, string>()
 const MAX_NOTES = 32
 /** At most this many of the person's messages are kept for one turn. */
 const MAX_SAID = 8
@@ -68,8 +70,8 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
   // a teammate, a refused spawn) is answered as it is.
   on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
     const result = await next(e)
-    const note = notes.get(e.tool_use_id)
-    notes.delete(e.tool_use_id)
+    const note = pendingNotes.get(e.tool_use_id)
+    pendingNotes.delete(e.tool_use_id)
     if (note === undefined || result.deny !== undefined) return result
     return { ...result, context: [...(result.context ?? []), note] }
   })
@@ -79,13 +81,13 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     // tasks that one decision at its spawn cannot see.
     if (e.fork || e.isTeammate) return next(e)
     /** Leaves the note for the Agent tool call this spawn belongs to. */
-    const leave = (note: DispatchNote) => {
-      notes.set(e.tool_use_id, dispatchNote(note))
-      while (notes.size > MAX_NOTES) notes.delete(notes.keys().next().value as string)
+    const leaveNote = (note: DispatchNote) => {
+      pendingNotes.set(e.tool_use_id, dispatchNote(note))
+      while (pendingNotes.size > MAX_NOTES) pendingNotes.delete(pendingNotes.keys().next().value as string)
     }
     if (!isOn(SWITCH)) {
       const started = await next(e)
-      if (started.deny === undefined) leave({ routed: false, started: modelFamily(started.model) ?? started.model, why: 'off' })
+      if (started.deny === undefined) leaveNote({ routed: false, started: started.model, why: 'off' })
       return started
     }
     const { value: said = [] } = await $.state.get(SAID)
@@ -122,7 +124,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       const started = await next(e)
       if (started.deny !== undefined) return started
       await report(reporting, { decision: { ...reportOf(started.agentId ?? e.tool_use_id), routed: false, failure: { backend: ctx.backend.name, ...failure } } })
-      leave({ routed: false, started: modelFamily(started.model) ?? started.model, why: { failure, backend: ctx.backend.name } })
+      leaveNote({ routed: false, started: started.model, why: { failure, backend: ctx.backend.name } })
       return started
     }
     if (!asked.ok) return notRouted(asked.failure)
@@ -132,6 +134,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     const spawn = decision.model !== null && decision.model !== modelFamily(e.model) ? { ...e, model: decision.model } : e
     const result = await next(spawn)
     if (result.deny !== undefined) return result
+    leaveNote({ routed: true, decision, started: result.model, requested: modelFamily(e.model), thetaOverride: settings.thetaOverride })
     // The agent has started: nothing after this may fail its spawn.
     try {
       // The effort and the person's terms go into the plan (what changes the agent later keeps to the
@@ -155,7 +158,6 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
           ...(decision.effort === null ? {} : { effort: decision.effort }),
         },
       })
-      leave({ routed: true, decision, started: result.model, requested: modelFamily(e.model), thetaOverride: settings.thetaOverride })
     } catch (error) {
       $.ui.log(`agent ${about} started (${result.agentId ?? 'no id'}), but its plan was not recorded: ${String(error)}`, { to: 'debug' })
     }

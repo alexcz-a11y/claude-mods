@@ -648,7 +648,8 @@ export function dispatchReason(decision: DispatchDecision, requested: string | n
 /**
  * What the main agent reads after the Agent tool's result (#34; the model's words, English): the model and the
  * effort its agent started with and whose choice the model was, or that the agent was not routed and why.
- * `started` is the model the engine started it on; `requested` the main agent's pick (by family).
+ * `started` is the model the engine reports it started on (an alias or an id); `requested` the main agent's pick
+ * (by family).
  */
 export type DispatchNote =
   | { routed: true; decision: DispatchDecision; started: string; requested: AgentModel | null; thetaOverride: number }
@@ -656,36 +657,39 @@ export type DispatchNote =
 
 export function dispatchNote(note: DispatchNote): string {
   const head = "Dispatch Pilot (the user's routing plugin)"
-  const policy = "This is the user's routing policy: only a model the user names in their message is never changed."
+  const model = modelFamily(note.started) ?? note.started
   if (!note.routed) {
     const why = note.why === 'off' ? 'has its dispatched-agents feature switched off, so it did not route this agent' : `did not route this agent (${failureText(note.why.backend, note.why.failure)})`
-    return `${head} ${why}: it started as you asked, on ${note.started}, at the session's effort.`
+    return `${head} ${why}: it started as you asked, on ${model}, at the session's effort.`
   }
-  const { decision, requested } = note
-  const model = decision.model ?? modelFamily(note.started) ?? note.started
+  const { decision } = note
   const on = decision.effort === null ? `on ${model}` : `on ${model} at effort ${decision.effort}`
+  const policy = "This is the user's routing policy: only a model the user names in their message is never changed."
+  return `${head} started this agent ${on}. Model: ${modelWhose(note)}. Effort: ${effortWhose(decision, model)}. ${policy}`
+}
+
+/** Whose choice an agent's model was, for the main agent. */
+function modelWhose({ decision, requested, thetaOverride }: Extract<DispatchNote, { routed: true }>): string {
   const pick = decision.pick
-  const whose =
-    decision.source === 'user'
-      ? 'the user named it'
-      : decision.source === 'requested'
-        ? `kept the ${requested} you asked for${pick !== null && pick.model !== requested ? ` (its decision model leaned to ${pick.model} at confidence ${pick.confidence.toFixed(2)}, under the ${note.thetaOverride.toFixed(2)} it takes to override you)` : ''}`
-        : decision.source === 'decided' && pick !== null
-          ? requested !== null && requested !== decision.model
-            ? `overrode the ${requested} you asked for: its decision model chose ${pick.model} at confidence ${pick.confidence.toFixed(2)}, over the ${note.thetaOverride.toFixed(2)} it takes to override you`
-            : `chosen by its decision model (confidence ${pick.confidence.toFixed(2)})`
-          : "the engine's"
-  const effort =
-    decision.effort === null
-      ? decision.model === 'haiku'
-        ? 'haiku takes no effort'
-        : "the session's"
-      : decision.effortSource === 'user'
-        ? 'the user named it'
-        : decision.liftedFrom !== undefined
-          ? `${decision.liftedFrom} lifted to ${decision.effort}, the floor for ${model}`
-          : 'chosen by its decision model'
-  return `${head} started this agent ${on}. Model: ${whose}. Effort: ${effort}. ${policy}`
+  const threshold = thetaOverride.toFixed(2)
+  if (decision.source === 'user') return 'the user named it'
+  if (decision.source === 'requested') {
+    if (pick === null || pick.model === requested) return `kept the ${requested} you asked for`
+    const why = pick.confidence < thetaOverride ? `under the ${threshold} it takes to override you` : `but it judged the ${requested} you asked for fits the work`
+    return `kept the ${requested} you asked for (its decision model leaned to ${pick.model} at confidence ${pick.confidence.toFixed(2)}, ${why})`
+  }
+  if (decision.source === 'none' || pick === null) return "the engine's"
+  if (requested === null || requested === decision.model) return `chosen by its decision model (confidence ${pick.confidence.toFixed(2)})`
+  if (decision.banned.includes(requested)) return `the user ruled out the ${requested} you asked for, so its decision model chose ${pick.model} among the others (confidence ${pick.confidence.toFixed(2)})`
+  return `overrode the ${requested} you asked for: its decision model chose ${pick.model} at confidence ${pick.confidence.toFixed(2)}, over the ${threshold} it takes to override you`
+}
+
+/** Whose choice an agent's effort was, for the main agent. */
+function effortWhose(decision: DispatchDecision, model: string): string {
+  if (decision.effort === null) return decision.model === 'haiku' ? 'haiku takes no effort' : "the session's"
+  if (decision.effortSource === 'user') return 'the user named it'
+  if (decision.liftedFrom !== undefined) return `${decision.liftedFrom} lifted to ${decision.effort}, the floor for ${model}`
+  return 'chosen by its decision model'
 }
 
 /** The model whose `<prefix>.<model>` yes/no answer is highest and reaches `threshold`; null when none does. */

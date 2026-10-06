@@ -1,5 +1,6 @@
 // What the model reads stays English, word for word, whatever language the person's screens speak (#32): the
-// Workflow notes (rewrite, return, left as written), the note beside a dispatched agent's Agent tool result (#34), the words of a failed request inside them and inside
+// Workflow notes (rewrite, return, left as written), the note beside a dispatched agent's Agent tool result
+// (#34), the words of a failed request inside them and inside
 // find_skill's answer, and the skill relevance block. The person's words (the board, the log, the toasts) are
 // Chinese and tested where they are drawn; these pins are the other side of that line. Seam 1: the tool call in,
 // what the main agent is told out; seam 2: the pure words the notes are made of.
@@ -79,16 +80,26 @@ test('why a Workflow call was left as written, and why a call got its model and 
 test("the note beside a dispatched agent's Agent tool result is English, word for word (#34)", () => {
   const decided: DispatchDecision = { model: 'sonnet', effort: 'high', source: 'decided', pick: { model: 'sonnet', confidence: 0.85 }, banned: [], reading: null, answered: true, effortSource: 'decided', trace: null }
   const failure: Failure = { kind: 'http', detail: 'HTTP 500', status: 500 }
+  const routed = (decision: DispatchDecision, started: string, requested: 'haiku' | 'sonnet' | 'opus' | null) => dispatchNote({ routed: true, decision, started, requested, thetaOverride: 0.6 })
+  const policy = " This is the user's routing policy: only a model the user names in their message is never changed."
   expect([
-    dispatchNote({ routed: true, decision: decided, started: 'sonnet', requested: 'opus', thetaOverride: 0.6 }),
-    dispatchNote({ routed: true, decision: { ...decided, source: 'requested', model: 'opus', effort: 'medium', liftedFrom: 'low' }, started: 'opus', requested: 'opus', thetaOverride: 0.6 }),
-    dispatchNote({ routed: true, decision: { ...decided, source: 'user', model: 'haiku', effort: null, effortSource: 'none' }, started: 'haiku', requested: null, thetaOverride: 0.6 }),
-    dispatchNote({ routed: false, started: 'sonnet', why: { failure, backend: 'jev' } }),
+    routed(decided, 'claude-sonnet-5-5', 'opus'),
+    routed({ ...decided, banned: ['opus'] }, 'claude-sonnet-5-5', 'opus'),
+    routed(decided, 'claude-sonnet-5-5', null),
+    routed({ ...decided, source: 'requested', model: 'opus', effort: 'medium', pick: { model: 'sonnet', confidence: 0.4 }, liftedFrom: 'low' }, 'opus', 'opus'),
+    routed({ ...decided, source: 'requested', model: 'opus' }, 'opus', 'opus'),
+    routed({ ...decided, source: 'user', model: 'haiku', effort: null, effortSource: 'none' }, 'haiku', null),
+    routed({ ...decided, source: 'none', model: null, pick: null, effort: null, effortSource: 'none' }, 'claude-opus-5-5', null),
+    dispatchNote({ routed: false, started: 'claude-sonnet-5-5', why: { failure, backend: 'jev' } }),
     dispatchNote({ routed: false, started: 'opus', why: 'off' }),
   ]).toEqual([
-    "Dispatch Pilot (the user's routing plugin) started this agent on sonnet at effort high. Model: overrode the opus you asked for: its decision model chose sonnet at confidence 0.85, over the 0.60 it takes to override you. Effort: chosen by its decision model. This is the user's routing policy: only a model the user names in their message is never changed.",
-    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort medium. Model: kept the opus you asked for (its decision model leaned to sonnet at confidence 0.85, under the 0.60 it takes to override you). Effort: low lifted to medium, the floor for opus. This is the user's routing policy: only a model the user names in their message is never changed.",
-    "Dispatch Pilot (the user's routing plugin) started this agent on haiku. Model: the user named it. Effort: haiku takes no effort. This is the user's routing policy: only a model the user names in their message is never changed.",
+    "Dispatch Pilot (the user's routing plugin) started this agent on sonnet at effort high. Model: overrode the opus you asked for: its decision model chose sonnet at confidence 0.85, over the 0.60 it takes to override you. Effort: chosen by its decision model." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on sonnet at effort high. Model: the user ruled out the opus you asked for, so its decision model chose sonnet among the others (confidence 0.85). Effort: chosen by its decision model." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on sonnet at effort high. Model: chosen by its decision model (confidence 0.85). Effort: chosen by its decision model." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort medium. Model: kept the opus you asked for (its decision model leaned to sonnet at confidence 0.40, under the 0.60 it takes to override you). Effort: low lifted to medium, the floor for opus." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort high. Model: kept the opus you asked for (its decision model leaned to sonnet at confidence 0.85, but it judged the opus you asked for fits the work). Effort: chosen by its decision model." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on haiku. Model: the user named it. Effort: haiku takes no effort." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on opus. Model: the engine's. Effort: the session's." + policy,
     "Dispatch Pilot (the user's routing plugin) did not route this agent (jev: HTTP 500): it started as you asked, on sonnet, at the session's effort.",
     "Dispatch Pilot (the user's routing plugin) has its dispatched-agents feature switched off, so it did not route this agent: it started as you asked, on opus, at the session's effort.",
   ])
