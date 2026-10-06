@@ -48,7 +48,7 @@ test('the main agent never goes out on another model, whatever a plan names', { 
   expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(['claude-opus-5-5 medium'])
 })
 
-test("a lock holds the main agent's effort over any decision, and the status line says so", { options: KEY }, async ($, on) => {
+test("a lock holds the main agent's effort over any decision, and the board says so", { options: KEY }, async ($, on) => {
   table(on, { lock: 'max' })
   const w = world($, on, { backend: jev([1, 0, 0, 0, 0]) })
   await w.submit('改个错别字')
@@ -56,7 +56,7 @@ test("a lock holds the main agent's effort over any decision, and the status lin
   await w.step({ index: 0, turnId: 'sub-1', agentId: 'a1', effort: 'medium' })
 
   expect(w.steps.map((s) => String(s.effort))).toEqual(['max', 'medium'])
-  expect(w.status()).toBe('dp effort max (locked)')
+  expect((await w.board()).main).toMatchObject({ effort: 'max', locked: true })
 })
 
 test("an agent whose step goes to haiku goes without an effort, whatever the engine or a plan asks (haiku takes none, spec #32)", async ($, on) => {

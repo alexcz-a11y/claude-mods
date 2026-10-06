@@ -9,6 +9,7 @@
 
 import type { Register } from 'claude-code'
 import { registerCore } from './core/core.ts'
+import { registerReport } from './core/report.ts'
 import { setup } from './core/setup.ts'
 import { registerControl } from './features/control.ts'
 import { registerDispatchedAgents } from './features/dispatched-agents.ts'
@@ -23,6 +24,9 @@ import { registerWorkflowLabels } from './features/workflow-labels.ts'
 
 export const register: Register = (on, options) => {
   const ctx = setup(options)
+
+  // The decision report keeps the board's turn count: outermost, so a turn is counted before anything beneath reads the board.
+  registerReport(on)
 
   // Features, outermost first.
   registerControl(on, ctx)

@@ -157,7 +157,7 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 /dp <功能> on | off    单项功能的开关，例如 /dp main-effort off（功能名见 /dp 的列表）
 /dp lock <档位>        把主 agent 的 effort 锁在 low、medium、high、xhigh 或 max，这一轮的每一步和之后的每一轮都用它，优先于决策
 /dp unlock             解除锁定（也可以写 /dp lock off）
-/dp log [N]            最近 N 次决策和理由，最新的在最后（默认 10，最多 50）
+/dp log [N]            最近 N 次决策和理由，最新的在最后（默认 10，最多 300；日志保留最近 20 轮、最多 300 条）
 ```
 
 - 命令在一轮进行中也立即执行：锁定或解锁从下一步起生效。
@@ -434,14 +434,15 @@ hooks/
 ├── core/                   各功能共用的机制，不含具体功能
 │   ├── core.ts             核心的 hook：发消息时的决策请求、一轮的开始、每一步的写入、认出 settings hook 拦下的调用、记下用户运行的命令
 │   ├── ballot.ts           一条消息的「投票箱」：各功能放进问题，由核心一次发出
-│   ├── decisions.ts        决策日志：recordDecision，各功能记录自己的每个决定（debug log 和 /dp log）
+│   ├── report.ts           「决定汇报」module（ADR 0004）：两个入口 reportDecision 和 reportStep，看板数据（`board`）和决策日志（`decisionLog`）的唯一写入者；自带一个 turn.start hook 记轮数
+│   ├── decisions.ts        旧的记录入口 recordDecision：还没迁到 reportDecision 的功能在用，写进同一份决策日志；功能迁完后删除
 │   ├── plans.ts            计划表的类型和纯函数（planStep 决定每一步发出什么）
 │   ├── outcomes.ts         工具调用的结局：哪些被 settings hook 拦下（核心的 classic.PreToolUse 记）、每个调用怎么结束的（#7 记），#5 和 #7 共用
 │   ├── profiles.ts         skill 画像（#11）：给模型的提示、读回答、store 的键和淘汰、readSessionSkills（目录加画像）
 │   ├── commands.ts         命令轮（#19）：command.run 记下的命令和随后提交的 prompt 对上，命令在决策请求里的说明，从引擎的命令消息读回输入的命令
 │   ├── prompts.ts          isPersonsMessage：判断哪些 prompt 是用户本人的新消息
 │   ├── skills.ts           skill 目录：loadCatalog（经闭包读命令、引擎的 skill 清单、settings、磁盘，找到每个 skill 的文件）；读和裁剪 skill 列表（#10）；rankingSettings、describeStages（#11）
-│   ├── status.ts           状态行：由各段组成，每段只有一个主人
+│   ├── status.ts           状态行：由各段组成，每段只有一个主人；已迁到 report.ts 的段（`effort`、`decision`）由它从看板数据渲染
 │   ├── switches.ts         开关：总开关和各功能的开关，defineSwitch 登记、isOn 判断
 │   └── setup.ts            把 userConfig 读成 ctx：每个选项的范围和缺省值只在这里（Config），以及决策后端
 └── decision/               决策请求模块：纯模块，不依赖 $，Node 可以直接 import（#4 的评测会用）
@@ -475,9 +476,9 @@ types/index.d.ts            $.state 的契约（PluginState）
 
 1. `prompt.submit`：各功能的 hook 在外层，带 matcher，先运行。`main-effort` 确认这是用户本人的新消息后，往这条消息的投票箱里放一个问题（`effort.level`）和一个 `settle` 回调，然后放行。
 2. 核心的 `prompt.submit` 在最内层。它收起投票箱，拼出 state（`turnStartState`），把所有功能的问题合成一个请求（`mergeParts`，每个问题 ID 加上 `<part>.` 前缀），带着超时发给决策后端，再把回答去掉前缀后交给各功能的 `settle`。`settle` 返回的文字块作为 context 附在消息后面，模型能看到，用户看不到。这些都完成后，消息才进入会话。
-3. `main-effort` 的 `settle` 把选出的档位记为待用的决定（`$.state` 的 `pending`）。如果这条消息是在某一轮进行中发的，它还会直接改写那一轮的计划。
+3. `main-effort` 的 `settle` 把这条决定（或决策模型失败的原因）交给「决定汇报」（`reportDecision`），再把选出的档位记为待用的决定（`$.state` 的 `pending`）。如果这条消息是在某一轮进行中发的，它还会直接改写那一轮的计划。
 4. `turn.start`（核心）为这条消息开始的一轮建立记录 `turns[main:<turnId>]`，并认领它的待用决定。优先认领正在进入的那条消息的决定，即使更内层的 hook 改写了消息的文字也能认领；其次认领文字与这一轮相同的排队消息。
-5. `turn.step`（核心，最内层）每一步都读计划表，用 `planStep` 算出这一步的 effort（主 agent 不碰 model），写进请求，并更新状态行。
+5. `turn.step`（核心，最内层）每一步都读计划表，用 `planStep` 算出这一步的 effort（主 agent 不碰 model），写进请求，并把主 agent 这一步发出的模型和 effort 交给「决定汇报」的 `reportStep`（看板和状态行都从它出）。
 
 ### 规则
 
@@ -517,7 +518,8 @@ types/index.d.ts            $.state 的契约（PluginState）
 | `workflowTerms` | Workflow 调用的 `tool_use_id` | #8 判断出的、你对直接交来的脚本里每个调用的约束（按调用序号，没有就是 `null`）；同一次调用里 #9 在内层读它，把约束交给这些 agent 的计划 | #8 在调用工具之前写 |
 | `escalation` | `main`（主 agent，记录里的 `turnId` 是它所属的那一轮）或 `agentId` | 每个循环唯一的失败计数：失败次数、被 hook 拦下的次数、清零的基数 `base`（计入的是减去它之后的数）、强制升档的次数、这个循环最近一步的序号和引擎给的 effort、model（调用结束时就发的再判断要读）、最近一次再判断是为第几步问的、派出 agent 最近一次升档在第几步 | #7 写；#5 读主 agent 的，作为请求里的 `counts` |
 | `lock` | 无 | 用户锁定的主 agent effort，`null` 表示没有锁定 | #13：`/dp lock`、`/dp unlock`（`features/control.ts`） |
-| `decisionLog` | 无 | 各功能记录的决策，最近 50 条，`/dp log` 显示（见下「记录一次决策」） | 各功能，用 `recordDecision` |
+| `board` | 无 | 看板数据：`turn`（本会话开始的主 agent 轮数）和 `nodes`（最近两轮每个 agent 的一个节点：模型、effort、是否路由、未路由的原因、对应的决策编号），见「记录一次决策」 | 「决定汇报」module（`core/report.ts`）：`reportDecision`、`reportStep`、自己的 turn.start hook |
+| `decisionLog` | 无 | 各功能记录的决策，最近 20 轮、最多 300 条，`/dp log` 显示（见下「记录一次决策」） | 「决定汇报」module；还没迁走的功能经 `recordDecision` 写进同一份 |
 | `pending` | 无 | 发消息时做出的判断，等它的那一轮开始时由核心认领 | #2 |
 | `said` | 无 | 用户本人这一轮说的话（已脱敏和截断）：空闲时发的那条消息开始新的一组，这一轮进行中发的消息追加进去，其他来源的 prompt 不动它；派出 agent 和 Workflow 里 agent 的判断把它当作 `user_message` | #6 写，#8 读 |
 | `midturn` | `main:<turnId>` | 中途重判自己的记录：步数、最近 16 步的文字和工具调用（各带结局）、最近一次重判是为第几步问的 | #5 |
@@ -689,22 +691,39 @@ defineSwitch({ name: 'main-effort', info: "decides the main agent's effort when 
 
 ### 记录一次决策
 
-功能每做出一个决定，就记录一次。一次调用同时做两件事：一行写进 debug log（`$.ui.log(..., { to: 'debug' })`，不进入对话），一条存进 `$.state` 的 `decisionLog`（`/dp log` 显示，热重载后还在）。文件顶部写自己的字面量 ref，调用时带上两个闭包：
+给人看的东西只由「决定汇报」module（`core/report.ts`，ADR 0004）写出：看板数据、决策日志、debug log，以及新界面落地之前的旧状态行。功能不拼状态文字，也不直接写决策日志：它只交一条结构化的决定。module 对外只有两个入口，下面的两个函数都不会抛错（存不进 `$.state` 时在 debug log 里说一声，决定和这一步照常生效）。
+
+**入口一：`reportDecision(io, decision)`。** `$` 不能越过 import，所以调用方在自己的文件里用 `$` 搭一个 `ReportIo`（四个闭包），文件顶部写自己的字面量 ref：
 
 ```ts
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 // ...
-await recordDecision(
-  { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
-  (line) => $.ui.log(line, { to: 'debug' }),
-  { feature: 'main-effort', outcome: 'effort high', about: '"把登录模块重构成三层"', reason: 'p low 0.05, ...; confidence 0.70' },
-)
+const io: ReportIo = {
+  board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+  decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+  debug: (line) => $.ui.log(line, { to: 'debug' }),
+  status: (line) => $.ui.status(line), // 旧状态行，第 2 步去掉
+}
+await reportDecision(io, { feature: 'main-effort', agent: 'main', forTurn: 'next', subject: '"把登录模块重构成三层"', routed: true,
+  outcome: 'effort high', reason: 'p low 0.05, ...; confidence 0.70', probs: { low: 0.05, /* ... */ max: 0.05 }, conf: 0.7 })
+await reportDecision(io, { feature: 'main-effort', agent: 'main', forTurn: 'next', subject: '"..."', routed: false,
+  failure: { backend: 'jev', kind: 'timeout', detail: 'no answer in 800 ms' } }) // 决策模型没给出决定
 ```
 
-- `feature` 是功能的开关名；`outcome` 用几个词说清楚决定了什么；`about` 可选，说明针对什么（例如一条消息的开头，已脱敏）；`reason` 是理由：决策模型给的概率，触发了哪条规则。都写成一行英文。
-- debug log 里的那一行是 `<outcome> for <about>: <reason>`；`/dp log` 里是 `#<n> <feature>: ` 加同样的一行。
-- 只记决定，不记失败的请求：请求的结果已经由核心写进 debug log，失败原因在状态行上。重判、强制升档、派出 agent 的模型选择、skill 推荐，都应该各记一条。
-- 从不抛错：存不进 `$.state` 时在 debug log 里说一声，决定照常生效。最多保留 50 条，更早的丢弃。
+- 决定（`Decided`）：`feature`（开关名；报告开始的一轮写 `main-effort (agent report)`）、`agent`（`main` 或 agentId）、`outcome`（几个词：`effort high`）、`reason`（理由，一行英文）、`subject`（针对什么：消息的开头、agent 的 label）、`forTurn`、`routed`、`tone`（默认 `ok`），以及可选的 `probs`、`conf`、`trace`（规则推演）、`floor`、`mid`。每个决定写一条 debug log（`<outcome> for <subject>: <reason>`）和一条决策日志，并写到那个 agent 在这一轮的节点上（`decision` 是日志编号）。`routed: true` 同时清掉节点上旧的 `why` 和 `failure`。
+- 没能做出决定（`NotDecided`）：带 `failure`（`{ backend, kind, detail, status? }`，后端名加 `Failure`）。它不进决策日志、不写 debug log（和以前一样，请求本身已经由核心记在 debug log 里），只写到 agent 的节点上：`why` 是简短的原因，`failure` 是完整的，`routed` 照 `routed` 字段。
+- `forTurn: 'next'`：在这一轮开始之前做的决定（`prompt.submit` 里，这条消息将开始一轮），归到将开始的那一轮；`'current'`（默认）：正在进行的这一轮，例如在一轮中途发的消息。轮数由 module 自己的 `turn.start` hook 数，从 1 开始。
+- 一个 agent 在看板上还没有节点时，第一份报告建它：主 agent 的名字是「主 agent」；其他 agent 带 `node: { kind, name, type }`。
+- 旧状态行的段：`LEGACY` 表按功能名（开关名）列出 module 替它渲染的段，每行是 `(decision, board) => [{ segment, text }]`：拿到这条决定和写入后的看板（最近两轮每个 agent 的节点），返回这些段现在该写什么（`null` 清掉）。现在只有 `main-effort` 的 `decision`；功能迁移时在这张表里加自己一行、去掉自己的 `setStatus`，要汇总多个 agent 的段（Workflow 的几个 agent）就从 `board.nodes` 里算。`effort` 段由 `reportStep` 渲染。
+
+**入口二：`reportStep(io, { agentId?, model, effort?, source })`。** 一步发出的读数：模型（按家族记）、effort、有没有路由（`source` 是 `planStep` 的 `locked | planned | engine`）。只观察，从不改写。读数和节点不同才写看板。现在核心在 `turn.step` 里为主 agent 的每一步调用它；「读数」票（#27）把它做成每个 agent 的收集器，签名不变。
+
+**旧入口 `recordDecision`（`core/decisions.ts`）。** 还没迁走的功能照旧调用它：同样的调用、同样的 debug log 一行，条目写进同一份决策日志（`tone` 是 `info`，`turn` 取日志里最大的轮数，因为它不知道自己是哪一轮）。每迁一项功能就去掉它的调用，最后一项迁完删除这个文件。
+
+- debug log 里那一行是 `<outcome> for <subject>: <reason>`；`/dp log` 里是 `#<n> <feature>: ` 加同样的一行。
+- 只记决定，不记失败的请求：请求的结果已经由核心写进 debug log。重判、强制升档、派出 agent 的模型选择、skill 推荐，都应该各记一条。
+- 决策日志保留最近 20 轮（按条目的 `turn`）、最多 300 条，更早的丢弃；看板的节点只留当前一轮和上一轮。
 
 ### 会话的读数
 
@@ -788,7 +807,7 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 
 ### 状态行
 
-调用 `setStatus(segment, text | null, (line) => $.ui.status(line))`。各段按 `core/status.ts` 里 `ORDER` 的顺序显示，整行内容变化时才发送。新功能需要一段时，就在 `ORDER` 里加上，并且只由这项功能自己写。文字只用 ASCII。总开关关着时整行只显示 `dp off`（`pauseStatus`，只有 `features/control.ts` 调用），各段照常记着，打开总开关时清空。
+旧状态行从看板数据渲染：`effort` 段（主 agent 这一步发出的 effort，后面带 `(locked)` 或 `(not routed)`）由 `reportStep` 设，`decision` 段（这条消息为什么没有决定）由 `reportDecision` 设；还没迁走的功能照旧调用 `setStatus(segment, text | null, (line) => $.ui.status(line))`。各段按 `core/status.ts` 里 `ORDER` 的顺序显示，整行内容变化时才发送。新功能需要一段时，就在 `ORDER` 里加上，并且只由这项功能自己写。文字只用 ASCII。总开关关着时整行只显示 `dp off`（`pauseStatus`，只有 `features/control.ts` 调用），各段照常记着，打开总开关时清空。
 
 ### 配置项
 
@@ -798,7 +817,7 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 
 ### 测试怎么写（接缝 1）
 
-测试只看 mod 对外的行为：发进事件，检查到达引擎和决策后端的东西，包括每一步的 effort 和 model、请求的内容、附加的 context、状态行和 debug log。不测内部函数。评测（接缝 2）用到的纯函数是另一个公开接口，可以直接测：`decision/` 的各个模块（拼请求、读回答，`tests/decision-module.test.ts` 等），以及评测也 import 的 `core/setup.ts`（`readConfig`、`dispatchSettings`）、`core/skills.ts`（`rankingSettings`、`describeStages`、读目录）和 `core/profiles.ts`（画像的键和查找）。
+测试只看 mod 对外的行为：发进事件，检查到达引擎和决策后端的东西，包括每一步的 effort 和 model、请求的内容、附加的 context、看板数据（`w.board()`）和 debug log。旧状态行只在少数专门检查它的测试里断言（`w.status()`）。不测内部函数。评测（接缝 2）用到的纯函数是另一个公开接口，可以直接测：`decision/` 的各个模块（拼请求、读回答，`tests/decision-module.test.ts` 等），以及评测也 import 的 `core/setup.ts`（`readConfig`、`dispatchSettings`）、`core/skills.ts`（`rankingSettings`、`describeStages`、读目录）和 `core/profiles.ts`（画像的键和查找）。
 
 ```ts
 import { expect, test } from 'claude-code/testing'
@@ -810,11 +829,12 @@ test('……', { options: { typesafeApiKey: 'k' } }, async ($, on) => {
   await w.step({ index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
   expect(w.steps.map((s) => s.effort)).toEqual(['high'])
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
-  expect(w.status()).toBe('dp effort high')
+  expect((await w.board()).main).toMatchObject({ effort: 'high', routed: true })
 })
 ```
 
 - `world($, on, options)` 在 mod 之下扮演引擎和外部世界。`backend` 回答 `$.http.fetch`：`jev(levels)` 让每个 Score 问题得到这组概率；`{ status, body }`、`{ reject }`、`{ after: ms, reply }` 分别模拟出错、断网和慢响应。`messages` 是 `$.session.messages()` 的返回值（也可以是函数，拿到这次问的是什么，例如 `{ agentId }`，按调用作答，或者像引擎拒绝 Workflow agent 那样回 `{ deny }`），`disk` 回答 `$.fs.read` 和 `$.fs.exists`，`beneath` 模拟更内层的 hook 拒绝（`drop`）或改写（`rewrite`）消息。它会记录 `requests`、`steps`、`statuses`、`logs` 和 `prompts`。`store` 给 `$.store` 预置内容（不给时每个 `$.store` 调用都会 reject），mod 写进去的用 `w.stored(key)` 读回；`session: true` 让引擎照常开始会话：`w.start()` 触发 `session.start`，mod 注册的命令记在 `w.commands`（`session: { registerError }` 让注册被拒绝），`w.measure({...})` 触发 `session.measure`；`w.command('dp', 'lock max')` 像用户输入斜杠命令那样运行它，返回它打印的文字（例子见 `tests/control.test.ts`）；`w.slash('implement', '#19')` 是用户输入一个 prompt 命令（skill、markdown 命令）：照引擎的顺序先 `command.run`，再提交输入的 `/implement #19`，这一轮以引擎的命令消息开始（例子见 `tests/command-turns.test.ts`）。这几项都是按需打开的，不用的测试不受影响。
+- `await w.board()` 读出「决定汇报」存在 `$.state` 的看板数据，是断言「mod 决定了什么、读到了什么」的地方，不要再去比状态字符串：`{ turn, nodes, log, main, agents }`。`turn`、`nodes`、`log` 就是存着的值（`board.turn`、`board.nodes`、`decisionLog`，契约见 `types/index.d.ts`），`main` 是当前这一轮主 agent 的节点，`agents` 是当前这一轮其他 agent 的节点。例如：`expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, failure: { backend: 'jev', kind: 'timeout' } })`、`expect((await w.board()).log.at(-1)).toMatchObject({ feature: 'main-effort', outcome: 'effort high' })`。`board` 和 `decisionLog` 两个值由 world 自己保管（版本号和 `ifVersion` 照宿主的方式），测试里没有 `$.state` 可读；`seed: { board, log }` 让 mod 一启动就看到「上一次加载留下的」数据，用来测热重载后数据还在（例子见 `tests/report.test.ts`、`tests/control.test.ts`）。要让它们读写失败，在 `world()` 之前注册 `on('state.set', { plugin: 'dispatch-pilot', key: 'board' }, () => ({ deny: '...' }))`。
 - `skills` 打开本会话的 skill（`SkillsWorld`）：`commands` 回答 `$.command.list()`，`listed` 回答 `$.session.usage({ breakdown })` 里主 agent 的 skill 清单（`null` 让这次调用失败），`overrides` 按来源回答 `$.settings.read({ source })` 的 `skillOverrides`，`home` 和 `cwd` 回答 `$.env.get('HOME')` 和 `$.session.cwd()`。SKILL.md 放进 `disk`。`w.listing(text, agentId?)` 像引擎那样把 skill 列表交给 `prompt.attachment`，返回模型最后读到的内容。`session` 打开时还有 `w.compact()` 和 `w.clear()`。`jev(levels, { shares: { 'skills.which': { tdd: 0.6, '(none)': 0.4 } } })` 让一个 Choice 问题按给定的概率作答（没列出的选项是 0），`nouls: { 'skills.fits.0': 0.9 }` 让 Noul 按问题 ID 作答（默认 0.5）。例子见 `tests/skills.test.ts`。
 - 两段排序（#11）：`rates(shares, fits)` 同时回答一条消息的两个 skill 请求：第一个请求的 `skills.which` 和 `skills.hint` 都按 `shares`（各自只取自己的选项；effort 默认 medium），第二个请求（`isSecondSkillsRequest(request)` 为真）里每个 `skills.fits.<i>` 按它 instructions 里 skill 的名字取 `fits` 的值（没列出的是 0），`skills.best` 全给 fits 最高的那个。`disk` 也回答 `$.fs.list`（列出某个目录下的文件和子目录），同步 skill 的账号目录就这样找到。例子见 `tests/skill-ranking.test.ts`。
 - skill 画像（#11）：`model` 回答 `$.model.complete`（`(request, n) => Completion`：`{ text }`、`{ fails: 'api-error' | 'empty-reply' | 'aborted' }`、`{ reject }`（引擎拒绝发出，调用 reject）或 `{ after: ms, reply }`），每次调用记在 `w.completions`；没给 `model` 时每次调用都被拒绝。画像在 `session.start` 之后在后台写，所以先 `await w.start()` 再 `await w.clock.settle()`；再调一次 `w.start()` 就是「下一次会话」（同一个 store）。`w.storedKeys()` 列出 store 里现在的键。例子见 `tests/skill-profiles.test.ts`。
@@ -826,9 +846,9 @@ test('……', { options: { typesafeApiKey: 'k' } }, async ($, on) => {
 - Workflow 的测试用 `tests/support/workflow.ts` 的 `workflowWorld($, on, options)`：它先注册带 matcher `{ tool: 'Workflow' }` 的 Workflow 工具桩，再调用 `world()`，所以 `world()` 以后再加 `tool.call` 桩也不冲突（但同一个测试里要先于它注册）。`w.workflow({ script | scriptPath | name, args, resumeFromRunId })` 调用工具；`w.reached` 记录到达工具的每次调用（`launched: false` 是工具因语法错误拒绝的）；`w.stateWrites` 是 mod 所有的 `$.state` 写入（key、family 的 id 和值）；选项 `parseError` 和 `fails` 让工具拒绝某个脚本。`siteJev((i) => ({ model, effort, nouls }))` 按脚本里的第 i 个调用回答，`clefSiteJev` 是它的 Clef 版（同时检查 Clef 的输入规则）。
 - Workflow agent 启动时的测试（#9）用 `tests/support/workflow-run.ts` 的 `runWorld`：它在 `workflowWorld` 之上写运行目录（journal、transcript）、回答 `tool.describe`，见上文「Workflow 兜底（#9）」。agent 启动时当场判断的请求只有一个调用，part 是 `agent-0`，所以 `siteJev` 的下标 0 也会回答它；同一个测试里要区分运行开始时和 agent 启动时的回答，就按请求的序号 `n` 分别作答。
 - 要模拟别的功能已经写好的计划表，就在测试里回答 `state.get`，见 `tests/plan-table.test.ts` 的 `table()`。
-- 每个测试都要断言一个实际产物（发出的请求、某一步的 effort、状态行），否则可能空过。例如不给 origin 时 hook 会被跳过；没有 `http.fetch` 桩时 fetch 会失败、走放行分支，「effort 不变」照样成立。
+- 每个测试都要断言一个实际产物（发出的请求、某一步的 effort、看板数据），否则可能空过。例如不给 origin 时 hook 会被跳过；没有 `http.fetch` 桩时 fetch 会失败、走放行分支，「effort 不变」照样成立。
 - `world()` 总会装上 `mock.clock(on)`。测超时时，先 `const p = w.submit(...)`，再依次 `await w.clock.settle()`、`await w.clock.advance(ms)`、`await p`。
-- 同一个事件的桩不能注册两次：`world()` 已经注册过的事件，测试里不要再注册。`http.fetch`、`fs.read`、`fs.exists`、`fs.list`、`model.complete`、`session.messages`、`ui.*` 和引擎那几个事件总会注册；开了 `store` 就是 `store.*`；开了 `session` 就是 `session.start`、`session.measure`、`session.compact`、`session.end`、`command.register` 和 `tool.register`；开了 `skills` 就是 `command.list`、`session.usage`、`settings.read`、`session.cwd`、`env.*` 和 `prompt.attachment`。想自己写这些桩的测试，就不要打开对应的选项。
+- 同一个事件的桩不能注册两次：`world()` 已经注册过的事件，测试里不要再注册。`http.fetch`、`fs.read`、`fs.exists`、`fs.list`、`model.complete`、`session.messages`、`ui.*`、带 matcher 的 `state.get` 和 `state.set`（只管 `board` 和 `decisionLog` 这两个 key）和引擎那几个事件总会注册；开了 `store` 就是 `store.*`；开了 `session` 就是 `session.start`、`session.measure`、`session.compact`、`session.end`、`command.register` 和 `tool.register`；开了 `skills` 就是 `command.list`、`session.usage`、`settings.read`、`session.cwd`、`env.*` 和 `prompt.attachment`。想自己写这些桩的测试，就不要打开对应的选项。
 - 每个测试拿到的都是全新的模块实例，模块级变量不会跨测试残留。
 - **测试文件读不了磁盘上的文件**（2.1.289 实测）。`claude plugin test` 在和 hooks 一样的环境里加载测试文件：`import 'node:fs'` 被拒，`.json` 和 `.md` 也不能 import（只加载 `.ts`、`.tsx`、`.jsx`、`.js`、`.mjs`、`.cjs`、`.mts`、`.cts`），测试里的 `$` 是引擎的 `$`、没有 `$.fs`，也没有 `process` 和 `Bun`。要核对真实的文件，就把检查写成纯函数，测试用自己写的小例子测它，再由 Node 脚本对真实的文件跑它：README 的配置表对 plugin.json 就是这样做的（#18）：纯函数 `checkConfigTable` 在 `eval/lib/docs.ts`，`tests/docs-sync.test.ts` 测它，`node dispatch-pilot/eval/validate.ts` 对真实的 README.md 和 plugin.json 跑它。所以 `claude plugin test` 全部通过，并不说明 README 的配置表还和 manifest 一致，改了配置项或默认值要再跑那条命令。
 

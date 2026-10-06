@@ -18,13 +18,16 @@ test('/dp lock holds the main agent at that effort on every step, over the decis
   await w.step({ index: 0, effort: 'xhigh' })
   await w.step({ index: 1, effort: 'medium' })
   expect(w.steps.map((s) => s.effort)).toEqual(['max', 'max'])
+  expect((await w.board()).main).toMatchObject({ effort: 'max', locked: true })
   expect(w.status()).toBe('dp effort max (locked)')
 
   // Released in the middle of the turn: the decision takes over from the next step.
   expect(await w.command('dp', 'unlock')).toContain('unlocked')
   await w.step({ index: 2, effort: 'xhigh' })
   expect(w.steps.at(-1)?.effort).toBe('high')
-  expect(w.status()).toBe('dp effort high')
+  const main = (await w.board()).main
+  expect(main).toMatchObject({ effort: 'high', routed: true })
+  expect(main?.locked).toBeUndefined()
 })
 
 test('a lock outlives the turn it was set in, /dp shows it, and /dp lock off releases it', { options: KEY }, async ($, on) => {
@@ -61,7 +64,7 @@ test('/dp off stands the whole mod down: nothing is asked, every step goes out a
   await w.step({ index: 0, effort: 'xhigh' })
   expect(w.requests).toHaveLength(1)
   expect(w.steps.at(-1)?.effort).toBe('high')
-  expect(w.status()).toBe('dp effort high')
+  expect((await w.board()).main).toMatchObject({ effort: 'high', routed: true })
 })
 
 test('while Dispatch Pilot is off a lock has no effect, and the command says so', { options: KEY }, async ($, on) => {
@@ -91,7 +94,7 @@ test('/dp lists the switch each feature registered; a feature switched off asks 
   await w.step({ index: 0, effort: 'xhigh' })
   expect(w.requests).toHaveLength(0)
   expect(w.steps.map((s) => s.effort)).toEqual(['xhigh'])
-  expect(w.status()).toBe('dp effort xhigh (not routed)')
+  expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: false })
 
   expect(await w.command('dp', 'main-effort on')).toContain('main-effort is on')
   await w.submit('再看看别的模块')
@@ -235,23 +238,40 @@ test('a decision that thetaMax held back says so in its reason', { options: { ..
 
 test('the decision log lives in $.state, so a hot reload of the mod keeps it', { options: KEY }, async ($, on) => {
   // As an earlier load of the mod left it.
-  on('state.get', async (_$, e, next) => {
-    const left = [{ n: 7, feature: 'main-effort', outcome: 'effort max', about: '"迁移"', reason: 'p max 0.80' }]
-    return e.key === 'decisionLog' ? { value: { value: left, version: 3 } } : next(e)
-  })
-  const w = world($, on)
+  const left = [{ n: 7, turn: 3, feature: 'main-effort', tone: 'ok' as const, outcome: 'effort max', subject: '"迁移"', reason: 'p max 0.80' }]
+  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), seed: { log: left } })
 
   expect((await w.command('dp', 'log')).split('\n')).toEqual(['the last decision, newest last', '#7 main-effort: effort max for "迁移": p max 0.80'])
+  // The numbering goes on from what it left.
+  await w.submit('接着做')
+  expect((await w.command('dp', 'log')).split('\n').at(-1)).toContain('#8 main-effort: effort high for "接着做"')
 })
 
-test('the decision log keeps the last 50 decisions', { options: KEY }, async ($, on) => {
+test('the decision log keeps the last 20 turns', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
-  for (let i = 1; i <= 52; i++) await w.submit(`第 ${i} 条消息`)
+  // One decision per message, each message a turn of its own.
+  for (let i = 1; i <= 22; i++) await w.submit(`第 ${i} 条消息`)
 
   const lines = (await w.command('dp', 'log 100')).split('\n')
-  expect(lines[0]).toBe('the last 50 decisions, newest last')
+  expect(lines[0]).toBe('the last 20 decisions, newest last')
   expect(lines[1]).toContain('#3 main-effort: effort high for "第 3 条消息"')
-  expect(lines.at(-1)).toContain('#52 main-effort: effort high for "第 52 条消息"')
+  expect(lines.at(-1)).toContain('#22 main-effort: effort high for "第 22 条消息"')
+})
+
+test('the decision log keeps at most 300 entries, however few turns they were made in', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
+  await w.submit('第一条')
+  // Messages typed into the running turn are decided too, and belong to it.
+  for (let i = 2; i <= 305; i++) await w.submit(`第 ${i} 条消息`, { turnId: 't1' })
+
+  const board = await w.board()
+  expect(board.turn).toBe(1)
+  expect(board.log).toHaveLength(300)
+  expect(board.log.map((entry) => entry.turn)).toEqual(Array(300).fill(1))
+  const lines = (await w.command('dp', 'log 1000')).split('\n')
+  expect(lines[0]).toBe('the last 300 decisions, newest last')
+  expect(lines[1]).toContain('#6 main-effort: effort high for "第 6 条消息"')
+  expect(lines.at(-1)).toContain('#305 main-effort: effort high for "第 305 条消息"')
 })
 
 // ---- The signals ------------------------------------------------------------

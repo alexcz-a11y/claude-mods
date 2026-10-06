@@ -22,15 +22,15 @@ import { EFFORTS, LEVEL, pickEffort, readEffort, readingText, turnStartEffortPar
 import { quoteStart } from '../decision/redact.ts'
 import { contribute } from '../core/ballot.ts'
 import { commandOf, commandState } from '../core/commands.ts'
-import { recordDecision } from '../core/decisions.ts'
 import { addPending, revise, turnKey, update, type Cell, type PendingDecision, type TurnRecord } from '../core/plans.ts'
 import { isPersonsMessage, startsReportTurn } from '../core/prompts.ts'
+import { reportDecision, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
-import { failureText, setStatus } from '../core/status.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
 const PENDING = { plugin: 'dispatch-pilot', key: 'pending' } as const
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
 
@@ -72,25 +72,34 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
       ...turnStartEffortPart({ ...ctx.ask, language: ctx.config.turnStartLanguage }),
       ...(command === null ? {} : { state: { command } }),
       settle: async (outcome) => {
-        const show = (line: string | undefined) => $.ui.status(line)
+        const io: ReportIo = {
+          board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+          decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+          debug: (line) => $.ui.log(line, { to: 'debug' }),
+          status: (line) => $.ui.status(line),
+        }
+        // About the main agent of the turn this message starts, or of the one running when it was typed into it.
+        const about = { feature: report ? 'main-effort (agent report)' : 'main-effort', agent: 'main', forTurn: e.turnId === undefined ? ('next' as const) : ('current' as const), subject: quoteStart(e.text) }
         if (!outcome.ok) {
-          setStatus('decision', failureText(ctx.backend.name, outcome.failure), show)
+          await reportDecision(io, { ...about, routed: false, failure: { backend: ctx.backend.name, ...outcome.failure } })
           await wait(null)
           return
         }
         const reading = readEffort(outcome.answers[LEVEL])
         if (reading === null) {
-          setStatus('decision', failureText(ctx.backend.name, { kind: 'parse', detail: 'no effort answer' }), show)
+          await reportDecision(io, { ...about, routed: false, failure: { backend: ctx.backend.name, kind: 'parse', detail: 'no effort answer' } })
           await wait(null)
           return
         }
-        setStatus('decision', null, show)
         const effort = pickEffort(reading, ctx.config.thetaMax)
-        await recordDecision(
-          { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
-          (line) => $.ui.log(line, { to: 'debug' }),
-          { feature: report ? 'main-effort (agent report)' : 'main-effort', outcome: `effort ${effort}`, about: quoteStart(e.text), reason: describeReading(reading, effort, ctx.config.thetaMax) },
-        )
+        await reportDecision(io, {
+          ...about,
+          routed: true,
+          outcome: `effort ${effort}`,
+          reason: describeReading(reading, effort, ctx.config.thetaMax),
+          probs: Object.fromEntries(EFFORTS.map((level, i) => [level, reading.probabilities[i] ?? 0])) as Record<Effort, number>,
+          ...(reading.confidence === null ? {} : { conf: reading.confidence }),
+        })
         await wait(effort)
         const running = e.turnId
         if (running !== undefined) {

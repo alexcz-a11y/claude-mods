@@ -1,7 +1,7 @@
 // Command turns (#19): a turn the person starts with a prompt command (a
 // skill, a markdown command) is routed like their own message. Seam 1: engine
 // events in (`command.run`, then the prompt as typed, then the turn); out, the
-// decision request, what each step went out with, the status line.
+// decision request, what each step went out with, the board.
 
 import { expect, test } from 'claude-code/testing'
 import { profileKey } from '../hooks/core/profiles.ts'
@@ -18,7 +18,7 @@ test('a command turn gets the effort question about the command as typed, and go
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
   expect(w.requests[0]?.body.state.user_message).toBe('/implement #19')
   expect(w.steps.map((s) => String(s.effort))).toEqual(['xhigh'])
-  expect(w.status()).toBe('dp effort xhigh')
+  expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: true })
 })
 
 // The session's skills, among them the one the person runs as a command.
@@ -52,7 +52,7 @@ test('a message that only starts with a slash is an ordinary message, also after
 
   expect(w.requests[0]?.body.state.user_message).toBe('/Users/me/notes.txt 这个文件写了什么')
   expect(Object.keys(w.requests[0]?.body.questions)).toContain('skills.which')
-  expect(w.status()).not.toContain('not routed')
+  expect((await w.board()).main).toMatchObject({ routed: true })
 })
 
 // The decision model reads the command as typed and what the command is for, never the prompt it expands to.
@@ -119,5 +119,5 @@ test('a command typed while a turn runs is decided, and the turn it starts later
 
   expect(w.requests.map((request) => request.body.state.user_message)).toEqual(['先看一下这个仓库', '/implement #19'])
   expect(w.steps.at(-1)?.effort).toBe('xhigh')
-  expect(w.status()).toBe('dp effort xhigh')
+  expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: true })
 })
