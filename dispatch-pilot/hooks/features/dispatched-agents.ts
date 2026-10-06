@@ -85,8 +85,10 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     const ms = (await $.clock.now()) - startedAt
     $.ui.log(`request [${Object.keys(request.questions).join(', ')}] to ${ctx.backend.name} for agent ${about}: ${describeAsked(asked, ms)}`, { to: 'debug' })
     // The agent starts as the main agent asked; the board says why it was not routed, once it has an id to say it of.
+    // A spawn refused beneath started no agent: there is nothing to say of it.
     const notRouted = async (failure: Failure) => {
       const started = await next(e)
+      if (started.deny !== undefined) return started
       await reportDecision(reporting, { ...reportOf(started.agentId ?? e.tool_use_id), routed: false, failure: { backend: ctx.backend.name, ...failure } })
       return started
     }

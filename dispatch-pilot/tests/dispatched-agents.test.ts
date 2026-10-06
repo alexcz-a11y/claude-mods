@@ -507,6 +507,21 @@ test('no TypeSafe key: nothing is sent, the agent starts as the main agent asked
   expect((await w.board()).agents).toMatchObject([{ routed: false, why: 'jev：没有填 typesafeApiKey', failure: { backend: 'jev', kind: 'config' } }])
 })
 
+test('a spawn refused beneath, after the decision failed, started no agent: nothing of it on the board, no toast, nothing left running', { options: KEY }, async ($, on) => {
+  // Another plugin (or the engine) beneath refuses to start the agent.
+  on('agent.spawn', { tool_use_id: /(?:)/ }, () => ({ deny: 'agents are not allowed here' }))
+  const w = world($, on, { backend: () => ({ status: 500, body: 'Internal Server Error' }) })
+  await w.submit('查一下登录模块')
+  // Past the two seconds in which the engine drops a second toast.
+  await w.clock.advance(3000)
+  const refused = await w.spawn({ prompt: 'Summarize what src/billing/invoice.ts does.', description: 'Explain invoice.ts', model: 'sonnet' })
+
+  expect(refused).toMatchObject({ deny: 'agents are not allowed here' })
+  expect((await w.board()).nodes.filter((node) => node.id !== 'main')).toEqual([])
+  // The main agent's route failed too (the same server error): its toast is the only one.
+  expect(w.toasts.map((toast) => toast.text)).toEqual([expect.stringContaining('主 agent 未路由')])
+})
+
 test("a fork (it always runs on its parent's model) and a teammate (it lives across many tasks) are left as they are, with no decision asked", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 1 } }) })
   await w.spawn({ prompt: 'Carry on from here and check the tests.', subagentType: 'fork', fork: true })
