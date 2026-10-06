@@ -6,13 +6,17 @@
 // rows, one line too. Pure: drawn from a `ScreenView` with the terminal's
 // element table; the digit keys' Buttons call `act.select`.
 //
+// The other surfaces get the same band in plain text (#31): `bandTree` is given
+// the terminal's Raster only on the terminal, and without it each row is the
+// same minus its time ribbon (the name takes the room).
+//
 // Every row is cut to the band's width (`bodyColumns`): a long name ends in
 // `…`, never wraps; the full story is the rationale pane's (#30).
 
 import type { RenderNode } from 'claude-code'
 import type { Effort } from '../decision/effort.ts'
 import type { Model, Reading } from '../core/report.ts'
-import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, fit, MODEL_BG, mmss, MUTED, OK, padLeft, pct, ribbonCells, rgb, SKILL, soft, SPIN, stateGlyph, WARN, type T } from './kit.tsx'
+import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, fit, MODEL_BG, mmss, MUTED, OK, padLeft, pct, ribbonCells, rgb, SKILL, soft, SPIN, stateGlyph, WARN, type Raster, type TT } from './kit.tsx'
 import type { AgentRow, BandEvent, ScreenView, Tone } from './view.ts'
 
 /** What the band is laid out in: `bodyColumns` and `maxRows` of its props. */
@@ -30,18 +34,18 @@ const HINT = '/dp log 看依据'
 
 const TONE_COLOR: Record<Tone, string> = { run: ACCENT, done: MUTED, fail: BAD, warn: WARN, muted: MUTED }
 
-/** The band's tree, or null when there is nothing of Dispatch Pilot's to show (switched off, no turn yet). */
-export function bandTree(t: T, view: ScreenView, size: BandSize, act: BandActs): RenderNode | null {
+/** The band's tree (`raster`: the terminal's Raster constructor, for the time ribbons; none, none drawn), or null when there is nothing of Dispatch Pilot's to show (switched off, no turn yet). */
+export function bandTree(t: TT, view: ScreenView, size: BandSize, act: BandActs, raster?: Raster): RenderNode | null {
   if (view.off || view.turn === 0 || (view.rows.length === 0 && !view.live)) return null
   if (!view.live) return idleLine(t, view, size.cols)
   if (size.rows < SQUEEZED) return squeezedLine(t, view, size.cols)
-  return liveBand(t, view, size, act)
+  return liveBand(t, view, size, act, raster)
 }
 
 // ---- one line ---------------------------------------------------------------------
 
 /** `opus·xhigh`: the model in its chip's tint, the effort in its ramp colour (amber when not routed). */
-function readout(t: T, model: Model | undefined, effort: Effort | number | undefined, routed: boolean) {
+function readout(t: TT, model: Model | undefined, effort: Effort | number | undefined, routed: boolean) {
   const { Text } = t
   const level = typeof effort === 'string' ? effort : undefined
   return (
@@ -54,7 +58,7 @@ function readout(t: T, model: Model | undefined, effort: Effort | number | undef
 }
 
 /** The agents in a few glyphs: ⠏3 running, ✔2 done, ✘1 failed, ○1 waiting. */
-function tally(t: T, view: ScreenView) {
+function tally(t: TT, view: ScreenView) {
   const { Text } = t
   const { running, done, failed, queued } = view.counts
   const parts = [
@@ -67,7 +71,7 @@ function tally(t: T, view: ScreenView) {
 }
 
 /** A finished turn: the main agent's model and effort, how it came to them, the agents, the skills for the person to try. */
-function idleLine(t: T, view: ScreenView, cols: number) {
+function idleLine(t: TT, view: ScreenView, cols: number) {
   const { Box, Text } = t
   const main = view.rows.find((row) => row.node.id === 'main')?.node
   const agents = view.counts.done + view.counts.failed + view.counts.running + view.counts.queued
@@ -99,7 +103,7 @@ function idleLine(t: T, view: ScreenView, cols: number) {
 }
 
 /** A turn going, with no room: the strip and the main agent's readout on one line. */
-function squeezedLine(t: T, view: ScreenView, cols: number) {
+function squeezedLine(t: TT, view: ScreenView, cols: number) {
   const { Box, Text } = t
   const main = view.rows.find((row) => row.node.id === 'main')
   return (
@@ -129,7 +133,7 @@ function squeezedLine(t: T, view: ScreenView, cols: number) {
  * The columns of an agent row for the band's width: the status cell and the effort narrow first, then the ribbon
  * goes (under six cells it says nothing), so a row never wraps.
  */
-function columnsOf(cols: number) {
+function columnsOf(cols: number, ribbons: boolean) {
   const status = cols >= 140 ? 30 : cols >= 110 ? 26 : cols >= 80 ? 22 : cols >= 70 ? 16 : 10
   // The effort's pips and word (12), or under 70 columns its pips alone.
   const effort = cols >= 70 ? 12 : 5
@@ -138,11 +142,11 @@ function columnsOf(cols: number) {
   const left = Math.max(0, cols - fixed - status)
   // Narrow, the name keeps half of what is left: it says who the row is.
   const name = Math.max(10, Math.min(32, Math.round(left * (cols >= 110 ? 0.4 : 0.5))))
-  const ribbon = left - name >= 6 ? Math.min(48, left - name) : 0
+  const ribbon = ribbons && left - name >= 6 ? Math.min(48, left - name) : 0
   return { status, effort, name: ribbon === 0 ? Math.max(8, left) : name, ribbon }
 }
 
-function liveBand(t: T, view: ScreenView, size: BandSize, act: BandActs) {
+function liveBand(t: TT, view: ScreenView, size: BandSize, act: BandActs, raster: Raster | undefined) {
   const { Box, Text } = t
   const budget = Math.min(size.rows, MOST_ROWS)
   const wanted = Math.min(view.events.length, 2)
@@ -159,11 +163,11 @@ function liveBand(t: T, view: ScreenView, size: BandSize, act: BandActs) {
   const eventRoom = Math.max(0, budget - used)
   const hiddenEvents = view.events.length > eventRoom ? view.events.length - Math.max(0, eventRoom - 1) : 0
   const shownEvents = hiddenEvents > 0 ? view.events.slice(view.events.length - Math.max(0, eventRoom - 1)) : view.events
-  const cols = columnsOf(size.cols)
+  const cols = columnsOf(size.cols, raster !== undefined)
   return (
     <Box key="band" flexDirection="column" width={size.cols}>
       {strip(t, view, size.cols)}
-      {shownRows.map((row, i) => agentRow(t, view, row, i, cols, act))}
+      {shownRows.map((row, i) => agentRow(t, view, row, i, cols, act, raster))}
       {hiddenRows.length > 0 ? (
         <Box key="band-more-agents">
           <Text color={MUTED} wrap="truncate-end">{`   ┊ 另有 ${hiddenRows.length} 个 agent：${foldTally(hiddenRows)} · ${HINT}`}</Text>
@@ -196,7 +200,7 @@ function foldTally(rows: readonly AgentRow[]): string {
 }
 
 /** The strip: the turn and its time, the agents' tally, the Workflow's progress, the mid-turn re-decisions; the hint at the right. */
-function strip(t: T, view: ScreenView, cols: number) {
+function strip(t: TT, view: ScreenView, cols: number) {
   const { Box, Text } = t
   const sep = <Text color={MUTED}>{'  ▏ '}</Text>
   const agents = view.counts.running + view.counts.done + view.counts.failed + view.counts.queued
@@ -248,8 +252,8 @@ function barColor(row: AgentRow): number {
 }
 
 /** One agent: marker, glyph, its digit and name, model chip, effort tag, time ribbon, status cell. */
-function agentRow(t: T, view: ScreenView, row: AgentRow, i: number, cols: ReturnType<typeof columnsOf>, act: BandActs) {
-  const { Box, Button, Raster, Text } = t
+function agentRow(t: TT, view: ScreenView, row: AgentRow, i: number, cols: ReturnType<typeof columnsOf>, act: BandActs, Ribbon: Raster | undefined) {
+  const { Box, Button, Text } = t
   const { node } = row
   const whole = node.kind === 'wf' && node.workflow === undefined && !node.id.includes('#')
   const span = Math.max(view.elapsed, ...view.rows.map((one) => one.to ?? one.from), 1)
@@ -269,9 +273,9 @@ function agentRow(t: T, view: ScreenView, row: AgentRow, i: number, cols: Return
       </Box>
       <Box width={9} flexShrink={0}>{chip(t, node.model, node.routed)}</Box>
       <Box width={cols.effort + 1} flexShrink={0}>{effortTag(t, node.effort, cols.effort)}</Box>
-      {cols.ribbon === 0 ? null : (
+      {cols.ribbon === 0 || Ribbon === undefined ? null : (
         <Box width={cols.ribbon + 1} flexShrink={0}>
-          {whole ? <Text> </Text> : <Raster key={`band-ribbon-${i}`} columns={cols.ribbon} rows={1} cells={ribbonCells(row.from, row.to, span, cols.ribbon, barColor(row))} />}
+          {whole ? <Text> </Text> : <Ribbon key={`band-ribbon-${i}`} columns={cols.ribbon} rows={1} cells={ribbonCells(row.from, row.to, span, cols.ribbon, barColor(row))} />}
         </Box>
       )}
       <Box width={cols.status} flexShrink={0}>
@@ -299,7 +303,7 @@ const SKIPPED: Record<string, string> = {
   error: '出错了，见 debug log',
 }
 
-function effortWord(t: T, effort: string) {
+function effortWord(t: TT, effort: string) {
   const { Text } = t
   return <Text color={effort in EFFORT_COLOR ? EFFORT_COLOR[effort as Effort] : MUTED} bold>{effort}</Text>
 }
@@ -309,7 +313,7 @@ function readingText(reading: Reading): string {
 }
 
 /** An event's glyph, tag and body. */
-function eventParts(t: T, event: BandEvent): { glyph: RenderNode; tag: string; tagColor: string; body: RenderNode } {
+function eventParts(t: TT, event: BandEvent): { glyph: RenderNode; tag: string; tagColor: string; body: RenderNode } {
   const { Text } = t
   const muted = (text: string) => <Text color={MUTED}>{text}</Text>
   switch (event.kind) {
@@ -432,7 +436,7 @@ function eventParts(t: T, event: BandEvent): { glyph: RenderNode; tag: string; t
 const EFFORT_ORDER: readonly string[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 /** One event: when (m:ss from the turn's start), the rail, its glyph and tag, what happened. */
-function eventRow(t: T, event: BandEvent, i: number, count: number, folded: boolean, cols: number) {
+function eventRow(t: TT, event: BandEvent, i: number, count: number, folded: boolean, cols: number) {
   const { Box, Text } = t
   const rail = i === count - 1 ? '└' : i === 0 && !folded ? '┬' : '├'
   const parts = eventParts(t, event)

@@ -8,12 +8,19 @@
 // state, so light and dark terminals both read; hex only for the effort ramp
 // and the four model chips, mid tones that hold on either background.
 
-import type { Elements } from 'claude-code'
+import type { Elements, RenderNode } from 'claude-code'
 import { EFFORTS, type Effort } from '../decision/effort.ts'
 import type { AgentState, Model } from '../core/report.ts'
 
-/** The terminal's element table: every part here draws with it. */
+/** The terminal's element table: what the Raster parts draw with. */
 export type T = Elements['terminal']
+/**
+ * The elements every surface has: all that the text parts need. The terminal's and the other surfaces' tables both
+ * fit it, so one drawing serves them all; only a Raster (the terminal's alone, `Raster` below) is left out of it.
+ */
+export type TT = Pick<T, 'Box' | 'Text' | 'Button'>
+/** The terminal's Raster constructor: given to a drawing on the terminal, absent on every other surface (a Raster is refused there). */
+export type Raster = T['Raster']
 
 export const ACCENT = 'claude'
 export const OK = 'success'
@@ -47,6 +54,12 @@ export const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '�
 /** Whether an effort the engine sent is one of the five levels (it may be an integer budget). */
 export function isLevel(effort: unknown): effort is Effort {
   return typeof effort === 'string' && (EFFORTS as readonly string[]).includes(effort)
+}
+
+/** How many nodes a drawn tree has: Desktop refuses one of 2000 (the engine's own limit is 20000, and a test's mount does not check it). */
+export function nodeCount(node: RenderNode): number {
+  if (typeof node === 'string') return 1
+  return 1 + ('children' in node && node.children !== undefined ? node.children.reduce((sum, child) => sum + nodeCount(child), 0) : 0)
 }
 
 // ---- cell widths --------------------------------------------------------------
@@ -122,7 +135,7 @@ export function pct(p: number): string {
 // ---- parts ------------------------------------------------------------------
 
 /** A model chip, 8 cells: the model's tint with dark ink; not routed, the engine's model in amber with a star. */
-export function chip(t: T, model: Model | undefined, routed: boolean) {
+export function chip(t: TT, model: Model | undefined, routed: boolean) {
   const { Text } = t
   if (model === undefined) return <Text color={MUTED}>{padRight(' —', 8)}</Text>
   if (!routed) return <Text color={WARN} bold>{padRight(` ${model}*`, 8)}</Text>
@@ -134,7 +147,7 @@ export function chip(t: T, model: Model | undefined, routed: boolean) {
 }
 
 /** Five pips, as many filled as the level is high, in the level's colour: ▰▰▰▱▱. */
-export function pips(t: T, effort: Effort) {
+export function pips(t: TT, effort: Effort) {
   const { Text } = t
   const n = EFFORTS.indexOf(effort) + 1
   return (
@@ -149,7 +162,7 @@ export function pips(t: T, effort: Effort) {
  * The effort as it went out, `w` cells: pips and the level's name in its colour; an integer budget as the engine
  * sent it; none (a model without effort, haiku) a dash.
  */
-export function effortTag(t: T, effort: Effort | number | undefined, w = 12) {
+export function effortTag(t: TT, effort: Effort | number | undefined, w = 12) {
   const { Text } = t
   if (effort === undefined) return <Text color={MUTED}>{padRight('▱▱▱▱▱ —', w)}</Text>
   if (typeof effort === 'number') return <Text color={MUTED}>{padRight(`▱▱▱▱▱ ${effort}`, w)}</Text>
@@ -164,7 +177,7 @@ export function effortTag(t: T, effort: Effort | number | undefined, w = 12) {
 }
 
 /** An agent's state: a spinner while it runs (amber when its steps are not routed), ✔ done, ✘ failed, ○ queued. */
-export function stateGlyph(t: T, state: AgentState, frame: number, routed: boolean) {
+export function stateGlyph(t: TT, state: AgentState, frame: number, routed: boolean) {
   const { Text } = t
   if (state === 'running') return <Text color={routed ? ACCENT : WARN} bold>{SPIN[frame % SPIN.length]}</Text>
   if (state === 'done') return <Text color={OK}>✔</Text>

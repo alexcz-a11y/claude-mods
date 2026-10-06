@@ -8,6 +8,12 @@
 // letter key. Pure: drawn from `rationale.ts`'s view of the data with the
 // terminal's element table; the Buttons call `act`.
 //
+// The other surfaces get the same pane in plain text (#31): `paneTree` is given
+// the terminal's Raster only on the terminal; without it the probabilities are
+// their numbers alone and the confidence meter is its line (`.42 < .55 降档线`).
+// Desktop refuses a tree of 2000 nodes, so there `PaneInput.window` keeps the
+// log and the re-decisions to the latest and says how many it left out.
+//
 // Nothing is cut: a long name, a reason or a subject wraps under its own
 // column (a hanging indent: the label column has a fixed width, the text goes
 // on beneath the content column), so the docked pane of about 75 columns
@@ -18,7 +24,7 @@ import type { RenderNode } from 'claude-code'
 import type { Effort } from '../decision/effort.ts'
 import { EFFORTS } from '../decision/effort.ts'
 import { type LogEntry, type ProfilesState, type Tone as LogTone } from '../core/report.ts'
-import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, meterCells, MODEL_BG, MUTED, OK, pct, SKILL, softColor, stackCells, stateGlyph, WARN, width, type T } from './kit.tsx'
+import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, meterCells, MODEL_BG, MUTED, OK, pct, SKILL, softColor, stackCells, stateGlyph, WARN, width, type Raster, type TT } from './kit.tsx'
 import {
   cardOf,
   entryVerb,
@@ -52,6 +58,8 @@ export type PaneInput = {
   /** The person's lock on the main agent's effort. */
   lock: Effort | null
   state: PaneState
+  /** Draw only the latest this many log entries (over the open turns) and mid-turn re-decisions, for a surface that refuses a large tree; none: all. */
+  window?: { entries: number; mids: number }
 }
 
 /** What the pane's Buttons do: pick another agent's card, fold or open a turn of the log, list the failed skills. */
@@ -78,7 +86,7 @@ const NUMBER = 6
 /** From this many cells the card's model chip and effort tag sit beside the agent's name; narrower, under it. */
 const HEAD_BESIDE = 48
 
-export function paneTree(t: T, input: PaneInput, cols: number, act: PaneActs) {
+export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, raster?: Raster) {
   const { Box, Button, Text } = t
   const { view } = input
   const card = cardOf(view, input.log)
@@ -121,17 +129,17 @@ export function paneTree(t: T, input: PaneInput, cols: number, act: PaneActs) {
         </Box>
       </Box>
       <Box key="pane-card" flexDirection="column" width={cols} borderStyle="round" borderColor={MUTED} paddingX={1}>
-        {cardRows(t, card, input, Math.max(10, cols - 4))}
+        {cardRows(t, card, input, Math.max(10, cols - 4), raster)}
       </Box>
       {blank('pane-gap')}
-      {logRows(t, input, cols, act)}
+      {logRows(t, input, cols, act, raster)}
     </Box>
   )
 }
 
 // ---- the lines at the top ------------------------------------------------------------
 
-function topLines(t: T, input: PaneInput, cols: number, act: PaneActs): RenderNode[] {
+function topLines(t: TT, input: PaneInput, cols: number, act: PaneActs): RenderNode[] {
   const { Box, Button, Text } = t
   const rows: RenderNode[] = []
   const off = offLine(input.master, input.off)
@@ -198,7 +206,7 @@ function topLines(t: T, input: PaneInput, cols: number, act: PaneActs): RenderNo
 // ---- the card ----------------------------------------------------------------------
 
 /** A row with a hanging indent: the label in its fixed column, the content wrapping beneath its own column. */
-function hang(t: T, key: string, label: string, content: RenderNode, w: number, labelWidth = LABEL) {
+function hang(t: TT, key: string, label: string, content: RenderNode, w: number, labelWidth = LABEL) {
   const { Box, Text } = t
   return (
     <Box key={key} width={w}>
@@ -224,7 +232,7 @@ const FAILURE_KINDS: Record<string, string> = {
   request: '请求本身出了错',
 }
 
-function cardRows(t: T, card: Card, input: PaneInput, w: number): RenderNode[] {
+function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster | undefined): RenderNode[] {
   const { Box, Text } = t
   const row = card.row
   if (row === null) {
@@ -287,7 +295,7 @@ function cardRows(t: T, card: Card, input: PaneInput, w: number): RenderNode[] {
   }
   if (node.locked === true) rows.push(hang(t, 'pane-card-lock', '锁定', text('照 /dp lock 发出这一档；决定照常记下，不影响发出的 effort（/dp unlock 解除）', MUTED), w))
   const route = card.route
-  if (route !== undefined) rows.push(...decisionRows(t, route, main, w))
+  if (route !== undefined) rows.push(...decisionRows(t, route, main, w, raster))
   for (const raise of card.raises) {
     rows.push(
       <Box key={`pane-raise-gap-${raise.n}`}>
@@ -314,8 +322,17 @@ function cardRows(t: T, card: Card, input: PaneInput, w: number): RenderNode[] {
         </Text>
       </Box>,
     )
-    for (const entry of card.mids) {
-      const mid = midRow(t, entry, w)
+    const room = input.window?.mids ?? card.mids.length
+    const left = card.mids.length - room
+    if (left > 0) {
+      rows.push(
+        <Box key="pane-mid-more" width={w}>
+          <Text color={MUTED} wrap="wrap">{`更早 ${left} 次重判没有画出`}</Text>
+        </Box>,
+      )
+    }
+    for (const entry of left > 0 ? card.mids.slice(left) : card.mids) {
+      const mid = midRow(t, entry, w, raster)
       if (mid !== null) rows.push(mid)
     }
   }
@@ -323,7 +340,7 @@ function cardRows(t: T, card: Card, input: PaneInput, w: number): RenderNode[] {
 }
 
 /** A decision's rows on the card: the model it gave and why (an agent's), the effort's probabilities, the rules' working, the result. */
-function decisionRows(t: T, entry: LogEntry, main: boolean, w: number): RenderNode[] {
+function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, raster: Raster | undefined): RenderNode[] {
   const { Text } = t
   const rows: RenderNode[] = []
   if (!main && entry.model !== undefined) {
@@ -342,7 +359,7 @@ function decisionRows(t: T, entry: LogEntry, main: boolean, w: number): RenderNo
   }
   if (!main) rows.push(hang(t, 'pane-card-reason', '理由', <Text color={MUTED} wrap="wrap">{entry.reason}</Text>, w))
   const level = levelOf(entry)
-  if (entry.probs !== undefined) rows.push(hang(t, 'pane-card-probs', 'effort', probsLine(t, 'pane-card-probs-bar', entry.probs, level, w - LABEL), w))
+  if (entry.probs !== undefined) rows.push(hang(t, 'pane-card-probs', 'effort', probsLine(t, 'pane-card-probs-bar', entry.probs, level, w - LABEL, raster), w))
   rows.push(...traceRows(t, 'pane-card-step', entry.trace ?? [], w))
   if (level !== undefined) rows.push(hang(t, 'pane-card-result', '结果', effortTag(t, level, 12), w))
   if (main && entry.conf !== undefined) rows.push(hang(t, 'pane-card-conf', '置信', <Text color={MUTED} wrap="wrap">{`${pct(entry.conf)}：发消息时只记录，不参与选档`}</Text>, w))
@@ -350,7 +367,7 @@ function decisionRows(t: T, entry: LogEntry, main: boolean, w: number): RenderNo
 }
 
 /** The rules' working, one row a step: the rail, its mark, the rule, what it did (wrapping under its own column). */
-function traceRows(t: T, key: string, trace: LogEntry['trace'] & object, w: number): RenderNode[] {
+function traceRows(t: TT, key: string, trace: LogEntry['trace'] & object, w: number): RenderNode[] {
   const { Box, Text } = t
   const lines = stepLines(trace)
   return lines.map((line, i) => {
@@ -376,14 +393,16 @@ function traceRows(t: T, key: string, trace: LogEntry['trace'] & object, w: numb
 }
 
 /** The effort probabilities: a stacked bar (narrower in a narrow pane) and each level's share, the decided level bold in its colour. */
-function probsLine(t: T, key: string, probs: Record<Effort, number>, picked: Effort | undefined, w: number) {
-  const { Box, Raster, Text } = t
+function probsLine(t: TT, key: string, probs: Record<Effort, number>, picked: Effort | undefined, w: number, Bar: Raster | undefined) {
+  const { Box, Text } = t
   const bar = Math.max(8, Math.min(20, w - 47))
   return (
     <Box width={w}>
-      <Box width={bar + 2} flexShrink={0}>
-        <Raster key={key} columns={bar} rows={1} cells={stackCells(probs, picked, bar)} />
-      </Box>
+      {Bar === undefined ? null : (
+        <Box width={bar + 2} flexShrink={0}>
+          <Bar key={key} columns={bar} rows={1} cells={stackCells(probs, picked, bar)} />
+        </Box>
+      )}
       <Box flexGrow={1} flexShrink={1}>
         <Text wrap="wrap">
           {EFFORTS.map((level, i) => (
@@ -405,8 +424,8 @@ function stepOf(subject: string): string {
 }
 
 /** One mid-turn re-decision: its number and step, the level suggested and the current one; the confidence meter with its line's tick, and the conclusion. */
-function midRow(t: T, entry: LogEntry, w: number) {
-  const { Box, Raster, Text } = t
+function midRow(t: TT, entry: LogEntry, w: number, Meter: Raster | undefined) {
+  const { Box, Text } = t
   const verdict = midVerdict(entry)
   const level = (value: Effort) => <Text color={EFFORT_COLOR[value]} bold>{value}</Text>
   if (verdict === null) return null
@@ -433,9 +452,9 @@ function midRow(t: T, entry: LogEntry, w: number) {
         <Box width={NUMBER} flexShrink={0}>
           <Text> </Text>
         </Box>
-        {verdict.conf === undefined ? null : (
+        {verdict.conf === undefined || Meter === undefined ? null : (
           <Box width={meter + 1} flexShrink={0}>
-            <Raster key={`pane-mid-meter-${entry.n}`} columns={meter} rows={1} cells={meterCells(verdict.conf, verdict.threshold, verdict.passed, meter)} />
+            <Meter key={`pane-mid-meter-${entry.n}`} columns={meter} rows={1} cells={meterCells(verdict.conf, verdict.threshold, verdict.passed, meter)} />
           </Box>
         )}
         <Box flexGrow={1} flexShrink={1}>
@@ -452,7 +471,7 @@ function midRow(t: T, entry: LogEntry, w: number) {
 
 // ---- the decision log ------------------------------------------------------------------
 
-function logRows(t: T, input: PaneInput, cols: number, act: PaneActs): RenderNode[] {
+function logRows(t: TT, input: PaneInput, cols: number, act: PaneActs, raster: Raster | undefined): RenderNode[] {
   const { Box, Text } = t
   const groups = logGroups(input.log, input.state)
   const rows: RenderNode[] = [
@@ -463,11 +482,18 @@ function logRows(t: T, input: PaneInput, cols: number, act: PaneActs): RenderNod
       </Text>
     </Box>,
   ]
-  for (const group of groups) rows.push(groupRows(t, group, cols, act))
+  // The newest entries first take the room a surface's window leaves (the groups are newest turn first).
+  let room = input.window?.entries ?? Infinity
+  for (const group of groups) {
+    const shown = group.open ? Math.min(room, group.entries.length) : 0
+    room -= shown
+    rows.push(groupRows(t, group, cols, act, raster, group.entries.length - shown))
+  }
   return rows
 }
 
-function groupRows(t: T, group: LogGroup, cols: number, act: PaneActs) {
+/** One turn of the log; `left` of its oldest entries (an open turn's) are left out for want of room. */
+function groupRows(t: TT, group: LogGroup, cols: number, act: PaneActs, raster: Raster | undefined, left: number) {
   const { Box, Button, Text } = t
   const { counts } = group
   const label = `${group.open ? '▾' : '▸'} 第 ${group.turn} 轮`
@@ -493,14 +519,19 @@ function groupRows(t: T, group: LogGroup, cols: number, act: PaneActs) {
           </Text>
         </Box>
       </Box>
-      {group.open ? group.entries.map((entry) => entryRows(t, entry, cols)) : null}
+      {group.open && left > 0 ? (
+        <Box key={`pane-log-more-${group.turn}`} width={cols}>
+          <Text color={MUTED} wrap="wrap">{`  更早 ${left} 条没有画出：折起别的轮，或 /dp log N 看最近 N 条`}</Text>
+        </Box>
+      ) : null}
+      {group.open ? group.entries.slice(left).map((entry) => entryRows(t, entry, cols, raster)) : null}
     </Box>
   )
 }
 
 /** One decision: its tone's glyph, then its number, what it did and to what level; whose and about what; the probabilities; the skills; why. */
-function entryRows(t: T, entry: LogEntry, cols: number) {
-  const { Box, Raster, Text } = t
+function entryRows(t: TT, entry: LogEntry, cols: number, Bar: Raster | undefined) {
+  const { Box, Text } = t
   const level = levelOf(entry)
   const feature = featureOf(entry.feature)
   const inner = Math.max(10, cols - 2)
@@ -530,9 +561,11 @@ function entryRows(t: T, entry: LogEntry, cols: number) {
         </Box>
         {entry.probs === undefined ? null : (
           <Box>
-            <Box width={bar + 2} flexShrink={0}>
-              <Raster key={`pane-entry-probs-${entry.n}`} columns={bar} rows={1} cells={stackCells(entry.probs, level, bar)} />
-            </Box>
+            {Bar === undefined ? null : (
+              <Box width={bar + 2} flexShrink={0}>
+                <Bar key={`pane-entry-probs-${entry.n}`} columns={bar} rows={1} cells={stackCells(entry.probs, level, bar)} />
+              </Box>
+            )}
             <Box flexGrow={1} flexShrink={1}>
               <Text color={MUTED} wrap="wrap">{EFFORTS.map((one) => `${one} ${pct(entry.probs?.[one] ?? 0)}`).join(' ')}</Text>
             </Box>

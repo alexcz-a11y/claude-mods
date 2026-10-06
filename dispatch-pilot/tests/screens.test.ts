@@ -387,14 +387,128 @@ test("what another mod draws in the band keeps its place, above Dispatch Pilot's
   expect(footer).toContain('opus·high')
 })
 
-test('before any turn, and on a surface other than the terminal, the band and the footer are what the engine and other mods draw', { options: KEY }, async ($, on) => {
+test('before any turn, and with the survey up, the band and the footer are what the engine and other mods draw', { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { backend: jev([0, 0, 1, 0, 0]), beneath: { render: { AbovePrompt: 'another mod' } } })
-  expect(shown(await (await w.band()).drawn())).toBe('another mod')
-  expect(await (await w.footer()).find({ key: 'dp-footer' })).toBeUndefined()
+  for (const surface of SURFACES) {
+    expect(shown(await (await w.band({ surface })).drawn())).toBe('another mod')
+    expect(await (await w.footer({ surface })).find({ key: 'dp-footer' })).toBeUndefined()
+  }
   await w.submit('改个错别字')
   await w.step({ index: 0 })
-  expect(shown(await (await w.band({ surface: 'desktop' })).drawn())).toBe('another mod')
-  expect(await (await w.footer({ surface: 'desktop' })).find({ key: 'dp-footer' })).toBeUndefined()
+  for (const surface of SURFACES) expect(shown(await (await w.band({ surface, hasSurvey: true })).drawn())).toBe('another mod')
+})
+
+// ---- the other surfaces: the same band in plain text (#31) ---------------------------
+
+/** Every surface but the terminal: the band and the footer tag are text there, never a Raster. */
+const SURFACES = ['desktop', 'vscode', 'mobile'] as const
+
+/** The element types in a drawn tree, and how many nodes it has (Desktop refuses a tree of 2000). */
+function inventory(element: unknown, seen: { types: Set<string>; nodes: number } = { types: new Set(), nodes: 0 }) {
+  if (typeof element === 'string') {
+    seen.nodes += 1
+    return seen
+  }
+  if (element === null || typeof element !== 'object') return seen
+  const { type, children = [], props = {} } = element as Drawn
+  seen.nodes += 1
+  if (type !== undefined) seen.types.add(type)
+  for (const child of Array.isArray(props.children) ? props.children : children) inventory(child, seen)
+  return seen
+}
+
+test('on a surface other than the terminal the band is the same band in text: the strip, a row an agent with its digit, model, effort and state, the events; no Raster', { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, { backend: jev([0, 0.1, 0.2, 0.7, 0], { choice: 'sonnet' }) })
+  await w.submit('把这几个模块都审查一遍')
+  await w.step({ index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+  await w.clock.advance(5000)
+  const first = await w.spawn({ prompt: 'Review src/auth/login.ts and list the risks.', description: '审查登录模块', subagentType: 'Explore' })
+  await w.agentStep(first.agentId ?? '', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.clock.advance(3000)
+
+  for (const surface of SURFACES) {
+    const ui = await w.band({ surface, rows: 12 })
+    const rows = await agentRows(ui)
+    expect(rows, surface).toHaveLength(2)
+    expect(rows[0]).toContain('0: 主 agent')
+    expect(rows[0]).toMatch(/opus.*xhigh/)
+    expect(rows[1]).toContain('1: 审查登录模块')
+    expect(rows[1]).toContain('sonnet')
+    expect(rows[1]).toContain(String(w.steps.find((step) => step.agentId === first.agentId)?.effort))
+    expect(rows[1]).toContain('运行 0:03')
+    expect(shown(await ui.find({ key: 'band-strip' }))).toContain('第 1 轮')
+    expect((await eventRows(ui))[0]).toMatch(/决定.*主 agent/)
+    expect((await ui.findAll({ type: 'Button' })).map((button) => button.props.hotkey)).toEqual(['0', '1'])
+    const seen = inventory(await ui.drawn())
+    expect(seen.types.has('Raster'), surface).toBe(false)
+    expect(seen.nodes).toBeLessThan(2000)
+    await ui.unmount()
+  }
+})
+
+test("on a surface other than the terminal a digit picks an agent and brings up the pane on its card, as on the terminal", { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, { backend: jev([0, 1, 0, 0, 0], { choice: 'sonnet' }) })
+  await w.submit('派两个 agent')
+  await w.step({ index: 0 })
+  const one = await w.spawn({ prompt: 'Review the diff.', description: '审查' })
+  await w.agentStep(one.agentId ?? '', { index: 0, model: 'claude-sonnet-5-5' })
+
+  const band = await w.band({ surface: 'desktop' })
+  await band.press({ key: 'band-pick-1' })
+  expect(w.panes).toMatchObject([{ id: 'dp-rationale', focus: false, closeOnEscape: true }])
+  await band.redraw()
+  expect((await agentRows(band))[1]).toMatch(/^▌/)
+})
+
+test('on a surface other than the terminal a turn over is the one line, a band squeezed is one line, and the squeezed and idle lines have no Raster either', { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, { backend: jev([0, 0, 1, 0, 0]) })
+  await w.submit('改个错别字')
+  await w.step({ index: 0, model: 'claude-opus-5-5' })
+  for (const surface of SURFACES) {
+    const squeezed = await w.band({ surface, rows: 3 })
+    expect(shown(await squeezed.find({ key: 'band-squeezed' }))).toContain('opus·high')
+    await squeezed.unmount()
+  }
+  await w.complete()
+  for (const surface of SURFACES) {
+    const ui = await w.band({ surface, isWorking: false })
+    expect(shown(await ui.find({ key: 'band-idle' }))).toMatch(/第 1 轮.*opus·high/)
+    expect(inventory(await ui.drawn()).types.has('Raster')).toBe(false)
+    await ui.unmount()
+  }
+})
+
+for (const { model, effort } of [
+  { model: 'sonnet', effort: 'medium' },
+  { model: 'fable', effort: 'xhigh' },
+  { model: 'haiku', effort: undefined },
+] as const) {
+  for (const running of [0, 3, 12]) {
+    test(`the footer's tag on a surface other than the terminal is at most 24 characters, and says the same: the state glyph, the main agent's model·effort, +N agents running (${model}·${String(effort)}, ${running} running)`, async ($, on) => {
+      const w = world($, on, { seed: { board: boardOf(model, effort, running) } })
+      for (const surface of SURFACES) {
+        const ui = await w.footer({ surface })
+        const text = shown(await ui.find({ key: 'dp-footer' }))
+        expect([...text].length, `${surface}: ${text}`).toBeLessThanOrEqual(24)
+        expect(cellsOf(text)).toBeLessThanOrEqual(24)
+        // With room, the whole readout: the model and the effort in full.
+        expect(text).toContain(effort === undefined ? model : `${model}·${effort}`)
+        if (running > 0) expect(text).toContain(`+${running}`)
+        expect(inventory(await ui.drawn()).types.has('Raster')).toBe(false)
+        await ui.unmount()
+      }
+    })
+  }
+}
+
+test('on a surface other than the terminal the footer says when Dispatch Pilot is off, and keeps what other mods draw there', { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, { backend: jev([0, 1, 0, 0, 0]), store: {}, beneath: { render: { SessionMode: 'focus' } } })
+  await w.submit('改个错别字')
+  await w.step({ index: 0 })
+  await w.command('dp', 'off')
+  const ui = await w.footer({ surface: 'desktop' })
+  expect(shown(await ui.find({ key: 'dp-footer' }))).toBe('○ dp 已关')
+  expect(shown(await ui.drawn()).startsWith('focus')).toBe(true)
 })
 
 // ---- the footer -------------------------------------------------------------------

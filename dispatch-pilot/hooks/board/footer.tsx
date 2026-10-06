@@ -2,15 +2,18 @@
 // story 17): a state glyph, the main agent's model·effort, `+N` agents
 // running, in at most `FOOTER_COLUMNS` cells, so the band can be collapsed and
 // the person's own statusLine keeps its room. Where the whole does not fit,
-// the effort's word goes short first (`xhi`), then the model goes. Pure.
+// the effort's word goes short first (`xhi`), then the model goes. The other
+// surfaces get the same tag in `TAG_CHARS` (24, Desktop's chip). Pure.
 
 import type { Effort } from '../decision/effort.ts'
 import type { Model } from '../core/report.ts'
-import { ACCENT, EFFORT_COLOR, MODEL_BG, MUTED, SPIN, WARN, width, type T } from './kit.tsx'
+import { ACCENT, EFFORT_COLOR, MODEL_BG, MUTED, SPIN, WARN, width, type TT } from './kit.tsx'
 import type { ScreenView } from './view.ts'
 
 /** The most cells Dispatch Pilot adds to the footer on the terminal. */
 export const FOOTER_COLUMNS = 12
+/** The most characters of the tag on the other surfaces: Desktop clips its footer chip at 24. */
+export const TAG_CHARS = 24
 
 const SHORT: Record<Effort, string> = { low: 'low', medium: 'med', high: 'high', xhigh: 'xhi', max: 'max' }
 
@@ -37,7 +40,7 @@ export function footerParts(view: ScreenView): FooterParts | null {
 }
 
 /** The words that fit, longest first: the model and the effort, the effort short, the effort alone, short. */
-export function footerWords(parts: FooterParts): { model?: Model; effort?: string } {
+export function footerWords(parts: FooterParts, room = FOOTER_COLUMNS): { model?: Model; effort?: string } {
   const short = parts.level === undefined ? parts.effort : SHORT[parts.level]
   const tries: { model?: Model; effort?: string }[] = [
     { ...(parts.model === undefined ? {} : { model: parts.model }), ...(parts.effort === undefined ? {} : { effort: parts.effort }) },
@@ -46,7 +49,7 @@ export function footerWords(parts: FooterParts): { model?: Model; effort?: strin
     short === undefined ? {} : { effort: short },
     {},
   ]
-  return tries.find((words) => width(footerText(parts, words)) <= FOOTER_COLUMNS) ?? {}
+  return tries.find((words) => width(footerText(parts, words)) <= room) ?? {}
 }
 
 /** The footer as plain text, with these words. */
@@ -55,12 +58,12 @@ export function footerText(parts: FooterParts, words: { model?: Model; effort?: 
   return [parts.glyph, readout, parts.more > 0 ? `+${parts.more}` : ''].filter((part) => part !== '').join(' ')
 }
 
-/** The footer's own tree (beside the engine's modes), or null. */
-export function footerTree(t: T, view: ScreenView) {
+/** The footer's own tree (beside the engine's modes), or null; `room` the cells it may take (the other surfaces: `TAG_CHARS`). */
+export function footerTree(t: TT, view: ScreenView, room = FOOTER_COLUMNS) {
   const { Box, Text } = t
   const parts = footerParts(view)
   if (parts === null) return null
-  const words = footerWords(parts)
+  const words = footerWords(parts, room)
   const level = parts.level !== undefined && words.effort !== undefined ? parts.level : undefined
   return (
     <Box key="dp-footer">
