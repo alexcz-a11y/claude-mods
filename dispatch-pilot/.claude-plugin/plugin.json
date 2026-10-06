@@ -1,6 +1,6 @@
 {
   "name": "dispatch-pilot",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Dispatch Pilot：一个在 Claude 之外的决策模型（Jev 或 Clef，二选一）在你每次发消息时决定主 agent 这一轮的 effort，每一步都按这一档发出，一轮进行中每隔几步再判断一次；也为主 agent 派出的每个 agent 和 Workflow 脚本里的每个 agent 按 Artificial Analysis 的基准选模型和 effort（sonnet 和 opus 至少 medium）。主 agent 的模型从不改变，prompt cache 不受影响（只在 Claude Code 订阅下成立；Bedrock、Vertex 和网关上切换 effort 会让缓存失效）。它还不让主 agent 读完整的 skill 列表，改为在你发消息时推荐合适的几个，一轮中途主 agent 可以用 find_skill 工具查 skill。agent 的工具调用接连失败时强制升高它的 effort（失败的 haiku agent 改用 sonnet），除非这些失败本来就在意料之中。所有判断和理由都放在看板上：prompt 上方的 band 列出本轮每个 agent 的模型和 effort，脚部一个短摘要，/dp 打开的依据面板写明每个决定的依据和决策日志。",
   "author": {
     "name": "alexcz-a11y",
