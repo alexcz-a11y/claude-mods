@@ -435,10 +435,32 @@ function toastOnce(io: ReportIo, now: number, text: string): void {
   }
 }
 
-/** The toast for the routes of one event that failed: who is not routed, and why (the first failure's words). */
+/** A failed decision request in a few words, as the band says why an agent is not routed (the toast and the card add the details). */
+export function failureWords(failure: Failure): string {
+  switch (failure.kind) {
+    case 'timeout':
+      return '决策模型超时'
+    case 'network':
+      return '连不上决策模型'
+    case 'busy':
+      return '决策模型繁忙'
+    case 'quota':
+      return '决策模型额度用完'
+    case 'config':
+      return failure.status === undefined ? '决策模型没配好' : '决策模型拒绝了 key'
+    case 'http':
+      return '决策模型出错'
+    case 'parse':
+      return '读不懂决策模型的回答'
+    case 'request':
+      return '决策请求出错'
+  }
+}
+
+/** The toast for the routes of one event that failed: who is not routed, and why (the first failure's words, then its details). */
 function failedText(failed: readonly NotDecided[], board: Board, turnOf: (decision: ReportedDecision) => number): string {
   const first = failed[0] as NotDecided
-  const why = failureText(first.failure.backend, first.failure)
+  const why = `${failureWords(first.failure)}（${failureText(first.failure.backend, first.failure)}）`
   if (failed.length > 1) return `${failed.length} 个 agent 未路由：${why}`
   if (first.agent === 'main') return `主 agent 未路由：${why}`
   const name = board.nodes.find((node) => node.turn === turnOf(first) && node.id === first.agent)?.name ?? first.node?.name ?? first.agent

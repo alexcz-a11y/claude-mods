@@ -57,14 +57,13 @@ function readout(t: T, model: Model | undefined, effort: Effort | number | undef
 function tally(t: T, view: ScreenView) {
   const { Text } = t
   const { running, done, failed, queued } = view.counts
-  return (
-    <Text>
-      {running > 0 ? <Text color={ACCENT} bold>{`${SPIN[view.frame]}${running} `}</Text> : null}
-      {done > 0 ? <Text color={OK}>{`✔${done} `}</Text> : null}
-      {failed > 0 ? <Text color={BAD} bold>{`✘${failed} `}</Text> : null}
-      {queued > 0 ? <Text color={MUTED}>{`○${queued} `}</Text> : null}
-    </Text>
-  )
+  const parts = [
+    running > 0 ? <Text color={ACCENT} bold>{`${SPIN[view.frame]}${running}`}</Text> : null,
+    done > 0 ? <Text color={OK}>{`✔${done}`}</Text> : null,
+    failed > 0 ? <Text color={BAD} bold>{`✘${failed}`}</Text> : null,
+    queued > 0 ? <Text color={MUTED}>{`○${queued}`}</Text> : null,
+  ].filter((part) => part !== null)
+  return <Text>{parts.flatMap((part, i) => (i === 0 ? [part] : [<Text> </Text>, part]))}</Text>
 }
 
 /** A finished turn: the main agent's model and effort, how it came to them, the agents, the skills for the person to try. */
@@ -86,13 +85,13 @@ function idleLine(t: T, view: ScreenView, cols: number) {
           </Text>
         )}
         {view.summary.reason === '' ? null : <Text color={routed ? MUTED : WARN}>{` · ${view.summary.reason}`}</Text>}
+        {view.summary.tried.length === 0 ? null : <Text color={SKILL} bold>{` · 可试 ${view.summary.tried.map((name) => `/${name}`).join(' ')}`}</Text>}
         {agents === 0 ? null : (
           <Text>
             <Text color={MUTED}>{` · ${agents} 个 agent `}</Text>
             {tally(t, view)}
           </Text>
         )}
-        {view.summary.tried.length === 0 ? null : <Text color={SKILL} bold>{` · 可试 ${view.summary.tried.map((name) => `/${name}`).join(' ')}`}</Text>}
         {cols >= 100 ? <Text color={MUTED}>{` · ${HINT}`}</Text> : null}
       </Text>
     </Box>
@@ -118,7 +117,7 @@ function squeezedLine(t: T, view: ScreenView, cols: number) {
         )}
         <Text color={MUTED}>{' · agent '}</Text>
         {tally(t, view)}
-        <Text color={MUTED}>{`· ${HINT}`}</Text>
+        <Text color={MUTED}>{` · ${HINT}`}</Text>
       </Text>
     </Box>
   )
@@ -126,22 +125,28 @@ function squeezedLine(t: T, view: ScreenView, cols: number) {
 
 // ---- the full band -------------------------------------------------------------------
 
-/** The columns of an agent row for the band's width. */
+/**
+ * The columns of an agent row for the band's width: the status cell and the effort narrow first, then the ribbon
+ * goes (under six cells it says nothing), so a row never wraps.
+ */
 function columnsOf(cols: number) {
-  const status = cols >= 140 ? 30 : cols >= 110 ? 24 : 16
-  // marker 1, glyph 2, chip 8+1, effort 12+1, a space before the status cell
-  const fixed = 1 + 2 + 9 + 13 + 1
+  const status = cols >= 140 ? 30 : cols >= 110 ? 26 : cols >= 80 ? 22 : cols >= 70 ? 16 : 10
+  // The effort's pips and word (12), or under 70 columns its pips alone.
+  const effort = cols >= 70 ? 12 : 5
+  // marker 1, glyph 2, chip 8+1, effort and a space, a space before the status cell
+  const fixed = 1 + 2 + 9 + effort + 1 + 1
   const left = Math.max(0, cols - fixed - status)
-  const name = Math.max(12, Math.min(32, Math.round(left * 0.4)))
-  const ribbon = Math.max(6, Math.min(48, left - name))
-  return { status, name, ribbon }
+  // Narrow, the name keeps half of what is left: it says who the row is.
+  const name = Math.max(10, Math.min(32, Math.round(left * (cols >= 110 ? 0.4 : 0.5))))
+  const ribbon = left - name >= 6 ? Math.min(48, left - name) : 0
+  return { status, effort, name: ribbon === 0 ? Math.max(8, left) : name, ribbon }
 }
 
 function liveBand(t: T, view: ScreenView, size: BandSize, act: BandActs) {
   const { Box, Text } = t
   const budget = Math.min(size.rows, MOST_ROWS)
-  const wanted = Math.min(view.events.length, 3)
-  // Rows for the agents (the strip takes one), leaving the events some; a fold line says what is left out.
+  const wanted = Math.min(view.events.length, 2)
+  // Rows for the agents (the strip takes one), leaving the latest events two; a fold line says what is left out.
   let shownRows = view.rows
   let hiddenRows: AgentRow[] = []
   const room = Math.max(1, budget - 1 - wanted)
@@ -174,10 +179,13 @@ function liveBand(t: T, view: ScreenView, size: BandSize, act: BandActs) {
   )
 }
 
-/** The rows to keep when not all fit: the main agent, then the running, the failed, the waiting, the latest done; in their order. */
+/**
+ * The rows to keep when not all fit: the main agent, then the running, the failed, the waiting, the done (the
+ * latest first); the running in the order they started, so their digit keys stay in view. Shown in their order.
+ */
 function pickRows(rows: readonly AgentRow[], count: number): AgentRow[] {
   const rank = (row: AgentRow) => (row.node.id === 'main' ? 0 : row.node.state === 'running' ? 1 : row.node.state === 'failed' ? 2 : row.node.state === 'queued' ? 3 : 4)
-  return [...rows].sort((a, b) => rank(a) - rank(b) || b.from - a.from).slice(0, count)
+  return [...rows].sort((a, b) => rank(a) - rank(b) || (rank(a) === 1 ? a.from - b.from : b.from - a.from)).slice(0, count)
 }
 
 function foldTally(rows: readonly AgentRow[]): string {
@@ -248,23 +256,25 @@ function agentRow(t: T, view: ScreenView, row: AgentRow, i: number, cols: Return
   const done = node.state === 'done' && !row.selected
   return (
     <Box key={`band-agent-${i}`}>
-      <Box width={1}>
+      <Box width={1} flexShrink={0}>
         <Text color={ACCENT} bold>{row.selected ? '▌' : ' '}</Text>
       </Box>
-      <Box width={2}>{whole ? <Text color={WARN}>◈</Text> : stateGlyph(t, node.state, view.frame, node.routed)}</Box>
-      <Box width={cols.name}>
+      <Box width={2} flexShrink={0}>{whole ? <Text color={WARN}>◈</Text> : stateGlyph(t, node.state, view.frame, node.routed)}</Box>
+      <Box width={cols.name} flexShrink={0}>
         {row.key === null ? (
-          <Text bold={node.state === 'running'} dimColor={done} wrap="truncate-end">{fit(node.name, cols.name - 1)}</Text>
+          <Text bold={node.state === 'running'} dimColor={done} wrap="truncate-end">{`   ${fit(node.name, cols.name - 4)}`}</Text>
         ) : (
           <Button key={`band-pick-${row.key}`} label={fit(node.name, cols.name - 4)} hotkey={String(row.key)} plain dimColor={done} onPress={() => act.select(row)} />
         )}
       </Box>
-      <Box width={9}>{chip(t, node.model, node.routed)}</Box>
-      <Box width={13}>{effortTag(t, node.effort, 12)}</Box>
-      <Box width={cols.ribbon + 1}>
-        {whole ? <Text> </Text> : <Raster key={`band-ribbon-${i}`} columns={cols.ribbon} rows={1} cells={ribbonCells(row.from, row.to, span, cols.ribbon, barColor(row))} />}
-      </Box>
-      <Box width={cols.status}>
+      <Box width={9} flexShrink={0}>{chip(t, node.model, node.routed)}</Box>
+      <Box width={cols.effort + 1} flexShrink={0}>{effortTag(t, node.effort, cols.effort)}</Box>
+      {cols.ribbon === 0 ? null : (
+        <Box width={cols.ribbon + 1} flexShrink={0}>
+          {whole ? <Text> </Text> : <Raster key={`band-ribbon-${i}`} columns={cols.ribbon} rows={1} cells={ribbonCells(row.from, row.to, span, cols.ribbon, barColor(row))} />}
+        </Box>
+      )}
+      <Box width={cols.status} flexShrink={0}>
         <Text color={TONE_COLOR[row.status.tone]} wrap="truncate-end">{row.status.text}</Text>
       </Box>
     </Box>
@@ -428,14 +438,14 @@ function eventRow(t: T, event: BandEvent, i: number, count: number, folded: bool
   const parts = eventParts(t, event)
   return (
     <Box key={`band-event-${i}`} width={cols}>
-      <Box width={6}>
+      <Box width={6} flexShrink={0}>
         <Text color={MUTED}>{padLeft(mmss(event.at), 5)}</Text>
       </Box>
-      <Box width={2}>
+      <Box width={2} flexShrink={0}>
         <Text color={MUTED}>{rail}</Text>
       </Box>
-      <Box width={2}>{parts.glyph}</Box>
-      <Box width={5}>
+      <Box width={2} flexShrink={0}>{parts.glyph}</Box>
+      <Box width={5} flexShrink={0}>
         <Text color={parts.tagColor}>{parts.tag}</Text>
       </Box>
       <Box flexShrink={1}>{parts.body}</Box>

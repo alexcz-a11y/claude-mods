@@ -14,7 +14,7 @@
 // comes in the decision report's words (English until #32).
 
 import type { Effort } from '../decision/effort.ts'
-import type { Board, BoardNode, BoardNote, LogEntry, Model, Reading, ReadingChange, RuleStep } from '../core/report.ts'
+import { failureWords, type Board, type BoardNode, type BoardNote, type LogEntry, type Model, type Reading, type ReadingChange, type RuleStep } from '../core/report.ts'
 import type { BoardPart } from '../core/switches.ts'
 import { isLevel, mmss, pct } from './kit.tsx'
 
@@ -173,8 +173,15 @@ export function screenView(input: ScreenInput): ScreenView {
 
 // ---- status cells ---------------------------------------------------------------
 
-/** Why an agent runs as the engine made it, when the board does not say: a feature that is off, else nothing decided for it. */
+/** How a loop's turn ended, in the board's words (`reportEnd`), as the band says it. */
+const ENDED: Record<string, string> = { error: '出错', refused: '拒绝回答', aborted: '被中断' }
+
+/**
+ * Why an agent runs as the engine made it, in a few words: the failed request's kind (the details are the card's),
+ * the board's own reason, else a feature that is off or nothing decided for it.
+ */
 function notRoutedWhy(node: BoardNode, input: ScreenInput): string {
+  if (node.failure !== undefined) return failureWords(node.failure)
   if (node.why !== undefined && node.why !== '') return node.why
   if (node.id === 'main') return input.isOn('main-effort') ? '这一轮没有判断' : '功能已关'
   if (node.kind === 'wf') return input.isOn('workflow-agents') || input.isOn('workflow-labels') ? '照脚本运行' : '功能已关'
@@ -191,9 +198,9 @@ function mainStatus(node: BoardNode, entries: readonly LogEntry[], input: Screen
 /** An agent's cell: failed and why, not routed and why, how long it has run or ran, queued; its failed calls and raises after. */
 function agentStatus(node: BoardNode, from: number, to: number | null, showCounts: boolean, input: ScreenInput): AgentRow['status'] {
   const extra = showCounts && node.counts !== undefined ? countsText(node.counts) : ''
-  if (node.state === 'failed') return { tone: 'fail', text: `失败 · ${node.why ?? ''}` }
+  if (node.state === 'failed') return { tone: 'fail', text: node.why !== undefined && node.why in ENDED ? `失败 · ${ENDED[node.why]}` : '失败' }
   if (!node.routed && node.state !== 'queued') return { tone: 'warn', text: `未路由 · ${notRoutedWhy(node, input)}${extra}` }
-  if (node.state === 'queued') return { tone: 'muted', text: node.routed || node.why === undefined ? '排队' : `排队 · 未路由 · ${node.why}` }
+  if (node.state === 'queued') return { tone: 'muted', text: node.routed || (node.why === undefined && node.failure === undefined) ? '排队' : `排队 · 未路由 · ${notRoutedWhy(node, input)}` }
   const ran = to === null ? 0 : to - from
   if (node.state === 'running') return { tone: 'run', text: `运行 ${mmss(ran)}${extra}` }
   return { tone: 'done', text: `完成 ${mmss(node.dur ?? ran)}${extra}` }

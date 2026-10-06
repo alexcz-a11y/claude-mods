@@ -40,6 +40,8 @@ test("a route that fails raises a toast naming who is not routed and why; the bo
   expect(w.toasts).toHaveLength(1)
   expect(w.toasts[0]?.text).toContain('主 agent')
   expect(w.toasts[0]?.text).toContain('未路由')
+  // In a few words, and the details.
+  expect(w.toasts[0]?.text).toContain('决策模型拒绝了 key')
   expect(w.toasts[0]?.text).toContain('jev: key refused (HTTP 401)')
   expect((await w.board()).nodes.find((node) => node.id === 'main')).toMatchObject({ routed: false, why: 'jev: key refused (HTTP 401)' })
 })
@@ -172,10 +174,11 @@ test('not routed, with why: the main agent whose decision failed and an agent st
   const started = await w.spawn({ prompt: 'Find the failing request in logs/app.log.', description: '查日志', model: 'opus' })
   await w.agentStep(started.agentId ?? '', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
 
+  // The reason in a few words (the request's kind of failure); its details are the toast's and the card's.
   const rows = await agentRows(await w.band())
-  expect(rows[0]).toContain('未路由 · jev: HTTP 500')
+  expect(rows[0]).toContain('未路由 · 决策模型出错')
   expect(rows[1]).toContain('opus*')
-  expect(rows[1]).toContain('未路由 · jev: HTTP 500')
+  expect(rows[1]).toContain('未路由 · 决策模型出错')
 })
 
 // ---- the band's event stream -----------------------------------------------------
