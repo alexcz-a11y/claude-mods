@@ -21,6 +21,7 @@
 // line when they fit; the bars narrow with the pane.
 
 import type { RenderNode } from 'claude-code'
+import { failureMeaning } from '../decision/backend.ts'
 import type { Effort } from '../decision/effort.ts'
 import { EFFORTS } from '../decision/effort.ts'
 import { type LogEntry, type ProfilesState, type Tone as LogTone } from '../core/report.ts'
@@ -235,18 +236,6 @@ function hang(t: TT, key: string, label: string, content: RenderNode, w: number,
   )
 }
 
-/** What each kind of failed request means (`Failure.kind`), beside its name. */
-const FAILURE_KINDS: Record<string, string> = {
-  config: '没有配好决策模型的密钥或账号，或者密钥被拒绝',
-  timeout: '没有在等待时间内回答',
-  network: '网络不通，请求没有发出去',
-  busy: '决策模型一时繁忙（状态码 429 之类）',
-  quota: '决策模型的额度用完了',
-  http: '决策模型回了一个出错的状态码',
-  parse: '回答里没有能用的判断',
-  request: '请求本身出了错',
-}
-
 function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster | undefined): RenderNode[] {
   const { Box, Text } = t
   const row = card.row
@@ -301,7 +290,7 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
     hang(t, 'pane-card-state', '状态', text(row.status.text, TONE_COLOR[row.status.tone]), w),
   ]
   if (node.failure !== undefined) {
-    rows.push(hang(t, 'pane-card-kind', '类型', text(FAILURE_KINDS[node.failure.kind] ?? '其他'), w))
+    rows.push(hang(t, 'pane-card-kind', '类型', text(failureMeaning(node.failure.kind)), w))
     rows.push(hang(t, 'pane-card-backend', '后端', text(node.failure.backend), w))
     rows.push(hang(t, 'pane-card-detail', '细节', text(node.why ?? node.failure.detail), w))
     rows.push(hang(t, 'pane-card-where', '排查', text('debug log（claude --debug-file <路径>）里有这次请求的那一行，写着它发了什么、等了多久、怎么失败的', MUTED), w))

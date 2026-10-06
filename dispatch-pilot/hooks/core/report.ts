@@ -53,7 +53,7 @@
 // throws: a report that cannot be kept must not stop the decision or the step.
 
 import type { EngineInterface, On } from 'claude-code'
-import { errorText, failureLine, type Failure } from '../decision/backend.ts'
+import { errorText, failureLine, failureWords, type Failure } from '../decision/backend.ts'
 import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
 import { isEffort, type Effort } from '../decision/effort.ts'
 import { startedIn } from '../decision/workflow-labels.ts'
@@ -490,28 +490,6 @@ function toastOnce(io: Pick<ReportIo, 'toast'>, now: number, text: string): void
     io.toast(text)
   } catch {
     // a toast that cannot be shown is skipped: the board has it
-  }
-}
-
-/** A failed decision request in a few words, as the band says why an agent is not routed (the toast and the card add the details). */
-export function failureWords(failure: Failure): string {
-  switch (failure.kind) {
-    case 'timeout':
-      return '决策模型超时'
-    case 'network':
-      return '连不上决策模型'
-    case 'busy':
-      return '决策模型繁忙'
-    case 'quota':
-      return '决策模型额度用完'
-    case 'config':
-      return failure.status === undefined ? '决策模型没配好' : '决策模型拒绝了密钥'
-    case 'http':
-      return '决策模型出错'
-    case 'parse':
-      return '读不懂决策模型的回答'
-    case 'request':
-      return '决策请求出错'
   }
 }
 

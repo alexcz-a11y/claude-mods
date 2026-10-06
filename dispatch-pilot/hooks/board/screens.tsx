@@ -15,6 +15,7 @@
 // story 38); the pane is Dispatch Pilot's own.
 
 import type { EngineInterface, On, Timer } from 'claude-code'
+import { errorText } from '../decision/backend.ts'
 import { report, type NoticeIo } from '../core/report.ts'
 import { isOn, isShown, listSwitches, masterOn } from '../core/switches.ts'
 import { bandTree } from './band.tsx'
@@ -113,7 +114,7 @@ export function registerScreens(on: On): void {
       )
     } catch (error) {
       // A band that cannot be drawn leaves the place to the others.
-      $.ui.log(`band not drawn: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+      $.ui.log(`band not drawn: ${errorText(error)}`, { to: 'debug' })
       return own
     }
   })
@@ -137,7 +138,7 @@ export function registerScreens(on: On): void {
         </Box>
       )
     } catch (error) {
-      $.ui.log(`footer not drawn: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+      $.ui.log(`footer not drawn: ${errorText(error)}`, { to: 'debug' })
       return own
     }
   })
@@ -166,7 +167,7 @@ export function registerScreens(on: On): void {
       }
       return tree
     } catch (error) {
-      $.ui.log(`rationale pane not drawn: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+      $.ui.log(`rationale pane not drawn: ${errorText(error)}`, { to: 'debug' })
       return next(e)
     }
   })

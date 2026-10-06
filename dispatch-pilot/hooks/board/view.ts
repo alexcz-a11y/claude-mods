@@ -13,8 +13,9 @@
 // The words are the screens' own (Chinese, GLOSSARY terms); `why` on a node
 // comes in the decision report's words (Chinese too, #32).
 
+import { failureWords } from '../decision/backend.ts'
 import { isEffort, type Effort } from '../decision/effort.ts'
-import { callWorkflowOf, ENDED_WORDS, failureWords, type Board, type BoardNode, type BoardNote, type LogEntry, type Model, type Reading, type ReadingChange, type RuleStep } from '../core/report.ts'
+import { callWorkflowOf, ENDED_WORDS, type Board, type BoardNode, type BoardNote, type LogEntry, type Model, type Reading, type ReadingChange, type RuleStep } from '../core/report.ts'
 import type { BoardPart } from '../core/switches.ts'
 import { mmss, pct } from './kit.tsx'
 
