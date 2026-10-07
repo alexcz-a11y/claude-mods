@@ -163,7 +163,7 @@ effort 题的 `accept` 必须是连续的档位（例如 `["high","xhigh"]`，�
 
 - `zh` / `en` 的形状同 effort-submit，另有可选的 `command`：这条消息开始的是命令轮时才有（`message` 写成用户输入的 `/name args`，`command` 是 mod 在 state 里放在消息旁边的命令说明，`name` 两种语言相同，`description` 各用各的语言）。中英两版要么都有，要么都没有。
 - `gold`、`accept`：这条消息该用的主 agent effort，规则同 effort-submit（`accept` 是相邻的档位，`gold` 在里面）。
-- `triage`：三选一题的金标，`unresolved`（同一问题仍未解决）、`resolved`（已经解决）、`new`（新问题或无关）。判的是这条消息和它之前的那个问题的关系，只看用户的话，不看主 agent 自己说「已修复」。三选一题现在还不存在，金标留给它；题出来之前评分只算 effort。
+- `triage`：三选一题的金标，`unresolved`（同一问题仍未解决）、`resolved`（已经解决）、`new`（新问题或无关）。判的是这条消息和它之前的那个问题的关系，只看用户的话，不看主 agent 自己说「已修复」。suite 把 mod 里的三选一题（`effort.unresolved`，和 effort 题在同一个请求里）一起问，取概率最高的选项和这个金标比（`still_unresolved` 是 `unresolved`，`new_or_unrelated` 是 `new`）。
 - 约 30 题，覆盖五种情形：明说没解决（`explicit-unresolved`，5 题）、隐含的没解决（`implicit-unresolved`，7 题：贴同样的报错、「再看看」、只报一个没变的数字）、只失败过一次的第二次（`second-attempt`，3 题：gold 是 high 或 xhigh，不是 max，防止判得太高）、已经解决（`resolved`，6 题：道谢、接着提交、清理、问原因、写复盘；gold 是 low 或 medium）、换了话题或无关（`new-topic`、`unrelated`，7 题，其中一题是长对话里新报一个原因不明的 bug：gold 是 xhigh，不是 max）。命令轮（`command-turn`，3 题）混在里面：同一个问题改用 `/debug`、`/implement #19` 再跑一次，还有解决之后的 `/review`。gold 为 `max` 的 13 题是衡量最高一档召回的样本；其余的用来看判得太高。
 - 有 10 题的对话超过现在发消息时 state 的预算（6000 token，`BACKEND_DEFAULTS.jev.contextTokens`），带标签 `over-budget`；校验会按 mod 自己的估算（`stateTokens`）核对：中英文都超过才算，标签和实际必须一致。这些题里早几轮的尝试落在预算之外：有的是用户贴了一大段日志（GC 日志、数据库日志、抓包），这一段本身就把预算占满，只剩最后一条回复；有的是每一轮都贴一份 CI 日志或查询计划，最早的一轮被挤出去。其中 `long-but-easy`（`unresolved-018`、`030`）是对话很长但问题已经解决的对照题：长不等于难。
 - 标签另有：`hidden-history`（答案要靠更早几轮的尝试才看得出）、`pasted-log`、`pasted-error`（消息就是同一条报错）、`short-reply`（「再看看」）、`misleading-history`（前面有一个未解决的问题，但这条消息是另一件事）。
@@ -173,7 +173,7 @@ effort 题的 `accept` 必须是连续的档位（例如 `["high","xhigh"]`，�
   - 用户贴同样的报错、说「再看看」「你上次改的没用」，都算没解决。只有主 agent 自己说「已修复」不算解决，要用户的话确认。
   - 命令轮和普通消息一样算一次尝试。
   - effort 的标注依据仍是上面「effort 档位的含义」，不看主 agent 提示词里的档位描述。
-- 评分（`lib/unresolved.ts`）：答案是 effort（`pickEffort`，`max` 要过 `thetaMax`），在 `accept` 里算对；三选一题出现之后，它的答案作为 `triage` 单独评分，整题仍以 effort 为准。汇总里另给：最高一档的召回（gold 为 `max` 的题里答成 `max` 的比例）、判得太高和太低各占全部题的比例、长对话和短对话分开的准确率与召回、各个 `thetaMax` 下的召回（按已存的各档概率重算）。变体：`zh-score`（Jev 的问法）、`en-score`（Clef 的），state 预算 6000，是 #38 之前 effort 题和 skill 题合在一个请求里时 effort 拿到的；带 `-wide` 的 state 预算 24000，是 #38 之后 effort 请求（ADR 0005）拿到的，也就是 mod 现在的请求。#38 之前跑的基线用的是不带 `-wide` 的。
+- 评分（`lib/unresolved.ts`）：答案是 effort（`pickEffort`，`max` 要过 `thetaMax`），在 `accept` 里算对；三选一题的答案作为 `triage` 单独评分，整题仍以 effort 为准。汇总里另给三选一的准确率、混淆表，和 mod 现在的两档门槛对这些回答做的事（`change`：该加一的加了一、该清零的清零了，不是「仍未解决」的被加了一，「仍未解决」的被清零了，最后一项是丢掉一份记录）；另给：最高一档的召回（gold 为 `max` 的题里答成 `max` 的比例）、判得太高和太低各占全部题的比例、长对话和短对话分开的准确率与召回、各个 `thetaMax` 下的召回（按已存的各档概率重算）。变体：`zh-score`（Jev 的问法）、`en-score`（Clef 的），state 预算 6000，是 #38 之前 effort 题和 skill 题合在一个请求里时 effort 拿到的；带 `-wide` 的 state 预算 24000，是 #38 之后 effort 请求（ADR 0005）拿到的，也就是 mod 现在的请求。#38 之前跑的基线用的是不带 `-wide` 的，那时还没有三选一题。数据集没有问题摘要的字段：每题都按「一个问题的第一条消息」问，请求的 state 里没有摘要（摘要是便宜的模型逐轮续写的，对话记录里没有）；请求函数 `unresolvedRequest` 可以带一份摘要，要不要给各题配摘要是校准（#42）时的决定。
 
 ## 来源
 
