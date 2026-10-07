@@ -35,7 +35,7 @@ export const register: Register = (on, options) => {
   // Features, outermost first.
   registerControl(on, ctx)
   registerMainEffort(on, ctx)
-  registerUnresolved(on)
+  registerUnresolved(on, ctx)
   registerEscalation(on, ctx) // above the mid-turn feature: its raise is in the plan before a mid-turn answer is applied
   registerMidturnEffort(on, ctx)
   registerDispatchedAgents(on, ctx)

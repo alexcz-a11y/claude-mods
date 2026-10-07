@@ -66,7 +66,7 @@ export function clipToTokens(text: string, budget: number, tailShare = 0): strin
 }
 
 /** Leaves out what the engine wraps in <system-reminder> (not something anyone said), collapses whitespace. */
-function said(text: string): string {
+export function said(text: string): string {
   return text
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, ' ')
     .replace(/\s+/g, ' ')
@@ -74,7 +74,7 @@ function said(text: string): string {
 }
 
 /** The tools a reply called, in order: `Bash x3 (1 failed), Read`. */
-function toolSummary(uses: readonly { tool: string; isError?: true }[]): string {
+export function toolSummary(uses: readonly { tool: string; isError?: true }[]): string {
   const counts = new Map<string, { calls: number; failed: number }>()
   for (const use of uses) {
     const count = counts.get(use.tool) ?? { calls: 0, failed: 0 }

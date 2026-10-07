@@ -258,6 +258,11 @@ export type Config = {
     /** How many missing profiles a session start writes at most. */
     profilesPerSession: number
   }
+  /** The unresolved count and the problem summary (#39, #40). */
+  unresolved: {
+    /** The model that writes the problem summary after each of the person's turns (`summaryModel`). */
+    summaryModel: string
+  }
 }
 
 /** What the entry hands every feature's register: data and pure functions, never `$`. */
@@ -356,6 +361,7 @@ export function readConfig(options: PluginOptions): Config {
       profileModel: stringOf(options.skillsProfileModel, DEFAULT_PROFILE_MODEL).trim() || DEFAULT_PROFILE_MODEL,
       profilesPerSession: whole(options.skillsProfilesPerSession, 0, 500, 30),
     },
+    unresolved: { summaryModel: stringOf(options.summaryModel, DEFAULT_SUMMARY_MODEL).trim() || DEFAULT_SUMMARY_MODEL },
   }
   // In the table's order, whatever order they were read in.
   used.sort((a, b) => PER_BACKEND_OPTIONS.indexOf(a[0]) - PER_BACKEND_OPTIONS.indexOf(b[0]))
@@ -387,6 +393,9 @@ export function dispatchSettings(ctx: { config: Pick<Config, 'agents' | 'thetaMa
 
 /** The cheap model that writes skill profiles, unless the person names another (`skillsProfileModel`). */
 export const DEFAULT_PROFILE_MODEL = 'haiku'
+
+/** The cheap model that writes the problem summary, unless the person names another (`summaryModel`). */
+export const DEFAULT_SUMMARY_MODEL = 'haiku'
 
 /** A numeric option clamped to [min, max]; `fallback` when it is not a number. */
 export function numberIn(value: unknown, min: number, max: number, fallback: number): number {

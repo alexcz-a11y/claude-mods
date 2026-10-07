@@ -18,12 +18,13 @@
 // in case the turn ends first and the message starts a turn of its own.
 
 import type { EngineInterface, On } from 'claude-code'
-import { EFFORTS, LEVEL, probsOf, readEffort, readingText, traceEffort, turnStartEffortPart, type Effort, type EffortReading } from '../decision/effort.ts'
+import { EFFORTS, LEVEL, probsOf, readEffort, readingText, traceEffort, type Effort, type EffortReading } from '../decision/effort.ts'
 import { quoteStart } from '../decision/redact.ts'
-import { judgeUnresolved, readUnresolved, UNRESOLVED, withUnresolved } from '../decision/unresolved.ts'
+import { turnStartPart } from '../decision/turn-start.ts'
+import { judgeUnresolved, readUnresolved, UNRESOLVED } from '../decision/unresolved.ts'
 import { contribute, type PartOutcome } from '../core/ballot.ts'
 import { commandOf, commandState } from '../core/commands.ts'
-import { moveCount, unresolvedDecision, type CountCell } from '../core/unresolved.ts'
+import { keptSummary, moveCount, unresolvedDecision, type CountCell } from '../core/unresolved.ts'
 import { addPending, revise, turnKey, update, type Cell, type PendingDecision, type TurnRecord } from '../core/plans.ts'
 import { isPersonsMessage, startsReportTurn } from '../core/prompts.ts'
 import { report, type ReportIo, type UnresolvedRecord } from '../core/report.ts'
@@ -51,6 +52,11 @@ async function describeCommand($: EngineInterface, name: string): Promise<Readon
   return commandState(name, skill, listed)
 }
 
+/** The unresolved count and summary in `$.state`, as a cell. */
+function countCell($: EngineInterface): CountCell {
+  return { get: () => $.state.get(COUNT), set: (value, options) => $.state.set(COUNT, value, options) }
+}
+
 export function registerMainEffort(on: On, ctx: Ctx): void {
   defineSwitch({ name: 'main-effort', info: '发消息时决定主 agent 的 effort' })
 
@@ -75,7 +81,8 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
     // count); a report that starts a turn is no word of theirs, and the switch can leave the question out. It travels
     // in this part, so it is in the effort request with the 24000-token state it reads (ADR 0005).
     const counting = !handBack && isOn(UNRESOLVED_SWITCH)
-    const effortPart = turnStartEffortPart({ ...ctx.ask, language: ctx.config.turnStartLanguage })
+    // The summary there is: a write that is not done yet is no reason to wait, the decision uses the one before it.
+    const summary = counting ? await keptSummary(countCell($)).catch(() => null) : null
     // About the main agent of the turn this message starts, or of the one running when it was typed into it.
     const forTurn = e.turnId === undefined ? ('next' as const) : ('current' as const)
 
@@ -130,9 +137,8 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
         return null
       }
       const judged = judgeUnresolved(reading)
-      const cell: CountCell = { get: () => $.state.get(COUNT), set: (value, options) => $.state.set(COUNT, value, options) }
       try {
-        return unresolvedDecision(judged, await moveCount(cell, judged.change))
+        return unresolvedDecision(judged, await moveCount(countCell($), judged.change))
       } catch (error) {
         $.ui.log(`unresolved count not kept: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
         return null
@@ -140,9 +146,8 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
     }
 
     contribute(e.text, {
-      // Written in the decision model's language for this question (Chinese with Jev); the other questions keep ctx.ask's.
-      ...(counting ? withUnresolved(effortPart, ctx.config.turnStartLanguage) : effortPart),
-      ...(command === null ? {} : { state: { command } }),
+      // Written in the decision model's language for these questions (Chinese with Jev); the other questions keep ctx.ask's.
+      ...turnStartPart({ ask: { ...ctx.ask, language: ctx.config.turnStartLanguage }, unresolved: counting, command, summary }),
       settle: async (outcome) => {
         const io: ReportIo = {
           board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },

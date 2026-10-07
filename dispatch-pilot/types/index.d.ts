@@ -268,8 +268,30 @@ declare module 'claude-code' {
        * message (the `effort.unresolved` question) and the count moves by its answer: one more, back to nothing,
        * or as it was. Per session: `/clear` and a new session start it over, `/compact` keeps it, a hot reload
        * does not lose it. Absent until a message moved it; read as 0. Written by that module only.
+       *
+       * With it, the problem summary (#40; GLOSSARY 问题摘要): what a cheap model has written, after each turn
+       * of the person's own, of the problem they are on (the problem, what was tried, where things stand), which the
+       * decision model reads beside the conversation. It starts over wherever the count does (solved, another problem,
+       * `/clear`, a new session); `/compact` keeps it. `turn` is the last turn it covers; an attempt is `unresolved`
+       * once a message of the person's said it did not solve the problem.
        */
-      unresolved: { count: number }
+      unresolved: {
+        count: number
+        summary?: {
+          problem: string
+          tried: { text: string; unresolved?: true }[]
+          status: string
+          turn: string
+        }
+        /**
+         * The turns whose summaries are queued or being written (the writes run in the background, one after the
+         * other): a reset takes them out, so a write that lands afterwards is dropped; a hot reload that lost them
+         * finds them here.
+         */
+        writing?: string[]
+        /** The turn whose summary, once written, has its last attempt marked unresolved: the message that said so came before the write landed. */
+        owed?: string
+      }
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
       /**
