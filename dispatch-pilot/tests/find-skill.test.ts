@@ -118,11 +118,12 @@ test('find_skill asks the very question a message asks about the skills the main
   await w.submit('先把合同里的表格填好')
   await w.findSkill('fill in a form in a PDF')
 
-  expect(w.requests).toHaveLength(2)
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'skills.which', 'skills.hint'])
-  const beside = w.requests[0]?.body.questions['skills.which']
+  // The message's effort request and its skills request, then the call's.
+  expect(w.requests).toHaveLength(3)
+  expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['skills.which', 'skills.hint'])
+  const beside = w.requests[1]?.body.questions['skills.which']
   expect(Object.keys(beside.criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:pdf', '(none)'])
-  expect(w.requests[1]?.body.questions).toEqual({ 'skills.which': beside })
+  expect(w.requests[2]?.body.questions).toEqual({ 'skills.which': beside })
 })
 
 test('find_skill speaks only when called: the steps around the call ask nothing about skills, and its answer is the tool result alone', { options: KEY }, async ($, on) => {
@@ -133,8 +134,8 @@ test('find_skill speaks only when called: the steps around the call ask nothing 
   await w.step({ index: 1 })
   await w.step({ index: 2 })
 
-  // The message's two requests, then the call's two: none for the steps.
-  expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([['effort.level', 'skills.which', 'skills.hint'], ['skills.fits.0'], ['skills.which'], ['skills.fits.0']])
+  // The message's three requests (effort, skills, the skills' second stage), then the call's two: none for the steps.
+  expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([['effort.level'], ['skills.which', 'skills.hint'], ['skills.fits.0'], ['skills.which'], ['skills.fits.0']])
   expect(answer.context).toBeUndefined()
 })
 

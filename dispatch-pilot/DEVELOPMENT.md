@@ -119,7 +119,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - 发送前会对常见的 secret 格式脱敏，替换成 `[REDACTED]`。覆盖的格式包括各家的 API key 和 token、`password=...` 这类赋值、URL 里的密码、私钥和 JWT。
 - 总长度按 token 预算（`contextTokens`）截断，数的是发出去的整个 state：序列化成 JSON 的样子，字段名、引号和转义都算。中文约 1 个字算 1 个 token，其他文字约 4 个字符算 1 个 token，因此中英文按同一个尺度截断。预算先保证你的消息，剩下的分给最近的消息：旧消息整条丢弃，最新一条放不下时保留开头和结尾。
 - 每次请求的结果和每次决定都写进 debug log（`claude --debug-file <path>`），不会进入对话。
-- skill 推荐打开时，同一个请求里还有本会话每个 skill 的名字和画像（还没有画像的用描述）；需要第二个请求时，它带着排在前面的几个 skill 的描述、画像和 SKILL.md 正文的开头（约 700 个英文字符，先脱敏），见下一节。画像本身由你自己的 Claude 登录生成（`skillsProfileModel`），不经过决策模型的提供方。
+- skill 推荐打开时，另一个请求（和 effort 的请求并行，两个请求各用各的 state 预算）里有本会话每个 skill 的名字和画像（还没有画像的用描述）；需要第二个请求时，它带着排在前面的几个 skill 的描述、画像和 SKILL.md 正文的开头（约 700 个英文字符，先脱敏），见下一节。画像本身由你自己的 Claude 登录生成（`skillsProfileModel`），不经过决策模型的提供方。
 
 ### skill：隐藏列表，发消息时推荐
 
@@ -248,15 +248,15 @@ Q 取 Jev 的计数：skill 第一段 21,900，其余的题按「估算 × 1.37�
 
 | 种类 | `Config` 里的位置 | Jev | Clef |
 |---|---|---|---|
-| 发消息，带 skill 题；`find_skill` 的第一段 | `config.context.tokens` | 6000 | 2000 |
-| 发消息，没有 skill 题（skill 推荐关着，或这一轮是报告开始的） | `config.contextByKind.messagePlain` | 24000 | 2000 |
+| 发消息，skill 题（投票箱里除 effort 外的题合成的请求）；`find_skill` 的第一段 | `config.context.tokens` | 6000 | 2000 |
+| 发消息，主 agent 的 effort 题（单独一个请求，ADR 0005）；没有 skill 题的消息（skill 推荐关着，或这一轮是报告开始的）也是这一种 | `config.contextByKind.messagePlain` | 24000 | 2000 |
 | 中途重判，卡住时的重判 | `config.contextByKind.rejudge`（也是 `config.midturn.limits.tokens`） | 24000 | 2000 |
 | 派出 agent | `config.contextByKind.agent` | 24000 | 2000 |
 | 一批 Workflow 调用 | `config.contextByKind.workflow` | 24000 | 2000 |
 
 - 这些值是 `core/setup.ts` 的 `BACKEND_DEFAULTS` 里的内部常量（`contextTokens` 是带 skill 题的那一种，`contextByKind` 是其余几种），不是配置项。其余种类取 24000：上表里它们的 C 上限是 25,400–25,600，取整到 24000；验算 1.11 × 24000 = 26,640，加最长的题（派出 agent 约 630）是 27,270，在 28,800 之内；Workflow 一批（最多 8 个调用，题合计约 20,100）是 46,740，在 57,600 之内。所有种类的 C 加上它最长的题，都用同一个算式在 `tests/backend-defaults.test.ts` 的「Jev's context budget by default, kind of request by kind…」里量过：题用真实的构造函数量（`turnStartEffortPart`、`midturnEffortPart`、`expectedFailurePart`、`dispatchPart`），每个种类断言 C × 1.11 加最长的题不超过 28,800，整个请求不超过 57,600。
 - `contextTokens` 是用户的覆盖值：设了，所有种类都用它，但每个种类各取它和自己的上限里较小的一个（设 4000 是所有种类 4000，设 16000 是带 skill 题的 6000、其余 16000）；没设，每个种类取自己的默认值。manifest 的范围 100–16000 没有放宽。`readConfig` 里 `byKind` 做这件事，`describeDefaults` 的那一行 debug log 只报 `contextTokens` 本身。
-- 谁读哪一个：`core/core.ts` 按这次请求有没有 skill 的 part 选 `context.tokens` 或 `messagePlain`；`features/dispatched-agents.ts` 用 `agent`；`features/workflow-agents.ts`、`features/workflow-labels.ts` 用 `workflow`；`features/escalation.ts` 和 `features/midturn-effort.ts` 用 `midturn.limits`（即 `rejudge`）；`features/find-skill.ts` 和 `core/skills.ts` 仍用 `context.tokens`；评测里的 `eval/lib/subagent.ts` 和 `scripts/decide-agent.ts` 也读 `agent`、`workflow`。你的话（`said`，`dispatched-agents.ts` 在 `prompt.submit` 时存下的每一轮的消息）和一轮记录里的消息（`turns[].prompt`，之后的重判读它）各有一份截断：`said` 仍按 `context.tokens`（6000，它要存进 `$.state`，最多 8 条），`turns[].prompt` 按 `rejudge`；发给决策模型的 state 再按各自种类的预算截。
+- 谁读哪一个：`core/core.ts` 对投票箱拆出的每个请求，按它有没有 skill 的 part 用 `messageLimits`（`core/setup.ts`）选 `context.tokens` 或 `messagePlain`，eval 的 `submitRequest` 用同一个函数；`features/dispatched-agents.ts` 用 `agent`；`features/workflow-agents.ts`、`features/workflow-labels.ts` 用 `workflow`；`features/escalation.ts` 和 `features/midturn-effort.ts` 用 `midturn.limits`（即 `rejudge`）；`features/find-skill.ts` 和 `core/skills.ts` 仍用 `context.tokens`；评测里的 `eval/lib/subagent.ts` 和 `scripts/decide-agent.ts` 也读 `agent`、`workflow`。你的话（`said`，`dispatched-agents.ts` 在 `prompt.submit` 时存下的每一轮的消息）和一轮记录里的消息（`turns[].prompt`，之后的重判读它）各有一份截断：`said` 仍按 `context.tokens`（6000，它要存进 `$.state`，最多 8 条），`turns[].prompt` 按 `rejudge`；发给决策模型的 state 再按各自种类的预算截。
 - 延迟：没有量过，只有外推（每 1k token 约 13 ms）：state 满了的非 skill 请求比 0.2.1 多约 2.4 万 token，约 0.3 秒；这些请求的 effort 题、重判题都很短，慢的时段超时的消息会比以前多一些，没有量。超时变多就把 `contextTokens` 调小，或把 `timeoutMs` 调大。
 
 **`contextMessages` 和 `rejudgeSteps`。** 默认值 4 条、4 步，在 6000 个 token 里装不满：一条助手的回复就常有几百 token。所以 Jev 取 manifest 范围的上限，32 条和 16 步，让 token 预算而不是条数决定发多少：从最新的往前装，放不下的旧消息（旧步骤）整条丢掉，不挤压。消息都很短时 32 条也只有一两千 token。这只是个上限，不是目标；发出去的仍然只有文字和工具名，不发工具的输入和输出，脱敏，这条隐私设计没有改。Clef 的 `contextTokens` 只有 2000，两项都保持接入时的 4，条数再多也只是用更旧的消息填同一个预算，没在 Clef 上量过。
@@ -486,7 +486,7 @@ types/index.d.ts            $.state 的契约（PluginState）
 ### 一条消息的处理过程
 
 1. `prompt.submit`：各功能的 hook 在外层，带 matcher，先运行。`main-effort` 确认这是用户本人的新消息后，往这条消息的投票箱里放一个问题（`effort.level`）和一个 `settle` 回调，然后放行。
-2. 核心的 `prompt.submit` 在最内层。它收起投票箱，拼出 state（`turnStartState`），把所有功能的问题合成一个请求（`mergeParts`，每个问题 ID 加上 `<part>.` 前缀），带着超时发给决策后端，再把回答去掉前缀后交给各功能的 `settle`。`settle` 返回的文字块作为 context 附在消息后面，模型能看到，用户看不到。这些都完成后，消息才进入会话。
+2. 核心的 `prompt.submit` 在最内层。它收起投票箱，按 `requestGroups` 拆成最多两个请求：主 agent 的 effort 题（`effort` 这个 part）单独一个，其余各功能的题合成一个（ADR 0005）；某一组没有 part 就不发。每个请求各拼自己的 state（`turnStartState`，预算见 `messageLimits`：含 skill 题的是 `context.tokens`，effort 的是 `contextByKind.messagePlain`），合成请求（`mergeParts`，每个问题 ID 加上 `<part>.` 前缀），两个请求并行带着超时发给决策后端，各记一行 debug log，再把各自的回答去掉前缀后交给这个请求里各功能的 `settle`。`settle` 返回的文字块作为 context 附在消息后面，模型能看到，用户看不到。两个请求各自成败，一个失败或超时不影响另一个；消息等到两个请求都有结果（或超时）才进入会话。
 3. `main-effort` 的 `settle` 把这条决定（或决策模型失败的原因）交给「决定汇报」（`report` 的 `decision`），再把选出的档位记为待用的决定（`$.state` 的 `pending`）。如果这条消息是在某一轮进行中发的，它还会直接改写那一轮的计划。
 4. `turn.start`（核心）为这条消息开始的一轮建立记录 `turns[main:<turnId>]`，并认领它的待用决定。优先认领正在进入的那条消息的决定，即使更内层的 hook 改写了消息的文字也能认领；其次认领文字与这一轮相同的排队消息。
 5. `turn.step`（核心，最内层）每一步都读计划表，用 `planStep` 算出这一步的 effort（主 agent 不碰 model），写进请求，并把这一步（任何 loop 的）发出的模型和 effort 交给「决定汇报」的 `reportStep`（看板从它画出）。
@@ -567,7 +567,7 @@ on('turn.step', { turnId: /(?:)/ }, async function* ($, e, next) {
 
 ### 给发消息时的决策请求加问题（投票箱）
 
-用户发消息时只发一个决策请求，各功能的问题合在其中（同一个请求里的问题互相独立，几乎不增加延迟）。在自己的 `prompt.submit` hook 里这样写：
+用户发消息时，各功能的问题合在一个决策请求里（同一个请求里的问题互相独立，几乎不增加延迟），只有主 agent 的 effort 题由核心拆出来单独发一个请求（ADR 0005），两个请求并行。对功能来说投票箱的用法不变。在自己的 `prompt.submit` hook 里这样写：
 
 ```ts
 on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
@@ -589,8 +589,8 @@ on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
 
 - `settle` 由核心的 hook 调用，但它闭包里的 `$` 是你自己那个 hook 的，可以照常使用（已在真实引擎中实测）。`settle` 在消息进入会话之前完成，所以它返回的文字块来得及附上；它花的时间（例如 skill 的第二个请求）也算在消息的等待里，记得给自己限时。
 - 成功时 `outcome.state` 是这个请求问过的 state（共用的 state 加上各部分加进去的字段），后续的请求要问同一件事时就用它（#11）。
-- 每条消息只发一次请求。请求失败或超时时，每项功能都会收到同一个失败。
-- 共用的 state 只有 `{ user_message, recent_context }`。往里加字段会影响同一请求里的所有问题（无关内容会降低准确率），只加问题确实需要的字段。
+- 每条消息最多发两个请求：effort 题一个，其余的题一个（只有其中一类时只发一个）。请求失败或超时时，那个请求里的每项功能都会收到同一个失败，另一个请求不受影响。
+- 共用的 state 只有 `{ user_message, recent_context }`；effort 请求的 recent_context 按 24000 的预算取，其余请求按 6000 取，所以两个请求里它的长度不同。往里加字段会影响同一请求里的所有问题（无关内容会降低准确率），只加问题确实需要的字段。
 - 问题的写法见 `docs/research/typesafe-question-guide.md`。
 
 ### 在其他时机发决策请求
@@ -813,7 +813,7 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 - 发消息时：`features/skills.ts` 在 `prompt.submit` 里构造 ranker，`part` 放进投票箱，并记下 `$.clock.now()`；`settle` 里用 `timeoutMs` 减去已经过去的时间作为第二段的超时（两个请求共用一次等待，hook 也不会超过 10 秒的预算），调用 `rank`，第二个请求写一行 debug log（`second skills request [...] to jev: ...`）。`find_skill` 在自己的 `tool.call` 里构造同样的 ranker，自己发第一段的请求，再把它的 `state` 和剩下的时间交给 `rank`（见下文「find_skill（#12）」）。
 - #10 只有第一段的排序（`choiceRanker`，相关度是相对值）已经删掉：mod 和评测都不用它。
 
-**评测（#16）**。`skillsRequest(item, options, { limits, ask?, ranker? })` 用 `item = { message, recent_context }` 拼出 mod 发出的同一个第一段请求：共用的 state、effort 问题、skill 的两个问题（同样按 `questionBudget(limits.tokens)` 控制大小），顺序和投票箱一样。它返回 `{ request, part }`，读回答用 `answersFor(part, answers)`，再交给 `modRanker(io, settings).rank(answers, options, { state: request.state })` 发第二段，最后 `pickSkills`。skill 的评测（`eval/lib/skill.ts`，见下文「评测」的「skill 匹配」）就是这样调用的：候选由 `skill-catalog.json` 快照按 `loadCatalog` 的顺序得到，画像用 `lookUpProfiles` 从 `skill-profiles.json`（和 `$.store` 同样的键和值）里查，第二段的正文开头读快照记下的 SKILL.md。`tests/eval-skill.test.ts` 用 world 核对两段请求与 mod 发的逐字相同。
+**评测（#16）**。`skillsRequest(item, options, { limits, ask?, ranker? })` 用 `item = { message, recent_context }` 拼出 mod 发出的同一个第一段请求：共用的 state 和 skill 的两个问题（同样按 `questionBudget(limits.tokens)` 控制大小）；effort 题不在里面，它有自己的请求（ADR 0005，`eval/lib/effort-submit.ts` 的 `submitRequest`）。它返回 `{ request, part }`（没有候选时两个都是 null，不发请求），读回答用 `answersFor(part, answers)`，再交给 `modRanker(io, settings).rank(answers, options, { state: request.state })` 发第二段，最后 `pickSkills`。skill 的评测（`eval/lib/skill.ts`，见下文「评测」的「skill 匹配」）就是这样调用的：候选由 `skill-catalog.json` 快照按 `loadCatalog` 的顺序得到，画像用 `lookUpProfiles` 从 `skill-profiles.json`（和 `$.store` 同样的键和值）里查，第二段的正文开头读快照记下的 SKILL.md。`tests/eval-skill.test.ts` 用 world 核对两段请求与 mod 发的逐字相同。
 
 **`$.state` 里的 skill 记录**（契约见 `types/index.d.ts`）：
 
@@ -924,7 +924,7 @@ eval/
 ```
 
 - **测到的就是线上的请求。** 每类题型的 suite 用 mod 自己拼请求的函数（`hooks/decision/` 的各个模块，加上 `hooks/core/` 里读设置的 `setup.ts`、读 skill 目录和画像的 `skills.ts`、`profiles.ts`），设置取 manifest 的默认值，manifest 没有默认值的选项取 `--backend` 那个决策模型的（`core/setup.ts` 的 `BACKEND_DEFAULTS`，结果文件的 `settings.backendDefaults` 记着取了哪些），经 mod 自己的 `readConfig()` 读出（`--option contextTokens=4000` 可以改，按 manifest 写的类型读：数字、`true`/`false` 或文字；manifest 里没有的名字、类型不对的值直接报错），所以范围、缺省值和 mod 完全一样。`tests/eval-effort-submit.test.ts` 用 world 核对：同一条消息和对话，评测发的请求与 mod 发的逐字相同。
-- **effort-submit 只问 effort。** skill 推荐开着时（默认开），mod 发消息时的请求里还有 skill 的问题。同一个请求里的问题各自独立作答，只以 state 为上下文，看不到彼此（TypeSafe 的说明，指南 S1、Q12），所以 effort 题单独问得到的就是线上的回答；`tests/eval-effort-submit.test.ts` 核对了带 skill 问题时，mod 请求里的 state 和 effort 问题与评测的逐字相同。延迟不同：带着 skill 问题（尤其是写好画像以后）的请求更大、更慢，消息的实际延迟看 skill 评测的第一段（那就是发消息时的整个请求），effort-submit 的延迟只是单问 effort 的。
+- **effort-submit 只问 effort。** 发消息时 effort 题在自己的请求里（ADR 0005），不管 skill 推荐开不开，所以评测发的就是线上的请求：`submitRequest` 用 `messageLimits(settings, false)`（`contextByKind.messagePlain`，Jev 24000）取 state 的预算，`tests/eval-effort-submit.test.ts` 核对了带 skill 题时，mod 的 effort 请求与评测的逐字相同。拆分前这个请求和 skill 题同在一个请求里、state 只有 6000，评测却按 6000 问；数据集里的对话都短于 6000 token，两种请求逐字相同（2026-10-07 前后各跑一遍 `zh-score`：输入 token 都是 162,722，200 个回答里 192 个相同，准确率 zh 88.0%→88.0%、en 84.0%→84.0%，差的 8 个是 Jev 自己的抽样波动，`results/effort-submit/2026-10-07-jev-split-before.json` 和 `…-split-after.json`）。延迟：消息的实际延迟是两个并行请求里慢的那个，通常是带 skill 题的那个，看 skill 评测的第一段；effort-submit 的延迟是 effort 请求的。
 - **变量。** effort-submit 有四个变体：`en-score`、`zh-score`、`en-choice`、`zh-choice`，即问题用英文还是中文写、用 Score 还是 Choice 问；用户的原文总是照搬进 state。每题的中文版和英文版都问。mod 现在的问法看决策模型：Jev 是 `zh-score`，Clef 是 `en-score`（`lib/effort-submit.ts` 的 `modVariant`；发消息时的 effort 问题用决策模型的语言，见「待评测」）。
 - **指标**（`lib/metrics.ts`）：每个变体的中文、英文准确率（答案在可接受集合里；没答上的算错，另列条数），gold 命中率，答偏的方向，中英差距和门槛（中文比英文低不超过 4 个百分点就算通过，正好低 4 个百分点也通过：用户 2026-10-05 定的，原来的 spec 写的是 3 个百分点；`MAX_GAP`、`passes`），中英一致率，延迟 p50 和 p90（以及超过 mod 超时的条数），按 tag 分组的错题数；另报「每题都答同一档」的常数基线。评测每次最多等 `--timeout`（默认是这个后端的 `timeoutMs` 的 4 倍、至少 10 秒），失败（繁忙、断线、超时）还会重试；mod 只等 `timeoutMs`，也从不重试。所以 mod 拿不到的回答另列：超过 `timeoutMs` 才来的（`late`），和评测重试之后才答上的（`retried`：尝试的次数多于请求数），每种语言各记条数，再给出把它们都算作没有决定的准确率（`inTime`），`run.ts` 每个变体打印一行。
 - **已存结果的汇总可以离线重算。** 指标的算法改了时（例如门槛从 3 个百分点改成 4 个，`inTime` 开始扣掉重试过的回答），`node dispatch-pilot/eval/resummarize.ts` 按结果文件里存着的逐题答案重算每种语言的 `late`、`retried`、`inTime` 和每个变体的 `pass`（`lib/resummarize.ts`），不发请求，其余字段原样保留，并在文件里加一段 `resummarized` 说明何时、重算了什么。2026-10-05 已经对 `results/` 下的全部结果重算过一次。准确率、一致率、`breakdown` 这些的算法没有变，不重算。

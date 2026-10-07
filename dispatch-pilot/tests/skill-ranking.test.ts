@@ -44,8 +44,10 @@ test('the skills rated highest are re-read in a second request, and the relevanc
   })
   await w.submit('先写一个失败的测试，再实现登录限流')
 
-  expect(w.requests).toHaveLength(2)
-  const [first, second] = w.requests
+  // The effort question has its request, then the skills' two stages.
+  expect(w.requests).toHaveLength(3)
+  expect(w.withoutEffort).toHaveLength(2)
+  const [first, second] = w.withoutEffort
   expect(isSecondSkillsRequest(first!)).toBe(false)
   // The second request asks about the same message and conversation.
   expect(second?.body.state).toEqual(first?.body.state)
@@ -90,7 +92,7 @@ test("a plugin's skill is re-read from its SKILL.md, also where the plugin's man
     },
   })
   await w.submit('把首页重新排一下版')
-  const second = w.requests[1]?.body.questions
+  const second = w.withoutEffort[1]?.body.questions
   expect(second['skills.fits.0'].instructions.skill.opening).toBe('Lay out the page on a grid first.')
   expect(second['skills.fits.1'].instructions.skill.opening).toBe('Build, then push to the host.')
 })
@@ -110,7 +112,7 @@ test('both requests share the message’s wait: the second gets what the first l
   await entering
   await w.step({ index: 0 })
 
-  expect(w.requests).toHaveLength(2)
+  expect(w.requests).toHaveLength(3)
   expect(w.prompts).toHaveLength(1)
   expect(w.prompts[0]?.context).toBeUndefined()
   // The effort still went through; the second request had 1100 ms and got nothing, so no skills decision: a note says why.
@@ -137,10 +139,11 @@ test('Clef takes the second request with a Choice between the skills re-read (it
   await w.command('dp', 'skills on')
   await w.submit('先写一个失败的测试')
   expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([
-    ['effort.level', 'skills.which'],
+    ['effort.level'],
+    ['skills.which'],
     ['skills.best', 'skills.fits.0', 'skills.fits.1'],
   ])
-  expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], []])
+  expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], [], []])
   expect(w.prompts[0]?.context?.[0]).toContain(`- tdd (relevance 0.97): ${TDD_DESCRIPTION}`)
 })
 

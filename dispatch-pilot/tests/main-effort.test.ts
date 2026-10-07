@@ -184,7 +184,7 @@ test('a report that starts a turn is asked no skill question, though a message o
   await w.submit('先写一个失败的测试')
   await w.submit('Background task "lint" completed', { origin: { kind: 'task-notification' } })
 
-  expect(Object.keys(w.requests[0]?.body.questions)).toContain('skills.which')
+  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toContain('skills.which')
   expect(Object.keys(w.requests.at(-1)?.body.questions)).toEqual(['effort.level'])
 })
 
