@@ -194,7 +194,12 @@ export type LogEntry = {
   sentBack?: true
   /** An unresolved-count judgement (`unresolved`). */
   unresolved?: UnresolvedRecord
+  /** The strong hint was given with this decision's request (#41). */
+  hint?: HintRecord
 }
+
+/** The strong hint given with a request: the count it was given at, the setting it had reached, and `mid` when it was a mid-turn re-decision's. */
+export type HintRecord = { count: number; maxAfter: number; where?: 'mid' }
 
 /**
  * What one message's answer to the unresolved question did to the count: the count before and after, the change, the
@@ -277,6 +282,7 @@ export type Decided = About & {
   skills?: SkillsPicked
   counts?: LogEntry['counts']
   unresolved?: UnresolvedRecord
+  hint?: HintRecord
 }
 
 /** A decision the feature could not make: the decision request failed. Not an entry of the log; it says why on the agent's node. */
@@ -1013,6 +1019,7 @@ function entryOf(decision: Decided, turn: number, at: number): Omit<LogEntry, 'n
     ...(decision.skills === undefined ? {} : { skills: decision.skills }),
     ...(decision.counts === undefined ? {} : { counts: decision.counts }),
     ...(decision.unresolved === undefined ? {} : { unresolved: decision.unresolved }),
+    ...(decision.hint === undefined ? {} : { hint: decision.hint }),
     ...(decision.sentBack === true ? { sentBack: true as const } : {}),
   }
 }

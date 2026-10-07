@@ -22,17 +22,20 @@ import { describeAsked, type Failure } from '../decision/backend.ts'
 import { messageText } from '../decision/context.ts'
 import { decideDispatch, dispatchEvidence, dispatchNote, dispatchPart, dispatchReason, dispatchState, modelFamily, termsOf, type Dispatch, type DispatchNote } from '../decision/dispatched-agent.ts'
 import { quoteStart } from '../decision/redact.ts'
+import { renderSummary } from '../decision/summary.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
 import { report, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
+import { UNRESOLVED_SWITCH } from './unresolved.ts'
 
 const AGENTS = { plugin: 'dispatch-pilot', key: 'agents' } as const
 const SAID = { plugin: 'dispatch-pilot', key: 'said' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'dispatched-agents'
@@ -91,12 +94,17 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       return started
     }
     const { value: said = [] } = await $.state.get(SAID)
+    // The problem the main agent is on goes along as background, with no hint (#41): the summary and the count, while the
+    // unresolved switch is on and there are any.
+    const { value: held } = isOn(UNRESOLVED_SWITCH) ? await $.state.get(COUNT) : { value: undefined }
     const dispatch: Dispatch = {
       user_message: said.join('\n'),
       agent_type: e.subagentType,
       description: e.description,
       prompt: e.prompt,
       requested_model: e.model ?? null,
+      ...(held?.summary === undefined ? {} : { problem_summary: renderSummary(held.summary, ctx.ask.language) }),
+      ...(held === undefined || held.count === 0 ? {} : { unresolved_count: held.count }),
     }
     const part = dispatchPart(dispatch, settings)
     const request = mergeParts(dispatchState(dispatch, ctx.config.contextByKind.agent), [part])

@@ -141,11 +141,29 @@ test("given a summary the eval's request carries it as the mod's does, in the ef
   const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(long.zh.recent_context), seed: { unresolved: { count: 1, summary: { ...SUMMARY, turn: 't1' } } } })
   await w.submit(long.zh.message)
 
-  const { request } = unresolvedRequest(long, 'zh', UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom({ typesafeApiKey: 'k' }), SUMMARY)
+  const { request } = unresolvedRequest(long, 'zh', UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom({ typesafeApiKey: 'k' }), SUMMARY, { count: 1, maxAfter: 3 })
   expect(request.state.problem_summary).toBe(renderSummary(SUMMARY, 'zh'))
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   // None given (the dataset holds none): no field.
   expect('problem_summary' in unresolvedRequest(long, 'zh', UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom({ typesafeApiKey: 'k' })).request.state).toBe(false)
+})
+
+test("given a count the eval's request carries it and the hint as the mod's does (the same function, so the same request): the hint from the setting's count on", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+  const long = overBudget('unresolved-001')
+  const unsure = { still_unresolved: 0.3, resolved: 0.4, new_or_unrelated: 0.3 }
+  const w = world($, on, { backend: (request) => jev([0, 0, 0.2, 0.7, 0.1], { shares: { 'effort.unresolved': unsure } })(request), messages: transcript(long.zh.recent_context), seed: { unresolved: { count: 3, summary: { ...SUMMARY, turn: 't1' } } } })
+  await w.submit(long.zh.message)
+
+  const variant = UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2]
+  const settings = settingsFrom({ typesafeApiKey: 'k' })
+  const { request } = unresolvedRequest(long, 'zh', variant, settings, SUMMARY, { count: 3, maxAfter: 3 })
+  expect(request.state.unresolved_count).toBe(3)
+  expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
+  // Below the setting the count goes and the hint does not.
+  const below = unresolvedRequest(long, 'zh', variant, settings, SUMMARY, { count: 2, maxAfter: 3 }).request
+  expect(below.state.unresolved_count).toBe(2)
+  expect(JSON.stringify(below.questions)).not.toContain('unresolved_count')
+  expect(JSON.stringify(request.questions)).toContain('unresolved_count')
 })
 
 test("Clef's variant is the mod's request with Clef too: English questions, the state within 2000 tokens", { options: CLEF_OPTIONS }, async ($, on) => {
@@ -153,7 +171,7 @@ test("Clef's variant is the mod's request with Clef too: English questions, the 
   const w = world($, on, { backend: asClef(jev([0, 0, 0.2, 0.7, 0.1])), messages: transcript(long.en.recent_context), seed: { unresolved: { count: 1, summary: { ...SUMMARY, turn: 't1' } } } })
   await w.submit(long.en.message)
 
-  const { request } = unresolvedRequest(long, 'en', UNRESOLVED_VARIANTS['en-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom(CLEF_OPTIONS), SUMMARY)
+  const { request } = unresolvedRequest(long, 'en', UNRESOLVED_VARIANTS['en-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom(CLEF_OPTIONS), SUMMARY, { count: 1, maxAfter: 3 })
   const sent = w.requests[0]?.body
   expect(sent.questions).toEqual(request.questions)
   expect(sent.state).toEqual(request.state)

@@ -102,7 +102,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 
 - **每条消息问一道三选一的题。** 你本人的消息（含命令轮；一轮进行中发的消息也算）发出时，effort 请求里在 `effort.level` 旁多一道 Choice 题 `effort.unresolved`：这条消息对「用户和主 agent 最近在处理的那个问题」说了什么：`still_unresolved`（说试过的做法没用、问题还在）、`resolved`（说解决了、接受了结果）、`new_or_unrelated`（转到别的问题，或根本没有更早的问题）。题按 TypeSafe 提问指南写成情境描述，中英文各一份（和 effort 题同一种语言，Jev 中文、Clef 英文）；选项顺序固定，Choice 偏向第一项，所以放「仍未解决」：次数多一次，下一条消息就能纠正，清零错了丢的是好几轮的记录。只看你自己的话判断解没解决，助手说的「已修复」不算结果。它和 effort 题在同一个请求里，读同一份 state（24000 token 的 `recent_context`），不加 state 字段。派出 agent 交回结果、后台任务通知开始的轮不问、不动次数。
 - **两档门槛。** 回答的概率（归一化后）：「仍未解决」达到加一门槛（暂定 0.5）次数加一；「已经解决」或「新问题或无关」各自达到清零门槛（暂定 0.7）次数清零；都没达到次数不变。两个门槛的和大于 1，一个回答不会同时达到两个。清零要的把握比加一高，是为了一次误判不会丢掉好几轮的记录。置信度只记日志。门槛是 `decision/unresolved.ts` 的 `UNRESOLVED_THRESHOLDS`，内部常量，由 #6 按 `unresolved` 评测集校准后写明依据。
-- **次数。** 存在 `$.state` 的 `unresolved`（`{ count }`，只由 `core/unresolved.ts` 写）：热重载不丢，`session.end`（`/clear`、新会话）清零，`/compact` 保留。锁定（`/dp lock`）或点名 effort 时照常计数。次数先只是记下来：它不放进 effort 题的 state（#41 放进去，加强提示）；摘要（#40）在下面。
+- **次数。** 存在 `$.state` 的 `unresolved`（`{ count }`，只由 `core/unresolved.ts` 写）：热重载不丢，`session.end`（`/clear`、新会话）清零，`/compact` 保留。锁定（`/dp lock`）或点名 effort 时照常计数。次数和摘要进 effort 请求的 state，次数到阈值还加强提示（#41，下面）；摘要（#40）在下面。
 - **开关。** `/dp unresolved on|off`，默认开；关着时不问这道题，次数不动（effort 请求照样单独发，只有 `effort.level`）。这道题挂在 `main-effort` 的那一份投票箱里，`main-effort` 关着时也不问。
 - **看板。** 依据卡片（主 agent）在 effort 的结果下写「未解决：次数 2 → 3 次数加一」和三个选项的概率与门槛（`pane-card-unresolved`、`pane-card-unresolved-odds`）；每条答了这道题的消息，它的 `main-effort` 决定里存着这一次的结论（`LogEntry.unresolved`），卡片只画存下的。次数真的变了（加一，或从非 0 清零）才另记一条 `unresolved` 决定进决策日志和 debug log（`次数 0 → 1`），带同样的记录；band 和脚部不画它。回答缺了这一道题（effort 的回答在）时次数不变，debug log 记一行；请求失败时 effort 记「未路由」，次数不变。
 
@@ -117,6 +117,15 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - **不写的情况。** `/dp unresolved off`、总开关关着、没有配置决策模型、`contextMessages` 为 0（摘要是对话的转述，你不让决策模型读对话，就不交给它转述）、`main-effort` 关着（认不出哪一轮是你本人的消息开始的）。
 - **请求的 state 预算。** 摘要和 `command` 这类 part 加进 state 的字段，以前合进去时不占 `limits.tokens`（Jev 的 24000 有余量，没关系；Clef 只读 state 开头约 2100 token、键按字母序排，`user_message` 排在最后，多出来的 500 token 会把它挤掉）。现在 `decision/turn-start.ts` 的 `messageRequest` 把这些字段的 token 先从预算里扣掉再取最近的对话，整个 state（JSON 的样子）仍在预算内；核心和评测都用它拼请求。
 - **依据面板。** 面板在卡片和决策日志之间有「问题摘要」一块（`pane-summary`，行 `pane-summary-problem`、`pane-summary-try-<i>`、`pane-summary-status`），写摘要全文，标了「未解决」的尝试带着标记；没有摘要或 `unresolved` 关着时不画。`screens.tsx` 从 `$.state` 的 `unresolved` 读，`PaneInput.summary`。
+
+### 强提示（#41）
+
+- **给谁、什么时候。** 三处请求读摘要（`problem_summary`）和次数（`unresolved_count`，值为 0 时不放）：发消息时 effort 请求（`decision/turn-start.ts` 的 `turnStartPart({ summary, count, maxAfter })`）、中途重判请求（`MidturnInput.problem_summary` / `unresolved_count`，`midturnState` 放进 state 开头）、派出 agent 的请求（`Dispatch.problem_summary` / `unresolved_count`，`dispatchState`）。强提示只给前两处，派出 agent 的从不加（子任务像「查一个文件」不该因此判到最高一档）；Workflow 里的 agent 没有接这两个字段（它们一个请求里合了很多个调用，这一版没碰）。`/dp unresolved off` 时三处都不带。
+- **强提示是什么。** `decision/unresolved.ts` 的 `withHint(part, language)`：给 effort 题（`level`，发消息时和中途重判的同一个 id）的说明多加一条（中文键 `未解决`，英文键 `unsolved`）：这项工作属于多次尝试都没解决的故障，`unresolved_count` 是用户说过「仍未解决」的次数，试过什么在 `problem_summary` 和对话里。写成情境，和 effort 题最高一档里「之前多次尝试都没解决的故障」同一个说法；不出现档位名字或数字（`tests/unresolved-hint.test.ts` 钉住），也不碰 `pickEffort`、`thetaMax` 和计划表：用不用最高一档仍由决策模型定（ADR 0005）。三选一的题不加强提示。`givesHint(count, maxAfter)`：`maxAfter > 0` 且 `count >= maxAfter`。
+- **用的是哪个次数。** 发消息时读 `$.state` 里这条消息**之前**的次数（这条消息自己的结论在同一个请求的回答里，请求发出时还不知道），所以 `unresolvedMaxAfter` 为 3 时，第四次说「仍未解决」的那条消息的请求还不带强提示（读到的是 2），它的中途重判带（那时次数已经是 3）；下一条消息的请求带。中途重判读的是重判发出时的次数。`maxAfter` 想让「这条消息自己」也算，只能在次数加一之后再问一次，违背「同一个请求」，没做。
+- **配置。** `unresolvedMaxAfter`（0 到 10，默认 3，0 不给），读成 `ctx.config.unresolved.maxAfter`；Jev 和 Clef 同一个值（没有为 Clef 校准，#42 定）。
+- **日志。** 每次给了强提示，`features/main-effort.ts`（发消息时，在 effort 的决定和次数的决定之后）和 `features/midturn-effort.ts`（中途重判，取回回答时）各记一条 `feature: 'unresolved'`、`aside` 的决定（`core/unresolved.ts` 的 `hintDecision`）：`已给强提示（次数 3）`，理由里写阈值和决策模型判出的档位（中途重判的是 `pickEffort` 的结果；请求失败时写「没有给出档位」，档位字段不写）；条目带 `hint: { count, maxAfter, where? }`（`HintRecord`）。发消息时的 effort 决定（`main-effort`）也带同一个 `hint`，依据卡片据此多一行「强提示：已给强提示」（`pane-card-hint`）；日志行的动词是「给了强提示」。看板不新增事件（band 的 `eventsOf` 不认 `unresolved`），规则推演不新增步骤。
+- **eval。** `eval/lib/unresolved.ts` 的 `unresolvedRequest(..., summary, { count, maxAfter })` 用同一个 `turnStartPart`，所以 #42 要量强提示时请求和 mod 的逐字相同（`tests/eval-unresolved-suite.test.ts` 用 world 核对）；数据集里没有次数，suite 现在不传。
 
 ### 失败时放行
 
@@ -224,6 +233,7 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 | `skillsShortlist` | 第二段补读正文、逐个判断的、主 agent 能加载的 skill 最多几个（第一段那一题排在最前、分到 0.1 以上的），范围 1–10。只能由你触发的 skill 另外最多 2 个。 |
 | `skillsProfileModel` | 写 skill 画像的模型，写别名（`haiku`）或完整的模型 id。通过你的 Claude Code 登录调用，算在你的用量里。换了模型，所有画像会重写。 |
 | `summaryModel` | 写问题摘要的模型（#40），写法同 `skillsProfileModel`，默认 `haiku`；读成 `ctx.config.unresolved.summaryModel`。 |
+| `unresolvedMaxAfter` | 未解决次数到这个数时发消息和中途重判的 effort 题多一条强提示（#41），0 到 10，默认 3，0 不给；读成 `ctx.config.unresolved.maxAfter`。 |
 | `skillsProfilesPerSession` | 每次会话开始时最多写几份还没有的画像，范围 0–500；0 表示不写（已有的照常用）。 |
 | `skillsAlwaysListed` | 一直留在主 agent 的 skill 列表里的 skill，写列表里的名字（同步来的 skill 要带前缀，例如 `anthropic-skills:pdf`）。 |
 | `skillsNeverSuggested` | 从不推荐给主 agent、也不提示你的 skill，同样写列表里的名字。它们照常安装，Skill 工具照样能按名字加载。`find_skill` 也不返回它们。 |
