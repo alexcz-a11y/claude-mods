@@ -4,22 +4,34 @@
 // question about the message: is it about the same problem still unresolved,
 // one that is resolved, or a new or unrelated one (`triage`).
 //
-// What is asked is what the mod asks when a message is sent: the effort
-// question alone, over the state of a message (turnStartState). Until #38 the
-// mod asked it beside the skill ranking in one request, with a budget of 6000
+// What is asked is what the mod asks when a message is sent: the effort part
+// of the message's decision request (`turnStartPart`, the mod's own function:
+// the effort question, the three-way question beside it, the command of a
+// command turn, the problem summary when there is one), over the state the
+// mod builds for it (`messageRequest`). Until #38 the mod asked the effort
+// question beside the skill ranking in one request, with a budget of 6000
 // tokens for the state; since #38 (ADR 0005) it has a request of its own and
 // 24000. Both are variants, so the baseline taken before #38 stays comparable:
 // `zh-score` is the state of the shared request (6000), `zh-score-wide` the
-// state of the request of its own (24000, the mod today). The three-way
-// question does not exist yet: `unresolvedSuite` takes it when it does
-// (`TriageAsk`), and until then only the effort is scored.
+// state of the request of its own (24000, the mod today). The baseline asked
+// the effort question alone; every variant now asks the three-way question
+// too, as the mod does (#39), and scores it on its own beside the effort.
+//
+// The dataset has no summaries: an item is asked as the first message of a
+// problem would be, with no summary in the state (a summary is what a cheap
+// model wrote turn by turn, which a transcript of a thread does not hold). The
+// request takes one (`unresolvedRequest`'s last argument), so that a run with
+// summaries (written by hand, or by the mod's own prompt over the thread, #42)
+// asks what the mod asks with one.
 //
 // Pure: no Node API.
 
 import { messageLimits } from '../../hooks/core/setup.ts'
-import { turnStartState } from '../../hooks/decision/context.ts'
-import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart, type Effort, type EffortAsk } from '../../hooks/decision/effort.ts'
-import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
+import { EFFORTS, LEVEL, pickEffort, readEffort, type Effort, type EffortAsk } from '../../hooks/decision/effort.ts'
+import type { Summary } from '../../hooks/decision/summary.ts'
+import { answersFor, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
+import { messageRequest, turnStartPart } from '../../hooks/decision/turn-start.ts'
+import { judgeUnresolved, readUnresolved, UNRESOLVED, UNRESOLVED_OPTIONS, type UnresolvedChange, type UnresolvedOption } from '../../hooks/decision/unresolved.ts'
 import { OVER_BUDGET, TRIAGES, type Language, type Triage, type UnresolvedItem } from './datasets.ts'
 import { contextMessages, gradeEffort } from './effort-submit.ts'
 import { rate, type VariantSummary } from './metrics.ts'
@@ -44,61 +56,62 @@ export const UNRESOLVED_VARIANTS: Readonly<Record<string, Variant>> = {
   'en-score-wide': { ask: { language: 'en', primitive: 'score' }, wide: true },
 }
 
-/** The answer to the three-way question about a message, with the probability the backend gave each answer. */
-export type TriageReading = { triage: Triage; probabilities: Readonly<Record<string, number>> }
+/** What the dataset calls each answer of the three-way question (the mod's option names are `UNRESOLVED_OPTIONS`). */
+const TRIAGE_OF: Readonly<Record<UnresolvedOption, Triage>> = { still_unresolved: 'unresolved', resolved: 'resolved', new_or_unrelated: 'new' }
 
-/**
- * The three-way question, as the mod will ask it beside the effort question:
- * the part (its name is the question ids' prefix) and how its answers are
- * read. Both come from the decision modules the mod uses, so the eval asks
- * what the mod asks.
- */
-export type TriageAsk = {
-  part: (ask: EffortAsk) => Part
-  /** Reads the part's answers (`answersFor`); null when there is no answer to read. */
-  read: (answers: Readonly<Record<string, Answer>>) => TriageReading | null
-}
-
-/** What a suite decides for an item: the effort, and the answer to the three-way question when it was asked. */
+/** What a suite decides for an item: the effort, and the answer to the three-way question (the option it leaned to most; null for a constant answer, which reads no question). */
 export type UnresolvedPrediction = { effort: Effort; triage: Triage | null }
 
 /**
  * The request the mod sends when the person sends the item's message in
- * `language`: the effort question (a command turn's state holds the command, as
- * the mod's does), and the three-way question when there is one; the parts are
- * returned to read the answers by.
+ * `language`: the effort part the mod builds (`turnStartPart`: the effort
+ * question, the three-way question, a command turn's command, the summary when
+ * one is given) in the state the mod builds for the message (`messageRequest`,
+ * the limits of the request the variant stands for). The part is returned to
+ * read the answers by.
  */
-export function unresolvedRequest(item: UnresolvedItem, language: Language, variant: Variant, settings: Settings, triage?: TriageAsk): { request: DecisionRequest; effort: Part; triage?: Part } {
+export function unresolvedRequest(item: UnresolvedItem, language: Language, variant: Variant, settings: Settings, summary: Summary | null = null): { request: DecisionRequest; part: Part } {
   const asked = item[language]
+  const part = turnStartPart({ ask: variant.ask, unresolved: true, command: asked.command ?? null, summary })
   // The mod's own limits: the request of its own (`wide`) or the one shared with the skills' question (messageLimits).
-  const state = turnStartState({ prompt: asked.message, messages: contextMessages(asked.recent_context), limits: messageLimits(settings, !variant.wide) })
-  const effort: Part = { ...turnStartEffortPart(variant.ask), ...(asked.command === undefined ? {} : { state: { command: asked.command } }) }
-  const second = triage?.part(variant.ask)
-  return { request: mergeParts(state, second === undefined ? [effort] : [effort, second]), effort, ...(second === undefined ? {} : { triage: second }) }
+  const request = messageRequest({ prompt: asked.message, messages: contextMessages(asked.recent_context), limits: messageLimits(settings, !variant.wide), parts: [part] })
+  return { request, part }
 }
+
+/** What each judged change to the count should be, by what the item's message says: one more for a problem still unresolved, a clear for the rest. */
+const RIGHT_CHANGE: Readonly<Record<Triage, UnresolvedChange>> = { unresolved: 'add', resolved: 'reset', new: 'reset' }
 
 /** The thresholds a run reports the top level's recall at: what `thetaMax` would have given (the rule is `pickEffort`'s). */
 const THETAS = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
 
-/** The suite, asking the three-way question too when `triage` says how. */
-export function unresolvedSuite(triage?: TriageAsk): Suite<UnresolvedItem, UnresolvedPrediction> {
+/**
+ * The suite: the effort question and the three-way question beside it, asked as the mod asks them, the three-way
+ * question read as the mod reads it (`readUnresolved`, its answer the option it leans to most, `judgeUnresolved`'s `top`).
+ */
+export function unresolvedSuite(): Suite<UnresolvedItem, UnresolvedPrediction> {
   return {
     name: 'unresolved',
     variants: Object.keys(UNRESOLVED_VARIANTS),
     async decide(item, language, variant, ask, settings) {
-      const sent = unresolvedRequest(item, language, variantIn(UNRESOLVED_VARIANTS, variant), settings, triage)
+      const sent = unresolvedRequest(item, language, variantIn(UNRESOLVED_VARIANTS, variant), settings)
       const { asked } = await ask(sent.request)
       if (!asked.ok) return requestFailed(asked.failure)
-      const reading = readEffort(answersFor(sent.effort, asked.answers)[LEVEL])
+      const answers = answersFor(sent.part, asked.answers)
+      const reading = readEffort(answers[LEVEL])
       if (reading === null) return { ok: false, failure: 'parse: no effort answer' }
-      const detail: Record<string, unknown> = { p: reading.probabilities.map((p) => Math.round(p * 1000) / 1000), confidence: reading.confidence }
-      const effort = pickEffort(reading, settings.thetaMax)
-      if (triage === undefined || sent.triage === undefined) return { ok: true, prediction: { effort, triage: null }, detail }
-      const said = triage.read(answersFor(sent.triage, asked.answers))
+      const said = readUnresolved(answers[UNRESOLVED])
       if (said === null) return { ok: false, failure: 'parse: no triage answer' }
-      detail.triage = said.triage
-      detail.triageP = Object.fromEntries(Object.entries(said.probabilities).map(([name, p]) => [name, Math.round(p * 1000) / 1000]))
-      return { ok: true, prediction: { effort, triage: said.triage }, detail }
+      const judged = judgeUnresolved(said)
+      const effort = pickEffort(reading, settings.thetaMax)
+      const detail: Record<string, unknown> = {
+        p: reading.probabilities.map((p) => Math.round(p * 1000) / 1000),
+        confidence: reading.confidence,
+        triage: TRIAGE_OF[judged.top],
+        triageP: Object.fromEntries(UNRESOLVED_OPTIONS.map((option) => [TRIAGE_OF[option], Math.round(said.probabilities[option] * 1000) / 1000])),
+        // What the mod's two bars make of the answer (it moves the count by this).
+        triageChange: judged.change,
+      }
+      return { ok: true, prediction: { effort, triage: TRIAGE_OF[judged.top] }, detail }
     },
     grade(item, prediction): Grade {
       const effort = gradeEffort(item, prediction.effort)
@@ -107,20 +120,19 @@ export function unresolvedSuite(triage?: TriageAsk): Suite<UnresolvedItem, Unres
     },
     show: (prediction) => (prediction.triage === null ? prediction.effort : `${prediction.effort} / ${prediction.triage}`),
     constants: EFFORTS.map((effort) => ({ effort, triage: null })),
-    questions: (variant) => ({
-      effort: turnStartEffortPart(variantIn(UNRESOLVED_VARIANTS, variant).ask).questions,
-      ...(triage === undefined ? {} : { triage: triage.part(variantIn(UNRESOLVED_VARIANTS, variant).ask).questions }),
-    }),
+    questions: (variant) => turnStartPart({ ask: variantIn(UNRESOLVED_VARIANTS, variant).ask, unresolved: true }).questions,
     breakdown: (items, rows, _variant, settings) => breakdownOf(items, rows, settings),
     report: reportOf,
     scoring:
       'The answer is the effort, right when it is in the item\'s accept set (the mod\'s pickEffort over the backend\'s probabilities, thetaMax as set); a wrong one is too high or too low. ' +
-      'With the three-way question asked, its answer is scored as a part of its own (`triage`). `top` is the recall of the top level over the items whose gold is max; `tooHigh` and `tooLow` are shares of all items; ' +
-      '`byLength` splits the items by whether the conversation overruns the state budget of a message today (the over-budget tag); `thetaMax` is what the top level\'s recall, and the share of items that did not accept max but got it, would have been at each threshold.',
+      'The three-way question is asked with it, as the mod asks it (`effort.unresolved`), and its answer is the option it leaned to most, mapped to the dataset\'s names (still_unresolved is unresolved, new_or_unrelated is new); it is scored as a part of its own (`triage`), and `triage.change` says what the mod\'s two bars would have done to the count. ' +
+      '`top` is the recall of the top level over the items whose gold is max; `tooHigh` and `tooLow` are shares of all items; ' +
+      '`byLength` splits the items by whether the conversation overruns the state budget of a message today (the over-budget tag); `thetaMax` is what the top level\'s recall, and the share of items that did not accept max but got it, would have been at each threshold. ' +
+      'No item has a problem summary: each is asked as the first message of a problem would be.',
   }
 }
 
-/** The suite as the mod is today: the effort question only. */
+/** The suite as the mod asks today. */
 export const unresolved = unresolvedSuite()
 
 const LANGS: readonly Language[] = ['zh', 'en']
@@ -178,8 +190,27 @@ function breakdownOf(items: readonly UnresolvedItem[], rows: readonly Row<Unreso
       ? {
           accuracy: eachLanguage((language) => share(items.filter((item) => byLanguage[language].get(item.id)?.prediction?.triage === item.triage).length, items.length)),
           confusion: eachLanguage((language) => confusion(items, byLanguage[language])),
+          change: changeFigures(items, byLanguage),
         }
       : null,
+  }
+}
+
+/**
+ * What the mod's two bars made of the answers, in the count's terms: `right` the share of all items whose message moved
+ * the count the right way (one more for a problem still unresolved, a clear for the rest; "keep" is neither),
+ * `falseAdd` the share of the items that are not about an unresolved problem which added one (a count too high, made up
+ * at the next message), `lostRecord` the share of the unresolved ones which cleared the count (the record of several
+ * tries lost: the costly one).
+ */
+function changeFigures(items: readonly UnresolvedItem[], byLanguage: ByLanguage<ReadonlyMap<string, Row<UnresolvedPrediction>>>): Record<'right' | 'falseAdd' | 'lostRecord', ByLanguage<number | null>> {
+  const changeOf = (item: UnresolvedItem, language: Language) => byLanguage[language].get(item.id)?.detail?.triageChange
+  const open = items.filter((item) => item.triage === 'unresolved')
+  const rest = items.filter((item) => item.triage !== 'unresolved')
+  return {
+    right: eachLanguage((language) => share(items.filter((item) => changeOf(item, language) === RIGHT_CHANGE[item.triage]).length, items.length)),
+    falseAdd: eachLanguage((language) => share(rest.filter((item) => changeOf(item, language) === 'add').length, rest.length)),
+    lostRecord: eachLanguage((language) => share(open.filter((item) => changeOf(item, language) === 'reset').length, open.length)),
   }
 }
 

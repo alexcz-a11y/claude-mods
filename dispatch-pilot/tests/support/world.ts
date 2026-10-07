@@ -532,6 +532,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     },
     /** The unresolved count the mod holds in `$.state` now (0 before a message moved it). */
     unresolved: (): number => (held.unresolved.value as PluginState['dispatch-pilot']['unresolved'] | undefined)?.count ?? 0,
+    /** The problem summary the mod holds in `$.state` now, with the turn it was written for; undefined when there is none. */
+    summary: () => (held.unresolved.value as PluginState['dispatch-pilot']['unresolved'] | undefined)?.summary,
+    /** Everything the mod keeps under the `unresolved` key: the count, the summary, the turns whose summaries are being written. */
+    unresolvedState: () => (held.unresolved.value as PluginState['dispatch-pilot']['unresolved'] | undefined) ?? { count: 0 },
     statuses,
     logs,
     steps,
@@ -687,10 +691,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
      * A loop's turn ends: the main agent's by default (the last turn started), an agent's with `agentId`
      * (its loop carries its own turn id, `turn-<agentId>` as `agentStep` makes it). `reason` is `answer` unless said.
      */
-    complete: (done: { agentId?: string; turnId?: string; reason?: 'answer' | 'aborted' | 'error'; durationMs?: number } = {}) => {
+    complete: (done: { agentId?: string; turnId?: string; reason?: 'answer' | 'aborted' | 'error'; durationMs?: number; answer?: string } = {}) => {
       const reason = done.reason ?? 'answer'
       return $.turn.complete({
-        answer: reason === 'answer' ? 'done' : '',
+        answer: done.answer ?? (reason === 'answer' ? 'done' : ''),
         durationMs: done.durationMs ?? 1000,
         isAborted: reason === 'aborted',
         turnId: done.turnId ?? (done.agentId === undefined ? (turnIds.at(-1) ?? 't0') : `turn-${done.agentId}`),

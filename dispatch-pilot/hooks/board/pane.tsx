@@ -57,6 +57,8 @@ export type PaneInput = {
   master: boolean
   /** The person's lock on the main agent's effort. */
   lock: Effort | null
+  /** The problem summary the session holds (`$.state` `unresolved`); null when there is none, or the `unresolved` switch is off. */
+  summary: { problem: string; tried: readonly { text: string; unresolved?: true }[]; status: string } | null
   state: PaneState
   /** Draw only the latest this many log entries (over the open turns) and mid-turn re-decisions, for a surface that refuses a large tree; none: all. */
   window?: { entries: number; mids: number }
@@ -133,9 +135,54 @@ export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, r
         {cardRows(t, card, input, Math.max(10, cols - 4), raster)}
       </Box>
       {blank('pane-gap')}
+      {summaryRows(t, input.summary, cols)}
       {logRows(t, input, cols, act, raster)}
     </Box>
   )
+}
+
+// ---- the problem summary -------------------------------------------------------------------
+
+/** The problem summary in full (the decision model reads it beside the conversation): nothing at all while there is none. */
+function summaryRows(t: TT, summary: PaneInput['summary'], cols: number): RenderNode[] {
+  const { Box, Text } = t
+  if (summary === null) return []
+  const w = Math.max(10, cols - 2)
+  const rows: RenderNode[] = [
+    <Box key="pane-summary-head" width={cols}>
+      <Text wrap="wrap">
+        <Text color={ACCENT} bold>◆ 问题摘要</Text>
+        <Text color={MUTED}>{'  决策模型和对话一起读它；只记试过什么，结果由你下一条消息的判断补上'}</Text>
+      </Text>
+    </Box>,
+    hang(t, 'pane-summary-problem', '问题', <Text wrap="wrap">{summary.problem}</Text>, w),
+  ]
+  summary.tried.forEach((attempt, i) => {
+    rows.push(
+      hang(
+        t,
+        `pane-summary-try-${i}`,
+        i === 0 ? '试过' : '',
+        <Text wrap="wrap">
+          <Text color={MUTED}>{`${i + 1}. `}</Text>
+          <Text>{attempt.text}</Text>
+          {attempt.unresolved === true ? <Text color={WARN}>{'  未解决'}</Text> : null}
+        </Text>,
+        w,
+      ),
+    )
+  })
+  if (summary.status !== '') rows.push(hang(t, 'pane-summary-status', '状态', <Text wrap="wrap">{summary.status}</Text>, w))
+  rows.push(
+    <Box key="pane-summary-gap">
+      <Text> </Text>
+    </Box>,
+  )
+  return [
+    <Box key="pane-summary" flexDirection="column" width={cols}>
+      {rows}
+    </Box>,
+  ]
 }
 
 // ---- the lines at the top ------------------------------------------------------------

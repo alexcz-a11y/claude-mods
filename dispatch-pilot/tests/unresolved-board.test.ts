@@ -114,6 +114,28 @@ test('the log row of a count that moved says what it did, in the pane', { option
   expect(row).toContain('次数 0 → 1')
 })
 
+test('the pane shows the problem summary in full: the problem, every try with the unresolved ones said so, the status; nothing while there is none', { options: KEY }, async ($, on) => {
+  const tries = Array.from({ length: 8 }, (_, i) => ({ text: `第 ${i + 1} 次：${'把配置里的某一项改成另一个值再重启服务，'.repeat(2)}`, ...(i < 3 ? { unresolved: true as const } : {}) }))
+  const summary = { problem: '服务启动后立刻退出，日志里只有一行 ETIMEDOUT', tried: tries, status: '助手在等新的日志', turn: 't9' }
+  const w = world($, on, { backend: backend({ now: UNSURE }), seed: { unresolved: { count: 3, summary } } })
+
+  const ui = await w.pane()
+  const text = shown(await ui.find({ key: 'pane-summary' }))
+  expect(text).toContain('问题摘要')
+  expect(text).toContain(summary.problem)
+  for (const attempt of tries) expect(text).toContain(attempt.text)
+  expect(text).toContain(summary.status)
+  // The ones the person said did not work are marked, and only those.
+  const marked = (await ui.findAll({ type: 'Box' })).filter((box) => box.key?.startsWith('pane-summary-try-')).map((box) => shown(box).includes('未解决'))
+  expect(marked).toEqual([true, true, true, false, false, false, false, false])
+})
+
+test('the pane has no summary block while there is no summary', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: backend({ now: UNSURE }) })
+  await w.submit('登录接口还是 502')
+  expect(await (await w.pane()).find({ key: 'pane-summary' })).toBeUndefined()
+})
+
 test('a message that leaves no answer to the question has no conclusion on its card', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: (request) => jev([0.05, 0.1, 0.7, 0.1, 0.05])(request) })
   await w.submit('改个错别字')

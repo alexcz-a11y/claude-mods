@@ -192,6 +192,12 @@
       "description": "rewrite：主 agent 提交 Workflow 时，为每个 agent() 调用决定的模型和 effort 写进脚本再运行，并告诉主 agent 写了什么。return：第一次提交被拒绝，附上每个 agent() 调用的推荐，让主 agent 自己写进去；同一个 Workflow 再提交一次就照原样运行。",
       "options": ["rewrite", "return"],
       "default": "rewrite"
+    },
+    "summaryModel": {
+      "type": "string",
+      "title": "写问题摘要的模型",
+      "description": "用哪个模型（别名如 haiku，或完整的模型 id）在你本人的消息开始的那一轮结束后，在后台续写一份简短的问题摘要：问题是什么、试过哪些做法、现在到了哪一步（不超过 500 token，只记试过什么，不判断成没成功）。决策模型发消息时一并读它，借此看到超出上下文预算的更早几轮。它通过你的 Claude Code 登录运行，用的是你套餐的用量；交给它的内容先脱敏。/dp unresolved off 或 contextMessages 为 0 时不写。",
+      "default": "haiku"
     }
   }
 }

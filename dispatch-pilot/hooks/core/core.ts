@@ -21,10 +21,11 @@
 // asks nothing and turn.step sends every step as the engine made it.
 
 import type { HttpInit, On } from 'claude-code'
-import { messageText, turnStartState } from '../decision/context.ts'
+import { messageText } from '../decision/context.ts'
 import { EFFORT_PART } from '../decision/effort.ts'
 import { SKILLS_PART } from '../decision/skills.ts'
-import { answersFor, mergeParts, type State } from '../decision/system-one.ts'
+import { answersFor, type State } from '../decision/system-one.ts'
+import { messageRequest } from '../decision/turn-start.ts'
 import { type Asked, describeAsked, errorText } from '../decision/backend.ts'
 import { collect, type Contribution, type PartOutcome } from './ballot.ts'
 import { forgetCommand, noteCommand, typedCommand } from './commands.ts'
@@ -70,7 +71,7 @@ export function registerCore(on: On, ctx: Ctx): void {
           try {
             // The state's budget follows the request's longest question: the skills' question leaves less than any other.
             const limits = messageLimits(ctx.config, group.some((part) => part.part === SKILLS_PART))
-            const request = mergeParts(turnStartState({ prompt: e.text, messages, limits }), group)
+            const request = messageRequest({ prompt: e.text, messages, limits, parts: group })
             state = request.state
             asked = await ctx.backend.ask(io, request, ctx.config.timeoutMs)
           } catch (error) {

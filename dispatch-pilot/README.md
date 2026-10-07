@@ -13,6 +13,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 - **Workflow 里的 agent。** 主 agent 提交 Workflow 脚本时，对脚本里每个 `agent()` 调用点做同样的判断，把模型和 effort 写进脚本再运行，并告诉主 agent 写了什么；`workflowMode` 选 `return` 时改为退回脚本，附上逐个调用的推荐，让主 agent 自己写进去。脚本写不进去的（用 `scriptPath` 或 `name` 提交、恢复的运行、读不了的脚本），在每个 agent 启动时按它的 label 设置，这叫兜底。
 - **卡住时强制升档。** 主 agent 或派出 agent 的工具调用接连失败 `escalateAfter` 次时，再问决策模型一次，把它的 effort 升一档（`escalateMode` 选 `max` 则直接升到 max）；haiku 没有 effort 可升，改用 sonnet 接着做（`escalateHaikuTo`）。这些失败本来就在意料之中的，例如先写下、要看它红的测试，或者没找到东西而以非零退出的搜索，不升档；是不是预期内失败由决策模型判断，不靠关键词。你自己拒绝的调用从不算失败。
 - **未解决次数。** 你本人的每条消息（包括斜杠命令）发出时，决策模型还回答一道三选一的题：这条消息是在说你和主 agent 最近在处理的那个问题仍未解决、已经解决，还是换了新问题或无关；不靠关键词，「再看看」或贴一段同样的报错也认得出。「仍未解决」把握够（暂定 0.5）次数加一，「已经解决」或「新问题或无关」把握更高（暂定 0.7）才清零，都没到次数不变。次数存在会话里，`/clear` 和新会话清零，`/compact` 和热重载保留；agent 交回结果、后台任务通知开始的一轮不问。依据卡片显示次数和这一次的结论。这一版次数只是记下来，还不影响 effort 的判断。`/dp unresolved off` 关掉它。
+- **问题摘要。** 你本人的消息开始的那一轮结束后，一个便宜的模型（`summaryModel`，默认 haiku，用你的 Claude 登录和用量）在后台续写一份简短的摘要：问题是什么、试过哪些做法、现在到了哪一步，不超过 500 token，只记试过什么，不判断成没成功；你的下一条消息说「仍未解决」时，最后一次尝试标上「未解决」。决策模型发消息时读它，借此看到超出上下文预算的更早几轮；它从不等摘要写完，来不及时用上一份。写失败（出错、超时）保留旧摘要并在决策日志里记一条。问题解决、换了问题、`/clear` 和新会话时和次数一起清空，`/compact` 和热重载保留。依据面板里能看摘要全文。交给写摘要模型的内容先脱敏；`contextMessages` 为 0 时不写（摘要是对话的转述）。`/dp unresolved off` 一并关掉它。
 - **skill。** 主 agent 不再读完整的 skill 列表（装的 skill 多时这一段很长），读到的是一句固定的提示。改由决策模型在你发消息时，从本会话的 skill 里挑出相关的几个，连同名字、描述和相关度附在消息后面交给主 agent；只能由你触发的 skill 不推荐给主 agent，只在看板上提示你（「可试 /x」）。一轮进行中，主 agent 还可以用 `find_skill` 工具按几个词查 skill。skill 本身和 Skill 工具都不变，主 agent 仍然可以按名字加载任何 skill。
 - **失败时放行。** 决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配密钥时，消息照常进入，不额外等待，这一轮用会话自己的 effort，看板上写明原因，并弹一个 toast。选了 Jev 就只用 Jev，不会改用 Clef，反过来也一样。
 
@@ -45,6 +46,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 ### 发给决策模型的内容
 
 - 你这条消息，加上之前最近的几条消息（最多 `contextMessages` 条，总长度不超过 `contextTokens`）。主 agent 的 effort 题单独发一个请求，能读到的最近对话比和 skill 推荐一起发时长得多（Jev 默认 24000 token，对 6000）；skill 推荐的请求和它并行发出，不增加等待。每条只有文字和调用过的工具名，**不包含文件内容和工具输出**。一轮中途重判时发的是这一轮最近几步（`rejudgeSteps`）的摘要：主 agent 写的文字、调用的工具和一句话结果，同样不含文件内容、写入的内容和工具输出。
+- 问题摘要（写好之后，发消息时的 effort 请求里）：不超过 500 token，是 `summaryModel` 对你和主 agent 这个问题的转述，输入给它的内容先脱敏；它占 state 的预算，最近的对话让给它。
 - 派出 agent 和 Workflow 里的 agent：主 agent 写给它的任务（`prompt`）、描述、agent 类型，加上你这一轮说的话。
 - 打开 skill 推荐时：本会话每个 skill 的名字和画像（还没有画像的用描述），以及排在前面的几个 skill 的描述、画像和 SKILL.md 开头约 700 个字符。skill 画像由你自己的 Claude 登录写（模型是 `skillsProfileModel`），用你的用量，不经过决策模型的提供方。
 - 发送前对常见的 secret 格式脱敏，替换成 `[REDACTED]`：各家的 API key 和 token、`password=...` 这类赋值、URL 里的密码、私钥和 JWT。
@@ -56,6 +58,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 - **决策请求。** 评测里 800 个 effort 请求共 614,292 input token（平均约 770 个），Jev 约 0.026 美元。评测的上下文很短；Jev 的 state 现在最多约 6.7k token，一个这样的 effort 请求不到 0.0003 美元（Jev 只按输入计费，每百万 token 0.042 美元），带 skill 推荐的约 2.9 万 token，约 0.0012 美元。Clef 在 Workers AI 每天免费的 10,000 neurons 之内：200 个 effort 请求约 2,300 neurons。
 - **skill 推荐。** 打开后，每条消息的第一个请求还带着本会话每个 skill 的名字和画像：111 个 skill 都写好画像时约 2.19 万 input token（不带画像约 8.6k）；第一段分到 0.1 以上的 skill 才会发第二个请求，约 1.3k。作为交换，隐藏 skill 列表每个会话省下约 6.6k input token（本机 66 个 skill 时实测），换成的提示只有 360 个字符。
 - **skill 画像**用你自己的 Claude 登录写（模型是 `skillsProfileModel`），算在你的用量里：每份约 2k 输入和 200 输出 token，每个 SKILL.md 版本只写一次，每次会话开始最多写 `skillsProfilesPerSession` 份。
+- **问题摘要**同样用你自己的 Claude 登录写（模型是 `summaryModel`），算在你的用量里：你本人的消息开始的每一轮结束后一次，输入是上一份摘要加这一轮（你的话、主 agent 的最终回复、工具汇总，各自截断），输出不超过 500 token。
 - `claude plugin details dispatch-pilot@alex-mods`（2.1.289）显示 0 个组件、常驻开销约 0 token：它看不到 mod 在运行时附加和替换的内容。
 
 ## 要求
@@ -210,6 +213,12 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 | `skillsNeverSuggested` | 从不推荐给主 agent、也不提示你的 skill，写法同上。它们照常安装，Skill 工具仍能按名字加载，`find_skill` 也不返回它们。列表项，不在 `/config` 里 | `空` | `空` |
 | `findSkillMax` | `find_skill` 一次最多返回几个 skill（1–10） | `5` | `5` |
 | `findSkillMinRelevance` | `find_skill` 返回一个 skill 所需的最低相关度（0–1），比推荐的门槛低：这是主 agent 主动问的，它会自己看描述再决定 | `0.5` 起点 | `0.5` 未校准 |
+
+### 问题摘要
+
+| 选项 | 作用 | Jev | Clef |
+|---|---|---|---|
+| `summaryModel` | 在你本人的消息开始的那一轮结束后，在后台续写问题摘要的模型，写别名（`haiku`）或完整的模型 id。通过你的 Claude Code 登录调用，算在你的用量里；摘要是对话的转述，所以 `contextMessages` 为 0 或 `/dp unresolved off` 时不写 | `haiku` | `haiku` |
 
 ## 改用 Clef 的注意事项
 
