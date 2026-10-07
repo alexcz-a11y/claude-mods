@@ -262,6 +262,8 @@ export type Config = {
   unresolved: {
     /** The model that writes the problem summary after each of the person's turns (`summaryModel`). */
     summaryModel: string
+    /** The count from which the effort question of a message and of a mid-turn re-decision carries the strong hint (`unresolvedMaxAfter`; 0: never). */
+    maxAfter: number
   }
 }
 
@@ -361,7 +363,10 @@ export function readConfig(options: PluginOptions): Config {
       profileModel: stringOf(options.skillsProfileModel, DEFAULT_PROFILE_MODEL).trim() || DEFAULT_PROFILE_MODEL,
       profilesPerSession: whole(options.skillsProfilesPerSession, 0, 500, 30),
     },
-    unresolved: { summaryModel: stringOf(options.summaryModel, DEFAULT_SUMMARY_MODEL).trim() || DEFAULT_SUMMARY_MODEL },
+    unresolved: {
+      summaryModel: stringOf(options.summaryModel, DEFAULT_SUMMARY_MODEL).trim() || DEFAULT_SUMMARY_MODEL,
+      maxAfter: whole(options.unresolvedMaxAfter, 0, 10, 3),
+    },
   }
   // In the table's order, whatever order they were read in.
   used.sort((a, b) => PER_BACKEND_OPTIONS.indexOf(a[0]) - PER_BACKEND_OPTIONS.indexOf(b[0]))

@@ -21,13 +21,13 @@ import type { EngineInterface, On } from 'claude-code'
 import { EFFORTS, LEVEL, probsOf, readEffort, readingText, traceEffort, type Effort, type EffortReading } from '../decision/effort.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { turnStartPart } from '../decision/turn-start.ts'
-import { judgeUnresolved, readUnresolved, UNRESOLVED } from '../decision/unresolved.ts'
+import { givesHint, judgeUnresolved, readUnresolved, UNRESOLVED } from '../decision/unresolved.ts'
 import { contribute, type PartOutcome } from '../core/ballot.ts'
 import { commandOf, commandState } from '../core/commands.ts'
-import { keptSummary, moveCount, unresolvedDecision, type CountCell } from '../core/unresolved.ts'
+import { hintDecision, keptCount, keptSummary, moveCount, unresolvedDecision, type CountCell } from '../core/unresolved.ts'
 import { addPending, revise, turnKey, update, type Cell, type PendingDecision, type TurnRecord } from '../core/plans.ts'
 import { isPersonsMessage, startsReportTurn } from '../core/prompts.ts'
-import { report, type ReportIo, type UnresolvedRecord } from '../core/report.ts'
+import { report, type HintRecord, type ReportIo, type UnresolvedRecord } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import { UNRESOLVED_SWITCH } from './unresolved.ts'
@@ -83,22 +83,27 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
     const counting = !handBack && isOn(UNRESOLVED_SWITCH)
     // The summary there is: a write that is not done yet is no reason to wait, the decision uses the one before it.
     const summary = counting ? await keptSummary(countCell($)).catch(() => null) : null
+    // The count before this message (its own answer comes in the same request), and with it the strong hint once it has
+    // reached the setting: a sentence in the effort question about the kind of work, the level still the decision model's (ADR 0005).
+    const count = counting ? await keptCount(countCell($)).catch(() => 0) : 0
+    const maxAfter = ctx.config.unresolved.maxAfter
+    const hint: HintRecord | undefined = givesHint(count, maxAfter) ? { count, maxAfter } : undefined
     // About the main agent of the turn this message starts, or of the one running when it was typed into it.
     const forTurn = e.turnId === undefined ? ('next' as const) : ('current' as const)
 
     /** The effort this message's turn goes out at, and the board's word for it. */
-    const decideEffort = async (outcome: PartOutcome, io: ReportIo, unresolved?: UnresolvedRecord) => {
+    const decideEffort = async (outcome: PartOutcome, io: ReportIo, unresolved?: UnresolvedRecord): Promise<Effort | null> => {
       const about = { feature: handBack ? 'main-effort (agent report)' : 'main-effort', agent: 'main', forTurn, subject: quoteStart(e.text) }
       if (!outcome.ok) {
         await report(io, { decision: { ...about, routed: false, failure: { backend: ctx.backend.name, ...outcome.failure } } })
         await wait(null)
-        return
+        return null
       }
       const reading = readEffort(outcome.answers[LEVEL])
       if (reading === null) {
         await report(io, { decision: { ...about, routed: false, failure: { backend: ctx.backend.name, kind: 'parse', detail: 'no effort answer' } } })
         await wait(null)
-        return
+        return null
       }
       // pickEffort's rules with their working: the board shows the steps, never recomputes them (#23).
       const { effort, steps } = traceEffort(reading, ctx.config.thetaMax)
@@ -115,6 +120,8 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
           trace: steps,
           // What this message did to the unresolved count: the card draws it with the effort's.
           ...(unresolved === undefined ? {} : { unresolved }),
+          // The card says the hint was given.
+          ...(hint === undefined ? {} : { hint }),
         },
       })
       await wait(effort)
@@ -124,6 +131,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
         const turn: Cell<TurnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
         await update(turn, (record) => revise(record, effort))
       }
+      return effort
     }
 
     /**
@@ -147,7 +155,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
 
     contribute(e.text, {
       // Written in the decision model's language for these questions (Chinese with Jev); the other questions keep ctx.ask's.
-      ...turnStartPart({ ask: { ...ctx.ask, language: ctx.config.turnStartLanguage }, unresolved: counting, command, summary }),
+      ...turnStartPart({ ask: { ...ctx.ask, language: ctx.config.turnStartLanguage }, unresolved: counting, command, summary, count, maxAfter }),
       settle: async (outcome) => {
         const io: ReportIo = {
           board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
@@ -159,11 +167,13 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
         // The count first, so the effort's decision can say what this message did to it; neither depends on the other
         // (either answer can be missing, and the effort is decided and kept whatever becomes of the count).
         const counted = counting && outcome.ok ? await countUnresolved(outcome) : null
-        await decideEffort(outcome, io, counted?.unresolved)
+        const effort = await decideEffort(outcome, io, counted?.unresolved)
         // A count that moved is a decision of its own in the log (an answer that left it as it was is on the effort's card only).
         if (counted?.unresolved !== undefined && counted.unresolved.before !== counted.unresolved.count) {
           await report(io, { decision: { feature: UNRESOLVED_SWITCH, agent: 'main', aside: true, forTurn, subject: quoteStart(e.text), ...counted } })
         }
+        // Each hint given is a decision of its own in the log: the count, that it was given, the level that came of it.
+        if (hint !== undefined) await report(io, { decision: { feature: UNRESOLVED_SWITCH, agent: 'main', aside: true, forTurn, subject: quoteStart(e.text), ...hintDecision(hint, effort) } })
       },
     })
 

@@ -434,6 +434,10 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, raster: 
     )
     rows.push(hang(t, 'pane-card-unresolved-odds', '三选一', <Text color={MUTED} wrap="wrap">{`${said.odds}；${said.bars}`}</Text>, w))
   }
+  // The effort question had the strong hint (the count had reached the setting); the level is still the decision model's.
+  if (main && entry.hint !== undefined) {
+    rows.push(hang(t, 'pane-card-hint', '强提示', <Text wrap="wrap"><Text color={OK} bold>{'已给强提示'}</Text><Text color={MUTED}>{`  次数 ${entry.hint.count} ≥ ${entry.hint.maxAfter}，档位仍由决策模型定`}</Text></Text>, w))
+  }
   return rows
 }
 

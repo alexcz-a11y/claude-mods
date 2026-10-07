@@ -11,6 +11,8 @@ import { clipToTokens, estimateTokens, messageText, withinTokens } from './conte
 import { DEFAULT_ASK, EFFORTS, effortQuestion, traceEffort, type Effort, type EffortAsk, type EffortReading, type EffortTrace, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import type { Part, State } from './system-one.ts'
+import { COUNT_FIELD, withHint } from './unresolved.ts'
+import { SUMMARY_FIELD } from './summary.ts'
 
 /** The mid-turn part's name and its one question's id: `midturn.level` in the request. */
 export const MIDTURN_PART = 'midturn'
@@ -44,6 +46,10 @@ export type MidturnInput = {
   recent_steps: readonly MidturnStep[]
   /** Why the turn is re-decided out of turn (a forced raise when it is stuck, #7); absent otherwise. */
   trouble?: string
+  /** The problem summary, worded for the decision model (`renderSummary`); absent when there is none or the unresolved switch is off (#41). */
+  problem_summary?: string
+  /** How many times the person has said the problem is still unresolved; absent while it is 0 (#41). */
+  unresolved_count?: number
 }
 
 /**
@@ -168,6 +174,8 @@ function midturnFields(input: MidturnInput, limits: MidturnLimits, show: Midturn
   const head = {
     user_message: messageText(input.message, Math.floor(limits.tokens / 2)),
     ...(input.trouble ? { trouble: input.trouble } : {}),
+    ...(input.problem_summary ? { [SUMMARY_FIELD]: input.problem_summary } : {}),
+    ...(input.unresolved_count ? { [COUNT_FIELD]: input.unresolved_count } : {}),
     step: input.step,
     ...(show.currentEffort === false ? {} : { current_effort: input.current_effort }),
     ...(show.counts === false ? {} : { counts: input.counts }),
@@ -219,11 +227,13 @@ const MIDTURN: Record<EffortAsk['language'], { base: Readonly<Record<string, str
 }
 
 /** The part a mid-turn request carries: `midturn.level`, the same five levels as at the turn's start. */
-export function midturnEffortPart(ask: Partial<EffortAsk> = {}, options: { trouble?: boolean } = {}): Part {
+export function midturnEffortPart(ask: Partial<EffortAsk> = {}, options: { trouble?: boolean; hint?: boolean } = {}): Part {
   const asked = { ...DEFAULT_ASK, ...ask }
   const words = MIDTURN[asked.language]
   const instructions = options.trouble ? { ...words.base, ...words.trouble } : words.base
-  return { part: MIDTURN_PART, questions: { [MIDTURN_LEVEL]: effortQuestion(instructions, asked) } }
+  const part = { part: MIDTURN_PART, questions: { [MIDTURN_LEVEL]: effortQuestion(instructions, asked) } }
+  // The strong hint when the problem has gone round enough times (#41); like the message's, a sentence about the work, never a level.
+  return options.hint === true ? withHint(part, asked.language) : part
 }
 
 export type MidturnRules = {

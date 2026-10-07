@@ -15,7 +15,8 @@
 import { countAfter, UNRESOLVED_OPTIONS, type UnresolvedJudgement, type UnresolvedOption } from '../decision/unresolved.ts'
 import { markLast, SUMMARY_TIMEOUT_MS, type Summary } from '../decision/summary.ts'
 import { replace, update, type Cell } from './plans.ts'
-import type { Decided, UnresolvedRecord } from './report.ts'
+import type { Effort } from '../decision/effort.ts'
+import type { Decided, HintRecord, UnresolvedRecord } from './report.ts'
 
 /** The summary as it is kept: the turn it was last written for beside it. */
 export type StoredSummary = Summary & { turn: string }
@@ -67,6 +68,11 @@ export async function moveCount(cell: CountCell, change: UnresolvedJudgement['ch
 /** A conversation that ends (`/clear`, a new session) starts the count and the summary over. */
 export async function clearCount(cell: CountCell): Promise<void> {
   await update(cell, () => ({ count: 0 }))
+}
+
+/** The count the session holds now (0 when none): what the effort request carries, and what the strong hint is given at. */
+export async function keptCount(cell: CountCell): Promise<number> {
+  return (await cell.get()).value?.count ?? 0
 }
 
 /** The summary, when there is one: what the effort request carries. */
@@ -182,5 +188,22 @@ export function unresolvedDecision(judged: UnresolvedJudgement, moved: { before:
     tone: judged.change === 'keep' ? 'info' : 'ok',
     ...(judged.confidence === null ? {} : { conf: judged.confidence }),
     unresolved: record,
+  }
+}
+
+/**
+ * A strong hint given, as the log's decision (beside the effort's own, never a node of the board): the count it was
+ * given at, the setting it had reached, and the level the decision model came to (`effort`; null when the request got no
+ * usable answer). `where: 'mid'` for a mid-turn re-decision's.
+ */
+export function hintDecision(hint: HintRecord, effort: Effort | null): Pick<Decided, 'outcome' | 'reason' | 'tone' | 'hint' | 'effort'> {
+  const where = hint.where === 'mid' ? '中途重判' : '发消息时'
+  const came = effort === null ? '这次请求没有给出档位' : `决策模型判出 ${effort}`
+  return {
+    outcome: `已给强提示（次数 ${hint.count}）`,
+    reason: `${where}：次数 ${hint.count} ≥ ${hint.maxAfter}（unresolvedMaxAfter），effort 题多了一条强提示：这项工作属于多次尝试都没解决的故障；档位仍由决策模型定，${came}`,
+    tone: 'info',
+    hint,
+    ...(effort === null ? {} : { effort }),
   }
 }
