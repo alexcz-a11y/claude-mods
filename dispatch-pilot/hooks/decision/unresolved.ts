@@ -67,6 +67,42 @@ export function withUnresolved(part: Part, language: Language): Part {
   return { ...part, questions: { ...part.questions, [UNRESOLVED]: unresolvedQuestion(language) } }
 }
 
+/** The count's field in the state of a request that carries it (beside `problem_summary`); present from the first "still unresolved" on. */
+export const COUNT_FIELD = 'unresolved_count'
+
+/**
+ * Whether a count calls for the strong hint: it has reached `maxAfter` (the setting; 0 for never). Only a hint (ADR 0005):
+ * what it does to the effort is the decision model's to say.
+ */
+export function givesHint(count: number, maxAfter: number): boolean {
+  return maxAfter > 0 && count >= maxAfter
+}
+
+/**
+ * The strong hint, as one more instruction of an effort question: this work belongs to a problem that several attempts
+ * did not solve. It names the situation the question's own descriptions already hold, never a level and never a number
+ * (ADR 0005); the decision model weighs it with the rest. The key is in the language of the instructions.
+ */
+const HINT: Record<Language, { key: string; text: string }> = {
+  en: {
+    key: 'unsolved',
+    text: 'This work belongs to a failure that several earlier attempts have not solved: `unresolved_count` is how many times the person has said it is still not solved, and `problem_summary` (when there is one) and `recent_context` show what was tried.',
+  },
+  zh: {
+    key: '未解决',
+    text: '这项工作属于多次尝试都没解决的故障：`unresolved_count` 是用户已经说过“仍未解决”的次数，`problem_summary`（有的话）和对话记着试过什么。',
+  },
+}
+
+/** The part with the strong hint added to its effort question (`level`: the main agent's at a message, and the mid-turn one). */
+export function withHint(part: Part, language: Language): Part {
+  const level = part.questions.level
+  // The effort questions' instructions are always an object (see effort.ts); anything else is left as it is.
+  if (level === undefined || typeof level.instructions !== 'object' || Array.isArray(level.instructions)) return part
+  const { key, text } = HINT[language]
+  return { ...part, questions: { ...part.questions, level: { ...level, instructions: { ...level.instructions, [key]: text } } } }
+}
+
 /** The probability of each option (three numbers summing to 1) and the backend's confidence. */
 export type UnresolvedReading = { probabilities: Readonly<Record<UnresolvedOption, number>>; confidence: number | null }
 

@@ -10,7 +10,7 @@ import { estimateTokens, turnStartState, type ContextLimits, type ContextMessage
 import { DEFAULT_ASK, turnStartEffortPart, type EffortAsk } from './effort.ts'
 import { renderSummary, SUMMARY_FIELD, type Summary } from './summary.ts'
 import { mergeParts, type DecisionRequest, type Part } from './system-one.ts'
-import { withUnresolved } from './unresolved.ts'
+import { COUNT_FIELD, givesHint, withHint, withUnresolved } from './unresolved.ts'
 
 /** The state's budget is never cut below this many tokens by what the parts add to it. */
 const LEAST_STATE = 100
@@ -36,6 +36,10 @@ export type TurnStartPartInput = {
   command?: Readonly<Record<string, string>> | null
   /** The problem summary the decision model reads from this message on; none when there is none yet or the switch is off. */
   summary?: Summary | null
+  /** How many times the person has said the problem is still unresolved, before this message; the state carries it from the first on. */
+  count?: number
+  /** The count from which the effort question has the strong hint (`unresolvedMaxAfter`; 0 or none: never). */
+  maxAfter?: number
 }
 
 /**
@@ -45,10 +49,13 @@ export type TurnStartPartInput = {
 export function turnStartPart(input: TurnStartPartInput = {}): Part {
   const ask = { ...DEFAULT_ASK, ...input.ask }
   const part = turnStartEffortPart(ask)
-  const questions = input.unresolved === true ? withUnresolved(part, ask.language) : part
+  const count = input.count ?? 0
+  const asked = input.unresolved === true ? withUnresolved(part, ask.language) : part
+  const questions = givesHint(count, input.maxAfter ?? 0) ? withHint(asked, ask.language) : asked
   const state: Record<string, unknown> = {
     ...(input.command === undefined || input.command === null ? {} : { command: input.command }),
     ...(input.summary === undefined || input.summary === null ? {} : { [SUMMARY_FIELD]: renderSummary(input.summary, ask.language) }),
+    ...(count > 0 ? { [COUNT_FIELD]: count } : {}),
   }
   return Object.keys(state).length === 0 ? questions : { ...questions, state }
 }

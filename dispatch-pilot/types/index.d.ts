@@ -248,6 +248,13 @@ declare module 'claude-code' {
           conf?: number
           thresholds: { add: number; reset: number }
         }
+        /**
+         * The strong hint was given with this decision's request (the effort question of a message, or of a mid-turn
+         * re-decision, had one more instruction): the count it was given at and the setting (`unresolvedMaxAfter`) it
+         * had reached. `where: 'mid'` for a mid-turn re-decision's; the main agent's effort decision and the entry of
+         * feature `unresolved` that records the hint carry it.
+         */
+        hint?: { count: number; maxAfter: number; where?: 'mid' }
       }[]
       /**
        * The agent the person picked on the band (its digit key, 0 the main agent) or paged to in the rationale

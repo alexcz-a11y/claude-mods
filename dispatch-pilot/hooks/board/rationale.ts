@@ -269,7 +269,7 @@ export function entryVerb(entry: LogEntry): string {
     case 'escalation':
       return entry.forced !== undefined ? '强制升档' : entry.mid !== undefined && entry.mid.result !== entry.mid.current ? '重判改档' : '未升档'
     case 'unresolved':
-      return entry.unresolved === undefined ? '记录' : unresolvedWords(entry.unresolved).verdict
+      return entry.hint !== undefined ? '给了强提示' : entry.unresolved === undefined ? '记录' : unresolvedWords(entry.unresolved).verdict
     case 'skills':
       return entry.skills !== undefined && entry.skills.suggest.length + entry.skills.try.length > 0 ? '已建议' : '没有建议'
     case 'find-skill':

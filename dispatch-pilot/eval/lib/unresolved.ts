@@ -68,11 +68,13 @@ export type UnresolvedPrediction = { effort: Effort; triage: Triage | null }
  * question, the three-way question, a command turn's command, the summary when
  * one is given) in the state the mod builds for the message (`messageRequest`,
  * the limits of the request the variant stands for). The part is returned to
- * read the answers by.
+ * read the answers by. `count`: how many times the person had already said the
+ * problem is unresolved, and the setting the strong hint starts at
+ * (`unresolvedMaxAfter`): the mod's request carries them the same way (#41).
  */
-export function unresolvedRequest(item: UnresolvedItem, language: Language, variant: Variant, settings: Settings, summary: Summary | null = null): { request: DecisionRequest; part: Part } {
+export function unresolvedRequest(item: UnresolvedItem, language: Language, variant: Variant, settings: Settings, summary: Summary | null = null, count: { count: number; maxAfter: number } | null = null): { request: DecisionRequest; part: Part } {
   const asked = item[language]
-  const part = turnStartPart({ ask: variant.ask, unresolved: true, command: asked.command ?? null, summary })
+  const part = turnStartPart({ ask: variant.ask, unresolved: true, command: asked.command ?? null, summary, ...(count === null ? {} : count) })
   // The mod's own limits: the request of its own (`wide`) or the one shared with the skills' question (messageLimits).
   const request = messageRequest({ prompt: asked.message, messages: contextMessages(asked.recent_context), limits: messageLimits(settings, !variant.wide), parts: [part] })
   return { request, part }
