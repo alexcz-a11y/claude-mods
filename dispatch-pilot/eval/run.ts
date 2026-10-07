@@ -128,7 +128,11 @@ const price = PRICES[backendName]
 // counts what it sends first), at the mod's token estimate times what Jev
 // actually counted: 6468 tokens for 8 effort-submit requests estimated at
 // 4127 (2026-10-04), so 1.6.
-const ESTIMATE_FACTOR = 1.6
+// Perplexity counts differently, by the kind of text: against the mod's estimate (without the factor) its input tokens
+// were 0.7 times for the skill suite, 0.9 for effort-submit, 1.0 for effort-midturn, 1.7 for subagent and 2.9 for
+// unresolved (2026-10-07: the long logs of its conversations tokenize four times as densely as the estimate's four
+// characters a token), so its factor is 3, so as never to estimate less than a run costs.
+const ESTIMATE_FACTOR = backendName === 'pplx' ? 3 : 1.6
 const planned: DecisionRequest[] = []
 for (const item of items) {
   for (const variant of variants) {

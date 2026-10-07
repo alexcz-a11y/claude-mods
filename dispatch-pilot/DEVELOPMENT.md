@@ -869,6 +869,7 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 
 - `jevBackend(apiKey)`：`POST https://api.typesafe.ai/v1/systemone`，Bearer 认证，回答在响应的顶层 `answers`。
 - `clefBackend({ accountId, apiToken })`：`POST https://api.cloudflare.com/client/v4/accounts/<account ID>/ai/run/@cf/cloudflare/clef`，Bearer 认证，请求体必须带 `"model":"clef"`。回答在 Cloudflare 外壳的 `result.answers` 里（`{ result: { model, answers, usage }, success, errors, messages }`，已用真实的 Clef 确认；`result.model` 是 `clef`，不带版本号）。失败也在同一个外壳里：`success: false`、`result: null`、错误码在 `errors[0].code`。同样是 HTTP 429，3036（免费额度当天用完）和 3040（一时繁忙）要分开处理，所以 `clef.ts` 给 `postJson` 传了自己的 `classify`，读错误码分类（3036 记为 `quota`，3040、3007、3008 记为 `busy`，其余按 HTTP 状态）。凭证为空时不发送请求，失败的说明里出现的 account ID 和 token 都会被遮掉。
+- `pplxBackend(apiKey)`（`decision/pplx.ts`，#43）：Perplexity 的决策模型 `pplx-decider-v1.1-27b`，`POST https://api.perplexity.ai/v1/decisions`，Bearer 认证。请求体只有 `model`、`state`、`questions`（多一个顶层字段文档说返回 400），问题部分和 Jev 一字不差；回答在顶层 `answers`，`score` 的 `legend` 和 `probabilities`、`choice` 的 `probabilities` 都按字符串下标或选项名，`readResponse` 照常读。**mod 里还不能选它**（`decisionModel` 只有 jev 和 clef，`userConfig` 没有它的密钥）：只有评测 `--backend pplx` 用，换不换由 #43 的数字之后的 `/grill-with-docs` 定。模型名固定（API 只认 `pplx-decider-v1.1-27b` 和 `pplx-decider-v1-27b`，没有 `-latest`）。失败：401 和 403 记 `config`；429、500、502、503、529 记 `busy`（429 的说明带 `Retry-After` 的秒数）；504 和 408 记 `timeout`（504 是模型一分钟内没答，body 可能是 HTML，说明里写「an HTML page, not JSON」，不抄进日志）；其余（400、413、404、405）记 `http`，说明是 `error.type: error.message`，404 和 405 的 body 是空的写「empty body」；2xx 不是 JSON 或没有 `answers` 记 `parse`；说明里出现密钥的地方换成 `[REDACTED]`。实测（2026-10-07 探针，`tests/pplx.test.ts` 按文档的响应写）：`instructions` 是对象或数组、问题带多余字段、问题 ID 带点号、Choice 的描述是对象，API 都照收（200），所以 mod 的请求原样可发；Score 只有一档时 `usage.input_tokens` 是 0。
 - `core/setup.ts` 按 `decisionModel` 二选一，只构造被选中的那个后端；失败时不会改用另一个。
 - `Backend.configured` 为 `false` 表示用户还没配好这个后端（Jev 没有 key，Clef 缺 account ID 或 token），这时它的每次 `ask` 都会立刻以 `config` 失败返回。拿东西去换决策的功能，在这种情况下不应该动手：skill 推荐在这时不隐藏列表。新增后端时，要按自己的凭证设置这个字段。
 
@@ -938,7 +939,7 @@ test('……', { options: { typesafeApiKey: 'k' } }, async ($, on) => {
 
 **给 `unresolved` 评测集（#37、#6）：三选一题在接缝 2。** `decision/unresolved.ts` 是纯模块，评测直接 import：`withUnresolved(turnStartEffortPart(ask), language)` 是发消息时的 effort part（`effort.level` 加 `effort.unresolved`，和线上同一份，拼请求照常 `mergeParts(turnStartState(...), [part])`，限额用 `messageLimits(settings, false)`）；`readUnresolved(answersFor(part, answers).unresolved)` 把回答读成三个选项的概率（归一化，缺了或不是 Choice 是 `null`）；`judgeUnresolved(reading, thresholds?)` 按两档门槛返回 `{ change: 'add' | 'reset' | 'keep', top, probabilities, confidence, thresholds }`：`top` 对三选一的金标，`change` 对「次数该加一、清零还是不变」；门槛 `UNRESOLVED_THRESHOLDS` 是暂定值，评测要扫门槛就传第二个参数。选项名固定为 `still_unresolved`、`resolved`、`new_or_unrelated`（`UNRESOLVED_OPTIONS`，顺序也是问的顺序；Choice 偏向第一项，评测要做换序对照的话改 `unresolvedQuestion` 里 criteria 的顺序）。
 
-评测用真实的 Jev 或 Clef（`--backend clef`）测决策的准确率，脚本用 Node 运行，放在 `eval/`：
+评测用真实的 Jev、Clef（`--backend clef`）或 Perplexity（`--backend pplx`，#43；密钥是 `PERPLEXITY_API_KEY`，读法同上，价格 0.02 美元每百万 input token，`--estimate` 的系数取 3，见 `run.ts`）测决策的准确率，脚本用 Node 运行，放在 `eval/`。`--backend pplx` 读 mod 的设置时当作 Jev（`lib/suite.ts` 的 `settingsModel`）：请求、state 预算、超时、问题语言都和 Jev 一样，所以对照只差决策模型；`--state-tokens N` 把每一类请求的 state 预算设成 N（mod 自己的选项只能调低，这个能调高，结果文件的 `settings.stateTokens` 记着；`settings.messageStateTokens` 记每次运行里发消息时 effort 请求的预算）：
 
 ```
 eval/
@@ -1104,6 +1105,73 @@ eval/
   - **只能由用户触发的 skill 挤掉了能加载的 gold**（033、090、091、092）：第一段的 Choice 把几乎全部概率给了只能由用户触发的那个（033 的 improve-codebase-architecture 0.98–1.00、090 的 grill-with-docs 0.99–1.00），能加载的 gold（codebase-design、grilling、domain-modeling）分不到 0.1，进不了第二段。提示是对的，推荐漏了。这是第一段只问一个 Choice 的结构问题：两类 skill 在同一个问题里互相抢概率。第 1 轮审查之后第一段拆成了两题（`skills.which` 只问能加载的，`skills.hint` 只问只能由用户触发的，见「开发」的排序一节），上面的数字都是拆分之前跑的，要重跑两个变体才知道这几题和整体的数字（#17 按用户的决定没有重跑）。
   - **第二段确认了诱导**：041（「这个会话想从 Opus 切到 Sonnet，命令怎么敲」，claude-api 0.91–0.93）、050（问 Graphiti 的一个参数，research 0.74–0.86），017（后台挂着 dev server，run 0.70–0.79，中立但这题不该推荐；8 次里错 7 次）。画像的「何时不用」没有挡住它们。
   - **第二段过严**：096（「ctrl+r 老跟 tmux 撞键」，第一段 keybindings-help 0.71–0.94，第二段只给 0.08–0.46）；018（在输入框上方常驻一条横栏，正是 plugin-authoring 说的 band，第二段只给 0.33–0.68，`profiles` 下还推了中立的 ui-ux-pro-max）；052（claude-api 和 typesafe-ai 之间拿不准，相关度都在 0.6 以下；053、109 也是 8 次里错 7 次）；099 只在 `profiles` 下错（code-review 0.52–0.65，security-review 在第一段只分到 0.03–0.05）。
+
+#### Perplexity 决策后端对 Jev（pplx，#43，2026-10-07）
+
+`pplx-decider-v1.1-27b` 接成后端（`decision/pplx.ts`），在全部评测集上和同一天、同一份代码的 Jev（jev-1.13.0）正面对比。**这一票不改 mod 的默认后端，`userConfig` 也没有它**；换不换、门槛怎么按它校准（#42）、问法用哪种语言，等这些数字之后走 `/grill-with-docs`。
+
+- **做法。** `eval/run.ts <类> --backend pplx|jev --label r1|r2`，每个后端每套评测集跑两遍（`results/<类>/2026-10-07-pplx-r1.json`、`-r2.json`，Jev 同名），都是 `--concurrency 1`，代码是合入 #40 之后的 dp/pplx-43（结果里的 `code` 哈希一致），设置取 Jev 的默认值（pplx 读 mod 的设置时当作 Jev）。**state 预算：发消息时的 effort 请求都是 24000**（`settings.messageStateTokens`；effort-submit、unresolved 只跑 `-wide` 变体 `zh-score-wide`、`en-score-wide`，按协调者的决定不再跑 6000 的）；effort-midturn 的中途重判、subagent 的派出 agent 也是 24000（`contextByKind.rejudge`、`agent`）；skill 的两段请求是带 skill 问题的那个请求，state 6000（`config.context`，线上就是这样）。每个后端每遍 5 套：effort-submit 4 个变体 × 100 题 × 中英，effort-midturn 6 个变体、subagent 6 个变体各 100 题 × 中英，skill 3 个变体 109 题 × 中英，unresolved 2 个变体 30 题 × 中英。费用（按两边响应里的 `usage.input_tokens` 算，Jev 0.042、Perplexity 0.02 美元每百万）：一遍全部 5 套，Jev 约 0.74 美元，pplx 约 0.30 美元；整件事（两遍、扫描、探针）pplx 约 0.8 美元，Jev 约 1.5 美元。`--backend pplx --estimate` 的系数取 3：pplx 数的 token 和 mod 的估算的比，skill 0.7、effort-submit 0.9、midturn 1.0、subagent 1.7、unresolved 2.9（长日志每个字符几乎一个 token，估算是四个字符一个），系数按最坏的取，宁可高估。
+- **pplx 几乎是确定的。** 两遍的回答逐题几乎全部相同（effort-submit 四个变体两遍的准确率、判高、判低一模一样），Jev 两遍差 0–3 个百分点（抽样波动）。所以 pplx 两遍的差只在延迟，比较时 Jev 看两遍的范围，pplx 看一遍就够。
+- **没有失败。** 两个后端、两遍、全部套件：没有失败，没有重试（`run.attempts` 等于 `run.requests`），没有 429。skill 的行里 `attempts` 是 2，是第一段加第二段两个请求，不是重试。
+
+**准确率、判得太高 / 太低、max 召回**（百分比，题数是 100 或 30，一题 = 1 或 3.3 个百分点；中 / 英；两遍写范围）：
+
+| 套件（变体） | Jev 准确率 | pplx 准确率 | Jev 判高 / 判低 | pplx 判高 / 判低 | max 召回 Jev | max 召回 pplx |
+|---|---|---|---|---|---|---|
+| effort-submit `zh-score` | 86–88 / 85–86 | 85 / 81 | 7–8 / 5–6；9 / 5–6 | 14 / 1；16 / 3 | 2–4 / 8；2–3 / 8 | 5 / 8；4 / 8 |
+| effort-submit `en-score` | 80 / 79–80 | 81 / 79 | 17 / 3；17 / 3–4 | 18 / 1；19 / 2 | 6 / 8；5 / 8 | 5 / 8；5 / 8 |
+| effort-submit `zh-choice` | 88–89 / 87–89 | 87 / 83 | 4 / 7–8；5–6 / 6–7 | 9 / 4；13 / 4 | 2 / 8；2–3 / 8 | 2 / 8；2 / 8 |
+| effort-submit `en-choice` | 83 / 83–84 | 88 / 83 | 11 / 6；10–11 / 5–7 | 11 / 1；15 / 2 | 6 / 8；5–6 / 8 | 5 / 8；4 / 8 |
+| unresolved `zh-score-wide` | 73–77 / 70–73 | 93.3 / 93.3 | 0；0 / 23–27；27–30 | 0；0 / 6.7；6.7 | 15–23 / 13 题 | 92.3 / 13 题 |
+| unresolved `en-score-wide` | 80 / 80–83 | 93.3 / 93.3 | 3.3；3.3 / 17；13–17 | 3.3；3.3 / 3.3；3.3 | 69；77–85 / 13 题 | 100；100 / 13 题 |
+| effort-midturn 六个变体 | 72–79（`zh-score` 78 / 74–75） | 78–84（`zh-score` 82 / 82） | 6–11 / 13–17 | 4–11 / 6–14 | | |
+| subagent `models-hint`（整题） | 69–70 / 65–67 | 62 / 62 | 23–26（effort 判高） | 36–37 | | |
+| subagent `work-hint` | 66 / 64 | 68 / 69 | 24–27 | 30–31 | | |
+| skill `profiles`（线上的常态） | 78.9–79.8 / 79.8 | 91.7 / 88.1 | | | | |
+| skill `descriptions` | 79.8 / 79.8 | 86.2 / 88.1 | | | | |
+
+- **effort-submit**：和 Jev 在同一个量级，不是明显更好。pplx 对「max 召回」（8 题 gold 为 max）5/8，和 Jev 的 `en-score`（5–6/8）相当，比 Jev 的 `zh-score`（2–4/8）高；判高（把不需要这么深的题判深）明显更多（`zh-score` 14–16 对 7–9，`en-score` 18–19 对 17），判低几乎没有（1–3 对 5–6）：pplx 偏向给高档，Jev 的 `pickEffort` 门槛（`thetaMax` 0.5 等）是按 Jev 校准的，换后端要重扫。不该给 max 的 88 题里 pplx 只有 `en-score`（中英各 1 题）和 `en-choice`（英文 1 题）给了 max（Jev `en-score` 英文也是 1 题）。中英差距（中文减英文，门槛是中文不比英文低过 4 个百分点）：pplx 四个变体是 +2、+4、+5、+4，中文都比英文好，都过；Jev 是 −1 到 +3。
+- **unresolved**（#37 的 30 题，金标由子代理写、用户尚未审，合入 #40 之后的请求，三选一题和 effort 题在同一个请求里，24000）：**这是差别最大的一套**。线上问法 `zh-score-wide`：Jev 准确率 73–77 / 70–73、max 召回只有 2–3/13，pplx 93.3 / 93.3、max 召回 12/13；`en-score-wide`：Jev 80 / 80–83、max 召回 9–10/13，pplx 93.3、max 召回 13/13；两个后端判高最多 1 题（只在 `en-score-wide`）。中文问法在 pplx 上不再比英文差，两种问法一样好（Jev 上中文问法不敢给 max，要靠 #40 摘要和 #41 强提示补；pplx 上这个缺口基本不在）。三选一题（未解决 / 已解决 / 新问题）两个后端都是 96.7–100（30 题错 0–1 题），按两档门槛对次数的作用：「仍未解决」被清零（`lostRecord`）和被误加一（`falseAdd`）都是 0。
+- **effort-midturn**：pplx 六个变体的整题准确率比 Jev 高 1–8 个百分点（多数 4–7），判低从 13–17 降到 6–14，判高相当。
+- **subagent**（派出 agent，model 和 effort 两部分）：不是一边倒。`models-hint`、`models-noul`、`models-hint-single`、`models-hint-zh` pplx 低 3–8 个百分点（effort 判高 35–39 对 Jev 的 20–30，`effort` 部分 62 对 71；`model` 部分 84 对 89），`work-hint`、`work-noul` pplx 高 0–5 个百分点。
+- **skill**：pplx 整题高 6–13 个百分点（`profiles` 91.7 / 88.1，Jev 78.9–79.8 / 79.8），`suggest` 94.5 / 93.6 对 82.6–83.5 / 85.3，`hint` 97.3 / 93.6 对 95–96 / 94.5。**代价是慢**，见下面。
+
+**延迟**（`--concurrency 1`，ms；p50 / p90 / 最长，两遍的范围）：
+
+| 请求 | Jev | pplx |
+|---|---|---|
+| 发消息时的 effort 请求（effort-submit，四个变体，24000） | 288–302 / 330–398 / 最长 652 | 428–432 / 445–512 / 最长 1674 |
+| unresolved（effort 加三选一，含约 8k 估算 token 的长日志） | 304–332 / 362–406 / 最长 605 | 445–447 / 875–948 / 最长 2002 |
+| 中途重判（effort-midturn，六个变体） | 282–291 / 315–349 / 最长 672 | 432–437 / 479–524 / 最长 1853 |
+| 派出 agent（subagent，六个变体） | 286–297 / 340–370 / 最长 1384 | 438–493 / 523–650 / 最长 1841 |
+| skill 两段合计，`profiles`（线上的常态和 find_skill） | 853–870 / 924–941 / 1182–1199 | **1485–1491 / 1575–1653 / 2605–2676** |
+| skill 两段合计，`descriptions` | 602–620 / 656–718 / 823–1048 | 998–1007 / 1071–1151 / 1159–1482 |
+| skill 第一段（`profiles`）/ 第二段 | 563–568 / 289–293 | 1062–1063 / 432–434 |
+
+skill 的第一段带着 111 份画像，Jev 计 2.2 万 token，pplx 第一段 p50 就是 1.06 秒，加第二段 0.43 秒，**两段合计 p50 1.49 秒，贴着 Jev 的 `timeoutMs` 1500**。mod 让两段共用一次等待（`timeoutMs`），按 1500 算，`profiles` 里 pplx 的 `late`（总延迟超过 `timeoutMs`）第一遍中文 34、英文 39 题（各 109 题，`inTime` 65.1 / 58.7），第二遍 48 / 47（`inTime` 50.5 / 52.3）；Jev 是 0 / 0。也就是**线上的 skill 推荐按 1500 ms 有 31–44% 赶不上，推荐不出去**（那条消息照常，只是没有 skill 推荐；两遍相差大是因为 p50 正好贴在 1500 上）；`descriptions` 没有赶不上的（p90 1.07–1.15 秒）。`profiles-zh` 和 `profiles` 一样（`late` 第一遍 30 / 36，第二遍 51 / 50）。skill 第一段单独超过 1500 ms 的极少（最长 2.25 秒），慢在两段加起来。
+
+**按等待时间离线重算**（用存下来的逐题 ms，两遍合起来，不重跑；结果里的 `late` 只按 mod 现在的 `timeoutMs` 1500 算，这里看 1500 / 2000 / 2500 / 3000 / 4000 ms 下按时到达的比例）：
+
+| 请求（题数） | 后端 | p99 / 最长 | ≤1500 | ≤2000 | ≤2500 | ≤3000 | ≤4000 |
+|---|---|---|---|---|---|---|---|
+| 发消息时的 effort（effort-submit，1600） | Jev | 493 / 652 | 100% | 100% | 100% | 100% | 100% |
+| | pplx | 599 / 1674 | 99.9% | 100% | 100% | 100% | 100% |
+| 发消息时的 effort（unresolved，240） | Jev | 524 / 605 | 100% | 100% | 100% | 100% | 100% |
+| | pplx | 1549 / 2002 | 98.8% | 99.6% | 100% | 100% | 100% |
+| skill 两段合计 `profiles`（436；find_skill 同） | Jev | 1157 / 1199 | 100% | 100% | 100% | 100% | 100% |
+| | pplx | 1786 / 2676 | **61.5%** | 99.5% | 99.5% | 100% | 100% |
+| skill 两段合计 `descriptions`（436） | pplx | 1319 / 1482 | 100% | 100% | 100% | 100% | 100% |
+| 派出 agent（subagent，2400） | Jev | 607 / 1384 | 100% | 100% | 100% | 100% | 100% |
+| | pplx | 896 / 1841 | 99.9% | 100% | 100% | 100% | 100% |
+
+中途重判（effort-midturn，2400 个请求）按「问题在工具开始时发出，下一步最多再等 `rejudgeWaitMs`」算：工具运行 t 毫秒时，回答赶得上的是 ms ≤ t + `rejudgeWaitMs`。Jev：t = 0 时 ≤300 ms 的 70.0%，≤500 的 99.7%；pplx：≤300 的 **0%**，≤500 的 88.0%，≤800 的 99.7%，≤1000 的 99.8%，≤1300 的 99.9%（p50 435）。所以 pplx 在 `rejudgeWaitMs` 300 下，只有工具至少跑了约 150–300 ms 的步才赶得上，快的工具（读文件、grep）后面的回答多半迟到，用在再下一步。
+
+**对 pplx 的建议值（BACKEND_DEFAULTS，这一票不改）**：`timeoutMs` **2500**（发消息时 effort 请求按 2000 已经 99.6–99.9%，skill 的 `profiles` 两段合计 2000 是 99.5%、2500 是 99.5%、3000 是 100%；再算上下面的长状态探针，一个 24000 估算 token 的全日志状态要 2.2 秒，2500 才稳；比 1500 多出的 1 秒只落在慢的请求上，快的不受影响）；`rejudgeWaitMs` **800**（99.7% 的重判回答在下一步赶上；300 的话快工具之后几乎都迟到；这个选项不是按后端取默认值的，所以要先让它进 `PER_BACKEND_OPTIONS`）；`findSkillWaitMs` **3000**（两段合计 100%，最长 2.7 秒，find_skill 是主 agent 自己的调用，等得起）。`skillsMinRelevance`、`thetaUp` 这些门槛没有扫：pplx 的 effort 偏高，`thetaMax`、`thetaDown` 要按它的存下来的概率离线重扫（`eval/rescore.ts`）再定。
+
+**state 预算扫描（只对 pplx，unresolved 的两个 `-wide` 变体，48000、96000 各两遍）**：和 24000 的结果逐字相同（pplx 数的 input token 都是 1,080,644，准确率、max 召回、判高判低、三选一都相同）。原因：unresolved 数据集里最长的对话估算只有约 7,980 token（60 个中英状态里最长的），effort-submit 最长约 270、skill 约 150，都远不到 24000；effort-midturn 和 subagent 没有 `recent_context`，请求平均约 900 和 2,200 token（Jev 数的）。**所以这些评测集量不出更大的窗口值不值**：它们的对话本身不够长，24000、48000、96000 发出去的请求是同一个。（`results/unresolved/2026-10-07-pplx-s48000-r1.json`、`-r2`、`s96000-r1`、`-r2`。）
+
+要看更大窗口的代价，另做了一个探针（不是评测集，结果没有存文件）：用 unresolved 的一题，前面垫上数据集里别的对话的老消息（22 条长消息，全是日志一样的文字），状态估算 5,457 / 20,719 / 42,321 / 91,535 token，各发 5 次，中位延迟 **615 / 2,202 / 5,398 / 15,201 ms**，pplx 数的 input token 是 14,848 / 69,280 / 150,080 / 302,024（文档说上限 262,144，302,024 那次照样返回了 200）。延迟随长度线性涨，约每 1 万 pplx token 0.8–0.9 秒（文档：9 万 token 5 秒、19 万 14 秒、上限附近 23 秒）。结论：**更大的窗口在时间上不划算**：24000 估算 token 的日志状态要 2.2 秒，48000 要 5.4 秒，都在 mod 愿意等的时间之外，而数据里没有任何地方显示更多的对话让 pplx 判得更准（这里量不出来）。真的有那么长的对话，要先有评测集；mod 的估算也不适合 pplx：长日志里每个字符几乎一个 token，估算低估 4–5 倍（24000 估算 token 的日志状态是 6.9 万 pplx token），所以预算数字对 pplx 要按它自己的 token 数理解。
+- **要留意的**：（1）unresolved 的金标是 #37 的子代理写的、用户没有审过，pplx 的 93% 靠它，要审完才能当结论。（2）两个后端的 `max` 召回在 effort-submit 只有 8 题可比。（3）#35（Desktop 读不到 TypeSafe 密钥）同样会影响新密钥：换后端时，`PERPLEXITY_API_KEY` 要在 `userConfig` 里加一个敏感项，Desktop 的问题要一并解决。（4）mod 的 `Failure` 分类、`failureLine` 都已经覆盖 pplx 的失败，但 `FAILURE_WORDS.config` 里读缺哪个密钥的选项名只有 typesafeApiKey 和 cloudflare 两个，换后端时要加。
 
 ### 已实测的引擎行为（2.1.289；看板部分 2.1.291）
 
