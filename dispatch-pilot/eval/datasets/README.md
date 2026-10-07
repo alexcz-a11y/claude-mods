@@ -173,7 +173,7 @@ effort 题的 `accept` 必须是连续的档位（例如 `["high","xhigh"]`，�
   - 用户贴同样的报错、说「再看看」「你上次改的没用」，都算没解决。只有主 agent 自己说「已修复」不算解决，要用户的话确认。
   - 命令轮和普通消息一样算一次尝试。
   - effort 的标注依据仍是上面「effort 档位的含义」，不看主 agent 提示词里的档位描述。
-- 评分（`lib/unresolved.ts`）：答案是 effort（`pickEffort`，`max` 要过 `thetaMax`），在 `accept` 里算对；三选一题出现之后，它的答案作为 `triage` 单独评分，整题仍以 effort 为准。汇总里另给：最高一档的召回（gold 为 `max` 的题里答成 `max` 的比例）、判得太高和太低各占全部题的比例、长对话和短对话分开的准确率与召回、各个 `thetaMax` 下的召回（按已存的各档概率重算）。变体：`zh-score`（Jev 现在的问法，state 预算 6000）、`en-score`（Clef 的），带 `-wide` 的是 state 预算 24000（ADR 0005 之后 effort 请求拿到的）。
+- 评分（`lib/unresolved.ts`）：答案是 effort（`pickEffort`，`max` 要过 `thetaMax`），在 `accept` 里算对；三选一题出现之后，它的答案作为 `triage` 单独评分，整题仍以 effort 为准。汇总里另给：最高一档的召回（gold 为 `max` 的题里答成 `max` 的比例）、判得太高和太低各占全部题的比例、长对话和短对话分开的准确率与召回、各个 `thetaMax` 下的召回（按已存的各档概率重算）。变体：`zh-score`（Jev 的问法）、`en-score`（Clef 的），state 预算 6000，是 #38 之前 effort 题和 skill 题合在一个请求里时 effort 拿到的；带 `-wide` 的 state 预算 24000，是 #38 之后 effort 请求（ADR 0005）拿到的，也就是 mod 现在的请求。#38 之前跑的基线用的是不带 `-wide` 的。
 
 ## 来源
 

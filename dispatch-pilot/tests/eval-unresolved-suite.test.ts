@@ -6,12 +6,13 @@ import { expect, test } from 'claude-code/testing'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { EFFORTS } from '../hooks/decision/effort.ts'
-import { jevBackend } from '../hooks/decision/jev.ts'
+import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import type { Triage, UnresolvedItem } from '../eval/lib/datasets.ts'
 import { summarize } from '../eval/lib/metrics.ts'
 import { runSuite } from '../eval/lib/runner.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
-import { unresolved, unresolvedSuite, type TriageAsk } from '../eval/lib/unresolved.ts'
+import { UNRESOLVED_VARIANTS, unresolved, unresolvedRequest, unresolvedSuite, type TriageAsk } from '../eval/lib/unresolved.ts'
+import { jev, world } from './support/world.ts'
 
 /** A log long enough to overrun a 6000-token budget but not 24000: pasted output, ASCII, about 4 characters a token. */
 const LOG = Array.from({ length: 700 }, (_, i) => `2026-10-05T10:${String(i % 60).padStart(2, '0')}:11Z worker-3 handler.ts:${100 + (i % 40)} retry ${i} of order-${i * 7} failed: ETIMEDOUT`).join('\n')
@@ -92,7 +93,7 @@ async function run(items: UnresolvedItem[], net: ReturnType<typeof network>, var
   return runSuite(suite, items, { backend: jevBackend('k'), io: net.io, now: net.now, pause: async () => {}, settings: settingsFrom({}), variants, timeoutMs: 10_000, retries: 0, concurrency: 1 })
 }
 
-test('the effort question is asked alone, with the state the mod reads today (6000 tokens); the wide variants give it the 24000 a message gets once its effort has a request of its own', async () => {
+test('the effort question is asked alone; its state has the 6000 tokens it had beside the skills question, and the wide variants the 24000 of its own request', async () => {
   // A backend that answers high without having seen the thread's first round, and max with it.
   const net = network((body) => answers(body, String(body.state.recent_context).includes('EARLY') ? MAX : HIGH))
   const rows = await run([overBudget('unresolved-001')], net, ['zh-score', 'zh-score-wide'])
@@ -103,6 +104,21 @@ test('the effort question is asked alone, with the state the mod reads today (60
   expect(Object.keys(net.bodies[0].state)).toEqual(['user_message', 'recent_context'])
   expect(estimateTokens(JSON.stringify(net.bodies[0].state))).toBeLessThanOrEqual(6000)
   expect(estimateTokens(JSON.stringify(net.bodies[2].state))).toBeGreaterThan(6000)
+})
+
+// The request of the wide variants is the mod's, the request the effort question has of its own since #38 (ADR 0005); the
+// others are the state the effort question had when it shared its request with the skills (6000).
+test("the eval's wide request for an item is the mod's request for that message after that conversation", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+  const long = overBudget('unresolved-001')
+  const messages = long.zh.recent_context.map((entry) => ({ role: entry.role, text: entry.text, toolUses: (entry.tools ?? []).map((tool, i) => ({ tool_use_id: `toolu_${i}`, tool, input: {}, text: '' })) }))
+  const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages })
+  await w.submit(long.zh.message)
+
+  const { request } = unresolvedRequest(long, 'zh', UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom({ typesafeApiKey: 'k' }))
+  expect(w.requests).toHaveLength(1)
+  expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
+  // The state is what 24000 tokens hold, so the thread's first round is in it.
+  expect(String(request.state.recent_context)).toContain('EARLY')
 })
 
 test("a command turn is asked as the mod asks it: the command as typed, and what it is for in the state's command field", async () => {

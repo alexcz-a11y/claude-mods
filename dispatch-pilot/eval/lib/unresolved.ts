@@ -5,15 +5,18 @@
 // one that is resolved, or a new or unrelated one (`triage`).
 //
 // What is asked is what the mod asks when a message is sent: the effort
-// question alone, over the state of a message (turnStartState). The mod asks
-// it beside the skill ranking in one request, with a budget of 6000 tokens for
-// the state; ADR 0005 gives it a request of its own and 24000. A variant
-// either way: `zh-score` is the mod today, `zh-score-wide` the state it will
-// have. The three-way question does not exist yet: `unresolvedSuite` takes it
-// when it does (`TriageAsk`), and until then only the effort is scored.
+// question alone, over the state of a message (turnStartState). Until #38 the
+// mod asked it beside the skill ranking in one request, with a budget of 6000
+// tokens for the state; since #38 (ADR 0005) it has a request of its own and
+// 24000. Both are variants, so the baseline taken before #38 stays comparable:
+// `zh-score` is the state of the shared request (6000), `zh-score-wide` the
+// state of the request of its own (24000, the mod today). The three-way
+// question does not exist yet: `unresolvedSuite` takes it when it does
+// (`TriageAsk`), and until then only the effort is scored.
 //
 // Pure: no Node API.
 
+import { messageLimits } from '../../hooks/core/setup.ts'
 import { turnStartState } from '../../hooks/decision/context.ts'
 import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart, type Effort, type EffortAsk } from '../../hooks/decision/effort.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
@@ -27,10 +30,12 @@ import { requestFailed, variantIn, type Grade, type Settings, type Suite } from 
 type Variant = { ask: EffortAsk; wide: boolean }
 
 /**
- * The variants by name: `<question language>-<primitive>[-wide]`. The first is
- * the mod today: Jev's effort question in Chinese as a Score, over the state
- * budget a message has (`contextTokens`, 6000). `wide` is the budget of a
- * request of its own (`contextByKind.messagePlain`, 24000).
+ * The variants by name: `<question language>-<primitive>[-wide]`. Without
+ * `wide` the state has the budget of the request that carries the skills'
+ * question (`contextTokens`, 6000: the mod before #38); with it the budget of a
+ * plain message (`contextByKind.messagePlain`, 24000: the effort question's
+ * request of its own, the mod since #38). Jev's question is `zh-score`, Clef's
+ * `en-score`.
  */
 export const UNRESOLVED_VARIANTS: Readonly<Record<string, Variant>> = {
   'zh-score': { ask: { language: 'zh', primitive: 'score' }, wide: false },
@@ -65,8 +70,8 @@ export type UnresolvedPrediction = { effort: Effort; triage: Triage | null }
  */
 export function unresolvedRequest(item: UnresolvedItem, language: Language, variant: Variant, settings: Settings, triage?: TriageAsk): { request: DecisionRequest; effort: Part; triage?: Part } {
   const asked = item[language]
-  const tokens = variant.wide ? settings.contextByKind.messagePlain : settings.context.tokens
-  const state = turnStartState({ prompt: asked.message, messages: contextMessages(asked.recent_context), limits: { messages: settings.context.messages, tokens } })
+  // The mod's own limits: the request of its own (`wide`) or the one shared with the skills' question (messageLimits).
+  const state = turnStartState({ prompt: asked.message, messages: contextMessages(asked.recent_context), limits: messageLimits(settings, !variant.wide) })
   const effort: Part = { ...turnStartEffortPart(variant.ask), ...(asked.command === undefined ? {} : { state: { command: asked.command } }) }
   const second = triage?.part(variant.ask)
   return { request: mergeParts(state, second === undefined ? [effort] : [effort, second]), effort, ...(second === undefined ? {} : { triage: second }) }
