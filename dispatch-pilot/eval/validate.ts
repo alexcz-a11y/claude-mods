@@ -16,6 +16,7 @@ import { basename, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { validateDataset } from './lib/datasets.ts'
 import { checkConfigTable, checkOneWriter, checkStructureTree } from './lib/docs.ts'
+import { longContextJsonl } from './long-context-items.ts'
 import { DATASETS_DIR, MOD_DIR, catalogFor, datasetFile, readDataset, readManifest } from './node.ts'
 
 const { positionals } = parseArgs({ allowPositionals: true, options: {} })
@@ -27,7 +28,9 @@ for (const name of names) {
   const { kind, path } = datasetFile(name)
   const { items, errors: unreadable } = readDataset(path)
   const { errors, warnings } = validateDataset(kind, items, { catalog: catalogFor(kind, path) })
-  const all = [...unreadable, ...errors]
+  // The long-context file is written from the items module (its one source): a hand edit of the JSONL is an error.
+  const drift = kind === 'long-context' && readFileSync(path, 'utf8') !== longContextJsonl() ? ['the file is not what eval/long-context-items.ts makes: edit the items there and run node dispatch-pilot/eval/long-context-gen.ts'] : []
+  const all = [...unreadable, ...errors, ...drift]
   const hard = items.filter((item) => item.difficulty === 'hard').length
   console.log(`${basename(path)}: ${items.length} items (${hard} hard): ${all.length === 0 ? 'ok' : `${all.length} errors`}`)
   for (const error of all) console.log(`  ${error}`)

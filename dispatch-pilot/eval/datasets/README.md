@@ -13,6 +13,7 @@
 | `subagent.jsonl` | 派出 agent（普通派发，以及 Workflow 里的 `agent()`）的模型和 effort | #15 |
 | `skill.jsonl`，加上 `skill-catalog.json`、`skill-profiles.json` | skill 匹配（用本机真实的 skill 目录出题） | #16 |
 | `unresolved.jsonl` | 和主 agent 为同一个问题来回多轮都没解决时，发消息时判出的主 agent effort（以及这条消息和之前的问题是什么关系） | #37（spec #36） |
+| `long-context.jsonl`，加上 `long-context-summaries.json` | 决定答案的几轮在很长的对话里很早的位置时，决策模型读多远、读更多带来多少准确率（只有中文对话；由 `long-context-items.ts` 生成） | #44 |
 
 每个文件约 100 题（`unresolved.jsonl` 约 30 题，其中一部分对话很长），每行一个 JSON 对象，UTF-8，不加注释。
 
@@ -174,6 +175,47 @@ effort 题的 `accept` 必须是连续的档位（例如 `["high","xhigh"]`，�
   - 命令轮和普通消息一样算一次尝试。
   - effort 的标注依据仍是上面「effort 档位的含义」，不看主 agent 提示词里的档位描述。
 - 评分（`lib/unresolved.ts`）：答案是 effort（`pickEffort`，`max` 要过 `thetaMax`），在 `accept` 里算对；三选一题的答案作为 `triage` 单独评分，整题仍以 effort 为准。汇总里另给三选一的准确率、混淆表，和 mod 现在的两档门槛对这些回答做的事（`change`：该加一的加了一、该清零的清零了，不是「仍未解决」的被加了一，「仍未解决」的被清零了，最后一项是丢掉一份记录）；另给：最高一档的召回（gold 为 `max` 的题里答成 `max` 的比例）、判得太高和太低各占全部题的比例、长对话和短对话分开的准确率与召回、各个 `thetaMax` 下的召回（按已存的各档概率重算）。变体：`zh-score`（Jev 的问法）、`en-score`（Clef 的），state 预算 6000，是 #38 之前 effort 题和 skill 题合在一个请求里时 effort 拿到的；带 `-wide` 的 state 预算 24000，是 #38 之后 effort 请求（ADR 0005）拿到的，也就是 mod 现在的请求。#38 之前跑的基线用的是不带 `-wide` 的，那时还没有三选一题。数据集没有问题摘要的字段：每题都按「一个问题的第一条消息」问，请求的 state 里没有摘要（摘要是便宜的模型逐轮续写的，对话记录里没有）；请求函数 `unresolvedRequest` 可以带一份摘要，要不要给各题配摘要是校准（#42）时的决定。
+
+### long-context（#44）
+
+量的是「决策模型读更多对话，effort 判断准了多少」：现有数据集里最长的对话只有约 8000 估算 token，state 预算从 24000 提到 48000、96000 请求逐字相同（#43），量不出更大窗口的价值。这个数据集的每一题把**决定答案的几轮**（之前试过哪些做法都失败了、早先约定了低成本做法、这块代码的硬性要求）放在对话**很早**的位置，后面接大段真实感的中间轮次，最后是用户的一条消息。**金标是起草者写的，用户尚未审。**
+
+文件名 `long-context.jsonl`，30 题，**只有中文对话**（没有 `en`；英文问法是 suite 的变体，问题用英文写，对话仍是中文）。它**不是手改的 JSONL**：唯一的来源是 `eval/long-context-items.ts`（决定性几轮、词汇、消息、答案都在那里），`node dispatch-pilot/eval/long-context-gen.ts` 写出这个文件，`eval/validate.ts` 核对文件和它一致。
+
+```json
+"zh": {
+  "message": "回到重连那个问题，我在弱网下又跑了一遍，还是会掉线。",
+  "decisive": [ { "role": "user", "text": "……", "says": "new" }, { "role": "assistant", "text": "……", "tools": ["Edit"] } ],
+  "vocab": { "area": "WebSocket 重连", "files": ["ws/reconnect.ts"], "symbols": ["scheduleRetry"], "terms": ["心跳"] }
+},
+"depth": 30000,
+"gold": "max", "accept": ["xhigh", "max"], "triage": "unresolved",
+"without": { "gold": "high", "accept": ["high", "xhigh"] }
+```
+
+- **`decisive`**：决定答案的几轮，手写，用户和助手交替，从用户开始、以助手结束。用户消息可带 `says`（`unresolved` / `resolved` / `new`）：这条消息对「它之前那个问题」说了什么，也就是三选一题对它的金标答案。`says` 是**未解决次数**的来源：`unresolved` 加一，`resolved`、`new` 清零，不带 `says` 的消息不动。中间轮次的用户消息都不带，所以到最后一条消息时的次数就是决定性几轮自己算出来的次数（`lib/long-conversation.ts` `unresolvedCount`）。
+- **`vocab`** 和 **`depth`**：中间轮次不在 JSONL 里，是 `lib/long-filler.ts` 按种子（题号加 `vocab.area`）和 `vocab` 里的文件、符号、术语写出来的，每次一样；这样数据集只有 40KB，而不是几十 MB，每个版本的对话都能从题目重建。`depth` 是从消息往前数到决定性几轮**开头**的估算 token 数，取 30000、60000、120000 三档（各 10 题）；校验会把真的建出来的对话量一遍，要在 `depth` 的 97% 到 105% 之间。
+- **中间轮次是什么**：用户在读和整理这块代码：这个函数是干什么的、这个值是怎么传的、跑一下测试（都通过）、改个名、补一段注释、列最近的提交、贴一段普通日志问是干嘛的、几句「好，往下走」。工具只有 Read、Grep、Glob、Edit、Bash，不带工具的输出。**它从不说任何一次尝试怎么样了**：没有失败、没有成功，没有密钥，没有被脱敏改写的东西（测试会查），所以「之前试过什么」只有决定性几轮里有，读不到那里就不可能知道。回复的长度有长有短（几个字的应答到约 3300 估算 token，平均约 1000，中位 860），每个回复由模板里的句子、代码模式（接口加函数、类、测试、switch、分块循环、配置表）和列表拼成。**它是模板生成的，不是真实对话**：粗看像一次代码阅读，细读会看出句式重复、代码没有逻辑。这是代价：几十万 token 的真实对话没有现成的，也写不出来。
+- **三个版本**（`lib/long-conversation.ts` `conversationOf`；同一题的中间轮次逐字相同，顺序相同）：`deep` 决定性几轮在最前面，离消息 `depth` 个估算 token；`near`（对照 a）决定性几轮挪到离消息约 2500 到 5800 token 的地方，其余是同一批中间轮次，对话一样长；`none`（对照 b）决定性几轮整段删掉，只剩中间轮次，用 `without` 的答案评分。
+- **答案**：`gold` / `accept` / `triage` 是对话里**有**决定性几轮时（`deep`、`near`、真实流程）的答案；`without` 是删掉之后的答案（单看那条消息会怎么判）。`without.gold` 和 `gold` 不同的题（占 70% 以上，校验会警告）才分得出「读到了」和「没读到」。
+- **六个类别**（每题一个类别标签）：`repeated-failure`（10 题，gold `max`，accept `xhigh`/`max`：同一个问题已经按三四种办法改了三四轮，用户每次说没好；消息只说「还是…」）；`second-attempt`（4 题，gold `high`，accept `high`/`xhigh`：只改过一次，这是第二次，防止判得太高）；`agreed-low-cost`（5 题，gold `low`，accept `low`/`medium`：早先约定了这类小改动不用想太多，消息是一个小改动）；`looks-complex`（5 题，gold `medium`，accept `low`/`medium`：消息听起来是一大块工作，其实早先已经定了一一对应的清单和样板，每步机械）；`misleading-history`（3 题，gold `low`，accept `low`/`medium`：前面是反复未果的问题，但已经解决或放弃，消息是一件小事，防止被历史带高）；`hard-constraint`（3 题，gold `xhigh`，accept `xhigh`/`max`：早先说了这块是真金白银、生产不可回滚或会越权，消息听起来是一个小改动）。不只往高判：17 题 gold 在 `high` 以上，13 题在 `medium` 以下。
+- **三选一题**（`triage`）：和 `unresolved` 数据集一样，effort 题旁边问三选一，单独评分；`says` 是它在对话里的金标。
+- 标签 `difficulty`：`agreed-low-cost` 的 5 题是 `medium`，其余 `hard`。
+
+**suite**（`lib/long-context.ts`）：请求是 mod 发消息时的 effort 请求（`turnStartPart` 加 `messageRequest`，和 `unresolved` suite 同一个函数），state 的预算和消息条数取 run 的设置：mod 的是 24000 token 和**最多 32 条消息**。**32 条消息也是一个限制**：对话每条消息平均约 500 估算 token，24000 token 的预算大约装 48 条，32 条先到（32 条只有约 16000 token）；所以 `run.ts --state-tokens N` 之外要加 `--state-messages M` 放开条数（这个数据集的扫描都用 2000），结果文件的 `settings.stateMessages` 记着。变体：
+
+| 变体 | 请求 |
+|---|---|
+| `zh-score-deep`、`en-score-deep` | 决定性几轮在最前面，不带摘要和次数（state 就是对话加消息） |
+| `zh-score-near`、`en-score-near` | 对照 a：同一批轮次，决定性几轮在末尾附近 |
+| `zh-score-none`、`en-score-none` | 对照 b：决定性几轮删掉，按 `without` 评分 |
+| `zh-flow`、`en-flow` | 真实流程：deep 的对话加 mod 在这个对话之后会有的问题摘要、未解决次数、达到 `unresolvedMaxAfter`（默认 3）时的强提示 |
+| `zh-summary`、`en-summary` | 流程的一半：只带问题摘要（没有次数和强提示） |
+| `zh-count`、`en-count` | 流程的另一半：只带次数和强提示（没有摘要，不需要摘要文件） |
+
+`zh-` 和 `en-` 只是问题（effort 题、三选一题）用哪种语言写，对话都是中文。要用 `--languages zh` 跑（`en` 行没有对话，会失败）。每个回答的 `detail.seen` 记着这次的 state 里有没有决定性几轮（`recent_context` 里有它第一条消息的开头），`detail.stateTokens` 记着 state 的估算大小，`detail.kept` 记着留下几条消息；结果文件里每个回答的 `state` 是摘要（`stateDigest`：短字段原样，对话只记字符数、行数、第一行和最后一行的开头），因为一个 state 就有几十万字节。
+
+**问题摘要**（`long-context-summaries.json`，`zh-flow` 用）：mod 在每个用户回合之后让便宜的模型续写问题摘要。`node dispatch-pilot/eval/long-context-summaries.ts` 对每题 deep 的对话逐轮做同样的事：用 mod 自己的 `summaryPrompt`、`SUMMARY_SYSTEM`、`readSummary`（同样的脱敏、截断、500 token 上限），模型是 `claude -p --model haiku`（用你自己的登录和订阅，写法同 `profiles.ts`），决定性几轮里用户消息的 `says` 照 mod 的两档门槛的作用移动摘要（`unresolved` 给最后一条尝试标「未解决」，`resolved` 和 `new` 清空重写）。每题存：摘要、次数、对话的指纹（对话或中间轮次变了，摘要就作废，suite 会拒绝用）、问了多少轮、几轮没有拿到摘要。没有文件、或指纹不对、或次数和决定性几轮算出来的不同时，`zh-flow` 的回答是失败，说明原因，**不编摘要**。
 
 ## 来源
 

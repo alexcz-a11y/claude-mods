@@ -67,6 +67,20 @@ export type Row<P> = {
   state: State | null
 }
 
+/**
+ * A state in a few lines, for a result file that need not keep what the decision model read word for word (a suite sets
+ * `digestState`): the fields that are short stay as they are; the conversation becomes its size, its number of lines and
+ * the start of its first and of its last, so that what a request held of it can still be told (a state of 100000 tokens
+ * is hundreds of kilobytes a request).
+ */
+export function stateDigest(state: State | null): Record<string, unknown> | null {
+  if (state === null) return null
+  const { recent_context: conversation, ...rest } = state as Record<string, unknown>
+  if (typeof conversation !== 'string') return { ...rest }
+  const lines = conversation === '' ? [] : conversation.split('\n')
+  return { ...rest, recent_context: { chars: conversation.length, lines: lines.length, first: (lines[0] ?? '').slice(0, 160), last: (lines.at(-1) ?? '').slice(0, 160) } }
+}
+
 /** The failures worth asking again: the backend was busy, the connection dropped, or the answer was slow. */
 export const TRANSIENT: readonly Failure['kind'][] = ['busy', 'network', 'timeout']
 

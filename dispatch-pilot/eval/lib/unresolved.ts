@@ -32,14 +32,14 @@ import type { Summary } from '../../hooks/decision/summary.ts'
 import { answersFor, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
 import { messageRequest, turnStartPart } from '../../hooks/decision/turn-start.ts'
 import { judgeUnresolved, readUnresolved, UNRESOLVED, UNRESOLVED_OPTIONS, type UnresolvedChange, type UnresolvedOption } from '../../hooks/decision/unresolved.ts'
-import { OVER_BUDGET, TRIAGES, type Language, type Triage, type UnresolvedItem } from './datasets.ts'
+import { OVER_BUDGET, TRIAGES, type Language, type Triage, type UnresolvedAsked, type UnresolvedItem } from './datasets.ts'
 import { contextMessages, gradeEffort } from './effort-submit.ts'
 import { rate, type VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
-import { requestFailed, variantIn, type Grade, type Settings, type Suite } from './suite.ts'
+import { requestFailed, variantIn, type Ask, type Decided, type Grade, type Settings, type Suite } from './suite.ts'
 
 /** How the effort question is asked, and how much of the conversation the state may hold. */
-type Variant = { ask: EffortAsk; wide: boolean }
+export type Variant = { ask: EffortAsk; wide: boolean }
 
 /**
  * The variants by name: `<question language>-<primitive>[-wide]`. Without
@@ -57,7 +57,7 @@ export const UNRESOLVED_VARIANTS: Readonly<Record<string, Variant>> = {
 }
 
 /** What the dataset calls each answer of the three-way question (the mod's option names are `UNRESOLVED_OPTIONS`). */
-const TRIAGE_OF: Readonly<Record<UnresolvedOption, Triage>> = { still_unresolved: 'unresolved', resolved: 'resolved', new_or_unrelated: 'new' }
+export const TRIAGE_OF: Readonly<Record<UnresolvedOption, Triage>> = { still_unresolved: 'unresolved', resolved: 'resolved', new_or_unrelated: 'new' }
 
 /** What a suite decides for an item: the effort, and the answer to the three-way question (the option it leaned to most; null for a constant answer, which reads no question). */
 export type UnresolvedPrediction = { effort: Effort; triage: Triage | null }
@@ -73,11 +73,40 @@ export type UnresolvedPrediction = { effort: Effort; triage: Triage | null }
  * (`unresolvedMaxAfter`): the mod's request carries them the same way (#41).
  */
 export function unresolvedRequest(item: UnresolvedItem, language: Language, variant: Variant, settings: Settings, summary: Summary | null = null, count: { count: number; maxAfter: number } | null = null): { request: DecisionRequest; part: Part } {
-  const asked = item[language]
+  return askedRequest(item[language], variant, settings, summary, count)
+}
+
+/** `unresolvedRequest` for a message and the conversation before it that are not an item's (the long-context suite builds its own). */
+export function askedRequest(asked: UnresolvedAsked, variant: Variant, settings: Settings, summary: Summary | null = null, count: { count: number; maxAfter: number } | null = null): { request: DecisionRequest; part: Part } {
   const part = turnStartPart({ ask: variant.ask, unresolved: true, command: asked.command ?? null, summary, ...(count === null ? {} : count) })
   // The mod's own limits: the request of its own (`wide`) or the one shared with the skills' question (messageLimits).
   const request = messageRequest({ prompt: asked.message, messages: contextMessages(asked.recent_context), limits: messageLimits(settings, !variant.wide), parts: [part] })
   return { request, part }
+}
+
+/**
+ * Sends a request `askedRequest` built and reads the answers as the mod reads them: the effort (`pickEffort` at `thetaMax`),
+ * and the three-way question's answer, the option it leans to most, with what the mod's two bars would do to the count.
+ */
+export async function askUnresolved(sent: { request: DecisionRequest; part: Part }, ask: Ask, settings: Settings): Promise<Decided<UnresolvedPrediction>> {
+  const { asked } = await ask(sent.request)
+  if (!asked.ok) return requestFailed(asked.failure)
+  const answers = answersFor(sent.part, asked.answers)
+  const reading = readEffort(answers[LEVEL])
+  if (reading === null) return { ok: false, failure: 'parse: no effort answer' }
+  const said = readUnresolved(answers[UNRESOLVED])
+  if (said === null) return { ok: false, failure: 'parse: no triage answer' }
+  const judged = judgeUnresolved(said)
+  const effort = pickEffort(reading, settings.thetaMax)
+  const detail: Record<string, unknown> = {
+    p: reading.probabilities.map((p) => Math.round(p * 1000) / 1000),
+    confidence: reading.confidence,
+    triage: TRIAGE_OF[judged.top],
+    triageP: Object.fromEntries(UNRESOLVED_OPTIONS.map((option) => [TRIAGE_OF[option], Math.round(said.probabilities[option] * 1000) / 1000])),
+    // What the mod's two bars make of the answer (it moves the count by this).
+    triageChange: judged.change,
+  }
+  return { ok: true, prediction: { effort, triage: TRIAGE_OF[judged.top] }, detail }
 }
 
 /** What each judged change to the count should be, by what the item's message says: one more for a problem still unresolved, a clear for the rest. */
@@ -95,25 +124,7 @@ export function unresolvedSuite(): Suite<UnresolvedItem, UnresolvedPrediction> {
     name: 'unresolved',
     variants: Object.keys(UNRESOLVED_VARIANTS),
     async decide(item, language, variant, ask, settings) {
-      const sent = unresolvedRequest(item, language, variantIn(UNRESOLVED_VARIANTS, variant), settings)
-      const { asked } = await ask(sent.request)
-      if (!asked.ok) return requestFailed(asked.failure)
-      const answers = answersFor(sent.part, asked.answers)
-      const reading = readEffort(answers[LEVEL])
-      if (reading === null) return { ok: false, failure: 'parse: no effort answer' }
-      const said = readUnresolved(answers[UNRESOLVED])
-      if (said === null) return { ok: false, failure: 'parse: no triage answer' }
-      const judged = judgeUnresolved(said)
-      const effort = pickEffort(reading, settings.thetaMax)
-      const detail: Record<string, unknown> = {
-        p: reading.probabilities.map((p) => Math.round(p * 1000) / 1000),
-        confidence: reading.confidence,
-        triage: TRIAGE_OF[judged.top],
-        triageP: Object.fromEntries(UNRESOLVED_OPTIONS.map((option) => [TRIAGE_OF[option], Math.round(said.probabilities[option] * 1000) / 1000])),
-        // What the mod's two bars make of the answer (it moves the count by this).
-        triageChange: judged.change,
-      }
-      return { ok: true, prediction: { effort, triage: TRIAGE_OF[judged.top] }, detail }
+      return askUnresolved(unresolvedRequest(item, language, variantIn(UNRESOLVED_VARIANTS, variant), settings), ask, settings)
     },
     grade(item, prediction): Grade {
       const effort = gradeEffort(item, prediction.effort)

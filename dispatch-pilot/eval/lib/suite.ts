@@ -10,7 +10,7 @@ import type { PluginOptions } from 'claude-code'
 import type { Asked, Failure } from '../../hooks/decision/backend.ts'
 import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
 import { CONTEXT_KINDS, readConfig, type BackendName, type Config, type ContextKind } from '../../hooks/core/setup.ts'
-import type { Item, Language } from './datasets.ts'
+import type { Language } from './datasets.ts'
 import type { VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
 
@@ -53,6 +53,15 @@ export function withStateTokens(settings: Settings, tokens: number): Settings {
     contextByKind: Object.fromEntries(CONTEXT_KINDS.map((kind) => [kind, tokens])) as Record<ContextKind, number>,
     midturn: { ...settings.midturn, limits: { ...settings.midturn.limits, tokens } },
   }
+}
+
+/**
+ * The settings with the number of recent messages the state may hold set to `messages` (the mod's own is at most 32: the
+ * newest 32, whatever the token budget, so a state of 96000 tokens still stops at the 32nd message back). With
+ * `withStateTokens` it lets a long conversation fill a large budget; not what the mod runs with (#44, `run.ts --state-messages`).
+ */
+export function withStateMessages(settings: Settings, messages: number): Settings {
+  return { ...settings, context: { ...settings.context, messages } }
 }
 
 /**
@@ -136,7 +145,8 @@ export type Decided<P> = { ok: true; prediction: P; detail?: Readonly<Record<str
  */
 export type Grade = { correct: boolean; exact: boolean; miss?: string; parts?: Readonly<Record<string, boolean>> }
 
-export type AnyItem = Item<unknown, unknown, unknown>
+/** What the runner and the metrics read of any suite's item: its id and its tags (the long-context items have no English side, so no `en`). */
+export type AnyItem = { id: string; tags: string[] }
 
 /**
  * What a suite may read besides its items, from the machine the eval runs on
@@ -190,4 +200,6 @@ export type Suite<I extends AnyItem, P> = {
   report?: (summary: VariantSummary) => string[]
   /** Optional: how an answer is scored, in words, recorded with the results (what a reader needs to read the numbers). */
   scoring?: string
+  /** Optional: save a digest of each request's state in the result file (`stateDigest`), not the state: for a suite whose states are tens of thousands of tokens. */
+  digestState?: boolean
 }
