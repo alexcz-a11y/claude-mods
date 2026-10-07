@@ -9,7 +9,7 @@
 import type { PluginOptions } from 'claude-code'
 import type { Asked, Failure } from '../../hooks/decision/backend.ts'
 import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
-import { readConfig, type BackendName, type Config } from '../../hooks/core/setup.ts'
+import { CONTEXT_KINDS, readConfig, type BackendName, type Config, type ContextKind } from '../../hooks/core/setup.ts'
 import type { Item, Language } from './datasets.ts'
 import type { VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
@@ -38,6 +38,21 @@ export type EvalBackend = BackendName | 'pplx'
  */
 export function settingsModel(backend: EvalBackend): BackendName {
   return backend === 'pplx' ? 'jev' : backend
+}
+
+/**
+ * The settings with the state's budget set to `tokens` for every kind of request (a message's, the skills' request,
+ * a mid-turn re-decision, a dispatched agent, a Workflow's agents). The mod's options only lower a budget
+ * (`contextTokens` is the smaller of it and the model's); this widens it, to measure what a decision model with a
+ * bigger window gains from a longer conversation (#43, `run.ts --state-tokens`). Not what the mod runs with.
+ */
+export function withStateTokens(settings: Settings, tokens: number): Settings {
+  return {
+    ...settings,
+    context: { ...settings.context, tokens },
+    contextByKind: Object.fromEntries(CONTEXT_KINDS.map((kind) => [kind, tokens])) as Record<ContextKind, number>,
+    midturn: { ...settings.midturn, limits: { ...settings.midturn.limits, tokens } },
+  }
 }
 
 /**

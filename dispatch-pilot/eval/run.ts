@@ -18,7 +18,8 @@
 // false, or text; the manifest's defaults otherwise, and for the options whose
 // default depends on the decision model, the backend's: core/setup.ts
 // BACKEND_DEFAULTS), --max-usd 1 (refuse a run estimated to cost more),
-// --label <word>, --no-save.
+// --label <word>, --no-save, --state-tokens N (the state's budget for every kind of request, past what --option
+// contextTokens can reach, which only lowers it).
 //
 // Credentials: TYPESAFE_API_KEY for Jev; CLOUDFLARE_ACCOUNT_ID and
 // CLOUDFLARE_AUTH_TOKEN for Clef; PERPLEXITY_API_KEY for Perplexity: the environment first, then
@@ -44,7 +45,7 @@ import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
 import { summarize, type Summary } from './lib/metrics.ts'
 import { attemptMs as defaultAttemptMs, runSuite, type Row } from './lib/runner.ts'
-import { optionsFor, settingsFrom, settingsModel, type EvalBackend } from './lib/suite.ts'
+import { optionsFor, settingsFrom, settingsModel, withStateTokens, type EvalBackend } from './lib/suite.ts'
 import { SUITES } from './lib/suites.ts'
 import { PRICES, RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, formatResult, modCode, nodeHost, nodeIo, readDataset, readManifest, shown } from './node.ts'
 
@@ -63,6 +64,7 @@ const { values, positionals } = parseArgs({
     option: { type: 'string', multiple: true, default: [] },
     estimate: { type: 'boolean', default: false },
     'max-usd': { type: 'string', default: '1' },
+    'state-tokens': { type: 'string' },
     label: { type: 'string' },
     'no-save': { type: 'boolean', default: false },
   },
@@ -110,7 +112,11 @@ try {
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 }
-const settings = settingsFrom(options as PluginOptions)
+// --state-tokens N widens (or narrows) the state's budget for every kind of request to N: past what the mod's own options
+// can reach (they only lower it), to see what a model with a bigger window gains (#43). The result records it.
+const stateTokens = values['state-tokens'] === undefined ? null : Number(values['state-tokens'])
+if (stateTokens !== null && !(Number.isInteger(stateTokens) && stateTokens >= 100)) fail('--state-tokens takes a whole number of at least 100')
+const settings = stateTokens === null ? settingsFrom(options as PluginOptions) : withStateTokens(settingsFrom(options as PluginOptions), stateTokens)
 /** How long one attempt may take: --timeout, else four times the mod's timeoutMs for this backend, at least 10 s (lib/runner.ts). */
 const attemptMs = values.timeout === undefined ? defaultAttemptMs(settings.timeoutMs) : Number(values.timeout)
 if (backendName === 'clef' && values.model !== undefined && values.model !== CLEF_MODEL) fail(`the Clef backend asks ${CLEF_MODEL} only`)
@@ -199,6 +205,10 @@ if (!values['no-save']) {
     code: modCode(),
     settings: {
       context: settings.context,
+      // The budget of a message's state as the run asked it (contextByKind.messagePlain: 24000 for Jev; the effort question's
+      // request of its own, ADR 0005), and --state-tokens when the run set one for every kind of request.
+      messageStateTokens: settings.contextByKind.messagePlain,
+      ...(stateTokens === null ? {} : { stateTokens }),
       thetaMax: settings.thetaMax,
       timeoutMs: settings.timeoutMs,
       // Every option as the run read it (a feature's own, such as agentOverride), less the sensitive ones.
