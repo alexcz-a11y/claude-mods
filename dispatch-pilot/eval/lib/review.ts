@@ -38,6 +38,7 @@ const EDITABLE: Record<Kind, readonly string[]> = {
   'effort-midturn': ['gold', 'accept'],
   subagent: ['gold', 'accept'],
   skill: ['gold', 'accept', 'must_not', 'user_only_hint'],
+  unresolved: ['gold', 'accept', 'triage'],
 }
 
 const VERDICTS: readonly Verdict[] = ['agree', 'edit', 'note']

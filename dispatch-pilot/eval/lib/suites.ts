@@ -11,6 +11,7 @@ import { effortMidturn } from './effort-midturn.ts'
 import { effortSubmit } from './effort-submit.ts'
 import { skillSuite } from './skill.ts'
 import { agentSuite } from './subagent.ts'
+import { unresolved } from './unresolved.ts'
 import type { AgentItem } from './datasets.ts'
 import type { Suite, SuiteHost } from './suite.ts'
 
@@ -24,4 +25,5 @@ export const SUITES: Readonly<Record<string, Suite<any, any> | SuiteFactory>> = 
   'effort-midturn': effortMidturn,
   subagent: async (_host, items) => agentSuite(items as readonly AgentItem[]),
   skill: (host) => skillSuite({ catalog: host.beside('skill-catalog.json'), profiles: host.beside('skill-profiles.json'), read: host.read }),
+  unresolved,
 }
