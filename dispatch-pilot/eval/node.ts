@@ -54,7 +54,7 @@ export function shown(path: string): string {
 export function datasetFile(nameOrPath: string): { kind: Kind; path: string } {
   const path = nameOrPath.endsWith('.jsonl') ? resolve(nameOrPath) : join(DATASETS_DIR, `${nameOrPath}.jsonl`)
   const kind = basename(path, '.jsonl')
-  if (!isKind(kind)) throw new Error(`${basename(path)}: a dataset file is named after its kind (effort-submit, effort-midturn, subagent, skill)`)
+  if (!isKind(kind)) throw new Error(`${basename(path)}: a dataset file is named after its kind (effort-submit, effort-midturn, subagent, skill, unresolved)`)
   return { kind, path }
 }
 
