@@ -3,7 +3,9 @@
 //   node dispatch-pilot/eval/run.ts effort-submit --estimate            what a run would send and cost; nothing is sent
 //   node dispatch-pilot/eval/run.ts effort-submit --label preliminary   every variant, both languages, against Jev
 //
-// Options: --backend jev|clef (jev), --model <id> (Jev's: jev-latest by default; Clef asks clef only),
+// Options: --backend jev|clef|pplx (jev), --model <id> (Jev's: jev-latest by default; Clef asks clef only;
+// Perplexity's: pplx-decider-v1.1-27b by default, or pplx-decider-v1-27b; a run on it reads the mod's settings as
+// Jev's, so the requests, the state budgets and the timeout are the same as Jev's),
 // --variants en-score,zh-score (all), --languages zh,en (both), --ids a,b or
 // --limit N (all items), --concurrency 1 (Jev answers one key's requests one
 // after another: on 2026-10-04 the p50 was 271 ms at 1 in flight, 543 ms at
@@ -19,7 +21,7 @@
 // --label <word>, --no-save.
 //
 // Credentials: TYPESAFE_API_KEY for Jev; CLOUDFLARE_ACCOUNT_ID and
-// CLOUDFLARE_AUTH_TOKEN for Clef: the environment first, then
+// CLOUDFLARE_AUTH_TOKEN for Clef; PERPLEXITY_API_KEY for Perplexity: the environment first, then
 // ~/.config/dispatch-pilot/eval.env. Never printed or saved.
 //
 // Saves eval/results/<suite>/<date>-<backend>[-<label>].json: the settings,
@@ -37,11 +39,12 @@ import type { Backend } from '../hooks/decision/backend.ts'
 import { CLEF_MODEL } from '../hooks/decision/clef.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
+import { PPLX_MODEL } from '../hooks/decision/pplx.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
 import { summarize, type Summary } from './lib/metrics.ts'
 import { attemptMs as defaultAttemptMs, runSuite, type Row } from './lib/runner.ts'
-import { optionsFor, settingsFrom } from './lib/suite.ts'
+import { optionsFor, settingsFrom, settingsModel, type EvalBackend } from './lib/suite.ts'
 import { SUITES } from './lib/suites.ts'
 import { PRICES, RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, formatResult, modCode, nodeHost, nodeIo, readDataset, readManifest, shown } from './node.ts'
 
@@ -70,7 +73,7 @@ function fail(message: string): never {
   process.exit(2)
 }
 
-const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|clef] [--label <word>] ...')
+const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|clef|pplx] [--label <word>] ...')
 const entry = SUITES[name] ?? fail(`no suite for "${name}" yet (suites: ${Object.keys(SUITES).join(', ')})`)
 const { kind, path } = datasetFile(name)
 const dataset = readDataset(path)
@@ -97,12 +100,13 @@ if (values.limit !== undefined) items = items.slice(0, Number(values.limit))
 // The mod's settings as the engine hands them over: the manifest's defaults, then --option; what the manifest leaves
 // unset, the backend's defaults (readConfig).
 const manifest = readManifest()
-const backendName = values.backend
-if (backendName !== 'jev' && backendName !== 'clef') fail(`no backend "${backendName}" (jev, clef)`)
+const backendName = values.backend as EvalBackend
+if (backendName !== 'jev' && backendName !== 'clef' && backendName !== 'pplx') fail(`no backend "${backendName}" (jev, clef, pplx)`)
 let options: Record<string, unknown>
 try {
-  // The decision model is the backend under evaluation (--backend), whatever the manifest's default says.
-  options = optionsFor(backendName, manifest.userConfig ?? {}, values.option)
+  // The decision model is the backend under evaluation (--backend), whatever the manifest's default says; Perplexity's
+  // settings are Jev's (settingsModel), so the two are asked the same requests.
+  options = optionsFor(settingsModel(backendName), manifest.userConfig ?? {}, values.option)
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 }
@@ -110,7 +114,7 @@ const settings = settingsFrom(options as PluginOptions)
 /** How long one attempt may take: --timeout, else four times the mod's timeoutMs for this backend, at least 10 s (lib/runner.ts). */
 const attemptMs = values.timeout === undefined ? defaultAttemptMs(settings.timeoutMs) : Number(values.timeout)
 if (backendName === 'clef' && values.model !== undefined && values.model !== CLEF_MODEL) fail(`the Clef backend asks ${CLEF_MODEL} only`)
-const model = backendName === 'clef' ? CLEF_MODEL : (values.model ?? JEV_MODEL)
+const model = backendName === 'clef' ? CLEF_MODEL : (values.model ?? (backendName === 'pplx' ? PPLX_MODEL : JEV_MODEL))
 const price = PRICES[backendName]
 
 // The estimate: the requests a run sends (a suite that asks again after
@@ -143,7 +147,7 @@ if (estimatedUsd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothi
 
 let chosen: { backend: Backend; secrets: string[] }
 try {
-  chosen = backendFor(backendName, backendName === 'jev' ? model : undefined)
+  chosen = backendFor(backendName, backendName === 'clef' ? undefined : model)
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 }

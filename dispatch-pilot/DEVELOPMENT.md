@@ -482,7 +482,8 @@ hooks/
     ├── redact.ts           secret 脱敏
     ├── backend.ts          决策后端的接口、超时、失败分类
     ├── jev.ts              Jev 后端
-    └── clef.ts             Clef 后端（Cloudflare Workers AI，#3）
+    ├── clef.ts             Clef 后端（Cloudflare Workers AI，#3）
+    └── pplx.ts             Perplexity 后端（Decisions API，pplx-decider-v1.1-27b，#43；mod 不提供选择，只有评测用）
 scripts/decide.ts           用 Node 发一次真实的判断（Jev 或 `--clef`），请求内容与 mod 发出的相同：设置取 manifest 的默认值（`optionsFrom` + `readConfig`，和评测一样），凭证和 Node 的 io 用 `eval/node.ts` 的
 scripts/decide-agent.ts     同上，判断一个派出 agent（输入是评测集 subagent.jsonl 的一题）
 scripts/decide-stuck.ts     同上，一个卡住的循环的再判断（输入是 MidturnInput，见 `decision/midturn.ts`；请求用 #7 的 `stuckRequest` 拼）

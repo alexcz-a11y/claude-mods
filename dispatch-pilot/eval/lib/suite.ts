@@ -28,6 +28,18 @@ export function settingsFrom(options: PluginOptions): Settings {
   return readConfig(options)
 }
 
+/** The decision models the eval can ask: the mod's two (`decisionModel`) and Perplexity's, which the mod does not offer yet (#43). */
+export type EvalBackend = BackendName | 'pplx'
+
+/**
+ * The decision model whose settings a run on `backend` asks with: Perplexity's
+ * are Jev's (the same requests, budgets, timeout and question language), so a
+ * comparison of the two differs in the model alone.
+ */
+export function settingsModel(backend: EvalBackend): BackendName {
+  return backend === 'pplx' ? 'jev' : backend
+}
+
 /**
  * The options a run or a script hands the mod for `backend` (`decisionModel`),
  * as the engine would: the manifest's defaults, then each `name=value`

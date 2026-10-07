@@ -10,7 +10,7 @@ import { jevBackend } from '../hooks/decision/jev.ts'
 import type { EffortSubmitItem } from '../eval/lib/datasets.ts'
 import { effortSubmit } from '../eval/lib/effort-submit.ts'
 import { attemptMs, runSuite } from '../eval/lib/runner.ts'
-import { optionsFrom, settingsFrom } from '../eval/lib/suite.ts'
+import { optionsFor, optionsFrom, settingsFrom, settingsModel } from '../eval/lib/suite.ts'
 
 function item(id: string, message: string, gold: EffortSubmitItem['gold'], accept: EffortSubmitItem['accept'], tags: string[] = []): EffortSubmitItem {
   return {
@@ -157,6 +157,18 @@ test('an --option the manifest does not have, or a value its type cannot take, i
   expect(() => optionsFrom(USER_CONFIG, ['agentFable=yes'])).toThrow('agentFable takes true or false, not "yes"')
   expect(() => optionsFrom(USER_CONFIG, ['contextTokens=lots'])).toThrow('contextTokens takes a number, not "lots"')
   expect(() => optionsFrom(USER_CONFIG, ['contextTokens'])).toThrow('--option takes name=value, not contextTokens')
+})
+
+// Perplexity's decision model (#43) is not one of the mod's two choices (`decisionModel`), so a run on it reads the
+// mod's settings as Jev's: the same budgets, the same timeout, the same question language. Then a comparison with
+// Jev differs in the model alone.
+test("a run on Perplexity asks with Jev's settings: the budgets, the timeout and the question language", () => {
+  const userConfig = {}
+  const pplx = settingsFrom(optionsFor(settingsModel('pplx'), userConfig))
+  const jevSettings = settingsFrom(optionsFor(settingsModel('jev'), userConfig))
+  expect(pplx).toEqual(jevSettings)
+  expect([pplx.backend, pplx.timeoutMs, pplx.context.tokens, pplx.turnStartLanguage]).toEqual(['jev', 1500, 6000, 'zh'])
+  expect(settingsModel('clef')).toBe('clef')
 })
 
 // How long the eval (and scripts/decide*.ts) gives one attempt unless told: four times the mod's timeoutMs, at least
