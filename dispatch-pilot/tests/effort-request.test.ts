@@ -9,6 +9,7 @@ import { estimateTokens, turnStartState } from '../hooks/decision/context.ts'
 import { turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
+import { withUnresolved } from '../hooks/decision/unresolved.ts'
 import { CLEF_OPTIONS, asClef, clefInputProblems } from './support/cloudflare.ts'
 import { jev, rates, world, type Reply, type Sent, type SkillsWorld } from './support/world.ts'
 
@@ -38,11 +39,11 @@ test("with skills on, the effort question goes alone in its request and the skil
   await w.step({ index: 0 })
 
   const [effort, skills] = w.requests
-  expect(ids(effort as Sent)).toEqual(['effort.level'])
+  expect(ids(effort as Sent)).toEqual(['effort.level', 'effort.unresolved'])
   expect(ids(skills as Sent)).toEqual(['skills.which'])
   expect(w.steps.map((s) => s.effort)).toEqual(['high'])
   // The skills' second stage follows its own request.
-  expect(w.requests.map(ids)).toEqual([['effort.level'], ['skills.which'], ['skills.fits.0']])
+  expect(w.requests.map(ids)).toEqual([['effort.level', 'effort.unresolved'], ['skills.which'], ['skills.fits.0']])
 })
 
 test('the effort request is exactly the decision module effort question over the state of a plain message; the skills request carries no effort question', { options: KEY }, async ($, on) => {
@@ -53,7 +54,7 @@ test('the effort request is exactly the decision module effort question over the
   const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, messages })
   await w.submit('要，先写失败的测试')
 
-  const built = mergeParts(turnStartState({ prompt: '要，先写失败的测试', messages, limits: { messages: 32, tokens: 24000 } }), [turnStartEffortPart({ language: 'zh' })])
+  const built = mergeParts(turnStartState({ prompt: '要，先写失败的测试', messages, limits: { messages: 32, tokens: 24000 } }), [withUnresolved(turnStartEffortPart({ language: 'zh' }), 'zh')])
   expect(w.requests.find(isEffort)?.body).toEqual({ model: JEV_MODEL, ...built })
   expect(w.requests.filter(isSkills).some(isEffort)).toBe(false)
 })
@@ -80,7 +81,7 @@ test('the two requests are on their way before either has answered', { options: 
 
   const submitting = w.submit('先写一个失败的测试')
   await w.clock.settle()
-  expect(w.requests.map(ids)).toEqual([['effort.level'], ['skills.which']])
+  expect(w.requests.map(ids)).toEqual([['effort.level', 'effort.unresolved'], ['skills.which']])
   await w.clock.advance(400)
   await submitting
   // Answered in parallel: the message waited for the slower of them, not for both.
@@ -131,7 +132,7 @@ test('each request is logged on its own line in the debug log', { options: KEY }
 
   const lines = w.logs.map((entry) => entry.text).filter((text) => text.startsWith('request '))
   expect(lines).toEqual([
-    'request [effort.level] to jev: answered in 0 ms by jev-1.13.0 (300 input tokens)',
+    'request [effort.level, effort.unresolved] to jev: answered in 0 ms by jev-1.13.0 (300 input tokens)',
     'request [skills.which] to jev: answered in 0 ms by jev-1.13.0 (300 input tokens)',
   ])
 })
@@ -141,7 +142,7 @@ test('with only the effort question (skills off) one request goes out, none for 
   await w.start()
   await w.submit('先写一个失败的测试')
 
-  expect(w.requests.map(ids)).toEqual([['effort.level']])
+  expect(w.requests.map(ids)).toEqual([['effort.level', 'effort.unresolved']])
 })
 
 test('with only the skills question (main-effort off) one request goes out, none for the effort', { options: KEY }, async ($, on) => {
@@ -159,7 +160,7 @@ test('Clef: the same two requests, each within its own 2000-token budget, both w
   await w.command('dp', 'skills on')
   await w.submit('先写一个失败的测试')
 
-  expect(w.requests.map(ids)).toEqual([['effort.level'], ['skills.which']])
+  expect(w.requests.map(ids)).toEqual([['effort.level', 'effort.unresolved'], ['skills.which']])
   expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], []])
   for (const request of w.requests) expect(estimateTokens(JSON.stringify(request.body.state))).toBeLessThanOrEqual(2000)
 })

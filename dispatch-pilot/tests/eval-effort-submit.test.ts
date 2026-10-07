@@ -11,7 +11,7 @@ import type { ContextEntry, EffortSubmitItem } from '../eval/lib/datasets.ts'
 import { modVariant, submitRequest, SUBMIT_VARIANTS } from '../eval/lib/effort-submit.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
 import { CLEF_OPTIONS, clef } from './support/cloudflare.ts'
-import { jev, world } from './support/world.ts'
+import { jev, withoutUnresolved, world } from './support/world.ts'
 
 /** An item as the dataset writes it: a short follow-up whose meaning is in the conversation before it. */
 const ITEM: EffortSubmitItem = {
@@ -75,7 +75,9 @@ for (const chosen of BACKENDS) {
       expect(modVariant(settings)).toBe(chosen.variant)
       const { request } = submitRequest(ITEM, language, SUBMIT_VARIANTS[chosen.variant] as EffortAsk, settings)
       expect(w.requests).toHaveLength(1)
-      expect(w.requests[0]?.body).toEqual({ model: chosen.model, state: request.state, questions: request.questions })
+      expect(withoutUnresolved(w.requests[0]?.body)).toEqual({ model: chosen.model, state: request.state, questions: request.questions })
+      // Beside the effort question the same request asks the unresolved one, over the same state.
+      expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
       // What the request holds, so the equality above is not two empty things.
       expect(request.state.user_message).toContain('[REDACTED]')
       expect(String(request.state.recent_context)).toContain('[tools: Grep, Read x2]')
@@ -97,7 +99,7 @@ test("with skills to ask about, the mod's effort request is the eval's as it is,
   await w.submit(ITEM.zh.message)
 
   const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({}))
-  expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
+  expect(withoutUnresolved(w.requests[0]?.body)).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   expect(Object.keys(request.questions)).toEqual(['effort.level'])
   expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.which'])
 })
@@ -107,6 +109,6 @@ test("the eval cuts the conversation to the mod's limits as the mod does", { opt
   await w.submit(ITEM.zh.message)
 
   const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({ contextMessages: 2, contextTokens: 100 }))
-  expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
+  expect(withoutUnresolved(w.requests[0]?.body)).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   expect(String(request.state.recent_context)).not.toContain('登录接口')
 })

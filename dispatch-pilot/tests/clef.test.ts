@@ -7,6 +7,7 @@ import type { SessionMessage } from 'claude-code'
 import { turnStartState } from '../hooks/decision/context.ts'
 import { turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
+import { withUnresolved } from '../hooks/decision/unresolved.ts'
 import { ACCOUNT, CLEF_OPTIONS, CLEF_URL, TOKEN, clef, clefInputProblems, cloudflareError } from './support/cloudflare.ts'
 import { jev, world, type Reply } from './support/world.ts'
 
@@ -25,7 +26,7 @@ test('with Clef chosen, the decision goes to Cloudflare Workers AI and its answe
   expect(request?.headers['content-type']).toBe('application/json')
   expect(request?.body.model).toBe('clef')
   expect(request?.body.state.user_message).toBe('把登录模块重构成三层，并补上测试')
-  expect(Object.keys(request?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(request?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
   // The answer is read from the envelope's result: high is the most likely level.
   expect(w.steps.map((s) => s.effort)).toEqual(['high'])
   expect((await w.board()).main).toMatchObject({ effort: 'high', routed: true })
@@ -37,7 +38,7 @@ test('the debug log says the request went to Clef, who answered it and how many 
 
   expect(w.logs.map((entry) => entry.to)).toEqual(['debug', 'debug'])
   expect(w.logs.map((entry) => entry.text)).toEqual([
-    'request [effort.level] to clef: answered in 0 ms by clef (151 input tokens)',
+    'request [effort.level, effort.unresolved] to clef: answered in 0 ms by clef (151 input tokens)',
     'effort high · "把登录模块重构成三层"：概率 low 0.05, medium 0.10, high 0.60, xhigh 0.20, max 0.05；置信度 0.70',
   ])
 })
@@ -51,7 +52,7 @@ test('what the mod sends to Clef is the decision module\'s request with the mode
   const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), messages: TRANSCRIPT })
   await w.submit('改吧')
 
-  const built = mergeParts(turnStartState({ prompt: '改吧', messages: TRANSCRIPT, limits: { messages: 4, tokens: 2000 } }), [turnStartEffortPart()])
+  const built = mergeParts(turnStartState({ prompt: '改吧', messages: TRANSCRIPT, limits: { messages: 4, tokens: 2000 } }), [withUnresolved(turnStartEffortPart(), 'en')])
   expect(w.requests[0]?.body).toEqual({ model: 'clef', ...built })
   // Sent with the message first, as the question guide asks. Clef's encoder sorts a state's keys before it reads its
   // head, so no order is relied on with Clef: the budget holds for the whole state (tests/backend-defaults.test.ts).
@@ -87,7 +88,7 @@ for (const [name, reply] of [
     await w.submit('解释一下这个函数做了什么')
 
     const logged = w.logs.map((entry) => entry.text).join('\n')
-    expect(logged).toContain('request [effort.level] to clef:')
+    expect(logged).toContain('request [effort.level, effort.unresolved] to clef:')
     expect(logged).toContain('[REDACTED]')
     expect(logged).not.toContain(ACCOUNT)
     expect(logged).not.toContain(TOKEN)

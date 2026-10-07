@@ -14,6 +14,7 @@ import { DEFAULT_ASK, turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { expectedFailurePart } from '../hooks/decision/escalation.ts'
 import { midturnEffortPart, midturnState } from '../hooks/decision/midturn.ts'
 import { questionBudget } from '../hooks/decision/skills.ts'
+import { withUnresolved } from '../hooks/decision/unresolved.ts'
 import { workflowBatches } from '../hooks/decision/workflow.ts'
 import { parseWorkflow } from '../hooks/decision/workflow-script.ts'
 import { optionsFor, settingsFrom } from '../eval/lib/suite.ts'
@@ -184,13 +185,13 @@ test('with Jev, skills are suggested beside each message by default: the listing
 test('with Clef, skill suggestions start off: the main agent keeps its listing and no skill is asked about, until /dp skills on', { options: CLEF_OPTIONS }, async ($, on) => {
   const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), skills: SKILLS })
   await w.submit('先写一个失败的测试')
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
   expect(await w.command('dp', 'status')).toMatch(/关 +skills +给每条消息推荐合适的 skill/)
 
   expect(await w.command('dp', 'skills on')).toMatch(/^skills 已打开/)
   await w.submit('再写一个失败的测试')
-  expect(w.requests.slice(1, 3).map((request) => Object.keys(request.body.questions))).toEqual([['effort.level'], ['skills.which']])
+  expect(w.requests.slice(1, 3).map((request) => Object.keys(request.body.questions))).toEqual([['effort.level', 'effort.unresolved'], ['skills.which']])
 })
 
 test('with Clef, find_skill still answers while the suggestions are off', { options: CLEF_OPTIONS }, async ($, on) => {
@@ -336,7 +337,8 @@ test("Jev's context budget by default, kind of request by kind, keeps the state 
     return { longest: Math.max(...sizes), total: sizes.reduce((sum, n) => sum + n, 0) }
   }
   const mentions = { user_message: 'Use opus, ask for effort max, do not use haiku, sonnet is fine for the rest', agent_type: 'general-purpose', description: 'd', prompt: 'p', requested_model: 'sonnet' }
-  const effort = size(turnStartEffortPart({ language: 'zh' }))
+  // The effort request carries the unresolved question beside the effort question (#39): both count.
+  const effort = size(withUnresolved(turnStartEffortPart({ language: 'zh' }), 'zh'))
   const agent = size(dispatchPart(mentions, { models: [...DEFAULT_AGENT_MODELS, 'fable'] }))
   const rejudge = size(midturnEffortPart({}, { trouble: true }))
   // Each kind of request: the budget its state takes, the longest question it carries and all its questions together (Jev's count).

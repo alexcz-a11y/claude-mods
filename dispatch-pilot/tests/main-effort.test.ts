@@ -7,6 +7,7 @@ import { estimateTokens, turnStartState } from '../hooks/decision/context.ts'
 import { turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
+import { withUnresolved } from '../hooks/decision/unresolved.ts'
 import { jev, world, type Reply } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
@@ -25,7 +26,7 @@ test('a message gets one Jev decision, and its turn goes out at the decided effo
   expect(request?.body.model).toBe('jev-latest')
   expect(request?.body.state.user_message).toBe('把登录模块重构成三层，并补上测试')
   // One Score question with five levels, lowest first (low .. max)
-  expect(Object.keys(request?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(request?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
   expect(request?.body.questions['effort.level'].type).toBe('score')
   expect(request?.body.questions['effort.level'].criteria).toHaveLength(5)
   expect(w.steps.map((s) => s.effort)).toEqual(['high'])
@@ -327,7 +328,7 @@ test('what the mod sends is exactly what the decision module builds, so the eval
   await w.submit('改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉')
 
   // Jev is asked about the effort in Chinese (core/setup.ts BACKEND_DEFAULTS turnStartLanguage).
-  const built = mergeParts(turnStartState({ prompt: '改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉', messages: TRANSCRIPT, limits: { messages: 4, tokens: 2000 } }), [turnStartEffortPart({ language: 'zh' })])
+  const built = mergeParts(turnStartState({ prompt: '改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉', messages: TRANSCRIPT, limits: { messages: 4, tokens: 2000 } }), [withUnresolved(turnStartEffortPart({ language: 'zh' }), 'zh')])
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, ...built })
 })
 
@@ -364,9 +365,9 @@ test('each request and decision is written to the debug log, never into the conv
 
   expect(w.logs.map((l) => l.to)).toEqual(['debug', 'debug', 'debug'])
   expect(w.logs.map((l) => l.text)).toEqual([
-    'request [effort.level] to jev: answered in 0 ms by jev-1.13.0 (300 input tokens)',
+    'request [effort.level, effort.unresolved] to jev: answered in 0 ms by jev-1.13.0 (300 input tokens)',
     'effort high · "把登录模块重构成三层"：概率 low 0.05, medium 0.10, high 0.60, xhigh 0.20, max 0.05；置信度 0.70',
-    'request [effort.level] to jev: http: HTTP 500: boom (0 ms)',
+    'request [effort.level, effort.unresolved] to jev: http: HTTP 500: boom (0 ms)',
   ])
 })
 

@@ -238,6 +238,16 @@ declare module 'claude-code' {
         counts?: { failed: number; blocked: number; raised: number }
         /** A Workflow call's decision that was sent back to the main agent to write in (return mode). */
         sentBack?: true
+        /** An unresolved-count judgement (`unresolved`): the count before and after the message, what the answer did to it, the options' probabilities, and the bars it was held to. */
+        unresolved?: {
+          before: number
+          count: number
+          change: 'add' | 'reset' | 'keep'
+          top: 'still_unresolved' | 'resolved' | 'new_or_unrelated'
+          probs: { still_unresolved: number; resolved: number; new_or_unrelated: number }
+          conf?: number
+          thresholds: { add: number; reset: number }
+        }
       }[]
       /**
        * The agent the person picked on the band (its digit key, 0 the main agent) or paged to in the rationale
@@ -252,6 +262,14 @@ declare module 'claude-code' {
        * the pane's buttons only.
        */
       paneView: { folds: { turn: number; open: boolean }[]; failures: boolean }
+      /**
+       * The unresolved count (hooks/core/unresolved.ts; GLOSSARY 未解决次数): how many of the person's messages in a
+       * row said the problem they and the main agent are on is still not solved. The decision model reads each
+       * message (the `effort.unresolved` question) and the count moves by its answer: one more, back to nothing,
+       * or as it was. Per session: `/clear` and a new session start it over, `/compact` keeps it, a hot reload
+       * does not lose it. Absent until a message moved it; read as 0. Written by that module only.
+       */
+      unresolved: { count: number }
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
       /**

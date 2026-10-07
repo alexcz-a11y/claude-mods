@@ -56,6 +56,7 @@ import type { EngineInterface, On } from 'claude-code'
 import { errorText, failureLine, failureWords, type Failure } from '../decision/backend.ts'
 import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
 import { isEffort, type Effort } from '../decision/effort.ts'
+import type { UnresolvedChange, UnresolvedOption, UnresolvedThresholds } from '../decision/unresolved.ts'
 import { startedIn } from '../decision/workflow-labels.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
 
@@ -191,6 +192,23 @@ export type LogEntry = {
   counts?: { failed: number; blocked: number; raised: number }
   /** A Workflow call's decision that was sent back to the main agent to write in (return mode). */
   sentBack?: true
+  /** An unresolved-count judgement (`unresolved`). */
+  unresolved?: UnresolvedRecord
+}
+
+/**
+ * What one message's answer to the unresolved question did to the count: the count before and after, the change, the
+ * option the answer leaned to most and every option's probability, the backend's confidence (on record only), and
+ * the two bars it was held to. The card draws it as it is; nothing is worked out again (ADR 0004).
+ */
+export type UnresolvedRecord = {
+  before: number
+  count: number
+  change: UnresolvedChange
+  top: UnresolvedOption
+  probs: Record<UnresolvedOption, number>
+  conf?: number
+  thresholds: UnresolvedThresholds
 }
 
 /** A raise the failures forced: the level (or, for a haiku agent, the model) it went from and to, and the level it holds the agent at least at. */
@@ -258,6 +276,7 @@ export type Decided = About & {
   forced?: ForcedRaise
   skills?: SkillsPicked
   counts?: LogEntry['counts']
+  unresolved?: UnresolvedRecord
 }
 
 /** A decision the feature could not make: the decision request failed. Not an entry of the log; it says why on the agent's node. */
@@ -993,6 +1012,7 @@ function entryOf(decision: Decided, turn: number, at: number): Omit<LogEntry, 'n
     ...(decision.forced === undefined ? {} : { forced: decision.forced }),
     ...(decision.skills === undefined ? {} : { skills: decision.skills }),
     ...(decision.counts === undefined ? {} : { counts: decision.counts }),
+    ...(decision.unresolved === undefined ? {} : { unresolved: decision.unresolved }),
     ...(decision.sentBack === true ? { sentBack: true as const } : {}),
   }
 }

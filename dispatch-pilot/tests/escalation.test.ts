@@ -26,7 +26,10 @@ const ONLY = { ...KEY, rejudgeEvery: 0 }
 
 /** The ids of a request's questions, joined: `effort.level` for a message, `midturn.level,escalation.expected` for a stuck loop. */
 function kind(request: Sent | undefined): string {
-  return Object.keys(request?.body?.questions ?? {}).join(',')
+  // The unresolved question travels in the message's effort request (#39); these tests are about the others.
+  return Object.keys(request?.body?.questions ?? {})
+    .filter((id) => id !== 'effort.unresolved')
+    .join(',')
 }
 
 const LOW = [0.9, 0.1, 0, 0, 0]

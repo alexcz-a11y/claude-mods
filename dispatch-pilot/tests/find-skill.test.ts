@@ -135,7 +135,7 @@ test('find_skill speaks only when called: the steps around the call ask nothing 
   await w.step({ index: 2 })
 
   // The message's three requests (effort, skills, the skills' second stage), then the call's two: none for the steps.
-  expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([['effort.level'], ['skills.which', 'skills.hint'], ['skills.fits.0'], ['skills.which'], ['skills.fits.0']])
+  expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([['effort.level', 'effort.unresolved'], ['skills.which', 'skills.hint'], ['skills.fits.0'], ['skills.which'], ['skills.fits.0']])
   expect(answer.context).toBeUndefined()
 })
 

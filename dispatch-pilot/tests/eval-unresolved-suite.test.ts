@@ -12,7 +12,7 @@ import { summarize } from '../eval/lib/metrics.ts'
 import { runSuite } from '../eval/lib/runner.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
 import { UNRESOLVED_VARIANTS, unresolved, unresolvedRequest, unresolvedSuite, type TriageAsk } from '../eval/lib/unresolved.ts'
-import { jev, world } from './support/world.ts'
+import { jev, withoutUnresolved, world } from './support/world.ts'
 
 /** A log long enough to overrun a 6000-token budget but not 24000: pasted output, ASCII, about 4 characters a token. */
 const LOG = Array.from({ length: 700 }, (_, i) => `2026-10-05T10:${String(i % 60).padStart(2, '0')}:11Z worker-3 handler.ts:${100 + (i % 40)} retry ${i} of order-${i * 7} failed: ETIMEDOUT`).join('\n')
@@ -116,7 +116,8 @@ test("the eval's wide request for an item is the mod's request for that message 
 
   const { request } = unresolvedRequest(long, 'zh', UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom({ typesafeApiKey: 'k' }))
   expect(w.requests).toHaveLength(1)
-  expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
+  // The mod asks the unresolved question beside the effort question (`effort.unresolved`, same state); the suite asks it only given a `TriageAsk`.
+  expect(withoutUnresolved(w.requests[0]?.body)).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   // The state is what 24000 tokens hold, so the thread's first round is in it.
   expect(String(request.state.recent_context)).toContain('EARLY')
 })

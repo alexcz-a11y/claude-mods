@@ -98,6 +98,14 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - **看板。** 每个循环（主 agent 的这一轮，或一个派出 agent）的那一行写它的计数，例如 `失败 2 · 拦截 1 · 升档 1`（拦截是被 hook 拦下的次数，升档是强制升档的次数）；每次强制升档是事件流里的一条（从哪档到哪档、失败了几次），回答迟到时记一条「迟到」。新的一轮从零开始。
 - **记录。** 每次强制升档、「预期内失败、没有升档」和「已经到顶」都记进 `/dp log` 和 debug log，例如 `#4 escalation：effort high（原 medium） · 第 2 步（工具调用失败 2 次）：强制升一档；不是预期内的失败（概率 0.05，预期内失败门槛 0.25）；概率 low 0.00, medium 1.00, ...`。`/dp escalation off` 单独关掉这项功能；`/dp hook-block-failures on` 让被 hook 拦下的调用也算失败。
 
+### 未解决次数（#39）
+
+- **每条消息问一道三选一的题。** 你本人的消息（含命令轮；一轮进行中发的消息也算）发出时，effort 请求里在 `effort.level` 旁多一道 Choice 题 `effort.unresolved`：这条消息对「用户和主 agent 最近在处理的那个问题」说了什么：`still_unresolved`（说试过的做法没用、问题还在）、`resolved`（说解决了、接受了结果）、`new_or_unrelated`（转到别的问题，或根本没有更早的问题）。题按 TypeSafe 提问指南写成情境描述，中英文各一份（和 effort 题同一种语言，Jev 中文、Clef 英文）；选项顺序固定，Choice 偏向第一项，所以放「仍未解决」：次数多一次，下一条消息就能纠正，清零错了丢的是好几轮的记录。只看你自己的话判断解没解决，助手说的「已修复」不算结果。它和 effort 题在同一个请求里，读同一份 state（24000 token 的 `recent_context`），不加 state 字段。派出 agent 交回结果、后台任务通知开始的轮不问、不动次数。
+- **两档门槛。** 回答的概率（归一化后）：「仍未解决」达到加一门槛（暂定 0.5）次数加一；「已经解决」或「新问题或无关」各自达到清零门槛（暂定 0.7）次数清零；都没达到次数不变。两个门槛的和大于 1，一个回答不会同时达到两个。清零要的把握比加一高，是为了一次误判不会丢掉好几轮的记录。置信度只记日志。门槛是 `decision/unresolved.ts` 的 `UNRESOLVED_THRESHOLDS`，内部常量，由 #6 按 `unresolved` 评测集校准后写明依据。
+- **次数。** 存在 `$.state` 的 `unresolved`（`{ count }`，只由 `core/unresolved.ts` 写）：热重载不丢，`session.end`（`/clear`、新会话）清零，`/compact` 保留。锁定（`/dp lock`）或点名 effort 时照常计数。次数先只是记下来：这一张不把它放进 effort 题的 state（#40 放进去，#41 加强提示）。
+- **开关。** `/dp unresolved on|off`，默认开；关着时不问这道题，次数不动（effort 请求照样单独发，只有 `effort.level`）。这道题挂在 `main-effort` 的那一份投票箱里，`main-effort` 关着时也不问。
+- **看板。** 依据卡片（主 agent）在 effort 的结果下写「未解决：次数 2 → 3 次数加一」和三个选项的概率与门槛（`pane-card-unresolved`、`pane-card-unresolved-odds`）；每条答了这道题的消息，它的 `main-effort` 决定里存着这一次的结论（`LogEntry.unresolved`），卡片只画存下的。次数真的变了（加一，或从非 0 清零）才另记一条 `unresolved` 决定进决策日志和 debug log（`次数 0 → 1`），带同样的记录；band 和脚部不画它。回答缺了这一道题（effort 的回答在）时次数不变，debug log 记一行；请求失败时 effort 记「未路由」，次数不变。
+
 ### 失败时放行
 
 如果决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配置 key（Clef 是 account ID 和 token），消息照常进入，不会额外等待，这一轮使用会话自己的 effort。看板上主 agent 那一行写「未路由」和几个字的原因（「决策模型超时」「决策模型拒绝了密钥」），同时弹一个 toast 写明细节，例如 `jev：1500 毫秒内没有回答`、`clef：密钥被拒绝（状态码 401）`。选了其中一个就只用它，失败时不会改用另一个。Clef 的免费额度当天用完时写 `clef：今天的额度用完了`（Cloudflare 的错误码 3036），和一时繁忙的 `clef：繁忙（状态码 429）`（错误码 3040）区分开：两者的状态码都是 429。
@@ -431,6 +439,7 @@ hooks/
 │   ├── find-skill.ts       主 agent 的 find_skill 工具：会话开始时注册，被调用时按查询给 skill 排序（#12）
 │   ├── main-effort.ts      发消息时判断主 agent 的 effort（#2）
 │   ├── midturn-effort.ts   一轮中途重新判断主 agent 的 effort（#5）
+│   ├── unresolved.ts       未解决次数的开关 `/dp unresolved` 和 `session.end` 清零（#39）；题和读回答在 main-effort.ts：它们挂在 effort 那一份投票箱里
 │   ├── skill-profiles.ts   会话开始时在后台给缺画像的 skill 写画像（#11）；注册在 skills 之外，等它读完目录
 │   ├── skills.ts           对主 agent 隐藏 skill 列表、换成一句提示，发消息时推荐 skill（#10）
 │   ├── workflow-agents.ts  提交 Workflow 时判断脚本里每个 agent() 的模型和 effort，写进脚本或退回（#8）
@@ -453,6 +462,7 @@ hooks/
 │   ├── profiles.ts         skill 画像（#11）：给模型的提示、读回答、store 的键和淘汰、readSessionSkills（目录加画像）
 │   ├── commands.ts         命令轮（#19）：command.run 记下的命令和随后提交的 prompt 对上，命令在决策请求里的说明，从引擎的命令消息读回输入的命令
 │   ├── prompts.ts          isPersonsMessage：判断哪些 prompt 是用户本人的新消息
+│   ├── unresolved.ts       未解决次数（#39）：次数的唯一写入者（moveCount、clearCount）、「决定」的字句和 `UnresolvedRecord`（卡片画的记录）
 │   ├── skills.ts           skill 目录：loadCatalog（经闭包读命令、引擎的 skill 清单、settings、磁盘，找到每个 skill 的文件）；读和裁剪 skill 列表（#10）；rankingSettings、describeStages（#11）
 │   ├── switches.ts         开关：总开关和各功能的开关，defineSwitch 登记、isOn 判断；isShown：一项功能拥有的看板部分（parts）此刻画不画
 │   └── setup.ts            把 userConfig 读成 ctx：每个选项的范围和缺省值只在这里（Config），以及决策后端
@@ -465,6 +475,7 @@ hooks/
     ├── workflow.ts         Workflow 脚本里各个 agent() 的请求（分批）、读回答、写进什么、告诉主 agent 什么（#8）
     ├── workflow-script.ts  读 Workflow 脚本（找 agent() 调用和它的选项）、把模型和 effort 写进去（#8）
     ├── workflow-labels.ts  Workflow 兜底：journal 里的 label 对应哪个 agent() 调用、从 transcript 取任务、给主 agent 的说明（#9）
+    ├── unresolved.ts       未解决次数的三选一题（`unresolvedQuestion`、`withUnresolved`：加进 effort 那一份 part）、读回答（`readUnresolved`）、两档门槛和判断（`judgeUnresolved`，门槛 `UNRESOLVED_THRESHOLDS`）、次数怎么变（`countAfter`）（#39，eval 共用）
     ├── model-ids.ts        模型家族对应的完整模型 ID：计划表的 model 写它，不写别名（#9）
     ├── skills.ts           skill 的两段排序（modRanker 是推荐和 find_skill 共用的唯一入口；第一段 skillsPart，第二段 stageTwoPart）、画像的写法、挑选、给主 agent 的文字块；skillsRequest（#16 的评测用）
     ├── context.ts          state：token 估算和截断、最近的对话、turnStartState
@@ -485,9 +496,9 @@ types/index.d.ts            $.state 的契约（PluginState）
 
 ### 一条消息的处理过程
 
-1. `prompt.submit`：各功能的 hook 在外层，带 matcher，先运行。`main-effort` 确认这是用户本人的新消息后，往这条消息的投票箱里放一个问题（`effort.level`）和一个 `settle` 回调，然后放行。
+1. `prompt.submit`：各功能的 hook 在外层，带 matcher，先运行。`main-effort` 确认这是用户本人的新消息后，往这条消息的投票箱里放一个问题（`effort.level`；你本人的消息还多放三选一的 `effort.unresolved`，同在 `effort` 这个 part 里，所以进 effort 请求，#39）和一个 `settle` 回调，然后放行。
 2. 核心的 `prompt.submit` 在最内层。它收起投票箱，按 `requestGroups` 拆成最多两个请求：主 agent 的 effort 题（`effort` 这个 part）单独一个，其余各功能的题合成一个（ADR 0005）；某一组没有 part 就不发。每个请求各拼自己的 state（`turnStartState`，预算见 `messageLimits`：含 skill 题的是 `context.tokens`，effort 的是 `contextByKind.messagePlain`），合成请求（`mergeParts`，每个问题 ID 加上 `<part>.` 前缀），两个请求并行带着超时发给决策后端，各记一行 debug log，再把各自的回答去掉前缀后交给这个请求里各功能的 `settle`。`settle` 返回的文字块作为 context 附在消息后面，模型能看到，用户看不到。两个请求各自成败，一个失败或超时不影响另一个；消息等到两个请求都有结果（或超时）才进入会话。
-3. `main-effort` 的 `settle` 把这条决定（或决策模型失败的原因）交给「决定汇报」（`report` 的 `decision`），再把选出的档位记为待用的决定（`$.state` 的 `pending`）。如果这条消息是在某一轮进行中发的，它还会直接改写那一轮的计划。
+3. `main-effort` 的 `settle` 先读三选一的回答、按两档门槛动次数（`core/unresolved.ts` 的 `moveCount`），再把这条决定（或决策模型失败的原因）交给「决定汇报」（`report` 的 `decision`；决定里带着这次三选一的记录，次数变了另记一条 `unresolved` 的决定），再把选出的档位记为待用的决定（`$.state` 的 `pending`）。两个回答互不依赖：缺哪一个，另一个照常用。如果这条消息是在某一轮进行中发的，它还会直接改写那一轮的计划。
 4. `turn.start`（核心）为这条消息开始的一轮建立记录 `turns[main:<turnId>]`，并认领它的待用决定。优先认领正在进入的那条消息的决定，即使更内层的 hook 改写了消息的文字也能认领；其次认领文字与这一轮相同的排队消息。
 5. `turn.step`（核心，最内层）每一步都读计划表，用 `planStep` 算出这一步的 effort（主 agent 不碰 model），写进请求，并把这一步（任何 loop 的）发出的模型和 effort 交给「决定汇报」的 `reportStep`（看板从它画出）。
 
@@ -532,6 +543,7 @@ types/index.d.ts            $.state 的契约（PluginState）
 | `board` | 无 | 看板数据：`turn`（本会话开始的主 agent 轮数）、`starts`（最近两轮的开始时间）、`changes`（读数的变化事件）和 `nodes`（最近两轮每个 agent 的一个节点：模型、effort、是否路由、未路由的原因、对应的决策编号，以及中途重判的计数 `midturn` 和失败计数 `counts`），见「记录一次决策」 | 「决定汇报」module（`core/report.ts`）：`report`（`decision`、`decisions`、`tally`）、`reportStep`、自己的 hook |
 | `decisionLog` | 无 | 各功能记录的决策，最近 20 轮、最多 300 条，依据面板（`/dp`）按轮分组显示，`/dp log N` 在对话里列出（见下「记录一次决策」） | 「决定汇报」module |
 | `pending` | 无 | 发消息时做出的判断，等它的那一轮开始时由核心认领 | #2 |
+| `unresolved` | 无 | 未解决次数 `{ count }`：每条你本人的消息按三选一的回答加一、清零或不变；`session.end`（`/clear`、新会话）清零，`/compact` 保留，热重载不丢；缺省按 0 读。#40 在这里加问题摘要 | #39：`core/unresolved.ts` |
 | `said` | 无 | 用户本人这一轮说的话（已脱敏和截断）：空闲时发的那条消息开始新的一组，这一轮进行中发的消息追加进去，其他来源的 prompt 不动它；派出 agent 和 Workflow 里 agent 的判断把它当作 `user_message` | #6 写，#8 读 |
 | `midturn` | `main:<turnId>` | 中途重判自己的记录：步数、最近 16 步的文字和工具调用（各带结局）、最近一次重判是为第几步问的 | #5 |
 | `mainStep` | 无 | 主 agent 正在进行的一步 `{ turnId, index }`（`tool.call` 上没有 turnId，靠它对上） | #5 |
@@ -896,15 +908,18 @@ test('……', { options: { typesafeApiKey: 'k' } }, async ($, on) => {
 - Workflow 的测试用 `tests/support/workflow.ts` 的 `workflowWorld($, on, options)`：它先注册带 matcher `{ tool: 'Workflow' }` 的 Workflow 工具桩，再调用 `world()`，所以 `world()` 以后再加 `tool.call` 桩也不冲突（但同一个测试里要先于它注册）。`w.workflow({ script | scriptPath | name, args, resumeFromRunId })` 调用工具；`w.reached` 记录到达工具的每次调用（`launched: false` 是工具因语法错误拒绝的）；`w.stateWrites` 是 mod 所有的 `$.state` 写入（key、family 的 id 和值）；选项 `parseError` 和 `fails` 让工具拒绝某个脚本。`siteJev((i) => ({ model, effort, nouls }))` 按脚本里的第 i 个调用回答，`clefSiteJev` 是它的 Clef 版（同时检查 Clef 的输入规则）。
 - Workflow agent 启动时的测试（#9）用 `tests/support/workflow-run.ts` 的 `runWorld`：它在 `workflowWorld` 之上写运行目录（journal、transcript）、回答 `tool.describe`，见上文「Workflow 兜底（#9）」。agent 启动时当场判断的请求只有一个调用，part 是 `agent-0`，所以 `siteJev` 的下标 0 也会回答它；同一个测试里要区分运行开始时和 agent 启动时的回答，就按请求的序号 `n` 分别作答。
 - 要模拟别的功能已经写好的计划表，就在测试里回答 `state.get`，见 `tests/plan-table.test.ts` 的 `table()`。
+- **未解决次数的测试（#39）。** `jev(levels)` 对 `effort.unresolved` 默认回答「新问题或无关」100%：次数不动，决策日志里没有 `unresolved` 的条目，所以不关心它的测试不用管；要让某条消息动次数，用 `jev(levels, { shares: { 'effort.unresolved': { still_unresolved: 0.8, resolved: 0.05, new_or_unrelated: 0.15 } } })`。次数用 `w.unresolved()` 读，热重载用 `seed: { unresolved: { count: 2 } }` 带一个旧值进来（`$.state` 的 `unresolved` 这个 key 由 world 接管，和 `board` 一样）。每条人的消息的 effort 请求现在是 `['effort.level', 'effort.unresolved']`（agent 交回结果、后台任务通知开始的轮、`/dp unresolved off` 时只有 `effort.level`）；关心 effort 请求是否等于评测的，用 `withoutUnresolved(body)` 去掉那一题再比（effort-submit 评测测的是 effort 题本身）。mid-turn 和 escalation 的测试里的 `kind()` 把它滤掉了。
 - 每个测试都要断言一个实际产物（发出的请求、某一步的 effort、看板数据），否则可能空过。例如不给 origin 时 hook 会被跳过；没有 `http.fetch` 桩时 fetch 会失败、走放行分支，「effort 不变」照样成立。
 - `world()` 总会装上 `mock.clock(on)`。测超时时，先 `const p = w.submit(...)`，再依次 `await w.clock.settle()`、`await w.clock.advance(ms)`、`await p`。
-- 同一个事件的桩不能注册两次：`world()` 已经注册过的事件，测试里不要再注册。`http.fetch`、`fs.read`、`fs.exists`、`fs.list`、`model.complete`、`session.messages`、`ui.*`、带 matcher 的 `state.get` 和 `state.set`（只管 `board` 和 `decisionLog` 这两个 key）和引擎那几个事件总会注册；开了 `store` 就是 `store.*`；开了 `session` 就是 `session.start`、`session.measure`、`session.compact`、`session.end`、`command.register` 和 `tool.register`；开了 `skills` 就是 `command.list`、`session.usage`、`settings.read`、`session.cwd`、`env.*` 和 `prompt.attachment`。想自己写这些桩的测试，就不要打开对应的选项。
+- 同一个事件的桩不能注册两次：`world()` 已经注册过的事件，测试里不要再注册。`http.fetch`、`fs.read`、`fs.exists`、`fs.list`、`model.complete`、`session.messages`、`ui.*`、带 matcher 的 `state.get` 和 `state.set`（只管 `board`、`decisionLog`、`skillProfiles` 和 `unresolved` 这几个 key）和引擎那几个事件总会注册；开了 `store` 就是 `store.*`；开了 `session` 就是 `session.start`、`session.measure`、`session.compact`、`session.end`、`command.register` 和 `tool.register`；开了 `skills` 就是 `command.list`、`session.usage`、`settings.read`、`session.cwd`、`env.*` 和 `prompt.attachment`。想自己写这些桩的测试，就不要打开对应的选项。
 - 每个测试拿到的都是全新的模块实例，模块级变量不会跨测试残留。
 - **测试文件读不了磁盘上的文件**（2.1.289 实测）。`claude plugin test` 在和 hooks 一样的环境里加载测试文件：`import 'node:fs'` 被拒，`.json` 和 `.md` 也不能 import（只加载 `.ts`、`.tsx`、`.jsx`、`.js`、`.mjs`、`.cjs`、`.mts`、`.cts`），测试里的 `$` 是引擎的 `$`、没有 `$.fs`，也没有 `process` 和 `Bun`。要核对真实的文件，就把检查写成纯函数，测试用自己写的小例子测它，再由 Node 脚本对真实的文件跑它：README 的配置表对 plugin.json 就是这样做的（#18）：纯函数 `checkConfigTable` 在 `eval/lib/docs.ts`，`tests/docs-sync.test.ts` 测它，`node dispatch-pilot/eval/validate.ts` 对真实的 README.md 和 plugin.json 跑它。所以 `claude plugin test` 全部通过，并不说明 README 的配置表还和 manifest 一致，改了配置项或默认值要再跑那条命令。
 
 ### 评测（接缝 2）
 
 > **effort-submit 之外，下面各节的数字都是第 1 轮审查修复之前的问法测得的。** 修复改了发给决策模型的问题措辞、工具行的写法、Workflow 题的合并提问，skill 第一段也拆成了两题；按用户的决定（2026-10-05），修复之后没有重跑这几套，所以它们的数字只能当预览，不能当成现在的问法的结果（见「待评测」开头）。effort-submit 的请求没有变，2026-10-05 又在现在的代码上跑了一次问题语言的对比。Clef 截断 state 的探针（`eval/probe-truncation.ts`，#17）不受影响：它发的是自己的探针问题。各结果的 `pass`、`late`、`retried` 和 `inTime` 已按现在的指标离线重算（见下面「已存结果的汇总可以离线重算」一条）。
+
+**给 `unresolved` 评测集（#37、#6）：三选一题在接缝 2。** `decision/unresolved.ts` 是纯模块，评测直接 import：`withUnresolved(turnStartEffortPart(ask), language)` 是发消息时的 effort part（`effort.level` 加 `effort.unresolved`，和线上同一份，拼请求照常 `mergeParts(turnStartState(...), [part])`，限额用 `messageLimits(settings, false)`）；`readUnresolved(answersFor(part, answers).unresolved)` 把回答读成三个选项的概率（归一化，缺了或不是 Choice 是 `null`）；`judgeUnresolved(reading, thresholds?)` 按两档门槛返回 `{ change: 'add' | 'reset' | 'keep', top, probabilities, confidence, thresholds }`：`top` 对三选一的金标，`change` 对「次数该加一、清零还是不变」；门槛 `UNRESOLVED_THRESHOLDS` 是暂定值，评测要扫门槛就传第二个参数。选项名固定为 `still_unresolved`、`resolved`、`new_or_unrelated`（`UNRESOLVED_OPTIONS`，顺序也是问的顺序；Choice 偏向第一项，评测要做换序对照的话改 `unresolvedQuestion` 里 criteria 的顺序）。
 
 评测用真实的 Jev 或 Clef（`--backend clef`）测决策的准确率，脚本用 Node 运行，放在 `eval/`：
 

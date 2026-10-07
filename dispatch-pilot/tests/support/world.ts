@@ -135,7 +135,7 @@ export type WorldOptions = {
    * The board data an earlier load of the mod left in `$.state` (a hot reload keeps it): the mod finds it as it
    * starts. Whatever the board starts with, `w.board()` reads what stands now.
    */
-  seed?: { board?: PluginState['dispatch-pilot']['board']; log?: LogEntry[]; profiles?: ProfilesState }
+  seed?: { board?: PluginState['dispatch-pilot']['board']; log?: LogEntry[]; profiles?: ProfilesState; unresolved?: PluginState['dispatch-pilot']['unresolved'] }
   /**
    * The model behind `$.model.complete` (#11 writes skill profiles with it): answers each completion
    * (`n` counts from 1); every one is recorded in `w.completions`. Without it every completion is refused.
@@ -375,10 +375,11 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   // The board data (the 「决定汇报」 module's `board` and `decisionLog`) is kept here, not in the kit's state: the test
   // body has no `$.state` to read it back with, and `options.seed` can stand for what an earlier load left. Versions
   // work as the host's do (a write lands unless `ifVersion` is stale), and values go through JSON as they would.
-  const held: { board: { value: unknown; version: number }; decisionLog: { value: unknown; version: number }; skillProfiles: { value: unknown; version: number } } = {
+  const held: { board: { value: unknown; version: number }; decisionLog: { value: unknown; version: number }; skillProfiles: { value: unknown; version: number }; unresolved: { value: unknown; version: number } } = {
     board: { value: options.seed?.board, version: options.seed?.board === undefined ? 0 : 1 },
     decisionLog: { value: options.seed?.log, version: options.seed?.log === undefined ? 0 : 1 },
     skillProfiles: { value: options.seed?.profiles, version: options.seed?.profiles === undefined ? 0 : 1 },
+    unresolved: { value: options.seed?.unresolved, version: options.seed?.unresolved === undefined ? 0 : 1 },
   }
   on('state.get', { plugin: 'dispatch-pilot', key: 'board' }, () => ({ value: { value: held.board.value as never, version: held.board.version } }))
   on('state.get', { plugin: 'dispatch-pilot', key: 'decisionLog' }, () => ({ value: { value: held.decisionLog.value as never, version: held.decisionLog.version } }))
@@ -397,6 +398,13 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     if (e.ifVersion !== undefined && e.ifVersion !== held.skillProfiles.version) return { value: { isSet: false, version: held.skillProfiles.version } }
     held.skillProfiles = { value: JSON.parse(JSON.stringify(e.value)), version: held.skillProfiles.version + 1 }
     return { value: { isSet: true, version: held.skillProfiles.version } }
+  })
+  // The unresolved count is kept here too, so a test reads what the mod stored and seeds what a hot reload would keep.
+  on('state.get', { plugin: 'dispatch-pilot', key: 'unresolved' }, () => ({ value: { value: held.unresolved.value as never, version: held.unresolved.version } }))
+  on('state.set', { plugin: 'dispatch-pilot', key: 'unresolved' }, (_$, e) => {
+    if (e.ifVersion !== undefined && e.ifVersion !== held.unresolved.version) return { value: { isSet: false, version: held.unresolved.version } }
+    held.unresolved = { value: JSON.parse(JSON.stringify(e.value)), version: held.unresolved.version + 1 }
+    return { value: { isSet: true, version: held.unresolved.version } }
   })
   // The status row the mod must never draw on (ADR 0004): recorded, so a test can say it stayed empty.
   on('ui.status', (_$, e) => {
@@ -522,6 +530,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     get withoutEffort() {
       return requests.filter((request) => !Object.keys(request.body?.questions ?? {}).some((id) => id.startsWith('effort.')))
     },
+    /** The unresolved count the mod holds in `$.state` now (0 before a message moved it). */
+    unresolved: (): number => (held.unresolved.value as PluginState['dispatch-pilot']['unresolved'] | undefined)?.count ?? 0,
     statuses,
     logs,
     steps,
@@ -720,7 +730,8 @@ function usageListing(listed: readonly ContextSkill[]): SessionUsage {
  * `confidence` (0.7 by default), each `choice` the option named in `choice`
  * (or its first), or the probabilities `shares` gives for its question id
  * (options it leaves out get 0), each `noul` the value `nouls` gives for its
- * question id, else 0.5.
+ * question id, else 0.5. The unresolved question (`effort.unresolved`) is
+ * answered "new or unrelated" unless `shares` says otherwise: no count moves.
  */
 export function jev(
   levels: readonly number[],
@@ -740,6 +751,9 @@ export function jev(
         const probabilities = Object.fromEntries(options.map((o) => [o, shares[o] ?? 0]))
         const pick = options.reduce((best, o) => ((probabilities[o] ?? 0) > (probabilities[best] ?? 0) ? o : best), options[0] ?? '')
         answers[id] = { type: 'choice', choice: pick, probabilities, confidence: 0.5 }
+      } else if (question.type === 'choice' && id === 'effort.unresolved') {
+        // Unless a test says otherwise (`shares`), the message is no word about an earlier problem: the count stays at 0.
+        answers[id] = { type: 'choice', choice: 'new_or_unrelated', probabilities: { still_unresolved: 0, resolved: 0, new_or_unrelated: 1 }, confidence: 1 }
       } else if (question.type === 'choice') {
         const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
         const pick = extra.choice ?? options[0] ?? ''
@@ -750,6 +764,16 @@ export function jev(
     }
     return { status: extra.status ?? 200, body: { model: 'jev-1.13.0', answers, usage: { input_tokens: 300, output_tokens: 0 } } }
   }
+}
+
+/**
+ * A request's body without the unresolved question (#39): it travels in the message's effort request beside the
+ * effort question and reads the same state, so the effort-submit eval, which measures the effort question alone,
+ * compares its request to the mod's with it left out. (The `unresolved` dataset's eval asks it, #37.)
+ */
+export function withoutUnresolved(body: any): any {
+  const { 'effort.unresolved': _asked, ...questions } = body?.questions ?? {}
+  return { ...body, questions }
 }
 
 /** Whether a request is a message's second skills request (#11): the shortlist re-read, one `skills.fits.<i>` each. */
