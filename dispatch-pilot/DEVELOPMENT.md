@@ -957,14 +957,16 @@ eval/
 ├── datasets/README.md      评测集的约定：每类题的字段、effort 档位的含义（标注依据）、各类的附加约定、名字的例外
 ├── datasets/skill-catalog.json   skill 题出题用的本机 skill 目录快照（#16）
 ├── datasets/skill-profiles.json  快照里每个 skill 的画像，和 mod 存在 $.store 里的一样（#16，profiles.ts 写）
+├── datasets/eval-v2/       eval v2（#45）的素材池、题目、两份金标和 generated.json；格式见其中的 FORMAT.md
+├── datasets/eval-v2.jsonl  eval-v2-gen.ts 拼出的 eval v2 数据集（几十 MB，不提交，见 datasets/.gitignore）
 ├── review/<类>.review.jsonl 用户的审核决定（应用时由 apply-review.ts 放进来，和改动一起提交）
 ├── review/<类>.review-summary.md  审核总结：判断基准、规则决定（R1、R2……）和要跟进的事项
 ├── results/<类>/*.json     每次运行的结果：设置、答题的模型版本、汇总、逐题答案
 ├── results/probes/*.json   Clef 截断 state 的探针结果（#17，probe-truncation.ts 写）
 ├── plans/17-calibration.md #17 的方案、拍板、探针的结果和范围缩减
-├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、resummarize、rescore、compare、docs、各类题型的 suite；long-context 另有 long-conversation（三个版本的对话）、long-filler（中间轮次的生成器）、long-summaries（逐轮写问题摘要）
+├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、resummarize、rescore、compare、docs、各类题型的 suite；long-context 另有 long-conversation（三个版本的对话）、long-filler（中间轮次的生成器）、long-summaries（逐轮写问题摘要）；eval-v2（eval v2 的格式检查和拼装）
 ├── long-context-items.ts   long-context 评测集的唯一来源（手写的决定性几轮、答案）；long-context-gen.ts 把它写成 datasets/long-context.jsonl
-└── validate.ts、run.ts、apply-review.ts、compare.ts、resummarize.ts、rescore.ts、profiles.ts、long-context-gen.ts、long-context-summaries.ts、probe-truncation.ts、node.ts   Node 脚本
+└── validate.ts、run.ts、apply-review.ts、compare.ts、resummarize.ts、rescore.ts、profiles.ts、long-context-gen.ts、long-context-summaries.ts、eval-v2-gen.ts、eval-v2-check.ts、probe-truncation.ts、node.ts   Node 脚本
 ```
 
 - **测到的就是线上的请求。** 每类题型的 suite 用 mod 自己拼请求的函数（`hooks/decision/` 的各个模块，加上 `hooks/core/` 里读设置的 `setup.ts`、读 skill 目录和画像的 `skills.ts`、`profiles.ts`），设置取 manifest 的默认值，manifest 没有默认值的选项取 `--backend` 那个决策模型的（`core/setup.ts` 的 `BACKEND_DEFAULTS`，结果文件的 `settings.backendDefaults` 记着取了哪些），经 mod 自己的 `readConfig()` 读出（`--option contextTokens=4000` 可以改，按 manifest 写的类型读：数字、`true`/`false` 或文字；manifest 里没有的名字、类型不对的值直接报错），所以范围、缺省值和 mod 完全一样。`tests/eval-effort-submit.test.ts` 用 world 核对：同一条消息和对话，评测发的请求与 mod 发的逐字相同。
@@ -1261,6 +1263,18 @@ Jev 24000 下把流程拆成两半（`zh-summary`、`zh-count`、`en-…`，**�
 - **时间上不划算。** 并发 3 的延迟：24000 预算 p50 9.6 秒，48000 13.1，96000 17.0，135000 20.0 秒（最长 52.6 秒）；24000 的流程 4.8 秒。单个请求时的延迟更低（探针：24 万 token 14 秒），但都远在 #43 建议的 pplx `timeoutMs`（2500 ms）之外，所以更大的窗口只适合离线评测或不赶时间的请求，真要在线上用，要么只给 max 召回的缺口加流程，要么等 pplx 对长输入更快。延迟不是取舍依据，只作记录。
 
 **要留意的。**（1）金标没有审；`repeated-failure` 的 accept 里有 xhigh，所以准确率低估了缺口，看 max 召回；`without` 的答案（对照 b）是起草者对「单看那条消息」的判断，只和同一份数据里的其他变体比，不要和 deep 的准确率直接比。（2）30 题一题 3.3 个百分点，pplx 两遍相同所以没有波动的估计，小于两题（约 7 个百分点）的差别不要当真；max 召回按 10 题算。（3）中间轮次是模板生成的：粗看像读代码，细读重复、代码没有逻辑；决定性几轮是手写的。用真实的长对话重做才能确定结论不依赖这种填充。（4）摘要是 Haiku 逐轮续写的，对话离开了原问题（中间是读相邻的代码）时它会改写成当前在做的事：反复未果的 10 题里 9 题的摘要还保留着原问题（long-010 变成了「Terraform 漂移这一块一共有哪些文件」），其余 20 题的摘要本来就是任务，跟着最近读的代码走；这是 mod 的摘要实际会有的样子，次数（金标）则是上限。（5）流程里次数是金标，三选一读错了的话次数和强提示会跟着错。（6）pplx 的第二遍「mod 现在的」和 pplx 的流程拆半没有跑，额度用完了（pplx 共花约 3.6 美元，Jev 约 1.25 美元，Haiku 2214 次调用走订阅）。（7）`zh-summary`、`zh-count` 是第一批结果之后才加的变体，所以 `long-context.ts` 的代码哈希在那几份结果里和其余的不同；其他变体的请求没有变（测试核对）。
+
+#### eval v2：多 agent 出题的长对话数据集（#45，数据在写）
+
+#45 的数据集：120 题，只有中文对话，10 类各 12 题，决定性信息离末尾四档（d1 < 24k、d2 24k–48k、d3 48k–135k、d4 > 135k）各 30 题，中间轮次每档一半 `same-problem`、一半 `unrelated`，10 个领域；设计见 issue #45。这一节先记数据的格式和工具，测试组和结果跑完再写。
+
+- **文件**（`datasets/eval-v2/`）：素材段 `pool/<domain>-<relation>-<nn>.json`（一段一轮，3000–5000 token，`same-problem` 段用七个占位符 `{{FEATURE}}` `{{SYMPTOM}}` `{{ERROR}}` `{{FILE}}` `{{FILE2}}` `{{SYMBOL}}` `{{COMMAND}}`）；题目 `items/<category>-<nn>.json`（`opening`、`decisive`（用户消息带 `d1`、`d2`……）、`final`、`placeholders`、`middle_hint`，不含答案）；金标 `gold-author/`、`gold-labeler/`（`effort`、`accept`、`effort_without_decisive`、`triage_final`、`triage_decisive`，三选一用 mod 的选项名）。格式、每个领域的虚构仓库和规则在 `datasets/eval-v2/FORMAT.md`；检查在 `lib/eval-v2.ts`（`checkSegment`、`checkItem`、`checkGold`、`datasetWarnings`），作者自查用 `eval-v2-check.ts <文件或目录>`。
+- **生成**（`lib/eval-v2.ts` 的 `buildEvalV2`，`eval-v2-gen.ts` 写文件）：每题 `[前置段] + opening + decisive + [中间段] + final`。中间段是本领域、本关系的段（`same-problem` 段填上题目的占位符值），长度让决定性几轮整段落进这一档的区间（`BINS`：d1 0–21000、d2 26000–45000、d3 51000–127000、d4 140000–160000），区间里的深度按种子抽；前置段是本领域的 `unrelated` 段，垫到按种子抽的总长 82000–150000（`TOTAL`）。同一题里不重复，跨题每段最多 6 次（`MAX_USES`），用得少的先用；中间段先给最深的题挑，前置段每题轮流拿一段（池子不够时大家都少一点）。
+- **深度的两种数法**：数据里记的深度（`depth`、`depth_end`、每条决定性消息的 `depth`，以及段长、总长）按 mod 挑消息的数法：每行 `estimateTokens` 加 1，再加被问的消息；state 的预算小于它就一定读不到。区间的下界按这个数查，上界按 state 发出时的大小查（JSON，转义算在内）：mod 挑消息时按不转义的估算，截 state 时按发出的 JSON，所以一行在这两个深度之间的某个预算开始被读到。**发现**：`withinTokens` 最多截 4 次、每次按超出的比例截，引号和反斜杠很多的文字（发出时比估算大 5% 以上）会让发出去的 state 超过预算：合成数据里一题在 120122 的预算下发出的 state 是 121600 token。两边离测试组的预算（24000、48000、135000）都留了 2000 到 8000 token，给问题摘要和次数（约 600）和这种取整；`tests/eval-v2-gen.test.ts` 用 mod 自己的 `turnStartState` 核对：每档在三个预算下（各少 700 时也一样）要么读到全部决定性几轮、要么一行都读不到（素材里三分之一是转义很多的代码）。现有数据集里 state 发出时比估算大：unresolved 中位 2%、最多 16%（贴日志的题），long-context 的模板文字没有引号，不大；发出时大 10% 以上的素材段检查会提醒；整个池子都是这种段（大 17%）时 d4 拼不出来，`eval-v2-gen.ts` 会说明原因。
+- **输出**：`datasets/eval-v2.jsonl` 一行一题（按 id），字段 `id`、`category`、`domain`、`bin`、`relation`、`middle_hint`、`turns`（整段对话，最后一条是被问的消息；每条有 `part`，来自素材池的有 `segment`；每条用户消息有 `msg`：前置段 `p`、opening `o`、决定性 `d`、中间段 `m`、final `f`，加序号）、`decisive`（每条决定性用户消息在 `turns` 里的位置 `at` 和深度）、`depth`、`depth_end`、`tokens`、`segments`（前置段、中间段的素材 id）。不含金标，金标按 id 对上。
+- **不提交 JSONL，提交 `generated.json`**：120 题约 45 MB（16 题合成数据实测 6.1 MB），`datasets/.gitignore` 把它挡在 git 外。`datasets/eval-v2/generated.json` 记着种子、JSONL 的 sha256 和字节数、素材池的用量、每题的深度和长度；`validate.ts` 每次按这个种子从 `pool/` 和 `items/` 重新生成，生成的 `generated.json` 必须一字不差（本地有 JSONL 时 JSONL 也要一样），否则失败并提示重跑 `eval-v2-gen.ts`。没有 `generated.json` 时（数据还在写）只查每个文件，配额和素材池不够只警告。`validate.ts eval-v2` 只查这一部分；按 120 题模拟，生成一次约 0.5 秒。
+- **素材池要多大**：按每个领域 12 题（每档 3 题、两种关系各半）、段长 3000–5000 模拟：每个领域 `same-problem` 至少 40 段（d4 的 `same-problem` 题一题就要 35–45 段不重复的）、`unrelated` 50 段（前置段和 `unrelated` 的中间段共用，先到跨题 6 次的上限）；`unrelated` 只有 40 段时十来题的总长掉到 5 万到 8 万，段平均只有 3500 token 时两边各要多 5 段左右（`PLAN`，`validate.ts` 按它警告）。
+- **还没做的**：eval v2 的 suite（`run.ts` 还不认 `eval-v2`）、按后端逐轮写的摘要、真实流程的次数。`turns` 去掉最后一条就是 `recent_context`，最后一条是 `message`（命令轮带 `command`），可以直接交给 `lib/unresolved.ts` 的 `askedRequest`。
 
 ### 已实测的引擎行为（2.1.289；看板部分 2.1.291）
 
