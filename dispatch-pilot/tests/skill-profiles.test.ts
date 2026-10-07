@@ -45,7 +45,8 @@ function profileOf(name: string) {
 
 /** The skill a profile completion is about, as its prompt names it. */
 function skillOf(request: ModelCompleteRequest): string {
-  return /^Skill name: (\S+)$/m.exec(request.prompt)?.[1] ?? '?'
+  const prompt = typeof request.prompt === 'string' ? request.prompt : request.prompt.map((block) => block.text).join('')
+  return /^Skill name: (\S+)$/m.exec(prompt)?.[1] ?? '?'
 }
 
 /** The cheap model: each skill's profile as JSON, unless `special` says otherwise for that skill. */
