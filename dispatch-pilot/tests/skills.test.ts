@@ -125,7 +125,7 @@ test('switched off mid-conversation, the listing it withheld reaches the main ag
   await w.submit('还有吗')
 
   expect(w.prompts.map((prompt) => prompt.context)).toEqual([undefined, [RESTORED], undefined])
-  expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(w.requests.at(-1)?.body.questions)).toEqual(['effort.level'])
 })
 
 test('/dp off brings the withheld listing back the same way; switched on again, suggestions resume and the listing is not sent twice', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
@@ -189,20 +189,21 @@ test('Clef takes both skills requests as they are (its input rules hold), and th
   // With Clef the suggestions start off (tests/backend-defaults.test.ts): the person turns them on.
   await w.command('dp', 'skills on')
   await w.submit('先写一个失败的测试')
-  expect(w.requests).toHaveLength(2)
-  expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], []])
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'skills.which'])
+  expect(w.requests).toHaveLength(3)
+  expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], [], []])
+  expect(w.requests.map((request) => Object.keys(request.body.questions))[0]).toEqual(['effort.level'])
+  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.which'])
   // One skill re-read: its yes/no alone (Clef refuses a Choice of one option).
-  expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['skills.fits.0'])
+  expect(Object.keys(w.withoutEffort[1]?.body.questions)).toEqual(['skills.fits.0'])
   expect(await w.listing(LISTING)).toEqual({ text: HINT })
 })
 
-test("a message's one decision request also asks which skill the main agent could load for it, by name and description, or none", { options: KEY }, async ($, on) => {
+test("a message's skills request asks which skill the main agent could load for it, by name and description, or none", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS })
   await w.submit('先写一个失败的测试，再实现登录限流')
 
-  const questions = w.requests[0]?.body.questions
-  expect(Object.keys(questions)).toEqual(['effort.level', 'skills.which'])
+  const questions = w.withoutEffort[0]?.body.questions
+  expect(Object.keys(questions)).toEqual(['skills.which'])
   const which = questions['skills.which']
   expect(which.type).toBe('choice')
   // The names the Skill tool takes (a synced skill with its prefix), then "none" last.
@@ -233,14 +234,14 @@ test('the skills that fit are suggested beside the message, with name, descripti
 test('when the first stage rates no skill, nothing is asked a second time and nothing is attached to the message', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 0.03, 'code-review': 0.04, 'anthropic-skills:computer-use': 0.02, '(none)': 0.91 }), skills: SKILLS })
   await w.submit('这个函数为什么返回 undefined？')
-  expect(w.requests).toHaveLength(1)
+  expect(w.withoutEffort).toHaveLength(1)
   expect(w.prompts[0]?.context).toBeUndefined()
 })
 
 test('when no skill rated in the first stage fits on its own, nothing is attached to the message', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 0.3, 'code-review': 0.2, '(none)': 0.5 }, { tdd: 0.12, 'code-review': 0.05 }), skills: SKILLS })
   await w.submit('这个函数为什么返回 undefined？')
-  expect(w.requests).toHaveLength(2)
+  expect(w.withoutEffort).toHaveLength(2)
   expect(w.prompts[0]?.context).toBeUndefined()
 })
 
@@ -281,8 +282,8 @@ const PERSON_FILES: Record<string, string> = {
 test('skills only the person can start (disable-model-invocation in their SKILL.md) are asked about in a question of their own; one switched off in settings is not', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({}), skills: WITH_PERSONS, disk: PERSON_FILES })
   await w.submit('这个方案往死里挑刺')
-  const questions = w.requests[0]?.body.questions
-  expect(Object.keys(questions)).toEqual(['effort.level', 'skills.which', 'skills.hint'])
+  const questions = w.withoutEffort[0]?.body.questions
+  expect(Object.keys(questions)).toEqual(['skills.which', 'skills.hint'])
   expect(Object.keys(questions['skills.which'].criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:computer-use', '(none)'])
   const hint = questions['skills.hint']
   expect(hint.type).toBe('choice')
@@ -297,10 +298,11 @@ test('Clef takes stage one with both its Choices, and the second request over sk
   await w.command('dp', 'skills on')
   await w.submit('这个方案往死里挑刺，再补测试')
   expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([
-    ['effort.level', 'skills.which', 'skills.hint'],
+    ['effort.level'],
+    ['skills.which', 'skills.hint'],
     ['skills.best', 'skills.fits.0', 'skills.fits.1'],
   ])
-  expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], []])
+  expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], [], []])
 })
 
 /**
@@ -331,7 +333,7 @@ test('a skill only the person can start that fits outright takes nothing from th
   await w.submit('这个方案往死里挑刺，再审一下改动')
   await w.step({ index: 0 })
 
-  expect(Object.keys(w.requests[1]?.body.questions ?? {})).toEqual(['skills.best', 'skills.fits.0', 'skills.fits.1'])
+  expect(Object.keys(w.withoutEffort[1]?.body.questions ?? {})).toEqual(['skills.best', 'skills.fits.0', 'skills.fits.1'])
   expect(w.prompts[0]?.context?.[0]).toContain('- code-review (relevance 0.90): ')
   expect(await picked(w)).toEqual({ suggest: ['code-review'], try: ['grill-me'] })
   const [entry] = await skillDecisions(w)
@@ -349,7 +351,7 @@ test('with only skills the person can start to ask about, the hint is still aske
   await w.submit('这个方案往死里挑刺')
   await w.step({ index: 0 })
 
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'skills.hint'])
+  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.hint'])
   expect(w.prompts[0]?.context).toBeUndefined()
   expect(await picked(w)).toEqual({ suggest: [], try: ['grill-me'] })
 })
@@ -387,7 +389,7 @@ test("a project's own skills are read under its working directory: one the main 
   await w.submit('发版：更新文档站，再写这次的发布说明')
   await w.step({ index: 0 })
 
-  const fits = Object.values(w.requests[1]?.body.questions ?? {}).flatMap((question: any) => (question.type === 'noul' ? [question.instructions.skill] : []))
+  const fits = Object.values(w.withoutEffort[1]?.body.questions ?? {}).flatMap((question: any) => (question.type === 'noul' ? [question.instructions.skill] : []))
   expect(fits.map((skill: any) => [skill.name, skill.opening])).toEqual([
     ['deploy-docs', 'Run the docs build, then push the site.'],
     ['release-notes', 'List the merged changes since the last tag.'],
@@ -418,26 +420,27 @@ test('each message gets its own skills decision: the skills suggested, and none 
 })
 
 test("a failed decision request suggests nothing: no skills decision for that message, and its main agent's node says why", { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
-  // The first message's two requests are answered; the next message's first request is refused.
-  const w = world($, on, { backend: (request, n) => (n <= 2 ? rates({ tdd: 0.7, '(none)': 0.3 }, { tdd: 0.9 })(request) : { status: 503, body: 'overloaded' }), skills: SKILLS })
+  // The first message's three requests (effort, skills, the skills' second stage) are answered; the next message's are refused.
+  const w = world($, on, { backend: (request, n) => (n <= 3 ? rates({ tdd: 0.7, '(none)': 0.3 }, { tdd: 0.9 })(request) : { status: 503, body: 'overloaded' }), skills: SKILLS })
   await w.submit('先写失败的测试')
   await w.step({ index: 0 })
   expect(await picked(w)).toEqual({ suggest: ['tdd'], try: [] })
   await w.submit('然后把限流也加上')
   await w.step({ index: 0, effort: 'xhigh' })
 
-  expect(w.requests).toHaveLength(3)
+  expect(w.requests).toHaveLength(5)
   expect(w.prompts[1]?.context).toBeUndefined()
   expect((await skillDecisions(w)).map((entry) => entry.turn)).toEqual([1])
   expect((await w.board()).main).toMatchObject({ turn: 2, routed: false, why: 'jev：繁忙（状态码 503）' })
 })
 
 test('an answer that leaves the skills question out suggests nothing, and the effort still goes through', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
-  const effortOnly = (request: Parameters<ReturnType<typeof rates>>[0], n: number) => {
+  // The second message's skills request is answered with nothing; its effort request is answered as usual.
+  const effortOnly = (request: Parameters<ReturnType<typeof rates>>[0]) => {
     const reply = rates({ tdd: 0.7, '(none)': 0.3 }, { tdd: 0.9 })(request)
-    if (n <= 2 || !('body' in reply)) return reply
+    if (request.body.state.user_message !== '然后把限流也加上' || 'effort.level' in request.body.questions || !('body' in reply)) return reply
     const body = reply.body as { answers: Record<string, unknown> }
-    return { ...reply, body: { ...body, answers: { 'effort.level': body.answers['effort.level'] } } }
+    return { ...reply, body: { ...body, answers: {} } }
   }
   const w = world($, on, { backend: effortOnly, skills: SKILLS })
   await w.submit('先写失败的测试')
@@ -505,7 +508,7 @@ test('a skill the listing still shows (skillsAlwaysListed) is suggested by name 
 test('skills named in skillsNeverSuggested are never offered, to the main agent or to the person', { options: { ...KEY, skillsNeverSuggested: ['code-review', 'grill-me'] } }, async ($, on) => {
   const w = world($, on, { backend: rates({}), skills: WITH_PERSONS, disk: PERSON_FILES })
   await w.submit('审一下这个分支')
-  const questions = w.requests[0]?.body.questions
+  const questions = w.withoutEffort[0]?.body.questions
   expect(Object.keys(questions['skills.which'].criteria)).toEqual(['tdd', 'anthropic-skills:computer-use', '(none)'])
   expect(Object.keys(questions['skills.hint'].criteria)).toEqual(['ship:release', '(none)'])
 })
@@ -597,13 +600,13 @@ test('what the mod sends is exactly what the decision module builds from a messa
     { name: 'grill-me', description: 'Interview the user relentlessly about a plan until every branch is resolved.', by: 'person' },
     { name: 'ship:release', description: 'Cut a release: tag, changelog, publish.', by: 'person' },
   ]
-  // The effort question as Jev is asked it: in Chinese (core/setup.ts BACKEND_DEFAULTS turnStartLanguage); the skills questions in English.
+  // The skills questions in English; the effort question has a request of its own (tests/effort-request.test.ts).
   const { request } = skillsRequest(
     { message: '要，先写失败的测试', recent_context: [{ role: 'user', text: '登录接口加个限流' }, { role: 'assistant', text: '好的，要先写测试吗？', toolUses: [{ tool: 'Read' }] }] },
     options,
-    { limits: { messages: 4, tokens: 2000 }, effortLanguage: 'zh' },
+    { limits: { messages: 4, tokens: 2000 } },
   )
-  expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, ...request })
+  expect(w.withoutEffort[0]?.body).toEqual({ model: JEV_MODEL, ...request })
 })
 
 test('the skills named in skillsAlwaysListed stay in the main agent’s listing, as the engine wrote them, the note after them', { options: { ...KEY, skillsAlwaysListed: ['anthropic-skills:computer-use', 'code-review', 'not-installed'] } }, async ($, on) => {

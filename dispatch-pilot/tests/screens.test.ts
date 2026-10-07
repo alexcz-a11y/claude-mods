@@ -216,8 +216,8 @@ async function eventRows(ui: { findAll: (query: { type?: string }) => Promise<Dr
 test("the event stream: the turn's decision, the skills suggested, and an effort changed mid-turn as one event (from, to and why), not one per step", { options: { ...KEY, skillsMinRelevance: 0.5, rejudgeEvery: 0 } }, async ($, on) => {
   const first = rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 })
   const w = runWorld($, on, {
-    // The message is medium; the re-decision as the agent is dispatched says xhigh, surely.
-    backend: (request, n) => (n <= 2 ? first(request) : jev([0, 0, 0.1, 0.9, 0], { confidence: 0.8 })(request)),
+    // The message (its effort request, the skills request and its second stage) is medium; the re-decision as the agent is dispatched says xhigh, surely.
+    backend: (request, n) => (n <= 3 ? first(request) : jev([0, 0, 0.1, 0.9, 0], { confidence: 0.8 })(request)),
     skills: { commands: [{ name: 'tdd', description: 'Test-driven development.', source: 'user' }], listed: [{ name: 'tdd', source: 'userSettings', tokens: 20 }] },
     disk: { '/home/u/.claude/skills/tdd/SKILL.md': '---\nname: tdd\n---\nRed, green.\n' },
   })
@@ -263,7 +263,7 @@ test('what only the old status line used to say is in the stream now: a re-decis
 test('a feature switched off leaves the band and the footer: its decisions, its notes and the parts of the board it owns; on again, they are back', { options: { ...KEY, skillsMinRelevance: 0.5, rejudgeEvery: 0 } }, async ($, on) => {
   const first = rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 })
   const w = runWorld($, on, {
-    backend: (request, n) => (n <= 2 ? first(request) : jev([0, 0, 0.1, 0.9, 0], { confidence: 0.8 })(request)),
+    backend: (request, n) => (n <= 3 ? first(request) : jev([0, 0, 0.1, 0.9, 0], { confidence: 0.8 })(request)),
     skills: { commands: [{ name: 'tdd', description: 'Test-driven development.', source: 'user' }], listed: [{ name: 'tdd', source: 'userSettings', tokens: 20 }] },
     disk: { '/home/u/.claude/skills/tdd/SKILL.md': '---\nname: tdd\n---\nRed, green.\n' },
     store: {},

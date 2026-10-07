@@ -518,6 +518,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   return {
     clock,
     requests,
+    /** The requests that do not ask the effort question, which has a request of its own (ADR 0005): the skills' two stages and the rest, in the order they were sent. */
+    get withoutEffort() {
+      return requests.filter((request) => !Object.keys(request.body?.questions ?? {}).some((id) => id.startsWith('effort.')))
+    },
     statuses,
     logs,
     steps,

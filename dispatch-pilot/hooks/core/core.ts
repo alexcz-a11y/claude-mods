@@ -2,8 +2,10 @@
 // The entry registers it last, so on each event every feature's hook has run
 // (on the way down) before the core finishes the event:
 //
-//   prompt.submit  sends the message's ballot as one decision request, hands
-//                  each part its answers, then lets the prompt in
+//   prompt.submit  sends the message's ballot as up to two decision requests
+//                  (the effort question alone, the rest together; ADR 0005),
+//                  in parallel, hands each part its answers, then lets the
+//                  prompt in
 //   turn.start     opens the main turn's record, with the effort its prompt
 //                  was decided at
 //   turn.step      the one writer of effort (and of a non-main loop's model):
@@ -20,6 +22,7 @@
 
 import type { HttpInit, On } from 'claude-code'
 import { messageText, turnStartState } from '../decision/context.ts'
+import { EFFORT_PART } from '../decision/effort.ts'
 import { SKILLS_PART } from '../decision/skills.ts'
 import { answersFor, mergeParts, type State } from '../decision/system-one.ts'
 import { type Asked, describeAsked, errorText } from '../decision/backend.ts'
@@ -27,7 +30,7 @@ import { collect, type Contribution, type PartOutcome } from './ballot.ts'
 import { forgetCommand, noteCommand, typedCommand } from './commands.ts'
 import { noteBlocked } from './outcomes.ts'
 import { newTurn, planStep, replace, takePending, turnKey, type Cell, type PendingDecision } from './plans.ts'
-import type { Ctx } from './setup.ts'
+import { messageLimits, type Ctx } from './setup.ts'
 import { reportStep, type StepIo } from './report.ts'
 import { masterOn } from './switches.ts'
 
@@ -50,28 +53,36 @@ export function registerCore(on: On, ctx: Ctx): void {
     const ballot = collect(e.text)
     // Switched off (/dp off): whatever was put in the ballot is not asked.
     if (ballot.length === 0 || !masterOn()) return next(e)
-    const ids = ballot.flatMap((part) => Object.keys(part.questions).map((id) => `${part.part}.${id}`)).join(', ')
-    const startedAt = await $.clock.now()
     const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
-    let asked: Asked
-    let state: State = {}
-    try {
-      // The state's budget follows the request's longest question: the skills' question leaves less than any other.
-      const tokens = ballot.some((part) => part.part === SKILLS_PART) ? ctx.config.context.tokens : ctx.config.contextByKind.messagePlain
-      const request = mergeParts(turnStartState({ prompt: e.text, messages, limits: { ...ctx.config.context, tokens } }), ballot)
-      state = request.state
-      const io = {
-        fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
-        sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
-      }
-      asked = await ctx.backend.ask(io, request, ctx.config.timeoutMs)
-    } catch (error) {
-      // A part's malformed questions: nothing was sent.
-      asked = { ok: false, failure: { kind: 'request', detail: errorText(error) } }
+    const io = {
+      fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+      sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
     }
-    const ms = (await $.clock.now()) - startedAt
-    $.ui.log(`request [${ids}] to ${ctx.backend.name}: ${describeAsked(asked, ms)}`, { to: 'debug' })
-    const blocks = await settleAll(ballot, asked, state)
+    // The main agent's effort goes in a request of its own (ADR 0005), the rest of the ballot in one. Both go out at once,
+    // each is answered or fails on its own, and each part reads the outcome of the request it was in.
+    const blocks = (
+      await Promise.all(
+        requestGroups(ballot).map(async (group) => {
+          const startedAt = await $.clock.now()
+          const ids = group.flatMap((part) => Object.keys(part.questions).map((id) => `${part.part}.${id}`)).join(', ')
+          let asked: Asked
+          let state: State = {}
+          try {
+            // The state's budget follows the request's longest question: the skills' question leaves less than any other.
+            const limits = messageLimits(ctx.config, group.some((part) => part.part === SKILLS_PART))
+            const request = mergeParts(turnStartState({ prompt: e.text, messages, limits }), group)
+            state = request.state
+            asked = await ctx.backend.ask(io, request, ctx.config.timeoutMs)
+          } catch (error) {
+            // A part's malformed questions: nothing was sent.
+            asked = { ok: false, failure: { kind: 'request', detail: errorText(error) } }
+          }
+          const ms = (await $.clock.now()) - startedAt
+          $.ui.log(`request [${ids}] to ${ctx.backend.name}: ${describeAsked(asked, ms)}`, { to: 'debug' })
+          return settleAll(group, asked, state)
+        }),
+      )
+    ).flat()
     entering.push(e.text)
     try {
       return await next(blocks.length > 0 ? { ...e, context: [...(e.context ?? []), ...blocks] } : e)
@@ -140,6 +151,15 @@ export function registerCore(on: On, ctx: Ctx): void {
     await reportStep(io, { ...(agentId === undefined ? {} : { agentId }), model: step.model, effort: step.effort, source })
     return yield* next(step)
   })
+}
+
+/**
+ * The requests a ballot goes out in: the main agent's effort question alone, every other part's together (the skills'
+ * question is the longest and sets a smaller state budget, so it cannot share a request with the effort question without
+ * cutting the conversation the effort question reads). A group no part is in is not made: no empty request.
+ */
+function requestGroups(ballot: readonly Contribution[]): Contribution[][] {
+  return [ballot.filter((part) => part.part === EFFORT_PART), ballot.filter((part) => part.part !== EFFORT_PART)].filter((group) => group.length > 0)
 }
 
 /** Hands each part its outcome (in parallel) and gathers the context blocks they return, in ballot order. */
