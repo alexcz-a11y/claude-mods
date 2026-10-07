@@ -13,10 +13,12 @@
 //
 // Pure: no Node API. The tests and the Node scripts import it as it is.
 
+import { BACKEND_DEFAULTS } from '../../hooks/core/setup.ts'
+import { estimateTokens, recentLines, type ContextMessage } from '../../hooks/decision/context.ts'
 import { EFFORTS, isEffort, type Effort } from '../../hooks/decision/effort.ts'
 import { DETAIL_KEYS, OUTCOME_WORDS, type MidturnInput } from '../../hooks/decision/midturn.ts'
 
-export const KINDS = ['effort-submit', 'effort-midturn', 'subagent', 'skill'] as const
+export const KINDS = ['effort-submit', 'effort-midturn', 'subagent', 'skill', 'unresolved'] as const
 export type Kind = (typeof KINDS)[number]
 
 export function isKind(name: string): name is Kind {
@@ -44,6 +46,25 @@ export type Item<Asked, Answer, Accept> = {
 /** effort-submit: the message the person sent and what came before it. */
 export type SubmitAsked = { message: string; recent_context: ContextEntry[] }
 export type EffortSubmitItem = Item<SubmitAsked, Effort, Effort[]>
+
+/**
+ * unresolved: an effort-submit item (the message and the conversation before
+ * it) from a thread that may have gone round several times on one problem,
+ * plus the answer to the three-way question about the message (`triage`).
+ * `command` is there when the message starts a command turn: the command as
+ * the person typed it (`message`), and what it is for, as the mod gives it to
+ * the decision model beside the message (`name`, `description`).
+ */
+export const TRIAGES = ['unresolved', 'resolved', 'new'] as const
+export type Triage = (typeof TRIAGES)[number]
+export type UnresolvedAsked = SubmitAsked & { command?: { name: string; description: string } }
+export type UnresolvedItem = Item<UnresolvedAsked, Effort, Effort[]> & { triage: Triage }
+
+/**
+ * The tag of an unresolved item whose conversation overruns what the mod
+ * reads of it when a message is sent (the state's budget, `BACKEND_DEFAULTS.jev.contextTokens`): its earlier rounds fall outside.
+ */
+export const OVER_BUDGET = 'over-budget'
 
 /**
  * One tool call of an effort-midturn row: its name; `input`, the arguments
@@ -169,6 +190,7 @@ const FIELDS: Record<Kind, readonly string[]> = {
   'effort-midturn': ['id', 'zh', 'en', 'gold', 'accept', 'rationale', 'difficulty', 'tags'],
   subagent: ['id', 'zh', 'en', 'gold', 'accept', 'rationale', 'difficulty', 'tags'],
   skill: ['id', 'zh', 'en', 'gold', 'accept', 'must_not', 'user_only_hint', 'rationale', 'difficulty', 'tags'],
+  unresolved: ['id', 'zh', 'en', 'gold', 'accept', 'triage', 'rationale', 'difficulty', 'tags'],
 }
 
 function checkCommon(kind: Kind, item: Record<string, unknown>, add: Add): void {
@@ -200,6 +222,13 @@ const RULES: Record<Kind, (item: Record<string, unknown>, add: Add) => void> = {
   skill: (item, add) => {
     checkSubmitAsked(item, add)
     checkSkillAnswer(item, add)
+  },
+  unresolved: (item, add) => {
+    checkSubmitAsked(item, add, ['command'])
+    checkCommand(item, add)
+    checkEffortAnswer(item, add)
+    if (!(TRIAGES as readonly unknown[]).includes(item.triage)) add(`triage ${JSON.stringify(item.triage)} is not one of ${TRIAGES.join(', ')}`)
+    checkOverBudget(item, add)
   },
 }
 
@@ -245,11 +274,11 @@ function catalogLookup(catalog: unknown): ((name: string) => string | undefined)
 }
 
 /** `{ message, recent_context }` in both languages, the context the same shape in both (roles, tools). */
-function checkSubmitAsked(item: Record<string, unknown>, add: Add): void {
+function checkSubmitAsked(item: Record<string, unknown>, add: Add, optional: readonly string[] = []): void {
   const contexts: Partial<Record<Language, unknown[]>> = {}
   for (const language of LANGUAGES) {
     const asked = item[language] as Record<string, unknown>
-    exactKeys(asked, ['message', 'recent_context'], language, add)
+    exactKeys(asked, ['message', 'recent_context', ...optional.filter((key) => key in asked)], language, add)
     if (!nonEmpty(asked.message)) add(`${language}.message must be a non-empty string`)
     if (!Array.isArray(asked.recent_context)) {
       add(`${language}.recent_context must be an array`)
@@ -267,6 +296,40 @@ function checkSubmitAsked(item: Record<string, unknown>, add: Add): void {
     if (entry.role !== other.role) add(`recent_context[${i}].role differs between zh and en`)
     if (JSON.stringify(entry.tools ?? []) !== JSON.stringify(other.tools ?? [])) add(`recent_context[${i}].tools differ between zh and en`)
   })
+}
+
+/** `command`, when there is one: a name (the same in both languages) and a description, each a non-empty string; in both languages or in neither. */
+function checkCommand(item: Record<string, unknown>, add: Add): void {
+  const [zh, en] = [item.zh as Record<string, unknown>, item.en as Record<string, unknown>]
+  if ('command' in zh !== 'command' in en) return add('command is in one language only')
+  for (const language of LANGUAGES) {
+    const command = (item[language] as Record<string, unknown>).command
+    if (command === undefined) continue
+    if (!isRecord(command)) return add(`${language}.command must be { name, description }`)
+    exactKeys(command, ['name', 'description'], `${language}.command`, add)
+    for (const field of ['name', 'description'] as const) if (!nonEmpty(command[field])) add(`${language}.command.${field} must be a non-empty string`)
+  }
+  if (isRecord(zh.command) && isRecord(en.command) && zh.command.name !== en.command.name) add('command.name differs between zh and en')
+}
+
+/** What the mod's state would hold of the conversation before the message, with no budget: the lines and the message, as the mod writes them. */
+export function stateTokens(asked: SubmitAsked): number {
+  const messages: ContextMessage[] = asked.recent_context.map((entry) => ({ role: entry.role, text: entry.text, toolUses: (entry.tools ?? []).map((tool) => ({ tool })) }))
+  return estimateTokens(JSON.stringify({ user_message: asked.message, recent_context: recentLines(messages, asked.message, Number.MAX_SAFE_INTEGER).join('\n') }))
+}
+
+/** The context budget of the state a message's request has today, in estimated tokens. */
+const BUDGET = BACKEND_DEFAULTS.jev.contextTokens
+
+/** An item is tagged `over-budget` exactly when its state overruns the budget in both languages (no item is long in one language only). */
+function checkOverBudget(item: Record<string, unknown>, add: Add): void {
+  const tagged = Array.isArray(item.tags) && item.tags.includes(OVER_BUDGET)
+  const sizes = LANGUAGES.map((language) => [language, stateTokens(item[language] as SubmitAsked)] as const)
+  if (sizes.some(([, size]) => !Number.isFinite(size))) return
+  const over = sizes.filter(([, size]) => size > BUDGET)
+  const list = sizes.map(([language, size]) => `${language} ${size}`).join(', ')
+  if (tagged && over.length < LANGUAGES.length) add(`tagged ${OVER_BUDGET}, but the conversation fits ${BUDGET} tokens in ${sizes.filter(([, size]) => size <= BUDGET).map(([language]) => language).join(' and ')} (${list})`)
+  else if (!tagged && over.length > 0) add(`the conversation overruns ${BUDGET} tokens in ${over.map(([language]) => language).join(' and ')} (${list}) and has no ${OVER_BUDGET} tag`)
 }
 
 /**
@@ -492,6 +555,18 @@ const QUOTAS: Record<Kind, (items: readonly Record<string, unknown>[]) => string
     if (none < 0.2) warnings.push(`items where no skill fits are ${percent(none)}; the drafting rules ask for at least 20%`)
     const hinted = items.filter((item) => Array.isArray(item.user_only_hint) && item.user_only_hint.length > 0).length
     if (hinted < 10) warnings.push(`${hinted} items hint a user-only skill; the drafting rules ask for at least 10`)
+    return warnings
+  },
+  unresolved: (items) => {
+    const warnings: string[] = []
+    for (const answer of TRIAGES) {
+      const n = items.filter((item) => item.triage === answer).length
+      if (n < 5) warnings.push(`${n} items have triage "${answer}"; the drafting rules ask for at least 5`)
+    }
+    const over = share(items, (item) => Array.isArray(item.tags) && item.tags.includes(OVER_BUDGET))
+    if (over < 0.25) warnings.push(`${OVER_BUDGET} items are ${percent(over)} of the dataset; the drafting rules ask for at least 25%`)
+    const top = items.filter((item) => item.gold === 'max').length
+    if (top < 8) warnings.push(`${top} items have gold max; the drafting rules ask for at least 8 (a recall of the top level needs a sample)`)
     return warnings
   },
 }

@@ -990,6 +990,29 @@ eval/
   - **`trouble`（失败满 2 次的 6 题）。** 两次运行合起来 24 个答案，带上「卡住」说明后变对 4 个、变错 2 个（017 英文两次都变对；006、057 各有一次变对、一次变错），样本太小，看不出效果。006（两次失败都是计划内的 TDD 红灯）带不带都大多答 medium。#7 按用户的拍板还要问「这些失败是不是预期内的」，那个问题这里没有评测。
   - **延迟。** Jev 的 p50 275–287 ms、p90 323–358 ms，最长 1305 ms，没有超过 1500 ms 的。mod 在工具开始执行时就发出中途请求，下一步最多再等 `rejudgeWaitMs`（300 ms），按这个延迟，回答一般在工具运行期间就到了。Clef（连接建立后依次发送）p50 633 ms、p90 761 ms，最长 2078 ms，都在 3000 ms 之内。
 
+#### 多轮未解决（unresolved，#37，spec #36）
+
+- **评测集** `datasets/unresolved.jsonl`：30 题，中英对照，26 题 hard，10 题的对话超过发消息时 state 的预算（标签 `over-budget`，校验按 mod 的估算核对）。每题是一条消息加它之前的对话（形状同 effort-submit，命令轮另有 `command`），答案是 effort（`gold`、`accept`）和三选一题的金标 `triage`（`unresolved`、`resolved`、`new`）。各情形的题数和构造见 `datasets/README.md` 的「unresolved」。没有审核记录（`review/unresolved.review.jsonl`）：标注是写题时定的，需要审核时再走 `apply-review.ts`（`EDITABLE` 已登记 `gold`、`accept`、`triage`）。
+- **suite**（`lib/unresolved.ts`）：请求和 effort-submit 一样，是 mod 发消息时拼的那一个：effort 题单独问，state 是 `turnStartState`，命令轮的 state 多一个 `command`。变体 `zh-score`（Jev 现在的问法）、`en-score`（Clef 的）和带 `-wide` 的两个：state 预算不用 `contextTokens`（6000）而用 `contextByKind.messagePlain`（24000），就是 ADR 0005 之后 effort 请求拿到的预算。**三选一题还不存在**：`unresolvedSuite(triage?)` 接收一个 `TriageAsk`（`part`：写问题；`read`：读回答），传了就一起问、单独评分（`parts.triage`，汇总里的 `breakdown.triage` 有准确率和混淆表），没传（现在的 `unresolved`）就只问 effort、只报 effort。后面的票把 mod 里的题和读法接进来时，把它传给 `unresolvedSuite` 并在 `suites.ts` 里换掉 `unresolved` 即可；`tests/eval-unresolved-suite.test.ts` 用一个假的三选一题测了评分。拼请求的 `unresolvedRequest` 也要跟着换成 mod 拼请求的函数（ADR 0005 之后 effort 请求不再带 skill 题，摘要和未解决次数也进 state）。
+- **汇总里的数**（`breakdown`，每个变体）：`top`（gold 为 `max` 的题里答成 `max` 的比例，即最高一档的召回）、`tooHigh`、`tooLow`（判得太高、太低的题占全部题的比例）、`byLength`（长对话和不长的对话分开：准确率和最高一档的召回）、`thetaMax`（0.2 到 0.7 各个门槛下的最高一档召回，以及 `accept` 里没有 `max` 的题被答成 `max` 的比例；按存下的各档概率重算，不发请求）。
+- **改动之前的基线**（2026-10-07，jev-1.13.0，mod 的默认设置：`contextTokens` 6000、`thetaMax` 0.5，`--concurrency 1`）：`results/unresolved/2026-10-07-jev-baseline.json` 和 `-baseline-2.json`，同一配置各跑一次，每次 240 个请求、858,990 input token、约 0.036 美元，没有失败，没有迟到的回答。百分比，中文 / 英文，括号里是第二次：
+
+  | 变体 | 准确率 | 最高一档的召回（13 题） | 判得太高 | 判得太低 | 召回：长对话（10 题）/ 不长（20 题） |
+  |---|---|---|---|---|---|
+  | `zh-score`（Jev 现在的问法） | 73.3 / 73.3（73.3 / 73.3） | 15.4 / 15.4（15.4 / 7.7） | 0 / 0 | 26.7 / 26.7 | 20 / 20、12.5 / 12.5（20 / 0、12.5 / 12.5） |
+  | `en-score`（Clef 的问法） | 76.7 / 80.0（80.0 / 80.0） | 69.2 / 76.9（69.2 / 69.2） | 3.3 / 3.3 | 20.0 / 16.7（16.7 / 16.7） | 60 / 60、75 / 87.5（60 / 40、75 / 87.5） |
+  | `zh-score-wide` | 73.3 / 73.3（76.7 / 73.3） | 23.1 / 7.7（23.1 / 23.1） | 0 / 0 | 26.7 / 26.7（23.3 / 26.7） | 40 / 0、12.5 / 12.5（40 / 40、12.5 / 12.5） |
+  | `en-score-wide` | 80.0 / 83.3（80.0 / 80.0） | 69.2 / 76.9（69.2 / 76.9） | 3.3 / 3.3 | 16.7 / 13.3（16.7 / 16.7） | 60 / 60、75 / 87.5（60 / 60、75 / 87.5） |
+
+  常数基线：每题都答 xhigh 能对 63.3%（最好的常数；gold 命中 10%），max 46.7%，medium 36.7%，high 30.0%，low 23.3%。
+- **读这些数要留意的**：
+  - **上线标准的起点是 `zh-score` 的 15.4%（13 题里 2 题）**，判得太高 0%、太低 26.7%。Jev 现在就是这样问的。判得太低的 8 题（中文，英文相同）里，6 题是 gold 为 `max` 的，答的是 high。
+  - **问题的语言比上下文的长度影响大得多。** 同一个 Jev、同样的 state，`en-score` 的召回是 69–77%，`zh-score` 是 8–23%：中文的 effort 题给最高一档的概率普遍低（明说「第四次了」的 `unresolved-001` 在中文问法里 `max` 的概率是 0.32，英文问法是 0.84）。`thetaMax` 降到 0.2 也只把 `zh-score` 提到 23%，所以光调门槛救不了它。代价是 `en-score` 在第二次失败的题上有一次判到 `max`（`unresolved-014`，判得太高 3.3%）。#4 里 `zh-score` 在 effort-submit 上比 `en-score` 准 8–9 个百分点才定为 Jev 的问法（`turnStartLanguage`），这里相反：到底是 effort-submit 缺这类题，还是中文题在这一档本身偏保守，要先看这一点再决定上线标准。
+  - **state 从 6000 提到 24000 的作用很小**：最高一档的召回，`zh-score` 是 15.4 / 15.4 和 15.4 / 7.7（两次，中文 / 英文），`zh-score-wide` 是 23.1 / 7.7 和 23.1 / 23.1；`en-score` 和 `en-score-wide` 一样（69–77%）。长对话里的召回比不长的低一些（`en-score` 60% 对 75–88%），但提到 24000 没有补上，而且长对话里有 3 道隐含的题（008、009、011），和短对话的构成不同，不能全算在长度上。最后一条（长日志）把预算占满的几题（`unresolved-002`、`004`、`008`、`022`、`024`）在 6000 的预算里只剩 66–120 token：消息和最后一条回复。其中明说没解决的 002、004，`en-score` 答对（max），`zh-score` 答 xhigh 和 max；隐含的 008（「还是一样」）所有变体都没答对。
+  - **隐含的没解决几乎没人认出**：`implicit-unresolved` 7 题，`zh-score` 只对 2 题（010、011，都是答 xhigh），`en-score` 对 4 题；贴同样的编译错误（006）和「再看看」（007）在任何变体里都是 low 到 high。这些是摘要和三选一题要补的。
+  - **波动**：两次运行请求逐字相同，每个变体 240 个回答里有几个不同；最高一档的召回只有 13 题，一题就是 7.7 个百分点，比较时用同一配置多跑几次，别拿一次的差当结论。
+  - 三选一题还不存在，这次的结果只有 effort。`unresolved-014` 一类「第二次」的题和 6 道已解决的题是看判得太高的主要样本，**effort-submit 原有用例的回归还没跑**（那是上线标准的另一半，改动之后再跑）。
+
 #### 派出 agent（subagent，#15）
 
 评测集、题号（`subagent-001` 起）、suite 名和结果目录沿用 `subagent` 这个名字（术语表不用这个词，统一叫「派出 agent」）：结果文件、审核记录和 issue 都按这些名字引用，所以保留，代码里的标识符已经改成 `AgentItem`、`agentSuite` 这样的写法。见 `eval/datasets/README.md` 的「名字的例外」。

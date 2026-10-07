@@ -1,6 +1,6 @@
 # 评测集的约定
 
-这里的四个评测集是 Dispatch Pilot 评测（`eval/`，见上一级的 DEVELOPMENT.md「评测」）的题目。每题怎么写、答案怎么标，都按这份约定；新加题、改题也照此。校验规则在 `eval/lib/datasets.ts`，`node dispatch-pilot/eval/validate.ts` 逐条检查。
+这里的五个评测集是 Dispatch Pilot 评测（`eval/`，见上一级的 DEVELOPMENT.md「评测」）的题目。每题怎么写、答案怎么标，都按这份约定；新加题、改题也照此。校验规则在 `eval/lib/datasets.ts`，`node dispatch-pilot/eval/validate.ts` 逐条检查。
 
 这份约定来自评测集起草时的两份说明（起草时的「README」和「SOURCES.md」，当时放在仓库之外）。审核总结（`eval/review/*.review-summary.md`）里说的「README 档位表」就是下面的「effort 档位的含义」，说的「SOURCES.md 的附加约定」就是下面各类题的「附加约定」。
 
@@ -12,8 +12,9 @@
 | `effort-midturn.jsonl` | 一轮中途重新判断主 agent 的 effort | #14 |
 | `subagent.jsonl` | 派出 agent（普通派发，以及 Workflow 里的 `agent()`）的模型和 effort | #15 |
 | `skill.jsonl`，加上 `skill-catalog.json`、`skill-profiles.json` | skill 匹配（用本机真实的 skill 目录出题） | #16 |
+| `unresolved.jsonl` | 和主 agent 为同一个问题来回多轮都没解决时，发消息时判出的主 agent effort（以及这条消息和之前的问题是什么关系） | #37（spec #36） |
 
-每个文件约 100 题，每行一个 JSON 对象，UTF-8，不加注释。
+每个文件约 100 题（`unresolved.jsonl` 约 30 题，其中一部分对话很长），每行一个 JSON 对象，UTF-8，不加注释。
 
 **名字的例外。** 术语表（仓库根目录的 `GLOSSARY.md`）不用「子 agent」「subagent」，统一叫「派出 agent」。`subagent.jsonl` 这个文件名、题号 `subagent-001` 起、suite 名 `subagent` 和 `results/subagent/` 都保留原来的写法：结果文件、审核记录和 issue 里的讨论都按这些名字引用，改名只会让它们对不上。新写的说明和代码里的标识符仍用「派出 agent」。
 
@@ -147,6 +148,32 @@ effort 题的 `accept` 必须是连续的档位（例如 `["high","xhigh"]`，�
   - `"must_not": ["skill-x"]`：推荐了就算错的 skill（典型的是看起来相关、其实不适用的干扰项）。
   - `"user_only_hint": ["skill-y"]`：只能由用户本人触发（`disable-model-invocation: true`）、应该在状态行提示用户而不是推荐给主 agent 的 skill。
 - 覆盖：中文请求对上英文描述的 skill；没有任何 skill 相关（至少 20%）；几个 skill 部分相关；名字相近的干扰项；只能由用户触发的 skill（至少 10 题）。`near-duplicate`、`lexical-trap` 标签按 skill 家族标。
+
+### unresolved（#37，spec #36）
+
+量的是「多轮未解决」这个漏洞：用户和主 agent 为同一个问题来回好几轮都没解决，决策模型发消息时读不到那么远（effort 题和 skill 排序题合在一个请求里，state 只有约 6000 token，助手的一两条长回复就把预算占满），几乎从不判到最高一档。ADR 0005 的做法（effort 题单独成一个请求、state 24000、再加问题摘要和未解决次数）要靠这个评测集量出效果；它先在改动之前的代码上跑出基线，之后每一步都和基线比。
+
+```json
+"zh": {
+  "message": "用户这一轮发的消息原文",
+  "recent_context": [ { "role": "user", "text": "……" }, { "role": "assistant", "text": "……", "tools": ["Edit"] } ],
+  "command": { "name": "debug", "description": "这个命令是干什么的" }
+}
+```
+
+- `zh` / `en` 的形状同 effort-submit，另有可选的 `command`：这条消息开始的是命令轮时才有（`message` 写成用户输入的 `/name args`，`command` 是 mod 在 state 里放在消息旁边的命令说明，`name` 两种语言相同，`description` 各用各的语言）。中英两版要么都有，要么都没有。
+- `gold`、`accept`：这条消息该用的主 agent effort，规则同 effort-submit（`accept` 是相邻的档位，`gold` 在里面）。
+- `triage`：三选一题的金标，`unresolved`（同一问题仍未解决）、`resolved`（已经解决）、`new`（新问题或无关）。判的是这条消息和它之前的那个问题的关系，只看用户的话，不看主 agent 自己说「已修复」。三选一题现在还不存在，金标留给它；题出来之前评分只算 effort。
+- 约 30 题，覆盖五种情形：明说没解决（`explicit-unresolved`，5 题）、隐含的没解决（`implicit-unresolved`，7 题：贴同样的报错、「再看看」、只报一个没变的数字）、只失败过一次的第二次（`second-attempt`，3 题：gold 是 high 或 xhigh，不是 max，防止判得太高）、已经解决（`resolved`，6 题：道谢、接着提交、清理、问原因、写复盘；gold 是 low 或 medium）、换了话题或无关（`new-topic`、`unrelated`，7 题，其中一题是长对话里新报一个原因不明的 bug：gold 是 xhigh，不是 max）。命令轮（`command-turn`，3 题）混在里面：同一个问题改用 `/debug`、`/implement #19` 再跑一次，还有解决之后的 `/review`。gold 为 `max` 的 13 题是衡量最高一档召回的样本；其余的用来看判得太高。
+- 有 10 题的对话超过现在发消息时 state 的预算（6000 token，`BACKEND_DEFAULTS.jev.contextTokens`），带标签 `over-budget`；校验会按 mod 自己的估算（`stateTokens`）核对：中英文都超过才算，标签和实际必须一致。这些题里早几轮的尝试落在预算之外：有的是用户贴了一大段日志（GC 日志、数据库日志、抓包），这一段本身就把预算占满，只剩最后一条回复；有的是每一轮都贴一份 CI 日志或查询计划，最早的一轮被挤出去。其中 `long-but-easy`（`unresolved-018`、`030`）是对话很长但问题已经解决的对照题：长不等于难。
+- 标签另有：`hidden-history`（答案要靠更早几轮的尝试才看得出）、`pasted-log`、`pasted-error`（消息就是同一条报错）、`short-reply`（「再看看」）、`misleading-history`（前面有一个未解决的问题，但这条消息是另一件事）。
+- 构造：对话文字是手写的，每个失败的尝试都是真实的做法（加长等待、fake timers、改隔离级别、换 poetry 等），中文版像中文用户写的，英文版是忠实的翻译。贴出的日志（`--trace-gc` 输出、PostgreSQL 死锁日志、tcpdump、jest 的 CI 输出、慢查询计划、diff）是用脚本按固定种子生成的、格式和真实输出一致的 ASCII 文本，两种语言里逐字相同；用 ASCII 日志是因为中文每字约一个 token、英文约四个字符一个 token，只有这样两种语言的 state 才都超过 6000 token。生成脚本不在仓库里（和上面「来源」一样，这份 JSONL 是唯一的数据源）；改题直接改 JSONL，再跑 `validate.ts`。
+- 附加约定：
+  - 「第几次」按用户的话和对话里的尝试数：第一次修复之后用户说没好，是第二次（`second-attempt`，gold high 或 xhigh）；三轮失败之后再提，才是 `max`。
+  - 用户贴同样的报错、说「再看看」「你上次改的没用」，都算没解决。只有主 agent 自己说「已修复」不算解决，要用户的话确认。
+  - 命令轮和普通消息一样算一次尝试。
+  - effort 的标注依据仍是上面「effort 档位的含义」，不看主 agent 提示词里的档位描述。
+- 评分（`lib/unresolved.ts`）：答案是 effort（`pickEffort`，`max` 要过 `thetaMax`），在 `accept` 里算对；三选一题出现之后，它的答案作为 `triage` 单独评分，整题仍以 effort 为准。汇总里另给：最高一档的召回（gold 为 `max` 的题里答成 `max` 的比例）、判得太高和太低各占全部题的比例、长对话和短对话分开的准确率与召回、各个 `thetaMax` 下的召回（按已存的各档概率重算）。变体：`zh-score`（Jev 现在的问法，state 预算 6000）、`en-score`（Clef 的），带 `-wide` 的是 state 预算 24000（ADR 0005 之后 effort 请求拿到的）。
 
 ## 来源
 
