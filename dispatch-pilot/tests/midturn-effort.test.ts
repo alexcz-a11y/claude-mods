@@ -13,7 +13,10 @@ const KEY = { typesafeApiKey: 'ts-test-key' }
 
 /** The ids of a request's questions: `effort.level` when a message is sent, `midturn.level` mid-turn. */
 function kind(request: Sent | undefined): string {
-  return Object.keys(request?.body?.questions ?? {}).join(',')
+  // The unresolved question travels in the message's effort request (#39); these tests are about the others.
+  return Object.keys(request?.body?.questions ?? {})
+    .filter((id) => id !== 'effort.unresolved')
+    .join(',')
 }
 
 /** Jev answering the message's request with `start` and each mid-turn request with the next of `midturn`. */

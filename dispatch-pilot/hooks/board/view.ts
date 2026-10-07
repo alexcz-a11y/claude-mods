@@ -116,6 +116,7 @@ function active(node: BoardNode): boolean {
  */
 export const FEATURE_WORDS: Readonly<Record<string, string>> = {
   'main-effort': '主 agent 的 effort',
+  unresolved: '未解决次数',
   'dispatched-agents': '派出 agent',
   'workflow-agents': 'Workflow 里的 agent',
   'workflow-labels': 'Workflow 兜底',

@@ -106,7 +106,7 @@ test('with the skills switch off (/dp skills off, kept from an earlier session),
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS, store: { switches: { skills: false } }, session: true })
   await w.start()
   await w.submit('先写一个失败的测试')
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
   expect(await w.command('dp', 'status')).toMatch(/关 +skills +\S/)
 })
@@ -125,7 +125,7 @@ test('switched off mid-conversation, the listing it withheld reaches the main ag
   await w.submit('还有吗')
 
   expect(w.prompts.map((prompt) => prompt.context)).toEqual([undefined, [RESTORED], undefined])
-  expect(Object.keys(w.requests.at(-1)?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(w.requests.at(-1)?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
 })
 
 test('/dp off brings the withheld listing back the same way; switched on again, suggestions resume and the listing is not sent twice', { options: { ...KEY, skillsMinRelevance: 0.2 } }, async ($, on) => {
@@ -191,7 +191,7 @@ test('Clef takes both skills requests as they are (its input rules hold), and th
   await w.submit('先写一个失败的测试')
   expect(w.requests).toHaveLength(3)
   expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], [], []])
-  expect(w.requests.map((request) => Object.keys(request.body.questions))[0]).toEqual(['effort.level'])
+  expect(w.requests.map((request) => Object.keys(request.body.questions))[0]).toEqual(['effort.level', 'effort.unresolved'])
   expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.which'])
   // One skill re-read: its yes/no alone (Clef refuses a Choice of one option).
   expect(Object.keys(w.withoutEffort[1]?.body.questions)).toEqual(['skills.fits.0'])
@@ -298,7 +298,7 @@ test('Clef takes stage one with both its Choices, and the second request over sk
   await w.command('dp', 'skills on')
   await w.submit('这个方案往死里挑刺，再补测试')
   expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([
-    ['effort.level'],
+    ['effort.level', 'effort.unresolved'],
     ['skills.which', 'skills.hint'],
     ['skills.best', 'skills.fits.0', 'skills.fits.1'],
   ])
@@ -516,7 +516,7 @@ test('skills named in skillsNeverSuggested are never offered, to the main agent 
 test("when the session's skills cannot be read, nothing is asked about them and the main agent keeps its listing", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({}), skills: { ...SKILLS, listed: null } })
   await w.submit('先写失败的测试')
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
 })
 

@@ -12,6 +12,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 - **派出 agent 的模型和 effort。** 主 agent 用 Agent 工具派出一个 agent 时，决策模型为它选模型（默认在 haiku、sonnet、opus 中选，打开 `agentFable` 后加入 fable）和 effort；选了 haiku 就不设 effort，haiku 不支持。三个模型的分工按 Artificial Analysis 的基准定（见下面的「模型和 effort 的依据」）：haiku 只做一两步就能跑完、结果只需要收集起来并按要求排版的只读查找，sonnet 承担大多数执行类工作（终端、需求明确的代码修改、自动化、调研汇报），opus 做需要审慎判断或细微错误代价高的工作（安全、并发、涉及钱、迁移、生产）、难推理、设计、原因未知的 bug、科学或算法类代码，以及结论取决于记忆中的事实、而且无法在仓库或文档里查证的调研；fable 在 AA 上没有领先 Opus 的地方，价格是 2.5 倍，所以仍默认关闭。决策出来的 effort 不低于所选模型的下限：sonnet 和 opus 至少 medium，haiku 不带 effort。你在消息里点名的模型或 effort（「用 opus」「effort 开 low」）一定照办，下限和往上取的一档都不会改你点名的值，你排除的模型（「别用 opus」）不会用（决策请求整体失败时除外，见「局限和待评测」）。主 agent 自己为这个 agent 指定了模型时，只有决策模型选了别的、而且置信度达到 `agentOverride` 才推翻它。
 - **Workflow 里的 agent。** 主 agent 提交 Workflow 脚本时，对脚本里每个 `agent()` 调用点做同样的判断，把模型和 effort 写进脚本再运行，并告诉主 agent 写了什么；`workflowMode` 选 `return` 时改为退回脚本，附上逐个调用的推荐，让主 agent 自己写进去。脚本写不进去的（用 `scriptPath` 或 `name` 提交、恢复的运行、读不了的脚本），在每个 agent 启动时按它的 label 设置，这叫兜底。
 - **卡住时强制升档。** 主 agent 或派出 agent 的工具调用接连失败 `escalateAfter` 次时，再问决策模型一次，把它的 effort 升一档（`escalateMode` 选 `max` 则直接升到 max）；haiku 没有 effort 可升，改用 sonnet 接着做（`escalateHaikuTo`）。这些失败本来就在意料之中的，例如先写下、要看它红的测试，或者没找到东西而以非零退出的搜索，不升档；是不是预期内失败由决策模型判断，不靠关键词。你自己拒绝的调用从不算失败。
+- **未解决次数。** 你本人的每条消息（包括斜杠命令）发出时，决策模型还回答一道三选一的题：这条消息是在说你和主 agent 最近在处理的那个问题仍未解决、已经解决，还是换了新问题或无关；不靠关键词，「再看看」或贴一段同样的报错也认得出。「仍未解决」把握够（暂定 0.5）次数加一，「已经解决」或「新问题或无关」把握更高（暂定 0.7）才清零，都没到次数不变。次数存在会话里，`/clear` 和新会话清零，`/compact` 和热重载保留；agent 交回结果、后台任务通知开始的一轮不问。依据卡片显示次数和这一次的结论。这一版次数只是记下来，还不影响 effort 的判断。`/dp unresolved off` 关掉它。
 - **skill。** 主 agent 不再读完整的 skill 列表（装的 skill 多时这一段很长），读到的是一句固定的提示。改由决策模型在你发消息时，从本会话的 skill 里挑出相关的几个，连同名字、描述和相关度附在消息后面交给主 agent；只能由你触发的 skill 不推荐给主 agent，只在看板上提示你（「可试 /x」）。一轮进行中，主 agent 还可以用 `find_skill` 工具按几个词查 skill。skill 本身和 Skill 工具都不变，主 agent 仍然可以按名字加载任何 skill。
 - **失败时放行。** 决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配密钥时，消息照常进入，不额外等待，这一轮用会话自己的 effort，看板上写明原因，并弹一个 toast。选了 Jev 就只用 Jev，不会改用 Clef，反过来也一样。
 
@@ -234,7 +235,7 @@ Clef 只是接入了，没有像 Jev 那样校准。把 `decisionModel` 改成 `
 ```
 
 - 命令在一轮进行中也立即执行：锁定或解锁从下一步起生效。
-- 功能的开关是 `main-effort`、`midturn-effort`、`dispatched-agents`、`workflow-agents`、`workflow-labels`、`escalation`、`skills`、`skill-profiles`、`find-skill` 和 `signals`；另有 `hook-block-failures`，默认关闭，打开后你自己的 settings hook 拦下的调用也算失败，参与强制升档。
+- 功能的开关是 `main-effort`、`unresolved`、`midturn-effort`、`dispatched-agents`、`workflow-agents`、`workflow-labels`、`escalation`、`skills`、`skill-profiles`、`find-skill` 和 `signals`；另有 `hook-block-failures`，默认关闭，打开后你自己的 settings hook 拦下的调用也算失败，参与强制升档。
 - 开关保存下来，下次启动会话时还是你离开时的样子；只保存和默认值不同的开关，所以一个新增的功能默认开着。
 - 锁定只在当前会话里有效，`/dp unlock` 或会话结束时解除。锁定期间决策照常进行并记录，不想为此等决策模型的话，用 `/dp main-effort off`。
 - 依据面板的决策日志和 `/dp log N` 显示每项功能记录的决策：做了什么决定、针对哪条消息、理由（决策模型给出的各档概率和置信度）。同样的内容也写进 debug log，不进入对话。

@@ -37,6 +37,7 @@ import {
   profilesLine,
   stepLines,
   switchWord,
+  unresolvedWords,
   verdictWords,
   type Card,
   type LogGroup,
@@ -369,6 +370,23 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, raster: 
   rows.push(...traceRows(t, 'pane-card-step', entry.trace ?? [], w))
   if (level !== undefined) rows.push(hang(t, 'pane-card-result', '结果', effortTag(t, level, 12), w))
   if (main && entry.conf !== undefined) rows.push(hang(t, 'pane-card-conf', '置信', <Text color={MUTED} wrap="wrap">{`${pct(entry.conf)}：发消息时只记录，不参与选档`}</Text>, w))
+  // What this message did to the unresolved count: the count and what came of it, then the three options' odds against the two bars.
+  if (main && entry.unresolved !== undefined) {
+    const said = unresolvedWords(entry.unresolved)
+    rows.push(
+      hang(
+        t,
+        'pane-card-unresolved',
+        '未解决',
+        <Text wrap="wrap">
+          <Text bold>{said.count}</Text>
+          <Text color={entry.unresolved.change === 'keep' ? MUTED : OK}>{`  ${said.verdict}`}</Text>
+        </Text>,
+        w,
+      ),
+    )
+    rows.push(hang(t, 'pane-card-unresolved-odds', '三选一', <Text color={MUTED} wrap="wrap">{`${said.odds}；${said.bars}`}</Text>, w))
+  }
   return rows
 }
 
@@ -549,6 +567,7 @@ function entryRows(t: TT, entry: LogEntry, cols: number, Bar: Raster | undefined
             {entry.model === undefined ? null : chip(t, entry.model, true)}
             {level === undefined || feature === 'skills' || feature === 'find-skill' ? null : <Text> </Text>}
             {level === undefined || feature === 'skills' || feature === 'find-skill' ? null : effortTag(t, level, 12)}
+            {feature === 'unresolved' ? <Text color={MUTED}>{`  ${entry.outcome}`}</Text> : null}
           </Text>
         </Box>
         <Box>

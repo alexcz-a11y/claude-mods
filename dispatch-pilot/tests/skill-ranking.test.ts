@@ -139,7 +139,7 @@ test('Clef takes the second request with a Choice between the skills re-read (it
   await w.command('dp', 'skills on')
   await w.submit('先写一个失败的测试')
   expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([
-    ['effort.level'],
+    ['effort.level', 'effort.unresolved'],
     ['skills.which'],
     ['skills.best', 'skills.fits.0', 'skills.fits.1'],
   ])

@@ -18,7 +18,10 @@ import { jev, world, type Sent, type ToolRun, type World } from './support/world
 
 /** The ids of a request's questions: `effort.level` when a message is sent, `midturn.level` mid-turn. */
 function kind(request: Sent | undefined): string {
-  return Object.keys(request?.body?.questions ?? {}).join(',')
+  // The unresolved question travels in the message's effort request (#39); these tests are about the others.
+  return Object.keys(request?.body?.questions ?? {})
+    .filter((id) => id !== 'effort.unresolved')
+    .join(',')
 }
 
 /** A turn as the main agent works it: the person's message, then each step's text and tool calls. */

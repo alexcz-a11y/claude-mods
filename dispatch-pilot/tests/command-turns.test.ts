@@ -15,7 +15,7 @@ test('a command turn gets the effort question about the command as typed, and go
   await w.step({ index: 0, effort: 'medium' })
 
   expect(w.requests).toHaveLength(1)
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
   expect(w.requests[0]?.body.state.user_message).toBe('/implement #19')
   expect(w.steps.map((s) => String(s.effort))).toEqual(['xhigh'])
   expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: true })
@@ -39,7 +39,7 @@ test('a command turn suggests no skill: the person has picked the work already',
   await w.step({ index: 0 })
 
   expect(w.requests).toHaveLength(1)
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
   expect(w.prompts[0]?.context).toBeUndefined()
 })
 
@@ -94,7 +94,7 @@ test("a plugin's command typed without its plugin's name is a command turn too",
   await w.slash('release-kit:ship', '0.2.4', { as: 'ship' })
 
   expect(w.requests[0]?.body.state.user_message).toBe('/ship 0.2.4')
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
 })
 
 test('a command turn is re-decided mid-turn about the command as typed, not the message the engine wraps it in', { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {
