@@ -13,8 +13,9 @@ import { parseArgs } from 'node:util'
 import type { Backend, BackendIo } from '../hooks/decision/backend.ts'
 import { clefBackend } from '../hooks/decision/clef.ts'
 import { jevBackend } from '../hooks/decision/jev.ts'
+import { pplxBackend } from '../hooks/decision/pplx.ts'
 import { isKind, parseJsonl, type Kind } from './lib/datasets.ts'
-import { optionsFor, settingsFrom, type OptionSpec, type SuiteHost } from './lib/suite.ts'
+import { optionsFor, settingsFrom, type EvalBackend, type OptionSpec, type SuiteHost } from './lib/suite.ts'
 
 /** The mod's directory (dispatch-pilot/). */
 export const MOD_DIR = resolve(import.meta.dirname, '..')
@@ -110,7 +111,7 @@ export function credential(name: string): string | undefined {
 }
 
 /**
- * The decision backend under evaluation (`jev` or `clef`), with the
+ * The decision backend under evaluation (`jev`, `clef` or `pplx`), with the
  * credentials it needs (`credential`); `secrets` are those values, to keep
  * them out of anything written. Throws, saying what is missing, when a
  * credential is not found or the backend is not known.
@@ -127,7 +128,12 @@ export function backendFor(name: string, model?: string): { backend: Backend; se
     if (accountId === undefined || apiToken === undefined) throw new Error(`CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AUTH_TOKEN must both be in the environment or ${CREDENTIALS_FILE}`)
     return { backend: clefBackend({ accountId, apiToken }), secrets: [accountId, apiToken] }
   }
-  throw new Error(`no backend "${name}" (jev, clef)`)
+  if (name === 'pplx') {
+    const key = credential('PERPLEXITY_API_KEY')
+    if (key === undefined) throw new Error(`no PERPLEXITY_API_KEY in the environment or ${CREDENTIALS_FILE}`)
+    return { backend: pplxBackend(key, model === undefined ? {} : { model }), secrets: [key] }
+  }
+  throw new Error(`no backend "${name}" (jev, clef, pplx)`)
 }
 
 /** A result file's text: pretty JSON, each answer on a line of its own (eval/run.ts writes it, eval/resummarize.ts rewrites it). */
@@ -137,8 +143,11 @@ export function formatResult(result: Record<string, unknown> & { answers: readon
   return `${top.slice(0, -2)},\n  "answers": [\n${answers.map((answer) => `    ${JSON.stringify(answer)}`).join(',\n')}\n  ]\n}\n`
 }
 
-/** Input price per million tokens, by backend; output is free on both (docs.typesafe.ai/models, the Clef model page; 2026-10-04). */
-export const PRICES: Readonly<Record<'jev' | 'clef', number>> = { jev: 0.042, clef: 0.24 }
+/**
+ * Input price per million tokens, by backend; output is free on all (docs.typesafe.ai/models, the Clef model page;
+ * 2026-10-04; Perplexity: docs.perplexity.ai/docs/decisions/quickstart, Pricing, 2026-10-07).
+ */
+export const PRICES: Readonly<Record<EvalBackend, number>> = { jev: 0.042, clef: 0.24, pplx: 0.02 }
 
 /**
  * What scripts/decide*.ts share, read with node:util parseArgs: `--clef`
