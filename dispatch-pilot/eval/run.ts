@@ -19,7 +19,8 @@
 // default depends on the decision model, the backend's: core/setup.ts
 // BACKEND_DEFAULTS), --max-usd 1 (refuse a run estimated to cost more),
 // --label <word>, --no-save, --state-tokens N (the state's budget for every kind of request, past what --option
-// contextTokens can reach, which only lowers it).
+// contextTokens can reach, which only lowers it), --state-messages N (how many recent messages the state may hold:
+// the mod's contextMessages is at most 32, so a large --state-tokens alone is still cut to the newest 32 messages).
 //
 // Credentials: TYPESAFE_API_KEY for Jev; CLOUDFLARE_ACCOUNT_ID and
 // CLOUDFLARE_AUTH_TOKEN for Clef; PERPLEXITY_API_KEY for Perplexity: the environment first, then
@@ -44,8 +45,8 @@ import { PPLX_MODEL } from '../hooks/decision/pplx.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
 import { summarize, type Summary } from './lib/metrics.ts'
-import { attemptMs as defaultAttemptMs, runSuite, type Row } from './lib/runner.ts'
-import { optionsFor, settingsFrom, settingsModel, withStateTokens, type EvalBackend } from './lib/suite.ts'
+import { attemptMs as defaultAttemptMs, runSuite, stateDigest, type Row } from './lib/runner.ts'
+import { optionsFor, settingsFrom, settingsModel, withStateMessages, withStateTokens, type EvalBackend } from './lib/suite.ts'
 import { SUITES } from './lib/suites.ts'
 import { PRICES, RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, formatResult, modCode, nodeHost, nodeIo, readDataset, readManifest, shown } from './node.ts'
 
@@ -65,6 +66,7 @@ const { values, positionals } = parseArgs({
     estimate: { type: 'boolean', default: false },
     'max-usd': { type: 'string', default: '1' },
     'state-tokens': { type: 'string' },
+    'state-messages': { type: 'string' },
     label: { type: 'string' },
     'no-save': { type: 'boolean', default: false },
   },
@@ -116,7 +118,12 @@ try {
 // can reach (they only lower it), to see what a model with a bigger window gains (#43). The result records it.
 const stateTokens = values['state-tokens'] === undefined ? null : Number(values['state-tokens'])
 if (stateTokens !== null && !(Number.isInteger(stateTokens) && stateTokens >= 100)) fail('--state-tokens takes a whole number of at least 100')
-const settings = stateTokens === null ? settingsFrom(options as PluginOptions) : withStateTokens(settingsFrom(options as PluginOptions), stateTokens)
+// --state-messages N lifts the number of recent messages the state may hold (the mod's is at most 32, whatever the token budget),
+// so that a long conversation can fill a large --state-tokens (#44). The result records it.
+const stateMessages = values['state-messages'] === undefined ? null : Number(values['state-messages'])
+if (stateMessages !== null && !(Number.isInteger(stateMessages) && stateMessages >= 1)) fail('--state-messages takes a whole number of at least 1')
+const widened = stateTokens === null ? settingsFrom(options as PluginOptions) : withStateTokens(settingsFrom(options as PluginOptions), stateTokens)
+const settings = stateMessages === null ? widened : withStateMessages(widened, stateMessages)
 /** How long one attempt may take: --timeout, else four times the mod's timeoutMs for this backend, at least 10 s (lib/runner.ts). */
 const attemptMs = values.timeout === undefined ? defaultAttemptMs(settings.timeoutMs) : Number(values.timeout)
 if (backendName === 'clef' && values.model !== undefined && values.model !== CLEF_MODEL) fail(`the Clef backend asks ${CLEF_MODEL} only`)
@@ -213,6 +220,9 @@ if (!values['no-save']) {
       // request of its own, ADR 0005), and --state-tokens when the run set one for every kind of request.
       messageStateTokens: settings.contextByKind.messagePlain,
       ...(stateTokens === null ? {} : { stateTokens }),
+      // The most recent messages the state may hold (the mod's: 32), and --state-messages when the run lifted it.
+      stateMessagesLimit: settings.context.messages,
+      ...(stateMessages === null ? {} : { stateMessages }),
       thetaMax: settings.thetaMax,
       timeoutMs: settings.timeoutMs,
       // Every option as the run read it (a feature's own, such as agentOverride), less the sensitive ones.
@@ -225,7 +235,7 @@ if (!values['no-save']) {
     ...(suite.scoring === undefined ? {} : { scoring: suite.scoring }),
     ...(suite.about === undefined ? {} : { about: suite.about }),
     summary,
-    answers: answersByItem(rows),
+    answers: answersByItem(rows, suite.digestState === true),
   }
   const text = formatResult(result)
   if (secrets.some((secret) => secret !== '' && text.includes(secret))) fail('the results would hold a credential: not saved')
@@ -238,14 +248,17 @@ if (!values['no-save']) {
   console.log(`saved ${shown(file)}`)
 }
 
-/** One line per item and language: the state the model read once, then each variant's answer. */
-function answersByItem(rows: readonly Row<unknown>[]): Record<string, unknown>[] {
+/**
+ * One line per item and language: the state the model read once, then each variant's answer. A suite that digests its states
+ * (`digestState`: its variants read different states, each tens of thousands of tokens) has a digest of each variant's state beside its answer.
+ */
+function answersByItem(rows: readonly Row<unknown>[], digest: boolean): Record<string, unknown>[] {
   const groups = new Map<string, Record<string, unknown>>()
   for (const row of rows) {
     const key = `${row.id} ${row.language}`
-    const group = groups.get(key) ?? { id: row.id, language: row.language, state: row.state }
+    const group = groups.get(key) ?? { id: row.id, language: row.language, ...(digest ? {} : { state: row.state }) }
     group[row.variant] = Object.fromEntries(
-      Object.entries({ answer: row.shown, correct: row.correct, gold: row.exact, miss: row.miss, parts: row.parts ?? null, ...row.detail, ms: row.ms, attempts: row.attempts, tokens: row.inputTokens, model: row.model, failure: row.failure }).filter(
+      Object.entries({ answer: row.shown, correct: row.correct, gold: row.exact, miss: row.miss, parts: row.parts ?? null, ...row.detail, ms: row.ms, attempts: row.attempts, tokens: row.inputTokens, model: row.model, failure: row.failure, ...(digest ? { state: stateDigest(row.state) } : {}) }).filter(
         ([, value]) => value !== null,
       ),
     )

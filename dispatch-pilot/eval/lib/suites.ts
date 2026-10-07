@@ -9,6 +9,7 @@
 
 import { effortMidturn } from './effort-midturn.ts'
 import { effortSubmit } from './effort-submit.ts'
+import { longContextSuite, SUMMARY_FILE, type SummaryFile } from './long-context.ts'
 import { skillSuite } from './skill.ts'
 import { agentSuite } from './subagent.ts'
 import { unresolved } from './unresolved.ts'
@@ -26,4 +27,6 @@ export const SUITES: Readonly<Record<string, Suite<any, any> | SuiteFactory>> = 
   subagent: async (_host, items) => agentSuite(items as readonly AgentItem[]),
   skill: (host) => skillSuite({ catalog: host.beside('skill-catalog.json'), profiles: host.beside('skill-profiles.json'), read: host.read }),
   unresolved,
+  // The summaries beside the dataset are what the flow variants carry; without the file those variants say so.
+  'long-context': (host) => longContextSuite(host.beside(SUMMARY_FILE) as SummaryFile | undefined),
 }

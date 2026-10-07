@@ -949,7 +949,7 @@ test('……', { options: { typesafeApiKey: 'k' } }, async ($, on) => {
 
 **给 `unresolved` 评测集（#37、#6）：三选一题在接缝 2。** `decision/unresolved.ts` 是纯模块，评测直接 import：`withUnresolved(turnStartEffortPart(ask), language)` 是发消息时的 effort part（`effort.level` 加 `effort.unresolved`，和线上同一份，拼请求照常 `mergeParts(turnStartState(...), [part])`，限额用 `messageLimits(settings, false)`）；`readUnresolved(answersFor(part, answers).unresolved)` 把回答读成三个选项的概率（归一化，缺了或不是 Choice 是 `null`）；`judgeUnresolved(reading, thresholds?)` 按两档门槛返回 `{ change: 'add' | 'reset' | 'keep', top, probabilities, confidence, thresholds }`：`top` 对三选一的金标，`change` 对「次数该加一、清零还是不变」；门槛 `UNRESOLVED_THRESHOLDS` 是暂定值，评测要扫门槛就传第二个参数。选项名固定为 `still_unresolved`、`resolved`、`new_or_unrelated`（`UNRESOLVED_OPTIONS`，顺序也是问的顺序；Choice 偏向第一项，评测要做换序对照的话改 `unresolvedQuestion` 里 criteria 的顺序）。
 
-评测用真实的 Jev、Clef（`--backend clef`）或 Perplexity（`--backend pplx`，#43；密钥是 `PERPLEXITY_API_KEY`，读法同上，价格 0.02 美元每百万 input token，`--estimate` 的系数取 3，见 `run.ts`）测决策的准确率，脚本用 Node 运行，放在 `eval/`。`--backend pplx` 读 mod 的设置时当作 Jev（`lib/suite.ts` 的 `settingsModel`）：请求、state 预算、超时、问题语言都和 Jev 一样，所以对照只差决策模型；`--state-tokens N` 把每一类请求的 state 预算设成 N（mod 自己的选项只能调低，这个能调高，结果文件的 `settings.stateTokens` 记着；`settings.messageStateTokens` 记每次运行里发消息时 effort 请求的预算）：
+评测用真实的 Jev、Clef（`--backend clef`）或 Perplexity（`--backend pplx`，#43；密钥是 `PERPLEXITY_API_KEY`，读法同上，价格 0.02 美元每百万 input token，`--estimate` 的系数取 3，见 `run.ts`）测决策的准确率，脚本用 Node 运行，放在 `eval/`。`--backend pplx` 读 mod 的设置时当作 Jev（`lib/suite.ts` 的 `settingsModel`）：请求、state 预算、超时、问题语言都和 Jev 一样，所以对照只差决策模型；`--state-tokens N` 把每一类请求的 state 预算设成 N（mod 自己的选项只能调低，这个能调高，结果文件的 `settings.stateTokens` 记着；`settings.messageStateTokens` 记每次运行里发消息时 effort 请求的预算）；`--state-messages N` 放开 state 最多取几条最新消息（mod 的 `contextMessages` 最多 32，只放大 `--state-tokens` 还是只读最新 32 条，#44；结果里 `settings.stateMessagesLimit` 是这次运行的上限，放开时 `settings.stateMessages` 记着）：
 
 ```
 eval/
@@ -962,8 +962,9 @@ eval/
 ├── results/<类>/*.json     每次运行的结果：设置、答题的模型版本、汇总、逐题答案
 ├── results/probes/*.json   Clef 截断 state 的探针结果（#17，probe-truncation.ts 写）
 ├── plans/17-calibration.md #17 的方案、拍板、探针的结果和范围缩减
-├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、resummarize、rescore、compare、docs、各类题型的 suite
-└── validate.ts、run.ts、apply-review.ts、compare.ts、resummarize.ts、rescore.ts、profiles.ts、probe-truncation.ts、node.ts   Node 脚本
+├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、resummarize、rescore、compare、docs、各类题型的 suite；long-context 另有 long-conversation（三个版本的对话）、long-filler（中间轮次的生成器）、long-summaries（逐轮写问题摘要）
+├── long-context-items.ts   long-context 评测集的唯一来源（手写的决定性几轮、答案）；long-context-gen.ts 把它写成 datasets/long-context.jsonl
+└── validate.ts、run.ts、apply-review.ts、compare.ts、resummarize.ts、rescore.ts、profiles.ts、long-context-gen.ts、long-context-summaries.ts、probe-truncation.ts、node.ts   Node 脚本
 ```
 
 - **测到的就是线上的请求。** 每类题型的 suite 用 mod 自己拼请求的函数（`hooks/decision/` 的各个模块，加上 `hooks/core/` 里读设置的 `setup.ts`、读 skill 目录和画像的 `skills.ts`、`profiles.ts`），设置取 manifest 的默认值，manifest 没有默认值的选项取 `--backend` 那个决策模型的（`core/setup.ts` 的 `BACKEND_DEFAULTS`，结果文件的 `settings.backendDefaults` 记着取了哪些），经 mod 自己的 `readConfig()` 读出（`--option contextTokens=4000` 可以改，按 manifest 写的类型读：数字、`true`/`false` 或文字；manifest 里没有的名字、类型不对的值直接报错），所以范围、缺省值和 mod 完全一样。`tests/eval-effort-submit.test.ts` 用 world 核对：同一条消息和对话，评测发的请求与 mod 发的逐字相同。
@@ -978,7 +979,7 @@ eval/
 - **加一类题型**（#14、#15、#16 都这样加过）：
   1. 评测集放进 `eval/datasets/<类>.jsonl`，在 `eval/datasets/README.md` 写下这类题的字段和标注约定。
   2. `lib/datasets.ts`：类名加进 `KINDS`；`FIELDS` 写每题的顶层字段，`RULES` 写逐题的校验（`zh`/`en` 的结构、答案的形状），`QUOTAS` 写整个评测集的配额（hard 的比例、各情形的题数），三处都按类名查，少一处 `validate.ts` 就报错；题和答案的类型也写在这里。
-  3. `lib/review.ts` 的 `EDITABLE`：审核的 `edit` 能改哪些答案字段。`node.ts` 的 `datasetFile` 报错信息里列着各类的名字，一并加上。
+  3. `lib/review.ts` 的 `EDITABLE`：审核的 `edit` 能改哪些答案字段（`long-context` 的文件是生成的，写 `[]`，改动去 `long-context-items.ts` 里做）。`node.ts` 的 `datasetFile` 报错信息里列着各类的名字，一并加上。
   4. 在 `eval/lib/<类>.ts` 实现 `Suite`（`lib/suite.ts`：怎么问、怎么评分、怎么显示、常数基线），请求一律用 mod 自己拼请求的函数；在 `lib/suites.ts` 登记一行。
   5. 仿照 `tests/eval-effort-submit.test.ts` 用 world 核对请求与 mod 发的逐字相同，再写评分和汇总的测试。
 
@@ -1180,8 +1181,86 @@ skill 的第一段带着 111 份画像，Jev 计 2.2 万 token，pplx 第一段 
 
 **state 预算扫描（只对 pplx，unresolved 的两个 `-wide` 变体，48000、96000 各两遍）**：和 24000 的结果逐字相同（pplx 数的 input token 都是 1,080,644，准确率、max 召回、判高判低、三选一都相同）。原因：unresolved 数据集里最长的对话估算只有约 7,980 token（60 个中英状态里最长的），effort-submit 最长约 270、skill 约 150，都远不到 24000；effort-midturn 和 subagent 没有 `recent_context`，请求平均约 900 和 2,200 token（Jev 数的）。**所以这些评测集量不出更大的窗口值不值**：它们的对话本身不够长，24000、48000、96000 发出去的请求是同一个。（`results/unresolved/2026-10-07-pplx-s48000-r1.json`、`-r2`、`s96000-r1`、`-r2`。）
 
-要看更大窗口的代价，另做了一个探针（不是评测集，结果没有存文件）：用 unresolved 的一题，前面垫上数据集里别的对话的老消息（22 条长消息，全是日志一样的文字），状态估算 5,457 / 20,719 / 42,321 / 91,535 token，各发 5 次，中位延迟 **615 / 2,202 / 5,398 / 15,201 ms**，pplx 数的 input token 是 14,848 / 69,280 / 150,080 / 302,024（文档说上限 262,144，302,024 那次照样返回了 200）。延迟随长度线性涨，约每 1 万 pplx token 0.8–0.9 秒（文档：9 万 token 5 秒、19 万 14 秒、上限附近 23 秒）。结论：**更大的窗口在时间上不划算**：24000 估算 token 的日志状态要 2.2 秒，48000 要 5.4 秒，都在 mod 愿意等的时间之外，而数据里没有任何地方显示更多的对话让 pplx 判得更准（这里量不出来）。真的有那么长的对话，要先有评测集；mod 的估算也不适合 pplx：长日志里每个字符几乎一个 token，估算低估 4–5 倍（24000 估算 token 的日志状态是 6.9 万 pplx token），所以预算数字对 pplx 要按它自己的 token 数理解。
+要看更大窗口的代价，另做了一个探针（不是评测集，结果没有存文件）：用 unresolved 的一题，前面垫上数据集里别的对话的老消息（22 条长消息，全是日志一样的文字），状态估算 5,457 / 20,719 / 42,321 / 91,535 token，各发 5 次，中位延迟 **615 / 2,202 / 5,398 / 15,201 ms**，pplx 数的 input token 是 14,848 / 69,280 / 150,080 / 302,024（文档说上限 262,144，302,024 那次照样返回了 200）。延迟随长度线性涨，约每 1 万 pplx token 0.8–0.9 秒（文档：9 万 token 5 秒、19 万 14 秒、上限附近 23 秒）。结论：**更大的窗口在时间上不划算**：24000 估算 token 的日志状态要 2.2 秒，48000 要 5.4 秒，都在 mod 愿意等的时间之外，而数据里没有任何地方显示更多的对话让 pplx 判得更准（这里量不出来）。真的有那么长的对话，要先有评测集（这一条之后做了：见下面「长上下文」，#44，里面的结论是读到更远的信息确实准得多，但时间上不划算）；mod 的估算也不适合 pplx：长日志里每个字符几乎一个 token，估算低估 4–5 倍（24000 估算 token 的日志状态是 6.9 万 pplx token），所以预算数字对 pplx 要按它自己的 token 数理解。
 - **要留意的**：（1）unresolved 的金标是 #37 的子代理写的、用户没有审过，pplx 的 93% 靠它，要审完才能当结论。（2）两个后端的 `max` 召回在 effort-submit 只有 8 题可比。（3）#35（Desktop 读不到 TypeSafe 密钥）同样会影响新密钥：换后端时，`PERPLEXITY_API_KEY` 要在 `userConfig` 里加一个敏感项，Desktop 的问题要一并解决。（4）mod 的 `Failure` 分类、`failureLine` 都已经覆盖 pplx 的失败，但 `FAILURE_WORDS.config` 里读缺哪个密钥的选项名只有 typesafeApiKey 和 cloudflare 两个，换后端时要加。
+
+#### 长上下文：读更多对话带来多少准确率（long-context，#44，2026-10-07）
+
+#43 的评测集最长的对话只有约 8000 估算 token，state 预算 24000、48000、96000 发出去的请求逐字相同，量不出更大窗口的价值。`long-context` 评测集（30 题，只有中文对话，字段和构造见 `datasets/README.md`「long-context」，**金标是起草者写的，用户尚未审**）就是为这个问题造的：每题把决定答案的几轮放在对话很早的位置，离最后一条消息 30000、60000、120000 估算 token（各 10 题），中间是大段中间轮次（模板生成的读代码、跑测试、改名、补注释，不是真实对话，见 README）。每题三个版本：`deep`（问题本身）、`near`（对照 a：同样长的对话，决定性几轮挪到末尾附近）、`none`（对照 b：决定性几轮整段删掉，按删掉之后的答案评分）；另有 `flow`（真实流程：deep 加 mod 在这段对话之后会有的问题摘要、未解决次数和强提示）。
+
+- **做法。** `eval/run.ts long-context --backend pplx|jev --variants <变体> --languages zh --state-tokens N --state-messages 2000`。pplx 的 state 预算取 24000、48000、96000、135000（估算 token），Jev 取它的上限 24000；每种两遍（`results/long-context/2026-10-07-<后端>-s<预算>-r1|r2.json`；摘要、次数、强提示那几次的标签是 `flow-…`，流程的两半是 `half-…`；「mod 现在的」是不带 `--state-tokens` 和 `--state-messages` 的，标签 `mod-…`）。中文问法 `zh-*`、英文问法 `en-*` 都跑，对话都是中文。pplx 用 `--concurrency 3 --timeout 240000`（默认的单次尝试 10 秒装不下 20 万 token 的请求；并发 3 下延迟偏高，只作记录），Jev 用 `--concurrency 1`。
+- **消息条数也是一个限制。** mod 的 `contextMessages` 最多 32（`readConfig` 的上界；`settings.context.messages`），state 只取最新的 32 条消息，不管预算多大：这个数据集里 32 条平均约 16500 估算 token（deep 最多 22500；near 平均 12800），所以**只放大 `--state-tokens` 不会读到更多**（`tests/eval-long-context-suite.test.ts` 钉住这一点：48000 预算加 32 条，30000 深的决定性几轮读不到）。评测加了 `--state-messages N`（`withStateMessages`）放开条数，扫描都用 2000，结果文件的 `settings.stateMessages` 记着；`pplx 24000、32 条消息` 那行是 mod 现在的两个限制，用来核对放开条数之前和之后在 24000 上是同样的答案（深的几轮都读不到，准确率 73.3 对 70，差一题）。**要用上更大的窗口，mod 里 `contextTokens` 和 `contextMessages` 的上界都要改**，现在后者不能超过 32。
+- **读到了没有看得出来。** 每个回答的 `detail.seen` 记着 state 里有没有决定性几轮（`recent_context` 里有它第一条消息的开头：读到最新的若干条、从尾往前装满，有开头就有全部），汇总里 `seen` 是比例，`byDepth` 按深度分；结果文件的 `state` 是摘要（字符数、行数、首尾）。24000 读不到任何一题，48000 读到 30000 深的 10 题（33%），96000 再加 60000 深的（67%），135000 读到全部（100%，最长的 state 约 12 万估算 token，预算再大请求也一样）。**pplx 数的 token 约为估算的 1.95 到 2.1 倍**（这种代码加中文的文字；#43 的长日志是 4 到 5 倍），回包的 `usage.input_tokens` 最大 243,642（135000 预算、120000 深的题带摘要的那次；不带的最大 243,002），在 262,144 之内；按这个倍数 pplx 能读的最大预算约 12.8 万估算 token，已经是这个数据集最长的整个对话，所以 135000 就是「最大可接受值」，再大请求不变。
+
+**问题本身（deep）：准确率、gold 命中、判高、判低（百分比；30 题，一题 3.3 个百分点）、max 召回（10 题 gold 为 max，判成 max）、state 里有决定性几轮的比例。** pplx 两遍逐字相同（确定性），Jev 两遍写范围；`pplx 24000、32 条消息` 只有一遍：第二遍中途 pplx 账户的额度用完了（HTTP 402，62 个请求失败，那份结果已删）。
+
+| 问法 | 运行 | 准确率 | gold 命中 | 判高 | 判低 | max 召回 | 读到 |
+|---|---|---|---|---|---|---|---|
+| zh | pplx 24000、32 条（mod 现在的） | 73.3 | 13.3 | 13.3 | 13.3 | 0/10 | 0 |
+| zh | pplx 24000 | 70.0 | 13.3 | 16.7 | 13.3 | 0/10 | 0 |
+| zh | pplx 48000 | 76.7 | 23.3 | 13.3 | 10.0 | 2/10 | 33% |
+| zh | pplx 96000 | 80.0 | 30.0 | 13.3 | 6.7 | 4/10 | 67% |
+| zh | pplx 135000 | **86.7** | **43.3** | 10.0 | 3.3 | **6/10** | 100% |
+| zh | Jev 24000、32 条（mod 现在的） | 56.7–60.0 | 10.0–13.3 | 16.7 | 23.3–26.7 | 0/10 | 0 |
+| zh | Jev 24000 | 56.7–60.0 | 10.0 | 13.3 | 26.7–30.0 | 0/10 | 0 |
+| en | pplx 24000、32 条（mod 现在的） | 73.3 | 6.7 | 16.7 | 10.0 | 0/10 | 0 |
+| en | pplx 24000 | 73.3 | 13.3 | 16.7 | 10.0 | 1/10 | 0 |
+| en | pplx 48000 | 80.0 | 26.7 | 13.3 | 6.7 | 3/10 | 33% |
+| en | pplx 96000 | 83.3 | 33.3 | 13.3 | 3.3 | 6/10 | 67% |
+| en | pplx 135000 | **86.7** | **50.0** | 10.0 | 3.3 | **10/10** | 100% |
+| en | Jev 24000、32 条（mod 现在的） | 63.3 | 13.3 | 13.3–16.7 | 20.0–23.3 | 1/10 | 0 |
+| en | Jev 24000 | 66.7 | 16.7 | 13.3 | 20.0 | 1/10 | 0 |
+
+- **按决定性几轮的深度**（pplx，准确率 / max 召回，zh；en 的 max 召回是 3/3、3/3、4/4 对 0）：24000 时 30000、60000、120000 深的是 70、70、70（0/3、0/3、0/4）；48000 时 90、70、70（2/3，另两档读不到）；96000 时 90、80、70；135000 时 90、80、90（2/3、2/3、2/4）。每涨一档预算，刚好读到的那一档涨 10 到 20 个百分点，没读到的那几档不变：提升来自读到了那几轮，不是别的。
+- **按类别**（pplx zh，24000 到 135000 的准确率）：反复未果（max，10 题）90→100，只试过一次 100→100，约定低成本 100→100，看似复杂其实简单 0→40，被历史误导 100→100，硬性约束 0→67。只有 max 的召回和那两类「早先约定了什么」的题变了；后两类即使决定性几轮就在末尾附近（near）也只有 40% 和 33%：pplx 读到了「按清单做」「改鉴权要列矩阵」，多半仍判得和没读到一样高或一样低。反复未果的题 accept 里有 xhigh，所以 24000 读不到时也判 xhigh 算对，准确率看不出缺口，要看 max 召回。
+
+**对照组：同一对话变长本身的影响，和决定性几轮挪到末尾附近的影响**（pplx 准确率，括号里是 near 的 max 召回；Jev 24000 在后）：
+
+| 问法 | 预算 | (a) near：决定性几轮在末尾附近 | (b) none：删掉决定性几轮（按删掉后的答案评分） |
+|---|---|---|---|
+| zh | 24000 | 83.3（7/10） | 93.3 |
+| zh | 48000 | 83.3（6/10） | 90.0 |
+| zh | 96000 | 80.0（7/10） | 90.0 |
+| zh | 135000 | 80.0（6/10） | 90.0 |
+| en | 24000 | 83.3（10/10） | 86.7 |
+| en | 48000 | 83.3（10/10） | 86.7 |
+| en | 96000 | 80.0（9/10） | 83.3 |
+| en | 135000 | 83.3（9/10） | 83.3 |
+| zh | Jev 24000 | 63.3–66.7（0/10） | 90.0 |
+| en | Jev 24000 | 56.7–63.3（4/10） | 73.3–76.7 |
+
+- **(b) 只是对话变长、没有那几轮**：zh 从 93.3 到 90.0，en 从 86.7 到 83.3，各差一题，在噪声之内；**对话从 2.3 万到 7 万估算 token（pplx 约 4.7 万到 14 万 token），长度本身没有拖低准确率。**
+- **(a) 决定性几轮在末尾附近、对话一样长**：准确率 80 到 83.3，不随预算变；max 召回 zh 6 到 7/10、en 9 到 10/10。deep 在 135000 读到全部时是 86.7（zh）、86.7（en），max 召回 6/10（zh）、10/10（en）：**读到更远的信息和读到近处的信息一样好，所以提升来自「读到了」，不是对话变长或变短。**
+- Jev 的 (a) 和 deep 的准确率差不多（zh 63–67 对 57–60，en 57–63 对 67），max 召回 zh 0/10、en 4/10（deep 是 0/10 和 1/10）：近处的几轮也读了，中文问法仍不敢给 max，和 #43 的发现一致。
+
+**真实流程（flow）：摘要加次数加强提示，对大窗口。** `zh-flow`/`en-flow` 的 state 带 Haiku 逐轮续写的摘要（`datasets/long-context-summaries.json`，2214 轮，没有一轮没拿到摘要），次数按决定性几轮的 `says` 累计（反复未果的题 3 到 5 次，其余 0），达到 `unresolvedMaxAfter`（3）时 effort 题带强提示。次数用的是金标，等于三选一读得完全对：这是上限，不是 mod 实际会有的。
+
+| 问法 | 运行 | 准确率 | gold 命中 | 判高 | 判低 | max 召回 | 三选一 |
+|---|---|---|---|---|---|---|---|
+| zh | pplx 24000，无摘要（deep） | 70.0 | 13.3 | 16.7 | 13.3 | 0/10 | 93.3 |
+| zh | pplx 24000 + 摘要/次数/强提示 | 76.7 | 46.7 | 10.0 | 13.3 | **9/10** | 96.7 |
+| zh | pplx 135000，无摘要（deep） | **86.7** | 43.3 | 10.0 | 3.3 | 6/10 | 100 |
+| zh | pplx 135000 + 摘要/次数/强提示 | 83.3 | **56.7** | 10.0 | 6.7 | **10/10** | 90.0 |
+| zh | Jev 24000，无摘要（deep） | 56.7–60.0 | 10.0 | 13.3 | 26.7–30.0 | 0/10 | 90–93.3 |
+| zh | Jev 24000 + 摘要/次数/强提示 | 73.3 | 30.0–33.3 | 13.3 | 13.3 | 4–5/10 | 100 |
+| en | pplx 24000，无摘要（deep） | 73.3 | 13.3 | 16.7 | 10.0 | 1/10 | 100 |
+| en | pplx 24000 + 摘要/次数/强提示 | 76.7 | 40.0 | 13.3 | 10.0 | **9/10** | 93.3 |
+| en | pplx 135000，无摘要（deep） | **86.7** | 50.0 | 10.0 | 3.3 | **10/10** | 96.7 |
+| en | pplx 135000 + 摘要/次数/强提示 | 83.3 | 50.0 | 10.0 | 6.7 | 10/10 | 90.0 |
+| en | Jev 24000，无摘要（deep） | 66.7 | 16.7 | 13.3 | 20.0 | 1/10 | 100 |
+| en | Jev 24000 + 摘要/次数/强提示 | 63.3–66.7 | 40.0 | 13.3 | 20.0–23.3 | 9/10 | 93.3–96.7 |
+
+（24000、32 条消息那一档的流程结果和 24000 的一样：pplx zh 76.7、max 9/10，Jev zh 73.3、max 6–7/10。摘要在 24000 时读不到任何决定性几轮，答案完全来自摘要、次数和强提示。）
+
+Jev 24000 下把流程拆成两半（`zh-summary`、`zh-count`、`en-…`，**只对 Jev 跑了：pplx 的额度在这之前用完了**）：zh 只带摘要 66.7 / max 0/10，只带次数和强提示 63.3–66.7 / max 1/10，两样都带 73.3 / max 4–5/10；en 只带摘要 60–63.3 / max 3–4/10，只带次数和强提示 63.3–66.7 / max 6/10，都带 63.3–66.7 / max 9/10。强提示（次数）管 max 召回，摘要自己几乎不动 max，两样加在一起最好。
+
+**结论：更大窗口带来多少提升。**
+- **pplx 在这个数据集上，把 state 从 24000 提到 135000（对话全读到），中文问法准确率 70.0→86.7（+16.7），英文 73.3→86.7（+13.3）；gold 命中 +30 和 +37 个百分点；判低 13.3→3.3；max 召回 zh 0→6/10、en 1→10/10。** 提升随预算一档一档出现，正好是读到的那一档（见按深度）；每档预算涨 3 到 7 个百分点，每档多读到 10 题。
+- **对话变长本身不拖累**（对照 b），**读到远处和读到近处一样好**（对照 a）。
+- **比较摘要加次数加强提示：** 对 max（这个漏洞最要紧的地方），24000 加流程就有 9/10，和大窗口（zh 6/10、en 10/10）一样好甚至更好，请求只有 4.7 万 pplx token，大窗口的 14 万（最大 24.3 万）。对整体准确率和 gold 命中，**大窗口更准**（86.7 对 76.7）：摘要和次数只带「试过什么、失败了几次」，带不了「早先约定了低成本做法」「这块是真金白银」：24000 加流程时看似复杂其实简单只有 40%（zh）、20%（en），硬性约束 0%；大窗口读到原话，硬性约束 67%。大窗口再加流程：zh max 6→10/10，准确率 86.7→83.3（差一题，在噪声之内），英文持平；用流程补 max、用大窗口读约定，两样叠加没有明显的额外好处。Jev 的上限是 24000，没有大窗口可比，加流程准确率 +13（zh）到持平（en），max 召回 0→4–5/10（zh）、1→9/10（en）。
+- **时间上不划算。** 并发 3 的延迟：24000 预算 p50 9.6 秒，48000 13.1，96000 17.0，135000 20.0 秒（最长 52.6 秒）；24000 的流程 4.8 秒。单个请求时的延迟更低（探针：24 万 token 14 秒），但都远在 #43 建议的 pplx `timeoutMs`（2500 ms）之外，所以更大的窗口只适合离线评测或不赶时间的请求，真要在线上用，要么只给 max 召回的缺口加流程，要么等 pplx 对长输入更快。延迟不是取舍依据，只作记录。
+
+**要留意的。**（1）金标没有审；`repeated-failure` 的 accept 里有 xhigh，所以准确率低估了缺口，看 max 召回；`without` 的答案（对照 b）是起草者对「单看那条消息」的判断，只和同一份数据里的其他变体比，不要和 deep 的准确率直接比。（2）30 题一题 3.3 个百分点，pplx 两遍相同所以没有波动的估计，小于两题（约 7 个百分点）的差别不要当真；max 召回按 10 题算。（3）中间轮次是模板生成的：粗看像读代码，细读重复、代码没有逻辑；决定性几轮是手写的。用真实的长对话重做才能确定结论不依赖这种填充。（4）摘要是 Haiku 逐轮续写的，对话离开了原问题（中间是读相邻的代码）时它会改写成当前在做的事：反复未果的 10 题里 9 题的摘要还保留着原问题（long-010 变成了「Terraform 漂移这一块一共有哪些文件」），其余 20 题的摘要本来就是任务，跟着最近读的代码走；这是 mod 的摘要实际会有的样子，次数（金标）则是上限。（5）流程里次数是金标，三选一读错了的话次数和强提示会跟着错。（6）pplx 的第二遍「mod 现在的」和 pplx 的流程拆半没有跑，额度用完了（pplx 共花约 3.6 美元，Jev 约 1.25 美元，Haiku 2214 次调用走订阅）。（7）`zh-summary`、`zh-count` 是第一批结果之后才加的变体，所以 `long-context.ts` 的代码哈希在那几份结果里和其余的不同；其他变体的请求没有变（测试核对）。
 
 ### 已实测的引擎行为（2.1.289；看板部分 2.1.291）
 
