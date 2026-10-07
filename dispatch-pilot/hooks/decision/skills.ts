@@ -1,7 +1,7 @@
 // How the decision model ranks the session's skills for a message, in two
 // stages (#11), and how the ranking becomes the skills suggested.
 //
-//   stage one  in the message's one decision request, a Choice over the
+//   stage one  in the message's skills request (the effort question has its own, ADR 0005), a Choice over the
 //              skills the main agent can load and "(none)" (`skills.which`),
 //              and one over those only the person can start and "(none)"
 //              (`skills.hint`): asked apart, a skill of one kind that fits
@@ -28,7 +28,7 @@
 
 import type { Asked, Failure } from './backend.ts'
 import { clipToTokens, estimateTokens, turnStartState, type ContextLimits, type ContextMessage } from './context.ts'
-import { turnStartEffortPart, type EffortAsk, type Language } from './effort.ts'
+import type { EffortAsk, Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part, type Question, type State, type Text } from './system-one.ts'
 
@@ -273,26 +273,24 @@ export function stageTwoPart(candidates: readonly Candidate[], ask: { language?:
 export type SkillsItem = { message: string; recent_context: readonly ContextMessage[] }
 
 /**
- * The decision request the mod sends when the person sends `item.message`:
- * the shared state, the effort question, then the skills questions over
- * `options` (stage one; the `ranker`'s when given), in the ballot's order.
- * The effort question is written in `effortLanguage` when given (the mod's
- * for its decision model: core/setup.ts BACKEND_DEFAULTS turnStartLanguage),
- * the skills questions as `ask` (or the ranker) says. `part` reads the skills
- * answers back (`answersFor(part, answers)`, then `ranker.rank` with
- * `request.state`); null when there is no option, and the request then asks
- * about effort alone.
+ * The decision request the mod sends about the skills when the person sends
+ * `item.message`: the shared state and the skills questions over `options`
+ * (stage one; the `ranker`'s when given). The main agent's effort is asked in
+ * a request of its own (ADR 0005; the effort eval's `submitRequest`), so this
+ * one carries no effort question. The skills questions are written as `ask`
+ * (or the ranker) says. `part` reads the skills answers back
+ * (`answersFor(part, answers)`, then `ranker.rank` with `request.state`); both
+ * are null when there is no option to ask about: no request is sent then.
  */
 export function skillsRequest(
   item: SkillsItem,
   options: readonly SkillOption[],
-  settings: { limits: ContextLimits; ask?: Partial<EffortAsk>; effortLanguage?: Language; ranker?: Pick<SkillRanker, 'part'> },
-): { request: DecisionRequest; part: Part | null } {
+  settings: { limits: ContextLimits; ask?: Partial<EffortAsk>; ranker?: Pick<SkillRanker, 'part'> },
+): { request: DecisionRequest; part: Part } | { request: null; part: null } {
   const part = settings.ranker ? settings.ranker.part(options) : skillsPart(options, { language: settings.ask?.language, budget: questionBudget(settings.limits.tokens) })
+  if (part === null) return { request: null, part: null }
   const state = turnStartState({ prompt: item.message, messages: item.recent_context, limits: settings.limits })
-  const effort = turnStartEffortPart({ ...settings.ask, ...(settings.effortLanguage === undefined ? {} : { language: settings.effortLanguage }) })
-  const request = mergeParts(state, [effort, ...(part === null ? [] : [part])])
-  return { request, part }
+  return { request: mergeParts(state, [part]), part }
 }
 
 /**

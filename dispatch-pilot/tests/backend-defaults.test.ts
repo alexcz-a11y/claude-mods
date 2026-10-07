@@ -30,9 +30,9 @@ const CHOSEN = [
 /** A message 25000 tokens long as the mod counts them (one a Chinese character): longer than any budget. */
 const LONG = '把登录模块重构成三层'.repeat(2500)
 
-/** How many of the mod's tokens the first request's user_message took. */
-function messageTokens(w: { requests: { body: any }[] }): number {
-  return estimateTokens(String(w.requests[0]?.body.state.user_message))
+/** How many of the mod's tokens a request's user_message took. */
+function messageTokens(request: { body: any } | undefined): number {
+  return estimateTokens(String(request?.body.state.user_message))
 }
 
 test("with Jev, a message waits 1500 ms for the decision (Jev's default)", { options: JEV }, async ($, on) => {
@@ -73,8 +73,8 @@ for (const chosen of CHOSEN) {
   })
 }
 
-// The context budget by kind of request (core/setup.ts BACKEND_DEFAULTS contextByKind): with Jev, a message that carries the
-// skills' question (and find_skill's first stage) 6000 tokens, every other kind of request 24000 (what 32k for the state and
+// The context budget by kind of request (core/setup.ts BACKEND_DEFAULTS contextByKind): with Jev, a message's skills request
+// (and find_skill's first stage) 6000 tokens, every other kind of request 24000, the message's effort request too (ADR 0005) (what 32k for the state and
 // the longest question leaves beside a question of at most 700 tokens, DEVELOPMENT.md, 配置); 2000 with Clef for all. A budget
 // the person sets holds for every kind, each kind taking the smaller of it and its own: Jev reads one above the manifest's
 // 16000 as 16000 and Clef one above 2000 as 2000 (it sometimes reads only the first ~2.1k tokens of a state, and the newest
@@ -87,9 +87,9 @@ const BUDGETS = [
   { name: 'Jev, by default', options: JEV, budget: 24000 },
   { name: 'Jev, set to 4000', options: { ...JEV, contextTokens: 4000 }, budget: 4000 },
   { name: 'Jev, set to 16000', options: { ...JEV, contextTokens: 16000 }, budget: 16000 },
-  { name: 'Jev with skill suggestions, by default', options: JEV, budget: 6000, skills: true },
-  { name: 'Jev with skill suggestions, set to 4000', options: { ...JEV, contextTokens: 4000 }, budget: 4000, skills: true },
-  { name: 'Jev with skill suggestions, set to 16000 (read as 6000 for that request)', options: { ...JEV, contextTokens: 16000 }, budget: 6000, skills: true },
+  { name: 'Jev with skill suggestions, by default', options: JEV, budget: 6000, skills: 24000 },
+  { name: 'Jev with skill suggestions, set to 4000', options: { ...JEV, contextTokens: 4000 }, budget: 4000, skills: 4000 },
+  { name: 'Jev with skill suggestions, set to 16000 (read as 6000 for the skills request)', options: { ...JEV, contextTokens: 16000 }, budget: 6000, skills: 16000 },
   { name: 'Clef, by default', options: CLEF_OPTIONS, budget: 2000 },
   { name: 'Clef, set to 4000 (read as 2000)', options: { ...CLEF_OPTIONS, contextTokens: 4000 }, budget: 2000 },
   { name: 'Clef, set to 1500', options: { ...CLEF_OPTIONS, contextTokens: 1500 }, budget: 1500 },
@@ -97,13 +97,20 @@ const BUDGETS = [
 
 for (const { name, options, budget, ...more } of BUDGETS) {
   test(`the context budget of a message with ${name} is ${budget} tokens: a long message is cut to it`, { options }, async ($, on) => {
+    // With skill suggestions, `skills` is the budget of the effort request, which the message goes in on its own.
     const skills = 'skills' in more
     const clefChosen = 'cloudflareAccountId' in options
     const w = world($, on, { backend: clefChosen ? clef([0, 1, 0, 0, 0]) : skills ? rates({ tdd: 0.5, '(none)': 0.5 }, { tdd: 0.5 }) : jev([0, 1, 0, 0, 0]), ...(skills ? { skills: SKILLS_WORLD } : {}) })
     await w.submit(LONG)
-    if (skills) expect(Object.keys(w.requests[0]?.body.questions)).toContain('skills.which')
-    expect(messageTokens(w)).toBeLessThanOrEqual(budget)
-    expect(messageTokens(w)).toBeGreaterThan(budget - 50)
+    const asked = skills ? w.withoutEffort[0] : w.requests[0]
+    if (skills) {
+      expect(Object.keys(asked?.body.questions)).toContain('skills.which')
+      const effort = w.requests.find((request) => 'effort.level' in request.body.questions)
+      expect(messageTokens(effort)).toBeLessThanOrEqual(more.skills)
+      expect(messageTokens(effort)).toBeGreaterThan(more.skills - 50)
+    }
+    expect(messageTokens(asked)).toBeLessThanOrEqual(budget)
+    expect(messageTokens(asked)).toBeGreaterThan(budget - 50)
   })
 }
 
@@ -170,7 +177,7 @@ const LISTING = [
 test('with Jev, skills are suggested beside each message by default: the listing is withheld and the request asks about them', { options: JEV }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS })
   await w.submit('先写一个失败的测试')
-  expect(Object.keys(w.requests[0]?.body.questions)).toContain('skills.which')
+  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toContain('skills.which')
   expect(await w.listing(LISTING)).not.toEqual({ text: LISTING })
 })
 
@@ -183,7 +190,7 @@ test('with Clef, skill suggestions start off: the main agent keeps its listing a
 
   expect(await w.command('dp', 'skills on')).toMatch(/^skills 已打开/)
   await w.submit('再写一个失败的测试')
-  expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['effort.level', 'skills.which'])
+  expect(w.requests.slice(1, 3).map((request) => Object.keys(request.body.questions))).toEqual([['effort.level'], ['skills.which']])
 })
 
 test('with Clef, find_skill still answers while the suggestions are off', { options: CLEF_OPTIONS }, async ($, on) => {
@@ -208,15 +215,15 @@ test("with Clef and the suggestions off, no skill profile is written: find_skill
 // current wording, 2026-10-05: asked in Chinese, Chinese items 85% and English 89%; asked in English, 79% and 78%),
 // English with Clef (never measured in Chinese). Every other question stays in English: none has data in Chinese.
 
-test("with Jev, the effort question beside a message is written in Chinese; the skills questions in its request, and the second request's, stay in English", { options: JEV }, async ($, on) => {
+test("with Jev, the effort question beside a message is written in Chinese; the skills questions in their request, and the second request's, stay in English", { options: JEV }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 }), skills: SKILLS })
   await w.submit('先写一个失败的测试')
 
   const effort = w.requests[0]?.body.questions['effort.level']
   expect(Object.keys(effort.instructions)).toEqual(['问题', '评什么', '简短回复'])
   expect(effort.criteria[0]).toMatch(/^凭已知信息就能回答/)
-  expect(Object.keys(w.requests[0]?.body.questions['skills.which'].instructions)).toContain('question')
-  expect(Object.keys(w.requests[1]?.body.questions['skills.fits.0'].instructions)).toContain('question')
+  expect(Object.keys(w.withoutEffort[0]?.body.questions['skills.which'].instructions)).toContain('question')
+  expect(Object.keys(w.withoutEffort[1]?.body.questions['skills.fits.0'].instructions)).toContain('question')
 })
 
 test('with Clef, the effort question beside a message is written in English', { options: CLEF_OPTIONS }, async ($, on) => {

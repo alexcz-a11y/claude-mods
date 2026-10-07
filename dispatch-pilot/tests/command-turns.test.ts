@@ -51,7 +51,7 @@ test('a message that only starts with a slash is an ordinary message, also after
   await w.step({ index: 0 })
 
   expect(w.requests[0]?.body.state.user_message).toBe('/Users/me/notes.txt 这个文件写了什么')
-  expect(Object.keys(w.requests[0]?.body.questions)).toContain('skills.which')
+  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toContain('skills.which')
   expect((await w.board()).main).toMatchObject({ routed: true })
 })
 

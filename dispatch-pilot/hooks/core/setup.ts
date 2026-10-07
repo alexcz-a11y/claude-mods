@@ -165,6 +165,17 @@ export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = 
   },
 }
 
+/**
+ * What the state of a message's decision request may take: the message that
+ * carries the skills' question (`withSkills`) has `context`, whose tokens
+ * leave room for that question; the effort question's request, and any other
+ * plain message, has `contextByKind.messagePlain` (ADR 0005). The core and the
+ * eval build the request's state from the same limits.
+ */
+export function messageLimits(config: Pick<Config, 'context' | 'contextByKind'>, withSkills: boolean): ContextLimits {
+  return withSkills ? config.context : { ...config.context, tokens: config.contextByKind.messagePlain }
+}
+
 export type Config = {
   /** The decision model the options were read for: its defaults (BACKEND_DEFAULTS) stand for what the person left unset. */
   backend: BackendName

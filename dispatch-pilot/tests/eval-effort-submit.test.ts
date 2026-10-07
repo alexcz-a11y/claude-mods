@@ -84,12 +84,11 @@ for (const chosen of BACKENDS) {
   }
 }
 
-// With the skills switch on (its default) the mod's request also asks about the
-// session's skills. Questions in one request are answered each on its own, the
-// state alone their context (TypeSafe's guide, S1 and Q12), so the eval asks the
-// effort question alone: the same state, the same question. Its latency is not
-// the message's: the skill eval's first stage is that request.
-test("with skills to ask about, the mod's request holds the eval's state and effort question as they are, the skills questions beside them", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+// With the skills switch on (its default) the mod also asks about the session's
+// skills, in a request of its own (ADR 0005): the effort question's request is
+// the same with the skills on or off, the eval's whole. Its latency is not the
+// message's: the skill eval's first stage is the skills' request.
+test("with skills to ask about, the mod's effort request is the eval's as it is, and the skills questions go in another", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
   const skills = {
     commands: [{ name: 'tdd', description: 'Test-driven development.', source: 'user' as const }],
     listed: [{ name: 'tdd', source: 'userSettings', tokens: 20 }],
@@ -98,11 +97,9 @@ test("with skills to ask about, the mod's request holds the eval's state and eff
   await w.submit(ITEM.zh.message)
 
   const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({}))
-  const sent = w.requests[0]?.body
-  expect(Object.keys(sent.questions)).toEqual(['effort.level', 'skills.which'])
-  expect(sent.state).toEqual(request.state)
-  expect(sent.questions['effort.level']).toEqual(request.questions['effort.level'])
+  expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   expect(Object.keys(request.questions)).toEqual(['effort.level'])
+  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.which'])
 })
 
 test("the eval cuts the conversation to the mod's limits as the mod does", { options: { typesafeApiKey: 'k', contextMessages: 2, contextTokens: 100 } }, async ($, on) => {
