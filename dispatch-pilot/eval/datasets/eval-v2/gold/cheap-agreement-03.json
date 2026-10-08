@@ -1,0 +1,22 @@
+{
+  "id": "cheap-agreement-03",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条说 main 上 e2e 红了，挂的是营销的批量发券用例，超时、连着两次，让处理一下。决定性几轮里用户定了规矩：main 上红的如果是和售后工单无关的用例，别查原因，直接 test.fixme、在 e2e/QUARANTINE.md 记一行、推上去，不用本地跑全套，理由是红着挡 staging 自动部署、隔离区小周每周一统一清；助手当场还按这个处理过一次。按约定，这就是加一行 fixme、记一行、推送：low；顺手确认一下那次红的提交没动 useRequest 这类公共层，也只是多看一眼，medium 可以接受。删掉决定性几轮，只看到一个连续两次超时的 e2e 失败要处理，正常是要拉 trace、复现、查是测试问题还是功能坏了的调试工作：high。三选一：d1 第一次提出工单列表的问题，new_or_unrelated；d2 是另立的做事规矩，和工单列表的问题无关，new_or_unrelated；最后这条是另一个无关用例的失败，不是在说工单列表的问题，new_or_unrelated。审稿改动（金标未改）：d1 助手原来断定「改完筛选紧接着翻页会有两个请求同时在路上」「fetchTickets 业务码非 0 时返回 data: undefined」，和本领域 same-problem 段里查到的事实冲突（请求层的 dedupe 会把重复调用合并成一个请求、响应拦截器在业务码非 0 时抛错），改成只说读到的代码和可能性，不下这两条断言。",
+  "source": "agreed"
+}

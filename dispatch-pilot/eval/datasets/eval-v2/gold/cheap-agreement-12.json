@@ -1,0 +1,22 @@
+{
+  "id": "cheap-agreement-12",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条要一个出文档周报的脚本：本周合进 main 的 PR 改了哪些页面、新增几篇、中英文各改了多少字，按目录分组，每个 PR 一行，输出 markdown，放 writers 目录。决定性几轮里用户一开始就定了规矩：写作组自己用的小脚本放 scripts/writers/，node 脚本能跑出结果就行，不写测试、不加 npm script、不管 Windows 路径、不写 README，理由是只有三四个人在本机跑、不进 CI、坏了当场改；主 agent 照这个口径写了 40 行的统计脚本，又加了十来行按作者统计。按这个约定，最后这条是一个快写的脚本：用 gh 拉本周合并的 PR 和改动文件，按路径分中英文、按目录分组，粗算新增行里的字数，范围清楚、不需要权衡：medium。约定把健壮性要求都拿掉了，判 low 也可以，accept low、medium。删掉决定性几轮，最后这条是一个每周都要跑的报告工具，要对接 GitHub API、把文件映射到页面和语言、中文按字英文按词地统计改动量、处理 MDX 里的代码块和 front matter，正常会写测试、做成 npm script：high。三选一：d1 第一次提出过期页面统计并定规矩，new_or_unrelated；d2 是同类的另一个统计，没有对之前的结果表态，new_or_unrelated；最后一条是新脚本，new_or_unrelated。（审稿改动：素材段里英文一直是 236 页、中文 219 页，d1 回复里的页数和分组表照这个改了，目录补上 sdks；金标未改。）",
+  "source": "user:author"
+}

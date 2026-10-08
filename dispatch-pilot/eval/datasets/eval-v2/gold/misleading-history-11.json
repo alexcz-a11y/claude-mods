@@ -1,0 +1,26 @@
+{
+  "id": "misleading-history-11",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后一条让补跑 9/21。d2 已查清 9/21 是 MemoryError 导致的失败，补跑方法写好了：白天在 etl-01 上跑 make run P=store_channel_daily D=2026-09-21，按业务日期先删后插只动这一天，跑完核行数和门店数并和前后几天比，基本是照现成命令执行加简单核对，low；因为是写生产结果表并要核对、提醒财务重导和数仓补拉，medium 也可接受。9/21 已确认与补充列 InvalidOperationError 无关，最后一条是 new_or_unrelated。读不到决定性几轮时，要先查 9/21 为什么是空的、补跑会不会影响别的日期、怎么跑，判 medium。d2 问的是另一个现象（整天为空），不是同一错误重现，new_or_unrelated；d3 让补充列问题先挂着、票别关，still_unresolved。",
+  "source": "user:labeler"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "single-attempt-06",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "失败的修复 1 次：d1 之后认定是关单 worker 整批 200 单加上未支付超时被误改成 15 分钟、和商户请求抢同一批订单，把超时改回 30 分钟发了 v1.43.1 hotfix，用户在最后一条第一次说没好（hotfix 发上去一个多星期，Sentry 那个 issue 还在涨、商户还在报系统繁忙），是第二次。复现性是偶发的：d1 写了「偶尔提示系统繁忙 重试一下又好了」，本地和 staging 都没复现过，middle_hint 里多在晚高峰 → xhigh；判断修没修好要等一段时间的线上数据，下一步是长链路排查加反复验证。accept 是 high、xhigh，只失败一次不到 max；问题牵涉并发和支付，不加到 max。删掉决定性几轮：中间段和 middle_hint 看得到偶发，最后一条的「hotfix 发上去」「还在涨」看得出修过，按第二次、偶发定 → xhigh，和 effort 相同。本类允许这个例外：这题里决定性几轮的作用是排除 max，删掉以后看不出改过几次（中间段把 v1.43.1 当成一次不在这条路径上的超时修正），几万 token 的排查可能被读成反复失败，但按规则不把看不见的历史推测成多次失败，所以仍是 xhigh。三选一：d1 第一次提出问题，new_or_unrelated；最后一条说同样的报错和现象还在，still_unresolved。这一轮按修订说明改：金标从 high 改成 xhigh；第一次修复仍是 v1.43.1 那个 hotfix；决定性回复末尾交代了发上去以后为什么还要接着查；middle_hint 补了出现率和「用户没有评价第一次的修复」。上一轮审稿改动：backend-api 的 same-problem 素材段共用的场景是「订单状态流转（PATCH 订单、/pay、下单）在高峰期偶发 500，商户看到系统繁忙，日志里是一行带两层操作名前缀、最内层来自 pgx 的错误，Sentry 上 9/25 因为改了前缀新开了 issue、旧 issue 8 月初就有，v1.43.1 是 9/28 把未支付超时从 15 分钟改回 30 分钟的 hotfix」；原题的「游标分页对账重复和漏单」和这些段（500、连接池排队、GetOrderForUpdate、工单、Sentry）对不上。按池子改了问题、七个占位符、d1、决定性回复和最后一条，并把第一次修改落在中间段里已经存在的 v1.43.1 hotfix 上，这样中间段说的「这块 v1.43.1 以后只改过日志字段」「hotfix 只有这一个提交」都成立。",
+  "source": "agreed"
+}

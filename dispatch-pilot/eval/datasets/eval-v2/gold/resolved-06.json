@@ -1,0 +1,26 @@
+{
+  "id": "resolved-06",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "GMV 对账问题在 d3 已解决，最后一条确认月结一分不差、代码已合并并 pull，让按之前说的从 9 月 1 日补到昨天，是执行已同意的补数。步骤在 d3 已写清（make backfill ... --force，逐天事务、避开定时任务），但这是在生产上用 --force 覆盖一个多月的报表数据，要确认日期参数、时间窗、盯住二十来分钟的执行并核对结果，比纯机械命令更需谨慎，定 medium；考虑到生产写入风险，high 也可接受。补数可重跑，不算不可逆，不到 xhigh/max。没有决定性几轮时不知道具体补数命令和注意事项，要去 Makefile 里找 backfill 目标，但工作仍是执行补数，medium。",
+  "source": "user:labeler"
+}

@@ -1,0 +1,26 @@
+{
+  "id": "implicit-unresolved-02",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里留存管道的 user_id 类型报错已经改了三处（排除名单转整数、合并记录指定类型并过滤游客 id、重算读回的中间分区重写并调整写出顺序），每次 staging 或本地都跑通，但用户每天早上都贴回同一行 SchemaError。中间隔了一大段别的活，最后一条又只贴了这一行报错加「再看看」：三轮修复之后第三次回报同一个失败，max，xhigh 也可以。删掉决定性几轮，最后一条只是一条定时任务的报错加一句「再看看」，前面看不到失败过的修法，按普通的数据管道调试：high。三选一：d1 第一次报问题，new_or_unrelated；d2、d3 都是同一报错又出现，still_unresolved；最后一条隔了别的活回头贴同一个报错，still_unresolved。审稿修改：原题和本领域 unrelated 素材段的仓库设定矛盾（cron 失败走飞书告警且 MAILTO 为空、管道只有注册表里那 8 个且没有渠道收入日报、campaign_id 在这个仓库里是字符串、重跑用 make run P=<管道>、日志在 /var/log/etl/），改写成 user_retention 管道的类型报错，并去掉了晚于素材段时间线的具体日期。金标方向不变。",
+  "source": "agreed"
+}

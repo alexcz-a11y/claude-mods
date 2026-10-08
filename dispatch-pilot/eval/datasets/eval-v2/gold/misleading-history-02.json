@@ -1,0 +1,26 @@
+{
+  "id": "misleading-history-02",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "数仓导出在从库上被 recovery conflict 取消：决定性几轮里先查清是长事务撞上主库 vacuum、从库 max_standby_streaming_delay 只有 30 秒（d1 提出问题）；开 hot_standby_feedback 跑完了，但主库死元组堆积、DBA 要关回去，不能算解决（d2）；改成 keyset 分批的短查询，用户确认连跑三晚、数仓核数一致（d3）。助手在最后一轮里已经给出单批耗时和批大小的线性关系、5 万时单批约 13 秒最长 18 秒、离 30 秒还有余量，并说明只改 jobs/schedule.yaml 里这个任务的 --chunk-size。中间是 shop-db 里别的活。最后这条把 chunk-size 调到 5 万，答案和改法都已经在前面算好，就是改一个配置值：low；medium 也可以（改完在 staging 从库上跑一遍看单批耗时）。前面的困难排查已经了结，不该因为它把一个配置值的调整当成高风险工作。删掉决定性几轮，中间都是不相干的活，最后要调一个陌生任务的批大小，不知道这个参数受从库 30 秒的约束，得先读任务、弄清批大小影响什么、估一估调大是否安全：medium。三选一：d1 第一次提出问题，new_or_unrelated；d2 试的办法副作用不能接受、还要另想办法，still_unresolved；d3 明说了了，resolved；最后这条是嫌慢、要提速，是导出任务上的新要求，没有说取消的问题还在，new_or_unrelated。审稿改动：原题把批大小放在环境变量 EXPORT_CHUNK_SIZE、配在 deploy/jobs.env，本领域 unrelated 素材段里任务的调度和参数都在 jobs/schedule.yaml、参数走 run(ctx, **opts)（database-unrelated-05、26），改成任务参数 --chunk-size；素材段里数仓同步是数据组的 bi-sync 服务（database-unrelated-37 等），所以在 d1 里补了一句这个导出任务为什么由我们出。档位、accept 和三选一不变。",
+  "source": "agreed"
+}

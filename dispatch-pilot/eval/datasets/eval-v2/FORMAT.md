@@ -21,6 +21,7 @@ dispatch-pilot/eval/datasets/
 │   ├── items/<category>-<nn>.json         题目：一个文件一题，不含答案（出题作者）
 │   ├── gold-author/<id>.json              出题者的金标（出题作者）
 │   ├── gold-labeler/<id>.json             标注者的金标（标注者，不看 gold-author）
+│   ├── gold/<id>.json                     最终金标，评测用它：双方一致的取出题者那份（source "agreed"）；不一致的按用户裁决（source "user:author" / "user:labeler" / "user:custom"），字段同上加 source
 │   └── generated.json                     生成记录（eval-v2-gen.ts 写，提交）
 └── eval-v2.jsonl                          生成的数据集（eval-v2-gen.ts 写，几十 MB，不提交）
 ```

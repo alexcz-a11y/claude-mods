@@ -1,0 +1,34 @@
+{
+  "id": "explicit-unresolved-12",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里收银台扣款的偶发 EOF 已经改了四次（缩短空闲连接时间、带幂等键重发、关长连接后回滚、升 Go 补丁版本），用户每次都说线上次数没变，而且一开始就说了这块是真金白银、别弄出重复扣款；助手最后也承认原因不明。之后十几万 token 只有排查没有结论，最后一条用户明说商户又报了、没解决：涉及资金的疑难问题反复修复未果，max；xhigh 也能接受。删掉决定性几轮，中间段能看出这是一个涉及支付、时有时无的问题，但看不到修复尝试和「别弄出重复扣款」的约束，「还是没解决」至多算第二次：xhigh。三选一：d1 首次提出，new_or_unrelated；d2–d5 都是改完仍在报同一个错误，still_unresolved；最后一条明说没解决，still_unresolved。审稿修改：本领域的 same-problem 素材段共同设定是「商户调的一个写接口（事务里锁订单、调 paylink），偶发 500 带同一行报错，进日志、Tempo 和 Sentry，重试一两次又成功，和 paylink 回调、超时关单是并列的几路」，原题的 SYMBOL 是回调处理函数、ERROR 是一行 go test 的失败输出、SYMPTOM 是重复入账，和工单、日志、Sentry、调用链这些段都对不上，整题改写成扣款接口的偶发 EOF，保留「真金白银」的约束；尝试避开了中间段写死的现状（PSP 调用仍在事务里、连接池仍是默认 20、WithTx 没动）。without 由 high 改为 xhigh，理由同上。",
+  "source": "agreed"
+}

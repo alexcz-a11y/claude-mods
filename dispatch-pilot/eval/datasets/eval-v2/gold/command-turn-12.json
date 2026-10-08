@@ -1,0 +1,34 @@
+{
+  "id": "command-turn-12",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后一条是 /debug，说员工 TOTP 刚刷新的码还是提示验证码错误。决定性几轮里这个问题已经修了四次：步长容差从 0 改成 1、challenge 从 60 秒延长到 5 分钟并单独报过期、服务端 NFKC 规整和去空白、修好时钟快 37 秒的节点并加偏差指标；每次上线后用户都说还有，最后一次连时钟和输入都排除了，助手也承认四处改动都没解释到这个现象，只剩加观测等下一次出现。在登录鉴权这种安全敏感的路径上，同一个间歇性问题四轮修复都失败之后又用命令来一次，按约定命令轮也算一次尝试：max；xhigh 也能接受。删掉决定性几轮，中间都是别的事，最后一条看起来是第一次排查一个 TOTP 偶发校验失败的问题：high。三选一：d1 第一次提出问题，new_or_unrelated；d2 到 d5 都说上线后还有人被拒，still_unresolved；最后一条隔着别的活说还是会提示错误，still_unresolved。审稿改动（金标未变）：素材段 security-unrelated-46 写的是 `/healthz` 永远返回 200、不查任何东西，原题 d4 回复说在 `/healthz` 里加了时钟偏差检查，和它矛盾，改成只加 `auth_clock_skew_seconds` 指标和带偏差值的失败日志。",
+  "source": "agreed"
+}

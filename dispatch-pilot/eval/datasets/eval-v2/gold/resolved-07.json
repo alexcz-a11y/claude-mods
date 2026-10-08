@@ -1,0 +1,26 @@
+{
+  "id": "resolved-07",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "决定性几轮里部署后冒烟检查偶发卡死改了两次：第一次按 ledger-api 没就绪加了 rollout status 和预热等待，用户说又挂了一次；第二次查出 port-forward 按 Service 挑 pod 会挑到 ledger 团队加了长 preStop 的旧 pod，改成只挑 Ready 且不在终止中的 pod，一周一百多次没再卡，用户明说算解决了，并约定月底那次 prod 发版过了就删掉 SMOKE_DEBUG 那段日志和 workflow 里的变量再开 PR，助手把这两处逐条列清了。最后一条说那次发版冒烟一路绿、按列好的两处删了开 PR：照明确清单做的机械收尾，low；牵涉部署 workflow，删完多核一眼给 medium 也可以。删掉决定性几轮，中间段全是没下结论的排查，「那两处」是哪两处不知道，要回头翻脚本和 workflow 自己判断哪些是临时加的、删了会不会影响冒烟：medium。三选一：d1 第一次报问题，new_or_unrelated；d2 改完又挂、还是同一行报错，still_unresolved；d3 一周零失败、明说算解决了，resolved；最后一条按约定收尾，resolved。审稿改动：原题是打 tag 触发的 prod 部署在 OIDC 那一步必挂，和本领域 same-problem 素材段的设定矛盾（9/22 起偶发、卡四分多钟后重试失败、重跑必过、staging 为主、托管 runner 也出过、Configure AWS credentials 那步是成功的），COMMAND 换进「本地跑 10 遍」「Run {{COMMAND}} 6m 41s」也读不通；改成冒烟检查偶发卡死，占位符、决定性几轮、最后一条和 middle_hint 重写，档位和三选一不变。",
+  "source": "agreed"
+}

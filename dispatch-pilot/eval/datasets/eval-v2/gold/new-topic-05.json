@@ -1,0 +1,26 @@
+{
+  "id": "new-topic-05",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后这条是给 prompt-lint 加密钥检测的新功能，用户的目的是贴进来的东西里像密钥就标红、提醒别发出去。提示条闪烁的问题在 d3 已经了结。改变判断的是决定性几轮里量出来的约束：prompt.edit 只有 50ms，超时的结果直接被丢掉；长输入靠 $.state.lineCache 只重扫哈希变了的行，跨行规则只在字数变化超过 200 字时才重算；整段粘贴是最坏情况，所有行都是新的，现有 42 条规则全扫一次已经要 19ms，带回溯的规则还会成倍加时间；lineCache 里存的是每一行的原文。密钥检测恰好发生在粘贴的时候，要认好几类格式（各家令牌前缀、JWT、PEM 私钥块），而 PEM 私钥块是跨行的，和「只扫改动的行、跨行规则延后重算」的增量设计冲突：照现有方式写成普通规则，要么跨行的漏掉，要么要等字数再变 200 字才标红，要么每次全扫超时被丢掉；lineCache 还会把疑似密钥的原文存进 state。所以要先做一层便宜的预筛，把跨行的私钥块单独接进增量扫描，缓存里不存命中密钥的原文，提示条加标红的样式，再补用例，并在长输入和整段粘贴上计时：跨多个地方的改动、边界条件要紧：high。改动都在这个 mod 里，用例和计时跑一轮就能验证，不到 xhigh。accept 里的 xhigh：读者如果把这件事做成一套可配置的密钥规则库（格式清单、白名单、熵值阈值），而不只是用户要的标红提醒，会往上判一档。删掉决定性几轮，只看「贴进来的东西像密钥就标红」，像在 lint 里加几条正则规则、提示条换个颜色：medium。三选一：d1 第一次提出提示条闪烁，new_or_unrelated；d2 短的好了、长的还在闪，still_unresolved；d3 不闪了、让提交，resolved；最后这条是另一件事，new_or_unrelated。重写说明：按修订版说明复核后保留情境；d3 回复去掉了一句和这件事无关的发版提示；rationale 不再用「拆事件、反复压测」解释 xhigh。accept 维持 high,xhigh：认真的读者可能往上落，往下落到 medium 要把 50ms 预算和跨行私钥块的冲突都略过。审稿补充：素材池里 my-mods 已有 redact-out（cc-mods-unrelated-05 等），它的 hooks/patterns.ts 有 12 条密钥规则，中间段或前置段可能提到；mod 之间不能互相导入，最多照抄格式清单，省下的是「认哪些格式」这一小块，50ms 预算、跨行私钥块和 lineCache 存原文这几处难点不变，金标不变。",
+  "source": "agreed"
+}

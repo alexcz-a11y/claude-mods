@@ -1,0 +1,22 @@
+{
+  "id": "looks-hard-is-easy-05",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "DATA RACE 又出现在 recordingNotifier 的 Notify 与 count()/last() 之间，只是换了用例，同一问题仍在。改法已定且本地验证过：fakes_test.go 里给 recordingNotifier 加 `mu sync.Mutex`，三个方法开头加锁，再跑 `go test -race -count=500`。单个测试文件、照明确指令的机械改动，low，可接受 medium（老韩合并后文件结构变了需对一下）。d2 用户说「那就好」CI 重跑绿了先这样，接受结论并推迟修改，标 resolved。读不到决定性几轮时要从 race 报告重新判断是测试假对象还是生产并发问题，按调试定 high。",
+  "source": "user:labeler"
+}

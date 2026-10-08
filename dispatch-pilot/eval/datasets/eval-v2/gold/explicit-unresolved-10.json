@@ -1,0 +1,34 @@
+{
+  "id": "explicit-unresolved-10",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里二次验证的状态冲突已经改了四次（放长有效期、重新发送不换 id、调大连接池、拆开错误码），用户每次都说 Loki 里的数量没降、本地测试照样红，还一开始就说了这是安全相关的、不许放松校验；助手最后也承认四次都没打中、第二个请求从哪来还不清楚。之后几万 token 的排查没有结论，最后一条用户明说还是没解决：认证链路上的并发问题、多次修复未果，max；xhigh 也能接受。删掉决定性几轮，只看中间的排查和最后一条，这仍是一个认证链路上时有时无的并发问题，起码 xhigh，但看不出已经失败了四次，不到 max。三选一：d1 首次提出，new_or_unrelated；d2–d5 都是改完仍在报同一个错误（d2 之后本地次数一度下降，线上没变），still_unresolved；最后一条明说没解决，still_unresolved。审稿修改：本领域的 same-problem 素材段共同设定是「生产上一个公开入口加一个 mall-bff 内部入口共用的函数，事务外读用户状态、事务里 FOR UPDATE 锁一行再 UPDATE 加 INSERT，应用在某个分支里抛出的错误进 Loki，客服工单里用户看到『请求处理失败』，本地复现约三成」，原题的 ERROR 是一行测试断言、SYMPTOM 是用户不可能反映的令牌重放，放进工单、Loki 分布、Sentry 这些段里都不通，整题改写成二次验证的状态冲突，问题、占位符、决定性几轮和最后一条都换了。without 仍是 xhigh。",
+  "source": "agreed"
+}

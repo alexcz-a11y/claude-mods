@@ -1,0 +1,22 @@
+{
+  "id": "looks-hard-is-easy-03",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "剩下的工作：`.github/workflows/build-image.yml` 里 `Scan image` 那一步的 `env:` 下加一行 `TRIVY_DB_REPOSITORY: mirror.gcr.io/aquasec/trivy-db:2`，开 PR 合进 main，再挑一个挂掉的服务 run `gh run rerun <id> --failed`，看扫描日志里的源换成了 `mirror.gcr.io`、镜像推上去。原因（Trivy 每次现下漏洞库，ghcr 对 `trivy-db` 这个包限流）在 d1 里用 17 个 run 的日志对上了，新源在本地验证过（库能下、扫描结果和 CI 里一致），文件、位置、新值都逐字写明；不写测试，不碰 prod、不发版。对上第 7 节 low 那一行：只有一处改动，验证就是 rerun 决定性几轮里 rerun 过的构建。改的是所有服务共用的那份 workflow，合并要走一次 PR、rerun 后要看一眼日志，判 medium 也说得过去，accept low、medium。删掉决定性几轮，只剩几万 token 不相干的 infra 工作和这一屏：9 个服务仓库的构建同时挂在扫描上、ghcr 回 `TOOMANYREQUESTS`，「按上次说的加上」加什么看不出来，得先排除 ECR、OIDC、runner，再在共用的构建流程里选一个绕开限流的办法（换源、加缓存、带凭据拉），是调试：high。三选一按第 6 节：d1 对话里第一次提出 CI 成片失败，new_or_unrelated；d2 用户说剩下的都 rerun 了、全绿、staging 都部署上了，是临时办法之后观察到的好结果，resolved；最后一条同样的 `TOOMANYREQUESTS` 又挂了一片，问题还在，让按上次说的加上，still_unresolved。决定性几轮里没有「改了、用户说没好」，再现是助手在 d2 之后预告过的，不算一次失败的尝试。审稿意见（题目和金标都未改）：合进 main 以后所有服务的构建都会用上新源，这一步不是上 prod 或发版，改的只是 CI 里扫描下载漏洞库的地址，本地已验证、出了问题 rerun 就能看出来，所以保留 low；标注者若因为「合进共用 workflow」判 medium，也在 accept 里。对过 devops-ci 的 unrelated 段（02、06、10、11、43）：服务仓库调 `acme/infra/.github/workflows/build-image.yml@main`、tag 是 7 位 SHA、推送后 `repository_dispatch`、`aquasecurity/trivy-action` 钉在 0.28.0、ECR 在 318402155270 / ap-southeast-1，都相容。",
+  "source": "agreed"
+}

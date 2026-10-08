@@ -1,0 +1,34 @@
+{
+  "id": "misleading-history-08",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条同意开 PI：分支 chore/rds-pi 早已改好，步骤也已约定（rebase 到最新 main、staging apply、prod 开 PR）。中间在同一个 infra 仓库做过不少 Terraform 模块改动，rebase 后要重新 plan 确认仍是就地修改、不重启，再对 staging 真正 apply，比纯机械操作多一点核对，判 medium；指令很明确，low 也可接受。用户在 d5 已说 PI 与 502 无关，最后一条对 502 问题是 new_or_unrelated。读不到决定性几轮时，不知道已有分支，要从头给 rds 模块加 PI 变量、改 staging/prod 和单独的只读实例、apply 并开 PR，属跨多个文件的基础设施改动，判 high。d2-d4 每次发版后 502 数量不变，是 still_unresolved；d5 用户决定不查了、让撤回收尾，按接受结果算 resolved。",
+  "source": "user:labeler"
+}

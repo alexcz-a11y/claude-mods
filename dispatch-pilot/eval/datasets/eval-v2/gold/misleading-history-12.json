@@ -1,0 +1,34 @@
+{
+  "id": "misleading-history-12",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条让同步定时发送那页的中文。差异在 d3/d5 已列清：「最多可以提前 7 天」改成 30 天，示例里 send_at 改 scheduled_at，锚点 #send_at 改 #scheduled_at。改动是单页的明确修改，但要翻译措辞、确认别处是否链到旧锚点、构建警告是否消失，并对一遍英文页近况，判 medium；差异已逐条给出，low 也可接受。build 卡死问题在 d5 已收尾，这页本就和卡死无关，所以是 new_or_unrelated。读不到决定性几轮时，要自己对比中英文两页找出差别再翻译，单页同步，仍是 medium。d2、d3 是修法无效、构建照卡，d4 抓到现场但问题仍在，都是 still_unresolved；d5 用户决定不查、改为自动重跑凑合并收尾，resolved。",
+  "source": "user:labeler"
+}
