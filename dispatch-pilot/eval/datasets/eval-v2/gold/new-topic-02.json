@@ -2,6 +2,7 @@
   "id": "new-topic-02",
   "effort": "medium",
   "accept": [
+    "low",
     "medium",
     "high"
   ],
@@ -17,6 +18,6 @@
       "triage": "still_unresolved"
     }
   ],
-  "rationale": "最后这条把账单列表的问题放下，转去做每周小结推送的设置开关，是新任务。决定性几轮 d2 回复的「顺带看到的」里查清了：WeeklyDigestScheduler 已经整套写完，11 个单测都过；refresh() 开着就按上周账单算总支出、环比和前三个分类，排周一早上 8 点的本地通知，关着就把排好的那条撤掉；点开经 AppRouter 跳到账单页、定位到上周的月份；开关的标题、说明和通知正文中英文都在 Localizable.xcstrings 里；权限走 NotificationService 现成的申请；开没开看 FeatureFlags.weeklyDigest 和 NotificationPreferences.weeklyDigestEnabled，后者没有任何界面写它。最后一条提的每一项（设置 → 通知里的开关、默认关、每周一早上推上周花了多少、点开看明细）都已经有着落。剩下的是一处接线：在 NotificationSettingsView 里照现有提醒开关的写法加一个开关，绑到 weeklyDigestEnabled，打开时走现成的权限申请，开关变化时调 refresh()，去掉写死的 flag，补一个测试。范围清楚的单点改动，做法只有一种，不需要权衡：medium。accept 里的 high：通知要到周一早上才真正发出来，读者如果把提测前在模拟器上把整条推送从排程到点开跳转亲手走一遍、而不只靠已有的单测，也算进这件事，会往上判一档。删掉决定性几轮，只看「加个每周小结推送：设置里开关、每周一推上周花了多少、点开看明细、这周提测」，会当成从零做一个功能：按周汇总、本地通知的排程（内容要提前算好）、权限、跳转、文案和测试，牵涉好几个模块：high。三选一：d1 第一次提出账单列表的问题，new_or_unrelated；d2 用户说没切月份、回到前台又碰到同样的错位，问题还在，still_unresolved；最后这条换了话题，new_or_unrelated。重写说明：按修订版说明复核后保留情境。d2「顺带看到的」补齐了开关要接到哪个偏好值、权限走哪条现成路径、关掉时怎么撤通知、文案已经在 String Catalog 里，flag 的注释改成「等设置页的入口排期」，让最后一条的每项要求都有着落、剩下的工作只有一处接线。accept 从 low,medium 改成 medium,high：认真的读者可能往上落，往下落到 low 要把权限申请和测试都省掉。审稿修改：最后一条里用户打的「设置 → 通知」改成口语的「设置里通知那页」，意思不变；和 ios-same-problem 段（-13 生命周期、-17 ADR、-21 Sentry、-23 逐条核对）对过，回到前台时几次加载并发、临时 context 取数、去抖 300 毫秒都一致，ios-unrelated-14 里「设置 → 通知」原来只有预算提醒、权限走 NotificationService 也一致。金标不变。",
-  "source": "agreed"
+  "rationale": "最后这条把账单列表的问题放下，转去做每周小结推送的设置开关，是新任务。决定性几轮 d2 回复的「顺带看到的」里查清了：WeeklyDigestScheduler 已经整套写完，11 个单测都过；refresh() 开着就按上周账单算总支出、环比和前三个分类，排周一早上 8 点的本地通知，关着就把排好的那条撤掉；点开经 AppRouter 跳到账单页、定位到上周的月份；开关的标题、说明和通知正文中英文都在 Localizable.xcstrings 里；权限走 NotificationService 现成的申请；开没开看 FeatureFlags.weeklyDigest 和 NotificationPreferences.weeklyDigestEnabled，后者没有任何界面写它。最后一条提的每一项（设置 → 通知里的开关、默认关、每周一早上推上周花了多少、点开看明细）都已经有着落。剩下的是一处接线：在 NotificationSettingsView 里照现有提醒开关的写法加一个开关，绑到 weeklyDigestEnabled，打开时走现成的权限申请，开关变化时调 refresh()，去掉写死的 flag，补一个测试。范围清楚的单点改动，做法只有一种，不需要权衡：medium。accept 里的 high：通知要到周一早上才真正发出来，读者如果把提测前在模拟器上把整条推送从排程到点开跳转亲手走一遍、而不只靠已有的单测，也算进这件事，会往上判一档。删掉决定性几轮，只看「加个每周小结推送：设置里开关、每周一推上周花了多少、点开看明细、这周提测」，会当成从零做一个功能：按周汇总、本地通知的排程（内容要提前算好）、权限、跳转、文案和测试，牵涉好几个模块：high。三选一：d1 第一次提出账单列表的问题，new_or_unrelated；d2 用户说没切月份、回到前台又碰到同样的错位，问题还在，still_unresolved；最后这条换了话题，new_or_unrelated。重写说明：按修订版说明复核后保留情境。d2「顺带看到的」补齐了开关要接到哪个偏好值、权限走哪条现成路径、关掉时怎么撤通知、文案已经在 String Catalog 里，flag 的注释改成「等设置页的入口排期」，让最后一条的每项要求都有着落、剩下的工作只有一处接线。accept 从 low,medium 改成 medium,high：认真的读者可能往上落，往下落到 low 要把权限申请和测试都省掉。审稿修改：最后一条里用户打的「设置 → 通知」改成口语的「设置里通知那页」，意思不变；和 ios-same-problem 段（-13 生命周期、-17 ADR、-21 Sentry、-23 逐条核对）对过，回到前台时几次加载并发、临时 context 取数、去抖 300 毫秒都一致，ios-unrelated-14 里「设置 → 通知」原来只有预算提醒、权限走 NotificationService 也一致。金标不变。\n可接受档位：出题者 ['medium', 'high']，标注者 ['low', 'medium']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
 }

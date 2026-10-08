@@ -3,7 +3,8 @@
   "effort": "medium",
   "accept": [
     "low",
-    "medium"
+    "medium",
+    "high"
   ],
   "effort_without_decisive": "high",
   "triage_final": "still_unresolved",
@@ -17,6 +18,6 @@
       "triage": "still_unresolved"
     }
   ],
-  "rationale": "剩下的工作照 d2 之后助手列的单子做：`sql/rpt/store_net_sales_refunds.sql` 的 `WHERE` 加 `AND amount IS NOT NULL`；`cron/etl-scripts` 照凌晨那条抄一条 10:30 的；`tests/pipelines/test_store_net_sales.py` 照 `test_refund_only_rows` 补一条「金额为空的退款不进汇总、不报错」；`make test` 后合进 main、`etl-01` 上照常 `git pull` 装 cron；再手工跑一次出事的 10/11（或等 10:30 那条）。原因（加盟店 22 点以后的退款状态先写成 success、金额第二天 07:00 以后才回写，凌晨取数碰上就是 `pd.NA`）在 d1 里逐晚对上、本地复现过，两处改动的新内容逐字写明，财务对 06:00 那份少算的代价在最后一条里明说同意了。对上第 7 节 medium 的第①种：两处写明的一行改动，分在 SQL 和 cron 两个文件，照现成用例补一条测试，没有要判断的地方。改动本身都是事先写好的一行，判 low 也说得过去，accept low、medium。删掉决定性几轮，只剩几万 token 没有结论的排查和这一条：一张运行失败的告警卡片、一长串 pandas 内部的 traceback，「按那天说的改」改什么完全看不出来，等于要在一个查了几周的数据问题上自己找原因再修：high。三选一按第 6 节：d1 对话里第一次带着退款组的新证据提出这个报错，new_or_unrelated；d2 用户认了原因，同时说「昨晚又出了一次」，属于「说问题又出现了，同一条里也认可了诊断、让先别改，也不变」，still_unresolved；最后一条同样的报错又出现、运行失败，让按定好的改，still_unresolved。决定性几轮里没有失败的修复尝试，再现是问题本身还在，不是改了没用。审稿改动（金标未变）：剩下的工作要上 `etl-01` 并重跑生产的一天，按修订版说明「会上线的事先把风险做掉」，在 d2 的回复里补了一段：SQL 那一处已经拿上次复现的两份输入在本地试过、在 `etl-staging-01` 上用 parquet 跑过一个正常的日子、结果和报表库逐行一致，都已还原。这样最后一条剩下的只是照单子提交、部署、补跑，没有要再验证的地方，medium 更站得住。对过 data-scripts 的 same-problem 段（02、08、13、21、23、30、34、38）：日期、5 个出事的业务日期、第一次运行和重跑的分界、10/3 失败在金额转换、退款回写分两步的推测都相容。",
-  "source": "agreed"
+  "rationale": "剩下的工作照 d2 之后助手列的单子做：`sql/rpt/store_net_sales_refunds.sql` 的 `WHERE` 加 `AND amount IS NOT NULL`；`cron/etl-scripts` 照凌晨那条抄一条 10:30 的；`tests/pipelines/test_store_net_sales.py` 照 `test_refund_only_rows` 补一条「金额为空的退款不进汇总、不报错」；`make test` 后合进 main、`etl-01` 上照常 `git pull` 装 cron；再手工跑一次出事的 10/11（或等 10:30 那条）。原因（加盟店 22 点以后的退款状态先写成 success、金额第二天 07:00 以后才回写，凌晨取数碰上就是 `pd.NA`）在 d1 里逐晚对上、本地复现过，两处改动的新内容逐字写明，财务对 06:00 那份少算的代价在最后一条里明说同意了。对上第 7 节 medium 的第①种：两处写明的一行改动，分在 SQL 和 cron 两个文件，照现成用例补一条测试，没有要判断的地方。改动本身都是事先写好的一行，判 low 也说得过去，accept low、medium。删掉决定性几轮，只剩几万 token 没有结论的排查和这一条：一张运行失败的告警卡片、一长串 pandas 内部的 traceback，「按那天说的改」改什么完全看不出来，等于要在一个查了几周的数据问题上自己找原因再修：high。三选一按第 6 节：d1 对话里第一次带着退款组的新证据提出这个报错，new_or_unrelated；d2 用户认了原因，同时说「昨晚又出了一次」，属于「说问题又出现了，同一条里也认可了诊断、让先别改，也不变」，still_unresolved；最后一条同样的报错又出现、运行失败，让按定好的改，still_unresolved。决定性几轮里没有失败的修复尝试，再现是问题本身还在，不是改了没用。审稿改动（金标未变）：剩下的工作要上 `etl-01` 并重跑生产的一天，按修订版说明「会上线的事先把风险做掉」，在 d2 的回复里补了一段：SQL 那一处已经拿上次复现的两份输入在本地试过、在 `etl-staging-01` 上用 parquet 跑过一个正常的日子、结果和报表库逐行一致，都已还原。这样最后一条剩下的只是照单子提交、部署、补跑，没有要再验证的地方，medium 更站得住。对过 data-scripts 的 same-problem 段（02、08、13、21、23、30、34、38）：日期、5 个出事的业务日期、第一次运行和重跑的分界、10/3 失败在金额转换、退款回写分两步的推测都相容。\n可接受档位：出题者 ['low', 'medium']，标注者 ['medium', 'high']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
 }

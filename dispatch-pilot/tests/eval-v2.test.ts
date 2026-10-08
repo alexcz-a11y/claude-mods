@@ -217,8 +217,8 @@ test('each broken gold rule is reported; the three-way answers are the mod\'s op
 
 test('a final gold file (gold/, what the eval scores against) is a gold file with where it came from: agreed, or the person\'s ruling', () => {
   const final = (source: unknown, change?: (g: any) => void) => checkFinalGold({ ...gold('explicit-unresolved-01', change), source }, 'explicit-unresolved-01', ['d1', 'd2'])
-  for (const source of ['agreed', 'user:author', 'user:labeler', 'user:custom']) expect(final(source).errors).toEqual([])
-  expect(final('author').errors.join('\n')).toMatch(/source "author" is not one of agreed, user:author, user:labeler, user:custom/)
+  for (const source of ['agreed', 'agreed+accept-union', 'user:author', 'user:labeler', 'user:custom']) expect(final(source).errors).toEqual([])
+  expect(final('author').errors.join('\n')).toMatch(/source "author" is not one of agreed, agreed\+accept-union, user:author, user:labeler, user:custom/)
   expect(final(undefined).errors.join('\n')).toMatch(/source undefined is not one of/)
   // The rest is checked as on either side, against the decisive messages of the conversation.
   expect(final('agreed', (g) => g.triage_decisive.pop()).errors.join('\n')).toMatch(/triage_decisive must answer d1, d2 in order/)

@@ -3,7 +3,8 @@
   "effort": "xhigh",
   "accept": [
     "high",
-    "xhigh"
+    "xhigh",
+    "max"
   ],
   "effort_without_decisive": "medium",
   "triage_final": "new_or_unrelated",
@@ -21,6 +22,6 @@
       "triage": "resolved"
     }
   ],
-  "rationale": "最后这条是新任务：把 inventory_logs 归档导出的文件从 csv.gz 换成 Parquet，用户的目的是省空间、读得快。归档拖慢从库的问题在 d3 已经了结。改变判断的是 d2 回复里为了「续跑不重导」查清的读者：归档文件除了我们自己的 restore_inventory_logs.py（按列位置 COPY）和删前校验 verify_export()，还有财务数据组直接建在 inventory_logs/ 前缀上的 Athena 表（CSV、按列位置映射、dt 分区投影）和数据组 bi-sync 全量重建时按 CSV 列位置读历史文件，这两方的表定义和代码都不在这个仓库；历史上已经有 700 来个文件、60 多 GB。要把用户的目的做到：Parquet 不能直接混进同一个前缀（Athena 表会读坏），要换新前缀、新旧两种格式并行写一段时间；历史文件要逐个转成 Parquet 并核对行数和首尾 id，不然「占地方」只改善了新文件；恢复工具和删前校验要改成读 Parquet；要和财务、数据组约好各自切换的时间，确认都切过去以后再停写 CSV。这是改一个三方都在用的文件约定，带历史转换和分步切换，每一步都要核对，照 effort-rules 是长链路、需要反复验证的复杂改动：xhigh。出了问题可以回到继续写 CSV，旧文件一直留着，也没有碰 inventory_logs 这张表，不是高风险且不可逆的操作，到不了 max。accept 里的 high：如果只算本仓库里的导出、恢复工具、校验和历史文件转换，财务和数据组那边的切换由他们自己排期，读者判成 high 也说得过去。删掉决定性几轮，只看「归档导出的文件改成 parquet」，像是把一个任务里写文件的那一步换成另一种格式、补个测试：medium。三选一：d1 第一次提出归档拖慢从库，new_or_unrelated；d2 改了以后延迟还在、报表还旧，still_unresolved；d3 延迟正常、让提交，resolved；最后这条是另一件事，new_or_unrelated。重写说明：按修订版说明重写。原题的新任务是在十六亿行、处在下单链路上的热表上把 id 从 integer 改成 bigint，d1 里还有用户讲严重程度的话（「一点锁都不能有」「下单全超时 回滚了事」），会被读成高风险且不可逆，也和 hard-constraint 撞。这次删掉了 d1 里讲严重程度的话，d2 不再提 id 的量级，新任务换成改归档文件的格式，难在读者多、要做历史转换和分步切换，出错能回退；accept 不再含 max。",
-  "source": "agreed"
+  "rationale": "最后这条是新任务：把 inventory_logs 归档导出的文件从 csv.gz 换成 Parquet，用户的目的是省空间、读得快。归档拖慢从库的问题在 d3 已经了结。改变判断的是 d2 回复里为了「续跑不重导」查清的读者：归档文件除了我们自己的 restore_inventory_logs.py（按列位置 COPY）和删前校验 verify_export()，还有财务数据组直接建在 inventory_logs/ 前缀上的 Athena 表（CSV、按列位置映射、dt 分区投影）和数据组 bi-sync 全量重建时按 CSV 列位置读历史文件，这两方的表定义和代码都不在这个仓库；历史上已经有 700 来个文件、60 多 GB。要把用户的目的做到：Parquet 不能直接混进同一个前缀（Athena 表会读坏），要换新前缀、新旧两种格式并行写一段时间；历史文件要逐个转成 Parquet 并核对行数和首尾 id，不然「占地方」只改善了新文件；恢复工具和删前校验要改成读 Parquet；要和财务、数据组约好各自切换的时间，确认都切过去以后再停写 CSV。这是改一个三方都在用的文件约定，带历史转换和分步切换，每一步都要核对，照 effort-rules 是长链路、需要反复验证的复杂改动：xhigh。出了问题可以回到继续写 CSV，旧文件一直留着，也没有碰 inventory_logs 这张表，不是高风险且不可逆的操作，到不了 max。accept 里的 high：如果只算本仓库里的导出、恢复工具、校验和历史文件转换，财务和数据组那边的切换由他们自己排期，读者判成 high 也说得过去。删掉决定性几轮，只看「归档导出的文件改成 parquet」，像是把一个任务里写文件的那一步换成另一种格式、补个测试：medium。三选一：d1 第一次提出归档拖慢从库，new_or_unrelated；d2 改了以后延迟还在、报表还旧，still_unresolved；d3 延迟正常、让提交，resolved；最后这条是另一件事，new_or_unrelated。重写说明：按修订版说明重写。原题的新任务是在十六亿行、处在下单链路上的热表上把 id 从 integer 改成 bigint，d1 里还有用户讲严重程度的话（「一点锁都不能有」「下单全超时 回滚了事」），会被读成高风险且不可逆，也和 hard-constraint 撞。这次删掉了 d1 里讲严重程度的话，d2 不再提 id 的量级，新任务换成改归档文件的格式，难在读者多、要做历史转换和分步切换，出错能回退；accept 不再含 max。\n可接受档位：出题者 ['high', 'xhigh']，标注者 ['xhigh', 'max']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
 }

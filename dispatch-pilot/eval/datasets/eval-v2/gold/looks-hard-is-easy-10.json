@@ -3,7 +3,8 @@
   "effort": "medium",
   "accept": [
     "low",
-    "medium"
+    "medium",
+    "high"
   ],
   "effort_without_decisive": "high",
   "triage_final": "still_unresolved",
@@ -17,6 +18,6 @@
       "triage": "still_unresolved"
     }
   ],
-  "rationale": "剩下的工作：`uv run python scripts/sync_constraint_names.py --apply`（30 处）；手改一处（`dal/errors.py` 第 57 行按前缀认检查约束的那个判断），新内容在 d2 之后的回复里逐字给了；再跑 `--check`、`uv run pytest tests/dal/`（d1 写好的复现测试一起提交），看一遍 diff。原因（9 月 16 日的迁移改了约束名，`@translates_integrity_errors` 的对照表还是老名字，冲突翻译不成「订单已被修改」）d1 用主库日志和 cs-backend 日志逐次对过、在测试容器里复现过；另外那部分 CS-5001（等锁超时、死锁、outbox 去重冲突）d1 明说是另一回事，最后一条也没让改它们，脚本在三个文件上试过；要不要把约束名改回去，最后一条明说 DBA 定了不改回去。剩下的只是把字符串换成新名字，不改加锁、事务和重试，翻译成哪个业务异常也是对照表里原来就定好的，测试是现成的。对上第 7 节 medium 的第 ③ 种：跑在样板上验证过的脚本处理一批文件，加一处逐字写明的手改，再跑现成的检查、看一遍 diff。看 diff 要读新东西，所以 medium；每一步都照单子做，low 也能接受，accept low、medium。删掉决定性几轮，剩下一段围绕锁、事务、定时任务的排查（没有结论），加上最后一屏 CS-5001，「按那天说的改」改什么看不出来，得从头调试客服改单保存失败：high。三选一按第 6 节：d1 对话里第一次提出这个问题，new_or_unrelated；d2 认了原因，同时说昨晚又来了一串，问题还在，still_unresolved；最后一条说今天上午又是一串、贴出同样的报错，让按定好的改，still_unresolved。决定性几轮里代码一直没动，没有失败的尝试。审稿修改（金标档位和三选一不变）：原题说 9 月 16 日以后 176 次 CS-5001 里 171 次是唯一约束冲突、只有 5 次等锁超时，和素材池矛盾：素材段里两周只有 63 次，一半在夜里任务跑的时候、多数伴着等锁，还有死锁和 `outbox_events_dedup_key` 冲突各自对上过这条报错。改成 101 次里 58 次是改名的唯一约束、34 次等锁超时、2 次死锁、7 次 outbox 冲突，后三类明说另算；撞 `sync_inventory` 的那些改成等锁超时（它十秒左右才提交，客服这边先等满 3 秒锁超时，原题说成唯一约束冲突不对）；对照表改成素材段里的 `@translates_integrity_errors` 装饰器；DBA 的统计、d2 回复、最后一条的条数跟着改。",
-  "source": "agreed"
+  "rationale": "剩下的工作：`uv run python scripts/sync_constraint_names.py --apply`（30 处）；手改一处（`dal/errors.py` 第 57 行按前缀认检查约束的那个判断），新内容在 d2 之后的回复里逐字给了；再跑 `--check`、`uv run pytest tests/dal/`（d1 写好的复现测试一起提交），看一遍 diff。原因（9 月 16 日的迁移改了约束名，`@translates_integrity_errors` 的对照表还是老名字，冲突翻译不成「订单已被修改」）d1 用主库日志和 cs-backend 日志逐次对过、在测试容器里复现过；另外那部分 CS-5001（等锁超时、死锁、outbox 去重冲突）d1 明说是另一回事，最后一条也没让改它们，脚本在三个文件上试过；要不要把约束名改回去，最后一条明说 DBA 定了不改回去。剩下的只是把字符串换成新名字，不改加锁、事务和重试，翻译成哪个业务异常也是对照表里原来就定好的，测试是现成的。对上第 7 节 medium 的第 ③ 种：跑在样板上验证过的脚本处理一批文件，加一处逐字写明的手改，再跑现成的检查、看一遍 diff。看 diff 要读新东西，所以 medium；每一步都照单子做，low 也能接受，accept low、medium。删掉决定性几轮，剩下一段围绕锁、事务、定时任务的排查（没有结论），加上最后一屏 CS-5001，「按那天说的改」改什么看不出来，得从头调试客服改单保存失败：high。三选一按第 6 节：d1 对话里第一次提出这个问题，new_or_unrelated；d2 认了原因，同时说昨晚又来了一串，问题还在，still_unresolved；最后一条说今天上午又是一串、贴出同样的报错，让按定好的改，still_unresolved。决定性几轮里代码一直没动，没有失败的尝试。审稿修改（金标档位和三选一不变）：原题说 9 月 16 日以后 176 次 CS-5001 里 171 次是唯一约束冲突、只有 5 次等锁超时，和素材池矛盾：素材段里两周只有 63 次，一半在夜里任务跑的时候、多数伴着等锁，还有死锁和 `outbox_events_dedup_key` 冲突各自对上过这条报错。改成 101 次里 58 次是改名的唯一约束、34 次等锁超时、2 次死锁、7 次 outbox 冲突，后三类明说另算；撞 `sync_inventory` 的那些改成等锁超时（它十秒左右才提交，客服这边先等满 3 秒锁超时，原题说成唯一约束冲突不对）；对照表改成素材段里的 `@translates_integrity_errors` 装饰器；DBA 的统计、d2 回复、最后一条的条数跟着改。\n可接受档位：出题者 ['low', 'medium']，标注者 ['medium', 'high']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
 }

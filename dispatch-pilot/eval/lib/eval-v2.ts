@@ -247,8 +247,11 @@ export type V2Gold = {
   rationale: string
 }
 
-/** Where a final gold file's answers come from: both sides agreed (the author's file), or the person ruled on a disagreement. */
-export const GOLD_SOURCES = ['agreed', 'user:author', 'user:labeler', 'user:custom'] as const
+/**
+ * Where a final gold file's answers come from: both sides agreed (the author's file), both agreed on the level but not
+ * on what else is acceptable (the union of the two accept sets), or the person ruled on a disagreement.
+ */
+export const GOLD_SOURCES = ['agreed', 'agreed+accept-union', 'user:author', 'user:labeler', 'user:custom'] as const
 
 /** A final gold file (`gold/<id>.json`, what the eval scores against): a gold file's fields and where it came from. */
 export type FinalGold = V2Gold & { source: (typeof GOLD_SOURCES)[number] }

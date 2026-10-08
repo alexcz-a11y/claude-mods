@@ -29,6 +29,6 @@
       "triage": "still_unresolved"
     }
   ],
-  "rationale": "库存死锁：决定性几轮里改了五次（统一加锁顺序、分批提交、先排序锁住 summary 行、死锁重试加锁等待日志、关单任务归还库存的顺序），用户四次回来说还是死锁，其中一次已经导致真实用户下单失败；最后这条是第五次修改后又说同样的报错还在。多方事务的疑难并发问题、碰线上下单，五个方向都没用：max，xhigh 也可以。删掉决定性几轮，中间是不相关的活，只剩一句「库存死锁那个又出现了」，看起来是一次死锁调试的跟进：high。三选一：d1 首次提出，new_or_unrelated；d2 到 d5 都是改了之后说还在，still_unresolved；最后这条隔了大段别的活、回头说原问题还在，still_unresolved。（审稿修改：素材池里迁移已经编到 V09x、V047 是 `order_status_refunding`，DAL 是 `UnitOfWork` 加 `dal/repos/inventory.py` 的 `reserve()`，重试工具在 `dal/retry.py`，关超时未付订单的是 `jobs/close_unpaid_orders.py`（每批 500 单），库存流水表是 `inventory_logs`；原稿的新迁移 V047、`dal/orders.py`、`dal/session.py`、`jobs/expire_reservations.py`、`stock_movements` 和这些对不上，按池子的设定改了，第三次尝试改成应用层先排序锁 summary 行，不再新建迁移；金标不变。）",
-  "source": "agreed"
+  "rationale": "库存死锁：决定性几轮里改了五次（统一加锁顺序、分批提交、先排序锁住 summary 行、死锁重试加锁等待日志、关单任务归还库存的顺序），用户四次回来说还是死锁，其中一次已经导致真实用户下单失败；最后这条是第五次修改后又说同样的报错还在。多方事务的疑难并发问题、碰线上下单，五个方向都没用：max，xhigh 也可以。删掉决定性几轮，中间是不相关的活，只剩一句「库存死锁那个又出现了」，看起来是一次死锁调试的跟进：high。三选一：d1 首次提出，new_or_unrelated；d2 到 d5 都是改了之后说还在，still_unresolved；最后这条隔了大段别的活、回头说原问题还在，still_unresolved。（审稿修改：素材池里迁移已经编到 V09x、V047 是 `order_status_refunding`，DAL 是 `UnitOfWork` 加 `dal/repos/inventory.py` 的 `reserve()`，重试工具在 `dal/retry.py`，关超时未付订单的是 `jobs/close_unpaid_orders.py`（每批 500 单），库存流水表是 `inventory_logs`；原稿的新迁移 V047、`dal/orders.py`、`dal/session.py`、`jobs/expire_reservations.py`、`stock_movements` 和这些对不上，按池子的设定改了，第三次尝试改成应用层先排序锁 summary 行，不再新建迁移；金标不变。）\n可接受档位：出题者 ['xhigh', 'max']，标注者 ['max']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
 }

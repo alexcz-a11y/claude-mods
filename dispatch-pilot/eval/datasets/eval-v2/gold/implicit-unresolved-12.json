@@ -21,6 +21,6 @@
       "triage": "still_unresolved"
     }
   ],
-  "rationale": "营收对账的差额已经改了三次（财务文件按北京时间解析、退款先聚合再连接、对账前先重算当天日报并改用 Decimal），d2、d3 用户都报差额一分没变；中间隔了一大段别的活，最后一条只贴了命令和同一个 diff=-3577.25，是第四次同样的失败，三种解释都落空，涉及财务数字：max，xhigh 也可以。删掉决定性几轮，最后一条只像第一次贴来的一个对账报错，要查数据口径：high。d1 第一次提出问题，标 new_or_unrelated；d2、d3 说差额没变，标 still_unresolved；最后一条隔了别的活贴回同一个数字，标 still_unresolved。审稿修改：本领域 unrelated 段里日报是 pipelines/daily_sales.py 写 rpt.daily_sales、按北京时间算、每天 GMV 在五六百万、手动跑用 make run P=… D=… ARGS=…、仓库只有 8 个定时管道，原题的 report.daily_revenue、revenue_snapshot.py、按 UTC 切日和一百多万的日营收与之矛盾，所以把对账改成 make recon-finance 手动工具、第一轮的时区问题挪到读财务文件那一侧、第三轮改成表里那天没重算，数字放大到同一量级。金标不变。",
-  "source": "agreed"
+  "rationale": "营收对账的差额已经改了三次（财务文件按北京时间解析、退款先聚合再连接、对账前先重算当天日报并改用 Decimal），d2、d3 用户都报差额一分没变；中间隔了一大段别的活，最后一条只贴了命令和同一个 diff=-3577.25，是第四次同样的失败，三种解释都落空，涉及财务数字：max，xhigh 也可以。删掉决定性几轮，最后一条只像第一次贴来的一个对账报错，要查数据口径：high。d1 第一次提出问题，标 new_or_unrelated；d2、d3 说差额没变，标 still_unresolved；最后一条隔了别的活贴回同一个数字，标 still_unresolved。审稿修改：本领域 unrelated 段里日报是 pipelines/daily_sales.py 写 rpt.daily_sales、按北京时间算、每天 GMV 在五六百万、手动跑用 make run P=… D=… ARGS=…、仓库只有 8 个定时管道，原题的 report.daily_revenue、revenue_snapshot.py、按 UTC 切日和一百多万的日营收与之矛盾，所以把对账改成 make recon-finance 手动工具、第一轮的时区问题挪到读财务文件那一侧、第三轮改成表里那天没重算，数字放大到同一量级。金标不变。\n可接受档位：出题者 ['xhigh', 'max']，标注者 ['max']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
 }
