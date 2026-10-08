@@ -1,0 +1,68 @@
+{
+  "id": "resolved-01",
+  "category": "resolved",
+  "domain": "security",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "刷新令牌的轮换",
+    "SYMPTOM": "同时开着几个标签页的用户会突然被踢回登录页",
+    "ERROR": "RefreshTokenReuseError: reuse detected for family rf_8c21, revoking all sessions",
+    "FILE": "src/session/refreshRotation.ts",
+    "FILE2": "src/session/sessionStore.ts",
+    "SYMBOL": "rotateRefreshToken",
+    "COMMAND": "npx jest src/session/refreshRotation.test.ts"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "线上有人反馈 开着好几个标签页用一会儿就被踢回登录页 日志里一堆 `RefreshTokenReuseError: reuse detected for family rf_8c21, revoking all sessions` family 号每次不一样 我怀疑是几个标签页同时去刷新 代码在 src/session/refreshRotation.ts 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "复现出来了：几个标签页拿同一个旧 refresh token 同时刷新，第二个请求被当成了重放。先改了一版。\n\n- **原因**：`rotateRefreshToken` 的顺序是：按 token 哈希查出记录 → 看 `usedAt` 是不是空 → 把它标成已用 → 签发新 token，写进 `src/session/sessionStore.ts`。前端每个标签页各有一个定时器，access token 快过期时几乎同时发 `POST /oauth/token`（`grant_type=refresh_token`），带的是同一个旧 token。第一个请求把它标成已用，第二个请求查到 `usedAt` 已经有值，就进了重放检测分支：抛 `RefreshTokenReuseError`，再调 `revokeFamily`，这个 family 下的会话全部作废，所有标签页一起被踢。family 号每次不一样，是因为每次登录都会开一个新 family。\n- **复现**：在 `src/session/refreshRotation.test.ts` 加了一个用例，同一个旧 token 用 `Promise.all` 并发调 3 次 `rotateRefreshToken`。改之前稳定复现：1 次成功，2 次抛 reuse，family 被吊销。\n- **改法**：加了一个 20 秒的宽限窗口。旧 token 被标成已用时，把它换出来的新 token 记进 Redis（key 是旧 token 的哈希，TTL 20 秒）；20 秒内再拿这个旧 token 来刷新，直接返回同一个新 token，记一条 info 级的 `refresh grace hit`，不算重放。超过 20 秒再用旧 token，仍然按重放处理、吊销整个 family，这是 OAuth 2.0 Security BCP 对 refresh token 轮换的要求，不能放宽。\n- **验证**：`npx jest src/session/refreshRotation.test.ts` 9 个用例通过，并发用例里 3 个请求拿到的是同一个新 token；`npm test` 全量 214 个通过；`npx semgrep --config semgrep/` 没有新告警。\n\n改动在 `fix/refresh-rotation-race` 分支，还没提交。你部署到预发，用多标签页试一下。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Write",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "预发试了 比之前好 但还是会被踢 我开了五个标签页 把 access token 过期时间调成 1 分钟 挂了半小时 被踢了两次 日志里还是那个 reuse detected"
+    },
+    {
+      "role": "assistant",
+      "text": "预发是两个副本，问题出在宽限缓存写入的时机，单进程测不出来。第二版改好了。\n\n- **查到的**：按 `reqId` 把被踢那两次前后的日志拉了出来，两次都是两个刷新请求落在不同的 pod 上，间隔 5 到 12 毫秒。第一版里「标成已用」是 PostgreSQL 事务提交，「写宽限缓存」在提交之后，中间还隔着一次签 JWT。另一个 pod 上的请求正好落进这个空档时，数据库里已经是已用，Redis 里还没有新 token，于是又进了重放分支。本地测试是一个进程、一个事件循环，空档短到碰不上。\n- **改法**：每个 family 加一把 Redis 锁（`SET lock:rf:<familyId> <随机值> NX PX 3000`），顺序改成：拿锁 → 查宽限缓存，有就直接返回 → 没有才轮换 → 写缓存 → 提交 → 释放锁。释放用一小段 Lua 比对随机值，不会删掉别人的锁。拿不到锁的请求每 50 毫秒重试一次，最多等 2 秒，拿到锁后先查缓存，基本都能直接拿到新 token。锁 3 秒过期，比一次轮换的 p99（预发上约 40 毫秒）大得多，pod 中途挂掉也不会把这个 family 卡死。\n- **验证**：测试里用 testcontainers 起了一个 Redis，`rotateRefreshToken` 跑在两个独立的 store 实例上，模拟两个副本，20 个请求并发拿同一个旧 token。这个用例改之前跑 200 轮失败 31 轮，改之后 200 轮 0 失败。`npx jest src/session` 16 个用例通过，`npm test` 全量通过。\n\n已经部署到预发了，再用多标签页挂一段时间看看。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "这次好了 五个标签页 十个标签页都试了 过期时间 1 分钟挂了一晚上 一次都没被踢 日志里只有 `refresh grace hit` 没再出现 reuse 这个问题算解决了 先别合 我想再把这块的调用链和那几个时间窗口理一理 写复盘用"
+    },
+    {
+      "role": "assistant",
+      "text": "好，`fix/refresh-rotation-race` 先不合，现在是两个提交：`a41c9e2`（宽限窗口）和 `7d03b18`（family 锁）。\n\n以后看日志有两点先说清楚，免得复盘时读错：\n\n- **`refresh grace hit` 会一直有**：它是 info 级，意思是同一个旧 token 在 20 秒内被并发用了不止一次、按宽限处理了。每天几百条是正常的，多少取决于同时开多个标签页的用户有多少，不是问题。\n- **`RefreshTokenReuseError` 也不会降到零**：超过 20 秒还拿旧 token 来刷新的，仍然按重放处理、吊销整个 family，这是故意留着的防盗用行为。比如电脑休眠一晚，某个标签页醒来拿着早就换掉的旧 token 去刷新，或者 token 真被人偷了。所以以后偶尔看到它，只要离上一次轮换明显超过 20 秒，就是正常的；20 秒以内出现，才说明锁或缓存又出了问题。\n\n复盘要用的材料我先记下：被踢那两次的 `reqId`、改之前 200 轮失败 31 轮的数字、两版改法的时序。你想从哪一段开始理？",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "预发这两天的日志我扫了一遍 `refresh grace hit` 每天三四百条 `RefreshTokenReuseError` 一共三条 我看了离上次轮换都隔了一个多小时 跟之前说的对得上 复盘就写到这 把 fix/refresh-rotation-race 合到 main 吧"
+    }
+  ],
+  "middle_hint": "用户在决定性几轮里确认修复有效后，要求先不合并、为写复盘把这块再理一遍：中间是围绕刷新令牌轮换继续读调用链、看日志和监控、问原理，不改实现，也不下新的结论。"
+}

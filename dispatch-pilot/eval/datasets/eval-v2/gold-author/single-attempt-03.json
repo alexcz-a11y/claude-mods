@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-03",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "决定性几轮里 p99 每二十分钟一个尖只改过一次：认定是 HotQueryStats.flush 拼大字符串造成 humongous 分配，改成分批 pipeline 写，本机验证没有 humongous 了，线上一台机器上看了一下午尖还在。这是第二次提，最可能的原因已经改过没用，需要回到线上的 GC 日志和 JFR 重新找是谁在分配，是调试，high；只失败过一次，不该判到 max，xhigh 也能接受。用户顺口问「是不是把堆调大就行」，读到前情就知道这只是猜测，不能当成一个调参的小活。删掉决定性几轮，中间都是别的活，最后一条像一个关于调堆大小的普通问题：medium。三选一：d1 第一次提出问题，new_or_unrelated；最后一条隔着别的活说尖还在，still_unresolved。"
+}

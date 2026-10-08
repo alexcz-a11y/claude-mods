@@ -1,0 +1,71 @@
+{
+  "id": "implicit-unresolved-07",
+  "category": "implicit-unresolved",
+  "domain": "security",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "刷新令牌轮换",
+    "SYMPTOM": "多个标签页同时刷新时整组令牌被吊销，用户被踢回登录页",
+    "ERROR": "invalid_grant: refresh token reuse detected, family revoked",
+    "FILE": "src/oauth/refreshToken.ts",
+    "FILE2": "src/session/tokenFamilyStore.ts",
+    "SYMBOL": "rotateRefreshToken",
+    "COMMAND": "npx jest src/oauth/__tests__/refresh-rotation.test.ts"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "刷新令牌那块有问题 用户开两三个标签页 过一会儿就全被踢回登录页 日志里是这一行\n`invalid_grant: refresh token reuse detected, family revoked`\n我怀疑是 src/oauth/refreshToken.ts 的 rotateRefreshToken 把并发刷新当成重放了 你看下 重放检测本身不能去掉 这是安全审计要求的"
+    },
+    {
+      "role": "assistant",
+      "text": "是并发刷新被当成了重放。重放检测保留着，只给并发留了一个很短的宽限期。\n\n读了 `src/oauth/refreshToken.ts` 和 `src/session/tokenFamilyStore.ts`：`rotateRefreshToken` 先 `tokenFamilyStore.get(jti)`，记录里 `used` 为 true 就 `revokeFamily(familyId)` 并抛 `invalid_grant`；为 false 就 `markUsed(jti)`、签一个新的 refresh token。几个标签页的 access token 差不多同时过期，会拿着**同一个** refresh token 几乎同时来换：第一个请求标记了 `used`，后面的请求就全落进重放分支，整组令牌被吊销，所有标签页一起掉线。\n\n- **改法**：`markUsed` 时同时记下 `rotatedAt` 和换出来的新令牌的 jti（`successorJti`）。旧令牌再来时，如果离 `rotatedAt` 不到 `REUSE_GRACE_MS`（10 秒），就按 `successorJti` 存的 claims 重新签发同一个后继令牌，返回给这个请求，不吊销；超过 10 秒仍然按重放处理，吊销整组。\n- **审计要求**：真正的重放（旧令牌在 10 秒后被拿出来用）行为不变，`reuse_detected` 审计事件照记；宽限期内的命中另记一个 `reuse_within_grace` 事件，方便事后核对。\n- **验证**：在 `src/oauth/__tests__/refresh-rotation.test.ts` 补了三个用例：宽限期内重复使用返回同一个后继令牌、超过 10 秒仍吊销整组、后继令牌本身被重放也吊销。`npx jest src/oauth` 31 个用例全部通过。\n\n宽限期的 10 秒是我定的，和前端的刷新重试间隔对得上；安全那边如果对这个数有要求，告诉我再调。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "部署到 staging 了 我开了三个标签页 等 access token 过期 还是全被踢了 日志一样\n`invalid_grant: refresh token reuse detected, family revoked`"
+    },
+    {
+      "role": "assistant",
+      "text": "找到了宽限期没生效的原因：「检查」和「标记」不是原子的，并发请求同时读到了还没标记的状态。\n\n拉了 staging 这一次的日志：三个刷新请求在 6 毫秒内先后到达，都带着同一个 jti。`tokenFamilyStore` 的 Redis 实现里，`get` 和 `markUsed` 是两次往返：\n\n1. 三个请求都 `get` 到 `used=false`，都以为自己是第一个；\n2. 三个都去 `markUsed`，各自签了一个新令牌，`successorJti` 被后写的覆盖；\n3. 先拿到响应的标签页手里的后继令牌，jti 和 Redis 里记的 `successorJti` 对不上，下次刷新时被当成「已用过的旧令牌」，走了重放分支。\n\n- **改法**：把「检查是否已用 + 标记已用 + 记后继」合成一个 Lua 脚本 `markUsedIfFresh`，在 Redis 里原子执行，返回三种结果之一：`fresh`（第一次用，调用方签发新令牌并写回 `successorJti`）、`grace`（宽限期内，带回已有的 `successorJti`）、`reuse`（超过宽限期，调用方吊销整组）。`rotateRefreshToken` 按返回值分支，不再先读后写。\n- **验证**：新加 `refresh-rotation.race.test.ts`，用 testcontainers 起一个真 Redis，`Promise.all` 同时发 5 个刷新请求，断言 5 个拿到同一个后继令牌、整组没有被吊销；这个用例连续跑了 20 遍都过。`npx jest src/oauth` 33 个用例全过。\n\n脚本放在 `src/session/lua/markUsedIfFresh.lua`，启动时 `SCRIPT LOAD` 一次。可以再部署到 staging 试一下。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是会踢 这次我盯着看了 不是每次都踢 大概十次有一两次 日志还是那一行 移动端那边也有人报了一样的"
+    },
+    {
+      "role": "assistant",
+      "text": "又找到一条绕过原子脚本的路径：会话中间件里的静默刷新自己在签令牌。\n\n`Grep` 了所有写 `tokenFamilyStore` 的地方，除了 `rotateRefreshToken`，还有 `src/session/sessionMiddleware.ts` 的 `silentRefresh`：cookie 会话离过期不到 2 分钟时，它在服务端直接调 `tokenFamilyStore.markUsed` 再签新令牌，没有走 `rotateRefreshToken`，也就没走 `markUsedIfFresh`。网页端打开一个新标签页时，中间件的静默刷新和前端自己发的刷新正好撞在一起，一个走原子脚本、一个不走，后者把 `successorJti` 覆盖掉，又回到了上一次的情况。移动端没有 cookie 会话，但 App 的后台刷新任务也走这个中间件（它带了 `x-session-refresh` 头），所以那边也会碰到。\n\n- **改法**：`silentRefresh` 改为调用 `rotateRefreshToken`，不再自己签发；`tokenFamilyStore` 不再导出非原子的 `markUsed`，只留 `markUsedIfFresh`，以后再有地方想直接标记会在编译时报错。\n- **验证**：加了「静默刷新和主动刷新同时到达」的用例，和上次的 5 路并发用例一起各跑 20 遍，全过；`npx jest src/oauth src/session` 35 个用例全过。`Grep` 确认 `markUsed(` 现在只剩 Lua 脚本的封装一个调用点。\n\n这次还没部署。部署后可以看 Grafana 上 `auth_refresh_reuse_detected_total` 和 `auth_refresh_reuse_within_grace_total` 两条线：前者应该回到接近 0，后者会随着多标签页使用上涨。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "staging 刚又出了一次\n`invalid_grant: refresh token reuse detected, family revoked`\n再看看"
+    }
+  ],
+  "middle_hint": "中间是继续排查刷新令牌轮换：读 rotateRefreshToken 和 tokenFamilyStore 的调用链、看 staging 日志和 Redis 里的令牌记录、写并发复现、列可能的原因；没有新的改动，也没有结论。"
+}

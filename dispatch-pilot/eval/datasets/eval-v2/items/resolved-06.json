@@ -1,0 +1,60 @@
+{
+  "id": "resolved-06",
+  "category": "resolved",
+  "domain": "data-scripts",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "GMV 日报的数跟财务对不上 9 月我们算的是 4,812,337.60 她们那边是 4,798,105.22 差了一万四 上个月刚把 pipelines/gmv_daily.py 从 pandas 换成 polars 之前是对得上的 你查一下 每天早上那个定时任务先停了 别再往群里推错的数 这几天我手动跑"
+    },
+    {
+      "role": "assistant",
+      "text": "先停了定时任务，再找到一处明显的问题，改了，但还没完全对上：差额从 14,232.38 缩到 2,807.25。\n\n- **定时任务**：`cron/etl.crontab` 里 `0 6 * * * cd /opt/etl && make report-gmv` 这一行注释掉了，上面加了一行 `# 暂停：GMV 和财务对不上，排查中`。你说过这几天手动跑，`make report-gmv DATE=2025-10-07` 就行。\n- **原因**：退款表 `sources/refunds.py` 里部分退款是一笔订单多行。pandas 版本在 merge 之前对退款按 `order_id` 汇总过（`groupby().sum()`），换成 polars 时这一步漏了，直接 `join(on=\"order_id\")`，有多笔退款的订单被乘成多行，订单金额重复计算。\n- **改法**：join 之前先 `refunds.group_by(\"order_id\").agg(pl.col(\"amount\").sum())`。\n- **验证**：`pytest tests/test_gmv_daily.py` 加了「一单三笔部分退款」的用例，通过；重跑 9 月是 4,800,912.47。\n\n剩下 2,807.25 还没找到，它不是重复计算的形状（重复会偏整单金额），更像是汇率或舍入这类小偏差，我接着查。",
+      "tools": [
+        "Read",
+        "Bash",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还差两千八 你接着查 财务那边按订单逐笔导了一份 9 月的明细 放在 /data/finance/gmv_2025_09.csv 了"
+    },
+    {
+      "role": "assistant",
+      "text": "对上了，9 月重跑是 4,798,105.22，和财务一分不差。剩下的差额是两个原因叠在一起。\n\n- **怎么找的**：拿财务的逐笔明细和我们的逐笔结果按 `order_id` 对，差额全部落在美元订单上，一共 1,906 单，而且集中在北京时间 0 点到 8 点下的单。\n- **原因一：汇率取错了日期**。美元订单要按下单当天的汇率换成人民币。pandas 版本是先把 `created_at` 转成 Asia/Shanghai 再取日期；polars 版本写成了 `pl.col(\"created_at\").dt.date()`，直接在 UTC 上取日期，北京时间 0 点到 8 点的单子用了前一天的汇率。改成先 `.dt.convert_time_zone(\"Asia/Shanghai\")` 再 `.dt.date()`。\n- **原因二：舍入方式不同**。财务是每单换算后按四舍五入保留两位再加总；polars 里金额是 Float64，`round(2)` 对 x.xx5 这类值会因为二进制表示舍错方向。改成金额列用 `pl.Decimal(18, 2)`，换算后按 ROUND_HALF_UP 舍入，和 `sql/fx_rates.sql` 里财务口径的注释一致。\n- **验证**：`tests/test_gmv_daily.py` 加了跨零点的美元订单、x.xx5 舍入两个用例；另加了一个对账测试，读财务明细的 200 行抽样，逐单比对金额。`pytest` 全量 64 个通过。9 月全月重跑，总额 4,798,105.22，逐单 0 差异。\n\n定时任务还停着，等你确认后再恢复。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "9 月对上了 到分 我让财务把 10 月 1 号到 6 号也对了 也一样 这个算解决了 提交吧"
+    },
+    {
+      "role": "assistant",
+      "text": "提交了，`e19a7b3`：退款先汇总、汇率按北京时间取日期、金额改 Decimal 和 ROUND_HALF_UP，加上新增的测试，没推送。\n\n定时任务还停着，你说恢复再恢复：恢复就是把 `cron/etl.crontab` 里那行的注释去掉（连同上面那行「暂停」的说明一起删），时间还是原来的每天 6:00，然后 `make install-cron` 装到机器上。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "GMV 日报那个 财务那边 9 月月结也跑完了 一分不差 把之前停掉的定时任务恢复吧 时间还是原来那个"
+    }
+  ],
+  "middle_hint": "中间在 etl-scripts 里做别的事：别的报表加字段、补测试、改 Makefile 目标、升级依赖之类，和 GMV 日报的对账无关，没有再碰这个问题。"
+}

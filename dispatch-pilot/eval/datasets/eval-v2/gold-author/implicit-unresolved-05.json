@@ -1,0 +1,25 @@
+{
+  "id": "implicit-unresolved-05",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里中文站 Webhooks 页的 MDX 编译失败已经改了三次（补反引号、HTML 注释改 MDX 注释、改翻译记忆并按 prebuild 完整构建），每次助手本地都构建通过，用户两次贴回一字不差的同一个报错。最后一条只是贴出 CI 的日志，内容还是同一行：第四次同一个失败，而且本地和 CI 结果不一致，max，xhigh 也可以。删掉决定性几轮，中间段只是在排查这个构建失败、没有失败过的修法，最后一条就是一个 MDX 构建报错：high。三选一：d1 首次提出问题，new_or_unrelated；d2、d3 都是同一报错，still_unresolved；最后一条贴的还是同一报错，still_unresolved。"
+}

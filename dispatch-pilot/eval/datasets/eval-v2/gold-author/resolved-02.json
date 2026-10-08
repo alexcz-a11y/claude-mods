@@ -1,0 +1,25 @@
+{
+  "id": "resolved-02",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "订单按下单日期筛选漏单：决定性几轮里第一次只修了结束时间（d2 说下午 4 点以后的还缺），第二次查到是发给后端的时间不带时区、差 8 小时，改完后用户拿 1342 单和财务核对一单不差、确认解决并提交（d3）。d3 里还明确约定导出 CSV 保持 UTC、页面显示本地时间，助手也说了以后有人问差 8 小时就是这个原因。最后这条说的「导出和页面差 8 个小时」正是这个已知且被接受的结果，用户已经向运营解释过，只要在导出按钮旁加一行固定文案：low，medium 也可以（找到导出按钮、加样式和一个快照测试）。删掉决定性几轮，中间是别的活，这条就成了一个突然冒出来的「导出时间和页面差 8 小时」：看起来像时区 bug，合理的做法是先确认这是不是 bug 再决定加不加说明，medium；三选一也会变成 new_or_unrelated。三选一：d1 第一次提出问题，new_or_unrelated；d2 改了以后说还缺，still_unresolved；d3 确认对上了并让提交，resolved；最后这条接受已约定的结果、只加一行说明，resolved。"
+}

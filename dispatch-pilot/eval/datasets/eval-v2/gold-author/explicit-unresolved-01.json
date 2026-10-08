@@ -1,0 +1,25 @@
+{
+  "id": "explicit-unresolved-01",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "批量上下架后状态不刷新：决定性几轮里先后改了列表重拉、store 缓存 key、表格的 memo 比较函数三处，每次都有测试通过，用户每次回来都说还是不变；最后这条是第三次修改后又一次明说没解决，而且本地测试和 e2e 都过、用户环境里仍复现，说明几个显眼的原因都排除了，要往更深处查（例如测试环境的构建、别的缓存层），用 max，xhigh 也可以接受。删掉决定性几轮只剩「回到……那个问题，还是不会自己变」，看起来是一次普通的前端调试：high。三选一：d1 第一次提出问题，new_or_unrelated；d2、d3 都是改了以后说还是一样，still_unresolved；最后这条中间隔了别的活，回头说原问题还在，still_unresolved。"
+}

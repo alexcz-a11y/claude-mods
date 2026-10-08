@@ -1,0 +1,29 @@
+{
+  "id": "explicit-unresolved-04",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "回到前台时闪退：决定性几轮里改了四次（reload 挪回主线程、观察者延后执行、历史合并包进 perform、去掉重复合并），用户三次装了新包回来说还是同一句崩溃，最后这条是第四次修改后又说还会闪退。Core Data 多 context、扩展进程写库的疑难并发问题，只在真机偶发，前面几个方向都没用：max，xhigh 也可以。决定性几轮离末尾十几万 token，删掉以后中间只有大段排查、没有修改尝试，最后一句看起来是一次崩溃调试的跟进：high。三选一：d1 首次提出，new_or_unrelated；d2、d3、d4 都是改了以后说还崩，still_unresolved；最后这条说还会闪退，still_unresolved。"
+}

@@ -1,0 +1,25 @@
+{
+  "id": "implicit-unresolved-01",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里预算页分期重复计数已经改了三次（日期区间右开、排除父记录、按账本时区算月份），每次助手都说测试通过，用户每次都贴回同一行 XCTAssertEqual 失败。最后一条只是又贴了同一行报错，没说「还是不行」，但它就是第四次回报同一个失败：max，xhigh 也可以接受。删掉决定性几轮，中间段只是在排查这个测试失败、没有尝试过的修法，最后一条看起来就是一次普通的测试失败调试：high。三选一：d1 第一次提出问题，new_or_unrelated；d2、d3 都是贴同一个报错说没好，still_unresolved；最后一条贴的还是同一个报错，still_unresolved。"
+}

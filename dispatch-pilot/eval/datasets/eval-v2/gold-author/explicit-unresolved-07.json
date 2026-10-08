@@ -1,0 +1,33 @@
+{
+  "id": "explicit-unresolved-07",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里 token-meter 压缩后翻倍的问题已经改了四次（跳过 compact 的 turn.complete、去掉 session.start 的累加、usage 只取 input+output、拆开 $.store 串扰），用户每次都说还在，第四次之后助手也承认四处都不是原因。隔了几万 token 别的活，最后一条用户又明说压缩翻倍还没解决：反复未果的疑难问题，max；xhigh 也能接受。删掉决定性几轮，中间段都是别的事，最后一条看起来只是第一次报一个 band 数字不对的 bug：high。三选一：d1 第一次提出问题，new_or_unrelated；d2–d5 都说改完还在翻倍（d4、d5 里虽然有部分改善，翻倍本身没好），still_unresolved；最后一条隔着别的活回头说原问题还在，still_unresolved。"
+}

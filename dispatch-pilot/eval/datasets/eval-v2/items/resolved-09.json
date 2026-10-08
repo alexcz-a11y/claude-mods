@@ -1,0 +1,68 @@
+{
+  "id": "resolved-09",
+  "category": "resolved",
+  "domain": "docs-writing",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "中文站 webhooks 指南的锚点",
+    "SYMPTOM": "中文站 build 报 broken anchor 而英文站正常",
+    "ERROR": "Broken anchor on source page path = /zh/docs/guides/webhooks: -> linking to /zh/docs/guides/webhooks#event-order-paid",
+    "FILE": "i18n/zh/docusaurus-plugin-content-docs/current/guides/webhooks.mdx",
+    "FILE2": "src/components/WebhookEventTable.tsx",
+    "SYMBOL": "WebhookEventTable",
+    "COMMAND": "npm run build -- --locale zh"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "中文站 build 挂了 英文站没事 `npm run build -- --locale zh` 最后一堆 `Broken anchor on source page path = /zh/docs/guides/webhooks: -> linking to /zh/docs/guides/webhooks#verify-signature` 这种 一共七八条 全是 webhooks 那篇 文件是 i18n/zh/docusaurus-plugin-content-docs/current/guides/webhooks.mdx 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "标题的 id 对不上，已经补了。\n\n- **原因**：英文原文 `docs/guides/webhooks.mdx` 的几个二级标题写了显式 id，比如 `## Verify the signature {#verify-signature}`；中文译文翻标题的时候把 `{#...}` 一起丢了，变成 `## 验证签名`，Docusaurus 就按中文标题生成 id，页面里照抄过来的 `[验证签名](#verify-signature)` 这类链接就断了。\n- **改法**：给中文译文里 4 个标题补回和英文一致的显式 id：`{#verify-signature}`、`{#retry-policy}`、`{#event-types}`、`{#testing-locally}`。\n- **验证**：跑了 `node scripts/check-anchors.mjs i18n/zh/docusaurus-plugin-content-docs/current/guides/webhooks.mdx`，页内链接全部能对上。完整的中文站 build 要六七分钟，我没跑。\n\n你那边再跑一次 `npm run build -- --locale zh` 看看。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "少了几条 但还是挂 剩下的都是 #event- 开头的 比如 `-> linking to /zh/docs/guides/webhooks#event-order-paid` 四五条"
+    },
+    {
+      "role": "assistant",
+      "text": "`#event-` 这批不是标题生成的 id，`check-anchors.mjs` 只看 Markdown 标题，所以上一轮查不出来。\n\n- **原因**：webhooks 那篇的事件表用的是 `src/components/WebhookEventTable.tsx` 里的 `WebhookEventTable` 组件，每一行渲染成 ``<tr id={`event-${slugify(e.label)}`}>``。`e.label` 是本地化后的显示名：英文站是 `order.paid`，id 就是 `event-order-paid`；中文站的 label 是「订单已支付」，id 变成了中文，正文里指向 `#event-order-paid` 的链接就全断了。\n- **改法**：id 改成用事件的固定键 `e.name`，不再跟着语言变：``id={`event-${slugify(e.name)}`}``，显示的文字还是 `e.label`。英文站生成的 id 和原来完全一样。\n- **验证**：这次跑了完整的 `npm run build -- --locale zh`，broken anchor 一条都没有了，build 通过。还剩三条 warning：\n\n```\n[WARNING] Docs markdown link couldn't be resolved: (../api/refunds.mdx) in \"i18n/zh/docusaurus-plugin-content-docs/current/guides/payments.mdx\"\n```\n\n另外两条也是 `payments.mdx` 链到 `../api/` 下的退款文档，和 webhooks 无关；我切到 main 上跑了一次，这三条本来就有。英文站 `npm run build -- --locale en` 也过了。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "我本地也跑了 broken anchor 没了 那三条 warning 是 payments 那篇链到退款文档 退款那几篇还没翻 不用管 这个就算好了 你开个 PR 等 CI 跑完 只要 CI 上也是 broken anchor 一条没有 只剩这三条 warning 就直接合"
+    },
+    {
+      "role": "assistant",
+      "text": "好，PR 开了，是 #212，CI 的 `docs-build` 正在跑。合之前我看两样：build 那步没有 `Broken anchor`，warning 只有 `payments.mdx` 那三条 `couldn't be resolved`。两样都对上就 squash 合进 main。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "CI 跑完了 build 那步日志里还是那三条 warning 别的没了"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的后续：继续围绕中文站的锚点读组件和译文、看 build 日志、理 id 是怎么生成的、看别的译文页会不会有同样的写法，没有新的改动，也没有新的结论。"
+}

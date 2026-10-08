@@ -1,0 +1,25 @@
+{
+  "id": "resolved-03",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "支付回调重复投递导致 500 和订单卡在 paying：决定性几轮里第一版「先查后插」在并发下没挡住（d2 说还是 23505），第二版改成 ON CONFLICT 加订单行锁，用户在预发 6000 次投递压测、对账全对、补数已执行，明说解决了（d3）；助手还把压测数字整理好，说关票时可以直接用。中间是为整体顺一遍继续读这块代码，没有新尝试。最后这条只是关票，并把决定性几轮里现成的那组数和「补了 37 单」写进评论，是机械的收尾：low，medium 也可以（评论要组织一下措辞）。删掉决定性几轮，中间只是对回调问题的反复排查、从没出现过修法和压测，「预发压测那组数」在上下文里找不到，要去翻 CI 记录或者重新压一次才写得出评论：medium。三选一：d1 第一次提出问题，new_or_unrelated；d2 改了以后说还是 500，still_unresolved；d3 明说解决了，resolved；最后这条让关票收尾，resolved。"
+}

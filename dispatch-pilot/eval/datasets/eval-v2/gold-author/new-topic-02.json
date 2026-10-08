@@ -1,0 +1,21 @@
+{
+  "id": "new-topic-02",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后这条把统计对不上的问题放下，转去做设置页的 CSV 导出，是新任务。决定性几轮 d2 的回复里查到 ExportService 已经完整实现了按月导出 CSV（五列、币种格式、BOM、写临时文件返回 URL，9 个单测都过），只是被 FeatureFlags.csvExport 挡着、没有界面入口。所以这件事实际是在设置页加一行入口和月份选择、调 exportCSV(month:)、用分享面板弹出文件、打开开关，范围清楚的单点改动：medium；入口和分享都是现成的系统组件，说成照着指令接线的 low 也可以。删掉决定性几轮，只看「加个导出 CSV，选月份，弹分享面板，这周提测」，会当成从零做一个功能：取数、生成和格式化 CSV、写文件、界面、测试，跨多个文件：high。三选一：d1 第一次提出统计对不上，new_or_unrelated；d2 改了触发点后用户说还是对不上，still_unresolved；最后这条换了话题，new_or_unrelated。"
+}

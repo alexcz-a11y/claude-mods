@@ -1,0 +1,25 @@
+{
+  "id": "implicit-unresolved-03",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里 staging 的 helm upgrade 超时已经改了三次（放宽超时并打印事件、修正 staging 探针路径、deploy 等镜像构建并给迁移 hook 加期限），每次用户都回报同一行 UPGRADE FAILED。最后一条只说又跑了一次、还是这行、再看看：第四次同一个失败，部署问题又牵涉集群和发布流程，max，xhigh 也可以。删掉决定性几轮，中间段只是在排查这次超时、没有尝试过的修法，最后一条就是一次普通的 CI 部署失败调试：high。三选一：d1 首次提出问题，new_or_unrelated；d2、d3 都是同一报错仍在，still_unresolved；最后一条是同一报错，still_unresolved。"
+}

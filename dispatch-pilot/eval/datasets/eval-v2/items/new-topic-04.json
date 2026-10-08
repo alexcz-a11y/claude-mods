@@ -1,0 +1,56 @@
+{
+  "id": "new-topic-04",
+  "category": "new-topic",
+  "domain": "devops-ci",
+  "bin": "d4",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "部署流水线里拿 AWS 凭证的那一步",
+    "SYMPTOM": "deploy-staging 偶尔在 terraform init 这一步失败，重跑又能过",
+    "ERROR": "Error: error configuring S3 Backend: no valid credential sources for S3 Backend found.",
+    "FILE": ".github/workflows/deploy-staging.yml",
+    "FILE2": ".github/actions/setup/action.yml",
+    "SYMBOL": "assume-deploy-role",
+    "COMMAND": "gh workflow run deploy-staging.yml --ref main"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "deploy-staging 这周挂了四次了 都是 terraform init 那步 报 `Error: error configuring S3 Backend: no valid credential sources for S3 Backend found.` 重跑一次又能过 你看看 .github/workflows/deploy-staging.yml"
+    },
+    {
+      "role": "assistant",
+      "text": "先把结构和失败的 run 看了一遍，改了一处可疑的地方：拿完凭证没有校验就往下走了。\n\n- **结构**：`.github/workflows/` 下 9 个 workflow，第一步都是 `actions/checkout@v4`，第二步都调本地的 composite action `./.github/actions/setup`。`.github/actions/setup/action.yml` 里依次是：`actions/setup-node@v3`、`hashicorp/setup-terraform@v2`、id 为 `assume-deploy-role` 的一步 `aws-actions/configure-aws-credentials@v4`（OIDC，`role-to-assume` 取 `vars.DEPLOY_ROLE_ARN`），最后 `terraform init`。9 个 workflow 装工具、拿凭证都走这一个文件，workflow 自己没有别的 `uses:`。\n- **失败的 run**：`gh run list --workflow deploy-staging.yml --status failure` 找到这周 4 次，`gh run view --log-failed` 看了日志：4 次 `assume-deploy-role` 都显示成功，紧接着 `terraform init` 报这句错，两步之间不到 1 秒；成功的 run 里两步之间也差不多。\n- **顺带看到的**：每个 run 的注释里都有一条黄色警告：`Node.js 16 actions are deprecated. Please update the following actions to use Node.js 20: actions/setup-node@v3, hashicorp/setup-terraform@v2`。列的就这两个，都只在 `action.yml` 里用到，和这次的失败没关系，先不动。\n- **改法**：在 `assume-deploy-role` 之后加了一步 `aws sts get-caller-identity`，失败就隔 5 秒重试，最多 3 次，确认凭证真能用了再 `terraform init`；调用者身份打进日志，下次失败能看到当时拿到的是什么。\n- **验证**：分支上用 `gh workflow run deploy-staging.yml --ref ci/verify-creds` 手动跑了 3 次，全部通过，新加的一步每次第一次就成功。\n\n还没合进 main。这种偶发的要多跑几天才看得出来。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "合进去两天了 昨天下午又挂了一次 还是 terraform init 那步 同样的报错 你加的那步检查是过了的"
+    },
+    {
+      "role": "assistant",
+      "text": "检查那步过了、`terraform init` 还是拿不到凭证，说明凭证在 shell 里能用，问题更像出在 Terraform 的 S3 backend 自己找凭证的方式上。又改了一处，但还不能确定就是它。\n\n- **查到的**：\n  - 昨天那次的日志：`get-caller-identity` 第一次就成功，身份是 `assumed-role/gha-deploy-staging/GitHubActions`；4 秒后 `terraform init` 报错。\n  - `configure-aws-credentials` 把凭证写进环境变量 `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`AWS_SESSION_TOKEN`；但 `terraform/staging/backend.tf` 的 backend 配了 `profile = \"staging\"`，Terraform 会先按 profile 去 `~/.aws/config` 找，runner 上没有这个 profile，找不到才退回环境变量。翻了 S3 backend 的文档和几个 issue，profile 找不到时的退回在某些版本里会去等 IMDS 超时，这能解释「偶尔」，但还没有直接证据。\n  - 失败的 5 次都在自托管 runner `infra-runner-2` 上；成功的 run 两台 runner 都有。\n- **改法**：CI 里的 `terraform init` 加了 `-backend-config=\"profile=\"`，把 profile 置空，只用环境变量里的凭证；本地开发的用法不受影响。\n- **验证**：分支上手动跑了 5 次，都通过。之前光跑几次也都是过的，所以这还说明不了问题已经解决。\n\n建议接下来盯一下 `infra-runner-2`：它和另一台的系统镜像、AWS CLI 版本、`~/.aws` 目录是不是一样。",
+      "tools": [
+        "Bash",
+        "Read",
+        "WebFetch",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "凭证那个先放着 另外每次跑都有个黄色的警告 说 node16 的 action 要弃用了 让升到 node20 你把这个处理掉吧"
+    }
+  ],
+  "middle_hint": "中间继续排查 deploy-staging 在 terraform init 偶发拿不到凭证的问题：翻日志、对比两台 runner、追配置和变量的来源、加观测，没有新的修改，也没有结论。"
+}

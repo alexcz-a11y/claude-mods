@@ -1,0 +1,41 @@
+{
+  "id": "single-attempt-12",
+  "category": "single-attempt",
+  "domain": "docs-writing",
+  "bin": "d4",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "CI 上的文档站构建",
+    "SYMPTOM": "加上中文站之后 CI 上的构建跑到一半内存就爆了",
+    "ERROR": "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory",
+    "FILE": "scripts/remark-glossary.js",
+    "FILE2": "docusaurus.config.js",
+    "SYMBOL": "remarkGlossary",
+    "COMMAND": "npm run build"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "CI 上 npm run build 现在会内存爆掉 加了中文站之后开始的 日志最后一行是 `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory` 一般跑到 client 编译 60% 左右就挂 我本地 M2 32G 能过 就是慢 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "先把 Node 的堆上限调大了，CI 一次要 20 多分钟，跑完你看下结果。\n\n**查到的情况**\n\n- `.github/workflows/build.yml` 跑在 `ubuntu-latest` 上，`actions/setup-node` 用 Node 20，没有设 `NODE_OPTIONS`。Node 20 在这台 runner 上的默认老生代上限大约 2 GB 出头。\n- `docusaurus.config.js`：`i18n.locales` 是 `['en', 'zh']`，`npm run build` 不带 `--locale` 时两个语言一起构建；docs 插件的 `remarkPlugins` 里挂了仓库自己的 `remarkGlossary`（`scripts/remark-glossary.js`），给正文里的术语加提示框。\n- 本地用 `/usr/bin/time -l npm run build` 量了一次：峰值 RSS 5.8 GB，耗时 9 分 40 秒；只构建英文站（`--locale en`）峰值 3.1 GB。中文站加进来以后页面数从 412 涨到 824，内存差不多翻倍。\n- 顺手读了 `remarkGlossary`：它在模块顶层有一个 `Map`，按文件路径缓存每个文件的术语匹配结果，构建过程中从不清理。这可能也占了不少，但要量过才知道，这次先不动它。\n\n**改法**\n\n- `build.yml` 的 build 步骤加 `env: NODE_OPTIONS: --max-old-space-size=6144`。\n- `package.json` 的 `build` 脚本也带上同样的参数（用 `cross-env`，Windows 上的同事也能跑），本地和 CI 一致。\n\n**验证**\n\n- 本地带上参数跑了一次 `npm run build`，通过，峰值 RSS 和之前差不多，说明本地本来就没撞上限，只是 CI 的上限低。\n- 推到了分支 `fix/build-heap`，开了 PR #233 触发 CI，现在还在跑 client 编译。\n\n如果 CI 上还是挂，再看 `remarkGlossary` 的缓存和 webpack 的持久化缓存这两处。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "构建内存那个 今天 CI 又爆了 还是那行 heap out of memory"
+    }
+  ],
+  "middle_hint": "中间很长一段都在继续排查 CI 上文档站构建内存爆掉：看 remarkGlossary 的缓存、docusaurus.config.js 的插件和 locale 配置、量内存曲线、对比 CI 和本地、写只构建部分页面的复现脚本，只看不改，也没有结论。占位符：FEATURE CI 上的文档站构建；SYMPTOM 加上中文站之后 CI 上的构建跑到一半内存就爆了；ERROR FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory；FILE scripts/remark-glossary.js；FILE2 docusaurus.config.js；SYMBOL remarkGlossary；COMMAND npm run build。"
+}

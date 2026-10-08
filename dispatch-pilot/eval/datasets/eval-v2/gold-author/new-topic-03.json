@@ -1,0 +1,25 @@
+{
+  "id": "new-topic-03",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后这条是新需求：orders_daily 加净额。重复行的问题在 d3 已经了结。难度取决于决定性几轮里的约束：用户在 d2 说过下游三个 Metabase 看板和财务对账写死了列名和类型、不能动；回复里还查到 finance_recon.py 按位置取第 5、6 列，而且会把当月和上月的分区拼起来比。照字面把 amount 拆成两列，会让看板查询失效、让对账按位置取错列、新旧分区对不上。正确的做法是保留 amount 原样、新列只能追加在最后、核对看板和对账脚本、决定历史分区要不要回补，再加上退款是事后发生的、净额怎么按天算也要想清楚：跨多个文件、边界条件要紧，high；要回补历史并和财务一起反复核对的话 xhigh 也可以。删掉决定性几轮，只看「把 amount 拆成两列」，像一个流水线里的单点改动加测试：medium。三选一：d1 第一次提出重复行，new_or_unrelated；d2 回补后还有三天重复，still_unresolved；d3 没有重复、对账平了、让提交，resolved；最后这条是另一件事，new_or_unrelated。"
+}

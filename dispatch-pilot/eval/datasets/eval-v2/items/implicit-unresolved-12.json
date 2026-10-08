@@ -1,0 +1,63 @@
+{
+  "id": "implicit-unresolved-12",
+  "category": "implicit-unresolved",
+  "domain": "data-scripts",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "九月的日报营收和财务对不上 跑 `make reconcile DATE=2026-09-30` 报\n`AssertionError: revenue mismatch: report=1284530.17 finance=1288107.42 (diff=-3577.25)`\n差得不多 但几乎每天都有 你看下 pipelines/daily_revenue.py"
+    },
+    {
+      "role": "assistant",
+      "text": "最可能的原因是切日口径不一样：我们按 UTC 切日，财务按北京时间切日，零点前后八小时的订单会落到不同的日子。\n\n读了 `pipelines/daily_revenue.py`、`sources/orders.py` 和 `sql/orders_paid.sql`：订单从库里取出来时 `paid_at` 是 UTC 的 `timestamptz`，polars 读进来是 `Datetime(\"us\", \"UTC\")`，`daily_revenue.py` 里直接 `.dt.date()` 取日期分组，等于按 UTC 切日。财务导出（`sources/finance_export.py` 读的那份）是按 `Asia/Shanghai` 算的。北京时间 0 点到 8 点付款的订单，在我们这边算到了前一天。每天两头一进一出，差额不大但几乎天天有，和你看到的对得上。\n\n- **改法**：取日期前先 `.dt.convert_time_zone(\"Asia/Shanghai\")`，`sql/orders_paid.sql` 的日期过滤也改成按北京时间的边界（`paid_at >= '2026-09-30 00:00+08'`）。\n- **验证**：`tests/test_daily_revenue.py` 加了跨零点的用例（北京时间 00:30 付款的订单要算在当天），`pytest tests/` 全过。`make reconcile` 要连财务那边的导出，我这里没有 VPN 跑不了，需要你跑一下 9 月 30 日。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "跑了 还是 diff=-3577.25 一分都没变"
+    },
+    {
+      "role": "assistant",
+      "text": "一分不变说明 30 日那天的差额和切日无关，差的是另外一类订单。换了个思路：把我们这边当天的明细按类型拆开，看哪一类的合计正好差 3577.25。\n\n本地用 `make extract DATE=2026-09-30` 拉了当天的订单和退款明细（不需要财务那份），按支付渠道、订单类型、是否有退款分组求和。分组合计和订单表直接 `SUM` 的结果对不上，多出来的部分集中在「有部分退款的订单」：这类订单在 `sources/refunds.py` 里按 `order_id` 关联退款，一个订单有两次部分退款时 join 出两行，订单金额被重复减了一次退款。\n\n- **改法**：`sources/refunds.py` 先按 `order_id` 聚合退款总额再 join，不再一行退款 join 一次；`daily_revenue.py` 里加了断言，join 后订单数必须等于 join 前。\n- **验证**：加了「一个订单两次部分退款」的用例，`pytest tests/` 全过。按新逻辑重算 30 日的部分退款订单，合计变化是 +1912.40，不完全等于 3577.25，所以可能还有别的差异；你跑一下 `make reconcile DATE=2026-09-30` 看剩多少。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是 -3577.25"
+    },
+    {
+      "role": "assistant",
+      "text": "还是同一个数，说明我改的两处都没碰到报表真正用的那条路径。查到了：`make reconcile` 用的不是 `daily_revenue.py` 的实时计算，而是 `pipelines/revenue_snapshot.py` 每晚写进 `report.daily_revenue` 的快照，前两次的改动只改了实时计算。\n\n看了 `Makefile`：`reconcile` 目标是 `python -m pipelines.reconcile --date $(DATE)`，`reconcile.py` 读的是 `report.daily_revenue` 表里那天的快照，而这张表由 `revenue_snapshot.py` 写，它有一份自己复制过去的旧计算逻辑（UTC 切日、逐行 join 退款），还在用 `pl.Float64` 累加金额。快照表 9 月 30 日那行是 9 月 30 日夜里生成的，之后没重算过，所以无论怎么改代码，读到的都是同一个数。\n\n- **改法**：`revenue_snapshot.py` 删掉复制的逻辑，直接调用 `daily_revenue.compute(date)`；金额统一换成 `pl.Decimal(18, 2)`，避免浮点累加误差；`reconcile.py` 加了 `--recompute` 参数，先重算当天快照再对账。\n- **验证**：`pytest tests/` 全过；加了一个用例断言快照和实时计算对同一份数据结果一致。需要你跑 `make reconcile DATE=2026-09-30 ARGS=--recompute`，它会先重写 30 日那行快照。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "`make reconcile DATE=2026-09-30 ARGS=--recompute`\n`AssertionError: revenue mismatch: report=1284530.17 finance=1288107.42 (diff=-3577.25)`"
+    }
+  ],
+  "middle_hint": "中间是同一个仓库里别的活：新接一个数据源、给几条管道补测试、把一个脚本从 pandas 迁到 polars、调 cron 时间、写 README 等，和营收对账的差额无关，没有再提这个问题。"
+}

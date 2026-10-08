@@ -1,0 +1,66 @@
+{
+  "id": "resolved-11",
+  "category": "resolved",
+  "domain": "security",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "刷新令牌的轮换和重用检测",
+    "SYMPTOM": "用户刷新令牌时偶尔被判成重用，整组会话被吊销",
+    "ERROR": "RefreshTokenReuseError: reuse detected for family, revoking all sessions",
+    "FILE": "src/session/refreshRotation.ts",
+    "FILE2": "src/oauth/tokenEndpoint.ts",
+    "SYMBOL": "rotateRefreshToken",
+    "COMMAND": "npx tsx scripts/repro-refresh-race.ts --runs 200"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "有用户反馈开着两个标签页 过一阵就被踢下线 要重新登录 日志里对应的是 `RefreshTokenReuseError: reuse detected for family, revoking all sessions` 我猜是两个标签页同时刷新令牌 代码在 src/session/refreshRotation.ts 的 rotateRefreshToken 你看下 另外为了先止血 我把 policies/session.yaml 里的 reuse_detection 从 revoke 临时改成了 log_only 只记日志不吊销 已经上线了 安全那边同意先这样撑着"
+    },
+    {
+      "role": "assistant",
+      "text": "按两个标签页并发刷新的思路，先加了一个短的宽限窗口。\n\n- **看到的**：`rotateRefreshToken` 的流程是：按哈希查出旧令牌 → `used_at` 不为空就抛 `RefreshTokenReuseError` 并吊销整个 family → 否则写 `used_at`、签发新令牌。两个标签页共用同一个 cookie，如果几乎同时发刷新，后到的那个会看到 `used_at` 已经有值。\n- **改法**：旧令牌在 `used_at` 之后 10 秒内再次出现，不当重用处理，而是返回同一个后继令牌（后继令牌的 id 记在旧令牌的 `replaced_by` 上）；超过 10 秒仍然按重用吊销。\n- **验证**：`src/session/refreshRotation.test.ts` 补了「10 秒内重复使用返回同一后继」「11 秒后重复使用吊销」两个用例，`npx vitest run src/session` 全过。\n\n这个改动等于在 10 秒内允许旧令牌再用一次，安全上要不要过一下，你定。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "宽限窗口不行 安全那边看了 说旧令牌用过一次就必须按重用处理 不能开重放窗口 这个是硬要求 你撤掉 而且我在 staging 开着这个窗口试了 log_only 的日志里还是有 reuse 不是两个标签页的事 只开一个标签页也有"
+    },
+    {
+      "role": "assistant",
+      "text": "宽限窗口已经撤了，代码和那两个用例都还原成原样。只开一个标签页也会触发，说明不是客户端并发，我从服务端自己的行为查了一遍。\n\n- **复现**：写了 `scripts/repro-refresh-race.ts`，对 staging 发两种请求各 200 次：两个并发的刷新、单个顺序的刷新。`npx tsx scripts/repro-refresh-race.ts --runs 200` 的结果是并发 0 次误判（cookie 只有一份，第二个请求拿到的已经是新令牌），顺序的反而有 6 次。\n- **日志对照**：拿这 6 次的 `x-request-id` 去查 staging 日志，每一次在 `RefreshTokenReuseError` 之前 30 到 80 ms，同一个 request id 下都有一行 `pg: canceling statement due to statement timeout, retrying (1/2)`。\n- **原因**：`src/oauth/tokenEndpoint.ts` 的令牌端点用 `withRetry` 把整个 `rotateRefreshToken` 包了起来，遇到数据库超时就整段重跑。超时有时发生在 `COMMIT` 已经落库之后：第一次其实已经把旧令牌标成用过、发了新令牌，重跑时同一个旧令牌再进来，就被判成重用。客户端从头到尾只发了一次请求。\n- **改法**（没有放宽任何重放规则）：\n  - 旧令牌被用掉时，在新加的 `used_by_request` 列上记下这次请求的 `x-request-id`（迁移一并加了）；\n  - `rotateRefreshToken` 发现旧令牌已用过时，先看 `used_by_request` 是不是当前请求：是，说明是同一个请求的内部重试，返回那次已经签发的后继令牌；不是，照旧按重用吊销整个 family。客户端自己重发的请求带的是新的 request id，照样会被判成重用；\n  - 新增指标 `auth_refresh_reuse_total{reason}`，`reason` 分 `internal_retry` 和 `reuse` 两种。\n- **验证**：`npx vitest run src/session src/oauth` 全过，补了「同一 request id 重试返回同一后继」「不同 request id 重用照旧吊销」两个用例；`semgrep/` 下的规则跑过，没有新告警。\n\n判断规则改了，建议还是请安全那边看一下再上线。",
+      "tools": [
+        "Edit",
+        "Bash",
+        "Write",
+        "Read",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "安全那边 review 过了 同一个请求的内部重试不算重放 他们认可 已经上线 staging 上 repro 脚本跑了 2000 次 一次误判都没有 生产这两天 log_only 的日志里 reuse 那类也是 0 这个算解决了 不过 policies 里那个 log_only 先别动 等上线满一周 reuse 那个计数还是 0 再切回 revoke"
+    },
+    {
+      "role": "assistant",
+      "text": "好，记下了：上线满一周、`auth_refresh_reuse_total{reason=\"reuse\"}` 一直是 0，就把 `policies/session.yaml` 里的 `reuse_detection` 从 `log_only` 改回 `revoke`，别的不动。到时候改完跑一遍 `npx vitest run src/session` 和 policy 的校验脚本再上线。"
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "上线满一周了 那个计数一直是 0 按之前说的切回去吧"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的后续：继续围绕刷新令牌的轮换读调用链、看数据库超时和重试的配置、看指标和日志、弄清重用检测的规则、列别的端点会不会有同样的整段重试，没有新的改动，也没有新的结论。"
+}

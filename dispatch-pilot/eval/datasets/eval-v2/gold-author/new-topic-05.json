@@ -1,0 +1,25 @@
+{
+  "id": "new-topic-05",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后这条是给 prompt-lint 加密钥检测的新功能，闪烁问题在 d3 已经了结。难度取决于决定性几轮里量出来的时间预算：prompt.edit 只有 50ms，前面两个 mod 要占 15 到 20ms，留给 prompt-lint 约 30ms；整段粘贴是最坏情况，要全扫，现有 42 条规则已经要 19ms。密钥检测恰恰发生在粘贴的时候，要几十种格式的正则加熵值判断，直接塞进现有规则很容易把这次刚压下来的超时又带回来；还要考虑 $.state.lineCache 会把疑似密钥的原文存进 state。得设计快速预筛、限量、放在哪个事件做，并在长输入上计时验证，属于边界条件要紧的工作：high；如果要拆事件、反复压测，xhigh 也可以。删掉决定性几轮，只看「贴进来的东西像密钥就标红」，像在 lint 里加几条正则规则：medium。三选一：d1 第一次提出提示条闪烁，new_or_unrelated；d2 短的好了、长的还在闪，still_unresolved；d3 不闪了、让提交，resolved；最后这条是另一件事，new_or_unrelated。"
+}

@@ -1,0 +1,55 @@
+{
+  "id": "new-topic-06",
+  "category": "new-topic",
+  "domain": "docs-writing",
+  "bin": "d2",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "CI 上的文档构建",
+    "SYMPTOM": "CI 里 npm run build 偶尔跑到一半内存溢出退出",
+    "ERROR": "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory",
+    "FILE": "docusaurus.config.js",
+    "FILE2": "src/remark/imageSize.js",
+    "SYMBOL": "remarkImageSize",
+    "COMMAND": "npm run build"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "CI 上 npm run build 这两周隔三差五就挂 报 `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory` 重跑有时候又能过 你看看怎么回事"
+    },
+    {
+      "role": "assistant",
+      "text": "先看了 CI 配置和构建过程，改了一处：CI 没给 Node 设堆上限，用的是默认值。但原因还不能说就是它。\n\n- **查到的**：\n  - `.github/workflows/docs.yml` 在 `ubuntu-latest` 上跑，`npm ci` 之后直接 `npm run build`，没有设 `NODE_OPTIONS`，Node 20 在这台机器上默认的堆上限是 4GB 左右。\n  - `gh run list` 翻了最近两周 31 次构建，挂了 9 次，都死在 `[zh] Creating an optimized production build` 之后，英文那一遍总是能过。\n  - `docusaurus.config.js` 的 `remarkPlugins` 里有一个自己写的 `remarkImageSize`（`src/remark/imageSize.js`），给每张图片补宽高：它用 `fs.readFileSync` 把整张图读进内存再解析尺寸，没有缓存，一张图被几个页面引用就读几次。`static/img/` 下面 2300 多张 PNG，一共 1.4GB。\n  - 本地用 `/usr/bin/time -l npm run build` 跑了两遍，峰值内存 3.7GB 和 4.1GB，第二遍差一点挂。\n- **改法**：`docs.yml` 的构建步骤给 `NODE_OPTIONS` 设了 8GB 的堆上限。`remarkImageSize` 没动，等确认了再说。\n- **验证**：分支上推了 3 次，构建都过了，最长 11 分钟。\n\n这只是加了余量，偶发的问题要多看几天。",
+      "tools": [
+        "Read",
+        "Bash",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "加了内存今天早上 main 上还是挂了一次 另外说一下 static/img 里那些截图都是 scripts/screenshots.mjs 生成的 每次发版跑一遍 你看看是不是图太大了"
+    },
+    {
+      "role": "assistant",
+      "text": "今天早上那次看了：堆上限确实是 8GB，挂的时候已经用满了，所以不单是余量不够。截图脚本也读了，图确实大，但能不能解释「偶尔」还说不准。这次没改东西。\n\n- **今天早上那次**：日志里最后几行 GC 记录显示挂之前堆用到了 7.9GB，还是在 `[zh]` 那一遍。8GB 都用满，说明内存是一路在涨，不是一下子顶上去的。\n- **`scripts/screenshots.mjs` 怎么工作**：\n  - 用 Playwright 起 Chromium，打开环境变量 `DEMO_URL` 指的演示站，用 `DEMO_USER`、`DEMO_PASS` 登录（CI 里放在 secrets，本地放 `.env.local`）；\n  - 截哪些页面写在 `scripts/screenshots.json`：186 条，每条只有 `id`、页面路径、视口大小、等几秒，不依赖页面里的任何元素；\n  - 每条截两遍，界面语言切成英文和中文各一次，写到 `static/img/screens/<id>.png` 和 `i18n/zh/docusaurus-plugin-content-docs/current/assets/screens/<id>.png`；\n  - `npm run screenshots -- --all` 全部重截，`--only <id>` 只截一张；跑完会列出哪些图变了、哪些路径打不开，git 里看 diff 就行。上次发版（8 月 28 日）就是这么全量跑的，一个提交里 372 张图一起换的。\n- **图有多大**：截图用的是 `deviceScaleFactor: 2`，平均一张 1.1MB，两种语言加起来 410MB，占 `static/img/` 的三成左右。`remarkImageSize` 每次都整张读进来，中文那一遍除了自己目录下的图还会读英文的公共图，所以中文那遍读的比英文多。\n- **还说不准的**：图大能解释内存高，但同一个提交有时过有时挂，单靠图大说不通，可能还有别的东西在涨。\n\n下一步想在 CI 上开 `--heapsnapshot-near-heap-limit`，抓一份快照看看到底是什么占着内存，你看行不行。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "构建那个先放着 下周 2.0 发版 产品界面全换了 文档里的截图都得换成新版的 2.0 的预览环境是 https://preview-2-0.demo.example.com 账号还是原来那个 你弄一下吧"
+    }
+  ],
+  "middle_hint": "中间继续排查 CI 上文档构建偶发内存溢出的问题：对比各环境、翻构建日志、看 remarkImageSize 和配置、加观测，没有改实现，也没有结论。"
+}

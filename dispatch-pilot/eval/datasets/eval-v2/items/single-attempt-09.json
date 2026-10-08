@@ -1,0 +1,34 @@
+{
+  "id": "single-attempt-09",
+  "category": "single-attempt",
+  "domain": "data-scripts",
+  "bin": "d1",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "周报的 CSV 金额列带了千分位 像 1,234.50 这样 财务那边的导入工具是按逗号切列的 整行就串了 奇怪的是我本地 make weekly 跑出来是好的 只有服务器上 cron 跑的才带逗号 入口是 pipelines/weekly_revenue.py 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "找到了：金额是按系统 locale 格式化的，服务器上 cron 的 locale 和你本地不一样。已经改成不依赖 locale 的写法。\n\n**查到的情况**\n\n- `pipelines/weekly_revenue.py` 开头有一句 `locale.setlocale(locale.LC_ALL, \"\")`，用的是进程环境里的 locale。\n- 金额列在写 CSV 之前过了一遍 `sources/formatting.py` 的 `format_amount()`，里面是 `locale.format_string(\"%.2f\", value, grouping=True)`，`grouping=True` 会按 locale 加千分位。\n- 本地走的是 `make weekly`，`Makefile` 顶部有 `export LC_ALL := C`，C locale 没有千分位分隔符，所以输出是 `1234.50`。\n- 服务器上不走 make：`cron/etl.crontab` 里那一行是 `cd /opt/etl-scripts && .venv/bin/python -m pipelines.weekly_revenue`，环境继承自 cron，服务器 `/etc/default/locale` 是 `LANG=en_US.UTF-8`，于是变成 `1,234.50`。\n- 本地复现：`LC_ALL=en_US.UTF-8 .venv/bin/python -m pipelines.weekly_revenue --week 2026-W40 --dry-run`，输出的金额列果然带逗号；换回 `LC_ALL=C` 就没有。\n\n**改法**\n\n- `sources/formatting.py`：`format_amount()` 改成 `f\"{value:.2f}\"`，负数、零、`None`（输出空串）的行为保持不变。\n- `pipelines/weekly_revenue.py`：删掉 `locale.setlocale(...)`，这个 pipeline 里别的地方没有用到 locale。\n- `Grep` 了一下 `format_amount` 的其他调用方：`pipelines/monthly_gmv.py` 和 `pipelines/refund_summary.py` 也在用，它们的输出同样受影响，这次一起变成不带千分位，两份报表的消费方都是程序导入，不需要千分位。\n\n**验证**\n\n- 新增 `tests/test_formatting.py`：用 `monkeypatch` 把 locale 设成 `en_US.UTF-8` 和 `de_DE.UTF-8`，断言 `format_amount(1234.5)` 都是 `1234.50`。\n- `pytest -q`：87 个通过（新加 4 个）。\n- 再跑一次上面那条 `LC_ALL=en_US.UTF-8 ... --dry-run`，金额列是 `1234.50`，列数和表头对得上。\n\n服务器上要等代码同步过去（`make deploy` 或者下次 cron 前的自动拉取），你可以同步后手动跑一次周报看看。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Bash",
+        "Edit",
+        "Write"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "周报 CSV 那个 我刚在服务器上手动跑了一遍 金额列还是 1,234.50 这种 带逗号"
+    }
+  ],
+  "middle_hint": "中间在 etl-scripts 里做了几件别的小事：加一个数据源字段、补测试、改 Makefile 说明、调整一个 SQL 之类，和周报 CSV 的金额格式无关，没有再碰这个问题。"
+}

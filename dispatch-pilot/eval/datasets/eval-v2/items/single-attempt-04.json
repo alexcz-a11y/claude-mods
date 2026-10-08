@@ -1,0 +1,41 @@
+{
+  "id": "single-attempt-04",
+  "category": "single-attempt",
+  "domain": "security",
+  "bin": "d4",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "登录接口的限流",
+    "SYMPTOM": "公司内网的一批用户同时被登录限流挡住",
+    "ERROR": "WARN login_rate_limited key=ip:10.0.3.17 count=31 window=15m",
+    "FILE": "src/auth/loginRateLimit.ts",
+    "FILE2": "src/app.ts",
+    "SYMBOL": "loginRateLimiter",
+    "COMMAND": "npm test -- src/auth/loginRateLimit.test.ts"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "登录限流误伤了 客服说今天上午公司内网好多人登录被挡 提示尝试次数过多 15 分钟后再试 日志里全是这种\n`WARN login_rate_limited key=ip:10.0.3.17 count=31 window=15m`\n10.0.3.17 好像是 ALB 的内网地址 等于所有人共用一个桶了吧 代码在 src/auth/loginRateLimit.ts"
+    },
+    {
+      "role": "assistant",
+      "text": "对，所有请求在限流看来都来自 ALB 那一个地址。原因是 Express 没开 trust proxy，`req.ip` 拿到的是直连的对端。已经改了，只信任一层代理。\n\n**原因**\n\n- `src/auth/loginRateLimit.ts` 里 `loginRateLimiter` 用 `express-rate-limit`，`keyGenerator` 是 `req => 'ip:' + req.ip`，15 分钟窗口 30 次。\n- `src/app.ts` 里没有 `app.set('trust proxy', ...)`，Express 不读 `X-Forwarded-For`，`req.ip` 就是 TCP 对端，也就是 ALB。上午九点前后大家集中登录，30 次很快就满了，日志里的 `count=31` 也对得上。\n\n**改法**\n\n- `src/app.ts` 加 `app.set('trust proxy', 1)`：只信任最近的一跳，`req.ip` 取 `X-Forwarded-For` 里最右边那个由 ALB 追加的地址。\n- 没用 `true`：那样会取最左边的地址，客户端自己带一个伪造的 `X-Forwarded-For` 就能每次换 key，限流等于没有。`semgrep/express-trust-proxy.yml` 里也有一条规则专门拦 `trust proxy` 设成 `true`。\n- 限流的 key、窗口和次数都没动。\n\n**验证**\n\n- `npm test -- src/auth/loginRateLimit.test.ts`：补了两个用例，一个模拟 ALB 追加了真实客户端地址，断言不同客户端分别计数；一个客户端自带伪造的 `X-Forwarded-For`，断言伪造的部分不影响 key。8 个用例全过。\n- `npx semgrep --config semgrep/ src/` 没有新的告警，`npm audit` 和之前一样。\n\n改动没提交。合进去发到预发后，看一下日志里的 `key=` 是不是变成了各自的客户端地址。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "登录限流那个 发到线上了 今天上午又有一批内网用户被挡 日志里还是 key=ip:10.0.3.17"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的继续排查：看限流中间件和请求经过的代理链路、读日志和请求头、写复现脚本、列可能的原因，没有新的修改尝试，也没有结论。占位符：FEATURE 登录接口的限流；SYMPTOM 公司内网的一批用户同时被登录限流挡住；ERROR WARN login_rate_limited key=ip:10.0.3.17 count=31 window=15m；FILE src/auth/loginRateLimit.ts；FILE2 src/app.ts；SYMBOL loginRateLimiter；COMMAND npm test -- src/auth/loginRateLimit.test.ts。"
+}

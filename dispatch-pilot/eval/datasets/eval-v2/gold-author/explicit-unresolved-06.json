@@ -1,0 +1,33 @@
+{
+  "id": "explicit-unresolved-06",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "staging 部署卡在 helm upgrade：决定性几轮里改了五次（放宽超时、加 startupProbe、迁移 hook 的删除策略、workflow 并发控制、kubeconfig 凭证刷新），每次手动触发都成功，用户四次回来说还是同样的报错，最后这条是第五次修改后又说还有一次卡满二十分钟。偶发、跨 CI、集群、Helm 好几层，显眼的原因都排除过了：max，xhigh 也可以。删掉决定性几轮，中间只有大段排查、没有修改尝试，最后一句看起来是一次部署故障调试的跟进：high。三选一：d1 首次提出，new_or_unrelated；d2 到 d5 都是改了以后说还挂，still_unresolved；最后这条说报错没变，still_unresolved。"
+}

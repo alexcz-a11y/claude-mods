@@ -1,0 +1,25 @@
+{
+  "id": "resolved-09",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "决定性几轮里中文站 broken anchor 改了两次：第一次补标题 id 只消掉一部分，第二次查出 WebhookEventTable 用本地化的 label 生成 id，改成固定键后 build 通过。用户确认算好了，并且说清了验收标准：那三条 payments 链到未翻译退款文档的 warning 本来就有、不用管，CI 上没有 broken anchor、只剩这三条 warning 就直接合。最后一条报 CI 日志里「还是那三条 warning 别的没了」，正好满足约定的条件，接下来只是把 PR 合掉：low；顺手核一下 CI 日志再合给 medium 也可以。删掉决定性几轮，中间段是没下结论的锚点排查，最后一句「还是那三条 warning」读起来像问题没变、又报了一遍，会按继续排查来判：high。三选一：d1 第一次报问题，new_or_unrelated；d2 改完还挂、剩下 #event- 那几条，still_unresolved；d3 明说算好了，resolved；最后一条按约定的验收标准报告通过，resolved。"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-04",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "决定性几轮里登录限流误伤只改过一次：在 src/app.ts 加 trust proxy 1（特意没用 true，防止伪造 X-Forwarded-For 绕过限流），测试全过。最后一条说上线后日志里 key 还是 ALB 的地址：第二次提，说明请求链路上不止一层代理或者配置没生效，要查清楚再改，而且改法不能放宽到可以伪造来源，是带安全边界的调试，high；只失败过一次，还谈不上反复未果，不判 max，xhigh 也能接受。删掉决定性几轮，看到的是十几万 token 围绕限流的排查一直没有结论、用户说还在被挡，看不出只改过一次，容易判得更高：xhigh。三选一：d1 第一次提出问题，new_or_unrelated；最后一条说同样的 key 还在、用户还被挡，still_unresolved。"
+}

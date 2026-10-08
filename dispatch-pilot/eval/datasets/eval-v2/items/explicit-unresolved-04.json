@@ -1,0 +1,86 @@
+{
+  "id": "explicit-unresolved-04",
+  "category": "explicit-unresolved",
+  "domain": "ios",
+  "bin": "d4",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "回到前台时账单列表的闪退",
+    "SYMPTOM": "从后台切回 App 后一两秒偶尔直接闪退",
+    "ERROR": "CoreData: error: Serious application error. Exception was caught during Core Data change processing. This is usually a bug within an observer of NSManagedObjectContextObjectsDidChangeNotification.",
+    "FILE": "Ledger/Features/Bills/BillListViewModel.swift",
+    "FILE2": "Ledger/Persistence/HistoryTracker.swift",
+    "SYMBOL": "BillListViewModel.reload",
+    "COMMAND": "xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BillListViewModelTests"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "TestFlight 上最近收到好几个崩溃 都是从后台切回 App 以后一两秒闪退 崩溃日志第一行是 `CoreData: error: Serious application error. Exception was caught during Core Data change processing. This is usually a bug within an observer of NSManagedObjectContextObjectsDidChangeNotification.` 堆栈里有 BillListViewModel.reload 你看下 Ledger/Features/Bills/BillListViewModel.swift"
+    },
+    {
+      "role": "assistant",
+      "text": "先看了 `BillListViewModel.reload` 跑在哪个线程，改了一处跨线程改数据的地方。\n\n- **查到的**：`reload()` 用 `persistence.newBackgroundContext()` 在后台 context 上取本月账单，取完直接在 `perform` 的闭包里给 `@Published var bills` 赋值。也就是 `bills` 在后台队列上被改，而 SwiftUI 的 `List` 在主线程读它；`bills` 里放的还是后台 context 的 `NSManagedObject`，主线程的视图拿去读属性，跨了 context。回到前台时 `scenePhase` 变成 `.active` 会触发一次 `reload()`，和崩溃的时机对得上。\n- **改法**：`BillListViewModel` 标成 `@MainActor`；后台 context 只取 `objectID`，回到主线程后用 `viewContext.object(with:)` 换成主 context 的对象再赋给 `bills`。\n- **验证**：打开 `-com.apple.CoreData.ConcurrencyDebug 1` 跑了一遍，改之前切后台再回来会在 `reload` 里断下，改之后不会；`xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BillListViewModelTests` 9 个用例通过。\n\n可以打个 TestFlight 包看看。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "新包装了 还是会闪退 今天 TestFlight 又收到两个 第一行一样"
+    },
+    {
+      "role": "assistant",
+      "text": "报错说的是 `ObjectsDidChange` 的观察者里出了异常，又查了谁在观察这条通知，改了第二处。\n\n- **查到的**：`BillListViewModel` 的 `init` 里用 Combine 订阅了 `NotificationCenter.default.publisher(for: .NSManagedObjectContextObjectsDidChange, object: viewContext)`，收到通知就同步调 `recomputeTotals()`。它遍历 `bills` 读每一笔的 `amount`，还会给分类对象写一个缓存字段 `cachedMonthTotal`。在 Core Data 处理改动、发这条通知的过程中再去写托管对象，正好是那条报错说的「观察者里的 bug」。\n- **改法**：订阅加了 `.receive(on: DispatchQueue.main)`，`recomputeTotals()` 挪到通知处理完之后的下一轮 runloop；`cachedMonthTotal` 不再写进 Core Data 对象，改成 view model 里的一个字典。\n- **验证**：写了一个单测，在通知回调里断言 `viewContext` 没有未保存的改动；`BillListViewModelTests` 11 个用例通过。模拟器上切后台再回来 30 次没有崩。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是崩 我自己手机上复现了一次 切到微信回了个消息再切回来就闪退了 模拟器上我也试不出来"
+    },
+    {
+      "role": "assistant",
+      "text": "真机能复现、模拟器不行，差别多半在切到后台那段时间里发生了什么。查了后台期间的写入，改了历史合并。\n\n- **查到的**：App 在后台时，`BGAppRefreshTask` 和小组件扩展都会写库（小组件写的是 App Group 里同一个 SQLite）。回到前台时 `Ledger/Persistence/HistoryTracker.swift` 的 `mergeRemoteChanges()` 拉持久化历史合并进 `viewContext`，但它是在 `NSPersistentStoreRemoteChange` 通知的回调里直接调 `viewContext.mergeChanges(fromContextDidSave:)`，那个回调跑在后台队列上，没有包 `viewContext.perform`。真机上后台期间小组件真的会写，模拟器上小组件很少刷新，所以试不出来。\n- **改法**：合并包进 `viewContext.perform {}`；历史 token 的保存挪到合并完成之后，避免合并到一半 token 已经往前挪了。\n- **验证**：真机上开着 ConcurrencyDebug，手动触发小组件刷新后切回 App，改之前断在 `mergeRemoteChanges`，改之后不再断；单测 13 个通过。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d4",
+      "text": "新包装了两天 今天又闪退了一次 还是切回来的时候 崩溃日志第一行还是那句"
+    },
+    {
+      "role": "assistant",
+      "text": "又从合并的入口查了一遍，发现同一批改动被合并了两次，删掉了重复的那条路。\n\n- **查到的**：`Ledger/Persistence/PersistenceController.swift` 里设了 `viewContext.automaticallyMergesChangesFromParent = true`，同时 `HistoryTracker` 又手动合并持久化历史。小组件写的改动会从两条路进 `viewContext`：一次历史合并，一次 coordinator 层面的自动合并。两次之间如果某笔账单被删了（小组件里有「撤销刚记的一笔」），第二次合并会对一个已删除、已变成 fault 的对象发 `ObjectsDidChange`，列表的 `BillRowView` 还拿着这个对象读 `amount`，就在通知处理中抛了异常。\n- **改法**：关掉 `automaticallyMergesChangesFromParent`，只留 `HistoryTracker` 一条合并路径；`BillRowView` 读属性前先判断 `bill.isDeleted || bill.managedObjectContext == nil`，是的话不渲染这一行。\n- **验证**：真机上用小组件记一笔、撤销、马上切回 App，重复 20 次没有崩；单测 15 个通过。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "回前台闪退那个 我拿今天的 TestFlight 包又试了 切出去再切回来 还是会闪退 崩溃日志第一行没变"
+    }
+  ],
+  "middle_hint": "中间一直在继续排查回到前台时的闪退：理调用方和线程、看提交历史和崩溃日志、加临时日志、写单测复现、列可能的原因，没有新的改动，也没有结论。占位符的值见 placeholders。"
+}

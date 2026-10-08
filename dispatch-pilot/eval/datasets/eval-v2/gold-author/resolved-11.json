@@ -1,0 +1,25 @@
+{
+  "id": "resolved-11",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "决定性几轮里刷新令牌误判重用是个难问题：第一次的宽限窗口被安全那边否了、而且没用，第二次查出是令牌端点的 withRetry 在 COMMIT 已落库后整段重跑，按 request id 区分内部重试后安全 review 通过、上线，用户明说算解决了，并约定 policies/session.yaml 的 log_only 等上线满一周、reuse 计数还是 0 再切回 revoke。最后一条说满一周、计数一直 0、按之前说的切回去：照约定改一行策略配置，low；毕竟是登录服务的安全开关，改完多跑一遍校验给 medium 也可以。删掉决定性几轮，中间段是没下结论的重用检测排查，「那个计数」「切回去」都不知道指什么，要在一个安全服务里自己判断该动哪个开关、动了会不会把用户踢下线：high。三选一：d1 第一次报问题，new_or_unrelated；d2 方案被否、单标签页也还有 reuse，still_unresolved；d3 review 过了、上线零误判、明说算解决了，resolved；最后一条按约定收尾，resolved。"
+}

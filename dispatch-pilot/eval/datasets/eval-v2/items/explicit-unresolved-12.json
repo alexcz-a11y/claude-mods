@@ -1,0 +1,97 @@
+{
+  "id": "explicit-unresolved-12",
+  "category": "explicit-unresolved",
+  "domain": "backend-api",
+  "bin": "d4",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "支付回调的幂等处理",
+    "SYMPTOM": "同一笔支付回调重复到达时订单会被记两次入账",
+    "ERROR": "--- FAIL: TestHandleCallback_Duplicate (0.42s) payment_callback_test.go:88: ledger entries = 2, want 1",
+    "FILE": "internal/service/payment_callback.go",
+    "FILE2": "internal/handler/webhook.go",
+    "SYMBOL": "PaymentService.HandleCallback",
+    "COMMAND": "go test ./internal/service -run TestHandleCallback_Duplicate -count=20"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "支付回调有重复入账的问题 财务对账发现上周有 4 笔订单记了两次收款 支付渠道那边说他们会重试回调 我们应该是幂等的 我写了个测试 `go test ./internal/service -run TestHandleCallback_Duplicate -count=20` 会挂 `--- FAIL: TestHandleCallback_Duplicate (0.42s) payment_callback_test.go:88: ledger entries = 2, want 1` 处理逻辑在 internal/service/payment_callback.go 的 HandleCallback 这块是真金白银 改之前想清楚"
+    },
+    {
+      "role": "assistant",
+      "text": "看了 `PaymentService.HandleCallback` 和 `internal/handler/webhook.go` 的入口。\n\n- 现在的流程：验签 → 按 `provider_txn_id` 查订单 → 写一条 `ledger_entries`（入账）→ 把订单状态改成 `paid`。整个流程没有判断「这笔是不是已经处理过」，渠道重试一次就会再写一条入账。\n- 你的测试是同一个回调连发两次，断言只有一条入账。\n\n- **改法**：写入账之前先看订单状态，已经是 `paid` 的直接返回 200（渠道要求重复回调也要回成功），不再写入账。\n- **验证**：`go test ./internal/service/...` 通过；你那条用例单跑通过，`-count=20` 跑了一遍 20 次里挂了 3 次，我看是测试里两个回调是并发发的，下面再看。\n\n顺序到达的重复回调这样就挡住了，并发的情况我接着查。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还是两条 -count=20 挂了 6 次 渠道的重试本来就可能和第一次几乎同时到 这个必须挡住"
+    },
+    {
+      "role": "assistant",
+      "text": "对，查状态和改状态之间有窗口，两个并发回调都会看到 `pending`。\n\n- **改法**：`PaymentService` 里加了一个按 `provider_txn_id` 分片的互斥锁（`sync.Map` 存 `*sync.Mutex`），同一笔交易的回调在进程内串行处理；处理完 5 分钟后清理。\n- **验证**：`go test ./internal/service -run TestHandleCallback_Duplicate -count=20` 连跑三次，60 次全过；`go test -race ./...` 没有数据竞争告警。",
+      "tools": [
+        "Edit",
+        "Bash",
+        "Read"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "单测是过了 但我们线上是 3 个副本 进程内的锁没用 staging 上我用脚本把同一个回调同时发给三个副本 50 次里还是有 4 次记了两条"
+    },
+    {
+      "role": "assistant",
+      "text": "是我考虑不周，多副本下进程内锁没有意义，锁要放在数据库上。\n\n- **改法**：去掉进程内的锁。`HandleCallback` 整段放进一个事务：先 `SELECT ... FROM orders WHERE id = $1 FOR UPDATE` 锁住订单行，在锁里判断状态、写入账、改状态，提交后返回。不同副本的并发回调会在这一行上排队，后到的读到 `paid` 直接返回。对应的 sqlc 查询加在 `internal/store/queries/orders.sql` 里，重新 `sqlc generate`。\n- **验证**：单测用 testcontainers 起的 Postgres 跑 `-count=20` 全过；staging 上我还没有权限跑你那个脚本，麻烦你再打一轮。",
+      "tools": [
+        "Read",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d4",
+      "text": "staging 打了 50 次 还是有 3 次两条 比之前少了一次 但这个是钱 差一笔都不行"
+    },
+    {
+      "role": "assistant",
+      "text": "明白。查 staging 那 3 笔双记的数据，发现两条入账里有一条不是回调写的：`internal/service/payment_reconcile.go` 里的主动查单任务（回调超时 30 秒没到就去渠道查一次）查到已支付也会走一遍入账，它没有锁订单行，也不看回调是否已经处理。\n\n- **改法**：新建 `payment_events` 表，`provider_txn_id` 加唯一约束；回调和查单两条路都先 `INSERT ... ON CONFLICT (provider_txn_id) DO NOTHING`，只有真的插进去的那一方才继续写入账，另一方直接返回。迁移加在 `internal/store/schema/0031_payment_events.sql`。\n- **验证**：单测加了「回调和查单同时到」的用例，`-count=50` 全过；`go test ./...` 全过。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d5",
+      "text": "又挂了 CI 上 `-count=20` 红了一次 还是 ledger entries = 2, want 1 staging 我也重放了一轮 还是有一笔两条"
+    },
+    {
+      "role": "assistant",
+      "text": "确认还有，四次改动（先查状态、进程内锁、订单行 `FOR UPDATE`、`payment_events` 唯一约束）都没把它挡住。我本地 `-count=200` 跑不出来，CI 上能红，说明有我本地没有的条件。\n\n现在能想到但还没查证的：CI 的 Postgres 版本或隔离级别和本地不同；入账可能还有第三条写入路径（比如退款冲正的反向逻辑写错了方向）；或者 `payment_events` 的插入和入账不在同一个事务里，失败重试时插入被回滚而入账没有。\n\n这块是钱，我先不再改代码，下一步把所有写 `ledger_entries` 的地方和它们各自的事务边界列全，再对着 CI 那次失败的日志看是哪条路径写的第二条。",
+      "tools": [
+        "Bash",
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "支付回调重复入账这个 财务昨天对账又对出来两笔双记的 我看了下都是渠道重试回调的那种 还是没解决"
+    }
+  ],
+  "middle_hint": "中间很长一段都在继续排查支付回调的重复入账：列出所有写 ledger_entries 的路径和事务边界、读 webhook 入口和 HandleCallback 的调用链、看 CI 和 staging 的日志、加观测写复现脚本，只看不改，没有结论。占位符：FEATURE 支付回调的幂等处理；SYMPTOM 同一笔支付回调重复到达时订单会被记两次入账；FILE internal/service/payment_callback.go；FILE2 internal/handler/webhook.go；SYMBOL PaymentService.HandleCallback；COMMAND go test ./internal/service -run TestHandleCallback_Duplicate -count=20。"
+}

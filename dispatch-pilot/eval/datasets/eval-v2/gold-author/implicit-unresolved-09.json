@@ -1,0 +1,25 @@
+{
+  "id": "implicit-unresolved-09",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "分发器退出时的 send on closed channel 已经改了三次（等轮询 goroutine、去掉 AfterFunc 重试、串行退出加 closing 标记），d2、d3 用户都说还会 panic；最后一条只是又贴了同一个 panic 加「再看看」，是第四次同样的失败。这是疑难并发问题，还牵涉订单事件丢失：max，xhigh 也可以。删掉决定性几轮，最后一条加上中间段的排查只像一次普通的 Go panic 调试：high。d1 第一次提出问题，标 new_or_unrelated；d2、d3 说改了还在，标 still_unresolved；最后一条贴的是同一个 panic，标 still_unresolved。"
+}

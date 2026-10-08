@@ -1,0 +1,21 @@
+{
+  "id": "single-attempt-10",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里只改过一次（workflow 加 concurrency、run_plan 的 plan 加 -lock-timeout），d2 用户说同一行报错又出现，助手之后只排查不改，中间三四万 token 也都是看日志、对锁记录，没有第二次尝试。最后一条说又挂了一次：只失败过一次的 CI 偶发问题，要跨 workflow、脚本和锁表核对时间线，high；偶发问题需要反复验证，xhigh 也可以接受；不到 max。删掉决定性几轮，最后一条本身像「重跑就过」的小毛病（单看会偏 medium），但中间段是对同一问题的持续排查，能看出是调试：high。三选一：d1 首次提出，new_or_unrelated；d2 同一行报错又出现，still_unresolved；最后一条又挂了，still_unresolved。"
+}

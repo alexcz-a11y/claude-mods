@@ -1,0 +1,63 @@
+{
+  "id": "implicit-unresolved-02",
+  "category": "implicit-unresolved",
+  "domain": "data-scripts",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "渠道收入日报今天早上没出来 cron 的邮件里最后一行是 `polars.exceptions.SchemaError: type String is incompatible with expected type Int64 (column \"campaign_id\")` 挂在 pipelines/channel_revenue.py 合并各渠道数据那一步 你查一下"
+    },
+    {
+      "role": "assistant",
+      "text": "查到了：广告合作方 B 的接口从前天起把 `campaign_id` 当字符串返回，和其他渠道的整数列合并时类型对不上。已经在数据源那层转成整数，本地补跑昨天的日报通过。\n\n**原因**\n\n- `pipelines/channel_revenue.py` 的 `combine_sources()` 把四个渠道的 DataFrame 用 `pl.concat(..., how=\"vertical\")` 拼起来，`vertical` 要求各列类型完全一致。\n- 读了 `sources/ads_partner_b.py`，再用 `make fetch-partner-b DATE=2026-10-05` 拉了一份原始 JSON 看：`\"campaign_id\": \"10293\"`，带引号。前一周存档的响应里还是 `10293`，没有引号。对方的变更日志里没写这一条。\n\n**改法**\n\n- `sources/ads_partner_b.py` 的 `normalize()` 里加了 `pl.col(\"campaign_id\").cast(pl.Int64)`，其他列没动。\n- 加了一个用例 `tests/test_ads_partner_b.py::test_campaign_id_string_is_cast`，喂一份字符串 id 的样例响应，断言出来是 `Int64`。\n\n**验证**\n\n- `pytest tests/` 39 个全部通过。\n- `make channel-revenue DATE=2026-10-06` 本地补跑昨天的日报，生成了 `out/channel_revenue_2026-10-06.parquet`，行数 2 418，和前一天量级一致。\n\n今晚 cron 会照常跑，明早看邮件就知道了。要不要我顺手把今天缺的那份也补出来？",
+      "tools": [
+        "Read",
+        "Bash",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "补的那份我看了没问题 但今早 cron 又挂了 邮件里还是 `polars.exceptions.SchemaError: type String is incompatible with expected type Int64 (column \"campaign_id\")`"
+    },
+    {
+      "role": "assistant",
+      "text": "又找到一条路：报错不是来自合作方 B 新拉的数据，而是本地缓存的历史分区。cron 跑的时候读的是缓存，我上次只改了接口那条路径。已经改成读缓存时也统一类型，并把最近 7 天的分区重写了一遍。\n\n**怎么查的**\n\n- 读了 cron 那台机器上的日志 `logs/nightly_2026-10-07.log`：这次挂在 `sources/cache.py` 的 `load_partitions()`，不是 `normalize()`。\n- `load_partitions()` 用 `pl.scan_csv(\"data/raw/ads/*/*.csv\")` 一次读所有分区，类型是按第一个文件推断的。B 渠道前两天的分区是按字符串写下来的，和更早的整数分区混在一起，`collect()` 时就报了同一个 `SchemaError`。\n- 我上次本地补跑走的是 `--no-cache`，所以没碰到这条路径。\n\n**改法**\n\n- `load_partitions()` 显式传 `schema_overrides={\"campaign_id\": pl.Int64}`，同时 `null_values=[\"\", \"N/A\"]`：B 渠道有几行 `campaign_id` 是 `N/A`，不处理的话转整数会报错。\n- 写了个一次性脚本 `scripts/rewrite_partitions.py`，把 `data/raw/ads/partner_b/` 下最近 7 天的 CSV 读出来、转好类型重新写回，原文件备份在 `data/raw/ads/_backup_20261007/`。\n\n**验证**\n\n- `pytest tests/` 41 个通过（加了两个 `load_partitions` 的用例）。\n- 不带 `--no-cache`，按 cron 的方式跑了 `make nightly DATE=2026-10-06` 和 `DATE=2026-10-07`，两天都正常出了日报。\n\n明早再看一次 cron？",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "今天还是没出来 邮件一样 `polars.exceptions.SchemaError: type String is incompatible with expected type Int64 (column \"campaign_id\")`"
+    },
+    {
+      "role": "assistant",
+      "text": "这次挂的位置又往后挪了：缓存那步已经过了，报错来自从数仓拉的渠道 C。C 的数据走的是 SQL，不经过我前两次改的那两个地方。已经在合并之前对所有渠道统一做类型转换，不再一个一个源去补。\n\n**怎么查的**\n\n- 今早的日志里 `load_partitions()` 已经通过，栈落在 `combine_sources()` 的 `pl.concat` 上。\n- 把四个渠道合并前的 schema 各打了一遍：A、B、D 的 `campaign_id` 都是 `Int64` 了，C 是 `String`。\n- C 来自 `sql/partner_c_spend.sql`，数仓那边上周把 `campaign_id` 列从 `BIGINT` 改成了 `VARCHAR(32)`（`information_schema` 里能看到变更时间是 10 月 3 日），之后几天 C 渠道正好没数据，昨天开始才有。\n- 另外发现 C 里有 `c-10293` 这种带前缀的 id，直接转整数会失败。\n\n**改法**\n\n- `combine_sources()` 在 `concat` 之前对每个 DataFrame 调一个新的 `coerce_schema()`：按 `pipelines/schema.py` 里的 `CHANNEL_REVENUE_SCHEMA` 统一类型。`campaign_id` 先去掉 `c-` 前缀再转整数，转不了的记到 `out/rejects/` 里，不让整份日报挂掉。\n- `sql/partner_c_spend.sql` 里不动，数仓那边的改动不归我们管。\n\n**验证**\n\n- `pytest tests/` 44 个通过，新加的用例覆盖四个渠道各种类型组合。\n- 用 cron 的同一个命令 `make nightly DATE=2026-10-07` 跑了一遍：日报正常生成，`out/rejects/` 里 0 行。\n\n今晚的 cron 你再留意一下。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "今早的邮件 `polars.exceptions.SchemaError: type String is incompatible with expected type Int64 (column \"campaign_id\")` 你再看看"
+    }
+  ],
+  "middle_hint": "中间是同一个 etl-scripts 仓库里的别的活：加报表字段、补测试、整理 Makefile、升级依赖、解释脚本，和渠道收入日报的类型报错无关。"
+}

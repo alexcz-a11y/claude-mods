@@ -1,0 +1,90 @@
+{
+  "id": "explicit-unresolved-09",
+  "category": "explicit-unresolved",
+  "domain": "perf",
+  "bin": "d1",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "search 接口的 p99 压不下来 用 bench/search-mixed.js 跑 200 VU 五分钟 p99 在 800ms 左右 p50 才 60 多 我们目标是 p99 250 以内 下周要上大促 你帮我看看瓶颈在哪 先从最可能的改起"
+    },
+    {
+      "role": "assistant",
+      "text": "先看了压测结果和应用侧的指标。\n\n- k6 的输出里，慢请求集中在带过滤条件的查询（`category` + `priceRange`），纯关键词的 p99 只有 180ms 左右。\n- Actuator 的 `lettuce.command.completion` 指标在压测期间 p99 有 300 多毫秒，Redis 本身 `SLOWLOG` 里没有慢命令，`INFO clients` 显示连接数一直卡在 8：`application-bench.yml` 里 Lettuce 连接池上限写的是 8，200 VU 下请求在池子上排队。\n\n- **改法**：`spring.data.redis.lettuce.pool` 的上限从 8 调到 64，最小空闲 16；`SearchCacheService` 里读缓存的超时从 2s 降到 200ms，超时直接回源，不让一个慢的缓存请求拖住整条链路。\n- **验证**：`./mvnw test -pl search-core` 通过。压测我没在本机跑（本机只有 4 核，结果没参考价值），你用 bench 环境再跑一遍 `k6 run bench/search-mixed.js` 吧。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "跑了 p99 780 基本没变 redis 那个指标倒是下去了"
+    },
+    {
+      "role": "assistant",
+      "text": "Redis 排队那块确实没了，所以瓶颈不在那。这次看了缓存命中率：压测期间 `search.cache.hit` / `search.cache.miss` 算下来只有 12%，大部分请求都在打 Elasticsearch。\n\n原因在 `SearchCacheKey.of(request)`：它把整个请求对象 `toString()` 拿来做键，里面带了 `requestTime` 和 `traceId`，每次都不一样，等于缓存只对重试有用。\n\n- **改法**：键只取规范化后的查询字段：关键词 trim 加小写、过滤条件按字段名排序、分页参数，去掉时间戳和追踪 ID；价格区间按 10 元取整（和产品确认过这个粒度可以）。\n- **验证**：`SearchCacheKeyTest` 加了 6 个用例（字段顺序不同、大小写不同、带不同 traceId 的请求得到同一个键），全过。\n\n命中率上去以后打到 ES 的请求应该少一大半，p99 会明显下来。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "命中率是上去了 从 12% 到 61% 但 p99 还是 760 没怎么动 我有点不理解"
+    },
+    {
+      "role": "assistant",
+      "text": "命中率翻了五倍 p99 只动了 20ms，说明慢的那部分请求不走缓存或者本来就不命中。按 `traceId` 抽了 50 个超过 500ms 的请求看 span：47 个慢在 `es.search` 这一段，时间几乎全花在**拿连接**上，真正在 ES 里执行的 `took` 只有 30–90ms。\n\n`EsClientConfig` 里 Elasticsearch 的低层 `RestClient` 用的是 Apache HttpAsyncClient 的默认连接池：每个路由上限 10 个、总共 30 个。我们的 ES 集群走的是一个负载均衡地址，只算一个路由，所以并发打 ES 的请求最多 10 个，其余排队。\n\n- **改法**：`setHttpClientConfigCallback` 里把每个路由的连接上限调到 100、总数 200，连接的请求超时设成 500ms，超时直接返回降级结果而不是一直等。\n- **验证**：`./mvnw test` 全过；在 bench 环境用 50 VU 小跑了 2 分钟，`es.search` 拿连接的耗时从几百毫秒降到个位数。完整的 200 VU 还没跑，你跑一下看看。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d4",
+      "text": "200 VU 跑完了 p99 740 还是一样 而且 p50 从 62 变成 70 了 好像还变差了一点"
+    },
+    {
+      "role": "assistant",
+      "text": "拿连接的排队确实消失了，但 p99 没变、p50 还略差，说明之前是两个瓶颈叠着，或者排队只是把别的问题挡住了。这次录了一份 JFR（`perf/jfr/search-200vu-0412.jfr`），用 JMC 看：\n\n- GC：G1 在压测期间有 40 多次超过 150ms 的停顿，最长 410ms，时间点和 k6 里的慢请求尖峰对得上。\n- 分配：热点是 `SearchResultMapper.toDto` 里每条结果都复制一份 `_source` 的 `Map`，200 VU 下每秒分配 1.8GB。\n\n- **改法**：bench 和线上的 JVM 参数换成分代 ZGC（`-XX:+UseZGC -XX:+ZGenerational`），堆从 4G 调到 6G；`toDto` 改成直接从 `_source` 的 `JsonNode` 取需要的 12 个字段，不再整份复制。\n- **验证**：本地单测全过；50 VU 小跑一次，JFR 里 GC 停顿都在 1ms 以内，分配速率降到每秒 600MB 左右。\n\n这次停顿应该彻底没了，再跑一次完整的 200 VU 吧。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d5",
+      "text": "GC 停顿确实没了 JFR 里干干净净 但 p99 还是 720 离 250 差得远 p50 回到 60 了"
+    },
+    {
+      "role": "assistant",
+      "text": "p99 还在 720，四次改动（Redis 连接池、缓存键、ES 连接池、换 ZGC 加减少分配）都各自修掉了一个真问题，但都不是拖住 p99 的那个。现在能确定的：慢请求里拿连接和 GC 都不再耗时，ES 端 `took` 也不高，可客户端看到的 `es.search` span 仍然有 600ms 左右。\n\n这说明时间花在 ES 返回之后、或者网络和反序列化这一段，前面几次都没量到。下一步我想在 `SearchService.search` 里按阶段打点（发请求、收到响应头、读完 body、反序列化完），先把 600ms 拆清楚落在哪一段，量清楚了再动代码。",
+      "tools": [
+        "Bash",
+        "Read"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "search p99 那个我刚又在 bench 环境压了一遍 `k6 run bench/search-mixed.js` 200 VU 还是 720ms 上下 没解决 大促前得搞定"
+    }
+  ],
+  "middle_hint": "中间在 search-svc 里做了几件别的小事：加个接口字段、补单测、改配置说明、升级依赖之类，和 search 接口 p99 无关，没有再碰这个问题。"
+}

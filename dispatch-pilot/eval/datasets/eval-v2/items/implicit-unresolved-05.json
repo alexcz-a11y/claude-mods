@@ -1,0 +1,71 @@
+{
+  "id": "implicit-unresolved-05",
+  "category": "implicit-unresolved",
+  "domain": "docs-writing",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "中文站 Webhooks 指南页的构建",
+    "SYMPTOM": "中文站构建到 Webhooks 指南页就失败",
+    "ERROR": "Error: MDX compilation failed for file \"i18n/zh/docusaurus-plugin-content-docs/current/guides/webhooks.mdx\" Cause: Could not parse expression with acorn",
+    "FILE": "i18n/zh/docusaurus-plugin-content-docs/current/guides/webhooks.mdx",
+    "FILE2": "scripts/sync-i18n.js",
+    "SYMBOL": "EventPayloadTable",
+    "COMMAND": "npm run build -- --locale zh"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "中文站 build 挂了 `npm run build -- --locale zh` 报\nError: MDX compilation failed for file \"i18n/zh/docusaurus-plugin-content-docs/current/guides/webhooks.mdx\" Cause: Could not parse expression with acorn\n英文站是好的 这页上周刚同步过翻译 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "找到了：中文页正文里有一处 `{event_id}` 没包在反引号里，MDX 把花括号当成了 JS 表达式去解析。英文原文是包着的，翻译时丢了。已经改了，中文站本地构建通过。\n\n**原因**\n\n- 读了 `i18n/zh/docusaurus-plugin-content-docs/current/guides/webhooks.mdx` 和对应的英文 `docs/guides/webhooks.mdx`：英文第 42 行是 ``每个事件都带 `{event_id}` ``，中文同一处成了 `每个事件都带 {event_id}，可以用来去重`，反引号没了。\n- MDX 3 里正文中的 `{...}` 是表达式，`event_id，可以用来去重` 这种内容 acorn 解析不了，报的正是 `Could not parse expression with acorn`。\n\n**改法**\n\n- 这一处补回反引号。\n- 写了个正则把 `i18n/zh/` 下所有 `.mdx` 里不在代码块、不在反引号里的 `{` 扫了一遍，又找到两处（`guides/retries.mdx` 和 `reference/events.mdx`），一起补上。\n\n**验证**\n\n- `npx docusaurus build --locale zh`：构建成功，`build/zh/docs/guides/webhooks/index.html` 生成正常。\n- `npx markdownlint-cli2 \"i18n/zh/**/*.mdx\"` 无新告警。\n\n你那边拉下来跑一次？",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "我拉了 跑的还是这个错\nError: MDX compilation failed for file \"i18n/zh/docusaurus-plugin-content-docs/current/guides/webhooks.mdx\" Cause: Could not parse expression with acorn"
+    },
+    {
+      "role": "assistant",
+      "text": "同一个文件里还有第二处会让 MDX 解析失败的地方：一段 HTML 注释。上次我扫的只是花括号，没扫到它。已经改成 MDX 的注释写法，这一页单独构建通过。\n\n**怎么查的**\n\n- 把 `webhooks.mdx` 二分着删段落，用 `npx docusaurus build --locale zh` 反复构建，缩到第 88 到 95 行：`<EventPayloadTable>` 组件上面有一行 `<!-- 待校对：字段说明以英文为准 -->`。\n- MDX 3 不支持 HTML 注释，`<!` 开头会被当成 JSX 去解析，错误信息同样落在 acorn 上。这行是上周翻译同步时校对的人加的，英文原文里没有。\n\n**改法**\n\n- 改成 `{/* 待校对：字段说明以英文为准 */}`。\n- 全站 grep 了 `<!--`：`i18n/zh/` 下只有这一处，`docs/` 和 `blog/` 里没有。\n\n**验证**\n\n- `npx docusaurus build --locale zh` 构建成功。\n- 页面在 `npm run serve` 里打开看了，`EventPayloadTable` 正常渲染，注释不显示。\n\n再拉一次跑跑？",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是这个 一字不差\nError: MDX compilation failed for file \"i18n/zh/docusaurus-plugin-content-docs/current/guides/webhooks.mdx\" Cause: Could not parse expression with acorn"
+    },
+    {
+      "role": "assistant",
+      "text": "这回找到我前两次都没复现出你那边失败的原因：你跑的 `npm run build` 会先跑 `prebuild`，里面的 `scripts/sync-i18n.js` 会用翻译记忆把中文页重新生成一遍，把我改的地方又盖回去了。我一直直接调 `docusaurus build`，跳过了这一步。已经把翻译记忆里的源头也改了，并且按你的方式完整跑了一遍。\n\n**原因**\n\n- `package.json` 里 `\"prebuild\": \"node scripts/sync-i18n.js\"`。它读 `i18n/zh/tm.json`，对每个段落按英文原文查译文，查到就写回中文页。我前两次改的是生成出来的结果，`tm.json` 里存的还是带 `{event_id}` 和 HTML 注释的旧译文。\n- 另外 `tm.json` 里 `EventPayloadTable` 的 `fields` 属性那段也被当成了正文翻译，`\"type\": \"string\"` 的直引号被换成了中文引号 `“string”`，这也是 acorn 解析不了的写法。\n\n**改法**\n\n- `i18n/zh/tm.json` 里这三条译文都改了：补回反引号、换成 MDX 注释、`fields` 属性那段恢复成原样。\n- `scripts/sync-i18n.js` 加了一条规则：JSX 组件的属性值不进翻译记忆，原样从英文拷过来，避免以后再被翻成中文引号。\n\n**验证**\n\n- `npm run build -- --locale zh`（带 `prebuild`）构建成功。\n- 构建后 `git status` 干净，说明 `sync-i18n.js` 生成出来的中文页和仓库里的一致，不会再盖掉。\n\n推上去以后看一下 CI？",
+      "tools": [
+        "Read",
+        "Bash",
+        "Grep",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "CI 的 build 日志\nError: MDX compilation failed for file \"i18n/zh/docusaurus-plugin-content-docs/current/guides/webhooks.mdx\" Cause: Could not parse expression with acorn"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的继续排查：读 webhooks.mdx 和 sync-i18n.js、看 EventPayloadTable 的属性、对比中英文页、翻构建和 CI 日志、问 MDX 解析规则，没有新的修改，也没有结论。"
+}

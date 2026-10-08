@@ -1,0 +1,71 @@
+{
+  "id": "implicit-unresolved-03",
+  "category": "implicit-unresolved",
+  "domain": "devops-ci",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "staging 环境的 Helm 部署",
+    "SYMPTOM": "deploy-staging 每次跑到 helm upgrade 那步都一直等到超时",
+    "ERROR": "Error: UPGRADE FAILED: timed out waiting for the condition",
+    "FILE": "scripts/helm-deploy.sh",
+    "FILE2": "charts/api/values-staging.yaml",
+    "SYMBOL": "deploy_release",
+    "COMMAND": "gh workflow run deploy-staging.yml --ref main"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "staging 部署这两天一直挂 deploy-staging 跑到 helm upgrade 那步就干等 五分钟后报 `Error: UPGRADE FAILED: timed out waiting for the condition` 然后 atomic 回滚 部署脚本是 scripts/helm-deploy.sh 里的 deploy_release 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "先做了两件事：把超时放宽，并在失败时把集群里的事件打出来。上周换了基础镜像以后镜像大了一倍，五分钟可能真的不够；就算不是这个原因，下次失败也能看到卡在哪。改动推在分支 `ci/helm-timeout`，还没合。\n\n**看到的情况**\n\n- `scripts/helm-deploy.sh` 的 `deploy_release` 调的是 `helm upgrade --install api charts/api -f charts/api/values-staging.yaml --wait --atomic --timeout 5m`。\n- `.github/workflows/deploy-staging.yml` 最近 6 次 run 里 5 次挂在这一步，日志里只有这一行报错，`--atomic` 回滚后什么都没留下。\n- `docker/api.Dockerfile` 上周从 `eclipse-temurin:21-jre-alpine` 换成了 `21-jre`，`docker image ls` 看本地镜像从 210MB 变成 470MB。staging 节点是 `t3.medium`，冷拉镜像几分钟不奇怪。\n\n**改法**\n\n- `--timeout 5m` 改成 `15m`，写成脚本里的变量 `HELM_TIMEOUT`，workflow 里可以覆盖。\n- `deploy_release` 失败时（`trap ... ERR`）先跑 `kubectl get events -n staging --sort-by=.lastTimestamp | tail -50` 和 `kubectl get pods -n staging -o wide`，再退出，这样回滚前的现场会留在 Actions 日志里。\n\n**验证**\n\n- `shellcheck scripts/helm-deploy.sh` 无告警，`actionlint` 通过。\n- `helm upgrade --dry-run` 对 staging 跑了一遍，渲染正常。\n\n合进 main 以后跑一次 deploy-staging 看看？",
+      "tools": [
+        "Read",
+        "Bash",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "合了 跑了 这次等了十五分钟 还是 `Error: UPGRADE FAILED: timed out waiting for the condition` 失败时打出来的 events 里有一堆这个\n<pasted_content id=\"3a9f\">\nWarning  Unhealthy  pod/api-7d9c6b5f4-x2kqp  Readiness probe failed: HTTP probe failed with statuscode: 404\nWarning  Unhealthy  pod/api-7d9c6b5f4-x2kqp  Readiness probe failed: HTTP probe failed with statuscode: 404\nNormal   Killing    pod/api-7d9c6b5f4-x2kqp  Stopping container api\n</pasted_content id=\"3a9f\">"
+    },
+    {
+      "role": "assistant",
+      "text": "这段 events 很有用：新 Pod 起来了，但就绪探针一直 404，所以 Helm 一直等不到 Ready。原因是 staging 的探针路径还是旧的。已经改了，渲染和 lint 都过了。\n\n**原因**\n\n- 应用在 2.4 版把健康检查从 `/healthz` 拆成了 `/health/live` 和 `/health/ready`（`git log -S healthz` 找到的是 9 月 22 日那次提交）。\n- `charts/api/values-prod.yaml` 当时一起改了，`charts/api/values-staging.yaml` 漏了：`readinessProbe.httpGet.path` 还是 `/healthz`，`livenessProbe` 也是。\n- 存活探针也是 404，但它的 `initialDelaySeconds` 是 60，加上 `failureThreshold: 3`，Pod 会被反复杀掉重启，事件里的 `Killing` 就是这个。\n\n**改法**\n\n- `values-staging.yaml` 里两个探针分别改成 `/health/ready` 和 `/health/live`，和 prod 对齐。\n- 顺手把 `values-staging.yaml` 和 `values-prod.yaml` diff 了一遍，除了副本数、资源和域名这些本该不同的，没有别的漏改。\n\n**验证**\n\n- `helm lint charts/api -f charts/api/values-staging.yaml` 通过，`helm template` 渲染出来的探针路径正确。\n- `kubeconform` 校验渲染结果通过。\n- 本地 `docker run` 起了新镜像，`curl localhost:8080/health/ready` 返回 200。\n\n推到 main 了，你再跑一次？",
+      "tools": [
+        "Read",
+        "Bash",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "又跑了一遍 还是超时 还是这行 `Error: UPGRADE FAILED: timed out waiting for the condition` 这回 events 里没有 404 了 只看到 api-migrate 那个 job 的 pod 一直是 Pending"
+    },
+    {
+      "role": "assistant",
+      "text": "这次卡在 Helm 的 pre-upgrade hook 上：迁移 Job 起不来，Helm 等的是这个 hook，根本还没走到 Deployment。Job 用的镜像标签在部署时可能还不存在，因为 deploy 这个 job 没等镜像构建完。已经补上依赖，并给 hook Job 加了期限，以后它起不来会直接报错而不是干等。\n\n**原因**\n\n- `charts/api/templates/migrate-job.yaml` 带 `helm.sh/hook: pre-upgrade`，镜像是 `{{ .Values.image.repository }}:{{ .Values.image.tag }}`，`tag` 由 workflow 传 `${{ github.sha }}`。\n- `.github/workflows/deploy-staging.yml` 里 `deploy` job 和 `build-and-push` job 是并行的，没有 `needs:`。之前镜像小、构建快，大多数时候 deploy 走到 helm 时镜像已经推完；换了大镜像以后构建要七八分钟，deploy 先到，Job 的 Pod 拉不到镜像。\n- 你看到的 `Pending` 应该就是 `ErrImagePull` 前后的状态；hook Job 没有设期限，Helm 就一直等到超时。\n\n**改法**\n\n- `deploy` job 加 `needs: build-and-push`。\n- `migrate-job.yaml` 加 `activeDeadlineSeconds: 600` 和 `backoffLimit: 2`，并加上 `helm.sh/hook-delete-policy: before-hook-creation`，避免上一次残留的 Job 挡住下一次。\n- `deploy_release` 里给 `helm upgrade` 加了 `--debug`，日志里能看到 Helm 在等哪个资源。\n\n**验证**\n\n- `actionlint` 通过；`helm template` 渲染出的 Job 带上了新字段。\n- 在 ECR 里确认 `${{ github.sha }}` 对应的标签只有在 `build-and-push` 完成后才出现，和推断一致。\n\n推到 main 了，再跑一次 deploy-staging 看看。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "又跑了一次 deploy-staging 最后还是 `Error: UPGRADE FAILED: timed out waiting for the condition` 再看看"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的继续排查：读 deploy_release 和 workflow、看 Helm hook 和探针配置、翻 Actions 日志和集群事件、问 Helm 等待的原理，没有新的修改，也没有结论。"
+}

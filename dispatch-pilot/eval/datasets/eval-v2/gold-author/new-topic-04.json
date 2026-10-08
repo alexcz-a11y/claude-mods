@@ -1,0 +1,21 @@
+{
+  "id": "new-topic-04",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后这条把凭证问题放下，去处理 Node.js 16 弃用警告，是新任务。决定性几轮 d1 的回复里已经查清：警告只点名 actions/setup-node@v3 和 hashicorp/setup-terraform@v2，两者都只在 .github/actions/setup/action.yml 里出现，9 个 workflow 都通过这个 composite action 装工具，checkout 已经是 v4、凭证那步已经是 v4。所以只要在一个文件里把两行版本号升到 v4 和 v3，是照着明确指令的机械改动：low；顺手看一下两个 action 新版本的输入有没有变化、跑一次流水线确认，说成 medium 也可以。删掉决定性几轮，只看「node16 的 action 要弃用，升到 node20」，要先找出哪些 action 是 node16、散落在多少个 workflow 里、各自新版本有没有不兼容：medium。三选一：d1 第一次提出 terraform init 偶发失败，new_or_unrelated；d2 加了校验后同样的报错又出现，still_unresolved；最后这条换了话题，new_or_unrelated。"
+}

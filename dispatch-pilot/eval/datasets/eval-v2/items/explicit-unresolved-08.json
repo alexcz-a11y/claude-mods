@@ -1,0 +1,97 @@
+{
+  "id": "explicit-unresolved-08",
+  "category": "explicit-unresolved",
+  "domain": "docs-writing",
+  "bin": "d4",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "中文站的标题锚点",
+    "SYMPTOM": "中文站构建时报锚点失效，点页内目录跳不到对应小节",
+    "ERROR": "[ERROR] Docusaurus found broken anchors! Broken anchor on source page path = /zh/docs/api/auth: -> linking to /zh/docs/api/auth#获取访问令牌",
+    "FILE": "i18n/zh/docusaurus-plugin-content-docs/current/api/auth.mdx",
+    "FILE2": "scripts/heading-ids.js",
+    "SYMBOL": "slugifyHeading",
+    "COMMAND": "npm run build -- --locale zh"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "中文站现在 build 不过了 CI 上 `npm run build -- --locale zh` 报一堆锚点失效 第一条是 `[ERROR] Docusaurus found broken anchors! Broken anchor on source page path = /zh/docs/api/auth: -> linking to /zh/docs/api/auth#获取访问令牌` 英文站是好的 本地 start 的时候点右边目录也跳不到小节 只回到页顶 你看下怎么回事"
+    },
+    {
+      "role": "assistant",
+      "text": "先看了构建日志和 auth 那页。\n\n- 报错一共 14 条，全在 `i18n/zh/docusaurus-plugin-content-docs/current/` 下面，集中在 `api/auth.mdx`、`api/webhooks.mdx`、`guides/sso.mdx` 三个页面，都是指向中文小标题的锚点，比如 `#获取访问令牌`、`#签名校验`。\n- 中文页面的标题没写显式 id，Docusaurus 按标题文字自动生成；英文页面有一半已经带了 `{#get-access-token}` 这种显式 id，所以英文站不受影响。\n\n最直接的做法是给中文页面也补上显式 id。跑了 `npx docusaurus write-heading-ids i18n/zh`，它给 37 个文件的 412 个标题补上了 `{#...}`，diff 看过一遍，只动了标题行。本地跑 `npm run build -- --locale zh`，构建要 4 分钟左右，你那边 CI 再跑一次确认吧，我这边日志还在滚。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还是报 CI 挂在同一条 auth 那页 #获取访问令牌 一字不差 总数还是 14 条"
+    },
+    {
+      "role": "assistant",
+      "text": "看了生成出来的 id，问题在仓库自己的脚本上。\n\n`package.json` 里 `write-heading-ids` 其实被 `scripts/heading-ids.js` 包了一层（CI 的 `prebuild` 也会跑它），里面的 `slugifyHeading` 用 `/[^a-z0-9-]/g` 把所有非 ASCII 字符删掉了，中文标题全部变成空字符串，再去重就成了 `{#-1}`、`{#-2}` 这种。链接里写的 `#获取访问令牌` 自然对不上。\n\n- **改法**：`slugifyHeading` 改成保留 CJK 字符（`\\p{Script=Han}`），只把空白换成 `-`、去掉标点，和 Docusaurus 默认的 github-slugger 行为对齐；已经生成的 `{#-1}` 这类 id 全部删掉重跑。\n- **验证**：`scripts/heading-ids.test.js` 加了 5 个中文标题的用例，`node --test scripts/` 通过。auth.mdx 里「获取访问令牌」那个标题现在是 `{#获取访问令牌}`。\n\n再触发一次 CI 看看。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是那个 broken anchors 报错 条数从 14 变成 11 了 但 auth 那条还在 还是 #获取访问令牌"
+    },
+    {
+      "role": "assistant",
+      "text": "剩下的 11 条我逐条对了链接和标题：\n\n- 有 8 条是链接写的中文锚点，但对应标题在翻译时直接沿用了英文源文件的显式 id（`## 获取访问令牌 {#get-access-token}`），所以页面上真实的锚点是 `#get-access-token`；\n- 另外 3 条是 `webhooks.mdx` 里标题改过字，链接没跟着改。\n\n- **改法**：中文页面里的链接统一改成指向英文 id（和英文站共用一套锚点，以后翻译改标题文字也不会断），用脚本批量替换了 3 个文件里的 11 处，`webhooks.mdx` 的 3 处手动对过；`scripts/heading-ids.js` 加了个检查：中文文件里出现「中文锚点链接 + 英文显式 id」时直接报错。\n- **验证**：`npx markdownlint-cli2 \"i18n/zh/**/*.mdx\"` 没有新问题；本地 build 跑到一半被我中断了（其他 locale 太慢），只看了 zh 的输出，auth 那页没再出现在列表里。\n\n麻烦你让 CI 完整跑一次。",
+      "tools": [
+        "Bash",
+        "Grep",
+        "Edit",
+        "Read"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d4",
+      "text": "auth.mdx 那条还在 而且我本地 `npm run start -- --locale zh` 打开 /zh/docs/api/auth 点右边目录的「获取访问令牌」还是跳到页顶 别的几条倒是没了"
+    },
+    {
+      "role": "assistant",
+      "text": "auth 这一页单独看了一下，它和其他页面不一样：标题是在 MDX 里写的 `## 获取访问令牌 {#get-access-token}`，但这一页顶上 import 了 `@site/src/components/ApiTabs`，整页是 MDX 3 解析的。MDX 3 会把标题里的 `{#...}` 当成 JS 表达式，而不是标题 id 语法，渲染出来的标题没有 id，所以链接改成英文也没用，目录也跳不过去。\n\n- **改法**：`docusaurus.config.js` 里打开 `markdown.mdx1Compat.headingIds: true`，让 MDX 3 也认 `{#id}` 的写法；顺手确认了 `markdown.format` 是 `detect`。\n- **验证**：本地 `npm run start -- --locale zh`，开发者工具里看 auth 页那个 `h2`，现在带了 `id=\"get-access-token\"`。完整 build 还没跑完。\n\n你那边再 build 一次，应该就剩 0 条了。",
+      "tools": [
+        "Read",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d5",
+      "text": "还是一样 CI 那条报错一字不差 `/zh/docs/api/auth#获取访问令牌` 本地点目录也还是回页顶 别的页都好了 就这一页"
+    },
+    {
+      "role": "assistant",
+      "text": "收到，auth 这一页四次改下来报错原样没变，前面的判断都没打中它：显式 id、`slugifyHeading`、改链接、`mdx1Compat` 这几处对别的页面有效，对它无效。\n\n注意到一个前面没看的点：报错里链接的目标仍然是 `#获取访问令牌`，可 auth.mdx 正文里我已经把这个链接改成 `#get-access-token` 了，说明构建时读到的可能根本不是我们改的这份文件，或者链接不是从正文来的（比如侧边栏、`ApiTabs` 组件、或者某个版本目录里的同名文件）。\n\n先不改东西，下一步把 auth 这一页从源文件到最终 HTML 的路径理一遍，查清楚这条链接是从哪儿生成的再说。",
+      "tools": [
+        "Grep",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "中文站锚点这个 我把 .docusaurus 和 build 目录都删了重新跑了一遍 `npm run build -- --locale zh` auth 那页的报错还在 一字不差 还是没好"
+    }
+  ],
+  "middle_hint": "中间很长一段都在继续排查中文站 auth 页锚点失效：理 auth.mdx 从源文件到 HTML 的生成路径、看 heading-ids.js 和 slugifyHeading、对比版本目录和侧边栏、看构建日志、写复现脚本，只看不改，也没有结论。占位符：FEATURE 中文站的标题锚点；SYMPTOM 中文站构建时报锚点失效，点页内目录跳不到对应小节；FILE i18n/zh/docusaurus-plugin-content-docs/current/api/auth.mdx；FILE2 scripts/heading-ids.js；SYMBOL slugifyHeading；COMMAND npm run build -- --locale zh。"
+}

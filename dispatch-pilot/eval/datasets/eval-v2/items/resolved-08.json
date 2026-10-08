@@ -1,0 +1,57 @@
+{
+  "id": "resolved-08",
+  "category": "resolved",
+  "domain": "cc-mods",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "diff-pane 一碰到大文件就卡死 刚才让你改了一下 package-lock.json 整个界面卡了十来秒 debug 日志里是 `hooks module diff-pane@inline: tool.result handler timed out after 10000ms` 代码在 diff-pane/hooks/diff-pane.ts"
+    },
+    {
+      "role": "assistant",
+      "text": "卡在算 diff 上，先把大文件挡掉了。\n\n- **原因**：`diff-pane.ts` 里 `tool.result` 的处理函数对每次 `Edit`、`Write` 调 `computeDiff(before, after)`，它是教科书式的 LCS 动态规划，按行建一张 `n × m` 的表。`package-lock.json` 一万两千多行，前后各一份就是一亿四千多万个格子，10 秒超时之前算不完。\n- **改法**：前后任何一边超过 3000 行就不算逐行 diff，pane 里只显示「文件太大：+N / -M 行」，用的是按行计数的粗略统计。\n- **验证**：`diff-pane/tests/diff.test.ts` 补了一个 12000 行的用例，断言走统计分支、50 ms 内返回。`command claude plugin test ./diff-pane` 11 个全过，`claude plugin validate ./diff-pane --strict` 通过。\n\n你再改一下 lockfile 看看还卡不卡。",
+      "tools": [
+        "Read",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "lockfile 是不卡了 但是改一个 2400 多行的 ts 文件还是卡 日志里还是那个 timed out 而且我发现卡的不光是改完那一下 往上翻 pane 的时候也一顿一顿的"
+    },
+    {
+      "role": "assistant",
+      "text": "「翻 pane 也顿」这个线索很关键，查下来是两个问题叠在一起。\n\n- **第一处，算法**：2400 行在 3000 的门槛以下，还是走 LCS，`2400 × 2400` 五百多万格，每格还要做一次字符串比较，单次就要好几秒。\n- **第二处，算的时机**：pane 的渲染 hook 里也调了 `computeDiff`。原来的写法是 `tool.result` 只把前后两份文本存进 `$.state`，diff 在渲染时现算，而 pane 每次滚动、每次 `ui.invalidate` 都会重新渲染，所以翻一下就重算一次，这就是一顿一顿的来源；`tool.result` 那边超时，是因为它为了更新标题上的 `+N/-M` 也算了一遍。\n- **改法**：\n  - 新写了 `diff-pane/hooks/myers.ts`，按行的 Myers 差分，复杂度 `O((n+m)·D)`，`D` 是改动的行数，改几行的大文件很快；\n  - diff 只在 `tool.result` 里算一次，结果按 `toolUseId` 存进 `$.state`，渲染 hook 只读不算；\n  - 大文件的门槛从 3000 行放宽到 20000 行，超过了仍走统计。\n- **验证**：补了「2400 行改 5 处」「12000 行改 1 处」两个用例，分别 3 ms、11 ms；又加了一个断言：连续渲染 50 次，`computeDiff` 只被调一次。14 个用例全过，validate `--strict` 和 `tsc -p ./diff-pane` 都没问题。\n\n你再拿那个 2400 行的文件试一下，顺便翻一翻 pane。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Write",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "这回好了 那个 2400 行的文件连着改了五六次 diff 一下就出来 翻 pane 也不顿了 lockfile 现在也能看到真的 diff 行 就这样"
+    },
+    {
+      "role": "assistant",
+      "text": "好。这次的改动在 `diff-pane/hooks/diff-pane.ts`、新加的 `diff-pane/hooks/myers.ts` 和 `diff-pane/tests/diff.test.ts` 三个文件里，还没提交，要提交的时候说一声。"
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "我在给 diff-pane 写 CHANGELOG 之前那个一改大文件就卡死的事 最后到底是哪儿的问题 一两句话说清楚就行"
+    }
+  ],
+  "middle_hint": "中间在同一个 my-mods 仓库里做别的事：给别的 mod 补测试、改 README、整理 plugin.json、升级类型、加小命令等，和 diff-pane 的卡顿无关，没有再碰这个问题。"
+}

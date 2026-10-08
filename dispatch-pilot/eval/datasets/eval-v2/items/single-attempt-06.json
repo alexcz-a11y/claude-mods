@@ -1,0 +1,41 @@
+{
+  "id": "single-attempt-06",
+  "category": "single-attempt",
+  "domain": "backend-api",
+  "bin": "d2",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "订单列表的游标分页",
+    "SYMPTOM": "按游标翻完全部订单时有几单重复出现、另有几单漏掉",
+    "ERROR": "reconcile: cursor pages mismatch dup=3 missing=2 total=1840 expected=1839",
+    "FILE": "internal/service/order_list.go",
+    "FILE2": "internal/store/queries/orders.sql",
+    "SYMBOL": "ListOrdersByCursor",
+    "COMMAND": "go test ./internal/service -run TestListOrdersByCursor"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "订单列表的游标分页有问题 对账脚本每天按游标把 GET /v1/orders 全量翻一遍 跟 count 对不上 今天的输出是\n`reconcile: cursor pages mismatch dup=3 missing=2 total=1840 expected=1839`\n我看了下重复的那几单 created_at 都一样 是批量导入的 代码在 internal/service/order_list.go"
+    },
+    {
+      "role": "assistant",
+      "text": "原因是游标里只有 `created_at`，同一时刻的订单落在两页交界处时会重复或漏掉。已经改成 `(created_at, id)` 的复合游标。\n\n**原因**\n\n- `internal/service/order_list.go` 的 `ListOrdersByCursor` 把上一页最后一条的 `created_at` 编码成游标，查询在 `internal/store/queries/orders.sql` 的 `ListOrdersAfter`：`WHERE created_at < $1 ORDER BY created_at DESC LIMIT $2`。\n- 批量导入的订单 `created_at` 相同。假设一页的最后一条和下一页本该出现的几条是同一时刻：用 `<` 时这几条整个被跳过（漏）；而 `ORDER BY` 里只有 `created_at`，同值的行顺序不稳定，同一批行在两次查询里排序不同，又会有行在两页各出现一次（重）。dup 和 missing 同时出现就是这个原因。\n\n**改法**\n\n- 游标改成 `created_at` 加 `id`，base64 编码的 JSON：`{\"t\":\"<RFC3339Nano>\",\"id\":<int64>}`；旧格式的游标解析失败时返回 400，`api/openapi.yaml` 里补了说明（游标本来就是不透明的，客户端只是原样回传）。\n- 查询改成 `WHERE (created_at, id) < ($1, $2) ORDER BY created_at DESC, id DESC LIMIT $3`，`sqlc generate` 重新生成了 `internal/store/orders.sql.go`。\n- 检查了索引：已经有 `orders_created_at_id_idx (created_at DESC, id DESC)`，`EXPLAIN` 走的是 Index Scan，不用加迁移。\n\n**验证**\n\n- `go test ./internal/service -run TestListOrdersByCursor`：补了一个用例，插 25 条 `created_at` 完全相同的订单，页大小 10，翻三页断言不重不漏；原来的 6 个用例也都过了。\n- `go test ./...` 全过，`go vet ./...` 干净。\n\n改动没提交。对账脚本是每天早上跑的，明天看一下结果。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "游标分页那个 今天早上的对账还是对不上 dup=2 missing=2"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的继续排查：读分页的调用链和 SQL、看对账脚本和数据库里的时间精度、写复现脚本、列可能的原因，没有新的修改尝试，也没有结论。占位符：FEATURE 订单列表的游标分页；SYMPTOM 按游标翻完全部订单时有几单重复出现、另有几单漏掉；ERROR reconcile: cursor pages mismatch dup=3 missing=2 total=1840 expected=1839；FILE internal/service/order_list.go；FILE2 internal/store/queries/orders.sql；SYMBOL ListOrdersByCursor；COMMAND go test ./internal/service -run TestListOrdersByCursor。"
+}

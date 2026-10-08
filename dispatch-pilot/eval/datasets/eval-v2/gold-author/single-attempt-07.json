@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-07",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "决定性几轮说明「日期错一天」其实是时区问题：daily_sales.sql 按会话时区（连接写死 UTC）切天、job 用服务器 UTC 算昨天，牵涉查询、job 和 DAL 的连接配置，边界时间点要紧；助手只改过一次（SQL 改成按 Asia/Shanghai 切、job 改 target_day、补测试），隔了几万 token 别的活，用户说还是错一天。只失败过一次、原因有明确线索可查，是常规的调试：high；考虑到第一次的判断已经被推翻、要重新核对线上的执行路径，xhigh 也可以接受，不到 max。删掉决定性几轮，中间都是别的事，最后一条看起来只是报表日期差一天的小问题，像改一处日期计算：medium。三选一：d1 第一次提出问题，new_or_unrelated；最后一条隔着别的活回头说原问题还在，still_unresolved。"
+}

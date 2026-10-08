@@ -1,0 +1,98 @@
+{
+  "id": "explicit-unresolved-10",
+  "category": "explicit-unresolved",
+  "domain": "security",
+  "bin": "d2",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "刷新令牌的轮换和重放检测",
+    "SYMPTOM": "旧的刷新令牌在轮换之后还能再换出一次新的访问令牌",
+    "ERROR": "AssertionError: expected 200 to be 401 // Object.is equality",
+    "FILE": "src/session/refreshTokens.ts",
+    "FILE2": "src/oauth/tokenEndpoint.ts",
+    "SYMBOL": "rotateRefreshToken",
+    "COMMAND": "npx vitest run src/session/refreshTokens.test.ts"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "刷新令牌轮换有个洞 安全那边做渗透发现的 旧的 refresh token 轮换以后还能再用一次 换出新的 access token 按设计应该直接 401 并且把整个令牌族吊销 我补了个测试 `npx vitest run src/session/refreshTokens.test.ts` 红在 `AssertionError: expected 200 to be 401 // Object.is equality` 逻辑在 src/session/refreshTokens.ts 的 rotateRefreshToken"
+    },
+    {
+      "role": "assistant",
+      "text": "看了 `rotateRefreshToken` 和 `/oauth/token` 的调用路径（`src/oauth/tokenEndpoint.ts` 的 `grant_type=refresh_token` 分支）。\n\n- 现在的顺序是：校验旧令牌 → 签发新的刷新令牌和访问令牌 → 把新令牌写库 → **最后**才把旧令牌标成 `revoked`。签发和写库之间有一次 KMS 签名调用，几十毫秒，这段时间里旧令牌仍是有效的，同一个旧令牌的第二个请求能通过校验。\n- 你的测试正好是先轮换一次、再用旧令牌请求，期待 401。\n\n- **改法**：调换顺序，先把旧令牌标成 `revoked`（带 `rotated_at` 和 `replaced_by`），再签发新的；签发失败时回滚这一步。\n- **验证**：本地跑了 `npx vitest run src/session/refreshTokens.test.ts`，你加的那条用例过了，原有 22 个也都过。\n\n不过渗透报告里如果是并发打的，可能还要再看，你让安全那边复测一下。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还是能用 他们用 scripts/replay-refresh.ts 同一个旧 token 并发打 20 个请求 有 2 个拿到 200 而且我本地重跑那个单测 时不时也会红 同一个断言"
+    },
+    {
+      "role": "assistant",
+      "text": "并发下还能过，说明不是顺序问题，是「读旧令牌、判断没吊销、再改成吊销」这三步不是原子的：20 个请求同时读到 `revoked=false`，都往下走了。单测偶尔红，是因为测试里 `Promise.all` 发了两个请求，时序碰巧也会撞上。\n\n- **改法**：`rotateRefreshToken` 整段放进一个事务，先 `SELECT ... FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE` 锁住这一行，判断、吊销、写新令牌都在锁里做，提交后才返回。并发的第二个请求会等第一个提交，读到的已经是 `revoked=true`，走重放分支吊销整族、返回 401。\n- **验证**：单测里加了一个 20 路并发的用例，本地跑了 30 遍（`--repeat 30`），全过；`npm run lint` 和 Semgrep（`semgrep --config semgrep/`）没有新告警。\n\n这次从数据库层面串行化了，应该没有窗口了。",
+      "tools": [
+        "Read",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "测试还是红 同一个断言 expected 200 to be 401 你那个 30 遍是在你本地的 sqlite 跑的吧 CI 上是 postgres 跑了三次红了两次 replay 脚本 20 个里还有 2 个 200"
+    },
+    {
+      "role": "assistant",
+      "text": "你说得对，本地测试的 `TEST_DB` 默认是内存里的 sqlite，`FOR UPDATE` 在 sqlite 上直接被忽略了，我那 30 遍没有意义，这是我的疏忽。换成 `docker compose up -d postgres` 在 Postgres 上跑，确实 10 次里红 4 次。\n\n再看了一下请求路径，发现在数据库之前还有一层：`src/session/tokenCache.ts` 用 Redis 缓存了「已校验的刷新令牌」30 秒，`tokenEndpoint.ts` 命中缓存时直接跳过了 `rotateRefreshToken` 里的锁和吊销判断，用缓存里的令牌信息签发。轮换时没有删这条缓存，所以 30 秒内旧令牌都可能从缓存这条路过去。\n\n- **改法**：刷新令牌不再进缓存（缓存只留给访问令牌的内省）；轮换时额外 `DEL` 一次旧令牌的键，防止已有的缓存条目还在。\n- **验证**：Postgres 上跑单测 20 次，19 次过、1 次红；replay 脚本本地打了 5 轮，有 1 轮出现 1 个 200。还没到零，但比之前少了。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d4",
+      "text": "缓存那条确实该删 但问题还在 CI 上还是会红 replay 20 个里还有 1 个 200 这种安全问题有一个就不行"
+    },
+    {
+      "role": "assistant",
+      "text": "同意，一个也不行。剩下的那一个，我怀疑在重放检测之后的处理：检测到旧令牌被重用时，代码会调用 `revokeFamily(familyId)` 吊销整族，但 `revokeFamily` 是在事务提交**之后**用一条单独的 `UPDATE` 做的，而先到的那个请求在同一个事务里已经签出了新令牌，族吊销和新令牌写入之间没有约束，新令牌可能漏网。\n\n- **改法**：`refresh_tokens` 加一个 `family_revoked_at` 列（迁移 `migrations/0042_family_revoked.sql`），签发新令牌前在同一个事务里检查族有没有被吊销；`revokeFamily` 挪进事务里，和重放判断一起提交；访问令牌签发时也带上 `family_id`，族被吊销后内省一律返回无效。\n- **验证**：Postgres 上单测跑 50 次全过；replay 脚本打 10 轮，每轮 20 个请求，只有第一个拿到 200（正常的那一次），其余全是 401。",
+      "tools": [
+        "Read",
+        "Edit",
+        "Bash",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d5",
+      "text": "不对 安全那边在 staging 上又打了一遍 还是有 1 个重放的请求拿到了 200 单测在 CI 上也又红了一次 跟最开始那条一模一样"
+    },
+    {
+      "role": "assistant",
+      "text": "明白，staging 上还能重放，CI 也又红了，四次改动（调换吊销顺序、`FOR UPDATE` 事务、去掉 Redis 缓存那条路、族吊销挪进事务）都没堵住。我本地 Postgres 上现在复现不出来，说明 staging 和 CI 有本地没有的条件，我想到的有：多实例部署（staging 是 3 个副本）、连接池用的是 PgBouncer 事务模式、或者还有别的入口在签发令牌（比如 `src/oauth/` 下的设备码流程）。\n\n先不改代码。下一步把所有能签出访问令牌的入口列全，再看 staging 的部署形态下 `rotateRefreshToken` 的事务和锁是不是真的生效，弄清楚这一个请求是从哪条路过去的。",
+      "tools": [
+        "Bash",
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "刷新令牌重放这个 安全那边今天在 staging 用 replay 脚本又打了一轮 还是有请求拿着旧的 refresh token 换到了新的 access token 没解决"
+    }
+  ],
+  "middle_hint": "中间一段继续排查刷新令牌重放：列出所有签发令牌的入口、看 staging 的多副本和连接池配置、读 rotateRefreshToken 和 tokenEndpoint 的调用链、加日志写复现脚本，只看不改，没有结论。占位符：FEATURE 刷新令牌的轮换和重放检测；SYMPTOM 旧的刷新令牌在轮换之后还能再换出一次新的访问令牌；FILE src/session/refreshTokens.ts；FILE2 src/oauth/tokenEndpoint.ts；SYMBOL rotateRefreshToken；COMMAND npx vitest run src/session/refreshTokens.test.ts。"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-02",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "决定性几轮里中文文档的 MD051 只处理过一次：在 i18n/zh 下加了关掉 MD051 的子目录配置，本地 markdownlint-cli2 跑过 0 条，但没跑 CI 实际调用的 lint:docs。最后一条说推上去 CI 还是那 23 条：第二次提，本地和 CI 结果不一致，要查 lint 脚本怎么加载配置，是调试，high；只失败过一次、方向明确，不到 max，xhigh 也能接受。删掉决定性几轮，看到的是几万 token 围绕这个检查的排查一直没结论、用户说还是红，看不出只改过一次，容易当成久攻不下的问题往上判：xhigh。三选一：d1 第一次提出问题，new_or_unrelated；最后一条说 CI 还是同样的 23 条，still_unresolved。"
+}

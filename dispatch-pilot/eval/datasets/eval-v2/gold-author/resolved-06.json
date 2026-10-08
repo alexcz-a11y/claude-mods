@@ -1,0 +1,25 @@
+{
+  "id": "resolved-06",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "GMV 日报和财务对不上：决定性几轮里第一次只修了退款重复计算（d2 说还差两千八），第二次查到汇率按 UTC 取日期和浮点舍入两个原因，9 月和 10 月前六天都对到分，用户确认解决并提交（d3）。d1 里用户让停掉每天的定时任务，助手注释掉了 `cron/etl.crontab` 里 `0 6 * * *` 那一行，d3 后也说明了恢复的步骤。最后这条是月结也对上了，让恢复之前停掉的任务、时间照旧：去掉一行注释再 `make install-cron`，机械的收尾，low，medium 也可以（恢复后确认一下 crontab 装上了）。删掉决定性几轮，中间是别的活，「之前停掉的定时任务」是哪个、原来几点都不知道，要翻 git 历史和 crontab 去找，还要判断恢复会不会推错数：medium；三选一也会变成 new_or_unrelated。三选一：d1 第一次提出问题，new_or_unrelated；d2 改了以后说还差，still_unresolved；d3 明说解决了，resolved；最后这条收尾，resolved。"
+}

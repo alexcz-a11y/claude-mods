@@ -1,0 +1,25 @@
+{
+  "id": "resolved-12",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "决定性几轮里订单列表线上白屏（Maximum update depth exceeded）本地复现不了，第一次收住 useMemo/useCallback 没用，Sentry 还在涨；第二次用生产构建复现，查出 useOrderFilters 选择器每次返回新对象、加上筛选变化后重置 page 的 effect 绕成死循环，改成 useShallow 并把重置挪进 setFilters，上线两天零事件、QA 也点过，用户明说算解决了。最后一条要三四句给产品看的周报：原因和改法都在决定性几轮里，照着用白话复述，low；措辞上多花点心思给 medium 也可以。删掉决定性几轮，中间段全是别的事，对话里找不到这件事的来龙去脉，要去翻 git log 和改动过的文件把原因重新拼出来再写：medium。三选一：d1 第一次报问题，new_or_unrelated；d2 改完 Sentry 还在涨，still_unresolved；d3 两天零事件、明说算解决了，resolved；最后一条为已了结的问题写周报，接受了结果，resolved。"
+}

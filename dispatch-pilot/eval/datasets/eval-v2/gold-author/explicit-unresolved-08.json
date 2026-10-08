@@ -1,0 +1,33 @@
+{
+  "id": "explicit-unresolved-08",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里中文站 auth 页的锚点报错已经改了四次（write-heading-ids、改 slugifyHeading、改链接指向英文 id、开 mdx1Compat.headingIds），用户每次都说同一条报错一字不差还在，最后助手也承认没打中。之后十几万 token 都在排查没有结论，最后一条用户自己清缓存重跑后明说还没好：多次修复未果、原因不明，max；xhigh 也能接受。删掉决定性几轮，中间段只有排查没有任何尝试，最后一条看起来是一次普通的构建报错调试：high。三选一：d1 首次提出，new_or_unrelated；d2–d5 都是同一条报错还在（d3、d4 里别的页面有改善，auth 那条没变），still_unresolved；最后一条报错仍在，still_unresolved。"
+}

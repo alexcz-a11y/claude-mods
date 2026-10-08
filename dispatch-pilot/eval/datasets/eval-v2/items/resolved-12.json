@@ -1,0 +1,57 @@
+{
+  "id": "resolved-12",
+  "category": "resolved",
+  "domain": "frontend",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "订单列表页线上偶尔白屏 Sentry 上一天几十条 `Error: Maximum update depth exceeded. This can happen when a component repeatedly calls setState inside componentWillUpdate or componentDidUpdate.` 本地 npm run dev 怎么点都复现不了 页面在 src/pages/orders/OrderList.tsx 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "先把每次渲染都生成新引用的几处可疑的地方收住了。\n\n- **看到的**：Sentry 的面包屑里，白屏前用户都在改筛选条件。`OrderList.tsx` 里 `columns` 每次渲染都重新建数组，`src/components/OrderTable.tsx` 有一个 `useEffect([columns])` 会调 `setColumnWidths`；筛选栏的 `onChange` 也是内联函数，传给了 `memo` 过的 `FilterBar`。\n- **改法**：`columns` 用 `useMemo` 包起来，`onChange` 用 `useCallback`；`OrderTable` 的那个 effect 改成只在列的 key 列表变化时才重算宽度。\n- **验证**：`npx vitest run src/pages/orders` 全过；`npm run dev` 下照 Sentry 面包屑的顺序点了一遍，没出问题。不过本地本来就复现不了，这个验证说明不了太多。\n\n上线后看一下 Sentry 那个 issue 还有没有新事件。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "上线一天了 Sentry 那个 issue 还在涨 昨天到今天又 40 多条 面包屑跟之前一样 都是改了筛选之后"
+    },
+    {
+      "role": "assistant",
+      "text": "dev 下复现不了，我改用生产构建复现，找到了。\n\n- **复现**：`npm run build && npx vite preview`，照面包屑先选「待发货」再改日期范围，第三四次就白屏，和 Sentry 上一样。dev 下不出现，是因为 dev 用的是 React 和 Zustand 的开发构建，加上 StrictMode 的双调用，渲染时序不一样，循环被打断了，生产构建里没有这层。\n- **原因**：`src/store/orderFilters.ts` 的 `useOrderFilters` 选择器写的是 `useOrderFilterStore(s => ({ ...s.filters, page: s.page }))`，每次都返回一个新对象。Zustand 4 底下是 `useSyncExternalStore`，选择器的返回值每次都不相等，就当成状态变了；`OrderList` 里还有一个 effect 在筛选变了之后把 `page` 设回 1，`page` 一变选择器又返回新对象，就绕成了死循环。改筛选这一步正好触发那个 effect。\n- **改法**：选择器用 `useShallow` 包起来做浅比较；「筛选变了 page 回到 1」挪进 store 的 `setFilters` 里一次完成，`OrderList` 里那个 effect 删掉。上一轮加的 `useMemo`、`useCallback` 留着，本身没坏处。\n- **验证**：同样的生产构建照面包屑点了 30 多次，没再白屏；`e2e/orders.spec.ts` 加了一个用例：生产构建下连续改五次筛选，断言列表还在、控制台没有 `Maximum update depth`。`npx playwright test e2e/orders.spec.ts` 和 `npx vitest run` 都过了。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "上线两天了 Sentry 那个 issue 一条新事件都没有 之前一天几十条 QA 也照复现步骤在线上点了十几遍 没问题 这个算是解决了"
+    },
+    {
+      "role": "assistant",
+      "text": "好。Sentry 上那个 issue 可以标成 resolved，以后再有新事件它会自己重新打开。这次的改动在 `src/store/orderFilters.ts`、`src/pages/orders/OrderList.tsx`、`src/components/OrderTable.tsx` 和 `e2e/orders.spec.ts` 四个文件里。"
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "周报里要写一下订单列表白屏那件事 你帮我写三四句 原因和怎么修的 写给产品看 不用太技术"
+    }
+  ],
+  "middle_hint": "中间在同一个 shop-admin 仓库里做别的事：加字段、改文案、补测试、升级依赖、整理配置等，和订单列表白屏无关，没有再碰这个问题。"
+}

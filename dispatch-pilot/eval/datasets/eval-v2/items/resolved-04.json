@@ -1,0 +1,75 @@
+{
+  "id": "resolved-04",
+  "category": "resolved",
+  "domain": "database",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "商家后台订单列表的接口越来越慢 慢查询日志里 queries/merchant_orders.sql 那条 `WHERE merchant_id = $1 ORDER BY created_at DESC LIMIT 50` 要 3 秒多 orders 现在 1.2 亿行 我想加个 (merchant_id, created_at) 的索引 你写个迁移"
+    },
+    {
+      "role": "assistant",
+      "text": "写好了 `migrations/V044__orders_merchant_created_idx.sql`：\n\n```sql\nCREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_merchant_created\n    ON orders (merchant_id, created_at DESC);\n```\n\n- **为什么用 CONCURRENTLY**：orders 线上一直有写入，普通 `CREATE INDEX` 会拿 SHARE 锁，1.2 亿行估计要建二三十分钟，这段时间所有下单、改状态的写入都会被挡住。CONCURRENTLY 不挡写入，代价是慢一些、要扫两遍表。\n- **现在的计划**：`EXPLAIN` 看现在是 `Index Scan Backward using orders_created_at_idx` 再按 `merchant_id` 过滤，大商家还好，小商家要往回扫几百万行才凑够 50 条，所以慢。\n- **验证**：`pytest tests/migrations` 用 testcontainers 起 PostgreSQL 15，按顺序执行全部迁移，通过；灌了 200 万行假数据后 `EXPLAIN ANALYZE` 变成 `Index Scan using idx_orders_merchant_created`，从 1.8 秒降到 0.3 毫秒。\n\n你先在预发 `flyway migrate` 跑一下。",
+      "tools": [
+        "Read",
+        "Glob",
+        "Write",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "预发跑 flyway migrate 直接失败了 `ERROR: CREATE INDEX CONCURRENTLY cannot run inside a transaction block`"
+    },
+    {
+      "role": "assistant",
+      "text": "Flyway 默认把每个迁移包在一个事务里，而 PostgreSQL 不允许 CONCURRENTLY 在事务里跑。本地测试没测出来，是测试的问题，两边都改了。\n\n- **为什么本地过了**：`tests/migrations/conftest.py` 不是用 Flyway 跑迁移，而是用 psycopg 以 autocommit 模式逐个执行 SQL 文件，没有事务，所以 CONCURRENTLY 能跑。和线上的执行方式不一样。\n- **改法**：\n  1. 加了 `migrations/V044__orders_merchant_created_idx.sql.conf`，内容是 `executeInTransaction=false`，这是 Flyway 的单脚本配置，只让这一个迁移不包事务，别的迁移不受影响。\n  2. 去掉了 `IF NOT EXISTS`：非事务的 CONCURRENTLY 如果中途失败，会留下一个 INVALID 的同名索引，带着 `IF NOT EXISTS` 再跑会直接跳过，迁移显示成功、索引却不能用。去掉以后重跑会明确报「已存在」，不会悄悄过去。\n  3. `conftest.py` 改成用 `flyway/flyway:10` 容器执行迁移，和预发、线上一致。改之前的 V044 在新测试里能复现同样的报错，改之后通过。\n- **验证**：`pytest tests/migrations` 通过，`flyway info` 里 V044 是 Success。\n\n预发上一次失败的 V044 在 `flyway_schema_history` 里应该没有记录（事务回滚了），直接重新 `flyway migrate` 就行。",
+      "tools": [
+        "Read",
+        "Bash",
+        "Write",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "预发又跑了 这次建了 20 多分钟 然后报 `ERROR: canceling statement due to statement timeout` 现在 orders 上有个 idx_orders_merchant_created 是 INVALID 的 再跑 migrate 说已存在"
+    },
+    {
+      "role": "assistant",
+      "text": "这次是建索引在等一个长事务，等到超时被取消了。原因和收拾的办法都清楚了。\n\n- **原因**：CONCURRENTLY 建索引的最后阶段要等所有比它早开始的事务结束。预发上 `jobs/daily_report.py` 每天 02:00 到 03:10 跑报表，开着一个可重复读的长事务；你跑迁移那会儿它正在跑，索引一直在等它。`flyway_migrator` 这个角色设置了 `statement_timeout = 20min`（`ALTER ROLE` 里配的，防止迁移卡死），时间一到语句被取消，留下了 INVALID 的索引。Flyway 在 `flyway_schema_history` 里把 V044 记成了失败。\n- **收拾**（按顺序在预发执行）：\n  1. `DROP INDEX CONCURRENTLY idx_orders_merchant_created;` 删掉 INVALID 的索引；\n  2. `flyway repair`，把失败的 V044 记录清掉；\n  3. 避开报表任务的时段重跑 `flyway migrate`。\n- **改法**：V044 开头加了 `SET statement_timeout = 0;`，因为这个迁移不在事务里、和建索引是同一个连接，只对这次会话生效；另外加了 `scripts/check_long_tx.sql`，列出开了 5 分钟以上的事务，跑迁移前先看一眼，有就等它结束。\n- **验证**：本地在另一个连接里开一个长事务再跑迁移，能复现「一直在等」；关掉那个事务后建完，`indisvalid` 是 true。\n\n线上的报表任务时段和预发一样，线上窗口也避开 02:00 到 03:10。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit",
+        "Write"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d4",
+      "text": "照你说的 预发删了 repair 了 上午 10 点重跑 这次 24 分钟建完 indisvalid 是 true 接口 p99 从 3.2 秒降到 45 毫秒 昨晚线上窗口也跑了 25 分钟 没报错 慢查询日志里那条没了 这个解决了 对了 线上之前我手动在 psql 里试过一次 CREATE INDEX CONCURRENTLY 名字叫 idx_orders_merchant_created_tmp 跑到一半被我 ctrl c 了 可能有残留 回头再看"
+    },
+    {
+      "role": "assistant",
+      "text": "好，这个就算收尾了。线上那个手动试过的索引说一下：\n\n- **如果有残留**：它一定是 INVALID 的，查询规划器不会用它，所以不影响查询；但每次写 orders 还是要维护它，白白多一份写入开销，最好删掉。确认的办法：\n\n```sql\nSELECT indexrelid::regclass, indisvalid FROM pg_index\nWHERE indexrelid = 'idx_orders_merchant_created_tmp'::regclass;\n```\n\n- **删的话照 V044 的路子写一个迁移**：\n  - `migrations/V046__drop_orders_merchant_created_tmp.sql`，只有一行 `DROP INDEX CONCURRENTLY IF EXISTS idx_orders_merchant_created_tmp;`，带 `IF EXISTS` 是因为预发和本地没有这个索引，也要能跑过；\n  - 旁边放 `V046__drop_orders_merchant_created_tmp.sql.conf`，写 `executeInTransaction=false`，和 V044 一样；\n  - `DROP INDEX CONCURRENTLY` 只等正在用 orders 的事务结束，几秒钟就完，不用避开报表时段，也不用改 `statement_timeout`。\n\nV045 已经被商品表加列那个迁移占了，所以编号是 V046。你看过线上确实有，再让我写。",
+      "tools": [
+        "Read"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "orders 那个索引 线上 \\di 看了 确实有个 idx_orders_merchant_created_tmp 是 INVALID 的 照之前说的写个迁移删掉吧"
+    }
+  ],
+  "middle_hint": "中间在 shop-db 里做别的事：别的表加字段和迁移、改查询、补 dal 层测试、整理定时任务之类，和 orders 的索引无关，没有再碰这个问题。"
+}

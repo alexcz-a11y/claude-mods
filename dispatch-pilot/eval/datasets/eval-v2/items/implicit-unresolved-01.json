@@ -1,0 +1,71 @@
+{
+  "id": "implicit-unresolved-01",
+  "category": "implicit-unresolved",
+  "domain": "ios",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "预算页分期交易的月度汇总",
+    "SYMPTOM": "分期交易在预算页里那个月的已用金额被算成两倍",
+    "ERROR": "BudgetSummaryTests.swift:88: error: -[LedgerTests.BudgetSummaryTests testInstallmentAcrossMonths] : XCTAssertEqual failed: (\"1299.00\") is not equal to (\"649.50\")",
+    "FILE": "Ledger/Features/Budget/BudgetSummaryViewModel.swift",
+    "FILE2": "Ledger/Persistence/TransactionRepository.swift",
+    "SYMBOL": "monthlyTotal(for:)",
+    "COMMAND": "xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BudgetSummaryTests"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "预算页有个金额算错的问题 分期的交易那个月的已用金额会算成两倍 比如 3 月买了个 1299 的东西分两期 3 月应该只算 649.5 结果预算页显示用了 1299 我写了个测试能复现 跑出来是这个\nBudgetSummaryTests.swift:88: error: -[LedgerTests.BudgetSummaryTests testInstallmentAcrossMonths] : XCTAssertEqual failed: (\"1299.00\") is not equal to (\"649.50\")\n你看下 BudgetSummaryViewModel 里 monthlyTotal(for:) 那块"
+    },
+    {
+      "role": "assistant",
+      "text": "改好了，问题出在取数的日期区间上：月末和下月初交界的那一刻被两个月都算进去了。`testInstallmentAcrossMonths` 现在是绿的。\n\n**原因**\n\n- `BudgetSummaryViewModel.monthlyTotal(for:)` 先用 `Calendar.current.dateInterval(of: .month, for:)` 算出当月区间，再交给 `TransactionRepository.transactions(in:)` 取数。\n- `Ledger/Persistence/TransactionRepository.swift` 里拼谓词用的是 `date >= %@ AND date <= %@`，右边是闭区间。`DateInterval` 的 `end` 是下月初 00:00，所以下个月第一天零点的交易会同时落进本月和下月。\n- 你的测试数据里第二期正好记在 4 月 1 日 00:00（`InstallmentPlanner` 生成后续各期时把时间截到了当天零点），于是 3 月取到了两期，加起来 1299。\n\n**改法**\n\n- 谓词改成 `date >= %@ AND date < %@`，左闭右开，和 `DateInterval` 的语义对齐。\n- 顺手 Grep 了一遍 `<= %@`：`Persistence/` 下还有 `RecurringRuleStore` 用了同样的写法，但它按天取规则、不跨月汇总，这次没动，记一笔。\n\n**验证**\n\n- 跑了 `xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BudgetSummaryTests`：6 个用例全部通过，包括你那个。\n- `TransactionRepositoryTests` 18 个也跑了一遍，都通过。\n\n你在模拟器上开预算页切到 3 月再看一眼？",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还是不对 预算页 3 月还是显示用了 1299 我这边那个测试也还是红的\nBudgetSummaryTests.swift:88: error: -[LedgerTests.BudgetSummaryTests testInstallmentAcrossMonths] : XCTAssertEqual failed: (\"1299.00\") is not equal to (\"649.50\")"
+    },
+    {
+      "role": "assistant",
+      "text": "又找到一处会重复计数的地方，这次在分期的存储结构上，和日期边界无关。改完后我这边 clean 了重新跑，测试通过。\n\n**怎么查的**\n\n- 先在你那个测试里把 `transactions(in:)` 取回来的每一行打出来：3 月取到了两行，金额都是 649.5，一行 `isInstallmentParent == true`，一行是第 1 期的子记录。\n- 读了 `Ledger/Services/InstallmentPlanner.swift`：建分期时，父记录本身记的是每期金额（不是总额），日期是下单日 3 月 15 日；子记录从第 1 期开始生成，第 1 期的日期也是 3 月 15 日。也就是说第一期被父记录和第 1 期子记录各记了一次。\n- 上次改的边界问题是真的，但不是这个用例变红的主要原因：我上次跑通过，是因为本地的 fixtures 里第二期恰好不在 3 月，和你机器上的数据不一样。\n\n**改法**\n\n- `TransactionRepository.transactions(in:)` 加了一个参数 `includeInstallmentParents: Bool = true`，`monthlyTotal(for:)` 调用时传 `false`，谓词里多一个 `isInstallmentParent == NO`。别的地方（交易列表要显示父记录）不受影响。\n- 没动 `InstallmentPlanner` 的生成逻辑：线上已经有存量数据，改生成方式还得写迁移，先在汇总这边挡住。\n\n**验证**\n\n- 删了 DerivedData，跑 `BudgetSummaryTests`：6 个通过。\n- 另外补了一个用例 `testInstallmentParentNotCounted`，三期分期、跨三个月，各月都只算一期，也通过。\n\n你拉一下再跑一遍？",
+      "tools": [
+        "Read",
+        "Bash",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "我 clean 了 DerivedData 重新跑的 还是这一行 一模一样\nBudgetSummaryTests.swift:88: error: -[LedgerTests.BudgetSummaryTests testInstallmentAcrossMonths] : XCTAssertEqual failed: (\"1299.00\") is not equal to (\"649.50\")"
+    },
+    {
+      "role": "assistant",
+      "text": "这次看出来和时区有关：你的模拟器和我这边的时区不一样，同一份 fixtures 在两边落到的月份不同。已经改成按账本自己的时区算月份，两个时区下测试都通过。\n\n**为什么我这边过、你那边不过**\n\n- `LedgerTests/Fixtures/installments.json` 里的日期是 `ISO8601DateFormatter` 解析的 UTC 时间，第 2 期是 `2026-03-31T16:30:00Z`。\n- `monthlyTotal(for:)` 用的是 `Calendar.current`。我这边模拟器是 UTC，这一期落在 3 月 31 日，算 3 月；你的模拟器区域是中国大陆，`Asia/Shanghai` 下这一刻是 4 月 1 日 00:30，算 4 月。\n- 再叠加上一轮说的父记录：在你那边 3 月取到的是父记录、第 1 期子记录，以及因为 `InstallmentPlanner` 用 `Calendar.current` 推算后续各期而被推回 3 月的另一行，三者里去掉父记录之后仍然多一行，所以结果还是 1299。\n\n**改法**\n\n- `monthlyTotal(for:)` 和 `InstallmentPlanner` 都改成用 `LedgerCalendar.shared`（按账本设置里的时区，默认取账本创建时的时区），不再用 `Calendar.current`。\n- fixtures 解析时显式带上账本时区，测试里新加了 `setUp` 把 `LedgerCalendar.shared.timeZone` 固定住。\n\n**验证**\n\n- `TZ=UTC` 和 `TZ=Asia/Shanghai` 各跑了一遍 `BudgetSummaryTests`，都是 7 个通过。\n- 模拟器的区域改成中国大陆后手动建了一笔 1299 两期的分期，预算页 3 月显示 649.50，4 月 649.50。\n\n你那边再跑一次测试，顺便在模拟器上看下预算页？",
+      "tools": [
+        "Read",
+        "Bash",
+        "Grep",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "模拟器上又跑了一遍\nBudgetSummaryTests.swift:88: error: -[LedgerTests.BudgetSummaryTests testInstallmentAcrossMonths] : XCTAssertEqual failed: (\"1299.00\") is not equal to (\"649.50\")"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的继续排查：读 monthlyTotal(for:) 和 TransactionRepository 的调用链、看分期数据怎么生成、打日志、问时区和 Core Data 谓词的原理，没有新的修改，也没有结论。"
+}

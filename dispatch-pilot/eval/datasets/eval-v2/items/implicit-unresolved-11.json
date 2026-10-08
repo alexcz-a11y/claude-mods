@@ -1,0 +1,72 @@
+{
+  "id": "implicit-unresolved-11",
+  "category": "implicit-unresolved",
+  "domain": "ios",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "后台导入银行账单",
+    "SYMPTOM": "导入进行中在列表里编辑一笔账，保存时报合并冲突，刚改的内容丢了",
+    "ERROR": "Error Domain=NSCocoaErrorDomain Code=133020 \"Could not merge changes.\"",
+    "FILE": "Ledger/Services/StatementImporter.swift",
+    "FILE2": "Ledger/Persistence/PersistenceController.swift",
+    "SYMBOL": "StatementImporter.importBatch",
+    "COMMAND": "xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:LedgerTests/ImportMergeTests"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "导入银行账单的时候 如果我同时在列表里改一笔账 点保存就报错 改的东西也没了\n`Error Domain=NSCocoaErrorDomain Code=133020 \"Could not merge changes.\"`\n导入是 Ledger/Services/StatementImporter.swift 在后台 context 里跑的"
+    },
+    {
+      "role": "assistant",
+      "text": "是 viewContext 的合并策略还是默认的「冲突就报错」，后台导入改了同一批对象，前台保存时就冲突了。\n\n读了 `Ledger/Persistence/PersistenceController.swift` 和 `Ledger/Services/StatementImporter.swift`：`StatementImporter.importBatch` 在 `container.newBackgroundContext()` 里逐行插入 `Transaction`，每 200 行 `save()` 一次，插入后还会更新同一账户下已有交易的 `balanceAfter`（余额是按日期滚动算的）。你在列表里编辑的那笔账如果属于正在导入的账户，后台已经改过它的 `balanceAfter` 并落盘，前台 viewContext 手里的快照是旧的；viewContext 的 `mergePolicy` 没设，默认 `NSErrorMergePolicy`，于是保存时报 133020，编辑被丢弃。\n\n- **改法**：`PersistenceController` 初始化时给 viewContext 设 `automaticallyMergesChangesFromParent = true` 和 `mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy`：前台改的属性优先，后台改的其它属性（比如 `balanceAfter`）照样合进来。\n- **验证**：新加 `LedgerTests/ImportMergeTests.swift`：后台导入 1000 行的同时在 viewContext 改一笔同账户的交易再保存，断言不报错、备注和金额都保留。`xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:LedgerTests/ImportMergeTests` 通过，全量 `LedgerTests` 也过了。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还是报 一样的 133020 我是在真机上试的 导了一个三千多行的 csv"
+    },
+    {
+      "role": "assistant",
+      "text": "大文件会走另一条路：超过 2000 行时余额重算用的是 `NSBatchUpdateRequest`，它直接改 SQLite，不经过任何 context，也不发变更通知，viewContext 的自动合并根本收不到。\n\n`StatementImporter.importBatch` 末尾有个分支：行数超过 `batchThreshold`（2000）就调 `recalculateBalancesInBatch(accountID:)`，用 `NSBatchUpdateRequest` 一次改掉这个账户全部交易的 `balanceAfter`。测试里只导了 1000 行，没走到这个分支；你的 3000 多行正好走到了。批量更新后 viewContext 里对象的行版本落后于存储，保存时 Core Data 比对版本号发现不一致，报 133020。\n\n- **改法**：批量更新的 `resultType` 改成 `.updatedObjectIDsResultType`，拿到改过的 objectID 后调 `NSManagedObjectContext.mergeChanges(fromRemoteContextSave: [NSUpdatedObjectsKey: ids], into: [viewContext])`，让 viewContext 刷新这些对象；导入用的后台 context 也设成 `NSMergeByPropertyObjectTrumpMergePolicy`。\n- **验证**：`ImportMergeTests` 加了 3500 行的用例，导入中途修改一笔再保存；用 Xcode MCP 跑了 `ImportMergeTests` 两个用例都过，全量 `LedgerTests` 也过了。真机我这边没法装，需要你再试一下。",
+      "tools": [
+        "Read",
+        "Bash",
+        "Edit",
+        "mcp__xcode__RunSomeTests"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是一样 模拟器上也能复现了 导入快结束的时候去改最容易出"
+    },
+    {
+      "role": "assistant",
+      "text": "「快结束时最容易出」对上了导入最后一步：分类自动归档走的是第三个 context，那个 context 既没设合并策略，也不在任何合并通知里。\n\n`Grep` 了所有 `performBackgroundTask`：`importBatch` 导入完成后调 `CategoryAutoTagger.tagUncategorized(in: accountID)`，它用 `PersistenceController.shared.container.performBackgroundTask` 新开了一个临时 context，给刚导入的交易批量打分类标签，同时把 `Transaction.updatedAt` 刷成当前时间。这个临时 context 的保存会通知 viewContext，但它的对象快照是在导入的批量更新之前取的，后保存时把 `balanceAfter` 又写回旧值，同时 viewContext 那边刚编辑的对象版本号也跟着变了。\n\n- **改法**：打开 persistent history tracking（`NSPersistentHistoryTrackingKey` 和 `NSPersistentStoreRemoteChangeNotificationPostOptionKey`），viewContext 收到 `NSPersistentStoreRemoteChange` 时按历史合并，不再依赖哪个 context 发通知；`CategoryAutoTagger` 改为复用导入用的那个后台 context，在同一个 `perform` 里做完，不再另开 context。\n- **验证**：`ImportMergeTests` 加了「导入最后 5% 时修改」的用例，三个用例各跑 10 遍都过；全量 `LedgerTests` 通过。`LedgerUITests` 里导入流程的 UI 测试也过了。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Edit",
+        "mcp__xcode__RunSomeTests",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "`Error Domain=NSCocoaErrorDomain Code=133020 \"Could not merge changes.\"`\n刚又出来了 再看看"
+    }
+  ],
+  "middle_hint": "中间是继续排查后台导入账单时的合并冲突：读 StatementImporter.importBatch 和 PersistenceController 的 context 配置、看 Core Data 调试日志、写复现用例、列可能的原因；没有新的改动，也没有结论。"
+}

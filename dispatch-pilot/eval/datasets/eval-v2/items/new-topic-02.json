@@ -1,0 +1,55 @@
+{
+  "id": "new-topic-02",
+  "category": "new-topic",
+  "domain": "ios",
+  "bin": "d2",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "月度统计页的金额汇总",
+    "SYMPTOM": "月度统计页的总支出和当月账单列表加起来对不上",
+    "ERROR": "StatsService: summary out of sync (cached=2341.50, recomputed=2398.00)",
+    "FILE": "Ledger/Services/StatsService.swift",
+    "FILE2": "Ledger/Features/Stats/MonthlyStatsView.swift",
+    "SYMBOL": "recomputeMonthlySummary",
+    "COMMAND": "xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:LedgerTests/StatsServiceTests"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "月度统计页的总支出跟下面账单列表加起来对不上 差几十块 有时候上百 杀掉 App 重开就对了 日志里能看到 `StatsService: summary out of sync (cached=2341.50, recomputed=2398.00)` 这种 你查一下 Ledger/Services/StatsService.swift"
+    },
+    {
+      "role": "assistant",
+      "text": "找到一处明显的漏洞，先改了：汇总只在主界面的 context 保存时重算，别的 context 写进来的账单不会触发。\n\n- **查到的**：`StatsService` 把每个月的汇总缓存在 `summaries: [YearMonth: MonthlySummary]` 里，`recomputeMonthlySummary(for:)` 负责重算，触发点只有一个：订阅了 `viewContext` 的 `NSManagedObjectContextDidSave`。但写账单的地方不止主界面：\n  - 小组件和 Siri 快捷指令记账走 `Ledger/Services/QuickEntryService.swift`，用的是 `container.newBackgroundContext()`；\n  - iCloud 同步进来的变更由 `NSPersistentCloudKitContainer` 在它自己的 context 里导入。\n\n  这两条路径保存的是别的 context，`viewContext` 的通知不会发，缓存就停在旧值。日志里那句 `summary out of sync` 是页面出现时拿缓存和现算的结果比对打出来的；杀掉重开缓存清空，所以又对了。\n- **改法**：触发点换成监听 `NSPersistentStoreRemoteChange`（容器已经开了 `NSPersistentStoreRemoteChangeNotificationPostOptionKey`），用 persistent history 取出这次变更涉及的账单，算出受影响的月份，只重算这几个月；通知在后台队列收，重算完回主线程发布。\n- **验证**：`LedgerTests/StatsServiceTests.swift` 加了两个用例：用后台 context 插一笔账单、模拟一次远端导入，断言对应月份的汇总更新。`xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:LedgerTests/StatsServiceTests` 14 个用例全部通过。\n\n还没提交，你用小组件记一笔再回统计页看看。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还是对不上 我用小组件记了两笔 回到统计页总数没变 列表里倒是有了 过一会儿日志里又是那句 summary out of sync"
+    },
+    {
+      "role": "assistant",
+      "text": "这次没改代码，先把所有按月取账单的地方对了一遍，想确认统计和列表是不是用同一套条件取数。还没有结论，下面是查到的。\n\n- **按月取账单的地方一共 4 处**（Grep 了 `NSFetchRequest<Transaction>` 和 `Transaction.fetchRequest()`）：\n  1. `StatsService.recomputeMonthlySummary(for:)`：谓词是 `yearMonth == %@`，`yearMonth` 是保存时算好存进去的字段；\n  2. `MonthlyStatsView.swift` 下面的列表：`@FetchRequest`，谓词是 `date >= %@ AND date < %@`，按当月第一天和下个月第一天算；\n  3. `QuickEntryService` 保存后自己取一次当月的笔数，给小组件显示；\n  4. `Ledger/Services/ExportService.swift` 的 `exportCSV(month:)`。\n\n  统计按 `yearMonth` 取，列表按 `date` 区间取。两套条件本该一致，但只要某笔账单的 `yearMonth` 和 `date` 对不上，两边就会差出来。下一步要查的是小组件那条路径写进去的 `yearMonth` 对不对。\n- **第 4 处顺带说一下**：`ExportService` 是一套已经写完的 CSV 导出：按月取账单，生成 CSV（日期、分类、金额、备注、账户五列，金额按账户币种格式化，带 UTF-8 BOM，Excel 打开不乱码），写进临时目录，返回文件 URL。`LedgerTests/ExportServiceTests.swift` 里 9 个用例都过。它现在没有任何界面调用，入口被 `FeatureFlags.csvExport` 挡着（默认 `false`），注释写的是「等设置页设计稿」。它取数用的是 `date` 区间，和列表一致，跟这个问题没关系。\n- **跑了一下**：模拟器上用小组件记了两笔，统计页确实没变；日志里 `recomputeMonthlySummary` 被调到了一次，算出来的总数和之前一样。也就是说这次不是没触发，而是触发了、但没把这两笔算进去。\n\n先别急着改。我建议下一步在 `recomputeMonthlySummary` 里把取到的每笔账单的 `objectID`、`date`、`yearMonth` 打出来，和列表那边对一下差的是哪两笔。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "统计那个先放一放 产品那边在催导出 设置页里加个导出 CSV 的入口 选个月份 导出完弹系统的分享面板 这周要提测"
+    }
+  ],
+  "middle_hint": "中间继续排查月度统计汇总和账单列表对不上的问题：理 recomputeMonthlySummary 的调用链、看日志、加观测、写复现，没有改实现，也没有结论。"
+}

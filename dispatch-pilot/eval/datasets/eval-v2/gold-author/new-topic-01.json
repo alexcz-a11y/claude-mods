@@ -1,0 +1,25 @@
+{
+  "id": "new-topic-01",
+  "effort": "xhigh",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后这条是新任务：把 order_events.id 从 integer 改成 bigint，归档延迟那件事在 d3 已经了结。难度要看决定性几轮：用户在 d1 说过这张表快 19 亿行、每秒几百条写入、支付回调在写、一点锁都不能有，上次建个普通索引锁了四十秒导致支付回调全超时；d2 里又看到从库延迟对大批量写很敏感、当前最大 id 约 19.4 亿。改列类型在 PostgreSQL 里要重写整表并持有排他锁，直接 ALTER 就是事故，只能做在线迁移：加 bigint 新列、触发器双写、按从库延迟限速分批回填、非事务的 Flyway 迁移里并发建唯一索引、短锁切换主键和序列、同步改 dal/ 和归档代码，还要在 staging 上反复验证、留回滚办法，属于长链路、要反复验证的复杂改动，xhigh；涉及支付链路的线上大表、出错代价高，max 也可以接受。删掉决定性几轮，只看「顺手写个迁移改成 bigint」，像一条普通的单个迁移加改模型：medium。三选一：d1 第一次提出归档延迟问题，new_or_unrelated；d2 改了以后延迟还在、报表还旧，still_unresolved；d3 延迟正常、让提交，resolved；最后这条换成了另一件事，new_or_unrelated。"
+}

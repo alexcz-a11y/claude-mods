@@ -1,0 +1,25 @@
+{
+  "id": "resolved-08",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "决定性几轮里 diff-pane 大文件卡死改了两次：第一次只挡掉 3000 行以上的文件，2400 行的还卡；第二次查出是 LCS 的 n×m 算法加上渲染时每次重算，换成 Myers 并只在 tool.result 里算一次，用户确认好了、「就这样」。最后一条是写 CHANGELOG 要一两句原因：答案就在决定性几轮里，复述一下即可，low；措辞上要斟酌一下给 medium 也可以。删掉决定性几轮，中间段全是别的事，对话里找不到这个卡死的来龙去脉，要去翻 git log 和 diff-pane 的代码才能说清原因：medium。三选一：d1 第一次报问题，new_or_unrelated；d2 改完 2400 行的文件还卡、日志还是 timed out，still_unresolved；d3 明说好了、就这样，resolved；最后一条问一个已经了结的问题的原因、用来写 CHANGELOG，接受了结果，resolved。"
+}

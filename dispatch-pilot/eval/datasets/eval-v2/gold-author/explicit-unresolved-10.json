@@ -1,0 +1,33 @@
+{
+  "id": "explicit-unresolved-10",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里刷新令牌重放的漏洞已经修了四次（调换吊销顺序、FOR UPDATE 事务、去掉 Redis 缓存那条路、族吊销挪进事务），用户每次都说 replay 脚本或 CI 还能复现，助手最后也承认没堵住、原因不明。之后几万 token 的排查没有结论，最后一条用户明说 staging 上还能重放、没解决：安全漏洞加并发、多次修复未果，max；xhigh 也能接受。删掉决定性几轮，只看中间的排查和最后一条，这仍是一个并发相关的安全漏洞，起码 xhigh，但看不出已经失败了四次，不到 max。三选一：d1 首次提出，new_or_unrelated；d2–d5 都是修完还能重放（d4 里有改善，但漏洞仍在），still_unresolved；最后一条明说没解决，still_unresolved。"
+}

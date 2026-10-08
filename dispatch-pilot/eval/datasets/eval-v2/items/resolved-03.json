@@ -1,0 +1,68 @@
+{
+  "id": "resolved-03",
+  "category": "resolved",
+  "domain": "backend-api",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "支付回调的幂等处理",
+    "SYMPTOM": "支付渠道重试回调时接口返回 500 有的订单一直停在支付中",
+    "ERROR": "ERROR: duplicate key value violates unique constraint \"payments_provider_event_id_key\" (SQLSTATE 23505)",
+    "FILE": "internal/service/payment_webhook.go",
+    "FILE2": "internal/handler/webhook.go",
+    "SYMBOL": "HandlePaymentSucceeded",
+    "COMMAND": "go test ./internal/service/ -run TestPaymentWebhook -race -count=50"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "支付回调有问题 渠道那边重试回调的时候我们返回 500 日志里是 `ERROR: duplicate key value violates unique constraint \"payments_provider_event_id_key\" (SQLSTATE 23505)` 然后有些订单就一直卡在 paying 对账那边昨天有 37 单 代码在 internal/service/payment_webhook.go 票是 #87"
+    },
+    {
+      "role": "assistant",
+      "text": "先改了一版：处理回调前先查这个事件处理过没有，处理过就直接回 200。\n\n- **原因**：`HandlePaymentSucceeded` 每次都调 `InsertPayment`，而 `payments.provider_event_id` 上有唯一约束。渠道是至少一次投递，5 秒内没收到 200 就重试，同一个 `evt_` 会来两三次；第二次插入撞上唯一约束，`internal/handler/webhook.go` 把所有错误都包成 500 回去，渠道就接着重试。订单状态的更新排在插入之后、同一个事务里，插入失败整个事务回滚，有的订单就停在了 `paying`。\n- **改法**：在 `queries/payments.sql` 加了 `GetPaymentByProviderEventID`，`sqlc generate` 重新生成；`HandlePaymentSucceeded` 一开头先查，查到就返回 nil，handler 回 200。\n- **验证**：加了「同一事件先后来两次」的用例，第二次不再报错、订单只迁移一次；`go test ./internal/service/...` 通过，`go vet ./...` 干净。\n\n还没提交。你部署到预发，用渠道的沙箱回调重放一下看看。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "部署到预发了 用渠道沙箱的回调重放工具压了一下 8 个并发重放同一批事件 还是有 500 日志还是那个 23505 卡住的单子也还有"
+    },
+    {
+      "role": "assistant",
+      "text": "并发下「先查后插」有空档：两个请求同时查都查不到，又同时插。这一版改成靠数据库来保证。\n\n- **查到的**：预发日志里 500 的那些请求，都能找到同一个 `evt_` 的另一个请求，前后相差 1 到 4 毫秒、落在不同的 pod 上，两个都通过了 `GetPaymentByProviderEventID`，后插的那个撞约束。另外还看到一个隐患：订单从 `paying` 改到 `paid` 是先读状态再写，没有加锁，和每 5 分钟跑一次的超时关单任务可能交错，把刚付完的单子改成 `expired`。\n- **改法**：\n  1. `InsertPayment` 改成 `INSERT ... ON CONFLICT (provider_event_id) DO NOTHING RETURNING id`，没有返回行就是重复事件，记一条 info 级的 `webhook duplicate ignored`，回 200；去掉了上一版的先查。\n  2. 插入和改订单状态放在同一个事务里，先 `SELECT ... FROM orders WHERE id = $1 FOR UPDATE` 锁住订单，状态是 `paying` 才改成 `paid`，已经是 `paid` 就跳过；迁移是否合法按 `internal/service/order_state.go` 里的状态表校验，超时关单任务也走同一把行锁。\n  3. `webhook.go` 不再把所有错误都回 500：验签失败回 400，重复事件回 200，只有真正的内部错误回 500。\n- **验证**：用 testcontainers 起 PostgreSQL，16 个 goroutine 并发投递同一个事件，`go test ./internal/service/ -run TestPaymentWebhook -race -count=50` 全过，每轮只有一条 payment，订单只迁移一次；另加了「回调和超时关单同时到」的用例。全量 `go test ./...` 通过。\n- **补数**：写了 `scripts/fix_stuck_paying.sql`，按渠道查询接口的结果把那 37 单补成 `paid`、补上 payment 记录，没执行，等你看过再跑。\n\n已部署到预发，再压一次看看。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "这次好了 预发用重放工具 8 个并发 2000 个事件每个重放 3 次 一个 500 都没有 订单全是 paid 对账脚本跑了一遍 笔数金额全对上 那 37 单的脚本我看过了 已经在线上执行了 这个问题解决了 先别关票 我还想把回调这块整体再顺一遍"
+    },
+    {
+      "role": "assistant",
+      "text": "好，#87 先开着。改动在 `fix/webhook-idempotency` 分支，三个提交：`b72d0e4`（ON CONFLICT 去重）、`5c19a3f`（订单行锁和状态校验）、`e04b6d1`（handler 的状态码）。\n\n预发压测这组数字我记下了，关票的时候可以直接用：\n\n- 2000 个事件，每个重放 3 次，共 6000 次投递，8 个并发：500 为 0，4000 次按重复事件忽略（日志里对应 4000 条 `webhook duplicate ignored`）；\n- 对账：笔数 2000 / 2000，金额一致；\n- 并发用例 `-race -count=50` 全过；\n- 线上补数：`scripts/fix_stuck_paying.sql` 补了 37 单。\n\n以后线上日志里会一直有 `webhook duplicate ignored`，那是渠道正常的重复投递被挡掉了，不是故障。你想从回调的哪一段开始顺？",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "回调这块就顺到这 把 #87 关了吧 关之前在票里评论一下预发压测那组数 再写一句线上补了 37 单"
+    }
+  ],
+  "middle_hint": "用户确认修复有效后，说先别关票、要把回调这块整体再顺一遍：中间是围绕支付回调的幂等处理继续读代码、理调用链、看日志和监控、问原理，不改实现，也没有新的结论。"
+}

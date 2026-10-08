@@ -1,0 +1,62 @@
+{
+  "id": "implicit-unresolved-08",
+  "category": "implicit-unresolved",
+  "domain": "frontend",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "后台页面放一会儿再操作 经常直接跳回登录页 控制台是\n`AxiosError: Request failed with status code 401`\naccess token 过期按理应该在 src/api/client.ts 的拦截器里自动刷新 你查查为什么没刷"
+    },
+    {
+      "role": "assistant",
+      "text": "原因是订单页一打开就并发发 4 个请求，token 过期时 4 个都 401，各自去刷新，而刷新令牌用一次就作废，第二个刷新就失败，拦截器接着 `logout()` 跳了登录页。\n\n读了 `src/api/client.ts`：响应拦截器 `onResponseError` 收到 401 且 `config._retry` 不为 true 时，调 `refreshToken()`，成功就重放原请求，失败就 `useAuthStore.getState().logout()` 并跳 `/login`。订单页 `src/pages/orders/OrderList.tsx` 挂载时同时请求列表、统计卡片、筛选项和未读消息数，过期后这 4 个请求一起 401，于是并发发出 4 次 `/auth/refresh`。后端的刷新令牌用一次就作废，后面 3 次刷新全部 401，走进了 `logout()`。\n\n- **改法**：在 `client.ts` 里加了单飞：模块级的 `refreshPromise`，第一个 401 发起刷新并把 promise 存起来，其余 401 等同一个 promise；刷新结束（成功或失败）后清空。失败时只 `logout()` 一次。\n- **验证**：`src/api/client.test.ts` 加了一个用例，用 `axios-mock-adapter` 让 4 个并发请求先 401、刷新接口只允许调一次，断言刷新只发了一次、4 个请求都重放成功。`npx vitest run src/api` 18 个用例全过。\n\n你那边可以把测试环境的 access token 有效期调短一点，开着订单页等它过期再操作，看还会不会跳。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还是会跳 我把测试环境 access token 有效期调成一分钟试的 等过期之后点筛选就跳了"
+    },
+    {
+      "role": "assistant",
+      "text": "这次是重放的请求还带着旧 token：刷新成功了，但重放时 `Authorization` 头没换，又 401 一次，`_retry` 已经是 true，直接 `logout()`。\n\n在浏览器里按你的步骤复现了一遍（Playwright 拦截 `/auth/refresh` 看了请求顺序）：点筛选发出的 `/orders?status=…` 先 401，刷新返回 200，重放的那个请求头里还是过期的 token，又 401，然后跳 `/login`。\n\n- **原因**：请求拦截器在 `config.headers.Authorization` 已有值时不覆盖（当初是为了让上传接口能自己带 token）。重放时用的是原来的 `config`，头里已经有旧 token，请求拦截器就跳过了。单测里 mock 没校验头，所以没测出来。\n- **改法**：重放前显式用 `useAuthStore.getState().accessToken` 覆盖 `config.headers.Authorization`；请求拦截器的「已有就不覆盖」只对带 `skipAuth` 标记的请求生效。\n- **验证**：单测补了「重放请求必须带新 token」的断言；新加 `e2e/session-expiry.spec.ts`，用路由拦截模拟 token 过期再点筛选，断言页面停在订单页、列表刷新。`npx vitest run src/api` 19 个通过，`npx playwright test e2e/session-expiry.spec.ts` 通过。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是跳 而且不一定是点筛选 订单详情页放着也会 详情页里有附件预览"
+    },
+    {
+      "role": "assistant",
+      "text": "详情页这条是另一个 axios 实例：附件预览走的是 `src/api/upload.ts` 自己 `axios.create()` 出来的实例，它有一套自己的拦截器，没有单飞，也没有新 token 覆盖。\n\n`Grep` 了 `axios.create`，仓库里有两个实例：`client.ts` 的主实例和 `upload.ts` 的上传实例。上传实例的拦截器是早期复制过来的旧版本：401 就自己调刷新，失败直接 `logout()`。详情页同时有主实例的详情请求和上传实例的附件签名请求，过期后两个实例各刷新一次，刷新令牌被前一个用掉，后一个刷新 401 就跳登录。\n\n- **改法**：把拦截器抽成 `attachAuthInterceptors(instance)`，放在 `src/api/auth-interceptors.ts`，两个实例都调用它，共用同一个 `refreshPromise`；删掉 `upload.ts` 里那套旧拦截器。\n- **验证**：加了「两个实例同时 401 只刷新一次」的用例；`e2e/session-expiry.spec.ts` 加了详情页场景。`npx vitest run src/api` 21 个通过，Playwright 两个场景都通过。\n\n`useAuthStore` 的 persist 写 localStorage 是同步的，多个浏览器标签页之间的 token 同步这次没动，如果你平时开好几个后台标签页，可能还要另外看。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "`AxiosError: Request failed with status code 401`\n又跳登录页了 订单页开着放了一中午 回来点了下分页"
+    }
+  ],
+  "middle_hint": "中间是同一个仓库里别的活：商品管理页加字段、改文案、补组件测试、升级依赖、整理 Vite 和 ESLint 配置等，和登录过期跳转无关，没有再提这个问题。"
+}

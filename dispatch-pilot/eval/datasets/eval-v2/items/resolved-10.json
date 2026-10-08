@@ -1,0 +1,57 @@
+{
+  "id": "resolved-10",
+  "category": "resolved",
+  "domain": "perf",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "上周五发版之后 /search 的 p99 涨上去了 bench/search-mixed.js 在 staging 跑 之前 p99 一直 170 左右 现在 900 出头 p50 倒是只从 38 涨到 52 那次发版主要是升了 Spring Boot 3.3 还有把 SearchRequest 改成了 record 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "先查了最像的一处：升级之后 Elasticsearch 客户端的连接池默认值偏小。\n\n- **看到的**：`perf/` 下周五之后那份 JFR 记录（`perf/jfr/2026-09-26-staging.jfr`），用 `jfr print --events jdk.ThreadPark` 看，`es-client` 线程有大量等待，栈上是 `PoolingNHttpClientConnectionManager.lease`。`src/main/java/com/acme/search/config/EsClientConfig.java` 没有显式设连接池，`RestClientBuilder` 的默认是每个 route 10 个连接，而 k6 那个场景并发 200。\n- **改法**：在 `EsClientConfig` 里显式设 `maxConnPerRoute=50`、`maxConnTotal=200`，值放进 `application-staging.yml` 可调。\n- **验证**：本地跑了 `./mvnw test`，全过。k6 要在 staging 跑才有意义，我这边没环境。\n\n你部署到 staging 之后再跑一次 `k6 run bench/search-mixed.js` 看 p99。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "部署了 跑了两遍 p99 一次 880 一次 905 跟没改一样 p50 也还是 50 出头"
+    },
+    {
+      "role": "assistant",
+      "text": "连接池不是瓶颈。换了个方向，从缓存命中率看，找到了。\n\n- **看到的**：Redis 的 `INFO stats` 里 `keyspace_hits` 和 `keyspace_misses`，按周五前后各取一小时算，命中率从 78% 掉到 3% 左右；k6 那个场景大部分查询是重复的热门词，命中率一掉，p99 就全落到了 ES 上。\n- **原因**：`SearchCacheKeys.of(SearchRequest req)` 用 `req.hashCode()` 拼键。`SearchRequest` 改成 record 之后，`hashCode` 由所有字段一起算，而 record 里多了一个 `clientTimestamp`（前端带上来做埋点的毫秒时间戳），每个请求都不一样，键几乎不会重复。改成 record 之前的 class 是手写的 `hashCode`，只算了查询词、过滤条件、排序、分页四项。\n- **改法**：`SearchCacheKeys.of` 不再依赖 `hashCode`，显式拼 `query`、`filters`（按键排序后序列化）、`sort`、`page`、`size` 五项再取 SHA-256，`clientTimestamp` 不进键。补了单测：两个只有 `clientTimestamp` 不同的请求，键相同。\n- **验证**：`./mvnw test` 全过。本地起了 Redis 和 ES 的容器，用 `bench/search-mixed.js` 的缩小版（并发 20）跑了一下，命中率 74%，p99 从 640 降到 95，量级对得上。\n\n连接池那个改动我没撤，你部署之后在 staging 再跑一次。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "staging 跑了两遍 p99 一次 171 一次 183 命中率回到 76% 这个可以了 目标就是回到 200 以内 今晚夜间压测再看一轮 也在 200 以内的话就把你第一次改的连接池撤回去 我不想留一个没用的改动 然后合"
+    },
+    {
+      "role": "assistant",
+      "text": "好。夜间压测的 p99 在 200 以内的话：撤掉 `EsClientConfig` 里 `maxConnPerRoute`、`maxConnTotal` 两行和 `application-staging.yml` 里对应的两项配置，缓存键的改动留着，然后合。"
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "昨晚夜间那轮出来了 p99 187ms 错误率 0"
+    }
+  ],
+  "middle_hint": "中间在同一个 search-svc 仓库里做别的事：加接口字段、补单测、改配置、升级依赖、写文档等，和 /search 的 p99 回归无关，没有再碰这个问题。"
+}

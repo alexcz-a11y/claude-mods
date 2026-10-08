@@ -1,0 +1,63 @@
+{
+  "id": "implicit-unresolved-04",
+  "category": "implicit-unresolved",
+  "domain": "cc-mods",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "snippet-expander 在长 prompt 里不展开了 打 ;;pr 回车前没反应 短的 prompt 里是好的 开了 --debug-file 看 日志里一直在刷 `hook prompt.edit (snippet-expander) exceeded 50ms, result discarded` 你看下 snippet-expander/hooks/snippet-expander.ts"
+    },
+    {
+      "role": "assistant",
+      "text": "找到一个明显的慢点：`prompt.edit` 的处理函数每次都去 `$.store` 读一遍片段表。已经改成会话开始时读一次缓存起来，测试都过了。\n\n**原因**\n\n- `snippet-expander/hooks/snippet-expander.ts` 里 `on(\"prompt.edit\", ...)` 的第一行是 `const snippets = await $.store.get(\"snippets\")`。`prompt.edit` 每敲一个字就触发一次，而它的预算只有 50 ms。\n- `$.store` 落在 `~/.claude/plugins/store/`，读一次要走一趟进程外的存取；片段表现在有 380 条、约 1.1 MB，每次反序列化本身就不便宜。prompt 越长，后面的匹配越慢，两者叠在一起就超了。\n\n**改法**\n\n- 新增 `on(\"session.start\", ...)`：读一次 `$.store.get(\"snippets\")`，放进模块级变量 `snippetCache`。\n- `prompt.edit` 里改成直接用 `snippetCache`；还没读到（会话刚开始那一刻）时直接 `return next(e)`，不展开也不等。\n- `/snippets reload` 命令改完片段后同步刷新 `snippetCache`。\n\n**验证**\n\n- `command claude plugin test ./snippet-expander`：9 个用例全部通过，新加的一个用 `mock.store` 断言 `prompt.edit` 不再调用 `$.store.get`。\n- `claude plugin validate ./snippet-expander --strict` 通过。\n\n你那边保存后会热重载，打个长 prompt 试试 `;;pr`？",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还是不展开 debug log 里还是 `hook prompt.edit (snippet-expander) exceeded 50ms, result discarded` 而且我发现改完代码热重载一次以后更容易出"
+    },
+    {
+      "role": "assistant",
+      "text": "热重载那句是关键：模块级变量在热重载时会被重置，`snippetCache` 变回空的，只能等 `session.start` 再跑一次；这中间如果走到了旧的兜底路径，就又回到每次读 store。另外每次编辑都在现编正则，也一起改了。\n\n**看到的情况**\n\n- 热重载会重新执行 `register`，`session.start` 也会再触发，但 `prompt.edit` 可能先到。我上次写的兜底是 `return next(e)`，这本身不慢；问题在 `/snippets` 命令那边还有一条老路径 `ensureSnippets()`，它在缓存为空时会 `await $.store.get(...)`，而 `prompt.edit` 里的 `findTrigger()` 也调了它。\n- `findTrigger()` 对每条片段都 `new RegExp(\"(^|\\\\s);;\" + escape(name) + \"$\")`，380 条片段每敲一个字编 380 个正则。\n\n**改法**\n\n- 缓存从模块级变量挪到 `$.state.snippets`，热重载后还在；`types/index.d.ts` 里补上 `snippets` 的类型。\n- `prompt.edit` 里彻底去掉 `ensureSnippets()` 的调用，缓存不在就放行。\n- 正则改成在加载片段时一次性编好，存成 `Map<name, RegExp>`。\n\n**验证**\n\n- `command claude plugin test ./snippet-expander`：11 个通过，新加的两个覆盖热重载后 `$.state` 里的缓存仍在、以及 `prompt.edit` 不调 `$.store`。\n- `tsc -p ./snippet-expander` 无错误，`claude plugin validate ./snippet-expander --strict` 通过。\n\n再试一次？最好先改一下代码触发一次热重载再打。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是一样 prompt 一长就出 短的没事 log 也一样 `hook prompt.edit (snippet-expander) exceeded 50ms, result discarded`"
+    },
+    {
+      "role": "assistant",
+      "text": "这回把耗时拆开量了：读缓存已经不花时间，慢在匹配本身。每次编辑都把整段 prompt 对 380 条片段扫一遍，还对每个词做模糊匹配，复杂度跟 prompt 长度成正比。已经改成只看光标前最后一个 `;;` 片段词，查表就行。\n\n**怎么量的**\n\n- 写了 `snippet-expander/scripts/bench-find-trigger.ts`，单独把 `findTrigger()` 拿出来用 node 跑：prompt 200 字时 4 ms，2000 字时 47 ms，5000 字时 118 ms，基本线性增长。\n- 拆开看，大头在 `fuzzySuggest()`：没有精确命中时，它对 prompt 里每个词和每条片段名算一次编辑距离，用来在状态栏提示「你是不是想打 ;;xxx」。\n\n**改法**\n\n- `findTrigger()` 改成只取 prompt 末尾最后一个以 `;;` 开头的词，在 `Map` 里查一次，和 prompt 多长无关。\n- `fuzzySuggest()` 从 `prompt.edit` 里拿掉，挪到 `prompt.submit` 之前、而且只在末尾词以 `;;` 开头却没命中时才跑，只算这一个词。\n- 状态栏提示改成在 `prompt.submit` 时用 `$.ui.status` 显示。\n\n**验证**\n\n- 同一个 bench：5000 字的 prompt 从 118 ms 降到 0.4 ms。\n- `command claude plugin test ./snippet-expander`：14 个通过，新加的用例覆盖长 prompt、片段词在中间而不在末尾（不该展开）、末尾无空格这三种。\n- `claude plugin validate ./snippet-expander --strict` 通过。\n\n热重载之后打一个几千字的 prompt，末尾敲 `;;pr` 再看看。",
+      "tools": [
+        "Read",
+        "Write",
+        "Bash",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "长 prompt 里打 ;;pr 还是没展开 debug log `hook prompt.edit (snippet-expander) exceeded 50ms, result discarded`"
+    }
+  ],
+  "middle_hint": "中间是同一个 my-mods 仓库里的别的活：给别的 mod 加命令和测试、改 plugin.json、写 README、整理类型、升级 Claude Code 后的适配，和 snippet-expander 的超时无关。"
+}

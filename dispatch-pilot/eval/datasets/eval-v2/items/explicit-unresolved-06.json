@@ -1,0 +1,99 @@
+{
+  "id": "explicit-unresolved-06",
+  "category": "explicit-unresolved",
+  "domain": "devops-ci",
+  "bin": "d2",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "staging 的自动部署",
+    "SYMPTOM": "部署 job 偶尔卡在 helm upgrade 等到超时失败",
+    "ERROR": "Error: UPGRADE FAILED: context deadline exceeded",
+    "FILE": "scripts/deploy.sh",
+    "FILE2": ".github/workflows/deploy-staging.yml",
+    "SYMBOL": "deploy_release",
+    "COMMAND": "gh workflow run deploy-staging.yml -f ref=main"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "staging 的自动部署最近老失败 不是每次 大概三四次里有一次 卡在 helm upgrade 那一步 十分钟以后报 `Error: UPGRADE FAILED: context deadline exceeded` 脚本是 scripts/deploy.sh 里的 deploy_release 你看看"
+    },
+    {
+      "role": "assistant",
+      "text": "先看了超时的设置和失败那几次 helm 在等什么，第一步先把等待时间放宽了。\n\n- **查到的**：`deploy_release` 里是 `helm upgrade --install \"$RELEASE\" charts/order-api -f charts/order-api/values-staging.yaml --wait --timeout 10m --atomic`。用 `gh run view --log` 看了最近 5 次失败，都是 `--wait` 等新 Deployment 就绪等满 10 分钟；失败时 `--atomic` 自动回滚，所以事后去集群看一切正常。成功的那几次，等待时间在 6 分到 9 分 40 秒之间，离 10 分钟很近，api 的 pod 启动时要先做缓存预热。\n- **改法**：`--timeout` 改成 20m；`.github/workflows/deploy-staging.yml` 里 job 的 `timeout-minutes` 从 15 提到 30，免得 job 先被 Actions 杀掉。\n- **验证**：`shellcheck scripts/deploy.sh` 通过；用 `gh workflow run deploy-staging.yml -f ref=main` 手动触发了 3 次，都成功，用时 7 到 9 分钟。",
+      "tools": [
+        "Read",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还是挂 只是从十分钟变成二十分钟才挂 报错一样"
+    },
+    {
+      "role": "assistant",
+      "text": "等 20 分钟也就绪不了，说明有的 pod 根本起不来，不是慢。查了失败那次 pod 的事件，改了探针。\n\n- **查到的**：在 workflow 里加了一个失败时才跑的诊断步骤（`kubectl get pods,events -n order-api`），手动触发到失败的那次抓到：新 ReplicaSet 的 3 个 pod 里有 1 个反复重启，先是 `Readiness probe failed: HTTP probe failed with statuscode: 503`，然后 `Liveness probe failed` 被重启。`values-staging.yaml` 里 liveness 的 `initialDelaySeconds` 是 30、`failureThreshold` 是 3，缓存预热慢时 pod 还没就绪就被 liveness 杀掉，重启后又从头预热，一直循环。\n- **改法**：加了 `startupProbe`（`/healthz/startup`，`failureThreshold: 60`、`periodSeconds: 10`，最多给 10 分钟启动），startupProbe 通过之后 liveness 才开始检查；诊断步骤留在 workflow 里。\n- **验证**：`helm template` 的渲染结果看过，`helm lint charts/order-api` 通过；手动触发 4 次全部成功。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "合进去了 今天四次部署又挂了一次 一样的 context deadline exceeded 诊断那步打出来的 pod 看着都是 Running"
+    },
+    {
+      "role": "assistant",
+      "text": "pod 都 Running 还等不到，又看了 helm 到底在等哪个对象：是迁移 Job 的 hook，改了 hook 的删除策略。\n\n- **查到的**：`charts/order-api/templates/migrate-job.yaml` 是 `pre-upgrade` hook，helm 要等它完成才往下走。删除策略只写了 `hook-succeeded`，迁移失败过一次留下的旧 Job 不会被删；再部署时同名 Job 已经存在，helm 去等它，而旧 Job 早就是 Failed、`backoffLimit` 用完了，状态不会再变。今天失败那次，`order-api-migrate` 这个 Job 的创建时间是 9 月 30 日。\n- **改法**：删除策略改成 `before-hook-creation,hook-succeeded`，每次部署先删掉旧的迁移 Job；诊断步骤加一行 `kubectl get jobs -n order-api`。\n- **验证**：在 staging 手动造了一个失败的迁移 Job 再部署，改之前卡住，改之后旧 Job 被删、新的正常跑完；手动触发 3 次成功。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d4",
+      "text": "还是不行 刚才那次又卡住了 这次 jobs 也是干净的"
+    },
+    {
+      "role": "assistant",
+      "text": "jobs 干净、pod 也起来了，又看了这次失败的时间线，发现和另一次部署重叠了，加了并发控制。\n\n- **查到的**：`gh run list --workflow deploy-staging.yml` 里，刚才失败的那次开始后 40 秒，main 上又合了一个 PR，push 触发了第二次部署。两次 `helm upgrade` 打在同一个 release 上：第二次又改了一遍 Deployment 的 template，第一次 `--wait` 在等的那个 ReplicaSet 被缩到 0，永远等不到就绪；第二次自己是成功的。workflow 里没有 `concurrency`。\n- **改法**：`deploy-staging.yml` 加了 `concurrency: { group: deploy-staging, cancel-in-progress: false }`，同一时间只跑一个部署，后来的排队；`deploy_release` 开头加了检查，`helm status` 是 `pending-upgrade` 时先等它结束。\n- **验证**：连着合了两个空 PR 触发两次部署，第二次排队等第一次结束才开始，两次都成功。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d5",
+      "text": "加了 concurrency 还是挂 今天下午那次就是单独一次部署 前后都没别的 也是卡了二十分钟 一样的报错"
+    },
+    {
+      "role": "assistant",
+      "text": "单独一次也卡，对比了成功和失败两次 helm 的 debug 输出，这次看到是集群凭证在等待过程中过期了，改了 kubeconfig 的生成方式。\n\n- **查到的**：给 `helm upgrade` 加了 `--debug`，下午那次的日志从第 15 分钟左右开始出现 `the server has asked for the client to provide credentials`，helm 的 `--wait` 把这类错误当成暂时的、继续轮询，直到超时，最后只报 `context deadline exceeded`。`deploy_release` 里是用 `aws eks get-token` 拿一次 token 写进 kubeconfig 的 `token:` 字段，EKS 的 token 有效期 15 分钟；部署超过 15 分钟（预热慢、排了一会队）就会在等待中途过期。之前超时是 10 分钟时碰不到，提到 20 分钟以后才露出来。\n- **改法**：改成 `aws eks update-kubeconfig --name staging --role-arn ...`，kubeconfig 用 `exec` 凭证插件，每次请求按需刷新 token；去掉了手写 token 的那段。\n- **验证**：在 job 里先 `sleep 1000` 再跑 `kubectl get pods`，改之前报 Unauthorized，改之后正常；手动触发 3 次成功。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "staging 部署卡住那个 今天又跑了五六次 还是有一次卡在 helm upgrade 等满二十分钟 报错没变"
+    }
+  ],
+  "middle_hint": "中间一直在继续排查 staging 自动部署偶发卡在 helm upgrade：追变量来源、查 runner 和网络、对比线上状态和仓库、看日志，没有新的改动，也没有结论。占位符的值见 placeholders。"
+}

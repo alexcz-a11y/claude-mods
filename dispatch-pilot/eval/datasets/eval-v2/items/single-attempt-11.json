@@ -1,0 +1,34 @@
+{
+  "id": "single-attempt-11",
+  "category": "single-attempt",
+  "domain": "cc-mods",
+  "bin": "d3",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "focus-timer 那条 band 有个毛病 我一改代码保存 热重载之后倒计时就跳回 25:00 重新开始 本来应该接着走 比如还剩 12 分钟 一保存就变回 25:00 了 代码在 focus-timer/hooks/focus-timer.ts"
+    },
+    {
+      "role": "assistant",
+      "text": "原因是计时状态放在模块级变量里，热重载会重新执行 `register`，模块级变量全部重置。已经挪进 `$.state`。\n\n**查到的情况**\n\n- `focus-timer/hooks/focus-timer.ts` 顶部有三个模块级变量：`let phase: 'focus' | 'break' = 'focus'`、`let startedAt: number | undefined`、`let pausedRemaining: number | undefined`。\n- 渲染 band 的 hook 每秒按 `$.clock.now() - startedAt` 算剩余时间；`startedAt` 是 `undefined` 时就显示整段的 25:00。\n- 热重载时 `register` 重跑，这三个变量回到初值，于是 band 从 25:00 重新开始。`session.start` 也会再触发一次，里面只是弹一个「专注计时已就绪」的 toast，没动计时。\n\n**改法**\n\n- 三个变量合成一个 `TimerState`，放进 `$.state`：开始、暂停、继续、切换阶段时 `$.state.set('timer', ...)`，渲染时 `$.state.get('timer')` 读。\n- 新增 `focus-timer/types/index.d.ts`，写了 `PluginState` 里 `timer` 的类型；`.claude-plugin/plugin.json` 加上 `\"types\": \"./types/index.d.ts\"`。\n- `/focus start`、`/focus pause` 两个命令的处理函数改成读写 `$.state`，逻辑没变。\n\n**验证**\n\n- `focus-timer/tests/focus-timer.test.ts` 加了一个用例：`mock.clock(on)`，`/focus start` 之后把时钟往前拨 13 分钟，重新 `register` 一次模拟热重载，再挂载 band，断言显示 `12:00`。\n- `command claude plugin test ./focus-timer`：9 个用例全部通过。\n- `claude plugin validate ./focus-timer --strict` 通过；`tsc -p ./focus-timer` 没有类型错误。\n\n你在会话里开着计时，随便改一行保存一下，看 band 是不是接着走。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Write",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "focus-timer 那个 我刚才改了句文案保存了一下 band 还是跳回 25:00 了"
+    }
+  ],
+  "middle_hint": "中间在 my-mods 仓库里做了很多别的事：给别的 mod 补测试、改 README、整理 plugin.json、加小命令、升级类型等，和 focus-timer 热重载后计时重置无关，没有再碰这个问题。"
+}

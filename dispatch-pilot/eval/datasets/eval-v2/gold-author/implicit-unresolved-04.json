@@ -1,0 +1,25 @@
+{
+  "id": "implicit-unresolved-04",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里 snippet-expander 的 prompt.edit 超时已经改了三次（会话开始时缓存片段表、缓存挪进 $.state 并预编译正则、匹配改成只查末尾片段词），每次测试都通过，用户每次都贴回同一行 exceeded 50ms。最后一条隔了很长一段别的活，又只是贴同一行日志说没展开：第四次同一个失败，max，xhigh 也可以。删掉决定性几轮，最后一条只是一个 mod 的钩子超时报错，前面没有尝试过的修法，按普通的调试：high。三选一：d1 首次提出问题，new_or_unrelated；d2、d3 都是同一日志仍在，still_unresolved；最后一条隔了别的活回头说同一个问题还在，still_unresolved。"
+}

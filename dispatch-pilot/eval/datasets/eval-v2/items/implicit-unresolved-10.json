@@ -1,0 +1,63 @@
+{
+  "id": "implicit-unresolved-10",
+  "category": "implicit-unresolved",
+  "domain": "database",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "jobs/settle_inventory.py 每天凌晨跑 最近一周有三天挂了 日志是\n`psycopg.errors.DeadlockDetected: deadlock detected`\n那个时间段也有下单在写库存 帮我看下怎么回事"
+    },
+    {
+      "role": "assistant",
+      "text": "两边给同一批 `inventory` 行加锁的顺序不一样，典型的锁顺序死锁。\n\n读了 `jobs/settle_inventory.py` 和 `dal/inventory.py`：结算任务按 `warehouse_id` 分组，每个仓库一个事务，逐行 `UPDATE inventory SET reserved = reserved - %s, on_hand = on_hand - %s WHERE id = %s`，行的顺序来自 `queries/settle_pending.sql`，按 `sku_code` 排。下单走 `dal/orders.py` 的 `reserve_items`，按购物车里的顺序逐行 `SELECT ... FOR UPDATE` 再更新。两个事务锁同两行、顺序相反，Postgres 检测到环就杀掉其中一个，被杀的正好是结算任务。\n\n- **改法**：两边统一按 `inventory.id` 升序加锁。`settle_pending.sql` 改成 `ORDER BY i.id`，结算任务每个仓库先 `SELECT id FROM inventory WHERE id = ANY(%s) ORDER BY id FOR UPDATE` 一次锁完再更新；`reserve_items` 也先按 id 排序再锁。\n- **验证**：新写了 `tests/jobs/test_settle_inventory_concurrency.py`，用 testcontainers 起 PostgreSQL 15，一边跑结算，一边 8 个线程随机顺序下单，跑 20 轮没有死锁；`pytest tests/` 全过。\n\n明天凌晨那次跑完可以看一下 `jobs/logs/settle_inventory.log`。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "今早还是挂了 一样的 deadlock detected"
+    },
+    {
+      "role": "assistant",
+      "text": "这次死锁的另一方不是下单，是 `inventory` 上的审计触发器，它在事务里顺带锁了 `sku_stats`。\n\n让你开的 `log_lock_waits` 和 `deadlock_timeout` 日志拿到了：今早死锁的两个进程，一个是结算任务，另一个是 `trg_inventory_audit`（`migrations/V038__inventory_audit.sql` 加的）触发的语句。这个触发器每更新一行 `inventory`，就往 `inventory_audit` 插一行，再 `UPDATE sku_stats SET last_moved_at = now() WHERE sku_id = NEW.sku_id`。结算任务按 `inventory.id` 排序了，但不同 `inventory` 行可能对应同一个 `sku_id`（多仓库），`sku_stats` 的加锁顺序还是乱的；下单那边同理。\n\n- **改法**：新迁移 `V052__inventory_audit_defer_stats.sql`，触发器只插 `inventory_audit`，不再碰 `sku_stats`；`sku_stats.last_moved_at` 改由结算任务在事务最后按 `sku_id` 排序一次性批量更新。结算任务的事务同时缩小成每 500 行一批提交，持锁时间短一些。\n- **验证**：并发测试加了跨仓库同 SKU 的数据，跑 20 轮无死锁；`flyway -configFiles=flyway.test.conf migrate` 在测试库上过了；`pytest tests/` 全过。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "又挂了 这回是周六 下单量很小的时候也挂"
+    },
+    {
+      "role": "assistant",
+      "text": "下单量小也挂，说明另一方不是下单。查到是另一个定时任务和它同一分钟启动。\n\n看了 `jobs/crontab`：`settle_inventory.py` 是 `0 3 * * *`，`expire_reservations.py` 也是 `0 3 * * *`，上个月有人把后者从 3:30 挪到了 3:00。`expire_reservations.py` 把过期的预占释放回库存，按 `reservations.created_at` 的顺序逐条 `UPDATE inventory SET reserved = reserved - …`，也不按 id 排序。周六凌晨两个任务同时开跑，正好互相卡住。\n\n- **改法**：两个任务开头都拿同一个 `pg_advisory_lock(hashtext('inventory_jobs'))`，互斥执行，谁先拿到谁先跑；`expire_reservations.py` 也改成先按 `inventory.id` 排序加锁。`jobs/crontab` 里把 `expire_reservations` 改回 3:30，双保险。\n- **验证**：并发测试里加了两个任务同时启动的场景，跑 20 轮无死锁；`pytest tests/` 全过。\n\n改动都在 `jobs/` 和 `queries/` 下，下次发布生效。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "今早的日志\n`psycopg.errors.DeadlockDetected: deadlock detected`\n你看下"
+    }
+  ],
+  "middle_hint": "中间是同一个仓库里别的活：加迁移字段、补 dal 层测试、整理查询、写定时任务文档、升级 SQLAlchemy 等，和凌晨结算任务的死锁无关，没有再提这个问题。"
+}

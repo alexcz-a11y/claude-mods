@@ -1,0 +1,33 @@
+{
+  "id": "explicit-unresolved-12",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里支付回调重复入账已经修了四次（先查状态、进程内锁、订单行 FOR UPDATE、payment_events 唯一约束），用户每次都说测试或 staging 还能复现，而且一开始就说了这块是真金白银、差一笔都不行；助手最后也承认原因不明。之后十几万 token 只有排查没有结论，最后一条用户明说对账又对出双记、没解决：涉及资金的并发问题反复修复未果，max；xhigh 也能接受。删掉决定性几轮，中间段只有排查没有尝试，也看不到「真金白银」的约束，最后一条像一次普通的幂等 bug 调试：high。三选一：d1 首次提出，new_or_unrelated；d2–d5 都是改完仍有双记（d4 次数少了但没解决），still_unresolved；最后一条明说没解决，still_unresolved。"
+}

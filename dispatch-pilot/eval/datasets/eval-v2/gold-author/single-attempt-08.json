@@ -1,0 +1,21 @@
+{
+  "id": "single-attempt-08",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里只真正改过一次（打开 automaticallyMergesChangesFromParent、通知合并后切到主线程），用户在 d2 说真机上没用，之后助手就停手只排查，中间十几万 token 也都是看代码、加日志、对比模拟器和真机，没有第二次尝试。最后一条说还是旧的数：只有一次失败尝试的 Core Data 跨线程调试，high；方向已经被推翻、要在真机上反复验证，xhigh 也可以接受；不该因为对话很长就判成 max。删掉决定性几轮，最后一条本身像一个小的界面刷新问题，但中间段是对同一问题的长时间排查，能看出是调试：仍然 high（单看最后一条会偏到 medium）。三选一：d1 首次提出，new_or_unrelated；d2 说改完手机上还是不变，still_unresolved；最后一条又说还是旧的数，still_unresolved。"
+}

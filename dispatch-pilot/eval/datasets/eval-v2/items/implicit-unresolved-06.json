@@ -1,0 +1,63 @@
+{
+  "id": "implicit-unresolved-06",
+  "category": "implicit-unresolved",
+  "domain": "perf",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "search-svc 升到 Spring Boot 3.3 以后 bench 环境压测 search 接口的 p99 从 120ms 左右涨到 470 多 用的是 bench/search-mixed.js 200 vus 那个场景 k6 输出是 `http_req_duration{name:search}: avg=182.4ms p(95)=391.7ms p(99)=476.9ms` 你看下是哪里慢了"
+    },
+    {
+      "role": "assistant",
+      "text": "先找到一个明显的回退：Redis 缓存命中率从升级前的 78% 掉到了 9%，绝大多数请求都打到了 Elasticsearch。原因是缓存键里混进了请求时间戳。已经改了，本地小规模压测命中率回来了。\n\n**原因**\n\n- `src/main/java/com/acme/search/cache/SearchCacheKeyBuilder.java` 用 `request.toString()` 的哈希做键。升级时 `SearchRequest` 从普通类改成了 `record`，`record` 的 `toString()` 会带上所有字段，其中有 `receivedAt`（每个请求都不一样）。\n- Grafana 上 `search_cache_hit_ratio` 在升级那天从 0.78 掉到 0.09，时间点对得上。\n\n**改法**\n\n- `SearchCacheKeyBuilder` 改成显式拼 `query`、`filters`、`sort`、`page`、`size`、`locale` 这几个字段，不再依赖 `toString()`。\n- 加了一个单测，两个只有 `receivedAt` 不同的请求必须得到同一个键。\n\n**验证**\n\n- `./mvnw test -Dtest=SearchCacheKeyBuilderTest` 通过，全量 `./mvnw test` 312 个通过。\n- 本机起了服务和本地 ES、Redis，`k6 run --vus 50 --duration 5m bench/search-mixed.js`：命中率回到 76%，p99 从 310ms 降到 140ms（本机数字只能看趋势）。\n\n你在 bench 环境用 200 vus 再跑一次？",
+      "tools": [
+        "Grep",
+        "Read",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "bench 跑了 命中率是上来了 p99 还是 `p(99)=471.3ms`"
+    },
+    {
+      "role": "assistant",
+      "text": "命中率回来了但尾延迟没动，说明还有一处瓶颈。看了 bench 那次的线程转储，大量请求线程在等 ES 客户端的连接。升级时 ES 客户端也换了实现，连接池的默认大小变小了。已经把连接池调大。\n\n**怎么查的**\n\n- 让 bench 那台机器在压测进行到第 3 分钟时 `jcmd <pid> Thread.print` 抓了三次转储（存在 `perf/dumps/bench-1006-*.txt`）。三次里都有 150 多个线程停在 `PoolingAsyncClientConnectionManager.lease`。\n- 升级时 `co.elastic.clients` 从 8.11 升到 8.15，`EsClientConfig` 里没设连接池参数，用的是底层客户端的默认值：总共 30、每个路由 10。我们的 ES 集群有 3 个协调节点，也就是最多 30 个并发请求。\n- 升级前的配置里有一个自定义 `RestClientBuilder` 设了 200，迁移到新客户端时这段被删了。\n\n**改法**\n\n- `EsClientConfig` 里重新设置连接池：总数 200，每路由 100，和升级前一致；连接超时、socket 超时保持原值。\n- 加了 Micrometer 指标 `es_client_pool_pending`，以后能直接在面板上看到排队。\n\n**验证**\n\n- `./mvnw test` 314 个通过。\n- 本机 200 vus 跑了 5 分钟：`es_client_pool_pending` 一直是 0，p99 从 260ms 降到 150ms 左右。\n\nbench 环境再跑一次看看 p99？",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "又跑了一遍 `p(99)=468.0ms` 基本没动"
+    },
+    {
+      "role": "assistant",
+      "text": "这次用 JFR 看到了第三个问题：Spring Boot 3.3 升级时顺手打开了虚拟线程，而 `QueryRewriter.rewrite` 在 `synchronized` 块里同步调 Redis，虚拟线程在里面被钉在载体线程上，载体线程只有 8 个，高并发时大家排队。已经改成用 `ReentrantLock`，并把 Redis 调用挪到锁外。\n\n**怎么查的**\n\n- 在 bench 那台机器上压测期间录了 2 分钟 JFR（`perf/jfr/bench-1007.jfr`），打开 `jdk.VirtualThreadPinned` 事件：2 分钟里 4.1 万次，栈几乎全在 `QueryRewriter.rewrite` → `SynonymCache.load` → Lettuce 的同步调用。\n- `application.yml` 里 `spring.threads.virtual.enabled: true` 是升级那次 PR 加的。`QueryRewriter` 的 `synchronized` 是很早就有的，平台线程下只是普通的锁，换成虚拟线程后，持锁期间做阻塞 IO 会把载体线程也占住。\n- 用 `perf/flame.sh` 生成的火焰图（`perf/flame-1007.html`）里，`rewrite` 下面一大片是 `park`，和上面对得上。\n\n**改法**\n\n- `QueryRewriter` 里 `synchronized` 换成 `ReentrantLock`。\n- 同义词表的加载（`SynonymCache.load`）挪到锁外，锁只保护内存里那张 `Map` 的替换。\n- 没关虚拟线程：其他地方没有类似的写法，`grep -rn synchronized src/main` 一共 6 处，另外 5 处里没有 IO。\n\n**验证**\n\n- `./mvnw test` 316 个通过，新加了一个并发用例。\n- 本机 200 vus 跑了 5 分钟：`jdk.VirtualThreadPinned` 降到 0，p99 138ms。\n\nbench 环境再跑一次 200 vus 吧。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "bench 跑完了 `http_req_duration{name:search}: avg=179.8ms p(95)=388.2ms p(99)=473.2ms`"
+    }
+  ],
+  "middle_hint": "中间是同一个 search-svc 仓库里的别的活：加接口字段、补单测、改配置、写压测脚本说明、升级依赖，和 search 接口的尾延迟无关。"
+}

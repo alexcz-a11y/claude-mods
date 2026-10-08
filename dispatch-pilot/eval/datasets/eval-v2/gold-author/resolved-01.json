@@ -1,0 +1,25 @@
+{
+  "id": "resolved-01",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "多标签页并发刷新被踢回登录页：决定性几轮里第一版宽限窗口在多副本下没挡住（d2 说还是会被踢），第二版加了 family 锁，用户在预发挂了一晚上确认解决（d3），助手还事先说明了以后日志里 `refresh grace hit` 会一直有、隔了很久拿旧 token 来刷新的 `RefreshTokenReuseError` 也会偶尔出现且属正常。中间是为复盘继续理这块代码，没有新尝试。最后这条报告的现象（几百条 grace hit、三条隔了一个多小时的 reuse）正是之前说好的正常情况，用户结束复盘、让合并分支，只是一个机械的收尾：low，medium 也可以（合并前顺手看一眼分支和测试）。删掉决定性几轮，中间几万 token 都在排查 `RefreshTokenReuseError` 却没有任何结论和修法，最后一条又说这个报错还出现了三条、「跟之前说的对得上」无从核对，再让合一个从没见过内容的分支，需要先弄清分支里是什么、那三条是否说明问题还在：medium。三选一：d1 第一次提出问题，new_or_unrelated；d2 改了以后说还是会被踢，still_unresolved；d3 明说解决了，resolved；最后这条接受结果、让合并，resolved。"
+}

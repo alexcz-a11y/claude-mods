@@ -1,0 +1,55 @@
+{
+  "id": "single-attempt-10",
+  "category": "single-attempt",
+  "domain": "devops-ci",
+  "bin": "d2",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "PR 上的 terraform plan 检查",
+    "SYMPTOM": "两个 PR 前后脚推上去时 plan 那步偶尔失败，重跑一下又能过",
+    "ERROR": "Error: Error acquiring the state lock: ConditionalCheckFailedException: The conditional request failed",
+    "FILE": ".github/workflows/terraform-plan.yml",
+    "FILE2": "scripts/tf-plan.sh",
+    "SYMBOL": "run_plan",
+    "COMMAND": "bash scripts/tf-plan.sh prod"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "PR 上 terraform plan 那个检查老是偶尔挂 报 `Error: Error acquiring the state lock: ConditionalCheckFailedException: The conditional request failed` 重跑一下又过了 一般是两个 PR 前后脚推的时候 workflow 在 .github/workflows/terraform-plan.yml 你看看"
+    },
+    {
+      "role": "assistant",
+      "text": "两个 PR 同时跑 plan 时抢同一把 state 锁，后到的那个不等待、直接失败。加了排队和等锁，你那边多看几天。\n\n**查到的情况**\n\n- `.github/workflows/terraform-plan.yml`：`on: pull_request`，一个 `plan` job，`matrix.env: [staging, prod]`，每个环境调一次 `scripts/tf-plan.sh`。workflow 里没有 `concurrency`。\n- `scripts/tf-plan.sh` 的 `run_plan` 依次跑 `terraform init -input=false`、`terraform plan -input=false -out=tfplan`，再 `terraform show -no-color tfplan` 把结果贴到 PR 评论。plan 没带 `-lock-timeout`，默认是 0，拿不到锁立刻报错。\n- `terraform/envs/prod/backend.tf` 和 `staging/backend.tf` 用 S3 存 state、DynamoDB 表 `tf-locks` 做锁，两个环境锁的 key 不同，所以只有同一个环境的两次 plan 会互相撞。\n- `gh run list --workflow terraform-plan.yml --status failure -L 30` 看了最近 30 次失败：11 次是这个锁的报错，全部是 `prod`，而且每次都有另一个 PR 的 run 在前后一分钟内启动。\n\n**改法**\n\n- workflow 顶层加了：\n\n```yaml\nconcurrency:\n  group: terraform-plan-${{ github.event.pull_request.number }}\n  cancel-in-progress: true\n```\n\n同一个 PR 连推几次时，旧的 run 会被取消，少一些抢锁的。\n- `run_plan` 里的 `terraform plan` 加上 `-lock-timeout=10m`，拿不到锁时等最多 10 分钟，不再直接失败。\n\n**验证**\n\n- `actionlint .github/workflows/terraform-plan.yml` 没有报错，`bash -n scripts/tf-plan.sh` 通过。\n- 开了两个只改注释的草稿 PR（#408、#409），同时推，两个的 prod plan 都绿了，#409 的日志里能看到 `Acquiring state lock. This may take a few moments...` 等了 40 秒左右才拿到。\n\n偶发问题一次不能说明什么，这两天有 PR 撞在一起时留意一下。两个草稿 PR 我先留着，确认没问题再关。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "又挂了 同一行 `ConditionalCheckFailedException` 今天上午 #412 和 #415 一起推的 #415 的 prod 挂了"
+    },
+    {
+      "role": "assistant",
+      "text": "收到，我先不再改，把 #415 这次的时间线对清楚。\n\n看了 #415 失败那一步的完整日志和 #412 同一时段的日志：\n\n- #415 报错前没有出现 `Acquiring state lock. This may take a few moments...` 这行，报错和上一步之间只隔了 2 秒，说明它没有在等锁，`-lock-timeout=10m` 在这次失败的那条命令上没起作用。\n- 报错里的 `Lock Info` 写的是 `Operation: OperationTypePlan`，`Who: runner@fv-az417-552`，`Path: acme-tfstate/prod/terraform.tfstate`，持锁的正是 #412 那次 run 的 runner。\n- `run_plan` 里只有 `terraform plan` 加了 timeout；同一个函数里前面的 `terraform init` 和后面拼评论用的命令没加，日志里报错前一行的输出看起来不像 plan 的输出，具体是哪条命令报的，单看这份日志还确定不了。\n\n可能的方向（还没验证）：\n\n1. 报错来自 `run_plan` 里另一条也会拿锁的命令，而不是 `terraform plan`。\n2. 仓库里有 `TF_CLI_ARGS` 或 `TF_CLI_ARGS_plan` 之类的环境变量，在某个 step 里把参数覆盖掉了。\n3. 还有别的 workflow（比如 drift 检测的定时任务）也会在 prod 上拿锁，和 PR 的 plan 撞在一起。\n\n下一步打算在 `run_plan` 里每条 terraform 命令前打一行带时间戳的日志，把 `TF_LOG=DEBUG` 只对锁相关的输出打开，再把 DynamoDB `tf-locks` 表里的写入时间和几个 run 的时间对一遍。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "terraform plan 锁那个 今天下午又挂了一次 #421 重跑才过"
+    }
+  ],
+  "middle_hint": "中间一段在继续排查 PR 上 terraform plan 偶发抢锁失败：看 run_plan 里每条命令、对比几次 run 的日志和锁记录、查别的 workflow 和环境变量、写本地复现脚本，只看不改，也没有结论。占位符：FEATURE PR 上的 terraform plan 检查；SYMPTOM 两个 PR 前后脚推上去时 plan 那步偶尔失败，重跑一下又能过；ERROR Error: Error acquiring the state lock: ConditionalCheckFailedException: The conditional request failed；FILE .github/workflows/terraform-plan.yml；FILE2 scripts/tf-plan.sh；SYMBOL run_plan；COMMAND bash scripts/tf-plan.sh prod。"
+}

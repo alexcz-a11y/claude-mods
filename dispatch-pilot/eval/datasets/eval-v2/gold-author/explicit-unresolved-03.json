@@ -1,0 +1,33 @@
+{
+  "id": "explicit-unresolved-03",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "库存死锁：决定性几轮里改了五次（统一加锁顺序、分批提交、语句级触发器、死锁重试加日志、清理任务的加锁顺序），用户四次回来说还是死锁，其中一次已经导致真实用户下单失败；最后这条是第五次修改后又说同样的报错还在。多方事务的疑难并发问题、碰线上下单，五个方向都没用：max，xhigh 也可以。删掉决定性几轮，中间是不相关的活，只剩一句「库存死锁那个又出现了」，看起来是一次死锁调试的跟进：high。三选一：d1 首次提出，new_or_unrelated；d2 到 d5 都是改了之后说还在，still_unresolved；最后这条隔了大段别的活、回头说原问题还在，still_unresolved。"
+}

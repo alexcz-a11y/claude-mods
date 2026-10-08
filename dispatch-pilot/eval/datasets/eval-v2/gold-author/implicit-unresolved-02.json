@@ -1,0 +1,25 @@
+{
+  "id": "implicit-unresolved-02",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里渠道收入日报的 campaign_id 类型报错已经改了三处（接口层转类型、缓存分区统一类型、合并前统一 schema），每次本地都跑通，但用户每天早上都贴回同一行 SchemaError。中间隔了一大段别的活，最后一条又只贴了这一行报错加「再看看」：同一个问题第四次没好，max，xhigh 也可以。删掉决定性几轮，最后一条只是一条 cron 报错加一句「再看看」，前面也没有失败过的修法，按普通的数据管道调试：high。三选一：d1 第一次报问题，new_or_unrelated；d2、d3 都是同一报错又出现，still_unresolved；最后一条隔了别的活回头贴同一个报错，still_unresolved。"
+}

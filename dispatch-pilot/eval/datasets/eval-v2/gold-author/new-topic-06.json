@@ -1,0 +1,21 @@
+{
+  "id": "new-topic-06",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后这条把构建内存溢出放下，转去为 2.0 换文档截图，是新任务。决定性几轮 d2 里用户说过截图都是 scripts/screenshots.mjs 生成、每次发版跑一遍，回复里查清了它的用法：DEMO_URL 指向演示站、账号走 DEMO_USER/DEMO_PASS，186 条清单只有路径和视口、不依赖页面元素，一条命令 npm run screenshots -- --all 同时重截中英文，跑完列出变化和打不开的路径，上次发版就是这样全量换的。所以这件事是把 DEMO_URL 换成预览环境跑一遍、看一下列出的变化和打不开的页面再提交，照着现成流程的机械操作：low；2.0 若有页面路径变了要改几条清单，medium 也可以。删掉决定性几轮，只看「界面全换了，文档截图都得换成新版的，你弄一下」，不知道有现成脚本，会当成要盘点几百张截图、处理中英文两套、甚至自己写自动截图：high。三选一：d1 第一次提出构建内存溢出，new_or_unrelated；d2 加了内存后还是挂，still_unresolved；最后这条换了话题，new_or_unrelated。"
+}

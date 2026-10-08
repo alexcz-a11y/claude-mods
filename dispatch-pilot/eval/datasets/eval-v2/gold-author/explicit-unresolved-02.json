@@ -1,0 +1,29 @@
+{
+  "id": "explicit-unresolved-02",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "退款接口偶发 504：决定性几轮里已经改了四次（连接池、把渠道调用挪出事务、渠道重试和超时预算、advisory 锁和结算任务），用户三次回来说还是同一行报错，最后这条又说晚高峰还是有，是第四次修改后仍没解决。涉及事务、锁、超时预算的并发问题，而且碰的是退款这种动钱的路径，几个显眼的原因都排除过了：max，xhigh 也可以。删掉决定性几轮，前面只有大段排查、没有任何修改尝试，最后一句看起来是一次调试的跟进：high。三选一：d1 首次提出问题，new_or_unrelated；d2、d3、d4 都是改了之后说还在，still_unresolved；最后这条说同样的报错还在，still_unresolved。"
+}

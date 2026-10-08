@@ -1,0 +1,34 @@
+{
+  "id": "single-attempt-07",
+  "category": "single-attempt",
+  "domain": "database",
+  "bin": "d3",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "daily_sales 表的日期好像不对 运营说后台看 10 月 3 号的销售额是 18.6 万 报表里 10 月 3 号只有 12.1 万 然后 10 月 4 号又多出来一截 两天加起来倒是对的 汇总是 jobs/rollup_daily_sales.py 每天凌晨 2 点跑的 你看下怎么回事"
+    },
+    {
+      "role": "assistant",
+      "text": "原因是按天切分时用的是 UTC，不是北京时间：北京时间 00:00–08:00 下的单被算到了前一天。\n\n**查到的情况**\n\n- `jobs/rollup_daily_sales.py` 调的是 `queries/daily_sales.sql`，里面按天分组写的是 `date_trunc('day', o.created_at)::date AS sales_date`。`orders.created_at` 是 `timestamptz`，`date_trunc` 按会话时区切，而 `dal/engine.py` 建连接时在 `connect_args` 里写死了 `options=-c timezone=UTC`，所以切出来的是 UTC 的天。\n- job 里算「昨天」用的是 `date.today() - timedelta(days=1)`，汇总服务器的系统时区是 UTC，凌晨 2 点（北京时间）跑的时候 UTC 还是前一天的 18 点，`target_day` 会再往前偏一天，只是被 `ON CONFLICT (sales_date) DO UPDATE` 覆盖掉了，平时看不出来。\n- 用 testcontainers 起了一个 PG 15，按 `migrations/` 建好表，灌了一单北京时间 10 月 3 日 00:30 的订单，跑一遍汇总，它落在 `2026-10-02`，和你说的现象一致。\n- 对了一下线上只读副本的数：10 月 3 日北京时间 00:00–08:00 的订单合计 6.4 万，差不多就是两边的差额（18.6 − 12.1 = 6.5，剩下的一点是这个时段里的退款）。\n\n**改法**\n\n- `queries/daily_sales.sql`：分组改成 `(o.created_at AT TIME ZONE 'Asia/Shanghai')::date AS sales_date`；`WHERE` 里的时间范围原来是 `created_at >= :day AND created_at < :day + interval '1 day'`，改成由 job 传北京时间当天零点和次日零点（带时区的 `timestamptz`）进来，`created_at` 上的索引还能用上。\n- `jobs/rollup_daily_sales.py`：`target_day` 改成 `datetime.now(ZoneInfo(\"Asia/Shanghai\")).date() - timedelta(days=1)`，天边界用同一个时区算好再传给查询。\n- `dal/engine.py` 的 `timezone=UTC` 没动，别的查询和任务都按 UTC 写的，改它影响面太大。\n- 新增 `tests/jobs/test_rollup_daily_sales.py`：北京时间 00:30、07:59、08:00、23:59 各一单，断言都落在当天；另加一个跨月的用例（9 月 30 日 23:50 和 10 月 1 日 00:10）。\n\n**验证**\n\n- `pytest tests/jobs -q`：12 个通过（新加 5 个）。\n- 在本地库上跑了 `make backfill-daily-sales FROM=2026-09-01 TO=2026-10-06`，10 月 3 日现在是 18.58 万，10 月 4 日也和后台对得上。\n\n线上回填我没跑。改动合进去以后，今晚 2 点的定时任务会按新的切法算昨天的数；9 月以来的历史数据用同一个回填命令在线上跑一遍就行，大概 3 分钟。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit",
+        "Write"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "daily_sales 那个日期还是错一天 早上看 10 月 6 号的数又少了一截 你再看看"
+    }
+  ],
+  "middle_hint": "中间在 shop-db 仓库里做了很多别的事：加字段和迁移、改查询、补 DAL 的测试、整理 jobs 的配置、升级依赖之类，和 daily_sales 的按天切分无关，没有再碰这个问题。"
+}

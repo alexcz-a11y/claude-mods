@@ -1,0 +1,66 @@
+{
+  "id": "resolved-07",
+  "category": "resolved",
+  "domain": "devops-ci",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "生产环境部署的 OIDC 角色切换",
+    "SYMPTOM": "打 tag 触发的生产部署在拿 AWS 凭证那一步失败",
+    "ERROR": "Error: Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity",
+    "FILE": "terraform/iam/github_oidc.tf",
+    "FILE2": ".github/workflows/deploy.yml",
+    "SYMBOL": "aws_iam_role.github_deploy_prod",
+    "COMMAND": "gh workflow run deploy.yml --ref v2.14.0-rc.1 -f environment=production"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "生产部署挂了 打 v2.14.0 这个 tag 触发的 deploy-prod 卡在 configure-aws-credentials 那一步 报 `Error: Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity` 奇怪的是 main 上推的 staging 部署一直好好的 prod 的角色是 terraform/iam/github_oidc.tf 里的 aws_iam_role.github_deploy_prod 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "看到一处对得上的：prod 角色的信任策略只认 main 分支。\n\n- **原因**：`terraform/iam/github_oidc.tf` 里 `aws_iam_role.github_deploy_prod` 的 `assume_role_policy` 用 `StringEquals` 卡了 OIDC token 的 `sub` 声明，取值只有 `repo:acme/infra:ref:refs/heads/main`。tag 触发的运行，`sub` 按 GitHub 的格式是 `repo:acme/infra:ref:refs/tags/v2.14.0`，对不上就会被拒。staging 的角色 `aws_iam_role.github_deploy_staging` 用的是 `StringLike` 加 `repo:acme/infra:*`，所以一直没事。\n- **改法**：prod 这边改成 `StringLike`，`sub` 给两个值：`repo:acme/infra:ref:refs/heads/main` 和 `repo:acme/infra:ref:refs/tags/v*`；`aud` 那条 `sts.amazonaws.com` 不变。\n- **范围**：Grep 了一遍，用到 `vars.PROD_DEPLOY_ROLE_ARN` 的只有 `.github/workflows/deploy.yml` 里的 `deploy-prod` 这一个 job。\n- **验证**：在 `terraform/iam` 下跑了 `terraform plan`：`1 to change`，只有这个角色的 `assume_role_policy` 一处。\n\nprod 的 IAM 我没 apply，你看一下 plan 没问题就 apply，然后重跑 v2.14.0 那次失败的 job。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "apply 了 重跑了 v2.14.0 的 deploy-prod 还是一样的报错 一个字不差"
+    },
+    {
+      "role": "assistant",
+      "text": "策略里的 `sub` 和实际发过来的对不上，光看格式猜不出来，我把 token 里的声明直接打出来看了。\n\n- **加了一个临时步骤**：`.github/workflows/deploy.yml` 的 `deploy-prod` 里，在 `configure-aws-credentials` 前面加了 `Debug OIDC claims`：用 `ACTIONS_ID_TOKEN_REQUEST_URL` 取一个 `aud=sts.amazonaws.com` 的 token，只解码 payload，打印 `sub`、`ref`、`environment`、`job_workflow_ref` 四项，token 本身不打印。\n- **跑了一次**：`gh workflow run deploy.yml --ref v2.14.0-rc.1 -f environment=production`（rc tag，后面的部署步骤本来就会因为拿不到凭证停下，不会真的发到 prod）。日志里是：\n\n```\nsub=repo:acme/infra:environment:production\nref=refs/tags/v2.14.0-rc.1\nenvironment=production\n```\n\n- **原因**：`deploy-prod` 这个 job 声明了 `environment: production`（为了用环境的审批和环境级的 secrets）。job 一挂上 environment，`sub` 就换成 `repo:<org>/<repo>:environment:<name>` 的格式，不再是 `ref:...`，所以上一轮补的 tag 那条根本匹配不到。staging 的 job 没挂 environment，`sub` 还是 ref 格式，这就是它一直正常的原因。\n- **改法**：`sub` 的取值里加上 `repo:acme/infra:environment:production`。原来那两项先没删，免得这一步又引入别的问题。`terraform plan` 还是 `1 to change`。\n\n同样没 apply，你 apply 之后重跑 v2.14.0 那次。",
+      "tools": [
+        "Edit",
+        "Bash",
+        "Read"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "apply 了 v2.14.0 重跑过了 我又打了个 v2.14.1 也一路绿 prod 上的 helm release 版本也对 这个算解决了 不过你加的那个 debug step 和第一次加的 refs/tags/v* 先都留着 等 v2.15.0 正式发版也过了再一起删 删完开个 PR 合进 main"
+    },
+    {
+      "role": "assistant",
+      "text": "好，记下了。v2.15.0 正式发版过了之后要清的就这两处：\n\n1. `.github/workflows/deploy.yml`：`deploy-prod` 里的 `Debug OIDC claims` 这一步整段删掉。\n2. `terraform/iam/github_oidc.tf`：`aws_iam_role.github_deploy_prod` 信任策略里 `sub` 的取值只留 `repo:acme/infra:environment:production`，去掉 `ref:refs/heads/main` 和 `ref:refs/tags/v*` 两项。我又 Grep 了一遍，prod 角色只有挂了 `environment: production` 的 `deploy-prod` 在用，那两项留着只会让角色比需要的更宽。\n\n删完 `terraform plan` 应该还是 `1 to change`，apply 照旧由你来，然后开 PR 合进 main。",
+      "tools": [
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "v2.15.0 今天发了 deploy-prod 一路绿 按你上次列的把那两处删了 开 PR 吧"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的后续：继续围绕 prod 部署角色和 OIDC 这块读信任策略和 workflow、对照 CloudTrail 和 Actions 的日志、弄清 sub 声明在各种触发方式下的格式、看别的 job 会不会踩同样的坑，没有新的改动，也没有新的结论。"
+}

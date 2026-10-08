@@ -1,0 +1,33 @@
+{
+  "id": "single-attempt-03",
+  "category": "single-attempt",
+  "domain": "perf",
+  "bin": "d3",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "search-svc 线上 p99 每隔二十分钟左右冒一个尖 平时 90ms 上下 尖的时候两秒多 持续十来秒 Grafana 上很规律 我对了一下 GC 日志 尖的时间点都有这种\n`[2026-10-02T14:20:03.118+0800][gc] GC(1832) Pause Young (Concurrent Start) (G1 Humongous Allocation) 2890M->2412M(4096M) 486.215ms`\n后面还跟着几次几百毫秒的 你看看是什么东西在分大对象"
+    },
+    {
+      "role": "assistant",
+      "text": "找到了每二十分钟分一次大对象的东西，已经改了。\n\n**怎么查的**\n\n- `grep` 了一下定时任务，`@Scheduled(fixedRate = 20, timeUnit = MINUTES)` 只有一处：`src/main/java/com/acme/search/stats/HotQueryStats.java` 的 `flush()`，二十分钟一次，和尖的间隔对得上。\n- `flush()` 先把内存里的 `ConcurrentHashMap<String, LongAdder>` 整个拷成 `List<Map.Entry<...>>`，排序，再 `String.join` 成一个大字符串，一次 `SET` 写进 Redis 的 `hotq:snapshot`。现在热词表大概 180 万个词，拷出来的数组和拼出来的字符串都是几百 MB 级别，远超 G1 的 region 大小（4096M 堆下是 2 MB），全是 humongous 分配。\n- 翻了 `perf/jfr/` 里上周录的 `prod-0926.jfr`：`jdk.ObjectAllocationOutsideTLAB` 里最大的几次分配，栈都在 `HotQueryStats.flush` → `String.join`，时间点和 GC 日志里的 humongous 那几行一一对应。\n\n**改法**\n\n- `flush()` 不再拼一个大字符串：遍历 map，每 1000 条用 Lettuce 的 pipeline 写一次 `HSET hotq:snapshot:<epoch>`，写完再 `RENAME` 成 `hotq:snapshot`，读的那边（`HotQueryReader`）改成 `HSCAN`。\n- 排序挪到读的那边，只排前 500 个，flush 时不再整表排序。\n- 没动 JVM 参数和堆大小。\n\n**验证**\n\n- `./mvnw test` 318 个通过，`HotQueryStatsTest` 补了一个 50 万条的用例，断言写出来的条数和读回来的前 500 一致。\n- 本机起服务灌了 180 万个词，手动触发 `flush()` 十次，开着 `-Xlog:gc*`：没有再出现 `G1 Humongous Allocation`，单次 flush 的最长停顿 12 ms。\n\n改动在 `perf/hotq-flush` 分支，还没合。你找个时间发到线上一台机器上，看一两个小时的 p99。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Bash",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "p99 那个二十分钟一次的尖 今天线上那台看了一下午 还是有 是不是把堆调大点就行了"
+    }
+  ],
+  "middle_hint": "中间在同一个 search-svc 仓库里做别的事：加接口字段、补测试、写 k6 场景、升级依赖、改配置和文档之类，和二十分钟一次的 p99 尖无关，没有再碰这个问题。"
+}

@@ -1,0 +1,60 @@
+{
+  "id": "new-topic-03",
+  "category": "new-topic",
+  "domain": "data-scripts",
+  "bin": "d3",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "orders_daily 这几天有重复行 同一个订单出现两次 看了几条都是零点前后下的单 pipelines/daily_orders.py 你看看"
+    },
+    {
+      "role": "assistant",
+      "text": "找到一个原因，改了：取数窗口的边界一头按北京时间、一头按 UTC 算，相邻两天的窗口重叠了 8 个小时。\n\n- **查到的**：`pipelines/daily_orders.py` 的 `run(day)` 调 `sources/shop_export.py` 的 `fetch_window(start, end)` 拉订单。`start` 是当天 00:00（`pd.Timestamp(day, tz='Asia/Shanghai')`），`end` 却是加一天之后又 `.tz_localize(None)`，传进接口时被当成 UTC。窗口实际是北京时间当天 0 点到次日 8 点，次日的任务又从次日 0 点开始拉，0 点到 8 点之间的订单两天都拉到了。只看到零点前后的单重复，是因为凌晨下单少，重叠的那段大多只有零星几单。\n- **改法**：边界统一成 UTC 的半开区间：`start` 是当天北京时间 0 点换算成 UTC，`end = start + 1 天`；`fetch_window` 只接受带时区的时间戳，传进不带时区的直接抛错，以后不会再混。\n- **验证**：`tests/test_daily_orders.py` 加了 3 个用例：普通一天、跨月、跨年，断言相邻两天的窗口首尾相接、不重叠；`pytest tests/` 41 个用例全部通过。本地跑了 `make daily DAY=2026-09-10`，输出 18,432 行，按 `order_id` 去重后还是 18,432 行。\n\n还没提交。要不要回补一下 9 月整月？命令是 `make backfill FROM=2026-09-01 TO=2026-09-30`。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "回补了 9 月 还是有三天有重复 9/3 9/17 9/24 每天几十单 另外提醒一下 orders_daily 下游有三个 Metabase 看板和财务的对账脚本在读 列名和类型别动 他们那边写死了的"
+    },
+    {
+      "role": "assistant",
+      "text": "三天的重复都对上了：那三天源接口超时重试过，分页错位把同一批订单拉了两次。写出之前按 `order_id` 去重了。也按你说的把下游读这张表的地方都看了一遍，这次没动表结构。\n\n- **查到的**：`sources/shop_export.py` 的 `fetch_window` 按 `offset` 分页，每页 500 条，某页超时会重试。9/3、9/17、9/24 的拉取日志里都有 `ReadTimeout` 之后重试的记录：重试的这几十秒里有新订单写进来，把后面的订单往后挤，重试拿到的那页和上一页有重叠，重叠的就是那几十单。\n- **改法**：`daily_orders.py` 在写 parquet 之前按 `order_id` 去重，保留 `updated_at` 最新的一条，日志里打出去掉了几行。分页改成按 `(created_at, order_id)` 做游标更彻底，但要改接口调用方式，这次先不动。\n- **下游读 orders_daily 的地方**：\n  - `sql/dash_gmv.sql`、`sql/dash_refund.sql`、`sql/dash_channel.sql`：三个 Metabase 看板的查询，都按列名选 `order_id, paid_at, channel, amount, currency, status` 这几列；\n  - `pipelines/finance_recon.py`：财务每月 1 号跑的对账，读 `orders_daily` 的 parquet 分区，有一段是按**位置**取列的：`amount = df.iloc[:, 4]`、`currency = df.iloc[:, 5]`，注释写着「跟财务系统导出的列顺序对齐」。它还会把当月和上月的分区拼在一起比，所以历史分区和新分区的列也得一致。\n\n  这次只是去重，没有增删列，列顺序也没动；改前改后各跑了一遍 9/17，`df.dtypes` 逐列对过，完全一样。\n- **验证**：加了一个用例，模拟重试拿到重叠的一页，断言输出没有重复的 `order_id`；`pytest tests/` 42 个用例全部通过；本地跑完 `make backfill FROM=2026-09-01 TO=2026-09-30`，每天去重前后行数一致。\n\n还没提交，你那边再回补一次看看。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "回补完了 九月一条重复都没有 财务那边对账也平了 提交吧"
+    },
+    {
+      "role": "assistant",
+      "text": "提交了，`e5b20d4`：`daily_orders: fix window boundaries and dedupe retried pages`，改了 `pipelines/daily_orders.py`、`sources/shop_export.py` 和两个测试文件，没推送。\n\n- 分页改游标那件事写成了 `sources/shop_export.py` 里的一条 TODO，没另开票。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "运营那边要看净额 orders_daily 里的 amount 帮我拆成 amount_gross 和 amount_net 两列吧 净额就是减掉优惠和退款的"
+    }
+  ],
+  "middle_hint": "中间在 etl-scripts 里做别的事：别的流水线加字段、调 cron、补测试、升级依赖、解释脚本之类，和 orders_daily 的重复行无关，没有再碰这张表。"
+}

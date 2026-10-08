@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-09",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "决定性几轮说明千分位不是简单的格式问题：只在服务器上 cron 跑时出现，和进程 locale、Makefile 的 LC_ALL、crontab 的启动方式有关；助手改过一次（format_amount 去掉 locale、删掉 setlocale、补测试），用户同步到服务器手动跑后说还是带逗号。只失败过一次，问题依赖运行环境，要去服务器上核对实际执行的代码和路径，是调试：high；第一次的判断落空、环境差异要反复验证，xhigh 也可以接受，不到 max。删掉决定性几轮，中间是别的事，最后一条看起来就是把金额格式化去掉千分位的小改动：medium。三选一：d1 第一次提出，new_or_unrelated；最后一条说手动跑还是带逗号，still_unresolved。"
+}

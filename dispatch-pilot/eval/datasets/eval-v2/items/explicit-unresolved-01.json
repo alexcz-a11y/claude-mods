@@ -1,0 +1,63 @@
+{
+  "id": "explicit-unresolved-01",
+  "category": "explicit-unresolved",
+  "domain": "frontend",
+  "bin": "d1",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "商品列表那边批量上下架有问题 勾几个商品点批量上架 提示成功了 但是列表里的状态还是已下架 要手动刷新页面才变 代码应该在 src/pages/products/ProductList.tsx 你看一下"
+    },
+    {
+      "role": "assistant",
+      "text": "找到一个直接的原因，已经改了：批量操作成功后没有重新拉列表。\n\n- **原因**：`ProductList.tsx` 里批量上下架走的是 `useBatchUpdateStatus`（`src/hooks/useBatchUpdateStatus.ts`），它的 `onSuccess` 只弹了一句 `message.success('操作成功')`，没有通知列表。列表数据来自 `useProductList`，只在筛选条件变化时请求，所以批量操作之后列表还是旧的。\n- **改法**：给 `useBatchUpdateStatus` 加了一个 `onDone` 回调参数，`ProductList.tsx` 把 `refetch` 传进去，批量操作成功后重新拉当前页。顺手在成功后清空了选中项，不然刷新后勾选框还残留着。\n- **验证**：在 `src/pages/products/__tests__/ProductList.test.tsx` 补了一个用例：mock 批量接口返回成功，断言列表接口被再调一次、第一行的状态标签变成「已上架」。`npx vitest run src/pages/products` 12 个用例全部通过，`npx tsc --noEmit` 没有报错。\n\n还没提交，你在测试环境点一下看看。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还是不刷新 我刚上架了三个 提示成功 列表里还是显示已下架 F5 之后才对"
+    },
+    {
+      "role": "assistant",
+      "text": "又顺着数据流看了一遍，问题在 store 这一层，改了第二处。\n\n- **查到的**：`useProductList` 不是直接把接口返回放进组件 state，而是写进 `src/store/productStore.ts` 的 `listCache`，按筛选条件算 key 缓存，组件再按 key 从 store 里取。key 是 `JSON.stringify(filters)`，但 `ProductList.tsx` 每次渲染都新建一个 `filters` 对象，`status` 为空时有时是 `undefined`、有时是 `''`：从 URL 参数解析出来的是空字符串，筛选栏点重置后是 `undefined`。`JSON.stringify` 会丢掉 `undefined` 字段，于是 `refetch` 写进去的 key 和组件读的 key 不是同一个，新数据写进了另一格缓存，页面读的还是旧的那格。\n- **改法**：在 `productStore.ts` 加了 `normalizeFilters`，空字符串、`undefined`、`null` 一律去掉，字段按名字排序后再算 key，读和写都走它。\n- **验证**：给 `normalizeFilters` 写了 5 个单测；`ProductList.test.tsx` 的用例改成先带 `?status=` 进页面再批量上架，改之前这个用例能复现失败，改之后通过。`npx vitest run src/pages/products src/store` 19 个用例全部通过。\n\n你再试一下，这次最好从带筛选的链接进去点。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "不行 还是一样 我清了缓存从列表页直接进去试的 network 里看了 批量接口之后确实又请求了一次列表 返回的数据也是新的 状态是 1 但是页面上就是不变"
+    },
+    {
+      "role": "assistant",
+      "text": "请求发了、数据也是新的，页面却不变，那就是渲染这一层把更新挡住了。找到一处，改了。\n\n- **查到的**：列表表格是 `src/components/ProductTable.tsx`，导出时包了 `React.memo`，第二个参数是自定义的比较函数：\n\n```ts\n(prev, next) => prev.rows.length === next.rows.length && prev.loading === next.loading\n```\n\n这是之前为了大列表滚动卡顿加的。批量上下架只改状态、不改条数，`rows.length` 没变，表格就不重新渲染，所以页面上还是旧状态；切一下筛选条件、条数变了才会刷新。\n- **改法**：比较函数改成逐行比 `id` 和 `updatedAt`（接口每次改状态都会更新 `updatedAt`），条数不变但内容变了也会重新渲染。200 行的列表比较一次不到 1ms，不影响原来要解决的卡顿。\n- **验证**：`ProductTable.test.tsx` 加了「条数不变、某一行状态变化」的用例，改之前失败、改之后通过；`npx vitest run` 全量 143 个用例通过。另外跑了 `npx playwright test e2e/products-batch.spec.ts`，Chromium 下批量上架后不刷新页面，状态标签直接变成「已上架」。\n\n这次是渲染层挡住了更新，你再点一下看看。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "回到商品列表批量上下架那个问题 我刚在测试环境又点了一遍 勾了两个点上架 提示成功 状态还是不会自己变 得刷新页面"
+    }
+  ],
+  "middle_hint": "中间在 shop-admin 里做别的事：给别的页面加字段、改文案、补测试、升级依赖之类，和批量上下架无关，没有再碰这个问题。"
+}

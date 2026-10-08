@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-12",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "决定性几轮里只做过一次尝试：把 NODE_OPTIONS 的堆上限调到 6144，并说明如果还挂再看 remarkGlossary 的缓存；之后十几万 token 都是排查（缓存、配置、内存曲线、复现脚本），没有第二次改动。最后一条说 CI 又爆了、还是同一行：只失败过一次的构建内存问题，要量内存、查插件，high；问题跨插件和构建配置、要在 CI 上反复验证，xhigh 也可以接受；对话虽长但只试过一次，不到 max。删掉决定性几轮，最后一条单看像调一下内存参数的小事（会偏 medium），但中间段是对同一问题的长时间排查，能看出是调试：high。三选一：d1 首次提出，new_or_unrelated；最后一条同一行报错还在，still_unresolved。"
+}
