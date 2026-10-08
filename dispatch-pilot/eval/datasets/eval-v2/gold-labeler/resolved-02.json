@@ -1,0 +1,25 @@
+{
+  "id": "resolved-02",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "筛选时区问题在 d3 已解决并提交，用户当时明确导出保持 UTC 不动。最后一条是新的小任务：在导出按钮旁加一行灰色说明文字，原因（页面北京时间、导出 UTC 供对账脚本读）已在 d2/d3 讲清，属于单文件、需求明确的机械 UI 改动，定 low，算上可能要补测试或文案规范可到 medium。和之前的筛选 bug 不是同一问题仍未解决，而是新任务。没有决定性几轮时不知道导出为何差 8 小时，要先查导出接口和显示逻辑才能写对说明，定 medium。"
+}

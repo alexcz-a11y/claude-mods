@@ -1,0 +1,18 @@
+{
+  "id": "single-attempt-07",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "d1 提出 staging Flyway V119 checksum 不一致，主 agent 做了第一次修复（恢复 V119、改动挪进 V127，PR #284）。中间是无关的工作。最后用户说 #284 合进去后还是同一行报错，属于同一问题的第二次尝试。第一次的判断有本地和只读库的核对作依据，结果仍然失败，说明部署取迁移的来源、校验方式或 history 表的状态里还有没查到的环节，原因未知。处理时还可能要对 staging 库做 repair 一类的操作，需要追查加反复验证，定 xhigh，high 也能接受。读不到 d1 时只看到用户说 checksum 对不上、#284 已合，报错本身指明了原因方向，按一般调试给 high。",
+  "source": "user:labeler"
+}

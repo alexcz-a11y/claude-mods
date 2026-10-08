@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-02",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "low",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "导出被 recovery conflict 取消的问题已由分批短查询解决（d3 用户确认三晚跑完、数仓核数对得上）。最后一条是新的调参要求：数仓嫌慢，把 chunk-size 调到 5 万。助手上一轮已说明 5 万是稳的上限、只改 jobs/schedule.yaml 里这个任务的 --chunk-size，代码不用动，属改一个参数的机械改动，low。不看决定性几轮也只是改一个参数值，仍是 low。"
+}

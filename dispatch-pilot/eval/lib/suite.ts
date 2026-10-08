@@ -202,4 +202,6 @@ export type Suite<I extends AnyItem, P> = {
   scoring?: string
   /** Optional: save a digest of each request's state in the result file (`stateDigest`), not the state: for a suite whose states are tens of thousands of tokens. */
   digestState?: boolean
+  /** Optional: the languages its items are written in, which a run asks unless `--languages` says otherwise (both by default; eval-v2's conversations are Chinese only). */
+  languages?: readonly Language[]
 }

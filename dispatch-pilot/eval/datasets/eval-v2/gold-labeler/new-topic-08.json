@@ -1,0 +1,21 @@
+{
+  "id": "new-topic-08",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后一条放下 ctx-meter，问 git-guard 为什么九月中旬装的人拦不住 git restore .，而 --plugin-dir 能拦，只要口头解释。d2 的回复已经把原因查清：git-guard 9 月 22 日才开始拦 git restore .，但 plugin.json 的 version 一直是 0.4.0，marketplace 装的是缓存副本、版本号不变 claude plugin update 不会换新，--plugin-dir 读工作区所以本地能拦。答案基本已知，只需整理成话（最多顺带说一句要升版本号），定 low，medium 也可。读不到决定性几轮时这是一个原因未知、本地与安装版行为不一致的排查，会判 high。d1 首次提出 ctx-meter 问题；d2 用户说两种情况都可能、同事装的版本也一样会跳，问题仍在；最后一条转去 git-guard，是新问题。"
+}

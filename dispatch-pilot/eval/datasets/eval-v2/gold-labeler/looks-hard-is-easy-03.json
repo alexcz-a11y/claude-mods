@@ -1,0 +1,21 @@
+{
+  "id": "looks-hard-is-easy-03",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "扫描那步又因 ghcr TOOMANYREQUESTS 挂了一片，问题复发；但原因和改法早已确定并验证过：在 build-image.yml 的 Scan image 步骤 env 下加一行 `TRIVY_DB_REPOSITORY: mirror.gcr.io/aquasec/trivy-db:2`，开 PR 合并后 rerun 失败的 run 确认。用户明确让按上次说的加，是照指令的一行机械改动，low，可接受 medium。d2 用户 rerun 全绿、说先这样，是 resolved（接受结果、推迟改动）。读不到决定性几轮时要重新判断限流原因和替代源，定 high。"
+}

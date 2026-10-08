@@ -1,0 +1,25 @@
+{
+  "id": "explicit-unresolved-06",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "staging 部署镜像扫描偶发卡四分多钟：去掉线程池共用 Session、每镜像新建 client 防 NAT 断连、先查扫描状态再决定是否 start_image_scan 三轮修复，用户都说报错一样；中间又长时间排查无结论，最后仍有一次卡住、报错没变。三轮失败后再提，给 max；涉及网络和外部服务的偶发问题，xhigh 也可接受。去掉决定性几轮，仍有中间长时间无结论排查和用户说还在，给 xhigh。"
+}

@@ -1,0 +1,25 @@
+{
+  "id": "implicit-unresolved-04",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里 prompt-guard 的 prompt.edit 超时已经改了三次（会话开始时缓存并预编译规则、规则挪进 $.state 并去掉兜底路径、扫描改成只扫编辑窗口），每次测试和 bench 都通过，用户每次都贴回同一行 exceeded 50ms。最后一条隔了很长一段别的活，又只是说 token 还原样留着、贴同一行日志：三轮修复之后第三次回报同一个失败，max，xhigh 也可以。删掉决定性几轮，最后一条只是一个 mod 的钩子超时日志，前面看不到尝试过的修法，按普通的调试：high。三选一：d1 首次提出问题，new_or_unrelated；d2、d3 都是同一日志仍在，still_unresolved；最后一条隔了别的活回头说同一个问题还在，still_unresolved。审稿修改：原题的 snippet-expander（;; 片段展开、prompt.edit 超 50ms）和本领域 unrelated 素材段矛盾：仓库里做片段展开的是 snippets，素材段多处写明它的 prompt.edit 和片段条数无关、实测不到 1 毫秒，触发写法和存放位置也不一样。改成一个素材段没有涉及的 prompt-guard（输入时遮掉草稿里像密钥的内容），保留原来三次修法的结构。金标方向不变。"
+}

@@ -1,0 +1,32 @@
+{
+  "id": "explicit-unresolved-03",
+  "effort": "max",
+  "accept": [
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "PostgreSQL 库存死锁：统一加锁顺序、分批提交、预锁 summary 行、加重试和锁等待日志、关单任务排序归还，五轮修复后用户仍报同样的 DeadlockDetected，且已出现下单直接失败。同一问题远超三轮失败、又是典型疑难并发问题，只能是 max。读不到决定性几轮时，只知道死锁之前处理过又出现，按第二次修复的并发调试给 xhigh。"
+}

@@ -1,0 +1,68 @@
+{
+  "id": "resolved-05",
+  "category": "resolved",
+  "domain": "ios",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "切回账单页时的列表刷新",
+    "SYMPTOM": "切回账单页时列表少了几笔刚记的账",
+    "ERROR": "BillListViewModel.restoreRows failed: Error Domain=NSCocoaErrorDomain Code=133000 \"Attempt to access an object not found in store.\"",
+    "FILE": "Ledger/Features/Bills/BillListViewModel.swift",
+    "FILE2": "Ledger/Persistence/HistoryMerger.swift",
+    "SYMBOL": "restoreRows()",
+    "COMMAND": "xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:LedgerTests/BillListViewModelTests"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "3.8.0 以后外测老有人反馈 从后台回来或者从统计页切回账单页 列表少了几笔刚记的账 合计也不对 退出去再进来就好了 Sentry 里对应的是 `BillListViewModel.restoreRows failed: Error Domain=NSCocoaErrorDomain Code=133000 \"Attempt to access an object not found in store.\"` 你看下 Ledger/Features/Bills/BillListViewModel.swift"
+    },
+    {
+      "role": "assistant",
+      "text": "先找到一处，改了一版：`restoreRows()` 里只要有一个缓存的对象已经不在库里，整次还原就失败，列表停在离开前的旧数据上。\n\n- **原因**：3.8.0 的 #604 为了切 tab 时不闪，离开账单页时把当前的行缓存成 `NSManagedObjectID` 列表，回来时 `restoreRows()` 逐个 `viewContext.existingObject(with:)` 还原，不再重新取数。这期间要是后台把其中一笔删了，比如周期记账的 `catchUp` 把「预计」的那笔删掉、换成正式的一笔，`existingObject` 就抛 133000。`restoreRows()` 用一个 `try` 包住了整个循环，一笔失败整次还原中断，`catch` 里只记日志，`rows` 还是离开前那份，界面上就是旧的。\n- **改法**：改成逐个还原，`existingObject` 抛错的那一笔跳过，记一条 debug 日志，其余照常还原。\n- **验证**：`BillListViewModelTests` 加了一个用例：内存库里先缓存 5 笔，后台 context 删掉其中 1 笔再还原，改之前抛 133000、`rows` 不变，改之后还原出 4 笔。`xcodebuild test ... -only-testing:LedgerTests/BillListViewModelTests` 9 个用例通过。\n\n还没提交，你出个 TestFlight 包让外测试一下。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "Sentry 里那个 133000 没了 但列表还是会少 外测说用小组件记了一笔 回到 App 账单页里没有 退出去再进来才有 从后台回来也一样"
+    },
+    {
+      "role": "assistant",
+      "text": "上一版只处理了「缓存里的被删了」，没处理「别处新加的」：缓存的 ID 列表里本来就没有账单页不可见期间小组件、周期记账插进来的账单，怎么还原都还原不出来。这次改成该重取的时候重取。\n\n- **原因**：`Ledger/Persistence/HistoryMerger.swift` 合并完持久化历史会发 `billsDidChange`，可 `BillListViewModel` 收到通知时有一句 `guard isVisible else { return }`，账单页不在前台就直接丢掉；回到账单页走的是 `restoreRows()`，只认离开前缓存的那些 ID。小组件记的一笔、周期记账生成的一笔都是在 App 外或后台写的，正好落在这个空档里。退出重进会重新取数，所以就好了。\n- **改法**：\n  1. 不可见时收到 `billsDidChange` 不再丢掉，记一个 `needsRefetch` 标记；\n  2. 回到账单页时有标记就按当前月份重新 fetch，没有才走 `restoreRows()`，这样没有变化时，#604 想解决的切 tab 闪烁仍然不会出现；\n  3. 上一版「跳过找不到的」保留，当兜底。\n- **验证**：`BillListViewModelTests` 改用真的 sqlite 文件：账单页不可见时用 author 为 `widget` 的后台 context 插一笔、`HistoryMerger` 合并，再回到账单页，断言新的一笔在列表里；周期记账替换「预计」那笔的场景也加了一个，11 个用例通过。UI 测试按「记一笔 → 切到统计页 → 通过 App Group 模拟小组件写入 → 切回账单页」连跑 20 遍，20 遍都对。\n\n你再出个包，让用小组件的那几位外测试一下。",
+      "tools": [
+        "Read",
+        "Bash",
+        "Edit",
+        "Write"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "这次好了 外测拉了 6 个人 用小组件记账 切 tab 从后台回来都试了 列表都对 这个问题解决了 先别发 我想把这块代码再顺一遍"
+    },
+    {
+      "role": "assistant",
+      "text": "好，先不发。改动在 `fix/bills-refetch` 分支，两个提交：`9a3e7c1`（还原时跳过已删除的对象）、`41fd2b8`（不可见期间有变化就重新取数）。\n\n以后看 Sentry 有一点先说清楚：3.8.0、3.8.1 的用户升级之前，Sentry 里还会继续收到 133000，那是老包的问题，不是新问题；3.9.0 的包上要是再出现 133000，或者有人反馈切回来少账，才说明这块又出了问题。另外日志里会多一条 info `bills refetch after hidden changes`，账单页不在前台期间有写入时才会出现，用小组件多的人会多一些，是正常的。\n\n这块你想从 `restoreRows()` 开始顺，还是从 `HistoryMerger` 发通知那一段开始？",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "外测这两天 3.9.0 的包上 133000 一条都没有 Sentry 里还有十几条 我看了全是 3.8.1 的 跟之前说的一样 代码就顺到这 你在 3.9.0 的 release notes 里加一句 修复了用小组件或者在后台记账以后回到账单页偶尔不显示的问题"
+    }
+  ],
+  "middle_hint": "用户确认修复有效后，说先不发版、要把这块代码再顺一遍：中间是围绕切回账单页时的列表刷新继续读代码、理调用链、看 Sentry 和日志、问原理，不改实现，也没有新的结论。"
+}

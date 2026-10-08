@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-05",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "评价审核列表的数据对不上：决定性几轮里第一版把 request.ts 的 dedupeKey 改成带参数，修好了翻页串页（d1 提出问题），用户确认翻页好了但审核后仍挂着待审核（d2），第二版取消旧请求、reload 不合并、按序号写回，用户说三个测试点了一下午都对、算好了，只是先别合、要写复盘（d3）。助手在第二版和最后一轮里已经把影响面查清并整理成回归清单：必须回归评价审核和工作台 4 张统计卡片、抽查三个常用列表页、其余 9 个跑 e2e、参数固定的请求不用管。中间是为复盘继续理这块，没有新尝试。最后这条问要回归哪些页面，答案就是前面现成的清单，照抄转述即可：low；medium 也可以（转述前再对一遍两个提交的 diff 确认清单没漏）。前面的时序问题再复杂，这条也只是转述一个已经得出的结论，不该被带高。删掉决定性几轮，中间几万 token 都在没有结论地排查这个列表，最后突然问「这次」要回归哪些页面，得先找出改了什么（分支和提交）、再查 request.ts 和 useRequest 的调用方、判断哪些页面行为会变：medium。三选一：d1 第一次提出问题，new_or_unrelated；d2 明说还在，still_unresolved；d3 明说算好了，resolved；最后这条是接受修复、为合并做回归准备的收尾，resolved。审稿改动：题目里两处细节和本领域 same-problem 素材段不符，已改：cancelPrevious 在素材段里是 useRequest 现成的选项、request.ts 本来就支持 signal（frontend-same-problem-01、09、23），原题写成第二版新加的；工作台在素材段里是 src/pages/dashboard/Workbench.tsx（frontend-same-problem-01），原题写成 widgets 目录。金标不变。"
+}

@@ -1,0 +1,21 @@
+{
+  "id": "looks-hard-is-easy-06",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "剩下的工作照 d2 之后助手列的单子做：`edit-tally/hooks/edit-tally.ts` 里紧跟 `const r = await next(e)` 加一行 `if (isFileEdit(e) && (r.isError || 'deny' in r)) return r`；`edit-tally/tests/edit-tally.test.ts` 照现有那条经过 hook 的用例补两条（`next` 交回 Edit 的 `isError` 结果、交回 `{ deny }`，断言 `$.state` 没变、下一次正常的 Edit 照常送状态行）；跑 `command claude plugin test ./edit-tally`。原因（Edit 失败或被拒时 hook 照样取 `structuredPatch`，`tallyEdits` 第 58 行抛错，`pendingRecompute` 卡在 true，之后只写 `$.state` 不送状态行）在 d1 里用 debug log 和临时用例对上了；新加的那一行逐字写明，`pendingRecompute` 的先后不动；用户等的是同事确认他那边是不是点了拒绝，助手当时就说明这一行两种都挡得住，最后一条同事确认了。对上第 7 节 medium 的第①种：一处写明的改动，照现成用例补两条测试，没有要判断的地方。改动只有一行、用例写什么也定好了，判 low 也说得过去，accept low、medium。删掉决定性几轮，只剩几万 token 没有结论的排查和这一屏：`hook skipped` 加 TypeError 栈，状态行停住、要热重载才跳回来，「按上次说的改」改什么看不出来，等于要自己从栈和 mod 的状态标记里找原因再修，是调试：high。三选一按第 6 节：d1 对话里第一次带着 debug log 提出这个问题，new_or_unrelated；d2 用户认了原因，同时说「今天上午我这又停了一次」，属于说问题又出现了，still_unresolved；最后一条同样的报错和现象又出现，让按上次说的改，still_unresolved。决定性几轮里没有失败的修复尝试。审稿改动（金标未变）：d1 用户消息里「用 它改 README」改成「让它改 README」。对过 cc-mods 的 same-problem 段（01、05、14、15、18、35 等）：`pendingRecompute` 是模块级变量、热重载清零，hook 在 `next(e)` 之后调 `tallyEdits`、失败按 `hook skipped` 跳过并在 `--plugin-dir` 会话里显示一行灰字，同事装的是 marketplace 版本、默认配置，这些都相容。"
+}

@@ -1,0 +1,25 @@
+{
+  "id": "explicit-unresolved-06",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "部署时镜像扫描偶发卡住：决定性几轮里改了三次（去掉多线程共用 Session、每个镜像新建 client 不复用连接、已在扫描的镜像不再重复发起），每次手动触发都成功，用户两次回来说还是同样的报错，最后这条是第三次修改后又说还有一次卡了四分多钟。偶发、跨 CI、网络和 AWS 好几层，显眼的原因都排除过了：max，xhigh 也可以。删掉决定性几轮，中间只有大段排查、没有修改尝试，最后一句看起来是一次部署故障调试的跟进：high。三选一：d1 首次提出，new_or_unrelated；d2、d3 都是改了以后说还挂，still_unresolved；最后这条说报错没变，still_unresolved。（审稿修改：本领域 same-problem 段的隐含场景是 9 月 22 日起 15 天出现 8 次（约每 20 到 30 个 job 一次），每次在 `{{SYMBOL}}` 处理到某个对象时停 4 分多钟、再按 10/20/40 秒重试 3 次后报错，ARC 和 GitHub 托管 runner 上都出现过，托管 runner 那条路径不碰集群，job 超时 30 分钟、A 入口已有 `deploy-staging` 并发组，ARC 的 scale set 和 DNS 配置 15 天没动过，`{{FILE2}}` 9 月 21 日有一次依赖升级。原稿的 helm upgrade 等满 10 分钟、20 分钟，「三四次里有一次」，以及加 startupProbe、改 hook、加并发组、换 kubeconfig 都和中间段直接矛盾。按池子重写了问题、七个占位符和三次尝试（避开中间段列过的超时、重试、并发和集群配置）；尝试从五次变三次，金标档位不变。）"
+}

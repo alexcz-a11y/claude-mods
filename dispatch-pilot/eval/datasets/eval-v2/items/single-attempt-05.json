@@ -1,0 +1,33 @@
+{
+  "id": "single-attempt-05",
+  "category": "single-attempt",
+  "domain": "frontend",
+  "bin": "d1",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "商品列表按分类筛了之后点第二页 分类筛选就没了 列表变回全部商品 页码倒是到第二页了 地址栏上 categoryId 参数也没了 换了三个分类试 每次都这样 代码在 src/pages/products/ProductList.tsx 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "找到原因了，翻页时把整个查询串覆盖掉了，已经改好。\n\n- **原因**：别的列表页翻页都走 `useTableQuery` 给的 `tableProps`，`src/pages/products/ProductList.tsx` 给 `DataTable` 传 `pagination` 时自己包了一层 `onChange`（之前为了翻页后滚回表格顶部加的），里面写的是 `setSearchParams({ page: String(p), pageSize: String(size) })`。`useSearchParams` 的 setter 传对象是整体替换，不是合并，所以 `categoryId`、`status`、`keyword` 这些一翻页就全丢了，地址栏上只剩 `?page=2`，`useTableQuery` 从 URL 里读不到筛选条件，请求的自然就是全部商品。\n- **改法**：\n  - `onChange` 里改成调 `useTableQuery` 返回的 `setQuery({ page: p, pageSize: size })`，只动分页，别的参数原样保留，翻页照旧是 push；\n  - 滚回顶部挪到一个监听 `query.page` 的 effect 里；\n  - 全仓库 grep 了 `setSearchParams(`，绕开 `useTableQuery` 直接写地址栏的只有这一处。\n- **验证**：\n  - `src/pages/products/ProductList.test.tsx` 补了一个用例：用 `MemoryRouter` 从 `?categoryId=12` 进来，点第二页，断言地址变成 `?categoryId=12&page=2`，并且 `src/api/products.ts` 的 `fetchProducts` 第二次被调用时带着 `categoryId: 12`；\n  - `npx vitest run src/pages/products` 全部通过，`npx tsc --noEmit` 没有报错。\n\n已经提交，PR 合进 main 了，测试环境的部署流水线也跑完了，现在测试环境上就是这一版。你在测试环境按分类筛一下再翻页看看。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "商品列表那个 测试环境上是你合进去之后的版本 顶上也没有更新提示 筛完分类再翻页 条件还是会丢"
+    }
+  ],
+  "middle_hint": "中间在同一个 shop-admin 仓库里做别的事：加表单字段、改文案、补组件测试、调 Playwright 用例、升级依赖之类，没有再碰商品列表翻页丢筛选条件的问题，没有新的修改尝试，用户也没有评价第一次的修复。"
+}

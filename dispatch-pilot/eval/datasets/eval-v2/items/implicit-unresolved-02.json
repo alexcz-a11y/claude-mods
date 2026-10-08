@@ -1,0 +1,64 @@
+{
+  "id": "implicit-unresolved-02",
+  "category": "implicit-unresolved",
+  "domain": "data-scripts",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "留存那个今早挂了 飞书告警里是这行 `polars.exceptions.SchemaError: type String is incompatible with expected type Int64 (column \"user_id\")` 看板上的留存还停在前天 你查一下"
+    },
+    {
+      "role": "assistant",
+      "text": "查到了：运营前天往 `config/excluded_users.yaml` 里加了一批测试账号，id 带着引号写的，读进来成了字符串，和订单的 `user_id` 做排除时类型对不上。已经在读配置的地方统一转成整数，staging 上重跑通过。\n\n**原因**\n\n- 在 `etl-01` 上看了 `/var/log/etl/user_retention.log` 最后几十行：栈落在 `pipelines/user_retention.py` 的 `exclude_test_users()`，`orders.join(excluded, on=\"user_id\", how=\"anti\")` 这一步。\n- `git log -p config/excluded_users.yaml`：前天的提交加了 12 个账号，写成了 `- \"20931177\"` 这种带引号的，原来的都是裸数字。`yaml.safe_load` 读出来一半是 int 一半是 str，`pl.DataFrame` 把整列推成了 `String`。\n- `meta.etl_runs` 里昨天凌晨这一条是 `failed`，`error` 的最后一行就是告警里那句。\n\n**改法**\n\n- `exclude_test_users()` 读完配置先 `pl.Series(\"user_id\", ids).cast(pl.Int64, strict=True)`，有转不了的就直接报错，错误里带上原值，不会再推成字符串。\n- 顺手把 yaml 里那 12 行的引号去掉了。\n\n**验证**\n\n- `tests/pipelines/test_user_retention.py` 加了 `test_excluded_ids_quoted`：配置里混着带引号和不带引号的 id，断言排除结果一样。`make test` 全过。\n- staging 上 `make run P=user_retention` 跑通，`rpt.user_retention_daily` 写了 31 个同期群。\n\n改动已经合进 main 并在 `etl-01` 上 `git pull` 了，今晚 03:30 照常跑，明早看飞书群就知道。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "今早又挂了 还是 `polars.exceptions.SchemaError: type String is incompatible with expected type Int64 (column \"user_id\")`"
+    },
+    {
+      "role": "assistant",
+      "text": "这次挂的位置往后挪了：排除名单那一步已经过了，栈落在合并账号那一步。账号合并记录里的旧账号 id 前两天开始混进了小程序游客的 `wx_` 开头的 id，整列被推成了字符串。已经改成显式指定类型、把非数字的旧 id 过滤掉，staging 和本地夹具都跑通了。\n\n**怎么查的**\n\n- 今早的日志里 `exclude_test_users()` 已经过了，异常出在 `apply_account_merges()`：它从业务库从库拉 `user_merge_log`，把旧账号的订单归到新账号上，`orders.join(merges, left_on=\"user_id\", right_on=\"old_user_id\")` 报的同一句。\n- `sources/orders_db.py` 里 `fetch_merge_log()` 没给类型，靠 polars 从数据推断。`old_user_id` 在业务库里是 `varchar(32)`，以前一直只有数字，推出来是 `Int64`。\n- 用只读账号在从库上查了最近一周的合并记录：从 3 天前开始有 41 条 `old_user_id` 是 `wx_` 开头的，是小程序游客登录后合并进正式账号留下的，这一列就被推成了 `String`。\n- 我上次在 staging 上跑通，是因为 staging 报表库和业务测试环境的数据都停在 3 月，没有这种记录。\n\n**改法**\n\n- `fetch_merge_log()` 显式传 `schema_overrides={\"old_user_id\": pl.String, \"new_user_id\": pl.Int64}`；`apply_account_merges()` 里只保留 `old_user_id` 全是数字的行，再转成 `Int64` 去关联。游客 id 在订单表里本来就没有订单，过滤掉不影响留存的数。\n- 过滤掉多少条记一行 info 日志，方便以后看。\n\n**验证**\n\n- 把从库上那 41 条和前后几十条正常记录做成夹具 `tests/fixtures/merge_log_with_guests.csv`，加用例 `test_merge_log_guest_ids`，`make test` 全过。\n- staging 上 `make run P=user_retention` 跑通。\n\n已经部署到 `etl-01`，明早再看一次？",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit",
+        "Write"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "今天还是没出来 告警一样 `polars.exceptions.SchemaError: type String is incompatible with expected type Int64 (column \"user_id\")`"
+    },
+    {
+      "role": "assistant",
+      "text": "又往后挪了一步：合并那步也过了，这次挂在 31 天重算读回中间结果的地方。前两天失败的那两次，在报错之前已经把当天的首单中间文件写出去了，那两份里的 `user_id` 是字符串，重算时和别的日子拼在一起就报了同一句。已经把那两天的中间文件按正确类型重写，读的时候也指定了类型，按 cron 的方式在 staging 上完整跑了一遍。\n\n**怎么查的**\n\n- 日志里异常出在 `load_recent_first_orders()`：每次运行会把最近 31 天的同期群全部重算，首单用户从 `s3://etl-work/retention/first_orders/dt=YYYY-MM-DD/part-0.parquet` 读回来，用的是 `pl.scan_parquet(\".../dt=*/part-0.parquet\")`。\n- 逐个看了最近 31 个分区的 schema：前天和大前天那两份的 `user_id` 是 `String`，其余都是 `Int64`。\n- 原因在写出的顺序：`run()` 里先 `write_first_orders()` 再做排除和合并，那两天正是我前两次修的那两处让后面的步骤挂掉，但首单文件已经按当时被推成字符串的类型写出去了。\n\n**改法**\n\n- `run()` 里把 `write_first_orders()` 挪到所有步骤成功之后，失败的运行不再留下中间文件。\n- `load_recent_first_orders()` 读的时候传 `schema={\"user_id\": pl.Int64, ...}`，再遇到类型不一致会在读这一步就报出是哪个分区。\n- 写了一次性脚本 `scripts/fix_retention_partitions.py`，把那两天的分区读出来转成 `Int64` 重写，原文件复制到 `s3://etl-work/retention/_backup_first_orders/`，脚本不进仓库。\n\n**验证**\n\n- `make test` 全过，新加了两个用例：分区类型不一致时报错信息里带分区路径；中途失败时不写中间文件。\n- staging 上照 cron 的写法 `cd /opt/etl-scripts && make run P=user_retention` 跑通；本地把生产那 31 个分区拷下来跑了一遍 `load_recent_first_orders()`，拼接正常。\n\n明早的告警你再留意一下。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit",
+        "Write"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "今早的告警 `polars.exceptions.SchemaError: type String is incompatible with expected type Int64 (column \"user_id\")` 你再看看"
+    }
+  ],
+  "middle_hint": "中间是同一个 etl-scripts 仓库里的别的活：给报表加字段、补测试、整理 cron 和 Makefile、升级依赖、给运营和财务出数、写文档，和留存管道的类型报错无关。"
+}

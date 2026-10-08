@@ -1,0 +1,32 @@
+{
+  "id": "explicit-unresolved-12",
+  "effort": "max",
+  "accept": [
+    "max"
+  ],
+  "effort_without_decisive": "max",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "收银台扣款偶发 unexpected EOF，四次改动（缩短空闲连接、幂等键重发、关长连接已回滚、升 Go 版本）都没减少，原因仍未知；中间长期排查无结论；最后一条用户说昨晚高峰又报了、还是没解决。三轮以上失败后再提，且是真金白银、不能重复扣款的高风险问题，只给 max。即使读不到决定性几轮，中间长期排查无果加上扣款资金风险，也应给 max。"
+}

@@ -1,0 +1,26 @@
+{
+  "id": "command-turn-03",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "门店人效日报早上为空（InvalidIndexError，票 #127）：决定性几轮里改了三次：补充表去重、来源编码映射前清洗、组合支付先汇总再关联并给去重排序，用户两次回来说同样的报错还在；最后这条用 /debug 又贴出同一行报错，说今早又是空的，是第三次修改后仍没解决，命令轮算又一次尝试。只在每天第一次运行时出现、重跑消失，牵涉从库回放、上游晚到的数据和另一条管道的批次，三个显眼的方向都试过没用：max，xhigh 也可以。删掉决定性几轮，中间是大段只读的排查，没有任何修改尝试，最后一条像是第一次着手调试一个偶发的数据问题：high。三选一：d1 第一次提出，new_or_unrelated；d2、d3 都是改了之后说还是空、报错一样，still_unresolved；最后这条贴的还是那个报错，still_unresolved。（审稿改动：票号 #131 和同领域的 command-turn-09 撞了，改成 #127。金标不变。）",
+  "source": "agreed"
+}

@@ -1,0 +1,33 @@
+{
+  "id": "explicit-unresolved-11",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里商品编辑页保存后显示旧价格的问题已经改了四次（保存后 reload、重置草稿 store、去掉详情接口缓存、表格行同步 props），用户每次都说还是旧值，第四次之后批量改仍复现，助手也承认还有一处没找到。隔了几万 token 别的活，最后一条用户明说还是没解决：多处状态纠缠、反复修复未果，max；xhigh 也能接受。删掉决定性几轮，中间段是别的事，最后一条像报一个保存后显示不刷新的前端 bug，「还是没解决」至多说明试过一次：high。三选一：d1 首次提出，new_or_unrelated；d2–d5 都是改完仍显示旧值（d5 单行好了、批量仍然不对），still_unresolved；最后一条隔着别的活回头说原问题还在，still_unresolved。审稿修改：对齐素材池里 shop-admin 的设定：组件是目录形式（src/components/SkuTable/SkuTable.tsx），请求 hook 基于 src/hooks/useRequest 的 reload，axios 实例在 src/api/request.ts，草稿 store 是挂了 persist 的 productDraft，表格是 antd Table 的 virtual 而不是 react-window。档位不变。"
+}

@@ -1,0 +1,33 @@
+{
+  "id": "explicit-unresolved-11",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "sku 价格保存后显示旧值，四次修复（reload、重置草稿 store、去缓存、行同步 props）各修了一处但批量改价仍只更新第一行，助手列出三个未查证的可能；中间无关；最后一条说批量改价又碰到、还是没解决。同一问题三轮以上修复失败后再提，按约定 max；前端状态问题风险不算高，xhigh 也可接受。读不到决定性几轮时只知道之前修过还没好，原因未知的跨组件状态 bug，给 xhigh。"
+}

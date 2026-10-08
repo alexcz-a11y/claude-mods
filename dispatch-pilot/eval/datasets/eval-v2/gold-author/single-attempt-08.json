@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-08",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "失败的修复 1 次：d1 之后助手判断是 `.billsDidChange` 那条链的去抖用 `RunLoop.main`、滚动时被推迟后和切月份的加载交错，把调度器换成 `DispatchQueue.main`，改动放在 `fix/bills-debounce-scheduler` 分支、没合进 main，从分支打了内测包；用户在最后一条第一次说没好（装了内测包用了几天，还是碰到一次），是第二次。复现性是偶发：d1 里用户说不是每次都有、切了二三十次碰到一次、退出重进又好了，助手在模拟器上 20 次复现 3 次，middle_hint 也写了素材段里一直是偶发的；判断修没修好要在真机上跑很多遍或等几天的使用情况 → xhigh；accept 是 high、xhigh，只失败一次不到 max。中间十几万 token 的排查都不改代码，不算尝试。删掉决定性几轮：中间段看得到这个现象偶发，但看不出改过几次，很长的排查可能被读成反复失败；本类允许这个例外，决定性几轮在这里的作用是排除 max，删掉以后按看得到的偶发定，不推测成多次失败 → xhigh，和 effort 相同。三选一：d1 第一次提出问题，new_or_unrelated；最后一条说同样的现象还在，still_unresolved。审稿修改（上一轮）：原题的问题是首页本月支出合计不刷新，和本领域 same-problem 段的隐含场景冲突，改成账单页切月份显示错月份的问题。本轮按修订说明：删掉 d2 和撤回改动的那一轮；调度器的改动放在分支和从分支打的内测包里，不和中间段里 main 仍用 `RunLoop.main` 冲突；助手回复留下「134060 那行是哪次加载报的还解释不了」和「偶发、40 次说明不了」作为接着查的理由；最后一条改成装了内测包以后第一次说还是碰到；金标改成 xhigh，triage_decisive 只剩 d1。审稿修改（本轮）：内测包的 build 号从 4131 换成 4134（ios-same-problem-02、21、28、37 里 4131 是从 main 打的 3.9.0 TestFlight 包，不是分支包）；「`ViewModel` 有两个入口会调 `loadMonth`」改成「调用的地方有好几处，和现象对得上的是两处」，因为 ios-same-problem-01 列了 5 处业务调用（`.task`、下拉刷新、`onChange`、通知、`reloadVisible()`）。金标不变。"
+}

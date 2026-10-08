@@ -1,0 +1,66 @@
+{
+  "id": "command-turn-10",
+  "category": "command-turn",
+  "domain": "backend-api",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "禾记烘焙那边反馈 我们推的 order.paid webhook 里 paid_at 有时候是 `\"paid_at\": \"0001-01-01T00:00:00Z\"` 他们按这个字段记账 一下全记到公元 1 年去了 订单详情接口查出来是对的 昨天他们 1300 多单里有 90 来单这样 票我开了 #164 代码应该在 internal/service/payment.go 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "找到一处能对上的，已经改了。\n\n- **原因**：`PaymentService.OnPaid` 先 `GetOrderForUpdate` 把订单读进 `order`，再 `transition` 改状态、`SetOrderPaidAt` 写 `paid_at`，最后用 `orderPayload(order)` 生成 `order.paid` 事件写进 `outbox_events`。`order` 是改之前读出来的，`PaidAt` 还是零值，`orderPayload` 里的 `PaidAt` 是 `time.Time`，零值序列化出来就是 `0001-01-01T00:00:00Z`。订单详情接口每次重新查库，所以是对的。\n- **改法**：`SetOrderPaidAt` 之后先 `order.PaidAt = n.PaidAt` 再生成 payload；`orderPayload` 里 `PaidAt` 是零值时输出 `null`，和订单接口「总出现、没有时为 null」的约定一致，免得以后别的路径漏了又推出公元 1 年。\n- **验证**：`internal/service/payment_test.go` 加了 `TestOnPaid_WebhookPayloadHasPaidAt`，断言 outbox 里那条 `order.paid` 的 `paid_at` 等于通知里的支付时间；`go test ./...` 17 个包全过。\n\n有一点对不上：按这个原因应该每一单都是零值，禾记说只有 90 来单，上线以后你再盯一下。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "上线了 今天禾记上午还有 40 多单是 0001 我抽了几单看 好像都是补单任务补上来的 不是回调"
+    },
+    {
+      "role": "assistant",
+      "text": "补单是另一条路，上次那处改动它也经过，但它拼出来的通知里支付时间本身就是空的，改了：\n\n- **原因一**：`poll.go` 的 `PollPendingPayments` 查到渠道已支付以后，自己拼一个 `channel.Notification` 交给 `ApplyNotification`。两个渠道的查单接口返回的字段名和回调不一样：paylink 的 `QueryTrade` 返回 `time_end`，回调是 `gmt_payment`；cardpay 的 `QueryPayment` 返回 `succeeded_at`，回调是 `paid_time`。两个适配器的查单只解析了状态和金额，没解析支付时间，补单拼出来的 `PaidAt` 是零值。\n- **原因二**：上次加的 `null` 兜底写成了 `order.PaidAt == (time.Time{})`，补单路径上的时间被 `.In(shanghai)` 转过，带了时区，`==` 不成立，零时间照样推了出去。改成 `IsZero()`。\n- **改法**：两个适配器的查单都解析支付时间，查单结果里没有支付时间的不补单、打 warn，留给下一轮；`ApplyNotification` 入口加一道校验，`payment_succeeded` 的通知 `PaidAt` 为零就拒绝，不再往下走。\n- **验证**：用两个渠道沙箱录下来的查单响应各补了一个适配器用例，补单路径补了一个端到端用例，断言 outbox 里的 `paid_at` 正确；`go test ./...` 全过。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "又上线一天 还是有 今天 27 单 回调来的补单来的都有 而且我对了一下 全是 cardpay 的单 paylink 一单都没有"
+    },
+    {
+      "role": "assistant",
+      "text": "两次改的都没碰到这一处，这次先不改，把能确定的列一下：\n\n- 27 单全是 cardpay：回调来的 19 单，补单来的 8 单；\n- 这 27 单 `payment_events.raw` 里的原始报文我都拉出来看了，回调报文里的 `paid_time` 都有值，格式是 `2026-09-24T14:03:22+08:00`，和正常的单看不出区别；补单那 8 单查单响应里的 `succeeded_at` 也都有值；\n- `payments.paid_at`、`orders.paid_at` 这 27 单在库里都是对的；\n- 上一轮加的入口校验一次都没触发，说明进到 `ApplyNotification` 的 `PaidAt` 不是零值。\n\n所以零值不是渠道给的，也不是库里存错了，是在写进 `outbox_events` 之后、真正推给商户之前的某个地方丢的；cardpay 和 paylink 在这一段走的代码按说是同一套。outbox 里存的 payload 我还没逐条对，下次从这张表开始往后查。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "/fix-ticket #164 cardpay 的单 webhook 里 paid_at 还是 0001-01-01",
+      "command": {
+        "name": "fix-ticket",
+        "description": "按票修一个缺陷：读票和相关代码，复现，定位原因，修复，补回归测试，开 PR。"
+      }
+    }
+  ],
+  "middle_hint": "中间在同一个 order-api 仓库里做别的事：加接口字段、改提示语、补测试、写文档、整理配置和依赖、review PR 等，和 webhook 里 paid_at 为零值的问题无关，没有再碰这个问题。"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "hard-constraint-02",
+  "effort": "xhigh",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条说同一个问题又出现（列表 12,800、详情 1,280），要求先止血：审核弹窗金额改成按单号拉详情。这是对同一问题的第一次修改尝试（中间只排查没改）。没有决定性几轮时是一处范围较清楚的前端改动加测试，high。决定性几轮说明这页通过即真实打款、打出去追不回，要求每条会提交审核的路径（行内通过、批量通过、抽屉通过、驳回）都有单测和 e2e、每处改动讲依据、staging 用测试商家走查留请求和截图、财务验收；还要处理详情加载中/失败/与行数据不一致时如何阻止提交、批量通过路径怎么办。资金不可逆、细微错误代价高，定 xhigh，max 可接受。"
+}

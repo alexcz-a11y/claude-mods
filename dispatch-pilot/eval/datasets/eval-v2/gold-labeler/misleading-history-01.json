@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-01",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "晚高峰缓存超时已由单飞修复解决，用户在 d3 确认；最后一条是复盘交完后的收尾：拆掉没起作用的连接池开关。上一轮助手已 Grep 出全部三处（RedisPoolConfig 类、build.gradle.kts 的 commons-pool2 依赖、RedisPoolConfigTest），删掉再跑 ./gradlew test，属照明确清单做的机械删除，low。读不到决定性几轮时不知道开关在哪、牵连哪些引用，要自己找一遍再删，medium。"
+}

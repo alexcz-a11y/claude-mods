@@ -1,0 +1,89 @@
+{
+  "id": "misleading-history-08",
+  "category": "misleading-history",
+  "domain": "devops-ci",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "order-api 每次发版都有一小撮 502 一次十几到二十几个 后端说客户端有重试 用户基本没感觉 但告警群每次都响 你帮我查查是哪一步漏了"
+    },
+    {
+      "role": "assistant",
+      "text": "先说看到的：502 只出现在滚动发布那两三分钟里，平时没有；按 chart 现在的配置，摘流量的顺序理论上是对的，问题更可能出在连接层面。先改了一处最常见的，下一版发布看效果。\n\n**查了什么**\n\n- `gh run list --workflow deploy.yml` 找了 order-api 最近 5 次 prod 发布的时间，拿 CloudWatch 里 order-api 目标组的 `HTTPCode_ELB_502_Count`（1 分钟粒度）去对：5 次各有 14 到 27 个 502，全部落在发布开始后 30 秒到 3 分钟之间，发布以外的时段两周加起来只有 3 个。\n- 读了 `charts/app/templates/deployment.yaml` 和 `charts/values/order-api/prod.yaml`：`preStop` 先 `sleep 15`，`terminationGracePeriodSeconds` 45，Ingress 注解里目标组注销延迟 10 秒，order-api 的命名空间打了 Pod 就绪门的标签。顺序上是先从 ALB 摘掉、再停进程，没毛病。\n- ALB 的访问日志没开，所以没法知道这些 502 具体落在哪个 Pod、是新 Pod 还是旧 Pod，只能从时间上推。\n\n**先试的一处**\n\n旧 Pod 停进程时，Go 的 `http.Server.Shutdown` 会马上关掉空闲的 keep-alive 连接；如果 ALB 那边还拿着这条连接往里发请求，就会得到一个 502。注销延迟只有 10 秒、`preStop` 15 秒，ALB 那边在途的连接可能还没清完。我在 `charts/values/order-api/prod.yaml` 里把 order-api 的 `preStop` 等待覆盖成 30 秒、宽限期 60 秒，只动这一个服务。PR #449，`scripts/render-all.sh` 渲染对比过，只有这两个值变了。\n\n合了以后下一版发布看看 502 有没有少。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "合了 昨天下午发了一版 还是有 23 个"
+    },
+    {
+      "role": "assistant",
+      "text": "23 个，和之前一个量级，旧 Pod 那一侧基本可以排除。把这次的 502 按 10 秒粒度和 Pod 的事件对了一下，换个方向。\n\n- **时间对的是新 Pod**：`kubectl get events -n order-api` 加上 deploy 日志里 `kubectl rollout status` 的输出，502 都集中在每个新 Pod 变成 Ready、被注册进目标组之后的 20 秒内，和旧 Pod 停进程的时间对不上。\n- **新 Pod 可能接得太早**：ALB 的健康检查打的是 `/healthz`，它只要 HTTP 端口起来就返回 200；order-api 启动后还要建连接池、预热本地缓存，前十几秒进来的请求有可能被直接断掉。\n- **改法**：order-api 目标组的健康检查改成 `/readyz`（后端确认它会等连接池和缓存就绪才返回 200），健康阈值 2 次改成 3 次，间隔 15 秒改成 10 秒，都是 order-api 自己 Ingress 上的注解，只影响这一个目标组。PR #452。\n\n#449 的改动先留着，两处一起看下一版。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "也发了 今天上午那版 19 个"
+    },
+    {
+      "role": "assistant",
+      "text": "还是没用，19 个在正常波动里。新旧 Pod 两侧都处理过了，502 的量和分布都没变，说明问题可能不在 Pod 上下线本身。\n\n又看了一个点：ALB 的空闲超时是 60 秒（order-api 的 Ingress 注解里 `idle_timeout.timeout_seconds=60`），后端仓库里 order-api 的 `http.Server` 设的 `IdleTimeout` 是 30 秒。目标比 ALB 先关空闲连接，是偶发 502 的经典原因；平时量小看不出来，发布时新 Pod 刚起、连接重建得多，可能被放大。\n\n这个要改后端仓库，我们这边没再动东西。给后端的说明起好了，你转过去就行：\n\n> order-api 的 `http.Server.IdleTimeout` 现在是 30 秒，比前面 ALB 的空闲超时 60 秒短，目标先关连接时 ALB 会回 502。建议调到 75 秒（大于 60 即可），`ReadHeaderTimeout` 不用动。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d4",
+      "text": "后端改了也发了 刚才这版还是 21 个 另外 DBA 说要不给 shop-prod 开个 Performance Insights 看看发版那几分钟库里在等什么 你看下怎么开"
+    },
+    {
+      "role": "assistant",
+      "text": "502 还是没变，三处都没打中。PI 那边准备好了，在分支上，没推送。\n\n**502 现在的情况**\n\n- 三次尝试分别排除了旧 Pod 断连接、新 Pod 没就绪、空闲超时错位这三个最常见的原因。\n- 剩下能做的都比较重：开 ALB 访问日志（要建桶、改 IngressGroup 的属性），看每个 502 落在哪个目标、`target_processing_time` 是多少；在节点上抓包；或者开 AWS 支持工单。另外 502 的尖峰和数据库连接数的跳升挨得很近：每个新 Pod 起来要建 10 条连接，发布时有一小段连接风暴，这也是 DBA 想看 PI 的原因。\n\n**PI 怎么开**\n\n- `terraform/modules/rds-postgres/` 现在没有 PI 相关的变量。分支 `chore/rds-pi` 上加了两个：`performance_insights_enabled`（默认 `false`）和 `performance_insights_retention_period`（默认 7 天），透传给 `aws_db_instance`；`terraform/envs/staging/data` 里的 `shop-staging`、`terraform/envs/prod/data` 里的 `shop-prod` 设成 `true`；`shop-prod-ro` 不走模块，在它自己那个 `aws_db_instance` 上直接加了这两个属性；别的实例不动。\n- `scripts/tf.sh staging/data plan`：1 to change，就地修改，没有替换。查了 RDS 文档，开 PI 不需要重启实例。\n- prod 的实例设的是 `apply_immediately = false`，这个修改会排到维护窗口才生效；DBA 要是等不及，apply 时再单独打开 `apply_immediately`，PI 这一项同样不重启。\n- 费用：7 天保留在免费额度里，超过 7 天才按月收费。\n\n要开的时候：staging 直接 apply，prod 开 PR。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d5",
+      "text": "算了 502 不查了 一次就二十来个 客户端都有重试 后端说下个月 order-api 要拆成两个服务 发布方式到时候整个都变 你把前面那两个 PR 的改动撤回去 保持原样 后端那个超时让他们留着 PI 跟 502 没关系了 但 DBA 自己也想要 等他确认完费用再开 分支先留着"
+    },
+    {
+      "role": "assistant",
+      "text": "好。\n\n- **撤回**：#449（`preStop` 30 秒、宽限期 60 秒）和 #452（健康检查改 `/readyz`、阈值和间隔）合在一个 PR 里撤回，#455。`scripts/render-all.sh` 对比过，order-api 的渲染结果和改之前逐字一样，你合了就恢复原样。\n- **后端的 `IdleTimeout` 75 秒**：在他们仓库里，留着，不碍事。\n- **PI**：分支 `chore/rds-pi` 留着，没推。DBA 确认以后，rebase 到最新的 main，`scripts/tf.sh staging/data apply`，prod 开 PR；prod 那边会在下一个维护窗口生效。\n- 502 试过的三个方向和没做的几个（访问日志、抓包、工单）我记在 #455 的描述里了，以后拆完服务要再查可以从那里接着。",
+      "tools": [
+        "Bash",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "DBA 回了 PI 可以开 staging 先 apply prod 开 PR"
+    }
+  ],
+  "middle_hint": "中间在同一个 infra 仓库里做别的事：Terraform 模块、Helm chart、CI 检查、告警、成本和配额之类的需求，和 order-api 发版时的 502 无关，也没再提 PI。"
+}

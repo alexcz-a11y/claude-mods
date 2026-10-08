@@ -1,0 +1,18 @@
+{
+  "id": "command-turn-02",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后这条用 /implement 处理 #287。决定性几轮里这张票已经查清楚：中文翻译文件 front matter 里多了一行过时的 slug，改法写进了票里，就是删这一行、把 3 处中文链接改成文件路径、跑一次 build 确认，还对比过全部中文文件，只有这一处；当时只是因为发版冻结才没改。现在是照着明确写好的步骤做不到 10 行的机械改动再开 PR：low；算上跑构建、开 PR 这些收尾，判 medium 也可以。删掉决定性几轮，中间是不相干的文档活，只看到「中文站定时发送指南切语言 404，实现一下」，要先查 i18n 配置、slug、跳转和语言切换怎么拼地址，才能定位再改，是一次调试：high。三选一：d1 第一次提出这个问题，new_or_unrelated；最后这条隔了大段别的活，回头处理同一个还没修的问题，问题仍在，still_unresolved。（审稿改动：原题是 Webhooks 指南，中文地址被 slug 改成 webhook-events；素材池里多段把 /zh/docs/guides/webhooks 当成线上在用的中文地址（访问统计、站内搜索、打开线上中文页），另有一段说全站只有一处故意写死 /zh 前缀的链接，和题目矛盾。换成素材池没提过的定时发送指南（scheduled-sending，旧 slug send-later），3 处旧链接改成不带 /zh 的 /docs/guides/send-later，「219 个中文文件」改成「两百多个」以免和翻译统计段的 217 页冲突。金标不变。）",
+  "source": "agreed"
+}

@@ -1,0 +1,49 @@
+{
+  "id": "command-turn-08",
+  "category": "command-turn",
+  "domain": "ios",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "评论里出国旅行的用户一直在要外币记账 产品定了下个版本做 先说下他们定的几条 记一笔的时候能选币种 汇率用户自己填 不接外部接口 记下来那一刻就定死 以后不跟着变 统计 预算 首页合计一律按折算后的人民币算 原币金额只在账单详情里显示 账户还是只有人民币账户 你先别写代码 摸一下要动哪些地方 有什么坑"
+    },
+    {
+      "role": "assistant",
+      "text": "摸完了，牵涉的地方比「记一笔加个选择」多不少，核心是数据模型和所有显示金额的地方。代码没动。\n\n**数据模型（`Ledger/Persistence/Ledger.xcdatamodeld`）**\n- `BillEntity` 现在只有 `amount`（Decimal，人民币），没有币种。要新建一个模型版本，加 `originalAmount`、`currencyCode`、`exchangeRate` 三个可选属性，老数据迁移后 `currencyCode` 为空就当人民币。加可选属性能走轻量迁移，但照仓库的规矩要拿上一个正式版的库做夹具，在 `StoreMigrationTests` 里加用例，迁完逐条比 `amount`、`yearMonth`。\n- 用户的账本只在本机，没有服务器上的备份，迁移写错了没地方恢复，这一步要测得最细。\n- `amount` 的含义不变，还是折算后的人民币，所以统计、预算、首页合计这些按 `amount` 加总的地方大多不用改。要守住的是「保存时用 `originalAmount × exchangeRate` 算出 `amount`，`.halfUp` 保留两位」只在一个地方做，不能让编辑器、周期记账、导入各算各的。\n\n**金额显示**\n- `MoneyFormatter` 写死了 CNY 和 `zh_CN`，Grep 下来有 47 处调用：账单列表、详情、首页、统计、预算、预算提醒的通知文案、VoiceOver 朗读用的 `spokenText`。只有账单详情要显示原币，其余不变，但 `MoneyFormatter` 得加一个带币种的入口：日元、韩元没有小数，不能一律两位，朗读也不能都念成「元」。\n- 金额键盘的 `AmountExpression` 现在按两位小数截断，选日元时要按零位。\n\n**记一笔（`Ledger/Features/BillEditor/`）**\n- 加币种选择和汇率输入；编辑已有的外币账单时，改原币金额或改汇率都要重算 `amount`；换回人民币时三个字段一起清掉。\n- 长按「复制一笔」会把这三个字段带过去，要确认该不该带。\n- 选「转账」时藏掉币种：账户都是人民币，外币账单只会是收支。\n\n**其他会碰到的**\n- 周期记账：`RecurringRuleEntity` 生成账单时用的是规则里存的 `amount`，规则不存币种的话，每月生成的外币账单会变成人民币。\n- 导入：自家的 `LedgerCSVImporter` 和麦穗导入遇到非 CNY 的行现在直接跳过，文件里没有汇率，这次可以先保持跳过。\n- 搜索：「输 32.5 能搜到 32.50」是按 `amount` 搜的，外币账单要不要按原币金额也能搜到，要产品定。\n\n**测试**\n- 迁移：上一个正式版的夹具、空库、两万笔的大库各一个；\n- 折算和舍入：几种币种、汇率小数位很长、原币为零；\n- `MoneyFormatter` 的零位小数币种；\n- 周期记账跨月生成外币账单；\n- UI 测试补一条记外币账的主流程。\n\n**要产品定的**\n1. 外币账单搜索按不按原币金额匹配；\n2. 周期记账这次带不带外币；\n3. 预算提醒的通知里外币账单要不要标原币。\n\n粗估一周左右：模型和迁移一天半，编辑器和格式化两天，周期记账一天，测试穿插着写。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Glob",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "问了产品 1 不按原币搜 2 周期记账这次也要带上 3 不用标 其他就按你列的 下周排进来"
+    },
+    {
+      "role": "assistant",
+      "text": "好，范围定下来了：搜索只按折算后的人民币金额；`RecurringRuleEntity` 加原币金额、币种和汇率，生成账单时照搬，不重新折算；通知不标原币。上面的清单连同这三条写进了 `docs/plans/multi-currency.md`，47 处 `MoneyFormatter` 调用的文件列表、要补的测试都在里面，下周照着做。",
+      "tools": [
+        "Write"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "/tdd 记一笔加个币种选择",
+      "command": {
+        "name": "tdd",
+        "description": "测试驱动开发：先写会失败的测试，再写实现让它通过，按红-绿-重构一步步推进。"
+      }
+    }
+  ],
+  "middle_hint": "中间在同一个 Ledger 仓库里做别的事：加小功能、改文案、补单测、整理 fastlane 和 CI、评估升级、review PR 等，和外币记账无关，没有再提这件事。"
+}

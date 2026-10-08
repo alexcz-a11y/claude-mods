@@ -1,0 +1,22 @@
+{
+  "id": "command-turn-06",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "d1/d2 已经把密钥轮换的关键决策全部拍板（并存 7 天、控制台加 API 自助、限流、最多 2 把、审计通知、只显示一次），/to-spec 是把讨论整理成规格：背景、范围、方案，还要落到接口和 oauth_clients 数据变更、验收标准，需要对照 client-auth.ts 等代码把细节写清，属于跨多处、需要想清楚但方向已定的工作，给 high；涉及认证安全、接口和表结构，xhigh 也可接受。d2 是用户选定方案，算接受结果；最后一条在中间无关工作之后开始新的交付物，new_or_unrelated。读不到决定性几轮时，规格要从零做全部设计决策，给 xhigh。",
+  "source": "user:labeler"
+}

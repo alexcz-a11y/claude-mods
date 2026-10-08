@@ -1,0 +1,60 @@
+{
+  "id": "resolved-02",
+  "category": "resolved",
+  "domain": "frontend",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "订单列表按下单时间筛选有问题 选 10 月 1 号到 10 月 7 号 7 号的单子少了一大截 9 月 30 号的反而混进来一些 财务对账对不上 你看下 src/pages/orders/OrderList.tsx"
+    },
+    {
+      "role": "assistant",
+      "text": "先找到一处明显的问题，改了：结束日期按当天零点算，最后一天几乎整天都被排除在外。\n\n- **原因**：`OrderList.tsx` 传给 `useTableQuery` 的 `toRequestParams` 把 `created` 这个日期范围转成接口要的 `created_start`、`created_end`，两头用的都是 `startOf('day')`，所以选到 7 号，实际只查到 7 号 00:00:00。\n- **改法**：结束改成 `endOf('day')`，也就是 23:59:59；开始不变。\n- **验证**：`src/pages/orders/__tests__/OrderList.test.tsx` 加了两个用例（单日区间、跨月区间），断言 msw 收到的请求参数；`npx vitest run src/pages/orders` 23 个用例通过，`npx tsc --noEmit` 没有报错。\n\n9 月 30 号的单子混进来这一点还没对上，`toRequestParams` 不会把开始往前挪。你先在测试环境看看 7 号的单子回来没有，我再查另一半。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "7 号上午的回来了 但下午 4 点以后的还是没有 9 月 30 号下午 4 点以后的还在里面 刚好差 8 个小时吧"
+    },
+    {
+      "role": "assistant",
+      "text": "对，是时区：发出去的时间是 UTC 却没带时区标记，后端按北京时间解析，整个区间往前挪了 8 小时。改好了。\n\n- **原因**：`toRequestParams` 先 `.utc()` 再 `format('YYYY-MM-DD HH:mm:ss')`，发出去的是 `2026-09-30 16:00:00` 这种不带 `Z` 的字符串。`src/api/orders.ts` 里 `OrderQuery` 的注释写着后端的约定：`created_start`、`created_end` 是 ISO 8601，不带时区时按服务器本地时间（Asia/Shanghai）解析。于是选的 10 月 1 日 00:00 到 10 月 7 日 23:59，到后端变成了 9 月 30 日 16:00 到 10 月 7 日 15:59，两头都差 8 小时，正好是你看到的现象。上一轮只改了结束时间，所以 7 号上午回来了，下午 4 点以后的还缺。\n- **改法**：去掉 `.utc()`，直接 `format()`，发 `2026-10-01T00:00:00+08:00` 这种带偏移的 ISO 字符串，后端按时刻解析，不再猜时区。顺手把 `src/pages/` 里另外几处 `.utc().format(...)` 也查了一遍：退款列表传的是日期不是时刻，没有这个问题，没动。\n- **验证**：新用例里的时间都按 `+08:00` 构造，不依赖跑测试那台机器的时区；补了 4 个用例，包括区间两头落在下午 4 点前后。`npx vitest run` 全量通过。`npx playwright test e2e/orders-filter.spec.ts` 用 `timezoneId: 'Asia/Shanghai'` 跑，选 10 月 1 日到 7 日，接口请求里的参数是 `2026-10-01T00:00:00+08:00` 到 `2026-10-07T23:59:59+08:00`。\n\n还有一处要你拍板：列表页的「下单时间」列用 `formatDateTime` 显示北京时间，但「导出」调的是后端的导出接口，文件里的下单时间是后端原样写的 UTC，两边看起来差 8 小时。要不要让后端把导出也换成本地时间？",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "这次对了 拿 10 月 1 号到 7 号对了一下 1342 单 跟财务后台查出来的一单不差 导出那个不用动 对账那边的脚本就是按 UTC 读的 页面上显示本地时间就行 这个就这样 提交吧"
+    },
+    {
+      "role": "assistant",
+      "text": "提交了，`c58e1f4`：`toRequestParams` 的结束时间和带偏移的时间格式，加上新增的测试，没推送。\n\n导出保持 UTC 不动。以后有人问导出文件和页面上的下单时间为什么差 8 小时，就是这个原因：页面显示北京时间，导出是给对账脚本读的 UTC。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "运营今天又跑来问 说订单导出的表里下单时间跟页面上对不上 差了 8 个小时 你在订单列表导出按钮旁边加一行灰色小字说明一下 省得她们每次都来问"
+    }
+  ],
+  "middle_hint": "中间在 shop-admin 里做别的事：别的页面加字段、改文案、补测试、升级依赖之类，和订单的下单时间筛选、导出无关，没有再碰这个问题。"
+}

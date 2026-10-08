@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-03",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "失败的修复 1 次：d1 之后认定是 FacetCountRefresher.refresh 一次读整个聚合响应、建大 map 造成 humongous 分配，改成 composite 分页拉，用户在最后一条第一次说没好（分支发到灰度 pod 上看了一下午，尖还在），是第二次。复现性是稳定的：d1 写了整点、20 分、40 分各一次，「很规律」，按固定周期出现 → high；下一步是常规调试（回到线上对 GC 日志、分配火焰图和 ES 延迟）。accept 是 high、xhigh，只失败一次不到 max。删掉决定性几轮：最后一条有「那个分支」「发到灰度的 pod」「还是有」，看得出修过，按第二次；「二十分钟一次」也是固定周期 → high，和 effort 相同。三选一：d1 第一次提出问题，new_or_unrelated；最后一条隔着别的活说尖还在，still_unresolved。这一轮按修订说明改：最后一条去掉了「是不是把堆调大点就行了」，只报告灰度 pod 上尖还在，并写明分支已经发到这个 pod；ewd 从 medium 改成 high。上一轮审稿改动：素材池里 search-svc 用 Gradle（./gradlew test）、生产 8 个 pod、容器 4Gi 按 75% 算最大堆 3G，热搜榜是另一段素材里从零新做的功能（之前没有热词统计），原题的 HotQueryStats、./mvnw 和 318 个用例、4096M 堆、「线上一台机器」都和这些冲突；改成每二十分钟刷新品牌和类目计数的任务，GC 日志按 3G 堆改了数字，最后一条改成看灰度的 pod。"
+}

@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-07",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里改单报错（InFailedSqlTransaction）只读排查了一轮就挂起了，没有结论；用户怀疑过 9b2f4d1，助手查明 cs-backend 跑的是 1.14.2、报错全来自 cs-backend，9b2f4d1 只在定时任务里生效，和报错无关，还顺手在临时分支上试过撤回：干净应用、不冲突、剩下的用例全过；用户说产品本来就想撤它，等产品定了再撤。最后一条是产品定了、撤掉这个提交：一条 git revert 加跑一遍已知的测试，照着已经验证过的步骤做，low；担心中间隔了几万 token 要再确认一下有没有新的冲突，给 medium 也可以。删掉决定性几轮，中间全是围绕改单报错的排查（时间线那段还点名 9b2f4d1 是唯一碰过 apply_order_adjustment 的提交），只看最后一句像是在一个没查清的问题上撤掉热点路径上的嫌疑提交，要先看冲突、看对定时任务的影响、跑测试，medium。三选一：d1 第一次提出问题，new_or_unrelated；d2 问是不是 9b2f4d1 带出来的，问题还在，still_unresolved；d3 说不是它、问题先挂着、票别关，问题没解决，still_unresolved；最后一条是因为产品的原因撤一个已经查明和报错无关的提交，跟改单报错这件事无关，new_or_unrelated。"
+}

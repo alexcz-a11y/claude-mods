@@ -1,0 +1,21 @@
+{
+  "id": "hard-constraint-11",
+  "effort": "high",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条是新功能：账单详情页加系统分享按钮，发一行「分类 金额 日期」。单看是一处常规 UI 改动（medium）。但它正属于「账单数据跑出 App」的出口，规矩全部适用：先列字段、去向和谁能看到（微信群、分享面板里的拷贝会进剪贴板、通用剪贴板带到别的设备等），默认不带备注账户名，金额按规矩「能不带就不带、要带让用户自己打开」，与用户要求的默认带金额需要权衡并说明；对隐私清单和问卷；真机把各分享目标走一遍截图；阿宁看过才能提审。代码量小但要权衡隐私边界和做真机验证，定 high，medium 也可接受。Spotlight 修复已发版，与最后一条无关。"
+}

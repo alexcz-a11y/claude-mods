@@ -1,0 +1,29 @@
+{
+  "id": "explicit-unresolved-02",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "收银台确认支付偶发 unexpected state：回调抢跑幂等、事务内读支付记录、超时关单 worker 检查、乐观锁版本号四轮修复上线后用户都说还在，中间又是一长段无结论的排查，最后晚高峰仍报同样日志。四轮失败后再提，且是生产支付链路上的疑难并发问题，给 max。去掉决定性几轮，只剩中间长时间无结论排查加用户说仍未解决，按长链路复杂并发调试给 xhigh。"
+}

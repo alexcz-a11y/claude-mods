@@ -1,0 +1,34 @@
+{
+  "id": "single-attempt-07",
+  "category": "single-attempt",
+  "domain": "database",
+  "bin": "d3",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "staging 的部署挂了 卡在 flyway migrate 那步 报 `ERROR: Validate failed: Migrations have failed validation` 下一行是 `Migration checksum mismatch for migration version 119` 我重跑了两次 每次都挂在这 V119 是我上周写的商品视频那张表 前天我在分支上把一个列名和一个默认值改了 那个分支之前手动部署过一次 staging 你看下怎么弄"
+    },
+    {
+      "role": "assistant",
+      "text": "原因是 V119 在 staging 上执行过以后文件又被改了，Flyway 校验时发现 checksum 和 `flyway_schema_history` 里记的不一样，整个部署停在 validate，后面的迁移一个都没跑。已经把 V119 恢复成 staging 执行时的内容，改动挪进了一个新迁移，PR 开好了。\n\n**查到的情况**\n\n- 用 `gh run list` 翻了 `infra` 仓库里 `deploy-staging.yml` 的运行记录：9 月 30 日有一次手动触发的部署，迁移取的是本仓库 `feat/product-videos` 分支的提交 `4e1b7d2`，当时 V119 在 staging 上执行成功。\n- 之后分支上又有一个提交 `a90c3f5`，直接改了 V119：`product_videos.duration` 改名为 `duration_sec`，`status` 的默认值从 `'draft'` 改成 `'pending'`。昨天分支合进 main，main 的部署在 staging 上跑 `flyway migrate`，validate 先报错退出；你重跑的两次也是同一个地方、同一行报错。\n- 用只读账号连 staging 查了 `flyway_schema_history`：`version = '119'` 那一行 `checksum` 是 `-1648213907`，`success = true`。\n- 本地用和部署一样的 `flyway/flyway:10.17` 容器对 `4e1b7d2` 里的 V119 跑了 `flyway info -outputType=json`，算出来也是 `-1648213907`，对得上；main 上现在这份是 `803377125`，就是报错里不一致的那个。\n\n**改法**\n\n- `migrations/V119__product_videos.sql` 用 `git show 4e1b7d2:migrations/V119__product_videos.sql` 恢复成 staging 执行时的内容，一个字节都没动。\n- 新增 `migrations/V127__product_videos_rename_duration.sql`：开头照惯例 `SET lock_timeout = '3s'`，然后 `RENAME COLUMN duration TO duration_sec` 和 `ALTER COLUMN status SET DEFAULT 'pending'`。这张表生产上还没有，staging 上只有十几行测试数据，两句都只改元数据。\n- `dal/models/product_video.py` 本来就是按 `duration_sec` 写的，没改。\n\n**验证**\n\n- `uv run pytest tests/migrations tests/dal/test_product_videos.py -q`：从空库把迁移跑到 V127，再跑 DAL 的用例，都通过。\n- 本地起了一个 PG 15 容器，先用 `4e1b7d2` 跑到 V119，模拟 staging 现在的状态，再切到这个分支跑 `flyway migrate`：validate 通过，V119 之后的迁移依次执行成功，包括新加的 V127。\n\nPR 是 #284。合进 main 以后，下一次 staging 部署应该就能过 validate，你合了以后看一眼那次部署。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Write",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "staging 部署还是挂在 flyway validate 那步 还是 version 119 checksum 对不上 #284 已经合进去了"
+    }
+  ],
+  "middle_hint": "中间在 shop-db 仓库里做了别的事：加表加字段的迁移、改查询、补 DAL 测试、写回填脚本、整理文档之类，和 staging 部署的 Flyway 校验无关。这段时间没有再碰这个问题，没有新的修改尝试，用户也没有评价第一次的修复。"
+}

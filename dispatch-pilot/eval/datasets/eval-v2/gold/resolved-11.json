@@ -1,0 +1,26 @@
+{
+  "id": "resolved-11",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "决定性几轮里 App 用户被误判重放是个难问题：第一次的宽限窗口被安全那边否了，而且客户端其实只发了一次；第二次查出令牌端点的 withRetry 在客户端侧查询超时、COMMIT 却已落库时整段重跑，按服务端生成的请求 id 识别内部重试后安全 review 通过、上线，用户明说算解决了，并约定 policies/session.yaml 的 log_only 等上线满一周、replay 计数还是 0 再切回 revoke。最后一条说满一周、计数一直 0、按之前说的切回去：照约定改一行策略配置，low；毕竟是登录服务的安全开关，改完多跑一遍校验给 medium 也可以。删掉决定性几轮，中间段是没下结论的换发排查，「那个计数」「切回去」都不知道指什么，要在一个安全服务里自己判断该动哪个开关、动了会不会把用户踢下线：high。三选一：d1 第一次报问题，new_or_unrelated；d2 方案被否、客户端只发一次也出，still_unresolved；d3 review 过了、上线零误判、明说算解决了，resolved；最后一条按约定收尾，resolved。审稿改动：原题和 resolved-01 几乎是同一题（同领域、同一个 rotateRefreshToken、同一个文件、几乎同一行报错、多标签页并发），改成 App 端、refreshGrant.ts 的 exchangeRefreshToken、新的报错，「不是并发」的线索换成 App 日志，内部重试写成客户端侧 query_timeout 先到点、按服务端生成的 req.id 识别；档位和三选一不变。",
+  "source": "agreed"
+}

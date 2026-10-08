@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-06",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "启动白屏（看门狗 0x8BADF00D）已由 SQLite 分组求和解决（d3 用户确认外测都好了）。分组标题每次 new DateFormatter 是助手当时就点明和白屏无关的另一件事，最后一条是新任务。改法已定：只动 BillDayHeader.swift，按 Locale.current.identifier 缓存静态字典、标 @MainActor，加一个换地区的用例、跑快照测试，是范围清楚的单文件改动加测试，medium；改动只有三五行，low 也可接受。不看决定性几轮要自己找到这个文件并定缓存方式，仍是 medium。"
+}

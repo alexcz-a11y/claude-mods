@@ -1,0 +1,24 @@
+{
+  "id": "resolved-05",
+  "effort": "low",
+  "accept": [
+    "low"
+  ],
+  "effort_without_decisive": "low",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "账单页列表少账问题在 d3 已由外测确认解决，最后一条用户再核对 Sentry 与之前说法一致，只要求在 3.9.0 release notes 加一句用户给出原文的说明，纯机械文本改动，low。没有决定性几轮时这句话也已由用户给出，仍是 low。"
+}

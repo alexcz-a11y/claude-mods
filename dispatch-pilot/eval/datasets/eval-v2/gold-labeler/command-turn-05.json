@@ -1,0 +1,21 @@
+{
+  "id": "command-turn-05",
+  "effort": "xhigh",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "turn-cost 花费往回跳已经修了两轮（d1 修 content 不可迭代、d2 加 seq 防并发覆盖），用户两次说还在跳，最后用 /diagnosing-bugs 再提，这是第三次尝试、两轮失败，还没到三轮都失败的 max 门槛；根因未知、牵涉并发写状态和事件顺序，给 xhigh，max 也可接受。读不到决定性几轮时只知道中间排查无结论、用户说「还是会往回跳」，原因未知的状态 bug，仍给 xhigh。"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "hard-constraint-04",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "low",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "effort xhigh：最后这条要把 spring.data.redis.timeout 从 100ms 调到 250ms。d1 的规矩范围是「离双十一预售两周，search-svc 任何要上生产的改动，哪怕只改一个配置值」，这条正落在中间，也还在预售前（中间是几天的排查，最后一条说的是「昨晚高峰」）。照规矩要做的：(1) 写变更说明：改什么、预期什么效果、看哪个指标；(2) 在 bench 上用生产流量回放压满 30 分钟，和同样时长的基线比 p99、错误率、CPU、线程数——要实测并解读：超时放长后 Redis 一抖时请求线程占得更久，Tomcat 忙线程会不会顶满、转去查 ES 的请求变少是好是坏，结果不符合预期要排查；(3) 准备回退并在 staging 演练一次；(4) 生产先灰度一个 pod 过一个完整的晚高峰，和另外 7 个 pod 对比再全量。这一轮能做到灰度上线前、材料备齐为止。一串不同的步骤，每步要实测、读结果、不过要排查，是长链路反复验证的工作，xhigh；不是「量大但机械」。「先不等根因了」是急，但没放宽规矩，规矩照旧适用。accept：产出物是一个可以回滚的配置改动，还要先灰度，不是直接改写或交出无法恢复的数据：[high, xhigh]。effort_without_decisive：删掉 d1（d4 档，测试组本来就读不到），只剩中间的排查和最后这句：给了配置键和新值的改动，按校准是 low。自查：accept 是 [high, xhigh]，最后这句没有压测、灰度、风险之类的线索，middle_hint 也只说在排查、不提规矩，单看不会判到 high。三选一：d1 第一次报这个问题并定规矩，new_or_unrelated；最后这条「昨晚高峰还是老样子 20:40 那一波 BFF 又超时了一千多次」说问题还在，still_unresolved（后面要的是先调配置止血也一样；之前没有修复尝试，这是第一次说问题还在）。"
+}

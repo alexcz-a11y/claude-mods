@@ -22,6 +22,15 @@
 // contextTokens can reach, which only lowers it), --state-messages N (how many recent messages the state may hold:
 // the mod's contextMessages is at most 32, so a large --state-tokens alone is still cut to the newest 32 messages).
 //
+// eval-v2 (#45): the dataset is eval-v2.jsonl (built first when it is not there, and checked against
+// eval-v2/generated.json), each item scored against eval-v2/gold/; the conversations are Chinese only, so the run asks
+// --languages zh unless told otherwise; the variants are zh-score, en-score (the question's language) and zh-flow,
+// en-flow, which carry the count and the summary the flow file given with --flow <file> holds at the last message
+// (eval/eval-v2-flow.ts writes one per backend and budget):
+//
+//   node dispatch-pilot/eval/run.ts eval-v2 --backend pplx --state-tokens 135000 --state-messages 2000 --timeout 240000 --variants zh-score,en-score --label A
+//   node dispatch-pilot/eval/run.ts eval-v2 --backend jev --variants zh-flow,en-flow --flow dispatch-pilot/eval/results/eval-v2-flow/jev-24000.json --label J
+//
 // Credentials: TYPESAFE_API_KEY for Jev; CLOUDFLARE_ACCOUNT_ID and
 // CLOUDFLARE_AUTH_TOKEN for Clef; PERPLEXITY_API_KEY for Perplexity: the environment first, then
 // ~/.config/dispatch-pilot/eval.env. Never printed or saved.
@@ -44,11 +53,12 @@ import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { PPLX_MODEL } from '../hooks/decision/pplx.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
+import type { FlowFile } from './lib/eval-v2-flow.ts'
 import { summarize, type Summary } from './lib/metrics.ts'
 import { attemptMs as defaultAttemptMs, runSuite, stateDigest, type Row } from './lib/runner.ts'
 import { optionsFor, settingsFrom, settingsModel, withStateMessages, withStateTokens, type EvalBackend } from './lib/suite.ts'
-import { SUITES } from './lib/suites.ts'
-import { PRICES, RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, formatResult, modCode, nodeHost, nodeIo, readDataset, readManifest, shown } from './node.ts'
+import { READS_FLOW, SUITES } from './lib/suites.ts'
+import { EVAL_V2_JSONL, PRICES, RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, formatResult, modCode, nodeHost, nodeIo, readDataset, readEvalV2Dataset, readManifest, shown } from './node.ts'
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -56,7 +66,8 @@ const { values, positionals } = parseArgs({
     backend: { type: 'string', default: 'jev' },
     model: { type: 'string' },
     variants: { type: 'string' },
-    languages: { type: 'string', default: LANGUAGES.join(',') },
+    languages: { type: 'string' },
+    flow: { type: 'string' },
     ids: { type: 'string' },
     limit: { type: 'string' },
     concurrency: { type: 'string', default: '1' },
@@ -79,20 +90,42 @@ function fail(message: string): never {
 
 const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|clef|pplx] [--label <word>] ...')
 const entry = SUITES[name] ?? fail(`no suite for "${name}" yet (suites: ${Object.keys(SUITES).join(', ')})`)
-const { kind, path } = datasetFile(name)
-const dataset = readDataset(path)
-const checked = validateDataset(kind, dataset.items, { catalog: catalogFor(kind, path) })
-if (dataset.errors.length + checked.errors.length > 0) fail(`${shown(path)} is not valid; run eval/validate.ts ${name}`)
 const sha = (text: string) => createHash('sha256').update(text).digest('hex')
+/** The dataset: a kind's JSONL, checked against its format; or eval-v2.jsonl, checked against generated.json, with its final gold. */
+const { kind, path, dataset, gold } = ((): { kind: string; path: string; dataset: { text: string; items: Record<string, unknown>[] }; gold: { files: number; sha256: string } | null } => {
+  if (name === 'eval-v2') {
+    const read = readEvalV2Dataset()
+    for (const note of read.notes) console.log(note)
+    if (read.errors.length > 0) fail(`eval-v2 cannot be run:\n  ${read.errors.slice(0, 20).join('\n  ')}`)
+    return { kind: name, path: EVAL_V2_JSONL, dataset: { text: read.text, items: read.items as unknown as Record<string, unknown>[] }, gold: read.gold }
+  }
+  const { kind, path } = datasetFile(name)
+  const read = readDataset(path)
+  const checked = validateDataset(kind, read.items, { catalog: catalogFor(kind, path) })
+  if (read.errors.length + checked.errors.length > 0) fail(`${shown(path)} is not valid; run eval/validate.ts ${name}`)
+  return { kind, path, dataset: read, gold: null }
+})()
+// --flow <file>: what eval/eval-v2-flow.ts wrote for one backend and budget, which the flow variants carry.
+let flow: { path: string; sha256: string; file: FlowFile } | null = null
+if (values.flow !== undefined) {
+  if (!READS_FLOW.includes(name)) fail(`--flow is for the suites that read a flow file (${READS_FLOW.join(', ')}), not ${name}`)
+  const text = existsSync(values.flow) ? readFileSync(values.flow, 'utf8') : fail(`no flow file ${values.flow}`)
+  const file = JSON.parse(text) as FlowFile
+  if (file.suite !== 'eval-v2-flow') fail(`${values.flow} is not a flow file (eval/eval-v2-flow.ts writes them)`)
+  flow = { path: values.flow, sha256: sha(text), file }
+}
 // A suite built when the run starts gets what lies beside its dataset (the skill suite; the results hash those files
 // too) and every item of the dataset (the `subagent` suite asks about a Workflow's agents together).
 const beside: Record<string, string> = {}
-const suite = typeof entry === 'function' ? await entry(nodeHost(path, (file, text) => (beside[file] = sha(text))), dataset.items) : entry
+const suite = typeof entry === 'function' ? await entry(nodeHost(path, (file, text) => (beside[file] = sha(text))), dataset.items, { ...(flow === null ? {} : { flow: flow.file }) }) : entry
 for (const warning of suite.about?.warnings ?? []) console.log(`warning: ${warning}`)
 
-const variants = values.variants?.split(',') ?? suite.variants
+const variants = values.variants?.split(',') ?? suite.variants.filter((variant) => flow !== null || !READS_FLOW.includes(name) || !variant.endsWith('-flow'))
 for (const variant of variants) if (!suite.variants.includes(variant)) fail(`no variant "${variant}" (${suite.variants.join(', ')})`)
-const languages = values.languages.split(',') as Language[]
+// A flow variant carries a flow file's count and summary: without one it would ask nothing.
+const flowless = READS_FLOW.includes(name) && flow === null ? variants.filter((variant) => variant.endsWith('-flow')) : []
+if (flowless.length > 0) fail(`${flowless.join(', ')} carry a flow file's count and summary: give one with --flow <file> (eval/eval-v2-flow.ts writes them)`)
+const languages = (values.languages?.split(',') ?? suite.languages ?? LANGUAGES) as Language[]
 for (const language of languages) if (!LANGUAGES.includes(language)) fail(`no language "${language}" (zh, en)`)
 let items = dataset.items as { id: string; tags: string[] }[]
 if (values.ids !== undefined) {
@@ -129,6 +162,17 @@ const attemptMs = values.timeout === undefined ? defaultAttemptMs(settings.timeo
 if (backendName === 'clef' && values.model !== undefined && values.model !== CLEF_MODEL) fail(`the Clef backend asks ${CLEF_MODEL} only`)
 const model = backendName === 'clef' ? CLEF_MODEL : (values.model ?? (backendName === 'pplx' ? PPLX_MODEL : JEV_MODEL))
 const price = PRICES[backendName]
+// A flow file run with another backend or state than this run's is allowed (say, the 48000 flow under a 135000 state), and said.
+if (flow !== null) {
+  const ran = flow.file.settings
+  const differs = [
+    flow.file.backend.name !== backendName ? `backend ${flow.file.backend.name} (this run: ${backendName})` : '',
+    ran.stateTokens !== settings.contextByKind.messagePlain ? `state budget ${ran.stateTokens} (this run: ${settings.contextByKind.messagePlain})` : '',
+    ran.stateMessages !== settings.context.messages ? `message limit ${ran.stateMessages} (this run: ${settings.context.messages})` : '',
+    ran.maxAfter !== settings.unresolved.maxAfter ? `unresolvedMaxAfter ${ran.maxAfter} (this run: ${settings.unresolved.maxAfter})` : '',
+  ].filter((text) => text !== '')
+  console.log(`flow: ${shown(flow.path)}, questions in ${ran.language}, bars ${ran.thresholds.add}/${ran.thresholds.reset}${differs.length === 0 ? '' : `; warning: it was run with ${differs.join(', ')}`}`)
+}
 
 // The estimate: the requests a run sends (a suite that asks again after
 // reading an answer says what it may send at most: Suite.estimate; another
@@ -210,8 +254,12 @@ if (!values['no-save']) {
       items: dataset.items.length,
       sha256: sha(dataset.text),
       ...(Object.keys(beside).length === 0 ? {} : { beside }),
+      // eval-v2: the final gold the answers were scored against (how many files, one hash of them all).
+      ...(gold === null ? {} : { gold: { dir: 'eval/datasets/eval-v2/gold', ...gold } }),
       review: { file: existsSync(reviewPath) ? shown(reviewPath) : null, decided },
     },
+    // The flow file the flow variants carried (--flow): where, its hash, and how it was run.
+    ...(flow === null ? {} : { flow: { file: shown(flow.path), sha256: flow.sha256, backend: flow.file.backend, settings: flow.file.settings, summarizer: { model: flow.file.summarizer.model, says: flow.file.summarizer.says, answeredBy: flow.file.summarizer.answeredBy } } }),
     // Every file of the mod and of the eval's suites a request or a grade may come from.
     code: modCode(),
     settings: {

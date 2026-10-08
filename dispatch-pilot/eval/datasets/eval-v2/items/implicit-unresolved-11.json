@@ -1,0 +1,73 @@
+{
+  "id": "implicit-unresolved-11",
+  "category": "implicit-unresolved",
+  "domain": "ios",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "账单列表的每日小计",
+    "SYMPTOM": "账单列表里某天的小计和下面的明细加起来对不上",
+    "ERROR": "Error Domain=NSCocoaErrorDomain Code=133020 \"Could not merge changes.\"",
+    "FILE": "Ledger/Features/Bills/DailySummaryStore.swift",
+    "FILE2": "Ledger/Features/Bills/BillListViewModel.swift",
+    "SYMBOL": "DailySummaryStore.refresh(month:)",
+    "COMMAND": "xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:LedgerTests/DailySummaryStoreTests"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "账单列表有时候某一天的小计跟下面几笔明细加起来对不上 过一会儿或者重新进页面又好了 控制台能看到这一行\n`Error Domain=NSCocoaErrorDomain Code=133020 \"Could not merge changes.\"`\n小计是 Ledger/Features/Bills/DailySummaryStore.swift 的 refresh(month:) 算的 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "小计对不上，是因为 `refresh(month:)` 保存 `DailySummary` 时撞上了后台写入，保存失败、错误又被吞了，界面上留的是没更新的旧小计。\n\n读了 `DailySummaryStore.swift`、`BillListViewModel.swift` 和 `PersistenceController.swift`：`refresh(month:)` 先在临时 context 里把这个月的账单按天分组求和，再回到主线程，把结果写进 viewContext 里对应的 `DailySummary`（3.8.0 加的缓存实体，一天一行）并 `save()`。周期账单补记（`RecurringScheduler.catchUp`）和小组件记账在后台 context 里写账单时，也会顺手更新当天的 `DailySummary`。两边改到同一行时，viewContext 的 `mergePolicy` 没设，默认是 `NSErrorMergePolicy`，保存直接报 133020；`BillListViewModel` 的 `catch` 只用 `Logger` 记了一行，界面上留着保存前的旧值，等下一次刷新才对上，和「过一会儿就好了」一致。\n\n- **改法**：`PersistenceController` 给 viewContext 设 `mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy`：主线程这次算出来的小计优先，后台改的其它属性照样合进来。\n- **验证**：新加 `LedgerTests/DailySummaryStoreTests.swift`：后台 context 连续写 200 笔同一天的账单，同时在主线程 `refresh(month:)`，断言不报错、每天的小计等于明细之和。`xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:LedgerTests/DailySummaryStoreTests` 通过，全量 `LedgerTests` 也过了。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "TestFlight 新包装上还是有 Sentry 里一样的 133020 小计也还是会错"
+    },
+    {
+      "role": "assistant",
+      "text": "viewContext 这边不报了，现在报错的是后台那一侧：周期账单和小组件用的后台 context 还是默认的「冲突就报错」，它们保存失败时，那一天的 `DailySummary` 就停在旧值上。\n\n看了 Sentry 里这几条的线程，报错都不在主线程，而是在 `NSManagedObjectContext` 的私有队列上，面包屑前一条是 `recurring catchUp` 或者 `widget intent`。`Grep` 了 `newBackgroundContext()`：`RecurringScheduler` 和 `QuickAddIntent` 各自直接调 `container.newBackgroundContext()`，没设合并策略，也没设 `transactionAuthor`。主线程先保存了小计，后台 context 再保存同一行 `DailySummary`，就轮到它报 133020，它那次更新整批作废，小计少算了刚记的那笔。\n\n- **改法**：`PersistenceController` 加了 `makeBackgroundContext(author:)`，统一设 `NSMergeByPropertyObjectTrumpMergePolicy` 和 `transactionAuthor`，这两处改成调用它。\n- **验证**：`DailySummaryStoreTests` 加了「主线程刷新和周期补记同时保存」「小组件记账和主线程刷新同时保存」两个用例，用 Xcode MCP 各跑 10 遍都过；全量 `LedgerTests` 通过。真机我这边装不了，需要你再装新包看一下。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "mcp__xcode__RunSomeTests",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是一样 模拟器上也能复现了 从后台切回来那几秒最容易出"
+    },
+    {
+      "role": "assistant",
+      "text": "「切回前台那几秒」对上了历史合并那一步：`HistoryProcessor` 自己开的 context 绕过了上次那个统一入口，它合并历史的同时会改 `DailySummary`。\n\n在模拟器上复现了三次，每次都在 `scenePhase` 变成 `active` 后 1 秒内：`HistoryProcessor.processPending` 开始合并后台期间的持久化历史，同时 `RecurringScheduler.catchUp` 补记周期账单，主线程的 `refresh(month:)` 也被 `.task` 和 `billsDidChange` 通知各触发了一次。`Grep` 发现 `HistoryProcessor` 在 `Ledger/Persistence/` 里用 `container.performBackgroundTask` 开临时 context，合并完会把受影响的日期标成 `DailySummary.isDirty = true` 再保存。上次只替换了 `newBackgroundContext()`，`performBackgroundTask` 开出来的 context 没覆盖到，还是默认策略。\n\n- **改法**：`HistoryProcessor` 改用 `makeBackgroundContext(author: \"history\")`；`refresh(month:)` 加了去重，同一个月的刷新正在进行时，后到的请求只排一次，不再同时跑两份；`PersistenceController` 在 DEBUG 下给每个新建的 context 断言合并策略不是 `NSErrorMergePolicy`，`Grep` 确认仓库里已经没有直接调 `newBackgroundContext()` 和 `performBackgroundTask` 的地方。\n- **验证**：`DailySummaryStoreTests` 加了「切回前台时历史合并、周期补记、刷新三方同时进行」的用例，跑 10 遍都过；全量 `LedgerTests` 和 `LedgerUITests` 里账单流程的 UI 测试也过了。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Edit",
+        "mcp__xcode__RunSomeTests",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "`Error Domain=NSCocoaErrorDomain Code=133020 \"Could not merge changes.\"`\n刚又出来了 再看看"
+    }
+  ],
+  "middle_hint": "中间是继续排查账单列表的每日小计：读 DailySummaryStore.refresh(month:) 和各个 context 的配置、看系统日志和 Sentry、写复现用例、列可能的原因；没有新的改动，也没有结论。"
+}

@@ -1,0 +1,50 @@
+{
+  "id": "command-turn-04",
+  "category": "command-turn",
+  "domain": "devops-ci",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "这周一凌晨两点多 shop-prod 断了四分钟 order-api 那边一片连接错误 那个点没有发版 也没人动过东西 你查一下怎么回事 先别动东西"
+    },
+    {
+      "role": "assistant",
+      "text": "是上周合的 #491 埋下的：它除了补成本标签，还把 `terraform/modules/rds-postgres` 里 `ca_cert_identifier` 的默认值从 `rds-ca-rsa2048-g1` 改成了 `rds-ca-rsa4096-g1`。prod 的实例都是 `apply_immediately = false`，所以 apply 的时候没有立刻生效，而是挂成了待处理的修改，这周一凌晨的维护窗口里 RDS 换证书、重启了实例。什么都没改。\n\n- **时间线**：#491 上周四合并，`terraform-apply` 里 `prod/data` 栈审批后 16:42 开始 apply；CloudTrail 16:43 有一条 `ModifyDBInstance`，调用方是 CI 的 OIDC 角色，参数里 `CACertificateIdentifier=rds-ca-rsa4096-g1`、`ApplyImmediately=false`。之后 `describe-db-instances` 的 `PendingModifiedValues` 里一直挂着这一项，没人看。RDS 事件周一 02:03:12 `Applying modification to certificate authority`，02:03:40 `DB instance restarted`，02:07:31 `DB instance available`。order-api 的 5xx 集中在 02:03 到 02:08，对得上。\n- **为什么评审没看出来**：那次 `prod/data` 一个栈的 plan 有 63 处变更，61 处是 `tags` 和 `tags_all`，`~ ca_cert_identifier = \"rds-ca-rsa2048-g1\" -> \"rds-ca-rsa4096-g1\"` 夹在中间。PR 描述只写了「补成本标签」，模块默认值那一行是最后一个提交顺手带的，提交说明是「按安全组要求换 4096 位的 CA」。评审是看 diff 批的，没有点开 plan；而且大家默认 `apply_immediately = false` 就不会动实例，没想到它只是把重启推到了窗口里。\n- **一起重启的**：走这个模块的 4 个实例都换了证书（`shop-prod-ro` 是单独的 `aws_db_instance`，没换）。窗口都是同一个，`auth-prod` 02:04 到 02:08 登录失败了一阵，夜里量小没人报；两个 staging 也在同一时间重启过。\n- **能做的**（都没做）：模块默认值的改动在 PR 里单独写明会落到哪些实例；各环境把 `ca_cert_identifier` 显式写在调用处；prod apply 之后查一遍 `PendingModifiedValues`，有挂着的就写进变更通知，说清楚哪个窗口生效。\n\n复盘要的截图和 CloudTrail 原文我存在 `tmp/incident-491/` 下了，没进仓库。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "原因清楚了 这次就到这 复盘我自己写 以后 terraform/envs/prod 下面的 PR 你 review 的时候按这个来 不许只看 diff 每个改到的栈都自己跑 plan 一条条过 每个 ~ 和 -/+ 都要写清楚会不会重启 会不会断连 是马上生效还是挂到维护窗口 挂到哪个窗口 动了 modules 的要把默认值的变化一个个对 看会落到哪些实例上 参数组里的 static 参数单独列出来 有一条说不清就不能 approve 这个写进 docs 里"
+    },
+    {
+      "role": "assistant",
+      "text": "写好了：`docs/review/prod-terraform.md`，PR 模板里 prod 那一节加了一行链接指过去。提交在 `7c41e0a`，没推送。\n\n- **检查清单**，照你说的写成逐条要勾的：\n  1. 每个改到的栈本地跑一次 plan，不只看 diff 和 CI 的摘要；\n  2. plan 里每一处 `~`、`-/+`、`-` 都写一句：会不会重启、会不会断连、要不要替换；\n  3. 每一处写明是 apply 时马上生效，还是按 `apply_immediately = false` 挂成待处理、在哪个维护窗口生效（北京时间写出来）；apply 之后用 `describe-db-instances` 看 `PendingModifiedValues` 核对一遍；\n  4. 动了 `terraform/modules/` 的，把变量默认值的变化逐个列出来，查清楚会落到哪些实例上；\n  5. 参数组的改动按 static 和 dynamic 分开列，static 的要写什么时候重启、谁来重启；\n  6. 有任何一条说不清，结论只能是 request changes。\n- **附了一张表**：RDS 和 ElastiCache 常见属性改了会怎样，`instance_class`、`ca_cert_identifier`、`engine_version`、`allocated_storage`、参数组的 static 参数这些，分别写了会不会重启、`apply_immediately=false` 时什么时候生效。\n- **本地怎么跑 plan**：`scripts/tf.sh prod/<栈> plan`，用的是只读角色。\n\n以后 prod 的 PR 我按这份来，评论里逐条贴结果。",
+      "tools": [
+        "Write",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "/code-review #508 DBA 要的那几个 shop-prod 参数调整",
+      "command": {
+        "name": "code-review",
+        "description": "评审一个 PR：对照仓库的约定和需求看改动，列出问题和修改建议。"
+      }
+    }
+  ],
+  "middle_hint": "中间在 infra 仓库里做别的事：加 Terraform 资源和 CI 检查、改 Helm chart、写 runbook 和脚本、做成本和容量评估之类，和那次 shop-prod 重启无关。"
+}

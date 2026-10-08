@@ -1,0 +1,60 @@
+{
+  "id": "resolved-06",
+  "category": "resolved",
+  "domain": "data-scripts",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "日报里 9 月的 GMV 跟财务对不上 我们 rpt.daily_sales 加起来是 4,812,337.60 她们那边是 4,798,105.22 差了一万四 上个月 #104 把 daily_sales 取订单和退款那段重写过 之前是对得上的 你查一下"
+    },
+    {
+      "role": "assistant",
+      "text": "找到一处明显的问题，改了，但还没完全对上：差额从 14,232.38 缩到 2,807.25。\n\n- **原因**：#104 为了把退款拆到门店和渠道，把原来「订单、退款各自汇总再连接」改成了在订单明细上直接按 `order_id` 关联 `fetch_refunds` 的退款明细。部分退款是一笔订单多行，有几笔退款的订单就被乘成几行，GMV 跟着重复计算。\n- **改法**：订单和退款各自先按 `store_id`、`channel` 汇总，再做外连接，和 #104 之前一样；退款拆门店渠道用退款单自己带的 `store_id`、`channel`，不用再借订单。\n- **验证**：`tests/pipelines/test_daily_sales.py` 加了「一单三笔部分退款」的用例，通过；写了个只读脚本 `scripts/tmp/recompute_sep.py`，按改过的逻辑从从库把 9 月逐天重算，只算不写库，合计 4,800,912.47。\n\n剩下的 2,807.25 不是重复计算的形状（重复会偏整单金额），我接着查。",
+      "tools": [
+        "Read",
+        "Bash",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还差两千八 你接着查 财务那边按订单逐笔导了一份 9 月的明细 放在 /data/finance/gmv_2026_09.csv 了"
+    },
+    {
+      "role": "assistant",
+      "text": "对上了，9 月重算是 4,798,105.22，和财务一分不差。剩下的差额出在月初和月末两头的日期上。\n\n- **怎么找的**：拿财务的逐笔明细和我们重算的逐笔结果按 `order_id` 对，差异全部集中在两段：9 月 1 日北京时间 0 点到 8 点付款的订单，我们算进了 8 月 31 日；10 月 1 日 0 点到 8 点付款的，我们算进了 9 月 30 日。两头一出一进，净差 2,807.25。\n- **原因**：#104 重写的 `fetch_orders(biz_date)` 用 `paid_at::date = :biz_date` 取当天的订单，`paid_at` 是 `timestamptz`，从库连接的会话时区是 UTC，取出来的是 UTC 日期，北京时间 0 点到 8 点付款的订单被归到了前一天。其实 9 月每一天的数都挪了 8 小时，只是月合计只在两头露出来。仓库里别的地方取业务日期都是先转北京时间，比如 `rpt.user_first_order` 的首单日。\n- **改法**：改成 `(paid_at AT TIME ZONE 'Asia/Shanghai')::date = :biz_date`，`fetch_refunds` 里的 `refunded_at` 同样处理；`docs/metrics.md` 里日报那一节本来就写着业务日期按北京时间，不用改。\n- **验证**：`test_daily_sales.py` 加了北京时间凌晨付款、凌晨退款两个用例；另加了一个对账测试，读财务明细的 200 行抽样逐单比对。`make test` 全部通过。9 月全月重算，总额 4,798,105.22，逐单 0 差异。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "9 月对上了 到分 我让财务把 10 月 1 号到 6 号也对了 也一样 这个算解决了 提交吧 生产上那些天的数先别补 等她们 9 月月结跑完再说"
+    },
+    {
+      "role": "assistant",
+      "text": "提交了，`e19a7b3`：订单和退款先各自汇总再连接、`paid_at` 和 `refunded_at` 按北京时间取日期，加上新增的测试，没推送。\n\n生产上要补的是从 9 月 1 日到上线前最后一天，等你说再补。到时候的步骤：\n\n1. 合并以后在 `etl-01` 上 `cd /opt/etl-scripts && git pull && uv sync --frozen`；\n2. `make backfill P=daily_sales START=2026-09-01 END=<上线前一天> ARGS=--force`，按日期从早到晚一天一个事务，前一天成功了才跑下一天，一个多月的量二十来分钟；\n3. 白天跑，避开 02:00 到 04:00 的定时任务；\n4. 补完看板上的数直接变成新的，`weekly_digest` 不会重发已经发过的周报卡片。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "日报 GMV 那个 财务 9 月月结也跑完了 一分不差 代码我合了 etl-01 上也 pull 了 按之前说的补吧 从 9 月 1 号补到昨天"
+    }
+  ],
+  "middle_hint": "中间在 etl-scripts 里做别的事：别的报表加字段、补测试、改 Makefile 目标、升级依赖之类，和日报 GMV 的对账无关，没有再碰这个问题。"
+}

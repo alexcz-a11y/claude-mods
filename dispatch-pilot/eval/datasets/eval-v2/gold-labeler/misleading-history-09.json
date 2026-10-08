@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-09",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后一条只要给客服写两句不太技术的话，内容在 d2 的回答里都已查清（异地登录触发风控临时限制，24 小时后自动解除，不是系统故障），连回复大意都给过，只需改写成通俗的两句，low。c27e90b4 已核实不是 #916，对 #916 这个问题是 new_or_unrelated。读不到决定性几轮时，不知道这单是什么情况，要先拿 requestId 去 Loki 查请求、往前串同一账号的记录才能写回复，判 medium。d2 贴来的单在用户眼里是同样的「登录状态异常」表现、客服说是同一问题，按同样的错误行为算 still_unresolved；d3 让 #916 先挂着，still_unresolved。"
+}

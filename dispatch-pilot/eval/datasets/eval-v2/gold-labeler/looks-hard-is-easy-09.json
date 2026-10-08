@@ -1,0 +1,21 @@
+{
+  "id": "looks-hard-is-easy-09",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条是让把剩下 42 个 XCTest 文件迁到 Swift Testing。迁移脚本已经提交，试点的三个文件两周 CI 没红过，dry-run 0 冲突，只会留 2 个 MIGRATE，两处手改逐字写好，共用 UserDefaults 导致的并行问题也在试点时处理掉了。用户确认试点没问题，这条接着做同一项任务。量大但主要是跑脚本、手改两处、xcodebuild -test-iterations 3、--check 核对用例名。并行跑可能暴露别的偶发失败，要盯着，所以 medium 为主，high 也能接受。没有决定性几轮的话，看到的是四十几个测试文件换测试框架，没有脚本和对照表，坑也得自己找，判 high。"
+}

@@ -1,0 +1,22 @@
+{
+  "id": "cheap-agreement-10",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "上一轮 bench 结果用户说「数挺有用」，已经收下了。最后一条是新的本地压测：suggest.js 改成三段爬坡，加一个七成 search、三成 suggest 的混合场景，application-local.yml 改缓存 TTL、Tomcat 线程数和 ES 超时，再跑一轮。d2 定过：本地 bench 直接改、跑一轮看个大概，不跑多轮、不抓火焰图、不写说明。所以这是范围清楚的 k6 脚本和配置改动加一次运行，给 medium；改动基本照着指令来，low 也可以接受。没有 d2 的话，主 agent 会照第一次那样跑三轮取中位数、抓火焰图、写说明，还要分析性能，按 high 判。",
+  "source": "user:labeler"
+}

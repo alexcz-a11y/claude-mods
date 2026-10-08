@@ -1,0 +1,21 @@
+{
+  "id": "looks-hard-is-easy-10",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "客服改单报 CS-5001 的原因已经查清：约束改名以后 dal/errors.py 对照表里还是老名字。之前等 DBA 决定约束名要不要改回去，所以没动。最后一条说 DBA 定了不改回去，又贴了同样的 CS-5001，问题还在，属于 still_unresolved。这是第一次真去修，不算第二次。要做的是照定好的步骤：sync_constraint_names.py --apply 30 处、手改 dal/errors.py 第 57 行、--check、pytest，再把复现测试一起提交。基本照单执行，定 medium；它是线上问题，涉及 dal、模型、测试和文档，high 也能接受。没有决定性几轮的话，只有报错日志和「按那天说的改」，具体改法要自己理清，判 high。"
+}

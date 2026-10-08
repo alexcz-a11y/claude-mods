@@ -1,0 +1,57 @@
+{
+  "id": "command-turn-11",
+  "category": "command-turn",
+  "domain": "frontend",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "库存预警列表的筛选和翻页",
+    "SYMPTOM": "改完筛选紧接着翻页时，表格里混进了不符合筛选条件的商品",
+    "ERROR": "TypeError: Cannot read properties of undefined (reading 'warnLevel')",
+    "FILE": "src/pages/inventory/StockAlertList.tsx",
+    "FILE2": "src/api/inventory.ts",
+    "SYMBOL": "useStockAlertList",
+    "COMMAND": "npx playwright test e2e/inventory/stock-alert.spec.ts"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "库存预警列表有个问题 仓管那边说改完筛选紧接着翻页 表格里会混进不符合条件的商品 比如筛的是严重预警 翻到第 2 页冒出来几个库存正常的 刷新一下又对了 控制台偶尔有 `TypeError: Cannot read properties of undefined (reading 'warnLevel')` 页面是 src/pages/inventory/StockAlertList.tsx 数据在 useStockAlertList 里 你先看看 先别改"
+    },
+    {
+      "role": "assistant",
+      "text": "看了一遍，代码没动。原因还定不了，先把这页的结构和几个可疑的地方说清楚。\n\n- **筛选条件存在三处**：URL 查询参数（`useTableQuery` 负责读写，刷新和分享链接靠它）、页面 store（`src/pages/inventory/store.ts`，`createPageStore` 造的，模块级单例）、`useStockAlertList` 里组件自己的 `page` 和 `pageSize`。改筛选时先写 store，`useTableQuery` 在下一个渲染周期再回写 URL；翻页只改组件里的 `page`。\n- **请求不取消**：`useStockAlertList` 里发请求的 effect 没有 cleanup，调 `useRequest` 时也没开 `cancelPrevious`；`src/api/request.ts` 的 `dedupe` 拦截器只按 method 加 url 判重，不看 query。改完筛选马上翻页，两次调用可能被合成一个请求，两个调用方拿到同一份结果。\n- **URL 里的值是字符串**：从 URL 恢复时 `warnLevel=2` 这种数字是字符串，`useTableQuery` 只规整了 `page` 和 `pageSize`。\n- **切店铺**：`subscriptions.ts` 店铺一变就 `reset()` 所有页面 store，但组件里的 `page` 不跟着回到 1。\n- **报错**：`warnLevel` 是 `useStockAlertList` 在请求回来以后给每行算颜色时读的（`getRowLevel(row.stock.warnLevel)`），`row.stock` 为空时抛，什么时候 `stock` 会是空还没查。\n\n这几处哪一个是表格里混进不符合条件商品的原因，要复现时看请求和写回 state 的先后才能定。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "跟你说个事 仓管那边下周要加一个「只看缺货」的筛选 就是库存为 0 的 你看这页现在这样能直接加吗 会不会踩到同一个坑"
+    },
+    {
+      "role": "assistant",
+      "text": "能加，但不是在筛选栏里多放一个开关那么简单。按这页现在的写法，一个新筛选项要同时改到这几处，漏一处就是一个新的不一致：\n\n1. **筛选表单** `StockAlertFilters.tsx` 加开关；\n2. **页面 store**：`filters` 的类型和初始值加 `onlyOutOfStock`，`resetFilters` 也要清它；\n3. **URL**：`useTableQuery` 的解析里把 `'true'`、`'false'` 规整成布尔、空值去掉，不然从链接打开时会带着字符串 `'false'` 发请求，后端当成真；回写 URL 时默认值不写进去；\n4. **接口**：`src/api/inventory.ts` 的 `StockAlertQuery` 加参数，后端字段叫 `out_of_stock`，已经有了，openapi 里是可空的 `boolean`；\n5. **切店铺**：`subscriptions.ts` 的 `reset()` 会把它清掉，组件里的 `page` 要一起回到 1，不然切完店铺停在第 N 页查缺货，多半是空页；\n6. **和现在这个问题的关系**：开关一切就是一次改筛选，用户切完马上翻页，正好走的是混进不符合条件商品的那条路；缺货的结果通常只有一两页，翻页撞上的机会更多。请求合并那块不动的话，新开关上线就是多一个触发点；\n7. **测试**：`StockAlertList.test.tsx` 现在只测了首屏和单次筛选，新开关至少要测从 URL 带参数进来、切店铺之后、切开关后马上翻页三种；e2e 的 `stock-alert.spec.ts` 加一条切开关再翻页的。\n\n所以要么先把请求合并和页码不同步这两处收掉再加，要么加的时候在这个开关的路径上单独处理好（切换时页码归 1、发请求前丢掉旧请求的结果）。我倾向后者，不用等原问题查完。",
+      "tools": [
+        "Read",
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "/feature-dev 库存预警列表加一个「只看缺货」的筛选",
+      "command": {
+        "name": "feature-dev",
+        "description": "引导式功能开发：先读懂相关代码和约定，定方案，再实现、补测试、自测。"
+      }
+    }
+  ],
+  "middle_hint": "中间继续排查库存预警列表改完筛选马上翻页时混进不符合条件商品的问题：理 useStockAlertList 的调用链和 store、看请求时序和日志、写复现用例、对监控事件和各环境，没有修改实现，也没有结论。"
+}

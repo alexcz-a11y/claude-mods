@@ -1,0 +1,54 @@
+{
+  "id": "new-topic-02",
+  "category": "new-topic",
+  "domain": "ios",
+  "bin": "d2",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "账单列表的月份切换",
+    "SYMPTOM": "账单列表显示的不是当前选中那个月的账单",
+    "ERROR": "loadBills(for:) failed month=2026-09: The operation couldn’t be completed. (NSCocoaErrorDomain error 134060.)",
+    "FILE": "Ledger/Features/Bills/BillListViewModel.swift",
+    "FILE2": "Ledger/Features/Bills/BillListView.swift",
+    "SYMBOL": "loadBills(for:)",
+    "COMMAND": "xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BillListViewModelTests"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "账单页切月份有时候不对 标题已经是十月了 下面列表还是九月的账 下拉刷新一下又好了 日志里偶尔还有一行 `loadBills(for:) failed month=2026-09: The operation couldn’t be completed. (NSCocoaErrorDomain error 134060.)` 你看下 Ledger/Features/Bills/BillListViewModel.swift"
+    },
+    {
+      "role": "assistant",
+      "text": "能复现，先没改代码：切月份时每切一次就新起一次加载，几次加载同时在跑，谁最后做完谁写回，最后留在页面上的不一定是你最后选的那个月。\n\n- **查到的**：`BillListView` 的月份选择器在 `onChange(of: selectedMonth)` 里起一个 `Task` 去调 `loadBills(for:)`，句柄没存，上一个也不取消。`loadBills(for:)` 每次现建一个只读的后台 context（`PersistenceController.newReadContext()`），按 `yearMonth` 取当月账单、转成值类型，回主线程按天分组后写进 `sections`；写回之前不看这次的月份还是不是当前选中的那个。标题直接绑的 `selectedMonth`，所以标题总是对的，列表却可能被晚到的那次盖掉。\n- **复现**：模拟器上 `-seed medium` 启动，连着点三次左箭头，20 遍里有 2 遍标题是 7 月、列表停在 8 月，下拉刷新就对了，和你说的一样。\n- **那行日志**：是 `loadBills(for:)` 自己的 `catch` 打的，同时报给 Sentry，错误再抛到 `Ledger/Features/Bills/BillListView.swift` 那边又记一遍；取数失败时 `sections` 不动，列表不空的话页面上留着旧数据，没有任何提示。134060 是 Core Data 的通用错误码，具体原因要看 underlying error，日志里没打出来。这 20 遍里一次都没出现这一行。\n- **还不确定的**：切月份只是其中一个入口，`loadBills(for:)` 还有别的地方在调。要先弄清是不是只有切月份会这样，再定改法，不然只堵一个口子。\n\n你碰到的那几次，之前都切过月份吗？",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "不光是切月份 今天早上打开 App 也碰到一次 一个月都没切 标题是十月 列表还是九月的账 我昨晚最后看的是九月"
+    },
+    {
+      "role": "assistant",
+      "text": "对得上，回到前台这条路也会这样，而且比切月份更容易撞上：回到前台那一刻至少有两三次加载同时开始，没有哪一次知道自己是不是最新的。还是没改代码。\n\n- **回到前台时发生了什么**（读了 `Ledger/LedgerApp.swift`、`RootView.swift`、`Ledger/Persistence/HistoryTracker.swift`）：\n  1. `RootView` 的 `onChange(of: scenePhase)` 变成 `.active` 时调 `reloadVisible()`：如果日期跨了月，先把 `selectedMonth` 重置成当月，再按当前 Tab 调 `loadBills(for:)`；\n  2. `LedgerApp` 同时调 `historyTracker.processPending()` 和周期账单的 `scheduler.catchUp(now:)`，都是起个 `Task` 扔出去；\n  3. `HistoryTracker` 合并完积压的改动后发 `.billsDidChange`，页面那条订阅去抖 300 毫秒再调一次 `loadBills(for:)`；\n  4. App 在后台时，系统唤醒 `com.acme.ledger.recurring` 补周期账单，同样会经第 3 步让页面在后台加载一次，用的是当时页面上的月份。\n- **你早上那次**：多半是夜里补账让页面在后台按九月起了一次加载，早上回到前台，第 1 步把标题重置成十月、又起了一次十月的加载，九月那次晚做完，把九月的账写回了列表。模拟器上把时间拨到 10 月 1 日再切回前台，10 遍里复现了 1 遍，日志里那 1 遍前后调了 3 次 `loadBills(for:)`，最后写回的是参数为 9 月的那次。\n- **所以**：只给切月份那一处加取消不够，入口有五六个，得在写回前统一判断这次结果还算不算数。下一步想先给每次加载编一个递增的号打进日志，确认写回的是不是最后发起的那次，再动手改。\n- **顺带看到的**：`LedgerApp` 回到前台那段里还有一件事，挡在 `FeatureFlags.weeklyDigest` 后面（默认 `false`），现在不跑：`Ledger/Services/Reminders/WeeklyDigestScheduler.swift`。这是一套已经写完的「每周小结」通知，顺手看了一下它碰不碰 `loadBills(for:)`：\n  - 每次回到前台调它的 `refresh()`：开着就按上周的账单算出总支出、和前一周比、花得最多的三个分类，排一条下周一早上 8 点的本地通知（标识 `weekly-digest`，重排前先撤掉旧的）；关着就把已经排好的那条撤掉。排程走现有的 `NotificationScheduling`。\n  - 开没开看两样：`FeatureFlags.weeklyDigest`，和 `NotificationPreferences.weeklyDigestEnabled`（`UserDefaults` 键 `notifications.weeklyDigest`，默认 `false`）。后者现在没有任何界面会写它。\n  - 点开通知经 `AppRouter` 切到账单页、定位到上周所在的月份。通知正文，还有「设置 → 通知」里这个开关要用的标题和说明，中英文都已经在 `Localizable.xcstrings` 里。\n  - 通知权限没有另写，用的是 `NotificationService` 现成的申请，「设置 → 通知」里别的提醒开关第一次打开时走的就是它。\n  - `LedgerTests/WeeklyDigestSchedulerTests.swift` 11 个用例都过。flag 上的注释是「等设置页的入口排期」。\n  它算小结用的是自己的后台 context 按日期范围求和，不经过 `loadBills(for:)`，跟这个问题没关系。\n\n要我先加那个递增编号的日志吗？",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "账单页那个先放一放 产品在催每周小结的推送 设置里通知那页加个开关 默认关 打开以后每周一早上推一条上周花了多少 点开能看明细 这周要提测"
+    }
+  ],
+  "middle_hint": "中间继续排查账单列表切月份、回到前台以后显示的不是当前选中月份的问题：理 loadBills(for:) 的调用链、看日志和 Sentry、加观测、写复现，没有改实现，也没有结论。"
+}

@@ -1,0 +1,69 @@
+{
+  "id": "misleading-history-10",
+  "category": "misleading-history",
+  "domain": "security",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "网页商城的扫码登录 有用户说 App 上点了确认 电脑上还是一直转圈 要刷新二维码重扫才行 客服这周转来七八单了 你查一下 代码在 src/auth/qr-login.ts"
+    },
+    {
+      "role": "assistant",
+      "text": "找到一处确定会出问题的地方，改了，在分支上没推送。它能不能解释全部的「一直转圈」，要发上去看。\n\n**扫码登录现在怎么走**\n\n- PC 页面 `POST /v1/auth/qr` 拿到二维码 id 和 `expires_in`，然后反复长轮询 `GET /v1/auth/qr/:id/wait`，每次最多挂 25 秒；\n- App 扫码调 `.../scan`，用户点确认调 `.../confirm`；\n- 状态存在 Redis 的 `qr:{id}` 里：`pending → scanned → confirmed → consumed`，过期时间 120 秒。\n\n**问题**\n\n`wait` 的写法是先 `GET qr:{id}` 读一次状态，不是 `confirmed` 再去订阅频道 `qr:{id}` 等通知，25 秒没等到就返回 `pending`。读和订阅之间隔着一次往返，App 的确认要是恰好落在这个空当里，通知就漏了：这一轮白等 25 秒，前端在 `scanned` 状态下拿到 `pending` 会接着转圈。用户那边看就是点了确认、电脑上半天没反应，多数人等不了就刷新重扫了。\n\n**改法**（分支 `auth/qr-pubsub`，提交 `3e7a1c9`）\n\n- 先订阅、再读状态，读到 `confirmed` 直接返回，然后退订；\n- 集成测试里加了一个钩子，把确认卡在读和订阅之间，原来的写法这个用例稳定失败，改完通过。`npm test`、`npm run test:int` 都过了。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "发上去两天了 还是有 客服今天又转来两单 都说等了好几分钟电脑上还在转"
+    },
+    {
+      "role": "assistant",
+      "text": "这两单查到了，是另一种情况：二维码在用户确认之前已经过期，PC 却不知道。\n\n- 两单在日志里的时间线：二维码生成后第 104 秒、第 112 秒扫的码，确认请求分别在第 126 秒、第 133 秒才到，这时 `qr:{id}` 已经过了 120 秒被 Redis 删掉。`confirm` 返回了 410 `qr_expired`，App 那边没有提示，用户以为确认成功了。\n- PC 的长轮询在 key 不存在时返回的是 `pending`，不是 `expired`，前端就一直显示「请在手机上确认」并转圈，直到用户自己刷新。\n\n**改法**（分支 `auth/qr-expiry`，提交 `8b20f4d`）\n\n- `wait` 读到 key 不存在时返回 `expired`，PC 前端已有的「二维码已过期，点击刷新」就会出来；\n- 有效期从 120 秒放到 180 秒：日志里扫码到确认的间隔 p95 是 38 秒，但有一小撮超过 60 秒，120 秒偏紧。要不要放长你定，我先放到了 180；\n- 有效期原来在三处各写了一遍（Redis 的过期时间、接口返回的 `expires_in`、测试），现在收成 `src/auth/qr-login.ts` 里的一个常量 `QR_TTL_SECONDS`，三处都从它取；PC 页面的倒计时读的就是接口返回的 `expires_in`，不用另外改。以后调有效期只改这一个常量；\n- 补了「过期后确认」「过期后轮询」两个用例，`npm test`、`npm run test:int` 都过了。\n\nApp 收到 410 不提示这件事，要告诉 App 组。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "这个也发了 少了点 但还是有 今天三单"
+    },
+    {
+      "role": "assistant",
+      "text": "这三单不在我们这边，是 App 的问题。\n\n- 三单的确认请求带的 `qrId` 都不是 PC 上当前显示的那张，而是同一台设备几分钟前扫过的上一张；上一张早就 `consumed` 或者过期了，`confirm` 返回 409 或 410，PC 上新的那张一直停在 `scanned`。\n- 按 user-agent 统计了最近 7 天这类「确认的不是最近一次扫的码」的请求：412 次，全部来自 App 8.12.0 到 8.12.3，8.13 一次都没有。看起来是 8.12 的扫码页把上一次的 `qrId` 缓存住了，连着扫两张码时确认发给了旧的那张。\n- 我们这边能做的只是兜底：`scan` 时记下设备，`confirm` 时发现同一设备有更新的扫码记录，就返回一个「请确认最新的二维码」的错误。这要加接口约定，App 也得配合展示，值不值得做你定。",
+      "tools": [
+        "Bash",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d4",
+      "text": "那是 App 的锅 我转给 App 组 让他们排期 我们这边不查了 兜底先不做"
+    },
+    {
+      "role": "assistant",
+      "text": "好，扫码登录这边就停在这里。两处改动（`auth/qr-pubsub`、`auth/qr-expiry`）都已经在线上；剩下的情况来自 App 8.12 的 `qrId` 缓存。给 App 组的说明在这，可以直接转：\n\n> 8.12.0–8.12.3 的扫码确认请求偶尔带的是上一次扫过的二维码 id，最近 7 天 412 次，8.13 没有。表现是用户点了确认，电脑上停在「请在手机上确认」。另外 `confirm` 返回 409 / 410 时 App 没有任何提示，建议一起处理。"
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "产品说扫码登录的二维码有效期再放长点 改成五分钟"
+    }
+  ],
+  "middle_hint": "中间在同一个 auth-svc 仓库里做别的事：文案、限流、OAuth 客户端、审计、依赖和 CI 之类的需求，和扫码登录一直转圈无关，也没再碰 src/auth/qr-login.ts。"
+}

@@ -1,0 +1,53 @@
+{
+  "id": "cheap-agreement-07",
+  "category": "cheap-agreement",
+  "domain": "cc-mods",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "ctx-meter 状态行上的用量",
+    "SYMPTOM": "状态行上的上下文用量偶尔会倒退回几步之前的数",
+    "ERROR": "TypeError: Cannot read properties of undefined (reading 'inputTokens')",
+    "FILE": "ctx-meter/hooks/ctx-meter.ts",
+    "FILE2": "ctx-meter/tests/ctx-meter.test.ts",
+    "SYMBOL": "measureUsage",
+    "COMMAND": "command claude plugin test ./ctx-meter"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "ctx-meter 状态行上的用量这几天有点怪 偶尔会往回倒 刚显示 46% 下一下变成 41% 过一会又跳回 47 第一次碰到那次没开 debug log 只在对话里瞄到一行 `TypeError: Cannot read properties of undefined (reading 'inputTokens')` 不知道跟这个有没有关系 你先看看 measureUsage 那一路 代码先别动"
+    },
+    {
+      "role": "assistant",
+      "text": "还定不了是哪一处，但 `measureUsage` 这一路上能让状态行「往回倒」的地方有三处，下面列出来。代码没动。\n\n读了 `ctx-meter/hooks/ctx-meter.ts`，Grep 了 `measureUsage` 的调用点，跑了一遍 `command claude plugin test ./ctx-meter`：9 个用例全过，其中直接调 `measureUsage` 的 2 个，经过 hook 的 1 个。\n\n**这一路是怎么走的**\n\n- **主路径**：`tool.call` 的 hook 先 `await next(e)`，派出 agent 的事件开头就放行；主 agent 的拿工具结果里的 usage，加上 `$.state` 里的上一份状态调 `measureUsage`，算完写回 `$.state`，再 `$.ui.status` 更新状态行。\n- **补算**：hook 末尾用 `$.clock.after(150, …)` 排一次补算，注释写的是「等这一步落定再算一次」。这一次不在任何 dispatch 里，读的是它运行那一刻的 `$.state`。\n- **快照**：每 5 次或者隔 30 秒，把状态整份存进 `$.store`；`session.start`（热重载时也会再触发）用这份快照重算初始状态。\n\n**能让数字倒回去的三种情况**\n\n1. 一步里并行几个工具调用时，几次 dispatch 可能读到同一份旧状态，后算完的那次盖掉先算完的；写 `$.state` 时没带 `ifVersion`，不会报冲突。\n2. 补算晚一拍写回，正好盖掉中间进来的那次新结果。\n3. 用 `--plugin-dir` 加载时保存一次 mod 的文件，热重载让状态退回到上次存快照时的样子。\n\n**`TypeError` 那一行**\n\n代码里读 `inputTokens` 的有四处，有的带了可选链，有的没带。光看代码分不出这一行是哪一处抛出来的，也说不上它和倒退是不是一回事；要等下次出现时看前后的 debug log 才能缩小范围。\n\n要往下查，先得知道你碰到的那几次是装好的版本还是 `--plugin-dir`，前后有没有保存过文件、`/clear` 过。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "刚才又倒了一次 52 掉到 48 看样子得慢慢查 先说好 查这个过程中要写的那些一次性的东西 解析 debug log 翻 ~/.claude/projects 的会话记录 造事件序列 对时间线之类的 你直接在 scratchpad 里写 python node 都行 不用先跟我对方案 不用写测试 异常输入和边界都不用管 也别为了以后能复用去抽象 跑出结果贴给我就扔 反正不进仓库 仓库里的代码还是照常来 要改先说\n先来一个 把这个仓库最近几天在 ~/.claude/projects 下的会话列一下 每个几条消息 多少次工具调用 有没有 /clear /compact 我对一下倒退那几次在哪个会话"
+    },
+    {
+      "role": "assistant",
+      "text": "列好了。脚本是 scratchpad 里的 `sessions.py`，30 来行，没做任何容错，跑完就放那儿不管了。\n\n这个仓库在 `~/.claude/projects/` 下 10-04 以来有 8 个会话：\n\n| 开始 | 时长 | 你的消息 | 工具调用 | /clear | /compact |\n|---|---|---|---|---|---|\n| 10-04 16:40 | 52 分钟 | 12 | 94 | 0 | 1 |\n| 10-04 17:04 | 15 分钟 | 2 | 4 | 0 | 0 |\n| 10-05 14:02 | 18 分钟 | 9 | 41 | 0 | 1 |\n| 10-06 10:15 | 6 分钟 | 3 | 11 | 0 | 0 |\n| 10-06 11:30 | 1 小时 20 分 | 21 | 160 | 1 | 0 |\n| 10-06 20:05 | 25 分钟 | 7 | 38 | 0 | 0 |\n| 10-07 09:48 | 40 分钟 | 14 | 77 | 0 | 1 |\n| 10-07 14:10 | 进行中 | — | — | — | — |\n\n- 工具调用数的是 `tool_use` 块，派出 agent 的旁支没算；`/clear`、`/compact` 按你发的消息开头认的。\n- 只读了时间、类型和工具名，没读对话内容。\n- 最后一行就是现在这个会话，还在写，没统计。你说的「刚才那次」在这里面，倒退之前的十几次工具调用里，有两步是同一条回复里同时读了 3 个文件。\n- 10-04 下午那两个会话有 15 分钟重叠，都是在这个仓库里开的。\n\n你回想一下另外几次大概是哪天哪个时段，对到表上。",
+      "tools": [
+        "Write",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "又倒了一次 这回开着 --debug-file 了 log 在 ~/tmp/ctx-1007.log 会话就是这个仓库下最新那个 jsonl 写个东西把两边按时间对起来 每次状态行的值 前后各三次工具调用 哪几步是并行的 中间有没有重载和 /compact 倒退的那几处标出来"
+    }
+  ],
+  "middle_hint": "中间是 ctx-meter 状态行用量倒退那个问题的继续排查：理 measureUsage 的调用链、看热重载和 /clear 对状态的影响、量 hook 耗时、翻会话记录和同事的反馈、在仓库外写临时探针，没有新的修改，也没有结论。"
+}

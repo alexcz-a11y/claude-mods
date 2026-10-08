@@ -1,0 +1,21 @@
+{
+  "id": "command-turn-11",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条是 /feature-dev 给库存预警列表加一个「只看缺货」的筛选，字面上是筛选栏里加一个开关、接口多传一个参数。决定性几轮里助手已经说明，这页的筛选条件分散在 URL、页面 store、组件局部 state 三处，请求不取消、dedupe 不看 query，切店铺时页码不同步；一个新筛选项要同时改表单、store 的类型和初始值与 reset、useTableQuery 的布尔规整和回写、接口参数、切店铺后的页码，而且切开关再马上翻页正好会踩到还没查清的那个数据错乱，要在这条路径上单独处理页码归 1 和丢弃旧请求的结果，测试要覆盖 URL 进入、切店铺、切开关后马上翻页，再加一条 e2e。这是跨多个文件、边界条件要紧的改动：high；它挨着一个正在排查的竞态，要反复验证，给 xhigh 也说得过去。删掉决定性几轮，中间段只说明这页有个没查清的问题，最后一条看起来是一个范围清楚的小功能，加开关、加参数、补个测试：medium。三选一：d1 第一次提出数据错乱的问题，new_or_unrelated；d2 是另提一个下周要做的新需求，没对原问题表态，new_or_unrelated；最后一条开始做这个新需求，new_or_unrelated。审稿改动（金标未变）：d1 回复里报错的位置改成在 useStockAlertList 请求回来以后读 warnLevel，和中间段监控事件里「报错栈顶是 useStockAlertList、从 onSuccess 调进来」对得上。"
+}

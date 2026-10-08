@@ -1,0 +1,71 @@
+{
+  "id": "implicit-unresolved-09",
+  "category": "implicit-unresolved",
+  "domain": "backend-api",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "订单状态流转的偶发 500",
+    "SYMPTOM": "高峰期付款和改单偶发失败，重试一两次才成功",
+    "ERROR": "transition order status: update orders: 0 rows affected (version conflict)",
+    "FILE": "internal/service/order_status.go",
+    "FILE2": "internal/service/order_expire.go",
+    "SYMBOL": "OrderService.TransitionStatus",
+    "COMMAND": "go test -count=50 -run TestTransitionStatusConcurrent ./internal/service"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "高峰期订单接口偶尔 500 商户那边重试一两次又好了 日志里都是这一行\n`transition order status: update orders: 0 rows affected (version conflict)`\n状态流转都走 internal/service/order_status.go 的 OrderService.TransitionStatus 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "是乐观锁的版本号用错了：`UpdateOrderStatus` 带的 `version` 是调用方在事务外读到的旧值，不是事务里加锁后读到的。\n\n读了 `internal/service/order_status.go` 和三个调用方（`handler/orders.go` 的改单、`handler/payments.go` 的付款、`service/payment_callback.go` 的 paylink 回调）：handler 先 `GetOrder` 校验商户归属和金额，把整个 `order` 传给 `TransitionStatus`；`TransitionStatus` 在 `inTx` 里 `GetOrderForUpdate` 锁住这一行、检查状态能不能这么转，最后 `UpdateOrderStatus(id, newStatus, order.Version)`，用的却是参数里那个事务外读的 `order.Version`。高峰期付款请求和 paylink 回调经常几十毫秒内先后到达同一单：回调先提交、版本号加一，付款请求拿着旧版本号去更新，`WHERE id = $1 AND version = $3` 一行都匹配不上，`execrows` 返回 0，就是这行报错，handler 按未知错误回了 500。\n\n- **改法**：`TransitionStatus` 只接收 `orderID`，版本号一律用事务里 `GetOrderForUpdate` 读出来的那一个；handler 在事务外的读取只留作校验。\n- **验证**：新写了 `TestTransitionStatusConcurrent`：本地 Postgres 上同一单 20 个 goroutine 同时做付款和回调两种流转，断言没有 0 行的错误、最终状态和 `order_events` 记录对得上。`go test -count=50 -run TestTransitionStatusConcurrent ./internal/service` 50 次全过，`go test ./...` 全过。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "发上去了 今晚高峰还是有 一样的 version conflict 量少了一点 但没断"
+    },
+    {
+      "role": "assistant",
+      "text": "还有一条路径会带着旧版本号去更新：`WithTx` 遇到锁超时会把整段闭包重跑一遍，而重跑时用的还是第一次留下的变量。\n\n拉了今晚的日志：剩下的报错前面几乎都紧挨着一条 `retrying tx after 55P03`。`internal/store/store.go` 的 `WithTx` 遇到 `40001`、`40P01` 和 `55P03`（`lock_timeout` 3 秒到了）会把闭包整个再跑一遍，最多 3 次。`TransitionStatus` 里 `var locked db.Order` 声明在闭包外面，闭包里写的是 `locked, err := q.GetOrderForUpdate(...)`，在 `if` 块里用 `:=` 新建了一个同名变量，外面那个 `locked` 只在第一次进入时被赋过值。第一次等锁超时、重试时拿到锁以后，`UpdateOrderStatus` 读的还是外层那个旧的 `locked.Version`。只有高峰期才会等锁等到 3 秒，所以只在高峰出现。\n\n- **改法**：闭包里要用的变量全部在闭包内声明，每次重试都从头读一遍；`golangci-lint` 打开 `govet` 的 `shadow` 检查，仓库里另外两处同样的写法一起改了。\n- **验证**：测试里用一个先持锁 4 秒的事务制造 `55P03`，断言重试后用的是新读到的版本号；`-count=50` 全过，`go test -race ./...` 全过。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是有 而且不光高峰 下午量不大的时候也抓到一次 一样的 0 rows affected"
+    },
+    {
+      "role": "assistant",
+      "text": "下午那几单都走了付款超时重试的分支：paylink 第一次超时、重试时返回「已支付」，代码在同一个事务里先写了 `payments`，而 `payments` 上的触发器会顺手把 `orders.version` 加一。\n\n把下午那一单的 trace 和日志串起来看：付款请求先调 paylink，第一次 8 秒超时，重试拿到 `already_paid`，进了 `recordExistingPayment`。这个分支在 `TransitionStatus` 的事务里先 `UpsertPayment` 再 `UpdateOrderStatus`。查了迁移，`migrations/0041_payments_touch_order.sql` 给 `payments` 加过一个 `AFTER INSERT OR UPDATE` 触发器，执行 `UPDATE orders SET version = version + 1, updated_at = now() WHERE id = NEW.order_id`，当初是为了让订单详情的缓存跟着支付变化失效。于是同一个事务里版本号先被触发器加了一，后面的 `UpdateOrderStatus` 拿着加锁时读到的版本号去更新，必然 0 行。正常付款路径是先改订单再写支付，碰不到；只有 paylink 超时重试才走这个顺序，所以和 paylink 慢不慢有关，不一定在高峰。\n\n- **改法**：新迁移 `0057_payments_touch_order_no_version.sql`，触发器只改 `updated_at`、不再动 `version`；`recordExistingPayment` 改成先改订单状态再写支付，和正常路径同一个顺序。\n- **验证**：用假的 paylink 客户端模拟「第一次超时、重试返回已支付」，断言流转成功、版本号只加一；`-count=50` 全过，`go test ./...` 全过，迁移在本地库上 up 和 down 都跑过。\n\n已经合进 `fix/order-status-version` 分支，下次发版带上。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "又抓到了\n`transition order status: update orders: 0 rows affected (version conflict)`\n再看看"
+    }
+  ],
+  "middle_hint": "中间是继续排查订单状态流转的偶发 500：读 TransitionStatus 的调用链、看 trace 和日志、查锁等待和各层超时、写复现；没有新的改动，也没有结论。"
+}

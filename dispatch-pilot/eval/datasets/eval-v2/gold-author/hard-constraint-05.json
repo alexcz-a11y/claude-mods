@@ -1,0 +1,21 @@
+{
+  "id": "hard-constraint-05",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "effort xhigh：最后这条要把国际短信改成按目的地分三组定价，更新计费那几页，中英文都改。d1 的规矩范围是「docs/billing 下面的页面，中文也算，只要动到数字」，这条正落在中间。照规矩要做的：(1) 每个数字和计费组的 price-book 逐条对，产品给的表只当参考——要去 price-book 找 11 月起的分组价和每个国家码的归组，没进 price-book 的要问清楚，「其他地区」这类说法不能直接当依据，198 行按国家的长表要逐个核对归到哪组；(2) 标清 10 月底前的现价和 11 月起的新价，示例算式全部重算；(3) 全站找引用这些数字的地方一起改，FAQ、编码和分段页，以及「按国家定价」这种说法在概览页还对不对，要读了判断；(4) 出每个数字注明出处的核对表；(5) 等法务看过才合。d1 用的 `/tmp/billing-check.mjs` 是按国家码对单价的一次性脚本，改成分组后要重写比对口径。每一步都要对外部来源核对、读结果判断归属和引用，是长链路反复验证的工作，xhigh。accept：产出物是文档改动，合并前要法务看过，错了可以再发一版改正，不是直接改写或交出无法恢复的数据：[high, xhigh]。effort_without_decisive：删掉决定性几轮，只剩最后这句加一张价目表：照给定的表改文档，按校准是 medium。自查：accept 是 [high, xhigh]，最后这句没有核对来源、全站引用之类的线索，单看不会判到 high。三选一：d1 第一次提出（定规矩、让对一遍现有页面），new_or_unrelated；d2「法务看过了 没问题 合吧」接受结果、让合并，resolved；最后这条隔了别的活之后的新任务，new_or_unrelated。（审稿修改沿用：素材池 docs-writing-unrelated-44 里有 `channels/sms/pricing` 页，d1 回复里已说明这页只链到计费说明、没写死单价。第二轮审稿：素材池 docs-writing-unrelated-46 的侧边栏里有 `help/billing`，在 d1 回复的全站引用里补了一句这页没有单价，免得和「全站找过」矛盾；金标不变。）"
+}

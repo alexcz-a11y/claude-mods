@@ -1,0 +1,21 @@
+{
+  "id": "new-topic-12",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后一条放下晚高峰变慢，要把双十一置顶需求做了。d2 里用户已经把需求砍得很清楚：几个固定大词写死在配置里、每词顶三个商品、只在第一页且无筛选默认排序时顶在最前、多出几条也行、不做后台和活动时间。实现是在 SearchService.search 里加一段配置驱动的前置逻辑加测试，需要留意和缓存（search:v3: key、TTL 120 秒）的先后、置顶商品在结果里重复时怎么处理，但没有需要权衡的设计，定 medium，high 也可接受。读不到决定性几轮时不知道置顶需求的范围，像是要从头设计一个置顶功能，会判 high。d1 首次提出变慢问题；d2 用户说昨晚 20:41 又来了一波，问题仍在；最后一条转去置顶需求，是新任务。"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-05",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "d1 提出商品列表翻页后丢分类筛选；第一次修复改成用 useTableQuery 的 setQuery，已经合并并部署到测试环境，但用户没有确认。中间在做别的事。最后用户说测试环境上就是合并后的版本，条件仍会丢，同一问题仍未解决，算第二次尝试。要重新追 URL 状态和请求参数是在哪里被覆盖的（别的组件、useTableQuery 自身、DataTable 内部等），是范围有限的前端调试，定 high；第二次尝试 xhigh 也可接受。没有 d1 时，这也是一条「合进去之后还会丢」的调试请求，判 high。"
+}

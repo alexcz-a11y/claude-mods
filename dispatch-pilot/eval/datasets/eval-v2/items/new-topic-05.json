@@ -1,0 +1,59 @@
+{
+  "id": "new-topic-05",
+  "category": "new-topic",
+  "domain": "cc-mods",
+  "bin": "d1",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "前两天新写的 prompt-lint 还没放进 marketplace 我自己在用 那个提示条我打字快一点就一闪一闪的 有时候干脆不出来 开了 debug 日志一看 一堆 `prompt.edit handler exceeded 50ms budget (prompt-lint), result dropped` 你看看"
+    },
+    {
+      "role": "assistant",
+      "text": "原因清楚了：每敲一个字都把全部规则从 store 读出来、重新编译一遍正则。改成了只在规则变了的时候编译。\n\n- **查到的**：`prompt-lint/hooks/prompt-lint.ts` 的 `prompt.edit` handler 每次做三件事：`await $.store.get('rules')` 取规则（42 条），逐条 `new RegExp(...)` 编译，再拿整段输入跑一遍，结果交给 `AbovePrompt` 的提示条。`prompt.edit` 只有 50ms，在测试里计了一下时：1000 字的输入一次 38ms，2000 字 71ms。超时的结果直接被丢掉，提示条停在上一次或者消失，看起来就是闪。其中读 store 和编译正则占了一半多。\n- **改法**：\n  - 编译好的规则放进 `$.state.compiled`，带上规则的版本号；`session.start` 时编译一次，用户改规则（`/prompt-lint rules` 命令）时版本号加一、重新编译；\n  - `prompt.edit` 里不再读 store，只拿编译好的规则跑。\n- **验证**：`prompt-lint/tests/prompt-lint.test.ts` 加了两个用例：连续触发 20 次 `prompt.edit`，断言 `$.store.get` 只在 `session.start` 被调一次；改规则后提示条用的是新规则。`command claude plugin test ./prompt-lint` 11 个用例全部通过，`claude plugin validate ./prompt-lint --strict` 没有警告。再计时：1000 字 14ms，2000 字 29ms。\n\n还没提交，你重载一下再试。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "短的好了 长的还是闪 我贴了一段四五千字的日志进去 然后在后面接着打字 提示条基本就没出来过"
+    },
+    {
+      "role": "assistant",
+      "text": "长输入还是超时：规则不再重复编译了，但每敲一个字还是把整段四五千字从头扫一遍。改成了只重扫改动的那几行。\n\n- **查到的**：4500 字的输入，42 条规则全扫一次 61ms，其中 6 条带回溯的规则（口头词重复、长句没有标点）占了 40ms。`prompt.edit` 上还挂着 snippets，但 50ms 是每个处理函数各算各的，`--debug-file` 的日志里被丢掉的都是 prompt-lint 自己超时，和 snippets 无关。\n- **改法**：\n  - 输入按行切开，每行算一个哈希，上一次每行的检查结果放在 `$.state.lineCache`（键是哈希，值是这一行的原文和命中的规则）；每次只重扫哈希变了的行，其余直接用缓存。跨行的两条规则（段落过长、总字数）只在字数变化超过 200 字时重算。\n  - 带回溯的 6 条改写成不回溯的写法，用原来的 23 个规则用例对过，结果一致。\n- **验证**：加了 4 个用例：贴入长文本后只改最后一行，断言只重扫了一行；删掉中间一行，结果正确；跨行规则的重算时机。`command claude plugin test ./prompt-lint` 15 个用例全部通过。计时：4500 字的输入在末尾打字 6ms；最坏的情况是整段粘贴进来，所有行都是新的，要全扫一次，19ms。照现在的写法，以后每加一条普通规则，全扫大约多 0.4ms，带回溯的规则就不止了，加之前最好先在长输入上计一下时。\n\n还没提交，你再贴那段长日志试试。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "可以了 长的也不闪了 粘贴进来那一下也正常 提交吧"
+    },
+    {
+      "role": "assistant",
+      "text": "提交了，`4b9e7d2`：`prompt-lint: cache compiled rules and rescan only changed lines`，改了 `prompt-lint/hooks/prompt-lint.ts` 和测试，没推送。\n\n- 两次的计时结果写进了提交说明，以后加规则时可以拿来对比。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "prompt-lint 再加个功能 用户贴进来的东西里要是有像密钥 token 这种 提示条标红 提醒他别发出去"
+    }
+  ],
+  "middle_hint": "中间在 my-mods 里做别的事：别的 mod 加命令、补测试、改 README、调整 plugin.json 之类，和 prompt-lint 提示条闪烁无关。"
+}

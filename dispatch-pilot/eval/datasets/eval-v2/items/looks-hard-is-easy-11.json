@@ -1,0 +1,48 @@
+{
+  "id": "looks-hard-is-easy-11",
+  "category": "looks-hard-is-easy",
+  "domain": "docs-writing",
+  "bin": "d3",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "guides 下面三十多篇平铺着 读者老说找不到 产品想按要干的事分成四组 分组表贴下面 你看看真搬起来要动多少东西 中文 侧边栏 站内链接 旧地址都要考虑 先别动文件\n<pasted_content id=\"a2c8\">\nGuides 分组（产品 v2）\n发送 Send：bulk-sending、scheduled-sending、personalization、idempotency、testing-in-sandbox ……（11 篇）\n回执与 Webhook Track：webhooks、delivery-and-retries、testing-webhooks-locally、event-types、webhooks-retry ……（9 篇）\n管理 Manage：templates、number-pools、contact-lists、opt-out、webhooks-retry ……（8 篇）\n安全与合规 Secure：api-key-rotation、ip-allowlist、data-retention ……（6 篇）\n</pasted_content id=\"a2c8\">"
+    },
+    {
+      "role": "assistant",
+      "text": "盘完了：要搬 34 篇英文、32 篇中文，站内指向它们的链接 236 处，侧边栏 Guides 那一段整个重写，旧地址要加 34 条跳转。量不小，但每一项都是一一对应的，适合写脚本做，手工搬一定会漏。分组表里有两处要你定。没动文件。\n\n**要动的东西**\n\n- **页面**：`docs/guides/` 下 34 篇；`i18n/zh/docusaurus-plugin-content-docs/current/guides/` 下有中文的 32 篇，`idempotency` 和 `testing-in-sandbox` 还没翻译。\n- **站内链接**：Grep 了 `docs/`、`i18n/zh/`、`blog/`、`src/` 里所有指向 `guides/` 的链接，236 处，相对路径（`../guides/webhooks.mdx`）和站内路径（`/docs/guides/webhooks`）都有，其中 31 处带 `#锚点`。JSX 里写成字符串字面量的（`<Link to=\"/docs/guides/webhooks\">`）也算在里面，脚本能改；拼出来的只有 `src/components/GuideCards.tsx` 一处：`` `/docs/guides/${guide.slug}` ``，正则改不了。\n- **front matter**：5 篇自己写了 `slug`，要跟着改；1 篇是 `unlisted`（功能还没公开），要保留。\n- **侧边栏**：`sidebars.js` 里 Guides 是手写的 34 项平铺，要改成 4 个子分类；分类名的中文要加进 `i18n/zh/docusaurus-plugin-content-docs/current.json`。\n- **旧地址**：34 条跳转加进 `redirects.js`，中文站会自动生成对应的跳转；CI 里的 `check-removed-routes` 会拿新构建的 sitemap 和线上比，漏了哪条它会报。\n- **带 `#` 的老链接**：client-redirects 生成的跳转页是在浏览器里跳的，会把 `location.search` 和 `location.hash` 原样带到新地址；这次只换路径、不改标题，锚点在新页面上还是同一个。本地挑了一篇搬过去，试了 3 个带锚点的旧地址，都落在同一个标题上。\n\n**分组表里要你定的两处**\n\n- `webhooks-retry` 同时出现在「回执与 Webhook」和「管理」里。\n- `inbound-messages` 哪组都没有。\n\n**做法**\n\n- `scripts/ia/moves.csv`：34 行，旧 id、新 id、分组、分组中文名。\n- `scripts/ia/apply-moves.mjs`：读 csv，`git mv` 英文和中文；改写全站指向这些页面的相对路径和站内路径，锚点原样保留；有 `slug` 的跟着改；按分组重写 `sidebars.js` 里 Guides 那一段，往 `current.json` 加分类名；往 `redirects.js` 追加跳转；顺带生成 `src/data/guide-paths.json`（旧 slug 到新路径）给 `GuideCards.tsx` 用。`--group <名字>` 只搬一组，`--dry-run` 只出报告；目标已经存在、csv 里有重复，就直接停下。\n- 搬完跑 `npm run build`（中英文都构建）、`npm run check-links`、markdownlint 和 `node scripts/check-removed-routes.mjs`。\n\n建议先挑一组真搬一次，线上看一阵没问题再搬剩下的。",
+      "tools": [
+        "Glob",
+        "Grep",
+        "Read",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "行 就照你这个做法 webhooks-retry 放回执那组 inbound-messages 放发送 先拿 安全与合规 那组真搬一次 那组页面少 站内引用也少 build 和链接检查都过了就合 剩下的等 2.8 博客发出去再说 别跟发版那周撞"
+    },
+    {
+      "role": "assistant",
+      "text": "「安全与合规」那组搬完合进 main 了，提交 `b7e1d42`，部署以后在线上抽查了 5 个旧地址，都跳对了。剩下三组没动，脚本和 `moves.csv` 一起提交了。\n\n**这一组**\n\n- 6 篇英文、6 篇中文，搬到 `guides/secure/` 下。\n- 站内链接改了 41 处，其中 8 处带锚点；`sidebars.js` 的 Guides 下多了「Secure」子分类，`current.json` 加了「安全与合规」。\n- 跳转加了 6 条。\n- `npm run build` 中英文都过；`npm run check-links` 0 个坏链接；markdownlint 过；`check-removed-routes` 过。\n- 线上挑了 5 个带锚点的旧地址，比如 `/docs/guides/ip-allowlist#add-an-ip-range`，都跳到了新页面的同一个标题处；中文站的旧地址也一样。\n- `GuideCards.tsx` 这次没碰到：首页那 6 张卡片指向的都是另外三组的页面。\n\n**剩下三组的 dry-run**\n\n- 28 篇英文、26 篇中文，链接 195 处，跳转 28 条，0 个冲突。\n- 三个分类名的中文（发送、回执与 Webhook、管理）已经写在 `moves.csv` 里，脚本会加进 `current.json`。\n\n**要手改的两处**（都在 `src/components/GuideCards.tsx`，逐字）\n\n1. 文件开头的 import 里加一行：`import guidePaths from '@site/src/data/guide-paths.json';`\n2. 第 23 行 `` const href = `/docs/guides/${guide.slug}`; `` 改成 `` const href = guidePaths[guide.slug] ?? `/docs/guides/${guide.slug}`; ``\n\n到时候就是：`node scripts/ia/apply-moves.mjs --group send`、`--group track`、`--group manage` 各跑一次，手改上面两处，再跑 `npm run build`、`npm run check-links`、`npx markdownlint-cli2 \"docs/**/*.mdx\" \"i18n/zh/**/*.mdx\"` 和 `node scripts/check-removed-routes.mjs`。",
+      "tools": [
+        "Write",
+        "Bash",
+        "Edit",
+        "Read"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "2.8 发完了 回到 guides 调整那个 安全与合规那组上线两周了 客服那边没报过坏链接 搜索进来的也没见 404 剩下三组也搬了吧 中英文加起来五十多个文件"
+    }
+  ],
+  "middle_hint": "中间是在 docs-site 仓库做别的事（写指南和发版博客、改文案和截图、调 CI 和构建、评审翻译和 PR 之类），和 guides 目录调整无关。"
+}

@@ -1,0 +1,22 @@
+{
+  "id": "cheap-agreement-02",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条是新的一批 staging values PR（#491 到 #496），和 #452 不是同一件事，所以 new_or_unrelated。d2 定了约定：staging 的资源、副本、环境变量 PR 只看 CI 绿没绿、渲染 diff 里有没有删资源，没问题直接 gh approve，不写草稿。六个 PR 每个都是照固定步骤做的机械检查，按 low 定；量多一些，medium 也能接受。读不到 d2 时，会照 d1 的方式细看六个 PR（渲染、kubeconform、查 Prometheus 用量、出评论草稿），会判 high。",
+  "source": "user:labeler"
+}

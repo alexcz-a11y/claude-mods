@@ -1,0 +1,71 @@
+{
+  "id": "implicit-unresolved-07",
+  "category": "implicit-unresolved",
+  "domain": "security",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "刷新令牌轮换",
+    "SYMPTOM": "客户端并发刷新时整组令牌被当成重放吊销，用户被踢回登录页",
+    "ERROR": "invalid_grant: refresh token reuse detected, family revoked",
+    "FILE": "src/oauth/refreshToken.ts",
+    "FILE2": "src/session/tokenFamilyStore.ts",
+    "SYMBOL": "rotateRefreshToken",
+    "COMMAND": "node scripts/repro/concurrent-refresh.mjs --clients 3 --rounds 20"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "刷新令牌那块有问题 用户同时开着几个页面 或者 App 前后台来回切的时候 过一会儿就被踢回登录页 日志里是这一行\n`invalid_grant: refresh token reuse detected, family revoked`\n我怀疑是 src/oauth/refreshToken.ts 的 rotateRefreshToken 把并发刷新当成重放了 你看下 重放检测本身不能去掉 这是安全审计要求的"
+    },
+    {
+      "role": "assistant",
+      "text": "是并发刷新被当成了重放。重放检测保留着，只给并发留了一个很短的宽限期，改动在本地分支 `fix/refresh-reuse` 上，没有合进 main。\n\n读了 `src/oauth/refreshToken.ts` 和 `src/session/tokenFamilyStore.ts`：`rotateRefreshToken` 先用 `tokenFamilyStore.findByJti(jti)` 读出 `refresh_tokens` 里那一行，`status` 已经是 `rotated` 就 `revokeFamily(familyId)` 并抛 `ReuseDetectedError`（`errorHandler` 包成 `invalid_grant`，日志里就是你贴的那行）；还是 `active` 就把它改成 `rotated`、插一行新令牌。几个页面的 access token 差不多同时过期，会拿着**同一个** refresh token 几乎同时来换：第一个请求把它改成了 `rotated`，后面的请求全落进重放分支，整组令牌被吊销，所有页面一起掉线。\n\n- **改法**：`refresh_tokens` 加两列 `rotated_at`、`successor_id`（迁移 `migrations/V052__refresh_tokens_successor.sql`）。旧令牌再来时，如果离 `rotated_at` 不到 `REUSE_GRACE_MS`（10 秒，用数据库的 `now()` 比较），就按 `successor_id` 把同一个后继令牌重新签给这个请求，不吊销；超过 10 秒仍然按重放处理，吊销整组。\n- **审计要求**：真正的重放行为不变，`reuse_detected` 审计事件照记；宽限期内的命中另记一个 `reuse_within_grace`，方便事后核对。\n- **验证**：`src/oauth/__tests__/refresh-rotation.test.ts` 补了三个用例：宽限期内重复使用拿到同一个后继令牌、超过 10 秒仍吊销整组、后继令牌本身被重放也吊销。`npx vitest run src/oauth` 31 个用例全过。\n\n宽限期的 10 秒是我定的，和前端的刷新重试间隔对得上；安全那边对这个数有要求的话再调。要在 staging 上验证，可以把这个分支部署到临时命名空间，不影响 main 自动部署的那套。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "分支部署到 staging 临时环境了 我开了三个标签页等 access token 过期 还是全被踢了 日志一样\n`invalid_grant: refresh token reuse detected, family revoked`"
+    },
+    {
+      "role": "assistant",
+      "text": "找到了宽限期没生效的原因：「读状态」和「改状态」不在同一把锁里，并发请求读到的是改之前的旧状态。\n\n拉了临时环境这一次的日志：三个刷新请求在 6 毫秒内先后到达，带着同一个 jti。`findByJti` 是在事务外读的，改状态那句是 `UPDATE refresh_tokens SET status = 'rotated', rotated_at = now(), successor_id = $2 WHERE id = $1 AND status = 'active'`：\n\n1. 三个请求都在事务外读到 `status = 'active'`，都以为自己是第一个，所以都没走宽限期分支；\n2. 第一个请求的 `UPDATE` 影响 1 行，签发了后继令牌；\n3. 后两个请求的 `UPDATE` 影响 0 行，代码把「0 行」当成「已经被用过」，直接走了吊销分支，宽限期那段根本没机会执行。\n\n- **改法**：读和改放进同一个事务，先 `SELECT ... FROM refresh_tokens WHERE id = $1 AND user_id = $2 FOR UPDATE` 锁住这一行再判断：`active` 就轮换；`rotated` 且在宽限期内就返回已有的后继令牌；其余情况才吊销。后到的请求会在行锁上等前一个提交，拿到锁时读到的已经是 `rotated` 和新的 `rotated_at`，正好落进宽限期分支。「0 行即重放」那段判断删掉了。\n- **验证**：新加 `refresh-rotation.race.test.ts`，对着本地 compose 起的 Postgres，`Promise.all` 同时发 5 个刷新请求，断言 5 个拿到同一个后继令牌、整组没有被吊销，连续跑 20 遍都过。`npx vitest run src/oauth` 33 个用例全过，`npm run test:int` 也过了。\n\n还在 `fix/refresh-reuse` 分支上，可以重新部署到临时环境再试。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是会踢 这次我盯着看了 不是每次都踢 大概十次有一两次 日志还是那一行 移动端那边也有人报了一样的"
+    },
+    {
+      "role": "assistant",
+      "text": "又找到一条绕开 `rotateRefreshToken` 的路径：会话中间件里的静默刷新自己在改 `refresh_tokens`。\n\n`Grep` 了 auth-svc 里所有写 `refresh_tokens` 的地方，除了 `rotateRefreshToken`，还有 `src/session/sessionMiddleware.ts` 的 `silentRefresh`：cookie 会话离过期不到 2 分钟时，它在服务端直接调 `tokenFamilyStore.markRotated(id)` 再签新令牌，没走 `rotateRefreshToken`，也就不加行锁、不写 `successor_id`。网页端打开新页面时，中间件的静默刷新和前端自己发的刷新正好撞在一起：静默刷新把旧令牌改成了 `rotated`，`successor_id` 却是空的；前端那个请求拿到锁后落进宽限期分支，找不到后继令牌，又退回了吊销分支。移动端没有 cookie 会话，但 App 的后台刷新任务带了 `x-session-refresh` 头，也走这个中间件，所以那边也会碰到。\n\n- **改法**：`silentRefresh` 改为调用 `rotateRefreshToken`，不再自己签发；`tokenFamilyStore` 不再导出 `markRotated`，只留事务里带锁的那个入口，以后再有地方想直接改状态会在编译时报错。\n- **验证**：加了「静默刷新和主动刷新同时到达」的用例，和上次的 5 路并发用例各跑 20 遍，全过；`npx vitest run src/oauth src/session` 35 个用例全过。`Grep` 确认 auth-svc 代码里改 `refresh_tokens` 状态的地方现在只剩 `rotateRefreshToken` 一个。\n\n这次还在同一个分支上，没部署。部署后可以看 Grafana 上 `auth_refresh_reuse_detected_total` 和 `auth_refresh_reuse_within_grace_total` 两条线：前者应该回到接近 0，后者会随着多页面使用上涨。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "staging 临时环境刚又出了一次\n`invalid_grant: refresh token reuse detected, family revoked`\n再看看"
+    }
+  ],
+  "middle_hint": "中间是继续排查刷新令牌轮换：读 rotateRefreshToken 和 tokenFamilyStore 的调用链、看日志和审计记录、查锁等待和定时任务、写并发复现；没有新的改动，也没有结论。"
+}

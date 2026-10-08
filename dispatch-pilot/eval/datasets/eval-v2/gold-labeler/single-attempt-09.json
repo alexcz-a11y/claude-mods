@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-09",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "d1 提出周报卡片偶发重复发送，主 agent 判断是读超时后重试造成的，改了 send_card 的超时和重试（b71d0e4）。中间是无关的工作。最后用户说代码已经更新到 etl-01，周一还是发了两条、间隔二十秒左右，属于同一问题的第二次尝试。第一次的假设被推翻了，或者部署实际没有生效（cron 用的环境、还有别的重试层），现在原因未知，问题又是偶发的，需要重新追查，定 xhigh，high 也能接受。读不到 d1 时，这就是一次偶发重复发送的调试，给 high。"
+}

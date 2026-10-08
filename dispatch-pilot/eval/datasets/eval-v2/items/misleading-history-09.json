@@ -1,0 +1,62 @@
+{
+  "id": "misleading-history-09",
+  "category": "misleading-history",
+  "domain": "security",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "一次性登录票据核销",
+    "SYMPTOM": "操作到一半突然提示登录状态异常 要重新登录才能继续",
+    "ERROR": "ConflictError: login ticket is not in a redeemable state",
+    "FILE": "src/auth/ticket.ts",
+    "FILE2": "src/auth/ticketStore.ts",
+    "SYMBOL": "redeemLoginTicket",
+    "COMMAND": "npm run test:int -- test/int/ticket.test.ts"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "#916 那张票开了快三周了 一直没人理清楚 你先看看 现象是用户操作到一半突然提示登录状态异常 要重新登录 日志里对应的是 `ConflictError: login ticket is not in a redeemable state` 抛在 src/auth/ticket.ts 的 redeemLoginTicket 里 先只看 别改"
+    },
+    {
+      "role": "assistant",
+      "text": "看了一圈，原因还说不上，先把确定的事实摆出来。代码没动。\n\n- **报错从哪来**：`src/auth/ticket.ts` 里 `redeemLoginTicket` 在事务里 `SELECT ... FOR UPDATE` 锁住票据那一行，状态不是 `issued` 就抛这个 `ConflictError`，返回 409，响应体里 `code` 是 `state_conflict`。票据的读写都经过 `src/auth/ticketStore.ts`。\n- **量**：Loki 最近 14 天按原文搜，按 `reqId` 去重后每天几十到两百出头；公开入口占九成多，mall-bff 和 order-api 调的内部入口不到一成。\n- **用户看到什么**：App 和小程序上的提示文字是 mall-bff 给的，它把映射表里没有的错误码一律翻成「登录状态异常，请重新登录」；H5 和几个后台直接显示接口返回的「请求处理失败」。所以客服收到的描述五花八门，背后不一定都是这一个错。\n- **票里的讨论**：大多在并发和重试两个方向上推测，没有直接证据。\n\n下一步我建议先拿几条具体的 `reqId`，把同一个用户前后几秒的请求串起来看，再决定往哪个方向查。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "<pasted_content id=\"5c3e\">\n客服二组 10/7 上午转来\n用户尾号 6620 App iOS 8.13.0\n10/6 21:05 左右打开订单详情 提示「登录状态异常，请重新登录」 重新登录也不行 过了一天才好\n截图里 requestId 后 8 位 c27e90b4\n客服备注：应该和 #916 是同一个问题\n</pasted_content id=\"5c3e\">\n客服说也是这个 你核一下"
+    },
+    {
+      "role": "assistant",
+      "text": "核了，这一单不是 #916。\n\n- 用 `c27e90b4` 在 Loki 里搜到那次请求：10/6 21:05:37，`POST /v1/auth/sms/login`，返回 403，`code` 是 `risk_blocked`。它根本没进 `ticket.ts`，也没有出现 `ConflictError`。\n- 往前翻同一个手机号：21:02 那次登录时 user-svc 返回了风控标记 `geo_anomaly`（前后两次登录的城市隔了一千多公里），之后 24 小时内这个号的登录都被挡回 403。这个标记由 user-svc 24 小时后自动解除，`audit_events` 里 10/7 21:03 以后这个账号就登录成功了，和用户说的「过了一天才好」对得上。\n- App 上那句「登录状态异常，请重新登录」是 mall-bff 的兜底文案，`risk_blocked` 不在它的映射表里，所以和 #916 的报错在用户眼里长得一模一样，客服分不出来。\n\n所以这一单是风控按规则临时限制了登录，次日自动恢复，和票据核销无关。回客服的话，大意就是：账号当时因为异地登录被风控临时限制，24 小时后已自动解除，不是系统故障。另外 mall-bff 的兜底文案让两类完全不同的情况长一个样，这个以后可以单独提给他们。",
+      "tools": [
+        "Bash",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "行 这单不算 客服那边我回头再回 #916 先挂着 封版期间也发不了 等封版结束能加日志了再说 这几天你接着帮我把票里的东西理理 周会上要讲现状"
+    },
+    {
+      "role": "assistant",
+      "text": "好。#916 这几天不动代码，我按「先查数据、再读代码」的顺序把能理的理出来：日志分布、反复出现的账号的时间线、调用链和事务、两边环境的配置差异，都只读，不下结论。c27e90b4 那单记下了：风控 `risk_blocked`，次日自动解除，跟 #916 无关。"
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "客服又在催 c27e90b4 那单 你写两句我直接转过去 别写太技术"
+    }
+  ],
+  "middle_hint": "中间是 #916（一次性登录票据核销偶发 ConflictError）的继续梳理：拉日志分布、串账号时间线、读调用链和事务、对配置，只读，没有修改尝试，也没有结论；没有再提 c27e90b4 那一单。"
+}

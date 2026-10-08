@@ -1,0 +1,33 @@
+{
+  "id": "single-attempt-03",
+  "category": "single-attempt",
+  "domain": "perf",
+  "bin": "d3",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "search-svc 线上 p99 每隔二十分钟冒一个尖 平时 90ms 上下 尖的时候两秒多 持续十来秒 Grafana 上很规律 都在整点 20 分 40 分 我对了一下 GC 日志 尖的时间点都有这种\n`[2026-10-02T14:20:03.118+0800][gc] GC(1832) Pause Young (Concurrent Start) (G1 Humongous Allocation) 2290M->1812M(3072M) 486.215ms`\n后面还跟着几次几百毫秒的 你看看是什么东西在分大对象"
+    },
+    {
+      "role": "assistant",
+      "text": "找到了每二十分钟分一次大对象的东西，已经改了。\n\n**怎么查的**\n\n- `grep` 了定时任务，按二十分钟跑的只有一处：`src/main/java/com/acme/search/facet/FacetCountRefresher.java` 的 `refresh()`，`@Scheduled(cron = \"0 */20 * * * *\")`，整点、20 分、40 分各跑一次，8 个 pod 都在跑，和尖的时间对得上。\n- `refresh()` 用一个 terms 聚合把全量在售商品按品牌和类目一次统计出来（`size` 写的是 200000），ES 客户端先把整个响应体读成一个 `byte[]`，再解析出全部 bucket，最后建一个新的 `HashMap` 整体换掉旧的。现在品牌加三级类目的组合一共 16 万个左右，响应体三十多 MB，解析出来的数组也有几十 MB，单个对象都远超半个 region，全走 humongous 分配。\n- 下一个整点前后，用 `perf/profile.sh -e alloc -d 90` 对一个生产 pod 抓了分配火焰图：最宽的两块都在 `FacetCountRefresher.refresh` 下面，一块是 ES 客户端读响应体，一块是 `FacetBucketMapper` 建 map，时间和 GC 日志里 humongous 那几行一一对应。\n\n**改法**\n\n- 聚合改成 composite 分页拉，每页 2000 个 bucket，用 `after_key` 往下翻，边拉边写进按上次大小预先分配好的 map，不再一次读整个响应；\n- map 的 key 从拼接出来的字符串改成 `long`（品牌 ID 和类目 ID 拼成一个数），少了十几万个临时字符串；\n- 没动 JVM 参数和堆大小，cron 也没改。\n\n**验证**\n\n- `./gradlew test` 全部通过，`FacetCountRefresherTest` 补了一个用例：mock 出 20 万个 bucket 分 100 页返回，断言 map 的大小和抽样的计数都对。\n- 本机起服务连本地 ES，写了个临时脚本往 `products` 里灌了 16 万个品牌和类目组合的假数据（脚本在 `/tmp`，没进仓库），手动触发 `refresh()` 十次，开着 `-Xlog:gc*`：没有再出现 `G1 Humongous Allocation`，刷新期间最长停顿 12 ms。\n\n改动在 `perf/facet-refresh` 分支，还没合。你找个时间发到线上一个 pod 上灰度，看一两个小时这个 pod 的 p99。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Bash",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "p99 那个二十分钟一次的尖 facet-refresh 那个分支已经发到灰度的 pod 上了 今天看了一下午 这个 pod 上还是有"
+    }
+  ],
+  "middle_hint": "中间在同一个 search-svc 仓库里做别的事：加接口字段、补测试、写 k6 场景、升级依赖、改配置和文档之类，和二十分钟一次的 p99 尖无关，没有再碰这个问题，没有新的修改尝试，用户也没有评价第一次的修复。"
+}

@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-05",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "评价审核列表的串页和审核后不刷新已修好（d3 用户确认测试点了一下午都对）。最后一条要给测试列回归页面，属合并前的收尾。助手在 d3 已经整理好必须回归、建议抽查、跑 e2e 即可、不用管四档清单，照着列出来即可，low。没有决定性几轮就不知道改动落在 request.ts 的 dedupeKey 和 useRequest 上、影响哪 12 个列表页和工作台卡片，要回去读改动、Grep 调用方再归类，medium。"
+}

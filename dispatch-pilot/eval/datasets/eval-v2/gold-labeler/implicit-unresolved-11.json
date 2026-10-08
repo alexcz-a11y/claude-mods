@@ -1,0 +1,24 @@
+{
+  "id": "implicit-unresolved-11",
+  "effort": "max",
+  "accept": [
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "Core Data 133020 合并冲突导致小计错的问题修了三轮（设 viewContext 合并策略、统一后台 context、覆盖 HistoryProcessor 并给刷新去重），用户每次都说还在。中间继续排查也没有结论。最后贴出同样报错说「再看看」，是三轮失败后再提，涉及多个 context 的并发写入，定 max。如果读不到决定性几轮，只能看到原因未明的并发合并冲突，定 xhigh。"
+}

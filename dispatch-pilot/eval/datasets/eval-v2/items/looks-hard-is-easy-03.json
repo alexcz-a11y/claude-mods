@@ -1,0 +1,43 @@
+{
+  "id": "looks-hard-is-easy-03",
+  "category": "looks-hard-is-easy",
+  "domain": "devops-ci",
+  "bin": "d3",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "今天上午好几个服务仓库的 CI 都红了 order-api search-svc auth-svc notify-svc 都挂在 infra 的 build-image 上 镜像没推上去 staging 也没部署 一屏报错 是不是 ECR 或者 OIDC 那边出事了 先别改 看清楚是什么\n<pasted_content id=\"3c71\">\n$ gh run list -R acme/order-api --workflow ci.yml --limit 3\nSTATUS  TITLE                            WORKFLOW  BRANCH  EVENT  ID           ELAPSED  AGE\nX       feat: 退款单加 operator 字段       ci        main    push   11872203345  6m41s    38m\nX       fix: 列表接口 cursor 编码          ci        main    push   11872051877  6m12s    52m\n✓       chore: 升级 chi 到 v5.2.3         ci        main    push   11869930412  7m03s    3h\n\n$ gh run view 11872203345 -R acme/order-api --log-failed\nbuild / build-image  Scan image  2026-10-06T02:11:04.5520912Z Running Trivy with options: trivy image 318402155270.dkr.ecr.ap-southeast-1.amazonaws.com/order-api:7c41e0a\nbuild / build-image  Scan image  2026-10-06T02:11:05.0317750Z 2026-10-06T02:11:05Z  INFO  [vulndb] Need to update DB\nbuild / build-image  Scan image  2026-10-06T02:11:05.0319115Z 2026-10-06T02:11:05Z  INFO  [vulndb] Downloading vulnerability DB...\nbuild / build-image  Scan image  2026-10-06T02:11:05.0319802Z 2026-10-06T02:11:05Z  INFO  [vulndb] Downloading artifact...  repo=\"ghcr.io/aquasecurity/trivy-db:2\"\nbuild / build-image  Scan image  2026-10-06T02:11:06.8841037Z 2026-10-06T02:11:06Z  FATAL  Fatal error  init error: DB error: failed to download vulnerability DB: database download error: OCI repository error: 1 error occurred:\nbuild / build-image  Scan image  2026-10-06T02:11:06.8841990Z   * GET https://ghcr.io/v2/aquasecurity/trivy-db/manifests/2: TOOMANYREQUESTS: retry-after: 714.38µs, allowed: 44000/minute\nbuild / build-image  Scan image  2026-10-06T02:11:06.9050227Z ##[error]Process completed with exit code 1.\n\n（search-svc auth-svc notify-svc 那几个也是这一段 一模一样 一共十几个 run）\n</pasted_content id=\"3c71\">"
+    },
+    {
+      "role": "assistant",
+      "text": "不是 ECR 也不是 OIDC：这十几个 run 前面几步都是成功的（OIDC 拿角色、登录 ECR、buildx 构建、推 `buildcache`），全部挂在 `Scan image` 这一步，Trivy 去 `ghcr.io` 下载漏洞库的时候被 ghcr 限流了，回的是 `TOOMANYREQUESTS`。库没下到，扫描直接退出 1，镜像没推，后面的 `repository_dispatch` 也没发，所以 staging 没部署。代码没动。\n\n**怎么判断的**\n\n- 用 `gh search code` 找到调 `build-image.yml` 的 11 个服务仓库，再用 `gh run list` 把它们今天 09:40 到 10:30 之间失败的 `ci.yml` 全拉了一遍，一共 17 个 run。`--log-failed` 看下来全是 `build / build-image` 里的 `Scan image`，最后一行都是同一句 `GET https://ghcr.io/v2/aquasecurity/trivy-db/manifests/2: TOOMANYREQUESTS`。同一段时间里成功的 6 个 run，日志里是 `Downloading artifact... repo=\"ghcr.io/aquasecurity/trivy-db:2\"` 之后正常下完库。\n- 前面的步骤：17 个 run 的 `Configure AWS credentials`、`Login to ECR`、`Build and push` 都是绿的，ECR 里这些提交的 `buildcache` 也更新过，只是没有 7 位 SHA 的那个 tag。\n- 限流是 ghcr 对 `aquasecurity/trivy-db` 这个包的，不是冲着我们：报错里的 `allowed: 44000/minute` 是这个包全局的配额。Aqua 的仓库里今天上午就有好几个 issue 报同样的错，GitHub 托管的 runner、自托管的都有。\n- 为什么每次都撞：`build-image.yml` 里扫描那一步是钉住的 `aquasecurity/trivy-action`（0.28.0），写的是 `cache: false`、`vuln-type: os`，每个 run 都现下一份主库，不走缓存，碰上限流就挂。\n\n**验证**\n\n本地装了和 action 里同版本的 Trivy，换两个源各试了一次：\n\n| 源 | 结果 |\n|---|---|\n| `ghcr.io/aquasecurity/trivy-db:2`（默认） | 连着三次 `TOOMANYREQUESTS` |\n| `mirror.gcr.io/aquasec/trivy-db:2` | 正常下完，库的更新时间和 ghcr 上那份一样；拿它扫了 order-api 上周的镜像，结果和那次 CI 里的扫描一模一样 |\n\n`mirror.gcr.io` 是 Google 对 Docker Hub 的镜像，Aqua 在 Docker Hub 上同步发布 `aquasec/trivy-db`，Trivy 自己的文档里也把它列为替代源。\n\n**改法**\n\n`.github/workflows/build-image.yml` 里 `Scan image` 那一步，`env:` 下加一行：\n\n```yaml\n          TRIVY_DB_REPOSITORY: mirror.gcr.io/aquasec/trivy-db:2\n```\n\n就这一行，服务仓库那边不用改。\n\n挂掉的那十几个，过一会儿 rerun 多半能过，限流是一阵一阵的：我刚才 `gh run rerun --failed` 了 order-api 那一个试试，10:52 绿了，镜像推上去了，staging 也部署了。要我现在把这一行加上吗？",
+      "tools": [
+        "Bash",
+        "WebFetch"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "剩下的我都 rerun 了 全绿了 staging 也都部署上了 先这样 build-image 这周先别动 order-api 周四要上 2.0 这几天一直在 staging 上验 构建这块不想有任何变化 等他们发完再加"
+    },
+    {
+      "role": "assistant",
+      "text": "好，`build-image.yml` 不动。17 个 run 我又对了一遍，都是 rerun 以后绿的，ECR 里 7 位 SHA 的 tag 都有了，staging 的 `deploy.yml` 17 次都成功。\n\n这个还会再来：扫描那一步每次都现下库，只要 ghcr 那边对 `trivy-db` 限流就会挂，什么时候撞上说不准，Aqua 那边的 issue 这几天一直有人报。单个 run 挂了 rerun 一般能过，但赶上大家集中合并的时候会挂一片。\n\norder-api 发完以后，到时候就是：\n\n1. `.github/workflows/build-image.yml` 里 `Scan image` 那一步的 `env:` 下加一行 `TRIVY_DB_REPOSITORY: mirror.gcr.io/aquasec/trivy-db:2`，开 PR 合进 main；\n2. 挑一个挂掉的服务 run，`gh run rerun <id> --failed`，看扫描那一步日志里是 `repo=\"mirror.gcr.io/aquasec/trivy-db:2\"`、镜像推上去了。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "order-api 那个早发完了 今天下午大家一起合 构建又挂了一片 还是扫描那步 一屏这个 一直忘了加 build-image 那个按上次说的加上吧\n<pasted_content id=\"e9a4\">\n$ gh run view 11934417720 -R acme/search-svc --log-failed\nbuild / build-image  Scan image  2026-10-14T07:42:18.2203391Z Running Trivy with options: trivy image 318402155270.dkr.ecr.ap-southeast-1.amazonaws.com/search-svc:2d9f8b3\nbuild / build-image  Scan image  2026-10-14T07:42:18.7712044Z 2026-10-14T07:42:18Z  INFO  [vulndb] Need to update DB\nbuild / build-image  Scan image  2026-10-14T07:42:18.7713360Z 2026-10-14T07:42:18Z  INFO  [vulndb] Downloading vulnerability DB...\nbuild / build-image  Scan image  2026-10-14T07:42:18.7714011Z 2026-10-14T07:42:18Z  INFO  [vulndb] Downloading artifact...  repo=\"ghcr.io/aquasecurity/trivy-db:2\"\nbuild / build-image  Scan image  2026-10-14T07:42:20.1180236Z 2026-10-14T07:42:20Z  FATAL  Fatal error  init error: DB error: failed to download vulnerability DB: database download error: OCI repository error: 1 error occurred:\nbuild / build-image  Scan image  2026-10-14T07:42:20.1181102Z   * GET https://ghcr.io/v2/aquasecurity/trivy-db/manifests/2: TOOMANYREQUESTS: retry-after: 1.21ms, allowed: 44000/minute\nbuild / build-image  Scan image  2026-10-14T07:42:20.1392875Z ##[error]Process completed with exit code 1.\n\n$ gh run list -R acme/order-api --workflow ci.yml --limit 2\nSTATUS  TITLE                            WORKFLOW  BRANCH  EVENT  ID           ELAPSED  AGE\nX       feat: 商户订单导出加两列           ci        main    push   11934390118  6m27s    21m\nX       fix: 取消接口 reason 长度校验      ci        main    push   11934302945  6m35s    33m\n\n（auth-svc media-svc notify-svc 也是这一段 一共 9 个 run）\n</pasted_content id=\"e9a4\">"
+    }
+  ],
+  "middle_hint": "中间是在 infra 仓库里做别的事（Terraform 栈和模块、Helm chart、几个 workflow、脚本和文档），和镜像构建时扫描失败的问题无关。"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-10",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "d1 提出发布配置那步偶发卡四分多钟后报 RemoteDisconnected，主 agent 加了 TCP keepalive、缩短了空闲连接的保留时间（draft PR #493），并列出还解释不了的几点。中间一直在排查同一问题，只看不改。最后用户说用这个分支跑，还是卡了四分多钟、报同一行，属于第二次尝试。NAT 的假设被削弱了，偶发的网络故障原因未知，涉及多层超时和重试，需要长链路排查，定 xhigh。没到三次失败，不给 max。读不到 d1 时，中间那段排查没有结论、问题依旧，也判 xhigh。"
+}

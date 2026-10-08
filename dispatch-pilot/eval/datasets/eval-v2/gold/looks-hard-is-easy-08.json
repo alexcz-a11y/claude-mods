@@ -1,0 +1,23 @@
+{
+  "id": "looks-hard-is-easy-08",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "剩下的工作：`python3 scripts/es/syn-phrase-off.py --apply`（17 处）；手改两处（`AdminSearchService` 里 `withJson` 那段 JSON 加一行、`DidYouMeanService` 里 `QueryStringQuery` 补一个选项），新内容在 d2 之后的回复里逐字给了；再跑 `--check`、`./gradlew test -PupdateGolden` 重新生成 48 个查询体快照、看 diff 只多这一个字段、`./gradlew test`。原因（超时的请求在 ES 那边是多词同义词被自动展开成短语查询）d1 按 traceId 和同义词表把两晚的超时逐次对过、在 staging 上按高峰的节奏重放验证过，脚本在三个类上试过；匹配变宽对排序的影响搜索产品认了，最后一条明说人工评测也过了；只给查询加一个选项，不碰超时、重试、连接池这些参数，测试是现成的快照，由命令重新生成。对上第 7 节 medium 的第 ③ 种：跑在样板上验证过的脚本处理一批文件，加两处逐字写明的手改，再跑现成的检查、看一遍 diff。看 diff 要读新东西，所以 medium；每一步都照单子做，low 也能接受，accept low、medium。删掉决定性几轮，剩下的是一大段排查（线程转储、GC、JFR、ES、Redis、网络都看过，没有结论）加上最后一屏 `SocketTimeoutException`，「按那天说的改」改什么完全看不出来，得从头调试晚高峰的 ES 超时：high。三选一按第 6 节：d1 对话里第一次提出这个问题，new_or_unrelated；d2 认了原因，同时说昨晚高峰又来了三百多条，属于「说问题又出现了…同一条里也认可了诊断、让先别改，也不变」，still_unresolved；最后一条贴出同样的报错、说又是一屏，让按定好的改，still_unresolved。决定性几轮里代码一直没动，没有「改了、用户说没好」。审稿修改（金标档位和三选一不变）：原 d1 的证据是 ES 平台组临时调到 200ms 的慢日志，389 条 1.2 到 4.8 秒，和素材池矛盾：素材段说生产慢日志阈值是 500ms、7 天只有两百多条、一晚三十来条，并且多段把「请平台组把阈值调到 200ms」当成以后的一步；perf-same-problem-26 还在空闲的 staging 上单跑过带多词同义词的「手机壳 磁吸」，只要 41ms。改成：用户按 traceId 从访问日志捞出超时请求的参数，助手拿同义词表和对照组比，在 staging 上按高峰节奏重放验证，并说明单条不慢、慢日志里只记得到二十来条；剩下 17 次改成「像 pod 自己停了一下」（和 perf-same-problem-29 对得上），d2 和其后的回复跟着改。\n可接受档位：出题者 ['low', 'medium']，标注者 ['medium', 'high']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
+}

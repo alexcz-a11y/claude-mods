@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-08",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "d1 提出账单页切月份偶发显示别的月份的账，主 agent 把去抖调度器从 RunLoop.main 换成 DispatchQueue.main，打了内测包，并说明 134060 还没解释。中间一直在排查同一问题，只看不改。最后用户说装了内测包还是碰到，属于第二次尝试。偶发的并发时序问题，再加一个没解释的 Core Data 错误，原因未知，需要长链路排查和反复验证，定 xhigh。没到三次失败，不给 max。读不到 d1 时，中间那段很长的排查没有结论、现象仍在，也会判 xhigh。"
+}

@@ -1,0 +1,72 @@
+{
+  "id": "implicit-unresolved-03",
+  "category": "implicit-unresolved",
+  "domain": "devops-ci",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "部署流水线里 helm upgrade 那一步",
+    "SYMPTOM": "部署 job 偶尔在 helm upgrade 那步停四分多钟后失败，重跑又能过",
+    "ERROR": "Error: UPGRADE FAILED: timed out waiting for the condition",
+    "FILE": "scripts/helm-deploy.sh",
+    "FILE2": ".github/actions/setup-tools/action.yml",
+    "SYMBOL": "deploy_release",
+    "COMMAND": "scripts/helm-deploy.sh staging"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "部署那条最近隔几天就挂一次 都是 scripts/helm-deploy.sh 里 deploy_release 那步 先干等四分多钟 然后脚本自己重试三次 很快也都挂了 最后一行是 `Error: UPGRADE FAILED: timed out waiting for the condition` 重跑一下又能过 群里说 9/22 开始的 到今天五次了 ARC 上和托管 runner 上都出过 你查一下 修了它"
+    },
+    {
+      "role": "assistant",
+      "text": "5 次里能拿到一点现场的只有 9/28 那次：失败前几分钟集群在扩节点，本次部署的新 Pod 排不下、一直 Pending，要等新节点起来才调度上去。先按这条处理了：在 staging 和 prod 的节点组里加了低优先级的占位 Pod，滚动更新时新 Pod 可以立刻挤掉占位先跑起来。改动在 `charts/cluster-overprovisioner/` 和 `terraform/` 里，已合进 main 并部署。\n\n**看到的情况**\n\n- `deploy_release` 对每个要发的服务跑 `helm upgrade --install ... --wait --atomic`，没传 `--timeout`，用的是 Helm 默认的 5 分钟；失败后脚本按 10、20、40 秒退避重试 3 次，最后把错误原样打出来。\n- `gh run list` 加日志搜索，5 次是 9/22、9/24、9/25、9/28、9/29：3 次跑在 ARC 的 staging runner 上，2 次跑在 GitHub 托管 runner 上。\n- 失败时 `--atomic` 都回滚了，Kubernetes 事件只留一个小时，早就没了。退而求其次看 Prometheus 里 cluster-autoscaler 的扩容记录：9/28 那次失败前 9 分钟扩了 2 个节点，当时排不下的 Pod 里就有这次部署的新 Pod；另外 4 次附近没有扩容，也查不到当时 Pod 停在什么状态。\n- 滚动更新是 `maxSurge: 1, maxUnavailable: 0`，节点没有余量时新 Pod 只能等新节点，等一台新节点起来大约三到四分钟，和「先停四分多钟」在一个量级上。一次部署的服务越多越容易把余量用光，9/28 那次发了 9 个服务。\n\n**改法**\n\n- 新增 `charts/cluster-overprovisioner`：一个 `PriorityClass`（值为 -10）加一组 `pause` 容器的 Deployment，staging 占 2 个 CPU、4Gi，prod 占 4 个 CPU、8Gi；新 Pod 优先级更高，会直接把占位 Pod 挤掉，autoscaler 再在后台把占位补回来。\n- `terraform/staging/eks` 和 `terraform/prod/eks` 里节点组的节点数上限各加 1，给占位留出余量。\n\n**验证**\n\n- `helm template` 和 `kubeconform` 通过，`terraform plan` 只有两个节点组的上限变化，已 apply。\n- staging 上手动触发 6 次部署，每次 12 个服务，全过，新 Pod 从创建到 Running 都在 40 秒以内，没有再等扩节点。\n\n5 次里只有 1 次能对上，6 次全过也说明不了太多，接下来几天的部署再看看。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Write",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "今天下午 staging 又挂了一次 一样 先停了四分多钟 然后 `Error: UPGRADE FAILED: timed out waiting for the condition` 我看了下那会儿没有扩节点"
+    },
+    {
+      "role": "assistant",
+      "text": "没有扩节点，那这次卡的是拉镜像：几个服务的 `imagePullPolicy` 是 `Always`，新 Pod 每次起来都要先去 ECR 校验一遍镜像，ECR 那边一慢，Pod 就停在 `ContainerCreating`。已经改成按提交号打标签的镜像一律 `IfNotPresent`。\n\n**怎么查的**\n\n- 这次你说得早，事件还在一小时的保留期里：用 `kubectl get events -n <服务> --sort-by=.lastTimestamp` 查到了失败那 5 分钟里的事件，`catalog-api` 的新 Pod 有一条 `Pulling image ...`，3 分 50 秒以后才有 `Successfully pulled image`，中间一直是 `ContainerCreating`。\n- `charts/` 下 14 个服务里有 9 个是 `imagePullPolicy: Always`，是从最早的模板抄过来的。镜像标签都是 `${{ github.sha }}`，同一个标签内容不会变，每次都去 ECR 校验没有意义。\n- 这个镜像 470MB，节点上已经有同一个标签的缓存，但 `Always` 仍然要先拿到 manifest 再决定用不用缓存，这一步卡住就整体卡住。\n\n**改法**\n\n- 9 个服务的 values 里 `imagePullPolicy` 改成 `IfNotPresent`，`charts/_common/values.yaml` 的默认值也改了，以后新服务不会再抄错。\n\n**验证**\n\n- `helm template` 渲染确认 9 个 Deployment 都变了，`kubeconform` 通过。\n- staging 上连续手动触发 8 次部署，全过，新 Pod 从创建到 Running 的时间中位 22 秒，最长 51 秒。\n\n再观察几天。",
+      "tools": [
+        "Bash",
+        "Grep",
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "周六晚上 prod 那次也挂了 还是先停四分多钟 `Error: UPGRADE FAILED: timed out waiting for the condition` 这回 Pod 的日志也看了 镜像几秒就拉下来了 没卡在拉镜像 Running 了但一直不 Ready"
+    },
+    {
+      "role": "assistant",
+      "text": "Running 但一直不 Ready，那 Helm 等的是就绪探针。查到 prod 那次 `catalog-api` 的就绪探针连着超时：探针的 `timeoutSeconds` 是默认的 1 秒，节点忙的时候 JVM 刚起来那几分钟偶尔一秒回不来，连续 3 次失败就被标成不就绪，要等好几轮才能翻回来。已经把几个 Java 服务的探针放宽，并加了启动阶段单独的探针。\n\n**怎么查的**\n\n- 事件已经过期了，看的是 prod 的 Prometheus：`kube_pod_container_status_ready` 显示 `catalog-api` 的新 Pod 20:33 就 Running，之后 4 分钟一直不 Ready；kubelet 的 `prober_probe_total{probe_type=\"Readiness\",result=\"failed\"}` 那 4 分钟涨了 19。\n- `catalog-api` 自己的访问日志里，那几分钟 `/actuator/health/readiness` 的耗时在 1.2 到 2.1 秒之间，没有 404 或 503，是慢，不是报错。\n- prod 的 Prometheus 里看了那台节点：那几分钟 CPU 用到 92%，同一台上还有两个服务在滚动更新。Java 服务启动时 JIT 编译加缓存预热，`/actuator/health/readiness` 偶尔要 1.5 到 2 秒才回。\n- `charts/` 下 5 个 Java 服务的探针都是 `timeoutSeconds: 1`（默认值）、`periodSeconds: 10`、`failureThreshold: 3`。\n\n**改法**\n\n- 5 个 Java 服务的就绪探针改成 `timeoutSeconds: 3`、`failureThreshold: 6`。\n- 加了 `startupProbe`（同一个路径，`periodSeconds: 5`、`failureThreshold: 36`，最多给 3 分钟启动），启动探针通过之前不跑就绪和存活探针。\n- 资源的 `requests.cpu` 从 250m 调到 500m，避免几个服务同时起来挤在一台节点上。\n\n**验证**\n\n- `helm template` 和 `kubeconform` 通过；本地 `kind` 集群上限制 CPU 到 1 核起 `catalog-api`，改之前就绪探针会超时 4 到 6 次，改之后启动探针 70 秒左右通过，就绪探针没有失败。\n- staging 上手动触发 10 次部署，全过；prod 这次没有手动去压，等下一次正常发布。\n\n合进 main 了，后面的发布再看。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "今天下午又挂了一次 先停了四分多钟 后面三次重试也很快挂了 `Error: UPGRADE FAILED: timed out waiting for the condition`"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的继续排查：翻失败 run 的日志、查 runner 和网络、对超时和重试设置、看 9/21 那次依赖升级和值班记录、对比 staging 和 prod，没有新的修改，也没有结论。"
+}

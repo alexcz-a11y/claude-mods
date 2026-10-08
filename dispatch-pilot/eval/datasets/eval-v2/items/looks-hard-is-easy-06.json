@@ -1,0 +1,54 @@
+{
+  "id": "looks-hard-is-easy-06",
+  "category": "looks-hard-is-easy",
+  "domain": "cc-mods",
+  "bin": "d2",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "edit-tally 状态行上的增删行数",
+    "SYMPTOM": "状态行上的增删行数有时停在一个数上不动，后面再改文件也不变，要重开会话才恢复",
+    "ERROR": "TypeError: Cannot read properties of undefined (reading 'reduce')",
+    "FILE": "edit-tally/hooks/edit-tally.ts",
+    "FILE2": "edit-tally/tests/edit-tally.test.ts",
+    "SYMBOL": "tallyEdits",
+    "COMMAND": "command claude plugin test ./edit-tally"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "edit-tally 状态行上的增删行数 抓到了 刚才开着 --debug-file 让它改 README 的时候有一个 Edit 没对上报了错 它自己重读一遍又改上了 就在报错那一下对话里冒出一行灰字 然后状态行就停住了 后面又改了一处也不动 重开会话才好 跟之前那几次一模一样 debug log 里那一段贴给你 看下\n<pasted_content id=\"71d0\">\n2026-10-08T09:41:12.204Z [DEBUG] dispatch tool.call Edit toolu_01Hq8RzUe4 (main) → edit-tally@inline\n2026-10-08T09:41:12.391Z [DEBUG] tool Edit toolu_01Hq8RzUe4 failed: String to replace not found in file.\n2026-10-08T09:41:12.395Z [WARN] hook skipped: edit-tally@inline tool.call (after next): TypeError: Cannot read properties of undefined (reading 'reduce')\n    at tallyEdits (edit-tally/hooks/edit-tally.ts:58:42)\n    at <anonymous> (edit-tally/hooks/edit-tally.ts:121:19)\n2026-10-08T09:41:12.396Z [DEBUG] tool.call Edit toolu_01Hq8RzUe4: next result stands\n2026-10-08T09:41:18.517Z [DEBUG] dispatch tool.call Read toolu_01Vb2KcM7n (main) → edit-tally@inline\n2026-10-08T09:41:25.090Z [DEBUG] dispatch tool.call Edit toolu_01P4xWnT0s (main) → edit-tally@inline\n2026-10-08T09:42:51.336Z [DEBUG] dispatch turn.complete → edit-tally@inline\n</pasted_content id=\"71d0\">"
+    },
+    {
+      "role": "assistant",
+      "text": "就是它：Edit 自己失败的时候（这次是 `old_string` 没对上），`next(e)` 交回来的不是 Edit 的结果记录，而是一个 `isError: true` 的结果，`result` 是一段错误文字。hook 准备入参时，Edit/Write 那一支没看 `isError`，直接取 `r.result.structuredPatch` 交给 `tallyEdits`，取出来是 `undefined`，`tallyEdits` 第 58 行 `patch.reduce(...)` 就抛了这一行。之后状态行停住、一直到重开会话才恢复，也能从代码里对上。代码没动。\n\n**为什么停住以后就不动了**\n\n`edit-tally/hooks/edit-tally.ts` 里调 `tallyEdits` 的那个 hook，顺序是这样的：\n\n1. `const r = await next(e)`；\n2. `const first = !pendingRecompute`，接着 `pendingRecompute = true`：并行几个 Edit 时只让第一个送状态行、排补算，后面几个只写 `$.state`，等补算统一送，免得状态行来回闪；\n3. 准备入参、调 `tallyEdits`，写 `$.state`，节流存快照；\n4. `first` 为真时送一次状态行，`$.clock.after(150, …)` 排补算；补算里重算一遍、送状态行，跑完把 `pendingRecompute` 置回 false。\n\n毛病在第 2 步写在了第 3 步前面。第 3 步一抛，第 4 步没走到，补算没排上，`pendingRecompute` 却已经是 true，之后再也没有地方把它置回去。后面每次 dispatch 看到它是 true，都当自己是「后面几个」，只写 `$.state`，不送状态行。所以状态里的数一直是对的，只是状态行不再刷新；它是模块级变量，要等模块重新加载（热重载或者重开会话）回到 false，`session.start` 用快照重算、送一次状态行，才跳回来。你贴的 log 里 09:41:12 抛了以后，后面那次 Read 和那次成功的 Edit 都没有送状态行，和这个一致。\n\nhook 是在 `next(e)` 之后抛的，引擎按 `next result stands` 处理，Claude 那边拿到的结果没受影响，它照常重读、再改，只是我们这一路断了。\n\n**几种结果形状都试过**\n\n在 `edit-tally/tests/` 下写了个临时用例（文件名 `tmp-error-result.test.ts`，没提交），让 `next` 分别交回下面几种结果，跑 `command claude plugin test ./edit-tally`：\n\n| `next` 交回的 | 结果 |\n|---|---|\n| Edit：`{ result: 'String to replace not found in file…', text, isError: true }` | 抛 `TypeError: Cannot read properties of undefined (reading 'reduce')`，第 58 行 |\n| Write：`{ result: 'File has not been read yet…', text, isError: true }` | 同上，同一行 |\n| Edit 在权限确认那一步被拒：`{ result: \"The user doesn't want to proceed…\", text, isError: true }` | 同上，同一行 |\n| Bash 失败或被打断：`{ result: '…', text, isError: true }` | 不抛，别的工具走的是另一支，只交 `text` 的长度和 `isError`，出错的照常记 |\n| `{ deny: '…' }`（别的插件的 hook 拒了） | 抛 `TypeError: Cannot read properties of undefined (reading 'structuredPatch')`，文字不一样，日志里没见过 |\n\n同事那边是默认配置，Edit 每次都要确认，他如果点过拒绝，就是第三种；他用的是装好的版本，没有热重载，所以只能重开会话才好。你之前记的那天 14:10「又读了几个文件 改了一处」，多半也是一次 Edit 没对上、重读以后再改。\n\n**改法（没动）**\n\n就一处，紧跟在 `const r = await next(e)` 后面加一行：\n\n```ts\nif (isFileEdit(e) && (r.isError || 'deny' in r)) return r\n```\n\n`isFileEdit` 是文件里现成的，分 Edit/Write 那一支用的就是它。Edit、Write 出错或者被拒的结果原样交回去，走不到置 `pendingRecompute` 和调 `tallyEdits` 那几步，标记也就不会卡住；Bash 这些出错的照常走原来那一支，状态行照样显示出错的那句。`pendingRecompute` 的先后不用动。\n\n再在 `edit-tally/tests/edit-tally.test.ts` 里照现有那条经过 hook 的用例补两条：`next` 交回 Edit 的 `isError` 结果、交回 `{ deny }`，断言 `$.state` 没变，接着再发一次正常的 Edit，状态行照常更新。临时用例跑完已经删了。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Write",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "原来是 Edit 没对上那一下 今天上午我这又停了一次 也是它 Edit 没对上之后就不动了 不过先别改 同事那边我问了还没回 他那天是不是点了拒绝 想等他确认是同一回事再改 这两天你接着看看还有没有别的情况也会走到这 后台跑完的任务 派出去的 agent 压缩那些 都过一遍"
+    },
+    {
+      "role": "assistant",
+      "text": "好，代码不动，等同事回话。上午那次我翻了今天的会话记录：10:2x 那个 Edit 回的是 `String to replace not found in file.`，紧接着一行 `hook skipped`，之后状态行没再变过，和昨天那次一样。\n\n同事那边点没点拒绝，改法都是同一处：权限确认被拒回来的也是 `isError` 结果，加的那一行一样挡得住。到时候就是：\n\n1. `edit-tally/hooks/edit-tally.ts` 里 `const r = await next(e)` 后面加 `if (isFileEdit(e) && (r.isError || 'deny' in r)) return r`；\n2. `edit-tally/tests/edit-tally.test.ts` 补那两条用例；\n3. `command claude plugin test ./edit-tally`。\n\n接下来几种情况我按这个顺序过，每种都看 `next(e)` 交回来的是什么样、会不会走到 `tallyEdits`：\n\n1. **后台任务**：`run_in_background` 和 ctrl+b 挪到后台的 Bash，结果是什么时候、以什么形状回到 hook 手里；\n2. **派出去的 agent**：它们的工具调用会不会也触发这个 hook（hook 开头有一句判断主 agent，要确认它挡得住）；\n3. **压缩**：`/compact` 和自动压缩时引擎自己的调用；\n4. **Workflow 里的 agent**、后台任务跑完自己开的那一轮。\n\n先看了一眼生成的 d.ts 里 `ToolCallResult` 的说明：从 core 来的结果只有 `{ ref, result, text }` 和带 `isError` 的同一个形状，hook 还可能拿到 `{ deny }`，所以这几种情况就算出问题，形状也逃不出这三种。具体每种实测的结果，过完一起给你。",
+      "tools": [
+        "Bash",
+        "Read"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "同事回了 他那天确实点了两次拒绝 刚才我这又来了 让它批量改五个文件 第二个 Edit 没对上报错 它重读了又改上 对话里冒了那行灰字 状态行从那以后就停住了 五个都改完也没动 我存了一下文件热重载才跳过来 按上次说的改吧\n<pasted_content id=\"c5e2\">\n⏺ Update(pr-notes/README.md)\n  ⎿  Error: String to replace not found in file.\n⎿ edit-tally@inline: hook skipped (tool.call Edit, after next): TypeError: Cannot read properties of undefined (reading 'reduce')\n      at tallyEdits (edit-tally/hooks/edit-tally.ts:58:42)\n      at <anonymous> (edit-tally/hooks/edit-tally.ts:121:19)\n⏺ Read(pr-notes/README.md)\n  ⎿  Read 142 lines\n⏺ Update(pr-notes/README.md)\n  ⎿  Updated pr-notes/README.md with 9 additions and 3 removals\n状态行：edit-tally  1 file  +14 −2（从这以后一直停在这 五个文件都改完了也没变 存了一下 edit-tally.ts 热重载以后跳成 5 files +88 −19）\n</pasted_content id=\"c5e2\">"
+    }
+  ],
+  "middle_hint": "用户认了原因、等同事确认之前先不改（期间问题又出过一次）：中间是围绕 edit-tally 状态行停住不动的问题继续核对别的情况：理 tallyEdits 的调用方和数据流向、看后台任务、派出 agent、压缩时 hook 收到什么、看热重载和多会话对状态的影响、翻会话记录和同事的反馈、写临时探针，没有新的修改，也没有新的结论。"
+}

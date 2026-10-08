@@ -1,0 +1,25 @@
+{
+  "id": "cheap-agreement-04",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d3",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条是两件小活：照 d3 那个标准（秘密值是不是用常量时间比较）扫 src/oauth 里 state 参数和 redirect_uri 校验两块，给 internal-scope-consistent 补 d1 查出来缺的两个样例（模板字符串拼的 scope、老的连字符写法）。决定性几轮里用户立了规矩：验证类的活（本地扫描、补规则样例、scratchpad 一次性脚本）直接做、贴结果，不出方案、不走评审、不给脚本补测试，理由是这些不进主干、样例扫漏了 security job 每次全量扫也会红；d3 助手就是照这个口径扫的 src/crypto。按约定，这条就是照 d3 的写法再跑一次范围更小的扫描、照现有格式加两个样例、贴结果：low。扫出来的几处要判断比的是不是秘密值，两个样例里规则现在漏扫的那种要顺手确认规则能不能命中，判 medium 也说得过去，所以 accept low、medium。删掉决定性几轮，「照那个标准」「同类的写法」「老规矩」都没有着落，读到的是在登录服务里过一遍 OAuth 的 state 和 redirect_uri 校验、再改安全扫描规则的测试，这两块是开放重定向、CSRF 这类漏洞的高发处，正常会当成要逐条看边界的安全检查：high。三选一：d1 第一次提出这类事，new_or_unrelated；d2 是定做事的规矩，不是对某个问题的表态，new_or_unrelated；d3 是又一件同类的新任务，new_or_unrelated；最后这条同理，new_or_unrelated。审稿改动：accept 从 [low] 放宽到 [low, medium]，effort_without_decisive 从 medium 改成 high，理由见上（约定省掉的是流程，扫描结果仍要判断；没有约定时这是 OAuth 校验的安全检查）。题目上：d1 的 semgrep 命令改成素材段里 CI 用的 `semgrep --test --config semgrep/ semgrep/tests/`，没覆盖到的两种写法改成说得通的版本；d3 里虚构的 `src/crypto/token.ts`、`src/crypto/refresh.ts` 和素材段（refresh 逻辑在 `src/oauth/token.ts`）冲突，换成 `src/crypto/hmac.ts`、`src/crypto/signed-url.ts`；middle_hint 改得更宽泛，不再点名具体的几件事。"
+}

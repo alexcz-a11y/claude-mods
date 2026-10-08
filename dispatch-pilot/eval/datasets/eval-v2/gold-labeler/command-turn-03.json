@@ -1,0 +1,25 @@
+{
+  "id": "command-turn-03",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "人效日报早上为空、InvalidIndexError 的问题已经修了三轮（补充表去重、来源编码 strip、组合支付取数去重），用户三次回来说同样报错还在，最后用 /debug 贴同一个报错，是三轮修复都失败之后再提，按约定给 max；间歇性、只在凌晨首跑出现，根因仍未知，xhigh 也可接受。读不到决定性几轮时只有中间无结论的排查和「又是空的」，看作原因未知的间歇性 bug，给 xhigh。"
+}

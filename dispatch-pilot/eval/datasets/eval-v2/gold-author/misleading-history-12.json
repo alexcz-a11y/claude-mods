@@ -1,0 +1,33 @@
+{
+  "id": "misleading-history-12",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里 CI build 偶发卡死先后按内存、读 git 历史的子进程猜了两次都不对，抓到诊断报告后定位到 terser 的 worker 偶发挂起、没有确定的修复，用户放弃根治，只留 watchdog 自动重跑。排查中顺带发现中文的定时发送页落后英文，助手已经核过只差两处：「最多可以提前 7 天」改成 30 天，示例里的 send_at 改成 scheduled_at（连带锚点），其余段落一致。最后一条是让把这页中文同步一下：照已经列好的两处改，跑一下 build 看警告消失，low；中间隔了十几万 token，英文页可能又改过，先 diff 一眼再改，给 medium 也可以。删掉决定性几轮，只看最后一句是一次不知道差多少的翻译同步，要逐段对照英文、找出差异再翻，medium。前面的卡死排查和它无关，不该带高。三选一：d1 第一次提出问题，new_or_unrelated；d2、d3 改完都说还卡，still_unresolved；d4 回报抓到了报告让看，问题还在，still_unresolved；d5 说不查了、凑合着用，卡死没有解决，still_unresolved；最后一条是同步一页翻译，和卡死无关，new_or_unrelated。审稿改动：素材段 docs-writing-unrelated-18 说 CI 现在没有构建缓存、要用 actions/cache 新加，和原来第二次「去掉构建缓存」矛盾，把第二次尝试改成关掉「最后更新时间」排除 git log 子进程（素材段里这个功能确实每个文件起一次 git log），d3、d5 的说法跟着改；金标不变。"
+}

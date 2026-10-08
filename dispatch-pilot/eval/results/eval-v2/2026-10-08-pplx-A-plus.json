@@ -1,0 +1,961 @@
+{
+  "suite": "eval-v2",
+  "label": "A-plus",
+  "date": "2026-10-08T13:44:40.469Z",
+  "source": "not run: replayed from the last message of each item in eval/results/eval-v2-flow/pplx-135000.json (its effort probabilities `p` and three-way probabilities `triage` taken as the backend's answers; the flow asked in Chinese, the same request as run.ts's zh-flow); items without a finished flow are left out",
+  "backend": {
+    "name": "pplx",
+    "model": "pplx-decider-v1.1-27b",
+    "answeredBy": [
+      "pplx-decider-v1.1-27b"
+    ]
+  },
+  "dataset": {
+    "path": "eval/datasets/eval-v2.jsonl",
+    "items": 120,
+    "replayed": 63,
+    "sha256": "69b46be3e063228add0732886c09692c833e02667986beacbbf2fa99818bd424",
+    "gold": {
+      "dir": "eval/datasets/eval-v2/gold",
+      "files": 120,
+      "sha256": "124fb2a2d5b3f818f397cecc175608b923ea27fc6773f0ae3edb4ae29e2df691"
+    }
+  },
+  "flow": {
+    "file": "eval/results/eval-v2-flow/pplx-135000.json",
+    "sha256": "5f011470ba926fcd595f00bed0199c696b918950f69ec4810c73316c8100d23c",
+    "backend": {
+      "name": "pplx",
+      "model": "pplx-decider-v1.1-27b",
+      "answeredBy": [
+        "pplx-decider-v1.1-27b"
+      ]
+    },
+    "settings": {
+      "language": "zh",
+      "stateTokens": 135000,
+      "stateMessages": 2000,
+      "thresholds": {
+        "add": 0.5,
+        "reset": 0.7
+      },
+      "maxAfter": 3
+    },
+    "summarizer": {
+      "model": "haiku",
+      "says": "claude-haiku-5-5",
+      "answeredBy": [
+        "claude-haiku-5-5"
+      ]
+    }
+  },
+  "settings": {
+    "messageStateTokens": 135000,
+    "stateMessagesLimit": 2000,
+    "thetaMax": 0.5
+  },
+  "run": {
+    "items": 63,
+    "variants": [
+      "zh-flow"
+    ],
+    "languages": [
+      "zh"
+    ],
+    "requests": 0,
+    "usd": 0
+  },
+  "questions": {
+    "zh-flow": {
+      "level": {
+        "type": "score",
+        "instructions": {
+          "问题": "结合 `recent_context`，完成 `user_message` 所要求的工作需要多少逐步推理？",
+          "评什么": "评的是请求要做的工作本身，而不是话题听起来有多重要。用文字给出的建议或解释，即使涉及架构或安全，也不算设计工作。",
+          "简短回复": "如果 `user_message` 只是同意、让继续或选一个选项（例如“go ahead”“1”“继续”），按它所同意的那项工作来评；那项工作写在 `recent_context` 的末尾。"
+        },
+        "criteria": [
+          "凭已知信息就能回答，或没有需要想清楚之处的机械性工作：查一个东西、执行一条命令、重命名或查找替换（即使跨很多文件）、列出搜索结果、格式化、改一行。",
+          "对一个或几个文件做常规、需求明确的修改，或针对眼前代码的直接提问。",
+          "跨多个文件、需要想清楚的修改，原因已经描述但仍需追查的 bug，编写测试，或仔细审查一份 diff。",
+          "跨多个组件的设计，原因未知的 bug，牵连很多依赖方的重构，或需要仔细推敲并发、性能或故障模式的工作。",
+          "全新的架构，安全或数据完整性问题，之前多次尝试都没解决的故障，或一个细微错误就代价高昂且难以挽回的工作。"
+        ]
+      },
+      "unresolved": {
+        "type": "choice",
+        "instructions": {
+          "问题": "`user_message` 对 `recent_context` 末尾用户和助手最近在处理的那个问题说了什么？",
+          "结果": "那个问题解没解决，只看用户自己的话。助手对自己的工作说的“已修复”“应该可以了”不算结果。"
+        },
+        "criteria": {
+          "still_unresolved": "用户说为那个问题试过的做法没有用，或者说问题还在：同样的报错又出现了、同样的错误行为、让再看一遍同一个问题，或者贴出的报错就是之前那个。",
+          "resolved": "用户说那个问题已经解决，或接受了结果：现在好了、谢谢、可以了，或者让提交、推送、收尾。",
+          "new_or_unrelated": "用户转到另一个问题或任务，问的和那个问题毫无关系，或者 `recent_context` 里没有更早的问题可言。"
+        }
+      }
+    }
+  },
+  "scoring": "The answer is the effort, right when it is in the final gold's accept (the mod's pickEffort over the backend's probabilities, thetaMax as set), exact when it is the gold effort; a wrong one is too high or too low. The three-way question is asked with it, as the mod asks it, its answer the option it leaned to most, scored against triage_final as a part of its own (`triage`; still_unresolved is unresolved, new_or_unrelated is new). `top` is the recall of max over the items whose gold is max, `falseMax` the share of the items whose accept has no max that were given it; `byBin`, `byRelation`, `byBinRelation` and `byCategory` split the items. `seen` is whether the state held the decisive rounds (`all`: their first message; `any`: their newest line). `withoutDecisive` is, over the items whose effort_without_decisive is outside accept, the share answered exactly that: as if the decisive rounds had not been read. `thetaMax` is what other max thresholds would have given, from the probabilities each answer keeps (`p`; `triageP` keeps the three-way question's).",
+  "about": {
+    "variants": "zh-score, en-score: the question in Chinese or English, the state the conversation and the message; zh-flow, en-flow: the same with the count and the summary the flow file holds at the last message (and the strong hint from unresolvedMaxAfter)",
+    "flow": {
+      "backend": {
+        "name": "pplx",
+        "model": "pplx-decider-v1.1-27b",
+        "answeredBy": [
+          "pplx-decider-v1.1-27b"
+        ]
+      },
+      "settings": {
+        "language": "zh",
+        "stateTokens": 135000,
+        "stateMessages": 2000,
+        "thresholds": {
+          "add": 0.5,
+          "reset": 0.7
+        },
+        "maxAfter": 3
+      },
+      "items": 69
+    }
+  },
+  "summary": {
+    "items": 63,
+    "variants": [
+      {
+        "variant": "zh-flow",
+        "zh": {
+          "items": 63,
+          "answered": 63,
+          "failed": 0,
+          "accuracy": 0.619,
+          "exact": 0.2063,
+          "misses": {
+            "over": 6,
+            "under": 18
+          },
+          "parts": {
+            "effort": 0.619,
+            "triage": 0.8571
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.619
+        },
+        "en": {
+          "items": 63,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "parts": {
+            "effort": 0,
+            "triage": 0
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": 0.619,
+        "pass": true,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 63,
+          "p50": 0,
+          "p90": 0,
+          "max": 0,
+          "slow": 0
+        },
+        "tags": [
+          {
+            "tag": "unrelated",
+            "items": 32,
+            "wrong": {
+              "zh": 15,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 15,
+                "en": 0
+              },
+              "triage": {
+                "zh": 7,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "hard-constraint",
+            "items": 12,
+            "wrong": {
+              "zh": 9,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 9,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "same-problem",
+            "items": 31,
+            "wrong": {
+              "zh": 9,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 9,
+                "en": 0
+              },
+              "triage": {
+                "zh": 2,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "d2",
+            "items": 16,
+            "wrong": {
+              "zh": 7,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 7,
+                "en": 0
+              },
+              "triage": {
+                "zh": 3,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "d4",
+            "items": 15,
+            "wrong": {
+              "zh": 7,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 7,
+                "en": 0
+              },
+              "triage": {
+                "zh": 4,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "cc-mods",
+            "items": 6,
+            "wrong": {
+              "zh": 5,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 5,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "d1",
+            "items": 16,
+            "wrong": {
+              "zh": 5,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 5,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "d3",
+            "items": 16,
+            "wrong": {
+              "zh": 5,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 5,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "data-scripts",
+            "items": 8,
+            "wrong": {
+              "zh": 5,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 5,
+                "en": 0
+              },
+              "triage": {
+                "zh": 3,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "implicit-unresolved",
+            "items": 12,
+            "wrong": {
+              "zh": 5,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 5,
+                "en": 0
+              },
+              "triage": {
+                "zh": 4,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "cheap-agreement",
+            "items": 12,
+            "wrong": {
+              "zh": 4,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 4,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "explicit-unresolved",
+            "items": 12,
+            "wrong": {
+              "zh": 3,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 3,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "frontend",
+            "items": 7,
+            "wrong": {
+              "zh": 3,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 3,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "command-turn",
+            "items": 12,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 2,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "database",
+            "items": 5,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "docs-writing",
+            "items": 5,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "ios",
+            "items": 7,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "perf",
+            "items": 6,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "backend-api",
+            "items": 6,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "devops-ci",
+            "items": 7,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 2,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "looks-hard-is-easy",
+            "items": 3,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "security",
+            "items": 6,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          }
+        ],
+        "breakdown": {
+          "flow": true,
+          "question": "zh",
+          "top": {
+            "items": 28,
+            "recall": 0.1786,
+            "falseMax": 0
+          },
+          "tooHigh": 0.0952,
+          "tooLow": 0.2857,
+          "byBin": {
+            "d1": {
+              "items": 16,
+              "accuracy": 0.6875,
+              "exact": 0.1875,
+              "tooHigh": 0.125,
+              "tooLow": 0.1875,
+              "top": 7,
+              "topRecall": 0,
+              "triage": 0.9375
+            },
+            "d2": {
+              "items": 16,
+              "accuracy": 0.5625,
+              "exact": 0.3125,
+              "tooHigh": 0.125,
+              "tooLow": 0.3125,
+              "top": 6,
+              "topRecall": 0.1667,
+              "triage": 0.8125
+            },
+            "d3": {
+              "items": 16,
+              "accuracy": 0.6875,
+              "exact": 0.1875,
+              "tooHigh": 0.0625,
+              "tooLow": 0.25,
+              "top": 8,
+              "topRecall": 0.25,
+              "triage": 0.9375
+            },
+            "d4": {
+              "items": 15,
+              "accuracy": 0.5333,
+              "exact": 0.1333,
+              "tooHigh": 0.0667,
+              "tooLow": 0.4,
+              "top": 7,
+              "topRecall": 0.2857,
+              "triage": 0.7333
+            }
+          },
+          "byRelation": {
+            "same-problem": {
+              "items": 31,
+              "accuracy": 0.7097,
+              "exact": 0.2903,
+              "tooHigh": 0.129,
+              "tooLow": 0.1613,
+              "top": 15,
+              "topRecall": 0.3333,
+              "triage": 0.9355
+            },
+            "unrelated": {
+              "items": 32,
+              "accuracy": 0.5313,
+              "exact": 0.125,
+              "tooHigh": 0.0625,
+              "tooLow": 0.4063,
+              "top": 13,
+              "topRecall": 0,
+              "triage": 0.7813
+            }
+          },
+          "byBinRelation": {
+            "d1 same-problem": {
+              "items": 9,
+              "accuracy": 0.7778,
+              "exact": 0.3333,
+              "tooHigh": 0.2222,
+              "tooLow": 0,
+              "top": 4,
+              "topRecall": 0,
+              "triage": 0.8889
+            },
+            "d1 unrelated": {
+              "items": 7,
+              "accuracy": 0.5714,
+              "exact": 0,
+              "tooHigh": 0,
+              "tooLow": 0.4286,
+              "top": 3,
+              "topRecall": 0,
+              "triage": 1
+            },
+            "d2 same-problem": {
+              "items": 7,
+              "accuracy": 0.5714,
+              "exact": 0.1429,
+              "tooHigh": 0.1429,
+              "tooLow": 0.2857,
+              "top": 3,
+              "topRecall": 0.3333,
+              "triage": 0.8571
+            },
+            "d2 unrelated": {
+              "items": 9,
+              "accuracy": 0.5556,
+              "exact": 0.4444,
+              "tooHigh": 0.1111,
+              "tooLow": 0.3333,
+              "top": 3,
+              "topRecall": 0,
+              "triage": 0.7778
+            },
+            "d3 same-problem": {
+              "items": 9,
+              "accuracy": 0.8889,
+              "exact": 0.3333,
+              "tooHigh": 0.1111,
+              "tooLow": 0,
+              "top": 5,
+              "topRecall": 0.4,
+              "triage": 1
+            },
+            "d3 unrelated": {
+              "items": 7,
+              "accuracy": 0.4286,
+              "exact": 0,
+              "tooHigh": 0,
+              "tooLow": 0.5714,
+              "top": 3,
+              "topRecall": 0,
+              "triage": 0.8571
+            },
+            "d4 same-problem": {
+              "items": 6,
+              "accuracy": 0.5,
+              "exact": 0.3333,
+              "tooHigh": 0,
+              "tooLow": 0.5,
+              "top": 3,
+              "topRecall": 0.6667,
+              "triage": 1
+            },
+            "d4 unrelated": {
+              "items": 9,
+              "accuracy": 0.5556,
+              "exact": 0,
+              "tooHigh": 0.1111,
+              "tooLow": 0.3333,
+              "top": 4,
+              "topRecall": 0,
+              "triage": 0.5556
+            }
+          },
+          "byCategory": {
+            "explicit-unresolved": {
+              "items": 12,
+              "accuracy": 0.75,
+              "exact": 0.25,
+              "tooHigh": 0,
+              "tooLow": 0.25,
+              "top": 12,
+              "topRecall": 0.25,
+              "triage": 1
+            },
+            "implicit-unresolved": {
+              "items": 12,
+              "accuracy": 0.5833,
+              "exact": 0.0833,
+              "tooHigh": 0,
+              "tooLow": 0.4167,
+              "top": 12,
+              "topRecall": 0.0833,
+              "triage": 0.6667
+            },
+            "cheap-agreement": {
+              "items": 12,
+              "accuracy": 0.6667,
+              "exact": 0.3333,
+              "tooHigh": 0.3333,
+              "tooLow": 0,
+              "top": 0,
+              "topRecall": null,
+              "triage": 0.9167
+            },
+            "looks-hard-is-easy": {
+              "items": 3,
+              "accuracy": 0.6667,
+              "exact": 0,
+              "tooHigh": 0.3333,
+              "tooLow": 0,
+              "top": 0,
+              "topRecall": null,
+              "triage": 0.6667
+            },
+            "hard-constraint": {
+              "items": 12,
+              "accuracy": 0.25,
+              "exact": 0,
+              "tooHigh": 0,
+              "tooLow": 0.75,
+              "top": 0,
+              "topRecall": null,
+              "triage": 0.9167
+            },
+            "command-turn": {
+              "items": 12,
+              "accuracy": 0.8333,
+              "exact": 0.4167,
+              "tooHigh": 0.0833,
+              "tooLow": 0.0833,
+              "top": 4,
+              "topRecall": 0.25,
+              "triage": 0.8333
+            }
+          },
+          "triage": {
+            "accuracy": 0.8571,
+            "confusion": {
+              "unresolved": {
+                "unresolved": 34,
+                "new": 7
+              },
+              "new": {
+                "new": 20,
+                "unresolved": 2
+              }
+            },
+            "change": {
+              "right": 0.8254,
+              "falseAdd": 0.0455,
+              "lostRecord": 0.122
+            }
+          },
+          "seen": {
+            "all": 0.7619,
+            "any": 0.7619
+          },
+          "withoutDecisive": {
+            "items": 53,
+            "share": 0.3774
+          },
+          "thetaMax": [
+            {
+              "thetaMax": 0.2,
+              "accuracy": 0.6349,
+              "topRecall": 0.4643,
+              "falseMax": 0
+            },
+            {
+              "thetaMax": 0.3,
+              "accuracy": 0.6349,
+              "topRecall": 0.4643,
+              "falseMax": 0
+            },
+            {
+              "thetaMax": 0.4,
+              "accuracy": 0.6349,
+              "topRecall": 0.3571,
+              "falseMax": 0
+            },
+            {
+              "thetaMax": 0.5,
+              "accuracy": 0.619,
+              "topRecall": 0.1786,
+              "falseMax": 0
+            },
+            {
+              "thetaMax": 0.6,
+              "accuracy": 0.619,
+              "topRecall": 0.1429,
+              "falseMax": 0
+            },
+            {
+              "thetaMax": 0.7,
+              "accuracy": 0.619,
+              "topRecall": 0.1429,
+              "falseMax": 0
+            }
+          ],
+          "stateTokens": {
+            "mean": 117581,
+            "max": 135015
+          },
+          "carried": {
+            "items": 63,
+            "counted": 16,
+            "hinted": 13,
+            "summarized": 63
+          }
+        }
+      }
+    ],
+    "constants": [
+      {
+        "answer": "low",
+        "accuracy": 0.2222,
+        "exact": 0.1111
+      },
+      {
+        "answer": "medium",
+        "accuracy": 0.2698,
+        "exact": 0.1587
+      },
+      {
+        "answer": "high",
+        "accuracy": 0.2381,
+        "exact": 0.0635
+      },
+      {
+        "answer": "xhigh",
+        "accuracy": 0.7302,
+        "exact": 0.2222
+      },
+      {
+        "answer": "max",
+        "accuracy": 0.5238,
+        "exact": 0.4444
+      }
+    ]
+  },
+  "answers": [
+    {"id":"cheap-agreement-01","language":"zh","zh-flow":{"answer":"high / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.008,0.404,0.518,0.049,0.021],"triage":"unresolved","triageP":{"unresolved":0.656,"resolved":0.31,"new":0.034},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":102246,"kept":62,"count":5,"hint":true,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"cheap-agreement-02","language":"zh","zh-flow":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.377,0.243,0.35,0.021,0.008],"triage":"new","triageP":{"unresolved":0.005,"resolved":0.021,"new":0.974},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":127932,"kept":72,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"cheap-agreement-03","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.383,0.514,0.087,0.013,0.003],"triage":"new","triageP":{"unresolved":0.238,"resolved":0.026,"new":0.736},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":105700,"kept":64,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"cheap-agreement-04","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.007,0.053,0.889,0.038,0.013],"triage":"new","triageP":{"unresolved":0.054,"resolved":0.044,"new":0.902},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":131768,"kept":74,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"cheap-agreement-05","language":"zh","zh-flow":{"answer":"high / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.004,0.357,0.593,0.044,0.002],"triage":"unresolved","triageP":{"unresolved":0.675,"resolved":0.166,"new":0.159},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":104516,"kept":62,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"cheap-agreement-06","language":"zh","zh-flow":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.682,0.256,0.05,0.01,0.002],"triage":"new","triageP":{"unresolved":0.001,"resolved":0.075,"new":0.924},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":133307,"kept":80,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"cheap-agreement-07","language":"zh","zh-flow":{"answer":"high / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.01,0.029,0.602,0.273,0.086],"triage":"unresolved","triageP":{"unresolved":0.991,"resolved":0.004,"new":0.005},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":116645,"kept":64,"count":31,"hint":true,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"cheap-agreement-08","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.06,0.113,0.697,0.122,0.008],"triage":"new","triageP":{"unresolved":0.003,"resolved":0.021,"new":0.976},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":134094,"kept":74,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"cheap-agreement-09","language":"zh","zh-flow":{"answer":"medium / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":false},"p":[0.036,0.899,0.061,0.003,0.001],"triage":"unresolved","triageP":{"unresolved":0.425,"resolved":0.175,"new":0.401},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":113592,"kept":66,"count":1,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"cheap-agreement-10","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.063,0.7,0.218,0.017,0.002],"triage":"new","triageP":{"unresolved":0.007,"resolved":0.032,"new":0.961},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":87008,"kept":52,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"cheap-agreement-11","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.135,0.45,0.148,0.157,0.111],"triage":"new","triageP":{"unresolved":0.062,"resolved":0.046,"new":0.892},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":132082,"kept":78,"count":7,"hint":true,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"cheap-agreement-12","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.007,0.056,0.751,0.184,0.002],"triage":"new","triageP":{"unresolved":0.001,"resolved":0.006,"new":0.993},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":135015,"kept":74,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"command-turn-01","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.003,0.008,0.136,0.679,0.174],"triage":"unresolved","triageP":{"unresolved":0.985,"resolved":0.004,"new":0.011},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":108231,"kept":64,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"command-turn-02","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":false},"p":[0.117,0.323,0.523,0.033,0.004],"triage":"new","triageP":{"unresolved":0.072,"resolved":0.143,"new":0.785},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":121541,"kept":68,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"command-turn-03","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.044,0.076,0.277,0.432,0.171],"triage":"unresolved","triageP":{"unresolved":0.936,"resolved":0.029,"new":0.035},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":132578,"kept":78,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"command-turn-04","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.016,0.059,0.825,0.064,0.036],"triage":"new","triageP":{"unresolved":0.011,"resolved":0.038,"new":0.951},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":131961,"kept":72,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"command-turn-05","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.003,0.018,0.249,0.668,0.062],"triage":"unresolved","triageP":{"unresolved":0.976,"resolved":0.004,"new":0.02},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":133544,"kept":76,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"command-turn-06","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.018,0.225,0.467,0.261,0.028],"triage":"new","triageP":{"unresolved":0.011,"resolved":0.054,"new":0.935},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":102392,"kept":60,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"command-turn-07","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.002,0.002,0.025,0.411,0.56],"triage":"unresolved","triageP":{"unresolved":0.963,"resolved":0.011,"new":0.026},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":134108,"kept":80,"count":2,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"command-turn-08","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.012,0.065,0.79,0.123,0.01],"triage":"new","triageP":{"unresolved":0.001,"resolved":0.009,"new":0.99},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":133225,"kept":76,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"command-turn-09","language":"zh","zh-flow":{"answer":"medium / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.041,0.892,0.057,0.006,0.004],"triage":"unresolved","triageP":{"unresolved":0.57,"resolved":0.387,"new":0.043},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":83709,"kept":50,"count":3,"hint":true,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"command-turn-10","language":"zh","zh-flow":{"answer":"high / unresolved","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.008,0.026,0.436,0.175,0.356],"triage":"unresolved","triageP":{"unresolved":0.714,"resolved":0.023,"new":0.263},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":132510,"kept":78,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"command-turn-11","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.004,0.093,0.784,0.117,0.002],"triage":"new","triageP":{"unresolved":0.058,"resolved":0.021,"new":0.921},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":120957,"kept":70,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"command-turn-12","language":"zh","zh-flow":{"answer":"xhigh / new","correct":true,"gold":false,"parts":{"effort":true,"triage":false},"p":[0.024,0.085,0.47,0.301,0.12],"triage":"new","triageP":{"unresolved":0.099,"resolved":0.01,"new":0.891},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":132715,"kept":74,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"explicit-unresolved-01","language":"zh","zh-flow":{"answer":"high / unresolved","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.047,0.233,0.463,0.117,0.141],"triage":"unresolved","triageP":{"unresolved":0.965,"resolved":0.012,"new":0.023},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":92966,"kept":58,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"explicit-unresolved-02","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.002,0.006,0.102,0.397,0.493],"triage":"unresolved","triageP":{"unresolved":0.968,"resolved":0.015,"new":0.017},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":98984,"kept":60,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"explicit-unresolved-03","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.007,0.02,0.133,0.423,0.417],"triage":"unresolved","triageP":{"unresolved":0.877,"resolved":0.007,"new":0.116},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":133228,"kept":84,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"explicit-unresolved-04","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.066,0.095,0.192,0.335,0.313],"triage":"unresolved","triageP":{"unresolved":0.995,"resolved":0.003,"new":0.002},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":133118,"kept":70,"count":10,"hint":true,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"explicit-unresolved-05","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.007,0.033,0.252,0.271,0.437],"triage":"unresolved","triageP":{"unresolved":0.828,"resolved":0.017,"new":0.155},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":108045,"kept":66,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"explicit-unresolved-06","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.005,0.027,0.154,0.366,0.448],"triage":"unresolved","triageP":{"unresolved":0.927,"resolved":0.013,"new":0.06},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":123305,"kept":72,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"explicit-unresolved-07","language":"zh","zh-flow":{"answer":"high / unresolved","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.027,0.1,0.401,0.114,0.358],"triage":"unresolved","triageP":{"unresolved":0.864,"resolved":0.034,"new":0.102},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":131089,"kept":80,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"explicit-unresolved-08","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.032,0.017,0.091,0.154,0.706],"triage":"unresolved","triageP":{"unresolved":0.996,"resolved":0.002,"new":0.002},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":133950,"kept":74,"count":40,"hint":true,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"explicit-unresolved-09","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.003,0.009,0.092,0.581,0.315],"triage":"unresolved","triageP":{"unresolved":0.96,"resolved":0.006,"new":0.034},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":91535,"kept":60,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"explicit-unresolved-10","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.002,0.003,0.03,0.157,0.808],"triage":"unresolved","triageP":{"unresolved":0.99,"resolved":0.003,"new":0.007},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":120466,"kept":78,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"explicit-unresolved-11","language":"zh","zh-flow":{"answer":"high / unresolved","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.005,0.017,0.359,0.201,0.418],"triage":"unresolved","triageP":{"unresolved":0.597,"resolved":0.015,"new":0.388},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":96087,"kept":64,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"explicit-unresolved-12","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.005,0.005,0.038,0.23,0.722],"triage":"unresolved","triageP":{"unresolved":0.996,"resolved":0.002,"new":0.002},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":132979,"kept":68,"count":6,"hint":true,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"hard-constraint-01","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.017,0.071,0.595,0.15,0.167],"triage":"new","triageP":{"unresolved":0.024,"resolved":0.02,"new":0.956},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":88031,"kept":52,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"hard-constraint-02","language":"zh","zh-flow":{"answer":"high / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.004,0.146,0.389,0.124,0.337],"triage":"unresolved","triageP":{"unresolved":0.819,"resolved":0.15,"new":0.031},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":121306,"kept":68,"count":7,"hint":true,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"hard-constraint-03","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.005,0.039,0.631,0.149,0.176],"triage":"new","triageP":{"unresolved":0.064,"resolved":0.061,"new":0.875},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":109634,"kept":66,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"hard-constraint-04","language":"zh","zh-flow":{"answer":"medium / unresolved","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.23,0.65,0.052,0.035,0.033],"triage":"unresolved","triageP":{"unresolved":0.952,"resolved":0.02,"new":0.028},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":131730,"kept":68,"count":38,"hint":true,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"hard-constraint-05","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.025,0.02,0.882,0.055,0.018],"triage":"new","triageP":{"unresolved":0.005,"resolved":0.038,"new":0.957},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":114820,"kept":66,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"hard-constraint-06","language":"zh","zh-flow":{"answer":"high / unresolved","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.057,0.189,0.407,0.071,0.276],"triage":"unresolved","triageP":{"unresolved":0.506,"resolved":0.104,"new":0.39},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":90530,"kept":50,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"hard-constraint-07","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.007,0.134,0.662,0.123,0.074],"triage":"new","triageP":{"unresolved":0.005,"resolved":0.026,"new":0.969},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":83907,"kept":50,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"hard-constraint-08","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.022,0.801,0.145,0.024,0.008],"triage":"new","triageP":{"unresolved":0.196,"resolved":0.056,"new":0.748},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":133688,"kept":70,"count":4,"hint":true,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"hard-constraint-09","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.018,0.877,0.091,0.009,0.005],"triage":"new","triageP":{"unresolved":0.001,"resolved":0.015,"new":0.984},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":111888,"kept":64,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"hard-constraint-10","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.036,0.689,0.236,0.036,0.003],"triage":"new","triageP":{"unresolved":0.36,"resolved":0.059,"new":0.581},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":110094,"kept":64,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"hard-constraint-11","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.012,0.808,0.163,0.015,0.002],"triage":"new","triageP":{"unresolved":0.002,"resolved":0.013,"new":0.985},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":134137,"kept":80,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"hard-constraint-12","language":"zh","zh-flow":{"answer":"medium / unresolved","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.18,0.59,0.101,0.064,0.065],"triage":"unresolved","triageP":{"unresolved":0.944,"resolved":0.015,"new":0.041},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":134941,"kept":69,"count":35,"hint":true,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"implicit-unresolved-01","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.003,0.012,0.126,0.57,0.289],"triage":"unresolved","triageP":{"unresolved":0.984,"resolved":0.006,"new":0.01},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":105107,"kept":64,"count":1,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"implicit-unresolved-02","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.014,0.135,0.623,0.07,0.158],"triage":"new","triageP":{"unresolved":0.23,"resolved":0.058,"new":0.712},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":87831,"kept":54,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"implicit-unresolved-03","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.004,0.011,0.09,0.177,0.718],"triage":"unresolved","triageP":{"unresolved":0.983,"resolved":0.007,"new":0.01},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":105017,"kept":62,"count":10,"hint":true,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"implicit-unresolved-04","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.081,0.282,0.406,0.151,0.08],"triage":"new","triageP":{"unresolved":0.166,"resolved":0.019,"new":0.815},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":133778,"kept":72,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"implicit-unresolved-05","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.092,0.174,0.342,0.303,0.089],"triage":"unresolved","triageP":{"unresolved":0.429,"resolved":0.185,"new":0.386},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":118136,"kept":70,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"implicit-unresolved-06","language":"zh","zh-flow":{"answer":"low / unresolved","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.444,0.149,0.125,0.243,0.04],"triage":"unresolved","triageP":{"unresolved":0.589,"resolved":0.129,"new":0.282},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":108744,"kept":66,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"implicit-unresolved-07","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.005,0.01,0.129,0.525,0.331],"triage":"unresolved","triageP":{"unresolved":0.98,"resolved":0.005,"new":0.015},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":118807,"kept":72,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"implicit-unresolved-08","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.025,0.351,0.488,0.122,0.013],"triage":"new","triageP":{"unresolved":0.168,"resolved":0.012,"new":0.82},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":134715,"kept":76,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"implicit-unresolved-09","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.003,0.013,0.181,0.527,0.276],"triage":"unresolved","triageP":{"unresolved":0.94,"resolved":0.02,"new":0.04},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":132059,"kept":76,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"implicit-unresolved-10","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.012,0.042,0.285,0.553,0.108],"triage":"unresolved","triageP":{"unresolved":0.539,"resolved":0.031,"new":0.43},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":122559,"kept":74,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"implicit-unresolved-11","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.01,0.045,0.302,0.561,0.082],"triage":"unresolved","triageP":{"unresolved":0.943,"resolved":0.016,"new":0.041},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":133689,"kept":76,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"implicit-unresolved-12","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.038,0.086,0.686,0.155,0.035],"triage":"new","triageP":{"unresolved":0.395,"resolved":0.018,"new":0.587},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":133913,"kept":76,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"looks-hard-is-easy-01","language":"zh","zh-flow":{"answer":"medium / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.298,0.668,0.025,0.006,0.003],"triage":"unresolved","triageP":{"unresolved":0.845,"resolved":0.029,"new":0.126},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":108953,"kept":64,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"looks-hard-is-easy-02","language":"zh","zh-flow":{"answer":"high / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.028,0.173,0.632,0.045,0.122],"triage":"unresolved","triageP":{"unresolved":0.656,"resolved":0.34,"new":0.004},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":120572,"kept":70,"count":7,"hint":true,"summary":true,"model":"pplx-decider-v1.1-27b"}},
+    {"id":"looks-hard-is-easy-03","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":false},"p":[0.486,0.491,0.018,0.003,0.002],"triage":"new","triageP":{"unresolved":0.352,"resolved":0.097,"new":0.551},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":91892,"kept":52,"count":0,"hint":false,"summary":true,"model":"pplx-decider-v1.1-27b"}}
+  ]
+}

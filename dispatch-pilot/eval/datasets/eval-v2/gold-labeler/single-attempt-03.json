@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-03",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "d1 提出 search-svc 每 20 分钟一次的 p99 尖峰（G1 Humongous Allocation）；第一次修复把 FacetCountRefresher 改成 composite 分页，本地验证没问题，但用户没有确认。最后用户说分支发到灰度 pod 上看了一下午，尖峰仍在，同一问题仍未解决，算第二次尝试。原先的推断被线上推翻，要重新找线上大对象分配的来源（ES 客户端、别的定时任务、配置没生效等），属于原因未知的线上性能问题，需要抓 profile 反复验证，定 xhigh；high 也可接受。没有 d1 时，最后那条消息也说明分支已发灰度、没好，仍判 xhigh。"
+}

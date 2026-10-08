@@ -1,0 +1,21 @@
+{
+  "id": "hard-constraint-09",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条是新需求：给 notify 角色加读 order-attachments 桶的权限。单看是一处 IAM 授权（medium）。但这个桶正是安全检查里点名的含发票、退款凭证的敏感桶，且 IAM 六条规矩全部适用：只给 invoices/ 前缀的 GetObject（不能给整桶、更不能 *），走 Terraform PR 并贴完整 plan、每条语句写用途，validate-policy 零告警、simulate 验证允许与拒绝（尤其退款凭证前缀必须拒绝），同时检查桶策略和 KMS，staging 先 apply 让 notify 真实发一次发票邮件，prod 两个 SRE 批。多步验证、需要谨慎，定 high，按长链路验证看 xhigh 也可接受。search-svc 整改已完成，与最后一条无关。"
+}

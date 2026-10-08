@@ -1,0 +1,21 @@
+{
+  "id": "cheap-agreement-09",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "一直在查的问题是 replicate_images 偶发超时，最后一条改的是飞书通知和 step 名，跟它无关。要改的有：失败卡片加上 attempt 次数（github.run_attempt）和提交说明首行，staging 成功时不发通知，prod 成功照发，step 显示名改成中文。改动集中在 notify-feishu 这个 composite action 和 deploy.yml，范围清楚，给 medium。其中「staging 成功不发」是行为改动，提交说明在 workflow_call 和手动触发时取法不同，所以不是纯机械的 low；d2 说过文案和显示名直接推 main、一条消息的事，所以 low 也可以接受。d2 主要省掉的是走 PR 的流程，改动本身多难没变，没有 d2 也判 medium。"
+}

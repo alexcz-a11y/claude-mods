@@ -1,0 +1,44 @@
+{
+  "id": "cheap-agreement-02",
+  "category": "cheap-agreement",
+  "domain": "devops-ci",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "小林提了个 PR #452 把 staging 上 order-api 和 search-svc 的副本数和 requests 调了一下 你帮我看看"
+    },
+    {
+      "role": "assistant",
+      "text": "看完了，没有要拦的地方，有一条建议。评论草稿在最后，没发。\n\n**改了什么**\n\n`gh pr diff 452`：只动了两个文件，`charts/values/order-api/staging.yaml` 和 `charts/values/search-svc/staging.yaml`。order-api 的 `replicaCount` 从 2 改成 1，`resources.requests` 从 500m / 1Gi 降到 250m / 512Mi；search-svc 的 `requests.memory` 从 1Gi 提到 1536Mi，副本数不变。limits 两边都没动。\n\n**怎么看的**\n\n- 渲染：在 main 和 PR 分支上各跑了一遍 `helm template charts/app -f charts/values/<服务>/staging.yaml`，diff 只有 Deployment 里的 `replicas` 和 `resources` 两处，没有多出或少了资源。\n- 校验：两份渲染结果跑了 `kubeconform -strict`，全部通过。\n- 用量：用 Prometheus 查了 staging 上这两个服务过去 14 天的 CPU 和内存。order-api 单副本 CPU p95 是 90m 左右，内存 p95 380Mi，降到 250m / 512Mi 有余量；search-svc 内存 p95 1.21Gi，最高到过 1.38Gi，原来的 1Gi request 确实偏低，调到 1536Mi 合理。\n- HPA：order-api 的 staging values 里 `autoscaling.enabled` 是 `false`，副本数就是写死的 1，不会和 HPA 打架。\n- CI：`pr-checks` 的 `charts` job 是绿的。\n\n**一条建议**\n\norder-api 降到 1 个副本以后，staging 上每次发布会有十几秒不可用（只有一个 Pod，滚动更新时新 Pod 就绪前旧的就开始退）。测试同学白天在 staging 上点的时候可能会碰到 502。要么保留 2 个副本，要么在 values 里把 `strategy.rollingUpdate.maxUnavailable` 设成 0。不算阻塞。\n\n**评论草稿**\n\n> 看过了，用量对得上，search-svc 那个调大是对的。一个小建议：order-api 只剩 1 个副本后滚动发布时会短暂不可用，staging 白天有人在测，可以考虑把 `maxUnavailable` 设成 0，或者先留 2 个副本。不阻塞，你看着办。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "staging 的 values 以后不用看这么细 小林他们调 staging 的资源 副本 环境变量这种 PR 你就看两样 CI 绿没绿 渲染出来的 diff 里有没有删资源 没问题直接 gh approve 评论草稿也不用写 staging 配错了下次发布改回来就是 prod 的 values 还是照今天这样看"
+    },
+    {
+      "role": "assistant",
+      "text": "好，边界我理一下：只改 `charts/values/*/staging.yaml` 里资源、副本、环境变量的 PR，看 CI 是不是全绿、main 和 PR 分支渲染出来的 diff 里有没有资源被删掉，两样都没问题就直接 `gh pr review --approve`，不写评论草稿；碰到 `prod.yaml`、chart 模板、Terraform 的，还是照今天这样细看、出草稿给你。\n\n#452 正好就是这一类，按这个来：CI 全绿，diff 里没有删资源，已经 approve 了。上面那条副本数的建议没发。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "小林那边一口气开了六个 PR #491 到 #496 都是调 staging 的副本 资源和环境变量的 你过一下"
+    }
+  ],
+  "middle_hint": "中间是在 infra 仓库做别的事：加告警规则、改 Terraform 模块、整理 workflow、写 runbook 之类，和 staging values 的 PR 怎么看无关。"
+}

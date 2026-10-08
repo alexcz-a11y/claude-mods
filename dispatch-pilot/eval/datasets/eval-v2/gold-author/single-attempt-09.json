@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-09",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "失败的修复 1 次：d1 之后助手判断是 `send_card()` 读超时后重试造成重复，拆了超时、只在连接失败时重试、补了测试；用户在最后一条第一次说没好（代码上周就更新到 etl-01，这个周一又发了两条），是第二次。复现性是偶发：d1 里用户说不是每周都有、最近四个周一里有两次，助手查到的消息记录也是四个周一里两次重复；判断修没修好要等好几个周一的线上结果，下一步是要反复核对的排查 → xhigh；accept 是 high、xhigh，只失败一次不到 max。删掉决定性几轮：中间都是别的事，最后一条里「又」「还是」「代码我上周就更新到 etl-01 上了」看得出修过一次、问题还在，但没提出现频率，偶发看不到，按第二次、稳定定 → high。三选一：d1 第一次提出问题，new_or_unrelated；最后一条说更新之后还是发两条，still_unresolved。审稿修改（上一轮）：原题的机制是「本地走 make、服务器 cron 不走 make 导致 locale 不同」，和本领域 unrelated 段的设定冲突，改成周报卡片重复发送的问题。本轮按修订说明的建议改成偶发：d1 写明四个周一里两次，助手查的是飞书消息记录和 `meta.etl_runs`（不引用 cron 日志文件，免得和 unrelated 段里 weekly_digest 原先没有重定向输出的说法冲突）；超时和重试等待改成 5 秒加 15 秒，整次运行不超过 40 秒，和 unrelated 段里 weekly_digest 耗时中位 20 秒、最慢 40 秒对得上；最后一条保持不提频率；金标改成 xhigh，ewd 改成 high。审稿修改（本轮）：和素材池对齐三处小地方：测试放进已有的 `tests/common/test_notify.py`（data-scripts-unrelated-44 里 `notify.py` 的测试在这里），不另建 `tests/pipelines/test_notify.py`；「告警卡片也走这个函数」改成「源表变化的提醒卡片」，因为失败告警走的是 `notify.alert()`，`send_card()` 发的是提醒（unrelated-06、27、44）；查消息记录用的是飞书应用的凭证（自定义机器人的 webhook 读不了群消息）。金标不变。"
+}

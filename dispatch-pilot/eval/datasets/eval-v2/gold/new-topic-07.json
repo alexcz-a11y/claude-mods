@@ -1,0 +1,22 @@
+{
+  "id": "new-topic-07",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "新任务：把文档站中文地址的前缀从 /zh/ 改成 /zh-cn/。中文帮助链接跳到英文页的问题在 d2 已经了结。改变判断的是 d1 回复里顺手查出的事实：/zh/ 不只是站点的一项语言配置，而是散在别人手里的地址约定。控制台仓库里 400 多条帮助链接直接拼 /zh 前缀（我们没有那个仓库的权限），客服工单系统里有 300 多条 /zh/docs/ 链接，SDK README 里有 9 处，搜索引擎收录的和市场发出去的博客、邮件都改不了，只能靠跳转接住；站内还有公告栏手工拼的链接、robots.txt 和 i18n-status 脚本里各写死的一处；client-redirects 只按列出来的路径给每个语言生成跳转页。所以这件事要做的是：改 i18n 的路径配置和站内写死的几处；给所有旧的 /zh/ 地址做整站一级的跳转，和已有的 client-redirects 跳转接上，不叠成两跳，锚点和查询参数照留；把要改链接的清单交给控制台、客服、市场几个团队；再拿一批旧地址逐条核对中文页的落点。出了问题撤回配置和跳转就能回退。按 effort-rules 的字面，这是长链路、要反复验证的复杂改动：xhigh。accept 里的 high：如果把对外那几个团队只当成交一份清单、不由主 agent 跟进，剩下的就只是本仓库里的配置、跳转和核对，往下落一档也说得通。没有写 max：改动都能撤回，用户也没讲过严重程度。删掉决定性几轮，只看「把中文前缀改成 /zh-cn/」，像是改一下 Docusaurus 的语言路径、再补一条通配跳转：medium。三选一：d1 第一次提出中文帮助链接跳到英文页，new_or_unrelated；d2 客服确认都跳对了、让提交，resolved；最后这条是另一件事，new_or_unrelated。重写说明：上一轮两边一致，情境保留、题目未改，按修订版说明重写了 rationale。审稿修改（只改 d1 回复里旧问题的细节，金标不变）：原写 9 月中旬把 console/ 拆成子目录、新地址是 /docs/console/settings/api-keys，和 docs-writing 的 unrelated 段矛盾（-01、-03、-25、-36 里 docs/console/ 下是 settings、api-keys、applications、message-logs 这些平铺的页面，-36 说 /docs/console/api-keys 正常能开），改成 9 月整理时把 keys 改名为 api-keys、webhook-settings 并进 applications，出错的跳转从 14 条改成 6 条，客服截图从 6 个地址改成 4 个；/zh/ 前缀和 client-redirects 按语言生成跳转页的说法和 -28、-36 一致，公告栏手工拼 zh/ 和 -25 一致。",
+  "source": "agreed"
+}

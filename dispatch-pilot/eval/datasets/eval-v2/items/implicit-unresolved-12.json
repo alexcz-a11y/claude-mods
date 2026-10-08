@@ -1,0 +1,63 @@
+{
+  "id": "implicit-unresolved-12",
+  "category": "implicit-unresolved",
+  "domain": "data-scripts",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "九月的日报营收和财务那边对不上 跑 `make recon-finance D=2026-09-30` 报\n`AssertionError: revenue mismatch: report=6184530.17 finance=6188107.42 (diff=-3577.25)`\n差得不多 但几乎每天都有 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "最可能的原因是两边切日的口径不一样：财务文件里的时间是北京时间，对账脚本读进来时当成了 UTC，零点前后八小时的流水被归到了相邻的一天。\n\n读了 `Makefile` 里的 `recon-finance`、`pipelines/tools/recon_finance.py` 和 `sources/finance_export.py`：报表一侧取的是 `rpt.daily_sales` 当天的营收，`daily_sales` 本身按北京时间切日；财务一侧从财务的 SFTP 取当天的收款明细，`交易时间` 这一列是不带时区的字符串，`finance_export.py` 解析时统一标成了 UTC，再按日期汇总，等于把北京时间 0 点到 8 点的流水算到了前一天。每天两头一进一出，差额不大但几乎天天有，和你看到的对得上。\n\n- **改法**：`finance_export.py` 把 `交易时间` 按 `Asia/Shanghai` 解析，汇总前不再转时区；这一步的时区假设写进了函数的 docstring，免得以后有人再改回去。\n- **验证**：`tests/sources/test_finance_export.py` 加了跨零点的用例（北京时间 00:30 的收款要算在当天），`make test` 全过。对账要连财务的 SFTP，我这里没有 VPN 跑不了，需要你跑一下 9 月 30 日。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "跑了 还是 diff=-3577.25 一分都没变"
+    },
+    {
+      "role": "assistant",
+      "text": "一分不变说明 30 日这天财务那边的数本来就没受时区影响，差的是另外一类订单。换了个思路：把我们这边当天的明细按类型拆开，看哪一类正好差出来。\n\n本地把 `daily_sales` 30 日的计算跑了一遍，不写表，把参与汇总的订单和退款明细导出来，按支付渠道、订单类型、有没有退款分组求和。分组合计和订单表直接 `SUM(pay_amount)` 再减退款对不上，多减的部分集中在「有多次部分退款的订单」：`daily_sales.py` 先把订单和退款按 `order_id` 外连接再求和，一个订单有两次部分退款时连出两行，订单金额被算了两次，退款也各减了一次，净额被拉低。\n\n- **改法**：退款先按 `order_id` 聚合成总额再连接，不再一行退款连一次；连接后加了断言，订单行数必须和连接前一样。\n- **验证**：加了「一个订单两次部分退款」的用例，`make test` 全过。按新逻辑本地重算 30 日，营收的变化是 +1912.40，不完全等于 3577.25，可能还有别的差异；你再跑一下 `make recon-finance D=2026-09-30` 看剩多少。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是 -3577.25"
+    },
+    {
+      "role": "assistant",
+      "text": "还是同一个数，说明前两次改动都没碰到对账真正读的东西：`recon-finance` 读的是 `rpt.daily_sales` 表里 30 日那一行，是 10 月 1 日凌晨定时任务写进去的，之后没人重算过。\n\n看了 `Makefile` 和 `recon_finance.py`：`recon-finance` 是 `uv run python -m pipelines.tools.recon_finance --date $(D) $(ARGS)`，报表一侧直接从 `rpt.daily_sales` 按 `biz_date` 读 `gmv` 和 `refund_amount` 再求和，不会重新计算。上次的退款修正只改了代码，表里那一行还是旧逻辑算出来的；`meta.etl_runs` 里 `daily_sales` 9 月 30 日只有 10 月 1 日 02:31 那一条 `success`。另外它把各门店各渠道的金额读成 float 再累加，几百行相加会有几分钱的误差，也一起改了。\n\n- **改法**：`recon_finance.py` 加 `--recompute`：先走和定时任务同一条路径 `python -m pipelines daily_sales --date <日期>` 重算并写回那一天，再对账；金额读出来统一用 `Decimal` 累加。\n- **验证**：`make test` 全过；加了一个用例，断言带 `--recompute` 时先调用了日报重算、再读表。需要你跑 `make recon-finance D=2026-09-30 ARGS=--recompute`，它会先重写 30 日那一行。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "`make recon-finance D=2026-09-30 ARGS=--recompute`\n`AssertionError: revenue mismatch: report=6184530.17 finance=6188107.42 (diff=-3577.25)`"
+    }
+  ],
+  "middle_hint": "中间是同一个仓库里别的活：接新数据源、给几条管道补测试、把脚本从 pandas 迁到 polars、整理 cron、写文档等，和财务对账的差额无关，没有再提这个问题。"
+}

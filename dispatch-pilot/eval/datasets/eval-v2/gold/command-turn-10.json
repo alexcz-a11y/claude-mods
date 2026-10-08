@@ -1,0 +1,26 @@
+{
+  "id": "command-turn-10",
+  "effort": "xhigh",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后一条是 /fix-ticket #164，说 cardpay 的单 webhook 里 paid_at 还是 0001-01-01。决定性几轮里同一张票已经修过两次、两次上线后用户都说还有：第一次改了 OnPaid 用旧的 order 生成 payload，第二次改了补单路径没解析支付时间和零值判断用 == 的问题；第三次回报时用户发现只剩 cardpay 的单，助手核对后承认两次改动都没碰到原因，渠道报文、库里的值、ApplyNotification 的入参都是对的，零值是在写进 outbox 之后丢的，还没查。这次命令是第三次修这个问题，而且已知的简单解释都排除了，要从 outbox 往后一段一段追：xhigh；按约定命令轮算一次尝试，前面两次都失败，把它看成反复未果的疑难问题给 max 也可以。删掉决定性几轮，中间都是别的事，最后一条看起来就是第一次按票修一个 webhook 字段为零值的缺陷，要复现、定位、修复、补测试：high。三选一：d1 第一次提出问题，new_or_unrelated；d2、d3 都说上线后还有零值，still_unresolved；最后一条隔着别的活说 cardpay 的单还是 0001，still_unresolved。审稿改动（金标未变）：d3 回复里报文样例的日期从 10-08 改成 09-24，免得决定性几轮落在中间段提到的 10 月上旬那些事之后。",
+  "source": "agreed"
+}

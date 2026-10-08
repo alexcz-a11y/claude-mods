@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-09",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里 #916 只做了一轮只读梳理就挂起了（封版期间发不了，票里讨论都是推测）；客服转来的 c27e90b4 那单已经查清：是短信登录被 user-svc 风控 geo_anomaly 挡回的 403 risk_blocked，24 小时后自动解除，没进 ticket.ts，和 #916 无关，助手连给客服的回复大意都写好了，用户说这单不算、回头再回。最后一条是让写两句不太技术的回复转给客服：结论现成，改写成两三句话，low；措辞要斟酌一下给 medium 也可以。删掉决定性几轮，中间全是 #916 的排查，只看最后一句不知道 c27e90b4 是什么情况，要按 requestId 去日志里查这次请求、判断是不是 #916、再写回复，medium。三选一：d1 第一次提出 #916，new_or_unrelated；d2 客服说又出了一单同样的问题，用户转来让核，按用户的话是问题又出现，still_unresolved；d3 说这单不算、#916 先挂着，问题没解决，still_unresolved；最后一条是给一张已查明和 #916 无关的工单写回复，new_or_unrelated。"
+}

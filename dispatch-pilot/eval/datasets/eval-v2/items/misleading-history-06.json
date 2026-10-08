@@ -1,0 +1,60 @@
+{
+  "id": "misleading-history-06",
+  "category": "misleading-history",
+  "domain": "ios",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "3.7.1 上线以后有几个老用户说 打开 App 就白屏 十几秒以后自己退了 Crashlytics 里一条都没有 有个用户把系统日志导出来发我了 里面是 `Termination Reason: FRONTBOARD 2343432205 <RBSTerminateContext| domain:10 code:0x8BADF00D explanation:scene-create watchdog transgression: application<com.acme.ledger>:2291 exhausted real (wall clock) time allowance of 19.97 seconds>` 几个人都是记了好几年账的 你看看"
+    },
+    {
+      "role": "assistant",
+      "text": "是启动时在主线程上逐笔重算账户余额，账多的用户超过了系统给场景创建的 20 秒，被看门狗杀掉了。这不是崩溃，是系统直接结束进程，所以 Crashlytics 收不到。先改了一版，把重算挪到后台。\n\n**为什么只有老用户**\n\n- 3.7.0 为了修「有转账的账户余额偶尔和流水对不上」，把 `AccountRepository.balances()` 从 SQLite 求和改成了把每个账户的全部 `BillEntity` fetch 出来、在内存里逐笔把 `Decimal` 加起来；首页的 `HomeViewModel` 在场景创建时同步调它，跑在 `viewContext` 上，也就是主线程。\n- 没有设 `fetchBatchSize`，所有账单对象一次性实例化。\n- 记了五六年账的用户，账单七八万笔；新用户几百笔，感觉不到。\n\n**复现**\n\n写了个脚本 `scripts/make_seed_store.swift`，按每天 40 笔、6 年、8 个账户造了一个 8.7 万笔账单的库，装到 iPhone XR 上从桌面冷启动（模拟器和连着调试器时没有看门狗，所以用真机）：白屏 22 秒后被杀，系统日志里的 `0x8BADF00D` 和用户发来的一样。Instruments 的 Time Profiler 里主线程 94% 的时间在 `balances()` 里，大头是对象实例化和 `Decimal` 相加。\n\n**第一版改法**\n\n- `balances()` 改到后台 context 上跑，首页先出来，余额先用上次存在 `UserDefaults` 里的那份顶着，算完再刷新。\n- 同一台 XR 上冷启动到首屏 1.2 秒，后台重算 19 秒左右跑完。\n\n`LedgerTests` 全部通过。打了 3.7.2 (4049) 传到 TestFlight 了，你发给那几个用户试试。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Write",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "4049 装了 白屏是没了 但首页余额先显示一串错的 过十几秒才跳成对的 有个用户截图来问是不是丢钱了 这样也不行"
+    },
+    {
+      "role": "assistant",
+      "text": "余额在后台算出来之前，首页显示的是上次存下来的旧值，所以先错后对。第二版不再逐笔加，改回让 SQLite 直接求和，同时把 3.7.0 想修的那个转账问题修对，冷启动时首屏出来余额就是对的。\n\n**改法**\n\n- **求和交给 SQLite**：`AccountRepository.balances()` 改用字典结果的分组求和：`NSExpressionDescription` 做 `@sum`，`resultType = .dictionaryResultType`，按账户和收支类型分组，不实例化任何账单对象。转账按转出账户、转入账户各分一次组，余额 = 初始余额 + 收入 − 支出 + 转入 − 转出。8.7 万笔的库上 8 个账户一共 0.3 秒。\n- **3.7.0 那个对不上的问题**：翻了 3.6 的旧写法，转账只在转出账户减了一次，转入账户那边漏加了，3.7.0 改成逐笔加是绕开了它；这次分组求和里两边都算上了。\n- **启动顺序**：求和在后台 context 上跑，首页余额区域在结果回来之前显示骨架占位，不再显示旧值，`UserDefaults` 里那份旧余额删掉了。实测结果总在首屏渲染之前就回来，用户基本看不到占位。\n- 数据模型没动，不用加模型版本。\n\n**验证**\n\n- `AccountRepositoryTests` 加了 6 个用例：和逐笔相加的结果一致（含负数、信用卡账户、转账两边、回收站里的账单不算）。\n- `xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16'` 全部通过。\n- iPhone XR 加 8.7 万笔：冷启动到首屏 1.1 秒，首屏出来时余额已经是对的；照那几个用户以前反馈过对不上的转账场景造了数据，结果都对。\n\n**顺带看到一件无关的事**\n\nTime Profiler 里账单列表滚动时，每天分组标题的日期格式化占了主线程 6%：`Ledger/Features/Bills/BillDayHeader.swift` 的 `dateText` 每次都新建一个 `DateFormatter` 再设模板，这个对象创建起来很贵。和这次白屏没关系，改起来也就三五行（按 `Locale.current.identifier` 缓存一个），这次没动，免得混在一起。\n\n打了 3.7.2 (4050) 传 TestFlight 了。",
+      "tools": [
+        "Read",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "4050 外测发了两天 那几个用户都说好了 一打开就是对的余额 这事结了 你说的分组标题那个 formatter 先记着 这版不带"
+    },
+    {
+      "role": "assistant",
+      "text": "好，formatter 这版不带。\n\n4050 这两天的情况我也看了：TestFlight 里没有新的崩溃和卡死报告；余额求和的启动耗时埋点 p99 是 0.42 秒，最慢的一台是 iPhone 11、9.6 万笔账单，0.9 秒。\n\n**formatter 那个以后改的时候**\n\n只动 `BillDayHeader.swift` 一个文件：把每次新建的 `DateFormatter` 换成按 `Locale.current.identifier` 缓存的静态字典。现在调用方都在主线程，给它标 `@MainActor` 就不用加锁。用户在系统设置里改了语言或地区，`identifier` 跟着变，会自动用新的那个，不用监听通知。改完加一个换地区以后标题跟着变的用例，再跑一下账单列表的快照测试就行。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "之前说的分组标题每次都 new DateFormatter 的那个 这版顺手改了吧"
+    }
+  ],
+  "middle_hint": "中间是同一个仓库 Ledger 里别的活（加功能、改文案、补测试、评估方案等），和启动白屏无关。"
+}

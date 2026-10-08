@@ -14,8 +14,9 @@
 | `skill.jsonl`，加上 `skill-catalog.json`、`skill-profiles.json` | skill 匹配（用本机真实的 skill 目录出题） | #16 |
 | `unresolved.jsonl` | 和主 agent 为同一个问题来回多轮都没解决时，发消息时判出的主 agent effort（以及这条消息和之前的问题是什么关系） | #37（spec #36） |
 | `long-context.jsonl`，加上 `long-context-summaries.json` | 决定答案的几轮在很长的对话里很早的位置时，决策模型读多远、读更多带来多少准确率（只有中文对话；由 `long-context-items.ts` 生成） | #44 |
+| `eval-v2/`（素材池、题目、两份金标、`generated.json`），生成 `eval-v2.jsonl`（不提交） | 多 agent 出题的 120 题长对话真实流程评测（只有中文对话）；格式见 `eval-v2/FORMAT.md` | #45 |
 
-每个文件约 100 题（`unresolved.jsonl` 约 30 题，其中一部分对话很长），每行一个 JSON 对象，UTF-8，不加注释。
+每个文件约 100 题（`unresolved.jsonl` 约 30 题，其中一部分对话很长），每行一个 JSON 对象，UTF-8，不加注释。eval v2 不是这种一行一题的手写文件：它的来源是 `eval-v2/` 下一个个 JSON 文件，格式和规则全在 `eval-v2/FORMAT.md`（见文末「eval v2」）。
 
 **名字的例外。** 术语表（仓库根目录的 `GLOSSARY.md`）不用「子 agent」「subagent」，统一叫「派出 agent」。`subagent.jsonl` 这个文件名、题号 `subagent-001` 起、suite 名 `subagent` 和 `results/subagent/` 都保留原来的写法：结果文件、审核记录和 issue 里的讨论都按这些名字引用，改名只会让它们对不上。新写的说明和代码里的标识符仍用「派出 agent」。
 
@@ -216,6 +217,10 @@ effort 题的 `accept` 必须是连续的档位（例如 `["high","xhigh"]`，�
 `zh-` 和 `en-` 只是问题（effort 题、三选一题）用哪种语言写，对话都是中文。要用 `--languages zh` 跑（`en` 行没有对话，会失败）。每个回答的 `detail.seen` 记着这次的 state 里有没有决定性几轮（`recent_context` 里有它第一条消息的开头），`detail.stateTokens` 记着 state 的估算大小，`detail.kept` 记着留下几条消息；结果文件里每个回答的 `state` 是摘要（`stateDigest`：短字段原样，对话只记字符数、行数、第一行和最后一行的开头），因为一个 state 就有几十万字节。
 
 **问题摘要**（`long-context-summaries.json`，`zh-flow` 用）：mod 在每个用户回合之后让便宜的模型续写问题摘要。`node dispatch-pilot/eval/long-context-summaries.ts` 对每题 deep 的对话逐轮做同样的事：用 mod 自己的 `summaryPrompt`、`SUMMARY_SYSTEM`、`readSummary`（同样的脱敏、截断、500 token 上限），模型是 `claude -p --model haiku`（用你自己的登录和订阅，写法同 `profiles.ts`），决定性几轮里用户消息的 `says` 照 mod 的两档门槛的作用移动摘要（`unresolved` 给最后一条尝试标「未解决」，`resolved` 和 `new` 清空重写）。每题存：摘要、次数、对话的指纹（对话或中间轮次变了，摘要就作废，suite 会拒绝用）、问了多少轮、几轮没有拿到摘要。没有文件、或指纹不对、或次数和决定性几轮算出来的不同时，`zh-flow` 的回答是失败，说明原因，**不编摘要**。
+
+### eval v2（#45）
+
+120 题的长对话，由多个 agent 写成：素材作者写**素材段**（`eval-v2/pool/`，一段一轮普通工作，3000 到 5000 token，`same-problem` 段用占位符代替问题的名字），出题作者写**题目**（`eval-v2/items/`，开头、决定性几轮、最后几轮，不含答案）和**出题者金标**（`eval-v2/gold-author/`），标注者双盲另写一份（`eval-v2/gold-labeler/`）。`eval/eval-v2-gen.ts` 按种子把素材段拼进每一题，写出 `eval-v2.jsonl`（几十 MB，不提交）和提交的 `eval-v2/generated.json`（种子、JSONL 的 sha256、每题的深度和长度）；`validate.ts` 每次重新生成并核对。文件格式、占位符、四个深度档、生成规则、检查命令都在 `eval-v2/FORMAT.md`，规则的代码在 `eval/lib/eval-v2.ts`；作者自查用 `node dispatch-pilot/eval/eval-v2-check.ts <文件或目录>`。
 
 ## 来源
 

@@ -1,0 +1,70 @@
+{
+  "id": "implicit-unresolved-05",
+  "category": "implicit-unresolved",
+  "domain": "docs-writing",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "参数表的锚点跳转",
+    "SYMPTOM": "点参数链接跳过去偶尔停在页面顶上，刷新一下又能跳到对应的参数",
+    "ERROR": "- Broken anchor on source page path = /docs/api/messages/create: -> linking to /docs/guides/webhooks#param-event-id",
+    "FILE": "docs/guides/webhooks.mdx",
+    "FILE2": "docs/_snippets/webhook-event-fields.mdx",
+    "SYMBOL": "ParamTable",
+    "COMMAND": "npm run build"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "这两天 build 日志里时不时冒出一个断锚的警告 不是每次 三次里一次左右 构建本身是过的\n- Broken anchor on source page path = /docs/api/messages/create: -> linking to /docs/guides/webhooks#param-event-id\n反馈组件里也有人说从消息接口页点参数链接跳到 webhooks 指南 有时候停在页面顶上 刷新一下又能跳到对应的参数 锚点是 ParamTable 生成的 页面是 docs/guides/webhooks.mdx 你查一下 修了它"
+    },
+    {
+      "role": "assistant",
+      "text": "找到一处会让这个锚点对不上的地方：webhooks 指南里 `event_id` 这个参数出现了两次，一次在顶层、一次在 `data` 下面，`ParamTable` 给重名的参数自动加后缀，哪一个拿到 `param-event-id` 取决于两张表谁先渲染。已经改成按参数的完整路径生成锚点，链接也跟着改了，本地冷构建 4 次都没再出现这条警告。\n\n**原因**\n\n- 读了 `src/components/ParamTable/index.js`：每一行的 `id` 是 `param-` 加参数名的 slug，同一页里重名时在后面加 `-1`、`-2`。\n- `docs/guides/webhooks.mdx` 用了两次 `ParamTable`：上面是事件公共字段（从 `docs/_snippets/webhook-event-fields.mdx` 引进来的），下面是 `message.delivered` 的 `data` 字段，两张表里都有 `event_id`。\n- `docs/api/messages/create.mdx` 第 64 行链到 `/docs/guides/webhooks#param-event-id`，本意是顶层那个。如果下面那张表先拿到 `param-event-id`，顶层那个就变成 `param-event-id-1`，链接就断了，读者点过去也就停在页面顶上。\n\n**改法**\n\n- `ParamTable` 加了一个可选的 `path` 前缀，`id` 改成 `param-<路径>-<名字>`，不再靠出现顺序加后缀：顶层的是 `param-event-id`，`data` 下面的是 `param-data-event-id`。\n- webhooks 指南里第二张表传 `path=\"data\"`；`create.mdx` 的链接不用动。中文那份 `i18n/zh/.../guides/webhooks.mdx` 同样改了。\n\n**验证**\n\n- `npm run clear` 后 `npm run build` 冷构建 4 次，en 和 zh 两轮都没有断锚警告。\n- `npm run serve` 起来点了一下：从消息接口页点 `event_id` 能跳到顶层那一行，`data.event_id` 那一行的锚点是新的名字。\n\n推上去以后多看几次 CI 的 build 日志？",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "合进去以后 CI 跑了五六次 又出了两次 还是这行\n- Broken anchor on source page path = /docs/api/messages/create: -> linking to /docs/guides/webhooks#param-event-id"
+    },
+    {
+      "role": "assistant",
+      "text": "还有一处会让 Docusaurus 认不出这个锚点：`ParamTable` 的锚点是直接写在 `<tr id>` 上的，没有通过 `useBrokenLinks().collectAnchor()` 报给 Docusaurus。断锚检查只认收集到的锚点，标题是 `<Heading>` 自动报的，自定义组件里的 `id` 要自己报。已经补上，本地冷构建 6 次干净。\n\n**怎么查的**\n\n- 读了 `node_modules/@docusaurus/core/lib/server/brokenLinks.js`：检查时拿每个页面「收集到的锚点」去对链接里的 `#...`，收集靠渲染时调用 `collectAnchor`；`@docusaurus/theme-classic` 的 `Heading` 组件里有这一句，我们的 `ParamTable` 里没有。\n- webhooks 指南里恰好有一个小标题叫「event_id」（`### event_id`，在「去重」那一节），它生成的锚点是 `event_id`，不是 `param-event-id`，所以帮不上忙；之前大多数构建没报，是因为 `ParamTable` 里另有一处 `<Link to=\"#param-...\">` 的自引用，`Link` 收集链接时顺带把目标当成了已知锚点，这条路径并不总是走到。\n- 上次改完我本地 4 次都没出，是运气，这个问题本来就只在三成多的构建里出现。\n\n**改法**\n\n- `ParamTable` 里每一行渲染时调 `useBrokenLinks().collectAnchor(id)`，和 `Heading` 的做法一致。\n- 去掉了那处自引用的 `<Link>`，参数名旁边的「#」改成普通的 `<a href>`，免得以后再靠副作用凑巧通过。\n\n**验证**\n\n- 冷构建 6 次，en 和 zh 都没有断锚警告；又故意把 `create.mdx` 的链接改成一个不存在的 `#param-xxx`，构建能报出来，说明检查还在起作用，改回去了。\n- `npm run lint:md` 通过。\n\n再看几次 CI？",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "又出了 今天上午三次构建里有一次 还是那条 跳转那个也还有人反馈"
+    },
+    {
+      "role": "assistant",
+      "text": "这次找到的是锚点生成里的共享状态：`ParamTable` 用的 slug 函数来自一个模块级的 `GithubSlugger` 实例，这个实例会记住生成过的每个 slug，重复的自动加 `-1`。Docusaurus 静态生成时同一个进程里并发渲染很多页，各页共用这一个实例，某一页先生成过 `param-event-id`，webhooks 指南再生成就成了 `param-event-id-1`，谁先谁后每次构建不一样。已经改成每次渲染单独算，不再共享。\n\n**怎么查的**\n\n- 在一份单独的 worktree 里给 `ParamTable` 加了一行临时日志，打出每次生成的页面路径和 `id`。冷构建 10 次，3 次里 webhooks 指南的顶层 `event_id` 拿到的是 `param-event-id-1`，那 3 次正好就是出现警告的 3 次。\n- 往上追：`src/components/ParamTable/slug.js` 顶部 `const slugger = new GithubSlugger()`，`slug(name)` 调的是 `slugger.slug(name)`。`GithubSlugger` 的实例方法会记录出现次数，本来是给单页用的。消息接口页的参数表里也有 `event_id`，两页在同一个进程里渲染，谁先谁就拿走不带后缀的那个。\n- 读者那边「刷新又好了」也说得通：站内跳转时浏览器里也在共用这个实例，先打开过别的有 `event_id` 的页面，再跳过去生成的 `id` 就带了后缀；直接刷新就重新从零开始。\n\n**改法**\n\n- `slug.js` 改成导出无状态的 `slug()`（`github-slugger` 包本身就带这个函数），不再用实例。\n- 同一张表里重名的情况由 `ParamTable` 自己在一次渲染里用局部的 `Set` 处理，加上上一轮的 `path` 前缀，正常文档里已经不会再重名。\n- 临时日志和 worktree 都删了。\n\n**验证**\n\n- 冷构建 10 次，0 次警告；临时日志确认 10 次里 webhooks 指南的 `id` 都是 `param-event-id`。\n- 浏览器里先打开消息接口页、再从侧边栏跳到 webhooks 指南，`event_id` 那一行的 `id` 没有后缀，点参数链接也能跳到。\n\n合进 main 了，后面 CI 的构建日志再看看。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "今天 CI 的 build 日志\n- Broken anchor on source page path = /docs/api/messages/create: -> linking to /docs/guides/webhooks#param-event-id"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的继续排查：理 ParamTable 的用处和数据来源、对比中英文页面和构建产物、统计 CI 构建日志里这行的出现率、看缓存和依赖、翻反馈和部署记录，没有新的修改，也没有结论。"
+}

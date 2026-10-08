@@ -1,0 +1,25 @@
+{
+  "id": "implicit-unresolved-04",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "d1 提出 prompt-guard 在长 prompt 里超过 50ms 被丢弃；三轮修复（缓存规则、挪进 $.state、增量扫描）之后用户 d2、d3 都说还是一样。中间是不相关的别的 mod 的活，最后一条回来说长 prompt 里 token 还在、日志还是同一句，同一问题三轮修复都失败后再提，按约定是 max。没有决定性几轮时，中间都不相关，最后一条是一个报错明确、原因指向 50ms 预算的性能 bug，按调试判 high。"
+}

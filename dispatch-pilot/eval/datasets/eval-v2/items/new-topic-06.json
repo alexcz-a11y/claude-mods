@@ -1,0 +1,54 @@
+{
+  "id": "new-topic-06",
+  "category": "new-topic",
+  "domain": "docs-writing",
+  "bin": "d2",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "API 参考页参数表的默认值列",
+    "SYMPTOM": "参数表里默认值那一列偶尔整列是空的，刷新一下又正常",
+    "ERROR": "[WARNING] Docusaurus static site generation emitted a warning: Cannot read properties of undefined (reading 'default') (at assets/js/main.7b41c2e9.js:2:18311)",
+    "FILE": "docs/api/messages/batch-send.mdx",
+    "FILE2": "docs/_snippets/common-send-params.mdx",
+    "SYMBOL": "ParamDefault",
+    "COMMAND": "npm run clear && npm run build"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "API 参考那几页 参数表里默认值那一列有时候整列是空的 反馈里有两个人说了 我自己打开是好的 有一个说刷新一下就有了 CI 的构建日志里这两天还冒出一行 `[WARNING] Docusaurus static site generation emitted a warning: Cannot read properties of undefined (reading 'default') (at assets/js/main.7b41c2e9.js:2:18311)` 以前没见过 你看看 先从 docs/api/messages/batch-send.mdx 看吧"
+    },
+    {
+      "role": "assistant",
+      "text": "先把页面、组件和最近的构建日志看了一遍，代码没动：默认值那一列是 `ParamDefault` 渲染的，构建日志里那一行从 9/24 下午那次部署开始出现，之后大约三成的构建里有；它和读者看到的空列是不是一回事，现在还说不了。\n\n- **页面和组件**：`docs/api/messages/batch-send.mdx` 里的参数表是 `<ParamTable>`，每个参数的默认值交给 `src/components/ParamTable/ParamDefault.tsx`，按类型格式化以后显示（数字、布尔、枚举、对象各一种写法），没有默认值的显示「—」。整列是空的，说明这一列每一行都没渲染出东西，连「—」都没有。API 参考下面用到 `ParamDefault` 的页面不少，两条反馈说的是 batch-send 和另外一页。\n- **两条反馈**：9/25 上午一条，batch-send 中文页，Chrome / Windows；9/26 下午一条，另一页的英文版，Safari / macOS，说 reload 以后就好了。\n- **构建日志**：`gh run list` 拉了 `ci.yml`、`preview.yml`、`deploy.yml` 7 月以来的日志，按这一行固定不变的那段 `grep -F`：9/24 15:49 第 538 次部署之前一次都没有，之后 31 次构建里 11 次有。同一个提交的 `ci.yml` 和 `preview.yml` 有时一个有一个没有。这一行都落在 `Compiled successfully` 之后、`[SUCCESS] Generated static files` 之前，也就是静态生成那一段。\n- **9/24 前后合进来的**：#1201（小周的翻译大同步，9/24 上午）、#1205（9/24 下午，batch-send 改了 11 行，其中 4 行是 `ParamDefault` 的用法），再往前 9/22 有 #1192 的依赖升级。时间上都对得上，分不出是哪个。\n- **本地试了**：`npm run clear && npm run build` 冷构建 6 次，2 次有这一行；`npm run serve` 起来，batch-send 中英文各打开 30 次，一次空列都没碰到。\n\n下一步想把有这一行和没有这一行的两次构建产物里 batch-send 的 HTML 拿出来对比，只读。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "前天又有一个 另一页的中文 手机上 还是默认值那列空的"
+    },
+    {
+      "role": "assistant",
+      "text": "默认值那列还是没有结论，代码没动。另外翻预览站的运行记录时看到一件不相干的事，放在最后。\n\n**默认值那列**\n\n- 前天那条是 9/30 中午，第三个页面的中文版（不是 batch-send，也不是 9/26 那页），Android 上的 Chrome。按 CloudFront 失效完成的时间对，那会儿线上挂的是第 546 次部署，它的构建日志里有那一行；9/25 那条对到 539，没有这一行；9/26 那条对到 541，有。三次里两次落在「有这一行」的版本上，一次不在，而有这一行的版本在线时间本来就占三成左右，这点样本说明不了它们有关系。\n- batch-send 的 HTML 对比做了：538（有这一行）和 539（没有）两次产物里，默认值那一列的 HTML 一模一样，每一格都有值。也就是说服务端生成出来的页面是好的，如果读者那边真是空的，更像是浏览器里接管页面以后才变成空的。\n\n**顺带看到的，和这个问题无关**\n\n想找一个改过 batch-send、预览站还在的 PR 当对照（没有：最近的 #1205 合并已经超过 7 天，预览目录被清理任务删了），翻 `preview.yml` 最近的运行时看到：9/30 下午以后，每次运行最后一步 `Comment preview URL` 都失败，报 `HttpError: Bad credentials`。\n\n- 这一步不用 `GITHUB_TOKEN`，用的是 secret `DOCS_BOT_TOKEN`，也就是 `docs-bot` 机器人账号的个人访问令牌，为的是评论显示成机器人发的。`gh secret list` 看它的更新时间是 2025-09-30，那一步上面的注释写着「令牌一年有效，到期前在 docs-bot 账号里重新生成」，日期正好对上，是到期了。\n- 这一步写了 `continue-on-error: true`，所以 job 还是绿的，PR 上看不出来。前面的构建和上传都正常：这几天新 PR 的 `pr-<号>/` 目录都在 `acme-docs-preview` 桶里，直接打开 `https://preview.docs.acmenotify.com/pr-<号>/` 能看到最新的构建，只是 9/30 以后开的 PR 下面不会再有预览地址的评论。\n- 要恢复得有人在 `docs-bot` 账号里重新生成令牌，再更新仓库的这个 secret，这两样我都没有权限，先记在这。\n\n默认值那列，下一步想在浏览器里把水合前后这一列的 DOM 录下来，你看行不行。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "参数表那个先放着 小周问他这两天提的 PR 怎么都没有预览地址的评论了 是预览站挂了吗 你跟我说下怎么回事就行 我回他"
+    }
+  ],
+  "middle_hint": "中间继续排查 API 参考页参数表默认值那一列偶尔是空的问题：对比构建产物和线上版本、翻构建日志、看 ParamDefault 和相关组件、在浏览器里复现、加观测，没有改实现，也没有结论。"
+}

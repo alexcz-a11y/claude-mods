@@ -1,0 +1,33 @@
+{
+  "id": "misleading-history-08",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里 order-api 发版 502 连改三次（preStop 和宽限期、健康检查改 /readyz、后端 IdleTimeout）都没用，用户最后放弃了，让把改动撤回；同一轮里 DBA 想开的 Performance Insights 已经在分支 chore/rds-pi 上准备好了：模块加了两个变量、三个实例设成 true、staging plan 是就地修改、不用重启、prod 要等维护窗口，用户说等 DBA 确认费用再开、跟 502 没关系。最后一条是 DBA 确认了，staging apply、prod 开 PR：照着已经准备好、plan 过的分支执行，low；中间隔了十几万 token，main 上 rds-postgres 模块可能被别的需求改过，rebase 时要处理一下冲突、重新 plan，给 medium 也可以。删掉决定性几轮，只看最后一句是从零给 RDS 模块加 PI 支持并在两个环境开启，要查模块、看会不会重启、apply_immediately、费用，再 plan、apply、开 PR，medium。前面那么长的 502 排查和这条消息无关，不该被带高。三选一：d1 第一次提出 502，new_or_unrelated；d2、d3、d4 每次改完都说还是有 502，still_unresolved；d5 说不查了、把改动撤回，502 并没有解决，只是放弃，still_unresolved；最后一条是开 PI，用户已说明和 502 无关，new_or_unrelated。"
+}

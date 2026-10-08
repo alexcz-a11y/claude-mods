@@ -1,0 +1,52 @@
+{
+  "id": "looks-hard-is-easy-12",
+  "category": "looks-hard-is-easy",
+  "domain": "backend-api",
+  "bin": "d4",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "收银台确认支付接口的偶发 500",
+    "SYMPTOM": "确认支付时偶尔直接报 500",
+    "ERROR": "confirm payment: build order.paid event: payload failed schema validation",
+    "FILE": "internal/service/order_pay.go",
+    "FILE2": "internal/service/order_status.go",
+    "SYMBOL": "OrderService.ConfirmPayment",
+    "COMMAND": "go test ./internal/service -run TestConfirmPayment -race -count=20"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "确认支付偶发 500 那个 `confirm payment: build order.paid event: payload failed schema validation` paylink 的技术支持今天回了 原话贴过来 你对着看看是不是这个 OrderService.ConfirmPayment 先别动\n<pasted_content id=\"c39d\">\n您好，关于贵司反馈的确认支付异常，我们这边排查如下：\n1. 8 月 3 日起，数字人民币和部分银联云闪付通道的交易按比例灰度到新清算核心，同一个通道里也只有一部分交易走新核心，不按商户分\n2. 新核心出的交易号 pl_trade_no 由原来的 PL+16 位数字扩为 PL+18 位数字，老核心的交易号不变，两种会并存一段时间\n3. 沙箱环境仍是老核心，交易号都是 16 位\n4. 正式的接口文档会在下个版本更新，届时以文档为准\n</pasted_content id=\"c39d\">"
+    },
+    {
+      "role": "assistant",
+      "text": "就是这个。最近 7 天 389 次这个报错，按订单回查 `payments.channel_txn_id`，389 笔全是新格式（PL 加 18 位数字）；同期新格式的确认支付一共就是这 389 笔，也就是新格式的每一笔都失败了，老格式的一笔没受影响。原因是事件 schema 里交易号的格式写死成了 `^PL\\d{16}$`，`ConfirmPayment` 组装 `order.paid` 事件时校验不过，事务回滚，handler 落到默认分支给了 500。代码没动。\n\n**怎么对的**\n\n- 用 logcli 拉了 prod 最近 7 天带这句报错的日志，取 `order_id`，在只读库上查对应的 `payments` 记录：389 笔的 `channel_txn_id` 都是 20 个字符，`channel` 是 `dcep` 312 笔、`unionpay_qr` 77 笔。\n- 反过来查同期所有 20 位交易号的确认支付请求，也是 389 笔，全部 500；16 位的 9 万多笔，没有一笔是这个报错。\n- staging 一次都没出现过，和第 3 条对得上：沙箱只出 16 位交易号。\n\n**错误是在哪一步冒出来的**\n\n`ConfirmPayment` 里 `UpdateOrderStatus` 之后调 `events.New(events.OrderPaid, payload)` 组装事件，`events.New` 会拿嵌在二进制里的 `api/events/order.paid.schema.json` 校验 payload，`channel_txn_id` 的 `pattern` 是 `^PL\\d{16}$`，20 位的过不了。错误被 `fmt.Errorf(\"build order.paid event: %w\", err)` 包了一层，`writeError` 认不出，给了 500 和 `INTERNAL`。后面的 `InsertOrderEvent`、`InsertOutboxEvent` 都没执行，事务回滚，订单状态没改成功，库里没有留下半截数据。这也解释了工单里「重试一两次就好了」「顾客换一种付款方式就好了」：重新发起是一笔新的交易，新核心只接一部分交易，多半就落回老核心，交易号还是 16 位；换成微信、支付宝本来就走老核心。\n\n**这个格式写在哪**\n\nGrep 了 `PL\\d{16}` 和 `PL[0-9]{16}` 两种写法：\n\n| 位置 | 数量 |\n|---|---|\n| `api/events/` 下的事件 schema（`order.paid`、`order.refunded`、`payment.captured` 等） | 14 个文件，每个 1 处 |\n| `api/openapi.yaml`（`Payment`、`Refund`、回调体等） | 9 处 |\n| `internal/handler/params.go`，商户按交易号查支付时的参数校验 | 1 处，写法是 `[0-9]{16}` |\n\n最后那一处现在的影响是：商户拿新格式的交易号来查，会被 400 拒掉，7 天里有 31 次。\n\n**复现**\n\n本地造一笔交易号 20 位的支付，跑 `go test ./internal/service -run TestConfirmPayment`，报的就是这一句；把 `order.paid` 的 `pattern` 改成 `^PL\\d{16}(\\d{2})?$` 以后就过了。另外从 prod 取了 3 笔真实的 `order.paid` payload（商户和金额脱敏了），放在本地的 `internal/events/testdata/order.paid/new-core-*.json`，没提交；这个目录下的样例会被现有的 schema 测试自动捡起来校验。\n\n**改法（没动）**\n\n格式改成新老两种都认：`^PL\\d{16}(\\d{2})?$`。写了个脚本 `scripts/txnid-pattern/main.go`：\n\n- 在 `api/events/*.schema.json` 和 `api/openapi.yaml` 里把旧的 pattern 换成新的（JSON 和 YAML 里反斜杠的转义写法不同，脚本两种都认），然后跑 `go generate ./internal/events` 重新生成嵌入的 schema；\n- `-dry-run` 只出 diff；`-check` 确认不再有旧 pattern，并跑一遍 `make openapi-lint`。\n\n在 `order.paid`、`order.refunded`、`payment.captured` 三个 schema 上试了一遍：复现的用例过了，3 份真实样例校验通过，`go test ./... -race` 全过。试完改回去了。`internal/handler/params.go` 那一处是 Go 的正则，写法不一样，要手改。\n\n**要提前说的**\n\n18 位是技术支持说的，他们第 4 条也说了以文档为准；新 pattern 是照这个写的。",
+      "tools": [
+        "Bash",
+        "Grep",
+        "Read"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "对上了 昨晚又来了 40 多条 都是数字人民币和云闪付的单 但先别改 paylink 说格式以文档为准 文档下周三更新 18 位是不是定死了得看文档 我们 schema 别照客服口头说的改 这几天你陪我把影响面理一下 业务那边要 哪些商户 多少笔 对账结算会不会被带坏"
+    },
+    {
+      "role": "assistant",
+      "text": "好，代码不动，脚本和 3 份样例都在本地，没提交。昨晚那 43 条也对了：全是 20 位交易号，`dcep` 39 笔、`unionpay_qr` 4 笔，分散在 27 家门店，最多的两家是 `m_31007` 和 `m_20931`，也就是量最大的两家。\n\n文档确认是 PL 加 18 位的话，到时候就是：\n\n1. `go run ./scripts/txnid-pattern -apply`：14 个事件 schema 和 `api/openapi.yaml` 里 9 处，`^PL\\d{16}$` 换成 `^PL\\d{16}(\\d{2})?$`，并重新生成嵌入的 schema。\n2. 手改一处：`internal/handler/params.go` 第 41 行 `var txnIDRe = regexp.MustCompile(\"^PL[0-9]{16}$\")` 改成 `var txnIDRe = regexp.MustCompile(\"^PL[0-9]{16}([0-9]{2})?$\")`\n3. `go run ./scripts/txnid-pattern -check`\n4. 3 份样例放进 `internal/events/testdata/order.paid/`，跑 `go test ./... -race`。\n\n影响面接下来按业务要的三块理：受影响的商户和订单（按门店、通道、天）；这些订单在我们库里和 paylink 那边的状态对不对得上，有没有顾客付了钱、订单却没确认的；日终对账和结算的任务读不读这个字段、会不会因为格式跳过。都只读。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "paylink 文档更新了 就是 PL 加 18 位 跟那天说的一样 回到确认支付 500 那个 昨晚又是一串 Sentry 上贴一条 按那天说的改\n<pasted_content id=\"e5b0\">\nconfirm payment: build order.paid event: payload failed schema validation\n  *fmt.wrapError\n    internal/handler/errors.go:41 handler.writeError\n    internal/handler/orders.go:388 (*OrderHandler).ConfirmPayment\n    internal/middleware/idempotency.go:96 Idempotency.func1\n    internal/middleware/auth.go:71 Auth.func1\ntags: env=prod  release=order-api@v1.45.1  route=POST /v1/orders/{orderID}/pay/confirm  status=500\nextra: order_id=ord_7R1C8V2N5Q  merchant_id=m_31207  channel=dcep\nevents: 9 in last 24h · first seen 2026-09-25 · last seen 2026-10-21 22:47\n</pasted_content id=\"e5b0\">"
+    }
+  ],
+  "middle_hint": "用户认了原因、等 paylink 文档更新之前先不改：中间是为业务同步影响面、继续围绕收银台确认支付接口的偶发 500 核对：理调用链和事务、看日志 trace 和监控、对 paylink 流水和回调、看依赖和配置、评估影响的商户和订单，没有新的改动，也没有新的结论。"
+}

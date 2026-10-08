@@ -1,0 +1,43 @@
+{
+  "id": "looks-hard-is-easy-01",
+  "category": "looks-hard-is-easy",
+  "domain": "perf",
+  "bin": "d1",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "双十一容量压测第一轮跑完了 staging 上 search 那个场景 29% 失败 阈值全红 是不是 search-svc 顶不住了 下周要交压测结论 你看下\n<pasted_content id=\"5b3e\">\n$ k6 run -e BASE_URL=https://search-svc.staging.internal bench/search.js\n  execution: local\n     script: bench/search.js\n     output: -\n  scenarios: (100.00%) 1 scenario, 1500 max VUs, 20m30s max duration (incl. graceful stop):\n           * search: Up to 800.00 iterations/s for 20m0s over 4 stages (maxVUs: 1500, gracefulStop: 30s)\n\nWARN[0388] Request Failed  error=\"Get \\\"https://search-svc.staging.internal/v1/search?q=%E7%BE%BD%E7%BB%92%E6%9C%8D&page=1\\\": dial tcp 10.20.3.41:443: socket: too many open files\"\nWARN[0388] Request Failed  error=\"Get \\\"https://search-svc.staging.internal/v1/search?q=%E4%BF%9D%E6%B8%A9%E6%9D%AF&page=2\\\": dial tcp 10.20.3.41:443: socket: too many open files\"\nWARN[0389] Request Failed  error=\"Get \\\"https://search-svc.staging.internal/v1/search?q=iphone15%E5%A3%B3&page=1\\\": dial tcp: lookup search-svc.staging.internal on 10.20.0.2:53: dial udp 10.20.0.2:53: socket: too many open files\"\nWARN[0389] Request Failed  error=\"Get \\\"https://search-svc.staging.internal/v1/search?q=%E6%8A%BD%E7%BA%B8&page=1\\\": dial tcp 10.20.3.41:443: socket: too many open files\"\n（同样的 WARN 后面还有六万多行 省略了）\n\n     ✗ status is 200\n      ↳  70% — ✓ 151204 / ✗ 63022\n     ✗ body has items\n      ↳  70% — ✓ 151198 / ✗ 63028\n\n   ✗ checks.........................: 70.58% ✓ 302402     ✗ 126050\n     data_received..................: 9.8 GB  8.1 MB/s\n     data_sent......................: 61 MB   51 kB/s\n     dropped_iterations.............: 18342   15.28/s\n   ✗ http_req_duration..............: avg=196.4ms min=0s      med=104.2ms max=30s   p(90)=388.1ms p(95)=1.12s\n       { expected_response:true }...: avg=128.7ms min=21.3ms  med=97.6ms  max=2.9s  p(90)=214.5ms p(95)=281.9ms\n   ✗ http_req_failed................: 29.41%  ✓ 63022      ✗ 151204\n     iterations.....................: 214226  178.5/s\n     vus............................: 1500    min=12       max=1500\n     vus_max........................: 1500    min=1500     max=1500\n\nERRO[1201] thresholds on metrics 'checks, http_req_duration{name:search}, http_req_failed' have been crossed\nError: Process completed with exit code 99.\n</pasted_content id=\"5b3e\">"
+    },
+    {
+      "role": "assistant",
+      "text": "不是 search-svc 顶不住，是压测机自己先顶不住了：失败的 63,022 个请求根本没发到服务上，报的是压测机这一侧的 `socket: too many open files`，服务那 20 分钟一切正常。原因是 `bench-runner-01` 上周重装以后，runner 服务的文件句柄软限制回到了默认的 1024，虚拟用户一过一千就不够用。这一轮的数据要作废重跑。\n\n**怎么判断失败在压测机这边**\n\n- **报错本身**：所有失败都是 `dial tcp ...: socket: too many open files`，还有一部分是 DNS 查询时的 `dial udp 10.20.0.2:53: socket: too many open files`。这是压测机在新建 socket 时被操作系统拒绝，请求连 TCP 握手都没开始。\n- **服务那一侧**：Grafana 上 search-svc staging 两个 pod 在压测那段时间 p99 在 260 到 310 ms 之间，5xx 为 0，CPU 最高 61%，Redis 和 ES 的面板也都平稳。Loki 里这段时间 `/v1/search` 的访问日志一共 151,3xx 条，和 k6 里成功的 151,204 基本对上，差的一百多条是 k6 发出去以后超时前没等到响应的。失败的那六万多个请求，服务端一条记录都没有。\n- **时间点**：第一条 WARN 在第 388 秒，对照 k6 的阶段配置，那一刻虚拟用户刚过 1,000。\n- **只看成功请求的延迟**：输出里 `{ expected_response:true }` 那一行，p95 282 ms，在 search 的阈值以内。阈值红是失败率和失败请求的 30 秒超时拖出来的，`dropped_iterations` 也是因为虚拟用户都卡在失败的请求上。\n\n**为什么是 1024**\n\n- 用 `gh run view` 看了这次 run 跑在 `bench-runner-01` 上。ssh 上去看 runner 进程的限制：`cat /proc/$(pgrep -f Runner.Listener)/limits` 里 `Max open files` 是软 1024、硬 524288。\n- 运维上周换了新镜像重装这台机器。旧机器上 runner 的 systemd unit 有一个 override 写了 `LimitNOFILE=65535`，新镜像里没有这个文件，于是回到 systemd 的默认值。k6 是 runner 起的子进程，继承同样的限制。\n- k6 每个虚拟用户各自保持连接，1,500 个虚拟用户再加上 DNS 查询和 k6 自己打开的文件，一千出头就到顶了。\n\n**验证**\n\n在压测机上用 runner 的用户手动跑了两次 2 分钟的小压测（在群里打过招呼），都是同一个脚本加 `--vus 1200 --duration 2m` 临时覆盖原来的场景：\n\n| 软限制 | 失败率 | 成功请求 p95 |\n|---|---|---|\n| `ulimit -n 1024` | 27.3%，报错和你贴的一样 | 279 ms |\n| `ulimit -n 65535` | 0 | 276 ms |\n\n**改法**\n\n硬限制是 524288，普通用户就能把软限制往上调，不用等运维：在 `.github/workflows/bench.yml` 里跑 k6 的那一步，`run:` 开头加一行 `ulimit -n 65535 && ulimit -n`（后半截把生效的值打进日志，以后一眼能看到）。就这一行。另一种做法是让运维把 unit 的 override 加回去，但那是机器上的配置，下次重装还可能丢。\n\n要我现在改 workflow，然后把第一轮重跑一遍吗？",
+      "tools": [
+        "Bash",
+        "Read"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "我刚在压测机上 ulimit -n 65535 以后手动把第一轮重跑了 0 失败 p95 290 好了 结论先按这一轮写 workflow 先别动 运维说压测机周五要重装成 24.04 新镜像会把 limit 调好 到时候再看"
+    },
+    {
+      "role": "assistant",
+      "text": "好，workflow 不动。你重跑这一轮的输出我在压测机上看了：`http_req_failed` 0，`dropped_iterations` 0，search 的 p95 290 ms、p99 412 ms，阈值全过，可以当第一轮的正式结果用。\n\n周五重装以后，跑压测前先确认一下限制有没有调上来：\n\n- 在压测机上 `cat /proc/$(pgrep -f Runner.Listener)/limits | grep 'open files'`，软限制应该是 65535 或更大；\n- 或者看 k6 输出里有没有 `too many open files`，第一条一般在虚拟用户过一千的时候出现。\n\n新镜像要是还是 1024，第二轮会和第一轮一样，虚拟用户一过一千就开始成片失败。到时候就是一处：`bench.yml` 里跑 k6 那一步的 `run:` 开头加 `ulimit -n 65535 && ulimit -n`，然后照常触发 `bench.yml` 把那一轮重跑一遍。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "压测机重装好了 下午跑第二轮 又是一屏这个 失败 31% 新镜像看来没管用 那就按上次说的在 workflow 里加上吧 加完再跑一轮\n<pasted_content id=\"a07c\">\nWARN[0402] Request Failed  error=\"Get \\\"https://search-svc.staging.internal/v1/search?q=%E5%8F%8C%E8%82%A9%E5%8C%85&page=1\\\": dial tcp 10.20.3.41:443: socket: too many open files\"\nWARN[0402] Request Failed  error=\"Get \\\"https://search-svc.staging.internal/v1/search?q=%E9%99%8D%E5%99%AA%E8%80%B3%E6%9C%BA&page=3\\\": dial tcp 10.20.3.41:443: socket: too many open files\"\nWARN[0403] Request Failed  error=\"Get \\\"https://search-svc.staging.internal/v1/search?q=%E5%84%BF%E7%AB%A5%E4%BF%9D%E6%B8%A9%E6%9D%AF&page=1\\\": dial tcp: lookup search-svc.staging.internal on 10.20.0.2:53: dial udp 10.20.0.2:53: socket: too many open files\"\n（后面还有六万多行一样的）\n\n   ✗ checks.........................: 69.12% ✓ 296548     ✗ 132486\n     dropped_iterations.............: 19877   16.56/s\n   ✗ http_req_duration..............: avg=204.9ms min=0s      med=106.8ms max=30s   p(90)=401.6ms p(95)=1.19s\n       { expected_response:true }...: avg=131.2ms min=20.8ms  med=99.1ms  max=3.1s  p(90)=219.0ms p(95)=287.4ms\n   ✗ http_req_failed................: 31.07%  ✓ 66840      ✗ 148291\n\nERRO[1201] thresholds on metrics 'checks, http_req_duration{name:search}, http_req_failed' have been crossed\nError: Process completed with exit code 99.\n</pasted_content id=\"a07c\">"
+    }
+  ],
+  "middle_hint": "中间是在 search-svc 仓库里做别的事（接口加字段、补测试、整理配置和依赖、写文档之类），和压测机的问题无关。"
+}

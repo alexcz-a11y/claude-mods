@@ -1,0 +1,20 @@
+{
+  "id": "cheap-agreement-02",
+  "effort": "low",
+  "accept": [
+    "low"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条要过六个只调 staging 副本、资源、环境变量的 PR。决定性几轮里用户定了规矩：这类 PR 只看 CI 是否全绿、渲染 diff 里有没有删资源，没问题直接 gh approve，不写评论草稿，理由是 staging 配错了下次发布就改回来，prod 的才细看。按约定，六个 PR 各查两样再 approve，是机械操作：low。约定说得很明白，判 medium 就是没把约定算进去，所以 accept 只写 low。删掉决定性几轮，六个 PR 要像平常一样读 diff、渲染对比、对用量、出评论草稿，是范围清楚但量不小的评审：medium。三选一：d1 第一次提出评审任务，new_or_unrelated；d2 是定做事的规矩，没有对某个问题表态，new_or_unrelated；最后这条是一批新的 PR，new_or_unrelated。审稿改动（金标未改）：devops-ci 的 unrelated 素材段里 #471、#472 是 OIDC 改造的 PR、#476 是 add-on 升级的 PR，最大用到 #484，最后一条的 PR 号从 #471–#476 改成 #491–#496，避免和中间段撞号。"
+}

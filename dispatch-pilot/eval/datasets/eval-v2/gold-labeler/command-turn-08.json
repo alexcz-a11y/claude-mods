@@ -1,0 +1,21 @@
+{
+  "id": "command-turn-08",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "d1 让摸外币记账要动哪些地方，d2 产品给了答复、接受清单并排期，规划这件事已收尾。最后 /tdd 开始实现「记一笔加币种选择」，是开始实现阶段的新任务，不是之前的问题没解决。按决定性几轮的上下文，这一步要动 BillEntity 新模型版本和迁移（本地数据无备份）、保存时折算和 .halfUp 舍入的单一入口、AmountExpression 按币种小数位、编辑器重算/清空逻辑，跨多个文件且边界条件要紧，用 TDD 写测试，定 high；迁移风险高，xhigh 也可接受。没有决定性几轮时只看字面像是编辑器里加一个选择项的单点功能，判 medium。"
+}

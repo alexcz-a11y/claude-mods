@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-03",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "晚高峰 ES 请求 2 秒超时导致 500：d1 提出问题，助手看到 ES 那侧健康、超时请求在 ES 里找不到慢查询，先加了遇到超时重试一次；d2 用户说我们这边 500 少了但 BFF 一点没好（BFF 1.2 秒就超时，重试的请求要 2 秒多），问题还在；随后查清是负载均衡会静默丢掉空闲超过 350 秒的连接，而连接池后进先出、空闲连接无限期复用，晚高峰爬坡时翻出老连接、第一次用就卡满 2 秒，改成 keep-alive 300 秒并撤掉重试，用户确认三晚零超时、BFF 也说好了、算解决，只是票先挂着写复盘（d3）。d2 那一轮助手顺带提到平台组要我们带 X-Opaque-Id，和这次的问题无关；最后一轮又写明以后加时只改 EsConfig 里 RestClient.builder 一处、值就是 search-svc、EsConfigTest 加一个断言。中间是为复盘继续理这件事，没有新尝试。最后这条让把 X-Opaque-Id 加上，就是加一个默认请求头和一条断言：low；medium 也可以（顺手确认测试里和别处构建客户端的路径也带上）。前面那段困难排查已经了结，这个请求头和超时无关，不该被带高。删掉决定性几轮，中间几万 token 都在没有结论地排查 ES 超时，最后要往 ES 客户端上加一个前面没定过格式的请求头，得先弄清平台组要什么值（中间段里还出现过用 traceId 的提法）、加在客户端的哪一层、会不会影响还在查的问题：medium。三选一：d1 第一次提出问题，new_or_unrelated；d2 加了重试 BFF 那边照旧，still_unresolved；d3 明说算解决了，resolved；最后这条是平台组提的另一件小事，和 5xx 是否解决无关，new_or_unrelated。审稿改动：原题的根因和第一次尝试与本领域 same-problem 素材段冲突：素材段里 search-indexer 的批量写入在整点、20:00 最大，没有 20:30 的晚场改价（perf-same-problem-35）；平台组说 7 天里没有分片重新分配、白天晚上不动集群，慢日志 7 天只有两百多条（perf-same-problem-34），和「请平台组把副本加到 2」「慢日志一晚 4,000 多条」对不上。改成素材段里已经摆出来的方向：负载均衡空闲超时 350 秒、客户端连接后进先出且不回收（perf-same-problem-22、39），第一次尝试改成重试一次，失败的理由用素材段里 BFF 的 1.2 秒读超时（perf-same-problem-33）。最后这条、档位、accept 和三选一不变。"
+}

@@ -1,0 +1,26 @@
+{
+  "id": "implicit-unresolved-07",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "刷新令牌的并发重放误判已经改了三次（加宽限期、读和改放进同一个事务加行锁、静默刷新改走同一入口），d2、d3 用户都说还会被踢；最后一条只是贴出同一行报错加「再看看」，是第四次同样的失败。这是认证服务里的并发问题，且有「重放检测不能去掉」的安全约束：max，xhigh 也可以。删掉决定性几轮后，最后一条只像一次普通的报错排查，中间段只在看代码和日志、没有失败的尝试：high。d1 是第一次提出问题，标 new_or_unrelated；d2、d3 都说改了之后问题还在，标 still_unresolved；最后一条贴的是同一个报错，标 still_unresolved。审稿修改：本领域 same-problem 段里 rotateRefreshToken 在 Postgres 事务里 SELECT ... FOR UPDATE 锁主表行、Redis 只有 sess/rl 键、测试用 vitest、COMMAND 是对本地服务打请求的复现命令，原题的 Redis + Lua 脚本和 jest 与之矛盾，所以把令牌存储改成 refresh_tokens 表、第二次修复改成事务内加行锁、COMMAND 改成并发复现脚本；中间段说 main 上这条路 9 月 24 日以后没改过，所以三次修复都放在分支上、部署到 staging 临时环境验证；SYMPTOM 改得不限于网页多标签页。金标不变。\n可接受档位：出题者 ['xhigh', 'max']，标注者 ['max']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
+}
