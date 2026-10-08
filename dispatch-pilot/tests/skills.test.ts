@@ -10,6 +10,8 @@ import type { Reply, Sent, SkillsWorld } from './support/world.ts'
 import { isSecondSkillsRequest, jev, rates, world, type World } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 /** The skills decisions the board keeps, oldest first. */
 async function skillDecisions(w: World) {
@@ -105,7 +107,7 @@ test('with the skills switch off (/dp skills off, kept from an earlier session),
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS, store: { switches: { skills: false } }, session: true })
   await w.start()
   await w.submit('先写一个失败的测试')
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
   expect(await w.command('dp', 'status')).toMatch(/关 +skills +\S/)
 })
@@ -116,7 +118,7 @@ test('with the skills switch off (/dp skills off, kept from an earlier session),
 const RESTORED = `Dispatch Pilot's skill suggestions are switched off, so here is the skill listing it had left out:\n\n${LISTING}`
 
 test('switched off mid-conversation, the listing it withheld reaches the main agent with the next message, once; suggestions stop', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: rates({ '(none)': 1 }), skills: SKILLS })
   expect(await w.listing(LISTING)).toEqual({ text: HINT })
   await w.submit('先写一个失败的测试')
   await w.command('dp', 'skills off')
@@ -480,7 +482,7 @@ test('skills named in skillsNeverSuggested are never offered, to the main agent 
 })
 
 test("when the session's skills cannot be read, nothing is asked about them and the main agent keeps its listing", { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({}), skills: { ...SKILLS, listed: null } })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: rates({}), skills: { ...SKILLS, listed: null } })
   await w.submit('先写失败的测试')
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })

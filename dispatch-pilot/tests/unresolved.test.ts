@@ -4,9 +4,12 @@
 // the count lives in `$.state`.
 
 import { expect, test } from 'claude-code/testing'
+import { COUNT_FIELD } from '../hooks/decision/unresolved.ts'
 import { jev, world, type Sent } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
+/** The switch is off until the person turns it on (#48): these tests are about what it does when on. */
+const UNRESOLVED_ON = { unresolved: true }
 /** What the decision model leans to, as shares of the question's three options. */
 const SAYS = {
   still: { still_unresolved: 0.8, resolved: 0.05, new_or_unrelated: 0.15 },
@@ -25,7 +28,7 @@ const questionsOf = (request: Sent | undefined) => Object.keys(request?.body.que
 
 test('a message of the person adds one to the count when the answer is "still unresolved"; it asks the question in the effort request', { options: KEY }, async ($, on) => {
   const said = { now: 'still' as Says }
-  const w = world($, on, { backend: backend(said) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: backend(said) })
 
   await w.submit('登录接口还是 502')
   expect(questionsOf(w.requests[0])).toEqual(['effort.level', 'effort.unresolved'])
@@ -40,7 +43,7 @@ test('a message of the person adds one to the count when the answer is "still un
 
 test('the count moves by two bars: "still unresolved" adds at 0.5, "resolved" or a new problem clears only at 0.7, anything short of both leaves it', { options: KEY }, async ($, on) => {
   let shares: Record<string, number> = SAYS.still
-  const w = world($, on, { backend: (request) => jev([0.05, 0.1, 0.7, 0.1, 0.05], { shares: { 'effort.unresolved': shares } })(request) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: (request) => jev([0.05, 0.1, 0.7, 0.1, 0.05], { shares: { 'effort.unresolved': shares } })(request) })
   const says = async (text: string, answer: Record<string, number>) => {
     shares = answer
     await w.submit(text)
@@ -60,14 +63,14 @@ test('the count moves by two bars: "still unresolved" adds at 0.5, "resolved" or
 
 test('the count is in $.state: a hot reload keeps it (the next message goes on from it)', { options: KEY }, async ($, on) => {
   const said = { now: 'still' as Says }
-  const w = world($, on, { backend: backend(said), seed: { unresolved: { count: 2 } } })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: backend(said), seed: { unresolved: { count: 2 } } })
   await w.submit('还是不行')
   expect(w.unresolved()).toBe(3)
 })
 
 test('/clear and a new session start the count over; /compact keeps it', { options: KEY }, async ($, on) => {
   const said = { now: 'still' as Says }
-  const w = world($, on, { backend: backend(said), session: true })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: backend(said), session: true })
   await w.start()
   await w.submit('还是不行')
   await w.submit('还是不行')
@@ -86,7 +89,7 @@ test('/clear and a new session start the count over; /compact keeps it', { optio
 
 test('a hand-back or a task notice that starts a turn is not asked and does not touch the count; a message typed into a running turn counts', { options: KEY }, async ($, on) => {
   const said = { now: 'still' as Says }
-  const w = world($, on, { backend: backend(said) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: backend(said) })
   await w.submit('登录接口还是 502')
   await w.step({ index: 0 })
   expect(w.unresolved()).toBe(1)
@@ -107,7 +110,7 @@ test('a hand-back or a task notice that starts a turn is not asked and does not 
 
 test('a command turn counts like a message; a locked effort or one the person named does not stop the counting', { options: KEY }, async ($, on) => {
   const said = { now: 'still' as Says }
-  const w = world($, on, { backend: backend(said), session: true, skills: { commands: [{ name: 'implement', description: 'Implement an issue.', source: 'user' }], listed: [] } })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: backend(said), session: true, skills: { commands: [{ name: 'implement', description: 'Implement an issue.', source: 'user' }], listed: [] } })
   await w.start()
   await w.slash('implement', '#19')
   expect(w.unresolved()).toBe(1)
@@ -126,13 +129,13 @@ test('a command turn counts like a message; a locked effort or one the person na
 
 test('/dp unresolved off: the question is not asked and the count stays; on again, it goes on from where it was', { options: KEY }, async ($, on) => {
   const said = { now: 'still' as Says }
-  const w = world($, on, { backend: backend(said), session: true, store: {} })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: backend(said), session: true })
   await w.start()
   await w.submit('还是不行')
   expect(w.unresolved()).toBe(1)
 
   expect(await w.command('dp', 'unresolved off')).toMatch(/unresolved/)
-  expect(w.stored('switches')).toEqual({ unresolved: false })
+  expect(w.stored('switches')).toEqual({})
   await w.submit('还是不行')
   expect(questionsOf(w.requests.at(-1))).toEqual(['effort.level'])
   expect(w.unresolved()).toBe(1)
@@ -141,15 +144,63 @@ test('/dp unresolved off: the question is not asked and the count stays; on agai
   expect(w.steps.at(-1)?.effort).toBe('high')
 
   await w.command('dp', 'unresolved on')
-  expect(w.stored('switches')).toEqual({})
+  expect(w.stored('switches')).toEqual({ unresolved: true })
   await w.submit('还是不行')
   expect(w.unresolved()).toBe(2)
 })
 
+// ---- the switch's default (#48) ---------------------------------------------------
+
+test('never set, the switch is off: the effort request goes alone, the count stays, no summary is written; /dp status lists it off', { options: KEY }, async ($, on) => {
+  const said = { now: 'still' as Says }
+  const w = world($, on, { backend: backend(said), session: true, store: {}, seed: { unresolved: { count: 2 } }, model: () => ({ text: 'unused' }) })
+  await w.start()
+  await w.submit('还是不行')
+  expect(questionsOf(w.requests[0])).toEqual(['effort.level'])
+  expect(w.requests[0]?.body.state).not.toHaveProperty(COUNT_FIELD)
+  expect(w.unresolved()).toBe(2)
+  await w.step({ index: 0 })
+  expect(w.steps.at(-1)?.effort).toBe('high')
+  await w.complete()
+  expect(w.completions).toEqual([])
+  expect(await w.command('dp', 'status')).toMatch(/关\s+unresolved/)
+  expect(w.stored('switches')).toBeUndefined()
+})
+
+test('/dp unresolved on turns the question, the count and the summary on as they were with the switch on by default', { options: KEY }, async ($, on) => {
+  const said = { now: 'still' as Says }
+  const w = world($, on, { backend: backend(said), session: true, store: {}, model: () => ({ text: '{}' }) })
+  await w.start()
+  await w.command('dp', 'unresolved on')
+  expect(w.stored('switches')).toEqual({ unresolved: true })
+  await w.submit('登录接口还是 502')
+  expect(questionsOf(w.requests[0])).toEqual(['effort.level', 'effort.unresolved'])
+  expect(w.unresolved()).toBe(1)
+  await w.complete()
+  expect(w.completions.length).toBe(1)
+
+  await w.command('dp', 'unresolved off')
+  expect(w.stored('switches')).toEqual({})
+  await w.submit('还是不行')
+  expect(questionsOf(w.requests.at(-1))).toEqual(['effort.level'])
+})
+
+for (const [set, asked] of [
+  [true, ['effort.level', 'effort.unresolved']],
+  [false, ['effort.level']],
+] as const) {
+  test(`a switch the person set by hand stays as it was after the update: unresolved ${set ? 'on' : 'off'} in $.store`, { options: KEY }, async ($, on) => {
+    const w = world($, on, { backend: backend({ now: 'still' }), session: true, store: { switches: { unresolved: set } } })
+    await w.start()
+    await w.submit('还是不行')
+    expect(questionsOf(w.requests[0])).toEqual(asked)
+  })
+}
+
 test('the effort and the count are answered separately: a request that fails moves nothing; an answer missing for one leaves the other', { options: KEY }, async ($, on) => {
   const said = { now: 'still' as Says }
   let reply: 'ok' | 'down' | 'no-unresolved' | 'no-effort' = 'ok'
-  const w = world($, on, {
+  const w = world($, on, { switches: UNRESOLVED_ON,
     backend: (request) => {
       if (reply === 'down') return { status: 503, body: 'overloaded' }
       const answered = backend(said)(request)

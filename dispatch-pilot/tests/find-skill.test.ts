@@ -9,6 +9,8 @@ import type { Reply, Sent, SkillsWorld } from './support/world.ts'
 import { isSecondSkillsRequest, rates, world } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 // A session's skills as Claude Code reports them: three the main agent can
 // load (one synced from claude.ai), one only the person can start.
@@ -126,7 +128,7 @@ test('find_skill asks the very question a message asks about the skills the main
 })
 
 test('find_skill speaks only when called: the steps around the call ask nothing about skills, and its answer is the tool result alone', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 }), skills: SKILLS, disk: PERSON_FILES })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 }), skills: SKILLS, disk: PERSON_FILES })
   await w.submit('先写一个失败的测试')
   await w.step({ index: 0 })
   const answer = await w.findSkill('write the tests first')

@@ -8,9 +8,11 @@ import { profileKey } from '../hooks/core/profiles.ts'
 import { jev, world, type SkillsWorld } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 test('a command turn gets the effort question about the command as typed, and goes out at the decided effort', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0.1, 0.2, 0.7, 0]) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0.1, 0.2, 0.7, 0]) })
   await w.slash('implement', '#19')
   await w.step({ index: 0, effort: 'medium' })
 
@@ -34,7 +36,7 @@ const SKILLS: SkillsWorld = {
 }
 
 test('a command turn suggests no skill: the person has picked the work already', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), skills: SKILLS })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 1, 0, 0]), skills: SKILLS })
   await w.slash('implement', '#19')
   await w.step({ index: 0 })
 
@@ -90,7 +92,7 @@ test("what the person typed after the command is their own words for a dispatche
 })
 
 test("a plugin's command typed without its plugin's name is a command turn too", { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), skills: SKILLS })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 1, 0, 0]), skills: SKILLS })
   await w.slash('release-kit:ship', '0.2.4', { as: 'ship' })
 
   expect(w.requests[0]?.body.state.user_message).toBe('/ship 0.2.4')

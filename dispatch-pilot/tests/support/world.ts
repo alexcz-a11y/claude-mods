@@ -108,6 +108,13 @@ export type WorldOptions = {
    */
   store?: Record<string, unknown>
   /**
+   * The switches the person has set by hand (`/dp <name> on|off`, kept in `$.store`), before the test starts. The mod
+   * reads them at `session.start`, which the world runs by itself before the first thing the test makes the engine do
+   * (`submit`, `command`, `step`, ...; a `w.start()` of the test is the same one), so a test needs no `session` of its
+   * own. A feature that is off until the person turns it on (`unresolved`, #48) is asked for here: `{ unresolved: true }`.
+   */
+  switches?: Record<string, boolean>
+  /**
    * The engine's session around the mod: `w.start()` runs `session.start`, the commands and tools the mod
    * registers are recorded in `w.commands` and `w.tools` (`registerError` refuses both), `w.measure(...)`
    * raises `session.measure`, `w.compact()` and `w.clear()` the person's /compact and /clear
@@ -269,7 +276,15 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const agentCalls = new Set<string>()
   const disk = options.disk ?? {}
   const agents: AgentInfo[] = Array.isArray(options.agents) ? [...options.agents] : []
-  const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
+  const store = new Map(Object.entries({ ...(options.store ?? {}), ...(options.switches !== undefined ? { switches: { ...(options.store?.switches as object | undefined), ...options.switches } } : {}) }).map(([key, value]) => [key, JSON.stringify(value)]))
+  const sessionWorld = options.session ?? (options.switches !== undefined ? true : undefined)
+  /** The session start the world runs for `options.switches` (and `w.start()`), once. */
+  let starting: Promise<unknown> | undefined
+  const startSession = () => (starting ??= $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true }))
+  /** Before the first thing a test makes the engine do: the session has started, so the switches the test set are loaded. */
+  const booted = async () => {
+    if (options.switches !== undefined) await startSession()
+  }
   const commands: CommandSpec[] = []
   /** The text a command's turn starts with, by the prompt it was submitted as (`/name args`): the engine's command message. */
   const commandTurns = new Map<string, string>()
@@ -335,7 +350,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     if (entries.size === 0) return { deny: `ENOENT: ${e.path}` }
     return { value: [...entries].map(([name, kind]) => ({ name, kind, size: 0, mtimeMs: 0, isLink: false })) }
   })
-  if (options.store !== undefined) {
+  if (options.store !== undefined || options.switches !== undefined) {
     on('store.get', (_$, e) => ({ value: store.has(e.key) ? JSON.parse(store.get(e.key) as string) : undefined }))
     on('store.set', (_$, e) => {
       store.set(e.key, JSON.stringify(e.value))
@@ -347,8 +362,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     })
     on('store.keys', () => ({ value: [...store.keys()] }))
   }
-  if (options.session !== undefined) {
-    const refused = options.session === true ? undefined : options.session.registerError
+  if (sessionWorld !== undefined) {
+    const refused = sessionWorld === true ? undefined : sessionWorld.registerError
     on('session.start', (_$, e) => ({ cwd: e.cwd }))
     on('session.measure', (_$, e) => ({ changed: e.changed }))
     on('session.compact', (_$, e) => ({ messages: e.messages }))
@@ -572,7 +587,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
      * Draws the rationale pane (`Pane`, requestId `id`) through the mod as a surface would, the board as it stands: a
      * body of `columns` cells (75 is the dock beside a 170-column transcript), docked unless `placement` says inline.
      */
-    pane: (at: { id?: string; columns?: number; rows?: number; placement?: 'dock' | 'inline'; surface?: RenderSurface; focused?: boolean } = {}) => {
+    pane: async (at: { id?: string; columns?: number; rows?: number; placement?: 'dock' | 'inline'; surface?: RenderSurface; focused?: boolean } = {}) => {
+      await booted()
       const props: RenderPropsOf['Pane'] = {
         title: '依据',
         isFocused: at.focused ?? true,
@@ -588,7 +604,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
      * a terminal of `columns` (the band lays out in five fewer, the engine's `[-]`) and a band of `rows`, a turn
      * running unless `isWorking` says not. Later board writes show after `redraw()`.
      */
-    band: (at: { columns?: number; rows?: number; isWorking?: boolean; surface?: RenderSurface; hasSurvey?: boolean } = {}) => {
+    band: async (at: { columns?: number; rows?: number; isWorking?: boolean; surface?: RenderSurface; hasSurvey?: boolean } = {}) => {
+      await booted()
       const columns = at.columns ?? 180
       const rows = at.rows ?? 12
       const props: RenderPropsOf['AbovePrompt'] = {
@@ -602,8 +619,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       return $.ui.mount({ plugin: 'dispatch-pilot', surface: at.surface ?? 'terminal', component: 'AbovePrompt', props, viewport: { columns, rows: 50, isFullscreen: true } })
     },
     /** Draws the right end of the prompt footer (`SessionMode`) through the mod, the engine's own modes given. */
-    footer: (at: { modes?: readonly string[]; surface?: RenderSurface } = {}) =>
-      $.ui.mount({ plugin: 'dispatch-pilot', surface: at.surface ?? 'terminal', component: 'SessionMode', props: { modes: at.modes ?? [] } }),
+    footer: async (at: { modes?: readonly string[]; surface?: RenderSurface } = {}) => {
+      await booted()
+      return $.ui.mount({ plugin: 'dispatch-pilot', surface: at.surface ?? 'terminal', component: 'SessionMode', props: { modes: at.modes ?? [] } })
+    },
     /**
      * The board data the mod keeps in `$.state` (the 「决定汇报」 module, core/report.ts): what a screen would draw
      * and what a test asserts on instead of a string. Reads the state as it stands now.
@@ -626,15 +645,18 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       }
     },
     /** Submits a prompt the way the engine does; resolves when it entered (or was queued). */
-    submit: (text: string, submit: SubmitOptions = {}) =>
-      $.prompt.submit({
+    submit: async (text: string, submit: SubmitOptions = {}) => {
+      await booted()
+      return $.prompt.submit({
         text,
         wait: submit.wait ?? false,
         origin: submit.origin ?? { kind: 'composer' },
         ...(submit.turnId !== undefined ? { turnId: submit.turnId } : {}),
-      }),
+      })
+    },
     /** Starts a turn for a prompt that waited in the queue; resolves to its id. */
     startTurn: async (text: string) => {
+      await booted()
       const turnId = `t${turnIds.length + 1}`
       turnIds.push(turnId)
       await $.turn.start({ text, turnId })
@@ -659,18 +681,21 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       } as never)
     },
     /** The session starts (needs `session`): the mod sets itself up and registers its commands. */
-    start: () => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true }),
+    start: () => (options.switches !== undefined ? startSession() : $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })),
     /** The engine reports the session's context, limits and cost (needs `session`). */
     measure: (input: SessionMeasureInput) => $.session.measure(input),
     /** Runs a slash command as the person types it (`/dp lock max` is `command('dp', 'lock max')`); resolves to the text it printed. */
-    command: async (name: string, args = '') =>
-      (await $.command.run({ command: name, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })).text ?? '',
+    command: async (name: string, args = '') => {
+      await booted()
+      return (await $.command.run({ command: name, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })).text ?? ''
+    },
     /**
      * The person types a prompt command (a skill, a markdown command): as Claude Code runs one (measured on 2.1.291),
      * `command.run` first, then the prompt as typed (`/name args`) is submitted, and its turn starts with the
      * engine's command message. A local command (`/dp`, `/usage`) is `command(...)`: it submits nothing.
      */
     slash: async (name: string, args = '', submit: SubmitOptions & { as?: string } = {}) => {
+      await booted()
       const origin = submit.origin ?? { kind: 'composer' }
       await $.command.run({ command: name, args, origin, presentation: { isFullscreen: false, columns: 80 } })
       // `as`: the name the person typed, when the engine resolves it to another (a plugin's command typed without its plugin's name).
@@ -697,7 +722,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
      * A loop's turn ends: the main agent's by default (the last turn started), an agent's with `agentId`
      * (its loop carries its own turn id, `turn-<agentId>` as `agentStep` makes it). `reason` is `answer` unless said.
      */
-    complete: (done: { agentId?: string; turnId?: string; reason?: 'answer' | 'aborted' | 'error'; durationMs?: number; answer?: string } = {}) => {
+    complete: async (done: { agentId?: string; turnId?: string; reason?: 'answer' | 'aborted' | 'error'; durationMs?: number; answer?: string } = {}) => {
+      await booted()
       const reason = done.reason ?? 'answer'
       return $.turn.complete({
         answer: done.answer ?? (reason === 'answer' ? 'done' : ''),
@@ -710,6 +736,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     },
     /** Sends one model request through the mod, drained to its end (its text streamed, its tools run). */
     step: async (step: StepOptions) => {
+      await booted()
       streaming = { answer: step.answer, tools: step.tools }
       const effort = step.effort === undefined ? 'xhigh' : step.effort
       const input = {

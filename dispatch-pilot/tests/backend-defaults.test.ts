@@ -21,6 +21,8 @@ import { parseWorkflow } from '../hooks/decision/workflow-script.ts'
 import { optionsFor, settingsFrom } from '../eval/lib/suite.ts'
 import type { SkillsWorld } from './support/world.ts'
 import { jev, rates, world } from './support/world.ts'
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 const JEV = { typesafeApiKey: 'ts-test-key' }
 

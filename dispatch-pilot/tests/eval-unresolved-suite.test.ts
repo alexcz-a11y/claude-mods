@@ -16,6 +16,8 @@ import { runSuite } from '../eval/lib/runner.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
 import { UNRESOLVED_VARIANTS, unresolved, unresolvedRequest } from '../eval/lib/unresolved.ts'
 import { jev, world } from './support/world.ts'
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 /** A log long enough to overrun a 6000-token budget but not 24000: pasted output, ASCII, about 4 characters a token. */
 const LOG = Array.from({ length: 700 }, (_, i) => `2026-10-05T10:${String(i % 60).padStart(2, '0')}:11Z worker-3 handler.ts:${100 + (i % 40)} retry ${i} of order-${i * 7} failed: ETIMEDOUT`).join('\n')
@@ -123,7 +125,7 @@ test('the effort question is asked with the three-way question beside it; its st
 // others are the state the effort question had when it shared its request with the skills (6000).
 test("the eval's wide request for an item is the mod's request for that message after that conversation: the same questions, the same state", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
   const long = overBudget('unresolved-001')
-  const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(long.zh.recent_context) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(long.zh.recent_context) })
   await w.submit(long.zh.message)
 
   const { request } = unresolvedRequest(long, 'zh', UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom({ typesafeApiKey: 'k' }))
@@ -137,7 +139,7 @@ const SUMMARY: Summary = { problem: '服务启动后立刻退出', tried: [{ tex
 
 test("given a summary the eval's request carries it as the mod's does, in the effort request's state beside the message and the conversation", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
   const long = overBudget('unresolved-001')
-  const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(long.zh.recent_context), seed: { unresolved: { count: 1, summary: { ...SUMMARY, turn: 't1' } } } })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(long.zh.recent_context), seed: { unresolved: { count: 1, summary: { ...SUMMARY, turn: 't1' } } } })
   await w.submit(long.zh.message)
 
   const { request } = unresolvedRequest(long, 'zh', UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom({ typesafeApiKey: 'k' }), SUMMARY, { count: 1, maxAfter: 3 })
@@ -150,7 +152,7 @@ test("given a summary the eval's request carries it as the mod's does, in the ef
 test("given a count the eval's request carries it and the hint as the mod's does (the same function, so the same request): the hint from the setting's count on", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
   const long = overBudget('unresolved-001')
   const unsure = { still_unresolved: 0.3, resolved: 0.4, new_or_unrelated: 0.3 }
-  const w = world($, on, { backend: (request) => jev([0, 0, 0.2, 0.7, 0.1], { shares: { 'effort.unresolved': unsure } })(request), messages: transcript(long.zh.recent_context), seed: { unresolved: { count: 3, summary: { ...SUMMARY, turn: 't1' } } } })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: (request) => jev([0, 0, 0.2, 0.7, 0.1], { shares: { 'effort.unresolved': unsure } })(request), messages: transcript(long.zh.recent_context), seed: { unresolved: { count: 3, summary: { ...SUMMARY, turn: 't1' } } } })
   await w.submit(long.zh.message)
 
   const variant = UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2]

@@ -73,8 +73,8 @@ for (const chosen of BACKENDS) {
       const { request } = submitRequest(ITEM, language, SUBMIT_VARIANTS[chosen.variant] as EffortAsk, settings)
       expect(w.requests).toHaveLength(1)
       expect(withoutUnresolved(w.requests[0]?.body)).toEqual({ model: chosen.model, state: request.state, questions: request.questions })
-      // Beside the effort question the same request asks the unresolved one, over the same state.
-      expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
+      // The unresolved switch is off until the person turns it on (#48): the request asks the effort question alone.
+      expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
       // What the request holds, so the equality above is not two empty things.
       expect(request.state.user_message).toContain('[REDACTED]')
       expect(String(request.state.recent_context)).toContain('[tools: Grep, Read x2]')
