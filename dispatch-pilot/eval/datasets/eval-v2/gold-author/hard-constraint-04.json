@@ -1,0 +1,17 @@
+{
+  "id": "hard-constraint-04",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后这条只是把 spring.data.redis.timeout 从 100ms 调到 250ms，单看是改一个配置值，medium（甚至更低）。但决定性几轮里用户在开始排查时就定了规矩：离双十一预售两周，search-svc 上任何要上生产的改动，哪怕只改一个配置值，都要先写清楚改什么、预期效果和判断指标，在 bench 上用生产流量回放压满 30 分钟、和基线比 p99、错误率、CPU、线程数，生产先灰度一个 pod 过完整的晚高峰再全量，每一步要有回退且回退先演练；理由是去年有人晚高峰前改了 ES 客户端的超时和连接池直接发，搜索挂了 18 分钟、按 GMV 少了六百多万。这条消息正是这一类改动：要按规矩写变更说明、在 bench 做 30 分钟回放并和基线对比、准备并演练回退、灰度一个 pod 观察一整个晚高峰再全量；而且超时调长以后，Redis 一抖时请求线程会占得更久、少一批转去查 ES 的请求，到底是缓解还是加重要用数据证明。这是要反复验证的长链路工作，xhigh；只把它看成一次需要压测验证的配置调整给 high 也能接受。删掉决定性几轮（d4，测试组本来就读不到），只剩中间大量只读排查和最后这句，就是一个明确的单点配置改动：medium。三选一：d1 第一次提出问题，new_or_unrelated；最后这条说昨晚高峰还是老样子、BFF 又超时一千多次，同样的问题还在，still_unresolved（之前还没有修复尝试，这是第一次说问题还在）。"
+}

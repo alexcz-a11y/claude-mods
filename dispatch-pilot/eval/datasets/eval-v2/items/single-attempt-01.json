@@ -10,11 +10,11 @@
     {
       "role": "user",
       "msg": "d1",
-      "text": "tool-redact 有个漏网的情况 Bash 输出比较长的时候里面的 AWS access key 没打码 短输出是好的 我刚才 cat 了一份四万多字的部署日志 里面两处 AKIA 开头的 key 原样给 Claude 看到了 往前翻了下 第一处大概在第三万个字符之后 代码在 tool-redact/hooks/redact.ts 你看看"
+      "text": "redact-out 有个漏网的情况 Bash 输出比较长的时候里面的 AWS access key 没遮 短输出是好的 我刚才 cat 了一份四万多字的部署日志 里面两处 AKIA 开头的 key 原样给 Claude 看到了 往前翻了下 第一处大概在第三万个字符之后 代码在 redact-out/hooks/redact-out.ts 你看看"
     },
     {
       "role": "assistant",
-      "text": "找到一处能对上「短的好、长的漏」的地方，已经改了。\n\n- **原因**：`tool-redact/hooks/redact.ts` 的 `tool.result` 处理函数里，`scrub()` 只扫 `e.output.slice(0, SCAN_LIMIT)`，`SCAN_LIMIT` 是 `32768`，后面的部分原样拼回去。注释写的是「防止超长输出把 hook 拖过 10 秒」。你说第一处 key 在三万字符之后，正好落在没扫的那段里。\n- **改法**：\n  - 去掉一刀切，改成按 32 KB 分块扫，相邻两块重叠 64 个字符，防止一个 key 正好被切在块边界上；\n  - 每扫完一块看一次已用时间，超过 8 秒就把剩下没扫的部分整个替换成 `[tool-redact: output truncated, not scanned]`，宁可少给 Claude 看，也不放过没扫的内容；\n  - `PATTERNS` 本身没动，AWS 那条还是 `AKIA` 加 16 位大写字母数字。\n- **验证**：\n  - `tool-redact/tests/redact.test.ts` 补了三个用例：key 在 40 KB 输出的末尾、key 横跨两个块的边界、构造一个超慢的输出触发截断提示；\n  - `command claude plugin test ./tool-redact` 12 个用例全过，`claude plugin validate ./tool-redact --strict` 也过了；\n  - 用一份 1 MB 的随机文本量了一下，扫完大约 40 ms，离超时很远。\n\n改动没提交。你保存后 mod 会热重载，再 cat 一次那份日志看看两处 key 还漏不漏。",
+      "text": "找到一处能对上「短的好、长的漏」的地方，已经改了。\n\n- **原因**：`redact-out/hooks/redact-out.ts` 的 `maskResult` 里，Bash 结果的 `stdout` 和 `stderr` 只把前 `SCAN_LIMIT` 个字符交给 `hooks/patterns.ts` 的 `redact()`，`SCAN_LIMIT` 是 `32768`，后面的部分原样拼回去。注释写的是「防止超长输出把 tool.call 拖过 10 秒预算」。你说第一处 key 在三万字符之后，正好落在没扫的那段。Read 那条路径没有这个截断，所以读文件时没出过这种情况。\n- **改法**：\n  - 去掉一刀切，改成按 32 KB 分块交给 `redact()`，相邻两块重叠 64 个字符，防止一个 key 正好被切在块边界上；\n  - 每扫完一块看一次已用时间，超过 8 秒就把剩下没扫的部分整段换成 `‹已遮蔽:超时未扫描›`，宁可少给 Claude 看，也不放过没扫过的内容；\n  - `patterns.ts` 没动，`aws-key` 那条还是 `AKIA` 加 16 位大写字母数字。\n- **验证**：\n  - `redact-out/tests/redact-out.test.ts` 补了三个用例：key 在 40 KB 输出的末尾、key 横跨两块的边界、构造一个很慢的输出触发超时提示；\n  - `command claude plugin test ./redact-out` 新旧用例全过，`claude plugin validate ./redact-out --strict` 也过了；\n  - 拿一份 1 MB 的随机文本量了一下，分块扫完是几毫秒的事，离 10 秒的预算很远。\n\n改动没提交。你保存后 mod 会热重载，再 cat 一次那份日志，看两处 key 还漏不漏。",
       "tools": [
         "Read",
         "Grep",
@@ -26,8 +26,8 @@
   "final": [
     {
       "role": "user",
-      "text": "tool-redact 那个 我刚又 cat 了一遍那份部署日志 那两个 AKIA 开头的 key 还是原样出来了 你看下"
+      "text": "redact-out 那个 我刚又 cat 了一遍那份部署日志 那两个 AKIA 开头的 key 还是原样出来了 你看下"
     }
   ],
-  "middle_hint": "中间在同一个 my-mods 仓库里做别的事：给别的 mod 补测试、改 README、调 plugin.json、加小命令之类，没有再碰 tool-redact 的打码问题。"
+  "middle_hint": "中间在同一个 my-mods 仓库里做别的事：给别的 mod 补测试、改 README、调 plugin.json、加小命令之类，没有再碰 redact-out 漏遮长输出的问题。"
 }

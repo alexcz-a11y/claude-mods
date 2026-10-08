@@ -1,0 +1,24 @@
+{
+  "id": "cheap-agreement-04",
+  "effort": "low",
+  "accept": [
+    "low"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d3",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条是两件小活：扫 src/oauth 里 state、redirect_uri 校验有没有同类写法，给 internal-scope-consistent 补两个缺的测试样例。决定性几轮里用户立了规矩：验证类的活（扫描、补样例、scratchpad 一次性脚本）直接做、贴结果，不出方案、不评审、不补测试，理由是这些不进主干、样例扫漏了 security job 每次全量扫也会红。按这个约定，最后这条就是照办的机械活——跑一次扫描、照现有格式加两个样例、贴结果：low。accept 只写 low：约定已经摆明，判 medium 是没把约定算进去。删掉决定性几轮，只剩「扫 oauth 两处校验 + 补规则样例」，没有这个约定在前，看起来是要正经评估误报面、补齐规则覆盖的中等活：medium。三选一：d1 第一次提出这类事，new_or_unrelated；d2 是定做事的规矩，不是对某个问题的表态，new_or_unrelated；d3 是又一件同类的新任务，new_or_unrelated；最后这条同理，new_or_unrelated。"
+}

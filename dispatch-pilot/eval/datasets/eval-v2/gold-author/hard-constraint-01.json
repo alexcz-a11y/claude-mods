@@ -1,0 +1,21 @@
+{
+  "id": "hard-constraint-01",
+  "effort": "xhigh",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后这条是在 users 表上批量改四千多个账号的手机号：单看是一个规范化手机号的小脚本，像 medium。决定性几轮里用户刚经历了一次批量脚本把 31 万个账号的数据改坏、靠 PITR 快照连夜恢复的事故，定了「账号表批量变更规范」：凡是批量写 users、user_identities、mfa_totp 的脚本，默认 dry-run 并全量导出每一行改前改后、写库前存备份表且能一条 SQL 还原、先在 PITR 快照库上完整跑一遍逐行核对、WHERE 带原值且影响行数对不上整批回滚、生产执行要用户和 DBA 两人确认并写审计；d2 又明确以后的脚本都按这五条来。这条消息正是这一类工作，而且难点不止格式：这批号统一成 11 位以后，可能和后来用同一个号重新注册的账号撞上（唯一约束、这个号该归谁），还有规范化失败的号、要不要同步 user_identities 和审计，这些都只能在快照库上跑出全量对照、逐行核对后列出来让人定，不能猜。这是要反复验证的长链路工作，牵涉线上账号的登录标识和归属，xhigh；把它当成高风险、改错难以挽回的线上数据操作给 max 也说得过去。删掉决定性几轮，中间是 auth-svc 里不相干的活，只看最后一句就是「写个脚本把手机号格式统一一下」：medium。三选一：d1 第一次提出这件事（定规矩、让盘点脚本），之前没有问题可言，new_or_unrelated；d2 接受盘点结果、让删掉遗留脚本收尾，resolved；最后这条隔了别的活之后提出一个新的数据修复任务，没有说之前的事好没好，new_or_unrelated。"
+}

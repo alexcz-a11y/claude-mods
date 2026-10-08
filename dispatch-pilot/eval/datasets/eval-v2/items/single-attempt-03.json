@@ -10,11 +10,11 @@
     {
       "role": "user",
       "msg": "d1",
-      "text": "search-svc 线上 p99 每隔二十分钟左右冒一个尖 平时 90ms 上下 尖的时候两秒多 持续十来秒 Grafana 上很规律 我对了一下 GC 日志 尖的时间点都有这种\n`[2026-10-02T14:20:03.118+0800][gc] GC(1832) Pause Young (Concurrent Start) (G1 Humongous Allocation) 2890M->2412M(4096M) 486.215ms`\n后面还跟着几次几百毫秒的 你看看是什么东西在分大对象"
+      "text": "search-svc 线上 p99 每隔二十分钟冒一个尖 平时 90ms 上下 尖的时候两秒多 持续十来秒 Grafana 上很规律 都在整点 20 分 40 分 我对了一下 GC 日志 尖的时间点都有这种\n`[2026-10-02T14:20:03.118+0800][gc] GC(1832) Pause Young (Concurrent Start) (G1 Humongous Allocation) 2290M->1812M(3072M) 486.215ms`\n后面还跟着几次几百毫秒的 你看看是什么东西在分大对象"
     },
     {
       "role": "assistant",
-      "text": "找到了每二十分钟分一次大对象的东西，已经改了。\n\n**怎么查的**\n\n- `grep` 了一下定时任务，`@Scheduled(fixedRate = 20, timeUnit = MINUTES)` 只有一处：`src/main/java/com/acme/search/stats/HotQueryStats.java` 的 `flush()`，二十分钟一次，和尖的间隔对得上。\n- `flush()` 先把内存里的 `ConcurrentHashMap<String, LongAdder>` 整个拷成 `List<Map.Entry<...>>`，排序，再 `String.join` 成一个大字符串，一次 `SET` 写进 Redis 的 `hotq:snapshot`。现在热词表大概 180 万个词，拷出来的数组和拼出来的字符串都是几百 MB 级别，远超 G1 的 region 大小（4096M 堆下是 2 MB），全是 humongous 分配。\n- 翻了 `perf/jfr/` 里上周录的 `prod-0926.jfr`：`jdk.ObjectAllocationOutsideTLAB` 里最大的几次分配，栈都在 `HotQueryStats.flush` → `String.join`，时间点和 GC 日志里的 humongous 那几行一一对应。\n\n**改法**\n\n- `flush()` 不再拼一个大字符串：遍历 map，每 1000 条用 Lettuce 的 pipeline 写一次 `HSET hotq:snapshot:<epoch>`，写完再 `RENAME` 成 `hotq:snapshot`，读的那边（`HotQueryReader`）改成 `HSCAN`。\n- 排序挪到读的那边，只排前 500 个，flush 时不再整表排序。\n- 没动 JVM 参数和堆大小。\n\n**验证**\n\n- `./mvnw test` 318 个通过，`HotQueryStatsTest` 补了一个 50 万条的用例，断言写出来的条数和读回来的前 500 一致。\n- 本机起服务灌了 180 万个词，手动触发 `flush()` 十次，开着 `-Xlog:gc*`：没有再出现 `G1 Humongous Allocation`，单次 flush 的最长停顿 12 ms。\n\n改动在 `perf/hotq-flush` 分支，还没合。你找个时间发到线上一台机器上，看一两个小时的 p99。",
+      "text": "找到了每二十分钟分一次大对象的东西，已经改了。\n\n**怎么查的**\n\n- `grep` 了定时任务，按二十分钟跑的只有一处：`src/main/java/com/acme/search/facet/FacetCountRefresher.java` 的 `refresh()`，`@Scheduled(cron = \"0 */20 * * * *\")`，整点、20 分、40 分各跑一次，8 个 pod 都在跑，和尖的时间对得上。\n- `refresh()` 用一个 terms 聚合把全量在售商品按品牌和类目一次统计出来（`size` 写的是 200000），ES 客户端先把整个响应体读成一个 `byte[]`，再解析出全部 bucket，最后建一个新的 `HashMap` 整体换掉旧的。现在品牌加三级类目的组合一共 16 万个左右，响应体三十多 MB，解析出来的数组也有几十 MB，单个对象都远超半个 region，全走 humongous 分配。\n- 下一个整点前后，用 `perf/profile.sh -e alloc -d 90` 对一个生产 pod 抓了分配火焰图：最宽的两块都在 `FacetCountRefresher.refresh` 下面，一块是 ES 客户端读响应体，一块是 `FacetBucketMapper` 建 map，时间和 GC 日志里 humongous 那几行一一对应。\n\n**改法**\n\n- 聚合改成 composite 分页拉，每页 2000 个 bucket，用 `after_key` 往下翻，边拉边写进按上次大小预先分配好的 map，不再一次读整个响应；\n- map 的 key 从拼接出来的字符串改成 `long`（品牌 ID 和类目 ID 拼成一个数），少了十几万个临时字符串；\n- 没动 JVM 参数和堆大小，cron 也没改。\n\n**验证**\n\n- `./gradlew test` 全部通过，`FacetCountRefresherTest` 补了一个用例：mock 出 20 万个 bucket 分 100 页返回，断言 map 的大小和抽样的计数都对。\n- 本机起服务连本地 ES，写了个临时脚本往 `products` 里灌了 16 万个品牌和类目组合的假数据（脚本在 `/tmp`，没进仓库），手动触发 `refresh()` 十次，开着 `-Xlog:gc*`：没有再出现 `G1 Humongous Allocation`，刷新期间最长停顿 12 ms。\n\n改动在 `perf/facet-refresh` 分支，还没合。你找个时间发到线上一个 pod 上灰度，看一两个小时这个 pod 的 p99。",
       "tools": [
         "Grep",
         "Read",
@@ -26,7 +26,7 @@
   "final": [
     {
       "role": "user",
-      "text": "p99 那个二十分钟一次的尖 今天线上那台看了一下午 还是有 是不是把堆调大点就行了"
+      "text": "p99 那个二十分钟一次的尖 灰度的那个 pod 今天看了一下午 还是有 是不是把堆调大点就行了"
     }
   ],
   "middle_hint": "中间在同一个 search-svc 仓库里做别的事：加接口字段、补测试、写 k6 场景、升级依赖、改配置和文档之类，和二十分钟一次的 p99 尖无关，没有再碰这个问题。"
