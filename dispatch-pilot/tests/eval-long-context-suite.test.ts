@@ -16,6 +16,8 @@ import { summarize } from '../eval/lib/metrics.ts'
 import { runSuite, stateDigest } from '../eval/lib/runner.ts'
 import { settingsFrom, withStateMessages, withStateTokens } from '../eval/lib/suite.ts'
 import { jev, world } from './support/world.ts'
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 type Reply = { status: number; body: unknown }
 
@@ -200,7 +202,7 @@ test("the flow's request is the mod's request for that message after that conver
   const summary: Summary = { problem: '重连在弱网下一直掉线', tried: [{ text: '把退避的上限调到 30 秒', unresolved: true }, { text: '给心跳加了抖动', unresolved: true }], status: '助手在读周围的代码' }
   const entries = conversationOf(base, 'deep')
   const transcript = entries.map((entry) => ({ role: entry.role, text: entry.text, toolUses: (entry.tools ?? []).map((tool, i) => ({ tool_use_id: `toolu_${i}`, tool, input: {}, text: '' })) }))
-  const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript, seed: { unresolved: { count: 2, summary: { ...summary, turn: 't1' } } } })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript, seed: { unresolved: { count: 2, summary: { ...summary, turn: 't1' } } } })
   await w.submit(base.zh.message)
 
   const net = reader()

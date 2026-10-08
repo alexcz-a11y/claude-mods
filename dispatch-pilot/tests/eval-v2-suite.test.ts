@@ -15,6 +15,8 @@ import { summarize } from '../eval/lib/metrics.ts'
 import { askRetrying, runSuite } from '../eval/lib/runner.ts'
 import { settingsFrom, withStateMessages, withStateTokens } from '../eval/lib/suite.ts'
 import { jev, world } from './support/world.ts'
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 type Reply = { status: number; body: unknown }
 
@@ -274,7 +276,7 @@ test("a flow variant's request is the mod's request for the last message with th
   const one = item('explicit-unresolved-01')
   const flow = await flowOf(one)
   const summary = flow.item.final?.summary as Summary
-  const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(one.turns.slice(0, -1)), seed: { unresolved: { count: 4, summary: { ...summary, turn: 't9' } } } })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(one.turns.slice(0, -1)), seed: { unresolved: { count: 4, summary: { ...summary, turn: 't9' } } } })
   await w.submit(one.turns.at(-1)?.text ?? '')
   const net = network((body) => answers(body, MAX))
   await run([one], net, ['zh-flow'], settingsFrom({ typesafeApiKey: 'k' }), evalV2Suite(flowFile({ [one.id]: flow.item })))
@@ -283,7 +285,7 @@ test("a flow variant's request is the mod's request for the last message with th
 
 test("an item's request is the mod's request for its last message after the conversation before it: the same questions, the same state", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
   const one = item('explicit-unresolved-01')
-  const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(one.turns.slice(0, -1)) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(one.turns.slice(0, -1)) })
   await w.submit(one.turns.at(-1)?.text ?? '')
 
   const net = network((body) => answers(body, [0, 0, 0.2, 0.7, 0.1]))

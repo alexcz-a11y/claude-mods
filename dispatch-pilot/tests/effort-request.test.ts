@@ -14,6 +14,8 @@ import { CLEF_OPTIONS, asClef, clefInputProblems } from './support/cloudflare.ts
 import { jev, rates, world, type Reply, type Sent, type SkillsWorld } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 const SKILLS: SkillsWorld = {
   commands: [
@@ -34,7 +36,7 @@ const isSkills = (request: Sent) => ids(request).some((id) => id.startsWith('ski
 const wordy = (tokens: number, said: string) => `${said}：${'这一段是为了把对话撑长而写的。'.repeat(Math.ceil(tokens / 15))}`.slice(0, tokens)
 
 test("with skills on, the effort question goes alone in its request and the skills' questions keep theirs", { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ tdd: 0.7, '(none)': 0.3 }, { tdd: 0.9 }, [0.05, 0.1, 0.7, 0.1, 0.05]), skills: SKILLS })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: rates({ tdd: 0.7, '(none)': 0.3 }, { tdd: 0.9 }, [0.05, 0.1, 0.7, 0.1, 0.05]), skills: SKILLS })
   await w.submit('先写一个失败的测试，再实现登录限流')
   await w.step({ index: 0 })
 
@@ -51,7 +53,7 @@ test('the effort request is exactly the decision module effort question over the
     { role: 'user', text: '登录接口加个限流', toolUses: [] },
     { role: 'assistant', text: '好的，要先写测试吗？', toolUses: [] },
   ]
-  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, messages })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: rates({ '(none)': 1 }), skills: SKILLS, messages })
   await w.submit('要，先写失败的测试')
 
   const built = mergeParts(turnStartState({ prompt: '要，先写失败的测试', messages, limits: { messages: 32, tokens: 24000 } }), [withUnresolved(turnStartEffortPart({ language: 'zh' }), 'zh')])
@@ -77,7 +79,7 @@ test('the effort question reads the 24000-token budget of a plain message while 
 
 test('the two requests are on their way before either has answered', { options: KEY }, async ($, on) => {
   const answer = rates({ '(none)': 1 })
-  const w = world($, on, { backend: (request) => ({ after: 400, reply: answer(request) }), skills: SKILLS })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: (request) => ({ after: 400, reply: answer(request) }), skills: SKILLS })
 
   const submitting = w.submit('先写一个失败的测试')
   await w.clock.settle()
@@ -127,7 +129,7 @@ test('one request timing out does not hold back the other: the prompt goes in at
 })
 
 test('each request is logged on its own line in the debug log', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: rates({ '(none)': 1 }), skills: SKILLS })
   await w.submit('先写一个失败的测试')
 
   const lines = w.logs.map((entry) => entry.text).filter((text) => text.startsWith('request '))
@@ -142,7 +144,7 @@ test('with only the effort question (skills off) one request goes out, none for 
   await w.start()
   await w.submit('先写一个失败的测试')
 
-  expect(w.requests.map(ids)).toEqual([['effort.level', 'effort.unresolved']])
+  expect(w.requests.map(ids)).toEqual([['effort.level']])
 })
 
 test('with only the skills question (main-effort off) one request goes out, none for the effort', { options: KEY }, async ($, on) => {
@@ -156,7 +158,7 @@ test('with only the skills question (main-effort off) one request goes out, none
 test('Clef: the same two requests, each within its own 2000-token budget, both within its input rules', { options: CLEF_OPTIONS }, async ($, on) => {
   const messages: SessionMessage[] = Array.from({ length: 8 }, (_, i) => ({ role: i % 2 === 0 ? ('user' as const) : ('assistant' as const), text: wordy(500, `第 ${i} 条`), toolUses: [] }))
   const answer = rates({ '(none)': 1 })
-  const w = world($, on, { backend: asClef((request): Reply => answer(request)), skills: SKILLS, messages })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: asClef((request): Reply => answer(request)), skills: SKILLS, messages })
   await w.command('dp', 'skills on')
   await w.submit('先写一个失败的测试')
 

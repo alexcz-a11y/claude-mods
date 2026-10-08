@@ -7,6 +7,8 @@ import { expect, test } from 'claude-code/testing'
 import { jev, world, type Sent } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
+/** The switch is off until the person turns it on (#48): these tests are about what it does when on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 type Drawn = { type?: string; key?: string | undefined; props?: Record<string, unknown>; children?: unknown[] }
 
@@ -31,7 +33,7 @@ function backend(said: { now: Record<string, number> }) {
 
 test('a count that moves is a decision in the log, beside the effort decision; one that stays is not, and the main agent\'s node keeps the effort decision as its own', { options: KEY }, async ($, on) => {
   const said = { now: STILL }
-  const w = world($, on, { backend: backend(said) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: backend(said) })
 
   await w.submit('登录接口还是 502')
   await w.step({ index: 0 })
@@ -67,7 +69,7 @@ test('a count that moves is a decision in the log, beside the effort decision; o
 
 test("the card of the main agent shows the count and the conclusion of this message's answer; the band draws nothing of it", { options: KEY }, async ($, on) => {
   const said = { now: STILL }
-  const w = world($, on, { backend: backend(said) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: backend(said) })
   await w.submit('登录接口还是 502')
   await w.complete()
   await w.submit('还是不行')
@@ -95,7 +97,7 @@ test("the card of the main agent shows the count and the conclusion of this mess
 
 test('the card says how the count moved: from and to', { options: KEY }, async ($, on) => {
   const said = { now: STILL }
-  const w = world($, on, { backend: backend(said) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: backend(said) })
   await w.submit('登录接口还是 502')
   await w.step({ index: 0 })
   const ui = await w.pane()
@@ -105,7 +107,7 @@ test('the card says how the count moved: from and to', { options: KEY }, async (
 
 test('the log row of a count that moved says what it did, in the pane', { options: KEY }, async ($, on) => {
   const said = { now: STILL }
-  const w = world($, on, { backend: backend(said) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: backend(said) })
   await w.submit('登录接口还是 502')
   const ui = await w.pane()
   const rows = (await ui.findAll({ type: 'Box' })).filter((box) => box.key?.startsWith('pane-entry-'))
@@ -117,7 +119,7 @@ test('the log row of a count that moved says what it did, in the pane', { option
 test('the pane shows the problem summary in full: the problem, every try with the unresolved ones said so, the status; nothing while there is none', { options: KEY }, async ($, on) => {
   const tries = Array.from({ length: 8 }, (_, i) => ({ text: `第 ${i + 1} 次：${'把配置里的某一项改成另一个值再重启服务，'.repeat(2)}`, ...(i < 3 ? { unresolved: true as const } : {}) }))
   const summary = { problem: '服务启动后立刻退出，日志里只有一行 ETIMEDOUT', tried: tries, status: '助手在等新的日志', turn: 't9' }
-  const w = world($, on, { backend: backend({ now: UNSURE }), seed: { unresolved: { count: 3, summary } } })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: backend({ now: UNSURE }), seed: { unresolved: { count: 3, summary } } })
 
   const ui = await w.pane()
   const text = shown(await ui.find({ key: 'pane-summary' }))
@@ -131,13 +133,13 @@ test('the pane shows the problem summary in full: the problem, every try with th
 })
 
 test('the pane has no summary block while there is no summary', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: backend({ now: UNSURE }) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: backend({ now: UNSURE }) })
   await w.submit('登录接口还是 502')
   expect(await (await w.pane()).find({ key: 'pane-summary' })).toBeUndefined()
 })
 
 test('a message that leaves no answer to the question has no conclusion on its card', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: (request) => jev([0.05, 0.1, 0.7, 0.1, 0.05])(request) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: (request) => jev([0.05, 0.1, 0.7, 0.1, 0.05])(request) })
   await w.submit('改个错别字')
   await w.step({ index: 0 })
   const ui = await w.pane()

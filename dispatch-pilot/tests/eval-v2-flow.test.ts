@@ -212,6 +212,7 @@ function transcript(turns: readonly V2Turn[]): SessionMessage[] {
 test('the mod living the same conversation sends the same request at every message, asks the cheap model the same prompts, and holds the same count and summary at the last message', { options: { typesafeApiKey: 'k' } }, async ($, on) => {
   let shown: SessionMessage[] = []
   const w = world($, on, {
+    switches: { unresolved: true },
     backend: (request: Sent) => answers(request.body, READS[msgOf(request.body.state.user_message)] ?? UNSURE),
     model: (_request, n) => ({ text: REPLIES[n - 1] ?? '' }),
     messages: () => shown,

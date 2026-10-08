@@ -403,6 +403,8 @@ test('every feature switch is listed at the top with its state, the ones off in 
   expect(await listed(ui, 'midturn-effort')).toMatchObject({ text: 'midturn-effort 关', color: 'inactive' })
   expect(await listed(ui, 'skill-profiles')).toMatchObject({ text: 'skill-profiles 关', color: 'inactive' })
   expect(await listed(ui, 'hook-block-failures')).toMatchObject({ text: 'hook-block-failures 关', color: 'inactive' })
+  // Off until the person turns it on (#48), in grey like the rest.
+  expect(await listed(ui, 'unresolved')).toMatchObject({ text: 'unresolved 关', color: 'inactive' })
   expect(await ui.find({ key: 'pane-profiles' })).toBeUndefined()
   await w.command('dp', 'skill-profiles on')
   await ui.redraw()

@@ -21,6 +21,8 @@ import { optionsFor, settingsFrom } from '../eval/lib/suite.ts'
 import { CLEF_OPTIONS, clef } from './support/cloudflare.ts'
 import type { SkillsWorld } from './support/world.ts'
 import { jev, rates, world } from './support/world.ts'
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 const JEV = { typesafeApiKey: 'ts-test-key' }
 const CHOSEN = [
@@ -183,7 +185,7 @@ test('with Jev, skills are suggested beside each message by default: the listing
 })
 
 test('with Clef, skill suggestions start off: the main agent keeps its listing and no skill is asked about, until /dp skills on', { options: CLEF_OPTIONS }, async ($, on) => {
-  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), skills: SKILLS })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: clef([0, 1, 0, 0, 0]), skills: SKILLS })
   await w.submit('先写一个失败的测试')
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })

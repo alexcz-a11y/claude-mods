@@ -11,9 +11,11 @@ import { withUnresolved } from '../hooks/decision/unresolved.ts'
 import { jev, world, type Reply } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 test('a message gets one Jev decision, and its turn goes out at the decided effort', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })
 
   await w.submit('把登录模块重构成三层，并补上测试')
   await w.step({ index: 0 })
@@ -324,7 +326,7 @@ test('contextMessages sets how many recent messages go along, contextTokens how 
 })
 
 test('what the mod sends is exactly what the decision module builds, so the eval measures the live request (spec #67)', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), messages: TRANSCRIPT })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 1, 0, 0, 0]), messages: TRANSCRIPT })
   await w.submit('改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉')
 
   // Jev is asked about the effort in Chinese (core/setup.ts BACKEND_DEFAULTS turnStartLanguage).
@@ -365,9 +367,9 @@ test('each request and decision is written to the debug log, never into the conv
 
   expect(w.logs.map((l) => l.to)).toEqual(['debug', 'debug', 'debug'])
   expect(w.logs.map((l) => l.text)).toEqual([
-    'request [effort.level, effort.unresolved] to jev: answered in 0 ms by jev-1.13.0 (300 input tokens)',
+    'request [effort.level] to jev: answered in 0 ms by jev-1.13.0 (300 input tokens)',
     'effort high · "把登录模块重构成三层"：概率 low 0.05, medium 0.10, high 0.60, xhigh 0.20, max 0.05；置信度 0.70',
-    'request [effort.level, effort.unresolved] to jev: http: HTTP 500: boom (0 ms)',
+    'request [effort.level] to jev: http: HTTP 500: boom (0 ms)',
   ])
 })
 
