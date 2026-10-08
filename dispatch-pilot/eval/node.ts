@@ -6,7 +6,7 @@
 // pure modules under lib/. Node 22.18+ runs .ts as is.
 
 import { createHash } from 'node:crypto'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -15,7 +15,8 @@ import { clefBackend } from '../hooks/decision/clef.ts'
 import { jevBackend } from '../hooks/decision/jev.ts'
 import { pplxBackend } from '../hooks/decision/pplx.ts'
 import { isKind, parseJsonl, type Kind } from './lib/datasets.ts'
-import { buildEvalV2, checkGold, checkItem, checkSegment, datasetWarnings, evalV2Jsonl, generatedFile, type Built, type Segment, type V2Item } from './lib/eval-v2.ts'
+import { buildEvalV2, checkFinalGold, checkGold, checkItem, checkSegment, datasetWarnings, evalV2Jsonl, generatedFile, type Built, type FinalGold, type Segment, type V2Item, type V2Record } from './lib/eval-v2.ts'
+import { v2Item, type V2EvalItem } from './lib/eval-v2-suite.ts'
 import { optionsFor, settingsFrom, type EvalBackend, type OptionSpec, type SuiteHost } from './lib/suite.ts'
 
 /** The mod's directory (dispatch-pilot/). */
@@ -206,6 +207,10 @@ export const EVAL_V2_JSONL = join(DATASETS_DIR, 'eval-v2.jsonl')
 export const EVAL_V2_GENERATED = join(EVAL_V2_DIR, 'generated.json')
 /** The seed when generated.json does not name one. */
 export const EVAL_V2_SEED = 'eval-v2'
+/** The final gold the eval scores against (FORMAT.md): one file an item, the agreed answers or the person's ruling. */
+export const EVAL_V2_GOLD = join(EVAL_V2_DIR, 'gold')
+/** Where eval/eval-v2-flow.ts writes its flow files, one per backend and state budget. */
+export const EVAL_V2_FLOW_DIR = join(RESULTS_DIR, 'eval-v2-flow')
 
 /** The four folders of eval v2 and what each holds. */
 export const V2_FOLDERS = ['pool', 'items', 'gold-author', 'gold-labeler'] as const
@@ -354,5 +359,56 @@ export function validateEvalV2(): { lines: string[]; failed: boolean } {
   if (problems.length === 0 && existsSync(EVAL_V2_JSONL) && readFileSync(EVAL_V2_JSONL, 'utf8') !== made.jsonl) problems.push(`${shown(EVAL_V2_JSONL)} (local, not committed) is not what generated.json records: run node dispatch-pilot/eval/eval-v2-gen.ts`)
   lines.push(`${shown(EVAL_V2_JSONL)}: rebuilt with seed ${JSON.stringify(seed)}, ${made.built.records.length} items, sha256 ${made.sha256.slice(0, 12)}…: ${problems.length === 0 ? 'matches generated.json' : `${problems.length} problems`}`)
   for (const problem of problems) lines.push(`  ${problem}`)
-  return { lines, failed: failed || problems.length > 0 }
+  // The final gold the eval scores against: every file well formed, its decisive answers those of its item.
+  const present = read.items.filter((item) => existsSync(join(EVAL_V2_GOLD, `${item.id}.json`)))
+  const missing = read.items.filter((item) => !present.includes(item)).map((item) => item.id)
+  const goldErrors = present.flatMap((item) => readFinalGold(item.id, item.decisive.flatMap((entry) => (entry.msg === undefined ? [] : [entry.msg]))).errors)
+  lines.push(`eval-v2/gold: ${present.length} of ${read.items.length} items have a final gold: ${goldErrors.length === 0 ? 'ok' : `${goldErrors.length} errors`}`)
+  for (const error of goldErrors) lines.push(`  ${error}`)
+  if (missing.length > 0) lines.push(`  warning: no final gold yet for ${missing.join(', ')}`)
+  return { lines, failed: failed || problems.length > 0 || goldErrors.length > 0 }
+}
+
+/** An item's final gold file (`gold/<id>.json`), checked against the decisive messages `asked` (FORMAT.md 「金标」). */
+export function readFinalGold(id: string, asked: readonly string[] | null): { gold: FinalGold | null; errors: string[]; text: string } {
+  const path = join(EVAL_V2_GOLD, `${id}.json`)
+  if (!existsSync(path)) return { gold: null, errors: [`gold/${id}.json: missing`], text: '' }
+  const text = readFileSync(path, 'utf8')
+  const read = readJson(path)
+  if (read.error !== undefined) return { gold: null, errors: [`gold/${id}.json: not JSON: ${read.error}`], text }
+  const checked = checkFinalGold(read.value, id, asked)
+  return { gold: checked.errors.length === 0 ? (read.value as FinalGold) : null, errors: checked.errors.map((error) => `gold/${id}.json: ${error}`), text }
+}
+
+/**
+ * The eval-v2 dataset a run asks: eval-v2.jsonl, each record with its final gold. The JSONL must be what generated.json
+ * records (its sha256); when there is none it is built now from pool/ and items/ with generated.json's seed and written
+ * (what eval-v2-gen.ts does), so a run never asks a dataset other than the committed one. `notes` say what was done.
+ */
+export function readEvalV2Dataset(): { text: string; sha256: string; items: V2EvalItem[]; errors: string[]; notes: string[]; gold: { files: number; sha256: string } } {
+  const none = { text: '', sha256: '', items: [], notes: [], gold: { files: 0, sha256: '' } }
+  if (!existsSync(EVAL_V2_GENERATED)) return { ...none, errors: [`no ${shownV2(EVAL_V2_GENERATED)}: the dataset is not generated yet`] }
+  const recorded = (readJson(EVAL_V2_GENERATED).value as { jsonl?: { sha256?: string } } | undefined)?.jsonl?.sha256
+  const notes: string[] = []
+  let text: string
+  if (existsSync(EVAL_V2_JSONL)) text = readFileSync(EVAL_V2_JSONL, 'utf8')
+  else {
+    const read = readEvalV2()
+    const bad = read.reports.filter((report) => report.errors.length > 0)
+    if (bad.length > 0) return { ...none, errors: bad.flatMap((report) => report.errors.map((error) => `${report.path}: ${error}`)) }
+    const made = generateEvalV2(read.segments, read.items, evalV2Seed())
+    if (made.built.errors.length > 0) return { ...none, errors: made.built.errors }
+    if (made.sha256 !== recorded) return { ...none, errors: [`pool/ and items/ do not make what ${shownV2(EVAL_V2_GENERATED)} records: run node dispatch-pilot/eval/eval-v2-gen.ts and commit it`] }
+    writeFileSync(EVAL_V2_JSONL, made.jsonl)
+    notes.push(`${shown(EVAL_V2_JSONL)} was not there: built it from pool/ and items/ (seed ${JSON.stringify(evalV2Seed())}), as eval-v2-gen.ts does`)
+    text = made.jsonl
+  }
+  const sha256 = createHash('sha256').update(text).digest('hex')
+  if (sha256 !== recorded) return { ...none, errors: [`${shown(EVAL_V2_JSONL)} is not what ${shownV2(EVAL_V2_GENERATED)} records: run node dispatch-pilot/eval/eval-v2-gen.ts`] }
+  const { items: records, errors } = parseJsonl(text)
+  const golds = (records as unknown as V2Record[]).map((record) => ({ record, ...readFinalGold(record.id, record.decisive.map((entry) => entry.msg)) }))
+  errors.push(...golds.flatMap((gold) => gold.errors))
+  const items = golds.flatMap(({ record, gold }) => (gold === null ? [] : [v2Item(record, gold)]))
+  const goldSha = createHash('sha256').update(golds.map((gold) => gold.text).join('\n')).digest('hex')
+  return { text, sha256, items, errors, notes, gold: { files: golds.filter((gold) => gold.gold !== null).length, sha256: goldSha } }
 }

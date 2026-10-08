@@ -247,11 +247,35 @@ export type V2Gold = {
   rationale: string
 }
 
+/** Where a final gold file's answers come from: both sides agreed (the author's file), or the person ruled on a disagreement. */
+export const GOLD_SOURCES = ['agreed', 'user:author', 'user:labeler', 'user:custom'] as const
+
+/** A final gold file (`gold/<id>.json`, what the eval scores against): a gold file's fields and where it came from. */
+export type FinalGold = V2Gold & { source: (typeof GOLD_SOURCES)[number] }
+
+/**
+ * Checks a final gold file as `checkGold` checks a side's, with its `source`; `asked` are the decisive messages of the
+ * person it must answer, in order (null: not checked).
+ */
+export function checkFinalGold(raw: unknown, name: string, asked: readonly string[] | null): Checked {
+  if (!isRecord(raw)) return { errors: ['not a JSON object'], warnings: [] }
+  const { source, ...rest } = raw
+  const checked = checkGoldFields(rest, name, asked)
+  if (!(GOLD_SOURCES as readonly unknown[]).includes(source)) checked.errors.push(`source ${JSON.stringify(source)} is not one of ${GOLD_SOURCES.join(', ')}`)
+  return checked
+}
+
 /**
  * Checks a gold file; `name` is its file's name without `.json`, `item` the item it answers (null when there is none yet:
  * then its decisive messages are not checked).
  */
 export function checkGold(raw: unknown, name: string, item: V2Item | null): Checked {
+  const checked = checkGoldFields(raw, name, item === null ? null : item.decisive.flatMap((entry) => (entry.msg === undefined ? [] : [entry.msg])))
+  if (item === null) checked.warnings.push(`no items/${name}.json for this gold: its decisive messages are not checked`)
+  return checked
+}
+
+function checkGoldFields(raw: unknown, name: string, asked: readonly string[] | null): Checked {
   const errors: string[] = []
   const warnings: string[] = []
   if (!isRecord(raw)) return { errors: ['not a JSON object'], warnings }
@@ -282,14 +306,12 @@ export function checkGold(raw: unknown, name: string, item: V2Item | null): Chec
       exactKeys(answer, ['msg', 'triage'], at, errors)
       triage(answer.triage, `${at}.triage`)
     })
-    if (item !== null) {
-      const asked = item.decisive.flatMap((entry) => (entry.msg === undefined ? [] : [entry.msg]))
+    if (asked !== null) {
       const given = answers.map((answer) => (isRecord(answer) ? answer.msg : undefined))
       if (JSON.stringify(given) !== JSON.stringify(asked)) errors.push(`triage_decisive must answer ${asked.join(', ')} in order (the item's decisive messages of the person), not ${given.map(String).join(', ') || 'none'}`)
     }
   }
   if (!nonEmpty(raw.rationale)) errors.push('rationale must be a non-empty string')
-  if (item === null) warnings.push(`no items/${name}.json for this gold: its decisive messages are not checked`)
   return { errors, warnings }
 }
 

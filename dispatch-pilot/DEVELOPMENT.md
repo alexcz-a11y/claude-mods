@@ -432,6 +432,9 @@ node dispatch-pilot/eval/run.ts subagent --label <名字>   # 派出 agent 的�
 node dispatch-pilot/eval/run.ts subagent --backend clef --variants models-hint --ids subagent-001,...   # Clef 抽样
 node dispatch-pilot/eval/run.ts skill --estimate          # skill 匹配（#16）：三个变体 × 中英，第二段按每条消息都发、短名单排满估算（上限：1308 个请求，约 0.90 美元；只跑 profiles-zh 是 436 个、约 0.37 美元）
 node dispatch-pilot/eval/run.ts skill --label <名字>      # 用真实 Jev 跑 skill 匹配，两段请求都发
+node dispatch-pilot/eval/eval-v2-flow.ts --backend jev [--state-tokens N --state-messages 2000] [--estimate]   # eval v2 的真实流程（#45）：逐条用户消息判三选一、累计次数、Haiku 续写摘要，一个后端加预算一个文件，中断后再跑同一条命令接着跑
+node dispatch-pilot/eval/run.ts eval-v2 --variants zh-flow,en-flow --flow <流程文件> --label <名字>   # eval v2（#45）：最后一条消息的 effort 和三选一；zh-score/en-score 不带流程，zh-flow/en-flow 带流程文件里的次数和摘要
+node dispatch-pilot/eval/eval-v2-thresholds.ts <流程文件> [...]   # 三选一两档门槛的扫描（#45 给 #42）：误清零 ≤ 2% 下加一召回最高，另报中间轮次次数被误改的比例；不发请求
 node dispatch-pilot/eval/profiles.ts [--estimate]         # 给快照里的 skill 写画像（每个 skill 一次 claude -p --model haiku，用你的订阅额度），存进 eval/datasets/skill-profiles.json
 node dispatch-pilot/eval/apply-review.ts effort-submit --from <审核记录.jsonl>  # 应用用户的审核决定，再校验
 node dispatch-pilot/eval/compare.ts <结果 a.json> <结果 b.json>                # 两次运行逐项对照，不发请求
@@ -962,11 +965,12 @@ eval/
 ├── review/<类>.review.jsonl 用户的审核决定（应用时由 apply-review.ts 放进来，和改动一起提交）
 ├── review/<类>.review-summary.md  审核总结：判断基准、规则决定（R1、R2……）和要跟进的事项
 ├── results/<类>/*.json     每次运行的结果：设置、答题的模型版本、汇总、逐题答案
+├── results/eval-v2-flow/<后端>-<预算>.json  eval v2 的真实流程（#45，eval-v2-flow.ts 写）：每题每条用户消息的三选一概率和次数、最后一条消息带的次数和摘要；同目录的 haiku-cache.jsonl 不提交
 ├── results/probes/*.json   Clef 截断 state 的探针结果（#17，probe-truncation.ts 写）
 ├── plans/17-calibration.md #17 的方案、拍板、探针的结果和范围缩减
-├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、resummarize、rescore、compare、docs、各类题型的 suite；long-context 另有 long-conversation（三个版本的对话）、long-filler（中间轮次的生成器）、long-summaries（逐轮写问题摘要）；eval-v2（eval v2 的格式检查和拼装）
+├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、resummarize、rescore、compare、docs、各类题型的 suite；long-context 另有 long-conversation（三个版本的对话）、long-filler（中间轮次的生成器）、long-summaries（逐轮写问题摘要）；eval-v2（eval v2 的格式检查和拼装）、eval-v2-suite（eval v2 的 suite）、eval-v2-flow（真实流程）、eval-v2-thresholds（三选一门槛扫描）
 ├── long-context-items.ts   long-context 评测集的唯一来源（手写的决定性几轮、答案）；long-context-gen.ts 把它写成 datasets/long-context.jsonl
-└── validate.ts、run.ts、apply-review.ts、compare.ts、resummarize.ts、rescore.ts、profiles.ts、long-context-gen.ts、long-context-summaries.ts、eval-v2-gen.ts、eval-v2-check.ts、probe-truncation.ts、node.ts   Node 脚本
+└── validate.ts、run.ts、apply-review.ts、compare.ts、resummarize.ts、rescore.ts、profiles.ts、long-context-gen.ts、long-context-summaries.ts、eval-v2-gen.ts、eval-v2-check.ts、eval-v2-flow.ts、eval-v2-thresholds.ts、probe-truncation.ts、node.ts   Node 脚本
 ```
 
 - **测到的就是线上的请求。** 每类题型的 suite 用 mod 自己拼请求的函数（`hooks/decision/` 的各个模块，加上 `hooks/core/` 里读设置的 `setup.ts`、读 skill 目录和画像的 `skills.ts`、`profiles.ts`），设置取 manifest 的默认值，manifest 没有默认值的选项取 `--backend` 那个决策模型的（`core/setup.ts` 的 `BACKEND_DEFAULTS`，结果文件的 `settings.backendDefaults` 记着取了哪些），经 mod 自己的 `readConfig()` 读出（`--option contextTokens=4000` 可以改，按 manifest 写的类型读：数字、`true`/`false` 或文字；manifest 里没有的名字、类型不对的值直接报错），所以范围、缺省值和 mod 完全一样。`tests/eval-effort-submit.test.ts` 用 world 核对：同一条消息和对话，评测发的请求与 mod 发的逐字相同。
@@ -1274,7 +1278,10 @@ Jev 24000 下把流程拆成两半（`zh-summary`、`zh-count`、`en-…`，**�
 - **输出**：`datasets/eval-v2.jsonl` 一行一题（按 id），字段 `id`、`category`、`domain`、`bin`、`relation`、`middle_hint`、`turns`（整段对话，最后一条是被问的消息；每条有 `part`，来自素材池的有 `segment`；每条用户消息有 `msg`：前置段 `p`、opening `o`、决定性 `d`、中间段 `m`、final `f`，加序号）、`decisive`（每条决定性用户消息在 `turns` 里的位置 `at` 和深度）、`depth`、`depth_end`、`tokens`、`segments`（前置段、中间段的素材 id）。不含金标，金标按 id 对上。
 - **不提交 JSONL，提交 `generated.json`**：120 题约 45 MB（16 题合成数据实测 6.1 MB），`datasets/.gitignore` 把它挡在 git 外。`datasets/eval-v2/generated.json` 记着种子、JSONL 的 sha256 和字节数、素材池的用量、每题的深度和长度；`validate.ts` 每次按这个种子从 `pool/` 和 `items/` 重新生成，生成的 `generated.json` 必须一字不差（本地有 JSONL 时 JSONL 也要一样），否则失败并提示重跑 `eval-v2-gen.ts`。没有 `generated.json` 时（数据还在写）只查每个文件，配额和素材池不够只警告。`validate.ts eval-v2` 只查这一部分；按 120 题模拟，生成一次约 0.5 秒。
 - **素材池要多大**：按每个领域 12 题（每档 3 题、两种关系各半）、段长 3000–5000 模拟：每个领域 `same-problem` 至少 40 段（d4 的 `same-problem` 题一题就要 35–45 段不重复的）、`unrelated` 50 段（前置段和 `unrelated` 的中间段共用，先到跨题 6 次的上限）；`unrelated` 只有 40 段时十来题的总长掉到 5 万到 8 万，段平均只有 3500 token 时两边各要多 5 段左右（`PLAN`，`validate.ts` 按它警告）。
-- **还没做的**：eval v2 的 suite（`run.ts` 还不认 `eval-v2`）、按后端逐轮写的摘要、真实流程的次数。`turns` 去掉最后一条就是 `recent_context`，最后一条是 `message`（命令轮带 `command`），可以直接交给 `lib/unresolved.ts` 的 `askedRequest`。
+- **最终金标**（`datasets/eval-v2/gold/<id>.json`）：双方一致的取出题者那份（`source` 为 `agreed`），分歧按用户裁决（`user:author`、`user:labeler`、`user:custom`）；字段同两边的金标再加 `source`，`lib/eval-v2.ts` 的 `checkFinalGold` 检查，`validate.ts` 对着题目的决定性消息逐题核对。
+- **suite**（`lib/eval-v2-suite.ts`，`run.ts eval-v2`）：读 `eval-v2.jsonl`（没有就按 `generated.json` 的种子当场拼出来写好；和 `generated.json` 记的 sha256 不符就拒绝），每题配上最终金标。最后一条是被问的消息（命令轮带 `command`），之前的全部是对话，交给 `lib/unresolved.ts` 的 `askedRequest`：和 mod 逐字相同（`tests/eval-v2-suite.test.ts` 用 world 核对）。对话只有中文，`--languages` 默认 `zh`；变体 `zh-score`、`en-score` 是问题用中文还是英文，`zh-flow`、`en-flow` 另外带 `--flow <文件>` 里这一题最后一条消息时的次数和摘要（次数达到 `unresolvedMaxAfter` 时带强提示，与 mod 相同；没有 `--flow` 时 `run.ts` 拒绝这两个变体，流程文件和这次运行的后端、预算不一致时只提醒）。评分对最终金标：可接受准确率、正好命中、判高判低、max 召回和不该给却给了 max 的比例，按深度档、按关系、按两者交叉、按类别分开；三选一对 `triage_final`（准确率、混淆表、按两档门槛次数该动没动）；`seen` 是 state 读没读到决定性几轮；每题存 effort 和三选一的概率，`thetaMax` 一栏是换门槛重算的结果。
+- **真实流程**（`lib/eval-v2-flow.ts`，`eval-v2-flow.ts`）：按对话顺序，每条用户消息发 mod 的请求（effort 题加三选一，带当时的摘要和次数，次数到 `unresolvedMaxAfter` 带强提示），按两档门槛（默认 `UNRESOLVED_THRESHOLDS`）动次数：加一时给摘要最后一次尝试标未解决（`markLast`），清零时摘要一起清掉（与 `core/unresolved.ts` 相同）；每轮结束（最后一条除外）用 mod 的 `summaryPrompt` 和 `readSummary` 让 `claude -p --model haiku` 续写摘要，写不出就保留原来的。`tests/eval-v2-flow.test.ts` 用 world 核对：mod 走同一段对话时，每条消息的请求、给 Haiku 的每个提示词、最后一条时的次数和摘要都和流程相同。一个后端加预算一个文件（`results/eval-v2-flow/jev-24000.json` 等），每条消息记三选一和 effort 的概率、次数前后、写没写成摘要，`final` 是最后一条消息的请求带的次数、摘要和强提示；每条消息存一次进度，再跑同一条命令从停下的消息接着跑；繁忙、断线、超时（重试之后）停下这一题，401、额度用完停下整个运行，HTTP 错误和读不出的回答照 mod 的做法记下、次数不动。Haiku 的回复按提示词缓存在 `haiku-cache.jsonl`（不提交），同一个提示词同一个回复，两个 pplx 预算在次数一致的地方共用摘要；开跑前问一次 Haiku 自己是哪个模型，连同 `claude -p` 报的模型记进文件（2026-10-08 是 `claude-haiku-5-5`）。
+- **三选一门槛扫描**（`lib/eval-v2-thresholds.ts`，`eval-v2-thresholds.ts`）：决定性消息的金标（`triage_decisive`）对流程文件里的概率，网格（步长 0.01，保持 mod 的两条规矩：两档之和大于 1、加一门槛低于清零门槛）里在误清零（金标仍未解决却清零）≤ 2% 的组合中取加一召回最高，平手看误加一、清零召回、中间轮次误改、离现在的 0.5/0.7 多近；另报每个加一门槛下最低可行的清零门槛，中间轮次（`m`）次数被误改的比例（`same-problem` 段被清零、`unrelated` 段被加一），以及最后一条消息作对照。几个文件一起给时各报一次再合起来报。离线按存下的概率重判，换了门槛后后面的请求本会带不同的次数和强提示，这一点算不进去。
 
 ### 已实测的引擎行为（2.1.289；看板部分 2.1.291）
 

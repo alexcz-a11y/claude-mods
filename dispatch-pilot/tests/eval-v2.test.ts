@@ -2,7 +2,7 @@
 // rules the authors write to (eval/datasets/eval-v2/FORMAT.md) and `eval/eval-v2-check.ts` and `eval/validate.ts` apply.
 
 import { expect, test } from 'claude-code/testing'
-import { checkGold, checkItem, checkSegment, datasetWarnings } from '../eval/lib/eval-v2.ts'
+import { checkFinalGold, checkGold, checkItem, checkSegment, datasetWarnings } from '../eval/lib/eval-v2.ts'
 
 /** About `n` tokens of plain Chinese prose (one token a character), ending in a full stop. */
 function prose(n: number): string {
@@ -213,6 +213,16 @@ test('each broken gold rule is reported; the three-way answers are the mod\'s op
   expect(errors(gold('explicit-unresolved-01', (g) => (g.rationale = ' ')))).toMatch(/rationale must be a non-empty string/)
   expect(errors(gold('explicit-unresolved-01', (g) => delete g.effort_without_decisive))).toMatch(/effort_without_decisive is missing/)
   expect(errors(gold('explicit-unresolved-01', (g) => (g.triage = 'x')))).toMatch(/unknown field triage/)
+})
+
+test('a final gold file (gold/, what the eval scores against) is a gold file with where it came from: agreed, or the person\'s ruling', () => {
+  const final = (source: unknown, change?: (g: any) => void) => checkFinalGold({ ...gold('explicit-unresolved-01', change), source }, 'explicit-unresolved-01', ['d1', 'd2'])
+  for (const source of ['agreed', 'user:author', 'user:labeler', 'user:custom']) expect(final(source).errors).toEqual([])
+  expect(final('author').errors.join('\n')).toMatch(/source "author" is not one of agreed, user:author, user:labeler, user:custom/)
+  expect(final(undefined).errors.join('\n')).toMatch(/source undefined is not one of/)
+  // The rest is checked as on either side, against the decisive messages of the conversation.
+  expect(final('agreed', (g) => g.triage_decisive.pop()).errors.join('\n')).toMatch(/triage_decisive must answer d1, d2 in order/)
+  expect(checkFinalGold({ ...gold('explicit-unresolved-01'), source: 'agreed' }, 'explicit-unresolved-01', null).errors).toEqual([])
 })
 
 test('a gold file without its item is checked on its own and warned about', () => {
