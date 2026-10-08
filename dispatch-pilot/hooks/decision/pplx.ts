@@ -7,8 +7,7 @@
 // most come as `{ error: { message, type, code } }`, a 404 or 405 has an empty
 // body, a 504 may be an HTML page, and a 429 carries `Retry-After`.
 //
-// Not a choice in the mod's settings yet (#43 measures it first): the eval
-// builds it (`--backend pplx`).
+// A choice in the mod's settings (`decisionModel: pplx`, #50; ADR 0006) and the eval's (`--backend pplx`).
 //
 // Pure (see system-one.ts).
 
@@ -23,14 +22,22 @@ export const PPLX_URL = 'https://api.perplexity.ai/v1/decisions'
  */
 export const PPLX_MODEL = 'pplx-decider-v1.1-27b'
 
-export function pplxBackend(apiKey: string, options: { url?: string; model?: string } = {}): Backend {
+/**
+ * The key is a string, or a function that gives it when asked: the mod's key may come from the environment, which is read
+ * after the backend is built (core/setup.ts `Secrets`). `configured` follows it.
+ */
+export function pplxBackend(apiKey: string | (() => string), options: { url?: string; model?: string } = {}): Backend {
   const url = options.url ?? PPLX_URL
   const model = options.model ?? PPLX_MODEL
+  const keyNow = typeof apiKey === 'function' ? apiKey : () => apiKey
   return {
     name: 'pplx',
-    configured: apiKey !== '',
+    get configured() {
+      return keyNow() !== ''
+    },
     async ask(io, request, timeoutMs) {
-      if (!apiKey) return { ok: false, failure: { kind: 'config', detail: 'no Perplexity API key: set PERPLEXITY_API_KEY' } }
+      const apiKey = keyNow()
+      if (!apiKey) return { ok: false, failure: { kind: 'config', detail: 'no Perplexity API key: set perplexityApiKey or PERPLEXITY_API_KEY' } }
       const posted = await postJson(io, url, { authorization: `Bearer ${apiKey}` }, { model, state: request.state, questions: request.questions }, timeoutMs, pplxFailure)
       const asked: Asked = posted.ok ? readAnswers(posted.response.text) : posted
       // A failure's detail goes to the debug log: what it echoes of the key stays out.

@@ -203,14 +203,15 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 
 这一节逐个说明配置项，留着每个选项的校准依据。默认值只写在 README 的配置表里（`node dispatch-pilot/eval/validate.ts docs` 核对它和 manifest、`BACKEND_DEFAULTS` 一致），这里不再重复。
 
-**按决策模型取值的表（`core/setup.ts` 的 `BACKEND_DEFAULTS`）。** 每个决策模型一项，里面有：按决策模型取默认值的选项（`PER_BACKEND_OPTIONS`；这些选项在 manifest 里不能有 `default`，README 每张配置表里每个决策模型一列）；`contextTokensMax`、`contextMessagesMax` 两个上限；往上取一档的门槛 `roundUp`；问法 `ask`（`turnStart` 是发消息时判 effort 的那一题，`other` 是其余所有问题，mod 里的 `ctx.ask` 就是 `other`）；skill 推荐和 `find_skill` 的几项。这些值 mod 和评测读的是同一张表（`readConfig`，评测经 `settingsFrom`）。加一个决策模型：往表里加一项，`eval/lib/docs.ts` 的 `BACKENDS` 加一行，README 每张配置表加一列。`readConfig` 和 `settingsFrom` 的第二个参数可以传别的表（默认是 `BACKEND_DEFAULTS`），测试用它在表里只有一个决策模型时读一个各项都和 Jev 不同的表（`tests/backend-defaults.test.ts` 的 `OTHER`），看每个值是否传到用它的地方。
+**按决策模型取值的表（`core/setup.ts` 的 `BACKEND_DEFAULTS`）。** 每个决策模型一项，里面有：按决策模型取默认值的选项（`PER_BACKEND_OPTIONS`；这些选项在 manifest 里不能有 `default`，README 每张配置表里每个决策模型一列）；`contextTokensMax`、`contextMessagesMax` 两个上限；往上取一档的门槛 `roundUp`；问法 `ask`（`turnStart` 是发消息时判 effort 的那一题，`other` 是其余所有问题，mod 里的 `ctx.ask` 就是 `other`）；skill 推荐和 `find_skill` 的几项。这些值 mod 和评测读的是同一张表（`readConfig`，评测经 `settingsFrom`）。加一个决策模型：往表里加一项，`eval/lib/docs.ts` 的 `BACKENDS` 加一行，README 每张配置表加一列。`readConfig` 和 `settingsFrom` 的第二个参数可以传别的表（默认是 `BACKEND_DEFAULTS`），用来读一个表里还没有的决策模型；表里现在有 Jev 和 pplx 两项（#50），它们在每个值上都不同，`tests/backend-defaults.test.ts` 就拿这两项对比，看每个值是否传到用它的地方。
 
 在 `/config` 里设置，或写在 settings 的 `pluginConfigs` 里：
 
 | 选项 | 说明 |
 |---|---|
-| `decisionModel` | 决策模型，在 `/config` 里是下拉选择。现在只有 `jev`（TypeSafe）；填了别的值，引擎按默认值 `jev` 处理并给出警告。 |
+| `decisionModel` | 决策模型，在 `/config` 里是下拉选择：`jev`（TypeSafe）或 `pplx`（Perplexity，#50）。默认 `jev`（#52 之后是 `pplx`）；填了别的值，引擎按默认值处理并给出警告。 |
 | `typesafeApiKey` | TypeSafe 的 API key，是敏感字段，保存在安全存储里。为空时不发送任何请求。 |
+| `perplexityApiKey` | Perplexity 的 API key（#50），是敏感字段。为空时读环境变量 `PERPLEXITY_API_KEY`，两处都有用这里的。读法见「pplx 的默认值和密钥」。 |
 | `timeoutMs` | 等待决策模型的最长时间，范围 200–8000 毫秒。 |
 | `contextMessages` | 随你的消息一起发送的最近消息条数，范围 0 到决策模型的上限（`BACKEND_DEFAULTS` 的 `contextMessagesMax`，Jev 是 32）。默认取上限：真正限制发多少的是 `contextTokens`，放不下的旧消息整条丢掉（见「Jev 的上下文默认值怎么算」）。 |
 | `contextTokens` | 发给决策模型的 state 的 token 预算，范围 100–16000：你的消息加上最近对话，按发出去的样子数（整个 state 序列化成 JSON，连同字段名、引号和转义）。默认值按 Jev 的上限算出来，而且按请求的种类分开取：带 skill 题的请求一个值，其余种类一个更大的值；你设了值，每个种类取它和自己上限里较小的一个（见「Jev 的上下文默认值怎么算」）。整个 state 都要在预算之内，不靠字段的顺序。 |
@@ -244,6 +245,26 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 **按决策模型取的默认值（#17）。** 上表里这 11 项（`timeoutMs`、`contextMessages`、`contextTokens`、`rejudgeSteps`、`thetaUp`、`thetaDown`、`thetaMax`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance`），默认值取决于决策模型。它们在 manifest 里没有默认值，所以 `/config` 里显示为空，你不设时引擎什么也不传（kit 的测试和真实引擎都确认过），Dispatch Pilot 按决策模型取默认值（现在只有 Jev 的，`core/setup.ts` 的 `BACKEND_DEFAULTS`；`contextTokens`、`contextMessages`、`rejudgeSteps` 的默认值 0.2.1 起按 Jev 的上限取，见下面的「Jev 的上下文默认值怎么算」）。另外，发消息时 effort 问题的语言（Jev 用中文）、`find_skill` 的等待和第一段带不带画像（见「find_skill：主 agent 中途查询 skill」）和发消息时 skill 推荐的默认开关，也按决策模型取，这些不是配置项，依据见「待评测」。你自己设了某一项，就用你设的值。会话开始时 debug log 写一行哪些选项用了默认值，例如 `settings for jev: left unset, so jev's defaults: timeoutMs 1500, ...; skill suggestions on until /dp skills off; contextTokens 20000 reads as 16000, the most with jev`。
 
 这些默认值大多是暂定的。按用户的决定（2026-10-05），#17 没有再跑对比或扫描评测：`skillsMinRelevance` 按 #16 已有的数据改成 0.75，Jev 的上下文三项在 0.2.1 按 Jev 的上限取（下一节）；中途重判的几项（`rejudgeEvery` 到 `holdSteps`）、`agentOverride`、`thetaMax`、`findSkillMinRelevance`、`skillsShortlist`、`escalateAfter`、`escalateMode`、`escalateLimit` 和 `thetaExpected` 都还是起点，现有的数据和没做的评测见「待评测」。
+
+### pplx 的默认值和密钥
+
+`decisionModel: pplx`（#50，ADR 0006 的 B′）用 Perplexity 的 `pplx-decider-v1.1-27b`（`POST https://api.perplexity.ai/v1/decisions`，Bearer key；请求体只有 `model`、`state`、`questions`，多一个顶层字段 API 就回 400）。它的一行在 `BACKEND_DEFAULTS.pplx`，值和依据：
+
+| 项 | 值 | 依据 |
+|---|---|---|
+| `timeoutMs`、`rejudgeWaitMs`、`findSkillWaitMs` | 8000、6000、6000 | 请求要几秒（eval v2 的 B′ 约 5 秒）；hook 自己的上限是 10 秒，`timeoutMs` 的上限本来就是 8000 |
+| `contextMessages`（默认和上限） | 2000 | 和 eval v2 的 B′ 一致（`--state-messages 2000`），实际由 token 预算截断 |
+| 发消息 effort、中途重判、派出 agent、Workflow 的预算 | 各 48000 | eval v2 的 B′；pplx 的窗口是 262144 token，不受 Jev 那 32k 的限制 |
+| `contextTokens`（skill 两段的预算） | 6000 | B′ 没有评测过 skill 题，沿用 Jev 的值（两个模型的画像一样长） |
+| `ask` | 所有问题英文，Score | eval v2：pplx 英文问法更准 |
+| `thetaMax` / `thetaUp` / `thetaDown` | 0.47 / 0 / 0.55 | 已存的 pplx 回答离线校准（取值规则是评测时 agent 自拟的，用户没有逐条确认） |
+| `roundUp` | 0.45 | 离线扫描：effort-submit 英文问法判高 18.5% 降到 13.0%，max 召回不变（11/16）；eval v2 判低 12.5% 升到 15.0%；关掉这一步也只到 12.5% |
+| `thetaExpected`、`agentOverride`、两个相关度门槛 | 沿用 Jev 的 0.25、0.6、0.75、0.5 | 没有为 pplx 校准过 |
+| `suggestSkills`、`findSkillProfiles` | 开、开 | 同 Jev |
+
+**密钥怎么读。** `perplexityApiKey`（userConfig）优先，空时用环境变量 `PERPLEXITY_API_KEY`。`$.env.get` 是异步的、要 `$`，`setup()` 和 `readConfig` 是同步的、没有 `$`，`$` 也不能跨 import；所以环境变量在 `session.start`（`features/control.ts`）里读一次，存进 `ctx.secrets.perplexityEnvKey`（`Secrets`，`core/setup.ts`；热重载会重新触发 `session.start`），pplx 的后端每次 `ask` 时才取 `perplexityKey(config, secrets)`（`pplxBackend` 收一个 `() => string`；`Backend.configured` 是它的 getter，所以各功能读 `configured` 时看到的就是现在有没有 key）。没有放进 `BackendIo` 的闭包里，是因为那要在 9 处 `io` 字面量里各写一遍 `$.env.get('PERPLEXITY_API_KEY')`，而且 #52 要在发请求之前、同步地知道有没有 key（选 pplx 还是退回 Jev，决定 `Config` 用哪一行）：那也只能在 `session.start` 读好再用。key 只出现在请求头里：`pplx.ts` 把失败的 detail 里出现的 key 换成 `[REDACTED]`，`session.start` 的 debug log 只写 key 从哪里来（`pplx key: from the options` / `from PERPLEXITY_API_KEY` / `not set`）。`tests/pplx-model.test.ts` 的测试在日志、看板、toast 里搜 key 的原文。
+
+**接 #51、#52 的地方。** 所有决策请求都经 `ctx.backend.ask(io, request, timeoutMs)`，`ctx.backend` 是 `setup()` 里按 `config.backend` 建的一个对象：限速（#51）包在 `pplxBackend` 外面即可，Jev 不经过。`Failure`（`decision/backend.ts`）还没有 Retry-After 字段，429 只在 `pplxFailure` 的 detail 里写 `(retry after N s)`。后端选择（#52）：`backendNameOf(options)` 现在只看 `decisionModel`；`Ctx` 里已经有 `secrets`，会话开始时它才有环境变量的值，而 `Config` 在 register 时就算好了、不少功能在 register 时把 `ctx.config.*` 取走了，所以按密钥选后端要先解决「`Config` 晚一点才知道用哪一行」。
 
 ### Jev 的上下文默认值怎么算
 
@@ -915,6 +936,7 @@ test('……', { options: { typesafeApiKey: 'k' } }, async ($, on) => {
 ```
 
 - `world($, on, options)` 在 mod 之下扮演引擎和外部世界。`backend` 回答 `$.http.fetch`：`jev(levels)` 让每个 Score 问题得到这组概率；`{ status, body }`、`{ reject }`、`{ after: ms, reply }` 分别模拟出错、断网和慢响应。`agents` 回答 `$.agent.list()`（也可以是 `{ deny }`），之后在 `w.agents` 里增减；`w.complete({ agentId?, reason?, durationMs? })` 是一个 loop 的 `turn.complete`；`messages` 是 `$.session.messages()` 的返回值（也可以是函数，拿到这次问的是什么，例如 `{ agentId }`，按调用作答，或者像引擎拒绝 Workflow agent 那样回 `{ deny }`），`disk` 回答 `$.fs.read` 和 `$.fs.exists`，`beneath` 模拟更内层的 hook 拒绝（`drop`）或改写（`rewrite`）消息。它会记录 `requests`、`steps`、`statuses`、`logs` 和 `prompts`，以及 `looked`（`roster`：读了几次 `$.agent.list()`；`files`：`$.fs.read` 读过的路径，按顺序），用来断言某样东西没有每一步都重读（例子见 `tests/readings.test.ts`）。`store` 给 `$.store` 预置内容（不给时每个 `$.store` 调用都会 reject），mod 写进去的用 `w.stored(key)` 读回；`session: true` 让引擎照常开始会话：`w.start()` 触发 `session.start`，mod 注册的命令记在 `w.commands`（`session: { registerError }` 让注册被拒绝），`w.measure({...})` 触发 `session.measure`；`w.command('dp', 'lock max')` 像用户输入斜杠命令那样运行它，返回它打印的文字（例子见 `tests/control.test.ts`）；`w.slash('implement', '#19')` 是用户输入一个 prompt 命令（skill、markdown 命令）：照引擎的顺序先 `command.run`，再提交输入的 `/implement #19`，这一轮以引擎的命令消息开始（例子见 `tests/command-turns.test.ts`）。这几项都是按需打开的，不用的测试不受影响。
+- pplx（#50）：`pplx(levels, extra)` 和 `jev` 一样回答每个问题，回答里的 `model` 是 `pplx-decider-v1.1-27b`，并且像真的 API 一样拒绝不对的请求：URL 不是 `https://api.perplexity.ai/v1/decisions` 回 404（空 body），没有 Bearer key（`extra.key` 指定了就要是这一个）回 401 `{ error: { message, type, code } }`，模型名不对或顶层字段多于 `model`、`state`、`questions` 回 400。`rates(shares, fits, levels, pplx)` 的第四个参数让两段排序也由 pplx 作答。`env: { PERPLEXITY_API_KEY: '…' }` 回答 `$.env.get`（和 `skills.home` 的 `HOME` 合在同一个 `mock.env` 里；没给 `env` 时 `$.env.get` 不被回答），世界在第一次驱动引擎之前自己跑 `session.start`（mod 在那里读环境变量），和 `switches` 一样。例子见 `tests/pplx-model.test.ts`（pplx 的 seam 1）、`tests/backend-defaults.test.ts`（Jev 和 pplx 的默认值对比，seam 2）。
 - `await w.board()` 读出「决定汇报」存在 `$.state` 的看板数据，是断言「mod 决定了什么、读到了什么」的地方，不要再去比状态字符串：`{ turn, nodes, changes, starts, log, main, agents }`。`turn`、`nodes`、`changes`、`starts`、`log` 就是存着的值（`board.turn`、`board.nodes`、`decisionLog`，契约见 `types/index.d.ts`），`main` 是当前这一轮主 agent 的节点，`agents` 是当前这一轮其他 agent 的节点。例如：`expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, failure: { backend: 'jev', kind: 'timeout' } })`、`expect((await w.board()).log.at(-1)).toMatchObject({ feature: 'main-effort', outcome: 'effort high' })`。`board` 和 `decisionLog` 两个值由 world 自己保管（版本号和 `ifVersion` 照宿主的方式），测试里没有 `$.state` 可读；`seed: { board, log }` 让 mod 一启动就看到「上一次加载留下的」数据，用来测热重载后数据还在（例子见 `tests/report.test.ts`、`tests/control.test.ts`）。要让它们读写失败，在 `world()` 之前注册 `on('state.set', { plugin: 'dispatch-pilot', key: 'board' }, () => ({ deny: '...' }))`。
 - `skills` 打开本会话的 skill（`SkillsWorld`）：`commands` 回答 `$.command.list()`，`listed` 回答 `$.session.usage({ breakdown })` 里主 agent 的 skill 清单（`null` 让这次调用失败），`overrides` 按来源回答 `$.settings.read({ source })` 的 `skillOverrides`，`home` 和 `cwd` 回答 `$.env.get('HOME')` 和 `$.session.cwd()`。SKILL.md 放进 `disk`。`w.listing(text, agentId?)` 像引擎那样把 skill 列表交给 `prompt.attachment`，返回模型最后读到的内容。`session` 打开时还有 `w.compact()` 和 `w.clear()`。`jev(levels, { shares: { 'skills.which': { tdd: 0.6, '(none)': 0.4 } } })` 让一个 Choice 问题按给定的概率作答（没列出的选项是 0），`nouls: { 'skills.fits.0': 0.9 }` 让 Noul 按问题 ID 作答（默认 0.5）。例子见 `tests/skills.test.ts`。
 - 两段排序（#11）：`rates(shares, fits)` 同时回答一条消息的两个 skill 请求：第一个请求的 `skills.which` 和 `skills.hint` 都按 `shares`（各自只取自己的选项；effort 默认 medium），第二个请求（`isSecondSkillsRequest(request)` 为真）里每个 `skills.fits.<i>` 按它 instructions 里 skill 的名字取 `fits` 的值（没列出的是 0），`skills.best` 全给 fits 最高的那个。`disk` 也回答 `$.fs.list`（列出某个目录下的文件和子目录），同步 skill 的账号目录就这样找到。例子见 `tests/skill-ranking.test.ts`。

@@ -42,6 +42,9 @@ export function registerControl(on: On, ctx: Ctx): void {
     loadOverrides(await $.store.get(SWITCHES_KEY).catch(() => undefined))
     // Which options the decision model's defaults decided (core/setup.ts BACKEND_DEFAULTS).
     $.ui.log(describeDefaults(ctx.config), { to: 'debug' })
+    // The environment's Perplexity key (the options' comes first), for the requests that follow; never written down, only where it came from.
+    ctx.secrets.perplexityEnvKey = ((await $.env.get('PERPLEXITY_API_KEY').catch(() => undefined)) ?? '').trim()
+    if (ctx.config.backend === 'pplx') $.ui.log(`pplx key: ${ctx.config.perplexityApiKey !== '' ? 'from the options' : ctx.secrets.perplexityEnvKey !== '' ? 'from PERPLEXITY_API_KEY' : 'not set'}`, { to: 'debug' })
     // A decisionModel left over in the person's settings that names a model since removed: the engine reads it as the default.
     const removed = removedDecisionModel(await $.settings.read({ source: 'user' }).catch(() => undefined))
     if (removed !== null) $.ui.log(`decisionModel ${removed} 已移除，按没设处理`, { to: 'debug' })

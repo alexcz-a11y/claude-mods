@@ -39,6 +39,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { PluginOptions } from 'claude-code'
+import type { BackendName } from '../hooks/core/setup.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import type { Language } from '../hooks/decision/effort.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
@@ -50,7 +51,7 @@ import { lineTokens } from './lib/eval-v2.ts'
 import { conversationPrint, flowItem, type FlowFile, type FlowItem } from './lib/eval-v2-flow.ts'
 import type { V2EvalItem } from './lib/eval-v2-suite.ts'
 import { attemptMs as defaultAttemptMs, askRetrying } from './lib/runner.ts'
-import { optionsFor, settingsFrom, settingsModel, withStateMessages, withStateTokens, type EvalBackend } from './lib/suite.ts'
+import { optionsFor, settingsFrom, withStateMessages, withStateTokens } from './lib/suite.ts'
 import { EVAL_V2_FLOW_DIR, PRICES, backendFor, nodeIo, readEvalV2Dataset, readManifest, shown } from './node.ts'
 
 const { values } = parseArgs({
@@ -83,12 +84,12 @@ function fail(message: string): never {
 }
 
 // ---- the mod's settings for the backend, as run.ts reads them ----
-const backendName = values.backend as EvalBackend
+const backendName = values.backend as BackendName
 if (backendName !== 'jev' && backendName !== 'pplx') fail(`no backend "${backendName}" (jev, pplx)`)
 const manifest = readManifest()
 let options: PluginOptions
 try {
-  options = optionsFor(settingsModel(backendName), manifest.userConfig ?? {}, values.option)
+  options = optionsFor(backendName,manifest.userConfig ?? {}, values.option)
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 }

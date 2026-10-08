@@ -154,9 +154,9 @@ const FAILURE_WORDS: { readonly [K in Failure['kind']]: { words: (failure: Failu
     means: '没有配好决策模型的密钥或账号，或者密钥被拒绝',
     line: (backend, failure) => {
       if (failure.status !== undefined) return `${backend}：密钥被拒绝（状态码 ${failure.status}）`
-      // Nothing was sent: what is not set up (the option names are the ones the person types).
-      const missing = ['typesafeApiKey'].filter((option) => failure.detail.includes(option))
-      return missing.length === 0 ? `${backend}：没有配好密钥或账号` : `${backend}：没有填 ${missing.join(' 和 ')}`
+      // Nothing was sent: what is not set up (the option and the variable names are the ones the person types; any one of them does).
+      const missing = ['typesafeApiKey', 'perplexityApiKey', 'PERPLEXITY_API_KEY'].filter((name) => failure.detail.includes(name))
+      return missing.length === 0 ? `${backend}：没有配好密钥或账号` : `${backend}：没有填 ${missing.join(' 或 ')}`
     },
   },
   timeout: {
