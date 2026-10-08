@@ -29,7 +29,7 @@ _Avoid_: 主对话、主模型
 _Avoid_: 子 agent、subagent
 
 **决策模型（Decision Model）**：
-mod 在 Claude 之外调用的判断模型，只负责给出判断、不参与回答用户；可选 Jev（TypeSafe 提供）或 Clef（Cloudflare Workers AI 提供），由用户二选一。
+mod 在 Claude 之外调用的判断模型，只负责给出判断、不参与回答用户；可选 pplx（Perplexity 提供，默认）或 Jev（TypeSafe 提供），由用户二选一；默认的 pplx 没有密钥而 Jev 有时，改用 Jev。
 _Avoid_: 路由模型、小模型
 
 **决策请求（Decision Request）**：
