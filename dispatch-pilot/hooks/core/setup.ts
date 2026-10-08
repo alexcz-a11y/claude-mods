@@ -13,7 +13,6 @@
 
 import type { PluginOptions } from 'claude-code'
 import type { Backend } from '../decision/backend.ts'
-import { clefBackend } from '../decision/clef.ts'
 import type { ContextLimits } from '../decision/context.ts'
 import { DEFAULT_AGENT_MODELS, type AgentModel, type DispatchAsk, type DispatchSettings } from '../decision/dispatched-agent.ts'
 import { DEFAULT_ASK, type EffortAsk, type Language } from '../decision/effort.ts'
@@ -23,12 +22,24 @@ import type { MidturnLimits, MidturnRules } from '../decision/midturn.ts'
 import { resolveModel, type ResolvedModel } from '../decision/model-ids.ts'
 import type { SkillPolicy } from '../decision/skills.ts'
 
-/** The decision models the person can choose (`decisionModel`). */
-export type BackendName = 'jev' | 'clef'
+/** The decision models the person can choose (`decisionModel`): Jev for now (pplx joins it, #46). */
+export type BackendName = 'jev'
 
-/** The decision model the options choose: Jev unless they say clef (the engine reads a value outside the option's list as its default, jev). */
-export function backendNameOf(options: PluginOptions): BackendName {
-  return stringOf(options.decisionModel, 'jev') === 'clef' ? 'clef' : 'jev'
+/**
+ * A `decisionModel` that names a decision model since removed (Clef, 0.4.0), left in the person's settings from before.
+ * The engine reads a value outside the option's list as the option's default (and warns), so the mod is handed the
+ * default, never the old value: this finds it in the settings file itself (`pluginConfigs[dispatch-pilot@...].options`,
+ * as `$.settings.read({ source: 'user' })` returns them). Null when the settings name none.
+ */
+export function removedDecisionModel(settings: unknown): 'clef' | null {
+  const configs = (settings as { pluginConfigs?: unknown } | null | undefined)?.pluginConfigs
+  if (typeof configs !== 'object' || configs === null) return null
+  for (const [plugin, config] of Object.entries(configs)) {
+    if (!plugin.startsWith('dispatch-pilot@')) continue
+    const options = (config as { options?: unknown } | null)?.options
+    if (typeof options === 'object' && options !== null && (options as { decisionModel?: unknown }).decisionModel === 'clef') return 'clef'
+  }
+  return null
 }
 
 /** The options whose default depends on the decision model: the manifest gives them none. */
@@ -132,37 +143,9 @@ const JEV_DEFAULTS: BackendDefaults = {
   turnStartLanguage: 'zh',
 }
 
-/**
- * The defaults by decision model: the only place they are written. Clef is
- * not calibrated (#17 ran no comparison, by the person's decision): it takes
- * Jev's values, except where Clef was measured, and the three that say how much
- * is read of the conversation, which stay as they were when Clef was connected.
- */
+/** The defaults by decision model: the only place they are written. */
 export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = {
   jev: JEV_DEFAULTS,
-  clef: {
-    ...JEV_DEFAULTS,
-    // Clef answers in 0.6-1.4 s once the connection is up, and a cold connection's first request took 1.8 s (DEVELOPMENT.md, 待评测).
-    timeoutMs: 3000,
-    // Clef sometimes reads only the first ~2.1k tokens of a state (#17: 4 long states of 18 were cut there, plan 8.7), and the
-    // newest messages and steps come last in it: 2000 estimated tokens (about 1.6-1.8k as Clef counts them) stay within that.
-    // The counts stay as they were when Clef was connected: more messages or steps would only fill the same 2000 tokens
-    // with older ones, which Clef has not been measured on.
-    contextTokens: 2000,
-    contextTokensMax: 2000,
-    contextByKind: { messagePlain: 2000, rejudge: 2000, agent: 2000, workflow: 2000 },
-    contextMessages: 4,
-    rejudgeSteps: 4,
-    // The skills' first stage, with every profile, took Clef 3.7-7.9 s (#16): past any wait a message can afford.
-    suggestSkills: false,
-    // find_skill is the main agent's own call, which can wait longer than a message; set by latency, not calibrated.
-    // Its first stage by descriptions: 111 skills' come to about 8.6k tokens, 1.7-2.4 s on Clef (#17's probe at 8.8k),
-    // and the second stage 0.5-0.8 s (#16), well within 8000 ms; with every profile the first stage alone took 3.7-7.9 s.
-    findSkillWaitMs: 8000,
-    findSkillProfiles: false,
-    // Clef has never been asked in Chinese on the current wording.
-    turnStartLanguage: 'en',
-  },
 }
 
 /**
@@ -185,8 +168,6 @@ export type Config = {
    */
   defaults: { used: readonly (readonly [PerBackendOption, number])[]; capped: readonly { option: PerBackendOption; set: number; read: number }[] }
   typesafeApiKey: string
-  /** Clef's credentials (sensitive; '' when not set): the account ID Workers AI runs in, and the API token. */
-  cloudflare: { accountId: string; apiToken: string }
   /** How long a decision request may take before the prompt goes on without it. */
   timeoutMs: number
   /** The language of the effort question beside each message (the decision model's: BACKEND_DEFAULTS turnStartLanguage). */
@@ -278,8 +259,7 @@ export type Ctx = {
 
 export function setup(options: PluginOptions): Ctx {
   const config = readConfig(options)
-  // One decision model or the other, as the person chose: only that one is built, and there is no fallback.
-  const backend = config.backend === 'clef' ? clefBackend(config.cloudflare) : jevBackend(config.typesafeApiKey)
+  const backend = jevBackend(config.typesafeApiKey)
   return { config, backend, ask: DEFAULT_ASK }
 }
 
@@ -290,7 +270,7 @@ export function setup(options: PluginOptions): Ctx {
  * (BACKEND_DEFAULTS). `contextTokens` reads at most that model's most.
  */
 export function readConfig(options: PluginOptions): Config {
-  const backend = backendNameOf(options)
+  const backend: BackendName = 'jev'
   const defaults = BACKEND_DEFAULTS[backend]
   const used: (readonly [PerBackendOption, number])[] = []
   const capped: { option: PerBackendOption; set: number; read: number }[] = []
@@ -321,7 +301,6 @@ export function readConfig(options: PluginOptions): Config {
     backend,
     defaults: { used, capped },
     typesafeApiKey: stringOf(options.typesafeApiKey, '').trim(),
-    cloudflare: { accountId: stringOf(options.cloudflareAccountId, '').trim(), apiToken: stringOf(options.cloudflareApiToken, '').trim() },
     timeoutMs,
     turnStartLanguage: defaults.turnStartLanguage,
     thetaMax,
@@ -375,9 +354,9 @@ export function readConfig(options: PluginOptions): Config {
 
 /**
  * One debug-log line on what the decision model's defaults decided, e.g.
- * `settings for clef: left unset, so clef's defaults: timeoutMs 3000, ...;
- * skill suggestions off until /dp skills on; contextTokens 4000 reads as 2000,
- * the most with clef`.
+ * `settings for jev: left unset, so jev's defaults: timeoutMs 1500, ...;
+ * skill suggestions on until /dp skills off; contextTokens 20000 reads as
+ * 16000, the most with jev`.
  */
 export function describeDefaults(config: Pick<Config, 'backend' | 'defaults' | 'skills'>): string {
   const { backend, defaults } = config

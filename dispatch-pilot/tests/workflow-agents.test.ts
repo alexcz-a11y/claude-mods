@@ -6,9 +6,8 @@
 
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
-import { CLEF_OPTIONS, CLEF_URL, clefInputProblems } from './support/cloudflare.ts'
 import type { Reply } from './support/world.ts'
-import { clefSiteJev, siteJev, workflowWorld, type SiteAnswer } from './support/workflow.ts'
+import { siteJev, workflowWorld, type SiteAnswer } from './support/workflow.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
 
@@ -407,17 +406,6 @@ test("a request holds at most 64 questions: the models the person's words mentio
 
   expect(w.requests.slice(1).map((request) => Object.keys(request.body.questions).length)).toEqual([60, 60])
   expect((await w.board()).agents.filter((node) => node.routed)).toHaveLength(12)
-})
-
-test("with Clef as the decision model, every request about a script's agents passes Clef's input rules", { options: CLEF_OPTIONS }, async ($, on) => {
-  const w = workflowWorld($, on, { backend: clefSiteJev(() => ({ model: { sonnet: 1 } })) })
-  await w.submit('别用 opus 了，haiku 和 sonnet 看着用')
-  await w.workflow({ script: manyAgents(14) })
-
-  expect(w.requests.length).toBeGreaterThan(2)
-  expect(w.requests.flatMap((request) => clefInputProblems(request.body))).toEqual([])
-  expect(w.requests.every((request) => request.url === CLEF_URL)).toBe(true)
-  expect((await w.board()).agents.filter((node) => node.routed)).toHaveLength(14)
 })
 
 test('the agents beyond the first 24 are left as written, and the main agent is told', { options: KEY }, async ($, on) => {

@@ -1,6 +1,6 @@
 // Perplexity's decision model as a backend (#43): the Decisions API at
 // POST https://api.perplexity.ai/v1/decisions, asked through the same Backend
-// interface as Jev and Clef. The seam is `pplxBackend(key).ask(io, request,
+// interface as Jev. The seam is `pplxBackend(key).ask(io, request,
 // timeoutMs)` over a fake network, so only the network is pretend; the replies
 // are what docs.perplexity.ai/docs/decisions/quickstart says the API sends (and
 // what a probe of the real API sent on 2026-10-07).

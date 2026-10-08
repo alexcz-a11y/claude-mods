@@ -15,7 +15,6 @@ import { summarize } from '../eval/lib/metrics.ts'
 import { runSuite } from '../eval/lib/runner.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
 import { UNRESOLVED_VARIANTS, unresolved, unresolvedRequest } from '../eval/lib/unresolved.ts'
-import { asClef, CLEF_OPTIONS } from './support/cloudflare.ts'
 import { jev, world } from './support/world.ts'
 /** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
 const UNRESOLVED_ON = { unresolved: true }
@@ -166,19 +165,6 @@ test("given a count the eval's request carries it and the hint as the mod's does
   expect(below.state.unresolved_count).toBe(2)
   expect(JSON.stringify(below.questions)).not.toContain('unresolved_count')
   expect(JSON.stringify(request.questions)).toContain('unresolved_count')
-})
-
-test("Clef's variant is the mod's request with Clef too: English questions, the state within 2000 tokens", { options: CLEF_OPTIONS }, async ($, on) => {
-  const long = overBudget('unresolved-001')
-  const w = world($, on, { switches: UNRESOLVED_ON, backend: asClef(jev([0, 0, 0.2, 0.7, 0.1])), messages: transcript(long.en.recent_context), seed: { unresolved: { count: 1, summary: { ...SUMMARY, turn: 't1' } } } })
-  await w.submit(long.en.message)
-
-  const { request } = unresolvedRequest(long, 'en', UNRESOLVED_VARIANTS['en-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom(CLEF_OPTIONS), SUMMARY, { count: 1, maxAfter: 3 })
-  const sent = w.requests[0]?.body
-  expect(sent.questions).toEqual(request.questions)
-  expect(sent.state).toEqual(request.state)
-  expect(request.state.problem_summary).toBe(renderSummary(SUMMARY, 'en'))
-  expect(estimateTokens(JSON.stringify(request.state))).toBeLessThanOrEqual(2000)
 })
 
 test("a command turn is asked as the mod asks it: the command as typed, and what it is for in the state's command field", async () => {

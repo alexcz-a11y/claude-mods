@@ -1,5 +1,5 @@
 // The decision backend's interface: one implementation per decision model
-// (Jev here; Clef joins in its own file), the same requests and answers.
+// (Jev's in jev.ts), the same requests and answers.
 //
 // Pure (see system-one.ts): a backend reaches the network only through the
 // `io` it is handed, which the mod builds from `$` in the hook that calls it
@@ -21,9 +21,8 @@ export type Failure = {
    * `config`: no key, or the key was refused (401/403). `timeout`: no answer
    * in time. `network`: the request never completed. `busy`: rate limited or
    * overloaded (429, 502, 503, 529). `quota`: the account's allowance for the
-   * day is spent, so asking again today is pointless (Cloudflare's 3036, also
-   * an HTTP 429). `http`: any other non-2xx (400 and 422 mean this mod sent a
-   * bad request). `parse`: a 2xx that is not a System One answer. `request`:
+   * day is spent, so asking again today is pointless. `http`: any other
+   * non-2xx (400 and 422 mean this mod sent a bad request). `parse`: a 2xx that is not a System One answer. `request`:
    * the request could not be built (a part's bug).
    */
   kind: 'config' | 'timeout' | 'network' | 'busy' | 'quota' | 'http' | 'parse' | 'request'
@@ -156,7 +155,7 @@ const FAILURE_WORDS: { readonly [K in Failure['kind']]: { words: (failure: Failu
     line: (backend, failure) => {
       if (failure.status !== undefined) return `${backend}：密钥被拒绝（状态码 ${failure.status}）`
       // Nothing was sent: what is not set up (the option names are the ones the person types).
-      const missing = ['typesafeApiKey', 'cloudflareAccountId', 'cloudflareApiToken'].filter((option) => failure.detail.includes(option))
+      const missing = ['typesafeApiKey'].filter((option) => failure.detail.includes(option))
       return missing.length === 0 ? `${backend}：没有配好密钥或账号` : `${backend}：没有填 ${missing.join(' 和 ')}`
     },
   },

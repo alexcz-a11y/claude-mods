@@ -11,7 +11,6 @@ import { homedir } from 'node:os'
 import { basename, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { Backend, BackendIo } from '../hooks/decision/backend.ts'
-import { clefBackend } from '../hooks/decision/clef.ts'
 import { jevBackend } from '../hooks/decision/jev.ts'
 import { pplxBackend } from '../hooks/decision/pplx.ts'
 import { isKind, parseJsonl, type Kind } from './lib/datasets.ts'
@@ -113,7 +112,7 @@ export function credential(name: string): string | undefined {
 }
 
 /**
- * The decision backend under evaluation (`jev`, `clef` or `pplx`), with the
+ * The decision backend under evaluation (`jev` or `pplx`), with the
  * credentials it needs (`credential`); `secrets` are those values, to keep
  * them out of anything written. Throws, saying what is missing, when a
  * credential is not found or the backend is not known.
@@ -124,18 +123,12 @@ export function backendFor(name: string, model?: string): { backend: Backend; se
     if (key === undefined) throw new Error(`no TYPESAFE_API_KEY in the environment or ${CREDENTIALS_FILE}`)
     return { backend: jevBackend(key, model === undefined ? {} : { model }), secrets: [key] }
   }
-  if (name === 'clef') {
-    const accountId = credential('CLOUDFLARE_ACCOUNT_ID')
-    const apiToken = credential('CLOUDFLARE_AUTH_TOKEN')
-    if (accountId === undefined || apiToken === undefined) throw new Error(`CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AUTH_TOKEN must both be in the environment or ${CREDENTIALS_FILE}`)
-    return { backend: clefBackend({ accountId, apiToken }), secrets: [accountId, apiToken] }
-  }
   if (name === 'pplx') {
     const key = credential('PERPLEXITY_API_KEY')
     if (key === undefined) throw new Error(`no PERPLEXITY_API_KEY in the environment or ${CREDENTIALS_FILE}`)
     return { backend: pplxBackend(key, model === undefined ? {} : { model }), secrets: [key] }
   }
-  throw new Error(`no backend "${name}" (jev, clef, pplx)`)
+  throw new Error(`no backend "${name}" (jev, pplx)`)
 }
 
 /** A result file's text: pretty JSON, each answer on a line of its own (eval/run.ts writes it, eval/resummarize.ts rewrites it). */
@@ -146,19 +139,18 @@ export function formatResult(result: Record<string, unknown> & { answers: readon
 }
 
 /**
- * Input price per million tokens, by backend; output is free on all (docs.typesafe.ai/models, the Clef model page;
- * 2026-10-04; Perplexity: docs.perplexity.ai/docs/decisions/quickstart, Pricing, 2026-10-07).
+ * Input price per million tokens, by backend; output is free on all (docs.typesafe.ai/models, 2026-10-04; Perplexity: docs.perplexity.ai/docs/decisions/quickstart, Pricing, 2026-10-07).
  */
-export const PRICES: Readonly<Record<EvalBackend, number>> = { jev: 0.042, clef: 0.24, pplx: 0.02 }
+export const PRICES: Readonly<Record<EvalBackend, number>> = { jev: 0.042, pplx: 0.02 }
 
 /**
- * What scripts/decide*.ts share, read with node:util parseArgs: `--clef`
- * (Jev otherwise), `--timeout <ms>`, and each script's own flags (`extra`).
+ * What scripts/decide*.ts share, read with node:util parseArgs: `--timeout <ms>`
+ * and each script's own flags (`extra`).
  * Exits 2 with `usage` for a flag it does not know.
  */
 export function scriptArgs(usage: string, extra: Record<string, { type: 'string' | 'boolean' }>): { values: Record<string, string | boolean | undefined>; positionals: string[] } {
   try {
-    return parseArgs({ allowPositionals: true, options: { clef: { type: 'boolean' }, timeout: { type: 'string' }, ...extra } }) as { values: Record<string, string | boolean | undefined>; positionals: string[] }
+    return parseArgs({ allowPositionals: true, options: { timeout: { type: 'string' }, ...extra } }) as { values: Record<string, string | boolean | undefined>; positionals: string[] }
   } catch (error) {
     console.error(`${error instanceof Error ? error.message : String(error)}\nusage: ${usage}`)
     process.exit(2)
@@ -171,8 +163,8 @@ export function scriptArgs(usage: string, extra: Record<string, { type: 'string'
  * `assignments` as --option gives them) and its backend (credentials as the
  * eval reads them, never printed). Exits 2 when a credential is missing.
  */
-export function scriptDecision(clef: boolean, assignments: readonly string[] = []): { settings: ReturnType<typeof settingsFrom>; backend: Backend } {
-  const chosen = clef ? 'clef' : 'jev'
+export function scriptDecision(assignments: readonly string[] = []): { settings: ReturnType<typeof settingsFrom>; backend: Backend } {
+  const chosen = 'jev'
   const settings = settingsFrom(optionsFor(chosen, readManifest().userConfig ?? {}, assignments))
   try {
     return { settings, backend: backendFor(chosen).backend }

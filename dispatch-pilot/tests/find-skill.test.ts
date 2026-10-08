@@ -5,7 +5,6 @@
 
 import { expect, test } from 'claude-code/testing'
 import { profileKey } from '../hooks/core/profiles.ts'
-import { asClef, CLEF_OPTIONS } from './support/cloudflare.ts'
 import type { Reply, Sent, SkillsWorld } from './support/world.ts'
 import { isSecondSkillsRequest, rates, world } from './support/world.ts'
 
@@ -265,12 +264,8 @@ test('both requests share one wait: the second gets what the first left of timeo
 
 // ---- By decision model: how long the call waits, what its first request offers ----------
 
-// The wait is the decision model's (core/setup.ts BACKEND_DEFAULTS), set by latency, not calibrated: with Jev
-// a message's (timeoutMs); with Clef 8000 ms, for Clef's first request alone takes past its 3000 ms (#16, #17).
-const WAITS = [
-  { name: 'Jev', options: KEY, reply: (answer: (request: Sent) => Reply) => answer, wait: 1500, backend: 'jev' },
-  { name: 'Clef', options: CLEF_OPTIONS, reply: asClef, wait: 8000, backend: 'clef' },
-] as const
+// The wait is the decision model's (core/setup.ts BACKEND_DEFAULTS): with Jev a message's (timeoutMs).
+const WAITS = [{ name: 'Jev', options: KEY, reply: (answer: (request: Sent) => Reply) => answer, wait: 1500, backend: 'jev' }] as const
 
 for (const chosen of WAITS) {
   test(`with ${chosen.name}, find_skill's two requests share ${chosen.wait} ms in all: the second gets what the first left, and given up, the call says so`, { options: chosen.options }, async ($, on) => {
@@ -287,17 +282,6 @@ for (const chosen of WAITS) {
     expect(result.result).toBe(`find_skill could not rate the skills (${chosen.backend}: no answer in 400 ms). ${SKILL_TOOL_LINE}`)
   })
 }
-
-test('with Clef, find_skill waits past the 3000 ms a message waits: a first request answered at 5 s still brings the skills back', { options: CLEF_OPTIONS }, async ($, on) => {
-  const answer = asClef(rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 }))
-  const w = world($, on, { backend: (request) => ({ after: isSecondSkillsRequest(request) ? 1000 : 5000, reply: answer(request) }), skills: SKILLS, disk: PERSON_FILES })
-  const calling = w.findSkill('write the tests first')
-  await w.clock.settle()
-  await w.clock.advance(5000)
-  await w.clock.advance(1000)
-
-  expect(String((await calling).result)).toContain('\n- tdd (relevance 0.90): ')
-})
 
 /** A profile whose every field names its skill, so a request shows whose it is. */
 function profileOf(name: string) {
@@ -329,15 +313,6 @@ test("with Jev, find_skill's first request offers each skill by its profile, as 
 
   expect(w.requests[0]?.body.questions['skills.which'].criteria.tdd).toEqual(offered('tdd'))
   expect(w.requests[1]?.body.questions['skills.fits.0'].instructions.skill).toMatchObject(offered('tdd'))
-})
-
-test("with Clef, find_skill's first request offers each skill by its description, profiles or not (Clef took 3.7-7.9 s over every profile); the second still re-reads it by its profile", { options: CLEF_OPTIONS }, async ($, on) => {
-  const w = world($, on, { backend: asClef(rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 })), skills: SKILLS, disk: PERSON_FILES, store: storedProfiles() })
-  const answer = await w.findSkill('write the tests first')
-
-  expect(w.requests[0]?.body.questions['skills.which'].criteria.tdd).toBe(SKILLS.commands[0]?.description)
-  expect(w.requests[1]?.body.questions['skills.fits.0'].instructions.skill).toMatchObject(offered('tdd'))
-  expect(String(answer.result)).toContain('\n- tdd (relevance 0.90): ')
 })
 
 test('an answer that leaves the skills question out is a failure too', { options: KEY }, async ($, on) => {

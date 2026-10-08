@@ -46,8 +46,7 @@ export type Variant = { ask: EffortAsk; wide: boolean }
  * `wide` the state has the budget of the request that carries the skills'
  * question (`contextTokens`, 6000: the mod before #38); with it the budget of a
  * plain message (`contextByKind.messagePlain`, 24000: the effort question's
- * request of its own, the mod since #38). Jev's question is `zh-score`, Clef's
- * `en-score`.
+ * request of its own, the mod since #38). Jev's question is `zh-score`.
  */
 export const UNRESOLVED_VARIANTS: Readonly<Record<string, Variant>> = {
   'zh-score': { ask: { language: 'zh', primitive: 'score' }, wide: false },

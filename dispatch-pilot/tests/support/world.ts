@@ -138,6 +138,8 @@ export type WorldOptions = {
    * Without it those calls reject, and the skills feature finds no skills.
    */
   skills?: SkillsWorld
+  /** What `$.settings.read({ source: 'user' })` returns beside the skills' `skillOverrides`: the person's own settings file. */
+  userSettings?: Record<string, unknown>
   /**
    * The board data an earlier load of the mod left in `$.state` (a hot reload keeps it): the mod finds it as it
    * starts. Whatever the board starts with, `w.board()` reads what stands now.
@@ -384,8 +386,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     on('session.cwd', () => ({ value: skills.cwd ?? '/work' }))
     on('command.list', () => ({ value: skills.commands ?? [] }))
     on('session.usage', () => (skills.listed === null ? { deny: 'no session bound' } : { value: usageListing(skills.listed ?? []) }))
-    on('settings.read', (_$, e) => ({ value: e?.source === undefined ? {} : { skillOverrides: skills.overrides?.[e.source] ?? {} } }))
     on('prompt.attachment', (_$, e) => ({ text: e.text }))
+  }
+  if (options.skills !== undefined || options.userSettings !== undefined) {
+    on('settings.read', (_$, e) => ({
+      value: e?.source === undefined ? {} : { ...(e.source === 'user' ? options.userSettings : {}), ...(options.skills === undefined ? {} : { skillOverrides: options.skills.overrides?.[e.source] ?? {} }) },
+    }))
   }
   // The board data (the 「决定汇报」 module's `board` and `decisionLog`) is kept here, not in the kit's state: the test
   // body has no `$.state` to read it back with, and `options.seed` can stand for what an earlier load left. Versions

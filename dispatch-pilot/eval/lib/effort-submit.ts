@@ -18,9 +18,9 @@ import { requestFailed, variantIn, type Grade, type Suite } from './suite.ts'
 
 /**
  * The variants by name: `<question language>-<primitive>`. The mod asks as
- * `zh-score` with Jev and as `en-score` with Clef (`modVariant`: the effort
- * question beside a message is written in the decision model's language,
- * core/setup.ts BACKEND_DEFAULTS turnStartLanguage).
+ * `zh-score` with Jev (`modVariant`: the effort question beside a message is
+ * written in the decision model's language, core/setup.ts BACKEND_DEFAULTS
+ * turnStartLanguage).
  */
 export const SUBMIT_VARIANTS: Readonly<Record<string, EffortAsk>> = {
   'en-score': { language: 'en', primitive: 'score' },

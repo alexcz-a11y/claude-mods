@@ -32,7 +32,7 @@ test('the effort question in each eval variant: English or Chinese, Score or Cho
   const named = choice.questions.level
   expect(named?.type === 'choice' && Object.keys(named.criteria)).toEqual([...EFFORTS])
   expect(named?.type === 'choice' && Object.values(named.criteria)).toEqual(score?.type === 'score' ? [...score.criteria] : [])
-  // Ids both backends accept (Clef's rule): no colon, at most 100 characters.
+  // Ids every decision model accepts: no colon, at most 100 characters.
   for (const id of Object.keys(mergeParts(STATE, [chinese]).questions)) expect(QUESTION_ID.test(id)).toBe(true)
 })
 
@@ -101,7 +101,7 @@ test('a part may add state fields of its own after the shared ones; a field two 
   const question = { type: 'noul' as const, instructions: 'Does a platform skill fit `user_message`?' }
   const skills: Part = { part: 'skills', questions: { fit: question }, state: { project_platforms: 'Cloudflare Workers' } }
   const request = mergeParts(STATE, [turnStartEffortPart(), skills])
-  // The message stays first, as the question guide asks (Clef's encoder sorts the keys: no order is relied on there).
+  // The message stays first, as the question guide asks (a decision model may sort the keys: no order is relied on there).
   expect(Object.keys(request.state)).toEqual(['user_message', 'recent_context', 'project_platforms'])
   expect(request.state.project_platforms).toBe('Cloudflare Workers')
 

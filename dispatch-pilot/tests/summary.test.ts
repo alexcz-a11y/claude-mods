@@ -7,7 +7,6 @@ import type { ModelCompleteRequest, SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { renderSummary, SUMMARY_TOKENS } from '../hooks/decision/summary.ts'
-import { asClef, CLEF_OPTIONS, clefInputProblems } from './support/cloudflare.ts'
 import { jev, rates, world, type Completion } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
@@ -184,21 +183,6 @@ test('what the cheap model is shown has its secrets masked first, and what it wr
   expect(Object.keys(kept ?? {}).sort()).toEqual(['problem', 'status', 'tried', 'turn'])
   expect(estimateTokens(renderSummary({ problem: kept?.problem ?? '', tried: kept?.tried ?? [], status: kept?.status ?? '' }, 'zh'))).toBeLessThanOrEqual(SUMMARY_TOKENS)
   expect(kept?.tried.at(-1)?.text).toBe(tries.at(-1))
-})
-
-test('Clef reads the summary in English and within its budget: the whole state, summary included, stays within 2000 tokens', { options: CLEF_OPTIONS }, async ($, on) => {
-  const kept = { problem: '登录接口返回 502', tried: Array.from({ length: 6 }, (_, i) => ({ text: `第 ${i + 1} 次：${'把配置里的某一项改成另一个值再重启服务，'.repeat(3)}` })), status: '助手在等日志', turn: 't1' }
-  // Clef reads the last 4 messages, which alone would take more than its 2000 tokens.
-  const messages = Array.from({ length: 40 }, (_, i) => row(i % 2 === 0 ? 'user' : 'assistant', `第 ${i} 轮：${'把配置里的某一项改成另一个值再重启服务。'.repeat(40)}`))
-  const w = world($, on, { switches: UNRESOLVED_ON, backend: asClef(jev(MEDIUM)), seed: { unresolved: { count: 1, summary: kept } }, messages })
-  await w.submit('还是不行')
-
-  const sent = w.requests[0]?.body
-  expect(clefInputProblems(sent)).toEqual([])
-  expect(sent.state.problem_summary).toBe(renderSummary(kept, 'en'))
-  expect(sent.state.problem_summary).toContain('Problem: 登录接口返回 502')
-  expect(sent.state.user_message).toBe('还是不行')
-  expect(estimateTokens(JSON.stringify(sent.state))).toBeLessThanOrEqual(2000)
 })
 
 test('the skills\' request does not carry the summary: it is a field of the effort request alone', { options: KEY }, async ($, on) => {

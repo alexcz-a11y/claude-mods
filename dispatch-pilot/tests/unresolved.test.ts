@@ -4,7 +4,6 @@
 // the count lives in `$.state`.
 
 import { expect, test } from 'claude-code/testing'
-import { asClef, CLEF_OPTIONS, clefInputProblems } from './support/cloudflare.ts'
 import { COUNT_FIELD } from '../hooks/decision/unresolved.ts'
 import { jev, world, type Sent } from './support/world.ts'
 
@@ -148,19 +147,6 @@ test('/dp unresolved off: the question is not asked and the count stays; on agai
   expect(w.stored('switches')).toEqual({ unresolved: true })
   await w.submit('还是不行')
   expect(w.unresolved()).toBe(2)
-})
-
-test('Clef: the question is asked in English within its input rules, and its answer moves the count the same way', { options: CLEF_OPTIONS }, async ($, on) => {
-  const said = { now: 'still' as Says }
-  const w = world($, on, { switches: UNRESOLVED_ON, backend: asClef(backend(said)) })
-  await w.submit('登录接口还是 502')
-  expect(questionsOf(w.requests[0])).toEqual(['effort.level', 'effort.unresolved'])
-  expect(clefInputProblems(w.requests[0]?.body)).toEqual([])
-  expect(JSON.stringify(w.requests[0]?.body.questions['effort.unresolved'].instructions)).not.toMatch(/[一-鿿]/)
-  expect(w.unresolved()).toBe(1)
-  said.now = 'solved'
-  await w.submit('好了，谢谢')
-  expect(w.unresolved()).toBe(0)
 })
 
 // ---- the switch's default (#48) ---------------------------------------------------

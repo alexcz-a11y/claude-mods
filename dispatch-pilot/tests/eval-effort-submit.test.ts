@@ -4,13 +4,11 @@
 
 import { expect, test } from 'claude-code/testing'
 import type { SessionMessage } from 'claude-code'
-import { CLEF_MODEL } from '../hooks/decision/clef.ts'
 import type { EffortAsk } from '../hooks/decision/effort.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import type { ContextEntry, EffortSubmitItem } from '../eval/lib/datasets.ts'
 import { modVariant, submitRequest, SUBMIT_VARIANTS } from '../eval/lib/effort-submit.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
-import { CLEF_OPTIONS, clef } from './support/cloudflare.ts'
 import { jev, withoutUnresolved, world } from './support/world.ts'
 
 /** An item as the dataset writes it: a short follow-up whose meaning is in the conversation before it. */
@@ -58,11 +56,10 @@ function transcript(context: readonly ContextEntry[]): SessionMessage[] {
   })
 }
 
-// The mod asks Jev as the `zh-score` variant and Clef as `en-score` (modVariant: the effort question beside a
-// message is in the decision model's language).
+// The mod asks Jev as the `zh-score` variant (modVariant: the effort question beside a message is in the decision
+// model's language).
 const BACKENDS = [
   { name: 'Jev', options: { typesafeApiKey: 'k' }, variant: 'zh-score', reply: jev([0, 0, 0.2, 0.7, 0.1]), model: JEV_MODEL },
-  { name: 'Clef', options: CLEF_OPTIONS, variant: 'en-score', reply: clef([0, 0, 0.2, 0.7, 0.1]), model: CLEF_MODEL },
 ] as const
 
 for (const chosen of BACKENDS) {

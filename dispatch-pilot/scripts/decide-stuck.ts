@@ -1,4 +1,4 @@
-// A stuck loop's re-decision against the real Jev or Clef, outside Claude Code:
+// A stuck loop's re-decision against the real Jev, outside Claude Code:
 // the request the mod sends when a loop's tool calls keep failing
 // (`stuckRequest`: the mid-turn effort question with the trouble flag, and
 // whether the failures were expected), with the mod's settings as the
@@ -6,7 +6,6 @@
 // BACKEND_DEFAULTS), sent from Node. For a manual check.
 //
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-stuck.ts <input.json> [--zh] [--steps 4] [--timeout 5000]
-//   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_AUTH_TOKEN=... node dispatch-pilot/scripts/decide-stuck.ts <input.json> --clef
 //
 // `input.json` is a MidturnInput (decision/midturn.ts) with the `trouble`
 // sentence the mod writes (`troubleText`: `2 tool calls have failed while
@@ -26,14 +25,14 @@ import { answersFor, type Part } from '../hooks/decision/system-one.ts'
 import { attemptMs } from '../eval/lib/runner.ts'
 import { nodeIo, scriptArgs, scriptDecision } from '../eval/node.ts'
 
-const USAGE = 'node scripts/decide-stuck.ts <input.json> [--zh] [--clef] [--steps 4] [--timeout ms]'
+const USAGE = 'node scripts/decide-stuck.ts <input.json> [--zh] [--steps 4] [--timeout ms]'
 const { values, positionals } = scriptArgs(USAGE, { zh: { type: 'boolean' }, steps: { type: 'string' } })
 const file = positionals[0]
 if (!file) {
   console.error(`usage: ${USAGE}`)
   process.exit(2)
 }
-const { settings, backend } = scriptDecision(values.clef === true, typeof values.steps === 'string' ? [`rejudgeSteps=${values.steps}`] : [])
+const { settings, backend } = scriptDecision(typeof values.steps === 'string' ? [`rejudgeSteps=${values.steps}`] : [])
 
 const input = JSON.parse(readFileSync(file, 'utf8')) as MidturnInput
 const { request, effortPart, expectedPart } = stuckRequest(input, {

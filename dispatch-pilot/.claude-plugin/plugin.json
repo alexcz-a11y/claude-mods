@@ -1,7 +1,7 @@
 {
   "name": "dispatch-pilot",
   "version": "0.3.1",
-  "description": "Dispatch Pilot：一个在 Claude 之外的决策模型（Jev 或 Clef，二选一）在你每次发消息时决定主 agent 这一轮的 effort，每一步都按这一档发出，一轮进行中每隔几步再判断一次；也为主 agent 派出的每个 agent 和 Workflow 脚本里的每个 agent 按 Artificial Analysis 的基准选模型和 effort（sonnet 和 opus 至少 medium）。主 agent 的模型从不改变，prompt cache 不受影响（只在 Claude Code 订阅下成立；Bedrock、Vertex 和网关上切换 effort 会让缓存失效）。它还不让主 agent 读完整的 skill 列表，改为在你发消息时推荐合适的几个，一轮中途主 agent 可以用 find_skill 工具查 skill。agent 的工具调用接连失败时强制升高它的 effort（失败的 haiku agent 改用 sonnet），除非这些失败本来就在意料之中。所有判断和理由都放在看板上：prompt 上方的 band 列出本轮每个 agent 的模型和 effort，脚部一个短摘要，/dp 打开的依据面板写明每个决定的依据和决策日志。",
+  "description": "Dispatch Pilot：一个在 Claude 之外的决策模型（Jev）在你每次发消息时决定主 agent 这一轮的 effort，每一步都按这一档发出，一轮进行中每隔几步再判断一次；也为主 agent 派出的每个 agent 和 Workflow 脚本里的每个 agent 按 Artificial Analysis 的基准选模型和 effort（sonnet 和 opus 至少 medium）。主 agent 的模型从不改变，prompt cache 不受影响（只在 Claude Code 订阅下成立；Bedrock、Vertex 和网关上切换 effort 会让缓存失效）。它还不让主 agent 读完整的 skill 列表，改为在你发消息时推荐合适的几个，一轮中途主 agent 可以用 find_skill 工具查 skill。agent 的工具调用接连失败时强制升高它的 effort（失败的 haiku agent 改用 sonnet），除非这些失败本来就在意料之中。所有判断和理由都放在看板上：prompt 上方的 band 列出本轮每个 agent 的模型和 effort，脚部一个短摘要，/dp 打开的依据面板写明每个决定的依据和决策日志。",
   "author": {
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
@@ -13,8 +13,8 @@
     "decisionModel": {
       "type": "string",
       "title": "决策模型",
-      "description": "由哪个模型做决定：jev（TypeSafe，要 TypeSafe 的 API key）或 clef（Cloudflare Workers AI，要 Cloudflare 的 account ID 和 API token）。另一个从不当备用：选中的出错时，消息不经路由地放行。有几项选项的默认值随所选的决策模型而定。选 Jev 时取 Jev 能接受的值（最近 32 条消息、16 步；带 skill 题的消息请求上下文预算 6000 token，其余请求 24000）。选 Clef 时（它答得慢，有时只读长请求的开头）决策超时是 3000 毫秒，所有请求的上下文预算最多 2000 token（4 条消息、4 步），skill 推荐默认关闭（/dp skills on 打开）。",
-      "options": ["jev", "clef"],
+      "description": "由哪个模型做决定：现在只有 jev（TypeSafe，要 TypeSafe 的 API key）。以前版本里的 clef 已移除，设成 clef 的老配置按没设处理，debug log 会记一条。出错时，消息不经路由地放行。有几项选项的默认值随决策模型而定：Jev 取它能接受的值（最近 32 条消息、16 步；带 skill 题的消息请求上下文预算 6000 token，其余请求 24000）。",
+      "options": ["jev"],
       "default": "jev"
     },
     "typesafeApiKey": {
@@ -24,39 +24,25 @@
       "default": "",
       "sensitive": true
     },
-    "cloudflareAccountId": {
-      "type": "string",
-      "title": "Cloudflare account ID",
-      "description": "运行 Workers AI 的 Cloudflare account ID（决策模型选 clef 时用）。它是请求地址的一部分，Claude Code 的 debug log 会记下请求地址。没有它就不发任何请求，每一轮都按会话自己的 effort 走。",
-      "default": "",
-      "sensitive": true
-    },
-    "cloudflareApiToken": {
-      "type": "string",
-      "title": "Cloudflare Workers AI API token",
-      "description": "能调用 Workers AI 的 Cloudflare API token（决策模型选 clef 时用）：在控制台的 Workers AI 页面选 Use REST API，再点 Create a Workers AI API Token。没有它就不发任何请求，每一轮都按会话自己的 effort 走。",
-      "default": "",
-      "sensitive": true
-    },
     "timeoutMs": {
       "type": "number",
       "title": "决策超时（毫秒）",
-      "description": "一条消息最多等决策模型多久（200 到 8000）。超过就不经路由地放行，按会话自己的 effort 走，看板上写明原因。默认：Jev 1500，Clef 3000（Clef 答得慢，第一个请求常要 1.5 秒以上）。"
+      "description": "一条消息最多等决策模型多久（200 到 8000）。超过就不经路由地放行，按会话自己的 effort 走，看板上写明原因。默认 1500。"
     },
     "contextMessages": {
       "type": "number",
       "title": "随消息发送的最近消息条数",
-      "description": "决策模型除了你的消息，还读几条最近的消息（0 到 32）：只有文字和调用过的工具名，从不含文件内容和工具输出，secret 已脱敏。默认：Jev 32（实际发多少由上下文预算决定，不是这个条数），Clef 4。"
+      "description": "决策模型除了你的消息，还读几条最近的消息（0 到 32）：只有文字和调用过的工具名，从不含文件内容和工具输出，secret 已脱敏。默认 32（实际发多少由上下文预算决定，不是这个条数）。"
     },
     "contextTokens": {
       "type": "number",
       "title": "上下文预算（token）",
-      "description": "你的消息加上最近的消息一共最多占多少 token（100 到 16000；Clef 最多 2000），中英文按同一个尺度数，旧消息先丢。按请求的种类取：选 Jev 时，带 skill 推荐那一题的消息（以及 find_skill 的第一段）取 6000，因为它带着每个 skill 的画像（约 2.2 万 token，按 Jev 的算法），state 加这一题必须留在 Jev 的 32k 之内；其余请求（发消息时主 agent 的 effort 题，它单独发一个请求；重判、派出 agent、一批 Workflow 调用）题目都很短，取 24000。你自己设了值，每个种类都取它和自己上限里较小的一个。决策超时变多时，把它调小。选 Clef 时所有种类默认 2000，设得更大也按 2000 算：Clef 有时只读发出内容的前约 2100 token，最新的消息排在最后，会先被丢掉。"
+      "description": "你的消息加上最近的消息一共最多占多少 token（100 到 16000），中英文按同一个尺度数，旧消息先丢。按请求的种类取：带 skill 推荐那一题的消息（以及 find_skill 的第一段）取 6000，因为它带着每个 skill 的画像（约 2.2 万 token，按 Jev 的算法），state 加这一题必须留在 Jev 的 32k 之内；其余请求（发消息时主 agent 的 effort 题，它单独发一个请求；重判、派出 agent、一批 Workflow 调用）题目都很短，取 24000。你自己设了值，每个种类都取它和自己上限里较小的一个。决策超时变多时，把它调小。"
     },
     "thetaMax": {
       "type": "number",
       "title": "用 max 的门槛",
-      "description": "决策模型给 max 的概率至少达到它（0 到 1），主 agent 才用 max；否则取其余几档里最可能的。默认 0.5，两个决策模型都一样（Clef 没有校准过，沿用 Jev 的值）。"
+      "description": "决策模型给 max 的概率至少达到它（0 到 1），主 agent 才用 max；否则取其余几档里最可能的。默认 0.5。"
     },
     "rejudgeEvery": {
       "type": "number",
@@ -67,12 +53,12 @@
     "thetaUp": {
       "type": "number",
       "title": "中途升档的门槛",
-      "description": "重判时，决策模型的置信度至少达到它（0 到 1）才会升档。默认 0.3，两个决策模型都一样（Clef 的置信度比 Jev 低得多，这个值没有为它校准，沿用 Jev 的）。"
+      "description": "重判时，决策模型的置信度至少达到它（0 到 1）才会升档。默认 0.3。"
     },
     "thetaDown": {
       "type": "number",
       "title": "中途降档的门槛",
-      "description": "重判时，决策模型的置信度至少达到它（0 到 1，不低于升档门槛）才会降档，一次最多降一档。默认 0.55，两个决策模型都一样（没有为 Clef 校准，沿用 Jev 的）。"
+      "description": "重判时，决策模型的置信度至少达到它（0 到 1，不低于升档门槛）才会降档，一次最多降一档。默认 0.55。"
     },
     "holdSteps": {
       "type": "number",
@@ -83,7 +69,7 @@
     "rejudgeSteps": {
       "type": "number",
       "title": "重判时读的最近步数",
-      "description": "重判时决策模型读这一轮最近的几步（1 到 16）：主 agent 写的最后一段文字和它调用的工具、每个调用怎么结束的，从不含文件内容和工具输出，secret 已脱敏；上下文预算也限制它。默认：Jev 16（实际发多少由上下文预算决定，不是这个步数），Clef 4。"
+      "description": "重判时决策模型读这一轮最近的几步（1 到 16）：主 agent 写的最后一段文字和它调用的工具、每个调用怎么结束的，从不含文件内容和工具输出，secret 已脱敏；上下文预算也限制它。默认 16（实际发多少由上下文预算决定，不是这个步数）。"
     },
     "rejudgeWaitMs": {
       "type": "number",
@@ -113,7 +99,7 @@
     "thetaExpected": {
       "type": "number",
       "title": "认定失败是预期内的门槛",
-      "description": "决策模型认为这些失败是预期内的概率至少达到它（0 到 1），就不强制升档：失败从零重新数，effort 交给普通的中途重判规则。故意取得低：在几个手写场景上量过，Jev 给预期内的失败 0.15 到 0.72，给不是预期内的 0.09 到 0.16（Clef 是 0.27 到 0.90 和 0.03 到 0.11）。默认 0.25，两个决策模型都一样（没有为 Clef 校准，沿用 Jev 的）。"
+      "description": "决策模型认为这些失败是预期内的概率至少达到它（0 到 1），就不强制升档：失败从零重新数，effort 交给普通的中途重判规则。故意取得低：在几个手写场景上量过，Jev 给预期内的失败 0.15 到 0.72，给不是预期内的 0.09 到 0.16。默认 0.25。"
     },
     "escalateHaikuTo": {
       "type": "string",
@@ -130,7 +116,7 @@
     "agentOverride": {
       "type": "number",
       "title": "推翻主 agent 选的模型所需的置信度",
-      "description": "主 agent 为它派出的 agent 指定了模型时，决策模型的选择置信度至少达到它（0 到 1）才会推翻。你在消息里自己点名的模型从不被推翻。默认 0.6，两个决策模型都一样（没有为 Clef 校准，沿用 Jev 的）。"
+      "description": "主 agent 为它派出的 agent 指定了模型时，决策模型的选择置信度至少达到它（0 到 1）才会推翻。你在消息里自己点名的模型从不被推翻。默认 0.6。"
     },
     "skillsMax": {
       "type": "number",
@@ -141,7 +127,7 @@
     "skillsMinRelevance": {
       "type": "number",
       "title": "推荐所需的最低相关度",
-      "description": "一个 skill 要被推荐至少要有的相关度（0 到 1）：决策模型认为这个 skill 正好做这条消息要做的那种工作的概率，每个 skill 重读开头的说明后单独判断。默认 0.75，两个决策模型都一样（没有为 Clef 校准，沿用 Jev 的）。"
+      "description": "一个 skill 要被推荐至少要有的相关度（0 到 1）：决策模型认为这个 skill 正好做这条消息要做的那种工作的概率，每个 skill 重读开头的说明后单独判断。默认 0.75。"
     },
     "skillsShortlist": {
       "type": "number",
@@ -184,7 +170,7 @@
     "findSkillMinRelevance": {
       "type": "number",
       "title": "find_skill 返回所需的最低相关度",
-      "description": "find_skill 要返回一个 skill 至少要有的相关度（0 到 1）：决策模型认为这个 skill 正好做主 agent 说的那项工作的概率，每个 skill 重读开头的说明后单独判断。默认 0.5，两个决策模型都一样（没有为 Clef 校准，沿用 Jev 的）。"
+      "description": "find_skill 要返回一个 skill 至少要有的相关度（0 到 1）：决策模型认为这个 skill 正好做主 agent 说的那项工作的概率，每个 skill 重读开头的说明后单独判断。默认 0.5。"
     },
     "workflowMode": {
       "type": "string",

@@ -164,7 +164,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
         rankBy,
       )
       // The first request offers each skill by its profile where the decision model can read them all in time
-      // (BACKEND_DEFAULTS findSkillProfiles: not Clef), else by its description; the second re-reads by both.
+      // (BACKEND_DEFAULTS findSkillProfiles), else by its description; the second re-reads by both.
       const part = ranker.part(findByProfile ? candidates : candidates.map((skill) => ({ ...skill, profile: null })))
       if (part === null) {
         await report(io, { decision: { ...call, skipped: 'none' as const } })
@@ -173,7 +173,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
 
       // The same state as beside a message, the work named in place of the message; the ranker's second
       // request (#11) asks about the same. Both requests share one wait: the second gets what the first left
-      // of it. The wait is the decision model's (findWaitMs: a message's timeoutMs with Jev, 8000 ms with Clef),
+      // of it. The wait is the decision model's (findWaitMs: a message's timeoutMs with Jev),
       // within the hook's own 10 s.
       const startedAt = await $.clock.now()
       const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []

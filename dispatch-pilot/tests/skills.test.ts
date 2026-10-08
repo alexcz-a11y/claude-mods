@@ -6,7 +6,6 @@
 import { expect, test } from 'claude-code/testing'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { pickSkills, readHints, readSkills, skillsPart, skillsRequest, type SkillOption } from '../hooks/decision/skills.ts'
-import { CLEF_OPTIONS, clef, clefInputProblems } from './support/cloudflare.ts'
 import type { Reply, Sent, SkillsWorld } from './support/world.ts'
 import { isSecondSkillsRequest, jev, rates, world, type World } from './support/world.ts'
 
@@ -180,26 +179,6 @@ test('every skill the main agent can load in skillsNeverSuggested: none could be
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
 })
 
-test('Clef chosen without its Cloudflare credentials could suggest nothing either, so the main agent keeps its listing', { options: { decisionModel: 'clef' } }, async ($, on) => {
-  const w = world($, on, { skills: SKILLS })
-  expect(await w.listing(LISTING)).toEqual({ text: LISTING })
-})
-
-test('Clef takes both skills requests as they are (its input rules hold), and the listing is withheld', { options: CLEF_OPTIONS }, async ($, on) => {
-  // Clef's answer puts the whole Choice on its first option (tdd), so a second request re-reads it.
-  const w = world($, on, { switches: UNRESOLVED_ON, backend: clef([0, 1, 0, 0, 0]), skills: SKILLS })
-  // With Clef the suggestions start off (tests/backend-defaults.test.ts): the person turns them on.
-  await w.command('dp', 'skills on')
-  await w.submit('先写一个失败的测试')
-  expect(w.requests).toHaveLength(3)
-  expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], [], []])
-  expect(w.requests.map((request) => Object.keys(request.body.questions))[0]).toEqual(['effort.level', 'effort.unresolved'])
-  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.which'])
-  // One skill re-read: its yes/no alone (Clef refuses a Choice of one option).
-  expect(Object.keys(w.withoutEffort[1]?.body.questions)).toEqual(['skills.fits.0'])
-  expect(await w.listing(LISTING)).toEqual({ text: HINT })
-})
-
 test("a message's skills request asks which skill the main agent could load for it, by name and description, or none", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS })
   await w.submit('先写一个失败的测试，再实现登录限流')
@@ -292,19 +271,6 @@ test('skills only the person can start (disable-model-invocation in their SKILL.
   expect(Object.keys(hint.criteria)).toEqual(['grill-me', 'ship:release', '(none)'])
   expect(hint.criteria['grill-me']).toBe('Interview the user relentlessly about a plan until every branch is resolved.')
   expect(JSON.stringify(hint.instructions)).toContain('The user starts these skills themselves')
-})
-
-test('Clef takes stage one with both its Choices, and the second request over skills of both kinds (its input rules hold)', { options: CLEF_OPTIONS }, async ($, on) => {
-  // Clef's answer puts each whole Choice on its first option: tdd, and grill-me.
-  const w = world($, on, { switches: UNRESOLVED_ON, backend: clef([0, 1, 0, 0, 0]), skills: WITH_PERSONS, disk: PERSON_FILES })
-  await w.command('dp', 'skills on')
-  await w.submit('这个方案往死里挑刺，再补测试')
-  expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([
-    ['effort.level', 'effort.unresolved'],
-    ['skills.which', 'skills.hint'],
-    ['skills.best', 'skills.fits.0', 'skills.fits.1'],
-  ])
-  expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], [], []])
 })
 
 /**

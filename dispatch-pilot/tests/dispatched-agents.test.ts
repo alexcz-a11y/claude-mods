@@ -6,7 +6,6 @@
 import { expect, test } from 'claude-code/testing'
 import { dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
-import { CLEF_OPTIONS, CLEF_URL, clef, clefInputProblems } from './support/cloudflare.ts'
 import { world, type Reply, type Sent } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
@@ -376,20 +375,6 @@ test("what the mod sends about an agent is exactly what the decision module buil
   }
   const built = mergeParts(dispatchState(item, 2000), [dispatchPart(item)])
   expect(w.requests[1]?.body).toEqual({ model: 'jev-latest', state: built.state, questions: built.questions })
-})
-
-test("with Clef as the decision model, the agent's request passes Clef's input rules and the agent is routed", { options: CLEF_OPTIONS }, async ($, on) => {
-  const w = world($, on, { backend: clef([0, 1, 0, 0, 0], { choice: 'sonnet' }) })
-  await w.submit('别用 opus 了，用 sonnet 就行：给 src/cache/lru.ts 补单测')
-  const started = await w.spawn({ prompt: 'Write unit tests for src/cache/lru.ts covering eviction order.', description: 'LRU tests', model: 'opus' })
-  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-sonnet-5-5', effort: 'low' })
-
-  const sent = w.requests[1]
-  expect(sent?.url).toBe(CLEF_URL)
-  expect(clefInputProblems(sent?.body)).toEqual([])
-  expect(Object.keys(sent?.body.questions)).toEqual(['agent.model', 'agent.effort', 'agent.named.sonnet', 'agent.named.opus', 'agent.banned.sonnet', 'agent.banned.opus'])
-  // Clef answered medium; a sonnet agent goes at medium at least.
-  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium'])
 })
 
 test('agentFable adds fable to the models the decision model may choose for an agent', { options: { ...KEY, agentFable: true } }, async ($, on) => {

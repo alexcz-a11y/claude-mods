@@ -18,7 +18,7 @@ const LEAST_STATE = 100
 /**
  * The decision request of a message: the state of `turnStartState` and the parts' questions and fields. What the parts
  * add to the state (a command turn's command, the problem summary) is counted in `limits.tokens`, so the whole state, as
- * it is sent, stays within it: the conversation gives way to those fields, never the message (Clef reads only the head
+ * it is sent, stays within it: the conversation gives way to those fields, never the message (a decision model may read only the head
  * of a long state, with its keys sorted).
  */
 export function messageRequest(input: { prompt: string; messages: readonly ContextMessage[]; limits: ContextLimits; parts: readonly Part[] }): DecisionRequest {
