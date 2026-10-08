@@ -221,7 +221,7 @@ function network(reply: (body: any) => { levels: number[]; confidence: number })
       const body = JSON.parse(String(init.body))
       bodies.push(body)
       const { levels, confidence } = reply(body)
-      const answer = jev(levels, { confidence })({ url: '', method: 'POST', headers: {}, body })
+      const answer = jev(levels, { confidence })({ url: '', method: 'POST', headers: {}, body, at: 0 })
       return { status: 200, ok: true, headers: {}, text: JSON.stringify('body' in answer ? answer.body : {}) }
     },
     sleep: (_ms, signal) => new Promise((_done, fail) => signal.addEventListener('abort', () => fail(new Error('aborted')))),

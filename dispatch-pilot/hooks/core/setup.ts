@@ -21,6 +21,7 @@ import { jevBackend } from '../decision/jev.ts'
 import type { MidturnLimits, MidturnRules } from '../decision/midturn.ts'
 import { resolveModel, type ResolvedModel } from '../decision/model-ids.ts'
 import { pplxBackend } from '../decision/pplx.ts'
+import { limited } from '../decision/pplx-rate.ts'
 import type { SkillPolicy } from '../decision/skills.ts'
 
 /** The decision models the person can choose (`decisionModel`): Perplexity's pplx-decider and TypeSafe's Jev. */
@@ -238,6 +239,8 @@ export type Config = EffortRules & {
   typesafeApiKey: string
   /** The Perplexity key in the options (`perplexityApiKey`, trimmed; '' if unset): the environment's (`Secrets`) stands where this is empty. */
   perplexityApiKey: string
+  /** How many pplx requests the mod sends in a second at most (`pplxQps`; the account's limit): the rest wait their turn (decision/pplx-rate.ts). Jev has no such limit. */
+  pplxQps: number
   /** How long a decision request may take before the prompt goes on without it. */
   timeoutMs: number
   /** How the decision model is asked (BACKEND_DEFAULTS ask): `turnStart` the effort question beside each message, `other` every other question (`ctx.ask`). */
@@ -345,7 +348,7 @@ export type Ctx = {
 export function setup(options: PluginOptions, table: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS): Ctx {
   const config = readConfig(options, table)
   const secrets: Secrets = { perplexityEnvKey: '' }
-  const backend = config.backend === 'pplx' ? pplxBackend(() => perplexityKey(config, secrets)) : jevBackend(config.typesafeApiKey)
+  const backend = config.backend === 'pplx' ? limited(pplxBackend(() => perplexityKey(config, secrets)), config.pplxQps) : jevBackend(config.typesafeApiKey)
   return { config, backend, secrets, ask: config.ask.other }
 }
 
@@ -389,6 +392,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
     defaults: { used, capped },
     typesafeApiKey: stringOf(options.typesafeApiKey, '').trim(),
     perplexityApiKey: stringOf(options.perplexityApiKey, '').trim(),
+    pplxQps: whole(options.pplxQps, 1, 50, 1),
     timeoutMs,
     ask: defaults.ask,
     thetaMax,

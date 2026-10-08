@@ -21,6 +21,7 @@ test('a failed decision request reads in Chinese, with the decision model named 
     [{ kind: 'timeout', detail: 'no time left for the second request' }, 'jev：没有及时回答'],
     [{ kind: 'network', detail: 'ENOTFOUND' }, 'jev：连不上'],
     [{ kind: 'busy', status: 503, detail: 'HTTP 503' }, 'jev：繁忙（状态码 503）'],
+    [{ kind: 'busy', status: 429, detail: 'HTTP 429' }, 'jev：被限速（状态码 429）'],
     [{ kind: 'quota', status: 429, detail: 'HTTP 429' }, 'jev：今天的额度用完了'],
     [{ kind: 'http', status: 500, detail: 'HTTP 500' }, 'jev：出错（状态码 500）'],
     [{ kind: 'parse', detail: 'not JSON' }, 'jev：回答读不懂'],

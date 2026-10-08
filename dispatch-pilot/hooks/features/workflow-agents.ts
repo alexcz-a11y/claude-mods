@@ -22,7 +22,7 @@
 // Its switch is `workflow-agents` (`/dp workflow-agents off`).
 
 import type { HttpInit, On } from 'claude-code'
-import { describeAsked, errorText, failureText } from '../decision/backend.ts'
+import { describeAsked, errorText, failureText, type BackendIo } from '../decision/backend.ts'
 import { termsOf } from '../decision/dispatched-agent.ts'
 import { parseWorkflow, rewriteWorkflow, type ParsedWorkflow } from '../decision/workflow-script.ts'
 import { batchesTimeoutMs, readOutcomes, returnNote, rewriteNote, workflowBatches, workflowFingerprint, type CallOutcome } from '../decision/workflow.ts'
@@ -37,6 +37,7 @@ const RETURNED = { plugin: 'dispatch-pilot', key: 'returned' } as const
 const TERMS = { plugin: 'dispatch-pilot', key: 'workflowTerms' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'workflow-agents'
@@ -103,9 +104,10 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
 
       const { value: said = [] } = await $.state.get(SAID)
       const words = said.join('\n')
-      const io = {
+      const io: BackendIo = {
         fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
         sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+        pace: { now: () => $.clock.now(), sent: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
       }
       const plan = workflowBatches(parsed, words, settings, ctx.config.contextByKind.workflow)
       const timeoutMs = batchesTimeoutMs(ctx.config.timeoutMs, plan.batches.length)

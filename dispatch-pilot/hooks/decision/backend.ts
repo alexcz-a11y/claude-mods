@@ -13,6 +13,21 @@ export type BackendIo = {
   fetch: (url: string, init: HttpInit) => Promise<HttpResponse>
   /** Resolves after `ms`; rejects at once when `signal` aborts. */
   sleep: (ms: number, signal: AbortSignal) => Promise<void>
+  /**
+   * What the pplx rate limit (pplx-rate.ts) keeps its count with: the clock, and a `$.state` cell for the times of the
+   * latest sends. The hooks of the mod give it; the eval, which paces its own requests, leaves it out, and a backend
+   * without a limit ignores it.
+   */
+  pace?: {
+    now: () => Promise<number>
+    sent: StateCell<number[]>
+  }
+}
+
+/** A `$.state` value reached through closures (the hook that owns `$` builds them); the same shape as core/plans.ts `Cell`. */
+export type StateCell<T> = {
+  get: () => Promise<{ value: T | undefined; version: number }>
+  set: (value: T, options: { ifVersion: number }) => Promise<{ isSet: boolean; version: number }>
 }
 
 /** Why a request produced no answers; every kind is passed through (fail open). */
@@ -30,6 +45,8 @@ export type Failure = {
   detail: string
   /** The HTTP status, when there was one. */
   status?: number
+  /** How long a 429 asked to wait before asking again (its `Retry-After`, in ms); only a 429 that gave a number has it. */
+  retryAfterMs?: number
 }
 
 export type Asked =
@@ -168,7 +185,11 @@ const FAILURE_WORDS: { readonly [K in Failure['kind']]: { words: (failure: Failu
     },
   },
   network: { words: () => '连不上决策模型', means: '网络不通，请求没有发出去', line: (backend) => `${backend}：连不上` },
-  busy: { words: () => '决策模型繁忙', means: '决策模型一时繁忙（状态码 429 之类）', line: (backend, failure) => `${backend}：繁忙（状态码 ${failure.status ?? '?'}）` },
+  busy: {
+    words: (failure) => (failure.status === 429 ? '决策模型被限速' : '决策模型繁忙'),
+    means: '决策模型一时繁忙，或者请求太密被限速了（状态码 429 之类）',
+    line: (backend, failure) => (failure.status === 429 ? `${backend}：被限速（状态码 429）` : `${backend}：繁忙（状态码 ${failure.status ?? '?'}）`),
+  },
   quota: { words: () => '决策模型额度用完', means: '决策模型的额度用完了', line: (backend) => `${backend}：今天的额度用完了` },
   http: { words: () => '决策模型出错', means: '决策模型回了一个出错的状态码', line: (backend, failure) => `${backend}：出错（状态码 ${failure.status ?? '?'}）` },
   parse: { words: () => '读不懂决策模型的回答', means: '回答里没有能用的判断', line: (backend) => `${backend}：回答读不懂` },

@@ -19,7 +19,7 @@
 // stream ends. This layer keeps the text of the step as it streams.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { describeAsked, errorText, within, type Asked } from '../decision/backend.ts'
+import { describeAsked, errorText, within, type Asked, type BackendIo } from '../decision/backend.ts'
 import { messageText } from '../decision/context.ts'
 import { higherEffort, isEffort, probsOf, readEffort, readingText, type Effort } from '../decision/effort.ts'
 import {
@@ -58,6 +58,7 @@ const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
+const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 
 /** The feature's switch (`/dp midturn-effort on|off`). */
 const SWITCH = 'midturn-effort'
@@ -229,9 +230,10 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
     ...(count > 0 ? { unresolved_count: count } : {}),
   }
   const request = mergeParts(midturnState(input, s.limits), [midturnEffortPart(s.ctx.ask, { hint: hint !== undefined })])
-  const io = {
+  const io: BackendIo = {
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
     sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+    pace: { now: () => $.clock.now(), sent: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
   }
   const asking = s.ctx.backend.ask(io, request, s.ctx.config.timeoutMs)
   const entry: InFlight = { forStep: upcoming, reason, answer: asking, settled: null, ms: 0, ...(hint === undefined ? {} : { hint }) }

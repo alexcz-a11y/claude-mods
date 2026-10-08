@@ -26,7 +26,7 @@ import { EFFORT_PART } from '../decision/effort.ts'
 import { SKILLS_PART } from '../decision/skills.ts'
 import { answersFor, type State } from '../decision/system-one.ts'
 import { messageRequest } from '../decision/turn-start.ts'
-import { type Asked, describeAsked, errorText } from '../decision/backend.ts'
+import { type Asked, type BackendIo, describeAsked, errorText } from '../decision/backend.ts'
 import { collect, type Contribution, type PartOutcome } from './ballot.ts'
 import { forgetCommand, noteCommand, typedCommand } from './commands.ts'
 import { noteBlocked } from './outcomes.ts'
@@ -43,6 +43,7 @@ const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const WORKFLOW_RUNS = { plugin: 'dispatch-pilot', key: 'workflowRuns' } as const
 const LABEL_RUNS = { plugin: 'dispatch-pilot', key: 'labelRuns' } as const
+const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 
 /** Prompts whose prompt.submit is letting them in right now: a turn that starts meanwhile is theirs. */
 const entering: string[] = []
@@ -55,9 +56,10 @@ export function registerCore(on: On, ctx: Ctx): void {
     // Switched off (/dp off): whatever was put in the ballot is not asked.
     if (ballot.length === 0 || !masterOn()) return next(e)
     const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
-    const io = {
+    const io: BackendIo = {
       fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
       sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+      pace: { now: () => $.clock.now(), sent: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
     }
     // The main agent's effort goes in a request of its own (ADR 0005), the rest of the ballot in one. Both go out at once,
     // each is answered or fails on its own, and each part reads the outcome of the request it was in.
