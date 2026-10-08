@@ -24,7 +24,6 @@ import { readFileSync } from 'node:fs'
 import { dispatchSettings } from '../hooks/core/setup.ts'
 import { messageText } from '../hooks/decision/context.ts'
 import { decideDispatch, dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
-import { DEFAULT_ASK } from '../hooks/decision/effort.ts'
 import { answersFor, mergeParts } from '../hooks/decision/system-one.ts'
 import { attemptMs } from '../eval/lib/runner.ts'
 import { nodeIo, scriptArgs, scriptDecision } from '../eval/node.ts'
@@ -64,10 +63,10 @@ if (typeof values.file === 'string') {
 const { settings, backend } = scriptDecision(values.fable === true ? ['agentFable=true'] : [])
 
 const shape = dispatchSettings(
-  { config: settings, ask: DEFAULT_ASK },
+  { config: settings, ask: settings.ask.other },
   {
-    language: values.zh === true ? 'zh' : 'en',
-    primitive: values.choice === true ? 'choice' : 'score',
+    language: values.zh === true ? 'zh' : settings.ask.other.language,
+    primitive: values.choice === true ? 'choice' : settings.ask.other.primitive,
     options: values.work === true ? 'work' : 'models',
     requested: values.noul === true ? 'noul' : 'hint',
   },

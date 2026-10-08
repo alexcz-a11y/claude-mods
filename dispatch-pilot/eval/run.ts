@@ -20,7 +20,8 @@
 // BACKEND_DEFAULTS), --max-usd 1 (refuse a run estimated to cost more),
 // --label <word>, --no-save, --state-tokens N (the state's budget for every kind of request, past what --option
 // contextTokens can reach, which only lowers it), --state-messages N (how many recent messages the state may hold:
-// the mod's contextMessages is at most 32, so a large --state-tokens alone is still cut to the newest 32 messages).
+// the mod's contextMessages is at most the decision model's (Jev: 32, core/setup.ts BACKEND_DEFAULTS contextMessagesMax), so a large
+// --state-tokens alone is still cut to the newest 32 messages with Jev).
 //
 // eval-v2 (#45): the dataset is eval-v2.jsonl (built first when it is not there, and checked against
 // eval-v2/generated.json), each item scored against eval-v2/gold/; the conversations are Chinese only, so the run asks
@@ -265,10 +266,12 @@ if (!values['no-save']) {
       // request of its own, ADR 0005), and --state-tokens when the run set one for every kind of request.
       messageStateTokens: settings.contextByKind.messagePlain,
       ...(stateTokens === null ? {} : { stateTokens }),
-      // The most recent messages the state may hold (the mod's: 32), and --state-messages when the run lifted it.
+      // The most recent messages the state may hold (the mod's, the decision model's most: 32 with Jev), and --state-messages when the run lifted it.
       stateMessagesLimit: settings.context.messages,
       ...(stateMessages === null ? {} : { stateMessages }),
       thetaMax: settings.thetaMax,
+      // The threshold for taking the level above the run decided with (the decision model's, core/setup.ts BACKEND_DEFAULTS); eval/lib/rescore.ts decides stored answers again with it.
+      roundUp: settings.roundUp,
       timeoutMs: settings.timeoutMs,
       // Every option as the run read it (a feature's own, such as agentOverride), less the sensitive ones.
       options: Object.fromEntries(Object.entries(options).filter(([key]) => manifest.userConfig?.[key]?.sensitive !== true)),

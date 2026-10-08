@@ -136,7 +136,9 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 }
 ```
 
-选项留空就取决策模型的默认值：`timeoutMs`、`contextMessages`、`contextTokens`、`thetaMax`、`thetaUp`、`thetaDown`、`rejudgeSteps`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance` 这 11 项在 manifest 里没有默认值，所以 `/config` 里显示为空，你不设时 Dispatch Pilot 取表里 Jev 那一列。你自己设了某一项，就用你设的值。会话开始时 debug log 会写一行哪些选项用了默认值。
+选项留空就取决策模型的默认值：`timeoutMs`、`contextMessages`、`contextTokens`、`thetaMax`、`thetaUp`、`thetaDown`、`rejudgeSteps`、`rejudgeWaitMs`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance` 这 12 项在 manifest 里没有默认值，所以 `/config` 里显示为空，你不设时 Dispatch Pilot 取表里 Jev 那一列。你自己设了某一项，就用你设的值。会话开始时 debug log 会写一行哪些选项用了默认值。
+
+另有几个值也随决策模型而定，但不是选项，`/config` 里改不了，也不在下面的表里：往上取一档的门槛（高一档的概率达到它，就往上取一档；Jev 是 0.3），问题怎么问（语言和题型：Jev 发消息时判 effort 的那一题用中文，其余所有问题用英文，都是 Score），以及 `contextMessages` 的上限（Jev 是 32）。它们和上面那些默认值一起写在 `core/setup.ts` 的 `BACKEND_DEFAULTS`，评测和 mod 读的是同一张表。依据卡片的规则推演里，「上取一档」一步写的就是这里的门槛。
 
 **默认值是按 Jev 的上下文上限配置的。** Jev 一个请求最多收 64k token，其中 state 加上最长的那一道题不能超过 32k。最长的题是发消息时 skill 推荐的第一段（111 个 skill 带画像时 Jev 计约 2.19 万 token），所以带 skill 题的请求（发消息时打开了 skill 推荐，以及 `find_skill` 的第一段）的 `contextTokens` 取 6000：state 最多约 6.7k（Jev 的计数），加上那一题约 28.6k，在 32k 的 90% 以内，整个请求在 64k 之内，而且这个值正好让每个 skill 的画像不被裁短。其余的请求没有这么长的题（最长的不到 700 token），所以按种类各取一个更大的值：关着 skill 推荐的发消息、中途重判（包括卡住时的）、派出 agent、一批 Workflow 调用，state 最多 24000（Jev 的计数约 26.7k，加上最长的题仍在 32k 的 90% 以内）。你自己设了 `contextTokens`，所有种类都用它，但每个种类各取它和自己的上限里较小的一个（设 16000 的话，带 skill 题的请求仍是 6000，其余是 16000）。`contextMessages` 和 `rejudgeSteps` 取 manifest 允许的最大值（32 条、16 步），让 token 预算而不是条数决定发多少，旧的消息、步骤放不下就整条丢掉。仍然只发文字和工具名，不发工具的输入和输出。这样配置是为了让 Jev 看到尽量多的信息；它没有评测过：评测用的是 4 条、2000 个 token、4 步，更多上下文是否真的判得更准没有数据，延迟见「局限和待评测」。计算过程见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「Jev 的上下文默认值怎么算」。
 
@@ -154,7 +156,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 | 选项 | 作用 | Jev |
 |---|---|---|
 | `timeoutMs` | 一条消息等决策模型的最长时间（200–8000 毫秒），超过就不经路由地放行 | `1500` |
-| `contextMessages` | 随你的消息一起发的最近消息条数（0–32）。Jev 取上限，由 `contextTokens` 决定实际发多少 | `32` 按 Jev 的上限 |
+| `contextMessages` | 随你的消息一起发的最近消息条数，从 0 到决策模型能接受的条数（Jev 是 32）。Jev 取上限，由 `contextTokens` 决定实际发多少 | `32` 按 Jev 的上限 |
 | `contextTokens` | 发给决策模型的 state 的 token 预算（100–16000）：你的消息加上最近的消息，按发出去的样子数（连同字段名和转义），中英文按同一个尺度数，旧消息先丢。按请求的种类取：默认值带 skill 题的请求 6000，其余 24000，包括发消息时单独发的 effort 请求（见上面）；你设了就每个种类取它和自己上限里较小的 | `6000` 按 Jev 的上限，其余种类 24000 |
 
 ### 一轮中的 effort
@@ -164,7 +166,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 | `thetaMax` | 用 `max` 所需的最低概率（0–1）；发消息时、中途重判和派出 agent 的 effort 都用这个门槛 | `0.5` 起点 |
 | `rejudgeEvery` | 一轮进行中每隔几步重判一次（0–50）；0 表示不按步数重判，派出 agent、启动 Workflow、加载 skill 时仍会重判 | `3` 起点 |
 | `rejudgeSteps` | 重判时决策模型读到的最近步数（1–16）。Jev 取上限，由 `contextTokens` 决定实际发多少 | `16` 按 Jev 的上限 |
-| `rejudgeWaitMs` | 重判的回答还没到时，下一步最多再等多久（0–2000 毫秒），然后沿用原来的 effort | `300` |
+| `rejudgeWaitMs` | 重判的回答还没到时，下一步最多再等多久（0–8000 毫秒），然后沿用原来的 effort | `300` |
 | `thetaUp` | 中途升档所需的最低置信度（0–1） | `0.3` 按 AA 基准 |
 | `thetaDown` | 中途降档所需的最低置信度（0–1，低于 `thetaUp` 时按 `thetaUp` 算），一次只降一档 | `0.55` 按已存的评测回答扫出 |
 | `holdSteps` | 升档之后多少步之内不降档（0–50） | `5` 按 AA 基准 |

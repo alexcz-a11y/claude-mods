@@ -33,7 +33,7 @@ function noul(p: number): Answer {
   return { type: 'noul', noul: p }
 }
 
-const SETTINGS = { thetaOverride: 0.6, thetaMax: 0.5 }
+const SETTINGS = { thetaOverride: 0.6, thetaMax: 0.5, roundUp: 0.3 }
 
 test("the state about one agent: its brief first, then the person's words; secrets masked; the words take at most a third of the budget, cut keeping their end", () => {
   const item: Dispatch = {
@@ -209,7 +209,7 @@ test("requested_fits variant: the main agent's pick is no hint but a question of
   expect(JSON.stringify(part.questions.requested_fits?.instructions)).toContain('hard reasoning')
 
   // Sure of haiku (confidence 0.85): the pick goes only if it does not fit.
-  const settings = { ...shape, thetaOverride: 0.6, thetaMax: 0.5 }
+  const settings = { ...shape, thetaOverride: 0.6, thetaMax: 0.5, roundUp: 0.3 }
   const sure = { model: choice({ haiku: 0.9, sonnet: 0.05, opus: 0.05 }) }
   expect(decideDispatch({ ...sure, requested_fits: { type: 'noul', noul: 0.2 } }, REVIEW, settings).model).toBe('haiku')
   expect(decideDispatch({ ...sure, requested_fits: { type: 'noul', noul: 0.8 } }, REVIEW, settings).model).toBe('opus')

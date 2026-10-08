@@ -106,7 +106,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
         return null
       }
       // pickEffort's rules with their working: the board shows the steps, never recomputes them (#23).
-      const { effort, steps } = traceEffort(reading, ctx.config.thetaMax)
+      const { effort, steps } = traceEffort(reading, ctx.config)
       await report(io, {
         decision: {
           ...about,
@@ -154,8 +154,8 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
     }
 
     contribute(e.text, {
-      // Written in the decision model's language for these questions (Chinese with Jev); the other questions keep ctx.ask's.
-      ...turnStartPart({ ask: { ...ctx.ask, language: ctx.config.turnStartLanguage }, unresolved: counting, command, summary, count, maxAfter }),
+      // Asked as the decision model's table says for these questions (Chinese with Jev); the other questions keep ctx.ask's.
+      ...turnStartPart({ ask: ctx.config.ask.turnStart, unresolved: counting, command, summary, count, maxAfter }),
       settle: async (outcome) => {
         const io: ReportIo = {
           board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },

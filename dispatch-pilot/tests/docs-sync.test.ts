@@ -15,6 +15,7 @@ import { checkConfigTable, checkOneWriter, checkStructureTree } from '../eval/li
 
 /** The decision models' defaults as these tests state them. */
 const DEFAULTS = {
+  ...BACKEND_DEFAULTS,
   jev: { ...BACKEND_DEFAULTS.jev, timeoutMs: 1500, thetaUp: 0.4 },
 }
 

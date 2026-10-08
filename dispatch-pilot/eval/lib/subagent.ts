@@ -44,7 +44,7 @@ import {
   type DispatchSettings,
 } from '../../hooks/decision/dispatched-agent.ts'
 import type { Asked } from '../../hooks/decision/backend.ts'
-import { DEFAULT_ASK, EFFORTS, type Effort } from '../../hooks/decision/effort.ts'
+import { EFFORTS, type Effort } from '../../hooks/decision/effort.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
 import { MAX_PER_REQUEST, readOutcomes, workflowBatches } from '../../hooks/decision/workflow.ts'
 import type { AgentCall, ParsedWorkflow } from '../../hooks/decision/workflow-script.ts'
@@ -86,7 +86,7 @@ function variantAsk(variant: string): DispatchAsk {
  * model must be to replace the main agent's pick.
  */
 function agentSettings(settings: Settings, ask: DispatchAsk): DispatchSettings {
-  return dispatchSettings({ config: settings, ask: DEFAULT_ASK }, ask)
+  return dispatchSettings({ config: settings, ask: settings.ask.other }, ask)
 }
 
 /** The request the mod sends about the item's dispatched agent in `language`, asked as `variant` says. */

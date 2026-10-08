@@ -170,7 +170,7 @@ test("a run on Perplexity asks with Jev's settings: the budgets, the timeout and
   const pplx = settingsFrom(optionsFor(settingsModel('pplx'), userConfig))
   const jevSettings = settingsFrom(optionsFor(settingsModel('jev'), userConfig))
   expect(pplx).toEqual(jevSettings)
-  expect([pplx.backend, pplx.timeoutMs, pplx.context.tokens, pplx.turnStartLanguage]).toEqual(['jev', 1500, 6000, 'zh'])
+  expect([pplx.backend, pplx.timeoutMs, pplx.context.tokens, pplx.ask.turnStart.language]).toEqual(['jev', 1500, 6000, 'zh'])
 })
 
 // A run can widen the state's budget past what any decision model of the mod has (`--state-tokens`), to see whether a

@@ -19,7 +19,7 @@
 // stops the run.
 //
 // Options: --model (the backend's: jev-latest, pplx-decider-v1.1-27b), --state-tokens N and --state-messages N (as run.ts;
-// the mod's 24000 and 32 otherwise), --language zh|en (the questions; the mod's turnStartLanguage, zh, otherwise),
+// the mod's 24000 and 32 otherwise), --language zh|en (the questions; the decision model's ask.turnStart, core/setup.ts BACKEND_DEFAULTS, otherwise),
 // --thresholds add,reset (the bars; the mod's 0.5,0.7 otherwise), --option name=value (a mod option, as run.ts), --ids a,b,
 // --limit N, --concurrency 4 (items at once; the messages of one item go one after another), --timeout <ms>, --retries 2,
 // --summary-model haiku, --tries 3 (asks of a turn whose reply is no summary; the mod asks once, `claude -p` fails for
@@ -99,7 +99,7 @@ if (stateMessages !== null && !(Number.isInteger(stateMessages) && stateMessages
 const widened = stateTokens === null ? settingsFrom(options) : withStateTokens(settingsFrom(options), stateTokens)
 const settings = stateMessages === null ? widened : withStateMessages(widened, stateMessages)
 const budget = settings.contextByKind.messagePlain
-const language = (values.language ?? settings.turnStartLanguage) as Language
+const language = (values.language ?? settings.ask.turnStart.language) as Language
 if (language !== 'zh' && language !== 'en') fail(`--language takes zh or en, not ${language}`)
 const thresholds: UnresolvedThresholds = values.thresholds === undefined ? UNRESOLVED_THRESHOLDS : (() => {
   const [add, reset] = values.thresholds.split(',').map(Number)
