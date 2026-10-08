@@ -13,7 +13,7 @@
 // Pure: no Node API; eval/rescore.ts reads the files.
 
 import { dispatchSettings, readConfig } from '../../hooks/core/setup.ts'
-import { DEFAULT_ASK, EFFORTS, pickEffort, type Effort, type EffortReading } from '../../hooks/decision/effort.ts'
+import { EFFORTS, pickEffort, type Effort, type EffortReading, type EffortRules } from '../../hooks/decision/effort.ts'
 import { decideDispatch, type DispatchDecision } from '../../hooks/decision/dispatched-agent.ts'
 import { judgeMidturn, type MidturnRules } from '../../hooks/decision/midturn.ts'
 import { isRecord, type AgentItem, type EffortMidturnItem, type EffortSubmitItem, type Language } from './datasets.ts'
@@ -23,9 +23,17 @@ import { rate } from './metrics.ts'
 
 /** What a result file holds that is read here; the rest is kept as it is. */
 export type StoredAnswers = {
-  settings: { thetaMax: number; options?: Readonly<Record<string, unknown>> }
+  settings: { thetaMax: number; roundUp?: number; options?: Readonly<Record<string, unknown>> }
   summary: { variants: readonly { variant: string }[] }
   answers: readonly Readonly<Record<string, unknown>>[]
+}
+
+/** The threshold for taking the level above in a result file that does not record one: the constant it was before it became a decision model's setting (#49). */
+const ROUND_UP_BEFORE_THE_TABLE = 0.3
+
+/** The effort rules' thresholds as the run had them (`thetaMax`, and `roundUp` when the file records it). */
+function rulesOf(result: StoredAnswers): EffortRules {
+  return { thetaMax: result.settings.thetaMax, roundUp: result.settings.roundUp ?? ROUND_UP_BEFORE_THE_TABLE }
 }
 
 /**
@@ -57,7 +65,7 @@ export function legacyPickEffort(reading: EffortReading, thetaMax: number): Effo
 }
 
 /** The mid-turn gates as they were before the AA routing. */
-export const LEGACY_RULES: Omit<MidturnRules, 'thetaMax'> = { thetaUp: 0.4, thetaDown: 0.6, holdSteps: 3 }
+export const LEGACY_RULES: Omit<MidturnRules, keyof EffortRules> = { thetaUp: 0.4, thetaDown: 0.6, holdSteps: 3 }
 
 /**
  * What the mod went on at after a mid-turn answer, by the rule before: the
@@ -106,14 +114,14 @@ function tally(graded: readonly { item: { gold: Effort; accept: readonly Effort[
 
 /** The effort-submit variants of a result: the level picked from each stored answer, before and now. */
 export function rescoreSubmit(result: StoredAnswers, items: readonly EffortSubmitItem[]): Compared[] {
-  const { thetaMax } = result.settings
+  const rules = rulesOf(result)
   return result.summary.variants.map(({ variant }) => {
     const rows = rowsOf(result, items, variant, 'p')
     return {
       variant,
       what: 'picked',
-      before: tally(rows.map(({ item, detail }) => ({ item, effort: legacyPickEffort(readingOf(detail), thetaMax) }))),
-      now: tally(rows.map(({ item, detail }) => ({ item, effort: pickEffort(readingOf(detail), thetaMax) }))),
+      before: tally(rows.map(({ item, detail }) => ({ item, effort: legacyPickEffort(readingOf(detail), rules.thetaMax) }))),
+      now: tally(rows.map(({ item, detail }) => ({ item, effort: pickEffort(readingOf(detail), rules) }))),
     }
   })
 }
@@ -123,21 +131,21 @@ export function rescoreSubmit(result: StoredAnswers, items: readonly EffortSubmi
  * at, before (the pick and gates of 0.2.1) and now (the current pick and `rules`, by default the gates the mod ships).
  */
 export function rescoreMidturn(result: StoredAnswers, items: readonly EffortMidturnItem[], rules: MidturnRules = readConfig({}).midturn.rules): Compared[] {
-  const { thetaMax } = result.settings
+  const run = rulesOf(result)
   return result.summary.variants.flatMap(({ variant }) => {
     const rows = rowsOf(result, items, variant, 'p').map(({ item, language, detail }) => ({ item, reading: readingOf(detail), current: item[language].current_effort }))
     return [
       {
         variant,
         what: 'picked',
-        before: tally(rows.map(({ item, reading }) => ({ item, effort: legacyPickEffort(reading, thetaMax) }))),
-        now: tally(rows.map(({ item, reading }) => ({ item, effort: pickEffort(reading, thetaMax) }))),
+        before: tally(rows.map(({ item, reading }) => ({ item, effort: legacyPickEffort(reading, run.thetaMax) }))),
+        now: tally(rows.map(({ item, reading }) => ({ item, effort: pickEffort(reading, run) }))),
       },
       {
         variant,
         what: 'sent',
-        before: tally(rows.map(({ item, reading, current }) => ({ item, effort: legacySent(reading, current, thetaMax) }))),
-        now: tally(rows.map(({ item, reading, current }) => ({ item, effort: judgeMidturn(reading, { current, sinceRaise: null }, { ...rules, thetaMax }).effort }))),
+        before: tally(rows.map(({ item, reading, current }) => ({ item, effort: legacySent(reading, current, run.thetaMax) }))),
+        now: tally(rows.map(({ item, reading, current }) => ({ item, effort: judgeMidturn(reading, { current, sinceRaise: null }, { ...rules, ...run }).effort }))),
       },
     ]
   })
@@ -149,11 +157,11 @@ export type ThetaDownRow = { variant: string; language: Language | 'both'; theta
 /**
  * A scan of the lowering gate over the stored answers of an effort-midturn result: for each variant, each language
  * and both together, each of `thetas`, the level the mod goes on at (`judgeMidturn`, `rules` otherwise as the mod
- * ships them, `thetaMax` as the run had it) graded as `sent`. Only `thetaDown` differs from row to row; nothing is
+ * ships them, `thetaMax` and `roundUp` as the run had them) graded as `sent`. Only `thetaDown` differs from row to row; nothing is
  * asked again.
  */
 export function scanThetaDown(result: StoredAnswers, items: readonly EffortMidturnItem[], thetas: readonly number[], rules: MidturnRules = readConfig({}).midturn.rules): ThetaDownRow[] {
-  const { thetaMax } = result.settings
+  const run = rulesOf(result)
   return result.summary.variants.flatMap(({ variant }) => {
     const rows = rowsOf(result, items, variant, 'p').map(({ item, language, detail }) => ({ item, language, reading: readingOf(detail), current: item[language].current_effort }))
     return thetas.flatMap((thetaDown) =>
@@ -164,7 +172,7 @@ export function scanThetaDown(result: StoredAnswers, items: readonly EffortMidtu
         sent: tally(
           rows
             .filter((row) => language === 'both' || row.language === language)
-            .map(({ item, reading, current }) => ({ item, effort: judgeMidturn(reading, { current, sinceRaise: null }, { ...rules, thetaDown, thetaMax }).effort })),
+            .map(({ item, reading, current }) => ({ item, effort: judgeMidturn(reading, { current, sinceRaise: null }, { ...rules, ...run, thetaDown }).effort })),
         ),
       })),
     )
@@ -178,10 +186,11 @@ export function scanThetaDown(result: StoredAnswers, items: readonly EffortMidtu
  */
 export function rescoreAgents(result: StoredAnswers, items: readonly AgentItem[]): Compared[] {
   const config = readConfig({ ...(result.settings.options ?? {}), thetaMax: result.settings.thetaMax } as Parameters<typeof readConfig>[0])
+  const run = rulesOf(result)
   return result.summary.variants.flatMap(({ variant }) => {
     const variantAsk = AGENT_VARIANTS[variant]?.ask
     if (variantAsk === undefined) return []
-    const shape = dispatchSettings({ config, ask: DEFAULT_ASK }, variantAsk)
+    const shape = { ...dispatchSettings({ config, ask: config.ask.other }, variantAsk), ...run }
     const decided = rowsOf(result, items, variant, 'p_effort').flatMap(({ item, language, detail }) => {
       const answers = answersOf(detail)
       const decision = decideDispatch(answers, item[language], shape)

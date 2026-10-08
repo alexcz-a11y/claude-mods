@@ -8,16 +8,17 @@
 
 import type { SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
-import { BACKEND_DEFAULTS, dispatchSettings, PER_BACKEND_OPTIONS, readConfig } from '../hooks/core/setup.ts'
+import { BACKEND_DEFAULTS, dispatchSettings, PER_BACKEND_OPTIONS, readConfig, setup } from '../hooks/core/setup.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { DEFAULT_AGENT_MODELS, dispatchPart } from '../hooks/decision/dispatched-agent.ts'
-import { DEFAULT_ASK, turnStartEffortPart } from '../hooks/decision/effort.ts'
+import { DEFAULT_ASK, traceEffort, turnStartEffortPart, type EffortReading } from '../hooks/decision/effort.ts'
 import { expectedFailurePart } from '../hooks/decision/escalation.ts'
 import { midturnEffortPart, midturnState } from '../hooks/decision/midturn.ts'
 import { questionBudget } from '../hooks/decision/skills.ts'
 import { withUnresolved } from '../hooks/decision/unresolved.ts'
 import { workflowBatches } from '../hooks/decision/workflow.ts'
 import { parseWorkflow } from '../hooks/decision/workflow-script.ts'
+import { modVariant } from '../eval/lib/effort-submit.ts'
 import { optionsFor, settingsFrom } from '../eval/lib/suite.ts'
 import type { SkillsWorld } from './support/world.ts'
 import { jev, rates, world } from './support/world.ts'
@@ -181,7 +182,7 @@ test("at session start the debug log says which options took the decision model'
   const w = world($, on, { session: true })
   await w.start()
   expect(w.logs.map((log) => log.text)).toContain(
-    "settings for jev: left unset, so jev's defaults: timeoutMs 1500, contextMessages 32, rejudgeSteps 16, thetaDown 0.55, thetaMax 0.5, thetaExpected 0.25, agentOverride 0.6, skillsMinRelevance 0.75, findSkillMinRelevance 0.5; skill suggestions on until /dp skills off; contextTokens 20000 reads as 16000, the most with jev",
+    "settings for jev: left unset, so jev's defaults: timeoutMs 1500, contextMessages 32, rejudgeSteps 16, rejudgeWaitMs 300, thetaDown 0.55, thetaMax 0.5, thetaExpected 0.25, agentOverride 0.6, skillsMinRelevance 0.75, findSkillMinRelevance 0.5; skill suggestions on until /dp skills off; contextTokens 20000 reads as 16000, the most with jev",
   )
 })
 
@@ -194,13 +195,13 @@ test("readConfig: an option left unset takes the decision model's default", () =
   expect([config.skills.findWaitMs, config.skills.findByProfile]).toEqual([1500, true])
   expect([config.escalation.thetaExpected, config.agents.thetaOverride, config.skills.find.minRelevance]).toEqual([0.25, 0.6, 0.5])
   expect(config.defaults.used.map(([option]) => option)).toEqual([...PER_BACKEND_OPTIONS])
-  expect(BACKEND_DEFAULTS.jev.turnStartLanguage).toBe('zh')
+  expect(BACKEND_DEFAULTS.jev.ask.turnStart.language).toBe('zh')
 })
 
 // Raising is easy, lowering is hard (AA's scores fall steeply as effort falls, DEVELOPMENT.md, 「按 AA 基准校正」): the
 // mid-turn gates.
 test('the mid-turn gates by default: a raise needs 0.3, a lowering 0.55 and no raise in the last 5 steps', () => {
-  expect(readConfig({}).midturn.rules).toEqual({ thetaUp: 0.3, thetaDown: 0.55, thetaMax: 0.5, holdSteps: 5 })
+  expect(readConfig({}).midturn.rules).toEqual({ thetaUp: 0.3, thetaDown: 0.55, thetaMax: 0.5, roundUp: 0.3, holdSteps: 5 })
   // What the person sets is what is used.
   expect(readConfig({ thetaUp: 0.4, thetaDown: 0.6, holdSteps: 3 }).midturn.rules).toMatchObject({ thetaUp: 0.4, thetaDown: 0.6, holdSteps: 3 })
 })
@@ -372,4 +373,72 @@ for (const { name, userSettings } of NOT_CLEF) {
 
 test('readConfig: a decisionModel of clef passed straight in (the eval, a script) reads as unset', () => {
   expect(readConfig({ decisionModel: 'clef' })).toEqual(readConfig({}))
+})
+
+// What the table carries besides the options (core/setup.ts BackendDefaults, #49): the threshold for taking the level above
+// (`roundUp`), how the questions are asked (`ask`), the most recent messages `contextMessages` may name (`contextMessagesMax`)
+// and how long a step waits for a late re-decision (`rejudgeWaitMs`, an option with a default per decision model). Seam 2: the
+// shared reading takes the table as its second argument (the shipped one by default), so a decision model whose values are not
+// Jev's can be read before there is a second one in the table; each value of it must reach everything that uses it.
+
+/** A decision model that differs from Jev in every value #49 moved into the table, each in a way that shows where it went. */
+const OTHER = {
+  ...BACKEND_DEFAULTS,
+  jev: {
+    ...BACKEND_DEFAULTS.jev,
+    roundUp: 0.45,
+    ask: { turnStart: { language: 'en', primitive: 'choice' }, other: { language: 'zh', primitive: 'score' } },
+    contextMessagesMax: 2000,
+    rejudgeWaitMs: 6000,
+  },
+} as const
+
+const reading = (probabilities: number[]): EffortReading => ({ probabilities, confidence: 0.8 })
+
+test("the round-up threshold is the decision model's: Jev takes the level above at 0.3, another model's value reaches every rule that uses it", () => {
+  const roundUps = (config: ReturnType<typeof readConfig>) => [config.roundUp, config.midturn.rules.roundUp, dispatchSettings({ config, ask: config.ask.other }).roundUp]
+  expect(roundUps(readConfig({}))).toEqual([0.3, 0.3, 0.3])
+  expect(roundUps(readConfig({}, OTHER))).toEqual([0.45, 0.45, 0.45])
+  // The settings are the effort rules' parameters as they are (what the main agent's feature and the eval hand `traceEffort`): the same answer, 0.3 above the most probable level.
+  const answer = reading([0, 0.5, 0.3, 0.2, 0])
+  expect([readConfig({}), readConfig({}, OTHER)].map((config) => traceEffort(answer, config).effort)).toEqual(['high', 'medium'])
+})
+
+test("how the questions are asked is the decision model's: with Jev the effort question beside a message in Chinese and every other in English, another model's pair is read as it is", () => {
+  expect(readConfig({}).ask).toEqual({ turnStart: { language: 'zh', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
+  expect(readConfig({}, OTHER).ask).toEqual(OTHER.jev.ask)
+  // `ctx.ask`, which every feature but the message's effort question asks with, is the table's "other".
+  expect(setup({}).ask).toEqual({ language: 'en', primitive: 'score' })
+  expect(setup({}, OTHER).ask).toEqual({ language: 'zh', primitive: 'score' })
+})
+
+test("contextMessages reads at most what the decision model takes: Jev 32, another model's own most", () => {
+  expect(readConfig({ contextMessages: 8 }).context.messages).toBe(8)
+  const jevCapped = readConfig({ contextMessages: 40 })
+  expect(jevCapped.context.messages).toBe(32)
+  expect(jevCapped.defaults.capped).toEqual([{ option: 'contextMessages', set: 40, read: 32 }])
+  // Unset, the decision model's default is its most (Jev: 32); a model taking more is not cut at 32.
+  expect(readConfig({}).context.messages).toBe(32)
+  expect(readConfig({ contextMessages: 1500 }, OTHER).context.messages).toBe(1500)
+  expect(readConfig({ contextMessages: 5000 }, OTHER).context.messages).toBe(2000)
+})
+
+test("rejudgeWaitMs is an option with a default per decision model: unset it is the model's (Jev 300), set it is the person's, up to 8000", () => {
+  const waits = (options: Record<string, number>, table?: typeof OTHER) => readConfig(options, table).midturn.waitMs
+  expect([waits({}), waits({ rejudgeWaitMs: 0 }), waits({ rejudgeWaitMs: 500 }), waits({ rejudgeWaitMs: 8000 })]).toEqual([300, 0, 500, 8000])
+  // Past 8000 it reads as 8000, and the debug log says so.
+  expect(waits({ rejudgeWaitMs: 9000 })).toBe(8000)
+  expect(readConfig({ rejudgeWaitMs: 9000 }).defaults.capped).toEqual([{ option: 'rejudgeWaitMs', set: 9000, read: 8000 }])
+  // Another model's default stands where the person sets none; what the person sets still comes first.
+  expect([waits({}, OTHER), waits({ rejudgeWaitMs: 500 }, OTHER)]).toEqual([6000, 500])
+  expect(PER_BACKEND_OPTIONS).toContain('rejudgeWaitMs')
+  expect(readConfig({}).defaults.used).toContainEqual(['rejudgeWaitMs', 300])
+})
+
+test('the eval reads the table the mod reads: the same round-up threshold, the same question asked beside a message (the variant it runs as the mod does), the same limit on contextMessages', () => {
+  const jevSettings = settingsFrom(optionsFor('jev', {}))
+  expect([jevSettings.roundUp, jevSettings.ask.turnStart, jevSettings.context.messages, modVariant(jevSettings)]).toEqual([0.3, { language: 'zh', primitive: 'score' }, 32, 'zh-score'])
+  const userConfig = { contextMessages: { type: 'number' } }
+  const settings = settingsFrom(optionsFor('jev', userConfig, ['contextMessages=5000']), OTHER)
+  expect([settings.roundUp, settings.ask.turnStart, settings.context.messages, modVariant(settings)]).toEqual([0.45, { language: 'en', primitive: 'choice' }, 2000, 'en-choice'])
 })

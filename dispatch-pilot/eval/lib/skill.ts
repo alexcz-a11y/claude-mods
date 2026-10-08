@@ -56,7 +56,7 @@ export type SkillSources = {
 /**
  * How a variant asks: whether each skill is offered by its profile, and the
  * language of the skill questions of both stages. The effort question beside
- * them is always the run's decision model's (`turnStartLanguage`).
+ * them is always the run's decision model's (`ask.turnStart`).
  */
 type SkillVariant = { profiles: boolean; language: Language }
 

@@ -8,7 +8,7 @@
 // request the mod sends from a dataset row (spec #67).
 
 import { clipToTokens, estimateTokens, messageText, withinTokens } from './context.ts'
-import { DEFAULT_ASK, EFFORTS, effortQuestion, traceEffort, type Effort, type EffortAsk, type EffortReading, type EffortTrace, type Language } from './effort.ts'
+import { DEFAULT_ASK, EFFORTS, effortQuestion, traceEffort, type Effort, type EffortAsk, type EffortReading, type EffortRules, type EffortTrace, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import type { Part, State } from './system-one.ts'
 import { COUNT_FIELD, withHint } from './unresolved.ts'
@@ -236,13 +236,11 @@ export function midturnEffortPart(ask: Partial<EffortAsk> = {}, options: { troub
   return options.hint === true ? withHint(part, asked.language) : part
 }
 
-export type MidturnRules = {
+export type MidturnRules = EffortRules & {
   /** Confidence a raise needs. */
   thetaUp: number
   /** Confidence a lowering needs (at least thetaUp); it lowers one level at most. */
   thetaDown: number
-  /** `max` only when its own probability reaches this. */
-  thetaMax: number
   /** No lowering within this many steps after a raise. */
   holdSteps: number
 }
@@ -292,7 +290,7 @@ export type MidturnVerdict = { effort: Effort; why: MidturnWhy; picked: Effort; 
 
 /**
  * The level the turn goes on at after a mid-turn answer: the answer's level
- * (pickEffort: the most likely, max only past thetaMax) when it is higher and
+ * (pickEffort: the most likely, the level above it from roundUp, max only past thetaMax) when it is higher and
  * the answer is sure enough (thetaUp); one level down when it is lower, the
  * answer surer still (thetaDown, never below thetaUp) and no raise happened
  * in the last holdSteps steps; else the current level. Sure enough means the
@@ -302,7 +300,7 @@ export type MidturnVerdict = { effort: Effort; why: MidturnWhy; picked: Effort; 
  */
 export function judgeMidturn(reading: EffortReading, position: MidturnPosition, rules: MidturnRules): MidturnVerdict {
   const { current } = position
-  const pick = traceEffort(reading, rules.thetaMax)
+  const pick = traceEffort(reading, rules)
   const picked = pick.effort
   const confidence = reading.confidence ?? Math.max(...reading.probabilities)
   const at = (level: Effort) => EFFORTS.indexOf(level)

@@ -21,11 +21,18 @@ import type { OptionSpec } from './suite.ts'
 
 type Row = { option: string; cells: string[] }
 
-/** The decision models, as the table's default columns name them. */
-const BACKENDS = [{ column: 2, label: 'Jev', backend: 'jev' }] as const
+/**
+ * The decision models, in the order of the table's default columns (after the option and what it does), each with the
+ * name its column goes by. A new decision model is one more entry here, one in core/setup.ts BACKEND_DEFAULTS and a cell
+ * for it in every row of the README's tables.
+ */
+const BACKENDS: readonly { label: string; backend: BackendName }[] = [{ label: 'Jev', backend: 'jev' }]
+
+/** Where the default columns start in a row: the option, then what it does. */
+const FIRST_DEFAULT = 2
 
 /** The cells of a row: the option, what it does, and a default for each decision model. */
-const CELLS = 2 + BACKENDS.length
+const CELLS = FIRST_DEFAULT + BACKENDS.length
 
 /** The rows of the README's `## 配置` section; null when it has no such section. */
 function configRows(readme: string): Row[] | null {
@@ -92,8 +99,8 @@ export function checkConfigTable(readme: string, userConfig: Readonly<Record<str
       problems.push(`\`${option}\`: no default to compare the row with (plugin.json gives none the table can write, and BACKEND_DEFAULTS does not cover it)`)
       continue
     }
-    BACKENDS.forEach(({ column, label, backend }) => {
-      const cell = row.cells[column] ?? ''
+    BACKENDS.forEach(({ label, backend }, i) => {
+      const cell = row.cells[FIRST_DEFAULT + i] ?? ''
       const value = /^`([^`]*)`/.exec(cell)?.[1]
       const expected = perBackend ? String(defaults[backend][option as PerBackendOption]) : written(decl.default)
       if (value === undefined) problems.push(`\`${option}\`: the ${label} cell does not start with the default in backticks`)

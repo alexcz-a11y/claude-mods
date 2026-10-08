@@ -94,7 +94,7 @@ export type FlowOptions = {
   /** The cheap model's reply to a summary prompt, or null when it gave none. */
   complete: Complete
   settings: Settings
-  /** The language the questions are asked in (the mod's `turnStartLanguage`: Chinese for Jev). */
+  /** The language the questions are asked in (the mod's `ask.turnStart` language: Chinese for Jev). */
   language: Language
   /** The bars a three-way answer moves the count at (the mod's by default). */
   thresholds?: UnresolvedThresholds

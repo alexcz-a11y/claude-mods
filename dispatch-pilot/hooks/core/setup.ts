@@ -15,7 +15,7 @@ import type { PluginOptions } from 'claude-code'
 import type { Backend } from '../decision/backend.ts'
 import type { ContextLimits } from '../decision/context.ts'
 import { DEFAULT_AGENT_MODELS, type AgentModel, type DispatchAsk, type DispatchSettings } from '../decision/dispatched-agent.ts'
-import { DEFAULT_ASK, type EffortAsk, type Language } from '../decision/effort.ts'
+import type { EffortAsk, EffortRules } from '../decision/effort.ts'
 import { RAISE_MODES, type RaiseMode } from '../decision/escalation.ts'
 import { jevBackend } from '../decision/jev.ts'
 import type { MidturnLimits, MidturnRules } from '../decision/midturn.ts'
@@ -48,6 +48,7 @@ export const PER_BACKEND_OPTIONS = [
   'contextMessages',
   'contextTokens',
   'rejudgeSteps',
+  'rejudgeWaitMs',
   'thetaUp',
   'thetaDown',
   'thetaMax',
@@ -69,13 +70,28 @@ export type ContextKind = (typeof CONTEXT_KINDS)[number]
 
 /**
  * What one decision model brings: each option's default where the person left
- * it unset, the most `contextTokens` reads as, and whether skills are
+ * it unset, the most `contextTokens` and `contextMessages` read as, how every
+ * question is asked, the threshold for taking the level above, and whether skills are
  * suggested beside each message until the person flips it (`/dp skills
- * on|off`).
+ * on|off`). A new decision model is one more entry of BACKEND_DEFAULTS, a column in the README's
+ * configuration tables and one line in eval/lib/docs.ts BACKENDS: the rest reads the table.
  */
 export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
   /** `contextTokens` above this reads as this. */
   contextTokensMax: number
+  /** `contextMessages` above this reads as this. */
+  contextMessagesMax: number
+  /**
+   * The least probability the level above the most probable one needs to be taken instead (`EffortRules.roundUp`, decision/effort.ts).
+   * Not an option: set from the stored answers of the decision model (eval/resummarize.ts), like the other values of the table.
+   */
+  roundUp: number
+  /**
+   * How the decision model is asked, language and kind of question (the eval's variables, `effort-submit` for the effort question
+   * beside a message): `turnStart` for that question, `other` for every other one (the mid-turn re-decision, a dispatched agent
+   * and a Workflow's, a stuck loop, the skills, the problem summary's text). Not options.
+   */
+  ask: { turnStart: EffortAsk; other: EffortAsk }
   /**
    * What the state of each other kind of request may take, in estimated tokens (`contextTokens` is the message that carries the
    * skills' question). Not options: each is the most that kind's longest question leaves, worked out in DEVELOPMENT.md (配置,
@@ -94,12 +110,6 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
   findSkillWaitMs: number | null
   /** Whether find_skill's first request offers a skill by its profile (else by its description); the second re-reads it by both. */
   findSkillProfiles: boolean
-  /**
-   * The language the effort question beside each message is written in
-   * (`turnStartEffortPart`); every other question keeps `ctx.ask`'s. Not an
-   * option: set by the eval (effort-submit, `zh-score` against `en-score`).
-   */
-  turnStartLanguage: Language
 }
 
 /**
@@ -115,6 +125,7 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
 const JEV_DEFAULTS: BackendDefaults = {
   timeoutMs: 1500,
   contextMessages: 32,
+  contextMessagesMax: 32,
   contextTokens: 6000,
   contextTokensMax: 16000,
   // Every other kind of request has questions of at most 700 tokens as Jev counts them (the effort question 421, a re-decision's
@@ -123,6 +134,9 @@ const JEV_DEFAULTS: BackendDefaults = {
   // 20,100 in all) and the whole request stay within 57,600 (90% of 64k) too.
   contextByKind: { messagePlain: 24000, rejudge: 24000, agent: 24000, workflow: 24000 },
   rejudgeSteps: 16,
+  // A step waits this long for a re-decision not yet back before it goes on at the level it had: Jev's mid-turn requests took about 280 ms
+  // at p50 and 350 ms at p90 (DEVELOPMENT.md, 配置), and they are sent when the step's tools start, so they are mostly back by then.
+  rejudgeWaitMs: 300,
   // Raising is easy, lowering is hard (AA: a Sonnet 5.5 at medium scores 41 on the index and at high 47, at low 36; Terminal-Bench
   // 20.7% at low against 43.9% at high): 0.4 to 0.3 for a raise, 0.6 to 0.75 for a lowering, 3 to 5 steps held after a raise.
   // The lowering gate came back down to 0.55 in 0.2.3: with 0.75 the level sent was too high too often (too high 11.5/11.0% to
@@ -138,9 +152,11 @@ const JEV_DEFAULTS: BackendDefaults = {
   suggestSkills: true,
   findSkillWaitMs: null,
   findSkillProfiles: true,
+  // Raising is easy (DEVELOPMENT.md, 「按 AA 基准校正」): the level above the most probable one is taken from 0.3.
+  roundUp: 0.3,
   // effort-submit on the current wording, one run each (2026-10-05): asked in Chinese, Chinese items 85% and English
   // items 89%; asked in English, 79% and 78%. The questions asked later have no data in Chinese and stay in English.
-  turnStartLanguage: 'zh',
+  ask: { turnStart: { language: 'zh', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
 }
 
 /** The defaults by decision model: the only place they are written. */
@@ -159,7 +175,8 @@ export function messageLimits(config: Pick<Config, 'context' | 'contextByKind'>,
   return withSkills ? config.context : { ...config.context, tokens: config.contextByKind.messagePlain }
 }
 
-export type Config = {
+/** The settings are also the effort rules' parameters (`EffortRules`: `thetaMax` and `roundUp`): `traceEffort(reading, config)`. */
+export type Config = EffortRules & {
   /** The decision model the options were read for: its defaults (BACKEND_DEFAULTS) stand for what the person left unset. */
   backend: BackendName
   /**
@@ -170,10 +187,8 @@ export type Config = {
   typesafeApiKey: string
   /** How long a decision request may take before the prompt goes on without it. */
   timeoutMs: number
-  /** The language of the effort question beside each message (the decision model's: BACKEND_DEFAULTS turnStartLanguage). */
-  turnStartLanguage: Language
-  /** `max` only when its own probability reaches this. */
-  thetaMax: number
+  /** How the decision model is asked (BACKEND_DEFAULTS ask): `turnStart` the effort question beside each message, `other` every other question (`ctx.ask`). */
+  ask: { turnStart: EffortAsk; other: EffortAsk }
   /**
    * What the decision model reads of the conversation: how many recent messages, how many tokens in all. The tokens are the
    * budget of a message that carries the skills' question (and of find_skill's first stage); the other kinds of request have
@@ -190,7 +205,7 @@ export type Config = {
     waitMs: number
     /** What a re-decision reads: the latest steps, within the context budget. */
     limits: MidturnLimits
-    /** How an answer moves the level: thetaUp, thetaDown, thetaMax, holdSteps. */
+    /** How an answer moves the level: thetaUp, thetaDown, thetaMax, roundUp, holdSteps. */
     rules: MidturnRules
   }
   /** Forced escalation (#7). */
@@ -253,25 +268,26 @@ export type Ctx = {
   config: Config
   /** The decision model the person chose. */
   backend: Backend
-  /** How effort questions are asked: eval variables, the spec's defaults in the mod. */
+  /** How every question but the effort question beside a message is asked: the decision model's (`config.ask.other`). */
   ask: EffortAsk
 }
 
-export function setup(options: PluginOptions): Ctx {
-  const config = readConfig(options)
+export function setup(options: PluginOptions, table: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS): Ctx {
+  const config = readConfig(options, table)
   const backend = jevBackend(config.typesafeApiKey)
-  return { config, backend, ask: DEFAULT_ASK }
+  return { config, backend, ask: config.ask.other }
 }
 
 /**
  * The person's options, each within its bounds; where one is missing or of
  * the wrong type, the manifest's default, or for an option whose default
  * depends on the decision model (PER_BACKEND_OPTIONS), that model's
- * (BACKEND_DEFAULTS). `contextTokens` reads at most that model's most.
+ * (`table`, BACKEND_DEFAULTS unless a test reads another). `contextTokens`
+ * and `contextMessages` read at most that model's most.
  */
-export function readConfig(options: PluginOptions): Config {
+export function readConfig(options: PluginOptions, table: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS): Config {
   const backend: BackendName = 'jev'
-  const defaults = BACKEND_DEFAULTS[backend]
+  const defaults = table[backend]
   const used: (readonly [PerBackendOption, number])[] = []
   const capped: { option: PerBackendOption; set: number; read: number }[] = []
   /** A per-backend option: the person's value within [min, max], else the decision model's default (noted for the log). */
@@ -292,7 +308,7 @@ export function readConfig(options: PluginOptions): Config {
   const contextTokens = own('contextTokens', 100, defaults.contextTokensMax, true)
   const contextSet = typeof options.contextTokens === 'number' && Number.isFinite(options.contextTokens)
   const byKind = (cap: number) => (contextSet ? Math.min(contextTokens, cap) : cap)
-  const context = { messages: own('contextMessages', 0, 32, true), tokens: byKind(defaults.contextTokens) }
+  const context = { messages: own('contextMessages', 0, defaults.contextMessagesMax, true), tokens: byKind(defaults.contextTokens) }
   const contextByKind = Object.fromEntries(CONTEXT_KINDS.map((kind) => [kind, byKind(defaults.contextByKind[kind])])) as Record<ContextKind, number>
   const haikuToWritten = stringOf(options.escalateHaikuTo, 'sonnet').trim()
   // A hook's own budget is 10 s and the timer's wait counts toward it.
@@ -302,18 +318,21 @@ export function readConfig(options: PluginOptions): Config {
     defaults: { used, capped },
     typesafeApiKey: stringOf(options.typesafeApiKey, '').trim(),
     timeoutMs,
-    turnStartLanguage: defaults.turnStartLanguage,
+    ask: defaults.ask,
     thetaMax,
+    roundUp: defaults.roundUp,
     context,
     contextByKind,
     midturn: {
       every: whole(options.rejudgeEvery, 0, 50, 3),
-      waitMs: whole(options.rejudgeWaitMs, 0, 2000, 300),
+      // A hook's own budget is 10 s and the timer's wait counts toward it, as for `timeoutMs`.
+      waitMs: own('rejudgeWaitMs', 0, 8000, true),
       limits: { steps: own('rejudgeSteps', 1, 16, true), tokens: contextByKind.rejudge },
       rules: {
         thetaUp: own('thetaUp', 0, 1),
         thetaDown: own('thetaDown', 0, 1),
         thetaMax,
+        roundUp: defaults.roundUp,
         holdSteps: whole(options.holdSteps, 0, 50, 5),
       },
     },
@@ -371,8 +390,8 @@ export function describeDefaults(config: Pick<Config, 'backend' | 'defaults' | '
  * the same for a dispatched agent (#6) and a Workflow's agents (#8, #9), and
  * for the eval; `ask` is how its questions are written (the eval's variants).
  */
-export function dispatchSettings(ctx: { config: Pick<Config, 'agents' | 'thetaMax'>; ask: EffortAsk }, ask: Partial<DispatchAsk> = {}): DispatchSettings {
-  return { models: ctx.config.agents.models, ask: { ...ctx.ask, ...ask }, thetaOverride: ctx.config.agents.thetaOverride, thetaMax: ctx.config.thetaMax }
+export function dispatchSettings(ctx: { config: Pick<Config, 'agents' | 'thetaMax' | 'roundUp'>; ask: EffortAsk }, ask: Partial<DispatchAsk> = {}): DispatchSettings {
+  return { models: ctx.config.agents.models, ask: { ...ctx.ask, ...ask }, thetaOverride: ctx.config.agents.thetaOverride, thetaMax: ctx.config.thetaMax, roundUp: ctx.config.roundUp }
 }
 
 /** The cheap model that writes skill profiles, unless the person names another (`skillsProfileModel`). */

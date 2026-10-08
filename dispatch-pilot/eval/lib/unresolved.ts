@@ -96,7 +96,7 @@ export async function askUnresolved(sent: { request: DecisionRequest; part: Part
   const said = readUnresolved(answers[UNRESOLVED])
   if (said === null) return { ok: false, failure: 'parse: no triage answer' }
   const judged = judgeUnresolved(said)
-  const effort = pickEffort(reading, settings.thetaMax)
+  const effort = pickEffort(reading, settings)
   const detail: Record<string, unknown> = {
     p: reading.probabilities.map((p) => Math.round(p * 1000) / 1000),
     confidence: reading.confidence,
@@ -167,7 +167,7 @@ function breakdownOf(items: readonly UnresolvedItem[], rows: readonly Row<Unreso
   const effortOf = (item: UnresolvedItem, language: Language, theta?: number): Effort | null => {
     const row = byLanguage[language].get(item.id)
     if (theta === undefined || !Array.isArray(row?.detail?.p)) return row?.prediction?.effort ?? null
-    return pickEffort({ probabilities: row.detail.p as number[], confidence: null }, theta)
+    return pickEffort({ probabilities: row.detail.p as number[], confidence: null }, { thetaMax: theta, roundUp: settings.roundUp })
   }
   const needsTop = (group: readonly UnresolvedItem[]) => group.filter((item) => item.gold === 'max')
   const recall = (group: readonly UnresolvedItem[], language: Language, theta?: number) => share(needsTop(group).filter((item) => effortOf(item, language, theta) === 'max').length, needsTop(group).length)

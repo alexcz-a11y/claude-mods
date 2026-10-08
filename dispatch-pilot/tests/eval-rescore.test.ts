@@ -67,7 +67,7 @@ test('the level a mid-turn answer sends: the gates of before (0.4 up, 0.6 down) 
     // Down to low, confidence 0.7: before sure enough (one level, to medium), now not (0.75): stays high.
     ['b', 'zh', { p: [0.6, 0.4, 0, 0, 0], confidence: 0.7, sent: 'medium', why: 'down' }],
   ])
-  const [picked, sent] = rescoreMidturn(result, items, { thetaUp: 0.3, thetaDown: 0.75, thetaMax: 0.5, holdSteps: 5 })
+  const [picked, sent] = rescoreMidturn(result, items, { thetaUp: 0.3, thetaDown: 0.75, thetaMax: 0.5, roundUp: 0.3, holdSteps: 5 })
   expect([picked?.what, sent?.what]).toEqual(['picked', 'sent'])
   // Picked before: a high (right), b low (right). Now: a high (right), b low then the level above, medium (right).
   expect(picked?.before).toEqual({ n: 2, accuracy: 1, gold: 1, over: 0, under: 0 })

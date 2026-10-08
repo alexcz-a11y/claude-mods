@@ -19,8 +19,8 @@ import { requestFailed, variantIn, type Grade, type Suite } from './suite.ts'
 /**
  * The variants by name: `<question language>-<primitive>`. The mod asks as
  * `zh-score` with Jev (`modVariant`: the effort question beside a message is
- * written in the decision model's language, core/setup.ts BACKEND_DEFAULTS
- * turnStartLanguage).
+ * asked as the decision model's table says, core/setup.ts BACKEND_DEFAULTS
+ * ask.turnStart).
  */
 export const SUBMIT_VARIANTS: Readonly<Record<string, EffortAsk>> = {
   'en-score': { language: 'en', primitive: 'score' },
@@ -30,8 +30,9 @@ export const SUBMIT_VARIANTS: Readonly<Record<string, EffortAsk>> = {
 }
 
 /** The variant that asks as the mod asks with the settings' decision model. */
-export function modVariant(settings: Pick<Config, 'turnStartLanguage'>): string {
-  return `${settings.turnStartLanguage}-score`
+export function modVariant(settings: Pick<Config, 'ask'>): string {
+  const { language, primitive } = settings.ask.turnStart
+  return `${language}-${primitive}`
 }
 
 function variantAsk(variant: string): EffortAsk {
@@ -61,7 +62,7 @@ export const effortSubmit: Suite<EffortSubmitItem, Effort> = {
     if (reading === null) return { ok: false, failure: 'parse: no effort answer' }
     return {
       ok: true,
-      prediction: pickEffort(reading, settings.thetaMax),
+      prediction: pickEffort(reading, settings),
       detail: { p: reading.probabilities.map((p) => Math.round(p * 1000) / 1000), confidence: reading.confidence },
     }
   },

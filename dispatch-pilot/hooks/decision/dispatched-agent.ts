@@ -10,7 +10,7 @@
 // the effort a Score with the levels every effort question shares.
 
 import { clipToTokens, estimateTokens, withinTokens } from './context.ts'
-import { DEFAULT_ASK, EFFORTS, effortQuestion, levelsText, pickEffort, probsOf, readEffort, traceEffort, type Effort, type EffortAsk, type EffortTrace, type EffortReading, type Language } from './effort.ts'
+import { DEFAULT_ASK, EFFORTS, effortQuestion, levelsText, pickEffort, probsOf, readEffort, traceEffort, type Effort, type EffortAsk, type EffortRules, type EffortTrace, type EffortReading, type Language } from './effort.ts'
 import { failureText, type Failure } from './backend.ts'
 import { redactSecrets } from './redact.ts'
 import { SUMMARY_FIELD } from './summary.ts'
@@ -412,11 +412,9 @@ export const THETA_NAMED = 0.5
 export const THETA_FIT = 0.5
 
 /** What decides an agent's model and effort from the answers. */
-export type DispatchSettings = DispatchShape & {
+export type DispatchSettings = DispatchShape & EffortRules & {
   /** The decision model's pick replaces the main agent's only at this confidence or above. */
   thetaOverride: number
-  /** `max` only when its own probability reaches this. */
-  thetaMax: number
   /** A model counts as named by the person when its yes/no answer reaches this; THETA_NAMED by default. */
   thetaNamed?: number
   /** `requested: 'noul'` only: the main agent's pick goes only when `requested_fits` is below this; THETA_FIT by default. */
@@ -501,8 +499,8 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
   // is lifted to its model's floor; the person's never is.
   const namedEffort = readNamedEffort(answers[NAMED_EFFORT], threshold)
   const floor = reading === null ? null : effortFloor(model)
-  const trace = reading === null ? null : traceEffort(reading, settings.thetaMax, { model: { name: model ?? 'none', floor } })
-  const decided = reading === null ? null : pickEffort(reading, settings.thetaMax)
+  const trace = reading === null ? null : traceEffort(reading, settings, { model: { name: model ?? 'none', floor } })
+  const decided = reading === null ? null : pickEffort(reading, settings)
   const lifted = decided !== null && floor !== null && EFFORTS.indexOf(floor) > EFFORTS.indexOf(decided) ? floor : null
   const effort = model === 'haiku' ? null : (namedEffort ?? lifted ?? decided)
   const effortSource = effort === null ? 'none' : namedEffort !== null ? 'user' : 'decided'

@@ -148,7 +148,7 @@ function breakdownOf(items: readonly V2EvalItem[], rows: readonly Row<Unresolved
   const effortOf = (item: V2EvalItem, theta?: number): Effort | null => {
     const row = rowOf.get(item.id)
     if (theta === undefined || !Array.isArray(row?.detail?.p)) return row?.prediction?.effort ?? null
-    return pickEffort({ probabilities: row.detail.p as number[], confidence: null }, theta)
+    return pickEffort({ probabilities: row.detail.p as number[], confidence: null }, { thetaMax: theta, roundUp: settings.roundUp })
   }
   const triageOf = (item: V2EvalItem) => rowOf.get(item.id)?.prediction?.triage ?? null
   const gold = (item: V2EvalItem) => TRIAGE_OF[item.gold.triage_final]

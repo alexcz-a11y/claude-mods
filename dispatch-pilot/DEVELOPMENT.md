@@ -16,7 +16,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev）�
 ## 它做什么
 
 - 你发出一条消息时（在终端输入、用 `claude -p`、通过 Remote Control 或 Slack，或由插件代你输入），Dispatch Pilot 把这条消息和最近几条对话发给决策模型（Jev），问它「这项工作需要多少逐步推理」。它给出 low、medium、high、xhigh、max 五档各自的概率。
-- 取概率最高的一档，并列时取较高的一档；然后，如果高一档的概率也有 `ROUND_UP`（0.3，`decision/effort.ts` 的常量，不是配置项）以上，就往上取一档（只取一次）。`max` 只在它自己的概率达到 `thetaMax` 时才使用，不论它是概率最高的一档，还是往上取一档会到的那一档；否则取其余四档中的那一档。依据见「按 AA 基准校正」。发消息时、中途重判、卡住时的强制升档和派出 agent 的 effort 都用这同一个函数（`pickEffort`）。
+- 取概率最高的一档，并列时取较高的一档；然后，如果高一档的概率也有 `roundUp`（按决策模型取，Jev 是 0.3，写在 `core/setup.ts` 的 `BACKEND_DEFAULTS`，不是配置项；`pickEffort` 和 `traceEffort` 的参数 `EffortRules` 是 `{ thetaMax, roundUp }`，`Config`、`MidturnRules`、`DispatchSettings` 都带这两个值，直接传进去）以上，就往上取一档（只取一次）。`max` 只在它自己的概率达到 `thetaMax` 时才使用，不论它是概率最高的一档，还是往上取一档会到的那一档；否则取其余四档中的那一档。依据见「按 AA 基准校正」。发消息时、中途重判、卡住时的强制升档和派出 agent 的 effort 都用这同一个函数（`pickEffort`）。
 - 这一轮的每个模型请求都按这一档发出。Claude Code 每一步都会把 effort 恢复成会话设置，所以每一步都要重新设置。模型按引擎给的原样发出，包括引擎过载时自动换用的模型。
 - 一轮进行中你又发了一条消息：这条消息会在下一步送进当前这一轮，所以它的判断从下一步起接管这一轮。
 - 不是你本人发的新消息的，分两种。**报告开始的一轮**：派出 agent 交回的结果（`origin.kind` 是 `peer`）或后台任务通知（`task-notification`），在会话空闲时到达（没有 `turnId`），会开始主 agent 的新一轮；这一轮也走同样的 effort 判断，请求里的 `user_message` 是那段报告的文字（截断、脱敏和你的消息一样），只问 effort 这一题，不问 skill（它不是你的请求，所以状态里的预算按没有 skill 题的发消息取，见「Jev 的上下文默认值怎么算」），这一轮不做中途重判（`turns[].person` 为 false），你用 `/dp lock` 锁定的 effort 仍然优先。决策记作 `main-effort (agent report)`，与你的消息的决策区分；判断失败时和你的消息一样用会话自己的 effort，看板写明原因并弹一个 toast，成功后不再写「未路由」。报告送进一轮正在进行的对话（带 `turnId`）时不开始新的一轮，不判断，也不改变那一轮的 effort。**其余**（其他会话的消息、定时任务、插件自己发的消息）和空消息都不判断，也不改变任何一轮的 effort。你输入的 skill 或 markdown 命令（例如 `/implement #19`）开始的一轮是命令轮（#19），和你的消息一样判断、一样中途重判：决策模型读你输入的 `/name args`，以及这个命令是做什么的（skill 画像，没有画像就用描述），不读命令展开后的正文；参数里的「用 opus」照样算点名，skill 正文里写的不算；命令轮不推荐 skill，你已经选好了流程。`/dp`、`/clear` 这类本地命令不开始一轮，引擎也不把它们交给 `prompt.submit`。以 `/` 开头但不是命令的消息（例如 `/Users/me/notes.txt 这是什么`）是普通消息。
@@ -203,6 +203,8 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 
 这一节逐个说明配置项，留着每个选项的校准依据。默认值只写在 README 的配置表里（`node dispatch-pilot/eval/validate.ts docs` 核对它和 manifest、`BACKEND_DEFAULTS` 一致），这里不再重复。
 
+**按决策模型取值的表（`core/setup.ts` 的 `BACKEND_DEFAULTS`）。** 每个决策模型一项，里面有：按决策模型取默认值的选项（`PER_BACKEND_OPTIONS`；这些选项在 manifest 里不能有 `default`，README 每张配置表里每个决策模型一列）；`contextTokensMax`、`contextMessagesMax` 两个上限；往上取一档的门槛 `roundUp`；问法 `ask`（`turnStart` 是发消息时判 effort 的那一题，`other` 是其余所有问题，mod 里的 `ctx.ask` 就是 `other`）；skill 推荐和 `find_skill` 的几项。这些值 mod 和评测读的是同一张表（`readConfig`，评测经 `settingsFrom`）。加一个决策模型：往表里加一项，`eval/lib/docs.ts` 的 `BACKENDS` 加一行，README 每张配置表加一列。`readConfig` 和 `settingsFrom` 的第二个参数可以传别的表（默认是 `BACKEND_DEFAULTS`），测试用它在表里只有一个决策模型时读一个各项都和 Jev 不同的表（`tests/backend-defaults.test.ts` 的 `OTHER`），看每个值是否传到用它的地方。
+
 在 `/config` 里设置，或写在 settings 的 `pluginConfigs` 里：
 
 | 选项 | 说明 |
@@ -210,12 +212,12 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 | `decisionModel` | 决策模型，在 `/config` 里是下拉选择。现在只有 `jev`（TypeSafe）；填了别的值，引擎按默认值 `jev` 处理并给出警告。 |
 | `typesafeApiKey` | TypeSafe 的 API key，是敏感字段，保存在安全存储里。为空时不发送任何请求。 |
 | `timeoutMs` | 等待决策模型的最长时间，范围 200–8000 毫秒。 |
-| `contextMessages` | 随你的消息一起发送的最近消息条数，范围 0–32。默认取上限：真正限制发多少的是 `contextTokens`，放不下的旧消息整条丢掉（见「Jev 的上下文默认值怎么算」）。 |
+| `contextMessages` | 随你的消息一起发送的最近消息条数，范围 0 到决策模型的上限（`BACKEND_DEFAULTS` 的 `contextMessagesMax`，Jev 是 32）。默认取上限：真正限制发多少的是 `contextTokens`，放不下的旧消息整条丢掉（见「Jev 的上下文默认值怎么算」）。 |
 | `contextTokens` | 发给决策模型的 state 的 token 预算，范围 100–16000：你的消息加上最近对话，按发出去的样子数（整个 state 序列化成 JSON，连同字段名、引号和转义）。默认值按 Jev 的上限算出来，而且按请求的种类分开取：带 skill 题的请求一个值，其余种类一个更大的值；你设了值，每个种类取它和自己上限里较小的一个（见「Jev 的上下文默认值怎么算」）。整个 state 都要在预算之内，不靠字段的顺序。 |
 | `thetaMax` | 使用 `max` 所需的最低概率，范围 0–1。发消息时、一轮中途和派出 agent（包括 Workflow 里的）的 effort 都用这个门槛。 |
 | `rejudgeEvery` | 一轮进行中每到第几步重新判断一次，范围 0–50；0 表示不按步数重判（派出 agent、启动 Workflow、加载 skill 时仍会重判）。 |
 | `rejudgeSteps` | 重判时决策模型读到的最近步数，范围 1–16。默认取上限，`contextTokens` 同样是真正的限制。 |
-| `rejudgeWaitMs` | 重判的回答还没到时，下一步最多再等多久，范围 0–2000 毫秒。 |
+| `rejudgeWaitMs` | 重判的回答还没到时，下一步最多再等多久，范围 0–8000 毫秒（0.4.0 前上限是 2000）。默认值随决策模型（`BACKEND_DEFAULTS`，Jev 300），你设的值优先。 |
 | `thetaUp` | 中途升档所需的最低置信度，范围 0–1。默认值在 README 的配置表里；0.2.2 起按 AA 的基准往下调（升高容易，见「按 AA 基准校正」）。 |
 | `thetaDown` | 中途降档所需的最低置信度，范围 0–1；低于 `thetaUp` 时按 `thetaUp` 算。0.2.2 起按 AA 的基准往上调到 0.75（降低难），0.2.3 起按评测扫描调回 0.55（见「降档门槛（0.2.3）」）。 |
 | `holdSteps` | 中途升档之后，多少步之内不降档，范围 0–50。0.2.2 起调大（见「按 AA 基准校正」）。 |
@@ -299,7 +301,7 @@ Q 取 Jev 的计数：skill 第一段 21,900，其余的题按「估算 × 1.37�
 用户 2026-10-05 要求按 Artificial Analysis 智力指数 v4.3.2 的十个分项校正模型选择和 effort 规则。原始数据、来源 URL 和已存评测回答按新规则离线重算的结果在 `docs/research/aa-benchmarks-2026-10.md`。改了这几处，每一处都是代码里的常量或 `BACKEND_DEFAULTS`，不进 `userConfig`（除了本来就是配置项的三个门槛）：
 
 1. **派出 agent 的模型选项文字**（`KINDS`）：haiku 只做一两步就能完成的只读查找（Terminal-Bench 0%，AutomationBench 3.2%，HLE 10.4%）；sonnet 承担大多数执行类工作（终端、自动化、知识工作上与 Opus 持平或略高；Omniscience 32 对 46，幻觉率 47%，HLE 差 6.4，SciCode 差 5.9）；opus 管依赖事实知识的调研、难推理、设计、原因未知的 bug、科学或算法类代码和高风险工作；fable 文字不变，仍默认关闭（AA 上没有领先 Opus 5.5 的地方，价格 2.5 倍）。选项名、`work` 键、问题结构都不变。
-2. **effort 往上取一档**（`pickEffort`、`ROUND_UP` 0.3）：先取概率最高的一档，高一档的概率也有 0.3 以上就往上取一档，只取一次；`max` 仍要它自己的概率达到 `thetaMax`（不论它是最高的一档还是往上取会到的那一档）。发消息时、中途重判（`judgeMidturn`）、卡住时的强制升档（`traceRaise`）、派出 agent 的 effort 都用这一个函数。
+2. **effort 往上取一档**（`pickEffort`、`roundUp`，0.2.2 时是 `effort.ts` 的常量 `ROUND_UP` 0.3，现在是 `BACKEND_DEFAULTS` 里按决策模型取的值，Jev 仍是 0.3）：先取概率最高的一档，高一档的概率也有 `roundUp` 以上就往上取一档，只取一次；`max` 仍要它自己的概率达到 `thetaMax`（不论它是最高的一档还是往上取会到的那一档）。发消息时、中途重判（`judgeMidturn`）、卡住时的强制升档（`traceRaise`）、派出 agent 的 effort 都用这一个函数。
 3. **中途门槛**：`thetaUp` 0.4 改 0.3，`thetaDown` 0.6 改 0.75（每次最多降一档的规则保留；0.2.3 起是 0.55，见「降档门槛（0.2.3）」），`holdSteps` 3 改 5。`thetaUp`、`thetaDown` 在 `BACKEND_DEFAULTS`，`holdSteps` 是 manifest 的默认值（同时是 `readConfig` 的后备值），README 的配置表同步。
 4. **按模型设 effort 下限**（`effortFloor`）：sonnet 和 opus 至少 medium；haiku 不带 effort；fable 没有。用在派出 agent 和 Workflow 里 `agent()` 的决策上；你点名的 effort 和模型永远优先，下限和往上取的一档都不碰它们（`decideDispatch` 里 `namedEffort ?? lifted ?? decided`）；主 agent 自己的 effort 不受下限管（它没有模型可选）。对已经有 effort 的 agent，卡住后「预期内」的重判也不降到它的下限以下。
 5. **报告开始的轮次也走 effort 路由**（见「它做什么」）：`origin.kind` 是 `peer`（子 agent 交回的结果）或 `task-notification`，没有 `turnId`；用的是同一题，`user_message` 换成报告的文字；不问 skill，状态里的预算取 `messagePlain`；用户的锁定优先；决策日志记作 `main-effort (agent report)`；这一轮不做中途重判。这是 `core/prompts.ts` 的 `startsReportTurn`（其他非本人的 origin 保持不判断），`PendingDecision.report` 让 `turn.start` 把这一轮记成不是本人开始的。生成的类型（`PromptOrigin`）和 `docs/research/mods-api-routing-capabilities.md` 说明了这两个 origin：`peer` 是另一个会话或 agent 的模型，`task-notification` 是后台任务的通知，闲置时到达的开始新的一轮（`turnId` 不在），送进正在进行的一轮的带着那一轮的 `turnId`。
@@ -1040,7 +1042,7 @@ eval/
   常数基线：每题都答 xhigh 能对 63.3%（最好的常数；gold 命中 10%），max 46.7%，medium 36.7%，high 30.0%，low 23.3%。
 - **读这些数要留意的**：
   - **上线标准的起点是 `zh-score` 的 15.4%（13 题里 2 题）**，判得太高 0%、太低 26.7%。#38 之前 Jev 就是这样问的（#38 只改了 state 预算，`zh-score-wide` 就是它的结果：召回 23.1 / 7.7 和 23.1 / 23.1，几乎没变）。判得太低的 8 题（中文，英文相同）里，6 题是 gold 为 `max` 的，答的是 high。
-  - **问题的语言比上下文的长度影响大得多。** 同一个 Jev、同样的 state，`en-score` 的召回是 69–77%，`zh-score` 是 8–23%：中文的 effort 题给最高一档的概率普遍低（明说「第四次了」的 `unresolved-001` 在中文问法里 `max` 的概率是 0.32，英文问法是 0.84）。`thetaMax` 降到 0.2 也只把 `zh-score` 提到 23%，所以光调门槛救不了它。代价是 `en-score` 在第二次失败的题上有一次判到 `max`（`unresolved-014`，判得太高 3.3%）。#4 里 `zh-score` 在 effort-submit 上比 `en-score` 准 8–9 个百分点才定为 Jev 的问法（`turnStartLanguage`），这里相反：到底是 effort-submit 缺这类题，还是中文题在这一档本身偏保守，要先看这一点再决定上线标准。
+  - **问题的语言比上下文的长度影响大得多。** 同一个 Jev、同样的 state，`en-score` 的召回是 69–77%，`zh-score` 是 8–23%：中文的 effort 题给最高一档的概率普遍低（明说「第四次了」的 `unresolved-001` 在中文问法里 `max` 的概率是 0.32，英文问法是 0.84）。`thetaMax` 降到 0.2 也只把 `zh-score` 提到 23%，所以光调门槛救不了它。代价是 `en-score` 在第二次失败的题上有一次判到 `max`（`unresolved-014`，判得太高 3.3%）。#4 里 `zh-score` 在 effort-submit 上比 `en-score` 准 8–9 个百分点才定为 Jev 的问法（现在是 `BACKEND_DEFAULTS` 的 `ask.turnStart`，当时叫 `turnStartLanguage`），这里相反：到底是 effort-submit 缺这类题，还是中文题在这一档本身偏保守，要先看这一点再决定上线标准。
   - **state 从 6000 提到 24000 的作用很小**：最高一档的召回，`zh-score` 是 15.4 / 15.4 和 15.4 / 7.7（两次，中文 / 英文），`zh-score-wide` 是 23.1 / 7.7 和 23.1 / 23.1；`en-score` 和 `en-score-wide` 一样（69–77%）。长对话里的召回比不长的低一些（`en-score` 60% 对 75–88%），但提到 24000 没有补上，而且长对话里有 3 道隐含的题（008、009、011），和短对话的构成不同，不能全算在长度上。最后一条（长日志）把预算占满的几题（`unresolved-002`、`004`、`008`、`022`、`024`）在 6000 的预算里只剩 66–120 token：消息和最后一条回复。其中明说没解决的 002、004，`en-score` 答对（max），`zh-score` 答 xhigh 和 max；隐含的 008（「还是一样」）所有变体都没答对。
   - **隐含的没解决几乎没人认出**：`implicit-unresolved` 7 题，`zh-score` 只对 2 题（010、011，都是答 xhigh），`en-score` 对 4 题；贴同样的编译错误（006）和「再看看」（007）在任何变体里都是 low 到 high。这些是摘要和三选一题要补的。
   - **波动**：两次运行请求逐字相同，每个变体 240 个回答里有几个不同；最高一档的召回只有 13 题，一题就是 7.7 个百分点，比较时用同一配置多跑几次，别拿一次的差当结论。

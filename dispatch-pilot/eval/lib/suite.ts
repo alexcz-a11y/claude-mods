@@ -22,10 +22,13 @@ export type Settings = Config
  * (`readConfig`: the same bounds and the same defaults), so a suite asks with
  * the limits the mod runs with. The eval passes the manifest's defaults and
  * the decision model under evaluation (`optionsFor`): what the manifest
- * leaves unset takes that model's defaults (core/setup.ts BACKEND_DEFAULTS).
+ * leaves unset takes that model's defaults (core/setup.ts BACKEND_DEFAULTS, or the
+ * `table` given: a test reads a decision model the table does not have yet).
+ * Everything the table carries is read here: the budgets, the question asked beside a
+ * message, the threshold for taking the level above, the most `contextMessages` may name.
  */
-export function settingsFrom(options: PluginOptions): Settings {
-  return readConfig(options)
+export function settingsFrom(options: PluginOptions, table?: Parameters<typeof readConfig>[1]): Settings {
+  return readConfig(options, table)
 }
 
 /** The decision models the eval can ask: the mod's two (`decisionModel`) and Perplexity's, which the mod does not offer yet (#43). */
@@ -56,8 +59,8 @@ export function withStateTokens(settings: Settings, tokens: number): Settings {
 }
 
 /**
- * The settings with the number of recent messages the state may hold set to `messages` (the mod's own is at most 32: the
- * newest 32, whatever the token budget, so a state of 96000 tokens still stops at the 32nd message back). With
+ * The settings with the number of recent messages the state may hold set to `messages` (the mod's own is at most the decision
+ * model's, `contextMessagesMax`: with Jev the newest 32, whatever the token budget, so a state of 96000 tokens still stops at the 32nd message back). With
  * `withStateTokens` it lets a long conversation fill a large budget; not what the mod runs with (#44, `run.ts --state-messages`).
  */
 export function withStateMessages(settings: Settings, messages: number): Settings {

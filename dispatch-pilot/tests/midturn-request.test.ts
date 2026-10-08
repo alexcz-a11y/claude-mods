@@ -122,7 +122,7 @@ test("secrets in what the agent wrote and in a tool's line are masked", () => {
   expect(sent).toContain('[REDACTED]')
 })
 
-const RULES: MidturnRules = { thetaUp: 0.4, thetaDown: 0.6, thetaMax: 0.5, holdSteps: 3 }
+const RULES: MidturnRules = { thetaUp: 0.4, thetaDown: 0.6, thetaMax: 0.5, roundUp: 0.3, holdSteps: 3 }
 const reading = (probabilities: number[], confidence: number | null) => ({ probabilities, confidence })
 
 test('how an answer moves the level (the eval scores the level the mod would send)', () => {

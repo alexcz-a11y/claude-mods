@@ -7,10 +7,10 @@
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' [--zh | --en] [--choice] [--timeout 5000]
 //
 // The question is written as the mod writes it for the decision model asked
-// (Chinese with Jev: turnStartLanguage); `--zh` or `--en` writes it in that language, `--choice` asks a Choice, as the
+// (Chinese with Jev: the table's ask.turnStart); `--zh` or `--en` writes it in that language, `--choice` asks a Choice, as the
 // eval's variants do. Prints the request (questions, state) and the answer:
 // each level's probability, the confidence, the level the mod picks (the mod's
-// thetaMax), the latency. `--timeout` defaults to what the eval gives one
+// thetaMax and roundUp), the latency. `--timeout` defaults to what the eval gives one
 // attempt: four times the mod's timeoutMs, at least 10 s (eval/lib/runner.ts
 // attemptMs), so a cold connection's first request does not fail outright.
 // Credentials come from the environment or ~/.config/dispatch-pilot/eval.env
@@ -31,8 +31,9 @@ if (!prompt) {
 }
 const { settings, backend } = scriptDecision()
 
-const language = values.zh === true ? 'zh' : values.en === true ? 'en' : settings.turnStartLanguage
-const part = turnStartEffortPart({ language, primitive: values.choice === true ? 'choice' : 'score' })
+const { turnStart } = settings.ask
+const language = values.zh === true ? 'zh' : values.en === true ? 'en' : turnStart.language
+const part = turnStartEffortPart({ language, primitive: values.choice === true ? 'choice' : turnStart.primitive })
 const request = mergeParts(turnStartState({ prompt, messages: [], limits: settings.context }), [part])
 console.log(JSON.stringify({ questions: Object.keys(request.questions), language, state: request.state }))
 
@@ -57,6 +58,6 @@ console.log(
     ms,
     probabilities: Object.fromEntries(EFFORTS.map((level, i) => [level, Number((reading.probabilities[i] ?? 0).toFixed(3))])),
     confidence: reading.confidence,
-    effort: pickEffort(reading, settings.thetaMax),
+    effort: pickEffort(reading, settings),
   }),
 )

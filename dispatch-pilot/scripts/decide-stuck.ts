@@ -37,7 +37,7 @@ const { settings, backend } = scriptDecision(typeof values.steps === 'string' ? 
 const input = JSON.parse(readFileSync(file, 'utf8')) as MidturnInput
 const { request, effortPart, expectedPart } = stuckRequest(input, {
   limits: settings.midturn.limits,
-  ask: { language: values.zh === true ? 'zh' : 'en', primitive: 'score' },
+  ask: { language: values.zh === true ? 'zh' : settings.ask.other.language, primitive: settings.ask.other.primitive },
   effort: true,
 })
 console.log(JSON.stringify({ questions: Object.keys(request.questions), state: request.state }))
@@ -61,6 +61,6 @@ console.log(
     expected: expected === null ? null : Number(expected.toFixed(3)),
     probabilities: reading === null ? null : Object.fromEntries(EFFORTS.map((level, i) => [level, Number((reading.probabilities[i] ?? 0).toFixed(3))])),
     confidence: reading?.confidence ?? null,
-    effort: reading === null ? null : pickEffort(reading, settings.thetaMax),
+    effort: reading === null ? null : pickEffort(reading, settings),
   }),
 )
