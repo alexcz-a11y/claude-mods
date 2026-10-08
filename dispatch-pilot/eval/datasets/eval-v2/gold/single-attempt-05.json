@@ -1,0 +1,18 @@
+{
+  "id": "single-attempt-05",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "失败的修复 1 次：d1 之后把 ProductList 里绕开 useTableQuery、用 setSearchParams 整体替换查询串的翻页回调改成 setQuery，合进 main 并部署到测试环境，用户在最后一条第一次说没好（测试环境上是合进去之后的版本，筛完分类再翻页条件还是丢），是第二次。复现性是稳定的：d1 写了「换了三个分类试 每次都这样」，最后一条也没有说偶尔 → high；下一步是跨文件的常规调试（还有哪里在重置筛选）。accept 是 high、xhigh，只失败一次不到 max。删掉决定性几轮：最后一条有「你合进去之后的版本」「还是会丢」，看得出修过，按第二次；看不出偶发 → high，和 effort 相同。三选一：d1 第一次提出问题，new_or_unrelated；最后一条隔着别的活说条件还是会丢，still_unresolved。这一轮按修订说明改：d1 补了「每次都这样」；助手回复从「还没提交」改成已合进 main、测试环境已部署；最后一条写明测的是带改动的版本、没有更新提示，排除「没部署上」的解释；ewd 从 medium 改成 high。上一轮审稿改动：素材池里 shop-admin 的列表页统一用 useTableQuery 管 URL 里的筛选和分页、DataTable 包 antd Table，类目筛选参数是 categoryId，商品目录下的用例数在各段里说法不一；原题写的直接用 Pagination、category 参数和「9 个用例」对不上，改写了原因和验证的描述。",
+  "source": "agreed"
+}

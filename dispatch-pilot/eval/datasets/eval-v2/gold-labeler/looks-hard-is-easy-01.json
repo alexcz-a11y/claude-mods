@@ -1,0 +1,21 @@
+{
+  "id": "looks-hard-is-easy-01",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "同一个 too many open files 又出现，triage 为 still_unresolved；但原因早已查清并实测验证（软限制 1024），用户明确让按上次说的在 bench.yml 跑 k6 那步加 `ulimit -n 65535 && ulimit -n` 再重跑一轮，是照着明确指令的一行机械改动加触发 workflow，属于 low；若顺手确认新镜像的硬限制是否仍允许 65535 可到 medium。上一次手动 ulimit 修复是成功的，复发只因运维的新镜像没调好，不算主 agent 修复失败的第二次尝试。读不到决定性几轮时不知道「上次说的」是什么，得从压测失败重新排查，按调试定 high。"
+}

@@ -1,0 +1,25 @@
+{
+  "id": "command-turn-01",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "客服改单保存失败（票 #58）：决定性几轮里已经改了三次：缩小 release_stale_reservations 的批、加触发器分配 outbox 版本号、缩小 sync_inventory 的批并排序，用户两次回来说还在失败；最后这条用 /fix-ticket 把同一张票再跑一遍，说昨天下午到现在又出了五次、都是锁超时，也就是 sync_inventory 那次修改上线之后仍在失败，三次修改都没解决，按约定命令轮算第四次尝试。底下是多个定时任务和服务事务之间的锁争用，碰的是线上客服改单，几个显眼的锁持有者都处理过还在出：max，xhigh 也可以。删掉决定性几轮，中间只有读代码、看日志、写复现的排查，没有任何修改尝试，最后一条看起来是第一次按工单去修一个锁超时的问题：high。三选一：d1 第一次提出，new_or_unrelated；d2、d3 都是改了之后说还在失败，still_unresolved；最后这条说还是失败、又出了五次，still_unresolved。（审稿改动：迁移号 V052 改成 V100，素材池里 V052 已经是别的迁移，unrelated 段里最新的到 V099；最后一条原来是「今天上午又出了三次」，和 d3 的「今天上午还是失败了三次」几乎一样，读不出是第三次修改上线之后的新失败，改成「昨天下午到现在又出了五次 都是锁超时」。金标不变。）"
+}

@@ -32,6 +32,7 @@ import type {
   SessionMessage,
   SessionUsage,
   SettingsSource,
+  RegisteredToolSpec,
   ToolSpec,
 } from 'claude-code'
 
@@ -72,12 +73,14 @@ export type Sent = {
   // The body as JSON (what the backend reads); untyped on purpose: tests read
   // the wire format the way the backend would.
   body: any
+  /** When the mod sent it (mock clock ms, `w.clock.now()`), for tests of what waited for what (the pplx rate limit, #51). */
+  at: number
 }
 
 /** How the fake backend answers one request. */
 export type Reply =
-  /** An HTTP response; a non-string body is sent as JSON. */
-  | { status: number; body: unknown }
+  /** An HTTP response; a non-string body is sent as JSON. `headers` are the response's (a 429's `Retry-After`). */
+  | { status: number; body: unknown; headers?: Record<string, string> }
   /** `$.http.fetch` rejects, as when the network is down. */
   | { reject: string }
   /** The reply, after `after` ms of mock time (`w.clock.advance`). */
@@ -108,6 +111,13 @@ export type WorldOptions = {
    */
   store?: Record<string, unknown>
   /**
+   * The switches the person has set by hand (`/dp <name> on|off`, kept in `$.store`), before the test starts. The mod
+   * reads them at `session.start`, which the world runs by itself before the first thing the test makes the engine do
+   * (`submit`, `command`, `step`, ...; a `w.start()` of the test is the same one), so a test needs no `session` of its
+   * own. A feature that is off until the person turns it on (`unresolved`, #48) is asked for here: `{ unresolved: true }`.
+   */
+  switches?: Record<string, boolean>
+  /**
    * The engine's session around the mod: `w.start()` runs `session.start`, the commands and tools the mod
    * registers are recorded in `w.commands` and `w.tools` (`registerError` refuses both), `w.measure(...)`
    * raises `session.measure`, `w.compact()` and `w.clear()` the person's /compact and /clear
@@ -131,11 +141,28 @@ export type WorldOptions = {
    * Without it those calls reject, and the skills feature finds no skills.
    */
   skills?: SkillsWorld
+  /** What `$.settings.read({ source: 'user' })` returns beside the skills' `skillOverrides`: the person's own settings file. */
+  userSettings?: Record<string, unknown>
+  /**
+   * The environment variables `$.env.get` answers (`PERPLEXITY_API_KEY`; `HOME` too with `skills`); one not listed is unset.
+   * The mod reads them at `session.start`, which the world runs by itself before the first thing the test makes the engine do,
+   * as it does for `switches`. Without it `$.env.get` is not answered, as when the engine refuses the call.
+   */
+  env?: Record<string, string>
   /**
    * The board data an earlier load of the mod left in `$.state` (a hot reload keeps it): the mod finds it as it
    * starts. Whatever the board starts with, `w.board()` reads what stands now.
    */
-  seed?: { board?: PluginState['dispatch-pilot']['board']; log?: LogEntry[]; profiles?: ProfilesState }
+  seed?: {
+    board?: PluginState['dispatch-pilot']['board']
+    log?: LogEntry[]
+    profiles?: ProfilesState
+    unresolved?: PluginState['dispatch-pilot']['unresolved']
+    /** When the latest pplx requests went out (mock clock ms): the rate limit's record, which a hot reload keeps (#51). */
+    pplxRate?: number[]
+  }
+  /** Every write of the pplx rate limit's record is turned down as if another load had written first (#51): the limit cannot be kept. */
+  pplxRateContended?: boolean
   /**
    * The model behind `$.model.complete` (#11 writes skill profiles with it): answers each completion
    * (`n` counts from 1); every one is recorded in `w.completions`. Without it every completion is refused.
@@ -267,11 +294,19 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const agentCalls = new Set<string>()
   const disk = options.disk ?? {}
   const agents: AgentInfo[] = Array.isArray(options.agents) ? [...options.agents] : []
-  const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
+  const store = new Map(Object.entries({ ...(options.store ?? {}), ...(options.switches !== undefined ? { switches: { ...(options.store?.switches as object | undefined), ...options.switches } } : {}) }).map(([key, value]) => [key, JSON.stringify(value)]))
+  const sessionWorld = options.session ?? (options.switches !== undefined || options.env !== undefined ? true : undefined)
+  /** The session start the world runs for `options.switches` (and `w.start()`), once. */
+  let starting: Promise<unknown> | undefined
+  const startSession = () => (starting ??= $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true }))
+  /** Before the first thing a test makes the engine do: the session has started, so the switches the test set are loaded. */
+  const booted = async () => {
+    if (options.switches !== undefined || options.env !== undefined) await startSession()
+  }
   const commands: CommandSpec[] = []
   /** The text a command's turn starts with, by the prompt it was submitted as (`/name args`): the engine's command message. */
   const commandTurns = new Map<string, string>()
-  const tools: Required<ToolSpec>[] = []
+  const tools: RegisteredToolSpec[] = []
   /** What the step being sent streams and runs (set by `step()`, read by the engine's turn.step below). */
   let streaming: Pick<StepOptions, 'answer' | 'tools'> = {}
   /** How the tool call running now ends (set around each `$.tool.call` below). */
@@ -284,7 +319,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     }
     if ('reject' in reply) return { deny: reply.reject }
     const text = typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body)
-    return { value: { status: reply.status, ok: reply.status >= 200 && reply.status < 300, headers: {}, text } }
+    return { value: { status: reply.status, ok: reply.status >= 200 && reply.status < 300, headers: reply.headers ?? {}, text } }
   }
 
   on('http.fetch', async (_$, e) => {
@@ -294,7 +329,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     } catch {
       // not JSON: kept as sent
     }
-    const sent: Sent = { url: e.url, method: e.init?.method, headers: { ...(e.init?.headers ?? {}) }, body }
+    const sent: Sent = { url: e.url, method: e.init?.method, headers: { ...(e.init?.headers ?? {}) }, body, at: clock.now() }
     requests.push(sent)
     const reply = options.backend ? await options.backend(sent, requests.length) : { status: 500, body: 'no backend in this test' }
     return answer(reply)
@@ -333,7 +368,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     if (entries.size === 0) return { deny: `ENOENT: ${e.path}` }
     return { value: [...entries].map(([name, kind]) => ({ name, kind, size: 0, mtimeMs: 0, isLink: false })) }
   })
-  if (options.store !== undefined) {
+  if (options.store !== undefined || options.switches !== undefined) {
     on('store.get', (_$, e) => ({ value: store.has(e.key) ? JSON.parse(store.get(e.key) as string) : undefined }))
     on('store.set', (_$, e) => {
       store.set(e.key, JSON.stringify(e.value))
@@ -345,8 +380,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     })
     on('store.keys', () => ({ value: [...store.keys()] }))
   }
-  if (options.session !== undefined) {
-    const refused = options.session === true ? undefined : options.session.registerError
+  if (sessionWorld !== undefined) {
+    const refused = sessionWorld === true ? undefined : sessionWorld.registerError
     on('session.start', (_$, e) => ({ cwd: e.cwd }))
     on('session.measure', (_$, e) => ({ changed: e.changed }))
     on('session.compact', (_$, e) => ({ messages: e.messages }))
@@ -363,22 +398,29 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       return { value: { tool: `mcp__dispatch-pilot__${e.name}` } }
     })
   }
+  // One `mock.env` for the world: the skills' `HOME` and the variables the test sets.
+  if (options.skills !== undefined || options.env !== undefined) mock.env(on, { ...(options.skills === undefined ? {} : { HOME: options.skills.home ?? '/home/u' }), ...options.env })
   if (options.skills !== undefined) {
     const skills = options.skills
-    mock.env(on, { HOME: skills.home ?? '/home/u' })
     on('session.cwd', () => ({ value: skills.cwd ?? '/work' }))
     on('command.list', () => ({ value: skills.commands ?? [] }))
     on('session.usage', () => (skills.listed === null ? { deny: 'no session bound' } : { value: usageListing(skills.listed ?? []) }))
-    on('settings.read', (_$, e) => ({ value: e?.source === undefined ? {} : { skillOverrides: skills.overrides?.[e.source] ?? {} } }))
     on('prompt.attachment', (_$, e) => ({ text: e.text }))
+  }
+  if (options.skills !== undefined || options.userSettings !== undefined) {
+    on('settings.read', (_$, e) => ({
+      value: e?.source === undefined ? {} : { ...(e.source === 'user' ? options.userSettings : {}), ...(options.skills === undefined ? {} : { skillOverrides: options.skills.overrides?.[e.source] ?? {} }) },
+    }))
   }
   // The board data (the 「决定汇报」 module's `board` and `decisionLog`) is kept here, not in the kit's state: the test
   // body has no `$.state` to read it back with, and `options.seed` can stand for what an earlier load left. Versions
   // work as the host's do (a write lands unless `ifVersion` is stale), and values go through JSON as they would.
-  const held: { board: { value: unknown; version: number }; decisionLog: { value: unknown; version: number }; skillProfiles: { value: unknown; version: number } } = {
+  const held: { board: { value: unknown; version: number }; decisionLog: { value: unknown; version: number }; skillProfiles: { value: unknown; version: number }; unresolved: { value: unknown; version: number }; pplxRate: { value: unknown; version: number } } = {
     board: { value: options.seed?.board, version: options.seed?.board === undefined ? 0 : 1 },
     decisionLog: { value: options.seed?.log, version: options.seed?.log === undefined ? 0 : 1 },
     skillProfiles: { value: options.seed?.profiles, version: options.seed?.profiles === undefined ? 0 : 1 },
+    unresolved: { value: options.seed?.unresolved, version: options.seed?.unresolved === undefined ? 0 : 1 },
+    pplxRate: { value: options.seed?.pplxRate, version: options.seed?.pplxRate === undefined ? 0 : 1 },
   }
   on('state.get', { plugin: 'dispatch-pilot', key: 'board' }, () => ({ value: { value: held.board.value as never, version: held.board.version } }))
   on('state.get', { plugin: 'dispatch-pilot', key: 'decisionLog' }, () => ({ value: { value: held.decisionLog.value as never, version: held.decisionLog.version } }))
@@ -397,6 +439,20 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     if (e.ifVersion !== undefined && e.ifVersion !== held.skillProfiles.version) return { value: { isSet: false, version: held.skillProfiles.version } }
     held.skillProfiles = { value: JSON.parse(JSON.stringify(e.value)), version: held.skillProfiles.version + 1 }
     return { value: { isSet: true, version: held.skillProfiles.version } }
+  })
+  // The unresolved count is kept here too, so a test reads what the mod stored and seeds what a hot reload would keep.
+  on('state.get', { plugin: 'dispatch-pilot', key: 'unresolved' }, () => ({ value: { value: held.unresolved.value as never, version: held.unresolved.version } }))
+  on('state.set', { plugin: 'dispatch-pilot', key: 'unresolved' }, (_$, e) => {
+    if (e.ifVersion !== undefined && e.ifVersion !== held.unresolved.version) return { value: { isSet: false, version: held.unresolved.version } }
+    held.unresolved = { value: JSON.parse(JSON.stringify(e.value)), version: held.unresolved.version + 1 }
+    return { value: { isSet: true, version: held.unresolved.version } }
+  })
+  // The pplx rate limit's record of the latest sends, kept here for the same reason: a test reads it, and seeds what a hot reload keeps.
+  on('state.get', { plugin: 'dispatch-pilot', key: 'pplxRate' }, () => ({ value: { value: held.pplxRate.value as never, version: held.pplxRate.version } }))
+  on('state.set', { plugin: 'dispatch-pilot', key: 'pplxRate' }, (_$, e) => {
+    if (options.pplxRateContended === true || (e.ifVersion !== undefined && e.ifVersion !== held.pplxRate.version)) return { value: { isSet: false, version: held.pplxRate.version } }
+    held.pplxRate = { value: JSON.parse(JSON.stringify(e.value)), version: held.pplxRate.version + 1 }
+    return { value: { isSet: true, version: held.pplxRate.version } }
   })
   // The status row the mod must never draw on (ADR 0004): recorded, so a test can say it stayed empty.
   on('ui.status', (_$, e) => {
@@ -518,6 +574,18 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   return {
     clock,
     requests,
+    /** The requests that do not ask the effort question, which has a request of its own (ADR 0005): the skills' two stages and the rest, in the order they were sent. */
+    get withoutEffort() {
+      return requests.filter((request) => !Object.keys(request.body?.questions ?? {}).some((id) => id.startsWith('effort.')))
+    },
+    /** The unresolved count the mod holds in `$.state` now (0 before a message moved it). */
+    unresolved: (): number => (held.unresolved.value as PluginState['dispatch-pilot']['unresolved'] | undefined)?.count ?? 0,
+    /** The problem summary the mod holds in `$.state` now, with the turn it was written for; undefined when there is none. */
+    summary: () => (held.unresolved.value as PluginState['dispatch-pilot']['unresolved'] | undefined)?.summary,
+    /** Everything the mod keeps under the `unresolved` key: the count, the summary, the turns whose summaries are being written. */
+    unresolvedState: () => (held.unresolved.value as PluginState['dispatch-pilot']['unresolved'] | undefined) ?? { count: 0 },
+    /** When the latest pplx requests went out (the rate limit's record in `$.state`, mock clock ms); undefined while none did. */
+    pplxRate: (): number[] | undefined => held.pplxRate.value as number[] | undefined,
     statuses,
     logs,
     steps,
@@ -548,7 +616,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
      * Draws the rationale pane (`Pane`, requestId `id`) through the mod as a surface would, the board as it stands: a
      * body of `columns` cells (75 is the dock beside a 170-column transcript), docked unless `placement` says inline.
      */
-    pane: (at: { id?: string; columns?: number; rows?: number; placement?: 'dock' | 'inline'; surface?: RenderSurface; focused?: boolean } = {}) => {
+    pane: async (at: { id?: string; columns?: number; rows?: number; placement?: 'dock' | 'inline'; surface?: RenderSurface; focused?: boolean } = {}) => {
+      await booted()
       const props: RenderPropsOf['Pane'] = {
         title: '依据',
         isFocused: at.focused ?? true,
@@ -564,7 +633,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
      * a terminal of `columns` (the band lays out in five fewer, the engine's `[-]`) and a band of `rows`, a turn
      * running unless `isWorking` says not. Later board writes show after `redraw()`.
      */
-    band: (at: { columns?: number; rows?: number; isWorking?: boolean; surface?: RenderSurface; hasSurvey?: boolean } = {}) => {
+    band: async (at: { columns?: number; rows?: number; isWorking?: boolean; surface?: RenderSurface; hasSurvey?: boolean } = {}) => {
+      await booted()
       const columns = at.columns ?? 180
       const rows = at.rows ?? 12
       const props: RenderPropsOf['AbovePrompt'] = {
@@ -578,8 +648,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       return $.ui.mount({ plugin: 'dispatch-pilot', surface: at.surface ?? 'terminal', component: 'AbovePrompt', props, viewport: { columns, rows: 50, isFullscreen: true } })
     },
     /** Draws the right end of the prompt footer (`SessionMode`) through the mod, the engine's own modes given. */
-    footer: (at: { modes?: readonly string[]; surface?: RenderSurface } = {}) =>
-      $.ui.mount({ plugin: 'dispatch-pilot', surface: at.surface ?? 'terminal', component: 'SessionMode', props: { modes: at.modes ?? [] } }),
+    footer: async (at: { modes?: readonly string[]; surface?: RenderSurface } = {}) => {
+      await booted()
+      return $.ui.mount({ plugin: 'dispatch-pilot', surface: at.surface ?? 'terminal', component: 'SessionMode', props: { modes: at.modes ?? [] } })
+    },
     /**
      * The board data the mod keeps in `$.state` (the 「决定汇报」 module, core/report.ts): what a screen would draw
      * and what a test asserts on instead of a string. Reads the state as it stands now.
@@ -602,22 +674,28 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       }
     },
     /** Submits a prompt the way the engine does; resolves when it entered (or was queued). */
-    submit: (text: string, submit: SubmitOptions = {}) =>
-      $.prompt.submit({
+    submit: async (text: string, submit: SubmitOptions = {}) => {
+      await booted()
+      return $.prompt.submit({
         text,
         wait: submit.wait ?? false,
         origin: submit.origin ?? { kind: 'composer' },
         ...(submit.turnId !== undefined ? { turnId: submit.turnId } : {}),
-      }),
+      })
+    },
     /** Starts a turn for a prompt that waited in the queue; resolves to its id. */
     startTurn: async (text: string) => {
+      await booted()
       const turnId = `t${turnIds.length + 1}`
       turnIds.push(turnId)
       await $.turn.start({ text, turnId })
       return turnId
     },
     /** The main agent calls the Agent tool: resolves to the started agent's `{ model, agentId }`, or `{ deny }`. */
-    spawn: (spawn: SpawnOptions) => $.agent.spawn(spawnInput(`toolu_${++calls}`, spawn)),
+    spawn: async (spawn: SpawnOptions) => {
+      await booted()
+      return $.agent.spawn(spawnInput(`toolu_${++calls}`, spawn))
+    },
     /**
      * The main agent calls the Agent tool, and the engine spawns the agent inside the call (as `spawn` does); resolves to
      * the tool's result as the main agent reads it, `context` included.
@@ -635,18 +713,21 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       } as never)
     },
     /** The session starts (needs `session`): the mod sets itself up and registers its commands. */
-    start: () => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true }),
+    start: () => (options.switches !== undefined || options.env !== undefined ? startSession() : $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })),
     /** The engine reports the session's context, limits and cost (needs `session`). */
     measure: (input: SessionMeasureInput) => $.session.measure(input),
     /** Runs a slash command as the person types it (`/dp lock max` is `command('dp', 'lock max')`); resolves to the text it printed. */
-    command: async (name: string, args = '') =>
-      (await $.command.run({ command: name, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })).text ?? '',
+    command: async (name: string, args = '') => {
+      await booted()
+      return (await $.command.run({ command: name, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })).text ?? ''
+    },
     /**
      * The person types a prompt command (a skill, a markdown command): as Claude Code runs one (measured on 2.1.291),
      * `command.run` first, then the prompt as typed (`/name args`) is submitted, and its turn starts with the
      * engine's command message. A local command (`/dp`, `/usage`) is `command(...)`: it submits nothing.
      */
     slash: async (name: string, args = '', submit: SubmitOptions & { as?: string } = {}) => {
+      await booted()
       const origin = submit.origin ?? { kind: 'composer' }
       await $.command.run({ command: name, args, origin, presentation: { isFullscreen: false, columns: 80 } })
       // `as`: the name the person typed, when the engine resolves it to another (a plugin's command typed without its plugin's name).
@@ -673,10 +754,11 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
      * A loop's turn ends: the main agent's by default (the last turn started), an agent's with `agentId`
      * (its loop carries its own turn id, `turn-<agentId>` as `agentStep` makes it). `reason` is `answer` unless said.
      */
-    complete: (done: { agentId?: string; turnId?: string; reason?: 'answer' | 'aborted' | 'error'; durationMs?: number } = {}) => {
+    complete: async (done: { agentId?: string; turnId?: string; reason?: 'answer' | 'aborted' | 'error'; durationMs?: number; answer?: string } = {}) => {
+      await booted()
       const reason = done.reason ?? 'answer'
       return $.turn.complete({
-        answer: reason === 'answer' ? 'done' : '',
+        answer: done.answer ?? (reason === 'answer' ? 'done' : ''),
         durationMs: done.durationMs ?? 1000,
         isAborted: reason === 'aborted',
         turnId: done.turnId ?? (done.agentId === undefined ? (turnIds.at(-1) ?? 't0') : `turn-${done.agentId}`),
@@ -686,6 +768,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     },
     /** Sends one model request through the mod, drained to its end (its text streamed, its tools run). */
     step: async (step: StepOptions) => {
+      await booted()
       streaming = { answer: step.answer, tools: step.tools }
       const effort = step.effort === undefined ? 'xhigh' : step.effort
       const input = {
@@ -710,18 +793,19 @@ function usageListing(listed: readonly ContextSkill[]): SessionUsage {
   return { startedAt: 0, context: { window: 200_000, breakdown }, rateLimits: [] }
 }
 
+/** What a decision model's answer can be told besides the probabilities (`jev`, `pplx`). */
+export type AnswerExtra = { status?: number; choice?: string; confidence?: number | null; shares?: Record<string, Record<string, number>>; nouls?: Record<string, number> }
+
 /**
  * A Jev answer to every question of the request it replies to: each `score`
  * question gets `levels` as its probabilities (lowest level first) and
  * `confidence` (0.7 by default), each `choice` the option named in `choice`
  * (or its first), or the probabilities `shares` gives for its question id
  * (options it leaves out get 0), each `noul` the value `nouls` gives for its
- * question id, else 0.5.
+ * question id, else 0.5. The unresolved question (`effort.unresolved`) is
+ * answered "new or unrelated" unless `shares` says otherwise: no count moves.
  */
-export function jev(
-  levels: readonly number[],
-  extra: { status?: number; choice?: string; confidence?: number | null; shares?: Record<string, Record<string, number>>; nouls?: Record<string, number> } = {},
-) {
+export function jev(levels: readonly number[], extra: AnswerExtra = {}) {
   return (request: Sent): Reply => {
     const answers: Record<string, unknown> = {}
     const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
@@ -736,6 +820,9 @@ export function jev(
         const probabilities = Object.fromEntries(options.map((o) => [o, shares[o] ?? 0]))
         const pick = options.reduce((best, o) => ((probabilities[o] ?? 0) > (probabilities[best] ?? 0) ? o : best), options[0] ?? '')
         answers[id] = { type: 'choice', choice: pick, probabilities, confidence: 0.5 }
+      } else if (question.type === 'choice' && id === 'effort.unresolved') {
+        // Unless a test says otherwise (`shares`), the message is no word about an earlier problem: the count stays at 0.
+        answers[id] = { type: 'choice', choice: 'new_or_unrelated', probabilities: { still_unresolved: 0, resolved: 0, new_or_unrelated: 1 }, confidence: 1 }
       } else if (question.type === 'choice') {
         const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
         const pick = extra.choice ?? options[0] ?? ''
@@ -746,6 +833,40 @@ export function jev(
     }
     return { status: extra.status ?? 200, body: { model: 'jev-1.13.0', answers, usage: { input_tokens: 300, output_tokens: 0 } } }
   }
+}
+
+/** Perplexity's Decisions API, as the real one answers what the mod could get wrong (docs.perplexity.ai/docs/decisions). */
+const PPLX = { url: 'https://api.perplexity.ai/v1/decisions', model: 'pplx-decider-v1.1-27b' }
+
+/**
+ * A pplx-decider answer to every question of the request it replies to, shaped as `jev` answers (the two APIs answer alike),
+ * from `{ model: 'pplx-decider-v1.1-27b', answers, usage }`. It refuses what the real API refuses, so that a test of the mod
+ * cannot pass on a request the API would not take: another URL gets a 404 with an empty body, a request without a Bearer key
+ * (or, with `extra.key`, with another key than that) a 401 `{ error: { message, type, code } }`, a model name it does not
+ * serve or a top-level field beyond `model`, `state` and `questions` a 400.
+ */
+export function pplx(levels: readonly number[], extra: AnswerExtra & { key?: string } = {}) {
+  const { key, ...answering } = extra
+  return (request: Sent): Reply => {
+    if (request.url !== PPLX.url) return { status: 404, body: '' }
+    const bearer = /^Bearer (\S+)$/.exec(request.headers.authorization ?? '')?.[1]
+    if (bearer === undefined || (key !== undefined && bearer !== key)) return { status: 401, body: { error: { message: 'Invalid API key', type: 'invalid_api_key', code: 401 } } }
+    const extraFields = Object.keys(request.body ?? {}).filter((field) => !['model', 'state', 'questions'].includes(field))
+    if (extraFields.length > 0) return { status: 400, body: { error: { message: `unknown field ${extraFields.join(', ')}`, type: 'invalid_request_error', code: 400 } } }
+    if (request.body?.model !== PPLX.model) return { status: 400, body: { error: { message: `unknown model ${String(request.body?.model)}`, type: 'invalid_request_error', code: 400 } } }
+    const reply = jev(levels, answering)(request)
+    return 'body' in reply && typeof reply.body === 'object' && reply.body !== null ? { ...reply, body: { ...reply.body, model: PPLX.model } } : reply
+  }
+}
+
+/**
+ * A request's body without the unresolved question (#39): it travels in the message's effort request beside the
+ * effort question and reads the same state, so the effort-submit eval, which measures the effort question alone,
+ * compares its request to the mod's with it left out. (The `unresolved` dataset's eval asks it, #37.)
+ */
+export function withoutUnresolved(body: any): any {
+  const { 'effort.unresolved': _asked, ...questions } = body?.questions ?? {}
+  return { ...body, questions }
 }
 
 /** Whether a request is a message's second skills request (#11): the shortlist re-read, one `skills.fits.<i>` each. */
@@ -759,11 +880,12 @@ export function isSecondSkillsRequest(request: Sent): boolean {
  * main agent can load, and `skills.hint`, those only the person can start,
  * each these `shares` of its own options), and the second, where each
  * `skills.fits.<i>` is the fit `fits` gives the skill its instructions name
- * (0 when left out) and `skills.best` puts all on the best-fitting one.
+ * (0 when left out) and `skills.best` puts all on the best-fitting one. `model` is the decision model that answers
+ * (`jev` by default, or `pplx`).
  */
-export function rates(shares: Record<string, number>, fits: Record<string, number> = {}, levels: readonly number[] = [0, 1, 0, 0, 0]) {
+export function rates(shares: Record<string, number>, fits: Record<string, number> = {}, levels: readonly number[] = [0, 1, 0, 0, 0], model: typeof jev = jev) {
   return (request: Sent): Reply => {
-    if (!isSecondSkillsRequest(request)) return jev(levels, { shares: { 'skills.which': shares, 'skills.hint': shares } })(request)
+    if (!isSecondSkillsRequest(request)) return model(levels, { shares: { 'skills.which': shares, 'skills.hint': shares } })(request)
     const questions = request.body.questions as Record<string, { instructions?: { skill?: { name?: string } } }>
     const nouls: Record<string, number> = {}
     for (const [id, question] of Object.entries(questions)) {
@@ -771,6 +893,6 @@ export function rates(shares: Record<string, number>, fits: Record<string, numbe
     }
     const named = Object.values(questions).flatMap((question) => question.instructions?.skill?.name ?? [])
     const best = named.reduce((top, name) => ((fits[name] ?? 0) > (fits[top] ?? 0) ? name : top), named[0] ?? '')
-    return jev(levels, { nouls, shares: { 'skills.best': { [best]: 1 } } })(request)
+    return model(levels, { nouls, shares: { 'skills.best': { [best]: 1 } } })(request)
   }
 }

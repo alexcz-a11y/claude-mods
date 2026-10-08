@@ -1,0 +1,70 @@
+{
+  "id": "implicit-unresolved-01",
+  "category": "implicit-unresolved",
+  "domain": "ios",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "账单页切换月份后的列表",
+    "SYMPTOM": "连续切换月份后标题和列表不是同一个月",
+    "ERROR": "BillList loadMonth(_:) failed month=2026-09: NSCocoaErrorDomain Code=134060 (NSSQLiteErrorDomain=5 database is locked)",
+    "FILE": "Ledger/Features/Bills/BillListView.swift",
+    "FILE2": "Ledger/Persistence/CoreDataBillRepository.swift",
+    "SYMBOL": "loadMonth(_:)",
+    "COMMAND": "xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BillListViewModelTests"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "账单页切月份有时候对不上 连着点两下上个月 标题已经是 8 月了 列表里还是 9 月的账单 有时候反过来 不是每次都有 十次里一两次 这周 TestFlight 上测试那边报了好几次 偶尔控制台会打这一行\nBillList loadMonth(_:) failed month=2026-09: NSCocoaErrorDomain Code=134060 (NSSQLiteErrorDomain=5 database is locked)\n代码在 Ledger/Features/Bills/BillListView.swift 里的 loadMonth(_:) 你看下 修一下"
+    },
+    {
+      "role": "assistant",
+      "text": "找到一处会让列表停在别的月份的地方：远端改动通知触发的那次刷新，加载的一直是订阅建立时的那个月。已经改成触发时再读当前选中的月份，新加的用例通过，模拟器上连着切了 30 次没再对不上。\n\n**原因**\n\n- 读了 `Ledger/Features/Bills/BillListView.swift`：页面里嵌着一个 `ViewModel`，`loadMonth(_:)` 有三个入口：`.task` 首次出现、切月份的 `onChange`、`bind()` 里订阅的 `.billsDidChange`。\n- `bind()` 在 `init` 里调用，订阅写的是 `.sink { _ in self.loadMonth(month) }`，这个 `month` 是 `init` 的参数，被闭包按值捕获了。之后不管切到哪个月，只要 `HistoryTracker` 合并完一批改动发一次通知，就会再加载一遍进页面时的那个月，结果写回 `sections`。\n- 「标题 8 月、列表 9 月」正好对得上：切到 8 月以后碰上一次后台合并（周期账单补记、小组件记账都会触发），列表被 9 月的结果盖掉；标题读的是选中的月份，不受影响。\n- 你贴的 `database is locked` 出在 `CoreDataBillRepository.fetchBills(in:)`：取数正好撞上 `HistoryTracker` 在写，偶尔失败一次。失败那次 `sections` 不动，它更像旁证，不是主因。\n\n**改法**\n\n- 订阅改成 `[weak self]`，触发时读 `self.selectedMonth`，不再用 `init` 的参数。\n- 别的入口没动。\n\n**验证**\n\n- 新加 `BillListViewModelTests.testRemoteChangeReloadsSelectedMonth`：切到 8 月后发一次 `.billsDidChange`，断言 `sections` 是 8 月的。跑了 `xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BillListViewModelTests`，连同原有的 9 个全过。\n- 模拟器上 `-seed medium` 启动，用调试菜单每 2 秒插一笔周期账单，同时连着切月份 30 次，标题和列表都对得上。\n\n打个新包让测试那边再试试？",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "测试那边装了新包 下午又报了一次 截图里标题 9 月 列表是 8 月的 控制台还是这行\nBillList loadMonth(_:) failed month=2026-09: NSCocoaErrorDomain Code=134060 (NSSQLiteErrorDomain=5 database is locked)"
+    },
+    {
+      "role": "assistant",
+      "text": "又找到一处：父视图一重画，账单页的 `ViewModel` 就会被重新建一个，新建的那个在 `init` 里按传进来的月份加载一次，传进来的可能还是切换之前的值。已经改成 `@StateObject`，加载只留在 `.task` 和 `onChange` 里。\n\n**怎么查的**\n\n- 在 `ViewModel` 的 `init` 和 `deinit` 里临时加了打印，模拟器上切 10 次月份：`init` 打了 7 次。账单页里是 `@ObservedObject var model = ViewModel(month: month)`，`RootView` 每次重画都会让这一行重新执行。\n- `RootView` 重画得很勤：底部 Tab 的角标、后台活动的状态、`@SceneStorage` 里的月份一变都会重画。切月份时账单页先改自己的状态，`RootView` 里那份月份要等 `onChange` 回写，中间那一次重画就会拿旧月份新建一个 `ViewModel`，它的 `init` 立刻去加载旧月份，写回以后列表就停在旧月份上。\n- 上一轮改的通知订阅也在 `init` 里建，每多建一个 `ViewModel` 就多一条订阅，后台合并一次会加载好几遍。\n\n**改法**\n\n- 改成 `@StateObject private var model: ViewModel`，在 `init` 里用 `StateObject(wrappedValue:)` 初始化，父视图重画不会再新建。\n- `ViewModel.init` 里不再加载，只建订阅；首次加载交给 `.task`，切月份交给 `onChange`。\n- 临时打印已经删掉。\n\n**验证**\n\n- 同样切 10 次月份，`init` 只打 1 次。\n- `BillListViewModelTests` 加了 `testInitDoesNotLoad`，`xcodebuild test ... -only-testing:LedgerTests/BillListViewModelTests` 11 个全过。\n- 模拟器上照上次的方式（后台每 2 秒插一笔）切了 50 次，没再看到对不上。\n\n再打个包给测试试一下？",
+      "tools": [
+        "Read",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是会 我自己拿真机试的 切了二十来次碰到一次 标题 9 月 列表 8 月 这次还看到列表先闪了一下空的"
+    },
+    {
+      "role": "assistant",
+      "text": "这次看到的是写回不在主线程：取数失败重试的那条路径上，`sections` 是在临时 context 的私有队列里直接赋值的，和主线程上那次写回谁先谁后不固定。已经把 `ViewModel` 标成 `@MainActor`，所有写回都回到主线程，真机上连切 50 次没再出现。\n\n**怎么查的**\n\n- 真机上开了 Main Thread Checker 跑 Debug 包，按你的方式连着切月份：第 14 次左右 Xcode 报了 `Publishing changes from background threads is not allowed`，栈落在 `loadMonth(_:)` 的重试分支。\n- 读代码：`fetchBills(in:)` 抛 `database is locked` 时，`loadMonth(_:)` 在 `context.perform` 里隔 200 毫秒重试一次，重试成功后直接 `self.sections = rows`，没有回主线程。正常路径是 `await` 回主线程以后再写。\n- 所以重试那次的写回可能晚于后面那次切换的写回，把旧月份写上去。你截图里那行 `database is locked` 就是触发重试的那一次。\n- 列表先闪一下空的，是 `onChange` 里切月份时先把 `sections` 清空，原来就这么写，这次没动。\n\n**改法**\n\n- `ViewModel` 整个标成 `@MainActor`，`sections`、`isLoading` 只能在主线程改。\n- 重试分支改成拿到结果以后 `await MainActor.run { ... }` 再写回，和正常路径一致。\n- 顺手把 `fetchBills(in:)` 的重试间隔从 200 毫秒改成 300 毫秒，和 `HistoryTracker` 一次合并的耗时错开。\n\n**验证**\n\n- `xcodebuild test ... -only-testing:LedgerTests/BillListViewModelTests` 11 个全过，打开了 `-enableThreadSanitizer YES` 再跑一遍，没有报告。\n- 真机 Debug 包开着 Main Thread Checker，后台插账单的同时连切 50 次，没有警告，标题和列表都对得上。\n\n你再拿真机试试？",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "真机又试了一下 切到 9 月 列表停在 8 月\nBillList loadMonth(_:) failed month=2026-09: NSCocoaErrorDomain Code=134060 (NSSQLiteErrorDomain=5 database is locked)"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的继续排查：理 loadMonth(_:) 的调用方和触发时机、加日志看切月份的时间线、看 Core Data 取数和合并、对照别的页面和老版本、翻 TestFlight 反馈和日志，没有新的修改，也没有结论。"
+}

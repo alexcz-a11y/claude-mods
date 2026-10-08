@@ -1,0 +1,25 @@
+{
+  "id": "command-turn-10",
+  "effort": "xhigh",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "webhook 的 paid_at 是零值：第一次改了 OnPaid 用旧 order 生成 payload，第二次改了补单路径和 IsZero 兜底，用户两次上线后都说还有（d3 只剩 cardpay）。d3 这一轮助手只排查没再改，把范围缩到 outbox 写入之后、推给商户之前。中间几轮做的是无关的事，最后 /fix-ticket 说 cardpay 的单还是 0001。修复失败两轮，按第三次尝试算，问题藏在推送链路里、只在一个渠道出现，需要反复验证，定 xhigh；算上 d3 那轮排查也可以当第四次，max 可接受。没有决定性几轮时只有「还是 0001-01-01」，看得出之前修过没好，但不知道失败了几次，按 webhook 序列化跨文件调试给 high。"
+}

@@ -1,0 +1,24 @@
+{
+  "id": "implicit-unresolved-07",
+  "effort": "max",
+  "accept": [
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "刷新令牌被误判为重放的问题，主 agent 已经修了三轮（加宽限期、加 FOR UPDATE 行锁、收拢 silentRefresh 路径），用户每次都说还在踢。中间那段继续排查也没有结论。最后用户贴出同一行 invalid_grant 报错并说「再看看」，相当于三轮修复失败后第四次提出。问题涉及并发和安全审计要求的重放检测，属于疑难并发加安全问题，定 max。如果读不到决定性几轮，只能看到持续排查无果和「又出了一次」，数不出失败次数，按原因未知的并发 bug 定 xhigh。"
+}

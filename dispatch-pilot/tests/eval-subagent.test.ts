@@ -65,13 +65,13 @@ async function evalRequest(item: AgentItem, language: Language, options: PluginO
     sent = request
     return { request, asked: { ok: false, failure: { kind: 'config', detail: 'not sent' } }, ms: 0, attempts: 1 }
   }
-  await agentSuite(dataset).decide(item, language, variant, ask, settingsFrom(options))
+  await agentSuite(dataset).decide(item, language, variant, ask, settingsFrom({ decisionModel: 'jev', ...options }))
   if (sent === undefined) throw new Error('the suite sent no request')
   return sent
 }
 
 for (const language of ['zh', 'en'] as const) {
-  test(`the eval's request for an agent item is the mod's request when the main agent dispatches that agent after that message (${language})`, { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+  test(`the eval's request for an agent item is the mod's request when the main agent dispatches that agent after that message (${language})`, { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
     const asked = LONG[language]
     const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
     await w.submit(asked.user_message)
@@ -137,7 +137,7 @@ function retryScript(language: Language): string {
 }
 
 for (const language of ['zh', 'en'] as const) {
-  test(`a Workflow's agents are asked about as the mod asks about the agent() calls of the script the main agent submits: in one request, a part and a brief each (${language})`, { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+  test(`a Workflow's agents are asked about as the mod asks about the agent() calls of the script the main agent submits: in one request, a part and a brief each (${language})`, { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
     const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 0.1, sonnet: 0.8, opus: 0.1 } })) })
     await w.submit(SCAN[language].user_message)
     await w.workflow({ script: retryScript(language) })
@@ -186,7 +186,7 @@ test('the models-hint-zh variant asks what models-hint asks, every question writ
   expect(asked.questions['agent.effort']?.instructions).toMatchObject({ 问题: '一个派出的 agent 要完成 `brief`，需要多少逐步推理？' })
 })
 
-test("from the same answers the eval decides each of a Workflow's agents as the mod writes it into the script", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+test("from the same answers the eval decides each of a Workflow's agents as the mod writes it into the script", { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
   const answers = siteJev((i) =>
     i === 0 ? { model: { haiku: 0.05, sonnet: 0.15, opus: 0.8 }, effort: [0, 0, 0.1, 0.8, 0.1] } : { model: { haiku: 0.1, sonnet: 0.8, opus: 0.1 }, effort: [0, 0.8, 0.2, 0, 0] },
   )
@@ -196,10 +196,10 @@ test("from the same answers the eval decides each of a Workflow's agents as the 
 
   const suite = agentSuite([SCAN, SYNTH])
   const ask: Ask = async (request) => {
-    const reply = answers({ url: '', method: 'POST', headers: {}, body: request }) as { body: { answers: Record<string, never> } }
+    const reply = answers({ url: '', method: 'POST', headers: {}, body: request, at: 0 }) as { body: { answers: Record<string, never> } }
     return { request, asked: { ok: true, answers: reply.body.answers, model: 'jev-1.13.0', inputTokens: 400 }, ms: 0, attempts: 1 }
   }
-  const decided = await Promise.all([SCAN, SYNTH].map((item) => suite.decide(item, 'zh', 'models-hint', ask, settingsFrom({}))))
+  const decided = await Promise.all([SCAN, SYNTH].map((item) => suite.decide(item, 'zh', 'models-hint', ask, settingsFrom({ decisionModel: 'jev' }))))
   expect(decided.map((one) => (one.ok ? `${one.prediction.model} ${one.prediction.effort}` : one.failure))).toEqual(['opus xhigh', 'sonnet medium'])
   expect(told).toContain('"scan:${pkg}": opus xhigh')
   expect(told).toContain('"synthesize": sonnet medium')
@@ -236,7 +236,7 @@ function agentItem(id: string, asked: Partial<AgentItem['zh']>): AgentItem {
   return { id, zh, en: zh, gold: { model: 'sonnet', effort: 'medium' }, accept: { model: ['sonnet'], effort: ['medium'] }, rationale: '理由', difficulty: 'hard', tags: ['priority:none'] }
 }
 
-test("the eval decides an agent as the mod does from the same answers, under the mod's options (agentOverride, agentFable)", { options: { typesafeApiKey: 'k', agentOverride: 0.9, agentFable: true } }, async ($, on) => {
+test("the eval decides an agent as the mod does from the same answers, under the mod's options (agentOverride, agentFable)", { options: { decisionModel: 'jev', typesafeApiKey: 'k', agentOverride: 0.9, agentFable: true } }, async ($, on) => {
   const cases: { item: AgentItem; answers: Answers }[] = [
     // Of four options p 0.9 is confidence 0.87: under agentOverride 0.9, the main agent's opus stands.
     { item: agentItem('keep', { requested_model: 'opus' }), answers: { model: { haiku: 0.9, sonnet: 0.05, opus: 0.05, fable: 0 }, effort: [0, 0, 0, 1, 0] } },
@@ -268,7 +268,7 @@ test("the eval decides an agent as the mod does from the same answers, under the
       'zh',
       'models-hint',
       async (request) => ({ request, asked: { ok: true, answers: answersTo(request.questions, answers), model: 'jev-1.13.0', inputTokens: 1500 }, ms: 0, attempts: 1 }),
-      settingsFrom({ agentOverride: 0.9, agentFable: true }),
+      settingsFrom({ decisionModel: 'jev', agentOverride: 0.9, agentFable: true }),
     )
     // An agent on haiku goes out at the engine's effort (`low` in this step).
     evaluated.push(decided.ok ? `${item.id}: ${decided.prediction.model} ${decided.prediction.effort ?? 'low'}` : `${item.id}: ${decided.failure}`)

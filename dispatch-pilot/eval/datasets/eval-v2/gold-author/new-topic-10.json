@@ -1,0 +1,17 @@
+{
+  "id": "new-topic-10",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "low",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后这条把批量打标签的问题放下，转去改会员列表的默认每页条数，是新任务。改变判断的是 d1 回复里顺带查到的一条：每页条数不是会员列表自己的，而是 useUserPrefsStore 里全站列表共用的一个 pageSize，持久化在本地，哪个列表改了都会写回、别的列表跟着变，新用户是 20；这个 store 带 persist 版本，后加的字段要在读的地方给默认值。用户要的是「会员列表默认 50、别的列表还是 20、以前存的不用管」，照字面去改 pageSize 的默认值会把全站一起改掉。要做的是给会员列表单独一份每页条数（默认 50，读的地方兜底），让 useMemberList 读写它、不再碰全站那个值，再补一个用例。用户的目的是打标签少翻页，d1 里写明了批量打标签的接口一次最多 500 个 id，每页 50 碰不到这条线，不用另外处理。改动只有一处、做法唯一，没有要权衡的地方，也没有部分失败、并发这类边界。按 effort-rules 的字面，这是范围清楚的单点改动：medium。accept 里的 high：读者如果顺手把「单独一份」做成按列表区分的通用结构，让以后别的列表也能单独设默认值，要多改几处，往上落一档也说得过去。删掉决定性几轮，只看「会员列表默认改成每页 50 条 别的列表还是 20」，就是找到会员列表的默认值改个数：low。三选一：d1 第一次提出批量打标签后标签没变，new_or_unrelated；最后这条换了话题，new_or_unrelated。重写说明：按修订版说明的 M3 写法重写。去掉了「后端一次最多 30 个 id、超过 30 条按钮置灰」这条线，改成接口一次最多 500 个 id，每页 50 不受影响；最后一条说清只改会员列表、以前存的条数不用管，不留迁移的取舍。原题的售后单列表和素材池冲突（frontend-unrelated-02 写售后列表 3 月已去掉批量操作、页面文件是 RefundList.tsx），换成会员列表的批量打标签：frontend-unrelated-11 里会员列表的请求不做取消，和中间段 useRequest 不取消的设定一致，frontend-same-problem-13 里也有可空的标签数组；每页条数存在 useUserPrefsStore 的 pageSize 里，照 frontend-same-problem-08、-22、-29 的多数说法。"
+}

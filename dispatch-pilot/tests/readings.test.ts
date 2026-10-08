@@ -230,7 +230,7 @@ test("a dispatched agent is queued from its spawn to its first step, running unt
   const done = (await w.board()).agents[0]
   expect(done).toMatchObject({ state: 'done', t0: 3.5, dur: 4.2 })
   // Nobody decided its model and effort (there is no key): that is the one thing its node says of it.
-  expect(done?.why).toBe('jev：没有填 typesafeApiKey')
+  expect(done?.why).toBe('pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY')
 })
 
 test('a loop that ends in an error, a refusal or an interruption is failed, and says which; the main agent too', async ($, on) => {

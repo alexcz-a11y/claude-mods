@@ -1,0 +1,21 @@
+{
+  "id": "cheap-agreement-03",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "之前在查的是售后工单列表数据和筛选对不上，最后一条是 main 上 e2e 红了，挂的是 e2e/marketing/coupon-batch.spec.ts，和售后工单无关，所以 new_or_unrelated。d2 定了约定：和售后无关的用例不查原因，直接 test.fixme、在 e2e/QUARANTINE.md 记一行再推上去。连着两次超时也还在这条约定的范围里，是照明确指令做的机械改动，按 low 定，medium 可接受。读不到 d2 时，「你处理一下」一个连续两次超时的 e2e 用例，会被当成排查 flaky 测试的调试工作，判 high。"
+}

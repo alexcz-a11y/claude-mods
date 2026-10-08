@@ -144,7 +144,7 @@ function network(answer: (request: Sent) => Reply) {
     fetch: async (url, init) => {
       const body = JSON.parse(String(init.body))
       bodies.push(body)
-      const reply = answer({ url, method: init.method, headers: { ...(init.headers ?? {}) }, body })
+      const reply = answer({ url, method: init.method, headers: { ...(init.headers ?? {}) }, body, at: 0 })
       if (!('status' in reply)) throw new Error('this network only answers')
       return { status: reply.status, ok: reply.status >= 200 && reply.status < 300, headers: {}, text: JSON.stringify(reply.body) }
     },
@@ -158,26 +158,28 @@ function network(answer: (request: Sent) => Reply) {
 const ANSWER = rates({ tdd: 0.55, 'code-review': 0.2, 'grill-me': 0.15, run: 0.02, '(none)': 0.08 }, { tdd: 0.93, 'code-review': 0.4, 'grill-me': 0.81 })
 
 for (const language of ['zh', 'en'] as const) {
-  test(`the eval asks about an item what the mod asks when the person sends its message after its conversation, in both stages, each skill offered by its profile (${language})`, { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+  test(`the eval asks about an item what the mod asks when the person sends its message after its conversation, in both stages, each skill offered by its profile (${language})`, { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
     const w = world($, on, { backend: ANSWER, skills: SKILLS, disk: DISK, store: STORE, messages: transcript(ITEM[language].recent_context) })
     await w.submit(ITEM[language].message)
 
     const suite = await skillSuite({ catalog: CATALOG, profiles: PROFILES, read })
     const net = network(ANSWER)
-    await runSuite(suite, [ITEM], { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['profiles'], languages: [language], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+    await runSuite(suite, [ITEM], { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['profiles'], languages: [language], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
-    expect(w.requests).toHaveLength(2)
-    expect(net.bodies).toEqual(w.requests.map((request) => request.body))
+    // The mod's effort request is the effort eval's (tests/eval-effort-submit.test.ts); the skills' two are this one's.
+    expect(w.requests).toHaveLength(3)
+    expect(w.withoutEffort).toHaveLength(2)
+    expect(net.bodies).toEqual(w.withoutEffort.map((request) => request.body))
     // What the two requests hold, so the equality above is not two empty things:
     // every skill the main agent can load in one question, the person's own in another, each by its profile;
-    const which = w.requests[0]?.body.questions['skills.which']
+    const which = w.withoutEffort[0]?.body.questions['skills.which']
     expect(Object.keys(which.criteria)).toEqual(['tdd', 'run', 'code-review', '(none)'])
     expect(which.criteria.run).toMatchObject({ what: 'run: what it does', 用途: 'run：用途' })
-    expect(Object.keys(w.requests[0]?.body.questions['skills.hint'].criteria)).toEqual(['grill-me', '(none)'])
-    expect(String(w.requests[0]?.body.state.recent_context)).toContain('[tools: Grep, Read]')
+    expect(Object.keys(w.withoutEffort[0]?.body.questions['skills.hint'].criteria)).toEqual(['grill-me', '(none)'])
+    expect(String(w.withoutEffort[0]?.body.state.recent_context)).toContain('[tools: Grep, Read]')
     // the second re-reads the three rated 0.1 or more in their question, with the opening of each SKILL.md.
-    expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['skills.best', 'skills.fits.0', 'skills.fits.1', 'skills.fits.2'])
-    expect(w.requests[1]?.body.questions['skills.fits.2'].instructions.skill.opening).toContain('Interview me relentlessly')
+    expect(Object.keys(w.withoutEffort[1]?.body.questions)).toEqual(['skills.best', 'skills.fits.0', 'skills.fits.1', 'skills.fits.2'])
+    expect(w.withoutEffort[1]?.body.questions['skills.fits.2'].instructions.skill.opening).toContain('Interview me relentlessly')
   })
 }
 
@@ -196,20 +198,20 @@ const PICKS: { options: PluginOptions; suggest: string[]; tried: string[]; shown
 ]
 
 for (const { options, suggest, tried, shown } of PICKS) {
-  test(`from the same answers the eval suggests and hints what the mod does, under the person's options (${JSON.stringify(options)})`, { options: { typesafeApiKey: 'k', ...options } }, async ($, on) => {
+  test(`from the same answers the eval suggests and hints what the mod does, under the person's options (${JSON.stringify(options)})`, { options: { decisionModel: 'jev', typesafeApiKey: 'k', ...options } }, async ($, on) => {
     const w = world($, on, { backend: ANSWER, skills: SKILLS, disk: DISK, store: STORE, messages: transcript(ITEM.zh.recent_context) })
     await w.submit(ITEM.zh.message)
     await w.step({ index: 0 })
 
     const suite = await skillSuite({ catalog: CATALOG, profiles: PROFILES, read })
     const net = network(ANSWER)
-    const [row] = await runSuite(suite, [ITEM], { backend: jevBackend('k'), ...net, settings: settingsFrom(options), variants: ['profiles'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+    const [row] = await runSuite(suite, [ITEM], { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev', ...options }), variants: ['profiles'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
     const picked = (await w.board()).log.findLast((entry) => entry.feature === 'skills')?.skills
     expect(picked?.suggest.map((skill) => skill.name)).toEqual(suggest)
     expect(picked?.try.map((skill) => skill.name)).toEqual(tried)
     expect(row?.shown).toBe(shown)
-    expect(net.bodies).toEqual(w.requests.map((request) => request.body))
+    expect(net.bodies).toEqual(w.withoutEffort.map((request) => request.body))
   })
 }
 
@@ -329,7 +331,7 @@ function ratedNetwork() {
 async function runFour() {
   const suite = await skillSuite({ catalog: CATALOG, profiles: PROFILES, read })
   // The bar these answers were written around (a en's code-review at 0.72 passes it), not today's default of 0.75.
-  const settings = settingsFrom({ skillsMinRelevance: 0.7 })
+  const settings = settingsFrom({ decisionModel: 'jev', skillsMinRelevance: 0.7 })
   const rows = await runSuite(suite, FOUR, { backend: jevBackend('k'), ...ratedNetwork(), settings, variants: ['profiles'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
   return { rows, summary: summarize(suite, FOUR, rows, { slowMs: 1500, settings }) }
 }
@@ -409,12 +411,12 @@ test("both relevance bars are swept over the answers already given, by language;
   })
 })
 
-test('what each variant asks is recorded with the results: the effort question, stage one over every skill offered (in its two questions), and the questions of stage two', async () => {
+test('what each variant asks is recorded with the results: stage one over every skill offered (in its two questions), and the questions of stage two', async () => {
   const suite = await skillSuite({ catalog: CATALOG, profiles: PROFILES, read })
   const profiles = suite.questions('profiles') as { first: Record<string, { criteria?: Record<string, unknown> }>; second: Record<string, unknown> }
   const descriptions = suite.questions('descriptions') as typeof profiles
 
-  expect(Object.keys(profiles.first)).toEqual(['effort.level', 'skills.which', 'skills.hint'])
+  expect(Object.keys(profiles.first)).toEqual(['skills.which', 'skills.hint'])
   expect(profiles.first['skills.which']?.criteria?.tdd).toMatchObject({ what: 'tdd: what it does' })
   expect(profiles.first['skills.hint']?.criteria?.['grill-me']).toMatchObject({ what: 'grill-me: what it does' })
   expect(descriptions.first['skills.hint']?.criteria?.['grill-me']).toBe(GRILL_DESCRIPTION)
@@ -426,7 +428,7 @@ test("the profiles-zh variant asks what profiles asks, with the skill questions 
   type Body = { state: unknown; questions: Record<string, { instructions?: Record<string, unknown>; criteria?: Record<string, unknown> }> }
   const sent = async (variant: string): Promise<Body[]> => {
     const net = network(ANSWER)
-    await runSuite(suite, [ITEM], { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: [variant], languages: ['en'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+    await runSuite(suite, [ITEM], { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: [variant], languages: ['en'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
     return net.bodies as Body[]
   }
   const english = await sent('profiles')
@@ -437,7 +439,6 @@ test("the profiles-zh variant asks what profiles asks, with the skill questions 
   expect(chinese.map((body) => body.state)).toEqual(english.map((body) => body.state))
   expect(chinese.map((body) => Object.keys(body.questions))).toEqual(english.map((body) => Object.keys(body.questions)))
   expect(Object.keys(chinese[0]?.questions['skills.which']?.criteria ?? {})).toEqual(['tdd', 'run', 'code-review', '(none)'])
-  expect(chinese[0]?.questions['effort.level']).toEqual(english[0]?.questions['effort.level'])
   // The skill questions as the mod's ranker writes them in Chinese (decision/skills.ts).
   expect(chinese[0]?.questions['skills.which']?.instructions?.问题).toBe('结合 `recent_context`，要完成 `user_message` 所要求的工作，应该加载下面哪个 skill？如果都不合适，选「都不合适」。')
   expect(chinese[0]?.questions['skills.hint']?.instructions?.问题).toBe('结合 `recent_context`，要完成 `user_message` 所要求的工作，下面哪个 skill 合适？这些 skill 由用户自己输入名字来启动。如果都不合适，选「都不合适」。')
@@ -453,18 +454,18 @@ test("the profiles-zh variant asks what profiles asks, with the skill questions 
 test('the estimate counts both stages: stage one as asked, and stage two as if stage one put a full shortlist forward (the skills the item wants first)', async () => {
   const suite = await skillSuite({ catalog: CATALOG, profiles: PROFILES, read })
   const net = network(ANSWER)
-  await runSuite(suite, [ITEM], { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['profiles'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  await runSuite(suite, [ITEM], { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['profiles'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
   // The skills stage two asks about, in order: each fits question names its skill.
   const fitted = (questions: Readonly<Record<string, unknown>>) => Object.values(questions as Record<string, { instructions?: { skill?: { name?: string } } }>).flatMap((question) => question.instructions?.skill?.name ?? [])
 
-  const planned = (await suite.estimate?.(ITEM, 'zh', 'profiles', settingsFrom({}))) ?? []
+  const planned = (await suite.estimate?.(ITEM, 'zh', 'profiles', settingsFrom({ decisionModel: 'jev' }))) ?? []
   expect(planned).toHaveLength(2)
   expect({ model: JEV_MODEL, ...planned[0] }).toEqual(net.bodies[0])
   expect(fitted(planned[1]?.questions ?? {})).toEqual(['tdd', 'run', 'code-review', 'grill-me'])
   expect(planned[1]?.state).toEqual(planned[0]?.state)
 
   // skillsShortlist counts the skills the main agent can load; up to two only the person can start come beside them.
-  const two = (await suite.estimate?.(ITEM, 'zh', 'profiles', settingsFrom({ skillsShortlist: 2 }))) ?? []
+  const two = (await suite.estimate?.(ITEM, 'zh', 'profiles', settingsFrom({ decisionModel: 'jev', skillsShortlist: 2 }))) ?? []
   expect(fitted(two[1]?.questions ?? {})).toEqual(['tdd', 'run', 'grill-me'])
 })
 
@@ -495,18 +496,18 @@ test('what the suite read besides its items is recorded with the results, and a 
   })
 })
 
-test('the descriptions variant asks what the mod asks before any profile is written: each skill by its description', { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+test('the descriptions variant asks what the mod asks before any profile is written: each skill by its description', { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
   // No store: the mod finds no profile, as on a first session.
   const w = world($, on, { backend: ANSWER, skills: SKILLS, disk: DISK, messages: transcript(ITEM.zh.recent_context) })
   await w.submit(ITEM.zh.message)
 
   const suite = await skillSuite({ catalog: CATALOG, profiles: PROFILES, read })
   const net = network(ANSWER)
-  await runSuite(suite, [ITEM], { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['descriptions'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  await runSuite(suite, [ITEM], { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['descriptions'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
-  expect(net.bodies).toEqual(w.requests.map((request) => request.body))
-  expect(w.requests[0]?.body.questions['skills.which'].criteria['code-review']).toBe(REVIEW_DESCRIPTION)
-  expect(w.requests[1]?.body.questions['skills.fits.0'].instructions.skill).toEqual({
+  expect(net.bodies).toEqual(w.withoutEffort.map((request) => request.body))
+  expect(w.withoutEffort[0]?.body.questions['skills.which'].criteria['code-review']).toBe(REVIEW_DESCRIPTION)
+  expect(w.withoutEffort[1]?.body.questions['skills.fits.0'].instructions.skill).toEqual({
     name: 'tdd',
     description: TDD_DESCRIPTION,
     opening: '# Test-Driven Development Write one failing test, then only the code that makes it pass.',

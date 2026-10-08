@@ -6,10 +6,9 @@
 import { expect, test } from 'claude-code/testing'
 import { dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
-import { CLEF_OPTIONS, CLEF_URL, clef, clefInputProblems } from './support/cloudflare.ts'
 import { world, type Reply, type Sent } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 type AgentAnswers = {
   /** The model question's probability for each option (an option left out gets 0). */
@@ -378,20 +377,6 @@ test("what the mod sends about an agent is exactly what the decision module buil
   expect(w.requests[1]?.body).toEqual({ model: 'jev-latest', state: built.state, questions: built.questions })
 })
 
-test("with Clef as the decision model, the agent's request passes Clef's input rules and the agent is routed", { options: CLEF_OPTIONS }, async ($, on) => {
-  const w = world($, on, { backend: clef([0, 1, 0, 0, 0], { choice: 'sonnet' }) })
-  await w.submit('别用 opus 了，用 sonnet 就行：给 src/cache/lru.ts 补单测')
-  const started = await w.spawn({ prompt: 'Write unit tests for src/cache/lru.ts covering eviction order.', description: 'LRU tests', model: 'opus' })
-  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-sonnet-5-5', effort: 'low' })
-
-  const sent = w.requests[1]
-  expect(sent?.url).toBe(CLEF_URL)
-  expect(clefInputProblems(sent?.body)).toEqual([])
-  expect(Object.keys(sent?.body.questions)).toEqual(['agent.model', 'agent.effort', 'agent.named.sonnet', 'agent.named.opus', 'agent.banned.sonnet', 'agent.banned.opus'])
-  // Clef answered medium; a sonnet agent goes at medium at least.
-  expect(w.steps.map((s) => String(s.effort))).toEqual(['medium'])
-})
-
 test('agentFable adds fable to the models the decision model may choose for an agent', { options: { ...KEY, agentFable: true } }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 0.02, sonnet: 0.03, opus: 0.15, fable: 0.8 }, effort: [0, 0, 0, 0.2, 0.8] }) })
   await w.spawn({ prompt: 'Prove that the lease-renewal protocol keeps mutual exclusion under clock drift; build a counterexample if it does not.', description: 'Prove mutual exclusion' })
@@ -498,13 +483,13 @@ for (const failure of failures) {
   })
 }
 
-test('no TypeSafe key: nothing is sent, the agent starts as the main agent asked, and the board says to set the key', async ($, on) => {
+test('no key of either kind: nothing is sent, the agent starts as the main agent asked, and the board says to set the Perplexity key', async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 1 } }) })
   await w.spawn({ prompt: 'Summarize what src/billing/invoice.ts does.', model: 'sonnet' })
 
   expect(w.requests).toHaveLength(0)
   expect(w.spawned.map((s) => s.model)).toEqual(['sonnet'])
-  expect((await w.board()).agents).toMatchObject([{ routed: false, why: 'jev：没有填 typesafeApiKey', failure: { backend: 'jev', kind: 'config' } }])
+  expect((await w.board()).agents).toMatchObject([{ routed: false, why: 'pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY', failure: { backend: 'pplx', kind: 'config' } }])
 })
 
 test('a spawn refused beneath, after the decision failed, started no agent: nothing of it on the board, no toast, nothing left running', { options: KEY }, async ($, on) => {

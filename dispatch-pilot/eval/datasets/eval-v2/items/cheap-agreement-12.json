@@ -1,0 +1,44 @@
+{
+  "id": "cheap-agreement-12",
+  "category": "cheap-agreement",
+  "domain": "docs-writing",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "我要个统计 docs 和 i18n/zh 下面每个页面最后一次改是什么时候 超过一年没动过的列出来 按目录分组 我拉写作组做一轮过期内容清理\n先说一下 这种我们写作组自己用的小脚本别搞全套 放 scripts/writers/ 下面 node 脚本能跑出结果就行 不用写测试 不用加 npm script 不用管 Windows 路径 也不用写 README 就我们三四个人在自己电脑上跑 不进 CI 坏了当场改"
+    },
+    {
+      "role": "assistant",
+      "text": "统计出来了：英文 236 页里 37 页超过一年没动过，中文 219 页里 52 页。脚本是 `scripts/writers/stale-pages.mjs`，40 来行，`node scripts/writers/stale-pages.mjs` 直接跑；按你说的，没加测试、没进 `package.json`、没写说明。\n\n- 时间取的是 `git log -1 --format=%cs -- <文件>`，没加 `--follow`，近一年改过名的页面会显得比实际新，我数了一下有 6 页，单独标了；\n- 按一级目录分组：\n\n| 目录 | 英文过期 | 中文过期 |\n|---|---|---|\n| `guides/` | 11 | 15 |\n| `channels/` | 9 | 12 |\n| `help/` | 8 | 9 |\n| `api/` | 6 | 10 |\n| `sdks/` | 2 | 4 |\n| 其他 | 1 | 2 |\n\n- 中文过期、但对应的英文页这一年里改过的有 11 页，多半是翻译没跟上，单独列在最后。\n\n完整清单写在仓库根目录的 `stale-pages.md`，没提交，你拿去分就行。",
+      "tools": [
+        "Write",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "按作者也来一份 每个人名下过期的有几页 照刚才那样弄"
+    },
+    {
+      "role": "assistant",
+      "text": "同一个脚本加了个 `--by-author`，十来行，作者取每页最后一次提交的作者：\n\n- `chen`：21 页（英文 12、中文 9）\n- `zhouyu`：14 页（英文 5、中文 9）\n- `liu.m`：9 页（全是中文）\n- 已经离职的两位合计 45 页，主要在 `channels/` 和 `help/`\n\n离职那 45 页得重新分人。结果追加到了 `stale-pages.md` 末尾，还是没提交。",
+      "tools": [
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "写个脚本 出这周的文档周报 这周合进 main 的 PR 改了哪些页面 新增了几篇 中英文各改了多少字 按目录分组 每个 PR 一行带作者和标题 出 markdown 我每周五贴群里 放 writers 那个目录"
+    }
+  ],
+  "middle_hint": "中间是在 docs-site 仓库做别的事：写指南和发版博客、改限额表、拆 FAQ、调构建和 CI 检查、处理翻译和图片等，和 scripts/writers 下小脚本的约定无关。"
+}

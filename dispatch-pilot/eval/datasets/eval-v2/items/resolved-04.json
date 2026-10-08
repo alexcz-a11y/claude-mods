@@ -1,0 +1,75 @@
+{
+  "id": "resolved-04",
+  "category": "resolved",
+  "domain": "database",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "商家后台订单列表的接口越来越慢 慢查询日志里 queries/merchant_orders.sql 那条 `WHERE merchant_id = $1 ORDER BY created_at DESC LIMIT 50` 要 3 秒多 orders 现在四千多万行 我想加个 (merchant_id, created_at) 的索引 你写个迁移"
+    },
+    {
+      "role": "assistant",
+      "text": "写好了 `migrations/V101__idx_orders_merchant_created.sql`：\n\n```sql\nCREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_merchant_created\n    ON orders (merchant_id, created_at);\nCOMMENT ON INDEX idx_orders_merchant_created IS '商家后台订单列表 queries/merchant_orders.sql';\n```\n\n- **为什么用 CONCURRENTLY**：orders 一直有写入，普通 `CREATE INDEX` 拿 SHARE 锁，四千多万行要建好几分钟，这段时间下单、改状态的写入都会被挡住。CONCURRENTLY 不挡写入，代价是慢一些、要扫两遍表。\n- **现在的计划**：`EXPLAIN` 看是 `Index Scan Backward using orders_created_at_idx` 再按 `merchant_id` 过滤，大商家还好，小商家要往回扫几百万行才凑够 50 条，所以慢。新索引按 `merchant_id` 定位以后倒着读 `created_at` 就行，不用单独建 `DESC`。\n- **验证**：本地库灌了 200 万行假数据，用 psql 把这两句直接执行了一遍，`EXPLAIN ANALYZE` 变成 `Index Scan Backward using idx_orders_merchant_created`，从 1.8 秒降到 0.3 毫秒。`make test` 要起 Flyway 容器从头跑全部迁移，这次没跑。\n\n你先在 staging `flyway migrate` 跑一下。",
+      "tools": [
+        "Read",
+        "Glob",
+        "Write",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "staging 跑 flyway migrate 直接失败了 `ERROR: Detected both transactional and non-transactional statements within the same migration (even though mixed is false). Offending statement found at line 3: COMMENT ON INDEX idx_orders_merchant_created`"
+    },
+    {
+      "role": "assistant",
+      "text": "Flyway 碰到 `CREATE INDEX CONCURRENTLY` 会把整个文件放到事务外面跑，同一个文件里的 `COMMENT ON` 是普通的事务语句，两种混在一起就报这个。是我没照仓库的惯例写，改了。\n\n- **原因**：`flyway.toml` 没开 `mixed`，一个文件里不能既有不能进事务的语句、又有普通语句。仓库里之前的 `V073`、`V080`、`V086`、`V088` 都是一个文件只放一条 `CREATE INDEX CONCURRENTLY IF NOT EXISTS`，就是为了这个。这个报错是在执行之前的解析阶段出的，`flyway_schema_history` 里没有留下 V101 的记录，库里也没建任何东西。\n- **改法**：`V101` 只留 `CREATE INDEX CONCURRENTLY IF NOT EXISTS` 那一句；注释挪到 `V102__comment_idx_orders_merchant_created.sql`，单独一个普通迁移。\n- **验证**：这次跑了 `make test`，Flyway 容器从头执行全部迁移，`V101`、`V102` 都是 `Success`，全量用例通过。\n\nstaging 上直接重新 `flyway migrate` 就行。",
+      "tools": [
+        "Read",
+        "Bash",
+        "Write",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "staging 又跑了 跑了五十多分钟一直不结束 pg_stat_activity 里看它一直在等 我就 cancel 了 再跑 migrate 显示 Success 但是 \\d orders 里 idx_orders_merchant_created 是 INVALID 的 接口还是慢"
+    },
+    {
+      "role": "assistant",
+      "text": "两件事叠在一起：建索引在等一个开了一整晚的事务，被你取消以后留下了 INVALID 的索引；再跑时 `IF NOT EXISTS` 看到同名索引就跳过了，所以 Flyway 显示成功、索引却不能用。收拾的办法和改法都清楚了。\n\n- **为什么一直等**：CONCURRENTLY 建索引的最后阶段要等所有比它早开始的事务结束。staging 的 `pg_stat_activity` 里有一个 `shop_owner` 的会话，`state` 是 `idle in transaction`，从昨晚 22:40 一直开到现在，最后一条语句是手工跑的回填 `UPDATE`，看样子是有人在 psql 里 `BEGIN` 以后忘了提交。`shop_owner` 没设 `idle_in_transaction_session_timeout`，它就一直挂着，索引也就一直等。\n- **为什么再跑显示成功**：取消以后 `idx_orders_merchant_created` 留在了库里，`indisvalid` 是 false。V101 写的是 `IF NOT EXISTS`，第二次执行时看到同名索引已经存在就跳过，Flyway 把 V101 记成了 `Success`。\n- **收拾**（按顺序在 staging 执行）：\n  1. 先在群里问一下那是谁的会话，确认能断再 `SELECT pg_terminate_backend(<pid>)`；\n  2. `DROP INDEX CONCURRENTLY idx_orders_merchant_created;`\n  3. 照 V101 的定义手工 `CREATE INDEX CONCURRENTLY` 一次，staging 的结果就和 V101 应有的一样了；\n  4. `flyway repair`，接受下面改过的 V101 的校验和。\n- **改法**：V101 改成先 `DROP INDEX CONCURRENTLY IF EXISTS idx_orders_merchant_created;` 再 `CREATE INDEX CONCURRENTLY`（不带 `IF NOT EXISTS`），两句都不进事务，放在一个文件里没问题；以后哪次中途失败重跑，不会悄悄跳过一个坏掉的索引。另外加了 `scripts/check_long_tx.sql`，列出开了 5 分钟以上的事务和 `idle in transaction` 的会话，跑迁移前先看一眼。\n- **验证**：本地在另一个连接里 `BEGIN` 不提交再跑迁移，能复现「一直在等」；关掉那个事务以后建完，`indisvalid` 是 true；先手工造一个 INVALID 的同名索引再跑新的 V101，会先删掉再重建。\n\n线上还没跑过 V101，上线前先跑一遍 `check_long_tx.sql`。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit",
+        "Write"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d4",
+      "text": "照你说的 staging 断了那个会话 删了重建 4 分钟建完 indisvalid 是 true repair 也做了 接口 p99 从 3.2 秒降到 45 毫秒 昨晚线上先跑了 check_long_tx 没有长事务 V101 V102 一共 4 分多钟 没报错 慢查询日志里那条没了 这个解决了 对了 线上之前我手动在 psql 里试过一次 CREATE INDEX CONCURRENTLY 名字叫 idx_orders_merchant_created_tmp 跑到一半被我 ctrl c 了 可能有残留 回头再看"
+    },
+    {
+      "role": "assistant",
+      "text": "好，这个就算收尾了。线上那个手动试过的索引说一下：\n\n- **如果有残留**：它一定是 INVALID 的，查询规划器不会用它，所以不影响查询；但每次写 orders 还是要维护它，白白多一份写入开销，最好删掉。确认的办法：\n\n```sql\nSELECT indexrelid::regclass, indisvalid FROM pg_index\nWHERE indexrelid = 'idx_orders_merchant_created_tmp'::regclass;\n```\n\n- **删的话照 V101 的路子写一个迁移**：\n  - 文件里只有一句 `DROP INDEX CONCURRENTLY IF EXISTS idx_orders_merchant_created_tmp;`，带 `IF EXISTS` 是因为 staging 和本地没有这个索引，也要能跑过；\n  - 不和别的语句混在一个文件里，Flyway 会自动放到事务外面执行，不用动配置；\n  - `DROP INDEX CONCURRENTLY` 只等正在用 orders 的事务结束，正常几秒钟就完；跑之前同样先看一眼 `check_long_tx.sql`，有挂着的事务它也会一直等；\n  - 编号按到时候 `migrations/` 里最新的往后排。\n\n你看过线上确实有，再让我写。",
+      "tools": [
+        "Read"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "orders 那个索引 线上 \\di 看了 确实有个 idx_orders_merchant_created_tmp 是 INVALID 的 照之前说的写个迁移删掉吧"
+    }
+  ],
+  "middle_hint": "中间在 shop-db 里做别的事：别的表加字段和迁移、改查询、补 dal 层测试、整理定时任务之类，和 orders 上这个索引无关，没有再碰这个问题。"
+}

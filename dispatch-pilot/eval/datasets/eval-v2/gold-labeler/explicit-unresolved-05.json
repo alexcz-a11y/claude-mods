@@ -1,0 +1,25 @@
+{
+  "id": "explicit-unresolved-05",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "埋点日报凌晨被 OOM Killed：裁列分块读、维表去重加 polars streaming、文件晚到时去重并等 _SUCCESS 三轮修复，用户都说还是 Killed，最后装上最新版后凌晨仍被杀。同一问题三轮失败后再提，按约定 max；问题本身是单脚本内存排查，xhigh 也可接受。读不到决定性几轮时，只知道上一版没修好，按第二次调试给 high。"
+}

@@ -9,8 +9,8 @@
 import type { PluginOptions } from 'claude-code'
 import type { Asked, Failure } from '../../hooks/decision/backend.ts'
 import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
-import { readConfig, type BackendName, type Config } from '../../hooks/core/setup.ts'
-import type { Item, Language } from './datasets.ts'
+import { CONTEXT_KINDS, readConfig, type BackendName, type Config, type ContextKind } from '../../hooks/core/setup.ts'
+import type { Language } from './datasets.ts'
 import type { VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
 
@@ -22,10 +22,37 @@ export type Settings = Config
  * (`readConfig`: the same bounds and the same defaults), so a suite asks with
  * the limits the mod runs with. The eval passes the manifest's defaults and
  * the decision model under evaluation (`optionsFor`): what the manifest
- * leaves unset takes that model's defaults (core/setup.ts BACKEND_DEFAULTS).
+ * leaves unset takes that model's defaults (core/setup.ts BACKEND_DEFAULTS, or the
+ * `table` given: a test reads a decision model the table does not have yet).
+ * Everything the table carries is read here: the budgets, the question asked beside a
+ * message, the threshold for taking the level above, the most `contextMessages` may name.
  */
-export function settingsFrom(options: PluginOptions): Settings {
-  return readConfig(options)
+export function settingsFrom(options: PluginOptions, table?: Parameters<typeof readConfig>[1]): Settings {
+  return readConfig(options, table)
+}
+
+/**
+ * The settings with the state's budget set to `tokens` for every kind of request (a message's, the skills' request,
+ * a mid-turn re-decision, a dispatched agent, a Workflow's agents). The mod's options only lower a budget
+ * (`contextTokens` is the smaller of it and the model's); this widens it, to measure what a decision model with a
+ * bigger window gains from a longer conversation (#43, `run.ts --state-tokens`). Not what the mod runs with.
+ */
+export function withStateTokens(settings: Settings, tokens: number): Settings {
+  return {
+    ...settings,
+    context: { ...settings.context, tokens },
+    contextByKind: Object.fromEntries(CONTEXT_KINDS.map((kind) => [kind, tokens])) as Record<ContextKind, number>,
+    midturn: { ...settings.midturn, limits: { ...settings.midturn.limits, tokens } },
+  }
+}
+
+/**
+ * The settings with the number of recent messages the state may hold set to `messages` (the mod's own is at most the decision
+ * model's, `contextMessagesMax`: with Jev the newest 32, whatever the token budget, so a state of 96000 tokens still stops at the 32nd message back). With
+ * `withStateTokens` it lets a long conversation fill a large budget; not what the mod runs with (#44, `run.ts --state-messages`).
+ */
+export function withStateMessages(settings: Settings, messages: number): Settings {
+  return { ...settings, context: { ...settings.context, messages } }
 }
 
 /**
@@ -109,7 +136,8 @@ export type Decided<P> = { ok: true; prediction: P; detail?: Readonly<Record<str
  */
 export type Grade = { correct: boolean; exact: boolean; miss?: string; parts?: Readonly<Record<string, boolean>> }
 
-export type AnyItem = Item<unknown, unknown, unknown>
+/** What the runner and the metrics read of any suite's item: its id and its tags (the long-context items have no English side, so no `en`). */
+export type AnyItem = { id: string; tags: string[] }
 
 /**
  * What a suite may read besides its items, from the machine the eval runs on
@@ -163,4 +191,8 @@ export type Suite<I extends AnyItem, P> = {
   report?: (summary: VariantSummary) => string[]
   /** Optional: how an answer is scored, in words, recorded with the results (what a reader needs to read the numbers). */
   scoring?: string
+  /** Optional: save a digest of each request's state in the result file (`stateDigest`), not the state: for a suite whose states are tens of thousands of tokens. */
+  digestState?: boolean
+  /** Optional: the languages its items are written in, which a run asks unless `--languages` says otherwise (both by default; eval-v2's conversations are Chinese only). */
+  languages?: readonly Language[]
 }

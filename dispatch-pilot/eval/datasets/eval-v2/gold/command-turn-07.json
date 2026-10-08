@@ -1,0 +1,30 @@
+{
+  "id": "command-turn-07",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后一条是用 /diagnose 再查一次晚高峰的 ES 读超时，并说昨晚 20:41 那波又来了。决定性几轮里这个问题已经在灰度 pod 上改过三次：把每页条数上限从 100 收到 60 并加 filter_path、ES 客户端 IO 线程从 4 加到 8、把 #316 的连接池退回 30/10，用户每次都回报灰度 pod 的超时条数和别的 pod 一样，第三次还更糟，最后让全部撤掉、别再一个一个试；助手也承认三次都没碰到原因，只知道 8 个 pod 同一时间一起出。这是一个间歇性的线上性能问题，三轮修复都失败之后用命令再来一次，按约定命令轮也算一次尝试：max；它要的是先把一次超时的时间分段串起来，xhigh 也能接受。删掉决定性几轮，前面只剩中间那段没有修改尝试的长排查，最后一条像是排查了很久之后第一次动手定位和修复一个难的线上性能问题：xhigh（看不出已经连败三次，不到 max）。三选一：d1 第一次提出问题，new_or_unrelated；d2、d3、d4 都说灰度上超时没少，still_unresolved；最后一条说那波又来了，still_unresolved。审稿改动（金标档位未变）：素材池里 ES 的 socket 超时一律是 2 秒、`_source` 早有白名单、响应体最大不到 200KB，原题的 1000ms 读超时和「没设 _source 过滤、单个响应 2MB」与中间段矛盾，所以 ERROR 改成 2,000 milliseconds，第一次尝试改成收每页条数上限加 filter_path，相关的 1000ms 都改成 2 秒；rationale 里第一次尝试的描述跟着改。",
+  "source": "agreed"
+}

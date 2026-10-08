@@ -1,0 +1,25 @@
+{
+  "id": "command-turn-01",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "同一张票 #58 的改单保存失败已经修了三轮（d1 改 release_stale_reservations、d2 加触发器修唯一键、d3 改 sync_inventory），用户每次都回来说还在失败，最后一条又报五次锁超时，是三轮修复都失败之后再提，按约定给 max；生产数据库锁竞争、根因仍未知，属于疑难并发问题，xhigh 也可接受。读不到决定性几轮时只知道中间排查无结论、用户说「还是失败」，看作第二次左右、原因未知的并发 bug，给 xhigh。"
+}

@@ -1,0 +1,24 @@
+{
+  "id": "implicit-unresolved-09",
+  "effort": "max",
+  "accept": [
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "订单状态流转的 version conflict 偶发 500 已经修了三轮（改用事务内版本号、修 WithTx 重试时的变量遮蔽、改触发器和写入顺序），用户每次都说还有。中间继续排查也没有结论。最后贴出同样报错说「再看看」，是三轮失败后再提，又是疑难并发问题，定 max。如果读不到决定性几轮，只能看到偶发的并发冲突、排查无果，按原因未知的并发 bug 定 xhigh。"
+}

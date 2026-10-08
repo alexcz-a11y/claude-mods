@@ -1,0 +1,17 @@
+{
+  "id": "hard-constraint-06",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条让根因先放着，直接把 9 月对账重新导一份给财务去打分成款；对不上的问题仍在，只是绕过它交付，算 still_unresolved。不看决定性几轮，像是重导一份报表，medium。决定性几轮说明这张表直接决定给 63 家加盟店打款、打出去基本追不回（去年多打 18 万），并定了规矩：每店每天每渠道和业务库源头重算对到分、不许抽查；对不上的一条都不交；核对报告用户看过才发；重跑前整份备份可恢复。而助手已指出现在没有能对到分的工具、9 月表里多是手工重跑版本、补充表重复问题未解。在根因未明、截止日紧的情况下交付不可逆打款依据的数据，属于高风险不可逆的数据完整性工作，定 max，xhigh 可接受。"
+}

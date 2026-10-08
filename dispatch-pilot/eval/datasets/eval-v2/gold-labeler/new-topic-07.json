@@ -1,0 +1,21 @@
+{
+  "id": "new-topic-07",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条要把文档站中文前缀从 /zh/ 改成 /zh-cn/。决定性几轮里已经查明 /zh/ 实际上是对外的地址约定：控制台帮助链接表 400 多条拼 /zh、客服工单模板 300 多条 /zh/docs、SDK README、搜索引擎收录、市场博客邮件都依赖它，站内还有公告栏手拼、robots.txt、i18n-status 脚本写死 /zh/，以及 client-redirects 的跳转链。改前缀不只是改 locale 配置，还得给所有旧 /zh/ 地址做整站跳转（含已有跳转页的二次跳转）、改写死的地方、验证中英文跳转都不断，并提醒其他团队，属于牵连很多依赖方、需反复验证的改动，定 xhigh；high 也可接受。读不到决定性几轮时看起来像一处 i18n 配置改动，会判 medium。d1 首次提出问题；d2 客服确认跳对并让提交，已解决；最后一条是新需求。"
+}

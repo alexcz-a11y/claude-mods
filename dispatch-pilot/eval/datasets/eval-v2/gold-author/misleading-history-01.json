@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-01",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "晚高峰 Redis 命令成批超时：d1 提出问题，助手判断是单条共享连接上的队头阻塞，加了放在开关后面的 Lettuce 连接池；d2 用户说开了两晚一点没变，问题还在；随后按秒对齐查清是热 key 120 秒到期时几十个请求同时未命中、一起查 ES，把 pod 的 CPU 配额打穿、整个 pod 被限流停住才成批超时，改成同一个 key 单飞，用户上线两晚确认解决，只是票先别关、连接池那块留到复盘写完再拆（d3）。助手当时已经 Grep 过并列清连接池只有三处（RedisPoolConfig 整个类、build.gradle.kts 里的 commons-pool2、RedisPoolConfigTest 两个用例），infra 的环境变量也已去掉。中间是为复盘继续理这件事，没有新尝试、没有新结论。最后这条让拆开关，就是照着现成的清单删三处、跑一遍测试，机械改动：low；medium 也可以（删之前再 Grep 一遍、确认没有别处引用）。前面那段长排查和这条没有关系，不该把它带高。删掉决定性几轮，中间几万 token 都在没有结论地排查晚高峰缓存超时，中间段说的还是 Redis 没开连接池、只有一条共享连接，最后突然要拆一个从没出现过的连接池开关，得先找它在哪、弄清它和正在排查的超时是什么关系、拆掉会不会影响线上：medium。三选一：d1 第一次提出问题，new_or_unrelated；d2 试的办法没用、问题还在，still_unresolved；d3 明说算结了，resolved；最后这条是修复之后约定好的收尾清理，接受了结果，resolved。审稿改动：原题的根因（20:25 的预热任务写 5 万个 TTL 600 秒的 key 同时过期、#327 在 9/29 发布里把预热数从 1 万提到 5 万）和本领域 same-problem 素材段的设定冲突：素材段里缓存 TTL 是 120 秒、key 都是自然到期（perf-same-problem-05、08、25、38），search-svc 没有碰 ES 和 Redis 的定时大任务（perf-same-problem-35），9/29 那次发布的提交清单里也没有这样的改动（perf-same-problem-09）。改成素材段里已有的方向：CPU 限流让唯一的 event loop 停住、超时当未命中再放大（perf-same-problem-18、19、27），第一次尝试改成连接池（素材段说只有一条共享连接），最后这条相应改成拆连接池开关。档位、accept 和三选一不变。"
+}

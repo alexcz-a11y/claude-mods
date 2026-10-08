@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-04",
+  "effort": "xhigh",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "d1 提出二次验证票据核销偶发 not pending；第一次修复针对验码连发、重复签票的竞态，主 agent 自己也说有 2 单解释不了。中间继续排查，没有结论。最后用户跑了 20 遍复现脚本，仍有 6 遍报错，比例和修复前差不多，同一问题仍未解决，算第二次尝试。这是认证链路上原因未明的并发、事务竞态，正确性和安全性都要紧，定 xhigh；它接近疑难并发问题，max 也可接受。没有 d1 时，从最后的消息和中间的描述也看得出是修过没好的偶发竞态，判 xhigh。"
+}

@@ -38,6 +38,9 @@ const EDITABLE: Record<Kind, readonly string[]> = {
   'effort-midturn': ['gold', 'accept'],
   subagent: ['gold', 'accept'],
   skill: ['gold', 'accept', 'must_not', 'user_only_hint'],
+  unresolved: ['gold', 'accept', 'triage'],
+  // The file is written from eval/long-context-items.ts: a review's changes are made there, not by apply-review.ts.
+  'long-context': [],
 }
 
 const VERDICTS: readonly Verdict[] = ['agree', 'edit', 'note']

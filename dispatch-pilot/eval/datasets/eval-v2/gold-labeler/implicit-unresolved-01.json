@@ -1,0 +1,25 @@
+{
+  "id": "implicit-unresolved-01",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "d1 提出账单页切月份时标题和列表不一致的偶发问题；三轮修复（闭包捕获的月份、@StateObject、@MainActor 写回）之后用户每次都说还在（d2、d3），中间轮次也是同一个问题的排查，没有结论。最后一条用真机复现，贴了同一行 database is locked，同一问题三轮修复都失败后再提，按约定是 max；问题本身也是偶发的并发和时序问题。没有决定性几轮时只剩中间那段排查和最后的报错，看不出已经失败了几轮，按原因未知的偶发并发 bug 判 xhigh。"
+}

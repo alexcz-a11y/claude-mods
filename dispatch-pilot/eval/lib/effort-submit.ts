@@ -9,7 +9,7 @@
 //
 // Pure: no Node API.
 
-import type { Config } from '../../hooks/core/setup.ts'
+import { messageLimits, type Config } from '../../hooks/core/setup.ts'
 import { turnStartState, type ContextMessage } from '../../hooks/decision/context.ts'
 import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart, type Effort, type EffortAsk } from '../../hooks/decision/effort.ts'
 import { answersFor, mergeParts, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
@@ -18,9 +18,9 @@ import { requestFailed, variantIn, type Grade, type Suite } from './suite.ts'
 
 /**
  * The variants by name: `<question language>-<primitive>`. The mod asks as
- * `zh-score` with Jev and as `en-score` with Clef (`modVariant`: the effort
- * question beside a message is written in the decision model's language,
- * core/setup.ts BACKEND_DEFAULTS turnStartLanguage).
+ * `zh-score` with Jev (`modVariant`: the effort question beside a message is
+ * asked as the decision model's table says, core/setup.ts BACKEND_DEFAULTS
+ * ask.turnStart).
  */
 export const SUBMIT_VARIANTS: Readonly<Record<string, EffortAsk>> = {
   'en-score': { language: 'en', primitive: 'score' },
@@ -30,8 +30,9 @@ export const SUBMIT_VARIANTS: Readonly<Record<string, EffortAsk>> = {
 }
 
 /** The variant that asks as the mod asks with the settings' decision model. */
-export function modVariant(settings: Pick<Config, 'turnStartLanguage'>): string {
-  return `${settings.turnStartLanguage}-score`
+export function modVariant(settings: Pick<Config, 'ask'>): string {
+  const { language, primitive } = settings.ask.turnStart
+  return `${language}-${primitive}`
 }
 
 function variantAsk(variant: string): EffortAsk {
@@ -61,7 +62,7 @@ export const effortSubmit: Suite<EffortSubmitItem, Effort> = {
     if (reading === null) return { ok: false, failure: 'parse: no effort answer' }
     return {
       ok: true,
-      prediction: pickEffort(reading, settings.thetaMax),
+      prediction: pickEffort(reading, settings),
       detail: { p: reading.probabilities.map((p) => Math.round(p * 1000) / 1000), confidence: reading.confidence },
     }
   },
@@ -80,10 +81,14 @@ export function contextMessages(context: readonly ContextEntry[]): ContextMessag
   return context.map((entry) => ({ role: entry.role, text: entry.text, toolUses: (entry.tools ?? []).map((tool) => ({ tool })) }))
 }
 
-/** The request the mod sends when the person sends the item's message in `language`: one effort question, asked as `ask` says. */
+/**
+ * The request the mod sends when the person sends the item's message in `language`: one effort question, asked as `ask`
+ * says, in a request of its own (ADR 0005) whose state has the budget of a plain message (`contextByKind.messagePlain`),
+ * not the smaller one the skills' request shares with its question.
+ */
 export function submitRequest(item: EffortSubmitItem, language: Language, ask: EffortAsk, settings: Config): { request: DecisionRequest; part: Part } {
   const asked = item[language]
   const part = turnStartEffortPart(ask)
-  const state = turnStartState({ prompt: asked.message, messages: contextMessages(asked.recent_context), limits: settings.context })
+  const state = turnStartState({ prompt: asked.message, messages: contextMessages(asked.recent_context), limits: messageLimits(settings, false) })
   return { request: mergeParts(state, [part]), part }
 }

@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-02",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "d1 提出 ParamBadge 必填标签标反，伴随 SSR hydration #419 偶发；第一次修复删了模块级缓存，主 agent 自己也说 #419 的根因只是推测。中间做了大量排查，没有结论。最后用户说合进去一周多，#419 还是三四次出一次，webhooks 页仍然标反，同一问题仍未解决，算第二次尝试。这是原因未知、偶发、跨构建和浏览器渲染的 bug，按 xhigh；第二次尝试 high 也可接受。没有 d1 时，最后的消息里有「合进去」「还是」，中间的描述也说明这是一个难查的偶发问题，仍判 xhigh。"
+}

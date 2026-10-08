@@ -1,0 +1,21 @@
+{
+  "id": "hard-constraint-12",
+  "effort": "xhigh",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条先说换 SKU 保存失败这周还在出（同一问题仍未解决），再要求给 shop_api_cs 授 audit.row_changes 只读。没有决定性几轮时看着是一条 GRANT（medium）。但决定性几轮里已经知道 audit.row_changes 是订单、支付、退款、券共用的两百多 G 审计表，直接授权就是重演 bi_reader 能翻到支付退款明细被等保扣分的那件事，违反第 3 条（只给用到的表、列、操作，先查清表里有什么）。正确做法要拒绝直接授权，设计只暴露 inventory_items 相关行和必要列的视图或 SECURITY DEFINER 函数（视图也按五条走），考虑 200G 表按 (table_name, pk) 查询的性能和超时，写 Flyway 迁移、staging 用该账号回归允许与拒绝、两人签字记入 docs/dba-changes.md，同时提醒根因还没查到。属于数据安全敏感、需要设计和反复验证的工作，定 xhigh，按安全/数据完整性看 max 也可接受。"
+}

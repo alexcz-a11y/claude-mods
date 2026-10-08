@@ -1,0 +1,69 @@
+{
+  "id": "resolved-01",
+  "category": "resolved",
+  "domain": "security",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "新设备登录后的设备确认",
+    "SYMPTOM": "在新设备上登录后点确认设备提示请求处理失败",
+    "ERROR": "DeviceConfirmError: insert trusted_device failed for binding db_5e21c9: duplicate key value violates unique constraint \"trusted_devices_user_id_device_key_key\"",
+    "FILE": "src/session/deviceTrust.ts",
+    "FILE2": "src/session/trustedDeviceStore.ts",
+    "SYMBOL": "confirmDevice",
+    "COMMAND": "npx jest src/session/deviceTrust.test.ts"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "客服这两周转过来好几单 用户换了手机登录 点确认设备就提示请求处理失败 日志里对应的是 `DeviceConfirmError: insert trusted_device failed for binding db_5e21c9: duplicate key value violates unique constraint \"trusted_devices_user_id_device_key_key\"` binding 号每次不一样 代码在 src/session/deviceTrust.ts 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "找到一处会撞唯一约束的地方，先改了一版：同一台设备的两次确认同时到，后到的那个插 `trusted_devices` 时撞上了 `(user_id, device_key)`。\n\n- **原因**：`confirmDevice` 的顺序是：`SELECT ... FOR UPDATE` 锁住这次登录生成的 `device_bindings` 那一行 → 状态是 `pending` 才往下走 → 按 `(user_id, fingerprint_v2)` 查 `trusted_devices` 里有没有这台设备 → 没有就 `INSERT` 一行 → 把 binding 改成 `confirmed`。锁只锁 binding 那一行。同一台设备如果有两条 pending 的 binding（App 冷启动时登录接口被调了两次，各生成一条），两次确认能同时走到 `INSERT`，后到的撞约束，事务回滚，`errorHandler` 包成 `DeviceConfirmError` 记下来，对外是 500，客户端显示「请求处理失败」。\n- **改法**：`src/session/trustedDeviceStore.ts` 里那条插入改成 `INSERT ... ON CONFLICT (user_id, device_key) DO NOTHING`：冲突说明这台设备已经被信任过，直接把 binding 标成 `confirmed`、返回成功。\n- **验证**：`src/session/deviceTrust.test.ts` 加了一个用例，同一用户同一 `device_key` 的两条 pending binding 用 `Promise.all` 同时确认，改之前稳定 1 次成功 1 次失败，改之后两次都成功、`trusted_devices` 只有一行。`npx jest src/session/deviceTrust.test.ts` 12 个通过，`npm test` 全量 231 个通过，`npx semgrep --config semgrep/` 没有新告警。\n\n改动在 `fix/device-confirm-conflict` 分支，还没提交。你部署到预发，拿换手机的场景试一下。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "预发试了 报错是没了 但测试同学照着线上一个投诉账号的设备记录在预发造了个号 换手机登录 每次都要再确认一遍设备 确认完下次登录又让确认 线上投诉的那几个也都是注册好几年的老账号"
+    },
+    {
+      "role": "assistant",
+      "text": "问题在老账号的设备记录上：3.10 以前写进去的 `trusted_devices` 没有 `fingerprint_v2`，现在的查法永远查不到它们。上一版的 `DO NOTHING` 把报错吞了，也把真正的问题盖住了。第二版改好了。\n\n- **查到的**：看了预发上造出来的那个号和线上那个投诉账号的设备记录（只读，只看列是不是空的，不看值）：`trusted_devices` 那一行是 2023 年写的，`device_key` 有值，`fingerprint_v2` 是空的。`git log` 查到 v3.10.0 的 #431 把「这台设备是否已信任」的判断从 `device_key` 换成了 `fingerprint_v2`，迁移只加了列，没有回填。所以老账号每次登录都按 `fingerprint_v2` 查不到，被当成新设备、生成 binding 让用户确认；确认时去插新行，又和那条老行在 `(user_id, device_key)` 上撞了，这就是那个 `duplicate key`。第一版改成 `DO NOTHING` 以后插入什么也没做，binding 标成了已确认，可老行的 `fingerprint_v2` 还是空的，下次登录照样查不到。只有老账号会碰到、本地 seed 出来的新账号碰不到，也是这个原因。\n- **改法**：\n  1. 查已信任设备时，`fingerprint_v2` 没命中就按 `device_key` 再查一次；命中的老行在同一个事务里补上 `fingerprint_v2`，记一条 info 级的 `device legacy match, fingerprint backfilled`。\n  2. 插入改成 `ON CONFLICT (user_id, device_key) DO UPDATE` 补 `fingerprint_v2`，条件里带 `revoked_at IS NULL`：用户在账号安全页移除过的设备不能被悄悄恢复信任，这种情况抛 `DeviceConfirmError: device was revoked by user`，让用户重新走短信验证。第一版的 `DO NOTHING` 撤掉了。\n  3. 写了 `scripts/backfill-fingerprint-v2.ts`，按 `device_key` 给老行批量补 `fingerprint_v2`，每批 500 行，没执行，等你看过再跑。\n- **验证**：测试里造了三种数据：缺 `fingerprint_v2` 的老行、缺了而且被移除过的、正常的新行，各跑「登录 → 确认 → 再登录」两轮。改之前老行第二轮仍然要确认，改之后第二轮直接放行，被移除过的那种抛 `device was revoked by user`。`npx jest src/session` 19 个通过，`npm test` 全量通过，semgrep 没有新告警。\n\n已经部署到预发了，你用那个号再换手机试两轮。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit",
+        "Write"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "这次好了 照着线上老账号造的那几个号 换手机登录确认一次 之后再登就不问了 移除过设备的那个号会让重新走短信 预发挂了两天 那个 duplicate key 一次都没出现 这个问题算解决了 先别合 我想再把这块的调用链和数据理一理 写复盘用"
+    },
+    {
+      "role": "assistant",
+      "text": "好，`fix/device-confirm-legacy` 先不合，现在是两个提交：`a41c9e2`（按 `device_key` 兜底查找并补 `fingerprint_v2`）、`7d03b18`（撤掉 `DO NOTHING`，被移除的设备不恢复信任）。回填脚本还没跑。\n\n以后看日志有两点先说清楚，免得复盘时读错：\n\n- **`device legacy match, fingerprint backfilled` 会有一阵子**：info 级，意思是一台 3.10 以前信任过的设备第一次按新逻辑匹配上、顺手补了 `fingerprint_v2`。每台老设备只出现一次，回填脚本跑完以后基本就没了，不是问题。\n- **`DeviceConfirmError` 不会降到零**：`device was revoked by user` 是故意留着的，用户在账号安全页移除过的设备再来确认就会报，要他重新走短信验证。以后看到 `DeviceConfirmError`，后面是这一句就是正常的；后面是 `duplicate key` 那一句，才说明又出了问题。\n\n复盘要用的材料我先记下：#431 的提交、预发那几个号的数据形状、两版改法各自的结果。你想从哪一段开始理？",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "预发这两天的日志我扫了一遍 `device legacy match` 四十来条 都是造的那批老账号第一次登录 之后就没了 `DeviceConfirmError` 一共两条 都是 device was revoked by user 我查了 两个号都在账号安全页删过设备 跟之前说的对得上 复盘就写到这 把 fix/device-confirm-legacy 合到 main 吧"
+    }
+  ],
+  "middle_hint": "用户在决定性几轮里确认修复有效后，要求先不合并、为写复盘把这块再理一遍：中间是围绕新设备登录后的设备确认继续读调用链、看日志和数据、问原理，不改实现，也不下新的结论。"
+}

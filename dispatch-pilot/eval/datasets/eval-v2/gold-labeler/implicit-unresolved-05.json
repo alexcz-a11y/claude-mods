@@ -1,0 +1,25 @@
+{
+  "id": "implicit-unresolved-05",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "d1 提出 Docusaurus 构建偶发断锚警告和跳转停在页顶；三轮修复（按路径生成锚点、collectAnchor、去掉共享的 GithubSlugger 实例）之后用户 d2、d3 都说又出了，中间轮次是同一问题的排查，没有结论。最后一条贴了同一行 CI 日志，表示还在，同一问题三轮修复失败后再提，按约定是 max；本身是构建并发渲染引起的不确定问题。没有决定性几轮时只有中间的排查和贴出来的日志，按原因未知的偶发问题判 xhigh。"
+}

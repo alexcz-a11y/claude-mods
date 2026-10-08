@@ -116,6 +116,7 @@ function active(node: BoardNode): boolean {
  */
 export const FEATURE_WORDS: Readonly<Record<string, string>> = {
   'main-effort': '主 agent 的 effort',
+  unresolved: '未解决次数与摘要',
   'dispatched-agents': '派出 agent',
   'workflow-agents': 'Workflow 里的 agent',
   'workflow-labels': 'Workflow 兜底',
@@ -124,6 +125,7 @@ export const FEATURE_WORDS: Readonly<Record<string, string>> = {
   skills: 'skill 推荐',
   'find-skill': 'skill 查询',
   'skill-profiles': 'skill 画像',
+  'decision-model': '决策模型',
 }
 
 /** The feature an entry or a note is of: its switch name (`main-effort (agent report)` is main-effort's). */
@@ -143,7 +145,7 @@ export function screenView(input: ScreenInput): ScreenView {
   // The turn's agents, and those of the turn before that still run (a Workflow's outlive the turn that launched it).
   const nodes = board.nodes.filter((node) => node.turn === turn || (node.turn === turn - 1 && active(node)))
   const main = nodes.find((node) => node.turn === turn && node.id === 'main')
-  const log = input.log.filter((entry) => entry.turn === turn && entry.feature !== 'skill-profiles')
+  const log = input.log.filter((entry) => entry.turn === turn && entry.feature !== 'skill-profiles' && entry.feature !== 'decision-model')
   const mainEntries = log.filter((entry) => entry.agent === 'main')
   // Where a node sits on this turn's time axis: its own turn's start may be earlier.
   const shift = (node: BoardNode) => {

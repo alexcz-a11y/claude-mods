@@ -1,0 +1,21 @@
+{
+  "id": "cheap-agreement-01",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后一条是同一个 ValueError 问题仍没查出原因（用户说下次再出还是看不到），所以 still_unresolved；但要做的工作是只加日志：补充步骤、金额转换步骤的异常里打原始值、dtype、补充表批次号，取数三步各补一行从库回放时间点。规格写得很清楚，不改计算和写库，按 d2 定下的约定只需 make test 加本地 parquet 跑一天再开 PR，不用回放对数。几处插点、内容明确，按 medium 定，涉及抓出转不过去的行和查回放位点这些小细节，high 也能接受。没有 d2 的约定时，会按 d1 里说的线上管道改动要全量测试、staging 回放和逐格对数来做，再加上问题一直没解决的背景，会判 high。"
+}

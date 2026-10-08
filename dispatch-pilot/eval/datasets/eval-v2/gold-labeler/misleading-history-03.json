@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-03",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "晚高峰 ES SocketTimeout 已由 keep-alive 300 秒修复解决（d3 确认）。X-Opaque-Id 是助手当时就点明和这次问题无关的另一件事，最后一条是新任务。改法已经很具体：EsConfig 里 RestClient.builder 加 setDefaultHeaders，再在 EsConfigTest 加一个断言、跑 ./gradlew test，是范围清楚的单点改动加一个测试，medium；指令足够明确，low 也可接受。不看决定性几轮要自己找 RestClient 的构建处、定头的值，仍是 medium。"
+}

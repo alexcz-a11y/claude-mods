@@ -9,7 +9,7 @@
     {
       "name": "dispatch-pilot",
       "source": "./dispatch-pilot",
-      "description": "Claude 之外的决策模型（Jev 或 Clef，二选一）在你每次发消息时决定主 agent 的 effort（agent 交回的报告开始一轮时也一样），一轮进行中重新判断；也为主 agent 派出的 agent 和 Workflow 脚本里的 agent 按 Artificial Analysis 的基准选模型和 effort，并在你发消息时推荐合适的几个 skill，代替完整的 skill 列表。判断和依据都在看板和依据面板上。主 agent 的模型从不改变，所以 prompt cache 不受影响。只面向 Claude Code 订阅：Bedrock、Vertex 和网关上切换 effort 会让缓存失效。"
+      "description": "Claude 之外的决策模型（默认 Perplexity 的 pplx，没有 Perplexity key 时退回 TypeSafe 的 Jev；Clef 已删除）在你每次发消息时决定主 agent 的 effort（agent 交回的报告开始一轮时也一样），一轮进行中重新判断；也为主 agent 派出的 agent 和 Workflow 脚本里的 agent 按 Artificial Analysis 的基准选模型和 effort，并在你发消息时推荐合适的几个 skill，代替完整的 skill 列表。判断和依据都在看板和依据面板上。主 agent 的模型从不改变，所以 prompt cache 不受影响。只面向 Claude Code 订阅：Bedrock、Vertex 和网关上切换 effort 会让缓存失效。"
     }
   ]
 }

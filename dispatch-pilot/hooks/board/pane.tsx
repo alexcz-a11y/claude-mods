@@ -37,6 +37,7 @@ import {
   profilesLine,
   stepLines,
   switchWord,
+  unresolvedWords,
   verdictWords,
   type Card,
   type LogGroup,
@@ -56,6 +57,8 @@ export type PaneInput = {
   master: boolean
   /** The person's lock on the main agent's effort. */
   lock: Effort | null
+  /** The problem summary the session holds (`$.state` `unresolved`); null when there is none, or the `unresolved` switch is off. */
+  summary: { problem: string; tried: readonly { text: string; unresolved?: true }[]; status: string } | null
   state: PaneState
   /** Draw only the latest this many log entries (over the open turns) and mid-turn re-decisions, for a surface that refuses a large tree; none: all. */
   window?: { entries: number; mids: number }
@@ -132,9 +135,54 @@ export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, r
         {cardRows(t, card, input, Math.max(10, cols - 4), raster)}
       </Box>
       {blank('pane-gap')}
+      {summaryRows(t, input.summary, cols)}
       {logRows(t, input, cols, act, raster)}
     </Box>
   )
+}
+
+// ---- the problem summary -------------------------------------------------------------------
+
+/** The problem summary in full (the decision model reads it beside the conversation): nothing at all while there is none. */
+function summaryRows(t: TT, summary: PaneInput['summary'], cols: number): RenderNode[] {
+  const { Box, Text } = t
+  if (summary === null) return []
+  const w = Math.max(10, cols - 2)
+  const rows: RenderNode[] = [
+    <Box key="pane-summary-head" width={cols}>
+      <Text wrap="wrap">
+        <Text color={ACCENT} bold>◆ 问题摘要</Text>
+        <Text color={MUTED}>{'  决策模型和对话一起读它；只记试过什么，结果由你下一条消息的判断补上'}</Text>
+      </Text>
+    </Box>,
+    hang(t, 'pane-summary-problem', '问题', <Text wrap="wrap">{summary.problem}</Text>, w),
+  ]
+  summary.tried.forEach((attempt, i) => {
+    rows.push(
+      hang(
+        t,
+        `pane-summary-try-${i}`,
+        i === 0 ? '试过' : '',
+        <Text wrap="wrap">
+          <Text color={MUTED}>{`${i + 1}. `}</Text>
+          <Text>{attempt.text}</Text>
+          {attempt.unresolved === true ? <Text color={WARN}>{'  未解决'}</Text> : null}
+        </Text>,
+        w,
+      ),
+    )
+  })
+  if (summary.status !== '') rows.push(hang(t, 'pane-summary-status', '状态', <Text wrap="wrap">{summary.status}</Text>, w))
+  rows.push(
+    <Box key="pane-summary-gap">
+      <Text> </Text>
+    </Box>,
+  )
+  return [
+    <Box key="pane-summary" flexDirection="column" width={cols}>
+      {rows}
+    </Box>,
+  ]
 }
 
 // ---- the lines at the top ------------------------------------------------------------
@@ -289,7 +337,7 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
     hang(t, 'pane-card-state', '状态', text(row.status.text, STATUS_COLOR[row.status.tone]), w),
   ]
   if (node.failure !== undefined) {
-    rows.push(hang(t, 'pane-card-kind', '类型', text(failureMeaning(node.failure.kind)), w))
+    rows.push(hang(t, 'pane-card-kind', '类型', text(failureMeaning(node.failure)), w))
     rows.push(hang(t, 'pane-card-backend', '后端', text(node.failure.backend), w))
     rows.push(hang(t, 'pane-card-detail', '细节', text(node.why ?? node.failure.detail), w))
     rows.push(hang(t, 'pane-card-where', '排查', text('debug log（claude --debug-file <路径>）里有这次请求的那一行，写着它发了什么、等了多久、怎么失败的', MUTED), w))
@@ -369,6 +417,27 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, raster: 
   rows.push(...traceRows(t, 'pane-card-step', entry.trace ?? [], w))
   if (level !== undefined) rows.push(hang(t, 'pane-card-result', '结果', effortTag(t, level, 12), w))
   if (main && entry.conf !== undefined) rows.push(hang(t, 'pane-card-conf', '置信', <Text color={MUTED} wrap="wrap">{`${pct(entry.conf)}：发消息时只记录，不参与选档`}</Text>, w))
+  // What this message did to the unresolved count: the count and what came of it, then the three options' odds against the two bars.
+  if (main && entry.unresolved !== undefined) {
+    const said = unresolvedWords(entry.unresolved)
+    rows.push(
+      hang(
+        t,
+        'pane-card-unresolved',
+        '未解决',
+        <Text wrap="wrap">
+          <Text bold>{said.count}</Text>
+          <Text color={entry.unresolved.change === 'keep' ? MUTED : OK}>{`  ${said.verdict}`}</Text>
+        </Text>,
+        w,
+      ),
+    )
+    rows.push(hang(t, 'pane-card-unresolved-odds', '三选一', <Text color={MUTED} wrap="wrap">{`${said.odds}；${said.bars}`}</Text>, w))
+  }
+  // The effort question had the strong hint (the count had reached the setting); the level is still the decision model's.
+  if (main && entry.hint !== undefined) {
+    rows.push(hang(t, 'pane-card-hint', '强提示', <Text wrap="wrap"><Text color={OK} bold>{'已给强提示'}</Text><Text color={MUTED}>{`  次数 ${entry.hint.count} ≥ ${entry.hint.maxAfter}，档位仍由决策模型定`}</Text></Text>, w))
+  }
   return rows
 }
 
@@ -549,12 +618,13 @@ function entryRows(t: TT, entry: LogEntry, cols: number, Bar: Raster | undefined
             {entry.model === undefined ? null : chip(t, entry.model, true)}
             {level === undefined || feature === 'skills' || feature === 'find-skill' ? null : <Text> </Text>}
             {level === undefined || feature === 'skills' || feature === 'find-skill' ? null : effortTag(t, level, 12)}
+            {feature === 'unresolved' ? <Text color={MUTED}>{`  ${entry.outcome}`}</Text> : null}
           </Text>
         </Box>
         <Box>
           <Text wrap="wrap">
             <Text color={MUTED}>{FEATURE_WORDS[feature] ?? feature}</Text>
-            {entry.subject === '' ? (feature === 'skill-profiles' ? <Text>{'  会话开始'}</Text> : null) : <Text>{`  ${entry.subject}`}</Text>}
+            {entry.subject === '' ? (feature === 'skill-profiles' || feature === 'decision-model' ? <Text>{'  会话开始'}</Text> : null) : <Text>{`  ${entry.subject}`}</Text>}
           </Text>
         </Box>
         {entry.probs === undefined ? null : (

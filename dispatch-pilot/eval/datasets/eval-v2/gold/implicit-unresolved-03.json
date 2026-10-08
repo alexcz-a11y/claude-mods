@@ -1,0 +1,26 @@
+{
+  "id": "implicit-unresolved-03",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里部署 job 偶发卡在 helm upgrade 已经改了三次（加占位 Pod 免得等扩节点、镜像拉取策略改成 IfNotPresent、放宽 Java 服务的探针并加启动探针），每次手动触发几次都通过，用户每次都回报同样的「先停四分多钟、再报同一行 UPGRADE FAILED」。最后一条只描述了又一次同样的失败、贴了同一行报错，没说「还是不行」：三轮修复之后第三次回报，而且是时有时无、牵涉集群和发布流程的问题，max，xhigh 也可以。删掉决定性几轮，中间段只是在排查这个偶发失败、没有尝试过的修法，最后一条就是一次普通的 CI 部署失败调试：high。三选一：d1 首次提出问题，new_or_unrelated；d2、d3 都是同一报错仍在，still_unresolved；最后一条是同一报错，still_unresolved。审稿修改：原题写成每次都挂、原因清楚的确定性失败，和本领域 same-problem 素材段的隐含场景（9/22 起偶发 8 次、约 3% 的 job、先停 4 分多钟再连续失败、重跑能过、9/21 依赖升级改过 FILE2、脚本自己重试 3 次）矛盾；COMMAND 原来是触发整条 workflow 的命令，和素材段里「本地跑 COMMAND」「Run COMMAND 这一步」对不上。按素材段改写了问题、占位符和决定性几轮，三次修法避开了中间段仍描述为现状的东西（重试和退避、Helm 默认超时、concurrency、缓存、日志级别）。金标方向不变。",
+  "source": "agreed"
+}

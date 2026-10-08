@@ -18,6 +18,7 @@ import { registerEscalation } from './features/escalation.ts'
 import { registerFindSkill } from './features/find-skill.ts'
 import { registerMainEffort } from './features/main-effort.ts'
 import { registerMidturnEffort } from './features/midturn-effort.ts'
+import { registerUnresolved } from './features/unresolved.ts'
 import { registerSkillProfiles } from './features/skill-profiles.ts'
 import { registerSkills } from './features/skills.ts'
 import { registerWorkflowAgents } from './features/workflow-agents.ts'
@@ -34,6 +35,7 @@ export const register: Register = (on, options) => {
   // Features, outermost first.
   registerControl(on, ctx)
   registerMainEffort(on, ctx)
+  registerUnresolved(on, ctx)
   registerEscalation(on, ctx) // above the mid-turn feature: its raise is in the plan before a mid-turn answer is applied
   registerMidturnEffort(on, ctx)
   registerDispatchedAgents(on, ctx)

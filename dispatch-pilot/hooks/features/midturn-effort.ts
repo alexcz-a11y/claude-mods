@@ -19,7 +19,7 @@
 // stream ends. This layer keeps the text of the step as it streams.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { describeAsked, errorText, within, type Asked } from '../decision/backend.ts'
+import { describeAsked, errorText, within, type Asked, type BackendIo } from '../decision/backend.ts'
 import { messageText } from '../decision/context.ts'
 import { higherEffort, isEffort, probsOf, readEffort, readingText, type Effort } from '../decision/effort.ts'
 import {
@@ -39,12 +39,16 @@ import {
   type MidturnRules,
   type Outcome,
 } from '../decision/midturn.ts'
+import { renderSummary } from '../decision/summary.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
+import { givesHint } from '../decision/unresolved.ts'
 import { wasBlocked } from '../core/outcomes.ts'
 import { floorHeld, MAIN, redecided, turnKey, update, type Cell, type TurnRecord } from '../core/plans.ts'
-import { report, type NodeFailure, type ReportIo } from '../core/report.ts'
+import { hintDecision } from '../core/unresolved.ts'
+import { report, type HintRecord, type NodeFailure, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
+import { UNRESOLVED_SWITCH } from './unresolved.ts'
 
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
 const MIDTURN = { plugin: 'dispatch-pilot', key: 'midturn' } as const
@@ -53,6 +57,8 @@ const FAILURES = { plugin: 'dispatch-pilot', key: 'escalation', id: MAIN } as co
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
+const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 
 /** The feature's switch (`/dp midturn-effort on|off`). */
 const SWITCH = 'midturn-effort'
@@ -94,7 +100,7 @@ type Starting = { name: string; detail: string }
  * `answer` never rejects, and once it resolves `settled` holds it and `ms`
  * how long it took.
  */
-type InFlight = { forStep: number; reason: string; answer: Promise<Asked>; settled: Asked | null; ms: number }
+type InFlight = { forStep: number; reason: string; answer: Promise<Asked>; settled: Asked | null; ms: number; hint?: HintRecord }
 /** Re-decisions on their way, by turn key. Promises cannot live in $.state: a reload drops them (the step then keeps its effort). */
 const inFlight = new Map<string, InFlight>()
 /** The text of the main step streaming now, by turn key. */
@@ -102,7 +108,22 @@ const streamed = new Map<string, { index: number; block: number; text: string }>
 
 export function registerMidturnEffort(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: '一轮进行中重新判断主 agent 的 effort', parts: ['midturn'] })
-  const settings: Settings = { ctx, ...ctx.config.midturn }
+  // Read at each use: which decision model's settings these are is settled at the session start (core/setup.ts, `Ctx`).
+  const settings: Settings = {
+    ctx,
+    get every() {
+      return ctx.config.midturn.every
+    },
+    get rules() {
+      return ctx.config.midturn.rules
+    },
+    get waitMs() {
+      return ctx.config.midturn.waitMs
+    },
+    get limits() {
+      return ctx.config.midturn.limits
+    },
+  }
 
   on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {
     // The main agent's own calls only: not a dispatched agent's, nor another plugin's $.tool.call.
@@ -207,20 +228,30 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
   if (turn === undefined || turn.person !== true || lock !== null || record === undefined || record.engine === null || s.ctx.backend.configured === false) return
   const reason = PHASE_TOOLS.has(starting.name) ? starting.name : s.every > 0 && upcoming % s.every === 0 ? `每 ${s.every} 步` : null
   if (reason === null || record.askedFor === upcoming || inFlight.get(key)?.forStep === upcoming) return
+  // The problem the person is on, as of now (this turn's own message has moved the count already): the summary and the
+  // count go along, and the strong hint once the count has reached the setting (#41). Nothing of it with the switch off.
+  const { value: held } = isOn(UNRESOLVED_SWITCH) ? await $.state.get(COUNT) : { value: undefined }
+  const count = held?.count ?? 0
+  const summary = held?.summary
+  const maxAfter = s.ctx.config.unresolved.maxAfter
+  const hint: HintRecord | undefined = givesHint(count, maxAfter) ? { count, maxAfter, where: 'mid' } : undefined
   const input: MidturnInput = {
     message: turn.prompt,
     step: upcoming,
     current_effort: higherEffort(turn.effort ?? record.engine, floorHeld(turn, upcoming)) as Effort,
     counts: countsOf(turn, step.turnId, failures),
     recent_steps: summaries(record, step.index, key, starting, contentLanguage(turn.prompt)),
+    ...(summary === undefined ? {} : { problem_summary: renderSummary(summary, s.ctx.ask.language) }),
+    ...(count > 0 ? { unresolved_count: count } : {}),
   }
-  const request = mergeParts(midturnState(input, s.limits), [midturnEffortPart(s.ctx.ask)])
-  const io = {
+  const request = mergeParts(midturnState(input, s.limits), [midturnEffortPart(s.ctx.ask, { hint: hint !== undefined })])
+  const io: BackendIo = {
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
     sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+    pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
   }
   const asking = s.ctx.backend.ask(io, request, s.ctx.config.timeoutMs)
-  const entry: InFlight = { forStep: upcoming, reason, answer: asking, settled: null, ms: 0 }
+  const entry: InFlight = { forStep: upcoming, reason, answer: asking, settled: null, ms: 0, ...(hint === undefined ? {} : { hint }) }
   entry.answer = asking.then(async (answered) => {
     entry.ms = (await $.clock.now()) - sentAt
     entry.settled = answered
@@ -271,7 +302,14 @@ async function takeAnswer($: EngineInterface, s: Settings, e: { index: number; e
   const floor = floorHeld(turn, e.index)
   const current = higherEffort(turn.effort ?? engine, floor) as Effort
   const reading = asked.ok ? readEffort(answersFor(midturnEffortPart(s.ctx.ask), asked.answers)[MIDTURN_LEVEL]) : null
-  if (reading === null) return { failure: { backend: s.ctx.backend.name, ...(asked.ok ? { kind: 'parse' as const, detail: 'no effort answer' } : asked.failure) } }
+  /** The hint given with this request is a decision of its own in the log: the level the decision model came to, when it did. */
+  const logHint = async (picked: Effort | null) => {
+    if (pending.hint !== undefined) await report(ioOf($), { decision: { feature: UNRESOLVED_SWITCH, agent: 'main', aside: true, subject: `第 ${e.index} 步（${pending.reason}）`, ...hintDecision(pending.hint, picked) } })
+  }
+  if (reading === null) {
+    await logHint(null)
+    return { failure: { backend: s.ctx.backend.name, ...(asked.ok ? { kind: 'parse' as const, detail: 'no effort answer' } : asked.failure) } }
+  }
 
   const ref = { ...TURNS, id: key }
   const turnCell: Cell<TurnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
@@ -295,6 +333,7 @@ async function takeAnswer($: EngineInterface, s: Settings, e: { index: number; e
       mid: midturnRecord(verdict, position, s.rules),
     },
   })
+  await logHint(verdict.picked)
   return null
 }
 

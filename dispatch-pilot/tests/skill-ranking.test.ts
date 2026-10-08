@@ -9,10 +9,11 @@
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { skillsPart, type SkillOption } from '../hooks/decision/skills.ts'
-import { clefInputProblems, CLEF_OPTIONS, clef } from './support/cloudflare.ts'
 import { isSecondSkillsRequest, rates, world, type SkillsWorld } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 const TDD_DESCRIPTION = 'Test-driven development. Use when the user wants to build features or fix bugs test-first.'
 const REVIEW_DESCRIPTION = 'Review the changes since a fixed point along two axes: Standards and Spec.'
@@ -44,8 +45,10 @@ test('the skills rated highest are re-read in a second request, and the relevanc
   })
   await w.submit('先写一个失败的测试，再实现登录限流')
 
-  expect(w.requests).toHaveLength(2)
-  const [first, second] = w.requests
+  // The effort question has its request, then the skills' two stages.
+  expect(w.requests).toHaveLength(3)
+  expect(w.withoutEffort).toHaveLength(2)
+  const [first, second] = w.withoutEffort
   expect(isSecondSkillsRequest(first!)).toBe(false)
   // The second request asks about the same message and conversation.
   expect(second?.body.state).toEqual(first?.body.state)
@@ -90,7 +93,7 @@ test("a plugin's skill is re-read from its SKILL.md, also where the plugin's man
     },
   })
   await w.submit('把首页重新排一下版')
-  const second = w.requests[1]?.body.questions
+  const second = w.withoutEffort[1]?.body.questions
   expect(second['skills.fits.0'].instructions.skill.opening).toBe('Lay out the page on a grid first.')
   expect(second['skills.fits.1'].instructions.skill.opening).toBe('Build, then push to the host.')
 })
@@ -110,38 +113,12 @@ test('both requests share the message’s wait: the second gets what the first l
   await entering
   await w.step({ index: 0 })
 
-  expect(w.requests).toHaveLength(2)
+  expect(w.requests).toHaveLength(3)
   expect(w.prompts).toHaveLength(1)
   expect(w.prompts[0]?.context).toBeUndefined()
   // The effort still went through; the second request had 1100 ms and got nothing, so no skills decision: a note says why.
   expect((await w.board()).log.filter((entry) => entry.feature === 'skills')).toEqual([])
   expect((await w.board()).notes).toMatchObject([{ turn: 1, id: 'main', feature: 'skills', kind: 'failed', why: 'jev：1100 毫秒内没有回答' }])
-})
-
-test('Clef takes the second request with a Choice between the skills re-read (its input rules hold)', { options: { ...CLEF_OPTIONS, skillsMinRelevance: 0.5 } }, async ($, on) => {
-  // Workers AI checks each request (its refusals come back as they are); the answers rate two skills,
-  // in Cloudflare's envelope, so the second request carries a Choice between them.
-  const answer = rates({ tdd: 0.62, 'code-review': 0.23, '(none)': 0.15 }, { tdd: 0.97, 'code-review': 0.35 })
-  const cloudflare = clef([0, 1, 0, 0, 0])
-  const w = world($, on, {
-    backend: (request) => {
-      const refused = cloudflare(request)
-      if ('status' in refused && refused.status !== 200) return refused
-      const { body } = answer(request) as { body: { answers: unknown } }
-      return { status: 200, body: { result: { model: 'clef', answers: body.answers, usage: { input_tokens: 151, output_tokens: 0 } }, success: true, errors: [], messages: [] } }
-    },
-    skills: SKILLS,
-    disk: FILES,
-  })
-  // With Clef the suggestions start off (tests/backend-defaults.test.ts): the person turns them on.
-  await w.command('dp', 'skills on')
-  await w.submit('先写一个失败的测试')
-  expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([
-    ['effort.level', 'skills.which'],
-    ['skills.best', 'skills.fits.0', 'skills.fits.1'],
-  ])
-  expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], []])
-  expect(w.prompts[0]?.context?.[0]).toContain(`- tdd (relevance 0.97): ${TDD_DESCRIPTION}`)
 })
 
 test('a second request that fails suggests nothing and leaves no skills decision (a note on the board says why) until a message is rated again', { options: KEY }, async ($, on) => {

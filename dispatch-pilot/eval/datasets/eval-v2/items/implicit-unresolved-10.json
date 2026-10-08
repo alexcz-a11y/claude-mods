@@ -1,0 +1,63 @@
+{
+  "id": "implicit-unresolved-10",
+  "category": "implicit-unresolved",
+  "domain": "database",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "jobs/settle_inventory.py 每天凌晨跑 最近一周有三天挂了 日志是\n`psycopg.errors.DeadlockDetected: deadlock detected`\n那个时间段也有下单在写库存 帮我看下怎么回事"
+    },
+    {
+      "role": "assistant",
+      "text": "两边给同一批 `inventory` 行加锁的顺序不一样，典型的锁顺序死锁。\n\n读了 `jobs/settle_inventory.py`、`dal/repos/inventory.py` 和 `dal/repos/orders.py`：结算任务按仓库分批，每批一个 `UnitOfWork`，逐行 `UPDATE inventory SET reserved = reserved - %s, on_hand = on_hand - %s WHERE sku_id = %s AND warehouse_id = %s`，行的顺序来自 `queries/inventory/settle_pending.sql`，按 `sku_code` 排。下单走 `OrderRepo.create_from_cart` 里的预占，按购物车里的顺序逐行 `UPDATE inventory SET reserved = reserved + %s WHERE sku_id = %s AND warehouse_id = %s AND on_hand - reserved >= %s`。两个事务锁同两行、顺序相反，PostgreSQL 检测到环就杀掉其中一个，被杀的正好是结算任务。\n\n- **改法**：两边统一按 `(sku_id, warehouse_id)` 升序加锁。`settle_pending.sql` 改成 `ORDER BY sku_id, warehouse_id`；结算任务每批先 `SELECT ... FROM inventory WHERE (sku_id, warehouse_id) IN (...) ORDER BY sku_id, warehouse_id FOR UPDATE` 一次锁完再更新；预占也先按同样的顺序排好再逐行更新。\n- **验证**：新写了 `tests/jobs/test_settle_inventory_concurrency.py`，用 testcontainers 起 PostgreSQL 15，一边跑结算，一边 8 个线程按随机顺序下单，跑 20 轮没有死锁；`make test` 全过。\n\n明天凌晨那次跑完，可以在日志平台里看一下 `settle_inventory` 的汇总日志。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "今早还是挂了 一样的 deadlock detected"
+    },
+    {
+      "role": "assistant",
+      "text": "这次的另一方不是下单，是每分钟跑一次的 `close_unpaid_orders`，它释放预占库存时也没按顺序加锁。\n\n去 RDS 日志里找了今早那次死锁的 `DETAIL`：两条语句一条是结算任务的 `UPDATE inventory ...`，另一条是 `UPDATE inventory SET reserved = reserved - $1 WHERE sku_id = $2 AND warehouse_id = $3`，按 `application_name` 对出来是 `close_unpaid_orders`。这个任务每分钟一批，最多 500 张超时未付的订单，关单后按「订单 → 订单行」的顺序逐行释放预占，同一批里不同订单的 SKU 交错在一起，锁的顺序完全取决于订单顺序。凌晨下单少，但超时关单不少，晚高峰下了没付的单正好在这时到期。\n\n- **改法**：`close_unpaid_orders` 每批先把要释放的 `(sku_id, warehouse_id, qty)` 汇总，按 `(sku_id, warehouse_id)` 排好序再更新；同一个库存行合并成一条 `UPDATE`，顺带少了不少语句。\n- **验证**：并发测试加了「结算、关单、下单」三方同时跑的场景，20 轮无死锁；`make test` 全过。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "又挂了 这回是周六凌晨 那会儿下单很少 也没几张要关的单"
+    },
+    {
+      "role": "assistant",
+      "text": "单量小也挂，说明另一方既不是下单也不是关单。查到是周六才跑的盘点同步任务，和结算任务同一分钟启动。\n\n看了 `jobs/schedule.yaml`：`settle_inventory` 是 `0 3 * * *`，`sync_stocktake` 是 `0 3 * * 6`，上个月有人把后者从 05:00 挪到了 03:00（提交说明是「错开早上的入库」）。`sync_stocktake` 按仓库发来的盘点文件逐行 `UPDATE inventory SET on_hand = %s WHERE sku_id = %s AND warehouse_id = %s`，顺序就是文件里的顺序，一个事务处理一整个仓库。周六凌晨两个任务同时开跑，一个按 `(sku_id, warehouse_id)` 排，一个按文件顺序，正好互相卡住。\n\n- **改法**：两个任务开头都拿同一个会话级咨询锁 `pg_advisory_lock(hashtext('inventory_jobs'))`，互斥执行，谁先拿到谁先跑（`jobs/base.py` 原来的锁是按任务名拿的，管不到两个不同的任务）；`sync_stocktake` 也改成先按 `(sku_id, warehouse_id)` 排序、每 500 行一批提交。`jobs/schedule.yaml` 里把它挪回 05:00，双保险。\n- **验证**：并发测试里加了两个任务同时启动的场景，20 轮无死锁；`make test` 全过。\n\n改动都在 `jobs/` 和 `queries/` 下，下次发布生效。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "今早的日志\n`psycopg.errors.DeadlockDetected: deadlock detected`\n你看下"
+    }
+  ],
+  "middle_hint": "中间是同一个仓库里别的活：加迁移字段、补 dal 层测试、整理查询、写定时任务和文档、升级依赖等，和凌晨结算任务的死锁无关，没有再提这个问题。"
+}

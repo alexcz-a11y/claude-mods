@@ -1,0 +1,25 @@
+{
+  "id": "resolved-07",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "d1 提出冒烟检查卡在 ledger-api；d2 第一次修复（rollout status+预热）后用户说又挂了，仍未解决；d3 用户确认一周零失败、算解决，只约定月底发版后删 debug。最后一条是在已解决之后收尾：按上次已列好的两处（smoke.sh 里 SMOKE_DEBUG 段、deploy.yml 的 env）删除、跑 shellcheck、开 PR，属于照着明确指令做的机械改动，low；稍谨慎可到 medium。没有决定性几轮时不知道「那两处」具体是什么，需要先在代码里找出 debug 段再删，判 medium。"
+}

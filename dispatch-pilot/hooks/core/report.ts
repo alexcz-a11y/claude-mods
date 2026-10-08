@@ -56,6 +56,8 @@ import type { EngineInterface, On } from 'claude-code'
 import { errorText, failureLine, failureWords, type Failure } from '../decision/backend.ts'
 import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
 import { isEffort, type Effort } from '../decision/effort.ts'
+import type { BackendName } from './setup.ts'
+import type { UnresolvedChange, UnresolvedOption, UnresolvedThresholds } from '../decision/unresolved.ts'
 import { startedIn } from '../decision/workflow-labels.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
 
@@ -191,6 +193,28 @@ export type LogEntry = {
   counts?: { failed: number; blocked: number; raised: number }
   /** A Workflow call's decision that was sent back to the main agent to write in (return mode). */
   sentBack?: true
+  /** An unresolved-count judgement (`unresolved`). */
+  unresolved?: UnresolvedRecord
+  /** The strong hint was given with this decision's request (#41). */
+  hint?: HintRecord
+}
+
+/** The strong hint given with a request: the count it was given at, the setting it had reached, and `mid` when it was a mid-turn re-decision's. */
+export type HintRecord = { count: number; maxAfter: number; where?: 'mid' }
+
+/**
+ * What one message's answer to the unresolved question did to the count: the count before and after, the change, the
+ * option the answer leaned to most and every option's probability, the backend's confidence (on record only), and
+ * the two bars it was held to. The card draws it as it is; nothing is worked out again (ADR 0004).
+ */
+export type UnresolvedRecord = {
+  before: number
+  count: number
+  change: UnresolvedChange
+  top: UnresolvedOption
+  probs: Record<UnresolvedOption, number>
+  conf?: number
+  thresholds: UnresolvedThresholds
 }
 
 /** A raise the failures forced: the level (or, for a haiku agent, the model) it went from and to, and the level it holds the agent at least at. */
@@ -258,6 +282,8 @@ export type Decided = About & {
   forced?: ForcedRaise
   skills?: SkillsPicked
   counts?: LogEntry['counts']
+  unresolved?: UnresolvedRecord
+  hint?: HintRecord
 }
 
 /** A decision the feature could not make: the decision request failed. Not an entry of the log; it says why on the agent's node. */
@@ -349,14 +375,27 @@ export type Reported =
   | { switched: Switched }
   /** How writing the session's skill profiles goes (`ProfileEvent`). */
   | { profiles: ProfileEvent }
+  /** The decision model in use is not the one asked for: no Perplexity key, so Jev (`DecisionModelEvent`). */
+  | { fellBack: DecisionModelEvent }
   /** A pane the person asked for (a digit on the band) that the surface did not place, with the surface's reason; it was closed again. */
   | { unplaced: { reason: string } }
 
 /** What a toast of its own needs of the host: the debug log, the clock and the toast. */
 export type NoticeIo = Pick<ReportIo, 'debug' | 'now' | 'toast'>
 
+/** What the decision model's fallback needs of the host: the board (for the turn), the decision log and the debug log. */
+export type DecisionModelIo = Pick<ReportIo, 'board' | 'decisions' | 'debug'>
+
 /** The host closures each kind of report needs: a switch only the redraw, the skill profiles their own state, a pane not placed the toast, the rest a `ReportIo`. */
-export type IoOf<R extends Reported> = R extends { switched: Switched } ? SwitchIo : R extends { profiles: ProfileEvent } ? ProfilesIo : R extends { unplaced: unknown } ? NoticeIo : ReportIo
+export type IoOf<R extends Reported> = R extends { switched: Switched }
+  ? SwitchIo
+  : R extends { profiles: ProfileEvent }
+    ? ProfilesIo
+    : R extends { fellBack: DecisionModelEvent }
+      ? DecisionModelIo
+      : R extends { unplaced: unknown }
+        ? NoticeIo
+        : ReportIo
 
 /**
  * Entry one (记一条决定): reports what a feature hands over, by its kind; `io` is what that kind needs of the host
@@ -369,6 +408,7 @@ export async function report<R extends Reported>(io: IoOf<R>, what: R): Promise<
   if ('tally' in item) return reportTally(io as ReportIo, item.tally)
   if ('switched' in item) return reportSwitch(io as SwitchIo, item.switched)
   if ('profiles' in item) return reportProfiles(io as ProfilesIo, item.profiles)
+  if ('fellBack' in item) return reportFellBack(io as DecisionModelIo, item.fellBack)
   return reportUnplaced(io as NoticeIo, item.unplaced)
 }
 
@@ -993,6 +1033,8 @@ function entryOf(decision: Decided, turn: number, at: number): Omit<LogEntry, 'n
     ...(decision.forced === undefined ? {} : { forced: decision.forced }),
     ...(decision.skills === undefined ? {} : { skills: decision.skills }),
     ...(decision.counts === undefined ? {} : { counts: decision.counts }),
+    ...(decision.unresolved === undefined ? {} : { unresolved: decision.unresolved }),
+    ...(decision.hint === undefined ? {} : { hint: decision.hint }),
     ...(decision.sentBack === true ? { sentBack: true as const } : {}),
   }
 }
@@ -1052,6 +1094,54 @@ function without<T extends object, K extends keyof T>(value: T, ...keys: K[]): O
   const rest = { ...value }
   for (const key of keys) delete rest[key]
   return rest
+}
+
+// ---- what `report` does with the decision model's fallback ------------------------------
+
+/** The decision model that decides is not the one asked for (ADR 0006): e.g. `asked` is pplx, `using` is Jev, since there is no Perplexity key and there is a TypeSafe one. */
+export type DecisionModelEvent = { asked: BackendName; using: BackendName }
+
+/** What a person reads of each decision model: its name, and the settings that hold its key (the options' names and the environment variable they type). The one place both are written. */
+const DECISION_MODELS: Readonly<Record<BackendName, { name: string; keys: string }>> = {
+  pplx: { name: 'pplx', keys: 'perplexityApiKey 或环境变量 PERPLEXITY_API_KEY' },
+  jev: { name: 'Jev', keys: 'typesafeApiKey' },
+}
+
+/** The feature name of the entry the fallback leaves in the decision log. */
+export const DECISION_MODEL_FEATURE = 'decision-model'
+
+/**
+ * The session's one entry in the decision log saying why Jev decides although pplx is the default: at the turn the session
+ * start belongs to, with the debug line. A session start again at the same turn (a hot reload) takes the place of the entry
+ * before. Not on the board's nodes, in no band or footer, and no toast. Never throws.
+ */
+async function reportFellBack(io: DecisionModelIo, fell: DecisionModelEvent): Promise<void> {
+  try {
+    const asked = DECISION_MODELS[fell.asked]
+    const using = DECISION_MODELS[fell.using]
+    // A board that cannot be read puts the session start at turn 1, where the first message will be.
+    const turn = Math.max(1, (await read(io.board).catch(() => EMPTY)).turn)
+    const entry: Omit<LogEntry, 'n'> = {
+      turn,
+      feature: DECISION_MODEL_FEATURE,
+      tone: 'info',
+      outcome: `改用 ${using.name}`,
+      subject: '',
+      reason: `没有 ${asked.name} 的密钥（${asked.keys}），改用 ${using.name}；补上密钥就用 ${asked.name}，decisionModel 设成 ${using.name} 则不再提示`,
+    }
+    io.debug(`decision model: ${decisionLine(entry)}`)
+    await update(io.decisions, (list) => {
+      const kept = list ?? []
+      const at = kept.findIndex((old) => old.feature === DECISION_MODEL_FEATURE && old.turn === turn)
+      return at < 0 ? appendEntry(kept, entry) : kept.map((old, i) => (i === at ? { n: old.n, ...entry } : old))
+    })
+  } catch (error) {
+    try {
+      io.debug(`decision model fallback not reported: ${errorText(error)}`)
+    } catch {
+      // nowhere left to say it
+    }
+  }
 }
 
 // ---- what `report` does with the skill profiles' events ----------------------------

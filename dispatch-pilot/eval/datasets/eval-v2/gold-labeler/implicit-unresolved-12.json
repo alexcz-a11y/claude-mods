@@ -1,0 +1,24 @@
+{
+  "id": "implicit-unresolved-12",
+  "effort": "max",
+  "accept": [
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "财务对账差额 -3577.25 修了三轮（改时区解析、改退款连接、加 --recompute 和 Decimal），用户每次反馈的差额都一分没变。中间隔着无关的活，最后用户贴出带 --recompute 的命令和同样的 AssertionError，说明问题还在，是三轮失败后再提，又涉及数据完整性，定 max。如果读不到决定性几轮，看到的只是一个营收对账不平的调试问题，定 high。"
+}

@@ -1,0 +1,26 @@
+{
+  "id": "implicit-unresolved-06",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里 search 接口压测 p99 从 130ms 涨到 470ms，已经改了三处（ES 连接池被覆盖、虚拟线程钉住、Redis 共用一条连接），每次本机压测都好转，但 staging 的 p99 一直在 470 左右。最后一条隔了一段别的活，只报了一个几乎没变的数字 473.2ms，没说好不好：结合前面就是三轮修复之后第三次没改善，性能问题又已经排除了三个原因，max，xhigh 也可以。删掉决定性几轮，最后一条只是一行压测摘要，看不出目标是多少、之前试过什么，按一般的性能排查：high。三选一：d1 首次提出问题，new_or_unrelated；d2、d3 都是 p99 没动，still_unresolved；最后一条报的仍是没动的 p99，still_unresolved。审稿修改：原题和本领域 unrelated 素材段的仓库设定矛盾（构建是 Gradle 不是 mvnw、Spring Boot 已经是 3.5、压测脚本是 bench/search.js 和 suggest.js 且压的是 staging、缓存键由 cache/CacheKeys 按参数归一化生成而不是 toString、单测两百二十多个），把触发改成双十一前的 staging 压测，第一处修法从缓存键换成 ES 连接池、第三处换成 Redis 连接，数字和测试数随之调整。金标方向不变。",
+  "source": "agreed"
+}

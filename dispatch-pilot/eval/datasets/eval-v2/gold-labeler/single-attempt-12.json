@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-12",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "d1 提出参数表标签偶发显示成另一种语言，CI 里还偶发 key 警告。主 agent 删掉读 localStorage 的那段、改了行 key，PR #1216 已上线，并承认时间线和警告时有时无都还没对上。中间一直在排查同一问题，只看不改。最后用户说上线一周多，两个现象都还在，属于第二次尝试。原因未知，偶发，牵涉构建和缓存，需要长链路排查和反复验证，定 xhigh。没到三次失败，不给 max。读不到 d1 时，中间那段排查没有结论、问题依旧，也判 xhigh。"
+}

@@ -1,0 +1,23 @@
+{
+  "id": "hard-constraint-12",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "low",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "effort xhigh。最后这条是给 cs-backend 的账号 shop_api_cs 加 audit.row_changes 的只读权限，让客服在后台自己查某个 SKU 的库存改动记录。决定性几轮里用户讲了有人手工把 shop_api_promo 的 statement_timeout 改成 0 导致大促卡单，以及等保测评翻出 DBA 给 bi_reader 开了整个 audit schema 的读权限、BI 的人能翻到支付退款明细而扣分，定了生产库账号变更的五条：只走 Flyway；迁移写清改哪个账号、改前是什么、为什么；只给用到的表、列、操作，给之前先查清那张表里有什么数据，不许加进属主角色或给 ALL；staging 上用那个账号本身把它的服务和 jobs 回归全跑，该能做的和不该能做的都试到；用户和 DBA 双签并记进 docs/dba-changes.md。d2 又补了视图同样算。这条是授权，落在范围正中。照规矩要做的：d1 助手查过 audit.row_changes 是几张表共用的，订单、支付、退款、券的整行前后值都在里面，整表授 SELECT 违反第 3 条，正是等保扣分那件事的翻版，所以要设计一个只露出 inventory_items 的行和需要的几列的口子（例如视图）；d2 说视图同样走这套，d2 助手还查到 shop_owner 在 public 下建的视图会按 V003 的默认权限自动授给全部服务账号，所以视图放在哪个 schema、属主是谁、要不要给 audit 的 USAGE、视图以属主身份读底表这件事，都要想清楚并写进迁移；在只读库上查清 shop_api_cs 现在对 audit 的权限，写进迁移的「改之前」；这张表两百多 G，只有 (table_name, pk) 和 changed_at 两个索引，cs-backend 的查法要能走前一个，在 staging 或只读库上用 EXPLAIN 实测；staging 上跑 Flyway，用 shop_api_cs 本身把 cs-backend 和 jobs 的回归跑一遍，再试能按 SKU 读到库存改动、读不到 audit.row_changes 本表和支付退款的行、别的服务账号读不到这个视图；写好 docs/dba-changes.md 的记录，等用户和 DBA 签字。数据范围和视图的放法要判断，执行计划和允许、拒绝两类访问要在 staging 实测并解读，是长链路、要反复验证的工作：xhigh。\naccept [high, xhigh]：产出物是数据库账号权限的迁移（可能带一个视图），不是直接改写或交出无法恢复的数据，可以撤回；执行前还有 staging 回归和双签两道关口，不在这一轮里，所以往 high 扩。\neffort_without_decisive low：删掉决定性几轮，中间只是这个问题的排查，没有试过修改，最后一句给了账号、表和权限，写一条授权（加上 schema 的 USAGE）的迁移就行，相当于给了键和新值的改动：low；算上要先看迁移的写法和序号，判 medium 也说得通。消息里没有会推到 high 的边界条件。自查：高判一档是 medium，不进 accept。\n三选一：d1 第一次报换 SKU 保存失败并定账号规矩，new_or_unrelated；d2「视图也算…也照这几条走」是补一条规矩，对换 SKU 那个问题没表态，new_or_unrelated；最后这条「这周还是隔三差五地出 昨天下午一个小时就十几次」明说问题还在，后面接着要的是一件相关的活，仍按问题还在判 still_unresolved。用户没有放宽规矩。\n可接受档位：出题者 ['high', 'xhigh']，标注者 ['xhigh', 'max']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
+}

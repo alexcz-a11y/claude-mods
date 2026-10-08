@@ -1,0 +1,25 @@
+{
+  "id": "implicit-unresolved-01",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里账单页切月份后标题和列表对不上，已经改了三次（通知订阅改成读当前月份、ViewModel 改成 @StateObject 不再重复创建、标成 @MainActor 让重试路径回主线程写），每次助手都说测试通过、模拟器或真机连切几十次没再出现，用户每次都回报同样的错位和同一行 database is locked。最后一条只是又描述了一次错位、贴了同一行日志，没说「还是不行」，但它就是三轮修复之后第三次回报同一个问题，又是时有时无的并发时序问题：max，xhigh 也可以接受。删掉决定性几轮，中间段只是在排查这个现象、没有尝试过的修法，最后一条看起来是一次普通的偶发 UI 状态调试：high。三选一：d1 第一次提出问题，new_or_unrelated；d2、d3 都是同样的错位又出现，still_unresolved；最后一条还是同样的错位和同一行日志，still_unresolved。审稿修改：原题的预算页分期汇总、测试必挂的确定性失败和本领域 same-problem 素材段的隐含场景（账单页切月份偶发错位、单测和 CI 都复现不出来）矛盾，按素材段改写了问题、占位符和决定性几轮；三次修法都避开了中间段仍然描述为现状的写法（写回前不检查、onChange 里先清空、两套日历）。金标方向不变。"
+}

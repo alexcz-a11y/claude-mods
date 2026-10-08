@@ -1,0 +1,5450 @@
+{
+ "all|0.5|A|zh": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.6917,
+  "exact": 0.3083,
+  "tooHigh": 0.125,
+  "tooLow": 0.1833,
+  "maxItems": 28,
+  "maxRecall": 0.25,
+  "maxHits": 7,
+  "falseMax": 0,
+  "triage": 0.8583,
+  "falseAdd": 0.0164,
+  "lostRecord": 0.0678,
+  "changeRight": 0.8333,
+  "seenAll": 0.75,
+  "seenAny": 0.75,
+  "withoutDecisive": 0.3867,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7,
+    "triage": 0.8333
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.7667,
+    "triage": 0.8667
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.8,
+    "triage": 0.9667
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.5,
+    "triage": 0.7667
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.6833,
+    "triage": 0.85
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.7,
+    "triage": 0.8667
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.6667
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.6,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.8667
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.8667,
+    "triage": 0.8667
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.9333,
+    "triage": 0.9333
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.3333,
+    "triage": 0.9333
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.6
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 1,
+    "topRecall": 0.4167
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.6667,
+    "topRecall": 0
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 1,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.75,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.8333,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.75,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.75,
+    "topRecall": 0.5
+   }
+  },
+  "stateTokens": {
+   "mean": 116691,
+   "max": 134944
+  },
+  "carried": null
+ },
+ "all|0.5|A|en": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.725,
+  "exact": 0.3417,
+  "tooHigh": 0.1333,
+  "tooLow": 0.1417,
+  "maxItems": 28,
+  "maxRecall": 0.4286,
+  "maxHits": 12,
+  "falseMax": 0.0115,
+  "triage": 0.8667,
+  "falseAdd": 0,
+  "lostRecord": 0.0678,
+  "changeRight": 0.8167,
+  "seenAll": 0.75,
+  "seenAny": 0.75,
+  "withoutDecisive": 0.2667,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7667,
+    "triage": 0.9667
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.8,
+    "triage": 0.7667
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.8,
+    "triage": 0.9667
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.5333,
+    "triage": 0.7667
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.7,
+    "triage": 0.9
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.75,
+    "triage": 0.8333
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8667,
+    "triage": 0.9333
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.8
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.9333,
+    "triage": 0.7333
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.9333,
+    "triage": 0.9333
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.3333,
+    "triage": 0.9333
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.7333,
+    "triage": 0.6
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 1,
+    "topRecall": 0.5833
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 1,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.75,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 1,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.75,
+    "topRecall": 0.5
+   }
+  },
+  "stateTokens": {
+   "mean": 116691,
+   "max": 134944
+  },
+  "carried": null
+ },
+ "all|0.5|A+|zh": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.619,
+  "exact": 0.2063,
+  "tooHigh": 0.0952,
+  "tooLow": 0.2857,
+  "maxItems": 28,
+  "maxRecall": 0.1786,
+  "maxHits": 5,
+  "falseMax": 0,
+  "triage": 0.8571,
+  "falseAdd": 0.0455,
+  "lostRecord": 0.122,
+  "changeRight": 0.8254,
+  "seenAll": 0.7619,
+  "seenAny": 0.7619,
+  "withoutDecisive": 0.3774,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.9375
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.5625,
+    "triage": 0.8125
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.9375
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.7333
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.7097,
+    "triage": 0.9355
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.5313,
+    "triage": 0.7813
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 0.8889
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 0.8571
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.5556,
+    "triage": 0.7778
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.8889,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.4286,
+    "triage": 0.8571
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.5,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.5556,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 1,
+    "topRecall": 0.25
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.6667,
+    "topRecall": 0.0833
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   }
+  },
+  "stateTokens": {
+   "mean": 117581,
+   "max": 135015
+  },
+  "carried": {
+   "items": 63,
+   "counted": 16,
+   "hinted": 13,
+   "summarized": 63
+  }
+ },
+ "all|0.5|B|zh": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.6333,
+  "exact": 0.2833,
+  "tooHigh": 0.1833,
+  "tooLow": 0.1833,
+  "maxItems": 28,
+  "maxRecall": 0.2143,
+  "maxHits": 6,
+  "falseMax": 0.0345,
+  "triage": 0.75,
+  "falseAdd": 0.0328,
+  "lostRecord": 0.1695,
+  "changeRight": 0.7583,
+  "seenAll": 0.5,
+  "seenAny": 0.5,
+  "withoutDecisive": 0.4133,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7667,
+    "triage": 0.8667
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.6667,
+    "triage": 0.8
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.6333,
+    "triage": 0.6333
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.4667,
+    "triage": 0.7
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.6333,
+    "triage": 0.85
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.6333,
+    "triage": 0.65
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8667,
+    "triage": 0.8
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.9333
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.6,
+    "triage": 0.8
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.7333,
+    "triage": 0.8
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.8667
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.4667,
+    "triage": 0.4
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.2667,
+    "triage": 0.9333
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.4667
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.75,
+    "topRecall": 0.3333
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.5833,
+    "topRecall": 0.1667
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.75,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.4167,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.4167,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.8333,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 46353,
+   "max": 47984
+  },
+  "carried": {
+   "items": 120,
+   "counted": 39,
+   "hinted": 31,
+   "summarized": 120
+  }
+ },
+ "all|0.5|B'|zh": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.65,
+  "exact": 0.2833,
+  "tooHigh": 0.15,
+  "tooLow": 0.2,
+  "maxItems": 28,
+  "maxRecall": 0.1071,
+  "maxHits": 3,
+  "falseMax": 0,
+  "triage": 0.7917,
+  "falseAdd": 0.0328,
+  "lostRecord": 0.1186,
+  "changeRight": 0.775,
+  "seenAll": 0.5,
+  "seenAny": 0.5,
+  "withoutDecisive": 0.4267,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7333,
+    "triage": 0.9
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.7333,
+    "triage": 0.8333
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.6333,
+    "triage": 0.7333
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.5,
+    "triage": 0.7
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.6333,
+    "triage": 0.8667
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.6667,
+    "triage": 0.7167
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.8
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.8667
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.8
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.7333,
+    "triage": 0.8667
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.6
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.3333,
+    "triage": 0.9333
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.4667
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5833,
+    "topRecall": 0
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.5833,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.75,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 46397,
+   "max": 47999
+  },
+  "carried": null
+ },
+ "all|0.5|B'|en": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.7167,
+  "exact": 0.3083,
+  "tooHigh": 0.1583,
+  "tooLow": 0.125,
+  "maxItems": 28,
+  "maxRecall": 0.3571,
+  "maxHits": 10,
+  "falseMax": 0,
+  "triage": 0.8333,
+  "falseAdd": 0.0164,
+  "lostRecord": 0.1356,
+  "changeRight": 0.8167,
+  "seenAll": 0.5,
+  "seenAny": 0.5,
+  "withoutDecisive": 0.2667,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7667,
+    "triage": 0.9667
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.7667,
+    "triage": 0.9333
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.7333,
+    "triage": 0.7333
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.6,
+    "triage": 0.7
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.6333,
+    "triage": 0.9167
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.8,
+    "triage": 0.75
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.9333
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.7333,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.6,
+    "triage": 0.9333
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.9333,
+    "triage": 0.9333
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.8667
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.6
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.3333,
+    "triage": 0.9333
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.8667,
+    "triage": 0.4667
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.8333,
+    "topRecall": 0.4167
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.75,
+    "topRecall": 0.3333
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.8333,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.75,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 1,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   }
+  },
+  "stateTokens": {
+   "mean": 46397,
+   "max": 47999
+  },
+  "carried": null
+ },
+ "all|0.5|J|zh": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.625,
+  "exact": 0.3333,
+  "tooHigh": 0.1583,
+  "tooLow": 0.2167,
+  "maxItems": 28,
+  "maxRecall": 0.1071,
+  "maxHits": 3,
+  "falseMax": 0,
+  "triage": 0.7083,
+  "falseAdd": 0,
+  "lostRecord": 0.2203,
+  "changeRight": 0.7,
+  "seenAll": 0.25,
+  "seenAny": 0.25,
+  "withoutDecisive": 0.36,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7,
+    "triage": 0.7
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.6,
+    "triage": 0.8
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.6667,
+    "triage": 0.6667
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.5333,
+    "triage": 0.6667
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.7333,
+    "triage": 0.9167
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.5167,
+    "triage": 0.5
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8667,
+    "triage": 0.9333
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.4667
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.7333,
+    "triage": 1
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.4667,
+    "triage": 0.6
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.8667
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.4667
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.8667
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.4667
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.5833,
+    "topRecall": 0.1667
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.5833,
+    "topRecall": 0.0833
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.5833,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.4167,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.4167,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.8333,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 0.8333,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.75,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 22388,
+   "max": 23998
+  },
+  "carried": {
+   "items": 120,
+   "counted": 36,
+   "hinted": 24,
+   "summarized": 120
+  }
+ },
+ "all|0.5|J'|zh": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.625,
+  "exact": 0.3,
+  "tooHigh": 0.15,
+  "tooLow": 0.225,
+  "maxItems": 28,
+  "maxRecall": 0,
+  "maxHits": 0,
+  "falseMax": 0,
+  "triage": 0.75,
+  "falseAdd": 0,
+  "lostRecord": 0.1525,
+  "changeRight": 0.7417,
+  "seenAll": 0.25,
+  "seenAny": 0.25,
+  "withoutDecisive": 0.4133,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7333,
+    "triage": 0.7667
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.6,
+    "triage": 0.8
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.6333,
+    "triage": 0.7
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.5333,
+    "triage": 0.7333
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.7167,
+    "triage": 0.8833
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.5333,
+    "triage": 0.6167
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8667,
+    "triage": 0.8
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.6,
+    "triage": 0.7333
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.7333,
+    "triage": 1
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.4667,
+    "triage": 0.6
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.8
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.4667,
+    "triage": 0.6
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.4667,
+    "triage": 0.9333
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.6,
+    "triage": 0.5333
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.8333,
+    "topRecall": 0
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5833,
+    "topRecall": 0
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.75,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.4167,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.4167,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5833,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.75,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.1667,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 22424,
+   "max": 23996
+  },
+  "carried": null
+ },
+ "all|0.5|J'|en": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.6167,
+  "exact": 0.3417,
+  "tooHigh": 0.1333,
+  "tooLow": 0.25,
+  "maxItems": 28,
+  "maxRecall": 0.1786,
+  "maxHits": 5,
+  "falseMax": 0,
+  "triage": 0.7583,
+  "falseAdd": 0.0164,
+  "lostRecord": 0.1186,
+  "changeRight": 0.7,
+  "seenAll": 0.25,
+  "seenAny": 0.25,
+  "withoutDecisive": 0.2667,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7333,
+    "triage": 0.8
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.6667,
+    "triage": 0.7667
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.5333,
+    "triage": 0.7
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.5333,
+    "triage": 0.7667
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.7333,
+    "triage": 0.9167
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.5,
+    "triage": 0.6
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8667,
+    "triage": 0.8
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.6,
+    "triage": 0.8
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 1
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.5333
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.7333,
+    "triage": 0.8667
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.3333,
+    "triage": 0.5333
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.5333
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.8333,
+    "topRecall": 0.1667
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5,
+    "topRecall": 0.1667
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.5,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.8333,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 1,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.6667,
+    "topRecall": 0.25
+   }
+  },
+  "stateTokens": {
+   "mean": 22424,
+   "max": 23996
+  },
+  "carried": null
+ },
+ "all|0.47|A|zh": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.6917,
+  "exact": 0.3083,
+  "tooHigh": 0.125,
+  "tooLow": 0.1833,
+  "maxItems": 28,
+  "maxRecall": 0.25,
+  "maxHits": 7,
+  "falseMax": 0,
+  "triage": 0.8583,
+  "falseAdd": 0.0164,
+  "lostRecord": 0.0678,
+  "changeRight": 0.8333,
+  "seenAll": 0.75,
+  "seenAny": 0.75,
+  "withoutDecisive": 0.3867,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7,
+    "triage": 0.8333
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.7667,
+    "triage": 0.8667
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.8,
+    "triage": 0.9667
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.5,
+    "triage": 0.7667
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.6833,
+    "triage": 0.85
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.7,
+    "triage": 0.8667
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.6667
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.6,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.8667
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.8667,
+    "triage": 0.8667
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.9333,
+    "triage": 0.9333
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.3333,
+    "triage": 0.9333
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.6
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 1,
+    "topRecall": 0.4167
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.6667,
+    "topRecall": 0
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 1,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.75,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.8333,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.75,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.75,
+    "topRecall": 0.5
+   }
+  },
+  "stateTokens": {
+   "mean": 116691,
+   "max": 134944
+  },
+  "carried": null
+ },
+ "all|0.47|A|en": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.725,
+  "exact": 0.35,
+  "tooHigh": 0.1333,
+  "tooLow": 0.1417,
+  "maxItems": 28,
+  "maxRecall": 0.4643,
+  "maxHits": 13,
+  "falseMax": 0.0115,
+  "triage": 0.8667,
+  "falseAdd": 0,
+  "lostRecord": 0.0678,
+  "changeRight": 0.8167,
+  "seenAll": 0.75,
+  "seenAny": 0.75,
+  "withoutDecisive": 0.2667,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7667,
+    "triage": 0.9667
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.8,
+    "triage": 0.7667
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.8,
+    "triage": 0.9667
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.5333,
+    "triage": 0.7667
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.7,
+    "triage": 0.9
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.75,
+    "triage": 0.8333
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8667,
+    "triage": 0.9333
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.8
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.9333,
+    "triage": 0.7333
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.9333,
+    "triage": 0.9333
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.3333,
+    "triage": 0.9333
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.7333,
+    "triage": 0.6
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 1,
+    "topRecall": 0.5833
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 1,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.75,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 1,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.75,
+    "topRecall": 0.75
+   }
+  },
+  "stateTokens": {
+   "mean": 116691,
+   "max": 134944
+  },
+  "carried": null
+ },
+ "all|0.47|A+|zh": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.619,
+  "exact": 0.2222,
+  "tooHigh": 0.0952,
+  "tooLow": 0.2857,
+  "maxItems": 28,
+  "maxRecall": 0.2143,
+  "maxHits": 6,
+  "falseMax": 0,
+  "triage": 0.8571,
+  "falseAdd": 0.0455,
+  "lostRecord": 0.122,
+  "changeRight": 0.8254,
+  "seenAll": 0.7619,
+  "seenAny": 0.7619,
+  "withoutDecisive": 0.3774,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.9375
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.5625,
+    "triage": 0.8125
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.9375
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.7333
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.7097,
+    "triage": 0.9355
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.5313,
+    "triage": 0.7813
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 0.8889
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 0.8571
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.5556,
+    "triage": 0.7778
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.8889,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.4286,
+    "triage": 0.8571
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.5,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.5556,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 1,
+    "topRecall": 0.3333
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.6667,
+    "topRecall": 0.0833
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   }
+  },
+  "stateTokens": {
+   "mean": 117581,
+   "max": 135015
+  },
+  "carried": {
+   "items": 63,
+   "counted": 16,
+   "hinted": 13,
+   "summarized": 63
+  }
+ },
+ "all|0.47|B|zh": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.6333,
+  "exact": 0.2917,
+  "tooHigh": 0.1833,
+  "tooLow": 0.1833,
+  "maxItems": 28,
+  "maxRecall": 0.25,
+  "maxHits": 7,
+  "falseMax": 0.0345,
+  "triage": 0.75,
+  "falseAdd": 0.0328,
+  "lostRecord": 0.1695,
+  "changeRight": 0.7583,
+  "seenAll": 0.5,
+  "seenAny": 0.5,
+  "withoutDecisive": 0.4133,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7667,
+    "triage": 0.8667
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.6667,
+    "triage": 0.8
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.6333,
+    "triage": 0.6333
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.4667,
+    "triage": 0.7
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.6333,
+    "triage": 0.85
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.6333,
+    "triage": 0.65
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8667,
+    "triage": 0.8
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.9333
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.6,
+    "triage": 0.8
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.7333,
+    "triage": 0.8
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.8667
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.4667,
+    "triage": 0.4
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.2667,
+    "triage": 0.9333
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.4667
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.75,
+    "topRecall": 0.3333
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.5833,
+    "topRecall": 0.25
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.75,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.4167,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.4167,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.8333,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 46353,
+   "max": 47984
+  },
+  "carried": {
+   "items": 120,
+   "counted": 39,
+   "hinted": 31,
+   "summarized": 120
+  }
+ },
+ "all|0.47|B'|zh": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.65,
+  "exact": 0.275,
+  "tooHigh": 0.15,
+  "tooLow": 0.2,
+  "maxItems": 28,
+  "maxRecall": 0.1071,
+  "maxHits": 3,
+  "falseMax": 0,
+  "triage": 0.7917,
+  "falseAdd": 0.0328,
+  "lostRecord": 0.1186,
+  "changeRight": 0.775,
+  "seenAll": 0.5,
+  "seenAny": 0.5,
+  "withoutDecisive": 0.4267,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7333,
+    "triage": 0.9
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.7333,
+    "triage": 0.8333
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.6333,
+    "triage": 0.7333
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.5,
+    "triage": 0.7
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.6333,
+    "triage": 0.8667
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.6667,
+    "triage": 0.7167
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.8
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.8667
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.8
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.7333,
+    "triage": 0.8667
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.6
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.3333,
+    "triage": 0.9333
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.4667
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5833,
+    "topRecall": 0
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.5833,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.75,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 46397,
+   "max": 47999
+  },
+  "carried": null
+ },
+ "all|0.47|B'|en": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.7167,
+  "exact": 0.3083,
+  "tooHigh": 0.1583,
+  "tooLow": 0.125,
+  "maxItems": 28,
+  "maxRecall": 0.3571,
+  "maxHits": 10,
+  "falseMax": 0,
+  "triage": 0.8333,
+  "falseAdd": 0.0164,
+  "lostRecord": 0.1356,
+  "changeRight": 0.8167,
+  "seenAll": 0.5,
+  "seenAny": 0.5,
+  "withoutDecisive": 0.2667,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7667,
+    "triage": 0.9667
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.7667,
+    "triage": 0.9333
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.7333,
+    "triage": 0.7333
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.6,
+    "triage": 0.7
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.6333,
+    "triage": 0.9167
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.8,
+    "triage": 0.75
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.9333
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.7333,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.6,
+    "triage": 0.9333
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.9333,
+    "triage": 0.9333
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.8667
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.6667,
+    "triage": 0.6
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.3333,
+    "triage": 0.9333
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.8667,
+    "triage": 0.4667
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.8333,
+    "topRecall": 0.4167
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.75,
+    "topRecall": 0.3333
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.8333,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.75,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 1,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   }
+  },
+  "stateTokens": {
+   "mean": 46397,
+   "max": 47999
+  },
+  "carried": null
+ },
+ "all|0.47|J|zh": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.625,
+  "exact": 0.3333,
+  "tooHigh": 0.1583,
+  "tooLow": 0.2167,
+  "maxItems": 28,
+  "maxRecall": 0.1071,
+  "maxHits": 3,
+  "falseMax": 0,
+  "triage": 0.7083,
+  "falseAdd": 0,
+  "lostRecord": 0.2203,
+  "changeRight": 0.7,
+  "seenAll": 0.25,
+  "seenAny": 0.25,
+  "withoutDecisive": 0.36,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7,
+    "triage": 0.7
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.6,
+    "triage": 0.8
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.6667,
+    "triage": 0.6667
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.5333,
+    "triage": 0.6667
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.7333,
+    "triage": 0.9167
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.5167,
+    "triage": 0.5
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8667,
+    "triage": 0.9333
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.4667
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.7333,
+    "triage": 1
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.4667,
+    "triage": 0.6
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.8667
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.4667
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.8667
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.4667
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.5833,
+    "topRecall": 0.1667
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.5833,
+    "topRecall": 0.0833
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.5833,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.4167,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.4167,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.8333,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 0.8333,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.75,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 22388,
+   "max": 23998
+  },
+  "carried": {
+   "items": 120,
+   "counted": 36,
+   "hinted": 24,
+   "summarized": 120
+  }
+ },
+ "all|0.47|J'|zh": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.625,
+  "exact": 0.3,
+  "tooHigh": 0.15,
+  "tooLow": 0.225,
+  "maxItems": 28,
+  "maxRecall": 0,
+  "maxHits": 0,
+  "falseMax": 0,
+  "triage": 0.75,
+  "falseAdd": 0,
+  "lostRecord": 0.1525,
+  "changeRight": 0.7417,
+  "seenAll": 0.25,
+  "seenAny": 0.25,
+  "withoutDecisive": 0.4133,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7333,
+    "triage": 0.7667
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.6,
+    "triage": 0.8
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.6333,
+    "triage": 0.7
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.5333,
+    "triage": 0.7333
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.7167,
+    "triage": 0.8833
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.5333,
+    "triage": 0.6167
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8667,
+    "triage": 0.8
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.6,
+    "triage": 0.7333
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.7333,
+    "triage": 1
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.4667,
+    "triage": 0.6
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 0.8
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.4667,
+    "triage": 0.6
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.4667,
+    "triage": 0.9333
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.6,
+    "triage": 0.5333
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.8333,
+    "topRecall": 0
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5833,
+    "topRecall": 0
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.75,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.4167,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.4167,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5833,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.75,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.1667,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 22424,
+   "max": 23996
+  },
+  "carried": null
+ },
+ "all|0.47|J'|en": {
+  "items": 120,
+  "failed": 0,
+  "accuracy": 0.6167,
+  "exact": 0.35,
+  "tooHigh": 0.1333,
+  "tooLow": 0.25,
+  "maxItems": 28,
+  "maxRecall": 0.2143,
+  "maxHits": 6,
+  "falseMax": 0,
+  "triage": 0.7583,
+  "falseAdd": 0.0164,
+  "lostRecord": 0.1186,
+  "changeRight": 0.7,
+  "seenAll": 0.25,
+  "seenAny": 0.25,
+  "withoutDecisive": 0.2667,
+  "withoutDecisiveItems": 75,
+  "byBin": {
+   "d1": {
+    "items": 30,
+    "accuracy": 0.7333,
+    "triage": 0.8
+   },
+   "d2": {
+    "items": 30,
+    "accuracy": 0.6667,
+    "triage": 0.7667
+   },
+   "d3": {
+    "items": 30,
+    "accuracy": 0.5333,
+    "triage": 0.7
+   },
+   "d4": {
+    "items": 30,
+    "accuracy": 0.5333,
+    "triage": 0.7667
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 60,
+    "accuracy": 0.7333,
+    "triage": 0.9167
+   },
+   "unrelated": {
+    "items": 60,
+    "accuracy": 0.5,
+    "triage": 0.6
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 15,
+    "accuracy": 0.8667,
+    "triage": 0.8
+   },
+   "d1 unrelated": {
+    "items": 15,
+    "accuracy": 0.6,
+    "triage": 0.8
+   },
+   "d2 same-problem": {
+    "items": 15,
+    "accuracy": 0.8,
+    "triage": 1
+   },
+   "d2 unrelated": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.5333
+   },
+   "d3 same-problem": {
+    "items": 15,
+    "accuracy": 0.7333,
+    "triage": 0.8667
+   },
+   "d3 unrelated": {
+    "items": 15,
+    "accuracy": 0.3333,
+    "triage": 0.5333
+   },
+   "d4 same-problem": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.5333
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5,
+    "topRecall": 0.1667
+   },
+   "single-attempt": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "resolved": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.5,
+    "topRecall": null
+   },
+   "new-topic": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 1,
+    "topRecall": null
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "misleading-history": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.8333,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 1,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.6667,
+    "topRecall": 0.25
+   }
+  },
+  "stateTokens": {
+   "mean": 22424,
+   "max": 23996
+  },
+  "carried": null
+ },
+ "aplus|0.5|A|zh": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.6032,
+  "exact": 0.254,
+  "tooHigh": 0.0794,
+  "tooLow": 0.3175,
+  "maxItems": 28,
+  "maxRecall": 0.25,
+  "maxHits": 7,
+  "falseMax": 0,
+  "triage": 0.8571,
+  "falseAdd": 0.0455,
+  "lostRecord": 0.0488,
+  "changeRight": 0.8254,
+  "seenAll": 0.7619,
+  "seenAny": 0.7619,
+  "withoutDecisive": 0.3774,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.5625,
+    "triage": 0.8125
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.75,
+    "triage": 0.8125
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.75,
+    "triage": 1
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.3333,
+    "triage": 0.8
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.6129,
+    "triage": 0.871
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.5938,
+    "triage": 0.8438
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 0.6667
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.4286,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 0.8571
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.8889,
+    "triage": 0.7778
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.8889,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.1667,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.4444,
+    "triage": 0.6667
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 1,
+    "topRecall": 0.4167
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.6667,
+    "topRecall": 0
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 1,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.75,
+    "topRecall": 0.5
+   }
+  },
+  "stateTokens": {
+   "mean": 117263,
+   "max": 134780
+  },
+  "carried": null
+ },
+ "aplus|0.5|A|en": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.7143,
+  "exact": 0.3175,
+  "tooHigh": 0.0794,
+  "tooLow": 0.2063,
+  "maxItems": 28,
+  "maxRecall": 0.4286,
+  "maxHits": 12,
+  "falseMax": 0,
+  "triage": 0.9048,
+  "falseAdd": 0,
+  "lostRecord": 0.0732,
+  "changeRight": 0.8254,
+  "seenAll": 0.7619,
+  "seenAny": 0.7619,
+  "withoutDecisive": 0.2642,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 1
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.8125,
+    "triage": 0.8125
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.8125,
+    "triage": 1
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.8
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.7097,
+    "triage": 0.9677
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.7188,
+    "triage": 0.8438
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 1
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.7143,
+    "triage": 0.8571
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.8889,
+    "triage": 0.7778
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.8889,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.7143,
+    "triage": 1
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.3333,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 0.6667
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 1,
+    "topRecall": 0.5833
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 1,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.75,
+    "topRecall": 0.5
+   }
+  },
+  "stateTokens": {
+   "mean": 117263,
+   "max": 134780
+  },
+  "carried": null
+ },
+ "aplus|0.5|A+|zh": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.619,
+  "exact": 0.2063,
+  "tooHigh": 0.0952,
+  "tooLow": 0.2857,
+  "maxItems": 28,
+  "maxRecall": 0.1786,
+  "maxHits": 5,
+  "falseMax": 0,
+  "triage": 0.8571,
+  "falseAdd": 0.0455,
+  "lostRecord": 0.122,
+  "changeRight": 0.8254,
+  "seenAll": 0.7619,
+  "seenAny": 0.7619,
+  "withoutDecisive": 0.3774,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.9375
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.5625,
+    "triage": 0.8125
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.9375
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.7333
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.7097,
+    "triage": 0.9355
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.5313,
+    "triage": 0.7813
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 0.8889
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 0.8571
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.5556,
+    "triage": 0.7778
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.8889,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.4286,
+    "triage": 0.8571
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.5,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.5556,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 1,
+    "topRecall": 0.25
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.6667,
+    "topRecall": 0.0833
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   }
+  },
+  "stateTokens": {
+   "mean": 117581,
+   "max": 135015
+  },
+  "carried": {
+   "items": 63,
+   "counted": 16,
+   "hinted": 13,
+   "summarized": 63
+  }
+ },
+ "aplus|0.5|B|zh": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.5873,
+  "exact": 0.1746,
+  "tooHigh": 0.127,
+  "tooLow": 0.2857,
+  "maxItems": 28,
+  "maxRecall": 0.2143,
+  "maxHits": 6,
+  "falseMax": 0,
+  "triage": 0.7778,
+  "falseAdd": 0.0455,
+  "lostRecord": 0.1951,
+  "changeRight": 0.7619,
+  "seenAll": 0.5079,
+  "seenAny": 0.5079,
+  "withoutDecisive": 0.4151,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.9375
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.625,
+    "triage": 0.6875
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.625,
+    "triage": 0.75
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.4,
+    "triage": 0.7333
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.6452,
+    "triage": 0.9032
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.5313,
+    "triage": 0.6563
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 0.8889
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 0.7143
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 0.6667
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.4286,
+    "triage": 0.4286
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.3333,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.4444,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.75,
+    "topRecall": 0.3333
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.5833,
+    "topRecall": 0.1667
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.4167,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.3333,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.8333,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 46320,
+   "max": 47972
+  },
+  "carried": {
+   "items": 63,
+   "counted": 18,
+   "hinted": 15,
+   "summarized": 63
+  }
+ },
+ "aplus|0.5|B'|zh": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.5556,
+  "exact": 0.1746,
+  "tooHigh": 0.1111,
+  "tooLow": 0.3333,
+  "maxItems": 28,
+  "maxRecall": 0.1071,
+  "maxHits": 3,
+  "falseMax": 0,
+  "triage": 0.8095,
+  "falseAdd": 0.0455,
+  "lostRecord": 0.122,
+  "changeRight": 0.7778,
+  "seenAll": 0.5079,
+  "seenAny": 0.5079,
+  "withoutDecisive": 0.4528,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.625,
+    "triage": 0.9375
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.75
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.5625,
+    "triage": 0.8125
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.3333,
+    "triage": 0.7333
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.5484,
+    "triage": 0.9355
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.5625,
+    "triage": 0.6875
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 0.8889
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 0.8571
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 0.6667
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.4286,
+    "triage": 0.5714
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.1667,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.4444,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5833,
+    "topRecall": 0
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.75,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 46338,
+   "max": 47935
+  },
+  "carried": null
+ },
+ "aplus|0.5|B'|en": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.6984,
+  "exact": 0.254,
+  "tooHigh": 0.1111,
+  "tooLow": 0.1905,
+  "maxItems": 28,
+  "maxRecall": 0.3571,
+  "maxHits": 10,
+  "falseMax": 0,
+  "triage": 0.873,
+  "falseAdd": 0,
+  "lostRecord": 0.1463,
+  "changeRight": 0.8254,
+  "seenAll": 0.5079,
+  "seenAny": 0.5079,
+  "withoutDecisive": 0.2264,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.75,
+    "triage": 1
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.75,
+    "triage": 0.9375
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.8125
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.6,
+    "triage": 0.7333
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.6129,
+    "triage": 1
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.7813,
+    "triage": 0.75
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 1
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.7143,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.8889,
+    "triage": 0.8889
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.7143,
+    "triage": 0.5714
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.3333,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.8333,
+    "topRecall": 0.4167
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.75,
+    "topRecall": 0.3333
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 1,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   }
+  },
+  "stateTokens": {
+   "mean": 46338,
+   "max": 47935
+  },
+  "carried": null
+ },
+ "aplus|0.5|J|zh": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.5556,
+  "exact": 0.1587,
+  "tooHigh": 0.1429,
+  "tooLow": 0.3016,
+  "maxItems": 28,
+  "maxRecall": 0.1071,
+  "maxHits": 3,
+  "falseMax": 0,
+  "triage": 0.7302,
+  "falseAdd": 0,
+  "lostRecord": 0.2683,
+  "changeRight": 0.6825,
+  "seenAll": 0.254,
+  "seenAny": 0.254,
+  "withoutDecisive": 0.3585,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.8125
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.375,
+    "triage": 0.75
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.625,
+    "triage": 0.75
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.6
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.6452,
+    "triage": 0.9355
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.4688,
+    "triage": 0.5313
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 1
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 0.5714
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.2222,
+    "triage": 0.5556
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 0.4286
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.5,
+    "triage": 0.6667
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.5556,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.5833,
+    "topRecall": 0.1667
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.5833,
+    "topRecall": 0.0833
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.4167,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.3333,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 0.8333,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.75,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 22480,
+   "max": 23998
+  },
+  "carried": {
+   "items": 63,
+   "counted": 19,
+   "hinted": 11,
+   "summarized": 63
+  }
+ },
+ "aplus|0.5|J'|zh": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.4921,
+  "exact": 0.0952,
+  "tooHigh": 0.1587,
+  "tooLow": 0.3492,
+  "maxItems": 28,
+  "maxRecall": 0,
+  "maxHits": 0,
+  "falseMax": 0,
+  "triage": 0.7937,
+  "falseAdd": 0,
+  "lostRecord": 0.2195,
+  "changeRight": 0.7619,
+  "seenAll": 0.254,
+  "seenAny": 0.254,
+  "withoutDecisive": 0.4528,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.9375
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.3125,
+    "triage": 0.75
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.5,
+    "triage": 0.8125
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.4667,
+    "triage": 0.6667
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.6452,
+    "triage": 0.9355
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.3438,
+    "triage": 0.6563
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 0.8889
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.1111,
+    "triage": 0.5556
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.2857,
+    "triage": 0.5714
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.5,
+    "triage": 0.8333
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.4444,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.8333,
+    "topRecall": 0
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5833,
+    "topRecall": 0
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.1667,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 22446,
+   "max": 23996
+  },
+  "carried": null
+ },
+ "aplus|0.5|J'|en": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.5397,
+  "exact": 0.1905,
+  "tooHigh": 0.1429,
+  "tooLow": 0.3175,
+  "maxItems": 28,
+  "maxRecall": 0.1786,
+  "maxHits": 5,
+  "falseMax": 0,
+  "triage": 0.7778,
+  "falseAdd": 0,
+  "lostRecord": 0.1707,
+  "changeRight": 0.7302,
+  "seenAll": 0.254,
+  "seenAny": 0.254,
+  "withoutDecisive": 0.283,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.875
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.5,
+    "triage": 0.6875
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.5,
+    "triage": 0.8125
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.4667,
+    "triage": 0.7333
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.6452,
+    "triage": 0.9355
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.4375,
+    "triage": 0.625
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 0.7778
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.7143,
+    "triage": 1
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.3333,
+    "triage": 0.4444
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.5556,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.4286,
+    "triage": 0.5714
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.5,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.4444,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.8333,
+    "topRecall": 0.1667
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5,
+    "topRecall": 0.1667
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 1,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 1,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.6667,
+    "topRecall": 0.25
+   }
+  },
+  "stateTokens": {
+   "mean": 22446,
+   "max": 23996
+  },
+  "carried": null
+ },
+ "aplus|0.47|A|zh": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.6032,
+  "exact": 0.254,
+  "tooHigh": 0.0794,
+  "tooLow": 0.3175,
+  "maxItems": 28,
+  "maxRecall": 0.25,
+  "maxHits": 7,
+  "falseMax": 0,
+  "triage": 0.8571,
+  "falseAdd": 0.0455,
+  "lostRecord": 0.0488,
+  "changeRight": 0.8254,
+  "seenAll": 0.7619,
+  "seenAny": 0.7619,
+  "withoutDecisive": 0.3774,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.5625,
+    "triage": 0.8125
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.75,
+    "triage": 0.8125
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.75,
+    "triage": 1
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.3333,
+    "triage": 0.8
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.6129,
+    "triage": 0.871
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.5938,
+    "triage": 0.8438
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 0.6667
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.4286,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 0.8571
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.8889,
+    "triage": 0.7778
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.8889,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.1667,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.4444,
+    "triage": 0.6667
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 1,
+    "topRecall": 0.4167
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.6667,
+    "topRecall": 0
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 1,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.75,
+    "topRecall": 0.5
+   }
+  },
+  "stateTokens": {
+   "mean": 117263,
+   "max": 134780
+  },
+  "carried": null
+ },
+ "aplus|0.47|A|en": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.7143,
+  "exact": 0.3333,
+  "tooHigh": 0.0794,
+  "tooLow": 0.2063,
+  "maxItems": 28,
+  "maxRecall": 0.4643,
+  "maxHits": 13,
+  "falseMax": 0,
+  "triage": 0.9048,
+  "falseAdd": 0,
+  "lostRecord": 0.0732,
+  "changeRight": 0.8254,
+  "seenAll": 0.7619,
+  "seenAny": 0.7619,
+  "withoutDecisive": 0.2642,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 1
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.8125,
+    "triage": 0.8125
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.8125,
+    "triage": 1
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.8
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.7097,
+    "triage": 0.9677
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.7188,
+    "triage": 0.8438
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 1
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.7143,
+    "triage": 0.8571
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.8889,
+    "triage": 0.7778
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.8889,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.7143,
+    "triage": 1
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.3333,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 0.6667
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 1,
+    "topRecall": 0.5833
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 1,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.75,
+    "topRecall": 0.75
+   }
+  },
+  "stateTokens": {
+   "mean": 117263,
+   "max": 134780
+  },
+  "carried": null
+ },
+ "aplus|0.47|A+|zh": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.619,
+  "exact": 0.2222,
+  "tooHigh": 0.0952,
+  "tooLow": 0.2857,
+  "maxItems": 28,
+  "maxRecall": 0.2143,
+  "maxHits": 6,
+  "falseMax": 0,
+  "triage": 0.8571,
+  "falseAdd": 0.0455,
+  "lostRecord": 0.122,
+  "changeRight": 0.8254,
+  "seenAll": 0.7619,
+  "seenAny": 0.7619,
+  "withoutDecisive": 0.3774,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.9375
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.5625,
+    "triage": 0.8125
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.9375
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.7333
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.7097,
+    "triage": 0.9355
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.5313,
+    "triage": 0.7813
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 0.8889
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 0.8571
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.5556,
+    "triage": 0.7778
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.8889,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.4286,
+    "triage": 0.8571
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.5,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.5556,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 1,
+    "topRecall": 0.3333
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.6667,
+    "topRecall": 0.0833
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   }
+  },
+  "stateTokens": {
+   "mean": 117581,
+   "max": 135015
+  },
+  "carried": {
+   "items": 63,
+   "counted": 16,
+   "hinted": 13,
+   "summarized": 63
+  }
+ },
+ "aplus|0.47|B|zh": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.5873,
+  "exact": 0.1905,
+  "tooHigh": 0.127,
+  "tooLow": 0.2857,
+  "maxItems": 28,
+  "maxRecall": 0.25,
+  "maxHits": 7,
+  "falseMax": 0,
+  "triage": 0.7778,
+  "falseAdd": 0.0455,
+  "lostRecord": 0.1951,
+  "changeRight": 0.7619,
+  "seenAll": 0.5079,
+  "seenAny": 0.5079,
+  "withoutDecisive": 0.4151,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.9375
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.625,
+    "triage": 0.6875
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.625,
+    "triage": 0.75
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.4,
+    "triage": 0.7333
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.6452,
+    "triage": 0.9032
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.5313,
+    "triage": 0.6563
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 0.8889
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 0.7143
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 0.6667
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.4286,
+    "triage": 0.4286
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.3333,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.4444,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.75,
+    "topRecall": 0.3333
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.5833,
+    "topRecall": 0.25
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.4167,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.3333,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.8333,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 46320,
+   "max": 47972
+  },
+  "carried": {
+   "items": 63,
+   "counted": 18,
+   "hinted": 15,
+   "summarized": 63
+  }
+ },
+ "aplus|0.47|B'|zh": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.5556,
+  "exact": 0.1587,
+  "tooHigh": 0.1111,
+  "tooLow": 0.3333,
+  "maxItems": 28,
+  "maxRecall": 0.1071,
+  "maxHits": 3,
+  "falseMax": 0,
+  "triage": 0.8095,
+  "falseAdd": 0.0455,
+  "lostRecord": 0.122,
+  "changeRight": 0.7778,
+  "seenAll": 0.5079,
+  "seenAny": 0.5079,
+  "withoutDecisive": 0.4528,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.625,
+    "triage": 0.9375
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.75
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.5625,
+    "triage": 0.8125
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.3333,
+    "triage": 0.7333
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.5484,
+    "triage": 0.9355
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.5625,
+    "triage": 0.6875
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 0.8889
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 0.8571
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 0.6667
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.4286,
+    "triage": 0.5714
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.1667,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.4444,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5833,
+    "topRecall": 0
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.75,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 46338,
+   "max": 47935
+  },
+  "carried": null
+ },
+ "aplus|0.47|B'|en": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.6984,
+  "exact": 0.254,
+  "tooHigh": 0.1111,
+  "tooLow": 0.1905,
+  "maxItems": 28,
+  "maxRecall": 0.3571,
+  "maxHits": 10,
+  "falseMax": 0,
+  "triage": 0.873,
+  "falseAdd": 0,
+  "lostRecord": 0.1463,
+  "changeRight": 0.8254,
+  "seenAll": 0.5079,
+  "seenAny": 0.5079,
+  "withoutDecisive": 0.2264,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.75,
+    "triage": 1
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.75,
+    "triage": 0.9375
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.8125
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.6,
+    "triage": 0.7333
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.6129,
+    "triage": 1
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.7813,
+    "triage": 0.75
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 1
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.7143,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.8889,
+    "triage": 0.8889
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.7143,
+    "triage": 0.5714
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.3333,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.9167,
+    "triage": 0.8333,
+    "topRecall": 0.4167
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.8333,
+    "triage": 0.75,
+    "topRecall": 0.3333
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 1,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 1,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   }
+  },
+  "stateTokens": {
+   "mean": 46338,
+   "max": 47935
+  },
+  "carried": null
+ },
+ "aplus|0.47|J|zh": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.5556,
+  "exact": 0.1587,
+  "tooHigh": 0.1429,
+  "tooLow": 0.3016,
+  "maxItems": 28,
+  "maxRecall": 0.1071,
+  "maxHits": 3,
+  "falseMax": 0,
+  "triage": 0.7302,
+  "falseAdd": 0,
+  "lostRecord": 0.2683,
+  "changeRight": 0.6825,
+  "seenAll": 0.254,
+  "seenAny": 0.254,
+  "withoutDecisive": 0.3585,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.8125
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.375,
+    "triage": 0.75
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.625,
+    "triage": 0.75
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.5333,
+    "triage": 0.6
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.6452,
+    "triage": 0.9355
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.4688,
+    "triage": 0.5313
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 1
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 0.5714
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.2222,
+    "triage": 0.5556
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 0.4286
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.5,
+    "triage": 0.6667
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.5556,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.5833,
+    "topRecall": 0.1667
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5833,
+    "triage": 0.5833,
+    "topRecall": 0.0833
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.4167,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.3333,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 0.8333,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.75,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 22480,
+   "max": 23998
+  },
+  "carried": {
+   "items": 63,
+   "counted": 19,
+   "hinted": 11,
+   "summarized": 63
+  }
+ },
+ "aplus|0.47|J'|zh": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.4921,
+  "exact": 0.0952,
+  "tooHigh": 0.1587,
+  "tooLow": 0.3492,
+  "maxItems": 28,
+  "maxRecall": 0,
+  "maxHits": 0,
+  "falseMax": 0,
+  "triage": 0.7937,
+  "falseAdd": 0,
+  "lostRecord": 0.2195,
+  "changeRight": 0.7619,
+  "seenAll": 0.254,
+  "seenAny": 0.254,
+  "withoutDecisive": 0.4528,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.9375
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.3125,
+    "triage": 0.75
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.5,
+    "triage": 0.8125
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.4667,
+    "triage": 0.6667
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.6452,
+    "triage": 0.9355
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.3438,
+    "triage": 0.6563
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 0.8889
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.1111,
+    "triage": 0.5556
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.6667,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.2857,
+    "triage": 0.5714
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.5,
+    "triage": 0.8333
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.4444,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.8333,
+    "topRecall": 0
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5833,
+    "topRecall": 0
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 1,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.1667,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.6667,
+    "triage": 0.6667,
+    "topRecall": 0
+   }
+  },
+  "stateTokens": {
+   "mean": 22446,
+   "max": 23996
+  },
+  "carried": null
+ },
+ "aplus|0.47|J'|en": {
+  "items": 63,
+  "failed": 0,
+  "accuracy": 0.5397,
+  "exact": 0.2063,
+  "tooHigh": 0.1429,
+  "tooLow": 0.3175,
+  "maxItems": 28,
+  "maxRecall": 0.2143,
+  "maxHits": 6,
+  "falseMax": 0,
+  "triage": 0.7778,
+  "falseAdd": 0,
+  "lostRecord": 0.1707,
+  "changeRight": 0.7302,
+  "seenAll": 0.254,
+  "seenAny": 0.254,
+  "withoutDecisive": 0.283,
+  "withoutDecisiveItems": 53,
+  "byBin": {
+   "d1": {
+    "items": 16,
+    "accuracy": 0.6875,
+    "triage": 0.875
+   },
+   "d2": {
+    "items": 16,
+    "accuracy": 0.5,
+    "triage": 0.6875
+   },
+   "d3": {
+    "items": 16,
+    "accuracy": 0.5,
+    "triage": 0.8125
+   },
+   "d4": {
+    "items": 15,
+    "accuracy": 0.4667,
+    "triage": 0.7333
+   }
+  },
+  "byRelation": {
+   "same-problem": {
+    "items": 31,
+    "accuracy": 0.6452,
+    "triage": 0.9355
+   },
+   "unrelated": {
+    "items": 32,
+    "accuracy": 0.4375,
+    "triage": 0.625
+   }
+  },
+  "byBinRelation": {
+   "d1 same-problem": {
+    "items": 9,
+    "accuracy": 0.7778,
+    "triage": 0.7778
+   },
+   "d1 unrelated": {
+    "items": 7,
+    "accuracy": 0.5714,
+    "triage": 1
+   },
+   "d2 same-problem": {
+    "items": 7,
+    "accuracy": 0.7143,
+    "triage": 1
+   },
+   "d2 unrelated": {
+    "items": 9,
+    "accuracy": 0.3333,
+    "triage": 0.4444
+   },
+   "d3 same-problem": {
+    "items": 9,
+    "accuracy": 0.5556,
+    "triage": 1
+   },
+   "d3 unrelated": {
+    "items": 7,
+    "accuracy": 0.4286,
+    "triage": 0.5714
+   },
+   "d4 same-problem": {
+    "items": 6,
+    "accuracy": 0.5,
+    "triage": 1
+   },
+   "d4 unrelated": {
+    "items": 9,
+    "accuracy": 0.4444,
+    "triage": 0.5556
+   }
+  },
+  "byCategory": {
+   "explicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.8333,
+    "topRecall": 0.25
+   },
+   "implicit-unresolved": {
+    "items": 12,
+    "accuracy": 0.5,
+    "triage": 0.5,
+    "topRecall": 0.1667
+   },
+   "cheap-agreement": {
+    "items": 12,
+    "accuracy": 0.3333,
+    "triage": 0.9167,
+    "topRecall": null
+   },
+   "looks-hard-is-easy": {
+    "items": 3,
+    "accuracy": 1,
+    "triage": 0.6667,
+    "topRecall": null
+   },
+   "hard-constraint": {
+    "items": 12,
+    "accuracy": 0.25,
+    "triage": 1,
+    "topRecall": null
+   },
+   "command-turn": {
+    "items": 12,
+    "accuracy": 0.75,
+    "triage": 0.6667,
+    "topRecall": 0.25
+   }
+  },
+  "stateTokens": {
+   "mean": 22446,
+   "max": 23996
+  },
+  "carried": null
+ }
+}

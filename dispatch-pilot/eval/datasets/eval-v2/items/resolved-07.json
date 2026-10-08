@@ -1,0 +1,68 @@
+{
+  "id": "resolved-07",
+  "category": "resolved",
+  "domain": "devops-ci",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "部署后的冒烟检查",
+    "SYMPTOM": "冒烟检查偶尔卡在同一个服务上四分多钟，然后报错，点重跑又能过",
+    "ERROR": "ERROR check_service ledger-api: gave up after 3 retries: curl: (7) Failed to connect to 127.0.0.1 port 18080 after 0 ms: Couldn't connect to server",
+    "FILE": "scripts/smoke/smoke.sh",
+    "FILE2": "scripts/smoke/run.sh",
+    "SYMBOL": "check_service",
+    "COMMAND": "scripts/smoke/run.sh"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "部署后的冒烟检查这两周时不时挂一次 每次都是卡在 ledger-api 那个服务上 先停四分多钟 然后报 `ERROR check_service ledger-api: gave up after 3 retries: curl: (7) Failed to connect to 127.0.0.1 port 18080 after 0 ms: Couldn't connect to server` 点重跑就过 staging 上多 prod 和托管 runner 上也各碰到过 逻辑在 scripts/smoke/smoke.sh 的 check_service 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "先按「ledger-api 刚起来还没就绪」处理了，冒烟前多等一步。\n\n- **看到的**：`check_service` 对每个服务先在后台起一个 `kubectl port-forward svc/<服务> 18080:80`，再用 `curl --max-time 240` 打 `/healthz`，失败按 `RETRY_MAX` 重试，退避 10、20、40 秒。ledger-api 在服务列表里排第 12，它前面一步是 `helm upgrade --wait`。读了 ledger-api 的 chart，就绪探针 `initialDelaySeconds: 45`，是这批服务里最长的，JVM 起得也慢，我怀疑 `--wait` 返回时新 pod 只是刚刚 Ready，应用内部还在预热。\n- **改法**：`check_service` 起 port-forward 之前先跑 `kubectl rollout status deploy/<服务> --timeout=300s`；ledger-api 单独加了 20 秒预热等待，配在 `scripts/smoke/services.yaml` 里。\n- **验证**：本地用 staging 的凭证跑了 5 遍 `scripts/smoke/run.sh`，都过了。不过这个问题平时二三十次才出一次，5 遍说明不了什么。\n\n你先合进去观察几天，再出的话把那次 run 的链接给我。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "合了 今天 staging 又挂了一次 还是 ledger-api 还是停四分多钟然后那行报错 日志里冒烟是在 rollout status 打出 successfully rolled out 之后才开始的 run 是 18342207719"
+    },
+    {
+      "role": "assistant",
+      "text": "找到了：卡住的那几次，port-forward 连到的是一个正在下线的旧 pod，不是新 pod 没就绪。\n\n- **加了观测**：`check_service` 起 port-forward 之后加了一段临时日志，用 `SMOKE_DEBUG=1` 控制，打出 port-forward 实际选中的 pod 名、它的 `deletionTimestamp` 和 Ready 状态；`.github/workflows/deploy.yml` 冒烟那一步的 `env` 里临时设了 `SMOKE_DEBUG: \"1\"`。\n- **复现**：在 staging 上拿临时分支连着触发了 30 次，第 9 次和第 23 次卡住。两次日志里选中的都是上一版的 ledger-api pod，`deletionTimestamp` 已经有值，处在 Terminating；另外 28 次选中的都是新 pod。18342207719 那次还没有这段日志，但按时间对 `kubectl get events`，port-forward 开始时旧 pod 也正在终止。\n- **原因**：\n  - `kubectl port-forward svc/ledger-api` 只在开始时按 Service 的 selector 挑一个 pod，之后一直连着它，挑的时候不排除正在终止的 pod；\n  - 9/21 晚上 ledger 团队在他们仓库的 values 里加了 `preStop: sleep 30` 和 `terminationGracePeriodSeconds: 120`，rollout 完成以后旧 pod 还要挂一两分钟才消失，正好和冒烟重叠，别的服务没有这么长的终止时间；\n  - 旧 pod 收到 SIGTERM 以后关了 HTTP 监听，转发过去的第一个请求没人应答，一直等到 `--max-time 240`，这就是那 4 分多钟；port-forward 进程随后报 `lost connection to pod` 退出，后面三次重试连本地端口直接被拒，所以很快失败，收尾时被 runner 清理掉的子进程就是它。\n- **改法**：\n  - 不再 `port-forward svc/...`：先用 `kubectl get pods -l app.kubernetes.io/instance=<服务> -o json` 挑出 Ready 且没有 `deletionTimestamp` 的 pod，取最新的一个，再 `port-forward pod/<名字>`；\n  - 起 port-forward 后用 `trap` 保证函数返回时把它 kill 掉，不再留孤儿进程；\n  - 第一次请求的 `--max-time` 从 240 降到 30。上一轮加的 `rollout status` 留着，ledger-api 的 20 秒预热删了，它不是原因。\n- **验证**：临时分支上同样连着触发 40 次，0 次卡住，日志里选中的全是新 pod；`shellcheck scripts/smoke/*.sh` 没有新告警。\n\n那段 debug 日志和 workflow 里的 `SMOKE_DEBUG` 先留着，合进去以后方便对照。",
+      "tools": [
+        "Edit",
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "合进去一周了 staging 跑了一百二十多次 prod 发了五次 托管 runner 那条也跑了二十几次 一次都没卡 debug 日志里选的也全是新 pod 这个算解决了 不过 debug 那段和 workflow 里的 SMOKE_DEBUG 先都留着 等月底大促封网前那次 prod 发版也过了再一起删 删完开个 PR"
+    },
+    {
+      "role": "assistant",
+      "text": "好，记下了。月底那次 prod 发版过了之后要清的就这两处：\n\n1. `scripts/smoke/smoke.sh`：`check_service` 里 `SMOKE_DEBUG` 那一段，打印选中的 pod 名、`deletionTimestamp`、Ready 状态的几行整段删掉，挑 pod 和 `trap` 的逻辑不动。\n2. `.github/workflows/deploy.yml`：冒烟那一步 `env` 里的 `SMOKE_DEBUG: \"1\"` 删掉。Grep 了一遍，`SMOKE_DEBUG` 只在这两个文件里出现，别的 workflow 和调用方都没用到。\n\n删完跑一遍 `shellcheck`，再开 PR 合进 main。",
+      "tools": [
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "大促前那次 prod 今天发完了 冒烟一路绿 按你上次列的把那两处删了 开 PR 吧"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的后续：修复合进去以后，用户让回头把部署后冒烟检查这条路再理一遍：拉历史 run 和日志、对值班交接和平台变更的时间线、看 runner、网络、权限、超时和重试的配置、核对文档，没有新的改动，也没有新的结论。"
+}

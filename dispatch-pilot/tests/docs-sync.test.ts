@@ -1,5 +1,5 @@
 // The README's configuration table against what the mod ships (#18): every
-// option plugin.json declares has a row, and the Jev and Clef cells give the
+// option plugin.json declares has a row, and the Jev and pplx cells give the
 // default the mod really uses (the manifest's `default`, or for the options
 // whose default depends on the decision model, core/setup.ts BACKEND_DEFAULTS).
 //
@@ -13,10 +13,11 @@ import { expect, test } from 'claude-code/testing'
 import { BACKEND_DEFAULTS } from '../hooks/core/setup.ts'
 import { checkConfigTable, checkOneWriter, checkStructureTree } from '../eval/lib/docs.ts'
 
-/** The decision models' defaults as these tests state them: Clef's timeout is its own, its other values are Jev's. */
+/** The decision models' defaults as these tests state them. */
 const DEFAULTS = {
+  ...BACKEND_DEFAULTS,
   jev: { ...BACKEND_DEFAULTS.jev, timeoutMs: 1500, thetaUp: 0.4 },
-  clef: { ...BACKEND_DEFAULTS.jev, timeoutMs: 3000, thetaUp: 0.4 },
+  pplx: { ...BACKEND_DEFAULTS.pplx, timeoutMs: 8000, thetaUp: 0 },
 }
 
 /** Some of plugin.json's options: one of each kind of default, and two whose default depends on the decision model (no `default`). */
@@ -30,15 +31,15 @@ const MANIFEST = {
   thetaUp: { type: 'number' },
 }
 
-/** The rows that agree with MANIFEST and DEFAULTS. */
+/** The rows that agree with MANIFEST and DEFAULTS: the option, what it does, the Jev cell, the pplx cell. */
 const ROWS = {
   decisionModel: '| `decisionModel` | Which decision model decides | `jev` | `jev` |',
   typesafeApiKey: '| `typesafeApiKey` | TypeSafe API key | `空` | `空` |',
   rejudgeEvery: '| `rejudgeEvery` | Re-decide every N steps | `3` 起点 | `3` 起点 |',
   agentFable: '| `agentFable` | Let agents run on fable | `false` | `false` |',
   skillsAlwaysListed: '| `skillsAlwaysListed` | Skills always listed | `空` | `空` |',
-  timeoutMs: '| `timeoutMs` | How long a message waits | `1500` | `3000` |',
-  thetaUp: '| `thetaUp` | Threshold to raise effort | `0.4` 起点 | `0.4` 未校准 |',
+  timeoutMs: '| `timeoutMs` | How long a message waits | `1500` | `8000` |',
+  thetaUp: '| `thetaUp` | Threshold to raise effort | `0.4` 起点 | `0` 起点 |',
 }
 
 /** The rows but those for `options`. */
@@ -51,26 +52,26 @@ function readme(rows: readonly string[], heading = '## 配置'): string {
     '',
     '## 要求',
     '',
-    '| 选项 | 作用 | Jev | Clef |',
+    '| 选项 | 作用 | Jev | pplx |',
     '|---|---|---|---|',
-    '| `notAnOption` | a row outside the configuration section | `1` | `2` |',
+    '| `notAnOption` | a row outside the configuration section | `1` | `1` |',
     '',
     heading,
     '',
     '### 决策模型',
     '',
-    '| 选项 | 作用 | Jev | Clef |',
+    '| 选项 | 作用 | Jev | pplx |',
     '|---|---|---|---|',
     ...rows,
     '',
     '## 控制',
     '',
-    '| `/dp` | not a row either | `x` | `y` |',
+    '| `/dp` | not a row either | `x` | `x` |',
     '',
   ].join('\n')
 }
 
-test('a table that gives every option its Jev and Clef default passes', () => {
+test('a table that gives every option its default for each decision model passes', () => {
   expect(checkConfigTable(readme(Object.values(ROWS)), MANIFEST, DEFAULTS)).toEqual([])
 })
 
@@ -81,31 +82,36 @@ test('an option the table leaves out is named', () => {
   expect(problems[0]).toContain('no row')
 })
 
-test("a default that is not the manifest's is reported with both values, once for each decision model's column", () => {
-  const stale = '| `rejudgeEvery` | Re-decide every N steps | `5` 起点 | `4` 起点 |'
+test("a default that is not the manifest's is reported with both values", () => {
+  const stale = '| `rejudgeEvery` | Re-decide every N steps | `5` 起点 | `3` 起点 |'
   const problems = checkConfigTable(readme([...without('rejudgeEvery'), stale]), MANIFEST, DEFAULTS)
-  expect(problems).toHaveLength(2)
+  expect(problems).toHaveLength(1)
   expect(problems[0]).toMatch(/`rejudgeEvery`.*Jev.*5.*3/)
-  expect(problems[1]).toMatch(/`rejudgeEvery`.*Clef.*4.*3/)
 })
 
-test("an option whose default depends on the decision model is held to each model's own value: Jev's column to Jev's, Clef's to Clef's", () => {
-  const swapped = '| `timeoutMs` | How long a message waits | `3000` | `1500` |'
-  const problems = checkConfigTable(readme([...without('timeoutMs'), swapped]), MANIFEST, DEFAULTS)
-  expect(problems).toHaveLength(2)
+test("an option whose default depends on the decision model is held to the model's own value", () => {
+  const stale = '| `timeoutMs` | How long a message waits | `3000` | `8000` |'
+  const problems = checkConfigTable(readme([...without('timeoutMs'), stale]), MANIFEST, DEFAULTS)
+  expect(problems).toHaveLength(1)
   expect(problems[0]).toMatch(/`timeoutMs`.*Jev.*3000.*1500/)
-  expect(problems[1]).toMatch(/`timeoutMs`.*Clef.*1500.*3000/)
+})
+
+test("each decision model's column is held to its own value: pplx's cell that says Jev's is reported, with both values", () => {
+  const jevsInBoth = '| `timeoutMs` | How long a message waits | `1500` | `1500` |'
+  const problems = checkConfigTable(readme([...without('timeoutMs'), jevsInBoth]), MANIFEST, DEFAULTS)
+  expect(problems).toHaveLength(1)
+  expect(problems[0]).toMatch(/`timeoutMs`.*pplx.*1500.*8000/)
 })
 
 test('an empty default is written 空 and a boolean true or false: another way of writing them is reported', () => {
   const problems = checkConfigTable(
-    readme([...without('typesafeApiKey', 'agentFable'), '| `typesafeApiKey` | TypeSafe API key | `""` | `空` |', '| `agentFable` | Let agents run on fable | `false` | `关` |']),
+    readme([...without('typesafeApiKey', 'agentFable'), '| `typesafeApiKey` | TypeSafe API key | `""` | `空` |', '| `agentFable` | Let agents run on fable | `关` | `false` |']),
     MANIFEST,
     DEFAULTS,
   )
   expect(problems).toHaveLength(2)
   expect(problems[0]).toMatch(/`typesafeApiKey`.*Jev.*""/)
-  expect(problems[1]).toMatch(/`agentFable`.*Clef.*关.*false/)
+  expect(problems[1]).toMatch(/`agentFable`.*Jev.*关.*false/)
 })
 
 test('a cell that does not start with its value in backticks is reported', () => {
@@ -115,7 +121,7 @@ test('a cell that does not start with its value in backticks is reported', () =>
 })
 
 test('a number is compared by value, whatever way it is written', () => {
-  const problems = checkConfigTable(readme([...without('thetaUp', 'timeoutMs'), '| `thetaUp` | Threshold to raise effort | `0.40` | `0.4` 未校准 |', '| `timeoutMs` | How long a message waits | `1500.0` | `3000` |']), MANIFEST, DEFAULTS)
+  const problems = checkConfigTable(readme([...without('thetaUp', 'timeoutMs'), '| `thetaUp` | Threshold to raise effort | `0.40` | `0.0` |', '| `timeoutMs` | How long a message waits | `1500.0` | `8000` |']), MANIFEST, DEFAULTS)
   expect(problems).toEqual([])
 })
 
@@ -152,22 +158,6 @@ test("an option whose default depends on the decision model must not also have o
   const problems = checkConfigTable(readme(Object.values(ROWS)), { ...MANIFEST, timeoutMs: { type: 'number', default: 1500 } }, DEFAULTS)
   expect(problems).toHaveLength(1)
   expect(problems[0]).toMatch(/`timeoutMs`.*plugin\.json.*BACKEND_DEFAULTS/)
-})
-
-test("Clef's cell says 未校准 when its value is Jev's, and does not when the value is its own", () => {
-  const unmarked = checkConfigTable(readme([...without('thetaUp'), '| `thetaUp` | Threshold to raise effort | `0.4` 起点 | `0.4` |']), MANIFEST, DEFAULTS)
-  expect(unmarked).toHaveLength(1)
-  expect(unmarked[0]).toMatch(/`thetaUp`.*Clef.*未校准/)
-  const stale = checkConfigTable(readme([...without('timeoutMs'), '| `timeoutMs` | How long a message waits | `1500` | `3000` 未校准 |']), MANIFEST, DEFAULTS)
-  expect(stale).toHaveLength(1)
-  expect(stale[0]).toMatch(/`timeoutMs`.*Clef.*not.*未校准/)
-})
-
-test("Clef's context budget keeps Jev's default and is still measured: it is capped where Jev's is not, so its cell does not say 未校准", () => {
-  const manifest = { contextTokens: { type: 'number' } }
-  const defaults = { jev: { ...BACKEND_DEFAULTS.jev, contextTokens: 2000, contextTokensMax: 16000 }, clef: { ...BACKEND_DEFAULTS.jev, contextTokens: 2000, contextTokensMax: 2000 } }
-  expect(checkConfigTable(readme(['| `contextTokens` | Context budget | `2000` | `2000`，最多 2000 |']), manifest, defaults)).toEqual([])
-  expect(checkConfigTable(readme(['| `contextTokens` | Context budget | `2000` | `2000` 未校准 |']), manifest, defaults)).toHaveLength(1)
 })
 
 // DEVELOPMENT.md's 「结构」 tree against the modules under hooks/: every module has its line, under its folder.

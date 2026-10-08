@@ -31,6 +31,7 @@ const SELECTED = { plugin: 'dispatch-pilot', key: 'selected' } as const
 const PROFILES = { plugin: 'dispatch-pilot', key: 'skillProfiles' } as const
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const PANE_VIEW = { plugin: 'dispatch-pilot', key: 'paneView' } as const
+const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
 
 /** The log's windows for a surface that refuses a large tree, widest first: what the pane keeps of the log and of the re-decisions. */
 const WINDOWS = [
@@ -147,12 +148,14 @@ export function registerScreens(on: On): void {
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e, next) => {
     try {
       const t = $.ui.resolve(e)
-      const [view, log, profiles, lock, kept] = await Promise.all([viewOf($, false), $.state.get(DECISIONS), $.state.get(PROFILES), $.state.get(LOCK), $.state.get(PANE_VIEW)])
+      const [view, log, profiles, lock, kept, count] = await Promise.all([viewOf($, false), $.state.get(DECISIONS), $.state.get(PROFILES), $.state.get(LOCK), $.state.get(PANE_VIEW), $.state.get(COUNT)])
       tick($, view)
       const entries = log.value ?? []
       const state = kept.value ?? NO_PANE_STATE
       const shown = isOn('skills') && isOn('skill-profiles') ? (profiles.value ?? null) : null
-      const input = { view, log: entries, profiles: shown, switches: listSwitches().map((s) => ({ name: s.name, on: s.on })), master: masterOn(), lock: lock.value ?? null, state }
+      // The summary the session holds, while the feature that writes it is on.
+      const summary = isOn('unresolved') ? (count.value?.summary ?? null) : null
+      const input = { view, log: entries, profiles: shown, switches: listSwitches().map((s) => ({ name: s.name, on: s.on })), master: masterOn(), lock: lock.value ?? null, summary, state }
       const act = {
         pick: (row: AgentRow) => void pick($, row).catch(() => undefined),
         fold: (turn: number, open: boolean) => void $.state.set(PANE_VIEW, withFold(state, turn, open, entries)).catch(() => undefined),

@@ -1,0 +1,68 @@
+{
+  "id": "resolved-09",
+  "category": "resolved",
+  "domain": "docs-writing",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "API 参考页参数表的锚点",
+    "SYMPTOM": "点参数说明里的链接有时跳不到对应的参数那一行",
+    "ERROR": "[WARNING] Docusaurus found broken anchors!",
+    "FILE": "docs/api/payments.mdx",
+    "FILE2": "src/components/ParamTable/index.tsx",
+    "SYMBOL": "ParamTable",
+    "COMMAND": "npm run build"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "API 参考那几页有读者反馈 点参数说明里的链接有时候跳不到对应的参数那一行 我翻了 CI 的 build 日志 9/24 下午以后时不时冒一行 `[WARNING] Docusaurus found broken anchors!` 不是每次都有 build 也都是过的 列出来的都是 docs/api/payments.mdx 这种用了 ParamTable 的页面 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "列出来的几个锚点是链接写错了，已经改了。\n\n- **看到的**：本地跑了一次 `npm run build`，这次正好出了那段警告，列了 4 条，3 条在 `docs/api/payments.mdx`，1 条在 `docs/api/refunds.mdx`。`ParamTable`（`src/components/ParamTable/index.tsx`）把每一行渲染成 ``<tr id={`param-${slug(p.name)}`}>``；payments 那页正文里有一处写的是 `[currency](#param-currency)`，表里的参数其实叫 `currency_code`，另外两处是 `#param-amount-cents` 这种改名前的旧名字，refunds 那页也是一样的情况。\n- **改法**：4 处链接改成表里现在的参数名，中文译文里对应的 4 处一起改了。\n- **验证**：改完又跑了一次 `npm run build`，没有 broken anchors。\n\n你那边看看 CI 后面几次还有没有。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还有 今天 CI 跑了 6 次 2 次冒出来 这回列的是 /zh/docs/api/refunds 的 #param-amount 那个参数明明就在表里 另一次是英文的 payouts 页"
+    },
+    {
+      "role": "assistant",
+      "text": "这次是真原因：`ParamTable` 生成的 id 跟静态生成时页面的渲染顺序有关，同一份代码每次构建可能不一样。\n\n- **复现**：拿 main 连着冷构建了 20 次（每次先 `npm run clear`），7 次出警告，每次列出来的锚点都不一样，而且都是表里确实有的参数。挑一次有警告的、一次没有的，把 `build/zh/docs/api/refunds/index.html` 拿出来比：一次是 `id=\"param-amount\"`，一次是 `id=\"param-amount-1\"`。\n- **原因**：#1205（9/24 下午合的）为了处理一页里请求表和响应表有同名参数的情况，在 `ParamTable` 里加了去重：模块顶层一个 `usedIds` 的 `Set`，id 用过了就加 `-1`、`-2`。这个 `Set` 从来不清空。静态生成时几十个页面在同一个进程里渲染，谁先谁后不固定，别的页面先用掉了 `param-amount`，这一页的就成了 `param-amount-1`，正文里指向 `#param-amount` 的链接就断了，断哪些看那一次的渲染顺序。`npm start` 是在浏览器里一页一页渲染，所以本地开发时从来看不到；读者从站内点过去时 id 也是浏览器里重新渲染的，直接打开拿到的才是构建出来的 HTML，所以有时好有时坏。上一轮改的 4 处链接确实写错了，但不是这件事的主因。\n- **改法**：去掉模块级的 `Set`；同名参数改成按表的类型加前缀，请求表 `param-`、响应表 `resp-`，一页之内天然不重复，也不依赖渲染顺序。中英文页面里指向响应表参数的 6 处链接相应改成 `#resp-...`。\n- **验证**：同样冷构建 20 次，broken anchors 一次都没有；两次构建出来的 `build/` 按文件逐个比，用到 `ParamTable` 的那些页面 HTML 完全一样。还剩三条 warning：\n\n```\n[WARNING] Docs markdown link couldn't be resolved: (../api/refunds-v1.mdx) in \"i18n/zh/docusaurus-plugin-content-docs/current/guides/refunds.mdx\"\n```\n\n另外两条也是中文译文链到 `refunds-v1` 那几篇旧版文档，和这次无关；我切到 9/24 之前的提交上跑了一次，这三条本来就有。",
+      "tools": [
+        "Bash",
+        "Grep",
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "我本地也冷构建了十次 一次 broken anchors 都没有 那三条 warning 是 refunds-v1 那几篇旧文档一直没翻 不用管 你开个 PR CI 两轮 build 跑完 只要 broken anchors 一条没有 只剩这三条 warning 就直接合"
+    },
+    {
+      "role": "assistant",
+      "text": "好，PR 开了，是 #1214，CI 的 `ci.yml` 和 `preview.yml` 正在跑。合之前我看两样：两轮 build 日志里都没有 `Docusaurus found broken anchors`，warning 只有 `refunds-v1` 那三条 `couldn't be resolved`。都对上就 squash 合进 main。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "CI 跑完了 两轮 build 日志里还是那三条 warning 别的没了"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的后续：等 CI 的这段时间，用户让回头把 API 参考页锚点这件事再理一遍：统计历史构建里那行警告的出现率、看读者反馈和 CDN 记录、核对 #1201 那次翻译同步、读 ParamTable 和相关组件，没有新的改动，也没有新的结论。"
+}

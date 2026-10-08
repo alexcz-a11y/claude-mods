@@ -1,0 +1,41 @@
+{
+  "id": "single-attempt-08",
+  "category": "single-attempt",
+  "domain": "ios",
+  "bin": "d4",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "账单页的月份切换",
+    "SYMPTOM": "账单列表里显示的是别的月份的账单",
+    "ERROR": "loadMonth failed: Error Domain=NSCocoaErrorDomain Code=134060 \"A Core Data error occurred.\"",
+    "FILE": "Ledger/Features/Bills/BillListView.swift",
+    "FILE2": "Ledger/App/RootView.swift",
+    "SYMBOL": "loadMonth",
+    "COMMAND": "xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BillListViewModelTests"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "账单页切月份有问题 TestFlight 上好几个人反馈了 不是每次都有 我自己切了二三十次碰到一次 从 10 月切到 9 月 标题是 9 月 列表里还是 10 月的账 退出去再进来又好了 Console 里同一时间有一行 `loadMonth failed: Error Domain=NSCocoaErrorDomain Code=134060 \"A Core Data error occurred.\"` 代码在 Ledger/Features/Bills/BillListView.swift 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "找到一处会让列表和标题对不上的时序问题，已经在分支上改了，也从分支打了一个内测包：后台改动触发的那次刷新会被推迟到列表停止滚动以后才跑，正好和切月份的那次加载撞在一起，后完成的那次把列表盖掉了。模拟器上照这个操作试了 40 次，没再出现。\n\n**查到的情况**\n\n- `BillListView.swift` 里嵌着的 `ViewModel` 调 `loadMonth` 的地方有好几处，和这个现象对得上的是两处：月份选择器的 `onChange`，和订阅 `.billsDidChange` 的那条 Combine 链。两边各起一个 `Task`，互相不知道对方。\n- 那条链去抖用的是 `RunLoop.main`。Combine 的 `RunLoop` 调度器只在默认模式下触发，手指在列表上拖动、或者松手后惯性滚动时，主 run loop 处在 tracking 模式，这期间来的通知要等滚动停下才发出来。\n- 在 `loadMonth` 的入口和写回处加了 `Logger` 打点，模拟器上一边拖列表一边用调试菜单「模拟远端改动」，松手后马上切到 9 月：通知触发的那次加载在切月份之后 80 毫秒才开始，两次加载交错，20 次里有 3 次列表停在 10 月、标题是 9 月，和你看到的一样。\n\n**改法**\n\n- 去抖的调度器从 `RunLoop.main` 换成 `DispatchQueue.main`，滚动时也按时触发，不会攒到滚动停下以后和切月份撞在一起。回调照样在主线程上，`sink` 里那句 `MainActor.assumeIsolated` 不受影响。\n- 别的逻辑没动，打点已经删掉。\n\n**验证**\n\n- `xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BillListViewModelTests` 全部通过，整套 `LedgerTests` 也通过。这种时序单测不好覆盖，没有加用例。\n- 模拟器上同样的操作重复 40 次，没再出现月份对不上。\n\n**还没解释的**\n\n- 那行 134060 和列表停错出现在同一时刻，但它是哪次加载报的、为什么会报，这次的打点没抓到，现在还解释不了。\n- 这个现象本来就不是每次都有，模拟器上 40 次没出现说明不了它已经没了，要看真机上用几天的情况。\n\n改动在 `fix/bills-debounce-scheduler` 分支，没合进 main。CI 从这个分支打了一个内测包（build 4134），传到了 TestFlight 的内部测试组，你装这个包照常用几天看看。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "账单页切月份那个 内测包我装上用了几天 今天还是碰到了一次 选的 10 月 列表里是 9 月的账"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的继续排查：理 loadMonth 的调用方和各个触发入口、加日志和断点看时序、对比 TestFlight 和 App Store 的包、读用户反馈、崩溃和 sysdiagnose、写复现的单测、UI 测试和仓库外的最小工程。素材段里这个现象一直是偶发的：自动化连跑几十遍碰到一两次，反馈里说退出重进就好。只看不改，没有新的修改尝试，用户也没有评价第一次的修复，没有结论。占位符：FEATURE 账单页的月份切换；SYMPTOM 账单列表里显示的是别的月份的账单；ERROR loadMonth failed: Error Domain=NSCocoaErrorDomain Code=134060 \"A Core Data error occurred.\"；FILE Ledger/Features/Bills/BillListView.swift；FILE2 Ledger/App/RootView.swift；SYMBOL loadMonth；COMMAND xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BillListViewModelTests。"
+}

@@ -10,7 +10,7 @@
 // value means yes, `criteria.true` is yes. The mod and the eval build it with
 // `stuckRequest` (spec #67).
 
-import { DEFAULT_ASK, EFFORTS, higherEffort, traceEffort, type Effort, type EffortAsk, type EffortReading, type EffortStep, type Language } from './effort.ts'
+import { DEFAULT_ASK, EFFORTS, higherEffort, traceEffort, type Effort, type EffortAsk, type EffortReading, type EffortRules, type EffortStep, type Language } from './effort.ts'
 import { midturnEffortPart, midturnState, outcomeOf, resultLine, toolDetail, type MidturnInput, type MidturnLimits, type MidturnStep, type MidturnTool, type Outcome } from './midturn.ts'
 import { mergeParts, type Answer, type DecisionRequest, type Part, type Question } from './system-one.ts'
 import { computedTask, isRelayedRequest } from './workflow-labels.ts'
@@ -50,19 +50,19 @@ export type RaiseStep =
  * The level a forced raise ends at, with its working: `target` (the one level,
  * or max, the failures force, from `from`), or the decision model's own pick
  * when that is higher and its answer is sure enough (`thetaUp`, as for any
- * mid-turn raise); `max` only past `thetaMax`, as everywhere. The steps are the
+ * mid-turn raise); the level above the pick from `roundUp` and `max` only past `thetaMax`, as everywhere. The steps are the
  * forced raise, then (with an answer) the effort rules' walk to its pick, the
  * confidence check and the comparison.
  */
 export function traceRaise(
   reading: EffortReading | null,
   forced: { from: Effort; target: Effort; mode: RaiseMode },
-  rules: { thetaUp: number; thetaMax: number },
+  rules: EffortRules & { thetaUp: number },
 ): { level: Effort; steps: (EffortStep | RaiseStep)[] } {
   const { target } = forced
   const steps: (EffortStep | RaiseStep)[] = [{ rule: 'forced-raise', applied: true, level: target, from: forced.from, mode: forced.mode }]
   if (reading === null) return { level: target, steps }
-  const pick = traceEffort(reading, rules.thetaMax)
+  const pick = traceEffort(reading, rules)
   const confidence = reading.confidence ?? Math.max(...reading.probabilities)
   const sure = confidence >= rules.thetaUp
   steps.push(...pick.steps, { rule: 'theta-up', applied: sure, confidence, threshold: rules.thetaUp })

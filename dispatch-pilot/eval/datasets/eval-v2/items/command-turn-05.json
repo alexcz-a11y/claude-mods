@@ -1,0 +1,60 @@
+{
+  "id": "command-turn-05",
+  "category": "command-turn",
+  "domain": "cc-mods",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "turn-cost 状态行上的会话花费",
+    "SYMPTOM": "状态行上的花费偶尔往回跳，比上一次显示的还少",
+    "ERROR": "TypeError: r.content is not iterable",
+    "FILE": "turn-cost/hooks/turn-cost.ts",
+    "FILE2": "turn-cost/hooks/pricing.ts",
+    "SYMBOL": "estimateCost",
+    "COMMAND": "command claude plugin test ./turn-cost"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "turn-cost 状态行上的花费有时候会往回跳 刚才还 $2.41 读了几个文件变成 $2.13 过一会儿又回到 2.4 几 debug log 里有一行 `TypeError: r.content is not iterable` 你看看 turn-cost/hooks/turn-cost.ts 的 estimateCost"
+    },
+    {
+      "role": "assistant",
+      "text": "那行报错的来源找到了，先修了它：工具被拒绝或者被打断时，结果上没有 `content`，`estimateCost` 照样去遍历就抛错，这一步的花费没记上，hook 后面写状态的几行也没跑。\n\n- **查到的**：`tool.call` 的 hook 先 `const r = await next(e)`，从 `e` 里取三个字段、从 `r` 里取 `content`，连同 `$.state` 里的上一份一起交给 `estimateCost`，算完写 `$.state`、`$.ui.status`，末尾排一个 150 毫秒后的补算。`estimateCost` 里用 `for (const block of content)` 按块累加输出长度。对着本机生成的 d.ts 看，`content` 是 `string | ContentBlock[]`，而且可以没有：被权限拒绝、被 Esc 打断的调用就没有。没有的时候抛 `r.content is not iterable`，引擎跳过这个 hook，状态停在上一次。\n- **和往回跳的关系还说不准**：抛错只会让这一步没记上、状态行停住，按代码看不会让数变小。只是你看到往回跳的时候 debug log 里正好有这一行，而且它确实是个会丢数据的问题，先把它去掉再看还跳不跳。\n- **改法**：`estimateCost` 开头把 `content` 统一成数组，没有就当空数组，字符串包成一个文本块。\n- **验证**：在 scratchpad 的副本里加了 `content` 缺失和是字符串两种输入的临时用例，都过了，用例先不进仓库，等这个问题查完一起整理；`command claude plugin test ./turn-cost` 照常全过；`--plugin-dir` 开了个会话，按 Esc 打断了几次工具调用，debug log 里不再有那行。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还是会往回跳 刚才又从 $3.02 掉到 $2.88 那行 TypeError 倒是没再看到"
+    },
+    {
+      "role": "assistant",
+      "text": "报错没了还在跳，换了个方向：并行的几次工具调用各自读、算、写 `$.state`，谁后写谁的算数，先写的那次就被盖掉了。写回之前加了一道检查，状态被别人改过就重读重算。\n\n- **查到的**：模型一步里同时发几个工具调用时，几个 hook 同时停在 `await next(e)`，各自返回后读 `$.state` 里的累计值、加上自己这次的、写回。两个几乎同时返回时读到同一份旧值，后写的盖掉先写的，状态行就从先写的那个数掉回去；150 毫秒的补算读的是它到点那一刻的状态，要是正好夹在别人的读和写之间，写回去的也是在旧底子上算的。`--plugin-dir` 开会话让它一次读 6 个文件，20 次里复现了 3 次往下掉。\n- **改法**：`$.state` 里加一个 `seq` 字段，每写一次加一；hook 和补算写回前再读一次 `seq`，和开始时读到的不一样就重读、重算，最多三次，不直接覆盖。\n- **验证**：在 scratchpad 的副本里用 `mock.clock` 摆了三个调用乱序返回、补算夹在中间的顺序，改之前累计值少一次，改之后对；`command claude plugin test ./turn-cost` 全过。会话里同样一次读 6 个文件试了 20 次，没再往下掉。",
+      "tools": [
+        "Read",
+        "Bash",
+        "Edit",
+        "Write"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "/diagnosing-bugs turn-cost 的花费还是会往回跳 下午又碰到两次",
+      "command": {
+        "name": "diagnosing-bugs",
+        "description": "排查难查的问题：先稳定复现，再缩小范围、找到根因，最后修复并验证。"
+      }
+    }
+  ],
+  "middle_hint": "中间继续排查 turn-cost 状态行上的花费往回跳：理 estimateCost 的调用方和事件顺序、看热重载和多会话下的状态和快照、对着文档和 d.ts 核引擎行为、写临时探针和用例，没有新的修改，也没有结论。"
+}

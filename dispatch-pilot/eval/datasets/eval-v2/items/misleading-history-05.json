@@ -1,0 +1,68 @@
+{
+  "id": "misleading-history-05",
+  "category": "misleading-history",
+  "domain": "frontend",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "商品评价审核列表",
+    "SYMPTOM": "审核或翻页之后表格里显示的评价和当前的页码、审核结果对不上",
+    "ERROR": "TypeError: Cannot read properties of undefined (reading 'auditStatus')",
+    "FILE": "src/pages/reviews/ReviewAudit.tsx",
+    "FILE2": "src/api/reviews.ts",
+    "SYMBOL": "useReviewAuditList",
+    "COMMAND": "npx playwright test e2e/reviews/review-audit.spec.ts"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "商品评价审核那页 运营老说对不上 勾一批点通过 提示成功了 列表里那几条还挂着待审核 还有连着翻两页 第 3 页显示的是第 2 页的东西 控制台偶尔有 `TypeError: Cannot read properties of undefined (reading 'auditStatus')` 页面是 src/pages/reviews/ReviewAudit.tsx 数据在 useReviewAuditList 里 你查查"
+    },
+    {
+      "role": "assistant",
+      "text": "翻页串页那个找到原因了，已经改了一版；「通过以后还挂着待审核」我怀疑是同一个根子，但还没确认。\n\n**翻页串页**\n\n- `src/api/request.ts` 里第一个请求拦截器 `dedupe`：同一个 `dedupeKey` 的请求如果上一次还没回来，新请求不真的发，直接复用上一次的 promise。`dedupeKey` 默认只有 method 加 url，不含 query 参数。\n- `useReviewAuditList` 翻页时只改 `page` 参数，url 不变。连着点两次翻页，第 3 页的请求在第 2 页还没回来时发出，就被当成重复请求，拿到的是第 2 页的数据。\n- 本地用 msw 给列表接口加了 300ms 延迟，在 `src/pages/reviews/` 下写了一个连着翻两页的用例，改之前稳定复现。\n\n**改法**：`dedupeKey` 改成 method + url + 排好序的参数序列化。参数不同的请求不再被合并；完全相同的请求照旧合并。\n\n**验证**：新用例通过，`npx vitest run src/pages/reviews` 11 个用例全过；`npx vitest run` 全量 486 个通过。\n\n**「通过以后还挂着待审核」**\n\n代码上看，审核成功的回调里会清空勾选、再调 `reload()`；而清空勾选会让一个 effect 也发一次列表请求。两个请求参数一样，按新的 `dedupeKey` 仍然会被合并，最后留在页面上的可能是那次更早发出、审核还没落库时查到的结果。这只是推测，staging 上抓一下 Network 能确认：看通过以后的那次列表请求是不是在审核接口返回之前就发出去了。\n\n改动在 `fix/review-audit-race`，提交 `e18c4b7`，已部署到 staging。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "翻页那个好了 审核完还挂着待审核那个还在 刚在 staging 用 qa_ops_02 试的 勾三条点通过 提示出来了 那三条还是待审核 刷新才变 Network 我看了 列表请求确实比审核接口先发出去"
+    },
+    {
+      "role": "assistant",
+      "text": "确认了，就是合并到了旧请求上。第二版改好了，staging 上已部署。\n\n**原因**\n\n点「通过」的那一刻，组件先把按钮置成 loading、清空勾选；清空勾选会触发 `useReviewAuditList` 里依赖 `selectedIds` 的那个 effect（原本是为了刷新顶部「已选 N 条」的统计，顺手带了一次列表请求），这次请求在审核接口返回之前就发出去了，查到的是审核前的数据。审核成功后 `reload()` 发的请求参数和它一样，被 `dedupe` 合并到这次旧请求上，所以最后显示的还是待审核。\n\n控制台那个 `TypeError` 也是同一个时序：旧请求回来时勾选已经清空，回调里 `selectedRows[0].auditStatus` 取了空数组的第一项。\n\n**改法**\n\n- `useReviewAuditList` 调 `useRequest` 时打开它现成的 `cancelPrevious` 选项（之前一直没开），`src/api/reviews.ts` 把 `signal` 往下传给 `request.ts`，新请求发出前用 `AbortController` 取消上一个。\n- `reload()` 改成带 `dedupe: false`：用户明确要刷新时一定发新请求，不复用在路上的旧请求。\n- 结果写回 state 前比对请求序号，只有最新一次的结果能写进去。\n- 去掉了 `selectedIds` 那个 effect 里顺带的列表请求，统计直接从当前数据算。\n- 回调里取 `selectedRows[0]` 前先判空。\n\n**验证**\n\n- 新增 3 个用例：通过后列表立刻更新、连着点两次翻页、旧请求晚回来不覆盖新结果。`npx vitest run` 全量 489 个通过。\n- `npx playwright test e2e/reviews/review-audit.spec.ts --repeat-each=20`，20 次全过。\n\n**影响到别的页面的地方**\n\n`dedupeKey` 和 `reload()` 的改动在 `request.ts` 和 `useRequest` 里，对所有走它们的页面都生效。Grep 了一遍调用方，会有可见变化的只有两类：\n\n1. 用 `useRequest` 做翻页、筛选的列表页，一共 12 个（订单列表、售后工单、商品列表、评价审核等）：以前也有同样的串页风险，现在行为变对了；\n2. 工作台 `src/pages/dashboard/Workbench.tsx` 上的 4 张统计卡片（销售、订单、售后、库存）：它们同一时刻用不同的时间范围参数打 `/api/stats/summary`，以前切换「今日 / 本周」时偶尔有卡片显示的是上一个范围的数；现在每次都会真的发请求，工作台的请求数会多几个。\n\n任务中心的轮询、字典这类参数固定的请求不受影响。",
+      "tools": [
+        "Read",
+        "Edit",
+        "Bash",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "staging 上测试那边三个人点了一下午 审核完立刻就变 翻页也对 控制台也干净了 这个算好了 先别合 我想把这块从头再理一遍写个复盘"
+    },
+    {
+      "role": "assistant",
+      "text": "好，`fix/review-audit-race` 先不合，现在是两个提交：`e18c4b7`（`dedupeKey` 带参数）和 `9a2f310`（取消旧请求、`reload` 不合并、序号校验）。\n\n合之前测试要回归的范围我先整理好，到时候直接用：\n\n- **必须回归**：商品评价审核（这次的页面）、工作台 4 张统计卡片（请求数和数据会变）；\n- **建议抽查**：订单列表、售后工单、商品列表这三个用得最多的列表页，各做一次连着翻页、改筛选马上翻页、操作后刷新；\n- **其余 9 个列表页**：改动对它们只是把串页风险去掉，跑 e2e 就够，不用手工点；\n- **不用管**：任务中心轮询、字典、菜单这些参数固定的请求，行为没变。\n\n复盘的时间线我也先记下了：最早的工单时间、`dedupe` 拦截器是哪个提交加的、两次改动各解决了哪一半、staging 上三个人验证的结果。你想从哪段开始理？",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "测试那边问这次要回归哪些页面 你列一下 我转过去"
+    }
+  ],
+  "middle_hint": "用户在决定性几轮里确认评价审核列表的问题已经好了，但让先别合并、为写复盘把这块从头理一遍：中间是围绕这个列表继续读调用链、看请求和日志、对比别的页面的写法、问原理，不改实现，也不下新的结论。"
+}

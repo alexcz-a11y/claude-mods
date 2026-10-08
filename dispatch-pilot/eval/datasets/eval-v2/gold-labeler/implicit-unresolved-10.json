@@ -1,0 +1,24 @@
+{
+  "id": "implicit-unresolved-10",
+  "effort": "max",
+  "accept": [
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "凌晨结算任务死锁已经修了三轮（统一锁顺序、修 close_unpaid_orders、加咨询锁并错开 sync_stocktake），用户三次都说又挂了。中间隔着无关的活，最后又贴出同样的 DeadlockDetected，按约定仍算同一问题未解决，是三轮失败后再提的疑难并发问题，定 max。如果读不到决定性几轮，看到的是一个原因未知的数据库死锁，定 xhigh。"
+}

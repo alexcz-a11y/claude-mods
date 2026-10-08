@@ -1,0 +1,21 @@
+{
+  "id": "looks-hard-is-easy-06",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "Edit 没对上后 tallyEdits 抛错、状态行停住，又复现了一次，问题仍未解决。改法早已定下：edit-tally.ts 里 `const r = await next(e)` 后加一行 `if (isFileEdit(e) && (r.isError || 'deny' in r)) return r`，并在 edit-tally.test.ts 照现有用例补两条（isError 结果和 deny），跑 plugin test。一行修复本身是 low，但要写两条经过 hook 的测试，按写测试的范围定 medium，可接受 high。d2 用户说今天上午又停了一次、先别改，问题仍在，标 still_unresolved。读不到决定性几轮时要从 TypeError 和状态行卡住追到 pendingRecompute 的先后问题，定 high。"
+}

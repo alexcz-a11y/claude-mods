@@ -1,0 +1,21 @@
+{
+  "id": "new-topic-02",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后一条明确把账单页问题放一放，转去做每周小结推送，是新任务。决定性几轮里 d2 的回复已经查明这套功能基本写完了：WeeklyDigestScheduler 负责计算上周支出并排周一 8 点的通知，NotificationPreferences.weeklyDigestEnabled（UserDefaults 键 notifications.weeklyDigest，默认 false）只差界面去写，AppRouter 负责点开跳到明细，中英文开关文案在 Localizable.xcstrings 里，通知权限复用 NotificationService，11 个测试都通过，只挡在 FeatureFlags.weeklyDigest 后面等设置页入口。剩下的工作就是在『设置 → 通知』里照现有开关加一个开关、打开 flag、确认切换时会触发 refresh 和权限申请，属于范围清楚的单点改动，定 medium；照着现有模式基本是机械改动，low 也可以。看不到决定性几轮时，像是从零做一整套推送功能（统计、调度、跳转、设置、本地化），会判 high。d2 不是修复之后的反馈，而是报告问题在别的入口也出现，问题仍在，标 still_unresolved。"
+}

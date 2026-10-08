@@ -1,0 +1,26 @@
+{
+  "id": "implicit-unresolved-10",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "结算任务的死锁已经改了三次（和下单统一按 (sku_id, warehouse_id) 加锁、关单任务按顺序释放预占、和盘点同步用咨询锁互斥），d2、d3 用户都说还挂；中间隔了一段别的活，最后一条只贴了同一行 DeadlockDetected，是第四次同样的失败。线上库存数据的并发死锁，前三种解释都落空：max，xhigh 也可以。删掉决定性几轮，最后一条像第一次贴来的一个死锁报错，要查锁顺序：high。d1 第一次提出问题，标 new_or_unrelated；d2、d3 说改了还挂，标 still_unresolved；最后一条隔了别的活回头贴同一个报错，标 still_unresolved。审稿修改：本领域 unrelated 段里 inventory 的主键是 (sku_id, warehouse_id)、预占是带条件的 UPDATE、repo 在 dal/repos/ 下、调度表是 jobs/schedule.yaml、迁移编号已到 V109、close_unpaid_orders 每分钟跑一次，原题的 inventory.id、SELECT FOR UPDATE 预占、jobs/crontab、V052 和触发器那一轮与之矛盾或说不通，所以按这些设定改写了三轮的细节（第二轮换成关单任务，第三轮换成盘点同步），并去掉「让你开的 log_lock_waits」这种前面没交代过的说法。金标不变。\n可接受档位：出题者 ['xhigh', 'max']，标注者 ['max']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
+}

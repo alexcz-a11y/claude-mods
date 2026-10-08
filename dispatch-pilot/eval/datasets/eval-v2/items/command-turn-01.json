@@ -1,0 +1,75 @@
+{
+  "id": "command-turn-01",
+  "category": "command-turn",
+  "domain": "database",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "客服改单时的明细替换",
+    "SYMPTOM": "客服改完订单明细点保存，偶尔提示系统繁忙，订单没改成",
+    "ERROR": "dal.errors.OrderWriteError: replace_order_lines failed, transaction rolled back",
+    "FILE": "dal/repos/orders.py",
+    "FILE2": "tests/dal/test_order_lines.py",
+    "SYMBOL": "_replace_order_lines",
+    "COMMAND": "uv run pytest tests/dal/test_order_lines.py -k replace"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "客服改单这两周隔三差五保存失败 cs-backend 那边的日志是 `dal.errors.OrderWriteError: replace_order_lines failed, transaction rolled back` 票是 #58 代码在 dal/repos/orders.py 的 _replace_order_lines 你查一下 能改就改"
+    },
+    {
+      "role": "assistant",
+      "text": "这行是 dal 包出来的统一报错，底下其实是两种数据库错误。先处理了占多数的那种：锁超时，挡住它的是 `release_stale_reservations`，改了这个任务的批大小。\n\n- **查到的**：`_replace_order_lines` 在一个事务里删旧明细、插新明细，按差额调 `inventory_items.reserved`（按 `sku_id` 排好序 `SELECT ... FOR UPDATE`），最后往 `outbox_events` 写一条 `order.lines_replaced`。外层 `replace_lines()` 把所有 `DBAPIError` 包成 `OrderWriteError` 再抛，原始的 SQLSTATE 只在 `__cause__` 里。Loki 里近 14 天这行一共 41 次，按 cs-backend 一并打出来的 cause 分：`55P03` 锁超时 29 次，`23505` 撞 `outbox_events_dedup_key` 12 次。\n- **锁超时在等谁**：29 次里有 22 次，主库日志前面有 `still waiting`，挡住它的进程 `application_name` 都是 `shop-jobs:release_stale_reservations`。这个任务每 2 分钟跑一次，一批取 1000 个有过期预占的 SKU，`FOR UPDATE SKIP LOCKED` 锁住后逐个放回库存，整批一个事务，晚上高峰一批要 20 到 40 秒。它自己会跳过别人锁着的行，但它锁着的行，客服改单只能干等，`shop_api_cs` 的 `lock_timeout` 是 3 秒。\n- **改法**：`jobs/release_stale_reservations.py` 批大小从 1000 改成 100，每批单独提交；批内按 `sku_id` 排序，和 `_replace_order_lines` 的加锁顺序一致。dal 没动：cs-backend 钉的是 1.14.2，dal 里的改动他们升级之前用不上；任务这边合进 main 当天就会发。\n- **验证**：`uv run pytest tests/jobs/test_release_stale_reservations.py` 9 个用例全过；testcontainers 里灌了 5 万条过期预占，一批的持锁时间从 31 秒降到 2.8 秒。\n\n剩下 12 次唯一键冲突这次没动，下一步看。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "任务那个昨天发了 今天下午又失败了四次 我看了下两次是锁超时 两次是那个唯一键"
+    },
+    {
+      "role": "assistant",
+      "text": "先说唯一键：原因找到了，在库里加了一个触发器来分配事件的版本号，服务不用升级就生效。锁超时那两次，挡住它的已经不是那个任务了，这次还没改。\n\n- **唯一键为什么会撞**：`_replace_order_lines` 写事件前先 `SELECT version FROM outbox_events WHERE aggregate_id = :order_id ORDER BY version DESC LIMIT 1`，加一当新版本号。同一单两次修改并发时（客服连点两次保存，或者改单和 `close_unpaid_orders` 同时给这单写事件），两边读到同一个版本号，后插入的那个撞 `(aggregate_id, event_type, version)`。今天两次都是同一单 1 秒内来了两个请求。\n- **改法**：新迁移 `migrations/V100__outbox_version_trigger.sql`：`orders` 加一列 `event_seq bigint not null default 0`，存量按每单现有的最大版本号回填；`outbox_events` 加一个 `BEFORE INSERT` 触发器，`UPDATE orders SET event_seq = event_seq + 1 WHERE id = NEW.aggregate_id RETURNING event_seq` 赋给 `NEW.version`，应用传进来的值一律被覆盖。三个服务不管用哪个版本的 dal 都会走它。\n- **锁超时那两次**：主库日志里挡住它的一次是 `shop-jobs:sync_inventory`，一次是另一个 `shop_api_cs` 的事务，没有 `release_stale_reservations` 了。\n- **验证**：testcontainers 里 Flyway 从 V001 迁到 V100 通过；8 个线程并发给同一单写 2000 条事件，没有冲突，版本号连续；`uv run pytest tests/dal/test_order_lines.py -k replace` 全过。\n\n迁移要走 DBA 的发布窗口，你安排一下。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Write"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "迁移周二上了 今天上午还是失败了三次 客服组长在群里问什么时候能好"
+    },
+    {
+      "role": "assistant",
+      "text": "三次都是锁超时，唯一键的没再出现。这次挡住它的是 `sync_inventory`，改了它的提交粒度和更新顺序。\n\n- **查到的**：三次的 `still waiting` 都指向 `shop-jobs:sync_inventory`。它每 30 分钟同步一次仓库系统的库存流水，每批 5000 行一个事务，先改 `inventory_items.on_hand` 再写 `stock_movements`，一批 8 到 12 秒才提交；更新顺序是流水到达的顺序，不按 `sku_id`。上午三次都落在 10:00 和 10:30 那两轮里，热门 SKU 被它锁了 8 秒以上，客服改单等满 3 秒就放弃了。\n- **改法**：`jobs/sync_inventory.py` 每批改成 500 行，批内先按 `sku_id` 聚合成每个 SKU 一条更新、排好序再执行，一批的持锁时间压到 1 秒以内；`stock_movements` 的插入还在同一个事务里，挪到更新之后。\n- **验证**：任务的测试全过；拿上午那两轮的流水在 staging 上重放，单批最长持锁 0.7 秒；同时用脚本每秒改一次热门 SKU 所在订单的明细，跑了 30 分钟没有出现锁超时。\n\n今天合进去，下午两点那一轮开始就是新的。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "/fix-ticket #58 改单保存还是失败 昨天下午到现在又出了五次 都是锁超时",
+      "command": {
+        "name": "fix-ticket",
+        "description": "按工单修一个问题：读票和讨论记录、复现、定位根因、改代码补测试，最后开 PR。"
+      }
+    }
+  ],
+  "middle_hint": "中间继续排查客服改单时明细替换保存失败的问题：理 _replace_order_lines 的调用路径和事务范围、对主库日志和监控、看定时任务的时间表、写并发复现脚本，没有新的修改，也没有结论。"
+}

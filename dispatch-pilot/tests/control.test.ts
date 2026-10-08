@@ -5,7 +5,7 @@
 import { expect, test } from 'claude-code/testing'
 import { jev, world } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 // ---- The lock ---------------------------------------------------------------
 

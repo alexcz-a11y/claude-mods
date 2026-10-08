@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-11",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "d1 提出 session-journal 偶发同一轮记两条，主 agent 按热重载的假设在 turn.complete 里加了去重（6d2f0a1）。中间是无关的工作。最后用户说去重那版用了几天还是有重复，属于第二次尝试。去重没有生效，可能是两次写 $.store 的读改写并发竞争，也可能热重载的假设本身不对，原因未知，涉及并发，定 xhigh，high 也能接受。读不到 d1 时，看到的是一次偶发重复记录的调试，给 high。"
+}

@@ -1,0 +1,26 @@
+{
+  "id": "resolved-05",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "切回账单页少账（133000）：决定性几轮里第一版让 `restoreRows()` 跳过已删除的对象，报错没了但小组件记的账回来还是看不到（d2）；第二版查到账单页不可见时丢掉了 `billsDidChange`、回来只按缓存的 ID 还原，改成有变化就重新取数，用户外测确认解决（d3）。助手还说明了 3.8.x 的老包在用户升级前还会继续报 133000，只有 3.9.0 上再出现才是新问题。中间是为顺代码继续理这块，没有新尝试。最后这条说 3.9.0 上 133000 没了、剩下的十几条全是 3.8.1，正是之前说好的情况，用户结束这块，只让在 release notes 里加一句话：low，medium 也可以（找到 fastlane 的 release notes 文件、中英文都加）。删掉决定性几轮，中间是对 133000 的排查、从没有修法，最后一条说 Sentry 里还有十几条这个报错，「跟之前说的一样」无从核对，「3.9.0 的包」修了什么也不知道，会觉得应该先确认问题是不是真的修好了、release notes 该怎么写：medium，偏 high 也说得过去。三选一：d1 第一次提出问题，new_or_unrelated；d2 改了以后说列表还是会少，still_unresolved；d3 明说解决了，resolved；最后这条接受结果、只加说明，resolved。\n审稿修改：原题是「2.4 升级后 Core Data 迁移失败、一打开就闪退」，和 ios 的 same-problem 素材段不相容：素材里的版本是 3.7.0、3.8.0、3.8.1，问题从 3.8.0 开始；段 31 里那行报错记在 persistence 日志里之后 App 还在正常保存，不是启动时的致命错误；段 36 的反馈是「退出去再进来就正常了」；段 21 用的是 Sentry 不是 Crashlytics。所以换成「切回账单页时的列表刷新」，报错是还原缓存对象时的 133000，切 tab、从后台回来、周期记账和小组件写入都和这些段对得上。档位和三选一不变，理由按新题重写。\n可接受档位：出题者 ['low', 'medium']，标注者 ['low']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
+}

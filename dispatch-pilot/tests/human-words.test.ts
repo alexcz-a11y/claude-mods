@@ -4,11 +4,11 @@
 // screens and commands say after a real turn).
 
 import { expect, test } from 'claude-code/testing'
-import { failureLine, type Failure } from '../hooks/decision/backend.ts'
+import { failureLine, failureMeaning, failureWords, type Failure } from '../hooks/decision/backend.ts'
 import { profileWhy } from '../hooks/core/report.ts'
 import { jev, world } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 /** Words and abbreviations a person must not meet: an HTTP code's name, a unit, an option's internal name, the old English log words. */
 const LEFTOVER = /\b(HTTP|ms|thetaMax|thetaUp|thetaDown|thetaExpected|holdSteps|agentOverride|escalateHaikuTo|kept|written|failed|confidence|decided|pick|unreadable|unreachable|refused|expected|asked|ruled)\b/
@@ -16,19 +16,32 @@ const LEFTOVER = /\b(HTTP|ms|thetaMax|thetaUp|thetaDown|thetaExpected|holdSteps|
 test('a failed decision request reads in Chinese, with the decision model named and the number the backend gave', () => {
   const words: [Failure, string][] = [
     [{ kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey' }, 'jev：没有填 typesafeApiKey'],
-    [{ kind: 'config', detail: 'no Cloudflare account ID or API token: set cloudflareAccountId and cloudflareApiToken' }, 'jev：没有填 cloudflareAccountId 和 cloudflareApiToken'],
-    [{ kind: 'config', detail: 'no Cloudflare API token: set cloudflareApiToken' }, 'jev：没有填 cloudflareApiToken'],
     [{ kind: 'config', status: 401, detail: 'HTTP 401' }, 'jev：密钥被拒绝（状态码 401）'],
     [{ kind: 'timeout', detail: 'no answer in 1500 ms' }, 'jev：1500 毫秒内没有回答'],
     [{ kind: 'timeout', detail: 'no time left for the second request' }, 'jev：没有及时回答'],
     [{ kind: 'network', detail: 'ENOTFOUND' }, 'jev：连不上'],
     [{ kind: 'busy', status: 503, detail: 'HTTP 503' }, 'jev：繁忙（状态码 503）'],
+    [{ kind: 'busy', status: 429, detail: 'HTTP 429' }, 'jev：繁忙（状态码 429）'],
     [{ kind: 'quota', status: 429, detail: 'HTTP 429' }, 'jev：今天的额度用完了'],
     [{ kind: 'http', status: 500, detail: 'HTTP 500' }, 'jev：出错（状态码 500）'],
     [{ kind: 'parse', detail: 'not JSON' }, 'jev：回答读不懂'],
     [{ kind: 'request', detail: 'bad' }, 'jev：请求出错（详见 debug log）'],
   ]
   for (const [failure, text] of words) expect(failureLine('jev', failure)).toBe(text)
+})
+
+// Jev reads as it did in 0.3.1 (a 429 is 「繁忙」); only pplx, which the mod itself keeps to a rate (pplxQps), says 「被限速」.
+test('a 429 reads as rate limited for pplx and as busy for Jev, in the line, the band words and the card', () => {
+  const over: Failure = { kind: 'busy', status: 429, detail: 'HTTP 429' }
+  expect(failureLine('pplx', over)).toBe('pplx：被限速（状态码 429）')
+  expect(failureLine('jev', over)).toBe('jev：繁忙（状态码 429）')
+  expect(failureWords({ backend: 'pplx', ...over })).toBe('决策模型被限速')
+  expect(failureWords({ backend: 'jev', ...over })).toBe('决策模型繁忙')
+  expect(failureMeaning({ backend: 'pplx', ...over })).toBe('请求太密，被决策模型限速了（状态码 429）')
+  expect(failureMeaning({ backend: 'jev', ...over })).toBe('决策模型一时繁忙（状态码 429 之类）')
+  // A 503 is busy for both.
+  const down: Failure = { kind: 'busy', status: 503, detail: 'HTTP 503' }
+  expect([failureLine('pplx', down), failureWords({ backend: 'pplx', ...down })]).toEqual(['pplx：繁忙（状态码 503）', '决策模型繁忙'])
 })
 
 test('why a skill got no profile reads in Chinese; what the server said of itself is left as it said it', () => {

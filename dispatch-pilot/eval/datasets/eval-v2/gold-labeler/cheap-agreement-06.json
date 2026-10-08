@@ -1,0 +1,21 @@
+{
+  "id": "cheap-agreement-06",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条是新的一次发内部包，和之前那个包是两件事，所以 new_or_unrelated。d2 定了约定：内部组的包只要 build 号加一、跑 fastlane beta 上传、分给内部组，不跑 UI 测试和手动回归。这次合进去的功能虽然多，但约定只看包发给谁，所以是照明确指令执行一串命令，按 low 定，medium 可接受。读不到决定性几轮时，会觉得这么多新功能的包至少该先跑测试、过一遍回归再上传，判 medium。"
+}

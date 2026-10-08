@@ -1,14 +1,15 @@
 // A message's ballot: the questions every feature wants asked about the
-// message the person just sent, gathered so they go out as ONE decision
-// request (one round trip; questions in one request do not see each other's
-// answers, guide §2.2 Q10-Q12).
+// message the person just sent, gathered so they go out together: the main
+// agent's effort question in a request of its own, every other part's in one
+// (the core's `requestGroups`, ADR 0005), the two at once. Questions in one
+// request do not see each other's answers (guide §2.2 Q10-Q12).
 //
 // How it runs, all inside one prompt.submit dispatch:
 //   1. A feature's prompt.submit hook (outer, registered above the core)
 //      calls `contribute(e.text, { part, questions, settle })` and passes the
 //      prompt on. `settle` is a closure over that hook's own `$`.
 //   2. The core's prompt.submit hook (innermost) `collect`s the ballot, sends
-//      one request, and calls every `settle` with that part's answers (under
+//      its requests, and calls every `settle` with that part's answers (under
 //      its own ids) or the failure, before letting the prompt in. The context
 //      blocks the settles return are attached after the prompt.
 //

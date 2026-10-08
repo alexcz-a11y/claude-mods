@@ -1,0 +1,32 @@
+{
+  "id": "command-turn-12",
+  "effort": "max",
+  "accept": [
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "员工 TOTP 刚刷新的码被拒：步长容差、challenge 过期、输入规整、节点时钟四轮修复，用户每次都说还是有，d5 还排除了时钟和 pod，助手承认四处改动都没解释到。中间几轮做的是无关的事，最后 /debug 又提同一问题。已经超过三轮修复失败的门槛，又是认证链路上的间歇性疑难问题，定 max，没有别的档可以接受。没有决定性几轮时只有「还是提示验证码错误」，看得出之前没修好，但不知道失败了几轮，按间歇性认证 bug 的调试给 high。"
+}

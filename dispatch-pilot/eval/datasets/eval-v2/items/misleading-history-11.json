@@ -1,0 +1,62 @@
+{
+  "id": "misleading-history-11",
+  "category": "misleading-history",
+  "domain": "data-scripts",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "门店渠道日报",
+    "SYMPTOM": "早上看到的门店渠道日报偶尔对不上 白天重跑一遍又正常了",
+    "ERROR": "polars.exceptions.InvalidOperationError: conversion from str to i64 failed",
+    "FILE": "pipelines/store_channel_daily.py",
+    "FILE2": "sources/store_ops.py",
+    "SYMBOL": "build_daily_summary",
+    "COMMAND": "uv run pytest tests/pipelines/test_store_channel_daily.py"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "门店渠道日报的日志里时不时冒出一段 traceback 最后一行是 `polars.exceptions.InvalidOperationError: conversion from str to i64 failed` 在 pipelines/store_channel_daily.py 里 运行状态又是 ok 你先看看怎么回事 代码别动"
+    },
+    {
+      "role": "assistant",
+      "text": "先说看到的：这个异常大多数时候是在补充信息那一步抛出来、被当场接住的，所以运行照样 `ok`、照样写库，只是那天结果里补充的那几列是空的。为什么会抛，现在还说不上。代码没动。\n\n**它在哪**\n\n- `pipelines/store_channel_daily.py` 里，`build_daily_summary` 汇总完以后调 `_attach_supplement`，从 `sources/store_ops.py` 取补充表再关联上去。这一步外面包了一层 `try/except Exception`，出错时打一行 warning 带上 traceback，然后不带补充列继续往下走。\n- traceback 中间被日志格式折成了省略号，只剩最外面几帧和最后一行，看不出具体是哪一行在做类型转换。\n\n**出现过哪些天**\n\n- 在 `etl-01` 上翻了 `/var/log/etl/` 最近 30 天这条管道的日志，有 5 个业务日期出现过：9/17、9/28、10/1、10/2、10/3。\n- 这几天的结果后来都被手工重跑覆盖过，表里现在是重跑后的版本。\n\n**下一步**\n\n可以先把这几次运行和没出问题的日子并排看：取到的数据、补充表当时是哪一批、跑的时间点。要动手的话我先从运行记录查起。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "9 月 21 号那天日报整个是空的 财务前几天问过 是不是也是这个问题"
+    },
+    {
+      "role": "assistant",
+      "text": "不是。9/21 是另一回事，而且到现在还没人补跑。\n\n- `meta.etl_runs` 里业务日期 9/21 只有一次运行：9/22 02:45 的 cron，状态 `failed`，错误是 `MemoryError`，抛在 `build_daily_summary` 关联门店维表那一步申请内存的时候，还没走到补充那一步，日志里也没有上面那个类型转换的异常。\n- 那一刻 02:50 开始的 `inventory_snapshot` 正在把 ERP 的库存快照整个读进内存，`sar` 上整机用量 7.6 GB，`etl-01` 是分配不到内存就直接失败的配置，两个进程凑在一起就顶到了。之后再没出过 `MemoryError`。\n- 结果表里 9/21 一行都没有，之后也没有任何手工运行。\n\n**补跑**\n\n- 写库是按业务日期先删后插、在一个事务里，重跑只动 9/21 这一天，不碰别的日子。\n- 白天在 `etl-01` 上跑 `make run P=store_channel_daily D=2026-09-21` 就行，避开凌晨的 cron，大约 4 分钟，白天 `inventory_snapshot` 不跑，内存很宽裕。\n- 有一点要知道：补充那几列会取补充表里最新的一批，不是 9/21 当天的，白天的重跑都是这样，金额和单量不受影响。万一补充那一步又抛了上面那个异常，也只是补充列为空，不会失败。\n- 补完以后财务 9 月的对账要重新导一次；集团数仓只拉最近 7 天，9/21 早就滑出去了，要跟他们说一声手工补拉。",
+      "tools": [
+        "Bash",
+        "Read"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "那 9/21 跟这个没关系 回头补跑一下 月结之前弄好就行 补充列为空那个先挂着 数据组说不影响对账 等再冒出来抓现场 票先别关 你有空接着帮我理 写排查记录用"
+    },
+    {
+      "role": "assistant",
+      "text": "好：\n\n- **9/21**：你说跑就跑上面那条命令，跑完我核一下行数和门店数，和前后几天比一比。\n- **补充那步的异常**：先挂着，票不关。这几天我先从数据流、运行记录、补充表的写入时间、几次运行的输入差别这些方向理，只读不改，不下结论。"
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "9/21 那天补跑一下吧 财务那边要月结了"
+    }
+  ],
+  "middle_hint": "中间是同一个问题（门店渠道日报补充那一步偶发 InvalidOperationError、补充列为空）的继续排查：理数据流、对运行记录和日志、做实验和复现、评估影响，只读，没有新的修改，也没有结论；9/21 那天一直没有补跑。"
+}

@@ -1,0 +1,48 @@
+{
+  "id": "looks-hard-is-easy-07",
+  "category": "looks-hard-is-easy",
+  "domain": "security",
+  "bin": "d3",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "AppSec 那边发通知了 各服务自己写的 semgrep 规则要接进他们的统一平台 规则 id 得改成他们的格式 acme.服务名.类别.规则名 我们这边就是 acme.auth-svc.crypto.no-weak-hash 这种 目录也要按类别分开 你先盘一下要动多少地方 有什么坑 先别动文件"
+    },
+    {
+      "role": "assistant",
+      "text": "盘完了：41 条规则、41 个测试文件、`src/` 里 52 处带规则 id 的 `nosemgrep`，再加 `semgrep/README.md` 的表和一处文档示例。改名是一一对应的替换，适合写脚本做；要防的是豁免注释漏改，漏改的那一行会重新被扫出来，CI 的 `--error` 当场挂掉，所以漏了也不会悄悄放过去。有两件事要你定，放在最后。没动任何文件。\n\n**现在的布局**\n\n- `semgrep/` 下一条规则一个 YAML，41 个；测试在 `semgrep/tests/`，和规则同名；`semgrep/README.md` 有一张表，每条规则一行，写着管什么。\n- CI 的 `security` job 两步：`semgrep --test --config semgrep/ semgrep/tests/` 和 `semgrep scan --config semgrep/ --error --metrics=off src/`。\n\n**按 AppSec 的格式怎么对上**\n\n- 类别按 AppSec 给的字典归，我们用得到的是 4 个：`crypto` 9 条、`authn` 12 条、`injection` 11 条、`logging` 9 条。README 表里本来就有「管什么」一列，41 条逐条对过，没有拿不准归哪类的。\n- 新 id 就是 `acme.auth-svc.<类别>.<原 id>`，原 id 本身不改。\n- 文件搬到 `semgrep/rules/<类别>/<原 id>.yaml`，测试搬到 `semgrep/tests/<类别>/<原 id>.ts`。本地试了一下，`--config semgrep/` 会递归读子目录，`--test` 也按相对路径把规则和测试对上，CI 里那两条命令一个字都不用改。\n\n**要改的地方**\n\n| 位置 | 数量 | 说明 |\n|---|---|---|\n| 规则 YAML 的 `id:` | 41 | 加前缀 |\n| 测试文件里的 `ruleid:` / `ok:` 注释 | 233 处 | 注释里写的是规则 id，不改测试就对不上 |\n| `src/` 里的 `// nosemgrep: <id>` | 52 处，33 个文件 | 豁免是按 id 认的 |\n| `semgrep/README.md` 的表 | 41 行 | |\n| `docs/security/semgrep.md` | 1 处 | 「豁免写法」里的示例 |\n\n有一处特殊：`src/oauth/jwks.ts` 有一行同时豁免两条规则（`// nosemgrep: no-jwt-none-alg, jwt-weak-hmac -- …`），按单个 id 替换处理不了，要手改。不带 id 的裸 `// nosemgrep` 一处都没有，README 早就规定过要写 id。\n\n**坑**\n\n1. **豁免漏改**：上面说了，漏改会让那一行重新报出来、CI 挂，不会静默。\n2. **AppSec 平台按新 id 收结果**：老 id 下的历史发现不会自动迁过去，看板上这 41 条会从零开始算。\n3. **改名期间别人的 PR**：要是有人新加了老 id 的豁免，合进来以后会报，下面的 `--check` 能把它找出来。\n\n**做法**\n\n写一个 `scripts/semgrep-rename.ts`：\n\n- 先按目录和 README 生成一张映射表 `semgrep/rename-map.csv`，41 行：旧 id、类别、新 id；\n- `--group <类别>` 只处理一组；`--dry-run` 只出 diff；`--apply` 搬文件、改 `id:`、改测试注释、改 `src/` 里的豁免、改 README 表；\n- `--check` 做三件事：`semgrep --test` 全过；用迁移前和迁移后的规则各扫一遍 `src/`，发现按「文件:行:规则」比（老 id 按映射表换成新 id），两边必须一模一样；已迁的那几组，老 id 在仓库里不能再出现。\n\n建议先挑一组真迁一次，合进去看看平台那边收得对不对，再做剩下的。\n\n**要你定的**\n\n1. 每条规则的 `metadata` 里要不要写一个 `legacy_id` 记老 id，方便在平台上对历史。我倾向写。\n2. 看板历史从零开始，要不要找 AppSec 把老记录按映射表导过去。我倾向不导：他们说导入要排期，而我们现在没处理完的发现只有 3 条。",
+      "tools": [
+        "Glob",
+        "Grep",
+        "Read",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "盘得挺清楚 照这个来 legacy_id 写上 历史不导了 先拿 logging 那组真迁一次 CI 过了就合 下周一开始国庆封版 到 8 号 剩下三组等解封再弄"
+    },
+    {
+      "role": "assistant",
+      "text": "logging 那组迁完合进 main 了，提交 `7a3e91c`，CI 的 `security` job 两步都过；AppSec 平台上这 9 条已经按新 id 收到了第一次扫描结果。剩下三组没动，脚本和映射表一起提交了。\n\n**这一组改了什么**\n\n- 9 个规则文件搬到 `semgrep/rules/logging/`，`id:` 加前缀，`metadata` 里加了 `legacy_id`；\n- 9 个测试文件搬到 `semgrep/tests/logging/`，48 处 `ruleid:` / `ok:` 注释跟着改；\n- `src/` 里 logging 组的豁免 11 处，在 8 个文件里；README 表里 9 行。\n\n**验证**\n\n- `semgrep --test --config semgrep/ semgrep/tests/`：41 条规则的测试全过，迁了的 9 条和没迁的 32 条一起跑的。\n- `npx tsx scripts/semgrep-rename.ts --check --group logging`：迁移前后扫 `src/` 各 3 条发现，一模一样，就是现在没处理完的那 3 条；logging 组的老 id 在仓库里已经搜不到。\n- `npm test`、`npm run lint` 都过。\n\n**剩下三组的 dry-run**\n\n- `crypto` 9 条、`authn` 12 条、`injection` 11 条，一共 32 条规则；测试注释 185 处；`src/` 里的豁免 41 处，在 26 个文件里；README 32 行。\n- 0 冲突：目标文件都不存在，映射表里没有重复。\n- 封版期间要是有人新加了老 id 的豁免，脚本是按 id 在全仓搜的，到时候会一起改掉。\n\n**要手改的两处**（脚本处理不了，逐字写在这）\n\n1. `src/oauth/jwks.ts` 第 88 行：`// nosemgrep: no-jwt-none-alg, jwt-weak-hmac -- 只解析 JWKS 头部取 kid，不验签` 改成 `// nosemgrep: acme.auth-svc.authn.no-jwt-none-alg, acme.auth-svc.authn.jwt-weak-hmac -- 只解析 JWKS 头部取 kid，不验签`\n2. `docs/security/semgrep.md`「豁免写法」一节的示例：`// nosemgrep: no-raw-sql-concat -- 理由` 改成 `// nosemgrep: acme.auth-svc.injection.no-raw-sql-concat -- 理由`\n\n到时候就是：`npx tsx scripts/semgrep-rename.ts --group crypto --apply`、`--group authn --apply`、`--group injection --apply` 各跑一次，手改上面两处，再跑 `npx tsx scripts/semgrep-rename.ts --check`、`semgrep --test --config semgrep/ semgrep/tests/` 和 `npm test`。",
+      "tools": [
+        "Write",
+        "Bash",
+        "Edit",
+        "Read"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "国庆解封了 回到 semgrep 改名那个 logging 那组合进去快两周了 CI 上没多报也没漏报 AppSec 看板上那 9 条也对得上 剩下三组照那个来吧 三十来条规则 四十多处豁免"
+    }
+  ],
+  "middle_hint": "中间是在 auth-svc 仓库里做别的事（改登录文案、补测试、写文档和 runbook、评审 PR、加限流和指标、升级依赖之类），和 semgrep 规则改名无关。"
+}

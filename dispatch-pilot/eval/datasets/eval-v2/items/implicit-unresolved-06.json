@@ -1,0 +1,62 @@
+{
+  "id": "implicit-unresolved-06",
+  "category": "implicit-unresolved",
+  "domain": "perf",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "双十一前按平台要求在 staging 压了一遍 bench/search.js search 接口的 p99 470 多 9 月中那次压的时候还是 130 左右 参数一样 k6 摘要是 `http_req_duration: avg=182.4ms med=131.0ms p(95)=391.7ms p(99)=476.9ms` 你看下是哪里慢了"
+    },
+    {
+      "role": "assistant",
+      "text": "先找到一处明显的瓶颈：ES 客户端的连接池被改回了默认值，最多 30 个并发请求，压测时大量请求线程在排队等连接。是 `release-0929` 里的一个改动把原来的连接池设置覆盖掉了。已经恢复，本机按同样的到达率压了一轮，排队没了。\n\n**怎么查的**\n\n- 让 staging 那台机器在压测进行到第 3 分钟时用 `jcmd <pid> Thread.print` 抓了三次线程转储，存在 `perf/dumps/` 下。三次里都有 150 多个请求线程停在 `RestClient.performRequest` 里等连接，栈顶是 `AbstractNIOConnPool.lease`。\n- 读了 `config/EsConfig.java`：`RestClient.builder(...)` 后面接了两个 `setHttpClientConfigCallback`。第一个是老代码，设了 `setMaxConnTotal(200)`、`setMaxConnPerRoute(100)`；第二个是 `release-0929` 里的 #352 加的，用来配连接存活时间。后设的回调会整个替换前一个，连接池于是回到底层客户端的默认值：总共 30、每个路由 10。我们的 ES 集群有 3 个协调节点，也就是最多 30 个并发请求。\n- 9 月中那次压测在 #352 之前，时间也对得上。\n\n**改法**\n\n- 两个回调合成一个，连接池总数 200、每路由 100，连接存活时间照 #352 的设置保留。\n- 加了 Micrometer 指标 `es_client_pool_pending`，以后排队直接在面板上能看到。\n\n**验证**\n\n- `./gradlew test` 228 个通过，新加了一个用例断言 `EsConfig` 建出来的客户端连接池是 200/100。\n- 本机起服务和本地 ES、Redis，临时把 `search.js` 的地址指到本机，按同样的到达率压了 5 分钟：`es_client_pool_pending` 一直是 0，p99 从 260ms 降到 150ms 左右（本机的数只能看趋势）。\n\nstaging 部署以后再压一次？",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "staging 压了 pool_pending 是 0 了 p99 还是 `p(99)=471.3ms`"
+    },
+    {
+      "role": "assistant",
+      "text": "连接池不排队了尾延迟却没动，说明还有一处卡着。这次用 JFR 看到的是虚拟线程被钉住：`release-0929` 同时打开了虚拟线程，而 `CategoryTreeCache.get()` 在 `synchronized` 块里同步调 Redis，虚拟线程在里面会把载体线程一起占住，载体线程只有 8 个，高并发时大家排队。已经改成 `ReentrantLock`，并把 Redis 调用挪到锁外。\n\n**怎么查的**\n\n- 在 staging 那台机器上压测期间用 `perf/profile.sh` 录了 2 分钟 JFR，存在 `perf/jfr/` 下。打开 `jdk.VirtualThreadPinned` 事件：2 分钟里 4.1 万次，栈几乎全在 `CategoryTreeCache.get()` → `RedisTemplate.opsForValue().get()` → Lettuce 的同步调用。\n- `application.yml` 里 `spring.threads.virtual.enabled: true` 是 `release-0929` 里 #355 加的。`CategoryTreeCache` 的 `synchronized` 很早就有，平台线程下只是一把普通的锁；换成虚拟线程以后，持锁期间做阻塞 IO 会钉住载体线程。\n- 同一份 JFR 生成的火焰图里，`get()` 下面一大片是 `park`，和上面对得上。\n\n**改法**\n\n- `CategoryTreeCache` 里 `synchronized` 换成 `ReentrantLock`。\n- 类目树从 Redis 读回来、反序列化都挪到锁外，锁只保护内存里那份引用的替换；过期时只有一个线程去刷新，其余的先用旧的。\n- 虚拟线程没关：`grep -rn synchronized src/main` 一共 6 处，另外 5 处里没有 IO。\n\n**验证**\n\n- `./gradlew test` 230 个通过，新加了一个 50 个线程并发取类目树的用例。\n- 本机同样的到达率压 5 分钟：`jdk.VirtualThreadPinned` 降到 0，p99 138ms。\n\nstaging 再压一次吧。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "又压了一遍 `p(99)=468.0ms` 基本没动"
+    },
+    {
+      "role": "assistant",
+      "text": "这次看到的是 Redis 这一层：所有请求共用 Lettuce 的一条连接，搜索结果缓存的值平均 48KB，几百个并发请求的读写都排在这一条连接上，一个大值没读完后面的都得等。已经给 Lettuce 配上连接池，缓存值也压缩了。\n\n**怎么查的**\n\n- 同一份 JFR 里看 `jdk.SocketRead`：到 Redis 的读 p99 在 210ms 左右，而 Redis 那边 `SLOWLOG` 里没有一条超过 10ms 的命令，`INFO commandstats` 里 `GET` 的平均耗时 0.04ms，慢不在 Redis 本身。\n- 读了 `config/RedisConfig.java`：`LettuceConnectionFactory` 用的是默认配置，没开连接池，Spring Data Redis 默认所有线程共享一条原生连接。平台线程时代并发上限就是 Tomcat 的 200 个线程，打开虚拟线程以后并发不再受这个限制，压测时同一时刻挂在这条连接上的请求涨到四五百个。\n- `redis-cli --bigkeys` 抽样看了一下，`search:v3:` 开头的键平均 48KB，最大 410KB，都是整页结果的 JSON。\n\n**改法**\n\n- 加了 `commons-pool2`，`RedisConfig` 改成 `LettucePoolingClientConfiguration`，最大 64 条连接、最小空闲 8 条。\n- 缓存值写入前用 LZ4 压缩，读出来再解压，平均从 48KB 降到 9KB；键前缀不变，旧的没压缩的值读出来认得出来，照常能用，过期后自然换掉。\n\n**验证**\n\n- `./gradlew test` 233 个通过，新加了压缩前后读写一致、以及读旧格式值的用例。\n- 本机同样的到达率压 5 分钟：到 Redis 的读 p99 降到 6ms，接口 p99 131ms。\n\nstaging 再压一次 search.js 看看。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "staging 压完了 `http_req_duration: avg=179.8ms med=128.6ms p(95)=388.2ms p(99)=473.2ms`"
+    }
+  ],
+  "middle_hint": "中间是同一个 search-svc 仓库里的别的活：加接口字段和筛选、补单测、整理配置和压测脚本、升级依赖、出数据、写文档，和 search 接口的尾延迟无关。"
+}

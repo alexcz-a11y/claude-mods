@@ -1,0 +1,45 @@
+{
+  "id": "new-topic-09",
+  "category": "new-topic",
+  "domain": "devops-ci",
+  "bin": "d1",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "staging 这两天老有 pod 被驱逐 事件里都是 `The node was low on resource: ephemeral-storage` 集中在 general 那几台节点上 你看下是谁在往盘上写"
+    },
+    {
+      "role": "assistant",
+      "text": "主要是 media-svc：它把生成的缩略图缓存写在容器自己的文件系统里，一天涨 6 到 9 GB，从来不清，pod 不重启就一直攒。已经在 staging 上改了，下面是查的过程和改法。\n\n**查到的**\n\n- `kubectl get events -A --field-selector reason=Evicted`：两天 31 次驱逐，全在 staging `general` 节点组的三台节点上。被赶走的什么服务都有，光看被赶的是谁看不出是谁在写盘，所以要看每个容器自己往可写层写了多少。\n- 用 `kubectl debug node/...` 进了三台节点，`crictl ps` 拿到每个容器的可写层目录，逐个 `du` 了一遍，又拿 `crictl stats` 的 `writable layer` 对了一下，两边对得上。按服务汇总（14 个服务）：\n\n| 服务 | 往哪写 | 量 | 是什么 |\n|---|---|---|---|\n| media-svc | `/app/tmp/thumbs` | 每天 6–9 GB，只涨不减 | 缩略图缓存，代码里没有清理 |\n| bi-sync | `/tmp` | 每次同步 3–5 GB，跑完删掉 | parquet 中间文件，凌晨那一阵是峰值 |\n| search-svc | `/tmp` | 平时几十 MB，抓 JFR 时 1 GB 多 | JVM 的 `hsperfdata`、排查时落的 JFR 文件 |\n| order-api | `/tmp` | 几 MB 到 200 MB | 上传退款凭证时的 multipart 临时文件 |\n| notify-svc | `/app/.cache` | 200 MB 左右，稳定 | 模板渲染缓存 |\n| shop-admin | `/var/cache/nginx`、`/var/run` | 很小 | nginx 的缓存目录和 pid 文件 |\n| 其余 8 个 | — | 0 | 启动以后没写过文件 |\n\n- 节点根盘 80 GB，镜像占 35 GB 左右，kubelet 到 85% 开始驱逐。media-svc 在 staging 只有一个副本，攒到十几二十 GB 时再碰上 bi-sync 凌晨同步，那台节点就过线了；它自己被赶走、换到另一台节点以后又从头攒，所以三台轮着出事。\n\n**改法**\n\n- `charts/app` 加了一个 `scratchVolumes` 的 values 块：写上路径和大小，模板里渲染成带 `sizeLimit` 的 `emptyDir` 挂到对应路径；不写就什么都不加，其它服务渲染出来的清单一个字不变。\n- media-svc 的 staging values：`/app/tmp` 挂 4Gi 的 `emptyDir`，加上 `ephemeral-storage` 的 requests 1Gi、limits 6Gi，再超就只会重启它自己，不会把节点撑满连累别人。缓存不清理这件事给 media-svc 的同事开了 issue，让他们按 LRU 清。\n- bi-sync 的 staging values：`/tmp` 挂 8Gi 的 `emptyDir`，`ephemeral-storage` limits 10Gi。\n\n**验证**：`scripts/render-all.sh` 把所有服务渲染了一遍，只有这两个服务的清单变了，kubeconform 通过；`helm upgrade` 到 staging，两个服务滚动完成，`df` 看三台节点的根盘从 83% 左右回到 52%。\n\n还没提交，今晚 bi-sync 跑完再看一眼节点的盘。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "昨晚 bi-sync 跑完 节点盘最高 61% 没再驱逐 提交吧 prod 的 values 开个 PR 我来合"
+    },
+    {
+      "role": "assistant",
+      "text": "提交了，`4d2a8f0`：`charts/app: add scratchVolumes; cap ephemeral storage for media-svc and bi-sync`。prod 的两份 values 开了 PR #479，chart 的 version 升了一个小版本，CHANGELOG 补了一条。\n\n- prod 的 media-svc 现在单个 pod 的可写层有 21 GB，合进去以后滚动一次就清掉了。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "安全组新的容器基线要求根文件系统只读 你在 charts/app 里把 readOnlyRootFilesystem 默认打开吧"
+    }
+  ],
+  "middle_hint": "中间在 infra 仓库里做别的事：Terraform 加资源、改 workflow、整理脚本和文档、补告警之类，和节点磁盘、pod 驱逐无关。"
+}

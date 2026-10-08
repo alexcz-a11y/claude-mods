@@ -14,7 +14,7 @@
 // switched off, it says so when called.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { type Asked, describeAsked, errorText, failureText } from '../decision/backend.ts'
+import { type Asked, type BackendIo, describeAsked, errorText, failureText } from '../decision/backend.ts'
 import { turnStartState } from '../decision/context.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { modRanker, pickSkills, skillOpening, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
@@ -28,6 +28,7 @@ import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'find-skill'
@@ -82,7 +83,11 @@ async function sessionCatalog($: EngineInterface, model: string): Promise<Catalo
 
 /** One decision request for find_skill through the person's decision model, its outcome in the debug log. */
 async function askLogged($: EngineInterface, ctx: Ctx, what: string, about: string, request: DecisionRequest, timeoutMs: number): Promise<Asked> {
-  const io = { fetch: (url: string, init: HttpInit) => $.http.fetch(url, init), sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }) }
+  const io: BackendIo = {
+    fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+    sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+    pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+  }
   const startedAt = await $.clock.now()
   const asked = await ctx.backend.ask(io, request, timeoutMs)
   const ms = (await $.clock.now()) - startedAt
@@ -101,13 +106,11 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
 
   /** Skills never offered (the option the skills feature reads too). */
   const neverSuggested = new Set(ctx.config.skills.neverSuggested)
-  const policy: SkillPolicy = ctx.config.skills.find
+  const policy = (): SkillPolicy => ctx.config.skills.find
   /** How the mod's ranker ranks: the settings it rates the skills beside each message with. */
   const rankBy = rankingSettings(ctx)
   /** The model whose profiles the skills are offered by (#11). */
   const model = ctx.config.skills.profileModel
-  /** How long the call's two requests may take in all, and whether the first offers skills by their profiles: the decision model's. */
-  const { findWaitMs: waitMs, findByProfile } = ctx.config.skills
 
   // Registered once every plugin is loaded, under a match-all matcher (other
   // features set themselves up at session start too). Without a decision
@@ -164,8 +167,8 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
         rankBy,
       )
       // The first request offers each skill by its profile where the decision model can read them all in time
-      // (BACKEND_DEFAULTS findSkillProfiles: not Clef), else by its description; the second re-reads by both.
-      const part = ranker.part(findByProfile ? candidates : candidates.map((skill) => ({ ...skill, profile: null })))
+      // (BACKEND_DEFAULTS findSkillProfiles), else by its description; the second re-reads by both.
+      const part = ranker.part(ctx.config.skills.findByProfile ? candidates : candidates.map((skill) => ({ ...skill, profile: null })))
       if (part === null) {
         await report(io, { decision: { ...call, skipped: 'none' as const } })
         return { result: `This session has no skill that find_skill could return. ${CARRY_ON}` }
@@ -173,8 +176,9 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
 
       // The same state as beside a message, the work named in place of the message; the ranker's second
       // request (#11) asks about the same. Both requests share one wait: the second gets what the first left
-      // of it. The wait is the decision model's (findWaitMs: a message's timeoutMs with Jev, 8000 ms with Clef),
+      // of it. The wait is the decision model's (findWaitMs: a message's timeoutMs with Jev),
       // within the hook's own 10 s.
+      const waitMs = ctx.config.skills.findWaitMs
       const startedAt = await $.clock.now()
       const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
       const request = mergeParts(turnStartState({ prompt: query, messages, limits: ctx.config.context }), [part])
@@ -191,19 +195,19 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       const ranking = ranked
 
       // Only skills the main agent can load were asked about, and they alone can come back.
-      const { suggest } = pickSkills(ranking, candidates, policy)
+      const { suggest } = pickSkills(ranking, candidates, policy())
       const names = suggest.map((skill) => skill.name).join('、')
       await report(io, {
         decision: {
           ...call,
           subject: quoteStart(query),
           outcome: suggest.length > 0 ? `查到 ${names}` : '没查到 skill',
-          reason: describeRanking(ranking, policy),
+          reason: describeRanking(ranking, policy()),
           tone: suggest.length > 0 ? 'ok' : 'info',
           skills: { suggest: suggest.map(({ name, relevance }) => ({ name, relevance })), try: [] },
         },
       })
-      return { result: found(query, suggest, policy) }
+      return { result: found(query, suggest, policy()) }
     } catch (error) {
       $.ui.log(`find_skill failed: ${errorText(error)}`, { to: 'debug' })
       await report(io, { decision: { ...call, skipped: 'error' as const } })

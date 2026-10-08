@@ -7,15 +7,17 @@ import { expect, test } from 'claude-code/testing'
 import { profileKey } from '../hooks/core/profiles.ts'
 import { jev, world, type SkillsWorld } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 test('a command turn gets the effort question about the command as typed, and goes out at the decided effort', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0.1, 0.2, 0.7, 0]) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0.1, 0.2, 0.7, 0]) })
   await w.slash('implement', '#19')
   await w.step({ index: 0, effort: 'medium' })
 
   expect(w.requests).toHaveLength(1)
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
   expect(w.requests[0]?.body.state.user_message).toBe('/implement #19')
   expect(w.steps.map((s) => String(s.effort))).toEqual(['xhigh'])
   expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: true })
@@ -34,12 +36,12 @@ const SKILLS: SkillsWorld = {
 }
 
 test('a command turn suggests no skill: the person has picked the work already', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), skills: SKILLS })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 1, 0, 0]), skills: SKILLS })
   await w.slash('implement', '#19')
   await w.step({ index: 0 })
 
   expect(w.requests).toHaveLength(1)
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
   expect(w.prompts[0]?.context).toBeUndefined()
 })
 
@@ -51,7 +53,7 @@ test('a message that only starts with a slash is an ordinary message, also after
   await w.step({ index: 0 })
 
   expect(w.requests[0]?.body.state.user_message).toBe('/Users/me/notes.txt 这个文件写了什么')
-  expect(Object.keys(w.requests[0]?.body.questions)).toContain('skills.which')
+  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toContain('skills.which')
   expect((await w.board()).main).toMatchObject({ routed: true })
 })
 
@@ -90,11 +92,11 @@ test("what the person typed after the command is their own words for a dispatche
 })
 
 test("a plugin's command typed without its plugin's name is a command turn too", { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), skills: SKILLS })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 1, 0, 0]), skills: SKILLS })
   await w.slash('release-kit:ship', '0.2.4', { as: 'ship' })
 
   expect(w.requests[0]?.body.state.user_message).toBe('/ship 0.2.4')
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
 })
 
 test('a command turn is re-decided mid-turn about the command as typed, not the message the engine wraps it in', { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {

@@ -1,0 +1,21 @@
+{
+  "id": "cheap-agreement-08",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条是在 staging 上再造一批数据：10 个商户各 500 单、摊 60 天、两个渠道、部分退款、全额退款、退款中，外加两家的 dead outbox 记录。决定性几轮里用户否掉了主 agent「走 service 层、做幂等、补测试」的方案，立了规矩：staging 造数直接写 SQL 扔 scripts/seed/，金额对得上就行，不走 service、不做幂等、不写测试、不管分布，理由是 staging 那个库全是测试单、只有自己和联调方在用、造坏了按商户号删掉重来；主 agent 随后用 generate_series 写了 90 行的 pos_demo.sql。按这个约定，最后这条就是照 pos_demo.sql 的样子再写一个 SQL 文件：改数量和日期范围、多几个取模分支（部分退款的金额小于实付、退款中的退款单）、往 outbox_events 插几行 dead。比上一份多了部分退款和 outbox 两块，要看一眼 refunds、outbox_events 的列和可退金额的算法，但范围清楚、不需要权衡：medium。约定把健壮性要求全拿掉了，主体还是照样板改数字和分支，判 low 也说得过去，accept low、medium。删掉决定性几轮，最后这条看起来是要造一批给财务对账用的、跨订单、支付、退款、事件四张表的数据，退款金额不能超过实付、状态要和流转规则一致、dead 事件要能被重推，正常做法是走 service 层保证不变量，还要考虑重复执行：high。三选一：d1 第一次提出造数这件事，new_or_unrelated；d2 是在定做法和规矩，没有说之前的东西好没好，new_or_unrelated；最后一条是另一批数据的新任务，new_or_unrelated。（审稿改动：effort 由 low 改为 medium，部分退款、退款中和 dead outbox 都要对表结构，不全是机械改数字；d1 回复里「scripts/ 下只有迁移和生成代码的脚本」改成提到本地用的 scripts/seed.sql，素材段里有这个文件；d2 的理由去掉了「每周一按 prod 快照整库重置」，素材段里预发库一直留着迁移版本，和整库重置对不上，换成「全是测试单、造坏了按商户号删」。）"
+}

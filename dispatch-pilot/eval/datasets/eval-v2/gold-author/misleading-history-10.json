@@ -1,0 +1,29 @@
+{
+  "id": "misleading-history-10",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里扫码登录一直转圈改了两次（读和订阅的竞态、过期后轮询返回 pending）都没根除，第三轮查明剩下的是 App 8.12 缓存旧 qrId，用户转给 App 组、我们这边不查了。第二次改动时有效期已经收成 src/auth/qr-login.ts 里的一个常量 QR_TTL_SECONDS，Redis 过期时间、接口的 expires_in、测试都从它取，PC 倒计时读 expires_in，助手明说以后调有效期只改这一个常量。最后一条是产品要把有效期改成五分钟：把 180 改成 300、跑一遍测试，照明确指令的一处改动，low；顺手提一句有效期放长对扫码钓鱼窗口的影响、多看一眼用例，给 medium 也可以。删掉决定性几轮，只看最后一句不知道有效期在哪里定义、有几处、PC 倒计时和 App 要不要跟着改，要先在代码里找一遍再改，medium。三选一：d1 第一次提出问题，new_or_unrelated；d2、d3 改完都说还是有，still_unresolved；d4 说是 App 的问题、我们不查了，问题并没有消失，still_unresolved；最后一条是产品对有效期的新要求，不是在说转圈的问题，new_or_unrelated。"
+}

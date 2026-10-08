@@ -1,0 +1,30 @@
+{
+  "id": "misleading-history-10",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "low",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条是产品要求把二维码有效期改成五分钟。d2 那次已把有效期收成 src/auth/qr-login.ts 里的一个常量 QR_TTL_SECONDS，Redis 过期、接口 expires_in 和测试都从它取，前端倒计时读接口，所以只改一个值再跑测试，low；若测试里有写死的数字要顺手对，medium 也可接受。这是新的产品需求，扫码转圈问题在 d4 已收尾，所以是 new_or_unrelated。读不到决定性几轮时也只是找到有效期在哪里定义、改一个值，仍是 low。d2、d3 是修复发上去后仍有客诉，still_unresolved；d4 用户认定是 App 的问题、不再查，接受结果，resolved。",
+  "source": "user:labeler"
+}

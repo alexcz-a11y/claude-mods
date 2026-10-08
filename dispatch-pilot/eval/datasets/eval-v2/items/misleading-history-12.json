@@ -1,0 +1,86 @@
+{
+  "id": "misleading-history-12",
+  "category": "misleading-history",
+  "domain": "docs-writing",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "CI 的 build 这两周隔三岔五卡死 停在 Creating an optimized production build 那一行 一直到 30 分钟超时被杀 重跑又好了 你查一下"
+    },
+    {
+      "role": "assistant",
+      "text": "先看了最近 40 次 `ci.yml` 的运行：卡死 6 次，都在 `npm run build` 这一步，卡之前的输出和正常的一模一样，之后再没有一行输出，直到 30 分钟被 Actions 杀掉。正常的运行这一步 6 分 50 秒到 7 分 10 秒；卡死的几次和分支、时段、改了哪些页面都看不出关系。\n\n**先试的方向：内存**\n\n- 中英文一起构建在 runner 上内存吃得比较紧，Node 默认的堆上限不够时会反复 GC，看起来就像卡住。\n- `ci.yml` 的 build 步骤加了 `NODE_OPTIONS=--max-old-space-size=6144`，同时在后台每 30 秒打一次 `free -m` 和 node 进程的 RSS，卡住的时候能看到内存是什么状态。\n- 提交 `c4e81a0`，合了以后再卡一次就有数据了。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "合了 今天上午又卡了一次 你看下日志"
+    },
+    {
+      "role": "assistant",
+      "text": "不是内存。卡住那 23 分钟里 node 的 RSS 一直停在 3.1 GB 左右，机器还有 9 GB 可用，没碰 swap；CPU 那一列 node 进程是 0%，也就是说它不是在拼命算，而是在等什么。\n\n**第二个方向：读 git 历史的子进程**\n\n- 我们开了「最后更新时间」，构建时每个文档文件都要单独起一个 `git log` 子进程查历史，中英文加起来几百次。要是哪一个子进程挂住不退出，node 就会一直等它，CPU 是 0，和这次看到的样子对得上。\n- `docusaurus.config.js` 里 `showLastUpdateTime` 本来就读环境变量 `DOCS_LAST_UPDATE`，build 步骤先设成 `false` 把它关掉，CI 上构建出来的页面暂时不显示更新时间，看还卡不卡。提交 `9d02b7e`。",
+      "tools": [
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "关了也卡 下午那次"
+    },
+    {
+      "role": "assistant",
+      "text": "git 子进程这个方向也排除了。两次都是猜，下一次得先拿到卡住那一刻进程在干什么。\n\n- build 步骤改成用 `NODE_OPTIONS=--report-on-signal --report-signal=SIGUSR2` 启动，旁边起一个 watchdog：build 跑满 15 分钟还没结束，就给 node 发 `SIGUSR2`，Node 会写出一份诊断报告（各线程的调用栈、句柄、libuv 的状态），作为 artifact 上传，然后再杀掉。提交 `5a7f3d2`。\n- 顺带一件和卡死无关的事：打开详细日志以后看到一条警告，中文的 `guides/scheduled-messages.mdx` 里有个指向 `#send_at` 的锚点解析不到。查了英文页的 `git log`：9 月改过一次，可以提前定时的最长时间从 7 天改成 30 天，请求参数 `send_at` 改名成 `scheduled_at`。中文页没跟上，差的就是这两处：正文里「最多可以提前 7 天」那一句，和代码示例里的参数名（连带那个锚点）。其余段落和英文一致。",
+      "tools": [
+        "Bash",
+        "Edit",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d4",
+      "text": "抓到了 在今天傍晚那次 run 的 artifact 里 你看看"
+    },
+    {
+      "role": "assistant",
+      "text": "报告看了：卡在压缩阶段。主线程停在事件循环里等，4 个 worker 线程里有 1 个停在 terser 的压缩函数里不返回，另外 3 个空闲；webpack 在等这个 worker 交回结果，所以整个构建不动也不报错。\n\n- 搜了 `terser-webpack-plugin` 和 `jest-worker` 的 issue，有几条类似的「worker 偶发挂起、重跑就好」，都没有确定的原因和修复，有人怀疑和 runner 的 CPU 配额有关。\n- 能做的有三种：关掉并行压缩（`parallel: false`，构建慢 1 分半左右，能不能根治不确定）；升到 3.10 打开 Docusaurus Faster，压缩换成 SWC，不走 terser；或者不根治，让 watchdog 卡住时直接杀掉重跑一次。\n- 和我们自己的页面内容无关，换哪个页面都会卡。",
+      "tools": [
+        "Bash",
+        "Read",
+        "WebSearch"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d5",
+      "text": "算了 不查了 一周卡一两次 等升 Docusaurus 的时候整个换掉再说 watchdog 留着 改成卡 15 分钟就杀掉自动重跑一次 先凑合 前面加的内存日志和关掉的更新时间都恢复原样 中文那页回头再改"
+    },
+    {
+      "role": "assistant",
+      "text": "改好了，提交 `e2b6c18`：\n\n- watchdog 留着：build 超过 15 分钟就杀掉并自动重跑一次，只重跑一次，再卡就照常失败；诊断报告照样上传，以后要查还有现场。\n- `NODE_OPTIONS` 的堆上限和每 30 秒打内存的后台步骤去掉了，`DOCS_LAST_UPDATE=false` 也去掉了，页面上的更新时间回来了，这几处和改之前一样。\n\n中文的定时发送那页记着：「最多可以提前 7 天」改成 30 天，代码示例里的 `send_at` 改成 `scheduled_at`，链接锚点 `#send_at` 跟着改成 `#scheduled_at`，改完那条构建警告就没了。",
+      "tools": [
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "定时发送那页的中文同步一下吧"
+    }
+  ],
+  "middle_hint": "中间在同一个 docs-site 仓库里做别的事：写指南和博客、改限额数字、重拍截图、拆 FAQ、术语统一、加 CI 检查之类，和 build 偶发卡死无关，也没碰定时发送那页。"
+}

@@ -1,0 +1,29 @@
+{
+  "id": "resolved-04",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "orders 加 (merchant_id, created_at) 索引：决定性几轮里先后撞上「CONCURRENTLY 和普通语句混在一个迁移里，Flyway 报 mixed」和「等一个忘了提交的长事务被取消、留下 INVALID 索引，`IF NOT EXISTS` 又让重跑悄悄跳过」，修好后 staging、线上都建完，用户明说解决了（d4）。d4 里用户顺带提到线上可能有一个手动试过的 `idx_orders_merchant_created_tmp` 残留，助手已经把删法定好：单独一个文件、只有一句 `DROP INDEX CONCURRENTLY IF EXISTS`、Flyway 自动放到事务外、跑前看一眼 `check_long_tx.sql`、编号往后排。最后这条确认残留存在、让照之前说的写迁移，是按现成方案写一个一行的迁移文件的机械收尾：low，medium 也可以（顺手跑一遍迁移测试）。删掉决定性几轮，中间是别的活，这条就是突然要在线上四千多万行的 orders 上删一个来历不明的 INVALID 索引，「照之前说的」也无从参照：要先弄清它怎么来的、Flyway 里 CONCURRENTLY 怎么写、会不会被长事务卡住，属于线上数据库的高风险操作，high；三选一也会变成 new_or_unrelated。三选一：d1 第一次提出要加索引，new_or_unrelated；d2、d3 都是照做后报错、问题还在，still_unresolved；d4 明说解决了，resolved；最后这条是事先说好的收尾，resolved。\n审稿修改：按 database 素材段的仓库设定重写了决定性几轮的技术细节：素材段一再说 Flyway 会自动把含 CONCURRENTLY 的迁移放到事务外执行、`flyway.toml` 已配好、仓库惯例是一个文件一条 CONCURRENTLY（段 04、06、12、41），原题「Flyway 默认包事务所以报 cannot run inside a transaction block」「加 .conf 的 executeInTransaction=false」和它们矛盾，改成「CONCURRENTLY 和 COMMENT ON 混在一个文件里报 mixed」；迁移账号 `shop_owner` 没有 statement_timeout（段 03），原题「flyway_migrator 的 statement_timeout 20 分钟把建索引取消」改成「等一个 idle in transaction 的会话、用户手动取消」；orders 是四千多万行、建索引几分钟（段 29、41），不是 1.2 亿行、二十多分钟；迁移编号段里已经用到 V12x，原题的 V044–V046 改成 V101、V102，删除迁移的编号不再写死。档位和三选一不变。"
+}

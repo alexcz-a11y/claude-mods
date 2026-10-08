@@ -1,0 +1,23 @@
+{
+  "id": "looks-hard-is-easy-12",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "剩下的工作：`go run ./scripts/txnid-pattern -apply`（14 个事件 schema 和 `api/openapi.yaml` 9 处，并重新生成嵌入的 schema）；手改 `internal/handler/params.go` 第 41 行的正则，新内容在 d2 之后的回复里逐字给了；把 d1 准备好的 3 份样例放进 testdata；跑 `-check`（含 `make openapi-lint`）和 `go test ./... -race`，看一遍 diff。原因（paylink 新核心的交易号是 PL 加 18 位，事件 schema 写死 16 位，组装 `order.paid` 时校验失败、事务回滚）d1 用 7 天的日志逐笔对过、本地复现过，脚本在三个 schema 上试过；格式以文档为准这件事，最后一条明说文档出来了、和那天说的一样。剩下的只是替换一个 pattern，不碰事务、重试、金额和权限，样例由现成的 schema 测试自动校验，不写新测试。对上第 7 节 medium 的第 ③ 种：跑在样板上验证过的脚本处理一批文件，加一处逐字写明的手改，再跑现成的检查、看一遍 diff。看 diff 要读新东西，所以 medium；每一步都照单子做，low 也能接受，accept low、medium。删掉决定性几轮，剩下一大段排查（锁、连接池、trace、依赖、配置都看过，没有结论）加上最后一条 Sentry 的报错，「按那天说的改」改什么看不出来，得从头调试一个只在 prod 出现的 500：high。三选一按第 6 节：d1 对话里第一次提出这个问题，new_or_unrelated；d2 认了原因，同时说昨晚又来了 40 多条，问题还在，still_unresolved；最后一条说又是一串、贴出同样的报错，让按定好的改，still_unresolved。决定性几轮里代码一直没动，没有失败的尝试。审稿修改（金标档位和三选一不变）：和素材池对齐几处事实。素材段说这条报错 8 月 3 日就有（Sentry 老 issue），工单里的 9 月 21 日也像，原题让新核心 9 月 23 日才上；改成 8 月 3 日起按交易比例灰度。素材段的工单说重试一两次就成功，原题里每笔 20 位交易号都会失败、重试也一样；补了一句：重新发起是新交易，多半落回老核心。7 天次数按素材段改成 389（dcep 312、unionpay_qr 77）；昨晚那 43 笔改成分散在 27 家门店。最后一条的 Sentry 堆栈改成停在 `handler.writeError`（素材段说上报在那里，堆栈里没有 service 层），first seen 改成 9 月 25 日，事件数按 0.2 的采样率改成 9，release 改成 `v1.45.1`；SYMPTOM 去掉「收银 App」，因为工单里网页后台也有。\n可接受档位：出题者 ['low', 'medium']，标注者 ['medium', 'high']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
+}

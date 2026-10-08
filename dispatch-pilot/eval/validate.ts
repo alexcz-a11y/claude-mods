@@ -4,35 +4,50 @@
 // that only the decision report writes the screens (lib/docs.ts): the checks of the docs a test file cannot make, for it cannot
 // read the files.
 //
-//   node dispatch-pilot/eval/validate.ts                      every eval/datasets/*.jsonl, then the README's configuration table
+//   node dispatch-pilot/eval/validate.ts                      every eval/datasets/*.jsonl, eval v2, then the README's configuration table
 //   node dispatch-pilot/eval/validate.ts effort-submit        eval/datasets/effort-submit.jsonl
 //   node dispatch-pilot/eval/validate.ts path/to/skill.jsonl  a file elsewhere (skill-catalog.json beside it)
+//   node dispatch-pilot/eval/validate.ts eval-v2              only eval v2 (#45): every file under eval/datasets/eval-v2/, and
+//                                                             eval-v2.jsonl built again against eval-v2/generated.json
 //   node dispatch-pilot/eval/validate.ts docs                 only the docs: the configuration table, the 「结构」 tree and the one-writer check
 //
-// Exits 1 when any item or row breaks a rule; warnings (dataset-wide quotas) do not fail.
+// Exits 1 when any item or row breaks a rule; warnings (dataset-wide quotas, eval v2 not written in full yet) do not fail.
 
 import { readFileSync, readdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { validateDataset } from './lib/datasets.ts'
 import { checkConfigTable, checkOneWriter, checkStructureTree } from './lib/docs.ts'
-import { DATASETS_DIR, MOD_DIR, catalogFor, datasetFile, readDataset, readManifest } from './node.ts'
+import { longContextJsonl } from './long-context-items.ts'
+import { DATASETS_DIR, EVAL_V2_JSONL, MOD_DIR, catalogFor, datasetFile, readDataset, readManifest, validateEvalV2 } from './node.ts'
 
 const { positionals } = parseArgs({ allowPositionals: true, options: {} })
 const everything = positionals.length === 0
-const names = everything ? readdirSync(DATASETS_DIR).filter((file) => file.endsWith('.jsonl')).map((file) => basename(file, '.jsonl')) : positionals.filter((name) => name !== 'docs')
+// eval-v2.jsonl is made (and checked) from the files under eval-v2/, not a dataset of a kind (validateEvalV2 below).
+const names = everything
+  ? readdirSync(DATASETS_DIR)
+      .filter((file) => file.endsWith('.jsonl') && file !== basename(EVAL_V2_JSONL))
+      .map((file) => basename(file, '.jsonl'))
+  : positionals.filter((name) => name !== 'docs' && name !== 'eval-v2')
 
 let failed = false
 for (const name of names) {
   const { kind, path } = datasetFile(name)
   const { items, errors: unreadable } = readDataset(path)
   const { errors, warnings } = validateDataset(kind, items, { catalog: catalogFor(kind, path) })
-  const all = [...unreadable, ...errors]
+  // The long-context file is written from the items module (its one source): a hand edit of the JSONL is an error.
+  const drift = kind === 'long-context' && readFileSync(path, 'utf8') !== longContextJsonl() ? ['the file is not what eval/long-context-items.ts makes: edit the items there and run node dispatch-pilot/eval/long-context-gen.ts'] : []
+  const all = [...unreadable, ...errors, ...drift]
   const hard = items.filter((item) => item.difficulty === 'hard').length
   console.log(`${basename(path)}: ${items.length} items (${hard} hard): ${all.length === 0 ? 'ok' : `${all.length} errors`}`)
   for (const error of all) console.log(`  ${error}`)
   for (const warning of warnings) console.log(`  warning: ${warning}`)
   if (all.length > 0) failed = true
+}
+if (everything || positionals.includes('eval-v2')) {
+  const { lines, failed: broken } = validateEvalV2()
+  for (const line of lines) console.log(line)
+  if (broken) failed = true
 }
 if (everything || positionals.includes('docs')) {
   const problems = checkConfigTable(readFileSync(join(MOD_DIR, 'README.md'), 'utf8'), readManifest().userConfig ?? {})

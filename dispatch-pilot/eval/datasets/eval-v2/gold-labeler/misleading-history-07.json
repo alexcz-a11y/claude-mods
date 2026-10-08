@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-07",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后一条是让撤回 9b2f4d1，决定性几轮里已在临时分支试过 git revert：干净应用、不冲突、用例全过，撤法也已写明，现在照做一个 revert 提交再跑一遍 pytest，属于照明确指令做的机械操作，low；考虑到中间隔了些时间、可能要重新确认不冲突，medium 也可接受。9b2f4d1 已被确认与改单 InFailedSqlTransaction 报错无关，所以最后一条对那个问题是 new_or_unrelated。读不到决定性几轮时，不知道这个提交改了什么、撤了会不会冲突、要跑哪些测试，需要先看提交和影响面，判 medium。d2 仍在追同一个报错的原因（问是不是该提交引起），d3 让报错先挂着、票别关，都是 still_unresolved。"
+}

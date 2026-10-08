@@ -7,29 +7,35 @@
 // The table is every row under the README's `## 配置` heading (its `###`
 // groups included) whose first cell is an option's name in backticks:
 //
-//   | 选项 | 作用 | Jev | Clef |
-//   | `timeoutMs` | how long a message waits | `1500` | `3000` |
-//   | `thetaUp` | threshold to raise effort | `0.4` 起点 | `0.4` 未校准 |
+//   | 选项 | 作用 | Jev | pplx |
+//   | `timeoutMs` | how long a message waits | `1500` | `8000` |
+//   | `thetaUp` | threshold to raise effort | `0.3` 按 AA 基准 | `0` 离线校准 |
 //
 // Each default cell starts with the default in backticks (`空` for an empty
-// text or list, `true` or `false` for a boolean) and may go on with a note:
-// 起点 (a starting point, not tuned on eval data; not checked) or, in the
-// Clef cell, 未校准 (the value is Jev's, not measured on Clef; checked). No
-// cell holds a `|`.
+// text or list, `true` or `false` for a boolean) and may go on with a note
+// (起点, a starting point not tuned on eval data; not checked). No cell holds
+// a `|`.
 
 import { BACKEND_DEFAULTS, PER_BACKEND_OPTIONS, type BackendDefaults, type BackendName, type PerBackendOption } from '../../hooks/core/setup.ts'
 import type { OptionSpec } from './suite.ts'
 
 type Row = { option: string; cells: string[] }
 
-/** The decision models, as the table's two default columns name them. */
-const BACKENDS = [
-  { column: 2, label: 'Jev', backend: 'jev' },
-  { column: 3, label: 'Clef', backend: 'clef' },
-] as const
+/**
+ * The decision models, in the order of the table's default columns (after the option and what it does), each with the
+ * name its column goes by. A new decision model is one more entry here, one in core/setup.ts BACKEND_DEFAULTS and a cell
+ * for it in every row of the README's tables.
+ */
+const BACKENDS: readonly { label: string; backend: BackendName }[] = [
+  { label: 'Jev', backend: 'jev' },
+  { label: 'pplx', backend: 'pplx' },
+]
 
-/** The note that says a Clef value is Jev's. */
-const NOT_CALIBRATED = '未校准'
+/** Where the default columns start in a row: the option, then what it does. */
+const FIRST_DEFAULT = 2
+
+/** The cells of a row: the option, what it does, and a default for each decision model. */
+const CELLS = FIRST_DEFAULT + BACKENDS.length
 
 /** The rows of the README's `## 配置` section; null when it has no such section. */
 function configRows(readme: string): Row[] | null {
@@ -62,18 +68,6 @@ function same(value: string, expected: string): boolean {
 }
 
 /**
- * Whether Clef's value for a per-backend option is Jev's, taken as it is: not
- * measured on Clef. A value of Clef's own (one that differs from Jev's) is not
- * borrowed. A context budget that happens to equal Jev's is still Clef's own
- * measurement when Clef has a most of its own (#17: Clef sometimes reads only
- * the start of a long state), which Jev's budget does not have.
- */
-function borrowedByClef(option: PerBackendOption, defaults: Readonly<Record<BackendName, BackendDefaults>>): boolean {
-  const measured = option === 'contextTokens' && defaults.clef.contextTokensMax !== defaults.jev.contextTokensMax
-  return defaults.clef[option] === defaults.jev[option] && !measured
-}
-
-/**
  * What is wrong with the README's configuration table, one line each; none
  * when it is in step with `userConfig` (plugin.json) and the decision models'
  * defaults (core/setup.ts BACKEND_DEFAULTS).
@@ -100,29 +94,21 @@ export function checkConfigTable(readme: string, userConfig: Readonly<Record<str
       problems.push(`\`${option}\`: ${found.length} rows in the configuration table`)
       continue
     }
-    if (row.cells.length !== 4) {
-      problems.push(`\`${option}\`: the row has ${row.cells.length} cells, not 4 (a | inside a cell?)`)
+    if (row.cells.length !== CELLS) {
+      problems.push(`\`${option}\`: the row has ${row.cells.length} cells, not ${CELLS} (a | inside a cell?)`)
       continue
     }
     if (!perBackend && written(decl.default) === null) {
       problems.push(`\`${option}\`: no default to compare the row with (plugin.json gives none the table can write, and BACKEND_DEFAULTS does not cover it)`)
       continue
     }
-    const valid = BACKENDS.map(({ column, label, backend }) => {
-      const cell = row.cells[column] ?? ''
+    BACKENDS.forEach(({ label, backend }, i) => {
+      const cell = row.cells[FIRST_DEFAULT + i] ?? ''
       const value = /^`([^`]*)`/.exec(cell)?.[1]
       const expected = perBackend ? String(defaults[backend][option as PerBackendOption]) : written(decl.default)
       if (value === undefined) problems.push(`\`${option}\`: the ${label} cell does not start with the default in backticks`)
       else if (expected !== null && !same(value, expected)) problems.push(`\`${option}\`: the ${label} cell says ${value}, the default is ${expected}`)
-      else return true
-      return false
     })
-    if (perBackend && valid.every(Boolean)) {
-      const borrowed = borrowedByClef(option as PerBackendOption, defaults)
-      const marked = (row.cells[3] ?? '').includes(NOT_CALIBRATED)
-      if (borrowed && !marked) problems.push(`\`${option}\`: the Clef cell should say ${NOT_CALIBRATED}: its value is Jev's, not measured on Clef`)
-      if (!borrowed && marked) problems.push(`\`${option}\`: the Clef cell should not say ${NOT_CALIBRATED}: Clef has a value of its own`)
-    }
   }
   return problems
 }

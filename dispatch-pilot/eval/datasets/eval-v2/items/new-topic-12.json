@@ -1,0 +1,53 @@
+{
+  "id": "new-topic-12",
+  "category": "new-topic",
+  "domain": "perf",
+  "bin": "d4",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "search 接口晚高峰的成批慢请求",
+    "SYMPTOM": "晚高峰时搜索请求一阵一阵成批变慢",
+    "ERROR": "io.lettuce.core.RedisCommandTimeoutException: Command timed out after 100 millisecond(s)",
+    "FILE": "src/main/java/com/acme/search/service/SearchService.java",
+    "FILE2": "src/main/java/com/acme/search/api/SearchController.java",
+    "SYMBOL": "SearchService.search",
+    "COMMAND": "k6 run bench/peak-burst.js"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "search 接口晚高峰一阵一阵慢 不是一直慢 是隔几分钟就有一两秒一大批请求一起慢 那一两秒日志里总有一串 `io.lettuce.core.RedisCommandTimeoutException: Command timed out after 100 millisecond(s)` 入口是 SearchService.search 你先帮我理一下大概可能在哪 代码先别动"
+    },
+    {
+      "role": "assistant",
+      "text": "先理了一遍，代码没动。结论先说：那一串 Redis 超时更像是「慢」的一部分，不一定是起因；成批一起慢、而且命中缓存的请求也慢，说明那一两秒里有一个所有请求都要经过的东西停住了，候选有好几个，现在分不出来。\n\n**一个请求在 `SearchService.search` 里经过什么**\n\n1. 用参数算缓存 key（`CacheKeys`，前缀 `search:v3:`），同步读 Redis。所有请求共用一条 Lettuce 连接，超时 100ms，超时就打一行 WARN、当成没命中往下走。\n2. 没命中就查 ES：同步调用，先从连接池借连接（池子 100，借连接没有超时），socket 超时 2 秒。\n3. 解析响应、映射成返回结构，再同步写回 Redis，TTL 120 秒。\n4. 线上 8 个 pod，每个 4 核上限，Tomcat 200 个请求线程。\n\n**为什么说 Redis 超时不一定是起因**\n\n- 一条连接上的命令是排队的。只要那一刻 pod 自己停住了（GC、CPU 限流），或者有一个大 value 正在这条连接上收发，后面的命令就算服务端早就处理完了，也要等，100ms 一到就超时。所以「超时扎堆」既可能是 Redis 或网络抖了一下，也可能只是我们自己停住了。\n- 超时以后按没命中处理，这一批请求会一起去查 ES，多一轮解析和写缓存，又把 CPU 往上推。超时和慢会互相放大。\n\n**目前想到的几个方向**（都没验证）\n\n- 那一两秒 pod 自己停住：GC 停顿、CPU 配额被限流；\n- Redis 或到 Redis 的网络那一刻慢了；\n- 共享连接上被大 value 堵住；\n- ES 那一侧慢、借连接排队。\n\n能把它们分开的是「几个 pod 是不是同一秒一起慢」：只有一个 pod 扎堆，多半是它自己停住；8 个 pod 同一秒一起，多半是共用的 Redis、ES 或网络。\n\n**建议下一步**：挑一个晚高峰，在两个 pod 里每秒记一次 `cpu.stat`、当天把 gc 日志拷出来，另开一条独立连接用 `redis-cli --latency-history` 测往返，第二天和访问日志、这串超时按秒对。都是只读的。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "昨晚 20:41 又来了一波 8 个 pod 差不多同一秒一起慢 先按你说的看 Redis 那条 另外跟你说一声 双十一那个置顶的需求我跟产品砍过了 只做几个固定的大词 一个词顶三个商品 运营给张表 写死在配置里就行 只顶第一页最前面 第一页多出来几条就多几条 后面的页不用管 带了筛选或者换了排序的就不顶 不做后台 也不做活动时间 活动完了我们手动删配置 等这个慢的事有点眉目再弄"
+    },
+    {
+      "role": "assistant",
+      "text": "好，先看 Redis。8 个 pod 同一秒一起慢，确实更偏向共用的那几样，Redis 和网络排在前面。\n\n- **白天先做了一次对照**：从一个调试 pod 里用独立连接跑了 10 分钟 `redis-cli --latency-history -i 15`，往返一直在 0.3ms 上下，最高 1.1ms；同一时段 search-svc 自己那条共享连接上没有超时。这份数留着和晚上比。\n- **今晚怎么看**：20:00 到 22:00 在两个 pod 里各挂一个独立连接测往返，每秒一个点；同时在 search-cache 主节点上每 10 秒记一次 `INFO commandstats` 和 `INFO clients`，都是只读命令。明早把这两份和访问日志、超时的时间按秒对齐：如果超时扎堆的那一秒独立连接也慢，问题在 Redis 或网络那一侧；独立连接很平、只有我们那条连接超时，问题就在我们这边排队。\n\n置顶那个记下了：几个固定的大词，每个词顶三个商品，词表写在配置里；只在第一页、没带筛选、默认排序的时候顶在最前面，第一页因此多出几条也照样，后面的页不动；不做后台、不做活动时间，活动结束手动删配置。等这边有结论了再动它。",
+      "tools": [
+        "Bash",
+        "Read"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "晚高峰那个先放一放 置顶那个需求运营在催了 先把它做了吧"
+    }
+  ],
+  "middle_hint": "中间继续排查 search 接口晚高峰成批变慢、Redis 读超时扎堆的问题：看线程转储、GC 日志、JFR、火焰图、Prometheus 和 Loki、ES 和 Redis 两侧的指标，写复现脚本和加观测，没有改实现，也没有结论。"
+}

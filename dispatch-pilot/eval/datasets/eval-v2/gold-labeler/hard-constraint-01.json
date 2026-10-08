@@ -1,0 +1,21 @@
+{
+  "id": "hard-constraint-01",
+  "effort": "xhigh",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条是新问题：写脚本把约四千个 2019 年导入账号的 users.phone 统一成 11 位。单看是范围清楚的批量格式化脚本（medium），但决定性几轮定了账号表批量变更规范（users 无历史版本，改错不可恢复，上次 31 万账号事故）：默认只读、加 --execute 才写、dry-run 全量导出改前改后、备份表可一条 SQL 还原、PITR 快照库全量核对、WHERE 带原值、影响行数对不上整批回滚、两人确认并写 audit_events。还要处理边界：+86、空格等多种格式、规范化后与已有号码撞车（唯一约束/重复账号）、范围外的行一条不许动。这是边界条件要紧、需反复验证的高风险数据变更脚本，定 xhigh；脚本本身不直接执行生产写入，max 也可接受。d1 首次提出规范和审查任务；d2 接受了审查结果并收尾（删脚本），算 resolved。"
+}

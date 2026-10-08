@@ -9,7 +9,7 @@ import { expect, test } from 'claude-code/testing'
 import { runWorld } from './support/workflow-run.ts'
 import { jev, world, type LogEntry, type ProfilesState, type Sent } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 const PANE = 'dp-rationale'
 
 /** A drawn element as plain data (what `drawn()` and `find` hand back). */
@@ -288,7 +288,8 @@ test("a digit whose pane the surface does not place tells the person so in a toa
 })
 
 test('the decision log is grouped by turn, newest first, each with its letter key; a turn folds and opens again with its key; older turns start folded', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
+  // The cheap model writes each turn's summary (no entry of the log: only a write that fails is told).
+  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), model: () => ({ text: '{"problem": "p", "tried": ["a"], "status": "s"}' }) })
   for (const text of ['第一条消息', '第二条消息', '第三条消息']) {
     await w.submit(text)
     await w.step({ index: 0 })
@@ -402,6 +403,8 @@ test('every feature switch is listed at the top with its state, the ones off in 
   expect(await listed(ui, 'midturn-effort')).toMatchObject({ text: 'midturn-effort 关', color: 'inactive' })
   expect(await listed(ui, 'skill-profiles')).toMatchObject({ text: 'skill-profiles 关', color: 'inactive' })
   expect(await listed(ui, 'hook-block-failures')).toMatchObject({ text: 'hook-block-failures 关', color: 'inactive' })
+  // Off until the person turns it on (#48), in grey like the rest.
+  expect(await listed(ui, 'unresolved')).toMatchObject({ text: 'unresolved 关', color: 'inactive' })
   expect(await ui.find({ key: 'pane-profiles' })).toBeUndefined()
   await w.command('dp', 'skill-profiles on')
   await ui.redraw()

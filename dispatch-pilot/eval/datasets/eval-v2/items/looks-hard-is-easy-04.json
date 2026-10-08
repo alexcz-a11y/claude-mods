@@ -1,0 +1,55 @@
+{
+  "id": "looks-hard-is-easy-04",
+  "category": "looks-hard-is-easy",
+  "domain": "database",
+  "bin": "d4",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "客服改单时的订单明细改写",
+    "SYMPTOM": "客服改单保存时偶尔弹「系统繁忙」，同一单过几秒再保存又能成功",
+    "ERROR": "dal.errors.OrderWriteError: write to order failed, please retry",
+    "FILE": "dal/repos/order_lines.py",
+    "FILE2": "dal/uow.py",
+    "SYMBOL": "replace_order_lines",
+    "COMMAND": "uv run pytest tests/dal/test_order_lines.py -k replace_order_lines"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "客服改单那个 `dal.errors.OrderWriteError: write to order failed, please retry` cs-backend 那边把 Sentry 的权限开给我们了 里面每条事件都带完整的异常链 我把最近两周的按根因导了一份 你看下底下到底是什么 要改的话先放分支上 别合\n<pasted_content id=\"6e1b\">\nIssue SHOP-CS-1F3  dal.errors.OrderWriteError: write to order failed, please retry\n最近 14 天 58 events / 21 users  首次 9/21 21:47  最近 10/6 16:02\n按最内层异常分：\n  sqlalchemy.orm.exc.StaleDataError: UPDATE statement on table 'order_lines' expected to update 1 row(s); 0 were matched.    31\n  sqlalchemy.orm.exc.ObjectDeletedError: Instance '<OrderLine at 0x7f3a2c1d9e50>' has been deleted, or its row is otherwise not present.    17\n  psycopg.errors.LockNotAvailable: canceling statement due to lock timeout    7\n  psycopg.errors.UniqueViolation: duplicate key value violates unique constraint \"outbox_events_dedup_key\"    3\ntags: shop_dal=1.14.2  route=PATCH /cs/orders/{order_no}\n</pasted_content id=\"6e1b\">"
+    },
+    {
+      "role": "assistant",
+      "text": "58 条里 48 条（`StaleDataError` 31 加 `ObjectDeletedError` 17）是同一个原因：`replace_order_lines` 先不加锁把订单和明细读进会话，然后才对订单行加锁；等锁的这段时间里，另一个事务已经把这一单的明细换掉并提交了，我们手里拿的还是旧的 `OrderLine` 对象，接着去删、去改它们，就碰到「0 行匹配」或者「这一行已经不在了」。剩下 10 条是另外两件事，最后说，不在这次的改法里。main 没动，修复写在一个分支上，没合。\n\n**代码里是怎么走的**\n\n`dal/repos/order_lines.py`（cs-backend 用的 1.14.2 和 main 上读明细、加锁这几行一样）：\n\n```python\ndef replace_order_lines(uow, order_no, new_lines, *, operator):\n    order = uow.orders.get_by_no(order_no)       # 不加锁，lines 用 selectinload 一起读进来\n    _check_editable(order)\n    order = uow.orders.get_for_update(order.id)  # 这里才 SELECT ... FOR UPDATE，可能要等\n    for line in order.lines:                     # 还是加锁之前读到的那一批对象\n        ...\n```\n\n- 第二次查询是同一个主键，SQLAlchemy 的 identity map 会返回同一个 `Order` 对象；没有 `populate_existing`，已经加载过的属性和 `lines` 集合不会用新读到的行刷新。\n- 行锁等到手的时候，前一个事务已经提交，库里这一单的明细是新的一批，会话里还是旧的一批。改旧对象，flush 时 `UPDATE ... WHERE id = :旧 id` 匹配 0 行，就是 `StaleDataError`；先访问到某个旧对象上没加载的属性、触发一次加载，就是 `ObjectDeletedError`。\n- 外层 `dal/uow.py` 的 `_wrap_db_errors()` 把这些都包成 `OrderWriteError`，所以应用日志里只看得到最外面这一行。\n\n**另一个事务是谁**\n\n48 条事件逐条看了 Sentry 的时间和订单号，再对 cs-backend 的访问日志和主库日志：32 条在同一单前 5 秒内有另一个 `PATCH /cs/orders/{order_no}`，多数是两个客服同时在改同一单（客服群里抢单的情况），少数是同一个客服连点了两次保存；9 条同一单前几秒内是 `jobs/close_unpaid_orders` 改了这一单的状态，它会连带重算明细的状态列；剩下 7 条是 9 月 24 日 14:05 到 14:41 那一串，那段时间 `scripts/backfill/` 下一个修数脚本（`application_name` 是 `backfill`）在按批改明细，7 单都在它改过的范围里。没有一条是在没有并发写的情况下出的。\n\n**复现**\n\n写了一个临时的两事务测试（`tests/dal/test_order_lines_race.py`，没提交）：T1 加锁、换明细、先不提交；T2 调 `replace_order_lines`，读完明细后卡在加锁上；T1 提交；T2 继续。改之前 T2 每次都抛 `StaleDataError`，100 次 100 次；再用测试容器 8 个并发抢 3 个订单，三种数据形状各跑 300 轮，900 轮里出了 8 次，都在订单重叠的那两种形状里。\n\n**修复（分支 `fix/order-lines-lock-first`，没合）**\n\n```python\n    order = uow.orders.get_for_update(order_id, populate_existing=True)  # 先加锁，并用新读到的行刷新会话里的对象\n    _check_editable(order)                                               # 检查挪到加锁之后\n```\n\n- `get_for_update` 加一个参数，透传成 `.execution_options(populate_existing=True)`；`replace_order_lines` 改成先按单号查 id、再加锁、再检查。diff 一共 9 行。\n- 改完：上面的两事务测试 100 次全过，8 并发同样的 900 轮 0 次；`uv run pytest tests/dal/test_order_lines.py -k replace_order_lines` 14 个用例全过，`tests/dal/` 全量也过了。两事务那个测试改成了正式用例放在分支上。\n\n**剩下的 10 条**\n\n- `LockNotAvailable` 7 条：等 `close_unpaid_orders` 或 `sync_inventory` 的一批事务超过了应用账号 3 秒的 `lock_timeout`，是另一回事，客服再点一次能成功。\n- `UniqueViolation` 3 条：cs-backend 的 tenacity 在同一个会话里重试，outbox 事件写了两遍。这是他们那边重试包的位置不对。\n\n**要提前知道的**\n\ncs-backend 钉的是 `shop-dal` 1.14.2，main 上是 1.17.0。修复发版以后，他们要升到新版本才拿得到。`git log v1.14.2..main -- dal/repos/order_lines.py` 有 3 个提交（9 月 9 日批大小改成读配置，9 月 22 日 `9b2f4d1` 给一个参数加默认值、调了一处判断的先后，10 月 5 日补了两行调试日志），都不碰读明细和加锁的顺序，和这次的修复不冲突。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Write",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "昨晚又来了两次 Sentry 上都是 StaleDataError 你看下是不是同一回事 是的话分支先放着别合 DBA 那边要求这次复盘把所有会写 order_lines 的路径都过一遍 确认没有第二个原因才让发 这段时间你陪我把这些都核一遍"
+    },
+    {
+      "role": "assistant",
+      "text": "是同一回事。两条事件都是同一种情况：两个客服在几秒内改同一单，后一个读完明细后在行锁上等了一两秒，拿到锁时前一个已经提交，接着在 flush 时抛 `StaleDataError`。\n\n| Sentry 事件 | 订单号 | 前一个改单请求 | 等锁 | 根因 |\n|---|---|---|---|---|\n| 10/6 21:13:40 | 2026100611820347 | 3.2 秒前，另一个客服 | 1.9 秒 | `StaleDataError`，`order_lines` 0 行匹配 |\n| 10/6 22:05:17 | 2026100609917712 | 2.6 秒前，另一个客服 | 1.1 秒 | `StaleDataError`，`order_lines` 0 行匹配 |\n\n等锁时间是从主库日志里 `still waiting for ShareLock` 那两行看的，进程号和 cs-backend 那两个请求的连接对得上。\n\n分支 `fix/order-lines-lock-first` 没合。趁这会儿把它 rebase 到了现在的 main（`e71a0c8`，就是 v1.17.0），没有冲突；`uv run pytest tests/dal/` 全量过了，两事务那条正式用例也过了。`git log v1.17.0..main` 是空的，开着的 PR 里也没有碰 `dal/repos/order_lines.py` 和 `dal/repos/orders.py` 的。\n\nDBA 签了字以后，到时候就是：\n\n1. 开 PR 把这个分支合进 main；\n2. `pyproject.toml` 版本改成 1.17.1，`CHANGELOG.md` 加一句「`replace_order_lines` 先加锁再读明细，修复客服并发改单时的 `StaleDataError`」；\n3. 打 tag `v1.17.1`，CI 把 wheel 推到内部包仓库；cs-backend 那边 Renovate 会自动提升级的 PR，从 1.14.2 升上来要他们合，你去说一声。\n\n复盘要过的路径，先按代码把会写 `order_lines` 的地方列出来，接下来一条条核：\n\n1. `dal/repos/order_lines.py` 的 `replace_order_lines`：客服改单，就是这次的。\n2. 同一个文件的 `append_gift_line`：下单后补赠品，按订单加锁的方式和 1 不一样，要看。\n3. `dal/repos/orders.py` 的 `bulk_update_status`：批量改状态时连带改明细的状态列，按传进来的顺序逐行更新。\n4. `jobs/close_unpaid_orders.py`：调 3。\n5. `jobs/settle_refunds.py`：退款完成后回写明细的已退数量。\n6. `scripts/backfill/` 和 `scripts/fix/` 下的一次性脚本：9 月 24 日那串就是其中一个，按批改明细、不先锁订单。\n7. `queries/` 下有没有直接写 `order_lines` 的 SQL，以及迁移里有没有触发器写它，还没查。",
+      "tools": [
+        "Bash",
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "复盘那边都过完了 DBA 签了字 没有第二个原因 正好今天上午又是一串 客服群里都炸了 Sentry 上一上午 11 条 贴一条完整的给你 就按那个分支来 合了发个补丁版\n<pasted_content id=\"d84f\">\nsqlalchemy.orm.exc.StaleDataError: UPDATE statement on table 'order_lines' expected to update 1 row(s); 0 were matched.\n  File \"sqlalchemy/orm/session.py\", line 4331, in flush\n    self._flush(objects)\n  File \"sqlalchemy/orm/session.py\", line 4466, in _flush\n    with util.safe_reraise():\n  File \"sqlalchemy/util/langhelpers.py\", line 146, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"sqlalchemy/orm/session.py\", line 4427, in _flush\n    flush_context.execute()\n  File \"sqlalchemy/orm/unitofwork.py\", line 466, in execute\n    rec.execute(self)\n  File \"sqlalchemy/orm/unitofwork.py\", line 642, in execute\n    util.preloaded.orm_persistence.save_obj(\n  File \"sqlalchemy/orm/persistence.py\", line 85, in save_obj\n    _emit_update_statements(\n  File \"sqlalchemy/orm/persistence.py\", line 948, in _emit_update_statements\n    raise orm_exc.StaleDataError(\n\nThe above exception was the direct cause of the following exception:\n\ndal.errors.OrderWriteError: write to order failed, please retry\n  File \"cs_backend/api/orders.py\", line 214, in patch_order\n    result = await service.edit_order(uow, order_no, payload, operator=user)\n  File \"tenacity/asyncio/__init__.py\", line 189, in async_wrapped\n    return await copy(fn, *args, **kwargs)\n  File \"tenacity/asyncio/__init__.py\", line 111, in __call__\n    do = await self.iter(retry_state=retry_state)\n  File \"tenacity/__init__.py\", line 418, in exc_check\n    raise retry_exc.reraise()\n  File \"cs_backend/service/orders.py\", line 97, in edit_order\n    lines = replace_order_lines(uow, order_no, payload.lines, operator=operator)\n  File \"dal/repos/order_lines.py\", line 142, in replace_order_lines\n    uow.session.flush()\n  File \"dal/uow.py\", line 88, in _wrap_db_errors\n    raise OrderWriteError(\"write to order failed, please retry\") from exc\n\ntags: shop_dal=1.14.2  route=PATCH /cs/orders/{order_no}  order_no=2026101410552083  user=cs_0417\nbreadcrumbs: 10:42:07.118 PATCH /cs/orders/2026101410552083 (cs_0233) 200 / 10:42:09.904 PATCH /cs/orders/2026101410552083 (cs_0417) …\n</pasted_content id=\"d84f\">"
+    }
+  ],
+  "middle_hint": "用户认了原因、修复分支先不合，DBA 要求复盘把会写 order_lines 的路径都核一遍、确认没有第二个原因：中间是围绕客服改单时的报错继续理调用路径和事务范围、看锁和定时任务、对监控和主库日志、在测试容器里复现，没有新的修改，也没有新的结论。"
+}

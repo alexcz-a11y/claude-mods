@@ -1,0 +1,21 @@
+{
+  "id": "hard-constraint-05",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条是新任务：国际短信 11 月 1 日起改按目的地三组定价，改计费页（中英文）。不看决定性几轮也是跨多文件、要把 198 个国家码归组（中东/欧洲/其他地区等边界模糊）、处理生效日期前后两套价格的改动，high。决定性几轮定了法务规矩（文档价格即合同价，写错认赔）：每个数字对 price-book、产品表只作参考不许照抄（price-book 里可能还没有新价，需要核实或停下问）；示例算式全部重算；全站引用一起改；给逐数字核对表；法务看过才能合。工作量大且每个数字都要核对、归组要有依据，定 xhigh；但改动经法务审查后才合、可回退，high 也可接受。d1 首次提出规矩和核对任务；d2 法务看过让合，resolved。"
+}

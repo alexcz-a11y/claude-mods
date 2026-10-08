@@ -10,10 +10,12 @@
 // the effort a Score with the levels every effort question shares.
 
 import { clipToTokens, estimateTokens, withinTokens } from './context.ts'
-import { DEFAULT_ASK, EFFORTS, effortQuestion, levelsText, pickEffort, probsOf, readEffort, traceEffort, type Effort, type EffortAsk, type EffortTrace, type EffortReading, type Language } from './effort.ts'
+import { DEFAULT_ASK, EFFORTS, effortQuestion, levelsText, pickEffort, probsOf, readEffort, traceEffort, type Effort, type EffortAsk, type EffortRules, type EffortTrace, type EffortReading, type Language } from './effort.ts'
 import { failureText, type Failure } from './backend.ts'
 import { redactSecrets } from './redact.ts'
+import { SUMMARY_FIELD } from './summary.ts'
 import type { Answer, Part, Question, State } from './system-one.ts'
+import { COUNT_FIELD } from './unresolved.ts'
 
 /** The models a dispatched agent can run on, cheapest first: the Agent tool's own aliases. */
 export const AGENT_MODELS = ['haiku', 'sonnet', 'opus', 'fable'] as const
@@ -39,6 +41,10 @@ export type Dispatch = {
   workflow_description?: string | null
   /** The `agent()` call's label (a workflow's agent only). */
   label?: string | null
+  /** The problem summary, worded for the decision model; the agent's background, never a hint (#41). Absent when there is none. */
+  problem_summary?: string
+  /** How many times the person has said the problem is still unresolved; absent while it is 0 (#41). */
+  unresolved_count?: number
 }
 
 /** How the questions are asked: eval variables (spec #70, guide §4.2); the defaults are the spec's. */
@@ -384,7 +390,13 @@ export function dispatchBrief(dispatch: Dispatch, tokens: number): Record<string
 export function dispatchState(dispatch: Dispatch, tokens: number, field: string = BRIEF): State {
   return withinTokens((budget) => {
     const words = dispatchWords(dispatch.user_message, budget)
-    return { [field]: dispatchBrief(dispatch, budget - estimateTokens(words)), user_message: words }
+    return {
+      [field]: dispatchBrief(dispatch, budget - estimateTokens(words)),
+      user_message: words,
+      // The background the main agent works from: read by the decision model, never with a hint (#41).
+      ...(dispatch.problem_summary ? { [SUMMARY_FIELD]: dispatch.problem_summary } : {}),
+      ...(dispatch.unresolved_count ? { [COUNT_FIELD]: dispatch.unresolved_count } : {}),
+    }
   }, tokens)
 }
 
@@ -400,11 +412,9 @@ export const THETA_NAMED = 0.5
 export const THETA_FIT = 0.5
 
 /** What decides an agent's model and effort from the answers. */
-export type DispatchSettings = DispatchShape & {
+export type DispatchSettings = DispatchShape & EffortRules & {
   /** The decision model's pick replaces the main agent's only at this confidence or above. */
   thetaOverride: number
-  /** `max` only when its own probability reaches this. */
-  thetaMax: number
   /** A model counts as named by the person when its yes/no answer reaches this; THETA_NAMED by default. */
   thetaNamed?: number
   /** `requested: 'noul'` only: the main agent's pick goes only when `requested_fits` is below this; THETA_FIT by default. */
@@ -489,8 +499,8 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
   // is lifted to its model's floor; the person's never is.
   const namedEffort = readNamedEffort(answers[NAMED_EFFORT], threshold)
   const floor = reading === null ? null : effortFloor(model)
-  const trace = reading === null ? null : traceEffort(reading, settings.thetaMax, { model: { name: model ?? 'none', floor } })
-  const decided = reading === null ? null : pickEffort(reading, settings.thetaMax)
+  const trace = reading === null ? null : traceEffort(reading, settings, { model: { name: model ?? 'none', floor } })
+  const decided = reading === null ? null : pickEffort(reading, settings)
   const lifted = decided !== null && floor !== null && EFFORTS.indexOf(floor) > EFFORTS.indexOf(decided) ? floor : null
   const effort = model === 'haiku' ? null : (namedEffort ?? lifted ?? decided)
   const effortSource = effort === null ? 'none' : namedEffort !== null ? 'user' : 'decided'

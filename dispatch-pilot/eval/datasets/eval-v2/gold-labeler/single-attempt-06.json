@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-06",
+  "effort": "xhigh",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "d1 提出订单状态流转偶发 pgx conn busy；第一次修复只是把 UnpaidTimeout 改回 30m 来减少碰撞，主 agent 也承认没解释根因。中间做了大量排查，没有结论。最后用户说 hotfix 发上去一周多，Sentry issue 还在涨，商户仍报系统繁忙，同一问题仍未解决，算第二次尝试。要查清连接在等锁被取消之后为什么会处于 busy 状态，这是原因未知的数据库连接、并发问题，发生在生产环境，定 xhigh；它偏向疑难并发问题，max 也可接受。没有 d1 时，最后的消息和中间的描述也说明是 hotfix 没好的偶发并发问题，判 xhigh。"
+}

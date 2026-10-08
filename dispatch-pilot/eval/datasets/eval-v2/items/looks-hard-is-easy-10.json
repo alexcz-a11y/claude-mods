@@ -1,0 +1,54 @@
+{
+  "id": "looks-hard-is-easy-10",
+  "category": "looks-hard-is-easy",
+  "domain": "database",
+  "bin": "d2",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "客服改单保存时的「系统繁忙」",
+    "SYMPTOM": "客服改单保存时偶尔弹「系统繁忙」，刷新以后看到单子已经被别人或任务改过",
+    "ERROR": "edit_order failed: code=CS-5001 系统繁忙，请稍后再试",
+    "FILE": "dal/repos/orders.py",
+    "FILE2": "jobs/sync_inventory.py",
+    "SYMBOL": "apply_order_change",
+    "COMMAND": "uv run pytest tests/dal/test_orders.py -k apply_order_change"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "客服改单那个 `edit_order failed: code=CS-5001 系统繁忙，请稍后再试` DBA 把主库日志里 9 月以来的唯一约束冲突按约束名统计了一份 贴下面 你对着 cs-backend 那边 CS-5001 的时间看看是不是一回事 apply_order_change 先别动\n<pasted_content id=\"5c2e\">\n主库日志 2026-09-01 至 10-08  ERROR: duplicate key value violates unique constraint\n约束名                                  次数   首次              最近\norder_change_log_order_id_rev_key         40   09-01 10:14:07    09-16 01:58:33\nuq_order_change_log_order_id_rev          58   09-16 09:41:52    10-08 11:20:16\noutbox_events_dedup_key                   23   09-03 15:02:11    10-07 21:48:40\nuq_user_invoice_titles_default             4   09-11 20:13:45    10-02 09:07:31\n按用户：shop_api_cs 110  shop_jobs_runner 9  shop_api_promo 6\n</pasted_content id=\"5c2e\">"
+    },
+    {
+      "role": "assistant",
+      "text": "一多半是一回事。9 月 16 日以后 cs-backend 一共 101 次 CS-5001，按时间和连接对上主库日志：58 次是 `uq_order_change_log_order_id_rev`，就是表里那 58 次；另外 43 次是别的：等锁超时 34 次、死锁 2 次、`outbox_events_dedup_key` 7 次，不在这次的结论里，后面单独看。唯一约束这个冲突本身一直都有：两个人同时改同一单，后提交的那个写修改流水时撞上 `(order_id, rev)` 的唯一约束。9 月 16 日以前它会被翻译成「订单已被修改」的 409；那天统一约束命名的迁移把约束改了名，`dal/errors.py` 对照表里还是老名字，翻译不上，cs-backend 就落到了兜底的「系统繁忙」。代码没动。\n\n**怎么对的**\n\n- cs-backend 的 CS-5001 从他们的 Loki 里按时间导出来，9 月 16 日以后 101 次；主库日志按 `application_name`、进程号和时间（前后 50 ms）去配：58 次是 `uq_order_change_log_order_id_rev`；34 次同一时刻是 `canceling statement due to lock timeout`，2 次是 `deadlock detected`，7 次是 `outbox_events_dedup_key`。\n- 9 月 16 日以前，老名字 `order_change_log_order_id_rev_key` 撞了 40 次，cs-backend 那边同一时刻打的都是 409 `ORDER_CHANGED`，没有一次 CS-5001。\n\n**为什么 9 月 16 日以后变了**\n\n- `migrations/` 里 9 月 16 日合进来的那个统一约束命名的迁移，当天随任务镜像跑了 Flyway，把订单相关几张表的 31 个约束改成了 `dal/models/base.py` 里 `naming_convention` 的格式，`order_change_log_order_id_rev_key` 变成了 `uq_order_change_log_order_id_rev`。`outbox_events` 不在这次范围里，所以 `outbox_events_dedup_key` 还是老名字。\n- `dal/errors.py` 的 `@translates_integrity_errors` 挂在 5 个 repo 方法上，`apply_order_change` 写修改流水的那个也在里面：它接住 `IntegrityError`，按 `e.orig.diag.constraint_name` 查 `_CONSTRAINT_ERRORS` 这张表，查到就换成业务异常，查不到原样往上抛。表里有 11 条用的还是改名前的名字，其中就有 `order_change_log_order_id_rev_key` → `ConcurrentOrderChange`。\n- cs-backend 的改单接口：拿到 `ConcurrentOrderChange` 回 409「订单已被修改，请刷新后再改」，拿到原样的 `IntegrityError` 就是 CS-5001。他们用的 1.14.2 里这张表和 main 上一样。\n\n**谁和谁撞**\n\n58 次按同一单前几秒内的另一个写入分：44 次是两个客服前后脚改同一单；14 次是每天 23:05 那个批量调用方。撞本身是正常的乐观并发，要修的是撞了以后的提示。`sync_inventory` 调整预占库存时也走 `apply_order_change` 写修改流水，但它一批一个事务、十秒左右才提交，客服这边写流水时要先等它提交，等满 3 秒就成了等锁超时，算在那 34 次里，不在这 58 次里。\n\n**复现**\n\n测试容器里两条连接对同一单调 `apply_order_change`：现在 main 上第二个事务拿到的是原样的 `IntegrityError`；把对照表里的名字换成新的以后，拿到的是 `ConcurrentOrderChange`。写成了 `tests/dal/test_change_conflict.py`，没提交。\n\n**改法（没动）**\n\n按迁移里那 31 行 `RENAME CONSTRAINT 旧名 TO 新名`，把仓库里的老名字换成新的。写了个脚本 `scripts/sync_constraint_names.py`：\n\n- 读迁移文件里的改名列表，在 `dal/`、`tests/`、`docs/` 里替换：`dal/errors.py` 11 处、`dal/models/` 里 `__table_args__` 6 处、`tests/dal/test_errors.py` 9 处、`docs/errors.md` 4 处，一共 30 处；\n- `--dry-run` 只出 diff；`--check` 起一个测试容器跑完 Flyway，确认 `dal/` 里引用的每个约束名在 `pg_constraint` 里都存在，并且仓库里不再出现改名前的名字。\n\n在 `dal/errors.py`、`dal/models/order_change_log.py`、`tests/dal/test_errors.py` 三个文件上试了：上面那个复现测试过了，`uv run pytest tests/dal/` 全过。试完改回去了。\n\n脚本处理不了的只有一处：`dal/errors.py` 里检查约束是按前缀认的，`name.startswith(\"order_items_\") and name.endswith(\"_check\")`，新名字是 `ck_order_items_…`，这一行要手改。\n\n**要提前说的**\n\n- cs-backend 要升到带修复的版本才拿得到，他们现在钉的是 1.14.2。\n- 另一个办法是让 DBA 把这几个约束名改回去，那样代码不用动；但命名规范是 DBA 推的，得他们定。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Write"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "对上了 昨晚又来了一串 客服群里又在问 先别改 DBA 那边在考虑干脆把这几个约束名改回去 那样代码就不用动 周四他们例会定 这几天你陪我把影响面理一下 哪些路径会撞这几个约束 都是谁在写"
+    },
+    {
+      "role": "assistant",
+      "text": "好，代码不动，脚本和复现测试都在本地，没提交。昨晚那串也对了：22:10 到 22:40 一共 6 次 CS-5001，4 次是 `uq_order_change_log_order_id_rev`，两个客服改同一单；2 次是等锁超时，等的是 `sync_inventory`。\n\nDBA 要是定了不改回去，到时候就是：\n\n1. `uv run python scripts/sync_constraint_names.py --apply`，30 处。\n2. 手改一处：`dal/errors.py` 第 57 行 `if name.startswith(\"order_items_\") and name.endswith(\"_check\"):` 改成 `if name.startswith(\"ck_order_items_\"):`\n3. `uv run python scripts/sync_constraint_names.py --check`\n4. `uv run pytest tests/dal/`，复现测试 `tests/dal/test_change_conflict.py` 跟着一起提交。\n\n要是改回去了，代码就不用动，脚本删掉就行。\n\n影响面接下来按这个顺序理：会写 `order_change_log` 的路径（客服改单、`sync_inventory`、23:05 的批量调用方，看看还有没有别的）；31 个改了名的约束里，另外 10 个在对照表里的，各自在哪些路径上会撞；那 34 次锁超时和 2 次死锁当时在等谁；另外两个服务钉的版本里这张表是什么样。都只读。",
+      "tools": [
+        "Bash",
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "DBA 例会定了 约束名不改回去 就用新的 今天上午又是一串 客服截图都发到群里了 cs-backend 的日志贴一段 按那天说的改\n<pasted_content id=\"a7f3\">\n2026-10-15 10:12:31.408 ERROR cs_backend.api.orders edit_order failed: code=CS-5001 系统繁忙，请稍后再试 order_no=2026101509334172 operator=cs_0233 trace=3f0c9a71e2b4\n2026-10-15 10:14:02.117 ERROR cs_backend.api.orders edit_order failed: code=CS-5001 系统繁忙，请稍后再试 order_no=2026101508127705 operator=cs_0418 trace=9d21b0c44f8a\n2026-10-15 10:14:02.951 ERROR cs_backend.api.orders edit_order failed: code=CS-5001 系统繁忙，请稍后再试 order_no=2026101508127705 operator=cs_0233 trace=a0e57c3d91f6\n2026-10-15 10:31:47.630 ERROR cs_backend.api.orders edit_order failed: code=CS-5001 系统繁忙，请稍后再试 order_no=2026101407651190 operator=cs_0107 trace=5b8e2f0a7c13\n2026-10-15 10:58:09.284 ERROR cs_backend.api.orders edit_order failed: code=CS-5001 系统繁忙，请稍后再试 order_no=2026101510045538 operator=cs_0418 trace=e64c1d9b02a7\n（9 点到 11 点一共 7 条）\n</pasted_content id=\"a7f3\">"
+    }
+  ],
+  "middle_hint": "用户认了原因、DBA 周四定要不要把约束名改回去之前先不改：中间是为影响面继续围绕客服改单保存时的「系统繁忙」核对：理 apply_order_change 的调用方和事务、看锁和定时任务、对主库日志和监控、翻审计和变更记录、在测试容器里复现，没有新的改动，也没有新的结论。"
+}

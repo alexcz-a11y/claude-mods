@@ -1,0 +1,71 @@
+{
+  "id": "explicit-unresolved-04",
+  "category": "explicit-unresolved",
+  "domain": "ios",
+  "bin": "d4",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "账单页的数据刷新",
+    "SYMPTOM": "账单页的列表和合计还是旧的，少了刚记的几笔",
+    "ERROR": "loadSections failed: Error Domain=NSSQLiteErrorDomain Code=5 \"(null)\"",
+    "FILE": "Ledger/Features/Bills/BillListView.swift",
+    "FILE2": "Ledger/Persistence/CoreDataBillRepository.swift",
+    "SYMBOL": "loadSections",
+    "COMMAND": "xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BillListViewModelTests"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "TestFlight 这周收到好几条反馈 说账单页的数不对 切出去一会再回来 列表和合计还是旧的 少了刚在小组件上记的几笔 过几秒或者退出去再进来才对 测试同学手机上抓的日志里还有一行 `loadSections failed: Error Domain=NSSQLiteErrorDomain Code=5 \"(null)\"` 代码在 Ledger/Features/Bills/BillListView.swift 的 loadSections 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "先查了 `loadSections` 取数用的 context，找到一个会一直读到旧数据的地方，改了。\n\n- **查到的**：`loadSections` 每次通过 `PersistenceController.newReadContext()` 拿一个只读 context 取当月账单。`newReadContext()` 名字像是每次新建，其实缓存了一个后台 context 复用，而且建的时候调了 `setQueryGenerationFrom(.current)`，把它钉在了建它那一刻的查询代。之后小组件、后台刷新往同一个 SQLite 里写的新数据，这个 context 都看不到，要等它被内存警告释放、重新建一个才会更新；退出去再进来就正常，也是因为进程重启后重新建了。\n- **改法**：`newReadContext()` 改成每次现建一个只读 context，不缓存，也不钉查询代；`loadSections` 用完就丢。\n- **验证**：写了一个单测：先建读 context，再用另一个协调器模拟小组件写入两笔，然后调 `loadSections`，改之前读不到这两笔，改之后读得到。`xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BillListViewModelTests` 11 个用例通过。已经用 Xcode 装到测试同学手机上了，让她再用一天看看。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "她用了一天 还是会 中午切回来列表又是旧的 那行 Code=5 也还在"
+    },
+    {
+      "role": "assistant",
+      "text": "`Code=5` 是 SQLite 的 `SQLITE_BUSY`，这次从它下手：取数时库被别的进程长时间占着写，加载直接失败，页面上留的就是旧数据。改了小组件写库的方式。\n\n- **查到的**：`loadSections` 的 `catch` 只写 `loadError`、打日志、上报，列表不为空时界面上什么都不变，旧数据原样留着，和「列表是旧的」对得上。占着库的是小组件的「记一笔」：App Intent 在扩展进程里用自己的容器打开 App Group 里同一个库，保存完还在同一个 `performAndWait` 里把小组件要显示的本月合计重算了一遍，整段一到两秒，写事务一直没结束。用户在小组件上记完马上切回 App，正好撞上。\n- **改法**：小组件那边 `perform` 里只做保存，存完立刻结束；合计挪到保存之后单独用只读 context 算；连记几笔时合成一次保存，不再每笔存两次。\n- **验证**：真机上用小组件连记三笔后立刻切回 App，重复 20 次，日志里没再出现 `Code=5`；单测 13 个通过。新包已经装到她手机上。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是不对 今天又在小组件上记了两笔 切回 App 列表里没有 等了五六秒才出来"
+    },
+    {
+      "role": "assistant",
+      "text": "切回来要等五六秒才出现，说明新数据已经在库里，是触发重新加载的那一下来晚了或者被吞了。查了 `HistoryTracker`，改了处理位置的保存时机。\n\n- **查到的**：回到前台时 `Ledger/Persistence/HistoryTracker.swift` 的 `processPending()` 从上次的位置往后取持久化历史，合并进 `viewContext` 以后发 `.billsDidChange`，账单页那条订阅去抖 300 毫秒后调 `loadSections`。问题在位置是先存后合并：取到历史就先把 `lastToken` 往前挪、写进 `UserDefaults`，再去合并、发通知。这时 remote change 那条入口要是同时进来，读到的已经是挪过的位置，取不到这几笔，什么都不发；`processPending()` 发的那次通知又正好落在一次加载进行中，被去抖合并掉了，要等下一次别的改动才补上，所以过几秒才出现。\n- **改法**：`lastToken` 改成合并完成、通知发出以后再写；两条入口都先比较位置，后到的那个按自己读到的位置重新取一次，不再直接跳过。\n- **验证**：单测里同时触发两条入口，断言两笔都被合并、`.billsDidChange` 在合并之后至少发一次；真机上小组件记两笔马上切回，重复 20 次，列表都在 1 秒内更新。`BillListViewModelTests` 和 `HistoryTrackerTests` 一共 21 个通过。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "账单页数据不对那个 今天拿 3.9.0 的 TestFlight 包又试了 小组件上记一笔再切回来 列表还是旧的 过几秒才变过来 跟之前一样"
+    }
+  ],
+  "middle_hint": "中间一直在继续排查账单页的数据刷新：理调用方和线程、看提交历史、日志和 TestFlight 反馈、看 Sentry 和 Organizer、写单测和实验复现、列可能的原因，没有新的改动，也没有结论。占位符的值见 placeholders。"
+}

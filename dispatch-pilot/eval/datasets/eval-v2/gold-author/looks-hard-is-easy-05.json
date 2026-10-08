@@ -1,0 +1,21 @@
+{
+  "id": "looks-hard-is-easy-05",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "剩下的工作：`internal/service/fakes_test.go` 里给 `recordingNotifier` 加 `mu sync.Mutex` 字段，`Notify`、`count()`、`last()` 三个方法开头加 `n.mu.Lock()`、`defer n.mu.Unlock()`，再跑 `go test -race -count=500 -run 'TestOutboxRelay' ./internal/service/`。这次的两段报告还是 `fakes_test.go` 里 `Notify` 对 `count()`、`last()` 的读写，只是用例和行号变了；竞争只在测试的假通知器上、生产路径不受影响，测试里没有直接读 `n.calls` 的地方，老韩的 PR 没碰这三个方法，这些在决定性几轮里都核过，改法本地验证过 `-count=500` 无报告。对上第 7 节 medium 的第①种：一个文件里几处写明的小改动，不写新测试，用现成的 `-race` 命令验证，不碰生产代码。每个方法加哪两行都写明了，判 low 也说得过去，accept low、medium。删掉决定性几轮，只剩中间不相干的活和这两段 `WARNING: DATA RACE`，栈里是 outbox 投递和 webhook 通知、CI 红在 main 上，看不出是测试代码自己的问题，得从头分析 relay 的并发、确认商户会不会被重复推送，是调试：high。三选一按第 6 节：d1 对话里第一次提出 CI 上的数据竞争，new_or_unrelated；d2 用户说重跑 CI 绿了、不是线上的事，是临时办法之后观察到的好结果，resolved；最后一条 main 又红了、同样的竞争又报出来，让按上次说的改，still_unresolved。再现是助手在 d2 之后预告过的（轮询和投递撞上就会再红），不算一次失败的尝试。"
+}

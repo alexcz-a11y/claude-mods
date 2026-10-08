@@ -1,0 +1,25 @@
+{
+  "id": "explicit-unresolved-01",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "批量上下架后列表状态不自动刷新：第一次补重拉列表、第二次去掉浏览器缓存、第三次改 DataTable 的 memo 比较函数，用户每次都说还是不变。中间隔着无关工作，最后用户回头说同一现象仍在，属于同一问题三轮修复都失败后再提，按约定是 max；跨 hook、API、组件多层排查，xhigh 也可接受。读不到决定性几轮时只知道之前处理过、仍未好，按第二次调试给 high。"
+}

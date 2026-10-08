@@ -13,10 +13,13 @@
 //
 // Pure: no Node API. The tests and the Node scripts import it as it is.
 
+import { BACKEND_DEFAULTS } from '../../hooks/core/setup.ts'
+import { estimateTokens, recentLines, said, type ContextMessage } from '../../hooks/decision/context.ts'
 import { EFFORTS, isEffort, type Effort } from '../../hooks/decision/effort.ts'
 import { DETAIL_KEYS, OUTCOME_WORDS, type MidturnInput } from '../../hooks/decision/midturn.ts'
+import { conversationOf, conversationTokens, decisiveMark } from './long-conversation.ts'
 
-export const KINDS = ['effort-submit', 'effort-midturn', 'subagent', 'skill'] as const
+export const KINDS = ['effort-submit', 'effort-midturn', 'subagent', 'skill', 'unresolved', 'long-context'] as const
 export type Kind = (typeof KINDS)[number]
 
 export function isKind(name: string): name is Kind {
@@ -44,6 +47,52 @@ export type Item<Asked, Answer, Accept> = {
 /** effort-submit: the message the person sent and what came before it. */
 export type SubmitAsked = { message: string; recent_context: ContextEntry[] }
 export type EffortSubmitItem = Item<SubmitAsked, Effort, Effort[]>
+
+/**
+ * unresolved: an effort-submit item (the message and the conversation before
+ * it) from a thread that may have gone round several times on one problem,
+ * plus the answer to the three-way question about the message (`triage`).
+ * `command` is there when the message starts a command turn: the command as
+ * the person typed it (`message`), and what it is for, as the mod gives it to
+ * the decision model beside the message (`name`, `description`).
+ */
+export const TRIAGES = ['unresolved', 'resolved', 'new'] as const
+export type Triage = (typeof TRIAGES)[number]
+export type UnresolvedAsked = SubmitAsked & { command?: { name: string; description: string } }
+export type UnresolvedItem = Item<UnresolvedAsked, Effort, Effort[]> & { triage: Triage }
+
+/**
+ * long-context (#44): one question about how much of a long conversation the decision model reads. The conversation is
+ * Chinese only. An item holds the rounds that decide the answer (`decisive`, hand-written: what was tried, what was
+ * agreed), the words of the work around them (`vocab`), the message, and how far back the decisive rounds are (`depth`,
+ * estimated tokens from the message to their start); the long stretch of ordinary work between them is written by
+ * `lib/long-conversation.ts`, the same every time. `gold`/`accept`/`triage` are the answers to the conversation as it is
+ * (the decisive rounds in it, deep or near); `without` is the answer when they are deleted whole (the none version).
+ * `says` marks a person's message in the decisive rounds with the answer to the three-way question about it, which is how
+ * the count of times the problem was said to be unresolved is kept (the filler's messages say nothing of the kind).
+ */
+export type DecisiveEntry = ContextEntry & { says?: Triage }
+export type Vocab = { area: string; files: string[]; symbols: string[]; terms: string[] }
+export type LongContextAsked = { message: string; decisive: DecisiveEntry[]; vocab: Vocab }
+export const DEPTHS = [30000, 60000, 120000] as const
+export type LongContextItem = {
+  id: string
+  zh: LongContextAsked
+  depth: number
+  gold: Effort
+  accept: Effort[]
+  triage: Triage
+  without: { gold: Effort; accept: Effort[] }
+  rationale: string
+  difficulty: 'hard' | 'medium'
+  tags: string[]
+}
+
+/**
+ * The tag of an unresolved item whose conversation overruns what the mod
+ * reads of it when a message is sent (the state's budget, `BACKEND_DEFAULTS.jev.contextTokens`): its earlier rounds fall outside.
+ */
+export const OVER_BUDGET = 'over-budget'
 
 /**
  * One tool call of an effort-midturn row: its name; `input`, the arguments
@@ -152,7 +201,7 @@ export function validateDataset(kind: Kind, items: readonly unknown[], extra: Ex
     else if (seen.has(id)) add('appears twice')
     else seen.add(id)
     checkCommon(kind, raw, add)
-    if (!isRecord(raw.zh) || !isRecord(raw.en)) return
+    if (!isRecord(raw.zh) || (kind !== 'long-context' && !isRecord(raw.en))) return
     RULES[kind](raw, add)
     if (kind === 'skill' && statusOf !== null) checkSkillNames(raw, statusOf, add)
   })
@@ -169,13 +218,15 @@ const FIELDS: Record<Kind, readonly string[]> = {
   'effort-midturn': ['id', 'zh', 'en', 'gold', 'accept', 'rationale', 'difficulty', 'tags'],
   subagent: ['id', 'zh', 'en', 'gold', 'accept', 'rationale', 'difficulty', 'tags'],
   skill: ['id', 'zh', 'en', 'gold', 'accept', 'must_not', 'user_only_hint', 'rationale', 'difficulty', 'tags'],
+  unresolved: ['id', 'zh', 'en', 'gold', 'accept', 'triage', 'rationale', 'difficulty', 'tags'],
+  'long-context': ['id', 'zh', 'depth', 'gold', 'accept', 'triage', 'without', 'rationale', 'difficulty', 'tags'],
 }
 
 function checkCommon(kind: Kind, item: Record<string, unknown>, add: Add): void {
   for (const field of FIELDS[kind]) if (!(field in item)) add(`${field} is missing`)
   for (const field of Object.keys(item)) if (!FIELDS[kind].includes(field)) add(`unknown field ${field}`)
   if ('zh' in item && !isRecord(item.zh)) add('zh must be an object')
-  if ('en' in item && !isRecord(item.en)) add('en must be an object')
+  if ('en' in item && kind !== 'long-context' && !isRecord(item.en)) add('en must be an object')
   if ('rationale' in item && !nonEmpty(item.rationale)) add('rationale must be a non-empty string')
   if ('difficulty' in item && item.difficulty !== 'hard' && item.difficulty !== 'medium') add('difficulty must be "hard" or "medium"')
   if ('tags' in item && !(Array.isArray(item.tags) && item.tags.every(nonEmpty))) add('tags must be an array of non-empty strings')
@@ -201,6 +252,82 @@ const RULES: Record<Kind, (item: Record<string, unknown>, add: Add) => void> = {
     checkSubmitAsked(item, add)
     checkSkillAnswer(item, add)
   },
+  unresolved: (item, add) => {
+    checkSubmitAsked(item, add, ['command'])
+    checkCommand(item, add)
+    checkEffortAnswer(item, add)
+    if (!(TRIAGES as readonly unknown[]).includes(item.triage)) add(`triage ${JSON.stringify(item.triage)} is not one of ${TRIAGES.join(', ')}`)
+    checkOverBudget(item, add)
+  },
+  'long-context': checkLongContext,
+}
+
+/** What a long-context item is about, one tag each: where the rounds that decide the answer come from. */
+export const CATEGORIES = ['repeated-failure', 'second-attempt', 'agreed-low-cost', 'looks-complex', 'misleading-history', 'hard-constraint'] as const
+
+/** How far the built conversation may be from the depth an item claims: a few percent (the last turns are sized to what is left). */
+const DEPTH_TOLERANCE = { below: 0.97, above: 1.05 }
+
+/**
+ * A long-context item: the message, the decisive rounds (alternating from the person to the assistant; only the person's
+ * messages say anything of the problem), the words of the filler, how deep the rounds are (a tier, and the conversation
+ * built for it is that long), the answers with them and without them, and a category.
+ */
+function checkLongContext(item: Record<string, unknown>, add: Add): void {
+  const zh = item.zh as Record<string, unknown>
+  const before = { errors: 0 }
+  const check: Add = (message) => {
+    before.errors++
+    add(message)
+  }
+  exactKeys(zh, ['message', 'decisive', 'vocab'], 'zh', check)
+  if (!nonEmpty(zh.message)) check('zh.message must be a non-empty string')
+  if (!Array.isArray(zh.decisive) || zh.decisive.length === 0) check('zh.decisive must be a non-empty array of the rounds that decide the answer')
+  else {
+    zh.decisive.forEach((entry, i) => {
+      const at = `zh.decisive[${i}]`
+      if (!isRecord(entry)) return check(`${at} must be an object`)
+      for (const key of Object.keys(entry)) if (!['role', 'text', 'tools', 'says'].includes(key)) check(`${at} has an unknown field ${key}`)
+      const role = i % 2 === 0 ? 'user' : 'assistant'
+      if (entry.role !== role) check(`${at}.role must be "${role}" (the rounds alternate, starting with the person)`)
+      if (typeof entry.text !== 'string' || entry.text.trim() === '') check(`${at}.text must be a non-empty string`)
+      if ('tools' in entry && !(Array.isArray(entry.tools) && entry.tools.every(nonEmpty))) check(`${at}.tools must be an array of tool names`)
+      if ('says' in entry) {
+        if (entry.role !== 'user') check(`${at}.says: only a message of the person says anything of the problem`)
+        else if (!(TRIAGES as readonly unknown[]).includes(entry.says)) check(`${at}.says ${JSON.stringify(entry.says)} is not one of ${TRIAGES.join(', ')}`)
+      }
+    })
+    if (zh.decisive.length % 2 !== 0) check('zh.decisive must end with the assistant (a whole number of rounds)')
+  }
+  const vocab = zh.vocab
+  if (!isRecord(vocab)) check('zh.vocab must be { area, files, symbols, terms }')
+  else {
+    exactKeys(vocab, ['area', 'files', 'symbols', 'terms'], 'zh.vocab', check)
+    if (!nonEmpty(vocab.area)) check('zh.vocab.area must be a non-empty string')
+    for (const [name, least] of [['files', 2], ['symbols', 3], ['terms', 2]] as const) {
+      const list = vocab[name]
+      if (!Array.isArray(list) || list.length < least || !list.every(nonEmpty)) check(`zh.vocab.${name} must be at least ${least} non-empty strings`)
+    }
+  }
+  if (!(DEPTHS as readonly unknown[]).includes(item.depth)) check(`depth ${JSON.stringify(item.depth)} is not one of ${DEPTHS.join(', ')}`)
+  checkEffortAnswer(item, add)
+  if (!(TRIAGES as readonly unknown[]).includes(item.triage)) add(`triage ${JSON.stringify(item.triage)} is not one of ${TRIAGES.join(', ')}`)
+  if (isRecord(item.without)) {
+    exactKeys(item.without, ['gold', 'accept'], 'without', add)
+    checkEffortAnswer(item.without, (message) => add(`without: ${message}`))
+  } else if ('without' in item) add('without must be { gold, accept }')
+  const categories = Array.isArray(item.tags) ? item.tags.filter((tag) => (CATEGORIES as readonly unknown[]).includes(tag)) : []
+  if (categories.length !== 1) add(`needs exactly one category tag (${CATEGORIES.join(', ')})`)
+
+  // The conversation built from it: as deep as it says, and the first decisive message appears nowhere in the filler.
+  if (before.errors > 0) return
+  const built = item as unknown as LongContextItem
+  const tokens = conversationTokens(conversationOf(built, 'deep'))
+  if (tokens < built.depth * DEPTH_TOLERANCE.below || tokens > built.depth * DEPTH_TOLERANCE.above) {
+    add(`the conversation is ${tokens} tokens, not within a few percent of its depth ${built.depth} (${Math.round(built.depth * DEPTH_TOLERANCE.below)} to ${Math.round(built.depth * DEPTH_TOLERANCE.above)})`)
+  }
+  const mark = decisiveMark(built)
+  if (conversationOf(built, 'none').some((entry) => said(entry.text).includes(mark))) add(`the first decisive message is in the filler (${JSON.stringify(mark)}): a state cannot be searched for it`)
 }
 
 const SKILL_LISTS = ['gold', 'accept', 'must_not', 'user_only_hint'] as const
@@ -245,11 +372,11 @@ function catalogLookup(catalog: unknown): ((name: string) => string | undefined)
 }
 
 /** `{ message, recent_context }` in both languages, the context the same shape in both (roles, tools). */
-function checkSubmitAsked(item: Record<string, unknown>, add: Add): void {
+function checkSubmitAsked(item: Record<string, unknown>, add: Add, optional: readonly string[] = []): void {
   const contexts: Partial<Record<Language, unknown[]>> = {}
   for (const language of LANGUAGES) {
     const asked = item[language] as Record<string, unknown>
-    exactKeys(asked, ['message', 'recent_context'], language, add)
+    exactKeys(asked, ['message', 'recent_context', ...optional.filter((key) => key in asked)], language, add)
     if (!nonEmpty(asked.message)) add(`${language}.message must be a non-empty string`)
     if (!Array.isArray(asked.recent_context)) {
       add(`${language}.recent_context must be an array`)
@@ -267,6 +394,40 @@ function checkSubmitAsked(item: Record<string, unknown>, add: Add): void {
     if (entry.role !== other.role) add(`recent_context[${i}].role differs between zh and en`)
     if (JSON.stringify(entry.tools ?? []) !== JSON.stringify(other.tools ?? [])) add(`recent_context[${i}].tools differ between zh and en`)
   })
+}
+
+/** `command`, when there is one: a name (the same in both languages) and a description, each a non-empty string; in both languages or in neither. */
+function checkCommand(item: Record<string, unknown>, add: Add): void {
+  const [zh, en] = [item.zh as Record<string, unknown>, item.en as Record<string, unknown>]
+  if ('command' in zh !== 'command' in en) return add('command is in one language only')
+  for (const language of LANGUAGES) {
+    const command = (item[language] as Record<string, unknown>).command
+    if (command === undefined) continue
+    if (!isRecord(command)) return add(`${language}.command must be { name, description }`)
+    exactKeys(command, ['name', 'description'], `${language}.command`, add)
+    for (const field of ['name', 'description'] as const) if (!nonEmpty(command[field])) add(`${language}.command.${field} must be a non-empty string`)
+  }
+  if (isRecord(zh.command) && isRecord(en.command) && zh.command.name !== en.command.name) add('command.name differs between zh and en')
+}
+
+/** What the mod's state would hold of the conversation before the message, with no budget: the lines and the message, as the mod writes them. */
+export function stateTokens(asked: SubmitAsked): number {
+  const messages: ContextMessage[] = asked.recent_context.map((entry) => ({ role: entry.role, text: entry.text, toolUses: (entry.tools ?? []).map((tool) => ({ tool })) }))
+  return estimateTokens(JSON.stringify({ user_message: asked.message, recent_context: recentLines(messages, asked.message, Number.MAX_SAFE_INTEGER).join('\n') }))
+}
+
+/** The context budget of the state a message's request has today, in estimated tokens. */
+const BUDGET = BACKEND_DEFAULTS.jev.contextTokens
+
+/** An item is tagged `over-budget` exactly when its state overruns the budget in both languages (no item is long in one language only). */
+function checkOverBudget(item: Record<string, unknown>, add: Add): void {
+  const tagged = Array.isArray(item.tags) && item.tags.includes(OVER_BUDGET)
+  const sizes = LANGUAGES.map((language) => [language, stateTokens(item[language] as SubmitAsked)] as const)
+  if (sizes.some(([, size]) => !Number.isFinite(size))) return
+  const over = sizes.filter(([, size]) => size > BUDGET)
+  const list = sizes.map(([language, size]) => `${language} ${size}`).join(', ')
+  if (tagged && over.length < LANGUAGES.length) add(`tagged ${OVER_BUDGET}, but the conversation fits ${BUDGET} tokens in ${sizes.filter(([, size]) => size <= BUDGET).map(([language]) => language).join(' and ')} (${list})`)
+  else if (!tagged && over.length > 0) add(`the conversation overruns ${BUDGET} tokens in ${over.map(([language]) => language).join(' and ')} (${list}) and has no ${OVER_BUDGET} tag`)
 }
 
 /**
@@ -492,6 +653,31 @@ const QUOTAS: Record<Kind, (items: readonly Record<string, unknown>[]) => string
     if (none < 0.2) warnings.push(`items where no skill fits are ${percent(none)}; the drafting rules ask for at least 20%`)
     const hinted = items.filter((item) => Array.isArray(item.user_only_hint) && item.user_only_hint.length > 0).length
     if (hinted < 10) warnings.push(`${hinted} items hint a user-only skill; the drafting rules ask for at least 10`)
+    return warnings
+  },
+  unresolved: (items) => {
+    const warnings: string[] = []
+    for (const answer of TRIAGES) {
+      const n = items.filter((item) => item.triage === answer).length
+      if (n < 5) warnings.push(`${n} items have triage "${answer}"; the drafting rules ask for at least 5`)
+    }
+    const over = share(items, (item) => Array.isArray(item.tags) && item.tags.includes(OVER_BUDGET))
+    if (over < 0.25) warnings.push(`${OVER_BUDGET} items are ${percent(over)} of the dataset; the drafting rules ask for at least 25%`)
+    const top = items.filter((item) => item.gold === 'max').length
+    if (top < 8) warnings.push(`${top} items have gold max; the drafting rules ask for at least 8 (a recall of the top level needs a sample)`)
+    return warnings
+  },
+  'long-context': (items) => {
+    const warnings: string[] = []
+    for (const depth of DEPTHS) {
+      const n = items.filter((item) => item.depth === depth).length
+      if (n < 8) warnings.push(`${n} items are ${depth} tokens deep; the drafting rules ask for at least 8 at each depth`)
+    }
+    const top = items.filter((item) => item.gold === 'max').length
+    if (top < 8) warnings.push(`${top} items have gold max; the drafting rules ask for at least 8 (a recall of the top level needs a sample)`)
+    // The rounds are worth reading only when the best answer without them is another one.
+    const changing = share(items, (item) => isRecord(item.without) && item.without.gold !== item.gold)
+    if (changing < 0.7) warnings.push(`the decisive rounds change the answer in ${percent(changing)} of items; the drafting rules ask for at least 70%`)
     return warnings
   },
 }

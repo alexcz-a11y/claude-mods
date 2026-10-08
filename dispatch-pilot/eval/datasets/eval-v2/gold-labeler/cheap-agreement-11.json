@@ -1,0 +1,25 @@
+{
+  "id": "cheap-agreement-11",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "翻页那个 bug 还在查，最后一条是另一件事：工单列表页的几处纯样式改动，状态标签颜色、行高 48、操作列按钮间距 8、抽屉标题大一号、底部按钮右对齐。d3 定过：间距、颜色、字号、圆角、对齐这类直接改直接推，不截图比对，tsc 和单测交给 CI。这些都是照明确指令做的机械改动，给 low；涉及好几个样式文件，medium 也可以接受。没有 d3 的话，主 agent 会截图和设计稿比、跑 tsc 和单测，按 medium 判。d3 是接受了间距那次改动、让推上去，所以算 resolved。"
+}

@@ -7,11 +7,10 @@
 // decision requests, what the main agent is told, the board (`w.board()`).
 
 import { expect, test } from 'claude-code/testing'
-import { CLEF_OPTIONS, clefInputProblems } from './support/cloudflare.ts'
-import { clefSiteJev, siteJev, type SiteAnswer } from './support/workflow.ts'
+import { siteJev, type SiteAnswer } from './support/workflow.ts'
 import { persisted, runDir, runWorld } from './support/workflow-run.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 /** A script the main agent saved earlier and runs again by its path. */
 const SAVED = '/work/.claude/workflow-scripts/tidy.js'
@@ -359,18 +358,6 @@ test('no answer within timeoutMs as an agent starts: it goes out as the engine m
   await step
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
   expect((await w.board()).agents.find((node) => node.id === 'wa1')).toMatchObject({ routed: false, why: 'jev：800 毫秒内没有回答', failure: { backend: 'jev', kind: 'timeout' } })
-})
-
-test("with Clef as the decision model, the request made as an agent starts passes Clef's input rules", { options: CLEF_OPTIONS }, async ($, on) => {
-  const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: clefSiteJev(() => ({ model: { opus: 0.9 }, effort: [0, 0, 1, 0, 0] })) })
-  await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'first')
-  w.transcript('wf_test-1', 'wa1', 'Find why the nightly import drops rows, and fix it.')
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
-
-  expect(w.requests).toHaveLength(1)
-  expect(clefInputProblems(w.requests[0]?.body)).toEqual([])
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 high'])
 })
 
 test("an agent that already has a plan (one the main agent dispatched, or a first step the engine sends again after an error) keeps it: nothing is asked again", { options: KEY }, async ($, on) => {

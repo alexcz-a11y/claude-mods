@@ -92,23 +92,24 @@ export function readEffort(answer: Answer | undefined): EffortReading | null {
 }
 
 /**
- * The level above the most probable one is taken instead when it has at least
- * this probability: raising is easy (a level too low costs the work its
- * quality, a level too high only tokens; AA's scores fall steeply with effort,
- * DEVELOPMENT.md, 「按 AA 基准校正」). Not a setting: set from the stored answers
- * (eval/resummarize.ts), like the other internal constants.
+ * The two thresholds of the effort rules, both the decision model's (core/setup.ts BACKEND_DEFAULTS and `Config`, whose
+ * `thetaMax` and `roundUp` these are; the mod and the eval pass the same ones). `thetaMax`: `max` only when its own
+ * probability reaches it. `roundUp`: the level above the most probable one is taken instead when it has at least this
+ * probability: raising is easy (a level too low costs the work its quality, a level too high only tokens; AA's scores
+ * fall steeply with effort, DEVELOPMENT.md, 「按 AA 基准校正」). `roundUp` is not an option: set from the stored answers
+ * (eval/resummarize.ts), like the other internal values of the table.
  */
-export const ROUND_UP = 0.3
+export type EffortRules = { thetaMax: number; roundUp: number }
 
 /**
  * The level to use: the most probable one, a tie going to the higher level;
- * then the level above it when that one has at least `ROUND_UP` (once, never
- * further). `max` only when its own probability reaches `thetaMax`, whether it
+ * then the level above it when that one has at least `rules.roundUp` (once, never
+ * further). `max` only when its own probability reaches `rules.thetaMax`, whether it
  * is the most probable level or the one a raise would reach; else the most
  * probable of the others.
  */
-export function pickEffort(reading: EffortReading, thetaMax: number): Effort {
-  return traceEffort(reading, thetaMax).effort
+export function pickEffort(reading: EffortReading, rules: EffortRules): Effort {
+  return traceEffort(reading, rules).effort
 }
 
 /**
@@ -144,7 +145,8 @@ export type EffortLifts = {
  * gives them), each saying whether it took effect. `pickEffort` is this
  * function's `effort`: one set of rules, never two.
  */
-export function traceEffort(reading: EffortReading, thetaMax: number, lifts: EffortLifts = {}): EffortTrace {
+export function traceEffort(reading: EffortReading, rules: EffortRules, lifts: EffortLifts = {}): EffortTrace {
+  const { thetaMax, roundUp } = rules
   const p = reading.probabilities
   const at = (i: number): number => p[i] ?? 0
   const top = (count: number): number => {
@@ -162,10 +164,10 @@ export function traceEffort(reading: EffortReading, thetaMax: number, lifts: Eff
   steps.push({ rule: 'max-gate', applied: gated, level: name(level), p: at(last), thetaMax })
   const above = level + 1
   const aboveP = above <= last ? at(above) : 0
-  const blockedByMax = above === last && aboveP >= ROUND_UP && aboveP < thetaMax
-  const raised = above <= last && aboveP >= ROUND_UP && (above < last || aboveP >= thetaMax)
+  const blockedByMax = above === last && aboveP >= roundUp && aboveP < thetaMax
+  const raised = above <= last && aboveP >= roundUp && (above < last || aboveP >= thetaMax)
   if (raised) level = above
-  steps.push({ rule: 'round-up', applied: raised, level: name(level), above: above <= last ? name(above) : null, p: aboveP, threshold: ROUND_UP, blockedByMax, thetaMax })
+  steps.push({ rule: 'round-up', applied: raised, level: name(level), above: above <= last ? name(above) : null, p: aboveP, threshold: roundUp, blockedByMax, thetaMax })
 
   const lift = (from: number, floor: Effort | null): number => (floor !== null && EFFORTS.indexOf(floor) > from ? EFFORTS.indexOf(floor) : from)
   if (lifts.model !== undefined) {

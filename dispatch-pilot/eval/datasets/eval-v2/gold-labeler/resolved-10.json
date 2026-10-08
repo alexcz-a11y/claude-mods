@@ -1,0 +1,25 @@
+{
+  "id": "resolved-10",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "low",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "d1 提出 /search p99 回归；d2 加大连接池后无变化，未解决；d3 修缓存键后 p99 回到 170-180，用户认可，约定夜间压测仍在 200 以内就撤掉连接池改动再合。最后一条 p99 187ms 满足条件，要做的是撤掉 EsConfig 两行和 staging 配置两项、然后合并，已列明的机械改动，low。没有决定性几轮时这只是一条报数，没有明确要求，确认一下即可，也是 low。"
+}

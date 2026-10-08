@@ -1,0 +1,33 @@
+{
+  "id": "explicit-unresolved-07",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里 token-meter 压缩后翻倍的问题已经改了四次（跳过 compact 的 turn.complete、去掉 session.start 的累加、usage 只取 input+output、子 agent 轮次不重画），用户每次都说还在翻倍，第四次之后助手也承认四处都不是原因、数是读到时就翻了。隔了几万 token 别的活，最后一条用户又明说压缩翻倍还没解决：反复未果、原因不明的问题，max；xhigh 也能接受。删掉决定性几轮，中间段都是别的事，最后一条看起来只是一个 band 数字不对的 bug，「还是没解决」至多说明试过一次：high。三选一：d1 第一次提出问题，new_or_unrelated；d2–d5 都说改完还在翻倍（d4、d5 里子 agent 的问题有改善，翻倍本身没好），still_unresolved；最后一条隔着别的活回头说原问题还在，still_unresolved。审稿修改：素材池里 my-mods 的 mod 列表和 $.store 的用法都是定好的（只有 session-journal 用 $.store），原第四次尝试「今日累计写进 $.store、两个窗口串扰」和素材矛盾，改成「子 agent 的轮次也触发重画」；d1 说明 token-meter 是还没放进 marketplace 的自用 mod；去掉不存在的 ui.invalidate。档位不变。"
+}

@@ -1,0 +1,87 @@
+{
+  "id": "command-turn-07",
+  "category": "command-turn",
+  "domain": "perf",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "search 接口晚高峰的 ES 读超时",
+    "SYMPTOM": "晚高峰时搜索接口一阵一阵冒出上千毫秒的慢请求",
+    "ERROR": "java.net.SocketTimeoutException: 2,000 milliseconds timeout on connection http-outgoing-87 [ACTIVE]",
+    "FILE": "src/main/java/com/acme/search/service/SearchService.java",
+    "FILE2": "src/main/java/com/acme/search/api/SearchController.java",
+    "SYMBOL": "SearchService.search",
+    "COMMAND": "k6 run bench/peak-probe.js"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "search 接口晚高峰有个事 每天 20:30 到 21:00 之间 ES 那边一阵一阵读超时 日志里一晚上几百条 `java.net.SocketTimeoutException: 2,000 milliseconds timeout on connection http-outgoing-87 [ACTIVE]` BFF 那边也跟着报读超时 入口是 SearchService.search 你先看看 有想法就先改 不过生产那 8 个 pod 别动 改完打个镜像放到灰度那个 pod 上跑一晚 跟别的 pod 比"
+    },
+    {
+      "role": "assistant",
+      "text": "先从每页条数下手，改了一版放到灰度上了，生产的 8 个 pod 没动。\n\n- **看到的**：Loki 里拉了最近三晚的 `SocketTimeoutException`，按时间和线程对回访问日志，超时的请求里 `size=100` 的占了五成多，而它们在全部请求里只占一成左右。读了 `SearchService.search`：`_source` 虽然有白名单，但 ES 取文档时还是要把每份完整的 `_source` 读出来解析一遍，商品文档里卖点描述很长，`size=100` 时 fetch 阶段的开销是 20 条的好几倍，响应体也最大，我们这边 Jackson 反序列化也最久，这类请求先撞上 2 秒的 socket 超时说得通。\n- **改法**：灰度镜像里 `search.page.max-size` 从 100 收到 60，跟 BFF 确认过列表页一页最多 40，100 只有 H5 老页面在用，收到 60 那边能接受；请求加 `filter_path`，去掉 `_shards` 和每个 hit 的 `_index`、`_score`（排序没用到）。\n- **验证**：`./gradlew test` 全过；本地用 `bench/search.js` 压了一轮，最大那一档的响应体平均从 170KB 降到 95KB，p99 从 640ms 降到 480ms。\n- **上灰度**：打了镜像 `search-svc:canary-size60`，部署到 `search-svc-canary`（1 个 pod，接九分之一左右的流量）。\n\n今晚 20:30 以后看灰度 pod 的 `SocketTimeoutException`，按每千次请求跟别的 pod 比。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "灰度跑了一晚 20:41 那波照样来 灰度那个 pod 自己打了 63 条 SocketTimeoutException 按请求数折算跟别的 pod 差不多 响应体是小了 超时没少"
+    },
+    {
+      "role": "assistant",
+      "text": "确认了，响应体不是主因：灰度 pod 每千次请求 2.1 条，生产 8 个 pod 在 1.9 到 2.4 之间，同一档。灰度上 `size` 最大只有 60 了，超时却照样出，之前那个五成多是高峰时段放大出来的相关，不是原因。\n\n换个方向，看 ES 客户端自己：\n\n- **看到的**：`EsConfig` 里 `RestClientBuilder` 没设 `IOReactorConfig`，IO 线程数默认等于 `availableProcessors()`，容器 limits 是 4 核，所以只有 4 个 IO 线程。今晚 20:38 到 20:45 在灰度 pod 上用 `jcmd 1 Thread.print` 隔 5 秒抓了几份，有两份里 4 个 `elasticsearch-rest-client-0-thread-*` 全在 `HttpAsyncRequestExecutor.inputReady` 里读响应，没有一个在 `EPoll.wait`。IO 线程全忙的时候，新到的响应在 socket 里等着没人读，连接上那 2 秒的 socket 超时照样在算。\n- **改法**：`IOReactorConfig.custom().setIoThreadCount(8)`，socket 超时保持 2 秒不动，只加线程，不放宽超时。\n- **验证**：单测全过；本地把 IO 线程压成 1 个、再改回 8 个各跑一轮 `bench/search.js`，1 个时能稳定出读超时，8 个时没有。\n- **上灰度**：`search-svc:canary-io8`，替换了上一个灰度镜像，上一版的条数上限和 `filter_path` 一起带着。\n\n明晚再比一次。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是一样 灰度 58 条 别的 pod 50 到 70 条 时间也对得上 就是 20:40 那几分钟 你本地压出来的那个跟线上应该不是一回事"
+    },
+    {
+      "role": "assistant",
+      "text": "同意，本地那个是我把 IO 线程压成 1 个人为造出来的，说明不了线上。今晚又在灰度上抓了一轮线程转储：IO 线程 8 个，20:40 前后最忙的时候也只有 3 个在 `inputReady`，其余都在 `EPoll.wait`。也就是说线上的 IO 线程本来就有空闲，上一次是拿两份快照下了结论。\n\n剩下的怀疑里最直接的是 9 月 15 日的 #316：连接池从 30/10 放到了 100/100，8 个 pod 理论上能同时往 ES 压 800 个请求，高峰时 ES 的 search 线程池可能在排队，排队的时间都算在我们的读超时里。\n\n- **改法**：只在灰度镜像里把 `setMaxConnTotal`、`setMaxConnPerRoute` 退回 30、10，`main` 不动；IO 线程那项去掉，回到和生产一样的 4 个，免得两个变量混在一起。\n- **怎么看**：如果是 ES 被压得排队，灰度 pod 自己的并发少了，超时应该明显少于别的 pod；同时盯借连接的等待时间，看池子变小以后有没有涨上去。\n- **上灰度**：`search-svc:canary-pool30`。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d4",
+      "text": "也不行 灰度那个借连接排队的 p99 涨到 300 多毫秒 SocketTimeoutException 一条没少 还多了几条 三个都撤了吧 灰度先停掉 别再一个一个试了"
+    },
+    {
+      "role": "assistant",
+      "text": "撤了：`search-svc-canary` 缩到 0，镜像回到和生产一致的 `release-0929`；三个灰度分支留着没删，`main` 上从头到尾没合任何东西。\n\n三次都没碰到原因，排除掉的是：\n\n- **每页条数和响应体**（`size` 上限收到 60、`filter_path`）：灰度上超时率和生产一样；\n- **ES 客户端 IO 线程数**：线上 IO 线程本来就有空闲，加到 8 个没有变化；\n- **连接池大小**（#316）：退回 30/10 以后超时不少反多，只多出了借连接的排队。\n\n现在能确定的只有：超时集中在 20:38 到 20:46 这几分钟，8 个生产 pod 和灰度 pod 几乎同一时间一起出现，和单个 pod 自己的配置关系不大。下一步不再猜一个改一个，先把那几分钟里一次超时请求从请求线程、IO 线程到 ES 那一侧的时间串起来，看清这 2 秒到底花在哪一段，再决定改什么。",
+      "tools": [
+        "Bash",
+        "Read"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "/diagnose search 晚高峰 ES 读超时 昨晚 20:41 那波又来了",
+      "command": {
+        "name": "diagnose",
+        "description": "排查疑难故障和性能回退的循环：复现、收集证据、缩小范围、定位根因，再修复并验证。"
+      }
+    }
+  ],
+  "middle_hint": "中间继续排查 search 接口晚高峰 ES 读超时的问题：理 SearchService.search 的调用链和各层超时，看线程转储、GC 日志、JFR、火焰图、Loki 和 Prometheus，看 ES 和 Redis 两侧的指标，对比 staging 和生产，写复现场景和抓现场的脚本，列可能的原因；线上只读，没有新的修改尝试，也没有结论。"
+}

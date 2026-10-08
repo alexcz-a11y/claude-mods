@@ -1,0 +1,25 @@
+{
+  "id": "implicit-unresolved-06",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "d1 提出 search 接口压测 p99 从 130ms 退化到 470ms；三轮修复（ES 连接池、虚拟线程 pinning、Redis 连接池和压缩）之后用户 d2、d3 都说 p99 基本没动。中间是同仓库里不相关的活，最后一条又贴了一份 p99=473.2ms 的 k6 摘要，性能退化仍没解决，三轮修复都失败后再提，按约定是 max。没有决定性几轮时，中间都不相关，最后一条只是一份压测摘要，能看出是要查尾延迟退化，按性能调试判 high。"
+}

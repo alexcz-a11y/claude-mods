@@ -1,0 +1,21 @@
+{
+  "id": "looks-hard-is-easy-01",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "剩下的工作：在 `.github/workflows/bench.yml` 跑 k6 那一步的 `run:` 开头加一行 `ulimit -n 65535 && ulimit -n`，再触发一次 `bench.yml` 把第二轮重跑一遍，看失败没了。文件、位置、改成什么都在决定性几轮里逐字写明，原因（`bench-runner-01` 重装后 runner 的文件句柄软限制回到 1024，硬限制 524288、普通用户就能调）和这一行的效果在 d1 里用两次小压测验证过；不写测试，验证就是重跑决定性几轮里跑过的那一轮压测，不碰 prod、不发版。对上第 7 节 low 那一行：只有一处改动，照明确指令做。重跑以后要看一眼结果、确认失败率归零，判 medium 也说得过去，accept low、medium。删掉决定性几轮，只剩中间不相干的活和这一屏失败（失败率 31%、阈值全红、六万多行 WARN），「按上次说的在 workflow 里加上」加什么看不出来，得从头判断失败出在压测机还是服务、再定改法，是调试：high。三选一按第 6 节：d1 对话里第一次提出压测失败，new_or_unrelated；d2 用户说手动调了限制后重跑 0 失败、p95 290，是临时办法之后观察到的好结果，resolved；最后一条同样的 `too many open files` 又出现，问题还在，让按定好的改，still_unresolved。决定性几轮里没有「改了、用户说没好」，这次再现是助手在 d2 之后预告过的（新镜像还是 1024 就会再出现），不算一次失败的尝试。审稿改动（金标未变）：素材段 perf-unrelated-12 里 CI 的压测命令是 `-e BASE_URL=...`，`TARGET`/`PROFILE` 参数和 `bench/results/` 是那一段整理脚本时才加的，它可能落在决定性几轮之后，所以 d1 贴的命令改成 CI 原样的 `-e BASE_URL=https://search-svc.staging.internal`，小压测改成 `--vus 1200 --duration 2m`，d2 回复改成在压测机上看输出；最后一条「运维说新镜像里还是没调」几乎点明了是限制没调，删掉决定性几轮也能猜出改法，改成「新镜像看来没管用」。"
+}

@@ -1,0 +1,26 @@
+{
+  "id": "explicit-unresolved-04",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "账单页回到前台后数据是旧的：决定性几轮里改了三次（读 context 不再缓存、不钉查询代，小组件写库缩短事务，HistoryTracker 合并完再存位置），每次都装到测试机上验证过，用户两次回来说还是旧的，最后这条是第三次修改后又说跟之前一样。Core Data 多进程写库、历史合并、并发加载交织的疑难问题，只在真机偶发，三个方向都没用：max，xhigh 也可以。决定性几轮离末尾十几万 token，删掉以后中间只有大段排查、没有修改尝试，最后一句看起来是一次调试的跟进：high。三选一：d1 首次提出，new_or_unrelated；d2、d3 都是改了以后说还不对，still_unresolved；最后这条说跟之前一样，still_unresolved。（审稿修改：本领域 same-problem 段的隐含场景是账单页显示的内容一时不对、过一会或重进就好，`{{ERROR}}` 是取数 `catch` 里打的一行 error 日志，App 照常运行；`{{FILE}}` 是带嵌套 ViewModel 的 View 文件，`{{SYMBOL}}` 写成 `viewModel.{{SYMBOL}}(…)` 调用，另有单独的 `reload(force:)`，还有一段专门分析一次崩溃「和 {{FEATURE}} 有没有关系」。原稿的「回前台闪退」、把崩溃日志当 `{{ERROR}}`、`BillListViewModel.reload` 做 `{{SYMBOL}}` 都和中间段矛盾，原稿第二、四次尝试（改观察者、关自动合并）也和中间段描述的现状冲突。按池子重写了问题、七个占位符和三次尝试，验证改用 Xcode 直装测试机，不和池子里 3.9.0 只有两个 TestFlight 包的说法冲突；尝试从四次变三次，金标档位不变。）",
+  "source": "agreed"
+}

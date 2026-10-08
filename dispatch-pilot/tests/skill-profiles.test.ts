@@ -8,7 +8,7 @@ import type { ModelCompleteRequest } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import { rates, world, type Completion, type SkillsWorld } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 const TDD_DESCRIPTION = 'Test-driven development. Use when the user wants to build features or fix bugs test-first.'
 const REVIEW_DESCRIPTION = 'Review the changes since a fixed point along two axes: Standards and Spec.'
@@ -72,7 +72,7 @@ test('at session start the cheap model writes a profile of each skill from its S
   expect(w.completions[2]?.prompt).toContain(COMPUTER_DESCRIPTION)
 
   await w.submit('先写一个失败的测试')
-  const which = w.requests[0]?.body.questions['skills.which']
+  const which = w.withoutEffort[0]?.body.questions['skills.which']
   expect(which.criteria).toEqual({
     tdd: offered('tdd'),
     'code-review': offered('code-review'),
@@ -84,7 +84,7 @@ test('at session start the cheap model writes a profile of each skill from its S
 /** The criterion the first stage offers a skill by. */
 async function criterionOf(w: ReturnType<typeof world>, name: string, message: string): Promise<unknown> {
   await w.submit(message)
-  return w.requests.at(-1)?.body.questions['skills.which']?.criteria[name]
+  return w.withoutEffort.at(-1)?.body.questions['skills.which']?.criteria[name]
 }
 
 test('a later session finds the profiles in the store and writes none again; an edited SKILL.md gets a new profile, the others stay', { options: KEY }, async ($, on) => {

@@ -1,0 +1,45 @@
+{
+  "id": "new-topic-11",
+  "category": "new-topic",
+  "domain": "backend-api",
+  "bin": "d3",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "财务说这个月 cardpay 的自动退款多得离谱 都是订单超时关了以后钱又到了 系统自动退回去的那种 一天七八十笔 以前一天也就三五笔 客服说老有顾客来问为什么扣了钱又退回来 你查一下"
+    },
+    {
+      "role": "assistant",
+      "text": "原因找到了，改了：cardpay 9 月下旬给更多发卡行开了 3DS 验证，顾客在验证页上停着的时候，查单接口返回的是「处理中」，我们的超时关单把它当成没付，照样关单，等顾客验证完钱一到，就走了晚到支付的自动退款。\n\n**查到的**\n\n- `payments` 和 `order_events` 里按天数了 cardpay 的晚到支付：9 月 23 日以前一天 3 到 5 笔，24 日起一天 60 到 90 笔，paylink 一直是个位数。cardpay 的商户后台公告写着 9 月 24 日起扩大 3DS2 的发卡行范围，日期对得上。\n- `internal/service/expire.go` 的 `CloseExpiredOrders` 关单前会调渠道查单，只有查到「已支付」才放过；cardpay 的 `QueryPayment` 在 3DS 进行中返回 `requires_action`，代码里除了 `succeeded` 都算没付。\n- 关单以后调 cardpay 的取消接口，它对正在做 3DS 的支付会返回成功，但不会打断已经在进行的验证，验证完照样扣款。\n- 另外，cardpay 创建支付时我们一直没传 `expires_at`，按它的默认值，一笔支付 24 小时内都能付。\n\n**改法**\n\n- `CloseExpiredOrders`：cardpay 查到 `requires_action` 或 `processing` 时这一轮先跳过，下一分钟再查；超过订单超时 15 分钟还是这个状态，再照常关单。宽限时间做成环境变量 `CARDPAY_PENDING_GRACE`，默认 15m。\n- cardpay 创建支付时传 `expires_at` = 订单创建时间 + 订单的未支付超时，和关单用同一个配置。\n- 补了 5 个用例：3DS 中跳过、宽限期过了照常关、查单失败沿用原来的跳过逻辑、`expires_at` 的计算、paylink 不受影响。`go test ./...` 全过。\n\n**顺手把「30 分钟」这个数在哪些地方用到都对了一遍**，因为 cardpay 的过期时间要和它对齐，发现它散在好几处，只有第一处是配置：\n\n| 在哪 | 怎么用的 | 来源 |\n|---|---|---|\n| `CloseExpiredOrders` | `created_at < now() - 超时`，查询时现算，订单表里没有存每单的截止时间 | 环境变量 `ORDER_EXPIRE_MINUTES`，默认 30 |\n| paylink 下单的 `time_expire` | 订单创建时间 + 30 分钟 | `internal/channel/paylink/client.go` 写死 `30*time.Minute` |\n| cardpay 下单的 `expires_at` | 这次新加的 | 跟配置走 |\n| 补单任务 `PollPendingPayments` | 只查创建后 5 到 30 分钟的支付单 | 写死 |\n| 订单详情和列表返回的 `pay_deadline` | 买家 App 的倒计时和「去支付」按钮按它显示 | 返回时用配置现算；openapi 的说明写的是「下单后 30 分钟」 |\n| 锁库存 | 下单时 `Reserve` 带 35 分钟的过期时间，关单时调 `Release` 释放，过期时间是兜底 | `internal/inventory` 写死 `35*time.Minute` |\n| 商户文档和买家帮助中心 | 「请在 30 分钟内完成支付」 | 文案 |\n\n这几处现在是靠「都等于 30 分钟」凑在一起的，这次只让 cardpay 那一处跟上了配置，别的没动。\n\n还没提交，明后两天看一下 cardpay 晚到自动退款的数量。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "两天下来 cardpay 的晚到自动退款一天 2 笔 都是 3DS 卡了二十多分钟的那种 正常 提交吧"
+    },
+    {
+      "role": "assistant",
+      "text": "提交了，`a17c4e9`：`expire: hold cardpay orders pending 3DS; pass expires_at to cardpay`，改了 `internal/service/expire.go`、`internal/channel/cardpay/client.go` 和测试，没推送。\n\n- 那 2 笔都是 3DS 停了 15 分钟以上、过了宽限期才关单的，属于预期内。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "产品说下单不付款要 30 分钟才关单 库存压太久了 改成 15 分钟吧"
+    }
+  ],
+  "middle_hint": "中间在 order-api 里做别的事：加字段、改接口文案、补测试、整理配置和文档之类，和超时关单、cardpay 的晚到支付无关。"
+}

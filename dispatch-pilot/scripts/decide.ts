@@ -1,18 +1,17 @@
-// One message's effort decision against the real Jev or Clef, outside Claude
+// One message's effort decision against the real Jev, outside Claude
 // Code: the request the mod sends when the person sends that message with no
 // conversation before it (the shared decision module), with the mod's settings
-// as the manifest's defaults and the chosen decision model's give them
-// (core/setup.ts BACKEND_DEFAULTS), sent from Node. For a manual check.
+// as the manifest's defaults and Jev's give them (core/setup.ts BACKEND_DEFAULTS),
+// sent from Node. Always Jev: the script has no choice of decision model
+// (eval/node.ts scriptDecision fixes `decisionModel` to jev). For a manual check.
 //
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' [--zh | --en] [--choice] [--timeout 5000]
-//   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_AUTH_TOKEN=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' --clef
 //
-// Jev unless `--clef`. The question is written as the mod writes it for the
-// decision model asked (Chinese with Jev, English with Clef: turnStartLanguage);
-// `--zh` or `--en` writes it in that language, `--choice` asks a Choice, as the
+// The question is written as the mod writes it for the decision model asked
+// (Chinese with Jev: the table's ask.turnStart); `--zh` or `--en` writes it in that language, `--choice` asks a Choice, as the
 // eval's variants do. Prints the request (questions, state) and the answer:
 // each level's probability, the confidence, the level the mod picks (the mod's
-// thetaMax), the latency. `--timeout` defaults to what the eval gives one
+// thetaMax and roundUp), the latency. `--timeout` defaults to what the eval gives one
 // attempt: four times the mod's timeoutMs, at least 10 s (eval/lib/runner.ts
 // attemptMs), so a cold connection's first request does not fail outright.
 // Credentials come from the environment or ~/.config/dispatch-pilot/eval.env
@@ -24,17 +23,18 @@ import { answersFor, mergeParts } from '../hooks/decision/system-one.ts'
 import { attemptMs } from '../eval/lib/runner.ts'
 import { nodeIo, scriptArgs, scriptDecision } from '../eval/node.ts'
 
-const USAGE = 'node scripts/decide.ts <message> [--zh | --en] [--choice] [--clef] [--timeout ms]'
+const USAGE = 'node scripts/decide.ts <message> [--zh | --en] [--choice] [--timeout ms]'
 const { values, positionals } = scriptArgs(USAGE, { zh: { type: 'boolean' }, en: { type: 'boolean' }, choice: { type: 'boolean' } })
 const prompt = positionals[0]
 if (!prompt) {
   console.error(`usage: ${USAGE}`)
   process.exit(2)
 }
-const { settings, backend } = scriptDecision(values.clef === true)
+const { settings, backend } = scriptDecision()
 
-const language = values.zh === true ? 'zh' : values.en === true ? 'en' : settings.turnStartLanguage
-const part = turnStartEffortPart({ language, primitive: values.choice === true ? 'choice' : 'score' })
+const { turnStart } = settings.ask
+const language = values.zh === true ? 'zh' : values.en === true ? 'en' : turnStart.language
+const part = turnStartEffortPart({ language, primitive: values.choice === true ? 'choice' : turnStart.primitive })
 const request = mergeParts(turnStartState({ prompt, messages: [], limits: settings.context }), [part])
 console.log(JSON.stringify({ questions: Object.keys(request.questions), language, state: request.state }))
 
@@ -59,6 +59,6 @@ console.log(
     ms,
     probabilities: Object.fromEntries(EFFORTS.map((level, i) => [level, Number((reading.probabilities[i] ?? 0).toFixed(3))])),
     confidence: reading.confidence,
-    effort: pickEffort(reading, settings.thetaMax),
+    effort: pickEffort(reading, settings),
   }),
 )

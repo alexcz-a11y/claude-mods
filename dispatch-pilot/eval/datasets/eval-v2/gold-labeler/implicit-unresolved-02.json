@@ -1,0 +1,25 @@
+{
+  "id": "implicit-unresolved-02",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "d1 提出留存管道的 polars SchemaError；修了排除名单、账号合并、中间分区三处，用户 d2、d3 都说同样的告警还在。中间是同仓库里不相关的活，最后一条用户回头说今早还是同一个告警、让再看看，仍是同一问题，三轮修复都失败之后再提，按约定是 max（还涉及生产数据分区）。没有决定性几轮时，中间的活都不相关，最后一条就是一个带明确报错的管道故障，按调试判 high。"
+}

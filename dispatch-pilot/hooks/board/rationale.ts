@@ -15,7 +15,9 @@
 // too, #32).
 
 import { isEffort, type Effort } from '../decision/effort.ts'
-import type { LogEntry, ProfilesState, RuleStep, Tone } from '../core/report.ts'
+import { UNRESOLVED_OPTIONS } from '../decision/unresolved.ts'
+import { OPTION_WORDS } from '../core/unresolved.ts'
+import type { LogEntry, ProfilesState, RuleStep, Tone, UnresolvedRecord } from '../core/report.ts'
 import { pct } from './kit.tsx'
 import { featureOf, type AgentRow, type ScreenView } from './view.ts'
 
@@ -73,6 +75,33 @@ export function cardOf(view: ScreenView, log: readonly LogEntry[]): Card {
   const raises = log.filter((entry) => mine(entry) && featureOf(entry.feature) === 'escalation' && entry.forced !== undefined)
   const mids = node.id !== 'main' ? [] : log.filter((entry) => mine(entry) && entry.mid !== undefined && entry.forced === undefined && (featureOf(entry.feature) === 'midturn-effort' || featureOf(entry.feature) === 'escalation'))
   return { row, index, count: view.rows.length, route, raises, mids }
+}
+
+const percent = (p: number) => `${Math.round(p * 100)}%`
+
+/**
+ * What an answer to the unresolved question did to the count, in the card's words: the count (`次数 2 → 3`), what that
+ * came to (`次数加一`), the options' probabilities, and the bar each was held to. Written from the record the decision
+ * stored with its two bars, never worked out again (ADR 0004).
+ */
+export function unresolvedWords(record: UnresolvedRecord): { count: string; verdict: string; odds: string; bars: string } {
+  const p = record.probs
+  const { add, reset } = record.thresholds
+  const moved = record.before !== record.count
+  const verdict = record.change === 'add' ? '次数加一' : record.change === 'reset' ? (moved ? '次数清零' : '本来就是 0，不用清零') : '次数不变'
+  const crossed = p.resolved >= reset ? 'resolved' : 'new_or_unrelated'
+  const bars =
+    record.change === 'add'
+      ? `仍未解决 ${percent(p.still_unresolved)} ≥ 加一门槛 ${percent(add)}`
+      : record.change === 'reset'
+        ? `${OPTION_WORDS[crossed]} ${percent(p[crossed])} ≥ 清零门槛 ${percent(reset)}`
+        : `都没到：仍未解决 < 加一门槛 ${percent(add)}，其余 < 清零门槛 ${percent(reset)}`
+  return {
+    count: moved ? `次数 ${record.before} → ${record.count}` : `次数 ${record.count}`,
+    verdict,
+    odds: UNRESOLVED_OPTIONS.map((option) => `${OPTION_WORDS[option]} ${percent(p[option])}`).join(' · '),
+    bars,
+  }
 }
 
 /** The row p (`-1`) or n (`+1`) goes to from the card's, held at either end. */
@@ -239,12 +268,16 @@ export function entryVerb(entry: LogEntry): string {
     }
     case 'escalation':
       return entry.forced !== undefined ? '强制升档' : entry.mid !== undefined && entry.mid.result !== entry.mid.current ? '重判改档' : '未升档'
+    case 'unresolved':
+      return entry.hint !== undefined ? '给了强提示' : entry.unresolved === undefined ? '记录' : unresolvedWords(entry.unresolved).verdict
     case 'skills':
       return entry.skills !== undefined && entry.skills.suggest.length + entry.skills.try.length > 0 ? '已建议' : '没有建议'
     case 'find-skill':
       return entry.skills !== undefined && entry.skills.suggest.length > 0 ? '查到' : '没查到'
     case 'skill-profiles':
       return entry.tone === 'ok' ? '画像就绪' : entry.tone === 'warn' ? '画像有失败' : entry.tone === 'fail' ? '画像停写' : '画像暂停'
+    case 'decision-model':
+      return '改用别的决策模型'
     default:
       return entry.tone === 'fail' ? '失败' : entry.tone === 'warn' ? '注意' : '记录'
   }

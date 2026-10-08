@@ -7,12 +7,15 @@ import { estimateTokens, turnStartState } from '../hooks/decision/context.ts'
 import { turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
+import { withUnresolved } from '../hooks/decision/unresolved.ts'
 import { jev, world, type Reply } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 test('a message gets one Jev decision, and its turn goes out at the decided effort', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })
 
   await w.submit('把登录模块重构成三层，并补上测试')
   await w.step({ index: 0 })
@@ -25,7 +28,7 @@ test('a message gets one Jev decision, and its turn goes out at the decided effo
   expect(request?.body.model).toBe('jev-latest')
   expect(request?.body.state.user_message).toBe('把登录模块重构成三层，并补上测试')
   // One Score question with five levels, lowest first (low .. max)
-  expect(Object.keys(request?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(request?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
   expect(request?.body.questions['effort.level'].type).toBe('score')
   expect(request?.body.questions['effort.level'].criteria).toHaveLength(5)
   expect(w.steps.map((s) => s.effort)).toEqual(['high'])
@@ -115,14 +118,14 @@ for (const failure of failures) {
   })
 }
 
-test('no TypeSafe key: nothing is sent, the turn keeps the engine effort, the board says to set the key', async ($, on) => {
+test('no key of either kind: nothing is sent, the turn keeps the engine effort, the board says to set the Perplexity key', async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
   await w.submit('解释一下这个函数做了什么')
   await w.step({ index: 0, effort: 'medium' })
 
   expect(w.requests).toHaveLength(0)
   expect(w.steps.map((s) => s.effort)).toEqual(['medium'])
-  expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, failure: { backend: 'jev', kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey' } })
+  expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, why: 'pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY', failure: { backend: 'pplx', kind: 'config', detail: 'no Perplexity API key: set perplexityApiKey or PERPLEXITY_API_KEY' } })
 })
 
 test('a decision that comes back after a failure leaves no reason on the next turn', { options: KEY }, async ($, on) => {
@@ -184,7 +187,7 @@ test('a report that starts a turn is asked no skill question, though a message o
   await w.submit('先写一个失败的测试')
   await w.submit('Background task "lint" completed', { origin: { kind: 'task-notification' } })
 
-  expect(Object.keys(w.requests[0]?.body.questions)).toContain('skills.which')
+  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toContain('skills.which')
   expect(Object.keys(w.requests.at(-1)?.body.questions)).toEqual(['effort.level'])
 })
 
@@ -323,11 +326,11 @@ test('contextMessages sets how many recent messages go along, contextTokens how 
 })
 
 test('what the mod sends is exactly what the decision module builds, so the eval measures the live request (spec #67)', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), messages: TRANSCRIPT })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 1, 0, 0, 0]), messages: TRANSCRIPT })
   await w.submit('改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉')
 
   // Jev is asked about the effort in Chinese (core/setup.ts BACKEND_DEFAULTS turnStartLanguage).
-  const built = mergeParts(turnStartState({ prompt: '改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉', messages: TRANSCRIPT, limits: { messages: 4, tokens: 2000 } }), [turnStartEffortPart({ language: 'zh' })])
+  const built = mergeParts(turnStartState({ prompt: '改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉', messages: TRANSCRIPT, limits: { messages: 4, tokens: 2000 } }), [withUnresolved(turnStartEffortPart({ language: 'zh' }), 'zh')])
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, ...built })
 })
 

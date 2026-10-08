@@ -1,0 +1,22 @@
+{
+  "id": "new-topic-11",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "low",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "新任务：未支付超时从 30 分钟改成 15 分钟。cardpay 晚到支付自动退款变多的问题在 d2 已经了结。改变判断的是 d1 回复里顺手对出来的「30 分钟」散在哪些地方：只有关单任务 CloseExpiredOrders 用的是配置 ORDER_EXPIRE_MINUTES，而且按 created_at 现算、订单上没存每单的截止时间；paylink 下单的 time_expire、补单任务只查 5 到 30 分钟的支付单、锁库存兜底的 35 分钟过期时间都写死在代码里；pay_deadline 驱动买家 App 的倒计时和「去支付」按钮，openapi 说明、商户文档和帮助中心也写着 30 分钟；这次又刚加了 cardpay 3DS 的 15 分钟宽限。只改配置的话，上线那一刻已经创建 15 到 30 分钟、支付页还开着的订单会被立刻关掉，渠道那边还能付，晚到支付的自动退款会再冒出来，买家看到的倒计时也和实际关单对不上。要做的是：让关单和补单按每单的截止时间走（给订单记下截止时间，或者按下单时间在切换点前后分别算），两个渠道的过期时间和锁库存时长跟着它算，和 3DS 宽限对齐，改 openapi 和文档、知会买家端和商户，上线后盯晚到退款的数量，出了问题把配置改回去就能回退。按 effort-rules 的字面，这是长链路、要反复验证的复杂改动：xhigh。accept 里的 high：如果只做本服务里的那几处，买家端、商户文档交给别人跟进，往下落一档也说得通。没有写 max：改动都能回退，没有不可逆的数据操作，用户也没讲过严重程度。删掉决定性几轮，只看「30 分钟改成 15 分钟」，像是改一个配置值：low。三选一：d1 第一次提出自动退款变多，new_or_unrelated；d2 数量回落、让提交，resolved；最后这条是另一件事，new_or_unrelated。重写说明：上一轮两边一致，情境保留；d1 用户消息里「顾客还以为我们乱扣钱」改成平铺的事实（客服说老有顾客来问为什么扣了钱又退回来），免得读成讲严重程度；按修订版说明重写了 rationale。",
+  "source": "agreed"
+}

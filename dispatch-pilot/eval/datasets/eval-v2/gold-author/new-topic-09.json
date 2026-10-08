@@ -1,0 +1,21 @@
+{
+  "id": "new-topic-09",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "新任务：charts/app 默认打开 readOnlyRootFilesystem。节点盘满、pod 被驱逐的问题在 d2 已经了结。改变判断的是 d1 回复里逐个容器量出来的可写层：14 个服务里有 6 个运行时会往根文件系统写，media-svc 的 /app/tmp、bi-sync 的 /tmp、search-svc 的 /tmp（hsperfdata 和排查时落的 JFR）、order-api 上传退款凭证时的 multipart 临时文件、notify-svc 的 /app/.cache、shop-admin 的 nginx 缓存目录和 pid；刚加的 scratchVolumes 只给其中两个配了，prod 那份还在 PR 里。默认打开以后，这几个服务会在启动时或者某个具体操作时才出错（上传凭证、渲染模板、抓 JFR）。所以要做的是：chart 里加默认值；照 d1 那张表给另外四个服务配好对应路径的 emptyDir，staging 和 prod 的 values 都要有；把全部服务渲染一遍看差异；在 staging 上把这六个服务各自写盘的那个操作触发一次。按 effort-rules 的字面，这是跨多个文件、边界条件要紧的工作：high。accept 里的 xhigh：一共 14 个服务、两份 values，读者如果把六个服务在 staging 上逐个实跑的工作量看得更重，往上落一档也说得过去；这里没有跨团队协调、历史回填或分阶段上线，所以不到 xhigh 的中间。删掉决定性几轮，只看「把 readOnlyRootFilesystem 默认打开」，像是在 chart 模板的 securityContext 里加一个默认值、渲染检查一下：medium。三选一：d1 第一次提出驱逐，new_or_unrelated；d2 没再驱逐、让提交，resolved；最后这条是另一件事，new_or_unrelated。重写说明：上一轮两边一致，情境保留、题目未改，按修订版说明重写了 rationale（相邻档的理由不再用「反复验证」这类 xhigh 的定义词）。审稿修改（金标不变）：devops-ci-unrelated-46、-48 里 staging 和 prod 的节点组都叫 general，d1 的「staging-general」改成 staging 的 general 节点组；14 个服务、charts/values/<服务>/<环境>.yaml、render-all.sh 加 kubeconform、securityContext 原样透传（-04、-24、-41）都和题目一致，chart 里还没有 readOnlyRootFilesystem。"
+}

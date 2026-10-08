@@ -1,0 +1,25 @@
+{
+  "id": "resolved-01",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "low",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "设备确认的 duplicate key 问题在 d3 已由用户确认解决，最后一条用户核对完预发日志、与之前说明对得上，只要求把 fix/device-confirm-legacy 合到 main，属于照明确指令执行的机械 git 操作，定 low；合并若有冲突可能需要一点处理，medium 也可接受。没有决定性几轮时，最后一条本身仍是明确的合并指令，仍是 low。"
+}

@@ -1,0 +1,41 @@
+{
+  "id": "single-attempt-06",
+  "category": "single-attempt",
+  "domain": "backend-api",
+  "bin": "d2",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "订单状态流转",
+    "SYMPTOM": "改订单状态或收款时偶尔提示系统繁忙",
+    "ERROR": "transition order status: update order status: conn busy",
+    "FILE": "internal/service/order_transition.go",
+    "FILE2": "internal/service/order_rules.go",
+    "SYMBOL": "OrderService.TransitionStatus",
+    "COMMAND": "go test -tags integration ./internal/service -run TestTransitionStatus"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "订单状态流转出问题了 25 号发完 v1.43.0 Sentry 冒了个新 issue 这两天客服也转来几单 商户说改订单状态或收款时偶尔提示系统繁忙 重试一下又好了 日志里是\n`transition order status: update order status: conn busy`\n主要在 PATCH /v1/orders/{orderID} 和 /pay 上 代码在 internal/service/order_transition.go 的 OrderService.TransitionStatus 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "多半是超时关单的 worker 和商户请求在抢同一批订单：v1.43.0 里关单改成了每批 200 单，同一版还把未支付超时从 30 分钟误改成了 15 分钟。我先把超时改回 30 分钟，可以发个 hotfix。\n\n**怎么查的**\n\n- `conn busy` 是 pgx 报的，意思是这条连接上前一条语句还没收尾，又发了下一条。`TransitionStatus` 这条路上我逐行看了，`ListOrderItems`、`GetPaymentByOrder` 的结果都是读完才往下走，没找到这种写法；比较像是前一条语句等锁被取消以后，连接的状态没清干净，下一条 `UpdateOrderStatus` 撞上了。\n- 你说是 25 号发版以后才有的，就把 `v1.42.3..v1.43.0` 里和订单状态有关的提交过了一遍。离这条路最近的是 #823：`internal/worker/expire_unpaid.go` 改成每批 200 单，整批在一个事务里，锁一直拿到这一批结束。同一版里 `internal/config/config.go` 的 `UnpaidTimeout` 默认值从 `30m` 变成了 `15m`，PR 描述里没提，看着是顺手误改的。\n- 超时从 30 分钟缩到 15 分钟，每一轮能捞到的未支付订单多了一倍左右，商户还在收款、还在改状态的单子更容易被 worker 锁住；6 个 pod 各跑各的，一轮最长要锁四五十秒。\n\n**改法**\n\n- `UnpaidTimeout` 默认值改回 `30m`。prod 的 configmap 里没有覆盖这个值，我看过了。\n- 每批 200 单没动，那是 #823 有意改的。\n\n**验证**\n\n- `go test ./internal/worker/... ./internal/service/...` 全过，`TestExpireUnpaid` 里补了一个断言默认超时是 30 分钟的用例。\n- `go test -tags integration ./internal/service -run TestTransitionStatus` 跑了 3 遍，都过；本地和 staging 本来就没出现过这个报错，这一步只能说明没改坏。\n\n改动在 `hotfix/unpaid-timeout` 分支。合进去打 `v1.43.1` 发上去以后还要接着查：等锁被取消以后连接为什么会留在 busy 的状态，这个改动本身解释不了，只是让撞上的机会变少；先看两天 Sentry 那个 issue 和工单还涨不涨。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "订单状态那个 hotfix 发上去一个多星期了 Sentry 那个 issue 还在涨 今天早上又有商户报改状态的时候系统繁忙"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的继续排查：理 TransitionStatus 的调用链、事务和错误流向、看日志、trace、goroutine、Sentry 和监控、对照发版和配置、读老同事的猜测和工单、本地压测和 -race；这个报错偶发，多在晚高峰，低峰期也零星出现。没有新的修改尝试，没有下结论，用户也没有评价第一次的修复。占位符：FEATURE 订单状态流转；SYMPTOM 改订单状态或收款时偶尔提示系统繁忙；ERROR transition order status: update order status: conn busy；FILE internal/service/order_transition.go；FILE2 internal/service/order_rules.go；SYMBOL OrderService.TransitionStatus；COMMAND go test -tags integration ./internal/service -run TestTransitionStatus。"
+}

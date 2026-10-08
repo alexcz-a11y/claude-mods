@@ -1,0 +1,54 @@
+{
+  "id": "new-topic-08",
+  "category": "new-topic",
+  "domain": "cc-mods",
+  "bin": "d4",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "ctx-meter 状态行上的上下文占用",
+    "SYMPTOM": "状态行上的上下文占用时不时往回跳，比实际少一截",
+    "ERROR": "TypeError: Cannot read properties of undefined (reading 'inputTokens')",
+    "FILE": "ctx-meter/hooks/ctx-meter.ts",
+    "FILE2": "ctx-meter/hooks/format.ts",
+    "SYMBOL": "measure",
+    "COMMAND": "command claude plugin test ./ctx-meter"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "ctx-meter 状态行上的占用有问题 时不时往回跳 刚才明明 61% 让它读了几个文件变成 48% 过一会儿又回到 63% 开了 debug log 偶尔能看到一行 `TypeError: Cannot read properties of undefined (reading 'inputTokens')` 代码在 ctx-meter/hooks/ctx-meter.ts 你看看"
+    },
+    {
+      "role": "assistant",
+      "text": "先读了代码、跑了测试，还没找到原因，代码没动。能确定的是：状态行上的数不是每次现算的，是在上一份状态上累加出来的，中间有好几处地方会让「上一份」不是你以为的那一份。\n\n**这一路是怎么算的**\n\n- `ctx-meter/hooks/ctx-meter.ts` 挂了 5 个 hook，和占用有关的是 `tool.call` 上那个：先 `await next(e)`，拿到工具结果以后，从 `$.state` 读上一份状态，连同这次的工具结果一起交给 `measure`，把算出来的新状态写回 `$.state`，再 `$.ui.status` 更新状态行。派出 agent 的调用在开头就放过去了。\n- `measure` 是纯函数，不碰 `$`；格式化成「61%」那一段在 `ctx-meter/hooks/format.ts`。\n- 每写 5 次或者隔 30 秒，顺手把状态存一份快照到 `$.store`；`session.start` 时从这份快照算初始状态。\n- hook 返回之前还用 `$.clock.after` 排了一次 150 毫秒后的补算，注释写的是「等这一步的东西落定再算一次」。\n\n**可能让数往回跳的地方**（都只是可能，还没验证）\n\n1. 一步里并行调几个工具时，几次 dispatch 读到的是同一份旧状态，谁后写谁赢，前面几次的累加会被盖掉。你说「读了几个文件」以后掉下去，和这种情况的样子对得上。\n2. 用 `--plugin-dir` 开发时，每保存一次文件就热重载一次，`session.start` 会用 `$.store` 里那份节流存的快照重新算，状态会退回到几次之前。\n3. 150 毫秒后的补算读的是它自己跑那一刻的状态，可能夹在两次写之间。\n\n**那行报错**\n\n不是我们自己打的日志，是运行时抛出来、被引擎记进 debug log 的。`inputTokens` 在 `ctx-meter.ts` 和 `format.ts` 里一共出现 4 次，都是直接取值、没有判空；只看这一行分不出是哪一处抛的，也分不出和往回跳是不是一回事。\n\n**跑了什么**：`command claude plugin test ./ctx-meter`，11 个用例全过。直接调 `measure` 的只有两个用例（正常输入、空输入），没有一个用例经过 hook 把并行、补算、重载这些情况摆出来，所以测试绿不说明什么。\n\n你碰到往回跳的时候，是刚保存过 ctx-meter 的文件，还是 Claude 那一步一下子读了好几个文件？",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "两种都有可能 我没注意 另外同事从 marketplace 装的也这样 他上周装的 他那份跟仓库里是一样的代码吗"
+    },
+    {
+      "role": "assistant",
+      "text": "是一样的代码，至少 `measure` 这一路一样，只差 10 月 3 日改的状态行文案。他那边不会热重载，所以第 2 种解释不了他的情况，第 1、3 种还在。\n\n- **怎么确认的**：从 GitHub 加的 marketplace，装的是那一刻复制到 `~/.claude/plugins/cache/` 下的副本，之后只在算出来的版本变了时才换新的一份。ctx-meter 的 `plugin.json` 写的是 `0.3.2`，`ctx-meter-v0.3.2` 这个 tag 是 9 月 24 日加节流那次打的。`git log ctx-meter-v0.3.2..HEAD -- ctx-meter/` 有 3 个提交：9 月 25 日补测试、9 月 27 日改 README、10 月 3 日改文案，都没碰 `measure` 这一路，他上周装的那份和你工作区的代码在这一路上逐行一致。\n- **对排查的意义**：「只在开发时才有」这一类可以先往后放，重点放在并行写和补算这两处。\n\n**顺带看到的，和 ctx-meter 无关**：既然是版本号决定装的人拿到哪份代码，我顺手把各个 mod 最新的 tag 之后有没有改行为的提交也看了一眼，`git-guard` 卡在同一个机制上：\n\n- `git-guard/.claude-plugin/plugin.json` 的 `version` 还是 `0.4.0`，`git-guard-v0.4.0` 是 9 月 19 日发版时打的；\n- `git log git-guard-v0.4.0..HEAD -- git-guard/` 有 4 个提交，没人动版本号：9 月 22 日开始拦 `git checkout .`、`git restore .`、`git stash drop`，不分分支；9 月 26 日加了临时放行一次的 `/guard allow`；9 月 29 日拆命令时引号里的分隔符不再拆开；另外一个只补了 README；\n- 号没变，9 月 22 日之前装上的人，`claude plugin update` 也不会换新的一份，跑的一直是缓存里 0.4.0 那份代码，上面这三条在他们那边都没有；`--plugin-dir` 加载的是工作区，不经过缓存，所以在你本地试都是新代码。\n\n先记在这，没动。\n\n回到 ctx-meter，下一步想在 `measure` 进出的地方加几行临时日志，把每次读到的状态版本和写回的时间打出来，看往回跳的那一刻是哪种情况。逻辑先一行不动。",
+      "tools": [
+        "Read",
+        "Bash",
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "ctx-meter 先放一放 组里有人说 git-guard 拦不住 git restore . 他们九月中旬就装了 我自己用 --plugin-dir 试了是能拦的 你看下怎么回事 跟我说下就行 我去群里回他们"
+    }
+  ],
+  "middle_hint": "中间继续排查 ctx-meter 状态行上的上下文占用往回跳的问题：理 measure 的调用链、看 $.state 和 $.store、热重载和并发、加临时日志、对照文档和 d.ts，没有改实现，也没有结论。"
+}

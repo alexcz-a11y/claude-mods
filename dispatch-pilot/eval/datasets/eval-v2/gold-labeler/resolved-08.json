@@ -1,0 +1,25 @@
+{
+  "id": "resolved-08",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "d1 提出 redact-out 读大文件超时；d2 第一次改（预编译正则）后快照文件仍卡，未解决；d3 用户确认好了。最后一条是替 issue 回复要一两句话说清原因——第 13 条通用高熵正则遇长 base64 灾难性回溯、已换线性写法——凭已知信息即可回答，low。问题本身已解决，这条是对已解决问题的总结。没有决定性几轮时对话里没有这件事的结论，需要翻提交和代码才能说清，判 medium。"
+}

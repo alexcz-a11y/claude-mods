@@ -1,0 +1,2 @@
+# eval/eval-v2-gen.ts writes it from eval-v2/ (tens of megabytes); eval-v2/generated.json, committed, pins it (eval/validate.ts rebuilds and compares)
+eval-v2.jsonl

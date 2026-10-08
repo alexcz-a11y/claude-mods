@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-11",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "失败的修复 1 次：d1 之后助手把重复归因于热重载时 `turn.complete` 被新旧两份处理函数各处理一次，在追加前和最后一条比对去重，测试和 validate 都过了，提交后在 my-mods 的会话里已经生效；用户在最后一条第一次说没好（去重那版一直在用，今天还是同一轮两条），是第二次。复现性是偶发：d1 里用户说不是每轮都这样、偶尔冒出来一对，助手查到 7 天里一千多轮中 31 对；要在真实会话里长时间观察、弄清引擎和 `$.store` 的实际行为才能判断修没修好 → xhigh；accept 是 high、xhigh，只失败一次不到 max。删掉决定性几轮：中间都是别的事，最后一条里「去重那版我这几天一直在用」「还是有重复的」看得出修过一次、问题还在，但没提出现频率，偶发看不到，按第二次、稳定定 → high。三选一：d1 第一次提出问题，new_or_unrelated；最后一条说还是重复，still_unresolved。审稿修改（上一轮）：原题是 focus-timer 热重载后计时归零，和本领域 unrelated 段冲突，改成 session-journal 重复记录的问题。本轮按修订说明：金标 effort 改成 xhigh、ewd 改成 high；d1 补上「偶尔冒出来一对」；助手回复写明提交和生效情况，最后一条补上「去重那版我这几天一直在用」说明改动当时已经生效，仍不提频率；middle_hint 补上没有新的修改尝试、用户没有评价第一次的修复。"
+}

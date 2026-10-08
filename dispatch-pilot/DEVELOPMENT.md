@@ -9,14 +9,14 @@
 
 下面第一段是各项功能和票号的对应。
 
-Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 Cloudflare Workers AI 的 Clef，在配置里二选一），替你决定 Claude Code 怎么干活。现阶段做三件事：**每次你发消息时，判断主 agent 这一轮该用哪档 effort**，并让这一轮的每一步都按这一档发出，一轮进行中还会每隔几步、以及在主 agent 派出 agent、启动 Workflow 或加载 skill 时重新判断（#5，见下文「一轮中途重新判断」）；**主 agent 每派出一个 agent，判断它该用哪个模型、哪档 effort**（#6）；**主 agent 提交 Workflow 时，对脚本里的每个 `agent()` 做同样的判断，并写进脚本**（#8，见下文「Workflow 里的 agent」）；脚本写不进去的（用 `scriptPath` 或 `name` 提交、恢复的运行、读不了的脚本或调用），**在每个 agent 启动时按它的 label 设置**（#9，见下文「Workflow 兜底：agent 启动时按 label 设置」）。主 agent 的模型从不改变，所以 prompt cache 不受影响（ADR 0001）：这只在 Claude Code 订阅下成立（同一模型内切换 effort 保留缓存，2.1.289 实测），所以 Dispatch Pilot 只面向订阅用户；Bedrock、Vertex 和各种网关上切换 effort 会让缓存失效，不在支持范围内。另外，主 agent 不再读完整的 skill 列表，改由决策模型在你发消息时挑出相关的几个 skill 推荐给它（#10，见下文「skill：隐藏列表，发消息时推荐」）：它先按每个 skill 的中英双语画像给 skill 排序（主 agent 能加载的一题，只能由你触发的另一题），再补读前几名的 SKILL.md 开头，逐个判断是否合适（#11）；一轮进行中，主 agent 还可以用 `find_skill` 工具按需查询 skill（#12，见下文「find_skill：主 agent 中途查询 skill」）。主 agent 或派出 agent 的工具调用接连失败时，Dispatch Pilot 会强制升档，除非这些失败本来就在意料之中（#7，见下文「卡住时强制升档」）。完整设计见 spec（issue #1）。用斜杠命令 `/dp` 可以开关整个 mod 或其中的单项功能、临时锁定 effort、查看最近的决策和理由（#13，见下文「控制：`/dp`」）。
+Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev），替你决定 Claude Code 怎么干活。现阶段做三件事：**每次你发消息时，判断主 agent 这一轮该用哪档 effort**，并让这一轮的每一步都按这一档发出，一轮进行中还会每隔几步、以及在主 agent 派出 agent、启动 Workflow 或加载 skill 时重新判断（#5，见下文「一轮中途重新判断」）；**主 agent 每派出一个 agent，判断它该用哪个模型、哪档 effort**（#6）；**主 agent 提交 Workflow 时，对脚本里的每个 `agent()` 做同样的判断，并写进脚本**（#8，见下文「Workflow 里的 agent」）；脚本写不进去的（用 `scriptPath` 或 `name` 提交、恢复的运行、读不了的脚本或调用），**在每个 agent 启动时按它的 label 设置**（#9，见下文「Workflow 兜底：agent 启动时按 label 设置」）。主 agent 的模型从不改变，所以 prompt cache 不受影响（ADR 0001）：这只在 Claude Code 订阅下成立（同一模型内切换 effort 保留缓存，2.1.289 实测），所以 Dispatch Pilot 只面向订阅用户；Bedrock、Vertex 和各种网关上切换 effort 会让缓存失效，不在支持范围内。另外，主 agent 不再读完整的 skill 列表，改由决策模型在你发消息时挑出相关的几个 skill 推荐给它（#10，见下文「skill：隐藏列表，发消息时推荐」）：它先按每个 skill 的中英双语画像给 skill 排序（主 agent 能加载的一题，只能由你触发的另一题），再补读前几名的 SKILL.md 开头，逐个判断是否合适（#11）；一轮进行中，主 agent 还可以用 `find_skill` 工具按需查询 skill（#12，见下文「find_skill：主 agent 中途查询 skill」）。主 agent 或派出 agent 的工具调用接连失败时，Dispatch Pilot 会强制升档，除非这些失败本来就在意料之中（#7，见下文「卡住时强制升档」）。完整设计见 spec（issue #1）。用斜杠命令 `/dp` 可以开关整个 mod 或其中的单项功能、临时锁定 effort、查看最近的决策和理由（#13，见下文「控制：`/dp`」）。
 
-测试环境：Claude Code 2.1.289（Opus 5.5，订阅登录）、Node 26.5、jev-1.13.0、Clef（Cloudflare Workers AI，2026-10-04）。
+测试环境：Claude Code 2.1.289（Opus 5.5，订阅登录）、Node 26.5、jev-1.13.0。
 
 ## 它做什么
 
-- 你发出一条消息时（在终端输入、用 `claude -p`、通过 Remote Control 或 Slack，或由插件代你输入），Dispatch Pilot 把这条消息和最近几条对话发给决策模型（Jev 或 Clef），问它「这项工作需要多少逐步推理」。它给出 low、medium、high、xhigh、max 五档各自的概率。
-- 取概率最高的一档，并列时取较高的一档；然后，如果高一档的概率也有 `ROUND_UP`（0.3，`decision/effort.ts` 的常量，不是配置项）以上，就往上取一档（只取一次）。`max` 只在它自己的概率达到 `thetaMax` 时才使用，不论它是概率最高的一档，还是往上取一档会到的那一档；否则取其余四档中的那一档。依据见「按 AA 基准校正」。发消息时、中途重判、卡住时的强制升档和派出 agent 的 effort 都用这同一个函数（`pickEffort`）。
+- 你发出一条消息时（在终端输入、用 `claude -p`、通过 Remote Control 或 Slack，或由插件代你输入），Dispatch Pilot 把这条消息和最近几条对话发给决策模型（Jev），问它「这项工作需要多少逐步推理」。它给出 low、medium、high、xhigh、max 五档各自的概率。
+- 取概率最高的一档，并列时取较高的一档；然后，如果高一档的概率也有 `roundUp`（按决策模型取，Jev 是 0.3，写在 `core/setup.ts` 的 `BACKEND_DEFAULTS`，不是配置项；`pickEffort` 和 `traceEffort` 的参数 `EffortRules` 是 `{ thetaMax, roundUp }`，`Config`、`MidturnRules`、`DispatchSettings` 都带这两个值，直接传进去）以上，就往上取一档（只取一次）。`max` 只在它自己的概率达到 `thetaMax` 时才使用，不论它是概率最高的一档，还是往上取一档会到的那一档；否则取其余四档中的那一档。依据见「按 AA 基准校正」。发消息时、中途重判、卡住时的强制升档和派出 agent 的 effort 都用这同一个函数（`pickEffort`）。
 - 这一轮的每个模型请求都按这一档发出。Claude Code 每一步都会把 effort 恢复成会话设置，所以每一步都要重新设置。模型按引擎给的原样发出，包括引擎过载时自动换用的模型。
 - 一轮进行中你又发了一条消息：这条消息会在下一步送进当前这一轮，所以它的判断从下一步起接管这一轮。
 - 不是你本人发的新消息的，分两种。**报告开始的一轮**：派出 agent 交回的结果（`origin.kind` 是 `peer`）或后台任务通知（`task-notification`），在会话空闲时到达（没有 `turnId`），会开始主 agent 的新一轮；这一轮也走同样的 effort 判断，请求里的 `user_message` 是那段报告的文字（截断、脱敏和你的消息一样），只问 effort 这一题，不问 skill（它不是你的请求，所以状态里的预算按没有 skill 题的发消息取，见「Jev 的上下文默认值怎么算」），这一轮不做中途重判（`turns[].person` 为 false），你用 `/dp lock` 锁定的 effort 仍然优先。决策记作 `main-effort (agent report)`，与你的消息的决策区分；判断失败时和你的消息一样用会话自己的 effort，看板写明原因并弹一个 toast，成功后不再写「未路由」。报告送进一轮正在进行的对话（带 `turnId`）时不开始新的一轮，不判断，也不改变那一轮的 effort。**其余**（其他会话的消息、定时任务、插件自己发的消息）和空消息都不判断，也不改变任何一轮的 effort。你输入的 skill 或 markdown 命令（例如 `/implement #19`）开始的一轮是命令轮（#19），和你的消息一样判断、一样中途重判：决策模型读你输入的 `/name args`，以及这个命令是做什么的（skill 画像，没有画像就用描述），不读命令展开后的正文；参数里的「用 opus」照样算点名，skill 正文里写的不算；命令轮不推荐 skill，你已经选好了流程。`/dp`、`/clear` 这类本地命令不开始一轮，引擎也不把它们交给 `prompt.submit`。以 `/` 开头但不是命令的消息（例如 `/Users/me/notes.txt 这是什么`）是普通消息。
@@ -26,7 +26,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 
 - 主 agent 用 Agent 工具派出一个 agent 时，Dispatch Pilot 在它启动前问一次决策模型，同一个请求里问两件事：它该用哪个模型（默认在 haiku、sonnet、opus 中选，打开 `agentFable` 后加入 fable），以及它的每一步该用哪档 effort。模型直接改在这次派发上；effort 在这个 agent 的每一步都重新设置。选了 haiku 就不设 effort（haiku 不支持）。
 - **模型选项的文字**（`decision/dispatched-agent.ts` 的 `KINDS`，中英两版）按 AA 的基准写，每个选项描述一种情形：haiku 是一两步就能跑完、结果只需要收集起来并按要求排版（列表、表格、计数）的只读查找（不适合：要连续很多步工具调用的探查，以及任何写入或判断）；sonnet 承担大多数执行类工作（终端操作、需求明确的代码修改、跨文件修改、自动化步骤、对仓库内材料的调研或审查）（不适合：结论取决于仓库外的事实知识而且记错代价高的工作、难推理、需求不明确的设计、原因未知的 bug）；opus 是需要审慎判断或细微错误代价高的工作（安全、并发、涉及钱、数据迁移、生产）、难推理、设计、原因未知的 bug、科学或算法类代码，以及结论取决于记忆中的事实、而且无法在仓库或文档里查证的调研或解答（不适合：书面计划和测试已经覆盖的执行类工作）；fable 的文字不变，仍默认关闭。选项名、`work` 键和问题的结构都没有变。写法遵循 `docs/research/typesafe-question-guide.md`。
-- **effort 的下限**（`effortFloor`）：决策出来的 effort 不低于所选模型的下限。sonnet 和 opus 至少 medium；haiku 不带 effort，fable 没有下限（`decision/dispatched-agent.ts` 里的常量，不是配置项，Clef 同样适用）。0.2.2 的第一版把 sonnet 的下限放在 high（low 的概率 ≥ 0.8 才放到 medium），第一次真实评测里 effort 部分从 74/72 掉到 64/62，所以降到 medium（见「按 AA 基准校正」的「评测迭代」）。下限用在决策的 effort 上，所以派出 agent 和 Workflow 里的 `agent()` 都受它管；你点名的 effort 不受下限影响（见下一条）。卡住后「预期内」的那次中途重判，对已经有 effort 的 agent 也不降到它的下限以下（`features/escalation.ts` 的 `redecide`）。决策日志会写「effort 从 low 抬到 medium（模型下限：sonnet）」。
+- **effort 的下限**（`effortFloor`）：决策出来的 effort 不低于所选模型的下限。sonnet 和 opus 至少 medium；haiku 不带 effort，fable 没有下限（`decision/dispatched-agent.ts` 里的常量，不是配置项）。0.2.2 的第一版把 sonnet 的下限放在 high（low 的概率 ≥ 0.8 才放到 medium），第一次真实评测里 effort 部分从 74/72 掉到 64/62，所以降到 medium（见「按 AA 基准校正」的「评测迭代」）。下限用在决策的 effort 上，所以派出 agent 和 Workflow 里的 `agent()` 都受它管；你点名的 effort 不受下限影响（见下一条）。卡住后「预期内」的那次中途重判，对已经有 effort 的 agent 也不降到它的下限以下（`features/escalation.ts` 的 `redecide`）。决策日志会写「effort 从 low 抬到 medium（模型下限：sonnet）」。
 - 发给决策模型的是主 agent 写给这个 agent 的任务（`prompt`）、简短描述、agent 类型，以及你这一轮说的话：开始这一轮的那条消息，加上这一轮进行中你又发的消息。和发消息时一样，发送前对 secret 脱敏，总长度按 token 预算（`contextTokens`）截断，你的话最多占三分之一。
 - 模型的优先级：
   1. 你在这一轮的消息里为这项工作点名的模型，一定照办，即使它不在可选范围内（例如没打开 `agentFable` 时点名 fable）。
@@ -50,7 +50,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - **写法。** 决定的 `model` 和 `effort` 写进这个调用的选项对象：脚本已经写了字符串值的就原地替换，没写的加在最后一个属性后面，没有选项的调用补一个选项对象。脚本的其他部分逐字不变。选了 haiku 就不写 effort，脚本里已有的 effort 也会拿掉。
 - **优先级和派出 agent 一致。** 你这一轮的消息里点名的模型 > 决策模型 > 脚本里已经写的 `model`（作为强提示交给决策模型，决策模型的选择达到 `agentOverride` 才推翻它）。脚本里的 `effort` 没有这条规则，用决策模型的；你点名的 effort 除外，它盖过脚本里写的 effort（见「派出 agent」）。脚本在运行时才算出来的 `model`（`model: pickModel()`）只有你没点名模型、也没排除任何模型时才不动：否则写进决定的模型（你点名的，或者没被排除的那个），你的约束优先于脚本；运行时才算出来的 `effort` 同样只有你没点名 effort 时才不动。你对每个调用的约束交给下面的兜底功能，写进这些 agent 的计划（见「派出 agent」）。
 - **发给决策模型的内容**和派出 agent 一样：这个调用的 prompt、label、`agentType`，脚本 `meta` 里的 description，以及你这一轮的话，发送前脱敏，按 token 预算（`contextTokens`）截断。同一个脚本的几个调用放进同一个请求，每个调用有自己的 part（`agent-<n>`）和 state 字段（`brief_<n>`），`n` 是它在脚本里的序号（从 0 起），你的话只放一份。
-- **调用多时分批。** 一个请求最多 64 个问题（Clef 的限制）、最多 8 个调用，各调用的 brief 加起来不超过 `contextTokens`，所以调用多时分成几个请求，同时发出，每个调用只问一次。一个脚本最多问 24 个调用、4 个请求，超出的调用保持脚本里写的样子，并告诉主 agent。分成几个请求时，等决策模型的时间按请求数放大（`timeoutMs` 乘请求数，最多 8000 毫秒），因为同一个 key 的并发请求可能排队。
+- **调用多时分批。** 一个请求最多 64 个问题（`system-one.ts` 的 `MAX_QUESTIONS`）、最多 8 个调用，各调用的 brief 加起来不超过 `contextTokens`，所以调用多时分成几个请求，同时发出，每个调用只问一次。一个脚本最多问 24 个调用、4 个请求，超出的调用保持脚本里写的样子，并告诉主 agent。分成几个请求时，等决策模型的时间按请求数放大（`timeoutMs` 乘请求数，最多 8000 毫秒），因为同一个 key 的并发请求可能排队。
 - **读不了的调用保持原样。** prompt 不是字符串或模板（`agent(q.prompt)`、`agent(buildPrompt(x))`，也就是在数组上 `map` 出来的那种写法）时看不到任务内容，不问决策模型；模板里除了 `${...}` 自己没有几个字（不到约 6 个 token，例如 `` `${CONTEXT}\n\n${l.prompt}` ``：共用的上下文加上表里的一行）也一样，因为这样的 prompt 没说要做什么；不带占位符的短 prompt 就是完整的任务，照常判断。选项不是对象字面量（`agent('x', opts)`）也不改。读不了的脚本（没有 `meta` 块，引号、模板或括号不成对）整个放行。这些调用的 agent 在启动时由兜底功能判断（#9，见下一节）。
 - **告诉主 agent。** 工具结果后面附一段说明（引擎把它显示为 `tool.call hook additional context`，只有模型看得到）：逐个调用写了哪个模型和 effort、依据，以及哪些调用保持原样。工具返回的脚本文件（`Script file:`）就是改写后的那一份，主 agent 之后用 `scriptPath` 重跑，改写还在。
 - **失败时放行。** 决策模型超时、出错或回答不完整时，这个请求里的调用保持原样，看板上这些调用写「未路由」和原因（并弹一个 toast）；这个功能自己出错时，整个脚本照原样运行。改写后的脚本如果被工具判为语法错误（工具在启动任何 agent 之前检查），就改用主 agent 原来的脚本再提交一次，并告诉主 agent。
@@ -98,9 +98,38 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - **看板。** 每个循环（主 agent 的这一轮，或一个派出 agent）的那一行写它的计数，例如 `失败 2 · 拦截 1 · 升档 1`（拦截是被 hook 拦下的次数，升档是强制升档的次数）；每次强制升档是事件流里的一条（从哪档到哪档、失败了几次），回答迟到时记一条「迟到」。新的一轮从零开始。
 - **记录。** 每次强制升档、「预期内失败、没有升档」和「已经到顶」都记进 `/dp log` 和 debug log，例如 `#4 escalation：effort high（原 medium） · 第 2 步（工具调用失败 2 次）：强制升一档；不是预期内的失败（概率 0.05，预期内失败门槛 0.25）；概率 low 0.00, medium 1.00, ...`。`/dp escalation off` 单独关掉这项功能；`/dp hook-block-failures on` 让被 hook 拦下的调用也算失败。
 
+### 未解决次数（#39）
+
+- **每条消息问一道三选一的题。** 你本人的消息（含命令轮；一轮进行中发的消息也算）发出时，effort 请求里在 `effort.level` 旁多一道 Choice 题 `effort.unresolved`：这条消息对「用户和主 agent 最近在处理的那个问题」说了什么：`still_unresolved`（说试过的做法没用、问题还在）、`resolved`（说解决了、接受了结果）、`new_or_unrelated`（转到别的问题，或根本没有更早的问题）。题按 TypeSafe 提问指南写成情境描述，中英文各一份（和 effort 题同一种语言，Jev 中文）；选项顺序固定，Choice 偏向第一项，所以放「仍未解决」：次数多一次，下一条消息就能纠正，清零错了丢的是好几轮的记录。只看你自己的话判断解没解决，助手说的「已修复」不算结果。它和 effort 题在同一个请求里，读同一份 state（24000 token 的 `recent_context`），不加 state 字段。派出 agent 交回结果、后台任务通知开始的轮不问、不动次数。
+- **两档门槛。** 回答的概率（归一化后）：「仍未解决」达到加一门槛（暂定 0.5）次数加一；「已经解决」或「新问题或无关」各自达到清零门槛（暂定 0.7）次数清零；都没达到次数不变。两个门槛的和大于 1，一个回答不会同时达到两个。清零要的把握比加一高，是为了一次误判不会丢掉好几轮的记录。置信度只记日志。门槛是 `decision/unresolved.ts` 的 `UNRESOLVED_THRESHOLDS`，内部常量，由 #6 按 `unresolved` 评测集校准后写明依据。
+- **次数。** 存在 `$.state` 的 `unresolved`（`{ count }`，只由 `core/unresolved.ts` 写）：热重载不丢，`session.end`（`/clear`、新会话）清零，`/compact` 保留。锁定（`/dp lock`）或点名 effort 时照常计数。次数和摘要进 effort 请求的 state，次数到阈值还加强提示（#41，下面）；摘要（#40）在下面。
+- **开关。** `/dp unresolved on|off`，默认关（#48，ADR 0006：对默认的 pplx 没有提升；`features/unresolved.ts` 的 `defineSwitch` 写 `default: false`）；关着时不问这道题，次数不动，不写摘要，不给强提示（effort 请求照样单独发，只有 `effort.level`）。开关只存和默认值不同的，所以 0.3.1（默认开，开着时什么也不存）的用户升级后一律是关；手动设过关的（存着 `unresolved: false`）读回来仍是关，`/dp unresolved on` 之后存 `unresolved: true`。测试里要打开它，用 `world` 的 `switches: { unresolved: true }`（世界在第一次驱动引擎前自己跑 `session.start`，mod 在那里读开关）。这道题挂在 `main-effort` 的那一份投票箱里，`main-effort` 关着时也不问。
+- **看板。** 依据卡片（主 agent）在 effort 的结果下写「未解决：次数 2 → 3 次数加一」和三个选项的概率与门槛（`pane-card-unresolved`、`pane-card-unresolved-odds`）；每条答了这道题的消息，它的 `main-effort` 决定里存着这一次的结论（`LogEntry.unresolved`），卡片只画存下的。次数真的变了（加一，或从非 0 清零）才另记一条 `unresolved` 决定进决策日志和 debug log（`次数 0 → 1`），带同样的记录；band 和脚部不画它。回答缺了这一道题（effort 的回答在）时次数不变，debug log 记一行；请求失败时 effort 记「未路由」，次数不变。
+
+### 问题摘要（#40）
+
+- **写什么。** 你本人的消息（含命令轮）开始的那一轮结束时（`turn.complete`，主循环，`turns[main:<turnId>].person` 为真；agent 交回结果、后台任务通知开始的轮、派出 agent 的轮不写），在后台调用 `$.model.complete`，模型是 `summaryModel`（默认 haiku，写法同 `skillsProfileModel`），hook 不等它。输入（`decision/summary.ts` 的 `summaryPrompt`）：上一份摘要（它写回的样子，`[unresolved]` 标记留在条目末尾）、这一轮你的话（`turns` 记录里的 `prompt`，命令轮是你输入的 `/name args`）、主 agent 的最终回复（`e.answer`）、这一轮的工具汇总（`turnTools`：对话记录里你最后一条有文字的消息之后，助手调用的工具，写法同决策模型读的 `[tools: Bash x3 (1 failed)]`；一轮中途你又发了消息，那条之前的工具读不到），都先脱敏再截断（你的话 1500、回复 3000、工具 300 token）。输出是 JSON `{problem, tried: [..], status}`（`SUMMARY_SYSTEM` 规定：问题一句、尝试逐条、状态一句、只记试过什么不写成没成功），`readSummary` 读它并限在 `SUMMARY_TOKENS`（500）以内：每一部分先各截到自己的份额，还超就把最早的两条尝试并成一条（它们的字接起来再截），最新的原样保留。摘要的 token 按渲染成文字的样子数（`renderSummary(.., 'zh')`，中文标签是上限），不是 JSON。回答缺字段、不是 JSON、被 `maxTokens`（`SUMMARY_MAX_REPLY`，1000）截断时不算摘要，当作失败。
+- **存放。** `$.state` 的 `unresolved` 里：`summary`（`problem`、`tried: [{ text, unresolved? }]`、`status`、`turn`：它写到哪一轮的 turnId）、`writing`（排队或在写的轮的 turnId）、`owed`（见下）。只由 `core/unresolved.ts` 写：`queueSummary`（轮结束时登记）、`summaryFor`（写之前读：这一轮还要不要写、上一份是什么）、`landSummary`、`dropSummary`、`lostSummaries`、`moveCount` 和 `clearCount`。次数清零（问题解决、换了问题）和 `/clear`、新会话把摘要、`writing` 和 `owed` 一起清掉，下一轮从头写。
+- **写的顺序。** 写是一个接一个的（`features/unresolved.ts` 的模块变量 `chain`）：一轮结束时前一次写还没完，这一次排在它后面，开始时才读那时的摘要，所以接着前一次写下的续写，不会各写各的。一次写开始前先看它的轮是否还在 `writing` 里：清零把它拿掉了（或开关已关、模型被拒绝过）就不写；写好落下时再看一次，拿掉了就丢掉这份（决策日志不记，它是被清零作废的，不是失败）。
+- **决定时从不等。** 发消息时 `features/main-effort.ts` 读 `$.state` 里现有的摘要放进 effort 请求（`turnStartPart` 的 state 字段 `problem_summary`，用决策模型的语言写成文字），还没写完就用上一份。它只进 effort 请求，不进 skill 请求，也不进三选一之外的别的请求；三选一读到的是上一份摘要（它和 effort 题在同一个请求里，读同一份 state）。
+- **标「未解决」。** 三选一判出「仍未解决」（加一）时，`moveCount` 把摘要最后一条尝试标上 `unresolved`。这条消息说的是上一轮的做法，而上一轮的摘要可能还在写（你回得很快）：`writing` 不空时不标现有摘要的最后一条（那是更早一轮的），改记 `owed` 为排在最后的那一轮，写好落下时（`landSummary`）标新摘要的最后一条。模型续写时被告知保留条目末尾的 `[unresolved]`，读回来时它仍是标记；标记只是提示，模型丢了不影响次数。
+- **失败。** 模型出错（API 错误）、没有文字、超时（`SUMMARY_TIMEOUT_MS`，30 秒）、回答不是摘要的结构：保留旧摘要，`report` 记一条旁支决定（`feature: 'unresolved'`，`outcome: '摘要没写成'`，`tone: 'warn'`，原因写明哪一种，`summaryFailure`）。引擎拒绝这个模型（`$.model.complete` reject）时记一条，之后这个会话不再问（`refused`，`/clear` 或新会话再试；排在后面的写也跳过），免得每一轮记一条。热重载丢掉在途的调用：`session.start`（热重载也会触发）发现 `writing` 里有这个 load 没在跑的轮，拿掉它们、记一条「热重载中断了正在写摘要的调用」；摘要和次数不丢。
+- **不写的情况。** `/dp unresolved off`、总开关关着、没有配置决策模型、`contextMessages` 为 0（摘要是对话的转述，你不让决策模型读对话，就不交给它转述）、`main-effort` 关着（认不出哪一轮是你本人的消息开始的）。
+- **请求的 state 预算。** 摘要和 `command` 这类 part 加进 state 的字段，以前合进去时不占 `limits.tokens`（Jev 的 24000 有余量，没关系）。现在 `decision/turn-start.ts` 的 `messageRequest` 把这些字段的 token 先从预算里扣掉再取最近的对话，整个 state（JSON 的样子）仍在预算内；核心和评测都用它拼请求。
+- **依据面板。** 面板在卡片和决策日志之间有「问题摘要」一块（`pane-summary`，行 `pane-summary-problem`、`pane-summary-try-<i>`、`pane-summary-status`），写摘要全文，标了「未解决」的尝试带着标记；没有摘要或 `unresolved` 关着时不画。`screens.tsx` 从 `$.state` 的 `unresolved` 读，`PaneInput.summary`。
+
+### 强提示（#41）
+
+- **给谁、什么时候。** 三处请求读摘要（`problem_summary`）和次数（`unresolved_count`，值为 0 时不放）：发消息时 effort 请求（`decision/turn-start.ts` 的 `turnStartPart({ summary, count, maxAfter })`）、中途重判请求（`MidturnInput.problem_summary` / `unresolved_count`，`midturnState` 放进 state 开头）、派出 agent 的请求（`Dispatch.problem_summary` / `unresolved_count`，`dispatchState`）。强提示只给前两处，派出 agent 的从不加（子任务像「查一个文件」不该因此判到最高一档）；Workflow 里的 agent 没有接这两个字段（它们一个请求里合了很多个调用，这一版没碰）。`/dp unresolved off` 时三处都不带。
+- **强提示是什么。** `decision/unresolved.ts` 的 `withHint(part, language)`：给 effort 题（`level`，发消息时和中途重判的同一个 id）的说明多加一条（中文键 `未解决`，英文键 `unsolved`）：这项工作属于多次尝试都没解决的故障，`unresolved_count` 是用户说过「仍未解决」的次数，试过什么在 `problem_summary` 和对话里。写成情境，和 effort 题最高一档里「之前多次尝试都没解决的故障」同一个说法；不出现档位名字或数字（`tests/unresolved-hint.test.ts` 钉住），也不碰 `pickEffort`、`thetaMax` 和计划表：用不用最高一档仍由决策模型定（ADR 0005）。三选一的题不加强提示。`givesHint(count, maxAfter)`：`maxAfter > 0` 且 `count >= maxAfter`。
+- **用的是哪个次数。** 发消息时读 `$.state` 里这条消息**之前**的次数（这条消息自己的结论在同一个请求的回答里，请求发出时还不知道），所以 `unresolvedMaxAfter` 为 3 时，第四次说「仍未解决」的那条消息的请求还不带强提示（读到的是 2），它的中途重判带（那时次数已经是 3）；下一条消息的请求带。中途重判读的是重判发出时的次数。`maxAfter` 想让「这条消息自己」也算，只能在次数加一之后再问一次，违背「同一个请求」，没做。
+- **配置。** `unresolvedMaxAfter`（0 到 10，默认 3，0 不给），读成 `ctx.config.unresolved.maxAfter`（#42 定）。
+- **日志。** 每次给了强提示，`features/main-effort.ts`（发消息时，在 effort 的决定和次数的决定之后）和 `features/midturn-effort.ts`（中途重判，取回回答时）各记一条 `feature: 'unresolved'`、`aside` 的决定（`core/unresolved.ts` 的 `hintDecision`）：`已给强提示（次数 3）`，理由里写阈值和决策模型判出的档位（中途重判的是 `pickEffort` 的结果；请求失败时写「没有给出档位」，档位字段不写）；条目带 `hint: { count, maxAfter, where? }`（`HintRecord`）。发消息时的 effort 决定（`main-effort`）也带同一个 `hint`，依据卡片据此多一行「强提示：已给强提示」（`pane-card-hint`）；日志行的动词是「给了强提示」。看板不新增事件（band 的 `eventsOf` 不认 `unresolved`），规则推演不新增步骤。
+- **eval。** `eval/lib/unresolved.ts` 的 `unresolvedRequest(..., summary, { count, maxAfter })` 用同一个 `turnStartPart`，所以 #42 要量强提示时请求和 mod 的逐字相同（`tests/eval-unresolved-suite.test.ts` 用 world 核对）；数据集里没有次数，suite 现在不传。
+
 ### 失败时放行
 
-如果决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配置 key（Clef 是 account ID 和 token），消息照常进入，不会额外等待，这一轮使用会话自己的 effort。看板上主 agent 那一行写「未路由」和几个字的原因（「决策模型超时」「决策模型拒绝了密钥」），同时弹一个 toast 写明细节，例如 `jev：1500 毫秒内没有回答`、`clef：密钥被拒绝（状态码 401）`。选了其中一个就只用它，失败时不会改用另一个。Clef 的免费额度当天用完时写 `clef：今天的额度用完了`（Cloudflare 的错误码 3036），和一时繁忙的 `clef：繁忙（状态码 429）`（错误码 3040）区分开：两者的状态码都是 429。
+如果决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配置 key，消息照常进入，不会额外等待，这一轮使用会话自己的 effort。看板上主 agent 那一行写「未路由」和几个字的原因（「决策模型超时」「决策模型拒绝了密钥」），同时弹一个 toast 写明细节，例如 `jev：1500 毫秒内没有回答`、`jev：密钥被拒绝（状态码 401）`。额度当天用完时写 `jev：今天的额度用完了`，和一时繁忙的 `jev：繁忙（状态码 503）`、请求太密被限速的 `pplx：被限速（状态码 429）` 区分开。
 
 ### 看板
 
@@ -119,7 +148,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev 或 
 - 发送前会对常见的 secret 格式脱敏，替换成 `[REDACTED]`。覆盖的格式包括各家的 API key 和 token、`password=...` 这类赋值、URL 里的密码、私钥和 JWT。
 - 总长度按 token 预算（`contextTokens`）截断，数的是发出去的整个 state：序列化成 JSON 的样子，字段名、引号和转义都算。中文约 1 个字算 1 个 token，其他文字约 4 个字符算 1 个 token，因此中英文按同一个尺度截断。预算先保证你的消息，剩下的分给最近的消息：旧消息整条丢弃，最新一条放不下时保留开头和结尾。
 - 每次请求的结果和每次决定都写进 debug log（`claude --debug-file <path>`），不会进入对话。
-- skill 推荐打开时，同一个请求里还有本会话每个 skill 的名字和画像（还没有画像的用描述）；需要第二个请求时，它带着排在前面的几个 skill 的描述、画像和 SKILL.md 正文的开头（约 700 个英文字符，先脱敏），见下一节。画像本身由你自己的 Claude 登录生成（`skillsProfileModel`），不经过决策模型的提供方。
+- skill 推荐打开时，另一个请求（和 effort 的请求并行，两个请求各用各的 state 预算）里有本会话每个 skill 的名字和画像（还没有画像的用描述）；需要第二个请求时，它带着排在前面的几个 skill 的描述、画像和 SKILL.md 正文的开头（约 700 个英文字符，先脱敏），见下一节。画像本身由你自己的 Claude 登录生成（`skillsProfileModel`），不经过决策模型的提供方。
 
 ### skill：隐藏列表，发消息时推荐
 
@@ -133,8 +162,8 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 - **列表的位置上是一句固定的提示。** 主 agent 读到的不是空白，而是：`Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it. For any other skill, call the find_skill tool (mcp__dispatch-pilot__find_skill; load it with ToolSearch first if it is deferred) with a few words on the work, then load a skill it returns with the Skill tool by its exact name.` 也就是：skill 不再列出；和消息相关的会随消息推荐；需要别的 skill 时用 `find_skill` 按几个词查找，再用 Skill 工具按名字加载。写出 `find_skill` 的全名、提到 ToolSearch，是因为它是延迟加载的工具，加载之前主 agent 只看得到名字。`skillsAlwaysListed` 里的 skill 照旧留在列表里，提示跟在它们后面。提示不含任何 skill 的名字或数量，每次问到都一字不差，不破坏 prompt cache（360 个字符，本机原来的列表 18,397 个）。实测它并不能让主 agent 主动去查 skill（见「开发」里的「已实测的引擎行为」）。
 - **`find-skill` 关掉时，提示不提 `find_skill`**，最后一句换成 `...; load one, or any skill you know, with the Skill tool by its exact name.`。用哪一句，看的是引擎问到列表那一刻 `find-skill` 开关的状态。引擎在整段对话里沿用这个回答，对话中途调用 `$.ui.invalidate` 也不会重问（已实测），所以**对话中途切换 `find-skill`，提示要到下一段对话（`/clear` 或新会话）才跟着变**；`/compact` 之后引擎不再问列表（#10 实测），提示既不会变，也不会重发。这期间工具本身按当前的开关回答：中途关掉后，主 agent 照提示去调用，会得到「已关闭」的回答，不发请求；中途打开后，下一段对话之前，主 agent 只能从延迟加载的工具名里看到它。
 - **主 agent 仍然可以按名字加载任何 skill。** 隐藏的只是列表，skill 本身和 Skill 工具不变（已实测，包括 `anthropic-skills:` 开头的同步 skill）。`skillsAlwaysListed` 里的 skill 留在列表里，推荐到它们时只写名字。派出 agent 和 Workflow 里的 agent 的列表不动。
-- **什么时候不隐藏。** 没有配置决策模型（Jev 没有 key，Clef 缺 account ID 或 token）、读不到本会话的 skill、没有一个能推荐的 skill（主 agent 能加载的一个都没有，或者都在 `skillsNeverSuggested` 里），或者 skill 推荐被关掉时（选 Clef 时它默认就是关的，见下一条），主 agent 照常读完整的列表。没有能推荐的 skill 时，只能由你触发的 skill 照样会在看板上提示。
-- **开关。** `/dp skills off`（以及 `/dp off`）停止推荐，并把列表还给主 agent：之后引擎再问到的列表原样放行；这段对话里已经被拦下的列表（引擎在整段对话里沿用当时的回答），随你的下一条消息作为附件补给主 agent，只补一次，`/compact` 之后再补一次。`/dp skills on` 恢复推荐；已经还给主 agent 的列表留在这段对话里，下一段对话（`/clear` 或新会话）起才重新隐藏。这个开关的默认值看决策模型：选 Jev 时打开；选 Clef 时关闭，因为 Clef 带画像的第一段要 3.7–7.9 秒（#16 实测），超过一条消息能等的时间。选 Clef 时用 `/dp skills on` 打开（和别的开关一样会记住）。`find_skill` 不跟这个开关走，照样注册、照样回答；选 Clef 时它自己的等待和第一段另有规定，见下一节。
+- **什么时候不隐藏。** 没有配置决策模型（没有 TypeSafe 的 key）、读不到本会话的 skill、没有一个能推荐的 skill（主 agent 能加载的一个都没有，或者都在 `skillsNeverSuggested` 里），或者 skill 推荐被关掉时，主 agent 照常读完整的列表。没有能推荐的 skill 时，只能由你触发的 skill 照样会在看板上提示。
+- **开关。** `/dp skills off`（以及 `/dp off`）停止推荐，并把列表还给主 agent：之后引擎再问到的列表原样放行；这段对话里已经被拦下的列表（引擎在整段对话里沿用当时的回答），随你的下一条消息作为附件补给主 agent，只补一次，`/compact` 之后再补一次。`/dp skills on` 恢复推荐；已经还给主 agent 的列表留在这段对话里，下一段对话（`/clear` 或新会话）起才重新隐藏。这个开关默认打开，两个决策模型一样：开关在 register 时定义，那时还不知道最后用哪个决策模型（`core/setup.ts` 的 `Ctx`），所以它的默认值不进 `BACKEND_DEFAULTS`。`find_skill` 不跟这个开关走，照样注册、照样回答。
 - **看板和日志。** 每条消息推荐的 skill（带相关度）和给你的提示（「可试 /grill-me」）是事件流里的一条，一轮结束后那一行末尾也写「可试 /x」。每次推荐都记进决策日志（`/dp log`）和 debug log，写出第一段排在前面的 skill 和它们分到的概率、第二段每个 skill 的相关度，例如（第一段拆成两题之前的一次实测）`suggested code-review for "帮我审一下这个分支相对 main 的改动": first code-review 1.00, none 0.00; fits code-review 0.96; suggested from 0.70, at most 3`。装了只能由你触发的 skill 时，`first` 之后还有一段 `hint`，写那一题排在前面的 skill 和概率，例如 `first none 1.00; hint grill-me 0.40, none 0.60; fits grill-me 0.93`。会话开始时 debug log 写一行画像的情况（`skill profiles: 3 kept, 84 to write with haiku (at most 30 this session)`），每写好一份再写一行。
 
 ### find_skill：主 agent 中途查询 skill
@@ -142,7 +171,7 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 推荐只在你发消息时做一次。一轮进行中，主 agent 发现手头的工作可能有合适的 skill（例如要处理某种文件格式、用某个服务的工具，或者按某种流程审查、规划、发布），可以调用 `find_skill` 工具，用几个词说明要做的工作：
 
 - **同一套排序。** 请求和发消息时推荐用的是同一个排序入口、同样的两段（同样的画像、同样的第二段补读），第一段问的是发消息时那一题主 agent 能加载的 skill，一字不差（只能由你触发的 skill 在发消息时另有一题，这里不问），最近的对话也按同样的规则截取（`contextMessages`、`contextTokens`，不含文件内容和工具输出，先脱敏）；只是 `user_message` 换成主 agent 写的查询，第一段只问 skill，不问 effort。两个请求共用一次等待：第二个只能用第一个剩下的时间。
-- **按决策模型等多久、第一段带不带画像。** 选 Jev 时和发消息时一样：两个请求合计等 `timeoutMs`，第一段带画像。选 Clef 时合计最多等 8000 毫秒（不看 `timeoutMs`），第一段只用描述，第二段照样带画像：Clef 带全部画像的第一段要 3.7–7.9 秒（#16，111 个 skill），只用描述约 8.6k token，按 #17 探针里 8.8k 的请求约 1.7–2.4 秒，第二段 0.5–0.8 秒，都在 8000 毫秒之内。这两个值写在 `core/setup.ts` 的 `BACKEND_DEFAULTS`（`findSkillWaitMs`、`findSkillProfiles`），按延迟定，没有校准，不是配置项。hook 自己的时间上限是 10 秒，只算它自己的代码和 `$.clock.sleep`，不算 `next` 和别的 `$` 调用（mods reference 的 Limits 一节；生成的类型里是 `HookBudget`），后端的超时正是用 `$.clock.sleep` 计的，所以 8000 毫秒给其余的代码留出了余量。选 Clef 而发消息时的推荐关着（默认）时，画像不写（`skill-profiles` 只在 `skills` 开着时写），所以不会为没人读的画像花用量；用 `/dp skills on` 打开推荐后才写，写好的画像供发消息时的推荐和 `find_skill` 的第二段用。
+- **等多久、第一段带不带画像。** 两个请求合计等 `findSkillWaitMs`（Jev 是 `timeoutMs`，和发消息时一样），第一段带画像（`findSkillProfiles`）。这两个值写在 `core/setup.ts` 的 `BACKEND_DEFAULTS`，按延迟定，没有校准，不是配置项。hook 自己的时间上限是 10 秒，只算它自己的代码和 `$.clock.sleep`，不算 `next` 和别的 `$` 调用（mods reference 的 Limits 一节；生成的类型里是 `HookBudget`），后端的超时正是用 `$.clock.sleep` 计的。
 - **返回什么。** 相关度（第二段的绝对值）不低于 `findSkillMinRelevance`（比推荐的门槛低：这是主 agent 主动问的，它会自己看描述再决定）的 skill，最多 `findSkillMax` 个，按相关度从高到低，每个写名字（Skill 工具接受的写法，同步来的 skill 带 `anthropic-skills:` 前缀）、相关度和描述。主 agent 再用 Skill 工具按名字加载。都不够相关时，回答没有合适的 skill，并提示主 agent 不用 skill 继续，或者按名字加载它已知的 skill。
 - **只在被调用时回答。** 一轮中途不会主动推送 skill；结果只作为这次工具调用的回答交给主 agent。
 - **不返回的 skill。** 只能由你本人触发的 skill 和 `skillsNeverSuggested` 里的 skill 既不问也不返回。派出 agent 调用时，工具让它从自己的 skill 列表里挑（派出 agent 的列表没有隐藏），不发请求。
@@ -174,28 +203,29 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 
 这一节逐个说明配置项，留着每个选项的校准依据。默认值只写在 README 的配置表里（`node dispatch-pilot/eval/validate.ts docs` 核对它和 manifest、`BACKEND_DEFAULTS` 一致），这里不再重复。
 
+**按决策模型取值的表（`core/setup.ts` 的 `BACKEND_DEFAULTS`）。** 每个决策模型一项，里面有：按决策模型取默认值的选项（`PER_BACKEND_OPTIONS`；这些选项在 manifest 里不能有 `default`，README 每张配置表里每个决策模型一列）；`contextTokensMax`、`contextMessagesMax` 两个上限；往上取一档的门槛 `roundUp`；问法 `ask`（`turnStart` 是发消息时判 effort 的那一题，`other` 是其余所有问题，mod 里的 `ctx.ask` 就是 `other`）；skill 推荐和 `find_skill` 的几项。这些值 mod 和评测读的是同一张表（`readConfig`，评测经 `settingsFrom`）。加一个决策模型：往表里加一项，`eval/lib/docs.ts` 的 `BACKENDS` 加一行，README 每张配置表加一列。`readConfig` 和 `settingsFrom` 的第二个参数可以传别的表（默认是 `BACKEND_DEFAULTS`），用来读一个表里还没有的决策模型；表里现在有 Jev 和 pplx 两项（#50），它们在每个值上都不同，`tests/backend-defaults.test.ts` 就拿这两项对比，看每个值是否传到用它的地方。
+
 在 `/config` 里设置，或写在 settings 的 `pluginConfigs` 里：
 
 | 选项 | 说明 |
 |---|---|
-| `decisionModel` | 决策模型：`jev`（TypeSafe）或 `clef`（Cloudflare Workers AI），在 `/config` 里是下拉选择。选了一个就只用它，没有备用。填了这两个之外的值，引擎会按默认值 `jev` 处理并给出警告。 |
-| `typesafeApiKey` | 选 `jev` 时用：TypeSafe 的 API key，是敏感字段，保存在安全存储里。为空时不发送任何请求。 |
-| `cloudflareAccountId` | 选 `clef` 时用：运行 Workers AI 的 Cloudflare account ID，是敏感字段。为空时不发送任何请求。它是请求地址的一部分，Claude Code 自己的 debug log 会记下请求地址，所以会出现在那里；mod 自己写的日志行会把它遮掉。 |
-| `cloudflareApiToken` | 选 `clef` 时用：能调用 Workers AI 的 Cloudflare API token（控制台里 Workers AI，Use REST API，Create a Workers AI API Token），是敏感字段。为空时不发送任何请求。 |
-| `timeoutMs` | 等待决策模型的最长时间，范围 200–8000 毫秒。Clef 比 Jev 慢：连接建立后 0.6–1.4 秒，冷连接的第一次请求 1.8 秒（见「待评测」）。 |
-| `contextMessages` | 随你的消息一起发送的最近消息条数，范围 0–32。选 Jev 时取上限：真正限制发多少的是 `contextTokens`，放不下的旧消息整条丢掉。选 Clef 时仍是接入时的值（见「Jev 的上下文默认值怎么算」）。 |
-| `contextTokens` | 发给决策模型的 state 的 token 预算，范围 100–16000：你的消息加上最近对话，按发出去的样子数（整个 state 序列化成 JSON，连同字段名、引号和转义）。选 Jev 时的默认值按 Jev 的上限算出来，而且按请求的种类分开取：带 skill 题的请求一个值，其余种类一个更大的值；你设了值，每个种类取它和自己上限里较小的一个（见「Jev 的上下文默认值怎么算」）。**选 Clef 时最多 2000**，所有种类都是 2000，设得更大也按 2000 算：Clef 有时只读序列化后 state 开头约 2.1k 个 token（#17 的探针，见「待评测」），而它序列化时按键名排序，哪个字段在前不由 mod 决定，所以整个 state 都要在截断位置之内。 |
+| `decisionModel` | 决策模型，在 `/config` 里是下拉选择：`pplx`（Perplexity，#50）或 `jev`（TypeSafe）。默认 `pplx`（#52，ADR 0006）；填了别的值（包括已移除的 `clef`），引擎按默认值处理并给出警告。设成 `jev` 始终用 Jev，其余情况按密钥选（下面「选哪个决策模型」）。 |
+| `typesafeApiKey` | TypeSafe 的 API key，是敏感字段，保存在安全存储里。为空时不发送任何请求。 |
+| `perplexityApiKey` | Perplexity 的 API key（#50），是敏感字段。为空时读环境变量 `PERPLEXITY_API_KEY`，两处都有用这里的。读法见「pplx 的默认值和密钥」。 |
+| `timeoutMs` | 等待决策模型的最长时间，范围 200–8000 毫秒。 |
+| `contextMessages` | 随你的消息一起发送的最近消息条数，范围 0 到决策模型的上限（`BACKEND_DEFAULTS` 的 `contextMessagesMax`，Jev 是 32）。默认取上限：真正限制发多少的是 `contextTokens`，放不下的旧消息整条丢掉（见「Jev 的上下文默认值怎么算」）。 |
+| `contextTokens` | 发给决策模型的 state 的 token 预算，范围 100–16000：你的消息加上最近对话，按发出去的样子数（整个 state 序列化成 JSON，连同字段名、引号和转义）。默认值按 Jev 的上限算出来，而且按请求的种类分开取：带 skill 题的请求一个值，其余种类一个更大的值；你设了值，每个种类取它和自己上限里较小的一个（见「Jev 的上下文默认值怎么算」）。整个 state 都要在预算之内，不靠字段的顺序。 |
 | `thetaMax` | 使用 `max` 所需的最低概率，范围 0–1。发消息时、一轮中途和派出 agent（包括 Workflow 里的）的 effort 都用这个门槛。 |
 | `rejudgeEvery` | 一轮进行中每到第几步重新判断一次，范围 0–50；0 表示不按步数重判（派出 agent、启动 Workflow、加载 skill 时仍会重判）。 |
-| `rejudgeSteps` | 重判时决策模型读到的最近步数，范围 1–16。选 Jev 时取上限，`contextTokens` 同样是真正的限制；选 Clef 时仍是接入时的值。 |
-| `rejudgeWaitMs` | 重判的回答还没到时，下一步最多再等多久，范围 0–2000 毫秒。 |
-| `thetaUp` | 中途升档所需的最低置信度，范围 0–1。默认值在 README 的配置表里；0.2.2 起按 AA 的基准往下调（升高容易，见「按 AA 基准校正」）。Clef 的 confidence 比 Jev 低得多（#14：中位数 0.24 对 0.66），这个值下它能升档。 |
-| `thetaDown` | 中途降档所需的最低置信度，范围 0–1；低于 `thetaUp` 时按 `thetaUp` 算。0.2.2 起按 AA 的基准往上调到 0.75（降低难），0.2.3 起按评测扫描调回 0.55（见「降档门槛（0.2.3）」）；Clef 的置信度很少到这么高（p90 约 0.50），所以它在中途仍几乎不降档。 |
+| `rejudgeSteps` | 重判时决策模型读到的最近步数，范围 1–16。默认取上限，`contextTokens` 同样是真正的限制。 |
+| `rejudgeWaitMs` | 重判的回答还没到时，下一步最多再等多久，范围 0–8000 毫秒（0.4.0 前上限是 2000）。默认值随决策模型（`BACKEND_DEFAULTS`，Jev 300），你设的值优先。 |
+| `thetaUp` | 中途升档所需的最低置信度，范围 0–1。默认值在 README 的配置表里；0.2.2 起按 AA 的基准往下调（升高容易，见「按 AA 基准校正」）。 |
+| `thetaDown` | 中途降档所需的最低置信度，范围 0–1；低于 `thetaUp` 时按 `thetaUp` 算。0.2.2 起按 AA 的基准往上调到 0.75（降低难），0.2.3 起按评测扫描调回 0.55（见「降档门槛（0.2.3）」）。 |
 | `holdSteps` | 中途升档之后，多少步之内不降档，范围 0–50。0.2.2 起调大（见「按 AA 基准校正」）。 |
 | `escalateAfter` | 一个循环（主 agent 的一轮，或一个派出 agent）里计入的失败满几次，就问决策模型并强制升档（除非是预期内的），范围 1–20。 |
 | `escalateMode` | 强制升档的方式，在 `/config` 里是下拉选择：`one-level` 升一档，最高到 xhigh（决策模型自己有把握给更高时可以更高）；`max` 直接升到 max。 |
 | `escalateLimit` | 一轮（或一个派出 agent）最多强制升档几次，范围 0–10；升档后失败计数清零。 |
-| `thetaExpected` | 决策模型认为这些失败「是预期内的」的概率达到多少，就不强制升档，范围 0–1。故意定得低：在几个手写的例子上，Jev 对预期内失败的评分是 0.15–0.72，对真的卡住的是 0.09–0.16（Clef：0.27–0.90 和 0.03–0.11）。暂定，见「待评测」。 |
+| `thetaExpected` | 决策模型认为这些失败「是预期内的」的概率达到多少，就不强制升档，范围 0–1。故意定得低：在几个手写的例子上，Jev 对预期内失败的评分是 0.15–0.72，对真的卡住的是 0.09–0.16。暂定，见「待评测」。 |
 | `escalateHaikuTo` | 失败的 haiku agent 接着用哪个模型做。haiku 没有 effort 可升。写别名（`sonnet`、`opus`、`fable`）或完整的模型 id；别名由 mod 换成步骤需要的完整 id（`decision/model-ids.ts`，引擎对每一步的模型不认别名），不是已知模型的值不换。你为这个 agent 点名的模型和排除的模型优先。留空表示不换。 |
 | `agentFable` | 打开后，派出 agent（包括 Workflow 里的）的可选模型加入 fable（比 opus 更贵）。你自己点名 fable 时不受这个开关限制。 |
 | `agentOverride` | 主 agent 为派出的 agent 指定了模型时，决策模型的选择要达到这个置信度才推翻它，范围 0–1。Workflow 脚本里的 `agent()` 写了 `model` 时同样适用。 |
@@ -203,6 +233,8 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 | `skillsMinRelevance` | 推荐一个 skill 所需的最低相关度，范围 0–1。相关度是第二段里决策模型对「这个 skill 是否正好做这条消息要做的那种工作」回答「是」的概率，每个 skill 单独判断（#11 起；#10 用的是第一段里分到的概率）。0.75 来自 #16 的两次 Jev 运行（第 1 轮审查修复之前的问法）：从 0.7 改成 0.75，带画像时的中英差距从 −3.7 缩到 −2.3 个百分点（两次的均值；−1.8 和 −2.8）。这个值是在同一套题上挑的：0.7 和 0.8 下两次都是 −3.67，和 0.75 只差 1–2 题（109 题里 1 题约 0.9 个百分点），在单次运行的波动之内，也没有在新问法上验证。按当时 3 个百分点的门槛只有它通过；按现在 4 个百分点的门槛，0.7、0.75、0.8 都通过。默认值没有改。 |
 | `skillsShortlist` | 第二段补读正文、逐个判断的、主 agent 能加载的 skill 最多几个（第一段那一题排在最前、分到 0.1 以上的），范围 1–10。只能由你触发的 skill 另外最多 2 个。 |
 | `skillsProfileModel` | 写 skill 画像的模型，写别名（`haiku`）或完整的模型 id。通过你的 Claude Code 登录调用，算在你的用量里。换了模型，所有画像会重写。 |
+| `summaryModel` | 写问题摘要的模型（#40），写法同 `skillsProfileModel`，默认 `haiku`；读成 `ctx.config.unresolved.summaryModel`。 |
+| `unresolvedMaxAfter` | 未解决次数到这个数时发消息和中途重判的 effort 题多一条强提示（#41），0 到 10，默认 3，0 不给；读成 `ctx.config.unresolved.maxAfter`。 |
 | `skillsProfilesPerSession` | 每次会话开始时最多写几份还没有的画像，范围 0–500；0 表示不写（已有的照常用）。 |
 | `skillsAlwaysListed` | 一直留在主 agent 的 skill 列表里的 skill，写列表里的名字（同步来的 skill 要带前缀，例如 `anthropic-skills:pdf`）。 |
 | `skillsNeverSuggested` | 从不推荐给主 agent、也不提示你的 skill，同样写列表里的名字。它们照常安装，Skill 工具照样能按名字加载。`find_skill` 也不返回它们。 |
@@ -210,13 +242,48 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 | `findSkillMinRelevance` | `find_skill` 返回一个 skill 所需的最低相关度，范围 0–1。相关度的含义和 `skillsMinRelevance` 相同。 |
 | `workflowMode` | Workflow 里的 agent 怎么路由：`rewrite` 把决定写进脚本再运行；`return` 第一次提交被拒绝并附上逐个 agent 的推荐，让主 agent 自己写进去，同一个 Workflow 第二次提交直接放行（见「Workflow 里的 agent」）。在 `/config` 里是下拉选择。 |
 
-**按决策模型取的默认值（#17）。** 上表里这 11 项（`timeoutMs`、`contextMessages`、`contextTokens`、`rejudgeSteps`、`thetaUp`、`thetaDown`、`thetaMax`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance`），默认值取决于你选的决策模型。它们在 manifest 里没有默认值，所以 `/config` 里显示为空，你不设时引擎什么也不传（kit 的测试和真实引擎都确认过），Dispatch Pilot 按 `decisionModel` 取默认值。Clef 和 Jev 的默认值有这几处不同：`timeoutMs`（Clef 的更长），`contextTokens` 的上限（Clef 2000，因为实测过它会截断），`contextTokens`、`contextMessages`、`rejudgeSteps` 的默认值（0.2.1 起 Jev 按它的上限取，Clef 保持接入时的值，见下面的「Jev 的上下文默认值怎么算」），发消息时的 skill 推荐（选 Clef 时默认关闭，见「skill：隐藏列表，发消息时推荐」的「开关」），以及 `find_skill` 的等待和第一段（选 Clef 时合计最多 8000 毫秒、第一段只用描述，见「find_skill：主 agent 中途查询 skill」；这两个不是配置项）；另外发消息时 effort 问题的语言也按决策模型取（Jev 用中文，Clef 用英文，不是配置项，依据见「待评测」）。其余各项 Clef 还没有校准，暂沿用 Jev 的值。你自己设了某一项，两个决策模型都用你设的值（`contextTokens` 在 Clef 下最多 2000）。会话开始时 debug log 写一行哪些选项用了默认值，例如 `settings for clef: left unset, so clef's defaults: timeoutMs 3000, ...; skill suggestions off until /dp skills on; contextTokens 4000 reads as 2000, the most with clef`。
+**按决策模型取的默认值（#17）。** 上表里这 11 项（`timeoutMs`、`contextMessages`、`contextTokens`、`rejudgeSteps`、`thetaUp`、`thetaDown`、`thetaMax`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance`），默认值取决于决策模型。它们在 manifest 里没有默认值，所以 `/config` 里显示为空，你不设时引擎什么也不传（kit 的测试和真实引擎都确认过），Dispatch Pilot 按决策模型取默认值（现在只有 Jev 的，`core/setup.ts` 的 `BACKEND_DEFAULTS`；`contextTokens`、`contextMessages`、`rejudgeSteps` 的默认值 0.2.1 起按 Jev 的上限取，见下面的「Jev 的上下文默认值怎么算」）。另外，发消息时 effort 问题的语言（Jev 用中文）、`find_skill` 的等待和第一段带不带画像（见「find_skill：主 agent 中途查询 skill」）和发消息时 skill 推荐的默认开关，也按决策模型取，这些不是配置项，依据见「待评测」。你自己设了某一项，就用你设的值。会话开始时 debug log 写一行哪些选项用了默认值，例如 `settings for jev: left unset, so jev's defaults: timeoutMs 1500, ...; skill suggestions on until /dp skills off; contextTokens 20000 reads as 16000, the most with jev`。
 
 这些默认值大多是暂定的。按用户的决定（2026-10-05），#17 没有再跑对比或扫描评测：`skillsMinRelevance` 按 #16 已有的数据改成 0.75，Jev 的上下文三项在 0.2.1 按 Jev 的上限取（下一节）；中途重判的几项（`rejudgeEvery` 到 `holdSteps`）、`agentOverride`、`thetaMax`、`findSkillMinRelevance`、`skillsShortlist`、`escalateAfter`、`escalateMode`、`escalateLimit` 和 `thetaExpected` 都还是起点，现有的数据和没做的评测见「待评测」。
 
+### pplx 的默认值和密钥
+
+`decisionModel: pplx`（#50，ADR 0006 的 B′）用 Perplexity 的 `pplx-decider-v1.1-27b`（`POST https://api.perplexity.ai/v1/decisions`，Bearer key；请求体只有 `model`、`state`、`questions`，多一个顶层字段 API 就回 400）。它的一行在 `BACKEND_DEFAULTS.pplx`，值和依据：
+
+| 项 | 值 | 依据 |
+|---|---|---|
+| `timeoutMs`、`rejudgeWaitMs`、`findSkillWaitMs` | 8000、6000、6000 | 请求要几秒（eval v2 的 B′ 约 5 秒）；hook 自己的上限是 10 秒，`timeoutMs` 的上限本来就是 8000 |
+| `contextMessages`（默认和上限） | 2000 | 和 eval v2 的 B′ 一致（`--state-messages 2000`），实际由 token 预算截断 |
+| 发消息 effort、中途重判、派出 agent、Workflow 的预算 | 各 48000 | eval v2 的 B′；pplx 的窗口是 262144 token，不受 Jev 那 32k 的限制 |
+| `contextTokens`（skill 两段的预算） | 6000 | B′ 没有评测过 skill 题，沿用 Jev 的值（两个模型的画像一样长） |
+| `ask` | 所有问题英文，Score | eval v2：pplx 英文问法更准 |
+| `thetaMax` / `thetaUp` / `thetaDown` | 0.47 / 0 / 0.55 | 已存的 pplx 回答离线校准（取值规则是评测时 agent 自拟的，用户没有逐条确认） |
+| `roundUp` | 0.45 | 离线扫描：effort-submit 英文问法判高 18.5% 降到 13.0%，max 召回不变（11/16）；eval v2 判低 12.5% 升到 15.0%；关掉这一步也只到 12.5% |
+| `thetaExpected`、`agentOverride`、两个相关度门槛 | 沿用 Jev 的 0.25、0.6、0.75、0.5 | 没有为 pplx 校准过 |
+| `findSkillProfiles` | 开 | 同 Jev |
+
+**密钥怎么读。** `perplexityApiKey`（userConfig）优先，空时用环境变量 `PERPLEXITY_API_KEY`。`$.env.get` 是异步的、要 `$`，`setup()` 和 `readConfig` 是同步的、没有 `$`，`$` 也不能跨 import；所以环境变量在 `session.start`（`features/control.ts`）里读一次，存进 `ctx.secrets.perplexityEnvKey`（`Secrets`，`core/setup.ts`；热重载会重新触发 `session.start`），pplx 的后端每次 `ask` 时才取 `perplexityKey(config, secrets)`（`pplxBackend` 收一个 `() => string`；`Backend.configured` 是它的 getter，所以各功能读 `configured` 时看到的就是现在有没有 key）。没有放进 `BackendIo` 的闭包里，是因为那要在 9 处 `io` 字面量里各写一遍 `$.env.get('PERPLEXITY_API_KEY')`，而且 #52 要在发请求之前、同步地知道有没有 key（选 pplx 还是退回 Jev，决定 `Config` 用哪一行）：那也只能在 `session.start` 读好再用（下一段）。key 只出现在请求头里：`pplx.ts` 把失败的 detail 里出现的 key 换成 `[REDACTED]`，`session.start` 的 debug log 只写 key 从哪里来（`pplx key: from the options` / `from PERPLEXITY_API_KEY` / `not set`）。`tests/pplx-model.test.ts` 的测试在日志、看板、toast 里搜 key 的原文。`Config` 里的 `typesafeApiKey`、`perplexityApiKey` 是不可枚举的属性（`readConfig` 用 `Object.defineProperties` 加上），`JSON.stringify(config)`、`{ ...config }`、`Object.keys` 都碰不到它们，以后有人把 config 写进日志或评测结果文件也带不出 key（`tests/backend-defaults.test.ts` 锁定）；取 key 的地方照旧读 `config.perplexityApiKey`，但不要复制一份 config 再从副本取 key。
+
+**限速和 429（#51）。** Perplexity Tier 0 账户限 1 QPS，一条消息发 2 到 3 个请求（effort、skill 第一段和第二段），中途重判、派出 agent、`find_skill` 也在抢。`setup()` 把 `pplxBackend` 包进 `decision/pplx-rate.ts` 的 `rateLimited(backend, qps)`（#52 之后 `setup()` 为 pplx 那一份 `Config` 建它，用 `configs.pplx.pplxQps`；pplx 那支始终经过它，不管最后选的是不是 pplx），所以所有 pplx 请求都经它，Jev 不经过。要点：
+- **每秒最多 `pplxQps` 个。** 滑动窗口，不是固定间隔：`pplxQps: 2` 时两个请求同时发出，第三个等到最早那个满一秒。最近发出的时间（至多 `pplxQps` 个）记在 `$.state` 的 `pplxRate`（`number[]`），热重载后不会一下子放出一串；改发送时间用 `$.state` 的版本号做乐观并发（`ifVersion`），读写失败、或者写入连续 8 次被别的写入抢先，就放行（最坏是 Perplexity 自己回 429），并在这个请求的 debug log 那一行末尾写 `rate limit not kept (...)`（`Asked.notes`，`describeAsked` 会带上）。限速保证的是计数（乐观写入）；先后顺序只保证到「队首开始占位」为止：占位中的那几次 await 里到的更优先请求，要等下一个位置。
+- **排队。** 排队的队列是模块变量（热重载丢了也没关系：旧模块的请求引擎自己会丢掉）。队首永远是优先级最高、来得最早的一个：发消息的 effort 请求（问题名以 `effort.` 开头）优先级 0，其余都是 1，先来先发。队首轮到的时候才占位，所以一个更优先的请求后来也能插到已经在等的 skill 请求前面。等不到位的请求（占位要等到超过它自己的等待时间）当场失败，不白等。
+- **排队的时间算进该请求自己的等待。** `ask(io, request, timeoutMs)` 的 `timeoutMs` 从被问的那一刻算起，发出去之后只剩下没用完的部分；等不回来的失败写的仍是 `no answer in <timeoutMs> ms`。skill 第二段本来就用第一段剩下的时间，所以自然包括排队。
+- **429。** `pplxFailure` 把 `Retry-After`（整数秒，不区分大小写；日期形式不读）读成 `Failure.retryAfterMs`，只有 429 有。限速层收到 429 带着 `retryAfterMs` 时：剩余等待时间不少于 `retryAfterMs` 加 `EXPECTED_REQUEST_MS`（5000，ADR 0006 说的约 5 秒）就睡过 `Retry-After` 再问一次（重新排队，优先级不变），用第二次的结果，第二次再 429 就是失败；不够、或者 429 没带可读的 `Retry-After`，就原样失败。其他失败都不重试。失败交出去之前去掉 `retryAfterMs`，看板里存的 `failure` 形状不变。
+- **「被限速」。** 429 的失败（`busy`，状态码 429）在看板、toast 和决策日志里写 `pplx：被限速（状态码 429）`，band 上写「决策模型被限速」，卡片的类型行写「请求太密，被决策模型限速了」（`FAILURE_WORDS`，只有 pplx 的 429 这样写：那是 mod 自己按 `pplxQps` 守的限速；Jev 的 429 仍是 0.3.1 的「繁忙（状态码 429）」「决策模型繁忙」；模型读到的英文 `busy (HTTP 429)` 没变）。
+- **接线。** 限速需要时钟和 `$.state`，`$` 不能跨 import，所以 `BackendIo` 多了一个可选的 `pace`（`now`、`sentAt` 这个 `$.state` 的 Cell），9 处 `io` 字面量（`core.ts`、`midturn-effort.ts`、`skills.ts`、`find-skill.ts`、`escalation.ts`、`dispatched-agents.ts`、`workflow-agents.ts`、`workflow-labels.ts` 两处）各写一遍。没给 `pace` 的（评测，它自己控制节奏）直接放行。新增一处 `ctx.backend.ask` 时记得给它的 `io` 加 `pace`，否则那个请求不受限速。
+- **测试。** `tests/pplx-rate.test.ts`（接缝 1，`mock.clock`；`Sent.at` 是请求发出的时间，`Reply.headers` 给 429 带 `Retry-After`，`seed.pplxRate` 和 `w.pplxRate()` 读写限速的记录）；429 的分类和 `Retry-After` 的读取在 `tests/pplx.test.ts`（接缝 2）。别的 pplx 测试把 `pplxQps` 设成 50，免得被 1 QPS 排队拖住。
+
+**选哪个决策模型（#52，ADR 0006）。** `chooseBackend(asked, { perplexity, typesafe })`（`core/setup.ts`，纯函数）：`decisionModel` 是 `jev`（`backendNameOf(options)` 读出来的「要的是 Jev」）就始终 Jev；其余（`pplx`、没设、`clef`、拼错的值——引擎把选项列表之外的值读成 manifest 的默认值 `pplx` 并警告，mod 看不到原值）按密钥：有 Perplexity 的 key（userConfig 优先，再是环境变量）→ pplx；没有但有 TypeSafe 的 key → Jev，并记 `fellBack`；两个都没有 → pplx，它的每次 `ask` 以 `config` 失败返回，`why` 写「pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY」。
+
+**「`Config` 晚一点才知道用哪一行」怎么解决：方案 3，两行都先算好，`ctx` 每次读时选。** 难点是环境变量只能在 `session.start` 里异步读，而 `Config` 的默认值行取决于最后用哪个模型（一个 0.3.1 的老用户只有 TypeSafe key 时必须得到恰好是 Jev 的默认值，1500 毫秒、6000/24000、中文、0.3），不少功能又在 register 时把 `ctx.config.*` 取走了。`setup()` 对 pplx 和 Jev 各算一份 `Config`（`readConfig(options, table, backend)`，纯、便宜）和各建一个后端，`Ctx` 的 `config`、`backend`、`ask`、`fellBack` 是 getter，每次读时按 `chooseBackend` 取其中一份（`secrets.perplexityEnvKey` 读完之前，环境变量里的 key 还看不到，只有 `session.start` 之后才对）。没选「`ctx` 里放个会被替换的 `current`，在 `session.start` 和 `prompt.submit` 里 `await resolve($)`」（方案 2）：getter 不要求每个入口都记得先 resolve，热重载（`register` 重新执行、`session.start` 再触发）也自然对。代价是 register 时取走 `ctx.config.*` 的功能必须改成用时再读：`midturn-effort`、`escalation` 的 `Settings` 现在是 getter 对象；`dispatchSettings(ctx)`（派出 agent、两个 Workflow 功能）和 `rankingSettings(ctx)`（skill 推荐、find_skill）返回 getter 对象；`skills`、`find-skill` 的 `policy`、`findWaitMs`、`findByProfile` 在用的地方读。不随决策模型变的值（`neverSuggested`、`alwaysListed`、`profileModel`、`workflowMode`、`profilesPerSession`）仍在 register 时取；`skills` 开关的默认值（开）也不随决策模型而变，所以不放进表里。新写的功能不要在 register 时取 `ctx.config.<随决策模型而定的值>`；`tests/decision-model.test.ts` 里有「环境变量里有 key」的例子（重判等待 6000 毫秒、派出 agent 的 max 门槛 0.47）会在这么做时失败。
+
+**退回 Jev 要写下来。** `control.ts` 的 `session.start` 在读完环境变量之后，若 `ctx.fellBack`，`report(io, { fellBack: { asked: 'pplx', using: 'jev' } })`（`core/report.ts`，ADR 0004：只有 report 写给人看的东西；`asked`、`using` 是 `BackendName`，给人看的名字和各模型的密钥设置名都在 report.ts 的 `DECISION_MODELS` 一张表里）：决策日志里一条 `feature: 'decision-model'`、`tone: 'info'` 的会话级条目（没有 `agent`，同一轮号的热重载换掉前一条，像 skill-profiles 那样），依据面板里的「决策模型 · 改用别的决策模型」，原因写缺哪个 key、怎么补。看板的节点、band 和 toast 都不动（`view.ts` 的当前轮日志里也滤掉它）。注意它只在 `session.start` 才写：`tests/support/world.ts` 里给了 `env`、`switches` 或 `session` 的世界才跑 `session.start`（`w.start()`），其余的测试世界不跑，所以只有 TypeSafe key 的老测试也能不写日志地照常用 Jev。
+
+**默认换成 pplx 对测试的影响。** 依赖「默认是 Jev」的测试都显式设了 `decisionModel: 'jev'`（`KEY` 常量、`settingsFrom`、`readConfig`），断言新默认的在 `tests/decision-model.test.ts`、`pplx-model.test.ts`。评测的 `optionsFor(backend, ...)` 始终显式写 `decisionModel`；`eval/lib/rescore.ts` 读没记下决策模型的旧结果文件时按 Jev（那时只有 Jev）；`scripts/decide*.ts` 经 `scriptDecision` 用 Jev。评测不看密钥、不退回：`readConfig(options)` 按「要的是哪个」读。
+
 ### Jev 的上下文默认值怎么算
 
-0.2.1 把 Jev 的 `contextTokens`、`contextMessages`、`rejudgeSteps` 的默认值，从评测时用的 2000、4、4，调大到 Jev 能接受的上限。这是用户的决定（2026-10-05）：「能给到 Jev 越多的信息，它的判断就会越准」，「默认值主要以 Jev 最大的上下文窗口和 input 来配置」。Clef 不变（`contextTokens` 默认值和上限都是 2000，另外两项仍是 4）。三个数都只写在 `core/setup.ts` 的 `BACKEND_DEFAULTS` 里，值写在 README 的配置表里；`tests/backend-defaults.test.ts` 的「Jev's context budget by default…」把下面的算式写成了测试。
+0.2.1 把 Jev 的 `contextTokens`、`contextMessages`、`rejudgeSteps` 的默认值，从评测时用的 2000、4、4，调大到 Jev 能接受的上限。这是用户的决定（2026-10-05）：「能给到 Jev 越多的信息，它的判断就会越准」，「默认值主要以 Jev 最大的上下文窗口和 input 来配置」。三个数都只写在 `core/setup.ts` 的 `BACKEND_DEFAULTS` 里，值写在 README 的配置表里；`tests/backend-defaults.test.ts` 的「Jev's context budget by default…」把下面的算式写成了测试。
 
 **事实。**
 
@@ -246,20 +313,20 @@ Q 取 Jev 的计数：skill 第一段 21,900，其余的题按「估算 × 1.37�
 
 **按请求的种类分开取（0.2.2）。** 0.2.1 取了最紧的 6000 一个数，因为带 skill 推荐的发消息请求和 `find_skill` 的第一段受那道 2.2 万 token 的题限制，而其余种类的最长一题不到 700 token，按上表在 32k 的 90% 以内能放约 25k。用户要「尽量给 Jev 更多信息」，所以 0.2.2 把 state 的预算按种类分开：
 
-| 种类 | `Config` 里的位置 | Jev | Clef |
-|---|---|---|---|
-| 发消息，带 skill 题；`find_skill` 的第一段 | `config.context.tokens` | 6000 | 2000 |
-| 发消息，没有 skill 题（skill 推荐关着，或这一轮是报告开始的） | `config.contextByKind.messagePlain` | 24000 | 2000 |
-| 中途重判，卡住时的重判 | `config.contextByKind.rejudge`（也是 `config.midturn.limits.tokens`） | 24000 | 2000 |
-| 派出 agent | `config.contextByKind.agent` | 24000 | 2000 |
-| 一批 Workflow 调用 | `config.contextByKind.workflow` | 24000 | 2000 |
+| 种类 | `Config` 里的位置 | Jev |
+|---|---|---|
+| 发消息，skill 题（投票箱里除 effort 外的题合成的请求）；`find_skill` 的第一段 | `config.context.tokens` | 6000 |
+| 发消息，主 agent 的 effort 题（单独一个请求，ADR 0005）；没有 skill 题的消息（skill 推荐关着，或这一轮是报告开始的）也是这一种 | `config.contextByKind.messagePlain` | 24000 |
+| 中途重判，卡住时的重判 | `config.contextByKind.rejudge`（也是 `config.midturn.limits.tokens`） | 24000 |
+| 派出 agent | `config.contextByKind.agent` | 24000 |
+| 一批 Workflow 调用 | `config.contextByKind.workflow` | 24000 |
 
 - 这些值是 `core/setup.ts` 的 `BACKEND_DEFAULTS` 里的内部常量（`contextTokens` 是带 skill 题的那一种，`contextByKind` 是其余几种），不是配置项。其余种类取 24000：上表里它们的 C 上限是 25,400–25,600，取整到 24000；验算 1.11 × 24000 = 26,640，加最长的题（派出 agent 约 630）是 27,270，在 28,800 之内；Workflow 一批（最多 8 个调用，题合计约 20,100）是 46,740，在 57,600 之内。所有种类的 C 加上它最长的题，都用同一个算式在 `tests/backend-defaults.test.ts` 的「Jev's context budget by default, kind of request by kind…」里量过：题用真实的构造函数量（`turnStartEffortPart`、`midturnEffortPart`、`expectedFailurePart`、`dispatchPart`），每个种类断言 C × 1.11 加最长的题不超过 28,800，整个请求不超过 57,600。
 - `contextTokens` 是用户的覆盖值：设了，所有种类都用它，但每个种类各取它和自己的上限里较小的一个（设 4000 是所有种类 4000，设 16000 是带 skill 题的 6000、其余 16000）；没设，每个种类取自己的默认值。manifest 的范围 100–16000 没有放宽。`readConfig` 里 `byKind` 做这件事，`describeDefaults` 的那一行 debug log 只报 `contextTokens` 本身。
-- 谁读哪一个：`core/core.ts` 按这次请求有没有 skill 的 part 选 `context.tokens` 或 `messagePlain`；`features/dispatched-agents.ts` 用 `agent`；`features/workflow-agents.ts`、`features/workflow-labels.ts` 用 `workflow`；`features/escalation.ts` 和 `features/midturn-effort.ts` 用 `midturn.limits`（即 `rejudge`）；`features/find-skill.ts` 和 `core/skills.ts` 仍用 `context.tokens`；评测里的 `eval/lib/subagent.ts` 和 `scripts/decide-agent.ts` 也读 `agent`、`workflow`。你的话（`said`，`dispatched-agents.ts` 在 `prompt.submit` 时存下的每一轮的消息）和一轮记录里的消息（`turns[].prompt`，之后的重判读它）各有一份截断：`said` 仍按 `context.tokens`（6000，它要存进 `$.state`，最多 8 条），`turns[].prompt` 按 `rejudge`；发给决策模型的 state 再按各自种类的预算截。
+- 谁读哪一个：`core/core.ts` 对投票箱拆出的每个请求，按它有没有 skill 的 part 用 `messageLimits`（`core/setup.ts`）选 `context.tokens` 或 `messagePlain`，eval 的 `submitRequest` 用同一个函数；`features/dispatched-agents.ts` 用 `agent`；`features/workflow-agents.ts`、`features/workflow-labels.ts` 用 `workflow`；`features/escalation.ts` 和 `features/midturn-effort.ts` 用 `midturn.limits`（即 `rejudge`）；`features/find-skill.ts` 和 `core/skills.ts` 仍用 `context.tokens`；评测里的 `eval/lib/subagent.ts` 和 `scripts/decide-agent.ts` 也读 `agent`、`workflow`。你的话（`said`，`dispatched-agents.ts` 在 `prompt.submit` 时存下的每一轮的消息）和一轮记录里的消息（`turns[].prompt`，之后的重判读它）各有一份截断：`said` 仍按 `context.tokens`（6000，它要存进 `$.state`，最多 8 条），`turns[].prompt` 按 `rejudge`；发给决策模型的 state 再按各自种类的预算截。
 - 延迟：没有量过，只有外推（每 1k token 约 13 ms）：state 满了的非 skill 请求比 0.2.1 多约 2.4 万 token，约 0.3 秒；这些请求的 effort 题、重判题都很短，慢的时段超时的消息会比以前多一些，没有量。超时变多就把 `contextTokens` 调小，或把 `timeoutMs` 调大。
 
-**`contextMessages` 和 `rejudgeSteps`。** 默认值 4 条、4 步，在 6000 个 token 里装不满：一条助手的回复就常有几百 token。所以 Jev 取 manifest 范围的上限，32 条和 16 步，让 token 预算而不是条数决定发多少：从最新的往前装，放不下的旧消息（旧步骤）整条丢掉，不挤压。消息都很短时 32 条也只有一两千 token。这只是个上限，不是目标；发出去的仍然只有文字和工具名，不发工具的输入和输出，脱敏，这条隐私设计没有改。Clef 的 `contextTokens` 只有 2000，两项都保持接入时的 4，条数再多也只是用更旧的消息填同一个预算，没在 Clef 上量过。
+**`contextMessages` 和 `rejudgeSteps`。** 默认值 4 条、4 步，在 6000 个 token 里装不满：一条助手的回复就常有几百 token。所以 Jev 取 manifest 范围的上限，32 条和 16 步，让 token 预算而不是条数决定发多少：从最新的往前装，放不下的旧消息（旧步骤）整条丢掉，不挤压。消息都很短时 32 条也只有一两千 token。这只是个上限，不是目标；发出去的仍然只有文字和工具名，不发工具的输入和输出，脱敏，这条隐私设计没有改。
 
 **没有量过的。** 按用户的决定没有再跑评测：`contextTokens`、`contextMessages`、`rejudgeSteps` 的这三个值是按上限算的，不是按准确率挑的，更多的上下文是不是真的让 Jev 判得更准、会不会让旧消息干扰当前这条的判断，都没有数据，各个置信度门槛也是在 2000、4、4 的设置上定的。评测集的上下文很短，新默认值对它们几乎没有影响：用离线重建请求核对，`effort-submit` 的 200 个请求里 state 变了 2 个，`effort-midturn` 200 个里变了 10 个，`skill` 的 218 个和 `subagent` 的 200 个都没有变；所以 README「评测」里的数字仍然是新默认值的预览，但不是新默认值上量的。延迟见下。
 
@@ -267,10 +334,10 @@ Q 取 Jev 的计数：skill 第一段 21,900，其余的题按「估算 × 1.37�
 
 ## 按 AA 基准校正（0.2.2）
 
-用户 2026-10-05 要求按 Artificial Analysis 智力指数 v4.3.2 的十个分项校正模型选择和 effort 规则。原始数据、来源 URL 和已存评测回答按新规则离线重算的结果在 `docs/research/aa-benchmarks-2026-10.md`。改了这几处，每一处都是代码里的常量或 `BACKEND_DEFAULTS`，不进 `userConfig`（除了本来就是配置项的三个门槛），Clef 同样适用（Clef 的门槛本来就没校准）：
+用户 2026-10-05 要求按 Artificial Analysis 智力指数 v4.3.2 的十个分项校正模型选择和 effort 规则。原始数据、来源 URL 和已存评测回答按新规则离线重算的结果在 `docs/research/aa-benchmarks-2026-10.md`。改了这几处，每一处都是代码里的常量或 `BACKEND_DEFAULTS`，不进 `userConfig`（除了本来就是配置项的三个门槛）：
 
 1. **派出 agent 的模型选项文字**（`KINDS`）：haiku 只做一两步就能完成的只读查找（Terminal-Bench 0%，AutomationBench 3.2%，HLE 10.4%）；sonnet 承担大多数执行类工作（终端、自动化、知识工作上与 Opus 持平或略高；Omniscience 32 对 46，幻觉率 47%，HLE 差 6.4，SciCode 差 5.9）；opus 管依赖事实知识的调研、难推理、设计、原因未知的 bug、科学或算法类代码和高风险工作；fable 文字不变，仍默认关闭（AA 上没有领先 Opus 5.5 的地方，价格 2.5 倍）。选项名、`work` 键、问题结构都不变。
-2. **effort 往上取一档**（`pickEffort`、`ROUND_UP` 0.3）：先取概率最高的一档，高一档的概率也有 0.3 以上就往上取一档，只取一次；`max` 仍要它自己的概率达到 `thetaMax`（不论它是最高的一档还是往上取会到的那一档）。发消息时、中途重判（`judgeMidturn`）、卡住时的强制升档（`traceRaise`）、派出 agent 的 effort 都用这一个函数。
+2. **effort 往上取一档**（`pickEffort`、`roundUp`，0.2.2 时是 `effort.ts` 的常量 `ROUND_UP` 0.3，现在是 `BACKEND_DEFAULTS` 里按决策模型取的值，Jev 仍是 0.3）：先取概率最高的一档，高一档的概率也有 `roundUp` 以上就往上取一档，只取一次；`max` 仍要它自己的概率达到 `thetaMax`（不论它是最高的一档还是往上取会到的那一档）。发消息时、中途重判（`judgeMidturn`）、卡住时的强制升档（`traceRaise`）、派出 agent 的 effort 都用这一个函数。
 3. **中途门槛**：`thetaUp` 0.4 改 0.3，`thetaDown` 0.6 改 0.75（每次最多降一档的规则保留；0.2.3 起是 0.55，见「降档门槛（0.2.3）」），`holdSteps` 3 改 5。`thetaUp`、`thetaDown` 在 `BACKEND_DEFAULTS`，`holdSteps` 是 manifest 的默认值（同时是 `readConfig` 的后备值），README 的配置表同步。
 4. **按模型设 effort 下限**（`effortFloor`）：sonnet 和 opus 至少 medium；haiku 不带 effort；fable 没有。用在派出 agent 和 Workflow 里 `agent()` 的决策上；你点名的 effort 和模型永远优先，下限和往上取的一档都不碰它们（`decideDispatch` 里 `namedEffort ?? lifted ?? decided`）；主 agent 自己的 effort 不受下限管（它没有模型可选）。对已经有 effort 的 agent，卡住后「预期内」的重判也不降到它的下限以下。
 5. **报告开始的轮次也走 effort 路由**（见「它做什么」）：`origin.kind` 是 `peer`（子 agent 交回的结果）或 `task-notification`，没有 `turnId`；用的是同一题，`user_message` 换成报告的文字；不问 skill，状态里的预算取 `messagePlain`；用户的锁定优先；决策日志记作 `main-effort (agent report)`；这一轮不做中途重判。这是 `core/prompts.ts` 的 `startsReportTurn`（其他非本人的 origin 保持不判断），`PendingDecision.report` 让 `turn.start` 把这一轮记成不是本人开始的。生成的类型（`PromptOrigin`）和 `docs/research/mods-api-routing-capabilities.md` 说明了这两个 origin：`peer` 是另一个会话或 agent 的模型，`task-notification` 是后台任务的通知，闲置时到达的开始新的一轮（`turnId` 不在），送进正在进行的一轮的带着那一轮的 `turnId`。
@@ -323,7 +390,7 @@ Sonnet 5.5 在 low、medium、high、max 的指数是 36、41、47、56（Termin
 
 中文题和英文题分开看是同一个趋势（见命令的输出）。
 
-**选值规则（用户定）。** 偏高回到对照组附近（约 11%–12%），偏低仍低于对照组（`en` 12.0，`zh` 15.5）；满足的取最高的一个（降低难）；都不满足就取偏高加偏低最小的。结果：0.55 到 0.75 里没有一个值让偏高回到 11%–12%（最低是 0.55 的 17.0 / 16.0），偏低在每个值上都低于对照组，所以走第三条：偏高加偏低 `en-score` 是 0.55 的 27.0 最小（0.75 是 29.5），`zh-score` 是 0.55 的 25.5 最小（其余都是 27.0）。`thetaDown` 定为 0.55，Jev 和 Clef 一样（Clef 本来就没校准）。
+**选值规则（用户定）。** 偏高回到对照组附近（约 11%–12%），偏低仍低于对照组（`en` 12.0，`zh` 15.5）；满足的取最高的一个（降低难）；都不满足就取偏高加偏低最小的。结果：0.55 到 0.75 里没有一个值让偏高回到 11%–12%（最低是 0.55 的 17.0 / 16.0），偏低在每个值上都低于对照组，所以走第三条：偏高加偏低 `en-score` 是 0.55 的 27.0 最小（0.75 是 29.5），`zh-score` 是 0.55 的 25.5 最小（其余都是 27.0）。`thetaDown` 定为 0.55。
 
 **扫描没有覆盖的。** 最小值落在扫描范围的下沿，所以另外扫了 0.3 到 0.5（也是零费用，没有进默认值）：`en-score` 偏高 15.5–17.0、偏低 10.5–11.0；`zh-score` 偏高 12.5–15.5、偏低 10.0–10.5（0.3 到 0.4 的 12.5 接近目标，但 `en-score` 在同样的值上是 15.5 到 16.5，两个变体不一致；而且降档的门槛和升档的 0.3 贴在一起，已经没有「降低更难」的意思）；就算降到 `thetaUp` 的 0.3（再低按 `thetaUp` 算），`en-score` 的偏高也回不到 11%–12%。原因：`sent` 的偏高里有 `picked` 本身偏高的部分（往上取一档之后 `en-score` 11.0、`zh-score` 8.0，0.2.1 是 6.5 和 4.5），这一部分 `thetaDown` 管不到；要回到对照组的水平，得动往上取一档的 0.3，那是另一个决定，这里没有动。
 
@@ -341,38 +408,33 @@ Sonnet 5.5 在 low、medium、high、max 的指数是 36、41、47、56（Termin
 
 **0.2.2（按 AA 基准校正）之后仍然没有数据的：** 往上取一档（0.3）、`thetaUp`/`holdSteps`（0.3、5）、各个下限（`thetaDown` 在 0.2.3 扫过，见上一节）只和 0.2.1 的规则各比了一次（见「按 AA 基准校正」的「评测迭代」），没有扫这些值；派出 agent 的模型文字是对着这 100 题调的，没有在没见过的请求上量；各种类的 state 预算（6000 和 24000）没有量延迟和准确率；报告开始的轮次（agent 交回的结果、任务通知）用的那一题没有专门的评测集，题和发消息时的相同，它们的 `user_message` 是报告文字而不是你的话，决策模型对这样的输入判得准不准没有数据。
 
-**按用户的决定（2026-10-05），#17 不再跑任何对比或扫描评测。** 用户的原话：「那我觉得我们没有必要再跑任何对比测试了 但是我们仍然要做clef接入 提供给有需要的人 我们自己就用jev即可」。所以 Clef 只保留接入，下面列的事大多仍然没有数据；#17 只做了不花钱的收尾（按决策模型取默认值、`skillsMinRelevance` 改成 0.75、文档）和之前已经跑完的 Clef 截断探针。#17 各验收项的状态：
+**按用户的决定（2026-10-05），#17 不再跑任何对比或扫描评测。** 下面列的事大多仍然没有数据；#17 只做了不花钱的收尾（按决策模型取默认值、`skillsMinRelevance` 改成 0.75、文档）。#17 各验收项的状态：
 
-- 上下文范围扫描（最近 2、4、8、16 步 × 1k、2k、4k、8k token）：没有做。现有评测集的上下文太短，扫描几乎测不出差别（16 格 × 4 套的 13,088 个请求里只有 1,226 个不同），要做就得先补长上下文的题，补充集也按用户的决定取消了。#17 时默认值保持原样；0.2.1 起 Jev 的三项默认值按 Jev 的上限取，不是按这个扫描挑的（见「Jev 的上下文默认值怎么算」，更多上下文是否让判断更准没有数据）；Clef 的 `contextTokens` 按截断的结论最多 2000。
-- Jev 和 Clef 各一套默认值、写回 mod 的配置：已做（见「配置」里「按决策模型取的默认值」）。Clef 实测过的几处不同，其余暂沿用 Jev 的值。
+- 上下文范围扫描（最近 2、4、8、16 步 × 1k、2k、4k、8k token）：没有做。现有评测集的上下文太短，扫描几乎测不出差别（16 格 × 4 套的 13,088 个请求里只有 1,226 个不同），要做就得先补长上下文的题，补充集也按用户的决定取消了。#17 时默认值保持原样；0.2.1 起 Jev 的三项默认值按 Jev 的上限取，不是按这个扫描挑的（见「Jev 的上下文默认值怎么算」，更多上下文是否让判断更准没有数据）。
+- 按决策模型取默认值、写回 mod 的配置：已做（见「配置」里「按决策模型取的默认值」）。
 - 置信度门槛按语言分别校准：没有做。
-- 问题用英文还是中文写：**已改，只改了一个问题。** 用户在现在的问法（代码基点 9ec9c42）上跑了一次 effort-submit 的对比（`results/effort-submit/2026-10-05-jev-ac4-question-language.json`，Jev，`zh-score` 和 `en-score` 各 1 次，400 个请求，0.0126 美元）：用中文问，中文题 85.0%、英文题 89.0%（差距 −4.0）；用英文问，79.0%、78.0%（差距 +1.0）；两种问法的 p50 都是 282 ms，没有迟到或重试的回答。这次的请求和 2026-10-04 的 3 次运行逐字相同，那 3 次里中文问法也都高约 8 个百分点，方向一致。按事先说好的规则（中文问法领先 3 个百分点以上就改），Jev 在发消息时判断 effort 的那一个问题改用中文（`core/setup.ts` 的 `BACKEND_DEFAULTS` 里的 `turnStartLanguage`，不是配置项）。只改这一个，因为其余问题（中途重判、派出 agent、Workflow、卡住时的强制升档、skill 和 `find_skill`）在现在的问法上都没有中文问法的数据：一轮中途的两种语言在旧问法上持平，派出 agent 和 skill 当时没有中文变体（之后加上了 `models-hint-zh` 和 `profiles-zh`，见「开发」里「评测」的这两节，还没有运行）。Clef 没有任何中文问法的数据，全部保持英文。同一个请求里，中文的 effort 问题和英文的 skill 问题混在一起，这种情况没有测过：effort-submit 只单问 effort。
-- 验证 Clef 是否截断 state：已做，会截断，但时有时无（见下面的「Clef 截断 state」）。
+- 问题用英文还是中文写：**已改，只改了一个问题。** 用户在现在的问法（代码基点 9ec9c42）上跑了一次 effort-submit 的对比（`results/effort-submit/2026-10-05-jev-ac4-question-language.json`，Jev，`zh-score` 和 `en-score` 各 1 次，400 个请求，0.0126 美元）：用中文问，中文题 85.0%、英文题 89.0%（差距 −4.0）；用英文问，79.0%、78.0%（差距 +1.0）；两种问法的 p50 都是 282 ms，没有迟到或重试的回答。这次的请求和 2026-10-04 的 3 次运行逐字相同，那 3 次里中文问法也都高约 8 个百分点，方向一致。按事先说好的规则（中文问法领先 3 个百分点以上就改），Jev 在发消息时判断 effort 的那一个问题改用中文（`core/setup.ts` 的 `BACKEND_DEFAULTS` 里的 `turnStartLanguage`，不是配置项）。只改这一个，因为其余问题（中途重判、派出 agent、Workflow、卡住时的强制升档、skill 和 `find_skill`）在现在的问法上都没有中文问法的数据：一轮中途的两种语言在旧问法上持平，派出 agent 和 skill 当时没有中文变体（之后加上了 `models-hint-zh` 和 `profiles-zh`，见「开发」里「评测」的这两节，还没有运行）。同一个请求里，中文的 effort 问题和英文的 skill 问题混在一起，这种情况没有测过：effort-submit 只单问 effort。
 - 中文准确率比英文低多少算通过：**门槛改成 4 个百分点**（用户 2026-10-05 的决定；原来的 spec 写的是 3 个百分点）：中文比英文低不超过 4 个百分点就算通过，正好低 4.0 也通过（`eval/lib/metrics.ts` 的 `MAX_GAP`、`passes`）。发布的配置（Jev，effort 用中文问）在 effort-submit 上那一次的差距是 −4.0，按新门槛通过；同样的请求在 2026-10-04 的 3 次运行里是 0、0、−1；而中文题的准确率比用英文问时高 6 个百分点（85 对 79）。其余几套都是改措辞之前的问法上的离线数据：一轮中途 `en-score` −1 和 +3，派出 agent `models-hint` +2 到 +3（中文高），skill 带画像时在 `skillsMinRelevance` 0.75 下 −1.8 和 −2.8，按新门槛都通过（0.7 下的 −3.7 也通过）。`en-choice` 的 −3.0 按新门槛也通过。已存结果的 `pass` 都按新门槛离线重算过（`eval/resummarize.ts`）。
-- 需要真实密钥、会产生少量费用：Clef 截断探针两轮合计约 0.036 美元（Clef 约 0.034 美元，Jev 对照约 0.002 美元）；问题语言的对比 0.0126 美元。
+- 需要真实密钥、会产生少量费用：问题语言的对比 0.0126 美元。
 
 **问题的文字一改，评测就要重跑。** 发给决策模型的问题、指令和选项描述（`hooks/decision/` 里的那些文字）是被测的对象：改了哪一处，用到它的评测都要重跑，旧结果只能对照，不能当成新问法的数字。结果文件记着每个变体当时问的问题（`questions`）和代码的哈希（`code`），和现在的对不上，就是过期的结果。第 1 轮审查改了下面这些；按用户的决定，修复之后没有重跑，「开发」里「评测」一节的数字都是修复之前的问法测得的，只能当预览：
 
 - `effort-midturn`：每个调用的那一行改成 mod 的写法（不再带评测集里「结果如何」的部分），`trouble` 变体改用 #7 的 `stuckRequest`（多了「是不是预期内」一题）；所有变体都变了，新加了 `raw-results` 作对照。
 - `subagent`：effort 问题里的「子 agent」「subagent」改成「派出的 agent」「dispatched agent」；点名 effort 一题不再被英文里随口说的 think、reason 触发；Workflow 的题按 #8 的方式合并提问，新加了 `models-hint-single`。
 - `skill`：第一段拆成两题（`skills.which` 只问主 agent 能加载的，`skills.hint` 只问只能由你触发的），第二段的短名单两类分开取。
-- `effort-submit`：请求没变（2026-10-05 的问题语言对比就是在现在的代码上跑的，请求和 2026-10-04 的逐字相同）。通过与否的规则先改成中文比英文低不到 3 个百分点，2026-10-05 又按用户的决定改成低不超过 4 个百分点（正好 4.0 也通过）；已存结果的 `pass` 已按 4 个百分点重算。线上的问法从 2026-10-05 起是 Jev 用 `zh-score`、Clef 用 `en-score`（`modVariant`）。
+- `effort-submit`：请求没变（2026-10-05 的问题语言对比就是在现在的代码上跑的，请求和 2026-10-04 的逐字相同）。通过与否的规则先改成中文比英文低不到 3 个百分点，2026-10-05 又按用户的决定改成低不超过 4 个百分点（正好 4.0 也通过）；已存结果的 `pass` 已按 4 个百分点重算。线上的问法从 2026-10-05 起是 Jev 用 `zh-score`（`modVariant`）。
 
 还没有数据的事（#17 按用户的决定没有再测；要不要开后续票由用户决定）：
 
-- **中途重判的默认值和写法。** `thetaUp`、`thetaDown`、`holdSteps`、`rejudgeEvery`、`rejudgeSteps` 的默认值都是起点（参考了 jev-pilot 实测的升档门槛 0.3/0.5、降档 0.6），要按语言分别校准。state 里放不放当前档位和计数、问题用英文还是中文，都是评测变量（见「开发」里的「中途重判」）。`rejudgeWaitMs` 的默认值按回答延迟的 p90 和工具的平均执行时间来定：实测 Jev 的中途请求 313–330 ms。#14 的评测（见「开发」里「评测」的「一轮中途的 effort」）给出了第一批数据：Jev 的中途请求 p50 约 280 ms、p90 约 350 ms；去掉当前档位或计数、问题改用中文，两次运行里都看不出稳定的差别；Clef 的 confidence 比 Jev 低得多，默认门槛下几乎不改档，门槛要按后端分别校准。#17 没有校准（用户的决定）：两个决策模型都用这些起点值，Clef 在这些门槛下很少改档。
+- **中途重判的默认值和写法。** `thetaUp`、`thetaDown`、`holdSteps`、`rejudgeEvery`、`rejudgeSteps` 的默认值都是起点（参考了 jev-pilot 实测的升档门槛 0.3/0.5、降档 0.6），要按语言分别校准。state 里放不放当前档位和计数、问题用英文还是中文，都是评测变量（见「开发」里的「中途重判」）。`rejudgeWaitMs` 的默认值按回答延迟的 p90 和工具的平均执行时间来定：实测 Jev 的中途请求 313–330 ms。#14 的评测（见「开发」里「评测」的「一轮中途的 effort」）给出了第一批数据：Jev 的中途请求 p50 约 280 ms、p90 约 350 ms；去掉当前档位或计数、问题改用中文，两次运行里都看不出稳定的差别。#17 没有校准（用户的决定）。
 
-- **「预期内失败」这一问的写法和门槛（#7；评测归 #14；按语言校准原定由 #17 做，按用户的决定没有做）。** `thetaExpected`、`escalateAfter`、`escalateLimit` 的默认值都是起点。`thetaExpected` 的默认值来自一次手工的小实验：11 个手写场景（6 个预期内：先写红灯测试、搜索没结果、探测 docker 是否安装、lint 报告问题、探测端口、一道中文红灯题；5 个真的卡住：构建一再失败、Edit 一再失败、部署失败、安装依赖失败、上传凭证错误），用 `scripts/decide-stuck.ts` 的同一份请求，各问 8 种写法。当前写法（英文问题加 `criteria`）：Jev 对预期内的评分 0.15–0.72（均值 0.39），对卡住的 0.09–0.16（均值 0.12）；Clef 对预期内的 0.27–0.90（均值 0.63），对卡住的 0.03–0.11（均值 0.06）。两个后端的分布都偏低，所以门槛取低（默认值下，Jev 放过 6 个里的 5 个预期内的，Clef 6 个全放过，卡住的 10 次都升了档）。样本太小，只能当起点。要评测它，可以在 `effort-midturn` 的带 `trouble` 的题上加一个标注「这些失败是否预期内」：请求已经是 mod 发出的那一个（`trouble` 变体用 `decision/escalation.ts` 的 `stuckRequest` 拼，回答用 `readExpected` 读，记在逐题答案的 `expected` 里），缺的只是标注和评分；变量有：问题的写法（当前写法、「是不是预期内」改问「是不是卡住」（高值代表卡住）、不带 `criteria`，几种写法在上面的场景里的差别不大，不带 `criteria` 的卡住问法在 Clef 上间隔最大）、中英文、`recent_steps` 条数。`escalateMode`、`escalateAfter` 和 `escalateLimit` 没有评测方法，按使用体验调。
-- **Clef 截断 state（#17 已测）。** 第三方资料（OpenRouter 的模型页）说 Workers AI 只读 state 的前约 2K token，官方 schema 只写了「过长的 state 会被截断」；Clef 开源的编码代码（Hugging Face 上 `Cloudflare/clef` 的 `joint_schema_model.py`）截断 state 时只留开头，问题从不截断。#17 用 `eval/probe-truncation.ts` 量了两轮（`eval/results/probes/2026-10-05-truncation.json`、`-2.json`，合计约 0.036 美元）：在 state 的开头、中间、末尾各藏一个事实，各用一个带「没有说」选项的 Choice 问。结论：**Clef 会截断，但时有时无**，超过约 2.1k token 的 18 个 state 里截了 4 个（英文 4/14，中文 0/4）；截断时只留 state 开头约 2.1k 个 Clef token，4 次的计数都正好是 2,650（计费也按截断后），后面的事实都答「没有说」。问题不截断：96 个选项、约 1.54 万 token 的问题选对了最后一项；整条约 1.8 万 token 时 state 也完整读到，所以带画像的 skill 第一段不会把同一请求里的 state 挤短。Jev 全部答对。设计和数字见 `eval/plans/17-calibration.md` 的 8.4–8.7 节。
-  - **字段的顺序靠不住。** 截断留下的是序列化之后 state 的开头。Clef 开源的编码代码把 state 序列化成紧凑的 JSON 并按键名排序（`joint_schema_model.py` 的 `render()`：`json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)`），再截 token：这样排，`user_message` 在 `recent_context`（发消息时）、`recent_steps`（一轮中途）、`brief`（派出 agent）之后，截断最先丢的正是它。Workers AI 线上怎么排没有公开。所以 mod 不靠顺序，而是让整个 state 都在截断位置之内：`contextTokens` 约束的是发出去的整个 state，按它序列化成 JSON 的样子数（字段名、引号和转义都算，`decision/context.ts` 的 `withinTokens`；发消息时、`find_skill`、一轮中途和卡住时、派出 agent、Workflow 的请求都这样拼）。选 Clef 时它最多 2000。
-  - **预算之外的开销。** 改成按整个 state 数之前，字段名、JSON 的标点和转义不在预算里：普通文字只多 10–30 个估算 token，但贴进来的 JSON、带很多引号和反斜杠的代码会让 2000 的 state 序列化后到约 2,470（离线用最坏的例子量的）。现在这部分也在预算之内，开销的上界就是 0。
-  - **按 mod 的估算，2000 个 token 是多少个 Clef token。** 散文约 1.6–1.8k（探针里估算比 Clef 的计数多，英文约 1.15 倍、中文约 1.25 倍），在约 2.1k 的截断位置之内。代码、日志这类符号多的内容没有量过：mod 按约 4 个字符 1 个 token 估算，这类内容 Clef 的计数可能更多，满是代码的 state 可能越过约 2.1k，证明不了不会截断。README 里建议常贴大段代码的人把 `contextTokens` 设小一些（例如 1500）。
-- **Clef 的延迟和 `timeoutMs`。** 本机用 Node 的 fetch 连发 6 次同一个请求：Clef 第一次 1.8 秒，之后 0.6–1.4 秒；Jev 第一次 0.57 秒，之后 0.28–0.33 秒。#4 的正式基线：200 个请求依次发送时 p50 699 ms、p90 929 ms，只有 1 条超过 1500 ms（见「开发」里的「评测」）；#17 的截断探针里，1.5–4.7k token 的请求 0.9–1.9 秒，8.8k 时 1.7–2.4 秒，1.8 万时 3.5–4.2 秒。#17 按这些数字给 Clef 的 `timeoutMs` 默认值留了余量，没有再按 p50、p90 细调。
-- **派出 agent 的门槛（#15 的数据）。** `agentOverride` 的默认值在两次 Jev 运行里都不是最好：0.4–0.5 时整题中文 +3、英文 +2 个百分点；点名的门槛 0.5 偏低，英文里只是被提到的模型以 0.5–0.6 被当成点名；`thetaMax` 取 0.3 比默认值好 1–2 个百分点。数字见 `eval/results/subagent/` 各变体的 `breakdown.sweeps`，逐题的原始回答也在里面，可以按语言分别重扫（见「开发」里的「派出 agent（subagent，#15）」）。Clef 只抽样跑了 12 题（p90 约 1.05 秒），全量一个变体约 0.05 美元。#17 没有改这几个门槛（用户的决定）。
+- **「预期内失败」这一问的写法和门槛（#7；评测归 #14；按语言校准原定由 #17 做，按用户的决定没有做）。** `thetaExpected`、`escalateAfter`、`escalateLimit` 的默认值都是起点。`thetaExpected` 的默认值来自一次手工的小实验：11 个手写场景（6 个预期内：先写红灯测试、搜索没结果、探测 docker 是否安装、lint 报告问题、探测端口、一道中文红灯题；5 个真的卡住：构建一再失败、Edit 一再失败、部署失败、安装依赖失败、上传凭证错误），用 `scripts/decide-stuck.ts` 的同一份请求，各问 8 种写法。当前写法（英文问题加 `criteria`）：Jev 对预期内的评分 0.15–0.72（均值 0.39），对卡住的 0.09–0.16（均值 0.12）。分布偏低，所以门槛取低（默认值下，Jev 放过 6 个里的 5 个预期内的，卡住的 10 次都升了档）。样本太小，只能当起点。要评测它，可以在 `effort-midturn` 的带 `trouble` 的题上加一个标注「这些失败是否预期内」：请求已经是 mod 发出的那一个（`trouble` 变体用 `decision/escalation.ts` 的 `stuckRequest` 拼，回答用 `readExpected` 读，记在逐题答案的 `expected` 里），缺的只是标注和评分；变量有：问题的写法（当前写法、「是不是预期内」改问「是不是卡住」（高值代表卡住）、不带 `criteria`，几种写法在上面的场景里的差别不大）、中英文、`recent_steps` 条数。`escalateMode`、`escalateAfter` 和 `escalateLimit` 没有评测方法，按使用体验调。
+- **state 的预算按发出去的样子数（#17）。** `contextTokens` 约束的是发出去的整个 state，按它序列化成 JSON 的样子数（字段名、引号和转义都算，`decision/context.ts` 的 `withinTokens`；发消息时、`find_skill`、一轮中途和卡住时、派出 agent、Workflow 的请求都这样拼）。不靠字段的顺序：决策模型读过长的 state 时可能只读开头。
+- **派出 agent 的门槛（#15 的数据）。** `agentOverride` 的默认值在两次 Jev 运行里都不是最好：0.4–0.5 时整题中文 +3、英文 +2 个百分点；点名的门槛 0.5 偏低，英文里只是被提到的模型以 0.5–0.6 被当成点名；`thetaMax` 取 0.3 比默认值好 1–2 个百分点。数字见 `eval/results/subagent/` 各变体的 `breakdown.sweeps`，逐题的原始回答也在里面，可以按语言分别重扫（见「开发」里的「派出 agent（subagent，#15）」）。#17 没有改这几个门槛（用户的决定）。
 - **Workflow agent 启动时当场判断的排队（#9）。** prompt 是数据的调用（fan-out）每启动一个 agent 就发一个请求，fan-out 的几个 agent 几毫秒内一起启动（实测），而 Jev 对同一个 key 的并发请求像是依次处理，排在后面的会等到超时，那些 agent 不经路由。要量一量常见的 fan-out（几个到十几个 agent）有多少能在 `timeoutMs` 之内答上；不够的话，把几毫秒内一起启动的 agent 合进一个请求（#8 的 `workflowBatches` 已经能把几个调用放进一个请求）。
 - **skill 推荐的门槛和准确率（#16）。** #11 的起点：用 mod 自己的排序代码（`skillsRequest` + `modRanker`）和真实的 Jev（jev-1.13.0），在本机 87 个 skill（66 个主 agent 能加载、21 个只能由用户触发）上问了 21 条消息：18 条中文（10 条该推荐 skill、8 条不该），3 条 find_skill 式的英文查询（2 条有对应的 skill）。先不带画像：该推荐的 skill 在第二段的相关度是 0.81–0.98（最低的是 `pr` 0.81）；不该推荐的消息里进入第二段的 skill 是 0.07–0.66（两次重命名都给了 `implement`，0.49 和 0.66），另有两个可争议的 0.80 左右（「这个函数为什么返回 undefined」的 `diagnosing-bugs`，「解释一下这个正则」里只能由用户触发的 `teach` 0.79）。所以 `skillsMinRelevance` 取两组之间的 0.7，`findSkillMinRelevance` 取 0.5（主 agent 主动问时宁多勿漏，它自己会看描述）。给 3 个 skill 写了画像后再问一遍：该推荐的照旧（`code-review` 0.96、`codebase-design` 0.96、`diagnosing-bugs` 0.94），`diagnosing-bugs` 对「为什么返回 undefined」降到 0.53（它的画像写了「不用于简单问题」）。第一段的分布：该推荐的 skill 都分到 0.34 以上（多数 0.96–1.00），不需要 skill 的消息里分给 skill 的最多 0.10，所以第二段只补读分到 0.1 以上的（`SHORTLIST_FLOOR`），多数普通消息只发一个请求。#16 的评测（109 题 × 中英 × 有画像和没有画像，真实的 Jev 跑了两次，见「开发」里「评测」的「skill 匹配」）：线上的有画像时中文 79.8%、英文 83.5%，两次都差 3.7 个百分点，没过当时 3 个百分点的门槛，在现在 4 个百分点的门槛之内（没有画像时 −1.8 和 −0.9）；`skillsMinRelevance` 在 0.3–0.8 之间很平，按语言建议中文 0.75、英文 0.8，共用一个值时 0.75（差距缩到 −2.3）；`findSkillMinRelevance` 建议中文 0.3、英文 0.5（共用时保持 0.5）。评测集里九成以上的消息都过了 0.1 这个下限、发了第二段（不该推荐的题多是诱导题）。#17 按这些数据把 `skillsMinRelevance` 的默认值改成 0.75（修复之前的问法上的预览，没有在新问法上重跑），`findSkillMinRelevance` 保持 0.5。按用户的决定没有再评测的：`skillsShortlist` 和 0.1 这个下限（决定第二段问什么，只能重新请求）；第一段拆成两题之后（第 1 轮审查：只能由用户触发的 skill 单独一题，不再挤掉能加载的 skill，033、090、091、092）两个变体都要重跑；问题用中文写；画像只用英文；Choice 选项顺序的影响（Jev 偏向排在前面的选项）。
 - **主 agent 会不会主动用 `find_skill`。** 列表换成提示之后，主 agent 在推荐漏掉时并不会自己去查：一条要写 PR 描述、但没有推荐 `pr` 的消息，有提示、没有提示、加上「何时用」的更主动写法各 3 次，都直接写了正文；读到完整列表时第一步就加载了 `pr`（见「开发」里的「已实测的引擎行为」）。这类消息目前靠发消息时的推荐。还要评测：换别的场景（文件格式、某个服务的工具、一轮中途才出现的需要）和别的模型，以及「每轮先查」这类更强的写法值不值得它多出的 ToolSearch 加 `find_skill` 两步。
-- **skill 请求的大小和延迟。** 不带画像时第一段约 6.4k input token（87 个选项），真实引擎里 0.3–0.6 秒；每份画像约多 110 token（实测 3 份画像多出 330–380 token），全部写好后估计 16k 左右，在 Jev「state + 最长的问题 ≤ 32k」之内；`questionBudget` 再按估算值留了余量（估算比 Jev 报的少约 10%，按 1.35 倍留），超出时先去掉「何时不用」，再从后往前改回描述。第二段约 0.5–1.5k token、0.25–0.5 秒。`-p` 进程启动时的第一个请求有一次用了 1.7 秒（#10 实测，进程启动时其他工作同时在跑），超时后照常放行。#16 实测（111 个 skill，Jev 计）：不带画像时第一段 8.6k input token，带全部画像 2.19 万（`questionBudget` 没有裁剪），第二段约 1.3k。Jev 第一段 p50 0.32–0.34 秒（不带画像）、0.56–0.67 秒（带画像）；慢的时段带画像的 p90 到 1.65 秒，218 条里 24 条第一段就超过 1500 ms：这条消息的决策请求整个超时，effort 也没有经过路由。Clef 带画像的第一段 1.5 万 token、3.7–7.9 秒，Clef 默认的 `timeoutMs` 下每条消息都会超时（6 条抽样全部超过）。#17 的处理：选 Clef 时发消息的 skill 推荐默认关闭（`/dp skills on` 可以打开）；`find_skill` 选 Clef 时合计最多等 8000 毫秒、第一段只用描述（见「find_skill：主 agent 中途查询 skill」，按延迟定，没有校准）；把第一段单独发、只留英文字段的裁剪画像都没有评测（用户的决定）。
+- **skill 请求的大小和延迟。** 不带画像时第一段约 6.4k input token（87 个选项），真实引擎里 0.3–0.6 秒；每份画像约多 110 token（实测 3 份画像多出 330–380 token），全部写好后估计 16k 左右，在 Jev「state + 最长的问题 ≤ 32k」之内；`questionBudget` 再按估算值留了余量（估算比 Jev 报的少约 10%，按 1.35 倍留），超出时先去掉「何时不用」，再从后往前改回描述。第二段约 0.5–1.5k token、0.25–0.5 秒。`-p` 进程启动时的第一个请求有一次用了 1.7 秒（#10 实测，进程启动时其他工作同时在跑），超时后照常放行。#16 实测（111 个 skill，Jev 计）：不带画像时第一段 8.6k input token，带全部画像 2.19 万（`questionBudget` 没有裁剪），第二段约 1.3k。Jev 第一段 p50 0.32–0.34 秒（不带画像）、0.56–0.67 秒（带画像）；慢的时段带画像的 p90 到 1.65 秒，218 条里 24 条第一段就超过 1500 ms：这条消息的决策请求整个超时，effort 也没有经过路由。把第一段单独发、只留英文字段的裁剪画像都没有评测（用户的决定）。
 - **一个请求里放几个 Workflow 调用，准确率会不会降（#8）。** 一个脚本的几个 `agent()` 共用一个请求（最多 8 个，各自的 brief 放在 state 里），对每个问题来说，其他调用的 brief 是无关内容，TypeSafe 的指南说这会降低准确率。实际降不降、降多少，要拿同一批调用，一个请求一个调用和现在的分批各问一遍来比；差距明显就把 `decision/workflow.ts` 的 `MAX_PER_REQUEST` 调小。`subagent` 评测现在就这样问（`models-hint` 按 #8 合并，`models-hint-single` 一个调用一个请求，见「开发」里的「派出 agent（subagent，#15）」），还没有跑过（#17 按用户的决定没有跑）。
 
 ---
@@ -388,28 +450,28 @@ command claude plugin test ./dispatch-pilot               # 接缝 1 的测试�
 command claude plugin validate ./dispatch-pilot --strict
 tsc -p ./dispatch-pilot                                   # 需要先用 --plugin-dir 加载一次，生成 .claude-plugin/types/；只查 hooks、types、tests（eval/ 和 scripts/ 不在内，靠测试和 node --check）
 claude --plugin-dir ./dispatch-pilot --settings '{"enabledPlugins":{"jev-pilot@jev-pilot":false}}'
-TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' [--zh | --en] [--choice]   # 用 Node 调一次真实的 Jev；问题默认用 mod 对这个决策模型的写法（Jev 中文，Clef 英文）
-CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_AUTH_TOKEN=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' --clef   # 调一次真实的 Clef
+TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' [--zh | --en] [--choice]   # 用 Node 调一次真实的 Jev；问题默认用 mod 对这个决策模型的写法（Jev 中文）
 TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-agent.ts --file <subagent.jsonl> --id subagent-011 [--lang en] [--zh] [--work] [--noul] [--fable]   # 一个派出 agent 的判断（Jev），请求与 mod 发出的相同
-TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-stuck.ts <输入.json> [--zh] [--clef]   # 一个卡住的循环的再判断（Jev，或 --clef）：输入是 MidturnInput，打印「预期内」的概率和 effort 各档的概率
+TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-stuck.ts <输入.json> [--zh]   # 一个卡住的循环的再判断（Jev）：输入是 MidturnInput，打印「预期内」的概率和 effort 各档的概率
 node dispatch-pilot/eval/validate.ts                      # 校验评测集（接缝 2，见下文「评测」），再核对 README 的配置表和 plugin.json、BACKEND_DEFAULTS 一致（#18）
 node dispatch-pilot/eval/validate.ts docs                 # 只核对 README 的配置表
 node dispatch-pilot/eval/run.ts effort-submit --estimate  # 估算请求数、token 和费用，不发请求
-node dispatch-pilot/eval/run.ts effort-submit --label <名字> [--backend clef]   # 用真实 Jev（或 Clef）跑一次评测，结果存进 eval/results/
-node dispatch-pilot/eval/run.ts effort-midturn --label <名字> [--variants en-score] [--backend clef]   # 中途重判的评测（#14）；--backend clef 时 mod 的设置取 Clef 的默认值（timeoutMs 3000 等）
+node dispatch-pilot/eval/run.ts effort-submit --label <名字>   # 用真实 Jev 跑一次评测，结果存进 eval/results/
+node dispatch-pilot/eval/run.ts effort-midturn --label <名字> [--variants en-score]   # 中途重判的评测（#14）
 node dispatch-pilot/eval/run.ts subagent --label <名字>   # 派出 agent 的模型和 effort（#15）：六个变体 × 中英，1200 个请求，Jev 约 0.13 美元（估算）；--variants models-hint-zh 只跑中文问法，200 个请求，约 0.03 美元
-node dispatch-pilot/eval/run.ts subagent --backend clef --variants models-hint --ids subagent-001,...   # Clef 抽样
 node dispatch-pilot/eval/run.ts skill --estimate          # skill 匹配（#16）：三个变体 × 中英，第二段按每条消息都发、短名单排满估算（上限：1308 个请求，约 0.90 美元；只跑 profiles-zh 是 436 个、约 0.37 美元）
 node dispatch-pilot/eval/run.ts skill --label <名字>      # 用真实 Jev 跑 skill 匹配，两段请求都发
+node dispatch-pilot/eval/eval-v2-flow.ts --backend jev [--state-tokens N --state-messages 2000] [--estimate]   # eval v2 的真实流程（#45）：逐条用户消息判三选一、累计次数、Haiku 续写摘要，一个后端加预算一个文件，中断后再跑同一条命令接着跑
+node dispatch-pilot/eval/run.ts eval-v2 --variants zh-flow,en-flow --flow <流程文件> --label <名字>   # eval v2（#45）：最后一条消息的 effort 和三选一；zh-score/en-score 不带流程，zh-flow/en-flow 带流程文件里的次数和摘要
+node dispatch-pilot/eval/eval-v2-thresholds.ts <流程文件> [...]   # 三选一两档门槛的扫描（#45 给 #42）：误清零 ≤ 2% 下加一召回最高，另报中间轮次次数被误改的比例；不发请求
 node dispatch-pilot/eval/profiles.ts [--estimate]         # 给快照里的 skill 写画像（每个 skill 一次 claude -p --model haiku，用你的订阅额度），存进 eval/datasets/skill-profiles.json
 node dispatch-pilot/eval/apply-review.ts effort-submit --from <审核记录.jsonl>  # 应用用户的审核决定，再校验
 node dispatch-pilot/eval/compare.ts <结果 a.json> <结果 b.json>                # 两次运行逐项对照，不发请求
 node dispatch-pilot/eval/resummarize.ts [--dry-run] [<结果.json> ...]          # 按存着的逐题答案重算汇总里的门槛和 inTime（指标改了时），不发请求
 node dispatch-pilot/eval/rescore.ts [--markdown] [<结果.json> ...]                # 按存着的各档概率，用 0.2.1 的规则和现在的规则各选一次档，对照 gold，不发请求、不改文件
-node dispatch-pilot/eval/probe-truncation.ts --estimate   # Clef 截断 state 的探针（#17）：只估算；--show <名字> 打印一个探针的请求；不带这两个就发真实请求（Clef，Jev 对照）
 ```
 
-`scripts/decide*.ts` 和 `eval/run.ts` 的设置都经 `readConfig` 读出：manifest 的默认值，加上所选决策模型的默认值（`core/setup.ts` 的 `BACKEND_DEFAULTS`），所以 `--clef` 或 `--backend clef` 时 `timeoutMs` 取 Clef 的默认值、`contextTokens` 最多 2000。`--timeout` 是一次请求最多等多久，脚本和 `run.ts` 用同一条规则（`eval/lib/runner.ts` 的 `attemptMs`）：默认是 mod 的 `timeoutMs` 的 4 倍、至少 10 秒，免得冷连接的第一次请求就超时；评测里慢的回答照样量得到，超过 mod 会等的时间的另外统计。三个脚本共用 `eval/node.ts` 的 `scriptArgs`（用 `node:util` 的 `parseArgs` 读参数，不认识的参数直接报错）和 `scriptDecision`（设置、后端和凭证）。
+`scripts/decide*.ts`（始终 Jev，`scriptDecision` 写死）和 `eval/run.ts`（`--backend` 选）的设置都经 `readConfig` 读出：manifest 的默认值，加上所选决策模型的默认值（`core/setup.ts` 的 `BACKEND_DEFAULTS`）。`--timeout` 是一次请求最多等多久，脚本和 `run.ts` 用同一条规则（`eval/lib/runner.ts` 的 `attemptMs`）：默认是 mod 的 `timeoutMs` 的 4 倍、至少 10 秒，免得冷连接的第一次请求就超时；评测里慢的回答照样量得到，超过 mod 会等的时间的另外统计。三个脚本共用 `eval/node.ts` 的 `scriptArgs`（用 `node:util` 的 `parseArgs` 读参数，不认识的参数直接报错）和 `scriptDecision`（设置、后端和凭证）。
 
 凭证放在环境变量里，脚本不会打印它们。把它们存在 `~/.config/dispatch-pilot/eval.env` 时，可以用 Node 自带的 `node --env-file=<那个文件> dispatch-pilot/scripts/decide.ts ...` 载入，不必先在 shell 里 source。
 
@@ -431,6 +493,7 @@ hooks/
 │   ├── find-skill.ts       主 agent 的 find_skill 工具：会话开始时注册，被调用时按查询给 skill 排序（#12）
 │   ├── main-effort.ts      发消息时判断主 agent 的 effort（#2）
 │   ├── midturn-effort.ts   一轮中途重新判断主 agent 的 effort（#5）
+│   ├── unresolved.ts       未解决次数的开关 `/dp unresolved`、`session.end` 清零（#39），每轮结束后在后台写问题摘要、热重载丢掉的写的善后（#40）；题和读回答在 main-effort.ts：它们挂在 effort 那一份投票箱里
 │   ├── skill-profiles.ts   会话开始时在后台给缺画像的 skill 写画像（#11）；注册在 skills 之外，等它读完目录
 │   ├── skills.ts           对主 agent 隐藏 skill 列表、换成一句提示，发消息时推荐 skill（#10）
 │   ├── workflow-agents.ts  提交 Workflow 时判断脚本里每个 agent() 的模型和 effort，写进脚本或退回（#8）
@@ -453,6 +516,7 @@ hooks/
 │   ├── profiles.ts         skill 画像（#11）：给模型的提示、读回答、store 的键和淘汰、readSessionSkills（目录加画像）
 │   ├── commands.ts         命令轮（#19）：command.run 记下的命令和随后提交的 prompt 对上，命令在决策请求里的说明，从引擎的命令消息读回输入的命令
 │   ├── prompts.ts          isPersonsMessage：判断哪些 prompt 是用户本人的新消息
+│   ├── unresolved.ts       未解决次数（#39）和问题摘要（#40）的唯一写入者（moveCount、clearCount、queueSummary、landSummary 等）、「决定」的字句（含摘要没写成的）和 `UnresolvedRecord`（卡片画的记录）
 │   ├── skills.ts           skill 目录：loadCatalog（经闭包读命令、引擎的 skill 清单、settings、磁盘，找到每个 skill 的文件）；读和裁剪 skill 列表（#10）；rankingSettings、describeStages（#11）
 │   ├── switches.ts         开关：总开关和各功能的开关，defineSwitch 登记、isOn 判断；isShown：一项功能拥有的看板部分（parts）此刻画不画
 │   └── setup.ts            把 userConfig 读成 ctx：每个选项的范围和缺省值只在这里（Config），以及决策后端
@@ -465,19 +529,22 @@ hooks/
     ├── workflow.ts         Workflow 脚本里各个 agent() 的请求（分批）、读回答、写进什么、告诉主 agent 什么（#8）
     ├── workflow-script.ts  读 Workflow 脚本（找 agent() 调用和它的选项）、把模型和 effort 写进去（#8）
     ├── workflow-labels.ts  Workflow 兜底：journal 里的 label 对应哪个 agent() 调用、从 transcript 取任务、给主 agent 的说明（#9）
+    ├── unresolved.ts       未解决次数的三选一题（`unresolvedQuestion`、`withUnresolved`：加进 effort 那一份 part）、读回答（`readUnresolved`）、两档门槛和判断（`judgeUnresolved`，门槛 `UNRESOLVED_THRESHOLDS`）、次数怎么变（`countAfter`）（#39，eval 共用）
+    ├── summary.ts          问题摘要（#40，eval 共用）：写给便宜模型的提示（`summaryPrompt`、`SUMMARY_SYSTEM`）、读回答并限在 500 token（`readSummary`）、写成决策模型读的文字（`renderSummary`）、标「未解决」（`markLast`）、这一轮的工具汇总（`turnTools`）
+    ├── turn-start.ts       发消息时 effort 那一份的拼法（#40，eval 共用）：`turnStartPart`（effort 题、三选一题、命令和摘要的 state 字段）、`messageRequest`（state 加上 part 的字段，字段占预算）
     ├── model-ids.ts        模型家族对应的完整模型 ID：计划表的 model 写它，不写别名（#9）
     ├── skills.ts           skill 的两段排序（modRanker 是推荐和 find_skill 共用的唯一入口；第一段 skillsPart，第二段 stageTwoPart）、画像的写法、挑选、给主 agent 的文字块；skillsRequest（#16 的评测用）
     ├── context.ts          state：token 估算和截断、最近的对话、turnStartState
     ├── redact.ts           secret 脱敏
-    ├── backend.ts          决策后端的接口、超时、失败分类
+    ├── backend.ts          决策后端的接口、超时、失败分类（`BackendIo.pace`：限速要的时钟和 `$.state` 闭包）
     ├── jev.ts              Jev 后端
-    └── clef.ts             Clef 后端（Cloudflare Workers AI，#3）
-scripts/decide.ts           用 Node 发一次真实的判断（Jev 或 `--clef`），请求内容与 mod 发出的相同：设置取 manifest 的默认值（`optionsFrom` + `readConfig`，和评测一样），凭证和 Node 的 io 用 `eval/node.ts` 的
+    ├── pplx.ts             Perplexity 后端（Decisions API，pplx-decider-v1.1-27b，#43、#50；`decisionModel: pplx` 选它）
+    └── pplx-rate.ts        pplx 的限速和 429 重试（#51）：`rateLimited(backend, qps)` 把后端包起来，按 `pplxQps` 排队，effort 先发；Jev 不经过
+scripts/decide.ts           用 Node 发一次真实的判断（Jev），请求内容与 mod 发出的相同：设置取 manifest 的默认值（`optionsFrom` + `readConfig`，和评测一样），凭证和 Node 的 io 用 `eval/node.ts` 的
 scripts/decide-agent.ts     同上，判断一个派出 agent（输入是评测集 subagent.jsonl 的一题）
 scripts/decide-stuck.ts     同上，一个卡住的循环的再判断（输入是 MidturnInput，见 `decision/midturn.ts`；请求用 #7 的 `stuckRequest` 拼）
 eval/                       评测（接缝 2）：评测集、Node 脚本、结果，见下文「评测」
 tests/support/world.ts      接缝 1 的测试脚手架
-tests/support/cloudflare.ts world 的 Cloudflare 一侧：clef(levels) 是 jev(levels) 的孪生，按 Workers AI 的方式回答和拒绝
 tests/support/workflow.ts   Workflow 工具桩和按脚本里第几个调用作答的 siteJev（#8）；workflowWorld 在 world 之外加一层，不改 world.ts
 tests/support/workflow-run.ts  运行目录（journal、transcript）和 tool.describe 的桩；runWorld 在 workflowWorld 之外再加一层（#9）
 types/index.d.ts            $.state 的契约（PluginState）
@@ -485,9 +552,9 @@ types/index.d.ts            $.state 的契约（PluginState）
 
 ### 一条消息的处理过程
 
-1. `prompt.submit`：各功能的 hook 在外层，带 matcher，先运行。`main-effort` 确认这是用户本人的新消息后，往这条消息的投票箱里放一个问题（`effort.level`）和一个 `settle` 回调，然后放行。
-2. 核心的 `prompt.submit` 在最内层。它收起投票箱，拼出 state（`turnStartState`），把所有功能的问题合成一个请求（`mergeParts`，每个问题 ID 加上 `<part>.` 前缀），带着超时发给决策后端，再把回答去掉前缀后交给各功能的 `settle`。`settle` 返回的文字块作为 context 附在消息后面，模型能看到，用户看不到。这些都完成后，消息才进入会话。
-3. `main-effort` 的 `settle` 把这条决定（或决策模型失败的原因）交给「决定汇报」（`report` 的 `decision`），再把选出的档位记为待用的决定（`$.state` 的 `pending`）。如果这条消息是在某一轮进行中发的，它还会直接改写那一轮的计划。
+1. `prompt.submit`：各功能的 hook 在外层，带 matcher，先运行。`main-effort` 确认这是用户本人的新消息后，往这条消息的投票箱里放一个问题（`effort.level`；你本人的消息还多放三选一的 `effort.unresolved`，同在 `effort` 这个 part 里，所以进 effort 请求，#39）和一个 `settle` 回调，然后放行。
+2. 核心的 `prompt.submit` 在最内层。它收起投票箱，按 `requestGroups` 拆成最多两个请求：主 agent 的 effort 题（`effort` 这个 part）单独一个，其余各功能的题合成一个（ADR 0005）；某一组没有 part 就不发。每个请求各拼自己的 state 并合成请求（`decision/turn-start.ts` 的 `messageRequest`：`turnStartState` 加上 `mergeParts`，每个问题 ID 加上 `<part>.` 前缀；预算见 `messageLimits`：含 skill 题的是 `context.tokens`，effort 的是 `contextByKind.messagePlain`；part 加进 state 的字段，如命令和问题摘要，先从预算里扣掉），两个请求并行带着超时发给决策后端，各记一行 debug log，再把各自的回答去掉前缀后交给这个请求里各功能的 `settle`。`settle` 返回的文字块作为 context 附在消息后面，模型能看到，用户看不到。两个请求各自成败，一个失败或超时不影响另一个；消息等到两个请求都有结果（或超时）才进入会话。
+3. `main-effort` 的 `settle` 先读三选一的回答、按两档门槛动次数（`core/unresolved.ts` 的 `moveCount`），再把这条决定（或决策模型失败的原因）交给「决定汇报」（`report` 的 `decision`；决定里带着这次三选一的记录，次数变了另记一条 `unresolved` 的决定），再把选出的档位记为待用的决定（`$.state` 的 `pending`）。两个回答互不依赖：缺哪一个，另一个照常用。如果这条消息是在某一轮进行中发的，它还会直接改写那一轮的计划。
 4. `turn.start`（核心）为这条消息开始的一轮建立记录 `turns[main:<turnId>]`，并认领它的待用决定。优先认领正在进入的那条消息的决定，即使更内层的 hook 改写了消息的文字也能认领；其次认领文字与这一轮相同的排队消息。
 5. `turn.step`（核心，最内层）每一步都读计划表，用 `planStep` 算出这一步的 effort（主 agent 不碰 model），写进请求，并把这一步（任何 loop 的）发出的模型和 effort 交给「决定汇报」的 `reportStep`（看板从它画出）。
 
@@ -532,6 +599,7 @@ types/index.d.ts            $.state 的契约（PluginState）
 | `board` | 无 | 看板数据：`turn`（本会话开始的主 agent 轮数）、`starts`（最近两轮的开始时间）、`changes`（读数的变化事件）和 `nodes`（最近两轮每个 agent 的一个节点：模型、effort、是否路由、未路由的原因、对应的决策编号，以及中途重判的计数 `midturn` 和失败计数 `counts`），见「记录一次决策」 | 「决定汇报」module（`core/report.ts`）：`report`（`decision`、`decisions`、`tally`）、`reportStep`、自己的 hook |
 | `decisionLog` | 无 | 各功能记录的决策，最近 20 轮、最多 300 条，依据面板（`/dp`）按轮分组显示，`/dp log N` 在对话里列出（见下「记录一次决策」） | 「决定汇报」module |
 | `pending` | 无 | 发消息时做出的判断，等它的那一轮开始时由核心认领 | #2 |
+| `unresolved` | 无 | 未解决次数 `{ count }`：每条你本人的消息按三选一的回答加一、清零或不变；`session.end`（`/clear`、新会话）清零，`/compact` 保留，热重载不丢；缺省按 0 读。同一个 key 里还有问题摘要（#40）：`summary`、在写的轮 `writing`、欠着的标记 `owed`，见「问题摘要（#40）」；清零的地方摘要一起清 | #39、#40：`core/unresolved.ts` |
 | `said` | 无 | 用户本人这一轮说的话（已脱敏和截断）：空闲时发的那条消息开始新的一组，这一轮进行中发的消息追加进去，其他来源的 prompt 不动它；派出 agent 和 Workflow 里 agent 的判断把它当作 `user_message` | #6 写，#8 读 |
 | `midturn` | `main:<turnId>` | 中途重判自己的记录：步数、最近 16 步的文字和工具调用（各带结局）、最近一次重判是为第几步问的 | #5 |
 | `mainStep` | 无 | 主 agent 正在进行的一步 `{ turnId, index }`（`tool.call` 上没有 turnId，靠它对上） | #5 |
@@ -567,7 +635,7 @@ on('turn.step', { turnId: /(?:)/ }, async function* ($, e, next) {
 
 ### 给发消息时的决策请求加问题（投票箱）
 
-用户发消息时只发一个决策请求，各功能的问题合在其中（同一个请求里的问题互相独立，几乎不增加延迟）。在自己的 `prompt.submit` hook 里这样写：
+用户发消息时，各功能的问题合在一个决策请求里（同一个请求里的问题互相独立，几乎不增加延迟），只有主 agent 的 effort 题由核心拆出来单独发一个请求（ADR 0005），两个请求并行。对功能来说投票箱的用法不变。在自己的 `prompt.submit` hook 里这样写：
 
 ```ts
 on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
@@ -589,8 +657,8 @@ on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
 
 - `settle` 由核心的 hook 调用，但它闭包里的 `$` 是你自己那个 hook 的，可以照常使用（已在真实引擎中实测）。`settle` 在消息进入会话之前完成，所以它返回的文字块来得及附上；它花的时间（例如 skill 的第二个请求）也算在消息的等待里，记得给自己限时。
 - 成功时 `outcome.state` 是这个请求问过的 state（共用的 state 加上各部分加进去的字段），后续的请求要问同一件事时就用它（#11）。
-- 每条消息只发一次请求。请求失败或超时时，每项功能都会收到同一个失败。
-- 共用的 state 只有 `{ user_message, recent_context }`。往里加字段会影响同一请求里的所有问题（无关内容会降低准确率），只加问题确实需要的字段。
+- 每条消息最多发两个请求：effort 题一个，其余的题一个（只有其中一类时只发一个）。请求失败或超时时，那个请求里的每项功能都会收到同一个失败，另一个请求不受影响。
+- 共用的 state 只有 `{ user_message, recent_context }`；effort 请求的 recent_context 按 24000 的预算取，其余请求按 6000 取，所以两个请求里它的长度不同。往里加字段会影响同一请求里的所有问题（无关内容会降低准确率），只加问题确实需要的字段。
 - 问题的写法见 `docs/research/typesafe-question-guide.md`。
 
 ### 在其他时机发决策请求
@@ -807,13 +875,13 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 
 - `io` 是闭包：`ask` 发一个决策请求（不抛错），`opening` 读一个 skill 的 SKILL.md 正文开头（`skillOpening`：去掉 frontmatter、折叠空白、脱敏、截到 180 token）。两处调用方各自在 hook 里用自己的 `$` 构造（`$` 不能跨文件）；评测用 Node 的 `fetch` 和 `readFileSync` 构造。
 - `part(options)`（第一段，`skillsPart`）：两个 Choice，各自只在有候选时才问：`skills.which` 的选项是主 agent 能加载的候选（`by: 'model'`），`skills.hint` 的是只能由你触发的（`by: 'person'`，问题里说明这些 skill 由用户自己输入名字启动），各按候选的顺序，最后是 `(none)`。分成两题，是因为放在同一个 Choice 里两类 skill 会互相抢概率：评测里 033、090–092 只能由你触发的那个分走 0.98–1.00，能加载的 gold 分不到 0.1，进不了第二段。有画像的选项用 `profileFields(profile)`（`what`、`use_when`、`not_for`、`用途`、`何时用`、`何时不用`，空的「不用于」不写），没有的仍是描述字符串，和 #10 一样。每题超过 254 个候选时，后面的不问（Choice 最多 255 个选项）。每题按 `estimateTokens` 估算不超过 `settings.questionTokens`（`questionBudget(contextTokens)`；Jev 读的是 state 加最长的那个问题）：超出时所有画像先去掉两个「不用于」字段，还超出就从最后一个起改回描述，直到放得下。问题用英文或中文写，跟 `ctx.ask.language`。
-- `rank(answers, options, { state, timeoutMs? })`：分别读两题（`readSkills` 读 `skills.which`、`readHints` 读 `skills.hint`，各自归一化），各取分到 `SHORTLIST_FLOOR`（0.1）以上的前几个：能加载的最多 `shortlist` 个，只能由你触发的最多 2 个（`shortlistCounts`；合计不超过 Clef 的 63 个）；一个都没有就返回空的 `ranked`，不发第二个请求。两题都没有可用的回答时返回 `null`。否则并行读它们的正文开头，用 `stageTwoPart(candidates)` 拼第二段（能加载的在前）：每个候选一个 Noul `skills.fits.<i>`（问题 ID 用下标，skill 的数据放在结构化 instructions 的 `skill` 字段：名字、描述、画像、正文开头），两个以上候选时再加一个 Choice `skills.best`（Clef 不接受只有一个选项的 Choice）。请求的 state 就是第一段问过的 state（核心通过投票箱的 `PartOutcome.state` 交给 `settle`），超时用 `timeoutMs`（不给时用 `settings.timeoutMs`；小于 1 毫秒时不发，算超时）。`readStageTwo` 读回答：相关度是 `fits` 的值，从高到低，相同时看 `best` 分到的概率，再看第一段的顺序。
+- `rank(answers, options, { state, timeoutMs? })`：分别读两题（`readSkills` 读 `skills.which`、`readHints` 读 `skills.hint`，各自归一化），各取分到 `SHORTLIST_FLOOR`（0.1）以上的前几个：能加载的最多 `shortlist` 个，只能由你触发的最多 2 个（`shortlistCounts`；合计不超过 63 个，`MAX_SHORTLIST`）；一个都没有就返回空的 `ranked`，不发第二个请求。两题都没有可用的回答时返回 `null`。否则并行读它们的正文开头，用 `stageTwoPart(candidates)` 拼第二段（能加载的在前）：每个候选一个 Noul `skills.fits.<i>`（问题 ID 用下标，skill 的数据放在结构化 instructions 的 `skill` 字段：名字、描述、画像、正文开头），两个以上候选时再加一个 Choice `skills.best`（只有一个选项的 Choice 不问）。请求的 state 就是第一段问过的 state（核心通过投票箱的 `PartOutcome.state` 交给 `settle`），超时用 `timeoutMs`（不给时用 `settings.timeoutMs`；小于 1 毫秒时不发，算超时）。`readStageTwo` 读回答：相关度是 `fits` 的值，从高到低，相同时看 `best` 分到的概率，再看第一段的顺序。
 - 返回 `SkillRanking { ranked, none, shortlist?, hints?, failed? }`：`ranked` 是第二段的相关度（绝对值），`none` 和 `shortlist`（`skills.which` 排在前面的 skill 及其概率；这题没问时 `none` 是 1）、`hints`（`skills.hint` 问了时，同样的两项）供日志用（`core/skills.ts` 的 `describeStages`）；第二段失败（超时、出错、回答里没有 `fits`）时 `failed` 是失败原因，`ranked` 为空，什么都不推荐。
 - `pickSkills(ranking, options, { max, minRelevance })` 返回 `suggest`（`by: 'model'`，最多 `max` 个）和 `hint`（`by: 'person'`，最多 2 个，只在看板上提示用户：「可试 /x」）。`relevanceBlock(suggest, described)` 生成给主 agent 的 `<skill_relevance>` 文字块；`described` 里的 skill（已经描述过的，以及常驻列表里的）只写名字。
 - 发消息时：`features/skills.ts` 在 `prompt.submit` 里构造 ranker，`part` 放进投票箱，并记下 `$.clock.now()`；`settle` 里用 `timeoutMs` 减去已经过去的时间作为第二段的超时（两个请求共用一次等待，hook 也不会超过 10 秒的预算），调用 `rank`，第二个请求写一行 debug log（`second skills request [...] to jev: ...`）。`find_skill` 在自己的 `tool.call` 里构造同样的 ranker，自己发第一段的请求，再把它的 `state` 和剩下的时间交给 `rank`（见下文「find_skill（#12）」）。
 - #10 只有第一段的排序（`choiceRanker`，相关度是相对值）已经删掉：mod 和评测都不用它。
 
-**评测（#16）**。`skillsRequest(item, options, { limits, ask?, ranker? })` 用 `item = { message, recent_context }` 拼出 mod 发出的同一个第一段请求：共用的 state、effort 问题、skill 的两个问题（同样按 `questionBudget(limits.tokens)` 控制大小），顺序和投票箱一样。它返回 `{ request, part }`，读回答用 `answersFor(part, answers)`，再交给 `modRanker(io, settings).rank(answers, options, { state: request.state })` 发第二段，最后 `pickSkills`。skill 的评测（`eval/lib/skill.ts`，见下文「评测」的「skill 匹配」）就是这样调用的：候选由 `skill-catalog.json` 快照按 `loadCatalog` 的顺序得到，画像用 `lookUpProfiles` 从 `skill-profiles.json`（和 `$.store` 同样的键和值）里查，第二段的正文开头读快照记下的 SKILL.md。`tests/eval-skill.test.ts` 用 world 核对两段请求与 mod 发的逐字相同。
+**评测（#16）**。`skillsRequest(item, options, { limits, ask?, ranker? })` 用 `item = { message, recent_context }` 拼出 mod 发出的同一个第一段请求：共用的 state 和 skill 的两个问题（同样按 `questionBudget(limits.tokens)` 控制大小）；effort 题不在里面，它有自己的请求（ADR 0005，`eval/lib/effort-submit.ts` 的 `submitRequest`）。它返回 `{ request, part }`（没有候选时两个都是 null，不发请求），读回答用 `answersFor(part, answers)`，再交给 `modRanker(io, settings).rank(answers, options, { state: request.state })` 发第二段，最后 `pickSkills`。skill 的评测（`eval/lib/skill.ts`，见下文「评测」的「skill 匹配」）就是这样调用的：候选由 `skill-catalog.json` 快照按 `loadCatalog` 的顺序得到，画像用 `lookUpProfiles` 从 `skill-profiles.json`（和 `$.store` 同样的键和值）里查，第二段的正文开头读快照记下的 SKILL.md。`tests/eval-skill.test.ts` 用 world 核对两段请求与 mod 发的逐字相同。
 
 **`$.state` 里的 skill 记录**（契约见 `types/index.d.ts`）：
 
@@ -830,7 +898,7 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 
 - **注册。** `session.start`（matcher `{ cwd: /(?:)/ }`，在 `next(e)` 之后）调用 `$.tool.register({ name: 'find_skill', description, inputSchema })`，输入只有必填的字符串 `query`。没有配置决策模型（`ctx.backend.configured === false`）时不注册。描述和 schema 都是常量，不拼进任何会话内容，开关变化也不重新注册。注册被拒绝时在 debug log 说一声；引擎给的全名不是 `mcp__dispatch-pilot__find_skill`（hook 的 matcher 就对不上）时也说一声。
 - **回答。** `tool.call` 的 matcher 是 `{ tool: 'mcp__dispatch-pilot__find_skill' }`。hook 直接返回 `{ result: <文字> }`，从不调用 `next`（没有别人回答这个工具，落空的调用会失败）。照官方文档的写法，失败也作为普通的 `result` 返回，用文字说明，不用 `isError`。
-- **请求。** state 是 `turnStartState({ prompt: query, messages: $.session.messages(), limits: ctx.config.context })`；问题是 `modRanker(io, rankingSettings(ctx)).part(candidates)`，只有 `skills.which`；候选是目录里主 agent 能加载的 skill 去掉 `skillsNeverSuggested`，所以这一题和发消息时的 `skills.which` 一字不差（`skill-profiles` 关着时去掉画像，和发消息时一样）；只能由你触发的 skill 不问（它们反正不返回）。选 Clef 时第一段的候选去掉画像（`ctx.config.skills.findByProfile` 为 false），第二段照样带。请求带着 `ctx.config.skills.findWaitMs`（Jev 是 `timeoutMs`，Clef 是 8000）发给 `ctx.backend`，回答连同这个请求的 `state` 交给 `ranker.rank`，第二段只能用这段等待剩下的时间：两段共用一次等待，不是各等一次（各等一次的话，`timeoutMs` 最多 8000，两段就可能到 16 秒，超过 hook 的 10 秒），再经 `pickSkills(ranking, candidates, { max: findSkillMax, minRelevance: findSkillMinRelevance })`，只返回 `suggest`（`by: 'model'`）。第二段失败（`ranking.failed`）和第一段失败一样回答「无法评分」。`io` 的 `ask` 和 `opening` 在 `tool.call` 里用这次调用的 `$` 构造。
+- **请求。** state 是 `turnStartState({ prompt: query, messages: $.session.messages(), limits: ctx.config.context })`；问题是 `modRanker(io, rankingSettings(ctx)).part(candidates)`，只有 `skills.which`；候选是目录里主 agent 能加载的 skill 去掉 `skillsNeverSuggested`，所以这一题和发消息时的 `skills.which` 一字不差（`skill-profiles` 关着时去掉画像，和发消息时一样）；只能由你触发的 skill 不问（它们反正不返回）。第一段的候选带不带画像看 `ctx.config.skills.findByProfile`，第二段照样带。请求带着 `ctx.config.skills.findWaitMs`（Jev 是 `timeoutMs`）发给 `ctx.backend`，回答连同这个请求的 `state` 交给 `ranker.rank`，第二段只能用这段等待剩下的时间：两段共用一次等待，不是各等一次（各等一次的话，`timeoutMs` 最多 8000，两段就可能到 16 秒，超过 hook 的 10 秒），再经 `pickSkills(ranking, candidates, { max: findSkillMax, minRelevance: findSkillMinRelevance })`，只返回 `suggest`（`by: 'model'`）。第二段失败（`ranking.failed`）和第一段失败一样回答「无法评分」。`io` 的 `ask` 和 `opening` 在 `tool.call` 里用这次调用的 `$` 构造。
 - **判断顺序。** 总开关、`find-skill` 开关、派出 agent（`e.agentId`，指回它自己的列表）、空查询：这几步不发请求，看板上也没有记录。之后读目录、发请求，结果记进决策日志，失败原因记成看板的 note。
 - **日志。** 每次发出的请求写一行（`request [skills.which] to jev for find_skill "<查询>": ...`，第二段是 `second request [skills.best, skills.fits.0, ...] to jev for find_skill "<查询>": ...`）；得到排序后用 `report(io, { decision })` 记一条旁支决定（feature `find-skill`，outcome `found <名字>` 或 `found no skill`，reason 是 `describeStages` 写出的两段结果和门槛，`skills.suggest` 带名字和相关度）。失败只有请求那几行和看板上的一条 note，不进决策日志。
 - **自己出错时。** 读 `$.state` 失败这类错误由 hook 捕获，照样回答失败，并在看板（note）和 debug log 说明，不让调用落空。
@@ -840,9 +908,9 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 `decision/backend.ts` 定义统一接口：`ask(io, request, timeoutMs)` 返回回答或失败，从不抛错，并自带超时。两个实现发出的请求一样（`model`、`state`、`questions`），问题部分不需要为后端改动：
 
 - `jevBackend(apiKey)`：`POST https://api.typesafe.ai/v1/systemone`，Bearer 认证，回答在响应的顶层 `answers`。
-- `clefBackend({ accountId, apiToken })`：`POST https://api.cloudflare.com/client/v4/accounts/<account ID>/ai/run/@cf/cloudflare/clef`，Bearer 认证，请求体必须带 `"model":"clef"`。回答在 Cloudflare 外壳的 `result.answers` 里（`{ result: { model, answers, usage }, success, errors, messages }`，已用真实的 Clef 确认；`result.model` 是 `clef`，不带版本号）。失败也在同一个外壳里：`success: false`、`result: null`、错误码在 `errors[0].code`。同样是 HTTP 429，3036（免费额度当天用完）和 3040（一时繁忙）要分开处理，所以 `clef.ts` 给 `postJson` 传了自己的 `classify`，读错误码分类（3036 记为 `quota`，3040、3007、3008 记为 `busy`，其余按 HTTP 状态）。凭证为空时不发送请求，失败的说明里出现的 account ID 和 token 都会被遮掉。
-- `core/setup.ts` 按 `decisionModel` 二选一，只构造被选中的那个后端；失败时不会改用另一个。
-- `Backend.configured` 为 `false` 表示用户还没配好这个后端（Jev 没有 key，Clef 缺 account ID 或 token），这时它的每次 `ask` 都会立刻以 `config` 失败返回。拿东西去换决策的功能，在这种情况下不应该动手：skill 推荐在这时不隐藏列表。新增后端时，要按自己的凭证设置这个字段。
+- `pplxBackend(apiKey)`（`decision/pplx.ts`，#43）：Perplexity 的决策模型 `pplx-decider-v1.1-27b`，`POST https://api.perplexity.ai/v1/decisions`，Bearer 认证。请求体只有 `model`、`state`、`questions`（多一个顶层字段文档说返回 400），问题部分和 Jev 一字不差；回答在顶层 `answers`，`score` 的 `legend` 和 `probabilities`、`choice` 的 `probabilities` 都按字符串下标或选项名，`readResponse` 照常读。mod 里用 `decisionModel` 选它（#50），#52 起它是默认。模型名固定（API 只认 `pplx-decider-v1.1-27b` 和 `pplx-decider-v1-27b`，没有 `-latest`）。失败：401 和 403 记 `config`；429、500、502、503、529 记 `busy`（429 的说明带 `Retry-After` 的秒数）；504 和 408 记 `timeout`（504 是模型一分钟内没答，body 可能是 HTML，说明里写「an HTML page, not JSON」，不抄进日志）；其余（400、413、404、405）记 `http`，说明是 `error.type: error.message`，404 和 405 的 body 是空的写「empty body」；2xx 不是 JSON 或没有 `answers` 记 `parse`；说明里出现密钥的地方换成 `[REDACTED]`。实测（2026-10-07 探针，`tests/pplx.test.ts` 按文档的响应写）：`instructions` 是对象或数组、问题带多余字段、问题 ID 带点号、Choice 的描述是对象，API 都照收（200），所以 mod 的请求原样可发；Score 只有一档时 `usage.input_tokens` 是 0。
+- `core/setup.ts` 的 `setup()` 两个后端都建，`ctx.backend` 每次按 `chooseBackend` 取其中一个（见「pplx 的默认值和密钥」的「选哪个决策模型」）；一次请求失败时不会改用另一个，只有没有 Perplexity key 才用 Jev。
+- `Backend.configured` 为 `false` 表示用户还没配好这个后端（Jev 没有 key），这时它的每次 `ask` 都会立刻以 `config` 失败返回。拿东西去换决策的功能，在这种情况下不应该动手：skill 推荐在这时不隐藏列表。新增后端时，要按自己的凭证设置这个字段。
 
 失败的分类见 `Failure.kind`（`config`、`timeout`、`network`、`busy`、`quota`、`http`、`parse`、`request`），对应的一句话见 `decision/backend.ts` 的 `failureText`。要给第三个后端留位置时，同样新建 `decision/<name>.ts` 实现 `Backend`，再在 `setup()` 里加一个分支。
 
@@ -863,7 +931,7 @@ const { suggest, hint } = pickSkills(ranking, options, policy)
 
 在 `.claude-plugin/plugin.json` 的 `userConfig` 里声明。每个选项都只在 `core/setup.ts` 的 `readConfig` 里读一次，用 `numberIn`、`stringOf`、`namesOf` 做类型检查和范围截断，结果放进 `Config`（按功能分组：`midturn`、`escalation`、`agents`、`skills`），功能和评测都从 `ctx.config` 读，所以范围和缺省值只写在这一处（缺省值就是 manifest 的默认值）。功能的 register 里不再读 `options`。
 
-**按决策模型取的默认值（#17）**只写在 `core/setup.ts` 的 `BACKEND_DEFAULTS` 一张表里：`PER_BACKEND_OPTIONS` 列出的 11 个选项（`timeoutMs`、`contextMessages`、`contextTokens`、`rejudgeSteps`、`thetaUp`、`thetaDown`、`thetaMax`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance`）各一个默认值，另有几个不是配置项的值：`contextTokensMax`（`contextTokens` 读到的上限）、`suggestSkills`（`skills` 开关的默认值，`features/skills.ts` 的 `defineSwitch` 读 `ctx.config.skills.suggestByDefault`）、`findSkillWaitMs` 和 `findSkillProfiles`（`find_skill` 两个请求合计等多久、第一段带不带画像，读成 `ctx.config.skills.findWaitMs`、`findByProfile`），以及 `turnStartLanguage`（发消息时 effort 问题的语言：Jev 中文，Clef 英文；读成 `ctx.config.turnStartLanguage`，只有 `features/main-effort.ts` 用，其余问题照 `ctx.ask`）。这 11 个选项在 manifest 里**不写 `default`**：引擎交给 `register` 的选项是「填好默认值的」，写了就分不清你没设和你设成了默认值。没写默认值的字段，你不设时引擎不传（生成的类型 `.claude-plugin/types/` 里 kit 的 `TestOptions` 写明它和加载时一样：unlisted values unset, defaults filled in；`tests/backend-defaults.test.ts` 在 kit 里确认；2026-10-05 用 `claude -p "/dp" --plugin-dir ./dispatch-pilot` 在真实引擎里确认过，debug log 那一行写着 11 项都取了 Jev 的默认值；日志没有提交，见 `eval/plans/17-calibration.md` 的 8.8.1），`readConfig` 按 `decisionModel` 在表里取。`readConfig` 还记下哪些选项用了默认值、哪个被截到上限（`Config.defaults`），`features/control.ts` 在会话开始时把它写进 debug log（`describeDefaults`）。评测和 `scripts/decide*.ts` 经 `eval/lib/suite.ts` 的 `optionsFor(backend, ...)` 把决策模型交给 `readConfig`，取的是同一张表。要给某个后端改默认值，只改这张表，再改 README 的配置表（`node dispatch-pilot/eval/validate.ts docs` 核对它的 Jev 和 Clef 两列、`未校准` 的标注是否和这张表一致）和上面「配置」里的校准依据。manifest 里这 11 个选项不能写 `default`，那个核对也会报。敏感字段在没有配置时是空字符串。取值固定的字符串（例如 `decisionModel`）在 manifest 里用 `options` 声明，在 `/config` 里是下拉选择；填了列表之外的值，引擎读作默认值并给出警告，mod 里不必再处理。
+**按决策模型取的默认值（#17）**只写在 `core/setup.ts` 的 `BACKEND_DEFAULTS` 一张表里：`PER_BACKEND_OPTIONS` 列出的 11 个选项（`timeoutMs`、`contextMessages`、`contextTokens`、`rejudgeSteps`、`thetaUp`、`thetaDown`、`thetaMax`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance`）各一个默认值，另有几个不是配置项的值：`contextTokensMax`（`contextTokens` 读到的上限）、`suggestSkills`（`skills` 开关的默认值，`features/skills.ts` 的 `defineSwitch` 读 `ctx.config.skills.suggestByDefault`）、`findSkillWaitMs` 和 `findSkillProfiles`（`find_skill` 两个请求合计等多久、第一段带不带画像，读成 `ctx.config.skills.findWaitMs`、`findByProfile`），以及 `turnStartLanguage`（发消息时 effort 问题的语言：Jev 中文；读成 `ctx.config.turnStartLanguage`，只有 `features/main-effort.ts` 用，其余问题照 `ctx.ask`）。这 11 个选项在 manifest 里**不写 `default`**：引擎交给 `register` 的选项是「填好默认值的」，写了就分不清你没设和你设成了默认值。没写默认值的字段，你不设时引擎不传（生成的类型 `.claude-plugin/types/` 里 kit 的 `TestOptions` 写明它和加载时一样：unlisted values unset, defaults filled in；`tests/backend-defaults.test.ts` 在 kit 里确认；2026-10-05 用 `claude -p "/dp" --plugin-dir ./dispatch-pilot` 在真实引擎里确认过，debug log 那一行写着 11 项都取了 Jev 的默认值；日志没有提交，见 `eval/plans/17-calibration.md` 的 8.8.1），`readConfig` 按 `decisionModel` 在表里取。`readConfig` 还记下哪些选项用了默认值、哪个被截到上限（`Config.defaults`），`features/control.ts` 在会话开始时把它写进 debug log（`describeDefaults`）。评测和 `scripts/decide*.ts` 经 `eval/lib/suite.ts` 的 `optionsFor(backend, ...)` 把决策模型交给 `readConfig`，取的是同一张表。要给某个后端改默认值，只改这张表，再改 README 的配置表（`node dispatch-pilot/eval/validate.ts docs` 核对它的 Jev 列是否和这张表一致）和上面「配置」里的校准依据。manifest 里这 11 个选项不能写 `default`，那个核对也会报。敏感字段在没有配置时是空字符串。取值固定的字符串（例如 `decisionModel`）在 manifest 里用 `options` 声明，在 `/config` 里是下拉选择；填了列表之外的值，引擎读作默认值并给出警告，mod 里不必再处理。
 
 ### 测试怎么写（接缝 1）
 
@@ -884,29 +952,33 @@ test('……', { options: { typesafeApiKey: 'k' } }, async ($, on) => {
 ```
 
 - `world($, on, options)` 在 mod 之下扮演引擎和外部世界。`backend` 回答 `$.http.fetch`：`jev(levels)` 让每个 Score 问题得到这组概率；`{ status, body }`、`{ reject }`、`{ after: ms, reply }` 分别模拟出错、断网和慢响应。`agents` 回答 `$.agent.list()`（也可以是 `{ deny }`），之后在 `w.agents` 里增减；`w.complete({ agentId?, reason?, durationMs? })` 是一个 loop 的 `turn.complete`；`messages` 是 `$.session.messages()` 的返回值（也可以是函数，拿到这次问的是什么，例如 `{ agentId }`，按调用作答，或者像引擎拒绝 Workflow agent 那样回 `{ deny }`），`disk` 回答 `$.fs.read` 和 `$.fs.exists`，`beneath` 模拟更内层的 hook 拒绝（`drop`）或改写（`rewrite`）消息。它会记录 `requests`、`steps`、`statuses`、`logs` 和 `prompts`，以及 `looked`（`roster`：读了几次 `$.agent.list()`；`files`：`$.fs.read` 读过的路径，按顺序），用来断言某样东西没有每一步都重读（例子见 `tests/readings.test.ts`）。`store` 给 `$.store` 预置内容（不给时每个 `$.store` 调用都会 reject），mod 写进去的用 `w.stored(key)` 读回；`session: true` 让引擎照常开始会话：`w.start()` 触发 `session.start`，mod 注册的命令记在 `w.commands`（`session: { registerError }` 让注册被拒绝），`w.measure({...})` 触发 `session.measure`；`w.command('dp', 'lock max')` 像用户输入斜杠命令那样运行它，返回它打印的文字（例子见 `tests/control.test.ts`）；`w.slash('implement', '#19')` 是用户输入一个 prompt 命令（skill、markdown 命令）：照引擎的顺序先 `command.run`，再提交输入的 `/implement #19`，这一轮以引擎的命令消息开始（例子见 `tests/command-turns.test.ts`）。这几项都是按需打开的，不用的测试不受影响。
+- pplx（#50）：`pplx(levels, extra)` 和 `jev` 一样回答每个问题，回答里的 `model` 是 `pplx-decider-v1.1-27b`，并且像真的 API 一样拒绝不对的请求：URL 不是 `https://api.perplexity.ai/v1/decisions` 回 404（空 body），没有 Bearer key（`extra.key` 指定了就要是这一个）回 401 `{ error: { message, type, code } }`，模型名不对或顶层字段多于 `model`、`state`、`questions` 回 400。`rates(shares, fits, levels, pplx)` 的第四个参数让两段排序也由 pplx 作答。`env: { PERPLEXITY_API_KEY: '…' }` 回答 `$.env.get`（和 `skills.home` 的 `HOME` 合在同一个 `mock.env` 里；没给 `env` 时 `$.env.get` 不被回答），世界在第一次驱动引擎之前自己跑 `session.start`（mod 在那里读环境变量），和 `switches` 一样。例子见 `tests/pplx-model.test.ts`（pplx 的 seam 1）、`tests/backend-defaults.test.ts`（Jev 和 pplx 的默认值对比，seam 2）。
 - `await w.board()` 读出「决定汇报」存在 `$.state` 的看板数据，是断言「mod 决定了什么、读到了什么」的地方，不要再去比状态字符串：`{ turn, nodes, changes, starts, log, main, agents }`。`turn`、`nodes`、`changes`、`starts`、`log` 就是存着的值（`board.turn`、`board.nodes`、`decisionLog`，契约见 `types/index.d.ts`），`main` 是当前这一轮主 agent 的节点，`agents` 是当前这一轮其他 agent 的节点。例如：`expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, failure: { backend: 'jev', kind: 'timeout' } })`、`expect((await w.board()).log.at(-1)).toMatchObject({ feature: 'main-effort', outcome: 'effort high' })`。`board` 和 `decisionLog` 两个值由 world 自己保管（版本号和 `ifVersion` 照宿主的方式），测试里没有 `$.state` 可读；`seed: { board, log }` 让 mod 一启动就看到「上一次加载留下的」数据，用来测热重载后数据还在（例子见 `tests/report.test.ts`、`tests/control.test.ts`）。要让它们读写失败，在 `world()` 之前注册 `on('state.set', { plugin: 'dispatch-pilot', key: 'board' }, () => ({ deny: '...' }))`。
 - `skills` 打开本会话的 skill（`SkillsWorld`）：`commands` 回答 `$.command.list()`，`listed` 回答 `$.session.usage({ breakdown })` 里主 agent 的 skill 清单（`null` 让这次调用失败），`overrides` 按来源回答 `$.settings.read({ source })` 的 `skillOverrides`，`home` 和 `cwd` 回答 `$.env.get('HOME')` 和 `$.session.cwd()`。SKILL.md 放进 `disk`。`w.listing(text, agentId?)` 像引擎那样把 skill 列表交给 `prompt.attachment`，返回模型最后读到的内容。`session` 打开时还有 `w.compact()` 和 `w.clear()`。`jev(levels, { shares: { 'skills.which': { tdd: 0.6, '(none)': 0.4 } } })` 让一个 Choice 问题按给定的概率作答（没列出的选项是 0），`nouls: { 'skills.fits.0': 0.9 }` 让 Noul 按问题 ID 作答（默认 0.5）。例子见 `tests/skills.test.ts`。
 - 两段排序（#11）：`rates(shares, fits)` 同时回答一条消息的两个 skill 请求：第一个请求的 `skills.which` 和 `skills.hint` 都按 `shares`（各自只取自己的选项；effort 默认 medium），第二个请求（`isSecondSkillsRequest(request)` 为真）里每个 `skills.fits.<i>` 按它 instructions 里 skill 的名字取 `fits` 的值（没列出的是 0），`skills.best` 全给 fits 最高的那个。`disk` 也回答 `$.fs.list`（列出某个目录下的文件和子目录），同步 skill 的账号目录就这样找到。例子见 `tests/skill-ranking.test.ts`。
 - skill 画像（#11）：`model` 回答 `$.model.complete`（`(request, n) => Completion`：`{ text }`、`{ fails: 'api-error' | 'empty-reply' | 'aborted' }`、`{ reject }`（引擎拒绝发出，调用 reject）或 `{ after: ms, reply }`），每次调用记在 `w.completions`；没给 `model` 时每次调用都被拒绝。画像在 `session.start` 之后在后台写，所以先 `await w.start()` 再 `await w.clock.settle()`；再调一次 `w.start()` 就是「下一次会话」（同一个 store）。`w.storedKeys()` 列出 store 里现在的键。画像的状态和会话开始那一条决策日志用 `w.board().profiles`、`w.board().log` 断言（`seed: { profiles }` 是热重载前留下的）。例子见 `tests/skill-profiles.test.ts`。
 - `session` 打开时，mod 用 `$.tool.register` 注册的工具记在 `w.tools`（`registerError` 同样拒绝它们）。`w.findSkill(query, { agentId })` 像模型那样调用 `find_skill`（带 `agentId` 是派出 agent 的调用），返回工具的回答 `{ result }`。例子见 `tests/find-skill.test.ts`。
-- 选 Clef 的测试：`options` 用 `tests/support/cloudflare.ts` 的 `CLEF_OPTIONS`（假的 account ID 和 token），`backend` 用 `clef(levels)`。它是 `jev(levels)` 的 Cloudflare 版：token 或地址不对时回真实的 401、404；请求体不符合 Clef 的输入规则时回 400（`clefInputProblems` 按 Cloudflare 的 schema 检查：问题 ID 的字符集和长度、1–64 个问题、Choice 至少 2 个选项、Score 2–10 档、instructions 非空）；其余按 `jev(levels)` 作答，放进 Cloudflare 的外壳。新增问题的票可以用它确认自己的问题 Clef 也接受。`cloudflareError(status, code, message)` 生成 Cloudflare 的失败响应。
 - `w.submit(text, { origin, turnId, wait })` 默认模拟用户在终端按回车；带 `turnId` 表示在那一轮进行中发的，不会开始新的一轮。`w.startTurn(text)` 模拟排队的消息稍后开始自己的一轮。`w.step({...})` 发出一步并把流读完。
 - `w.step({ index, answer, tools })` 还可以让这一步像真实引擎那样流出文字（`answer`），并在流还没结束时依次执行工具调用（`tools`，每个是 `{ tool, input, ends }`），所以功能的 `tool.call` hook 是在这一步之内触发的。`ends` 决定调用的结局：`{ text }`（成功，默认 `ok`）、`{ error }`（工具报错；用户在权限对话框里拒绝时也是这样，文字是引擎的那句话）、`{ blockedByHook }`（PreToolUse settings hook 拒绝，工具不会执行）。到达工具的调用记在 `w.toolCalls`（参数是经过 mod 各层改写后的样子；被 hook 拦下的调用不在其中）。`jev(levels, { confidence })` 可以指定回答的置信度（默认 0.7）。例子见 `tests/midturn-effort.test.ts`。
 - `w.spawn({ prompt, description, subagentType, model, fork, isTeammate })` 模拟主 agent 调用 Agent 工具，返回 `{ model, agentId }`（agent 按到达引擎的顺序命名为 a1、a2……）；`spawned` 记录每次派发到达引擎时的样子。拿到的 `agentId` 传给 `w.step` 就是这个 agent 的步。
-- Workflow 的测试用 `tests/support/workflow.ts` 的 `workflowWorld($, on, options)`：它先注册带 matcher `{ tool: 'Workflow' }` 的 Workflow 工具桩，再调用 `world()`，所以 `world()` 以后再加 `tool.call` 桩也不冲突（但同一个测试里要先于它注册）。`w.workflow({ script | scriptPath | name, args, resumeFromRunId })` 调用工具；`w.reached` 记录到达工具的每次调用（`launched: false` 是工具因语法错误拒绝的）；`w.stateWrites` 是 mod 所有的 `$.state` 写入（key、family 的 id 和值）；选项 `parseError` 和 `fails` 让工具拒绝某个脚本。`siteJev((i) => ({ model, effort, nouls }))` 按脚本里的第 i 个调用回答，`clefSiteJev` 是它的 Clef 版（同时检查 Clef 的输入规则）。
+- Workflow 的测试用 `tests/support/workflow.ts` 的 `workflowWorld($, on, options)`：它先注册带 matcher `{ tool: 'Workflow' }` 的 Workflow 工具桩，再调用 `world()`，所以 `world()` 以后再加 `tool.call` 桩也不冲突（但同一个测试里要先于它注册）。`w.workflow({ script | scriptPath | name, args, resumeFromRunId })` 调用工具；`w.reached` 记录到达工具的每次调用（`launched: false` 是工具因语法错误拒绝的）；`w.stateWrites` 是 mod 所有的 `$.state` 写入（key、family 的 id 和值）；选项 `parseError` 和 `fails` 让工具拒绝某个脚本。`siteJev((i) => ({ model, effort, nouls }))` 按脚本里的第 i 个调用回答。
 - Workflow agent 启动时的测试（#9）用 `tests/support/workflow-run.ts` 的 `runWorld`：它在 `workflowWorld` 之上写运行目录（journal、transcript）、回答 `tool.describe`，见上文「Workflow 兜底（#9）」。agent 启动时当场判断的请求只有一个调用，part 是 `agent-0`，所以 `siteJev` 的下标 0 也会回答它；同一个测试里要区分运行开始时和 agent 启动时的回答，就按请求的序号 `n` 分别作答。
 - 要模拟别的功能已经写好的计划表，就在测试里回答 `state.get`，见 `tests/plan-table.test.ts` 的 `table()`。
+- **未解决次数的测试（#39）。** `jev(levels)` 对 `effort.unresolved` 默认回答「新问题或无关」100%：次数不动，决策日志里没有 `unresolved` 的条目，所以不关心它的测试不用管；要让某条消息动次数，用 `jev(levels, { shares: { 'effort.unresolved': { still_unresolved: 0.8, resolved: 0.05, new_or_unrelated: 0.15 } } })`。次数用 `w.unresolved()` 读，热重载用 `seed: { unresolved: { count: 2 } }` 带一个旧值进来（`$.state` 的 `unresolved` 这个 key 由 world 接管，和 `board` 一样）。每条人的消息的 effort 请求现在是 `['effort.level', 'effort.unresolved']`（agent 交回结果、后台任务通知开始的轮、`/dp unresolved off` 时只有 `effort.level`）；关心 effort 请求是否等于评测的，用 `withoutUnresolved(body)` 去掉那一题再比（effort-submit 评测测的是 effort 题本身）。mid-turn 和 escalation 的测试里的 `kind()` 把它滤掉了。
+- **问题摘要的测试（#40）。** 写摘要的便宜模型是 world 的 `model`（`(request, n) => Completion`，`w.completions` 记着每次问了什么：模型、提示）：摘要要在 `turn.complete` 之后才写，所以测试里 `w.complete({ answer })` 结束一轮，再 `await w.clock.settle()` 等写完，慢的回答用 `{ after: ms, reply }`、`w.clock.advance(ms)`。摘要读 `w.summary()`（带 `turn`），整个 key 读 `w.unresolvedState()`（`count`、`summary`、`writing`、`owed`），热重载前留下的用 `seed: { unresolved: { ... } }`。一轮「是你本人的消息开始的」靠 `main-effort` 的待用决定认出，所以测试要走 `w.submit`（或 `w.slash`），不能只调 `w.complete`。world 没给 `model` 时每次调用被拒绝：不关心摘要、却要数决策日志条数的测试，要给一个回答合法 JSON 的 `model`（见 `tests/pane.test.ts` 的日志分组那条），否则每轮多一条「摘要没写成」。`jev(levels)` 默认把三选一答成「新问题或无关」，这会在每条消息上清零（摘要也清）：要留着摘要的测试用 `shares: { 'effort.unresolved': { still_unresolved: 0.3, resolved: 0.4, new_or_unrelated: 0.3 } }`（两档门槛都不到，什么也不动）。三类测试：`tests/summary-module.test.ts`（接缝 2：读回答、限长、提示、工具汇总、`turnStartPart`、`messageRequest`）、`tests/summary.test.ts`（接缝 1）、`tests/unresolved-board.test.ts` 里的面板那两条。
 - 每个测试都要断言一个实际产物（发出的请求、某一步的 effort、看板数据），否则可能空过。例如不给 origin 时 hook 会被跳过；没有 `http.fetch` 桩时 fetch 会失败、走放行分支，「effort 不变」照样成立。
 - `world()` 总会装上 `mock.clock(on)`。测超时时，先 `const p = w.submit(...)`，再依次 `await w.clock.settle()`、`await w.clock.advance(ms)`、`await p`。
-- 同一个事件的桩不能注册两次：`world()` 已经注册过的事件，测试里不要再注册。`http.fetch`、`fs.read`、`fs.exists`、`fs.list`、`model.complete`、`session.messages`、`ui.*`、带 matcher 的 `state.get` 和 `state.set`（只管 `board` 和 `decisionLog` 这两个 key）和引擎那几个事件总会注册；开了 `store` 就是 `store.*`；开了 `session` 就是 `session.start`、`session.measure`、`session.compact`、`session.end`、`command.register` 和 `tool.register`；开了 `skills` 就是 `command.list`、`session.usage`、`settings.read`、`session.cwd`、`env.*` 和 `prompt.attachment`。想自己写这些桩的测试，就不要打开对应的选项。
+- 同一个事件的桩不能注册两次：`world()` 已经注册过的事件，测试里不要再注册。`http.fetch`、`fs.read`、`fs.exists`、`fs.list`、`model.complete`、`session.messages`、`ui.*`、带 matcher 的 `state.get` 和 `state.set`（只管 `board`、`decisionLog`、`skillProfiles` 和 `unresolved` 这几个 key）和引擎那几个事件总会注册；开了 `store` 就是 `store.*`；开了 `session` 就是 `session.start`、`session.measure`、`session.compact`、`session.end`、`command.register` 和 `tool.register`；开了 `skills` 就是 `command.list`、`session.usage`、`settings.read`、`session.cwd`、`env.*` 和 `prompt.attachment`。想自己写这些桩的测试，就不要打开对应的选项。
 - 每个测试拿到的都是全新的模块实例，模块级变量不会跨测试残留。
 - **测试文件读不了磁盘上的文件**（2.1.289 实测）。`claude plugin test` 在和 hooks 一样的环境里加载测试文件：`import 'node:fs'` 被拒，`.json` 和 `.md` 也不能 import（只加载 `.ts`、`.tsx`、`.jsx`、`.js`、`.mjs`、`.cjs`、`.mts`、`.cts`），测试里的 `$` 是引擎的 `$`、没有 `$.fs`，也没有 `process` 和 `Bun`。要核对真实的文件，就把检查写成纯函数，测试用自己写的小例子测它，再由 Node 脚本对真实的文件跑它：README 的配置表对 plugin.json 就是这样做的（#18）：纯函数 `checkConfigTable` 在 `eval/lib/docs.ts`，`tests/docs-sync.test.ts` 测它，`node dispatch-pilot/eval/validate.ts` 对真实的 README.md 和 plugin.json 跑它。所以 `claude plugin test` 全部通过，并不说明 README 的配置表还和 manifest 一致，改了配置项或默认值要再跑那条命令。
 
 ### 评测（接缝 2）
 
-> **effort-submit 之外，下面各节的数字都是第 1 轮审查修复之前的问法测得的。** 修复改了发给决策模型的问题措辞、工具行的写法、Workflow 题的合并提问，skill 第一段也拆成了两题；按用户的决定（2026-10-05），修复之后没有重跑这几套，所以它们的数字只能当预览，不能当成现在的问法的结果（见「待评测」开头）。effort-submit 的请求没有变，2026-10-05 又在现在的代码上跑了一次问题语言的对比。Clef 截断 state 的探针（`eval/probe-truncation.ts`，#17）不受影响：它发的是自己的探针问题。各结果的 `pass`、`late`、`retried` 和 `inTime` 已按现在的指标离线重算（见下面「已存结果的汇总可以离线重算」一条）。
+> **effort-submit 之外，下面各节的数字都是第 1 轮审查修复之前的问法测得的。** 修复改了发给决策模型的问题措辞、工具行的写法、Workflow 题的合并提问，skill 第一段也拆成了两题；按用户的决定（2026-10-05），修复之后没有重跑这几套，所以它们的数字只能当预览，不能当成现在的问法的结果（见「待评测」开头）。effort-submit 的请求没有变，2026-10-05 又在现在的代码上跑了一次问题语言的对比。各结果的 `pass`、`late`、`retried` 和 `inTime` 已按现在的指标离线重算（见下面「已存结果的汇总可以离线重算」一条）。
 
-评测用真实的 Jev 或 Clef（`--backend clef`）测决策的准确率，脚本用 Node 运行，放在 `eval/`：
+**给 `unresolved` 评测集（#37、#6）：三选一题在接缝 2。** `decision/unresolved.ts` 是纯模块，评测直接 import：`withUnresolved(turnStartEffortPart(ask), language)` 是发消息时的 effort part（`effort.level` 加 `effort.unresolved`，和线上同一份，拼请求照常 `mergeParts(turnStartState(...), [part])`，限额用 `messageLimits(settings, false)`）；`readUnresolved(answersFor(part, answers).unresolved)` 把回答读成三个选项的概率（归一化，缺了或不是 Choice 是 `null`）；`judgeUnresolved(reading, thresholds?)` 按两档门槛返回 `{ change: 'add' | 'reset' | 'keep', top, probabilities, confidence, thresholds }`：`top` 对三选一的金标，`change` 对「次数该加一、清零还是不变」；门槛 `UNRESOLVED_THRESHOLDS` 是暂定值，评测要扫门槛就传第二个参数。选项名固定为 `still_unresolved`、`resolved`、`new_or_unrelated`（`UNRESOLVED_OPTIONS`，顺序也是问的顺序；Choice 偏向第一项，评测要做换序对照的话改 `unresolvedQuestion` 里 criteria 的顺序）。
+
+评测用真实的 Jev 或 Perplexity（`--backend pplx`，#43；密钥是 `PERPLEXITY_API_KEY`，读法同上，价格 0.02 美元每百万 input token，`--estimate` 的系数取 3，见 `run.ts`）测决策的准确率，脚本用 Node 运行，放在 `eval/`。`--backend pplx` 读 mod 的设置时当作 Jev（`lib/suite.ts` 的 `settingsModel`）：请求、state 预算、超时、问题语言都和 Jev 一样，所以对照只差决策模型；`--state-tokens N` 把每一类请求的 state 预算设成 N（mod 自己的选项只能调低，这个能调高，结果文件的 `settings.stateTokens` 记着；`settings.messageStateTokens` 记每次运行里发消息时 effort 请求的预算）；`--state-messages N` 放开 state 最多取几条最新消息（mod 的 `contextMessages` 最多 32，只放大 `--state-tokens` 还是只读最新 32 条，#44；结果里 `settings.stateMessagesLimit` 是这次运行的上限，放开时 `settings.stateMessages` 记着）：
 
 ```
 eval/
@@ -914,28 +986,32 @@ eval/
 ├── datasets/README.md      评测集的约定：每类题的字段、effort 档位的含义（标注依据）、各类的附加约定、名字的例外
 ├── datasets/skill-catalog.json   skill 题出题用的本机 skill 目录快照（#16）
 ├── datasets/skill-profiles.json  快照里每个 skill 的画像，和 mod 存在 $.store 里的一样（#16，profiles.ts 写）
+├── datasets/eval-v2/       eval v2（#45）的素材池、题目、两份金标和 generated.json；格式见其中的 FORMAT.md
+├── datasets/eval-v2.jsonl  eval-v2-gen.ts 拼出的 eval v2 数据集（几十 MB，不提交，见 datasets/.gitignore）
 ├── review/<类>.review.jsonl 用户的审核决定（应用时由 apply-review.ts 放进来，和改动一起提交）
 ├── review/<类>.review-summary.md  审核总结：判断基准、规则决定（R1、R2……）和要跟进的事项
 ├── results/<类>/*.json     每次运行的结果：设置、答题的模型版本、汇总、逐题答案
-├── results/probes/*.json   Clef 截断 state 的探针结果（#17，probe-truncation.ts 写）
+├── results/eval-v2-flow/<后端>-<预算>.json  eval v2 的真实流程（#45，eval-v2-flow.ts 写）：每题每条用户消息的三选一概率和次数、最后一条消息带的次数和摘要；同目录的 haiku-cache.jsonl 不提交
+├── results/probes/*.json   #17 的 Clef 截断 state 探针结果（历史：Clef 和写它的 probe-truncation.ts 已在 0.4.0 删除，结果文件保留；其他目录里文件名带 clef 的结果同样是历史）
 ├── plans/17-calibration.md #17 的方案、拍板、探针的结果和范围缩减
-├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、resummarize、rescore、compare、docs、各类题型的 suite
-└── validate.ts、run.ts、apply-review.ts、compare.ts、resummarize.ts、rescore.ts、profiles.ts、probe-truncation.ts、node.ts   Node 脚本
+├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、resummarize、rescore、compare、docs、各类题型的 suite；long-context 另有 long-conversation（三个版本的对话）、long-filler（中间轮次的生成器）、long-summaries（逐轮写问题摘要）；eval-v2（eval v2 的格式检查和拼装）、eval-v2-suite（eval v2 的 suite）、eval-v2-flow（真实流程）、eval-v2-thresholds（三选一门槛扫描）
+├── long-context-items.ts   long-context 评测集的唯一来源（手写的决定性几轮、答案）；long-context-gen.ts 把它写成 datasets/long-context.jsonl
+└── validate.ts、run.ts、apply-review.ts、compare.ts、resummarize.ts、rescore.ts、profiles.ts、long-context-gen.ts、long-context-summaries.ts、eval-v2-gen.ts、eval-v2-check.ts、eval-v2-flow.ts、eval-v2-thresholds.ts、probe-truncation.ts、node.ts   Node 脚本
 ```
 
 - **测到的就是线上的请求。** 每类题型的 suite 用 mod 自己拼请求的函数（`hooks/decision/` 的各个模块，加上 `hooks/core/` 里读设置的 `setup.ts`、读 skill 目录和画像的 `skills.ts`、`profiles.ts`），设置取 manifest 的默认值，manifest 没有默认值的选项取 `--backend` 那个决策模型的（`core/setup.ts` 的 `BACKEND_DEFAULTS`，结果文件的 `settings.backendDefaults` 记着取了哪些），经 mod 自己的 `readConfig()` 读出（`--option contextTokens=4000` 可以改，按 manifest 写的类型读：数字、`true`/`false` 或文字；manifest 里没有的名字、类型不对的值直接报错），所以范围、缺省值和 mod 完全一样。`tests/eval-effort-submit.test.ts` 用 world 核对：同一条消息和对话，评测发的请求与 mod 发的逐字相同。
-- **effort-submit 只问 effort。** skill 推荐开着时（默认开），mod 发消息时的请求里还有 skill 的问题。同一个请求里的问题各自独立作答，只以 state 为上下文，看不到彼此（TypeSafe 的说明，指南 S1、Q12），所以 effort 题单独问得到的就是线上的回答；`tests/eval-effort-submit.test.ts` 核对了带 skill 问题时，mod 请求里的 state 和 effort 问题与评测的逐字相同。延迟不同：带着 skill 问题（尤其是写好画像以后）的请求更大、更慢，消息的实际延迟看 skill 评测的第一段（那就是发消息时的整个请求），effort-submit 的延迟只是单问 effort 的。
-- **变量。** effort-submit 有四个变体：`en-score`、`zh-score`、`en-choice`、`zh-choice`，即问题用英文还是中文写、用 Score 还是 Choice 问；用户的原文总是照搬进 state。每题的中文版和英文版都问。mod 现在的问法看决策模型：Jev 是 `zh-score`，Clef 是 `en-score`（`lib/effort-submit.ts` 的 `modVariant`；发消息时的 effort 问题用决策模型的语言，见「待评测」）。
+- **effort-submit 只问 effort。** 发消息时 effort 题在自己的请求里（ADR 0005），不管 skill 推荐开不开，所以评测发的就是线上的请求：`submitRequest` 用 `messageLimits(settings, false)`（`contextByKind.messagePlain`，Jev 24000）取 state 的预算，`tests/eval-effort-submit.test.ts` 核对了带 skill 题时，mod 的 effort 请求与评测的逐字相同。拆分前这个请求和 skill 题同在一个请求里、state 只有 6000，评测却按 6000 问；数据集里的对话都短于 6000 token，两种请求逐字相同（2026-10-07 前后各跑一遍 `zh-score`：输入 token 都是 162,722，200 个回答里 192 个相同，准确率 zh 88.0%→88.0%、en 84.0%→84.0%，差的 8 个是 Jev 自己的抽样波动，`results/effort-submit/2026-10-07-jev-split-before.json` 和 `…-split-after.json`）。延迟：消息的实际延迟是两个并行请求里慢的那个，通常是带 skill 题的那个，看 skill 评测的第一段；effort-submit 的延迟是 effort 请求的。
+- **变量。** effort-submit 有四个变体：`en-score`、`zh-score`、`en-choice`、`zh-choice`，即问题用英文还是中文写、用 Score 还是 Choice 问；用户的原文总是照搬进 state。每题的中文版和英文版都问。mod 现在的问法看决策模型：Jev 是 `zh-score`（`lib/effort-submit.ts` 的 `modVariant`；发消息时的 effort 问题用决策模型的语言，见「待评测」）。
 - **指标**（`lib/metrics.ts`）：每个变体的中文、英文准确率（答案在可接受集合里；没答上的算错，另列条数），gold 命中率，答偏的方向，中英差距和门槛（中文比英文低不超过 4 个百分点就算通过，正好低 4 个百分点也通过：用户 2026-10-05 定的，原来的 spec 写的是 3 个百分点；`MAX_GAP`、`passes`），中英一致率，延迟 p50 和 p90（以及超过 mod 超时的条数），按 tag 分组的错题数；另报「每题都答同一档」的常数基线。评测每次最多等 `--timeout`（默认是这个后端的 `timeoutMs` 的 4 倍、至少 10 秒），失败（繁忙、断线、超时）还会重试；mod 只等 `timeoutMs`，也从不重试。所以 mod 拿不到的回答另列：超过 `timeoutMs` 才来的（`late`），和评测重试之后才答上的（`retried`：尝试的次数多于请求数），每种语言各记条数，再给出把它们都算作没有决定的准确率（`inTime`），`run.ts` 每个变体打印一行。
 - **已存结果的汇总可以离线重算。** 指标的算法改了时（例如门槛从 3 个百分点改成 4 个，`inTime` 开始扣掉重试过的回答），`node dispatch-pilot/eval/resummarize.ts` 按结果文件里存着的逐题答案重算每种语言的 `late`、`retried`、`inTime` 和每个变体的 `pass`（`lib/resummarize.ts`），不发请求，其余字段原样保留，并在文件里加一段 `resummarized` 说明何时、重算了什么。2026-10-05 已经对 `results/` 下的全部结果重算过一次。准确率、一致率、`breakdown` 这些的算法没有变，不重算。
 - **延迟只在 `--concurrency 1`（默认）时可信。** 实测 Jev 对同一个 key 的并发请求像是依次处理：p50 在 1 个并发时约 270–290 ms，2 个时约 540 ms，4 个时 700–1100 ms。
 - **单次运行有波动。** 2026-10-04 用同一配置跑了两次（`results/effort-submit/` 里的两份 preliminary），四个变体分别有 192、192、191、193 / 200 个答案相同，单项准确率相差 0–3 个百分点，zh-score 的中英差距一次是 −2、一次是 −4，和中英差距的门槛（现在是 4 个百分点）同一量级。比较写法或判断门槛时多跑几次，用 `compare.ts` 对照。
-- **结果文件**记录后端、请求的模型和响应里的模型版本、日期、变量、mod 的设置（包括除敏感字段外的全部选项）、评测集和代码的哈希（`hooks/` 下 mod 的全部文件，加上 `eval/lib/` 的 suite：请求和评分都出自它们）、每个变体问的问题、汇总，以及逐题答案（每个档位的概率和 confidence，供以后离线校准门槛；分部分评分的题型另有 `parts`），不含凭证。判断提示词有没有变，看拼请求的文件（effort-submit 是 `system-one.ts`、`effort.ts`、`context.ts`、`redact.ts`）和记录下来的问题；`backend.ts`、`clef.ts` 这类文件变了不影响请求内容。凭证按「进程环境变量优先，其次 `~/.config/dispatch-pilot/eval.env`」读取。
+- **结果文件**记录后端、请求的模型和响应里的模型版本、日期、变量、mod 的设置（包括除敏感字段外的全部选项）、评测集和代码的哈希（`hooks/` 下 mod 的全部文件，加上 `eval/lib/` 的 suite：请求和评分都出自它们）、每个变体问的问题、汇总，以及逐题答案（每个档位的概率和 confidence，供以后离线校准门槛；分部分评分的题型另有 `parts`），不含凭证。判断提示词有没有变，看拼请求的文件（effort-submit 是 `system-one.ts`、`effort.ts`、`context.ts`、`redact.ts`）和记录下来的问题；`backend.ts`、`jev.ts` 这类文件变了不影响请求内容。凭证按「进程环境变量优先，其次 `~/.config/dispatch-pilot/eval.env`」读取。
 - **审核。** 用户的审核 wizard 每行写一个决定（`agree`、`edit`、`note`）。`apply-review.ts --from <文件>` 把它复制到 `eval/review/`，把 `edit` 写进评测集（只改答案字段，其他行逐字不变），列出改过答案的题（它们的理由需要重写）和要跟进的 note，再校验一遍；有任何一条无法应用时整份不写。审核之后又有新决定时，追加在记录末尾（同一题以最后一行为准），再运行一次 `apply-review.ts <类>`：提交的记录重新应用后，得到的仍是提交的评测集。`effort-midturn.review.jsonl` 的最后一行就是这样，按用户在 issue #1 的拍板撤回了审核者对 midturn-006 的修改。
 - **加一类题型**（#14、#15、#16 都这样加过）：
   1. 评测集放进 `eval/datasets/<类>.jsonl`，在 `eval/datasets/README.md` 写下这类题的字段和标注约定。
   2. `lib/datasets.ts`：类名加进 `KINDS`；`FIELDS` 写每题的顶层字段，`RULES` 写逐题的校验（`zh`/`en` 的结构、答案的形状），`QUOTAS` 写整个评测集的配额（hard 的比例、各情形的题数），三处都按类名查，少一处 `validate.ts` 就报错；题和答案的类型也写在这里。
-  3. `lib/review.ts` 的 `EDITABLE`：审核的 `edit` 能改哪些答案字段。`node.ts` 的 `datasetFile` 报错信息里列着各类的名字，一并加上。
+  3. `lib/review.ts` 的 `EDITABLE`：审核的 `edit` 能改哪些答案字段（`long-context` 的文件是生成的，写 `[]`，改动去 `long-context-items.ts` 里做）。`node.ts` 的 `datasetFile` 报错信息里列着各类的名字，一并加上。
   4. 在 `eval/lib/<类>.ts` 实现 `Suite`（`lib/suite.ts`：怎么问、怎么评分、怎么显示、常数基线），请求一律用 mod 自己拼请求的函数；在 `lib/suites.ts` 登记一行。
   5. 仿照 `tests/eval-effort-submit.test.ts` 用 world 核对请求与 mod 发的逐字相同，再写评分和汇总的测试。
 
@@ -943,25 +1019,23 @@ eval/
 
 #### effort-submit 的正式基线（2026-10-04）
 
-评测集是审核后的版本（100 题；审核 99 题同意、1 题备注，没有改答案），设置取当时的默认值（`contextMessages` 4、`contextTokens` 2000、`thetaMax` 0.5；0.2.1 起 Jev 的前两项默认值是 32 和 6000，评测集的上下文很短，只有 2 个请求的 state 因此变了，见「Jev 的上下文默认值怎么算」；用旧值重现这批结果要加 `--option contextMessages=4 --option contextTokens=2000`），`--concurrency 1`。Jev 用同一配置跑了 3 次（`results/effort-submit/2026-10-04-jev-baseline-1.json` 到 `-3.json`），每次 800 个请求、614,292 input token、约 0.026 美元，没有失败。Clef 只跑了默认变体一次（`2026-10-04-clef-baseline.json`，`--option timeoutMs=3000`）：200 个请求、102,900 input token（约 2,300 neurons，在 Workers AI 每天免费的 10,000 之内），5 个请求第一次失败、重试一次后答上，没有失败的题。
+评测集是审核后的版本（100 题；审核 99 题同意、1 题备注，没有改答案），设置取当时的默认值（`contextMessages` 4、`contextTokens` 2000、`thetaMax` 0.5；0.2.1 起 Jev 的前两项默认值是 32 和 6000，评测集的上下文很短，只有 2 个请求的 state 因此变了，见「Jev 的上下文默认值怎么算」；用旧值重现这批结果要加 `--option contextMessages=4 --option contextTokens=2000`），`--concurrency 1`。Jev 用同一配置跑了 3 次（`results/effort-submit/2026-10-04-jev-baseline-1.json` 到 `-3.json`），每次 800 个请求、614,292 input token、约 0.026 美元，没有失败。
 
 准确率、一致率和 gold 命中率是百分比，差距是百分点。Jev 写 3 次的均值，括号里是最低到最高；延迟写 3 次运行各自的 p50 和 p90 的范围。门槛一列按现在的门槛（中文比英文低不超过 4 个百分点，正好 4.0 也通过）。
 
 | 后端（答题的模型） | 变体 | 中文准确率 | 英文准确率 | 中英差距 | 4 个百分点的门槛 | 中英一致率 | gold 命中（中 / 英） | p50 / p90 ms |
 |---|---|---|---|---|---|---|---|---|
-| Jev（jev-1.13.0） | `en-score`（选 Clef 时线上的问法） | 79.3（78–80） | 78.7（78–80） | +0.7（0 到 +2） | 3 次都通过 | 92.3（91–93） | 61.3 / 59.7 | 278–418 / 316–464 |
+| Jev（jev-1.13.0） | `en-score` | 79.3（78–80） | 78.7（78–80） | +0.7（0 到 +2） | 3 次都通过 | 92.3（91–93） | 61.3 / 59.7 | 278–418 / 316–464 |
 | Jev（jev-1.13.0） | `zh-score`（选 Jev 时线上的问法，2026-10-05 起） | 87.3（87–88） | 87.7（87–88） | −0.3（−1 到 0） | 3 次都通过 | 92.0（91–93） | 65.0 / 66.3 | 278–419 / 314–484 |
 | Jev（jev-1.13.0） | `en-choice` | 82.3（82–83） | 85.3（85–86） | −3.0（3 次都是 −3） | 3 次都通过（按当时 3 个百分点的门槛不通过） | 88.3（86–90） | 65.0 / 66.0 | 279–419 / 318–483 |
 | Jev（jev-1.13.0） | `zh-choice` | 85.0（3 次都是 85） | 86.3（86–87） | −1.3（−2 到 −1） | 3 次都通过 | 93.7（91–96） | 62.3 / 63.7 | 278–413 / 318–492 |
-| Clef（响应里只写 `clef`，没有版本号） | `en-score` | 74.0 | 74.0 | 0 | 通过（1 次） | 89.0 | 53.0 / 54.0 | 699 / 929 |
 
 - **2026-10-05 的问题语言对比**（`results/effort-submit/2026-10-05-jev-ac4-question-language.json`，在现在的代码上跑的，请求和上面 3 次逐字相同）：`zh-score` 中文 85.0、英文 89.0，差距 −4.0，正好在 4 个百分点的门槛上，通过；`en-score` 79.0、78.0，+1.0。两种问法 p50 都是 282 ms，没有迟到或重试的回答。加上这一次，`zh-score` 4 次的差距是 0、0、−1、−4。
-- **按 mod 的等法算的准确率**（`inTime`：超过 `timeoutMs` 或重试之后才答上的回答算没有决定，`eval/resummarize.ts` 离线重算过）：Jev 的各变体每次最多比准确率低 1 个百分点；Clef 有 5 个请求是重试之后才答上的，按 mod 的等法是中文 74%、英文 71%。
-- **常数基线。** 每题都答 high 能对 55%（gold 命中 26%），medium 49%，xhigh 39%，low 30%，max 12%。Jev 的四个变体比 high 的 55% 高约 24–33 个百分点，Clef 高 19 个百分点。
+- **按 mod 的等法算的准确率**（`inTime`：超过 `timeoutMs` 或重试之后才答上的回答算没有决定，`eval/resummarize.ts` 离线重算过）：Jev 的各变体每次最多比准确率低 1 个百分点。
+- **常数基线。** 每题都答 high 能对 55%（gold 命中 26%），medium 49%，xhigh 39%，low 30%，max 12%。Jev 的四个变体比 high 的 55% 高约 24–33 个百分点。
 - **中英差距的门槛在多次运行下是否稳定成立。** 门槛原来是 3 个百分点（spec 的写法），2026-10-04 的 3 次运行里，`en-score` 中文不比英文差（差距 0 到 +2），稳定成立；`zh-score` 和 `zh-choice` 的差距在 −2 到 0 之间；`en-choice` 3 次都正好是 −3：当时的 `metrics.ts` 把正好 3 个百分点记成通过，后来改成必须低于 3 个百分点，它就不通过了。2026-10-05 用户把门槛改成 4 个百分点（正好 4.0 也通过），这四个变体按新门槛都通过，结果文件里的 `pass` 已按新门槛重算。同一题同一种语言 3 次答案都相同的，四个变体分别是 190、192、191、188 / 200，即有 4–6% 的答案在 3 次运行里变过，差距最多摆动 2 个百分点；之前的两次 preliminary 运行发的请求逐字相同（评测集只差 submit-055 的理由，答案字段相同），其中一次 `zh-score` 是 −4，2026-10-05 那一次也是 −4。所以 `zh-score` 的差距在 0 到 −4 之间摆动，正好贴着新门槛；要据此做决定，先多跑几次。
-- **延迟。** 第 1 次运行整体慢了约 130 ms（p50 413–419 ms，分布同样集中，不像是并发排队），第 2、3 次的 p50 是 278–286 ms，和 preliminary 相近：同样是 1 个并发，不同时段的延迟也会差上百毫秒。超过 mod 超时 1500 ms 的，每个变体每次 0–1 条，最长 2245 ms。Clef 在连接已经建立、请求依次发送时 p50 699 ms、p90 929 ms，最长 2148 ms，200 条里只有 1 条超过 1500 ms（冷连接的第一次请求更慢，见「待评测」）。
-- **Clef 偏高。** Clef 每种语言答错 26 题，其中 25 题是答高了；Jev 的 `en-score` 每种语言答高 16–18 题、答低 3–5 题。
-- **审核规则 R4 暴露的提示词问题（原定留给 #17，按用户的决定没有改）。** 线上提示词（`hooks/decision/effort.ts`）的 high 档写着「writing tests」（中文版是「编写测试」），把写测试整体放在 high 档；审核规则 R4（`eval/review/effort-submit.review-summary.md`）定的是写测试按范围定档。submit-056（给二十来行的纯函数补几个用户已经列明的用例，只接受 medium）因此很难答对：3 次运行里，`en-score`、`zh-score`、`en-choice` 中英文各 3 次全部答 high（`en-score` 给 high 的概率是 0.71–0.76），只有 `zh-choice` 6 次里答对 5 次；Clef 中英文也都答 high。对照题 submit-055（为三个外部依赖设计 mock、覆盖率要到 80%，接受 medium 和 high）24 次都答 high，这是对的。以后改提示词时，可以考虑把 high 档的写测试改成按范围描述，改完再跑一遍，用 `compare.ts` 对照这两题；这五档描述所有 effort 问题共用，要重跑的不只这一套。#4 和 #17 都没有改提示词。
+- **延迟。** 第 1 次运行整体慢了约 130 ms（p50 413–419 ms，分布同样集中，不像是并发排队），第 2、3 次的 p50 是 278–286 ms，和 preliminary 相近：同样是 1 个并发，不同时段的延迟也会差上百毫秒。超过 mod 超时 1500 ms 的，每个变体每次 0–1 条，最长 2245 ms。
+- **审核规则 R4 暴露的提示词问题（原定留给 #17，按用户的决定没有改）。** 线上提示词（`hooks/decision/effort.ts`）的 high 档写着「writing tests」（中文版是「编写测试」），把写测试整体放在 high 档；审核规则 R4（`eval/review/effort-submit.review-summary.md`）定的是写测试按范围定档。submit-056（给二十来行的纯函数补几个用户已经列明的用例，只接受 medium）因此很难答对：3 次运行里，`en-score`、`zh-score`、`en-choice` 中英文各 3 次全部答 high（`en-score` 给 high 的概率是 0.71–0.76），只有 `zh-choice` 6 次里答对 5 次。对照题 submit-055（为三个外部依赖设计 mock、覆盖率要到 80%，接受 medium 和 high）24 次都答 high，这是对的。以后改提示词时，可以考虑把 high 档的写测试改成按范围描述，改完再跑一遍，用 `compare.ts` 对照这两题；这五档描述所有 effort 问题共用，要重跑的不只这一套。#4 和 #17 都没有改提示词。
 
 #### 一轮中途的 effort（effort-midturn，#14）
 
@@ -970,7 +1044,7 @@ eval/
 - **变体**：`en-score`（mod 现在的问法）、`zh-score`（问题用中文写）、`no-current-effort` 和 `no-counts`（state 里去掉当前档位或计数；指南 §4.1 担心当前档位会产生锚定）、`trouble`（计入的失败达到 `escalateAfter`（默认 2）的 6 题照 #7 的 `stuckRequest` 发：带上「卡住」说明、对应的问题指令和「是不是预期内」一题，那一题的回答记在逐题答案的 `expected` 里、不计分；其余 94 题的请求与 `en-score` 相同，所以这个变体的整体数字也反映了重复提问的波动）、`raw-results`（和 `en-score` 一样，只是每个调用的那一行照评测集的原文发，带着 mod 不发的「结果如何」：量这部分信息对判断的影响）。题里的 `counts.failures` 是「自上次清零以来」的失败，和 mod 的计数同义（mod 只有一份计数，中途重判和 #7 都用它）。2026-10-04 的结果是第 1 轮审查之前跑的：那时每个调用的那一行照评测集原文发（就是现在的 `raw-results`），`trouble` 变体只问 `midturn.level`；所有变体都要重跑才是现在的问法的数字（#17 按用户的决定没有重跑）。
 - **评分口径**：回答选出的档位（`pickEffort`：概率最高的一档，`max` 要过 `thetaMax`）在 `accept` 里算对，评测集标的就是这个判断。mod 随后实际发出的档位记在逐题答案的 `sent` 里（`judgeMidturn`：升档要置信度过 `thetaUp`，降档要过 `thetaDown` 而且一次只降一档），`why` 是原因，另有各档概率 `p` 和 `confidence`：校准门槛时可以用同一批回答重新判断，不必重新请求（#17 按用户的决定没有校准）。评测集不记录上次升档在第几步，所以 `holdSteps` 不起作用；强制升档的下限也不加：失败是不是预期内的，按用户的拍板由 #7 让决策模型判断。
 - **指标**（共用指标之外）：「每题都保持当前档」的基线（`current`，52%，gold 命中 38%）；按 gold 相对当前档该升、该降、该保持分组的中英准确率（汇总里的 `breakdown.directions`）；`sent` 的中英准确率（`breakdown.sent`）。`sent` 的准确率有上限：5 题（007、061、066、068、091）可接受的档位都比当前档低两档以上，mod 一次只降一档，这 5 题的 `sent` 不可能对。
-- **结果**（2026-10-04，审核后的评测集，设置取 manifest 的默认值：`rejudgeSteps` 4、`contextTokens` 2000、`thetaUp` 0.4、`thetaDown` 0.6、`thetaMax` 0.5，`--concurrency 1`）。Jev 用同一配置跑了两次：`results/effort-midturn/2026-10-04-jev-first.json` 在合入 #15 之前跑，`2026-10-04-jev-reviewed.json` 在合入之后跑。两次发的请求逐字相同（评测集和拼请求的文件哈希都一样），只是第一次的汇总早于 #15 的 `breakdown`：分组的数字在 `groups` 里，没有 `sent` 的准确率。每次 1000 个请求、908,778 input token、约 0.038 美元，没有失败。Clef 只跑了默认变体一次（`2026-10-04-clef-wiring.json`，`--option timeoutMs=3000`）：200 个请求、125,190 input token，没有失败，也没有重试。
+- **结果**（2026-10-04，审核后的评测集，设置取 manifest 的默认值：`rejudgeSteps` 4、`contextTokens` 2000、`thetaUp` 0.4、`thetaDown` 0.6、`thetaMax` 0.5，`--concurrency 1`）。Jev 用同一配置跑了两次：`results/effort-midturn/2026-10-04-jev-first.json` 在合入 #15 之前跑，`2026-10-04-jev-reviewed.json` 在合入之后跑。两次发的请求逐字相同（评测集和拼请求的文件哈希都一样），只是第一次的汇总早于 #15 的 `breakdown`：分组的数字在 `groups` 里，没有 `sent` 的准确率。每次 1000 个请求、908,778 input token、约 0.038 美元，没有失败。
 
   准确率、一致率、gold 命中率和 `sent` 准确率是百分比，差距是百分点。Jev 写第二次运行的数字，括号里是第一次。
 
@@ -981,14 +1055,36 @@ eval/
   | Jev（jev-1.13.0） | `no-current-effort` | 74（77） | 75（75） | −1（+2） | 86（86） | 56 / 57（60 / 57） | 76 / 77（76 / 76） | 285 / 354（277 / 323） |
   | Jev（jev-1.13.0） | `no-counts` | 75（73） | 74（75） | +1（−2） | 87（87） | 58 / 57（56 / 55） | 78 / 77（77 / 78） | 286 / 358（277 / 326） |
   | Jev（jev-1.13.0） | `trouble` | 75（74） | 73（75） | +2（−1） | 90（87） | 59 / 53（57 / 53） | 77 / 75（78 / 77） | 287 / 346（275 / 333） |
-  | Clef（响应里只写 `clef`） | `en-score` | 85 | 87 | −2 | 88 | 65 / 70 | 58 / 57 | 633 / 761 |
 
-  - **常数基线。** 每题都保持当前档 52%（gold 命中 38%），是最好的常数；每题都答 high 50%，medium 和 xhigh 43%，low 28%，max 12%。Jev 的 `en-score` 比保持当前档高 21–25 个百分点，Clef 高 33–35 个百分点。
+  - **常数基线。** 每题都保持当前档 52%（gold 命中 38%），是最好的常数；每题都答 high 50%，medium 和 xhigh 43%，low 28%，max 12%。Jev 的 `en-score` 比保持当前档高 21–25 个百分点。
   - **中英差距的门槛。** 两次运行五个变体都通过（按当时 3 个百分点的门槛，也按现在的 4 个百分点），差距在 −2 到 +3 之间。同一题同一种语言两次答案相同的，五个变体分别是 185、192、185、188、189 / 200；`en-score` 的中文准确率两次差 4 个百分点（77、73），差距从 +3 摆到 −1。变体之间 1–3 个百分点的差别都在这个波动之内，两次运行看不出哪个变体稳定更好，所以也还看不出去掉当前档位（锚定）或计数有没有好处。
-  - **按升、降、保持分组**（`en-score` 第二次，中 / 英）：该升 69 / 66，该降 73 / 77，该保持 76 / 79。答错的大多是答低了：中文 19 题答低、8 题答高，英文 21 题答低、5 题答高（第一次运行中文 19 低 4 高，英文 18 低 8 高）。有 17 题 Jev 两次运行中英文都答错，例如收尾阶段降得太多（042、045、064、066、078 都答 low），该保持 max 的 024、032 答低了，长而机械的批量工作 021、063 答高了；这 17 题里 Clef 中英文都答对的有 7 题，另有 2 题答对一种语言。
-  - **`sent`：mod 实际会发出的档位。** Jev 的 `sent` 比选出的档位还略好一点（`en-score` 76 / 77，选出的是 73 / 74）：回答不够确定时 mod 保持原档，而保持原档常常也可以接受。Clef 正好相反：选出的档位最准（85 / 87），`sent` 却只有 58 / 57，只比保持当前档高 5–6 个百分点。原因是 Clef 的 confidence 比 Jev 低得多（`en-score` 200 个回答的中位数 0.24、p90 0.50，158 个低于 0.4，192 个低于 0.6；Jev 两次都是中位数 0.65–0.66、p90 0.97），默认的 `thetaUp` 0.4 和 `thetaDown` 0.6 挡住了它的大部分改档：每种语言约 60 题判为不够确定（`unsure`），一次降档也没有。所以门槛要按后端分别校准，或者让 Clef 改看概率最高那一档的概率（#17 按用户的决定都没有做，Clef 暂用 Jev 的门槛）。
+  - **按升、降、保持分组**（`en-score` 第二次，中 / 英）：该升 69 / 66，该降 73 / 77，该保持 76 / 79。答错的大多是答低了：中文 19 题答低、8 题答高，英文 21 题答低、5 题答高（第一次运行中文 19 低 4 高，英文 18 低 8 高）。有 17 题 Jev 两次运行中英文都答错，例如收尾阶段降得太多（042、045、064、066、078 都答 low），该保持 max 的 024、032 答低了，长而机械的批量工作 021、063 答高了；
+  - **`sent`：mod 实际会发出的档位。** Jev 的 `sent` 比选出的档位还略好一点（`en-score` 76 / 77，选出的是 73 / 74）：回答不够确定时 mod 保持原档，而保持原档常常也可以接受。
   - **`trouble`（失败满 2 次的 6 题）。** 两次运行合起来 24 个答案，带上「卡住」说明后变对 4 个、变错 2 个（017 英文两次都变对；006、057 各有一次变对、一次变错），样本太小，看不出效果。006（两次失败都是计划内的 TDD 红灯）带不带都大多答 medium。#7 按用户的拍板还要问「这些失败是不是预期内的」，那个问题这里没有评测。
-  - **延迟。** Jev 的 p50 275–287 ms、p90 323–358 ms，最长 1305 ms，没有超过 1500 ms 的。mod 在工具开始执行时就发出中途请求，下一步最多再等 `rejudgeWaitMs`（300 ms），按这个延迟，回答一般在工具运行期间就到了。Clef（连接建立后依次发送）p50 633 ms、p90 761 ms，最长 2078 ms，都在 3000 ms 之内。
+  - **延迟。** Jev 的 p50 275–287 ms、p90 323–358 ms，最长 1305 ms，没有超过 1500 ms 的。mod 在工具开始执行时就发出中途请求，下一步最多再等 `rejudgeWaitMs`（300 ms），按这个延迟，回答一般在工具运行期间就到了。
+
+#### 多轮未解决（unresolved，#37，spec #36）
+
+- **评测集** `datasets/unresolved.jsonl`：30 题，中英对照，26 题 hard，10 题的对话超过发消息时 state 的预算（标签 `over-budget`，校验按 mod 的估算核对）。每题是一条消息加它之前的对话（形状同 effort-submit，命令轮另有 `command`），答案是 effort（`gold`、`accept`）和三选一题的金标 `triage`（`unresolved`、`resolved`、`new`）。各情形的题数和构造见 `datasets/README.md` 的「unresolved」。没有审核记录（`review/unresolved.review.jsonl`）：标注是写题时定的，需要审核时再走 `apply-review.ts`（`EDITABLE` 已登记 `gold`、`accept`、`triage`）。
+- **suite**（`lib/unresolved.ts`）：请求是 mod 发消息时拼的那一个：effort 请求单独发，state 是 `turnStartState`，命令轮的 state 多一个 `command`。变体 `zh-score`（Jev 的问法）、`en-score` 和带 `-wide` 的两个。不带 `-wide` 的 state 预算是 `contextTokens`（6000），即 #38 之前 effort 题和 skill 题合在一个请求里时它拿到的；带 `-wide` 的用 `messageLimits(settings, false)`（`contextByKind.messagePlain`，24000），即 #38 之后 effort 请求（ADR 0005）拿到的，也就是 mod 现在的请求（`tests/eval-unresolved-suite.test.ts` 用 world 核对了逐字相同）。**下面的基线是在 #38 之前的代码上跑的，所以「改动之前」指不带 `-wide` 的变体；#38 之后，`zh-score-wide` 才是 mod 现在的问法。****#40 起三选一题和摘要都接上了 mod 的函数**：请求是 `unresolvedRequest` 用 mod 的 `turnStartPart`（effort 题、`withUnresolved` 加进来的三选一题 `effort.unresolved`、命令轮的 `command`、摘要的 `problem_summary`）和 `messageRequest`（state 和预算）拼的，核心发消息时用的是同一对函数，`tests/eval-unresolved-suite.test.ts` 用 world 核对两边的请求逐字相同（整个请求，包括三选一题；也核对带摘要的）。所以 `unresolved` suite 现在每个变体都问 effort 和三选一两题：三选一的回答按 mod 的读法（`readUnresolved`）读，取概率最高的选项（`judgeUnresolved` 的 `top`）映射成数据集的名字（`still_unresolved` 是 `unresolved`，`new_or_unrelated` 是 `new`），和金标 `triage` 比，单独评分（`parts.triage`）；汇总里的 `breakdown.triage` 有准确率、混淆表，和 `change`：mod 现在的两档门槛（`UNRESOLVED_THRESHOLDS`）对这些回答做的事，按次数的说法算：`right`（该加一的加了一、该清零的清零了，占全部题）、`falseAdd`（不是「仍未解决」的题被加了一，占这些题）、`lostRecord`（「仍未解决」的题被清零了，丢掉一份记录，占这些题，最贵的错）；逐题的 `detail.triageP`（三个选项的概率，数据集的名字）和 `detail.triageChange` 存在结果里，#42 校准两档门槛时不用重跑，按存下的概率重算。三选一没有可用的回答时那一题整题失败（`parse: no triage answer`），不猜。**摘要：数据集没有摘要字段，每题都按「一个问题的第一条消息」问，state 里没有 `problem_summary`**（摘要是便宜的模型逐轮续写出来的，一份对话记录里没有）；`unresolvedRequest` 的最后一个参数可以给一份摘要，这样有摘要的一次运行问的就是 mod 带摘要时问的。要不要给 30 题配摘要（手写，或用 mod 自己的 `summaryPrompt` 逐轮让便宜的模型续写，像 `eval/profiles.ts` 那样用 `claude -p --model haiku`），是 #42 校准时的决定。baseline 比的是请求带三选一题之前的数字（见下），题数多了一题、请求略长（240 个请求 928,213 input token，baseline 858,990），Jev 回答 effort 题不受同一请求里别的题影响，是预期，没有单独量过。
+- **汇总里的数**（`breakdown`，每个变体）：`top`（gold 为 `max` 的题里答成 `max` 的比例，即最高一档的召回）、`tooHigh`、`tooLow`（判得太高、太低的题占全部题的比例）、`byLength`（长对话和不长的对话分开：准确率和最高一档的召回）、`thetaMax`（0.2 到 0.7 各个门槛下的最高一档召回，以及 `accept` 里没有 `max` 的题被答成 `max` 的比例；按存下的各档概率重算，不发请求）。
+- **改动之前的基线**（2026-10-07，jev-1.13.0，mod 的默认设置：`contextTokens` 6000、`thetaMax` 0.5，`--concurrency 1`）：`results/unresolved/2026-10-07-jev-baseline.json` 和 `-baseline-2.json`，同一配置各跑一次，每次 240 个请求、858,990 input token、约 0.036 美元，没有失败，没有迟到的回答。百分比，中文 / 英文，括号里是第二次：
+
+  | 变体 | 准确率 | 最高一档的召回（13 题） | 判得太高 | 判得太低 | 召回：长对话（10 题）/ 不长（20 题） |
+  |---|---|---|---|---|---|
+  | `zh-score`（#38 之前 Jev 的问法，state 6000） | 73.3 / 73.3（73.3 / 73.3） | 15.4 / 15.4（15.4 / 7.7） | 0 / 0 | 26.7 / 26.7 | 20 / 20、12.5 / 12.5（20 / 0、12.5 / 12.5） |
+  | `en-score` | 76.7 / 80.0（80.0 / 80.0） | 69.2 / 76.9（69.2 / 69.2） | 3.3 / 3.3 | 20.0 / 16.7（16.7 / 16.7） | 60 / 60、75 / 87.5（60 / 40、75 / 87.5） |
+  | `zh-score-wide` | 73.3 / 73.3（76.7 / 73.3） | 23.1 / 7.7（23.1 / 23.1） | 0 / 0 | 26.7 / 26.7（23.3 / 26.7） | 40 / 0、12.5 / 12.5（40 / 40、12.5 / 12.5） |
+  | `en-score-wide` | 80.0 / 83.3（80.0 / 80.0） | 69.2 / 76.9（69.2 / 76.9） | 3.3 / 3.3 | 16.7 / 13.3（16.7 / 16.7） | 60 / 60、75 / 87.5（60 / 60、75 / 87.5） |
+
+  常数基线：每题都答 xhigh 能对 63.3%（最好的常数；gold 命中 10%），max 46.7%，medium 36.7%，high 30.0%，low 23.3%。
+- **读这些数要留意的**：
+  - **上线标准的起点是 `zh-score` 的 15.4%（13 题里 2 题）**，判得太高 0%、太低 26.7%。#38 之前 Jev 就是这样问的（#38 只改了 state 预算，`zh-score-wide` 就是它的结果：召回 23.1 / 7.7 和 23.1 / 23.1，几乎没变）。判得太低的 8 题（中文，英文相同）里，6 题是 gold 为 `max` 的，答的是 high。
+  - **问题的语言比上下文的长度影响大得多。** 同一个 Jev、同样的 state，`en-score` 的召回是 69–77%，`zh-score` 是 8–23%：中文的 effort 题给最高一档的概率普遍低（明说「第四次了」的 `unresolved-001` 在中文问法里 `max` 的概率是 0.32，英文问法是 0.84）。`thetaMax` 降到 0.2 也只把 `zh-score` 提到 23%，所以光调门槛救不了它。代价是 `en-score` 在第二次失败的题上有一次判到 `max`（`unresolved-014`，判得太高 3.3%）。#4 里 `zh-score` 在 effort-submit 上比 `en-score` 准 8–9 个百分点才定为 Jev 的问法（现在是 `BACKEND_DEFAULTS` 的 `ask.turnStart`，当时叫 `turnStartLanguage`），这里相反：到底是 effort-submit 缺这类题，还是中文题在这一档本身偏保守，要先看这一点再决定上线标准。
+  - **state 从 6000 提到 24000 的作用很小**：最高一档的召回，`zh-score` 是 15.4 / 15.4 和 15.4 / 7.7（两次，中文 / 英文），`zh-score-wide` 是 23.1 / 7.7 和 23.1 / 23.1；`en-score` 和 `en-score-wide` 一样（69–77%）。长对话里的召回比不长的低一些（`en-score` 60% 对 75–88%），但提到 24000 没有补上，而且长对话里有 3 道隐含的题（008、009、011），和短对话的构成不同，不能全算在长度上。最后一条（长日志）把预算占满的几题（`unresolved-002`、`004`、`008`、`022`、`024`）在 6000 的预算里只剩 66–120 token：消息和最后一条回复。其中明说没解决的 002、004，`en-score` 答对（max），`zh-score` 答 xhigh 和 max；隐含的 008（「还是一样」）所有变体都没答对。
+  - **隐含的没解决几乎没人认出**：`implicit-unresolved` 7 题，`zh-score` 只对 2 题（010、011，都是答 xhigh），`en-score` 对 4 题；贴同样的编译错误（006）和「再看看」（007）在任何变体里都是 low 到 high。这些是摘要和三选一题要补的。
+  - **波动**：两次运行请求逐字相同，每个变体 240 个回答里有几个不同；最高一档的召回只有 13 题，一题就是 7.7 个百分点，比较时用同一配置多跑几次，别拿一次的差当结论。
+  - baseline 那时三选一题还不存在，这次的结果只有 effort（现在的 suite 一起问它，见上）。`unresolved-014` 一类「第二次」的题和 6 道已解决的题是看判得太高的主要样本，**effort-submit 原有用例的回归还没跑**（那是上线标准的另一半，改动之后再跑）。
 
 #### 派出 agent（subagent，#15）
 
@@ -1012,13 +1108,12 @@ eval/
   - 保留还是推翻主 agent 的指定：差两档、让 haiku 写代码或做判断、让 opus 或 fable 只做汇报或机械工作（只搜索、只汇报、不需要判断），就推翻；只差一档、这个选择说得过去，就保留，gold 用主 agent 的指定，更合适的模型放进 accept。
   - 只有肯定的说法（「用 X」「X 就够了」「派个 X 去查」）才算点名。「别用 X」是约束：X 不进 accept，其余交给决策模型，标 `priority:none`；否定加肯定（「别用 opus，用 haiku」）时，肯定的那个算点名。模型名作为被比较的产品、作为线上系统用的模型、作为旧代码由谁生成被提到，都不算点名。点名只管它描述的那部分工作（「调研那种活儿用 haiku」不管实现的 agent），「这次所有 agent」管本轮派出的所有 agent。
   - 只提到 fable、答案却是默认模型的题，也打 `fable` 标签。
-- **结果**（2026-10-04，jev-1.13.0，审核后的评测集）：`results/subagent/` 里有两次同样配置的 Jev 运行（`2026-10-04-jev-reviewed.json`、`2026-10-04-jev-reviewed-2.json`，各 800 个请求、约 0.04 美元）和一次 Clef 抽样（`2026-10-04-clef-sample.json`）。下面的数字取第二次（第一次早于结果里的 `scoring` 说明和 subagent-058 失败原因措辞的修正，两次的答案逐题可比）：
+- **结果**（2026-10-04，jev-1.13.0，审核后的评测集）：`results/subagent/` 里有两次同样配置的 Jev 运行（`2026-10-04-jev-reviewed.json`、`2026-10-04-jev-reviewed-2.json`，各 800 个请求、约 0.04 美元）。下面的数字取第二次（第一次早于结果里的 `scoring` 说明和 subagent-058 失败原因措辞的修正，两次的答案逐题可比）：
   - mod 现在的问法 `models-hint`：整题中文 69%、英文 66%（中文高 3 个百分点，过中英差距的门槛），模型 83%/82%，effort 74%/70%，gold 命中 50%/47%；中英一致率整题 86%、模型 90%、effort 88%；延迟 p50 286 ms、p90 374 ms，超过 1500 ms 的 1 个。两次运行有 194/200 个答案相同，各项准确率相差 0–2 个百分点。
   - 常数基线：整题最好的是总是 haiku，35%；只看模型，总是 sonnet，47%；只看 effort，总是 high，45%。
   - 按情形，中/英错题数：用户点名 0/0（17 题）；保留主 agent 的指定 5/6（17 题，中文有 6 题被决策模型推翻，3 题因此选错模型）；推翻主 agent 的指定 8/8（16 题，5 题没有推翻）；无指定 18/20（50 题，错的大多在 effort：15/18）。普通派发 18/17（61 题），workflow 13/17（39 题）。
   - 四个变体相差不大，整题都在 68–71%（中文）、65–68%（英文），两次运行里没有哪个变体在两种语言上都稳定好于 `models-hint`。
   - 门槛（用同一批回答重新决定）：`agentOverride` 从 0.6 降到 0.4–0.5，`models-hint` 两次都是中文 +3、英文 +2 个百分点；永不推翻（1）降到 65%/62%。`thetaMax` 0.3 比 0.5 高 1–2 个百分点；`thetaNamed` 0.7 中文 +1。这些都是在同一套题上扫出来的，校准时要防过拟合。
-  - Clef 抽样（每个 `priority:*` 情形 3 题，共 12 题 × 中英，`models-hint`，`--option timeoutMs=3000`）：24 个请求都有回答，Clef 接受派出 agent 的问题；整题中英各 8/12（同样 12 题上 Jev 中文 9/12、英文 7/12），中英答案完全一致；延迟 p50 802 ms、p90 1047 ms、最长 1925 ms，都在 3000 ms 之内；26.5k input token，约 0.006 美元。
 - **已知的问题题**：subagent-021 两种语言都错，但原因不同：中文是决策模型以 0.895 的置信度推翻了主 agent 的 opus（推翻门槛的校准问题），英文是把「之前让 sonnet 生成的」当成了点名（0.57）。点名问题的误判都在英文、概率 0.5–0.6（021 的 sonnet、100 的 fable），中文有一次（038 的 haiku）。subagent-023 两种语言都判成 sonnet xhigh（gold medium）。subagent-012 的用户点名了 effort：用户拍板「点名的 effort 也绝不推翻」，当时 mod 还没有实现，这两次答对只是因为决策模型自己也判了 low。subagent-058 在 `work-*` 变体里没有决定：用户排除了 opus，回答又把概率全给了 opus 那一项，剩下的模型没有概率；当时的 mod 遇到这种情况会让 agent 按原来的指定启动，也就是用户排除的那个模型（`models-hint` 下没有出现）。这两件事都由 #6 的补丁修了，见下一条。
 - **点名 effort 和排除模型的补丁（#6、#8，2026-10-04，jev-1.13.0）**：补丁前后各跑一次全量（四个变体 × 中英 × 100 题，各约 0.043 美元；补丁前一次是用补丁前的代码在同一套题上重跑的，不是上面第二次运行）：`2026-10-04-jev-named-effort-before.json`、`2026-10-04-jev-named-effort-after.json`。subagent-058：`work-hint`、`work-noul` 里中英四个答案，补丁前都是没有决定（会启动 opus），补丁后都是 sonnet xhigh，对；`models-*` 两个变体前后都是 sonnet xhigh。subagent-012：八个答案前后都是 sonnet low，对；补丁后的 low 是点名 effort 一题读出来的（`named_effort` 概率 1.0 给 low，中英都是），不再靠决策模型自己的 effort 打分（0.67–0.70 给 low，碰巧一致），所以这题不能区分补丁前后。`priority:user` 的 17 题，四个变体、中英，前后都是 17/17。点名 effort 一题只在消息里有可能点名 effort 的字眼时才问：全量里中文 7 题、英文 6 题出现，决策模型判为没有点名的概率都在 0.91 以上（002、047、057、058、060、077–079、085–087），只有 012 判为点名。整体准确率前后在噪声之内（`models-hint` 中文 69%→70%、英文 69%→68%），逐题变化的题都不在这两件事上（run 之间的随机波动）。
 
@@ -1044,11 +1139,673 @@ eval/
   - **按情形**（`profiles` 两次，中 / 英）：`none` 81.8 / 86.4；`skill-needed`（75 题）78.7 / 81.3、77.3 / 81.3；`multi-partial` 77.8 / 83.3、75.0 / 83.3；`near-duplicate` 79.7 / 84.8；`lexical-trap` 78.3 / 80.0、80.0 / 80.0；`user-only` 64.7 / 70.6、70.6 / 70.6；`needs-context` 85.0 / 85.0。`descriptions`：`none` 72.7 / 68.2、72.7 / 77.3；`skill-needed` 80.0 / 84.0、81.3 / 81.3；`multi-partial` 77.8 / 86.1、83.3 / 86.1；`near-duplicate` 84.8 / 88.1、86.4 / 84.8；`lexical-trap` 80.0 / 78.3、80.0 / 80.0；`user-only` 76.5 / 76.5；`needs-context` 90.0 / 90.0。
   - **延迟和请求大小。** `profiles` 的第一段带着 111 份画像，Jev 计 2.19 万 input token（第二段约 1.3k），`descriptions` 的第一段 8.6k。第一次运行第一段 p50 / p90 是 561 / 615 ms（`descriptions` 317 / 362），第二段 284 / 336 ms，两段合计都在 1500 ms 之内；第二次运行整体慢（各时段都慢，不集中在某一段），`profiles` 第一段 p90 1648 ms、最长 7.8 秒，218 个回答里 24 个第一段就超过 1500 ms（mod 里这条消息的整个决策请求超时，effort 也没有经过路由），另有 21 个两段合计超过（mod 里不推荐 skill）；`descriptions` 是 5 个和 8 个。几乎每条消息都发第二段：`profiles` 89.9% / 91.7%，`descriptions` 96.8% / 95.9%，因为评测集里不该推荐的题多是诱导题，第一段常给某个 skill 0.1 以上。
   - **门槛**（两次的均值，`profiles`）：`skillsMinRelevance` 在 0.3–0.8 之间很平（整题中文 79.8–81.2、英文 80.3–84.4），0.85 起明显下降（0.9：中文 70.2、英文 69.7）。中文在 0.3、0.5、0.75 都是 81.2（现在的 0.7 是 79.8），英文最好是 0.8（84.4；0.7 和 0.75 是 83.5）。按语言分别取：中文 0.75，英文 0.8；只用一个值时取 0.75（中文 81.2、英文 83.5，差距 −2.3，过门槛）。`findSkillMinRelevance`（按推荐的规则评，返回最多 5 个）中文 0.3 和 0.75 最好（83.0），0.3 的 recall 也最高（88.0；0.5 是 82.1、85.3）；英文 0.8 最好（86.2），但 recall 从 0.5 的 88.0 降到 82.7，0.5 只低 1.3（84.9）。主 agent 主动问时宁多勿漏，按语言分别取：中文 0.3，英文 0.5；只用一个值时保持 0.5。`descriptions` 下最好的值是：推荐中文 0.7、英文 0.6，`find_skill` 中文 0.4、英文 0.6。这些都是在同一套题上扫出来的，相邻的值相差 1–2 题，校准时要防过拟合；mod 现在两种语言共用一个值。
-  - **Clef 抽样**（`results/skill/2026-10-04-clef-sample.json`，`profiles`，skill-001、002、004 × 中英，`--option timeoutMs=3000`）：6 个回答都对，中英完全一致，Clef 接受 112 个选项、带画像的第一段和第二段的问题。但第一段很慢：3.7–7.9 秒（p50 4.4 秒；第二段 0.5–0.8 秒），6 个都超过 3000 ms，也就是 mod 里选 Clef、装了这么多 skill、画像都写好以后，每条消息的决策请求（effort 和 skill 在同一个请求里）都会超时。Clef 计第一段 1.5 万 input token；这次连同先发的一个探针共用了 11.2 万 token（按 Clef 的价格约 0.027 美元，在每天的免费额度之内），所以没有跑更多。
 - **已知的问题题**（两次运行、两个变体、中英文都错的有 9 题：018、033、041、050、052、090、091、092、096）：
   - **只能由用户触发的 skill 挤掉了能加载的 gold**（033、090、091、092）：第一段的 Choice 把几乎全部概率给了只能由用户触发的那个（033 的 improve-codebase-architecture 0.98–1.00、090 的 grill-with-docs 0.99–1.00），能加载的 gold（codebase-design、grilling、domain-modeling）分不到 0.1，进不了第二段。提示是对的，推荐漏了。这是第一段只问一个 Choice 的结构问题：两类 skill 在同一个问题里互相抢概率。第 1 轮审查之后第一段拆成了两题（`skills.which` 只问能加载的，`skills.hint` 只问只能由用户触发的，见「开发」的排序一节），上面的数字都是拆分之前跑的，要重跑两个变体才知道这几题和整体的数字（#17 按用户的决定没有重跑）。
   - **第二段确认了诱导**：041（「这个会话想从 Opus 切到 Sonnet，命令怎么敲」，claude-api 0.91–0.93）、050（问 Graphiti 的一个参数，research 0.74–0.86），017（后台挂着 dev server，run 0.70–0.79，中立但这题不该推荐；8 次里错 7 次）。画像的「何时不用」没有挡住它们。
   - **第二段过严**：096（「ctrl+r 老跟 tmux 撞键」，第一段 keybindings-help 0.71–0.94，第二段只给 0.08–0.46）；018（在输入框上方常驻一条横栏，正是 plugin-authoring 说的 band，第二段只给 0.33–0.68，`profiles` 下还推了中立的 ui-ux-pro-max）；052（claude-api 和 typesafe-ai 之间拿不准，相关度都在 0.6 以下；053、109 也是 8 次里错 7 次）；099 只在 `profiles` 下错（code-review 0.52–0.65，security-review 在第一段只分到 0.03–0.05）。
+
+#### Perplexity 决策后端对 Jev（pplx，#43，2026-10-07）
+
+`pplx-decider-v1.1-27b` 接成后端（`decision/pplx.ts`），在全部评测集上和同一天、同一份代码的 Jev（jev-1.13.0）正面对比。**这一票不改 mod 的默认后端，`userConfig` 也没有它**；换不换、门槛怎么按它校准（#42）、问法用哪种语言，等这些数字之后走 `/grill-with-docs`。
+
+- **做法。** `eval/run.ts <类> --backend pplx|jev --label r1|r2`，每个后端每套评测集跑两遍（`results/<类>/2026-10-07-pplx-r1.json`、`-r2.json`，Jev 同名），都是 `--concurrency 1`，代码是合入 #40 之后的 dp/pplx-43（结果里的 `code` 哈希一致），设置取 Jev 的默认值（pplx 读 mod 的设置时当作 Jev）。**state 预算：发消息时的 effort 请求都是 24000**（`settings.messageStateTokens`；effort-submit、unresolved 只跑 `-wide` 变体 `zh-score-wide`、`en-score-wide`，按协调者的决定不再跑 6000 的）；effort-midturn 的中途重判、subagent 的派出 agent 也是 24000（`contextByKind.rejudge`、`agent`）；skill 的两段请求是带 skill 问题的那个请求，state 6000（`config.context`，线上就是这样）。每个后端每遍 5 套：effort-submit 4 个变体 × 100 题 × 中英，effort-midturn 6 个变体、subagent 6 个变体各 100 题 × 中英，skill 3 个变体 109 题 × 中英，unresolved 2 个变体 30 题 × 中英。费用（按两边响应里的 `usage.input_tokens` 算，Jev 0.042、Perplexity 0.02 美元每百万）：一遍全部 5 套，Jev 约 0.74 美元，pplx 约 0.30 美元；整件事（两遍、扫描、探针）pplx 约 0.8 美元，Jev 约 1.5 美元。`--backend pplx --estimate` 的系数取 3：pplx 数的 token 和 mod 的估算的比，skill 0.7、effort-submit 0.9、midturn 1.0、subagent 1.7、unresolved 2.9（长日志每个字符几乎一个 token，估算是四个字符一个），系数按最坏的取，宁可高估。
+- **pplx 几乎是确定的。** 两遍的回答逐题几乎全部相同（effort-submit 四个变体两遍的准确率、判高、判低一模一样），Jev 两遍差 0–3 个百分点（抽样波动）。所以 pplx 两遍的差只在延迟，比较时 Jev 看两遍的范围，pplx 看一遍就够。
+- **没有失败。** 两个后端、两遍、全部套件：没有失败，没有重试（`run.attempts` 等于 `run.requests`），没有 429。skill 的行里 `attempts` 是 2，是第一段加第二段两个请求，不是重试。
+
+**准确率、判得太高 / 太低、max 召回**（百分比，题数是 100 或 30，一题 = 1 或 3.3 个百分点；中 / 英；两遍写范围）：
+
+| 套件（变体） | Jev 准确率 | pplx 准确率 | Jev 判高 / 判低 | pplx 判高 / 判低 | max 召回 Jev | max 召回 pplx |
+|---|---|---|---|---|---|---|
+| effort-submit `zh-score` | 86–88 / 85–86 | 85 / 81 | 7–8 / 5–6；9 / 5–6 | 14 / 1；16 / 3 | 2–4 / 8；2–3 / 8 | 5 / 8；4 / 8 |
+| effort-submit `en-score` | 80 / 79–80 | 81 / 79 | 17 / 3；17 / 3–4 | 18 / 1；19 / 2 | 6 / 8；5 / 8 | 5 / 8；5 / 8 |
+| effort-submit `zh-choice` | 88–89 / 87–89 | 87 / 83 | 4 / 7–8；5–6 / 6–7 | 9 / 4；13 / 4 | 2 / 8；2–3 / 8 | 2 / 8；2 / 8 |
+| effort-submit `en-choice` | 83 / 83–84 | 88 / 83 | 11 / 6；10–11 / 5–7 | 11 / 1；15 / 2 | 6 / 8；5–6 / 8 | 5 / 8；4 / 8 |
+| unresolved `zh-score-wide` | 73–77 / 70–73 | 93.3 / 93.3 | 0；0 / 23–27；27–30 | 0；0 / 6.7；6.7 | 15–23 / 13 题 | 92.3 / 13 题 |
+| unresolved `en-score-wide` | 80 / 80–83 | 93.3 / 93.3 | 3.3；3.3 / 17；13–17 | 3.3；3.3 / 3.3；3.3 | 69；77–85 / 13 题 | 100；100 / 13 题 |
+| effort-midturn 六个变体 | 72–79（`zh-score` 78 / 74–75） | 78–84（`zh-score` 82 / 82） | 6–11 / 13–17 | 4–11 / 6–14 | | |
+| subagent `models-hint`（整题） | 69–70 / 65–67 | 62 / 62 | 23–26（effort 判高） | 36–37 | | |
+| subagent `work-hint` | 66 / 64 | 68 / 69 | 24–27 | 30–31 | | |
+| skill `profiles`（线上的常态） | 78.9–79.8 / 79.8 | 91.7 / 88.1 | | | | |
+| skill `descriptions` | 79.8 / 79.8 | 86.2 / 88.1 | | | | |
+
+- **effort-submit**：和 Jev 在同一个量级，不是明显更好。pplx 对「max 召回」（8 题 gold 为 max）5/8，和 Jev 的 `en-score`（5–6/8）相当，比 Jev 的 `zh-score`（2–4/8）高；判高（把不需要这么深的题判深）明显更多（`zh-score` 14–16 对 7–9，`en-score` 18–19 对 17），判低几乎没有（1–3 对 5–6）：pplx 偏向给高档，Jev 的 `pickEffort` 门槛（`thetaMax` 0.5 等）是按 Jev 校准的，换后端要重扫。不该给 max 的 88 题里 pplx 只有 `en-score`（中英各 1 题）和 `en-choice`（英文 1 题）给了 max（Jev `en-score` 英文也是 1 题）。中英差距（中文减英文，门槛是中文不比英文低过 4 个百分点）：pplx 四个变体是 +2、+4、+5、+4，中文都比英文好，都过；Jev 是 −1 到 +3。
+- **unresolved**（#37 的 30 题，金标由子代理写、用户尚未审，合入 #40 之后的请求，三选一题和 effort 题在同一个请求里，24000）：**这是差别最大的一套**。线上问法 `zh-score-wide`：Jev 准确率 73–77 / 70–73、max 召回只有 2–3/13，pplx 93.3 / 93.3、max 召回 12/13；`en-score-wide`：Jev 80 / 80–83、max 召回 9–10/13，pplx 93.3、max 召回 13/13；两个后端判高最多 1 题（只在 `en-score-wide`）。中文问法在 pplx 上不再比英文差，两种问法一样好（Jev 上中文问法不敢给 max，要靠 #40 摘要和 #41 强提示补；pplx 上这个缺口基本不在）。三选一题（未解决 / 已解决 / 新问题）两个后端都是 96.7–100（30 题错 0–1 题），按两档门槛对次数的作用：「仍未解决」被清零（`lostRecord`）和被误加一（`falseAdd`）都是 0。
+- **effort-midturn**：pplx 六个变体的整题准确率比 Jev 高 1–8 个百分点（多数 4–7），判低从 13–17 降到 6–14，判高相当。
+- **subagent**（派出 agent，model 和 effort 两部分）：不是一边倒。`models-hint`、`models-noul`、`models-hint-single`、`models-hint-zh` pplx 低 3–8 个百分点（effort 判高 35–39 对 Jev 的 20–30，`effort` 部分 62 对 71；`model` 部分 84 对 89），`work-hint`、`work-noul` pplx 高 0–5 个百分点。
+- **skill**：pplx 整题高 6–13 个百分点（`profiles` 91.7 / 88.1，Jev 78.9–79.8 / 79.8），`suggest` 94.5 / 93.6 对 82.6–83.5 / 85.3，`hint` 97.3 / 93.6 对 95–96 / 94.5。**代价是慢**，见下面。
+
+**延迟**（`--concurrency 1`，ms；p50 / p90 / 最长，两遍的范围）：
+
+| 请求 | Jev | pplx |
+|---|---|---|
+| 发消息时的 effort 请求（effort-submit，四个变体，24000） | 288–302 / 330–398 / 最长 652 | 428–432 / 445–512 / 最长 1674 |
+| unresolved（effort 加三选一，含约 8k 估算 token 的长日志） | 304–332 / 362–406 / 最长 605 | 445–447 / 875–948 / 最长 2002 |
+| 中途重判（effort-midturn，六个变体） | 282–291 / 315–349 / 最长 672 | 432–437 / 479–524 / 最长 1853 |
+| 派出 agent（subagent，六个变体） | 286–297 / 340–370 / 最长 1384 | 438–493 / 523–650 / 最长 1841 |
+| skill 两段合计，`profiles`（线上的常态和 find_skill） | 853–870 / 924–941 / 1182–1199 | **1485–1491 / 1575–1653 / 2605–2676** |
+| skill 两段合计，`descriptions` | 602–620 / 656–718 / 823–1048 | 998–1007 / 1071–1151 / 1159–1482 |
+| skill 第一段（`profiles`）/ 第二段 | 563–568 / 289–293 | 1062–1063 / 432–434 |
+
+skill 的第一段带着 111 份画像，Jev 计 2.2 万 token，pplx 第一段 p50 就是 1.06 秒，加第二段 0.43 秒，**两段合计 p50 1.49 秒，贴着 Jev 的 `timeoutMs` 1500**。mod 让两段共用一次等待（`timeoutMs`），按 1500 算，`profiles` 里 pplx 的 `late`（总延迟超过 `timeoutMs`）第一遍中文 34、英文 39 题（各 109 题，`inTime` 65.1 / 58.7），第二遍 48 / 47（`inTime` 50.5 / 52.3）；Jev 是 0 / 0。也就是**线上的 skill 推荐按 1500 ms 有 31–44% 赶不上，推荐不出去**（那条消息照常，只是没有 skill 推荐；两遍相差大是因为 p50 正好贴在 1500 上）；`descriptions` 没有赶不上的（p90 1.07–1.15 秒）。`profiles-zh` 和 `profiles` 一样（`late` 第一遍 30 / 36，第二遍 51 / 50）。skill 第一段单独超过 1500 ms 的极少（最长 2.25 秒），慢在两段加起来。
+
+**按等待时间离线重算**（用存下来的逐题 ms，两遍合起来，不重跑；结果里的 `late` 只按 mod 现在的 `timeoutMs` 1500 算，这里看 1500 / 2000 / 2500 / 3000 / 4000 ms 下按时到达的比例）：
+
+| 请求（题数） | 后端 | p99 / 最长 | ≤1500 | ≤2000 | ≤2500 | ≤3000 | ≤4000 |
+|---|---|---|---|---|---|---|---|
+| 发消息时的 effort（effort-submit，1600） | Jev | 493 / 652 | 100% | 100% | 100% | 100% | 100% |
+| | pplx | 599 / 1674 | 99.9% | 100% | 100% | 100% | 100% |
+| 发消息时的 effort（unresolved，240） | Jev | 524 / 605 | 100% | 100% | 100% | 100% | 100% |
+| | pplx | 1549 / 2002 | 98.8% | 99.6% | 100% | 100% | 100% |
+| skill 两段合计 `profiles`（436；find_skill 同） | Jev | 1157 / 1199 | 100% | 100% | 100% | 100% | 100% |
+| | pplx | 1786 / 2676 | **61.5%** | 99.5% | 99.5% | 100% | 100% |
+| skill 两段合计 `descriptions`（436） | pplx | 1319 / 1482 | 100% | 100% | 100% | 100% | 100% |
+| 派出 agent（subagent，2400） | Jev | 607 / 1384 | 100% | 100% | 100% | 100% | 100% |
+| | pplx | 896 / 1841 | 99.9% | 100% | 100% | 100% | 100% |
+
+中途重判（effort-midturn，2400 个请求）按「问题在工具开始时发出，下一步最多再等 `rejudgeWaitMs`」算：工具运行 t 毫秒时，回答赶得上的是 ms ≤ t + `rejudgeWaitMs`。Jev：t = 0 时 ≤300 ms 的 70.0%，≤500 的 99.7%；pplx：≤300 的 **0%**，≤500 的 88.0%，≤800 的 99.7%，≤1000 的 99.8%，≤1300 的 99.9%（p50 435）。所以 pplx 在 `rejudgeWaitMs` 300 下，只有工具至少跑了约 150–300 ms 的步才赶得上，快的工具（读文件、grep）后面的回答多半迟到，用在再下一步。
+
+**对 pplx 的建议值（BACKEND_DEFAULTS，这一票不改）**：`timeoutMs` **2500**（发消息时 effort 请求按 2000 已经 99.6–99.9%，skill 的 `profiles` 两段合计 2000 是 99.5%、2500 是 99.5%、3000 是 100%；再算上下面的长状态探针，一个 24000 估算 token 的全日志状态要 2.2 秒，2500 才稳；比 1500 多出的 1 秒只落在慢的请求上，快的不受影响）；`rejudgeWaitMs` **800**（99.7% 的重判回答在下一步赶上；300 的话快工具之后几乎都迟到；这个选项不是按后端取默认值的，所以要先让它进 `PER_BACKEND_OPTIONS`）；`findSkillWaitMs` **3000**（两段合计 100%，最长 2.7 秒，find_skill 是主 agent 自己的调用，等得起）。`skillsMinRelevance`、`thetaUp` 这些门槛没有扫：pplx 的 effort 偏高，`thetaMax`、`thetaDown` 要按它的存下来的概率离线重扫（`eval/rescore.ts`）再定。
+
+**state 预算扫描（只对 pplx，unresolved 的两个 `-wide` 变体，48000、96000 各两遍）**：和 24000 的结果逐字相同（pplx 数的 input token 都是 1,080,644，准确率、max 召回、判高判低、三选一都相同）。原因：unresolved 数据集里最长的对话估算只有约 7,980 token（60 个中英状态里最长的），effort-submit 最长约 270、skill 约 150，都远不到 24000；effort-midturn 和 subagent 没有 `recent_context`，请求平均约 900 和 2,200 token（Jev 数的）。**所以这些评测集量不出更大的窗口值不值**：它们的对话本身不够长，24000、48000、96000 发出去的请求是同一个。（`results/unresolved/2026-10-07-pplx-s48000-r1.json`、`-r2`、`s96000-r1`、`-r2`。）
+
+要看更大窗口的代价，另做了一个探针（不是评测集，结果没有存文件）：用 unresolved 的一题，前面垫上数据集里别的对话的老消息（22 条长消息，全是日志一样的文字），状态估算 5,457 / 20,719 / 42,321 / 91,535 token，各发 5 次，中位延迟 **615 / 2,202 / 5,398 / 15,201 ms**，pplx 数的 input token 是 14,848 / 69,280 / 150,080 / 302,024（文档说上限 262,144，302,024 那次照样返回了 200）。延迟随长度线性涨，约每 1 万 pplx token 0.8–0.9 秒（文档：9 万 token 5 秒、19 万 14 秒、上限附近 23 秒）。结论：**更大的窗口在时间上不划算**：24000 估算 token 的日志状态要 2.2 秒，48000 要 5.4 秒，都在 mod 愿意等的时间之外，而数据里没有任何地方显示更多的对话让 pplx 判得更准（这里量不出来）。真的有那么长的对话，要先有评测集（这一条之后做了：见下面「长上下文」，#44，里面的结论是读到更远的信息确实准得多，但时间上不划算）；mod 的估算也不适合 pplx：长日志里每个字符几乎一个 token，估算低估 4–5 倍（24000 估算 token 的日志状态是 6.9 万 pplx token），所以预算数字对 pplx 要按它自己的 token 数理解。
+- **要留意的**：（1）unresolved 的金标是 #37 的子代理写的、用户没有审过，pplx 的 93% 靠它，要审完才能当结论。（2）两个后端的 `max` 召回在 effort-submit 只有 8 题可比。（3）#35（Desktop 读不到 TypeSafe 密钥）同样会影响新密钥：换后端时，`PERPLEXITY_API_KEY` 要在 `userConfig` 里加一个敏感项，Desktop 的问题要一并解决。（4）mod 的 `Failure` 分类、`failureLine` 都已经覆盖 pplx 的失败，但 `FAILURE_WORDS.config` 里读缺哪个密钥的选项名只有 typesafeApiKey 一个，换后端时要加。
+
+#### 长上下文：读更多对话带来多少准确率（long-context，#44，2026-10-07）
+
+#43 的评测集最长的对话只有约 8000 估算 token，state 预算 24000、48000、96000 发出去的请求逐字相同，量不出更大窗口的价值。`long-context` 评测集（30 题，只有中文对话，字段和构造见 `datasets/README.md`「long-context」，**金标是起草者写的，用户尚未审**）就是为这个问题造的：每题把决定答案的几轮放在对话很早的位置，离最后一条消息 30000、60000、120000 估算 token（各 10 题），中间是大段中间轮次（模板生成的读代码、跑测试、改名、补注释，不是真实对话，见 README）。每题三个版本：`deep`（问题本身）、`near`（对照 a：同样长的对话，决定性几轮挪到末尾附近）、`none`（对照 b：决定性几轮整段删掉，按删掉之后的答案评分）；另有 `flow`（真实流程：deep 加 mod 在这段对话之后会有的问题摘要、未解决次数和强提示）。
+
+- **做法。** `eval/run.ts long-context --backend pplx|jev --variants <变体> --languages zh --state-tokens N --state-messages 2000`。pplx 的 state 预算取 24000、48000、96000、135000（估算 token），Jev 取它的上限 24000；每种两遍（`results/long-context/2026-10-07-<后端>-s<预算>-r1|r2.json`；摘要、次数、强提示那几次的标签是 `flow-…`，流程的两半是 `half-…`；「mod 现在的」是不带 `--state-tokens` 和 `--state-messages` 的，标签 `mod-…`）。中文问法 `zh-*`、英文问法 `en-*` 都跑，对话都是中文。pplx 用 `--concurrency 3 --timeout 240000`（默认的单次尝试 10 秒装不下 20 万 token 的请求；并发 3 下延迟偏高，只作记录），Jev 用 `--concurrency 1`。
+- **消息条数也是一个限制。** mod 的 `contextMessages` 最多 32（`readConfig` 的上界；`settings.context.messages`），state 只取最新的 32 条消息，不管预算多大：这个数据集里 32 条平均约 16500 估算 token（deep 最多 22500；near 平均 12800），所以**只放大 `--state-tokens` 不会读到更多**（`tests/eval-long-context-suite.test.ts` 钉住这一点：48000 预算加 32 条，30000 深的决定性几轮读不到）。评测加了 `--state-messages N`（`withStateMessages`）放开条数，扫描都用 2000，结果文件的 `settings.stateMessages` 记着；`pplx 24000、32 条消息` 那行是 mod 现在的两个限制，用来核对放开条数之前和之后在 24000 上是同样的答案（深的几轮都读不到，准确率 73.3 对 70，差一题）。**要用上更大的窗口，mod 里 `contextTokens` 和 `contextMessages` 的上界都要改**，现在后者不能超过 32。
+- **读到了没有看得出来。** 每个回答的 `detail.seen` 记着 state 里有没有决定性几轮（`recent_context` 里有它第一条消息的开头：读到最新的若干条、从尾往前装满，有开头就有全部），汇总里 `seen` 是比例，`byDepth` 按深度分；结果文件的 `state` 是摘要（字符数、行数、首尾）。24000 读不到任何一题，48000 读到 30000 深的 10 题（33%），96000 再加 60000 深的（67%），135000 读到全部（100%，最长的 state 约 12 万估算 token，预算再大请求也一样）。**pplx 数的 token 约为估算的 1.95 到 2.1 倍**（这种代码加中文的文字；#43 的长日志是 4 到 5 倍），回包的 `usage.input_tokens` 最大 243,642（135000 预算、120000 深的题带摘要的那次；不带的最大 243,002），在 262,144 之内；按这个倍数 pplx 能读的最大预算约 12.8 万估算 token，已经是这个数据集最长的整个对话，所以 135000 就是「最大可接受值」，再大请求不变。
+
+**问题本身（deep）：准确率、gold 命中、判高、判低（百分比；30 题，一题 3.3 个百分点）、max 召回（10 题 gold 为 max，判成 max）、state 里有决定性几轮的比例。** pplx 两遍逐字相同（确定性），Jev 两遍写范围；`pplx 24000、32 条消息` 只有一遍：第二遍中途 pplx 账户的额度用完了（HTTP 402，62 个请求失败，那份结果已删）。
+
+| 问法 | 运行 | 准确率 | gold 命中 | 判高 | 判低 | max 召回 | 读到 |
+|---|---|---|---|---|---|---|---|
+| zh | pplx 24000、32 条（mod 现在的） | 73.3 | 13.3 | 13.3 | 13.3 | 0/10 | 0 |
+| zh | pplx 24000 | 70.0 | 13.3 | 16.7 | 13.3 | 0/10 | 0 |
+| zh | pplx 48000 | 76.7 | 23.3 | 13.3 | 10.0 | 2/10 | 33% |
+| zh | pplx 96000 | 80.0 | 30.0 | 13.3 | 6.7 | 4/10 | 67% |
+| zh | pplx 135000 | **86.7** | **43.3** | 10.0 | 3.3 | **6/10** | 100% |
+| zh | Jev 24000、32 条（mod 现在的） | 56.7–60.0 | 10.0–13.3 | 16.7 | 23.3–26.7 | 0/10 | 0 |
+| zh | Jev 24000 | 56.7–60.0 | 10.0 | 13.3 | 26.7–30.0 | 0/10 | 0 |
+| en | pplx 24000、32 条（mod 现在的） | 73.3 | 6.7 | 16.7 | 10.0 | 0/10 | 0 |
+| en | pplx 24000 | 73.3 | 13.3 | 16.7 | 10.0 | 1/10 | 0 |
+| en | pplx 48000 | 80.0 | 26.7 | 13.3 | 6.7 | 3/10 | 33% |
+| en | pplx 96000 | 83.3 | 33.3 | 13.3 | 3.3 | 6/10 | 67% |
+| en | pplx 135000 | **86.7** | **50.0** | 10.0 | 3.3 | **10/10** | 100% |
+| en | Jev 24000、32 条（mod 现在的） | 63.3 | 13.3 | 13.3–16.7 | 20.0–23.3 | 1/10 | 0 |
+| en | Jev 24000 | 66.7 | 16.7 | 13.3 | 20.0 | 1/10 | 0 |
+
+- **按决定性几轮的深度**（pplx，准确率 / max 召回，zh；en 的 max 召回是 3/3、3/3、4/4 对 0）：24000 时 30000、60000、120000 深的是 70、70、70（0/3、0/3、0/4）；48000 时 90、70、70（2/3，另两档读不到）；96000 时 90、80、70；135000 时 90、80、90（2/3、2/3、2/4）。每涨一档预算，刚好读到的那一档涨 10 到 20 个百分点，没读到的那几档不变：提升来自读到了那几轮，不是别的。
+- **按类别**（pplx zh，24000 到 135000 的准确率）：反复未果（max，10 题）90→100，只试过一次 100→100，约定低成本 100→100，看似复杂其实简单 0→40，被历史误导 100→100，硬性约束 0→67。只有 max 的召回和那两类「早先约定了什么」的题变了；后两类即使决定性几轮就在末尾附近（near）也只有 40% 和 33%：pplx 读到了「按清单做」「改鉴权要列矩阵」，多半仍判得和没读到一样高或一样低。反复未果的题 accept 里有 xhigh，所以 24000 读不到时也判 xhigh 算对，准确率看不出缺口，要看 max 召回。
+
+**对照组：同一对话变长本身的影响，和决定性几轮挪到末尾附近的影响**（pplx 准确率，括号里是 near 的 max 召回；Jev 24000 在后）：
+
+| 问法 | 预算 | (a) near：决定性几轮在末尾附近 | (b) none：删掉决定性几轮（按删掉后的答案评分） |
+|---|---|---|---|
+| zh | 24000 | 83.3（7/10） | 93.3 |
+| zh | 48000 | 83.3（6/10） | 90.0 |
+| zh | 96000 | 80.0（7/10） | 90.0 |
+| zh | 135000 | 80.0（6/10） | 90.0 |
+| en | 24000 | 83.3（10/10） | 86.7 |
+| en | 48000 | 83.3（10/10） | 86.7 |
+| en | 96000 | 80.0（9/10） | 83.3 |
+| en | 135000 | 83.3（9/10） | 83.3 |
+| zh | Jev 24000 | 63.3–66.7（0/10） | 90.0 |
+| en | Jev 24000 | 56.7–63.3（4/10） | 73.3–76.7 |
+
+- **(b) 只是对话变长、没有那几轮**：zh 从 93.3 到 90.0，en 从 86.7 到 83.3，各差一题，在噪声之内；**对话从 2.3 万到 7 万估算 token（pplx 约 4.7 万到 14 万 token），长度本身没有拖低准确率。**
+- **(a) 决定性几轮在末尾附近、对话一样长**：准确率 80 到 83.3，不随预算变；max 召回 zh 6 到 7/10、en 9 到 10/10。deep 在 135000 读到全部时是 86.7（zh）、86.7（en），max 召回 6/10（zh）、10/10（en）：**读到更远的信息和读到近处的信息一样好，所以提升来自「读到了」，不是对话变长或变短。**
+- Jev 的 (a) 和 deep 的准确率差不多（zh 63–67 对 57–60，en 57–63 对 67），max 召回 zh 0/10、en 4/10（deep 是 0/10 和 1/10）：近处的几轮也读了，中文问法仍不敢给 max，和 #43 的发现一致。
+
+**真实流程（flow）：摘要加次数加强提示，对大窗口。** `zh-flow`/`en-flow` 的 state 带 Haiku 逐轮续写的摘要（`datasets/long-context-summaries.json`，2214 轮，没有一轮没拿到摘要），次数按决定性几轮的 `says` 累计（反复未果的题 3 到 5 次，其余 0），达到 `unresolvedMaxAfter`（3）时 effort 题带强提示。次数用的是金标，等于三选一读得完全对：这是上限，不是 mod 实际会有的。
+
+| 问法 | 运行 | 准确率 | gold 命中 | 判高 | 判低 | max 召回 | 三选一 |
+|---|---|---|---|---|---|---|---|
+| zh | pplx 24000，无摘要（deep） | 70.0 | 13.3 | 16.7 | 13.3 | 0/10 | 93.3 |
+| zh | pplx 24000 + 摘要/次数/强提示 | 76.7 | 46.7 | 10.0 | 13.3 | **9/10** | 96.7 |
+| zh | pplx 135000，无摘要（deep） | **86.7** | 43.3 | 10.0 | 3.3 | 6/10 | 100 |
+| zh | pplx 135000 + 摘要/次数/强提示 | 83.3 | **56.7** | 10.0 | 6.7 | **10/10** | 90.0 |
+| zh | Jev 24000，无摘要（deep） | 56.7–60.0 | 10.0 | 13.3 | 26.7–30.0 | 0/10 | 90–93.3 |
+| zh | Jev 24000 + 摘要/次数/强提示 | 73.3 | 30.0–33.3 | 13.3 | 13.3 | 4–5/10 | 100 |
+| en | pplx 24000，无摘要（deep） | 73.3 | 13.3 | 16.7 | 10.0 | 1/10 | 100 |
+| en | pplx 24000 + 摘要/次数/强提示 | 76.7 | 40.0 | 13.3 | 10.0 | **9/10** | 93.3 |
+| en | pplx 135000，无摘要（deep） | **86.7** | 50.0 | 10.0 | 3.3 | **10/10** | 96.7 |
+| en | pplx 135000 + 摘要/次数/强提示 | 83.3 | 50.0 | 10.0 | 6.7 | 10/10 | 90.0 |
+| en | Jev 24000，无摘要（deep） | 66.7 | 16.7 | 13.3 | 20.0 | 1/10 | 100 |
+| en | Jev 24000 + 摘要/次数/强提示 | 63.3–66.7 | 40.0 | 13.3 | 20.0–23.3 | 9/10 | 93.3–96.7 |
+
+（24000、32 条消息那一档的流程结果和 24000 的一样：pplx zh 76.7、max 9/10，Jev zh 73.3、max 6–7/10。摘要在 24000 时读不到任何决定性几轮，答案完全来自摘要、次数和强提示。）
+
+Jev 24000 下把流程拆成两半（`zh-summary`、`zh-count`、`en-…`，**只对 Jev 跑了：pplx 的额度在这之前用完了**）：zh 只带摘要 66.7 / max 0/10，只带次数和强提示 63.3–66.7 / max 1/10，两样都带 73.3 / max 4–5/10；en 只带摘要 60–63.3 / max 3–4/10，只带次数和强提示 63.3–66.7 / max 6/10，都带 63.3–66.7 / max 9/10。强提示（次数）管 max 召回，摘要自己几乎不动 max，两样加在一起最好。
+
+**结论：更大窗口带来多少提升。**
+- **pplx 在这个数据集上，把 state 从 24000 提到 135000（对话全读到），中文问法准确率 70.0→86.7（+16.7），英文 73.3→86.7（+13.3）；gold 命中 +30 和 +37 个百分点；判低 13.3→3.3；max 召回 zh 0→6/10、en 1→10/10。** 提升随预算一档一档出现，正好是读到的那一档（见按深度）；每档预算涨 3 到 7 个百分点，每档多读到 10 题。
+- **对话变长本身不拖累**（对照 b），**读到远处和读到近处一样好**（对照 a）。
+- **比较摘要加次数加强提示：** 对 max（这个漏洞最要紧的地方），24000 加流程就有 9/10，和大窗口（zh 6/10、en 10/10）一样好甚至更好，请求只有 4.7 万 pplx token，大窗口的 14 万（最大 24.3 万）。对整体准确率和 gold 命中，**大窗口更准**（86.7 对 76.7）：摘要和次数只带「试过什么、失败了几次」，带不了「早先约定了低成本做法」「这块是真金白银」：24000 加流程时看似复杂其实简单只有 40%（zh）、20%（en），硬性约束 0%；大窗口读到原话，硬性约束 67%。大窗口再加流程：zh max 6→10/10，准确率 86.7→83.3（差一题，在噪声之内），英文持平；用流程补 max、用大窗口读约定，两样叠加没有明显的额外好处。Jev 的上限是 24000，没有大窗口可比，加流程准确率 +13（zh）到持平（en），max 召回 0→4–5/10（zh）、1→9/10（en）。
+- **时间上不划算。** 并发 3 的延迟：24000 预算 p50 9.6 秒，48000 13.1，96000 17.0，135000 20.0 秒（最长 52.6 秒）；24000 的流程 4.8 秒。单个请求时的延迟更低（探针：24 万 token 14 秒），但都远在 #43 建议的 pplx `timeoutMs`（2500 ms）之外，所以更大的窗口只适合离线评测或不赶时间的请求，真要在线上用，要么只给 max 召回的缺口加流程，要么等 pplx 对长输入更快。延迟不是取舍依据，只作记录。
+
+**要留意的。**（1）金标没有审；`repeated-failure` 的 accept 里有 xhigh，所以准确率低估了缺口，看 max 召回；`without` 的答案（对照 b）是起草者对「单看那条消息」的判断，只和同一份数据里的其他变体比，不要和 deep 的准确率直接比。（2）30 题一题 3.3 个百分点，pplx 两遍相同所以没有波动的估计，小于两题（约 7 个百分点）的差别不要当真；max 召回按 10 题算。（3）中间轮次是模板生成的：粗看像读代码，细读重复、代码没有逻辑；决定性几轮是手写的。用真实的长对话重做才能确定结论不依赖这种填充。（4）摘要是 Haiku 逐轮续写的，对话离开了原问题（中间是读相邻的代码）时它会改写成当前在做的事：反复未果的 10 题里 9 题的摘要还保留着原问题（long-010 变成了「Terraform 漂移这一块一共有哪些文件」），其余 20 题的摘要本来就是任务，跟着最近读的代码走；这是 mod 的摘要实际会有的样子，次数（金标）则是上限。（5）流程里次数是金标，三选一读错了的话次数和强提示会跟着错。（6）pplx 的第二遍「mod 现在的」和 pplx 的流程拆半没有跑，额度用完了（pplx 共花约 3.6 美元，Jev 约 1.25 美元，Haiku 2214 次调用走订阅）。（7）`zh-summary`、`zh-count` 是第一批结果之后才加的变体，所以 `long-context.ts` 的代码哈希在那几份结果里和其余的不同；其他变体的请求没有变（测试核对）。
+
+#### eval v2：多 agent 出题的长对话数据集（#45）
+
+#45 的数据集：120 题，只有中文对话，10 类各 12 题，决定性信息离末尾四档（d1 < 24k、d2 24k–48k、d3 48k–135k、d4 > 135k）各 30 题，中间轮次每档一半 `same-problem`、一半 `unrelated`，10 个领域；设计见 issue #45。这一节记数据的格式和工具，结果见下一小节「eval v2 的结果」。
+
+- **文件**（`datasets/eval-v2/`）：素材段 `pool/<domain>-<relation>-<nn>.json`（一段一轮，3000–5000 token，`same-problem` 段用七个占位符 `{{FEATURE}}` `{{SYMPTOM}}` `{{ERROR}}` `{{FILE}}` `{{FILE2}}` `{{SYMBOL}}` `{{COMMAND}}`）；题目 `items/<category>-<nn>.json`（`opening`、`decisive`（用户消息带 `d1`、`d2`……）、`final`、`placeholders`、`middle_hint`，不含答案）；金标 `gold-author/`、`gold-labeler/`（`effort`、`accept`、`effort_without_decisive`、`triage_final`、`triage_decisive`，三选一用 mod 的选项名）。格式、每个领域的虚构仓库和规则在 `datasets/eval-v2/FORMAT.md`；检查在 `lib/eval-v2.ts`（`checkSegment`、`checkItem`、`checkGold`、`datasetWarnings`），作者自查用 `eval-v2-check.ts <文件或目录>`。
+- **生成**（`lib/eval-v2.ts` 的 `buildEvalV2`，`eval-v2-gen.ts` 写文件）：每题 `[前置段] + opening + decisive + [中间段] + final`。中间段是本领域、本关系的段（`same-problem` 段填上题目的占位符值），长度让决定性几轮整段落进这一档的区间（`BINS`：d1 0–21000、d2 26000–45000、d3 51000–127000、d4 140000–160000），区间里的深度按种子抽；前置段是本领域的 `unrelated` 段，垫到按种子抽的总长 82000–150000（`TOTAL`）。同一题里不重复，跨题每段最多 6 次（`MAX_USES`），用得少的先用；中间段先给最深的题挑，前置段每题轮流拿一段（池子不够时大家都少一点）。
+- **深度的两种数法**：数据里记的深度（`depth`、`depth_end`、每条决定性消息的 `depth`，以及段长、总长）按 mod 挑消息的数法：每行 `estimateTokens` 加 1，再加被问的消息；state 的预算小于它就一定读不到。区间的下界按这个数查，上界按 state 发出时的大小查（JSON，转义算在内）：mod 挑消息时按不转义的估算，截 state 时按发出的 JSON，所以一行在这两个深度之间的某个预算开始被读到。**发现**：`withinTokens` 最多截 4 次、每次按超出的比例截，引号和反斜杠很多的文字（发出时比估算大 5% 以上）会让发出去的 state 超过预算：合成数据里一题在 120122 的预算下发出的 state 是 121600 token。两边离测试组的预算（24000、48000、135000）都留了 2000 到 8000 token，给问题摘要和次数（约 600）和这种取整；`tests/eval-v2-gen.test.ts` 用 mod 自己的 `turnStartState` 核对：每档在三个预算下（各少 700 时也一样）要么读到全部决定性几轮、要么一行都读不到（素材里三分之一是转义很多的代码）。现有数据集里 state 发出时比估算大：unresolved 中位 2%、最多 16%（贴日志的题），long-context 的模板文字没有引号，不大；发出时大 10% 以上的素材段检查会提醒；整个池子都是这种段（大 17%）时 d4 拼不出来，`eval-v2-gen.ts` 会说明原因。
+- **输出**：`datasets/eval-v2.jsonl` 一行一题（按 id），字段 `id`、`category`、`domain`、`bin`、`relation`、`middle_hint`、`turns`（整段对话，最后一条是被问的消息；每条有 `part`，来自素材池的有 `segment`；每条用户消息有 `msg`：前置段 `p`、opening `o`、决定性 `d`、中间段 `m`、final `f`，加序号）、`decisive`（每条决定性用户消息在 `turns` 里的位置 `at` 和深度）、`depth`、`depth_end`、`tokens`、`segments`（前置段、中间段的素材 id）。不含金标，金标按 id 对上。
+- **不提交 JSONL，提交 `generated.json`**：120 题约 48.5 MB（16 题合成数据实测 6.1 MB），`datasets/.gitignore` 把它挡在 git 外。`datasets/eval-v2/generated.json` 记着种子、JSONL 的 sha256 和字节数、素材池的用量、每题的深度和长度；`validate.ts` 每次按这个种子从 `pool/` 和 `items/` 重新生成，生成的 `generated.json` 必须一字不差（本地有 JSONL 时 JSONL 也要一样），否则失败并提示重跑 `eval-v2-gen.ts`。没有 `generated.json` 时（数据还在写）只查每个文件，配额和素材池不够只警告。`validate.ts eval-v2` 只查这一部分；按 120 题模拟，生成一次约 0.5 秒。
+- **素材池要多大**：按每个领域 12 题（每档 3 题、两种关系各半）、段长 3000–5000 模拟：每个领域 `same-problem` 至少 40 段（d4 的 `same-problem` 题一题就要 35–45 段不重复的）、`unrelated` 50 段（前置段和 `unrelated` 的中间段共用，先到跨题 6 次的上限）；`unrelated` 只有 40 段时十来题的总长掉到 5 万到 8 万，段平均只有 3500 token 时两边各要多 5 段左右（`PLAN`，`validate.ts` 按它警告）。
+- **最终金标**（`datasets/eval-v2/gold/<id>.json`）：双方一致的取出题者那份（`source` 为 `agreed`），分歧按用户裁决（`user:author`、`user:labeler`、`user:custom`）；字段同两边的金标再加 `source`，`lib/eval-v2.ts` 的 `checkFinalGold` 检查，`validate.ts` 对着题目的决定性消息逐题核对。
+- **suite**（`lib/eval-v2-suite.ts`，`run.ts eval-v2`）：读 `eval-v2.jsonl`（没有就按 `generated.json` 的种子当场拼出来写好；和 `generated.json` 记的 sha256 不符就拒绝），每题配上最终金标。最后一条是被问的消息（命令轮带 `command`），之前的全部是对话，交给 `lib/unresolved.ts` 的 `askedRequest`：和 mod 逐字相同（`tests/eval-v2-suite.test.ts` 用 world 核对）。对话只有中文，`--languages` 默认 `zh`；变体 `zh-score`、`en-score` 是问题用中文还是英文，`zh-flow`、`en-flow` 另外带 `--flow <文件>` 里这一题最后一条消息时的次数和摘要（次数达到 `unresolvedMaxAfter` 时带强提示，与 mod 相同；没有 `--flow` 时 `run.ts` 拒绝这两个变体，流程文件和这次运行的后端、预算不一致时只提醒）。评分对最终金标：可接受准确率、正好命中、判高判低、max 召回和不该给却给了 max 的比例，按深度档、按关系、按两者交叉、按类别分开；三选一对 `triage_final`（准确率、混淆表、按两档门槛次数该动没动）；`seen` 是 state 读没读到决定性几轮；每题存 effort 和三选一的概率，`thetaMax` 一栏是换门槛重算的结果。
+- **真实流程**（`lib/eval-v2-flow.ts`，`eval-v2-flow.ts`）：按对话顺序，每条用户消息发 mod 的请求（effort 题加三选一，带当时的摘要和次数，次数到 `unresolvedMaxAfter` 带强提示），按两档门槛（默认 `UNRESOLVED_THRESHOLDS`）动次数：加一时给摘要最后一次尝试标未解决（`markLast`），清零时摘要一起清掉（与 `core/unresolved.ts` 相同）；每轮结束（最后一条除外）用 mod 的 `summaryPrompt` 和 `readSummary` 让 `claude -p --model haiku` 续写摘要，写不出就保留原来的。`tests/eval-v2-flow.test.ts` 用 world 核对：mod 走同一段对话时，每条消息的请求、给 Haiku 的每个提示词、最后一条时的次数和摘要都和流程相同。一个后端加预算一个文件（`results/eval-v2-flow/jev-24000.json` 等），每条消息记三选一和 effort 的概率、次数前后、写没写成摘要，`final` 是最后一条消息的请求带的次数、摘要和强提示；每条消息存一次进度，再跑同一条命令从停下的消息接着跑；繁忙、断线、超时（重试之后）停下这一题，401、额度用完停下整个运行，HTTP 错误和读不出的回答照 mod 的做法记下、次数不动。Haiku 的回复按提示词缓存在 `haiku-cache.jsonl`（不提交），同一个提示词同一个回复，两个 pplx 预算在次数一致的地方共用摘要；开跑前问一次 Haiku 自己是哪个模型，连同 `claude -p` 报的模型记进文件（2026-10-08 是 `claude-haiku-5-5`）。
+- **三选一门槛扫描**（`lib/eval-v2-thresholds.ts`，`eval-v2-thresholds.ts`）：决定性消息的金标（`triage_decisive`）对流程文件里的概率，网格（步长 0.01，保持 mod 的两条规矩：两档之和大于 1、加一门槛低于清零门槛）里在误清零（金标仍未解决却清零）≤ 2% 的组合中取加一召回最高，平手看误加一、清零召回、中间轮次误改、离现在的 0.5/0.7 多近；另报每个加一门槛下最低可行的清零门槛，中间轮次（`m`）次数被误改的比例（`same-problem` 段被清零、`unrelated` 段被加一），以及最后一条消息作对照。几个文件一起给时各报一次再合起来报。离线按存下的概率重判，换了门槛后后面的请求本会带不同的次数和强提示，这一点算不进去。
+
+#### eval v2 的结果（#45，2026-10-08）
+
+这一节只摆数字，不下结论：换不换后端、选 A、A⁺、B 哪一组，由用户定。
+
+- **六组**：A、B′、J′ 是真跑的，中文、英文两种问法各一遍。A⁺、B、J 没有另发请求：取真实流程文件里每题最后一条消息那一步的 effort 概率和三选一概率，重放成同格式的结果文件（中文问法，和 `run.ts` 的 `zh-flow` 请求逐字相同；结果文件的 `source` 字段写了来源）。流程只用中文问法跑，所以带流程的三组只有中文问法。这是用户的决定：用户看了六组的表后问「以上这些里面带摘要的测试组是不是可以全部移除了」，同意带流程三组不另跑、不测英文问法（换问法后前面的次数和摘要也会不同）。
+- **只跑了一遍，#45 的验收项「6 组 × 两种问法 × 两遍的结果」没有达成。** #45 正文写的是「测试组（各两遍）」。这次每组每种问法只有一遍，带流程三组没有英文问法，A⁺ 只有 63 题。A⁺ 停在 63 题是用户的指示（「A+可以停下了 就做这么多题 然后开始后面的测试」）。「每种问法一遍」也是用户的决定（原话「每种问法只跑一遍」）。下面的「满足 / 不满足」都按这一遍判断。
+- **一遍的波动有多大。** Jev 以前同配置跑过两遍：effort-submit zh-score 86.0 / 86.5，准确率只差 0.5，但 200 个回答里有 11 个档位不同（5.5%；en-score 4 个）；unresolved zh 71.7 / 75.0、long-context en 65.6 / 68.9，各差 3.3。今天 Jev 的 effort-submit zh-score 是 88.5，比 10-07 的两遍高 2.0–2.5，和 10-07 第一遍比有 7 个（zh-score）、4 个（en-score）回答档位不同。pplx 在 10-07 的两遍逐位相同（每个概率都一样）。今天的 pplx 回归并发 6，811 次尝试里有 11 次重试；10-07 是并发 1。两次比，zh-score 有 196/200、en-score 有 198/200 个回答的概率不同，档位变了的回答是 4 个和 3 个。准确率差 0.5（83.5 对 83.0，80.5 对 80.0）；zh-score 判高 14.0 对 15.0、判低 2.5 对 2.0，en-score 判低 1.0 对 1.5。所以 pplx 隔一段时间重跑并不逐位相同。带流程三组的回答是流程在 09:41Z–13:39Z 之间跑出来的，不带流程三组在 13:42Z 以后真跑，后端状态不是同一时间的。B 对 B′、A⁺ 对 A 这类比较里混着这种漂移，大小量不出来。
+- **离门槛多近。** 第 3 小节每条比较都按题数写了余量：满足的写「余 n」，指朝不利方向再变 n 题仍然满足；不满足的写「差 n」，指朝有利方向还要变 n 题才满足。贴着线的有这几条：A 对 J（63 题）准确率 +4.8，线是 +5，差 1 题（1.6 点）；A⁺ 对 J（63 题）+6.3，余 0；B 对 J（120 题）判高 +2.5，余 0；B 对 B′ 判高 +3.3，线是 +3，差 1 题；A⁺ 对 A 判高 +1.6，余 0；J 对 J′、B 对 B′（thetaMax 0.5）max 召回正好多 3 题，余 0。
+- **模型**：pplx `pplx-decider-v1.1-27b`；Jev `jev-latest`，实际答题的是 `jev-1.13.0`；摘要由 `claude -p --model haiku` 续写，它自报和 `modelUsage` 都是 `claude-haiku-5-5`。
+- **金标**：`datasets/eval-v2/gold/`。30 题由用户裁决（`user:labeler` 21、`user:author` 7、`user:custom` 2）。其余 90 题出题者和标注者的 effort、`triage_final`、决定性几轮的三选一一致，但其中 30 题的可接受档位（accept）不同、33 题的 `effort_without_decisive` 不同（合计 51 题）：当初的比对只看 effort 和 `triage_final`，这些都默认用了出题者的。2026-10-08 用户把这件事交给协调者裁决：accept 不同的 30 题取两者的并集（`source: "agreed+accept-union"`，提交 `aa6d6e2`），`effort_without_decisive` 仍用出题者的。**第 2–5 小节的表都是并集之前（按出题者的 accept）算的**；并集之后的数字、四种取法的敏感性和方案排名见本节最后一小节「accept 取并集后」。
+- **两套门槛**：「Jev 门槛」是 mod 默认的 thetaMax 0.5；「thetaMax 0.47」是在旧数据集上按 agent 自拟的规则给 pplx 选出的值（见第 6 小节）。0.47 那几张表里**所有组都按 0.47 重算，J、J′ 也一样**，只为并排；Jev 自己的门槛是 0.5。J 和 J′ 的中文行在两个门槛下相同。J′ 的英文行在 0.47 下变了：120 题里正好命中从 34.2 变成 35.0，max 召回从 5/28 变成 6/28；63 题里正好命中从 19.0 变成 20.6，max 召回也是 5/28 变成 6/28。比较只用 J 的中文问法，所以「满足 / 不满足」不受影响。eval v2 只问最后一条消息，thetaUp、thetaDown 用不上。两套门槛都是拿存下的概率离线重算的：mod 自己的 `pickEffort`，加上 suite 的 `grade`、`summarize`。
+- **单位**：没有特别说明的数字都是百分比，按题数直接算到一位小数。一题在 120 题里是 0.83 个点，在 63 题里是 1.6 个点，在一个深度档（30 题）里是 3.3 个点，在一类（12 题）里是 8.3 个点。金标是 max 的题一共 28 道：explicit-unresolved 12、implicit-unresolved 12、command-turn 4，全部在 A⁺ 的 63 题里。所以下面的 **max 召回只在这三类上量**，别的七类没有金标为 max 的题。
+
+##### 1. 运行、估算费用、延迟
+
+| 组 | 来源 | 请求数 | 失败数 | 估算费用 | 延迟 p50 / p90（秒） |
+|---|---|---|---|---|---|
+| A：pplx 135000，不带流程 | 真跑，中英问法各 120 题，并发 6，单次超时 240 秒，`--state-messages 2000` | 240 | 0 | 0.954 美元（4771 万 input token，每个请求约 0.0040） | 中文 74.0 / 82.4，英文 73.5 / 84.2 |
+| B′：pplx 48000，不带流程 | 真跑，同上 | 240 | 0 | 0.382 美元（1911 万，每个请求约 0.0016） | 中文 22.5 / 23.8，英文 22.5 / 23.9 |
+| J′：Jev 24000，不带流程 | 真跑，并发 4，mod 自己的设置（24000 token、32 条） | 240 | 0 | 0.279 美元（664 万，每个请求约 0.0012） | 中文 2.8 / 3.5，英文 2.8 / 3.5 |
+| A⁺：pplx 135000，带流程 | 重放 `eval-v2-flow/pplx-135000.json` 中 63 题的最后一步（只有中文问法） | 0（流程 2443） | 0 | 流程 5.11 美元（2.553 亿 token，每条消息约 0.0021；含丢弃的 6 题已发的 102 条） | 没有记录 |
+| B：pplx 48000，带流程 | 重放 `eval-v2-flow/pplx-48000.json`，120 题 | 0（流程 4396） | 0 | 流程 5.54 美元（2.772 亿，每条消息约 0.0013） | 没有记录 |
+| J：Jev 24000，带流程 | 重放 `eval-v2-flow/jev-24000.json`，120 题 | 0（流程 4396） | 0 | 流程 4.67 美元（1.111 亿；实际发出 5978 个请求，其中 1428 个是 HTTP 402、不计费，另有 1 次 529、1 次超时；4.67 美元含 44 题作废的那部分，4396 只是最终有回答的消息数） | 没有记录 |
+| effort-submit 回归 pplx / Jev | 真跑，4 变体 x 100 题 x 中英对话 | 800 / 800 | 0 / 0 | 0.007 / 0.026 美元 | |
+
+- **费用都是估计，不是账单**：input token 乘 `run.ts` 的系数（pplx 每百万 token 0.02 美元，Jev 0.042 美元）。
+- 真跑一共 2,320 个请求：三次 eval（A、B′、J′）各 240，两份 effort-submit 回归各 800。0 个失败，估算约 1.65 美元。三份流程估算约 15.3 美元，合计约 17 美元。Haiku 走订阅额度，不计入美元：Jev 流程实际调用 3279 次（缓存命中 2539 次），pplx 48000 流程 1908 次（命中 2377 次），pplx 135000 流程 1231 次（命中 1152 次）。
+- 延迟是在负载下测的，包含排队。A、B′、J′ 和两份回归在 13:42:08–13:42:10Z 同时开跑。pplx 这边 A、B′、pplx 回归各开并发 6：回归在 13:48:39Z 跑完之前，同一时间最多有 18 个 pplx 请求；之后最多 12 个；B′ 在 13:57Z 跑完以后只剩 A 的 6 个。Jev 这边 J′ 和 Jev 回归各开并发 4，J′ 在 13:45Z 跑完之前同时有 8 个。#44 在并发 3 时测过：135000 的 p50 是 20.0 秒，48000 是 13.1 秒。按 mod 的超时（Jev 默认 1500 ms），pplx 的全部回答、J′ 的 237/240 个回答都会超时。流程运行器不记每条消息的延迟，所以带流程三组没有延迟数字。它们的请求和同预算、不带流程的组一样大，只多出摘要和次数（约 600 token）。
+- 带流程三组的费用是整个流程的费用：每条用户消息都发一次请求。最后一问就是流程的最后一步，没有额外花钱。
+
+##### 2. 六组的结果
+
+**每组自己的全部题（A⁺ 63 题，其余 120 题），Jev 门槛（thetaMax 0.5，mod 默认）**
+
+| 组 | 题数 | 可接受准确率 | 正好命中 | 判高 | 判低 | max 召回 | 误给 max | 三选一准确率 | 该加一却清零 | 不该加一却加一 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| A（pplx 135000 不带流程，中文问法） | 120 | 69.2 | 30.8 | 12.5 | 18.3 | 25.0（7/28） | 0.0 | 85.8 | 6.8 | 1.6 |
+| A（pplx 135000 不带流程，英文问法） | 120 | 72.5 | 34.2 | 13.3 | 14.2 | 42.9（12/28） | 1.1 | 86.7 | 6.8 | 0.0 |
+| A⁺（pplx 135000 带流程，中文问法） | 63 | 61.9 | 20.6 | 9.5 | 28.6 | 17.9（5/28） | 0.0 | 85.7 | 12.2 | 4.5 |
+| B（pplx 48000 带流程，中文问法） | 120 | 63.3 | 28.3 | 18.3 | 18.3 | 21.4（6/28） | 3.4 | 75.0 | 16.9 | 3.3 |
+| B′（pplx 48000 不带流程，中文问法） | 120 | 65.0 | 28.3 | 15.0 | 20.0 | 10.7（3/28） | 0.0 | 79.2 | 11.9 | 3.3 |
+| B′（pplx 48000 不带流程，英文问法） | 120 | 71.7 | 30.8 | 15.8 | 12.5 | 35.7（10/28） | 0.0 | 83.3 | 13.6 | 1.6 |
+| J（Jev 24000 带流程，中文问法） | 120 | 62.5 | 33.3 | 15.8 | 21.7 | 10.7（3/28） | 0.0 | 70.8 | 22.0 | 0.0 |
+| J′（Jev 24000 不带流程，中文问法） | 120 | 62.5 | 30.0 | 15.0 | 22.5 | 0.0（0/28） | 0.0 | 75.0 | 15.3 | 0.0 |
+| J′（Jev 24000 不带流程，英文问法） | 120 | 61.7 | 34.2 | 13.3 | 25.0 | 17.9（5/28） | 0.0 | 75.8 | 11.9 | 1.6 |
+
+**每组自己的全部题，thetaMax 0.47（pplx 各组的校准值；J、J′ 也按 0.47 算，只为并排）**
+
+| 组 | 题数 | 可接受准确率 | 正好命中 | 判高 | 判低 | max 召回 | 误给 max | 三选一准确率 | 该加一却清零 | 不该加一却加一 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| A（pplx 135000 不带流程，中文问法） | 120 | 69.2 | 30.8 | 12.5 | 18.3 | 25.0（7/28） | 0.0 | 85.8 | 6.8 | 1.6 |
+| A（pplx 135000 不带流程，英文问法） | 120 | 72.5 | 35.0 | 13.3 | 14.2 | 46.4（13/28） | 1.1 | 86.7 | 6.8 | 0.0 |
+| A⁺（pplx 135000 带流程，中文问法） | 63 | 61.9 | 22.2 | 9.5 | 28.6 | 21.4（6/28） | 0.0 | 85.7 | 12.2 | 4.5 |
+| B（pplx 48000 带流程，中文问法） | 120 | 63.3 | 29.2 | 18.3 | 18.3 | 25.0（7/28） | 3.4 | 75.0 | 16.9 | 3.3 |
+| B′（pplx 48000 不带流程，中文问法） | 120 | 65.0 | 27.5 | 15.0 | 20.0 | 10.7（3/28） | 0.0 | 79.2 | 11.9 | 3.3 |
+| B′（pplx 48000 不带流程，英文问法） | 120 | 71.7 | 30.8 | 15.8 | 12.5 | 35.7（10/28） | 0.0 | 83.3 | 13.6 | 1.6 |
+| J（Jev 24000 带流程，中文问法） | 120 | 62.5 | 33.3 | 15.8 | 21.7 | 10.7（3/28） | 0.0 | 70.8 | 22.0 | 0.0 |
+| J′（Jev 24000 不带流程，中文问法） | 120 | 62.5 | 30.0 | 15.0 | 22.5 | 0.0（0/28） | 0.0 | 75.0 | 15.3 | 0.0 |
+| J′（Jev 24000 不带流程，英文问法） | 120 | 61.7 | 35.0 | 13.3 | 25.0 | 21.4（6/28） | 0.0 | 75.8 | 11.9 | 1.6 |
+
+**同一批 63 题（A⁺ 覆盖的那批），Jev 门槛（thetaMax 0.5，mod 默认）**
+
+| 组 | 题数 | 可接受准确率 | 正好命中 | 判高 | 判低 | max 召回 | 误给 max | 三选一准确率 | 该加一却清零 | 不该加一却加一 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| A（pplx 135000 不带流程，中文问法） | 63 | 60.3 | 25.4 | 7.9 | 31.7 | 25.0（7/28） | 0.0 | 85.7 | 4.9 | 4.5 |
+| A（pplx 135000 不带流程，英文问法） | 63 | 71.4 | 31.7 | 7.9 | 20.6 | 42.9（12/28） | 0.0 | 90.5 | 7.3 | 0.0 |
+| A⁺（pplx 135000 带流程，中文问法） | 63 | 61.9 | 20.6 | 9.5 | 28.6 | 17.9（5/28） | 0.0 | 85.7 | 12.2 | 4.5 |
+| B（pplx 48000 带流程，中文问法） | 63 | 58.7 | 17.5 | 12.7 | 28.6 | 21.4（6/28） | 0.0 | 77.8 | 19.5 | 4.5 |
+| B′（pplx 48000 不带流程，中文问法） | 63 | 55.6 | 17.5 | 11.1 | 33.3 | 10.7（3/28） | 0.0 | 81.0 | 12.2 | 4.5 |
+| B′（pplx 48000 不带流程，英文问法） | 63 | 69.8 | 25.4 | 11.1 | 19.0 | 35.7（10/28） | 0.0 | 87.3 | 14.6 | 0.0 |
+| J（Jev 24000 带流程，中文问法） | 63 | 55.6 | 15.9 | 14.3 | 30.2 | 10.7（3/28） | 0.0 | 73.0 | 26.8 | 0.0 |
+| J′（Jev 24000 不带流程，中文问法） | 63 | 49.2 | 9.5 | 15.9 | 34.9 | 0.0（0/28） | 0.0 | 79.4 | 22.0 | 0.0 |
+| J′（Jev 24000 不带流程，英文问法） | 63 | 54.0 | 19.0 | 14.3 | 31.7 | 17.9（5/28） | 0.0 | 77.8 | 17.1 | 0.0 |
+
+**同一批 63 题，thetaMax 0.47（J、J′ 也按 0.47 算，只为并排）**
+
+| 组 | 题数 | 可接受准确率 | 正好命中 | 判高 | 判低 | max 召回 | 误给 max | 三选一准确率 | 该加一却清零 | 不该加一却加一 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| A（pplx 135000 不带流程，中文问法） | 63 | 60.3 | 25.4 | 7.9 | 31.7 | 25.0（7/28） | 0.0 | 85.7 | 4.9 | 4.5 |
+| A（pplx 135000 不带流程，英文问法） | 63 | 71.4 | 33.3 | 7.9 | 20.6 | 46.4（13/28） | 0.0 | 90.5 | 7.3 | 0.0 |
+| A⁺（pplx 135000 带流程，中文问法） | 63 | 61.9 | 22.2 | 9.5 | 28.6 | 21.4（6/28） | 0.0 | 85.7 | 12.2 | 4.5 |
+| B（pplx 48000 带流程，中文问法） | 63 | 58.7 | 19.0 | 12.7 | 28.6 | 25.0（7/28） | 0.0 | 77.8 | 19.5 | 4.5 |
+| B′（pplx 48000 不带流程，中文问法） | 63 | 55.6 | 15.9 | 11.1 | 33.3 | 10.7（3/28） | 0.0 | 81.0 | 12.2 | 4.5 |
+| B′（pplx 48000 不带流程，英文问法） | 63 | 69.8 | 25.4 | 11.1 | 19.0 | 35.7（10/28） | 0.0 | 87.3 | 14.6 | 0.0 |
+| J（Jev 24000 带流程，中文问法） | 63 | 55.6 | 15.9 | 14.3 | 30.2 | 10.7（3/28） | 0.0 | 73.0 | 26.8 | 0.0 |
+| J′（Jev 24000 不带流程，中文问法） | 63 | 49.2 | 9.5 | 15.9 | 34.9 | 0.0（0/28） | 0.0 | 79.4 | 22.0 | 0.0 |
+| J′（Jev 24000 不带流程，英文问法） | 63 | 54.0 | 20.6 | 14.3 | 31.7 | 21.4（6/28） | 0.0 | 77.8 | 17.1 | 0.0 |
+
+分母：误给 max 按 accept 里没有 max 的题算（120 题里 87 题，63 题里 30 题）；该加一却清零按 `triage_final` 为 still_unresolved 的题算（59 题、41 题）；不该加一却加一按其余的题算（61 题、22 题）。这两项按 mod 现在的 0.5 / 0.7 两档算。
+
+**读到决定性几轮的比例**（全部题，Jev 门槛）：
+
+| 组（问法） | state 读到全部决定性几轮 | 读到其中一部分 | 答得像没读到（题数） | state 平均 token | 最大 token |
+|---|---|---|---|---|---|
+| A pplx 135000 不带流程 zh | 75.0 | 75.0 | 38.7 (75) | 116691 | 134944 |
+| A pplx 135000 不带流程 en | 75.0 | 75.0 | 26.7 (75) | 116691 | 134944 |
+| A⁺ pplx 135000 带流程 zh | 76.2 | 76.2 | 37.7 (53) | 117581 | 135015 |
+| B pplx 48000 带流程 zh | 50.0 | 50.0 | 41.3 (75) | 46353 | 47984 |
+| B′ pplx 48000 不带流程 zh | 50.0 | 50.0 | 42.7 (75) | 46397 | 47999 |
+| B′ pplx 48000 不带流程 en | 50.0 | 50.0 | 26.7 (75) | 46397 | 47999 |
+| J Jev 24000 带流程 zh | 25.0 | 25.0 | 36.0 (75) | 22388 | 23998 |
+| J′ Jev 24000 不带流程 zh | 25.0 | 25.0 | 41.3 (75) | 22424 | 23996 |
+| J′ Jev 24000 不带流程 en | 25.0 | 25.0 | 26.7 (75) | 22424 | 23996 |
+
+同一批 63 题上，「答得像没读到」（53 题）是：A 37.7 / 26.4（zh / en），A⁺ 37.7，B 41.5，B′ 45.3 / 22.6，J 35.8，J′ 45.3 / 28.3。
+
+**流程带进最后一问的东西**（`compare.json` 的 `carried`）。带流程组和不带流程组的请求只差三样：摘要、次数、次数达到 3 时的强提示。
+
+| 组 | 题数 | 带了摘要 | 次数 > 0 | 次数达到 3、带强提示 | 次数 > 0 的题的次数 |
+|---|---|---|---|---|---|
+| A⁺（pplx 135000） | 63 | 63 | 16 | 13 | 1, 1, 2, 3, 4, 5, 6, 7, 7, 7, 10, 10, 31, 35, 38, 40 |
+| B（pplx 48000） | 120 | 120 | 39 | 31 | 1 ×5, 2 ×3, 3 ×4, 4 ×3, 5, 6, 7 ×3, 8 ×4, 9 ×3, 10, 13, 14 ×2, 16 ×2, 18, 26, 30, 36, 37, 38 |
+| J（Jev 24000） | 120 | 120 | 36 | 24 | 1 ×8, 2 ×4, 3 ×2, 4 ×5, 5 ×5, 6 ×3, 7, 8 ×2, 9, 10, 11 ×2, 13, 18 |
+
+同一批 63 题上，B 有 18 题次数 > 0、15 题带强提示，J 是 19 题、11 题。所以带流程组的大部分请求（A⁺ 47/63、B 81/120、J 84/120）次数是 0、没有强提示，和不带流程组只差一段摘要。pplx 的两份流程里各有几题次数很大（B 有 5 题 26–38，A⁺ 有 4 题 31–40；Jev 最多 18）：pplx 的三选一把许多中间轮次判成「仍未解决」，次数一直没被清零（流程记录 `flow-pplx-48000.md` 写了这一点要在门槛扫描时留意）。
+
+A⁺ 覆盖的 63 题：类别 cheap-agreement、command-turn、explicit-unresolved、hard-constraint、implicit-unresolved 各 12 题，加 looks-hard-is-easy-01..03。misleading-history、new-topic、resolved、single-attempt 四类一题都没有。深度档 d1 16、d2 16、d3 16、d4 15；same-problem 31、unrelated 32。金标 effort 是 low 7、medium 10、high 4、xhigh 14、max 28。三选一金标是 still_unresolved 41、new_or_unrelated 22，没有 resolved。A⁺ 和别的组比，要用「同一批 63 题」那两张表。
+
+##### 3. #45 正文的比较，逐条
+
+余量的写法见本节开头：「余 n」是朝不利方向再变 n 题仍然满足，「差 n」是朝有利方向还要变 n 题才满足。120 题时「J+5 点」要多对 6 题，「J+3 点」最多多 3 题；63 题时分别是多对 4 题、最多多 1 题。
+
+**A、A⁺、B 各对 J**：要求可接受准确率 ≥ J+5 点、判高 ≤ J+3 点、max 召回 ≥ J、effort-submit 判高 ≤ Jev+3 点。J 只有中文问法，所以都用中文问法比。A⁺ 只能在 63 题上比，A、B 在同样 63 题上的行也列出来。
+
+| 比较（中文问法） | 题数 | 门槛 | 可接受准确率（差） | ≥ J+5 点 | 判高（差） | ≤ J+3 点 | max 召回 | ≥ J |
+|---|---|---|---|---|---|---|---|---|
+| A 对 J | 120 | 0.5 | 69.2 对 62.5（+6.7，多对 8 题） | 满足（余 2） | 12.5 对 15.8（-3.3） | 满足（余 7） | 7/28 对 3/28 | 满足（余 4） |
+| B 对 J | 120 | 0.5 | 63.3 对 62.5（+0.8，多对 1 题） | **不满足**（差 5） | 18.3 对 15.8（+2.5） | 满足（余 0） | 6/28 对 3/28 | 满足（余 3） |
+| A⁺ 对 J | 63 | 0.5 | 61.9 对 55.6（+6.3，多对 4 题） | 满足（余 0） | 9.5 对 14.3（-4.8） | 满足（余 4） | 5/28 对 3/28 | 满足（余 2） |
+| A 对 J | 63 | 0.5 | 60.3 对 55.6（+4.8，多对 3 题） | **不满足**（差 1） | 7.9 对 14.3（-6.3） | 满足（余 5） | 7/28 对 3/28 | 满足（余 4） |
+| B 对 J | 63 | 0.5 | 58.7 对 55.6（+3.2，多对 2 题） | **不满足**（差 2） | 12.7 对 14.3（-1.6） | 满足（余 2） | 6/28 对 3/28 | 满足（余 3） |
+| A 对 J | 120 | 0.47 | 69.2 对 62.5（+6.7） | 满足（余 2） | 12.5 对 15.8（-3.3） | 满足（余 7） | 7/28 对 3/28 | 满足（余 4） |
+| B 对 J | 120 | 0.47 | 63.3 对 62.5（+0.8） | **不满足**（差 5） | 18.3 对 15.8（+2.5） | 满足（余 0） | 7/28 对 3/28 | 满足（余 4） |
+| A⁺ 对 J | 63 | 0.47 | 61.9 对 55.6（+6.3） | 满足（余 0） | 9.5 对 14.3（-4.8） | 满足（余 4） | 6/28 对 3/28 | 满足（余 3） |
+| A 对 J | 63 | 0.47 | 60.3 对 55.6（+4.8） | **不满足**（差 1） | 7.9 对 14.3（-6.3） | 满足（余 5） | 7/28 对 3/28 | 满足（余 4） |
+| B 对 J | 63 | 0.47 | 58.7 对 55.6（+3.2） | **不满足**（差 2） | 12.7 对 14.3（-1.6） | 满足（余 2） | 7/28 对 3/28 | 满足（余 4） |
+
+J 的中文行在 0.47 和 0.5 下相同，所以 0.47 那几行就是「pplx 组 0.47 对 J 0.5」。
+
+effort-submit 判高 ≤ Jev+3 点：这一条不看 state 预算，A、A⁺、B 三组的情况相同。中文问法 pplx 14.0（28/200）对 Jev 7.0（14/200），+7.0，**不满足**（差 8 个回答）；英文问法 18.5（37/200）对 17.5（35/200），+1.0，满足（余 4 个回答）。两套门槛下判高都一样（thetaMax 管不到这部分判高，见第 6 小节）。
+
+满足情况一览（两套门槛结果相同；effort-submit 一栏写中文问法 / 英文问法）。A、B 在 120 题和同一批 63 题上都列出来：
+
+| 候选 | 准确率 ≥ J+5 | 判高 ≤ J+3 | max 召回 ≥ J | effort-submit 判高 ≤ Jev+3 |
+|---|---|---|---|---|
+| A（120 题） | 满足（+6.7，余 2） | 满足（−3.3） | 满足（7 对 3） | 不满足 / 满足 |
+| A（同一批 63 题） | **不满足**（+4.8，差 1） | 满足（−6.3） | 满足（7 对 3） | 不满足 / 满足 |
+| A⁺（63 题） | 满足（+6.3，余 0） | 满足（−4.8） | 满足（5–6 对 3） | 不满足 / 满足 |
+| B（120 题） | **不满足**（+0.8，差 5） | 满足（+2.5，余 0） | 满足（6–7 对 3） | 不满足 / 满足 |
+| B（同一批 63 题） | **不满足**（+3.2，差 2） | 满足（−1.6） | 满足（6–7 对 3） | 不满足 / 满足 |
+
+在同一批 63 题上，准确率这一条只有 A⁺ 满足；A 在 120 题上满足，在这 63 题上不满足。
+
+**带流程对不带流程：A⁺ 对 A、B 对 B′、J 对 J′**。要求 max 召回至少多 3 题，并且判高不超过 3 点。只有中文问法。
+
+「判高不超过 3 点」原文有两种读法：判高比对照组高出不超过 3 点，或者判高本身不超过 3%。下表按前一种算；按后一种，三条都不满足（判高 9.5、18.3、15.8）。
+
+| 比较（中文问法） | 题数 | 门槛 | max 召回（差） | 多 ≥ 3 题 | 判高（差） | ≤ +3 点 | 可接受准确率（差，参考） |
+|---|---|---|---|---|---|---|---|
+| A⁺ 对 A | 63 | 0.5 | 5/28 对 7/28（-2 题） | **不满足**（差 5） | 9.5 对 7.9（+1.6，多 1 题） | 满足（余 0） | 61.9 对 60.3（+1.6） |
+| B 对 B′ | 120 | 0.5 | 6/28 对 3/28（+3 题） | 满足（余 0） | 18.3 对 15.0（+3.3，多 4 题） | **不满足**（差 1） | 63.3 对 65.0（-1.7） |
+| A⁺ 对 A | 63 | 0.47 | 6/28 对 7/28（-1 题） | **不满足**（差 4） | 9.5 对 7.9（+1.6） | 满足（余 0） | 61.9 对 60.3（+1.6） |
+| B 对 B′ | 120 | 0.47 | 7/28 对 3/28（+4 题） | 满足（余 1） | 18.3 对 15.0（+3.3） | **不满足**（差 1） | 63.3 对 65.0（-1.7） |
+| J 对 J′ | 120 | 0.5 | 3/28 对 0/28（+3 题） | 满足（余 0） | 15.8 对 15.0（+0.8，多 1 题） | 满足（余 2） | 62.5 对 62.5（+0.0） |
+
+这三条比较里，带流程组的回答来自 09:41Z–13:39Z 的流程，不带流程组来自 13:42Z 以后的真跑，差别里混着后端随时间的漂移（见本节开头）。
+
+**A 对 B（d3、d4）**：#45 的说法是「A 高 10 点以上说明摘要代替不了原文」。只有中文问法；d1、d2 两行作参考。一个深度档 30 题，10 点是 3 题。d2 正好 +10.0，在边界上：按「≥ 10」读是，按「> 10」读不是。
+
+| 深度档 | 门槛 | A 中文（对的题 / 30） | B 中文 | A − B | A 高 10 点以上 |
+|---|---|---|---|---|---|
+| d1（参考） | 0.5 | 70.0（21） | 76.7（23） | -6.7 | 否 |
+| d2（参考） | 0.5 | 76.7（23） | 66.7（20） | +10.0 | 边界（正好 10） |
+| d3 | 0.5 | 80.0（24） | 63.3（19） | +16.7 | 是（余 2） |
+| d4 | 0.5 | 50.0（15） | 46.7（14） | +3.3 | 否（差 2） |
+| d1（参考） | 0.47 | 70.0（21） | 76.7（23） | -6.7 | 否 |
+| d2（参考） | 0.47 | 76.7（23） | 66.7（20） | +10.0 | 边界（正好 10） |
+| d3 | 0.47 | 80.0（24） | 63.3（19） | +16.7 | 是（余 2） |
+| d4 | 0.47 | 50.0（15） | 46.7（14） | +3.3 | 否（差 2） |
+
+**effort-submit 回归**（当前代码，今天跑一遍，和 10-07 的结果并列）：
+
+| 文件 | 问法 | thetaMax | 回答数 | 可接受准确率 | 判高 | 判低 | max 召回 | 误给 max |
+|---|---|---|---|---|---|---|---|---|
+| pplx 今天 | zh-score | 0.5 | 200 | 83.5 | 14.0 | 2.5 | 8/16 | 0 |
+| pplx 今天 | zh-score | 0.47 | 200 | 84.0 | 14.0 | 2.0 | 9/16 | 0 |
+| pplx 今天 | en-score | 0.5 | 200 | 80.5 | 18.5 | 1.0 | 11/16 | 2 |
+| pplx 今天 | en-score | 0.47 | 200 | 80.5 | 18.5 | 1.0 | 11/16 | 2 |
+| pplx 10-07 r1 | zh-score | 0.5 | 200 | 83.0 | 15.0 | 2.0 | 9/16 | 0 |
+| pplx 10-07 r1 | zh-score | 0.47 | 200 | 83.0 | 15.0 | 2.0 | 9/16 | 0 |
+| pplx 10-07 r1 | en-score | 0.5 | 200 | 80.0 | 18.5 | 1.5 | 10/16 | 2 |
+| pplx 10-07 r1 | en-score | 0.47 | 200 | 80.0 | 18.5 | 1.5 | 11/16 | 2 |
+| Jev 今天 | zh-score | 0.5 | 200 | 88.5 | 7.0 | 4.5 | 7/16 | 0 |
+| Jev 今天 | en-score | 0.5 | 200 | 80.0 | 17.5 | 2.5 | 12/16 | 2 |
+| Jev 10-07 r1 | zh-score | 0.5 | 200 | 86.0 | 8.5 | 5.5 | 6/16 | 0 |
+| Jev 10-07 r1 | en-score | 0.5 | 200 | 80.0 | 17.0 | 3.0 | 11/16 | 1 |
+| Jev 10-07 r2 | zh-score | 0.5 | 200 | 86.5 | 8.0 | 5.5 | 5/16 | 0 |
+| Jev 10-07 r2 | en-score | 0.5 | 200 | 79.5 | 17.0 | 3.5 | 11/16 | 1 |
+
+pplx 今天和 10-07 比：概率向量在 zh-score 196/200、en-score 198/200 个回答上不同，档位不同的是 4 个和 3 个回答。准确率 83.5 对 83.0、80.5 对 80.0，判高 14.0 对 15.0、判低 2.5 对 2.0（zh-score）。今天并发 6、有 11 次重试，10-07 是并发 1。10-07 的两遍 pplx 逐位相同。Jev 今天 zh-score 88.5，10-07 两遍是 86.0、86.5；en-score 80.0，10-07 是 79.5–80.0。Jev 10-07 两遍之间 zh-score 有 11 个、en-score 有 4 个回答档位不同。
+
+##### 4. 按深度档、关系、类别
+
+**按深度档**（全部题，Jev 门槛）：每格依次是可接受准确率 / 判高 / 判低 / max 命中数比金标为 max 的题数，括号里是题数。设计上，d1 三个预算都读得到，d2 只有 48000 和 135000 读得到，d3 只有 135000 读得到，d4 谁都读不到。
+
+| 组 | d1 | d2 | d3 | d4 |
+|---|---|---|---|---|
+| A 中文 | 70.0 / 10.0 / 20.0 / 0/7（30） | 76.7 / 10.0 / 13.3 / 3/6（30） | 80.0 / 10.0 / 10.0 / 4/8（30） | 50.0 / 20.0 / 30.0 / 0/7（30） |
+| A 英文 | 76.7 / 10.0 / 13.3 / 2/7（30） | 80.0 / 10.0 / 10.0 / 4/6（30） | 80.0 / 10.0 / 10.0 / 6/8（30） | 53.3 / 23.3 / 23.3 / 0/7（30） |
+| A⁺ 中文 | 68.8 / 12.5 / 18.8 / 0/7（16） | 56.3 / 12.5 / 31.3 / 1/6（16） | 68.8 / 6.3 / 25.0 / 2/8（16） | 53.3 / 6.7 / 40.0 / 2/7（15） |
+| B 中文 | 76.7 / 10.0 / 13.3 / 2/7（30） | 66.7 / 20.0 / 13.3 / 1/6（30） | 63.3 / 16.7 / 20.0 / 1/8（30） | 46.7 / 26.7 / 26.7 / 2/7（30） |
+| B′ 中文 | 73.3 / 10.0 / 16.7 / 1/7（30） | 73.3 / 13.3 / 13.3 / 2/6（30） | 63.3 / 16.7 / 20.0 / 0/8（30） | 50.0 / 20.0 / 30.0 / 0/7（30） |
+| B′ 英文 | 76.7 / 13.3 / 10.0 / 5/7（30） | 76.7 / 13.3 / 10.0 / 5/6（30） | 73.3 / 13.3 / 13.3 / 0/8（30） | 60.0 / 23.3 / 16.7 / 0/7（30） |
+| J 中文 | 70.0 / 10.0 / 20.0 / 1/7（30） | 60.0 / 16.7 / 23.3 / 1/6（30） | 66.7 / 10.0 / 23.3 / 0/8（30） | 53.3 / 26.7 / 20.0 / 1/7（30） |
+| J′ 中文 | 73.3 / 10.0 / 16.7 / 0/7（30） | 60.0 / 16.7 / 23.3 / 0/6（30） | 63.3 / 6.7 / 30.0 / 0/8（30） | 53.3 / 26.7 / 20.0 / 0/7（30） |
+| J′ 英文 | 73.3 / 6.7 / 20.0 / 5/7（30） | 66.7 / 13.3 / 20.0 / 0/6（30） | 53.3 / 10.0 / 36.7 / 0/8（30） | 53.3 / 23.3 / 23.3 / 0/7（30） |
+
+换成 thetaMax 0.47 以后，只有下面 4 格变了，变的都是 max 命中数（准确率、判高、判低不变），其余和上表相同：
+
+- A 英文 d1：max 命中 2/7 → 3/7
+- A⁺ 中文 d2：1/6 → 2/6
+- B 中文 d3：1/8 → 2/8
+- J′ 英文 d2：0/6 → 1/6（Jev 组也按 0.47 算了，只为并排）
+
+**按关系**：中间轮次和原问题的关系是 same-problem 还是 unrelated。有一个混淆要先说明：前 54 题（explicit-unresolved、implicit-unresolved、single-attempt、resolved 全部，以及 new-topic-01..06）里，每个领域只出现一种关系。backend-api、devops-ci、docs-writing、ios、security 全是 same-problem，frontend、database、data-scripts、cc-mods、perf 全是 unrelated；按出题公式，关系和领域编号同奇偶。后 66 题大体反过来：每个领域有 6 题是一种关系，另一种关系只有 0–2 题。全部 120 题每个领域两种关系各 6 题，但关系的差别里同时混着领域的差别。前后两批的类别也大部分不同：前 54 题是上面那四类加 new-topic-01..06，后 66 题是 cheap-agreement、command-turn、hard-constraint、looks-hard-is-easy、misleading-history 加 new-topic-07..12，只有 new-topic 两边都有。所以下面把后 66 题、前 54 题分开再算一遍（Jev 门槛，括号里是题数；A⁺ 只有它覆盖的那部分）。
+
+可接受准确率：
+
+| 组 | 全部：same-problem | 全部：unrelated | 后 66 题：same-problem | 后 66 题：unrelated | 前 54 题：same-problem | 前 54 题：unrelated |
+|---|---|---|---|---|---|---|
+| A 中文 | 68.3（60） | 70.0（60） | 51.5（33） | 69.7（33） | 88.9（27） | 70.4（27） |
+| A 英文 | 70.0（60） | 75.0（60） | 54.5（33） | 69.7（33） | 88.9（27） | 81.5（27） |
+| A⁺ 中文 | 71.0（31） | 53.1（32） | 52.6（19） | 65.0（20） | 100.0（12） | 33.3（12） |
+| B 中文 | 63.3（60） | 63.3（60） | 45.5（33） | 57.6（33） | 85.2（27） | 70.4（27） |
+| B′ 中文 | 63.3（60） | 66.7（60） | 45.5（33） | 63.6（33） | 85.2（27） | 70.4（27） |
+| B′ 英文 | 63.3（60） | 80.0（60） | 45.5（33） | 66.7（33） | 85.2（27） | 96.3（27） |
+| J 中文 | 73.3（60） | 51.7（60） | 51.5（33） | 51.5（33） | 100.0（27） | 51.9（27） |
+| J′ 中文 | 71.7（60） | 53.3（60） | 48.5（33） | 48.5（33） | 100.0（27） | 59.3（27） |
+| J′ 英文 | 73.3（60） | 50.0（60） | 54.5（33） | 51.5（33） | 96.3（27） | 48.1（27） |
+
+三选一准确率：
+
+| 组 | 全部：same-problem | 全部：unrelated | 后 66 题：same-problem | 后 66 题：unrelated | 前 54 题：same-problem | 前 54 题：unrelated |
+|---|---|---|---|---|---|---|
+| A 中文 | 85.0（60） | 86.7（60） | 75.8（33） | 93.9（33） | 96.3（27） | 77.8（27） |
+| A 英文 | 90.0（60） | 83.3（60） | 81.8（33） | 84.8（33） | 100.0（27） | 81.5（27） |
+| A⁺ 中文 | 93.5（31） | 78.1（32） | 89.5（19） | 85.0（20） | 100.0（12） | 66.7（12） |
+| B 中文 | 85.0（60） | 65.0（60） | 75.8（33） | 78.8（33） | 96.3（27） | 48.1（27） |
+| B′ 中文 | 86.7（60） | 71.7（60） | 78.8（33） | 81.8（33） | 96.3（27） | 59.3（27） |
+| B′ 英文 | 91.7（60） | 75.0（60） | 87.9（33） | 84.8（33） | 96.3（27） | 63.0（27） |
+| J 中文 | 91.7（60） | 50.0（60） | 90.9（33） | 69.7（33） | 92.6（27） | 25.9（27） |
+| J′ 中文 | 88.3（60） | 61.7（60） | 84.8（33） | 75.8（33） | 92.6（27） | 44.4（27） |
+| J′ 英文 | 91.7（60） | 60.0（60） | 87.9（33） | 78.8（33） | 96.3（27） | 37.0（27） |
+
+**按类别**（全部题，Jev 门槛；每类 12 题，A⁺ 的 looks-hard-is-easy 只有 3 题，「–」表示 A⁺ 没有这一类）。
+
+可接受准确率：
+
+| 类别 | A 中文 | A 英文 | A⁺ 中文 | B 中文 | B′ 中文 | B′ 英文 | J 中文 | J′ 中文 | J′ 英文 |
+|---|---|---|---|---|---|---|---|---|---|
+| explicit-unresolved | 58.3 | 83.3 | 75.0 | 66.7 | 58.3 | 91.7 | 75.0 | 75.0 | 75.0 |
+| implicit-unresolved | 58.3 | 75.0 | 58.3 | 66.7 | 50.0 | 83.3 | 58.3 | 50.0 | 50.0 |
+| single-attempt | 100.0 | 75.0 | – | 83.3 | 100.0 | 91.7 | 100.0 | 100.0 | 83.3 |
+| resolved | 91.7 | 100.0 | – | 91.7 | 91.7 | 100.0 | 83.3 | 100.0 | 91.7 |
+| new-topic | 75.0 | 66.7 | – | 50.0 | 66.7 | 58.3 | 33.3 | 41.7 | 33.3 |
+| cheap-agreement | 66.7 | 66.7 | 66.7 | 41.7 | 50.0 | 50.0 | 41.7 | 33.3 | 33.3 |
+| looks-hard-is-easy | 25.0 | 33.3 | 66.7 | 25.0 | 25.0 | 25.0 | 50.0 | 50.0 | 66.7 |
+| misleading-history | 100.0 | 91.7 | – | 91.7 | 91.7 | 91.7 | 83.3 | 91.7 | 83.3 |
+| hard-constraint | 25.0 | 33.3 | 25.0 | 25.0 | 25.0 | 25.0 | 33.3 | 16.7 | 25.0 |
+| command-turn | 91.7 | 100.0 | 83.3 | 91.7 | 91.7 | 100.0 | 66.7 | 66.7 | 75.0 |
+
+判高 / 判低：
+
+| 类别 | A 中文 | A 英文 | A⁺ 中文 | B 中文 | B′ 中文 | B′ 英文 | J 中文 | J′ 中文 | J′ 英文 |
+|---|---|---|---|---|---|---|---|---|---|
+| explicit-unresolved | 0.0/41.7 | 0.0/16.7 | 0.0/25.0 | 0.0/33.3 | 0.0/41.7 | 0.0/8.3 | 0.0/25.0 | 0.0/25.0 | 0.0/25.0 |
+| implicit-unresolved | 0.0/41.7 | 0.0/25.0 | 0.0/41.7 | 0.0/33.3 | 0.0/50.0 | 0.0/16.7 | 0.0/41.7 | 0.0/50.0 | 0.0/50.0 |
+| single-attempt | 0.0/0.0 | 8.3/16.7 | – | 16.7/0.0 | 0.0/0.0 | 0.0/8.3 | 0.0/0.0 | 0.0/0.0 | 0.0/16.7 |
+| resolved | 0.0/8.3 | 0.0/0.0 | – | 0.0/8.3 | 0.0/8.3 | 0.0/0.0 | 8.3/8.3 | 0.0/0.0 | 0.0/8.3 |
+| new-topic | 16.7/8.3 | 16.7/16.7 | – | 25.0/25.0 | 16.7/16.7 | 25.0/16.7 | 16.7/50.0 | 16.7/41.7 | 8.3/58.3 |
+| cheap-agreement | 33.3/0.0 | 33.3/0.0 | 33.3/0.0 | 58.3/0.0 | 50.0/0.0 | 50.0/0.0 | 58.3/0.0 | 66.7/0.0 | 66.7/0.0 |
+| looks-hard-is-easy | 75.0/0.0 | 66.7/0.0 | 33.3/0.0 | 75.0/0.0 | 75.0/0.0 | 75.0/0.0 | 50.0/0.0 | 50.0/0.0 | 33.3/0.0 |
+| misleading-history | 0.0/0.0 | 8.3/0.0 | – | 8.3/0.0 | 8.3/0.0 | 8.3/0.0 | 16.7/0.0 | 8.3/0.0 | 16.7/0.0 |
+| hard-constraint | 0.0/75.0 | 0.0/66.7 | 0.0/75.0 | 0.0/75.0 | 0.0/75.0 | 0.0/75.0 | 0.0/66.7 | 0.0/83.3 | 0.0/75.0 |
+| command-turn | 0.0/8.3 | 0.0/0.0 | 8.3/8.3 | 0.0/8.3 | 0.0/8.3 | 0.0/0.0 | 8.3/25.0 | 8.3/25.0 | 8.3/16.7 |
+
+三选一准确率：
+
+| 类别 | A 中文 | A 英文 | A⁺ 中文 | B 中文 | B′ 中文 | B′ 英文 | J 中文 | J′ 中文 | J′ 英文 |
+|---|---|---|---|---|---|---|---|---|---|
+| explicit-unresolved | 100.0 | 100.0 | 100.0 | 75.0 | 83.3 | 83.3 | 58.3 | 83.3 | 83.3 |
+| implicit-unresolved | 66.7 | 83.3 | 66.7 | 58.3 | 58.3 | 75.0 | 58.3 | 58.3 | 50.0 |
+| single-attempt | 100.0 | 100.0 | – | 75.0 | 91.7 | 83.3 | 58.3 | 75.0 | 66.7 |
+| resolved | 75.0 | 75.0 | – | 66.7 | 66.7 | 66.7 | 41.7 | 41.7 | 50.0 |
+| new-topic | 100.0 | 100.0 | – | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 |
+| cheap-agreement | 91.7 | 100.0 | 91.7 | 91.7 | 100.0 | 100.0 | 100.0 | 100.0 | 91.7 |
+| looks-hard-is-easy | 83.3 | 66.7 | 66.7 | 41.7 | 58.3 | 66.7 | 50.0 | 58.3 | 66.7 |
+| misleading-history | 75.0 | 66.7 | – | 66.7 | 66.7 | 75.0 | 83.3 | 75.0 | 83.3 |
+| hard-constraint | 91.7 | 100.0 | 91.7 | 91.7 | 91.7 | 100.0 | 83.3 | 91.7 | 100.0 |
+| command-turn | 75.0 | 75.0 | 83.3 | 83.3 | 75.0 | 83.3 | 75.0 | 66.7 | 66.7 |
+
+max 命中（只有三类有金标为 max 的题，全部 max 召回就是这三类的合计）：
+
+| 类别 | A 中文 | A 英文 | A⁺ 中文 | B 中文 | B′ 中文 | B′ 英文 | J 中文 | J′ 中文 | J′ 英文 |
+|---|---|---|---|---|---|---|---|---|---|
+| explicit-unresolved | 5/12 | 7/12 | 3/12 | 4/12 | 3/12 | 5/12 | 2/12 | 0/12 | 2/12 |
+| implicit-unresolved | 0/12 | 3/12 | 1/12 | 2/12 | 0/12 | 4/12 | 1/12 | 0/12 | 2/12 |
+| command-turn | 2/4 | 2/4 | 1/4 | 0/4 | 0/4 | 1/4 | 0/4 | 0/4 | 1/4 |
+
+每组中英问法的「深度档 x 关系」8 格交叉（`byBinRelation`）在结果文件的 `summary.variants[].breakdown` 里。两套门槛、两种题集的汇总在 `results/eval-v2/compare.json`；它的比例先取到四位小数，换成一位小数的百分数时有十几格会差 0.1，这一节的表是按题数直接算的。
+
+##### 5. 三选一门槛扫描（给 #42）
+
+数据是决定性几轮里用户消息的金标（`triage_decisive`），对照流程文件里同一条消息的三选一概率。#45 定的选法：在误清零 ≤ 2% 的组合里，取加一召回最高的。平手时依次看误加一、清零召回、中间轮次误改，最后看离现在的 0.5/0.7 多近，这个平手顺序是 agent 自定的。中间轮次误改 = same-problem 段被清零加上 unrelated 段被加一。same-problem 段被加一算不算误改有争议，所以另列。完整输出在 `results/eval-v2/thresholds-jev.json`、`thresholds-pplx.json`。
+
+| 流程文件 | 加一 / 清零 | 加一召回 | 误清零 | 误加一 | 清零召回 | 中间轮次 same-problem 被清零 | 中间轮次 unrelated 被加一 | 中间轮次误改合计 | （另列）same-problem 被加一 |
+|---|---|---|---|---|---|---|---|---|---|
+| Jev 24000（305 条决定性消息） | 现在 0.50 / 0.70 | 96.1 | 1.6 | 2.3 | 85.9 | 31.6 | 0.3 | 15.3 | 37.1 |
+| Jev 24000（305 条决定性消息） | 规则选出 0.10 / 0.91 | 100.0 | 0.0 | 34.5 | 49.7 | 2.6 | 6.9 | 4.8 | 96.1 |
+| pplx 48000（305 条） | 现在 0.50 / 0.70 | 97.7 | 0.8 | 1.1 | 96.0 | 24.3 | 0.0 | 11.7 | 61.0 |
+| pplx 48000（305 条） | 规则选出 0.18 / 0.83 | 100.0 | 0.0 | 4.0 | 93.2 | 12.6 | 0.2 | 6.1 | 82.9 |
+| pplx 135000（63 题，171 条） | 现在 0.50 / 0.70 | 98.8 | 1.2 | 0.0 | 95.5 | 17.1 | 0.2 | 7.5 | 67.5 |
+| pplx 135000（63 题，171 条） | 规则选出 0.23 / 0.80 | 100.0 | 0.0 | 3.4 | 94.3 | 10.8 | 0.2 | 4.8 | 85.4 |
+| pplx 两份合并（476 条） | 现在 0.50 / 0.70 | 98.1 | 0.9 | 0.8 | 95.8 | 22.0 | 0.1 | 10.2 | 63.1 |
+| pplx 两份合并（476 条） | 规则选出 0.18 / 0.83 | 100.0 | 0.0 | 3.8 | 92.8 | 11.5 | 0.2 | 5.5 | 84.6 |
+
+分母：305 条决定性消息里金标仍未解决的 128 条（加一召回、误清零），其余 177 条（误加一、清零召回）；135000 是 83 / 88 条，合并是 211 / 265 条。中间轮次 48000 和 Jev 各有 same-problem 1090 条、unrelated 1183 条，135000 是 508 / 666 条，合并是 1598 / 1849 条。
+
+照字面规则选出的值：**Jev 加一 0.10 / 清零 0.91，pplx 加一 0.18 / 清零 0.83**。pplx 48000 单独扫和两份合并扫，选出的值相同；135000 那份只有 63 题，单独扫是 0.23 / 0.80。规则只限误清零、不限误加一，所以 Jev 选出的值误加一是 34.5%。下面列出每个加一门槛下最低可行的清零门槛（frontier，加一门槛每 0.05 一格），想同时限制误加一时可以从这里挑：
+
+**Jev 24000**
+
+| 加一 / 最低可行清零 | 加一召回 | 误清零 | 误加一 | 清零召回 | 中间 same-problem 被清零 | 中间 unrelated 被加一 | 中间误改合计 | same-problem 被加一 |
+|---|---|---|---|---|---|---|---|---|
+| 0.05 / 0.96 | 100.0 | 0.0 | 68.9 | 21.5 | 0.4 | 25.8 | 13.6 | 99.4 |
+| 0.10 / 0.91 | 100.0 | 0.0 | 34.5 | 49.7 | 2.6 | 6.9 | 4.8 | 96.1 |
+| 0.15 / 0.86 | 99.2 | 0.8 | 18.1 | 68.9 | 7.9 | 3.4 | 5.5 | 90.3 |
+| 0.20 / 0.81 | 98.4 | 0.8 | 13.0 | 78.5 | 14.6 | 1.7 | 7.9 | 81.7 |
+| 0.25 / 0.76 | 98.4 | 1.6 | 10.7 | 82.5 | 21.7 | 1.3 | 11.1 | 73.9 |
+| 0.30 / 0.71 | 97.7 | 1.6 | 9.0 | 85.9 | 30.4 | 0.8 | 15.0 | 66.2 |
+| 0.35 / 0.66 | 97.7 | 1.6 | 7.3 | 87.6 | 38.8 | 0.5 | 18.9 | 58.4 |
+| 0.40 / 0.65 | 97.7 | 1.6 | 6.2 | 88.1 | 40.1 | 0.4 | 19.4 | 50.1 |
+| 0.45 / 0.65 | 96.9 | 1.6 | 4.0 | 88.1 | 40.1 | 0.3 | 19.4 | 43.7 |
+| 0.50 / 0.65 | 96.1 | 1.6 | 2.3 | 88.1 | 40.1 | 0.3 | 19.4 | 37.1 |
+| 0.55 / 0.65 | 96.1 | 1.6 | 1.1 | 88.1 | 40.1 | 0.3 | 19.4 | 31.5 |
+| 0.60 / 0.65 | 94.5 | 1.6 | 1.1 | 88.1 | 40.1 | 0.2 | 19.3 | 26.7 |
+| 0.65 / 0.66 | 91.4 | 1.6 | 0.6 | 87.6 | 38.8 | 0.1 | 18.7 | 21.4 |
+| 0.70 / 0.71 | 89.1 | 1.6 | 0.6 | 85.9 | 30.4 | 0.0 | 14.6 | 16.7 |
+| 0.75 / 0.76 | 83.6 | 1.6 | 0.6 | 82.5 | 21.7 | 0.0 | 10.4 | 12.6 |
+| 0.80 / 0.81 | 79.7 | 0.8 | 0.0 | 78.5 | 14.6 | 0.0 | 7.0 | 8.3 |
+
+**pplx 48000**
+
+| 加一 / 最低可行清零 | 加一召回 | 误清零 | 误加一 | 清零召回 | 中间 same-problem 被清零 | 中间 unrelated 被加一 | 中间误改合计 | same-problem 被加一 |
+|---|---|---|---|---|---|---|---|---|
+| 0.05 / 0.96 | 100.0 | 0.0 | 13.0 | 79.7 | 0.5 | 0.7 | 0.6 | 97.1 |
+| 0.10 / 0.91 | 100.0 | 0.0 | 6.2 | 89.3 | 3.9 | 0.3 | 2.0 | 91.3 |
+| 0.15 / 0.86 | 100.0 | 0.0 | 4.0 | 92.1 | 10.2 | 0.3 | 5.1 | 86.1 |
+| 0.20 / 0.81 | 99.2 | 0.0 | 3.4 | 94.9 | 14.5 | 0.2 | 7.0 | 80.8 |
+| 0.25 / 0.76 | 99.2 | 0.8 | 3.4 | 95.5 | 20.2 | 0.1 | 9.7 | 76.4 |
+| 0.30 / 0.71 | 99.2 | 0.8 | 2.8 | 95.5 | 23.9 | 0.1 | 11.5 | 73.1 |
+| 0.35 / 0.66 | 98.4 | 0.8 | 2.3 | 96.0 | 27.9 | 0.1 | 13.4 | 70.5 |
+| 0.40 / 0.61 | 98.4 | 0.8 | 1.7 | 97.7 | 30.2 | 0.0 | 14.5 | 67.1 |
+| 0.45 / 0.56 | 98.4 | 0.8 | 1.1 | 98.9 | 33.5 | 0.0 | 16.1 | 63.9 |
+| 0.50 / 0.51 | 97.7 | 0.8 | 1.1 | 98.9 | 36.9 | 0.0 | 17.7 | 61.0 |
+| 0.55 / 0.56 | 97.7 | 0.8 | 0.6 | 98.9 | 33.5 | 0.0 | 16.1 | 57.4 |
+| 0.60 / 0.61 | 96.9 | 0.8 | 0.6 | 97.7 | 30.2 | 0.0 | 14.5 | 54.4 |
+| 0.65 / 0.66 | 96.9 | 0.8 | 0.6 | 96.0 | 27.9 | 0.0 | 13.4 | 51.1 |
+| 0.70 / 0.71 | 96.9 | 0.8 | 0.6 | 95.5 | 23.9 | 0.0 | 11.5 | 48.4 |
+| 0.75 / 0.76 | 96.1 | 0.8 | 0.6 | 95.5 | 20.2 | 0.0 | 9.7 | 43.9 |
+| 0.80 / 0.81 | 96.1 | 0.0 | 0.6 | 94.9 | 14.5 | 0.0 | 7.0 | 39.3 |
+
+**pplx 两份合并**
+
+| 加一 / 最低可行清零 | 加一召回 | 误清零 | 误加一 | 清零召回 | 中间 same-problem 被清零 | 中间 unrelated 被加一 | 中间误改合计 | same-problem 被加一 |
+|---|---|---|---|---|---|---|---|---|
+| 0.05 / 0.96 | 100.0 | 0.0 | 13.6 | 75.8 | 0.6 | 1.0 | 0.8 | 97.4 |
+| 0.10 / 0.91 | 100.0 | 0.0 | 6.4 | 87.9 | 3.6 | 0.4 | 1.9 | 92.0 |
+| 0.15 / 0.86 | 100.0 | 0.0 | 4.5 | 90.9 | 8.9 | 0.3 | 4.3 | 87.4 |
+| 0.20 / 0.81 | 99.5 | 0.0 | 3.4 | 94.3 | 13.2 | 0.2 | 6.2 | 82.5 |
+| 0.25 / 0.76 | 99.1 | 0.5 | 3.4 | 95.5 | 18.0 | 0.1 | 8.4 | 79.0 |
+| 0.30 / 0.71 | 99.1 | 0.5 | 2.6 | 95.5 | 21.7 | 0.1 | 10.1 | 75.5 |
+| 0.35 / 0.66 | 98.6 | 0.9 | 1.9 | 96.2 | 25.4 | 0.1 | 11.8 | 72.7 |
+| 0.40 / 0.61 | 98.6 | 0.9 | 1.5 | 97.4 | 27.9 | 0.1 | 13.0 | 69.3 |
+| 0.45 / 0.56 | 98.6 | 0.9 | 1.1 | 98.9 | 31.0 | 0.1 | 14.4 | 66.0 |
+| 0.50 / 0.51 | 98.1 | 0.9 | 0.8 | 99.2 | 34.7 | 0.1 | 16.1 | 63.1 |
+| 0.55 / 0.56 | 98.1 | 0.9 | 0.4 | 98.9 | 31.0 | 0.1 | 14.4 | 59.9 |
+| 0.60 / 0.61 | 97.2 | 0.9 | 0.4 | 97.4 | 27.9 | 0.1 | 13.0 | 56.8 |
+| 0.65 / 0.66 | 97.2 | 0.9 | 0.4 | 96.2 | 25.4 | 0.0 | 11.8 | 52.0 |
+| 0.70 / 0.71 | 97.2 | 0.5 | 0.4 | 95.5 | 21.7 | 0.0 | 10.0 | 48.6 |
+| 0.75 / 0.76 | 96.7 | 0.5 | 0.4 | 95.5 | 18.0 | 0.0 | 8.3 | 44.1 |
+| 0.80 / 0.81 | 96.7 | 0.0 | 0.4 | 94.3 | 13.2 | 0.0 | 6.1 | 39.3 |
+
+扫描要留意的：
+
+- **同一批数据上选、同一批数据上评，没有留出集。** 选出的门槛在这些消息上量出的数字会偏好，别的对话上会差一些，差多少没有估计（没有区间，也没有波动估计）。
+- **「误清零 ≤ 2%」是很少的几条消息。** 128 条仍未解决的决定性消息，2% 是 2.56 条，所以这条线等于「最多 2 条」；现在的 0.5/0.7 在 Jev 上正好误清零 2 条（1.6%），pplx 48000 上 1 条。这些消息来自 120 题，一题有 1–5 条，同一题里的消息不独立。
+- **合并那份重复计数。** pplx 135000 的 171 条是 63 题的决定性消息，同样这 63 题的消息在 48000 那份里也算了一次（按另一个预算的概率），所以合并的 476 条里有 171 对是同一条消息。135000 单独那份只有 63 题，类别不全，缺的 57 题（含没跑完的 looks-hard-is-easy-04..09）不在内。
+- **离线重判。** 换门槛后，后面的请求本会带着不同的次数和强提示，这一点没算进去。
+- **pplx 的次数会攒得很高**（见第 2 小节「流程带进最后一问的东西」）：现在的门槛下 B 有 5 题次数 26–38、A⁺ 有 4 题 31–40；中间轮次 same-problem 段被加一的比例 pplx 是 61.0–67.5%，Jev 是 37.1%。
+
+##### 6. pplx 门槛校准（在旧数据集上，eval v2 没有参与）
+
+用 effort-submit、unresolved、long-context（中途门槛另用 effort-midturn）里已存的 pplx 回答离线重判，没有发请求。核对过：用当时的门槛重算，每个档位、每个中途 `sent` 都和原结果相同。
+
+**选值规则里 thetaMax 和 thetaUp 两条是做校准的 agent 自己拟的，用户没有确认过**；thetaDown 用的是用户在 0.2.3 定的规则，但「附近」「仍低于」怎么量（判高不超过 Jev 两遍里较高的那遍再加 1 个回答等）也是 agent 的读法。下表的值是这些规则选出来的，不是建议。
+
+| 门槛 | Jev 现值（mod 默认） | 按规则选出的 pplx 值 | 规则和依据 |
+|---|---|---|---|
+| `thetaMax` | 0.5 | **0.47** | agent 自拟的规则（DEVELOPMENT 原来没有 thetaMax 的选值规则）。逐组判，每组都要满足：只看 thetaMax 管得到的那部分判高（不该给 max 却给了），个数不超过 Jev 同组两遍里较多的那遍再加 1；判低率不超过 Jev 同组较高的那遍；max 召回不少于 Jev 同组较少的那遍。在全部组都可行的值里取最高。中英两种问法共同的可行区间是 0.42–0.48，上沿压在 submit-034 上（p(max) = 0.480，概率只存了三位小数），所以取 0.47 |
+| `thetaUp` | 0.3 | 0（保守备选 0.3） | agent 自拟的规则：约束沿用 thetaDown 的两条，在满足约束的值里取 en-score 和 zh-score 判高加判低之和最小的。0–0.35 都满足约束。0 比 0.3 在 400 个中途回答里只多对约 11 个，而且是在同一批题上量的，所以另列 0.3 作保守备选。eval v2 用不上 |
+| `thetaDown` | 0.55 | 0.55 | 用户在 0.2.3 定的规则：偏高回到对照组附近，偏低仍低于对照组，满足的取最高。0.6 起 en-score 的判高超过 Jev。eval v2 用不上 |
+
+thetaMax 各组的可行区间：effort-submit 中文问法 0.30–0.58、英文问法 0.42–0.48；unresolved 0.30–0.84 / 0.36–0.73；long-context 135000 0.30–0.90 / 0.32–0.80；long-context 48000 0.30–0.90 / 0.35–0.78；long-context flow 135000 0.30–0.83 / 0.30–0.70。其中 0.30 和 0.90 是扫描范围的端点，不是可行边界：按同一规则扫 0.20–0.95，四组中文问法的下沿都是 0.20，long-context 中文问法到 0.95 仍可行。换一种读法，结果从 0.47 到 0.69 不等：去掉召回这一条是 0.68，按语言合成一个池是 0.69。差别全在「取最高」时让出多少 max 召回。只用中文问法时同一套规则给出 0.58。thetaMax 降不下 pplx 在 effort-submit 中文问法上的判高（0.33 到 0.90 之间一直是 15.0，Jev 是 8.0–8.5），因为多出来的判高来自其他档，不是 max。
+
+用这套门槛时旧数据集上的数字（准确率 / 判高 / 判低 / max 召回；Jev 一栏是两遍的范围）：
+
+| 套件（问法） | Jev（它的门槛） | pplx 用 Jev 门槛（0.5 / 0.3 / 0.55） | pplx 用规则选出的门槛（0.47 / 0 / 0.55） |
+|---|---|---|---|
+| effort-submit zh-score | 86.0–86.5 / 8.0–8.5 / 5.5 / 5–6 of 16 | 83.0 / 15.0 / 2.0 / 9 | 83.0 / 15.0 / 2.0 / 9 |
+| effort-submit en-score | 79.5–80.0 / 17.0 / 3.0–3.5 / 11 | 80.0 / 18.5 / 1.5 / 10 | 80.0 / 18.5 / 1.5 / 11 |
+| unresolved zh-score-wide | 71.7–75.0 / 0 / 25.0–28.3 / 5–6 of 26 | 93.3 / 0 / 6.7 / 24 | 93.3 / 0 / 6.7 / 24 |
+| unresolved en-score-wide | 80.0–81.7 / 3.3 / 15.0–16.7 / 19 | 93.3 / 3.3 / 3.3 / 26 | 93.3 / 3.3 / 3.3 / 26 |
+| long-context zh，pplx 135000（Jev 24000） | 70.0–72.2 / 8.9 / 18.9–21.1 / 0 of 20 | 85.6 / 8.9 / 5.6 / 12 | 85.6 / 8.9 / 5.6 / 14 |
+| long-context en，pplx 135000 | 65.6–68.9 / 8.9 / 22.2–25.6 / 5 | 84.4 / 11.1 / 4.4 / 19 | 85.6 / 11.1 / 3.3 / 19 |
+| long-context zh，pplx 48000 | 同上 | 83.3 / 10.0 / 6.7 / 8 | 83.3 / 10.0 / 6.7 / 8 |
+| long-context en，pplx 48000 | 同上 | 83.3 / 11.1 / 5.6 / 13 | 82.2 / 12.2 / 5.6 / 14 |
+| long-context zh-flow，pplx 135000 | 73.3 / 13.3 / 13.3 / 4–5 of 10 | 83.3 / 10.0 / 6.7 / 10 | 83.3 / 10.0 / 6.7 / 10 |
+| long-context en-flow，pplx 135000 | 63.3–66.7 / 13.3 / 20.0–23.3 / 9 | 83.3 / 10.0 / 6.7 / 10 | 90.0 / 10.0 / 0.0 / 10 |
+| effort-midturn en-score（`sent`） | 72.0–74.0 / 15.0–17.5 / 10.5–11.0 | 75.0 / 17.0 / 8.0 | 77.5 / 18.0 / 4.5 |
+| effort-midturn zh-score（`sent`） | 73.5–74.5 / 15.5–17.5 / 9.0–10.0 | 80.5 / 11.0 / 8.5 | 83.0 / 11.0 / 6.0 |
+
+校准没有覆盖到的：
+
+- 门槛是在挑选它们的同一批题上量的，eval v2 是第一次在没见过的题上量。
+- **unresolved 和 long-context 的金标是起草者写的，用户没有审过**（见上面 #43、#44 两节）。校准的五组里有四组（unresolved 和三组 long-context）用的是这些金标，pplx 在这两套上的高分也靠它们。
+- effort-submit 每种问法只有 8 题金标是 max（中英对话合起来 16 个回答），英文问法的上沿就是被其中 1 题卡住的。
+- subagent 套件没有放进校准（pplx 在那里 effort 判高 35–39%，#43），thetaMax 也管派出 agent 的 effort。
+- 中途重判是离线做的，`holdSteps` 不起作用。
+
+##### 7. 局限和缺口
+
+- **A⁺ 只有 63 题。** pplx 135000 的流程跑到 63/120 题时用户停下了（「A+可以停下了 就做这么多题 然后开始后面的测试」），没有补跑。misleading-history、new-topic、resolved、single-attempt 四类没有，looks-hard-is-easy 只有 01–03 三题。每个深度档 15–16 题（别组 30 题），一题是 6.3–6.7 个点。另有 6 题只跑了一部分（looks-hard-is-easy-04..09，分别停在第 29、24、21、18、9、1 条消息），没有 `final`，已丢弃；它们留在 `pplx-135000.json` 里，扫描时算作缺题。A⁺ 的 63 题恰好包含全部 28 道 max 题，又没有 resolved 类，所以它的整体数字不能和别组的 120 题直接比。
+- **只有一遍，验收项未满足。** 见本节开头：#45 要两遍，带流程三组还缺英文问法。贴着线的几条比较只差一题（第 3 小节的余量），一遍的结果翻转的可能不小。Jev 同配置两遍之间，effort-submit zh-score 有 5.5% 的回答档位不同（en-score 2%）；pplx 隔天重跑也有 1.5–2% 的回答档位不同。
+- **流程实际带进去的不多。** 带流程三组里，次数 > 0 的只有 A⁺ 16/63、B 39/120、J 36/120，带强提示的 A⁺ 13/63、B 31/120、J 24/120，其余请求和不带流程组只差摘要（第 2 小节）。带流程和不带流程的回答又不是同一时间跑的。
+- **带流程三组不是独立的一次运行。** 它们的回答就是流程最后一步的回答，而流程文件里的概率存到小数点后三位，p(max) 落在 0.47 和 0.5 之间时，结果会因此略有差别。
+- **流程文件按「后端 + 预算」各一份。** #45 写的是 A⁺ 和 B 共用 pplx 那份摘要；实际是 48000、135000 各一份，因为三选一（进而次数、摘要的清零）取决于预算。两份共用 Haiku 缓存，三选一一致的地方摘要相同。
+- **Haiku 的实际模型。** 这次的摘要是 `claude-haiku-5-5` 写的（`claude -p --model haiku`，它自报和 `modelUsage` 都是这个）。#44 走同一条路，但没有记下模型，所以和 #44 的摘要可能不是同一个模型。mod 在引擎里用 `$.model.complete` 写摘要，以前实测回答它的是 `claude-haiku-4-5-20251001`（见下面「已实测的引擎行为」）。也就是说，上线时的摘要可能和这次的不是同一个模型。
+- **金标的来源和分歧率。** 90 题是出题者和标注者双盲一致的（只指 effort、`triage_final` 和决定性三选一；其中 30 题 accept 不同，后来取了并集，见最后一小节），30 题是用户裁决的。按 effort 或 `triage_final` 不同算，分歧集中在：hard-constraint 7/12（58%）、misleading-history 4/12、cheap-agreement 3/12、command-turn 3/12、resolved 3/12、single-attempt 2/12、looks-hard-is-easy 1/12；另有 7 题（cheap-agreement 5、misleading-history 2）effort 和 `triage_final` 一致，只有 accept、`effort_without_decisive` 或决定性几轮的三选一不同，也交给用户裁决，所以裁决数是 cheap-agreement 8/12、misleading-history 6/12、hard-constraint 7/12。explicit-unresolved、implicit-unresolved、new-topic 全部一致。#45 规定「某一类分歧 > 40% 时改写该类出题说明并重写该类」。hard-constraint 第一轮是 5/12，按这条改写了出题说明、重写并重新标注过一轮（修订说明在仓库外的交接目录 `guides/revised/hard-constraint.md`；同时重写的还有 looks-hard-is-easy、new-topic、single-attempt）。重写后仍是 7/12，**超过 40%**。交接说明规定只重写一轮，之后没有再写；这 7 题由用户逐题裁决了，但没有找到用户是否放弃这条要求的记录。
+- **合成的素材池。** 中间轮次来自 agent 写的 905 段素材，每段跨题最多用 6 次，同一领域的 same-problem 段共用一套虚构背景。long-context（#44）那节提醒过「用真实的长对话重做才能确定结论不依赖这种填充」；eval v2 的素材比模板真实得多，但仍是合成的、反复复用的，结论能不能迁移到真实会话没有验证。
+- **max 召回只在三类上量。** 28 道 max 题全在 explicit-unresolved、implicit-unresolved、command-turn 里，第 2、3 小节所有 max 召回的数字都只反映这三类。
+- **领域和关系的混淆。** 前 54 题、后 66 题里，关系都和领域绑在一起，方向相反，类别也大部分不同（见第 4 小节）。所以「按关系」的差别不能只归到关系上。
+- **resolved-01 略短。** 整段对话 78,330 token，比设计的总长下限 82,000 短；它是唯一一题（次短的是 command-turn-09，83,182）。它是 d1、same-problem，决定性几轮在 5,313 token 处，不影响深度档。
+- **缺的或出过问题的运行。** 带流程三组没有英文问法，A⁺ 缺 57 题。Jev 流程第一次运行时 TypeSafe 额度用完，44 题收到 HTTP 402，运行器把它们记成了没回答（运行器在 `a7f88b9` 改成遇到 402 就停下）。充值后这 44 题整题删掉、从头重跑，文件里没有 402 的痕迹。补跑时 single-attempt-12 在 m41 遇到一次 529 和一次 10 秒超时，加 `--timeout 60000` 续跑后完成。除此之外，各组和两份回归都没有失败的请求，流程里也没有一条消息摘要写失败（Haiku 偶尔回的不是摘要：Jev 12 次、pplx 48000 9 次、pplx 135000 3 次，都在 3 次重问以内补上了）。
+- **从仓库复现不了这些表。** 重放带流程三组（`flow-groups.ts`）、离线重算出 `compare.json`（`compare.ts`）、回归表（`regress.ts`）、门槛校准（`calibration-scripts/` 下的 `scan.ts`、`rule.ts`、`mid.ts` 等）的脚本和校准的中间输出都在仓库外的交接目录（`claude-mods-evalv2-handoff/phase2/`），没有提交。仓库里只有它们的输出：结果文件、`compare.json` 和两份门槛扫描（扫描本身用的是仓库里的 `eval-v2-thresholds.ts`）。
+
+**accept 取并集后（2026-10-08 补充）**
+
+第二次核对发现，90 题「双方一致」只比了 effort 和 `triage_final`，其中 30 题的 accept 不同、默认用了出题者的，而贴线的几条比较对它敏感。用户把这件事交给协调者裁决：这 30 题的 accept 取两者的并集（两人独立判断、核心档位一致；一人认为可以接受的相邻档位本身有争议，判到那一档不该算错），提交 `aa6d6e2`。下面的数字都按并集后的金标、thetaMax 0.5、各组存下的回答重算（effort-submit 不受影响）。
+
+| 组 | 120 题：可接受准确率 / 判高 / 判低 / max 召回 | 同一批 63 题：可接受准确率 / 判高 / 判低 |
+|---|---|---|
+| A 中文 | 77.5 / 4.2 / 18.3 / 7/28 | 66.7 / 1.6 / 31.7 |
+| A 英文 | 79.2 / 6.7 / 14.2 / 12/28 | 77.8 / 1.6 / 20.6 |
+| A⁺ 中文 | — | 68.3 / 3.2 / 28.6（max 5/28） |
+| B 中文 | 70.8 / 10.8 / 18.3 / 6/28 | 63.5 / 7.9 / 28.6 |
+| B′ 中文 | 72.5 / 7.5 / 20.0 / 3/28 | 61.9 / 4.8 / 33.3 |
+| B′ 英文 | 79.2 / 8.3 / 12.5 / 10/28 | 74.6 / 6.3 / 19.0 |
+| J 中文 | 65.0 / 13.3 / 21.7 / 3/28 | 58.7 / 11.1 / 30.2 |
+| J′ 中文 | 67.5 / 10.0 / 22.5 / 0/28 | 55.6 / 9.5 / 34.9 |
+| J′ 英文 | 62.5 / 12.5 / 25.0 / 5/28 | 54.0 / 14.3 / 31.7 |
+
+#45 的标准在并集后（中文问法，和前面同样的读法）：
+
+| 比较 | 并集前 | 并集后 |
+|---|---|---|
+| A 对 J，准确率 ≥ +5（120 题 / 63 题） | +6.7 满足 / +4.8 不满足 | +12.5 满足 / +8.0 满足 |
+| A⁺ 对 J，准确率 ≥ +5（63 题） | +6.3 满足 | +9.6 满足 |
+| B 对 J，准确率 ≥ +5（120 题 / 63 题） | +0.8 不满足 / +3.2 不满足 | +5.8 满足（余 0）/ +4.8 不满足（差 1） |
+| A、A⁺、B 对 J：判高 ≤ +3、max 召回 ≥ J | 都满足 | 都满足（判高 4.2、3.2、10.8 对 J 13.3、11.1） |
+| A⁺ 对 A（63 题）：max 多 ≥ 3 题、判高 ≤ +3 | max 不满足（5 对 7），判高 +1.6 | 不变：max 不满足，判高 +1.6 |
+| B 对 B′：max 多 ≥ 3 题、判高 ≤ +3 | max 满足，判高 +3.3 不满足 | max 满足，判高 +3.3 不满足（差 1） |
+| J 对 J′：max 多 ≥ 3 题、判高 ≤ +3 | 都满足（判高 +0.8） | max 满足，**判高 +3.3 不满足**（差 1） |
+| A 对 B（d3 / d4）：A 高 ≥ 10 点 | +16.7 是 / +3.3 否 | +20.0 是 / +6.7 否（d1 −6.7、d2 +6.7 参考） |
+| effort-submit 判高 ≤ Jev+3（中文 / 英文） | 不满足 / 满足 | 不变 |
+
+**四种取法的敏感性**：accept 分别按出题者、标注者、并集、交集取，各组可接受准确率的绝对值相差可到 10 多个点，但先后顺序不变：120 题上 A 英文和 B′ 英文始终在最前，A 中文其次，J、J′ 始终在最后；63 题上 A⁺ 和 A 只差 0–1 题。
+
+**方案排名**（用户要求协调者给出；综合 eval v2 准确率、max 召回、effort-submit 日常消息的判高、延迟和复杂度）：
+
+1. **B′ 英文问法**（pplx，48000，不带流程）：准确率与 A 英文并列最高（79.2），max 召回 10/28，单次约 5 秒，不需要摘要流程。风险：effort-submit 英文问法判高 18.5%，线上 Jev 中文问法是 7.0%（按 #45 和 Jev 英文 17.5% 比是满足的）。
+2. **A 英文问法**（pplx，135000，不带流程）：准确率最高、max 召回最高（12/28）、判高最低，但单次 15–75 秒。
+3. **J**（Jev + 摘要，#36 的做法）：eval v2 上最低之一，但最快，effort-submit 上最稳（中文 88.5%、判高 7.0%）；摘要和强提示把 max 召回从 0 提到 3/28。
+4. **B**（pplx 48000 + 摘要）：不如不带流程的 B′。
+5. **A⁺**（pplx 135000 + 摘要）：和 A 几乎一样（63 题上多 1 题），更慢、更复杂，只有 63 题。
+6. **J′**（Jev，不带摘要）：max 召回 0/28。
+
+在四种取法下都成立的三点：pplx 用英文问法明显更好（准确率高 3–7 点、max 召回高得多），和 Jev 相反；摘要和强提示对 pplx 基本没有提升（B 对 B′、A⁺ 对 A），对 Jev 只把 max 召回从 0 提到 3/28；决定性信息在 135000 之外的 d4，所有组都在 50% 上下，摘要没有补上。
+
+用户随后决定把 mod 换成 B′ 方案（另开票）。
+
+**文件**：`results/eval-v2/2026-10-08-{pplx-A,pplx-A-plus,pplx-B,pplx-B-prime,jev-J,jev-J-prime}.json`（六组）、`compare.json`（两套门槛 x 两种题集的离线重算）、`thresholds-jev.json`、`thresholds-pplx.json`（三选一门槛扫描）；`results/eval-v2-flow/{jev-24000,pplx-48000,pplx-135000}.json`（真实流程）；`results/effort-submit/2026-10-08-{pplx,jev}-regress.json`（回归）。
 
 ### 已实测的引擎行为（2.1.289；看板部分 2.1.291）
 
@@ -1093,8 +1850,7 @@ eval/
 - 斜杠命令作为 `claude -p` 的整个 prompt 时在本地运行，不调用模型（`claude -p "/dp"`）。引擎会在命令回答的前面加上插件名（`dispatch-pilot: ...`），所以命令的文字自己不要再带前缀。`--input-format stream-json` 里连续发多条用户消息，其中的 `/dp ...` 照常当斜杠命令处理，`$.state` 在同一个进程里跨消息保留。
 - `$.command.register` 在 `session.start` 的 `next(e)` 之后调用，命令当场被列出；`$.store` 在 `next(e)` 之前就能读，读到上次保存的内容，两次 `claude -p` 之间也保留（文件在配置目录的 `plugins/store/` 下，`--plugin-dir` 加载时叫 `dispatch-pilot_inline-<hash>.json`）。
 - `session.measure` 在订阅会话里主 agent 的每一轮之后触发一次，读数有 `context`（`tokens`、`window`、`percent`）、`rateLimits`（`five_hour` 和 `seven_day`，各带 `percentUsed` 和 `resetsAt`）和 `cost.usd`；matcher `{ context: { window: /(?:)/ } }` 在真实引擎里命中。headless 下状态行以 `ui_status` 事件输出（也写进 debug log），`to: 'debug'` 的日志不会出现在输出流里。
-- 带 `options` 的字符串选项，值不在列表里时，引擎读作默认值并给出警告：`option decisionModel in settings is not one of jev, clef; it reads as the default, jev`（kit 实测）。
-- Cloudflare 的真实错误响应（假 token 实测）：HTTP 401，`{"result":null,"success":false,"errors":[{"code":10000,"message":"Authentication error"}],"messages":[]}`。引擎自己的 `$.http.fetch` 日志会记下完整的请求地址，其中有 account ID（真实引擎实测）。
+- 带 `options` 的字符串选项，值不在列表里时，引擎读作默认值并给出警告：`option <名字> in settings is not one of <列表>; it reads as the default, <默认值>`（kit 实测）。
 - skill（#10，`claude -p` 加 `--input-format stream-json` 实测，jev-pilot 已关）：
   - `prompt.attachment` 对主 agent 的 `skill_listing` 回答 `{ text: null }` 后，引擎记下 `prompt.attachment skill_listing: dispatch-pilot (user) left it out (18397 characters)`。问模型被告知了哪些 skill，它回答没有。对照组（不隐藏）里模型列出全部 skill。同一个问题的 input token 是 21,914 对 28,547。
   - 隐藏之后，Skill 工具仍按名字加载 skill（`Skill {"skill":"grilling"}` 返回 `Launching skill: grilling`；`anthropic-skills:google-workspace` 也一样）。

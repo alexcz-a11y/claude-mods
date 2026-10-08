@@ -1,0 +1,69 @@
+{
+  "id": "misleading-history-01",
+  "category": "misleading-history",
+  "domain": "perf",
+  "bin": "d1",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "晚高峰的搜索缓存超时",
+    "SYMPTOM": "晚上八点半以后搜索接口一阵一阵变慢，缓存读取成批超时",
+    "ERROR": "io.lettuce.core.RedisCommandTimeoutException: Command timed out after 100 millisecond(s)",
+    "FILE": "src/main/java/com/acme/search/service/CachedSearchExecutor.java",
+    "FILE2": "src/main/java/com/acme/search/api/SearchV1Controller.java",
+    "SYMBOL": "CachedSearchExecutor.execute",
+    "COMMAND": "k6 run bench/peak-replay.js"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "search-svc 这几天晚高峰不对劲 八点半以后搜索一阵一阵变慢 Loki 里 SearchCache 刷一大堆 `io.lettuce.core.RedisCommandTimeoutException: Command timed out after 100 millisecond(s)` 8 个 pod 都有 一刷就是几百条 过一会儿又自己好了 入口在 CachedSearchExecutor.execute 你先看看是 Redis 那边的问题还是我们自己"
+    },
+    {
+      "role": "assistant",
+      "text": "Redis 服务端是闲的，超时出在我们这边收结果的那一头：每个 pod 只有一条共享连接，所有命令排一条队，这条队一卡住，排着的命令就一起超时。先按这个方向改了一版，放在开关后面，还没打开。\n\n**看到的**\n\n- 按 pod、按秒数了 Loki 里前两晚 20:00–22:00 的这条 WARN：两晚合计 5,800 多条，不是均匀撒开的，而是一簇一簇：同一个 pod 上一两秒里冒出几十条，然后安静一阵。8 个 pod 都有，各自出簇的时刻不一样，bq7ns 和 f8wlc 最多。\n- Redis 这边只用了只读命令：`search-cache` 主节点 `SLOWLOG GET 128` 里没有晚高峰的记录，`INFO commandstats` 里 GET、SET 的 `usec_per_call` 都是个位数微秒，主库没开持久化，没有 fork。服务端每条命令都很快。\n- 读了 `RedisConfig`：自己建的 `LettuceConnectionFactory`，没开连接池，一个 pod 一条连接。Lettuce 一条连接只绑一个 event loop，收发和解码全在 `lettuce-nioEventLoop-4-1` 上，另外三个 event loop 线程是闲的。`CachedSearchExecutor.execute` 读缓存超时以后打 WARN、按未命中处理，接着查 ES、写回缓存。\n\n**推断**\n\n一条连接上的命令严格排队。只要排在前面的几条回复收得慢一点，或者这个线程停了几十毫秒，后面排着的命令就会一起超过 100ms，正好是一簇一簇的样子。服务端快、客户端成批超时，最像这种「同一条连接上的队头阻塞」。\n\n**第一版**\n\n- 新加 `RedisPoolConfig`：开关打开时用 `LettucePoolingClientConfiguration` 建连接工厂，每个 pod 8 条连接，摊到 4 个 event loop 上，一条连接卡住不再拖累所有命令；`build.gradle.kts` 加了它要的 `org.apache.commons:commons-pool2`。`RedisConfig` 没动。\n- 开关是 `search.redis.pool.enabled`，写在类上的 `@ConditionalOnProperty(havingValue = \"true\")`，不配就是关的，和现在一模一样；`RedisPoolConfigTest` 加了开、关两个用例。`./gradlew test` 通过。\n- 分支 `fix/redis-pool`，合进去以后随下一次发布上；上线后你在 infra 的 prod values 里加 `SEARCH_REDIS_POOL_ENABLED=true` 打开，看一晚。\n\n这还只是推断，没有直接证据证明是队头阻塞，打开看一晚就知道。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Write",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "连接池开了两晚 一点没变 WARN 还是一簇一簇的 条数也差不多 p99 也没下来"
+    },
+    {
+      "role": "assistant",
+      "text": "连接池没用，说明排队不在连接上，是整个 pod 停住了。按秒对上了：晚高峰最热的那些 key 每 120 秒到期一次，到期那一刻几十个请求一起未命中、一起去查 ES，把这个 pod 4 核的配额在一个周期里花完，整个 pod 被限流停住几十毫秒，所有在等 Redis 的命令（走哪条连接都一样）一起超时，超时又当未命中，再多一批查 ES。改成同一个 key 在一个 pod 里只放一个请求去查 ES，staging 上回放过了。\n\n**怎么对上的**\n\n- 在 bq7ns、f8wlc 里每秒读一次 cgroup 的 `cpu.stat`（只读），和 WARN 按秒对：两晚 300 多簇超时里，九成落在 `nr_throttled` 跳涨的那一秒。同一秒里这个 pod 上 8 条连接的命令一起超时，所以加连接没用。\n- 往前看每一簇之前的一两秒：访问日志里同一个 cache key 在 100 毫秒内有几十个未命中。最多的一次是 `q=羽绒服 女 sort=sales` 第 1 页，bq7ns 上 80 毫秒里 63 个请求一起未命中、一起查 ES。都是晚高峰最热的词：TTL 120 秒一到，第一个请求查完写回去之前，后面的请求全部未命中。\n- 一个未命中要 ES 往返、反序列化、映射、SET，几十个叠在同一个 100ms 周期里，4 核的配额就用完了。凌晨同一个词的并发只有一两个，所以看不出来。\n- 为什么是这几天：双十一预热以后晚高峰流量每周都在涨，热词的并发跟着涨，pod 的 CPU 平均已经到 3.2 核左右，离 4 核的上限越来越近，这种尖峰才开始把配额顶穿。\n\n**链条**\n\n1. 热 key 到期 → 同一个 key 几十个请求一起查 ES；\n2. 配额在一个周期里花完 → 整个 pod 被限流停住几十毫秒，event loop 也停；\n3. 排着的 Redis 命令一起超时，超时当未命中 → 又一批查 ES，更容易被限流；\n4. 几秒后值写回去，平静下来，等下一个热 key 到期。\n\n**改法**（都在 `CachedSearchExecutor` 里）\n\n- 加单飞：按 cache key 用一个 `ConcurrentHashMap<String, CompletableFuture<SearchResult>>` 记下正在查 ES 的请求，同一个 key 的后来者直接等这个 future，最多等 300 毫秒，等不到就自己去查；查完写缓存、从表里删掉。只在一个 pod 内合并，不做跨 pod 的锁。\n- `execute` 的签名和返回值不变；Redis 超时仍然按未命中处理，只是同一个 key 不会再放几十个请求下去。\n- 连接池那块这次不动，你把 values 里的 `SEARCH_REDIS_POOL_ENABLED` 去掉就回到一条连接。\n\n**验证**\n\n- `CachedSearchExecutorTest` 加了 3 个用例：同一个 key 并发 50 个只查一次 ES；查 ES 抛异常时等着的请求都拿到异常、表里不残留；等待超时以后自己去查。`./gradlew test` 全部通过。\n- staging 上用 `k6 run bench/peak-replay.js` 回放晚高峰的参数分布（热词的重复度按线上算），压到平台阶段看 10 分钟：\n  - 改之前：同一个 key 同时未命中最多 41 个，被限流的周期占 24%，`RedisCommandTimeoutException` 1,600 多条；\n  - 改之后：每个 key 同一时刻最多 1 个请求去查 ES，ES 查询数降了三成多，限流周期 3%，超时 19 条。\n\n**提交**\n\n分支 `fix/search-single-flight`，提交 `a3e91c0`，PR 已开，CI 绿的。上线后看两个晚上的 20:30–21:00 就能判断。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "上了两晚 那种一簇一簇的超时没再出来 WARN 一晚上二三十条 p99 回到 180 上下 这事算结了 票先别关 我要写复盘 连接池那块先留着 复盘里要讲它为什么没用 写完再拆"
+    },
+    {
+      "role": "assistant",
+      "text": "好，票先不关，连接池那块先留着。\n\n两晚的数我也拉了一遍，和你看到的一致：WARN 两晚分别 26 条和 31 条，零星分布，没有再出现同一个 pod 一两秒里冒几十条的簇；bq7ns 和 f8wlc 上被限流的周期在 2% 到 4%；p99 两晚是 176ms 和 183ms。\n\n**以后看日志先说清楚一点**\n\n一晚上二三十条 `RedisCommandTimeoutException` 是正常的背景水平：偶尔碰上一次 GC 停顿或者限流，就会有几条超时，按未命中处理，用户无感。真要警惕的是「同一个 pod 一两秒里冒出几十条」，那说明这个 pod 又整体停住了。\n\n**复盘要用的材料**，我先记在票里了：\n\n- 前两晚每一簇超时和 `cpu.stat` 按秒对齐的结果；\n- 连接池打开那两晚没有变化的数据；\n- 热 key 到期时同一个 key 同时未命中的统计；\n- staging 回放改前改后的两组数。\n\n**连接池以后拆的时候**\n\nGrep 过一遍，一共三处，没有别的引用：\n\n1. `RedisPoolConfig` 整个类（开关就写在它的 `@ConditionalOnProperty` 上，`application.yml` 里没有这一项）；\n2. `build.gradle.kts` 里为它加的 `org.apache.commons:commons-pool2`；\n3. `RedisPoolConfigTest` 的两个用例。\n\ninfra 那边的环境变量你那天已经去掉了，不用再动。到时候三处一起删，跑一遍 `./gradlew test` 就行。\n\n复盘想从哪一段开始理？",
+      "tools": [
+        "Bash",
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "复盘交上去了 连接池那个开关可以拆了"
+    }
+  ],
+  "middle_hint": "用户在决定性几轮里确认晚高峰缓存超时已经解决，但让先别关票、为写复盘把这件事再理一遍：中间是围绕这个问题继续读调用链、看线程转储、GC 日志、JFR 和监控、问原理，不改实现，也不下新的结论。"
+}

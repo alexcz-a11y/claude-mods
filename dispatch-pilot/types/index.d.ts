@@ -238,6 +238,23 @@ declare module 'claude-code' {
         counts?: { failed: number; blocked: number; raised: number }
         /** A Workflow call's decision that was sent back to the main agent to write in (return mode). */
         sentBack?: true
+        /** An unresolved-count judgement (`unresolved`): the count before and after the message, what the answer did to it, the options' probabilities, and the bars it was held to. */
+        unresolved?: {
+          before: number
+          count: number
+          change: 'add' | 'reset' | 'keep'
+          top: 'still_unresolved' | 'resolved' | 'new_or_unrelated'
+          probs: { still_unresolved: number; resolved: number; new_or_unrelated: number }
+          conf?: number
+          thresholds: { add: number; reset: number }
+        }
+        /**
+         * The strong hint was given with this decision's request (the effort question of a message, or of a mid-turn
+         * re-decision, had one more instruction): the count it was given at and the setting (`unresolvedMaxAfter`) it
+         * had reached. `where: 'mid'` for a mid-turn re-decision's; the main agent's effort decision and the entry of
+         * feature `unresolved` that records the hint carry it.
+         */
+        hint?: { count: number; maxAfter: number; where?: 'mid' }
       }[]
       /**
        * The agent the person picked on the band (its digit key, 0 the main agent) or paged to in the rationale
@@ -252,6 +269,42 @@ declare module 'claude-code' {
        * the pane's buttons only.
        */
       paneView: { folds: { turn: number; open: boolean }[]; failures: boolean }
+      /**
+       * The unresolved count (hooks/core/unresolved.ts; GLOSSARY 未解决次数): how many of the person's messages in a
+       * row said the problem they and the main agent are on is still not solved. The decision model reads each
+       * message (the `effort.unresolved` question) and the count moves by its answer: one more, back to nothing,
+       * or as it was. Per session: `/clear` and a new session start it over, `/compact` keeps it, a hot reload
+       * does not lose it. Absent until a message moved it; read as 0. Written by that module only.
+       *
+       * With it, the problem summary (#40; GLOSSARY 问题摘要): what a cheap model has written, after each turn
+       * of the person's own, of the problem they are on (the problem, what was tried, where things stand), which the
+       * decision model reads beside the conversation. It starts over wherever the count does (solved, another problem,
+       * `/clear`, a new session); `/compact` keeps it. `turn` is the last turn it covers; an attempt is `unresolved`
+       * once a message of the person's said it did not solve the problem.
+       */
+      unresolved: {
+        count: number
+        summary?: {
+          problem: string
+          tried: { text: string; unresolved?: true }[]
+          status: string
+          turn: string
+        }
+        /**
+         * The turns whose summaries are queued or being written (the writes run in the background, one after the
+         * other): a reset takes them out, so a write that lands afterwards is dropped; a hot reload that lost them
+         * finds them here.
+         */
+        writing?: string[]
+        /** The turn whose summary, once written, has its last attempt marked unresolved: the message that said so came before the write landed. */
+        owed?: string
+      }
+      /**
+       * The rate limit on pplx requests (decision/pplx-rate.ts): when the latest sends of the last second
+       * went out (`$.clock.now()` ms, at most `pplxQps` of them, oldest first). It lives here so that a hot reload,
+       * which restarts the module, does not let a burst out. Written by that limiter only (through `BackendIo.pace`).
+       */
+      pplxRate: number[]
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
       /**

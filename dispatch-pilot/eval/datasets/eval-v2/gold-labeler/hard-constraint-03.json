@@ -1,0 +1,21 @@
+{
+  "id": "hard-constraint-03",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条是新问题：写一个修补，把 3.0 迁移按 UTC 算错的账单 yearMonth 按本地时间重算。没有决定性几轮时是一个有时区边界的数据修补，high。决定性几轮说明账本只在用户手机上、无法恢复也不能降级，定了六条规矩：说明写清范围、范围外一条不动；12 份真实账本逐账户逐月对账一分不差；可重复执行、中途被杀可续；动手前快照、出错回滚；外测一周；改账单的放后台分批不挡启动。而助手已指出快照、对账工具（LedgerAudit）、后台分批机制目前都没有，要先补；还要推敲用哪个时区（记账时的时区未必等于现在设备时区）、只改确实错的记录。这是不可逆的用户数据完整性改动，加长链路基础设施工作，定 max，xhigh 可接受。d1 提出规矩和审查；d2 接受结论并让写进规矩，算 resolved。"
+}

@@ -26,7 +26,7 @@
 // cannot undercut it.
 
 import type { EngineInterface, HttpInit, On, TurnStepInput } from 'claude-code'
-import { describeAsked, errorText, failureLine, within, type Failure } from '../decision/backend.ts'
+import { describeAsked, errorText, failureLine, within, type BackendIo, type Failure } from '../decision/backend.ts'
 import { AGENT_MODELS, effortFloor, modelFamily, type AgentModel, type Terms } from '../decision/dispatched-agent.ts'
 import { briefOf, forcedTarget, readExpected, rowsFromTranscript, stepsFromRows, stuckRequest, traceRaise, troubleText, type RaiseMode, type TranscriptRow } from '../decision/escalation.ts'
 import { higherEffort, isEffort, probsOf, readEffort, readingText, type Effort, type EffortReading } from '../decision/effort.ts'
@@ -48,6 +48,7 @@ const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const RUNS = { plugin: 'dispatch-pilot', key: 'workflowRuns' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 
 /** At most this many Workflow runs' directories are kept. */
 const MAX_RUNS = 8
@@ -131,19 +132,39 @@ const asking = new Map<string, Asking>()
 export function registerEscalation(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: '工具调用接连失败的 agent，强制升高它的 effort', parts: ['counts'] })
   defineSwitch({ name: BLOCKS_SWITCH, info: '判断要不要强制升档时，把被你的 hook 拦下的调用也算失败', default: false })
-  const { escalation, midturn, agents } = ctx.config
+  // Read at each use: which decision model's settings these are is settled at the session start (core/setup.ts, `Ctx`).
   const settings: Settings = {
     ctx,
-    after: escalation.after,
-    mode: escalation.mode,
-    limit: escalation.limit,
-    thetaExpected: escalation.thetaExpected,
-    haikuTo: escalation.haikuTo,
-    haikuToWritten: escalation.haikuToWritten,
-    models: agents.models,
-    rules: midturn.rules,
-    limits: midturn.limits,
-    waitMs: midturn.waitMs,
+    get after() {
+      return ctx.config.escalation.after
+    },
+    get mode() {
+      return ctx.config.escalation.mode
+    },
+    get limit() {
+      return ctx.config.escalation.limit
+    },
+    get thetaExpected() {
+      return ctx.config.escalation.thetaExpected
+    },
+    get haikuTo() {
+      return ctx.config.escalation.haikuTo
+    },
+    get haikuToWritten() {
+      return ctx.config.escalation.haikuToWritten
+    },
+    get models() {
+      return ctx.config.agents.models
+    },
+    get rules() {
+      return ctx.config.midturn.rules
+    },
+    get limits() {
+      return ctx.config.midturn.limits
+    },
+    get waitMs() {
+      return ctx.config.midturn.waitMs
+    },
   }
 
   on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {
@@ -347,9 +368,10 @@ async function launch($: EngineInterface, s: Settings, id: string, agentId: stri
   }
   // A haiku agent takes no effort: only whether its failures were expected is asked.
   const { request, effortPart, expectedPart } = stuckRequest(input, { limits: s.limits, ask: s.ctx.ask, effort: raise.kind === 'level' })
-  const io = {
+  const io: BackendIo = {
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
     sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+    pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
   }
   const startedAt = await $.clock.now()
   entry.answer = s.ctx.backend.ask(io, request, s.ctx.config.timeoutMs).then(async (asked): Promise<Stuck> => {

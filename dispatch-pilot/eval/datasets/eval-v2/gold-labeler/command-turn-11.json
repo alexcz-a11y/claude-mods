@@ -1,0 +1,21 @@
+{
+  "id": "command-turn-11",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "d1 是筛选后翻页混进不符合条件商品的 bug，d2 转去问新加「只看缺货」筛选能不能直接加，是另一个任务。中间继续查原 bug 没有结论，最后 /feature-dev 做的就是这个新筛选，和 bug 是否解决无关，所以是 new_or_unrelated。按 d2 的分析，要改筛选表单、页面 store、useTableQuery 的布尔规整、接口参数、切店铺时页码归 1，还要在这个开关的路径上丢掉旧请求的结果来避开请求合并的竞态，补单测和 e2e。跨多个文件，边界条件要紧，定 high；有竞态要处理，xhigh 也可接受。没有决定性几轮时字面上只是加一个筛选项，判 medium。"
+}

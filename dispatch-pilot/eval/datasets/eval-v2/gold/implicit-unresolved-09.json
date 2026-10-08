@@ -1,0 +1,26 @@
+{
+  "id": "implicit-unresolved-09",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "订单状态流转的 version conflict 已经改了三次（版本号改用事务内加锁读到的、修掉重试时的变量遮蔽、触发器不再改 version），d2、d3 用户都说还有；最后一条只是又贴了同一行报错加「再看看」，是第四次同样的失败。这是并发下的乐观锁冲突，还牵涉付款：max，xhigh 也可以。删掉决定性几轮，最后一条加上中间段的排查只像一次普通的 Go 服务 500 调试：high。d1 第一次提出问题，标 new_or_unrelated；d2、d3 说改了还在，标 still_unresolved；最后一条贴的是同一个报错，标 still_unresolved。审稿修改：本领域 same-problem 段里 SYMBOL 是请求路径上、在 service.inTx 里先 GetOrderForUpdate 再 UpdateOrderStatus 的服务函数，ERROR 出现在 request failed 日志的 err= 和 trace 的 exception 里，工单是商户付款和改单偶发失败、重试才好；原题的「分发器退出时 send on closed channel」和这些段完全对不上，所以整题改写成订单状态流转的版本冲突，七个占位符、三轮修复和 middle_hint 都换了。金标档位不变。\n可接受档位：出题者 ['xhigh', 'max']，标注者 ['max']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
+}

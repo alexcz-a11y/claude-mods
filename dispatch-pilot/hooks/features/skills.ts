@@ -11,10 +11,8 @@
 // (features/skill-profiles.ts writes them in the background at session
 // start), by its description until then.
 //
-// Its switch is `skills` (`/dp skills off`, and `/dp off`). It starts on with
-// Jev and off with Clef (core/setup.ts BACKEND_DEFAULTS: Clef's first stage
-// takes longer than a message can wait); `/dp skills on` turns it on with
-// either. Off, nothing is suggested and the main agent gets the listing back:
+// Its switch is `skills` (`/dp skills off`, and `/dp off`). It starts on, with
+// either decision model; `/dp skills on|off` turns it on or off. Off, nothing is suggested and the main agent gets the listing back:
 // a listing the engine asks about from then on passes as it is, and one
 // already withheld in this conversation (the engine keeps that answer) goes
 // beside the next message.
@@ -22,7 +20,7 @@
 // The find_skill tool (#12) has a switch of its own.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { type Asked, describeAsked } from '../decision/backend.ts'
+import { type Asked, type BackendIo, describeAsked } from '../decision/backend.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { modRanker, pickSkills, relevanceBlock, skillOpening, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
@@ -34,13 +32,14 @@ import { isPersonsMessage } from '../core/prompts.ts'
 import { report, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { describeStages, listingNames, rankingSettings, trimListing, type CatalogSkill } from '../core/skills.ts'
-import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
+import { defineSwitch, isOn } from '../core/switches.ts'
 
 const SHOWN = { plugin: 'dispatch-pilot', key: 'skillsShown' } as const
 const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
 const LISTING = { plugin: 'dispatch-pilot', key: 'skillListing' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 
 /** The feature's switch: the suggestions, and with them the withheld listing. */
 const SWITCH = 'skills'
@@ -86,7 +85,11 @@ async function sessionCatalog($: EngineInterface, model: string): Promise<Catalo
 
 /** One decision request through the person's decision model, its outcome in the debug log as the core logs its own. */
 async function askLogged($: EngineInterface, ctx: Ctx, what: string, request: DecisionRequest, timeoutMs: number): Promise<Asked> {
-  const io = { fetch: (url: string, init: HttpInit) => $.http.fetch(url, init), sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }) }
+  const io: BackendIo = {
+    fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+    sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+    pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+  }
   const startedAt = await $.clock.now()
   const asked = await ctx.backend.ask(io, request, timeoutMs)
   const ms = (await $.clock.now()) - startedAt
@@ -102,14 +105,16 @@ async function openingOf($: EngineInterface, catalog: readonly CatalogSkill[], n
 }
 
 export function registerSkills(on: On, ctx: Ctx): void {
-  // On or off until the person flips it, by the decision model: off with Clef, whose first stage takes longer than a message can wait.
-  defineSwitch({ name: SWITCH, info: '给每条消息推荐合适的 skill，完整的 skill 列表不再交给主 agent', default: ctx.config.skills.suggestByDefault })
+  // On until the person flips it, whichever decision model decides: the switch is defined now, before the session start has settled
+  // which one that is (core/setup.ts, `Ctx`), so its default cannot depend on it.
+  defineSwitch({ name: SWITCH, info: '给每条消息推荐合适的 skill，完整的 skill 列表不再交给主 agent' })
 
   /** Skills the main agent keeps in its listing (names as the listing spells them). */
   const alwaysListed = new Set(ctx.config.skills.alwaysListed)
   /** Skills never offered, to the main agent or to the person. */
   const neverSuggested = new Set(ctx.config.skills.neverSuggested)
-  const policy: SkillPolicy = ctx.config.skills.suggest
+  /** What a message is suggested (read where it is used: the decision model that decides is settled at the session start). */
+  const policy = (): SkillPolicy => ctx.config.skills.suggest
   /** How the skills are ranked: by the mod's ranker (`modRanker`, built for each message), as find_skill (#12) ranks them too. */
   const ranking = rankingSettings(ctx)
   /** The model whose profiles the skills are offered by (#11): the store keys them by it. */
@@ -135,12 +140,7 @@ export function registerSkills(on: On, ctx: Ctx): void {
   // outside this feature, once this is done.
   on('session.start', { cwd: /(?:)/ }, async ($, e, next) => {
     const result = await next(e)
-    if (!isOn(SWITCH)) {
-      if (masterOn() && !ctx.config.skills.suggestByDefault) {
-        $.ui.log(`skills: off with ${ctx.config.backend} until /dp skills on, so the main agent keeps the skill listing (find_skill still answers)`, { to: 'debug' })
-      }
-      return result
-    }
+    if (!isOn(SWITCH)) return result
     if (!active()) {
       $.ui.log('skills: no decision model is set up, so the main agent keeps the skill listing and nothing is suggested', { to: 'debug' })
       return result
@@ -245,12 +245,12 @@ export function registerSkills(on: On, ctx: Ctx): void {
           await report(io, { decision: { ...about, failure: { backend: ctx.backend.name, ...ranked.failed } } })
           return
         }
-        const { suggest, hint } = pickSkills(ranked, catalog, policy)
+        const { suggest, hint } = pickSkills(ranked, catalog, policy())
         await report(io, {
           decision: {
             ...about,
             outcome: describePicks(suggest, hint),
-            reason: describeRanking(ranked, policy),
+            reason: describeRanking(ranked, policy()),
             skills: { suggest: suggest.map(({ name, relevance }) => ({ name, relevance })), try: hint.map(({ name, relevance }) => ({ name, relevance })) },
           },
         })

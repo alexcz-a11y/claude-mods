@@ -1,0 +1,60 @@
+{
+  "id": "new-topic-03",
+  "category": "new-topic",
+  "domain": "data-scripts",
+  "bin": "d3",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "日报看板上 9 月好几天的 GMV 比业务后台导出的实付合计高 每天多几万到十几万 看了几天都是大促那几天 pipelines/daily_sales.py 你看看"
+    },
+    {
+      "role": "assistant",
+      "text": "找到一个原因，改了：大促前 QA 压测新建了一批测试账号，没加进排除名单，压测下的单算进了 GMV。\n\n- **查到的**：`pipelines/daily_sales.py` 用 `sql/rpt/daily_sales_orders.sql` 取当天 `pay_status = 'paid'` 的订单，金额用 `pay_amount`，日期用 `paid_at` 换成北京时间，再按 `config/excluded_users.yaml` 排掉测试账号。拿 9/10 和后台导出逐单比，多出来的 1,912 单全是 `qa_stress_` 开头的 37 个账号下的，9/8 建的，9/10 到 9/12、9/20 大促那几天压测时真付了款（测试支付通道），排除名单里没有它们。\n- **改法**：37 个账号加进 `config/excluded_users.yaml`；`daily_sales.py` 取数之后多打一行日志，列出当天下单量前 20 的账号里名字带 `qa_`、`test_` 却不在名单里的，以后再有漏的能在日志里看到。\n- **验证**：`tests/pipelines/test_daily_sales.py` 加了一个用例，fixture 里放一个名单内的测试账号，断言它的单不进 GMV；`make test` 全部通过。本地用 `ETL_SINK=parquet` 跑了 `make run P=daily_sales D=2026-09-10`，GMV 合计和后台导出一致。\n\n还没提交。要不要把 9 月按天重跑一遍？",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "重跑了 9 月 还是有两天高 9/17 9/24 每天差几万 另外提醒一下 rpt.daily_sales 下游有 Metabase 看板 周报 还有财务的月度对账在读 列名和类型别动 他们那边写死了的"
+    },
+    {
+      "role": "assistant",
+      "text": "两天都对上了：那两天有门店的 POS 断网，联网以后把离线期间的单补传了一遍，业务库里同一笔单出现了两行，都是已付款。取数时按门店和 POS 流水号去了重。也按你说的把下游读这张表的地方都看了一遍，这次没动表结构。\n\n- **查到的**：9/17 多出来的 46 单、9/24 多出来的 31 单，每单在 `orders` 里都有两行：`store_id` 和 `pos_trade_no` 一样，`id` 和 `created_at` 不同，后一行比前一行晚几分钟到几十分钟，`channel` 都是 `pos`。POS 那边的同步日志里，这两天分别有 3 家和 2 家门店断网十几分钟，恢复后整批重传。业务后台导出是按 `pos_trade_no` 去过重的，所以后台的数是对的。\n- **改法**：`daily_sales_orders.sql` 里 `channel = 'pos'` 的单按 `(store_id, pos_trade_no)` 只留 `id` 最小的一行，`daily_sales.py` 的日志里打出去掉了几行。补传本身是 POS 那边的问题，已经在群里跟门店系统的同事说了。\n- **下游读 `rpt.daily_sales` 的地方**：\n  - `sql/rpt/weekly_digest.sql`：周一的周报，按列名 `SUM(gmv)`、`SUM(order_cnt)`、`SUM(refund_amount)`；\n  - Metabase：报表库 `pg_stat_statements` 里 `metabase_ro` 碰这张表的语句 14 条，都写明列名，`gmv` 出现在其中 12 条里，包括 8:30 运营看的「经营日报」看板；\n  - `pipelines/finance_recon_monthly.py`：每月 2 号的对账表，汇总页的 GMV 就是当月 `rpt.daily_sales.gmv` 的合计，财务拿它逐月和自己的账对，已经对过的月份数不能变。\n  - 表本身：主键 `(biz_date, store_id, channel)`，金额 `numeric(14,2)`。`gmv` 是 `pay_amount` 的合计；业务库写单时 `pay_amount = total_amount - coupon_amount - points_amount`，`total_amount` 是商品原价合计加运费，所以 `gmv` 已经是用了券和积分抵扣以后的实付。`refund_amount` 按退款成功的那天归，所以有的行只有退款、没有订单。\n\n  这次只是取数去重，没有增删列，类型也没动；改前改后各跑了一遍 9/17，写库前的 `df.dtypes` 逐列对过，完全一样。\n- **验证**：加了一个用例，fixture 里放两行同门店同流水号的 POS 单，断言只算一次、线上渠道的单不受影响；`make test` 全部通过；本地按天跑完 9 月，每天的 GMV 和后台导出都一致。\n\n还没提交，你那边再重跑一次看看。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "重跑完了 九月和后台对上了 提交吧"
+    },
+    {
+      "role": "assistant",
+      "text": "提交了，`e5b20d4`：`daily_sales: exclude QA stress accounts and dedupe re-uploaded POS orders`，改了 `config/excluded_users.yaml`、`sql/rpt/daily_sales_orders.sql`、`pipelines/daily_sales.py` 和测试，没推送。\n\n- POS 补传那件事在 `daily_sales_orders.sql` 里留了一行注释，写明为什么按流水号去重、哪天加的。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "运营那边要看净额 rpt.daily_sales 里的 gmv 帮我拆成 gmv_gross 和 gmv_net 两列吧 净额就是减掉优惠和退款的 历史的先不用补"
+    }
+  ],
+  "middle_hint": "中间在 etl-scripts 里做别的事：别的管道加字段、调 cron、补测试、升级依赖、解释脚本之类，和日报 GMV 偏高那件事无关，没有再碰日报的取数。"
+}

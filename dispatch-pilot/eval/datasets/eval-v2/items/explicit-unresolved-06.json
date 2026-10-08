@@ -1,0 +1,70 @@
+{
+  "id": "explicit-unresolved-06",
+  "category": "explicit-unresolved",
+  "domain": "devops-ci",
+  "bin": "d2",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "部署前的镜像扫描关卡",
+    "SYMPTOM": "部署偶尔卡在镜像扫描那步四分多钟，然后报错退出，重跑又能过",
+    "ERROR": "ERROR scan_gate: start_image_scan failed after 3 retries: Connection was closed before we received a valid response from endpoint URL: \"https://api.ecr.ap-southeast-1.amazonaws.com/\"",
+    "FILE": "scripts/scan_gate.py",
+    "FILE2": "scripts/requirements.txt",
+    "SYMBOL": "scan_images",
+    "COMMAND": "python scripts/scan_gate.py --env staging"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "staging 部署这周挂了两次 都卡在镜像扫描那步 停了四分多钟 然后报 `ERROR scan_gate: start_image_scan failed after 3 retries: Connection was closed before we received a valid response from endpoint URL: \"https://api.ecr.ap-southeast-1.amazonaws.com/\"` 点重跑又过了 脚本是 scripts/scan_gate.py 里的 scan_images 你看看"
+    },
+    {
+      "role": "assistant",
+      "text": "先看了 `scan_images` 怎么发请求，找到一处多线程共用 boto3 Session 的写法，改了。\n\n- **查到的**：`scan_images` 用一个 4 线程的 `ThreadPoolExecutor` 同时扫四个镜像，每个线程里各自用模块级的同一个 `boto3.session.Session` 建 ECR client。boto3 的文档写明 Session 不是线程安全的，几个线程同时用它建 client，偶尔会拿到凭证或连接池没初始化完的 client，请求发出去以后就挂着。两次失败停住的，都是同时在扫的那几个镜像里的一个。\n- **改法**：去掉线程池，按排好的顺序一个一个扫，整个过程只建一个 client。\n- **验证**：`python scripts/scan_gate.py --env staging` 本地跑了 5 遍都过；在 staging 手动触发了 4 次部署，都成功，扫描这一步从 1 分 20 秒左右变成 2 分钟左右。",
+      "tools": [
+        "Read",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还是挂 今天下午又一次 停了四分多钟 报错一模一样"
+    },
+    {
+      "role": "assistant",
+      "text": "顺序扫以后还是停在某一个镜像上，这次看连接本身：怀疑是复用了一条已经被中间设备断掉的旧连接。改成每个镜像用新的 client。\n\n- **查到的**：顺序扫以后整个过程只有一个 client，连接池里的连接在镜像之间复用。每个镜像发完 `start_image_scan` 要轮询扫描结果，短的几十秒、长的两三分钟，这期间那条连接一直闲着；ARC 上的 runner 出网要过 NAT，NAT 会把长时间没有数据的连接悄悄丢掉、两边都不通知。下一个镜像正好拿到这条连接发请求，就会一直等到超时才发现对面早没了。\n- **改法**：每个镜像新建一个 client，扫完关掉它的连接池，不在镜像之间复用连接。\n- **验证**：本地用 `tc` 模拟中间设备丢连接，改之前第二个镜像会挂住，改之后不会；staging 手动触发 5 次部署都成功。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "合进去了 今天又挂了一次 还是镜像扫描那步 还是停四分多钟 报错一样"
+    },
+    {
+      "role": "assistant",
+      "text": "这次查了 ECR 那边：仓库开着推送时自动扫描，扫描关卡又手动发一次。改成先查状态再决定发不发。\n\n- **查到的**：几个服务的 ECR 仓库都开了 `scanOnPush`，镜像一推上去 ECR 就自己开始扫。扫描关卡紧跟在构建后面跑，推送时的那次扫描常常还没结束，又对同一个镜像发 `start_image_scan`。文档里写的是这种情况会返回 `LimitExceededException`，但我们看到的不是报错，是请求挂着不回；这几次失败停住的，都是那次构建刚推上去、体积最大的镜像。\n- **改法**：发起前先 `describe_image_scan_findings`，状态是 `IN_PROGRESS` 或者已经有结果，就直接进轮询，不再发 `start_image_scan`；只有从没扫过的才发起。\n- **验证**：staging 手动触发 4 次部署都成功，日志里 12 个镜像有 9 个直接走了轮询；本地跑 `python scripts/scan_gate.py --env staging` 也正常。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "镜像扫描那个 今天又跑了五六次部署 还是有一次卡在扫描那步四分多钟 报错没变"
+    }
+  ],
+  "middle_hint": "中间一直在继续排查部署前的镜像扫描关卡偶发卡住：查 runner、网络和限流、对比成功失败两次的日志、理超时和并发配置、核对同事的分析，没有新的改动，也没有结论。占位符的值见 placeholders。"
+}

@@ -10,7 +10,10 @@ import { jevBackend } from '../hooks/decision/jev.ts'
 import type { EffortSubmitItem } from '../eval/lib/datasets.ts'
 import { effortSubmit } from '../eval/lib/effort-submit.ts'
 import { attemptMs, runSuite } from '../eval/lib/runner.ts'
-import { optionsFrom, settingsFrom } from '../eval/lib/suite.ts'
+import { optionsFor, optionsFrom, settingsFrom, withStateTokens } from '../eval/lib/suite.ts'
+import { estimateTokens } from '../hooks/decision/context.ts'
+import type { UnresolvedItem } from '../eval/lib/datasets.ts'
+import { UNRESOLVED_VARIANTS, unresolvedRequest } from '../eval/lib/unresolved.ts'
 
 function item(id: string, message: string, gold: EffortSubmitItem['gold'], accept: EffortSubmitItem['accept'], tags: string[] = []): EffortSubmitItem {
   return {
@@ -75,7 +78,7 @@ test('each item is asked in both languages under each variant, as the mod asks i
     io: net.io,
     now: net.now,
     pause: net.pause,
-    settings: settingsFrom({}),
+    settings: settingsFrom({ decisionModel: 'jev' }),
     variants: ['en-score', 'zh-choice'],
     timeoutMs: 10_000,
     retries: 2,
@@ -116,7 +119,7 @@ test('a busy backend is asked again after a pause; a refused key is not; an unan
     io: net.io,
     now: net.now,
     pause: net.pause,
-    settings: settingsFrom({}),
+    settings: settingsFrom({ decisionModel: 'jev' }),
     variants: ['en-score'],
     languages: ['zh'],
     timeoutMs: 10_000,
@@ -159,8 +162,45 @@ test('an --option the manifest does not have, or a value its type cannot take, i
   expect(() => optionsFrom(USER_CONFIG, ['contextTokens'])).toThrow('--option takes name=value, not contextTokens')
 })
 
+// Perplexity's decision model is one of the mod's choices (`decisionModel: pplx`, #50), so a run on it reads the mod's own
+// settings for it, pplx's row of the table, not Jev's: the eval and the mod ask the same.
+test("a run on Perplexity asks with pplx's own settings: the budgets, the timeout, the thresholds and the question language", () => {
+  const userConfig = {}
+  const pplx = settingsFrom(optionsFor('pplx', userConfig))
+  const jevSettings = settingsFrom(optionsFor('jev', userConfig))
+  expect([pplx.backend, pplx.timeoutMs, pplx.context, pplx.contextByKind, pplx.ask]).toEqual([
+    'pplx',
+    8000,
+    { messages: 2000, tokens: 6000 },
+    { messagePlain: 48000, rejudge: 48000, agent: 48000, workflow: 48000 },
+    { turnStart: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
+  ])
+  expect([pplx.thetaMax, pplx.roundUp, pplx.midturn.rules.thetaUp, pplx.midturn.waitMs, pplx.skills.findWaitMs]).toEqual([0.47, 0.45, 0, 6000, 6000])
+  expect([jevSettings.backend, jevSettings.timeoutMs, jevSettings.thetaMax, jevSettings.roundUp, jevSettings.ask.turnStart.language]).toEqual(['jev', 1500, 0.5, 0.3, 'zh'])
+})
+
+// A run can widen the state's budget past what any decision model of the mod has (`--state-tokens`), to see whether a
+// model with a bigger window gains from a longer conversation (#43: Perplexity's takes 262144 tokens a request).
+test('--state-tokens sets the budget of every kind of request, so a long conversation is cut at the run\'s budget and not at the mod\'s', () => {
+  const long = (words: number) => Array.from({ length: words }, (_, i) => `w${i}`).join(' ')
+  const recent = Array.from({ length: 24 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', text: `${i}: ${long(2500)}` }))
+  const item = { id: 'x', en: { message: 'still broken', recent_context: recent }, zh: { message: '还是不行', recent_context: recent } } as unknown as UnresolvedItem
+  const variant = UNRESOLVED_VARIANTS['en-score-wide'] as (typeof UNRESOLVED_VARIANTS)[string]
+  const settings = settingsFrom(optionsFor('jev', {}))
+  const tokensOf = (s: typeof settings) => estimateTokens(JSON.stringify(unresolvedRequest(item, 'en', variant, s).request.state))
+
+  expect(tokensOf(settings)).toBeLessThanOrEqual(24_000)
+  const wider = withStateTokens(settings, 48_000)
+  expect(tokensOf(wider)).toBeGreaterThan(30_000)
+  expect(tokensOf(wider)).toBeLessThanOrEqual(48_000)
+  // Every kind of request, not only a message's: the mid-turn re-decision, the dispatched agent, the Workflow's agents.
+  expect([wider.context.tokens, wider.contextByKind, wider.midturn.limits.tokens]).toEqual([48_000, { messagePlain: 48_000, rejudge: 48_000, agent: 48_000, workflow: 48_000 }, 48_000])
+  // The rest of the settings stay as they were.
+  expect({ ...wider, context: settings.context, contextByKind: settings.contextByKind, midturn: settings.midturn }).toEqual(settings)
+})
+
 // How long the eval (and scripts/decide*.ts) gives one attempt unless told: four times the mod's timeoutMs, at least
 // 10 s, so a slow answer is still measured and a cold connection's first request does not fail outright.
-test("an attempt may take four times the mod's timeoutMs, at least 10 s: Jev's 1500 ms gives 10 s, Clef's 3000 ms 12 s", () => {
-  expect([attemptMs(settingsFrom({}).timeoutMs), attemptMs(settingsFrom({ decisionModel: 'clef' }).timeoutMs), attemptMs(5000)]).toEqual([10_000, 12_000, 20_000])
+test("an attempt may take four times the mod's timeoutMs, at least 10 s: Jev's 1500 ms gives 10 s, 3000 ms 12 s", () => {
+  expect([attemptMs(settingsFrom({ decisionModel: 'jev' }).timeoutMs), attemptMs(3000), attemptMs(5000)]).toEqual([10_000, 12_000, 20_000])
 })

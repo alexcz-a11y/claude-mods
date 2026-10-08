@@ -1,0 +1,33 @@
+{
+  "id": "explicit-unresolved-08",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里参数表状态标签的问题已经改了四次（去掉 #1205 加的参数、静态生成改串行、对照表不再被改写、统一导入路径），用户每次冷构建十次都说那行 warning 还在、读者反馈也没停，助手最后也承认四次都没打中。之后十几万 token 只有排查没有结论，最后一条用户又冷构建十次后明说还没解决：时有时无、多次修复未果、原因不明，max；xhigh 也能接受。删掉决定性几轮，中间段能看出这是一个很难缠的时有时无的构建问题，但看不到任何修复尝试，「还是没解决」至多算第二次：xhigh。三选一：d1 首次提出，new_or_unrelated；d2–d5 都是改完那一行仍按原来的频率出现（d3 修掉了一处真问题，现象没变），still_unresolved；最后一条明说没解决，still_unresolved。审稿修改：本领域的 same-problem 素材段共同设定是「9/24 下午 #1205 之后，构建日志里约三成多的冷构建在标准错误打出一行警告，构建照样成功，en、zh 两轮都有；FILE 是英文文档页、SYMBOL 是 src/components 下按语言取短标签的组件、读者偶尔看到那一块显示异常、刷新就好」，原题（中文站锚点每次构建都失败、FILE 在 i18n/zh 下、SYMBOL 是脚本函数）和几十段中间段直接矛盾，整题按这个设定重写：问题、占位符、决定性几轮和最后一条都换了，尝试放在本地分支上用十次冷构建验证，只有第三次合进 main，和中间段描述的现状一致。without 由 high 改为 xhigh，理由同上。"
+}

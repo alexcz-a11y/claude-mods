@@ -9,11 +9,14 @@ import { midturnEffortPart, midturnState, type MidturnInput } from '../hooks/dec
 import { mergeParts } from '../hooks/decision/system-one.ts'
 import { jev, world, type Sent } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 /** The ids of a request's questions: `effort.level` when a message is sent, `midturn.level` mid-turn. */
 function kind(request: Sent | undefined): string {
-  return Object.keys(request?.body?.questions ?? {}).join(',')
+  // The unresolved question travels in the message's effort request (#39); these tests are about the others.
+  return Object.keys(request?.body?.questions ?? {})
+    .filter((id) => id !== 'effort.unresolved')
+    .join(',')
 }
 
 /** Jev answering the message's request with `start` and each mid-turn request with the next of `midturn`. */
@@ -177,6 +180,38 @@ test('an answer not back by its step: the step waits rejudgeWaitMs, keeps the ef
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium', 'xhigh'])
   expect((await w.board()).main?.midturn).toEqual({ steps: 4, judged: 2, changed: 1 })
   expect((await w.board()).notes).toHaveLength(1)
+})
+
+test('rejudgeWaitMs can be set up to 8000: a re-decision that takes 5 s is waited for, and the step it was waited for goes at the new level', { options: { ...KEY, rejudgeEvery: 2, rejudgeWaitMs: 8000, timeoutMs: 8000 } }, async ($, on) => {
+  const quick = answers(MEDIUM, { levels: XHIGH, confidence: 0.8 })
+  const w = world($, on, { backend: (request) => (kind(request) === 'midturn.level' ? { after: 5000, reply: quick(request) } : quick(request)) })
+  await w.submit('把这个死锁查清楚')
+  await w.step(working(0))
+  await w.step(working(1))
+
+  const waiting = w.step(working(2))
+  await w.clock.settle() // step 2 is waiting for the answer
+  await w.clock.advance(5000)
+  await waiting
+  expect((await w.board()).main?.midturn).toEqual({ steps: 3, judged: 2, changed: 1 })
+  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'xhigh'])
+  // Not late: nothing is noted for the band's event stream.
+  expect((await w.board()).notes ?? []).toEqual([])
+})
+
+test('rejudgeWaitMs unset is the decision model\'s own (Jev: 300 ms): a re-decision 1 s late is not waited for', { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {
+  const quick = answers(MEDIUM, { levels: XHIGH, confidence: 0.8 })
+  const w = world($, on, { backend: (request) => (kind(request) === 'midturn.level' ? { after: 1000, reply: quick(request) } : quick(request)) })
+  await w.submit('把这个死锁查清楚')
+  await w.step(working(0))
+  await w.step(working(1))
+
+  const late = w.step(working(2))
+  await w.clock.settle()
+  await w.clock.advance(300)
+  await late
+  expect((await w.board()).main?.midturn).toEqual({ steps: 3, judged: 1, changed: 0, late: true })
+  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium'])
 })
 
 const REFUSED_AT_PROMPT =

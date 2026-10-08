@@ -1,0 +1,2 @@
+# eval/eval-v2-flow.ts keeps the cheap model's replies here by prompt (megabytes of summaries); the flow files beside it are committed
+haiku-cache.jsonl

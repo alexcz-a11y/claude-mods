@@ -1,7 +1,7 @@
 // How the decision model ranks the session's skills for a message, in two
 // stages (#11), and how the ranking becomes the skills suggested.
 //
-//   stage one  in the message's one decision request, a Choice over the
+//   stage one  in the message's skills request (the effort question has its own, ADR 0005), a Choice over the
 //              skills the main agent can load and "(none)" (`skills.which`),
 //              and one over those only the person can start and "(none)"
 //              (`skills.hint`): asked apart, a skill of one kind that fits
@@ -24,11 +24,11 @@
 // typesafe-question-guide.md §2.4, §2.5, §4.3): every candidate is an option
 // described by its own fields, a "(none)" option lets the model say no skill
 // fits (jev-pilot measured it: without one the ranking always names a skill),
-// and question ids use Clef's characters (`fits.0`, not the skill's name).
+// and question ids use plain characters (`fits.0`, not the skill's name).
 
 import type { Asked, Failure } from './backend.ts'
 import { clipToTokens, estimateTokens, turnStartState, type ContextLimits, type ContextMessage } from './context.ts'
-import { turnStartEffortPart, type EffortAsk, type Language } from './effort.ts'
+import type { EffortAsk, Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part, type Question, type State, type Text } from './system-one.ts'
 
@@ -129,7 +129,7 @@ const FITS_INSTRUCTIONS: Record<Language, Readonly<Record<string, string>>> = {
   },
 }
 
-/** A Choice takes at most this many options (Jev's limit; Clef's too), "(none)" among them. */
+/** A Choice takes at most this many options (Jev's limit), "(none)" among them. */
 export const MAX_CHOICE_OPTIONS = 255
 
 /**
@@ -246,7 +246,7 @@ function detailOf(candidate: Candidate): Record<string, string> {
 /**
  * The part of stage two's request: a yes/no `fits.<i>` for each candidate
  * (the skill as structured data beside the question), and a Choice `best`
- * between them when there are two or more (Clef refuses a Choice of one).
+ * between them when there are two or more (a Choice of one option is not asked).
  * Null for no candidate.
  */
 export function stageTwoPart(candidates: readonly Candidate[], ask: { language?: Language } = {}): Part | null {
@@ -273,26 +273,24 @@ export function stageTwoPart(candidates: readonly Candidate[], ask: { language?:
 export type SkillsItem = { message: string; recent_context: readonly ContextMessage[] }
 
 /**
- * The decision request the mod sends when the person sends `item.message`:
- * the shared state, the effort question, then the skills questions over
- * `options` (stage one; the `ranker`'s when given), in the ballot's order.
- * The effort question is written in `effortLanguage` when given (the mod's
- * for its decision model: core/setup.ts BACKEND_DEFAULTS turnStartLanguage),
- * the skills questions as `ask` (or the ranker) says. `part` reads the skills
- * answers back (`answersFor(part, answers)`, then `ranker.rank` with
- * `request.state`); null when there is no option, and the request then asks
- * about effort alone.
+ * The decision request the mod sends about the skills when the person sends
+ * `item.message`: the shared state and the skills questions over `options`
+ * (stage one; the `ranker`'s when given). The main agent's effort is asked in
+ * a request of its own (ADR 0005; the effort eval's `submitRequest`), so this
+ * one carries no effort question. The skills questions are written as `ask`
+ * (or the ranker) says. `part` reads the skills answers back
+ * (`answersFor(part, answers)`, then `ranker.rank` with `request.state`); both
+ * are null when there is no option to ask about: no request is sent then.
  */
 export function skillsRequest(
   item: SkillsItem,
   options: readonly SkillOption[],
-  settings: { limits: ContextLimits; ask?: Partial<EffortAsk>; effortLanguage?: Language; ranker?: Pick<SkillRanker, 'part'> },
-): { request: DecisionRequest; part: Part | null } {
+  settings: { limits: ContextLimits; ask?: Partial<EffortAsk>; ranker?: Pick<SkillRanker, 'part'> },
+): { request: DecisionRequest; part: Part } | { request: null; part: null } {
   const part = settings.ranker ? settings.ranker.part(options) : skillsPart(options, { language: settings.ask?.language, budget: questionBudget(settings.limits.tokens) })
+  if (part === null) return { request: null, part: null }
   const state = turnStartState({ prompt: item.message, messages: item.recent_context, limits: settings.limits })
-  const effort = turnStartEffortPart({ ...settings.ask, ...(settings.effortLanguage === undefined ? {} : { language: settings.effortLanguage }) })
-  const request = mergeParts(state, [effort, ...(part === null ? [] : [part])])
-  return { request, part }
+  return { request: mergeParts(state, [part]), part }
 }
 
 /**
@@ -410,7 +408,7 @@ export type RankerSettings = {
  * stage one picked one outright (and stage two then judged it).
  */
 export const SHORTLIST_FLOOR = 0.1
-/** Clef answers at most 64 questions a request: stage two asks one per candidate and one Choice. */
+/** A request holds at most 64 questions (system-one.ts MAX_QUESTIONS): stage two asks one per candidate and one Choice. */
 export const MAX_SHORTLIST = 63
 
 /**

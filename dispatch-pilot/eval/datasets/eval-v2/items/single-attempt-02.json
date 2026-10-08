@@ -1,0 +1,41 @@
+{
+  "id": "single-attempt-02",
+  "category": "single-attempt",
+  "domain": "docs-writing",
+  "bin": "d2",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "参数表的必填标签",
+    "SYMPTOM": "参数旁边的必填和可选标签标反了",
+    "ERROR": "[WARNING] Minified React error #419; visit https://react.dev/errors/419 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.",
+    "FILE": "docs/guides/webhooks.mdx",
+    "FILE2": "docs/api/messages/create.mdx",
+    "SYMBOL": "ParamBadge",
+    "COMMAND": "npm run build"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "参数表的必填标签有点问题 这几天文档反馈里有两三个人说参数旁边的必填和可选标反了 刷新一下又对了 我去翻了下 CI 24 号下午开始差不多三四成的构建日志里多了这么一行\n`[WARNING] Minified React error #419; visit https://react.dev/errors/419 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.`\n之前的日志里一次都没有 标签是 ParamBadge 出的 被说得最多的是 docs/guides/webhooks.mdx 那页 你看看"
+    },
+    {
+      "role": "assistant",
+      "text": "找到一处能同时解释「标反」和「时有时无」的地方，已经改了：`ParamBadge` 在模块顶层按参数名缓存了标签，同名参数会沿用先渲染到的那一页的结果。\n\n**原因**\n\n- `src/components/ParamBadge/index.js` 里有一个模块级的缓存对象 `badgeCache`（顶层一句 `const badgeCache = {}`），key 只有参数名。第一次渲染某个参数名时，按这次传进来的 `required` 从对照表里取「必填」或「可选」，连同标签一起存进去；之后再遇到同名参数直接用缓存，不再看这一次传的 `required`。\n- 同名参数在不同接口里必填性不一样，`to`、`channel`、`metadata` 最典型：`metadata` 在 `docs/guides/webhooks.mdx` 的示例接口里是可选的，在 `docs/api/messages/create.mdx` 里是必填的。\n- 静态生成时同一个语言的页面共用一份模块，最多 32 页并发，哪一页先渲染到 `metadata`，每次构建都不一样，所以每次标错的页面也不一样。浏览器里同理：读者先看了哪一页，后面站内跳过去的页面就沿用那一页的结果，整页刷新以后缓存清空，又对了，和反馈里说的「刷新就好」对得上。\n- 构建日志里那一行：#419 的意思是服务端渲染某一块时出了错，这一块改由浏览器重新渲染。我的判断是同一页上 `ParamBadge` 前后拿到的结果不一致引起的，和缓存是同一个根；这一点是推测，日志里没有更多信息。缓存是组件建的时候就有的，为什么 24 号才开始冒出来，我猜是那天 `webhooks.mdx` 的改动让同名参数的渲染先后变了，没有再往下证实。\n\n**改法**\n\n- 删掉 `badgeCache`，每次渲染直接按这一次传进来的 `required`、`deprecated` 从对照表取标签。对照表本身是只读的常量，没动。\n- 页面没动，`webhooks.mdx` 里的用法和别的页面一样。\n- 顺手 Grep 了 `src/components/` 下其他模块级的对象、`Map` 和 `let`，没有第二处在渲染时写入的。\n\n**验证**\n\n- 本地每次先 `npm run clear` 再冷构建：改之前 3 次里有 1 次打出了那一行，改之后 4 次一次都没有。\n- `npm run serve` 起来，在 `webhooks` 和 `messages/create` 之间站内来回点了 20 次，`metadata` 的标签每次都对。\n\n改动在 `fix/param-badge-cache` 分支，PR 开好了，CI 上两次构建都没有那一行。合进去以后还要接着看几天 CI 日志和反馈：#419 和缓存是不是同一个根还只是推测，24 号为什么才冒出来也没解释，这一行本来就只在三四成的构建里出现，两次没有说明不了什么。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Bash",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "必填标签那个 合进去一个多星期了 CI 上那行 #419 还是三四次里出一次 今天反馈里又有人说 webhooks 那页标反了"
+    }
+  ],
+  "middle_hint": "中间是同一个问题的继续排查：理构建和浏览器渲染的流程、追 ParamBadge 的调用和数据流、统计 CI 日志里那一行的出现率（9/24 以来约三成多的构建会打出来）、对照读者反馈和部署时间、做缓存和依赖的对照实验。没有新的修改尝试，没有下结论，用户也没有评价第一次的修复。占位符：FEATURE 参数表的必填标签；SYMPTOM 参数旁边的必填和可选标签标反了；ERROR 构建日志里那行 Minified React error #419 的警告；FILE docs/guides/webhooks.mdx；FILE2 docs/api/messages/create.mdx；SYMBOL ParamBadge；COMMAND npm run build。"
+}

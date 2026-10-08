@@ -7,7 +7,7 @@ import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { jev, world } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 /** Answers the mod's $.state.get for these values (`key` or `key/id`); everything else reads the kit's store. */
 function table(on: On, values: Record<string, unknown>) {

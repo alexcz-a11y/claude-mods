@@ -4,14 +4,12 @@
 
 import { expect, test } from 'claude-code/testing'
 import type { SessionMessage } from 'claude-code'
-import { CLEF_MODEL } from '../hooks/decision/clef.ts'
 import type { EffortAsk } from '../hooks/decision/effort.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import type { ContextEntry, EffortSubmitItem } from '../eval/lib/datasets.ts'
 import { modVariant, submitRequest, SUBMIT_VARIANTS } from '../eval/lib/effort-submit.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
-import { CLEF_OPTIONS, clef } from './support/cloudflare.ts'
-import { jev, world } from './support/world.ts'
+import { jev, withoutUnresolved, world } from './support/world.ts'
 
 /** An item as the dataset writes it: a short follow-up whose meaning is in the conversation before it. */
 const ITEM: EffortSubmitItem = {
@@ -58,11 +56,10 @@ function transcript(context: readonly ContextEntry[]): SessionMessage[] {
   })
 }
 
-// The mod asks Jev as the `zh-score` variant and Clef as `en-score` (modVariant: the effort question beside a
-// message is in the decision model's language).
+// The mod asks Jev as the `zh-score` variant (modVariant: the effort question beside a message is in the decision
+// model's language).
 const BACKENDS = [
-  { name: 'Jev', options: { typesafeApiKey: 'k' }, variant: 'zh-score', reply: jev([0, 0, 0.2, 0.7, 0.1]), model: JEV_MODEL },
-  { name: 'Clef', options: CLEF_OPTIONS, variant: 'en-score', reply: clef([0, 0, 0.2, 0.7, 0.1]), model: CLEF_MODEL },
+  { name: 'Jev', options: { decisionModel: 'jev', typesafeApiKey: 'k' }, variant: 'zh-score', reply: jev([0, 0, 0.2, 0.7, 0.1]), model: JEV_MODEL },
 ] as const
 
 for (const chosen of BACKENDS) {
@@ -75,7 +72,9 @@ for (const chosen of BACKENDS) {
       expect(modVariant(settings)).toBe(chosen.variant)
       const { request } = submitRequest(ITEM, language, SUBMIT_VARIANTS[chosen.variant] as EffortAsk, settings)
       expect(w.requests).toHaveLength(1)
-      expect(w.requests[0]?.body).toEqual({ model: chosen.model, state: request.state, questions: request.questions })
+      expect(withoutUnresolved(w.requests[0]?.body)).toEqual({ model: chosen.model, state: request.state, questions: request.questions })
+      // The unresolved switch is off until the person turns it on (#48): the request asks the effort question alone.
+      expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
       // What the request holds, so the equality above is not two empty things.
       expect(request.state.user_message).toContain('[REDACTED]')
       expect(String(request.state.recent_context)).toContain('[tools: Grep, Read x2]')
@@ -84,12 +83,11 @@ for (const chosen of BACKENDS) {
   }
 }
 
-// With the skills switch on (its default) the mod's request also asks about the
-// session's skills. Questions in one request are answered each on its own, the
-// state alone their context (TypeSafe's guide, S1 and Q12), so the eval asks the
-// effort question alone: the same state, the same question. Its latency is not
-// the message's: the skill eval's first stage is that request.
-test("with skills to ask about, the mod's request holds the eval's state and effort question as they are, the skills questions beside them", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+// With the skills switch on (its default) the mod also asks about the session's
+// skills, in a request of its own (ADR 0005): the effort question's request is
+// the same with the skills on or off, the eval's whole. Its latency is not the
+// message's: the skill eval's first stage is the skills' request.
+test("with skills to ask about, the mod's effort request is the eval's as it is, and the skills questions go in another", { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
   const skills = {
     commands: [{ name: 'tdd', description: 'Test-driven development.', source: 'user' as const }],
     listed: [{ name: 'tdd', source: 'userSettings', tokens: 20 }],
@@ -97,19 +95,17 @@ test("with skills to ask about, the mod's request holds the eval's state and eff
   const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(ITEM.zh.recent_context), skills })
   await w.submit(ITEM.zh.message)
 
-  const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({}))
-  const sent = w.requests[0]?.body
-  expect(Object.keys(sent.questions)).toEqual(['effort.level', 'skills.which'])
-  expect(sent.state).toEqual(request.state)
-  expect(sent.questions['effort.level']).toEqual(request.questions['effort.level'])
+  const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({ decisionModel: 'jev' }))
+  expect(withoutUnresolved(w.requests[0]?.body)).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   expect(Object.keys(request.questions)).toEqual(['effort.level'])
+  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.which'])
 })
 
-test("the eval cuts the conversation to the mod's limits as the mod does", { options: { typesafeApiKey: 'k', contextMessages: 2, contextTokens: 100 } }, async ($, on) => {
+test("the eval cuts the conversation to the mod's limits as the mod does", { options: { decisionModel: 'jev', typesafeApiKey: 'k', contextMessages: 2, contextTokens: 100 } }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(ITEM.zh.recent_context) })
   await w.submit(ITEM.zh.message)
 
-  const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({ contextMessages: 2, contextTokens: 100 }))
-  expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
+  const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({ decisionModel: 'jev', contextMessages: 2, contextTokens: 100 }))
+  expect(withoutUnresolved(w.requests[0]?.body)).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   expect(String(request.state.recent_context)).not.toContain('登录接口')
 })

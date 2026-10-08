@@ -1,0 +1,46 @@
+{
+  "id": "new-topic-07",
+  "category": "new-topic",
+  "domain": "docs-writing",
+  "bin": "d3",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "客服说控制台中文界面点右上角那个帮助 有一批跳到了英文文档 截了几个给我 都是 console 下面的页面 我问了控制台组 他们说帮助链接是一张表 四百多条 中文界面就是在路径前面拼个 /zh 这半年都没动过 客服还说他们工单回复模板里也有三百多条 /zh/docs 的链接 你看下是不是我们这边的问题"
+    },
+    {
+      "role": "assistant",
+      "text": "是我们这边的问题，改好了：9 月整理 `console/` 目录时加的那批跳转里，有 6 条的目标写成了带域名的完整地址，中文站生成的跳转页照原样跳去了英文站。\n\n- **查到的**：客服截的几个地址，比如 `/zh/docs/console/keys`、`/zh/docs/console/webhook-settings`，都是 9 月中旬整理 `console/` 时改名或合并掉的页面的旧路径（`keys` 改成了 `api-keys`，`webhook-settings` 并进了 `applications`）。控制台那张表里存的就是这批旧路径，所以每次都要经过 `docusaurus.config.js` 里 client-redirects 插件的跳转。这个插件给每个语言各生成一份跳转页，`to` 写成站内路径时，中文站的跳转页会自动带上 `/zh/`；但那次新加的 6 条，`to` 写的是 `https://docs.acmenotify.com/docs/console/api-keys` 这种完整地址，插件不改写完整地址，中文站的跳转页就直接跳到了英文页。英文界面走的同样是这 6 条，目标本来就是英文页，所以一直没人发现。\n- **改法**：6 条的 `to` 全部改成站内路径（`/docs/console/api-keys`）。另外加了个小脚本 `scripts/check-redirects.mjs`，`to` 以 `http` 开头就报错，放进了 `ci.yml` 的检查里，以后不会再混进来。\n- **验证**：`npm run build` 之后看了 `build/zh/docs/console/keys/index.html`，跳转目标是 `/zh/docs/console/api-keys`；`npm run serve` 起来，把客服截图里的 4 个地址中英文各点了一遍，中文都落在中文页，英文不变。又把跳转列表里每一条的中英文跳转页都扫了一遍，目标语言和来源语言一致，没有别的漏网。\n\n**顺手查了一遍哪些地方默认中文前缀就是 `/zh/`**，免得别处也有同样的坑：\n\n- 控制台的帮助链接：照你问来的说法，表在控制台仓库里，400 多条，中文界面拼 `/zh` 前缀，我们没有那个仓库的权限，只能请他们改。\n- `docusaurus.config.js` 里公告栏的链接是手工拼的：`locale === 'zh' ? 'zh/' : ''`，不会跟着站点的语言配置变。\n- `static/robots.txt` 和 `scripts/i18n-status.mjs` 里各写死了一处 `/zh/`。\n- 客服的工单回复模板：照你转来的说法，300 多条带 `/zh/docs/` 的链接，存在他们的工单系统里，我们碰不到。\n- 外面的：搜索引擎收录的中文页、SDK README 里链到中文文档的 9 处（`gh search code` 搜的）、市场发过的中文博客和邮件，这些都没法批量改，只能靠跳转接住。\n- 站点自己生成的不用操心：站内链接、`hreflang`、sitemap、中文的搜索索引都跟着语言配置自动生成。\n\n也就是说，`/zh/` 这个前缀现在实际上是一个对外的地址约定，散在控制台、客服、市场三四个团队手里。这次只改了跳转的目标，前缀本身没动。\n\n改动还没提交，你让客服再点一圈确认一下。",
+      "tools": [
+        "Grep",
+        "Read",
+        "Edit",
+        "Write",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "客服那边又点了一圈 中文都跳对了 提交吧"
+    },
+    {
+      "role": "assistant",
+      "text": "提交了，`b3e71c9`：`docs: use site-relative targets for client redirects`，改了 `docusaurus.config.js` 和 `ci.yml`，新增 `scripts/check-redirects.mjs`，没推送。合进 main 以后按平常的部署走，十几分钟生效。\n\n- 控制台那张表里存的还是旧路径，每次要多跳一下，不影响使用。要不要请他们换成新路径你定，需要的话我把新旧路径的对照表导出来给他们。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "市场那边要求文档站的中文地址跟官网统一 官网中文都是 /zh-cn/ 开头的 你把文档站的中文前缀也改成 /zh-cn/ 吧"
+    }
+  ],
+  "middle_hint": "中间在 docs-site 里做别的事：写指南和发版博客、改文案和侧边栏、补脚本和 CI 检查之类，和中文跳转、控制台的帮助链接无关。"
+}

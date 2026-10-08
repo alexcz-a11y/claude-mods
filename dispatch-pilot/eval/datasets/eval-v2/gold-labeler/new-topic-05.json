@@ -1,0 +1,25 @@
+{
+  "id": "new-topic-05",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "提示条闪烁问题在 d3 已由用户确认解决并提交，最后一条是给 prompt-lint 加新功能：检测粘贴内容里的密钥和 token 并把提示条标红，是新任务。决定性几轮留下了要紧的约束：prompt.edit 只有 50ms，超时结果会被直接丢掉；现在靠 $.state.lineCache 按行增量扫描，跨行规则只在字数变化超过 200 字时重算；助手明确提醒过带回溯的规则很贵，加规则前要在长输入上计时。密钥检测正好容易写成带回溯的长正则或熵计算，PEM 私钥这类多行密钥要跨行识别，还要处理误报、整段粘贴时的全扫耗时，以及提示条的标红样式。这是边界条件和性能都要紧的功能开发，加测试和计时，定 high；跨行和性能约束都比较复杂，xhigh 也可以。话题涉及安全，但做的是功能而不是安全审计。看不到决定性几轮时，像是加一条规则和一个样式，会判 medium。"
+}

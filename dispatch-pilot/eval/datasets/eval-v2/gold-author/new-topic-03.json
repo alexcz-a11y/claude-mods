@@ -1,0 +1,25 @@
+{
+  "id": "new-topic-03",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后这条是新需求：日报加净额，用户的目的是让运营看到净额。GMV 偏高的问题在 d3 已经了结。改变判断的是决定性几轮里的约束和口径：d2 用户自己说过 rpt.daily_sales 下游的 Metabase 看板、周报和财务对账写死了列名和类型、别动；回复里查到周报按列名 SUM(gmv)、Metabase 有 12 条语句用 gmv、财务对账的 GMV 就是当月 gmv 的合计且已对过的月份不能变；还查清了 gmv 是 pay_amount 的合计，pay_amount = total_amount - coupon_amount - points_amount，也就是已经扣过券和积分的实付，refund_amount 按退款成功那天归、有的行只有退款。所以照字面把 gmv「拆成」两列（改名再加一列）会让周报、看板和对账一起出错。把用户要的做对：保留 gmv 原样，追加 gmv_gross 和 gmv_net；gross 要回到取数 SQL 里汇总券前的 total_amount，净额是 gmv 再减当天归属的退款（gmv 里已经扣过的优惠不能再扣一遍），只有退款的行净额为负，POS 去重要同样作用在新列上；要写迁移、改 DDL、取数 SQL、汇总和测试，迁移要先于代码上线，写库前核对旧列的类型不变，列注释和指标文档写清口径。跨多个文件、边界条件要紧：high。用户说历史先不用补，改动都在本仓库里，跑一轮测试加一次本地对数就能验证完，不到 xhigh。accept 里的 xhigh：Metabase 经营日报看板上净额怎么展示不在仓库里，读者如果把和运营一起把看板配好也算进这件事，会往上判一档。删掉决定性几轮，只看「把 gmv 拆成 gmv_gross 和 gmv_net，净额减掉优惠和退款」，像一个管道里改名加一列、补测试：medium。三选一：d1 第一次提出 GMV 偏高，new_or_unrelated；d2 重跑后还有两天偏高，still_unresolved；d3 对上了、让提交，resolved；最后这条是另一件事，new_or_unrelated。重写说明：按修订版说明复核后保留情境。d2 补上了 pay_amount、total_amount 和两种优惠的关系（和 data-scripts-unrelated-22 一致），「减掉优惠」不用再去问口径；最后一条加了「历史的先不用补」，去掉了回填历史这块；rationale 不再用回填历史、和财务运营反复核对来解释 xhigh。"
+}

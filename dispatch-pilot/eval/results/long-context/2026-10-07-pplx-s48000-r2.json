@@ -1,0 +1,1807 @@
+{
+  "suite": "long-context",
+  "label": "s48000-r2",
+  "date": "2026-10-07T14:11:26.552Z",
+  "backend": {
+    "name": "pplx",
+    "model": "pplx-decider-v1.1-27b",
+    "answeredBy": [
+      "pplx-decider-v1.1-27b"
+    ]
+  },
+  "dataset": {
+    "path": "eval/datasets/long-context.jsonl",
+    "items": 30,
+    "sha256": "bce7c7114c7984e72e43481cf52c041ed3b237924f58aa529b427221f8973a97",
+    "beside": {
+      "long-context-summaries.json": "474e1885ac69f9888b8b52e2d3f78507c0daee2a15a730fdb933a255c67195d2"
+    },
+    "review": {
+      "file": null,
+      "decided": 0
+    }
+  },
+  "code": {
+    "hooks/board/band.tsx": "ee17e1e44d247d42",
+    "hooks/board/footer.tsx": "f0df99afacf932f8",
+    "hooks/board/kit.tsx": "a9aa99019528b8bc",
+    "hooks/board/pane.tsx": "20565ce618136941",
+    "hooks/board/rationale.ts": "0bf699ecad1979a5",
+    "hooks/board/screens.tsx": "26ea1591bf69fa19",
+    "hooks/board/view.ts": "c5663173e4fb1f79",
+    "hooks/core/ballot.ts": "5d1e5ec45883edb0",
+    "hooks/core/commands.ts": "28134dac5b209cc5",
+    "hooks/core/core.ts": "ca423be2a2494e1a",
+    "hooks/core/outcomes.ts": "8e9d74fc202b9142",
+    "hooks/core/plans.ts": "85d87469d3b4dd5a",
+    "hooks/core/profiles.ts": "942e7b2024cc3c7b",
+    "hooks/core/prompts.ts": "10e5220ada242496",
+    "hooks/core/report.ts": "e0496a9e9f6e266e",
+    "hooks/core/setup.ts": "e613a5fb702349ea",
+    "hooks/core/skills.ts": "b07e4827a6c0f57f",
+    "hooks/core/switches.ts": "a2d1edb9d6f4b547",
+    "hooks/core/unresolved.ts": "a2fac6d5f4c31b27",
+    "hooks/core/workflow-report.ts": "5cb3b78c950ff5f7",
+    "hooks/decision/backend.ts": "2bc96580a12acb72",
+    "hooks/decision/clef.ts": "5bddd2bbf0098172",
+    "hooks/decision/context.ts": "486c8b350c5bd036",
+    "hooks/decision/dispatched-agent.ts": "87e08123791c7d38",
+    "hooks/decision/effort.ts": "6a4e26651adf1e1b",
+    "hooks/decision/escalation.ts": "12da2f659bbd221f",
+    "hooks/decision/jev.ts": "360395fd6b934224",
+    "hooks/decision/midturn.ts": "852aaa9f292c364d",
+    "hooks/decision/model-ids.ts": "2594ee795c521d01",
+    "hooks/decision/pplx.ts": "f2819c7eac5bdc55",
+    "hooks/decision/redact.ts": "79a07c38ba06d149",
+    "hooks/decision/skills.ts": "5b68c8c30cdc78b3",
+    "hooks/decision/summary.ts": "54c374e245484682",
+    "hooks/decision/system-one.ts": "674742be8964d5c0",
+    "hooks/decision/turn-start.ts": "59340c79d61b92fd",
+    "hooks/decision/unresolved.ts": "17a933f25c1d05c3",
+    "hooks/decision/workflow-labels.ts": "237b4ea850ca5831",
+    "hooks/decision/workflow-script.ts": "93389a106f186b3c",
+    "hooks/decision/workflow.ts": "ed4ed7ca8eba6e65",
+    "hooks/dispatch-pilot.ts": "65d33097d79fcc96",
+    "hooks/features/control.ts": "339bbb0f8d991461",
+    "hooks/features/dispatched-agents.ts": "7b4e38f5b603994a",
+    "hooks/features/escalation.ts": "e21925e95148d0ce",
+    "hooks/features/find-skill.ts": "c146c232c1b33468",
+    "hooks/features/main-effort.ts": "be8c1e96eae0309c",
+    "hooks/features/midturn-effort.ts": "20140b8d8d8aaf71",
+    "hooks/features/skill-profiles.ts": "30d01ca7172cf295",
+    "hooks/features/skills.ts": "38ae872f8799cceb",
+    "hooks/features/unresolved.ts": "84ee5594da674325",
+    "hooks/features/workflow-agents.ts": "5024eafe6c91a19f",
+    "hooks/features/workflow-labels.ts": "d2a4477125911b54",
+    "hooks/hooks.json": "1b25c5b4d076064d",
+    "eval/lib/compare.ts": "bcfcf958eb7d10d5",
+    "eval/lib/datasets.ts": "741b0eaa44af2cfe",
+    "eval/lib/docs.ts": "2ff036af118fa415",
+    "eval/lib/effort-midturn.ts": "6f105ae206ed1e9e",
+    "eval/lib/effort-submit.ts": "ed99546e70616fff",
+    "eval/lib/long-context.ts": "887b674ac45b9c0f",
+    "eval/lib/long-conversation.ts": "8bf092f7993911ed",
+    "eval/lib/long-filler.ts": "620b06d015f65e00",
+    "eval/lib/long-summaries.ts": "d6e09e9a8ca4136d",
+    "eval/lib/metrics.ts": "d244cbca25a7a02f",
+    "eval/lib/rescore.ts": "e48550f582b3c83d",
+    "eval/lib/resummarize.ts": "c144fa7a8f93a239",
+    "eval/lib/review.ts": "e107a4c682333d8d",
+    "eval/lib/runner.ts": "cce111f910f6ac70",
+    "eval/lib/skill.ts": "ae4b65b67e5c0c0d",
+    "eval/lib/subagent.ts": "f252c64700dcc267",
+    "eval/lib/suite.ts": "4bd8d9635a3ec08a",
+    "eval/lib/suites.ts": "3e9a246c9b2c2049",
+    "eval/lib/unresolved.ts": "2b42347d9115d0bb"
+  },
+  "settings": {
+    "context": {
+      "messages": 2000,
+      "tokens": 48000
+    },
+    "messageStateTokens": 48000,
+    "stateTokens": 48000,
+    "stateMessagesLimit": 2000,
+    "stateMessages": 2000,
+    "thetaMax": 0.5,
+    "timeoutMs": 1500,
+    "options": {
+      "decisionModel": "jev",
+      "rejudgeEvery": 3,
+      "holdSteps": 5,
+      "rejudgeWaitMs": 300,
+      "escalateAfter": 2,
+      "escalateMode": "one-level",
+      "escalateLimit": 2,
+      "escalateHaikuTo": "sonnet",
+      "agentFable": false,
+      "skillsMax": 3,
+      "skillsShortlist": 4,
+      "skillsProfileModel": "haiku",
+      "skillsProfilesPerSession": 30,
+      "skillsAlwaysListed": [],
+      "skillsNeverSuggested": [],
+      "findSkillMax": 5,
+      "workflowMode": "rewrite",
+      "summaryModel": "haiku",
+      "unresolvedMaxAfter": 3
+    },
+    "backendDefaults": {
+      "timeoutMs": 1500,
+      "contextMessages": 32,
+      "contextTokens": 6000,
+      "rejudgeSteps": 16,
+      "thetaUp": 0.3,
+      "thetaDown": 0.55,
+      "thetaMax": 0.5,
+      "thetaExpected": 0.25,
+      "agentOverride": 0.6,
+      "skillsMinRelevance": 0.75,
+      "findSkillMinRelevance": 0.5
+    }
+  },
+  "run": {
+    "items": 30,
+    "variants": [
+      "zh-score-deep",
+      "zh-score-near",
+      "zh-score-none",
+      "en-score-deep",
+      "en-score-near",
+      "en-score-none"
+    ],
+    "languages": [
+      "zh"
+    ],
+    "timeoutMs": 240000,
+    "retries": 2,
+    "concurrency": 3,
+    "requests": 180,
+    "attempts": 180,
+    "inputTokens": 14973552,
+    "usd": 0.2995
+  },
+  "questions": {
+    "zh-score-deep": {
+      "level": {
+        "type": "score",
+        "instructions": {
+          "问题": "结合 `recent_context`，完成 `user_message` 所要求的工作需要多少逐步推理？",
+          "评什么": "评的是请求要做的工作本身，而不是话题听起来有多重要。用文字给出的建议或解释，即使涉及架构或安全，也不算设计工作。",
+          "简短回复": "如果 `user_message` 只是同意、让继续或选一个选项（例如“go ahead”“1”“继续”），按它所同意的那项工作来评；那项工作写在 `recent_context` 的末尾。"
+        },
+        "criteria": [
+          "凭已知信息就能回答，或没有需要想清楚之处的机械性工作：查一个东西、执行一条命令、重命名或查找替换（即使跨很多文件）、列出搜索结果、格式化、改一行。",
+          "对一个或几个文件做常规、需求明确的修改，或针对眼前代码的直接提问。",
+          "跨多个文件、需要想清楚的修改，原因已经描述但仍需追查的 bug，编写测试，或仔细审查一份 diff。",
+          "跨多个组件的设计，原因未知的 bug，牵连很多依赖方的重构，或需要仔细推敲并发、性能或故障模式的工作。",
+          "全新的架构，安全或数据完整性问题，之前多次尝试都没解决的故障，或一个细微错误就代价高昂且难以挽回的工作。"
+        ]
+      },
+      "unresolved": {
+        "type": "choice",
+        "instructions": {
+          "问题": "`user_message` 对 `recent_context` 末尾用户和助手最近在处理的那个问题说了什么？",
+          "结果": "那个问题解没解决，只看用户自己的话。助手对自己的工作说的“已修复”“应该可以了”不算结果。"
+        },
+        "criteria": {
+          "still_unresolved": "用户说为那个问题试过的做法没有用，或者说问题还在：同样的报错又出现了、同样的错误行为、让再看一遍同一个问题，或者贴出的报错就是之前那个。",
+          "resolved": "用户说那个问题已经解决，或接受了结果：现在好了、谢谢、可以了，或者让提交、推送、收尾。",
+          "new_or_unrelated": "用户转到另一个问题或任务，问的和那个问题毫无关系，或者 `recent_context` 里没有更早的问题可言。"
+        }
+      }
+    },
+    "zh-score-near": {
+      "level": {
+        "type": "score",
+        "instructions": {
+          "问题": "结合 `recent_context`，完成 `user_message` 所要求的工作需要多少逐步推理？",
+          "评什么": "评的是请求要做的工作本身，而不是话题听起来有多重要。用文字给出的建议或解释，即使涉及架构或安全，也不算设计工作。",
+          "简短回复": "如果 `user_message` 只是同意、让继续或选一个选项（例如“go ahead”“1”“继续”），按它所同意的那项工作来评；那项工作写在 `recent_context` 的末尾。"
+        },
+        "criteria": [
+          "凭已知信息就能回答，或没有需要想清楚之处的机械性工作：查一个东西、执行一条命令、重命名或查找替换（即使跨很多文件）、列出搜索结果、格式化、改一行。",
+          "对一个或几个文件做常规、需求明确的修改，或针对眼前代码的直接提问。",
+          "跨多个文件、需要想清楚的修改，原因已经描述但仍需追查的 bug，编写测试，或仔细审查一份 diff。",
+          "跨多个组件的设计，原因未知的 bug，牵连很多依赖方的重构，或需要仔细推敲并发、性能或故障模式的工作。",
+          "全新的架构，安全或数据完整性问题，之前多次尝试都没解决的故障，或一个细微错误就代价高昂且难以挽回的工作。"
+        ]
+      },
+      "unresolved": {
+        "type": "choice",
+        "instructions": {
+          "问题": "`user_message` 对 `recent_context` 末尾用户和助手最近在处理的那个问题说了什么？",
+          "结果": "那个问题解没解决，只看用户自己的话。助手对自己的工作说的“已修复”“应该可以了”不算结果。"
+        },
+        "criteria": {
+          "still_unresolved": "用户说为那个问题试过的做法没有用，或者说问题还在：同样的报错又出现了、同样的错误行为、让再看一遍同一个问题，或者贴出的报错就是之前那个。",
+          "resolved": "用户说那个问题已经解决，或接受了结果：现在好了、谢谢、可以了，或者让提交、推送、收尾。",
+          "new_or_unrelated": "用户转到另一个问题或任务，问的和那个问题毫无关系，或者 `recent_context` 里没有更早的问题可言。"
+        }
+      }
+    },
+    "zh-score-none": {
+      "level": {
+        "type": "score",
+        "instructions": {
+          "问题": "结合 `recent_context`，完成 `user_message` 所要求的工作需要多少逐步推理？",
+          "评什么": "评的是请求要做的工作本身，而不是话题听起来有多重要。用文字给出的建议或解释，即使涉及架构或安全，也不算设计工作。",
+          "简短回复": "如果 `user_message` 只是同意、让继续或选一个选项（例如“go ahead”“1”“继续”），按它所同意的那项工作来评；那项工作写在 `recent_context` 的末尾。"
+        },
+        "criteria": [
+          "凭已知信息就能回答，或没有需要想清楚之处的机械性工作：查一个东西、执行一条命令、重命名或查找替换（即使跨很多文件）、列出搜索结果、格式化、改一行。",
+          "对一个或几个文件做常规、需求明确的修改，或针对眼前代码的直接提问。",
+          "跨多个文件、需要想清楚的修改，原因已经描述但仍需追查的 bug，编写测试，或仔细审查一份 diff。",
+          "跨多个组件的设计，原因未知的 bug，牵连很多依赖方的重构，或需要仔细推敲并发、性能或故障模式的工作。",
+          "全新的架构，安全或数据完整性问题，之前多次尝试都没解决的故障，或一个细微错误就代价高昂且难以挽回的工作。"
+        ]
+      },
+      "unresolved": {
+        "type": "choice",
+        "instructions": {
+          "问题": "`user_message` 对 `recent_context` 末尾用户和助手最近在处理的那个问题说了什么？",
+          "结果": "那个问题解没解决，只看用户自己的话。助手对自己的工作说的“已修复”“应该可以了”不算结果。"
+        },
+        "criteria": {
+          "still_unresolved": "用户说为那个问题试过的做法没有用，或者说问题还在：同样的报错又出现了、同样的错误行为、让再看一遍同一个问题，或者贴出的报错就是之前那个。",
+          "resolved": "用户说那个问题已经解决，或接受了结果：现在好了、谢谢、可以了，或者让提交、推送、收尾。",
+          "new_or_unrelated": "用户转到另一个问题或任务，问的和那个问题毫无关系，或者 `recent_context` 里没有更早的问题可言。"
+        }
+      }
+    },
+    "en-score-deep": {
+      "level": {
+        "type": "score",
+        "instructions": {
+          "question": "How much step-by-step reasoning does the work that `user_message` asks for need, given `recent_context`?",
+          "rate": "Rate the work the request asks for, not how important its topic sounds. Advice or an explanation given in words, even about architecture or security, is not design work.",
+          "short_replies": "When `user_message` only approves, continues or picks an option (such as \"go ahead\", \"1\", \"继续\"), rate the work it approves, as described at the end of `recent_context`."
+        },
+        "criteria": [
+          "Answered from what is already known, or mechanical work with nothing to work out: a lookup, a single command, a rename or find-and-replace (even across many files), a search that lists what it finds, formatting, a one-line change.",
+          "An ordinary, well-specified change to one or a few files, or a direct question about code already in view.",
+          "A change across several files that needs working out, a bug whose cause is described but has to be traced, writing tests, or reviewing a diff with care.",
+          "Design across several components, a bug whose cause is unknown, a refactor with many dependents, or careful reasoning about concurrency, performance or failure modes.",
+          "Novel architecture, a security or data-integrity question, a failure that resisted earlier attempts, or work where a subtle mistake is costly and hard to undo."
+        ]
+      },
+      "unresolved": {
+        "type": "choice",
+        "instructions": {
+          "question": "What does `user_message` say about the problem the person and the assistant were last working on at the end of `recent_context`?",
+          "results": "Only the person's own words say whether that problem is solved. What the assistant said about its own work, such as \"fixed\" or \"should work now\", is not a result."
+        },
+        "criteria": {
+          "still_unresolved": "The person says that what was tried for that problem did not work, or that it still happens: the same error again, the same wrong behaviour, a request to look at the same problem once more, or a pasted error that is the one from before.",
+          "resolved": "The person says that problem is solved or accepts the result: it works now, thanks, looks good, or a request to commit, push or wrap up what was done for it.",
+          "new_or_unrelated": "The person turns to a different problem or task, asks something that has nothing to do with that problem, or `recent_context` holds no earlier problem to speak of."
+        }
+      }
+    },
+    "en-score-near": {
+      "level": {
+        "type": "score",
+        "instructions": {
+          "question": "How much step-by-step reasoning does the work that `user_message` asks for need, given `recent_context`?",
+          "rate": "Rate the work the request asks for, not how important its topic sounds. Advice or an explanation given in words, even about architecture or security, is not design work.",
+          "short_replies": "When `user_message` only approves, continues or picks an option (such as \"go ahead\", \"1\", \"继续\"), rate the work it approves, as described at the end of `recent_context`."
+        },
+        "criteria": [
+          "Answered from what is already known, or mechanical work with nothing to work out: a lookup, a single command, a rename or find-and-replace (even across many files), a search that lists what it finds, formatting, a one-line change.",
+          "An ordinary, well-specified change to one or a few files, or a direct question about code already in view.",
+          "A change across several files that needs working out, a bug whose cause is described but has to be traced, writing tests, or reviewing a diff with care.",
+          "Design across several components, a bug whose cause is unknown, a refactor with many dependents, or careful reasoning about concurrency, performance or failure modes.",
+          "Novel architecture, a security or data-integrity question, a failure that resisted earlier attempts, or work where a subtle mistake is costly and hard to undo."
+        ]
+      },
+      "unresolved": {
+        "type": "choice",
+        "instructions": {
+          "question": "What does `user_message` say about the problem the person and the assistant were last working on at the end of `recent_context`?",
+          "results": "Only the person's own words say whether that problem is solved. What the assistant said about its own work, such as \"fixed\" or \"should work now\", is not a result."
+        },
+        "criteria": {
+          "still_unresolved": "The person says that what was tried for that problem did not work, or that it still happens: the same error again, the same wrong behaviour, a request to look at the same problem once more, or a pasted error that is the one from before.",
+          "resolved": "The person says that problem is solved or accepts the result: it works now, thanks, looks good, or a request to commit, push or wrap up what was done for it.",
+          "new_or_unrelated": "The person turns to a different problem or task, asks something that has nothing to do with that problem, or `recent_context` holds no earlier problem to speak of."
+        }
+      }
+    },
+    "en-score-none": {
+      "level": {
+        "type": "score",
+        "instructions": {
+          "question": "How much step-by-step reasoning does the work that `user_message` asks for need, given `recent_context`?",
+          "rate": "Rate the work the request asks for, not how important its topic sounds. Advice or an explanation given in words, even about architecture or security, is not design work.",
+          "short_replies": "When `user_message` only approves, continues or picks an option (such as \"go ahead\", \"1\", \"继续\"), rate the work it approves, as described at the end of `recent_context`."
+        },
+        "criteria": [
+          "Answered from what is already known, or mechanical work with nothing to work out: a lookup, a single command, a rename or find-and-replace (even across many files), a search that lists what it finds, formatting, a one-line change.",
+          "An ordinary, well-specified change to one or a few files, or a direct question about code already in view.",
+          "A change across several files that needs working out, a bug whose cause is described but has to be traced, writing tests, or reviewing a diff with care.",
+          "Design across several components, a bug whose cause is unknown, a refactor with many dependents, or careful reasoning about concurrency, performance or failure modes.",
+          "Novel architecture, a security or data-integrity question, a failure that resisted earlier attempts, or work where a subtle mistake is costly and hard to undo."
+        ]
+      },
+      "unresolved": {
+        "type": "choice",
+        "instructions": {
+          "question": "What does `user_message` say about the problem the person and the assistant were last working on at the end of `recent_context`?",
+          "results": "Only the person's own words say whether that problem is solved. What the assistant said about its own work, such as \"fixed\" or \"should work now\", is not a result."
+        },
+        "criteria": {
+          "still_unresolved": "The person says that what was tried for that problem did not work, or that it still happens: the same error again, the same wrong behaviour, a request to look at the same problem once more, or a pasted error that is the one from before.",
+          "resolved": "The person says that problem is solved or accepts the result: it works now, thanks, looks good, or a request to commit, push or wrap up what was done for it.",
+          "new_or_unrelated": "The person turns to a different problem or task, asks something that has nothing to do with that problem, or `recent_context` holds no earlier problem to speak of."
+        }
+      }
+    }
+  },
+  "scoring": "The answer is the effort, right when it is in the accept set of the version asked (the mod's pickEffort over the backend's probabilities, thetaMax as set): the item's `accept` for the deep and near versions and the flow, its `without.accept` for the none version, from which the decisive rounds are deleted; a wrong one is too high or too low. The three-way question is asked with it, as the mod asks it, and scored as a part of its own (`triage`). `seen` is whether the state held the decisive rounds (the mark of their first message is in `recent_context`), the figure that says what a state budget and a message limit did to a request: it is what the answer's accuracy is to be read against. `byDepth` and `byCategory` split the items; `top` is the recall of the top level over the items whose gold is max. The flow variants carry the problem summary and the count the mod would hold after the conversation (the summary written turn by turn by the cheap model over the deep conversation, the count from the decisive rounds' `says`).",
+  "about": {
+    "versions": "deep: the decisive rounds first; near: a few thousand tokens before the message; none: deleted whole",
+    "depths": [
+      30000,
+      60000,
+      120000
+    ],
+    "categories": [
+      "repeated-failure",
+      "second-attempt",
+      "agreed-low-cost",
+      "looks-complex",
+      "misleading-history",
+      "hard-constraint"
+    ]
+  },
+  "summary": {
+    "items": 30,
+    "variants": [
+      {
+        "variant": "zh-score-deep",
+        "zh": {
+          "items": 30,
+          "answered": 30,
+          "failed": 0,
+          "accuracy": 0.7667,
+          "exact": 0.2333,
+          "misses": {
+            "under": 3,
+            "over": 4
+          },
+          "parts": {
+            "effort": 0.7667,
+            "triage": 1
+          },
+          "late": 30,
+          "retried": 0,
+          "inTime": 0
+        },
+        "en": {
+          "items": 30,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "parts": {
+            "effort": 0,
+            "triage": 0
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": 0.7667,
+        "pass": true,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 30,
+          "p50": 8551,
+          "p90": 11895,
+          "max": 12629,
+          "slow": 30
+        },
+        "tags": [
+          {
+            "tag": "looks-complex",
+            "items": 5,
+            "wrong": {
+              "zh": 4,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 4,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "hard-constraint",
+            "items": 3,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "repeated-failure",
+            "items": 10,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "agreed-low-cost",
+            "items": 5,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "misleading-history",
+            "items": 3,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "second-attempt",
+            "items": 4,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          }
+        ],
+        "breakdown": {
+          "version": "deep",
+          "flow": false,
+          "top": {
+            "items": 10,
+            "recall": 0.2
+          },
+          "tooHigh": 0.1333,
+          "tooLow": 0.1,
+          "seen": {
+            "items": 30,
+            "share": 0.3333
+          },
+          "accuracyBySeen": {
+            "seen": 0.9,
+            "notSeen": 0.7
+          },
+          "byDepth": {
+            "30000": {
+              "items": 10,
+              "accuracy": 0.9,
+              "seen": 1,
+              "topRecall": 0.6667
+            },
+            "60000": {
+              "items": 10,
+              "accuracy": 0.7,
+              "seen": 0,
+              "topRecall": 0
+            },
+            "120000": {
+              "items": 10,
+              "accuracy": 0.7,
+              "seen": 0,
+              "topRecall": 0
+            }
+          },
+          "byCategory": {
+            "repeated-failure": {
+              "items": 10,
+              "accuracy": 0.9
+            },
+            "second-attempt": {
+              "items": 4,
+              "accuracy": 1
+            },
+            "agreed-low-cost": {
+              "items": 5,
+              "accuracy": 1
+            },
+            "looks-complex": {
+              "items": 5,
+              "accuracy": 0.2
+            },
+            "misleading-history": {
+              "items": 3,
+              "accuracy": 1
+            },
+            "hard-constraint": {
+              "items": 3,
+              "accuracy": 0.3333
+            }
+          },
+          "stateTokens": {
+            "mean": 41540,
+            "max": 47901
+          },
+          "triage": {
+            "accuracy": 1
+          }
+        }
+      },
+      {
+        "variant": "zh-score-near",
+        "zh": {
+          "items": 30,
+          "answered": 30,
+          "failed": 0,
+          "accuracy": 0.8333,
+          "exact": 0.4,
+          "misses": {
+            "over": 3,
+            "under": 2
+          },
+          "parts": {
+            "effort": 0.8333,
+            "triage": 0.9
+          },
+          "late": 30,
+          "retried": 0,
+          "inTime": 0
+        },
+        "en": {
+          "items": 30,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "parts": {
+            "effort": 0,
+            "triage": 0
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": 0.8333,
+        "pass": true,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 30,
+          "p50": 9032,
+          "p90": 11727,
+          "max": 12167,
+          "slow": 30
+        },
+        "tags": [
+          {
+            "tag": "looks-complex",
+            "items": 5,
+            "wrong": {
+              "zh": 3,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 3,
+                "en": 0
+              },
+              "triage": {
+                "zh": 3,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "hard-constraint",
+            "items": 3,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "agreed-low-cost",
+            "items": 5,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "misleading-history",
+            "items": 3,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "repeated-failure",
+            "items": 10,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "second-attempt",
+            "items": 4,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          }
+        ],
+        "breakdown": {
+          "version": "near",
+          "flow": false,
+          "top": {
+            "items": 10,
+            "recall": 0.6
+          },
+          "tooHigh": 0.1,
+          "tooLow": 0.0667,
+          "seen": {
+            "items": 30,
+            "share": 1
+          },
+          "accuracyBySeen": {
+            "seen": 0.8333,
+            "notSeen": null
+          },
+          "byDepth": {
+            "30000": {
+              "items": 10,
+              "accuracy": 0.8,
+              "seen": 1,
+              "topRecall": 0.6667
+            },
+            "60000": {
+              "items": 10,
+              "accuracy": 0.8,
+              "seen": 1,
+              "topRecall": 0.6667
+            },
+            "120000": {
+              "items": 10,
+              "accuracy": 0.9,
+              "seen": 1,
+              "topRecall": 0.5
+            }
+          },
+          "byCategory": {
+            "repeated-failure": {
+              "items": 10,
+              "accuracy": 1
+            },
+            "second-attempt": {
+              "items": 4,
+              "accuracy": 1
+            },
+            "agreed-low-cost": {
+              "items": 5,
+              "accuracy": 1
+            },
+            "looks-complex": {
+              "items": 5,
+              "accuracy": 0.4
+            },
+            "misleading-history": {
+              "items": 3,
+              "accuracy": 1
+            },
+            "hard-constraint": {
+              "items": 3,
+              "accuracy": 0.3333
+            }
+          },
+          "stateTokens": {
+            "mean": 41248,
+            "max": 47902
+          },
+          "triage": {
+            "accuracy": 0.9
+          }
+        }
+      },
+      {
+        "variant": "zh-score-none",
+        "zh": {
+          "items": 30,
+          "answered": 30,
+          "failed": 0,
+          "accuracy": 0.9,
+          "exact": 0.4,
+          "misses": {
+            "over": 2,
+            "under": 1
+          },
+          "parts": {
+            "effort": 0.9,
+            "triage": 0.9667
+          },
+          "late": 30,
+          "retried": 0,
+          "inTime": 0
+        },
+        "en": {
+          "items": 30,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "parts": {
+            "effort": 0,
+            "triage": 0
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": 0.9,
+        "pass": true,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 30,
+          "p50": 9272,
+          "p90": 9609,
+          "max": 12449,
+          "slow": 30
+        },
+        "tags": [
+          {
+            "tag": "second-attempt",
+            "items": 4,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "looks-complex",
+            "items": 5,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "agreed-low-cost",
+            "items": 5,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "hard-constraint",
+            "items": 3,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "misleading-history",
+            "items": 3,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "repeated-failure",
+            "items": 10,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          }
+        ],
+        "breakdown": {
+          "version": "none",
+          "flow": false,
+          "top": {
+            "items": 0,
+            "recall": null
+          },
+          "tooHigh": 0.0667,
+          "tooLow": 0.0333,
+          "seen": {
+            "items": 0,
+            "share": null
+          },
+          "accuracyBySeen": {
+            "seen": null,
+            "notSeen": null
+          },
+          "byDepth": {
+            "30000": {
+              "items": 10,
+              "accuracy": 0.9,
+              "seen": null,
+              "topRecall": null
+            },
+            "60000": {
+              "items": 10,
+              "accuracy": 0.9,
+              "seen": null,
+              "topRecall": null
+            },
+            "120000": {
+              "items": 10,
+              "accuracy": 0.9,
+              "seen": null,
+              "topRecall": null
+            }
+          },
+          "byCategory": {
+            "repeated-failure": {
+              "items": 10,
+              "accuracy": 1
+            },
+            "second-attempt": {
+              "items": 4,
+              "accuracy": 0.5
+            },
+            "agreed-low-cost": {
+              "items": 5,
+              "accuracy": 1
+            },
+            "looks-complex": {
+              "items": 5,
+              "accuracy": 0.8
+            },
+            "misleading-history": {
+              "items": 3,
+              "accuracy": 1
+            },
+            "hard-constraint": {
+              "items": 3,
+              "accuracy": 1
+            }
+          },
+          "stateTokens": {
+            "mean": 41452,
+            "max": 47901
+          },
+          "triage": {
+            "accuracy": 0.9667
+          }
+        }
+      },
+      {
+        "variant": "en-score-deep",
+        "zh": {
+          "items": 30,
+          "answered": 30,
+          "failed": 0,
+          "accuracy": 0.8,
+          "exact": 0.2667,
+          "misses": {
+            "over": 4,
+            "under": 2
+          },
+          "parts": {
+            "effort": 0.8,
+            "triage": 1
+          },
+          "late": 30,
+          "retried": 0,
+          "inTime": 0
+        },
+        "en": {
+          "items": 30,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "parts": {
+            "effort": 0,
+            "triage": 0
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": 0.8,
+        "pass": true,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 30,
+          "p50": 9265,
+          "p90": 11306,
+          "max": 12738,
+          "slow": 30
+        },
+        "tags": [
+          {
+            "tag": "looks-complex",
+            "items": 5,
+            "wrong": {
+              "zh": 4,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 4,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "hard-constraint",
+            "items": 3,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "agreed-low-cost",
+            "items": 5,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "misleading-history",
+            "items": 3,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "repeated-failure",
+            "items": 10,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "second-attempt",
+            "items": 4,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          }
+        ],
+        "breakdown": {
+          "version": "deep",
+          "flow": false,
+          "top": {
+            "items": 10,
+            "recall": 0.3
+          },
+          "tooHigh": 0.1333,
+          "tooLow": 0.0667,
+          "seen": {
+            "items": 30,
+            "share": 0.3333
+          },
+          "accuracyBySeen": {
+            "seen": 0.9,
+            "notSeen": 0.75
+          },
+          "byDepth": {
+            "30000": {
+              "items": 10,
+              "accuracy": 0.9,
+              "seen": 1,
+              "topRecall": 1
+            },
+            "60000": {
+              "items": 10,
+              "accuracy": 0.7,
+              "seen": 0,
+              "topRecall": 0
+            },
+            "120000": {
+              "items": 10,
+              "accuracy": 0.8,
+              "seen": 0,
+              "topRecall": 0
+            }
+          },
+          "byCategory": {
+            "repeated-failure": {
+              "items": 10,
+              "accuracy": 1
+            },
+            "second-attempt": {
+              "items": 4,
+              "accuracy": 1
+            },
+            "agreed-low-cost": {
+              "items": 5,
+              "accuracy": 1
+            },
+            "looks-complex": {
+              "items": 5,
+              "accuracy": 0.2
+            },
+            "misleading-history": {
+              "items": 3,
+              "accuracy": 1
+            },
+            "hard-constraint": {
+              "items": 3,
+              "accuracy": 0.3333
+            }
+          },
+          "stateTokens": {
+            "mean": 41540,
+            "max": 47901
+          },
+          "triage": {
+            "accuracy": 1
+          }
+        }
+      },
+      {
+        "variant": "en-score-near",
+        "zh": {
+          "items": 30,
+          "answered": 30,
+          "failed": 0,
+          "accuracy": 0.8333,
+          "exact": 0.5,
+          "misses": {
+            "over": 3,
+            "under": 2
+          },
+          "parts": {
+            "effort": 0.8333,
+            "triage": 0.9
+          },
+          "late": 30,
+          "retried": 0,
+          "inTime": 0
+        },
+        "en": {
+          "items": 30,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "parts": {
+            "effort": 0,
+            "triage": 0
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": 0.8333,
+        "pass": true,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 30,
+          "p50": 9196,
+          "p90": 9708,
+          "max": 14185,
+          "slow": 30
+        },
+        "tags": [
+          {
+            "tag": "looks-complex",
+            "items": 5,
+            "wrong": {
+              "zh": 3,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 3,
+                "en": 0
+              },
+              "triage": {
+                "zh": 3,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "hard-constraint",
+            "items": 3,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "agreed-low-cost",
+            "items": 5,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "misleading-history",
+            "items": 3,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "repeated-failure",
+            "items": 10,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "second-attempt",
+            "items": 4,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          }
+        ],
+        "breakdown": {
+          "version": "near",
+          "flow": false,
+          "top": {
+            "items": 10,
+            "recall": 1
+          },
+          "tooHigh": 0.1,
+          "tooLow": 0.0667,
+          "seen": {
+            "items": 30,
+            "share": 1
+          },
+          "accuracyBySeen": {
+            "seen": 0.8333,
+            "notSeen": null
+          },
+          "byDepth": {
+            "30000": {
+              "items": 10,
+              "accuracy": 0.8,
+              "seen": 1,
+              "topRecall": 1
+            },
+            "60000": {
+              "items": 10,
+              "accuracy": 0.8,
+              "seen": 1,
+              "topRecall": 1
+            },
+            "120000": {
+              "items": 10,
+              "accuracy": 0.9,
+              "seen": 1,
+              "topRecall": 1
+            }
+          },
+          "byCategory": {
+            "repeated-failure": {
+              "items": 10,
+              "accuracy": 1
+            },
+            "second-attempt": {
+              "items": 4,
+              "accuracy": 1
+            },
+            "agreed-low-cost": {
+              "items": 5,
+              "accuracy": 1
+            },
+            "looks-complex": {
+              "items": 5,
+              "accuracy": 0.4
+            },
+            "misleading-history": {
+              "items": 3,
+              "accuracy": 1
+            },
+            "hard-constraint": {
+              "items": 3,
+              "accuracy": 0.3333
+            }
+          },
+          "stateTokens": {
+            "mean": 41248,
+            "max": 47902
+          },
+          "triage": {
+            "accuracy": 0.9
+          }
+        }
+      },
+      {
+        "variant": "en-score-none",
+        "zh": {
+          "items": 30,
+          "answered": 30,
+          "failed": 0,
+          "accuracy": 0.8667,
+          "exact": 0.3333,
+          "misses": {
+            "over": 3,
+            "under": 1
+          },
+          "parts": {
+            "effort": 0.8667,
+            "triage": 1
+          },
+          "late": 30,
+          "retried": 0,
+          "inTime": 0
+        },
+        "en": {
+          "items": 30,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "parts": {
+            "effort": 0,
+            "triage": 0
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": 0.8667,
+        "pass": true,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 30,
+          "p50": 9175,
+          "p90": 11840,
+          "max": 14491,
+          "slow": 30
+        },
+        "tags": [
+          {
+            "tag": "second-attempt",
+            "items": 4,
+            "wrong": {
+              "zh": 3,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 3,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "looks-complex",
+            "items": 5,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "agreed-low-cost",
+            "items": 5,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "hard-constraint",
+            "items": 3,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "misleading-history",
+            "items": 3,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "repeated-failure",
+            "items": 10,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          }
+        ],
+        "breakdown": {
+          "version": "none",
+          "flow": false,
+          "top": {
+            "items": 0,
+            "recall": null
+          },
+          "tooHigh": 0.1,
+          "tooLow": 0.0333,
+          "seen": {
+            "items": 0,
+            "share": null
+          },
+          "accuracyBySeen": {
+            "seen": null,
+            "notSeen": null
+          },
+          "byDepth": {
+            "30000": {
+              "items": 10,
+              "accuracy": 0.8,
+              "seen": null,
+              "topRecall": null
+            },
+            "60000": {
+              "items": 10,
+              "accuracy": 0.9,
+              "seen": null,
+              "topRecall": null
+            },
+            "120000": {
+              "items": 10,
+              "accuracy": 0.9,
+              "seen": null,
+              "topRecall": null
+            }
+          },
+          "byCategory": {
+            "repeated-failure": {
+              "items": 10,
+              "accuracy": 1
+            },
+            "second-attempt": {
+              "items": 4,
+              "accuracy": 0.25
+            },
+            "agreed-low-cost": {
+              "items": 5,
+              "accuracy": 1
+            },
+            "looks-complex": {
+              "items": 5,
+              "accuracy": 0.8
+            },
+            "misleading-history": {
+              "items": 3,
+              "accuracy": 1
+            },
+            "hard-constraint": {
+              "items": 3,
+              "accuracy": 1
+            }
+          },
+          "stateTokens": {
+            "mean": 41452,
+            "max": 47901
+          },
+          "triage": {
+            "accuracy": 1
+          }
+        }
+      }
+    ],
+    "constants": [
+      {
+        "answer": "low",
+        "accuracy": 0.4333,
+        "exact": 0.2667
+      },
+      {
+        "answer": "medium",
+        "accuracy": 0.4333,
+        "exact": 0.1667
+      },
+      {
+        "answer": "high",
+        "accuracy": 0.1333,
+        "exact": 0.1333
+      },
+      {
+        "answer": "xhigh",
+        "accuracy": 0.5667,
+        "exact": 0.1
+      },
+      {
+        "answer": "max",
+        "accuracy": 0.4333,
+        "exact": 0.3333
+      }
+    ]
+  },
+  "answers": [
+    {"id":"long-001","language":"zh","zh-score-deep":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.002,0.003,0.062,0.276,0.657],"confidence":0.7914751973687842,"triage":"unresolved","triageP":{"unresolved":0.979,"resolved":0.002,"new":0.019},"triageChange":"add","seen":true,"stateTokens":30175,"kept":60,"depth":30000,"ms":3189,"attempts":1,"tokens":61208,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到重连那个问题，我在弱网下又跑了一遍，还是会掉线。","recent_context":{"chars":89127,"lines":60,"first":"user: `ws/reconnect.ts` 里的重连在弱网下会一直掉线，手机切到地铁里信号差的时候，连上几秒就断，帮我修一下","last":"assistant: [tools: Grep, Read] 配置在 ws/backoff.ts 里，可调的项有： - ws/heartbeat.ts：合并默认配置，约 380 行，被 5 处引用 - ws/heartbeat.ts：归一化大小写，约 133 行，被 8 处引用 - ws/reconnect.ts：补齐"}}},"zh-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.003,0.007,0.075,0.235,0.68],"confidence":0.7914635510014109,"triage":"unresolved","triageP":{"unresolved":0.987,"resolved":0.001,"new":0.012},"triageChange":"add","seen":true,"stateTokens":30175,"kept":60,"depth":30000,"ms":3183,"attempts":1,"tokens":61208,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到重连那个问题，我在弱网下又跑了一遍，还是会掉线。","recent_context":{"chars":89127,"lines":60,"first":"user: 给 scheduleRetry 写几条单测，先照现在的行为写","last":"assistant: [tools: Grep, Read] 配置在 ws/backoff.ts 里，可调的项有： - ws/heartbeat.ts：合并默认配置，约 380 行，被 5 处引用 - ws/heartbeat.ts：归一化大小写，约 133 行，被 8 处引用 - ws/reconnect.ts：补齐"}}},"zh-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.005,0.015,0.27,0.577,0.133],"confidence":0.6805325035194536,"triage":"unresolved","triageP":{"unresolved":0.896,"resolved":0.004,"new":0.101},"triageChange":"add","stateTokens":29767,"kept":50,"depth":30000,"ms":3163,"attempts":1,"tokens":60560,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到重连那个问题，我在弱网下又跑了一遍，还是会掉线。","recent_context":{"chars":88515,"lines":50,"first":"user: 给 scheduleRetry 写几条单测，先照现在的行为写","last":"assistant: [tools: Grep, Read] 配置在 ws/backoff.ts 里，可调的项有： - ws/heartbeat.ts：合并默认配置，约 380 行，被 5 处引用 - ws/heartbeat.ts：归一化大小写，约 133 行，被 8 处引用 - ws/reconnect.ts：补齐"}}},"en-score-deep":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.002,0.005,0.025,0.119,0.849],"confidence":0.9032830221388617,"triage":"unresolved","triageP":{"unresolved":0.987,"resolved":0.001,"new":0.012},"triageChange":"add","seen":true,"stateTokens":30175,"kept":60,"depth":30000,"ms":1952,"attempts":1,"tokens":61278,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到重连那个问题，我在弱网下又跑了一遍，还是会掉线。","recent_context":{"chars":89127,"lines":60,"first":"user: `ws/reconnect.ts` 里的重连在弱网下会一直掉线，手机切到地铁里信号差的时候，连上几秒就断，帮我修一下","last":"assistant: [tools: Grep, Read] 配置在 ws/backoff.ts 里，可调的项有： - ws/heartbeat.ts：合并默认配置，约 380 行，被 5 处引用 - ws/heartbeat.ts：归一化大小写，约 133 行，被 8 处引用 - ws/reconnect.ts：补齐"}}},"en-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.003,0.007,0.026,0.112,0.851],"confidence":0.9003397025535962,"triage":"unresolved","triageP":{"unresolved":0.99,"resolved":0.001,"new":0.009},"triageChange":"add","seen":true,"stateTokens":30175,"kept":60,"depth":30000,"ms":5314,"attempts":1,"tokens":61278,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到重连那个问题，我在弱网下又跑了一遍，还是会掉线。","recent_context":{"chars":89127,"lines":60,"first":"user: 给 scheduleRetry 写几条单测，先照现在的行为写","last":"assistant: [tools: Grep, Read] 配置在 ws/backoff.ts 里，可调的项有： - ws/heartbeat.ts：合并默认配置，约 380 行，被 5 处引用 - ws/heartbeat.ts：归一化大小写，约 133 行，被 8 处引用 - ws/reconnect.ts：补齐"}}},"en-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.004,0.013,0.109,0.613,0.261],"confidence":0.7087938776078169,"triage":"unresolved","triageP":{"unresolved":0.928,"resolved":0.003,"new":0.069},"triageChange":"add","stateTokens":29767,"kept":50,"depth":30000,"ms":7282,"attempts":1,"tokens":60630,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到重连那个问题，我在弱网下又跑了一遍，还是会掉线。","recent_context":{"chars":88515,"lines":50,"first":"user: 给 scheduleRetry 写几条单测，先照现在的行为写","last":"assistant: [tools: Grep, Read] 配置在 ws/backoff.ts 里，可调的项有： - ws/heartbeat.ts：合并默认配置，约 380 行，被 5 处引用 - ws/heartbeat.ts：归一化大小写，约 133 行，被 8 处引用 - ws/reconnect.ts：补齐"}}}},
+    {"id":"long-002","language":"zh","zh-score-deep":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.005,0.007,0.091,0.097,0.799],"confidence":0.8390497943467086,"triage":"unresolved","triageP":{"unresolved":0.948,"resolved":0.005,"new":0.047},"triageChange":"add","seen":true,"stateTokens":30042,"kept":70,"depth":30000,"ms":8551,"attempts":1,"tokens":59422,"model":"pplx-decider-v1.1-27b","state":{"user_message":"报表导出那个偶发失败的测试，我昨天又在 CI 上跑了几次，还是会红。","recent_context":{"chars":89948,"lines":70,"first":"user: `test_report_export` 在 CI 上大概五次挂一次，本地跑一百遍都不挂，断言是导出的第一行和期望的不一样，帮我查查","last":"assistant: [tools: Read] 我对照了一下 app/report/rows.py 的类型定义，字段和这里用到的是对得上的，没有多余的转换。这个模块没有外部依赖，只用到标准库，所以可以放心地单独跑它的测试。 - app/report/rows.py：合并默认配置，约 364 行，被 1 处引用 - t"}}},"zh-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.01,0.018,0.158,0.18,0.634],"confidence":0.704252307795844,"triage":"unresolved","triageP":{"unresolved":0.911,"resolved":0.004,"new":0.085},"triageChange":"add","seen":true,"stateTokens":30042,"kept":70,"depth":30000,"ms":7184,"attempts":1,"tokens":59422,"model":"pplx-decider-v1.1-27b","state":{"user_message":"报表导出那个偶发失败的测试，我昨天又在 CI 上跑了几次，还是会红。","recent_context":{"chars":89948,"lines":70,"first":"user: ReportWriter 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read] 我对照了一下 app/report/rows.py 的类型定义，字段和这里用到的是对得上的，没有多余的转换。这个模块没有外部依赖，只用到标准库，所以可以放心地单独跑它的测试。 - app/report/rows.py：合并默认配置，约 364 行，被 1 处引用 - t"}}},"zh-score-none":{"answer":"xhigh / new","correct":true,"gold":false,"parts":{"effort":true,"triage":false},"p":[0.01,0.027,0.34,0.444,0.179],"confidence":0.5700093247822331,"triage":"new","triageP":{"unresolved":0.431,"resolved":0.007,"new":0.562},"triageChange":"keep","stateTokens":29648,"kept":60,"depth":30000,"ms":7136,"attempts":1,"tokens":58790,"model":"pplx-decider-v1.1-27b","state":{"user_message":"报表导出那个偶发失败的测试，我昨天又在 CI 上跑了几次，还是会红。","recent_context":{"chars":89323,"lines":60,"first":"user: ReportWriter 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read] 我对照了一下 app/report/rows.py 的类型定义，字段和这里用到的是对得上的，没有多余的转换。这个模块没有外部依赖，只用到标准库，所以可以放心地单独跑它的测试。 - app/report/rows.py：合并默认配置，约 364 行，被 1 处引用 - t"}}},"en-score-deep":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.009,0.015,0.046,0.08,0.851],"confidence":0.8741302014647503,"triage":"unresolved","triageP":{"unresolved":0.976,"resolved":0.001,"new":0.023},"triageChange":"add","seen":true,"stateTokens":30042,"kept":70,"depth":30000,"ms":5883,"attempts":1,"tokens":59492,"model":"pplx-decider-v1.1-27b","state":{"user_message":"报表导出那个偶发失败的测试，我昨天又在 CI 上跑了几次，还是会红。","recent_context":{"chars":89948,"lines":70,"first":"user: `test_report_export` 在 CI 上大概五次挂一次，本地跑一百遍都不挂，断言是导出的第一行和期望的不一样，帮我查查","last":"assistant: [tools: Read] 我对照了一下 app/report/rows.py 的类型定义，字段和这里用到的是对得上的，没有多余的转换。这个模块没有外部依赖，只用到标准库，所以可以放心地单独跑它的测试。 - app/report/rows.py：合并默认配置，约 364 行，被 1 处引用 - t"}}},"en-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.015,0.03,0.053,0.122,0.779],"confidence":0.8092710080399101,"triage":"unresolved","triageP":{"unresolved":0.976,"resolved":0.001,"new":0.023},"triageChange":"add","seen":true,"stateTokens":30042,"kept":70,"depth":30000,"ms":5851,"attempts":1,"tokens":59492,"model":"pplx-decider-v1.1-27b","state":{"user_message":"报表导出那个偶发失败的测试，我昨天又在 CI 上跑了几次，还是会红。","recent_context":{"chars":89948,"lines":70,"first":"user: ReportWriter 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read] 我对照了一下 app/report/rows.py 的类型定义，字段和这里用到的是对得上的，没有多余的转换。这个模块没有外部依赖，只用到标准库，所以可以放心地单独跑它的测试。 - app/report/rows.py：合并默认配置，约 364 行，被 1 处引用 - t"}}},"en-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.008,0.023,0.135,0.486,0.347],"confidence":0.6051233219395299,"triage":"unresolved","triageP":{"unresolved":0.654,"resolved":0.004,"new":0.342},"triageChange":"add","stateTokens":29648,"kept":60,"depth":30000,"ms":5842,"attempts":1,"tokens":58860,"model":"pplx-decider-v1.1-27b","state":{"user_message":"报表导出那个偶发失败的测试，我昨天又在 CI 上跑了几次，还是会红。","recent_context":{"chars":89323,"lines":60,"first":"user: ReportWriter 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read] 我对照了一下 app/report/rows.py 的类型定义，字段和这里用到的是对得上的，没有多余的转换。这个模块没有外部依赖，只用到标准库，所以可以放心地单独跑它的测试。 - app/report/rows.py：合并默认配置，约 364 行，被 1 处引用 - t"}}}},
+    {"id":"long-003","language":"zh","zh-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.019,0.026,0.118,0.488,0.349],"confidence":0.5885417838999125,"triage":"unresolved","triageP":{"unresolved":0.974,"resolved":0.003,"new":0.023},"triageChange":"add","seen":true,"stateTokens":30161,"kept":64,"depth":30000,"ms":5888,"attempts":1,"tokens":61034,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回源风暴那个问题，今天上午十点整又来了一次尖峰。","recent_context":{"chars":88984,"lines":64,"first":"user: 商品详情缓存一过期，数据库 QPS 就冲到平时的二十倍，回源风暴，每隔十分钟一次，帮我看看 `cache/loader.go`","last":"assistant: [tools: Read] service/product.go 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。这个函数不长，但分支比看上去多：空输入、单条输入、超过上限的输入各走一条路径。 - service/product.go：拆分批次，约 103 行，被 7 处引"}}},"zh-score-near":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.032,0.04,0.117,0.442,0.369],"confidence":0.5272753427846353,"triage":"unresolved","triageP":{"unresolved":0.98,"resolved":0.004,"new":0.016},"triageChange":"add","seen":true,"stateTokens":30161,"kept":64,"depth":30000,"ms":5915,"attempts":1,"tokens":61034,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回源风暴那个问题，今天上午十点整又来了一次尖峰。","recent_context":{"chars":88984,"lines":64,"first":"user: GetOrLoad 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read] service/product.go 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。这个函数不长，但分支比看上去多：空输入、单条输入、超过上限的输入各走一条路径。 - service/product.go：拆分批次，约 103 行，被 7 处引"}}},"zh-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.059,0.073,0.171,0.577,0.121],"confidence":0.5615213273788819,"triage":"unresolved","triageP":{"unresolved":0.671,"resolved":0.007,"new":0.322},"triageChange":"add","stateTokens":29757,"kept":54,"depth":30000,"ms":5935,"attempts":1,"tokens":60394,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回源风暴那个问题，今天上午十点整又来了一次尖峰。","recent_context":{"chars":88340,"lines":54,"first":"user: GetOrLoad 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read] service/product.go 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。这个函数不长，但分支比看上去多：空输入、单条输入、超过上限的输入各走一条路径。 - service/product.go：拆分批次，约 103 行，被 7 处引"}}},"en-score-deep":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.03,0.031,0.088,0.285,0.567],"confidence":0.6644745764585864,"triage":"unresolved","triageP":{"unresolved":0.989,"resolved":0.001,"new":0.01},"triageChange":"add","seen":true,"stateTokens":30161,"kept":64,"depth":30000,"ms":5939,"attempts":1,"tokens":61104,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回源风暴那个问题，今天上午十点整又来了一次尖峰。","recent_context":{"chars":88984,"lines":64,"first":"user: 商品详情缓存一过期，数据库 QPS 就冲到平时的二十倍，回源风暴，每隔十分钟一次，帮我看看 `cache/loader.go`","last":"assistant: [tools: Read] service/product.go 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。这个函数不长，但分支比看上去多：空输入、单条输入、超过上限的输入各走一条路径。 - service/product.go：拆分批次，约 103 行，被 7 处引"}}},"en-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.057,0.047,0.088,0.272,0.536],"confidence":0.5919634947849577,"triage":"unresolved","triageP":{"unresolved":0.988,"resolved":0.002,"new":0.011},"triageChange":"add","seen":true,"stateTokens":30161,"kept":64,"depth":30000,"ms":5978,"attempts":1,"tokens":61104,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回源风暴那个问题，今天上午十点整又来了一次尖峰。","recent_context":{"chars":88984,"lines":64,"first":"user: GetOrLoad 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read] service/product.go 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。这个函数不长，但分支比看上去多：空输入、单条输入、超过上限的输入各走一条路径。 - service/product.go：拆分批次，约 103 行，被 7 处引"}}},"en-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.07,0.075,0.129,0.492,0.234],"confidence":0.4840034536418084,"triage":"unresolved","triageP":{"unresolved":0.694,"resolved":0.005,"new":0.301},"triageChange":"add","stateTokens":29757,"kept":54,"depth":30000,"ms":6001,"attempts":1,"tokens":60464,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回源风暴那个问题，今天上午十点整又来了一次尖峰。","recent_context":{"chars":88340,"lines":54,"first":"user: GetOrLoad 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read] service/product.go 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。这个函数不长，但分支比看上去多：空输入、单条输入、超过上限的输入各走一条路径。 - service/product.go：拆分批次，约 103 行，被 7 处引"}}}},
+    {"id":"long-004","language":"zh","zh-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.014,0.028,0.22,0.405,0.333],"confidence":0.5351958246257853,"triage":"unresolved","triageP":{"unresolved":0.755,"resolved":0.007,"new":0.238},"triageChange":"add","seen":false,"stateTokens":47839,"kept":98,"depth":60000,"ms":7098,"attempts":1,"tokens":94824,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到 arm64 镜像那个问题，我在 Graviton 机器上又构建了一次，还是崩。","recent_context":{"chars":137335,"lines":98,"first":"user: ci/build.yml 和 scripts/build_image.sh 的职责怎么划分的？讲一下","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 scripts/build_image.sh.test.ts 里： ```ts export interface Pip_installOptions { id: string value: number tags?: boolea"}}},"zh-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.007,0.017,0.114,0.178,0.684],"confidence":0.757395212917439,"triage":"unresolved","triageP":{"unresolved":0.984,"resolved":0.002,"new":0.014},"triageChange":"add","seen":true,"stateTokens":45556,"kept":108,"depth":60000,"ms":10170,"attempts":1,"tokens":90218,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到 arm64 镜像那个问题，我在 Graviton 机器上又构建了一次，还是崩。","recent_context":{"chars":129707,"lines":108,"first":"user: platform_flag 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 scripts/build_image.sh.test.ts 里： ```ts export interface Pip_installOptions { id: string value: number tags?: boolea"}}},"zh-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.014,0.028,0.22,0.405,0.333],"confidence":0.5351958246257853,"triage":"unresolved","triageP":{"unresolved":0.755,"resolved":0.007,"new":0.238},"triageChange":"add","stateTokens":47839,"kept":98,"depth":60000,"ms":11338,"attempts":1,"tokens":94824,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到 arm64 镜像那个问题，我在 Graviton 机器上又构建了一次，还是崩。","recent_context":{"chars":137335,"lines":98,"first":"user: ci/build.yml 和 scripts/build_image.sh 的职责怎么划分的？讲一下","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 scripts/build_image.sh.test.ts 里： ```ts export interface Pip_installOptions { id: string value: number tags?: boolea"}}},"en-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.012,0.023,0.098,0.381,0.486],"confidence":0.6524559147060565,"triage":"unresolved","triageP":{"unresolved":0.913,"resolved":0.003,"new":0.084},"triageChange":"add","seen":false,"stateTokens":47839,"kept":98,"depth":60000,"ms":11306,"attempts":1,"tokens":94894,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到 arm64 镜像那个问题，我在 Graviton 机器上又构建了一次，还是崩。","recent_context":{"chars":137335,"lines":98,"first":"user: ci/build.yml 和 scripts/build_image.sh 的职责怎么划分的？讲一下","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 scripts/build_image.sh.test.ts 里： ```ts export interface Pip_installOptions { id: string value: number tags?: boolea"}}},"en-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.008,0.015,0.067,0.135,0.775],"confidence":0.8273061641198964,"triage":"unresolved","triageP":{"unresolved":0.986,"resolved":0.001,"new":0.013},"triageChange":"add","seen":true,"stateTokens":45556,"kept":108,"depth":60000,"ms":9215,"attempts":1,"tokens":90288,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到 arm64 镜像那个问题，我在 Graviton 机器上又构建了一次，还是崩。","recent_context":{"chars":129707,"lines":108,"first":"user: platform_flag 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 scripts/build_image.sh.test.ts 里： ```ts export interface Pip_installOptions { id: string value: number tags?: boolea"}}},"en-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.012,0.023,0.098,0.381,0.486],"confidence":0.6524559147060565,"triage":"unresolved","triageP":{"unresolved":0.913,"resolved":0.003,"new":0.084},"triageChange":"add","stateTokens":47839,"kept":98,"depth":60000,"ms":9175,"attempts":1,"tokens":94894,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到 arm64 镜像那个问题，我在 Graviton 机器上又构建了一次，还是崩。","recent_context":{"chars":137335,"lines":98,"first":"user: ci/build.yml 和 scripts/build_image.sh 的职责怎么划分的？讲一下","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 scripts/build_image.sh.test.ts 里： ```ts export interface Pip_installOptions { id: string value: number tags?: boolea"}}}},
+    {"id":"long-005","language":"zh","zh-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.015,0.037,0.484,0.407,0.057],"confidence":0.5096887185641594,"triage":"unresolved","triageP":{"unresolved":0.828,"resolved":0.009,"new":0.163},"triageChange":"add","seen":false,"stateTokens":47901,"kept":101,"depth":60000,"ms":9230,"attempts":1,"tokens":96644,"model":"pplx-decider-v1.1-27b","state":{"user_message":"列表滚动那个白屏的问题，我拿了台低端安卓又试了一遍，还是会闪白。","recent_context":{"chars":141039,"lines":101,"first":"assistant: [tools: Read] VirtualList 的入口在 src/components/VirtualList.tsx，它先回写状态，再统计耗时，最后过滤空值。如果只想了解整体，读 src/components/Row.tsx 的前 115 行就够了，后面是各个分支的细节。src/compon","last":"assistant: [tools: Read] 这里的命名沿用了仓库里的习惯：动词在前，对象在后，白屏相关的函数都带前缀。src/store/feed.ts 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。 - src/store/feed.ts：截断过长的文本，约 52 行，被 5 处引用 "}}},"zh-score-near":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.013,0.038,0.197,0.444,0.307],"confidence":0.556425845093194,"triage":"unresolved","triageP":{"unresolved":0.979,"resolved":0.003,"new":0.018},"triageChange":"add","seen":true,"stateTokens":47037,"kept":112,"depth":60000,"ms":9352,"attempts":1,"tokens":94674,"model":"pplx-decider-v1.1-27b","state":{"user_message":"列表滚动那个白屏的问题，我拿了台低端安卓又试了一遍，还是会闪白。","recent_context":{"chars":138131,"lines":112,"first":"user: 跑一下 src/components/VirtualList.tsx 对应的测试，看看现在的情况","last":"assistant: [tools: Read] 这里的命名沿用了仓库里的习惯：动词在前，对象在后，白屏相关的函数都带前缀。src/store/feed.ts 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。 - src/store/feed.ts：截断过长的文本，约 52 行，被 5 处引用 "}}},"zh-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.015,0.037,0.484,0.407,0.057],"confidence":0.5096887185641594,"triage":"unresolved","triageP":{"unresolved":0.828,"resolved":0.009,"new":0.163},"triageChange":"add","stateTokens":47901,"kept":101,"depth":60000,"ms":9429,"attempts":1,"tokens":96644,"model":"pplx-decider-v1.1-27b","state":{"user_message":"列表滚动那个白屏的问题，我拿了台低端安卓又试了一遍，还是会闪白。","recent_context":{"chars":141039,"lines":101,"first":"assistant: [tools: Read] VirtualList 的入口在 src/components/VirtualList.tsx，它先回写状态，再统计耗时，最后过滤空值。如果只想了解整体，读 src/components/Row.tsx 的前 115 行就够了，后面是各个分支的细节。src/compon","last":"assistant: [tools: Read] 这里的命名沿用了仓库里的习惯：动词在前，对象在后，白屏相关的函数都带前缀。src/store/feed.ts 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。 - src/store/feed.ts：截断过长的文本，约 52 行，被 5 处引用 "}}},"en-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.027,0.062,0.285,0.512,0.114],"confidence":0.5681501681279189,"triage":"unresolved","triageP":{"unresolved":0.928,"resolved":0.005,"new":0.067},"triageChange":"add","seen":false,"stateTokens":47901,"kept":101,"depth":60000,"ms":9611,"attempts":1,"tokens":96714,"model":"pplx-decider-v1.1-27b","state":{"user_message":"列表滚动那个白屏的问题，我拿了台低端安卓又试了一遍，还是会闪白。","recent_context":{"chars":141039,"lines":101,"first":"assistant: [tools: Read] VirtualList 的入口在 src/components/VirtualList.tsx，它先回写状态，再统计耗时，最后过滤空值。如果只想了解整体，读 src/components/Row.tsx 的前 115 行就够了，后面是各个分支的细节。src/compon","last":"assistant: [tools: Read] 这里的命名沿用了仓库里的习惯：动词在前，对象在后，白屏相关的函数都带前缀。src/store/feed.ts 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。 - src/store/feed.ts：截断过长的文本，约 52 行，被 5 处引用 "}}},"en-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.016,0.036,0.099,0.306,0.542],"confidence":0.6608690164752282,"triage":"unresolved","triageP":{"unresolved":0.992,"resolved":0.001,"new":0.007},"triageChange":"add","seen":true,"stateTokens":47037,"kept":112,"depth":60000,"ms":10087,"attempts":1,"tokens":94744,"model":"pplx-decider-v1.1-27b","state":{"user_message":"列表滚动那个白屏的问题，我拿了台低端安卓又试了一遍，还是会闪白。","recent_context":{"chars":138131,"lines":112,"first":"user: 跑一下 src/components/VirtualList.tsx 对应的测试，看看现在的情况","last":"assistant: [tools: Read] 这里的命名沿用了仓库里的习惯：动词在前，对象在后，白屏相关的函数都带前缀。src/store/feed.ts 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。 - src/store/feed.ts：截断过长的文本，约 52 行，被 5 处引用 "}}},"en-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.027,0.062,0.285,0.512,0.114],"confidence":0.5681501681279189,"triage":"unresolved","triageP":{"unresolved":0.928,"resolved":0.005,"new":0.067},"triageChange":"add","stateTokens":47901,"kept":101,"depth":60000,"ms":12661,"attempts":1,"tokens":96714,"model":"pplx-decider-v1.1-27b","state":{"user_message":"列表滚动那个白屏的问题，我拿了台低端安卓又试了一遍，还是会闪白。","recent_context":{"chars":141039,"lines":101,"first":"assistant: [tools: Read] VirtualList 的入口在 src/components/VirtualList.tsx，它先回写状态，再统计耗时，最后过滤空值。如果只想了解整体，读 src/components/Row.tsx 的前 115 行就够了，后面是各个分支的细节。src/compon","last":"assistant: [tools: Read] 这里的命名沿用了仓库里的习惯：动词在前，对象在后，白屏相关的函数都带前缀。src/store/feed.ts 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。 - src/store/feed.ts：截断过长的文本，约 52 行，被 5 处引用 "}}}},
+    {"id":"long-006","language":"zh","zh-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.005,0.012,0.317,0.534,0.132],"confidence":0.651571193925872,"triage":"unresolved","triageP":{"unresolved":0.752,"resolved":0.004,"new":0.244},"triageChange":"add","seen":false,"stateTokens":47830,"kept":90,"depth":60000,"ms":12626,"attempts":1,"tokens":95626,"model":"pplx-decider-v1.1-27b","state":{"user_message":"重复消费那个问题，今天凌晨发版触发了 rebalance，下游又出现了重复。","recent_context":{"chars":143025,"lines":90,"first":"user: 这是我本地跑出来的日志，你看看这几行是干嘛的： 2026-10-02T09:01:27Z INFO worker-4 consumer/offset_store.java:382 released lease batch=90 items=72 took=61ms 2026-10-04T09:08:41Z ","last":"assistant: [tools: Grep, Read] 配置在 consumer/runner.java 里，可调的项有： - consumer/runner.java：过滤空值，约 147 行，被 1 处引用 - config/consumer.properties：合并默认配置，约 228 行，被 3 处引用"}}},"zh-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.004,0.011,0.131,0.338,0.516],"confidence":0.6751315998483229,"triage":"unresolved","triageP":{"unresolved":0.987,"resolved":0.001,"new":0.011},"triageChange":"add","seen":true,"stateTokens":47720,"kept":100,"depth":60000,"ms":12167,"attempts":1,"tokens":94896,"model":"pplx-decider-v1.1-27b","state":{"user_message":"重复消费那个问题，今天凌晨发版触发了 rebalance，下游又出现了重复。","recent_context":{"chars":142182,"lines":100,"first":"user: 懂了，那另一块呢","last":"assistant: [tools: Grep, Read] 配置在 consumer/runner.java 里，可调的项有： - consumer/runner.java：过滤空值，约 147 行，被 1 处引用 - config/consumer.properties：合并默认配置，约 228 行，被 3 处引用"}}},"zh-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.005,0.012,0.317,0.534,0.132],"confidence":0.651571193925872,"triage":"unresolved","triageP":{"unresolved":0.752,"resolved":0.004,"new":0.244},"triageChange":"add","stateTokens":47830,"kept":90,"depth":60000,"ms":9564,"attempts":1,"tokens":95626,"model":"pplx-decider-v1.1-27b","state":{"user_message":"重复消费那个问题，今天凌晨发版触发了 rebalance，下游又出现了重复。","recent_context":{"chars":143025,"lines":90,"first":"user: 这是我本地跑出来的日志，你看看这几行是干嘛的： 2026-10-02T09:01:27Z INFO worker-4 consumer/offset_store.java:382 released lease batch=90 items=72 took=61ms 2026-10-04T09:08:41Z ","last":"assistant: [tools: Grep, Read] 配置在 consumer/runner.java 里，可调的项有： - consumer/runner.java：过滤空值，约 147 行，被 1 处引用 - config/consumer.properties：合并默认配置，约 228 行，被 3 处引用"}}},"en-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.006,0.015,0.246,0.594,0.14],"confidence":0.6907001797436754,"triage":"unresolved","triageP":{"unresolved":0.868,"resolved":0.003,"new":0.129},"triageChange":"add","seen":false,"stateTokens":47830,"kept":90,"depth":60000,"ms":9522,"attempts":1,"tokens":95696,"model":"pplx-decider-v1.1-27b","state":{"user_message":"重复消费那个问题，今天凌晨发版触发了 rebalance，下游又出现了重复。","recent_context":{"chars":143025,"lines":90,"first":"user: 这是我本地跑出来的日志，你看看这几行是干嘛的： 2026-10-02T09:01:27Z INFO worker-4 consumer/offset_store.java:382 released lease batch=90 items=72 took=61ms 2026-10-04T09:08:41Z ","last":"assistant: [tools: Grep, Read] 配置在 consumer/runner.java 里，可调的项有： - consumer/runner.java：过滤空值，约 147 行，被 1 处引用 - config/consumer.properties：合并默认配置，约 228 行，被 3 处引用"}}},"en-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.005,0.01,0.082,0.205,0.698],"confidence":0.7892143354968035,"triage":"unresolved","triageP":{"unresolved":0.989,"resolved":0.001,"new":0.01},"triageChange":"add","seen":true,"stateTokens":47720,"kept":100,"depth":60000,"ms":9664,"attempts":1,"tokens":94966,"model":"pplx-decider-v1.1-27b","state":{"user_message":"重复消费那个问题，今天凌晨发版触发了 rebalance，下游又出现了重复。","recent_context":{"chars":142182,"lines":100,"first":"user: 懂了，那另一块呢","last":"assistant: [tools: Grep, Read] 配置在 consumer/runner.java 里，可调的项有： - consumer/runner.java：过滤空值，约 147 行，被 1 处引用 - config/consumer.properties：合并默认配置，约 228 行，被 3 处引用"}}},"en-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.006,0.015,0.246,0.594,0.14],"confidence":0.6907001797436754,"triage":"unresolved","triageP":{"unresolved":0.868,"resolved":0.003,"new":0.129},"triageChange":"add","stateTokens":47830,"kept":90,"depth":60000,"ms":9784,"attempts":1,"tokens":95696,"model":"pplx-decider-v1.1-27b","state":{"user_message":"重复消费那个问题，今天凌晨发版触发了 rebalance，下游又出现了重复。","recent_context":{"chars":143025,"lines":90,"first":"user: 这是我本地跑出来的日志，你看看这几行是干嘛的： 2026-10-02T09:01:27Z INFO worker-4 consumer/offset_store.java:382 released lease batch=90 items=72 took=61ms 2026-10-04T09:08:41Z ","last":"assistant: [tools: Grep, Read] 配置在 consumer/runner.java 里，可调的项有： - consumer/runner.java：过滤空值，约 147 行，被 1 处引用 - config/consumer.properties：合并默认配置，约 228 行，被 3 处引用"}}}},
+    {"id":"long-007","language":"zh","zh-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.007,0.018,0.202,0.656,0.118],"confidence":0.7311156442037395,"triage":"unresolved","triageP":{"unresolved":0.667,"resolved":0.01,"new":0.323},"triageChange":"add","seen":false,"stateTokens":46638,"kept":92,"depth":120000,"ms":9623,"attempts":1,"tokens":93052,"model":"pplx-decider-v1.1-27b","state":{"user_message":"内存增长的问题，新版本跑了两天，曲线还是慢慢往上爬。","recent_context":{"chars":141093,"lines":92,"first":"user: ok，你顺着讲","last":"assistant: [tools: Read, Grep] 读了这两个文件。顺带一提，cmd/server/main.go 的头部注释已经过时了，它还在说协程由调用方记录指标，实际上现在是 Submit 在做。我对照了一下 internal/worker/pool.go 的类型定义，字段和这里用到的是对得上的，没有多"}}},"zh-score-near":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.009,0.018,0.189,0.439,0.345],"confidence":0.5729849822221615,"triage":"unresolved","triageP":{"unresolved":0.889,"resolved":0.003,"new":0.107},"triageChange":"add","seen":true,"stateTokens":47137,"kept":104,"depth":120000,"ms":9465,"attempts":1,"tokens":93888,"model":"pplx-decider-v1.1-27b","state":{"user_message":"内存增长的问题，新版本跑了两天，曲线还是慢慢往上爬。","recent_context":{"chars":141958,"lines":104,"first":"user: ok，你顺着讲","last":"assistant: [tools: Read, Grep] 读了这两个文件。顺带一提，cmd/server/main.go 的头部注释已经过时了，它还在说协程由调用方记录指标，实际上现在是 Submit 在做。我对照了一下 internal/worker/pool.go 的类型定义，字段和这里用到的是对得上的，没有多"}}},"zh-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.007,0.018,0.202,0.656,0.118],"confidence":0.7311156442037395,"triage":"unresolved","triageP":{"unresolved":0.667,"resolved":0.01,"new":0.323},"triageChange":"add","stateTokens":46638,"kept":92,"depth":120000,"ms":9269,"attempts":1,"tokens":93052,"model":"pplx-decider-v1.1-27b","state":{"user_message":"内存增长的问题，新版本跑了两天，曲线还是慢慢往上爬。","recent_context":{"chars":141093,"lines":92,"first":"user: ok，你顺着讲","last":"assistant: [tools: Read, Grep] 读了这两个文件。顺带一提，cmd/server/main.go 的头部注释已经过时了，它还在说协程由调用方记录指标，实际上现在是 Submit 在做。我对照了一下 internal/worker/pool.go 的类型定义，字段和这里用到的是对得上的，没有多"}}},"en-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.012,0.026,0.114,0.659,0.189],"confidence":0.7212758929115749,"triage":"unresolved","triageP":{"unresolved":0.901,"resolved":0.006,"new":0.093},"triageChange":"add","seen":false,"stateTokens":46638,"kept":92,"depth":120000,"ms":9271,"attempts":1,"tokens":93122,"model":"pplx-decider-v1.1-27b","state":{"user_message":"内存增长的问题，新版本跑了两天，曲线还是慢慢往上爬。","recent_context":{"chars":141093,"lines":92,"first":"user: ok，你顺着讲","last":"assistant: [tools: Read, Grep] 读了这两个文件。顺带一提，cmd/server/main.go 的头部注释已经过时了，它还在说协程由调用方记录指标，实际上现在是 Submit 在做。我对照了一下 internal/worker/pool.go 的类型定义，字段和这里用到的是对得上的，没有多"}}},"en-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.012,0.025,0.075,0.313,0.575],"confidence":0.7072776232198774,"triage":"unresolved","triageP":{"unresolved":0.969,"resolved":0.002,"new":0.029},"triageChange":"add","seen":true,"stateTokens":47137,"kept":104,"depth":120000,"ms":9192,"attempts":1,"tokens":93958,"model":"pplx-decider-v1.1-27b","state":{"user_message":"内存增长的问题，新版本跑了两天，曲线还是慢慢往上爬。","recent_context":{"chars":141958,"lines":104,"first":"user: ok，你顺着讲","last":"assistant: [tools: Read, Grep] 读了这两个文件。顺带一提，cmd/server/main.go 的头部注释已经过时了，它还在说协程由调用方记录指标，实际上现在是 Submit 在做。我对照了一下 internal/worker/pool.go 的类型定义，字段和这里用到的是对得上的，没有多"}}},"en-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.012,0.026,0.114,0.659,0.189],"confidence":0.7212758929115749,"triage":"unresolved","triageP":{"unresolved":0.901,"resolved":0.006,"new":0.093},"triageChange":"add","stateTokens":46638,"kept":92,"depth":120000,"ms":11840,"attempts":1,"tokens":93122,"model":"pplx-decider-v1.1-27b","state":{"user_message":"内存增长的问题，新版本跑了两天，曲线还是慢慢往上爬。","recent_context":{"chars":141093,"lines":92,"first":"user: ok，你顺着讲","last":"assistant: [tools: Read, Grep] 读了这两个文件。顺带一提，cmd/server/main.go 的头部注释已经过时了，它还在说协程由调用方记录指标，实际上现在是 Submit 在做。我对照了一下 internal/worker/pool.go 的类型定义，字段和这里用到的是对得上的，没有多"}}}},
+    {"id":"long-008","language":"zh","zh-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.013,0.025,0.341,0.462,0.16],"confidence":0.5795758341100843,"triage":"unresolved","triageP":{"unresolved":0.588,"resolved":0.004,"new":0.407},"triageChange":"add","seen":false,"stateTokens":47753,"kept":94,"depth":120000,"ms":11895,"attempts":1,"tokens":96308,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到白屏的问题，这周又收到几个企业微信用户的反馈，还是打不开。","recent_context":{"chars":143136,"lines":94,"first":"user: src/router/lazy.ts 里的 lazyRoute 是干什么的？我看了一圈没太看懂","last":"assistant: [tools: Glob, Read] 按目录扫了一遍： - vite.config.ts：合并默认配置，约 387 行，被 3 处引用 - src/plugins/legacy.ts：按时间排序，约 170 行，被 4 处引用 - vite.config.ts：拼装请求头，约 132 行，被 1"}}},"zh-score-near":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.01,0.026,0.204,0.294,0.466],"confidence":0.5904236765491733,"triage":"unresolved","triageP":{"unresolved":0.983,"resolved":0.002,"new":0.016},"triageChange":"add","seen":true,"stateTokens":47479,"kept":106,"depth":120000,"ms":11996,"attempts":1,"tokens":95542,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到白屏的问题，这周又收到几个企业微信用户的反馈，还是打不开。","recent_context":{"chars":141491,"lines":106,"first":"user: Vite 迁移这一块一共有哪些文件，各自多大","last":"assistant: [tools: Glob, Read] 按目录扫了一遍： - vite.config.ts：合并默认配置，约 387 行，被 3 处引用 - src/plugins/legacy.ts：按时间排序，约 170 行，被 4 处引用 - vite.config.ts：拼装请求头，约 132 行，被 1"}}},"zh-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.013,0.025,0.341,0.462,0.16],"confidence":0.5795758341100843,"triage":"unresolved","triageP":{"unresolved":0.588,"resolved":0.004,"new":0.407},"triageChange":"add","stateTokens":47753,"kept":94,"depth":120000,"ms":9431,"attempts":1,"tokens":96308,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到白屏的问题，这周又收到几个企业微信用户的反馈，还是打不开。","recent_context":{"chars":143136,"lines":94,"first":"user: src/router/lazy.ts 里的 lazyRoute 是干什么的？我看了一圈没太看懂","last":"assistant: [tools: Glob, Read] 按目录扫了一遍： - vite.config.ts：合并默认配置，约 387 行，被 3 处引用 - src/plugins/legacy.ts：按时间排序，约 170 行，被 4 处引用 - vite.config.ts：拼装请求头，约 132 行，被 1"}}},"en-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.013,0.041,0.179,0.499,0.267],"confidence":0.5938345395515929,"triage":"unresolved","triageP":{"unresolved":0.804,"resolved":0.003,"new":0.193},"triageChange":"add","seen":false,"stateTokens":47753,"kept":94,"depth":120000,"ms":9406,"attempts":1,"tokens":96378,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到白屏的问题，这周又收到几个企业微信用户的反馈，还是打不开。","recent_context":{"chars":143136,"lines":94,"first":"user: src/router/lazy.ts 里的 lazyRoute 是干什么的？我看了一圈没太看懂","last":"assistant: [tools: Glob, Read] 按目录扫了一遍： - vite.config.ts：合并默认配置，约 387 行，被 3 处引用 - src/plugins/legacy.ts：按时间排序，约 170 行，被 4 处引用 - vite.config.ts：拼装请求头，约 132 行，被 1"}}},"en-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.014,0.035,0.086,0.264,0.601],"confidence":0.7017850397496745,"triage":"unresolved","triageP":{"unresolved":0.984,"resolved":0.002,"new":0.015},"triageChange":"add","seen":true,"stateTokens":47479,"kept":106,"depth":120000,"ms":9460,"attempts":1,"tokens":95612,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到白屏的问题，这周又收到几个企业微信用户的反馈，还是打不开。","recent_context":{"chars":141491,"lines":106,"first":"user: Vite 迁移这一块一共有哪些文件，各自多大","last":"assistant: [tools: Glob, Read] 按目录扫了一遍： - vite.config.ts：合并默认配置，约 387 行，被 3 处引用 - src/plugins/legacy.ts：按时间排序，约 170 行，被 4 处引用 - vite.config.ts：拼装请求头，约 132 行，被 1"}}},"en-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.013,0.041,0.179,0.499,0.267],"confidence":0.5938345395515929,"triage":"unresolved","triageP":{"unresolved":0.804,"resolved":0.003,"new":0.193},"triageChange":"add","stateTokens":47753,"kept":94,"depth":120000,"ms":9656,"attempts":1,"tokens":96378,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回到白屏的问题，这周又收到几个企业微信用户的反馈，还是打不开。","recent_context":{"chars":143136,"lines":94,"first":"user: src/router/lazy.ts 里的 lazyRoute 是干什么的？我看了一圈没太看懂","last":"assistant: [tools: Glob, Read] 按目录扫了一遍： - vite.config.ts：合并默认配置，约 387 行，被 3 处引用 - src/plugins/legacy.ts：按时间排序，约 170 行，被 4 处引用 - vite.config.ts：拼装请求头，约 132 行，被 1"}}}},
+    {"id":"long-009","language":"zh","zh-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.005,0.011,0.415,0.482,0.086],"confidence":0.6142303382900761,"triage":"unresolved","triageP":{"unresolved":0.867,"resolved":0.007,"new":0.126},"triageChange":"add","seen":false,"stateTokens":47210,"kept":84,"depth":120000,"ms":9631,"attempts":1,"tokens":93938,"model":"pplx-decider-v1.1-27b","state":{"user_message":"推送的问题，我这边升了系统又试了一遍，App 划掉以后还是收不到。","recent_context":{"chars":139541,"lines":84,"first":"user: 跑一下 App/AppDelegate.swift 对应的测试，看看现在的情况","last":"assistant: 这些都是例行的日志：每行是一批令牌处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。如果以后要改 TokenStore，建议先在 App/AppDelegate.swift 旁边补一条用例，再动实现。这里的命名沿用了仓库里的习惯：动词在前，对象"}}},"zh-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.008,0.015,0.179,0.165,0.633],"confidence":0.700814202136977,"triage":"unresolved","triageP":{"unresolved":0.993,"resolved":0.001,"new":0.006},"triageChange":"add","seen":true,"stateTokens":47761,"kept":98,"depth":120000,"ms":9574,"attempts":1,"tokens":94836,"model":"pplx-decider-v1.1-27b","state":{"user_message":"推送的问题，我这边升了系统又试了一遍，App 划掉以后还是收不到。","recent_context":{"chars":140495,"lines":98,"first":"user: 跑一下 App/AppDelegate.swift 对应的测试，看看现在的情况","last":"assistant: 这些都是例行的日志：每行是一批令牌处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。如果以后要改 TokenStore，建议先在 App/AppDelegate.swift 旁边补一条用例，再动实现。这里的命名沿用了仓库里的习惯：动词在前，对象"}}},"zh-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.005,0.011,0.415,0.482,0.086],"confidence":0.6142303382900761,"triage":"unresolved","triageP":{"unresolved":0.867,"resolved":0.007,"new":0.126},"triageChange":"add","stateTokens":47210,"kept":84,"depth":120000,"ms":9298,"attempts":1,"tokens":93938,"model":"pplx-decider-v1.1-27b","state":{"user_message":"推送的问题，我这边升了系统又试了一遍，App 划掉以后还是收不到。","recent_context":{"chars":139541,"lines":84,"first":"user: 跑一下 App/AppDelegate.swift 对应的测试，看看现在的情况","last":"assistant: 这些都是例行的日志：每行是一批令牌处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。如果以后要改 TokenStore，建议先在 App/AppDelegate.swift 旁边补一条用例，再动实现。这里的命名沿用了仓库里的习惯：动词在前，对象"}}},"en-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.006,0.014,0.188,0.527,0.265],"confidence":0.6433163339072883,"triage":"unresolved","triageP":{"unresolved":0.838,"resolved":0.007,"new":0.155},"triageChange":"add","seen":false,"stateTokens":47210,"kept":84,"depth":120000,"ms":9289,"attempts":1,"tokens":94008,"model":"pplx-decider-v1.1-27b","state":{"user_message":"推送的问题，我这边升了系统又试了一遍，App 划掉以后还是收不到。","recent_context":{"chars":139541,"lines":84,"first":"user: 跑一下 App/AppDelegate.swift 对应的测试，看看现在的情况","last":"assistant: 这些都是例行的日志：每行是一批令牌处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。如果以后要改 TokenStore，建议先在 App/AppDelegate.swift 旁边补一条用例，再动实现。这里的命名沿用了仓库里的习惯：动词在前，对象"}}},"en-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.011,0.018,0.074,0.111,0.786],"confidence":0.8207595387134441,"triage":"unresolved","triageP":{"unresolved":0.995,"resolved":0.002,"new":0.003},"triageChange":"add","seen":true,"stateTokens":47761,"kept":98,"depth":120000,"ms":9323,"attempts":1,"tokens":94906,"model":"pplx-decider-v1.1-27b","state":{"user_message":"推送的问题，我这边升了系统又试了一遍，App 划掉以后还是收不到。","recent_context":{"chars":140495,"lines":98,"first":"user: 跑一下 App/AppDelegate.swift 对应的测试，看看现在的情况","last":"assistant: 这些都是例行的日志：每行是一批令牌处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。如果以后要改 TokenStore，建议先在 App/AppDelegate.swift 旁边补一条用例，再动实现。这里的命名沿用了仓库里的习惯：动词在前，对象"}}},"en-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.006,0.014,0.188,0.527,0.265],"confidence":0.6433163339072883,"triage":"unresolved","triageP":{"unresolved":0.838,"resolved":0.007,"new":0.155},"triageChange":"add","stateTokens":47210,"kept":84,"depth":120000,"ms":9308,"attempts":1,"tokens":94008,"model":"pplx-decider-v1.1-27b","state":{"user_message":"推送的问题，我这边升了系统又试了一遍，App 划掉以后还是收不到。","recent_context":{"chars":139541,"lines":84,"first":"user: 跑一下 App/AppDelegate.swift 对应的测试，看看现在的情况","last":"assistant: 这些都是例行的日志：每行是一批令牌处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。如果以后要改 TokenStore，建议先在 App/AppDelegate.swift 旁边补一条用例，再动实现。这里的命名沿用了仓库里的习惯：动词在前，对象"}}}},
+    {"id":"long-010","language":"zh","zh-score-deep":{"answer":"high / unresolved","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.007,0.034,0.625,0.267,0.067],"confidence":0.6256552048707872,"triage":"unresolved","triageP":{"unresolved":0.782,"resolved":0.006,"new":0.212},"triageChange":"add","seen":false,"stateTokens":47325,"kept":86,"depth":120000,"ms":9314,"attempts":1,"tokens":94322,"model":"pplx-decider-v1.1-27b","state":{"user_message":"Terraform 那个漂移的问题，我换了一个干净的 workspace 又 plan 了一次，diff 还是在。","recent_context":{"chars":140751,"lines":86,"first":"user: 给 lifecycle 补一段注释，说明入参和返回值","last":"assistant: 可以考虑 applyCursor、buildBatch 或 resolveReport：安全组的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。for_each 的入口在 infra/modules/sg/main.tf，它先去重，再生成幂等键，最后拆分批次。从调用关系看，in"}}},"zh-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.005,0.016,0.198,0.079,0.701],"confidence":0.7273115717184548,"triage":"unresolved","triageP":{"unresolved":0.969,"resolved":0.002,"new":0.028},"triageChange":"add","seen":true,"stateTokens":47792,"kept":98,"depth":120000,"ms":9299,"attempts":1,"tokens":95098,"model":"pplx-decider-v1.1-27b","state":{"user_message":"Terraform 那个漂移的问题，我换了一个干净的 workspace 又 plan 了一次，diff 还是在。","recent_context":{"chars":141591,"lines":98,"first":"user: 给 lifecycle 补一段注释，说明入参和返回值","last":"assistant: 可以考虑 applyCursor、buildBatch 或 resolveReport：安全组的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。for_each 的入口在 infra/modules/sg/main.tf，它先去重，再生成幂等键，最后拆分批次。从调用关系看，in"}}},"zh-score-none":{"answer":"high / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.007,0.034,0.625,0.267,0.067],"confidence":0.6256552048707872,"triage":"unresolved","triageP":{"unresolved":0.782,"resolved":0.006,"new":0.212},"triageChange":"add","stateTokens":47325,"kept":86,"depth":120000,"ms":9322,"attempts":1,"tokens":94322,"model":"pplx-decider-v1.1-27b","state":{"user_message":"Terraform 那个漂移的问题，我换了一个干净的 workspace 又 plan 了一次，diff 还是在。","recent_context":{"chars":140751,"lines":86,"first":"user: 给 lifecycle 补一段注释，说明入参和返回值","last":"assistant: 可以考虑 applyCursor、buildBatch 或 resolveReport：安全组的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。for_each 的入口在 infra/modules/sg/main.tf，它先去重，再生成幂等键，最后拆分批次。从调用关系看，in"}}},"en-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.005,0.024,0.23,0.382,0.359],"confidence":0.5346318280539881,"triage":"unresolved","triageP":{"unresolved":0.657,"resolved":0.005,"new":0.338},"triageChange":"add","seen":false,"stateTokens":47325,"kept":86,"depth":120000,"ms":9265,"attempts":1,"tokens":94392,"model":"pplx-decider-v1.1-27b","state":{"user_message":"Terraform 那个漂移的问题，我换了一个干净的 workspace 又 plan 了一次，diff 还是在。","recent_context":{"chars":140751,"lines":86,"first":"user: 给 lifecycle 补一段注释，说明入参和返回值","last":"assistant: 可以考虑 applyCursor、buildBatch 或 resolveReport：安全组的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。for_each 的入口在 infra/modules/sg/main.tf，它先去重，再生成幂等键，最后拆分批次。从调用关系看，in"}}},"en-score-near":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.008,0.023,0.088,0.088,0.794],"confidence":0.8179488065055677,"triage":"unresolved","triageP":{"unresolved":0.954,"resolved":0.002,"new":0.045},"triageChange":"add","seen":true,"stateTokens":47792,"kept":98,"depth":120000,"ms":9317,"attempts":1,"tokens":95168,"model":"pplx-decider-v1.1-27b","state":{"user_message":"Terraform 那个漂移的问题，我换了一个干净的 workspace 又 plan 了一次，diff 还是在。","recent_context":{"chars":141591,"lines":98,"first":"user: 给 lifecycle 补一段注释，说明入参和返回值","last":"assistant: 可以考虑 applyCursor、buildBatch 或 resolveReport：安全组的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。for_each 的入口在 infra/modules/sg/main.tf，它先去重，再生成幂等键，最后拆分批次。从调用关系看，in"}}},"en-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.005,0.024,0.23,0.382,0.359],"confidence":0.5346318280539881,"triage":"unresolved","triageP":{"unresolved":0.657,"resolved":0.005,"new":0.338},"triageChange":"add","stateTokens":47325,"kept":86,"depth":120000,"ms":9387,"attempts":1,"tokens":94392,"model":"pplx-decider-v1.1-27b","state":{"user_message":"Terraform 那个漂移的问题，我换了一个干净的 workspace 又 plan 了一次，diff 还是在。","recent_context":{"chars":140751,"lines":86,"first":"user: 给 lifecycle 补一段注释，说明入参和返回值","last":"assistant: 可以考虑 applyCursor、buildBatch 或 resolveReport：安全组的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。for_each 的入口在 infra/modules/sg/main.tf，它先去重，再生成幂等键，最后拆分批次。从调用关系看，in"}}}},
+    {"id":"long-011","language":"zh","zh-score-deep":{"answer":"high / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.012,0.093,0.794,0.061,0.04],"confidence":0.7855326714516859,"triage":"unresolved","triageP":{"unresolved":0.982,"resolved":0.004,"new":0.015},"triageChange":"add","seen":true,"stateTokens":30084,"kept":52,"depth":30000,"ms":8264,"attempts":1,"tokens":61580,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回来了，CSV 我用 Excel 打开试了，中文还是乱码。","recent_context":{"chars":90292,"lines":52,"first":"user: 导出的 CSV 用 Excel 打开中文是乱码，`app/export/csv.py` 帮我改一下","last":"assistant: [tools: Bash] 跑了 `npm test -- tests/test_csv.py`：44 个用例，全部通过，1 个跳过，耗时 1.6 秒。 - app/export/csv.py：去重，约 133 行，被 8 处引用 - app/export/encoding.py：转换时区，约 6"}}},"zh-score-near":{"answer":"high / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.023,0.098,0.755,0.084,0.041],"confidence":0.7432787686275006,"triage":"unresolved","triageP":{"unresolved":0.994,"resolved":0.003,"new":0.003},"triageChange":"add","seen":true,"stateTokens":30084,"kept":52,"depth":30000,"ms":7014,"attempts":1,"tokens":61580,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回来了，CSV 我用 Excel 打开试了，中文还是乱码。","recent_context":{"chars":90292,"lines":52,"first":"user: 列一下最近改过 app/export/encoding.py 的几个提交","last":"assistant: [tools: Bash] 跑了 `npm test -- tests/test_csv.py`：44 个用例，全部通过，1 个跳过，耗时 1.6 秒。 - app/export/csv.py：去重，约 133 行，被 8 处引用 - app/export/encoding.py：转换时区，约 6"}}},"zh-score-none":{"answer":"high / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.012,0.098,0.689,0.164,0.038],"confidence":0.6992884673465247,"triage":"unresolved","triageP":{"unresolved":0.764,"resolved":0.023,"new":0.212},"triageChange":"add","stateTokens":29978,"kept":48,"depth":30000,"ms":5875,"attempts":1,"tokens":61370,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回来了，CSV 我用 Excel 打开试了，中文还是乱码。","recent_context":{"chars":90073,"lines":48,"first":"user: 列一下最近改过 app/export/encoding.py 的几个提交","last":"assistant: [tools: Bash] 跑了 `npm test -- tests/test_csv.py`：44 个用例，全部通过，1 个跳过，耗时 1.6 秒。 - app/export/csv.py：去重，约 133 行，被 8 处引用 - app/export/encoding.py：转换时区，约 6"}}},"en-score-deep":{"answer":"high / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.01,0.049,0.411,0.199,0.331],"confidence":0.22582710613509505,"triage":"unresolved","triageP":{"unresolved":0.99,"resolved":0.002,"new":0.008},"triageChange":"add","seen":true,"stateTokens":30084,"kept":52,"depth":30000,"ms":5871,"attempts":1,"tokens":61650,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回来了，CSV 我用 Excel 打开试了，中文还是乱码。","recent_context":{"chars":90292,"lines":52,"first":"user: 导出的 CSV 用 Excel 打开中文是乱码，`app/export/csv.py` 帮我改一下","last":"assistant: [tools: Bash] 跑了 `npm test -- tests/test_csv.py`：44 个用例，全部通过，1 个跳过，耗时 1.6 秒。 - app/export/csv.py：去重，约 133 行，被 8 处引用 - app/export/encoding.py：转换时区，约 6"}}},"en-score-near":{"answer":"high / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.013,0.045,0.429,0.224,0.288],"confidence":0.2732890806372039,"triage":"unresolved","triageP":{"unresolved":0.997,"resolved":0.001,"new":0.002},"triageChange":"add","seen":true,"stateTokens":30084,"kept":52,"depth":30000,"ms":5955,"attempts":1,"tokens":61650,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回来了，CSV 我用 Excel 打开试了，中文还是乱码。","recent_context":{"chars":90292,"lines":52,"first":"user: 列一下最近改过 app/export/encoding.py 的几个提交","last":"assistant: [tools: Bash] 跑了 `npm test -- tests/test_csv.py`：44 个用例，全部通过，1 个跳过，耗时 1.6 秒。 - app/export/csv.py：去重，约 133 行，被 8 处引用 - app/export/encoding.py：转换时区，约 6"}}},"en-score-none":{"answer":"xhigh / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.014,0.079,0.42,0.401,0.086],"confidence":0.4330594336441187,"triage":"unresolved","triageP":{"unresolved":0.778,"resolved":0.012,"new":0.209},"triageChange":"add","stateTokens":29978,"kept":48,"depth":30000,"ms":5915,"attempts":1,"tokens":61440,"model":"pplx-decider-v1.1-27b","state":{"user_message":"回来了，CSV 我用 Excel 打开试了，中文还是乱码。","recent_context":{"chars":90073,"lines":48,"first":"user: 列一下最近改过 app/export/encoding.py 的几个提交","last":"assistant: [tools: Bash] 跑了 `npm test -- tests/test_csv.py`：44 个用例，全部通过，1 个跳过，耗时 1.6 秒。 - app/export/csv.py：去重，约 133 行，被 8 处引用 - app/export/encoding.py：转换时区，约 6"}}}},
+    {"id":"long-012","language":"zh","zh-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.041,0.127,0.469,0.325,0.038],"confidence":0.49214774843333176,"triage":"unresolved","triageP":{"unresolved":0.821,"resolved":0.028,"new":0.151},"triageChange":"add","seen":false,"stateTokens":47543,"kept":92,"depth":60000,"ms":7116,"attempts":1,"tokens":95404,"model":"pplx-decider-v1.1-27b","state":{"user_message":"看了一下，hydration 的警告还在，只是文本不同了。","recent_context":{"chars":138896,"lines":92,"first":"user: 给 suppressHydrationWarning 补一段注释，说明入参和返回值","last":"assistant: [tools: Read, Edit] 补好了，改动如下： ```ts describe('formatDate', () => { it('merges two batches', () => { const result = formatDate({ payload: '警告', status"}}},"zh-score-near":{"answer":"high / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.027,0.118,0.625,0.181,0.049],"confidence":0.6242318865974489,"triage":"unresolved","triageP":{"unresolved":0.908,"resolved":0.017,"new":0.075},"triageChange":"add","seen":true,"stateTokens":47671,"kept":96,"depth":60000,"ms":8240,"attempts":1,"tokens":95606,"model":"pplx-decider-v1.1-27b","state":{"user_message":"看了一下，hydration 的警告还在，只是文本不同了。","recent_context":{"chars":139124,"lines":96,"first":"user: 给 suppressHydrationWarning 补一段注释，说明入参和返回值","last":"assistant: [tools: Read, Edit] 补好了，改动如下： ```ts describe('formatDate', () => { it('merges two batches', () => { const result = formatDate({ payload: '警告', status"}}},"zh-score-none":{"answer":"xhigh / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.041,0.127,0.469,0.325,0.038],"confidence":0.49214774843333176,"triage":"unresolved","triageP":{"unresolved":0.821,"resolved":0.028,"new":0.151},"triageChange":"add","stateTokens":47543,"kept":92,"depth":60000,"ms":9459,"attempts":1,"tokens":95404,"model":"pplx-decider-v1.1-27b","state":{"user_message":"看了一下，hydration 的警告还在，只是文本不同了。","recent_context":{"chars":138896,"lines":92,"first":"user: 给 suppressHydrationWarning 补一段注释，说明入参和返回值","last":"assistant: [tools: Read, Edit] 补好了，改动如下： ```ts describe('formatDate', () => { it('merges two batches', () => { const result = formatDate({ payload: '警告', status"}}},"en-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.041,0.111,0.344,0.386,0.119],"confidence":0.42442028347618677,"triage":"unresolved","triageP":{"unresolved":0.856,"resolved":0.013,"new":0.131},"triageChange":"add","seen":false,"stateTokens":47543,"kept":92,"depth":60000,"ms":9412,"attempts":1,"tokens":95474,"model":"pplx-decider-v1.1-27b","state":{"user_message":"看了一下，hydration 的警告还在，只是文本不同了。","recent_context":{"chars":138896,"lines":92,"first":"user: 给 suppressHydrationWarning 补一段注释，说明入参和返回值","last":"assistant: [tools: Read, Edit] 补好了，改动如下： ```ts describe('formatDate', () => { it('merges two batches', () => { const result = formatDate({ payload: '警告', status"}}},"en-score-near":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.03,0.087,0.367,0.345,0.17],"confidence":0.3062507726529127,"triage":"unresolved","triageP":{"unresolved":0.957,"resolved":0.006,"new":0.037},"triageChange":"add","seen":true,"stateTokens":47671,"kept":96,"depth":60000,"ms":9406,"attempts":1,"tokens":95676,"model":"pplx-decider-v1.1-27b","state":{"user_message":"看了一下，hydration 的警告还在，只是文本不同了。","recent_context":{"chars":139124,"lines":96,"first":"user: 给 suppressHydrationWarning 补一段注释，说明入参和返回值","last":"assistant: [tools: Read, Edit] 补好了，改动如下： ```ts describe('formatDate', () => { it('merges two batches', () => { const result = formatDate({ payload: '警告', status"}}},"en-score-none":{"answer":"xhigh / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.041,0.111,0.344,0.386,0.119],"confidence":0.42442028347618677,"triage":"unresolved","triageP":{"unresolved":0.856,"resolved":0.013,"new":0.131},"triageChange":"add","stateTokens":47543,"kept":92,"depth":60000,"ms":9394,"attempts":1,"tokens":95474,"model":"pplx-decider-v1.1-27b","state":{"user_message":"看了一下，hydration 的警告还在，只是文本不同了。","recent_context":{"chars":138896,"lines":92,"first":"user: 给 suppressHydrationWarning 补一段注释，说明入参和返回值","last":"assistant: [tools: Read, Edit] 补好了，改动如下： ```ts describe('formatDate', () => { it('merges two batches', () => { const result = formatDate({ payload: '警告', status"}}}},
+    {"id":"long-013","language":"zh","zh-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.002,0.009,0.378,0.585,0.025],"confidence":0.6936845245419683,"triage":"unresolved","triageP":{"unresolved":0.587,"resolved":0.019,"new":0.394},"triageChange":"add","seen":false,"stateTokens":47192,"kept":92,"depth":60000,"ms":9497,"attempts":1,"tokens":96556,"model":"pplx-decider-v1.1-27b","state":{"user_message":"夏令时的用例是过了，但今天线上又漏跑了一次，不是夏令时那天。","recent_context":{"chars":137377,"lines":92,"first":"user: 这是我本地跑出来的日志，你看看这几行是干嘛的： 2026-10-04T09:05:09Z INFO worker-4 jobs/scheduler.py:172 synced offsets batch=76 items=884 took=108ms 2026-10-03T09:11:33Z INFO wo","last":"assistant: [tools: Read] 这个模块没有外部依赖，只用到标准库，所以可以放心地单独跑它的测试。调度的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。next_run 被 14 个地方调用，其中大部分在 jobs/daily_report.py 里，剩下几处是测试辅助函数。con"}}},"zh-score-near":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.002,0.011,0.414,0.519,0.054],"confidence":0.6452924663642132,"triage":"unresolved","triageP":{"unresolved":0.929,"resolved":0.028,"new":0.043},"triageChange":"add","seen":true,"stateTokens":47365,"kept":96,"depth":60000,"ms":9576,"attempts":1,"tokens":96818,"model":"pplx-decider-v1.1-27b","state":{"user_message":"夏令时的用例是过了，但今天线上又漏跑了一次，不是夏令时那天。","recent_context":{"chars":137647,"lines":96,"first":"user: 这是我本地跑出来的日志，你看看这几行是干嘛的： 2026-10-04T09:05:09Z INFO worker-4 jobs/scheduler.py:172 synced offsets batch=76 items=884 took=108ms 2026-10-03T09:11:33Z INFO wo","last":"assistant: [tools: Read] 这个模块没有外部依赖，只用到标准库，所以可以放心地单独跑它的测试。调度的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。next_run 被 14 个地方调用，其中大部分在 jobs/daily_report.py 里，剩下几处是测试辅助函数。con"}}},"zh-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.002,0.009,0.378,0.585,0.025],"confidence":0.6936845245419683,"triage":"unresolved","triageP":{"unresolved":0.587,"resolved":0.019,"new":0.394},"triageChange":"add","stateTokens":47192,"kept":92,"depth":60000,"ms":9609,"attempts":1,"tokens":96556,"model":"pplx-decider-v1.1-27b","state":{"user_message":"夏令时的用例是过了，但今天线上又漏跑了一次，不是夏令时那天。","recent_context":{"chars":137377,"lines":92,"first":"user: 这是我本地跑出来的日志，你看看这几行是干嘛的： 2026-10-04T09:05:09Z INFO worker-4 jobs/scheduler.py:172 synced offsets batch=76 items=884 took=108ms 2026-10-03T09:11:33Z INFO wo","last":"assistant: [tools: Read] 这个模块没有外部依赖，只用到标准库，所以可以放心地单独跑它的测试。调度的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。next_run 被 14 个地方调用，其中大部分在 jobs/daily_report.py 里，剩下几处是测试辅助函数。con"}}},"en-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.003,0.009,0.175,0.732,0.081],"confidence":0.7983449893856879,"triage":"unresolved","triageP":{"unresolved":0.619,"resolved":0.031,"new":0.35},"triageChange":"add","seen":false,"stateTokens":47192,"kept":92,"depth":60000,"ms":9608,"attempts":1,"tokens":96626,"model":"pplx-decider-v1.1-27b","state":{"user_message":"夏令时的用例是过了，但今天线上又漏跑了一次，不是夏令时那天。","recent_context":{"chars":137377,"lines":92,"first":"user: 这是我本地跑出来的日志，你看看这几行是干嘛的： 2026-10-04T09:05:09Z INFO worker-4 jobs/scheduler.py:172 synced offsets batch=76 items=884 took=108ms 2026-10-03T09:11:33Z INFO wo","last":"assistant: [tools: Read] 这个模块没有外部依赖，只用到标准库，所以可以放心地单独跑它的测试。调度的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。next_run 被 14 个地方调用，其中大部分在 jobs/daily_report.py 里，剩下几处是测试辅助函数。con"}}},"en-score-near":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.003,0.009,0.168,0.646,0.174],"confidence":0.7363267677271159,"triage":"unresolved","triageP":{"unresolved":0.939,"resolved":0.032,"new":0.029},"triageChange":"add","seen":true,"stateTokens":47365,"kept":96,"depth":60000,"ms":9556,"attempts":1,"tokens":96888,"model":"pplx-decider-v1.1-27b","state":{"user_message":"夏令时的用例是过了，但今天线上又漏跑了一次，不是夏令时那天。","recent_context":{"chars":137647,"lines":96,"first":"user: 这是我本地跑出来的日志，你看看这几行是干嘛的： 2026-10-04T09:05:09Z INFO worker-4 jobs/scheduler.py:172 synced offsets batch=76 items=884 took=108ms 2026-10-03T09:11:33Z INFO wo","last":"assistant: [tools: Read] 这个模块没有外部依赖，只用到标准库，所以可以放心地单独跑它的测试。调度的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。next_run 被 14 个地方调用，其中大部分在 jobs/daily_report.py 里，剩下几处是测试辅助函数。con"}}},"en-score-none":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.003,0.009,0.175,0.732,0.081],"confidence":0.7983449893856879,"triage":"unresolved","triageP":{"unresolved":0.619,"resolved":0.031,"new":0.35},"triageChange":"add","stateTokens":47192,"kept":92,"depth":60000,"ms":9563,"attempts":1,"tokens":96626,"model":"pplx-decider-v1.1-27b","state":{"user_message":"夏令时的用例是过了，但今天线上又漏跑了一次，不是夏令时那天。","recent_context":{"chars":137377,"lines":92,"first":"user: 这是我本地跑出来的日志，你看看这几行是干嘛的： 2026-10-04T09:05:09Z INFO worker-4 jobs/scheduler.py:172 synced offsets batch=76 items=884 took=108ms 2026-10-03T09:11:33Z INFO wo","last":"assistant: [tools: Read] 这个模块没有外部依赖，只用到标准库，所以可以放心地单独跑它的测试。调度的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。next_run 被 14 个地方调用，其中大部分在 jobs/daily_report.py 里，剩下几处是测试辅助函数。con"}}}},
+    {"id":"long-014","language":"zh","zh-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.013,0.026,0.348,0.535,0.078],"confidence":0.6311417752439726,"triage":"unresolved","triageP":{"unresolved":0.921,"resolved":0.004,"new":0.074},"triageChange":"add","seen":false,"stateTokens":45398,"kept":106,"depth":120000,"ms":9252,"attempts":1,"tokens":88474,"model":"pplx-decider-v1.1-27b","state":{"user_message":"502 还是有，试了几次，大概每三四次连接出现一次。","recent_context":{"chars":131077,"lines":106,"first":"user: Nginx WebSocket 代理这一块一共有哪些文件，各自多大","last":"assistant: 这些都是例行的日志：每行是一批长连接处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。deploy/nginx.conf 里有一份很像的逻辑，现在没有抽出来，放着不动也不影响升级这一块。deploy/upstream.conf 里有一份很像的逻"}}},"zh-score-near":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.012,0.032,0.435,0.416,0.105],"confidence":0.4319751075826287,"triage":"unresolved","triageP":{"unresolved":0.985,"resolved":0.003,"new":0.011},"triageChange":"add","seen":true,"stateTokens":45517,"kept":110,"depth":120000,"ms":9032,"attempts":1,"tokens":88706,"model":"pplx-decider-v1.1-27b","state":{"user_message":"502 还是有，试了几次，大概每三四次连接出现一次。","recent_context":{"chars":131347,"lines":110,"first":"user: Nginx WebSocket 代理这一块一共有哪些文件，各自多大","last":"assistant: 这些都是例行的日志：每行是一批长连接处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。deploy/nginx.conf 里有一份很像的逻辑，现在没有抽出来，放着不动也不影响升级这一块。deploy/upstream.conf 里有一份很像的逻"}}},"zh-score-none":{"answer":"xhigh / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.013,0.026,0.348,0.535,0.078],"confidence":0.6311417752439726,"triage":"unresolved","triageP":{"unresolved":0.921,"resolved":0.004,"new":0.074},"triageChange":"add","stateTokens":45398,"kept":106,"depth":120000,"ms":8687,"attempts":1,"tokens":88474,"model":"pplx-decider-v1.1-27b","state":{"user_message":"502 还是有，试了几次，大概每三四次连接出现一次。","recent_context":{"chars":131077,"lines":106,"first":"user: Nginx WebSocket 代理这一块一共有哪些文件，各自多大","last":"assistant: 这些都是例行的日志：每行是一批长连接处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。deploy/nginx.conf 里有一份很像的逻辑，现在没有抽出来，放着不动也不影响升级这一块。deploy/upstream.conf 里有一份很像的逻"}}},"en-score-deep":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.014,0.025,0.175,0.575,0.212],"confidence":0.6591865442078242,"triage":"unresolved","triageP":{"unresolved":0.904,"resolved":0.003,"new":0.094},"triageChange":"add","seen":false,"stateTokens":45398,"kept":106,"depth":120000,"ms":8711,"attempts":1,"tokens":88544,"model":"pplx-decider-v1.1-27b","state":{"user_message":"502 还是有，试了几次，大概每三四次连接出现一次。","recent_context":{"chars":131077,"lines":106,"first":"user: Nginx WebSocket 代理这一块一共有哪些文件，各自多大","last":"assistant: 这些都是例行的日志：每行是一批长连接处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。deploy/nginx.conf 里有一份很像的逻辑，现在没有抽出来，放着不动也不影响升级这一块。deploy/upstream.conf 里有一份很像的逻"}}},"en-score-near":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.011,0.019,0.183,0.483,0.304],"confidence":0.6021959909823409,"triage":"unresolved","triageP":{"unresolved":0.991,"resolved":0.002,"new":0.007},"triageChange":"add","seen":true,"stateTokens":45517,"kept":110,"depth":120000,"ms":8631,"attempts":1,"tokens":88776,"model":"pplx-decider-v1.1-27b","state":{"user_message":"502 还是有，试了几次，大概每三四次连接出现一次。","recent_context":{"chars":131347,"lines":110,"first":"user: Nginx WebSocket 代理这一块一共有哪些文件，各自多大","last":"assistant: 这些都是例行的日志：每行是一批长连接处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。deploy/nginx.conf 里有一份很像的逻辑，现在没有抽出来，放着不动也不影响升级这一块。deploy/upstream.conf 里有一份很像的逻"}}},"en-score-none":{"answer":"xhigh / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.014,0.025,0.175,0.575,0.212],"confidence":0.6591865442078242,"triage":"unresolved","triageP":{"unresolved":0.904,"resolved":0.003,"new":0.094},"triageChange":"add","stateTokens":45398,"kept":106,"depth":120000,"ms":8683,"attempts":1,"tokens":88544,"model":"pplx-decider-v1.1-27b","state":{"user_message":"502 还是有，试了几次，大概每三四次连接出现一次。","recent_context":{"chars":131077,"lines":106,"first":"user: Nginx WebSocket 代理这一块一共有哪些文件，各自多大","last":"assistant: 这些都是例行的日志：每行是一批长连接处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。deploy/nginx.conf 里有一份很像的逻辑，现在没有抽出来，放着不动也不影响升级这一块。deploy/upstream.conf 里有一份很像的逻"}}}},
+    {"id":"long-015","language":"zh","zh-score-deep":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.844,0.152,0.003,0,0],"confidence":0.9196130143529383,"triage":"new","triageP":{"unresolved":0.003,"resolved":0.044,"new":0.953},"triageChange":"reset","seen":true,"stateTokens":30068,"kept":62,"depth":30000,"ms":7790,"attempts":1,"tokens":62966,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把设置页那个\"保存\"按钮的文案改成\"保存更改\"，英文改成 \"Save changes\"。","recent_context":{"chars":91464,"lines":62,"first":"user: 先说好规矩：这个仓库里文案、按钮名字这类改动不用想太多，直接改，测试绿了就行，我自己会看 diff","last":"assistant: [tools: Bash] 最近的提交： - 2157abchen 把配置挪到单独文件（src/pages/Settings.tsx） - 9993abchen 补充类型注释（src/pages/Settings.tsx） - 3888ablin 补充文档（src/pages/Settings.t"}}},"zh-score-near":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.845,0.15,0.004,0.001,0],"confidence":0.9190345508575705,"triage":"new","triageP":{"unresolved":0.006,"resolved":0.066,"new":0.928},"triageChange":"reset","seen":true,"stateTokens":30068,"kept":62,"depth":30000,"ms":6964,"attempts":1,"tokens":62966,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把设置页那个\"保存\"按钮的文案改成\"保存更改\"，英文改成 \"Save changes\"。","recent_context":{"chars":91464,"lines":62,"first":"user: 帮我把 saveButton 里重复的部分整理一下，先别动行为","last":"assistant: [tools: Bash] 最近的提交： - 2157abchen 把配置挪到单独文件（src/pages/Settings.tsx） - 9993abchen 补充类型注释（src/pages/Settings.tsx） - 3888ablin 补充文档（src/pages/Settings.t"}}},"zh-score-none":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.645,0.34,0.014,0.001,0],"confidence":0.8136258315228792,"triage":"new","triageP":{"unresolved":0.006,"resolved":0.028,"new":0.966},"triageChange":"reset","stateTokens":29896,"kept":56,"depth":30000,"ms":6373,"attempts":1,"tokens":62688,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把设置页那个\"保存\"按钮的文案改成\"保存更改\"，英文改成 \"Save changes\"。","recent_context":{"chars":91195,"lines":56,"first":"user: 帮我把 saveButton 里重复的部分整理一下，先别动行为","last":"assistant: [tools: Bash] 最近的提交： - 2157abchen 把配置挪到单独文件（src/pages/Settings.tsx） - 9993abchen 补充类型注释（src/pages/Settings.tsx） - 3888ablin 补充文档（src/pages/Settings.t"}}},"en-score-deep":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.893,0.104,0.003,0,0],"confidence":0.9442087697066064,"triage":"new","triageP":{"unresolved":0.002,"resolved":0.033,"new":0.964},"triageChange":"reset","seen":true,"stateTokens":30068,"kept":62,"depth":30000,"ms":6429,"attempts":1,"tokens":63036,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把设置页那个\"保存\"按钮的文案改成\"保存更改\"，英文改成 \"Save changes\"。","recent_context":{"chars":91464,"lines":62,"first":"user: 先说好规矩：这个仓库里文案、按钮名字这类改动不用想太多，直接改，测试绿了就行，我自己会看 diff","last":"assistant: [tools: Bash] 最近的提交： - 2157abchen 把配置挪到单独文件（src/pages/Settings.tsx） - 9993abchen 补充类型注释（src/pages/Settings.tsx） - 3888ablin 补充文档（src/pages/Settings.t"}}},"en-score-near":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.85,0.145,0.004,0,0],"confidence":0.9220629152990104,"triage":"new","triageP":{"unresolved":0.003,"resolved":0.034,"new":0.963},"triageChange":"reset","seen":true,"stateTokens":30068,"kept":62,"depth":30000,"ms":6489,"attempts":1,"tokens":63036,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把设置页那个\"保存\"按钮的文案改成\"保存更改\"，英文改成 \"Save changes\"。","recent_context":{"chars":91464,"lines":62,"first":"user: 帮我把 saveButton 里重复的部分整理一下，先别动行为","last":"assistant: [tools: Bash] 最近的提交： - 2157abchen 把配置挪到单独文件（src/pages/Settings.tsx） - 9993abchen 补充类型注释（src/pages/Settings.tsx） - 3888ablin 补充文档（src/pages/Settings.t"}}},"en-score-none":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.672,0.313,0.014,0.001,0.001],"confidence":0.8276553136265234,"triage":"new","triageP":{"unresolved":0.004,"resolved":0.02,"new":0.976},"triageChange":"reset","stateTokens":29896,"kept":56,"depth":30000,"ms":6179,"attempts":1,"tokens":62758,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把设置页那个\"保存\"按钮的文案改成\"保存更改\"，英文改成 \"Save changes\"。","recent_context":{"chars":91195,"lines":56,"first":"user: 帮我把 saveButton 里重复的部分整理一下，先别动行为","last":"assistant: [tools: Bash] 最近的提交： - 2157abchen 把配置挪到单独文件（src/pages/Settings.tsx） - 9993abchen 补充类型注释（src/pages/Settings.tsx） - 3888ablin 补充文档（src/pages/Settings.t"}}}},
+    {"id":"long-016","language":"zh","zh-score-deep":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.208,0.76,0.03,0.001,0.001],"confidence":0.8265388438139922,"triage":"new","triageP":{"unresolved":0.011,"resolved":0.152,"new":0.837},"triageChange":"reset","seen":true,"stateTokens":29942,"kept":72,"depth":30000,"ms":6047,"attempts":1,"tokens":58650,"model":"pplx-decider-v1.1-27b","state":{"user_message":"给 payment webhook 的日志加上 request_id。","recent_context":{"chars":87352,"lines":72,"first":"user: 约定一下：往日志里加字段这种事，照 `logger.info` 现有的写法抄，别重新设计，我不想为这个花时间","last":"assistant: [tools: Bash] 跑了 `npm test -- payment/logger`：43 个用例，全部通过，0 个跳过，耗时 2.6 秒。 - payment/handlers/charge.ts：拆分批次，约 202 行，被 7 处引用 - payment/webhook.ts：归一化大"}}},"zh-score-near":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.101,0.826,0.068,0.003,0.001],"confidence":0.8720176249955491,"triage":"new","triageP":{"unresolved":0.009,"resolved":0.079,"new":0.912},"triageChange":"reset","seen":true,"stateTokens":29942,"kept":72,"depth":30000,"ms":5842,"attempts":1,"tokens":58650,"model":"pplx-decider-v1.1-27b","state":{"user_message":"给 payment webhook 的日志加上 request_id。","recent_context":{"chars":87352,"lines":72,"first":"user: 列一下最近改过 payment/logger.ts 的几个提交","last":"assistant: [tools: Bash] 跑了 `npm test -- payment/logger`：43 个用例，全部通过，0 个跳过，耗时 2.6 秒。 - payment/handlers/charge.ts：拆分批次，约 202 行，被 7 处引用 - payment/webhook.ts：归一化大"}}},"zh-score-none":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.056,0.761,0.167,0.014,0.001],"confidence":0.8177190878571401,"triage":"new","triageP":{"unresolved":0.013,"resolved":0.075,"new":0.912},"triageChange":"reset","stateTokens":29780,"kept":66,"depth":30000,"ms":5756,"attempts":1,"tokens":58388,"model":"pplx-decider-v1.1-27b","state":{"user_message":"给 payment webhook 的日志加上 request_id。","recent_context":{"chars":87091,"lines":66,"first":"user: 列一下最近改过 payment/logger.ts 的几个提交","last":"assistant: [tools: Bash] 跑了 `npm test -- payment/logger`：43 个用例，全部通过，0 个跳过，耗时 2.6 秒。 - payment/handlers/charge.ts：拆分批次，约 202 行，被 7 处引用 - payment/webhook.ts：归一化大"}}},"en-score-deep":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.174,0.766,0.057,0.002,0.001],"confidence":0.8292324231803234,"triage":"new","triageP":{"unresolved":0.008,"resolved":0.086,"new":0.907},"triageChange":"reset","seen":true,"stateTokens":29942,"kept":72,"depth":30000,"ms":5742,"attempts":1,"tokens":58720,"model":"pplx-decider-v1.1-27b","state":{"user_message":"给 payment webhook 的日志加上 request_id。","recent_context":{"chars":87352,"lines":72,"first":"user: 约定一下：往日志里加字段这种事，照 `logger.info` 现有的写法抄，别重新设计，我不想为这个花时间","last":"assistant: [tools: Bash] 跑了 `npm test -- payment/logger`：43 个用例，全部通过，0 个跳过，耗时 2.6 秒。 - payment/handlers/charge.ts：拆分批次，约 202 行，被 7 处引用 - payment/webhook.ts：归一化大"}}},"en-score-near":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.116,0.79,0.089,0.004,0.002],"confidence":0.8444687037125379,"triage":"new","triageP":{"unresolved":0.005,"resolved":0.044,"new":0.951},"triageChange":"reset","seen":true,"stateTokens":29942,"kept":72,"depth":30000,"ms":5739,"attempts":1,"tokens":58720,"model":"pplx-decider-v1.1-27b","state":{"user_message":"给 payment webhook 的日志加上 request_id。","recent_context":{"chars":87352,"lines":72,"first":"user: 列一下最近改过 payment/logger.ts 的几个提交","last":"assistant: [tools: Bash] 跑了 `npm test -- payment/logger`：43 个用例，全部通过，0 个跳过，耗时 2.6 秒。 - payment/handlers/charge.ts：拆分批次，约 202 行，被 7 处引用 - payment/webhook.ts：归一化大"}}},"en-score-none":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.039,0.724,0.219,0.015,0.002],"confidence":0.7898263102147011,"triage":"new","triageP":{"unresolved":0.006,"resolved":0.035,"new":0.959},"triageChange":"reset","stateTokens":29780,"kept":66,"depth":30000,"ms":5735,"attempts":1,"tokens":58458,"model":"pplx-decider-v1.1-27b","state":{"user_message":"给 payment webhook 的日志加上 request_id。","recent_context":{"chars":87091,"lines":66,"first":"user: 列一下最近改过 payment/logger.ts 的几个提交","last":"assistant: [tools: Bash] 跑了 `npm test -- payment/logger`：43 个用例，全部通过，0 个跳过，耗时 2.6 秒。 - payment/handlers/charge.ts：拆分批次，约 202 行，被 7 处引用 - payment/webhook.ts：归一化大"}}}},
+    {"id":"long-017","language":"zh","zh-score-deep":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.556,0.397,0.041,0.004,0.001],"confidence":0.7519373047040754,"triage":"new","triageP":{"unresolved":0.003,"resolved":0.029,"new":0.968},"triageChange":"reset","seen":false,"stateTokens":47079,"kept":102,"depth":60000,"ms":6863,"attempts":1,"tokens":92534,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 axios 从 1.7.2 升到 1.7.9。","recent_context":{"chars":136037,"lines":102,"first":"user: 嗯，明白了","last":"assistant: [tools: Read, Edit] 整理好了，行为没变，抽出了一个小函数： ```ts export const defaults = { payload: 37, tags: 8242, value: '版本', offset: false, } as const export interf"}}},"zh-score-near":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.582,0.394,0.023,0.001,0.001],"confidence":0.7774220397299997,"triage":"new","triageP":{"unresolved":0.001,"resolved":0.028,"new":0.971},"triageChange":"reset","seen":true,"stateTokens":47240,"kept":108,"depth":60000,"ms":8005,"attempts":1,"tokens":92798,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 axios 从 1.7.2 升到 1.7.9。","recent_context":{"chars":136317,"lines":108,"first":"user: 嗯，明白了","last":"assistant: [tools: Read, Edit] 整理好了，行为没变，抽出了一个小函数： ```ts export const defaults = { payload: 37, tags: 8242, value: '版本', offset: false, } as const export interf"}}},"zh-score-none":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.556,0.397,0.041,0.004,0.001],"confidence":0.7519373047040754,"triage":"new","triageP":{"unresolved":0.003,"resolved":0.029,"new":0.968},"triageChange":"reset","stateTokens":47079,"kept":102,"depth":60000,"ms":9141,"attempts":1,"tokens":92534,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 axios 从 1.7.2 升到 1.7.9。","recent_context":{"chars":136037,"lines":102,"first":"user: 嗯，明白了","last":"assistant: [tools: Read, Edit] 整理好了，行为没变，抽出了一个小函数： ```ts export const defaults = { payload: 37, tags: 8242, value: '版本', offset: false, } as const export interf"}}},"en-score-deep":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.49,0.457,0.049,0.003,0.001],"confidence":0.7157803843156554,"triage":"new","triageP":{"unresolved":0.002,"resolved":0.033,"new":0.965},"triageChange":"reset","seen":false,"stateTokens":47079,"kept":102,"depth":60000,"ms":9127,"attempts":1,"tokens":92604,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 axios 从 1.7.2 升到 1.7.9。","recent_context":{"chars":136037,"lines":102,"first":"user: 嗯，明白了","last":"assistant: [tools: Read, Edit] 整理好了，行为没变，抽出了一个小函数： ```ts export const defaults = { payload: 37, tags: 8242, value: '版本', offset: false, } as const export interf"}}},"en-score-near":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.499,0.461,0.038,0.002,0.001],"confidence":0.7274577837173293,"triage":"new","triageP":{"unresolved":0.001,"resolved":0.024,"new":0.975},"triageChange":"reset","seen":true,"stateTokens":47240,"kept":108,"depth":60000,"ms":9161,"attempts":1,"tokens":92868,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 axios 从 1.7.2 升到 1.7.9。","recent_context":{"chars":136317,"lines":108,"first":"user: 嗯，明白了","last":"assistant: [tools: Read, Edit] 整理好了，行为没变，抽出了一个小函数： ```ts export const defaults = { payload: 37, tags: 8242, value: '版本', offset: false, } as const export interf"}}},"en-score-none":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.49,0.457,0.049,0.003,0.001],"confidence":0.7157803843156554,"triage":"new","triageP":{"unresolved":0.002,"resolved":0.033,"new":0.965},"triageChange":"reset","stateTokens":47079,"kept":102,"depth":60000,"ms":9167,"attempts":1,"tokens":92604,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 axios 从 1.7.2 升到 1.7.9。","recent_context":{"chars":136037,"lines":102,"first":"user: 嗯，明白了","last":"assistant: [tools: Read, Edit] 整理好了，行为没变，抽出了一个小函数： ```ts export const defaults = { payload: 37, tags: 8242, value: '版本', offset: false, } as const export interf"}}}},
+    {"id":"long-018","language":"zh","zh-score-deep":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.744,0.238,0.016,0.001,0.001],"confidence":0.8619963613019377,"triage":"new","triageP":{"unresolved":0.006,"resolved":0.066,"new":0.928},"triageChange":"reset","seen":false,"stateTokens":47286,"kept":98,"depth":120000,"ms":9238,"attempts":1,"tokens":93402,"model":"pplx-decider-v1.1-27b","state":{"user_message":"上传大小限制改成 20MB。","recent_context":{"chars":137109,"lines":98,"first":"user: 列一下最近改过 server/limits.ts 的几个提交","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 config/default.json.test.ts 里： ```ts export const defaults = { key: 43, createdAt: 8190, headers: '上传', updatedAt: f"}}},"zh-score-near":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.905,0.091,0.003,0,0],"confidence":0.9502488408225159,"triage":"new","triageP":{"unresolved":0.003,"resolved":0.054,"new":0.943},"triageChange":"reset","seen":true,"stateTokens":47433,"kept":104,"depth":120000,"ms":9229,"attempts":1,"tokens":93630,"model":"pplx-decider-v1.1-27b","state":{"user_message":"上传大小限制改成 20MB。","recent_context":{"chars":137323,"lines":104,"first":"user: 列一下最近改过 server/limits.ts 的几个提交","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 config/default.json.test.ts 里： ```ts export const defaults = { key: 43, createdAt: 8190, headers: '上传', updatedAt: f"}}},"zh-score-none":{"answer":"low / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.744,0.238,0.016,0.001,0.001],"confidence":0.8619963613019377,"triage":"new","triageP":{"unresolved":0.006,"resolved":0.066,"new":0.928},"triageChange":"reset","stateTokens":47286,"kept":98,"depth":120000,"ms":9277,"attempts":1,"tokens":93402,"model":"pplx-decider-v1.1-27b","state":{"user_message":"上传大小限制改成 20MB。","recent_context":{"chars":137109,"lines":98,"first":"user: 列一下最近改过 server/limits.ts 的几个提交","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 config/default.json.test.ts 里： ```ts export const defaults = { key: 43, createdAt: 8190, headers: '上传', updatedAt: f"}}},"en-score-deep":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.734,0.248,0.016,0.001,0.001],"confidence":0.856272659323939,"triage":"new","triageP":{"unresolved":0.003,"resolved":0.055,"new":0.942},"triageChange":"reset","seen":false,"stateTokens":47286,"kept":98,"depth":120000,"ms":9293,"attempts":1,"tokens":93472,"model":"pplx-decider-v1.1-27b","state":{"user_message":"上传大小限制改成 20MB。","recent_context":{"chars":137109,"lines":98,"first":"user: 列一下最近改过 server/limits.ts 的几个提交","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 config/default.json.test.ts 里： ```ts export const defaults = { key: 43, createdAt: 8190, headers: '上传', updatedAt: f"}}},"en-score-near":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.899,0.096,0.004,0.001,0],"confidence":0.9458340428309236,"triage":"new","triageP":{"unresolved":0.002,"resolved":0.054,"new":0.944},"triageChange":"reset","seen":true,"stateTokens":47433,"kept":104,"depth":120000,"ms":9448,"attempts":1,"tokens":93700,"model":"pplx-decider-v1.1-27b","state":{"user_message":"上传大小限制改成 20MB。","recent_context":{"chars":137323,"lines":104,"first":"user: 列一下最近改过 server/limits.ts 的几个提交","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 config/default.json.test.ts 里： ```ts export const defaults = { key: 43, createdAt: 8190, headers: '上传', updatedAt: f"}}},"en-score-none":{"answer":"low / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.734,0.248,0.016,0.001,0.001],"confidence":0.856272659323939,"triage":"new","triageP":{"unresolved":0.003,"resolved":0.055,"new":0.942},"triageChange":"reset","stateTokens":47286,"kept":98,"depth":120000,"ms":9358,"attempts":1,"tokens":93472,"model":"pplx-decider-v1.1-27b","state":{"user_message":"上传大小限制改成 20MB。","recent_context":{"chars":137109,"lines":98,"first":"user: 列一下最近改过 server/limits.ts 的几个提交","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 config/default.json.test.ts 里： ```ts export const defaults = { key: 43, createdAt: 8190, headers: '上传', updatedAt: f"}}}},
+    {"id":"long-019","language":"zh","zh-score-deep":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.946,0.006,0.031,0.016,0],"confidence":0.9410109717324364,"triage":"new","triageP":{"unresolved":0.02,"resolved":0.196,"new":0.783},"triageChange":"reset","seen":false,"stateTokens":47799,"kept":102,"depth":120000,"ms":9420,"attempts":1,"tokens":95322,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 getUserInfo 全部改成 fetchUserProfile。","recent_context":{"chars":139690,"lines":102,"first":"user: getUserInfo 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 src/profile/view.tsx.test.ts 里： ```ts describe('UserService', () => { it('skips empty entries', () => { const result"}}},"zh-score-near":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.991,0.002,0.006,0.001,0],"confidence":0.9917982206472117,"triage":"new","triageP":{"unresolved":0.008,"resolved":0.088,"new":0.904},"triageChange":"reset","seen":true,"stateTokens":47560,"kept":106,"depth":120000,"ms":11727,"attempts":1,"tokens":94828,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 getUserInfo 全部改成 fetchUserProfile。","recent_context":{"chars":139193,"lines":106,"first":"user: 给 renderProfile 写几条单测，先照现在的行为写","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 src/profile/view.tsx.test.ts 里： ```ts describe('UserService', () => { it('skips empty entries', () => { const result"}}},"zh-score-none":{"answer":"low / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.946,0.006,0.031,0.016,0],"confidence":0.9410109717324364,"triage":"new","triageP":{"unresolved":0.02,"resolved":0.196,"new":0.783},"triageChange":"reset","stateTokens":47799,"kept":102,"depth":120000,"ms":11816,"attempts":1,"tokens":95322,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 getUserInfo 全部改成 fetchUserProfile。","recent_context":{"chars":139690,"lines":102,"first":"user: getUserInfo 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 src/profile/view.tsx.test.ts 里： ```ts describe('UserService', () => { it('skips empty entries', () => { const result"}}},"en-score-deep":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.958,0.009,0.023,0.01,0],"confidence":0.9563936701108597,"triage":"new","triageP":{"unresolved":0.016,"resolved":0.19,"new":0.794},"triageChange":"reset","seen":false,"stateTokens":47799,"kept":102,"depth":120000,"ms":11832,"attempts":1,"tokens":95392,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 getUserInfo 全部改成 fetchUserProfile。","recent_context":{"chars":139690,"lines":102,"first":"user: getUserInfo 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 src/profile/view.tsx.test.ts 里： ```ts describe('UserService', () => { it('skips empty entries', () => { const result"}}},"en-score-near":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.992,0.003,0.005,0.001,0],"confidence":0.992609704557832,"triage":"new","triageP":{"unresolved":0.004,"resolved":0.05,"new":0.946},"triageChange":"reset","seen":true,"stateTokens":47560,"kept":106,"depth":120000,"ms":9416,"attempts":1,"tokens":94898,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 getUserInfo 全部改成 fetchUserProfile。","recent_context":{"chars":139193,"lines":106,"first":"user: 给 renderProfile 写几条单测，先照现在的行为写","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 src/profile/view.tsx.test.ts 里： ```ts describe('UserService', () => { it('skips empty entries', () => { const result"}}},"en-score-none":{"answer":"low / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.958,0.009,0.023,0.01,0],"confidence":0.9563936701108597,"triage":"new","triageP":{"unresolved":0.016,"resolved":0.19,"new":0.794},"triageChange":"reset","stateTokens":47799,"kept":102,"depth":120000,"ms":9487,"attempts":1,"tokens":95392,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 getUserInfo 全部改成 fetchUserProfile。","recent_context":{"chars":139690,"lines":102,"first":"user: getUserInfo 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 src/profile/view.tsx.test.ts 里： ```ts describe('UserService', () => { it('skips empty entries', () => { const result"}}}},
+    {"id":"long-020","language":"zh","zh-score-deep":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.266,0.169,0.559,0.005,0.001],"confidence":0.41007535036208953,"triage":"new","triageP":{"unresolved":0.009,"resolved":0.321,"new":0.669},"triageChange":"keep","seen":true,"stateTokens":30048,"kept":66,"depth":30000,"ms":8267,"attempts":1,"tokens":60014,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按对照表把剩下的 12 个路由都迁到 v2，服务端、重定向和客户端都要改。","recent_context":{"chars":91431,"lines":66,"first":"user: 我们要把 API 从 /v1 迁到 /v2，路径一一对应，我已经把对照表写在 `docs/api-migration.md` 里了，每一行都是「旧路径 → 新路径」，处理逻辑完全不变","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 client/api/paths.test.ts 里： ```ts export async function buildWindow(kind: string[], chunkSize = 9) { const out: unkn"}}},"zh-score-near":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.202,0.14,0.647,0.01,0.001],"confidence":0.5365078565991773,"triage":"new","triageP":{"unresolved":0.01,"resolved":0.314,"new":0.676},"triageChange":"keep","seen":true,"stateTokens":30048,"kept":66,"depth":30000,"ms":7137,"attempts":1,"tokens":60014,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按对照表把剩下的 12 个路由都迁到 v2，服务端、重定向和客户端都要改。","recent_context":{"chars":91431,"lines":66,"first":"user: PATH_MAP 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 client/api/paths.test.ts 里： ```ts export async function buildWindow(kind: string[], chunkSize = 9) { const out: unkn"}}},"zh-score-none":{"answer":"high / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.047,0.031,0.778,0.143,0.002],"confidence":0.7740528936332284,"triage":"new","triageP":{"unresolved":0.004,"resolved":0.065,"new":0.93},"triageChange":"reset","stateTokens":29791,"kept":60,"depth":30000,"ms":5899,"attempts":1,"tokens":59536,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按对照表把剩下的 12 个路由都迁到 v2，服务端、重定向和客户端都要改。","recent_context":{"chars":90982,"lines":60,"first":"user: PATH_MAP 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 client/api/paths.test.ts 里： ```ts export async function buildWindow(kind: string[], chunkSize = 9) { const out: unkn"}}},"en-score-deep":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.291,0.132,0.571,0.004,0.001],"confidence":0.39858536503247943,"triage":"new","triageP":{"unresolved":0.037,"resolved":0.378,"new":0.585},"triageChange":"keep","seen":true,"stateTokens":30048,"kept":66,"depth":30000,"ms":5835,"attempts":1,"tokens":60084,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按对照表把剩下的 12 个路由都迁到 v2，服务端、重定向和客户端都要改。","recent_context":{"chars":91431,"lines":66,"first":"user: 我们要把 API 从 /v1 迁到 /v2，路径一一对应，我已经把对照表写在 `docs/api-migration.md` 里了，每一行都是「旧路径 → 新路径」，处理逻辑完全不变","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 client/api/paths.test.ts 里： ```ts export async function buildWindow(kind: string[], chunkSize = 9) { const out: unkn"}}},"en-score-near":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.215,0.092,0.682,0.01,0.001],"confidence":0.5551853987519926,"triage":"new","triageP":{"unresolved":0.028,"resolved":0.399,"new":0.572},"triageChange":"keep","seen":true,"stateTokens":30048,"kept":66,"depth":30000,"ms":5805,"attempts":1,"tokens":60084,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按对照表把剩下的 12 个路由都迁到 v2，服务端、重定向和客户端都要改。","recent_context":{"chars":91431,"lines":66,"first":"user: PATH_MAP 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 client/api/paths.test.ts 里： ```ts export async function buildWindow(kind: string[], chunkSize = 9) { const out: unkn"}}},"en-score-none":{"answer":"high / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.039,0.024,0.823,0.11,0.003],"confidence":0.8173032981957197,"triage":"new","triageP":{"unresolved":0.007,"resolved":0.079,"new":0.914},"triageChange":"reset","stateTokens":29791,"kept":60,"depth":30000,"ms":7132,"attempts":1,"tokens":59606,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按对照表把剩下的 12 个路由都迁到 v2，服务端、重定向和客户端都要改。","recent_context":{"chars":90982,"lines":60,"first":"user: PATH_MAP 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 client/api/paths.test.ts 里： ```ts export async function buildWindow(kind: string[], chunkSize = 9) { const out: unkn"}}}},
+    {"id":"long-021","language":"zh","zh-score-deep":{"answer":"low / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.893,0.012,0.09,0.005,0],"confidence":0.8962310494984175,"triage":"new","triageP":{"unresolved":0.016,"resolved":0.386,"new":0.598},"triageChange":"keep","seen":true,"stateTokens":29967,"kept":72,"depth":30000,"ms":7132,"attempts":1,"tokens":60506,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按映射表把 src/ 下剩下的 moment 全替换成 dayjs，包括测试里的。","recent_context":{"chars":84824,"lines":72,"first":"user: 我们要把 moment 全换成 dayjs。我已经把 12 个用到的 API 一一对应写在 `docs/dayjs-map.md` 里了，没有语义不同的地方，格式字符串也是通用的","last":"assistant: [tools: Grep, Read] 配置在 src/pages/Report.tsx 里，可调的项有： - src/pages/Report.tsx：拼装请求头，约 85 行，被 4 处引用 - src/pages/Orders.tsx：按时间排序，约 227 行，被 1 处引用 - src/"}}},"zh-score-near":{"answer":"low / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.893,0.011,0.09,0.005,0],"confidence":0.8953102085317153,"triage":"new","triageP":{"unresolved":0.022,"resolved":0.449,"new":0.529},"triageChange":"keep","seen":true,"stateTokens":29967,"kept":72,"depth":30000,"ms":7109,"attempts":1,"tokens":60506,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按映射表把 src/ 下剩下的 moment 全替换成 dayjs，包括测试里的。","recent_context":{"chars":84824,"lines":72,"first":"user: 帮我把 startOfWeek 里重复的部分整理一下，先别动行为","last":"assistant: [tools: Grep, Read] 配置在 src/pages/Report.tsx 里，可调的项有： - src/pages/Report.tsx：拼装请求头，约 85 行，被 4 处引用 - src/pages/Orders.tsx：按时间排序，约 227 行，被 1 处引用 - src/"}}},"zh-score-none":{"answer":"low / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.523,0.017,0.41,0.049,0.001],"confidence":0.5049535231587592,"triage":"new","triageP":{"unresolved":0.009,"resolved":0.194,"new":0.797},"triageChange":"reset","stateTokens":29733,"kept":66,"depth":30000,"ms":5807,"attempts":1,"tokens":60070,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按映射表把 src/ 下剩下的 moment 全替换成 dayjs，包括测试里的。","recent_context":{"chars":84331,"lines":66,"first":"user: 帮我把 startOfWeek 里重复的部分整理一下，先别动行为","last":"assistant: [tools: Grep, Read] 配置在 src/pages/Report.tsx 里，可调的项有： - src/pages/Report.tsx：拼装请求头，约 85 行，被 4 处引用 - src/pages/Orders.tsx：按时间排序，约 227 行，被 1 处引用 - src/"}}},"en-score-deep":{"answer":"low / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.904,0.016,0.079,0.001,0],"confidence":0.9104702883513295,"triage":"new","triageP":{"unresolved":0.094,"resolved":0.204,"new":0.702},"triageChange":"reset","seen":true,"stateTokens":29967,"kept":72,"depth":30000,"ms":5883,"attempts":1,"tokens":60576,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按映射表把 src/ 下剩下的 moment 全替换成 dayjs，包括测试里的。","recent_context":{"chars":84824,"lines":72,"first":"user: 我们要把 moment 全换成 dayjs。我已经把 12 个用到的 API 一一对应写在 `docs/dayjs-map.md` 里了，没有语义不同的地方，格式字符串也是通用的","last":"assistant: [tools: Grep, Read] 配置在 src/pages/Report.tsx 里，可调的项有： - src/pages/Report.tsx：拼装请求头，约 85 行，被 4 处引用 - src/pages/Orders.tsx：按时间排序，约 227 行，被 1 处引用 - src/"}}},"en-score-near":{"answer":"low / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.884,0.019,0.095,0.002,0],"confidence":0.8921185256386904,"triage":"new","triageP":{"unresolved":0.081,"resolved":0.285,"new":0.633},"triageChange":"keep","seen":true,"stateTokens":29967,"kept":72,"depth":30000,"ms":5879,"attempts":1,"tokens":60576,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按映射表把 src/ 下剩下的 moment 全替换成 dayjs，包括测试里的。","recent_context":{"chars":84824,"lines":72,"first":"user: 帮我把 startOfWeek 里重复的部分整理一下，先别动行为","last":"assistant: [tools: Grep, Read] 配置在 src/pages/Report.tsx 里，可调的项有： - src/pages/Report.tsx：拼装请求头，约 85 行，被 4 处引用 - src/pages/Orders.tsx：按时间排序，约 227 行，被 1 处引用 - src/"}}},"en-score-none":{"answer":"low / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.65,0.028,0.305,0.015,0.001],"confidence":0.6555018989249073,"triage":"new","triageP":{"unresolved":0.041,"resolved":0.153,"new":0.807},"triageChange":"reset","stateTokens":29733,"kept":66,"depth":30000,"ms":5877,"attempts":1,"tokens":60140,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按映射表把 src/ 下剩下的 moment 全替换成 dayjs，包括测试里的。","recent_context":{"chars":84331,"lines":66,"first":"user: 帮我把 startOfWeek 里重复的部分整理一下，先别动行为","last":"assistant: [tools: Grep, Read] 配置在 src/pages/Report.tsx 里，可调的项有： - src/pages/Report.tsx：拼装请求头，约 85 行，被 4 处引用 - src/pages/Orders.tsx：按时间排序，约 227 行，被 1 处引用 - src/"}}}},
+    {"id":"long-022","language":"zh","zh-score-deep":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.03,0.048,0.834,0.087,0.001],"confidence":0.8356642728874248,"triage":"new","triageP":{"unresolved":0.003,"resolved":0.096,"new":0.9},"triageChange":"reset","seen":false,"stateTokens":47780,"kept":78,"depth":60000,"ms":7046,"attempts":1,"tokens":96072,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按模板把剩下的服务都加上健康检查端点，依赖列表你从各服务的配置里读。","recent_context":{"chars":143751,"lines":78,"first":"user: scripts/add_health.sh 里的 ready 是干什么的？我看了一圈没太看懂","last":"assistant: [tools: Read, Grep] 读了这两个文件。HealthHandler 的入口在 templates/health.go.tmpl，它先合并默认配置，再序列化结果，最后补齐缺省字段。registerHealth 的入口在 services/search/health.go，它先补齐缺省"}}},"zh-score-near":{"answer":"high / resolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":false},"p":[0.239,0.066,0.646,0.047,0.002],"confidence":0.5031390222345196,"triage":"resolved","triageP":{"unresolved":0.006,"resolved":0.656,"new":0.338},"triageChange":"keep","seen":true,"stateTokens":46394,"kept":82,"depth":60000,"ms":8279,"attempts":1,"tokens":93306,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按模板把剩下的服务都加上健康检查端点，依赖列表你从各服务的配置里读。","recent_context":{"chars":139713,"lines":82,"first":"user: templates/health.go.tmpl 里的 ready 是干什么的？我看了一圈没太看懂","last":"assistant: [tools: Read, Grep] 读了这两个文件。HealthHandler 的入口在 templates/health.go.tmpl，它先合并默认配置，再序列化结果，最后补齐缺省字段。registerHealth 的入口在 services/search/health.go，它先补齐缺省"}}},"zh-score-none":{"answer":"high / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.03,0.048,0.834,0.087,0.001],"confidence":0.8356642728874248,"triage":"new","triageP":{"unresolved":0.003,"resolved":0.096,"new":0.9},"triageChange":"reset","stateTokens":47780,"kept":78,"depth":60000,"ms":9506,"attempts":1,"tokens":96072,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按模板把剩下的服务都加上健康检查端点，依赖列表你从各服务的配置里读。","recent_context":{"chars":143751,"lines":78,"first":"user: scripts/add_health.sh 里的 ready 是干什么的？我看了一圈没太看懂","last":"assistant: [tools: Read, Grep] 读了这两个文件。HealthHandler 的入口在 templates/health.go.tmpl，它先合并默认配置，再序列化结果，最后补齐缺省字段。registerHealth 的入口在 services/search/health.go，它先补齐缺省"}}},"en-score-deep":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.025,0.041,0.856,0.077,0.002],"confidence":0.8575912538509939,"triage":"new","triageP":{"unresolved":0.002,"resolved":0.072,"new":0.926},"triageChange":"reset","seen":false,"stateTokens":47780,"kept":78,"depth":60000,"ms":9587,"attempts":1,"tokens":96142,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按模板把剩下的服务都加上健康检查端点，依赖列表你从各服务的配置里读。","recent_context":{"chars":143751,"lines":78,"first":"user: scripts/add_health.sh 里的 ready 是干什么的？我看了一圈没太看懂","last":"assistant: [tools: Read, Grep] 读了这两个文件。HealthHandler 的入口在 templates/health.go.tmpl，它先合并默认配置，再序列化结果，最后补齐缺省字段。registerHealth 的入口在 services/search/health.go，它先补齐缺省"}}},"en-score-near":{"answer":"high / resolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":false},"p":[0.11,0.049,0.779,0.06,0.002],"confidence":0.7215684107118975,"triage":"resolved","triageP":{"unresolved":0.011,"resolved":0.62,"new":0.37},"triageChange":"keep","seen":true,"stateTokens":46394,"kept":82,"depth":60000,"ms":9544,"attempts":1,"tokens":93376,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按模板把剩下的服务都加上健康检查端点，依赖列表你从各服务的配置里读。","recent_context":{"chars":139713,"lines":82,"first":"user: templates/health.go.tmpl 里的 ready 是干什么的？我看了一圈没太看懂","last":"assistant: [tools: Read, Grep] 读了这两个文件。HealthHandler 的入口在 templates/health.go.tmpl，它先合并默认配置，再序列化结果，最后补齐缺省字段。registerHealth 的入口在 services/search/health.go，它先补齐缺省"}}},"en-score-none":{"answer":"high / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.025,0.041,0.856,0.077,0.002],"confidence":0.8575912538509939,"triage":"new","triageP":{"unresolved":0.002,"resolved":0.072,"new":0.926},"triageChange":"reset","stateTokens":47780,"kept":78,"depth":60000,"ms":9509,"attempts":1,"tokens":96142,"model":"pplx-decider-v1.1-27b","state":{"user_message":"按模板把剩下的服务都加上健康检查端点，依赖列表你从各服务的配置里读。","recent_context":{"chars":143751,"lines":78,"first":"user: scripts/add_health.sh 里的 ready 是干什么的？我看了一圈没太看懂","last":"assistant: [tools: Read, Grep] 读了这两个文件。HealthHandler 的入口在 templates/health.go.tmpl，它先合并默认配置，再序列化结果，最后补齐缺省字段。registerHealth 的入口在 services/search/health.go，它先补齐缺省"}}}},
+    {"id":"long-023","language":"zh","zh-score-deep":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.013,0.042,0.888,0.057,0.001],"confidence":0.8950525570959091,"triage":"new","triageP":{"unresolved":0.02,"resolved":0.143,"new":0.837},"triageChange":"reset","seen":false,"stateTokens":47698,"kept":114,"depth":60000,"ms":9447,"attempts":1,"tokens":95024,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 api/ 下剩下的 any 全部按 schema 补上类型，改完让类型检查过。","recent_context":{"chars":140349,"lines":114,"first":"user: 好，那就先按这个理解","last":"assistant: [tools: Grep, Read] 配置在 src/api/orders.ts 里，可调的项有： - src/api/orders.ts：清理过期条目，约 276 行，被 6 处引用 - src/api/orders.ts：清理过期条目，约 88 行，被 5 处引用 - src/api/use"}}},"zh-score-near":{"answer":"high / resolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":false},"p":[0.17,0.059,0.757,0.013,0.001],"confidence":0.655158743131097,"triage":"resolved","triageP":{"unresolved":0.045,"resolved":0.707,"new":0.248},"triageChange":"reset","seen":true,"stateTokens":47902,"kept":118,"depth":60000,"ms":9512,"attempts":1,"tokens":95378,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 api/ 下剩下的 any 全部按 schema 补上类型，改完让类型检查过。","recent_context":{"chars":140744,"lines":118,"first":"user: API 类型补全这一块一共有哪些文件，各自多大","last":"assistant: [tools: Grep, Read] 配置在 src/api/orders.ts 里，可调的项有： - src/api/orders.ts：清理过期条目，约 276 行，被 6 处引用 - src/api/orders.ts：清理过期条目，约 88 行，被 5 处引用 - src/api/use"}}},"zh-score-none":{"answer":"high / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.013,0.042,0.888,0.057,0.001],"confidence":0.8950525570959091,"triage":"new","triageP":{"unresolved":0.02,"resolved":0.143,"new":0.837},"triageChange":"reset","stateTokens":47698,"kept":114,"depth":60000,"ms":9465,"attempts":1,"tokens":95024,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 api/ 下剩下的 any 全部按 schema 补上类型，改完让类型检查过。","recent_context":{"chars":140349,"lines":114,"first":"user: 好，那就先按这个理解","last":"assistant: [tools: Grep, Read] 配置在 src/api/orders.ts 里，可调的项有： - src/api/orders.ts：清理过期条目，约 276 行，被 6 处引用 - src/api/orders.ts：清理过期条目，约 88 行，被 5 处引用 - src/api/use"}}},"en-score-deep":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.021,0.043,0.868,0.066,0.002],"confidence":0.8715610422016734,"triage":"new","triageP":{"unresolved":0.087,"resolved":0.164,"new":0.748},"triageChange":"reset","seen":false,"stateTokens":47698,"kept":114,"depth":60000,"ms":9359,"attempts":1,"tokens":95094,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 api/ 下剩下的 any 全部按 schema 补上类型，改完让类型检查过。","recent_context":{"chars":140349,"lines":114,"first":"user: 好，那就先按这个理解","last":"assistant: [tools: Grep, Read] 配置在 src/api/orders.ts 里，可调的项有： - src/api/orders.ts：清理过期条目，约 276 行，被 6 处引用 - src/api/orders.ts：清理过期条目，约 88 行，被 5 处引用 - src/api/use"}}},"en-score-near":{"answer":"high / resolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":false},"p":[0.163,0.045,0.77,0.021,0.001],"confidence":0.6720508387489357,"triage":"resolved","triageP":{"unresolved":0.191,"resolved":0.473,"new":0.336},"triageChange":"keep","seen":true,"stateTokens":47902,"kept":118,"depth":60000,"ms":9402,"attempts":1,"tokens":95448,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 api/ 下剩下的 any 全部按 schema 补上类型，改完让类型检查过。","recent_context":{"chars":140744,"lines":118,"first":"user: API 类型补全这一块一共有哪些文件，各自多大","last":"assistant: [tools: Grep, Read] 配置在 src/api/orders.ts 里，可调的项有： - src/api/orders.ts：清理过期条目，约 276 行，被 6 处引用 - src/api/orders.ts：清理过期条目，约 88 行，被 5 处引用 - src/api/use"}}},"en-score-none":{"answer":"high / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.021,0.043,0.868,0.066,0.002],"confidence":0.8715610422016734,"triage":"new","triageP":{"unresolved":0.087,"resolved":0.164,"new":0.748},"triageChange":"reset","stateTokens":47698,"kept":114,"depth":60000,"ms":9448,"attempts":1,"tokens":95094,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 api/ 下剩下的 any 全部按 schema 补上类型，改完让类型检查过。","recent_context":{"chars":140349,"lines":114,"first":"user: 好，那就先按这个理解","last":"assistant: [tools: Grep, Read] 配置在 src/api/orders.ts 里，可调的项有： - src/api/orders.ts：清理过期条目，约 276 行，被 6 处引用 - src/api/orders.ts：清理过期条目，约 88 行，被 5 处引用 - src/api/use"}}}},
+    {"id":"long-024","language":"zh","zh-score-deep":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.117,0.065,0.757,0.059,0.002],"confidence":0.6980499935878219,"triage":"new","triageP":{"unresolved":0.005,"resolved":0.108,"new":0.887},"triageChange":"reset","seen":false,"stateTokens":46268,"kept":90,"depth":120000,"ms":9562,"attempts":1,"tokens":93160,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把剩下的 12 个环境配置全部转成 toml，旧的 yaml 删掉。","recent_context":{"chars":135439,"lines":90,"first":"user: 配置格式转换这一块一共有哪些文件，各自多大","last":"assistant: [tools: Read, Grep] 读了这两个文件。顺带一提，scripts/yaml2toml.py 的头部注释已经过时了，它还在说转换由调用方回写状态，实际上现在是 merge_defaults 在做。merge_defaults 的入口在 config/envs/prod.yaml，它先"}}},"zh-score-near":{"answer":"low / resolved","correct":true,"gold":false,"parts":{"effort":true,"triage":false},"p":[0.663,0.072,0.258,0.007,0.002],"confidence":0.6933235632665733,"triage":"resolved","triageP":{"unresolved":0.004,"resolved":0.634,"new":0.362},"triageChange":"keep","seen":true,"stateTokens":46496,"kept":96,"depth":120000,"ms":9444,"attempts":1,"tokens":93576,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把剩下的 12 个环境配置全部转成 toml，旧的 yaml 删掉。","recent_context":{"chars":135869,"lines":96,"first":"user: 配置格式转换这一块一共有哪些文件，各自多大","last":"assistant: [tools: Read, Grep] 读了这两个文件。顺带一提，scripts/yaml2toml.py 的头部注释已经过时了，它还在说转换由调用方回写状态，实际上现在是 merge_defaults 在做。merge_defaults 的入口在 config/envs/prod.yaml，它先"}}},"zh-score-none":{"answer":"high / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.117,0.065,0.757,0.059,0.002],"confidence":0.6980499935878219,"triage":"new","triageP":{"unresolved":0.005,"resolved":0.108,"new":0.887},"triageChange":"reset","stateTokens":46268,"kept":90,"depth":120000,"ms":9319,"attempts":1,"tokens":93160,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把剩下的 12 个环境配置全部转成 toml，旧的 yaml 删掉。","recent_context":{"chars":135439,"lines":90,"first":"user: 配置格式转换这一块一共有哪些文件，各自多大","last":"assistant: [tools: Read, Grep] 读了这两个文件。顺带一提，scripts/yaml2toml.py 的头部注释已经过时了，它还在说转换由调用方回写状态，实际上现在是 merge_defaults 在做。merge_defaults 的入口在 config/envs/prod.yaml，它先"}}},"en-score-deep":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.092,0.063,0.78,0.06,0.005],"confidence":0.7364216981414112,"triage":"new","triageP":{"unresolved":0.007,"resolved":0.154,"new":0.839},"triageChange":"reset","seen":false,"stateTokens":46268,"kept":90,"depth":120000,"ms":11662,"attempts":1,"tokens":93230,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把剩下的 12 个环境配置全部转成 toml，旧的 yaml 删掉。","recent_context":{"chars":135439,"lines":90,"first":"user: 配置格式转换这一块一共有哪些文件，各自多大","last":"assistant: [tools: Read, Grep] 读了这两个文件。顺带一提，scripts/yaml2toml.py 的头部注释已经过时了，它还在说转换由调用方回写状态，实际上现在是 merge_defaults 在做。merge_defaults 的入口在 config/envs/prod.yaml，它先"}}},"en-score-near":{"answer":"low / resolved","correct":true,"gold":false,"parts":{"effort":true,"triage":false},"p":[0.454,0.098,0.437,0.008,0.003],"confidence":0.4968589187682678,"triage":"resolved","triageP":{"unresolved":0.008,"resolved":0.74,"new":0.252},"triageChange":"reset","seen":true,"stateTokens":46496,"kept":96,"depth":120000,"ms":14185,"attempts":1,"tokens":93646,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把剩下的 12 个环境配置全部转成 toml，旧的 yaml 删掉。","recent_context":{"chars":135869,"lines":96,"first":"user: 配置格式转换这一块一共有哪些文件，各自多大","last":"assistant: [tools: Read, Grep] 读了这两个文件。顺带一提，scripts/yaml2toml.py 的头部注释已经过时了，它还在说转换由调用方回写状态，实际上现在是 merge_defaults 在做。merge_defaults 的入口在 config/envs/prod.yaml，它先"}}},"en-score-none":{"answer":"high / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.092,0.063,0.78,0.06,0.005],"confidence":0.7364216981414112,"triage":"new","triageP":{"unresolved":0.007,"resolved":0.154,"new":0.839},"triageChange":"reset","stateTokens":46268,"kept":90,"depth":120000,"ms":14491,"attempts":1,"tokens":93230,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把剩下的 12 个环境配置全部转成 toml，旧的 yaml 删掉。","recent_context":{"chars":135439,"lines":90,"first":"user: 配置格式转换这一块一共有哪些文件，各自多大","last":"assistant: [tools: Read, Grep] 读了这两个文件。顺带一提，scripts/yaml2toml.py 的头部注释已经过时了，它还在说转换由调用方回写状态，实际上现在是 merge_defaults 在做。merge_defaults 的入口在 config/envs/prod.yaml，它先"}}}},
+    {"id":"long-025","language":"zh","zh-score-deep":{"answer":"medium / resolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.404,0.447,0.144,0.004,0.001],"confidence":0.6004183103622207,"triage":"resolved","triageP":{"unresolved":0.002,"resolved":0.952,"new":0.046},"triageChange":"reset","seen":true,"stateTokens":30194,"kept":68,"depth":30000,"ms":12629,"attempts":1,"tokens":61030,"model":"pplx-decider-v1.1-27b","state":{"user_message":"帮我把现在的改动提交一下，commit message 写清楚改了什么。","recent_context":{"chars":89439,"lines":68,"first":"user: `tests/order.test.ts` 里 `applies coupon` 偶发超时，本地过，CI 三次挂一次，帮我修一下","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 CHANGELOG.md.test.ts 里： ```ts describe('orderState', () => { it('does not change its input', () => { const result = "}}},"zh-score-near":{"answer":"medium / resolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.294,0.521,0.178,0.005,0.002],"confidence":0.6516283010313308,"triage":"resolved","triageP":{"unresolved":0.001,"resolved":0.947,"new":0.052},"triageChange":"reset","seen":true,"stateTokens":30194,"kept":68,"depth":30000,"ms":9114,"attempts":1,"tokens":61030,"model":"pplx-decider-v1.1-27b","state":{"user_message":"帮我把现在的改动提交一下，commit message 写清楚改了什么。","recent_context":{"chars":89439,"lines":68,"first":"user: 帮我看一下 tests/order.test.ts 和 src/order/state.ts 之间是怎么传提交的","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 CHANGELOG.md.test.ts 里： ```ts describe('orderState', () => { it('does not change its input', () => { const result = "}}},"zh-score-none":{"answer":"medium / resolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.366,0.508,0.123,0.003,0.001],"confidence":0.6450990086232629,"triage":"resolved","triageP":{"unresolved":0,"resolved":0.979,"new":0.02},"triageChange":"reset","stateTokens":29948,"kept":58,"depth":30000,"ms":7849,"attempts":1,"tokens":60582,"model":"pplx-decider-v1.1-27b","state":{"user_message":"帮我把现在的改动提交一下，commit message 写清楚改了什么。","recent_context":{"chars":88940,"lines":58,"first":"user: 帮我看一下 tests/order.test.ts 和 src/order/state.ts 之间是怎么传提交的","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 CHANGELOG.md.test.ts 里： ```ts describe('orderState', () => { it('does not change its input', () => { const result = "}}},"en-score-deep":{"answer":"medium / resolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.3,0.526,0.168,0.004,0.002],"confidence":0.6554491393912499,"triage":"resolved","triageP":{"unresolved":0.001,"resolved":0.964,"new":0.036},"triageChange":"reset","seen":true,"stateTokens":30194,"kept":68,"depth":30000,"ms":6419,"attempts":1,"tokens":61100,"model":"pplx-decider-v1.1-27b","state":{"user_message":"帮我把现在的改动提交一下，commit message 写清楚改了什么。","recent_context":{"chars":89439,"lines":68,"first":"user: `tests/order.test.ts` 里 `applies coupon` 偶发超时，本地过，CI 三次挂一次，帮我修一下","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 CHANGELOG.md.test.ts 里： ```ts describe('orderState', () => { it('does not change its input', () => { const result = "}}},"en-score-near":{"answer":"medium / resolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.23,0.616,0.146,0.005,0.002],"confidence":0.7190768876414967,"triage":"resolved","triageP":{"unresolved":0.001,"resolved":0.926,"new":0.074},"triageChange":"reset","seen":true,"stateTokens":30194,"kept":68,"depth":30000,"ms":6349,"attempts":1,"tokens":61100,"model":"pplx-decider-v1.1-27b","state":{"user_message":"帮我把现在的改动提交一下，commit message 写清楚改了什么。","recent_context":{"chars":89439,"lines":68,"first":"user: 帮我看一下 tests/order.test.ts 和 src/order/state.ts 之间是怎么传提交的","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 CHANGELOG.md.test.ts 里： ```ts describe('orderState', () => { it('does not change its input', () => { const result = "}}},"en-score-none":{"answer":"medium / resolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.281,0.591,0.124,0.003,0.001],"confidence":0.7040500182096991,"triage":"resolved","triageP":{"unresolved":0,"resolved":0.982,"new":0.017},"triageChange":"reset","stateTokens":29948,"kept":58,"depth":30000,"ms":6175,"attempts":1,"tokens":60652,"model":"pplx-decider-v1.1-27b","state":{"user_message":"帮我把现在的改动提交一下，commit message 写清楚改了什么。","recent_context":{"chars":88940,"lines":58,"first":"user: 帮我看一下 tests/order.test.ts 和 src/order/state.ts 之间是怎么传提交的","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 CHANGELOG.md.test.ts 里： ```ts describe('orderState', () => { it('does not change its input', () => { const result = "}}}},
+    {"id":"long-026","language":"zh","zh-score-deep":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.029,0.841,0.124,0.005,0.001],"confidence":0.8812442144946904,"triage":"new","triageP":{"unresolved":0.004,"resolved":0.024,"new":0.972},"triageChange":"reset","seen":false,"stateTokens":45416,"kept":92,"depth":60000,"ms":6996,"attempts":1,"tokens":91194,"model":"pplx-decider-v1.1-27b","state":{"user_message":"给 README 加一段本地启动的说明：怎么装依赖、怎么起服务、需要哪些环境变量。","recent_context":{"chars":133331,"lines":92,"first":"user: 启动这块现在在哪里配置？有哪些可调的项","last":"assistant: 可以考虑 prepareBatch、loadSummary 或 buildBatch：值得留意的是，本地是按调用次数来算的，所以结果可以直接缓存。从调用关系看，docs/dev-setup.md 依赖 docker-compose.yml，反过来没有依赖，所以这一层可以单独拿出来读。从调用关系看，"}}},"zh-score-near":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.033,0.845,0.116,0.005,0.001],"confidence":0.8841604982700262,"triage":"new","triageP":{"unresolved":0.012,"resolved":0.035,"new":0.953},"triageChange":"reset","seen":true,"stateTokens":45668,"kept":102,"depth":60000,"ms":7975,"attempts":1,"tokens":91628,"model":"pplx-decider-v1.1-27b","state":{"user_message":"给 README 加一段本地启动的说明：怎么装依赖、怎么起服务、需要哪些环境变量。","recent_context":{"chars":133776,"lines":102,"first":"user: 启动这块现在在哪里配置？有哪些可调的项","last":"assistant: 可以考虑 prepareBatch、loadSummary 或 buildBatch：值得留意的是，本地是按调用次数来算的，所以结果可以直接缓存。从调用关系看，docs/dev-setup.md 依赖 docker-compose.yml，反过来没有依赖，所以这一层可以单独拿出来读。从调用关系看，"}}},"zh-score-none":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.029,0.841,0.124,0.005,0.001],"confidence":0.8812442144946904,"triage":"new","triageP":{"unresolved":0.004,"resolved":0.024,"new":0.972},"triageChange":"reset","stateTokens":45416,"kept":92,"depth":60000,"ms":9085,"attempts":1,"tokens":91194,"model":"pplx-decider-v1.1-27b","state":{"user_message":"给 README 加一段本地启动的说明：怎么装依赖、怎么起服务、需要哪些环境变量。","recent_context":{"chars":133331,"lines":92,"first":"user: 启动这块现在在哪里配置？有哪些可调的项","last":"assistant: 可以考虑 prepareBatch、loadSummary 或 buildBatch：值得留意的是，本地是按调用次数来算的，所以结果可以直接缓存。从调用关系看，docs/dev-setup.md 依赖 docker-compose.yml，反过来没有依赖，所以这一层可以单独拿出来读。从调用关系看，"}}},"en-score-deep":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.036,0.895,0.064,0.004,0.001],"confidence":0.9205724020106448,"triage":"new","triageP":{"unresolved":0.003,"resolved":0.032,"new":0.964},"triageChange":"reset","seen":false,"stateTokens":45416,"kept":92,"depth":60000,"ms":8948,"attempts":1,"tokens":91264,"model":"pplx-decider-v1.1-27b","state":{"user_message":"给 README 加一段本地启动的说明：怎么装依赖、怎么起服务、需要哪些环境变量。","recent_context":{"chars":133331,"lines":92,"first":"user: 启动这块现在在哪里配置？有哪些可调的项","last":"assistant: 可以考虑 prepareBatch、loadSummary 或 buildBatch：值得留意的是，本地是按调用次数来算的，所以结果可以直接缓存。从调用关系看，docs/dev-setup.md 依赖 docker-compose.yml，反过来没有依赖，所以这一层可以单独拿出来读。从调用关系看，"}}},"en-score-near":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.036,0.888,0.071,0.005,0.001],"confidence":0.9151101312071241,"triage":"new","triageP":{"unresolved":0.005,"resolved":0.036,"new":0.959},"triageChange":"reset","seen":true,"stateTokens":45668,"kept":102,"depth":60000,"ms":8948,"attempts":1,"tokens":91698,"model":"pplx-decider-v1.1-27b","state":{"user_message":"给 README 加一段本地启动的说明：怎么装依赖、怎么起服务、需要哪些环境变量。","recent_context":{"chars":133776,"lines":102,"first":"user: 启动这块现在在哪里配置？有哪些可调的项","last":"assistant: 可以考虑 prepareBatch、loadSummary 或 buildBatch：值得留意的是，本地是按调用次数来算的，所以结果可以直接缓存。从调用关系看，docs/dev-setup.md 依赖 docker-compose.yml，反过来没有依赖，所以这一层可以单独拿出来读。从调用关系看，"}}},"en-score-none":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.036,0.895,0.064,0.004,0.001],"confidence":0.9205724020106448,"triage":"new","triageP":{"unresolved":0.003,"resolved":0.032,"new":0.964},"triageChange":"reset","stateTokens":45416,"kept":92,"depth":60000,"ms":8913,"attempts":1,"tokens":91264,"model":"pplx-decider-v1.1-27b","state":{"user_message":"给 README 加一段本地启动的说明：怎么装依赖、怎么起服务、需要哪些环境变量。","recent_context":{"chars":133331,"lines":92,"first":"user: 启动这块现在在哪里配置？有哪些可调的项","last":"assistant: 可以考虑 prepareBatch、loadSummary 或 buildBatch：值得留意的是，本地是按调用次数来算的，所以结果可以直接缓存。从调用关系看，docs/dev-setup.md 依赖 docker-compose.yml，反过来没有依赖，所以这一层可以单独拿出来读。从调用关系看，"}}}},
+    {"id":"long-027","language":"zh","zh-score-deep":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.944,0.054,0.002,0,0],"confidence":0.9701436382470169,"triage":"new","triageP":{"unresolved":0.006,"resolved":0.045,"new":0.949},"triageChange":"reset","seen":false,"stateTokens":47884,"kept":90,"depth":120000,"ms":9213,"attempts":1,"tokens":98706,"model":"pplx-decider-v1.1-27b","state":{"user_message":"查一下现在仓库里 lodash 是哪个版本。","recent_context":{"chars":142837,"lines":90,"first":"user: 依赖这块现在在哪里配置？有哪些可调的项","last":"assistant: [tools: Bash] 跑了 `npm test -- package-lock.json`：36 个用例，全部通过，1 个跳过，耗时 4.7 秒。 - scripts/audit.sh：合并默认配置，约 367 行，被 3 处引用 - package-lock.json：记录指标，约 216"}}},"zh-score-near":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.958,0.039,0.002,0.001,0],"confidence":0.9770340398435133,"triage":"new","triageP":{"unresolved":0.038,"resolved":0.111,"new":0.851},"triageChange":"reset","seen":true,"stateTokens":45613,"kept":98,"depth":120000,"ms":9321,"attempts":1,"tokens":93926,"model":"pplx-decider-v1.1-27b","state":{"user_message":"查一下现在仓库里 lodash 是哪个版本。","recent_context":{"chars":135519,"lines":98,"first":"user: 列一下最近改过 scripts/audit.sh 的几个提交","last":"assistant: [tools: Bash] 跑了 `npm test -- package-lock.json`：36 个用例，全部通过，1 个跳过，耗时 4.7 秒。 - scripts/audit.sh：合并默认配置，约 367 行，被 3 处引用 - package-lock.json：记录指标，约 216"}}},"zh-score-none":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.944,0.054,0.002,0,0],"confidence":0.9701436382470169,"triage":"new","triageP":{"unresolved":0.006,"resolved":0.045,"new":0.949},"triageChange":"reset","stateTokens":47884,"kept":90,"depth":120000,"ms":9551,"attempts":1,"tokens":98706,"model":"pplx-decider-v1.1-27b","state":{"user_message":"查一下现在仓库里 lodash 是哪个版本。","recent_context":{"chars":142837,"lines":90,"first":"user: 依赖这块现在在哪里配置？有哪些可调的项","last":"assistant: [tools: Bash] 跑了 `npm test -- package-lock.json`：36 个用例，全部通过，1 个跳过，耗时 4.7 秒。 - scripts/audit.sh：合并默认配置，约 367 行，被 3 处引用 - package-lock.json：记录指标，约 216"}}},"en-score-deep":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.949,0.048,0.002,0.001,0],"confidence":0.972155788311578,"triage":"new","triageP":{"unresolved":0.003,"resolved":0.044,"new":0.953},"triageChange":"reset","seen":false,"stateTokens":47884,"kept":90,"depth":120000,"ms":9675,"attempts":1,"tokens":98776,"model":"pplx-decider-v1.1-27b","state":{"user_message":"查一下现在仓库里 lodash 是哪个版本。","recent_context":{"chars":142837,"lines":90,"first":"user: 依赖这块现在在哪里配置？有哪些可调的项","last":"assistant: [tools: Bash] 跑了 `npm test -- package-lock.json`：36 个用例，全部通过，1 个跳过，耗时 4.7 秒。 - scripts/audit.sh：合并默认配置，约 367 行，被 3 处引用 - package-lock.json：记录指标，约 216"}}},"en-score-near":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.958,0.038,0.003,0.001,0.001],"confidence":0.9762399461201294,"triage":"new","triageP":{"unresolved":0.014,"resolved":0.088,"new":0.899},"triageChange":"reset","seen":true,"stateTokens":45613,"kept":98,"depth":120000,"ms":9708,"attempts":1,"tokens":93996,"model":"pplx-decider-v1.1-27b","state":{"user_message":"查一下现在仓库里 lodash 是哪个版本。","recent_context":{"chars":135519,"lines":98,"first":"user: 列一下最近改过 scripts/audit.sh 的几个提交","last":"assistant: [tools: Bash] 跑了 `npm test -- package-lock.json`：36 个用例，全部通过，1 个跳过，耗时 4.7 秒。 - scripts/audit.sh：合并默认配置，约 367 行，被 3 处引用 - package-lock.json：记录指标，约 216"}}},"en-score-none":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.949,0.048,0.002,0.001,0],"confidence":0.972155788311578,"triage":"new","triageP":{"unresolved":0.003,"resolved":0.044,"new":0.953},"triageChange":"reset","stateTokens":47884,"kept":90,"depth":120000,"ms":9794,"attempts":1,"tokens":98776,"model":"pplx-decider-v1.1-27b","state":{"user_message":"查一下现在仓库里 lodash 是哪个版本。","recent_context":{"chars":142837,"lines":90,"first":"user: 依赖这块现在在哪里配置？有哪些可调的项","last":"assistant: [tools: Bash] 跑了 `npm test -- package-lock.json`：36 个用例，全部通过，1 个跳过，耗时 4.7 秒。 - scripts/audit.sh：合并默认配置，约 367 行，被 3 处引用 - package-lock.json：记录指标，约 216"}}}},
+    {"id":"long-028","language":"zh","zh-score-deep":{"answer":"max / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.018,0.072,0.198,0.183,0.529],"confidence":0.5668136690562119,"triage":"new","triageP":{"unresolved":0.015,"resolved":0.047,"new":0.938},"triageChange":"reset","seen":true,"stateTokens":30138,"kept":52,"depth":30000,"ms":8506,"attempts":1,"tokens":63272,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把退款的幂等 key 改成包含 merchant_id。","recent_context":{"chars":89939,"lines":52,"first":"user: 先交代一下：`payment/` 下面的退款和账本代码动一行都是真金白银。任何改动先给我一份书面方案，说明会不会重复退款、会不会少记账，我点头了才能写代码，写完要自己逐条再核对一遍","last":"assistant: [tools: Read] 读这一段的时候可以先忽略 idempotencyKey 的最后一个参数，那只是为了兼容旧的调用方式。idempotencyKey 的返回值是一个普通对象，调用方不需要关心它是怎么过滤空值的。幂等的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。 - "}}},"zh-score-near":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.02,0.102,0.238,0.184,0.456],"confidence":0.47667659578719257,"triage":"new","triageP":{"unresolved":0.012,"resolved":0.035,"new":0.953},"triageChange":"reset","seen":true,"stateTokens":30138,"kept":52,"depth":30000,"ms":7394,"attempts":1,"tokens":63272,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把退款的幂等 key 改成包含 merchant_id。","recent_context":{"chars":89939,"lines":52,"first":"user: RefundRequest 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read] 读这一段的时候可以先忽略 idempotencyKey 的最后一个参数，那只是为了兼容旧的调用方式。idempotencyKey 的返回值是一个普通对象，调用方不需要关心它是怎么过滤空值的。幂等的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。 - "}}},"zh-score-none":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.049,0.678,0.225,0.035,0.012],"confidence":0.7281861826117563,"triage":"new","triageP":{"unresolved":0.012,"resolved":0.037,"new":0.951},"triageChange":"reset","stateTokens":29862,"kept":46,"depth":30000,"ms":6141,"attempts":1,"tokens":62860,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把退款的幂等 key 改成包含 merchant_id。","recent_context":{"chars":89552,"lines":46,"first":"user: RefundRequest 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read] 读这一段的时候可以先忽略 idempotencyKey 的最后一个参数，那只是为了兼容旧的调用方式。idempotencyKey 的返回值是一个普通对象，调用方不需要关心它是怎么过滤空值的。幂等的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。 - "}}},"en-score-deep":{"answer":"max / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.018,0.098,0.196,0.175,0.513],"confidence":0.5333770899933783,"triage":"new","triageP":{"unresolved":0.021,"resolved":0.061,"new":0.918},"triageChange":"reset","seen":true,"stateTokens":30138,"kept":52,"depth":30000,"ms":6107,"attempts":1,"tokens":63342,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把退款的幂等 key 改成包含 merchant_id。","recent_context":{"chars":89939,"lines":52,"first":"user: 先交代一下：`payment/` 下面的退款和账本代码动一行都是真金白银。任何改动先给我一份书面方案，说明会不会重复退款、会不会少记账，我点头了才能写代码，写完要自己逐条再核对一遍","last":"assistant: [tools: Read] 读这一段的时候可以先忽略 idempotencyKey 的最后一个参数，那只是为了兼容旧的调用方式。idempotencyKey 的返回值是一个普通对象，调用方不需要关心它是怎么过滤空值的。幂等的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。 - "}}},"en-score-near":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.018,0.146,0.217,0.158,0.461],"confidence":0.44869250985052833,"triage":"new","triageP":{"unresolved":0.016,"resolved":0.035,"new":0.949},"triageChange":"reset","seen":true,"stateTokens":30138,"kept":52,"depth":30000,"ms":6178,"attempts":1,"tokens":63342,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把退款的幂等 key 改成包含 merchant_id。","recent_context":{"chars":89939,"lines":52,"first":"user: RefundRequest 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read] 读这一段的时候可以先忽略 idempotencyKey 的最后一个参数，那只是为了兼容旧的调用方式。idempotencyKey 的返回值是一个普通对象，调用方不需要关心它是怎么过滤空值的。幂等的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。 - "}}},"en-score-none":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.055,0.677,0.223,0.024,0.021],"confidence":0.7216239092279102,"triage":"new","triageP":{"unresolved":0.014,"resolved":0.03,"new":0.956},"triageChange":"reset","stateTokens":29862,"kept":46,"depth":30000,"ms":6366,"attempts":1,"tokens":62930,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把退款的幂等 key 改成包含 merchant_id。","recent_context":{"chars":89552,"lines":46,"first":"user: RefundRequest 这个名字不太好，有没有更清楚的叫法？","last":"assistant: [tools: Read] 读这一段的时候可以先忽略 idempotencyKey 的最后一个参数，那只是为了兼容旧的调用方式。idempotencyKey 的返回值是一个普通对象，调用方不需要关心它是怎么过滤空值的。幂等的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。 - "}}}},
+    {"id":"long-029","language":"zh","zh-score-deep":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.079,0.307,0.409,0.158,0.047],"confidence":0.4027383534170039,"triage":"new","triageP":{"unresolved":0.011,"resolved":0.094,"new":0.896},"triageChange":"reset","seen":false,"stateTokens":47802,"kept":96,"depth":60000,"ms":7638,"attempts":1,"tokens":98102,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 orders 表的 legacy_status 列删掉。","recent_context":{"chars":141462,"lines":96,"first":"user: 跑一下 app/orders/repo.py 对应的测试，看看现在的情况","last":"assistant: 这些都是例行的日志：每行是一批回填处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。switch_read 本身不保存状态，列相关的数据都从 app/orders/repo.py 里取，调用方自己负责读取缓存。如果只想了解整体，读 docs/d"}}},"zh-score-near":{"answer":"max / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.07,0.094,0.135,0.089,0.611],"confidence":0.539088234025145,"triage":"new","triageP":{"unresolved":0.012,"resolved":0.176,"new":0.813},"triageChange":"reset","seen":true,"stateTokens":46096,"kept":100,"depth":60000,"ms":8847,"attempts":1,"tokens":94494,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 orders 表的 legacy_status 列删掉。","recent_context":{"chars":136238,"lines":100,"first":"user: legacy_status 这个名字不太好，有没有更清楚的叫法？","last":"assistant: 这些都是例行的日志：每行是一批回填处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。switch_read 本身不保存状态，列相关的数据都从 app/orders/repo.py 里取，调用方自己负责读取缓存。如果只想了解整体，读 docs/d"}}},"zh-score-none":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.079,0.307,0.409,0.158,0.047],"confidence":0.4027383534170039,"triage":"new","triageP":{"unresolved":0.011,"resolved":0.094,"new":0.896},"triageChange":"reset","stateTokens":47802,"kept":96,"depth":60000,"ms":12449,"attempts":1,"tokens":98102,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 orders 表的 legacy_status 列删掉。","recent_context":{"chars":141462,"lines":96,"first":"user: 跑一下 app/orders/repo.py 对应的测试，看看现在的情况","last":"assistant: 这些都是例行的日志：每行是一批回填处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。switch_read 本身不保存状态，列相关的数据都从 app/orders/repo.py 里取，调用方自己负责读取缓存。如果只想了解整体，读 docs/d"}}},"en-score-deep":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.076,0.387,0.35,0.086,0.101],"confidence":0.35629280311480116,"triage":"new","triageP":{"unresolved":0.006,"resolved":0.071,"new":0.923},"triageChange":"reset","seen":false,"stateTokens":47802,"kept":96,"depth":60000,"ms":12738,"attempts":1,"tokens":98172,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 orders 表的 legacy_status 列删掉。","recent_context":{"chars":141462,"lines":96,"first":"user: 跑一下 app/orders/repo.py 对应的测试，看看现在的情况","last":"assistant: 这些都是例行的日志：每行是一批回填处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。switch_read 本身不保存状态，列相关的数据都从 app/orders/repo.py 里取，调用方自己负责读取缓存。如果只想了解整体，读 docs/d"}}},"en-score-near":{"answer":"max / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.068,0.138,0.125,0.055,0.613],"confidence":0.503722819058255,"triage":"new","triageP":{"unresolved":0.011,"resolved":0.12,"new":0.868},"triageChange":"reset","seen":true,"stateTokens":46096,"kept":100,"depth":60000,"ms":12652,"attempts":1,"tokens":94564,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 orders 表的 legacy_status 列删掉。","recent_context":{"chars":136238,"lines":100,"first":"user: legacy_status 这个名字不太好，有没有更清楚的叫法？","last":"assistant: 这些都是例行的日志：每行是一批回填处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。switch_read 本身不保存状态，列相关的数据都从 app/orders/repo.py 里取，调用方自己负责读取缓存。如果只想了解整体，读 docs/d"}}},"en-score-none":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.076,0.387,0.35,0.086,0.101],"confidence":0.35629280311480116,"triage":"new","triageP":{"unresolved":0.006,"resolved":0.071,"new":0.923},"triageChange":"reset","stateTokens":47802,"kept":96,"depth":60000,"ms":12674,"attempts":1,"tokens":98172,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 orders 表的 legacy_status 列删掉。","recent_context":{"chars":141462,"lines":96,"first":"user: 跑一下 app/orders/repo.py 对应的测试，看看现在的情况","last":"assistant: 这些都是例行的日志：每行是一批回填处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。switch_read 本身不保存状态，列相关的数据都从 app/orders/repo.py 里取，调用方自己负责读取缓存。如果只想了解整体，读 docs/d"}}}},
+    {"id":"long-030","language":"zh","zh-score-deep":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.396,0.581,0.017,0.002,0.004],"confidence":0.6936189270649029,"triage":"new","triageP":{"unresolved":0.005,"resolved":0.032,"new":0.963},"triageChange":"reset","seen":false,"stateTokens":47745,"kept":104,"depth":120000,"ms":12259,"attempts":1,"tokens":94402,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 /admin/export 的校验里 role 的判断放宽到也包含 auditor。","recent_context":{"chars":139812,"lines":104,"first":"user: 好，往下走","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 server/roles.test.ts 里： ```ts export async function formatSnapshot(label: string[], chunkSize = 23) { const out: unk"}}},"zh-score-near":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.061,0.286,0.465,0.012,0.175],"confidence":0.3569756953094424,"triage":"new","triageP":{"unresolved":0.004,"resolved":0.025,"new":0.97},"triageChange":"reset","seen":true,"stateTokens":45177,"kept":106,"depth":120000,"ms":11961,"attempts":1,"tokens":89046,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 /admin/export 的校验里 role 的判断放宽到也包含 auditor。","recent_context":{"chars":130637,"lines":106,"first":"user: 哦，原来是这样","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 server/roles.test.ts 里： ```ts export async function formatSnapshot(label: string[], chunkSize = 23) { const out: unk"}}},"zh-score-none":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.396,0.581,0.017,0.002,0.004],"confidence":0.6936189270649029,"triage":"new","triageP":{"unresolved":0.005,"resolved":0.032,"new":0.963},"triageChange":"reset","stateTokens":47745,"kept":104,"depth":120000,"ms":9272,"attempts":1,"tokens":94402,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 /admin/export 的校验里 role 的判断放宽到也包含 auditor。","recent_context":{"chars":139812,"lines":104,"first":"user: 好，往下走","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 server/roles.test.ts 里： ```ts export async function formatSnapshot(label: string[], chunkSize = 23) { const out: unk"}}},"en-score-deep":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.427,0.531,0.022,0.002,0.018],"confidence":0.6385462050010158,"triage":"new","triageP":{"unresolved":0.006,"resolved":0.029,"new":0.965},"triageChange":"reset","seen":false,"stateTokens":47745,"kept":104,"depth":120000,"ms":9213,"attempts":1,"tokens":94472,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 /admin/export 的校验里 role 的判断放宽到也包含 auditor。","recent_context":{"chars":139812,"lines":104,"first":"user: 好，往下走","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 server/roles.test.ts 里： ```ts export async function formatSnapshot(label: string[], chunkSize = 23) { const out: unk"}}},"en-score-near":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.047,0.214,0.446,0.006,0.288],"confidence":0.25944754339375065,"triage":"new","triageP":{"unresolved":0.003,"resolved":0.027,"new":0.969},"triageChange":"reset","seen":true,"stateTokens":45177,"kept":106,"depth":120000,"ms":9196,"attempts":1,"tokens":89116,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 /admin/export 的校验里 role 的判断放宽到也包含 auditor。","recent_context":{"chars":130637,"lines":106,"first":"user: 哦，原来是这样","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 server/roles.test.ts 里： ```ts export async function formatSnapshot(label: string[], chunkSize = 23) { const out: unk"}}},"en-score-none":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.427,0.531,0.022,0.002,0.018],"confidence":0.6385462050010158,"triage":"new","triageP":{"unresolved":0.006,"resolved":0.029,"new":0.965},"triageChange":"reset","stateTokens":47745,"kept":104,"depth":120000,"ms":9131,"attempts":1,"tokens":94472,"model":"pplx-decider-v1.1-27b","state":{"user_message":"把 /admin/export 的校验里 role 的判断放宽到也包含 auditor。","recent_context":{"chars":139812,"lines":104,"first":"user: 好，往下走","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 server/roles.test.ts 里： ```ts export async function formatSnapshot(label: string[], chunkSize = 23) { const out: unk"}}}}
+  ]
+}

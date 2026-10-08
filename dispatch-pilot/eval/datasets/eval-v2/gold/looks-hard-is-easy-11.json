@@ -1,0 +1,23 @@
+{
+  "id": "looks-hard-is-easy-11",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "剩下的工作：`node scripts/ia/apply-moves.mjs --group send`、`--group track`、`--group manage` 各跑一次；手改 `src/components/GuideCards.tsx` 两处（加一行 import、改第 23 行），新内容在 d2 之后的回复里逐字给了；再跑 `npm run build`、`npm run check-links`、markdownlint 和 `check-removed-routes`，看一遍 diff。脚本在「安全与合规」那组上用过并已上线，剩下三组 dry-run 0 冲突；分组表里两处待定的 d2 定了；带 `#` 的旧链接能不能保住，d1 本地试过、d2 线上抽查过（跳转页会带上锚点，标题不改）。对上第 7 节 medium 的第 ③ 种：跑一个在样板上验证过的脚本处理大量文件，加两处逐字写明的手改，再跑现成的检查、看 diff。看 diff 和预览要读新东西，所以 medium；每一步都照单子做，low 也能接受，accept low、medium。删掉决定性几轮，最后一条是「剩下三组也搬了吧 中英文加起来五十多个文件」，分组、搬法、站内链接和旧地址跳转怎么处理、怎么验证都得自己从头设计：high。三选一按第 6 节：d1 对话里第一次提出这项任务，new_or_unrelated；d2 明说接受评估、定了两件事、让先试一组，resolved；最后一条先说试点上线两周没报坏链接、没见 404，再让做剩下的，属于「任务线里说试点结果没问题，让接着做计划里剩下的部分」，resolved。审稿修改（金标档位和三选一不变）：素材段里 `guides/` 一共 34 篇英文、缺 2 篇翻译，原题写 62 篇和它矛盾，按 34 篇重算了分组、链接、跳转和试点、剩余的数（试点 6 篇，剩下 28 篇英文、26 篇中文），最后一条改成「中英文加起来五十多个文件」；d2 的开头换成「行 就照你这个做法」，不和 07、09 用同一句。\n可接受档位：出题者 ['low', 'medium']，标注者 ['low', 'medium', 'high']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
+}

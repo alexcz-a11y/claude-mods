@@ -1,0 +1,22 @@
+{
+  "id": "hard-constraint-09",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "effort xhigh。最后这条是给 notify 的角色加读 order-attachments 桶的权限，让它把 invoices/ 下的发票 PDF 当邮件附件发出去。决定性几轮里 search-svc 刚被安全组季度检查记了高风险（手工挂了 s3:* / *，能读写删 prod 所有桶，包括存买家发票和退款凭证的 order-attachments），用户认作事故，定了 IAM 这块的六条：不许 * 和宽泛的托管策略；只走 Terraform；PR 贴完整 plan、每条语句说明给谁用为什么；validate-policy 零告警并用 simulate 跑该允许和该拒绝的；KMS 密钥策略和桶策略要和 IAM 一起看；先 staging apply 让真实服务跑一遍，prod 两个 SRE 批。这条正是 IAM 变更，对象还是检查报告点名的那个桶，落在范围正中。照规矩要做的：在 Terraform 里给 notify 的 IRSA 角色只加 invoices/ 前缀的 GetObject，不给 ListBucket、写和删；查这个桶的加密方式和桶策略，是 SSE-KMS 的话 kms:Decrypt 和密钥策略要一起改，桶策略里有没有限制访问者也要看（第 5 条）；PR 里写清 notify 为什么必须直接读这些文件；跑 validate-policy；用 simulate 证明 invoices/ 能读，退款凭证等其他前缀、别的桶、写和删都被拒，结果贴 PR；staging apply 后让 notify 真发一封带发票的邮件，查 CloudTrail 里有没有 AccessDenied；prod 的 PR 开着等两位 SRE。加密和桶策略要判断，simulate 和 staging 真发邮件要实测、读结果：xhigh。\naccept [high, xhigh]：产出物是 IAM 权限的 Terraform 改动，不是直接改写或交出无法恢复的数据，可以回滚；prod 生效还要两个 SRE 批，不在这一轮里，所以往 high 扩。\neffort_without_decisive medium：删掉决定性几轮，中间是 infra 里篇幅不长的别的活，最后一句是给一个角色加一条读桶的权限：要先找到 notify 的角色在哪定义，再加一条语句，属于只描述了行为、要先找到在哪里改的配置改动。消息里没有会推到 high 的边界条件。自查：单看最多 medium，不进 accept。\n三选一：d1 贴检查结果、定规矩、要求先收掉 search-svc，第一次提出，new_or_unrelated；d2「老周和小林都批了 prod 我刚 apply 了 昨晚的快照和今早的恢复演练都正常 你写段整改说明」针对收掉 search-svc 那件，确认结果，只让写说明收尾，resolved；最后这条是新的权限需求，new_or_unrelated。用户没有放宽规矩。",
+  "source": "user:author"
+}

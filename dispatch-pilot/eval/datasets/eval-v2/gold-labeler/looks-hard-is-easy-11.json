@@ -1,0 +1,22 @@
+{
+  "id": "looks-hard-is-easy-11",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条是让把 guides 剩下三组搬完。脚本 apply-moves.mjs 和 moves.csv 已经提交，试点的「安全与合规」那组上线两周没出坏链接，dry-run 0 冲突，GuideCards.tsx 的两处手改逐字写好，检查命令也列好了。用户确认试点没问题，这条接着做同一项任务。中英文五十多个文件、195 处链接都交给脚本，主要是跑三次脚本、手改两处、跑 build、链接检查和路由检查，每一步推理不多，定 medium。可接受 low 到 high：low 是因为纯照单执行，high 是因为改动涉及侧边栏、跳转和 i18n。没有决定性几轮的话，看到的是五十多个文档要搬，站内链接、侧边栏、旧地址都得自己想清楚，判 high。"
+}

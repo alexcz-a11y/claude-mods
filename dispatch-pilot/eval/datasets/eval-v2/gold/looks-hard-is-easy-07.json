@@ -1,0 +1,22 @@
+{
+  "id": "looks-hard-is-easy-07",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "剩下的工作：`npx tsx scripts/semgrep-rename.ts --group crypto --apply`、`--group authn --apply`、`--group injection --apply` 各跑一次；手改两处（`src/oauth/jwks.ts` 第 88 行那条带两个 id 的豁免、`docs/security/semgrep.md` 的示例），新内容在 d2 之后的回复里逐字给了；再跑 `--check`、`semgrep --test --config semgrep/ semgrep/tests/`、`npm test`，看一遍脚本出的 diff。脚本在 logging 组上用过并已合并，`--check` 会拿迁移前后扫 `src/` 的结果逐条比；归类、新 id 的格式、`legacy_id`、历史不导这几件事 d2 都定了；只动规则文件、测试注释和豁免注释，运行时行为不变，也不用写新测试。对上第 7 节 medium 的第 ③ 种：跑一个在样板上验证过的脚本处理大量文件，加不超过两处逐字写明的手改，再跑现成的检查、看一遍 diff。看 diff 要读新东西，所以是 medium；每一步都照单子做，判 low 也说得过去，accept low、medium。删掉决定性几轮，只剩最后一条「semgrep 改名」「三十来条规则 四十多处豁免」：id 改成什么格式、目录怎么分、测试注释和豁免怎么跟着改、怎么证明扫描结果没变，都得自己从头设计，是一次要自己定做法的大批量改动：high。三选一按第 6 节：d1 对话里第一次提出这项任务，new_or_unrelated；d2 明说接受评估（「盘得挺清楚 照这个来」）并把两件待定的事定了，属于「认可诊断、方案、样板或试点」那一行，resolved；最后一条先说试点合进去两周没多报漏报、看板对得上，再让照着做剩下三组，属于「任务线里说试点结果没问题，让接着做计划里剩下的部分」，resolved。审稿修改（金标档位和三选一不变）：为和素材池相容，试点组从 crypto 改成 logging（素材段 security-unrelated-21 会在 `semgrep/` 平铺目录里新加 crypto 类的 `no-math-random` 规则，crypto 组若已迁移就和它矛盾），d1 的示例 id 换成 `no-weak-hash`；封版改成国庆封版（素材段多处说「现在是国庆封版，10 月 8 日解封」、11 月 1 日才双十一封网），最后一条改成「国庆解封了」。",
+  "source": "agreed"
+}

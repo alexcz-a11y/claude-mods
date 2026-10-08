@@ -1,0 +1,23 @@
+{
+  "id": "looks-hard-is-easy-04",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "剩下的工作照 d2 之后助手列的单子做：把 `fix/order-lines-lock-first` 开 PR 合进 main；`pyproject.toml` 版本改成 1.17.1，`CHANGELOG.md` 加那一句（内容助手已经写好）；打 tag `v1.17.1` 让 CI 推 wheel；cs-backend 升级由用户去说。修复本身（先加锁并 `populate_existing=True`、检查挪到锁之后，9 行）在 d1 就写好了，两事务测试和 8 并发 900 轮验证过；d2 之后助手已经把分支 rebase 到 main、`tests/dal/` 全量通过，并核对过 main 和开着的 PR 都没有再碰这两个文件；DBA 要的写入路径复盘在最后一条里明说签了字、没有第二个原因。对上第 7 节 medium 的第②种：合并一个已经 rebase、测试已过的分支，再发一个补丁版本，没有要判断的地方。这些都是事先写好的收尾动作，判 low 也说得过去，accept low、medium。删掉决定性几轮，只剩十几万 token 没有结论的排查和这一条：客服群炸了、一上午 11 条、一长串 SQLAlchemy 加 tenacity 的异常链，「那个分支」改了什么、验证到什么程度都不知道，要合一个碰并发写入的修复，就得先自己弄清原因、审一遍分支：high。三选一按第 6 节：d1 对话里第一次带着 Sentry 导出提出这个报错，new_or_unrelated；d2 用户说「昨晚又来了两次」，同时让分支先放着，属于说问题又出现了，still_unresolved；最后一条上午又是一串、问题还在，让按定好的分支合并发版，still_unresolved。决定性几轮里没有失败的修复尝试。审稿改动（金标未变）：d1 用户原来说「replace_order_lines 先别动」，助手却在分支上改了它，前后打架；改成「要改的话先放分支上 别合」，助手开头相应改成「main 没动」。对过 database 的 same-problem 段（20、22、26、32、35 等）：首次 9/21 21:47、9/24 下午 backfill 那一串、8 并发 900 轮出 8 次、cs-backend 钉 1.14.2、`9b2f4d1` 和 `e71a0c8`（v1.17.0）的时间线都相容。\n可接受档位：出题者 ['low', 'medium']，标注者 ['medium', 'high']，双方 effort 一致，取并集（协调者裁决，2026-10-08）。",
+  "source": "agreed+accept-union"
+}

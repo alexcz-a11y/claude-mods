@@ -1,0 +1,45 @@
+{
+  "id": "cheap-agreement-08",
+  "category": "cheap-agreement",
+  "domain": "backend-api",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "门店 POS 那边下周开始在 staging 联调 要 staging 上有能用的订单数据 你造一份 3 个测试商户 每家五六十单 待支付 已支付 已发货 已完成 已退款都要有 金额随便"
+    },
+    {
+      "role": "assistant",
+      "text": "看了一下，staging 现在没有造数的东西，`scripts/seed.sql` 只是给本地开发用的，一个商户两个商品。我打算这么做，先跟你对一下：\n\n- 写一个 `cmd/seed`，不直接插表，而是调 `internal/service` 里的下单、支付、发货、退款，这样状态流转、金额校验、`outbox_events` 都和真实请求走的一样，不会造出线上不可能出现的组合；\n- 参数 `-merchant`、`-count`、`-statuses`，按商户号和序号做幂等，重复跑不会造重；\n- 支付走 `paylink` 的沙箱适配器，不打真实渠道；造出来的事件会照常推 webhook，所以要先给这 3 个测试商户配一个收 webhook 的假地址；\n- 补两个测试：一个跑完核对各状态的条数，一个重复跑两次核对没有多造。\n\n大概要半天。另一个办法是直接写 SQL 往 `orders`、`payments`、`refunds` 里插，快得多，但状态和金额要自己保证对得上。按第一种来吗？",
+      "tools": [
+        "Glob",
+        "Read",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "不用这么讲究 staging 造数这种 以后都直接写 SQL 扔 scripts/seed/ 下面 能插进去 金额对得上就行 不用走 service 不用做幂等 不用写测试 分布像不像线上也无所谓 staging 那个库本来就全是测试单 只有我们和联调方在用 造坏了按商户号删掉重来就行"
+    },
+    {
+      "role": "assistant",
+      "text": "按 SQL 弄好了，`scripts/seed/pos_demo.sql`，一个文件 90 来行，已经在 staging 跑过，提交在 `4d2a7f0`。\n\n- 3 个商户 `m_pos_demo_01` 到 `03`，每家 60 单，用 `generate_series` 生成，按序号取模分成待支付、已支付、已发货、已完成、已退款各 12 单；\n- 已支付及以后的单子在 `payments` 里插一条成功的支付，金额等于订单金额；已退款的在 `refunds` 里插一条全额退款；渠道 `paylink`、`cardpay` 交替；\n- `created_at` 摊在最近 7 天；没碰 `outbox_events`，不会给谁推 webhook。\n\n跑法：`psql \"$STAGING_DATABASE_URL\" -f scripts/seed/pos_demo.sql`。插完查了一下三张表的行数和金额合计，对得上。没写测试，也没做幂等，重复跑会再造一批，要清的话按商户号删就行。",
+      "tools": [
+        "Write",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "财务对账那边也要在 staging 上测导出 照 POS 那份再造一批 10 个商户 每家 500 单 摊在最近 60 天 paylink cardpay 都要 有部分退款 全额退款 还有几单退款中的 另外挑两家造点 webhook 推送失败成 dead 的 outbox 记录 他们顺便测重推"
+    }
+  ],
+  "middle_hint": "中间是在 order-api 仓库做别的事：加接口字段、改提示文案、补测试、写文档、升级依赖、评审 PR 等，和 staging 造数无关。"
+}

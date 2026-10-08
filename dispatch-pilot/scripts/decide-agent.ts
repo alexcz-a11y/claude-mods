@@ -1,15 +1,15 @@
-// One dispatched agent's decision against the real Jev or Clef, outside Claude
+// One dispatched agent's decision against the real Jev, outside Claude
 // Code: the request the mod sends at agent.spawn (the shared decision module),
-// with the mod's settings as the manifest's defaults and the chosen decision
-// model's give them (core/setup.ts BACKEND_DEFAULTS), built from an
+// with the mod's settings as the manifest's defaults and Jev's give them
+// (core/setup.ts BACKEND_DEFAULTS), built from an
 // item of the eval set (subagent.jsonl) or from a JSON object with the same
-// fields, and sent from Node. For a manual check.
+// fields, and sent from Node. Always Jev: the script has no choice of decision
+// model (eval/node.ts scriptDecision fixes `decisionModel` to jev). For a manual check.
 //
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-agent.ts --file subagent.jsonl --id subagent-011 [--lang en]
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-agent.ts '{"user_message":"...","agent_type":"Explore","description":"...","prompt":"...","requested_model":null}'
-//   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_AUTH_TOKEN=... node dispatch-pilot/scripts/decide-agent.ts --file subagent.jsonl --id subagent-011 --clef
 //
-// Jev unless `--clef`. Variants (eval variables): --zh (questions in
+// Variants (eval variables): --zh (questions in
 // Chinese), --work (options named by the kind of work), --noul (the main
 // agent's pick asked about on its own), --choice (effort as a Choice), --fable
 // (fable among the options, as agentFable does). The person's words are kept
@@ -25,12 +25,11 @@ import { readFileSync } from 'node:fs'
 import { dispatchSettings } from '../hooks/core/setup.ts'
 import { messageText } from '../hooks/decision/context.ts'
 import { decideDispatch, dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
-import { DEFAULT_ASK } from '../hooks/decision/effort.ts'
 import { answersFor, mergeParts } from '../hooks/decision/system-one.ts'
 import { attemptMs } from '../eval/lib/runner.ts'
 import { nodeIo, scriptArgs, scriptDecision } from '../eval/node.ts'
 
-const USAGE = 'node scripts/decide-agent.ts (--file <jsonl> --id <id> [--lang en] | <item JSON>) [--zh] [--work] [--noul] [--choice] [--fable] [--clef] [--timeout ms]'
+const USAGE = 'node scripts/decide-agent.ts (--file <jsonl> --id <id> [--lang en] | <item JSON>) [--zh] [--work] [--noul] [--choice] [--fable] [--timeout ms]'
 const { values, positionals } = scriptArgs(USAGE, {
   file: { type: 'string' },
   id: { type: 'string' },
@@ -62,13 +61,13 @@ if (typeof values.file === 'string') {
   written = JSON.parse(json) as Dispatch
 }
 // The manifest's defaults and the decision model's, as the engine and the mod give them; --fable turns agentFable on.
-const { settings, backend } = scriptDecision(values.clef === true, values.fable === true ? ['agentFable=true'] : [])
+const { settings, backend } = scriptDecision(values.fable === true ? ['agentFable=true'] : [])
 
 const shape = dispatchSettings(
-  { config: settings, ask: DEFAULT_ASK },
+  { config: settings, ask: settings.ask.other },
   {
-    language: values.zh === true ? 'zh' : 'en',
-    primitive: values.choice === true ? 'choice' : 'score',
+    language: values.zh === true ? 'zh' : settings.ask.other.language,
+    primitive: values.choice === true ? 'choice' : settings.ask.other.primitive,
     options: values.work === true ? 'work' : 'models',
     requested: values.noul === true ? 'noul' : 'hint',
   },

@@ -66,7 +66,7 @@ export function clipToTokens(text: string, budget: number, tailShare = 0): strin
 }
 
 /** Leaves out what the engine wraps in <system-reminder> (not something anyone said), collapses whitespace. */
-function said(text: string): string {
+export function said(text: string): string {
   return text
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, ' ')
     .replace(/\s+/g, ' ')
@@ -74,7 +74,7 @@ function said(text: string): string {
 }
 
 /** The tools a reply called, in order: `Bash x3 (1 failed), Read`. */
-function toolSummary(uses: readonly { tool: string; isError?: true }[]): string {
+export function toolSummary(uses: readonly { tool: string; isError?: true }[]): string {
   const counts = new Map<string, { calls: number; failed: number }>()
   for (const use of uses) {
     const count = counts.get(use.tool) ?? { calls: 0, failed: 0 }
@@ -144,8 +144,8 @@ export type TurnStartInput = {
 /**
  * The state `build(budget)` makes, kept within `tokens` as it is sent: as
  * JSON, its field names, quotes and escapes counted, which pasted JSON or code
- * can swell by a fifth. No field is safe for coming first: Clef's encoder
- * renders a state as JSON with its keys sorted and reads only its head when it
+ * can swell by a fifth. No field is safe for coming first: a decision model
+ * may render a state as JSON with its keys sorted and read only its head when it
  * is long (#17), so the whole of it must fit. Built again, with the budget
  * cut by as much as it came out over, while it does (a few times at most).
  */

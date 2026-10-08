@@ -8,9 +8,11 @@
 // request the mod sends from a dataset row (spec #67).
 
 import { clipToTokens, estimateTokens, messageText, withinTokens } from './context.ts'
-import { DEFAULT_ASK, EFFORTS, effortQuestion, traceEffort, type Effort, type EffortAsk, type EffortReading, type EffortTrace, type Language } from './effort.ts'
+import { DEFAULT_ASK, EFFORTS, effortQuestion, traceEffort, type Effort, type EffortAsk, type EffortReading, type EffortRules, type EffortTrace, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import type { Part, State } from './system-one.ts'
+import { COUNT_FIELD, withHint } from './unresolved.ts'
+import { SUMMARY_FIELD } from './summary.ts'
 
 /** The mid-turn part's name and its one question's id: `midturn.level` in the request. */
 export const MIDTURN_PART = 'midturn'
@@ -44,6 +46,10 @@ export type MidturnInput = {
   recent_steps: readonly MidturnStep[]
   /** Why the turn is re-decided out of turn (a forced raise when it is stuck, #7); absent otherwise. */
   trouble?: string
+  /** The problem summary, worded for the decision model (`renderSummary`); absent when there is none or the unresolved switch is off (#41). */
+  problem_summary?: string
+  /** How many times the person has said the problem is still unresolved; absent while it is 0 (#41). */
+  unresolved_count?: number
 }
 
 /**
@@ -153,8 +159,8 @@ const RESULT_TOKENS = 80
  * `{ user_message, trouble?, step, current_effort, counts, recent_steps }`.
  * Secrets are masked everywhere. Sizes are of the state as sent (its fields
  * and each step measured as JSON), so the whole of it keeps within
- * `limits.tokens`: no field is safe for coming first (Clef's encoder sorts a
- * state's keys, then reads its head; context.ts `withinTokens`). The message
+ * `limits.tokens`: no field is safe for coming first (a decision model may
+ * sort a state's keys and read only its head; context.ts `withinTokens`). The message
  * takes at most half; the latest `limits.steps` steps fill what is left,
  * newest first, an older step dropped whole rather than squeezed; the newest
  * always goes, its text cut to fit. A dataset row short enough goes as it is.
@@ -168,6 +174,8 @@ function midturnFields(input: MidturnInput, limits: MidturnLimits, show: Midturn
   const head = {
     user_message: messageText(input.message, Math.floor(limits.tokens / 2)),
     ...(input.trouble ? { trouble: input.trouble } : {}),
+    ...(input.problem_summary ? { [SUMMARY_FIELD]: input.problem_summary } : {}),
+    ...(input.unresolved_count ? { [COUNT_FIELD]: input.unresolved_count } : {}),
     step: input.step,
     ...(show.currentEffort === false ? {} : { current_effort: input.current_effort }),
     ...(show.counts === false ? {} : { counts: input.counts }),
@@ -219,20 +227,20 @@ const MIDTURN: Record<EffortAsk['language'], { base: Readonly<Record<string, str
 }
 
 /** The part a mid-turn request carries: `midturn.level`, the same five levels as at the turn's start. */
-export function midturnEffortPart(ask: Partial<EffortAsk> = {}, options: { trouble?: boolean } = {}): Part {
+export function midturnEffortPart(ask: Partial<EffortAsk> = {}, options: { trouble?: boolean; hint?: boolean } = {}): Part {
   const asked = { ...DEFAULT_ASK, ...ask }
   const words = MIDTURN[asked.language]
   const instructions = options.trouble ? { ...words.base, ...words.trouble } : words.base
-  return { part: MIDTURN_PART, questions: { [MIDTURN_LEVEL]: effortQuestion(instructions, asked) } }
+  const part = { part: MIDTURN_PART, questions: { [MIDTURN_LEVEL]: effortQuestion(instructions, asked) } }
+  // The strong hint when the problem has gone round enough times (#41); like the message's, a sentence about the work, never a level.
+  return options.hint === true ? withHint(part, asked.language) : part
 }
 
-export type MidturnRules = {
+export type MidturnRules = EffortRules & {
   /** Confidence a raise needs. */
   thetaUp: number
   /** Confidence a lowering needs (at least thetaUp); it lowers one level at most. */
   thetaDown: number
-  /** `max` only when its own probability reaches this. */
-  thetaMax: number
   /** No lowering within this many steps after a raise. */
   holdSteps: number
 }
@@ -282,7 +290,7 @@ export type MidturnVerdict = { effort: Effort; why: MidturnWhy; picked: Effort; 
 
 /**
  * The level the turn goes on at after a mid-turn answer: the answer's level
- * (pickEffort: the most likely, max only past thetaMax) when it is higher and
+ * (pickEffort: the most likely, the level above it from roundUp, max only past thetaMax) when it is higher and
  * the answer is sure enough (thetaUp); one level down when it is lower, the
  * answer surer still (thetaDown, never below thetaUp) and no raise happened
  * in the last holdSteps steps; else the current level. Sure enough means the
@@ -292,7 +300,7 @@ export type MidturnVerdict = { effort: Effort; why: MidturnWhy; picked: Effort; 
  */
 export function judgeMidturn(reading: EffortReading, position: MidturnPosition, rules: MidturnRules): MidturnVerdict {
   const { current } = position
-  const pick = traceEffort(reading, rules.thetaMax)
+  const pick = traceEffort(reading, rules)
   const picked = pick.effort
   const confidence = reading.confidence ?? Math.max(...reading.probabilities)
   const at = (level: Effort) => EFFORTS.indexOf(level)

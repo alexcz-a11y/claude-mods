@@ -1,0 +1,63 @@
+{
+  "id": "implicit-unresolved-04",
+  "category": "implicit-unresolved",
+  "domain": "cc-mods",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "prompt-guard 在长 prompt 里不遮了 我贴了一大段带 token 的日志进去 token 原样留在输入框里 状态行也没提示 短的 prompt 里是好的 开了 --debug-file 看 日志里一直在刷 `hook prompt.edit (prompt-guard) exceeded 50ms, result discarded` 你看下 prompt-guard/hooks/prompt-guard.ts"
+    },
+    {
+      "role": "assistant",
+      "text": "找到一个明显的慢点：`prompt.edit` 的处理函数每次都去 `$.store` 读一遍你自己加的规则，再把所有规则重新编成正则。已经改成会话开始时读一次、编好缓存起来，测试都过了。\n\n**原因**\n\n- `prompt-guard/hooks/prompt-guard.ts` 里 `on(\"prompt.edit\", ...)` 的第一行是 `const custom = await $.store.get(\"rules\")`，接着把内置的 38 条和你用 `/prompt-guard add` 加的 11 条拼在一起，逐条 `new RegExp(...)`。\n- `prompt.edit` 每敲一个字、每粘贴一次都触发，预算只有 50 ms。`$.store` 读一次要走一趟进程外的存取，加上 49 次编译正则，短 prompt 时勉强够，粘贴一大段日志时后面的扫描一长就超了。超了以后这次编辑的结果被丢掉，遮好的文字没换进输入框，token 就原样留着。\n\n**改法**\n\n- 新增 `on(\"session.start\", ...)`：读一次 `$.store.get(\"rules\")`，和内置规则一起编好，放进模块级变量 `compiled`。\n- `prompt.edit` 里直接用 `compiled`；还没准备好（会话刚开始那一刻）时 `return next(e)`，不扫也不等。\n- `/prompt-guard add` 和 `remove` 改完规则后同步重编 `compiled`。\n\n**验证**\n\n- `command claude plugin test ./prompt-guard`：9 个用例全部通过，新加的一个用 `mock.store` 断言 `prompt.edit` 不再调用 `$.store.get`。\n- `claude plugin validate ./prompt-guard --strict` 通过。\n\n你那边保存后会热重载，贴一段长日志试试？",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "还是没遮 debug log 里还是 `hook prompt.edit (prompt-guard) exceeded 50ms, result discarded` 而且我发现改完代码热重载一次以后更容易出"
+    },
+    {
+      "role": "assistant",
+      "text": "热重载那句是关键：模块级变量在热重载时会被清掉，`compiled` 变回空的，要等 `session.start` 再跑一次；这中间 `prompt.edit` 走到了一条老的兜底路径，又回到每次读 store、每次编正则。已经把规则挪进 `$.state`，兜底路径也去掉了。\n\n**看到的情况**\n\n- 热重载会重新执行 `register`，`session.start` 也会再触发，但 `prompt.edit` 可能先到。上次写的「没准备好就放行」本身不慢；问题在 `scan()` 里还留着一个 `ensureRules()`，缓存为空时会 `await $.store.get(...)` 再全部重编，`prompt.edit` 走到 `scan()` 就进了这条路。\n- 另外每条规则的 `flags` 是在 `scan()` 里按「是否忽略大小写」现拼的，等于每次扫描都在重建正则对象，缓存只缓存了源字符串。\n\n**改法**\n\n- 规则的源字符串和 flags 放进 `$.state.rules`，热重载后还在；`types/index.d.ts` 里补上 `rules` 的类型。正则对象在模块里按 `$.state.rules` 懒编一次，存成 `Map<id, RegExp>`，热重载后第一次用到时重编，之后不再编。\n- `scan()` 里彻底去掉 `ensureRules()`，`prompt.edit` 里不再碰 `$.store`。\n\n**验证**\n\n- `command claude plugin test ./prompt-guard`：11 个通过，新加的两个覆盖热重载后 `$.state` 里的规则仍在、以及 `prompt.edit` 全程不调 `$.store`。\n- `tsc -p ./prompt-guard` 无错误，`claude plugin validate ./prompt-guard --strict` 通过。\n\n再试一次？最好先改一下代码触发一次热重载再贴。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是一样 prompt 一长就出 短的没事 log 也一样 `hook prompt.edit (prompt-guard) exceeded 50ms, result discarded`"
+    },
+    {
+      "role": "assistant",
+      "text": "这回把耗时拆开量了：读规则和编正则已经不花时间，慢在扫描本身。每次编辑都把整段草稿拿 49 条正则从头扫一遍，耗时和草稿长度成正比。已经改成只扫这次编辑改动的那一小段，前面扫过的结果按位置挪一下接着用。\n\n**怎么量的**\n\n- 写了 `prompt-guard/scripts/bench-scan.ts`，把 `scan()` 单独拿出来用 node 跑：草稿 2000 字时 9 ms，2 万字时 86 ms，5 万字时 214 ms，基本线性。\n- 拆开看，大头在三条匹配私钥块和 JWT 的规则：它们带 `[\\s\\S]*?` 和很长的可选分组，在没有命中的长文本上回溯得很厉害。\n\n**改法**\n\n- `scan()` 改成增量的：只扫 `[start - 512, start + inputText.length + 512]` 这个窗口，512 是内置规则里最长一种 token 的长度上限；窗口外上一次的命中结果存在 `$.state.hits`，按这次编辑的长度变化平移位置后照用。\n- 粘贴一大段时窗口就是整段粘贴的内容，只扫这一段，不再连带扫前面已经有的几万字。\n- 私钥块那条规则改成先找 `-----BEGIN` 再往后找 `-----END`，不用一条大正则硬扫。\n\n**验证**\n\n- 同一个 bench：5 万字的草稿里敲一个字从 214 ms 降到 0.3 ms；一次粘贴 2 万字的日志 11 ms。\n- `command claude plugin test ./prompt-guard`：15 个通过，新加的用例覆盖在长草稿中间插入、删除、粘贴三种编辑后命中位置是否正确，以及 token 正好跨在窗口边界上。\n- `claude plugin validate ./prompt-guard --strict` 通过。\n\n热重载之后贴一段几万字、中间带 token 的日志再看看。",
+      "tools": [
+        "Write",
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "长 prompt 里贴了带 token 的日志 还是原样留着 debug log `hook prompt.edit (prompt-guard) exceeded 50ms, result discarded`"
+    }
+  ],
+  "middle_hint": "中间是同一个 my-mods 仓库里的别的活：给别的 mod 加命令和测试、改 plugin.json 和 marketplace、写 README、整理类型和日志、新建 mod、升级 Claude Code 后的适配，和 prompt-guard 的超时无关。"
+}
