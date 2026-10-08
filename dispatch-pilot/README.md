@@ -64,7 +64,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 ## 要求
 
-- **Claude Code 2.1.287 及以上**，mod 在 Claude Code 里默认启用。**测试用的是 Claude Code 2.1.291**（订阅登录，看板和依据面板在终端里看过）和 jev-1.13.0；缓存和评测的实测是在 2.1.289 上做的；跑 `eval/` 和 `scripts/` 里的 Node 脚本用的是 Node 26.5，用 mod 本身不需要 Node。
+- **Claude Code 2.1.287 及以上**，mod 在 Claude Code 里默认启用。**0.4.0 测试用的是 Claude Code 2.1.294**（默认的 pplx 配置跑通一轮真实流程，见 #53），此前版本用的是 2.1.291（订阅登录，看板和依据面板在终端里看过）和 jev-1.13.0；缓存和评测的实测是在 2.1.289 上做的；跑 `eval/` 和 `scripts/` 里的 Node 脚本用的是 Node 26.5，用 mod 本身不需要 Node。
 - **只支持 Claude Code 订阅**（ADR 0001，`docs/adr/0001-main-agent-effort-only-no-model-switch.md`）。Dispatch Pilot 每轮、每一步都改主 agent 的 effort，但从不改它的模型：换模型必然让 prompt cache 失效，而在订阅下，同一个模型内切换 effort 保留缓存（2.1.289 上 Opus 5.5 加订阅实测）。Bedrock、Vertex 和各种网关上切换 effort 会让缓存失效，不在支持范围内。Claude Code 的文档只点名了 Opus 5.5、Sonnet 5.5 和 Fable 5.1 保留缓存，其他大多数模型上每档 effort 各有一份缓存，切换会重算整段请求（见 `docs/research/decision-models-and-caching.md` 的 3.4）。
 - **一个决策模型的账号。** 默认的决策模型是 pplx，要 Perplexity 的 API key（Decisions API）；Jev 要 TypeSafe 的 API key。没有 Perplexity 的 key、但有 TypeSafe 的 key 时，自动退回 Jev（0.3.1 的老用户升级后不会失去路由，依据面板的决策日志里会有一条说明原因）；两种 key 都没有时 mod 不发任何请求，每一轮都按会话自己的 effort 走，看板上写明缺的是 Perplexity 的 key。
 
