@@ -1,0 +1,593 @@
+{
+  "date": "2026-10-08T13:42:35.418Z",
+  "files": [
+    {
+      "file": "eval/results/eval-v2-flow/jev-24000.json",
+      "backend": {
+        "name": "jev",
+        "model": "jev-latest",
+        "answeredBy": [
+          "jev-1.13.0"
+        ]
+      },
+      "settings": {
+        "language": "zh",
+        "stateTokens": 24000,
+        "stateMessages": 32,
+        "thresholds": {
+          "add": 0.5,
+          "reset": 0.7
+        },
+        "maxAfter": 3
+      }
+    }
+  ],
+  "options": {
+    "maxFalseReset": 0.02,
+    "step": 0.01
+  },
+  "rule": "of the pairs whose false reset (still-unresolved messages that clear the count) is within maxFalseReset (and false add within maxFalseAdd, when set), the highest add recall; ties: lower false add, higher reset recall, fewer wrong moves in the middle rounds, nearer the mod's 0.5/0.7",
+  "scans": {
+    "jev-24000": {
+      "points": {
+        "decisive": 305,
+        "middle": 2273,
+        "final": 120
+      },
+      "missing": {
+        "items": [],
+        "unanswered": 0
+      },
+      "current": {
+        "add": 0.5,
+        "reset": 0.7,
+        "still": 128,
+        "others": 177,
+        "addRecall": 0.9609,
+        "falseReset": 0.0156,
+        "falseAdd": 0.0226,
+        "resetRecall": 0.8588,
+        "middle": {
+          "same-problem": {
+            "items": 1090,
+            "add": 0.3706,
+            "reset": 0.3156,
+            "wrong": 0.3156
+          },
+          "unrelated": {
+            "items": 1183,
+            "add": 0.0025,
+            "reset": 0.9653,
+            "wrong": 0.0025
+          },
+          "items": 2273,
+          "wrong": 0.1527
+        }
+      },
+      "best": {
+        "add": 0.1,
+        "reset": 0.91,
+        "still": 128,
+        "others": 177,
+        "addRecall": 1,
+        "falseReset": 0,
+        "falseAdd": 0.3446,
+        "resetRecall": 0.4972,
+        "middle": {
+          "same-problem": {
+            "items": 1090,
+            "add": 0.9606,
+            "reset": 0.0257,
+            "wrong": 0.0257
+          },
+          "unrelated": {
+            "items": 1183,
+            "add": 0.0693,
+            "reset": 0.7363,
+            "wrong": 0.0693
+          },
+          "items": 2273,
+          "wrong": 0.0484
+        }
+      },
+      "frontier": [
+        {
+          "add": 0.05,
+          "reset": 0.96,
+          "still": 128,
+          "others": 177,
+          "addRecall": 1,
+          "falseReset": 0,
+          "falseAdd": 0.6893,
+          "resetRecall": 0.2147,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.9945,
+              "reset": 0.0037,
+              "wrong": 0.0037
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.2578,
+              "reset": 0.3931,
+              "wrong": 0.2578
+            },
+            "items": 2273,
+            "wrong": 0.1359
+          }
+        },
+        {
+          "add": 0.1,
+          "reset": 0.91,
+          "still": 128,
+          "others": 177,
+          "addRecall": 1,
+          "falseReset": 0,
+          "falseAdd": 0.3446,
+          "resetRecall": 0.4972,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.9606,
+              "reset": 0.0257,
+              "wrong": 0.0257
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0693,
+              "reset": 0.7363,
+              "wrong": 0.0693
+            },
+            "items": 2273,
+            "wrong": 0.0484
+          }
+        },
+        {
+          "add": 0.15,
+          "reset": 0.86,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9922,
+          "falseReset": 0.0078,
+          "falseAdd": 0.1808,
+          "resetRecall": 0.6893,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.9028,
+              "reset": 0.0789,
+              "wrong": 0.0789
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0338,
+              "reset": 0.8605,
+              "wrong": 0.0338
+            },
+            "items": 2273,
+            "wrong": 0.0554
+          }
+        },
+        {
+          "add": 0.2,
+          "reset": 0.81,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9844,
+          "falseReset": 0.0078,
+          "falseAdd": 0.1299,
+          "resetRecall": 0.7853,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.8174,
+              "reset": 0.1459,
+              "wrong": 0.1459
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0169,
+              "reset": 0.9129,
+              "wrong": 0.0169
+            },
+            "items": 2273,
+            "wrong": 0.0788
+          }
+        },
+        {
+          "add": 0.25,
+          "reset": 0.76,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9844,
+          "falseReset": 0.0156,
+          "falseAdd": 0.1073,
+          "resetRecall": 0.8249,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.7385,
+              "reset": 0.2174,
+              "wrong": 0.2174
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0127,
+              "reset": 0.9434,
+              "wrong": 0.0127
+            },
+            "items": 2273,
+            "wrong": 0.1109
+          }
+        },
+        {
+          "add": 0.3,
+          "reset": 0.71,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9766,
+          "falseReset": 0.0156,
+          "falseAdd": 0.0904,
+          "resetRecall": 0.8588,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.6624,
+              "reset": 0.3037,
+              "wrong": 0.3037
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0076,
+              "reset": 0.9637,
+              "wrong": 0.0076
+            },
+            "items": 2273,
+            "wrong": 0.1496
+          }
+        },
+        {
+          "add": 0.35,
+          "reset": 0.66,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9766,
+          "falseReset": 0.0156,
+          "falseAdd": 0.0734,
+          "resetRecall": 0.8757,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.5844,
+              "reset": 0.3881,
+              "wrong": 0.3881
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0051,
+              "reset": 0.973,
+              "wrong": 0.0051
+            },
+            "items": 2273,
+            "wrong": 0.1887
+          }
+        },
+        {
+          "add": 0.4,
+          "reset": 0.65,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9766,
+          "falseReset": 0.0156,
+          "falseAdd": 0.0621,
+          "resetRecall": 0.8814,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.5009,
+              "reset": 0.4009,
+              "wrong": 0.4009
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0042,
+              "reset": 0.9763,
+              "wrong": 0.0042
+            },
+            "items": 2273,
+            "wrong": 0.1945
+          }
+        },
+        {
+          "add": 0.45,
+          "reset": 0.65,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9688,
+          "falseReset": 0.0156,
+          "falseAdd": 0.0395,
+          "resetRecall": 0.8814,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.4367,
+              "reset": 0.4009,
+              "wrong": 0.4009
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0025,
+              "reset": 0.9763,
+              "wrong": 0.0025
+            },
+            "items": 2273,
+            "wrong": 0.1936
+          }
+        },
+        {
+          "add": 0.5,
+          "reset": 0.65,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9609,
+          "falseReset": 0.0156,
+          "falseAdd": 0.0226,
+          "resetRecall": 0.8814,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.3706,
+              "reset": 0.4009,
+              "wrong": 0.4009
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0025,
+              "reset": 0.9763,
+              "wrong": 0.0025
+            },
+            "items": 2273,
+            "wrong": 0.1936
+          }
+        },
+        {
+          "add": 0.55,
+          "reset": 0.65,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9609,
+          "falseReset": 0.0156,
+          "falseAdd": 0.0113,
+          "resetRecall": 0.8814,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.3147,
+              "reset": 0.4009,
+              "wrong": 0.4009
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0025,
+              "reset": 0.9763,
+              "wrong": 0.0025
+            },
+            "items": 2273,
+            "wrong": 0.1936
+          }
+        },
+        {
+          "add": 0.6,
+          "reset": 0.65,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9453,
+          "falseReset": 0.0156,
+          "falseAdd": 0.0113,
+          "resetRecall": 0.8814,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.267,
+              "reset": 0.4009,
+              "wrong": 0.4009
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0017,
+              "reset": 0.9763,
+              "wrong": 0.0017
+            },
+            "items": 2273,
+            "wrong": 0.1931
+          }
+        },
+        {
+          "add": 0.65,
+          "reset": 0.66,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9141,
+          "falseReset": 0.0156,
+          "falseAdd": 0.0056,
+          "resetRecall": 0.8757,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.2138,
+              "reset": 0.3881,
+              "wrong": 0.3881
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0008,
+              "reset": 0.973,
+              "wrong": 0.0008
+            },
+            "items": 2273,
+            "wrong": 0.1865
+          }
+        },
+        {
+          "add": 0.7,
+          "reset": 0.71,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.8906,
+          "falseReset": 0.0156,
+          "falseAdd": 0.0056,
+          "resetRecall": 0.8588,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.167,
+              "reset": 0.3037,
+              "wrong": 0.3037
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9637,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.1456
+          }
+        },
+        {
+          "add": 0.75,
+          "reset": 0.76,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.8359,
+          "falseReset": 0.0156,
+          "falseAdd": 0.0056,
+          "resetRecall": 0.8249,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.1257,
+              "reset": 0.2174,
+              "wrong": 0.2174
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9434,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.1043
+          }
+        },
+        {
+          "add": 0.8,
+          "reset": 0.81,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.7969,
+          "falseReset": 0.0078,
+          "falseAdd": 0,
+          "resetRecall": 0.7853,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.0835,
+              "reset": 0.1459,
+              "wrong": 0.1459
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9129,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.07
+          }
+        },
+        {
+          "add": 0.85,
+          "reset": 0.86,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.7109,
+          "falseReset": 0.0078,
+          "falseAdd": 0,
+          "resetRecall": 0.6893,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.0459,
+              "reset": 0.0789,
+              "wrong": 0.0789
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.8605,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.0378
+          }
+        },
+        {
+          "add": 0.9,
+          "reset": 0.91,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.6016,
+          "falseReset": 0,
+          "falseAdd": 0,
+          "resetRecall": 0.4972,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.022,
+              "reset": 0.0257,
+              "wrong": 0.0257
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.7363,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.0123
+          }
+        },
+        {
+          "add": 0.95,
+          "reset": 0.96,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.4609,
+          "falseReset": 0,
+          "falseAdd": 0,
+          "resetRecall": 0.2147,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.0055,
+              "reset": 0.0037,
+              "wrong": 0.0037
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.3931,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.0018
+          }
+        }
+      ],
+      "within": 2205,
+      "tried": 2401
+    }
+  }
+}

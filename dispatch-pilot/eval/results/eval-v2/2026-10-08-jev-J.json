@@ -1,0 +1,1135 @@
+{
+  "suite": "eval-v2",
+  "label": "J",
+  "date": "2026-10-08T13:44:29.718Z",
+  "source": "not run: replayed from the last message of each item in eval/results/eval-v2-flow/jev-24000.json (its effort probabilities `p` and three-way probabilities `triage` taken as the backend's answers; the flow asked in Chinese, the same request as run.ts's zh-flow); items without a finished flow are left out",
+  "backend": {
+    "name": "jev",
+    "model": "jev-latest",
+    "answeredBy": [
+      "jev-1.13.0"
+    ]
+  },
+  "dataset": {
+    "path": "eval/datasets/eval-v2.jsonl",
+    "items": 120,
+    "replayed": 120,
+    "sha256": "69b46be3e063228add0732886c09692c833e02667986beacbbf2fa99818bd424",
+    "gold": {
+      "dir": "eval/datasets/eval-v2/gold",
+      "files": 120,
+      "sha256": "124fb2a2d5b3f818f397cecc175608b923ea27fc6773f0ae3edb4ae29e2df691"
+    }
+  },
+  "flow": {
+    "file": "eval/results/eval-v2-flow/jev-24000.json",
+    "sha256": "65fe600aebe8bcf51afe496104bfbd6f43bad1fc24e1d2c3f09c73beafb8b0d4",
+    "backend": {
+      "name": "jev",
+      "model": "jev-latest",
+      "answeredBy": [
+        "jev-1.13.0"
+      ]
+    },
+    "settings": {
+      "language": "zh",
+      "stateTokens": 24000,
+      "stateMessages": 32,
+      "thresholds": {
+        "add": 0.5,
+        "reset": 0.7
+      },
+      "maxAfter": 3
+    },
+    "summarizer": {
+      "model": "haiku",
+      "says": "claude-haiku-5-5",
+      "answeredBy": [
+        "claude-haiku-5-5"
+      ]
+    }
+  },
+  "settings": {
+    "messageStateTokens": 24000,
+    "stateMessagesLimit": 32,
+    "thetaMax": 0.5
+  },
+  "run": {
+    "items": 120,
+    "variants": [
+      "zh-flow"
+    ],
+    "languages": [
+      "zh"
+    ],
+    "requests": 0,
+    "usd": 0
+  },
+  "questions": {
+    "zh-flow": {
+      "level": {
+        "type": "score",
+        "instructions": {
+          "问题": "结合 `recent_context`，完成 `user_message` 所要求的工作需要多少逐步推理？",
+          "评什么": "评的是请求要做的工作本身，而不是话题听起来有多重要。用文字给出的建议或解释，即使涉及架构或安全，也不算设计工作。",
+          "简短回复": "如果 `user_message` 只是同意、让继续或选一个选项（例如“go ahead”“1”“继续”），按它所同意的那项工作来评；那项工作写在 `recent_context` 的末尾。"
+        },
+        "criteria": [
+          "凭已知信息就能回答，或没有需要想清楚之处的机械性工作：查一个东西、执行一条命令、重命名或查找替换（即使跨很多文件）、列出搜索结果、格式化、改一行。",
+          "对一个或几个文件做常规、需求明确的修改，或针对眼前代码的直接提问。",
+          "跨多个文件、需要想清楚的修改，原因已经描述但仍需追查的 bug，编写测试，或仔细审查一份 diff。",
+          "跨多个组件的设计，原因未知的 bug，牵连很多依赖方的重构，或需要仔细推敲并发、性能或故障模式的工作。",
+          "全新的架构，安全或数据完整性问题，之前多次尝试都没解决的故障，或一个细微错误就代价高昂且难以挽回的工作。"
+        ]
+      },
+      "unresolved": {
+        "type": "choice",
+        "instructions": {
+          "问题": "`user_message` 对 `recent_context` 末尾用户和助手最近在处理的那个问题说了什么？",
+          "结果": "那个问题解没解决，只看用户自己的话。助手对自己的工作说的“已修复”“应该可以了”不算结果。"
+        },
+        "criteria": {
+          "still_unresolved": "用户说为那个问题试过的做法没有用，或者说问题还在：同样的报错又出现了、同样的错误行为、让再看一遍同一个问题，或者贴出的报错就是之前那个。",
+          "resolved": "用户说那个问题已经解决，或接受了结果：现在好了、谢谢、可以了，或者让提交、推送、收尾。",
+          "new_or_unrelated": "用户转到另一个问题或任务，问的和那个问题毫无关系，或者 `recent_context` 里没有更早的问题可言。"
+        }
+      }
+    }
+  },
+  "scoring": "The answer is the effort, right when it is in the final gold's accept (the mod's pickEffort over the backend's probabilities, thetaMax as set), exact when it is the gold effort; a wrong one is too high or too low. The three-way question is asked with it, as the mod asks it, its answer the option it leaned to most, scored against triage_final as a part of its own (`triage`; still_unresolved is unresolved, new_or_unrelated is new). `top` is the recall of max over the items whose gold is max, `falseMax` the share of the items whose accept has no max that were given it; `byBin`, `byRelation`, `byBinRelation` and `byCategory` split the items. `seen` is whether the state held the decisive rounds (`all`: their first message; `any`: their newest line). `withoutDecisive` is, over the items whose effort_without_decisive is outside accept, the share answered exactly that: as if the decisive rounds had not been read. `thetaMax` is what other max thresholds would have given, from the probabilities each answer keeps (`p`; `triageP` keeps the three-way question's).",
+  "about": {
+    "variants": "zh-score, en-score: the question in Chinese or English, the state the conversation and the message; zh-flow, en-flow: the same with the count and the summary the flow file holds at the last message (and the strong hint from unresolvedMaxAfter)",
+    "flow": {
+      "backend": {
+        "name": "jev",
+        "model": "jev-latest",
+        "answeredBy": [
+          "jev-1.13.0"
+        ]
+      },
+      "settings": {
+        "language": "zh",
+        "stateTokens": 24000,
+        "stateMessages": 32,
+        "thresholds": {
+          "add": 0.5,
+          "reset": 0.7
+        },
+        "maxAfter": 3
+      },
+      "items": 120
+    }
+  },
+  "summary": {
+    "items": 120,
+    "variants": [
+      {
+        "variant": "zh-flow",
+        "zh": {
+          "items": 120,
+          "answered": 120,
+          "failed": 0,
+          "accuracy": 0.625,
+          "exact": 0.3333,
+          "misses": {
+            "over": 19,
+            "under": 26
+          },
+          "parts": {
+            "effort": 0.625,
+            "triage": 0.7083
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.625
+        },
+        "en": {
+          "items": 120,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "parts": {
+            "effort": 0,
+            "triage": 0
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": 0.625,
+        "pass": true,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 120,
+          "p50": 0,
+          "p90": 0,
+          "max": 0,
+          "slow": 0
+        },
+        "tags": [
+          {
+            "tag": "unrelated",
+            "items": 60,
+            "wrong": {
+              "zh": 29,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 29,
+                "en": 0
+              },
+              "triage": {
+                "zh": 30,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "same-problem",
+            "items": 60,
+            "wrong": {
+              "zh": 16,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 16,
+                "en": 0
+              },
+              "triage": {
+                "zh": 5,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "d4",
+            "items": 30,
+            "wrong": {
+              "zh": 14,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 14,
+                "en": 0
+              },
+              "triage": {
+                "zh": 10,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "d2",
+            "items": 30,
+            "wrong": {
+              "zh": 12,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 12,
+                "en": 0
+              },
+              "triage": {
+                "zh": 6,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "d3",
+            "items": 30,
+            "wrong": {
+              "zh": 10,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 10,
+                "en": 0
+              },
+              "triage": {
+                "zh": 10,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "cc-mods",
+            "items": 12,
+            "wrong": {
+              "zh": 9,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 9,
+                "en": 0
+              },
+              "triage": {
+                "zh": 5,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "d1",
+            "items": 30,
+            "wrong": {
+              "zh": 9,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 9,
+                "en": 0
+              },
+              "triage": {
+                "zh": 9,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "hard-constraint",
+            "items": 12,
+            "wrong": {
+              "zh": 8,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 8,
+                "en": 0
+              },
+              "triage": {
+                "zh": 2,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "new-topic",
+            "items": 12,
+            "wrong": {
+              "zh": 8,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 8,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "cheap-agreement",
+            "items": 12,
+            "wrong": {
+              "zh": 7,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 7,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "data-scripts",
+            "items": 12,
+            "wrong": {
+              "zh": 7,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 7,
+                "en": 0
+              },
+              "triage": {
+                "zh": 3,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "looks-hard-is-easy",
+            "items": 12,
+            "wrong": {
+              "zh": 6,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 6,
+                "en": 0
+              },
+              "triage": {
+                "zh": 6,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "docs-writing",
+            "items": 12,
+            "wrong": {
+              "zh": 5,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 5,
+                "en": 0
+              },
+              "triage": {
+                "zh": 2,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "frontend",
+            "items": 12,
+            "wrong": {
+              "zh": 5,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 5,
+                "en": 0
+              },
+              "triage": {
+                "zh": 5,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "implicit-unresolved",
+            "items": 12,
+            "wrong": {
+              "zh": 5,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 5,
+                "en": 0
+              },
+              "triage": {
+                "zh": 5,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "backend-api",
+            "items": 12,
+            "wrong": {
+              "zh": 4,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 4,
+                "en": 0
+              },
+              "triage": {
+                "zh": 4,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "command-turn",
+            "items": 12,
+            "wrong": {
+              "zh": 4,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 4,
+                "en": 0
+              },
+              "triage": {
+                "zh": 3,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "database",
+            "items": 12,
+            "wrong": {
+              "zh": 4,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 4,
+                "en": 0
+              },
+              "triage": {
+                "zh": 4,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "devops-ci",
+            "items": 12,
+            "wrong": {
+              "zh": 4,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 4,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "perf",
+            "items": 12,
+            "wrong": {
+              "zh": 4,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 4,
+                "en": 0
+              },
+              "triage": {
+                "zh": 6,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "explicit-unresolved",
+            "items": 12,
+            "wrong": {
+              "zh": 3,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 3,
+                "en": 0
+              },
+              "triage": {
+                "zh": 5,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "misleading-history",
+            "items": 12,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 2,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "resolved",
+            "items": 12,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 7,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "security",
+            "items": 12,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 4,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "ios",
+            "items": 12,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "single-attempt",
+            "items": 12,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 5,
+                "en": 0
+              }
+            }
+          }
+        ],
+        "breakdown": {
+          "flow": true,
+          "question": "zh",
+          "top": {
+            "items": 28,
+            "recall": 0.1071,
+            "falseMax": 0
+          },
+          "tooHigh": 0.1583,
+          "tooLow": 0.2167,
+          "byBin": {
+            "d1": {
+              "items": 30,
+              "accuracy": 0.7,
+              "exact": 0.4667,
+              "tooHigh": 0.1,
+              "tooLow": 0.2,
+              "top": 7,
+              "topRecall": 0.1429,
+              "triage": 0.7
+            },
+            "d2": {
+              "items": 30,
+              "accuracy": 0.6,
+              "exact": 0.4,
+              "tooHigh": 0.1667,
+              "tooLow": 0.2333,
+              "top": 6,
+              "topRecall": 0.1667,
+              "triage": 0.8
+            },
+            "d3": {
+              "items": 30,
+              "accuracy": 0.6667,
+              "exact": 0.2667,
+              "tooHigh": 0.1,
+              "tooLow": 0.2333,
+              "top": 8,
+              "topRecall": 0,
+              "triage": 0.6667
+            },
+            "d4": {
+              "items": 30,
+              "accuracy": 0.5333,
+              "exact": 0.2,
+              "tooHigh": 0.2667,
+              "tooLow": 0.2,
+              "top": 7,
+              "topRecall": 0.1429,
+              "triage": 0.6667
+            }
+          },
+          "byRelation": {
+            "same-problem": {
+              "items": 60,
+              "accuracy": 0.7333,
+              "exact": 0.4667,
+              "tooHigh": 0.1667,
+              "tooLow": 0.1,
+              "top": 15,
+              "topRecall": 0.2,
+              "triage": 0.9167
+            },
+            "unrelated": {
+              "items": 60,
+              "accuracy": 0.5167,
+              "exact": 0.2,
+              "tooHigh": 0.15,
+              "tooLow": 0.3333,
+              "top": 13,
+              "topRecall": 0,
+              "triage": 0.5
+            }
+          },
+          "byBinRelation": {
+            "d1 same-problem": {
+              "items": 15,
+              "accuracy": 0.8667,
+              "exact": 0.6667,
+              "tooHigh": 0.1333,
+              "tooLow": 0,
+              "top": 4,
+              "topRecall": 0.25,
+              "triage": 0.9333
+            },
+            "d1 unrelated": {
+              "items": 15,
+              "accuracy": 0.5333,
+              "exact": 0.2667,
+              "tooHigh": 0.0667,
+              "tooLow": 0.4,
+              "top": 3,
+              "topRecall": 0,
+              "triage": 0.4667
+            },
+            "d2 same-problem": {
+              "items": 15,
+              "accuracy": 0.7333,
+              "exact": 0.6,
+              "tooHigh": 0.1333,
+              "tooLow": 0.1333,
+              "top": 3,
+              "topRecall": 0.3333,
+              "triage": 1
+            },
+            "d2 unrelated": {
+              "items": 15,
+              "accuracy": 0.4667,
+              "exact": 0.2,
+              "tooHigh": 0.2,
+              "tooLow": 0.3333,
+              "top": 3,
+              "topRecall": 0,
+              "triage": 0.6
+            },
+            "d3 same-problem": {
+              "items": 15,
+              "accuracy": 0.8,
+              "exact": 0.3333,
+              "tooHigh": 0.1333,
+              "tooLow": 0.0667,
+              "top": 5,
+              "topRecall": 0,
+              "triage": 0.8667
+            },
+            "d3 unrelated": {
+              "items": 15,
+              "accuracy": 0.5333,
+              "exact": 0.2,
+              "tooHigh": 0.0667,
+              "tooLow": 0.4,
+              "top": 3,
+              "topRecall": 0,
+              "triage": 0.4667
+            },
+            "d4 same-problem": {
+              "items": 15,
+              "accuracy": 0.5333,
+              "exact": 0.2667,
+              "tooHigh": 0.2667,
+              "tooLow": 0.2,
+              "top": 3,
+              "topRecall": 0.3333,
+              "triage": 0.8667
+            },
+            "d4 unrelated": {
+              "items": 15,
+              "accuracy": 0.5333,
+              "exact": 0.1333,
+              "tooHigh": 0.2667,
+              "tooLow": 0.2,
+              "top": 4,
+              "topRecall": 0,
+              "triage": 0.4667
+            }
+          },
+          "byCategory": {
+            "explicit-unresolved": {
+              "items": 12,
+              "accuracy": 0.75,
+              "exact": 0.1667,
+              "tooHigh": 0,
+              "tooLow": 0.25,
+              "top": 12,
+              "topRecall": 0.1667,
+              "triage": 0.5833
+            },
+            "implicit-unresolved": {
+              "items": 12,
+              "accuracy": 0.5833,
+              "exact": 0.0833,
+              "tooHigh": 0,
+              "tooLow": 0.4167,
+              "top": 12,
+              "topRecall": 0.0833,
+              "triage": 0.5833
+            },
+            "single-attempt": {
+              "items": 12,
+              "accuracy": 1,
+              "exact": 0.75,
+              "tooHigh": 0,
+              "tooLow": 0,
+              "top": 0,
+              "topRecall": null,
+              "triage": 0.5833
+            },
+            "resolved": {
+              "items": 12,
+              "accuracy": 0.8333,
+              "exact": 0.5833,
+              "tooHigh": 0.0833,
+              "tooLow": 0.0833,
+              "top": 0,
+              "topRecall": null,
+              "triage": 0.4167
+            },
+            "new-topic": {
+              "items": 12,
+              "accuracy": 0.3333,
+              "exact": 0.25,
+              "tooHigh": 0.1667,
+              "tooLow": 0.5,
+              "top": 0,
+              "topRecall": null,
+              "triage": 1
+            },
+            "cheap-agreement": {
+              "items": 12,
+              "accuracy": 0.4167,
+              "exact": 0.1667,
+              "tooHigh": 0.5833,
+              "tooLow": 0,
+              "top": 0,
+              "topRecall": null,
+              "triage": 1
+            },
+            "looks-hard-is-easy": {
+              "items": 12,
+              "accuracy": 0.5,
+              "exact": 0.3333,
+              "tooHigh": 0.5,
+              "tooLow": 0,
+              "top": 0,
+              "topRecall": null,
+              "triage": 0.5
+            },
+            "misleading-history": {
+              "items": 12,
+              "accuracy": 0.8333,
+              "exact": 0.6667,
+              "tooHigh": 0.1667,
+              "tooLow": 0,
+              "top": 0,
+              "topRecall": null,
+              "triage": 0.8333
+            },
+            "hard-constraint": {
+              "items": 12,
+              "accuracy": 0.3333,
+              "exact": 0.1667,
+              "tooHigh": 0,
+              "tooLow": 0.6667,
+              "top": 0,
+              "topRecall": null,
+              "triage": 0.8333
+            },
+            "command-turn": {
+              "items": 12,
+              "accuracy": 0.6667,
+              "exact": 0.1667,
+              "tooHigh": 0.0833,
+              "tooLow": 0.25,
+              "top": 4,
+              "topRecall": 0,
+              "triage": 0.75
+            }
+          },
+          "triage": {
+            "accuracy": 0.7083,
+            "confusion": {
+              "unresolved": {
+                "unresolved": 36,
+                "new": 22,
+                "resolved": 1
+              },
+              "resolved": {
+                "new": 11,
+                "resolved": 6
+              },
+              "new": {
+                "new": 43,
+                "unresolved": 1
+              }
+            },
+            "change": {
+              "right": 0.7,
+              "falseAdd": 0,
+              "lostRecord": 0.2203
+            }
+          },
+          "seen": {
+            "all": 0.25,
+            "any": 0.25
+          },
+          "withoutDecisive": {
+            "items": 75,
+            "share": 0.36
+          },
+          "thetaMax": [
+            {
+              "thetaMax": 0.2,
+              "accuracy": 0.6083,
+              "topRecall": 0.2143,
+              "falseMax": 0.0345
+            },
+            {
+              "thetaMax": 0.3,
+              "accuracy": 0.6083,
+              "topRecall": 0.2143,
+              "falseMax": 0.0345
+            },
+            {
+              "thetaMax": 0.4,
+              "accuracy": 0.6167,
+              "topRecall": 0.1786,
+              "falseMax": 0.0115
+            },
+            {
+              "thetaMax": 0.5,
+              "accuracy": 0.625,
+              "topRecall": 0.1071,
+              "falseMax": 0
+            },
+            {
+              "thetaMax": 0.6,
+              "accuracy": 0.625,
+              "topRecall": 0,
+              "falseMax": 0
+            },
+            {
+              "thetaMax": 0.7,
+              "accuracy": 0.625,
+              "topRecall": 0,
+              "falseMax": 0
+            }
+          ],
+          "stateTokens": {
+            "mean": 22388,
+            "max": 23998
+          },
+          "carried": {
+            "items": 120,
+            "counted": 36,
+            "hinted": 24,
+            "summarized": 120
+          }
+        }
+      }
+    ],
+    "constants": [
+      {
+        "answer": "low",
+        "accuracy": 0.4083,
+        "exact": 0.25
+      },
+      {
+        "answer": "medium",
+        "accuracy": 0.4667,
+        "exact": 0.2167
+      },
+      {
+        "answer": "high",
+        "accuracy": 0.3083,
+        "exact": 0.075
+      },
+      {
+        "answer": "xhigh",
+        "accuracy": 0.5333,
+        "exact": 0.225
+      },
+      {
+        "answer": "max",
+        "accuracy": 0.275,
+        "exact": 0.2333
+      }
+    ]
+  },
+  "answers": [
+    {"id":"cheap-agreement-01","language":"zh","zh-flow":{"answer":"high / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.02,0.16,0.31,0.26,0.25],"triage":"unresolved","triageP":{"unresolved":0.85,"resolved":0.02,"new":0.13},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":22766,"kept":16,"count":5,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"cheap-agreement-02","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.1,0.2,0.35,0.22,0.13],"triage":"new","triageP":{"unresolved":0.09,"resolved":0.02,"new":0.89},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22841,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"cheap-agreement-03","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.1,0.07,0.65,0.17,0.01],"triage":"new","triageP":{"unresolved":0.05,"resolved":0,"new":0.95},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22299,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"cheap-agreement-04","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.02,0.22,0.74,0.02,0],"triage":"new","triageP":{"unresolved":0.02,"resolved":0.02,"new":0.96},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21309,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"cheap-agreement-05","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.02,0.18,0.37,0.39,0.04],"triage":"unresolved","triageP":{"unresolved":0.57,"resolved":0.09,"new":0.34},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":23998,"kept":16,"count":3,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"cheap-agreement-06","language":"zh","zh-flow":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.41,0.27,0.22,0.09,0.01],"triage":"new","triageP":{"unresolved":0.01,"resolved":0.15,"new":0.84},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21553,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"cheap-agreement-07","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.09,0.05,0.37,0.33,0.16],"triage":"unresolved","triageP":{"unresolved":0.81,"resolved":0,"new":0.19},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":23548,"kept":12,"count":11,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"cheap-agreement-08","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.07,0.19,0.4,0.29,0.05],"triage":"new","triageP":{"unresolved":0.02,"resolved":0.03,"new":0.95},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21731,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"cheap-agreement-09","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.07,0.6,0.2,0.12,0.01],"triage":"new","triageP":{"unresolved":0.46,"resolved":0.05,"new":0.49},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":23508,"kept":16,"count":1,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"cheap-agreement-10","language":"zh","zh-flow":{"answer":"xhigh / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.04,0.2,0.41,0.33,0.02],"triage":"new","triageP":{"unresolved":0.04,"resolved":0.03,"new":0.93},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21995,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"cheap-agreement-11","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.08,0.86,0.03,0.03,0],"triage":"new","triageP":{"unresolved":0.05,"resolved":0,"new":0.95},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":23270,"kept":12,"count":1,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"cheap-agreement-12","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.25,0.29,0.43,0.03,0],"triage":"new","triageP":{"unresolved":0.01,"resolved":0.03,"new":0.96},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22435,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"command-turn-01","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.05,0.06,0.41,0.39,0.09],"triage":"unresolved","triageP":{"unresolved":0.52,"resolved":0,"new":0.48},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":21190,"kept":16,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"command-turn-02","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":false},"p":[0.11,0.48,0.37,0.03,0.01],"triage":"new","triageP":{"unresolved":0.02,"resolved":0.02,"new":0.96},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22291,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"command-turn-03","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.11,0.01,0.13,0.73,0.02],"triage":"unresolved","triageP":{"unresolved":0.8,"resolved":0,"new":0.2},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":23969,"kept":11,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"command-turn-04","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.08,0.34,0.41,0.14,0.03],"triage":"new","triageP":{"unresolved":0.01,"resolved":0.04,"new":0.95},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22601,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"command-turn-05","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.01,0.02,0.19,0.72,0.06],"triage":"unresolved","triageP":{"unresolved":0.96,"resolved":0,"new":0.04},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":22700,"kept":16,"count":2,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"command-turn-06","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.31,0.34,0.2,0.12,0.03],"triage":"new","triageP":{"unresolved":0.04,"resolved":0.08,"new":0.88},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22058,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"command-turn-07","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.09,0.01,0.05,0.82,0.03],"triage":"unresolved","triageP":{"unresolved":0.99,"resolved":0,"new":0.01},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":23407,"kept":12,"count":1,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"command-turn-08","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.11,0.27,0.45,0.14,0.03],"triage":"new","triageP":{"unresolved":0.03,"resolved":0.02,"new":0.95},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21023,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"command-turn-09","language":"zh","zh-flow":{"answer":"medium / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.25,0.47,0.21,0.05,0.02],"triage":"unresolved","triageP":{"unresolved":0.57,"resolved":0.37,"new":0.06},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":22963,"kept":16,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"command-turn-10","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.07,0.12,0.69,0.11,0.01],"triage":"new","triageP":{"unresolved":0.14,"resolved":0.01,"new":0.85},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22548,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"command-turn-11","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.06,0.7,0.17,0.07,0],"triage":"new","triageP":{"unresolved":0.04,"resolved":0,"new":0.96},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22473,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"command-turn-12","language":"zh","zh-flow":{"answer":"xhigh / new","correct":true,"gold":false,"parts":{"effort":true,"triage":false},"p":[0.02,0.03,0.53,0.36,0.06],"triage":"new","triageP":{"unresolved":0.21,"resolved":0,"new":0.79},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21390,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"explicit-unresolved-01","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.03,0.14,0.59,0.2,0.04],"triage":"new","triageP":{"unresolved":0.47,"resolved":0.04,"new":0.49},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":22914,"kept":18,"count":2,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"explicit-unresolved-02","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.09,0.02,0.06,0.32,0.51],"triage":"unresolved","triageP":{"unresolved":0.98,"resolved":0,"new":0.02},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":20879,"kept":10,"count":10,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"explicit-unresolved-03","language":"zh","zh-flow":{"answer":"xhigh / new","correct":true,"gold":false,"parts":{"effort":true,"triage":false},"p":[0.08,0.04,0.2,0.59,0.09],"triage":"new","triageP":{"unresolved":0.19,"resolved":0,"new":0.81},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":20841,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"explicit-unresolved-04","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.37,0.06,0.16,0.41,0],"triage":"unresolved","triageP":{"unresolved":0.94,"resolved":0,"new":0.06},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":22392,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"explicit-unresolved-05","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.03,0.04,0.3,0.36,0.27],"triage":"unresolved","triageP":{"unresolved":0.52,"resolved":0.02,"new":0.46},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":22772,"kept":18,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"explicit-unresolved-06","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.14,0.1,0.14,0.59,0.03],"triage":"unresolved","triageP":{"unresolved":0.85,"resolved":0,"new":0.15},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":23175,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"explicit-unresolved-07","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.08,0.32,0.52,0.07,0.01],"triage":"new","triageP":{"unresolved":0.33,"resolved":0.03,"new":0.64},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":22868,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"explicit-unresolved-08","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.1,0.03,0.46,0.39,0.02],"triage":"unresolved","triageP":{"unresolved":0.99,"resolved":0,"new":0.01},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":23101,"kept":12,"count":1,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"explicit-unresolved-09","language":"zh","zh-flow":{"answer":"xhigh / new","correct":true,"gold":false,"parts":{"effort":true,"triage":false},"p":[0.05,0.04,0.23,0.61,0.07],"triage":"new","triageP":{"unresolved":0.39,"resolved":0.02,"new":0.59},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":23332,"kept":22,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"explicit-unresolved-10","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.1,0.03,0.09,0.35,0.43],"triage":"unresolved","triageP":{"unresolved":0.98,"resolved":0,"new":0.02},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":20405,"kept":12,"count":13,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"explicit-unresolved-11","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.18,0.3,0.42,0.08,0.02],"triage":"new","triageP":{"unresolved":0.46,"resolved":0.02,"new":0.52},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":23849,"kept":14,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"explicit-unresolved-12","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.05,0.01,0.03,0.39,0.52],"triage":"unresolved","triageP":{"unresolved":0.99,"resolved":0,"new":0.01},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":22879,"kept":12,"count":5,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"hard-constraint-01","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.36,0.37,0.14,0.1,0.03],"triage":"new","triageP":{"unresolved":0.03,"resolved":0.04,"new":0.93},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":23460,"kept":16,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"hard-constraint-02","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.17,0.21,0.13,0.29,0.2],"triage":"unresolved","triageP":{"unresolved":0.85,"resolved":0.06,"new":0.09},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":22016,"kept":12,"count":9,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"hard-constraint-03","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.04,0.18,0.65,0.11,0.02],"triage":"new","triageP":{"unresolved":0.02,"resolved":0.01,"new":0.97},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21685,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"hard-constraint-04","language":"zh","zh-flow":{"answer":"low / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.47,0.17,0.06,0.3,0],"triage":"new","triageP":{"unresolved":0.32,"resolved":0.01,"new":0.67},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":23400,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"hard-constraint-05","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.11,0.15,0.67,0.06,0.01],"triage":"new","triageP":{"unresolved":0.08,"resolved":0.07,"new":0.85},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":23587,"kept":15,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"hard-constraint-06","language":"zh","zh-flow":{"answer":"low / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.52,0.17,0.21,0.08,0.02],"triage":"new","triageP":{"unresolved":0.12,"resolved":0,"new":0.88},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":23335,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"hard-constraint-07","language":"zh","zh-flow":{"answer":"xhigh / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.09,0.26,0.18,0.43,0.04],"triage":"new","triageP":{"unresolved":0.15,"resolved":0.09,"new":0.76},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22418,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"hard-constraint-08","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.07,0.7,0.14,0.08,0.01],"triage":"new","triageP":{"unresolved":0.38,"resolved":0.01,"new":0.61},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":23223,"kept":12,"count":2,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"hard-constraint-09","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.33,0.5,0.07,0.06,0.04],"triage":"new","triageP":{"unresolved":0.03,"resolved":0.24,"new":0.73},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":20726,"kept":14,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"hard-constraint-10","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.25,0.62,0.08,0.05,0],"triage":"new","triageP":{"unresolved":0.03,"resolved":0.02,"new":0.95},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":23069,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"hard-constraint-11","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0,0.64,0.3,0.06,0],"triage":"new","triageP":{"unresolved":0.04,"resolved":0.01,"new":0.95},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21485,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"hard-constraint-12","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.46,0.36,0.05,0.1,0.03],"triage":"new","triageP":{"unresolved":0.24,"resolved":0,"new":0.76},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":20333,"kept":10,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"implicit-unresolved-01","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.12,0.01,0.12,0.46,0.29],"triage":"unresolved","triageP":{"unresolved":0.92,"resolved":0,"new":0.08},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":21035,"kept":16,"count":4,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"implicit-unresolved-02","language":"zh","zh-flow":{"answer":"high / unresolved","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.1,0.25,0.45,0.18,0.02],"triage":"unresolved","triageP":{"unresolved":0.49,"resolved":0.02,"new":0.49},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":21489,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"implicit-unresolved-03","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.11,0.01,0.12,0.74,0.02],"triage":"unresolved","triageP":{"unresolved":0.94,"resolved":0,"new":0.06},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":22623,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"implicit-unresolved-04","language":"zh","zh-flow":{"answer":"low / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.47,0.25,0.21,0.05,0.02],"triage":"new","triageP":{"unresolved":0.07,"resolved":0.02,"new":0.91},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22581,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"implicit-unresolved-05","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.04,0.02,0.07,0.57,0.3],"triage":"unresolved","triageP":{"unresolved":0.73,"resolved":0.01,"new":0.26},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":23712,"kept":18,"count":6,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"implicit-unresolved-06","language":"zh","zh-flow":{"answer":"xhigh / new","correct":true,"gold":false,"parts":{"effort":true,"triage":false},"p":[0.04,0.07,0.55,0.33,0.01],"triage":"new","triageP":{"unresolved":0.01,"resolved":0.09,"new":0.9},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21536,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"implicit-unresolved-07","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.13,0.01,0.04,0.41,0.41],"triage":"unresolved","triageP":{"unresolved":0.98,"resolved":0,"new":0.02},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":21618,"kept":12,"count":4,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"implicit-unresolved-08","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.24,0.14,0.3,0.26,0.06],"triage":"new","triageP":{"unresolved":0.22,"resolved":0.01,"new":0.77},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":23939,"kept":13,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"implicit-unresolved-09","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.03,0.01,0.12,0.28,0.56],"triage":"unresolved","triageP":{"unresolved":0.88,"resolved":0.03,"new":0.09},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":21254,"kept":16,"count":4,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"implicit-unresolved-10","language":"zh","zh-flow":{"answer":"low / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.3,0.21,0.18,0.22,0.09],"triage":"new","triageP":{"unresolved":0.1,"resolved":0,"new":0.9},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21751,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"implicit-unresolved-11","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.18,0.02,0.09,0.67,0.04],"triage":"unresolved","triageP":{"unresolved":0.98,"resolved":0,"new":0.02},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":23438,"kept":12,"count":2,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"implicit-unresolved-12","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.24,0.25,0.27,0.18,0.06],"triage":"new","triageP":{"unresolved":0.2,"resolved":0.01,"new":0.79},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22531,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"looks-hard-is-easy-01","language":"zh","zh-flow":{"answer":"low / resolved","correct":true,"gold":true,"parts":{"effort":true,"triage":false},"p":[0.37,0.2,0.2,0.22,0.01],"triage":"resolved","triageP":{"unresolved":0.17,"resolved":0.43,"new":0.4},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":23964,"kept":15,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"looks-hard-is-easy-02","language":"zh","zh-flow":{"answer":"high / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.12,0.15,0.53,0.17,0.03],"triage":"unresolved","triageP":{"unresolved":0.91,"resolved":0.01,"new":0.08},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":23706,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"looks-hard-is-easy-03","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":false},"p":[0.2,0.36,0.26,0.11,0.07],"triage":"new","triageP":{"unresolved":0.09,"resolved":0.02,"new":0.89},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":23048,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"looks-hard-is-easy-04","language":"zh","zh-flow":{"answer":"low / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.28,0.16,0.27,0.27,0.02],"triage":"unresolved","triageP":{"unresolved":0.555,"resolved":0.162,"new":0.283},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":23959,"kept":11,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"looks-hard-is-easy-05","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":false},"p":[0.15,0.33,0.4,0.11,0.01],"triage":"new","triageP":{"unresolved":0.14,"resolved":0.21,"new":0.65},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":21538,"kept":14,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"looks-hard-is-easy-06","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.13,0.11,0.2,0.32,0.24],"triage":"unresolved","triageP":{"unresolved":0.96,"resolved":0.03,"new":0.01},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":20457,"kept":10,"count":7,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"looks-hard-is-easy-07","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":false},"p":[0.3,0.36,0.27,0.05,0.02],"triage":"new","triageP":{"unresolved":0.01,"resolved":0.13,"new":0.86},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22067,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"looks-hard-is-easy-08","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.11,0.07,0.08,0.52,0.22],"triage":"unresolved","triageP":{"unresolved":0.97,"resolved":0.01,"new":0.02},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":21100,"kept":10,"count":4,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"looks-hard-is-easy-09","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":false},"p":[0.21,0.4,0.19,0.19,0.01],"triage":"new","triageP":{"unresolved":0.09,"resolved":0.31,"new":0.6},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":22634,"kept":16,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"looks-hard-is-easy-10","language":"zh","zh-flow":{"answer":"medium / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.18,0.31,0.26,0.24,0.01],"triage":"unresolved","triageP":{"unresolved":0.67,"resolved":0.02,"new":0.31},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":20296,"kept":10,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"looks-hard-is-easy-11","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":false},"p":[0.36,0.18,0.38,0.07,0.01],"triage":"new","triageP":{"unresolved":0.02,"resolved":0.17,"new":0.81},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22110,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"looks-hard-is-easy-12","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.09,0.15,0.15,0.24,0.37],"triage":"unresolved","triageP":{"unresolved":0.939,"resolved":0.01,"new":0.051},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":23869,"kept":12,"count":6,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"misleading-history-01","language":"zh","zh-flow":{"answer":"low / resolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.65,0.02,0.12,0.2,0.01],"triage":"resolved","triageP":{"unresolved":0.08,"resolved":0.74,"new":0.18},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":21285,"kept":16,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"misleading-history-02","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.39,0.37,0.12,0.11,0.01],"triage":"new","triageP":{"unresolved":0.02,"resolved":0,"new":0.98},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22023,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"misleading-history-03","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.4,0.52,0.03,0.05,0],"triage":"new","triageP":{"unresolved":0.04,"resolved":0.02,"new":0.94},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":20647,"kept":10,"count":1,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"misleading-history-04","language":"zh","zh-flow":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":false},"p":[0.565,0.263,0.111,0.051,0.01],"triage":"new","triageP":{"unresolved":0.02,"resolved":0.47,"new":0.51},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":21701,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"misleading-history-05","language":"zh","zh-flow":{"answer":"low / resolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.53,0.1,0.15,0.22,0],"triage":"resolved","triageP":{"unresolved":0.22,"resolved":0.43,"new":0.35},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":23398,"kept":18,"count":1,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"misleading-history-06","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.49,0.37,0.1,0.04,0],"triage":"new","triageP":{"unresolved":0.05,"resolved":0.07,"new":0.88},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21834,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"misleading-history-07","language":"zh","zh-flow":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.43,0.03,0.04,0.21,0.29],"triage":"new","triageP":{"unresolved":0.13,"resolved":0.36,"new":0.51},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":23171,"kept":11,"count":5,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"misleading-history-08","language":"zh","zh-flow":{"answer":"xhigh / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.12,0.24,0.19,0.43,0.02],"triage":"new","triageP":{"unresolved":0.04,"resolved":0.17,"new":0.79},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22473,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"misleading-history-09","language":"zh","zh-flow":{"answer":"low / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":false},"p":[0.69,0.06,0.04,0.13,0.08],"triage":"unresolved","triageP":{"unresolved":0.42,"resolved":0.18,"new":0.4},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":22533,"kept":18,"count":3,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"misleading-history-10","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.24,0.68,0.06,0.02,0],"triage":"new","triageP":{"unresolved":0,"resolved":0,"new":1},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":20760,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"misleading-history-11","language":"zh","zh-flow":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.53,0.09,0.18,0.18,0.02],"triage":"new","triageP":{"unresolved":0.31,"resolved":0.01,"new":0.68},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":23024,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"misleading-history-12","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.25,0.41,0.33,0.01,0],"triage":"new","triageP":{"unresolved":0.18,"resolved":0.07,"new":0.75},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21515,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"new-topic-01","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.16,0.34,0.16,0.22,0.12],"triage":"new","triageP":{"unresolved":0.02,"resolved":0.05,"new":0.93},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":23894,"kept":18,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"new-topic-02","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.04,0.72,0.11,0.13,0],"triage":"new","triageP":{"unresolved":0.06,"resolved":0,"new":0.94},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22568,"kept":12,"count":1,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"new-topic-03","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.27,0.52,0.13,0.07,0.01],"triage":"new","triageP":{"unresolved":0.06,"resolved":0.04,"new":0.9},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21099,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"new-topic-04","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.33,0.39,0.08,0.1,0.1],"triage":"new","triageP":{"unresolved":0.06,"resolved":0,"new":0.94},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22756,"kept":12,"count":5,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"new-topic-05","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.04,0.59,0.26,0.1,0.01],"triage":"new","triageP":{"unresolved":0.04,"resolved":0.24,"new":0.72},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":23569,"kept":18,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"new-topic-06","language":"zh","zh-flow":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.34,0.02,0.08,0.21,0.35],"triage":"new","triageP":{"unresolved":0.18,"resolved":0,"new":0.82},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":23569,"kept":12,"count":8,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"new-topic-07","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.32,0.38,0.24,0.05,0.01],"triage":"new","triageP":{"unresolved":0.02,"resolved":0.01,"new":0.97},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22418,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"new-topic-08","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.14,0.16,0.31,0.25,0.14],"triage":"new","triageP":{"unresolved":0.12,"resolved":0,"new":0.88},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":23465,"kept":12,"count":8,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"new-topic-09","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.19,0.69,0.07,0.04,0.01],"triage":"new","triageP":{"unresolved":0.01,"resolved":0.07,"new":0.92},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":20498,"kept":14,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"new-topic-10","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.28,0.52,0.05,0.12,0.03],"triage":"new","triageP":{"unresolved":0.14,"resolved":0,"new":0.86},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":23329,"kept":12,"count":6,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"new-topic-11","language":"zh","zh-flow":{"answer":"medium / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":true},"p":[0.23,0.49,0.18,0.08,0.02],"triage":"new","triageP":{"unresolved":0.04,"resolved":0.01,"new":0.95},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22902,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"new-topic-12","language":"zh","zh-flow":{"answer":"xhigh / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.3,0.05,0.11,0.52,0.02],"triage":"new","triageP":{"unresolved":0.2,"resolved":0.01,"new":0.79},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":23607,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"resolved-01","language":"zh","zh-flow":{"answer":"low / resolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.4,0.18,0.21,0.19,0.02],"triage":"resolved","triageP":{"unresolved":0.02,"resolved":0.96,"new":0.02},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":23366,"kept":18,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"resolved-02","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.41,0.35,0.09,0.14,0.01],"triage":"new","triageP":{"unresolved":0.03,"resolved":0.02,"new":0.95},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22309,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"resolved-03","language":"zh","zh-flow":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":false},"p":[0.72,0.15,0.03,0.05,0.05],"triage":"new","triageP":{"unresolved":0.04,"resolved":0.37,"new":0.59},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":23910,"kept":12,"count":18,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"resolved-04","language":"zh","zh-flow":{"answer":"medium / new","correct":true,"gold":false,"parts":{"effort":true,"triage":false},"p":[0.18,0.45,0.22,0.12,0.03],"triage":"new","triageP":{"unresolved":0.04,"resolved":0.06,"new":0.9},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22002,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"resolved-05","language":"zh","zh-flow":{"answer":"low / resolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.71,0.22,0.03,0.04,0],"triage":"resolved","triageP":{"unresolved":0.14,"resolved":0.47,"new":0.39},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":23455,"kept":18,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"resolved-06","language":"zh","zh-flow":{"answer":"low / new","correct":false,"gold":false,"miss":"under","parts":{"effort":false,"triage":false},"p":[0.42,0.24,0.24,0.08,0.02],"triage":"new","triageP":{"unresolved":0.01,"resolved":0.11,"new":0.88},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21110,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"resolved-07","language":"zh","zh-flow":{"answer":"medium / resolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.32,0.4,0.08,0.08,0.12],"triage":"resolved","triageP":{"unresolved":0.03,"resolved":0.82,"new":0.15},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":20295,"kept":10,"count":11,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"resolved-08","language":"zh","zh-flow":{"answer":"high / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":false},"p":[0.24,0.38,0.31,0.07,0],"triage":"new","triageP":{"unresolved":0.1,"resolved":0.03,"new":0.87},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22344,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"resolved-09","language":"zh","zh-flow":{"answer":"low / resolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.48,0.12,0.19,0.2,0.01],"triage":"resolved","triageP":{"unresolved":0.27,"resolved":0.54,"new":0.19},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":23442,"kept":18,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"resolved-10","language":"zh","zh-flow":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":false},"p":[0.57,0.29,0.07,0.06,0.01],"triage":"new","triageP":{"unresolved":0.01,"resolved":0.06,"new":0.93},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":21994,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"resolved-11","language":"zh","zh-flow":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":false},"p":[0.56,0.17,0.09,0.17,0.01],"triage":"new","triageP":{"unresolved":0.41,"resolved":0.02,"new":0.57},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":21888,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"resolved-12","language":"zh","zh-flow":{"answer":"low / new","correct":true,"gold":true,"parts":{"effort":true,"triage":false},"p":[0.54,0.22,0.15,0.09,0],"triage":"new","triageP":{"unresolved":0.03,"resolved":0.03,"new":0.94},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":22325,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"single-attempt-01","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":true,"parts":{"effort":true,"triage":false},"p":[0.06,0.38,0.51,0.04,0.01],"triage":"new","triageP":{"unresolved":0.15,"resolved":0.06,"new":0.79},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":22776,"kept":14,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"single-attempt-02","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.08,0.02,0.52,0.37,0.01],"triage":"unresolved","triageP":{"unresolved":0.89,"resolved":0,"new":0.11},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":22633,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"single-attempt-03","language":"zh","zh-flow":{"answer":"xhigh / new","correct":true,"gold":true,"parts":{"effort":true,"triage":false},"p":[0.14,0.11,0.25,0.45,0.05],"triage":"new","triageP":{"unresolved":0.44,"resolved":0,"new":0.56},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":21919,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"single-attempt-04","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.23,0.02,0.14,0.56,0.05],"triage":"unresolved","triageP":{"unresolved":0.87,"resolved":0,"new":0.13},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":23642,"kept":14,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"single-attempt-05","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":true,"parts":{"effort":true,"triage":false},"p":[0.07,0.2,0.63,0.09,0.01],"triage":"new","triageP":{"unresolved":0.46,"resolved":0.03,"new":0.51},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":22413,"kept":14,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"single-attempt-06","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.08,0.06,0.09,0.34,0.43],"triage":"unresolved","triageP":{"unresolved":0.97,"resolved":0,"new":0.03},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":20486,"kept":10,"count":5,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"single-attempt-07","language":"zh","zh-flow":{"answer":"high / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.24,0.2,0.31,0.18,0.07],"triage":"unresolved","triageP":{"unresolved":0.55,"resolved":0.01,"new":0.44},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":21773,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"single-attempt-08","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.13,0.02,0.08,0.58,0.19],"triage":"unresolved","triageP":{"unresolved":0.95,"resolved":0,"new":0.05},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":22575,"kept":12,"count":4,"hint":true,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"single-attempt-09","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":false},"p":[0.09,0.18,0.59,0.13,0.01],"triage":"new","triageP":{"unresolved":0.26,"resolved":0.01,"new":0.73},"triageChange":"reset","seen":true,"seenAny":true,"stateTokens":22720,"kept":14,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"single-attempt-10","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.1,0.05,0.29,0.55,0.01],"triage":"unresolved","triageP":{"unresolved":0.71,"resolved":0,"new":0.29},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":19997,"kept":10,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"single-attempt-11","language":"zh","zh-flow":{"answer":"high / new","correct":true,"gold":false,"parts":{"effort":true,"triage":false},"p":[0.14,0.27,0.51,0.06,0.02],"triage":"new","triageP":{"unresolved":0.3,"resolved":0.01,"new":0.69},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":21805,"kept":12,"count":0,"hint":false,"summary":true,"model":"jev-1.13.0"}},
+    {"id":"single-attempt-12","language":"zh","zh-flow":{"answer":"xhigh / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.14,0.01,0.49,0.35,0.01],"triage":"unresolved","triageP":{"unresolved":0.97,"resolved":0,"new":0.03},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":23052,"kept":12,"count":1,"hint":false,"summary":true,"model":"jev-1.13.0"}}
+  ]
+}

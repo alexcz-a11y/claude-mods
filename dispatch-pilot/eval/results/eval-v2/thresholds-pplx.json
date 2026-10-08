@@ -1,0 +1,1851 @@
+{
+  "date": "2026-10-08T13:42:37.780Z",
+  "files": [
+    {
+      "file": "eval/results/eval-v2-flow/pplx-48000.json",
+      "backend": {
+        "name": "pplx",
+        "model": "pplx-decider-v1.1-27b",
+        "answeredBy": [
+          "pplx-decider-v1.1-27b"
+        ]
+      },
+      "settings": {
+        "language": "zh",
+        "stateTokens": 48000,
+        "stateMessages": 2000,
+        "thresholds": {
+          "add": 0.5,
+          "reset": 0.7
+        },
+        "maxAfter": 3
+      }
+    },
+    {
+      "file": "eval/results/eval-v2-flow/pplx-135000.json",
+      "backend": {
+        "name": "pplx",
+        "model": "pplx-decider-v1.1-27b",
+        "answeredBy": [
+          "pplx-decider-v1.1-27b"
+        ]
+      },
+      "settings": {
+        "language": "zh",
+        "stateTokens": 135000,
+        "stateMessages": 2000,
+        "thresholds": {
+          "add": 0.5,
+          "reset": 0.7
+        },
+        "maxAfter": 3
+      }
+    }
+  ],
+  "options": {
+    "maxFalseReset": 0.02,
+    "step": 0.01
+  },
+  "rule": "of the pairs whose false reset (still-unresolved messages that clear the count) is within maxFalseReset (and false add within maxFalseAdd, when set), the highest add recall; ties: lower false add, higher reset recall, fewer wrong moves in the middle rounds, nearer the mod's 0.5/0.7",
+  "scans": {
+    "pplx-48000": {
+      "points": {
+        "decisive": 305,
+        "middle": 2273,
+        "final": 120
+      },
+      "missing": {
+        "items": [],
+        "unanswered": 0
+      },
+      "current": {
+        "add": 0.5,
+        "reset": 0.7,
+        "still": 128,
+        "others": 177,
+        "addRecall": 0.9766,
+        "falseReset": 0.0078,
+        "falseAdd": 0.0113,
+        "resetRecall": 0.9605,
+        "middle": {
+          "same-problem": {
+            "items": 1090,
+            "add": 0.6101,
+            "reset": 0.2431,
+            "wrong": 0.2431
+          },
+          "unrelated": {
+            "items": 1183,
+            "add": 0,
+            "reset": 0.9983,
+            "wrong": 0
+          },
+          "items": 2273,
+          "wrong": 0.1166
+        }
+      },
+      "best": {
+        "add": 0.18,
+        "reset": 0.83,
+        "still": 128,
+        "others": 177,
+        "addRecall": 1,
+        "falseReset": 0,
+        "falseAdd": 0.0395,
+        "resetRecall": 0.9322,
+        "middle": {
+          "same-problem": {
+            "items": 1090,
+            "add": 0.8294,
+            "reset": 0.1257,
+            "wrong": 0.1257
+          },
+          "unrelated": {
+            "items": 1183,
+            "add": 0.0017,
+            "reset": 0.9949,
+            "wrong": 0.0017
+          },
+          "items": 2273,
+          "wrong": 0.0612
+        }
+      },
+      "frontier": [
+        {
+          "add": 0.05,
+          "reset": 0.96,
+          "still": 128,
+          "others": 177,
+          "addRecall": 1,
+          "falseReset": 0,
+          "falseAdd": 0.1299,
+          "resetRecall": 0.7966,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.9706,
+              "reset": 0.0046,
+              "wrong": 0.0046
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0068,
+              "reset": 0.9484,
+              "wrong": 0.0068
+            },
+            "items": 2273,
+            "wrong": 0.0057
+          }
+        },
+        {
+          "add": 0.1,
+          "reset": 0.91,
+          "still": 128,
+          "others": 177,
+          "addRecall": 1,
+          "falseReset": 0,
+          "falseAdd": 0.0621,
+          "resetRecall": 0.8927,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.9128,
+              "reset": 0.0385,
+              "wrong": 0.0385
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0034,
+              "reset": 0.9848,
+              "wrong": 0.0034
+            },
+            "items": 2273,
+            "wrong": 0.0202
+          }
+        },
+        {
+          "add": 0.15,
+          "reset": 0.86,
+          "still": 128,
+          "others": 177,
+          "addRecall": 1,
+          "falseReset": 0,
+          "falseAdd": 0.0395,
+          "resetRecall": 0.9209,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.8606,
+              "reset": 0.1018,
+              "wrong": 0.1018
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0034,
+              "reset": 0.9949,
+              "wrong": 0.0034
+            },
+            "items": 2273,
+            "wrong": 0.0506
+          }
+        },
+        {
+          "add": 0.2,
+          "reset": 0.81,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9922,
+          "falseReset": 0,
+          "falseAdd": 0.0339,
+          "resetRecall": 0.9492,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.8083,
+              "reset": 0.145,
+              "wrong": 0.145
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0017,
+              "reset": 0.9958,
+              "wrong": 0.0017
+            },
+            "items": 2273,
+            "wrong": 0.0704
+          }
+        },
+        {
+          "add": 0.25,
+          "reset": 0.76,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9922,
+          "falseReset": 0.0078,
+          "falseAdd": 0.0339,
+          "resetRecall": 0.9548,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.7642,
+              "reset": 0.2018,
+              "wrong": 0.2018
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0008,
+              "reset": 0.9975,
+              "wrong": 0.0008
+            },
+            "items": 2273,
+            "wrong": 0.0972
+          }
+        },
+        {
+          "add": 0.3,
+          "reset": 0.71,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9922,
+          "falseReset": 0.0078,
+          "falseAdd": 0.0282,
+          "resetRecall": 0.9548,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.7312,
+              "reset": 0.2394,
+              "wrong": 0.2394
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0008,
+              "reset": 0.9983,
+              "wrong": 0.0008
+            },
+            "items": 2273,
+            "wrong": 0.1153
+          }
+        },
+        {
+          "add": 0.35,
+          "reset": 0.66,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9844,
+          "falseReset": 0.0078,
+          "falseAdd": 0.0226,
+          "resetRecall": 0.9605,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.7046,
+              "reset": 0.2789,
+              "wrong": 0.2789
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0.0008,
+              "reset": 0.9992,
+              "wrong": 0.0008
+            },
+            "items": 2273,
+            "wrong": 0.1342
+          }
+        },
+        {
+          "add": 0.4,
+          "reset": 0.61,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9844,
+          "falseReset": 0.0078,
+          "falseAdd": 0.0169,
+          "resetRecall": 0.9774,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.6706,
+              "reset": 0.3018,
+              "wrong": 0.3018
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9992,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.1447
+          }
+        },
+        {
+          "add": 0.45,
+          "reset": 0.56,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9844,
+          "falseReset": 0.0078,
+          "falseAdd": 0.0113,
+          "resetRecall": 0.9887,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.6394,
+              "reset": 0.3349,
+              "wrong": 0.3349
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9992,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.1606
+          }
+        },
+        {
+          "add": 0.5,
+          "reset": 0.51,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9766,
+          "falseReset": 0.0078,
+          "falseAdd": 0.0113,
+          "resetRecall": 0.9887,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.6101,
+              "reset": 0.3688,
+              "wrong": 0.3688
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9992,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.1769
+          }
+        },
+        {
+          "add": 0.55,
+          "reset": 0.56,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9766,
+          "falseReset": 0.0078,
+          "falseAdd": 0.0056,
+          "resetRecall": 0.9887,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.5743,
+              "reset": 0.3349,
+              "wrong": 0.3349
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9992,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.1606
+          }
+        },
+        {
+          "add": 0.6,
+          "reset": 0.61,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9688,
+          "falseReset": 0.0078,
+          "falseAdd": 0.0056,
+          "resetRecall": 0.9774,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.544,
+              "reset": 0.3018,
+              "wrong": 0.3018
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9992,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.1447
+          }
+        },
+        {
+          "add": 0.65,
+          "reset": 0.66,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9688,
+          "falseReset": 0.0078,
+          "falseAdd": 0.0056,
+          "resetRecall": 0.9605,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.511,
+              "reset": 0.2789,
+              "wrong": 0.2789
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9992,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.1337
+          }
+        },
+        {
+          "add": 0.7,
+          "reset": 0.71,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9688,
+          "falseReset": 0.0078,
+          "falseAdd": 0.0056,
+          "resetRecall": 0.9548,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.4844,
+              "reset": 0.2394,
+              "wrong": 0.2394
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9983,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.1148
+          }
+        },
+        {
+          "add": 0.75,
+          "reset": 0.76,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9609,
+          "falseReset": 0.0078,
+          "falseAdd": 0.0056,
+          "resetRecall": 0.9548,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.4394,
+              "reset": 0.2018,
+              "wrong": 0.2018
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9975,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.0968
+          }
+        },
+        {
+          "add": 0.8,
+          "reset": 0.81,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9609,
+          "falseReset": 0,
+          "falseAdd": 0.0056,
+          "resetRecall": 0.9492,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.3927,
+              "reset": 0.145,
+              "wrong": 0.145
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9958,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.0695
+          }
+        },
+        {
+          "add": 0.85,
+          "reset": 0.86,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9531,
+          "falseReset": 0,
+          "falseAdd": 0.0056,
+          "resetRecall": 0.9209,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.3229,
+              "reset": 0.1018,
+              "wrong": 0.1018
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9949,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.0488
+          }
+        },
+        {
+          "add": 0.9,
+          "reset": 0.91,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.9375,
+          "falseReset": 0,
+          "falseAdd": 0,
+          "resetRecall": 0.8927,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.2495,
+              "reset": 0.0385,
+              "wrong": 0.0385
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9848,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.0185
+          }
+        },
+        {
+          "add": 0.95,
+          "reset": 0.96,
+          "still": 128,
+          "others": 177,
+          "addRecall": 0.8828,
+          "falseReset": 0,
+          "falseAdd": 0,
+          "resetRecall": 0.7966,
+          "middle": {
+            "same-problem": {
+              "items": 1090,
+              "add": 0.1303,
+              "reset": 0.0046,
+              "wrong": 0.0046
+            },
+            "unrelated": {
+              "items": 1183,
+              "add": 0,
+              "reset": 0.9484,
+              "wrong": 0
+            },
+            "items": 2273,
+            "wrong": 0.0022
+          }
+        }
+      ],
+      "within": 2401,
+      "tried": 2401
+    },
+    "pplx-135000": {
+      "points": {
+        "decisive": 171,
+        "middle": 1174,
+        "final": 63
+      },
+      "missing": {
+        "items": [
+          "looks-hard-is-easy-04",
+          "looks-hard-is-easy-05",
+          "looks-hard-is-easy-06",
+          "looks-hard-is-easy-07",
+          "looks-hard-is-easy-08",
+          "looks-hard-is-easy-09",
+          "looks-hard-is-easy-10",
+          "looks-hard-is-easy-11",
+          "looks-hard-is-easy-12",
+          "misleading-history-01",
+          "misleading-history-02",
+          "misleading-history-03",
+          "misleading-history-04",
+          "misleading-history-05",
+          "misleading-history-06",
+          "misleading-history-07",
+          "misleading-history-08",
+          "misleading-history-09",
+          "misleading-history-10",
+          "misleading-history-11",
+          "misleading-history-12",
+          "new-topic-01",
+          "new-topic-02",
+          "new-topic-03",
+          "new-topic-04",
+          "new-topic-05",
+          "new-topic-06",
+          "new-topic-07",
+          "new-topic-08",
+          "new-topic-09",
+          "new-topic-10",
+          "new-topic-11",
+          "new-topic-12",
+          "resolved-01",
+          "resolved-02",
+          "resolved-03",
+          "resolved-04",
+          "resolved-05",
+          "resolved-06",
+          "resolved-07",
+          "resolved-08",
+          "resolved-09",
+          "resolved-10",
+          "resolved-11",
+          "resolved-12",
+          "single-attempt-01",
+          "single-attempt-02",
+          "single-attempt-03",
+          "single-attempt-04",
+          "single-attempt-05",
+          "single-attempt-06",
+          "single-attempt-07",
+          "single-attempt-08",
+          "single-attempt-09",
+          "single-attempt-10",
+          "single-attempt-11",
+          "single-attempt-12"
+        ],
+        "unanswered": 0
+      },
+      "current": {
+        "add": 0.5,
+        "reset": 0.7,
+        "still": 83,
+        "others": 88,
+        "addRecall": 0.988,
+        "falseReset": 0.012,
+        "falseAdd": 0,
+        "resetRecall": 0.9545,
+        "middle": {
+          "same-problem": {
+            "items": 508,
+            "add": 0.6752,
+            "reset": 0.1713,
+            "wrong": 0.1713
+          },
+          "unrelated": {
+            "items": 666,
+            "add": 0.0015,
+            "reset": 0.994,
+            "wrong": 0.0015
+          },
+          "items": 1174,
+          "wrong": 0.075
+        }
+      },
+      "best": {
+        "add": 0.23,
+        "reset": 0.8,
+        "still": 83,
+        "others": 88,
+        "addRecall": 1,
+        "falseReset": 0,
+        "falseAdd": 0.0341,
+        "resetRecall": 0.9432,
+        "middle": {
+          "same-problem": {
+            "items": 508,
+            "add": 0.8543,
+            "reset": 0.1083,
+            "wrong": 0.1083
+          },
+          "unrelated": {
+            "items": 666,
+            "add": 0.0015,
+            "reset": 0.9925,
+            "wrong": 0.0015
+          },
+          "items": 1174,
+          "wrong": 0.0477
+        }
+      },
+      "frontier": [
+        {
+          "add": 0.05,
+          "reset": 0.96,
+          "still": 83,
+          "others": 88,
+          "addRecall": 1,
+          "falseReset": 0,
+          "falseAdd": 0.1477,
+          "resetRecall": 0.6818,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.9803,
+              "reset": 0.0098,
+              "wrong": 0.0098
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0.0165,
+              "reset": 0.8934,
+              "wrong": 0.0165
+            },
+            "items": 1174,
+            "wrong": 0.0136
+          }
+        },
+        {
+          "add": 0.1,
+          "reset": 0.91,
+          "still": 83,
+          "others": 88,
+          "addRecall": 1,
+          "falseReset": 0,
+          "falseAdd": 0.0682,
+          "resetRecall": 0.8523,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.935,
+              "reset": 0.0315,
+              "wrong": 0.0315
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0.0045,
+              "reset": 0.9745,
+              "wrong": 0.0045
+            },
+            "items": 1174,
+            "wrong": 0.0162
+          }
+        },
+        {
+          "add": 0.15,
+          "reset": 0.86,
+          "still": 83,
+          "others": 88,
+          "addRecall": 1,
+          "falseReset": 0,
+          "falseAdd": 0.0568,
+          "resetRecall": 0.8864,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.9016,
+              "reset": 0.063,
+              "wrong": 0.063
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0.003,
+              "reset": 0.988,
+              "wrong": 0.003
+            },
+            "items": 1174,
+            "wrong": 0.029
+          }
+        },
+        {
+          "add": 0.2,
+          "reset": 0.81,
+          "still": 83,
+          "others": 88,
+          "addRecall": 1,
+          "falseReset": 0,
+          "falseAdd": 0.0341,
+          "resetRecall": 0.9318,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.8622,
+              "reset": 0.1043,
+              "wrong": 0.1043
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0.003,
+              "reset": 0.9925,
+              "wrong": 0.003
+            },
+            "items": 1174,
+            "wrong": 0.0468
+          }
+        },
+        {
+          "add": 0.25,
+          "reset": 0.76,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.988,
+          "falseReset": 0,
+          "falseAdd": 0.0341,
+          "resetRecall": 0.9545,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.8445,
+              "reset": 0.1319,
+              "wrong": 0.1319
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0.0015,
+              "reset": 0.994,
+              "wrong": 0.0015
+            },
+            "items": 1174,
+            "wrong": 0.0579
+          }
+        },
+        {
+          "add": 0.3,
+          "reset": 0.71,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.988,
+          "falseReset": 0,
+          "falseAdd": 0.0227,
+          "resetRecall": 0.9545,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.8051,
+              "reset": 0.1673,
+              "wrong": 0.1673
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0.0015,
+              "reset": 0.994,
+              "wrong": 0.0015
+            },
+            "items": 1174,
+            "wrong": 0.0733
+          }
+        },
+        {
+          "add": 0.35,
+          "reset": 0.66,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.988,
+          "falseReset": 0.012,
+          "falseAdd": 0.0114,
+          "resetRecall": 0.9659,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.7756,
+              "reset": 0.2008,
+              "wrong": 0.2008
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0.0015,
+              "reset": 0.994,
+              "wrong": 0.0015
+            },
+            "items": 1174,
+            "wrong": 0.0877
+          }
+        },
+        {
+          "add": 0.4,
+          "reset": 0.61,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.988,
+          "falseReset": 0.012,
+          "falseAdd": 0.0114,
+          "resetRecall": 0.9659,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.7421,
+              "reset": 0.2303,
+              "wrong": 0.2303
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0.0015,
+              "reset": 0.997,
+              "wrong": 0.0015
+            },
+            "items": 1174,
+            "wrong": 0.1005
+          }
+        },
+        {
+          "add": 0.45,
+          "reset": 0.56,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.988,
+          "falseReset": 0.012,
+          "falseAdd": 0.0114,
+          "resetRecall": 0.9886,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.7047,
+              "reset": 0.2559,
+              "wrong": 0.2559
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0.0015,
+              "reset": 0.997,
+              "wrong": 0.0015
+            },
+            "items": 1174,
+            "wrong": 0.1116
+          }
+        },
+        {
+          "add": 0.5,
+          "reset": 0.51,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.988,
+          "falseReset": 0.012,
+          "falseAdd": 0,
+          "resetRecall": 1,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.6752,
+              "reset": 0.3012,
+              "wrong": 0.3012
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0.0015,
+              "reset": 0.9985,
+              "wrong": 0.0015
+            },
+            "items": 1174,
+            "wrong": 0.1312
+          }
+        },
+        {
+          "add": 0.55,
+          "reset": 0.56,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.988,
+          "falseReset": 0.012,
+          "falseAdd": 0,
+          "resetRecall": 0.9886,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.6516,
+              "reset": 0.2559,
+              "wrong": 0.2559
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0.0015,
+              "reset": 0.997,
+              "wrong": 0.0015
+            },
+            "items": 1174,
+            "wrong": 0.1116
+          }
+        },
+        {
+          "add": 0.6,
+          "reset": 0.61,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.9759,
+          "falseReset": 0.012,
+          "falseAdd": 0,
+          "resetRecall": 0.9659,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.6201,
+              "reset": 0.2303,
+              "wrong": 0.2303
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0.0015,
+              "reset": 0.997,
+              "wrong": 0.0015
+            },
+            "items": 1174,
+            "wrong": 0.1005
+          }
+        },
+        {
+          "add": 0.65,
+          "reset": 0.66,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.9759,
+          "falseReset": 0.012,
+          "falseAdd": 0,
+          "resetRecall": 0.9659,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.5394,
+              "reset": 0.2008,
+              "wrong": 0.2008
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0,
+              "reset": 0.994,
+              "wrong": 0
+            },
+            "items": 1174,
+            "wrong": 0.0869
+          }
+        },
+        {
+          "add": 0.7,
+          "reset": 0.71,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.9759,
+          "falseReset": 0,
+          "falseAdd": 0,
+          "resetRecall": 0.9545,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.4882,
+              "reset": 0.1673,
+              "wrong": 0.1673
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0,
+              "reset": 0.994,
+              "wrong": 0
+            },
+            "items": 1174,
+            "wrong": 0.0724
+          }
+        },
+        {
+          "add": 0.75,
+          "reset": 0.76,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.9759,
+          "falseReset": 0,
+          "falseAdd": 0,
+          "resetRecall": 0.9545,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.4429,
+              "reset": 0.1319,
+              "wrong": 0.1319
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0,
+              "reset": 0.994,
+              "wrong": 0
+            },
+            "items": 1174,
+            "wrong": 0.0571
+          }
+        },
+        {
+          "add": 0.8,
+          "reset": 0.81,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.9759,
+          "falseReset": 0,
+          "falseAdd": 0,
+          "resetRecall": 0.9318,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.3937,
+              "reset": 0.1043,
+              "wrong": 0.1043
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0,
+              "reset": 0.9925,
+              "wrong": 0
+            },
+            "items": 1174,
+            "wrong": 0.0451
+          }
+        },
+        {
+          "add": 0.85,
+          "reset": 0.86,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.9759,
+          "falseReset": 0,
+          "falseAdd": 0,
+          "resetRecall": 0.8864,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.311,
+              "reset": 0.063,
+              "wrong": 0.063
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0,
+              "reset": 0.988,
+              "wrong": 0
+            },
+            "items": 1174,
+            "wrong": 0.0273
+          }
+        },
+        {
+          "add": 0.9,
+          "reset": 0.91,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.9518,
+          "falseReset": 0,
+          "falseAdd": 0,
+          "resetRecall": 0.8523,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.2106,
+              "reset": 0.0315,
+              "wrong": 0.0315
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0,
+              "reset": 0.9745,
+              "wrong": 0
+            },
+            "items": 1174,
+            "wrong": 0.0136
+          }
+        },
+        {
+          "add": 0.95,
+          "reset": 0.96,
+          "still": 83,
+          "others": 88,
+          "addRecall": 0.9398,
+          "falseReset": 0,
+          "falseAdd": 0,
+          "resetRecall": 0.6818,
+          "middle": {
+            "same-problem": {
+              "items": 508,
+              "add": 0.0768,
+              "reset": 0.0098,
+              "wrong": 0.0098
+            },
+            "unrelated": {
+              "items": 666,
+              "add": 0,
+              "reset": 0.8934,
+              "wrong": 0
+            },
+            "items": 1174,
+            "wrong": 0.0043
+          }
+        }
+      ],
+      "within": 2401,
+      "tried": 2401
+    },
+    "pooled": {
+      "points": {
+        "decisive": 476,
+        "middle": 3447,
+        "final": 183
+      },
+      "missing": {
+        "items": [
+          "pplx-135000:looks-hard-is-easy-04",
+          "pplx-135000:looks-hard-is-easy-05",
+          "pplx-135000:looks-hard-is-easy-06",
+          "pplx-135000:looks-hard-is-easy-07",
+          "pplx-135000:looks-hard-is-easy-08",
+          "pplx-135000:looks-hard-is-easy-09",
+          "pplx-135000:looks-hard-is-easy-10",
+          "pplx-135000:looks-hard-is-easy-11",
+          "pplx-135000:looks-hard-is-easy-12",
+          "pplx-135000:misleading-history-01",
+          "pplx-135000:misleading-history-02",
+          "pplx-135000:misleading-history-03",
+          "pplx-135000:misleading-history-04",
+          "pplx-135000:misleading-history-05",
+          "pplx-135000:misleading-history-06",
+          "pplx-135000:misleading-history-07",
+          "pplx-135000:misleading-history-08",
+          "pplx-135000:misleading-history-09",
+          "pplx-135000:misleading-history-10",
+          "pplx-135000:misleading-history-11",
+          "pplx-135000:misleading-history-12",
+          "pplx-135000:new-topic-01",
+          "pplx-135000:new-topic-02",
+          "pplx-135000:new-topic-03",
+          "pplx-135000:new-topic-04",
+          "pplx-135000:new-topic-05",
+          "pplx-135000:new-topic-06",
+          "pplx-135000:new-topic-07",
+          "pplx-135000:new-topic-08",
+          "pplx-135000:new-topic-09",
+          "pplx-135000:new-topic-10",
+          "pplx-135000:new-topic-11",
+          "pplx-135000:new-topic-12",
+          "pplx-135000:resolved-01",
+          "pplx-135000:resolved-02",
+          "pplx-135000:resolved-03",
+          "pplx-135000:resolved-04",
+          "pplx-135000:resolved-05",
+          "pplx-135000:resolved-06",
+          "pplx-135000:resolved-07",
+          "pplx-135000:resolved-08",
+          "pplx-135000:resolved-09",
+          "pplx-135000:resolved-10",
+          "pplx-135000:resolved-11",
+          "pplx-135000:resolved-12",
+          "pplx-135000:single-attempt-01",
+          "pplx-135000:single-attempt-02",
+          "pplx-135000:single-attempt-03",
+          "pplx-135000:single-attempt-04",
+          "pplx-135000:single-attempt-05",
+          "pplx-135000:single-attempt-06",
+          "pplx-135000:single-attempt-07",
+          "pplx-135000:single-attempt-08",
+          "pplx-135000:single-attempt-09",
+          "pplx-135000:single-attempt-10",
+          "pplx-135000:single-attempt-11",
+          "pplx-135000:single-attempt-12"
+        ],
+        "unanswered": 0
+      },
+      "current": {
+        "add": 0.5,
+        "reset": 0.7,
+        "still": 211,
+        "others": 265,
+        "addRecall": 0.981,
+        "falseReset": 0.0095,
+        "falseAdd": 0.0075,
+        "resetRecall": 0.9585,
+        "middle": {
+          "same-problem": {
+            "items": 1598,
+            "add": 0.6308,
+            "reset": 0.2203,
+            "wrong": 0.2203
+          },
+          "unrelated": {
+            "items": 1849,
+            "add": 0.0005,
+            "reset": 0.9968,
+            "wrong": 0.0005
+          },
+          "items": 3447,
+          "wrong": 0.1024
+        }
+      },
+      "best": {
+        "add": 0.18,
+        "reset": 0.83,
+        "still": 211,
+        "others": 265,
+        "addRecall": 1,
+        "falseReset": 0,
+        "falseAdd": 0.0377,
+        "resetRecall": 0.9283,
+        "middle": {
+          "same-problem": {
+            "items": 1598,
+            "add": 0.8461,
+            "reset": 0.1151,
+            "wrong": 0.1151
+          },
+          "unrelated": {
+            "items": 1849,
+            "add": 0.0022,
+            "reset": 0.9935,
+            "wrong": 0.0022
+          },
+          "items": 3447,
+          "wrong": 0.0545
+        }
+      },
+      "frontier": [
+        {
+          "add": 0.05,
+          "reset": 0.96,
+          "still": 211,
+          "others": 265,
+          "addRecall": 1,
+          "falseReset": 0,
+          "falseAdd": 0.1358,
+          "resetRecall": 0.7585,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.9737,
+              "reset": 0.0063,
+              "wrong": 0.0063
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0.0103,
+              "reset": 0.9286,
+              "wrong": 0.0103
+            },
+            "items": 3447,
+            "wrong": 0.0084
+          }
+        },
+        {
+          "add": 0.1,
+          "reset": 0.91,
+          "still": 211,
+          "others": 265,
+          "addRecall": 1,
+          "falseReset": 0,
+          "falseAdd": 0.0642,
+          "resetRecall": 0.8792,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.9199,
+              "reset": 0.0363,
+              "wrong": 0.0363
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0.0038,
+              "reset": 0.9811,
+              "wrong": 0.0038
+            },
+            "items": 3447,
+            "wrong": 0.0189
+          }
+        },
+        {
+          "add": 0.15,
+          "reset": 0.86,
+          "still": 211,
+          "others": 265,
+          "addRecall": 1,
+          "falseReset": 0,
+          "falseAdd": 0.0453,
+          "resetRecall": 0.9094,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.8736,
+              "reset": 0.0895,
+              "wrong": 0.0895
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0.0032,
+              "reset": 0.9924,
+              "wrong": 0.0032
+            },
+            "items": 3447,
+            "wrong": 0.0432
+          }
+        },
+        {
+          "add": 0.2,
+          "reset": 0.81,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.9953,
+          "falseReset": 0,
+          "falseAdd": 0.034,
+          "resetRecall": 0.9434,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.8254,
+              "reset": 0.132,
+              "wrong": 0.132
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0.0022,
+              "reset": 0.9946,
+              "wrong": 0.0022
+            },
+            "items": 3447,
+            "wrong": 0.0624
+          }
+        },
+        {
+          "add": 0.25,
+          "reset": 0.76,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.9905,
+          "falseReset": 0.0047,
+          "falseAdd": 0.034,
+          "resetRecall": 0.9547,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.7897,
+              "reset": 0.1796,
+              "wrong": 0.1796
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0.0011,
+              "reset": 0.9962,
+              "wrong": 0.0011
+            },
+            "items": 3447,
+            "wrong": 0.0838
+          }
+        },
+        {
+          "add": 0.3,
+          "reset": 0.71,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.9905,
+          "falseReset": 0.0047,
+          "falseAdd": 0.0264,
+          "resetRecall": 0.9547,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.7547,
+              "reset": 0.2165,
+              "wrong": 0.2165
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0.0011,
+              "reset": 0.9968,
+              "wrong": 0.0011
+            },
+            "items": 3447,
+            "wrong": 0.101
+          }
+        },
+        {
+          "add": 0.35,
+          "reset": 0.66,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.9858,
+          "falseReset": 0.0095,
+          "falseAdd": 0.0189,
+          "resetRecall": 0.9623,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.7272,
+              "reset": 0.2541,
+              "wrong": 0.2541
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0.0011,
+              "reset": 0.9973,
+              "wrong": 0.0011
+            },
+            "items": 3447,
+            "wrong": 0.1184
+          }
+        },
+        {
+          "add": 0.4,
+          "reset": 0.61,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.9858,
+          "falseReset": 0.0095,
+          "falseAdd": 0.0151,
+          "resetRecall": 0.9736,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.6934,
+              "reset": 0.2791,
+              "wrong": 0.2791
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0.0005,
+              "reset": 0.9984,
+              "wrong": 0.0005
+            },
+            "items": 3447,
+            "wrong": 0.1297
+          }
+        },
+        {
+          "add": 0.45,
+          "reset": 0.56,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.9858,
+          "falseReset": 0.0095,
+          "falseAdd": 0.0113,
+          "resetRecall": 0.9887,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.6602,
+              "reset": 0.3098,
+              "wrong": 0.3098
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0.0005,
+              "reset": 0.9984,
+              "wrong": 0.0005
+            },
+            "items": 3447,
+            "wrong": 0.1439
+          }
+        },
+        {
+          "add": 0.5,
+          "reset": 0.51,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.981,
+          "falseReset": 0.0095,
+          "falseAdd": 0.0075,
+          "resetRecall": 0.9925,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.6308,
+              "reset": 0.3473,
+              "wrong": 0.3473
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0.0005,
+              "reset": 0.9989,
+              "wrong": 0.0005
+            },
+            "items": 3447,
+            "wrong": 0.1613
+          }
+        },
+        {
+          "add": 0.55,
+          "reset": 0.56,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.981,
+          "falseReset": 0.0095,
+          "falseAdd": 0.0038,
+          "resetRecall": 0.9887,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.5989,
+              "reset": 0.3098,
+              "wrong": 0.3098
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0.0005,
+              "reset": 0.9984,
+              "wrong": 0.0005
+            },
+            "items": 3447,
+            "wrong": 0.1439
+          }
+        },
+        {
+          "add": 0.6,
+          "reset": 0.61,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.9716,
+          "falseReset": 0.0095,
+          "falseAdd": 0.0038,
+          "resetRecall": 0.9736,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.5682,
+              "reset": 0.2791,
+              "wrong": 0.2791
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0.0005,
+              "reset": 0.9984,
+              "wrong": 0.0005
+            },
+            "items": 3447,
+            "wrong": 0.1297
+          }
+        },
+        {
+          "add": 0.65,
+          "reset": 0.66,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.9716,
+          "falseReset": 0.0095,
+          "falseAdd": 0.0038,
+          "resetRecall": 0.9623,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.52,
+              "reset": 0.2541,
+              "wrong": 0.2541
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0,
+              "reset": 0.9973,
+              "wrong": 0
+            },
+            "items": 3447,
+            "wrong": 0.1178
+          }
+        },
+        {
+          "add": 0.7,
+          "reset": 0.71,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.9716,
+          "falseReset": 0.0047,
+          "falseAdd": 0.0038,
+          "resetRecall": 0.9547,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.4856,
+              "reset": 0.2165,
+              "wrong": 0.2165
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0,
+              "reset": 0.9968,
+              "wrong": 0
+            },
+            "items": 3447,
+            "wrong": 0.1004
+          }
+        },
+        {
+          "add": 0.75,
+          "reset": 0.76,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.9668,
+          "falseReset": 0.0047,
+          "falseAdd": 0.0038,
+          "resetRecall": 0.9547,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.4406,
+              "reset": 0.1796,
+              "wrong": 0.1796
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0,
+              "reset": 0.9962,
+              "wrong": 0
+            },
+            "items": 3447,
+            "wrong": 0.0833
+          }
+        },
+        {
+          "add": 0.8,
+          "reset": 0.81,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.9668,
+          "falseReset": 0,
+          "falseAdd": 0.0038,
+          "resetRecall": 0.9434,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.393,
+              "reset": 0.132,
+              "wrong": 0.132
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0,
+              "reset": 0.9946,
+              "wrong": 0
+            },
+            "items": 3447,
+            "wrong": 0.0612
+          }
+        },
+        {
+          "add": 0.85,
+          "reset": 0.86,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.9621,
+          "falseReset": 0,
+          "falseAdd": 0.0038,
+          "resetRecall": 0.9094,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.3191,
+              "reset": 0.0895,
+              "wrong": 0.0895
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0,
+              "reset": 0.9924,
+              "wrong": 0
+            },
+            "items": 3447,
+            "wrong": 0.0415
+          }
+        },
+        {
+          "add": 0.9,
+          "reset": 0.91,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.9431,
+          "falseReset": 0,
+          "falseAdd": 0,
+          "resetRecall": 0.8792,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.2372,
+              "reset": 0.0363,
+              "wrong": 0.0363
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0,
+              "reset": 0.9811,
+              "wrong": 0
+            },
+            "items": 3447,
+            "wrong": 0.0168
+          }
+        },
+        {
+          "add": 0.95,
+          "reset": 0.96,
+          "still": 211,
+          "others": 265,
+          "addRecall": 0.9052,
+          "falseReset": 0,
+          "falseAdd": 0,
+          "resetRecall": 0.7585,
+          "middle": {
+            "same-problem": {
+              "items": 1598,
+              "add": 0.1133,
+              "reset": 0.0063,
+              "wrong": 0.0063
+            },
+            "unrelated": {
+              "items": 1849,
+              "add": 0,
+              "reset": 0.9286,
+              "wrong": 0
+            },
+            "items": 3447,
+            "wrong": 0.0029
+          }
+        }
+      ],
+      "within": 2401,
+      "tried": 2401
+    }
+  }
+}
