@@ -10,9 +10,11 @@ import { mergeParts } from '../hooks/decision/system-one.ts'
 import { withUnresolved } from '../hooks/decision/unresolved.ts'
 import { ACCOUNT, CLEF_OPTIONS, CLEF_URL, TOKEN, clef, clefInputProblems, cloudflareError } from './support/cloudflare.ts'
 import { jev, world, type Reply } from './support/world.ts'
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 test('with Clef chosen, the decision goes to Cloudflare Workers AI and its answer sets the turn effort', { options: CLEF_OPTIONS }, async ($, on) => {
-  const w = world($, on, { backend: clef([0.05, 0.1, 0.7, 0.1, 0.05]) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: clef([0.05, 0.1, 0.7, 0.1, 0.05]) })
 
   await w.submit('把登录模块重构成三层，并补上测试')
   await w.step({ index: 0 })
@@ -38,7 +40,7 @@ test('the debug log says the request went to Clef, who answered it and how many 
 
   expect(w.logs.map((entry) => entry.to)).toEqual(['debug', 'debug'])
   expect(w.logs.map((entry) => entry.text)).toEqual([
-    'request [effort.level, effort.unresolved] to clef: answered in 0 ms by clef (151 input tokens)',
+    'request [effort.level] to clef: answered in 0 ms by clef (151 input tokens)',
     'effort high · "把登录模块重构成三层"：概率 low 0.05, medium 0.10, high 0.60, xhigh 0.20, max 0.05；置信度 0.70',
   ])
 })
@@ -49,7 +51,7 @@ const TRANSCRIPT: SessionMessage[] = [
 ]
 
 test('what the mod sends to Clef is the decision module\'s request with the model named, so the eval measures the live request (spec #67)', { options: CLEF_OPTIONS }, async ($, on) => {
-  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), messages: TRANSCRIPT })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: clef([0, 1, 0, 0, 0]), messages: TRANSCRIPT })
   await w.submit('改吧')
 
   const built = mergeParts(turnStartState({ prompt: '改吧', messages: TRANSCRIPT, limits: { messages: 4, tokens: 2000 } }), [withUnresolved(turnStartEffortPart(), 'en')])
@@ -84,7 +86,7 @@ for (const [name, reply] of [
   ['a Cloudflare error that names the account', cloudflareError(404, 7003, `No route for account ${ACCOUNT} (token ${TOKEN})`)],
 ] as [string, Reply][]) {
   test(`${name} does not carry the account ID or the token into the debug log`, { options: CLEF_OPTIONS }, async ($, on) => {
-    const w = world($, on, { backend: () => reply })
+    const w = world($, on, { switches: UNRESOLVED_ON, backend: () => reply })
     await w.submit('解释一下这个函数做了什么')
 
     const logged = w.logs.map((entry) => entry.text).join('\n')

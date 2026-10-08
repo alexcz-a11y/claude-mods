@@ -13,6 +13,8 @@ import { clefInputProblems, CLEF_OPTIONS, clef } from './support/cloudflare.ts'
 import { isSecondSkillsRequest, rates, world, type SkillsWorld } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 const TDD_DESCRIPTION = 'Test-driven development. Use when the user wants to build features or fix bugs test-first.'
 const REVIEW_DESCRIPTION = 'Review the changes since a fixed point along two axes: Standards and Spec.'
@@ -125,7 +127,7 @@ test('Clef takes the second request with a Choice between the skills re-read (it
   // in Cloudflare's envelope, so the second request carries a Choice between them.
   const answer = rates({ tdd: 0.62, 'code-review': 0.23, '(none)': 0.15 }, { tdd: 0.97, 'code-review': 0.35 })
   const cloudflare = clef([0, 1, 0, 0, 0])
-  const w = world($, on, {
+  const w = world($, on, { switches: UNRESOLVED_ON,
     backend: (request) => {
       const refused = cloudflare(request)
       if ('status' in refused && refused.status !== 200) return refused

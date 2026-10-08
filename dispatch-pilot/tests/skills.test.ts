@@ -11,6 +11,8 @@ import type { Reply, Sent, SkillsWorld } from './support/world.ts'
 import { isSecondSkillsRequest, jev, rates, world, type World } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
+/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
+const UNRESOLVED_ON = { unresolved: true }
 
 /** The skills decisions the board keeps, oldest first. */
 async function skillDecisions(w: World) {
@@ -106,7 +108,7 @@ test('with the skills switch off (/dp skills off, kept from an earlier session),
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS, store: { switches: { skills: false } }, session: true })
   await w.start()
   await w.submit('先写一个失败的测试')
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
   expect(await w.command('dp', 'status')).toMatch(/关 +skills +\S/)
 })
@@ -117,7 +119,7 @@ test('with the skills switch off (/dp skills off, kept from an earlier session),
 const RESTORED = `Dispatch Pilot's skill suggestions are switched off, so here is the skill listing it had left out:\n\n${LISTING}`
 
 test('switched off mid-conversation, the listing it withheld reaches the main agent with the next message, once; suggestions stop', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: rates({ '(none)': 1 }), skills: SKILLS })
   expect(await w.listing(LISTING)).toEqual({ text: HINT })
   await w.submit('先写一个失败的测试')
   await w.command('dp', 'skills off')
@@ -185,7 +187,7 @@ test('Clef chosen without its Cloudflare credentials could suggest nothing eithe
 
 test('Clef takes both skills requests as they are (its input rules hold), and the listing is withheld', { options: CLEF_OPTIONS }, async ($, on) => {
   // Clef's answer puts the whole Choice on its first option (tdd), so a second request re-reads it.
-  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), skills: SKILLS })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: clef([0, 1, 0, 0, 0]), skills: SKILLS })
   // With Clef the suggestions start off (tests/backend-defaults.test.ts): the person turns them on.
   await w.command('dp', 'skills on')
   await w.submit('先写一个失败的测试')
@@ -294,7 +296,7 @@ test('skills only the person can start (disable-model-invocation in their SKILL.
 
 test('Clef takes stage one with both its Choices, and the second request over skills of both kinds (its input rules hold)', { options: CLEF_OPTIONS }, async ($, on) => {
   // Clef's answer puts each whole Choice on its first option: tdd, and grill-me.
-  const w = world($, on, { backend: clef([0, 1, 0, 0, 0]), skills: WITH_PERSONS, disk: PERSON_FILES })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: clef([0, 1, 0, 0, 0]), skills: WITH_PERSONS, disk: PERSON_FILES })
   await w.command('dp', 'skills on')
   await w.submit('这个方案往死里挑刺，再补测试')
   expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([
@@ -514,7 +516,7 @@ test('skills named in skillsNeverSuggested are never offered, to the main agent 
 })
 
 test("when the session's skills cannot be read, nothing is asked about them and the main agent keeps its listing", { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({}), skills: { ...SKILLS, listed: null } })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: rates({}), skills: { ...SKILLS, listed: null } })
   await w.submit('先写失败的测试')
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })

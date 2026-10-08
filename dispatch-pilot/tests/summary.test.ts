@@ -11,6 +11,8 @@ import { asClef, CLEF_OPTIONS, clefInputProblems } from './support/cloudflare.ts
 import { jev, rates, world, type Completion } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
+/** The switch is off until the person turns it on (#48): these tests are about what it does when on. */
+const UNRESOLVED_ON = { unresolved: true }
 const MEDIUM = [0.05, 0.7, 0.2, 0.05, 0]
 
 /** What the cheap model answers: the summary as the system prompt asks for it. */
@@ -27,7 +29,7 @@ const row = (role: 'user' | 'assistant', text: string, ...tools: string[]): Sess
 })
 
 test('when a turn the person\'s own message started ends, a cheap model continues the summary in the background: the hook does not wait for it', { options: KEY }, async ($, on) => {
-  const w = world($, on, {
+  const w = world($, on, { switches: UNRESOLVED_ON,
     backend: jev(MEDIUM),
     model: () => ({ after: 2500, reply: written('登录接口返回 502', ['把超时调到 30 秒']) }),
     messages: [row('user', '登录接口返回 502'), row('assistant', '我看一下', 'Read', 'Edit'), row('user', ''), row('assistant', '我把超时调到了 30 秒，请再试一次', 'Bash')],
@@ -52,7 +54,7 @@ test('when a turn the person\'s own message started ends, a cheap model continue
 })
 
 test('only a turn the person\'s own message started is written: a command turn counts; a hand-back, a task notice and a dispatched agent\'s turn do not', { options: KEY }, async ($, on) => {
-  const w = world($, on, {
+  const w = world($, on, { switches: UNRESOLVED_ON,
     backend: jev(MEDIUM),
     model: () => written('p', ['a']),
     session: true,
@@ -94,7 +96,7 @@ const summaryOf = (request: { body?: { state?: Record<string, unknown> } } | und
 
 test('the summary is in the state of the effort request from the next message on, and in no other request; a message that comes before a write is done is decided with the summary as it was', { options: KEY }, async ($, on) => {
   const said = { now: 'unsure' as Says }
-  const w = world($, on, {
+  const w = world($, on, { switches: UNRESOLVED_ON,
     backend: deciding(said),
     model: (_, n) => (n === 1 ? written('登录接口返回 502', ['把超时调到 30 秒']) : { after: 4000, reply: written('登录接口返回 502', ['把超时调到 30 秒', '换成 fake timers']) }),
   })
@@ -124,7 +126,7 @@ test('the summary is in the state of the effort request from the next message on
 test('a write that fails leaves the summary as it was and puts an entry in the decision log: an API error, a reply without words, a call cut short, a reply that is no summary', { options: KEY }, async ($, on) => {
   const said = { now: 'unsure' as Says }
   let next: Completion = written('登录接口返回 502', ['把超时调到 30 秒'])
-  const w = world($, on, { backend: deciding(said), model: () => next })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: deciding(said), model: () => next })
   const turn = async (text: string) => {
     await w.submit(text)
     await w.complete()
@@ -170,7 +172,7 @@ async function turn(w: ReturnType<typeof world>, text: string, answer = 'done') 
 
 test('what the cheap model is shown has its secrets masked first, and what it writes back is cut to 500 tokens in the fixed structure', { options: KEY }, async ($, on) => {
   const tries = Array.from({ length: 40 }, (_, i) => `第 ${i + 1} 次：${'把配置里的某一项改成另一个值再重启服务，'.repeat(3)}`)
-  const w = world($, on, { backend: jev(MEDIUM), model: () => written('服务启动后立刻退出', tries, '助手在等日志') })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev(MEDIUM), model: () => written('服务启动后立刻退出', tries, '助手在等日志') })
   await turn(w, '服务起不来，我的 token=sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789', '我查了 DB_PASSWORD=hunter2hunter2 的配置，没发现问题')
 
   const shown = promptOf(w.completions[0])
@@ -188,7 +190,7 @@ test('Clef reads the summary in English and within its budget: the whole state, 
   const kept = { problem: '登录接口返回 502', tried: Array.from({ length: 6 }, (_, i) => ({ text: `第 ${i + 1} 次：${'把配置里的某一项改成另一个值再重启服务，'.repeat(3)}` })), status: '助手在等日志', turn: 't1' }
   // Clef reads the last 4 messages, which alone would take more than its 2000 tokens.
   const messages = Array.from({ length: 40 }, (_, i) => row(i % 2 === 0 ? 'user' : 'assistant', `第 ${i} 轮：${'把配置里的某一项改成另一个值再重启服务。'.repeat(40)}`))
-  const w = world($, on, { backend: asClef(jev(MEDIUM)), seed: { unresolved: { count: 1, summary: kept } }, messages })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: asClef(jev(MEDIUM)), seed: { unresolved: { count: 1, summary: kept } }, messages })
   await w.submit('还是不行')
 
   const sent = w.requests[0]?.body
@@ -201,7 +203,7 @@ test('Clef reads the summary in English and within its budget: the whole state, 
 
 test('the skills\' request does not carry the summary: it is a field of the effort request alone', { options: KEY }, async ($, on) => {
   const kept = { problem: '登录接口返回 502', tried: [{ text: '把超时调到 30 秒' }], status: '助手在等日志', turn: 't1' }
-  const w = world($, on, {
+  const w = world($, on, { switches: UNRESOLVED_ON,
     backend: rates({ '(none)': 1 }),
     skills: { commands: [{ name: 'tdd', description: 'Test-driven development.', source: 'user' }], listed: [{ name: 'tdd', source: 'userSettings', tokens: 52 }] },
     session: true,
@@ -218,7 +220,7 @@ test('the skills\' request does not carry the summary: it is a field of the effo
 
 test('"still unresolved" marks the last attempt of the summary (the unresolved count goes up with it), and the next write continues the summary with the mark', { options: KEY }, async ($, on) => {
   const said = { now: 'unsure' as Says }
-  const w = world($, on, {
+  const w = world($, on, { switches: UNRESOLVED_ON,
     backend: deciding(said),
     model: (_, n) => (n === 1 ? written('登录接口返回 502', ['把超时调到 30 秒']) : written('登录接口返回 502', ['把超时调到 30 秒 [unresolved]', '换成 fake timers'])),
   })
@@ -242,7 +244,7 @@ test('"still unresolved" marks the last attempt of the summary (the unresolved c
 for (const [label, now] of [['the problem is solved', 'solved'], ['another problem begins', 'elsewhere']] as const) {
   test(`when ${label} the summary is cleared with the count, and the next one is written from scratch`, { options: KEY }, async ($, on) => {
     const said = { now: 'still' as Says }
-    const w = world($, on, { backend: deciding(said), model: () => written('登录接口返回 502', ['把超时调到 30 秒']) })
+    const w = world($, on, { switches: UNRESOLVED_ON, backend: deciding(said), model: () => written('登录接口返回 502', ['把超时调到 30 秒']) })
     await turn(w, '登录接口返回 502')
     await turn(w, '还是 502')
     expect(w.unresolved()).toBe(2)
@@ -263,7 +265,7 @@ for (const [label, now] of [['the problem is solved', 'solved'], ['another probl
 
 test('/clear and a new session start the summary over; /compact keeps it', { options: KEY }, async ($, on) => {
   const said = { now: 'unsure' as Says }
-  const w = world($, on, { backend: deciding(said), model: () => written('登录接口返回 502', ['把超时调到 30 秒']), session: true })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: deciding(said), model: () => written('登录接口返回 502', ['把超时调到 30 秒']), session: true })
   await w.start()
   await turn(w, '登录接口返回 502')
 
@@ -276,7 +278,7 @@ test('/clear and a new session start the summary over; /compact keeps it', { opt
 
 test('a message that says "still unresolved" before the last turn\'s write is done: the attempt it is about is marked when that write lands', { options: KEY }, async ($, on) => {
   const said = { now: 'unsure' as Says }
-  const w = world($, on, {
+  const w = world($, on, { switches: UNRESOLVED_ON,
     backend: deciding(said),
     model: (_, n) => (n === 1 ? written('登录接口返回 502', ['把超时调到 30 秒']) : { after: 4000, reply: written('登录接口返回 502', ['把超时调到 30 秒', '换成 fake timers']) }),
   })
@@ -297,7 +299,7 @@ test('a message that says "still unresolved" before the last turn\'s write is do
 
 test('the problem is cleared before a write is done: the write is dropped when it lands, with no entry in the log', { options: KEY }, async ($, on) => {
   const said = { now: 'unsure' as Says }
-  const w = world($, on, { backend: deciding(said), model: (_, n) => (n === 1 ? written('登录接口返回 502', ['把超时调到 30 秒']) : { after: 4000, reply: written('登录接口返回 502', ['把超时调到 30 秒', '换成 fake timers']) }) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: deciding(said), model: (_, n) => (n === 1 ? written('登录接口返回 502', ['把超时调到 30 秒']) : { after: 4000, reply: written('登录接口返回 502', ['把超时调到 30 秒', '换成 fake timers']) }) })
   await turn(w, '登录接口返回 502')
   await turn(w, '嗯，再看看')
   said.now = 'solved'
@@ -312,7 +314,7 @@ test('the problem is cleared before a write is done: the write is dropped when i
 
 test('a reload of the mod loses a write in flight: the summary stays as it was and the log says so', { options: KEY }, async ($, on) => {
   const kept = { problem: '登录接口返回 502', tried: [{ text: '把超时调到 30 秒' }], status: '助手在等日志', turn: 't1' }
-  const w = world($, on, { backend: jev(MEDIUM), session: true, seed: { unresolved: { count: 1, summary: kept, writing: ['t2'], owed: 't2' } } })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev(MEDIUM), session: true, seed: { unresolved: { count: 1, summary: kept, writing: ['t2'], owed: 't2' } } })
   await w.start()
 
   expect(w.unresolvedState()).toEqual({ count: 1, summary: kept })
@@ -327,7 +329,7 @@ test('a reload of the mod loses a write in flight: the summary stays as it was a
 
 test('writes go one after the other: a turn that ends before the last write is done waits for it, and continues what it wrote', { options: KEY }, async ($, on) => {
   const said = { now: 'unsure' as Says }
-  const w = world($, on, {
+  const w = world($, on, { switches: UNRESOLVED_ON,
     backend: deciding(said),
     model: (_, n) => (n === 1 ? { after: 3000, reply: written('登录接口返回 502', ['把超时调到 30 秒']) } : written('登录接口返回 502', ['把超时调到 30 秒', '换成 fake timers'])),
   })
@@ -342,7 +344,7 @@ test('writes go one after the other: a turn that ends before the last write is d
 })
 
 test('a reply that is no summary is quoted in the log with its secrets masked', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev(MEDIUM), model: () => ({ text: 'I cannot summarize this: DB_PASSWORD=hunter2hunter2' }) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev(MEDIUM), model: () => ({ text: 'I cannot summarize this: DB_PASSWORD=hunter2hunter2' }) })
   await turn(w, '登录接口返回 502')
   const [entry] = (await w.board()).log.filter((one) => one.outcome === '摘要没写成')
   expect(entry?.reason).toContain('DB_PASSWORD=[REDACTED]')
@@ -351,7 +353,7 @@ test('a reply that is no summary is quoted in the log with its secrets masked', 
 
 test('an engine that refuses the model is told once, and not asked again this session', { options: KEY }, async ($, on) => {
   const said = { now: 'unsure' as Says }
-  const w = world($, on, { backend: deciding(said), model: () => ({ reject: 'model haiku is not allowed' }), session: true })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: deciding(said), model: () => ({ reject: 'model haiku is not allowed' }), session: true })
   await w.start()
   for (const text of ['第一条', '第二条', '第三条']) {
     await w.submit(text)
@@ -373,7 +375,7 @@ test('an engine that refuses the model is told once, and not asked again this se
 })
 
 test('summaryModel names the model that writes it (haiku is the default, in the first test)', { options: { ...KEY, summaryModel: 'claude-sonnet-5-5' } }, async ($, on) => {
-  const w = world($, on, { backend: jev(MEDIUM), model: () => written('p', ['a']) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: jev(MEDIUM), model: () => written('p', ['a']) })
   await w.submit('登录接口返回 502')
   await w.complete()
   await w.clock.settle()
@@ -386,7 +388,7 @@ for (const { label, options, off } of [
   { label: 'the person sends the decision model no conversation (contextMessages 0)', options: { ...KEY, contextMessages: 0 } },
 ]) {
   test(`no summary is written when ${label}`, { options }, async ($, on) => {
-    const w = world($, on, { backend: jev(MEDIUM), model: () => written('p', ['a']), session: true, store: {} })
+    const w = world($, on, { switches: UNRESOLVED_ON, backend: jev(MEDIUM), model: () => written('p', ['a']), session: true, store: {} })
     await w.start()
     if (off) await w.command('dp', 'unresolved off')
     await w.submit('登录接口返回 502')

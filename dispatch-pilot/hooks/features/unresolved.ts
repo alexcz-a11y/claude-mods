@@ -49,7 +49,8 @@ let refused = false
 type Write = { turn: string; subject: string; shown: Omit<TurnInput, 'previous'> }
 
 export function registerUnresolved(on: On, ctx: Ctx): void {
-  defineSwitch({ name: UNRESOLVED_SWITCH, info: '每条消息判断同一个问题是否仍未解决，数未解决的次数；每轮结束后在后台写问题摘要' })
+  // Off until the person turns it on (#48, ADR 0006); what they set by hand is in $.store and wins.
+  defineSwitch({ name: UNRESOLVED_SWITCH, info: '每条消息判断同一个问题是否仍未解决，数未解决的次数；每轮结束后在后台写问题摘要（默认关）', default: false })
 
   on('session.end', { reason: /(?:)/ }, async ($, e, next) => {
     refused = false
