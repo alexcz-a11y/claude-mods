@@ -131,6 +131,8 @@ export async function flowItem(record: V2Record, options: FlowOptions, from?: Fl
     const sent = askedRequest(asked, { ask: { language: options.language, primitive: 'score' }, wide: true }, options.settings, summary, { count, maxAfter })
     const { asked: answer } = await options.ask(sent.request)
     if (!answer.ok && STOPS.includes(answer.failure.kind)) return { item, stopped: `${turn.msg ?? at}: ${answer.failure.kind}: ${answer.failure.detail}` }
+    // HTTP 402 (TypeSafe: "no available API credits") is a spent account, not an answer: stop the run as for a spent quota.
+    if (!answer.ok && answer.failure.status === 402) return { item, stopped: `${turn.msg ?? at}: quota: ${answer.failure.detail}` }
     const message: FlowMessage = { msg: turn.msg ?? String(at), at, part: turn.part, before: count, ...(hint ? { hint: true as const } : {}), change: 'keep', after: count }
     if (!answer.ok) message.failure = `${answer.failure.kind}: ${answer.failure.detail}`
     else {

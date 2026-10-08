@@ -167,6 +167,26 @@ test('a busy backend stops the item where it is, and a later run goes on from th
   await expect(flowItem(record(TURNS.map((turn) => ({ ...turn, text: `${turn.text}。` }))), { ask: second.ask, complete: rest.complete, settings: settingsFrom({}), language: 'zh' }, stoppedRun.item)).rejects.toThrow(/another conversation/)
 })
 
+test('a 402 (the account has no credits left) stops the item as a spent quota does, instead of recording an unanswered message, and a later run goes on from there', async () => {
+  const spent = { status: 402, body: { error_type: 'billing_error', message: 'Your organization has no available TypeSafe API credits.' } }
+  const first = backend({ m1: spent })
+  const stoppedRun = await flowItem(record(), { ask: first.ask, complete: cheap(REPLIES).complete, settings: settingsFrom({}), language: 'zh' })
+  expect(stoppedRun.stopped).toMatch(/^m1: quota: /)
+  // The message that met the 402 is not in the file: no `failure` was recorded for it.
+  expect(stoppedRun.item.messages.map((m) => m.msg)).toEqual(['p1', 'd1', 'd2'])
+  expect(stoppedRun.item.messages.some((m) => m.failure !== undefined)).toBe(false)
+  expect(stoppedRun.item.final).toBeUndefined()
+  // The runner halts the whole run on this (its test is on "quota:" after the message name).
+  expect(stoppedRun.stopped).toMatch(/^\S+: (config|quota):/)
+
+  const second = backend()
+  const resumed = await flowItem(record(), { ask: second.ask, complete: cheap(REPLIES.slice(3)).complete, settings: settingsFrom({}), language: 'zh' }, stoppedRun.item)
+  expect(resumed.stopped).toBeNull()
+  expect(second.bodies.map((body) => msgOf(body.state.user_message))).toEqual(['m1', 'f1'])
+  const whole = await flowItem(record(), { ask: backend().ask, complete: cheap(REPLIES).complete, settings: settingsFrom({}), language: 'zh' })
+  expect(resumed.item).toEqual(whole.item)
+})
+
 test('an answer the mod could not read leaves the count as it is, as the mod does, and says why; a turn whose summary never came keeps the one before it', async () => {
   const net = backend({ d2: { status: 400, body: { error: 'bad request' } } })
   const model = cheap([REPLIES[0] ?? '', REPLIES[1] ?? '', 'not a record', null, 'still not', REPLIES[3] ?? ''])
