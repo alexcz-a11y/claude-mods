@@ -29,5 +29,5 @@
       "triage": "still_unresolved"
     }
   ],
-  "rationale": "决定性几轮里 search 接口 p99 已经改了四次（Redis 连接池、缓存键、ES 连接池、换 ZGC 和减少分配），用户每次压测都说 p99 基本没动，助手最后也承认都不是主因、时间花在哪还没量清。隔了一小段别的活，最后一条用户明说还是 720ms、没解决，还有上线压力：多次未果、原因未明的性能问题，max；xhigh 也能接受。删掉决定性几轮，中间段是别的事，最后一条只是第一次报一个 p99 偏高的性能问题，像常规排查：high。三选一：d1 首次提出，new_or_unrelated；d2–d5 都是改完 p99 仍在，still_unresolved；最后一条明说没解决，still_unresolved。"
+  "rationale": "决定性几轮里 search 接口 p99 已经改了四次（Redis 连接池、track_total_hits、ES 连接池、staging 上试 ZGC），用户每次压测都说 p99 基本没动，助手最后也承认都不是主因、时间花在哪还没量清。隔了一小段别的活，最后一条用户明说还是 720ms、没解决，还有双十一的期限：多次未果、原因未明的性能问题，max；xhigh 也能接受。删掉决定性几轮，中间段是别的事，最后一条只是报一个 p99 偏高、「没解决」至多说明试过一次，像常规的性能排查：high。三选一：d1 首次提出，new_or_unrelated；d2–d5 都是改完 p99 仍在，still_unresolved；最后一条明说没解决，still_unresolved。审稿修改：素材池里 search-svc 用 Gradle（./gradlew）、缓存键在 cache/CacheKeys 里早已归一化、缓存类叫 SearchCache、ES 配置类叫 EsConfig、Dockerfile 用 MaxRAMPercentage=75 且压测在 staging 上跑、价格筛选还没做，原题的 mvnw、SearchCacheService、缓存键带 traceId、priceRange、bench 环境、线上换 ZGC 等都和素材矛盾，相应改了；第二次尝试由修缓存键换成改 track_total_hits；「下周大促」改成双十一。档位不变。"
 }

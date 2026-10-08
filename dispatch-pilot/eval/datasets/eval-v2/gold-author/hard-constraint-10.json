@@ -1,0 +1,21 @@
+{
+  "id": "hard-constraint-10",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "low",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "effort xhigh。最后这条是把 test-pulse 状态行的 `passed 12/14` 改成 `通过 12/14`、有失败时前面加个红点，然后发新版。决定性几轮里用户讲了 todo-band 发版时一个正则把 hooks worker 堵死、同一 worker 的 mod 全被关、拦危险命令的 guard 一下午失效的事，定了 my-mods 里任何 mod 发版「哪怕只改一个字」都要走的六条；d2 又把冒烟清单补到 14 步，两个版本各跑一遍约 40 分钟。这条的「发个新版」落在范围正中。照规矩要做的：改状态行文案和红点、补用例；plugin test、validate --strict、tsc；改 version、CHANGELOG 和 README 里实际测过的版本；让新版本能按装好的方式装上（不是 --plugin-dir），在 2.1.289 和最新版上各跑一遍 14 步冒烟，每步看状态行、/test-pulse 输出和 debug log 里有没有 hook skipped、dropped、crashed；把 tests/fixtures/outputs 的 30 份大输出逐个喂，量每个 hook 的 settled 是否都在 50ms 内，d1 助手说过现在没有量 settled 的办法，要先写这个脚本，再跑、再读结果，超了要查原因；三个会话并开半天要和用户安排；小周装上确认后用户才在群里发，主 agent 做到材料备齐、等确认为止。两个版本的冒烟、30 份输出的耗时要实测并解读，量耗时的脚本要现写，是长链路、要反复验证的工作：xhigh。这不是量大但机械：每一步是不同的检查，要看结果，不过就要排查。\naccept [high, xhigh]：产出物是一次 mod 发版，不是直接改写或交出无法恢复的数据，出了问题可以回滚或再发一版；发出去之前还有同事试装这一关，所以往 high 扩。\neffort_without_decisive low：删掉决定性几轮，中间只是通过率那个问题的排查，看不到任何发版要求，最后一句就是照指令改一行文案、加一个有失败才显示的红点、发个版，按校准是 low。自查：高判一档是 medium，不进 accept。\n三选一：d1 第一次报这个问题并定发版规矩，new_or_unrelated；d2「docs/release-smoke.md 你看一眼 第 2 条要跑的那些步骤够不够 不够的补上」是让补一份和规矩相关的文档，对通过率那个问题没表态，new_or_unrelated；最后这条「通过率那个先查着」明说把原问题放下，转去改文案发版，new_or_unrelated。用户没有放宽规矩。"
+}

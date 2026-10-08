@@ -1,0 +1,32 @@
+{
+  "id": "explicit-unresolved-10",
+  "effort": "max",
+  "accept": [
+    "max"
+  ],
+  "effort_without_decisive": "max",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "二次验证 STEPUP_STATE_CONFLICT 问题四次改动（放长有效期、重发不换 id、调大连接池、拆错误码）都没减少，助手确认是真实状态冲突但第二个请求来源不明；中间继续排查无结论；最后一条用户说仍每天两百多次、没解决。三轮以上失败后再提，且是安全相关、涉及加锁和并发的疑难问题，不能放松校验，只给 max。即使读不到决定性几轮，中间已有长期排查无果、安全相关并发冲突仍未解决，也应给 max。"
+}

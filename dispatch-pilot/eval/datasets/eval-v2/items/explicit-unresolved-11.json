@@ -10,11 +10,11 @@
     {
       "role": "user",
       "msg": "d1",
-      "text": "商品编辑页有个问题 运营反馈的 规格表格里改了 sku 的价格点保存 提示保存成功 但是表格里显示的还是旧价格 要手动刷新页面才是新的 后台数据是对的 页面在 src/pages/products/ProductEdit.tsx 表格是 src/components/SkuTable.tsx"
+      "text": "商品编辑页有个问题 运营反馈的 规格表格里改了 sku 的价格点保存 提示保存成功 但是表格里显示的还是旧价格 要手动刷新页面才是新的 后台数据是对的 页面在 src/pages/products/ProductEdit.tsx 表格是 src/components/SkuTable/SkuTable.tsx"
     },
     {
       "role": "assistant",
-      "text": "看了保存的流程：`ProductEdit` 里 `onSave` 调 `updateProduct(id, payload)`，成功后弹 toast，页面上的数据来自 `useProductDetail(id)`（`src/hooks/useProductDetail.ts`，自己写的请求 hook，里面一个 `useEffect` 拉一次详情放进 state）。保存成功后没有重新拉详情，所以表格还是第一次加载时的数据。\n\n- **改法**：`useProductDetail` 返回一个 `refetch`，`onSave` 成功后 `await refetch()`。\n- **验证**：`src/pages/products/ProductEdit.test.tsx` 加了一个用例：mock 保存接口和第二次的详情返回新价格，断言表格里出现新价格。`npx vitest run src/pages/products` 9 个全过。\n\n你本地试一下改价格保存。",
+      "text": "看了保存的流程：`ProductEdit` 里 `onSave` 调 `updateProduct(id, payload)`，成功后弹 toast，页面上的数据来自 `useProductDetail(id)`（`src/hooks/useProductDetail.ts`，包了一层 `useRequest`）。保存成功后没有调它返回的 `reload`，所以表格还是第一次加载时的数据。\n\n- **改法**：`onSave` 成功后 `await reload()`。\n- **验证**：`src/pages/products/ProductEdit.test.tsx` 加了一个用例：mock 保存接口和第二次的详情返回新价格，断言表格里出现新价格。`npx vitest run src/pages/products` 9 个全过。\n\n你本地试一下改价格保存。",
       "tools": [
         "Read",
         "Grep",
@@ -29,7 +29,7 @@
     },
     {
       "role": "assistant",
-      "text": "详情重新拉了但表格不变，说明数据没传到表格。`SkuTable` 的数据不是直接从详情来的：`ProductEdit` 打开时把详情里的 sku 列表塞进 Zustand 的 `useProductDraftStore`（`src/store/productDraft.ts`），表格读的是这个草稿 store，用来支持「未保存的修改」提示。保存成功后草稿没有用新数据重置，所以一直是旧的。\n\n- **改法**：`productDraft` 加了 `resetFromServer(detail)`，`refetch` 完成后用新详情重置草稿，同时清掉 `dirty` 标记。\n- **验证**：store 的单测加了 `resetFromServer` 的两个用例；页面测试改成断言保存后草稿里的价格是新的。`npx vitest run src/pages/products src/store` 全过。",
+      "text": "详情重新拉了但表格不变，说明数据没传到表格。`SkuTable` 的数据不是直接从详情来的：`ProductEdit` 打开时把详情里的 sku 列表塞进 `src/store/productDraft.ts` 的草稿 store，表格读的是这个草稿，用来支持「有未保存的草稿」提示。保存成功后草稿没有用新数据重置，所以一直是旧的。\n\n- **改法**：`productDraft` 加了 `resetFromServer(detail)`，`reload` 完成后用新详情重置草稿，同时清掉 `dirty` 标记。\n- **验证**：store 的单测加了 `resetFromServer` 的两个用例；页面测试改成断言保存后草稿里的价格是新的。`npx vitest run src/pages/products src/store` 全过。",
       "tools": [
         "Read",
         "Grep",
@@ -44,7 +44,7 @@
     },
     {
       "role": "assistant",
-      "text": "闪一下又变回去，是有两次更新在抢：先 `resetFromServer` 写入了新值，然后又被旧值覆盖。查了一下覆盖从哪来：`src/api/products.ts` 的 axios 实例对 GET 做了一层内存缓存（`cacheAdapter`，按 URL 缓存 60 秒，当初是给分类下拉框用的，后来全局开了），`ProductEdit` 里还有一个 `useEffect` 依赖 `[id]`，保存时路由参数的对象引用变了导致它又跑了一次，从缓存里拿到了旧详情，再次写进草稿。\n\n- **改法**：`cacheAdapter` 只对 `/categories`、`/brands` 这两个字典接口生效，其他 GET 不缓存；详情请求加上 `params: { _t: Date.now() }` 防止浏览器缓存。\n- **验证**：`src/api/products.test.ts` 加了用例确认详情接口不走缓存；页面测试全过。",
+      "text": "闪一下又变回去，是有两次更新在抢：先 `resetFromServer` 写入了新值，然后又被旧值覆盖。查了一下覆盖从哪来：`src/api/request.ts` 里的 axios 实例 `http` 对 GET 做了一层内存缓存（`cacheAdapter`，按 URL 缓存 60 秒，当初是给分类下拉框用的，后来全局开了），`ProductEdit` 里还有一个 `useEffect` 依赖 `[id]`，保存时路由参数的对象引用变了导致它又跑了一次，从缓存里拿到了旧详情，再次写进草稿。\n\n- **改法**：`cacheAdapter` 只对 `/categories`、`/brands` 这两个字典接口生效，其他 GET 不缓存；详情请求加上 `params: { _t: Date.now() }` 防止浏览器缓存。\n- **验证**：`src/api/request.test.ts` 加了用例确认详情接口不走缓存；页面测试全过。",
       "tools": [
         "Read",
         "Grep",
@@ -59,7 +59,7 @@
     },
     {
       "role": "assistant",
-      "text": "接口返回新值、store 里也是新值（我在 devtools 里看了 `useProductDraftStore.getState()`，价格是新的），表格还是旧的，那就是表格组件自己的问题。`SkuTable` 里每一行的价格输入框用 `useState(row.price)` 存本地值，只在组件第一次挂载时取 props，之后 props 变了不会同步。\n\n- **改法**：`SkuRow` 里加 `useEffect`，`row.price` 变化时同步本地值；行的 `key` 从数组下标改成 `sku.id`。\n- **验证**：`src/components/SkuTable.test.tsx` 加了「props 更新后输入框显示新值」的用例，全过；本地手动改一个 sku 的价格保存，表格立刻是新价格。",
+      "text": "接口返回新值、store 里也是新值（我在 devtools 里看了草稿 store 的 `getState()`，价格是新的），表格还是旧的，那就是表格组件自己的问题。`SkuTable` 里每一行的价格输入框用 `useState(row.price)` 存本地值，只在组件第一次挂载时取 props，之后 props 变了不会同步。\n\n- **改法**：`SkuRow` 里加 `useEffect`，`row.price` 变化时同步本地值；行的 `key` 从数组下标改成 `sku.id`。\n- **验证**：`src/components/SkuTable/SkuTable.test.tsx` 加了「props 更新后输入框显示新值」的用例，全过；本地手动改一个 sku 的价格保存，表格立刻是新价格。",
       "tools": [
         "Read",
         "Edit",
@@ -73,7 +73,7 @@
     },
     {
       "role": "assistant",
-      "text": "复现了：改一行没问题，改两行以上，只有第一行显示新价格。前面四次（保存后重新拉详情、重置草稿 store、去掉详情接口的缓存、表格行同步 props）都各修了一处，但这个现象还在，说明还有一处我没找到的状态在覆盖后面几行。\n\n目前看到的是：保存后 store 里三行价格都是新的，表格只更新了第一行，后两行的 `SkuRow` 没有重新渲染。我还不确定是 `SkuTable` 外面那层虚拟滚动（`react-window`）的缓存、行组件的 `memo` 比较函数，还是批量编辑时用的另一份 `editingRows` 状态。先不改，下一步把这三处都打日志看一下保存前后各自的值，确认是哪一处再动。",
+      "text": "复现了：改一行没问题，改两行以上，只有第一行显示新价格。前面四次（保存后重新拉详情、重置草稿 store、去掉详情接口的缓存、表格行同步 props）都各修了一处，但这个现象还在，说明还有一处我没找到的状态在覆盖后面几行。\n\n目前看到的是：保存后 store 里三行价格都是新的，表格只更新了第一行，后两行的 `SkuRow` 没有重新渲染。我还不确定是 antd `Table` 开的 `virtual` 虚拟滚动对行的复用、行组件 `memo` 的比较函数，还是草稿 store 挂的 `persist` 从 localStorage 里又恢复了旧草稿。先不改，下一步把这三处都打日志看一下保存前后各自的值，确认是哪一处再动。",
       "tools": [
         "Bash",
         "Read"

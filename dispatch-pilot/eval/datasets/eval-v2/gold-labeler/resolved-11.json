@@ -1,0 +1,25 @@
+{
+  "id": "resolved-11",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "d1 提出刷新令牌被判重放；d2 用户否掉宽限窗口并指出不是并发，未解决；d3 安全 review 通过、生产 replay 为 0，用户确认解决，只约定满一周后把 reuse_detection 切回 revoke。最后一条就是执行这一项：policies/session.yaml 一行配置从 log_only 改回 revoke，跑约定的测试和策略校验后上线，照明确指令的单点改动，low；涉及安全策略和上线，谨慎些可到 medium，但切回原本设置本身可逆，不算 max 意义上的高风险。没有决定性几轮时不清楚「切回去」指哪个配置、哪个计数，需要先查，判 medium。"
+}

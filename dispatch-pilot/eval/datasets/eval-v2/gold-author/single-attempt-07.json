@@ -5,7 +5,7 @@
     "high",
     "xhigh"
   ],
-  "effort_without_decisive": "medium",
+  "effort_without_decisive": "high",
   "triage_final": "still_unresolved",
   "triage_decisive": [
     {
@@ -13,5 +13,5 @@
       "triage": "new_or_unrelated"
     }
   ],
-  "rationale": "决定性几轮说明「日期错一天」其实是时区问题：daily_sales.sql 按会话时区（连接写死 UTC）切天、job 用服务器 UTC 算昨天，牵涉查询、job 和 DAL 的连接配置，边界时间点要紧；助手只改过一次（SQL 改成按 Asia/Shanghai 切、job 改 target_day、补测试），隔了几万 token 别的活，用户说还是错一天。只失败过一次、原因有明确线索可查，是常规的调试：high；考虑到第一次的判断已经被推翻、要重新核对线上的执行路径，xhigh 也可以接受，不到 max。删掉决定性几轮，中间都是别的事，最后一条看起来只是报表日期差一天的小问题，像改一处日期计算：medium。三选一：d1 第一次提出问题，new_or_unrelated；最后一条隔着别的活回头说原问题还在，still_unresolved。"
+  "rationale": "失败的修复 1 次：d1 之后助手认定是 V119 在 staging 执行后又被改过，把 V119 恢复成 staging 执行时的版本、改动挪进 V127，本地模拟 staging 状态验证过，PR #284；用户在最后一条第一次说没好（#284 已经合进去了，staging 部署还是同一行 checksum 报错），是第二次。复现性是稳定的：d1 里用户说重跑了两次每次都挂在这，决定性回复也说重跑的两次是同一行报错，每次部署都能复现 → high；accept 是 high、xhigh，只失败一次不到 max。删掉决定性几轮：中间都是别的事，最后一条里「还是」「#284 已经合进去了」看得出修过一次、问题还在，没有任何偶发的迹象，按第二次、稳定定 → high，和 effort 相同。三选一：d1 第一次提出问题，new_or_unrelated；最后一条隔着别的活说同样的报错还在，still_unresolved。审稿修改（上一轮）：原题用 `daily_sales` 表和 `jobs/rollup_daily_sales.py` 讲按 UTC 切天的时区问题，和本领域 unrelated 段的设定冲突，改成 staging 部署时 Flyway 校验失败的问题。本轮按修订说明：d1 补上「重跑了两次每次都挂在这」写明稳定，ewd 从 medium 改成 high，middle_hint 补上没有新的修改尝试、用户没有评价第一次的修复。审稿修改（本轮）：删掉验证里「`lint_migrations.py` 通过、`modified-applied` 不再报 V119」那一条：把 main 上已改过的 V119 恢复原样相对 `origin/main` 本身就是一次修改，这条规则只会报它，说法不成立；另外 database-unrelated-41 里这个脚本是后来才写的，放在中间段时时间线也对不上。部署记录改成 `infra` 仓库的 `deploy-staging.yml`、本地用 `flyway/flyway:10.17`（database-unrelated-47：部署时跑迁移的是 infra 仓库里固定的这个镜像）；「V120 到 V127」改成「V119 之后的迁移，包括 V127」，免得和 unrelated 段里各分支的 V12x 编号对不上。金标不变。"
 }

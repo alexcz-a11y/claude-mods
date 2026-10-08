@@ -1,0 +1,52 @@
+{
+  "id": "looks-hard-is-easy-08",
+  "category": "looks-hard-is-easy",
+  "domain": "perf",
+  "bin": "d4",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "晚高峰的搜索超时",
+    "SYMPTOM": "晚高峰 20:40 前后一批搜索请求变慢、一部分直接返回 5xx",
+    "ERROR": "java.net.SocketTimeoutException: 2,000 milliseconds timeout on connection http-outgoing-118 [ACTIVE]",
+    "FILE": "src/main/java/com/acme/search/service/SearchService.java",
+    "FILE2": "src/main/java/com/acme/search/api/SearchController.java",
+    "SYMBOL": "SearchService.search",
+    "COMMAND": "k6 run bench/peak-replay.js"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "晚高峰搜索超时那个 我按 traceId 把前两晚报 `java.net.SocketTimeoutException: 2,000 milliseconds timeout on connection http-outgoing-118 [ACTIVE]` 的请求参数从访问日志里捞出来了 放在 /tmp/timeouts-1006-1007.csv 你看看这些请求有什么共同点 ES 那边到底在干什么 先别改代码\n<pasted_content id=\"4e7a\">\ntime,pod,traceId,q,page,size,sort\n2026-10-06 20:38:52.117,x2kqp,9a1f3c07e2b84d51,华为 mate70 手机壳 磁吸 防摔,1,20,\n2026-10-06 20:44:07.630,f8wlc,4c8e21b9a07f3d6e,国行 iphone16 原装 充电器,1,20,sales\n2026-10-06 20:44:08.902,bq7ns,e07d5a2c91b4f863,儿童 保温杯 316 不锈钢 磁吸盖,1,40,\n2026-10-07 20:40:31.482,n6pkr,71b0d4e8c3a92f15,国行 airpods pro2 耳机套,2,20,\n（两晚一共 418 行）\n</pasted_content id=\"4e7a\">"
+    },
+    {
+      "role": "assistant",
+      "text": "有共同点：两晚 418 次超时，389 次的搜索词碰上了同义词表里的多词同义词，而同两晚没超时的请求里，这种词只占 4% 左右。ES 遇到多词同义词，默认会自动给它生成短语查询，在 `title`、`sellingPoints` 这种长字段上，词一常见就要逐个文档比位置。这类查询单条跑不慢，staging 空闲时也就几十毫秒；按晚高峰的并发一起压，它们在节点上排成一串，p99 冲到 1.9 秒，赶上节点忙就过了我们 2 秒的读超时。把这个默认行为关掉，同样的压法下 p99 降到 160 毫秒。代码没动。\n\n**怎么对的**\n\n- 你给的 418 行：用 `logcli` 把 10 月 6、7 日 20:00–22:00 全部 8 个 pod 的 `ApiExceptionHandler` ERROR 重新数了一遍，也是 418 次，按 `traceId` 一一对得上。\n- 对照组：同两晚同时段没超时的请求随机抽了 5 万条，按同一份同义词表过一遍，碰上多词同义词的占 4.1%。\n- 418 次里，389 次碰上了多词同义词；12 次是很长的搜索词、没有多词同义词，是另一种贵；剩下 17 次是普通的短词，同一个 pod 前后一秒里一批请求一起变慢，连命中缓存的也慢，像是 pod 自己停了一下。后两类不在这次的结论里，后面单独看。\n\n**389 次的共同点**\n\n- 同义词表（`ik_smart_syn` 用的那份）里「一个词对应几个词」的条目一共 47 条，比如 `手机壳 => 手机 保护壳`、`磁吸 => 磁力 吸附`、`国行 => 中国 大陆 行货`，389 次碰到的是其中 31 条。\n- 拿其中 20 个搜索词在 staging 上用 `_validate/query?rewrite=true` 看改写后的查询：多词同义词在 4 个字段上各被改写成一个短语查询（`spanNear`）。原因是 `multi_match` 的 `auto_generate_synonyms_phrase_query` 默认是 true；短语要比对词的位置，`手机`、`保护壳` 这种词在标题里极常见，位置表很长。\n- 这类查询在单个分片上多是一两百毫秒，按 ES 慢日志 500ms 的阈值只记得到其中二十来条；贵在高峰时几十个这样的查询同时落到一个节点上，search 线程排起队来，6 个分片又要等齐，整次搜索就被拖过了 2 秒。\n\n**验证**\n\n把 10 月 7 日 20:30–20:50 的全部请求从访问日志里按原来的节奏导出来，查询体用本地服务的 tracer 原样打出来，用 k6 按原节奏直接打 staging 的 ES，跑 3 轮；再把查询体里的 `multi_match` 都加上 `\"auto_generate_synonyms_phrase_query\": false`，同样跑 3 轮。碰上多词同义词的那批查询：\n\n| | p50 | p99 | 最慢 |\n|---|---|---|---|\n| 原样 | 210 ms | 1.9 s | 3.7 s |\n| 关掉自动短语 | 38 ms | 160 ms | 410 ms |\n\n其余查询两种写法差别在 5% 以内。单条拿到空闲的 staging 上跑，两种写法都是几十毫秒，只有按高峰的并发压才看得出来。\n\n关掉以后，多词同义词不再要求几个词挨着出现，只要求都出现，匹配会宽一点。拿两种写法的前 20 条结果比：平均重合 96.3%，最低的一个是 81%（`国行 iphone16 原装 充电器`），差别都是后几名换成了「词都有、但没挨着」的商品。\n\n**改法（没动）**\n\n这个选项要加在每一个用 `ik_smart_syn` 的 `match` / `multi_match` 上。Grep 下来 19 处，在 5 个类里：`SearchQueryBuilder` 6 处，`SuggestService` 5 处，`DidYouMeanService` 3 处，`SimilarService` 3 处，`AdminSearchService` 2 处。\n\n写了个脚本 `scripts/es/syn-phrase-off.py`：找到带 `.analyzer(\"ik_smart_syn\")` 的查询构造，在后面补 `.autoGenerateSynonymsPhraseQuery(false)`；`--dry-run` 只出 diff；`--check` 只要还有一处 `ik_smart_syn` 没带这个选项就失败。生成出来的查询体有 48 个快照在 `src/test/resources/dsl/`，用 `./gradlew test -PupdateGolden` 重新生成，diff 里应该只多这一个字段。\n\n在 `SearchQueryBuilder`、`SuggestService`、`SimilarService` 三个类上试了一遍：编译过；快照重新生成以后 31 个文件有变化，每个文件都只多了一行 `\"auto_generate_synonyms_phrase_query\": false`；`./gradlew test` 全过。试完 `git checkout` 改了回去，脚本放在 `scripts/es/`，没提交。\n\n有两处脚本处理不了，到时候手改：`AdminSearchService` 里有一条查询是用 `withJson` 从一段 JSON 字符串建的；`DidYouMeanService` 里有一处用的是 `query_string`。\n\n**要提前说的**\n\n匹配变宽这一点会影响排序结果，差别不大，但最好让搜索产品看一眼上面的对比再放。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "对上了 搜索产品看了对比也认 但要拿受影响的这批词做一轮人工评测 排序没问题才放 他们排在下周 昨晚高峰又来了一片 三百多条 先别改 这几天你陪我把复盘材料理一理 像 pod 自己卡住的那 17 次和别的几个方向都过一遍"
+    },
+    {
+      "role": "assistant",
+      "text": "好，代码不动，脚本还在 `scripts/es/` 没提交。昨晚的也按同样的办法对了一下：20:00–22:00 一共 327 次超时，碰上多词同义词的 302 次，和前两晚一个样子。\n\n评测过了以后就是：\n\n1. `python3 scripts/es/syn-phrase-off.py --apply`，17 处。\n2. 手改两处：\n   - `AdminSearchService.java` 里 `withJson` 那段 JSON，`\"analyzer\": \"ik_smart_syn\",` 下面加一行 `\"auto_generate_synonyms_phrase_query\": false,`\n   - `DidYouMeanService.java` 里 `QueryStringQuery.of(q -> q.query(text).analyzer(\"ik_smart_syn\"))` 改成 `QueryStringQuery.of(q -> q.query(text).analyzer(\"ik_smart_syn\").autoGenerateSynonymsPhraseQuery(false))`\n3. `python3 scripts/es/syn-phrase-off.py --check`\n4. `./gradlew test -PupdateGolden` 重新生成 48 个快照，看一遍 diff 只多了这一个字段，再跑一遍 `./gradlew test`。\n\n复盘这几天要核对的：像 pod 自己停了一下的那 17 次，那几秒我们 pod 里在干什么（GC、CPU 限流、日志锁、Redis 都要看）；长搜索词那 12 次；超时集中的那几分钟，ES 各节点、Redis 和网络那一侧的情况。都只读，不动线上配置。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "人工评测过了 排序没问题 回到晚高峰搜索超时那个 昨晚又是一屏这个 按那天说的改\n<pasted_content id=\"b81d\">\n2026-10-21 20:41:07.118 ERROR [search-svc-5d8b7f9c6-n4wq7] c.a.s.api.ApiExceptionHandler : search failed traceId=6f1c0a3e9b2d4417 path=/v1/search\njava.net.SocketTimeoutException: 2,000 milliseconds timeout on connection http-outgoing-73 [ACTIVE]\n\tat org.elasticsearch.client.RestClient.extractAndWrapCause(RestClient.java:915)\n\tat org.elasticsearch.client.RestClient.performRequest(RestClient.java:300)\n\tat org.elasticsearch.client.RestClient.performRequest(RestClient.java:288)\n\tat co.elastic.clients.transport.rest_client.RestClientHttpClient.performRequest(RestClientHttpClient.java:91)\n\tat co.elastic.clients.transport.ElasticsearchTransportBase.performRequest(ElasticsearchTransportBase.java:144)\n\tat co.elastic.clients.elasticsearch.ElasticsearchClient.search(ElasticsearchClient.java:1977)\n\tat com.acme.search.service.SearchService.search(SearchService.java:118)\n\tat com.acme.search.api.SearchController.search(SearchController.java:64)\n\t...\n2026-10-21 20:41:07.902 ERROR [search-svc-5d8b7f9c6-h8zdk] c.a.s.api.ApiExceptionHandler : search failed traceId=0b93c27e51aa86f0 path=/v1/search\njava.net.SocketTimeoutException: 2,000 milliseconds timeout on connection http-outgoing-118 [ACTIVE]\n\t...\n2026-10-21 20:41:09.355 ERROR [search-svc-5d8b7f9c6-n4wq7] c.a.s.api.ApiExceptionHandler : search failed traceId=d27a4e81c60f3b95 path=/v1/search\njava.net.SocketTimeoutException: 2,000 milliseconds timeout on connection http-outgoing-91 [ACTIVE]\n\t...\n（20:36 到 21:04 一共 344 条 差不多都长这样）\n</pasted_content id=\"b81d\">"
+    }
+  ],
+  "middle_hint": "用户认了原因、等搜索产品人工评测期间先不改：中间是为复盘继续围绕晚高峰搜索超时核对别的方向：读线程转储、GC 日志、JFR 和火焰图，看 ES、Redis、网络和容器资源，对时间线、算影响面，只读、只加临时观测，没有新的改动，也没有新的结论。"
+}

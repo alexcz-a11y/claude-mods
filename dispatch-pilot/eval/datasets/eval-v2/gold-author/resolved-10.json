@@ -21,5 +21,5 @@
       "triage": "resolved"
     }
   ],
-  "rationale": "决定性几轮里 /search 的 p99 回归改了两次：第一次调大 ES 连接池没用，第二次查出 record 的 hashCode 把 clientTimestamp 算进了缓存键，命中率从 78% 掉到 3%，修好后 staging p99 回到 171/183。用户说可以了，并约定：目标是 200 以内，夜间压测也在 200 以内就把第一次的连接池改动撤掉再合。最后一条只报夜间那轮 p99 187ms、错误率 0，正好达标，接下来是撤两行配置再合：low；撤配置后顺手跑一遍测试给 medium 也可以。删掉决定性几轮，中间段全是别的事，最后一条只是一个光秃秃的 p99 数字，不知道目标是多少、也不知道要做什么，得先弄清它好不好、要不要分析：medium。三选一：d1 第一次报问题，new_or_unrelated；d2 改完 p99 跟没改一样，still_unresolved；d3 明说可以了，resolved；最后一条按约定的条件报告达标，resolved。"
+  "rationale": "决定性几轮里 /search 的 p99 回归改了两次：第一次调大 ES 连接池没用，第二次查出 CacheKeys 改成用 record 的 toString 拼键，把 clientTimestamp 算了进去，命中率从 78% 掉到 3%，恢复原来的拼法后 staging p99 回到 171/183。用户说可以了，并约定：目标是 200 以内，夜间压测也在 200 以内就把第一次的连接池改动撤掉再合。最后一条只报夜间那轮 p99 187ms、错误率 0，正好达标，接下来是撤两行代码和两项配置再合：low；撤完顺手跑一遍测试给 medium 也可以。删掉决定性几轮，中间段全是别的事，最后一条只是一个光秃秃的 p99 数字，不知道目标是多少、也不知道接下来要做什么，得先弄清它好不好、要不要分析：medium。三选一：d1 第一次报问题，new_or_unrelated；d2 改完 p99 跟没改一样，still_unresolved；d3 明说可以了，resolved；最后一条按约定的条件报告达标，resolved。审稿改动：按本领域 unrelated 段的仓库设定改了细节：构建是 Gradle（`./gradlew test`，原题写的是 Maven），Spring Boot 是 3.5（原题 3.3），压测脚本是 `bench/search.js`，ES 客户端配置类是 `EsConfig`，缓存键是 `CacheKeys.of(SearchParams)`、`search:v3:` 前缀加 SHA-1（后面段里就是这个样子，所以修法改成「恢复发版前的拼法」），去掉了会和后面「CacheKeys 一个测试都没有」矛盾的键单测；档位和三选一不变。"
 }

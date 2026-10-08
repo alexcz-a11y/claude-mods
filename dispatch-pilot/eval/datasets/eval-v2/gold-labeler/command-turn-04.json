@@ -1,0 +1,21 @@
+{
+  "id": "command-turn-04",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "d2 定下了 prod Terraform PR 的评审规矩并写进 docs：每个改到的栈自己跑 plan，每处 ~ 和 -/+ 写清是否重启、断连、何时生效、哪个维护窗口，模块默认值逐个对落到哪些实例，参数组 static 参数单列，说不清不能 approve。#508 正是 shop-prod 参数组调整，评审要逐栈跑 plan、逐条推敲生产库的重启和断连后果，需要反复核对，给 xhigh；按「仔细审查 diff」也可看作 high。最后一条是新的 PR 评审，和那次事故无关，new_or_unrelated。读不到决定性几轮时只是一个普通的参数调整 PR 评审，给 high。"
+}

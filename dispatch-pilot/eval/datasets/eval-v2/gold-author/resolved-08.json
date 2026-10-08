@@ -21,5 +21,5 @@
       "triage": "resolved"
     }
   ],
-  "rationale": "决定性几轮里 diff-pane 大文件卡死改了两次：第一次只挡掉 3000 行以上的文件，2400 行的还卡；第二次查出是 LCS 的 n×m 算法加上渲染时每次重算，换成 Myers 并只在 tool.result 里算一次，用户确认好了、「就这样」。最后一条是写 CHANGELOG 要一两句原因：答案就在决定性几轮里，复述一下即可，low；措辞上要斟酌一下给 medium 也可以。删掉决定性几轮，中间段全是别的事，对话里找不到这个卡死的来龙去脉，要去翻 git log 和 diff-pane 的代码才能说清原因：medium。三选一：d1 第一次报问题，new_or_unrelated；d2 改完 2400 行的文件还卡、日志还是 timed out，still_unresolved；d3 明说好了、就这样，resolved；最后一条问一个已经了结的问题的原因、用来写 CHANGELOG，接受了结果，resolved。"
+  "rationale": "决定性几轮里 redact-out 读大文件卡死改了两次：第一次只把正则改成编译一次、按前缀跳过，lockfile 不卡了，2400 行带内联图片的快照还卡；第二次查出第 13 条通用高熵正则在长 base64 串上反复回溯，换成线性的候选串加熵计算，用户确认好了、「就这样」。最后一条是替人回 issue，要一两句原因：答案就在决定性几轮里，复述一下即可，low；措辞上要斟酌、顺手确认一下改动有没有提交给 medium 也可以。删掉决定性几轮，中间段全是别的事，对话里找不到这次卡死的来龙去脉，要去翻 redact-out 的代码和提交记录才能说清原因：medium。三选一：d1 第一次报问题，new_or_unrelated；d2 改完快照还卡、日志还是 timed out，still_unresolved；d3 明说好了、就这样，resolved；最后一条问一个已经了结的问题的原因、拿去回复别人，接受了结果，resolved。审稿改动：原题的 diff-pane 在本领域 unrelated 段列出的 mod 里（发版表、marketplace 清单、各 mod 的日志统计）从没出现，改成仓库里已有的 redact-out，原因改成第 13 条正则的回溯（修完只剩 12 条固定前缀的规则，和后面段里「12 条正则没有回溯陷阱」对得上），最后一条从写 CHANGELOG 改成回 issue，免得和 resolved-12 的写周报太像；档位和三选一不变。"
 }

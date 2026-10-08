@@ -1,0 +1,17 @@
+{
+  "id": "single-attempt-01",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "d1 第一次提出 redact-out 长输出漏遮 AWS key；主 agent 改成分块扫描后说已修复，但用户没有确认。中间在做别的事，没有再试。最后用户重开会话 cat 同一份日志，key 仍原样出现，同一问题第一次修复后仍未解决，算第二次尝试，属于调试。可能的原因不止一处：新会话加载的是哪份代码（改动未提交，或装的是 marketplace 版本）、还有别的路径没走到分块逻辑，等等。范围仍集中在一个 mod 里，定 high；涉及密钥泄露，排查链条可能变长，xhigh 也可以接受。没有 d1 时，最后那条消息的「还是」也能看出之前修过、没修好，仍按调试定 high。"
+}

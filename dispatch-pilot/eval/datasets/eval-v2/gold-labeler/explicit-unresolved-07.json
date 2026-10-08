@@ -1,0 +1,33 @@
+{
+  "id": "explicit-unresolved-07",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里压缩后 token 数翻倍的问题连续四次修复（turn.complete 判断、session.start 累加、usage 求和、子 agent 重画）都被用户确认无效，助手最后也承认原因未知；中间一段无关，最后一条用户说同一毛病还在、还是没解决。同一问题三轮以上修复失败后再提，按约定定 max；话题本身是自用 mod 的显示，风险不高，xhigh 也可接受。读不到决定性几轮时只知道之前处理过且没好、原因未知，按第二次尝试给 xhigh。"
+}

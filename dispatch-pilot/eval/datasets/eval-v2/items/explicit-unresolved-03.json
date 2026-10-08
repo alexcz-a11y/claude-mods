@@ -14,7 +14,7 @@
     },
     {
       "role": "assistant",
-      "text": "先按死锁最常见的原因查了加锁顺序，改了第一处。\n\n- **查到的**：`jobs/reconcile_inventory.py` 从 `stock_movements` 汇总出每个 SKU 在各仓的应有库存，再逐行 `UPDATE inventory SET on_hand = ... WHERE sku_id = ... AND warehouse_id = ...`。要更新的行放在一个 `dict` 里，遍历顺序是插入顺序，大体按仓库分组。下单那边 `dal/orders.py` 的 `reserve_stock` 在一个事务里按订单行的顺序扣多个 SKU。两边都一次锁多行、顺序又不一致，就会互相等。PostgreSQL 日志里那几次死锁的 `DETAIL` 都是两个进程互相等 `inventory` 上的行锁。\n- **改法**：对账任务更新前把行按 `(sku_id, warehouse_id)` 排序；`reserve_stock` 扣库存前也按同样的键给订单行排序。两边加锁顺序一致，就不会出现 A 等 B、B 等 A。\n- **验证**：在 `tests/test_reconcile_deadlock.py` 用 testcontainers 起 PostgreSQL 15，两个线程分别模拟对账和下单，各跑 500 轮：改之前平均 30 轮左右出一次死锁，改之后 500 轮没有。`pytest tests/ -k 'reconcile or reserve'` 全部通过。",
+      "text": "先按死锁最常见的原因查了加锁顺序，改了第一处。\n\n- **查到的**：`jobs/reconcile_inventory.py` 从 `inventory_logs` 汇总出每个 SKU 在各仓的应有库存，再逐行 `UPDATE inventory SET on_hand = ... WHERE sku_id = ... AND warehouse_id = ...`。要更新的行放在一个 `dict` 里，遍历顺序是插入顺序，大体按仓库分组。下单那边在一个 `UnitOfWork` 里按订单行的顺序逐个调 `dal/repos/inventory.py` 的 `reserve()`，一单扣几个 SKU 就锁几行。两边都一次锁多行、顺序又不一致，就会互相等。PostgreSQL 日志里那几次死锁的 `DETAIL` 都是两个进程互相等 `inventory` 上的行锁。\n- **改法**：对账任务更新前把行按 `(sku_id, warehouse_id)` 排序；下单流程调 `reserve()` 之前也按同样的键给订单行排序。两边加锁顺序一致，就不会出现 A 等 B、B 等 A。\n- **验证**：在 `tests/dal/test_inventory_deadlock.py` 用 testcontainers 起 PostgreSQL 15，两个线程分别模拟对账和下单，各跑 500 轮：改之前平均 30 轮左右出一次死锁，改之后 500 轮没有。`pytest tests/ -k 'reconcile or reserve'` 全部通过。",
       "tools": [
         "Read",
         "Grep",
@@ -29,7 +29,7 @@
     },
     {
       "role": "assistant",
-      "text": "加锁顺序对上以后还死锁，再看事务有多长：对账任务是整张表一个事务，改成了分批提交。\n\n- **查到的**：对账任务开一个事务，把三十多万行全更新完才提交，跑一次 6 到 9 分钟，这期间已经更新的行锁一直不放。排序以后简单的交叉等待少了，但持锁这么久，下单这边任何一个还要碰别的表的事务都有机会和它绕成环。昨晚两次死锁时，任务都已经跑了 5 分钟以上。\n- **改法**：按 `sku_id` 范围每 500 行提交一次，每批开始时重新读这一批 SKU 的 `stock_movements` 汇总，避免跨批的数据不一致；加了 `--batch-size` 参数，默认 500。\n- **验证**：测试库灌了 30 万行，单次任务从 7 分钟变成 8 分 20 秒，每批持锁在 200ms 以内；并发测试 1000 轮没有死锁，`pytest` 全部通过。",
+      "text": "加锁顺序对上以后还死锁，再看事务有多长：对账任务是整张表一个事务，改成了分批提交。\n\n- **查到的**：别的任务都是按 `jobs/base.py` 的做法每批一个 `UnitOfWork`，这个任务是例外：开一个 `UnitOfWork`，把三十多万行全更新完才 `commit()`，跑一次 6 到 9 分钟，这期间已经更新的行锁一直不放。排序以后简单的交叉等待少了，但持锁这么久，下单这边任何一个还要碰别的表的事务都有机会和它绕成环。昨晚两次死锁时，任务都已经跑了 5 分钟以上。\n- **改法**：改成和别的任务一样，按 `sku_id` 范围每 500 行一个 `UnitOfWork`，每批开始时重新读这一批 SKU 的 `inventory_logs` 汇总，避免跨批的数据不一致；加了 `--batch-size` 参数，默认 500。\n- **验证**：测试库灌了 30 万行，单次任务从 7 分钟变成 8 分 20 秒，每批持锁在 200ms 以内；并发测试 1000 轮没有死锁，`pytest` 全部通过。",
       "tools": [
         "Bash",
         "Read",
@@ -43,7 +43,7 @@
     },
     {
       "role": "assistant",
-      "text": "这次报错的一方换了，说明环里还有别的锁。翻了库里的触发器，找到第二个加锁的地方，改了。\n\n- **查到的**：`migrations/V031__inventory_summary.sql` 给 `inventory` 加了行级触发器 `trg_inventory_after_update`，`on_hand` 每变一次就去 `UPDATE inventory_summary SET total = ... WHERE sku_id = ...`。也就是说，不管对账还是下单，锁完 `inventory` 的行以后还要再锁 `inventory_summary` 的行。对账每批按 `(sku_id, warehouse_id)` 走，同一个 SKU 的几个仓库会多次碰同一行 summary；下单一个订单碰多个 SKU 的 summary。`inventory` 这一层的顺序一致了，summary 这一层是跟着触发器走的，两边交错时还是会成环。今天这次的 `DETAIL` 里，有一方在等 `inventory_summary` 的行锁。\n- **改法**：新增 `migrations/V047__summary_trigger_statement_level.sql`，触发器改成语句级（`REFERENCING NEW TABLE`），一条 UPDATE 结束后按 `sku_id` 排好序一次更新 summary，同一个语句里只按一个顺序锁 summary。\n- **验证**：testcontainers 里 Flyway 从 V001 迁到 V047 通过；summary 的数值和原来逐行触发的结果对拍一致；并发测试 1000 轮没有死锁。",
+      "text": "这次报错的一方换了，说明环里还有别的锁。翻了库里的触发器，找到第二个加锁的地方，改了。\n\n- **查到的**：`migrations/V031__inventory_summary.sql` 给 `inventory` 加了行级触发器 `trg_inventory_after_update`，`on_hand` 或 `reserved` 每变一次就去 `UPDATE inventory_summary SET total = ... WHERE sku_id = ...`。也就是说，不管对账还是下单，锁完 `inventory` 的行以后还要再锁 `inventory_summary` 的行。对账每批按 `(sku_id, warehouse_id)` 走，同一个 SKU 的几个仓库会多次碰同一行 summary；下单一单碰多个 SKU 的 summary。`inventory` 这一层的顺序一致了，summary 这一层是跟着触发器走的，两边交错时还是会成环。今天这次的 `DETAIL` 里，有一方在等 `inventory_summary` 的行锁。\n- **改法**：改触发器要走迁移，先在应用层把顺序定死：对账的每一批、下单的 `UnitOfWork` 开头，都先执行一次 `SELECT 1 FROM inventory_summary WHERE sku_id = ANY(:ids) ORDER BY sku_id FOR UPDATE`，按 `sku_id` 排好序把要碰的 summary 行一次锁住，触发器后面再更新时，用的已经是自己持有的锁。\n- **验证**：summary 的数值和改之前对拍一致；并发测试 1000 轮没有死锁；下单路径多了一条按主键的查询，本地压测 p99 多 0.4ms。",
       "tools": [
         "Read",
         "Grep",
@@ -54,11 +54,11 @@
     {
       "role": "user",
       "msg": "d4",
-      "text": "迁移昨天上了 今天凌晨还是死锁 三点五十 下单那边报的 还是那个 DeadlockDetected"
+      "text": "已经上线了 今天凌晨还是死锁 三点五十 下单那边报的 还是那个 DeadlockDetected"
     },
     {
       "role": "assistant",
-      "text": "还在出现，先让它不至于打断下单，同时把锁等待的信息抓全。改了两处。\n\n- **查到的**：今天这次 PostgreSQL 日志的 `DETAIL` 只有两个进程号和等的锁类型，没有另一方当时在跑的完整语句，光看日志定位不到另一方是谁。RDS 参数组里 `log_lock_waits` 是关的，`deadlock_timeout` 是默认的 1s。\n- **改法**：一是 `dal/session.py` 加了 `retry_on_deadlock` 装饰器，`reserve_stock` 碰到 `DeadlockDetected` 回滚后最多重试 3 次，每次随机退避 50 到 200ms，偶发的死锁不会直接让下单失败；二是参数组打开 `log_lock_waits`，`deadlock_timeout` 调到 500ms，下次出现时能看到双方的完整语句。参数组的改动在 terraform 那边，需要你 apply。\n- **验证**：装饰器的单测覆盖了重试成功和重试用尽两种情况，`pytest` 全部通过。",
+      "text": "还在出现，先让它不至于打断下单，同时把锁等待的信息抓全。改了两处。\n\n- **查到的**：今天这次 PostgreSQL 日志的 `DETAIL` 只有两个进程号和等的锁类型，没有另一方当时在跑的完整语句，光看日志定位不到另一方是谁。RDS 参数组里 `log_lock_waits` 是关的，`deadlock_timeout` 是默认的 1s。\n- **改法**：一是在 `dal/retry.py` 里照着现有的 `retry_on_serialization_failure` 加了一个 `retry_on_deadlock`，套在下单的 `place_order()` 上，碰到 `DeadlockDetected` 回滚后最多重试 3 次，每次随机退避 50 到 200ms，偶发的死锁不会直接让下单失败；二是参数组打开 `log_lock_waits`，`deadlock_timeout` 调到 500ms，下次出现时能看到双方的完整语句。参数组的改动在 terraform 那边，需要你 apply。\n- **验证**：装饰器的单测覆盖了重试成功和重试用尽两种情况，`pytest` 全部通过。",
       "tools": [
         "Bash",
         "Read",
@@ -69,11 +69,11 @@
     {
       "role": "user",
       "msg": "d5",
-      "text": "参数组 apply 了 今天凌晨还是死锁 而且有两单重试三次都没成功 用户那边下单直接失败了 日志我导出来了 完整语句都有 另一方是 jobs/expire_reservations.py 你看下"
+      "text": "参数组 apply 了 今天凌晨还是死锁 而且有两单重试三次都没成功 用户那边下单直接失败了 日志我导出来了 完整语句都有 另一方是 jobs/close_unpaid_orders.py 你看下"
     },
     {
       "role": "assistant",
-      "text": "有了完整语句，另一方清楚了：不是对账任务，是清理过期预占的任务。改了它的加锁顺序。\n\n- **查到的**：死锁双方一个是 `reserve_stock` 的 `UPDATE inventory ...`，另一个是 `jobs/expire_reservations.py` 的 `DELETE FROM stock_reservations WHERE expires_at < now() RETURNING ...`，加上随后的 `UPDATE inventory SET reserved = reserved - ...`。清理任务每 10 分钟跑一次，凌晨三四点正好和对账、下单重叠。它先删预占（锁 `stock_reservations` 的行），再按删除返回的顺序回补 `inventory`，顺序是乱的；`reserve_stock` 反过来，先锁 `inventory` 再插 `stock_reservations`。两张表的加锁顺序正好相反。\n- **改法**：清理任务改成先 `SELECT ... FROM inventory WHERE (sku_id, warehouse_id) IN (...) ORDER BY sku_id, warehouse_id FOR UPDATE` 锁住要回补的库存行，再删预占、回补，和 `reserve_stock` 的顺序一致；每批 200 条提交。\n- **验证**：并发测试加了第三个线程模拟清理任务，三方一起跑 2000 轮没有死锁，`pytest` 全部通过。",
+      "text": "有了完整语句，另一方清楚了：不是对账任务，是关超时未付订单的任务。改了它归还库存的顺序。\n\n- **查到的**：死锁双方一个是下单 `reserve()` 的 `UPDATE inventory SET reserved = reserved + ...`，另一个是 `jobs/close_unpaid_orders.py` 关单以后归还预占的 `UPDATE inventory SET reserved = reserved - ...`。这个任务每分钟一轮，每批 500 单一个 `UnitOfWork`，凌晨三四点正好和对账、下单重叠。它关掉一批订单以后按订单、订单行的顺序逐行归还，同一批里不同订单碰到的 SKU 顺序是乱的；下单这边已经按 `(sku_id, warehouse_id)` 排了序。一边有序一边乱序，照样会绕成环。\n- **改法**：归还之前把这一批要归还的数量按 `(sku_id, warehouse_id)` 合并、排序，再逐行更新，同一个 SKU 一批里只更新一次；summary 行也按上次的办法先排序锁住。批大小没动，还是 500。\n- **验证**：并发测试加了第三个线程模拟关单任务，三方一起跑 2000 轮没有死锁，`pytest` 全部通过。",
       "tools": [
         "Read",
         "Grep",

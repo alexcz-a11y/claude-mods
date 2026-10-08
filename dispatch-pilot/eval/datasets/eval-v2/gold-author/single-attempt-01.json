@@ -5,7 +5,7 @@
     "high",
     "xhigh"
   ],
-  "effort_without_decisive": "medium",
+  "effort_without_decisive": "high",
   "triage_final": "still_unresolved",
   "triage_decisive": [
     {
@@ -13,5 +13,5 @@
       "triage": "new_or_unrelated"
     }
   ],
-  "rationale": "决定性几轮里 redact-out 长输出漏遮的问题只改过一次：maskResult 原来只把 Bash 输出的前 32768 个字符交给 redact()，改成分块扫、带重叠和超时兜底，测试和 validate 都过了。最后一条用户说再 cat 一遍，两个 AKIA 的 key 还是原样出来：这是第二次提，最像原因的那个截断已经去掉，还是漏，要去查长输出实际走的是哪条路径（核心对大输出的处理、stdout 以外的字段等）、key 为什么没被匹配上，属于调试，high；只失败过一次、线索还多，不到反复未果，不该判 max，xhigh 也可以接受。删掉决定性几轮，中间段都是别的活，最后一条读起来像第一次报「某种 key 没遮」，多半当成补一条规则或改一处匹配的单点改动：medium。三选一：d1 第一次提出问题，new_or_unrelated；最后一条隔着别的活回头说同样的 key 还是漏了，still_unresolved。审稿改动：素材池里这个仓库的打码 mod 叫 redact-out（hooks/redact-out.ts、hooks/patterns.ts，挂在 tool.call 上，遮成 ‹已遮蔽:规则名›，check.sh 列出的 mod 里没有 tool-redact），原题写的 tool-redact、tool.result、scrub() 和仓库设定冲突；题目按池子改了 mod 名、文件和原因的写法，去掉了和池子对不上的用例总数。档位和三选一不变。"
+  "rationale": "失败的修复 1 次：d1 之后把 maskResult 只扫 Bash 输出前 32768 个字符的截断改成分块扫（带重叠和超时兜底），测试和 validate 都过了、mod 已热重载，用户在最后一条第一次说没好（重开会话再 cat 那份日志，两个 AKIA 的 key 还是原样出来），是第二次。复现性是稳定的：d1 写了「cat 了两遍都一样」，那份日志每次都漏，最后一条也是 cat 一遍就漏 → high；下一步是常规调试（长输出实际走哪条路径、key 为什么没匹配上）。accept 是 high、xhigh，只失败一次不到 max；话题涉及密钥不加档。删掉决定性几轮：最后一条有「又」「还是原样出来了」，看得出之前修过，按第二次；剩下的文字里看不出偶发 → high，和 effort 相同。三选一：d1 第一次提出问题，new_or_unrelated；最后一条隔着别的活说同样的两个 key 还漏，still_unresolved。这一轮按修订说明改：d1 补了「cat 了两遍都一样」；助手回复写明 mod 已热重载，最后一条写明重开了会话，排除「没生效」的解释；ewd 从 medium 改成 high。上一轮审稿改动：素材池里这个仓库的打码 mod 叫 redact-out（hooks/redact-out.ts、hooks/patterns.ts，挂在 tool.call 上，遮成 ‹已遮蔽:规则名›，check.sh 列出的 mod 里没有 tool-redact），原题写的 tool-redact、tool.result、scrub() 和仓库设定冲突；题目按池子改了 mod 名、文件和原因的写法，去掉了和池子对不上的用例总数。"
 }

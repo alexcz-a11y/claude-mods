@@ -5,42 +5,28 @@
   "bin": "d4",
   "relation": "same-problem",
   "placeholders": {
-    "FEATURE": "首页的本月支出合计",
-    "SYMPTOM": "新记一笔账回到首页后本月支出合计不变，要杀掉 App 重开才更新",
-    "ERROR": "Publishing changes from background threads is not allowed; make sure to publish values from the main thread (via operators like receive(on:)) on model updates.",
-    "FILE": "Ledger/Features/Home/MonthlySummaryViewModel.swift",
-    "FILE2": "Ledger/Persistence/PersistenceController.swift",
-    "SYMBOL": "recomputeTotals",
-    "COMMAND": "xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/MonthlySummaryViewModelTests"
+    "FEATURE": "账单页的月份切换",
+    "SYMPTOM": "账单列表里显示的是别的月份的账单",
+    "ERROR": "loadMonth failed: Error Domain=NSCocoaErrorDomain Code=134060 \"A Core Data error occurred.\"",
+    "FILE": "Ledger/Features/Bills/BillListView.swift",
+    "FILE2": "Ledger/App/RootView.swift",
+    "SYMBOL": "loadMonth",
+    "COMMAND": "xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BillListViewModelTests"
   },
   "opening": [],
   "decisive": [
     {
       "role": "user",
       "msg": "d1",
-      "text": "首页的本月支出合计不刷新 新记一笔账保存 回到首页数字不变 要杀掉 App 重开才对 Xcode 控制台里有一行紫色的 `Publishing changes from background threads is not allowed; make sure to publish values from the main thread (via operators like receive(on:)) on model updates.` 代码应该在 Ledger/Features/Home/MonthlySummaryViewModel.swift 你看下"
+      "text": "账单页切月份有问题 TestFlight 上好几个人反馈了 不是每次都有 我自己切了二三十次碰到一次 从 10 月切到 9 月 标题是 9 月 列表里还是 10 月的账 退出去再进来又好了 Console 里同一时间有一行 `loadMonth failed: Error Domain=NSCocoaErrorDomain Code=134060 \"A Core Data error occurred.\"` 代码在 Ledger/Features/Bills/BillListView.swift 你看下"
     },
     {
       "role": "assistant",
-      "text": "改了两处，模拟器上记一笔回首页，合计会跟着变了。\n\n**查到的情况**\n\n- 记账页 `AddEntryView` 点保存时调的是 `PersistenceController.shared.performBackgroundSave(_:)`，在 `newBackgroundContext()` 上写入再 `save()`。\n- `Ledger/Persistence/PersistenceController.swift` 里 `viewContext` 没有打开 `automaticallyMergesChangesFromParent`，后台 context 保存后，`viewContext` 里的对象不会更新。\n- `MonthlySummaryViewModel` 在 `init` 里订阅了两路通知：`NSManagedObjectContextObjectsDidChange`（object 是 `viewContext`）和 `NSManagedObjectContextDidSave`（object 为 nil，所有 context 都会触发）。前一路因为没有合并，后台保存时根本不触发；后一路会触发，但它在后台队列上回调，`sink` 里直接调 `recomputeTotals()`，改了 `@Published var monthTotal`，紫色那行就是这里报的。\n- `recomputeTotals()` 用的是 `viewContext` 做 fetch，合并没发生，所以即使被调到，算出来的也是旧数。\n\n**改法**\n\n- `PersistenceController.swift`：`container.viewContext.automaticallyMergesChangesFromParent = true`，`mergePolicy` 设成 `NSMergeByPropertyObjectTrumpMergePolicy`。\n- `MonthlySummaryViewModel.swift`：两路通知合成一路，`.debounce(for: .milliseconds(200), scheduler: DispatchQueue.main)` 之后再 `sink`，保证 `recomputeTotals()` 在主线程上跑，也避免一次保存触发两次重算。\n\n**验证**\n\n- `LedgerTests` 里加了 `MonthlySummaryViewModelTests.testTotalsUpdateAfterBackgroundSave`：用内存 store，在后台 context 插一笔 128.50 的支出并保存，等 publisher 发值，断言 `monthTotal` 增加了 128.50。\n- `xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/MonthlySummaryViewModelTests`：6 个全部通过；整套 `LedgerTests` 也跑了，61 个通过。\n- 模拟器里手动试了三笔（一笔今天、一笔月初、一笔收入），首页合计都立刻变了，控制台没再出紫色警告。\n\n真机我这边没法装，你在手机上再试一下。",
+      "text": "找到一处会让列表和标题对不上的时序问题，已经在分支上改了，也从分支打了一个内测包：后台改动触发的那次刷新会被推迟到列表停止滚动以后才跑，正好和切月份的那次加载撞在一起，后完成的那次把列表盖掉了。模拟器上照这个操作试了 40 次，没再出现。\n\n**查到的情况**\n\n- `BillListView.swift` 里嵌着的 `ViewModel` 调 `loadMonth` 的地方有好几处，和这个现象对得上的是两处：月份选择器的 `onChange`，和订阅 `.billsDidChange` 的那条 Combine 链。两边各起一个 `Task`，互相不知道对方。\n- 那条链去抖用的是 `RunLoop.main`。Combine 的 `RunLoop` 调度器只在默认模式下触发，手指在列表上拖动、或者松手后惯性滚动时，主 run loop 处在 tracking 模式，这期间来的通知要等滚动停下才发出来。\n- 在 `loadMonth` 的入口和写回处加了 `Logger` 打点，模拟器上一边拖列表一边用调试菜单「模拟远端改动」，松手后马上切到 9 月：通知触发的那次加载在切月份之后 80 毫秒才开始，两次加载交错，20 次里有 3 次列表停在 10 月、标题是 9 月，和你看到的一样。\n\n**改法**\n\n- 去抖的调度器从 `RunLoop.main` 换成 `DispatchQueue.main`，滚动时也按时触发，不会攒到滚动停下以后和切月份撞在一起。回调照样在主线程上，`sink` 里那句 `MainActor.assumeIsolated` 不受影响。\n- 别的逻辑没动，打点已经删掉。\n\n**验证**\n\n- `xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BillListViewModelTests` 全部通过，整套 `LedgerTests` 也通过。这种时序单测不好覆盖，没有加用例。\n- 模拟器上同样的操作重复 40 次，没再出现月份对不上。\n\n**还没解释的**\n\n- 那行 134060 和列表停错出现在同一时刻，但它是哪次加载报的、为什么会报，这次的打点没抓到，现在还解释不了。\n- 这个现象本来就不是每次都有，模拟器上 40 次没出现说明不了它已经没了，要看真机上用几天的情况。\n\n改动在 `fix/bills-debounce-scheduler` 分支，没合进 main。CI 从这个分支打了一个内测包（build 4134），传到了 TestFlight 的内部测试组，你装这个包照常用几天看看。",
       "tools": [
         "Read",
         "Grep",
         "Edit",
-        "Bash"
-      ]
-    },
-    {
-      "role": "user",
-      "msg": "d2",
-      "text": "手机上还是不变 记完一笔回首页还是老数字 杀掉重开才对 紫色那行也还在"
-    },
-    {
-      "role": "assistant",
-      "text": "收到，真机和模拟器表现不一样，我先不再改代码，把差别查清楚再说。\n\n先确认了几件事：\n\n- 刚才的改动确实在你装的那个包里：你用的 scheme 是 `Ledger (Device)`，配置是 `Debug-iCloud`，`PersistenceController.swift` 两个配置共用同一份，`automaticallyMergesChangesFromParent` 那行在。\n- `Debug-iCloud` 下容器是 `NSPersistentCloudKitContainer`，store 描述打开了 `NSPersistentHistoryTrackingKey` 和 `NSPersistentStoreRemoteChangeNotificationPostOptionKey`；模拟器用的 `Debug` 配置是普通的 `NSPersistentContainer`，不开 history。也就是说真机上多了一条 history 合并的路径，模拟器上测不到。\n- 紫色警告还在，说明还有别的 publisher 在后台线程上改 `@Published`。`Grep` 了 `@Published` 和 `.sink`，首页相关的除了 `MonthlySummaryViewModel` 还有 `HistoryTracker` 发出的 `didMergeRemoteChanges`，`HomeView` 里有一处 `.onReceive` 直接接它。\n\n可能的方向（还没验证，先不下结论）：\n\n1. 真机上保存后真正改动 `viewContext` 的是 `HistoryTracker` 的合并，而不是自动合并；它合并完发通知的线程不在主线程。\n2. `recomputeTotals()` 里的 fetch 带了按 `monthKey` 的缓存，跨天或时区不同可能命中旧缓存。\n3. `HomeView` 里 `MonthlySummaryViewModel` 用的是 `@ObservedObject`，视图重建时可能换了一个新的实例，订阅还挂在旧实例上。\n\n下一步打算在 `recomputeTotals()` 入口、`HistoryTracker` 合并完成处和 `HomeView` 的 `onAppear` 各加一个 `Logger` 打点，带上线程名和实例地址，你在真机上记一笔，把 Console 里 `subsystem:com.ledger.app` 的日志导给我。",
-      "tools": [
-        "Read",
-        "Grep",
         "Bash"
       ]
     }
@@ -48,8 +34,8 @@
   "final": [
     {
       "role": "user",
-      "text": "首页合计那个 我今天手机上又试了一遍 记完账回首页还是旧的数"
+      "text": "账单页切月份那个 内测包我装上用了几天 今天还是碰到了一次 选的 10 月 列表里是 9 月的账"
     }
   ],
-  "middle_hint": "中间很长一段都在继续排查首页本月支出合计不刷新：理 recomputeTotals 的调用方和线程、看 PersistenceController 的配置和 history 合并、对比模拟器和真机、加日志、写复现测试，只看不改，也没有结论。占位符：FEATURE 首页的本月支出合计；SYMPTOM 新记一笔账回到首页后本月支出合计不变，要杀掉 App 重开才更新；ERROR Publishing changes from background threads is not allowed; …（SwiftUI 紫色警告）；FILE Ledger/Features/Home/MonthlySummaryViewModel.swift；FILE2 Ledger/Persistence/PersistenceController.swift；SYMBOL recomputeTotals；COMMAND xcodebuild test … -only-testing:LedgerTests/MonthlySummaryViewModelTests。"
+  "middle_hint": "中间是同一个问题的继续排查：理 loadMonth 的调用方和各个触发入口、加日志和断点看时序、对比 TestFlight 和 App Store 的包、读用户反馈、崩溃和 sysdiagnose、写复现的单测、UI 测试和仓库外的最小工程。素材段里这个现象一直是偶发的：自动化连跑几十遍碰到一两次，反馈里说退出重进就好。只看不改，没有新的修改尝试，用户也没有评价第一次的修复，没有结论。占位符：FEATURE 账单页的月份切换；SYMPTOM 账单列表里显示的是别的月份的账单；ERROR loadMonth failed: Error Domain=NSCocoaErrorDomain Code=134060 \"A Core Data error occurred.\"；FILE Ledger/Features/Bills/BillListView.swift；FILE2 Ledger/App/RootView.swift；SYMBOL loadMonth；COMMAND xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests/BillListViewModelTests。"
 }

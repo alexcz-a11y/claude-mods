@@ -1,0 +1,21 @@
+{
+  "id": "new-topic-09",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条要在 charts/app 里把 readOnlyRootFilesystem 默认打开。决定性几轮里的盘点表显示 14 个服务里有 6 个往容器可写层写：media-svc /app/tmp 和 bi-sync /tmp 已有 scratchVolumes，search-svc /tmp（hsperfdata、JFR）、order-api /tmp（multipart 临时文件）、notify-svc /app/.cache、shop-admin 的 /var/cache/nginx 和 /var/run 都还没有，默认一打开这几个服务就会起不来或功能出错，而且 prod 也用这个 chart。所以不是翻一个默认值，要给这些服务补 emptyDir、处理其余 8 个服务只是观测期内没写过文件的不确定性、全量渲染比对并在 staging 验证，跨多个文件且边界条件要紧，定 high；考虑到需要上线验证，xhigh 也可接受。读不到决定性几轮时像是 chart 里改一个默认值，会判 medium。d1 首次提出驱逐问题；d2 确认没再驱逐并让提交，已解决；最后一条是新需求。"
+}

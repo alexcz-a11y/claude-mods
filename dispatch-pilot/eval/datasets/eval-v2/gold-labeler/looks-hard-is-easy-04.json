@@ -1,0 +1,21 @@
+{
+  "id": "looks-hard-is-easy-04",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "StaleDataError 又来了一串，同一问题仍未解决。修复分支早已写好、复现测试通过、rebase 过、DBA 复盘确认无第二原因，用户让「按那个分支来 合了发个补丁版」：合 PR、改版本 1.17.1、写 CHANGELOG、打 tag 发 wheel、提醒 cs-backend 升级。步骤明确但涉及发布（打 tag 推包不易撤回），且需留意 cs-backend 仍钉 1.14.2，定 medium，可接受 high。d2 用户报昨晚又出两次、问是否同一回事，问题仍在。没有决定性几轮时只从 middle_hint 知道有个修复分支，不知道它改了什么、是否验证过，面对并发 StaleDataError 要先核实分支再发版，定 high。"
+}

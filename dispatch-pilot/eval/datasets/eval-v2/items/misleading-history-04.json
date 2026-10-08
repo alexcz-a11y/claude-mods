@@ -1,0 +1,60 @@
+{
+  "id": "misleading-history-04",
+  "category": "misleading-history",
+  "domain": "backend-api",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "这两天客服接了好几单投诉 用户付完钱订单显示已关闭 过一会儿钱又原路退回来了 只能重新下单 有的东西已经卖完了 财务对了一下 10 月已经 9 单 付款时间都是下单后 29 分多 30 分出头 卡在超时关单那个点上 关单是 internal/service/expire.go 的 CloseExpiredOrders 支付回调在 internal/service/notifications.go 你看看"
+    },
+    {
+      "role": "assistant",
+      "text": "9 单都是关单任务先把单关了、几十秒后支付成功的回调才到，走了「先关单后到账」的自动退款。代码是按设计在走，问题是这种情况变多了。先从时间上给了个缓解，根因还没确认。\n\n**这 9 单是怎么走的**\n\n- `CloseExpiredOrders` 每分钟一轮：取下单超过 30 分钟还在待支付的订单，`FOR UPDATE SKIP LOCKED`，关之前先调渠道查单，确认没付才改成 `closed`，再调渠道的关单接口把预支付单也关掉。\n- 9 单都是 paylink。`ApplyNotification` 的处理日志里这 9 条回调的 `result` 都是 `late_paid`：支付单记成 `succeeded`，订单保持 `closed`，然后 `autoRefundLatePayment` 发起了原路退款。\n- 时间线都一样：关单任务查单时 paylink 回的不是已支付，于是关单；20 到 90 秒以后，支付成功的回调才到。再往前看，这些用户都是在第 28、29 分钟才开始付款的，收银台页面开着放了很久，快到点才去付。\n\n**初步判断**\n\n用户卡着 30 分钟去付，付款本身要几十秒（输密码、银行处理），关单任务恰好落在这中间。最直接的缓解是给付款多留点余量：关单时间读环境变量 `ORDER_EXPIRE_MINUTES`，默认 30，生产 values 里改成 35 就行，不用发版。补单任务只查 30 分钟以内的支付单，这一块我也看了，最后那 5 分钟有回调兜着，问题不大。\n\nvalues 的改动在 infra 仓库的分支 `chore/order-expire-35`，你合一下就生效。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "改成 35 分钟以后又出了 2 单 一模一样 付款时间变成下单后 34 分多了"
+    },
+    {
+      "role": "assistant",
+      "text": "35 分钟只是把问题往后挪了：收银台的倒计时也跟着变成 35 分钟，用户照样卡着点付。真正的原因是我们把 paylink 的「支付中」当成了「没付」。用户正在输密码或者银行还在处理时去查单，paylink 回 `trade_state=USERPAYING`，我们的适配器把 `SUCCESS`、`CLOSED` 以外的状态都当成没付，关单任务就把订单关了；接着调渠道关单，paylink 回 `TRADE_STATE_ERROR`（支付中的单不能关），我们只打了一行 WARN 就过去了；几十秒后付款成功，回调到了，走自动退款。已经改成「支付中」这一轮先不关，下一分钟再查。\n\n**怎么查到的**\n\n- 11 单的关单日志里，查单返回的原始报文都是 `USERPAYING`；紧接着都有一行 `WARN paylink close trade failed: TRADE_STATE_ERROR`，这行 WARN 以前没人看。\n- 读了 `internal/channel/paylink/` 的 `QueryTrade`：`switch` 只认 `SUCCESS` 和 `CLOSED`，`default` 一律映射成 `TradeNotPaid`。cardpay 的 `QueryPayment` 本来就把 `PROCESSING` 映射成 `TradePending`，关单任务遇到它会跳过，所以 cardpay 一单都没出，两个适配器写法不一致。\n- 在 paylink 的沙箱里复现：发起支付、停在输密码那一步去查单，回 `USERPAYING`；这时调关单接口，回 `TRADE_STATE_ERROR`。\n\n**改法**\n\n- `QueryTrade` 加一个分支：`USERPAYING` 映射成 `TradePending`，和 cardpay 的 `PROCESSING` 一样处理。\n- `CloseExpiredOrders` 本来对「查单失败」就是这一轮跳过、下一分钟再试，`TradePending` 也走这条路；同一单连续 15 分钟都是支付中，打 ERROR 发运营告警，不自动关。\n- 调渠道关单失败的那行 WARN 改成 ERROR，带上订单号和渠道返回码。\n- `ORDER_EXPIRE_MINUTES` 改回 30，infra 那个分支我已经提了还原。\n\n**验证**\n\n- `expire_test.go` 加了 `TestCloseExpired_SkipsWhenPaying`（查单先回支付中、下一轮回成功，订单最后是 `paid` 不是 `closed`）和 `TestCloseExpired_AlertsWhenPayingTooLong`；paylink 适配器加了 `USERPAYING` 的映射用例。\n- `go test ./...` 全部通过，`go test -race ./internal/service` 通过。\n- 沙箱里停在输密码那一步，等关单任务跑过去，订单没被关，付完以后正常变成 `paid`。\n\n**之前那 11 单**\n\n钱都已经原路退回了，订单状态不会再变。我按订单号拉了一份清单（订单号、商品、退款时间、商品现在还有没有货），客服可以照着联系用户补单。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "上线一周了 一单都没再出 那 11 单客服也都联系过了 这个算解决了 openapi 和商户文档里关单那段说明 等我跟商户那边沟通完再改 先别动"
+    },
+    {
+      "role": "assistant",
+      "text": "好，文档先不动。\n\n这一周的数据我也查了：关单任务因为「支付中」跳过的一共 37 次，都在之后一两轮查到了结果，31 单付成功、6 单用户放弃后正常关掉；多等最久的一单是 4 分钟；没有触发「支付中超过 15 分钟」的告警。处理日志里 `late_paid` 只有 1 条，是渠道回调本身晚了 40 多分钟才到，和这次的问题无关。\n\n**等你沟通完，要改的地方**\n\n现在文档写的是「下单 30 分钟未支付自动关闭」，以后到点时如果还在支付中会再等一会儿。我拟的说法是：「下单后 30 分钟内未完成支付的订单会自动关闭；如果到点时支付仍在处理中，会等支付结果明确后再处理，通常只多几分钟。」要改三处：\n\n1. `api/openapi.yaml` 里 `OrderStatus` 的 `closed` 那一项的说明；\n2. `docs/merchant/faq.md` 里「订单多久自动关闭」那一条；\n3. `docs/api-changelog.md` 加一行说明这个变化，标成兼容。\n\n改完跑一下 `npx @redocly/cli lint api/openapi.yaml` 就行，代码那边已经都在了。",
+      "tools": [
+        "Bash",
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "商户那边沟通好了 关单那段说明按你说的改吧"
+    }
+  ],
+  "middle_hint": "中间是同一个仓库 order-api 里别的活（加字段、补测试、写文档、整理配置、review PR 等），和超时关单误关支付中订单的问题无关。"
+}

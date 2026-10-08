@@ -1,0 +1,21 @@
+{
+  "id": "looks-hard-is-easy-02",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "同一个 NAType TypeError 再次出现（这次走「渠道为空」分支直接跑挂），仍未解决。用户批准的是之前已经写清并在本地/staging 验证过的改法：SQL 加 `AND amount IS NOT NULL`、cron 加一条 10:30、照现有用例补一条测试、make test、合并部署到 etl-01，并给 10/11 手工补跑。范围清楚、无需再权衡，但跨 SQL、cron、测试几个文件且涉及上线和补数，定 medium，可接受 high。d2 用户认了原因但说昨晚又出了一次，问题仍在，标 still_unresolved。没有决定性几轮就不知道「那天说的」改法，要从 traceback 追 NA 来源，按调试定 high。"
+}

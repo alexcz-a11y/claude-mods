@@ -21,5 +21,5 @@
       "triage": "resolved"
     }
   ],
-  "rationale": "决定性几轮里订单列表线上白屏（Maximum update depth exceeded）本地复现不了，第一次收住 useMemo/useCallback 没用，Sentry 还在涨；第二次用生产构建复现，查出 useOrderFilters 选择器每次返回新对象、加上筛选变化后重置 page 的 effect 绕成死循环，改成 useShallow 并把重置挪进 setFilters，上线两天零事件、QA 也点过，用户明说算解决了。最后一条要三四句给产品看的周报：原因和改法都在决定性几轮里，照着用白话复述，low；措辞上多花点心思给 medium 也可以。删掉决定性几轮，中间段全是别的事，对话里找不到这件事的来龙去脉，要去翻 git log 和改动过的文件把原因重新拼出来再写：medium。三选一：d1 第一次报问题，new_or_unrelated；d2 改完 Sentry 还在涨，still_unresolved；d3 两天零事件、明说算解决了，resolved；最后一条为已了结的问题写周报，接受了结果，resolved。"
+  "rationale": "决定性几轮里订单列表线上白屏（Maximum update depth exceeded）本地复现不了，第一次收住 useMemo/useCallback 没用，Sentry 还在涨；第二次从事件的设备信息看出只出在 125%、150% 缩放的 Windows 上，查出 DataTable 量「物流单号」列宽写回 tableSettings、量出来的小数宽度来回跳绕成死循环，改成只在拖动松手时写并补上列宽，上线两天零事件、客服组也点过，用户明说算解决了。最后一条要三四句给产品看的周报：原因和改法都在决定性几轮里，照着用白话复述，low；措辞上多花点心思给 medium 也可以。删掉决定性几轮，中间段全是别的事，对话里找不到这件事的来龙去脉，要去翻提交记录和改过的文件把原因重新拼出来再写：medium。三选一：d1 第一次报问题，new_or_unrelated；d2 改完 Sentry 还在涨，still_unresolved；d3 两天零事件、明说算解决了，resolved；最后一条为已了结的问题写周报，接受了结果，resolved。审稿改动：本领域 unrelated 段里订单列表的筛选在 URL 上（useTableQuery），src/store/ 下没有 orderFilters，而且 zustand 4 下返回新对象的选择器不会死循环（后面升 5 的那段明说了），原题的原因和仓库设定矛盾；改成 DataTable 在缩放屏上量列宽来回跳、写回 tableSettings 绕成死循环；档位和三选一不变。"
 }

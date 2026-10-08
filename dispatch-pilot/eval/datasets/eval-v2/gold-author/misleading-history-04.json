@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-04",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "超时关单误关付款中的订单：d1 提出问题，助手看到这些单都是关单后几十秒才到支付回调、走了自动退款，判断是用户卡着点付款，先把关单时间从 30 分钟调到 35 分钟；d2 用户说又出了 2 单、付款时间变成 34 分多，问题还在；随后查清是 paylink 查单返回的 USERPAYING 被适配器当成没付，关单任务照关，改成支付中先跳过、下一分钟再查，用户确认上线一周零发生、11 单都处理完、算解决，只是文档等和商户沟通后再改（d3）。文档的新说法那句话助手已经拟好，最后一轮还列清了要改的三处（openapi 里 OrderStatus 的 closed 说明、docs/merchant/faq.md 的一条、docs/api-changelog.md 一行）和 lint 命令。中间是 order-api 里别的活。最后这条让照着改，就是把定好的一句话写进三个文档、跑一次 lint：low；medium 也可以（改之前再对一眼代码里跳过和告警的逻辑，确认说法准确）。前面的排查已经了结，改文档不需要再碰那段逻辑。删掉决定性几轮，中间都是不相干的活，「关单那段说明」改成什么、「按你说的」指什么都无从知道，得自己去读关单任务的代码、弄清现在的行为、再起草说法、找出文档里所有提到关单时间的地方：medium。三选一：d1 第一次提出问题，new_or_unrelated；d2 改了以后又出了，still_unresolved；d3 明说算解决了，resolved；最后这条是修复之后约定好的文档收尾，resolved。审稿改动：原题的故障和修法与本领域 unrelated 素材段描述的现有代码冲突：素材段里关单任务已经是 FOR UPDATE SKIP LOCKED、关之前先查单，回调用条件更新（backend-api-unrelated-25），先关单后到账走的是 late_paid 自动退款而不是钱扣了没人管（backend-api-unrelated-06），给商户的 webhook 事件里没有 order.reopened（backend-api-unrelated-10、25）。原题第二版的「重新打开订单、新增 order.reopened」会让这些段描述的现状变成错的，所以把问题改成在素材段现有行为之内的一个漏洞（支付中被当成没付），最后这条相应改成按定好的说法改关单说明。档位、accept 和三选一不变。"
+}

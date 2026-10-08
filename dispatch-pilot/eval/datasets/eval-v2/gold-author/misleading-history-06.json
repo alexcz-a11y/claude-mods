@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-06",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "老用户启动白屏被看门狗杀掉：d1 提出问题，查清是 3.7.0 起首页在主线程上逐笔重算余额，第一版挪到后台；d2 用户说白屏没了但余额先错后对、不行，问题还在；第二版改回 SQLite 分组求和并修对转账两边，外测两天用户确认好了、事情结了（d3）。排查中助手顺带发现账单列表的分组标题每次都新建 DateFormatter，和白屏无关，用户让先记着；最后一轮已经写明怎么改：只动 BillDayHeader.swift 一个文件，按 Locale.current.identifier 缓存、标 @MainActor 不用加锁、地区变化自动生效、加一个用例再跑快照测试。中间是 Ledger 里别的活。最后这条让把它改了，原因、位置、做法和验证都已经定好，是单文件的小改动：low；medium 也可以（改完再看一眼有没有不在主线程的调用方）。前面的启动卡死排查很难，但这件事和它无关，不该被带高。删掉决定性几轮，中间都是不相干的活，「之前说的」无从查起，只剩一句「分组标题每次都 new DateFormatter」：要自己去找是哪个文件、确认问题、决定怎么缓存、考虑线程和地区切换：medium。三选一：d1 第一次提出问题，new_or_unrelated；d2 白屏没了但出了新的错误表现、用户说不行，still_unresolved；d3 明说结了，resolved；最后这条是排查时顺带发现的另一件小事，和白屏是否解决无关，new_or_unrelated。审稿改动：原题有几处和本领域 unrelated 素材段的仓库设定冲突：金额格式化在素材段里是 MoneyFormatter.shared 单例、地区固定 zh_CN（ios-unrelated-22、34），没有每次新建 NumberFormatter 的 AmountFormatter；数据模型现在是 Ledger 6、下一个版本才是 7（ios-unrelated-01、08、36），原题的「模型版本 18、Account 加缓存字段」会和这些段冲突；TestFlight 的 build 号是全局递增的四千多（ios-unrelated-06），不是 412、413。改成：余额走 AccountRepository.balances() 的字典分组求和（和 ios-unrelated-38 描述的现状一致）、不动数据模型，build 号用 4049、4050，顺带发现的小事换成分组标题的 DateFormatter。档位、accept 和三选一不变。"
+}

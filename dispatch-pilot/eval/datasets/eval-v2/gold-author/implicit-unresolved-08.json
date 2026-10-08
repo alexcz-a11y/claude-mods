@@ -21,5 +21,5 @@
       "triage": "still_unresolved"
     }
   ],
-  "rationale": "token 过期跳登录页的问题已经改了三次（刷新单飞、重放时覆盖新 token、合并两个 axios 实例的拦截器），d2、d3 用户都说还会跳；中间隔了一大段别的活，最后一条又贴出同一个 401 报错、说又跳登录页，是第四次同样的失败，而且涉及并发刷新和多实例、多标签页的时序：max，xhigh 也可以。删掉决定性几轮，最后一条看起来是第一次报的一个登录过期 bug，要跨 api 层调试：high。d1 第一次提出问题，标 new_or_unrelated；d2、d3 说改了还在，标 still_unresolved；最后一条隔了别的活回头报同一个问题还在，标 still_unresolved。"
+  "rationale": "token 过期跳登录页的问题已经改了三次（刷新后写回新的 refresh、AuthGate 不再按本地时间判过期、附件预览改走统一的拦截器），d2、d3 用户都说还会跳；中间隔了一大段别的活，最后一条又贴出同一个 401 报错、说又跳登录页，是第四次同样的失败，牵涉刷新令牌轮换、定时器和多个请求入口的时序：max，xhigh 也可以。删掉决定性几轮，最后一条看起来是第一次报的一个登录过期 bug，要跨 api 层调试：high。d1 第一次提出问题，标 new_or_unrelated；d2、d3 说改了还在，标 still_unresolved；最后一条隔了别的活回头报同一个问题还在，标 still_unresolved。审稿修改：本领域 unrelated 段里 axios 封装是 src/api/request.ts，早就有 refreshing 单飞和 _retried 标记，会话在 useUserStore，测试用 msw，并且列出多标签页、40101 等边界还没处理；原题的 client.ts、单飞和多实例合并与之矛盾，所以把三次修复换成和这些设定相容的三处原因，路径和库名对齐。金标不变。"
 }

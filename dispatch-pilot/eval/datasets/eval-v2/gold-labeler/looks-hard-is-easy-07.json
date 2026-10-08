@@ -1,0 +1,21 @@
+{
+  "id": "looks-hard-is-easy-07",
+  "effort": "medium",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条是接着做 semgrep 规则改名剩下三组：映射表和脚本已经提交，dry-run 0 冲突，要手改的两处逐字写好，命令和检查步骤都列出来了。用户确认 logging 那组上线两周没出问题，前面的试点算已解决，这条是接着做同一项任务，不是报故障。工作量大但都是机械的：跑三次 --apply、手改两处、跑 --check 和测试，每一步需要的推理不多。要留意的只有封版期间新加的老 id 豁免，脚本会在全仓搜到。所以定 medium，low 也能接受。没有决定性几轮的话，看不出有现成脚本，也不知道新格式是什么，只知道是批量改名三十来条规则和四十多处豁免，按跨文件的改名还是判 medium。"
+}

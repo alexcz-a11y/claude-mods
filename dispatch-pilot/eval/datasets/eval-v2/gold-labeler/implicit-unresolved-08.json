@@ -1,0 +1,24 @@
+{
+  "id": "implicit-unresolved-08",
+  "effort": "max",
+  "accept": [
+    "max"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "后台页面跳登录页的问题修了三轮（写回 refresh、去掉 AuthGate 的本地判过期、附件请求改走拦截器），用户每轮都说还会跳。中间隔着一段无关的活，最后又贴出同样的 401 报错，说又跳登录页了，按约定仍算同一问题未解决，而且是三轮失败之后再提，定 max。如果读不到决定性几轮，看到的就只是前端一个 401 后跳登录页的调试问题，按调试定 high。"
+}

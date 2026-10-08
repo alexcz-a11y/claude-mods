@@ -1,0 +1,40 @@
+{
+  "id": "new-topic-10",
+  "category": "new-topic",
+  "domain": "frontend",
+  "bin": "d2",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "会员列表的批量打标签",
+    "SYMPTOM": "批量打标签提示成功以后，列表里有几行的标签还是旧的",
+    "ERROR": "TypeError: Cannot read properties of undefined (reading 'levelName')",
+    "FILE": "src/pages/members/MemberList.tsx",
+    "FILE2": "src/api/members.ts",
+    "SYMBOL": "useMemberList",
+    "COMMAND": "npx vitest run src/pages/members"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "会员列表的批量打标签有问题 会员运营勾了十几个人点批量打标签 提示成功了 列表里有几行的标签还是旧的 刷新一下又对了 控制台偶尔有 `TypeError: Cannot read properties of undefined (reading 'levelName')` 代码在 src/pages/members/MemberList.tsx 你看看"
+    },
+    {
+      "role": "assistant",
+      "text": "能复现，但原因还说不清，代码没动。staging 上用运营账号连着做了 15 次批量打标签，有 2 次几行停在旧标签，过一阵自己变对；`levelName` 那行报错 15 次里出现过 1 次，和停住的那 2 次不是同一次。\n\n**批量打标签这一路是怎么走的**\n\n1. 勾选存在页面 store 的 `selectedKeys` 里，「全选」只选当前页；点「批量打标签」弹出选标签的弹窗。\n2. 确认后调 `src/api/members.ts` 的 `batchTag(ids, tagIds)`，`POST /api/members/batch-tag`。后端的接口文档写的是一次最多 500 个 id、同步处理完再返回，成功时只返回处理了几条，不带每个会员的新标签。\n3. 成功回调里依次：弹「已为 N 位会员打上标签」、清空勾选、关弹窗、调 `useMemberList` 返回的 `reload()` 重新拉列表。列表上的标签全靠这次重新拉回来。\n4. 列表和顶部的会员数统计是两个请求，`useMemberList` 里并行发。\n\n**几处值得记下的**\n\n- 停住的那 2 次，Network 里列表请求比平时多了一次，多出来的那次是谁发的还没对上。页面上同时挂着 `list:refresh` 的监听，导入、审批、任务中心、服务端推送都会发这个事件。\n- `useMemberList` 发请求走的是 `useRequest`，没传 `cancelPrevious`，前一次还没回来又发一次时，两次的结果都会写回。\n- `levelName` 是「会员等级」那一列直接读的字段，报错说明某一刻拿到的行里没有 `level` 这个对象，和停住是不是一回事还不知道。\n- `useMemberList` 读三份状态：页面 store 的筛选和分页、当前店铺、用户偏好。其中每页条数不是这个页面自己的：初始化时读一次 `useUserPrefsStore` 的 `pageSize` 当默认值，全站的列表页共用这一个字段，持久化在 localStorage 的 `shop-admin-prefs` 里；在哪个列表里改了每页条数都会写回它，别的列表下次打开也跟着变。新用户是 20。这个 store 带 persist 的版本号（现在是 3），后来加的字段老用户本地没有，读的地方都自己给了默认值。\n\n`npx vitest run src/pages/members` 跑了一下，12 个用例全过，没有一个用例走批量打标签之后的刷新。\n\n下一步想在 `useMemberList` 里给每次请求编个号、记下是谁触发的，打临时日志再复现几次，看停住的那几行最后是哪一次请求写回去的。逻辑先不动。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "批量打标签那个先放一放 会员运营一直说会员列表一页 20 条太少 筛完一批人打标签要翻好几页 会员列表默认改成每页 50 条 别的列表还是 20 以前存的条数不用管"
+    }
+  ],
+  "middle_hint": "中间继续排查会员列表批量打标签以后有几行标签还是旧的问题：理 useMemberList 的调用链和刷新来源、看请求时序和日志、写复现用例、加临时日志，没有改实现，也没有结论。"
+}

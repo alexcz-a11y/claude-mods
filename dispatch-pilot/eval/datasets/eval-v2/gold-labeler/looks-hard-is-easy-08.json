@@ -1,0 +1,21 @@
+{
+  "id": "looks-hard-is-easy-08",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "晚高峰 ES 超时的原因早就查清，用户也认了（multi_match 的 auto_generate_synonyms_phrase_query 默认开着）；之前一直等人工评测，所以没改。最后一条又贴了同样的 SocketTimeoutException，问题还在，属于 still_unresolved。但这是第一次真去修，之前没有失败过的修复，不算第二次。要做的是执行定好的方案：脚本 --apply 17 处、手改两处（原文已给出）、--check、重新生成 48 个快照、核对 diff 只多一个字段、跑测试。基本是机械改动外加核对快照，定 medium；它是线上问题，牵涉 5 个类，high 也能接受。没有决定性几轮的话，只看到一屏超时报错加一句「按那天说的改」，具体改法不知道，得自己理清怎么跨文件修，判 high。"
+}

@@ -5,24 +5,24 @@
   "bin": "d2",
   "relation": "same-problem",
   "placeholders": {
-    "FEATURE": "退款接口的偶发超时",
-    "SYMPTOM": "高峰期有一部分退款请求卡满 5 秒后返回 504",
-    "ERROR": "refund: commit tx: context deadline exceeded",
-    "FILE": "internal/service/refund.go",
-    "FILE2": "internal/handler/refund.go",
-    "SYMBOL": "RefundService.CreateRefund",
-    "COMMAND": "go test ./internal/service -run TestCreateRefund -count=50 -race"
+    "FEATURE": "收银台确认支付偶发失败",
+    "SYMPTOM": "店员点确认支付偶尔提示操作失败，重试一两次才成功",
+    "ERROR": "level=ERROR msg=\"confirm payment failed\" err=\"apply order transition: unexpected state\"",
+    "FILE": "internal/service/order.go",
+    "FILE2": "internal/handler/order.go",
+    "SYMBOL": "OrderService.ConfirmPayment",
+    "COMMAND": "go test ./internal/service -run TestConfirmPayment -count=20"
   },
   "opening": [],
   "decisive": [
     {
       "role": "user",
       "msg": "d1",
-      "text": "退款接口高峰期老是超时 晚上八九点那会儿有一部分 POST /v1/orders/{id}/refunds 卡满 5 秒返回 504 日志里是这行 `refund: commit tx: context deadline exceeded` 代码在 internal/service/refund.go 的 RefundService.CreateRefund 你看看"
+      "text": "收银台确认支付这两周老有店员报失败 点确认支付提示操作失败 重试一两次又好了 早晚高峰多 一天几十次 日志里是这行 `level=ERROR msg=\"confirm payment failed\" err=\"apply order transition: unexpected state\"` 代码在 internal/service/order.go 的 OrderService.ConfirmPayment 你看看"
     },
     {
       "role": "assistant",
-      "text": "先看了连接池，那条报错前面基本都跟着 `db pool wait` 告警，把池子调大了。\n\n- **查到的**：`RefundService.CreateRefund` 整个流程包在 `store.WithTx` 里：`SELECT ... FOR UPDATE` 锁订单行、插 `refunds`、调支付渠道的退款接口、更新订单的已退金额，最后提交。拉了昨晚 20:00 到 21:30 的日志，34 次 `refund: commit tx: context deadline exceeded` 里有 29 次在前 1 秒内同一个 pod 打过 `db pool wait acquired=20 max=20`。`cmd/server/main.go` 里 pgxpool 的 `MaxConns` 写死 20，高峰 6 个 pod 一共 120 条连接，PostgreSQL 的 `max_connections` 是 400，还有余量。\n- **改法**：`MaxConns` 改成从环境变量 `DB_MAX_CONNS` 读，默认 40；`MinConns` 设成 5，省掉高峰时现建连接的时间。部署那边的环境变量我没动，不设就是 40。\n- **验证**：`go test ./...` 全部通过。本地用 `hey -n 2000 -c 80` 压退款接口（支付渠道用 mock，固定延迟 800ms），改之前 p99 4.6s、11 个超时，改之后 p99 2.1s、没有超时。\n\n今晚高峰可以先看一下 504 有没有下去。",
+      "text": "先查了这行报错在哪些情况下会出来，找到一种和支付回调抢跑的情况，改了。\n\n- **查到的**：`OrderService.ConfirmPayment` 在 `store.WithTx` 里用 `GetOrderForUpdate` 锁住订单，用 `orderstate.CanTransition` 检查能不能转到 `paid`，再去 paylink 查一次支付结果。`unexpected state` 是状态检查不过时包出来的。翻了昨天出错订单的 `order_events`：41 次里有 17 次，订单在确认支付之前几百毫秒已经被 paylink 的支付回调改成了 `paid`，确认支付进来就是 `paid → paid`，状态机不认，返回 500。\n- **改法**：`orderstate.CanTransition` 把「已经是 `paid`、支付流水号也相同」当成幂等成功，`ConfirmPayment` 直接返回当前订单，不再报错；流水号不同的照样报错。\n- **验证**：加了一个集成测试（`-tags integration`，testcontainers 起 Postgres），先让回调提交、再确认支付，改之前 500，改之后 200，`order_events` 只有一条。`go test ./...` 全部通过，可以跟今晚的版本一起发。",
       "tools": [
         "Read",
         "Grep",
@@ -33,29 +33,29 @@
     {
       "role": "user",
       "msg": "d2",
-      "text": "昨晚上线了 还是超时 八点半到九点又有三十多个 504 日志还是 commit tx 那行"
+      "text": "昨晚发了 还是有 今天早高峰又报了十几次 一样是 unexpected state"
     },
     {
       "role": "assistant",
-      "text": "连接数翻倍以后超时的数量基本没变，说明不只是排队等连接。又看了事务里在干什么，改了第二处：把调支付渠道挪到事务外面。\n\n- **查到的**：事务里调支付渠道的退款接口是同步 HTTP 请求，渠道那边昨晚 p95 是 1.8s，慢的时候 3s 以上。这段时间订单行一直被 `FOR UPDATE` 锁着，连接也一直占着；同一个订单在客服后台被点两次、或者部分退款连着发，第二个请求就在锁上等，一直等到 5 秒的请求超时。昨晚超时的请求里有 21 次是同一订单 10 秒内的第二个退款请求。\n- **改法**：`CreateRefund` 拆成三步：第一个短事务锁订单、校验可退金额、插一条 `status='pending'` 的退款记录后提交；事务外调渠道；第二个短事务按渠道结果把记录改成 `succeeded` 或 `failed`，同时更新已退金额。可退金额的校验把 `pending` 的也算进去，防止并发时超退。渠道调用失败、进程中途退出留下的 `pending` 记录，交给 `internal/service/reconcile.go` 里每 5 分钟一次的对账任务处理，补了「`pending` 超过 10 分钟就去渠道查单」的分支。\n- **验证**：`go test ./internal/service -run TestCreateRefund -count=50 -race` 通过，新加了两个退款请求并发打同一订单的用例。同样的压测 p99 降到 1.3s。`api/openapi.yaml` 里退款接口的返回没有变。",
+      "text": "回调抢跑那种今天一次都没有了，剩下的十几次是另一种：订单还是待支付，但确认支付读到的支付记录是旧的。改了读支付记录的位置。\n\n- **查到的**：今天早上 14 次，出错时订单都还是 `pending_payment`，状态机本身是通过的；报错出在后面对支付记录的检查上：要求 `payments` 里这一笔已经授权才能转 `paid`，而 `GetPaymentByOrder` 用的是 service 上连池子的 `s.queries`，在锁订单之前、事务外面读。回调那边先写 `payments`、再改订单，中间有几十毫秒；确认支付正好在这之间读，读到的支付记录还没更新，检查不过，也报 `unexpected state`。\n- **改法**：`GetPaymentByOrder` 挪进事务，放在 `GetOrderForUpdate` 之后、用事务里的 `q` 读。锁住订单以后再读支付记录，回调要改订单就得等这把锁，读到的两样东西是一致的。\n- **验证**：集成测试加了「回调写完支付记录、还没改订单时确认支付」的用例，改之前稳定 500，改之后通过；`go test ./internal/service -run TestConfirmPayment -count=20` 通过。",
       "tools": [
+        "Bash",
         "Read",
         "Grep",
-        "Edit",
-        "Bash"
+        "Edit"
       ]
     },
     {
       "role": "user",
       "msg": "d3",
-      "text": "部署了 少了一点 但还是有 今晚 504 有十几个 报错一模一样"
+      "text": "还是不行 今天中午那波又有 店员说点了两次才过 日志一模一样"
     },
     {
       "role": "assistant",
-      "text": "剩下这十几次换个角度看：不是在锁上等，而是请求的时间预算在提交之前就花光了。改了渠道客户端的重试和超时。\n\n- **查到的**：`internal/middleware/timeout.go` 给每个请求一个 5 秒的 ctx，两个事务和渠道调用用的都是它。渠道客户端 `internal/psp/client.go` 外面包着 `internal/psp/retry.go`：失败最多重试 3 次，退避 500ms、1s、2s，每次请求自己的超时 3s。今晚 14 次超时里，有 11 次日志里能看到渠道先返回过一次 502 或读超时、重试了一到两次，等到第二个事务提交时 ctx 只剩几十毫秒，commit 就报 `context deadline exceeded`。\n- **改法**：退款这条路径上，渠道调用单次超时改成 1.5s、最多重试 1 次；重试前先看 ctx 还剩多少，不够 1.5s 就不重试，把退款记录留在 `pending` 交给对账任务。第二个事务改用 `context.WithoutCancel(ctx)` 加 2s 的独立超时，渠道已经退了钱时，本地记录不会因为请求超时提交不上。\n- **验证**：给 `retry.go` 加了「剩余时间不够就不重试」的单测，`go test ./...` 通过。压测时让 mock 渠道 20% 返回 502，改之前 9% 的请求超时，改之后没有超时，3% 留在 `pending`，对账任务 5 分钟内都补上了。",
+      "text": "中午这几次和前两种都不一样：出错的订单在确认支付的同时被超时关单的 worker 捞走了。改了 worker 关单前的检查。\n\n- **查到的**：中午 9 次里有 6 次，订单是快到 30 分钟没支付的那一批：顾客在收银台扫码付了钱、店员点确认支付的同时，`internal/worker/expire_unpaid.go` 这一轮正好把它捞进要关的那一批。worker 原来只看下单时间，到点就关；确认支付在 `GetOrderForUpdate` 上等 worker 这一批提交，拿到锁时订单已经是 `cancelled`，状态机不认 `cancelled → paid`，报 `unexpected state`。\n- **改法**：worker 关每一单之前先调一次 `psp.QueryPayment`，确认 paylink 那边确实没付才关；已经付了的跳过，留给确认支付或回调处理，跳过时打一条 `expire skipped: paid at psp`。\n- **验证**：集成测试里让 worker 和确认支付同时处理同一单、fake 的 paylink 返回已支付，改之前订单被关、确认支付 500，改之后订单变成 `paid`。`go test ./...` 通过。",
       "tools": [
-        "Grep",
         "Read",
+        "Grep",
         "Bash",
         "Edit"
       ]
@@ -63,11 +63,11 @@
     {
       "role": "user",
       "msg": "d4",
-      "text": "不行 今天中午那波又有 还是 504 还是 commit tx 那行 中午量没晚上大"
+      "text": "不行 发了两天了 每天还是四五十次 跟之前差不多"
     },
     {
       "role": "assistant",
-      "text": "中午量小也出现，而且这次超时的请求里渠道调用都很快，所以又回到数据库这头查，找到一个锁冲突，改了。\n\n- **查到的**：今天 12:10 到 12:40 的 9 次超时，渠道调用都在 400ms 以内，没有重试。运维那边每 10 秒存一次 `pg_stat_activity` 的采样，这几个时间点都有退款事务在等 advisory 锁。`store.WithTx` 在涉及订单的事务开头会调 `pg_advisory_xact_lock(hashtext('order:' || id))`，防止同一订单的写并发；而 12 点开始跑的 `internal/service/settlement.go` 结算任务按商户批量处理订单，一个事务里依次给几百个订单拿这把锁，一个事务要跑十几秒。退款碰上正在结算的订单，就在锁上一直等到超时。\n- **改法**：退款事务改用 `pg_try_advisory_xact_lock`，拿不到等 200ms 再试一次，还拿不到就返回 409 `order_busy`，让调用方稍后重试；结算任务改成每 50 个订单提交一次，缩短持锁时间。`api/openapi.yaml` 给退款接口补了 409 的说明。\n- **验证**：写了一个集成测试，一边开长事务持锁、一边发退款请求，改之前 5 秒超时，改之后 400ms 内返回 409。`go test ./...` 全部通过。",
+      "text": "这两天的四十多次，前面三种都对不上了；大部分订单在出错之前，刚被支付回调或运营后台写过一次状态。改了这两路写订单的方式。\n\n- **查到的**：支付回调和运营后台的强制改状态都不先锁行：回调在事务外用 `GetOrder` 读出订单，校验完再开一个短事务 `UpdateOrderStatus`；后台也是先读后写。两路的 `UPDATE` 原来只带 `WHERE id = $1`，读和写之间要是别人刚改过，它会把别人的结果整个盖掉。昨天有 11 单，确认支付提交以后几百毫秒，回调拿着读到的旧状态又写了一遍，把确认支付刚写的结果盖掉了，下一次确认支付就报 `unexpected state`。\n- **改法**：`internal/store/queries/orders.sql` 里 `UpdateOrderStatus` 加上 `AND version = $3`，重新 `sqlc generate`；回调和后台都带上读到的版本号，影响 0 行时回调返回 `ErrConflict`（给 paylink 回 500，它会重投，重投时重新读订单），后台直接返回 500。\n- **验证**：集成测试加了「回调读完、确认支付提交、回调再写」的交错，改之前状态被盖掉，改之后回调拿到 0 行、重投时读到新状态。`go test ./...` 全部通过。",
       "tools": [
         "Bash",
         "Read",
@@ -79,8 +79,8 @@
   "final": [
     {
       "role": "user",
-      "text": "退款超时那个 今天晚高峰我一直盯着看 还是有 504 日志里也还是 `refund: commit tx: context deadline exceeded`"
+      "text": "收银台确认支付那个 今天晚高峰我一直盯着看 还是有店员报操作失败 日志里也还是 `apply order transition: unexpected state`"
     }
   ],
-  "middle_hint": "中间一直在继续排查退款接口的偶发超时：理调用链、看日志和监控、加临时日志、写复现脚本、列可能的原因，没有新的改动，也没有结论。占位符的值见 placeholders。"
+  "middle_hint": "中间一直在继续排查收银台确认支付偶发失败：理调用链、看日志和 trace、对客服工单、写复现测试、列可能的原因，没有新的改动，也没有结论。占位符的值见 placeholders。"
 }

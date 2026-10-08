@@ -1,0 +1,21 @@
+{
+  "id": "cheap-agreement-05",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "客服改单的锁超时这两周还在出，最后一条仍是同一个问题，所以 still_unresolved。要做的是给 adjust_reservation 和它的批量版本加指标：等锁耗时做直方图，锁超时计次数，标签带调用方和仓库，照 dal 现有指标的暴露方式写，然后发 patch。d1 定了约定：dal 里只加日志或指标、不改 SQL 和事务边界的改动，只跑改到的测试文件，直接打 patch 发，服务方自己挑时候升级。范围清楚，有现成写法可以照，按 medium 定；怎么量出等锁的时间、怎么和超时区分开要想一下，high 也能接受。读不到 d1 的约定时，会把它当成共享库要发版、还得跑全量 testcontainers 的改动，又是一个长期没解决的锁问题，判 high。"
+}

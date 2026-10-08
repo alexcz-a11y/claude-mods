@@ -1,0 +1,68 @@
+{
+  "id": "misleading-history-03",
+  "category": "misleading-history",
+  "domain": "perf",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "晚高峰搜索接口的 5xx",
+    "SYMPTOM": "每晚八点半前后一批搜索请求卡到两秒多然后返回 500",
+    "ERROR": "java.net.SocketTimeoutException: 2,000 milliseconds timeout on connection http-outgoing-117 [ACTIVE]",
+    "FILE": "src/main/java/com/acme/search/query/ProductQueryService.java",
+    "FILE2": "src/main/java/com/acme/search/api/ApiExceptionHandler.java",
+    "SYMBOL": "ProductQueryService.search",
+    "COMMAND": "k6 run bench/evening-burst.js"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "晚高峰 search 一批 500 BFF 那边也在群里叫了 每晚八点半前后开始 日志里全是 `java.net.SocketTimeoutException: 2,000 milliseconds timeout on connection http-outgoing-117 [ACTIVE]` 连接号每次不一样 都是 ProductQueryService.search 往 ES 发查询那一步抛出来的 你看看"
+    },
+    {
+      "role": "assistant",
+      "text": "先说看到的：ES 那一侧那段时间是健康的，超时的请求在 ES 里几乎找不到对应的慢查询，时间不像是花在 ES 执行上。根因还没找到，先加了一个缓解，让 BFF 少收 500。\n\n**我们这边**\n\n- Loki 里前三晚的 `SocketTimeoutException`：每晚 20:31 前后开始、20:48 前后结束，三晚分别 212、247、189 条；8 个 pod 都有，每个 pod 一晚二三十条，散在这十几分钟里，不扎堆。\n- 每条的耗时都卡在 2.0 到 2.1 秒，正好是 `search.es.request-timeout` 的 2 秒；查询参数五花八门，长词短词、带不带筛选都有，没有哪一类特别多。\n- 同一时段成功的请求，访问日志里 `esTookMs` 的 p99 只有 110ms 左右。\n- `ProductQueryService.search` 用的是同步客户端，超时以后异常一路冒到 `ApiExceptionHandler` 变成 500，这一层只是如实往上抛。\n\n**ES 那边**（只读）\n\n- 平台组 Kibana 里的慢日志（info 阈值 500ms），这三晚 20:30–20:50 每晚只有个位数，查询体和我们超时的那批对不上。\n- `_cat/thread_pool/search` 那段时间各节点基本不排队，没有拒绝。\n\n**初步判断**\n\n请求发出去以后 2 秒内一个字节都没收到，ES 那边又没看到慢查询，更像是请求在路上丢了或者卡住了：网络、中间那层负载均衡，或者 ES 偶尔没接到。原因还要接着查，先做了一个缓解：`ProductQueryService.search` 遇到 `SocketTimeoutException` 时原样重试一次（搜索是只读的，重试安全），第二次还失败才往上抛。`ProductQueryServiceTest` 加了两个用例，`./gradlew test` 通过，分支 `fix/es-retry-once`，合了以后随下一次发布上。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "重试上了 我们这边 500 少了一大半 但 BFF 说一点没好 他们读超时 1.2 秒 那批请求现在要 2 秒多才回来 照样超时 时间还是 20:31 到 20:48"
+    },
+    {
+      "role": "assistant",
+      "text": "找到了：是连接池里放了太久的连接。我们和 ES 之间那层四层负载均衡会忘掉空闲超过 350 秒的连接，忘了以后不回 RST、直接丢包；我们这边的连接池不知道，晚高峰流量爬坡时把这些老连接翻出来用，请求发出去石沉大海，等满 2 秒才超时。重试换了一条连接所以能成功，但头 2 秒已经搭进去了，BFF 1.2 秒就放弃了。重试已经撤掉，改成连接空闲 300 秒就丢弃，staging 上验证过。\n\n**怎么查到的**\n\n- 每条超时的 `http-outgoing-N` 都不一样，而且失败过的连接号之后再也没出现：一条连接只会失败一次，失败以后被关掉换新的。\n- 读了 `EsConfig` 和低层客户端的源码：连接池是后进先出，平时翻来覆去用的是最近还回来的那几条；keep-alive 策略看响应头，ES 不带这个头，等于空闲连接无限期复用；也没开 TCP keepalive。\n- 白天在一个 pod 里用 `ss -tino` 看，到 ES 的连接一大半空闲超过 350 秒。infra 里那个负载均衡的空闲超时是 350 秒，配置旁边的注释说超时以后会回 RST。\n- 在 staging 的调试 pod 里实测：建一条到 ES 的连接，空闲 360 秒再发请求，负载均衡没回 RST，包直接被丢了，客户端一直等到 2 秒，报的就是 `SocketTimeoutException: 2,000 milliseconds timeout on connection http-outgoing-… [ACTIVE]`，和线上一字不差。注释写的和实际行为不一样。\n- 为什么偏偏是 20:31 到 20:48：这是一晚上并发爬到最高的那段，每往上爬一截，就要从池子底下翻出一批从前一晚高峰以后就没用过的连接，每条第一次用就挂一次；爬到顶以后池子里都是新连接，也就不再出了。\n\n**改法**（`EsConfig`）\n\n- `setKeepAliveStrategy` 固定返回 300 秒，比负载均衡的 350 秒短，空闲到 300 秒的连接下次借出前就丢掉重建；\n- `IOReactorConfig` 打开 `soKeepAlive`，再兜一层；\n- 撤掉 `ProductQueryService.search` 里的重试，`ProductQueryServiceTest` 的两个重试用例一起删了。\n\n**验证**\n\nstaging 上用 `k6 run bench/evening-burst.js` 模拟晚高峰的爬坡：先低速跑 10 分钟让一批连接闲下来，再一口气爬到高峰。\n\n- 改之前：爬坡那几分钟出了 37 次 2 秒超时；\n- 改之后：0 次，新建连接的耗时 p99 4ms 左右。\n\n提交 `5c07ad2`，分支 `fix/es-keepalive`，可以合了随下一次发布上。负载均衡注释和实际行为不符这件事，我写了一段说明，你转给 infra。\n\n**顺带一件无关的事**：平台组在群里提过我们的请求都没带 `X-Opaque-Id`，他们翻慢日志只能按查询体猜是不是我们发的。加起来很简单，`EsConfig` 里建 `RestClient` 时带一个默认请求头就行，和这次的问题无关，这次没顺手加。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "keep-alive 那个大前天上的 这三晚 SocketTimeout 一条都没有 500 也没了 BFF 那边也说好了 这个算解决了 票先挂着 我要写复盘 X-Opaque-Id 那个先别动 复盘写完再说"
+    },
+    {
+      "role": "assistant",
+      "text": "好，票先挂着，X-Opaque-Id 先不动。\n\n三晚的数我也看了：20:30–20:50 `SocketTimeoutException` 是 0，500 是 0；新建连接比以前多了一些，每个 pod 每分钟十来次，借连接的 p99 还是个位数毫秒。\n\n**复盘里可以用的**\n\n- 前三晚每晚的超时条数（212、247、189）和起止时间；\n- 加重试那一晚我们这边 500 少了、BFF 那边没变的对照；\n- staging 上负载均衡静默丢包的实测记录；\n- staging 上改前改后的爬坡对比。\n\n**X-Opaque-Id 以后加的时候**\n\n只改一处：`EsConfig` 里 `RestClient.builder(...)` 那里加 `setDefaultHeaders(new Header[] { new BasicHeader(\"X-Opaque-Id\", \"search-svc\") })`。平台组要的是能分清哪些请求是我们发的，值写服务名就够，不用按请求区分。`EsConfigTest` 里加一个断言，检查构建出来的客户端带了这个头，跑一下 `./gradlew test` 就行。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "平台组又来催 X-Opaque-Id 了 加上吧"
+    }
+  ],
+  "middle_hint": "用户在决定性几轮里确认晚高峰 5xx 已经解决，但让先挂着票、为写复盘把整件事再理一遍：中间是围绕这个问题继续看线程转储、JFR、GC、ES 和 Redis 的监控与日志、问原理，不改实现，也不下新的结论。"
+}

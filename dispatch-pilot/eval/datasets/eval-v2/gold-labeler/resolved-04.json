@@ -1,0 +1,29 @@
+{
+  "id": "resolved-04",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "索引慢查询问题在 d4 已解决；最后一条是 d4 里顺带提到的残留 tmp 索引，用户确认线上存在后让照之前说的写迁移删掉，是新的后续任务而非原问题未解决。迁移内容在 d4 的回复里已完全写明（单文件一句 DROP INDEX CONCURRENTLY IF EXISTS、编号顺延、不混其他语句），照做即可，定 low；若再跑 make test 校验可算 medium。没有决定性几轮时，需要自己弄清 Flyway 对 CONCURRENTLY 的非事务限制、IF EXISTS 的必要性和仓库惯例，是需要想一下的单文件改动，medium。"
+}

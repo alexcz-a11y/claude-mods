@@ -5,52 +5,50 @@
   "bin": "d4",
   "relation": "same-problem",
   "placeholders": {
-    "FEATURE": "部署流水线里拿 AWS 凭证的那一步",
-    "SYMPTOM": "deploy-staging 偶尔在 terraform init 这一步失败，重跑又能过",
-    "ERROR": "Error: error configuring S3 Backend: no valid credential sources for S3 Backend found.",
-    "FILE": ".github/workflows/deploy-staging.yml",
-    "FILE2": ".github/actions/setup/action.yml",
-    "SYMBOL": "assume-deploy-role",
-    "COMMAND": "gh workflow run deploy-staging.yml --ref main"
+    "FEATURE": "部署流水线里往配置中心发布服务配置的那一步",
+    "SYMPTOM": "部署 job 偶尔在发布配置那步停住四分多钟，重试三次后失败，重跑又能过",
+    "ERROR": "confcenter.errors.ReleaseError: no result received for release request",
+    "FILE": "scripts/deploy/publish_config.py",
+    "FILE2": "scripts/lib/deploy.sh",
+    "SYMBOL": "publish_release",
+    "COMMAND": "python scripts/deploy/publish_config.py --env staging"
   },
   "opening": [],
   "decisive": [
     {
       "role": "user",
       "msg": "d1",
-      "text": "deploy-staging 这周挂了四次了 都是 terraform init 那步 报 `Error: error configuring S3 Backend: no valid credential sources for S3 Backend found.` 重跑一次又能过 你看看 .github/workflows/deploy-staging.yml"
+      "text": "部署这周挂了三次了 都是发布配置那步 卡好几分钟然后报 `confcenter.errors.ReleaseError: no result received for release request` 重跑一次又能过 你看看 scripts/deploy/publish_config.py"
     },
     {
       "role": "assistant",
-      "text": "先把结构和失败的 run 看了一遍，改了一处可疑的地方：拿完凭证没有校验就往下走了。\n\n- **结构**：`.github/workflows/` 下 9 个 workflow，第一步都是 `actions/checkout@v4`，第二步都调本地的 composite action `./.github/actions/setup`。`.github/actions/setup/action.yml` 里依次是：`actions/setup-node@v3`、`hashicorp/setup-terraform@v2`、id 为 `assume-deploy-role` 的一步 `aws-actions/configure-aws-credentials@v4`（OIDC，`role-to-assume` 取 `vars.DEPLOY_ROLE_ARN`），最后 `terraform init`。9 个 workflow 装工具、拿凭证都走这一个文件，workflow 自己没有别的 `uses:`。\n- **失败的 run**：`gh run list --workflow deploy-staging.yml --status failure` 找到这周 4 次，`gh run view --log-failed` 看了日志：4 次 `assume-deploy-role` 都显示成功，紧接着 `terraform init` 报这句错，两步之间不到 1 秒；成功的 run 里两步之间也差不多。\n- **顺带看到的**：每个 run 的注释里都有一条黄色警告：`Node.js 16 actions are deprecated. Please update the following actions to use Node.js 20: actions/setup-node@v3, hashicorp/setup-terraform@v2`。列的就这两个，都只在 `action.yml` 里用到，和这次的失败没关系，先不动。\n- **改法**：在 `assume-deploy-role` 之后加了一步 `aws sts get-caller-identity`，失败就隔 5 秒重试，最多 3 次，确认凭证真能用了再 `terraform init`；调用者身份打进日志，下次失败能看到当时拿到的是什么。\n- **验证**：分支上用 `gh workflow run deploy-staging.yml --ref ci/verify-creds` 手动跑了 3 次，全部通过，新加的一步每次第一次就成功。\n\n还没合进 main。这种偶发的要多跑几天才看得出来。",
+      "text": "先把三次失败的 run 和这条路径的结构看了一遍，代码没动：三次里两次是同一个样子，卡在发布某个服务配置的地方等了四分多钟，然后连着重试三次，最后报这一行；另一次样子不一样，很快就失败了。\n\n- **结构**：部署 workflow 的步骤依次是 checkout、`Configure AWS credentials`、`Set up tools`、`Run python scripts/deploy/publish_config.py --env staging`、后面才是 helm 部署。`Set up tools` 是本地的 composite action `.github/actions/setup-tools/action.yml`，装 terraform、helm 这些。`scripts/lib/deploy.sh` 装好钉了版本的 `confcenter-client`，把环境、区域、提交号传下去，`publish_config.py` 逐个服务调 `publish_release` 发布配置、等配置中心回结果；重试是 `publish_release` 里自己做的，3 次，10 秒起每次翻倍。\n- **三次失败**（`gh run list --status failure` 找到，`gh run view --log-failed` 看了日志）：\n  - 9/22 14:26，ARC 上的 staging：发布到第 12 个服务时停了 4 分 05 秒，接着三行重试提示，70 秒后报错；\n  - 9/25 17:31，同样在 ARC 的 staging：停了 4 分 27 秒，后面一样；\n  - 9/24 10:58，GitHub 托管 runner，是被别的 workflow 调起来的那条入口：job 开始不到 2 分钟就失败了，没有停顿，也没有重试提示。\n  正常的 run 里同一个位置只要 1 到 4 秒。\n- **顺带看到的**：每个 run 的摘要里都有一条黄色警告：`Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: hashicorp/setup-terraform@v3, azure/setup-helm@v4.` 这两个就在出问题那一步前面跑（`Set up tools` 里装 terraform 和 helm），所以先排除了一下它们和失败的关系，顺手把升级要核对的都核对了：\n  - 在哪：`git grep` 了整个仓库，这两个现在只在 `.github/actions/setup-tools/action.yml` 里各引用一次，第 18 行 `hashicorp/setup-terraform@v3`、第 25 行 `azure/setup-helm@v4`；workflow 里原来直接用的几处后来都改成了走 `setup-tools`。checkout 这些已经是跑 Node 24 的大版本，不在警告里。别的 workflow 最近一次运行的摘要也翻了，只有用到 `setup-tools` 的 job 有这条警告，点名的也只有这两个。\n  - 新版本：`hashicorp/setup-terraform` 出了 v4，`azure/setup-helm` 出了 v5。两边的发布说明和 `action.yml` 都读了：唯一的破坏性变更是运行时从 `node20` 换成 `node24`，要求 runner 不低于 v2.327.1；我们 ARC 的 runner 镜像是 `ghcr.io/actions/actions-runner:2.329.0`，托管 runner 是 2.331.0，checkout 换成 Node 24 的版本以后两边也一直正常。`setup-tools` 里用到的输入 `terraform_version`、`terraform_wrapper` 和 `version`，在新版本里名字和默认值都没变。\n  - 日志里另外那两条 `##[warning]`（一条说某个输入参数以后要改名，一条说缓存键里有个字段要废弃）也对了，都不是这两个 action 打的。\n  - 改法就是 `action.yml` 里这两行：`@v3` 改成 `@v4`，`@v4` 改成 `@v5`，别的不用动。失败的那几次 `Set up tools` 都正常跑完，装出来的工具版本和成功的 run 一字不差，所以它们和这次的失败没关系，先没改。\n- **还说不准的**：停的那四分多钟，日志里一行都没有，看不出在等什么；9/24 那次和另外两次是不是一件事也分不开。\n\n这种偶发的要多攒几次样本才看得出来，要不要先把每次停顿的时长和落在哪个服务记下来？",
       "tools": [
         "Read",
         "Grep",
-        "Bash",
-        "Edit"
+        "Bash"
       ]
     },
     {
       "role": "user",
       "msg": "d2",
-      "text": "合进去两天了 昨天下午又挂了一次 还是 terraform init 那步 同样的报错 你加的那步检查是过了的"
+      "text": "昨天上午跟今天下午又各挂了一次 还是发布配置那步 同样的报错"
     },
     {
       "role": "assistant",
-      "text": "检查那步过了、`terraform init` 还是拿不到凭证，说明凭证在 shell 里能用，问题更像出在 Terraform 的 S3 backend 自己找凭证的方式上。又改了一处，但还不能确定就是它。\n\n- **查到的**：\n  - 昨天那次的日志：`get-caller-identity` 第一次就成功，身份是 `assumed-role/gha-deploy-staging/GitHubActions`；4 秒后 `terraform init` 报错。\n  - `configure-aws-credentials` 把凭证写进环境变量 `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`AWS_SESSION_TOKEN`；但 `terraform/staging/backend.tf` 的 backend 配了 `profile = \"staging\"`，Terraform 会先按 profile 去 `~/.aws/config` 找，runner 上没有这个 profile，找不到才退回环境变量。翻了 S3 backend 的文档和几个 issue，profile 找不到时的退回在某些版本里会去等 IMDS 超时，这能解释「偶尔」，但还没有直接证据。\n  - 失败的 5 次都在自托管 runner `infra-runner-2` 上；成功的 run 两台 runner 都有。\n- **改法**：CI 里的 `terraform init` 加了 `-backend-config=\"profile=\"`，把 profile 置空，只用环境变量里的凭证；本地开发的用法不受影响。\n- **验证**：分支上手动跑了 5 次，都通过。之前光跑几次也都是过的，所以这还说明不了问题已经解决。\n\n建议接下来盯一下 `infra-runner-2`：它和另一台的系统镜像、AWS CLI 版本、`~/.aws` 目录是不是一样。",
+      "text": "两次都看了，都和 9/22、9/25 是同一个样子；今天这次跑在 GitHub 托管 runner 上，所以不只是我们集群里的事。还是没改东西。\n\n- **昨天这次**：9/28 11:46，ARC 上的 staging，合并以后自动触发的部署。发布到第 12 个服务时停了 4 分 16 秒，然后三次重试，报同样的错。没人点重跑，10 分钟后有新提交合进来，新的 run 过了。\n- **今天这次**：15:09 失败，是被别的 workflow 调起来的那条入口，跑在托管的 `ubuntu-24.04` 上。发布到第 12 个服务时停了 4 分 12 秒，然后三次重试，等待 10、20、40 秒，每次重试都很快失败，最后报 `confcenter.errors.ReleaseError: no result received for release request`。21 分钟后有人点了重跑，同一个提交，3 秒就过了第 12 个服务。\n- **和之前对一下**：\n  - 五次里四次是「停四分多钟、再重试三次」，停的时长 4 分 05 秒到 4 分 27 秒，每次差二十几秒，不像一个固定的超时；\n  - 这四次里三次在 ARC（出网走 NAT），一次在托管 runner（不经过我们的 NAT），所以 NAT、集群节点这些解释不了全部；\n  - 同一时段仓库里另一个 run 也发布到了第 12 个服务，2 秒就拿到了结果。\n- **代码里能看到的**：`publish_release` 发请求以后等配置中心回结果，单次等待用的是 `confcenter-client` 的默认值，我们没有显式设；它的重试只管这次请求失败之后。这个包是 9/21 在 `scripts/lib/deploy.sh` 里升的版本，第二天第一次出问题，时间对得上，但同一天还有别的改动生效，单靠时间分不出来。\n\n接下来想把第 12 个服务和前面 11 个在配置上有什么不同对一下，再查配置中心那边这几个时间点的处理耗时，都只读。",
       "tools": [
         "Bash",
         "Read",
-        "WebFetch",
-        "Edit"
+        "Grep"
       ]
     }
   ],
   "final": [
     {
       "role": "user",
-      "text": "凭证那个先放着 另外每次跑都有个黄色的警告 说 node16 的 action 要弃用了 让升到 node20 你把这个处理掉吧"
+      "text": "发布配置那个先放着 另外每次跑都有个黄色的警告 说 node20 的 action 要弃用了 让升到 node24 你把这个处理掉吧"
     }
   ],
-  "middle_hint": "中间继续排查 deploy-staging 在 terraform init 偶发拿不到凭证的问题：翻日志、对比两台 runner、追配置和变量的来源、加观测，没有新的修改，也没有结论。"
+  "middle_hint": "中间继续排查部署时发布配置那步偶尔停住四分多钟后报错的问题：翻日志、对比 ARC 和托管 runner、追配置和变量的来源、查超时和重试、加观测，没有新的修改，也没有结论。"
 }

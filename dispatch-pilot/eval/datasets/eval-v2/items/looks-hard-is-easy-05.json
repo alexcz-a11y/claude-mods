@@ -1,0 +1,45 @@
+{
+  "id": "looks-hard-is-easy-05",
+  "category": "looks-hard-is-easy",
+  "domain": "backend-api",
+  "bin": "d1",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "main 上 CI 红了 一大坨 DATA RACE 看着是 outbox 投递那块 是不是并发出事了 商户的 webhook 会不会重复推 先别改 看清楚是什么\n<pasted_content id=\"2f7a\">\n==================\nWARNING: DATA RACE\nRead at 0x00c0003a6e58 by goroutine 47:\n  github.com/acme/order-api/internal/service.(*recordingNotifier).count()\n      /home/runner/work/order-api/order-api/internal/service/fakes_test.go:31 +0x44\n  github.com/acme/order-api/internal/service.TestOutboxRelay_RetriesFailedWebhook.func3()\n      /home/runner/work/order-api/order-api/internal/service/outbox_test.go:118 +0x3c\n  github.com/stretchr/testify/assert.Eventually.func1()\n      /home/runner/go/pkg/mod/github.com/stretchr/testify@v1.9.0/assert/assertions.go:1924 +0x34\n\nPrevious write at 0x00c0003a6e58 by goroutine 45:\n  github.com/acme/order-api/internal/service.(*recordingNotifier).Notify()\n      /home/runner/work/order-api/order-api/internal/service/fakes_test.go:24 +0x1c8\n  github.com/acme/order-api/internal/service.(*OutboxRelay).deliver()\n      /home/runner/work/order-api/order-api/internal/service/outbox.go:142 +0x2a4\n  github.com/acme/order-api/internal/service.(*OutboxRelay).runOnce()\n      /home/runner/work/order-api/order-api/internal/service/outbox.go:97 +0x31c\n  github.com/acme/order-api/internal/service.(*OutboxRelay).loop()\n      /home/runner/work/order-api/order-api/internal/service/outbox.go:73 +0x108\n\nGoroutine 47 (running) created at:\n  github.com/stretchr/testify/assert.Eventually()\n      /home/runner/go/pkg/mod/github.com/stretchr/testify@v1.9.0/assert/assertions.go:1924 +0x2f0\n  github.com/stretchr/testify/require.Eventually()\n      /home/runner/go/pkg/mod/github.com/stretchr/testify@v1.9.0/require/require.go:345 +0x8c\n  github.com/acme/order-api/internal/service.TestOutboxRelay_RetriesFailedWebhook()\n      /home/runner/work/order-api/order-api/internal/service/outbox_test.go:117 +0x5d0\n\nGoroutine 45 (running) created at:\n  github.com/acme/order-api/internal/service.(*OutboxRelay).Start()\n      /home/runner/work/order-api/order-api/internal/service/outbox.go:61 +0x1b4\n  github.com/acme/order-api/internal/service.TestOutboxRelay_RetriesFailedWebhook()\n      /home/runner/work/order-api/order-api/internal/service/outbox_test.go:104 +0x3e8\n==================\n--- FAIL: TestOutboxRelay_RetriesFailedWebhook (0.34s)\n    testing.go:1490: race detected during execution of test\nFAIL\nFAIL\tgithub.com/acme/order-api/internal/service\t14.902s\n</pasted_content id=\"2f7a\">"
+    },
+    {
+      "role": "assistant",
+      "text": "不是线上代码的并发问题，商户 webhook 也不会因此重复推：这两条栈里竞争的是测试里的假通知器 `recordingNotifier` 的 `calls` 切片，一边是 relay 的 goroutine 往里 append，一边是 `require.Eventually` 起的轮询 goroutine 在读它的长度，两边都没加锁。`recordingNotifier` 只在 `_test.go` 里，生产路径上真正发 webhook 的是 `internal/service/webhook.go`，它不往任何共享的切片里记东西。代码没改。\n\n**两条栈说的是什么**\n\n- **写**：`fakes_test.go:24`，`(*recordingNotifier).Notify` 里的 `n.calls = append(n.calls, ev)`，调用方是 `outbox.go:142` 的 `deliver`，在 relay 自己的 goroutine 里（`Start` 起的那个 `loop`）。\n- **读**：`fakes_test.go:31`，`count()` 返回 `len(n.calls)`，调用方是 `outbox_test.go:118` 那个 `require.Eventually` 的回调。testify 的 `Eventually` 每次检查都在新的 goroutine 里跑回调，所以它和 relay 是两个 goroutine 同时碰同一个切片。\n- `outbox.go` 只是出现在写的那条调用链上，它自己读写的东西 race detector 没报。\n\n**为什么时有时无**\n\n只有轮询正好和 relay 投递撞在同一时刻才会被抓到。本地 `go test -race -count=200 -run 'TestOutboxRelay' ./internal/service/` 跑出 4 次报告，4 次都是 `fakes_test.go` 里这同一对读写，没有别的位置。\n\n**relay 本身会不会重复推**\n\n读了 `outbox.go`：每轮用 `FOR UPDATE SKIP LOCKED` 取一批事件，投递成功后在同一个事务里把这一行标成 `sent`，多个副本同时跑也不会取到同一行；失败的按退避时间改 `next_attempt_at`。这条路径和这次的报告无关，测试里的假通知器加不加锁都不影响它。\n\n**改法（没动）**\n\n只动一个测试文件 `internal/service/fakes_test.go`，生产代码不碰：\n\n- `recordingNotifier` 加一个字段 `mu sync.Mutex`；\n- `Notify`、`count()`、`last()` 三个方法开头各加 `n.mu.Lock()`、`defer n.mu.Unlock()`。\n\n测试里读通知记录都是经过 `count()` 和 `last()`，Grep 过没有直接碰 `n.calls` 的地方，别的文件不用动。本地临时这么改了一下，同样的命令 `-count=500` 一次报告都没有，然后改回去了。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "那就好 不是线上的事 我重跑了一下 CI 绿了 先这样 老韩有个 PR 在整理 service 包的测试辅助代码 fakes_test.go 改了一大半 还没合 等他合了再弄 省得冲突"
+    },
+    {
+      "role": "assistant",
+      "text": "好，先不动。老韩那个 PR 的 diff 我看了一眼：`fakes_test.go` 里他动的是出站 HTTP 客户端和时钟那几个假对象，`recordingNotifier` 只是往下挪了几行，三个方法没碰，合了以后照原来的改法改就行。\n\n这个报告还会再冒出来：重跑绿了只是这次没撞上，`require.Eventually` 的轮询和 relay 投递撞在同一刻就会再红一次，报的还是 `fakes_test.go` 里 `Notify` 和 `count()`、`last()` 这几对读写，用例名和行号可能不一样。\n\n他合了以后，到时候就是：`fakes_test.go` 里给 `recordingNotifier` 加 `mu sync.Mutex`，`Notify`、`count()`、`last()` 开头加锁，然后 `go test -race -count=500 -run 'TestOutboxRelay' ./internal/service/` 过一遍。",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "老韩那个合了 main 又红了 还是一大坨 DATA RACE 这回是另一个用例 贴给你 就按上次说的改了吧\n<pasted_content id=\"8c03\">\n==================\nWARNING: DATA RACE\nRead at 0x00c00041c2d8 by goroutine 63:\n  github.com/acme/order-api/internal/service.(*recordingNotifier).count()\n      /home/runner/work/order-api/order-api/internal/service/fakes_test.go:39 +0x44\n  github.com/acme/order-api/internal/service.TestOutboxRelay_MarksDeadAfterMaxAttempts.func2()\n      /home/runner/work/order-api/order-api/internal/service/outbox_test.go:171 +0x3c\n  github.com/stretchr/testify/assert.Eventually.func1()\n      /home/runner/go/pkg/mod/github.com/stretchr/testify@v1.9.0/assert/assertions.go:1924 +0x34\n\nPrevious write at 0x00c00041c2d8 by goroutine 61:\n  github.com/acme/order-api/internal/service.(*recordingNotifier).Notify()\n      /home/runner/work/order-api/order-api/internal/service/fakes_test.go:30 +0x1c8\n  github.com/acme/order-api/internal/service.(*OutboxRelay).deliver()\n      /home/runner/work/order-api/order-api/internal/service/outbox.go:151 +0x2a4\n  github.com/acme/order-api/internal/service.(*OutboxRelay).runOnce()\n      /home/runner/work/order-api/order-api/internal/service/outbox.go:101 +0x31c\n  github.com/acme/order-api/internal/service.(*OutboxRelay).loop()\n      /home/runner/work/order-api/order-api/internal/service/outbox.go:75 +0x108\n\nGoroutine 63 (running) created at:\n  github.com/stretchr/testify/assert.Eventually()\n      /home/runner/go/pkg/mod/github.com/stretchr/testify@v1.9.0/assert/assertions.go:1924 +0x2f0\n  github.com/stretchr/testify/require.Eventually()\n      /home/runner/go/pkg/mod/github.com/stretchr/testify@v1.9.0/require/require.go:345 +0x8c\n  github.com/acme/order-api/internal/service.TestOutboxRelay_MarksDeadAfterMaxAttempts()\n      /home/runner/work/order-api/order-api/internal/service/outbox_test.go:170 +0x61c\n\nGoroutine 61 (running) created at:\n  github.com/acme/order-api/internal/service.(*OutboxRelay).Start()\n      /home/runner/work/order-api/order-api/internal/service/outbox.go:63 +0x1b4\n  github.com/acme/order-api/internal/service.TestOutboxRelay_MarksDeadAfterMaxAttempts()\n      /home/runner/work/order-api/order-api/internal/service/outbox_test.go:158 +0x3e8\n==================\n==================\nWARNING: DATA RACE\nRead at 0x00c00041c2c0 by goroutine 63:\n  github.com/acme/order-api/internal/service.(*recordingNotifier).last()\n      /home/runner/work/order-api/order-api/internal/service/fakes_test.go:45 +0x5c\n  github.com/acme/order-api/internal/service.TestOutboxRelay_MarksDeadAfterMaxAttempts.func2()\n      /home/runner/work/order-api/order-api/internal/service/outbox_test.go:172 +0x58\n\nPrevious write at 0x00c00041c2c0 by goroutine 61:\n  github.com/acme/order-api/internal/service.(*recordingNotifier).Notify()\n      /home/runner/work/order-api/order-api/internal/service/fakes_test.go:30 +0x15c\n  github.com/acme/order-api/internal/service.(*OutboxRelay).deliver()\n      /home/runner/work/order-api/order-api/internal/service/outbox.go:151 +0x2a4\n==================\n--- FAIL: TestOutboxRelay_MarksDeadAfterMaxAttempts (1.02s)\n    testing.go:1490: race detected during execution of test\nFAIL\nFAIL\tgithub.com/acme/order-api/internal/service\t15.377s\nok  \tgithub.com/acme/order-api/internal/handler\t9.114s\nok  \tgithub.com/acme/order-api/internal/store\t14.208s\n</pasted_content id=\"8c03\">"
+    }
+  ],
+  "middle_hint": "中间是在 order-api 仓库里做别的事（接口加字段、写文档、整理中间件和配置、升级依赖之类），和测试里的数据竞争无关。"
+}

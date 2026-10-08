@@ -1,0 +1,17 @@
+{
+  "id": "new-topic-10",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "low",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条放下批量打标签，要把会员列表默认每页改成 50，别的列表保持 20，以前存的条数不用管。d1 的回复点出 pageSize 不是会员列表自己的：useMemberList 初始化时读 useUserPrefsStore 的全站共用 pageSize（默认 20，persist 在 shop-admin-prefs，版本号 3），任何列表改了都会写回。直接改 store 默认值会让所有列表变 50，所以要给会员列表单独的默认值（或单独字段），并想清楚会员列表里改条数是否还写回全局字段。范围清楚、一两个文件，但有共享状态这个坑要避开，定 medium，high 也可接受。读不到决定性几轮时像是改一个常量，会判 low。d1 首次提出批量打标签问题；最后一条是与它无关的新需求。"
+}

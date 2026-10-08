@@ -1,0 +1,25 @@
+{
+  "id": "explicit-unresolved-04",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "账单页切回后数据陈旧：改读 context 不钉查询代、缩短小组件写事务解决 SQLITE_BUSY、调整 HistoryTracker 写位置时机三轮修复，用户每次都说还是旧的；中间又长时间排查无结论，最后用 3.9.0 包复测仍跟之前一样。三轮失败后再提，跨进程 Core Data 同步与时序问题，给 max。去掉决定性几轮，仍有中间长时间无结论排查和用户说跟之前一样，按复杂调试给 xhigh。"
+}

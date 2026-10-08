@@ -5,58 +5,59 @@
   "bin": "d3",
   "relation": "same-problem",
   "placeholders": {
-    "FEATURE": "staging 环境的 Helm 部署",
-    "SYMPTOM": "deploy-staging 每次跑到 helm upgrade 那步都一直等到超时",
+    "FEATURE": "部署流水线里 helm upgrade 那一步",
+    "SYMPTOM": "部署 job 偶尔在 helm upgrade 那步停四分多钟后失败，重跑又能过",
     "ERROR": "Error: UPGRADE FAILED: timed out waiting for the condition",
     "FILE": "scripts/helm-deploy.sh",
-    "FILE2": "charts/api/values-staging.yaml",
+    "FILE2": ".github/actions/setup-tools/action.yml",
     "SYMBOL": "deploy_release",
-    "COMMAND": "gh workflow run deploy-staging.yml --ref main"
+    "COMMAND": "scripts/helm-deploy.sh staging"
   },
   "opening": [],
   "decisive": [
     {
       "role": "user",
       "msg": "d1",
-      "text": "staging 部署这两天一直挂 deploy-staging 跑到 helm upgrade 那步就干等 五分钟后报 `Error: UPGRADE FAILED: timed out waiting for the condition` 然后 atomic 回滚 部署脚本是 scripts/helm-deploy.sh 里的 deploy_release 你看下"
+      "text": "部署那条最近隔几天就挂一次 都是 scripts/helm-deploy.sh 里 deploy_release 那步 先干等四分多钟 然后脚本自己重试三次 很快也都挂了 最后一行是 `Error: UPGRADE FAILED: timed out waiting for the condition` 重跑一下又能过 群里说 9/22 开始的 到今天五次了 ARC 上和托管 runner 上都出过 你查一下 修了它"
     },
     {
       "role": "assistant",
-      "text": "先做了两件事：把超时放宽，并在失败时把集群里的事件打出来。上周换了基础镜像以后镜像大了一倍，五分钟可能真的不够；就算不是这个原因，下次失败也能看到卡在哪。改动推在分支 `ci/helm-timeout`，还没合。\n\n**看到的情况**\n\n- `scripts/helm-deploy.sh` 的 `deploy_release` 调的是 `helm upgrade --install api charts/api -f charts/api/values-staging.yaml --wait --atomic --timeout 5m`。\n- `.github/workflows/deploy-staging.yml` 最近 6 次 run 里 5 次挂在这一步，日志里只有这一行报错，`--atomic` 回滚后什么都没留下。\n- `docker/api.Dockerfile` 上周从 `eclipse-temurin:21-jre-alpine` 换成了 `21-jre`，`docker image ls` 看本地镜像从 210MB 变成 470MB。staging 节点是 `t3.medium`，冷拉镜像几分钟不奇怪。\n\n**改法**\n\n- `--timeout 5m` 改成 `15m`，写成脚本里的变量 `HELM_TIMEOUT`，workflow 里可以覆盖。\n- `deploy_release` 失败时（`trap ... ERR`）先跑 `kubectl get events -n staging --sort-by=.lastTimestamp | tail -50` 和 `kubectl get pods -n staging -o wide`，再退出，这样回滚前的现场会留在 Actions 日志里。\n\n**验证**\n\n- `shellcheck scripts/helm-deploy.sh` 无告警，`actionlint` 通过。\n- `helm upgrade --dry-run` 对 staging 跑了一遍，渲染正常。\n\n合进 main 以后跑一次 deploy-staging 看看？",
+      "text": "5 次里能拿到一点现场的只有 9/28 那次：失败前几分钟集群在扩节点，本次部署的新 Pod 排不下、一直 Pending，要等新节点起来才调度上去。先按这条处理了：在 staging 和 prod 的节点组里加了低优先级的占位 Pod，滚动更新时新 Pod 可以立刻挤掉占位先跑起来。改动在 `charts/cluster-overprovisioner/` 和 `terraform/` 里，已合进 main 并部署。\n\n**看到的情况**\n\n- `deploy_release` 对每个要发的服务跑 `helm upgrade --install ... --wait --atomic`，没传 `--timeout`，用的是 Helm 默认的 5 分钟；失败后脚本按 10、20、40 秒退避重试 3 次，最后把错误原样打出来。\n- `gh run list` 加日志搜索，5 次是 9/22、9/24、9/25、9/28、9/29：3 次跑在 ARC 的 staging runner 上，2 次跑在 GitHub 托管 runner 上。\n- 失败时 `--atomic` 都回滚了，Kubernetes 事件只留一个小时，早就没了。退而求其次看 Prometheus 里 cluster-autoscaler 的扩容记录：9/28 那次失败前 9 分钟扩了 2 个节点，当时排不下的 Pod 里就有这次部署的新 Pod；另外 4 次附近没有扩容，也查不到当时 Pod 停在什么状态。\n- 滚动更新是 `maxSurge: 1, maxUnavailable: 0`，节点没有余量时新 Pod 只能等新节点，等一台新节点起来大约三到四分钟，和「先停四分多钟」在一个量级上。一次部署的服务越多越容易把余量用光，9/28 那次发了 9 个服务。\n\n**改法**\n\n- 新增 `charts/cluster-overprovisioner`：一个 `PriorityClass`（值为 -10）加一组 `pause` 容器的 Deployment，staging 占 2 个 CPU、4Gi，prod 占 4 个 CPU、8Gi；新 Pod 优先级更高，会直接把占位 Pod 挤掉，autoscaler 再在后台把占位补回来。\n- `terraform/staging/eks` 和 `terraform/prod/eks` 里节点组的节点数上限各加 1，给占位留出余量。\n\n**验证**\n\n- `helm template` 和 `kubeconform` 通过，`terraform plan` 只有两个节点组的上限变化，已 apply。\n- staging 上手动触发 6 次部署，每次 12 个服务，全过，新 Pod 从创建到 Running 都在 40 秒以内，没有再等扩节点。\n\n5 次里只有 1 次能对上，6 次全过也说明不了太多，接下来几天的部署再看看。",
       "tools": [
-        "Read",
         "Bash",
+        "Read",
         "Grep",
+        "Write",
         "Edit"
       ]
     },
     {
       "role": "user",
       "msg": "d2",
-      "text": "合了 跑了 这次等了十五分钟 还是 `Error: UPGRADE FAILED: timed out waiting for the condition` 失败时打出来的 events 里有一堆这个\n<pasted_content id=\"3a9f\">\nWarning  Unhealthy  pod/api-7d9c6b5f4-x2kqp  Readiness probe failed: HTTP probe failed with statuscode: 404\nWarning  Unhealthy  pod/api-7d9c6b5f4-x2kqp  Readiness probe failed: HTTP probe failed with statuscode: 404\nNormal   Killing    pod/api-7d9c6b5f4-x2kqp  Stopping container api\n</pasted_content id=\"3a9f\">"
+      "text": "今天下午 staging 又挂了一次 一样 先停了四分多钟 然后 `Error: UPGRADE FAILED: timed out waiting for the condition` 我看了下那会儿没有扩节点"
     },
     {
       "role": "assistant",
-      "text": "这段 events 很有用：新 Pod 起来了，但就绪探针一直 404，所以 Helm 一直等不到 Ready。原因是 staging 的探针路径还是旧的。已经改了，渲染和 lint 都过了。\n\n**原因**\n\n- 应用在 2.4 版把健康检查从 `/healthz` 拆成了 `/health/live` 和 `/health/ready`（`git log -S healthz` 找到的是 9 月 22 日那次提交）。\n- `charts/api/values-prod.yaml` 当时一起改了，`charts/api/values-staging.yaml` 漏了：`readinessProbe.httpGet.path` 还是 `/healthz`，`livenessProbe` 也是。\n- 存活探针也是 404，但它的 `initialDelaySeconds` 是 60，加上 `failureThreshold: 3`，Pod 会被反复杀掉重启，事件里的 `Killing` 就是这个。\n\n**改法**\n\n- `values-staging.yaml` 里两个探针分别改成 `/health/ready` 和 `/health/live`，和 prod 对齐。\n- 顺手把 `values-staging.yaml` 和 `values-prod.yaml` diff 了一遍，除了副本数、资源和域名这些本该不同的，没有别的漏改。\n\n**验证**\n\n- `helm lint charts/api -f charts/api/values-staging.yaml` 通过，`helm template` 渲染出来的探针路径正确。\n- `kubeconform` 校验渲染结果通过。\n- 本地 `docker run` 起了新镜像，`curl localhost:8080/health/ready` 返回 200。\n\n推到 main 了，你再跑一次？",
+      "text": "没有扩节点，那这次卡的是拉镜像：几个服务的 `imagePullPolicy` 是 `Always`，新 Pod 每次起来都要先去 ECR 校验一遍镜像，ECR 那边一慢，Pod 就停在 `ContainerCreating`。已经改成按提交号打标签的镜像一律 `IfNotPresent`。\n\n**怎么查的**\n\n- 这次你说得早，事件还在一小时的保留期里：用 `kubectl get events -n <服务> --sort-by=.lastTimestamp` 查到了失败那 5 分钟里的事件，`catalog-api` 的新 Pod 有一条 `Pulling image ...`，3 分 50 秒以后才有 `Successfully pulled image`，中间一直是 `ContainerCreating`。\n- `charts/` 下 14 个服务里有 9 个是 `imagePullPolicy: Always`，是从最早的模板抄过来的。镜像标签都是 `${{ github.sha }}`，同一个标签内容不会变，每次都去 ECR 校验没有意义。\n- 这个镜像 470MB，节点上已经有同一个标签的缓存，但 `Always` 仍然要先拿到 manifest 再决定用不用缓存，这一步卡住就整体卡住。\n\n**改法**\n\n- 9 个服务的 values 里 `imagePullPolicy` 改成 `IfNotPresent`，`charts/_common/values.yaml` 的默认值也改了，以后新服务不会再抄错。\n\n**验证**\n\n- `helm template` 渲染确认 9 个 Deployment 都变了，`kubeconform` 通过。\n- staging 上连续手动触发 8 次部署，全过，新 Pod 从创建到 Running 的时间中位 22 秒，最长 51 秒。\n\n再观察几天。",
       "tools": [
-        "Read",
         "Bash",
         "Grep",
+        "Read",
         "Edit"
       ]
     },
     {
       "role": "user",
       "msg": "d3",
-      "text": "又跑了一遍 还是超时 还是这行 `Error: UPGRADE FAILED: timed out waiting for the condition` 这回 events 里没有 404 了 只看到 api-migrate 那个 job 的 pod 一直是 Pending"
+      "text": "周六晚上 prod 那次也挂了 还是先停四分多钟 `Error: UPGRADE FAILED: timed out waiting for the condition` 这回 Pod 的日志也看了 镜像几秒就拉下来了 没卡在拉镜像 Running 了但一直不 Ready"
     },
     {
       "role": "assistant",
-      "text": "这次卡在 Helm 的 pre-upgrade hook 上：迁移 Job 起不来，Helm 等的是这个 hook，根本还没走到 Deployment。Job 用的镜像标签在部署时可能还不存在，因为 deploy 这个 job 没等镜像构建完。已经补上依赖，并给 hook Job 加了期限，以后它起不来会直接报错而不是干等。\n\n**原因**\n\n- `charts/api/templates/migrate-job.yaml` 带 `helm.sh/hook: pre-upgrade`，镜像是 `{{ .Values.image.repository }}:{{ .Values.image.tag }}`，`tag` 由 workflow 传 `${{ github.sha }}`。\n- `.github/workflows/deploy-staging.yml` 里 `deploy` job 和 `build-and-push` job 是并行的，没有 `needs:`。之前镜像小、构建快，大多数时候 deploy 走到 helm 时镜像已经推完；换了大镜像以后构建要七八分钟，deploy 先到，Job 的 Pod 拉不到镜像。\n- 你看到的 `Pending` 应该就是 `ErrImagePull` 前后的状态；hook Job 没有设期限，Helm 就一直等到超时。\n\n**改法**\n\n- `deploy` job 加 `needs: build-and-push`。\n- `migrate-job.yaml` 加 `activeDeadlineSeconds: 600` 和 `backoffLimit: 2`，并加上 `helm.sh/hook-delete-policy: before-hook-creation`，避免上一次残留的 Job 挡住下一次。\n- `deploy_release` 里给 `helm upgrade` 加了 `--debug`，日志里能看到 Helm 在等哪个资源。\n\n**验证**\n\n- `actionlint` 通过；`helm template` 渲染出的 Job 带上了新字段。\n- 在 ECR 里确认 `${{ github.sha }}` 对应的标签只有在 `build-and-push` 完成后才出现，和推断一致。\n\n推到 main 了，再跑一次 deploy-staging 看看。",
+      "text": "Running 但一直不 Ready，那 Helm 等的是就绪探针。查到 prod 那次 `catalog-api` 的就绪探针连着超时：探针的 `timeoutSeconds` 是默认的 1 秒，节点忙的时候 JVM 刚起来那几分钟偶尔一秒回不来，连续 3 次失败就被标成不就绪，要等好几轮才能翻回来。已经把几个 Java 服务的探针放宽，并加了启动阶段单独的探针。\n\n**怎么查的**\n\n- 事件已经过期了，看的是 prod 的 Prometheus：`kube_pod_container_status_ready` 显示 `catalog-api` 的新 Pod 20:33 就 Running，之后 4 分钟一直不 Ready；kubelet 的 `prober_probe_total{probe_type=\"Readiness\",result=\"failed\"}` 那 4 分钟涨了 19。\n- `catalog-api` 自己的访问日志里，那几分钟 `/actuator/health/readiness` 的耗时在 1.2 到 2.1 秒之间，没有 404 或 503，是慢，不是报错。\n- prod 的 Prometheus 里看了那台节点：那几分钟 CPU 用到 92%，同一台上还有两个服务在滚动更新。Java 服务启动时 JIT 编译加缓存预热，`/actuator/health/readiness` 偶尔要 1.5 到 2 秒才回。\n- `charts/` 下 5 个 Java 服务的探针都是 `timeoutSeconds: 1`（默认值）、`periodSeconds: 10`、`failureThreshold: 3`。\n\n**改法**\n\n- 5 个 Java 服务的就绪探针改成 `timeoutSeconds: 3`、`failureThreshold: 6`。\n- 加了 `startupProbe`（同一个路径，`periodSeconds: 5`、`failureThreshold: 36`，最多给 3 分钟启动），启动探针通过之前不跑就绪和存活探针。\n- 资源的 `requests.cpu` 从 250m 调到 500m，避免几个服务同时起来挤在一台节点上。\n\n**验证**\n\n- `helm template` 和 `kubeconform` 通过；本地 `kind` 集群上限制 CPU 到 1 核起 `catalog-api`，改之前就绪探针会超时 4 到 6 次，改之后启动探针 70 秒左右通过，就绪探针没有失败。\n- staging 上手动触发 10 次部署，全过；prod 这次没有手动去压，等下一次正常发布。\n\n合进 main 了，后面的发布再看。",
       "tools": [
+        "Bash",
         "Read",
         "Grep",
-        "Bash",
         "Edit"
       ]
     }
@@ -64,8 +65,8 @@
   "final": [
     {
       "role": "user",
-      "text": "又跑了一次 deploy-staging 最后还是 `Error: UPGRADE FAILED: timed out waiting for the condition` 再看看"
+      "text": "今天下午又挂了一次 先停了四分多钟 后面三次重试也很快挂了 `Error: UPGRADE FAILED: timed out waiting for the condition`"
     }
   ],
-  "middle_hint": "中间是同一个问题的继续排查：读 deploy_release 和 workflow、看 Helm hook 和探针配置、翻 Actions 日志和集群事件、问 Helm 等待的原理，没有新的修改，也没有结论。"
+  "middle_hint": "中间是同一个问题的继续排查：翻失败 run 的日志、查 runner 和网络、对超时和重试设置、看 9/21 那次依赖升级和值班记录、对比 staging 和 prod，没有新的修改，也没有结论。"
 }

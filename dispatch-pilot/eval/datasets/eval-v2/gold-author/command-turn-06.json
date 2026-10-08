@@ -1,0 +1,21 @@
+{
+  "id": "command-turn-06",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后这条用 /to-spec 把机密客户端密钥轮换写成规格。决定性几轮里方案已经讨论完：助手理了现状、列了六个要拍板的问题，用户逐条定了（新旧并存 7 天自动失效、控制台自助加 API、API 用当前密钥认证加限流、最多 2 把、到期提醒先不做、审计通知照推荐、新密钥只显示一次），助手也汇总成了一张表。现在要做的是把这些已定的决定加上现状整理成文档，补上表结构和接口的写法、验收标准，基本不需要再权衡：medium；有些细节（表怎么改、接口路径）还要自己补，判 high 也可以。删掉决定性几轮，中间是不相干的活，只看到「写一份机密客户端密钥轮换的 spec」，就得自己设计交接方式、发起方、并存期、审计和限流，再落成规格，是安全相关的方案设计：xhigh。三选一：d1 第一次提出这件事，new_or_unrelated；d2 用户对推荐逐条拍板、接受了方案，resolved；最后这条是在已定方案上起一件新活（写规格），不涉及什么没解决的问题，new_or_unrelated。（审稿改动：素材池里机密客户端密钥存在 oauth_clients.secret_hash，是 SHA-256 加 timingSafeEqual，不是 argon2id；scripts/create-client.ts 在某一段里才新写出来，题目不宜断定它已存在；client_credentials 的客户端有 11 个（9 个内部服务）。d1 的现状改成 secret_hash 和 SHA-256、换密钥只能照 runbook 手写 SQL 改库、「合作方的机密客户端 6 个」，审计那句改成没有换密钥这类动作。金标不变。）"
+}

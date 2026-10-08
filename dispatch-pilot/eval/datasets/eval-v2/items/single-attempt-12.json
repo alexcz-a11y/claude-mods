@@ -5,12 +5,12 @@
   "bin": "d4",
   "relation": "same-problem",
   "placeholders": {
-    "FEATURE": "CI 上的文档站构建",
-    "SYMPTOM": "加上中文站之后 CI 上的构建跑到一半内存就爆了",
-    "ERROR": "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory",
-    "FILE": "scripts/remark-glossary.js",
-    "FILE2": "docusaurus.config.js",
-    "SYMBOL": "remarkGlossary",
+    "FEATURE": "API 文档里参数表的必填标签",
+    "SYMPTOM": "参数表里的必填、可选标签显示成了另一种语言",
+    "ERROR": "Warning: Each child in a list should have a unique \"key\" prop. Check the render method of ParamTable. See https://reactjs.org/link/warning-keys for more information.",
+    "FILE": "docs/api/messages/create.mdx",
+    "FILE2": "docs/guides/webhooks.mdx",
+    "SYMBOL": "ParamLabel",
     "COMMAND": "npm run build"
   },
   "opening": [],
@@ -18,14 +18,14 @@
     {
       "role": "user",
       "msg": "d1",
-      "text": "CI 上 npm run build 现在会内存爆掉 加了中文站之后开始的 日志最后一行是 `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory` 一般跑到 client 编译 60% 左右就挂 我本地 M2 32G 能过 就是慢 你看下"
+      "text": "参数表那块有读者反馈标签显示成另一种语言了 中文页上 必填 可选 变成了 Required Optional 英文页上也有人说看到了中文 都说刷新一下就好了 我自己刷了几十次一次没碰到 另外 9/24 下午开始 CI 的构建日志里时不时多一行 `Warning: Each child in a list should have a unique \"key\" prop. Check the render method of ParamTable.` 大概三次构建里有一次 页面主要是 docs/api/messages/create.mdx 那几页 你看下"
     },
     {
       "role": "assistant",
-      "text": "先把 Node 的堆上限调大了，CI 一次要 20 多分钟，跑完你看下结果。\n\n**查到的情况**\n\n- `.github/workflows/build.yml` 跑在 `ubuntu-latest` 上，`actions/setup-node` 用 Node 20，没有设 `NODE_OPTIONS`。Node 20 在这台 runner 上的默认老生代上限大约 2 GB 出头。\n- `docusaurus.config.js`：`i18n.locales` 是 `['en', 'zh']`，`npm run build` 不带 `--locale` 时两个语言一起构建；docs 插件的 `remarkPlugins` 里挂了仓库自己的 `remarkGlossary`（`scripts/remark-glossary.js`），给正文里的术语加提示框。\n- 本地用 `/usr/bin/time -l npm run build` 量了一次：峰值 RSS 5.8 GB，耗时 9 分 40 秒；只构建英文站（`--locale en`）峰值 3.1 GB。中文站加进来以后页面数从 412 涨到 824，内存差不多翻倍。\n- 顺手读了 `remarkGlossary`：它在模块顶层有一个 `Map`，按文件路径缓存每个文件的术语匹配结果，构建过程中从不清理。这可能也占了不少，但要量过才知道，这次先不动它。\n\n**改法**\n\n- `build.yml` 的 build 步骤加 `env: NODE_OPTIONS: --max-old-space-size=6144`。\n- `package.json` 的 `build` 脚本也带上同样的参数（用 `cross-env`，Windows 上的同事也能跑），本地和 CI 一致。\n\n**验证**\n\n- 本地带上参数跑了一次 `npm run build`，通过，峰值 RSS 和之前差不多，说明本地本来就没撞上限，只是 CI 的上限低。\n- 推到了分支 `fix/build-heap`，开了 PR #233 触发 CI，现在还在跑 client 编译。\n\n如果 CI 上还是挂，再看 `remarkGlossary` 的缓存和 webpack 的持久化缓存这两处。",
+      "text": "找到一处能让标签换成另一种语言的地方，已经改了并上线：参数表在浏览器里取标签的语言时，先读的是本地存储里记下的「上一次访问的站点语言」，而不是当前这个站点的语言。读者先看过英文站、再打开中文站的参数表，标签就是英文的；这次打开又会把记录改成中文，所以刷新或者再开一次就对了，和反馈里说的一样。构建日志里那行警告也出在同一段代码里，一起改了。\n\n**查到的情况**\n\n- 标签是 `ParamLabel`（`src/components/ParamLabel/index.js`）渲染的，中英文各六个短标签写在模块里的对照表中；调用方传了 `locale` 就按传的取，没传就用站点当前的语言。\n- `ParamTable`（`src/components/ParamTable/index.js`）逐行调用它，并且自己给它传 `locale`：在 `useEffect` 里读 `localStorage` 的 `docs.paramLocale`，有值就把 `locale` 换成它，再把当前站点的语言写回去。这段是 7 月为了「从控制台的帮助链接跳过来时跟着控制台的语言走」加的，后来控制台改成直接链到对应语言的站点，就用不着了，但一直留着。\n- 中英文两个站点在同一个域名下，本地存储是共用的，所以英文站写下的 `en` 会被中文站读到，反过来也一样。只有在两个站点之间来回看过的读者才会碰到，而且只碰到一次。\n- 本地 `npm run build` 加 `npm run serve`：先开英文的 `/docs/api/messages/create`，再开 `/zh/docs/api/messages/create`，标签先是「必填」，脚本加载完变成「Required」，刷新以后又是「必填」；顺序反过来，英文页上出现「必填」。\n- 那行 key 警告指向的也是 `ParamTable`：它的行 `key` 是拿参数名和标签文字拼的，嵌套对象里同名、同样必填的参数（比如两个对象下都有必填的 `id`）会拼出一样的 key，换语言时整张表按新标签重新生成一遍。我判断警告和标签换语言出在同一段取语言、拼标签的代码里。\n\n**改法**\n\n- `src/components/ParamTable/index.js`：删掉 `useEffect` 里读写 `docs.paramLocale` 的那段，不再给 `ParamLabel` 传 `locale`，标签统一按站点当前的语言取；行的 `key` 改成参数的完整路径（比如 `metadata.id`），不再带标签文字。\n- `ParamLabel` 本身没改。\n\n**验证**\n\n- `npm run build` 通过，en 和 zh 两份产物里这几页的标签都对。\n- `npm run serve` 下用 Chrome 和 Safari，按各种先后顺序在中英文站之间来回开了 30 多次，直接打开和从侧边栏点进去都试了，标签都跟着站点语言走。\n- 本地连着冷构建了 5 次，都没有那行警告。\n\n**还没对上的**\n\n- 警告是构建时打的，只在三成多的构建里出现；key 撞了的话照理每次构建都该有，为什么时有时无，我还解释不了，本地 5 次没出现也说明不了它已经没了。\n- 读本地存储的这段 7 月就有了，反馈和警告却都是 9/24 以后才冒出来的，这一点也还没对上。\n\n所以合进去以后还要看一阵 CI 日志和读者反馈。PR #1216 已经合并，11:20 那次部署上线，CloudFront 失效也完成了。",
       "tools": [
-        "Read",
         "Grep",
+        "Read",
         "Bash",
         "Edit"
       ]
@@ -34,8 +34,8 @@
   "final": [
     {
       "role": "user",
-      "text": "构建内存那个 今天 CI 又爆了 还是那行 heap out of memory"
+      "text": "参数表标签那个 上线一个多星期了 今天反馈里又有人说中文页上是 Required Optional 刷新才好 构建日志里那行 key 的 Warning 也还是时不时有"
     }
   ],
-  "middle_hint": "中间很长一段都在继续排查 CI 上文档站构建内存爆掉：看 remarkGlossary 的缓存、docusaurus.config.js 的插件和 locale 配置、量内存曲线、对比 CI 和本地、写只构建部分页面的复现脚本，只看不改，也没有结论。占位符：FEATURE CI 上的文档站构建；SYMPTOM 加上中文站之后 CI 上的构建跑到一半内存就爆了；ERROR FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory；FILE scripts/remark-glossary.js；FILE2 docusaurus.config.js；SYMBOL remarkGlossary；COMMAND npm run build。"
+  "middle_hint": "中间是同一个问题的继续排查：查 ParamLabel 的数据来源和用到它的页面、对比本地和线上的构建产物、统计 CI 日志、读读者反馈和工单、在浏览器里实测、写复现脚本、做缓存和依赖的对照。素材段里两样现象都是偶发的：那行警告大约三成多的构建里出现，读者反馈说刷新或者再开一次就好。只看不改，没有新的修改尝试，用户也没有评价第一次的修复，没有结论。占位符：FEATURE API 文档里参数表的必填标签；SYMPTOM 参数表里的必填、可选标签显示成了另一种语言；ERROR Warning: Each child in a list should have a unique \"key\" prop. Check the render method of ParamTable. See https://reactjs.org/link/warning-keys for more information.；FILE docs/api/messages/create.mdx；FILE2 docs/guides/webhooks.mdx；SYMBOL ParamLabel；COMMAND npm run build。"
 }

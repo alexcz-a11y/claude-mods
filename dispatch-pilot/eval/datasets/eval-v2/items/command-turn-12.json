@@ -1,0 +1,95 @@
+{
+  "id": "command-turn-12",
+  "category": "command-turn",
+  "domain": "security",
+  "bin": "d4",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "运营后台员工登录的 TOTP 有问题 好几个同事说验证码明明是刚刷新出来的 输进去提示验证码错误 等下一个码再输就过了 一天总有一两个人碰到 日志里是 `WARN totp verify failed userId=emp_1042 attempt=1 reason=invalid_code` 代码在 src/auth/mfa/totp.ts 你看下"
+    },
+    {
+      "role": "assistant",
+      "text": "先改了一处最像的。\n\n- **看到的**：`verifyTotp` 只认当前这一个 30 秒步长（`window: 0`）。码快到期时输入、点提交、请求到服务器，中间跨过步长边界就会被拒，「等下一个码再输就过了」也对得上。\n- **改法**：`window` 改成 1，前后各容一个步长，RFC 6238 也建议留这点余量。已用过的码照旧记在 Redis 里，同一个码第二次用还是拒，重放保护不放松。\n- **验证**：`src/auth/mfa/totp.test.ts` 用 `vi.setSystemTime` 补了三个用例：边界前 1 秒生成、边界后 1 秒提交能过；隔两个步长拒绝；同一个码第二次拒绝。`npm test` 全过。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "上线两天了 还是有 昨天财务的小林碰到一次 她说就是刚跳出来的新码 输完立刻点的"
+    },
+    {
+      "role": "assistant",
+      "text": "刚跳出来的码也被拒，就不是步长边界的问题。换了个方向：\n\n- **看到的**：员工登录是两步，密码通过以后 `src/auth/mfa/challenge.ts` 建一个待验证的 challenge，Redis 里只留 60 秒。过期以后再提交，`challenge.ts` 取不到记录，走的也是 `reason=invalid_code` 那个分支，提示和真的输错一模一样。翻了这两天被拒的 11 次，有 3 次离密码通过已经超过 60 秒（有人密码输完去拿手机、解锁、找 App）。\n- **改法**：challenge 保留 5 分钟；过期单独返回 `mfa_challenge_expired`，页面提示「验证已超时，请重新登录」，日志里也分开记，不再混进 `invalid_code`。\n- **验证**：补了「60 秒后提交仍能验证」「5 分钟后提交返回过期」两个用例，全过；staging 上密码通过后等两分钟再输码，能过。\n\n剩下 8 次都是在 60 秒以内提交的，这一处解释不了，上线后再看。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是有 今天上午两个人碰到 都是密码输完马上输的码 不是超时"
+    },
+    {
+      "role": "assistant",
+      "text": "对，这两次离密码通过都只有十几秒。查了提交上来的原始值：\n\n- **看到的**：前端的 TOTP 输入框是普通的 `input type=\"text\"`，`challenge.ts` 用 `/^\\d{6}$/` 校验，不匹配也是记成 `invalid_code`。今天上午那两次的请求体里我没法看到原值（日志按规矩不打验证码），但在 staging 上试了：中文输入法全角状态下敲出来的是 `１２３４５６`，粘贴时手机端验证器会带一个尾空格，两种情况都会被正则挡掉，表现就是「输对了还说错」。\n- **改法**：服务端先做 NFKC 规整、去掉所有空白再校验；前端输入框加 `inputmode=\"numeric\"`、`autocomplete=\"one-time-code\"`，`maxlength` 放到 8，让带空格的粘贴不会被截断。\n- **验证**：补了全角数字、首尾空格、中间带空格三个用例，全过；staging 上用全角输入和粘贴各试了几次，都能过。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d4",
+      "text": "还是不行 这次是我自己 英文输入法 一个一个敲的 码刚刷新 输完就提示错误 过了一个码又好了"
+    },
+    {
+      "role": "assistant",
+      "text": "你这次排除了输入法和粘贴。我回头去看服务端的时间：\n\n- **看到的**：6 个 pod 各自打了一行当前时间，再和 NTP 比，`auth-svc-7d9c4-q2xlm` 所在的节点快了 37 秒，`chronyd` 在那台节点上没起来。`window: 1` 只容前后 30 秒，请求落到这个 pod 上、手机上的码又刚刷新时，服务器已经算到下一个步长去了，就会被拒；轮到别的 pod 就能过，和「过一个码又好了」也对得上。\n- **改法**：请 infra 修好了那台节点的 `chronyd`，现在偏差在 10 毫秒以内；代码里加了一个每分钟和 NTP 比一次的小任务，结果写进 `auth_clock_skew_seconds` 指标，偏差超过 5 秒时 `verifyTotp` 失败的日志里带上偏差值，告警规则交给 infra 配。\n- **验证**：6 个 pod 的偏差都在 20 毫秒以内；把 staging 一个 pod 的时间故意拨快 40 秒，指标上能看到 40，那个 pod 上校验失败的日志也带出了偏差。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d5",
+      "text": "还是有 今天上午又两次 我看了下请求都不在那个 pod 上 时钟也都是好的"
+    },
+    {
+      "role": "assistant",
+      "text": "确认了：这两次分别落在 `p8rtz` 和 `k4wmc` 上，两台节点的时钟偏差都在 20 毫秒以内，challenge 没过期，提交的原值也规整过。前面四处改动（步长容差、challenge 过期、输入规整、节点时钟）各自都是真问题，也都留着，但这个「刚刷新的码被拒」一次都没解释到。\n\n现在手上能确定的只有：被拒的都是员工账号；被拒时 `attempt=1`，紧接着下一个码就过；同一个人一天里大多数登录都正常。下一步我想先不改，在 `verifyTotp` 里临时把服务器算出的步长号、前后几个候选码的哈希前缀和这次比对的结果记下来（不记码本身），等下一次出现时对着看，到底是服务器算错了码，还是拿到的种子不对。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "/debug 员工 TOTP 刚刷新的码还是提示验证码错误",
+      "command": {
+        "name": "debug",
+        "description": "系统地排查一个问题：复现、缩小范围、找到根因，再修复并验证。"
+      }
+    }
+  ],
+  "middle_hint": "中间在同一个 auth-svc 仓库里做别的事：改登录文案、补集成测试、写文档和 runbook、加限流和指标、review PR、评估升级等，和员工 TOTP 被误拒的问题无关，没有再碰这个问题。"
+}

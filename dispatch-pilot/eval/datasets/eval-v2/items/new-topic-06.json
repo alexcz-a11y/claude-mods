@@ -5,39 +5,38 @@
   "bin": "d2",
   "relation": "same-problem",
   "placeholders": {
-    "FEATURE": "CI 上的文档构建",
-    "SYMPTOM": "CI 里 npm run build 偶尔跑到一半内存溢出退出",
-    "ERROR": "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory",
-    "FILE": "docusaurus.config.js",
-    "FILE2": "src/remark/imageSize.js",
-    "SYMBOL": "remarkImageSize",
-    "COMMAND": "npm run build"
+    "FEATURE": "API 参考页参数表的默认值列",
+    "SYMPTOM": "参数表里默认值那一列偶尔整列是空的，刷新一下又正常",
+    "ERROR": "[WARNING] Docusaurus static site generation emitted a warning: Cannot read properties of undefined (reading 'default') (at assets/js/main.7b41c2e9.js:2:18311)",
+    "FILE": "docs/api/messages/batch-send.mdx",
+    "FILE2": "docs/_snippets/common-send-params.mdx",
+    "SYMBOL": "ParamDefault",
+    "COMMAND": "npm run clear && npm run build"
   },
   "opening": [],
   "decisive": [
     {
       "role": "user",
       "msg": "d1",
-      "text": "CI 上 npm run build 这两周隔三差五就挂 报 `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory` 重跑有时候又能过 你看看怎么回事"
+      "text": "API 参考那几页 参数表里默认值那一列有时候整列是空的 反馈里有两个人说了 我自己打开是好的 有一个说刷新一下就有了 CI 的构建日志里这两天还冒出一行 `[WARNING] Docusaurus static site generation emitted a warning: Cannot read properties of undefined (reading 'default') (at assets/js/main.7b41c2e9.js:2:18311)` 以前没见过 你看看 先从 docs/api/messages/batch-send.mdx 看吧"
     },
     {
       "role": "assistant",
-      "text": "先看了 CI 配置和构建过程，改了一处：CI 没给 Node 设堆上限，用的是默认值。但原因还不能说就是它。\n\n- **查到的**：\n  - `.github/workflows/docs.yml` 在 `ubuntu-latest` 上跑，`npm ci` 之后直接 `npm run build`，没有设 `NODE_OPTIONS`，Node 20 在这台机器上默认的堆上限是 4GB 左右。\n  - `gh run list` 翻了最近两周 31 次构建，挂了 9 次，都死在 `[zh] Creating an optimized production build` 之后，英文那一遍总是能过。\n  - `docusaurus.config.js` 的 `remarkPlugins` 里有一个自己写的 `remarkImageSize`（`src/remark/imageSize.js`），给每张图片补宽高：它用 `fs.readFileSync` 把整张图读进内存再解析尺寸，没有缓存，一张图被几个页面引用就读几次。`static/img/` 下面 2300 多张 PNG，一共 1.4GB。\n  - 本地用 `/usr/bin/time -l npm run build` 跑了两遍，峰值内存 3.7GB 和 4.1GB，第二遍差一点挂。\n- **改法**：`docs.yml` 的构建步骤给 `NODE_OPTIONS` 设了 8GB 的堆上限。`remarkImageSize` 没动，等确认了再说。\n- **验证**：分支上推了 3 次，构建都过了，最长 11 分钟。\n\n这只是加了余量，偶发的问题要多看几天。",
+      "text": "先把页面、组件和最近的构建日志看了一遍，代码没动：默认值那一列是 `ParamDefault` 渲染的，构建日志里那一行从 9/24 下午那次部署开始出现，之后大约三成的构建里有；它和读者看到的空列是不是一回事，现在还说不了。\n\n- **页面和组件**：`docs/api/messages/batch-send.mdx` 里的参数表是 `<ParamTable>`，每个参数的默认值交给 `src/components/ParamTable/ParamDefault.tsx`，按类型格式化以后显示（数字、布尔、枚举、对象各一种写法），没有默认值的显示「—」。整列是空的，说明这一列每一行都没渲染出东西，连「—」都没有。API 参考下面用到 `ParamDefault` 的页面不少，两条反馈说的是 batch-send 和另外一页。\n- **两条反馈**：9/25 上午一条，batch-send 中文页，Chrome / Windows；9/26 下午一条，另一页的英文版，Safari / macOS，说 reload 以后就好了。\n- **构建日志**：`gh run list` 拉了 `ci.yml`、`preview.yml`、`deploy.yml` 7 月以来的日志，按这一行固定不变的那段 `grep -F`：9/24 15:49 第 538 次部署之前一次都没有，之后 31 次构建里 11 次有。同一个提交的 `ci.yml` 和 `preview.yml` 有时一个有一个没有。这一行都落在 `Compiled successfully` 之后、`[SUCCESS] Generated static files` 之前，也就是静态生成那一段。\n- **9/24 前后合进来的**：#1201（小周的翻译大同步，9/24 上午）、#1205（9/24 下午，batch-send 改了 11 行，其中 4 行是 `ParamDefault` 的用法），再往前 9/22 有 #1192 的依赖升级。时间上都对得上，分不出是哪个。\n- **本地试了**：`npm run clear && npm run build` 冷构建 6 次，2 次有这一行；`npm run serve` 起来，batch-send 中英文各打开 30 次，一次空列都没碰到。\n\n下一步想把有这一行和没有这一行的两次构建产物里 batch-send 的 HTML 拿出来对比，只读。",
       "tools": [
         "Read",
-        "Bash",
         "Grep",
-        "Edit"
+        "Bash"
       ]
     },
     {
       "role": "user",
       "msg": "d2",
-      "text": "加了内存今天早上 main 上还是挂了一次 另外说一下 static/img 里那些截图都是 scripts/screenshots.mjs 生成的 每次发版跑一遍 你看看是不是图太大了"
+      "text": "前天又有一个 另一页的中文 手机上 还是默认值那列空的"
     },
     {
       "role": "assistant",
-      "text": "今天早上那次看了：堆上限确实是 8GB，挂的时候已经用满了，所以不单是余量不够。截图脚本也读了，图确实大，但能不能解释「偶尔」还说不准。这次没改东西。\n\n- **今天早上那次**：日志里最后几行 GC 记录显示挂之前堆用到了 7.9GB，还是在 `[zh]` 那一遍。8GB 都用满，说明内存是一路在涨，不是一下子顶上去的。\n- **`scripts/screenshots.mjs` 怎么工作**：\n  - 用 Playwright 起 Chromium，打开环境变量 `DEMO_URL` 指的演示站，用 `DEMO_USER`、`DEMO_PASS` 登录（CI 里放在 secrets，本地放 `.env.local`）；\n  - 截哪些页面写在 `scripts/screenshots.json`：186 条，每条只有 `id`、页面路径、视口大小、等几秒，不依赖页面里的任何元素；\n  - 每条截两遍，界面语言切成英文和中文各一次，写到 `static/img/screens/<id>.png` 和 `i18n/zh/docusaurus-plugin-content-docs/current/assets/screens/<id>.png`；\n  - `npm run screenshots -- --all` 全部重截，`--only <id>` 只截一张；跑完会列出哪些图变了、哪些路径打不开，git 里看 diff 就行。上次发版（8 月 28 日）就是这么全量跑的，一个提交里 372 张图一起换的。\n- **图有多大**：截图用的是 `deviceScaleFactor: 2`，平均一张 1.1MB，两种语言加起来 410MB，占 `static/img/` 的三成左右。`remarkImageSize` 每次都整张读进来，中文那一遍除了自己目录下的图还会读英文的公共图，所以中文那遍读的比英文多。\n- **还说不准的**：图大能解释内存高，但同一个提交有时过有时挂，单靠图大说不通，可能还有别的东西在涨。\n\n下一步想在 CI 上开 `--heapsnapshot-near-heap-limit`，抓一份快照看看到底是什么占着内存，你看行不行。",
+      "text": "默认值那列还是没有结论，代码没动。另外翻预览站的运行记录时看到一件不相干的事，放在最后。\n\n**默认值那列**\n\n- 前天那条是 9/30 中午，第三个页面的中文版（不是 batch-send，也不是 9/26 那页），Android 上的 Chrome。按 CloudFront 失效完成的时间对，那会儿线上挂的是第 546 次部署，它的构建日志里有那一行；9/25 那条对到 539，没有这一行；9/26 那条对到 541，有。三次里两次落在「有这一行」的版本上，一次不在，而有这一行的版本在线时间本来就占三成左右，这点样本说明不了它们有关系。\n- batch-send 的 HTML 对比做了：538（有这一行）和 539（没有）两次产物里，默认值那一列的 HTML 一模一样，每一格都有值。也就是说服务端生成出来的页面是好的，如果读者那边真是空的，更像是浏览器里接管页面以后才变成空的。\n\n**顺带看到的，和这个问题无关**\n\n想找一个改过 batch-send、预览站还在的 PR 当对照（没有：最近的 #1205 合并已经超过 7 天，预览目录被清理任务删了），翻 `preview.yml` 最近的运行时看到：9/30 下午以后，每次运行最后一步 `Comment preview URL` 都失败，报 `HttpError: Bad credentials`。\n\n- 这一步不用 `GITHUB_TOKEN`，用的是 secret `DOCS_BOT_TOKEN`，也就是 `docs-bot` 机器人账号的个人访问令牌，为的是评论显示成机器人发的。`gh secret list` 看它的更新时间是 2025-09-30，那一步上面的注释写着「令牌一年有效，到期前在 docs-bot 账号里重新生成」，日期正好对上，是到期了。\n- 这一步写了 `continue-on-error: true`，所以 job 还是绿的，PR 上看不出来。前面的构建和上传都正常：这几天新 PR 的 `pr-<号>/` 目录都在 `acme-docs-preview` 桶里，直接打开 `https://preview.docs.acmenotify.com/pr-<号>/` 能看到最新的构建，只是 9/30 以后开的 PR 下面不会再有预览地址的评论。\n- 要恢复得有人在 `docs-bot` 账号里重新生成令牌，再更新仓库的这个 secret，这两样我都没有权限，先记在这。\n\n默认值那列，下一步想在浏览器里把水合前后这一列的 DOM 录下来，你看行不行。",
       "tools": [
         "Bash",
         "Read",
@@ -48,8 +47,8 @@
   "final": [
     {
       "role": "user",
-      "text": "构建那个先放着 下周 2.0 发版 产品界面全换了 文档里的截图都得换成新版的 2.0 的预览环境是 https://preview-2-0.demo.example.com 账号还是原来那个 你弄一下吧"
+      "text": "参数表那个先放着 小周问他这两天提的 PR 怎么都没有预览地址的评论了 是预览站挂了吗 你跟我说下怎么回事就行 我回他"
     }
   ],
-  "middle_hint": "中间继续排查 CI 上文档构建偶发内存溢出的问题：对比各环境、翻构建日志、看 remarkImageSize 和配置、加观测，没有改实现，也没有结论。"
+  "middle_hint": "中间继续排查 API 参考页参数表默认值那一列偶尔是空的问题：对比构建产物和线上版本、翻构建日志、看 ParamDefault 和相关组件、在浏览器里复现、加观测，没有改实现，也没有结论。"
 }

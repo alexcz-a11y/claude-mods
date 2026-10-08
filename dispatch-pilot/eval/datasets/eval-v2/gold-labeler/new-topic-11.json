@@ -1,0 +1,21 @@
+{
+  "id": "new-topic-11",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "low",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条要把未支付关单从 30 分钟改成 15 分钟。决定性几轮里已经列出「30 分钟」散在多处且只有关单那处是配置：paylink 下单 time_expire 写死 30 分钟、补单任务 PollPendingPayments 写死 5–30 分钟窗口、pay_deadline 的 openapi 说明、锁库存 Reserve 写死 35 分钟、商户文档和帮助中心文案，cardpay 的 expires_at 跟配置走，还有 CARDPAY_PENDING_GRACE 15m 的宽限期。只改 ORDER_EXPIRE_MINUTES 会让 paylink 支付单在 15–30 分钟之间付款时又走晚到支付自动退款，正是刚修好的那类问题；上线切换时在途订单的支付单过期时间也是 30 分钟。这是涉及资金、跨多处、要推敲故障模式和切换过程的改动，定 xhigh，high 也可接受。读不到决定性几轮时像是改一个配置值，会判 low。d1 首次提出自动退款问题；d2 确认数量正常并让提交，已解决；最后一条是新需求。"
+}

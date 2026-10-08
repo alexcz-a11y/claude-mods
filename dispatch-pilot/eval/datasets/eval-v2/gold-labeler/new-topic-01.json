@@ -1,0 +1,25 @@
+{
+  "id": "new-topic-01",
+  "effort": "xhigh",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "从库延迟问题在 d3 已由用户确认解决并提交，最后一条是新任务：把归档导出从 csv.gz 改成 parquet。决定性几轮里查清了这些文件有四个按『CSV、按列位置、一个区间一个文件』读取的消费方：仓库内的 restore_inventory_logs.py（COPY csv）和 verify_export()，以及仓库外财务的 Athena 表 finance_audit.inventory_logs_archive（年度审计）和数据组 bi-sync 的全量重建。而且导出后源数据就被删除，归档文件是 18 个月以前数据的唯一副本，parquet 写出时的类型、时区 +08、精度一旦出错就会造成不可逆的数据丢失。所以这不是改一个写文件函数：要设计迁移方案（新前缀或双写、同一前缀下格式混存会让 Athena 读坏）、改 restore 和 verify、协调两个外部团队，属于跨组件、需要反复验证的高风险改动，定 xhigh，数据完整性风险高，max 也可以接受。看不到决定性几轮时，只像是在一个 job 里换导出格式，会判 medium。"
+}

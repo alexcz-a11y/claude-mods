@@ -1,0 +1,21 @@
+{
+  "id": "new-topic-04",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后一条明确把发布配置的偶发失败放着，转去处理 Node.js 20 弃用警告，是新任务。决定性几轮的 d1 回复里已经把这件事查完了：只有 .github/actions/setup-tools/action.yml 第 18 行 hashicorp/setup-terraform@v3 和第 25 行 azure/setup-helm@v4 触发警告；新版本 v4、v5 唯一的破坏性变更是换成 node24，ARC 2.329.0 和托管 2.331.0 都满足最低 runner v2.327.1；用到的输入名和默认值没变；另外两条 warning 不是这两个 action 打的；改法就是这两行的版本号。剩下的是照着明确结论做的两行机械改动，定 low；要再跑一次确认警告消失，medium 也可以。看不到决定性几轮时，要自己找出是哪些 action、核对新版本和 runner 兼容性，会判 medium。d2 说同样的报错又出现，问题仍在。"
+}

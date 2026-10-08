@@ -1,0 +1,21 @@
+{
+  "id": "hard-constraint-08",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "effort xhigh。最后这条是给 /trail 的每条记录加上 cwd、把摘要从 40 字放宽到 200 字。决定性几轮里 tool-trail 刚因为 store 里存了明文的生产 Authorization 头和数据库密码被安全组记了一次凭证泄露，用户定了五条：所有落地和显示的出口先过 redact.ts；redact.ts 一改就跑两百多条样本、一条不能漏；新加任何一个字段要写清从哪来、经过哪几个出口，每个出口都要有用例证明脱敏；不许凭感觉认定某个字段不会带密钥；发版前老孟过 diff 和样本结果。这条的两件事都在规矩里：cwd 是新字段，正中第 3、4 条；摘要放宽则动到 d1 助手交代过的前提：214 条样本是按截成 40 字之后的输出判的，第 40 字往后从没判过。照规矩要做的：追清 cwd 从哪来（事件字段还是会话信息），它不是工具入参，而现在 summarizeCall 里先过 redact 的是入参，要确保 cwd 也过 redact 再进五个出口；不能想当然说路径里没有敏感信息，要给路径造样本（带用户名、客户名、URL 形式的挂载点等）；五个出口逐个补用例；把 214 条样本加 60 条反例按 200 字重跑、读结果，原来被截断挡住的凭证可能露出来，要逐条查清、补 redact 规则，redact 一改又要整套重跑；看状态行和 toast 放宽以后怎么显示；最后备齐 diff 和样本结果给老孟。追出口、按新长度重跑样本并解读、补规则后再跑，是一串要实测和判断的步骤：xhigh。\naccept [high, xhigh]：产出物是 mod 的代码改动，不是直接改写或交出无法恢复的数据；就算有漏，后果也要等新版运行一段时间、在各人机器上落下记录才发生，代码本身可以回滚或再发一版，所以往 high 扩；发版前还有老孟这一关。\neffort_without_decisive medium：删掉决定性几轮，中间只是少记录那个问题的排查，看不到泄露事故和脱敏规矩，最后一句就是记录里加一个字段、改一个截断长度，属于加一个简单的字段。消息里没有会推到 high 的边界条件。自查：单看最多 medium，不进 accept。\n三选一：d1 同时提了两件事（泄露后的规矩加补 redact.ts，和少记录的问题），都是第一次提出，new_or_unrelated；d2「老孟看过了 样本结果也看了 合了发版吧」针对的是补 redact.ts 那件，接受结果并让发版，resolved；最后这条「少记录那个先放着」明说把原问题放下，转去提新的展示需求，new_or_unrelated。用户没有放宽规矩。"
+}

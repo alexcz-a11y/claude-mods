@@ -5,52 +5,54 @@
   "bin": "d3",
   "relation": "same-problem",
   "placeholders": {
-    "FEATURE": "生产环境部署的 OIDC 角色切换",
-    "SYMPTOM": "打 tag 触发的生产部署在拿 AWS 凭证那一步失败",
-    "ERROR": "Error: Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity",
-    "FILE": "terraform/iam/github_oidc.tf",
-    "FILE2": ".github/workflows/deploy.yml",
-    "SYMBOL": "aws_iam_role.github_deploy_prod",
-    "COMMAND": "gh workflow run deploy.yml --ref v2.14.0-rc.1 -f environment=production"
+    "FEATURE": "部署后的冒烟检查",
+    "SYMPTOM": "冒烟检查偶尔卡在同一个服务上四分多钟，然后报错，点重跑又能过",
+    "ERROR": "ERROR check_service ledger-api: gave up after 3 retries: curl: (7) Failed to connect to 127.0.0.1 port 18080 after 0 ms: Couldn't connect to server",
+    "FILE": "scripts/smoke/smoke.sh",
+    "FILE2": "scripts/smoke/run.sh",
+    "SYMBOL": "check_service",
+    "COMMAND": "scripts/smoke/run.sh"
   },
   "opening": [],
   "decisive": [
     {
       "role": "user",
       "msg": "d1",
-      "text": "生产部署挂了 打 v2.14.0 这个 tag 触发的 deploy-prod 卡在 configure-aws-credentials 那一步 报 `Error: Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity` 奇怪的是 main 上推的 staging 部署一直好好的 prod 的角色是 terraform/iam/github_oidc.tf 里的 aws_iam_role.github_deploy_prod 你看下"
+      "text": "部署后的冒烟检查这两周时不时挂一次 每次都是卡在 ledger-api 那个服务上 先停四分多钟 然后报 `ERROR check_service ledger-api: gave up after 3 retries: curl: (7) Failed to connect to 127.0.0.1 port 18080 after 0 ms: Couldn't connect to server` 点重跑就过 staging 上多 prod 和托管 runner 上也各碰到过 逻辑在 scripts/smoke/smoke.sh 的 check_service 你看下"
     },
     {
       "role": "assistant",
-      "text": "看到一处对得上的：prod 角色的信任策略只认 main 分支。\n\n- **原因**：`terraform/iam/github_oidc.tf` 里 `aws_iam_role.github_deploy_prod` 的 `assume_role_policy` 用 `StringEquals` 卡了 OIDC token 的 `sub` 声明，取值只有 `repo:acme/infra:ref:refs/heads/main`。tag 触发的运行，`sub` 按 GitHub 的格式是 `repo:acme/infra:ref:refs/tags/v2.14.0`，对不上就会被拒。staging 的角色 `aws_iam_role.github_deploy_staging` 用的是 `StringLike` 加 `repo:acme/infra:*`，所以一直没事。\n- **改法**：prod 这边改成 `StringLike`，`sub` 给两个值：`repo:acme/infra:ref:refs/heads/main` 和 `repo:acme/infra:ref:refs/tags/v*`；`aud` 那条 `sts.amazonaws.com` 不变。\n- **范围**：Grep 了一遍，用到 `vars.PROD_DEPLOY_ROLE_ARN` 的只有 `.github/workflows/deploy.yml` 里的 `deploy-prod` 这一个 job。\n- **验证**：在 `terraform/iam` 下跑了 `terraform plan`：`1 to change`，只有这个角色的 `assume_role_policy` 一处。\n\nprod 的 IAM 我没 apply，你看一下 plan 没问题就 apply，然后重跑 v2.14.0 那次失败的 job。",
+      "text": "先按「ledger-api 刚起来还没就绪」处理了，冒烟前多等一步。\n\n- **看到的**：`check_service` 对每个服务先在后台起一个 `kubectl port-forward svc/<服务> 18080:80`，再用 `curl --max-time 240` 打 `/healthz`，失败按 `RETRY_MAX` 重试，退避 10、20、40 秒。ledger-api 在服务列表里排第 12，它前面一步是 `helm upgrade --wait`。读了 ledger-api 的 chart，就绪探针 `initialDelaySeconds: 45`，是这批服务里最长的，JVM 起得也慢，我怀疑 `--wait` 返回时新 pod 只是刚刚 Ready，应用内部还在预热。\n- **改法**：`check_service` 起 port-forward 之前先跑 `kubectl rollout status deploy/<服务> --timeout=300s`；ledger-api 单独加了 20 秒预热等待，配在 `scripts/smoke/services.yaml` 里。\n- **验证**：本地用 staging 的凭证跑了 5 遍 `scripts/smoke/run.sh`，都过了。不过这个问题平时二三十次才出一次，5 遍说明不了什么。\n\n你先合进去观察几天，再出的话把那次 run 的链接给我。",
       "tools": [
         "Read",
         "Grep",
+        "Edit",
         "Bash"
       ]
     },
     {
       "role": "user",
       "msg": "d2",
-      "text": "apply 了 重跑了 v2.14.0 的 deploy-prod 还是一样的报错 一个字不差"
+      "text": "合了 今天 staging 又挂了一次 还是 ledger-api 还是停四分多钟然后那行报错 日志里冒烟是在 rollout status 打出 successfully rolled out 之后才开始的 run 是 18342207719"
     },
     {
       "role": "assistant",
-      "text": "策略里的 `sub` 和实际发过来的对不上，光看格式猜不出来，我把 token 里的声明直接打出来看了。\n\n- **加了一个临时步骤**：`.github/workflows/deploy.yml` 的 `deploy-prod` 里，在 `configure-aws-credentials` 前面加了 `Debug OIDC claims`：用 `ACTIONS_ID_TOKEN_REQUEST_URL` 取一个 `aud=sts.amazonaws.com` 的 token，只解码 payload，打印 `sub`、`ref`、`environment`、`job_workflow_ref` 四项，token 本身不打印。\n- **跑了一次**：`gh workflow run deploy.yml --ref v2.14.0-rc.1 -f environment=production`（rc tag，后面的部署步骤本来就会因为拿不到凭证停下，不会真的发到 prod）。日志里是：\n\n```\nsub=repo:acme/infra:environment:production\nref=refs/tags/v2.14.0-rc.1\nenvironment=production\n```\n\n- **原因**：`deploy-prod` 这个 job 声明了 `environment: production`（为了用环境的审批和环境级的 secrets）。job 一挂上 environment，`sub` 就换成 `repo:<org>/<repo>:environment:<name>` 的格式，不再是 `ref:...`，所以上一轮补的 tag 那条根本匹配不到。staging 的 job 没挂 environment，`sub` 还是 ref 格式，这就是它一直正常的原因。\n- **改法**：`sub` 的取值里加上 `repo:acme/infra:environment:production`。原来那两项先没删，免得这一步又引入别的问题。`terraform plan` 还是 `1 to change`。\n\n同样没 apply，你 apply 之后重跑 v2.14.0 那次。",
+      "text": "找到了：卡住的那几次，port-forward 连到的是一个正在下线的旧 pod，不是新 pod 没就绪。\n\n- **加了观测**：`check_service` 起 port-forward 之后加了一段临时日志，用 `SMOKE_DEBUG=1` 控制，打出 port-forward 实际选中的 pod 名、它的 `deletionTimestamp` 和 Ready 状态；`.github/workflows/deploy.yml` 冒烟那一步的 `env` 里临时设了 `SMOKE_DEBUG: \"1\"`。\n- **复现**：在 staging 上拿临时分支连着触发了 30 次，第 9 次和第 23 次卡住。两次日志里选中的都是上一版的 ledger-api pod，`deletionTimestamp` 已经有值，处在 Terminating；另外 28 次选中的都是新 pod。18342207719 那次还没有这段日志，但按时间对 `kubectl get events`，port-forward 开始时旧 pod 也正在终止。\n- **原因**：\n  - `kubectl port-forward svc/ledger-api` 只在开始时按 Service 的 selector 挑一个 pod，之后一直连着它，挑的时候不排除正在终止的 pod；\n  - 9/21 晚上 ledger 团队在他们仓库的 values 里加了 `preStop: sleep 30` 和 `terminationGracePeriodSeconds: 120`，rollout 完成以后旧 pod 还要挂一两分钟才消失，正好和冒烟重叠，别的服务没有这么长的终止时间；\n  - 旧 pod 收到 SIGTERM 以后关了 HTTP 监听，转发过去的第一个请求没人应答，一直等到 `--max-time 240`，这就是那 4 分多钟；port-forward 进程随后报 `lost connection to pod` 退出，后面三次重试连本地端口直接被拒，所以很快失败，收尾时被 runner 清理掉的子进程就是它。\n- **改法**：\n  - 不再 `port-forward svc/...`：先用 `kubectl get pods -l app.kubernetes.io/instance=<服务> -o json` 挑出 Ready 且没有 `deletionTimestamp` 的 pod，取最新的一个，再 `port-forward pod/<名字>`；\n  - 起 port-forward 后用 `trap` 保证函数返回时把它 kill 掉，不再留孤儿进程；\n  - 第一次请求的 `--max-time` 从 240 降到 30。上一轮加的 `rollout status` 留着，ledger-api 的 20 秒预热删了，它不是原因。\n- **验证**：临时分支上同样连着触发 40 次，0 次卡住，日志里选中的全是新 pod；`shellcheck scripts/smoke/*.sh` 没有新告警。\n\n那段 debug 日志和 workflow 里的 `SMOKE_DEBUG` 先留着，合进去以后方便对照。",
       "tools": [
         "Edit",
         "Bash",
-        "Read"
+        "Read",
+        "Grep"
       ]
     },
     {
       "role": "user",
       "msg": "d3",
-      "text": "apply 了 v2.14.0 重跑过了 我又打了个 v2.14.1 也一路绿 prod 上的 helm release 版本也对 这个算解决了 不过你加的那个 debug step 和第一次加的 refs/tags/v* 先都留着 等 v2.15.0 正式发版也过了再一起删 删完开个 PR 合进 main"
+      "text": "合进去一周了 staging 跑了一百二十多次 prod 发了五次 托管 runner 那条也跑了二十几次 一次都没卡 debug 日志里选的也全是新 pod 这个算解决了 不过 debug 那段和 workflow 里的 SMOKE_DEBUG 先都留着 等月底大促封网前那次 prod 发版也过了再一起删 删完开个 PR"
     },
     {
       "role": "assistant",
-      "text": "好，记下了。v2.15.0 正式发版过了之后要清的就这两处：\n\n1. `.github/workflows/deploy.yml`：`deploy-prod` 里的 `Debug OIDC claims` 这一步整段删掉。\n2. `terraform/iam/github_oidc.tf`：`aws_iam_role.github_deploy_prod` 信任策略里 `sub` 的取值只留 `repo:acme/infra:environment:production`，去掉 `ref:refs/heads/main` 和 `ref:refs/tags/v*` 两项。我又 Grep 了一遍，prod 角色只有挂了 `environment: production` 的 `deploy-prod` 在用，那两项留着只会让角色比需要的更宽。\n\n删完 `terraform plan` 应该还是 `1 to change`，apply 照旧由你来，然后开 PR 合进 main。",
+      "text": "好，记下了。月底那次 prod 发版过了之后要清的就这两处：\n\n1. `scripts/smoke/smoke.sh`：`check_service` 里 `SMOKE_DEBUG` 那一段，打印选中的 pod 名、`deletionTimestamp`、Ready 状态的几行整段删掉，挑 pod 和 `trap` 的逻辑不动。\n2. `.github/workflows/deploy.yml`：冒烟那一步 `env` 里的 `SMOKE_DEBUG: \"1\"` 删掉。Grep 了一遍，`SMOKE_DEBUG` 只在这两个文件里出现，别的 workflow 和调用方都没用到。\n\n删完跑一遍 `shellcheck`，再开 PR 合进 main。",
       "tools": [
         "Grep"
       ]
@@ -59,8 +61,8 @@
   "final": [
     {
       "role": "user",
-      "text": "v2.15.0 今天发了 deploy-prod 一路绿 按你上次列的把那两处删了 开 PR 吧"
+      "text": "大促前那次 prod 今天发完了 冒烟一路绿 按你上次列的把那两处删了 开 PR 吧"
     }
   ],
-  "middle_hint": "中间是同一个问题的后续：继续围绕 prod 部署角色和 OIDC 这块读信任策略和 workflow、对照 CloudTrail 和 Actions 的日志、弄清 sub 声明在各种触发方式下的格式、看别的 job 会不会踩同样的坑，没有新的改动，也没有新的结论。"
+  "middle_hint": "中间是同一个问题的后续：修复合进去以后，用户让回头把部署后冒烟检查这条路再理一遍：拉历史 run 和日志、对值班交接和平台变更的时间线、看 runner、网络、权限、超时和重试的配置、核对文档，没有新的改动，也没有新的结论。"
 }

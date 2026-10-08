@@ -1,0 +1,17 @@
+{
+  "id": "command-turn-02",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "d1 已经查清原因并把改法写进 #287：删中文文件 front matter 里一行 slug、改 3 处链接、跑 build，不到 10 行。最后的 /implement 是照着明确方案做的机械改动，外加跑构建和开 PR，给 low，medium 可接受。404 本身还没修（之前只诊断、没有失败的修复），用户回到这个问题，算 still_unresolved，但不是修复失败，不升档。读不到决定性几轮时只知道是一个切语言 404 的 bug，原因要从 Docusaurus i18n 路由里追，给 high。"
+}

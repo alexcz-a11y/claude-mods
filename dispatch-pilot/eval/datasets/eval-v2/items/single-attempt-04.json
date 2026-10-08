@@ -5,37 +5,37 @@
   "bin": "d4",
   "relation": "same-problem",
   "placeholders": {
-    "FEATURE": "登录接口的限流",
-    "SYMPTOM": "公司内网的一批用户同时被登录限流挡住",
-    "ERROR": "WARN login_rate_limited key=ip:10.0.3.17 count=31 window=15m",
-    "FILE": "src/auth/loginRateLimit.ts",
-    "FILE2": "src/app.ts",
-    "SYMBOL": "loginRateLimiter",
-    "COMMAND": "npm test -- src/auth/loginRateLimit.test.ts"
+    "FEATURE": "敏感操作的二次验证",
+    "SYMPTOM": "验证码明明输对了却提示请求处理失败",
+    "ERROR": "StepUpTicketError: ticket st_7f3a91 is not pending",
+    "FILE": "src/auth/stepUp.ts",
+    "FILE2": "src/auth/stepUpStore.ts",
+    "SYMBOL": "redeemStepUpTicket",
+    "COMMAND": "npx tsx scripts/repro/stepUpBurst.ts --runs 50"
   },
   "opening": [],
   "decisive": [
     {
       "role": "user",
       "msg": "d1",
-      "text": "登录限流误伤了 客服说今天上午公司内网好多人登录被挡 提示尝试次数过多 15 分钟后再试 日志里全是这种\n`WARN login_rate_limited key=ip:10.0.3.17 count=31 window=15m`\n10.0.3.17 好像是 ALB 的内网地址 等于所有人共用一个桶了吧 代码在 src/auth/loginRateLimit.ts"
+      "text": "敏感操作的二次验证 这阵子客服一直在转单子 都是说验证码明明输对了却提示请求处理失败 后端日志里对应的是这条\n`StepUpTicketError: ticket st_7f3a91 is not pending`\n就是验完码拿票据去核销的那一步 代码在 src/auth/stepUp.ts 的 redeemStepUpTicket 测试那边给了个复现脚本 `npx tsx scripts/repro/stepUpBurst.ts --runs 50` 本地跑三遍大概能碰上一遍 你看下"
     },
     {
       "role": "assistant",
-      "text": "对，所有请求在限流看来都来自 ALB 那一个地址。原因是 Express 没开 trust proxy，`req.ip` 拿到的是直连的对端。已经改了，只信任一层代理。\n\n**原因**\n\n- `src/auth/loginRateLimit.ts` 里 `loginRateLimiter` 用 `express-rate-limit`，`keyGenerator` 是 `req => 'ip:' + req.ip`，15 分钟窗口 30 次。\n- `src/app.ts` 里没有 `app.set('trust proxy', ...)`，Express 不读 `X-Forwarded-For`，`req.ip` 就是 TCP 对端，也就是 ALB。上午九点前后大家集中登录，30 次很快就满了，日志里的 `count=31` 也对得上。\n\n**改法**\n\n- `src/app.ts` 加 `app.set('trust proxy', 1)`：只信任最近的一跳，`req.ip` 取 `X-Forwarded-For` 里最右边那个由 ALB 追加的地址。\n- 没用 `true`：那样会取最左边的地址，客户端自己带一个伪造的 `X-Forwarded-For` 就能每次换 key，限流等于没有。`semgrep/express-trust-proxy.yml` 里也有一条规则专门拦 `trust proxy` 设成 `true`。\n- 限流的 key、窗口和次数都没动。\n\n**验证**\n\n- `npm test -- src/auth/loginRateLimit.test.ts`：补了两个用例，一个模拟 ALB 追加了真实客户端地址，断言不同客户端分别计数；一个客户端自带伪造的 `X-Forwarded-For`，断言伪造的部分不影响 key。8 个用例全过。\n- `npx semgrep --config semgrep/ src/` 没有新的告警，`npm audit` 和之前一样。\n\n改动没提交。合进去发到预发后，看一下日志里的 `key=` 是不是变成了各自的客户端地址。",
+      "text": "找到一种会让用户「码输对了、核销却失败」的情况，已经在分支上改了：验码那一步被连着调了两次时会签出两张票据，第二张把第一张作废，客户端拿第一张去核销，就报 not pending。\n\n**原因**\n\n- `src/auth/stepUp.ts` 的 `redeemStepUpTicket`：事务里 `SELECT ... FOR UPDATE` 锁住票据那一行，状态不是 `pending` 就抛 `StepUpTicketError`，就是你贴的那条。\n- 票据是验码成功以后由 `src/auth/stepUpStore.ts` 的 `issueTicket` 签的。签新票据时，会把同一个挑战下还没核销的旧票据改成 `superseded`，防止一次验码换出好几张票。\n- 验码请求是会被连着发两次的：mall-bff 的客户端超时 2 秒就重试，用户手快也会点两下。两次都验码成功，就签出两张票，第一张被作废；客户端要是用了先回来的那次响应里的票据，拿去核销的正好是作废的那张。\n- 复现脚本里有一组就是「验码连发两次，再用第一次的票据核销」，我本地跑出 `not pending` 的那几次都在这一组里。\n\n**改法**\n\n- `issueTicket` 改成：同一个挑战、同一个会话 30 秒内已经签过、还没核销的票据，直接把那一张返回，不新签，也不作废旧的。\n- 超过 30 秒、换了会话、或者旧票据已经核销的，照旧作废重签。票据的有效期和「只能核销一次」都没动，返回旧票据也不会延长它的有效期。\n- `redeemStepUpTicket` 本身没改。\n\n**验证**\n\n- `npm test -- src/auth/stepUp.test.ts`：补了 3 个用例（30 秒内重复验码拿到同一张票、换了会话重新签、旧票已核销时重新签），原有用例全过。\n- 复现脚本跑了 5 遍，`not pending` 一次都没出现（改之前 5 遍里有 2 遍出现）。\n- `npx semgrep --config semgrep/ src/auth` 没有新告警。\n\n改动在 `fix/step-up-ticket-reissue` 分支，没合进 main。还有一点这次的判断解释不了：客服转来的单子里我对了 6 单的 trace，4 单能看到验码连发了两次，另外 2 单只有一次验码请求，前面也没有重试，所以这块还要接着看日志和 trace。你拉下分支多跑几遍复现脚本，看 not pending 还出不出。",
       "tools": [
         "Read",
         "Grep",
-        "Edit",
-        "Bash"
+        "Bash",
+        "Edit"
       ]
     }
   ],
   "final": [
     {
       "role": "user",
-      "text": "登录限流那个 发到线上了 今天上午又有一批内网用户被挡 日志里还是 key=ip:10.0.3.17"
+      "text": "二次验证那个分支 我拉下来跑了二十遍复现脚本 还是有六遍报 not pending"
     }
   ],
-  "middle_hint": "中间是同一个问题的继续排查：看限流中间件和请求经过的代理链路、读日志和请求头、写复现脚本、列可能的原因，没有新的修改尝试，也没有结论。占位符：FEATURE 登录接口的限流；SYMPTOM 公司内网的一批用户同时被登录限流挡住；ERROR WARN login_rate_limited key=ip:10.0.3.17 count=31 window=15m；FILE src/auth/loginRateLimit.ts；FILE2 src/app.ts；SYMBOL loginRateLimiter；COMMAND npm test -- src/auth/loginRateLimit.test.ts。"
+  "middle_hint": "中间是同一个问题的继续排查：理 redeemStepUpTicket 的调用链和事务、看日志分布、工单、trace 和监控、本地复现和二分、盘时间判断、缓存、功能开关和定时任务；本地复现脚本大约三分之一的轮次能碰上。没有新的修改尝试，没有下结论，用户也没有评价第一次的修复。占位符：FEATURE 敏感操作的二次验证；SYMPTOM 验证码明明输对了却提示请求处理失败；ERROR StepUpTicketError: ticket st_7f3a91 is not pending；FILE src/auth/stepUp.ts；FILE2 src/auth/stepUpStore.ts；SYMBOL redeemStepUpTicket；COMMAND npx tsx scripts/repro/stepUpBurst.ts --runs 50。"
 }

@@ -1,0 +1,17 @@
+{
+  "id": "hard-constraint-04",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "low",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条说晚高峰超时问题还是老样子，要求先把 spring.data.redis.timeout 从 100ms 调到 250ms，是同一问题的第一次修改尝试。不看决定性几轮，这是改一个配置值，low。决定性几轮定了双十一前 search-svc 生产改动规矩（去年改超时参数挂 18 分钟、损失六百多万 GMV）：写清改什么、预期效果、看哪个指标；bench 生产流量回放压满 30 分钟与基线对比 p99、错误率、CPU、线程数；灰度一个 pod 过完整晚高峰；回退办法先演练。还要推敲调大 Redis 超时在请求线程同步模型下对 Tomcat 线程占用、与 BFF 1200ms 超时叠加的影响（可能反而更糟）。这是需反复验证、推敲故障模式的工作，定 xhigh；配置可回滚、不属于不可逆，high 也可接受。"
+}

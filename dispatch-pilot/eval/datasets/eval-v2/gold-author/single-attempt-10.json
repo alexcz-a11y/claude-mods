@@ -1,21 +1,17 @@
 {
   "id": "single-attempt-10",
-  "effort": "high",
+  "effort": "xhigh",
   "accept": [
     "high",
     "xhigh"
   ],
-  "effort_without_decisive": "high",
+  "effort_without_decisive": "xhigh",
   "triage_final": "still_unresolved",
   "triage_decisive": [
     {
       "msg": "d1",
       "triage": "new_or_unrelated"
-    },
-    {
-      "msg": "d2",
-      "triage": "still_unresolved"
     }
   ],
-  "rationale": "决定性几轮里只改过一次（workflow 加 concurrency、run_plan 的 plan 加 -lock-timeout），d2 用户说同一行报错又出现，助手之后只排查不改，中间三四万 token 也都是看日志、对锁记录，没有第二次尝试。最后一条说又挂了一次：只失败过一次的 CI 偶发问题，要跨 workflow、脚本和锁表核对时间线，high；偶发问题需要反复验证，xhigh 也可以接受；不到 max。删掉决定性几轮，最后一条本身像「重跑就过」的小毛病（单看会偏 medium），但中间段是对同一问题的持续排查，能看出是调试：high。三选一：d1 首次提出，new_or_unrelated；d2 同一行报错又出现，still_unresolved；最后一条又挂了，still_unresolved。"
+  "rationale": "失败的修复 1 次：d1 之后助手判断是连接池里的空闲连接被 NAT 掐掉，给连接加了 TCP keepalive、空闲连接保留时间缩到 2 分钟，改动在 `fix/confcenter-keepalive` 分支（draft PR，没合进 main），staging 的手动部署选这个分支跑；用户在最后一条第一次说没好（这几天手动部署都用那个分支，今天还是卡四分多钟、同一行报错），是第二次。复现性是偶发：d1 里用户说偶尔挂、不是每次都有、重跑就过，助手说大约二三十次出一次，middle_hint 也写了素材段里每二三十个 job 出一次；判断修没修好要跑很多次或等一段时间的部署数据 → xhigh；accept 是 high、xhigh，只失败一次不到 max。中间三四万 token 的排查都不改代码，不算尝试。删掉决定性几轮：中间段看得到偶发，但看不出改过几次，一长段排查可能被读成反复失败；本类允许这个例外，决定性几轮在这里的作用是排除 max，删掉以后按看得到的偶发定，不推测成多次失败 → xhigh，和 effort 相同。三选一：d1 第一次提出问题，new_or_unrelated；最后一条说同样卡住、同一行报错，still_unresolved。审稿修改（上一轮）：原题是 PR 上 terraform plan 抢 state 锁，和本领域 same-problem 段的隐含场景冲突，改成发布服务配置那一步偶发失败。本轮按修订说明：删掉 d2 和撤回 #467 的那一轮；keepalive 的改动放在临时分支上、staging 手动部署时用它跑，不和 devops-ci-same-problem-36 里「这条路径上的库默认没有自己设 keepalive」冲突；d1 改到 10/6 那次之后（助手查到 8 次，和素材段一致）；助手回复留下「偶发、20 次说明不了」和「停四分多钟的长度还解释不了」作为接着查的理由；最后一条改成用户第一次说改了以后还是卡四分多钟；金标改成 xhigh，triage_decisive 只剩 d1。审稿修改（本轮）：决定性回复的统计和素材池对齐：devops-ci-same-problem-03、21 里 8 次是 ARC 6 次（staging 5、prod 1）加 GitHub 托管 runner 2 次，其中 6 次先停四分多钟、2 次很快失败；原文「看了 ARC 上那几次……都是停住四分多钟」漏掉了托管 runner，读起来像 8 次都走 NAT。现在把这两类写进统计，「还要接着看的」里加一句它们是不是同一个原因还说不好，作为同一个问题里没解释的部分（不是另一个现象单独留下），中间段反复指出「托管 runner 不经过 NAT」也就有了来处。金标不变。"
 }

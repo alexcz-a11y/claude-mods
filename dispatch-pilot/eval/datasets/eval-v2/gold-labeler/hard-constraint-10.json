@@ -1,0 +1,21 @@
+{
+  "id": "hard-constraint-10",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条把状态行文案改成「通过 12/14」、失败时加红点并发新版；通过率问题用户说先查着，主体是新任务。代码改动本身很小，没有决定性几轮时就是改文案+发版（medium）。但决定性几轮定下「哪怕只改一个字」发版都要走六条：test/validate/tsc 全绿、装好的版本在 2.1.289 和最新版各跑 14 步冒烟清单、30 份大输出喂一遍且每个 hook settled<50ms 无 skipped/crashed（还得先写测量脚本）、三会话半天、改 version/CHANGELOG/README、小周确认后才发；另外通过率 bug 仍未解决，发版时要留意并说明。发版是长链路、需反复验证的工作，但每步推理不深，定 high，xhigh 也可接受。"
+}

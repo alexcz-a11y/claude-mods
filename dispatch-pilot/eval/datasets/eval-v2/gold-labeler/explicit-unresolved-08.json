@@ -1,0 +1,33 @@
+{
+  "id": "explicit-unresolved-08",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "状态标签语言错乱、构建时偶发 warning 的问题，四次改动（去参数、串行 SSG、对照表只读、统一导入）用户都实测无效，中间又长时间只查不改没有结论；最后一条贴同样的复现率和反馈，明确还是没解决。三轮以上修复失败后再提，按约定 max；偶发、非确定性问题本身也难。去掉决定性几轮，只剩中间长期排查无结论和最后的'还是没解决'，属于原因未知的偶发 bug 且已有尝试，给 xhigh。"
+}

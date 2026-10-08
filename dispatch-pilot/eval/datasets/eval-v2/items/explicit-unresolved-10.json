@@ -5,24 +5,24 @@
   "bin": "d2",
   "relation": "same-problem",
   "placeholders": {
-    "FEATURE": "刷新令牌的轮换和重放检测",
-    "SYMPTOM": "旧的刷新令牌在轮换之后还能再换出一次新的访问令牌",
-    "ERROR": "AssertionError: expected 200 to be 401 // Object.is equality",
-    "FILE": "src/session/refreshTokens.ts",
-    "FILE2": "src/oauth/tokenEndpoint.ts",
-    "SYMBOL": "rotateRefreshToken",
-    "COMMAND": "npx vitest run src/session/refreshTokens.test.ts"
+    "FEATURE": "敏感操作前的二次验证",
+    "SYMPTOM": "输对了验证码还是提示请求处理失败",
+    "ERROR": "StepUpStateError: challenge ch_4e7a19c2 is not pending (code=STEPUP_STATE_CONFLICT)",
+    "FILE": "src/auth/stepUp.ts",
+    "FILE2": "src/auth/stepUpRoutes.ts",
+    "SYMBOL": "verifyStepUp",
+    "COMMAND": "npx vitest run test/integration/step-up.test.ts"
   },
   "opening": [],
   "decisive": [
     {
       "role": "user",
       "msg": "d1",
-      "text": "刷新令牌轮换有个洞 安全那边做渗透发现的 旧的 refresh token 轮换以后还能再用一次 换出新的 access token 按设计应该直接 401 并且把整个令牌族吊销 我补了个测试 `npx vitest run src/session/refreshTokens.test.ts` 红在 `AssertionError: expected 200 to be 401 // Object.is equality` 逻辑在 src/session/refreshTokens.ts 的 rotateRefreshToken"
+      "text": "二次验证这块有问题 今天上午客服转了一单 用户改支付密码之前输对了验证码 还是提示请求处理失败 我去 Loki 搜了下 对应的是 `StepUpStateError: challenge ch_4e7a19c2 is not pending (code=STEPUP_STATE_CONFLICT)` 这两天每天都有几百次 本地 `npx vitest run test/integration/step-up.test.ts` 三次里大概红一次 逻辑在 src/auth/stepUp.ts 的 verifyStepUp 这是安全相关的 别为了让它过把校验放松了"
     },
     {
       "role": "assistant",
-      "text": "看了 `rotateRefreshToken` 和 `/oauth/token` 的调用路径（`src/oauth/tokenEndpoint.ts` 的 `grant_type=refresh_token` 分支）。\n\n- 现在的顺序是：校验旧令牌 → 签发新的刷新令牌和访问令牌 → 把新令牌写库 → **最后**才把旧令牌标成 `revoked`。签发和写库之间有一次 KMS 签名调用，几十毫秒，这段时间里旧令牌仍是有效的，同一个旧令牌的第二个请求能通过校验。\n- 你的测试正好是先轮换一次、再用旧令牌请求，期待 401。\n\n- **改法**：调换顺序，先把旧令牌标成 `revoked`（带 `rotated_at` 和 `replaced_by`），再签发新的；签发失败时回滚这一步。\n- **验证**：本地跑了 `npx vitest run src/session/refreshTokens.test.ts`，你加的那条用例过了，原有 22 个也都过。\n\n不过渗透报告里如果是并发打的，可能还要再看，你让安全那边复测一下。",
+      "text": "看了 `verifyStepUp` 和两条入口（`src/auth/stepUpRoutes.ts` 里的公开路由和给 mall-bff 用的内部路由）。\n\n- 流程是：读用户状态 → 开事务 `SELECT ... FOR UPDATE` 锁住这条 challenge → 不是 `pending` 就抛 `STEPUP_STATE_CONFLICT` → 校验验证码 → 改成 `verified`、写一条提权记录 → 提交。\n- challenge 的有效期是 5 分钟，过期的由定时任务改成 `expired`。短信网关的投递日志里有一批验证码晚到了三四分钟，用户收到时离过期只剩几十秒，输完提交时已经被改成 `expired`，走的就是这个分支。\n\n- **改法**：有效期从 5 分钟放到 10 分钟，过期判断不变，验证码校验本身一个字没动。\n- **验证**：`npx vitest run test/integration/step-up.test.ts` 跑了 10 次全绿；集成测试加了一个「临近过期提交」的用例。跟今天下午的版本一起发。",
       "tools": [
         "Read",
         "Grep",
@@ -33,13 +33,14 @@
     {
       "role": "user",
       "msg": "d2",
-      "text": "还是能用 他们用 scripts/replay-refresh.ts 同一个旧 token 并发打 20 个请求 有 2 个拿到 200 而且我本地重跑那个单测 时不时也会红 同一个断言"
+      "text": "发上去了 Loki 里还是一样多 本地我跑了二十次 还是红了六次 报的还是 STEPUP_STATE_CONFLICT"
     },
     {
       "role": "assistant",
-      "text": "并发下还能过，说明不是顺序问题，是「读旧令牌、判断没吊销、再改成吊销」这三步不是原子的：20 个请求同时读到 `revoked=false`，都往下走了。单测偶尔红，是因为测试里 `Promise.all` 发了两个请求，时序碰巧也会撞上。\n\n- **改法**：`rotateRefreshToken` 整段放进一个事务，先 `SELECT ... FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE` 锁住这一行，判断、吊销、写新令牌都在锁里做，提交后才返回。并发的第二个请求会等第一个提交，读到的已经是 `revoked=true`，走重放分支吊销整族、返回 401。\n- **验证**：单测里加了一个 20 路并发的用例，本地跑了 30 遍（`--repeat 30`），全过；`npm run lint` 和 Semgrep（`semgrep --config semgrep/`）没有新告警。\n\n这次从数据库层面串行化了，应该没有窗口了。",
+      "text": "数量没降，说明过期只占很小一部分。这次按出错的 challenge 去 `audit_events` 里看前后事件：大部分出错的 challenge，在用户提交前十几秒都有一次「重新发送验证码」。现在的重新发送会新建一条 challenge、把旧的标成 `superseded`，而 App 和 H5 有时还拿着旧的 challenge id 提交，就撞上了 `not pending`。\n\n- **改法**：重新发送不再新建 challenge，在原来那条上换一个新验证码、刷新过期时间，id 不变；旧验证码立即失效，这一点和原来一样。\n- **验证**：集成测试加了「重新发送后用原 id 提交」的用例；本地 20 次里红 2 次，比之前少，但还没到零。跟明天的版本发。",
       "tools": [
         "Read",
+        "Grep",
         "Edit",
         "Bash"
       ]
@@ -47,11 +48,11 @@
     {
       "role": "user",
       "msg": "d3",
-      "text": "测试还是红 同一个断言 expected 200 to be 401 你那个 30 遍是在你本地的 sqlite 跑的吧 CI 上是 postgres 跑了三次红了两次 replay 脚本 20 个里还有 2 个 200"
+      "text": "明天那版也上了 还是不行 今天客服又转了三单 Loki 里看一天下来没怎么少 测试也还是会红"
     },
     {
       "role": "assistant",
-      "text": "你说得对，本地测试的 `TEST_DB` 默认是内存里的 sqlite，`FOR UPDATE` 在 sqlite 上直接被忽略了，我那 30 遍没有意义，这是我的疏忽。换成 `docker compose up -d postgres` 在 Postgres 上跑，确实 10 次里红 4 次。\n\n再看了一下请求路径，发现在数据库之前还有一层：`src/session/tokenCache.ts` 用 Redis 缓存了「已校验的刷新令牌」30 秒，`tokenEndpoint.ts` 命中缓存时直接跳过了 `rotateRefreshToken` 里的锁和吊销判断，用缓存里的令牌信息签发。轮换时没有删这条缓存，所以 30 秒内旧令牌都可能从缓存这条路过去。\n\n- **改法**：刷新令牌不再进缓存（缓存只留给访问令牌的内省）；轮换时额外 `DEL` 一次旧令牌的键，防止已有的缓存条目还在。\n- **验证**：Postgres 上跑单测 20 次，19 次过、1 次红；replay 脚本本地打了 5 轮，有 1 轮出现 1 个 200。还没到零，但比之前少了。",
+      "text": "看了本地红的那几次的完整日志：出错的请求都是在 `FOR UPDATE` 上等了一两秒才拿到锁，拿到时 challenge 已经是 `verified` 了，先到的那个请求是成功的。再看生产，出错时连接池的等待数会冲高，我怀疑是池子太小，请求排队排过了调用方的超时，调用方重试，重试的那次撞上已经验证过的 challenge。\n\n- **改法**：数据库连接池从 10 调到 30，`statement_timeout` 不变。只改了配置，明天跟配置滚动一起上。\n- **验证**：本地把池子调小能稳定复现「等锁后撞上 verified」，调大以后 20 次红 1 次。",
       "tools": [
         "Bash",
         "Read",
@@ -62,11 +63,11 @@
     {
       "role": "user",
       "msg": "d4",
-      "text": "缓存那条确实该删 但问题还在 CI 上还是会红 replay 20 个里还有 1 个 200 这种安全问题有一个就不行"
+      "text": "配置滚完两天了 还是有 一天两百多次 跟之前差不多 这种安全相关的一直这样不行"
     },
     {
       "role": "assistant",
-      "text": "同意，一个也不行。剩下的那一个，我怀疑在重放检测之后的处理：检测到旧令牌被重用时，代码会调用 `revokeFamily(familyId)` 吊销整族，但 `revokeFamily` 是在事务提交**之后**用一条单独的 `UPDATE` 做的，而先到的那个请求在同一个事务里已经签出了新令牌，族吊销和新令牌写入之间没有约束，新令牌可能漏网。\n\n- **改法**：`refresh_tokens` 加一个 `family_revoked_at` 列（迁移 `migrations/0042_family_revoked.sql`），签发新令牌前在同一个事务里检查族有没有被吊销；`revokeFamily` 挪进事务里，和重放判断一起提交；访问令牌签发时也带上 `family_id`，族被吊销后内省一律返回无效。\n- **验证**：Postgres 上单测跑 50 次全过；replay 脚本打 10 轮，每轮 20 个请求，只有第一个拿到 200（正常的那一次），其余全是 401。",
+      "text": "同意。池子调大以后等待确实少了，但错误数没变，说明排队不是主要原因。再看出错的 challenge 属于哪条入口：大部分来自内部入口，也就是 mall-bff 代 H5 和小程序调的那条。我怀疑一部分不是状态冲突，而是 mall-bff 传来的 `userId` 和 challenge 的 `user_id` 对不上，代码里这两种情况抛的是同一个错误码，日志里分不出来。\n\n- **改法**：`userId` 和 challenge 不匹配时改抛 `STEPUP_USER_MISMATCH`，日志里带上两边的用户 id 和入口；状态冲突的错误里加上 challenge 当时的状态。校验条件本身一个都没放松。\n- **验证**：单测覆盖了两种错误码；本地跑了 20 次。还没发，先在本地和 staging 上看看两种错误各有多少。",
       "tools": [
         "Read",
         "Edit",
@@ -77,11 +78,11 @@
     {
       "role": "user",
       "msg": "d5",
-      "text": "不对 安全那边在 staging 上又打了一遍 还是有 1 个重放的请求拿到了 200 单测在 CI 上也又红了一次 跟最开始那条一模一样"
+      "text": "本地按你的分支跑了二十次 还是红六次 全是 STEPUP_STATE_CONFLICT 你加的那个新错误码一次都没出现 staging 上用回放脚本也一样"
     },
     {
       "role": "assistant",
-      "text": "明白，staging 上还能重放，CI 也又红了，四次改动（调换吊销顺序、`FOR UPDATE` 事务、去掉 Redis 缓存那条路、族吊销挪进事务）都没堵住。我本地 Postgres 上现在复现不出来，说明 staging 和 CI 有本地没有的条件，我想到的有：多实例部署（staging 是 3 个副本）、连接池用的是 PgBouncer 事务模式、或者还有别的入口在签发令牌（比如 `src/oauth/` 下的设备码流程）。\n\n先不改代码。下一步把所有能签出访问令牌的入口列全，再看 staging 的部署形态下 `rotateRefreshToken` 的事务和锁是不是真的生效，弄清楚这一个请求是从哪条路过去的。",
+      "text": "明白，四次改动（放长有效期、重新发送不换 id、调大连接池、拆开错误码）都没让它少下来，最后一次还说明了不是 `userId` 对不上，就是实打实的状态冲突。\n\n现在能确定的：出错时 challenge 已经是 `verified`，而且同一个 challenge 先有一次成功；本地三次里红一次，生产上 App、H5、小程序、后台都有。还没弄清楚的是第二个请求从哪来：用户点了两次、客户端自己重试、mall-bff 重试，还是还有一条我没看到的路径也在动这条 challenge。\n\n这块是安全相关的，我先不改代码。下一步把 `verifyStepUp` 上下的调用链、所有写这张表的地方和它们的加锁顺序理一遍，再拿生产上出错的几个 challenge 把前后请求逐条串起来。",
       "tools": [
         "Bash",
         "Grep"
@@ -91,8 +92,8 @@
   "final": [
     {
       "role": "user",
-      "text": "刷新令牌重放这个 安全那边今天在 staging 用 replay 脚本又打了一轮 还是有请求拿着旧的 refresh token 换到了新的 access token 没解决"
+      "text": "二次验证那个 今天客服又转了几单 都是输对了验证码还是提示请求处理失败 Loki 里 STEPUP_STATE_CONFLICT 一天还是两百多次 没解决"
     }
   ],
-  "middle_hint": "中间一段继续排查刷新令牌重放：列出所有签发令牌的入口、看 staging 的多副本和连接池配置、读 rotateRefreshToken 和 tokenEndpoint 的调用链、加日志写复现脚本，只看不改，没有结论。占位符：FEATURE 刷新令牌的轮换和重放检测；SYMPTOM 旧的刷新令牌在轮换之后还能再换出一次新的访问令牌；FILE src/session/refreshTokens.ts；FILE2 src/oauth/tokenEndpoint.ts；SYMBOL rotateRefreshToken；COMMAND npx vitest run src/session/refreshTokens.test.ts。"
+  "middle_hint": "中间一段继续排查二次验证的状态冲突：理 verifyStepUp 的调用链和写入路径、看 Loki 里报错的分布、对客服工单、写本地复现脚本、看锁和调用方重试，只看不改，没有结论。占位符：FEATURE 敏感操作前的二次验证；SYMPTOM 输对了验证码还是提示请求处理失败；ERROR StepUpStateError: challenge ch_4e7a19c2 is not pending (code=STEPUP_STATE_CONFLICT)；FILE src/auth/stepUp.ts；FILE2 src/auth/stepUpRoutes.ts；SYMBOL verifyStepUp；COMMAND npx vitest run test/integration/step-up.test.ts。"
 }

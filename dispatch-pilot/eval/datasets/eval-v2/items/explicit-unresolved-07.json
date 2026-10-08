@@ -10,11 +10,11 @@
     {
       "role": "user",
       "msg": "d1",
-      "text": "token-meter 的那条 band 有问题 每次 /compact 之后上面显示的 token 数会翻倍 比如压缩前 48.2k 压缩完直接变 96.7k 然后接着往上涨 应该是压缩完从差不多的数接着走才对 你看下 代码在 token-meter/hooks/token-meter.ts"
+      "text": "token-meter 的那条 band 有问题 就是我自己用的那个 还没放进 marketplace 每次 /compact 之后上面显示的 token 数会翻倍 比如压缩前 48.2k 压缩完直接变 96.7k 然后接着往上涨 应该是压缩完从差不多的数接着走才对 你看下 代码在 token-meter/hooks/token-meter.ts"
     },
     {
       "role": "assistant",
-      "text": "找到一个能对上翻倍的地方，已经改了。\n\n- **原因**：`token-meter.ts` 里 `turn.complete` 的处理函数每轮把 `e.usage.input + e.usage.output` 累加进 `$.state` 的 `total`。`/compact` 自己也会走一次 `turn.complete`，它带的 `usage` 是压缩那次请求读进去的整段上下文，量级正好和之前累计的总数差不多，所以一压缩就加了一遍。\n- **改法**：在 `turn.complete` 里先看 `e.reason`，是 `compact` 的那一轮直接 `return next(e)`，不计数。`session.compact` 上没有挂处理函数，没动。\n- **验证**：`token-meter/tests/meter.test.ts` 补了一个用例：先发三轮普通的 `turn.complete`，再发一轮 `reason: \"compact\"` 的，断言 band 的文字不变。`command claude plugin test ./token-meter` 7 个用例全过，`claude plugin validate ./token-meter --strict` 也过了。\n\n你在会话里再压一次看看数字还跳不跳。",
+      "text": "找到一个能对上翻倍的地方，已经改了。\n\n- **原因**：`token-meter.ts` 里 `turn.complete` 的处理函数每轮把 `e.usage.input + e.usage.output` 累加进 `$.state` 的 `total`。`/compact` 自己也会走一次 `turn.complete`，它带的 `usage` 是压缩那次请求读进去的整段上下文，量级正好和之前累计的总数差不多，所以一压缩就加了一遍。\n- **改法**：在 `turn.complete` 里先看 `e.reason`，是 `compact` 的那一轮直接 `return next(e)`，不计数。\n- **验证**：`token-meter/tests/meter.test.ts` 补了一个用例：先发三轮普通的 `turn.complete`，再发一轮 `reason: \"compact\"` 的，断言 band 的文字不变。`command claude plugin test ./token-meter` 7 个用例全过，`claude plugin validate ./token-meter --strict` 也过了。\n\n你在会话里再压一次看看数字还跳不跳。",
       "tools": [
         "Read",
         "Grep",
@@ -29,7 +29,7 @@
     },
     {
       "role": "assistant",
-      "text": "你说得对，那个判断在真实会话里不会命中。我加了一行 `$.ui.log` 打 `turn.complete` 的 `e.reason`，又用 `claude --debug-file ./mod-debug.log --plugin-dir ./token-meter` 起了个会话压了一次：压缩那一轮根本没有 `turn.complete`，日志里只有 `session.compact` 和紧接着的 `session.start`。测试里那个 `reason: \"compact\"` 是我自己编的输入，所以测试过了也说明不了什么。\n\n换了个思路：\n\n- **新的怀疑**：压缩后 `session.start` 会再触发一次，`register` 里在 `session.start` 上调用了 `seedFromUsage()`，它读 `$.session.usage()` 的累计值再**加**到 `$.state` 的 `total` 上（本意是热重载后补回丢掉的数），压缩后再触发一次就加了两遍。\n- **改法**：去掉累加，`total` 不再自己维护。band 的渲染每次直接读 `$.session.usage()`，把 `input`、`output`、`cacheRead` 三项加起来显示；`$.state` 里只留上一次显示的值，用来判断要不要 `ui.invalidate`。\n- **验证**：删了上一轮那个假用例，换成 `mock` 一个 `session.usage` 的返回值，触发两次 `session.start`，断言显示的数不变。8 个用例全过。\n\n这次是从源头读数，按说压缩前后应该一致，麻烦你再压一次。",
+      "text": "你说得对，那个判断在真实会话里不会命中。我加了一行 `$.ui.log` 打 `turn.complete` 的 `e.reason`，又用 `claude --debug-file ./mod-debug.log --plugin-dir ./token-meter` 起了个会话压了一次：压缩那一轮根本没有 `turn.complete`，日志里只看到紧接着的一次 `session.start`。测试里那个 `reason: \"compact\"` 是我自己编的输入，所以测试过了也说明不了什么。\n\n换了个思路：\n\n- **新的怀疑**：压缩后 `session.start` 会再触发一次，`register` 里在 `session.start` 上调用了 `seedFromUsage()`，它读 `$.session.usage()` 的累计值再**加**到 `$.state` 的 `total` 上（本意是热重载后补回丢掉的数），压缩后再触发一次就加了两遍。\n- **改法**：去掉累加，`total` 不再自己维护。band 每次渲染直接读 `$.session.usage()`，把 `input`、`output`、`cacheRead` 三项加起来显示；`$.state` 里只留上一次显示的值，用来判断要不要重画。\n- **验证**：删了上一轮那个假用例，换成 mock 一个 `session.usage` 的返回值，触发两次 `session.start`，断言显示的数不变。8 个用例全过。\n\n这次是从源头读数，按说压缩前后应该一致，麻烦你再压一次。",
       "tools": [
         "Edit",
         "Bash",
@@ -54,11 +54,11 @@
     {
       "role": "user",
       "msg": "d4",
-      "text": "测试是过了 实际会话里还是跳 我同时开了两个窗口 都是这个仓库 两边显示的数一模一样 一个压缩另一个也跟着跳 这个是不是也不对"
+      "text": "测试是过了 实际会话里还是跳 而且我发现派 agent 出去干活的时候 band 上的数也在往上蹿 一个 agent 跑完能涨好几万 这个是不是也不对"
     },
     {
       "role": "assistant",
-      "text": "两个窗口数字一样确实不对，这是我漏看的：`token-meter.ts` 里除了 band，还有一个「今日累计」的功能，用 `$.store` 按仓库路径存了一个 `daily:<repo>` 的计数，band 显示的其实是会话数和今日累计两者里大的那个（当初为了切会话后不从零开始）。`$.store` 是本机共享的，两个窗口写同一个键，所以一个压缩、另一个也跟着变。\n\n- **改法**：\n  - band 只显示本会话的 `input + output`，不再和今日累计取大的；\n  - 今日累计挪进 `/token-meter today` 命令里单独看，键改成 `daily:<repo>:<日期>`，每个会话按 `session.id` 记自己贡献的部分，汇总时求和，不再互相覆盖；\n  - `session.start` 不再碰 `$.store`。\n- **验证**：用 `mock.store(on, {...})` 模拟另一个会话已经写进去的数，断言 band 不受影响；`/token-meter today` 的汇总单独加了两个用例。11 个用例全过，validate `--strict` 也过了。\n\n两个窗口的串扰这下应该没了，压缩翻倍我觉得也是同一个根子，你再压一次看看。",
+      "text": "子 agent 跑的时候跟着蹿，这是我漏看的：band 的重画挂在 `turn.complete` 上，没有区分是不是主 agent。派出去的 agent 每一轮结束也会触发 `turn.complete`（事件上带 `agentId`），一个 agent 跑二三十轮，band 就跟着重画二三十次，每次都重新读一遍用量，看起来就是数字一路往上冲。\n\n- **改法**：\n  - band 只在主 agent 的 `turn.complete`（`e.agentId` 为空）之后重画，子 agent 的轮次跳过；\n  - 子 agent 花掉的量本来就该算进会话总数，只是不再一轮一轮地跳，主 agent 这一轮结束时一起更新；\n  - `register` 里一个没人用的 `turn.start` 计时器顺手删了。\n- **验证**：测试里分别发带 `agentId` 和不带的 `turn.complete`，断言只有主 agent 那次会重画。11 个用例全过，validate `--strict` 也过了。\n\n子 agent 那块应该不乱蹿了。压缩翻倍会不会也是重画时机的问题，我不敢打包票，你再压一次看看。",
       "tools": [
         "Read",
         "Grep",
@@ -69,11 +69,11 @@
     {
       "role": "user",
       "msg": "d5",
-      "text": "两个窗口不串了 但是只开一个窗口压缩还是翻 刚才 44.9k 压完 90.1k 跟最开始一模一样的毛病"
+      "text": "子 agent 那个不乱蹿了 但压缩还是翻 刚才 44.9k 压完 90.1k 跟最开始一模一样的毛病"
     },
     {
       "role": "assistant",
-      "text": "确认了，单窗口压缩后还是翻倍，和最开始的现象一样，前面四次改的都不是这个原因：`turn.complete` 的判断、`session.start` 的累加、`usage` 求和、`$.store` 串扰，后两处确实有问题也改掉了，但翻倍本身没动。\n\n我现在手上能确定的只有：热重载不跳；压缩后 `$.session.usage()` 里 `input` 和 `output` 两项本身就已经是压缩前的两倍左右（这次日志里压缩前 `input=37210`，压缩后 `input=74388`），也就是说这个数不是 mod 加出来的，是读到的时候就这样了。\n\n下一步我想先弄清楚 `session.usage` 在压缩前后到底是按什么口径给的数，是不是压缩后它把旧会话和新会话的用量合在一起算，然后再决定 band 该从哪里取数。先不改代码，查清楚了再跟你说。",
+      "text": "确认了，压缩后还是翻倍，和最开始的现象一样，前面四次改的都不是这个原因：`turn.complete` 的判断、`session.start` 的累加、`usage` 求和、子 agent 的重画，后两处确实有问题也改掉了，但翻倍本身没动。\n\n我现在手上能确定的只有：热重载不跳；压缩后 `$.session.usage()` 里 `input` 和 `output` 两项本身就已经是压缩前的两倍左右（这次日志里压缩前 `input=37210`，压缩后 `input=74388`），也就是说这个数不是 mod 加出来的，是读到的时候就这样了。\n\n下一步我想先弄清楚 `session.usage` 在压缩前后到底是按什么口径给的数，是不是压缩后它把旧会话和新会话的用量合在一起算，然后再决定 band 该从哪里取数。先不改代码，查清楚了再跟你说。",
       "tools": [
         "Bash",
         "Read"

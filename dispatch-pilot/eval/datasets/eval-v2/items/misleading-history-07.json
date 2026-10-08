@@ -1,0 +1,63 @@
+{
+  "id": "misleading-history-07",
+  "category": "misleading-history",
+  "domain": "database",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "客服改单",
+    "SYMPTOM": "客服后台改单时偶尔转十几秒后提示保存失败",
+    "ERROR": "psycopg.errors.InFailedSqlTransaction: current transaction is aborted, commands ignored until end of transaction block",
+    "FILE": "dal/repos/order_adjust.py",
+    "FILE2": "dal/repos/orders.py",
+    "SYMBOL": "apply_order_adjustment",
+    "COMMAND": "pytest tests/dal/test_order_adjust.py"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "客服改单这两周时不时报错 cs-backend 那边贴过来的日志最后一行是 `psycopg.errors.InFailedSqlTransaction: current transaction is aborted, commands ignored until end of transaction block` 他们说走的是我们 dal/repos/order_adjust.py 里的 apply_order_adjustment 你先看看 代码别动"
+    },
+    {
+      "role": "assistant",
+      "text": "先说结论：这一行不是第一现场。`InFailedSqlTransaction` 的意思是同一个事务里前面已经有一条语句失败了，事务进了失败状态，之后发的任何语句都会被库直接拒掉。所以真正要找的是它前面那条失败的语句，光凭这一行定不了问题出在哪。代码没动。\n\n**`apply_order_adjustment` 做了什么**\n\n- 读了 `dal/repos/order_adjust.py`：它在调用方的事务里发 4 条语句：先按订单号查订单和明细并 `FOR UPDATE` 锁住，再按主键各 UPDATE 一次 `orders` 和 `order_items`，最后往 `order_adjust_logs` 插一行流水；另外经 `uow.events.add(...)` 写一行 outbox。\n- 它自己不开事务、不提交。对外的入口是 `dal/repos/orders.py` 里的 `adjust_order()`，cs-backend 调的就是它，事务边界在他们手里。\n- 函数里没有 `try/except`，也没有保存点，任何一条语句出错都原样往上抛。\n\n**什么情况下会出现「事务已中止」**\n\n要出现这个错，得同时满足三件事：前一条语句失败 → 有人接住了这个异常 → 没回滚，又在同一个事务里接着发语句。Grep 了 `dal/` 里所有的 `except`，这条路径上只有 `UnitOfWork.__exit__` 会碰到异常，而它做的是回滚。所以「接住了又接着用」更可能发生在调用方那一侧，但到底是哪种情况，要看 cs-backend 那边完整的日志。\n\n**要找他们要的东西**\n\n1. 同一个请求里，这一行之前的那条错误，通常就挨在前面，可能是锁超时、语句超时、唯一约束冲突之类；\n2. 这几次报错的时间点。\n\n拿到前一条错误，基本就能知道是哪条语句先失败的，往下查才有方向。",
+      "tools": [
+        "Read",
+        "Grep",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "前一条他们还在翻 这块最近就 9b2f4d1 动过 apply_order_adjustment 会不会就是那个提交带出来的 要不要先撤了试试"
+    },
+    {
+      "role": "assistant",
+      "text": "不是它，撤了对改单这个报错没有影响。查了三件事：\n\n- **谁在跑 9b2f4d1**：`git tag --contains 9b2f4d1` 最早是 v1.16.0。定时任务跟主分支走，9 月 23 号起就在跑它；三个服务都还没升到 1.16，`docs/consumers.md` 里 cs-backend 登记的是 1.14.2。也就是说 cs-backend 线上跑的 `apply_order_adjustment` 还是改之前的那份。\n- **报错从哪来**：在 Loki 里按报错原文搜了最近 14 天，每一条都带着 `service=cs-backend`，定时任务的日志里一条都没有。\n- **9b2f4d1 改了什么**：给 `reason_code` 参数加了默认值 `'cs_manual'`，并把「订单状态允不允许改」和「改单窗口过没过期」两个判断换了先后；`dal/repos/orders.py` 那边只是跟着改了调用处的参数名。出错的这条路径根本还没用上这几行。\n\n顺手试了一下真要撤会怎样：在临时分支上 `git revert --no-commit 9b2f4d1`，干净应用，10 月 5 号那个补调试日志的提交 `e71a0c8` 改的是别的行，不冲突；跑 `pytest tests/dal/test_order_adjust.py`，剩下的用例全过，9b2f4d1 补的那两个用例随撤回一起去掉。试完 `git revert --abort`，临时分支删了，工作区干净。\n\n所以撤不撤是另一回事，和这个报错无关。改单这个还是得等 cs-backend 的前一条错误。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "行 那就不是它 不过产品那边本来就说 9b2f4d1 加的那个默认值不对 想撤 等他们定了再说 改单这个先挂着 再出几次抓到现场再看 票别关 这几天你有空接着帮我把这块理一理 写复盘要用"
+    },
+    {
+      "role": "assistant",
+      "text": "好，两件事分开记：\n\n- **9b2f4d1**：等产品定了再撤。撤法就是刚才试过的：`git revert 9b2f4d1` 一个提交，不冲突，那两个用例跟着去掉，再跑一遍 `pytest tests/dal/test_order_adjust.py`。\n- **改单报错**：先挂着，票不关。cs-backend 的前一条错误拿到之前，我先从调用链、事务边界、几张表上的锁、定时任务和监控这几个方向把能理的理出来，只读不改，不下结论，有新发现再跟你说。"
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "9b2f4d1 撤了吧 产品那边定了"
+    }
+  ],
+  "middle_hint": "中间是同一个问题（客服改单偶发 InFailedSqlTransaction）的继续梳理：理调用链和事务边界、查锁和定时任务、看日志和监控、写复现脚本，只读，没有新的修改尝试，也没有结论；没有再讨论 9b2f4d1 撤不撤。"
+}

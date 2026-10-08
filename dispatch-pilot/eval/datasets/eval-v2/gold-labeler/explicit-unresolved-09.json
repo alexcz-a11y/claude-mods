@@ -1,0 +1,33 @@
+{
+  "id": "explicit-unresolved-09",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d5",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "search 接口 p99 问题四次改动（Redis 连接池、track_total_hits、ES 连接池、ZGC）各去掉一个真问题但 p99 仍 720ms，助手承认还没量清楚时间花在哪；中间无关，最后一条用户重新压测还是 720ms、没解决、有双十一期限。同一问题多轮修复失败后再提，定 max；性能瓶颈定位本身也是 xhigh 级。没有决定性几轮时只知道是未达标的性能问题且之前没解决，给 xhigh。"
+}

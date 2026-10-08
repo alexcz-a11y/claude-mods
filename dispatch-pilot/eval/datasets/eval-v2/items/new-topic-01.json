@@ -10,11 +10,11 @@
     {
       "role": "user",
       "msg": "d1",
-      "text": "jobs/archive_order_events.py 每天凌晨三点跑归档 把 90 天前的 order_events 删掉 一跑从库延迟就飙到十几分钟 早上报表读的全是旧数据 你看一下 先说清楚 order_events 现在快 19 亿行了 线上每秒几百条写入 支付回调也在写它 这张表上一点锁都不能有 上回有人直接在上面建了个普通索引 锁了四十多秒 支付回调全超时 最后是回滚了事"
+      "text": "jobs/archive_inventory_logs.py 每天凌晨三点跑归档 把 18 个月以前的 inventory_logs 导出再删掉 一跑从库延迟就飙到七八分钟 早上的库存报表读的全是旧数据 你看一下 inventory_logs 现在十六亿多行 下单预占 支付扣减都在写它"
     },
     {
       "role": "assistant",
-      "text": "原因找到了：归档是一条大 `DELETE` 一次删完，改成了按主键分批删、每批单独提交。\n\n- **查到的**：`jobs/archive_order_events.py` 调的是 `dal/order_events.py` 里的 `purge_before(cutoff)`，实际就一句：\n\n```sql\nDELETE FROM order_events WHERE created_at < :cutoff\n```\n\n90 天之外每天大约 1100 万行，这一句在一个事务里删完，主库一次性写出几个 GB 的 WAL，从库回放要追十几分钟；事务开着的这段时间 autovacuum 也清不了这些死元组。`created_at` 上本来就有索引（`ix_order_events_created_at`），查询计划走的是索引，问题不在找行慢，在一次删太多。\n- **改法**：`purge_before` 改成循环，每次按主键取 5000 个 id 再删：\n\n```sql\nDELETE FROM order_events\nWHERE id IN (\n  SELECT id FROM order_events\n  WHERE created_at < :cutoff\n  ORDER BY id LIMIT 5000\n)\n```\n\n每批单独提交，删到不满 5000 行就停；每批的行数、耗时记进 job 的日志。没有加任何索引，也没有改表结构，按你说的这张表不碰 DDL。\n- **验证**：`tests/jobs/test_archive_order_events.py` 用 testcontainers 起 PostgreSQL 15，灌了 2 万行（一半过期），断言过期的全删、没过期的一行不少、分了 2 批；`pytest tests/jobs -k archive` 6 个用例全部通过。在 staging 上跑了 `python -m jobs.archive_order_events --dry-run`，今天要删 1080 万行左右，大约 2160 批。\n\n还没提交。今晚跑完你看一下从库延迟的曲线。",
+      "text": "原因找到了：归档每晚把一整段 id 区间放在一个事务里删完，改成了按主键分批删、每批单独提交。\n\n- **查到的**：`jobs/archive_inventory_logs.py` 每晚从 `job_state` 里取「上次归档到的 id」，往后找到 `created_at` 早于 18 个月前的最大 id，先把这一段导出成一个 `csv.gz` 传到对象存储 `shop-archive` 桶的 `inventory_logs/` 下，再调 `dal/repos/inventory.py` 里的 `purge_range(lo, hi)`，实际就一句：\n\n```sql\nDELETE FROM inventory_logs WHERE id > :lo AND id <= :hi\n```\n\n这几天每晚这一段在 210 万行上下，一个事务删完，主库一口气写出一大段 WAL，从库回放跟不上，延迟一路涨到七八分钟；事务开着的这段时间 autovacuum 也清不了这些死元组。按主键区间删，找行走的是 `inventory_logs_pkey`，不慢，问题在一次删太多。\n- **改法**：`purge_range` 改成循环，每次只删 5000 行：\n\n```sql\nDELETE FROM inventory_logs\nWHERE id > :cursor AND id <= LEAST(:cursor + 5000, :hi)\n```\n\n每批单独提交，提交以后把游标写回 `job_state`；每批的行数、耗时记进 job 的日志。导出那一步没动，表结构和索引也没动。\n- **验证**：`tests/jobs/test_archive_inventory_logs.py` 用 testcontainers 起 PostgreSQL 15，灌了 2 万行（一半过期），断言过期的全删、没过期的一行不少、分了 2 批、游标落在最后一个删掉的 id；`uv run pytest tests/jobs -k archive` 6 个用例全部通过。在 staging 上跑了 `uv run python -m jobs archive_inventory_logs --dry-run`，今晚要删 212 万行左右，大约 425 批。\n\n还没提交。今晚跑完你看一下从库延迟的曲线。",
       "tools": [
         "Read",
         "Grep",
@@ -25,14 +25,15 @@
     {
       "role": "user",
       "msg": "d2",
-      "text": "昨晚跑了 延迟还是有 最高到了 6 分钟 比之前十几分钟好点 但七点多的报表还是读到旧数据了"
+      "text": "昨晚跑了 延迟还是有 最高到了 4 分钟 比之前好点 但七点多的报表还是读到旧数据了"
     },
     {
       "role": "assistant",
-      "text": "看了昨晚的 job 日志和监控：分批之后单批是小了，但批和批之间一点停顿都没有，2100 多批连着删，主库写 WAL 的速度还是比从库回放快得多，延迟一路攒上去。加了按从库延迟限速。\n\n- **查到的**：job 日志里每批 5000 行耗时 80 到 150ms，整个归档跑了 4 分半；同一时段 `pg_stat_replication` 的 `replay_lag` 从 3:01 开始涨，3:05 归档结束时到顶，6 分 12 秒，之后 20 多分钟才回落。删得越快，延迟攒得越高。\n- **改法**：\n  - 每删完一批，查一次主库 `pg_stat_replication` 里各个从库的 `replay_lag`，取最大的那个：超过 5 秒就停下来，每 2 秒查一次，回到 2 秒以内再继续。两个阈值放进 `jobs/config.py`，不改代码就能调。\n  - 归档加了截止时间：到 5:30 还没删完就停，剩下的第二天接着删，不和早上的报表抢。\n  - 分批取 id 走的是主键 `order_events_pkey`。顺带一提，`id` 是 `integer`，现在最大的 id 在 19.4 亿上下，归档按 id 取批不受影响。\n- **验证**：加了 3 个用例，用假的延迟读数驱动限速逻辑：超过阈值会等、回落后继续、到截止时间会停；`pytest tests/jobs -k archive` 9 个用例全部通过。\n\n还没提交。今晚再跑一次，明早看延迟和报表。",
+      "text": "看了昨晚的 job 日志和监控：分批之后单批是小了，但批和批之间一点停顿都没有，400 多批连着删，主库写 WAL 的速度还是比从库回放快，延迟照样攒上去。加了按从库延迟限速，再加了截止时间。\n\n- **查到的**：job 日志里每批 5000 行耗时 60 到 120ms，删除这一段一共跑了 50 秒左右；同一时段 `pg_stat_replication` 的 `replay_lag` 从 3:04 开始涨，删完的时候到顶，4 分 05 秒，之后十几分钟才回落。删得越快，延迟攒得越高。\n- **改法**：\n  - 每删完一批，查一次主库 `pg_stat_replication` 里从库的 `replay_lag`：超过 5 秒就停下来，每 2 秒查一次，回到 2 秒以内再继续。两个阈值放进 `jobs/config.py`，不改代码就能调。\n  - 到 5:30 还没删完就停，第二天接着删，不和早上的报表抢。\n  - 截止时间带来一个新情况：一段区间导出了、只删了一半就停了。所以 `job_state` 里把「导出到哪」和「删到哪」拆成两个游标，第二天发现上一段已经导出过，就跳过导出、只接着删，不会再传一份。\n- **为什么不能重导一份**：改之前把读这些归档文件的地方都找了一遍（仓库里 Grep，加上桶策略里授权的角色和近 30 天的访问日志），它们都按「一个区间一个文件、同一段不会出现两次」来读：\n  - 文件本身：每晚一个，`inventory_logs/dt=<归档日期>/inventory_logs_<lo>_<hi>.csv.gz`，第一行是表头，列按表里的顺序，时间带 `+08`；一个 95 MB 左右，2024 年 11 月开始归档，现在一共 700 来个、60 多 GB。桶的生命周期规则在 infra 那边管：30 天后转低频存储，保留 7 年。\n  - `jobs/restore_inventory_logs.py`（我们的）：客服、运营要查 18 个月以前的流水时，按日期把文件拉下来，`COPY ... FROM STDIN (FORMAT csv, HEADER)` 灌进 `archive_restore` 下的临时表，按列的位置对应。\n  - 这个任务自己的 `verify_export()`：删之前把刚传上去的文件读回来，核对行数和首尾 id，对不上就不删。\n  - 财务数据组的 Athena 表 `finance_audit.inventory_logs_archive`：直接建在 `inventory_logs/` 这个前缀上，CSV 格式，按列位置映射，`dt` 做分区投影，年度库存审计时查。表定义在他们手里，不在这个仓库。\n  - 数据组 `bi-sync` 的全量重建：重建数仓的 `ods.inventory_logs` 时，库里只有 18 个月，更早的从这些文件补，按文件名里的 id 区间和库里的数据衔接，也是按 CSV 的列位置解析。代码在他们的仓库里，我只读了 README 里的说明。\n- **验证**：加了 5 个用例，用假的延迟读数驱动限速逻辑：超过阈值会等、回落后继续、到截止时间会停并留下两个游标、续跑时跳过导出只删剩下的；`uv run pytest tests/jobs -k archive` 11 个用例全部通过。\n\n还没提交。今晚再跑一次，明早看延迟和报表。",
       "tools": [
         "Bash",
         "Read",
+        "Grep",
         "Edit"
       ]
     },
@@ -43,7 +44,7 @@
     },
     {
       "role": "assistant",
-      "text": "提交了，`7c41e9a`：`jobs: archive order_events in throttled batches`，改了 `dal/order_events.py`、`jobs/archive_order_events.py`、`jobs/config.py` 和测试，没推送。\n\n- 昨晚的日志：删了 1076 万行，2153 批，中间因为延迟超过 5 秒停过 11 次，一共跑了 1 小时 52 分，5 点前结束。\n\n要推的话说一声。",
+      "text": "提交了，`7c41e9a`：`jobs: archive inventory_logs in throttled batches`，改了 `dal/repos/inventory.py`、`jobs/archive_inventory_logs.py`、`jobs/config.py` 和测试，没推送。\n\n- 昨晚的日志：删了 211 万行，423 批，中间因为延迟超过 5 秒停过 9 次，删除这一段一共跑了 41 分钟，4 点前结束，没碰到截止时间。\n\n要推的话说一声。",
       "tools": [
         "Bash"
       ]
@@ -52,8 +53,8 @@
   "final": [
     {
       "role": "user",
-      "text": "另外 order_events 的 id 还是 integer 回头总会不够用 顺手写个 Flyway 迁移把它改成 bigint 吧"
+      "text": "另外归档导出的那些文件还是 csv.gz 又占地方读起来又慢 改成 parquet 吧"
     }
   ],
-  "middle_hint": "中间在 shop-db 里做别的事：别的表加字段、改查询、补测试、整理定时任务配置之类，和 order_events 的归档无关，没有再碰归档。"
+  "middle_hint": "中间在 shop-db 里做别的事：别的表加字段、改查询、补测试、整理定时任务配置之类，和 inventory_logs 的归档无关，没有再碰归档任务和归档文件。"
 }

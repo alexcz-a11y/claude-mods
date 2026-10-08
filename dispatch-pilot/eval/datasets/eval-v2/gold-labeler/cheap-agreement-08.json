@@ -1,0 +1,21 @@
+{
+  "id": "cheap-agreement-08",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "POS 那批造数已经做完，最后一条是给财务对账再造一批，算新任务。d2 定过规矩：staging 造数直接写 SQL 放 scripts/seed/，金额对得上就行，不走 service、不做幂等、不写测试，所以这次是照 pos_demo.sql 扩写一份 SQL，给 medium。比上次多了部分退款、退款中，还有 outbox 里 dead 状态的推送失败记录，得先看 outbox_events 的表结构，金额也要对得上，所以 high 也可以接受。没有 d2 的话，主 agent 会走 service 下单、做幂等、补测试，还要跨多个文件，按 high 判。"
+}

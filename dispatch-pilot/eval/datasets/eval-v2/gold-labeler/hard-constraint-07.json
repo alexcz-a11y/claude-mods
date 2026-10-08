@@ -1,0 +1,21 @@
+{
+  "id": "hard-constraint-07",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条是新功能：给客服加按收货手机号查订单的 admin 接口。单看像一个范围清楚的新接口（medium），但决定性几轮里定下的个人信息访问规范全部适用：按角色单独授权且默认无人可调、手机号地址默认脱敏、明文另做接口并逐次审计、防止按手机号批量枚举（单账号日查询上限+告警）、在 admin_authz_test.go 权限矩阵里每个角色登记允许/拒绝、阿杰 review。还要权衡客服本就是泄露源头这一背景。跨 handler、迁移/审计、测试多个文件且边界条件要紧，定 high，规则较多时 xhigh 也可接受。导出问题已合并上线，最后一条与之无关。"
+}

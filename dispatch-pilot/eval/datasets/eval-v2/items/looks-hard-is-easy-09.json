@@ -1,0 +1,48 @@
+{
+  "id": "looks-hard-is-easy-09",
+  "category": "looks-hard-is-easy",
+  "domain": "ios",
+  "bin": "d1",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "单测想整体换成 Swift Testing 新写的基本都用它了 老的还是 XCTest 两套混着 你先盘一下 LedgerTests 里剩下的 XCTest 迁过去要动多少 有什么坑 快照那几个先不算"
+    },
+    {
+      "role": "assistant",
+      "text": "盘完了：要迁的是 46 个文件、258 个用例。绝大部分是类声明和断言的一一替换；`setUp`、`tearDown` 和异步等待也只有固定的几种写法，都能交给脚本。要先处理的只有一件事：有 5 个测试类读写同一个 `UserDefaults.standard`，XCTest 下同一个类里的用例是串行跑的，所以一直没事；换成 Swift Testing 以后同一个 suite 里的用例默认并行，会互相踩。我建议先把这 5 个改成各用各的 `UserDefaults`，这样迁完一个 `.serialized` 都不用加。没改任何文件。\n\n**范围**\n\n- `LedgerTests/` 下 XCTest 文件 52 个，去掉 `Snapshots/` 下 6 个快照测试，要迁的是 46 个；用例 258 个，是拿最近一次 CI 的结果用 `xcrun xcresulttool` 数的。\n- 已经是 Swift Testing 的文件有十来个，风格统一：`@Suite` 带中文显示名，参数化用 `@Test(arguments:)`，迁过去照这个来。\n\n**对照表**\n\n| XCTest | Swift Testing | 数量 |\n|---|---|---|\n| `final class XxxTests: XCTestCase` | `@Suite struct XxxTests` | 46 |\n| `func testXxx()` | `@Test func testXxx()`，方法名不改，`-only-testing:` 和测试计划里的名字就不用跟着变 | 258 |\n| `setUp()` / `setUpWithError()` | `init()` / `init() throws` | 29 个文件 |\n| `tearDown()` | 改成 `@Suite final class`，内容挪进 `deinit`，会抛错的调用加 `try?` | 6 个文件 |\n| `XCTAssertEqual`、`XCTAssertTrue`、`XCTAssertNil` 等 | `#expect(...)` | 1,080 多处 |\n| `try XCTUnwrap(x)` | `try #require(x)` | 71 |\n| `XCTAssertThrowsError` | `#expect(throws:)` | 22 |\n| `XCTFail(\"…\")` | `Issue.record(\"…\")` | 17 |\n| `expectation` 加 `wait(for:timeout:)`，等通知 | `await confirmation { confirm in … }` | 7 处 |\n| 同上，等 Combine 的发布 | `for await` 取 `.values` 的第一个值 | 2 处 |\n\n等待一共 9 处，就这两种写法，没有别的变体。\n\n**要先处理、要你定的**\n\n1. **共用 `UserDefaults.standard` 的 5 个**：`NotificationSettingsTests`、`BudgetAlertServiceTests`、`HomeCardSettingsTests`、`BillEditorDefaultsTests`、`MigrationFixupsTests`。被测的几个类本来就能注入 `UserDefaults`（构造参数默认值是 `.standard`），测试里改成每个用例自己建一个 `UserDefaults(suiteName: \"test-\\(UUID().uuidString)\")!`，用完 `removePersistentDomain`。全仓 Grep 过 `UserDefaults.standard`，测试里只有这 5 个。建议先单独改、单独合。\n2. **`BillQueryPerformanceTests`**：用的是 `measure {}`，Swift Testing 没有对应的东西，建议整个文件留在 XCTest。\n3. **方法名**：保留 `test` 前缀，`CI.xctestplan` 里 `skippedTests` 那 3 条（`BackupRestoreTests/testLargeBackup()` 这种）就不用动。\n\n**做法**\n\n写一个 `scripts/xctest_to_swift_testing.py`：做上面对照表里的全部替换，包括 `tearDown` 挪到 `deinit` 和两种等待；碰到认不出的写法不动，在文件里留 `// MIGRATE:` 并打印出来；`--dry-run` 只列会改什么、会留几个 `MIGRATE`；`--check` 用 `xcresulttool` 把迁移前后的用例名和总数对一遍。建议先挑三个有代表性的文件真迁一次。",
+      "tools": [
+        "Glob",
+        "Grep",
+        "Read",
+        "Bash"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "可以 就按这个方案 UserDefaults 那 5 个先改 performance 那个留着 方法名不改 先拿三个文件试 剩下的等 3.8 上架以后再弄 这两周 3.8 在提测 别让 CI 上的测试动来动去"
+    },
+    {
+      "role": "assistant",
+      "text": "试点合进 main 了，提交 `c41e8a7`：5 个共用 `UserDefaults` 的测试类改成了各用各的，另外挑了三个文件迁到 Swift Testing，脚本一起提交了。剩下的没动。\n\n**试的三个**\n\n挑了三种典型：`RecurringScheduleTests`（纯断言，12 个用例）、`CategoryRepositoryTests`（有 `setUp`、`XCTUnwrap`、`XCTAssertThrowsError`，15 个）、`BudgetAlertServiceTests`（有 `tearDown`、两处等通知，也是那 5 个之一，9 个）。\n\n- 脚本跑完三个文件直接能编译，一个 `MIGRATE` 都没留，`tearDown` 挪进 `deinit`、两处等待改成 `confirmation` 都是脚本做的。\n- 迁移前后用例数 12、15、9，`--check` 对过用例名，一一对应。\n- `-test-iterations 5` 连跑 5 遍全过；整个 `LedgerTests` 也跑了一遍，全过；CI 绿。\n\n**UserDefaults 那 5 个**\n\n除了 `BudgetAlertServiceTests` 已经迁了，另外 4 个改完还是 XCTest，同样 `-test-iterations 5` 跑过。改的只是测试里怎么拿 `UserDefaults`，被测代码没动。\n\n**剩下的 dry-run**\n\n- 42 个文件、220 个用例（`BillQueryPerformanceTests` 照你说的留着，不算在里面）。\n- 脚本报告 0 冲突，会留 2 个 `MIGRATE`，就是下面要手改的两处。\n\n**要手改的两处**（逐字）\n\n1. `LedgerTests/Backup/BackupRestoreTests.swift`：删掉 `try XCTSkipUnless(ProcessInfo.processInfo.environment[\"RUN_LARGE_BACKUP\"] != nil)` 这一行，`func testLargeBackup()` 上面的 `@Test` 改成 `@Test(.enabled(if: ProcessInfo.processInfo.environment[\"RUN_LARGE_BACKUP\"] != nil))`\n2. `LedgerTests/Import/CSVImporterTests.swift` 的 `testImportLargeFile()` 里：`addTeardownBlock { try? FileManager.default.removeItem(at: tmp) }` 改成 `defer { try? FileManager.default.removeItem(at: tmp) }`\n\n到时候就是：`python3 scripts/xctest_to_swift_testing.py LedgerTests --exclude Snapshots --exclude Performance/BillQueryPerformanceTests.swift`，手改上面两处，再跑 `xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:LedgerTests -test-iterations 3`，最后 `python3 scripts/xctest_to_swift_testing.py --check` 对一遍用例名和总数。",
+      "tools": [
+        "Write",
+        "Edit",
+        "Bash",
+        "Read"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "3.8 上架了 回到单测迁移那个 前面那几个文件跑了两周 CI 一次没红过 剩下那四十几个文件也迁了吧"
+    }
+  ],
+  "middle_hint": "中间是在 Ledger 仓库做别的事（加功能、改文案、补测试、评估方案之类），和单测迁移无关。"
+}

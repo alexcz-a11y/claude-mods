@@ -2,8 +2,8 @@
   "id": "new-topic-01",
   "effort": "xhigh",
   "accept": [
-    "xhigh",
-    "max"
+    "high",
+    "xhigh"
   ],
   "effort_without_decisive": "medium",
   "triage_final": "new_or_unrelated",
@@ -21,5 +21,5 @@
       "triage": "resolved"
     }
   ],
-  "rationale": "最后这条是新任务：把 order_events.id 从 integer 改成 bigint，归档延迟那件事在 d3 已经了结。难度要看决定性几轮：用户在 d1 说过这张表快 19 亿行、每秒几百条写入、支付回调在写、一点锁都不能有，上次建个普通索引锁了四十秒导致支付回调全超时；d2 里又看到从库延迟对大批量写很敏感、当前最大 id 约 19.4 亿。改列类型在 PostgreSQL 里要重写整表并持有排他锁，直接 ALTER 就是事故，只能做在线迁移：加 bigint 新列、触发器双写、按从库延迟限速分批回填、非事务的 Flyway 迁移里并发建唯一索引、短锁切换主键和序列、同步改 dal/ 和归档代码，还要在 staging 上反复验证、留回滚办法，属于长链路、要反复验证的复杂改动，xhigh；涉及支付链路的线上大表、出错代价高，max 也可以接受。删掉决定性几轮，只看「顺手写个迁移改成 bigint」，像一条普通的单个迁移加改模型：medium。三选一：d1 第一次提出归档延迟问题，new_or_unrelated；d2 改了以后延迟还在、报表还旧，still_unresolved；d3 延迟正常、让提交，resolved；最后这条换成了另一件事，new_or_unrelated。"
+  "rationale": "最后这条是新任务：把 inventory_logs 归档导出的文件从 csv.gz 换成 Parquet，用户的目的是省空间、读得快。归档拖慢从库的问题在 d3 已经了结。改变判断的是 d2 回复里为了「续跑不重导」查清的读者：归档文件除了我们自己的 restore_inventory_logs.py（按列位置 COPY）和删前校验 verify_export()，还有财务数据组直接建在 inventory_logs/ 前缀上的 Athena 表（CSV、按列位置映射、dt 分区投影）和数据组 bi-sync 全量重建时按 CSV 列位置读历史文件，这两方的表定义和代码都不在这个仓库；历史上已经有 700 来个文件、60 多 GB。要把用户的目的做到：Parquet 不能直接混进同一个前缀（Athena 表会读坏），要换新前缀、新旧两种格式并行写一段时间；历史文件要逐个转成 Parquet 并核对行数和首尾 id，不然「占地方」只改善了新文件；恢复工具和删前校验要改成读 Parquet；要和财务、数据组约好各自切换的时间，确认都切过去以后再停写 CSV。这是改一个三方都在用的文件约定，带历史转换和分步切换，每一步都要核对，照 effort-rules 是长链路、需要反复验证的复杂改动：xhigh。出了问题可以回到继续写 CSV，旧文件一直留着，也没有碰 inventory_logs 这张表，不是高风险且不可逆的操作，到不了 max。accept 里的 high：如果只算本仓库里的导出、恢复工具、校验和历史文件转换，财务和数据组那边的切换由他们自己排期，读者判成 high 也说得过去。删掉决定性几轮，只看「归档导出的文件改成 parquet」，像是把一个任务里写文件的那一步换成另一种格式、补个测试：medium。三选一：d1 第一次提出归档拖慢从库，new_or_unrelated；d2 改了以后延迟还在、报表还旧，still_unresolved；d3 延迟正常、让提交，resolved；最后这条是另一件事，new_or_unrelated。重写说明：按修订版说明重写。原题的新任务是在十六亿行、处在下单链路上的热表上把 id 从 integer 改成 bigint，d1 里还有用户讲严重程度的话（「一点锁都不能有」「下单全超时 回滚了事」），会被读成高风险且不可逆，也和 hard-constraint 撞。这次删掉了 d1 里讲严重程度的话，d2 不再提 id 的量级，新任务换成改归档文件的格式，难在读者多、要做历史转换和分步切换，出错能回退；accept 不再含 max。"
 }

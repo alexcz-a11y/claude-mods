@@ -1,0 +1,25 @@
+{
+  "id": "new-topic-03",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "GMV 偏高问题在 d3 已由用户确认对上并提交，最后一条是新需求：把 rpt.daily_sales 的 gmv 拆成 gmv_gross 和 gmv_net。决定性几轮里有两个约束让它不能照字面做：用户自己说过下游（Metabase 14 条语句、其中 12 条用 gmv，weekly_digest.sql 的 SUM(gmv)，财务月度对账的 gmv 合计，已经对过的月份数不能变）的列名和类型不能动，所以不能删掉或改名 gmv，只能保留 gmv 再加两列；另外 gmv 本身已经是扣了券和积分之后的 pay_amount，『gross』要回到 total_amount 还是另行定义要先说清楚，退款按退款日归、有的行只有退款，净额怎么扣、历史不补时新列在历史行里是 NULL，都要想清楚并和用户确认。实现跨 DDL、取数 SQL、管道和测试，边界条件要紧，定 high；牵涉财务对账口径，xhigh 也可以。看不到决定性几轮时，像是需求明确的加列改动，会判 medium。"
+}

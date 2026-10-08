@@ -1,0 +1,21 @@
+{
+  "id": "command-turn-04",
+  "effort": "xhigh",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后这条用 /code-review 评审 #508：shop-prod 的参数组调整，属于 terraform/envs/prod 下的改动。决定性几轮里一次看着无害的 PR（#491 补成本标签，顺手改了 rds-postgres 模块里 ca_cert_identifier 的默认值）在 apply_immediately=false 下挂成待处理修改，几天后在维护窗口里让 shop-prod 重启、断了四分钟；之后用户对这一类评审定了硬规矩：每个改到的栈自己跑 plan，逐条写清会不会重启、断连、是马上生效还是挂到哪个维护窗口，动了模块要对默认值变化落到哪些实例，参数组 static 参数单列，有一条说不清就不能批，还写成了 docs/review/prod-terraform.md。照这个要求，这次评审要对主库和只读库所在的栈跑 plan、逐个判断每个参数是 static 还是 dynamic、何时生效、会不会重启、apply 之后会不会挂着待处理修改，是要反复核实的长链路工作：xhigh；改动面不大、规矩已经写成清单，判 high 也可以。删掉决定性几轮（d4 本来就读不到），只看到评审一个「DBA 要的几个参数调整」的小 PR，正常看 diff 和 plan 摘要给意见：medium。三选一：d1 第一次提出那次断连，new_or_unrelated；d2 用户说原因清楚了、这次就到这，接受了结论，resolved；最后这条是评审另一个 PR，和那次事故无关，new_or_unrelated。（审稿改动：原题的机制是模块默认 apply_immediately=true、模块按 ?ref=v2.5.0 引用、apply 时立刻重启，素材池里多段写明 rds-postgres 是仓库里的本地模块、默认 apply_immediately=false、prod 实例都显式写了 false，还有一段专门说 plan 不要加 -lock=false。改成 apply_immediately=false 下 CA 默认值变化被挂到维护窗口（周一北京时间 02:00，和素材池的窗口一致）才重启，d2 的规矩和助手写的清单跟着改成「马上生效还是挂到哪个窗口」「模块默认值落到哪些实例」，去掉 -lock=false。金标不变。）"
+}

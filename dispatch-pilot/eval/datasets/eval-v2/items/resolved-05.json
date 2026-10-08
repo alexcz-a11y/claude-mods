@@ -5,27 +5,41 @@
   "bin": "d1",
   "relation": "same-problem",
   "placeholders": {
-    "FEATURE": "数据模型升级后的 Core Data 迁移",
-    "SYMPTOM": "老用户升级到新版后一打开 App 就闪退",
-    "ERROR": "Fatal error: Failed to load persistent stores: Error Domain=NSCocoaErrorDomain Code=134110 \"An error occurred during persistent store migration.\"",
-    "FILE": "Ledger/Persistence/PersistenceController.swift",
-    "FILE2": "Ledger/Persistence/LedgerMigrationPlan.swift",
-    "SYMBOL": "makeContainer",
-    "COMMAND": "xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:LedgerTests/MigrationTests"
+    "FEATURE": "切回账单页时的列表刷新",
+    "SYMPTOM": "切回账单页时列表少了几笔刚记的账",
+    "ERROR": "BillListViewModel.restoreRows failed: Error Domain=NSCocoaErrorDomain Code=133000 \"Attempt to access an object not found in store.\"",
+    "FILE": "Ledger/Features/Bills/BillListViewModel.swift",
+    "FILE2": "Ledger/Persistence/HistoryMerger.swift",
+    "SYMBOL": "restoreRows()",
+    "COMMAND": "xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:LedgerTests/BillListViewModelTests"
   },
   "opening": [],
   "decisive": [
     {
       "role": "user",
       "msg": "d1",
-      "text": "TestFlight 上 2.4 的包 有几个老用户一打开就闪退 Crashlytics 里是 `Fatal error: Failed to load persistent stores: Error Domain=NSCocoaErrorDomain Code=134110 \"An error occurred during persistent store migration.\"` 新装的没事 2.4 改了数据模型 Transaction 的 note 拆成了 memo 和 tags 你看下 Ledger/Persistence/PersistenceController.swift"
+      "text": "3.8.0 以后外测老有人反馈 从后台回来或者从统计页切回账单页 列表少了几笔刚记的账 合计也不对 退出去再进来就好了 Sentry 里对应的是 `BillListViewModel.restoreRows failed: Error Domain=NSCocoaErrorDomain Code=133000 \"Attempt to access an object not found in store.\"` 你看下 Ledger/Features/Bills/BillListViewModel.swift"
     },
     {
       "role": "assistant",
-      "text": "原因找到了，先改了一版：备注拆分这种改动 Core Data 推断不出来，2.4 的包里也没有映射模型。\n\n- **原因**：`makeContainer` 用的是默认的自动迁移（`shouldMigrateStoreAutomatically` 和 `shouldInferMappingModelAutomatically` 都是 true）。2.3.1 发出去的是模型 v7，2.4 是 v8：`Transaction.note` 删掉了，新加了 `memo` 字符串和到新实体 `Tag` 的多对多 `tags`。推断映射能处理加字段、删字段、改名，处理不了「把一个字段的内容拆到另一个字段和一个新实体里」，加上 `Tag.name` 是必填且没有默认值，迁移在校验阶段失败，`loadPersistentStores` 回调里拿到 134110，我们那里直接 `fatalError`，所以一打开就闪退。新装的没有旧库，不走迁移，所以没事。\n- **改法**：加了映射模型 `LedgerV7toV8.xcmappingmodel` 和迁移策略 `NoteSplitPolicy`（`NSEntityMigrationPolicy` 子类）：`note` 里 `#` 开头的词拆成标签，按名字去重建 `Tag`，其余文字放进 `memo`。\n- **验证**：用 2.3.1 的包在模拟器里造了一个带 500 条记账的 v7 库，放进 `LedgerTests/Fixtures/v7.sqlite`；`MigrationTests` 加载它迁到 v8，断言条数、memo 和标签都对。`xcodebuild test ... -only-testing:LedgerTests/MigrationTests` 3 个用例通过。\n\n还没提交，你出个 TestFlight 包让老用户升级试一下。",
+      "text": "先找到一处，改了一版：`restoreRows()` 里只要有一个缓存的对象已经不在库里，整次还原就失败，列表停在离开前的旧数据上。\n\n- **原因**：3.8.0 的 #604 为了切 tab 时不闪，离开账单页时把当前的行缓存成 `NSManagedObjectID` 列表，回来时 `restoreRows()` 逐个 `viewContext.existingObject(with:)` 还原，不再重新取数。这期间要是后台把其中一笔删了，比如周期记账的 `catchUp` 把「预计」的那笔删掉、换成正式的一笔，`existingObject` 就抛 133000。`restoreRows()` 用一个 `try` 包住了整个循环，一笔失败整次还原中断，`catch` 里只记日志，`rows` 还是离开前那份，界面上就是旧的。\n- **改法**：改成逐个还原，`existingObject` 抛错的那一笔跳过，记一条 debug 日志，其余照常还原。\n- **验证**：`BillListViewModelTests` 加了一个用例：内存库里先缓存 5 笔，后台 context 删掉其中 1 笔再还原，改之前抛 133000、`rows` 不变，改之后还原出 4 笔。`xcodebuild test ... -only-testing:LedgerTests/BillListViewModelTests` 9 个用例通过。\n\n还没提交，你出个 TestFlight 包让外测试一下。",
       "tools": [
         "Read",
         "Grep",
+        "Bash",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "Sentry 里那个 133000 没了 但列表还是会少 外测说用小组件记了一笔 回到 App 账单页里没有 退出去再进来才有 从后台回来也一样"
+    },
+    {
+      "role": "assistant",
+      "text": "上一版只处理了「缓存里的被删了」，没处理「别处新加的」：缓存的 ID 列表里本来就没有账单页不可见期间小组件、周期记账插进来的账单，怎么还原都还原不出来。这次改成该重取的时候重取。\n\n- **原因**：`Ledger/Persistence/HistoryMerger.swift` 合并完持久化历史会发 `billsDidChange`，可 `BillListViewModel` 收到通知时有一句 `guard isVisible else { return }`，账单页不在前台就直接丢掉；回到账单页走的是 `restoreRows()`，只认离开前缓存的那些 ID。小组件记的一笔、周期记账生成的一笔都是在 App 外或后台写的，正好落在这个空档里。退出重进会重新取数，所以就好了。\n- **改法**：\n  1. 不可见时收到 `billsDidChange` 不再丢掉，记一个 `needsRefetch` 标记；\n  2. 回到账单页时有标记就按当前月份重新 fetch，没有才走 `restoreRows()`，这样没有变化时，#604 想解决的切 tab 闪烁仍然不会出现；\n  3. 上一版「跳过找不到的」保留，当兜底。\n- **验证**：`BillListViewModelTests` 改用真的 sqlite 文件：账单页不可见时用 author 为 `widget` 的后台 context 插一笔、`HistoryMerger` 合并，再回到账单页，断言新的一笔在列表里；周期记账替换「预计」那笔的场景也加了一个，11 个用例通过。UI 测试按「记一笔 → 切到统计页 → 通过 App Group 模拟小组件写入 → 切回账单页」连跑 20 遍，20 遍都对。\n\n你再出个包，让用小组件的那几位外测试一下。",
+      "tools": [
+        "Read",
         "Bash",
         "Edit",
         "Write"
@@ -33,27 +47,12 @@
     },
     {
       "role": "user",
-      "msg": "d2",
-      "text": "还是闪退 换了个 2.2 的老号升上来 一样的 134110 这次 Crashlytics 里下面多了一行 `NSUnderlyingError ... Code=134140 \"Can't find mapping model for migration\"` 2.3.1 升上来的倒是好了"
-    },
-    {
-      "role": "assistant",
-      "text": "2.2 用的是模型 v6，Core Data 的自动迁移只会找「源模型直接到目标模型」的一步映射，不会自己串成 v6 → v7 推断、再 v7 → v8 用映射模型。上一版只加了 v7 → v8，所以 2.3.1 好了、2.2 不行。这次改成分阶段迁移。\n\n- **改法**：新建 `Ledger/Persistence/LedgerMigrationPlan.swift`，用 iOS 17 的 `NSStagedMigrationManager` 把每一步写明：v5 → v6、v6 → v7 是 `NSLightweightMigrationStage`；v7 → v8 拆成两步，先轻量迁到一个保留 `note` 的中间模型 v7.5，在 `NSCustomMigrationStage` 的 `didMigrateHandler` 里把 `note` 拆进 `memo` 和 `tags`，再轻量迁到 v8 删掉 `note`。`makeContainer` 里把 manager 设到 `NSPersistentStoreStagedMigrationManagerOptionKey`。原来的 `LedgerV7toV8.xcmappingmodel` 和 `NoteSplitPolicy` 删掉了，拆分逻辑挪进了 handler。\n- **范围**：包里现在只留着 v5 以后的模型，v1 到 v4（2.0 及以前，2021 年的版本）在 2.1 时就从包里删了，这些库没法迁。`makeContainer` 不再 `fatalError`：碰到不认识的旧模型抛 `LedgerMigrationError.unsupportedSourceModel(version:)`，上报一条 non-fatal，界面显示「请先安装 2.3 完成数据升级」，不闪退也不动用户的库。\n- **验证**：用 2.1、2.2、2.3.1 的包各造了一个 v5、v6、v7 的库放进 `Fixtures/`，`MigrationTests` 每个都迁到 v8 并核对条数、memo、标签；另加一个 v4 的库，断言抛 `unsupportedSourceModel(version: 4)`。7 个用例全过。\n\n2.0 及以前不支持这一点你确认一下，要支持就得把老模型加回包里、再多写几段迁移。",
-      "tools": [
-        "Read",
-        "Bash",
-        "Write",
-        "Edit"
-      ]
-    },
-    {
-      "role": "user",
       "msg": "d3",
-      "text": "这次好了 外测拉了 2.2 和 2.3.1 的老号各两个 升上来都正常 记账记录 备注 标签都在 2.0 以前的不管 外测里基本没有这么老的 这个问题解决了 先别发 我想再把迁移这块的代码顺一遍"
+      "text": "这次好了 外测拉了 6 个人 用小组件记账 切 tab 从后台回来都试了 列表都对 这个问题解决了 先别发 我想把这块代码再顺一遍"
     },
     {
       "role": "assistant",
-      "text": "好，先不发。改动在 `fix/staged-migration` 分支，两个提交：`9a3e7c1`（分阶段迁移和拆分备注）、`41fd2b8`（不支持的旧库改为提示、不再闪退）。\n\n以后看 Crashlytics 有一点先说清楚：如果有 2.0 及以前的用户直接升到 2.4，不会闪退，但会出现一条 non-fatal `LedgerMigrationError.unsupportedSourceModel(version: N)`，N 是 1 到 4，界面上提示他先装 2.3。这是按刚才的约定故意这样处理的，不是新问题；要是出现 134110 或者 version 是 5 以上，才说明迁移又出了问题。\n\n迁移这块你想从 `makeContainer` 开始顺，还是从 `LedgerMigrationPlan` 的各个阶段开始？",
+      "text": "好，先不发。改动在 `fix/bills-refetch` 分支，两个提交：`9a3e7c1`（还原时跳过已删除的对象）、`41fd2b8`（不可见期间有变化就重新取数）。\n\n以后看 Sentry 有一点先说清楚：3.8.0、3.8.1 的用户升级之前，Sentry 里还会继续收到 133000，那是老包的问题，不是新问题；3.9.0 的包上要是再出现 133000，或者有人反馈切回来少账，才说明这块又出了问题。另外日志里会多一条 info `bills refetch after hidden changes`，账单页不在前台期间有写入时才会出现，用小组件多的人会多一些，是正常的。\n\n这块你想从 `restoreRows()` 开始顺，还是从 `HistoryMerger` 发通知那一段开始？",
       "tools": [
         "Bash"
       ]
@@ -62,8 +61,8 @@
   "final": [
     {
       "role": "user",
-      "text": "外测这两天 Crashlytics 里 134110 一条都没有 多了一条 non-fatal `unsupportedSourceModel(version: 3)` 我问了 那个人手机上一直是 1.8 跟之前说的一样 迁移就顺到这 你在 2.4 的 release notes 里加一句 从 2.0 及更早版本升级的需要先安装 2.3"
+      "text": "外测这两天 3.9.0 的包上 133000 一条都没有 Sentry 里还有十几条 我看了全是 3.8.1 的 跟之前说的一样 代码就顺到这 你在 3.9.0 的 release notes 里加一句 修复了用小组件或者在后台记账以后回到账单页偶尔不显示的问题"
     }
   ],
-  "middle_hint": "用户确认修复有效后，说先不发版、要把迁移这块的代码再顺一遍：中间是围绕 Core Data 迁移继续读代码、理调用链、看 Crashlytics 和日志、问原理，不改实现，也没有新的结论。"
+  "middle_hint": "用户确认修复有效后，说先不发版、要把这块代码再顺一遍：中间是围绕切回账单页时的列表刷新继续读代码、理调用链、看 Sentry 和日志、问原理，不改实现，也没有新的结论。"
 }

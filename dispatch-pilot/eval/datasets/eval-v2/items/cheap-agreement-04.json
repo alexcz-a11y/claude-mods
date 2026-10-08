@@ -14,7 +14,7 @@
     },
     {
       "role": "assistant",
-      "text": "看完了。`semgrep/tests/internal-scope-consistent.ts` 里现在 5 个样例：3 个正例、2 个反例。`npx semgrep --test semgrep/` 全仓库 12 条规则跑下来全过。\n\n没覆盖到的写法有两种：scope 前缀匹配（代码里写 `internal:read`、规则只认 `internal:*` 的整串）和 scope 字符串大小写不一致；这两种写法仓库里各有一处在用（`src/oauth/authorize.ts`、`src/session/verify.ts`），规则都漏扫。只跑了测试和 Grep，没有改任何东西。",
+      "text": "看完了，现有样例都过，但有两种写法没覆盖到，仓库里正好各有一处在用，规则都没扫到。\n\n- **现有样例**：`semgrep/tests/internal-scope-consistent.ts` 里 5 个，3 个 `ruleid`、2 个 `ok`。`semgrep --test --config semgrep/ semgrep/tests/` 跑下来全部规则的测试都过。\n- **没覆盖到的**：一是 scope 用模板字符串拼出来的（`` `internal:${resource}.read` ``），规则只匹配字符串字面量；二是老的连字符写法（`internal:user-read`），规则的正则只认 `internal:资源.动作`。Grep 了一下，前一种在 `src/session/` 的内部吊销接口里有一处，后一种在 `src/oauth/introspect.ts` 里有一处。\n\n只跑了测试和 Grep，没有改任何东西。",
       "tools": [
         "Read",
         "Grep",
@@ -37,7 +37,7 @@
     },
     {
       "role": "assistant",
-      "text": "扫完了。先在 `src/crypto/` 里 Grep 了 `===`、`==`、`timingSafeEqual` 的用法，再写了一条临时的 semgrep 规则（放 scratchpad，没进 `semgrep/`）扫「拿字符串直接做相等比较」的写法，对 `src/` 全量跑了一遍。\n\n结果：`src/crypto/` 里 7 处比较，5 处是 `timingSafeEqual` 或比较对象不是秘密；2 处在 hex 编码的 token 上用 `===` 直接比——`src/crypto/token.ts` 的 `verify` 和 `src/crypto/refresh.ts` 的轮换检查。这两处比的是同格式等长的 hex 串，风险有限但按刚才的口径值得记下。`src/crypto/` 以外还有 3 处类似写法，都是路径和配置名的比较，不是秘密。没改代码，临时规则留在 scratchpad。",
+      "text": "扫完了。先在 `src/crypto/` 里 Grep 了 `===`、`==`、`timingSafeEqual` 的用法，再写了一条临时的 semgrep 规则（放 scratchpad，没进 `semgrep/`）扫「拿字符串直接做相等比较」的写法，对 `src/` 全量跑了一遍。\n\n结果：`src/crypto/` 里 7 处比较，5 处是 `timingSafeEqual` 或比较对象不是秘密；2 处在 hex 编码的签名上用 `===` 直接比——`src/crypto/hmac.ts` 的 `verifyHmac` 和 `src/crypto/signed-url.ts` 里校验重置密码链接签名的那一处。这两处比的是同格式等长的 hex 串，风险有限，但仓库约定比较一律走 `src/crypto/` 封装的 `timingSafeEqual`，按刚才的口径值得记下。`src/crypto/` 以外还有 3 处类似写法，都是路径和配置名的比较，不是秘密。没改代码，临时规则留在 scratchpad。",
       "tools": [
         "Grep",
         "Write",
@@ -51,5 +51,5 @@
       "text": "再把 src/oauth 里也照那个标准过一遍 state 参数和 redirect_uri 校验这两块 看有没有同类的写法 internal-scope-consistent 缺的那两个样例顺手补上 都按老规矩来"
     }
   ],
-  "middle_hint": "中间是在 auth-svc 仓库做别的事：给 session 模块补集成测试、整理 npm audit 的豁免清单、更新登录页的错误文案，和验证类的约定无关。"
+  "middle_hint": "中间是在 auth-svc 仓库做别的事：补测试、改文案、做新功能、写评估和文档之类，和验证类的约定无关。"
 }

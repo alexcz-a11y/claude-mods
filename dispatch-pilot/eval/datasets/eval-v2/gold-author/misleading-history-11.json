@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-11",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "决定性几轮里补充那一步偶发的类型转换异常只做了初步梳理就挂起了；用户问 9/21 整天为空是不是同一个问题，助手查明那是 9/22 凌晨和 inventory_snapshot 抢内存导致的 MemoryError（抛在关联门店维表那一步，没走到补充那一步），和这个异常无关，并且说清了补跑的命令、按业务日期先删后插只动这一天、白天跑避开 cron、补充列会取最新一批但不影响金额、补完要让财务重导、通知数仓补拉。最后一条是让把 9/21 补跑掉：一条现成的 make run，跑完核一下行数、顺手发两句通知，low；跑之前再确认一下 etl-01 当时有没有别的大任务、跑完和前后几天对数，给 medium 也可以。删掉决定性几轮，中间全是这个异常的排查，有的段还把 9/21 的空缺算进影响面、量过内存，只看最后一句像是在一个没查清的管道上补跑一个失败过的日子，要先弄清那天为什么失败、会不会再失败、重跑会不会覆盖别的数，medium。三选一：d1 第一次提出问题，new_or_unrelated；d2 问 9/21 是不是同一个问题，问题仍在排查，still_unresolved；d3 说 9/21 无关、异常先挂着、票别关，问题没解决，still_unresolved；最后一条是补跑一个已查明和异常无关的失败日期，new_or_unrelated。审稿改动：素材池里 9/21 的 MemoryError 是和 inventory_snapshot 同时跑、在 build_daily_summary 关联门店维表时抛的（不是 store_hourly、不是取数那一步），补跑命令是 make run P=… D=…，9/17 那次还没有 #112 的三列，题目照这些改了 decisive，补跑那段加了财务重导和数仓补拉两句（和素材段一致）；金标不变。"
+}

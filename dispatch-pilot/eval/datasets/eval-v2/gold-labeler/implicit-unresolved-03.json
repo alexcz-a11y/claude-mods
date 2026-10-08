@@ -1,0 +1,25 @@
+{
+  "id": "implicit-unresolved-03",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "d1 提出 helm-deploy.sh 的 deploy_release 偶发 UPGRADE FAILED 超时；三轮修复（占位 Pod 加扩容余量、imagePullPolicy、就绪和启动探针）之后用户 d2、d3 都说又挂了，中间轮次是同一问题的排查，没有结论。最后一条又是同样的现象和报错，三轮失败后再提，按约定是 max；涉及 prod 部署，属于偶发的疑难故障。没有决定性几轮时只看到中间排查和最后的报错，按原因未知、跨 runner 和集群的偶发故障判 xhigh。"
+}

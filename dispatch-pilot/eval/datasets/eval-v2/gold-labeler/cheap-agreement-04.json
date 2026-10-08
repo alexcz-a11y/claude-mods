@@ -1,0 +1,25 @@
+{
+  "id": "cheap-agreement-04",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条是新的验证活：照 d3 的标准扫 src/oauth 里 state 参数和 redirect_uri 校验有没有非常量时间比较，再给 internal-scope-consistent 补 d1 里找出的两个缺失样例（模板字符串、连字符写法），所以 new_or_unrelated。d2 的约定把流程省掉了，直接做、贴结果，不出方案、不走评审。不过扫描仍然要判断哪些比较的是秘密，补样例也要写对 ruleid/ok 并跑 --test，按 medium 定；话题是安全，但评的是工作本身，high 也能接受。读不到决定性几轮时，不知道「那个标准」和「缺的那两个样例」是什么，要先重新找规则的覆盖缺口，还会把它当成 oauth 安全审查来正式做，判 high。"
+}

@@ -21,5 +21,5 @@
       "triage": "still_unresolved"
     }
   ],
-  "rationale": "订单日报被 OOM 杀：决定性几轮里改了三次（读明细降内存、维表去重加流式聚合、CRM 拉取流式化并错开 cron），每次本地或手动跑都过了，用户两次回来说还是 Killed，最后这条是第三次修改后又说还是被杀。三个看得见的内存大户都处理过还复现，需要彻底查清线上那台机器上到底是谁吃满了内存：max，xhigh 也可以。删掉决定性几轮，中间是不相关的活，最后一句「新的 crontab 装上了、又是 Killed」看起来只是一次排查的跟进：high。三选一：d1 首次提出，new_or_unrelated；d2、d3 都说还是被杀，still_unresolved；最后这条隔了别的活回头说还没跑完，still_unresolved。"
+  "rationale": "埋点日报被 OOM 杀：决定性几轮里改了三次（读文件只取需要的列和事件、维表去重加流式聚合、取文件时去重并等齐再读），每次本地或手动跑都过了，用户两次回来说还是 Killed，最后这条是第三次修改后又说还是被杀。三个看得见的内存大户都处理过还复现，需要彻底查清凌晨在 etl-01 上到底是什么吃满了内存：max，xhigh 也可以。删掉决定性几轮，中间是不相关的活，最后一句「装上了、又是 Killed」看起来只是一次排查的跟进：high。三选一：d1 首次提出，new_or_unrelated；d2、d3 都说还是被杀，still_unresolved；最后这条隔了别的活回头说还没跑完，still_unresolved。（审稿修改：素材池里定时任务是 `cron/etl-scripts` 经 `make cron-install` 装到 `/etc/cron.d`、每条都是 `make run P=<管道>`，8 个管道里没有「订单日报 daily-orders」和 `refresh-crm`，日报 `daily_sales` 是从从库按块取数的小管道；原稿的 `make daily-orders`、`crontab cron/etl.crontab`、CRM 任务和这些对不上。改成同样凌晨两点十分跑、读一天两个多 G 原始埋点的 `user_events_daily`，第三次尝试改成取文件重试时重复读入，不再改 cron；金标不变。）"
 }

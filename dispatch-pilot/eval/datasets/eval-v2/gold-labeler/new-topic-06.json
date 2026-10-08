@@ -1,0 +1,20 @@
+{
+  "id": "new-topic-06",
+  "effort": "low",
+  "accept": [
+    "low"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "最后一条明确把参数表默认值的问题放着，问另一件事：小周的 PR 为什么没有预览地址评论，并且说只要讲清楚怎么回事。决定性几轮的 d2 回复已经查完：preview.yml 最后一步 Comment preview URL 用的 DOCS_BOT_TOKEN（docs-bot 的个人访问令牌）在 2025-09-30 一年到期，9/30 下午以后报 HttpError: Bad credentials；因为 continue-on-error: true，job 仍然是绿的；预览站本身没挂，pr-<号>/ 目录照常上传、可以直接打开；恢复需要有权限的人重新生成令牌并更新 secret。只要把已知结论用文字转述出来，定 low。看不到决定性几轮时，要去翻 preview.yml 的运行日志找原因，会判 medium。d2 说同一个空列现象又出现，问题仍在。"
+}

@@ -1,0 +1,21 @@
+{
+  "id": "cheap-agreement-10",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条是本地 bench 的一组改动：k6 改三段爬坡、加一个七三开的混合场景，application-local.yml 里改缓存 TTL、Tomcat 线程数、ES 请求超时，然后跑一下看 p99 和错误率。决定性几轮里主 agent 第一次压测做得很正式（三轮取中位数、火焰图、写说明，一个半小时），用户随后定了规矩：本地 bench 的 k6 参数和 application-local.yml 的超时、TTL、线程数直接改、跑一轮看个大概，不跑多轮、不抓火焰图、不写说明，理由是本地只是冒烟、机器上还开着别的东西、正式压测由性能组用线上流量回放做。按这个约定，最后这条就是改几处数字、加一个 k6 场景、跑一轮报两个数：low。混合场景要写一点 k6 的 scenarios 配置，判 medium 也说得过去，accept low、medium。删掉决定性几轮，最后这条看起来是一次多旋钮的性能调参：爬坡到 400 并发、改缓存、线程数和超时，读者会以为要控制变量、多轮对比、看火焰图找瓶颈：high。三选一：d1 第一次提出压测这件事，new_or_unrelated；d2 先说「数挺有用」，接受了上一次的结果，resolved；最后一条是新的 bench 改动，new_or_unrelated。（审稿改动：素材段里联想索引没有拼音字段、拼音联想是另一个还没做的需求，也没有 application-bench.yml 和 bench profile，只有 application-local.yml，所以 d1 改成压「联想从 8 条加到 12 条」，配置文件改成 application-local.yml；ES 连接池在素材段里是 EsConfig 代码里写死的，最后一条把「连接池提到 200」换成「ES 请求超时改成跟线上一样的 2 秒」，素材段里 application-local.yml 正好把这个超时放宽到了 10 秒；金标未改。）"
+}

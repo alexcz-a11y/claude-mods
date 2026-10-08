@@ -10,11 +10,11 @@
     {
       "role": "user",
       "msg": "d1",
-      "text": "后台页面放一会儿再操作 经常直接跳回登录页 控制台是\n`AxiosError: Request failed with status code 401`\naccess token 过期按理应该在 src/api/client.ts 的拦截器里自动刷新 你查查为什么没刷"
+      "text": "后台页面放一会儿再操作 经常直接跳回登录页 控制台是\n`AxiosError: Request failed with status code 401`\naccess token 过期按理应该在 src/api/request.ts 的拦截器里自动刷新 你查查为什么没刷"
     },
     {
       "role": "assistant",
-      "text": "原因是订单页一打开就并发发 4 个请求，token 过期时 4 个都 401，各自去刷新，而刷新令牌用一次就作废，第二个刷新就失败，拦截器接着 `logout()` 跳了登录页。\n\n读了 `src/api/client.ts`：响应拦截器 `onResponseError` 收到 401 且 `config._retry` 不为 true 时，调 `refreshToken()`，成功就重放原请求，失败就 `useAuthStore.getState().logout()` 并跳 `/login`。订单页 `src/pages/orders/OrderList.tsx` 挂载时同时请求列表、统计卡片、筛选项和未读消息数，过期后这 4 个请求一起 401，于是并发发出 4 次 `/auth/refresh`。后端的刷新令牌用一次就作废，后面 3 次刷新全部 401，走进了 `logout()`。\n\n- **改法**：在 `client.ts` 里加了单飞：模块级的 `refreshPromise`，第一个 401 发起刷新并把 promise 存起来，其余 401 等同一个 promise；刷新结束（成功或失败）后清空。失败时只 `logout()` 一次。\n- **验证**：`src/api/client.test.ts` 加了一个用例，用 `axios-mock-adapter` 让 4 个并发请求先 401、刷新接口只允许调一次，断言刷新只发了一次、4 个请求都重放成功。`npx vitest run src/api` 18 个用例全过。\n\n你那边可以把测试环境的 access token 有效期调短一点，开着订单页等它过期再操作，看还会不会跳。",
+      "text": "刷新其实发生了，问题出在刷新之后只写回了 access，没写回新的 refresh：第二次过期时拿着已经作废的旧 refresh 去刷新，被后端拒了，拦截器就走了 `expire()`。\n\n读了 `src/api/request.ts`、`src/store/user.ts` 和 `refreshSession` 上的注释：后端每次刷新都会换一个新的 refresh，旧的立刻作废。`refreshSession` 拿到响应后调的是 `setSession({ ...current, access: data.access })`，`data.refresh` 被丢掉了。所以登录后第一次过期能刷新成功，第二次过期时 store 里还是登录时那个 refresh，刷新接口返回 401，`onResponseError` 的 `catch` 分支调 `useUserStore.getState().expire()`，`AuthGate` 跳 `/login`。页面放一会儿、过期两次以上就一定会出现，和你看到的对得上。\n\n- **改法**：`refreshSession` 把 `access`、`refresh`、`expiresAt` 一起写回 store（`persist` 会同步写进 localStorage 的 `shop-admin-user`）。\n- **验证**：`src/api/request.test.ts` 加了一个用例：msw 模拟刷新接口每次换新 refresh、旧的再用就 401，连续过期三次，断言三次都刷新成功、请求都重放成功、没有调 `expire`。`npx vitest run src/api` 18 个用例全过。\n\n你那边可以把测试环境的 access 有效期调短一点，开着订单页等它过期两三次再操作，看还会不会跳。",
       "tools": [
         "Read",
         "Grep",
@@ -25,13 +25,14 @@
     {
       "role": "user",
       "msg": "d2",
-      "text": "还是会跳 我把测试环境 access token 有效期调成一分钟试的 等过期之后点筛选就跳了"
+      "text": "还是会跳 我把测试环境 access 有效期调成一分钟 开着订单页去开了个会 回来一点就跳了 Network 里连刷新接口都没调"
     },
     {
       "role": "assistant",
-      "text": "这次是重放的请求还带着旧 token：刷新成功了，但重放时 `Authorization` 头没换，又 401 一次，`_retry` 已经是 true，直接 `logout()`。\n\n在浏览器里按你的步骤复现了一遍（Playwright 拦截 `/auth/refresh` 看了请求顺序）：点筛选发出的 `/orders?status=…` 先 401，刷新返回 200，重放的那个请求头里还是过期的 token，又 401，然后跳 `/login`。\n\n- **原因**：请求拦截器在 `config.headers.Authorization` 已有值时不覆盖（当初是为了让上传接口能自己带 token）。重放时用的是原来的 `config`，头里已经有旧 token，请求拦截器就跳过了。单测里 mock 没校验头，所以没测出来。\n- **改法**：重放前显式用 `useAuthStore.getState().accessToken` 覆盖 `config.headers.Authorization`；请求拦截器的「已有就不覆盖」只对带 `skipAuth` 标记的请求生效。\n- **验证**：单测补了「重放请求必须带新 token」的断言；新加 `e2e/session-expiry.spec.ts`，用路由拦截模拟 token 过期再点筛选，断言页面停在订单页、列表刷新。`npx vitest run src/api` 19 个通过，`npx playwright test e2e/session-expiry.spec.ts` 通过。",
+      "text": "这次根本没走到 401 那条路：是 `AuthGate` 自己按本地时间判定会话过期，直接把人踢回了登录页。\n\n刷新接口没被调用，说明跳转不是拦截器触发的。`Grep` 了 `expire(` 的调用方，除了 `request.ts`，还有 `src/components/AuthGate.tsx`：它挂了一个 `setInterval`，每 30 秒拿 `Date.now()` 和 store 里的 `expiresAt` 比，超过就 `expire()`。问题有两个：\n\n- `expiresAt` 存的是 **access** 的过期时间，不是 refresh 的。access 一过期，这里就把整个会话判死了，根本不给拦截器刷新的机会。以前 access 有效期 2 小时，平时不太碰得上；你调成一分钟以后，开会回来第一个 30 秒的 tick 就跳了。\n- 笔记本合盖休眠以后，定时器回来的第一下就会命中，所以「放一会儿再回来」最容易出。\n\n- **改法**：`AuthGate` 去掉本地判过期的定时器，只订阅 store 里的 `expired` 状态，会话过没过期完全由 401 加刷新的结果决定；`expiresAt` 只留给「关于」弹窗显示。\n- **验证**：`AuthGate.test.tsx` 改成「access 过期但还没有 401 时不跳转」；新加 `e2e/auth/session-expiry.spec.ts`，用 Playwright 的 `page.clock` 把时间拨过 access 有效期，路由拦截让第一个请求返回 401，再点筛选，断言先调了一次刷新、页面停在订单页、列表刷新了。`npx vitest run src/api src/components/AuthGate` 全过，`npx playwright test e2e/auth/session-expiry.spec.ts` 通过。",
       "tools": [
         "Bash",
+        "Grep",
         "Read",
         "Edit"
       ]
@@ -39,11 +40,11 @@
     {
       "role": "user",
       "msg": "d3",
-      "text": "还是跳 而且不一定是点筛选 订单详情页放着也会 详情页里有附件预览"
+      "text": "还是跳 这次 Network 里看到刷新成功了 紧接着还是回了登录页 订单详情页放着也会 详情页里有附件预览"
     },
     {
       "role": "assistant",
-      "text": "详情页这条是另一个 axios 实例：附件预览走的是 `src/api/upload.ts` 自己 `axios.create()` 出来的实例，它有一套自己的拦截器，没有单飞，也没有新 token 覆盖。\n\n`Grep` 了 `axios.create`，仓库里有两个实例：`client.ts` 的主实例和 `upload.ts` 的上传实例。上传实例的拦截器是早期复制过来的旧版本：401 就自己调刷新，失败直接 `logout()`。详情页同时有主实例的详情请求和上传实例的附件签名请求，过期后两个实例各刷新一次，刷新令牌被前一个用掉，后一个刷新 401 就跳登录。\n\n- **改法**：把拦截器抽成 `attachAuthInterceptors(instance)`，放在 `src/api/auth-interceptors.ts`，两个实例都调用它，共用同一个 `refreshPromise`；删掉 `upload.ts` 里那套旧拦截器。\n- **验证**：加了「两个实例同时 401 只刷新一次」的用例；`e2e/session-expiry.spec.ts` 加了详情页场景。`npx vitest run src/api` 21 个通过，Playwright 两个场景都通过。\n\n`useAuthStore` 的 persist 写 localStorage 是同步的，多个浏览器标签页之间的 token 同步这次没动，如果你平时开好几个后台标签页，可能还要另外看。",
+      "text": "详情页这条是附件预览自己用 `fetch` 发的请求：它碰到 401 不走刷新，直接调 `expire()`，和拦截器的刷新撞在一起，刷新成功了也照样被踢。\n\n`Grep` 了 `fetch(` 和 `axios.create`：业务请求都走 `request.ts` 的 `http`，只有 `src/api/attachment.ts` 例外。附件预览要拿 blob，当初为了绕开响应拦截器里拆 `{ code, data }` 那一层，直接用了 `fetch`，自己从 store 取 token 拼请求头，401 时写的是 `useUserStore.getState().expire()`。详情页的附件签名地址 10 分钟过期，`AttachmentPreview` 用 `usePolling` 每 5 分钟换一次；页面切到后台时轮询暂停，切回来会马上补一次请求。这时 access 早就过期了：详情接口的 401 走拦截器去刷新，附件那个请求的 401 直接 `expire()`，刷新成功的响应回来时人已经在登录页了。\n\n- **改法**：`attachment.ts` 改用 `http` 发请求，`responseType: 'blob'`，加一个 `rawResponse` 选项让成功分支跳过拆包装，401 统一走 `onResponseError` 的刷新和重放。现在除了 `request.ts`，仓库里没有别的地方直接调 `expire()`。\n- **验证**：`attachment.test.ts` 加了「附件请求和详情请求同时 401，只刷新一次、两个都重放成功」的用例；`e2e/auth/session-expiry.spec.ts` 加了详情页场景：拨时间、切后台再切回来，断言停在详情页、附件能预览。`npx vitest run src/api` 21 个通过，Playwright 两个场景都通过。\n\n多个浏览器标签页同时过期、各自去刷新的情况这次没动，你要是平时开好几个后台标签页，可能还要另外看。",
       "tools": [
         "Grep",
         "Read",
@@ -58,5 +59,5 @@
       "text": "`AxiosError: Request failed with status code 401`\n又跳登录页了 订单页开着放了一中午 回来点了下分页"
     }
   ],
-  "middle_hint": "中间是同一个仓库里别的活：商品管理页加字段、改文案、补组件测试、升级依赖、整理 Vite 和 ESLint 配置等，和登录过期跳转无关，没有再提这个问题。"
+  "middle_hint": "中间是同一个仓库里别的活：加字段、改文案、补测试、升级依赖、整理配置和文档等，和登录过期跳回登录页无关，没有再提这个问题。"
 }

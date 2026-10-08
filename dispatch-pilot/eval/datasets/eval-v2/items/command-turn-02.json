@@ -1,0 +1,36 @@
+{
+  "id": "command-turn-02",
+  "category": "command-turn",
+  "domain": "docs-writing",
+  "bin": "d2",
+  "relation": "unrelated",
+  "placeholders": {},
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "#287 客户说中文站的定时发送指南 点右上角切到英文就 404 你查一下 先别改 这周 2.8 发版冻结 只合紧急的 查清楚了在票里写一下怎么改 冻结完再弄"
+    },
+    {
+      "role": "assistant",
+      "text": "原因找到了：中文翻译文件里多了一行 `slug`，改法就是删掉这一行，再改 3 处链接。文件没动，改法已经评论在 #287 里了。\n\n- **复现**：本地 `npm run build && npm run serve`，从中文站侧边栏点定时发送指南，地址栏是 `/zh/docs/guides/send-later`，不是 `/zh/docs/guides/scheduled-sending`；这时点语言切换，跳到 `/docs/guides/send-later`，404。反过来从英文页 `/docs/guides/scheduled-sending` 切中文是好的，能打开中文页。\n- **原因**：`i18n/zh/docusaurus-plugin-content-docs/current/guides/scheduled-sending.mdx` 的 front matter 里写着 `slug: /guides/send-later`，英文的 `docs/guides/scheduled-sending.mdx` 没写 slug，地址按文件路径来。`git log` 看，这一行是 5 月翻译时从更早的英文稿带过来的，英文 6 月把页面从「Send later」改名成「Scheduled sending」时删了 slug，中文没跟着删。语言切换只是把当前地址的 `/zh` 前缀去掉，所以从中文页切过去，就落到一个英文站根本没有的地址。\n- **旧的中文地址还在被引用**：中文站正文里有 3 处链接写的是旧地址 `/docs/guides/send-later`（中文站构建时会自动加上 `/zh`），删了 slug 以后它们会变成断链，build 会报。\n- **别的页面有没有同样的问题**：写了个一次性脚本，把两百多个中文文件和对应英文文件 front matter 里的 `slug`、`id` 逐个对比，只有这一个不一致。脚本没进仓库。\n- **改法**（票里写的就是这些）：\n  1. 删掉中文文件 front matter 里 `slug: /guides/send-later` 这一行；\n  2. 那 3 处中文链接改成文件路径写法 `./scheduled-sending.mdx`；\n  3. 跑 `npm run build`，确认中文页地址变成 `/zh/docs/guides/scheduled-sending`、切语言能到英文页、断链检查不报。\n- **要不要给旧中文地址加跳转**：CloudFront 报表里 `/zh/docs/guides/send-later` 最近 60 天只有 9 次直接访问，不加也行；要加就在跳转列表里补一条，指到新地址。\n\n两步加起来改动不到 10 行，冻结结束直接按票里的做就行。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "/implement #287 中文站定时发送指南切语言 404",
+      "command": {
+        "name": "implement",
+        "description": "按 issue 实现改动：读票、改代码或文档、跑构建和检查，开 PR。"
+      }
+    }
+  ],
+  "middle_hint": "中间在 docs-site 里做别的事：改页面和翻译、加脚本和 CI 检查、写指南和博客、调配置之类，和这张票无关，没有再碰中文站切语言的问题。"
+}

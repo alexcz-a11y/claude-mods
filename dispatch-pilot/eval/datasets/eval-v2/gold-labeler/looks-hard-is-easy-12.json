@@ -1,0 +1,21 @@
+{
+  "id": "looks-hard-is-easy-12",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "确认支付 500 的原因已经查清：schema 把交易号写死成 ^PL\\d{16}$，新核心出的交易号多两位。之前等 paylink 文档确认，所以没改。最后一条说文档确认了 18 位，又贴了同样的 Sentry 报错，问题还在，属于 still_unresolved。这是第一次真去修，不算第二次。要做的是照定好的步骤：txnid-pattern -apply 改 14 个 schema 和 openapi 里的 9 处、手改 params.go 第 41 行、-check、放入样例、跑 go test -race。基本照单执行，定 medium；它是线上支付问题，改动跨 schema、OpenAPI 和 handler，high 也能接受。没有决定性几轮的话，只有 Sentry 报错和「按那天说的改」，需要自己理清怎么跨文件修，判 high。"
+}

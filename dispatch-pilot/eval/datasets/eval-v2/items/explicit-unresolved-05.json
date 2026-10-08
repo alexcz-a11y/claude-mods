@@ -10,11 +10,11 @@
     {
       "role": "user",
       "msg": "d1",
-      "text": "订单日报的 cron 最近老挂 凌晨两点跑 make daily-orders 日志最后一行是 `make: *** [Makefile:42: daily-orders] Killed` 机器是 8G 内存的 你看看 pipelines/daily_orders.py"
+      "text": "埋点日报最近老挂 凌晨两点十分那个 user_events_daily 日志最后一行是 `make: *** [Makefile:42: run] Killed` etl-01 是 8G 内存的 你看看 pipelines/user_events_daily.py"
     },
     {
       "role": "assistant",
-      "text": "`Killed` 是进程被系统 OOM 杀掉了，先把读数据这一步的内存压了下来。\n\n- **查到的**：`pipelines/daily_orders.py` 第一步用 `pd.read_csv` 读 `sources/` 落下来的全量订单明细（前天的文件 2.3G、2100 万行），没指定 `dtype`，`order_id`、`sku_id` 被读成 object，`status`、`channel` 这种只有十几个取值的列也是字符串；47 列全读了进来，后面只用到 11 列。本地用 `/usr/bin/time -l` 跑了一遍，峰值常驻内存 9.6G。\n- **改法**：`read_csv` 加 `usecols` 只读 11 列，`order_id`、`sku_id` 用 `int64`，`status`、`channel`、`province` 用 `category`；按 200 万行分块读、分块聚合，最后再合并。\n- **验证**：同一份数据峰值降到 3.1G，跑完 6 分钟；输出的 `daily_orders_2026-10-05.parquet` 和改之前的结果逐行比对一致。`pytest tests/test_daily_orders.py` 8 个用例通过。",
+      "text": "`Killed` 是进程被系统 OOM 杀掉了，先把读数据这一步的内存压了下来。\n\n- **查到的**：`pipelines/user_events_daily.py` 第一步把 S3 上前一天的原始埋点全读进来（前天那天压缩后 2.3G、2100 万行），调 `read_events` 时没传 `columns` 和 `event_names`，47 列、所有事件都读了；`user_id`、`page` 是 object，`platform`、`channel`、`event_name` 这种只有几十个取值的列也是字符串。后面只用到 11 列、6 种事件。本地用前天的数据跑了一遍，峰值常驻内存 9.6G。\n- **改法**：`read_events` 传上 `columns` 和 `event_names`，只读要用的；`platform`、`channel`、`event_name` 用 `category`；按 200 万行分块读、分块聚合，最后再合并。\n- **验证**：同一份数据峰值降到 3.1G，跑完 6 分钟；输出和改之前逐行比对一致。`pytest tests/pipelines/test_user_events_daily.py` 8 个用例通过。",
       "tools": [
         "Read",
         "Bash",
@@ -28,7 +28,7 @@
     },
     {
       "role": "assistant",
-      "text": "本地峰值已经只有 3G，线上还是被杀，说明大头不在读明细这一步。按步骤打了内存，改了 join 那段。\n\n- **查到的**：每一步前后加了 `psutil` 的内存打点，在线上那台机器上用前天的数据手动跑了一次：读完明细 2.9G，和 `sources/sku_dim.py` 拉的商品维表 join 之后涨到 7.4G。维表有 38 万行，但 `sku_id` 在维表里不唯一：同一个 SKU 换过类目，维表保留了每个版本，join 之后行数从 2100 万膨胀到 5800 万。\n- **改法**：join 前维表按 `sku_id` 只留 `valid_to` 最新的一条；聚合改用 polars 的 `scan_parquet` 加 `collect(streaming=True)`，明细先落成 parquet 再流式聚合。\n- **验证**：线上机器手动跑峰值 2.2G；结果和财务那边 10 月 4 日的口径对上了（之前行数膨胀，有几个类目的 GMV 偏高，这次一并纠正）。`pytest` 全部通过。",
+      "text": "本地峰值已经只有 3G，线上还是被杀，说明大头不在读文件这一步。按步骤打了内存，改了 join 那段。\n\n- **查到的**：每一步前后加了 `psutil` 的内存打点，在 `etl-01` 上用前天的数据手动跑了一次：读完 2.9G，和页面维表 join 之后涨到 7.4G。维表有 38 万行，但 `page_id` 在维表里不唯一：同一个页面改过名、换过所属频道，维表保留了每个版本，join 之后行数从 2100 万膨胀到 5800 万。\n- **改法**：join 前维表按 `page_id` 只留 `valid_to` 最新的一条；聚合改用 polars 的 `scan_csv` 加 `collect(streaming=True)`，不再把整张明细放进 pandas。\n- **验证**：`etl-01` 上手动跑峰值 2.2G；页面统计和运营那边 10 月 4 日的口径对上了（之前行数膨胀，有几个频道的 PV 偏高，这次一并纠正）。`pytest` 全部通过。",
       "tools": [
         "Bash",
         "Read",
@@ -43,7 +43,7 @@
     },
     {
       "role": "assistant",
-      "text": "手动跑不涨、cron 跑会涨满，差别在 cron 那边。查了 crontab 和 Makefile，改了两处。\n\n- **查到的**：`crontab -l` 里两点同时起两个任务：`make daily-orders` 和 `make refresh-crm`。`sources/crm.py` 用 `pd.read_sql(\"SELECT * FROM customers\", engine)` 一次把 CRM 的客户宽表全拉进内存（1400 万行），峰值 4G 多，两个任务一起跑就超过 8G。我手动跑的时候只跑了日报，所以没顶满。另外 Makefile 里 `daily-orders` 依赖 `refresh-crm`，crm 的产物超过 6 小时就会先刷新一次，凌晨也会触发。\n- **改法**：`sources/crm.py` 改成 `stream_results=True` 的服务端游标，每 10 万行写一次 parquet，不再整表进内存；`refresh-crm` 挪到一点半，和日报错开。crontab 的改动写进了仓库的 `cron/etl.crontab`，要你在机器上 `crontab cron/etl.crontab` 装一下。\n- **验证**：`refresh-crm` 单独跑峰值 600M，两个一起跑峰值 2.8G。`pytest` 全部通过。",
+      "text": "手动跑不涨、定时跑会涨满，差别在跑的时间点上。查了凌晨那几次的日志，改了取文件那一段。\n\n- **查到的**：`/var/log/etl/user_events_daily.log` 里，被杀的那几天 02:10 开始时，S3 上前一天的目录还没传完：平时 02:00 前就绪，这几天晚了十几分钟。取文件的循环发现文件数比清单少，就等 30 秒重新列一次目录，但上一轮已经读进来的 DataFrame 没有清掉，每重试一轮就把已经到了的文件再读一遍追加进去，同一批数据在内存里叠了五六份，内存一路往上涨。我早上手动跑的时候文件早就齐了，一次就过，所以看不出来。\n- **改法**：按文件名去重，每个文件只读一次；改成先等目录下的 `_SUCCESS` 标记，最多等 40 分钟，超时就报错退出、发告警，不再边等边读。\n- **验证**：在 staging 上模拟文件分三批到达，改之前内存涨到 7G 多，改之后等齐了才读，峰值 2.3G；`pytest` 加了文件晚到和等待超时两个用例，全部通过。",
       "tools": [
         "Read",
         "Grep",
@@ -55,8 +55,8 @@
   "final": [
     {
       "role": "user",
-      "text": "订单日报 cron 那个 新的 crontab 我装上了 今天凌晨又是 Killed 还是没跑完"
+      "text": "埋点日报那个 你最后那版已经装到 etl-01 上了 今天凌晨又是 Killed 还是没跑完"
     }
   ],
-  "middle_hint": "中间在 etl-scripts 里做别的事：加新的报表字段、补测试、改 SQL、整理 Makefile 目标之类，和订单日报被杀无关，没有再碰这个问题。"
+  "middle_hint": "中间在 etl-scripts 里做别的事：加新的报表字段、补测试、改 SQL、整理 Makefile 和 cron 之类，和埋点日报被杀无关，没有再碰这个问题。"
 }

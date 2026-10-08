@@ -10,15 +10,15 @@
     {
       "role": "user",
       "msg": "d1",
-      "text": "周报的 CSV 金额列带了千分位 像 1,234.50 这样 财务那边的导入工具是按逗号切列的 整行就串了 奇怪的是我本地 make weekly 跑出来是好的 只有服务器上 cron 跑的才带逗号 入口是 pipelines/weekly_revenue.py 你看下"
+      "text": "周报卡片今天早上在运营群里发了两条 一模一样 前后隔了二十秒左右 运营问是不是数据跑了两遍 我翻了下群记录 这个问题不是每周都有 最近四个周一里有两次是这样 另外两次正常 你看下 pipelines/weekly_digest.py"
     },
     {
       "role": "assistant",
-      "text": "找到了：金额是按系统 locale 格式化的，服务器上 cron 的 locale 和你本地不一样。已经改成不依赖 locale 的写法。\n\n**查到的情况**\n\n- `pipelines/weekly_revenue.py` 开头有一句 `locale.setlocale(locale.LC_ALL, \"\")`，用的是进程环境里的 locale。\n- 金额列在写 CSV 之前过了一遍 `sources/formatting.py` 的 `format_amount()`，里面是 `locale.format_string(\"%.2f\", value, grouping=True)`，`grouping=True` 会按 locale 加千分位。\n- 本地走的是 `make weekly`，`Makefile` 顶部有 `export LC_ALL := C`，C locale 没有千分位分隔符，所以输出是 `1234.50`。\n- 服务器上不走 make：`cron/etl.crontab` 里那一行是 `cd /opt/etl-scripts && .venv/bin/python -m pipelines.weekly_revenue`，环境继承自 cron，服务器 `/etc/default/locale` 是 `LANG=en_US.UTF-8`，于是变成 `1,234.50`。\n- 本地复现：`LC_ALL=en_US.UTF-8 .venv/bin/python -m pipelines.weekly_revenue --week 2026-W40 --dry-run`，输出的金额列果然带逗号；换回 `LC_ALL=C` 就没有。\n\n**改法**\n\n- `sources/formatting.py`：`format_amount()` 改成 `f\"{value:.2f}\"`，负数、零、`None`（输出空串）的行为保持不变。\n- `pipelines/weekly_revenue.py`：删掉 `locale.setlocale(...)`，这个 pipeline 里别的地方没有用到 locale。\n- `Grep` 了一下 `format_amount` 的其他调用方：`pipelines/monthly_gmv.py` 和 `pipelines/refund_summary.py` 也在用，它们的输出同样受影响，这次一起变成不带千分位，两份报表的消费方都是程序导入，不需要千分位。\n\n**验证**\n\n- 新增 `tests/test_formatting.py`：用 `monkeypatch` 把 locale 设成 `en_US.UTF-8` 和 `de_DE.UTF-8`，断言 `format_amount(1234.5)` 都是 `1234.50`。\n- `pytest -q`：87 个通过（新加 4 个）。\n- 再跑一次上面那条 `LC_ALL=en_US.UTF-8 ... --dry-run`，金额列是 `1234.50`，列数和表头对得上。\n\n服务器上要等代码同步过去（`make deploy` 或者下次 cron 前的自动拉取），你可以同步后手动跑一次周报看看。",
+      "text": "数据只跑了一遍，第二条是发送时重试发出来的：第一次请求飞书其实已经收到了，只是响应回得慢，我们这边超时以后又发了一次。已经改成只在请求确实没发出去的时候才重试。\n\n**查到的情况**\n\n- `meta.etl_runs` 里今天的 `weekly_digest` 只有一行，09:00:02 开始、09:00:38 结束，`success`；取数和拼卡片用了 15 秒左右，剩下二十来秒都耗在发送上。没出重复的那两个周一，整次只用了 16、17 秒。\n- 用 `etl-01` 上那个飞书应用的凭证调消息列表接口，看了运营群最近四个周一的周报卡片：9/21 和今天各两条，内容完全一样，间隔分别是 21 秒和 20 秒；9/14、9/28 各一条。四个周一 `meta.etl_runs` 里都只有一行，所以不是跑了两遍。\n- 发送走的是 `pipelines/common/notify.py` 的 `send_card()`：`requests.post(url, json=card, timeout=5)`，捕获所有 `RequestException`，等 15 秒重试，最多 3 次。5 秒内没等到响应就算失败，可这时请求多半已经到了飞书、卡片已经发出去了，再发一次就是两条。5 秒超时加 15 秒等待，正好和群里二十秒左右的间隔对得上。周一早上九点群机器人的消息多，飞书有时回得慢、有时不慢，所以四个周一里碰上两次。\n- 本地用 `responses` 模拟了一次「请求送达、6 秒后才响应」，原来的代码确实会发两次。\n\n**改法**\n\n- `send_card()` 的超时拆成 `timeout=(5, 30)`：连接 5 秒，等响应 30 秒。\n- 只对 `ConnectTimeout` 和 `ConnectionError`（请求没送出去）重试；`ReadTimeout` 不再重试，记一行 warning「发送结果未知，可能已送达，请到群里确认」。\n- 源表有变化的那种提醒卡片也走这个函数，行为一起变了：极少数情况下会少一条提醒，但不会重复，我觉得可以接受。\n\n**验证**\n\n- `tests/common/test_notify.py` 加了 4 个用例：读超时不重试、连接失败重试到第 3 次、前两次失败第三次成功、一次就成功。\n- `uv run pytest -q`：全部通过。\n- `make digest-preview D=2026-10-04` 往测试群发了一次，只收到一条。\n\n提交在 `b71d0e4`，没有推送。合并以后在 `etl-01` 上 `git pull && uv sync --frozen`，下周一 9 点就是新代码。这个问题四个周一里出两次，下周一没出现也说明不了太多，要多看几周。",
       "tools": [
-        "Grep",
-        "Read",
         "Bash",
+        "Read",
+        "Grep",
         "Edit",
         "Write"
       ]
@@ -27,8 +27,8 @@
   "final": [
     {
       "role": "user",
-      "text": "周报 CSV 那个 我刚在服务器上手动跑了一遍 金额列还是 1,234.50 这种 带逗号"
+      "text": "周报卡片 今天周一又发了两条 还是隔二十秒左右 代码我上周就更新到 etl-01 上了"
     }
   ],
-  "middle_hint": "中间在 etl-scripts 里做了几件别的小事：加一个数据源字段、补测试、改 Makefile 说明、调整一个 SQL 之类，和周报 CSV 的金额格式无关，没有再碰这个问题。"
+  "middle_hint": "中间在 etl-scripts 里做了几件别的事：给日报加字段、补测试、整理配置、讲解一段 SQL 之类，和周报卡片重复发送无关。这段时间没有再碰这个问题，没有新的修改尝试，用户也没有评价第一次的修复。"
 }

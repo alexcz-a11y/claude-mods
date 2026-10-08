@@ -1,0 +1,21 @@
+{
+  "id": "hard-constraint-08",
+  "effort": "high",
+  "accept": [
+    "high",
+    "xhigh"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条让每条记录加 cwd、摘要从 40 字放宽到 200 字，少记录的问题明确先放着，属于新任务。没有决定性几轮时就是加字段、改一个常量的常规改动（medium）。但按定下的规矩：新字段要写清来源和经过的五个出口、每个出口都要有脱敏用例；且上次 214 条样本只验证了截到 40 字后的输出，放宽到 200 字等于把原来没判过的部分暴露出来，必须重跑全部样本、可能补规则，cwd 本身也不能凭感觉认为不带敏感信息；发版前还要老孟过。跨多个文件、边界条件要紧，定 high。"
+}

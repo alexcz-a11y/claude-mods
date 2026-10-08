@@ -36,5 +36,5 @@
       "text": "昨晚高峰还是老样子 20:40 那一波 BFF 又超时了一千多次 先不等根因了 把 spring.data.redis.timeout 从 100ms 调到 250ms 吧"
     }
   ],
-  "middle_hint": "中间继续排查 search 接口晚高峰变慢的问题：理 SearchService.search 的调用链和各层超时，看线程转储、GC 日志、JFR、火焰图、Loki 和 Prometheus，对比 staging 和生产，写复现场景和抓现场的脚本，列可能的原因；线上只读，没有新的修改尝试，也没有结论。"
+  "middle_hint": "中间继续排查 search 接口晚高峰变慢的问题：理 SearchService.search 的调用链和各层超时，看线程转储、GC 日志、JFR、火焰图、Loki 和 Prometheus，对比 staging 和生产，写复现场景和抓现场的脚本，列可能的原因，没有新的修改尝试，也没有结论。"
 }

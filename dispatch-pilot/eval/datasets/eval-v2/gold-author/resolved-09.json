@@ -21,5 +21,5 @@
       "triage": "resolved"
     }
   ],
-  "rationale": "决定性几轮里中文站 broken anchor 改了两次：第一次补标题 id 只消掉一部分，第二次查出 WebhookEventTable 用本地化的 label 生成 id，改成固定键后 build 通过。用户确认算好了，并且说清了验收标准：那三条 payments 链到未翻译退款文档的 warning 本来就有、不用管，CI 上没有 broken anchor、只剩这三条 warning 就直接合。最后一条报 CI 日志里「还是那三条 warning 别的没了」，正好满足约定的条件，接下来只是把 PR 合掉：low；顺手核一下 CI 日志再合给 medium 也可以。删掉决定性几轮，中间段是没下结论的锚点排查，最后一句「还是那三条 warning」读起来像问题没变、又报了一遍，会按继续排查来判：high。三选一：d1 第一次报问题，new_or_unrelated；d2 改完还挂、剩下 #event- 那几条，still_unresolved；d3 明说算好了，resolved；最后一条按约定的验收标准报告通过，resolved。"
+  "rationale": "决定性几轮里 API 参考页的 broken anchors 改了两次：第一次只改了 4 处写错的链接，CI 上照样时有时无；第二次查出 ParamTable 用模块级 Set 去重 id，结果取决于静态生成的渲染顺序，改成按表类型加前缀后冷构建 20 次零警告。用户本地也验过，并说清了验收标准：refunds-v1 那三条 markdown link 的 warning 本来就有、不用管，CI 两轮 build 没有 broken anchors、只剩这三条就直接合。最后一条报「还是那三条 warning 别的没了」，正好满足约定的条件，接下来只是把 PR 合掉：low；合之前再核一遍 CI 日志给 medium 也可以。删掉决定性几轮，中间段是没下结论的锚点排查，最后一句「还是那三条 warning」读起来像问题没变、又报了一遍，会按继续排查来判：high。三选一：d1 第一次报问题，new_or_unrelated；d2 改完还冒、列的是表里有的参数，still_unresolved；d3 本地十次零警告、让开 PR 直接合，resolved；最后一条按约定的验收标准报告通过，resolved。审稿改动：原题是中文站每次必挂的 broken anchor（译文丢了显式 id），和本领域 same-problem 段的设定矛盾（9/24 下午起约三成多的构建在 stderr 冒一行、中英文两轮都有、构建照样成功、读者那边时有时无、#1201 的翻译同步没动锚点）；改成 ParamTable 去重 id 依赖渲染顺序，占位符、决定性几轮和 middle_hint 重写，最后一条和金标结构不变。"
 }

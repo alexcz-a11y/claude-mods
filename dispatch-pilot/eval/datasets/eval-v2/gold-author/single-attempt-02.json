@@ -1,6 +1,6 @@
 {
   "id": "single-attempt-02",
-  "effort": "high",
+  "effort": "xhigh",
   "accept": [
     "high",
     "xhigh"
@@ -13,5 +13,5 @@
       "triage": "new_or_unrelated"
     }
   ],
-  "rationale": "决定性几轮里中文文档的 MD051 只处理过一次：在 i18n/zh 下加了关掉 MD051 的子目录配置，本地 markdownlint-cli2 跑过 0 条，但没跑 CI 实际调用的 lint:docs。最后一条说推上去 CI 还是那 23 条：第二次提，本地和 CI 结果不一致，要查 lint 脚本怎么加载配置，是调试，high；只失败过一次、方向明确，不到 max，xhigh 也能接受。删掉决定性几轮，看到的是几万 token 围绕这个检查的排查一直没结论、用户说还是红，看不出只改过一次，容易当成久攻不下的问题往上判：xhigh。三选一：d1 第一次提出问题，new_or_unrelated；最后一条说 CI 还是同样的 23 条，still_unresolved。"
+  "rationale": "失败的修复 1 次：d1 之后认定是 ParamBadge 模块级按参数名缓存标签，删掉缓存、合进 main，用户在最后一条第一次说没好（合进去一个多星期，#419 还是三四次里出一次、webhooks 那页又有人反馈标反），是第二次。复现性是偶发的：d1 写了「刷新一下又对了」「三四成的构建日志」，最后一条也是「三四次里出一次」，middle_hint 里约三成多 → xhigh；判断修没修好要冷构建很多遍、等线上反馈，下一步是长链路排查加反复验证。accept 是 high、xhigh，只失败一次不到 max。删掉决定性几轮：中间段和 middle_hint 看得到偶发，最后一条的「合进去」「还是」看得出修过，按第二次、偶发定 → xhigh，和 effort 相同。本类允许这个例外：这题里决定性几轮的作用是排除 max，删掉以后看不出改过几次，几万 token 的排查可能被读成反复失败，但按规则不把看不见的历史推测成多次失败，所以仍是 xhigh。三选一：d1 第一次提出问题，new_or_unrelated；最后一条说同样的警告和标反还在，still_unresolved。这一轮按修订说明改：金标从 high 改成 xhigh；决定性回复末尾交代了合进去以后为什么还要接着查；middle_hint 补了出现率和「用户没有评价第一次的修复」。上一轮审稿改动：docs-writing 的 same-problem 素材段共用的场景是「9/24 起约三成多的 npm run build 在静态生成阶段往标准错误打一行警告、读者偶尔看到某个组件渲染的那一块不对、刷新就好」，FILE 是用到这个组件的文档页（#1205 改过它的用法），SYMBOL 是参数表里每行调用一次、带一张中英文短标签对照表的组件，COMMAND 是完整构建；原题的「中文文档 23 条 MD051、markdownlint 配置、只在中文出现、次次都红」和这些段（出现率统计、en 和 zh 两轮都有、读者反馈、浏览器里复现）冲突。按池子改了问题、七个占位符、d1、决定性回复和最后一条；第一次修改放在 ParamBadge 自己的实现里（删掉模块级缓存），改完以后组件只剩只读的对照表，和中间段对它的描述一致。本轮审稿改动（金标不变）：docs-writing-same-problem-34 写着用 git log -S 搜 2025 年 6 月以后 src/ 下模块顶层新增的 let、new Map()、new Set()，命中的 4 个提交都不是模块顶层的可变状态，而 ParamBadge 是去年 11 月建的、缓存从建组件时就有，原写法「badgeCache（Map）」会被这次搜索搜到、和中间段矛盾；把缓存改成顶层的普通对象 const badgeCache = {}（不在那次搜索的写法里），助手顺手 Grep 的范围也补上「对象」。遗留：docs-writing-same-problem-15 说 ParamBadge 最近一次改动是 9 月下旬、作者是阿杰，和这次修复的提交人对不上，属于细节，没改。"
 }

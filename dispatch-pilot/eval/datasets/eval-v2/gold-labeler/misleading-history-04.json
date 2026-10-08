@@ -1,0 +1,25 @@
+{
+  "id": "misleading-history-04",
+  "effort": "low",
+  "accept": [
+    "low",
+    "medium"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "超时关单误关支付中订单的问题已修好（d3 用户确认上线一周没再出）。最后一条是为这次修复做的收尾：照助手已拟好的措辞改 api/openapi.yaml、docs/merchant/faq.md、docs/api-changelog.md 三处，再跑 redocly lint。措辞和位置都已定好，属照明确指令的文字改动，low。读不到决定性几轮就不知道「你说的」是什么措辞、改哪几处，要自己读修复的行为并起草文档，medium。"
+}

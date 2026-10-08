@@ -1,0 +1,74 @@
+{
+  "id": "command-turn-03",
+  "category": "command-turn",
+  "domain": "data-scripts",
+  "bin": "d3",
+  "relation": "same-problem",
+  "placeholders": {
+    "FEATURE": "门店人效日报",
+    "SYMPTOM": "早上看板上门店人效那几列是空的，上午重跑以后又有数",
+    "ERROR": "pandas.errors.InvalidIndexError: Reindexing only valid with uniquely valued Index objects",
+    "FILE": "pipelines/store_staff_efficiency.py",
+    "FILE2": "sql/rpt/store_staff_efficiency.sql",
+    "SYMBOL": "build_store_staff_efficiency",
+    "COMMAND": "ETL_SINK=parquet make run P=store_staff_efficiency D=2026-10-02"
+  },
+  "opening": [],
+  "decisive": [
+    {
+      "role": "user",
+      "msg": "d1",
+      "text": "人效日报这阵子老是早上空着 运营九点多来问 上午手动重跑一遍又好了 日志里补充那一步报 `pandas.errors.InvalidIndexError: Reindexing only valid with uniquely valued Index objects` 被 try 接住了 所以状态还是 ok 代码在 pipelines/store_staff_efficiency.py 票开了 #127 你看看"
+    },
+    {
+      "role": "assistant",
+      "text": "先按报错本身修了一处：补充表里有门店重复，`reindex` 碰到重复的索引就会抛这个错，已经改成读进来以后先去重。\n\n- **查到的**：`build_store_staff_efficiency` 汇总完以后调 `_attach_supplement`，把 `rpt.store_ops_daily` 读进来 `set_index('store_id')`，再按汇总结果的门店 `reindex`，拿营业时长和在岗人数算人效。`rpt.store_ops_daily` 没有主键，查了一下库，每一批都有 3 家已关店的门店是两行。`reindex` 要求被取的那一边索引唯一，补充表一有重复门店就会抛 `InvalidIndexError`。外面那层 `try/except` 接住以后，人效几列全是空值，别的列照常写表，`meta.etl_runs` 记 `ok`，所以没有告警。\n- **改法**：读进来以后按 `(store_id, 写入时间)` 排序，`drop_duplicates('store_id', keep='last')`，去掉了哪些门店打一行 warning。\n- **验证**：`ETL_SINK=parquet make run P=store_staff_efficiency D=2026-10-02` 跑了一遍，补充那一步正常走完，人效列都有值；补了一个「补充表同一门店两行」的用例，`pytest tests/test_store_staff_efficiency.py` 全过。\n\n有一点还对不上：关店门店的重复每一批都有，报错却只是有的早上出、重跑又没有。修完再看两天。",
+      "tools": [
+        "Read",
+        "Bash",
+        "Grep",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d2",
+      "text": "部署了 今天早上又空了 还是那个 InvalidIndexError 上午重跑又好了"
+    },
+    {
+      "role": "assistant",
+      "text": "补充表去重以后还报，说明重复在汇总结果这一边：同一个门店渠道出现了两行。改了来源编码映射前的清洗。\n\n- **查到的**：`_attach_supplement` 最后一步把结果 `set_index(['store_id', 'channel'])`，再 `reindex` 到「全部门店 × 全部渠道」，没卖的组合补 0，这一步要求汇总结果的索引唯一。今天凌晨那次的输入里，来源编码同时有 `'pos-b '`（尾巴多一个空格）和 `'pos-b'`，映射前没有 strip，带空格的映射不到，渠道是空值，汇总时自成一组；汇总之后又 `fillna('pos')` 把空渠道填成 `pos`，和正常的 `pos` 那组撞成两行。上午重跑时那几单的编码已经被上游修正，所以不出现。\n- **改法**：来源编码映射前统一 `str.strip().str.lower()`；空渠道在汇总之前填，不在汇总之后填。\n- **验证**：日志里只有行数，按凌晨取数的时刻从从库近似还原了一份输入，用它跑了一遍，补充那一步走完了；补了带空格编码的用例，测试全过。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "role": "user",
+      "msg": "d3",
+      "text": "还是空 今天早上 一样的报错 你上次说的那种带空格的编码今天根本没有"
+    },
+    {
+      "role": "assistant",
+      "text": "今天的输入里确实没有带空格的编码，汇总结果里撞成两行的是组合支付的单。改了取数和去重。\n\n- **查到的**：`sql/rpt/store_staff_efficiency.sql` 把订单和支付记录按订单号关联着取，组合支付拆成多条支付记录以后，一单在取数结果里是两行；`_dedup` 按订单号 `keep='last'`，取数又没有排序，留哪一行看从库返回的顺序。两行的渠道取自各自那条支付记录，储值卡那条是门店渠道、微信那条是小程序，留下哪一行，这单就算进哪个渠道。凌晨那次还原出来的输入里，有 6 单留下的是储值卡那行、退款回填按订单的原始渠道又补了一行，同一门店的门店渠道出现两行。\n- **改法**：取数语句里先按订单号把支付记录汇总成一行再关联，渠道取订单本身的来源，不取支付记录的；`_dedup` 前加了按 `(order_no, pay_seq)` 排序，结果不再依赖返回顺序。\n- **验证**：拿今天凌晨的还原输入和 10 月 2 日的输入各跑一遍，补充那一步都走完了，组合支付的单每单只有一行；测试全过，补了组合支付的用例。",
+      "tools": [
+        "Bash",
+        "Read",
+        "Grep",
+        "Edit"
+      ]
+    }
+  ],
+  "final": [
+    {
+      "role": "user",
+      "text": "/debug 人效日报 今早又是空的 `pandas.errors.InvalidIndexError: Reindexing only valid with uniquely valued Index objects`",
+      "command": {
+        "name": "debug",
+        "description": "系统地排查一个问题：复现、缩小范围、找到根因再修。"
+      }
+    }
+  ],
+  "middle_hint": "中间继续排查门店人效日报早上第一次跑时补充列为空的问题：理数据流和取数 SQL、对运行记录和日志、看从库延迟和补充表的批次、在 staging 上试着复现，没有新的修改，也没有结论。"
+}

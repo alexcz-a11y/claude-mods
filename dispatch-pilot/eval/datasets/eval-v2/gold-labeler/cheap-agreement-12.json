@@ -1,0 +1,21 @@
+{
+  "id": "cheap-agreement-12",
+  "effort": "medium",
+  "accept": [
+    "medium",
+    "high"
+  ],
+  "effort_without_decisive": "high",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "最后一条要一个新脚本出文档周报：列出本周合进 main 的 PR，改了哪些页面、新增几篇、中英文各改了多少字，按目录分组，每个 PR 一行带作者和标题，输出 markdown。d1 定过：写作组的小脚本放 scripts/writers/，node 能跑出结果就行，不写测试、不加 npm script、不管 Windows、不写 README。所以这是一个范围清楚的单文件脚本，给 medium。要用 gh 或 git 取本周合并的 PR，中英文字数怎么统计也得想一想，所以 high 也可以接受。没有 d1 的话，这是一个每周都要用的工具，主 agent 会补测试、加 npm script、写文档，按 high 判。d2 是照前一份统计的做法再要一份，说明接受了前面的结果，记 resolved。"
+}

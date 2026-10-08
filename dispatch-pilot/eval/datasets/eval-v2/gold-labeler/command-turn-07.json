@@ -1,0 +1,29 @@
+{
+  "id": "command-turn-07",
+  "effort": "max",
+  "accept": [
+    "xhigh",
+    "max"
+  ],
+  "effort_without_decisive": "xhigh",
+  "triage_final": "still_unresolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d4",
+      "triage": "still_unresolved"
+    }
+  ],
+  "rationale": "晚高峰 ES 读超时：条数上限/filter_path、IO 线程数、连接池三轮修复在灰度上都被用户确认无效，d4 让全部撤掉。中间排查了很久没有结论，最后 /diagnose 说 20:41 那波又来了。同一问题三轮修复失败后再提，又是跨 pod 同时出现的间歇性生产超时（疑难并发/性能），按规则定 max；xhigh 勉强可接受。没有决定性几轮时只知道中间长时间排查无果、问题又来了，没有失败修复的计数，按长链路疑难排查给 xhigh。"
+}

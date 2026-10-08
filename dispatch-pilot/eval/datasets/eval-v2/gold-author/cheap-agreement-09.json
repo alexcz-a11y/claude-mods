@@ -1,0 +1,20 @@
+{
+  "id": "cheap-agreement-09",
+  "effort": "low",
+  "accept": [
+    "low"
+  ],
+  "effort_without_decisive": "medium",
+  "triage_final": "new_or_unrelated",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "new_or_unrelated"
+    }
+  ],
+  "rationale": "最后一条是飞书部署通知的几处改动：失败卡片加第几次 attempt 和提交说明首行、staging 成功的不再发、prod 成功照发、给一个 step 改中文显示名。决定性几轮里用户定了规矩：通知文案、step 和 job 的显示名这种只给人看的东西，直接改了推 main，不开 PR、不等评审，理由是 actionlint 在 CI 里跑、改坏了下一次 run 就看得出来；d2 里主 agent 也照这样改了 notify-feishu 一处就推了。按这个约定，最后这条是在同一个 composite action 里照着上次的写法加两个字段、给成功通知加一个环境条件，再改一行 step 名，都是照明确指令做的小改动：low。成功通知按环境分开虽然多一个条件，但写法现成，判 medium 就是没把约定算进去，accept 只写 low。删掉决定性几轮，读者只看到中间一直在查部署流水线的故障，最后要改部署 workflow 的通知逻辑和 step 名，而且 deploy 和 release-train 两条入口共用，正常做法要开分支、手动触发验证、等评审：medium。三选一：d1 第一次提出同步镜像卡住的问题，new_or_unrelated；d2 转去改通知，对那个问题没有表态，new_or_unrelated；最后一条也是通知的事，同步镜像的问题既没说好也没说还在，new_or_unrelated。（审稿改动：素材段里通知本来就是成功失败都发、失败通知带 workflow 名和触发人、改过以后标题是「发布失败：staging」这种，所以 d2 改成「原来只有 workflow 名和链接，补环境、触发人、失败的 job 和 step」，最后一条去掉了和素材段重复的「加触发人」「标题加 [prod]」「成功也发一条」，换成「加 attempt」「staging 成功的别发」；金标未改。）"
+}

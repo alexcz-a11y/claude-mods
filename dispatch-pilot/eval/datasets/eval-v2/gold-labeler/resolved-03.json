@@ -1,0 +1,24 @@
+{
+  "id": "resolved-03",
+  "effort": "low",
+  "accept": [
+    "low"
+  ],
+  "effort_without_decisive": "low",
+  "triage_final": "resolved",
+  "triage_decisive": [
+    {
+      "msg": "d1",
+      "triage": "new_or_unrelated"
+    },
+    {
+      "msg": "d2",
+      "triage": "still_unresolved"
+    },
+    {
+      "msg": "d3",
+      "triage": "resolved"
+    }
+  ],
+  "rationale": "支付 version conflict 问题在 d3 已确认解决，最后一条说已合并上线、补数完成，只要求在 #87 评论压测数据和补数单数后关票。压测那组数在 d3 的助手回复里已整理好，只需 gh 评论加关闭，纯机械操作，low。没有决定性几轮时拿不到具体数字，可能要向用户要或翻记录，但工作本身仍是评论加关票，low。"
+}
