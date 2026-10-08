@@ -17,7 +17,7 @@
 // Its switch is `workflow-labels` (`/dp workflow-labels off`).
 
 import type { EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
-import { describeAsked, errorText, failureLine, failureText, within, type Failure } from '../decision/backend.ts'
+import { describeAsked, errorText, failureLine, failureText, within, type BackendIo, type Failure } from '../decision/backend.ts'
 import { dispatchEvidence, modelFamily, termsOf, type AgentModel, type DispatchSettings, type Terms } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
 import {
@@ -49,6 +49,7 @@ const RUNS = { plugin: 'dispatch-pilot', key: 'labelRuns' } as const
 const TERMS = { plugin: 'dispatch-pilot', key: 'workflowTerms' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'workflow-labels'
@@ -134,9 +135,10 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
           const { value: terms = [] } = await $.state.get({ ...TERMS, id: e.tool_use_id }).catch(() => ({ value: undefined }))
           sites = inlineSites(parsed.calls, plan.skipped, terms)
         } else {
-          const io = {
+          const io: BackendIo = {
             fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
             sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+            pace: { now: () => $.clock.now(), sent: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
           }
           const timeoutMs = batchesTimeoutMs(ctx.config.timeoutMs, plan.batches.length)
           const asked = await Promise.all(
@@ -304,9 +306,10 @@ async function decideAtStart(
   if (batch === undefined) return { ok: false, reason: '它的任务里没说要做什么' }
   const timeoutMs = Math.min(ctx.config.timeoutMs, agent.deadline - (await $.clock.now()))
   if (timeoutMs < MIN_ASK_MS) return { ok: false, reason: '没有时间再问决策模型了' }
-  const io = {
+  const io: BackendIo = {
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
     sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+    pace: { now: () => $.clock.now(), sent: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
   }
   const startedAt = await $.clock.now()
   const asked = await ctx.backend.ask(io, batch.request, timeoutMs)

@@ -21,7 +21,7 @@
 // The find_skill tool (#12) has a switch of its own.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { type Asked, describeAsked } from '../decision/backend.ts'
+import { type Asked, type BackendIo, describeAsked } from '../decision/backend.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { modRanker, pickSkills, relevanceBlock, skillOpening, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
@@ -40,6 +40,7 @@ const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
 const LISTING = { plugin: 'dispatch-pilot', key: 'skillListing' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 
 /** The feature's switch: the suggestions, and with them the withheld listing. */
 const SWITCH = 'skills'
@@ -85,7 +86,11 @@ async function sessionCatalog($: EngineInterface, model: string): Promise<Catalo
 
 /** One decision request through the person's decision model, its outcome in the debug log as the core logs its own. */
 async function askLogged($: EngineInterface, ctx: Ctx, what: string, request: DecisionRequest, timeoutMs: number): Promise<Asked> {
-  const io = { fetch: (url: string, init: HttpInit) => $.http.fetch(url, init), sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }) }
+  const io: BackendIo = {
+    fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+    sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+    pace: { now: () => $.clock.now(), sent: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+  }
   const startedAt = await $.clock.now()
   const asked = await ctx.backend.ask(io, request, timeoutMs)
   const ms = (await $.clock.now()) - startedAt

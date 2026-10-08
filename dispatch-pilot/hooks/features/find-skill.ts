@@ -14,7 +14,7 @@
 // switched off, it says so when called.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { type Asked, describeAsked, errorText, failureText } from '../decision/backend.ts'
+import { type Asked, type BackendIo, describeAsked, errorText, failureText } from '../decision/backend.ts'
 import { turnStartState } from '../decision/context.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { modRanker, pickSkills, skillOpening, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
@@ -28,6 +28,7 @@ import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'find-skill'
@@ -82,7 +83,11 @@ async function sessionCatalog($: EngineInterface, model: string): Promise<Catalo
 
 /** One decision request for find_skill through the person's decision model, its outcome in the debug log. */
 async function askLogged($: EngineInterface, ctx: Ctx, what: string, about: string, request: DecisionRequest, timeoutMs: number): Promise<Asked> {
-  const io = { fetch: (url: string, init: HttpInit) => $.http.fetch(url, init), sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }) }
+  const io: BackendIo = {
+    fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+    sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+    pace: { now: () => $.clock.now(), sent: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+  }
   const startedAt = await $.clock.now()
   const asked = await ctx.backend.ask(io, request, timeoutMs)
   const ms = (await $.clock.now()) - startedAt

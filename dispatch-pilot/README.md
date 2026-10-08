@@ -30,7 +30,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 - **prompt 上方的 band。** 一轮进行中，顶上一条状态条：第几轮、用时、agent 的运行 / 完成 / 失败 / 排队数、Workflow 的进度、中途重判的次数。下面每个 agent 一行：主 agent 在最前，其余按开始的先后，各带数字键（0 是主 agent，1 到 9 按先后）、名字、模型和 effort、状态，以及一条时间色带（同一根时间轴，看得出谁和谁并行）。状态格写运行或完成了多久、失败、排队，或者「未路由 · 原因」。再下面是这一轮的事件流：每个决定、中途重判和强制升档（一次改档只算一条，写从哪档到哪档）、skill 推荐和「可试 /x」、`find_skill` 的查询，以及请求失败、回答迟到。一轮结束后 band 折成一行：主 agent 的模型和 effort、这一档是怎么来的、「可试 /x」。引擎给 band 的行数不到 4 行时，退成一行摘要。
 - **脚部右端的摘要。** 连同和左边隔开的一列，不超过 12 列：状态符号、主 agent 的模型和 effort、`+N` 个运行中的 agent；放不下时 effort 先写短（`xhi`），再省掉模型。
-- **未路由。** 一轮或一个 agent 的模型和 effort 照引擎原样发出、没有经过 Dispatch Pilot 的决定，看板上总写原因：决策模型超时、连不上、繁忙、额度用完、密钥被拒绝、没配好、回答读不懂，或者功能已关。路由失败时还会弹一个 toast，写谁没路由和原因。
+- **未路由。** 一轮或一个 agent 的模型和 effort 照引擎原样发出、没有经过 Dispatch Pilot 的决定，看板上总写原因：决策模型超时、连不上、繁忙、被限速、额度用完、密钥被拒绝、没配好、回答读不懂，或者功能已关。路由失败时还会弹一个 toast，写谁没路由和原因。
 - **选中一个 agent。** 在空的 prompt 里按它的数字键，依据面板就打开在它的卡片上。
 - **别的端。** Desktop 等不支持时间色带和概率条的端画同样内容的纯文字版：band 的每行没有时间色带，脚部是一个不超过 24 个字符的标签（同样连隔开的那一列算在内）。没在 Desktop 上亲眼看过。
 - 关掉的功能（`/dp <功能> off`）的决定、事件和计数不出现在 band 和脚部；`/dp off` 时 band 上没有 Dispatch Pilot 的内容，脚部写 `○ dp 已关`。`claude -p` 没有界面，内容写进 debug log。
@@ -160,6 +160,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 | `decisionModel` | 决策模型，在 `/config` 里是下拉选择：`pplx`（Perplexity 的 `pplx-decider-v1.1-27b`）或 `jev`（TypeSafe 的 Jev）。默认 `pplx`；填了别的值（包括已移除的 `clef`），按没设处理。设成 `jev` 就始终用 Jev；其他情况有 Perplexity 的 key 用 pplx，没有但有 TypeSafe 的 key 就退回 Jev（决策日志里记一条原因），两种都没有就不发请求 | `pplx` | `pplx` |
 | `typesafeApiKey` | TypeSafe 的 API key，选 `jev` 时用；没有 Perplexity 的 key 时默认的 pplx 退回 Jev，用的也是它。敏感项 | `空` | `空` |
 | `perplexityApiKey` | Perplexity 的 API key，默认的决策模型 pplx 用它。敏感项。为空时读环境变量 `PERPLEXITY_API_KEY`，两处都有就用这里的；Perplexity 和 TypeSafe 的 key 都没有时不发任何请求。key 只放在请求头里，不进日志、看板和 `$.state` | `空` | `空` |
+| `pplxQps` | 每秒最多向 Perplexity 发几个请求（1–50），只对 `pplx` 有用，Jev 不受它限制。Tier 0 账户限 1 QPS，一条消息又发 2 到 3 个请求，所以超出的在 mod 里排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待。遇到 429 时，剩余等待时间不少于 `Retry-After` 加约 5 秒就按 `Retry-After` 重试一次，不够就不经路由地放行，看板写「被限速」。升级了账户就调高 | `1` 仅 `pplx` 用 | `1` |
 
 ### 等多久，读多少
 

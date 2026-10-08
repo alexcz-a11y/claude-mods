@@ -202,6 +202,28 @@ for (const failure of failures) {
   })
 }
 
+// A 429's `Retry-After` is read as a number of milliseconds on the failure, so that whoever holds the queue can decide whether
+// waiting for it still fits in the time left (#51). The header's name is matched whatever its case.
+const retryAfters: { name: string; status: number; headers: Record<string, string>; retryAfterMs: number | undefined }[] = [
+  { name: 'a 429 with Retry-After: 2 asks for 2000 ms', status: 429, headers: { 'retry-after': '2' }, retryAfterMs: 2000 },
+  { name: 'the header name is matched in any case', status: 429, headers: { 'Retry-After': ' 3 ' }, retryAfterMs: 3000 },
+  { name: 'Retry-After: 0 is no wait at all', status: 429, headers: { 'retry-after': '0' }, retryAfterMs: 0 },
+  { name: 'a 429 without the header has no wait to read', status: 429, headers: {}, retryAfterMs: undefined },
+  { name: 'a header that is a date, or words, is not read', status: 429, headers: { 'retry-after': 'Wed, 21 Oct 2026 07:28:00 GMT' }, retryAfterMs: undefined },
+  { name: 'only a 429 carries the wait: a 503 with the header does not', status: 503, headers: { 'retry-after': '2' }, retryAfterMs: undefined },
+]
+
+for (const one of retryAfters) {
+  test(one.name, async () => {
+    const net = network(() => ({ status: one.status, text: JSON.stringify({ error: { message: 'slow down', type: 'too_many_requests' } }), headers: one.headers }))
+    const asked = await pplxBackend(KEY).ask(net.io, REQUEST, 1500)
+
+    if (asked.ok) throw new Error('answered')
+    expect(asked.failure.status).toBe(one.status)
+    expect(asked.failure.retryAfterMs).toBe(one.retryAfterMs)
+  })
+}
+
 test('an answer that is not JSON, or has no answers, is a parse failure with the start of the body', async () => {
   const notJson = await pplxBackend(KEY).ask(network(() => ({ status: 200, text: '<html>welcome</html>' })).io, REQUEST, 1500)
   expect(notJson).toEqual({ ok: false, failure: { kind: 'parse', detail: 'not JSON: <html>welcome</html>' } })

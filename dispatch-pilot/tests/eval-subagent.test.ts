@@ -196,7 +196,7 @@ test("from the same answers the eval decides each of a Workflow's agents as the 
 
   const suite = agentSuite([SCAN, SYNTH])
   const ask: Ask = async (request) => {
-    const reply = answers({ url: '', method: 'POST', headers: {}, body: request }) as { body: { answers: Record<string, never> } }
+    const reply = answers({ url: '', method: 'POST', headers: {}, body: request, at: 0 }) as { body: { answers: Record<string, never> } }
     return { request, asked: { ok: true, answers: reply.body.answers, model: 'jev-1.13.0', inputTokens: 400 }, ms: 0, attempts: 1 }
   }
   const decided = await Promise.all([SCAN, SYNTH].map((item) => suite.decide(item, 'zh', 'models-hint', ask, settingsFrom({ decisionModel: 'jev' }))))

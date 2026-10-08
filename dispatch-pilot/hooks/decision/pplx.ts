@@ -49,7 +49,8 @@ export function pplxBackend(apiKey: string | (() => string), options: { url?: st
 /**
  * A non-2xx response as a failure. 401 and 403 are the key; 429 and the
  * service's own 500, 502, 503 and 529 are worth asking again (`busy`), 429 with
- * the wait `Retry-After` asked for in the detail; 504 is the model not answering
+ * the wait `Retry-After` asked for in the detail and as `retryAfterMs` (the
+ * rate limiter, pplx-rate.ts, retries on it); 504 is the model not answering
  * in time (about a minute, in the docs' tests); the rest, 400 and 413 among them,
  * mean this mod sent a bad request. The detail is the API's own reason
  * (`error.type: error.message`), or what there is of the body.
@@ -59,7 +60,8 @@ function pplxFailure(response: HttpResponse): Failure {
   const wait = retryAfter(response)
   const detail = `HTTP ${status}: ${bodyReason(response.text)}${wait === null || status !== 429 ? '' : ` (retry after ${wait} s)`}`
   if (status === 401 || status === 403) return { kind: 'config', status, detail }
-  if (status === 429 || status === 500 || status === 502 || status === 503 || status === 529) return { kind: 'busy', status, detail }
+  if (status === 429) return { kind: 'busy', status, detail, ...(wait === null ? {} : { retryAfterMs: Number(wait) * 1000 }) }
+  if (status === 500 || status === 502 || status === 503 || status === 529) return { kind: 'busy', status, detail }
   if (status === 504 || status === 408) return { kind: 'timeout', status, detail }
   return { kind: 'http', status, detail }
 }

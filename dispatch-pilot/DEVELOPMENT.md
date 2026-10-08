@@ -129,7 +129,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev）�
 
 ### 失败时放行
 
-如果决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配置 key，消息照常进入，不会额外等待，这一轮使用会话自己的 effort。看板上主 agent 那一行写「未路由」和几个字的原因（「决策模型超时」「决策模型拒绝了密钥」），同时弹一个 toast 写明细节，例如 `jev：1500 毫秒内没有回答`、`jev：密钥被拒绝（状态码 401）`。额度当天用完时写 `jev：今天的额度用完了`，和一时繁忙的 `jev：繁忙（状态码 429）` 区分开。
+如果决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配置 key，消息照常进入，不会额外等待，这一轮使用会话自己的 effort。看板上主 agent 那一行写「未路由」和几个字的原因（「决策模型超时」「决策模型拒绝了密钥」），同时弹一个 toast 写明细节，例如 `jev：1500 毫秒内没有回答`、`jev：密钥被拒绝（状态码 401）`。额度当天用完时写 `jev：今天的额度用完了`，和一时繁忙的 `jev：繁忙（状态码 503）`、请求太密被限速的 `pplx：被限速（状态码 429）` 区分开。
 
 ### 看板
 
@@ -264,7 +264,14 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 
 **密钥怎么读。** `perplexityApiKey`（userConfig）优先，空时用环境变量 `PERPLEXITY_API_KEY`。`$.env.get` 是异步的、要 `$`，`setup()` 和 `readConfig` 是同步的、没有 `$`，`$` 也不能跨 import；所以环境变量在 `session.start`（`features/control.ts`）里读一次，存进 `ctx.secrets.perplexityEnvKey`（`Secrets`，`core/setup.ts`；热重载会重新触发 `session.start`），pplx 的后端每次 `ask` 时才取 `perplexityKey(config, secrets)`（`pplxBackend` 收一个 `() => string`；`Backend.configured` 是它的 getter，所以各功能读 `configured` 时看到的就是现在有没有 key）。没有放进 `BackendIo` 的闭包里，是因为那要在 9 处 `io` 字面量里各写一遍 `$.env.get('PERPLEXITY_API_KEY')`，而且 #52 要在发请求之前、同步地知道有没有 key（选 pplx 还是退回 Jev，决定 `Config` 用哪一行）：那也只能在 `session.start` 读好再用（下一段）。key 只出现在请求头里：`pplx.ts` 把失败的 detail 里出现的 key 换成 `[REDACTED]`，`session.start` 的 debug log 只写 key 从哪里来（`pplx key: from the options` / `from PERPLEXITY_API_KEY` / `not set`）。`tests/pplx-model.test.ts` 的测试在日志、看板、toast 里搜 key 的原文。
 
-**接 #51 的地方。** 所有决策请求都经 `ctx.backend.ask(io, request, timeoutMs)`，`ctx.backend` 是 `setup()` 里按 `config.backend` 建的一个对象：限速（#51）包在 `pplxBackend` 外面即可，Jev 不经过。`Failure`（`decision/backend.ts`）还没有 Retry-After 字段，429 只在 `pplxFailure` 的 detail 里写 `(retry after N s)`。
+**限速和 429（#51）。** Perplexity Tier 0 账户限 1 QPS，一条消息发 2 到 3 个请求（effort、skill 第一段和第二段），中途重判、派出 agent、`find_skill` 也在抢。`setup()` 把 `pplxBackend` 包进 `decision/pplx-rate.ts` 的 `limited(backend, qps)`（#52 之后 `setup()` 为 pplx 那一份 `Config` 建它，用 `configs.pplx.pplxQps`；pplx 那支始终经过它，不管最后选的是不是 pplx），所以所有 pplx 请求都经它，Jev 不经过。要点：
+- **每秒最多 `pplxQps` 个。** 滑动窗口，不是固定间隔：`pplxQps: 2` 时两个请求同时发出，第三个等到最早那个满一秒。最近发出的时间（至多 `pplxQps` 个）记在 `$.state` 的 `pplxRate`（`number[]`），热重载后不会一下子放出一串；改发送时间用 `$.state` 的版本号做乐观并发（`ifVersion`），读写失败就放行（最坏是 Perplexity 自己回 429）。
+- **排队。** 排队的队列是模块变量（热重载丢了也没关系：旧模块的请求引擎自己会丢掉）。队首永远是优先级最高、来得最早的一个：发消息的 effort 请求（问题名以 `effort.` 开头）优先级 0，其余都是 1，先来先发。队首轮到的时候才占位，所以一个更优先的请求后来也能插到已经在等的 skill 请求前面。等不到位的请求（占位要等到超过它自己的等待时间）当场失败，不白等。
+- **排队的时间算进该请求自己的等待。** `ask(io, request, timeoutMs)` 的 `timeoutMs` 从被问的那一刻算起，发出去之后只剩下没用完的部分；等不回来的失败写的仍是 `no answer in <timeoutMs> ms`。skill 第二段本来就用第一段剩下的时间，所以自然包括排队。
+- **429。** `pplxFailure` 把 `Retry-After`（整数秒，不区分大小写；日期形式不读）读成 `Failure.retryAfterMs`，只有 429 有。限速层收到 429 带着 `retryAfterMs` 时：剩余等待时间不少于 `retryAfterMs` 加 `EXPECTED_REQUEST_MS`（5000，ADR 0006 说的约 5 秒）就睡过 `Retry-After` 再问一次（重新排队，优先级不变），用第二次的结果，第二次再 429 就是失败；不够、或者 429 没带可读的 `Retry-After`，就原样失败。其他失败都不重试。失败交出去之前去掉 `retryAfterMs`，看板里存的 `failure` 形状不变。
+- **「被限速」。** 429 的失败（`busy`，状态码 429）在看板、toast 和决策日志里写 `pplx：被限速（状态码 429）`，band 上写「决策模型被限速」（`FAILURE_WORDS`，所有后端的 429 都这样写；模型读到的英文 `busy (HTTP 429)` 没变）。
+- **接线。** 限速需要时钟和 `$.state`，`$` 不能跨 import，所以 `BackendIo` 多了一个可选的 `pace`（`now`、`sent` 这个 `$.state` 的 Cell），9 处 `io` 字面量（`core.ts`、`midturn-effort.ts`、`skills.ts`、`find-skill.ts`、`escalation.ts`、`dispatched-agents.ts`、`workflow-agents.ts`、`workflow-labels.ts` 两处）各写一遍。没给 `pace` 的（评测，它自己控制节奏）直接放行。新增一处 `ctx.backend.ask` 时记得给它的 `io` 加 `pace`，否则那个请求不受限速。
+- **测试。** `tests/pplx-rate.test.ts`（接缝 1，`mock.clock`；`Sent.at` 是请求发出的时间，`Reply.headers` 给 429 带 `Retry-After`，`seed.pplxRate` 和 `w.pplxRate()` 读写限速的记录）；429 的分类和 `Retry-After` 的读取在 `tests/pplx.test.ts`（接缝 2）。别的 pplx 测试把 `pplxQps` 设成 50，免得被 1 QPS 排队拖住。
 
 **选哪个决策模型（#52，ADR 0006）。** `chooseBackend(asked, { perplexity, typesafe })`（`core/setup.ts`，纯函数）：`decisionModel` 是 `jev`（`backendNameOf(options)` 读出来的「要的是 Jev」）就始终 Jev；其余（`pplx`、没设、`clef`、拼错的值——引擎把选项列表之外的值读成 manifest 的默认值 `pplx` 并警告，mod 看不到原值）按密钥：有 Perplexity 的 key（userConfig 优先，再是环境变量）→ pplx；没有但有 TypeSafe 的 key → Jev，并记 `fellBack`；两个都没有 → pplx，它的每次 `ask` 以 `config` 失败返回，`why` 写「pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY」。
 
@@ -529,9 +536,10 @@ hooks/
     ├── skills.ts           skill 的两段排序（modRanker 是推荐和 find_skill 共用的唯一入口；第一段 skillsPart，第二段 stageTwoPart）、画像的写法、挑选、给主 agent 的文字块；skillsRequest（#16 的评测用）
     ├── context.ts          state：token 估算和截断、最近的对话、turnStartState
     ├── redact.ts           secret 脱敏
-    ├── backend.ts          决策后端的接口、超时、失败分类
+    ├── backend.ts          决策后端的接口、超时、失败分类（`BackendIo.pace`：限速要的时钟和 `$.state` 闭包）
     ├── jev.ts              Jev 后端
-    └── pplx.ts             Perplexity 后端（Decisions API，pplx-decider-v1.1-27b，#43；mod 不提供选择，只有评测用）
+    ├── pplx.ts             Perplexity 后端（Decisions API，pplx-decider-v1.1-27b，#43、#50；`decisionModel: pplx` 选它）
+    └── pplx-rate.ts        pplx 的限速和 429 重试（#51）：`limited(backend, qps)` 把后端包起来，按 `pplxQps` 排队，effort 先发；Jev 不经过
 scripts/decide.ts           用 Node 发一次真实的判断（Jev），请求内容与 mod 发出的相同：设置取 manifest 的默认值（`optionsFrom` + `readConfig`，和评测一样），凭证和 Node 的 io 用 `eval/node.ts` 的
 scripts/decide-agent.ts     同上，判断一个派出 agent（输入是评测集 subagent.jsonl 的一题）
 scripts/decide-stuck.ts     同上，一个卡住的循环的再判断（输入是 MidturnInput，见 `decision/midturn.ts`；请求用 #7 的 `stuckRequest` 拼）

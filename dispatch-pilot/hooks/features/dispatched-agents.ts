@@ -18,7 +18,7 @@
 // Its switch is `dispatched-agents` (`/dp dispatched-agents off`).
 
 import type { HttpInit, On } from 'claude-code'
-import { describeAsked, type Failure } from '../decision/backend.ts'
+import { describeAsked, type BackendIo, type Failure } from '../decision/backend.ts'
 import { messageText } from '../decision/context.ts'
 import { decideDispatch, dispatchEvidence, dispatchNote, dispatchPart, dispatchReason, dispatchState, modelFamily, termsOf, type Dispatch, type DispatchNote } from '../decision/dispatched-agent.ts'
 import { quoteStart } from '../decision/redact.ts'
@@ -36,6 +36,7 @@ const SAID = { plugin: 'dispatch-pilot', key: 'said' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
+const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'dispatched-agents'
@@ -108,9 +109,10 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     }
     const part = dispatchPart(dispatch, settings)
     const request = mergeParts(dispatchState(dispatch, ctx.config.contextByKind.agent), [part])
-    const io = {
+    const io: BackendIo = {
       fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
       sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+      pace: { now: () => $.clock.now(), sent: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
     }
     const reporting: ReportIo = {
       board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },

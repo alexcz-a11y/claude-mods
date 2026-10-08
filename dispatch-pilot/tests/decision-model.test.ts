@@ -130,7 +130,8 @@ test('a TypeSafe key in the options and a Perplexity key only in the environment
   expect(await fellBack(w)).toEqual([])
 })
 
-test('with the key from the environment the features run on pplx\'s settings, not on what they took before it was read: a step waits 6000 ms for a re-decision', { options: { typesafeApiKey: 'ts-test-key', rejudgeEvery: 2 } }, async ($, on) => {
+// `pplxQps: 50` below: this test is about the settings, not the 1 QPS of a Tier 0 account (pplx-rate.test.ts).
+test('with the key from the environment the features run on pplx\'s settings, not on what they took before it was read: a step waits 6000 ms for a re-decision', { options: { typesafeApiKey: 'ts-test-key', rejudgeEvery: 2, pplxQps: 50 } }, async ($, on) => {
   const working = (index: number) => ({ index, answer: `step ${index}`, tools: [{ tool: 'Read', input: { file_path: `/repo/src/f${index}.ts` } }] })
   const w = world($, on, {
     env: { PERPLEXITY_API_KEY: 'env-key' },
@@ -173,4 +174,21 @@ test("with the key from the environment a dispatched agent's max needs pplx's 0.
   const started = await w.spawn({ prompt: 'Find the cause of the deadlock in the scheduler and fix it.', description: 'Fix the deadlock' })
   await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-opus-5-5', effort: 'medium' })
   expect(w.steps.map((s) => s.effort)).toEqual(['max'])
+})
+
+test('pplx chosen by the key from the environment is still paced at pplxQps (1 a second by default); Jev, the way back, is not', { options: { typesafeApiKey: 'ts-test-key' } }, async ($, on) => {
+  const w = world($, on, { env: { PERPLEXITY_API_KEY: 'env-key' }, backend: either([0, 1, 0, 0, 0]) })
+  await w.submit('先看看这个函数')
+  const second = w.submit('再看看另一个函数')
+  await w.clock.settle()
+  expect(w.requests).toHaveLength(1)
+  await w.clock.advance(1000)
+  await second
+  expect(w.requests.map((request) => request.url)).toEqual([PPLX_URL, PPLX_URL])
+})
+
+test('Jev as the way back is not paced: two messages at once send two requests at once', { options: { typesafeApiKey: 'ts-test-key' } }, async ($, on) => {
+  const w = world($, on, { env: {}, backend: either([0, 1, 0, 0, 0]) })
+  await Promise.all([w.submit('先看看这个函数'), w.submit('再看看另一个函数')])
+  expect(w.requests.map((request) => request.url)).toEqual([JEV_URL, JEV_URL])
 })
