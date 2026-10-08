@@ -56,6 +56,7 @@ import type { EngineInterface, On } from 'claude-code'
 import { errorText, failureLine, failureWords, type Failure } from '../decision/backend.ts'
 import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
 import { isEffort, type Effort } from '../decision/effort.ts'
+import type { BackendName } from './setup.ts'
 import type { UnresolvedChange, UnresolvedOption, UnresolvedThresholds } from '../decision/unresolved.ts'
 import { startedIn } from '../decision/workflow-labels.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
@@ -1097,8 +1098,14 @@ function without<T extends object, K extends keyof T>(value: T, ...keys: K[]): O
 
 // ---- what `report` does with the decision model's fallback ------------------------------
 
-/** The decision model that decides is not the one asked for (ADR 0006): `asked` is pplx, `using` is Jev, since there is no Perplexity key and there is a TypeSafe one. */
-export type DecisionModelEvent = { asked: string; using: string }
+/** The decision model that decides is not the one asked for (ADR 0006): e.g. `asked` is pplx, `using` is Jev, since there is no Perplexity key and there is a TypeSafe one. */
+export type DecisionModelEvent = { asked: BackendName; using: BackendName }
+
+/** What a person reads of each decision model: its name, and the settings that hold its key (the options' names and the environment variable they type). The one place both are written. */
+const DECISION_MODELS: Readonly<Record<BackendName, { name: string; keys: string }>> = {
+  pplx: { name: 'pplx', keys: 'perplexityApiKey 或环境变量 PERPLEXITY_API_KEY' },
+  jev: { name: 'Jev', keys: 'typesafeApiKey' },
+}
 
 /** The feature name of the entry the fallback leaves in the decision log. */
 export const DECISION_MODEL_FEATURE = 'decision-model'
@@ -1110,15 +1117,17 @@ export const DECISION_MODEL_FEATURE = 'decision-model'
  */
 async function reportFellBack(io: DecisionModelIo, fell: DecisionModelEvent): Promise<void> {
   try {
+    const asked = DECISION_MODELS[fell.asked]
+    const using = DECISION_MODELS[fell.using]
     // A board that cannot be read puts the session start at turn 1, where the first message will be.
     const turn = Math.max(1, (await read(io.board).catch(() => EMPTY)).turn)
     const entry: Omit<LogEntry, 'n'> = {
       turn,
       feature: DECISION_MODEL_FEATURE,
       tone: 'info',
-      outcome: `改用 ${fell.using}`,
+      outcome: `改用 ${using.name}`,
       subject: '',
-      reason: `没有 ${fell.asked} 的密钥（perplexityApiKey 或环境变量 PERPLEXITY_API_KEY），改用 ${fell.using}；填上其中一个就用 ${fell.asked}，decisionModel 设成 ${fell.using} 则不再提示`,
+      reason: `没有 ${asked.name} 的密钥（${asked.keys}），改用 ${using.name}；补上密钥就用 ${asked.name}，decisionModel 设成 ${using.name} 则不再提示`,
     }
     io.debug(`decision model: ${decisionLine(entry)}`)
     await update(io.decisions, (list) => {

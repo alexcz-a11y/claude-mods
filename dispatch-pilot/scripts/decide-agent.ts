@@ -1,9 +1,10 @@
 // One dispatched agent's decision against the real Jev, outside Claude
 // Code: the request the mod sends at agent.spawn (the shared decision module),
-// with the mod's settings as the manifest's defaults and the chosen decision
-// model's give them (core/setup.ts BACKEND_DEFAULTS), built from an
+// with the mod's settings as the manifest's defaults and Jev's give them
+// (core/setup.ts BACKEND_DEFAULTS), built from an
 // item of the eval set (subagent.jsonl) or from a JSON object with the same
-// fields, and sent from Node. For a manual check.
+// fields, and sent from Node. Always Jev: the script has no choice of decision
+// model (eval/node.ts scriptDecision fixes `decisionModel` to jev). For a manual check.
 //
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-agent.ts --file subagent.jsonl --id subagent-011 [--lang en]
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-agent.ts '{"user_message":"...","agent_type":"Explore","description":"...","prompt":"...","requested_model":null}'

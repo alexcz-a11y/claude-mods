@@ -86,7 +86,7 @@ async function askLogged($: EngineInterface, ctx: Ctx, what: string, about: stri
   const io: BackendIo = {
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
     sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
-    pace: { now: () => $.clock.now(), sent: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+    pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
   }
   const startedAt = await $.clock.now()
   const asked = await ctx.backend.ask(io, request, timeoutMs)

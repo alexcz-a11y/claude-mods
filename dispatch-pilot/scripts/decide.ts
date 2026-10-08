@@ -1,8 +1,9 @@
 // One message's effort decision against the real Jev, outside Claude
 // Code: the request the mod sends when the person sends that message with no
 // conversation before it (the shared decision module), with the mod's settings
-// as the manifest's defaults and the chosen decision model's give them
-// (core/setup.ts BACKEND_DEFAULTS), sent from Node. For a manual check.
+// as the manifest's defaults and Jev's give them (core/setup.ts BACKEND_DEFAULTS),
+// sent from Node. Always Jev: the script has no choice of decision model
+// (eval/node.ts scriptDecision fixes `decisionModel` to jev). For a manual check.
 //
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' [--zh | --en] [--choice] [--timeout 5000]
 //

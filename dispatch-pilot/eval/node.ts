@@ -159,7 +159,7 @@ export function scriptArgs(usage: string, extra: Record<string, { type: 'string'
 }
 
 /**
- * The decision model a script asks, with the mod's settings for it (the
+ * The decision model a script asks (always Jev: the scripts have no way to choose), with the mod's settings for it (the
  * manifest's defaults, its defaults where the manifest has none, then
  * `assignments` as --option gives them) and its backend (credentials as the
  * eval reads them, never printed). Exits 2 when a credential is missing.

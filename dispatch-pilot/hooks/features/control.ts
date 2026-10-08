@@ -53,7 +53,7 @@ export function registerControl(on: On, ctx: Ctx): void {
         decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
         debug: (line) => $.ui.log(line, { to: 'debug' }),
       }
-      await report(io, { fellBack: { asked: 'pplx', using: 'Jev' } })
+      await report(io, { fellBack: { asked: 'pplx', using: 'jev' } })
     }
     if (ctx.config.backend === 'pplx') $.ui.log(`pplx key: ${ctx.config.perplexityApiKey !== '' ? 'from the options' : ctx.secrets.perplexityEnvKey !== '' ? 'from PERPLEXITY_API_KEY' : 'not set'}`, { to: 'debug' })
     // A decisionModel left over in the person's settings that names a model since removed: the engine reads it as the default.

@@ -248,7 +248,7 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
   const io: BackendIo = {
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
     sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
-    pace: { now: () => $.clock.now(), sent: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+    pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
   }
   const asking = s.ctx.backend.ask(io, request, s.ctx.config.timeoutMs)
   const entry: InFlight = { forStep: upcoming, reason, answer: asking, settled: null, ms: 0, ...(hint === undefined ? {} : { hint }) }

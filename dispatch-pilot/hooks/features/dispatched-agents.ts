@@ -112,7 +112,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     const io: BackendIo = {
       fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
       sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
-      pace: { now: () => $.clock.now(), sent: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+      pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
     }
     const reporting: ReportIo = {
       board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },

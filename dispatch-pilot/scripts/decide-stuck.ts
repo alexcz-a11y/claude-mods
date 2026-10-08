@@ -2,8 +2,9 @@
 // the request the mod sends when a loop's tool calls keep failing
 // (`stuckRequest`: the mid-turn effort question with the trouble flag, and
 // whether the failures were expected), with the mod's settings as the
-// manifest's defaults and the chosen decision model's give them (core/setup.ts
-// BACKEND_DEFAULTS), sent from Node. For a manual check.
+// manifest's defaults and Jev's give them (core/setup.ts BACKEND_DEFAULTS),
+// sent from Node. Always Jev: the script has no choice of decision model
+// (eval/node.ts scriptDecision fixes `decisionModel` to jev). For a manual check.
 //
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-stuck.ts <input.json> [--zh] [--steps 4] [--timeout 5000]
 //

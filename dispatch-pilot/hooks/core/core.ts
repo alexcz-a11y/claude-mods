@@ -59,7 +59,7 @@ export function registerCore(on: On, ctx: Ctx): void {
     const io: BackendIo = {
       fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
       sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
-      pace: { now: () => $.clock.now(), sent: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+      pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
     }
     // The main agent's effort goes in a request of its own (ADR 0005), the rest of the ballot in one. Both go out at once,
     // each is answered or fails on its own, and each part reads the outcome of the request it was in.

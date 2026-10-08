@@ -337,7 +337,7 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
     hang(t, 'pane-card-state', '状态', text(row.status.text, STATUS_COLOR[row.status.tone]), w),
   ]
   if (node.failure !== undefined) {
-    rows.push(hang(t, 'pane-card-kind', '类型', text(failureMeaning(node.failure.kind)), w))
+    rows.push(hang(t, 'pane-card-kind', '类型', text(failureMeaning(node.failure)), w))
     rows.push(hang(t, 'pane-card-backend', '后端', text(node.failure.backend), w))
     rows.push(hang(t, 'pane-card-detail', '细节', text(node.why ?? node.failure.detail), w))
     rows.push(hang(t, 'pane-card-where', '排查', text('debug log（claude --debug-file <路径>）里有这次请求的那一行，写着它发了什么、等了多久、怎么失败的', MUTED), w))

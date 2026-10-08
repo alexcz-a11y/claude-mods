@@ -11,9 +11,8 @@
 // (features/skill-profiles.ts writes them in the background at session
 // start), by its description until then.
 //
-// Its switch is `skills` (`/dp skills off`, and `/dp off`). It starts on with
-// Jev (core/setup.ts BACKEND_DEFAULTS suggestSkills); `/dp skills on|off`
-// turns it on or off. Off, nothing is suggested and the main agent gets the listing back:
+// Its switch is `skills` (`/dp skills off`, and `/dp off`). It starts on, with
+// either decision model; `/dp skills on|off` turns it on or off. Off, nothing is suggested and the main agent gets the listing back:
 // a listing the engine asks about from then on passes as it is, and one
 // already withheld in this conversation (the engine keeps that answer) goes
 // beside the next message.
@@ -33,7 +32,7 @@ import { isPersonsMessage } from '../core/prompts.ts'
 import { report, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { describeStages, listingNames, rankingSettings, trimListing, type CatalogSkill } from '../core/skills.ts'
-import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
+import { defineSwitch, isOn } from '../core/switches.ts'
 
 const SHOWN = { plugin: 'dispatch-pilot', key: 'skillsShown' } as const
 const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
@@ -89,7 +88,7 @@ async function askLogged($: EngineInterface, ctx: Ctx, what: string, request: De
   const io: BackendIo = {
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
     sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
-    pace: { now: () => $.clock.now(), sent: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+    pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
   }
   const startedAt = await $.clock.now()
   const asked = await ctx.backend.ask(io, request, timeoutMs)
@@ -106,9 +105,9 @@ async function openingOf($: EngineInterface, catalog: readonly CatalogSkill[], n
 }
 
 export function registerSkills(on: On, ctx: Ctx): void {
-  // On or off until the person flips it, by the decision model (BACKEND_DEFAULTS suggestSkills). Taken now, before the session start
-  // has settled which decision model decides (core/setup.ts, `Ctx`): both of them start it on.
-  defineSwitch({ name: SWITCH, info: '给每条消息推荐合适的 skill，完整的 skill 列表不再交给主 agent', default: ctx.config.skills.suggestByDefault })
+  // On until the person flips it, whichever decision model decides: the switch is defined now, before the session start has settled
+  // which one that is (core/setup.ts, `Ctx`), so its default cannot depend on it.
+  defineSwitch({ name: SWITCH, info: '给每条消息推荐合适的 skill，完整的 skill 列表不再交给主 agent' })
 
   /** Skills the main agent keeps in its listing (names as the listing spells them). */
   const alwaysListed = new Set(ctx.config.skills.alwaysListed)
@@ -141,12 +140,7 @@ export function registerSkills(on: On, ctx: Ctx): void {
   // outside this feature, once this is done.
   on('session.start', { cwd: /(?:)/ }, async ($, e, next) => {
     const result = await next(e)
-    if (!isOn(SWITCH)) {
-      if (masterOn() && !ctx.config.skills.suggestByDefault) {
-        $.ui.log(`skills: off with ${ctx.config.backend} until /dp skills on, so the main agent keeps the skill listing (find_skill still answers)`, { to: 'debug' })
-      }
-      return result
-    }
+    if (!isOn(SWITCH)) return result
     if (!active()) {
       $.ui.log('skills: no decision model is set up, so the main agent keeps the skill listing and nothing is suggested', { to: 'debug' })
       return result

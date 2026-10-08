@@ -4,8 +4,8 @@
 //   node dispatch-pilot/eval/run.ts effort-submit --label preliminary   every variant, both languages, against Jev
 //
 // Options: --backend jev|pplx (jev), --model <id> (Jev's: jev-latest by default;
-// Perplexity's: pplx-decider-v1.1-27b by default, or pplx-decider-v1-27b; a run on it reads the mod's settings as
-// Jev's, so the requests, the state budgets and the timeout are the same as Jev's),
+// Perplexity's: pplx-decider-v1.1-27b by default, or pplx-decider-v1-27b; a run on it reads the mod's settings from
+// pplx's own row of the defaults table, core/setup.ts BACKEND_DEFAULTS: its questions, state budgets and timeout),
 // --variants en-score,zh-score (all), --languages zh,en (both), --ids a,b or
 // --limit N (all items), --concurrency 1 (Jev answers one key's requests one
 // after another: on 2026-10-04 the p50 was 271 ms at 1 in flight, 543 ms at
