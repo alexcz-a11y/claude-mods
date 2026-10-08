@@ -15,7 +15,6 @@
 
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { CLEF_URL, TOKEN, cloudflareError, clefInputProblems } from './cloudflare.ts'
 import { world, type Reply, type Sent, type WorldOptions } from './world.ts'
 
 /** One call that reached the Workflow tool, after every hook of the mod. */
@@ -133,21 +132,5 @@ export function siteJev(answers: (index: number) => SiteAnswer) {
       }
     }
     return { status: 200, body: { model: 'jev-1.13.0', answers: out, usage: { input_tokens: 400, output_tokens: 0 } } }
-  }
-}
-
-/**
- * `siteJev` as Clef answers it: a request that is not for Clef with its token,
- * or that breaks Clef's input rules, is refused as Workers AI refuses it; the
- * answers come in Cloudflare's envelope.
- */
-export function clefSiteJev(answers: (index: number) => SiteAnswer) {
-  return (request: Sent): Reply => {
-    if (request.headers.authorization !== `Bearer ${TOKEN}`) return cloudflareError(401, 10000, 'Authentication error')
-    if (request.url !== CLEF_URL) return cloudflareError(404, 7003, 'No route for the URI')
-    const problems = clefInputProblems(request.body)
-    if (problems.length > 0) return cloudflareError(400, 5006, `AiError: ${problems.join('; ')}`)
-    const { body } = siteJev(answers)(request) as { body: { answers: unknown } }
-    return { status: 200, body: { result: { model: 'clef', answers: body.answers, usage: { input_tokens: 151, output_tokens: 0 } }, success: true, errors: [], messages: [] } }
   }
 }

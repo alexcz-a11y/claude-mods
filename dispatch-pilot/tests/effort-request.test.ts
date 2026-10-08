@@ -10,7 +10,6 @@ import { turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
 import { withUnresolved } from '../hooks/decision/unresolved.ts'
-import { CLEF_OPTIONS, asClef, clefInputProblems } from './support/cloudflare.ts'
 import { jev, rates, world, type Reply, type Sent, type SkillsWorld } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
@@ -153,14 +152,3 @@ test('with only the skills question (main-effort off) one request goes out, none
   expect(w.requests.map(ids)).toEqual([['skills.which']])
 })
 
-test('Clef: the same two requests, each within its own 2000-token budget, both within its input rules', { options: CLEF_OPTIONS }, async ($, on) => {
-  const messages: SessionMessage[] = Array.from({ length: 8 }, (_, i) => ({ role: i % 2 === 0 ? ('user' as const) : ('assistant' as const), text: wordy(500, `第 ${i} 条`), toolUses: [] }))
-  const answer = rates({ '(none)': 1 })
-  const w = world($, on, { backend: asClef((request): Reply => answer(request)), skills: SKILLS, messages })
-  await w.command('dp', 'skills on')
-  await w.submit('先写一个失败的测试')
-
-  expect(w.requests.map(ids)).toEqual([['effort.level', 'effort.unresolved'], ['skills.which']])
-  expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], []])
-  for (const request of w.requests) expect(estimateTokens(JSON.stringify(request.body.state))).toBeLessThanOrEqual(2000)
-})

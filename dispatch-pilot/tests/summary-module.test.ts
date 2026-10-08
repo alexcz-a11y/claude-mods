@@ -111,13 +111,13 @@ test('the effort part of a message\'s request is the effort question; the unreso
   expect(Object.keys(full.questions)).toEqual(['level', 'unresolved'])
   expect(full.state).toEqual({ command: { name: 'debug', description: '系统地排查一个故障' }, [SUMMARY_FIELD]: renderSummary(SUMMARY, 'zh') })
 
-  // In English (Clef) the summary is worded in English, like the questions.
+  // In English the summary is worded in English, like the questions.
   const english = turnStartPart({ ask: { language: 'en' }, summary: SUMMARY })
   expect(english.state).toEqual({ [SUMMARY_FIELD]: renderSummary(SUMMARY, 'en') })
   expect(Object.keys(english.questions)).toEqual(['level'])
 })
 
-test('the fields a part adds to the state are counted in the state\'s budget: the conversation gives way to them, so the whole state still fits (Clef reads only the head of a long state, and sorts its keys)', () => {
+test('the fields a part adds to the state are counted in the state\'s budget: the conversation gives way to them, so the whole state still fits (a decision model may read only the head of a long state, and sort its keys)', () => {
   const messages: ContextMessage[] = Array.from({ length: 40 }, (_, i) => ({ role: i % 2 === 0 ? ('user' as const) : ('assistant' as const), text: `第 ${i} 轮：${'把配置里的某一项改成另一个值再重启服务。'.repeat(6)}` }))
   const part = turnStartPart({ ask: { language: 'en' }, summary: { ...SUMMARY, tried: Array.from({ length: 6 }, (_, i) => ({ text: `第 ${i} 次：${'把配置里的某一项改成另一个值再重启服务，'.repeat(3)}` })) } })
   const limits = { messages: 32, tokens: 2000 }

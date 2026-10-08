@@ -23,7 +23,7 @@
 import type { On, SessionMeasureInput } from 'claude-code'
 import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
 import { decisionLine, LOG_ENTRIES, report, unplacedText, type LogEntry, type SwitchIo } from '../core/report.ts'
-import { describeDefaults, type Ctx } from '../core/setup.ts'
+import { describeDefaults, removedDecisionModel, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, listSwitches, loadOverrides, masterOn, overrides, parseOverrides, setMaster, setSwitch } from '../core/switches.ts'
 import { errorText } from '../decision/backend.ts'
 import { PANE_COLUMNS, PANE_ID, PANE_TITLE } from '../board/rationale.ts'
@@ -42,6 +42,9 @@ export function registerControl(on: On, ctx: Ctx): void {
     loadOverrides(await $.store.get(SWITCHES_KEY).catch(() => undefined))
     // Which options the decision model's defaults decided (core/setup.ts BACKEND_DEFAULTS).
     $.ui.log(describeDefaults(ctx.config), { to: 'debug' })
+    // A decisionModel left over in the person's settings that names a model since removed: the engine reads it as the default.
+    const removed = removedDecisionModel(await $.settings.read({ source: 'user' }).catch(() => undefined))
+    if (removed !== null) $.ui.log(`decisionModel ${removed} 已移除，按没设处理`, { to: 'debug' })
     const result = await next(e)
     await $.command
       .register({

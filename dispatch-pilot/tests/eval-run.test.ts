@@ -162,7 +162,7 @@ test('an --option the manifest does not have, or a value its type cannot take, i
   expect(() => optionsFrom(USER_CONFIG, ['contextTokens'])).toThrow('--option takes name=value, not contextTokens')
 })
 
-// Perplexity's decision model (#43) is not one of the mod's two choices (`decisionModel`), so a run on it reads the
+// Perplexity's decision model (#43) is not one of the mod's choices (`decisionModel`) yet, so a run on it reads the
 // mod's settings as Jev's: the same budgets, the same timeout, the same question language. Then a comparison with
 // Jev differs in the model alone.
 test("a run on Perplexity asks with Jev's settings: the budgets, the timeout and the question language", () => {
@@ -171,7 +171,6 @@ test("a run on Perplexity asks with Jev's settings: the budgets, the timeout and
   const jevSettings = settingsFrom(optionsFor(settingsModel('jev'), userConfig))
   expect(pplx).toEqual(jevSettings)
   expect([pplx.backend, pplx.timeoutMs, pplx.context.tokens, pplx.turnStartLanguage]).toEqual(['jev', 1500, 6000, 'zh'])
-  expect(settingsModel('clef')).toBe('clef')
 })
 
 // A run can widen the state's budget past what any decision model of the mod has (`--state-tokens`), to see whether a
@@ -196,6 +195,6 @@ test('--state-tokens sets the budget of every kind of request, so a long convers
 
 // How long the eval (and scripts/decide*.ts) gives one attempt unless told: four times the mod's timeoutMs, at least
 // 10 s, so a slow answer is still measured and a cold connection's first request does not fail outright.
-test("an attempt may take four times the mod's timeoutMs, at least 10 s: Jev's 1500 ms gives 10 s, Clef's 3000 ms 12 s", () => {
-  expect([attemptMs(settingsFrom({}).timeoutMs), attemptMs(settingsFrom({ decisionModel: 'clef' }).timeoutMs), attemptMs(5000)]).toEqual([10_000, 12_000, 20_000])
+test("an attempt may take four times the mod's timeoutMs, at least 10 s: Jev's 1500 ms gives 10 s, 3000 ms 12 s", () => {
+  expect([attemptMs(settingsFrom({}).timeoutMs), attemptMs(3000), attemptMs(5000)]).toEqual([10_000, 12_000, 20_000])
 })

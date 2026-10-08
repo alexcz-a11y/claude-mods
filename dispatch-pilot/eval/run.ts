@@ -3,7 +3,7 @@
 //   node dispatch-pilot/eval/run.ts effort-submit --estimate            what a run would send and cost; nothing is sent
 //   node dispatch-pilot/eval/run.ts effort-submit --label preliminary   every variant, both languages, against Jev
 //
-// Options: --backend jev|clef|pplx (jev), --model <id> (Jev's: jev-latest by default; Clef asks clef only;
+// Options: --backend jev|pplx (jev), --model <id> (Jev's: jev-latest by default;
 // Perplexity's: pplx-decider-v1.1-27b by default, or pplx-decider-v1-27b; a run on it reads the mod's settings as
 // Jev's, so the requests, the state budgets and the timeout are the same as Jev's),
 // --variants en-score,zh-score (all), --languages zh,en (both), --ids a,b or
@@ -31,8 +31,7 @@
 //   node dispatch-pilot/eval/run.ts eval-v2 --backend pplx --state-tokens 135000 --state-messages 2000 --timeout 240000 --variants zh-score,en-score --label A
 //   node dispatch-pilot/eval/run.ts eval-v2 --backend jev --variants zh-flow,en-flow --flow dispatch-pilot/eval/results/eval-v2-flow/jev-24000.json --label J
 //
-// Credentials: TYPESAFE_API_KEY for Jev; CLOUDFLARE_ACCOUNT_ID and
-// CLOUDFLARE_AUTH_TOKEN for Clef; PERPLEXITY_API_KEY for Perplexity: the environment first, then
+// Credentials: TYPESAFE_API_KEY for Jev; PERPLEXITY_API_KEY for Perplexity: the environment first, then
 // ~/.config/dispatch-pilot/eval.env. Never printed or saved.
 //
 // Saves eval/results/<suite>/<date>-<backend>[-<label>].json: the settings,
@@ -47,7 +46,6 @@ import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { PluginOptions } from 'claude-code'
 import type { Backend } from '../hooks/decision/backend.ts'
-import { CLEF_MODEL } from '../hooks/decision/clef.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { PPLX_MODEL } from '../hooks/decision/pplx.ts'
@@ -88,7 +86,7 @@ function fail(message: string): never {
   process.exit(2)
 }
 
-const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|clef|pplx] [--label <word>] ...')
+const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|pplx] [--label <word>] ...')
 const entry = SUITES[name] ?? fail(`no suite for "${name}" yet (suites: ${Object.keys(SUITES).join(', ')})`)
 const sha = (text: string) => createHash('sha256').update(text).digest('hex')
 /** The dataset: a kind's JSONL, checked against its format; or eval-v2.jsonl, checked against generated.json, with its final gold. */
@@ -138,7 +136,7 @@ if (values.limit !== undefined) items = items.slice(0, Number(values.limit))
 // unset, the backend's defaults (readConfig).
 const manifest = readManifest()
 const backendName = values.backend as EvalBackend
-if (backendName !== 'jev' && backendName !== 'clef' && backendName !== 'pplx') fail(`no backend "${backendName}" (jev, clef, pplx)`)
+if (backendName !== 'jev' && backendName !== 'pplx') fail(`no backend "${backendName}" (jev, pplx)`)
 let options: Record<string, unknown>
 try {
   // The decision model is the backend under evaluation (--backend), whatever the manifest's default says; Perplexity's
@@ -159,8 +157,7 @@ const widened = stateTokens === null ? settingsFrom(options as PluginOptions) : 
 const settings = stateMessages === null ? widened : withStateMessages(widened, stateMessages)
 /** How long one attempt may take: --timeout, else four times the mod's timeoutMs for this backend, at least 10 s (lib/runner.ts). */
 const attemptMs = values.timeout === undefined ? defaultAttemptMs(settings.timeoutMs) : Number(values.timeout)
-if (backendName === 'clef' && values.model !== undefined && values.model !== CLEF_MODEL) fail(`the Clef backend asks ${CLEF_MODEL} only`)
-const model = backendName === 'clef' ? CLEF_MODEL : (values.model ?? (backendName === 'pplx' ? PPLX_MODEL : JEV_MODEL))
+const model = values.model ?? (backendName === 'pplx' ? PPLX_MODEL : JEV_MODEL)
 const price = PRICES[backendName]
 // A flow file run with another backend or state than this run's is allowed (say, the 48000 flow under a 135000 state), and said.
 if (flow !== null) {
@@ -208,7 +205,7 @@ if (estimatedUsd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothi
 
 let chosen: { backend: Backend; secrets: string[] }
 try {
-  chosen = backendFor(backendName, backendName === 'clef' ? undefined : model)
+  chosen = backendFor(backendName, model)
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 }

@@ -9,7 +9,6 @@
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { skillsPart, type SkillOption } from '../hooks/decision/skills.ts'
-import { clefInputProblems, CLEF_OPTIONS, clef } from './support/cloudflare.ts'
 import { isSecondSkillsRequest, rates, world, type SkillsWorld } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
@@ -118,33 +117,6 @@ test('both requests share the message’s wait: the second gets what the first l
   // The effort still went through; the second request had 1100 ms and got nothing, so no skills decision: a note says why.
   expect((await w.board()).log.filter((entry) => entry.feature === 'skills')).toEqual([])
   expect((await w.board()).notes).toMatchObject([{ turn: 1, id: 'main', feature: 'skills', kind: 'failed', why: 'jev：1100 毫秒内没有回答' }])
-})
-
-test('Clef takes the second request with a Choice between the skills re-read (its input rules hold)', { options: { ...CLEF_OPTIONS, skillsMinRelevance: 0.5 } }, async ($, on) => {
-  // Workers AI checks each request (its refusals come back as they are); the answers rate two skills,
-  // in Cloudflare's envelope, so the second request carries a Choice between them.
-  const answer = rates({ tdd: 0.62, 'code-review': 0.23, '(none)': 0.15 }, { tdd: 0.97, 'code-review': 0.35 })
-  const cloudflare = clef([0, 1, 0, 0, 0])
-  const w = world($, on, {
-    backend: (request) => {
-      const refused = cloudflare(request)
-      if ('status' in refused && refused.status !== 200) return refused
-      const { body } = answer(request) as { body: { answers: unknown } }
-      return { status: 200, body: { result: { model: 'clef', answers: body.answers, usage: { input_tokens: 151, output_tokens: 0 } }, success: true, errors: [], messages: [] } }
-    },
-    skills: SKILLS,
-    disk: FILES,
-  })
-  // With Clef the suggestions start off (tests/backend-defaults.test.ts): the person turns them on.
-  await w.command('dp', 'skills on')
-  await w.submit('先写一个失败的测试')
-  expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([
-    ['effort.level', 'effort.unresolved'],
-    ['skills.which'],
-    ['skills.best', 'skills.fits.0', 'skills.fits.1'],
-  ])
-  expect(w.requests.map((request) => clefInputProblems(request.body))).toEqual([[], [], []])
-  expect(w.prompts[0]?.context?.[0]).toContain(`- tdd (relevance 0.97): ${TDD_DESCRIPTION}`)
 })
 
 test('a second request that fails suggests nothing and leaves no skills decision (a note on the board says why) until a message is rated again', { options: KEY }, async ($, on) => {

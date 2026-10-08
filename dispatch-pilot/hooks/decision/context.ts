@@ -144,8 +144,8 @@ export type TurnStartInput = {
 /**
  * The state `build(budget)` makes, kept within `tokens` as it is sent: as
  * JSON, its field names, quotes and escapes counted, which pasted JSON or code
- * can swell by a fifth. No field is safe for coming first: Clef's encoder
- * renders a state as JSON with its keys sorted and reads only its head when it
+ * can swell by a fifth. No field is safe for coming first: a decision model
+ * may render a state as JSON with its keys sorted and read only its head when it
  * is long (#17), so the whole of it must fit. Built again, with the budget
  * cut by as much as it came out over, while it does (a few times at most).
  */

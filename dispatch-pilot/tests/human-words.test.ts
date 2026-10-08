@@ -16,8 +16,6 @@ const LEFTOVER = /\b(HTTP|ms|thetaMax|thetaUp|thetaDown|thetaExpected|holdSteps|
 test('a failed decision request reads in Chinese, with the decision model named and the number the backend gave', () => {
   const words: [Failure, string][] = [
     [{ kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey' }, 'jev：没有填 typesafeApiKey'],
-    [{ kind: 'config', detail: 'no Cloudflare account ID or API token: set cloudflareAccountId and cloudflareApiToken' }, 'jev：没有填 cloudflareAccountId 和 cloudflareApiToken'],
-    [{ kind: 'config', detail: 'no Cloudflare API token: set cloudflareApiToken' }, 'jev：没有填 cloudflareApiToken'],
     [{ kind: 'config', status: 401, detail: 'HTTP 401' }, 'jev：密钥被拒绝（状态码 401）'],
     [{ kind: 'timeout', detail: 'no answer in 1500 ms' }, 'jev：1500 毫秒内没有回答'],
     [{ kind: 'timeout', detail: 'no time left for the second request' }, 'jev：没有及时回答'],

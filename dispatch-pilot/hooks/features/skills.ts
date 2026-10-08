@@ -12,9 +12,8 @@
 // start), by its description until then.
 //
 // Its switch is `skills` (`/dp skills off`, and `/dp off`). It starts on with
-// Jev and off with Clef (core/setup.ts BACKEND_DEFAULTS: Clef's first stage
-// takes longer than a message can wait); `/dp skills on` turns it on with
-// either. Off, nothing is suggested and the main agent gets the listing back:
+// Jev (core/setup.ts BACKEND_DEFAULTS suggestSkills); `/dp skills on|off`
+// turns it on or off. Off, nothing is suggested and the main agent gets the listing back:
 // a listing the engine asks about from then on passes as it is, and one
 // already withheld in this conversation (the engine keeps that answer) goes
 // beside the next message.
@@ -102,7 +101,7 @@ async function openingOf($: EngineInterface, catalog: readonly CatalogSkill[], n
 }
 
 export function registerSkills(on: On, ctx: Ctx): void {
-  // On or off until the person flips it, by the decision model: off with Clef, whose first stage takes longer than a message can wait.
+  // On or off until the person flips it, by the decision model (BACKEND_DEFAULTS suggestSkills).
   defineSwitch({ name: SWITCH, info: '给每条消息推荐合适的 skill，完整的 skill 列表不再交给主 agent', default: ctx.config.skills.suggestByDefault })
 
   /** Skills the main agent keeps in its listing (names as the listing spells them). */

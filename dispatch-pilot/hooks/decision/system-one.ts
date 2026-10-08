@@ -1,5 +1,5 @@
-// The System One request and answer shapes (TypeSafe's Jev; Cloudflare's Clef
-// takes the same), and how several parts' questions share one request.
+// The System One request and answer shapes (TypeSafe's Jev), and how several
+// parts' questions share one request.
 //
 // Pure: no `$`, no value import from 'claude-code'. The mod, its tests and the
 // Node eval scripts import this module as it is (relative imports end in .ts).
@@ -22,7 +22,7 @@ export type Answer = ScoreAnswer | ChoiceAnswer | NoulAnswer
 
 /**
  * What every question of a request reads: one object, its most important
- * field first (the question guide's advice). Clef sorts the keys before it
+ * field first (the question guide's advice). A decision model may sort the keys before it
  * reads a long state's head, so no field relies on its place: the state
  * builders keep the whole state within its budget (context.ts `withinTokens`).
  */
@@ -48,9 +48,9 @@ export type Part = {
 
 /** A part's name: no dot, the dot separates it from the question id. */
 export const PART_NAME = /^[A-Za-z0-9_-]+$/
-/** A question id both backends accept: Clef's rule (Jev documents none). */
+/** A question id every decision model accepts (Jev documents no rule). */
 export const QUESTION_ID = /^[A-Za-z0-9_.-]{1,100}$/
-/** Clef answers at most 64 questions a request (Jev documents no limit). */
+/** A request holds at most 64 questions (Jev documents no limit). */
 export const MAX_QUESTIONS = 64
 
 /**

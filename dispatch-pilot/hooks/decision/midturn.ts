@@ -159,8 +159,8 @@ const RESULT_TOKENS = 80
  * `{ user_message, trouble?, step, current_effort, counts, recent_steps }`.
  * Secrets are masked everywhere. Sizes are of the state as sent (its fields
  * and each step measured as JSON), so the whole of it keeps within
- * `limits.tokens`: no field is safe for coming first (Clef's encoder sorts a
- * state's keys, then reads its head; context.ts `withinTokens`). The message
+ * `limits.tokens`: no field is safe for coming first (a decision model may
+ * sort a state's keys and read only its head; context.ts `withinTokens`). The message
  * takes at most half; the latest `limits.steps` steps fill what is left,
  * newest first, an older step dropped whole rather than squeezed; the newest
  * always goes, its text cut to fit. A dataset row short enough goes as it is.
