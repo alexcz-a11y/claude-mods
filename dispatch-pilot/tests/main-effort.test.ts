@@ -98,7 +98,7 @@ test('no answer within timeoutMs: the prompt goes in without waiting longer, the
 // `kind` is what the board records of the failure; `why` its words for it.
 const failures: { name: string; reply: Reply; kind: string; why: string }[] = [
   { name: 'the key is refused (401)', reply: { status: 401, body: { detail: 'Invalid API key' } }, kind: 'config', why: 'jev：密钥被拒绝（状态码 401）' },
-  { name: 'rate limited (429)', reply: { status: 429, body: { detail: 'Too Many Requests' } }, kind: 'busy', why: 'jev：繁忙（状态码 429）' },
+  { name: 'rate limited (429)', reply: { status: 429, body: { detail: 'Too Many Requests' } }, kind: 'busy', why: 'jev：被限速（状态码 429）' },
   { name: 'a server error (500)', reply: { status: 500, body: 'Internal Server Error' }, kind: 'http', why: 'jev：出错（状态码 500）' },
   { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }, kind: 'network', why: 'jev：连不上' },
   { name: 'a 200 that is not an answer', reply: { status: 200, body: '<html>maintenance</html>' }, kind: 'parse', why: 'jev：回答读不懂' },

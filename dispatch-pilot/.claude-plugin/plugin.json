@@ -31,6 +31,12 @@
       "default": "",
       "sensitive": true
     },
+    "pplxQps": {
+      "type": "number",
+      "title": "pplx 每秒请求数",
+      "description": "mod 每秒最多向 Perplexity 发几个请求（1 到 50），只对 pplx 有用，Jev 不受它限制。Tier 0 账户限 1 QPS，一条消息又会发 2 到 3 个请求，所以超出的请求在 mod 里排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待时间。升级了账户可以调高，让 effort 和 skill 的请求同时发出。遇到 429 时，剩余的等待时间够用就按 Retry-After 重试一次，不够就不经路由地放行，看板上写「被限速」。",
+      "default": 1
+    },
     "timeoutMs": {
       "type": "number",
       "title": "决策超时（毫秒）",

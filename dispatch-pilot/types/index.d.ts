@@ -299,6 +299,12 @@ declare module 'claude-code' {
         /** The turn whose summary, once written, has its last attempt marked unresolved: the message that said so came before the write landed. */
         owed?: string
       }
+      /**
+       * The rate limit on pplx requests (decision/pplx-rate.ts): when the latest sends of the last second
+       * went out (`$.clock.now()` ms, at most `pplxQps` of them, oldest first). It lives here so that a hot reload,
+       * which restarts the module, does not let a burst out. Written by that limiter only (through `BackendIo.pace`).
+       */
+      pplxRate: number[]
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
       /**

@@ -9,7 +9,8 @@ import { estimateTokens } from '../hooks/decision/context.ts'
 import type { SkillsWorld } from './support/world.ts'
 import { jev, pplx, rates, world, type Sent } from './support/world.ts'
 
-const PPLX = { decisionModel: 'pplx', perplexityApiKey: 'pplx-test-key' }
+/** `pplxQps: 50`: these tests are about what pplx is asked and how long it is waited for, not the 1 QPS of a Tier 0 account (pplx-rate.test.ts). */
+const PPLX = { decisionModel: 'pplx', perplexityApiKey: 'pplx-test-key', pplxQps: 50 }
 
 /** A message 25000 tokens long as the mod counts them, three times over: longer than any budget. */
 const LONG = '把登录模块重构成三层'.repeat(7500)

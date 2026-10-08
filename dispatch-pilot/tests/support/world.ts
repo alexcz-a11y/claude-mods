@@ -72,12 +72,14 @@ export type Sent = {
   // The body as JSON (what the backend reads); untyped on purpose: tests read
   // the wire format the way the backend would.
   body: any
+  /** When the mod sent it (mock clock ms, `w.clock.now()`), for tests of what waited for what (the pplx rate limit, #51). */
+  at: number
 }
 
 /** How the fake backend answers one request. */
 export type Reply =
-  /** An HTTP response; a non-string body is sent as JSON. */
-  | { status: number; body: unknown }
+  /** An HTTP response; a non-string body is sent as JSON. `headers` are the response's (a 429's `Retry-After`). */
+  | { status: number; body: unknown; headers?: Record<string, string> }
   /** `$.http.fetch` rejects, as when the network is down. */
   | { reject: string }
   /** The reply, after `after` ms of mock time (`w.clock.advance`). */
@@ -150,7 +152,14 @@ export type WorldOptions = {
    * The board data an earlier load of the mod left in `$.state` (a hot reload keeps it): the mod finds it as it
    * starts. Whatever the board starts with, `w.board()` reads what stands now.
    */
-  seed?: { board?: PluginState['dispatch-pilot']['board']; log?: LogEntry[]; profiles?: ProfilesState; unresolved?: PluginState['dispatch-pilot']['unresolved'] }
+  seed?: {
+    board?: PluginState['dispatch-pilot']['board']
+    log?: LogEntry[]
+    profiles?: ProfilesState
+    unresolved?: PluginState['dispatch-pilot']['unresolved']
+    /** When the latest pplx requests went out (mock clock ms): the rate limit's record, which a hot reload keeps (#51). */
+    pplxRate?: number[]
+  }
   /**
    * The model behind `$.model.complete` (#11 writes skill profiles with it): answers each completion
    * (`n` counts from 1); every one is recorded in `w.completions`. Without it every completion is refused.
@@ -307,7 +316,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     }
     if ('reject' in reply) return { deny: reply.reject }
     const text = typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body)
-    return { value: { status: reply.status, ok: reply.status >= 200 && reply.status < 300, headers: {}, text } }
+    return { value: { status: reply.status, ok: reply.status >= 200 && reply.status < 300, headers: reply.headers ?? {}, text } }
   }
 
   on('http.fetch', async (_$, e) => {
@@ -317,7 +326,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     } catch {
       // not JSON: kept as sent
     }
-    const sent: Sent = { url: e.url, method: e.init?.method, headers: { ...(e.init?.headers ?? {}) }, body }
+    const sent: Sent = { url: e.url, method: e.init?.method, headers: { ...(e.init?.headers ?? {}) }, body, at: clock.now() }
     requests.push(sent)
     const reply = options.backend ? await options.backend(sent, requests.length) : { status: 500, body: 'no backend in this test' }
     return answer(reply)
@@ -403,11 +412,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   // The board data (the 「决定汇报」 module's `board` and `decisionLog`) is kept here, not in the kit's state: the test
   // body has no `$.state` to read it back with, and `options.seed` can stand for what an earlier load left. Versions
   // work as the host's do (a write lands unless `ifVersion` is stale), and values go through JSON as they would.
-  const held: { board: { value: unknown; version: number }; decisionLog: { value: unknown; version: number }; skillProfiles: { value: unknown; version: number }; unresolved: { value: unknown; version: number } } = {
+  const held: { board: { value: unknown; version: number }; decisionLog: { value: unknown; version: number }; skillProfiles: { value: unknown; version: number }; unresolved: { value: unknown; version: number }; pplxRate: { value: unknown; version: number } } = {
     board: { value: options.seed?.board, version: options.seed?.board === undefined ? 0 : 1 },
     decisionLog: { value: options.seed?.log, version: options.seed?.log === undefined ? 0 : 1 },
     skillProfiles: { value: options.seed?.profiles, version: options.seed?.profiles === undefined ? 0 : 1 },
     unresolved: { value: options.seed?.unresolved, version: options.seed?.unresolved === undefined ? 0 : 1 },
+    pplxRate: { value: options.seed?.pplxRate, version: options.seed?.pplxRate === undefined ? 0 : 1 },
   }
   on('state.get', { plugin: 'dispatch-pilot', key: 'board' }, () => ({ value: { value: held.board.value as never, version: held.board.version } }))
   on('state.get', { plugin: 'dispatch-pilot', key: 'decisionLog' }, () => ({ value: { value: held.decisionLog.value as never, version: held.decisionLog.version } }))
@@ -433,6 +443,13 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     if (e.ifVersion !== undefined && e.ifVersion !== held.unresolved.version) return { value: { isSet: false, version: held.unresolved.version } }
     held.unresolved = { value: JSON.parse(JSON.stringify(e.value)), version: held.unresolved.version + 1 }
     return { value: { isSet: true, version: held.unresolved.version } }
+  })
+  // The pplx rate limit's record of the latest sends, kept here for the same reason: a test reads it, and seeds what a hot reload keeps.
+  on('state.get', { plugin: 'dispatch-pilot', key: 'pplxRate' }, () => ({ value: { value: held.pplxRate.value as never, version: held.pplxRate.version } }))
+  on('state.set', { plugin: 'dispatch-pilot', key: 'pplxRate' }, (_$, e) => {
+    if (e.ifVersion !== undefined && e.ifVersion !== held.pplxRate.version) return { value: { isSet: false, version: held.pplxRate.version } }
+    held.pplxRate = { value: JSON.parse(JSON.stringify(e.value)), version: held.pplxRate.version + 1 }
+    return { value: { isSet: true, version: held.pplxRate.version } }
   })
   // The status row the mod must never draw on (ADR 0004): recorded, so a test can say it stayed empty.
   on('ui.status', (_$, e) => {
@@ -564,6 +581,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     summary: () => (held.unresolved.value as PluginState['dispatch-pilot']['unresolved'] | undefined)?.summary,
     /** Everything the mod keeps under the `unresolved` key: the count, the summary, the turns whose summaries are being written. */
     unresolvedState: () => (held.unresolved.value as PluginState['dispatch-pilot']['unresolved'] | undefined) ?? { count: 0 },
+    /** When the latest pplx requests went out (the rate limit's record in `$.state`, mock clock ms); undefined while none did. */
+    pplxRate: (): number[] | undefined => held.pplxRate.value as number[] | undefined,
     statuses,
     logs,
     steps,

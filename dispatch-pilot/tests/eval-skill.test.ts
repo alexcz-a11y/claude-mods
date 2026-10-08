@@ -144,7 +144,7 @@ function network(answer: (request: Sent) => Reply) {
     fetch: async (url, init) => {
       const body = JSON.parse(String(init.body))
       bodies.push(body)
-      const reply = answer({ url, method: init.method, headers: { ...(init.headers ?? {}) }, body })
+      const reply = answer({ url, method: init.method, headers: { ...(init.headers ?? {}) }, body, at: 0 })
       if (!('status' in reply)) throw new Error('this network only answers')
       return { status: reply.status, ok: reply.status >= 200 && reply.status < 300, headers: {}, text: JSON.stringify(reply.body) }
     },
