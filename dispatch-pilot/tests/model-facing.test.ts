@@ -11,7 +11,7 @@ import { dispatchNote, type DispatchDecision } from '../hooks/decision/dispatche
 import { leftText, whyOf } from '../hooks/decision/workflow.ts'
 import { siteJev, workflowWorld } from './support/workflow.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 const TIDY = `export const meta = { name: 'tidy-api', description: 'Rename getUser to fetchUser in src/api, then review the diff', phases: [{ title: 'Edit', detail: 'rename and test' }, { title: 'Review', detail: 'check the diff' }] }
 phase('Edit')

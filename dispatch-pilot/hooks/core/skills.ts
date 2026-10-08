@@ -37,11 +37,20 @@ export function describeStages(ranking: SkillRanking): string {
  * caller with less left tells `rank` so: features/skills.ts, find-skill.ts).
  */
 export function rankingSettings(ctx: { config: Pick<Config, 'timeoutMs' | 'context' | 'skills'>; ask: { language: Language } }): RankerSettings {
+  // Each read goes to `ctx`: the features build this when they register, before the session start has settled the decision model.
   return {
-    language: ctx.ask.language,
-    shortlist: ctx.config.skills.shortlist,
-    questionTokens: questionBudget(ctx.config.context.tokens),
-    timeoutMs: ctx.config.timeoutMs,
+    get language() {
+      return ctx.ask.language
+    },
+    get shortlist() {
+      return ctx.config.skills.shortlist
+    },
+    get questionTokens() {
+      return questionBudget(ctx.config.context.tokens)
+    },
+    get timeoutMs() {
+      return ctx.config.timeoutMs
+    },
   }
 }
 

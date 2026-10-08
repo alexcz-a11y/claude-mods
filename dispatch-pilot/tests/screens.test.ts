@@ -8,7 +8,7 @@ import { siteJev } from './support/workflow.ts'
 import { runWorld } from './support/workflow-run.ts'
 import { jev, rates, world } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 // ---- never the status row (ADR 0004) --------------------------------------------
 

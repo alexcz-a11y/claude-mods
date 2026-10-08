@@ -132,19 +132,39 @@ const asking = new Map<string, Asking>()
 export function registerEscalation(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: '工具调用接连失败的 agent，强制升高它的 effort', parts: ['counts'] })
   defineSwitch({ name: BLOCKS_SWITCH, info: '判断要不要强制升档时，把被你的 hook 拦下的调用也算失败', default: false })
-  const { escalation, midturn, agents } = ctx.config
+  // Read at each use: which decision model's settings these are is settled at the session start (core/setup.ts, `Ctx`).
   const settings: Settings = {
     ctx,
-    after: escalation.after,
-    mode: escalation.mode,
-    limit: escalation.limit,
-    thetaExpected: escalation.thetaExpected,
-    haikuTo: escalation.haikuTo,
-    haikuToWritten: escalation.haikuToWritten,
-    models: agents.models,
-    rules: midturn.rules,
-    limits: midturn.limits,
-    waitMs: midturn.waitMs,
+    get after() {
+      return ctx.config.escalation.after
+    },
+    get mode() {
+      return ctx.config.escalation.mode
+    },
+    get limit() {
+      return ctx.config.escalation.limit
+    },
+    get thetaExpected() {
+      return ctx.config.escalation.thetaExpected
+    },
+    get haikuTo() {
+      return ctx.config.escalation.haikuTo
+    },
+    get haikuToWritten() {
+      return ctx.config.escalation.haikuToWritten
+    },
+    get models() {
+      return ctx.config.agents.models
+    },
+    get rules() {
+      return ctx.config.midturn.rules
+    },
+    get limits() {
+      return ctx.config.midturn.limits
+    },
+    get waitMs() {
+      return ctx.config.midturn.waitMs
+    },
   }
 
   on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {

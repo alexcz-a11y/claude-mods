@@ -109,7 +109,7 @@ const REPLIES = [
 test('every message of the person is asked in order, as the mod asks it, and the count moves by the mod\'s two bars; the last message carries the count and the summary the conversation left', async () => {
   const net = backend()
   const model = cheap(REPLIES)
-  const { item, stopped } = await flowItem(record(), { ask: net.ask, complete: model.complete, settings: settingsFrom({}), language: 'zh' })
+  const { item, stopped } = await flowItem(record(), { ask: net.ask, complete: model.complete, settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh' })
 
   expect(stopped).toBeNull()
   expect(net.bodies.map((body) => msgOf(body.state.user_message))).toEqual(['p1', 'd1', 'd2', 'm1', 'f1'])
@@ -131,7 +131,7 @@ test('every message of the person is asked in order, as the mod asks it, and the
 test('the summary is continued after each turn but the last: a clear starts it over, a "still unresolved" marks its last try before the turn is written about', async () => {
   const net = backend()
   const model = cheap(REPLIES)
-  await flowItem(record(), { ask: net.ask, complete: model.complete, settings: settingsFrom({}), language: 'zh' })
+  await flowItem(record(), { ask: net.ask, complete: model.complete, settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh' })
 
   expect(model.prompts).toHaveLength(4)
   // After the lead: none yet. After d1, which started another problem: none again (the clear took the record).
@@ -150,7 +150,7 @@ test('a busy backend stops the item where it is, and a later run goes on from th
   const busy = { status: 529, body: { error: 'overloaded' } }
   const first = backend({ m1: busy })
   const saved: FlowItem[] = []
-  const stoppedRun = await flowItem(record(), { ask: first.ask, complete: cheap(REPLIES).complete, settings: settingsFrom({}), language: 'zh', onMessage: (item) => void saved.push(JSON.parse(JSON.stringify(item))) })
+  const stoppedRun = await flowItem(record(), { ask: first.ask, complete: cheap(REPLIES).complete, settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh', onMessage: (item) => void saved.push(JSON.parse(JSON.stringify(item))) })
   expect(stoppedRun.stopped).toMatch(/^m1: busy/)
   expect(stoppedRun.item.messages.map((m) => m.msg)).toEqual(['p1', 'd1', 'd2'])
   expect(stoppedRun.item.final).toBeUndefined()
@@ -159,18 +159,18 @@ test('a busy backend stops the item where it is, and a later run goes on from th
 
   const second = backend()
   const rest = cheap(REPLIES.slice(3))
-  const resumed = await flowItem(record(), { ask: second.ask, complete: rest.complete, settings: settingsFrom({}), language: 'zh' }, stoppedRun.item)
+  const resumed = await flowItem(record(), { ask: second.ask, complete: rest.complete, settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh' }, stoppedRun.item)
   expect(second.bodies.map((body) => msgOf(body.state.user_message))).toEqual(['m1', 'f1'])
-  const whole = await flowItem(record(), { ask: backend().ask, complete: cheap(REPLIES).complete, settings: settingsFrom({}), language: 'zh' })
+  const whole = await flowItem(record(), { ask: backend().ask, complete: cheap(REPLIES).complete, settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh' })
   expect(resumed.item).toEqual(whole.item)
   // A flow of another conversation is not gone on with.
-  await expect(flowItem(record(TURNS.map((turn) => ({ ...turn, text: `${turn.text}。` }))), { ask: second.ask, complete: rest.complete, settings: settingsFrom({}), language: 'zh' }, stoppedRun.item)).rejects.toThrow(/another conversation/)
+  await expect(flowItem(record(TURNS.map((turn) => ({ ...turn, text: `${turn.text}。` }))), { ask: second.ask, complete: rest.complete, settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh' }, stoppedRun.item)).rejects.toThrow(/another conversation/)
 })
 
 test('a 402 (the account has no credits left) stops the item as a spent quota does, instead of recording an unanswered message, and a later run goes on from there', async () => {
   const spent = { status: 402, body: { error_type: 'billing_error', message: 'Your organization has no available TypeSafe API credits.' } }
   const first = backend({ m1: spent })
-  const stoppedRun = await flowItem(record(), { ask: first.ask, complete: cheap(REPLIES).complete, settings: settingsFrom({}), language: 'zh' })
+  const stoppedRun = await flowItem(record(), { ask: first.ask, complete: cheap(REPLIES).complete, settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh' })
   expect(stoppedRun.stopped).toMatch(/^m1: quota: /)
   // The message that met the 402 is not in the file: no `failure` was recorded for it.
   expect(stoppedRun.item.messages.map((m) => m.msg)).toEqual(['p1', 'd1', 'd2'])
@@ -180,17 +180,17 @@ test('a 402 (the account has no credits left) stops the item as a spent quota do
   expect(stoppedRun.stopped).toMatch(/^\S+: (config|quota):/)
 
   const second = backend()
-  const resumed = await flowItem(record(), { ask: second.ask, complete: cheap(REPLIES.slice(3)).complete, settings: settingsFrom({}), language: 'zh' }, stoppedRun.item)
+  const resumed = await flowItem(record(), { ask: second.ask, complete: cheap(REPLIES.slice(3)).complete, settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh' }, stoppedRun.item)
   expect(resumed.stopped).toBeNull()
   expect(second.bodies.map((body) => msgOf(body.state.user_message))).toEqual(['m1', 'f1'])
-  const whole = await flowItem(record(), { ask: backend().ask, complete: cheap(REPLIES).complete, settings: settingsFrom({}), language: 'zh' })
+  const whole = await flowItem(record(), { ask: backend().ask, complete: cheap(REPLIES).complete, settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh' })
   expect(resumed.item).toEqual(whole.item)
 })
 
 test('an answer the mod could not read leaves the count as it is, as the mod does, and says why; a turn whose summary never came keeps the one before it', async () => {
   const net = backend({ d2: { status: 400, body: { error: 'bad request' } } })
   const model = cheap([REPLIES[0] ?? '', REPLIES[1] ?? '', 'not a record', null, 'still not', REPLIES[3] ?? ''])
-  const { item, stopped } = await flowItem(record(), { ask: net.ask, complete: model.complete, settings: settingsFrom({}), language: 'zh', tries: 3 })
+  const { item, stopped } = await flowItem(record(), { ask: net.ask, complete: model.complete, settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh', tries: 3 })
   expect(stopped).toBeNull()
   expect(item.messages[2]).toMatchObject({ msg: 'd2', before: 0, after: 0, change: 'keep', write: 'failed' })
   expect(item.messages[2]?.failure).toMatch(/^http/)
@@ -200,7 +200,7 @@ test('an answer the mod could not read leaves the count as it is, as the mod doe
 })
 
 test('the bars can be set: at an add bar of 0.25 an unsure answer adds one', async () => {
-  const { item } = await flowItem(record(), { ask: backend().ask, complete: cheap(REPLIES).complete, settings: settingsFrom({}), language: 'zh', thresholds: { add: 0.25, reset: 0.8 } })
+  const { item } = await flowItem(record(), { ask: backend().ask, complete: cheap(REPLIES).complete, settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh', thresholds: { add: 0.25, reset: 0.8 } })
   expect(item.messages.map((m) => m.change)).toEqual(['reset', 'reset', 'add', 'add', 'add'])
 })
 
@@ -209,7 +209,7 @@ function transcript(turns: readonly V2Turn[]): SessionMessage[] {
   return turns.map((turn) => ({ role: turn.role, text: turn.text, toolUses: (turn.tools ?? []).map((tool, i) => ({ tool_use_id: `toolu_${i}`, tool, input: {} })) }))
 }
 
-test('the mod living the same conversation sends the same request at every message, asks the cheap model the same prompts, and holds the same count and summary at the last message', { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+test('the mod living the same conversation sends the same request at every message, asks the cheap model the same prompts, and holds the same count and summary at the last message', { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
   let shown: SessionMessage[] = []
   const w = world($, on, {
     switches: { unresolved: true },
@@ -235,7 +235,7 @@ test('the mod living the same conversation sends the same request at every messa
 
   const net = backend()
   const model = cheap(REPLIES)
-  const { item } = await flowItem(record(), { ask: net.ask, complete: model.complete, settings: settingsFrom({ typesafeApiKey: 'k' }), language: 'zh' })
+  const { item } = await flowItem(record(), { ask: net.ask, complete: model.complete, settings: settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }), language: 'zh' })
   expect(w.requests.map((request) => request.body)).toEqual(net.bodies.map((body) => ({ model: JEV_MODEL, state: body.state, questions: body.questions })))
   expect(w.completions.map((request) => request.prompt)).toEqual(model.prompts)
   expect(w.completions.every((request) => request.system === SUMMARY_SYSTEM && request.model === 'haiku')).toBe(true)
@@ -264,7 +264,7 @@ test('from the count unresolvedMaxAfter sets on, the request carries the strong 
     sleep: (_ms, signal) => new Promise((_done, fail) => signal.addEventListener('abort', () => fail(new Error('aborted')))),
   }
   const ask = (request: Parameters<typeof askRetrying>[0]) => askRetrying(request, { backend: jevBackend('k'), io, timeoutMs: 10_000, retries: 0, now: () => 0, pause: async () => {} })
-  const { item } = await flowItem(record(turns), { ask, complete: async () => written('第二页是空的', ['改 offset'], '在改'), settings: settingsFrom({}), language: 'zh' })
+  const { item } = await flowItem(record(turns), { ask, complete: async () => written('第二页是空的', ['改 offset'], '在改'), settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh' })
 
   expect(item.messages.map((m) => `${m.msg} ${m.before}${m.hint ? ' hint' : ''}`)).toEqual(['d1 0', 'd2 0', 'd3 1', 'd4 2', 'f1 3 hint'])
   expect(Object.keys(bodies[4].questions['effort.level'].instructions)).toContain('未解决')

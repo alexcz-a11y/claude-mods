@@ -106,13 +106,11 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
 
   /** Skills never offered (the option the skills feature reads too). */
   const neverSuggested = new Set(ctx.config.skills.neverSuggested)
-  const policy: SkillPolicy = ctx.config.skills.find
+  const policy = (): SkillPolicy => ctx.config.skills.find
   /** How the mod's ranker ranks: the settings it rates the skills beside each message with. */
   const rankBy = rankingSettings(ctx)
   /** The model whose profiles the skills are offered by (#11). */
   const model = ctx.config.skills.profileModel
-  /** How long the call's two requests may take in all, and whether the first offers skills by their profiles: the decision model's. */
-  const { findWaitMs: waitMs, findByProfile } = ctx.config.skills
 
   // Registered once every plugin is loaded, under a match-all matcher (other
   // features set themselves up at session start too). Without a decision
@@ -170,7 +168,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       )
       // The first request offers each skill by its profile where the decision model can read them all in time
       // (BACKEND_DEFAULTS findSkillProfiles), else by its description; the second re-reads by both.
-      const part = ranker.part(findByProfile ? candidates : candidates.map((skill) => ({ ...skill, profile: null })))
+      const part = ranker.part(ctx.config.skills.findByProfile ? candidates : candidates.map((skill) => ({ ...skill, profile: null })))
       if (part === null) {
         await report(io, { decision: { ...call, skipped: 'none' as const } })
         return { result: `This session has no skill that find_skill could return. ${CARRY_ON}` }
@@ -180,6 +178,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       // request (#11) asks about the same. Both requests share one wait: the second gets what the first left
       // of it. The wait is the decision model's (findWaitMs: a message's timeoutMs with Jev),
       // within the hook's own 10 s.
+      const waitMs = ctx.config.skills.findWaitMs
       const startedAt = await $.clock.now()
       const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
       const request = mergeParts(turnStartState({ prompt: query, messages, limits: ctx.config.context }), [part])
@@ -196,19 +195,19 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       const ranking = ranked
 
       // Only skills the main agent can load were asked about, and they alone can come back.
-      const { suggest } = pickSkills(ranking, candidates, policy)
+      const { suggest } = pickSkills(ranking, candidates, policy())
       const names = suggest.map((skill) => skill.name).join('、')
       await report(io, {
         decision: {
           ...call,
           subject: quoteStart(query),
           outcome: suggest.length > 0 ? `查到 ${names}` : '没查到 skill',
-          reason: describeRanking(ranking, policy),
+          reason: describeRanking(ranking, policy()),
           tone: suggest.length > 0 ? 'ok' : 'info',
           skills: { suggest: suggest.map(({ name, relevance }) => ({ name, relevance })), try: [] },
         },
       })
-      return { result: found(query, suggest, policy) }
+      return { result: found(query, suggest, policy()) }
     } catch (error) {
       $.ui.log(`find_skill failed: ${errorText(error)}`, { to: 'debug' })
       await report(io, { decision: { ...call, skipped: 'error' as const } })

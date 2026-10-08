@@ -9,7 +9,7 @@ import { estimateTokens } from '../hooks/decision/context.ts'
 import type { Reply } from './support/world.ts'
 import { siteJev, workflowWorld, type SiteAnswer } from './support/workflow.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 /** Two agents in sequence, each with a label. */
 const TIDY = `export const meta = { name: 'tidy-api', description: 'Rename getUser to fetchUser in src/api, then review the diff', phases: [{ title: 'Edit', detail: 'rename and test' }, { title: 'Review', detail: 'check the diff' }] }
@@ -654,14 +654,14 @@ for (const failure of failures) {
   })
 }
 
-test('no TypeSafe key: nothing is sent, the script goes through as written, and the board says to set the key', async ($, on) => {
+test('no key of either kind: nothing is sent, the script goes through as written, and the board says to set the Perplexity key', async ($, on) => {
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 1 } })) })
   await w.workflow({ script: TIDY })
 
   expect(w.requests).toHaveLength(0)
   expect(w.reached.map((r) => r.script)).toEqual([TIDY])
   expect((await w.board()).agents.map((node) => [node.name, node.routed, node.why, node.failure?.kind])).toEqual([
-    ['rename', false, 'jev：没有填 typesafeApiKey', 'config'],
-    ['review', false, 'jev：没有填 typesafeApiKey', 'config'],
+    ['rename', false, 'pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY', 'config'],
+    ['review', false, 'pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY', 'config'],
   ])
 })

@@ -12,7 +12,7 @@ import { mergeParts } from '../hooks/decision/system-one.ts'
 import { withUnresolved } from '../hooks/decision/unresolved.ts'
 import { jev, rates, world, type Reply, type Sent, type SkillsWorld } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 /** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
 const UNRESOLVED_ON = { unresolved: true }
 

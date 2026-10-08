@@ -106,14 +106,16 @@ async function openingOf($: EngineInterface, catalog: readonly CatalogSkill[], n
 }
 
 export function registerSkills(on: On, ctx: Ctx): void {
-  // On or off until the person flips it, by the decision model (BACKEND_DEFAULTS suggestSkills).
+  // On or off until the person flips it, by the decision model (BACKEND_DEFAULTS suggestSkills). Taken now, before the session start
+  // has settled which decision model decides (core/setup.ts, `Ctx`): both of them start it on.
   defineSwitch({ name: SWITCH, info: '给每条消息推荐合适的 skill，完整的 skill 列表不再交给主 agent', default: ctx.config.skills.suggestByDefault })
 
   /** Skills the main agent keeps in its listing (names as the listing spells them). */
   const alwaysListed = new Set(ctx.config.skills.alwaysListed)
   /** Skills never offered, to the main agent or to the person. */
   const neverSuggested = new Set(ctx.config.skills.neverSuggested)
-  const policy: SkillPolicy = ctx.config.skills.suggest
+  /** What a message is suggested (read where it is used: the decision model that decides is settled at the session start). */
+  const policy = (): SkillPolicy => ctx.config.skills.suggest
   /** How the skills are ranked: by the mod's ranker (`modRanker`, built for each message), as find_skill (#12) ranks them too. */
   const ranking = rankingSettings(ctx)
   /** The model whose profiles the skills are offered by (#11): the store keys them by it. */
@@ -249,12 +251,12 @@ export function registerSkills(on: On, ctx: Ctx): void {
           await report(io, { decision: { ...about, failure: { backend: ctx.backend.name, ...ranked.failed } } })
           return
         }
-        const { suggest, hint } = pickSkills(ranked, catalog, policy)
+        const { suggest, hint } = pickSkills(ranked, catalog, policy())
         await report(io, {
           decision: {
             ...about,
             outcome: describePicks(suggest, hint),
-            reason: describeRanking(ranked, policy),
+            reason: describeRanking(ranked, policy()),
             skills: { suggest: suggest.map(({ name, relevance }) => ({ name, relevance })), try: hint.map(({ name, relevance }) => ({ name, relevance })) },
           },
         })

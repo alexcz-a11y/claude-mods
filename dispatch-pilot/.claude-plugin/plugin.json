@@ -13,21 +13,21 @@
     "decisionModel": {
       "type": "string",
       "title": "决策模型",
-      "description": "由哪个模型做决定：jev（TypeSafe，要 TypeSafe 的 API key）或 pplx（Perplexity 的 pplx-decider-v1.1-27b，要 Perplexity 的 API key）。默认 jev。以前版本里的 clef 已移除，设成 clef 的老配置按没设处理，debug log 会记一条。出错时，消息不经路由地放行。有几项选项的默认值随决策模型而定：Jev 取它能接受的值（最近 32 条消息、16 步；带 skill 题的消息请求上下文预算 6000 token，其余请求 24000）；pplx 的窗口大得多，所有问题用英文问，最近 2000 条消息，除 skill 题以外的请求预算 48000 token，等待时间也长（发消息 8000 毫秒，重判和 find_skill 6000）。",
-      "options": ["jev", "pplx"],
-      "default": "jev"
+      "description": "由哪个模型做决定：pplx（默认，Perplexity 的 pplx-decider-v1.1-27b，要 Perplexity 的 API key）或 jev（TypeSafe，要 TypeSafe 的 API key）。设成 jev 就始终用 Jev；其他情况（pplx、没设）有 Perplexity key 就用 pplx，没有但有 TypeSafe key 就退回 Jev，决策日志里记一条原因，两种 key 都没有就不发请求，每一轮都按会话自己的 effort 走。以前版本里的 clef 已移除，设成 clef 的老配置按没设处理，debug log 会记一条。出错时，消息不经路由地放行。有几项选项的默认值随决策模型而定：Jev 取它能接受的值（最近 32 条消息、16 步；带 skill 题的消息请求上下文预算 6000 token，其余请求 24000）；pplx 的窗口大得多，所有问题用英文问，最近 2000 条消息，除 skill 题以外的请求预算 48000 token，等待时间也长（发消息 8000 毫秒，重判和 find_skill 6000）。",
+      "options": ["pplx", "jev"],
+      "default": "pplx"
     },
     "typesafeApiKey": {
       "type": "string",
       "title": "TypeSafe API key",
-      "description": "TypeSafe System One 的 API key，Jev 在那里运行（决策模型选 jev 时用）。没有它就不发任何请求，每一轮都按会话自己的 effort 走。",
+      "description": "TypeSafe System One 的 API key，Jev 在那里运行（决策模型选 jev 时用；没有 Perplexity key 时默认的 pplx 也会退回 Jev，用的就是它）。",
       "default": "",
       "sensitive": true
     },
     "perplexityApiKey": {
       "type": "string",
       "title": "Perplexity API key",
-      "description": "Perplexity Decisions API 的 API key，pplx 在那里运行（决策模型选 pplx 时用）。留空就读环境变量 PERPLEXITY_API_KEY；两处都有，用这里的。key 只放在请求头里，不进日志、看板和状态。两处都没有就不发任何请求，每一轮都按会话自己的 effort 走。",
+      "description": "Perplexity Decisions API 的 API key，pplx 在那里运行（默认的决策模型要它）。留空就读环境变量 PERPLEXITY_API_KEY；两处都有，用这里的。key 只放在请求头里，不进日志、看板和状态。Perplexity 和 TypeSafe 的 key 都没有，就不发任何请求，每一轮都按会话自己的 effort 走。",
       "default": "",
       "sensitive": true
     },

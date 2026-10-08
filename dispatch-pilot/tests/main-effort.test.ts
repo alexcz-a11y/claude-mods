@@ -10,7 +10,7 @@ import { mergeParts } from '../hooks/decision/system-one.ts'
 import { withUnresolved } from '../hooks/decision/unresolved.ts'
 import { jev, world, type Reply } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 /** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
 const UNRESOLVED_ON = { unresolved: true }
 
@@ -118,14 +118,14 @@ for (const failure of failures) {
   })
 }
 
-test('no TypeSafe key: nothing is sent, the turn keeps the engine effort, the board says to set the key', async ($, on) => {
+test('no key of either kind: nothing is sent, the turn keeps the engine effort, the board says to set the Perplexity key', async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
   await w.submit('解释一下这个函数做了什么')
   await w.step({ index: 0, effort: 'medium' })
 
   expect(w.requests).toHaveLength(0)
   expect(w.steps.map((s) => s.effort)).toEqual(['medium'])
-  expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, failure: { backend: 'jev', kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey' } })
+  expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, why: 'pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY', failure: { backend: 'pplx', kind: 'config', detail: 'no Perplexity API key: set perplexityApiKey or PERPLEXITY_API_KEY' } })
 })
 
 test('a decision that comes back after a failure leaves no reason on the next turn', { options: KEY }, async ($, on) => {

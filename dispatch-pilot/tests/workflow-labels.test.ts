@@ -10,7 +10,7 @@ import { expect, test } from 'claude-code/testing'
 import { siteJev, type SiteAnswer } from './support/workflow.ts'
 import { persisted, runDir, runWorld } from './support/workflow-run.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 /** A script the main agent saved earlier and runs again by its path. */
 const SAVED = '/work/.claude/workflow-scripts/tidy.js'

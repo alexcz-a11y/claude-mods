@@ -11,7 +11,7 @@ import { siteJev, type SiteAnswer } from './support/workflow.ts'
 import { runWorld } from './support/workflow-run.ts'
 import { world, type Reply, type Sent, type ToolRun } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 /** No periodic mid-turn re-decisions: the only requests are the message's, the spawn's and a stuck agent's. */
 const ONLY = { ...KEY, rejudgeEvery: 0 }
 

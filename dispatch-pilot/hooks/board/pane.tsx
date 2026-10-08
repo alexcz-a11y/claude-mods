@@ -624,7 +624,7 @@ function entryRows(t: TT, entry: LogEntry, cols: number, Bar: Raster | undefined
         <Box>
           <Text wrap="wrap">
             <Text color={MUTED}>{FEATURE_WORDS[feature] ?? feature}</Text>
-            {entry.subject === '' ? (feature === 'skill-profiles' ? <Text>{'  会话开始'}</Text> : null) : <Text>{`  ${entry.subject}`}</Text>}
+            {entry.subject === '' ? (feature === 'skill-profiles' || feature === 'decision-model' ? <Text>{'  会话开始'}</Text> : null) : <Text>{`  ${entry.subject}`}</Text>}
           </Text>
         </Box>
         {entry.probs === undefined ? null : (

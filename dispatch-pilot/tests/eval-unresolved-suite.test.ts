@@ -105,7 +105,7 @@ function transcript(entries: UnresolvedItem['zh']['recent_context']) {
 }
 
 async function run(items: UnresolvedItem[], net: ReturnType<typeof network>, variants: string[], suite = unresolved) {
-  return runSuite(suite, items, { backend: jevBackend('k'), io: net.io, now: net.now, pause: async () => {}, settings: settingsFrom({}), variants, timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  return runSuite(suite, items, { backend: jevBackend('k'), io: net.io, now: net.now, pause: async () => {}, settings: settingsFrom({ decisionModel: 'jev' }), variants, timeoutMs: 10_000, retries: 0, concurrency: 1 })
 }
 
 test('the effort question is asked with the three-way question beside it; its state has the 6000 tokens it had beside the skills question, and the wide variants the 24000 of its own request', async () => {
@@ -123,12 +123,12 @@ test('the effort question is asked with the three-way question beside it; its st
 
 // The request of the wide variants is the mod's, the request the effort question has of its own since #38 (ADR 0005); the
 // others are the state the effort question had when it shared its request with the skills (6000).
-test("the eval's wide request for an item is the mod's request for that message after that conversation: the same questions, the same state", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+test("the eval's wide request for an item is the mod's request for that message after that conversation: the same questions, the same state", { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
   const long = overBudget('unresolved-001')
   const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(long.zh.recent_context) })
   await w.submit(long.zh.message)
 
-  const { request } = unresolvedRequest(long, 'zh', UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom({ typesafeApiKey: 'k' }))
+  const { request } = unresolvedRequest(long, 'zh', UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }))
   expect(w.requests).toHaveLength(1)
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   // The state is what 24000 tokens hold, so the thread's first round is in it.
@@ -137,26 +137,26 @@ test("the eval's wide request for an item is the mod's request for that message 
 
 const SUMMARY: Summary = { problem: '服务启动后立刻退出', tried: [{ text: '把超时调到 30 秒', unresolved: true }, { text: '换成 fake timers' }], status: '助手在等日志' }
 
-test("given a summary the eval's request carries it as the mod's does, in the effort request's state beside the message and the conversation", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+test("given a summary the eval's request carries it as the mod's does, in the effort request's state beside the message and the conversation", { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
   const long = overBudget('unresolved-001')
   const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(long.zh.recent_context), seed: { unresolved: { count: 1, summary: { ...SUMMARY, turn: 't1' } } } })
   await w.submit(long.zh.message)
 
-  const { request } = unresolvedRequest(long, 'zh', UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom({ typesafeApiKey: 'k' }), SUMMARY, { count: 1, maxAfter: 3 })
+  const { request } = unresolvedRequest(long, 'zh', UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }), SUMMARY, { count: 1, maxAfter: 3 })
   expect(request.state.problem_summary).toBe(renderSummary(SUMMARY, 'zh'))
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   // None given (the dataset holds none): no field.
-  expect('problem_summary' in unresolvedRequest(long, 'zh', UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom({ typesafeApiKey: 'k' })).request.state).toBe(false)
+  expect('problem_summary' in unresolvedRequest(long, 'zh', UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' })).request.state).toBe(false)
 })
 
-test("given a count the eval's request carries it and the hint as the mod's does (the same function, so the same request): the hint from the setting's count on", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+test("given a count the eval's request carries it and the hint as the mod's does (the same function, so the same request): the hint from the setting's count on", { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
   const long = overBudget('unresolved-001')
   const unsure = { still_unresolved: 0.3, resolved: 0.4, new_or_unrelated: 0.3 }
   const w = world($, on, { switches: UNRESOLVED_ON, backend: (request) => jev([0, 0, 0.2, 0.7, 0.1], { shares: { 'effort.unresolved': unsure } })(request), messages: transcript(long.zh.recent_context), seed: { unresolved: { count: 3, summary: { ...SUMMARY, turn: 't1' } } } })
   await w.submit(long.zh.message)
 
   const variant = UNRESOLVED_VARIANTS['zh-score-wide'] as Parameters<typeof unresolvedRequest>[2]
-  const settings = settingsFrom({ typesafeApiKey: 'k' })
+  const settings = settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' })
   const { request } = unresolvedRequest(long, 'zh', variant, settings, SUMMARY, { count: 3, maxAfter: 3 })
   expect(request.state.unresolved_count).toBe(3)
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
@@ -193,7 +193,7 @@ test('the summary reports the recall of the top level, answers too high and too 
     return answers(body, message.startsWith('unresolved-001') ? NEAR_MAX : message.startsWith('unresolved-002') ? MAX : [0, 0, 0.2, 0.7, 0.1])
   })
   const rows = await run(items, net, ['zh-score'])
-  const summary = summarize(unresolved, items, rows, { slowMs: 1500, settings: settingsFrom({}) })
+  const summary = summarize(unresolved, items, rows, { slowMs: 1500, settings: settingsFrom({ decisionModel: 'jev' }) })
   const breakdown = summary.variants[0]?.breakdown as any
 
   // The effort is the answer: two of the three are right, whatever the three-way question made of them.
@@ -220,7 +220,7 @@ test('the three-way question is scored on its own, the final effort stays the an
     return answers(body, MAX, message.startsWith('unresolved-003') ? ELSEWHERE : STILL)
   })
   const rows = await run(items, net, ['zh-score'])
-  const summary = summarize(unresolved, items, rows, { slowMs: 1500, settings: settingsFrom({}) })
+  const summary = summarize(unresolved, items, rows, { slowMs: 1500, settings: settingsFrom({ decisionModel: 'jev' }) })
 
   expect(rows.filter((r) => r.language === 'zh').map((r) => `${r.id}: ${r.shown}, effort ${r.parts?.effort ? 'right' : 'wrong'}, triage ${r.parts?.triage ? 'right' : 'wrong'}`)).toEqual([
     'unresolved-001: max / unresolved, effort right, triage right',

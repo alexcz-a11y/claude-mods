@@ -374,14 +374,27 @@ export type Reported =
   | { switched: Switched }
   /** How writing the session's skill profiles goes (`ProfileEvent`). */
   | { profiles: ProfileEvent }
+  /** The decision model in use is not the one asked for: no Perplexity key, so Jev (`DecisionModelEvent`). */
+  | { fellBack: DecisionModelEvent }
   /** A pane the person asked for (a digit on the band) that the surface did not place, with the surface's reason; it was closed again. */
   | { unplaced: { reason: string } }
 
 /** What a toast of its own needs of the host: the debug log, the clock and the toast. */
 export type NoticeIo = Pick<ReportIo, 'debug' | 'now' | 'toast'>
 
+/** What the decision model's fallback needs of the host: the board (for the turn), the decision log and the debug log. */
+export type DecisionModelIo = Pick<ReportIo, 'board' | 'decisions' | 'debug'>
+
 /** The host closures each kind of report needs: a switch only the redraw, the skill profiles their own state, a pane not placed the toast, the rest a `ReportIo`. */
-export type IoOf<R extends Reported> = R extends { switched: Switched } ? SwitchIo : R extends { profiles: ProfileEvent } ? ProfilesIo : R extends { unplaced: unknown } ? NoticeIo : ReportIo
+export type IoOf<R extends Reported> = R extends { switched: Switched }
+  ? SwitchIo
+  : R extends { profiles: ProfileEvent }
+    ? ProfilesIo
+    : R extends { fellBack: DecisionModelEvent }
+      ? DecisionModelIo
+      : R extends { unplaced: unknown }
+        ? NoticeIo
+        : ReportIo
 
 /**
  * Entry one (记一条决定): reports what a feature hands over, by its kind; `io` is what that kind needs of the host
@@ -394,6 +407,7 @@ export async function report<R extends Reported>(io: IoOf<R>, what: R): Promise<
   if ('tally' in item) return reportTally(io as ReportIo, item.tally)
   if ('switched' in item) return reportSwitch(io as SwitchIo, item.switched)
   if ('profiles' in item) return reportProfiles(io as ProfilesIo, item.profiles)
+  if ('fellBack' in item) return reportFellBack(io as DecisionModelIo, item.fellBack)
   return reportUnplaced(io as NoticeIo, item.unplaced)
 }
 
@@ -1079,6 +1093,46 @@ function without<T extends object, K extends keyof T>(value: T, ...keys: K[]): O
   const rest = { ...value }
   for (const key of keys) delete rest[key]
   return rest
+}
+
+// ---- what `report` does with the decision model's fallback ------------------------------
+
+/** The decision model that decides is not the one asked for (ADR 0006): `asked` is pplx, `using` is Jev, since there is no Perplexity key and there is a TypeSafe one. */
+export type DecisionModelEvent = { asked: string; using: string }
+
+/** The feature name of the entry the fallback leaves in the decision log. */
+export const DECISION_MODEL_FEATURE = 'decision-model'
+
+/**
+ * The session's one entry in the decision log saying why Jev decides although pplx is the default: at the turn the session
+ * start belongs to, with the debug line. A session start again at the same turn (a hot reload) takes the place of the entry
+ * before. Not on the board's nodes, in no band or footer, and no toast. Never throws.
+ */
+async function reportFellBack(io: DecisionModelIo, fell: DecisionModelEvent): Promise<void> {
+  try {
+    // A board that cannot be read puts the session start at turn 1, where the first message will be.
+    const turn = Math.max(1, (await read(io.board).catch(() => EMPTY)).turn)
+    const entry: Omit<LogEntry, 'n'> = {
+      turn,
+      feature: DECISION_MODEL_FEATURE,
+      tone: 'info',
+      outcome: `改用 ${fell.using}`,
+      subject: '',
+      reason: `没有 ${fell.asked} 的密钥（perplexityApiKey 或环境变量 PERPLEXITY_API_KEY），改用 ${fell.using}；填上其中一个就用 ${fell.asked}，decisionModel 设成 ${fell.using} 则不再提示`,
+    }
+    io.debug(`decision model: ${decisionLine(entry)}`)
+    await update(io.decisions, (list) => {
+      const kept = list ?? []
+      const at = kept.findIndex((old) => old.feature === DECISION_MODEL_FEATURE && old.turn === turn)
+      return at < 0 ? appendEntry(kept, entry) : kept.map((old, i) => (i === at ? { n: old.n, ...entry } : old))
+    })
+  } catch (error) {
+    try {
+      io.debug(`decision model fallback not reported: ${errorText(error)}`)
+    } catch {
+      // nowhere left to say it
+    }
+  }
 }
 
 // ---- what `report` does with the skill profiles' events ----------------------------

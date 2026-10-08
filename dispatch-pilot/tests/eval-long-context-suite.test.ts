@@ -94,7 +94,7 @@ function item(id: string, change: (item: LongContextItem) => void = () => {}): L
   return result
 }
 
-async function run(items: LongContextItem[], net: ReturnType<typeof network>, variants: string[], settings = settingsFrom({}), suite = longContextSuite(undefined)) {
+async function run(items: LongContextItem[], net: ReturnType<typeof network>, variants: string[], settings = settingsFrom({ decisionModel: 'jev' }), suite = longContextSuite(undefined)) {
   return runSuite(suite, items, { backend: jevBackend('k'), io: net.io, now: net.now, pause: async () => {}, settings, variants, languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 }
 
@@ -102,7 +102,7 @@ const shownBy = (rows: Awaited<ReturnType<typeof run>>) => rows.map((r) => `${r.
 
 test('the three versions of a question: the deep one is read only as far back as the state goes, the near one at any budget, the none one never, and each is scored against its own answer', async () => {
   const net = reader()
-  const settings = withStateMessages(withStateTokens(settingsFrom({}), 24000), 1000)
+  const settings = withStateMessages(withStateTokens(settingsFrom({ decisionModel: 'jev' }), 24000), 1000)
   const rows = await run([item('long-001')], net, ['zh-score-deep', 'zh-score-near', 'zh-score-none'], settings)
   // 24000 tokens do not reach 30000 back; the near version has the rounds at the end; with them deleted high is what is right.
   expect(shownBy(rows)).toEqual(['zh-score-deep: high / unresolved', 'zh-score-near: max / unresolved (right)', 'zh-score-none: high / unresolved (right)'])
@@ -111,7 +111,7 @@ test('the three versions of a question: the deep one is read only as far back as
 })
 
 test('a larger budget reaches the deep rounds, and the mod\'s 32 messages are another limit the run says it lifts', async () => {
-  const mod = settingsFrom({})
+  const mod = settingsFrom({ decisionModel: 'jev' })
   const wide = withStateTokens(mod, 48000)
   const rows = await run([item('long-001')], reader(), ['zh-score-deep'], wide)
   expect(shownBy(rows)).toEqual(['zh-score-deep: high / unresolved']) // 48000 tokens, but the state keeps 32 messages
@@ -129,7 +129,7 @@ test('the plain variants carry no summary and no count; the flow variants carry 
   const summary: Summary = { problem: '重连在弱网下一直掉线', tried: [{ text: '把退避的上限调到 30 秒', unresolved: true }, { text: '给心跳加了抖动', unresolved: true }, { text: '换了重连的库' }], status: '助手在读周围的代码' }
   const file: SummaryFile = { items: { 'long-001': { conversation: fingerprint(conversationOf(base, 'deep')), count: 2, summary } } }
   const net = reader()
-  await run([base], net, ['zh-score-deep', 'zh-flow'], withStateMessages(settingsFrom({}), 1000), longContextSuite(file))
+  await run([base], net, ['zh-score-deep', 'zh-flow'], withStateMessages(settingsFrom({ decisionModel: 'jev' }), 1000), longContextSuite(file))
 
   const [plain, flow] = net.bodies
   expect(Object.keys(plain.state)).toEqual(['user_message', 'recent_context'])
@@ -148,7 +148,7 @@ test('with the count at the one the person set, the flow carries the strong hint
   const summary: Summary = { problem: '重连一直掉线', tried: [{ text: '调退避', unresolved: true }], status: '在等日志' }
   const file: SummaryFile = { items: { 'long-001': { conversation: fingerprint(conversationOf(base, 'deep')), count: 3, summary } } }
   const net = reader()
-  await run([base], net, ['zh-flow'], settingsFrom({}), longContextSuite(file))
+  await run([base], net, ['zh-flow'], settingsFrom({ decisionModel: 'jev' }), longContextSuite(file))
   expect(net.bodies[0].state.unresolved_count).toBe(3)
   expect(net.bodies[0].questions).toEqual(asked({ count: 3, maxAfter: 3 }))
   expect(net.bodies[0].questions).not.toEqual(asked({}))
@@ -159,7 +159,7 @@ test('the flow has two halves asked on their own, to tell what each does: the su
   const summary: Summary = { problem: '重连一直掉线', tried: [{ text: '调退避', unresolved: true }], status: '在等日志' }
   const file: SummaryFile = { items: { 'long-001': { conversation: fingerprint(conversationOf(base, 'deep')), count: 3, summary } } }
   const net = reader()
-  await run([base], net, ['zh-summary', 'zh-count'], settingsFrom({}), longContextSuite(file))
+  await run([base], net, ['zh-summary', 'zh-count'], settingsFrom({ decisionModel: 'jev' }), longContextSuite(file))
   const [onlySummary, onlyCount] = net.bodies
   expect(Object.keys(onlySummary.state).sort()).toEqual(['problem_summary', 'recent_context', 'user_message'])
   expect(onlySummary.questions).toEqual(asked({}))
@@ -176,7 +176,7 @@ test('a flow without its summary, or with one written for another conversation, 
   const net = reader()
   const none = await run([base], net, ['zh-flow'])
   expect(none[0]?.failure).toMatch(/no summary.*long-context-summaries\.json/)
-  const stale = await run([base], net, ['zh-flow'], settingsFrom({}), longContextSuite({ items: { 'long-001': { conversation: 'ffffffffffffffff', count: 2, summary: { problem: 'p', tried: [], status: 's' } } } }))
+  const stale = await run([base], net, ['zh-flow'], settingsFrom({ decisionModel: 'jev' }), longContextSuite({ items: { 'long-001': { conversation: 'ffffffffffffffff', count: 2, summary: { problem: 'p', tried: [], status: 's' } } } }))
   expect(stale[0]?.failure).toMatch(/written for another conversation/)
   expect(net.bodies).toHaveLength(0)
 })
@@ -184,20 +184,20 @@ test('a flow without its summary, or with one written for another conversation, 
 test('the count the file holds must be the one the decisive rounds make, so a summary written for other rounds is refused', async () => {
   const base = item('long-001')
   const net = reader()
-  const rows = await run([base], net, ['zh-flow'], settingsFrom({}), longContextSuite({ items: { 'long-001': { conversation: fingerprint(conversationOf(base, 'deep')), count: 1, summary: { problem: 'p', tried: [], status: 's' } } } }))
+  const rows = await run([base], net, ['zh-flow'], settingsFrom({ decisionModel: 'jev' }), longContextSuite({ items: { 'long-001': { conversation: fingerprint(conversationOf(base, 'deep')), count: 1, summary: { problem: 'p', tried: [], status: 's' } } } }))
   expect(rows[0]?.failure).toMatch(/count 1.*rounds make 2/)
 })
 
 test('English is only the language of the questions: the conversation is Chinese, so an English row is no answer', async () => {
   const net = reader()
-  const rows = await runSuite(longContextSuite(undefined), [item('long-001')], { backend: jevBackend('k'), io: net.io, now: net.now, pause: async () => {}, settings: settingsFrom({}), variants: ['en-score-deep'], languages: ['en'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  const rows = await runSuite(longContextSuite(undefined), [item('long-001')], { backend: jevBackend('k'), io: net.io, now: net.now, pause: async () => {}, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['en-score-deep'], languages: ['en'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
   expect(rows[0]?.failure).toMatch(/Chinese only/)
   const zh = await run([item('long-001')], reader(), ['en-score-deep'])
   expect(zh[0]?.ok).toBe(true)
   expect(zh[0]?.language).toBe('zh')
 })
 
-test("the flow's request is the mod's request for that message after that conversation with that count and summary: the same questions, the same state", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+test("the flow's request is the mod's request for that message after that conversation with that count and summary: the same questions, the same state", { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
   const base = item('long-001')
   const summary: Summary = { problem: '重连在弱网下一直掉线', tried: [{ text: '把退避的上限调到 30 秒', unresolved: true }, { text: '给心跳加了抖动', unresolved: true }], status: '助手在读周围的代码' }
   const entries = conversationOf(base, 'deep')
@@ -206,7 +206,7 @@ test("the flow's request is the mod's request for that message after that conver
   await w.submit(base.zh.message)
 
   const net = reader()
-  await run([base], net, ['zh-flow'], settingsFrom({ typesafeApiKey: 'k' }), longContextSuite({ items: { 'long-001': { conversation: fingerprint(entries), count: 2, summary } } }))
+  await run([base], net, ['zh-flow'], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }), longContextSuite({ items: { 'long-001': { conversation: fingerprint(entries), count: 2, summary } } }))
   expect(w.requests).toHaveLength(1)
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: net.bodies[0].state, questions: net.bodies[0].questions })
 })
@@ -222,7 +222,7 @@ test('a result file keeps a digest of a state of tens of thousands of tokens: th
 test('the figures of a variant: how often the state held the decisive rounds, the answers by depth, by category and by whether they were held', async () => {
   const items = [item('long-001'), item('long-002', (i) => (i.depth = 60000)), item('long-003', (i) => ((i.tags = ['looks-complex']), (i.gold = 'medium'), (i.accept = ['low', 'medium']), (i.without = { gold: 'high', accept: ['high', 'xhigh'] })))]
   const net = reader()
-  const settings = withStateMessages(withStateTokens(settingsFrom({}), 48000), 1000)
+  const settings = withStateMessages(withStateTokens(settingsFrom({ decisionModel: 'jev' }), 48000), 1000)
   const suite = longContextSuite(undefined)
   const rows = await run(items, net, ['zh-score-deep'], settings, suite)
   const summary = summarize(suite, items, rows, { slowMs: 1500, settings }).variants[0]

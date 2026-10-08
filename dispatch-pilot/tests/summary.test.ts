@@ -9,7 +9,7 @@ import { estimateTokens } from '../hooks/decision/context.ts'
 import { renderSummary, SUMMARY_TOKENS } from '../hooks/decision/summary.ts'
 import { jev, rates, world, type Completion } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 /** The switch is off until the person turns it on (#48): these tests are about what it does when on. */
 const UNRESOLVED_ON = { unresolved: true }
 const MEDIUM = [0.05, 0.7, 0.2, 0.05, 0]
