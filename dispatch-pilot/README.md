@@ -66,7 +66,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 - **Claude Code 2.1.287 及以上**，mod 在 Claude Code 里默认启用。**测试用的是 Claude Code 2.1.291**（订阅登录，看板和依据面板在终端里看过）和 jev-1.13.0；缓存和评测的实测是在 2.1.289 上做的；跑 `eval/` 和 `scripts/` 里的 Node 脚本用的是 Node 26.5，用 mod 本身不需要 Node。
 - **只支持 Claude Code 订阅**（ADR 0001，`docs/adr/0001-main-agent-effort-only-no-model-switch.md`）。Dispatch Pilot 每轮、每一步都改主 agent 的 effort，但从不改它的模型：换模型必然让 prompt cache 失效，而在订阅下，同一个模型内切换 effort 保留缓存（2.1.289 上 Opus 5.5 加订阅实测）。Bedrock、Vertex 和各种网关上切换 effort 会让缓存失效，不在支持范围内。Claude Code 的文档只点名了 Opus 5.5、Sonnet 5.5 和 Fable 5.1 保留缓存，其他大多数模型上每档 effort 各有一份缓存，切换会重算整段请求（见 `docs/research/decision-models-and-caching.md` 的 3.4）。
-- **一个决策模型的账号。** Jev 要 TypeSafe 的 API key。不配密钥时 mod 不发任何请求，每一轮都按会话自己的 effort 走。
+- **一个决策模型的账号。** Jev 要 TypeSafe 的 API key，pplx 要 Perplexity 的 API key（Decisions API）。选中的决策模型没有密钥时 mod 不发任何请求，每一轮都按会话自己的 effort 走。
 
 ## 安装
 
@@ -93,7 +93,14 @@ claude plugin install dispatch-pilot@alex-mods --scope user
 
 `--values-stdin` 读一个 JSON 对象，值都是单行字符串，没写到的选项保持原值。保存之后要重启 Claude Code 才生效，命令也会提示 `Configuration saved. Restart Claude Code to apply it.`。不带参数运行 `claude plugin configure dispatch-pilot@alex-mods` 会列出所有选项，并标出哪些还没有设置。
 
-`decisionModel` 在 `/config` 里是下拉选择，现在只有 `jev` 一项；填了别的值，按没设处理。
+**pplx。** 把 `decisionModel` 设成 `pplx`（在 `/config` 里选，或写进 `pluginConfigs`），再给它 Perplexity 的 API key，有两种给法，同时给了就用第 1 种：
+
+1. 同上，在配置对话框里填 `perplexityApiKey`，或在 stdin 的 JSON 里写 `perplexityApiKey`。
+2. 设环境变量 `PERPLEXITY_API_KEY`（启动 Claude Code 的环境里要有）。Claude Code Desktop 读不到敏感的 userConfig（#35），用环境变量就绕开了这个问题。
+
+key 只放在请求头里，不会出现在 debug log、看板、依据面板和 `$.state` 里；会话开始时 debug log 只写 key 从哪里来（选项还是环境变量），不写 key 本身。默认的决策模型仍是 Jev，换成 pplx 的默认值在后续的版本里。
+
+`decisionModel` 在 `/config` 里是下拉选择，有 `jev` 和 `pplx` 两项；填了别的值（包括已移除的 `clef`），按没设处理。
 
 ## 更新
 
@@ -123,7 +130,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 
 选项的值存在两个地方：
 
-- **敏感项**（`typesafeApiKey`）存进平台的安全凭据存储（Claude Code 文档的说法），输入时被遮住，不在 `/config` 里出现。用配置对话框（`/plugin configure dispatch-pilot@alex-mods`），或者 `claude plugin configure ... --values-stdin` 填，见「安装」。
+- **敏感项**（`typesafeApiKey`、`perplexityApiKey`）存进平台的安全凭据存储（Claude Code 文档的说法），输入时被遮住，不在 `/config` 里出现。用配置对话框（`/plugin configure dispatch-pilot@alex-mods`），或者 `claude plugin configure ... --values-stdin` 填，见「安装」。
 - **其他选项**存在 user settings 的 `pluginConfigs` 下，在 `/config` 面板里一项一行，可以直接改（需要 Claude Code 2.1.269 及以上）。两个列表项 `skillsAlwaysListed` 和 `skillsNeverSuggested` 不在 `/config` 里出现，要在 `~/.claude/settings.json` 里写成字符串数组。项目和本地 settings 里的 `pluginConfigs` 会被 Claude Code 忽略。
 
 ```json
@@ -136,79 +143,82 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 }
 ```
 
-选项留空就取决策模型的默认值：`timeoutMs`、`contextMessages`、`contextTokens`、`thetaMax`、`thetaUp`、`thetaDown`、`rejudgeSteps`、`rejudgeWaitMs`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance` 这 12 项在 manifest 里没有默认值，所以 `/config` 里显示为空，你不设时 Dispatch Pilot 取表里 Jev 那一列。你自己设了某一项，就用你设的值。会话开始时 debug log 会写一行哪些选项用了默认值。
+选项留空就取决策模型的默认值：`timeoutMs`、`contextMessages`、`contextTokens`、`thetaMax`、`thetaUp`、`thetaDown`、`rejudgeSteps`、`rejudgeWaitMs`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance` 这 12 项在 manifest 里没有默认值，所以 `/config` 里显示为空，你不设时 Dispatch Pilot 取表里你选的决策模型的那一列。你自己设了某一项，就用你设的值。会话开始时 debug log 会写一行哪些选项用了默认值。
 
-另有几个值也随决策模型而定，但不是选项，`/config` 里改不了，也不在下面的表里：往上取一档的门槛（高一档的概率达到它，就往上取一档；Jev 是 0.3），问题怎么问（语言和题型：Jev 发消息时判 effort 的那一题用中文，其余所有问题用英文，都是 Score），以及 `contextMessages` 的上限（Jev 是 32）。它们和上面那些默认值一起写在 `core/setup.ts` 的 `BACKEND_DEFAULTS`，评测和 mod 读的是同一张表。依据卡片的规则推演里，「上取一档」一步写的就是这里的门槛。
+另有几个值也随决策模型而定，但不是选项，`/config` 里改不了，也不在下面的表里：往上取一档的门槛（高一档的概率达到它，就往上取一档；Jev 是 0.3，pplx 是 0.45），问题怎么问（语言和题型：Jev 发消息时判 effort 的那一题用中文，其余所有问题用英文；pplx 所有问题都用英文；都是 Score），以及 `contextMessages` 的上限（Jev 是 32，pplx 是 2000）。它们和上面那些默认值一起写在 `core/setup.ts` 的 `BACKEND_DEFAULTS`，评测和 mod 读的是同一张表。依据卡片的规则推演里，「上取一档」一步写的就是这里的门槛。
 
-**默认值是按 Jev 的上下文上限配置的。** Jev 一个请求最多收 64k token，其中 state 加上最长的那一道题不能超过 32k。最长的题是发消息时 skill 推荐的第一段（111 个 skill 带画像时 Jev 计约 2.19 万 token），所以带 skill 题的请求（发消息时打开了 skill 推荐，以及 `find_skill` 的第一段）的 `contextTokens` 取 6000：state 最多约 6.7k（Jev 的计数），加上那一题约 28.6k，在 32k 的 90% 以内，整个请求在 64k 之内，而且这个值正好让每个 skill 的画像不被裁短。其余的请求没有这么长的题（最长的不到 700 token），所以按种类各取一个更大的值：关着 skill 推荐的发消息、中途重判（包括卡住时的）、派出 agent、一批 Workflow 调用，state 最多 24000（Jev 的计数约 26.7k，加上最长的题仍在 32k 的 90% 以内）。你自己设了 `contextTokens`，所有种类都用它，但每个种类各取它和自己的上限里较小的一个（设 16000 的话，带 skill 题的请求仍是 6000，其余是 16000）。`contextMessages` 和 `rejudgeSteps` 取 manifest 允许的最大值（32 条、16 步），让 token 预算而不是条数决定发多少，旧的消息、步骤放不下就整条丢掉。仍然只发文字和工具名，不发工具的输入和输出。这样配置是为了让 Jev 看到尽量多的信息；它没有评测过：评测用的是 4 条、2000 个 token、4 步，更多上下文是否真的判得更准没有数据，延迟见「局限和待评测」。计算过程见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「Jev 的上下文默认值怎么算」。
+**pplx 的默认值**（B′，ADR 0006，`docs/adr/0006-dispatch-pilot-pplx-default-decision-model.md`）：pplx 的窗口大得多，不受 Jev 那 32k 的限制，所以发消息时的 effort 题、中途重判、派出 agent 和 Workflow 的 state 各取 48000 token、最近 2000 条消息（由 token 预算截断，不是条数），skill 的两段排序（它们带着每个 skill 的画像）仍是 6000，因为 B′ 没有评测过 skill 题。它回答要几秒（eval v2 里 48000 token 的请求约 5 秒），所以发消息等 8000 毫秒（hook 自己的上限是 10 秒），中途重判和 `find_skill` 各等 6000 毫秒。所有问题都用英文问。`thetaMax` 0.47、`thetaUp` 0、`thetaDown` 0.55 和往上取一档的 0.45 是按已存的 pplx 回答离线定的（DEVELOPMENT.md 的「eval v2 的结果」）：0.45 让日常消息判高从 18.5% 降到 13.0%，max 的召回不变。`thetaExpected`、`agentOverride` 和两个相关度门槛没有为 pplx 校准过，沿用 Jev 的值。用户自己设的值总是优先。
 
-下表的 Jev 列是默认值。`起点`：这个默认值是暂定的起点，还没有评测数据支持。`按 Jev 的上限`：按上面的算法取 Jev 能接受的最大值，没有评测。`按 AA 基准`：按 Artificial Analysis 的基准校正过（见「模型和 effort 的依据」），没有在这套评测集上量过。没有标注的，是按测到的数据定的，或者本来就不需要校准。
+**Jev 的默认值是按 Jev 的上下文上限配置的。** Jev 一个请求最多收 64k token，其中 state 加上最长的那一道题不能超过 32k。最长的题是发消息时 skill 推荐的第一段（111 个 skill 带画像时 Jev 计约 2.19 万 token），所以带 skill 题的请求（发消息时打开了 skill 推荐，以及 `find_skill` 的第一段）的 `contextTokens` 取 6000：state 最多约 6.7k（Jev 的计数），加上那一题约 28.6k，在 32k 的 90% 以内，整个请求在 64k 之内，而且这个值正好让每个 skill 的画像不被裁短。其余的请求没有这么长的题（最长的不到 700 token），所以按种类各取一个更大的值：关着 skill 推荐的发消息、中途重判（包括卡住时的）、派出 agent、一批 Workflow 调用，state 最多 24000（Jev 的计数约 26.7k，加上最长的题仍在 32k 的 90% 以内）。你自己设了 `contextTokens`，所有种类都用它，但每个种类各取它和自己的上限里较小的一个（设 16000 的话，带 skill 题的请求仍是 6000，其余是 16000）。`contextMessages` 和 `rejudgeSteps` 取 manifest 允许的最大值（32 条、16 步），让 token 预算而不是条数决定发多少，旧的消息、步骤放不下就整条丢掉。仍然只发文字和工具名，不发工具的输入和输出。这样配置是为了让 Jev 看到尽量多的信息；它没有评测过：评测用的是 4 条、2000 个 token、4 步，更多上下文是否真的判得更准没有数据，延迟见「局限和待评测」。计算过程见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「Jev 的上下文默认值怎么算」。
+
+下表的 Jev 和 pplx 两列是各自的默认值。`起点`：这个默认值是暂定的起点，还没有评测数据支持。`按 Jev 的上限`：按上面的算法取 Jev 能接受的最大值，没有评测。`按 AA 基准`：按 Artificial Analysis 的基准校正过（见「模型和 effort 的依据」），没有在这套评测集上量过。没有标注的，是按测到的数据定的，或者本来就不需要校准。
 
 ### 决策模型和密钥
 
-| 选项 | 作用 | Jev |
-|---|---|---|
-| `decisionModel` | 决策模型，在 `/config` 里是下拉选择。现在只有 `jev`（TypeSafe）；填了别的值，按没设处理 | `jev` |
-| `typesafeApiKey` | TypeSafe 的 API key。敏感项。为空时不发任何请求 | `空` |
+| 选项 | 作用 | Jev | pplx |
+|---|---|---|---|
+| `decisionModel` | 决策模型，在 `/config` 里是下拉选择：`jev`（TypeSafe 的 Jev）或 `pplx`（Perplexity 的 `pplx-decider-v1.1-27b`）。默认仍是 `jev`；填了别的值（包括已移除的 `clef`），按没设处理 | `jev` | `jev` |
+| `typesafeApiKey` | TypeSafe 的 API key，选 `jev` 时用。敏感项。为空时不发任何请求 | `空` | `空` |
+| `perplexityApiKey` | Perplexity 的 API key，选 `pplx` 时用。敏感项。为空时读环境变量 `PERPLEXITY_API_KEY`，两处都有就用这里的；两处都没有时不发任何请求。key 只放在请求头里，不进日志、看板和 `$.state` | `空` | `空` |
 
 ### 等多久，读多少
 
-| 选项 | 作用 | Jev |
-|---|---|---|
-| `timeoutMs` | 一条消息等决策模型的最长时间（200–8000 毫秒），超过就不经路由地放行 | `1500` |
-| `contextMessages` | 随你的消息一起发的最近消息条数，从 0 到决策模型能接受的条数（Jev 是 32）。Jev 取上限，由 `contextTokens` 决定实际发多少 | `32` 按 Jev 的上限 |
-| `contextTokens` | 发给决策模型的 state 的 token 预算（100–16000）：你的消息加上最近的消息，按发出去的样子数（连同字段名和转义），中英文按同一个尺度数，旧消息先丢。按请求的种类取：默认值带 skill 题的请求 6000，其余 24000，包括发消息时单独发的 effort 请求（见上面）；你设了就每个种类取它和自己上限里较小的 | `6000` 按 Jev 的上限，其余种类 24000 |
+| 选项 | 作用 | Jev | pplx |
+|---|---|---|---|
+| `timeoutMs` | 一条消息等决策模型的最长时间（200–8000 毫秒），超过就不经路由地放行 | `1500` | `8000` |
+| `contextMessages` | 随你的消息一起发的最近消息条数，从 0 到决策模型能接受的条数（Jev 是 32，pplx 是 2000）。两个模型都默认取上限，由 `contextTokens` 决定实际发多少 | `32` 按 Jev 的上限 | `2000` |
+| `contextTokens` | 发给决策模型的 state 的 token 预算（100–16000，pplx 到 48000）：你的消息加上最近的消息，按发出去的样子数（连同字段名和转义），中英文按同一个尺度数，旧消息先丢。按请求的种类取：默认值带 skill 题的请求 6000，其余 Jev 24000、pplx 48000，包括发消息时单独发的 effort 请求（见上面）；你设了就每个种类取它和自己上限里较小的 | `6000` 按 Jev 的上限，其余种类 24000 | `6000`，其余种类 48000 |
 
 ### 一轮中的 effort
 
-| 选项 | 作用 | Jev |
-|---|---|---|
-| `thetaMax` | 用 `max` 所需的最低概率（0–1）；发消息时、中途重判和派出 agent 的 effort 都用这个门槛 | `0.5` 起点 |
-| `rejudgeEvery` | 一轮进行中每隔几步重判一次（0–50）；0 表示不按步数重判，派出 agent、启动 Workflow、加载 skill 时仍会重判 | `3` 起点 |
-| `rejudgeSteps` | 重判时决策模型读到的最近步数（1–16）。Jev 取上限，由 `contextTokens` 决定实际发多少 | `16` 按 Jev 的上限 |
-| `rejudgeWaitMs` | 重判的回答还没到时，下一步最多再等多久（0–8000 毫秒），然后沿用原来的 effort | `300` |
-| `thetaUp` | 中途升档所需的最低置信度（0–1） | `0.3` 按 AA 基准 |
-| `thetaDown` | 中途降档所需的最低置信度（0–1，低于 `thetaUp` 时按 `thetaUp` 算），一次只降一档 | `0.55` 按已存的评测回答扫出 |
-| `holdSteps` | 升档之后多少步之内不降档（0–50） | `5` 按 AA 基准 |
+| 选项 | 作用 | Jev | pplx |
+|---|---|---|---|
+| `thetaMax` | 用 `max` 所需的最低概率（0–1）；发消息时、中途重判和派出 agent 的 effort 都用这个门槛 | `0.5` 起点 | `0.47` 按已存的评测回答校准 |
+| `rejudgeEvery` | 一轮进行中每隔几步重判一次（0–50）；0 表示不按步数重判，派出 agent、启动 Workflow、加载 skill 时仍会重判 | `3` 起点 | `3` 起点 |
+| `rejudgeSteps` | 重判时决策模型读到的最近步数（1–16）。Jev 取上限，由 `contextTokens` 决定实际发多少 | `16` 按 Jev 的上限 | `16` 同 Jev |
+| `rejudgeWaitMs` | 重判的回答还没到时，下一步最多再等多久（0–8000 毫秒），然后沿用原来的 effort | `300` | `6000` |
+| `thetaUp` | 中途升档所需的最低置信度（0–1） | `0.3` 按 AA 基准 | `0` 按已存的评测回答校准 |
+| `thetaDown` | 中途降档所需的最低置信度（0–1，低于 `thetaUp` 时按 `thetaUp` 算），一次只降一档 | `0.55` 按已存的评测回答扫出 | `0.55` 同 Jev |
+| `holdSteps` | 升档之后多少步之内不降档（0–50） | `5` 按 AA 基准 | `5` 按 AA 基准 |
 
 ### 卡住时强制升档
 
-| 选项 | 作用 | Jev |
-|---|---|---|
-| `escalateAfter` | 计入的工具调用失败满几次就问决策模型并升档（1–20） | `2` 起点 |
-| `escalateMode` | `one-level` 升一档，最高到 xhigh（决策模型自己有把握给更高时可以更高）；`max` 直接升到 max | `one-level` 起点 |
-| `escalateLimit` | 一轮（或一个派出 agent）最多升几次（0–10）；每次升档后失败计数清零 | `2` 起点 |
-| `thetaExpected` | 决策模型认为这些失败是预期内失败的概率达到多少就不升档（0–1） | `0.25` 起点 |
-| `escalateHaikuTo` | 失败的 haiku agent 接着用哪个模型做：`sonnet`、`opus`、`fable` 或完整的模型 id；留空表示不换。你为这个 agent 点名的模型和排除的模型优先 | `sonnet` |
+| 选项 | 作用 | Jev | pplx |
+|---|---|---|---|
+| `escalateAfter` | 计入的工具调用失败满几次就问决策模型并升档（1–20） | `2` 起点 | `2` 起点 |
+| `escalateMode` | `one-level` 升一档，最高到 xhigh（决策模型自己有把握给更高时可以更高）；`max` 直接升到 max | `one-level` 起点 | `one-level` 起点 |
+| `escalateLimit` | 一轮（或一个派出 agent）最多升几次（0–10）；每次升档后失败计数清零 | `2` 起点 | `2` 起点 |
+| `thetaExpected` | 决策模型认为这些失败是预期内失败的概率达到多少就不升档（0–1） | `0.25` 起点 | `0.25` 沿用 Jev 的起点 |
+| `escalateHaikuTo` | 失败的 haiku agent 接着用哪个模型做：`sonnet`、`opus`、`fable` 或完整的模型 id；留空表示不换。你为这个 agent 点名的模型和排除的模型优先 | `sonnet` | `sonnet` |
 
 ### 派出 agent 和 Workflow
 
-| 选项 | 作用 | Jev |
-|---|---|---|
-| `agentFable` | 打开后，决策模型可以为派出 agent（包括 Workflow 里的）选 fable，fable 比 opus 贵；你自己点名 fable 时不受这个开关限制 | `false` |
-| `agentOverride` | 主 agent 为派出的 agent 指定了模型时，决策模型的选择要达到这个置信度（0–1）才推翻它；Workflow 脚本里写了 `model` 时同样适用 | `0.6` 起点 |
-| `workflowMode` | `rewrite`：把决定写进脚本再运行；`return`：第一次提交被拒绝并附上逐个 agent 的推荐，让主 agent 自己写进去，同一个 Workflow 第二次提交直接放行 | `rewrite` |
+| 选项 | 作用 | Jev | pplx |
+|---|---|---|---|
+| `agentFable` | 打开后，决策模型可以为派出 agent（包括 Workflow 里的）选 fable，fable 比 opus 贵；你自己点名 fable 时不受这个开关限制 | `false` | `false` |
+| `agentOverride` | 主 agent 为派出的 agent 指定了模型时，决策模型的选择要达到这个置信度（0–1）才推翻它；Workflow 脚本里写了 `model` 时同样适用 | `0.6` 起点 | `0.6` 沿用 Jev 的起点 |
+| `workflowMode` | `rewrite`：把决定写进脚本再运行；`return`：第一次提交被拒绝并附上逐个 agent 的推荐，让主 agent 自己写进去，同一个 Workflow 第二次提交直接放行 | `rewrite` | `rewrite` |
 
 ### skill
 
-| 选项 | 作用 | Jev |
-|---|---|---|
-| `skillsMax` | 一条消息最多推荐几个 skill（0–10） | `3` |
-| `skillsMinRelevance` | 推荐一个 skill 所需的最低相关度（0–1）：决策模型对「这个 skill 是否正好做这条消息要做的那种工作」回答「是」的概率 | `0.75` |
-| `skillsShortlist` | 第二段补读 SKILL.md 开头、逐个判断的 skill 最多几个（1–10） | `4` 起点 |
-| `skillsProfileModel` | 写 skill 画像的模型，写别名（`haiku`）或完整的模型 id。通过你的 Claude Code 登录调用，算在你的用量里；换了模型，所有画像重写 | `haiku` |
-| `skillsProfilesPerSession` | 每次会话开始最多写几份还没有的画像（0–500）；0 表示不写 | `30` |
-| `skillsAlwaysListed` | 一直留在主 agent 的 skill 列表里的 skill，写列表里的名字（同步来的 skill 带前缀，例如 `anthropic-skills:pdf`）。列表项，不在 `/config` 里 | `空` |
-| `skillsNeverSuggested` | 从不推荐给主 agent、也不提示你的 skill，写法同上。它们照常安装，Skill 工具仍能按名字加载，`find_skill` 也不返回它们。列表项，不在 `/config` 里 | `空` |
-| `findSkillMax` | `find_skill` 一次最多返回几个 skill（1–10） | `5` |
-| `findSkillMinRelevance` | `find_skill` 返回一个 skill 所需的最低相关度（0–1），比推荐的门槛低：这是主 agent 主动问的，它会自己看描述再决定 | `0.5` 起点 |
+| 选项 | 作用 | Jev | pplx |
+|---|---|---|---|
+| `skillsMax` | 一条消息最多推荐几个 skill（0–10） | `3` | `3` |
+| `skillsMinRelevance` | 推荐一个 skill 所需的最低相关度（0–1）：决策模型对「这个 skill 是否正好做这条消息要做的那种工作」回答「是」的概率 | `0.75` | `0.75` 沿用 Jev |
+| `skillsShortlist` | 第二段补读 SKILL.md 开头、逐个判断的 skill 最多几个（1–10） | `4` 起点 | `4` 起点 |
+| `skillsProfileModel` | 写 skill 画像的模型，写别名（`haiku`）或完整的模型 id。通过你的 Claude Code 登录调用，算在你的用量里；换了模型，所有画像重写 | `haiku` | `haiku` |
+| `skillsProfilesPerSession` | 每次会话开始最多写几份还没有的画像（0–500）；0 表示不写 | `30` | `30` |
+| `skillsAlwaysListed` | 一直留在主 agent 的 skill 列表里的 skill，写列表里的名字（同步来的 skill 带前缀，例如 `anthropic-skills:pdf`）。列表项，不在 `/config` 里 | `空` | `空` |
+| `skillsNeverSuggested` | 从不推荐给主 agent、也不提示你的 skill，写法同上。它们照常安装，Skill 工具仍能按名字加载，`find_skill` 也不返回它们。列表项，不在 `/config` 里 | `空` | `空` |
+| `findSkillMax` | `find_skill` 一次最多返回几个 skill（1–10） | `5` | `5` |
+| `findSkillMinRelevance` | `find_skill` 返回一个 skill 所需的最低相关度（0–1），比推荐的门槛低：这是主 agent 主动问的，它会自己看描述再决定 | `0.5` 起点 | `0.5` 沿用 Jev 的起点 |
 
 ### 问题摘要
 
-| 选项 | 作用 | Jev |
-|---|---|---|
-| `unresolvedMaxAfter` | 未解决次数达到它时，发消息时和中途重判时 effort 题的说明里多一条强提示（这项工作属于多次尝试都没解决的故障）；0 表示不给，只带摘要和次数，最大 10。强提示不写档位，不改 `pickEffort` 和 `thetaMax` | `3` 暂定 |
-| `summaryModel` | 在你本人的消息开始的那一轮结束后，在后台续写问题摘要的模型，写别名（`haiku`）或完整的模型 id。通过你的 Claude Code 登录调用，算在你的用量里；摘要是对话的转述，所以 `contextMessages` 为 0 或 `unresolved` 开关关着（默认）时不写 | `haiku` |
+| 选项 | 作用 | Jev | pplx |
+|---|---|---|---|
+| `unresolvedMaxAfter` | 未解决次数达到它时，发消息时和中途重判时 effort 题的说明里多一条强提示（这项工作属于多次尝试都没解决的故障）；0 表示不给，只带摘要和次数，最大 10。强提示不写档位，不改 `pickEffort` 和 `thetaMax` | `3` 暂定 | `3` 暂定 |
+| `summaryModel` | 在你本人的消息开始的那一轮结束后，在后台续写问题摘要的模型，写别名（`haiku`）或完整的模型 id。通过你的 Claude Code 登录调用，算在你的用量里；摘要是对话的转述，所以 `contextMessages` 为 0 或 `unresolved` 开关关着（默认）时不写 | `haiku` | `haiku` |
 
 ## 控制：`/dp`
 
@@ -243,7 +253,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 - **Jev 的请求比以前大，延迟会多一点。** 默认值把 Jev 的 state 放到最多约 6.7k token（带 skill 题的请求，`contextTokens` 6000），发消息时带 skill 推荐的请求最多约 2.9 万 token；其余种类的 state 最多 24000（约 2.67 万 token），中途重判、派出 agent 和关着 skill 推荐的发消息请求，满了的话比以前多约 2.4 万 token，按每 1k 约 13 毫秒外推，最多多约 0.3 秒（同样是外推，没有量过）。已有的实测：Jev 处理 2.19 万 token（skill 第一段，带全部画像）时 p50 约 560 毫秒、p90 约 615 毫秒；另一次整体偏慢的运行里，这一段 218 条中有 24 条（约 11%）超过 1500 毫秒，这些消息的决策整个超时，effort 也没有经过路由。按每多 1k token 约多 13 毫秒外推，现在的 state 再多约 80 毫秒，慢的时段超过 1500 毫秒的消息会比 11% 更多；这是外推，没有在新默认值上量过。如果看板上「决策模型超时」变多，可以把 `contextTokens` 调小（每少 1k 约快 13 毫秒），或者把 `timeoutMs` 调大；skill 那一题本身有 2.2 万 token，想去掉这部分延迟只能 `/dp skills off`。
 - 大多数默认值是暂定的起点（表里标了 `起点`）：评测数据只够定下少数几项，其余的见下面的「还没有数据的事」。
 
-**问题用什么语言写。** 选 Jev 时，发消息时判断主 agent effort 的那一个问题用中文写；其余问题（一轮中途重判、派出 agent、Workflow 里的 agent、卡住时的强制升档、skill 推荐和 `find_skill`）都用英文。依据是 `effort-submit` 在现在的问法上的对比（Jev，各 1 次）：用中文问，中文题 85.0%、英文题 89.0%；用英文问，79.0%、78.0%。同样的请求之前跑过 3 次，中文问法也都高约 8 个百分点。其余问题在现在的问法上没有中文问法的数据，所以都没有改。派出 agent 和 skill 的评测已经有中文问法的变体（`models-hint-zh`、`profiles-zh`），还没有运行。发消息时的请求里，中文的 effort 问题和英文的 skill 问题放在一起，这种混合的请求没有单独评测过。
+**问题用什么语言写。** 选 pplx 时所有问题都用英文写（eval v2：pplx 英文问法更准）。选 Jev 时，发消息时判断主 agent effort 的那一个问题用中文写；其余问题（一轮中途重判、派出 agent、Workflow 里的 agent、卡住时的强制升档、skill 推荐和 `find_skill`）都用英文。依据是 `effort-submit` 在现在的问法上的对比（Jev，各 1 次）：用中文问，中文题 85.0%、英文题 89.0%；用英文问，79.0%、78.0%。同样的请求之前跑过 3 次，中文问法也都高约 8 个百分点。其余问题在现在的问法上没有中文问法的数据，所以都没有改。派出 agent 和 skill 的评测已经有中文问法的变体（`models-hint-zh`、`profiles-zh`），还没有运行。发消息时的请求里，中文的 effort 问题和英文的 skill 问题放在一起，这种混合的请求没有单独评测过。
 
 **中文和英文的差距。** 门槛是中文准确率比英文低不超过 4 个百分点，正好低 4 个百分点也算通过。现在的配置（Jev，effort 用中文问）在 `effort-submit` 上那一次正好差 −4.0，同样的请求之前 3 次是 0、0、−1；而中文题的准确率比用英文问时高 6 个百分点。其余三套评测都在门槛之内（见「评测」），但都是改措辞之前测的。
 

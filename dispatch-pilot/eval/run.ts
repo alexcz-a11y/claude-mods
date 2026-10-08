@@ -46,6 +46,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { PluginOptions } from 'claude-code'
+import type { BackendName } from '../hooks/core/setup.ts'
 import type { Backend } from '../hooks/decision/backend.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
@@ -55,7 +56,7 @@ import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
 import type { FlowFile } from './lib/eval-v2-flow.ts'
 import { summarize, type Summary } from './lib/metrics.ts'
 import { attemptMs as defaultAttemptMs, runSuite, stateDigest, type Row } from './lib/runner.ts'
-import { optionsFor, settingsFrom, settingsModel, withStateMessages, withStateTokens, type EvalBackend } from './lib/suite.ts'
+import { optionsFor, settingsFrom, withStateMessages, withStateTokens } from './lib/suite.ts'
 import { READS_FLOW, SUITES } from './lib/suites.ts'
 import { EVAL_V2_JSONL, PRICES, RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, formatResult, modCode, nodeHost, nodeIo, readDataset, readEvalV2Dataset, readManifest, shown } from './node.ts'
 
@@ -136,13 +137,13 @@ if (values.limit !== undefined) items = items.slice(0, Number(values.limit))
 // The mod's settings as the engine hands them over: the manifest's defaults, then --option; what the manifest leaves
 // unset, the backend's defaults (readConfig).
 const manifest = readManifest()
-const backendName = values.backend as EvalBackend
+const backendName = values.backend as BackendName
 if (backendName !== 'jev' && backendName !== 'pplx') fail(`no backend "${backendName}" (jev, pplx)`)
 let options: Record<string, unknown>
 try {
-  // The decision model is the backend under evaluation (--backend), whatever the manifest's default says; Perplexity's
-  // settings are Jev's (settingsModel), so the two are asked the same requests.
-  options = optionsFor(settingsModel(backendName), manifest.userConfig ?? {}, values.option)
+  // The decision model is the backend under evaluation (--backend), whatever the manifest's default says, and the settings
+  // are that model's own, as the mod reads them (Perplexity's: pplx's row of core/setup.ts BACKEND_DEFAULTS).
+  options = optionsFor(backendName, manifest.userConfig ?? {}, values.option)
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 }

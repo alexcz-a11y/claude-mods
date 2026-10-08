@@ -20,10 +20,19 @@ import { RAISE_MODES, type RaiseMode } from '../decision/escalation.ts'
 import { jevBackend } from '../decision/jev.ts'
 import type { MidturnLimits, MidturnRules } from '../decision/midturn.ts'
 import { resolveModel, type ResolvedModel } from '../decision/model-ids.ts'
+import { pplxBackend } from '../decision/pplx.ts'
 import type { SkillPolicy } from '../decision/skills.ts'
 
-/** The decision models the person can choose (`decisionModel`): Jev for now (pplx joins it, #46). */
-export type BackendName = 'jev'
+/** The decision models the person can choose (`decisionModel`): Perplexity's pplx-decider and TypeSafe's Jev. */
+export type BackendName = 'pplx' | 'jev'
+
+/**
+ * The decision model `decisionModel` names. Anything that names neither (unset, a typo, the `clef` of a 0.3.x configuration)
+ * reads as Jev, the default for now (#52 moves it to pplx, falling back to Jev while there is no Perplexity key).
+ */
+export function backendNameOf(options: PluginOptions): BackendName {
+  return options.decisionModel === 'pplx' ? 'pplx' : 'jev'
+}
 
 /**
  * A `decisionModel` that names a decision model since removed (Clef, 0.4.0), left in the person's settings from before.
@@ -159,8 +168,50 @@ const JEV_DEFAULTS: BackendDefaults = {
   ask: { turnStart: { language: 'zh', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
 }
 
+/**
+ * pplx-decider-v1.1-27b's: B′ of eval v2 (#45, ADR 0006: the state within 48000 tokens, every question in English, no problem
+ * summary), with the thresholds calibrated on its own stored answers (DEVELOPMENT.md, eval v2 的结果). It takes a 262k-token
+ * window, so what it reads is not cut to Jev's 32k: 2000 messages (the budget, not the count, ends what is sent) and 48000
+ * tokens for every request but the skills'; those two stages keep Jev's 6000, since the profiles of the skills are the same
+ * length for either model. A request takes seconds, not Jev's fraction of one, so a message waits 8000 ms (a hook has 10 s) and a
+ * step 6000 ms for a re-decision. What the eval did not calibrate for pplx (the failure bar, the agents' override, the skills'
+ * relevance) is Jev's.
+ */
+const PPLX_DEFAULTS: BackendDefaults = {
+  timeoutMs: 8000,
+  contextMessages: 2000,
+  contextMessagesMax: 2000,
+  contextTokens: 6000,
+  contextTokensMax: 48000,
+  contextByKind: { messagePlain: 48000, rejudge: 48000, agent: 48000, workflow: 48000 },
+  rejudgeSteps: 16,
+  // A re-decision takes seconds, not 300 ms: a step waits for it up to this long (the most the manifest allows is 8000).
+  rejudgeWaitMs: 6000,
+  // Calibrated offline on the stored pplx answers (eval v2, DEVELOPMENT.md): thetaMax 0.47 (0.48 sits on submit-034's p(max) of
+  // 0.480), thetaDown 0.55 as Jev's (from 0.6 up, the English score question sends the level too high more often than Jev).
+  // thetaUp 0 raises a level mid-turn on any answer above it (0.3 is the cautious alternative); it does not move the level a
+  // message is sent at, which thetaMax and roundUp decide.
+  thetaUp: 0,
+  thetaDown: 0.55,
+  thetaMax: 0.47,
+  thetaExpected: 0.25,
+  agentOverride: 0.6,
+  skillsMinRelevance: 0.75,
+  findSkillMinRelevance: 0.5,
+  suggestSkills: true,
+  // Find_skill's two requests wait as long as the profiles' question takes (a message's wait would be 8000 ms of a 10 s hook).
+  findSkillWaitMs: 6000,
+  findSkillProfiles: true,
+  // The level above the most probable one is taken from 0.45 (ADR 0006): the offline scan of the stored effort-submit answers
+  // (English questions) took the level sent too high from 18.5% to 13.0% with the recall of max unchanged (11 of 16); eval v2's
+  // level too low went from 12.5% to 15.0%.
+  roundUp: 0.45,
+  ask: { turnStart: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
+}
+
 /** The defaults by decision model: the only place they are written. */
 export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = {
+  pplx: PPLX_DEFAULTS,
   jev: JEV_DEFAULTS,
 }
 
@@ -185,6 +236,8 @@ export type Config = EffortRules & {
    */
   defaults: { used: readonly (readonly [PerBackendOption, number])[]; capped: readonly { option: PerBackendOption; set: number; read: number }[] }
   typesafeApiKey: string
+  /** The Perplexity key in the options (`perplexityApiKey`, trimmed; '' if unset): the environment's (`Secrets`) stands where this is empty. */
+  perplexityApiKey: string
   /** How long a decision request may take before the prompt goes on without it. */
   timeoutMs: number
   /** How the decision model is asked (BACKEND_DEFAULTS ask): `turnStart` the effort question beside each message, `other` every other question (`ctx.ask`). */
@@ -263,19 +316,37 @@ export type Config = EffortRules & {
   }
 }
 
+/**
+ * What the mod reads from the environment: `$.env.get` is asynchronous and needs `$`, which neither `setup` nor an import may
+ * have, so the session start (features/control.ts) reads it into this object, which `ctx.backend` reads when it asks. A
+ * value set in the options always comes first. Nothing here is ever written down: not to the debug log, the board or `$.state`.
+ */
+export type Secrets = {
+  /** `PERPLEXITY_API_KEY`, trimmed; '' while unread or unset. */
+  perplexityEnvKey: string
+}
+
+/** The Perplexity key in use: the options' (`perplexityApiKey`) first, else the environment's. '' for none. */
+export function perplexityKey(config: Pick<Config, 'perplexityApiKey'>, secrets: Secrets): string {
+  return config.perplexityApiKey !== '' ? config.perplexityApiKey : secrets.perplexityEnvKey
+}
+
 /** What the entry hands every feature's register: data and pure functions, never `$`. */
 export type Ctx = {
   config: Config
   /** The decision model the person chose. */
   backend: Backend
+  /** What the session start read from the environment (a key not in the options). */
+  secrets: Secrets
   /** How every question but the effort question beside a message is asked: the decision model's (`config.ask.other`). */
   ask: EffortAsk
 }
 
 export function setup(options: PluginOptions, table: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS): Ctx {
   const config = readConfig(options, table)
-  const backend = jevBackend(config.typesafeApiKey)
-  return { config, backend, ask: config.ask.other }
+  const secrets: Secrets = { perplexityEnvKey: '' }
+  const backend = config.backend === 'pplx' ? pplxBackend(() => perplexityKey(config, secrets)) : jevBackend(config.typesafeApiKey)
+  return { config, backend, secrets, ask: config.ask.other }
 }
 
 /**
@@ -286,7 +357,7 @@ export function setup(options: PluginOptions, table: Readonly<Record<BackendName
  * and `contextMessages` read at most that model's most.
  */
 export function readConfig(options: PluginOptions, table: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS): Config {
-  const backend: BackendName = 'jev'
+  const backend = backendNameOf(options)
   const defaults = table[backend]
   const used: (readonly [PerBackendOption, number])[] = []
   const capped: { option: PerBackendOption; set: number; read: number }[] = []
@@ -317,6 +388,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
     backend,
     defaults: { used, capped },
     typesafeApiKey: stringOf(options.typesafeApiKey, '').trim(),
+    perplexityApiKey: stringOf(options.perplexityApiKey, '').trim(),
     timeoutMs,
     ask: defaults.ask,
     thetaMax,

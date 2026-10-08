@@ -1,10 +1,10 @@
 // The defaults that depend on the decision model (#17, D3): the manifest gives
 // those options none, so the engine (and the kit, which loads options the same
 // way) passes nothing for them until the person sets one, and the mod takes
-// the chosen model's from core/setup.ts BACKEND_DEFAULTS (Jev's, the only
-// decision model until pplx joins it, #46). Seam 1 for what
-// reaches the backend and the board; the shared reading (readConfig,
-// which the eval and scripts/decide*.ts use too) directly.
+// the chosen model's from core/setup.ts BACKEND_DEFAULTS (Jev's or pplx's,
+// #50). Seam 1 for what reaches the backend and the board (Jev's here, pplx's
+// in pplx-model.test.ts); the shared reading (readConfig, which the eval and
+// scripts/decide*.ts use too) directly, for both.
 
 import type { SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
@@ -378,67 +378,100 @@ test('readConfig: a decisionModel of clef passed straight in (the eval, a script
 // What the table carries besides the options (core/setup.ts BackendDefaults, #49): the threshold for taking the level above
 // (`roundUp`), how the questions are asked (`ask`), the most recent messages `contextMessages` may name (`contextMessagesMax`)
 // and how long a step waits for a late re-decision (`rejudgeWaitMs`, an option with a default per decision model). Seam 2: the
-// shared reading takes the table as its second argument (the shipped one by default), so a decision model whose values are not
-// Jev's can be read before there is a second one in the table; each value of it must reach everything that uses it.
+// shared reading takes the table as its second argument (the shipped one by default); Jev's row and pplx's differ in each of
+// these values (#50), and each must reach everything that uses it.
 
-/** A decision model that differs from Jev in every value #49 moved into the table, each in a way that shows where it went. */
-const OTHER = {
-  ...BACKEND_DEFAULTS,
-  jev: {
-    ...BACKEND_DEFAULTS.jev,
-    roundUp: 0.45,
-    ask: { turnStart: { language: 'en', primitive: 'choice' }, other: { language: 'zh', primitive: 'score' } },
-    contextMessagesMax: 2000,
-    rejudgeWaitMs: 6000,
-  },
-} as const
+const PPLX_OPTIONS = { decisionModel: 'pplx' }
 
 const reading = (probabilities: number[]): EffortReading => ({ probabilities, confidence: 0.8 })
 
-test("the round-up threshold is the decision model's: Jev takes the level above at 0.3, another model's value reaches every rule that uses it", () => {
+test("the round-up threshold is the decision model's: Jev takes the level above at 0.3, pplx at 0.45, and each reaches every rule that uses it", () => {
   const roundUps = (config: ReturnType<typeof readConfig>) => [config.roundUp, config.midturn.rules.roundUp, dispatchSettings({ config, ask: config.ask.other }).roundUp]
   expect(roundUps(readConfig({}))).toEqual([0.3, 0.3, 0.3])
-  expect(roundUps(readConfig({}, OTHER))).toEqual([0.45, 0.45, 0.45])
+  expect(roundUps(readConfig(PPLX_OPTIONS))).toEqual([0.45, 0.45, 0.45])
   // The settings are the effort rules' parameters as they are (what the main agent's feature and the eval hand `traceEffort`): the same answer, 0.3 above the most probable level.
   const answer = reading([0, 0.5, 0.3, 0.2, 0])
-  expect([readConfig({}), readConfig({}, OTHER)].map((config) => traceEffort(answer, config).effort)).toEqual(['high', 'medium'])
+  expect([readConfig({}), readConfig(PPLX_OPTIONS)].map((config) => traceEffort(answer, config).effort)).toEqual(['high', 'medium'])
 })
 
-test("how the questions are asked is the decision model's: with Jev the effort question beside a message in Chinese and every other in English, another model's pair is read as it is", () => {
+test("how the questions are asked is the decision model's: with Jev the effort question beside a message in Chinese and every other in English, with pplx all in English", () => {
   expect(readConfig({}).ask).toEqual({ turnStart: { language: 'zh', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
-  expect(readConfig({}, OTHER).ask).toEqual(OTHER.jev.ask)
+  expect(readConfig(PPLX_OPTIONS).ask).toEqual({ turnStart: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
   // `ctx.ask`, which every feature but the message's effort question asks with, is the table's "other".
   expect(setup({}).ask).toEqual({ language: 'en', primitive: 'score' })
-  expect(setup({}, OTHER).ask).toEqual({ language: 'zh', primitive: 'score' })
+  expect(setup(PPLX_OPTIONS).ask).toEqual({ language: 'en', primitive: 'score' })
+  // A table whose `other` is Chinese reaches it (a decision model the table does not have yet).
+  const chinese = { ...BACKEND_DEFAULTS, jev: { ...BACKEND_DEFAULTS.jev, ask: { turnStart: { language: 'en', primitive: 'choice' }, other: { language: 'zh', primitive: 'score' } } } } as const
+  expect(setup({}, chinese).ask).toEqual({ language: 'zh', primitive: 'score' })
+  expect(readConfig({}, chinese).ask.turnStart).toEqual({ language: 'en', primitive: 'choice' })
 })
 
-test("contextMessages reads at most what the decision model takes: Jev 32, another model's own most", () => {
+test("contextMessages reads at most what the decision model takes: Jev 32, pplx 2000", () => {
   expect(readConfig({ contextMessages: 8 }).context.messages).toBe(8)
   const jevCapped = readConfig({ contextMessages: 40 })
   expect(jevCapped.context.messages).toBe(32)
   expect(jevCapped.defaults.capped).toEqual([{ option: 'contextMessages', set: 40, read: 32 }])
-  // Unset, the decision model's default is its most (Jev: 32); a model taking more is not cut at 32.
+  // Unset, the decision model's default is its most; a model taking more is not cut at 32.
   expect(readConfig({}).context.messages).toBe(32)
-  expect(readConfig({ contextMessages: 1500 }, OTHER).context.messages).toBe(1500)
-  expect(readConfig({ contextMessages: 5000 }, OTHER).context.messages).toBe(2000)
+  expect(readConfig(PPLX_OPTIONS).context.messages).toBe(2000)
+  expect(readConfig({ ...PPLX_OPTIONS, contextMessages: 1500 }).context.messages).toBe(1500)
+  expect(readConfig({ ...PPLX_OPTIONS, contextMessages: 5000 }).context.messages).toBe(2000)
 })
 
-test("rejudgeWaitMs is an option with a default per decision model: unset it is the model's (Jev 300), set it is the person's, up to 8000", () => {
-  const waits = (options: Record<string, number>, table?: typeof OTHER) => readConfig(options, table).midturn.waitMs
+test("rejudgeWaitMs is an option with a default per decision model: unset it is the model's (Jev 300, pplx 6000), set it is the person's, up to 8000", () => {
+  const waits = (options: Record<string, number | string>) => readConfig(options).midturn.waitMs
   expect([waits({}), waits({ rejudgeWaitMs: 0 }), waits({ rejudgeWaitMs: 500 }), waits({ rejudgeWaitMs: 8000 })]).toEqual([300, 0, 500, 8000])
   // Past 8000 it reads as 8000, and the debug log says so.
   expect(waits({ rejudgeWaitMs: 9000 })).toBe(8000)
   expect(readConfig({ rejudgeWaitMs: 9000 }).defaults.capped).toEqual([{ option: 'rejudgeWaitMs', set: 9000, read: 8000 }])
-  // Another model's default stands where the person sets none; what the person sets still comes first.
-  expect([waits({}, OTHER), waits({ rejudgeWaitMs: 500 }, OTHER)]).toEqual([6000, 500])
+  // pplx's default stands where the person sets none; what the person sets still comes first.
+  expect([waits(PPLX_OPTIONS), waits({ ...PPLX_OPTIONS, rejudgeWaitMs: 500 })]).toEqual([6000, 500])
   expect(PER_BACKEND_OPTIONS).toContain('rejudgeWaitMs')
   expect(readConfig({}).defaults.used).toContainEqual(['rejudgeWaitMs', 300])
+  expect(readConfig(PPLX_OPTIONS).defaults.used).toContainEqual(['rejudgeWaitMs', 6000])
 })
 
-test('the eval reads the table the mod reads: the same round-up threshold, the same question asked beside a message (the variant it runs as the mod does), the same limit on contextMessages', () => {
+test('the eval reads the table the mod reads, for either decision model: the same round-up threshold, the same question asked beside a message (the variant it runs as the mod does), the same limit on contextMessages', () => {
   const jevSettings = settingsFrom(optionsFor('jev', {}))
   expect([jevSettings.roundUp, jevSettings.ask.turnStart, jevSettings.context.messages, modVariant(jevSettings)]).toEqual([0.3, { language: 'zh', primitive: 'score' }, 32, 'zh-score'])
   const userConfig = { contextMessages: { type: 'number' } }
-  const settings = settingsFrom(optionsFor('jev', userConfig, ['contextMessages=5000']), OTHER)
-  expect([settings.roundUp, settings.ask.turnStart, settings.context.messages, modVariant(settings)]).toEqual([0.45, { language: 'en', primitive: 'choice' }, 2000, 'en-choice'])
+  const pplxSettings = settingsFrom(optionsFor('pplx', userConfig, ['contextMessages=5000']))
+  expect([pplxSettings.backend, pplxSettings.roundUp, pplxSettings.ask.turnStart, pplxSettings.context.messages, modVariant(pplxSettings)]).toEqual(['pplx', 0.45, { language: 'en', primitive: 'score' }, 2000, 'en-score'])
+})
+
+// Perplexity's pplx-decider-v1.1-27b is the second decision model (`decisionModel: pplx`, #50; B′ of ADR 0006): a 262k window,
+// one request a message in English, thresholds calibrated on its own answers. Its row of the table (core/setup.ts BACKEND_DEFAULTS)
+// reaches everything that reads a default. Seam 2: the shared reading.
+
+test('readConfig for pplx: its row of the table stands where the person set nothing (B′, ADR 0006)', () => {
+  const config = readConfig({ decisionModel: 'pplx' })
+  expect(config.backend).toBe('pplx')
+  expect([config.timeoutMs, config.context, config.midturn.waitMs, config.skills.findWaitMs]).toEqual([8000, { messages: 2000, tokens: 6000 }, 6000, 6000])
+  // Every kind of request but the skills' takes 48000 tokens; the skills' two stages stay at 6000.
+  expect(config.contextByKind).toEqual({ messagePlain: 48000, rejudge: 48000, agent: 48000, workflow: 48000 })
+  expect(config.midturn.limits).toEqual({ steps: 16, tokens: 48000 })
+  expect(config.midturn.rules).toEqual({ thetaUp: 0, thetaDown: 0.55, thetaMax: 0.47, roundUp: 0.45, holdSteps: 5 })
+  expect([config.thetaMax, config.roundUp]).toEqual([0.47, 0.45])
+  // What the table does not calibrate for pplx is Jev's.
+  expect([config.escalation.thetaExpected, config.agents.thetaOverride, config.skills.suggest.minRelevance, config.skills.find.minRelevance]).toEqual([0.25, 0.6, 0.75, 0.5])
+  expect([config.skills.suggestByDefault, config.skills.findByProfile]).toEqual([true, true])
+  // Every question in English, the effort question beside a message too.
+  expect(config.ask).toEqual({ turnStart: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
+  expect(config.defaults.used.map(([option]) => option)).toEqual([...PER_BACKEND_OPTIONS])
+})
+
+test("readConfig for pplx: a value the person sets comes first, within pplx's own most (2000 messages, 48000 tokens, 8000 ms)", () => {
+  const config = readConfig({ decisionModel: 'pplx', timeoutMs: 3000, contextMessages: 5000, contextTokens: 60000, rejudgeWaitMs: 500, thetaMax: 0.6 })
+  expect([config.timeoutMs, config.context.messages, config.midturn.waitMs, config.thetaMax]).toEqual([3000, 2000, 500, 0.6])
+  expect(config.contextByKind).toEqual({ messagePlain: 48000, rejudge: 48000, agent: 48000, workflow: 48000 })
+  expect(config.defaults.capped).toHaveLength(2)
+  expect(config.defaults.capped).toContainEqual({ option: 'contextMessages', set: 5000, read: 2000 })
+  expect(config.defaults.capped).toContainEqual({ option: 'contextTokens', set: 60000, read: 48000 })
+  // A budget below the kinds' own holds for every kind, the skills' two stages taking the smaller of it and 6000.
+  const less = readConfig({ decisionModel: 'pplx', contextTokens: 20000 })
+  expect([less.context.tokens, less.contextByKind]).toEqual([6000, { messagePlain: 20000, rejudge: 20000, agent: 20000, workflow: 20000 }])
+})
+
+test('readConfig: only pplx and jev are decision models; anything else (unset, a typo) reads as Jev until the default moves (#52)', () => {
+  for (const decisionModel of [undefined, 'jev', 'pplx-typo', 'clef']) expect(readConfig(decisionModel === undefined ? {} : { decisionModel }).backend).toBe('jev')
 })

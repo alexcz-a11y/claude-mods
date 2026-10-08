@@ -10,13 +10,14 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from '
 import { homedir } from 'node:os'
 import { basename, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
+import type { BackendName } from '../hooks/core/setup.ts'
 import type { Backend, BackendIo } from '../hooks/decision/backend.ts'
 import { jevBackend } from '../hooks/decision/jev.ts'
 import { pplxBackend } from '../hooks/decision/pplx.ts'
 import { isKind, parseJsonl, type Kind } from './lib/datasets.ts'
 import { buildEvalV2, checkFinalGold, checkGold, checkItem, checkSegment, datasetWarnings, evalV2Jsonl, generatedFile, type Built, type FinalGold, type Segment, type V2Item, type V2Record } from './lib/eval-v2.ts'
 import { v2Item, type V2EvalItem } from './lib/eval-v2-suite.ts'
-import { optionsFor, settingsFrom, type EvalBackend, type OptionSpec, type SuiteHost } from './lib/suite.ts'
+import { optionsFor, settingsFrom, type OptionSpec, type SuiteHost } from './lib/suite.ts'
 
 /** The mod's directory (dispatch-pilot/). */
 export const MOD_DIR = resolve(import.meta.dirname, '..')
@@ -141,7 +142,7 @@ export function formatResult(result: Record<string, unknown> & { answers: readon
 /**
  * Input price per million tokens, by backend; output is free on all (docs.typesafe.ai/models, 2026-10-04; Perplexity: docs.perplexity.ai/docs/decisions/quickstart, Pricing, 2026-10-07).
  */
-export const PRICES: Readonly<Record<EvalBackend, number>> = { jev: 0.042, pplx: 0.02 }
+export const PRICES: Readonly<Record<BackendName, number>> = { jev: 0.042, pplx: 0.02 }
 
 /**
  * What scripts/decide*.ts share, read with node:util parseArgs: `--timeout <ms>`

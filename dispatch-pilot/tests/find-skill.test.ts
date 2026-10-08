@@ -6,7 +6,7 @@
 import { expect, test } from 'claude-code/testing'
 import { profileKey } from '../hooks/core/profiles.ts'
 import type { Reply, Sent, SkillsWorld } from './support/world.ts'
-import { isSecondSkillsRequest, rates, world } from './support/world.ts'
+import { isSecondSkillsRequest, jev, pplx, rates, world } from './support/world.ts'
 
 const KEY = { typesafeApiKey: 'ts-test-key' }
 /** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
@@ -264,12 +264,16 @@ test('both requests share one wait: the second gets what the first left of timeo
 
 // ---- By decision model: how long the call waits, what its first request offers ----------
 
-// The wait is the decision model's (core/setup.ts BACKEND_DEFAULTS): with Jev a message's (timeoutMs).
-const WAITS = [{ name: 'Jev', options: KEY, reply: (answer: (request: Sent) => Reply) => answer, wait: 1500, backend: 'jev' }] as const
+// The wait is the decision model's (core/setup.ts BACKEND_DEFAULTS): with Jev a message's (timeoutMs, 1500 ms), with pplx 6000 ms
+// (findSkillWaitMs), less than the message's 8000 so that the call leaves a hook's 10 s room.
+const WAITS = [
+  { name: 'Jev', options: KEY, model: jev, wait: 1500, backend: 'jev' },
+  { name: 'pplx', options: { decisionModel: 'pplx', perplexityApiKey: 'pplx-test-key' }, model: pplx, wait: 6000, backend: 'pplx' },
+] as const
 
 for (const chosen of WAITS) {
   test(`with ${chosen.name}, find_skill's two requests share ${chosen.wait} ms in all: the second gets what the first left, and given up, the call says so`, { options: chosen.options }, async ($, on) => {
-    const answer = chosen.reply(rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 }))
+    const answer = rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 }, [0, 1, 0, 0, 0], chosen.model)
     // The first request answers 400 ms before the wait is over; the second would take a minute.
     const w = world($, on, { backend: (request) => ({ after: isSecondSkillsRequest(request) ? 60_000 : chosen.wait - 400, reply: answer(request) }), skills: SKILLS, disk: PERSON_FILES })
     const calling = w.findSkill('write the tests first')

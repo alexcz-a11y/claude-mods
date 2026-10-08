@@ -124,6 +124,20 @@ test('without a key nothing is sent: a config failure that says what to set', as
   expect(asked).toEqual({ ok: false, failure: { kind: 'config', detail: expect.stringContaining('PERPLEXITY_API_KEY') } })
 })
 
+test("a key given as a function is read when the backend is asked, not when it is built: the mod's key may come from the environment, which is read after", async () => {
+  const net = network(() => json(200, DOCUMENTED))
+  let key = ''
+  const backend = pplxBackend(() => key)
+  expect(backend.configured).toBe(false)
+  expect(await backend.ask(net.io, REQUEST, 1500)).toMatchObject({ ok: false, failure: { kind: 'config', detail: 'no Perplexity API key: set perplexityApiKey or PERPLEXITY_API_KEY' } })
+  expect(net.seen).toEqual([])
+
+  key = KEY
+  expect(backend.configured).toBe(true)
+  expect(await backend.ask(net.io, REQUEST, 1500)).toMatchObject({ ok: true })
+  expect(net.seen[0]?.headers.authorization).toBe(`Bearer ${KEY}`)
+})
+
 // What each failure of the Decisions API comes to (quickstart, Errors). The bodies are the documented ones: a JSON
 // `error` object for most, an empty body for 404 and 405, an HTML page for a 504.
 const failures: { name: string; status: number; text: string; headers?: Record<string, string>; kind: string; detail: RegExp }[] = [

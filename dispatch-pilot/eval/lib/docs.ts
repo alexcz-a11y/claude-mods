@@ -7,9 +7,9 @@
 // The table is every row under the README's `## 配置` heading (its `###`
 // groups included) whose first cell is an option's name in backticks:
 //
-//   | 选项 | 作用 | Jev |
-//   | `timeoutMs` | how long a message waits | `1500` |
-//   | `thetaUp` | threshold to raise effort | `0.3` 按 AA 基准 |
+//   | 选项 | 作用 | Jev | pplx |
+//   | `timeoutMs` | how long a message waits | `1500` | `8000` |
+//   | `thetaUp` | threshold to raise effort | `0.3` 按 AA 基准 | `0` 离线校准 |
 //
 // Each default cell starts with the default in backticks (`空` for an empty
 // text or list, `true` or `false` for a boolean) and may go on with a note
@@ -26,7 +26,10 @@ type Row = { option: string; cells: string[] }
  * name its column goes by. A new decision model is one more entry here, one in core/setup.ts BACKEND_DEFAULTS and a cell
  * for it in every row of the README's tables.
  */
-const BACKENDS: readonly { label: string; backend: BackendName }[] = [{ label: 'Jev', backend: 'jev' }]
+const BACKENDS: readonly { label: string; backend: BackendName }[] = [
+  { label: 'Jev', backend: 'jev' },
+  { label: 'pplx', backend: 'pplx' },
+]
 
 /** Where the default columns start in a row: the option, then what it does. */
 const FIRST_DEFAULT = 2

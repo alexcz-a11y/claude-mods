@@ -141,6 +141,12 @@ export type WorldOptions = {
   /** What `$.settings.read({ source: 'user' })` returns beside the skills' `skillOverrides`: the person's own settings file. */
   userSettings?: Record<string, unknown>
   /**
+   * The environment variables `$.env.get` answers (`PERPLEXITY_API_KEY`; `HOME` too with `skills`); one not listed is unset.
+   * The mod reads them at `session.start`, which the world runs by itself before the first thing the test makes the engine do,
+   * as it does for `switches`. Without it `$.env.get` is not answered, as when the engine refuses the call.
+   */
+  env?: Record<string, string>
+  /**
    * The board data an earlier load of the mod left in `$.state` (a hot reload keeps it): the mod finds it as it
    * starts. Whatever the board starts with, `w.board()` reads what stands now.
    */
@@ -277,13 +283,13 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const disk = options.disk ?? {}
   const agents: AgentInfo[] = Array.isArray(options.agents) ? [...options.agents] : []
   const store = new Map(Object.entries({ ...(options.store ?? {}), ...(options.switches !== undefined ? { switches: { ...(options.store?.switches as object | undefined), ...options.switches } } : {}) }).map(([key, value]) => [key, JSON.stringify(value)]))
-  const sessionWorld = options.session ?? (options.switches !== undefined ? true : undefined)
+  const sessionWorld = options.session ?? (options.switches !== undefined || options.env !== undefined ? true : undefined)
   /** The session start the world runs for `options.switches` (and `w.start()`), once. */
   let starting: Promise<unknown> | undefined
   const startSession = () => (starting ??= $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true }))
   /** Before the first thing a test makes the engine do: the session has started, so the switches the test set are loaded. */
   const booted = async () => {
-    if (options.switches !== undefined) await startSession()
+    if (options.switches !== undefined || options.env !== undefined) await startSession()
   }
   const commands: CommandSpec[] = []
   /** The text a command's turn starts with, by the prompt it was submitted as (`/name args`): the engine's command message. */
@@ -380,9 +386,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       return { value: { tool: `mcp__dispatch-pilot__${e.name}` } }
     })
   }
+  // One `mock.env` for the world: the skills' `HOME` and the variables the test sets.
+  if (options.skills !== undefined || options.env !== undefined) mock.env(on, { ...(options.skills === undefined ? {} : { HOME: options.skills.home ?? '/home/u' }), ...options.env })
   if (options.skills !== undefined) {
     const skills = options.skills
-    mock.env(on, { HOME: skills.home ?? '/home/u' })
     on('session.cwd', () => ({ value: skills.cwd ?? '/work' }))
     on('command.list', () => ({ value: skills.commands ?? [] }))
     on('session.usage', () => (skills.listed === null ? { deny: 'no session bound' } : { value: usageListing(skills.listed ?? []) }))
@@ -761,6 +768,9 @@ function usageListing(listed: readonly ContextSkill[]): SessionUsage {
   return { startedAt: 0, context: { window: 200_000, breakdown }, rateLimits: [] }
 }
 
+/** What a decision model's answer can be told besides the probabilities (`jev`, `pplx`). */
+export type AnswerExtra = { status?: number; choice?: string; confidence?: number | null; shares?: Record<string, Record<string, number>>; nouls?: Record<string, number> }
+
 /**
  * A Jev answer to every question of the request it replies to: each `score`
  * question gets `levels` as its probabilities (lowest level first) and
@@ -770,10 +780,7 @@ function usageListing(listed: readonly ContextSkill[]): SessionUsage {
  * question id, else 0.5. The unresolved question (`effort.unresolved`) is
  * answered "new or unrelated" unless `shares` says otherwise: no count moves.
  */
-export function jev(
-  levels: readonly number[],
-  extra: { status?: number; choice?: string; confidence?: number | null; shares?: Record<string, Record<string, number>>; nouls?: Record<string, number> } = {},
-) {
+export function jev(levels: readonly number[], extra: AnswerExtra = {}) {
   return (request: Sent): Reply => {
     const answers: Record<string, unknown> = {}
     const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
@@ -803,6 +810,30 @@ export function jev(
   }
 }
 
+/** Perplexity's Decisions API, as the real one answers what the mod could get wrong (docs.perplexity.ai/docs/decisions). */
+const PPLX = { url: 'https://api.perplexity.ai/v1/decisions', model: 'pplx-decider-v1.1-27b' }
+
+/**
+ * A pplx-decider answer to every question of the request it replies to, shaped as `jev` answers (the two APIs answer alike),
+ * from `{ model: 'pplx-decider-v1.1-27b', answers, usage }`. It refuses what the real API refuses, so that a test of the mod
+ * cannot pass on a request the API would not take: another URL gets a 404 with an empty body, a request without a Bearer key
+ * (or, with `extra.key`, with another key than that) a 401 `{ error: { message, type, code } }`, a model name it does not
+ * serve or a top-level field beyond `model`, `state` and `questions` a 400.
+ */
+export function pplx(levels: readonly number[], extra: AnswerExtra & { key?: string } = {}) {
+  const { key, ...answering } = extra
+  return (request: Sent): Reply => {
+    if (request.url !== PPLX.url) return { status: 404, body: '' }
+    const bearer = /^Bearer (\S+)$/.exec(request.headers.authorization ?? '')?.[1]
+    if (bearer === undefined || (key !== undefined && bearer !== key)) return { status: 401, body: { error: { message: 'Invalid API key', type: 'invalid_api_key', code: 401 } } }
+    const extraFields = Object.keys(request.body ?? {}).filter((field) => !['model', 'state', 'questions'].includes(field))
+    if (extraFields.length > 0) return { status: 400, body: { error: { message: `unknown field ${extraFields.join(', ')}`, type: 'invalid_request_error', code: 400 } } }
+    if (request.body?.model !== PPLX.model) return { status: 400, body: { error: { message: `unknown model ${String(request.body?.model)}`, type: 'invalid_request_error', code: 400 } } }
+    const reply = jev(levels, answering)(request)
+    return 'body' in reply && typeof reply.body === 'object' && reply.body !== null ? { ...reply, body: { ...reply.body, model: PPLX.model } } : reply
+  }
+}
+
 /**
  * A request's body without the unresolved question (#39): it travels in the message's effort request beside the
  * effort question and reads the same state, so the effort-submit eval, which measures the effort question alone,
@@ -824,11 +855,12 @@ export function isSecondSkillsRequest(request: Sent): boolean {
  * main agent can load, and `skills.hint`, those only the person can start,
  * each these `shares` of its own options), and the second, where each
  * `skills.fits.<i>` is the fit `fits` gives the skill its instructions name
- * (0 when left out) and `skills.best` puts all on the best-fitting one.
+ * (0 when left out) and `skills.best` puts all on the best-fitting one. `model` is the decision model that answers
+ * (`jev` by default, or `pplx`).
  */
-export function rates(shares: Record<string, number>, fits: Record<string, number> = {}, levels: readonly number[] = [0, 1, 0, 0, 0]) {
+export function rates(shares: Record<string, number>, fits: Record<string, number> = {}, levels: readonly number[] = [0, 1, 0, 0, 0], model: typeof jev = jev) {
   return (request: Sent): Reply => {
-    if (!isSecondSkillsRequest(request)) return jev(levels, { shares: { 'skills.which': shares, 'skills.hint': shares } })(request)
+    if (!isSecondSkillsRequest(request)) return model(levels, { shares: { 'skills.which': shares, 'skills.hint': shares } })(request)
     const questions = request.body.questions as Record<string, { instructions?: { skill?: { name?: string } } }>
     const nouls: Record<string, number> = {}
     for (const [id, question] of Object.entries(questions)) {
@@ -836,6 +868,6 @@ export function rates(shares: Record<string, number>, fits: Record<string, numbe
     }
     const named = Object.values(questions).flatMap((question) => question.instructions?.skill?.name ?? [])
     const best = named.reduce((top, name) => ((fits[name] ?? 0) > (fits[top] ?? 0) ? name : top), named[0] ?? '')
-    return jev(levels, { nouls, shares: { 'skills.best': { [best]: 1 } } })(request)
+    return model(levels, { nouls, shares: { 'skills.best': { [best]: 1 } } })(request)
   }
 }

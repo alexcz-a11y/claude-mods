@@ -10,7 +10,7 @@ import { jevBackend } from '../hooks/decision/jev.ts'
 import type { EffortSubmitItem } from '../eval/lib/datasets.ts'
 import { effortSubmit } from '../eval/lib/effort-submit.ts'
 import { attemptMs, runSuite } from '../eval/lib/runner.ts'
-import { optionsFor, optionsFrom, settingsFrom, settingsModel, withStateTokens } from '../eval/lib/suite.ts'
+import { optionsFor, optionsFrom, settingsFrom, withStateTokens } from '../eval/lib/suite.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import type { UnresolvedItem } from '../eval/lib/datasets.ts'
 import { UNRESOLVED_VARIANTS, unresolvedRequest } from '../eval/lib/unresolved.ts'
@@ -162,15 +162,21 @@ test('an --option the manifest does not have, or a value its type cannot take, i
   expect(() => optionsFrom(USER_CONFIG, ['contextTokens'])).toThrow('--option takes name=value, not contextTokens')
 })
 
-// Perplexity's decision model (#43) is not one of the mod's choices (`decisionModel`) yet, so a run on it reads the
-// mod's settings as Jev's: the same budgets, the same timeout, the same question language. Then a comparison with
-// Jev differs in the model alone.
-test("a run on Perplexity asks with Jev's settings: the budgets, the timeout and the question language", () => {
+// Perplexity's decision model is one of the mod's choices (`decisionModel: pplx`, #50), so a run on it reads the mod's own
+// settings for it, pplx's row of the table, not Jev's: the eval and the mod ask the same.
+test("a run on Perplexity asks with pplx's own settings: the budgets, the timeout, the thresholds and the question language", () => {
   const userConfig = {}
-  const pplx = settingsFrom(optionsFor(settingsModel('pplx'), userConfig))
-  const jevSettings = settingsFrom(optionsFor(settingsModel('jev'), userConfig))
-  expect(pplx).toEqual(jevSettings)
-  expect([pplx.backend, pplx.timeoutMs, pplx.context.tokens, pplx.ask.turnStart.language]).toEqual(['jev', 1500, 6000, 'zh'])
+  const pplx = settingsFrom(optionsFor('pplx', userConfig))
+  const jevSettings = settingsFrom(optionsFor('jev', userConfig))
+  expect([pplx.backend, pplx.timeoutMs, pplx.context, pplx.contextByKind, pplx.ask]).toEqual([
+    'pplx',
+    8000,
+    { messages: 2000, tokens: 6000 },
+    { messagePlain: 48000, rejudge: 48000, agent: 48000, workflow: 48000 },
+    { turnStart: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
+  ])
+  expect([pplx.thetaMax, pplx.roundUp, pplx.midturn.rules.thetaUp, pplx.midturn.waitMs, pplx.skills.findWaitMs]).toEqual([0.47, 0.45, 0, 6000, 6000])
+  expect([jevSettings.backend, jevSettings.timeoutMs, jevSettings.thetaMax, jevSettings.roundUp, jevSettings.ask.turnStart.language]).toEqual(['jev', 1500, 0.5, 0.3, 'zh'])
 })
 
 // A run can widen the state's budget past what any decision model of the mod has (`--state-tokens`), to see whether a
