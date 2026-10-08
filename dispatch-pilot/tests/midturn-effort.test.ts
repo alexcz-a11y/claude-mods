@@ -9,7 +9,7 @@ import { midturnEffortPart, midturnState, type MidturnInput } from '../hooks/dec
 import { mergeParts } from '../hooks/decision/system-one.ts'
 import { jev, world, type Sent } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 /** The ids of a request's questions: `effort.level` when a message is sent, `midturn.level` mid-turn. */
 function kind(request: Sent | undefined): string {

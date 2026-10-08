@@ -14,7 +14,7 @@ import { siteJev } from './support/workflow.ts'
 import { runDir, runWorld } from './support/workflow-run.ts'
 import { jev, world, type Reply, type Sent, type ToolRun, type World } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 /** The escalation decisions the board keeps, oldest first. */
 async function escalations(w: World) {

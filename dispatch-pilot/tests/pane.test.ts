@@ -9,7 +9,7 @@ import { expect, test } from 'claude-code/testing'
 import { runWorld } from './support/workflow-run.ts'
 import { jev, world, type LogEntry, type ProfilesState, type Sent } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 const PANE = 'dp-rationale'
 
 /** A drawn element as plain data (what `drawn()` and `find` hand back). */

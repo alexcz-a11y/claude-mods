@@ -8,7 +8,7 @@ import type { ModelCompleteRequest } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import { rates, world, type Completion, type SkillsWorld } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 const TDD_DESCRIPTION = 'Test-driven development. Use when the user wants to build features or fix bugs test-first.'
 const REVIEW_DESCRIPTION = 'Review the changes since a fixed point along two axes: Standards and Spec.'

@@ -94,11 +94,11 @@ async function play(w: World, turn: Turn): Promise<void> {
 }
 
 for (const language of ['zh', 'en'] as const) {
-  test(`the eval's request for an item is the mod's mid-turn request for that turn (${language})`, { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+  test(`the eval's request for an item is the mod's mid-turn request for that turn (${language})`, { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
     const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
     await play(w, TURNS[language])
 
-    const { request } = midturnRequest(ITEM, language, 'en-score', settingsFrom({}))
+    const { request } = midturnRequest(ITEM, language, 'en-score', settingsFrom({ decisionModel: 'jev' }))
     expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level'])
     expect(w.requests[1]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
     // What the request holds, so the equality above is not two empty things;
@@ -112,16 +112,16 @@ for (const language of ['zh', 'en'] as const) {
 
 test("the raw-results variant sends each call's result as the dataset writes it, what came of it included: the gap to what the mod sends", () => {
   const lines = (variant: string) =>
-    (midturnRequest(ITEM, 'zh', variant, settingsFrom({})).request.state.recent_steps as { tools: { result: string }[] }[]).flatMap((step) => step.tools.map((tool) => tool.result))
+    (midturnRequest(ITEM, 'zh', variant, settingsFrom({ decisionModel: 'jev' })).request.state.recent_steps as { tools: { result: string }[] }[]).flatMap((step) => step.tools.map((tool) => tool.result))
   expect(lines('en-score')).toEqual(['成功：查看最近的日志', '失败：server/proxy.ts', '进行中：src/proxy.ts'])
   expect(lines('raw-results')).toEqual(['成功：最近 50 行里有 3 次 upstream timeout', '失败：文件不存在', '进行中'])
 })
 
-test("the eval reads the re-decision's limits as the mod does: the latest rejudgeSteps steps, within contextTokens", { options: { typesafeApiKey: 'k', rejudgeSteps: 2, contextTokens: 300 } }, async ($, on) => {
+test("the eval reads the re-decision's limits as the mod does: the latest rejudgeSteps steps, within contextTokens", { options: { decisionModel: 'jev', typesafeApiKey: 'k', rejudgeSteps: 2, contextTokens: 300 } }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
   await play(w, TURNS.zh)
 
-  const { request } = midturnRequest(ITEM, 'zh', 'en-score', settingsFrom({ rejudgeSteps: 2, contextTokens: 300 }))
+  const { request } = midturnRequest(ITEM, 'zh', 'en-score', settingsFrom({ decisionModel: 'jev', rejudgeSteps: 2, contextTokens: 300 }))
   expect(w.requests[1]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   expect((request.state.recent_steps as { assistant_text: string }[]).map((step) => step.assistant_text)).toEqual(['读一下代理配置。', '换个路径再读。'])
 })
@@ -184,7 +184,7 @@ function stuckRows(ids: readonly string[]): SessionMessage[] {
   ]
 }
 
-test("the trouble variant asks a stuck item exactly what the mod asks a turn whose failures reach escalateAfter: the trouble, the effort question with its flag, and whether the failures were expected", { options: { typesafeApiKey: 'k', rejudgeEvery: 0 } }, async ($, on) => {
+test("the trouble variant asks a stuck item exactly what the mod asks a turn whose failures reach escalateAfter: the trouble, the effort question with its flag, and whether the failures were expected", { options: { decisionModel: 'jev', typesafeApiKey: 'k', rejudgeEvery: 0 } }, async ($, on) => {
   let calls: readonly { id: string }[] = []
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), messages: () => stuckRows(calls.map((call) => call.id)) })
   calls = w.toolCalls
@@ -199,7 +199,7 @@ test("the trouble variant asks a stuck item exactly what the mod asks a turn who
     ],
   })
 
-  const { request } = midturnRequest(STUCK, 'zh', 'trouble', settingsFrom({ rejudgeEvery: 0 }))
+  const { request } = midturnRequest(STUCK, 'zh', 'trouble', settingsFrom({ decisionModel: 'jev', rejudgeEvery: 0 }))
   // Asked as the second failed run ended, for step 2.
   expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level,escalation.expected'])
   expect(w.requests[1]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
@@ -236,7 +236,7 @@ function run(items: EffortMidturnItem[], net: ReturnType<typeof network>, varian
     io: net.io,
     now: () => 0,
     pause: async () => {},
-    settings: settingsFrom(options),
+    settings: settingsFrom({ decisionModel: 'jev', ...options }),
     variants,
     timeoutMs: 10_000,
     retries: 0,
@@ -283,7 +283,7 @@ for (const { options, answer, sent } of [
   { options: { thetaDown: 0.9 }, answer: LOW, sent: 'high' }, // not sure enough to drop
   { options: { thetaUp: 0.9 }, answer: XHIGH, sent: 'high' }, // not sure enough to raise
 ]) {
-  test(`the level the eval records as sent is the one the mod goes on at after the same answer (${JSON.stringify(options)})`, { options: { typesafeApiKey: 'k', ...options } }, async ($, on) => {
+  test(`the level the eval records as sent is the one the mod goes on at after the same answer (${JSON.stringify(options)})`, { options: { decisionModel: 'jev', typesafeApiKey: 'k', ...options } }, async ($, on) => {
     const w = world($, on, { backend: (request) => (kind(request) === 'midturn.level' ? jev(answer, { confidence: 0.8 })(request) : jev([0, 0, 1, 0, 0])(request)) })
     await play(w, TURNS.zh)
     await w.step({ index: 3 })
@@ -326,7 +326,7 @@ test('the report scores keeping the current level as a baseline, and gives the a
     answered(d, 'zh', 'high'), // wrong
     answered(d, 'en', null), // no answer
   ]
-  const summary = summarize(effortMidturn, items, rows, { slowMs: 1500, settings: settingsFrom({}) })
+  const summary = summarize(effortMidturn, items, rows, { slowMs: 1500, settings: settingsFrom({ decisionModel: 'jev' }) })
 
   // Keeping the current level is right on b (gold) and d (acceptable), wrong on a and c.
   expect(summary.constants.find((c) => c.answer === 'current')).toEqual({ answer: 'current', accuracy: 0.5, exact: 0.25 })
@@ -346,12 +346,12 @@ test('the report scores keeping the current level as a baseline, and gives the a
 })
 
 test('below escalateAfter the trouble variant asks as the mod does every N steps; escalateAfter is read as the mod reads it', () => {
-  const settings = settingsFrom({})
+  const settings = settingsFrom({ decisionModel: 'jev' })
   expect(ITEM.zh.counts.failures).toBe(1)
   expect(midturnRequest(ITEM, 'zh', 'trouble', settings)).toEqual(midturnRequest(ITEM, 'zh', 'en-score', settings))
   expect(midturnRequest(STUCK, 'zh', 'trouble', settings)).not.toEqual(midturnRequest(STUCK, 'zh', 'en-score', settings))
   // With escalateAfter 3, two failures are not yet a stuck turn.
-  const later = settingsFrom({ escalateAfter: 3 })
+  const later = settingsFrom({ decisionModel: 'jev', escalateAfter: 3 })
   expect(midturnRequest(STUCK, 'zh', 'trouble', later)).toEqual(midturnRequest(STUCK, 'zh', 'en-score', later))
 })
 

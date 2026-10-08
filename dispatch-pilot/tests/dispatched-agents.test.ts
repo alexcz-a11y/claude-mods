@@ -8,7 +8,7 @@ import { dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/di
 import { mergeParts } from '../hooks/decision/system-one.ts'
 import { world, type Reply, type Sent } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 type AgentAnswers = {
   /** The model question's probability for each option (an option left out gets 0). */
@@ -483,13 +483,13 @@ for (const failure of failures) {
   })
 }
 
-test('no TypeSafe key: nothing is sent, the agent starts as the main agent asked, and the board says to set the key', async ($, on) => {
+test('no key of either kind: nothing is sent, the agent starts as the main agent asked, and the board says to set the Perplexity key', async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 1 } }) })
   await w.spawn({ prompt: 'Summarize what src/billing/invoice.ts does.', model: 'sonnet' })
 
   expect(w.requests).toHaveLength(0)
   expect(w.spawned.map((s) => s.model)).toEqual(['sonnet'])
-  expect((await w.board()).agents).toMatchObject([{ routed: false, why: 'jev：没有填 typesafeApiKey', failure: { backend: 'jev', kind: 'config' } }])
+  expect((await w.board()).agents).toMatchObject([{ routed: false, why: 'pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY', failure: { backend: 'pplx', kind: 'config' } }])
 })
 
 test('a spawn refused beneath, after the decision failed, started no agent: nothing of it on the board, no toast, nothing left running', { options: KEY }, async ($, on) => {

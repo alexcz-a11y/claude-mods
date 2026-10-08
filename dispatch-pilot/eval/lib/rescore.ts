@@ -130,7 +130,7 @@ export function rescoreSubmit(result: StoredAnswers, items: readonly EffortSubmi
  * The effort-midturn variants of a result: the level each stored answer picks and the level the mod would go on
  * at, before (the pick and gates of 0.2.1) and now (the current pick and `rules`, by default the gates the mod ships).
  */
-export function rescoreMidturn(result: StoredAnswers, items: readonly EffortMidturnItem[], rules: MidturnRules = readConfig({}).midturn.rules): Compared[] {
+export function rescoreMidturn(result: StoredAnswers, items: readonly EffortMidturnItem[], rules: MidturnRules = readConfig({ decisionModel: 'jev' }).midturn.rules): Compared[] {
   const run = rulesOf(result)
   return result.summary.variants.flatMap(({ variant }) => {
     const rows = rowsOf(result, items, variant, 'p').map(({ item, language, detail }) => ({ item, reading: readingOf(detail), current: item[language].current_effort }))
@@ -160,7 +160,7 @@ export type ThetaDownRow = { variant: string; language: Language | 'both'; theta
  * ships them, `thetaMax` and `roundUp` as the run had them) graded as `sent`. Only `thetaDown` differs from row to row; nothing is
  * asked again.
  */
-export function scanThetaDown(result: StoredAnswers, items: readonly EffortMidturnItem[], thetas: readonly number[], rules: MidturnRules = readConfig({}).midturn.rules): ThetaDownRow[] {
+export function scanThetaDown(result: StoredAnswers, items: readonly EffortMidturnItem[], thetas: readonly number[], rules: MidturnRules = readConfig({ decisionModel: 'jev' }).midturn.rules): ThetaDownRow[] {
   const run = rulesOf(result)
   return result.summary.variants.flatMap(({ variant }) => {
     const rows = rowsOf(result, items, variant, 'p').map(({ item, language, detail }) => ({ item, language, reading: readingOf(detail), current: item[language].current_effort }))
@@ -185,7 +185,8 @@ export function scanThetaDown(result: StoredAnswers, items: readonly EffortMidtu
  * named effort kept, none on haiku) and under the rule now (`decideDispatch`: the pick, the level above, the floor).
  */
 export function rescoreAgents(result: StoredAnswers, items: readonly AgentItem[]): Compared[] {
-  const config = readConfig({ ...(result.settings.options ?? {}), thetaMax: result.settings.thetaMax } as Parameters<typeof readConfig>[0])
+  // A result file from before the default moved to pplx names no decision model: those were Jev's.
+  const config = readConfig({ decisionModel: 'jev', ...(result.settings.options ?? {}), thetaMax: result.settings.thetaMax } as Parameters<typeof readConfig>[0])
   const run = rulesOf(result)
   return result.summary.variants.flatMap(({ variant }) => {
     const variantAsk = AGENT_VARIANTS[variant]?.ask

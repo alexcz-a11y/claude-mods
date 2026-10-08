@@ -8,7 +8,7 @@
 
 import type { SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
-import { BACKEND_DEFAULTS, dispatchSettings, PER_BACKEND_OPTIONS, readConfig, setup } from '../hooks/core/setup.ts'
+import { BACKEND_DEFAULTS, backendNameOf, chooseBackend, dispatchSettings, PER_BACKEND_OPTIONS, readConfig, setup } from '../hooks/core/setup.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { DEFAULT_AGENT_MODELS, dispatchPart } from '../hooks/decision/dispatched-agent.ts'
 import { DEFAULT_ASK, traceEffort, turnStartEffortPart, type EffortReading } from '../hooks/decision/effort.ts'
@@ -25,7 +25,7 @@ import { jev, rates, world } from './support/world.ts'
 /** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
 const UNRESOLVED_ON = { unresolved: true }
 
-const JEV = { typesafeApiKey: 'ts-test-key' }
+const JEV = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 /** A message 25000 tokens long as the mod counts them (one a Chinese character): longer than any budget. */
 const LONG = '把登录模块重构成三层'.repeat(2500)
@@ -104,7 +104,7 @@ test("a Workflow's requests and a mid-turn state keep within a budget the person
   const calls = Array.from({ length: 8 }, (_, i) => `const r${i} = await agent(${JSON.stringify(prompt)}, { label: 'step-${i}' })`).join('\n')
   const parsed = parseWorkflow(`export const meta = { name: 'big', description: 'Check every cache', phases: [] }\n${calls}\nreturn r0\n`)
   if (parsed === null) throw new Error('the script did not parse')
-  const { batches } = workflowBatches(parsed, PASTED, dispatchSettings({ config: readConfig({ contextTokens: 2000 }), ask: DEFAULT_ASK }), 2000)
+  const { batches } = workflowBatches(parsed, PASTED, dispatchSettings({ config: readConfig({ decisionModel: 'jev', contextTokens: 2000 }), ask: DEFAULT_ASK }), 2000)
   expect(batches.length).toBeGreaterThan(0)
   for (const batch of batches) expect(sentTokens(batch.request.state)).toBeLessThanOrEqual(2000)
 
@@ -189,7 +189,7 @@ test("at session start the debug log says which options took the decision model'
 // The reading the mod, the eval and scripts/decide*.ts share.
 
 test("readConfig: an option left unset takes the decision model's default", () => {
-  const config = readConfig({})
+  const config = readConfig({ decisionModel: 'jev' })
   expect([config.backend, config.timeoutMs, config.context, config.skills.suggest.minRelevance, config.skills.suggestByDefault]).toEqual(['jev', 1500, { messages: 32, tokens: 6000 }, 0.75, true])
   expect(config.midturn.limits).toEqual({ steps: 16, tokens: 24000 })
   expect([config.skills.findWaitMs, config.skills.findByProfile]).toEqual([1500, true])
@@ -201,16 +201,16 @@ test("readConfig: an option left unset takes the decision model's default", () =
 // Raising is easy, lowering is hard (AA's scores fall steeply as effort falls, DEVELOPMENT.md, 「按 AA 基准校正」): the
 // mid-turn gates.
 test('the mid-turn gates by default: a raise needs 0.3, a lowering 0.55 and no raise in the last 5 steps', () => {
-  expect(readConfig({}).midturn.rules).toEqual({ thetaUp: 0.3, thetaDown: 0.55, thetaMax: 0.5, roundUp: 0.3, holdSteps: 5 })
+  expect(readConfig({ decisionModel: 'jev' }).midturn.rules).toEqual({ thetaUp: 0.3, thetaDown: 0.55, thetaMax: 0.5, roundUp: 0.3, holdSteps: 5 })
   // What the person sets is what is used.
-  expect(readConfig({ thetaUp: 0.4, thetaDown: 0.6, holdSteps: 3 }).midturn.rules).toMatchObject({ thetaUp: 0.4, thetaDown: 0.6, holdSteps: 3 })
+  expect(readConfig({ decisionModel: 'jev', thetaUp: 0.4, thetaDown: 0.6, holdSteps: 3 }).midturn.rules).toMatchObject({ thetaUp: 0.4, thetaDown: 0.6, holdSteps: 3 })
 })
 
 // The budget by kind of request, as readConfig gives it: `context` is the message that carries the skills' question (and
 // find_skill's first stage), `contextByKind` has the others.
 test("readConfig: the context budget is read by kind of request: 6000 with the skills' question and 24000 for the rest; a value the person sets caps each kind at the smaller", () => {
   const kinds = (options: Record<string, string | number>) => {
-    const config = readConfig(options)
+    const config = readConfig({ decisionModel: 'jev', ...options })
     return { message: config.context.tokens, ...config.contextByKind, rejudge: config.midturn.limits.tokens }
   }
   expect(kinds({})).toEqual({ message: 6000, messagePlain: 24000, rejudge: 24000, agent: 24000, workflow: 24000 })
@@ -218,7 +218,7 @@ test("readConfig: the context budget is read by kind of request: 6000 with the s
   expect(kinds({ contextTokens: 4000 })).toEqual({ message: 4000, messagePlain: 4000, rejudge: 4000, agent: 4000, workflow: 4000 })
   expect(kinds({ contextTokens: 16000 })).toEqual({ message: 6000, messagePlain: 16000, rejudge: 16000, agent: 16000, workflow: 16000 })
   // The debug log's note on a value cut down is about the person's setting against the manifest's most, not each kind.
-  expect(readConfig({ contextTokens: 16000 }).defaults.capped).toEqual([])
+  expect(readConfig({ decisionModel: 'jev', contextTokens: 16000 }).defaults.capped).toEqual([])
 })
 
 // Jev's context defaults are the most it accepts (DEVELOPMENT.md, 配置, 「Jev 的上下文默认值怎么算」), not what the eval ran
@@ -235,7 +235,7 @@ const QUESTION_REAL_PER_ESTIMATED = 21_900 / 16_000
 const SKILLS_FIRST_STAGE_REAL = 21_900
 
 test("Jev's context budget by default, kind of request by kind, keeps the state plus the longest question within 32k and the whole request within 64k, with room to spare", () => {
-  const config = readConfig({})
+  const config = readConfig({ decisionModel: 'jev' })
   const size = (part: { questions: Record<string, unknown> }) => {
     const sizes = Object.values(part.questions).map((question) => estimateTokens(JSON.stringify(question)) * QUESTION_REAL_PER_ESTIMATED)
     return { longest: Math.max(...sizes), total: sizes.reduce((sum, n) => sum + n, 0) }
@@ -278,7 +278,7 @@ test("Jev's context budget by default, kind of request by kind, keeps the state 
   const most = BACKEND_DEFAULTS.jev.contextTokensMax
   expect(most * STATE_REAL_PER_ESTIMATED + questionBudget(most) * QUESTION_REAL_PER_ESTIMATED).toBeLessThanOrEqual(JEV_LIMIT.stateAndQuestion)
   // And what is read of a budget the person sets never exceeds a kind's own: the skills' kinds stay at 6000 whatever is set.
-  expect(readConfig({ contextTokens: most }).context.tokens).toBe(6000)
+  expect(readConfig({ decisionModel: 'jev', contextTokens: most }).context.tokens).toBe(6000)
 })
 
 test("with Jev, a dispatched agent's state and a mid-turn re-decision's message take up to 24000 tokens (a Workflow's briefs too): their questions are short", { options: { ...JEV, rejudgeEvery: 1 } }, async ($, on) => {
@@ -312,21 +312,21 @@ test("with Jev a message carries up to 32 recent messages by default and a re-de
   const steps = Array.from({ length: 20 }, (_, i) => ({ assistant_text: `step ${i}`, tools: [{ name: 'Bash', result: 'Success: run the tests' }] }))
   const input = { message: 'fix it', step: 20, current_effort: 'high' as const, counts: { judgments: 1, changes: 0, failures: 0, hook_blocks: 0 }, recent_steps: steps }
   const kept = (config: ReturnType<typeof readConfig>) => (midturnState(input, config.midturn.limits).recent_steps as unknown[]).length
-  expect(kept(readConfig({}))).toBe(16)
+  expect(kept(readConfig({ decisionModel: 'jev' }))).toBe(16)
 })
 
 test("find_skill's wait follows the message's with Jev, timeoutMs set or not", () => {
-  expect(readConfig({}).skills.findWaitMs).toBe(1500)
-  expect(readConfig({ timeoutMs: 2500 }).skills.findWaitMs).toBe(2500)
+  expect(readConfig({ decisionModel: 'jev' }).skills.findWaitMs).toBe(1500)
+  expect(readConfig({ decisionModel: 'jev', timeoutMs: 2500 }).skills.findWaitMs).toBe(2500)
 })
 
 test('readConfig: a value the person sets is the one used', () => {
-  const config = readConfig({ timeoutMs: 2500, contextMessages: 8, thetaUp: 0.3, thetaDown: 0.7, skillsMinRelevance: 0.6, agentOverride: 0.45, contextTokens: 1200 })
+  const config = readConfig({ decisionModel: 'jev', timeoutMs: 2500, contextMessages: 8, thetaUp: 0.3, thetaDown: 0.7, skillsMinRelevance: 0.6, agentOverride: 0.45, contextTokens: 1200 })
   expect([config.timeoutMs, config.context, config.midturn.rules.thetaUp, config.midturn.rules.thetaDown, config.skills.suggest.minRelevance, config.agents.thetaOverride]).toEqual([2500, { messages: 8, tokens: 1200 }, 0.3, 0.7, 0.6, 0.45])
   expect(config.defaults.used.map(([option]) => option)).not.toContain('timeoutMs')
-  expect(readConfig({ contextTokens: 4000 }).context.tokens).toBe(4000)
+  expect(readConfig({ decisionModel: 'jev', contextTokens: 4000 }).context.tokens).toBe(4000)
   // Jev's most is the manifest's: a value above it reads as 16000, and the debug log says so.
-  const jevCapped = readConfig({ contextTokens: 20000 })
+  const jevCapped = readConfig({ decisionModel: 'jev', contextTokens: 20000 })
   expect(jevCapped.contextByKind.agent).toBe(16000)
   expect(jevCapped.context.tokens).toBe(6000)
   expect(jevCapped.defaults.capped).toEqual([{ option: 'contextTokens', set: 20000, read: 16000 }])
@@ -387,47 +387,47 @@ const reading = (probabilities: number[]): EffortReading => ({ probabilities, co
 
 test("the round-up threshold is the decision model's: Jev takes the level above at 0.3, pplx at 0.45, and each reaches every rule that uses it", () => {
   const roundUps = (config: ReturnType<typeof readConfig>) => [config.roundUp, config.midturn.rules.roundUp, dispatchSettings({ config, ask: config.ask.other }).roundUp]
-  expect(roundUps(readConfig({}))).toEqual([0.3, 0.3, 0.3])
+  expect(roundUps(readConfig({ decisionModel: 'jev' }))).toEqual([0.3, 0.3, 0.3])
   expect(roundUps(readConfig(PPLX_OPTIONS))).toEqual([0.45, 0.45, 0.45])
   // The settings are the effort rules' parameters as they are (what the main agent's feature and the eval hand `traceEffort`): the same answer, 0.3 above the most probable level.
   const answer = reading([0, 0.5, 0.3, 0.2, 0])
-  expect([readConfig({}), readConfig(PPLX_OPTIONS)].map((config) => traceEffort(answer, config).effort)).toEqual(['high', 'medium'])
+  expect([readConfig({ decisionModel: 'jev' }), readConfig(PPLX_OPTIONS)].map((config) => traceEffort(answer, config).effort)).toEqual(['high', 'medium'])
 })
 
 test("how the questions are asked is the decision model's: with Jev the effort question beside a message in Chinese and every other in English, with pplx all in English", () => {
-  expect(readConfig({}).ask).toEqual({ turnStart: { language: 'zh', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
+  expect(readConfig({ decisionModel: 'jev' }).ask).toEqual({ turnStart: { language: 'zh', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
   expect(readConfig(PPLX_OPTIONS).ask).toEqual({ turnStart: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
   // `ctx.ask`, which every feature but the message's effort question asks with, is the table's "other".
-  expect(setup({}).ask).toEqual({ language: 'en', primitive: 'score' })
+  expect(setup({ decisionModel: 'jev' }).ask).toEqual({ language: 'en', primitive: 'score' })
   expect(setup(PPLX_OPTIONS).ask).toEqual({ language: 'en', primitive: 'score' })
   // A table whose `other` is Chinese reaches it (a decision model the table does not have yet).
   const chinese = { ...BACKEND_DEFAULTS, jev: { ...BACKEND_DEFAULTS.jev, ask: { turnStart: { language: 'en', primitive: 'choice' }, other: { language: 'zh', primitive: 'score' } } } } as const
-  expect(setup({}, chinese).ask).toEqual({ language: 'zh', primitive: 'score' })
-  expect(readConfig({}, chinese).ask.turnStart).toEqual({ language: 'en', primitive: 'choice' })
+  expect(setup({ decisionModel: 'jev' }, chinese).ask).toEqual({ language: 'zh', primitive: 'score' })
+  expect(readConfig({ decisionModel: 'jev' }, chinese).ask.turnStart).toEqual({ language: 'en', primitive: 'choice' })
 })
 
 test("contextMessages reads at most what the decision model takes: Jev 32, pplx 2000", () => {
-  expect(readConfig({ contextMessages: 8 }).context.messages).toBe(8)
-  const jevCapped = readConfig({ contextMessages: 40 })
+  expect(readConfig({ decisionModel: 'jev', contextMessages: 8 }).context.messages).toBe(8)
+  const jevCapped = readConfig({ decisionModel: 'jev', contextMessages: 40 })
   expect(jevCapped.context.messages).toBe(32)
   expect(jevCapped.defaults.capped).toEqual([{ option: 'contextMessages', set: 40, read: 32 }])
   // Unset, the decision model's default is its most; a model taking more is not cut at 32.
-  expect(readConfig({}).context.messages).toBe(32)
+  expect(readConfig({ decisionModel: 'jev' }).context.messages).toBe(32)
   expect(readConfig(PPLX_OPTIONS).context.messages).toBe(2000)
   expect(readConfig({ ...PPLX_OPTIONS, contextMessages: 1500 }).context.messages).toBe(1500)
   expect(readConfig({ ...PPLX_OPTIONS, contextMessages: 5000 }).context.messages).toBe(2000)
 })
 
 test("rejudgeWaitMs is an option with a default per decision model: unset it is the model's (Jev 300, pplx 6000), set it is the person's, up to 8000", () => {
-  const waits = (options: Record<string, number | string>) => readConfig(options).midturn.waitMs
+  const waits = (options: Record<string, number | string>) => readConfig({ decisionModel: 'jev', ...options }).midturn.waitMs
   expect([waits({}), waits({ rejudgeWaitMs: 0 }), waits({ rejudgeWaitMs: 500 }), waits({ rejudgeWaitMs: 8000 })]).toEqual([300, 0, 500, 8000])
   // Past 8000 it reads as 8000, and the debug log says so.
   expect(waits({ rejudgeWaitMs: 9000 })).toBe(8000)
-  expect(readConfig({ rejudgeWaitMs: 9000 }).defaults.capped).toEqual([{ option: 'rejudgeWaitMs', set: 9000, read: 8000 }])
+  expect(readConfig({ decisionModel: 'jev', rejudgeWaitMs: 9000 }).defaults.capped).toEqual([{ option: 'rejudgeWaitMs', set: 9000, read: 8000 }])
   // pplx's default stands where the person sets none; what the person sets still comes first.
   expect([waits(PPLX_OPTIONS), waits({ ...PPLX_OPTIONS, rejudgeWaitMs: 500 })]).toEqual([6000, 500])
   expect(PER_BACKEND_OPTIONS).toContain('rejudgeWaitMs')
-  expect(readConfig({}).defaults.used).toContainEqual(['rejudgeWaitMs', 300])
+  expect(readConfig({ decisionModel: 'jev' }).defaults.used).toContainEqual(['rejudgeWaitMs', 300])
   expect(readConfig(PPLX_OPTIONS).defaults.used).toContainEqual(['rejudgeWaitMs', 6000])
 })
 
@@ -472,6 +472,24 @@ test("readConfig for pplx: a value the person sets comes first, within pplx's ow
   expect([less.context.tokens, less.contextByKind]).toEqual([6000, { messagePlain: 20000, rejudge: 20000, agent: 20000, workflow: 20000 }])
 })
 
-test('readConfig: only pplx and jev are decision models; anything else (unset, a typo) reads as Jev until the default moves (#52)', () => {
-  for (const decisionModel of [undefined, 'jev', 'pplx-typo', 'clef']) expect(readConfig(decisionModel === undefined ? {} : { decisionModel }).backend).toBe('jev')
+test('readConfig: pplx is the decision model asked for unless decisionModel says jev; anything else (unset, a typo, clef) reads as unset', () => {
+  for (const decisionModel of [undefined, 'pplx', 'pplx-typo', 'clef']) expect(readConfig(decisionModel === undefined ? {} : { decisionModel }).backend).toBe('pplx')
+  expect(readConfig({ decisionModel: 'jev' }).backend).toBe('jev')
+  expect(backendNameOf({ decisionModel: 'jev' })).toBe('jev')
+  expect(backendNameOf({})).toBe('pplx')
+})
+
+// Which one decides (ADR 0006, #52): the keys decide when the person did not ask for Jev. Seam 2: the pure choice.
+test('chooseBackend: Jev when asked for; else pplx with a Perplexity key; else Jev with a TypeSafe key only (a fall back); else pplx, which will name the key missing', () => {
+  const keys = (perplexity: string, typesafe: string) => ({ perplexity, typesafe })
+  expect(chooseBackend('jev', keys('p', 't'))).toEqual({ backend: 'jev', fellBack: false })
+  expect(chooseBackend('jev', keys('', ''))).toEqual({ backend: 'jev', fellBack: false })
+  expect(chooseBackend('pplx', keys('p', 't'))).toEqual({ backend: 'pplx', fellBack: false })
+  expect(chooseBackend('pplx', keys('p', ''))).toEqual({ backend: 'pplx', fellBack: false })
+  expect(chooseBackend('pplx', keys('', 't'))).toEqual({ backend: 'jev', fellBack: true })
+  expect(chooseBackend('pplx', keys('', ''))).toEqual({ backend: 'pplx', fellBack: false })
+})
+
+test('the two decision models start the skill suggestions the same way: the switch is defined before the environment key is read', () => {
+  expect(BACKEND_DEFAULTS.pplx.suggestSkills).toBe(BACKEND_DEFAULTS.jev.suggestSkills)
 })

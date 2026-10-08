@@ -59,7 +59,7 @@ function transcript(context: readonly ContextEntry[]): SessionMessage[] {
 // The mod asks Jev as the `zh-score` variant (modVariant: the effort question beside a message is in the decision
 // model's language).
 const BACKENDS = [
-  { name: 'Jev', options: { typesafeApiKey: 'k' }, variant: 'zh-score', reply: jev([0, 0, 0.2, 0.7, 0.1]), model: JEV_MODEL },
+  { name: 'Jev', options: { decisionModel: 'jev', typesafeApiKey: 'k' }, variant: 'zh-score', reply: jev([0, 0, 0.2, 0.7, 0.1]), model: JEV_MODEL },
 ] as const
 
 for (const chosen of BACKENDS) {
@@ -87,7 +87,7 @@ for (const chosen of BACKENDS) {
 // skills, in a request of its own (ADR 0005): the effort question's request is
 // the same with the skills on or off, the eval's whole. Its latency is not the
 // message's: the skill eval's first stage is the skills' request.
-test("with skills to ask about, the mod's effort request is the eval's as it is, and the skills questions go in another", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+test("with skills to ask about, the mod's effort request is the eval's as it is, and the skills questions go in another", { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
   const skills = {
     commands: [{ name: 'tdd', description: 'Test-driven development.', source: 'user' as const }],
     listed: [{ name: 'tdd', source: 'userSettings', tokens: 20 }],
@@ -95,17 +95,17 @@ test("with skills to ask about, the mod's effort request is the eval's as it is,
   const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(ITEM.zh.recent_context), skills })
   await w.submit(ITEM.zh.message)
 
-  const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({}))
+  const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({ decisionModel: 'jev' }))
   expect(withoutUnresolved(w.requests[0]?.body)).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   expect(Object.keys(request.questions)).toEqual(['effort.level'])
   expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.which'])
 })
 
-test("the eval cuts the conversation to the mod's limits as the mod does", { options: { typesafeApiKey: 'k', contextMessages: 2, contextTokens: 100 } }, async ($, on) => {
+test("the eval cuts the conversation to the mod's limits as the mod does", { options: { decisionModel: 'jev', typesafeApiKey: 'k', contextMessages: 2, contextTokens: 100 } }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(ITEM.zh.recent_context) })
   await w.submit(ITEM.zh.message)
 
-  const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({ contextMessages: 2, contextTokens: 100 }))
+  const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({ decisionModel: 'jev', contextMessages: 2, contextTokens: 100 }))
   expect(withoutUnresolved(w.requests[0]?.body)).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   expect(String(request.state.recent_context)).not.toContain('登录接口')
 })

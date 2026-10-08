@@ -116,7 +116,7 @@ function transcript(turns: readonly V2Turn[]) {
   return turns.map((turn) => ({ role: turn.role, text: turn.text, toolUses: (turn.tools ?? []).map((tool, i) => ({ tool_use_id: `toolu_${i}`, tool, input: {}, text: '' })) }))
 }
 
-async function run(items: V2EvalItem[], net: ReturnType<typeof network>, variants: string[], settings = settingsFrom({}), suite = evalV2Suite()) {
+async function run(items: V2EvalItem[], net: ReturnType<typeof network>, variants: string[], settings = settingsFrom({ decisionModel: 'jev' }), suite = evalV2Suite()) {
   return runSuite(suite, items, { backend: jevBackend('k'), io: net.io, now: net.now, pause: async () => {}, settings, variants, languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 }
 
@@ -165,7 +165,7 @@ test('the answer is the effort, scored against the final gold: acceptable, exact
 test('the figures of a variant: the recall of max, too high and too low, each split by bin, by relation and by both, and the three-way question', async () => {
   const { items, net } = fourItems()
   const suite = evalV2Suite()
-  const settings = settingsFrom({})
+  const settings = settingsFrom({ decisionModel: 'jev' })
   const rows = await run(items, net, ['zh-score'], settings, suite)
   const b = summarize(suite, items, rows, { slowMs: 1500, settings }).variants[0]?.breakdown as any
 
@@ -198,7 +198,7 @@ test('what other thresholds for max would have given, from the probabilities kep
   const near = [0, 0, 0.1, 0.45, 0.45]
   const net = network((body) => answers(body, String(body.state.user_message).startsWith('explicit-unresolved-01') ? MAX : near))
   const suite = evalV2Suite()
-  const settings = settingsFrom({})
+  const settings = settingsFrom({ decisionModel: 'jev' })
   const rows = await run(items, net, ['zh-score'], settings, suite)
   const b = summarize(suite, items, rows, { slowMs: 1500, settings }).variants[0]?.breakdown as any
   const at = (theta: number) => b.thetaMax.find((row: any) => row.thetaMax === theta)
@@ -212,7 +212,7 @@ test('a state that does not reach the decisive rounds says so: 24000 tokens do n
   const near = await run([deep], reader(), ['zh-score'])
   expect(near[0]).toMatchObject({ shown: 'high / unresolved', correct: false })
   expect(near[0]?.detail).toMatchObject({ seen: false, seenAny: false })
-  const wide = await run([deep], reader(), ['zh-score'], withStateMessages(withStateTokens(settingsFrom({}), 48000), 2000))
+  const wide = await run([deep], reader(), ['zh-score'], withStateMessages(withStateTokens(settingsFrom({ decisionModel: 'jev' }), 48000), 2000))
   expect(wide[0]?.detail).toMatchObject({ seen: true, seenAny: true })
   expect(wide[0]?.shown).toBe('max / unresolved')
 })
@@ -235,7 +235,7 @@ async function flowOf(one: V2EvalItem) {
   const net = network((body) => answers(body, HIGH, STILL))
   const ask = (request: Parameters<typeof askRetrying>[0]) => askRetrying(request, { backend: jevBackend('k'), io: net.io, timeoutMs: 10_000, retries: 0, now: net.now, pause: async () => {} })
   const record = JSON.stringify({ problem: '订单列表第二页是空的', tried: ['改了 offset', '补了 page'], status: '助手在理调用链' })
-  const { item } = await flowItem(one, { ask, complete: async () => record, settings: settingsFrom({ typesafeApiKey: 'k' }), language: 'zh' })
+  const { item } = await flowItem(one, { ask, complete: async () => record, settings: settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }), language: 'zh' })
   return { item, bodies: net.bodies }
 }
 
@@ -245,7 +245,7 @@ test('a flow variant carries what the flow file says the last message\'s request
   // Every message read as unresolved: p1, d1, d2, m1 make the count 4 by the last message, past the 3 the hint starts at.
   expect(flow.item.final).toMatchObject({ count: 4, hint: true })
   const net = network((body) => answers(body, MAX))
-  const rows = await run([one], net, ['zh-flow', 'zh-score'], settingsFrom({ typesafeApiKey: 'k' }), evalV2Suite(flowFile({ [one.id]: flow.item })))
+  const rows = await run([one], net, ['zh-flow', 'zh-score'], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }), evalV2Suite(flowFile({ [one.id]: flow.item })))
   const [withFlow, plain] = net.bodies
   expect(withFlow).toEqual(flow.bodies.at(-1))
   expect(withFlow.state.unresolved_count).toBe(4)
@@ -254,7 +254,7 @@ test('a flow variant carries what the flow file says the last message\'s request
   expect(Object.keys(plain.state)).toEqual(['user_message', 'recent_context'])
   expect(rows[0]?.detail).toMatchObject({ count: 4, hint: true })
   const suite = evalV2Suite(flowFile({ [one.id]: flow.item }))
-  const figures = summarize(suite, [one], rows, { slowMs: 1500, settings: settingsFrom({}) }).variants.map((v) => (v.breakdown as any).carried)
+  const figures = summarize(suite, [one], rows, { slowMs: 1500, settings: settingsFrom({ decisionModel: 'jev' }) }).variants.map((v) => (v.breakdown as any).carried)
   // The flow variant's requests: how many had a count, the hint, a summary; the plain variant carries none of it.
   expect(figures).toEqual([{ items: 1, counted: 1, hinted: 1, summarized: 1 }, null])
 })
@@ -263,7 +263,7 @@ test('a flow variant with no flow file, without the item in it, with a flow of a
   const one = item('explicit-unresolved-01')
   const { item: done } = await flowOf(one)
   const net = network((body) => answers(body, MAX))
-  const failures = async (suite: ReturnType<typeof evalV2Suite>) => (await run([one], net, ['zh-flow'], settingsFrom({}), suite)).map((row) => row.failure)
+  const failures = async (suite: ReturnType<typeof evalV2Suite>) => (await run([one], net, ['zh-flow'], settingsFrom({ decisionModel: 'jev' }), suite)).map((row) => row.failure)
   expect(await failures(evalV2Suite())).toEqual([expect.stringMatching(/needs --flow/)])
   expect(await failures(evalV2Suite(flowFile({})))).toEqual([expect.stringMatching(/no flow for explicit-unresolved-01/)])
   expect(await failures(evalV2Suite(flowFile({ [one.id]: { ...done, conversation: 'ffffffffffffffff' } })))).toEqual([expect.stringMatching(/another conversation/)])
@@ -272,24 +272,24 @@ test('a flow variant with no flow file, without the item in it, with a flow of a
   expect(net.bodies).toHaveLength(0)
 })
 
-test("a flow variant's request is the mod's request for the last message with that count and summary", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+test("a flow variant's request is the mod's request for the last message with that count and summary", { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
   const one = item('explicit-unresolved-01')
   const flow = await flowOf(one)
   const summary = flow.item.final?.summary as Summary
   const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(one.turns.slice(0, -1)), seed: { unresolved: { count: 4, summary: { ...summary, turn: 't9' } } } })
   await w.submit(one.turns.at(-1)?.text ?? '')
   const net = network((body) => answers(body, MAX))
-  await run([one], net, ['zh-flow'], settingsFrom({ typesafeApiKey: 'k' }), evalV2Suite(flowFile({ [one.id]: flow.item })))
+  await run([one], net, ['zh-flow'], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }), evalV2Suite(flowFile({ [one.id]: flow.item })))
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: net.bodies[0].state, questions: net.bodies[0].questions })
 })
 
-test("an item's request is the mod's request for its last message after the conversation before it: the same questions, the same state", { options: { typesafeApiKey: 'k' } }, async ($, on) => {
+test("an item's request is the mod's request for its last message after the conversation before it: the same questions, the same state", { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
   const one = item('explicit-unresolved-01')
   const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(one.turns.slice(0, -1)) })
   await w.submit(one.turns.at(-1)?.text ?? '')
 
   const net = network((body) => answers(body, [0, 0, 0.2, 0.7, 0.1]))
-  await run([one], net, ['zh-score'], settingsFrom({ typesafeApiKey: 'k' }))
+  await run([one], net, ['zh-score'], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }))
   expect(w.requests).toHaveLength(1)
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: net.bodies[0].state, questions: net.bodies[0].questions })
   expect(String(net.bodies[0].state.recent_context)).toContain('DECISIVE')

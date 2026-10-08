@@ -107,7 +107,22 @@ const streamed = new Map<string, { index: number; block: number; text: string }>
 
 export function registerMidturnEffort(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: '一轮进行中重新判断主 agent 的 effort', parts: ['midturn'] })
-  const settings: Settings = { ctx, ...ctx.config.midturn }
+  // Read at each use: which decision model's settings these are is settled at the session start (core/setup.ts, `Ctx`).
+  const settings: Settings = {
+    ctx,
+    get every() {
+      return ctx.config.midturn.every
+    },
+    get rules() {
+      return ctx.config.midturn.rules
+    },
+    get waitMs() {
+      return ctx.config.midturn.waitMs
+    },
+    get limits() {
+      return ctx.config.midturn.limits
+    },
+  }
 
   on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {
     // The main agent's own calls only: not a dispatched agent's, nor another plugin's $.tool.call.

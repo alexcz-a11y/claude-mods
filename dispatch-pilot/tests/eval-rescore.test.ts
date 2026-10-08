@@ -125,7 +125,7 @@ test('a thetaDown scan: the level sent at each gate over the same stored answers
 test('a thetaDown scan: at the gate the mod shipped with, the figures are what rescoreMidturn gives for `sent`', () => {
   const items = [midturn('a', 'low', ['low', 'medium'], 'high')]
   const result = stored('en-score', [['a', 'zh', { p: [0.75, 0.25, 0, 0, 0], confidence: 0.7 }]])
-  const [row] = scanThetaDown(result, items, [readConfig({}).midturn.rules.thetaDown])
+  const [row] = scanThetaDown(result, items, [readConfig({ decisionModel: 'jev' }).midturn.rules.thetaDown])
   const [, sent] = rescoreMidturn(result, items)
   expect(row?.language).toBe('both')
   expect(row?.sent).toEqual(sent?.now)

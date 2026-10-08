@@ -4,7 +4,7 @@
 import { expect, test } from 'claude-code/testing'
 import { jev, world, type Reply } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 test("a decided message is on the board: its decision in the log (the level decided as data, beside its words), linked from the main agent's node of the turn it starts", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })

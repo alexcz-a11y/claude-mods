@@ -22,7 +22,7 @@
 
 import type { On, SessionMeasureInput } from 'claude-code'
 import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
-import { decisionLine, LOG_ENTRIES, report, unplacedText, type LogEntry, type SwitchIo } from '../core/report.ts'
+import { decisionLine, LOG_ENTRIES, report, unplacedText, type DecisionModelIo, type LogEntry, type SwitchIo } from '../core/report.ts'
 import { describeDefaults, removedDecisionModel, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, listSwitches, loadOverrides, masterOn, overrides, parseOverrides, setMaster, setSwitch } from '../core/switches.ts'
 import { errorText } from '../decision/backend.ts'
@@ -30,6 +30,7 @@ import { PANE_COLUMNS, PANE_ID, PANE_TITLE } from '../board/rationale.ts'
 
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 /** The switches the person flipped, in $.store. */
 const SWITCHES_KEY = 'switches'
 
@@ -40,10 +41,20 @@ export function registerControl(on: On, ctx: Ctx): void {
   on('session.start', { cwd: /(?:)/ }, async ($, e, next) => {
     // The person's switches first: the features beneath read them while the session starts.
     loadOverrides(await $.store.get(SWITCHES_KEY).catch(() => undefined))
+    // The environment's Perplexity key (the options' comes first), for the requests that follow; never written down, only where it came from.
+    // Read before anything is said of the decision model: whether it is pplx or Jev depends on it (core/setup.ts, `Ctx`).
+    ctx.secrets.perplexityEnvKey = ((await $.env.get('PERPLEXITY_API_KEY').catch(() => undefined)) ?? '').trim()
     // Which options the decision model's defaults decided (core/setup.ts BACKEND_DEFAULTS).
     $.ui.log(describeDefaults(ctx.config), { to: 'debug' })
-    // The environment's Perplexity key (the options' comes first), for the requests that follow; never written down, only where it came from.
-    ctx.secrets.perplexityEnvKey = ((await $.env.get('PERPLEXITY_API_KEY').catch(() => undefined)) ?? '').trim()
+    // Jev decides only for want of a Perplexity key: the decision log says so (ADR 0006), where the person looks for why.
+    if (ctx.fellBack) {
+      const io: DecisionModelIo = {
+        board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+        decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+        debug: (line) => $.ui.log(line, { to: 'debug' }),
+      }
+      await report(io, { fellBack: { asked: 'pplx', using: 'Jev' } })
+    }
     if (ctx.config.backend === 'pplx') $.ui.log(`pplx key: ${ctx.config.perplexityApiKey !== '' ? 'from the options' : ctx.secrets.perplexityEnvKey !== '' ? 'from PERPLEXITY_API_KEY' : 'not set'}`, { to: 'debug' })
     // A decisionModel left over in the person's settings that names a model since removed: the engine reads it as the default.
     const removed = removedDecisionModel(await $.settings.read({ source: 'user' }).catch(() => undefined))

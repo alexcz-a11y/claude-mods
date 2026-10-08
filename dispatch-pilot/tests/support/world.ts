@@ -670,7 +670,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       return turnId
     },
     /** The main agent calls the Agent tool: resolves to the started agent's `{ model, agentId }`, or `{ deny }`. */
-    spawn: (spawn: SpawnOptions) => $.agent.spawn(spawnInput(`toolu_${++calls}`, spawn)),
+    spawn: async (spawn: SpawnOptions) => {
+      await booted()
+      return $.agent.spawn(spawnInput(`toolu_${++calls}`, spawn))
+    },
     /**
      * The main agent calls the Agent tool, and the engine spawns the agent inside the call (as `spawn` does); resolves to
      * the tool's result as the main agent reads it, `context` included.
@@ -688,7 +691,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       } as never)
     },
     /** The session starts (needs `session`): the mod sets itself up and registers its commands. */
-    start: () => (options.switches !== undefined ? startSession() : $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })),
+    start: () => (options.switches !== undefined || options.env !== undefined ? startSession() : $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })),
     /** The engine reports the session's context, limits and cost (needs `session`). */
     measure: (input: SessionMeasureInput) => $.session.measure(input),
     /** Runs a slash command as the person types it (`/dp lock max` is `command('dp', 'lock max')`); resolves to the text it printed. */

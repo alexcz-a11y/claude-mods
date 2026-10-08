@@ -78,7 +78,7 @@ test('each item is asked in both languages under each variant, as the mod asks i
     io: net.io,
     now: net.now,
     pause: net.pause,
-    settings: settingsFrom({}),
+    settings: settingsFrom({ decisionModel: 'jev' }),
     variants: ['en-score', 'zh-choice'],
     timeoutMs: 10_000,
     retries: 2,
@@ -119,7 +119,7 @@ test('a busy backend is asked again after a pause; a refused key is not; an unan
     io: net.io,
     now: net.now,
     pause: net.pause,
-    settings: settingsFrom({}),
+    settings: settingsFrom({ decisionModel: 'jev' }),
     variants: ['en-score'],
     languages: ['zh'],
     timeoutMs: 10_000,
@@ -202,5 +202,5 @@ test('--state-tokens sets the budget of every kind of request, so a long convers
 // How long the eval (and scripts/decide*.ts) gives one attempt unless told: four times the mod's timeoutMs, at least
 // 10 s, so a slow answer is still measured and a cold connection's first request does not fail outright.
 test("an attempt may take four times the mod's timeoutMs, at least 10 s: Jev's 1500 ms gives 10 s, 3000 ms 12 s", () => {
-  expect([attemptMs(settingsFrom({}).timeoutMs), attemptMs(3000), attemptMs(5000)]).toEqual([10_000, 12_000, 20_000])
+  expect([attemptMs(settingsFrom({ decisionModel: 'jev' }).timeoutMs), attemptMs(3000), attemptMs(5000)]).toEqual([10_000, 12_000, 20_000])
 })

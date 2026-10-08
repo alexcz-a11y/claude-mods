@@ -8,7 +8,7 @@ import { profileKey } from '../hooks/core/profiles.ts'
 import type { Reply, Sent, SkillsWorld } from './support/world.ts'
 import { isSecondSkillsRequest, jev, pplx, rates, world } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 /** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
 const UNRESOLVED_ON = { unresolved: true }
 

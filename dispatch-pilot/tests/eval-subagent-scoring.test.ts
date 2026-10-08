@@ -102,7 +102,7 @@ test('each answer is graded on its model and on its effort; haiku carries no eff
     'd zh': { model: HAIKU, effort: MAX },
     'd en': { model: OPUS, effort: MAX },
   })
-  const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['models-hint'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['models-hint'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
   expect(rows.map(line)).toEqual([
     // The effort decided is lifted to the model's floor (sonnet and opus at medium): low is not an answer for either.
@@ -154,7 +154,7 @@ const SIX_ANSWERS: Record<string, Answers> = {
 }
 
 async function runSix() {
-  const settings = settingsFrom({})
+  const settings = settingsFrom({ decisionModel: 'jev' })
   const rows = await runSuite(agentSuite(SIX), SIX, { backend: jevBackend('k'), ...network(SIX_ANSWERS), settings, variants: ['models-hint'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
   return summarize(agentSuite(SIX), SIX, rows, { slowMs: 1500, settings })
 }
@@ -219,7 +219,7 @@ test("thresholds are swept over the answers already given, nothing asked again; 
 
 test("in the noul variants the main agent's pick goes only when the work is also outside it (requested_fits under thetaFit), swept as well", async () => {
   const items = [SIX[3] as AgentItem]
-  const settings = settingsFrom({ agentOverride: 0.7 })
+  const settings = settingsFrom({ decisionModel: 'jev', agentOverride: 0.7 })
   const net = network({ 'd zh': { model: HAIKU, effort: MAX, nouls: { requested_fits: 0.4 } }, 'd en': { model: HAIKU, effort: MAX, nouls: { requested_fits: 0.6 } } })
   const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings, variants: ['models-noul'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
   const [v] = summarize(agentSuite(items), items, rows, { slowMs: 1500, settings }).variants
@@ -235,7 +235,7 @@ test("in the noul variants the main agent's pick goes only when the work is also
 test('what an answer records: where its model came from, the pick and its confidence, and the raw answers to decide again from', async () => {
   const items = [item('d', { model: 'opus', effort: 'max' }, { model: ['opus'], effort: ['xhigh', 'max'] }, { requested: 'opus', tags: ['priority:main-kept'], words: ' 别用 sonnet' })]
   const net = network({ 'd zh': { model: { haiku: 0.9, sonnet: 0.02, opus: 0.08 }, effort: MAX, nouls: { 'named.sonnet': 0.1, 'banned.sonnet': 0.95 } } })
-  const [row] = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['models-hint'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  const [row] = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['models-hint'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
   expect(row?.shown).toBe('haiku')
   // Among the models not ruled out (haiku, opus): p 0.9 / 0.98 is confidence 0.84.
@@ -261,7 +261,7 @@ test('no decision is a failure that says why (no answer about the agent, every m
     'f zh': {},
     'g zh': { model: { haiku: 0, sonnet: 0, opus: 1 }, effort: LOW, nouls: { 'banned.opus': 0.9 } },
   })
-  const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({}), variants: ['models-hint'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['models-hint'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
   expect(rows.map(line)).toEqual([
     'e zh: no answer (none: every model offered was ruled out: haiku, sonnet, opus)',

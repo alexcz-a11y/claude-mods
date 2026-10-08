@@ -8,7 +8,7 @@ import { renderSummary } from '../hooks/decision/summary.ts'
 import { COUNT_FIELD } from '../hooks/decision/unresolved.ts'
 import { jev, world, type Reply, type Sent } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 /** The switch is off until the person turns it on (#48): these tests are about what it does when on. */
 const UNRESOLVED_ON = { unresolved: true }
 const HIGH = [0.05, 0.1, 0.7, 0.1, 0.05]

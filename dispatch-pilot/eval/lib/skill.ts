@@ -153,7 +153,7 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
 
   // What each variant asks under the manifest's defaults, recorded with the
   // results: stage one in full; stage two for the first two skills.
-  const defaults = settingsFrom({})
+  const defaults = settingsFrom({ decisionModel: 'jev' })
   const asks: Record<string, unknown> = {}
   for (const variant of SKILL_VARIANTS) {
     const offeredSkills = await offered(variant, defaults)

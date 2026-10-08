@@ -7,7 +7,7 @@ import { expect, test } from 'claude-code/testing'
 import { COUNT_FIELD } from '../hooks/decision/unresolved.ts'
 import { jev, world, type Sent } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 /** The switch is off until the person turns it on (#48): these tests are about what it does when on. */
 const UNRESOLVED_ON = { unresolved: true }
 /** What the decision model leans to, as shares of the question's three options. */

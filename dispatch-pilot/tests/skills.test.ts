@@ -9,7 +9,7 @@ import { pickSkills, readHints, readSkills, skillsPart, skillsRequest, type Skil
 import type { Reply, Sent, SkillsWorld } from './support/world.ts'
 import { isSecondSkillsRequest, jev, rates, world, type World } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 /** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
 const UNRESOLVED_ON = { unresolved: true }
 

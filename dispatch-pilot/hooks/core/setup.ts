@@ -27,11 +27,26 @@ import type { SkillPolicy } from '../decision/skills.ts'
 export type BackendName = 'pplx' | 'jev'
 
 /**
- * The decision model `decisionModel` names. Anything that names neither (unset, a typo, the `clef` of a 0.3.x configuration)
- * reads as Jev, the default for now (#52 moves it to pplx, falling back to Jev while there is no Perplexity key).
+ * The decision model the person asked for: Jev when `decisionModel` names it, else pplx, the default (ADR 0006). Anything
+ * that names neither (unset, a typo, the `clef` of a 0.3.x configuration) reads as unset. Which one decides in the end also
+ * depends on the keys (`chooseBackend`).
  */
 export function backendNameOf(options: PluginOptions): BackendName {
-  return options.decisionModel === 'pplx' ? 'pplx' : 'jev'
+  return options.decisionModel === 'jev' ? 'jev' : 'pplx'
+}
+
+/** Which decision model decides, and whether it is not the one asked for. */
+export type Choice = { backend: BackendName; fellBack: boolean }
+
+/**
+ * The decision model that decides (ADR 0006). Jev when the person asked for Jev. Otherwise pplx when there is a Perplexity key;
+ * with none, Jev when there is a TypeSafe key (`fellBack`: a 0.3.1 configuration keeps its routing); with neither, pplx, which
+ * then fails every request with the Perplexity key named as the one missing.
+ */
+export function chooseBackend(asked: BackendName, keys: { perplexity: string; typesafe: string }): Choice {
+  if (asked === 'jev') return { backend: 'jev', fellBack: false }
+  if (keys.perplexity !== '') return { backend: 'pplx', fellBack: false }
+  return keys.typesafe !== '' ? { backend: 'jev', fellBack: true } : { backend: 'pplx', fellBack: false }
 }
 
 /**
@@ -331,22 +346,52 @@ export function perplexityKey(config: Pick<Config, 'perplexityApiKey'>, secrets:
   return config.perplexityApiKey !== '' ? config.perplexityApiKey : secrets.perplexityEnvKey
 }
 
-/** What the entry hands every feature's register: data and pure functions, never `$`. */
+/**
+ * What the entry hands every feature's register: data and pure functions, never `$`.
+ *
+ * Which decision model decides is not known at register: the Perplexity key may be in the environment, which the session start
+ * reads (`secrets`). `config`, `backend`, `ask` and `fellBack` are therefore read afresh at each use and follow the choice: a
+ * feature that keeps a value from `ctx.config` when it registers keeps the wrong model's (the defaults differ), so it reads
+ * `ctx.config` where it acts.
+ */
 export type Ctx = {
-  config: Config
-  /** The decision model the person chose. */
-  backend: Backend
+  /** The settings of the decision model that decides (`chooseBackend`). */
+  readonly config: Config
+  /** The decision model that decides. */
+  readonly backend: Backend
   /** What the session start read from the environment (a key not in the options). */
-  secrets: Secrets
+  readonly secrets: Secrets
   /** How every question but the effort question beside a message is asked: the decision model's (`config.ask.other`). */
-  ask: EffortAsk
+  readonly ask: EffortAsk
+  /** Whether Jev decides only because there is no Perplexity key (a TypeSafe key is set): the session start records it. */
+  readonly fellBack: boolean
 }
 
 export function setup(options: PluginOptions, table: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS): Ctx {
-  const config = readConfig(options, table)
+  const asked = backendNameOf(options)
+  // Both are worked out here, whichever decides: pure and cheap, and `chooseBackend` picks between them once the environment is read.
+  const configs: Record<BackendName, Config> = { pplx: readConfig(options, table, 'pplx'), jev: readConfig(options, table, 'jev') }
   const secrets: Secrets = { perplexityEnvKey: '' }
-  const backend = config.backend === 'pplx' ? pplxBackend(() => perplexityKey(config, secrets)) : jevBackend(config.typesafeApiKey)
-  return { config, backend, secrets, ask: config.ask.other }
+  const backends: Record<BackendName, Backend> = {
+    pplx: pplxBackend(() => perplexityKey(configs.pplx, secrets)),
+    jev: jevBackend(configs.jev.typesafeApiKey),
+  }
+  const choice = () => chooseBackend(asked, { perplexity: perplexityKey(configs.pplx, secrets), typesafe: configs.pplx.typesafeApiKey })
+  return {
+    get config() {
+      return configs[choice().backend]
+    },
+    get backend() {
+      return backends[choice().backend]
+    },
+    secrets,
+    get ask() {
+      return configs[choice().backend].ask.other
+    },
+    get fellBack() {
+      return choice().fellBack
+    },
+  }
 }
 
 /**
@@ -354,10 +399,11 @@ export function setup(options: PluginOptions, table: Readonly<Record<BackendName
  * the wrong type, the manifest's default, or for an option whose default
  * depends on the decision model (PER_BACKEND_OPTIONS), that model's
  * (`table`, BACKEND_DEFAULTS unless a test reads another). `contextTokens`
- * and `contextMessages` read at most that model's most.
+ * and `contextMessages` read at most that model's most. `backend` is the
+ * decision model it reads for: what `decisionModel` asks for unless the
+ * keys decide otherwise (`setup` reads both).
  */
-export function readConfig(options: PluginOptions, table: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS): Config {
-  const backend = backendNameOf(options)
+export function readConfig(options: PluginOptions, table: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS, backend: BackendName = backendNameOf(options)): Config {
   const defaults = table[backend]
   const used: (readonly [PerBackendOption, number])[] = []
   const capped: { option: PerBackendOption; set: number; read: number }[] = []
@@ -463,7 +509,24 @@ export function describeDefaults(config: Pick<Config, 'backend' | 'defaults' | '
  * for the eval; `ask` is how its questions are written (the eval's variants).
  */
 export function dispatchSettings(ctx: { config: Pick<Config, 'agents' | 'thetaMax' | 'roundUp'>; ask: EffortAsk }, ask: Partial<DispatchAsk> = {}): DispatchSettings {
-  return { models: ctx.config.agents.models, ask: { ...ctx.ask, ...ask }, thetaOverride: ctx.config.agents.thetaOverride, thetaMax: ctx.config.thetaMax, roundUp: ctx.config.roundUp }
+  // Each read goes to `ctx`: a feature builds this when it registers, before the session start has settled the decision model.
+  return {
+    get models() {
+      return ctx.config.agents.models
+    },
+    get ask() {
+      return { ...ctx.ask, ...ask }
+    },
+    get thetaOverride() {
+      return ctx.config.agents.thetaOverride
+    },
+    get thetaMax() {
+      return ctx.config.thetaMax
+    },
+    get roundUp() {
+      return ctx.config.roundUp
+    },
+  }
 }
 
 /** The cheap model that writes skill profiles, unless the person names another (`skillsProfileModel`). */

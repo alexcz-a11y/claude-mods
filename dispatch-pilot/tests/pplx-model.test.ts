@@ -47,10 +47,10 @@ test('a message gets one pplx decision on the Decisions API with the Bearer key,
   expect((await w.board()).main).toMatchObject({ effort: 'high', routed: true })
 })
 
-test('without decisionModel the decision still goes to Jev: the default moves in #52, not here', { options: { typesafeApiKey: 'ts-test-key', perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
+test('without decisionModel the decision goes to pplx, the default (ADR 0006), though a TypeSafe key is there too', { options: { typesafeApiKey: 'ts-test-key', perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
+  const w = world($, on, { backend: pplx([0, 0, 1, 0, 0]) })
   await w.submit('解释一下这个函数做了什么')
-  expect(w.requests.map((request) => request.url)).toEqual(['https://api.typesafe.ai/v1/systemone'])
+  expect(w.requests.map((request) => request.url)).toEqual(['https://api.perplexity.ai/v1/decisions'])
 })
 
 // ---- the key -------------------------------------------------------------------------------------
@@ -126,7 +126,7 @@ test('max goes out at 0.47 with pplx', { options: PPLX }, async ($, on) => {
   expect((await w.board()).log[0]?.trace?.[1]).toMatchObject({ rule: 'max-gate', applied: false, thetaMax: 0.47 })
 })
 
-test('the same answer with Jev stays at xhigh: Jev needs 0.5 for max', { options: { typesafeApiKey: 'ts-test-key' } }, async ($, on) => {
+test('the same answer with Jev stays at xhigh: Jev needs 0.5 for max', { options: { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' } }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 0.2, 0.32, 0.48]) })
   await w.submit('把这个死锁查清楚')
   await w.step({ index: 0, effort: 'low' })

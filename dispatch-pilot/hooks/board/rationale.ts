@@ -276,6 +276,8 @@ export function entryVerb(entry: LogEntry): string {
       return entry.skills !== undefined && entry.skills.suggest.length > 0 ? '查到' : '没查到'
     case 'skill-profiles':
       return entry.tone === 'ok' ? '画像就绪' : entry.tone === 'warn' ? '画像有失败' : entry.tone === 'fail' ? '画像停写' : '画像暂停'
+    case 'decision-model':
+      return '改用别的决策模型'
     default:
       return entry.tone === 'fail' ? '失败' : entry.tone === 'warn' ? '注意' : '记录'
   }

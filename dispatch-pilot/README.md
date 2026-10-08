@@ -1,6 +1,6 @@
 # Dispatch Pilot
 
-Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在 Claude 之外调用一个决策模型，TypeSafe 的 Jev，替你决定 Claude Code 怎么干活：主 agent 每一轮用哪档 effort，派出的 agent 用哪个模型和哪档 effort，主 agent 该看哪几个 skill。
+Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在 Claude 之外调用一个决策模型（默认是 Perplexity 的 pplx；没有 Perplexity 的 key、但有 TypeSafe 的 key 时退回 TypeSafe 的 Jev，也可以指定用 Jev），替你决定 Claude Code 怎么干活：主 agent 每一轮用哪档 effort，派出的 agent 用哪个模型和哪档 effort，主 agent 该看哪几个 skill。
 
 主 agent 的模型从不改变，所以 prompt cache 不受影响。这只在 Claude Code 订阅下成立，见「要求」。
 
@@ -66,7 +66,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 - **Claude Code 2.1.287 及以上**，mod 在 Claude Code 里默认启用。**测试用的是 Claude Code 2.1.291**（订阅登录，看板和依据面板在终端里看过）和 jev-1.13.0；缓存和评测的实测是在 2.1.289 上做的；跑 `eval/` 和 `scripts/` 里的 Node 脚本用的是 Node 26.5，用 mod 本身不需要 Node。
 - **只支持 Claude Code 订阅**（ADR 0001，`docs/adr/0001-main-agent-effort-only-no-model-switch.md`）。Dispatch Pilot 每轮、每一步都改主 agent 的 effort，但从不改它的模型：换模型必然让 prompt cache 失效，而在订阅下，同一个模型内切换 effort 保留缓存（2.1.289 上 Opus 5.5 加订阅实测）。Bedrock、Vertex 和各种网关上切换 effort 会让缓存失效，不在支持范围内。Claude Code 的文档只点名了 Opus 5.5、Sonnet 5.5 和 Fable 5.1 保留缓存，其他大多数模型上每档 effort 各有一份缓存，切换会重算整段请求（见 `docs/research/decision-models-and-caching.md` 的 3.4）。
-- **一个决策模型的账号。** Jev 要 TypeSafe 的 API key，pplx 要 Perplexity 的 API key（Decisions API）。选中的决策模型没有密钥时 mod 不发任何请求，每一轮都按会话自己的 effort 走。
+- **一个决策模型的账号。** 默认的决策模型是 pplx，要 Perplexity 的 API key（Decisions API）；Jev 要 TypeSafe 的 API key。没有 Perplexity 的 key、但有 TypeSafe 的 key 时，自动退回 Jev（0.3.1 的老用户升级后不会失去路由，依据面板的决策日志里会有一条说明原因）；两种 key 都没有时 mod 不发任何请求，每一轮都按会话自己的 effort 走，看板上写明缺的是 Perplexity 的 key。
 
 ## 安装
 
@@ -79,28 +79,28 @@ claude plugin install dispatch-pilot@alex-mods --scope user
 
 在 shell 里装好的 mod，下次启动 Claude Code 时才加载：装好后重启 Claude Code，或者在已经开着的会话里运行 `/reload-plugins`。在会话里运行 `/plugin`，看到 `1 mod active · dispatch-pilot` 说明 mod 已经加载；运行 `/dp` 会打开依据面板，`/dp status` 列出各项功能的开关。接着给它一个决策模型的密钥。
 
-**Jev。** TypeSafe 的 API key 有两种填法：
+**pplx（默认）。** 给它 Perplexity 的 API key，有两种给法，同时给了就用第 1 种：
 
-1. 在 Claude Code 的会话里运行 `/plugin configure dispatch-pilot@alex-mods`，在弹出的配置对话框里填；输入会被遮住。在会话里用 `/plugin` 安装时也会弹出这个对话框；在 shell 里用 `claude plugin install` 安装不会弹，装好后用这条命令，或者用第 2 种填法。
-2. 在命令行从 stdin 传进去（需要 `jq`）：
+1. 在 Claude Code 的会话里运行 `/plugin configure dispatch-pilot@alex-mods`，在弹出的配置对话框里填 `perplexityApiKey`；输入会被遮住。在会话里用 `/plugin` 安装时也会弹出这个对话框；在 shell 里用 `claude plugin install` 安装不会弹，装好后用这条命令，或者用 stdin 传进去（需要 `jq`）：
 
    ```bash
-   export TYPESAFE_API_KEY=...   # 先放进环境变量
-   jq -n '{typesafeApiKey: env.TYPESAFE_API_KEY}' | claude plugin configure dispatch-pilot@alex-mods --values-stdin
+   read -rs PERPLEXITY_API_KEY && export PERPLEXITY_API_KEY   # 粘贴密钥后回车，不回显，值也不会留在 shell 历史里
+   jq -n '{perplexityApiKey: env.PERPLEXITY_API_KEY}' | claude plugin configure dispatch-pilot@alex-mods --values-stdin
    ```
 
-**不要用 `claude plugin install --config typesafeApiKey=...` 传密钥，也不要用 `jq --arg`**：它们的值会出现在进程参数里，同一台机器上的 `ps` 看得到。把密钥放进环境变量时，用 `read -rs TYPESAFE_API_KEY && export TYPESAFE_API_KEY` 代替上面的 `export` 一行：粘贴密钥后回车，不回显，值也不会留在 shell 历史里。
+2. 设环境变量 `PERPLEXITY_API_KEY`（启动 Claude Code 的环境里要有）。Claude Code Desktop 读不到敏感的 userConfig（#35），用环境变量就绕开了这个问题。
+
+**不要用 `claude plugin install --config perplexityApiKey=...` 传密钥，也不要用 `jq --arg`**：它们的值会出现在进程参数里，同一台机器上的 `ps` 看得到。
 
 `--values-stdin` 读一个 JSON 对象，值都是单行字符串，没写到的选项保持原值。保存之后要重启 Claude Code 才生效，命令也会提示 `Configuration saved. Restart Claude Code to apply it.`。不带参数运行 `claude plugin configure dispatch-pilot@alex-mods` 会列出所有选项，并标出哪些还没有设置。
 
-**pplx。** 把 `decisionModel` 设成 `pplx`（在 `/config` 里选，或写进 `pluginConfigs`），再给它 Perplexity 的 API key，有两种给法，同时给了就用第 1 种：
+key 只放在请求头里，不会出现在 debug log、看板、依据面板和 `$.state` 里；会话开始时 debug log 只写 key 从哪里来（选项还是环境变量），不写 key 本身。
 
-1. 同上，在配置对话框里填 `perplexityApiKey`，或在 stdin 的 JSON 里写 `perplexityApiKey`。
-2. 设环境变量 `PERPLEXITY_API_KEY`（启动 Claude Code 的环境里要有）。Claude Code Desktop 读不到敏感的 userConfig（#35），用环境变量就绕开了这个问题。
+**Jev。** 想用 Jev，就把 `decisionModel` 设成 `jev`（在 `/config` 里选，或写进 `pluginConfigs`），再填 TypeSafe 的 API key `typesafeApiKey`，填法同上（配置对话框，或 stdin 的 JSON 里写 `typesafeApiKey`；环境变量 `TYPESAFE_API_KEY` 只用来放进 stdin，mod 本身不读它）。设成 `jev` 就始终用 Jev，哪怕也有 Perplexity 的 key。
 
-key 只放在请求头里，不会出现在 debug log、看板、依据面板和 `$.state` 里；会话开始时 debug log 只写 key 从哪里来（选项还是环境变量），不写 key 本身。默认的决策模型仍是 Jev，换成 pplx 的默认值在后续的版本里。
+**只有 TypeSafe 的 key 的老用户**不用改任何配置：`decisionModel` 没设（或设的是 `pplx`、已移除的 `clef`、拼错的值）又没有 Perplexity 的 key 时，用 Jev，每个会话的决策日志（`/dp` 打开的依据面板）里有一条「改用 Jev」写明原因。以后想换成 pplx，只要填上 Perplexity 的 key。
 
-`decisionModel` 在 `/config` 里是下拉选择，有 `jev` 和 `pplx` 两项；填了别的值（包括已移除的 `clef`），按没设处理。
+`decisionModel` 在 `/config` 里是下拉选择，有 `pplx`（默认）和 `jev` 两项；填了别的值（包括已移除的 `clef`），按没设处理，也就是默认的 pplx（没有 Perplexity 的 key 时按上面的规则退回 Jev）。
 
 ## 更新
 
@@ -157,9 +157,9 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 
 | 选项 | 作用 | Jev | pplx |
 |---|---|---|---|
-| `decisionModel` | 决策模型，在 `/config` 里是下拉选择：`jev`（TypeSafe 的 Jev）或 `pplx`（Perplexity 的 `pplx-decider-v1.1-27b`）。默认仍是 `jev`；填了别的值（包括已移除的 `clef`），按没设处理 | `jev` | `jev` |
-| `typesafeApiKey` | TypeSafe 的 API key，选 `jev` 时用。敏感项。为空时不发任何请求 | `空` | `空` |
-| `perplexityApiKey` | Perplexity 的 API key，选 `pplx` 时用。敏感项。为空时读环境变量 `PERPLEXITY_API_KEY`，两处都有就用这里的；两处都没有时不发任何请求。key 只放在请求头里，不进日志、看板和 `$.state` | `空` | `空` |
+| `decisionModel` | 决策模型，在 `/config` 里是下拉选择：`pplx`（Perplexity 的 `pplx-decider-v1.1-27b`）或 `jev`（TypeSafe 的 Jev）。默认 `pplx`；填了别的值（包括已移除的 `clef`），按没设处理。设成 `jev` 就始终用 Jev；其他情况有 Perplexity 的 key 用 pplx，没有但有 TypeSafe 的 key 就退回 Jev（决策日志里记一条原因），两种都没有就不发请求 | `pplx` | `pplx` |
+| `typesafeApiKey` | TypeSafe 的 API key，选 `jev` 时用；没有 Perplexity 的 key 时默认的 pplx 退回 Jev，用的也是它。敏感项 | `空` | `空` |
+| `perplexityApiKey` | Perplexity 的 API key，默认的决策模型 pplx 用它。敏感项。为空时读环境变量 `PERPLEXITY_API_KEY`，两处都有就用这里的；Perplexity 和 TypeSafe 的 key 都没有时不发任何请求。key 只放在请求头里，不进日志、看板和 `$.state` | `空` | `空` |
 
 ### 等多久，读多少
 

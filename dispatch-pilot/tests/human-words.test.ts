@@ -8,7 +8,7 @@ import { failureLine, type Failure } from '../hooks/decision/backend.ts'
 import { profileWhy } from '../hooks/core/report.ts'
 import { jev, world } from './support/world.ts'
 
-const KEY = { typesafeApiKey: 'ts-test-key' }
+const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 /** Words and abbreviations a person must not meet: an HTTP code's name, a unit, an option's internal name, the old English log words. */
 const LEFTOVER = /\b(HTTP|ms|thetaMax|thetaUp|thetaDown|thetaExpected|holdSteps|agentOverride|escalateHaikuTo|kept|written|failed|confidence|decided|pick|unreadable|unreachable|refused|expected|asked|ruled)\b/
