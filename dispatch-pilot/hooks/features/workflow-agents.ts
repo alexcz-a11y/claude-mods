@@ -107,7 +107,7 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
       const io: BackendIo = {
         fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
         sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
-        pace: { now: () => $.clock.now(), sent: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+        pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
       }
       const plan = workflowBatches(parsed, words, settings, ctx.config.contextByKind.workflow)
       const timeoutMs = batchesTimeoutMs(ctx.config.timeoutMs, plan.batches.length)

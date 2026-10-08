@@ -32,6 +32,7 @@ import type {
   SessionMessage,
   SessionUsage,
   SettingsSource,
+  RegisteredToolSpec,
   ToolSpec,
 } from 'claude-code'
 
@@ -160,6 +161,8 @@ export type WorldOptions = {
     /** When the latest pplx requests went out (mock clock ms): the rate limit's record, which a hot reload keeps (#51). */
     pplxRate?: number[]
   }
+  /** Every write of the pplx rate limit's record is turned down as if another load had written first (#51): the limit cannot be kept. */
+  pplxRateContended?: boolean
   /**
    * The model behind `$.model.complete` (#11 writes skill profiles with it): answers each completion
    * (`n` counts from 1); every one is recorded in `w.completions`. Without it every completion is refused.
@@ -303,7 +306,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const commands: CommandSpec[] = []
   /** The text a command's turn starts with, by the prompt it was submitted as (`/name args`): the engine's command message. */
   const commandTurns = new Map<string, string>()
-  const tools: Required<ToolSpec>[] = []
+  const tools: RegisteredToolSpec[] = []
   /** What the step being sent streams and runs (set by `step()`, read by the engine's turn.step below). */
   let streaming: Pick<StepOptions, 'answer' | 'tools'> = {}
   /** How the tool call running now ends (set around each `$.tool.call` below). */
@@ -447,7 +450,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   // The pplx rate limit's record of the latest sends, kept here for the same reason: a test reads it, and seeds what a hot reload keeps.
   on('state.get', { plugin: 'dispatch-pilot', key: 'pplxRate' }, () => ({ value: { value: held.pplxRate.value as never, version: held.pplxRate.version } }))
   on('state.set', { plugin: 'dispatch-pilot', key: 'pplxRate' }, (_$, e) => {
-    if (e.ifVersion !== undefined && e.ifVersion !== held.pplxRate.version) return { value: { isSet: false, version: held.pplxRate.version } }
+    if (options.pplxRateContended === true || (e.ifVersion !== undefined && e.ifVersion !== held.pplxRate.version)) return { value: { isSet: false, version: held.pplxRate.version } }
     held.pplxRate = { value: JSON.parse(JSON.stringify(e.value)), version: held.pplxRate.version + 1 }
     return { value: { isSet: true, version: held.pplxRate.version } }
   })

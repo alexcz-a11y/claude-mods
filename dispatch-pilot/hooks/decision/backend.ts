@@ -20,7 +20,8 @@ export type BackendIo = {
    */
   pace?: {
     now: () => Promise<number>
-    sent: StateCell<number[]>
+    /** The times (mock or real ms) of the latest sends, as `$.state` keeps them. */
+    sentAt: StateCell<number[]>
   }
 }
 
@@ -49,9 +50,13 @@ export type Failure = {
   retryAfterMs?: number
 }
 
-export type Asked =
+export type Asked = (
   | { ok: true; answers: Readonly<Record<string, unknown>>; model: string | null; inputTokens: number | null }
   | { ok: false; failure: Failure }
+) & {
+  /** What happened on the way that does not change the answer but belongs in the debug log (the rate limit could not be kept for this request). */
+  notes?: readonly string[]
+}
 
 export type Backend = {
   /** Its name on the board and in the debug log. */
@@ -112,10 +117,11 @@ export async function within<T, L>(sleep: BackendIo['sleep'], promise: Promise<T
 
 /** A request's outcome as every debug-log line about one writes it: `answered in 310 ms by jev-1.13.0 (626 input tokens)`, or the failure. */
 export function describeAsked(asked: Asked, ms: number): string {
-  if (!asked.ok) return `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)`
+  const notes = asked.notes === undefined || asked.notes.length === 0 ? '' : `; ${asked.notes.join('; ')}`
+  if (!asked.ok) return `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)${notes}`
   const by = asked.model === null ? '' : ` by ${asked.model}`
   const tokens = asked.inputTokens === null ? '' : ` (${asked.inputTokens} input tokens)`
-  return `answered in ${ms} ms${by}${tokens}`
+  return `answered in ${ms} ms${by}${tokens}${notes}`
 }
 
 /** What went wrong, in one line for the debug log. */
@@ -165,10 +171,10 @@ export function failureText(backend: string, failure: Failure): string {
  * row beside the kind); `line`, the request's failure with its details (the board's `why`, the toast, the card, the
  * decision log's reasons): `jev：1500 毫秒内没有回答`, `jev：密钥被拒绝（状态码 401）`.
  */
-const FAILURE_WORDS: { readonly [K in Failure['kind']]: { words: (failure: Failure) => string; means: string; line: (backend: string, failure: Failure) => string } } = {
+const FAILURE_WORDS: { readonly [K in Failure['kind']]: { words: (failure: NamedFailure) => string; means: (failure: NamedFailure) => string; line: (backend: string, failure: Failure) => string } } = {
   config: {
     words: (failure) => (failure.status === undefined ? '决策模型没配好' : '决策模型拒绝了密钥'),
-    means: '没有配好决策模型的密钥或账号，或者密钥被拒绝',
+    means: () => '没有配好决策模型的密钥或账号，或者密钥被拒绝',
     line: (backend, failure) => {
       if (failure.status !== undefined) return `${backend}：密钥被拒绝（状态码 ${failure.status}）`
       // Nothing was sent: what is not set up (the option and the variable names are the ones the person types; any one of them does).
@@ -178,22 +184,23 @@ const FAILURE_WORDS: { readonly [K in Failure['kind']]: { words: (failure: Failu
   },
   timeout: {
     words: () => '决策模型超时',
-    means: '没有在等待时间内回答',
+    means: () => '没有在等待时间内回答',
     line: (backend, failure) => {
       const ms = /\b(\d+) ms\b/.exec(failure.detail)?.[1]
       return ms === undefined ? `${backend}：没有及时回答` : `${backend}：${ms} 毫秒内没有回答`
     },
   },
-  network: { words: () => '连不上决策模型', means: '网络不通，请求没有发出去', line: (backend) => `${backend}：连不上` },
+  network: { words: () => '连不上决策模型', means: () => '网络不通，请求没有发出去', line: (backend) => `${backend}：连不上` },
+  // A 429 from pplx is the rate limit the mod itself keeps to (pplxQps, pplx-rate.ts): 「被限速」. Jev's is 「繁忙」, as in 0.3.1.
   busy: {
-    words: (failure) => (failure.status === 429 ? '决策模型被限速' : '决策模型繁忙'),
-    means: '决策模型一时繁忙，或者请求太密被限速了（状态码 429 之类）',
-    line: (backend, failure) => (failure.status === 429 ? `${backend}：被限速（状态码 429）` : `${backend}：繁忙（状态码 ${failure.status ?? '?'}）`),
+    words: (failure) => (rateLimited(failure.backend, failure) ? '决策模型被限速' : '决策模型繁忙'),
+    means: (failure) => (rateLimited(failure.backend, failure) ? '请求太密，被决策模型限速了（状态码 429）' : '决策模型一时繁忙（状态码 429 之类）'),
+    line: (backend, failure) => (rateLimited(backend, failure) ? `${backend}：被限速（状态码 429）` : `${backend}：繁忙（状态码 ${failure.status ?? '?'}）`),
   },
-  quota: { words: () => '决策模型额度用完', means: '决策模型的额度用完了', line: (backend) => `${backend}：今天的额度用完了` },
-  http: { words: () => '决策模型出错', means: '决策模型回了一个出错的状态码', line: (backend, failure) => `${backend}：出错（状态码 ${failure.status ?? '?'}）` },
-  parse: { words: () => '读不懂决策模型的回答', means: '回答里没有能用的判断', line: (backend) => `${backend}：回答读不懂` },
-  request: { words: () => '决策请求出错', means: '请求本身出了错', line: (backend) => `${backend}：请求出错（详见 debug log）` },
+  quota: { words: () => '决策模型额度用完', means: () => '决策模型的额度用完了', line: (backend) => `${backend}：今天的额度用完了` },
+  http: { words: () => '决策模型出错', means: () => '决策模型回了一个出错的状态码', line: (backend, failure) => `${backend}：出错（状态码 ${failure.status ?? '?'}）` },
+  parse: { words: () => '读不懂决策模型的回答', means: () => '回答里没有能用的判断', line: (backend) => `${backend}：回答读不懂` },
+  request: { words: () => '决策请求出错', means: () => '请求本身出了错', line: (backend) => `${backend}：请求出错（详见 debug log）` },
 }
 
 /**
@@ -205,11 +212,19 @@ export function failureLine(backend: string, failure: Failure): string {
 }
 
 /** The failure in a few words, as the band says why an agent is not routed (the toast and the card add the details). */
-export function failureWords(failure: Failure): string {
+export function failureWords(failure: NamedFailure): string {
   return FAILURE_WORDS[failure.kind].words(failure)
 }
 
 /** What a kind of failure is, as the card says it beside the kind. */
-export function failureMeaning(kind: Failure['kind']): string {
-  return FAILURE_WORDS[kind].means
+export function failureMeaning(failure: NamedFailure): string {
+  return FAILURE_WORDS[failure.kind].means(failure)
+}
+
+/** A failure with the decision model it came from, as the board keeps it. */
+export type NamedFailure = Failure & { backend: string }
+
+/** Whether a 429 is the limit the mod keeps pplx to (Jev's 429 is its own busy). */
+function rateLimited(backend: string, failure: Failure): boolean {
+  return backend === 'pplx' && failure.status === 429
 }

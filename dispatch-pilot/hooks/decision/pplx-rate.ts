@@ -1,7 +1,14 @@
 // The rate limit on pplx requests (#51; ADR 0006). A Perplexity Tier 0 account takes 1 request a second (QPS), and one
 // message sends two or three (the effort question, the skills' two stages) while a mid-turn re-decision, a dispatched
-// agent or find_skill ask beside them, so every pplx request goes through this queue: at most `qps` requests leave in any
+// agent or find_skill ask beside them, so every pplx request goes through this queue, which aims at `qps` requests in any
 // second, the effort question of a message first, the rest in the order they came. Jev does not pass through it.
+//
+// What is kept and what is only aimed at: the count of the latest sends is kept in a `$.state` cell with optimistic writes
+// (`ifVersion`), so two requests never both take the last place of a second. Priority and order are kept by the queue,
+// a module variable, between requests that have not yet started to take their place: a request that arrives while the one
+// in front is in the middle of taking its place (a few awaits) does not get ahead of it. And the whole limit fails open:
+// a cell that cannot be read, or written within ATTEMPTS tries, lets the request out and says so in the debug log (`notes`
+// of the answer), because Perplexity's own 429 is all that follows and the one 429 retry below deals with it.
 //
 // The time a request spends in the queue is part of its own wait: `timeoutMs` counts from the moment it was asked. When a
 // 429 comes anyway the request asks once more if the time left covers the `Retry-After` it was given and an ordinary
@@ -30,13 +37,22 @@ function priorityOf(request: DecisionRequest): number {
   return Object.keys(request.questions).some((id) => id.startsWith(`${EFFORT_PART}.`)) ? 0 : 1
 }
 
+/**
+ * Sleeps `ms` on the host's timer. Nothing cancels a request once it is asked (`ask` takes no signal), and a sleep here
+ * ends by itself within the request's own wait, so the signal is never aborted; the sleeps that something can cut short
+ * (a waiter woken when the one in front leaves) go through `within`, which aborts its timer.
+ */
+function pause(sleep: BackendIo['sleep'], ms: number): Promise<void> {
+  return sleep(ms, new AbortController().signal).catch(() => {})
+}
+
 type Waiter = { priority: number; order: number; wake: () => void }
 
 /**
  * `backend` behind the rate limit. A request whose `io` has no `pace` (the eval, which paces its own requests) goes
  * straight through, as does one asked without a key (it sends nothing).
  */
-export function limited(backend: Backend, qps: number): Backend {
+export function rateLimited(backend: Backend, qps: number): Backend {
   const queue: Waiter[] = []
   let arrivals = 0
 
@@ -45,10 +61,11 @@ export function limited(backend: Backend, qps: number): Backend {
 
   /**
    * Waits for a free place among the latest `qps` sends of the last second, takes it (the send time goes into the cell) and
-   * resolves true; resolves false when `deadline` comes first, or can no longer be met. A place is claimed by the first in
-   * the queue only, and only when it is free; a better request that arrives while the first sleeps goes ahead of it.
+   * resolves true; resolves false when `deadline` comes first, or can no longer be met. Only the first in the queue takes a
+   * place, and only when it is free; a better request that arrives while the first sleeps goes ahead of it, since the first
+   * looks at the queue again when it wakes. A limit that could not be kept is added to `notes` (the request goes out anyway).
    */
-  async function takePlace(pace: NonNullable<BackendIo['pace']>, sleep: BackendIo['sleep'], priority: number, deadline: number): Promise<boolean> {
+  async function waitForPlace(pace: NonNullable<BackendIo['pace']>, sleep: BackendIo['sleep'], priority: number, deadline: number, notes: string[]): Promise<boolean> {
     const me: Waiter = { priority, order: arrivals++, wake: () => {} }
     queue.push(me)
     try {
@@ -64,11 +81,11 @@ export function limited(backend: Backend, qps: number): Backend {
         }
         const now = await pace.now()
         if (now >= deadline) return false
-        const wait = await claim(pace.sent, now, qps)
+        const wait = await takeFromCell(pace.sentAt, now, qps, notes)
         if (wait === 0) return true
         // The place comes free after `wait`; a request that cannot be sent before its deadline is not held up until it.
         if (now + wait >= deadline) return false
-        await sleep(wait, new AbortController().signal).catch(() => {})
+        await pause(sleep, wait)
       }
     } finally {
       queue.splice(queue.indexOf(me), 1)
@@ -86,31 +103,33 @@ export function limited(backend: Backend, qps: number): Backend {
       if (pace === undefined || backend.configured === false) return backend.ask(io, request, timeoutMs)
       const priority = priorityOf(request)
       const deadline = (await pace.now()) + timeoutMs
-      const late: Asked = { ok: false, failure: { kind: 'timeout', detail: `no answer in ${timeoutMs} ms` } }
-      const once = async (): Promise<Asked> => {
-        if (!(await takePlace(pace, io.sleep, priority, deadline))) return late
+      const notes: string[] = []
+      const noAnswer: Asked = { ok: false, failure: { kind: 'timeout', detail: `no answer in ${timeoutMs} ms` } }
+      const askOnce = async (): Promise<Asked> => {
+        if (!(await waitForPlace(pace, io.sleep, priority, deadline, notes))) return noAnswer
         const left = deadline - (await pace.now())
-        if (left <= 0) return late
+        if (left <= 0) return noAnswer
         const asked = await backend.ask(io, request, left)
         // Not answered in what was left of the wait: the wait the person set is what the failure says.
-        return !asked.ok && asked.failure.kind === 'timeout' && asked.failure.status === undefined ? late : asked
+        return !asked.ok && asked.failure.kind === 'timeout' && asked.failure.status === undefined ? noAnswer : asked
       }
 
-      const asked = await once()
+      const asked = await askOnce()
       const wait = retryWait(asked)
       // A 429 with a wait to read: once more if the time left allows the wait and an ordinary request; else it stays a 429.
-      if (wait === null || deadline - (await pace.now()) < wait + EXPECTED_REQUEST_MS) return settled(asked)
-      if (wait > 0) await io.sleep(wait, new AbortController().signal).catch(() => {})
-      return settled(await once())
+      if (wait === null || deadline - (await pace.now()) < wait + EXPECTED_REQUEST_MS) return handedOver(asked, notes)
+      if (wait > 0) await pause(io.sleep, wait)
+      return handedOver(await askOnce(), notes)
     },
   }
 }
 
-/** The answer as the callers get it: a failure without `retryAfterMs`, which only passes between the backend and this queue (the board keeps what the person reads of it, in `detail`). */
-function settled(asked: Asked): Asked {
-  if (asked.ok || asked.failure.retryAfterMs === undefined) return asked
-  const { retryAfterMs: _wait, ...failure } = asked.failure
-  return { ok: false, failure }
+/** The answer as the callers get it: a failure without `retryAfterMs`, which only passes between the backend and this queue (the board keeps what the person reads of it, in `detail`); with the `notes` the debug log is to carry. */
+function handedOver(asked: Asked, notes: readonly string[]): Asked {
+  const withNotes = notes.length === 0 ? asked : { ...asked, notes: [...(asked.notes ?? []), ...notes] }
+  if (withNotes.ok || withNotes.failure.retryAfterMs === undefined) return withNotes
+  const { retryAfterMs: _wait, ...failure } = withNotes.failure
+  return { ok: false, failure, ...(withNotes.notes === undefined ? {} : { notes: withNotes.notes }) }
 }
 
 /** How long a failed request was told to wait before it asks again: only a 429 that gave a `Retry-After`; null for every other failure. */
@@ -122,10 +141,10 @@ function retryWait(asked: Asked): number | null {
 
 /**
  * Takes a place for a send at `now`: 0 when it was free (the time is written into the cell), else the ms until the oldest
- * send of the last second leaves the window. The cell holds at most `qps` times. Fails open: a cell that cannot be read or
- * written does not stop the request (Perplexity's own 429 is the worst that follows).
+ * send of the last second leaves the window. The cell holds at most `qps` times. Fails open, with a note for the debug log:
+ * a cell that cannot be read or written, or a write lost ATTEMPTS times to other writers, does not stop the request.
  */
-async function claim(cell: StateCell<number[]>, now: number, qps: number): Promise<number> {
+async function takeFromCell(cell: StateCell<number[]>, now: number, qps: number, notes: string[]): Promise<number> {
   try {
     for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
       const { value, version } = await cell.get()
@@ -134,8 +153,9 @@ async function claim(cell: StateCell<number[]>, now: number, qps: number): Promi
       if (recent.length >= qps) return (recent[recent.length - qps] as number) + WINDOW_MS - now
       if ((await cell.set([...recent, now], { ifVersion: version })).isSet) return 0
     }
-  } catch {
-    // fail open
+    notes.push(`rate limit not kept (the record of sends could not be written after ${ATTEMPTS} tries)`)
+  } catch (error) {
+    notes.push(`rate limit not kept (the record of sends failed: ${error instanceof Error ? error.message : String(error)})`)
   }
   return 0
 }

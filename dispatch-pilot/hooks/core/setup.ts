@@ -21,7 +21,7 @@ import { jevBackend } from '../decision/jev.ts'
 import type { MidturnLimits, MidturnRules } from '../decision/midturn.ts'
 import { resolveModel, type ResolvedModel } from '../decision/model-ids.ts'
 import { pplxBackend } from '../decision/pplx.ts'
-import { limited } from '../decision/pplx-rate.ts'
+import { rateLimited } from '../decision/pplx-rate.ts'
 import type { SkillPolicy } from '../decision/skills.ts'
 
 /** The decision models the person can choose (`decisionModel`): Perplexity's pplx-decider and TypeSafe's Jev. */
@@ -96,10 +96,15 @@ export type ContextKind = (typeof CONTEXT_KINDS)[number]
 /**
  * What one decision model brings: each option's default where the person left
  * it unset, the most `contextTokens` and `contextMessages` read as, how every
- * question is asked, the threshold for taking the level above, and whether skills are
- * suggested beside each message until the person flips it (`/dp skills
- * on|off`). A new decision model is one more entry of BACKEND_DEFAULTS, a column in the README's
- * configuration tables and one line in eval/lib/docs.ts BACKENDS: the rest reads the table.
+ * question is asked and the threshold for taking the level above.
+ *
+ * Adding a decision model means touching, beyond its entry here: `BackendName`; the backend in decision/ and its
+ * construction in `setup()` (`configs`, `backends`, and whether it passes through the rate limit); `backendNameOf` and
+ * `chooseBackend` (which key decides, and what it falls back to); `DECISION_MODELS` in core/report.ts (its name and key
+ * settings, for the fallback entry); `decisionModel`'s options in plugin.json, its key option and the README's
+ * configuration tables (a column each); and, for the eval, `backendFor` and `PRICES` in eval/node.ts, `--backend` in
+ * eval/run.ts and eval/eval-v2-flow.ts, and the BACKENDS list in eval/lib/docs.ts. A `Record<BackendName, ...>` the compiler
+ * checks (this table, `setup()`, PRICES, DECISION_MODELS); the rest it does not, and tests/docs-sync.test.ts only the README tables.
  */
 export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
   /** `contextTokens` above this reads as this. */
@@ -124,8 +129,6 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
    * every kind, each taking the smaller of it and its own.
    */
   contextByKind: Readonly<Record<ContextKind, number>>
-  /** Whether the `skills` switch (suggestions beside each message, the listing withheld) starts on. */
-  suggestSkills: boolean
   /**
    * How long find_skill's two requests may take in all, in ms; null: as long
    * as a message waits (`timeoutMs`). Not an option: set by the latency
@@ -174,7 +177,6 @@ const JEV_DEFAULTS: BackendDefaults = {
   // #16, both runs on the old wording: from 0.7 to 0.75 the Chinese-English gap of the skill suggestions went from -3.7 to -2.3 points.
   skillsMinRelevance: 0.75,
   findSkillMinRelevance: 0.5,
-  suggestSkills: true,
   findSkillWaitMs: null,
   findSkillProfiles: true,
   // Raising is easy (DEVELOPMENT.md, 「按 AA 基准校正」): the level above the most probable one is taken from 0.3.
@@ -214,7 +216,6 @@ const PPLX_DEFAULTS: BackendDefaults = {
   agentOverride: 0.6,
   skillsMinRelevance: 0.75,
   findSkillMinRelevance: 0.5,
-  suggestSkills: true,
   // Find_skill's two requests wait as long as the profiles' question takes (a message's wait would be 8000 ms of a 10 s hook).
   findSkillWaitMs: 6000,
   findSkillProfiles: true,
@@ -251,9 +252,10 @@ export type Config = EffortRules & {
    * unset, with the value each took, and an option set above that model's most, read as the most.
    */
   defaults: { used: readonly (readonly [PerBackendOption, number])[]; capped: readonly { option: PerBackendOption; set: number; read: number }[] }
-  typesafeApiKey: string
-  /** The Perplexity key in the options (`perplexityApiKey`, trimmed; '' if unset): the environment's (`Secrets`) stands where this is empty. */
-  perplexityApiKey: string
+  /** The TypeSafe key in the options (`typesafeApiKey`, trimmed; '' if unset). Not enumerable (see readConfig): it is not in a written-out or copied config. */
+  readonly typesafeApiKey: string
+  /** The Perplexity key in the options (`perplexityApiKey`, trimmed; '' if unset; not enumerable either): the environment's (`Secrets`) stands where this is empty. */
+  readonly perplexityApiKey: string
   /** How many pplx requests the mod sends in a second at most (`pplxQps`; the account's limit): the rest wait their turn (decision/pplx-rate.ts). Jev has no such limit. */
   pplxQps: number
   /** How long a decision request may take before the prompt goes on without it. */
@@ -304,8 +306,6 @@ export type Config = EffortRules & {
   }
   /** Skills (#10, #11, #12). */
   skills: {
-    /** Whether the `skills` switch starts on (the decision model's default; `/dp skills on|off` flips it). */
-    suggestByDefault: boolean
     /** What a message is suggested: at most `max`, from `minRelevance`. */
     suggest: SkillPolicy
     /** What find_skill returns: at most `max`, from `minRelevance`. */
@@ -377,7 +377,7 @@ export function setup(options: PluginOptions, table: Readonly<Record<BackendName
   const secrets: Secrets = { perplexityEnvKey: '' }
   const backends: Record<BackendName, Backend> = {
     // Every pplx request goes through the rate limit (#51); Jev does not.
-    pplx: limited(pplxBackend(() => perplexityKey(configs.pplx, secrets)), configs.pplx.pplxQps),
+    pplx: rateLimited(pplxBackend(() => perplexityKey(configs.pplx, secrets)), configs.pplx.pplxQps),
     jev: jevBackend(configs.jev.typesafeApiKey),
   }
   const choice = () => chooseBackend(asked, { perplexity: perplexityKey(configs.pplx, secrets), typesafe: configs.pplx.typesafeApiKey })
@@ -434,11 +434,9 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
   const haikuToWritten = stringOf(options.escalateHaikuTo, 'sonnet').trim()
   // A hook's own budget is 10 s and the timer's wait counts toward it.
   const timeoutMs = own('timeoutMs', 200, 8000)
-  const config: Config = {
+  const config: Omit<Config, 'typesafeApiKey' | 'perplexityApiKey'> = {
     backend,
     defaults: { used, capped },
-    typesafeApiKey: stringOf(options.typesafeApiKey, '').trim(),
-    perplexityApiKey: stringOf(options.perplexityApiKey, '').trim(),
     pplxQps: whole(options.pplxQps, 1, 50, 1),
     timeoutMs,
     ask: defaults.ask,
@@ -473,7 +471,6 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
       workflowMode: stringOf(options.workflowMode, 'rewrite') === 'return' ? 'return' : 'rewrite',
     },
     skills: {
-      suggestByDefault: defaults.suggestSkills,
       suggest: { max: whole(options.skillsMax, 0, 10, 3), minRelevance: own('skillsMinRelevance', 0, 1) },
       find: { max: whole(options.findSkillMax, 1, 10, 5), minRelevance: own('findSkillMinRelevance', 0, 1) },
       findWaitMs: defaults.findSkillWaitMs ?? timeoutMs,
@@ -491,7 +488,12 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
   }
   // In the table's order, whatever order they were read in.
   used.sort((a, b) => PER_BACKEND_OPTIONS.indexOf(a[0]) - PER_BACKEND_OPTIONS.indexOf(b[0]))
-  return config
+  // The keys are not enumerable: `JSON.stringify(config)`, `{ ...config }` and `Object.keys` do not meet them, so a
+  // config written to a log, a result file or the board (the eval saves its settings) cannot carry a key by accident.
+  return Object.defineProperties(config, {
+    typesafeApiKey: { value: stringOf(options.typesafeApiKey, '').trim(), enumerable: false },
+    perplexityApiKey: { value: stringOf(options.perplexityApiKey, '').trim(), enumerable: false },
+  }) as Config
 }
 
 /**
@@ -500,12 +502,11 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
  * skill suggestions on until /dp skills off; contextTokens 20000 reads as
  * 16000, the most with jev`.
  */
-export function describeDefaults(config: Pick<Config, 'backend' | 'defaults' | 'skills'>): string {
+export function describeDefaults(config: Pick<Config, 'backend' | 'defaults'>): string {
   const { backend, defaults } = config
   const used = defaults.used.length === 0 ? 'every option set' : `left unset, so ${backend}'s defaults: ${defaults.used.map(([option, value]) => `${option} ${value}`).join(', ')}`
-  const skills = config.skills.suggestByDefault ? 'skill suggestions on until /dp skills off' : 'skill suggestions off until /dp skills on'
   const capped = defaults.capped.map((cap) => `; ${cap.option} ${cap.set} reads as ${cap.read}, the most with ${backend}`).join('')
-  return `settings for ${backend}: ${used}; ${skills}${capped}`
+  return `settings for ${backend}: ${used}; skill suggestions on until /dp skills off${capped}`
 }
 
 /**

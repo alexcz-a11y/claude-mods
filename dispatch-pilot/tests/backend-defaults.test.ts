@@ -190,7 +190,7 @@ test("at session start the debug log says which options took the decision model'
 
 test("readConfig: an option left unset takes the decision model's default", () => {
   const config = readConfig({ decisionModel: 'jev' })
-  expect([config.backend, config.timeoutMs, config.context, config.skills.suggest.minRelevance, config.skills.suggestByDefault]).toEqual(['jev', 1500, { messages: 32, tokens: 6000 }, 0.75, true])
+  expect([config.backend, config.timeoutMs, config.context, config.skills.suggest.minRelevance]).toEqual(['jev', 1500, { messages: 32, tokens: 6000 }, 0.75])
   expect(config.midturn.limits).toEqual({ steps: 16, tokens: 24000 })
   expect([config.skills.findWaitMs, config.skills.findByProfile]).toEqual([1500, true])
   expect([config.escalation.thetaExpected, config.agents.thetaOverride, config.skills.find.minRelevance]).toEqual([0.25, 0.6, 0.5])
@@ -454,7 +454,7 @@ test('readConfig for pplx: its row of the table stands where the person set noth
   expect([config.thetaMax, config.roundUp]).toEqual([0.47, 0.45])
   // What the table does not calibrate for pplx is Jev's.
   expect([config.escalation.thetaExpected, config.agents.thetaOverride, config.skills.suggest.minRelevance, config.skills.find.minRelevance]).toEqual([0.25, 0.6, 0.75, 0.5])
-  expect([config.skills.suggestByDefault, config.skills.findByProfile]).toEqual([true, true])
+  expect(config.skills.findByProfile).toBe(true)
   // Every question in English, the effort question beside a message too.
   expect(config.ask).toEqual({ turnStart: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
   expect(config.defaults.used.map(([option]) => option)).toEqual([...PER_BACKEND_OPTIONS])
@@ -490,6 +490,18 @@ test('chooseBackend: Jev when asked for; else pplx with a Perplexity key; else J
   expect(chooseBackend('pplx', keys('', ''))).toEqual({ backend: 'pplx', fellBack: false })
 })
 
-test('the two decision models start the skill suggestions the same way: the switch is defined before the environment key is read', () => {
-  expect(BACKEND_DEFAULTS.pplx.suggestSkills).toBe(BACKEND_DEFAULTS.jev.suggestSkills)
+// A key lives in the options and in the backend built from them, nowhere that gets written down by accident: `Config` is
+// handed to every feature and the eval, which write settings into logs and result files (`JSON.stringify(config)`).
+test('the keys are in the config for the backend to use but do not show when the config is written out or copied', () => {
+  const options = { typesafeApiKey: ' ts-secret-key ', perplexityApiKey: ' pplx-secret-key ' }
+  const config = readConfig(options)
+  expect(config.typesafeApiKey).toBe('ts-secret-key')
+  expect(config.perplexityApiKey).toBe('pplx-secret-key')
+
+  expect(JSON.stringify(config)).not.toContain('secret-key')
+  expect(Object.keys(config)).not.toContain('typesafeApiKey')
+  expect(Object.keys(config)).not.toContain('perplexityApiKey')
+  expect(JSON.stringify({ ...config })).not.toContain('secret-key')
+  expect(JSON.stringify(setup(options).config)).not.toContain('secret-key')
+  expect(JSON.stringify(readConfig({ ...options, decisionModel: 'jev' }))).not.toContain('secret-key')
 })

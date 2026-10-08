@@ -6,7 +6,7 @@
 
 | mod | 说明 | 文档 |
 |---|---|---|
-| `dispatch-pilot` | 在 Claude 之外调用一个决策模型（Jev），决定主 agent 每一轮的 effort、派出 agent 和 Workflow 里 agent 的模型和 effort，并推荐相关的 skill。只面向 Claude Code 订阅 | [dispatch-pilot/README.md](dispatch-pilot/README.md) |
+| `dispatch-pilot` | 在 Claude 之外调用一个决策模型（默认 pplx，没有 Perplexity key 时退回 Jev），决定主 agent 每一轮的 effort、派出 agent 和 Workflow 里 agent 的模型和 effort，并推荐相关的 skill。只面向 Claude Code 订阅 | [dispatch-pilot/README.md](dispatch-pilot/README.md) |
 
 ## 安装
 

@@ -46,6 +46,7 @@ test('only a TypeSafe key, as a 0.3.1 configuration has it: Jev decides, and the
   expect(more).toEqual([])
   expect(entry).toMatchObject({ tone: 'info', outcome: expect.stringContaining('Jev'), reason: expect.stringContaining('perplexityApiKey') })
   expect(entry?.reason).toContain('PERPLEXITY_API_KEY')
+  expect(entry).toMatchObject({ outcome: '改用 Jev', reason: '没有 pplx 的密钥（perplexityApiKey 或环境变量 PERPLEXITY_API_KEY），改用 Jev；补上密钥就用 pplx，decisionModel 设成 Jev 则不再提示' })
   // The key itself is written nowhere.
   expect(JSON.stringify({ logs: w.logs, board: await w.board() })).not.toContain('ts-test-key')
 })

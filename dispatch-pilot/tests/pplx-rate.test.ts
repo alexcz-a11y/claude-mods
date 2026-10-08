@@ -123,6 +123,14 @@ test('the time in the queue is taken from the request\'s own wait: a skills requ
   expect(w.logs.map((log) => log.text).filter((text) => text.includes('[skills.which]'))).toEqual([expect.stringContaining('to pplx: timeout: no answer in 1500 ms')])
 })
 
+test('a record that cannot be written lets the request out, and the debug log says the limit was not kept for it', { options: PPLX }, async ($, on) => {
+  const w = world($, on, { backend: answering(), pplxRateContended: true })
+  await w.submit('先写一个失败的测试')
+
+  expect(timeline(w)).toEqual([['effort.level', 0]])
+  expect(w.logs.map((log) => log.text).filter((text) => text.includes('[effort.level]'))).toEqual([expect.stringContaining('rate limit not kept (the record of sends could not be written after 8 tries)')])
+})
+
 // ---- a 429 ----------------------------------------------------------------------------------------
 
 /** What the API sends when the account is over its limit, with the wait it asks for. */
