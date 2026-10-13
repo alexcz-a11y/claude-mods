@@ -18,6 +18,7 @@
 
 import type { EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
 import { describeAsked, errorText, failureLine, failureText, within, type BackendIo, type Failure } from '../decision/backend.ts'
+import { clipToTokens, conversationUpTo, describeState, type ContextMessage } from '../decision/context.ts'
 import { dispatchEvidence, modelFamily, termsOf, type AgentModel, type DispatchSettings, type Terms } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
 import {
@@ -35,15 +36,18 @@ import {
   type JournalStart,
   type RunSite,
 } from '../decision/workflow-labels.ts'
+import { renderSummary } from '../decision/summary.ts'
 import { parseWorkflow, type AgentCall, type ParsedWorkflow } from '../decision/workflow-script.ts'
-import { batchesTimeoutMs, callResult, readOutcomes, reasonOf, workflowBatches } from '../decision/workflow.ts'
+import { batchesTimeoutMs, callResult, planBatches, readOutcomes, reasonOf, workflowBatches, type WorkflowBackground } from '../decision/workflow.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { callNodeId, report, type Decided, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import { callReports, workflowCallTitle, workflowLeft } from '../core/workflow-report.ts'
+import { UNRESOLVED_SWITCH } from './unresolved.ts'
 
 const SAID = { plugin: 'dispatch-pilot', key: 'said' } as const
+const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
 const AGENTS = { plugin: 'dispatch-pilot', key: 'agents' } as const
 const RUNS = { plugin: 'dispatch-pilot', key: 'labelRuns' } as const
 const TERMS = { plugin: 'dispatch-pilot', key: 'workflowTerms' } as const
@@ -74,8 +78,22 @@ const MIN_ASK_MS = 200
 const LABEL_HINT =
   "Dispatch Pilot, the user's routing plugin, finds each running agent's agent() call by its label to set the model and effort it runs with. Give every agent() call a label that is fixed and unique within the script: a string such as { label: 'review-auth' }, or for a call that runs once per item, a fixed prefix and the item, such as { label: `audit:${file}` }."
 
-/** A run this feature routes the agents of (`labelRuns` in types/index.d.ts). `callId`: the Workflow tool call that launched it (a run recorded by an earlier load has none: the run's own id stands for it). */
-type LabelRun = { runId: string; callId?: string; dir: string; workflow: string | null; description: string | null; sites: RunSite[] | null }
+/**
+ * What the turn that launched a run said, kept for the run's agents decided as each one starts (`labelRuns` in
+ * types/index.d.ts): the person's words (`said` then), the problem summary and count, the script (with pplx: its
+ * text, cut to an agent's budget) and the loop that launched it (`caller`, absent for the main one): its conversation up
+ * to the run's call is read as an agent starts.
+ */
+type Launch = { said: string[]; problem_summary?: string; unresolved_count?: number; script?: string; caller?: string }
+
+/**
+ * A run this feature routes the agents of (`labelRuns` in types/index.d.ts). `callId`: the Workflow tool call that launched it (a run recorded by an earlier load has none: the run's own id stands for it).
+ * `launch`: what its launching turn said, for its agents decided as they start (absent when it has none, or an earlier load recorded it).
+ */
+type LabelRun = { runId: string; callId?: string; dir: string; workflow: string | null; description: string | null; sites: RunSite[] | null; launch?: Launch }
+
+/** A script kept for a run's agents, cut to fit, keeps this share for its end (the last calls, what it returns). */
+const SCRIPT_KEPT_TAIL = 0.3
 
 /** What one agent's steps are set to: a model family and an effort (null: the step's own). */
 type AgentRoute = { model: AgentModel | null; effort: Effort | null }
@@ -122,19 +140,29 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       const parsed = text === null ? null : parseWorkflow(text)
       if (parsed !== null && parsed.calls.length === 0) return result
 
+      // What the turn that launches the run says: the person's words, and the problem summary and count (#41). An inline
+      // script's calls were asked about by workflow-agents, which read the same: here they only size its batches, and when
+      // they cannot be read, that feature could not route the script either.
+      const said = given === 'script' ? await $.state.get(SAID).then((read) => read.value ?? [], () => []) : ((await $.state.get(SAID)).value ?? [])
+      const words = said.join('\n')
+      const { value: held } = isOn(UNRESOLVED_SWITCH) ? await $.state.get(COUNT).catch(() => ({ value: undefined })) : { value: undefined }
+      const problem = {
+        ...(held?.summary === undefined ? {} : { problem_summary: renderSummary(held.summary, ctx.ask.language) }),
+        ...(held === undefined || held.count === 0 ? {} : { unresolved_count: held.count }),
+      }
+      const budgets = { one: ctx.config.contextByKind.workflow, each: ctx.config.contextByKind.agent }
       let sites: RunSite[] | null = null
       let decided: Parameters<typeof launchNote>[2] = null
       if (parsed !== null) {
-        // An inline script's calls were asked about by workflow-agents: the person's words only size its batches here,
-        // and when they cannot be read, that feature could not route the script either.
-        const said = given === 'script' ? await $.state.get(SAID).then((read) => read.value ?? [], () => []) : ((await $.state.get(SAID)).value ?? [])
-        const words = said.join('\n')
-        const plan = workflowBatches(parsed, words, settings, ctx.config.contextByKind.workflow)
         if (given === 'script') {
           // workflow-agents asked about the rest when the script was sent, and left the person's terms for each call.
+          const plan = planBatches(parsed, words, settings, budgets, { background: problem })
           const { value: terms = [] } = await $.state.get({ ...TERMS, id: e.tool_use_id }).catch(() => ({ value: undefined }))
           sites = inlineSites(parsed.calls, plan.skipped, terms)
         } else {
+          // With pplx, the script and the conversation the run is launched from, up to its call (BACKEND_DEFAULTS agentBackground).
+          const recent = ctx.config.agents.background ? (conversationUpTo(await conversationOf($, e.agentId), ctx.config.context.messages, e.tool_use_id) ?? []) : []
+          const plan = planBatches(parsed, words, settings, budgets, { background: { ...problem, ...(ctx.config.agents.background ? { script: text, recent } : {}) } })
           const io: BackendIo = {
             fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
             sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
@@ -145,7 +173,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
             plan.batches.map(async (batch) => {
               const startedAt = await $.clock.now()
               const answer = await ctx.backend.ask(io, batch.request, timeoutMs)
-              log(`request [${Object.keys(batch.request.questions).join(', ')}] to ${ctx.backend.name} for workflow ${JSON.stringify(parsed.meta.name)} (by label): ${describeAsked(answer, (await $.clock.now()) - startedAt)}`)
+              log(`request [${Object.keys(batch.request.questions).join(', ')}] to ${ctx.backend.name} for workflow ${JSON.stringify(parsed.meta.name)} (by label): ${describeAsked(answer, (await $.clock.now()) - startedAt)}; ${describeState(batch.request.state)}`)
               return answer
             }),
           )
@@ -157,8 +185,26 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
         }
       }
       // Every launched run is recorded, even one whose calls all run as the script says: their agents' plans still
-      // take the person's terms for the calls' work as they start.
-      const run: LabelRun = { runId: launched.runId, callId: e.tool_use_id, dir: launched.dir, workflow: parsed?.meta.name ?? launched.workflow, description: parsed?.meta.description ?? null, sites }
+      // take the person's terms for the calls' work as they start. A run with agents decided as they start keeps what
+      // the launching turn said for them: by then the person may have sent another message, about something else.
+      const startsDecided = sites === null || sites.some((site) => site.route.kind === 'runtime')
+      const asLaunched: Launch | undefined = startsDecided
+        ? {
+            said,
+            ...problem,
+            ...(ctx.config.agents.background && text !== null ? { script: clipToTokens(text, ctx.config.contextByKind.agent, SCRIPT_KEPT_TAIL) } : {}),
+            ...(e.agentId === undefined ? {} : { caller: e.agentId }),
+          }
+        : undefined
+      const run: LabelRun = {
+        runId: launched.runId,
+        callId: e.tool_use_id,
+        dir: launched.dir,
+        workflow: parsed?.meta.name ?? launched.workflow,
+        description: parsed?.meta.description ?? null,
+        sites,
+        ...(asLaunched === undefined ? {} : { launch: asLaunched }),
+      }
       const runs: Cell<LabelRun[]> = { get: () => $.state.get(RUNS), set: (value, options) => $.state.set(RUNS, value, options) }
       await update(runs, (list) => [...(list ?? []).filter((kept) => kept.runId !== run.runId), run].slice(-MAX_RUNS))
       recorded = run
@@ -285,8 +331,16 @@ async function decideAtStart(
 ): Promise<Settled> {
   const task = await readTask($, agent.run.dir, agent.agentId, agent.deadline)
   if (task === null) return { ok: false, reason: '它的任务没能及时读到' }
-  const { value: said = [] } = await $.state.get(SAID)
+  // What the turn that launched the run said, not the turn the agent starts in: the person may have sent another message
+  // since, about something else. A run an earlier load recorded kept none, and reads the words of now.
+  const launch = agent.run.launch
+  const said = launch?.said ?? ((await $.state.get(SAID)).value ?? [])
   const words = said.join('\n')
+  const background: WorkflowBackground = {
+    ...(launch?.problem_summary === undefined ? {} : { problem_summary: launch.problem_summary }),
+    ...(launch?.unresolved_count === undefined ? {} : { unresolved_count: launch.unresolved_count }),
+    ...(ctx.config.agents.background && launch !== undefined ? { script: launch.script ?? null, recent: await launchConversation($, agent.run, ctx.config.context.messages) } : {}),
+  }
   const site = agent.site
   const call: AgentCall = {
     index: 0,
@@ -301,7 +355,8 @@ async function decideAtStart(
     edit: null,
   }
   const parsed: ParsedWorkflow = { script: '', meta: { name: agent.run.workflow, description: agent.run.description }, calls: [call] }
-  const plan = workflowBatches(parsed, words, settings, ctx.config.contextByKind.workflow)
+  // One request for each agent, and the agents of a fan-out start together: a dispatched agent's budget, not a Workflow's one request's.
+  const plan = workflowBatches(parsed, words, settings, ctx.config.contextByKind.agent, { background })
   const batch = plan.batches[0]
   if (batch === undefined) return { ok: false, reason: '它的任务里没说要做什么' }
   const timeoutMs = Math.min(ctx.config.timeoutMs, agent.deadline - (await $.clock.now()))
@@ -315,7 +370,7 @@ async function decideAtStart(
   const asked = await ctx.backend.ask(io, batch.request, timeoutMs)
   const about = `${JSON.stringify(agent.label)}（agent ${agent.agentId}，Workflow ${agent.run.workflow ?? '未命名'}）`
   const log = (line: string) => $.ui.log(line, { to: 'debug' })
-  log(`request [${Object.keys(batch.request.questions).join(', ')}] to ${ctx.backend.name} for ${about}: ${describeAsked(asked, (await $.clock.now()) - startedAt)}`)
+  log(`request [${Object.keys(batch.request.questions).join(', ')}] to ${ctx.backend.name} for ${about}: ${describeAsked(asked, (await $.clock.now()) - startedAt)}; ${describeState(batch.request.state)}`)
   const outcome = readOutcomes(parsed, plan, [asked], words, settings)[0]
   if (outcome === undefined || outcome.kind === 'left') {
     const failure = outcome?.kind === 'left' ? outcome.failure : undefined
@@ -335,6 +390,21 @@ async function decideAtStart(
   const terms = termsOf(outcome.decision)
   if (outcome.kind === 'kept') return { ok: true, route: null, terms, decision }
   return { ok: true, route: { model: outcome.write.model === undefined ? null : (outcome.write.model as AgentModel), effort: typeof outcome.write.effort === 'string' ? (outcome.write.effort as Effort) : null }, terms, decision }
+}
+
+/**
+ * The conversation a run was launched from: the launching loop's (`launch.caller`, else the main one) up to and with the
+ * message that holds the run's Workflow call. None when that message is gone (compacted) or the run kept no call.
+ */
+async function launchConversation($: EngineInterface, run: LabelRun, count: number): Promise<string[]> {
+  if (run.callId === undefined) return []
+  return conversationUpTo(await conversationOf($, run.launch?.caller), count, run.callId) ?? []
+}
+
+/** The conversation of the loop `agentId` (absent: the main one), as the transcript rows; none when it cannot be read. */
+async function conversationOf($: EngineInterface, agentId: string | undefined): Promise<readonly ContextMessage[]> {
+  const read: unknown = await (agentId === undefined ? $.session.messages() : $.session.messages({ agentId })).catch(() => [])
+  return Array.isArray(read) ? (read as ContextMessage[]) : []
 }
 
 /** The task in an agent's transcript, waiting briefly for the engine to write it; null when it is not there in time. */

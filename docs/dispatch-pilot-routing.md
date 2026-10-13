@@ -1,6 +1,6 @@
 # Dispatch Pilot 的路由逻辑：普通子 agent 与 Workflow agent
 
-本文对应 dispatch-pilot 0.4.1（Claude Code 2.1.296 实测）。主 agent 自己的模型从不改变，这里只讲它派出去的 agent。
+本文对应 dispatch-pilot 0.4.1（Claude Code 2.1.296 实测）；决策模型读到什么、预算多大，见第四节（0.4.3 起，ADR 0007）。主 agent 自己的模型从不改变，这里只讲它派出去的 agent。
 
 两类 agent 的根本区别：
 
@@ -34,7 +34,7 @@ sequenceDiagram
     alt fork、teammate 或功能关着
         D->>E: 原样放行
     else 正常路由
-        D->>J: 一个请求：选哪个模型？每步用哪档 effort？<br/>你点名或排除了哪个模型、哪档 effort？
+        D->>J: 一个请求：选哪个模型？每步用哪档 effort？<br/>你点名或排除了哪个模型、哪档 effort？<br/>（读任务和你的话；pplx 再读派出它的对话）
         J-->>D: 各选项概率
         D->>D: decideDispatch 算出模型和 effort
         D->>E: next(spawn)，model 改成决定的别名
@@ -134,7 +134,7 @@ sequenceDiagram
         L->>P: 写决定好的模型（完整 ID）和 effort
     else 启动时再定（prompt 运行时才拼）
         L->>E: 读这个 agent 的 transcript，取出真实任务
-        L->>J: 按这个任务问模型和 effort
+        L->>J: 按这个任务和启动运行那一轮的话问模型和 effort<br/>（pplx 再加脚本、到 Workflow 调用为止的对话）
         J-->>L: 回答
         L->>P: 写模型（完整 ID，如 claude-sonnet-5-5）和 effort
     end
@@ -181,3 +181,18 @@ flowchart LR
 ```
 
 看板上：依据面板里的「模型」是**决定**，agent 行上的模型是**实际发出的**。两者不一致说明决定没生效，以 agent 行为准。
+
+---
+
+## 四、决策模型读到什么（0.4.3 起，ADR 0007）
+
+| 请求 | 一定有 | 选 pplx 时另有（背景） | 预算（Jev / pplx，估算 token） |
+|---|---|---|---|
+| 普通子 agent | 任务、描述、agent 类型、你这一轮的话；`unresolved` 开着时的问题摘要和次数 | 派出它的对话，到这次 Agent 调用为止（子 agent 派出的读那个子 agent 的） | 24000 / 32000 |
+| Workflow：一个请求装得下所有调用 | 每个调用的 brief（平分预算）、你这一轮的话、摘要和次数 | 整个脚本（最多三分之一）、到这次 Workflow 调用为止的对话 | 24000 / 48000 |
+| Workflow：分成几个请求同时发 | 同上 | 同上 | 24000 / 每个 32000 |
+| Workflow：agent 启动时当场判断 | 它的真实任务、**启动运行那一轮**的话、那时的摘要和次数 | 那份脚本、到那次 Workflow 调用为止的对话 | 24000 / 32000 |
+
+- 对话只有文字和工具名，不含文件内容和工具输出；任务和你的话先放，背景填剩下的预算，对话从新往旧放。
+- 预算按 pplx 的回答时间定，不按窗口：pplx 一个请求最多 262,144 token，但 48000 估算 token 单发就要 4.3–5.9 秒，而一次决策最多等 8 秒；几个 agent 一起派出时，同时 5 个 32000 都在 5.2 秒内。`pplxQps` 默认 5，让它们一起发出。
+- Jev 不带背景：它只等 1500 毫秒，同一个 key 的请求一个一个答。

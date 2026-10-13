@@ -14,7 +14,7 @@
 import type { PluginOptions } from 'claude-code'
 import type { Backend } from '../decision/backend.ts'
 import type { ContextLimits } from '../decision/context.ts'
-import { DEFAULT_AGENT_MODELS, type AgentModel, type DispatchAsk, type DispatchSettings } from '../decision/dispatched-agent.ts'
+import { DEFAULT_AGENT_MODELS, WORDS_SHARE, type AgentModel, type DispatchAsk, type DispatchSettings } from '../decision/dispatched-agent.ts'
 import type { EffortAsk, EffortRules } from '../decision/effort.ts'
 import { RAISE_MODES, type RaiseMode } from '../decision/escalation.ts'
 import { jevBackend } from '../decision/jev.ts'
@@ -130,6 +130,13 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
    */
   contextByKind: Readonly<Record<ContextKind, number>>
   /**
+   * Whether an agent's request carries the background it was written in, in what its brief and the person's words leave
+   * of the budget: the conversation it was dispatched from (`recent_context`) and, for a Workflow's agents, the script
+   * (`workflow_script`). It fills the request to its budget, so it is on where the decision model answers a full request
+   * in time, several at once. Not an option.
+   */
+  agentBackground: boolean
+  /**
    * How long find_skill's two requests may take in all, in ms; null: as long
    * as a message waits (`timeoutMs`). Not an option: set by the latency
    * measured, not calibrated. A hook has 10 s of its own, and the timer's wait
@@ -161,6 +168,9 @@ const JEV_DEFAULTS: BackendDefaults = {
   // allows about 25,400 estimated tokens, and 24000 is the round number below it. A Workflow batch (at most 8 agents' questions,
   // 20,100 in all) and the whole request stay within 57,600 (90% of 64k) too.
   contextByKind: { messagePlain: 24000, rejudge: 24000, agent: 24000, workflow: 24000 },
+  // Off: Jev waits 1500 ms and answers one request of a key at a time, so agents dispatched together, each with a request
+  // filled to 24000 by the conversation (about 0.6 s each), would mostly go unrouted; and its eval was run without it.
+  agentBackground: false,
   rejudgeSteps: 16,
   // A step waits this long for a re-decision not yet back before it goes on at the level it had: Jev's mid-turn requests took about 280 ms
   // at p50 and 350 ms at p90 (DEVELOPMENT.md, 配置), and they are sent when the step's tools start, so they are mostly back by then.
@@ -188,12 +198,12 @@ const JEV_DEFAULTS: BackendDefaults = {
 
 /**
  * pplx-decider-v1.1-27b's: B′ of eval v2 (#45, ADR 0006: the state within 48000 tokens, every question in English, no problem
- * summary), with the thresholds calibrated on its own stored answers (DEVELOPMENT.md, eval v2 的结果). It takes a 262k-token
- * window, so what it reads is not cut to Jev's 32k: 2000 messages (the budget, not the count, ends what is sent) and 48000
- * tokens for every request but the skills'; those two stages keep Jev's 6000, since the profiles of the skills are the same
- * length for either model. A request takes seconds, not Jev's fraction of one, so a message waits 8000 ms (a hook has 10 s) and a
- * step 6000 ms for a re-decision. What the eval did not calibrate for pplx (the failure bar, the agents' override, the skills'
- * relevance) is Jev's.
+ * summary), with the thresholds calibrated on its own stored answers (DEVELOPMENT.md, eval v2 的结果). It takes 262,144 tokens
+ * a request (state and questions), so what it reads is not cut to Jev's 32k: 2000 messages (the budget, not the count, ends
+ * what is sent) and its state up to what it answers within a message's wait (below); the skills' two stages keep Jev's 6000,
+ * since the profiles of the skills are the same length for either model. A request takes seconds, not Jev's fraction of one,
+ * so a message waits 8000 ms (a hook has 10 s) and a step 6000 ms for a re-decision. What the eval did not calibrate for pplx
+ * (the failure bar, the agents' override, the skills' relevance) is Jev's.
  */
 const PPLX_DEFAULTS: BackendDefaults = {
   timeoutMs: 8000,
@@ -201,7 +211,15 @@ const PPLX_DEFAULTS: BackendDefaults = {
   contextMessagesMax: 2000,
   contextTokens: 6000,
   contextTokensMax: 48000,
-  contextByKind: { messagePlain: 48000, rejudge: 48000, agent: 48000, workflow: 48000 },
+  // Time, not the window, ends the state (measured 2026-10-13, DEVELOPMENT.md 「pplx 的 agent 预算」): pplx counts about 2.2
+  // tokens for each the mod estimates, and the time grows with them (the docs: 90k tokens 5 s, 190k 14 s, the full window
+  // 23 s). A state of 48000 took 4.3-5.9 s alone and 72000 8.3-8.8 s, past the 8000 ms wait. Agents are dispatched several
+  // at once, each request filled with the conversation (`agentBackground`): five at once at 32000 took 5.2 s at most, three
+  // at 48000 up to 7.6 s. So a dispatched agent's request, and each of a Workflow's when it takes several (`planBatches`),
+  // is 32000; a Workflow's one request keeps 48000.
+  contextByKind: { messagePlain: 48000, rejudge: 48000, agent: 32000, workflow: 48000 },
+  // On: pplx answers a full request in about 4 s, several at once (`pplxQps` lets five go together).
+  agentBackground: true,
   rejudgeSteps: 16,
   // A re-decision takes seconds, not 300 ms: a step waits for it up to this long (the most the manifest allows is 8000).
   rejudgeWaitMs: 6000,
@@ -241,6 +259,15 @@ export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = 
  */
 export function messageLimits(config: Pick<Config, 'context' | 'contextByKind'>, withSkills: boolean): ContextLimits {
   return withSkills ? config.context : { ...config.context, tokens: config.contextByKind.messagePlain }
+}
+
+/**
+ * How much of each of the person's messages is kept for the turn (`said`): what the largest request that reads them (a
+ * dispatched agent's, a Workflow's) can send of them, a third of its budget (`dispatchWords`). The mod keeps them so
+ * (features/dispatched-agents.ts), and the eval cuts an item's message the same way.
+ */
+export function saidTokens(config: Pick<Config, 'contextByKind'>): number {
+  return Math.floor(Math.max(config.contextByKind.agent, config.contextByKind.workflow) * WORDS_SHARE)
 }
 
 /** The settings are also the effort rules' parameters (`EffortRules`: `thetaMax` and `roundUp`): `traceEffort(reading, config)`. */
@@ -303,6 +330,8 @@ export type Config = EffortRules & {
     thetaOverride: number
     /** `rewrite` writes a Workflow's decisions into its script; `return` sends the Workflow back with them, once. */
     workflowMode: 'rewrite' | 'return'
+    /** Whether an agent's request carries the conversation it was dispatched from and, a Workflow's, the script (the decision model's: BACKEND_DEFAULTS `agentBackground`). */
+    background: boolean
   }
   /** Skills (#10, #11, #12). */
   skills: {
@@ -437,7 +466,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
   const config: Omit<Config, 'typesafeApiKey' | 'perplexityApiKey'> = {
     backend,
     defaults: { used, capped },
-    pplxQps: whole(options.pplxQps, 1, 50, 1),
+    pplxQps: whole(options.pplxQps, 1, 50, 5),
     timeoutMs,
     ask: defaults.ask,
     thetaMax,
@@ -469,6 +498,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
       models: options.agentFable === true ? [...DEFAULT_AGENT_MODELS, 'fable'] : DEFAULT_AGENT_MODELS,
       thetaOverride: own('agentOverride', 0, 1),
       workflowMode: stringOf(options.workflowMode, 'rewrite') === 'return' ? 'return' : 'rewrite',
+      background: defaults.agentBackground,
     },
     skills: {
       suggest: { max: whole(options.skillsMax, 0, 10, 3), minRelevance: own('skillsMinRelevance', 0, 1) },

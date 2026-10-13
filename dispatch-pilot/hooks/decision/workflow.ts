@@ -6,12 +6,13 @@
 // questions as a dispatched agent's (dispatched-agent.ts), so a call is judged
 // the way the eval measures an agent. Several calls share one request: each in
 // a part of its own (`agent-0`, `agent-1`, ...) reading a state field of its own
-// (`brief_0`, `brief_1`, ...), the person's words in one `user_message`.
+// (`brief_0`, `brief_1`, ...), the person's words in one `user_message`, and
+// with pplx the script and the conversation once (`WorkflowBackground`).
 //
 // Pure (see system-one.ts).
 
 import type { Asked, Failure } from './backend.ts'
-import { estimateTokens, withinTokens } from './context.ts'
+import { clipToTokens, estimateTokens, recentWithin, withinTokens } from './context.ts'
 import {
   decideDispatch,
   dispatchBrief,
@@ -24,7 +25,10 @@ import {
   type DispatchSettings,
 } from './dispatched-agent.ts'
 import { EFFORTS } from './effort.ts'
-import { answersFor, MAX_QUESTIONS, mergeParts, type DecisionRequest, type Part } from './system-one.ts'
+import { redactSecrets } from './redact.ts'
+import { SUMMARY_FIELD } from './summary.ts'
+import { answersFor, MAX_QUESTIONS, mergeParts, type DecisionRequest, type Part, type State } from './system-one.ts'
+import { COUNT_FIELD } from './unresolved.ts'
 import type { AgentCall, CallWrite, ParsedWorkflow } from './workflow-script.ts'
 
 /** The dispatched agent one `agent()` call stands for, in the eval item's shape. */
@@ -107,25 +111,53 @@ export const BATCHES_BUDGET_MS = 8000
 export function batchesTimeoutMs(timeoutMs: number, requests: number): number {
   return Math.min(BATCHES_BUDGET_MS, timeoutMs * Math.max(1, requests))
 }
-/** A call's brief takes this many tokens at most, and the briefs of a request at least this many each. */
-const MAX_BRIEF = 400
+/** The briefs of a request take at least this many tokens each. */
 const MIN_BRIEF = 150
+/** What a brief's field adds to it as it is sent (`"brief_12":` and a comma), at most. */
+const BRIEF_FIELD = 8
+
+/**
+ * What a script's requests carry beside its calls' briefs and the person's words, once in each request: the
+ * background the calls were written in. Each part is left out when it is absent (Jev's requests carry none of it:
+ * core/setup.ts BACKEND_DEFAULTS `agentBackground`; the eval's items have no script and no conversation).
+ */
+export type WorkflowBackground = {
+  /** The script as the run has it (`workflow_script`): how its calls hang together, and the data a prompt is built from. */
+  script?: string | null
+  /** The conversation the Workflow was launched from (`recent_context`), oldest first, a line per message (context.ts `recentLines`). */
+  recent?: readonly string[]
+  /** The problem summary and the unresolved count, as a dispatched agent's request carries them: background, never a hint (#41). */
+  problem_summary?: string
+  unresolved_count?: number
+}
+
+/** The state field that holds the script. */
+export const SCRIPT_FIELD = 'workflow_script'
+/** The script takes at most this share of a request's budget: the briefs, which the questions are about, come first. */
+const SCRIPT_SHARE = 1 / 3
+/** A script cut to fit keeps this share of its budget for its end (the last calls, what it returns). */
+const SCRIPT_TAIL = 0.3
 
 /**
  * The requests that ask about the script's calls, and the calls they leave
  * out. Calls share a request while their briefs fit the state's budget
- * (`tokens`: the person's words a third at most, the briefs the rest), their
- * questions fit the 64 a request may hold, and no more than `perRequest` do
- * (MAX_PER_REQUEST in the mod; the eval asks with 1 to compare). What does
- * not fit in MAX_REQUESTS requests (or in MAX_CALLS calls) is left out.
+ * (`tokens`: the person's words a third at most, the briefs the rest, each
+ * brief an equal share of it), their questions fit the 64 a request may hold,
+ * and no more than `perRequest` do (MAX_PER_REQUEST in the mod; the eval asks
+ * with 1 to compare). What does not fit in MAX_REQUESTS requests (or in
+ * MAX_CALLS calls) is left out. What the briefs leave of a request's budget
+ * goes to its `background`: the script (a third of the budget at most), then
+ * the conversation, newest first.
  */
 export function workflowBatches(
   parsed: ParsedWorkflow,
   words: string,
   settings: DispatchSettings,
   tokens: number,
-  perRequest = MAX_PER_REQUEST,
+  options: { perRequest?: number; background?: WorkflowBackground } = {},
 ): { batches: Batch[]; skipped: Skipped[] } {
+  const perRequest = options.perRequest ?? MAX_PER_REQUEST
+  const background = options.background ?? {}
   const skipped: Skipped[] = []
   const readable = parsed.calls.filter((call) => {
     const tells = tellsTheWork(call.prompt)
@@ -133,10 +165,17 @@ export function workflowBatches(
     return tells
   })
   if (readable.length === 0) return { batches: [], skipped }
-  // The person's words as a dispatched agent's decision reads them, shared by every call. Sizes are of the state
-  // as sent (field names, quotes and escapes counted), so a request's whole state keeps within `tokens`.
-  const user = dispatchWords(words, tokens)
-  const room = Math.max(MIN_BRIEF, tokens - estimateTokens(JSON.stringify({ user_message: user })))
+  // The person's words as a dispatched agent's decision reads them, shared by every call, with the summary and the count.
+  // Sizes are of the state as sent (field names, quotes and escapes counted), so a request's whole state keeps within `tokens`.
+  const shared: State = {
+    user_message: dispatchWords(words, tokens),
+    ...(background.problem_summary ? { [SUMMARY_FIELD]: background.problem_summary } : {}),
+    ...(background.unresolved_count ? { [COUNT_FIELD]: background.unresolved_count } : {}),
+  }
+  const room = Math.max(MIN_BRIEF, tokens - estimateTokens(JSON.stringify(shared)))
+  // Each brief may take an equal share of a request holding as many of the calls as one request holds at most:
+  // all of the room for a script of one call, an eighth of it for one of eight or more (less its field's name).
+  const share = Math.max(MIN_BRIEF, Math.floor(room / Math.min(readable.length, perRequest, MAX_CALLS)) - BRIEF_FIELD)
   type Group = { state: Record<string, unknown>; parts: Part[]; calls: number[]; used: number; questions: number }
   const groups: Group[] = []
   for (const [position, call] of readable.entries()) {
@@ -147,7 +186,7 @@ export function workflowBatches(
     const dispatch = callDispatch(call, parsed.meta, words)
     const part = dispatchPart(dispatch, shapeOf(call.index, settings))
     const field = `brief_${call.index}`
-    const brief = withinTokens((budget) => dispatchBrief(dispatch, budget), Math.min(MAX_BRIEF, room))
+    const brief = withinTokens((budget) => dispatchBrief(dispatch, budget), Math.min(share, room))
     const size = estimateTokens(JSON.stringify({ [field]: brief }))
     const questions = Object.keys(part.questions).length
     let group = groups.at(-1)
@@ -165,8 +204,41 @@ export function workflowBatches(
     group.used += size
     group.questions += questions
   }
-  const batches = groups.map((group): Batch => ({ request: mergeParts({ ...group.state, user_message: user }, group.parts), parts: group.parts, calls: group.calls }))
+  const batches = groups.map((group): Batch => ({ request: mergeParts(withBackground({ ...group.state, ...shared }, background, tokens), group.parts), parts: group.parts, calls: group.calls }))
   return { batches, skipped: skipped.sort((a, b) => a.index - b.index) }
+}
+
+/**
+ * A request's state (`base`: its briefs, the person's words, the summary) with the script and the conversation in
+ * what it leaves of `tokens`, the whole within `tokens` as it is sent (`withinTokens`).
+ */
+function withBackground(base: State, background: WorkflowBackground, tokens: number): State {
+  if (!background.script && (background.recent ?? []).length === 0) return base
+  return withinTokens((budget) => {
+    const room = budget - estimateTokens(JSON.stringify(base))
+    const script = background.script ? clipToTokens(redactSecrets(background.script), Math.min(Math.floor(budget * SCRIPT_SHARE), room), SCRIPT_TAIL) : ''
+    const state: State = script === '' ? base : { ...base, [SCRIPT_FIELD]: script }
+    const recent = recentWithin(background.recent ?? [], budget - estimateTokens(JSON.stringify(state)))
+    return recent === '' ? state : { ...state, recent_context: recent }
+  }, tokens)
+}
+
+/**
+ * The requests for a script's calls (`workflowBatches`): within `budgets.one`
+ * while one request holds them all; when they take several, which go out
+ * together, each within `budgets.each`, the size the decision model answers
+ * several of at once in time (core/setup.ts BACKEND_DEFAULTS `contextByKind`:
+ * `workflow` and `agent`).
+ */
+export function planBatches(
+  parsed: ParsedWorkflow,
+  words: string,
+  settings: DispatchSettings,
+  budgets: { one: number; each: number },
+  options: { perRequest?: number; background?: WorkflowBackground } = {},
+): { batches: Batch[]; skipped: Skipped[] } {
+  const plan = workflowBatches(parsed, words, settings, budgets.one, options)
+  return plan.batches.length > 1 && budgets.each < budgets.one ? workflowBatches(parsed, words, settings, budgets.each, options) : plan
 }
 
 /** What became of one call: a model and effort written into it, the script's own choice kept, or the call left as it was. */

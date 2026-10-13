@@ -192,7 +192,9 @@ test('a script of tens of thousands of lines is read in well under a second', ()
   const rewritten = rewriteWorkflow(parsed, parsed.calls.map(() => ({ model: 'sonnet', effort: 'low' })))
   expect(parsed.calls).toHaveLength(30_000)
   expect(rewritten.length).toBeGreaterThan(script.length)
-  expect(Date.now() - started).toBeLessThan(2000)
+  // About 0.25 s alone; 5 s leaves room for the test files the suite runs in parallel (2026 ms once against the 2 s
+  // this had), and a reader that rescans the script for each call would still take tens of times longer.
+  expect(Date.now() - started).toBeLessThan(5000)
 })
 
 test('only a call of the global agent is a call: not a member, a declaration, another name, or an option called agentType', () => {

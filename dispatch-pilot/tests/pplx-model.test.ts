@@ -183,7 +183,7 @@ test('with skill suggestions the skills\' request keeps 6000 tokens and the effo
   expect(messageTokens(asked)).toBeGreaterThan(5950)
 })
 
-test("a dispatched agent's state and a mid-turn re-decision's message take up to 48000 tokens", { options: { ...PPLX, rejudgeEvery: 1 } }, async ($, on) => {
+test("a dispatched agent's state takes up to 32000 tokens (agents go out several at once) and a mid-turn re-decision's message up to 48000", { options: { ...PPLX, rejudgeEvery: 1 } }, async ($, on) => {
   const w = world($, on, { backend: pplx([0, 1, 0, 0, 0]) })
   await w.submit(LONG)
   const reading = (index: number) => ({ index, answer: `step ${index}`, tools: [{ tool: 'Read', input: { file_path: `/repo/src/f${index}.ts` } }] })
@@ -194,8 +194,8 @@ test("a dispatched agent's state and a mid-turn re-decision's message take up to
 
   const stateOf = (id: string) => w.requests.find((request) => id in request.body.questions)?.body.state
   const agent = stateOf('agent.model')
-  expect(sentTokens(agent)).toBeLessThanOrEqual(48000)
-  expect(sentTokens(agent)).toBeGreaterThan(47000)
+  expect(sentTokens(agent)).toBeLessThanOrEqual(32000)
+  expect(sentTokens(agent)).toBeGreaterThan(31000)
   // The re-decision keeps the turn's message to half of its budget.
   const midturn = stateOf('midturn.level')
   expect(estimateTokens(String(midturn.user_message))).toBeLessThanOrEqual(24000)

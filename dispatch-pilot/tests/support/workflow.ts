@@ -27,8 +27,8 @@ export type Reached = {
   launched: boolean
 }
 
-/** The Workflow tool's input, the part the tests use. */
-export type WorkflowInput = { script?: string; scriptPath?: string; name?: string; args?: unknown; resumeFromRunId?: string }
+/** The Workflow tool's input, the part the tests use; `tool_use_id`, the call's id (the kit's own when absent). */
+export type WorkflowInput = { script?: string; scriptPath?: string; name?: string; args?: unknown; resumeFromRunId?: string; tool_use_id?: string }
 
 export type WorkflowWorldOptions = WorldOptions & {
   /** The engine's own parse check: the error it reports for a script it would refuse; undefined for one it launches. */

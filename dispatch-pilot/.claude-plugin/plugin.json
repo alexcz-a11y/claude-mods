@@ -1,6 +1,6 @@
 {
   "name": "dispatch-pilot",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Dispatch Pilot：一个在 Claude 之外的决策模型（默认 Perplexity 的 pplx，没有 Perplexity key 时退回 TypeSafe 的 Jev，也可以固定用 Jev）在你每次发消息时决定主 agent 这一轮的 effort，每一步都按这一档发出，一轮进行中每隔几步再判断一次；也为主 agent 派出的每个 agent 和 Workflow 脚本里的每个 agent 按 Artificial Analysis 的基准选模型和 effort（sonnet 和 opus 至少 medium）。主 agent 的模型从不改变，prompt cache 不受影响（只在 Claude Code 订阅下成立；Bedrock、Vertex 和网关上切换 effort 会让缓存失效）。它还不让主 agent 读完整的 skill 列表，改为在你发消息时推荐合适的几个，一轮中途主 agent 可以用 find_skill 工具查 skill。agent 的工具调用接连失败时强制升高它的 effort（haiku agent 的 effort 到顶后改用 sonnet），除非这些失败本来就在意料之中。所有判断和理由都放在看板上：prompt 上方的 band 列出本轮每个 agent 的模型和 effort，脚部一个短摘要，/dp 打开的依据面板写明每个决定的依据和决策日志。",
   "author": {
     "name": "alexcz-a11y",
@@ -34,8 +34,8 @@
     "pplxQps": {
       "type": "number",
       "title": "pplx 每秒请求数",
-      "description": "mod 每秒最多向 Perplexity 发几个请求（1 到 50），只对 pplx 有用，Jev 不受它限制。Tier 0 账户限 1 QPS，一条消息又会发 2 到 3 个请求，所以超出的请求在 mod 里排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待时间。升级了账户可以调高，让 effort 和 skill 的请求同时发出。遇到 429 时，剩余的等待时间够用就按 Retry-After 重试一次，不够就不经路由地放行，看板上写「被限速」。",
-      "default": 1
+      "description": "mod 每秒最多向 Perplexity 发几个请求（1 到 50），只对 pplx 有用，Jev 不受它限制。Perplexity 的文档写每个组织每秒 10 个；默认 5，几个同时派出的 agent 可以一起发出，也给同一个 key 的其他会话留出余量。超出的请求在 mod 里排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待时间。遇到 429 时，剩余的等待时间够用就按 Retry-After 重试一次，不够就不经路由地放行，看板上写「被限速」。",
+      "default": 5
     },
     "timeoutMs": {
       "type": "number",

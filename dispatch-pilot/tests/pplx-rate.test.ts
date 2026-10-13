@@ -1,6 +1,6 @@
-// The rate limit on pplx requests (#51, ADR 0006): a Tier 0 Perplexity account takes 1 request a second, and one message sends
-// two or three (the effort question, the skills' two stages), so the mod queues them itself (`pplxQps`), effort first, and
-// when a 429 comes anyway it asks once more if what time is left allows. Seam 1 (engine events in, what reaches the decision
+// The rate limit on pplx requests (#51, ADR 0006, ADR 0007): Perplexity takes 10 requests a second of an organization, the
+// mod sends 5 by default, and one message sends two or three (the effort question, the skills' two stages), so the mod queues
+// them itself (`pplxQps`), effort first, and when a 429 comes anyway it asks once more if what time is left allows. Seam 1 (engine events in, what reaches the decision
 // backend and when, and the board, out) on the mock clock; the 429 and its `Retry-After` as the API sends them are seam 2
 // (pplx.test.ts). Every test here sets `decisionModel: pplx`, which is not the default until #52.
 
@@ -8,7 +8,8 @@ import { expect, test } from 'claude-code/testing'
 import { readConfig } from '../hooks/core/setup.ts'
 import { pplx, rates, world, type Reply, type Sent, type SkillsWorld } from './support/world.ts'
 
-const PPLX = { decisionModel: 'pplx', perplexityApiKey: 'pplx-test-key' }
+/** `pplxQps: 1`: these tests are about how the queue paces requests at one a second (the default is 5). */
+const PPLX = { decisionModel: 'pplx', perplexityApiKey: 'pplx-test-key', pplxQps: 1 }
 
 const SKILLS: SkillsWorld = {
   commands: [{ name: 'tdd', description: 'Test-driven development. Use when the user wants to build features or fix bugs test-first.', source: 'user' }],
@@ -227,8 +228,8 @@ test('the retry takes a place like any request, and keeps its priority: a 429 th
   await submitting
 })
 
-test('pplxQps is read within 1 to 50: a larger or smaller number reads as the nearest, and a word as 1', () => {
+test('pplxQps is read within 1 to 50: a larger or smaller number reads as the nearest, and unset or a word as 5', () => {
   expect([0, 1, 7.4, 50, 999].map((pplxQps) => readConfig({ pplxQps }).pplxQps)).toEqual([1, 1, 7, 50, 50])
-  expect(readConfig({}).pplxQps).toBe(1)
-  expect(readConfig({ pplxQps: 'fast' }).pplxQps).toBe(1)
+  expect(readConfig({}).pplxQps).toBe(5)
+  expect(readConfig({ pplxQps: 'fast' }).pplxQps).toBe(5)
 })
