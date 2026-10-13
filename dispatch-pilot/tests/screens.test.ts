@@ -106,7 +106,7 @@ test('a turn with several agents: the main agent first, then each in the order i
   await w.clock.advance(3000)
   // One the engine started on its own, unknown to the decisions: its steps go out as the engine made them.
   w.agents.push({ id: 'a9', description: '写迁移脚本', type: 'general-purpose', status: 'running' })
-  await w.agentStep('a9', { index: 0, model: 'claude-haiku-4-5-20251001', effort: null })
+  await w.agentStep('a9', { index: 0, model: 'claude-haiku-5-5', effort: null })
   await w.clock.advance(4000)
   await w.complete({ agentId: 'a9', durationMs: 4000 })
 

@@ -170,7 +170,7 @@ export function pips(t: TT, effort: Effort) {
 
 /**
  * The effort as it went out, `w` cells: pips and the level's name in its colour; an integer budget as the engine
- * sent it; none (a model without effort, haiku) a dash.
+ * sent it; none (a model without effort) a dash.
  */
 export function effortTag(t: TT, effort: Effort | number | undefined, w = 12) {
   const { Text } = t

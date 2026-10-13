@@ -177,7 +177,16 @@ function predictionOf(answers: Readonly<Record<string, Answer>>, decision: Dispa
     if (banned.length > 0 && left.length === 0) return { ok: false, failure: `none: every model offered was ruled out: ${banned.join(', ')}` }
     return { ok: false, failure: 'parse: no model answer' }
   }
-  return { ok: true, prediction: { model: decision.model, effort: decision.effort }, detail: detailOf(answers, decision) }
+  return { ok: true, prediction: { model: decision.model, effort: gradedEffort(decision) }, detail: detailOf(answers, decision) }
+}
+
+/**
+ * The effort of a decision as the datasets grade it: none on haiku. They were labelled when haiku took no effort
+ * (Haiku 4.5): the mod now sends Haiku 5.5 one, but a haiku answer is still graded on its model alone, so results
+ * stay comparable with the stored ones.
+ */
+export function gradedEffort(decision: DispatchDecision): Effort | null {
+  return decision.model === 'haiku' ? null : decision.effort
 }
 
 /**
@@ -429,7 +438,7 @@ function sweeps(items: readonly AgentItem[], answered: Record<Language, Answered
  */
 export function redecide(item: AgentItem, language: Language, detail: Readonly<Record<string, unknown>>, shape: DispatchSettings): AgentAnswer | null {
   const decision = decideDispatch(answersOf(detail), item[language], shape)
-  return decision.answered && decision.model !== null ? { model: decision.model, effort: decision.effort } : null
+  return decision.answered && decision.model !== null ? { model: decision.model, effort: gradedEffort(decision) } : null
 }
 
 /** The answers a run kept of one decision (detailOf), as the decision module reads them. */

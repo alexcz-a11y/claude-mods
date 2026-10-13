@@ -166,8 +166,8 @@ test("an agent whose own decision fails goes out as the engine made it; the boar
     await w.agentStep(agentId, { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
   }
 
-  // The agent sent to haiku goes out without the engine's effort: haiku takes none (spec #32).
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium', 'wa2 claude-haiku-4-5 undefined'])
+  // The agent sent to haiku goes out at its decided effort, not the engine's: Haiku 5.5 takes one.
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium', 'wa2 claude-haiku-5-5 high'])
   // Each agent has its own node: the one that failed says why, the one that was routed says what it got.
   const board = await w.board()
   expect(board.agents.filter((node) => node.id.startsWith('wa')).map((node) => [node.id, node.routed, node.why, node.model])).toEqual([
@@ -196,7 +196,7 @@ test("each agent of a script that cannot be read has its own decision on the boa
   const started = board.agents.filter((node) => node.id.startsWith('wa'))
   expect(started.map((node) => [node.id, node.name, node.model, node.effort, node.routed])).toEqual([
     ['wa1', 'first', 'opus', 'xhigh', true],
-    ['wa2', 'second', 'haiku', undefined, true],
+    ['wa2', 'second', 'haiku', 'high', true],
   ])
   expect(started.map((node) => board.log.find((entry) => entry.n === node.decision)?.agent)).toEqual(['wa1', 'wa2'])
   expect(board.log[0]).toMatchObject({ feature: 'workflow-labels', subject: expect.stringContaining('"first"（agent wa1，Workflow') })
@@ -342,7 +342,7 @@ return [a, b, c, d]
     await w.agentStep(`w${label}`, { index: 0, model: 'claude-sonnet-5', effort: 'medium' })
   }
 
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model}`)).toEqual(['wh claude-haiku-4-5', 'ws claude-sonnet-5', 'wo claude-opus-5-5', 'wf claude-fable-5-1'])
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model}`)).toEqual(['wh claude-haiku-5-5', 'ws claude-sonnet-5', 'wo claude-opus-5-5', 'wf claude-fable-5-1'])
 })
 
 test('no answer within timeoutMs as an agent starts: it goes out as the engine made it, and the board says why', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
@@ -420,11 +420,11 @@ test('a Workflow given by name is read from the copy the tool runs, and a templa
     await w.agentStep(agentId, { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
   }
 
-  // The check agent goes to haiku: without the engine's xhigh, which haiku does not take (spec #32).
+  // The check agent goes to haiku at its decided low, not the engine's xhigh: Haiku 5.5 takes an effort.
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual([
     'wa1 claude-sonnet-5-5 medium',
     'wa2 claude-sonnet-5-5 medium',
-    'wa3 claude-haiku-4-5 undefined',
+    'wa3 claude-haiku-5-5 low',
   ])
 })
 
@@ -446,7 +446,7 @@ return [a, b]
   w.started('wf_test-1', 'wa2', 'Review src/billing/invoice.ts for rounding errors in the inv')
   await w.agentStep('wa2', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
 
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-haiku-4-5 undefined', 'wa2 claude-opus-5-5 high'])
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-haiku-5-5 high', 'wa2 claude-opus-5-5 high'])
 })
 
 /** A script this feature cannot read: its meta is not an object literal. */
@@ -532,8 +532,8 @@ return summary
     backend: siteJev((i): SiteAnswer => (i === 1 ? { model: { haiku: 0.9 } } : { model: { opus: 0.9 }, effort: [0, 0, 0, 0.2, 0.8] })),
   })
   const result = await w.workflow({ script: answers })
-  // workflow-agents wrote the summary's model into the script, and left the data-driven call as it was.
-  expect(w.reached[0]?.script).toContain("{ label: 'summary', model: 'haiku' }")
+  // workflow-agents wrote the summary's model and effort into the script, and left the data-driven call as it was.
+  expect(w.reached[0]?.script).toContain("{ label: 'summary', model: 'haiku', effort: 'high' }")
   expect(w.requests).toHaveLength(1)
   // The main agent is told those agents are decided as they start.
   expect((result.context ?? []).join('\n')).toContain("Dispatch Pilot (the user's routing plugin) sets the model and effort of the agents of the agent() calls it leaves as written, as each one starts, from its label and its task.")
@@ -542,7 +542,8 @@ return summary
   w.transcript('wf_test-1', 'wa1', 'Is every route under src/api/admin checked for the admin role? Cite the file and line of each gap.')
   await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
   w.started('wf_test-1', 'wa2', 'summary')
-  await w.agentStep('wa2', { index: 0, model: 'claude-haiku-4-5', effort: null })
+  // The engine runs the summary as the script has it: haiku at high.
+  await w.agentStep('wa2', { index: 0, model: 'claude-haiku-5-5', effort: 'high' })
 
   expect(w.requests).toHaveLength(2)
   expect(w.requests[1]?.body.state.brief_0).toEqual({
@@ -550,7 +551,7 @@ return summary
     label: 'q-auth',
     prompt: 'Is every route under src/api/admin checked for the admin role? Cite the file and line of each gap.',
   })
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 max', 'wa2 claude-haiku-4-5 undefined'])
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 max', 'wa2 claude-haiku-5-5 high'])
 
   // The board: the summary's agent took the place of its call's node, with the decision workflow-agents made for it (haiku, which the
   // script was given); the data-driven call's agent was decided as it started. No call is left waiting.

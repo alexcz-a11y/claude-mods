@@ -72,7 +72,7 @@ test('each agent() of a submitted script is written with the model and effort de
   expect(board.log[1]?.trace?.map((step) => step.rule)).toEqual(['top', 'max-gate', 'round-up', 'model-floor'])
 })
 
-test('an agent sent to haiku gets no effort: the one the script wrote is taken out, whatever the effort answer says', { options: KEY }, async ($, on) => {
+test("an agent sent to haiku gets its decided effort written over the script's own: Haiku 5.5 takes one", { options: KEY }, async ($, on) => {
   const scan = `export const meta = { name: 'scan', description: 'List the files that import legacyAuth', phases: [] }
 const files = await agent('List every file under src/ that imports legacyAuth. Report file:line only.', { label: 'scan', effort: 'high' })
 return files
@@ -80,8 +80,8 @@ return files
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 0.9, sonnet: 0.08, opus: 0.02 }, effort: [0, 0, 0, 1, 0] })) })
   const result = await w.workflow({ script: scan })
 
-  expect(w.reached.map((r) => r.script)).toEqual([scan.replace("{ label: 'scan', effort: 'high' }", "{ label: 'scan', model: 'haiku' }")])
-  expect((result.context ?? []).join('\n')).toContain('"scan": haiku (model: decided, confidence 0.85; haiku takes no effort)')
+  expect(w.reached.map((r) => r.script)).toEqual([scan.replace("{ label: 'scan', effort: 'high' }", "{ label: 'scan', effort: 'xhigh', model: 'haiku' }")])
+  expect((result.context ?? []).join('\n')).toContain('"scan": haiku xhigh (model: decided, confidence 0.85; effort: p 1.00)')
 })
 
 test("the model the script wrote reaches the decision model as a hint, and stands unless it is sure of another one (agentOverride, default 0.6)", { options: KEY }, async ($, on) => {
@@ -98,7 +98,7 @@ return { failing, lint }
 
   expect(w.requests[0]?.body.questions['agent-0.model'].instructions.requested).toContain('opus')
   expect(w.reached.map((r) => r.script)).toEqual([
-    triage.replace("{ model: 'opus', label: 'list' }", "{ model: 'haiku', label: 'list' }").replace("model: 'claude-opus-5-5' }", "model: 'claude-opus-5-5', effort: 'medium' }"),
+    triage.replace("{ model: 'opus', label: 'list' }", "{ model: 'haiku', label: 'list', effort: 'high' }").replace("model: 'claude-opus-5-5' }", "model: 'claude-opus-5-5', effort: 'medium' }"),
   ])
 })
 
@@ -125,7 +125,7 @@ return results
   expect(w.requests[0]?.body.state.brief_0.label).toBe('migrate:${file}')
   expect(w.requests[0]?.body.state.brief_0.prompt).toBe('Replace the old logger calls in ${file} with the new API; do not change behaviour.')
   expect(w.reached.map((r) => r.script)).toEqual([
-    migrate.replace('{ label: `migrate:${file}` }', "{ label: `migrate:${file}`, model: 'sonnet', effort: 'medium' }").replace('{ label: `check:${file}` }', "{ label: `check:${file}`, model: 'haiku' }"),
+    migrate.replace('{ label: `migrate:${file}` }', "{ label: `migrate:${file}`, model: 'sonnet', effort: 'medium' }").replace('{ label: `check:${file}` }', "{ label: `check:${file}`, model: 'haiku', effort: 'low' }"),
   ])
 })
 
@@ -140,7 +140,7 @@ return [a, b]
 
   // Only the readable call was asked about; its ids keep its place in the script.
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent-1.model', 'agent-1.effort'])
-  expect(w.reached.map((r) => r.script)).toEqual([mixed.replace("{ label: 'static' }", "{ label: 'static', model: 'haiku' }")])
+  expect(w.reached.map((r) => r.script)).toEqual([mixed.replace("{ label: 'static' }", "{ label: 'static', model: 'haiku', effort: 'high' }")])
   expect((result.context ?? []).join('\n')).toMatch(/agent\(\) at line 2: left as written \(its prompt is built when the script runs\)/)
   // The call left as written is on the board too, with why.
   expect((await w.board()).agents.map((node) => [node.name, node.routed, node.why, node.decision === undefined])).toEqual([
@@ -178,7 +178,7 @@ return pong
   await w.workflow({ script: ping })
 
   expect(w.requests).toHaveLength(1)
-  expect(w.reached.map((r) => r.script)).toEqual([ping.replace("{ label: 'ping' }", "{ label: 'ping', model: 'haiku' }")])
+  expect(w.reached.map((r) => r.script)).toEqual([ping.replace("{ label: 'ping' }", "{ label: 'ping', model: 'haiku', effort: 'high' }")])
 })
 
 test("a script whose agents all take their prompts from data (a table mapped over) is left as written, nothing is asked, and the main agent is told why", { options: KEY }, async ($, on) => {
@@ -232,7 +232,7 @@ return unit
   const sent = w.requests[1]?.body
   expect(sent?.state.user_message).toBe('把这几个检查都用 haiku 跑，省点额度')
   expect(Object.keys(sent?.questions)).toEqual(['agent-0.model', 'agent-0.effort', 'agent-0.named.haiku', 'agent-0.banned.haiku'])
-  expect(w.reached.map((r) => r.script)).toEqual([checks.replace("model: 'sonnet' }", "model: 'haiku' }")])
+  expect(w.reached.map((r) => r.script)).toEqual([checks.replace("model: 'sonnet' }", "model: 'haiku', effort: 'high' }")])
 })
 
 test("an effort the person asks for is written into the agent() calls it covers, over the script's own (a level it wrote or works out when it runs) and the decided one; the call it does not cover keeps its decided effort", { options: KEY }, async ($, on) => {
@@ -265,7 +265,7 @@ return [a, b, c]
   expect(told).toContain('"billing": opus xhigh (model: decided, confidence 0.85; effort: p 0.80)')
 })
 
-test('a call that goes to haiku takes no effort even when the person asked for one: the script is not given it, and the main agent is told why', { options: KEY }, async ($, on) => {
+test("an effort the person asks for reaches a call that goes to haiku too (Haiku 5.5 takes one): it is written over the script's own, and the main agent is told it was asked for", { options: KEY }, async ($, on) => {
   const scan = `export const meta = { name: 'scan', description: 'List the files that import legacyAuth', phases: [] }
 const files = await agent('List every file under src/ that imports legacyAuth. Report file:line only.', { label: 'scan', effort: 'low' })
 return files
@@ -274,9 +274,9 @@ return files
   await w.submit('所有 agent 的 effort 都用 xhigh')
   const result = await w.workflow({ script: scan })
 
-  expect(w.reached.map((r) => r.script)).toEqual([scan.replace("{ label: 'scan', effort: 'low' }", "{ label: 'scan', model: 'haiku' }")])
-  expect((result.context ?? []).join('\n')).toContain('"scan": haiku (model: decided, confidence 0.85; haiku takes no effort, so the xhigh you asked for is not set)')
-  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/你在消息里要 effort xhigh，没有设置：haiku 不带 effort/))
+  expect(w.reached.map((r) => r.script)).toEqual([scan.replace("{ label: 'scan', effort: 'low' }", "{ label: 'scan', effort: 'xhigh', model: 'haiku' }")])
+  expect((result.context ?? []).join('\n')).toContain('"scan": haiku xhigh (model: decided, confidence 0.85; effort: you asked for it)')
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/你在消息里点名了 effort（xhigh）/))
 })
 
 test("a model the person rules out is never written into a call, even when the answer puts all its probability on it: the nearest model left is", { options: KEY }, async ($, on) => {
@@ -347,7 +347,7 @@ return a
 
 test('in return mode a Workflow whose agents need nothing written is not sent back', { options: { ...KEY, workflowMode: 'return' } }, async ($, on) => {
   const kept = `export const meta = { name: 'kept', description: 'Already as it should be', phases: [] }
-const a = await agent('Read docs/architecture.md and summarize the module boundaries.', { label: 'summary', model: 'haiku' })
+const a = await agent('Read docs/architecture.md and summarize the module boundaries.', { label: 'summary', model: 'haiku', effort: 'high' })
 return a
 `
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 0.9, sonnet: 0.05, opus: 0.05 } })) })
@@ -551,7 +551,7 @@ test('a Workflow with nothing the person asked of its calls keeps no terms', { o
 
 test("when the script already has what the decisions say, nothing is written, and the main agent is not told it was", { options: KEY }, async ($, on) => {
   const kept = `export const meta = { name: 'kept', description: 'Already as it should be', phases: [] }
-const a = await agent('Read docs/architecture.md and summarize the module boundaries.', { label: 'summary', model: 'haiku' })
+const a = await agent('Read docs/architecture.md and summarize the module boundaries.', { label: 'summary', model: 'haiku', effort: 'high' })
 return a
 `
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 0.9, sonnet: 0.05, opus: 0.05 } })) })
@@ -559,7 +559,7 @@ return a
 
   expect(w.reached.map((r) => r.script)).toEqual([kept])
   const told = (result.context ?? []).join('\n')
-  expect(told).toMatch(/"summary": kept as written \(haiku\)/)
+  expect(told).toMatch(/"summary": kept as written \(haiku high\)/)
   expect(told).not.toMatch(/wrote them into the script/)
 })
 

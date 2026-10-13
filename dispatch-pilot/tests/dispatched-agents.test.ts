@@ -90,16 +90,15 @@ test("an agent's effort is lifted to its model's floor, and the log says so: son
   expect((await w.board()).log.find((entry) => entry.agent === spawned[3]?.agentId)?.floor).toBeUndefined()
 })
 
-test('an agent sent to haiku gets no effort: its steps go out without one, whatever the effort answer says (spec #32)', { options: KEY }, async ($, on) => {
+test('an agent sent to haiku goes out at the effort decided for it on every step: Haiku 5.5 takes one (spec #32 held haiku without one, as Haiku 4.5 took none)', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.08, opus: 0.02 }, effort: [0, 0, 0, 1, 0] }) })
   const started = await w.spawn({ prompt: 'List every file under src/ that imports legacyAuth. Report file:line only.', description: 'Find legacyAuth imports', subagentType: 'Explore' })
-  // Haiku takes no effort: the engine sends none.
-  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-haiku-4-5', effort: null })
-  // Were the engine to send one, the mod would take it off.
-  await w.step({ index: 1, turnId: 'sub-1', agentId: started.agentId, model: 'claude-haiku-4-5', effort: 'medium' })
+  // The engine gives a Haiku 5.5 agent's steps its own medium (measured on 2.1.296); the decided xhigh goes out instead.
+  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-haiku-5-5', effort: 'medium' })
+  await w.step({ index: 1, turnId: 'sub-1', agentId: started.agentId, model: 'claude-haiku-5-5', effort: 'medium' })
 
   expect(w.spawned.map((s) => s.model)).toEqual(['haiku'])
-  expect(w.steps.map((s) => String(s.effort))).toEqual(['undefined', 'undefined'])
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['xhigh', 'xhigh'])
 })
 
 test("the main agent's pick reaches the decision model as a hint, and stands unless it is sure of another one (agentOverride, default 0.6)", { options: KEY }, async ($, on) => {
@@ -271,15 +270,15 @@ test('a named effort needs the answer to be sure (0.5 for the level asked, as fo
   expect(w.steps.map((s) => String(s.effort))).toEqual(['high'])
 })
 
-test('an agent that goes to haiku takes no effort, named or not: the person is not overruled but the log says what was asked and why it was not set', { options: KEY }, async ($, on) => {
+test('an effort the person names reaches an agent that goes to haiku too (Haiku 5.5 takes one), over the decided one, and the log says it was theirs', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.05, opus: 0.05 }, effort: [1, 0, 0, 0, 0], namedEffort: { none: 0, xhigh: 1 } }) })
   await w.submit('所有 agent 的 effort 都用 xhigh')
   const started = await w.spawn({ prompt: 'List every file under src/ that imports legacyAuth. Report file:line only.', description: 'Find legacyAuth imports' })
-  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-haiku-4-5', effort: null })
+  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-haiku-5-5', effort: 'medium' })
 
   expect(w.spawned.map((s) => s.model)).toEqual(['haiku'])
-  expect(w.steps.map((s) => String(s.effort))).toEqual(['undefined'])
-  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^haiku · .*你在消息里要 effort xhigh，没有设置：haiku 不带 effort/))
+  expect(w.steps.map((s) => String(s.effort))).toEqual(['xhigh'])
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^haiku xhigh · .*你在消息里点名了 effort（xhigh）/))
 })
 
 test('agents dispatched together are each decided on their own, and each starts as soon as its own answer is in',{ options: KEY }, async ($, on) => {
@@ -405,7 +404,7 @@ test("the board keeps every dispatched agent's decision: the model and effort de
   expect((await w.board()).log.filter((entry) => entry.feature === 'dispatched-agents').map((entry) => [entry.model, entry.effort])).toEqual([
     ['sonnet', 'high'],
     ['opus', 'medium'],
-    ['haiku', undefined],
+    ['haiku', 'high'],
   ])
 })
 
@@ -424,7 +423,7 @@ test('/dp dispatched-agents off lets agents start as the main agent sent them, w
   expect(await w.command('dp', 'status')).toMatch(/开 +dispatched-agents +\S/)
   await w.spawn({ prompt: 'List the files under src/.' })
   expect((await w.board()).agents).toMatchObject([{ state: 'queued', routed: true, decision: 1 }])
-  expect((await w.board()).log).toMatchObject([{ feature: 'dispatched-agents', model: 'haiku', outcome: 'haiku' }])
+  expect((await w.board()).log).toMatchObject([{ feature: 'dispatched-agents', model: 'haiku', effort: 'medium', outcome: 'haiku medium' }])
 
   expect(await w.command('dp', 'dispatched-agents off')).toContain('dispatched-agents 已关闭')
   const started = await w.spawn({ prompt: 'List the files under test/.', model: 'opus' })
@@ -567,8 +566,8 @@ test("the note says whose choice the model was: the main agent's pick kept, the 
   const decided = noteOf(await w.agentTool({ prompt: 'C: rename the helper.' }))
 
   expect(kept).toMatch(/kept the opus you asked for/)
-  expect(named).toMatch(/haiku.*the user named it/)
-  expect(named).toContain('haiku takes no effort')
+  expect(named).toMatch(/haiku at effort high.*the user named it/)
+  expect(named).toContain('Effort: chosen by its decision model')
   expect(decided).toMatch(/sonnet.*chosen by its decision model \(confidence 0\.85\)/)
 })
 

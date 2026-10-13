@@ -244,7 +244,7 @@ test("the eval decides an agent as the mod does from the same answers, under the
     { item: agentItem('fable', { requested_model: 'sonnet' }), answers: { model: { haiku: 0, sonnet: 0, opus: 0.02, fable: 0.98 }, effort: [0, 0, 0, 0.3, 0.7] } },
     // The person names sonnet for the work: it wins over the main agent's opus and the decision model's haiku.
     { item: agentItem('named', { user_message: '这活儿 sonnet 就够了', requested_model: 'opus' }), answers: { model: { haiku: 0.97, sonnet: 0.01, opus: 0.01, fable: 0.01 }, effort: [0, 1, 0, 0, 0], nouls: { 'named.sonnet': 0.9 } } },
-    // haiku takes no effort: the agent's steps keep the engine's.
+    // Haiku 5.5 takes an effort: the agent's steps go at the decided one; the eval grades a haiku answer on its model alone (gradedEffort).
     { item: agentItem('haiku', {}), answers: { model: { haiku: 0.99, sonnet: 0.01, opus: 0, fable: 0 }, effort: [0, 0, 1, 0, 0] } },
   ]
   const byPrompt = new Map(cases.map(({ item, answers }) => [item.zh.prompt, answers]))
@@ -270,9 +270,8 @@ test("the eval decides an agent as the mod does from the same answers, under the
       async (request) => ({ request, asked: { ok: true, answers: answersTo(request.questions, answers), model: 'jev-1.13.0', inputTokens: 1500 }, ms: 0, attempts: 1 }),
       settingsFrom({ decisionModel: 'jev', agentOverride: 0.9, agentFable: true }),
     )
-    // An agent on haiku goes out at the engine's effort (`low` in this step).
-    evaluated.push(decided.ok ? `${item.id}: ${decided.prediction.model} ${decided.prediction.effort ?? 'low'}` : `${item.id}: ${decided.failure}`)
+    evaluated.push(decided.ok ? `${item.id}: ${decided.prediction.model} ${decided.prediction.effort ?? '—'}` : `${item.id}: ${decided.failure}`)
   }
-  expect(mod).toEqual(['keep: opus xhigh', 'fable: fable max', 'named: sonnet medium', 'haiku: haiku low'])
-  expect(evaluated).toEqual(mod)
+  expect(mod).toEqual(['keep: opus xhigh', 'fable: fable max', 'named: sonnet medium', 'haiku: haiku high'])
+  expect(evaluated).toEqual(['keep: opus xhigh', 'fable: fable max', 'named: sonnet medium', 'haiku: haiku —'])
 })

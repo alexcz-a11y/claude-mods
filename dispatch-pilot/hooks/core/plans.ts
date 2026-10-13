@@ -132,10 +132,10 @@ export type EffortSource = 'locked' | 'planned' | 'engine'
  * else on another loop its agent's), lifted to the floor (the higher of the
  * turn's and the agent's, each while it holds: a floor with an end stops at
  * `floorUntil`), a floor lifting the engine's own effort when nothing is
- * routed. An agent whose effective model is haiku goes without an effort,
- * whatever the engine or a plan asks (spec #32). An agent planned off a model
- * without effort (the engine gave its step none, reckoning with haiku) onto
- * one that takes an effort gets its planned effort. A step with a numeric
+ * routed. Every family takes an effort, haiku too since Haiku 5.5 (spec #32
+ * held haiku without one, as Haiku 4.5 took none). A step the engine gave no
+ * effort (a model that takes none) keeps none, unless a plan moves it onto
+ * another family: that one gets its planned effort. A step with a numeric
  * effort keeps it.
  */
 export function planStep(e: TurnStepInput, plans: StepPlans): { step: TurnStepInput; source: EffortSource } {
@@ -157,12 +157,7 @@ export function planStep(e: TurnStepInput, plans: StepPlans): { step: TurnStepIn
     source = effort === null ? 'engine' : 'planned'
   }
   let step = e
-  if (!main && family === 'haiku') {
-    if (step.effort !== undefined) {
-      const { effort: _none, ...rest } = step
-      step = rest
-    }
-  } else if (effort !== null) {
+  if (effort !== null) {
     if (engine !== null && effort !== engine) step = { ...step, effort }
     // The engine gave the step no effort because it reckoned with another family (one without effort): the plan's model takes one.
     else if (e.effort === undefined && model !== null && family !== null && modelFamily(e.model) !== family) step = { ...step, effort }

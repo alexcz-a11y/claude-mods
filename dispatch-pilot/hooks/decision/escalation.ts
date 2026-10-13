@@ -116,8 +116,8 @@ export type StuckRequest = { request: DecisionRequest; effortPart: Part | null; 
 /**
  * The request a stuck loop's re-decision sends (`input` with its `trouble`):
  * the mid-turn state and effort question, with the trouble flag, and whether
- * the failures were expected. A loop that takes no effort level (a haiku
- * agent) is asked the second only, its state without a current level.
+ * the failures were expected. A loop raised by another model, not a level (a
+ * haiku agent at the top level), is asked the second only, its state without a current level.
  */
 export function stuckRequest(input: MidturnInput, options: { limits: MidturnLimits; ask?: Partial<EffortAsk>; effort: boolean }): StuckRequest {
   const effortPart = options.effort ? midturnEffortPart(options.ask, { trouble: true }) : null

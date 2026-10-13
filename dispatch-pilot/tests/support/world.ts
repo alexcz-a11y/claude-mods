@@ -238,7 +238,7 @@ export type ToolRun = {
 }
 
 /** One agent.spawn as it reached the engine, after every hook of the mod. */
-export type Spawned = { tool_use_id: string; model: string | undefined; subagentType: string; description: string; prompt: string }
+export type Spawned = { tool_use_id: string; model: string | undefined; subagentType: string; description: string; prompt: string; workflow?: { runId: string; agentIndex: number } }
 
 export type SpawnOptions = {
   /** The task the main agent wrote for the agent (the Agent tool's `prompt`). */
@@ -254,8 +254,17 @@ export type SpawnOptions = {
   isTeammate?: true
 }
 
+/**
+ * The agent.spawn the engine raises for an agent a Workflow script's `agent()` starts (2.1.294 on): `prompt` is the
+ * task the script computed, `description` the call's label, `model` the call's own; `agentId` the id it starts under.
+ */
+export type WorkflowSpawnOptions = { runId: string; agentIndex: number; agentId: string; label: string; prompt: string; model?: string }
+
+/** What the engine resolves a model alias to as it starts an agent (2.1.289). */
+const ENGINE_IDS: Record<string, string> = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' }
+
 /** The agent.spawn the engine raises for one Agent tool call (`id`, the call's tool_use_id). */
-function spawnInput(id: string, spawn: SpawnOptions) {
+function spawnInput(id: string, spawn: SpawnOptions & { workflow?: { runId: string; agentIndex: number } }) {
   return {
     tool_use_id: id,
     provider: { plugin: 'engine', tier: 'core' } as const,
@@ -267,6 +276,7 @@ function spawnInput(id: string, spawn: SpawnOptions) {
     subagentType: spawn.subagentType ?? 'general-purpose',
     ...(spawn.model !== undefined ? { model: spawn.model } : {}),
     ...(spawn.isTeammate ? { isTeammate: true as const } : {}),
+    ...(spawn.workflow !== undefined ? { workflow: spawn.workflow } : {}),
   }
 }
 
@@ -292,6 +302,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   let calls = 0
   /** The Agent tool calls `agentTool` made: the engine spawns their agents inside them. */
   const agentCalls = new Set<string>()
+  /** The Workflow agents being spawned, by `<runId>#<agentIndex>`: the id each starts under and the model its call gave it. */
+  const workflowSpawns = new Map<string, { agentId: string; model: string | undefined }>()
   const disk = options.disk ?? {}
   const agents: AgentInfo[] = Array.isArray(options.agents) ? [...options.agents] : []
   const store = new Map(Object.entries({ ...(options.store ?? {}), ...(options.switches !== undefined ? { switches: { ...(options.store?.switches as object | undefined), ...options.switches } } : {}) }).map(([key, value]) => [key, JSON.stringify(value)]))
@@ -522,9 +534,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   on('command.run', () => ({}))
   // The engine at the bottom of agent.spawn: it starts the agent on the model
   // it is handed (the parent's when none) and names it a1, a2, ... in the
-  // order the spawns reach it.
+  // order the spawns reach it. A Workflow agent's spawn can only be refused: it
+  // starts as its call has it, whatever a hook changed (2.1.294 on).
   on('agent.spawn', (_$, e) => {
-    spawned.push({ tool_use_id: e.tool_use_id, model: e.model, subagentType: e.subagentType, description: e.description, prompt: e.prompt })
+    spawned.push({ tool_use_id: e.tool_use_id, model: e.model, subagentType: e.subagentType, description: e.description, prompt: e.prompt, ...(e.workflow !== undefined ? { workflow: e.workflow } : {}) })
+    const scripted = e.workflow === undefined ? undefined : workflowSpawns.get(`${e.workflow.runId}#${e.workflow.agentIndex}`)
+    if (scripted !== undefined) return { model: scripted.model === undefined ? e.parentModel : (ENGINE_IDS[scripted.model] ?? scripted.model), agentId: scripted.agentId }
     return { model: e.model ?? e.parentModel, agentId: `a${spawned.length}` }
   })
   // The engine at the bottom of turn.step: it records what the request went
@@ -695,6 +710,23 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     spawn: async (spawn: SpawnOptions) => {
       await booted()
       return $.agent.spawn(spawnInput(`toolu_${++calls}`, spawn))
+    },
+    /**
+     * A Workflow script's `agent()` starts an agent: the engine raises agent.spawn for it under the Workflow tool call's
+     * `toolUseId` (2.1.294 on); resolves to what started.
+     */
+    workflowSpawn: async (toolUseId: string, spawn: WorkflowSpawnOptions) => {
+      await booted()
+      workflowSpawns.set(`${spawn.runId}#${spawn.agentIndex}`, { agentId: spawn.agentId, model: spawn.model })
+      return $.agent.spawn(
+        spawnInput(toolUseId, {
+          prompt: spawn.prompt,
+          description: spawn.label,
+          subagentType: 'workflow-subagent',
+          ...(spawn.model !== undefined ? { model: spawn.model } : {}),
+          workflow: { runId: spawn.runId, agentIndex: spawn.agentIndex },
+        }),
+      )
     },
     /**
      * The main agent calls the Agent tool, and the engine spawns the agent inside the call (as `spawn` does); resolves to

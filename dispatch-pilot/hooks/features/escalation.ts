@@ -17,7 +17,7 @@
 // step. Expected: the counts start over and the answer is an ordinary
 // re-decision. Otherwise (also when no answer comes) the loop goes up: one
 // level (at most to xhigh) or straight to max, at most `escalateLimit` times
-// per turn (per run, for an agent); a haiku agent, which takes no effort,
+// per turn (per run, for an agent); a haiku agent already at the top level
 // goes on as another model. The person's terms for an agent's work hold
 // (core/plans.ts `AgentPlan`).
 //
@@ -281,7 +281,7 @@ type Raise =
   | { kind: 'keep'; outcome: string; reason: string }
   /** A higher effort, from `current`. */
   | { kind: 'level'; current: Effort; target: Effort }
-  /** Another model (a haiku agent: it takes no effort). */
+  /** Another model (a haiku agent at the top level). */
   | { kind: 'model'; from: string; to: ResolvedModel; note: string }
 
 /**
@@ -304,15 +304,17 @@ async function raiseOf($: EngineInterface, s: Settings, id: string, agentId: str
   const family = modelFamily(model)
   // A model the mod does not know, and that takes no effort level: nothing to raise.
   if (family === null && record.engine === null) return { kind: 'none' }
-  if (family === 'haiku') {
-    const to = haikuSwitch(s, planned?.terms ?? null)
-    return 'why' in to ? { kind: 'keep', outcome: `model ${model}（保持）`, reason: to.why } : { kind: 'model', from: model, to: to.to, note: to.note }
-  }
   const named = planned?.terms?.effort ?? null
-  if (named !== null) return { kind: 'keep', outcome: `effort ${named}（保持）`, reason: `${named} 是你给它点名的 effort` }
   // Without a level of its own (moved off a model that takes none), its steps go at the engine's own for an agent: medium (measured on 2.1.289).
   const current = higherEffort(planned?.effort ?? record.engine ?? 'medium', planned?.floor ?? null) as Effort
-  const target = forcedTarget(current, s.mode)
+  const target = named === null ? forcedTarget(current, s.mode) : null
+  // A haiku agent goes up a level like any other; at the top (or held at the effort the person named) it goes on as another model.
+  if (family === 'haiku' && target === null) {
+    const to = haikuSwitch(s, planned?.terms ?? null)
+    if (!('why' in to)) return { kind: 'model', from: model, to: to.to, note: to.note }
+    if (named === null) return { kind: 'keep', outcome: `effort ${current}（保持）`, reason: `${top(current).reason}，${to.why}` }
+  }
+  if (named !== null) return { kind: 'keep', outcome: `effort ${named}（保持）`, reason: `${named} 是你给它点名的 effort` }
   return target === null ? top(current) : { kind: 'level', current, target }
 }
 
@@ -366,7 +368,7 @@ async function launch($: EngineInterface, s: Settings, id: string, agentId: stri
       trouble: troubleText(counted),
     }
   }
-  // A haiku agent takes no effort: only whether its failures were expected is asked.
+  // A haiku agent switched to another model: only whether its failures were expected is asked.
   const { request, effortPart, expectedPart } = stuckRequest(input, { limits: s.limits, ask: s.ctx.ask, effort: raise.kind === 'level' })
   const io: BackendIo = {
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
@@ -451,7 +453,7 @@ async function apply($: EngineInterface, s: Settings, e: TurnStepInput, cell: Ce
     await decide($, id, raised, {
       outcome: `model ${raise.to.id}（原 ${raise.from}）`,
       about,
-      reason: `haiku 没有 effort 可升，改用 ${raise.to.id}${raise.note}；${knownReason(s, answer)}`,
+      reason: `haiku 的 effort 已经到顶，改用 ${raise.to.id}${raise.note}；${knownReason(s, answer)}`,
       tone: 'warn',
       forced: { kind: 'model', from: raise.from, to: raise.to.id },
     })

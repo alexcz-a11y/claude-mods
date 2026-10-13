@@ -627,28 +627,47 @@ test("a dispatched agent whose tool calls keep failing goes up a level on every 
   ])
 })
 
-const HAIKU = { model: 'claude-haiku-4-5-20251001', effort: null }
+/** A Haiku 5.5 agent's step: the engine gives it its own medium (measured on 2.1.296). */
+const HAIKU = { model: 'claude-haiku-5-5', effort: 'medium' as const }
 
-test('a haiku agent has no effort to raise: it goes on as sonnet, named by its full id (the engine takes no alias for a step), and the decision is recorded', { options: ONLY }, async ($, on) => {
-  const w = world($, on, { backend: withAgents({ model: { haiku: 1 } }), messages: agentRows, store: {}, session: true })
+test('a haiku agent below the top level goes up a level like any other (Haiku 5.5 takes an effort): it stays on haiku', { options: ONLY }, async ($, on) => {
+  const w = world($, on, { backend: withAgents({ model: { haiku: 1 }, effort: MEDIUM }), messages: agentRows, store: {}, session: true })
   await w.start()
   const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Find the auth failures', subagentType: 'Explore' })) as { agentId: string }
   await w.step(agentStep(agentId, 0, { ...HAIKU, tools: agentFailing }))
   await w.step(agentStep(agentId, 1, HAIKU))
   await w.step(agentStep(agentId, 2, HAIKU))
 
-  expect(w.steps.map((s) => s.model)).toEqual(['claude-haiku-4-5-20251001', 'claude-sonnet-5-5', 'claude-sonnet-5-5'])
+  expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(['claude-haiku-5-5 medium', 'claude-haiku-5-5 high', 'claude-haiku-5-5 high'])
   const asked = w.requests.filter((r) => 'escalation.expected' in r.body.questions)
   expect(asked).toHaveLength(1)
-  // A haiku agent's effort is not asked about: only whether the failures were expected.
+  // Its effort is asked about, as any agent's.
+  expect(asked[0]?.body.state.current_effort).toBe('medium')
+  const [raised] = await escalations(w)
+  expect(raised).toMatchObject({ agent: agentId, tone: 'warn', forced: { kind: 'effort', from: 'medium', to: 'high' } })
+})
+
+test('a haiku agent already at the top level goes on as sonnet, named by its full id (the engine takes no alias for a step), and the decision is recorded', { options: ONLY }, async ($, on) => {
+  const w = world($, on, { backend: withAgents({ model: { haiku: 1 }, effort: XHIGH }), messages: agentRows, store: {}, session: true })
+  await w.start()
+  const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Find the auth failures', subagentType: 'Explore' })) as { agentId: string }
+  await w.step(agentStep(agentId, 0, { ...HAIKU, tools: agentFailing }))
+  await w.step(agentStep(agentId, 1, HAIKU))
+  await w.step(agentStep(agentId, 2, HAIKU))
+
+  // The decided xhigh stays with it on sonnet.
+  expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(['claude-haiku-5-5 xhigh', 'claude-sonnet-5-5 xhigh', 'claude-sonnet-5-5 xhigh'])
+  const asked = w.requests.filter((r) => 'escalation.expected' in r.body.questions)
+  expect(asked).toHaveLength(1)
+  // Switched to another model, not raised a level: only whether the failures were expected is asked.
   expect(Object.keys(asked[0]?.body.questions)).toEqual(['escalation.expected'])
   expect(asked[0]?.body.state.current_effort).toBeUndefined()
   const log = (await w.command('dp', 'log 10')).split('\n').filter((line) => line.includes(' escalation：'))
   expect(log).toHaveLength(1)
-  expect(log[0]).toContain('model claude-sonnet-5-5（原 claude-haiku-4-5-20251001） · agent "Make the failing auth tests pass: run `p..."，第 1 步（工具调用失败 2 次）')
-  expect(log[0]).toContain('haiku 没有 effort 可升，改用 claude-sonnet-5-5；不是预期内的失败（概率 0.10，预期内失败门槛 0.25）')
+  expect(log[0]).toContain('model claude-sonnet-5-5（原 claude-haiku-5-5） · agent "Make the failing auth tests pass: run `p..."，第 1 步（工具调用失败 2 次）')
+  expect(log[0]).toContain('haiku 的 effort 已经到顶，改用 claude-sonnet-5-5；不是预期内的失败（概率 0.10，预期内失败门槛 0.25）')
   const [switched] = await escalations(w)
-  expect(switched).toMatchObject({ agent: agentId, tone: 'warn', forced: { kind: 'model', from: 'claude-haiku-4-5-20251001', to: 'claude-sonnet-5-5' }, counts: { failed: 2, blocked: 0, raised: 1 } })
+  expect(switched).toMatchObject({ agent: agentId, tone: 'warn', forced: { kind: 'model', from: 'claude-haiku-5-5', to: 'claude-sonnet-5-5' }, counts: { failed: 2, blocked: 0, raised: 1 } })
   expect(switched?.forced?.floor).toBeUndefined()
 })
 
@@ -657,24 +676,24 @@ for (const [written, sent] of [
   ['opus', 'claude-opus-5-5'],
   ['Sonnet', 'claude-sonnet-5-5'],
 ] as const) {
-  test(`escalateHaikuTo ${JSON.stringify(written)}: a failing haiku agent goes on as ${sent} (an alias becomes the id a step must name: the engine takes no alias there)`, { options: { ...ONLY, escalateHaikuTo: written } }, async ($, on) => {
-    const w = world($, on, { backend: withAgents({ model: { haiku: 1 } }), messages: agentRows })
+  test(`escalateHaikuTo ${JSON.stringify(written)}: a failing haiku agent at the top level goes on as ${sent} (an alias becomes the id a step must name: the engine takes no alias there)`, { options: { ...ONLY, escalateHaikuTo: written } }, async ($, on) => {
+    const w = world($, on, { backend: withAgents({ model: { haiku: 1 }, effort: XHIGH }), messages: agentRows })
     const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Find the auth failures' })) as { agentId: string }
     await w.step(agentStep(agentId, 0, { ...HAIKU, tools: agentFailing }))
     await w.step(agentStep(agentId, 1, HAIKU))
 
-    expect(w.steps.map((s) => s.model)).toEqual(['claude-haiku-4-5-20251001', sent])
+    expect(w.steps.map((s) => s.model)).toEqual(['claude-haiku-5-5', sent])
   })
 }
 
-test('an escalateHaikuTo that names no model the mod knows switches nothing, and the log says so', { options: { ...ONLY, escalateHaikuTo: 'gpt-5' } }, async ($, on) => {
-  const w = world($, on, { backend: withAgents({ model: { haiku: 1 } }), messages: agentRows, store: {}, session: true })
+test('an escalateHaikuTo that names no model the mod knows switches nothing for a haiku agent at the top level, and the log says so', { options: { ...ONLY, escalateHaikuTo: 'gpt-5' } }, async ($, on) => {
+  const w = world($, on, { backend: withAgents({ model: { haiku: 1 }, effort: XHIGH }), messages: agentRows, store: {}, session: true })
   await w.start()
   const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Find the auth failures' })) as { agentId: string }
   await w.step(agentStep(agentId, 0, { ...HAIKU, tools: agentFailing }))
   await w.step(agentStep(agentId, 1, HAIKU))
 
-  expect(w.steps.map((s) => s.model)).toEqual(['claude-haiku-4-5-20251001', 'claude-haiku-4-5-20251001'])
+  expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(['claude-haiku-5-5 xhigh', 'claude-haiku-5-5 xhigh'])
   const log = (await w.command('dp', 'log 10')).split('\n').filter((line) => line.includes(' escalation：'))
   expect(log[0]).toContain('设置的改用模型 "gpt-5" 这个 mod 不认识')
 })

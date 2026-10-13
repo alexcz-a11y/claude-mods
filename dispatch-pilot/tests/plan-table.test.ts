@@ -40,7 +40,7 @@ test("an agent's turn-level plan wins over its agent-level plan", async ($, on) 
 })
 
 test('the main agent never goes out on another model, whatever a plan names', { options: KEY }, async ($, on) => {
-  table(on, { 'turns/main:t1': { effort: 'medium', floor: null, model: 'claude-haiku-4-5', prompt: 'x', decisions: 1, changes: 0 } })
+  table(on, { 'turns/main:t1': { effort: 'medium', floor: null, model: 'claude-haiku-5-5', prompt: 'x', decisions: 1, changes: 0 } })
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]) })
   await w.submit('x')
   await w.step({ index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
@@ -59,23 +59,24 @@ test("a lock holds the main agent's effort over any decision, and the board says
   expect((await w.board()).main).toMatchObject({ effort: 'max', locked: true })
 })
 
-test("an agent whose step goes to haiku goes without an effort, whatever the engine or a plan asks (haiku takes none, spec #32)", async ($, on) => {
-  table(on, { 'agents/a1': { effort: 'high', floor: null, model: 'claude-haiku-4-5', terms: null }, 'agents/a2': { effort: 'high', floor: 'xhigh', model: null, terms: null } })
+test("an agent whose step goes to haiku goes at its planned effort, lifted to its floor, as on any model: Haiku 5.5 takes one (spec #32 held haiku without one, as Haiku 4.5 took none)", async ($, on) => {
+  table(on, { 'agents/a1': { effort: 'high', floor: null, model: 'claude-haiku-5-5', terms: null }, 'agents/a2': { effort: 'high', floor: 'xhigh', model: null, terms: null } })
   const w = world($, on)
-  // Planned onto haiku from sonnet: the engine's medium and the plan's high both stay off.
+  // Planned onto haiku from sonnet: the plan's high, not the engine's medium.
   await w.step({ index: 0, turnId: 'sub-1', agentId: 'a1', model: 'claude-sonnet-5-5', effort: 'medium' })
-  // Running on haiku already: a floor has nothing to lift.
-  await w.step({ index: 0, turnId: 'sub-2', agentId: 'a2', model: 'claude-haiku-4-5-20251001', effort: 'medium' })
+  // Running on haiku already: the floor lifts the plan's high to xhigh.
+  await w.step({ index: 0, turnId: 'sub-2', agentId: 'a2', model: 'claude-haiku-5-5', effort: 'medium' })
 
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['a1 claude-haiku-4-5 undefined', 'a2 claude-haiku-4-5-20251001 undefined'])
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['a1 claude-haiku-5-5 high', 'a2 claude-haiku-5-5 xhigh'])
 })
 
-test("an agent planned off haiku onto a model that takes an effort goes out at its planned effort, though the engine, reckoning with haiku, gave the step none", async ($, on) => {
+test("an agent planned off a model that takes no effort onto one that takes an effort goes out at its planned effort, though the engine, reckoning with the first, gave the step none", async ($, on) => {
   table(on, { 'agents/a1': { effort: 'high', floor: null, model: 'claude-opus-5-5', terms: null }, 'agents/a2': { effort: null, floor: null, model: 'claude-opus-5-5', terms: null } })
   const w = world($, on)
-  await w.step({ index: 0, turnId: 'sub-1', agentId: 'a1', model: 'claude-haiku-4-5', effort: null })
+  // A step the engine sent without an effort (as for a model that takes none).
+  await w.step({ index: 0, turnId: 'sub-1', agentId: 'a1', model: 'claude-haiku-5-5', effort: null })
   // Nothing planned for the effort: the step goes as the engine made it, the new model's own default.
-  await w.step({ index: 0, turnId: 'sub-2', agentId: 'a2', model: 'claude-haiku-4-5', effort: null })
+  await w.step({ index: 0, turnId: 'sub-2', agentId: 'a2', model: 'claude-haiku-5-5', effort: null })
 
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['a1 claude-opus-5-5 high', 'a2 claude-opus-5-5 undefined'])
 })

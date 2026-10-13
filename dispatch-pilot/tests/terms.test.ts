@@ -69,38 +69,40 @@ const agentStep = (agentId: string, index: number, model: string, effort: 'low' 
   ...(tools === undefined ? {} : { tools }),
 })
 
-const HAIKU = 'claude-haiku-4-5-20251001'
+const HAIKU = 'claude-haiku-5-5'
+/** The decision model's effort answer that puts an agent at the top level a raise goes to (xhigh): only a model switch is left for a stuck haiku agent. */
+const AT_TOP = [0, 0, 0, 1, 0]
 
 /** The decision log's escalation lines, as /dp log shows them. */
 async function escalations(w: ReturnType<typeof world>): Promise<string[]> {
   return (await w.command('dp', 'log 10')).split('\n').filter((line) => line.includes(' escalation：'))
 }
 
-test('a haiku the person named for an agent stays its model however its calls fail: it is not switched to sonnet, and the log says why', { options: ONLY }, async ($, on) => {
-  const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.1 }, nouls: { 'named.haiku': 0.9 } }), store: {}, session: true })
+test('a haiku the person named for an agent stays its model however its calls fail: at the top level it is not switched to sonnet, and the log says why', { options: ONLY }, async ($, on) => {
+  const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.1 }, effort: AT_TOP, nouls: { 'named.haiku': 0.9 } }), store: {}, session: true })
   await w.start()
   await w.submit('用 haiku 查一下哪些文件引用了 legacyAuth，别改代码')
   const { agentId } = (await w.spawn({ prompt: 'List every file under src/ that imports legacyAuth.', description: 'Find legacyAuth' })) as { agentId: string }
-  await w.step(agentStep(agentId, 0, HAIKU, null, failing))
-  await w.step(agentStep(agentId, 1, HAIKU, null))
+  await w.step(agentStep(agentId, 0, HAIKU, 'medium', failing))
+  await w.step(agentStep(agentId, 1, HAIKU, 'medium'))
 
   expect(w.spawned.map((s) => s.model)).toEqual(['haiku'])
-  expect(w.steps.map((s) => s.model)).toEqual([HAIKU, HAIKU])
+  expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual([`${HAIKU} xhigh`, `${HAIKU} xhigh`])
   // Nothing to force: nothing is asked.
   expect(w.requests.filter((r) => 'escalation.expected' in r.body.questions)).toHaveLength(0)
   const log = await escalations(w)
   expect(log).toHaveLength(1)
-  expect(log[0]).toContain(`model ${HAIKU}（保持） · agent`)
+  expect(log[0]).toContain('effort xhigh（保持） · agent')
   expect(log[0]).toContain('haiku 是你给它点名的模型')
 })
 
-test('a model the person ruled out is never the one a failing haiku agent is switched to: it goes on as the next model up that is not ruled out', { options: ONLY }, async ($, on) => {
-  const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.1 }, nouls: { 'banned.sonnet': 0.9 } }), store: {}, session: true })
+test('a model the person ruled out is never the one a failing haiku agent at the top level is switched to: it goes on as the next model up that is not ruled out', { options: ONLY }, async ($, on) => {
+  const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.1 }, effort: AT_TOP, nouls: { 'banned.sonnet': 0.9 } }), store: {}, session: true })
   await w.start()
   await w.submit('别用 sonnet，太贵了。派个 agent 去查 auth 的测试为什么挂')
   const { agentId } = (await w.spawn({ prompt: 'Find out why the auth tests fail. Report the cause only.', description: 'Why auth fails' })) as { agentId: string }
-  await w.step(agentStep(agentId, 0, HAIKU, null, failing))
-  await w.step(agentStep(agentId, 1, HAIKU, null))
+  await w.step(agentStep(agentId, 0, HAIKU, 'medium', failing))
+  await w.step(agentStep(agentId, 1, HAIKU, 'medium'))
 
   expect(w.steps.map((s) => s.model)).toEqual([HAIKU, 'claude-opus-5-5'])
   const log = await escalations(w)
@@ -108,17 +110,17 @@ test('a model the person ruled out is never the one a failing haiku agent is swi
   expect(log[0]).toContain('sonnet 被你排除了')
 })
 
-test('when the person ruled out every model above haiku that agents may run on, the failing haiku agent stays on haiku, and the log says why', { options: ONLY }, async ($, on) => {
-  const w = world($, on, { backend: agentJev({ model: { haiku: 0.9 }, nouls: { 'banned.sonnet': 0.9, 'banned.opus': 0.9 } }), store: {}, session: true })
+test('when the person ruled out every model above haiku that agents may run on, the failing haiku agent at the top level stays on haiku, and the log says why', { options: ONLY }, async ($, on) => {
+  const w = world($, on, { backend: agentJev({ model: { haiku: 0.9 }, effort: AT_TOP, nouls: { 'banned.sonnet': 0.9, 'banned.opus': 0.9 } }), store: {}, session: true })
   await w.start()
   await w.submit('sonnet 和 opus 都别用，额度不够了。派个 agent 查一下 auth 的测试')
   const { agentId } = (await w.spawn({ prompt: 'Find out why the auth tests fail.', description: 'Why auth fails' })) as { agentId: string }
-  await w.step(agentStep(agentId, 0, HAIKU, null, failing))
-  await w.step(agentStep(agentId, 1, HAIKU, null))
+  await w.step(agentStep(agentId, 0, HAIKU, 'medium', failing))
+  await w.step(agentStep(agentId, 1, HAIKU, 'medium'))
 
   expect(w.steps.map((s) => s.model)).toEqual([HAIKU, HAIKU])
   const log = await escalations(w)
-  expect(log[0]).toContain(`model ${HAIKU}（保持）`)
+  expect(log[0]).toContain('effort xhigh（保持）')
   expect(log[0]).toContain('haiku 以上的模型都被你排除了（sonnet、opus）')
 })
 
@@ -154,19 +156,19 @@ const workflowStep = (index: number, model: string, effort: 'low' | 'medium' | '
 /** The decisions about a script's one call: `call` answers it (part agent-0); the stuck agent's request is answered as not expected. */
 const oneCall = (call: SiteAnswer) => siteJev((i) => (i === 0 ? call : {}))
 
-test('a workflow agent the label fallback sent to haiku is switched to sonnet when its calls keep failing: by the model the plan put it on, not the one the engine named', { options: ONLY }, async ($, on) => {
+test('a workflow agent the label fallback sent to haiku at the top level is switched to sonnet when its calls keep failing: by the model the plan put it on, not the one the engine named', { options: ONLY }, async ($, on) => {
   const script = `export const meta = { name: 'scan', description: 'List what imports legacyAuth', phases: [] }
 const found = await agent('List every file under src/ that imports legacyAuth. Report file:line only.', { label: 'scan' })
 return found
 `
-  const w = runWorld($, on, { ...NO_TRANSCRIPTS, disk: { [SAVED]: script }, backend: oneCall({ model: { haiku: 0.9 } }) })
+  const w = runWorld($, on, { ...NO_TRANSCRIPTS, disk: { [SAVED]: script }, backend: oneCall({ model: { haiku: 0.9 }, effort: AT_TOP }) })
   await w.workflow({ scriptPath: SAVED })
   w.started('wf_test-1', 'wa1', 'scan')
   await w.agentStep('wa1', workflowStep(0, 'claude-opus-5-5', 'xhigh', failing))
   await w.agentStep('wa1', workflowStep(1, 'claude-opus-5-5', 'xhigh'))
 
-  // On haiku, no effort; switched to sonnet, the engine's own effort again.
-  expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(['claude-haiku-4-5 undefined', 'claude-sonnet-5-5 xhigh'])
+  // On haiku at its decided xhigh, the top level; switched to sonnet, the same effort.
+  expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(['claude-haiku-5-5 xhigh', 'claude-sonnet-5-5 xhigh'])
 })
 
 test('a workflow agent the label fallback moved off haiku onto opus goes out at its planned effort, and is raised a level when its calls keep failing', { options: ONLY }, async ($, on) => {
@@ -177,9 +179,9 @@ return fixed
   const w = runWorld($, on, { ...NO_TRANSCRIPTS, disk: { [SAVED]: script }, backend: oneCall({ model: { opus: 0.9 }, effort: [0, 0, 1, 0, 0] }) })
   await w.workflow({ scriptPath: SAVED })
   w.started('wf_test-1', 'wa1', 'fix')
-  // The engine resolved the script's haiku: no effort on the step.
-  await w.agentStep('wa1', workflowStep(0, 'claude-haiku-4-5', null, failing))
-  await w.agentStep('wa1', workflowStep(1, 'claude-haiku-4-5', null))
+  // The engine resolved the script's haiku, at its own medium.
+  await w.agentStep('wa1', workflowStep(0, 'claude-haiku-5-5', 'medium', failing))
+  await w.agentStep('wa1', workflowStep(1, 'claude-haiku-5-5', 'medium'))
 
   expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(['claude-opus-5-5 high', 'claude-opus-5-5 xhigh'])
 })
@@ -210,19 +212,20 @@ return done
   expect(w.reached[0]?.script).toContain("{ model: 'sonnet', label: 'refactor', effort: 'medium' }")
 })
 
-test("a haiku the person named for a call of a script the main agent sent stays that agent's model however its calls fail", { options: ONLY }, async ($, on) => {
+test("a haiku the person named for a call of a script the main agent sent stays that agent's model however its calls fail, at the top level too", { options: ONLY }, async ($, on) => {
   const script = `export const meta = { name: 'scan', description: 'List what imports legacyAuth', phases: [] }
 const found = await agent('List every file under src/ that imports legacyAuth. Report file:line only.', { label: 'scan' })
 return found
 `
-  const w = runWorld($, on, { ...NO_TRANSCRIPTS, backend: oneCall({ model: { haiku: 0.9 }, nouls: { 'named.haiku': 0.9 } }), store: {}, session: true })
+  const w = runWorld($, on, { ...NO_TRANSCRIPTS, backend: oneCall({ model: { haiku: 0.9 }, effort: AT_TOP, nouls: { 'named.haiku': 0.9 } }), store: {}, session: true })
   await w.start()
   await w.submit('用 haiku 列一下哪些文件引用了 legacyAuth')
   await w.workflow({ script })
-  expect(w.reached[0]?.script).toContain("{ label: 'scan', model: 'haiku' }")
+  expect(w.reached[0]?.script).toContain("{ label: 'scan', model: 'haiku', effort: 'xhigh' }")
   w.started('wf_test-1', 'wa1', 'scan')
-  await w.agentStep('wa1', workflowStep(0, HAIKU, null, failing))
-  await w.agentStep('wa1', workflowStep(1, HAIKU, null))
+  // The engine runs the call as written into the script: haiku at xhigh.
+  await w.agentStep('wa1', workflowStep(0, HAIKU, 'xhigh', failing))
+  await w.agentStep('wa1', workflowStep(1, HAIKU, 'xhigh'))
 
   expect(w.steps.map((s) => s.model)).toEqual([HAIKU, HAIKU])
   const log = await escalations(w)
