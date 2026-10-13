@@ -58,7 +58,7 @@ import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
 import { isEffort, type Effort } from '../decision/effort.ts'
 import type { BackendName } from './setup.ts'
 import type { UnresolvedChange, UnresolvedOption, UnresolvedThresholds } from '../decision/unresolved.ts'
-import { startedIn } from '../decision/workflow-labels.ts'
+import { fitsTemplate, startedIn } from '../decision/workflow-labels.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
 
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
@@ -570,7 +570,7 @@ export async function reportStep(io: StepIo, step: StepReading): Promise<void> {
   const effort = typeof step.effort === 'number' || isEffort(step.effort) ? step.effort : undefined
   const reading: Reading = { ...(family === null ? {} : { model: family }), ...(effort === undefined ? {} : { effort }) }
   // `source`: the engine's own effort goes out unless a plan sets it. An agent that was decided to run as it does has no plan
-  // to say so (haiku takes no effort, a Workflow script was written into): its reading is checked against its decision below.
+  // to say so (a Workflow script was written into): its reading is checked against its decision below.
   let routed = step.source !== 'engine'
   const locked = step.source === 'locked'
   try {
@@ -610,7 +610,7 @@ export async function reportStep(io: StepIo, step: StepReading): Promise<void> {
         return {
           ...board,
           ...(changes.length === 0 ? {} : { changes: [...(board.changes ?? []), ...changes].filter((change) => change.turn >= board.turn - 1) }),
-          nodes: [...board.nodes.filter((node) => node !== old && node !== stood), next],
+          nodes: takenOver(board.nodes, old, stood, next),
         }
       },
       READING_ATTEMPTS,
@@ -661,7 +661,7 @@ async function reportEnd(io: StepIo, end: LoopEnd): Promise<void> {
           dur: Math.round(end.durationMs) / 1000,
           ...(failed && base.why === undefined ? { why: end.reason === 'aborted' ? ENDED_WORDS.aborted : end.reason === 'refusal' ? ENDED_WORDS.refusal : ENDED_WORDS.error } : {}),
         }
-        return { ...board, nodes: [...board.nodes.filter((node) => node !== old && node !== stood), next] }
+        return { ...board, nodes: takenOver(board.nodes, old, stood, next) }
       },
       READING_ATTEMPTS,
     )
@@ -865,12 +865,27 @@ function seenAt(id: string, now: number): number {
 
 /**
  * The node a Workflow call of a script stands for before its agent starts (a decision was made for the call, or it
- * was left as written): queued, one of the Workflow's calls, called what the agent's label is. Null when there is
- * none, or the agent is not a Workflow's.
+ * was left as written): one of the Workflow's calls, queued and called what the agent's label is; else one whose
+ * label is a template the agent's label fits (`verify:${b.id}` for `verify:st4`), queued or already started by
+ * another of its agents. Null when there is none, or the agent is not a Workflow's.
  */
 function callNodeOf(board: Board, identity: Identity | null | undefined): BoardNode | undefined {
   if (identity === null || identity === undefined || identity.kind !== 'wf') return undefined
-  return board.nodes.find((node) => node.kind === 'wf' && node.state === 'queued' && node.workflow !== undefined && callWorkflowOf(node.id) === node.workflow.id && node.name === identity.name)
+  const calls = board.nodes.filter((node) => node.kind === 'wf' && node.workflow !== undefined && callWorkflowOf(node.id) === node.workflow.id)
+  return (
+    calls.find((node) => node.state === 'queued' && node.name === identity.name) ??
+    calls.find((node) => (node.state === 'queued' || node.state === 'running') && fitsTemplate(node.name, identity.name))
+  )
+}
+
+/**
+ * The board's nodes once `next` takes the place of `old` (its own node before, if any) and of the call node it
+ * `stood` for. A call written as a template stands for every agent it starts: it stays, marked started (`running`),
+ * for the agents after this one, and the screens leave it out (`isCallNode`).
+ */
+function takenOver(nodes: readonly BoardNode[], old: BoardNode | undefined, stood: BoardNode | undefined, next: BoardNode): BoardNode[] {
+  const kept = stood !== undefined && stood.name.includes('${') ? { ...stood, state: 'running' as const } : undefined
+  return [...nodes.filter((node) => node !== old && node !== stood), ...(kept === undefined ? [] : [kept]), next]
 }
 
 /** What a Workflow's agent takes over from the node its call stood for: the Workflow, the decision made for it, and why it was left as written (when its steps go out unrouted). */
@@ -987,7 +1002,8 @@ export function registerReport(on: On): void {
 
   on('agent.spawn', { tool_use_id: /(?:)/ }, async ($, e, next) => {
     const result = await next(e)
-    if (result.deny !== undefined || result.agentId === undefined) return result
+    // A Workflow's agent (spawned too, 2.1.294 on) gets its node at its first step, from its run's journal: in its call's place.
+    if (result.deny !== undefined || result.agentId === undefined || e.workflow !== undefined) return result
     await reportSpawn(stepIo($), { agentId: result.agentId, ...(e.name === undefined ? {} : { name: e.name }), description: e.description, type: e.subagentType })
     return result
   })
@@ -1051,7 +1067,7 @@ function newNode(turn: number, id: string, node: About['node'], state: AgentStat
 /** The board with the decision on its agent's node of `turn` (the node made when there is none), `n` the decision's number in the log when it has one. */
 function withNode(board: Board, turn: number, decision: Decided | NotDecided | Left | Started, n: number | undefined): Board {
   const old = board.nodes.find((node) => node.turn === turn && node.id === decision.agent)
-  // The node that stood for the agent before it started gives it what was decided for it, and goes.
+  // The node that stood for the agent before it started gives it what was decided for it, and goes (a template's stays, started).
   const stood = old === undefined && decision.replaces !== undefined ? board.nodes.find((node) => node.id === decision.replaces) : undefined
   const inherited = stood?.decision === undefined ? {} : { decision: stood.decision }
   const base = old ?? { ...newNode(turn, decision.agent, decision.node, decision.forTurn === 'next' ? 'queued' : 'running'), ...inherited }
@@ -1070,7 +1086,7 @@ function withNode(board: Board, turn: number, decision: Decided | NotDecided | L
       ...(n === undefined ? {} : { decision: n }),
     }
   }
-  return { ...board, nodes: [...board.nodes.filter((node) => node !== old && node !== stood), next] }
+  return { ...board, nodes: takenOver(board.nodes, old, stood, next) }
 }
 
 /** The value of a cell, or the empty board. */

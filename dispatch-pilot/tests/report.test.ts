@@ -130,7 +130,7 @@ test('a model without effort is read without one: the node keeps the model, and 
   await w.submit('解释一下这个函数')
   await w.step({ index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
   expect((await w.board()).main?.effort).toBe('high')
-  await w.step({ index: 1, model: 'claude-haiku-4-5-20251001', effort: null })
+  await w.step({ index: 1, model: 'claude-haiku-5-5', effort: null })
 
   const main = (await w.board()).main
   expect(main?.model).toBe('haiku')

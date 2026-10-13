@@ -18,7 +18,7 @@ import { decideDispatch, type DispatchDecision } from '../../hooks/decision/disp
 import { judgeMidturn, type MidturnRules } from '../../hooks/decision/midturn.ts'
 import { isRecord, type AgentItem, type EffortMidturnItem, type EffortSubmitItem, type Language } from './datasets.ts'
 import { gradeEffort } from './effort-submit.ts'
-import { answersOf, AGENT_VARIANTS, gradeAgent } from './subagent.ts'
+import { answersOf, AGENT_VARIANTS, gradeAgent, gradedEffort } from './subagent.ts'
 import { rate } from './metrics.ts'
 
 /** What a result file holds that is read here; the rest is kept as it is. */
@@ -217,7 +217,7 @@ export function rescoreAgents(result: StoredAnswers, items: readonly AgentItem[]
 
 /** The effort a decision gives an agent under the rule before (`before`) or now: haiku none, the person's named effort theirs. */
 function effortUnder(kind: 'before' | 'now', decision: DispatchDecision, thetaMax: number): Effort | null {
-  if (kind === 'now' || decision.reading === null) return decision.effort
+  if (kind === 'now' || decision.reading === null) return gradedEffort(decision)
   if (decision.model === 'haiku') return null
   return decision.namedEffort ?? legacyPickEffort(decision.reading, thetaMax)
 }

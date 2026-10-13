@@ -136,7 +136,7 @@ test("a model ruled out is in no branch the one the agent ends on: with no proba
   expect(out({ haiku: 0, sonnet: 0, opus: 0 }, [])).toMatchObject({ model: null, source: 'none' })
 })
 
-test("an effort the person names: asked only when their words may name one; the level the answer favours, when it beats none and reaches 0.5; haiku takes none", () => {
+test("an effort the person names: asked only when their words may name one; the level the answer favours, when it beats none and reaches 0.5; on haiku too (Haiku 5.5 takes one)", () => {
   expect(mentionsEffort('用 sonnet、effort 开 low 跑就行')).toBe(true)
   expect(mentionsEffort('all agents at extra high please')).toBe(true)
   expect(mentionsEffort('推理强度拉满')).toBe(true)
@@ -161,13 +161,13 @@ test("an effort the person names: asked only when their words may name one; the 
   expect(decideDispatch({ model: sonnet, effort, named_effort: choice({ none: 0.6, low: 0.4 }) }, REVIEW, SETTINGS)).toMatchObject({ effort: 'xhigh', namedEffort: null })
   // The threshold is thetaNamed, as for a model.
   expect(decideDispatch({ model: sonnet, effort, named_effort: choice({ none: 0.1, low: 0.6, medium: 0.3 }) }, REVIEW, { ...SETTINGS, thetaNamed: 0.7 })).toMatchObject({ effort: 'xhigh', namedEffort: null })
-  // Without an effort answer the named level still stands; on haiku it cannot be set.
+  // Without an effort answer the named level still stands; on haiku too, which takes an effort since Haiku 5.5.
   expect(decideDispatch({ model: sonnet, named_effort: choice({ none: 0, max: 1 }) }, REVIEW, SETTINGS)).toMatchObject({ effort: 'max', effortSource: 'user' })
   const haiku = decideDispatch({ model: choice({ haiku: 1, sonnet: 0, opus: 0 }), effort, named_effort: choice({ none: 0, high: 1 }), 'named.haiku': noul(0.9) }, { ...REVIEW, requested_model: null }, SETTINGS)
-  expect(haiku).toMatchObject({ model: 'haiku', effort: null, namedEffort: 'high', effortSource: 'none' })
+  expect(haiku).toMatchObject({ model: 'haiku', effort: 'high', namedEffort: 'high', effortSource: 'user' })
 })
 
-test("a model's effort floor (AA: sonnet's scores fall steeply below medium): sonnet and opus at medium at least; haiku takes none; the person's effort is never lifted", () => {
+test("a model's effort floor (AA: sonnet's scores fall steeply below medium): sonnet and opus at medium at least; haiku and fable have none; the person's effort is never lifted", () => {
   const as = (model: 'haiku' | 'sonnet' | 'opus' | 'fable', levels: number[], more: Record<string, Answer> = {}) =>
     decideDispatch({ model: choice({ [model]: 1 }), effort: score(levels), ...more }, { ...REVIEW, requested_model: null }, { ...SETTINGS, models: AGENT_MODELS })
   // Sonnet: medium at least, whatever low says (the answer's level is picked first: the level above is taken at 0.3).
@@ -184,8 +184,9 @@ test("a model's effort floor (AA: sonnet's scores fall steeply below medium): so
   expect(as('opus', [1, 0, 0, 0, 0])).toMatchObject({ model: 'opus', effort: 'medium', liftedFrom: 'low' })
   expect(as('opus', [0, 1, 0, 0, 0])).toMatchObject({ effort: 'medium' })
   expect(as('opus', [0, 0, 1, 0, 0])).toMatchObject({ effort: 'high' })
-  // Haiku takes no effort; fable has no floor.
-  expect(as('haiku', [1, 0, 0, 0, 0])).toMatchObject({ model: 'haiku', effort: null })
+  // Haiku (5.5 takes an effort) and fable have no floor.
+  expect(as('haiku', [1, 0, 0, 0, 0])).toMatchObject({ model: 'haiku', effort: 'low' })
+  expect(as('haiku', [1, 0, 0, 0, 0]).liftedFrom).toBeUndefined()
   expect(as('fable', [1, 0, 0, 0, 0])).toMatchObject({ model: 'fable', effort: 'low' })
   // An effort the person names is theirs: no floor lifts it.
   const low = { named_effort: choice({ none: 0.05, low: 0.9, medium: 0.05 }) }

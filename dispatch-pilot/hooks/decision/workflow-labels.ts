@@ -101,10 +101,8 @@ function routeOf(outcome: CallOutcome | undefined): SiteRoute {
 function matchOf(call: AgentCall): LabelMatch {
   if (call.labelKind === 'string' && call.label !== null) return { kind: 'exact', label: call.label }
   if (call.labelKind === 'template' && call.label !== null) {
-    const pieces = templatePieces(call.label)
-    if (pieces.every((piece) => piece.placeholder || piece.text.trim() === '')) return { kind: 'none' }
-    const source = pieces.map((piece) => (piece.placeholder ? '[\\s\\S]*' : escapeRegExp(cooked(piece.text)))).join('')
-    return { kind: 'pattern', source: `^${source}$` }
+    const source = templateSource(call.label)
+    return source === null ? { kind: 'none' } : { kind: 'pattern', source }
   }
   if (call.labelKind === 'none' && call.prompt !== null) {
     const pieces = call.prompt.includes('${') ? templatePieces(call.prompt) : [{ text: call.prompt, placeholder: false }]
@@ -115,6 +113,23 @@ function matchOf(call: AgentCall): LabelMatch {
     return head === '' ? { kind: 'none' } : { kind: 'head', head: whole ? head.slice(0, ENGINE_LABEL) : head, whole }
   }
   return { kind: 'none' }
+}
+
+/** A template label as a regular expression's source: its own text in place, each `${...}` anything; null when it has no text of its own. */
+function templateSource(template: string): string | null {
+  const pieces = templatePieces(template)
+  if (pieces.every((piece) => piece.placeholder || piece.text.trim() === '')) return null
+  return `^${pieces.map((piece) => (piece.placeholder ? '[\\s\\S]*' : escapeRegExp(cooked(piece.text)))).join('')}$`
+}
+
+/**
+ * Whether `label`, as the engine recorded it for an agent, is one a call whose label is written as the template `written`
+ * (`verify:${b.id}`, read as written) gives. False when `written` has no `${...}`, or no text of its own.
+ */
+export function fitsTemplate(written: string, label: string): boolean {
+  if (!written.includes('${')) return false
+  const source = templateSource(written)
+  return source !== null && new RegExp(source).test(label)
 }
 
 /** How many characters of a prompt the engine records as the label of a call without one. */

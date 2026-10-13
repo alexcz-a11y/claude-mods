@@ -210,12 +210,8 @@ function writeFor(call: AgentCall, decision: DispatchDecision): CallWrite | null
   if (decision.model !== null && overScript && decision.source !== 'requested' && decision.model !== written) write.model = decision.model
   // The effort decided replaces the script's own; one the script works out when it runs is not touched,
   // unless the person asked for an effort: that one is never overruled, whatever the script does.
-  // Haiku takes no effort: one the script wrote is taken out.
-  const runsOn = write.model ?? written
   if (decision.effort !== null) {
     if (call.effort.kind === 'none' || (call.effort.kind === 'literal' && call.effort.value !== decision.effort) || (call.effort.kind === 'dynamic' && decision.effortSource === 'user')) write.effort = decision.effort
-  } else if (runsOn === 'haiku' && call.effort.kind === 'literal') {
-    write.effort = null
   }
   return write.model === undefined && write.effort === undefined ? null : write
 }
@@ -282,11 +278,7 @@ export function whyOf(decision: DispatchDecision): string {
   const level = decision.effort === null ? -1 : EFFORTS.indexOf(decision.effort)
   const effort =
     decision.effort === null
-      ? decision.model === 'haiku'
-        ? decision.namedEffort != null
-          ? `haiku takes no effort, so the ${decision.namedEffort} you asked for is not set`
-          : 'haiku takes no effort'
-        : ''
+      ? ''
       : decision.effortSource === 'user'
         ? 'effort: you asked for it'
         : decision.liftedFrom !== undefined
@@ -336,7 +328,7 @@ export function returnNote(parsed: ParsedWorkflow, outcomes: readonly CallOutcom
     if (outcome.kind !== 'written') return []
     const entries = [
       outcome.write.model === undefined ? null : `model: '${outcome.write.model}'`,
-      typeof outcome.write.effort === 'string' ? `effort: '${outcome.write.effort}'` : outcome.write.effort === null ? 'no effort (haiku takes none: take out any effort the call has)' : null,
+      typeof outcome.write.effort === 'string' ? `effort: '${outcome.write.effort}'` : null,
     ].filter((entry) => entry !== null)
     return [`- ${callName(parsed.calls[index] as AgentCall)}: ${entries.join(', ')}`]
   })

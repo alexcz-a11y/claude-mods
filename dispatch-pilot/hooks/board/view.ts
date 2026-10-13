@@ -95,7 +95,10 @@ export type ScreenView = {
 /** The spinner turns one frame each `TICK_MS`; the screens redraw at that pace while an agent runs. */
 export const TICK_MS = 200
 
-/** A Workflow call's node, standing for an agent that has not started (`callNodeId`). */
+/**
+ * A Workflow call's node, standing for an agent that has not started (`callNodeId`). One written as a template
+ * stays once its agents start, marked started, for the agents after them: the screens show those agents, not it.
+ */
 export function isCallNode(node: BoardNode): boolean {
   return callWorkflowOf(node.id) !== null
 }
@@ -142,8 +145,9 @@ export function screenView(input: ScreenInput): ScreenView {
   const elapsed = start === undefined ? 0 : Math.max(0, (now - start) / 1000)
   const empty = { off: !input.master, turn, elapsed, live: false, rows: [], events: [], counts: { running: 0, done: 0, failed: 0, queued: 0 }, workflow: null, midturn: null, summary: { reason: '', tried: [] }, frame }
   if (!input.master) return empty
-  // The turn's agents, and those of the turn before that still run (a Workflow's outlive the turn that launched it).
-  const nodes = board.nodes.filter((node) => node.turn === turn || (node.turn === turn - 1 && active(node)))
+  // The turn's agents, and those of the turn before that still run (a Workflow's outlive the turn that launched it);
+  // not a call whose agents started (a template's, kept for its later agents).
+  const nodes = board.nodes.filter((node) => !(isCallNode(node) && node.state !== 'queued') && (node.turn === turn || (node.turn === turn - 1 && active(node))))
   const main = nodes.find((node) => node.turn === turn && node.id === 'main')
   const log = input.log.filter((entry) => entry.turn === turn && entry.feature !== 'skill-profiles' && entry.feature !== 'decision-model')
   const mainEntries = log.filter((entry) => entry.agent === 'main')

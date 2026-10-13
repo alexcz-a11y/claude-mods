@@ -431,7 +431,7 @@ export type ModelSource = 'user' | 'decided' | 'requested' | 'none'
 export type DispatchDecision = {
   /** The model to start the agent on; null: no usable answer, the engine's choice stands. */
   model: AgentModel | null
-  /** The effort of the agent's steps; null for haiku (it takes none) or without a usable answer. */
+  /** The effort of the agent's steps; null without a usable answer. */
   effort: Effort | null
   source: ModelSource
   /**
@@ -444,13 +444,13 @@ export type DispatchDecision = {
   pick: { model: AgentModel; confidence: number; nearest?: true } | null
   /** The models the person ruled out for this agent. */
   banned: AgentModel[]
-  /** The effort answer's level probabilities, also when unused (haiku); null without a usable answer. */
+  /** The effort answer's level probabilities, also when the person named the effort; null without a usable answer. */
   reading: EffortReading | null
   /** False when neither the model nor the effort question got a usable answer: a failed request. */
   answered: boolean
-  /** The effort the person asked for, as the decision model read their words, whether or not it could be set (haiku takes none); null when none. */
+  /** The effort the person asked for, as the decision model read their words; null when none. */
   namedEffort?: Effort | null
-  /** Whose the effort is: the person's (`user`, the one they named), the decision model's, or none (haiku, or no usable answer). */
+  /** Whose the effort is: the person's (`user`, the one they named), the decision model's, or none (no usable answer). */
   effortSource?: 'user' | 'decided' | 'none'
   /** The effort rules' working for the decided effort (with the model's floor); the person's named effort is not in it. Null without a usable answer. */
   trace: EffortTrace | null
@@ -467,7 +467,7 @@ export type DispatchDecision = {
  * pick is the most probable of the other options, its confidence taken among
  * them, and when the answer gives them no probability at all, the option
  * nearest to the one it chose. An effort the person names is the agent's
- * effort, over the decided one (haiku takes none).
+ * effort, over the decided one.
  */
 export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispatch: Dispatch, settings: DispatchSettings): DispatchDecision {
   const ask = { ...DEFAULT_DISPATCH_ASK, ...settings.ask }
@@ -495,22 +495,22 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
     model = requested
     source = 'requested'
   }
-  // An effort the person names is the agent's, over the decided one; haiku takes none either way. The decided one
-  // is lifted to its model's floor; the person's never is.
+  // An effort the person names is the agent's, over the decided one. The decided one is lifted to its model's floor;
+  // the person's never is.
   const namedEffort = readNamedEffort(answers[NAMED_EFFORT], threshold)
   const floor = reading === null ? null : effortFloor(model)
   const trace = reading === null ? null : traceEffort(reading, settings, { model: { name: model ?? 'none', floor } })
   const decided = reading === null ? null : pickEffort(reading, settings)
   const lifted = decided !== null && floor !== null && EFFORTS.indexOf(floor) > EFFORTS.indexOf(decided) ? floor : null
-  const effort = model === 'haiku' ? null : (namedEffort ?? lifted ?? decided)
+  const effort = namedEffort ?? lifted ?? decided
   const effortSource = effort === null ? 'none' : namedEffort !== null ? 'user' : 'decided'
   const answered = answers[MODEL]?.type === 'choice' || reading !== null
-  return { model, effort, source, pick, banned, reading, answered, namedEffort, effortSource, trace, ...(namedEffort === null && model !== 'haiku' && lifted !== null && decided !== null ? { liftedFrom: decided } : {}) }
+  return { model, effort, source, pick, banned, reading, answered, namedEffort, effortSource, trace, ...(namedEffort === null && lifted !== null && decided !== null ? { liftedFrom: decided } : {}) }
 }
 
 /**
- * The least effort an agent on `model` goes at; null for none (haiku takes no
- * effort, fable has no floor). Raising is easy, lowering is hard: on AA's
+ * The least effort an agent on `model` goes at; null for none (haiku and fable
+ * have no floor: Haiku 5.5 takes an effort, any level of it). Raising is easy, lowering is hard: on AA's
  * Intelligence Index (v4.3.2) Sonnet 5.5 scores 36 at low, 41 at medium, 47 at
  * high (Terminal-Bench 20.7%, 29.8%, 43.9%) and Opus 5.5 42, 51, 54
  * (Terminal-Bench 31.3%, 52.5%, 56.6%): both lose most below medium, so both
@@ -605,13 +605,7 @@ export function decisionNotes(decision: DispatchDecision): string[] {
   if (decision.banned.length > 0) notes.push(`排除了 ${decision.banned.join('、')}`)
   if (decision.pick?.nearest === true) notes.push(`回答没给其余模型留下概率，取最接近的 ${decision.pick.model}`)
   if (decision.liftedFrom !== undefined && decision.effort !== null) notes.push(`effort 从 ${decision.liftedFrom} 抬到 ${decision.effort}（模型下限：${decision.model ?? '这个模型'}）`)
-  if (decision.namedEffort != null) {
-    notes.push(
-      decision.effortSource === 'user'
-        ? `你在消息里点名了 effort（${decision.namedEffort}）`
-        : `你在消息里要 effort ${decision.namedEffort}，没有设置：${decision.model ?? '这个模型'} 不带 effort`,
-    )
-  }
+  if (decision.namedEffort != null) notes.push(`你在消息里点名了 effort（${decision.namedEffort}）`)
   return notes
 }
 
@@ -696,7 +690,7 @@ function modelWhose({ decision, requested, thetaOverride }: Extract<DispatchNote
 
 /** Whose choice an agent's effort was, for the main agent. */
 function effortWhose(decision: DispatchDecision, model: string): string {
-  if (decision.effort === null) return decision.model === 'haiku' ? 'haiku takes no effort' : "the session's"
+  if (decision.effort === null) return "the session's"
   if (decision.effortSource === 'user') return 'the user named it'
   if (decision.liftedFrom !== undefined) return `${decision.liftedFrom} lifted to ${decision.effort}, the floor for ${model}`
   return 'chosen by its decision model'

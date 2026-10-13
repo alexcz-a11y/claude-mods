@@ -56,14 +56,14 @@ test("a dispatched agent's steps go out as the engine sent them", { options: KEY
   // Each dispatched agent runs its own loop: its own turn id, its agentId.
   await w.step({ index: 0, turnId: 'sub-1', agentId: 'a1', model: 'claude-sonnet-5-5', effort: 'medium' })
   await w.step({ index: 1, turnId: 'sub-1', agentId: 'a1', model: 'claude-sonnet-5-5', effort: 'medium' })
-  // Haiku takes no effort: the engine sends none, and none is added.
-  await w.step({ index: 0, turnId: 'sub-2', agentId: 'a2', model: 'claude-haiku-4-5-20251001', effort: null })
+  // Haiku 5.5 takes an effort: the engine's own medium goes out as it is.
+  await w.step({ index: 0, turnId: 'sub-2', agentId: 'a2', model: 'claude-haiku-5-5', effort: 'medium' })
 
   expect(w.steps).toEqual([
     { turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'low', agentId: undefined },
     { turnId: 'sub-1', index: 0, model: 'claude-sonnet-5-5', effort: 'medium', agentId: 'a1' },
     { turnId: 'sub-1', index: 1, model: 'claude-sonnet-5-5', effort: 'medium', agentId: 'a1' },
-    { turnId: 'sub-2', index: 0, model: 'claude-haiku-4-5-20251001', effort: undefined, agentId: 'a2' },
+    { turnId: 'sub-2', index: 0, model: 'claude-haiku-5-5', effort: 'medium', agentId: 'a2' },
   ])
 })
 
