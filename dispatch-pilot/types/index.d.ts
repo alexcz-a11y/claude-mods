@@ -359,10 +359,11 @@ declare module 'claude-code' {
         paused: boolean
       }>
       /**
-       * The person's own words this turn, masked and clipped, oldest first: the
-       * last message they sent while the session was idle, then the ones they
-       * typed while its turn ran (at most 8). A dispatched agent's decision reads
-       * them as `user_message`.
+       * The person's own words this turn, masked and clipped (core/setup.ts
+       * `saidTokens`), oldest first: the last message they sent while the
+       * session was idle, then the ones they typed while its turn ran (at most
+       * 8). A dispatched agent's decision reads them as `user_message`, and a
+       * Workflow's; a run keeps those of the turn that launched it (`labelRuns`).
        */
       said: string[]
       /**
@@ -427,6 +428,21 @@ declare module 'claude-code' {
             banned: ('haiku' | 'sonnet' | 'opus' | 'fable')[]
           } | null
         }[] | null
+        /**
+         * What the turn that launched the run said, for its agents decided as each one starts (absent when it has none,
+         * or in a run an earlier load recorded): the person may have sent another message by then, about something else.
+         */
+        launch?: {
+          /** The person's words of that turn (`said` then). */
+          said: string[]
+          /** The problem summary, worded for the decision model, and the unresolved count, while the unresolved switch was on (#41). */
+          problem_summary?: string
+          unresolved_count?: number
+          /** The script's text, cut to an agent's budget (pplx only: BACKEND_DEFAULTS agentBackground). */
+          script?: string
+          /** The loop that called the Workflow tool, absent for the main one: its conversation up to the run's call is read as an agent starts. */
+          caller?: string
+        }
       }[]
       /**
        * What the workflow-agents feature (#8) read of the person's terms for

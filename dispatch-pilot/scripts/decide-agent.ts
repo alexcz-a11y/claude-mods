@@ -22,7 +22,7 @@
 // with its script's other calls.
 
 import { readFileSync } from 'node:fs'
-import { dispatchSettings } from '../hooks/core/setup.ts'
+import { dispatchSettings, saidTokens } from '../hooks/core/setup.ts'
 import { messageText } from '../hooks/decision/context.ts'
 import { decideDispatch, dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { answersFor, mergeParts } from '../hooks/decision/system-one.ts'
@@ -72,7 +72,7 @@ const shape = dispatchSettings(
     requested: values.noul === true ? 'noul' : 'hint',
   },
 )
-const dispatch: Dispatch = { ...written, user_message: messageText(written.user_message, settings.context.tokens) }
+const dispatch: Dispatch = { ...written, user_message: messageText(written.user_message, saidTokens(settings)) }
 const part = dispatchPart(dispatch, shape)
 const request = mergeParts(dispatchState(dispatch, settings.contextByKind.agent), [part])
 console.log(JSON.stringify({ questions: Object.keys(request.questions), state: request.state }))

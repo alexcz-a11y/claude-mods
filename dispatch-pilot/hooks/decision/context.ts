@@ -14,7 +14,7 @@ import type { State } from './system-one.ts'
 export type ContextMessage = {
   role: 'user' | 'assistant'
   text: string
-  toolUses?: readonly { tool: string; isError?: true }[]
+  toolUses?: readonly { tool: string; isError?: true; tool_use_id?: string }[]
 }
 
 export type ContextLimits = {
@@ -142,6 +142,15 @@ export type TurnStartInput = {
 }
 
 /**
+ * What a request's state holds, for the debug log: its size as sent and each field's, in estimated tokens
+ * (`state 23410 tokens (brief 812, user_message 40, recent_context 22540)`). No content: only field names and sizes.
+ */
+export function describeState(state: State): string {
+  const fields = Object.entries(state).map(([field, value]) => `${field} ${estimateTokens(JSON.stringify(value))}`)
+  return `state ${estimateTokens(JSON.stringify(state))} tokens (${fields.join(', ')})`
+}
+
+/**
  * The state `build(budget)` makes, kept within `tokens` as it is sent: as
  * JSON, its field names, quotes and escapes counted, which pasted JSON or code
  * can swell by a fifth. No field is safe for coming first: a decision model
@@ -175,9 +184,18 @@ export function turnStartState(input: TurnStartInput): State {
 /** The fields of a message's state, with `tokens` for the message and the recent conversation. */
 function turnStartFields(input: TurnStartInput, tokens: number): State {
   const message = messageText(input.prompt, tokens)
-  let room = tokens - estimateTokens(message)
-  const kept: string[] = []
   const lines = recentLines(input.messages, input.prompt, input.limits.messages)
+  return { user_message: message, recent_context: recentWithin(lines, tokens - estimateTokens(message)) }
+}
+
+/**
+ * The recent conversation within `room` tokens: `lines` (oldest first, as
+ * `recentLines` gives them) taken newest first, an older one dropped whole
+ * rather than squeezed; the newest is always sent, cut to fit if it must be.
+ * '' when none fits.
+ */
+export function recentWithin(lines: readonly string[], room: number): string {
+  const kept: string[] = []
   for (let i = lines.length - 1; i >= 0 && room >= MIN_LINE; i--) {
     const line = lines[i] as string
     const size = estimateTokens(line) + 1
@@ -189,5 +207,19 @@ function turnStartFields(input: TurnStartInput, tokens: number): State {
       break
     }
   }
-  return { user_message: message, recent_context: kept.join('\n') }
+  return kept.join('\n')
+}
+
+/**
+ * The conversation an agent was dispatched from, as its decision reads it: the
+ * lines of `messages` (`recentLines`, at most `count`) up to and with the
+ * message that holds the tool call `callId` (the Agent or Workflow call that
+ * started it), or all of them when `callId` is not given. Null when `callId`
+ * is given and no message holds it (compacted away, or not written yet): what
+ * came later is no part of that conversation.
+ */
+export function conversationUpTo(messages: readonly ContextMessage[], count: number, callId?: string): string[] | null {
+  if (callId === undefined) return recentLines(messages, '', count)
+  const at = messages.findIndex((message) => (message.toolUses ?? []).some((use) => use.tool_use_id === callId))
+  return at < 0 ? null : recentLines(messages.slice(0, at + 1), '', count)
 }

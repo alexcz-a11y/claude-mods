@@ -10,7 +10,7 @@
 // A Workflow's agents are asked about as #8 asks about a script's agent()
 // calls: the dataset's items of one workflow (the same description and the
 // same message) stand for its calls, in the dataset's order, and share
-// requests as `workflowBatches` groups them, each in a part and a brief of its
+// requests as `planBatches` groups them, each in a part and a brief of its
 // own. Each item sends its script's request (the one holding its call) and
 // reads its own part; the others' answers in it are not used, so a run sends
 // a script's request once per item of it.
@@ -24,7 +24,7 @@
 //
 // Pure: no Node API.
 
-import { dispatchSettings } from '../../hooks/core/setup.ts'
+import { dispatchSettings, saidTokens } from '../../hooks/core/setup.ts'
 import { messageText } from '../../hooks/decision/context.ts'
 import {
   AGENT_MODELS,
@@ -46,7 +46,7 @@ import {
 import type { Asked } from '../../hooks/decision/backend.ts'
 import { EFFORTS, type Effort } from '../../hooks/decision/effort.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
-import { MAX_PER_REQUEST, readOutcomes, workflowBatches } from '../../hooks/decision/workflow.ts'
+import { MAX_PER_REQUEST, planBatches, readOutcomes } from '../../hooks/decision/workflow.ts'
 import type { AgentCall, ParsedWorkflow } from '../../hooks/decision/workflow-script.ts'
 import { isRecord, PRIORITIES, type AgentAnswer, type AgentItem, type Language } from './datasets.ts'
 import { rate } from './metrics.ts'
@@ -93,7 +93,7 @@ function agentSettings(settings: Settings, ask: DispatchAsk): DispatchSettings {
 function agentRequest(item: AgentItem, language: Language, variant: string, settings: Settings): { request: DecisionRequest; part: Part; dispatch: Dispatch; shape: DispatchSettings } {
   const asked = item[language]
   // The person's words as the mod keeps them for the turn (`said`): masked and cut to the context budget.
-  const dispatch: Dispatch = { ...asked, user_message: messageText(asked.user_message, settings.context.tokens) }
+  const dispatch: Dispatch = { ...asked, user_message: messageText(asked.user_message, saidTokens(settings)) }
   const shape = agentSettings(settings, variantAsk(variant))
   const part = dispatchPart(dispatch, shape)
   return { request: mergeParts(dispatchState(dispatch, settings.contextByKind.agent), [part]), part, dispatch, shape }
@@ -135,7 +135,7 @@ function scriptOf(items: readonly AgentItem[], language: Language): ParsedWorkfl
 
 /**
  * A Workflow item decided as #8 decides its call: the request holding the
- * call among its script's (`workflowBatches`, at most `perRequest` calls a
+ * call among its script's (`planBatches`, at most `perRequest` calls a
  * request; the dataset's scripts have at most 4 calls, within its
  * MAX_REQUESTS), read as #8 reads it (`readOutcomes`).
  */
@@ -144,10 +144,10 @@ async function decideWorkflowAgent(dataset: readonly AgentItem[], item: AgentIte
   const index = group.findIndex((one) => one.id === item.id)
   const parsed = scriptOf(group, language)
   // The person's words as #8 reads them: the turn's, as the mod keeps them (masked and cut to the context budget).
-  const words = messageText(item[language].user_message, settings.context.tokens)
+  const words = messageText(item[language].user_message, saidTokens(settings))
   const { ask: asking, perRequest } = variantOf(variant)
   const shape = agentSettings(settings, asking)
-  const plan = workflowBatches(parsed, words, shape, settings.contextByKind.workflow, perRequest)
+  const plan = planBatches(parsed, words, shape, { one: settings.contextByKind.workflow, each: settings.contextByKind.agent }, { perRequest })
   const at = plan.batches.findIndex((batch) => batch.calls.includes(index))
   const batch = plan.batches[at]
   if (batch === undefined) {

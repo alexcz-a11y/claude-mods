@@ -438,16 +438,24 @@ test("a request that fails leaves only its own calls as written: the others are 
   expect(board.log).toHaveLength(12)
 })
 
-test("the state of each request stays within the context budget: long prompts are cut, and fewer calls share a request", { options: { ...KEY, contextTokens: 900 } }, async ($, on) => {
+test("the state of each request stays within the context budget: long prompts are cut to an equal share each, and calls share a request while a share is at least 150 tokens", { options: { ...KEY, contextTokens: 900 } }, async ($, on) => {
   const long = (i: number) => `Package ${i}: ${'read every test file and describe what it covers, with the edge cases. '.repeat(120)}Report as a table.`
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { sonnet: 1 } })) })
+  // Four calls: a quarter of the budget each, all in one request.
   await w.workflow({ script: manyAgents(4, long) })
-
-  expect(w.requests).toHaveLength(2)
-  expect(w.requests.map((request) => stateTokens(request.body.state))).toEqual([expect.any(Number), expect.any(Number)])
-  for (const request of w.requests) expect(stateTokens(request.body.state)).toBeLessThanOrEqual(900)
+  expect(w.requests).toHaveLength(1)
+  const shares = [0, 1, 2, 3].map((i) => stateTokens(w.requests[0]?.body.state[`brief_${i}`]))
+  for (const share of shares) expect(share).toBeGreaterThan(180)
+  expect(Math.max(...shares) - Math.min(...shares)).toBeLessThanOrEqual(10)
+  expect(stateTokens(w.requests[0]?.body.state)).toBeLessThanOrEqual(900)
   // The end of a prompt is kept with its start.
   expect(w.requests[0]?.body.state.brief_0.prompt.endsWith('Report as a table.')).toBe(true)
+
+  // Eight: an eighth would be under 150 tokens, so each brief keeps 150 and fewer calls share a request.
+  await w.workflow({ script: manyAgents(8, long) })
+  const eight = w.requests.slice(1)
+  expect(eight).toHaveLength(2)
+  for (const request of eight) expect(stateTokens(request.body.state)).toBeLessThanOrEqual(900)
 })
 
 const BOTH_ROUTED = (i: number) => (i === 0 ? { model: { haiku: 0.1, sonnet: 0.8, opus: 0.1 } } : { model: { haiku: 0.02, sonnet: 0.08, opus: 0.9 } })

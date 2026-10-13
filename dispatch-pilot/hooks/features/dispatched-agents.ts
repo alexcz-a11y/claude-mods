@@ -6,7 +6,9 @@
 //
 // The decision reads the person's own words this turn (`said`), so a model
 // they name for the work wins over the decision model, which wins over the
-// main agent's pick. Agents dispatched together (one message, several Agent
+// main agent's pick; with pplx it also reads the conversation the agent is
+// dispatched from, what the main agent wrote the brief out of
+// (BACKEND_DEFAULTS agentBackground). Agents dispatched together (one message, several Agent
 // calls) each get their own request and start as soon as their own answer is
 // in. A failed or late answer lets the agent start as the main agent asked.
 //
@@ -17,9 +19,9 @@
 //
 // Its switch is `dispatched-agents` (`/dp dispatched-agents off`).
 
-import type { HttpInit, On } from 'claude-code'
+import type { EngineInterface, HttpInit, On } from 'claude-code'
 import { describeAsked, type BackendIo, type Failure } from '../decision/backend.ts'
-import { messageText } from '../decision/context.ts'
+import { conversationUpTo, describeState, messageText, type ContextMessage } from '../decision/context.ts'
 import { decideDispatch, dispatchEvidence, dispatchNote, dispatchPart, dispatchReason, dispatchState, modelFamily, termsOf, type Dispatch, type DispatchNote } from '../decision/dispatched-agent.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { renderSummary } from '../decision/summary.ts'
@@ -27,7 +29,7 @@ import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
 import { report, type ReportIo } from '../core/report.ts'
-import { dispatchSettings, type Ctx } from '../core/setup.ts'
+import { dispatchSettings, saidTokens, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import { UNRESOLVED_SWITCH } from './unresolved.ts'
 
@@ -64,7 +66,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
   on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
     const result = await next(e)
     if (!isPersonsMessage(e) || result.drop !== undefined) return result
-    const words = messageText(e.text, ctx.config.context.tokens)
+    const words = messageText(e.text, saidTokens(ctx.config))
     const said: Cell<string[]> = { get: () => $.state.get(SAID), set: (value, options) => $.state.set(SAID, value, options) }
     await update(said, (list) => (e.turnId === undefined ? [words] : [...(list ?? []), words].slice(-MAX_SAID)))
     return result
@@ -100,6 +102,10 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     // The problem the main agent is on goes along as background, with no hint (#41): the summary and the count, while the
     // unresolved switch is on and there are any.
     const { value: held } = isOn(UNRESOLVED_SWITCH) ? await $.state.get(COUNT) : { value: undefined }
+    // The conversation the agent is dispatched from (the main one, or the dispatching agent's own), up to the Agent call,
+    // where the decision model reads it (BACKEND_DEFAULTS agentBackground).
+    const recent = ctx.config.agents.background ? await conversationOf($, e.parentAgentId) : []
+    const lines = recent.length === 0 ? [] : (conversationUpTo(recent, ctx.config.context.messages, e.tool_use_id) ?? conversationUpTo(recent, ctx.config.context.messages) ?? [])
     const dispatch: Dispatch = {
       user_message: said.join('\n'),
       agent_type: e.subagentType,
@@ -108,6 +114,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       requested_model: e.model ?? null,
       ...(held?.summary === undefined ? {} : { problem_summary: renderSummary(held.summary, ctx.ask.language) }),
       ...(held === undefined || held.count === 0 ? {} : { unresolved_count: held.count }),
+      ...(lines.length === 0 ? {} : { recent_context: lines }),
     }
     const part = dispatchPart(dispatch, settings)
     const request = mergeParts(dispatchState(dispatch, ctx.config.contextByKind.agent), [part])
@@ -129,7 +136,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     const startedAt = await $.clock.now()
     const asked = await ctx.backend.ask(io, request, ctx.config.timeoutMs)
     const ms = (await $.clock.now()) - startedAt
-    $.ui.log(`request [${Object.keys(request.questions).join(', ')}] to ${ctx.backend.name} for agent ${about}: ${describeAsked(asked, ms)}`, { to: 'debug' })
+    $.ui.log(`request [${Object.keys(request.questions).join(', ')}] to ${ctx.backend.name} for agent ${about}: ${describeAsked(asked, ms)}; ${describeState(request.state)}`, { to: 'debug' })
     // The agent starts as the main agent asked; the board says why it was not routed, once it has an id to say it of.
     // A spawn refused beneath started no agent: there is nothing to say of it.
     const notRouted = async (failure: Failure) => {
@@ -175,4 +182,10 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     }
     return result
   })
+}
+
+/** The conversation of the loop `agentId` (absent: the main one), as the transcript rows; none when it cannot be read. */
+async function conversationOf($: EngineInterface, agentId: string | undefined): Promise<readonly ContextMessage[]> {
+  const read: unknown = await (agentId === undefined ? $.session.messages() : $.session.messages({ agentId })).catch(() => [])
+  return Array.isArray(read) ? (read as ContextMessage[]) : []
 }

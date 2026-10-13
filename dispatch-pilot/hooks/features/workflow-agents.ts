@@ -21,18 +21,22 @@
 //
 // Its switch is `workflow-agents` (`/dp workflow-agents off`).
 
-import type { HttpInit, On } from 'claude-code'
+import type { EngineInterface, HttpInit, On } from 'claude-code'
 import { describeAsked, errorText, failureText, type BackendIo } from '../decision/backend.ts'
+import { conversationUpTo, describeState, type ContextMessage } from '../decision/context.ts'
 import { termsOf } from '../decision/dispatched-agent.ts'
+import { renderSummary } from '../decision/summary.ts'
 import { parseWorkflow, rewriteWorkflow, type ParsedWorkflow } from '../decision/workflow-script.ts'
-import { batchesTimeoutMs, readOutcomes, returnNote, rewriteNote, workflowBatches, workflowFingerprint, type CallOutcome } from '../decision/workflow.ts'
+import { batchesTimeoutMs, planBatches, readOutcomes, returnNote, rewriteNote, workflowFingerprint, type CallOutcome, type WorkflowBackground } from '../decision/workflow.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { report, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import { callReports, workflowCallTitle, workflowLeft } from '../core/workflow-report.ts'
+import { UNRESOLVED_SWITCH } from './unresolved.ts'
 
 const SAID = { plugin: 'dispatch-pilot', key: 'said' } as const
+const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
 const RETURNED = { plugin: 'dispatch-pilot', key: 'returned' } as const
 const TERMS = { plugin: 'dispatch-pilot', key: 'workflowTerms' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
@@ -109,14 +113,23 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
         sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
         pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
       }
-      const plan = workflowBatches(parsed, words, settings, ctx.config.contextByKind.workflow)
+      // The problem the main agent is on, as a dispatched agent's request carries it (#41); with pplx, the script and the
+      // conversation the Workflow is launched from, up to its call (BACKEND_DEFAULTS agentBackground).
+      const { value: held } = isOn(UNRESOLVED_SWITCH) ? await $.state.get(COUNT) : { value: undefined }
+      const recent = ctx.config.agents.background ? await conversationOf($, e.agentId) : []
+      const background: WorkflowBackground = {
+        ...(held?.summary === undefined ? {} : { problem_summary: renderSummary(held.summary, ctx.ask.language) }),
+        ...(held === undefined || held.count === 0 ? {} : { unresolved_count: held.count }),
+        ...(ctx.config.agents.background ? { script: parsed.script, recent: conversationUpTo(recent, ctx.config.context.messages, e.tool_use_id) ?? conversationUpTo(recent, ctx.config.context.messages) ?? [] } : {}),
+      }
+      const plan = planBatches(parsed, words, settings, { one: ctx.config.contextByKind.workflow, each: ctx.config.contextByKind.agent }, { background })
       const timeoutMs = batchesTimeoutMs(ctx.config.timeoutMs, plan.batches.length)
       const asked = await Promise.all(
         plan.batches.map(async (batch) => {
           const startedAt = await $.clock.now()
           const answer = await ctx.backend.ask(io, batch.request, timeoutMs)
           const ids = Object.keys(batch.request.questions).join(', ')
-          log(`request [${ids}] to ${ctx.backend.name} for workflow ${JSON.stringify(parsed.meta.name)}: ${describeAsked(answer, (await $.clock.now()) - startedAt)}`)
+          log(`request [${ids}] to ${ctx.backend.name} for workflow ${JSON.stringify(parsed.meta.name)}: ${describeAsked(answer, (await $.clock.now()) - startedAt)}; ${describeState(batch.request.state)}`)
           return answer
         }),
       )
@@ -173,4 +186,10 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
     const note = rewriteNote(parsed, outcomes, describe)
     return note === null ? result : { ...result, context: [...(result.context ?? []), note] }
   })
+}
+
+/** The conversation of the loop `agentId` (absent: the main one), as the transcript rows; none when it cannot be read. */
+async function conversationOf($: EngineInterface, agentId: string | undefined): Promise<readonly ContextMessage[]> {
+  const read: unknown = await (agentId === undefined ? $.session.messages() : $.session.messages({ agentId })).catch(() => [])
+  return Array.isArray(read) ? (read as ContextMessage[]) : []
 }

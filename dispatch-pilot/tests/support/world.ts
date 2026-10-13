@@ -252,6 +252,8 @@ export type SpawnOptions = {
   fork?: boolean
   /** A teammate of the session's team. */
   isTeammate?: true
+  /** The loop the spawn happens in (a subagent dispatching an agent of its own); absent: the main agent. */
+  parentAgentId?: string
 }
 
 /**
@@ -276,6 +278,7 @@ function spawnInput(id: string, spawn: SpawnOptions & { workflow?: { runId: stri
     subagentType: spawn.subagentType ?? 'general-purpose',
     ...(spawn.model !== undefined ? { model: spawn.model } : {}),
     ...(spawn.isTeammate ? { isTeammate: true as const } : {}),
+    ...(spawn.parentAgentId !== undefined ? { parentAgentId: spawn.parentAgentId } : {}),
     ...(spawn.workflow !== undefined ? { workflow: spawn.workflow } : {}),
   }
 }

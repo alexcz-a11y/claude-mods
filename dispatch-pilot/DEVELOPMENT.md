@@ -27,7 +27,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev）�
 - 主 agent 用 Agent 工具派出一个 agent 时，Dispatch Pilot 在它启动前问一次决策模型，同一个请求里问两件事：它该用哪个模型（默认在 haiku、sonnet、opus 中选，打开 `agentFable` 后加入 fable），以及它的每一步该用哪档 effort。模型直接改在这次派发上；effort 在这个 agent 的每一步都重新设置。haiku 也设 effort：haiku 是 Haiku 5.5（`claude-haiku-5-5`），它接受 effort（0.4.1 之前按 Haiku 4.5 不设）。
 - **模型选项的文字**（`decision/dispatched-agent.ts` 的 `KINDS`，中英两版）按 AA 的基准写，每个选项描述一种情形：haiku 是一两步就能跑完、结果只需要收集起来并按要求排版（列表、表格、计数）的只读查找（不适合：要连续很多步工具调用的探查，以及任何写入或判断）；sonnet 承担大多数执行类工作（终端操作、需求明确的代码修改、跨文件修改、自动化步骤、对仓库内材料的调研或审查）（不适合：结论取决于仓库外的事实知识而且记错代价高的工作、难推理、需求不明确的设计、原因未知的 bug）；opus 是需要审慎判断或细微错误代价高的工作（安全、并发、涉及钱、数据迁移、生产）、难推理、设计、原因未知的 bug、科学或算法类代码，以及结论取决于记忆中的事实、而且无法在仓库或文档里查证的调研或解答（不适合：书面计划和测试已经覆盖的执行类工作）；fable 的文字不变，仍默认关闭。选项名、`work` 键和问题的结构都没有变。写法遵循 `docs/research/typesafe-question-guide.md`。
 - **effort 的下限**（`effortFloor`）：决策出来的 effort 不低于所选模型的下限。sonnet 和 opus 至少 medium；haiku 和 fable 没有下限（`decision/dispatched-agent.ts` 里的常量，不是配置项）。0.2.2 的第一版把 sonnet 的下限放在 high（low 的概率 ≥ 0.8 才放到 medium），第一次真实评测里 effort 部分从 74/72 掉到 64/62，所以降到 medium（见「按 AA 基准校正」的「评测迭代」）。下限用在决策的 effort 上，所以派出 agent 和 Workflow 里的 `agent()` 都受它管；你点名的 effort 不受下限影响（见下一条）。卡住后「预期内」的那次中途重判，对已经有 effort 的 agent 也不降到它的下限以下（`features/escalation.ts` 的 `redecide`）。决策日志会写「effort 从 low 抬到 medium（模型下限：sonnet）」。
-- 发给决策模型的是主 agent 写给这个 agent 的任务（`prompt`）、简短描述、agent 类型，以及你这一轮说的话：开始这一轮的那条消息，加上这一轮进行中你又发的消息。和发消息时一样，发送前对 secret 脱敏，总长度按 token 预算（`contextTokens`）截断，你的话最多占三分之一。
+- 发给决策模型的是主 agent 写给这个 agent 的任务（`prompt`）、简短描述、agent 类型，以及你这一轮说的话：开始这一轮的那条消息，加上这一轮进行中你又发的消息（每条存到 `saidTokens`：两种 agent 请求里较大预算的三分之一，pplx 16000、Jev 8000；0.4.3 之前是 6000）。和发消息时一样，发送前对 secret 脱敏，总长度按 token 预算（`contextTokens`）截断，你的话最多占三分之一。选 pplx 时还发派出它的那段对话（`recent_context`，ADR 0007）：主对话（子 agent 派出的读那个子 agent 自己的，`e.parentAgentId`），到含这次 Agent 调用（`e.tool_use_id`）的那条消息为止，和发消息时的 `recent_context` 一样只有文字和工具名；任务和你的话先放，对话从新往旧填剩下的预算。选 Jev 时不发（`BACKEND_DEFAULTS` 的 `agentBackground`：Jev 只等 1500 毫秒、对同一个 key 的请求一个一个答，几个 agent 一起派出时，被对话填满的请求大多会超时）。
 - 模型的优先级：
   1. 你在这一轮的消息里为这项工作点名的模型，一定照办，即使它不在可选范围内（例如没打开 `agentFable` 时点名 fable）。
   2. 否则用决策模型选的模型。
@@ -49,8 +49,8 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev）�
 - **一个调用点判断一次。** 循环、`pipeline`、`parallel` 里的 `agent()` 会运行很多次，但它只有一个调用点，只判断一次，改写也写在这个调用点上。prompt 和 label 写成模板字符串（`` `migrate:${file}` ``）也行：决策模型看到的是模板原文，`${file}` 保持原样。
 - **写法。** 决定的 `model` 和 `effort` 写进这个调用的选项对象：脚本已经写了字符串值的就原地替换，没写的加在最后一个属性后面，没有选项的调用补一个选项对象。脚本的其他部分逐字不变。选了 haiku 也写 effort。
 - **优先级和派出 agent 一致。** 你这一轮的消息里点名的模型 > 决策模型 > 脚本里已经写的 `model`（作为强提示交给决策模型，决策模型的选择达到 `agentOverride` 才推翻它）。脚本里的 `effort` 没有这条规则，用决策模型的；你点名的 effort 除外，它盖过脚本里写的 effort（见「派出 agent」）。脚本在运行时才算出来的 `model`（`model: pickModel()`）只有你没点名模型、也没排除任何模型时才不动：否则写进决定的模型（你点名的，或者没被排除的那个），你的约束优先于脚本；运行时才算出来的 `effort` 同样只有你没点名 effort 时才不动。你对每个调用的约束交给下面的兜底功能，写进这些 agent 的计划（见「派出 agent」）。
-- **发给决策模型的内容**和派出 agent 一样：这个调用的 prompt、label、`agentType`，脚本 `meta` 里的 description，以及你这一轮的话，发送前脱敏，按 token 预算（`contextTokens`）截断。同一个脚本的几个调用放进同一个请求，每个调用有自己的 part（`agent-<n>`）和 state 字段（`brief_<n>`），`n` 是它在脚本里的序号（从 0 起），你的话只放一份。
-- **调用多时分批。** 一个请求最多 64 个问题（`system-one.ts` 的 `MAX_QUESTIONS`）、最多 8 个调用，各调用的 brief 加起来不超过 `contextTokens`，所以调用多时分成几个请求，同时发出，每个调用只问一次。一个脚本最多问 24 个调用、4 个请求，超出的调用保持脚本里写的样子，并告诉主 agent。分成几个请求时，等决策模型的时间按请求数放大（`timeoutMs` 乘请求数，最多 8000 毫秒），因为同一个 key 的并发请求可能排队。
+- **发给决策模型的内容**和派出 agent 一样：这个调用的 prompt、label、`agentType`，脚本 `meta` 里的 description，以及你这一轮的话，`unresolved` 开着时还有问题摘要和次数（不加强提示），发送前脱敏，按 token 预算（`contextTokens`）截断。同一个脚本的几个调用放进同一个请求，每个调用有自己的 part（`agent-<n>`）和 state 字段（`brief_<n>`），`n` 是它在脚本里的序号（从 0 起），你的话只放一份。每个 brief 最多占平分的一份：你的话和摘要剩下的预算，除以一个请求里放得下的调用数（脚本的可读调用数，最多 8）；只有一个调用的脚本，它的 prompt 可以用满（0.4.3 之前每个 brief 固定最多 400 token，长 prompt 只剩开头和结尾）。选 pplx 时每个请求还带整个脚本（`workflow_script`，脱敏，最多占预算的三分之一，太长时保留开头和结尾）和启动它的那段对话（`recent_context`，到含这次 Workflow 调用的那条消息为止），brief 先放，脚本和对话填剩下的（ADR 0007）。
+- **调用多时分批。** 一个请求最多 64 个问题（`system-one.ts` 的 `MAX_QUESTIONS`）、最多 8 个调用，各调用的 brief 加起来不超过 `contextTokens`，所以调用多时分成几个请求，同时发出，每个调用只问一次。一个请求装得下时用 Workflow 的预算（pplx 48000）；要分几个请求同时发时，每个改用派出 agent 的预算（pplx 32000，`planBatches`），因为 pplx 同时答几个大请求要慢得多（见「pplx 的 agent 预算」）。一个脚本最多问 24 个调用、4 个请求，超出的调用保持脚本里写的样子，并告诉主 agent。分成几个请求时，等决策模型的时间按请求数放大（`timeoutMs` 乘请求数，最多 8000 毫秒），因为同一个 key 的并发请求可能排队。
 - **读不了的调用保持原样。** prompt 不是字符串或模板（`agent(q.prompt)`、`agent(buildPrompt(x))`，也就是在数组上 `map` 出来的那种写法）时看不到任务内容，不问决策模型；模板里除了 `${...}` 自己没有几个字（不到约 6 个 token，例如 `` `${CONTEXT}\n\n${l.prompt}` ``：共用的上下文加上表里的一行）也一样，因为这样的 prompt 没说要做什么；不带占位符的短 prompt 就是完整的任务，照常判断。选项不是对象字面量（`agent('x', opts)`）也不改。读不了的脚本（没有 `meta` 块，引号、模板或括号不成对）整个放行。这些调用的 agent 在启动时由兜底功能判断（#9，见下一节）。
 - **告诉主 agent。** 工具结果后面附一段说明（引擎把它显示为 `tool.call hook additional context`，只有模型看得到）：逐个调用写了哪个模型和 effort、依据，以及哪些调用保持原样。工具返回的脚本文件（`Script file:`）就是改写后的那一份，主 agent 之后用 `scriptPath` 重跑，改写还在。
 - **失败时放行。** 决策模型超时、出错或回答不完整时，这个请求里的调用保持原样，看板上这些调用写「未路由」和原因（并弹一个 toast）；这个功能自己出错时，整个脚本照原样运行。改写后的脚本如果被工具判为语法错误（工具在启动任何 agent 之前检查），就改用主 agent 原来的脚本再提交一次，并告诉主 agent。
@@ -64,14 +64,14 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev）�
 
 - **处理哪些运行。** 用 `scriptPath` 或 `name` 提交的脚本、带 `resumeFromRunId` 恢复的运行（运行时设置不改 `agent()` 的 prompt 和选项，缓存照样命中）、读不了的脚本，以及上一节留下的调用（prompt 是数据，例如 `agent(q.prompt, { label: q.label })`；或者超出 24 个的调用）。上一节写进脚本的调用不再处理；它没答上的调用（决策模型失败）照样保持原样，不再问第二次。两项功能的开关互相独立：`/dp workflow-agents off` 时，直接交来的脚本里读得懂的调用照主 agent 写的运行，读不了的仍由这里在 agent 启动时判断。
 - **运行开始时。** Workflow 工具启动运行之后，读这次运行用的脚本：工具结果的 `scriptPath`（`scriptPath` 提交的就是那个文件；`name` 提交的是引擎解析好、存在会话目录里的那一份，所以项目、个人、插件和内置的命名 workflow 都一样处理）。能读懂的调用，用和上一节相同的请求逐个判断（同一个调用点判断一次）。
-- **agent 启动时。** 每个 agent 的第一步发出之前，读这次运行的 `journal.jsonl`，找到这个 agent 的 label，再找到它是哪个 `agent()` 调用：字符串 label 按原文；模板 label（`` `migrate:${file}` ``）要求模板自己的文字都在、`${...}` 处可以是任何内容；不写 label 的调用，引擎把 prompt 的开头记成 label（空白折叠成一个空格、截到 60 个字符，实测），就按 prompt 的开头认；label 在运行时才算出来的调用，只在其他调用都对不上时才算。找到的调用在运行开始时已经判断过，就用它的决定；它的 prompt 是数据、两个调用用了同一个 label 却决定不同、对不上任何调用，或者整个脚本读不了，就用这个 agent 实际收到的任务（它的 transcript 第一条消息）当场问决策模型，请求和上一节一个调用的请求相同。
+- **agent 启动时。** 每个 agent 的第一步发出之前，读这次运行的 `journal.jsonl`，找到这个 agent 的 label，再找到它是哪个 `agent()` 调用：字符串 label 按原文；模板 label（`` `migrate:${file}` ``）要求模板自己的文字都在、`${...}` 处可以是任何内容；不写 label 的调用，引擎把 prompt 的开头记成 label（空白折叠成一个空格、截到 60 个字符，实测），就按 prompt 的开头认；label 在运行时才算出来的调用，只在其他调用都对不上时才算。找到的调用在运行开始时已经判断过，就用它的决定；它的 prompt 是数据、两个调用用了同一个 label 却决定不同、对不上任何调用，或者整个脚本读不了，就用这个 agent 实际收到的任务（它的 transcript 第一条消息）当场问决策模型，请求和上一节一个调用的请求相同。当场判断读的是**启动这次运行的那一轮**（ADR 0007）：Workflow 工具返回时，运行记录（`labelRuns[].launch`）存下那时你的话（`said`）、问题摘要和次数，选 pplx 时再存脚本原文（截到派出 agent 的预算）和调用 Workflow 的是哪个循环；agent 启动时从那个循环的对话里截到含这次 Workflow 调用（运行的 `callId`）的那条消息为止，找不到（被 `/compact` 压掉了）就不带对话。所以 Workflow 在后台跑、你又发了一条无关的消息时，后启动的 agent 不会把它当成你对这项工作说的话（0.4.2 及之前会：`said` 在你空闲时发消息就被换成那条新消息，实测后启动的 agent 读到的是新消息，点名的 opus 和 effort 都丢了）。当场判断一个 agent 一个请求，fan-out 的 agent 一起启动，所以用派出 agent 的预算（pplx 32000）。
 - **设置什么。** 模型、effort 和你对这项工作的约束（`terms`）写进计划表（`agents[agentId]`），核心在这个 agent 的每一步都照写。模型写引擎认得的完整 ID（`claude-haiku-4-5`、`claude-sonnet-5-5`、`claude-opus-5-5`、`claude-fable-5-1`）：`turn.step` 不解析别名，写 `haiku` 会让 agent 以 404 失败（实测）。agent 本来就在决定的模型家族上时不改模型，只改 effort；换到 haiku 的 agent 也按决定的 effort 发出（Haiku 5.5 接受 effort）；引擎因为算的是不收 effort 的模型而没给 effort 时，换了家族的 agent 由核心按计划补上。脚本在运行时才算出来的 `model` 或 `effort` 的处理和上一节相同（你点名或排除模型时以你的为准）。上一节已经写进脚本的调用，它们的 agent 启动时只把你的约束写进计划（上一节把约束按 Workflow 调用的 `tool_use_id` 放在 `$.state` 的 `workflowTerms` 交过来）。
 - **等待。** agent 启动时它的任务还没写到磁盘上，引擎在 50–110 毫秒后写入（实测），所以当场判断的 agent 第一步最多等 400 毫秒，再加一次决策请求的时间；运行开始时已经判断过的 agent 不等。运行的第一个 agent 可能在工具调用处理完之前就启动（实测相差 1–10 毫秒），这时它等运行开始时的判断完成。一个 agent 的第一步最多等 9 秒（hook 自己的时间上限是 10 秒）。
 - **常驻提示。** Workflow 工具的描述后面附一段固定的话，请主 agent 给每个 `agent()` 写固定且唯一的 label（对每一项都运行的调用，写固定前缀加这一项，例如 `` `audit:${file}` ``）。引擎在会话里第一次给出工具描述时问一次，之后一直沿用，所以文字固定，不影响 prompt cache；只在配置了决策模型、`workflow-labels` 开着时附上。
 - **告诉主 agent。** 工具结果后面附一段说明：运行开始时每个调用定了什么、哪些调用在 agent 启动时再判断；读不了的脚本说明每个 agent 都在启动时判断。主 agent 直接交来的脚本，上一节已经说明了写进去的调用，这里只补一句：保持原样的调用由 agent 启动时判断。
 - **失败时放行。** 决策模型失败或超时、任务没有及时写到磁盘、或者这个功能自己出错时，agent 按引擎原样启动，看板上它那一行写明原因。
 - **看板和日志。** 按 label 设置的每个 agent 在 band 上有自己的一行（它的 label、模型、effort；没设置成的写「未路由」和原因，例如「它的任务没能及时读到」），运行开始时判断过的调用在事件流里合成一条（「Workflow <名字> · 按 label N 个 agent()」）。运行开始时判断过的调用、启动时当场判断的 agent，各记一条进 `/dp log` 和 debug log，例如 `opus high · "q-license"（agent a25d...，Workflow e2e-labels）：按它启动时的任务；已决定；选 opus，...`。`/dp workflow-labels off` 单独关掉这项功能。
-- **限制。** 当场判断是一个 agent 一个请求。一次启动很多个 prompt 是数据的 agent 时（fan-out），这些请求同时发给决策模型，而 Jev 对同一个 key 的并发请求像是依次处理，排在后面的可能超时，那些 agent 按引擎原样启动。强制升档（#7）按计划表里的有效模型判断（计划的 `model`，没有才看引擎的）：被换成 haiku 的 agent 卡住时先升 effort，到顶才换模型。
+- **限制。** 当场判断是一个 agent 一个请求。一次启动很多个 prompt 是数据的 agent 时（fan-out），这些请求同时发给决策模型，而 Jev 对同一个 key 的并发请求像是依次处理，排在后面的可能超时，那些 agent 按引擎原样启动。pplx 同时答得过来（实测 8 个 24000 估算 token 的请求同时发，都在 5 秒内），但 `pplxQps`（默认 5）让同一秒最多发 5 个，其余排到下一秒。强制升档（#7）按计划表里的有效模型判断（计划的 `model`，没有才看引擎的）：被换成 haiku 的 agent 卡住时先升 effort，到顶才换模型。
 
 ### 一轮中途重新判断
 
@@ -120,7 +120,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev）�
 
 ### 强提示（#41）
 
-- **给谁、什么时候。** 三处请求读摘要（`problem_summary`）和次数（`unresolved_count`，值为 0 时不放）：发消息时 effort 请求（`decision/turn-start.ts` 的 `turnStartPart({ summary, count, maxAfter })`）、中途重判请求（`MidturnInput.problem_summary` / `unresolved_count`，`midturnState` 放进 state 开头）、派出 agent 的请求（`Dispatch.problem_summary` / `unresolved_count`，`dispatchState`）。强提示只给前两处，派出 agent 的从不加（子任务像「查一个文件」不该因此判到最高一档）；Workflow 里的 agent 没有接这两个字段（它们一个请求里合了很多个调用，这一版没碰）。`/dp unresolved off` 时三处都不带。
+- **给谁、什么时候。** 四处请求读摘要（`problem_summary`）和次数（`unresolved_count`，值为 0 时不放）：发消息时 effort 请求（`decision/turn-start.ts` 的 `turnStartPart({ summary, count, maxAfter })`）、中途重判请求（`MidturnInput.problem_summary` / `unresolved_count`，`midturnState` 放进 state 开头）、派出 agent 的请求（`Dispatch.problem_summary` / `unresolved_count`，`dispatchState`），以及 Workflow 里 agent 的请求（`WorkflowBackground.problem_summary` / `unresolved_count`，每个请求一份；agent 启动时才判断的用启动运行那一轮的，0.4.3 起，ADR 0007）。强提示只给前两处，派出 agent 和 Workflow 的从不加（子任务像「查一个文件」不该因此判到最高一档）。`/dp unresolved off` 时四处都不带。
 - **强提示是什么。** `decision/unresolved.ts` 的 `withHint(part, language)`：给 effort 题（`level`，发消息时和中途重判的同一个 id）的说明多加一条（中文键 `未解决`，英文键 `unsolved`）：这项工作属于多次尝试都没解决的故障，`unresolved_count` 是用户说过「仍未解决」的次数，试过什么在 `problem_summary` 和对话里。写成情境，和 effort 题最高一档里「之前多次尝试都没解决的故障」同一个说法；不出现档位名字或数字（`tests/unresolved-hint.test.ts` 钉住），也不碰 `pickEffort`、`thetaMax` 和计划表：用不用最高一档仍由决策模型定（ADR 0005）。三选一的题不加强提示。`givesHint(count, maxAfter)`：`maxAfter > 0` 且 `count >= maxAfter`。
 - **用的是哪个次数。** 发消息时读 `$.state` 里这条消息**之前**的次数（这条消息自己的结论在同一个请求的回答里，请求发出时还不知道），所以 `unresolvedMaxAfter` 为 3 时，第四次说「仍未解决」的那条消息的请求还不带强提示（读到的是 2），它的中途重判带（那时次数已经是 3）；下一条消息的请求带。中途重判读的是重判发出时的次数。`maxAfter` 想让「这条消息自己」也算，只能在次数加一之后再问一次，违背「同一个请求」，没做。
 - **配置。** `unresolvedMaxAfter`（0 到 10，默认 3，0 不给），读成 `ctx.config.unresolved.maxAfter`（#42 定）。
@@ -147,7 +147,8 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev）�
 - `user_message` 是你这条消息。`recent_context` 是之前最近的几条消息，同一方连续写的几行算作一条。每条只有文字和调用过的工具名（例如 `[tools: Read, Bash (failed)]`），**不包含文件内容和工具输出**。
 - 发送前会对常见的 secret 格式脱敏，替换成 `[REDACTED]`。覆盖的格式包括各家的 API key 和 token、`password=...` 这类赋值、URL 里的密码、私钥和 JWT。
 - 总长度按 token 预算（`contextTokens`）截断，数的是发出去的整个 state：序列化成 JSON 的样子，字段名、引号和转义都算。中文约 1 个字算 1 个 token，其他文字约 4 个字符算 1 个 token，因此中英文按同一个尺度截断。预算先保证你的消息，剩下的分给最近的消息：旧消息整条丢弃，最新一条放不下时保留开头和结尾。
-- 每次请求的结果和每次决定都写进 debug log（`claude --debug-file <path>`），不会进入对话。
+- 派出 agent 和 Workflow 里的 agent 的请求见「派出 agent」「Workflow 里的 agent」：选 pplx 时它们也带对话（同样只有文字和工具名），Workflow 的还带脚本（ADR 0007）。
+- 每次请求的结果和每次决定都写进 debug log（`claude --debug-file <path>`），不会进入对话。派出 agent 和 Workflow 的请求行末尾还写 state 的大小和每个字段的大小（`state 593 tokens (brief 45, user_message 255, recent_context 283)`，只有字段名和估算 token，不写内容），用来核对决策模型读到了哪些背景。
 - skill 推荐打开时，另一个请求（和 effort 的请求并行，两个请求各用各的 state 预算）里有本会话每个 skill 的名字和画像（还没有画像的用描述）；需要第二个请求时，它带着排在前面的几个 skill 的描述、画像和 SKILL.md 正文的开头（约 700 个英文字符，先脱敏），见下一节。画像本身由你自己的 Claude 登录生成（`skillsProfileModel`），不经过决策模型的提供方。
 
 ### skill：隐藏列表，发消息时推荐
@@ -254,7 +255,9 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 |---|---|---|
 | `timeoutMs`、`rejudgeWaitMs`、`findSkillWaitMs` | 8000、6000、6000 | 请求要几秒（eval v2 的 B′ 约 5 秒）；hook 自己的上限是 10 秒，`timeoutMs` 的上限本来就是 8000 |
 | `contextMessages`（默认和上限） | 2000 | 和 eval v2 的 B′ 一致（`--state-messages 2000`），实际由 token 预算截断 |
-| 发消息 effort、中途重判、派出 agent、Workflow 的预算 | 各 48000 | eval v2 的 B′；pplx 的窗口是 262144 token，不受 Jev 那 32k 的限制 |
+| 发消息 effort、中途重判、Workflow 一个请求的预算 | 各 48000 | eval v2 的 B′；一个请求最多 262,144 token，不受 Jev 那 32k 的限制，但时间才是限制：48000 估算 token 的 state 单发 4.3–5.9 秒（下面「pplx 的 agent 预算」） |
+| 派出 agent 的预算（也是 Workflow 分几个请求时每个的、agent 启动时当场判断的） | 32000 | 几个 agent 一起派出，每个请求都被对话填满：同时 5 个 32000 都在 5.2 秒内答完，3 个 48000 最慢 7.6 秒（下面「pplx 的 agent 预算」，ADR 0007） |
+| agent 的背景（`agentBackground`） | 开 | 派出 agent 带对话，Workflow 带脚本和对话；Jev 关（ADR 0007） |
 | `contextTokens`（skill 两段的预算） | 6000 | B′ 没有评测过 skill 题，沿用 Jev 的值（两个模型的画像一样长） |
 | `ask` | 所有问题英文，Score | eval v2：pplx 英文问法更准 |
 | `thetaMax` / `thetaUp` / `thetaDown` | 0.47 / 0 / 0.55 | 已存的 pplx 回答离线校准（取值规则是评测时 agent 自拟的，用户没有逐条确认） |
@@ -264,14 +267,14 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 
 **密钥怎么读。** `perplexityApiKey`（userConfig）优先，空时用环境变量 `PERPLEXITY_API_KEY`。`$.env.get` 是异步的、要 `$`，`setup()` 和 `readConfig` 是同步的、没有 `$`，`$` 也不能跨 import；所以环境变量在 `session.start`（`features/control.ts`）里读一次，存进 `ctx.secrets.perplexityEnvKey`（`Secrets`，`core/setup.ts`；热重载会重新触发 `session.start`），pplx 的后端每次 `ask` 时才取 `perplexityKey(config, secrets)`（`pplxBackend` 收一个 `() => string`；`Backend.configured` 是它的 getter，所以各功能读 `configured` 时看到的就是现在有没有 key）。没有放进 `BackendIo` 的闭包里，是因为那要在 9 处 `io` 字面量里各写一遍 `$.env.get('PERPLEXITY_API_KEY')`，而且 #52 要在发请求之前、同步地知道有没有 key（选 pplx 还是退回 Jev，决定 `Config` 用哪一行）：那也只能在 `session.start` 读好再用（下一段）。key 只出现在请求头里：`pplx.ts` 把失败的 detail 里出现的 key 换成 `[REDACTED]`，`session.start` 的 debug log 只写 key 从哪里来（`pplx key: from the options` / `from PERPLEXITY_API_KEY` / `not set`）。`tests/pplx-model.test.ts` 的测试在日志、看板、toast 里搜 key 的原文。`Config` 里的 `typesafeApiKey`、`perplexityApiKey` 是不可枚举的属性（`readConfig` 用 `Object.defineProperties` 加上），`JSON.stringify(config)`、`{ ...config }`、`Object.keys` 都碰不到它们，以后有人把 config 写进日志或评测结果文件也带不出 key（`tests/backend-defaults.test.ts` 锁定）；取 key 的地方照旧读 `config.perplexityApiKey`，但不要复制一份 config 再从副本取 key。
 
-**限速和 429（#51）。** Perplexity Tier 0 账户限 1 QPS，一条消息发 2 到 3 个请求（effort、skill 第一段和第二段），中途重判、派出 agent、`find_skill` 也在抢。`setup()` 把 `pplxBackend` 包进 `decision/pplx-rate.ts` 的 `rateLimited(backend, qps)`（#52 之后 `setup()` 为 pplx 那一份 `Config` 建它，用 `configs.pplx.pplxQps`；pplx 那支始终经过它，不管最后选的是不是 pplx），所以所有 pplx 请求都经它，Jev 不经过。要点：
+**限速和 429（#51；默认值见 ADR 0007）。** 当初按 Tier 0 账户限 1 QPS 把 `pplxQps` 默认设成 1。Perplexity 的文档现在写「Every organization can send 10 requests per second to the Decisions API, on every plan. A token limit also applies to large bursts.」（docs/decisions/quickstart，2026-10-13 读；突发的 token 限额没写多少），实测同时发 5 个、8 个 24000 估算 token 的请求都没有 429，所以 0.4.3 把默认改成 5：按 1 个每秒排队时，5 个一起派出的 agent 第 4、5 个要 8.5、10.7 秒才答完（超过 8 秒的等待），同时发都在 4.8 秒内；5 而不是 10，是给同一个 key 的其他会话留出余量。一条消息发 2 到 3 个请求（effort、skill 第一段和第二段），中途重判、派出 agent、`find_skill` 也在抢。`setup()` 把 `pplxBackend` 包进 `decision/pplx-rate.ts` 的 `rateLimited(backend, qps)`（#52 之后 `setup()` 为 pplx 那一份 `Config` 建它，用 `configs.pplx.pplxQps`；pplx 那支始终经过它，不管最后选的是不是 pplx），所以所有 pplx 请求都经它，Jev 不经过。要点：
 - **每秒最多 `pplxQps` 个。** 滑动窗口，不是固定间隔：`pplxQps: 2` 时两个请求同时发出，第三个等到最早那个满一秒。最近发出的时间（至多 `pplxQps` 个）记在 `$.state` 的 `pplxRate`（`number[]`），热重载后不会一下子放出一串；改发送时间用 `$.state` 的版本号做乐观并发（`ifVersion`），读写失败、或者写入连续 8 次被别的写入抢先，就放行（最坏是 Perplexity 自己回 429），并在这个请求的 debug log 那一行末尾写 `rate limit not kept (...)`（`Asked.notes`，`describeAsked` 会带上）。限速保证的是计数（乐观写入）；先后顺序只保证到「队首开始占位」为止：占位中的那几次 await 里到的更优先请求，要等下一个位置。
 - **排队。** 排队的队列是模块变量（热重载丢了也没关系：旧模块的请求引擎自己会丢掉）。队首永远是优先级最高、来得最早的一个：发消息的 effort 请求（问题名以 `effort.` 开头）优先级 0，其余都是 1，先来先发。队首轮到的时候才占位，所以一个更优先的请求后来也能插到已经在等的 skill 请求前面。等不到位的请求（占位要等到超过它自己的等待时间）当场失败，不白等。
 - **排队的时间算进该请求自己的等待。** `ask(io, request, timeoutMs)` 的 `timeoutMs` 从被问的那一刻算起，发出去之后只剩下没用完的部分；等不回来的失败写的仍是 `no answer in <timeoutMs> ms`。skill 第二段本来就用第一段剩下的时间，所以自然包括排队。
 - **429。** `pplxFailure` 把 `Retry-After`（整数秒，不区分大小写；日期形式不读）读成 `Failure.retryAfterMs`，只有 429 有。限速层收到 429 带着 `retryAfterMs` 时：剩余等待时间不少于 `retryAfterMs` 加 `EXPECTED_REQUEST_MS`（5000，ADR 0006 说的约 5 秒）就睡过 `Retry-After` 再问一次（重新排队，优先级不变），用第二次的结果，第二次再 429 就是失败；不够、或者 429 没带可读的 `Retry-After`，就原样失败。其他失败都不重试。失败交出去之前去掉 `retryAfterMs`，看板里存的 `failure` 形状不变。
 - **「被限速」。** 429 的失败（`busy`，状态码 429）在看板、toast 和决策日志里写 `pplx：被限速（状态码 429）`，band 上写「决策模型被限速」，卡片的类型行写「请求太密，被决策模型限速了」（`FAILURE_WORDS`，只有 pplx 的 429 这样写：那是 mod 自己按 `pplxQps` 守的限速；Jev 的 429 仍是 0.3.1 的「繁忙（状态码 429）」「决策模型繁忙」；模型读到的英文 `busy (HTTP 429)` 没变）。
 - **接线。** 限速需要时钟和 `$.state`，`$` 不能跨 import，所以 `BackendIo` 多了一个可选的 `pace`（`now`、`sentAt` 这个 `$.state` 的 Cell），9 处 `io` 字面量（`core.ts`、`midturn-effort.ts`、`skills.ts`、`find-skill.ts`、`escalation.ts`、`dispatched-agents.ts`、`workflow-agents.ts`、`workflow-labels.ts` 两处）各写一遍。没给 `pace` 的（评测，它自己控制节奏）直接放行。新增一处 `ctx.backend.ask` 时记得给它的 `io` 加 `pace`，否则那个请求不受限速。
-- **测试。** `tests/pplx-rate.test.ts`（接缝 1，`mock.clock`；`Sent.at` 是请求发出的时间，`Reply.headers` 给 429 带 `Retry-After`，`seed.pplxRate` 和 `w.pplxRate()` 读写限速的记录）；429 的分类和 `Retry-After` 的读取在 `tests/pplx.test.ts`（接缝 2）。别的 pplx 测试把 `pplxQps` 设成 50，免得被 1 QPS 排队拖住。
+- **测试。** `tests/pplx-rate.test.ts`（接缝 1，`mock.clock`；`Sent.at` 是请求发出的时间，`Reply.headers` 给 429 带 `Retry-After`，`seed.pplxRate` 和 `w.pplxRate()` 读写限速的记录）；429 的分类和 `Retry-After` 的读取在 `tests/pplx.test.ts`（接缝 2）。别的 pplx 测试把 `pplxQps` 设成 50，免得被排队拖住；`pplx-rate.test.ts` 自己设 1，测按每秒一个排队。
 
 **选哪个决策模型（#52，ADR 0006）。** `chooseBackend(asked, { perplexity, typesafe })`（`core/setup.ts`，纯函数）：`decisionModel` 是 `jev`（`backendNameOf(options)` 读出来的「要的是 Jev」）就始终 Jev；其余（`pplx`、没设、`clef`、拼错的值——引擎把选项列表之外的值读成 manifest 的默认值 `pplx` 并警告，mod 看不到原值）按密钥：有 Perplexity 的 key（userConfig 优先，再是环境变量）→ pplx；没有但有 TypeSafe 的 key → Jev，并记 `fellBack`；两个都没有 → pplx，它的每次 `ask` 以 `config` 失败返回，`why` 写「pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY」。
 
@@ -280,6 +283,62 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 **退回 Jev 要写下来。** `control.ts` 的 `session.start` 在读完环境变量之后，若 `ctx.fellBack`，`report(io, { fellBack: { asked: 'pplx', using: 'jev' } })`（`core/report.ts`，ADR 0004：只有 report 写给人看的东西；`asked`、`using` 是 `BackendName`，给人看的名字和各模型的密钥设置名都在 report.ts 的 `DECISION_MODELS` 一张表里）：决策日志里一条 `feature: 'decision-model'`、`tone: 'info'` 的会话级条目（没有 `agent`，同一轮号的热重载换掉前一条，像 skill-profiles 那样），依据面板里的「决策模型 · 改用别的决策模型」，原因写缺哪个 key、怎么补。看板的节点、band 和 toast 都不动（`view.ts` 的当前轮日志里也滤掉它）。注意它只在 `session.start` 才写：`tests/support/world.ts` 里给了 `env`、`switches` 或 `session` 的世界才跑 `session.start`（`w.start()`），其余的测试世界不跑，所以只有 TypeSafe key 的老测试也能不写日志地照常用 Jev。
 
 **默认换成 pplx 对测试的影响。** 依赖「默认是 Jev」的测试都显式设了 `decisionModel: 'jev'`（`KEY` 常量、`settingsFrom`、`readConfig`），断言新默认的在 `tests/decision-model.test.ts`、`pplx-model.test.ts`。评测的 `optionsFor(backend, ...)` 始终显式写 `decisionModel`；`eval/lib/rescore.ts` 读没记下决策模型的旧结果文件时按 Jev（那时只有 Jev）；`scripts/decide*.ts` 经 `scriptDecision` 用 Jev。评测不看密钥、不退回：`readConfig(options)` 按「要的是哪个」读。
+
+### pplx 的 agent 预算（2026-10-13，ADR 0007）
+
+用户要求按决策模型能接受的最大 token 数，给派出 agent 和 Workflow 里 agent 的请求分配上下文：agent 的 prompt、脚本、这一轮的对话（「尽量让决策模型拿到更多的上下文内容，这样它才能做更准确的判断」），和 0.2.1 按 Jev 的上限定默认值是同一个道理。
+
+**事实（Perplexity 官方文档，2026-10-13 读的全文）。**
+
+- 一个请求的输入：「Under 262,144, counting `state`, images, and every question」（docs/decisions/quickstart 的 Request limits；api-reference/decisions-post 写「Input must stay under 262,144 tokens and the body under 32 MiB」）。超出按 400 处理（400 那一行包括「a limit in Request limits is exceeded」，没写具体的报错），文档没有说会截断。每个请求 1 到 128 道题，body 最大 32 MiB。
+- 只按输入计费，每百万 token 0.02 美元，输出免费。
+- 时间随输入变长：「a request with a few hundred input tokens answered in under 2 seconds, about 90,000 tokens took 5 seconds, about 190,000 tokens took 14 seconds, and just under the input limit took 23 seconds」（quickstart 的 Timeouts，9 月 30 日的测试）。
+- 速率：「Every organization can send 10 requests per second to the Decisions API, on every plan. A token limit also applies to large bursts.」突发的 token 限额是多少没写。
+- 文档没有推荐 state 多大，也没说一个请求放多少道题会影响准确率；每道题读同一个 state。
+
+**实测（本机，pplx-decider-v1.1-27b，真实 key）。** 请求是派出 agent 的形状（`dispatchPart` 的题，state 是 `{ brief, user_message, recent_context }`），内容取仓库自己的文字：DEVELOPMENT.md（中文为主，夹着代码标识）或 `hooks/` 下的 TypeScript。探针脚本放在会话的 scratchpad，没有进仓库。
+
+单发，每格 3 次：
+
+| 内容 | mod 估算的 state | pplx 计的 input token | 倍数 | 用时 |
+|---|---|---|---|---|
+| 文字 | 24000 | 4.3–4.5 万 | 1.8–1.9 | 2.3–3.8 秒 |
+| 文字 | 48000 | 8.7–9.8 万 | 1.8–2.0 | 4.3–5.2 秒 |
+| 文字 | 72000 | 14.4–15.5 万 | 2.0–2.1 | 8.3–8.8 秒 |
+| 文字 | 96000 | 20.7–21.6 万 | 2.1–2.2 | 13.6–14.8 秒 |
+| 代码 | 16000 | 3.7–3.8 万 | 2.3 | 1.9–3.3 秒 |
+| 代码 | 32000 | 7.2–7.3 万 | 2.2 | 3.6–3.7 秒 |
+| 代码 | 48000 | 10.7 万 | 2.2 | 5.5–5.9 秒 |
+| 代码 | 64000 | 14.4 万 | 2.2 | 7.9–8.1 秒 |
+
+几个一起发，从第一个发出算起，到各自答完：
+
+| 请求 | 发法 | 各自答完 |
+|---|---|---|
+| 3 个 24000 | 每秒一个 | 3.7、5.4、6.3 秒 |
+| 3 个 48000 | 每秒一个 | 5.6、7.9、12.4 秒 |
+| 5 个 24000 | 每秒一个 | 3.6、5.3、6.2、8.5、10.7 秒 |
+| 5 个 16000 | 每秒一个 | 2.7、4.3、4.5、5.8、7.0 秒 |
+| 3 个 24000 | 同时 | 3.6–4.3 秒 |
+| 5 个 24000 | 同时 | 4.0–4.8 秒 |
+| 8 个 24000 | 同时 | 3.6–5.0 秒 |
+| 5 个 32000 | 同时 | 4.0–5.2 秒 |
+| 3 个 48000 | 同时 | 5.6、7.0、7.6 秒 |
+
+没有一次 429 或失败。一共约 510 万 input token，约 0.10 美元。
+
+**结论。**
+
+- 窗口不是限制，时间才是。mod 的估算比 pplx 的计数少一半多（文字 1.8–2.2 倍，代码 2.2–2.3 倍，#43 测过的日志 2.9–3.3 倍）；一次决策最多等 8000 毫秒（hook 自己的上限是 10 秒），而 72000 估算 token（约 15 万 pplx token）单发就要 8.3–8.8 秒。262,144 的窗口在等待时间里用不到一半。
+- 单个请求取 48000：单发 4.3–5.9 秒，给排队和慢的时段留出 2 秒多。发消息时的 effort 题、中途重判、Workflow 的一个请求都是 48000，和以前一样。
+- 派出 agent 取 32000：主 agent 常常一次派出几个，每个请求都带对话，会话一长就满。同时发 5 个 32000 都在 5.2 秒内，3 个 48000 最慢 7.6 秒，贴着 8 秒。Workflow 要分几个请求同时发时、agent 启动时当场判断时（fan-out 的 agent 一起启动），每个请求同样取 32000。
+- `pplxQps` 默认从 1 改成 5：按每秒一个排队，后面的请求先等上几秒，自己处理时也更慢（第 5 个 24000 的请求自己用了 6.7 秒），同时发反而都在 5 秒内。
+- 背景只给 pplx：Jev 只等 1500 毫秒，一个 key 的请求一个一个答，24000 估算 token 的请求约 0.6 秒，几个 agent 一起派出时第三个就超时。
+- 代价：选 pplx 时，长会话里每个派出的 agent 要等 4 到 5 秒才启动（以前只带任务，不到 1 秒）。准确率没有量，见「待评测」。
+
+**真实会话（2026-10-13，Claude Code 2.1.296，`claude -p`，主 agent 用 haiku，`--settings` 关掉已装的版本，`--plugin-dir` 加载工作区）。** 派出 agent 和 Workflow 的请求行末尾现在写 state 的大小和各字段的大小（`describeState`：只有字段名和估算 token，不写内容）。派出的 Explore agent 是 `state 593 tokens (brief 45, user_message 255, recent_context 283)`，659 毫秒答完。内联 Workflow 的请求是 `brief_0 35, user_message 255, workflow_script 120, recent_context 286`。两个 prompt 是数据的 agent 在启动时各问一次，`workflow_script 128`，读的是 workflow-agents 改写后真正运行的那份；`recent_context 286`，截到 Workflow 调用为止；各约 480 毫秒。`$.session.messages()` 在 `agent.spawn`、Workflow 的 `tool.call` 和 agent 的第 0 步里都读得到。
+
+**整个请求在窗口之内（`tests/backend-defaults.test.ts`）。** 按最坏的 3.3 倍算：48000 × 3.3 = 15.8 万，加上 8 个调用的题（约 4.8 万，同样按 3.3 倍算）是 20.7 万，在 262,144 的 90% 以内；其余种类更小。
 
 ### Jev 的上下文默认值怎么算
 
@@ -323,7 +382,7 @@ Q 取 Jev 的计数：skill 第一段 21,900，其余的题按「估算 × 1.37�
 
 - 这些值是 `core/setup.ts` 的 `BACKEND_DEFAULTS` 里的内部常量（`contextTokens` 是带 skill 题的那一种，`contextByKind` 是其余几种），不是配置项。其余种类取 24000：上表里它们的 C 上限是 25,400–25,600，取整到 24000；验算 1.11 × 24000 = 26,640，加最长的题（派出 agent 约 630）是 27,270，在 28,800 之内；Workflow 一批（最多 8 个调用，题合计约 20,100）是 46,740，在 57,600 之内。所有种类的 C 加上它最长的题，都用同一个算式在 `tests/backend-defaults.test.ts` 的「Jev's context budget by default, kind of request by kind…」里量过：题用真实的构造函数量（`turnStartEffortPart`、`midturnEffortPart`、`expectedFailurePart`、`dispatchPart`），每个种类断言 C × 1.11 加最长的题不超过 28,800，整个请求不超过 57,600。
 - `contextTokens` 是用户的覆盖值：设了，所有种类都用它，但每个种类各取它和自己的上限里较小的一个（设 4000 是所有种类 4000，设 16000 是带 skill 题的 6000、其余 16000）；没设，每个种类取自己的默认值。manifest 的范围 100–16000 没有放宽。`readConfig` 里 `byKind` 做这件事，`describeDefaults` 的那一行 debug log 只报 `contextTokens` 本身。
-- 谁读哪一个：`core/core.ts` 对投票箱拆出的每个请求，按它有没有 skill 的 part 用 `messageLimits`（`core/setup.ts`）选 `context.tokens` 或 `messagePlain`，eval 的 `submitRequest` 用同一个函数；`features/dispatched-agents.ts` 用 `agent`；`features/workflow-agents.ts`、`features/workflow-labels.ts` 用 `workflow`；`features/escalation.ts` 和 `features/midturn-effort.ts` 用 `midturn.limits`（即 `rejudge`）；`features/find-skill.ts` 和 `core/skills.ts` 仍用 `context.tokens`；评测里的 `eval/lib/subagent.ts` 和 `scripts/decide-agent.ts` 也读 `agent`、`workflow`。你的话（`said`，`dispatched-agents.ts` 在 `prompt.submit` 时存下的每一轮的消息）和一轮记录里的消息（`turns[].prompt`，之后的重判读它）各有一份截断：`said` 仍按 `context.tokens`（6000，它要存进 `$.state`，最多 8 条），`turns[].prompt` 按 `rejudge`；发给决策模型的 state 再按各自种类的预算截。
+- 谁读哪一个：`core/core.ts` 对投票箱拆出的每个请求，按它有没有 skill 的 part 用 `messageLimits`（`core/setup.ts`）选 `context.tokens` 或 `messagePlain`，eval 的 `submitRequest` 用同一个函数；`features/dispatched-agents.ts` 用 `agent`；`features/workflow-agents.ts`、`features/workflow-labels.ts` 在运行开始时用 `workflow`（分成几个请求时每个用 `agent`，`planBatches`），`features/workflow-labels.ts` 在 agent 启动时当场判断用 `agent`；`features/escalation.ts` 和 `features/midturn-effort.ts` 用 `midturn.limits`（即 `rejudge`）；`features/find-skill.ts` 和 `core/skills.ts` 仍用 `context.tokens`；评测里的 `eval/lib/subagent.ts` 和 `scripts/decide-agent.ts` 也读 `agent`、`workflow`。你的话（`said`，`dispatched-agents.ts` 在 `prompt.submit` 时存下的每一轮的消息）和一轮记录里的消息（`turns[].prompt`，之后的重判读它）各有一份截断：`said` 按 `saidTokens(config)`（`agent`、`workflow` 里较大的那个的三分之一：Jev 8000，pplx 16000；它要存进 `$.state`，最多 8 条；0.4.3 之前是 `context.tokens` 的 6000，评测的 `eval/lib/subagent.ts` 跟着改），`turns[].prompt` 按 `rejudge`；发给决策模型的 state 再按各自种类的预算截。
 - 延迟：没有量过，只有外推（每 1k token 约 13 ms）：state 满了的非 skill 请求比 0.2.1 多约 2.4 万 token，约 0.3 秒；这些请求的 effort 题、重判题都很短，慢的时段超时的消息会比以前多一些，没有量。超时变多就把 `contextTokens` 调小，或把 `timeoutMs` 调大。
 
 **`contextMessages` 和 `rejudgeSteps`。** 默认值 4 条、4 步，在 6000 个 token 里装不满：一条助手的回复就常有几百 token。所以 Jev 取 manifest 范围的上限，32 条和 16 步，让 token 预算而不是条数决定发多少：从最新的往前装，放不下的旧消息（旧步骤）整条丢掉，不挤压。消息都很短时 32 条也只有一两千 token。这只是个上限，不是目标；发出去的仍然只有文字和工具名，不发工具的输入和输出，脱敏，这条隐私设计没有改。
@@ -431,10 +490,11 @@ Sonnet 5.5 在 low、medium、high、max 的指数是 36、41、47、56（Termin
 - **「预期内失败」这一问的写法和门槛（#7；评测归 #14；按语言校准原定由 #17 做，按用户的决定没有做）。** `thetaExpected`、`escalateAfter`、`escalateLimit` 的默认值都是起点。`thetaExpected` 的默认值来自一次手工的小实验：11 个手写场景（6 个预期内：先写红灯测试、搜索没结果、探测 docker 是否安装、lint 报告问题、探测端口、一道中文红灯题；5 个真的卡住：构建一再失败、Edit 一再失败、部署失败、安装依赖失败、上传凭证错误），用 `scripts/decide-stuck.ts` 的同一份请求，各问 8 种写法。当前写法（英文问题加 `criteria`）：Jev 对预期内的评分 0.15–0.72（均值 0.39），对卡住的 0.09–0.16（均值 0.12）。分布偏低，所以门槛取低（默认值下，Jev 放过 6 个里的 5 个预期内的，卡住的 10 次都升了档）。样本太小，只能当起点。要评测它，可以在 `effort-midturn` 的带 `trouble` 的题上加一个标注「这些失败是否预期内」：请求已经是 mod 发出的那一个（`trouble` 变体用 `decision/escalation.ts` 的 `stuckRequest` 拼，回答用 `readExpected` 读，记在逐题答案的 `expected` 里），缺的只是标注和评分；变量有：问题的写法（当前写法、「是不是预期内」改问「是不是卡住」（高值代表卡住）、不带 `criteria`，几种写法在上面的场景里的差别不大）、中英文、`recent_steps` 条数。`escalateMode`、`escalateAfter` 和 `escalateLimit` 没有评测方法，按使用体验调。
 - **state 的预算按发出去的样子数（#17）。** `contextTokens` 约束的是发出去的整个 state，按它序列化成 JSON 的样子数（字段名、引号和转义都算，`decision/context.ts` 的 `withinTokens`；发消息时、`find_skill`、一轮中途和卡住时、派出 agent、Workflow 的请求都这样拼）。不靠字段的顺序：决策模型读过长的 state 时可能只读开头。
 - **派出 agent 的门槛（#15 的数据）。** `agentOverride` 的默认值在两次 Jev 运行里都不是最好：0.4–0.5 时整题中文 +3、英文 +2 个百分点；点名的门槛 0.5 偏低，英文里只是被提到的模型以 0.5–0.6 被当成点名；`thetaMax` 取 0.3 比默认值好 1–2 个百分点。数字见 `eval/results/subagent/` 各变体的 `breakdown.sweeps`，逐题的原始回答也在里面，可以按语言分别重扫（见「开发」里的「派出 agent（subagent，#15）」）。#17 没有改这几个门槛（用户的决定）。
-- **Workflow agent 启动时当场判断的排队（#9）。** prompt 是数据的调用（fan-out）每启动一个 agent 就发一个请求，fan-out 的几个 agent 几毫秒内一起启动（实测），而 Jev 对同一个 key 的并发请求像是依次处理，排在后面的会等到超时，那些 agent 不经路由。要量一量常见的 fan-out（几个到十几个 agent）有多少能在 `timeoutMs` 之内答上；不够的话，把几毫秒内一起启动的 agent 合进一个请求（#8 的 `workflowBatches` 已经能把几个调用放进一个请求）。
+- **Workflow agent 启动时当场判断的排队（#9）。** prompt 是数据的调用（fan-out）每启动一个 agent 就发一个请求，fan-out 的几个 agent 几毫秒内一起启动（实测），而 Jev 对同一个 key 的并发请求像是依次处理，排在后面的会等到超时，那些 agent 不经路由。要量一量常见的 fan-out（几个到十几个 agent）有多少能在 `timeoutMs` 之内答上；不够的话，把几毫秒内一起启动的 agent 合进一个请求（#8 的 `workflowBatches` 已经能把几个调用放进一个请求）。pplx 同时答得过来（8 个 24000 估算 token 的请求同时发，3.6–5.0 秒，见「pplx 的 agent 预算」），`pplxQps` 默认 5 时同一秒最多发 5 个；多于 5 个的 fan-out 在真实会话里有多少能答上，没有量过。
 - **skill 推荐的门槛和准确率（#16）。** #11 的起点：用 mod 自己的排序代码（`skillsRequest` + `modRanker`）和真实的 Jev（jev-1.13.0），在本机 87 个 skill（66 个主 agent 能加载、21 个只能由用户触发）上问了 21 条消息：18 条中文（10 条该推荐 skill、8 条不该），3 条 find_skill 式的英文查询（2 条有对应的 skill）。先不带画像：该推荐的 skill 在第二段的相关度是 0.81–0.98（最低的是 `pr` 0.81）；不该推荐的消息里进入第二段的 skill 是 0.07–0.66（两次重命名都给了 `implement`，0.49 和 0.66），另有两个可争议的 0.80 左右（「这个函数为什么返回 undefined」的 `diagnosing-bugs`，「解释一下这个正则」里只能由用户触发的 `teach` 0.79）。所以 `skillsMinRelevance` 取两组之间的 0.7，`findSkillMinRelevance` 取 0.5（主 agent 主动问时宁多勿漏，它自己会看描述）。给 3 个 skill 写了画像后再问一遍：该推荐的照旧（`code-review` 0.96、`codebase-design` 0.96、`diagnosing-bugs` 0.94），`diagnosing-bugs` 对「为什么返回 undefined」降到 0.53（它的画像写了「不用于简单问题」）。第一段的分布：该推荐的 skill 都分到 0.34 以上（多数 0.96–1.00），不需要 skill 的消息里分给 skill 的最多 0.10，所以第二段只补读分到 0.1 以上的（`SHORTLIST_FLOOR`），多数普通消息只发一个请求。#16 的评测（109 题 × 中英 × 有画像和没有画像，真实的 Jev 跑了两次，见「开发」里「评测」的「skill 匹配」）：线上的有画像时中文 79.8%、英文 83.5%，两次都差 3.7 个百分点，没过当时 3 个百分点的门槛，在现在 4 个百分点的门槛之内（没有画像时 −1.8 和 −0.9）；`skillsMinRelevance` 在 0.3–0.8 之间很平，按语言建议中文 0.75、英文 0.8，共用一个值时 0.75（差距缩到 −2.3）；`findSkillMinRelevance` 建议中文 0.3、英文 0.5（共用时保持 0.5）。评测集里九成以上的消息都过了 0.1 这个下限、发了第二段（不该推荐的题多是诱导题）。#17 按这些数据把 `skillsMinRelevance` 的默认值改成 0.75（修复之前的问法上的预览，没有在新问法上重跑），`findSkillMinRelevance` 保持 0.5。按用户的决定没有再评测的：`skillsShortlist` 和 0.1 这个下限（决定第二段问什么，只能重新请求）；第一段拆成两题之后（第 1 轮审查：只能由用户触发的 skill 单独一题，不再挤掉能加载的 skill，033、090、091、092）两个变体都要重跑；问题用中文写；画像只用英文；Choice 选项顺序的影响（Jev 偏向排在前面的选项）。
 - **主 agent 会不会主动用 `find_skill`。** 列表换成提示之后，主 agent 在推荐漏掉时并不会自己去查：一条要写 PR 描述、但没有推荐 `pr` 的消息，有提示、没有提示、加上「何时用」的更主动写法各 3 次，都直接写了正文；读到完整列表时第一步就加载了 `pr`（见「开发」里的「已实测的引擎行为」）。这类消息目前靠发消息时的推荐。还要评测：换别的场景（文件格式、某个服务的工具、一轮中途才出现的需要）和别的模型，以及「每轮先查」这类更强的写法值不值得它多出的 ToolSearch 加 `find_skill` 两步。
 - **skill 请求的大小和延迟。** 不带画像时第一段约 6.4k input token（87 个选项），真实引擎里 0.3–0.6 秒；每份画像约多 110 token（实测 3 份画像多出 330–380 token），全部写好后估计 16k 左右，在 Jev「state + 最长的问题 ≤ 32k」之内；`questionBudget` 再按估算值留了余量（估算比 Jev 报的少约 10%，按 1.35 倍留），超出时先去掉「何时不用」，再从后往前改回描述。第二段约 0.5–1.5k token、0.25–0.5 秒。`-p` 进程启动时的第一个请求有一次用了 1.7 秒（#10 实测，进程启动时其他工作同时在跑），超时后照常放行。#16 实测（111 个 skill，Jev 计）：不带画像时第一段 8.6k input token，带全部画像 2.19 万（`questionBudget` 没有裁剪），第二段约 1.3k。Jev 第一段 p50 0.32–0.34 秒（不带画像）、0.56–0.67 秒（带画像）；慢的时段带画像的 p90 到 1.65 秒，218 条里 24 条第一段就超过 1500 ms：这条消息的决策请求整个超时，effort 也没有经过路由。把第一段单独发、只留英文字段的裁剪画像都没有评测（用户的决定）。
+- **背景（对话、脚本）让 agent 判得多准（ADR 0007）。** 0.4.3 起选 pplx 时，派出 agent 和 Workflow 的请求带着对话和脚本，这是按「给得越多判得越准」加的，没有评测：`subagent` 评测集的题只有任务和你的话，评测发的请求不带背景（选 Jev 时评测和 mod 的请求逐字相同的核对仍然成立）。要量就得给题补上派出它的那段对话和脚本（有干扰的、带着决定性信息的），和不带背景的同一批题比较。
 - **一个请求里放几个 Workflow 调用，准确率会不会降（#8）。** 一个脚本的几个 `agent()` 共用一个请求（最多 8 个，各自的 brief 放在 state 里），对每个问题来说，其他调用的 brief 是无关内容，TypeSafe 的指南说这会降低准确率。实际降不降、降多少，要拿同一批调用，一个请求一个调用和现在的分批各问一遍来比；差距明显就把 `decision/workflow.ts` 的 `MAX_PER_REQUEST` 调小。`subagent` 评测现在就这样问（`models-hint` 按 #8 合并，`models-hint-single` 一个调用一个请求，见「开发」里的「派出 agent（subagent，#15）」），还没有跑过（#17 按用户的决定没有跑）。
 
 ---
@@ -680,7 +740,7 @@ effort 问题的档位描述是共用的：用 `effortQuestion(instructions, ctx
 
 `decision/workflow-script.ts` 是一个懂 JavaScript 词法的读写器（mod 里没有现成的解析器可用）：它把脚本切成词（字符串、模板、注释、正则字面量、标点），所以注释和字符串里的 `agent(` 不会被认成调用，模板 `${...}` 里的代码会被读到，`.agent(`、`function agent`、`new agent` 和方法定义也不算调用。`parseWorkflow(script)` 返回 `{ meta, calls }`，读不了（字符串、模板或注释不完整，括号不成对，没有 `export const meta`）返回 `null`。每个 `AgentCall` 有 `prompt`（字符串值，模板保留 `${...}` 原文，运行时才拼出来的是 `null`）、`label`、`agentType`、行号，以及 `model` 和 `effort`（`none`、`literal` 或 `dynamic`）。`rewriteWorkflow(parsed, writes)` 只在找到的位置改文本，其余逐字不变，一遍扫完（三万个调用的脚本不到半秒）。
 
-`decision/workflow.ts` 把调用变成决策请求（`workflowBatches`：同一请求里的 part 是 `agent-<n>`，state 字段是 `brief_<n>`，`n` 是调用在脚本里的序号，所以分成几批后 ID 仍不重复）、读回答（`readOutcomes`：每个调用的结果是 `written`、`kept` 或 `left`）、写给主 agent 的文字。两个模块都是纯的，#9 可以直接复用：用 `scriptPath` 或 `name` 提交的脚本，只要它用 `$.fs.read` 读到了文本，就可以同样 `parseWorkflow`、`workflowBatches`、`readOutcomes`；要改写的话，得去掉 `scriptPath`（它优先于 `script`）再传 `script`。
+`decision/workflow.ts` 把调用变成决策请求（`workflowBatches`：同一请求里的 part 是 `agent-<n>`，state 字段是 `brief_<n>`，`n` 是调用在脚本里的序号，所以分成几批后 ID 仍不重复；每个 brief 最多平分的一份，`BRIEF_FIELD` 留出字段名；第五个参数是 `{ perRequest, background }`，`background`（`WorkflowBackground`）是每个请求另带的脚本、对话、摘要和次数，摘要和次数和你的话一起先算，脚本和对话在 brief 之后填剩下的；`planBatches` 在一个请求装不下时改用每个请求的预算重分）、读回答（`readOutcomes`：每个调用的结果是 `written`、`kept` 或 `left`）、写给主 agent 的文字。两个模块都是纯的，#9 可以直接复用：用 `scriptPath` 或 `name` 提交的脚本，只要它用 `$.fs.read` 读到了文本，就可以同样 `parseWorkflow`、`workflowBatches`、`readOutcomes`；要改写的话，得去掉 `scriptPath`（它优先于 `script`）再传 `script`。
 
 **给 #9：`$.state` 的 `workflowTerms`。** 直接交来的脚本，#8 在调用工具之前把它读出的、你对每个调用的约束（`termsOf(decision)`，按调用序号，没有就是 `null`；一个都没有就不写）写在这次 Workflow 调用的 `tool_use_id` 下；#9 在内层、同一次调用里读它，放进各调用的 `RunSite.terms`，这些调用的 agent 启动时把约束写进计划。（以前 #8 还按 `runId` 记过一份每次运行的摘要 `workflows`，没有任何功能读它，已删掉。）
 
@@ -693,8 +753,8 @@ effort 问题的档位描述是共用的：用 `effortQuestion(instructions, ctx
 `features/workflow-labels.ts` 注册三层，都带 matcher：
 
 - `tool.describe`（`{ tool: 'Workflow' }`）：在引擎的描述后面附 `LABEL_HINT`。引擎每个会话只问一次并一直沿用（`$.ui.invalidate('tool.describe')` 之前），所以文字是常量，不拼会话内容；开关变化也不重新问。
-- `tool.call`（`{ tool: 'Workflow' }`）：在入口里注册在 `workflow-agents` 之后，即在它内层：那个功能问完决策模型、把脚本交下来之后才轮到这里，所以它还在问的时候，别的运行里启动的 agent 不用等这里（见下文的 `launching`）。工具返回后读运行用的脚本：直接交来的读 `e.script`（那个功能交下来的那份：它写进去的调用多了选项，留下的调用照旧），其他读工具结果的 `scriptPath`。这里附的说明排在 `workflow-agents` 的说明之前（外层的功能在内层返回之后才追加自己的）。`scriptPath`、`name`、恢复的运行，各调用用 #8 的 `workflowBatches`、`readOutcomes` 判断；直接交来的不再问，`workflowBatches(...).skipped` 就是 #8 没问的调用（读不了的 prompt、超出上限的）。结果写进 `$.state` 的 `labelRuns`：`{ runId, dir, workflow, description, sites }`，`dir` 是工具结果的 `transcriptDir`，`sites` 是各调用的 `RunSite`（`match` 怎么认 label，`route` 是 `set`（运行开始时定的模型家族和 effort）、`runtime`（agent 启动时判断）或 `script`（照脚本），`terms` 是你对这个调用的约束；脚本读不了时 `sites` 为 `null`）。每个启动了的运行都记（没有 `agent()` 的除外），调用全都照脚本的也记：这些调用的 agent 启动时还要把你的约束（`terms`）写进计划。（#7 找 Workflow agent 的记录文件用的是它自己记的 `workflowRuns`，不读这里。）
-- `turn.step`（`{ agentId: /(?:)/ }`，在核心外层）：只在 `e.index === 0` 时动手。`agents[agentId]` 已经有计划（#6 派出的 agent，或者引擎重发的第 0 步）就不管。否则从新到旧读各运行的 `journal.jsonl`，按 `agentId` 找 `started` 行拿到 label，`sitesFor(label, sites)` 找调用：字符串 label 精确匹配，模板和「prompt 开头」其次，运行时才算的 label 作通配，只在前两者都对不上时用。所有候选的 route 相同就用它；`script`（#8 已经写进脚本）只在候选带着同样的约束（`RunSite.terms`，#8 经 `workflowTerms` 交来）时写一份只有 `terms` 的计划，`set` 直接写计划（连同 `terms`），`runtime`、对不上或候选不一致时，`decideAtStart` 读 `agent-<agentId>.jsonl`（每 25 毫秒看一次，最多 400 毫秒）、用 `taskOf` 去掉引擎的外框，拼成一个只有一个调用的 `ParsedWorkflow`，同样经 `workflowBatches`、`readOutcomes` 问决策模型。写计划用 `agentPlan`：只在要换家族时写 model（`modelFamily(e.model)` 比较家族，因为引擎重试后会出现 `claude-sonnet-5` 这样的 ID），写完整 ID。
+- `tool.call`（`{ tool: 'Workflow' }`）：在入口里注册在 `workflow-agents` 之后，即在它内层：那个功能问完决策模型、把脚本交下来之后才轮到这里，所以它还在问的时候，别的运行里启动的 agent 不用等这里（见下文的 `launching`）。工具返回后读运行用的脚本：直接交来的读 `e.script`（那个功能交下来的那份：它写进去的调用多了选项，留下的调用照旧），其他读工具结果的 `scriptPath`。这里附的说明排在 `workflow-agents` 的说明之前（外层的功能在内层返回之后才追加自己的）。`scriptPath`、`name`、恢复的运行，各调用用 #8 的 `planBatches`、`readOutcomes` 判断（pplx 带脚本和截到这次调用的对话）；直接交来的不再问，`planBatches(...).skipped` 就是 #8 没问的调用（读不了的 prompt、超出上限的；摘要和次数要和 #8 用的一样，因为它们占预算、影响分批）。结果写进 `$.state` 的 `labelRuns`：`{ runId, callId, dir, workflow, description, sites, launch? }`，有 agent 要在启动时判断（`sites` 为 `null` 或有 `runtime`）时才存 `launch`：那一轮的 `said`、摘要和次数、pplx 的脚本原文、调用 Workflow 的循环（`caller`，主对话不写），`dir` 是工具结果的 `transcriptDir`，`sites` 是各调用的 `RunSite`（`match` 怎么认 label，`route` 是 `set`（运行开始时定的模型家族和 effort）、`runtime`（agent 启动时判断）或 `script`（照脚本），`terms` 是你对这个调用的约束；脚本读不了时 `sites` 为 `null`）。每个启动了的运行都记（没有 `agent()` 的除外），调用全都照脚本的也记：这些调用的 agent 启动时还要把你的约束（`terms`）写进计划。（#7 找 Workflow agent 的记录文件用的是它自己记的 `workflowRuns`，不读这里。）
+- `turn.step`（`{ agentId: /(?:)/ }`，在核心外层）：只在 `e.index === 0` 时动手。`agents[agentId]` 已经有计划（#6 派出的 agent，或者引擎重发的第 0 步）就不管。否则从新到旧读各运行的 `journal.jsonl`，按 `agentId` 找 `started` 行拿到 label，`sitesFor(label, sites)` 找调用：字符串 label 精确匹配，模板和「prompt 开头」其次，运行时才算的 label 作通配，只在前两者都对不上时用。所有候选的 route 相同就用它；`script`（#8 已经写进脚本）只在候选带着同样的约束（`RunSite.terms`，#8 经 `workflowTerms` 交来）时写一份只有 `terms` 的计划，`set` 直接写计划（连同 `terms`），`runtime`、对不上或候选不一致时，`decideAtStart` 读 `agent-<agentId>.jsonl`（每 25 毫秒看一次，最多 400 毫秒）、用 `taskOf` 去掉引擎的外框，拼成一个只有一个调用的 `ParsedWorkflow`，同样经 `workflowBatches`、`readOutcomes` 问决策模型：你的话、摘要和次数取 `launch` 里存的（早先的 load 记的运行没有 `launch`，才读现在的 `said`），pplx 再带 `launch.script` 和 `launchConversation` 截到运行 `callId` 那条消息的对话，预算是 `agent`。写计划用 `agentPlan`：只在要换家族时写 model（`modelFamily(e.model)` 比较家族，因为引擎重试后会出现 `claude-sonnet-5` 这样的 ID），写完整 ID。
 
 几处要留意的引擎行为：
 

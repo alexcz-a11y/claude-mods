@@ -281,6 +281,33 @@ test("Jev's context budget by default, kind of request by kind, keeps the state 
   expect(readConfig({ decisionModel: 'jev', contextTokens: most }).context.tokens).toBe(6000)
 })
 
+/** pplx's input limit: "Under 262,144, counting `state`, images, and every question" (docs.perplexity.ai/docs/decisions/quickstart, Request limits). */
+const PPLX_LIMIT = 262_144
+/**
+ * pplx's tokens for each the mod estimates, at worst: 1.8-2.2 on prose, 2.2-2.3 on code (2026-10-13), 2.9-3.3 on text
+ * like a log (#43; DEVELOPMENT.md, 「pplx 的 agent 预算」).
+ */
+const PPLX_REAL_PER_ESTIMATED = 3.3
+
+test("pplx's budgets by default keep every kind of request well within its 262,144-token input limit: the time it answers in sets them, not the window", () => {
+  const config = readConfig({ decisionModel: 'pplx' })
+  const questions = (part: { questions: Record<string, unknown> }) => Object.values(part.questions).reduce((sum: number, question) => sum + estimateTokens(JSON.stringify(question)) * PPLX_REAL_PER_ESTIMATED, 0)
+  const mentions = { user_message: 'Use opus, ask for effort max, do not use haiku, sonnet is fine for the rest', agent_type: 'general-purpose', description: 'd', prompt: 'p', requested_model: 'sonnet' }
+  const agent = questions(dispatchPart(mentions, { models: [...DEFAULT_AGENT_MODELS, 'fable'] }))
+  const kinds = {
+    'a message, skills off': { budget: config.contextByKind.messagePlain, questions: questions(withUnresolved(turnStartEffortPart({ language: 'en' }), 'en')) },
+    'a mid-turn re-decision': { budget: config.midturn.limits.tokens, questions: questions(midturnEffortPart({}, { trouble: true })) + questions(expectedFailurePart({})) },
+    'a dispatched agent': { budget: config.contextByKind.agent, questions: agent },
+    // At most 8 calls share a request, each with the questions of an agent.
+    'a Workflow request': { budget: config.contextByKind.workflow, questions: 8 * agent },
+  }
+  const over = Object.entries(kinds).flatMap(([kind, { budget, questions: asked }]) => (budget * PPLX_REAL_PER_ESTIMATED + asked > PPLX_LIMIT * USED ? [`${kind}: ${Math.round(budget * PPLX_REAL_PER_ESTIMATED + asked)}`] : []))
+  expect(over).toEqual([])
+  // What pplx answers within the 8000 ms a request waits: a Workflow's one request 48000 (4.3-5.9 s alone), a dispatched
+  // agent's 32000 (five at once within 5.2 s; three at 48000 took up to 7.6 s).
+  expect([config.contextByKind.workflow, config.contextByKind.agent, config.timeoutMs]).toEqual([48000, 32000, 8000])
+})
+
 test("with Jev, a dispatched agent's state and a mid-turn re-decision's message take up to 24000 tokens (a Workflow's briefs too): their questions are short", { options: { ...JEV, rejudgeEvery: 1 } }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]) })
   await w.submit(LONG)
@@ -447,8 +474,10 @@ test('readConfig for pplx: its row of the table stands where the person set noth
   const config = readConfig({ decisionModel: 'pplx' })
   expect(config.backend).toBe('pplx')
   expect([config.timeoutMs, config.context, config.midturn.waitMs, config.skills.findWaitMs]).toEqual([8000, { messages: 2000, tokens: 6000 }, 6000, 6000])
-  // Every kind of request but the skills' takes 48000 tokens; the skills' two stages stay at 6000.
-  expect(config.contextByKind).toEqual({ messagePlain: 48000, rejudge: 48000, agent: 48000, workflow: 48000 })
+  // Every kind of request but the skills' takes 48000 tokens, a dispatched agent's 32000 (agents go out several at once:
+  // DEVELOPMENT.md, pplx 的 agent 预算); the skills' two stages stay at 6000. An agent's request carries its background.
+  expect(config.contextByKind).toEqual({ messagePlain: 48000, rejudge: 48000, agent: 32000, workflow: 48000 })
+  expect(config.agents.background).toBe(true)
   expect(config.midturn.limits).toEqual({ steps: 16, tokens: 48000 })
   expect(config.midturn.rules).toEqual({ thetaUp: 0, thetaDown: 0.55, thetaMax: 0.47, roundUp: 0.45, holdSteps: 5 })
   expect([config.thetaMax, config.roundUp]).toEqual([0.47, 0.45])
@@ -463,7 +492,7 @@ test('readConfig for pplx: its row of the table stands where the person set noth
 test("readConfig for pplx: a value the person sets comes first, within pplx's own most (2000 messages, 48000 tokens, 8000 ms)", () => {
   const config = readConfig({ decisionModel: 'pplx', timeoutMs: 3000, contextMessages: 5000, contextTokens: 60000, rejudgeWaitMs: 500, thetaMax: 0.6 })
   expect([config.timeoutMs, config.context.messages, config.midturn.waitMs, config.thetaMax]).toEqual([3000, 2000, 500, 0.6])
-  expect(config.contextByKind).toEqual({ messagePlain: 48000, rejudge: 48000, agent: 48000, workflow: 48000 })
+  expect(config.contextByKind).toEqual({ messagePlain: 48000, rejudge: 48000, agent: 32000, workflow: 48000 })
   expect(config.defaults.capped).toHaveLength(2)
   expect(config.defaults.capped).toContainEqual({ option: 'contextMessages', set: 5000, read: 2000 })
   expect(config.defaults.capped).toContainEqual({ option: 'contextTokens', set: 60000, read: 48000 })

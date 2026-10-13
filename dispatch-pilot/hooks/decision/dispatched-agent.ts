@@ -9,7 +9,7 @@
 // whose options describe the work each suits (jev-pilot's measured wording),
 // the effort a Score with the levels every effort question shares.
 
-import { clipToTokens, estimateTokens, withinTokens } from './context.ts'
+import { clipToTokens, estimateTokens, recentWithin, withinTokens } from './context.ts'
 import { DEFAULT_ASK, EFFORTS, effortQuestion, levelsText, pickEffort, probsOf, readEffort, traceEffort, type Effort, type EffortAsk, type EffortRules, type EffortTrace, type EffortReading, type Language } from './effort.ts'
 import { failureText, type Failure } from './backend.ts'
 import { redactSecrets } from './redact.ts'
@@ -45,6 +45,13 @@ export type Dispatch = {
   problem_summary?: string
   /** How many times the person has said the problem is still unresolved; absent while it is 0 (#41). */
   unresolved_count?: number
+  /**
+   * The conversation the agent was dispatched from, oldest first, a line per message (context.ts `recentLines`: the
+   * text and the tools' names, never a tool's input or output): what the main agent worked from when it wrote the
+   * brief. Sent in what the brief and the person's words leave of the budget, newest first. Absent: none is sent
+   * (Jev, whose decision model does not read it: BACKEND_DEFAULTS `agentBackground`; the eval's items have none).
+   */
+  recent_context?: readonly string[]
 }
 
 /** How the questions are asked: eval variables (spec #70, guide §4.2); the defaults are the spec's. */
@@ -364,7 +371,7 @@ export function dispatchPart(dispatch: Dispatch, shape: DispatchShape = {}): Par
 }
 
 /** The person's words take at most this share of the state's budget; the brief has the rest. */
-const WORDS_SHARE = 1 / 3
+export const WORDS_SHARE = 1 / 3
 /** A text cut to fit keeps this share of its budget for its end. */
 const TAIL_SHARE = 0.3
 
@@ -385,18 +392,21 @@ export function dispatchBrief(dispatch: Dispatch, tokens: number): Record<string
  * The state of a request about one agent: `{ brief, user_message }`, the
  * brief first (what every question is about), within `tokens` as it is sent
  * (`withinTokens`). The person's words take at most a third of the budget;
- * the brief has the rest.
+ * the brief has the rest; the conversation it was dispatched from
+ * (`recent_context`), when there is one, fills what the two leave.
  */
 export function dispatchState(dispatch: Dispatch, tokens: number, field: string = BRIEF): State {
   return withinTokens((budget) => {
     const words = dispatchWords(dispatch.user_message, budget)
-    return {
+    const state: State = {
       [field]: dispatchBrief(dispatch, budget - estimateTokens(words)),
       user_message: words,
       // The background the main agent works from: read by the decision model, never with a hint (#41).
       ...(dispatch.problem_summary ? { [SUMMARY_FIELD]: dispatch.problem_summary } : {}),
       ...(dispatch.unresolved_count ? { [COUNT_FIELD]: dispatch.unresolved_count } : {}),
     }
+    const recent = recentWithin(dispatch.recent_context ?? [], budget - estimateTokens(JSON.stringify(state)))
+    return recent === '' ? state : { ...state, recent_context: recent }
   }, tokens)
 }
 

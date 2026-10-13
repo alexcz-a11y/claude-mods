@@ -177,7 +177,7 @@ test("with the key from the environment a dispatched agent's max needs pplx's 0.
   expect(w.steps.map((s) => s.effort)).toEqual(['max'])
 })
 
-test('pplx chosen by the key from the environment is still paced at pplxQps (1 a second by default); Jev, the way back, is not', { options: { typesafeApiKey: 'ts-test-key' } }, async ($, on) => {
+test('pplx chosen by the key from the environment is still paced at pplxQps (here 1 a second); Jev, the way back, is not', { options: { typesafeApiKey: 'ts-test-key', pplxQps: 1 } }, async ($, on) => {
   const w = world($, on, { env: { PERPLEXITY_API_KEY: 'env-key' }, backend: either([0, 1, 0, 0, 0]) })
   await w.submit('先看看这个函数')
   const second = w.submit('再看看另一个函数')
