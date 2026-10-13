@@ -947,16 +947,25 @@ function elapsed(board: Board, turn: number, ms: number): number {
 
 // ---- the turn count and the loops' lifecycle ------------------------------------
 
-/** The board when a main turn starts at `now`: the count up by one, the nodes of older turns gone (the turn before it stays: it is folded into one line). */
+/**
+ * The board when a main turn starts at `now`: the count up by one, the nodes of older turns gone (the turn before it
+ * stays: it is folded into one line). A node still running or queued stays in its turn, with that turn's start, for as
+ * long as the log keeps its decisions (`LOG_TURNS`): a Workflow's agents, and its calls whose agents have not started,
+ * outlive the turn that launched it while the person goes on talking. A stopped Workflow's agents end (`turn.complete`,
+ * `aborted`); the calls of agents it never started stay queued until then, and the screens leave them out.
+ */
 export function startTurn(board: Board | undefined, now: number): Board {
   const turn = (board?.turn ?? 0) + 1
   const kept = (of: number) => of >= turn - 1
+  // The main agent's turn is over when the next one starts, whatever its node says.
+  const live = (node: BoardNode) => node.id !== 'main' && (node.state === 'running' || node.state === 'queued') && node.turn > turn - LOG_TURNS
+  const nodes = (board?.nodes ?? []).filter((node) => kept(node.turn) || live(node))
   return {
     turn,
-    starts: [...(board?.starts ?? []).filter((start) => kept(start.turn)), { turn, at: now }],
+    starts: [...(board?.starts ?? []).filter((start) => kept(start.turn) || nodes.some((node) => node.turn === start.turn)), { turn, at: now }],
     ...(board?.changes === undefined ? {} : { changes: board.changes.filter((change) => kept(change.turn)) }),
     ...(board?.notes === undefined ? {} : { notes: board.notes.filter((note) => kept(note.turn)) }),
-    nodes: (board?.nodes ?? []).filter((node) => kept(node.turn)),
+    nodes,
   }
 }
 
