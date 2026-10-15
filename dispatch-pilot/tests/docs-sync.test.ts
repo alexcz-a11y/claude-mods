@@ -11,7 +11,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { BACKEND_DEFAULTS } from '../hooks/core/setup.ts'
-import { checkConfigTable, checkOneWriter, checkStructureTree } from '../eval/lib/docs.ts'
+import { checkConfigTable, checkOneWriter, checkStructureTree, checkSwitchList, declaredSwitches } from '../eval/lib/docs.ts'
 
 /** The decision models' defaults as these tests state them. */
 const DEFAULTS = {
@@ -185,6 +185,51 @@ test('a module the tree does not list, and a line for a module that is gone, are
   expect(problems).toHaveLength(2)
   expect(problems[0]).toMatch(/`core\/commands\.ts`.*no line/)
   expect(problems[1]).toMatch(/`core\/prompts\.ts`.*no such module/)
+})
+
+// The README's list of `/dp <功能>` switches against the switches the code defines (#66): a switch that is added
+// (visual-check, screenshot-takeover, image-routing) is named in the list.
+
+/** Sources that define switches with a name in quotes, with a constant of the same file, and with a constant that is exported. */
+const SWITCH_SOURCES = {
+  'features/a.ts': "defineSwitch({ name: 'main-effort', info: 'x' })",
+  'features/b.ts': "const SWITCH = 'visual-check'\nfunction register() {\n  defineSwitch({ name: SWITCH, info: 'x', parts: ['checks'] })\n}",
+  'features/c.ts': "export const IMAGE_ROUTING_SWITCH = 'image-routing'\ndefineSwitch({ name: IMAGE_ROUTING_SWITCH, info: 'x', default: false })\nconst NOT_A_SWITCH = 'elsewhere'",
+}
+
+/** A README whose 「控制」 section lists these switches in the sentence that starts with 功能的开关是. */
+function controls(names: readonly string[]): string {
+  return ['## 控制', '', '- 命令在一轮进行中也立即执行。', `- 功能的开关是${names.map((name) => `\`${name}\``).join('、')}；其余默认开着。`, '- 开关保存下来。', ''].join('\n')
+}
+
+test('the switches the code defines are found, whether the name is in quotes or in a constant of the file', () => {
+  expect(declaredSwitches(SWITCH_SOURCES).sort()).toEqual(['image-routing', 'main-effort', 'visual-check'])
+})
+
+test('a list that names every switch passes', () => {
+  expect(checkSwitchList(controls(['main-effort', 'visual-check', 'image-routing']), ['main-effort', 'visual-check', 'image-routing'])).toEqual([])
+})
+
+test('a switch the list leaves out is named', () => {
+  const problems = checkSwitchList(controls(['main-effort']), ['main-effort', 'screenshot-takeover'])
+  expect(problems).toHaveLength(1)
+  expect(problems[0]).toContain('`screenshot-takeover`')
+})
+
+test("a name that merely sits inside another switch's name does not count as listed", () => {
+  const problems = checkSwitchList(controls(['skill-profiles']), ['skills', 'skill-profiles'])
+  expect(problems).toHaveLength(1)
+  expect(problems[0]).toContain('`skills`')
+})
+
+test('a name in the list that no code defines is left over from a switch that was removed or renamed', () => {
+  const problems = checkSwitchList(controls(['main-effort', 'old-switch']), ['main-effort'])
+  expect(problems).toHaveLength(1)
+  expect(problems[0]).toContain('`old-switch`')
+})
+
+test('a README with no such sentence is one problem, not one for each switch', () => {
+  expect(checkSwitchList('## 控制\n\n- 命令\n', ['main-effort', 'visual-check'])).toEqual(['the README has no sentence that starts with "功能的开关是"'])
 })
 
 // ADR 0004: the decision report is the one writer of what people see, and no screen of the mod is the status row

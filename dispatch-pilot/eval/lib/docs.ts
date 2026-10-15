@@ -143,6 +143,37 @@ export function checkStructureTree(development: string, modules: readonly string
   ]
 }
 
+/**
+ * The switches the code defines (`sources`: text by path relative to hooks/): the `name` of every `defineSwitch({ ... })`,
+ * a string in quotes or a constant of the same file (`const SWITCH = 'visual-check'`).
+ */
+export function declaredSwitches(sources: Readonly<Record<string, string>>): string[] {
+  const names = new Set<string>()
+  for (const text of Object.values(sources)) {
+    for (const [, name] of text.matchAll(/defineSwitch\(\s*\{\s*name:\s*([^,\s}]+)/g)) {
+      const literal = /^(['"])(.*)\1$/.exec(name ?? '')?.[2]
+      const constant = literal === undefined ? new RegExp(`const\\s+${name}\\s*=\\s*(['"])([^'"]*)\\1`).exec(text)?.[2] : undefined
+      const found = literal ?? constant
+      if (found !== undefined) names.add(found)
+    }
+  }
+  return [...names]
+}
+
+/**
+ * The README's list of `/dp <功能>` switches against the switches the code defines (`declared`, from declaredSwitches):
+ * the sentence that starts with 功能的开关是 (up to its first 。 or ；) names each of them in backticks, and nothing else.
+ */
+export function checkSwitchList(readme: string, declared: readonly string[]): string[] {
+  const sentence = /功能的开关是([^。；\n]*)/.exec(readme)?.[1]
+  if (sentence === undefined) return ['the README has no sentence that starts with "功能的开关是"']
+  const listed = [...sentence.matchAll(/`([^`]+)`/g)].map((match) => match[1] ?? '')
+  return [
+    ...declared.filter((name) => !listed.includes(name)).map((name) => `\`${name}\`: a switch the code defines, but the README's list of switches (功能的开关是) does not name it`),
+    ...listed.filter((name) => !declared.includes(name)).map((name) => `\`${name}\`: in the README's list of switches (功能的开关是), but the code defines no such switch`),
+  ]
+}
+
 /** The host closure through which a feature's report raises a toast (core/report.ts `ReportIo.toast`): the one way to `$.ui.toast`. */
 const TOAST_CLOSURE = 'toast: (text) => $.ui.toast(text)'
 

@@ -1,6 +1,6 @@
 // Checks eval datasets against their format (lib/datasets.ts states it), the
 // README's configuration table against plugin.json and the decision models'
-// defaults, DEVELOPMENT.md's 「结构」 tree against the modules under hooks/, and
+// defaults, its list of switches against the switches the code defines, DEVELOPMENT.md's 「结构」 tree against the modules under hooks/, and
 // that only the decision report writes the screens (lib/docs.ts): the checks of the docs a test file cannot make, for it cannot
 // read the files.
 //
@@ -10,7 +10,7 @@
 //   node dispatch-pilot/eval/validate.ts path/to/skill.jsonl  a file elsewhere (skill-catalog.json beside it)
 //   node dispatch-pilot/eval/validate.ts eval-v2              only eval v2 (#45): every file under eval/datasets/eval-v2/, and
 //                                                             eval-v2.jsonl built again against eval-v2/generated.json
-//   node dispatch-pilot/eval/validate.ts docs                 only the docs: the configuration table, the 「结构」 tree and the one-writer check
+//   node dispatch-pilot/eval/validate.ts docs                 only the docs: the configuration table, the list of switches, the 「结构」 tree and the one-writer check
 //
 // Exits 1 when any item or row breaks a rule; warnings (dataset-wide quotas, eval v2 not written in full yet) do not fail.
 
@@ -18,7 +18,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { validateDataset } from './lib/datasets.ts'
-import { checkConfigTable, checkOneWriter, checkStructureTree } from './lib/docs.ts'
+import { checkConfigTable, checkOneWriter, checkStructureTree, checkSwitchList, declaredSwitches } from './lib/docs.ts'
 import { longContextJsonl } from './long-context-items.ts'
 import { DATASETS_DIR, EVAL_V2_JSONL, MOD_DIR, catalogFor, checkPictures, datasetFile, readDataset, readManifest, validateEvalV2 } from './node.ts'
 
@@ -63,7 +63,12 @@ if (everything || positionals.includes('docs')) {
   console.log(`DEVELOPMENT.md structure tree: ${drift.length === 0 ? 'ok' : `${drift.length} problems`}`)
   for (const problem of drift) console.log(`  ${problem}`)
   if (drift.length > 0) failed = true
-  const writers = checkOneWriter(Object.fromEntries(modules.map((path) => [path, readFileSync(join(hooks, path), 'utf8')])))
+  const sources = Object.fromEntries(modules.map((path) => [path, readFileSync(join(hooks, path), 'utf8')]))
+  const switches = checkSwitchList(readFileSync(join(MOD_DIR, 'README.md'), 'utf8'), declaredSwitches(sources))
+  console.log(`README.md list of switches: ${switches.length === 0 ? 'ok' : `${switches.length} problems`}`)
+  for (const problem of switches) console.log(`  ${problem}`)
+  if (switches.length > 0) failed = true
+  const writers = checkOneWriter(sources)
   console.log(`hooks/ one writer of the screens (ADR 0004): ${writers.length === 0 ? 'ok' : `${writers.length} problems`}`)
   for (const problem of writers) console.log(`  ${problem}`)
   if (writers.length > 0) failed = true
