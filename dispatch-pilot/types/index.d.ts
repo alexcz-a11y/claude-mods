@@ -326,6 +326,15 @@ declare module 'claude-code' {
        * which restarts the module, does not let a burst out. Written by that limiter only (through `BackendIo.pace`).
        */
       pplxRate: number[]
+      /**
+       * When each loop began (core/loop-start.ts; GLOSSARY 循环), id `main` for the main agent (its latest turn's
+       * `turn.start`) or the agentId of a dispatched or Workflow agent (its `agent.spawn`, so a resumed run starts it
+       * again; its first `turn.start` when no spawn was seen), `$.clock.now()` ms. The images work (spec #55) tells an
+       * image the loop made from one that was there before it by a file's modification time against this: the screenshot
+       * takeover (#62) takes over the first kind, the routing's reference images (#64) are the second. Written by that
+       * module only.
+       */
+      loops: StateFamily<{ startedAt: number }>
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
       /**

@@ -23,6 +23,7 @@ import { type ImageFilesIo, type Loaded, type LoadedImage, loadImage, loadImages
 import { type RecordingFrames, readRecording } from '../core/video-frames.ts'
 import { report, type ReportIo } from '../core/report.ts'
 import { type CallTrouble, reportCall } from '../core/visual-check-report.ts'
+import { newWorkFile } from '../core/work-files.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 
@@ -53,28 +54,13 @@ const LOOK_YOURSELF = 'Look at the images yourself.'
  */
 const streaks: Streaks = new Map()
 
-/** The session's temporary directory for derived images, made on first use; it holds nothing that outlives the session. */
-let workDir: Promise<string> | undefined
-let fileCount = 0
-
 /** Everything one call needs of the engine, as closures (a module may not pass `$` across an import). */
 async function filesOf($: EngineInterface): Promise<ImageFilesIo> {
   return {
     run: (argv, init) => $.process.run(argv, init),
     readBytes: async (path) => (await $.fs.read(path, { as: 'bytes' })).base64,
-    newFile: async (extension) => {
-      workDir ??= (async () => {
-        const base = ((await $.env.get('TMPDIR').catch(() => undefined)) ?? '').trim() || '/tmp'
-        const dir = `${base.replace(/\/+$/, '')}/dispatch-pilot-${Math.floor(Math.random() * 0xffffffff).toString(16)}`
-        await $.process.run(['mkdir', '-p', dir])
-        return dir
-      })().catch((error: unknown) => {
-        // Not made (no CLI, a full disk): the next call tries again.
-        workDir = undefined
-        throw error
-      })
-      return `${await workDir}/image-${++fileCount}.${extension}`
-    },
+    // Derived images go to the session's directory in the mod's temporary directory (core/work-files.ts).
+    newFile: (extension) => newWorkFile({ run: (argv) => $.process.run(argv), tmpdir: () => $.env.get('TMPDIR'), sessionId: () => $.session.id() }, extension),
   }
 }
 

@@ -11,6 +11,7 @@ import type { Register } from 'claude-code'
 import { registerScreens } from './board/screens.tsx'
 import { registerCore } from './core/core.ts'
 import { registerReport } from './core/report.ts'
+import { registerLoopStart } from './core/loop-start.ts'
 import { setup } from './core/setup.ts'
 import { registerControl } from './features/control.ts'
 import { registerDispatchedAgents } from './features/dispatched-agents.ts'
@@ -20,6 +21,7 @@ import { registerMainEffort } from './features/main-effort.ts'
 import { registerMidturnEffort } from './features/midturn-effort.ts'
 import { registerUnresolved } from './features/unresolved.ts'
 import { registerVisualCheck } from './features/visual-check.ts'
+import { registerScreenshotTakeover } from './features/screenshot-takeover.ts'
 import { registerSkillProfiles } from './features/skill-profiles.ts'
 import { registerSkills } from './features/skills.ts'
 import { registerWorkflowAgents } from './features/workflow-agents.ts'
@@ -32,6 +34,9 @@ export const register: Register = (on, options) => {
   registerReport(on)
   // The screens draw the report's data (the band, the footer); no feature touches them.
   registerScreens(on)
+
+  // When each loop began (the screenshot takeover and the routing's reference images read it): no switch, no decision.
+  registerLoopStart(on)
 
   // Features, outermost first.
   registerControl(on, ctx)
@@ -49,6 +54,7 @@ export const register: Register = (on, options) => {
   registerSkills(on, ctx)
   registerFindSkill(on, ctx)
   registerVisualCheck(on, ctx)
+  registerScreenshotTakeover(on, ctx)
 
   // The core: always last.
   registerCore(on, ctx)

@@ -61,7 +61,9 @@ const percent = (p: number) => `${Math.round(p * 100)}%`
 export function tallyText(tally: CheckTally): string {
   const total = tally.passed + tally.failed + tally.unsure
   const base = `核对 ${total}：${tally.passed} 过 · ${tally.failed} 不过 · ${tally.unsure} 没把握`
-  return tally.takeovers === undefined || tally.takeovers === 0 ? base : `${base} · 接管 ${tally.takeovers}`
+  if (tally.takeovers === undefined || tally.takeovers === 0) return base
+  // An agent whose images were taken over and who has made no check yet: only the takeover's count (#62).
+  return total === 0 ? `接管 ${tally.takeovers}` : `${base} · 接管 ${tally.takeovers}`
 }
 
 /** One check in the person's words: `the title · is fully visible 过 97%（整图）`. */
