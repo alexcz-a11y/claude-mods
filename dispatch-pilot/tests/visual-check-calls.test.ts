@@ -67,15 +67,6 @@ test('a series of quality levels (sequence) is not supported yet: the call says 
   expect(w.requests).toHaveLength(0)
 })
 
-test('a recording is not supported yet: the checks are UNSURE and the reason says so', { options: JEV }, async ($, on) => {
-  const w = world($, on, { session: true, files: FILES, process: true, backend: jev([0, 1, 0, 0, 0]) })
-  await w.start()
-  const answer = await w.visualCheck({ images: ['/recordings/transition.mov'], checks: CHECKS })
-
-  expect(JSON.stringify(answer.result)).toContain('(/recordings/transition.mov is a recording, which visual_check cannot read yet: take screenshots of its frames)')
-  expect(w.requests).toHaveLength(0)
-})
-
 // ---- Who calls ---------------------------------------------------------------------------------------
 
 test('a dispatched agent calls it as the main agent does: the same request, the same answer', { options: JEV }, async ($, on) => {

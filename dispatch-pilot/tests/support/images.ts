@@ -151,6 +151,59 @@ export const mkdir: Program = (args, disk) => {
   return ok()
 }
 
+/** A recording the world's ffmpeg knows (#60): it is not a file of the disk (`files`), the program has it by path. */
+export type FakeVideo = {
+  seconds: number
+  width: number
+  height: number
+  /** Frames a second; the last frame lies one frame before the end. 30 when left out. */
+  fps?: number
+  /** The last frame lies this many seconds before the end (a screen recording whose picture stood still at the end); one frame when left out. */
+  gapAtEnd?: number
+}
+
+const clock = (seconds: number): string => {
+  const whole = Math.floor(seconds)
+  const hundredths = Math.round((seconds - whole) * 100)
+  const two = (n: number) => String(n).padStart(2, '0')
+  return `${two(Math.floor(whole / 3600))}:${two(Math.floor(whole / 60) % 60)}:${two(whole % 60)}.${two(hundredths)}`
+}
+
+/**
+ * ffmpeg, as far as the mod uses it, and as it answers (measured with ffmpeg 8.1.2): `ffmpeg -hide_banner -i file` alone prints
+ * the file's `Duration: HH:MM:SS.cc` among its notes on stderr and ends with exit code 1 ("At least one output file must be
+ * specified"); a file that is not there ends with 254 and "No such file or directory"; `-ss T -i file -frames:v 1 out.jpg` writes
+ * the first frame at or after T as a JPEG, and when there is none (T past the last frame) ends with 234 and writes nothing. The
+ * recordings are `videos`, by absolute path; the frames land on the disk, labelled `<recording> @<T>s`.
+ */
+export function ffmpeg(videos: Record<string, FakeVideo>): Program {
+  return (args, disk) => {
+    let input: string | undefined
+    let from = 0
+    const outputs: string[] = []
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i] as string
+      if (arg === '-i') input = args[++i]
+      else if (arg === '-ss') from = Number(args[++i])
+      else if (['-loglevel', '-frames:v', '-q:v', '-t', '-vf'].includes(arg)) i++
+      else if (!arg.startsWith('-')) outputs.push(arg)
+    }
+    if (input === undefined) return { exitCode: 1, stdout: '', stderr: 'Error: no input' }
+    const video = videos[absolute(input)]
+    if (video === undefined) return { exitCode: 254, stdout: '', stderr: `[in#0] Error opening input: No such file or directory\nError opening input file ${input}.\nError opening input files: No such file or directory\n` }
+    const out = outputs[0]
+    if (out === undefined) {
+      return { exitCode: 1, stdout: '', stderr: `Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '${input}':\n  Duration: ${clock(video.seconds)}, start: 0.000000, bitrate: 81 kb/s\n  Stream #0:0: Video: h264, ${video.width}x${video.height}, ${video.fps ?? 30} fps\nAt least one output file must be specified\n` }
+    }
+    const lastFrame = video.seconds - (video.gapAtEnd ?? 1 / (video.fps ?? 30))
+    if (from > lastFrame) return { exitCode: 234, stdout: '', stderr: 'Nothing was written into output file, because at least one of its streams received no packets.\n' }
+    const target = absolute(out)
+    if (!disk.dirs.has(parentOf(target))) return { exitCode: 254, stdout: '', stderr: `${out}: No such file or directory\n` }
+    disk.files.set(target, { format: 'jpeg', width: video.width, height: video.height, label: `${absolute(input)} @${from.toFixed(3)}s` })
+    return ok()
+  }
+}
+
 /**
  * macOS's sips, as far as the mod uses it, and as it answers (measured on macOS 26): `-g key` prints the file's path and then
  * `  key: value` (`<nil>` for what it cannot read); a file that is not an image is a warning on stderr and exit code 0; `-Z n`
