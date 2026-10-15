@@ -92,7 +92,7 @@ test('a Jev request without images is what it was: the current model, no assets,
   await jevBackend(KEY).ask(net.io, plain, 1500)
 
   const [sent] = net.seen
-  expect(sent?.body).toEqual({ model: 'jev-latest', state: { note: 'x' }, questions: plain.questions })
+  expect(sent?.body).toEqual({ model: 'jev-1.14.0', state: { note: 'x' }, questions: plain.questions })
   expect(Object.keys(sent?.headers ?? {}).sort()).toEqual(['authorization', 'content-type'])
 })
 

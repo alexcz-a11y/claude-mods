@@ -9,7 +9,7 @@
 //   node dispatch-pilot/eval/run.ts visual-check --ids anim-linear,anim-spring --variants mod --repeat 3
 //                                                                          only those items, each asked three times (--repeat)
 //
-// Options: --backend jev|pplx (jev), --model <id> (Jev's: jev-latest by default;
+// Options: --backend jev|pplx (jev), --model <id> (Jev's: the mod's pinned version by default, jev-1.14.0;
 // Perplexity's: pplx-decider-v1.1-27b by default, or pplx-decider-v1-27b; a run on it reads the mod's settings from
 // pplx's own row of the defaults table, core/setup.ts BACKEND_DEFAULTS: its questions, state budgets and timeout),
 // --variants en-score,zh-score (all), --languages zh,en (both), --ids a,b or

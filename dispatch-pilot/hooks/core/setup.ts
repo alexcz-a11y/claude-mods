@@ -128,10 +128,11 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
   roundUp: number
   /**
    * How the decision model is asked, language and kind of question (the eval's variables, `effort-submit` for the effort question
-   * beside a message): `turnStart` for that question, `other` for every other one (the mid-turn re-decision, a dispatched agent
-   * and a Workflow's, a stuck loop, the skills, the problem summary's text). Not options.
+   * beside a message, `subagent` for an agent's): `turnStart` for that question, `agent` for the questions about a dispatched agent
+   * and a Workflow's, `other` for every other one (the mid-turn re-decision, a stuck loop, the skills, the problem summary's text).
+   * Not options.
    */
-  ask: { turnStart: EffortAsk; other: EffortAsk }
+  ask: { turnStart: EffortAsk; agent: EffortAsk; other: EffortAsk }
   /**
    * What the state of each other kind of request may take, in estimated tokens (`contextTokens` is the message that carries the
    * skills' question). Not options: each is the most that kind's longest question leaves, worked out in DEVELOPMENT.md (配置,
@@ -202,8 +203,10 @@ const JEV_DEFAULTS: BackendDefaults = {
   // Raising is easy (DEVELOPMENT.md, 「按 AA 基准校正」): the level above the most probable one is taken from 0.3.
   roundUp: 0.3,
   // effort-submit on the current wording, one run each (2026-10-05): asked in Chinese, Chinese items 85% and English
-  // items 89%; asked in English, 79% and 78%. The questions asked later have no data in Chinese and stay in English.
-  ask: { turnStart: { language: 'zh', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
+  // items 89%; asked in English, 79% and 78%. An agent's questions are asked in Chinese since Jev 1.14 (the subagent eval of
+  // 2026-10-15, DEVELOPMENT.md 「Jev 1.14」: models-hint-zh 72/71% and again 72/72%, against models-hint's 71/68%; on 1.13 the
+  // Chinese wording had been the weaker, 67/64% and 65/65%). The other questions stay in English.
+  ask: { turnStart: { language: 'zh', primitive: 'score' }, agent: { language: 'zh', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
 }
 
 /**
@@ -251,7 +254,7 @@ const PPLX_DEFAULTS: BackendDefaults = {
   // (English questions) took the level sent too high from 18.5% to 13.0% with the recall of max unchanged (11 of 16); eval v2's
   // level too low went from 12.5% to 15.0%.
   roundUp: 0.45,
-  ask: { turnStart: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
+  ask: { turnStart: { language: 'en', primitive: 'score' }, agent: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
 }
 
 /** The defaults by decision model: the only place they are written. */
@@ -297,8 +300,11 @@ export type Config = EffortRules & {
   pplxQps: number
   /** How long a decision request may take before the prompt goes on without it. */
   timeoutMs: number
-  /** How the decision model is asked (BACKEND_DEFAULTS ask): `turnStart` the effort question beside each message, `other` every other question (`ctx.ask`). */
-  ask: { turnStart: EffortAsk; other: EffortAsk }
+  /**
+   * How the decision model is asked (BACKEND_DEFAULTS ask): `turnStart` the effort question beside each message, `agent` the
+   * questions about an agent (a dispatched agent's and a Workflow's, `dispatchSettings`), `other` every other question (`ctx.ask`).
+   */
+  ask: { turnStart: EffortAsk; agent: EffortAsk; other: EffortAsk }
   /**
    * What the decision model reads of the conversation: how many recent messages, how many tokens in all. The tokens are the
    * budget of a message that carries the skills' question (and of find_skill's first stage); the other kinds of request have
@@ -563,16 +569,17 @@ export function describeDefaults(config: Pick<Config, 'backend' | 'defaults'>): 
 /**
  * How an agent's model and effort are decided (decision/dispatched-agent.ts):
  * the same for a dispatched agent (#6) and a Workflow's agents (#8, #9), and
- * for the eval; `ask` is how its questions are written (the eval's variants).
+ * for the eval; its questions are asked as the decision model asks about an
+ * agent (`config.ask.agent`), and `ask` writes them otherwise (the eval's variants).
  */
-export function dispatchSettings(ctx: { config: Pick<Config, 'agents' | 'thetaMax' | 'roundUp'>; ask: EffortAsk }, ask: Partial<DispatchAsk> = {}): DispatchSettings {
+export function dispatchSettings(ctx: { config: Pick<Config, 'agents' | 'thetaMax' | 'roundUp' | 'ask'> }, ask: Partial<DispatchAsk> = {}): DispatchSettings {
   // Each read goes to `ctx`: a feature builds this when it registers, before the session start has settled the decision model.
   return {
     get models() {
       return ctx.config.agents.models
     },
     get ask() {
-      return { ...ctx.ask, ...ask }
+      return { ...ctx.config.ask.agent, ...ask }
     },
     get thetaOverride() {
       return ctx.config.agents.thetaOverride

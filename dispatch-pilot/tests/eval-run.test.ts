@@ -206,7 +206,7 @@ test("a run on Perplexity asks with pplx's own settings: the budgets, the timeou
     8000,
     { messages: 2000, tokens: 6000 },
     { messagePlain: 48000, rejudge: 48000, agent: 32000, workflow: 48000 },
-    { turnStart: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
+    { turnStart: { language: 'en', primitive: 'score' }, agent: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
   ])
   expect([pplx.thetaMax, pplx.roundUp, pplx.midturn.rules.thetaUp, pplx.midturn.waitMs, pplx.skills.findWaitMs]).toEqual([0.47, 0.45, 0, 6000, 6000])
   expect([jevSettings.backend, jevSettings.timeoutMs, jevSettings.thetaMax, jevSettings.roundUp, jevSettings.ask.turnStart.language]).toEqual(['jev', 1500, 0.5, 0.3, 'zh'])

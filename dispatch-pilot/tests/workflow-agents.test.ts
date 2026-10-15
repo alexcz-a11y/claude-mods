@@ -96,7 +96,8 @@ return { failing, lint }
   })
   await w.workflow({ script: triage })
 
-  expect(w.requests[0]?.body.questions['agent-0.model'].instructions.requested).toContain('opus')
+  // Jev is asked about an agent in Chinese since 1.14: the pick is the instructions' 指定.
+  expect(w.requests[0]?.body.questions['agent-0.model'].instructions['指定']).toContain('opus')
   expect(w.reached.map((r) => r.script)).toEqual([
     triage.replace("{ model: 'opus', label: 'list' }", "{ model: 'haiku', label: 'list', effort: 'high' }").replace("model: 'claude-opus-5-5' }", "model: 'claude-opus-5-5', effort: 'medium' }"),
   ])

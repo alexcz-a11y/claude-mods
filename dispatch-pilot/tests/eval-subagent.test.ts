@@ -57,9 +57,11 @@ const LONG: AgentItem = {
 
 /**
  * The request the eval sends for `item` in `language` (asked of no backend:
- * the request is all that is read), its suite built over `dataset`.
+ * the request is all that is read), its suite built over `dataset`; by default
+ * as `models-hint-zh`, the variant the mod asks Jev with since 1.14
+ * (core/setup.ts BACKEND_DEFAULTS `ask.agent`).
  */
-async function evalRequest(item: AgentItem, language: Language, options: PluginOptions = {}, dataset: readonly AgentItem[] = [item], variant = 'models-hint'): Promise<DecisionRequest> {
+async function evalRequest(item: AgentItem, language: Language, options: PluginOptions = {}, dataset: readonly AgentItem[] = [item], variant = 'models-hint-zh'): Promise<DecisionRequest> {
   let sent: DecisionRequest | undefined
   const ask: Ask = async (request) => {
     sent = request
@@ -152,7 +154,7 @@ for (const language of ['zh', 'en'] as const) {
     expect(Object.keys(forScan.questions)).toEqual(['agent-0.model', 'agent-0.effort', 'agent-1.model', 'agent-1.effort'])
     expect(forScan.state.brief_0).toEqual({ workflow_description: SCAN[language].workflow_description, label: 'scan:${pkg}', prompt: SCAN[language].prompt })
     // The pick the script wrote for the call is the main agent's: a hint in its model question.
-    expect(JSON.stringify(forScan.questions['agent-0.model'])).toContain('asked for opus')
+    expect(JSON.stringify(forScan.questions['agent-0.model'])).toContain('指定了 opus')
   })
 }
 

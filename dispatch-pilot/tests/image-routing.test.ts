@@ -74,7 +74,7 @@ test('with the switch on, a message without an image goes as it always did: one 
   expect(w.requests).toHaveLength(1)
   const sent = w.requests[0]
   expect(sent?.url).toBe('https://api.typesafe.ai/v1/systemone')
-  expect(sent?.body.model).toBe('jev-latest')
+  expect(sent?.body.model).toBe('jev-1.14.0')
   expect(Object.keys(sent?.body.state)).toEqual(['user_message', 'recent_context'])
   expect(Object.keys(sent?.body.questions)).toContain('effort.level')
   expect(sent?.body.assets).toBeUndefined()

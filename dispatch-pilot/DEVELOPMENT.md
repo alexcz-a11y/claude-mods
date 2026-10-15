@@ -553,6 +553,36 @@ Sonnet 5.5 在 low、medium、high、max 的指数是 36、41、47、56（Termin
 
 偏高比 0.75 低 3.5 和 1.5 个点，`en-score` 准确率回升 2.5、`zh-score` 回升 1.5，偏低仍低于对照组，但没有回到对照组的偏高。哪些在波动里：这次运行的 `picked`（没有经过门槛）本身就比上一次的 `aa-final` 准确率高 1.5 和 0.5、`en-score` 偏高低 1.5，说明运行之间有这么大的差；用这次自己的回答离线把门槛换回 0.75，`sent` 偏高是 18.0 和 17.5，所以 0.55 带来的差是 `en-score` −2.0、`zh-score` −1.5 个点，`en-score` 真实运行里的 −3.5 有一部分是运行波动。单次运行的波动约 ±2 个点，所以 `zh-score` 的偏高变化、准确率的两个回升、偏低的 +1.0 和 0 都不能当结论；站得住的只有两条：扫描里（同一批回答，没有抽样波动）偏高随 `thetaDown` 单调下降、偏低不动；偏高没有回到对照组的 11%–12%（差 4.5–5 个点，超出波动）。
 
+## Jev 1.14（2026-10-15）
+
+TypeSafe 在 2026-10-14 发布 `jev-1.14.0`（博客说各方面小幅改进，多语言提升最大；`jev-latest` 一周后才从 1.13 换过去），同时放出长上下文（请求头 `TypeSafe-Danger-Zone-Long-Context: true`，每个请求和每题都到 262k token，1.13 和 1.14 都能用；models 页说它更慢、不那么准）。用户的问题是：effort 和派出 agent 的问法、门槛要不要跟着改。做法是拿已存的 1.13 结果对照，只跑 1.14，每组只跑一遍；长对话的那一组按用户的要求用新的上下文窗口。结果文件都在 `eval/results/` 下，名字带 `jev114` 或 `jev113-long`，共花约 1.78 美元。
+
+**用户的决定**：不带图的 Jev 请求固定用 `jev-1.14.0`（`decision/jev.ts` 的 `JEV_MODEL`，不跟着 `jev-latest` 走：models 页的原话是 "If you have tuned confidence thresholds against one version, send that version's ID instead of the alias"）；派出 agent 和 Workflow 里的 agent 用中文问（`BACKEND_DEFAULTS` 的 `ask.agent`，pplx 仍是英文）；门槛不改；长上下文不给 mod 用（评测里能用：`run.ts --long-context`）。
+
+**只差版本的三套**（请求和 2026-10-07 的 1.13 两遍 r1/r2 逐字相同，数据集哈希一致；题本来就短，放大预算请求不变，只多一个请求头）。准确率是中文题 / 英文题：
+
+| 套 | 问法 | 1.13（两遍） | 1.14 | 读法 |
+|---|---|---|---|---|
+| effort-submit | `zh-score`（发消息时 Jev 的问法） | 86/86、88/85 | 85/83 | 持平，英文题略降 |
+| effort-midturn | `en-score`（中途重判 Jev 的问法） | 78/76、76/74 | 74/76 | 持平 |
+| subagent | `models-hint`（原来派出 agent 的问法，英文） | 69/65、70/67 | 71/68 | 持平 |
+| subagent | `models-hint-zh`（中文问） | 67/64、65/65 | 72/71，再跑一遍 72/72 | 1.14 上变好；选模型 81–83 → 88–89，effort 70–72 → 74 |
+
+1.14 的 p50 约 260 毫秒，1.13 约 290 毫秒。逐题配对的精确 McNemar 检验：`models-hint-zh` 1.14 对 1.13 是 19 对 7（只有一方判对的题数），p = 0.029；在 1.14 上中文问对英文问是 15 对 11 和 16 对 11，p ≈ 0.5，分不出高下，英文问法选模型还略好一点（89/90 对 88/89），中文问法定 effort 好 2–4 个点。换成中文是用户看了这些数字之后的决定。同样的两遍 1.14 中文问法，200 行里只有 3 行结果不同：Jev 几乎是确定的，多跑几遍不比多一些题有用。
+
+**长对话：eval-v2 的 120 题**（中文问法 `zh-score`，用现在的金标和门槛统一重判，分析脚本不在仓库里）：
+
+| | 旧上下文：最近 24000 token、32 条 | 整段对话：`--long-context --state-tokens 180000 --state-messages 5000` |
+|---|---|---|
+| 1.13 | 67.5%（J′，2026-10-08；决定性几轮只在 30/120 题的 state 里） | 64.2%（判高 15.0、判低 20.8） |
+| 1.14 | 没测 | 60.0%（判高 20.8、判低 19.2） |
+
+- 整段对话按 mod 的估算 7.8 万到 15.8 万 token，Jev 数下来平均 14.6 万、最多 19.5 万（中文对话 Jev 的计数约是估算的 1.17–1.2 倍）。120 题的决定性几轮都在 state 里。两组长上下文的请求逐字相同，延迟一样：p50 约 1.83 秒、最慢 2.8 秒，四分之三超过发消息时 Jev 等的 1500 毫秒。
+- 三组之间的差都不显著：旧上下文对 1.13 整段是 11 对 7（p = 0.48），1.13 整段对 1.14 整段是 12 对 7（p = 0.36），旧上下文对 1.14 整段是 18 对 9（p = 0.12）。重扫门槛，1.13 整段在 `roundUp` 0.2 时到 69.2%，1.14 整段最好 62.5%。能说的只有：长上下文没有让判断变好，而且慢过 mod 的等待，所以不开。
+- 这套题本身的分辨力有限：两个写金标的人 effort 完全一致的是 82.5%，落在对方可接受档位里的是 95.8%；102 题接受 2 档、17 题接受 3 档，一直答 xhigh 也能对 53.3%。120 题上几个百分点的差分不出来；要量出这种差，要更多的题，不是重复运行。
+- eval-v2 的 `zh-score` 同一个请求里还问了三选一题（`unresolved` 开着时 mod 的问法）；默认安装只问 effort（`zh-score-alone`）。各题独立判断，effort 的答案应该不受它影响，但严格说和默认安装发的请求不完全一样。
+- 没有用 long-context 套件（#44）：它的长对话是 `lib/long-filler.ts` 按模板生成的填充，用户的要求是喂进去的上下文都要有内容。
+
 ## 待评测
 
 **0.2.2（按 AA 基准校正）之后仍然没有数据的：** 往上取一档（0.3）、`thetaUp`/`holdSteps`（0.3、5）、各个下限（`thetaDown` 在 0.2.3 扫过，见上一节）只和 0.2.1 的规则各比了一次（见「按 AA 基准校正」的「评测迭代」），没有扫这些值；派出 agent 的模型文字是对着这 100 题调的，没有在没见过的请求上量；各种类的 state 预算（6000 和 24000）没有量延迟和准确率；报告开始的轮次（agent 交回的结果、任务通知）用的那一题没有专门的评测集，题和发消息时的相同，它们的 `user_message` 是报告文字而不是你的话，决策模型对这样的输入判得准不准没有数据。
@@ -608,7 +638,8 @@ node dispatch-pilot/eval/validate.ts docs                 # 只核对文档：RE
 node dispatch-pilot/eval/run.ts effort-submit --estimate  # 估算请求数、token 和费用，不发请求
 node dispatch-pilot/eval/run.ts effort-submit --label <名字>   # 用真实 Jev 跑一次评测，结果存进 eval/results/
 node dispatch-pilot/eval/run.ts effort-midturn --label <名字> [--variants en-score]   # 中途重判的评测（#14）
-node dispatch-pilot/eval/run.ts subagent --label <名字>   # 派出 agent 的模型和 effort（#15）：六个变体 × 中英，1200 个请求，Jev 约 0.13 美元（估算）；--variants models-hint-zh 只跑中文问法，200 个请求，约 0.03 美元
+node dispatch-pilot/eval/run.ts subagent --label <名字>   # 派出 agent 的模型和 effort（#15）：六个变体 × 中英，1200 个请求，Jev 约 0.13 美元（估算）；--variants models-hint-zh 只跑中文问法（选 Jev 时 mod 的问法），200 个请求，约 0.03 美元
+node dispatch-pilot/eval/run.ts eval-v2 --model jev-1.14.0 --long-context --state-tokens 180000 --state-messages 5000 --variants zh-score --label <名字>   # Jev 的长上下文（请求头 TypeSafe-Danger-Zone-Long-Context）：整段对话都进 state，120 个请求约 0.73 美元（见「Jev 1.14」）
 node dispatch-pilot/eval/run.ts skill --estimate          # skill 匹配（#16）：三个变体 × 中英，第二段按每条消息都发、短名单排满估算（上限：1308 个请求，约 0.90 美元；只跑 profiles-zh 是 436 个、约 0.37 美元）
 node dispatch-pilot/eval/run.ts skill --label <名字>      # 用真实 Jev 跑 skill 匹配，两段请求都发
 node dispatch-pilot/eval/run.ts visual-check --estimate    # 看图核对（#65）：24 题 × 2 个变体，图按像素算 token（`lib/estimate.ts`），不按 base64 的长度；约 64 个请求、0.014 美元

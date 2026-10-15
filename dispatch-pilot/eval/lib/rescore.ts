@@ -201,7 +201,7 @@ export function rescoreAgents(result: StoredAnswers, items: readonly AgentItem[]
   return result.summary.variants.flatMap(({ variant }) => {
     const variantAsk = AGENT_VARIANTS[variant]?.ask
     if (variantAsk === undefined) return []
-    const shape = { ...dispatchSettings({ config, ask: config.ask.other }, variantAsk), ...run }
+    const shape = { ...dispatchSettings({ config }, variantAsk), ...run }
     const decided = rowsOf(result, items, variant, 'p_effort').flatMap(({ item, language, detail }) => {
       const answers = answersOf(detail)
       const decision = decideDispatch(answers, item[language], shape)

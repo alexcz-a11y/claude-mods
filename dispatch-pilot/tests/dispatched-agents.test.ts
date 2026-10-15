@@ -110,8 +110,9 @@ test("the main agent's pick reaches the decision model as a hint, and stands unl
   await w.spawn({ prompt: 'Run `pnpm lint` and list the warnings by file. Do not fix anything.', model: 'opus' })
 
   expect(w.spawned.map((s) => s.model)).toEqual(['haiku', 'opus'])
+  // Jev is asked about an agent in Chinese since 1.14: the pick is the instructions' 指定.
   const instructions = w.requests[0]?.body.questions['agent.model'].instructions
-  expect(instructions.requested).toContain('opus')
+  expect(instructions['指定']).toContain('opus')
 })
 
 test("agentOverride sets how sure the decision model must be to replace the main agent's pick", { options: { ...KEY, agentOverride: 0.9 } }, async ($, on) => {
@@ -372,8 +373,9 @@ test("what the mod sends about an agent is exactly what the decision module buil
     workflow_description: null,
     label: null,
   }
-  const built = mergeParts(dispatchState(item, 2000), [dispatchPart(item)])
-  expect(w.requests[1]?.body).toEqual({ model: 'jev-latest', state: built.state, questions: built.questions })
+  // Jev is asked about an agent in Chinese since 1.14 (the eval's models-hint-zh).
+  const built = mergeParts(dispatchState(item, 2000), [dispatchPart(item, { ask: { language: 'zh' } })])
+  expect(w.requests[1]?.body).toEqual({ model: 'jev-1.14.0', state: built.state, questions: built.questions })
 })
 
 test('agentFable adds fable to the models the decision model may choose for an agent', { options: { ...KEY, agentFable: true } }, async ($, on) => {

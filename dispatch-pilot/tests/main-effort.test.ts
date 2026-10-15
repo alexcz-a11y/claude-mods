@@ -25,7 +25,7 @@ test('a message gets one Jev decision, and its turn goes out at the decided effo
   expect(request?.url).toBe('https://api.typesafe.ai/v1/systemone')
   expect(request?.method).toBe('POST')
   expect(request?.headers.authorization).toBe('Bearer ts-test-key')
-  expect(request?.body.model).toBe('jev-latest')
+  expect(request?.body.model).toBe('jev-1.14.0')
   expect(request?.body.state.user_message).toBe('把登录模块重构成三层，并补上测试')
   // One Score question with five levels, lowest first (low .. max)
   expect(Object.keys(request?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])

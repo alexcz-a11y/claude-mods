@@ -7,8 +7,13 @@ import { describeImages, placeImages } from './images.ts'
 import { readResponse, type DecisionRequest } from './system-one.ts'
 
 export const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
-/** The alias of the current Jev; pin a version id (`jev-1.13.0`) to keep calibrated thresholds stable. */
-export const JEV_MODEL = 'jev-latest'
+/**
+ * The Jev every decision without images is asked of: a version, not the `jev-latest` alias, so the thresholds stay those the
+ * eval measured on it (docs.typesafe.ai/models: "If you have tuned confidence thresholds against one version, send that
+ * version's ID instead of the alias"). 1.14 since 2026-10-15 (DEVELOPMENT.md 「Jev 1.14」): it ran the evals of 1.13 as well
+ * as 1.13 did, and the agents' questions in Chinese better. Move it when the eval says so.
+ */
+export const JEV_MODEL = 'jev-1.14.0'
 /**
  * The model a request with images is pinned to (#56, ADR 0008): the Box question is only in 1.14, and images are a
  * "Dreamer-ready" feature that may change from one version to the next, so it moves when the eval says so, not with `jev-latest`.

@@ -58,9 +58,10 @@ type AgentVariant = { ask: DispatchAsk; perRequest: number }
 
 /**
  * The variants by name: `<option names>-<the main agent's pick>[-single|-zh]`;
- * the first is how the mod asks today (DEFAULT_DISPATCH_ASK, MAX_PER_REQUEST).
- * `-zh` writes every question in Chinese (the decision module's own Chinese
- * questions), the request otherwise the same.
+ * the first is how the mod asks pplx today (DEFAULT_DISPATCH_ASK, MAX_PER_REQUEST),
+ * and `models-hint-zh` how it asks Jev since 1.14 (core/setup.ts BACKEND_DEFAULTS
+ * `ask.agent`). `-zh` writes every question in Chinese (the decision module's
+ * own Chinese questions), the request otherwise the same.
  */
 export const AGENT_VARIANTS: Readonly<Record<string, AgentVariant>> = {
   'models-hint': { ask: DEFAULT_DISPATCH_ASK, perRequest: MAX_PER_REQUEST },
@@ -86,7 +87,7 @@ function variantAsk(variant: string): DispatchAsk {
  * model must be to replace the main agent's pick.
  */
 function agentSettings(settings: Settings, ask: DispatchAsk): DispatchSettings {
-  return dispatchSettings({ config: settings, ask: settings.ask.other }, ask)
+  return dispatchSettings({ config: settings }, ask)
 }
 
 /** The request the mod sends about the item's dispatched agent in `language`, asked as `variant` says. */

@@ -200,7 +200,7 @@ test('with pplx, a run given by path is asked about with the script it runs and 
 // ---- the budgets (seam 2) -----------------------------------------------------------------------------------
 
 test('a script whose calls take several requests, sent together, keeps each within the budget for several at once; one request takes the larger one', () => {
-  const settings = dispatchSettings({ config: readConfig(PPLX), ask: DEFAULT_ASK })
+  const settings = dispatchSettings({ config: readConfig(PPLX) })
   const prompt = (i: number) => `Audit module m${i}: ${Array.from({ length: 900 }, (_, k) => `check the handler h${k} for unchecked input;`).join(' ')}`
   const scriptOf = (n: number) =>
     `export const meta = { name: 'audit', description: 'Audit every module', phases: [] }\n${Array.from({ length: n }, (_, i) => `await agent(${JSON.stringify(prompt(i))}, { label: 'audit-${i}' })`).join('\n')}\n`

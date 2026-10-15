@@ -104,7 +104,7 @@ test("a Workflow's requests and a mid-turn state keep within a budget the person
   const calls = Array.from({ length: 8 }, (_, i) => `const r${i} = await agent(${JSON.stringify(prompt)}, { label: 'step-${i}' })`).join('\n')
   const parsed = parseWorkflow(`export const meta = { name: 'big', description: 'Check every cache', phases: [] }\n${calls}\nreturn r0\n`)
   if (parsed === null) throw new Error('the script did not parse')
-  const { batches } = workflowBatches(parsed, PASTED, dispatchSettings({ config: readConfig({ decisionModel: 'jev', contextTokens: 2000 }), ask: DEFAULT_ASK }), 2000)
+  const { batches } = workflowBatches(parsed, PASTED, dispatchSettings({ config: readConfig({ decisionModel: 'jev', contextTokens: 2000 }) }), 2000)
   expect(batches.length).toBeGreaterThan(0)
   for (const batch of batches) expect(sentTokens(batch.request.state)).toBeLessThanOrEqual(2000)
 
@@ -152,7 +152,7 @@ test("with Jev, the effort question beside a message is written in Chinese; the 
   expect(Object.keys(w.withoutEffort[1]?.body.questions['skills.fits.0'].instructions)).toContain('question')
 })
 
-test("with Jev, the questions asked later stay in English: a mid-turn re-decision's and a dispatched agent's", { options: JEV }, async ($, on) => {
+test("with Jev, a mid-turn re-decision is asked in English and a dispatched agent in Chinese (since 1.14)", { options: JEV }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]) })
   await w.submit('先写一个失败的测试')
   await w.step({ index: 0, effort: 'medium', tools: [{ tool: 'Skill', input: { skill: 'tdd' } }] })
@@ -161,7 +161,7 @@ test("with Jev, the questions asked later stay in English: a mid-turn re-decisio
   const midturn = w.requests.find((request) => 'midturn.level' in request.body.questions)
   expect(Object.keys(midturn?.body.questions['midturn.level'].instructions)).toEqual(['question', 'rate'])
   const agent = w.requests.find((request) => 'agent.effort' in request.body.questions)
-  expect(Object.keys(agent?.body.questions['agent.effort'].instructions)).toContain('question')
+  expect(Object.keys(agent?.body.questions['agent.effort'].instructions)).toContain('问题')
 })
 
 test('skillsMinRelevance is 0.75 by default: a skill that fits at 0.72 is not suggested, one at 0.78 is', { options: JEV }, async ($, on) => {
@@ -413,7 +413,7 @@ const PPLX_OPTIONS = { decisionModel: 'pplx' }
 const reading = (probabilities: number[]): EffortReading => ({ probabilities, confidence: 0.8 })
 
 test("the round-up threshold is the decision model's: Jev takes the level above at 0.3, pplx at 0.45, and each reaches every rule that uses it", () => {
-  const roundUps = (config: ReturnType<typeof readConfig>) => [config.roundUp, config.midturn.rules.roundUp, dispatchSettings({ config, ask: config.ask.other }).roundUp]
+  const roundUps = (config: ReturnType<typeof readConfig>) => [config.roundUp, config.midturn.rules.roundUp, dispatchSettings({ config }).roundUp]
   expect(roundUps(readConfig({ decisionModel: 'jev' }))).toEqual([0.3, 0.3, 0.3])
   expect(roundUps(readConfig(PPLX_OPTIONS))).toEqual([0.45, 0.45, 0.45])
   // The settings are the effort rules' parameters as they are (what the main agent's feature and the eval hand `traceEffort`): the same answer, 0.3 above the most probable level.
@@ -421,14 +421,14 @@ test("the round-up threshold is the decision model's: Jev takes the level above 
   expect([readConfig({ decisionModel: 'jev' }), readConfig(PPLX_OPTIONS)].map((config) => traceEffort(answer, config).effort)).toEqual(['high', 'medium'])
 })
 
-test("how the questions are asked is the decision model's: with Jev the effort question beside a message in Chinese and every other in English, with pplx all in English", () => {
-  expect(readConfig({ decisionModel: 'jev' }).ask).toEqual({ turnStart: { language: 'zh', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
-  expect(readConfig(PPLX_OPTIONS).ask).toEqual({ turnStart: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
-  // `ctx.ask`, which every feature but the message's effort question asks with, is the table's "other".
+test("how the questions are asked is the decision model's: with Jev the effort question beside a message and an agent's questions in Chinese and every other in English, with pplx all in English", () => {
+  expect(readConfig({ decisionModel: 'jev' }).ask).toEqual({ turnStart: { language: 'zh', primitive: 'score' }, agent: { language: 'zh', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
+  expect(readConfig(PPLX_OPTIONS).ask).toEqual({ turnStart: { language: 'en', primitive: 'score' }, agent: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
+  // `ctx.ask`, which every feature but the message's effort question and an agent's asks with, is the table's "other".
   expect(setup({ decisionModel: 'jev' }).ask).toEqual({ language: 'en', primitive: 'score' })
   expect(setup(PPLX_OPTIONS).ask).toEqual({ language: 'en', primitive: 'score' })
   // A table whose `other` is Chinese reaches it (a decision model the table does not have yet).
-  const chinese = { ...BACKEND_DEFAULTS, jev: { ...BACKEND_DEFAULTS.jev, ask: { turnStart: { language: 'en', primitive: 'choice' }, other: { language: 'zh', primitive: 'score' } } } } as const
+  const chinese = { ...BACKEND_DEFAULTS, jev: { ...BACKEND_DEFAULTS.jev, ask: { turnStart: { language: 'en', primitive: 'choice' }, agent: { language: 'en', primitive: 'score' }, other: { language: 'zh', primitive: 'score' } } } } as const
   expect(setup({ decisionModel: 'jev' }, chinese).ask).toEqual({ language: 'zh', primitive: 'score' })
   expect(readConfig({ decisionModel: 'jev' }, chinese).ask.turnStart).toEqual({ language: 'en', primitive: 'choice' })
 })
@@ -485,7 +485,7 @@ test('readConfig for pplx: its row of the table stands where the person set noth
   expect([config.escalation.thetaExpected, config.agents.thetaOverride, config.skills.suggest.minRelevance, config.skills.find.minRelevance]).toEqual([0.25, 0.6, 0.75, 0.5])
   expect(config.skills.findByProfile).toBe(true)
   // Every question in English, the effort question beside a message too.
-  expect(config.ask).toEqual({ turnStart: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
+  expect(config.ask).toEqual({ turnStart: { language: 'en', primitive: 'score' }, agent: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
   expect(config.defaults.used.map(([option]) => option)).toEqual([...PER_BACKEND_OPTIONS])
 })
 

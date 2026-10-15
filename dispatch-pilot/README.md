@@ -127,7 +127,7 @@ claude plugin install dispatch-pilot@alex-mods --scope user
 
 key 只放在请求头里，不会出现在 debug log、看板、依据面板和 `$.state` 里；会话开始时 debug log 只写 key 从哪里来（选项还是环境变量），不写 key 本身。
 
-**Jev。** 想用 Jev，就把 `decisionModel` 设成 `jev`（在 `/config` 里选，或写进 `pluginConfigs`），再填 TypeSafe 的 API key `typesafeApiKey`，填法同上（配置对话框，或 stdin 的 JSON 里写 `typesafeApiKey`；环境变量 `TYPESAFE_API_KEY` 只用来放进 stdin，mod 本身不读它）。设成 `jev` 就始终用 Jev，哪怕也有 Perplexity 的 key。
+**Jev。** 想用 Jev，就把 `decisionModel` 设成 `jev`（在 `/config` 里选，或写进 `pluginConfigs`），再填 TypeSafe 的 API key `typesafeApiKey`，填法同上（配置对话框，或 stdin 的 JSON 里写 `typesafeApiKey`；环境变量 `TYPESAFE_API_KEY` 只用来放进 stdin，mod 本身不读它）。设成 `jev` 就始终用 Jev，哪怕也有 Perplexity 的 key。Jev 的决策固定用 `jev-1.14.0`，不跟着 `jev-latest` 走：门槛是在这个版本上量过的，TypeSafe 换版本时 mod 的行为不会悄悄变。
 
 **只有 TypeSafe 的 key 的老用户**不用改任何配置：`decisionModel` 没设（或设的是 `pplx`、已移除的 `clef`、拼错的值）又没有 Perplexity 的 key 时，用 Jev，每个会话的决策日志（`/dp` 打开的依据面板）里有一条「改用 Jev」写明原因。以后想换成 pplx，只要填上 Perplexity 的 key。
 
@@ -176,7 +176,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 
 选项留空就取决策模型的默认值：`timeoutMs`、`contextMessages`、`contextTokens`、`thetaMax`、`thetaUp`、`thetaDown`、`rejudgeSteps`、`rejudgeWaitMs`、`thetaExpected`、`agentOverride`、`skillsMinRelevance`、`findSkillMinRelevance` 这 12 项在 manifest 里没有默认值，所以 `/config` 里显示为空，你不设时 Dispatch Pilot 取表里你选的决策模型的那一列。你自己设了某一项，就用你设的值。会话开始时 debug log 会写一行哪些选项用了默认值。
 
-另有几个值也随决策模型而定，但不是选项，`/config` 里改不了，也不在下面的表里：往上取一档的门槛（高一档的概率达到它，就往上取一档；Jev 是 0.3，pplx 是 0.45），问题怎么问（语言和题型：Jev 发消息时判 effort 的那一题用中文，其余所有问题用英文；pplx 所有问题都用英文；都是 Score），以及 `contextMessages` 的上限（Jev 是 32，pplx 是 2000）。它们和上面那些默认值一起写在 `core/setup.ts` 的 `BACKEND_DEFAULTS`，评测和 mod 读的是同一张表。依据卡片的规则推演里，「上取一档」一步写的就是这里的门槛。
+另有几个值也随决策模型而定，但不是选项，`/config` 里改不了，也不在下面的表里：往上取一档的门槛（高一档的概率达到它，就往上取一档；Jev 是 0.3，pplx 是 0.45），问题怎么问（语言和题型：Jev 发消息时判 effort 的那一题和派出 agent（含 Workflow 里的）的问题用中文，其余问题用英文；pplx 所有问题都用英文；都是 Score），以及 `contextMessages` 的上限（Jev 是 32，pplx 是 2000）。它们和上面那些默认值一起写在 `core/setup.ts` 的 `BACKEND_DEFAULTS`，评测和 mod 读的是同一张表。依据卡片的规则推演里，「上取一档」一步写的就是这里的门槛。
 
 **pplx 的默认值**（B′，ADR 0006，`docs/adr/0006-dispatch-pilot-pplx-default-decision-model.md`；预算和限速见 ADR 0007）：pplx 一个请求最多收 262,144 token（state 加全部问题），不受 Jev 那 32k 的限制，但真正限制它的是时间：请求越长回答越慢（Perplexity 文档：9 万 token 约 5 秒、19 万约 14 秒、接近上限约 23 秒），而一次决策最多等 8000 毫秒（hook 自己的上限是 10 秒）。2026-10-13 实测，pplx 数的 token 约是 mod 估算的 2.2 倍，48000 估算 token 的 state 单发要 4.3–5.9 秒，72000 要 8.3–8.8 秒，已经超过等待时间。所以发消息时的 effort 题、中途重判和 Workflow 的一个请求各取 48000；派出 agent 常常几个一起派，每个请求又会被对话填满，同时发 5 个 32000 的都在 5.2 秒内答完，3 个 48000 的最慢要 7.6 秒，所以派出 agent 取 32000（Workflow 的调用分成几个请求时、以及 agent 启动时才判断的，每个请求也是 32000）。最近 2000 条消息（由 token 预算截断，不是条数），skill 的两段排序（它们带着每个 skill 的画像）仍是 6000，因为 B′ 没有评测过 skill 题。中途重判和 `find_skill` 各等 6000 毫秒。所有问题都用英文问。`thetaMax` 0.47、`thetaUp` 0、`thetaDown` 0.55 和往上取一档的 0.45 是按已存的 pplx 回答离线定的（DEVELOPMENT.md 的「eval v2 的结果」）：0.45 让日常消息判高从 18.5% 降到 13.0%，max 的召回不变。`thetaExpected`、`agentOverride` 和两个相关度门槛没有为 pplx 校准过，沿用 Jev 的值。用户自己设的值总是优先。
 
