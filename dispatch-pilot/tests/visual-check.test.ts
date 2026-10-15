@@ -53,6 +53,44 @@ test('with only a Perplexity key the tool is registered, and its description doe
   expect(tool?.description).not.toContain('enlarged')
 })
 
+// The engine cuts the description of an MCP tool to its first 4096 characters (Claude Code 2.1.300: "Tool "visual_check" description
+// truncated from 4445 to 4096 chars"), so what stands past that never reaches the model. Both versions have to fit.
+const ENGINE_DESCRIPTION_LIMIT = 4096
+
+for (const [name, options] of [['Jev', JEV], ['pplx', PPLX]] as const) {
+  test(`the ${name} description of visual_check fits what the engine passes on to the model`, { options }, async ($, on) => {
+    const w = world($, on, { session: true })
+    await w.start()
+    const description = w.tools.find((tool) => tool.name === TOOL)?.description ?? ''
+    expect(description.length).toBeGreaterThan(0)
+    expect(description.length).toBeLessThanOrEqual(ENGINE_DESCRIPTION_LIMIT)
+  })
+
+  // Should the description ever outgrow the limit again, the engine cuts the end: so what every call needs stands before the
+  // details of the zoomed re-check, of a series and of a recording.
+  test(`the ${name} description puts the guidance every call needs before the details`, { options }, async ($, on) => {
+    const w = world($, on, { session: true })
+    await w.start()
+    const description = w.tools.find((tool) => tool.name === TOOL)?.description ?? ''
+    const details = ['enlarged', 'quality level', 'screen recording', 'it can only look at the whole images'].map((marker) => description.indexOf(marker)).filter((at) => at >= 0)
+    expect(details.length).toBeGreaterThan(0)
+    const detailsStart = Math.min(...details)
+    for (const guidance of [
+      'Each check names one part of the image and one visible property of it',
+      'It cannot verify numbers (sizes, corner radii, color values, font weights): read those from the code or the runtime',
+      'PASS only means that nothing obviously wrong was seen',
+      'If the same check fails twice in a row, look at the image yourself before you change anything else',
+      'With look: true',
+      'look at the final result yourself once',
+      'in your final report',
+    ]) {
+      const at = description.indexOf(guidance)
+      expect(at, guidance).toBeGreaterThanOrEqual(0)
+      expect(at, guidance).toBeLessThan(detailsStart)
+    }
+  })
+}
+
 test('with neither key the tool is not registered: no decision model could take an image', async ($, on) => {
   const w = world($, on, { session: true })
   await w.start()

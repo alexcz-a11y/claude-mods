@@ -12,43 +12,48 @@ import { boxArea, type Box } from './zoom.ts'
 export const VISUAL_CHECK_TOOL = 'visual_check'
 export const VISUAL_CHECK_TOOL_CALLED = 'mcp__dispatch-pilot__visual_check'
 
+// The engine passes on only the first 4096 characters of an MCP tool's description (Claude Code 2.1.300; tests/visual-check.test.ts
+// holds both versions to it). So the guidance every call needs comes first, in this order, and the details of the zoomed re-check,
+// of a series and of a recording come last: if the description ever outgrows the limit again, only those are cut.
+
 const WHAT_IT_IS =
-  'Checks screenshots with a small, fast decision model and answers PASS, FAIL or UNSURE for each check you name, in about a second, so that you do not have to look at every image yourself. Use it to check your own work while you iterate on a UI, a 3D scene or a model; it is cheap, so call it often. Give one screenshot per call, and what it is checked against: a reference image, another screenshot, or a written spec.'
+  'Checks a screenshot with a small, fast decision model and answers PASS, FAIL or UNSURE for each check you name, so you do not have to look at every image yourself. Use it on your own work as you iterate on a UI, 3D scene or model; it is cheap, so call it often. One screenshot per call, checked against a reference image, another screenshot, or a written spec.'
 
 const HOW_TO_WRITE_CHECKS =
-  'Each check names one part of the image and one visible property of it. Against a reference or another screenshot the property is what to compare, e.g. part "the primary button", property "corner radius". Against a spec (or against nothing) it is the requirement, e.g. part "the tab bar", property "has four tabs". One property per check; any number of checks go in one call.'
+  'Each check names one part of the image and one visible property of it. Against a reference or another screenshot the property is what to compare (part "the primary button", property "corner radius"); against a spec, or nothing, it is the requirement (part "the tab bar", property "has four tabs"). One property per check.'
 
 const WHAT_IT_JUDGES =
-  'It judges coarse, visible differences well: an element missing or extra, text cut off, clear overlap or misalignment, a large change of color, a clearly different shape, whether a rendering feature (foam, fog, reflections) is present and how strong. It cannot verify numbers (sizes, corner radii, color values, font weights): read those from the code or the runtime. It cannot judge feel (easing, texture, polish): look at the image yourself.'
-
-/** With Jev: a part named in a check is cropped out of both images, enlarged and compared again (#59, ADR 0008). */
-const COMPARING_WITH_ZOOM =
-  'Against a reference or another screenshot, each part you name is also cropped out of both images, enlarged and compared again, so that subtle differences (a smaller corner radius) can be caught and a match can PASS. Name a part in every check: a check that names none is judged on the whole images only, where a match can never PASS. Pass same_view: true when both images show the same view, so that the same area is cropped from both; with false (a photo of a real object against your render) the part is cropped from each image on its own. With several references (photos from different sides) a check passes if any one of them shows the part as your screenshot does. A FAIL comes with the crops of the part. When both images show the same view, the tool also scans the whole image for a place where the two differ and reports it, with crops, even if no check named it.'
-
-/** With pplx: no boxes, so no zoom (#56, ADR 0008). */
-const COMPARING_COARSE =
-  'Against a reference or another screenshot it can only look at the whole images, so it catches only clear differences: a FAIL can be trusted, a match is at best UNSURE. Check subtle properties yourself.'
+  'It judges coarse visible differences well: a missing or extra element, cut-off text, clear overlap or misalignment, a large change of color, a clearly different shape, whether a rendering feature (foam, fog, reflections) is present and how strong. It cannot verify numbers (sizes, corner radii, color values, font weights): read those from the code or the runtime. It cannot judge feel (easing, texture, polish): look at the image yourself.'
 
 const READING_THE_ANSWER =
   'PASS only means that nothing obviously wrong was seen: it is not an acceptance. FAIL can be trusted. For UNSURE the answer includes the screenshot, scaled down: look at it yourself. If the same check fails twice in a row, look at the image yourself before you change anything else.'
 
 const LOOK =
-  'With look: true nothing is judged: the images in images come back scaled to a size you can read, for when you need to see a screenshot yourself.'
+  'With look: true nothing is judged: the images come back scaled to a size you can read, for you to see them yourself.'
+
+const BEFORE_YOU_FINISH =
+  'Before you hand your work to the user, look at the final result yourself once. Name the checks you ran, and what they said, in your final report.'
+
+/** With Jev: a part named in a check is cropped out of both images, enlarged and compared again (#59, ADR 0008). */
+const COMPARING_WITH_ZOOM =
+  'Against a reference or another screenshot, each part you name is also cropped out of both images, enlarged and compared again, so subtle differences are caught and a match can PASS. Name a part in every check: one that names none is judged on the whole images, where a match can never PASS. same_view: true means both images show the same view, so the same area is cropped from both; with false (a photo against your render) each image is cropped on its own. With several references (photos from several sides) a check passes if any one shows the part as your screenshot does. If both images show the same view, the whole image is also scanned for a place where they differ, and a place no check named is reported too, with crops.'
+
+/** With pplx: no boxes, so no zoom (#56, ADR 0008). */
+const COMPARING_COARSE =
+  'Against a reference or another screenshot it can only look at the whole images, so it catches only clear differences: a FAIL can be trusted, a match is at best UNSURE. Check subtle properties yourself.'
 
 /**
  * A recording (#60): the frames are cut with ffmpeg and sent together, in order of time. The counts are the backend's (the
  * description is a constant per backend, like the rest).
  */
 function recordings(frames: number): string {
-  return `images may also be a screen recording (.mov, .mp4, .webm, ...): ${frames} frames are cut from it, evenly through the part given by from_seconds and to_seconds (all of it by default), and judged together, so name the part with the motion and not a long recording. Check it against a spec or on the wording of the checks alone, not against a reference. Ask only coarse questions of motion: whether the element overshoots and springs back, whether it ends far from where it should, whether something appears or disappears. It cannot judge an easing curve or a slight stutter: look at those yourself. Word each check as what should be true ("the card settles without bouncing back"). It needs ffmpeg on this machine; without it the checks are UNSURE. For what is UNSURE, look at the recording with look: true.`
+  return `The images may also be a screen recording (.mov, .mp4, ...): ${frames} frames are cut from it, evenly through the part given by from_seconds and to_seconds (all of it by default), and judged together, so name the part with the motion. Check it against a spec or on the wording of the checks alone, not a reference. Ask only coarse questions of motion: whether the element overshoots and springs back, whether it ends far from where it should, whether something appears or disappears. It cannot judge an easing curve or a slight stutter: look at those yourself. Word each check as what should be true ("the card settles without bouncing back"). Needs ffmpeg on this machine; without it the checks are UNSURE (look at the recording with look: true).`
 }
-
-const BEFORE_YOU_FINISH =
-  'Before you hand your work to the user, look at the final result yourself once. Name the checks you ran, and what they said, in your final report.'
 
 /** What the model reads about the tool, by the decision model that takes its images. Constants: nothing of the session goes in. */
 export function visualCheckDescription(backend: BackendName): string {
-  return [WHAT_IT_IS, HOW_TO_WRITE_CHECKS, WHAT_IT_JUDGES, backend === 'jev' ? COMPARING_WITH_ZOOM : COMPARING_COARSE, backend === 'jev' ? SERIES_DESCRIPTION : SERIES_UNAVAILABLE, recordings(FRAME_COUNT[backend]), READING_THE_ANSWER, LOOK, BEFORE_YOU_FINISH].join(' ')
+  const jev = backend === 'jev'
+  return [WHAT_IT_IS, HOW_TO_WRITE_CHECKS, WHAT_IT_JUDGES, READING_THE_ANSWER, LOOK, BEFORE_YOU_FINISH, jev ? COMPARING_WITH_ZOOM : COMPARING_COARSE, jev ? SERIES_DESCRIPTION : SERIES_UNAVAILABLE, recordings(FRAME_COUNT[backend])].join(' ')
 }
 
 /** The tool's input schema. */
