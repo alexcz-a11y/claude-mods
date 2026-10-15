@@ -97,6 +97,26 @@ test('the estimate is the requests of the whole flow with their pictures: the fi
   expect((await visualCheckSuite(host).estimate?.(CUBE, 'zh', 'mod', settings))?.map((request) => Object.keys(request.questions))).toEqual([['complexity.level']])
 })
 
+test("an animation is read by the bars of a recording, as in the mod: PASS from 0.8, FAIL up to 0.4, and a screenshot's check keeps FAIL up to 0.2", async () => {
+  const ANIM: VisualCheckItem = {
+    ...base,
+    id: 'anim-spring',
+    kind: 'anim',
+    asked: {
+      frames: [{ file: 'anim/f-00.png', seconds: 0 }, { file: 'anim/f-01.png', seconds: 0.05 }],
+      spec: 'A card slides in.',
+      checks: ['a', 'b', 'c', 'd'].map((property) => ({ part: 'the card', property })),
+    },
+    gold: { holds: [true, true, false, false] },
+  }
+  const files = { ...FILES, '/set/anim/f-00.png': FILES['/set/ui/c1.png'], '/set/anim/f-01.png': FILES['/set/ui/c1.png'] }
+  const { decided } = await decide(ANIM, jev([0, 1, 0, 0, 0], { nouls: { 'check.0': 0.8, 'check.1': 0.79, 'check.2': 0.41, 'check.3': 0.4 } }), { files })
+  expect(decided).toMatchObject({ ok: true, prediction: { kind: 'checks', outcomes: [{ verdict: 'pass' }, { verdict: 'unsure' }, { verdict: 'unsure' }, { verdict: 'fail' }] } })
+
+  const still = await decide(UI, zoomBackend({ whole: { 'check.0': 0.4, 'check.1': 0.4 }, zoom: 0.4 }))
+  expect(still.decided).toMatchObject({ ok: true, prediction: { kind: 'checks', outcomes: [{ verdict: 'unsure' }, { verdict: 'unsure' }] } })
+})
+
 test('the reading of a group whose answer has no level is no answer either, with the reason', async () => {
   const { decided } = await decide(CUBE, () => ({ status: 200, body: { model: 'jev-1.14.0', answers: {}, usage: { input_tokens: 10, output_tokens: 0 } } }))
   expect(decided).toMatchObject({ ok: false, failure: expect.stringContaining('no complexity level') })

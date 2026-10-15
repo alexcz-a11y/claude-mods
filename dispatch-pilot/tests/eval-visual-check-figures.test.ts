@@ -148,10 +148,15 @@ test('an item with no answer is left out of the figures, not counted as a check'
 
 // ---- The bars --------------------------------------------------------------------------------------------------------------
 
-test("at the mod's bars (PASS from 0.9, FAIL up to 0.2) a probability gives the mod's own verdict; against a reference a whole image can only fail", () => {
+test("at the mod's bars for a screenshot (PASS from 0.8, FAIL up to 0.2) a probability gives the mod's own verdict; against a reference a whole image can only fail", () => {
   for (const trust of ['both', 'fail'] as const) {
-    for (const p of [null, 0, 0.1, 0.2, 0.21, 0.5, 0.89, 0.9, 0.95, 1]) expect(verdictAt(p, trust, 0.9, 0.2)).toBe(judge(p, trust).verdict)
+    for (const p of [null, 0, 0.1, 0.2, 0.21, 0.5, 0.79, 0.8, 0.89, 0.9, 0.95, 1]) expect(verdictAt(p, trust, 0.8, 0.2)).toBe(judge(p, trust).verdict)
   }
+})
+
+test('the bars swept include the mod\'s three sets: a screenshot (0.8, 0.2), a recording (0.8, 0.4) and a series (0.9, 0.2)', () => {
+  expect(SWEPT.passAt).toEqual(expect.arrayContaining([0.8, 0.9]))
+  expect(SWEPT.failAt).toEqual(expect.arrayContaining([0.2, 0.4]))
 })
 
 test('sweeping the bars says what other bars would have decided, from the probabilities each answer kept', () => {

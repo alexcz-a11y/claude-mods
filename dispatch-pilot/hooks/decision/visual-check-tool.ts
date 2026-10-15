@@ -20,7 +20,7 @@ const WHAT_IT_IS =
   'Checks a screenshot with a small, fast decision model and answers PASS, FAIL or UNSURE for each check you name, so you do not have to look at every image yourself. Use it on your own work as you iterate on a UI, 3D scene or model; it is cheap, so call it often. One screenshot per call, checked against a reference image, another screenshot, or a written spec.'
 
 const HOW_TO_WRITE_CHECKS =
-  'Each check names one part of the image and one visible property of it. Against a reference or another screenshot the property is what to compare (part "the primary button", property "corner radius"); against a spec, or nothing, it is the requirement (part "the tab bar", property "has four tabs"). One property per check.'
+  'Each check names one part of the image and one visible property of it. Against a reference or another screenshot the property is what to compare (part "the primary button", property "corner radius"); against a spec, or nothing, it is the requirement (part "the tab bar", property "has four tabs"). One property per check. Write each check against something visible in the image (another element, the edge of the frame, a marked target), not against pixel coordinates.'
 
 const WHAT_IT_JUDGES =
   'It judges coarse visible differences well: a missing or extra element, cut-off text, clear overlap or misalignment, a large change of color, a clearly different shape, whether a rendering feature (foam, fog, reflections) is present and how strong. It cannot verify numbers (sizes, corner radii, color values, font weights): read those from the code or the runtime. It cannot judge feel (easing, texture, polish): look at the image yourself.'

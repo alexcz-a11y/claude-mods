@@ -7,7 +7,7 @@
 import { type Asked, type Failure, failureText } from '../decision/backend.ts'
 import { imageRef, type Picture } from '../decision/images.ts'
 import { mergeParts, type DecisionRequest } from '../decision/system-one.ts'
-import { allUnsure, type Check, type CheckResult } from '../decision/visual-check.ts'
+import { allUnsure, STILL_BARS, type Bars, type Check, type CheckResult } from '../decision/visual-check.ts'
 import { cropLabel, type ShownPlace } from '../decision/visual-check-tool.ts'
 import { batchPairs, type Boxed, type Elsewhere, fallBack, judgeZoom, type LocatePlan, locatePlan, MAX_CROPPED_CHECKS, readLocated, readZoom, withinFailed, zoomRequest, type ZoomPair } from '../decision/visual-check-zoom.ts'
 import { type Box, cropRect, type Rect, sameView, scaleRect, unionBox } from '../decision/zoom.ts'
@@ -73,9 +73,10 @@ function rectsFor(subjects: ZoomSubjects, k: number, candidateBox: Box, otherBox
 
 /**
  * The zoomed re-check. `whole`: the answers of the whole images for each check, which stand for a check whose re-check failed
- * (only a fail is taken from them). `plan` and `located` come from the request that asked the Box questions.
+ * (only a fail is taken from them, by the bars of a screenshot). `plan` and `located` come from the request that asked the Box
+ * questions. `bars`: those the crops are judged by.
  */
-export async function zoomReview(deps: ZoomDeps, subjects: ZoomSubjects, checks: readonly Check[], whole: readonly CheckResult[], plan: LocatePlan, located: ReturnType<typeof readLocated>): Promise<ZoomOutcome> {
+export async function zoomReview(deps: ZoomDeps, subjects: ZoomSubjects, checks: readonly Check[], whole: readonly CheckResult[], plan: LocatePlan, located: ReturnType<typeof readLocated>, bars: Bars = STILL_BARS): Promise<ZoomOutcome> {
   const reasons = new Map<number, string>(plan.skipped)
   const pairs: ZoomPair[] = []
   const crops = new Map<ZoomPair, PairCrops>()
@@ -158,7 +159,7 @@ export async function zoomReview(deps: ZoomDeps, subjects: ZoomSubjects, checks:
   const failedBoxes: Box[] = []
   const results = checks.map((check, index): CheckResult => {
     const own = pairs.filter((pair) => pair.index === index)
-    const judged = judgeZoom(check, own.map((pair) => probabilities.get(pair) ?? null))
+    const judged = judgeZoom(check, own.map((pair) => probabilities.get(pair) ?? null), bars)
     const wholeAnswer = whole[index] as CheckResult
     if (judged === null) return fallBack(wholeAnswer, reasons.get(index) ?? 'the zoomed re-check could not be made')
     if (judged.verdict === 'fail') {
@@ -211,9 +212,9 @@ export type ImagePair = { candidate: LoadedImage; other: LoadedImage; sameView: 
  * A pair of images and the parts to compare in them, from the Box questions to the verdicts: asks the decision model where each
  * part is in both images (and where the images differ), cuts the crops, and judges each part on them. For any pair of images, with
  * no first request of the whole images before it (the quality series, #61, compares each two neighbours so). A check whose re-check
- * cannot be made ends unsure with the reason; nothing throws.
+ * cannot be made ends unsure with the reason; nothing throws. `bars`: those the crops are judged by.
  */
-export async function comparePair(deps: ZoomDeps, pair: ImagePair, checks: readonly Check[]): Promise<ZoomOutcome> {
+export async function comparePair(deps: ZoomDeps, pair: ImagePair, checks: readonly Check[], bars: Bars = STILL_BARS): Promise<ZoomOutcome> {
   const subjects: ZoomSubjects = { candidate: pair.candidate, others: [pair.other], names: ['other'], sameViews: [sameView(pair.sameView, pair.candidate, pair.other)] }
   const unasked = (reason: string, failure: Failure | null = null): ZoomOutcome => ({ results: allUnsure(checks, reason), failed: [], elsewhere: null, failure })
   const plan = locatePlan(subjects.names, subjects.sameViews, checks)
@@ -225,5 +226,5 @@ export async function comparePair(deps: ZoomDeps, pair: ImagePair, checks: reado
   })
   if (!asked.ok) return unasked(`the parts could not be located (${failureText(deps.backend, asked.failure)})`, asked.failure)
   const whole = allUnsure(checks, 'the whole images were not compared')
-  return zoomReview(deps, subjects, checks, whole, plan, readLocated(plan, asked.answers))
+  return zoomReview(deps, subjects, checks, whole, plan, readLocated(plan, asked.answers), bars)
 }

@@ -4,7 +4,7 @@
 
 import type { Failure } from '../decision/backend.ts'
 import { imageTokens } from '../decision/images.ts'
-import type { Check } from '../decision/visual-check.ts'
+import { SERIES_BARS, type Check } from '../decision/visual-check.ts'
 import { pairWaves } from '../decision/visual-check-sequence.ts'
 import type { LoadedImage } from './image-files.ts'
 import { comparePair, type ZoomDeps, type ZoomOutcome } from './zoom-review.ts'
@@ -33,7 +33,7 @@ export async function compareLevels(deps: ZoomDeps, levels: readonly LoadedImage
       ...(await Promise.all(
         wave.map(async (index): Promise<PairOutcome> => {
           const { from, to, candidate, other } = neighbours[index] as (typeof neighbours)[number]
-          return { from, to, outcome: await comparePair(deps, { candidate, other, sameView }, checks) }
+          return { from, to, outcome: await comparePair(deps, { candidate, other, sameView }, checks, SERIES_BARS) }
         }),
       )),
     )

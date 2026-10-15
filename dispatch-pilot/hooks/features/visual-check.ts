@@ -15,7 +15,7 @@ import { type Asked, type BackendIo, type BackendName, describeAsked, errorText,
 import { imageMegapixelBudget, PPLX_MAX_IMAGES, type Picture } from '../decision/images.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
 import { LOOK_IMAGE_LIMITS, limitsFor } from '../decision/image-fit.ts'
-import { allUnsure, comparedNames, forgetLoop, isCompared, noteResults, readWholeImage, wholeImageRequest, type Check, type CheckResult, type Comparison, type Streaks } from '../decision/visual-check.ts'
+import { allUnsure, comparedNames, forgetLoop, isCompared, noteResults, readWholeImage, RECORDING_BARS, wholeImageRequest, type Check, type CheckResult, type Comparison, type Streaks } from '../decision/visual-check.ts'
 import { locatePlan, readLocated, withBoxes } from '../decision/visual-check-zoom.ts'
 import { sameView } from '../decision/zoom.ts'
 import { attachmentsOf, type Attachment, zoomReview } from '../core/zoom-review.ts'
@@ -188,7 +188,7 @@ async function check(deps: Deps, input: VisualCheckInput): Promise<AnswerBlock[]
     // The frames of a recording, all in one request, in order of time: only the wording of the checks, or a spec, to judge them by.
     const { request, part } = framesRequest(comparison.kind === 'spec' ? comparison.spec : null, subjects.frames, checks)
     const asked = await deps.ask(request)
-    results = asked.ok ? readWholeImage(comparison, part, asked.answers, checks) : allUnsure(checks, failureText(deps.backend, asked.failure))
+    results = asked.ok ? readWholeImage(comparison, part, asked.answers, checks, RECORDING_BARS) : allUnsure(checks, failureText(deps.backend, asked.failure))
     if (!asked.ok) trouble = { kind: 'request', failure: { backend: deps.backend, ...asked.failure } }
   } else {
     // Stage 2, the first request: every check about the whole images, in one request.

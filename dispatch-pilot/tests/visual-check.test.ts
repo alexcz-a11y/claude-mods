@@ -77,6 +77,7 @@ for (const [name, options] of [['Jev', JEV], ['pplx', PPLX]] as const) {
     const detailsStart = Math.min(...details)
     for (const guidance of [
       'Each check names one part of the image and one visible property of it',
+      'Write each check against something visible in the image (another element, the edge of the frame, a marked target), not against pixel coordinates.',
       'It cannot verify numbers (sizes, corner radii, color values, font weights): read those from the code or the runtime',
       'PASS only means that nothing obviously wrong was seen',
       'If the same check fails twice in a row, look at the image yourself before you change anything else',
@@ -107,7 +108,7 @@ const ACCOUNT_CHECKS = [
   { part: 'the tab bar', property: 'shows four tabs' },
 ]
 
-test('the checks against a spec go to Jev in one request with the screenshot in its assets, and a probability of 0.9 or more is a PASS the answer reports in words', { options: JEV }, async ($, on) => {
+test('the checks against a spec go to Jev in one request with the screenshot in its assets, and a probability of 0.8 or more is a PASS the answer reports in words', { options: JEV }, async ($, on) => {
   const w = world($, on, { session: true, files: FILES, process: true, backend: jev([0, 1, 0, 0, 0], { nouls: { 'check.0': 0.95, 'check.1': 0.93 } }) })
   await w.start()
   const answer = await w.visualCheck({ images: [SHOT], spec: 'The Account screen of the app.', checks: ACCOUNT_CHECKS })
