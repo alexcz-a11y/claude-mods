@@ -43,6 +43,7 @@ const TERMS = { plugin: 'dispatch-pilot', key: 'workflowTerms' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
+const READINGS = { plugin: 'dispatch-pilot', key: 'referenceReadings' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'workflow-agents'
@@ -119,7 +120,7 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
       const { value: held } = isOn(UNRESOLVED_SWITCH) ? await $.state.get(COUNT) : { value: undefined }
       const recent = ctx.config.agents.background ? await conversationOf($, e.agentId) : []
       // What the session's reference images read as (#64): the latest reading, as text, the same for every call.
-      const reference = await sessionReading($)
+      const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
       const background: WorkflowBackground = {
         ...(held?.summary === undefined ? {} : { problem_summary: renderSummary(held.summary, ctx.ask.language) }),
         ...(held === undefined || held.count === 0 ? {} : { unresolved_count: held.count }),

@@ -50,7 +50,7 @@ export type ReadingResult =
   | { ok: false; reason: string; failure?: Failure }
 
 /** The reading of the latest group asked or reused; null before any. */
-export async function latestReading(store: Cell<ReferenceReadings>): Promise<ReferenceReading | null> {
+export async function latestReading(store: Pick<Cell<ReferenceReadings>, 'get'>): Promise<ReferenceReading | null> {
   const latest = ((await store.get()).value ?? []).at(-1)
   return latest === undefined ? null : { level: latest.level, images: latest.images }
 }

@@ -40,6 +40,7 @@ const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
 const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
+const READINGS = { plugin: 'dispatch-pilot', key: 'referenceReadings' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'dispatched-agents'
@@ -108,7 +109,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     // where the decision model reads it (BACKEND_DEFAULTS agentBackground).
     const recent = ctx.config.agents.background ? await conversationOf($, e.parentAgentId) : []
     // What the session's reference images read as (#64): the latest reading, as text.
-    const reference = await sessionReading($)
+    const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
     const lines = recent.length === 0 ? [] : (conversationUpTo(recent, ctx.config.context.messages, e.tool_use_id) ?? conversationUpTo(recent, ctx.config.context.messages) ?? [])
     const dispatch: Dispatch = {
       user_message: said.join('\n'),

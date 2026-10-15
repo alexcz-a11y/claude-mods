@@ -1,7 +1,7 @@
 // Checks eval datasets against their format (lib/datasets.ts states it), the
 // README's configuration table against plugin.json and the decision models'
 // defaults, its list of switches against the switches the code defines, DEVELOPMENT.md's 「结构」 tree against the modules under hooks/, and
-// that only the decision report writes the screens (lib/docs.ts): the checks of the docs a test file cannot make, for it cannot
+// that only the decision report writes the screens, and that `$` never crosses a file (lib/docs.ts): the checks of the docs a test file cannot make, for it cannot
 // read the files.
 //
 //   node dispatch-pilot/eval/validate.ts                      every eval/datasets/*.jsonl, eval v2, then the README's configuration table
@@ -18,7 +18,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { validateDataset } from './lib/datasets.ts'
-import { checkConfigTable, checkOneWriter, checkStructureTree, checkSwitchList, declaredSwitches } from './lib/docs.ts'
+import { checkConfigTable, checkEngineStaysHome, checkOneWriter, checkStructureTree, checkSwitchList, declaredSwitches } from './lib/docs.ts'
 import { longContextJsonl } from './long-context-items.ts'
 import { DATASETS_DIR, EVAL_V2_JSONL, MOD_DIR, catalogFor, checkPictures, datasetFile, readDataset, readManifest, validateEvalV2 } from './node.ts'
 
@@ -72,5 +72,9 @@ if (everything || positionals.includes('docs')) {
   console.log(`hooks/ one writer of the screens (ADR 0004): ${writers.length === 0 ? 'ok' : `${writers.length} problems`}`)
   for (const problem of writers) console.log(`  ${problem}`)
   if (writers.length > 0) failed = true
+  const engine = checkEngineStaysHome(sources)
+  console.log(`hooks/ \`$\` stays in its file: ${engine.length === 0 ? 'ok' : `${engine.length} problems`}`)
+  for (const problem of engine) console.log(`  ${problem}`)
+  if (engine.length > 0) failed = true
 }
 process.exit(failed ? 1 : 0)

@@ -45,7 +45,7 @@ import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { givesHint } from '../decision/unresolved.ts'
 import { wasBlocked } from '../core/outcomes.ts'
 import { floorHeld, MAIN, redecided, turnKey, update, type Cell, type TurnRecord } from '../core/plans.ts'
-import { hintDecision } from '../core/unresolved.ts'
+import { hintDecision, type UnresolvedState } from '../core/unresolved.ts'
 import { report, type HintRecord, type NodeFailure, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
@@ -67,7 +67,7 @@ const SWITCH = 'midturn-effort'
 type ToolEnd = { name: string; detail: string; outcome: Exclude<Outcome, 'running'> }
 type StepRecord = { index: number; text: string; tools: ToolEnd[] }
 /** The feature's own record of a main turn (`midturn` in types/index.d.ts). */
-type MidturnRecord = {
+export type MidturnRecord = {
   steps: number
   engine: Effort | null
   askedFor: number | null
@@ -92,7 +92,7 @@ type Settings = {
 }
 
 /** A step of the main agent: its turn and its index. */
-type MainStep = { turnId: string; index: number }
+export type MainStep = { turnId: string; index: number }
 /** A tool call as it starts: its name and what it works on. */
 type Starting = { name: string; detail: string }
 
@@ -143,14 +143,50 @@ function settingsOf(ctx: Ctx): Settings {
  * (never for a locked turn, one the person did not start, or without a decision model), but not held to its schedule: once for the
  * step, replacing the request its schedule may have started for it, which did not know of the images. Never throws.
  */
-export async function judgeAgainWithReference($: EngineInterface, ctx: Ctx, reading: Promise<ReferenceReading | null>, reason: string): Promise<void> {
+export async function judgeAgainWithReference(io: LaunchIo, ctx: Ctx, reading: Promise<ReferenceReading | null>, reason: string): Promise<void> {
   try {
     if (!isOn(SWITCH)) return
-    const step = (await $.state.get(MAIN_STEP)).value ?? null
-    if (step !== null) await launch($, settingsOf(ctx), step, null, { reading, reason })
+    const step = await io.mainStep()
+    if (step !== null) await launch(io, settingsOf(ctx), step, null, { reading, reason })
   } catch (error) {
-    $.ui.log(`midturn: ${errorText(error)}`, { to: 'debug' })
+    io.debug(`midturn: ${errorText(error)}`)
   }
+}
+
+/** The failed calls and hook blocks the escalation feature counted for the main agent's turn (`escalation` in types/index.d.ts). */
+type Failures = { turnId: string; failures: number; hookBlocks: number; base: { failures: number; hookBlocks: number } }
+
+/** What a re-decision is asked from, read at once. */
+export type LaunchState = {
+  turn: TurnRecord | undefined
+  record: MidturnRecord | undefined
+  /** Whether the person's lock holds the effort: anything but null. */
+  lock: unknown
+  failures: Failures | undefined
+  /** The problem the person is on (`unresolved`); undefined with the switch off. */
+  held: UnresolvedState | undefined
+}
+
+/**
+ * Everything a re-decision needs of the engine, as closures: `$` may not cross a file (DEVELOPMENT.md 「事件和 matcher」), and the
+ * pictures the main agent meets (features/reference-midturn.ts) ask for one from their own hooks. Each hook file builds it from its
+ * own `$`; `state` reads everything at once, so of the calls of a step that run together only the first asks.
+ */
+export type LaunchIo = {
+  backend: BackendIo
+  now: () => Promise<number>
+  /** The main agent's step now (`mainStep` in types/index.d.ts); null before its first. */
+  mainStep: () => Promise<MainStep | null>
+  /** The turn `key`'s state: its plan, this feature's record, the lock, the failures counted, the problem count. */
+  state: (key: string) => Promise<LaunchState>
+  /** Marks the turn's record as asked for step `upcoming`. */
+  asked: (key: string, upcoming: number) => Promise<void>
+  debug: (line: string) => void
+}
+
+/** The record with step `upcoming` marked as asked for. */
+export function askedFor(record: MidturnRecord | undefined, upcoming: number): MidturnRecord {
+  return { ...(record ?? newRecord()), askedFor: upcoming }
 }
 
 export function registerMidturnEffort(on: On, ctx: Ctx): void {
@@ -164,7 +200,7 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
     let step: MainStep | null = null
     try {
       step = (await $.state.get(MAIN_STEP)).value ?? null
-      if (step !== null) await launch($, settings, step, { name: e.tool, detail })
+      if (step !== null) await launch(launchIoOf($), settings, step, { name: e.tool, detail })
     } catch (error) {
       $.ui.log(`midturn: ${errorText(error)}`, { to: 'debug' })
     }
@@ -244,21 +280,14 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
  * starting is a reason to: a phase tool, or a step index that is a multiple of
  * `every`. Once per step; the answer is left for that step to take.
  */
-async function launch($: EngineInterface, s: Settings, step: MainStep, starting: Starting | null, reference?: { reading: Promise<ReferenceReading | null>; reason: string }): Promise<void> {
+async function launch(io: LaunchIo, s: Settings, step: MainStep, starting: Starting | null, reference?: { reading: Promise<ReferenceReading | null>; reason: string }): Promise<void> {
   const upcoming = step.index + 1
   const key = turnKey(step.turnId, undefined)
   // Everything read at once: between the once-per-step check below and the entry that claims the step nothing waits, so
   // of the calls of a step that run together only the first asks.
   // The problem the person is on, as of now (this turn's own message has moved the count already): the summary and the
   // count go along, and the strong hint once the count has reached the setting (#41). Nothing of it with the switch off.
-  const [{ value: turn }, { value: record }, { value: lock = null }, { value: failures }, sentAt, { value: held }] = await Promise.all([
-    $.state.get({ ...TURNS, id: key }),
-    $.state.get({ ...MIDTURN, id: key }),
-    $.state.get(LOCK),
-    $.state.get(FAILURES),
-    $.clock.now(),
-    isOn(UNRESOLVED_SWITCH) ? $.state.get(COUNT) : Promise.resolve({ value: undefined }),
-  ])
+  const [{ turn, record, lock, failures, held }, sentAt] = await Promise.all([io.state(key), io.now()])
   // Only a turn the person's own message started is re-decided, whether its start was decided or not (that request
   // may have failed: then from the session's own effort); never without a decision model set up (every request would
   // fail at once).
@@ -281,31 +310,53 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
     ...(summary === undefined ? {} : { problem_summary: renderSummary(summary, s.ctx.ask.language) }),
     ...(count > 0 ? { unresolved_count: count } : {}),
   }
-  const io: BackendIo = {
-    fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
-    sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
-    pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
-  }
   /** What the images read as, when the request was sent with it. */
   let read: ReferenceReading | null = null
   /** The request, with what the images read as when they did (the reading comes first, so the request is sent after it). */
   const ask = async (reading: ReferenceReading | null): Promise<Asked> => {
     read = reading
     const request = mergeParts(midturnState({ ...input, ...(reading === null ? {} : { reference_complexity: reading }) }, s.limits), [midturnEffortPart(s.ctx.ask, { hint: hint !== undefined })])
-    return s.ctx.backend.ask(io, request, s.ctx.config.timeoutMs)
+    return s.ctx.backend.ask(io.backend, request, s.ctx.config.timeoutMs)
   }
   const asking = reference === undefined ? ask(null) : reference.reading.then(ask)
   const entry: InFlight = { forStep: upcoming, reason, answer: asking, settled: null, ms: 0, ...(hint === undefined ? {} : { hint }), ...(reference === undefined ? {} : { referenced: true as const }) }
   entry.answer = asking.then(async (answered) => {
-    entry.ms = (await $.clock.now()) - sentAt
+    entry.ms = (await io.now()) - sentAt
     entry.settled = answered
     entry.reading = read
     return answered
   })
   inFlight.set(key, entry)
-  const ref = { ...MIDTURN, id: key }
-  const cell: Cell<MidturnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
-  await update(cell, (r) => ({ ...(r ?? newRecord()), askedFor: upcoming }))
+  await io.asked(key, upcoming)
+}
+
+/** What a re-decision needs of the engine, from this file's hooks. */
+function launchIoOf($: EngineInterface): LaunchIo {
+  return {
+    backend: {
+      fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+      sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+      pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+    },
+    now: () => $.clock.now(),
+    mainStep: async () => (await $.state.get(MAIN_STEP)).value ?? null,
+    state: async (key) => {
+      const [{ value: turn }, { value: record }, { value: lock = null }, { value: failures }, { value: held }] = await Promise.all([
+        $.state.get({ ...TURNS, id: key }),
+        $.state.get({ ...MIDTURN, id: key }),
+        $.state.get(LOCK),
+        $.state.get(FAILURES),
+        isOn(UNRESOLVED_SWITCH) ? $.state.get(COUNT) : Promise.resolve({ value: undefined }),
+      ])
+      return { turn, record, lock, failures, held }
+    },
+    asked: async (key, upcoming) => {
+      const ref = { ...MIDTURN, id: key }
+      const cell: Cell<MidturnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
+      await update(cell, (r) => askedFor(r, upcoming))
+    },
+    debug: (line) => $.ui.log(line, { to: 'debug' }),
+  }
 }
 
 /**
@@ -314,7 +365,7 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
  * for it, since its counts last started over (a forced raise, or failures
  * found expected).
  */
-function countsOf(turn: TurnRecord, turnId: string, failures: { turnId: string; failures: number; hookBlocks: number; base: { failures: number; hookBlocks: number } } | undefined): MidturnCounts {
+function countsOf(turn: TurnRecord, turnId: string, failures: Failures | undefined): MidturnCounts {
   const counted = failures !== undefined && failures.turnId === turnId
   return {
     judgments: turn.decisions,

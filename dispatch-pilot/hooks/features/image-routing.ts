@@ -21,6 +21,7 @@ import type { ReferenceReading } from '../decision/complexity.ts'
 import { askGroup, type AskIo } from '../core/ask-group.ts'
 import { readReferenceComplexity, type ComplexityIo, type ReferenceReadings, type ReferenceSource } from '../core/complexity.ts'
 import { enteringPrompt } from '../core/core.ts'
+import type { Cell } from '../core/plans.ts'
 import { takeDeferred } from '../core/deferred.ts'
 import type { ImageFilesIo } from '../core/image-files.ts'
 import { report, type NodeFailure, type ReportIo } from '../core/report.ts'
@@ -107,8 +108,8 @@ function takePasted(texts: readonly string[]): Pasted | null {
 
 // ---- The engine, as closures -----------------------------------------------------------------------------------------
 
-/** Everything the images need of the engine, as closures (a module may not pass `$` across an import). */
-export function filesOf($: EngineInterface): ImageFilesIo {
+/** The files the images need of the engine, as closures. */
+function filesOf($: EngineInterface): ImageFilesIo {
   return {
     run: (argv, init) => $.process.run(argv, init),
     readBytes: async (path) => (await $.fs.read(path, { as: 'bytes' })).base64,
@@ -160,47 +161,71 @@ function backendOf($: EngineInterface): BackendIo {
 }
 
 /**
+ * Everything a reading needs of the engine, as closures: `$` may not cross a file (DEVELOPMENT.md 「事件和 matcher」), and a picture
+ * met in the middle of a turn (features/reference-midturn.ts) is read the same way. Each hook file builds it from its own `$`.
+ */
+export type ReadIo = {
+  backend: BackendIo
+  files: ImageFilesIo
+  store: Cell<ReferenceReadings>
+  now: () => Promise<number>
+  debug: (line: string) => void
+  /** A reading that failed, for the board's notes: beside the route, no toast. */
+  note: (failure: NodeFailure) => Promise<void>
+}
+
+/**
  * What the reference images `sources` read as: asked of the image backend (a group read before is answered from the readings
  * kept), within `READING_WAIT_MS`. Null when there is no reading: no image backend, the images could not be read, the request
  * failed or came too late; the board notes a failed one, beside the route and without a toast. Never throws. The message that
  * starts a turn (below) and a picture met in the middle of one (features/reference-midturn.ts) read the same way.
  */
-export async function readReference($: EngineInterface, ctx: Ctx, sources: readonly ReferenceSource[]): Promise<ReferenceReading | null> {
+export async function readReference(io: ReadIo, ctx: Ctx, sources: readonly ReferenceSource[]): Promise<ReferenceReading | null> {
   const images = ctx.images
   if (images === null || sources.length === 0) return null
-  const debug = (line: string) => $.ui.log(line, { to: 'debug' })
-  const backend = backendOf($)
   try {
-    const io: ComplexityIo = {
-      files: filesOf($),
+    const complexity: ComplexityIo = {
+      files: io.files,
       ask: async (request) => {
-        const at = await $.clock.now()
-        const asked = await images.backend.ask(backend, request, READING_WAIT_MS)
-        debug(`complexity reading [${Object.keys(request.questions).join(', ')}] to ${images.backend.name}: ${describeAsked(asked, (await $.clock.now()) - at)}`)
+        const at = await io.now()
+        const asked = await images.backend.ask(io.backend, request, READING_WAIT_MS)
+        io.debug(`complexity reading [${Object.keys(request.questions).join(', ')}] to ${images.backend.name}: ${describeAsked(asked, (await io.now()) - at)}`)
         return asked
       },
-      store: { get: () => $.state.get(READINGS), set: (value: ReferenceReadings, options) => $.state.set(READINGS, value, options) },
-      now: () => $.clock.now(),
+      store: io.store,
+      now: io.now,
       backend: images.name,
-      debug,
+      debug: io.debug,
     }
     const late = { late: true } as const
-    const read = await within((ms, signal) => $.clock.sleep(ms, { signal }), readReferenceComplexity(io, sources), READING_WAIT_MS, late)
+    const read = await within(io.backend.sleep, readReferenceComplexity(complexity, sources), READING_WAIT_MS, late)
     if ('late' in read) {
-      debug(`image routing: no reading in ${READING_WAIT_MS} ms; the effort is decided without it`)
-      await note($, { backend: images.name, kind: 'timeout', detail: `no reading in ${READING_WAIT_MS} ms` })
+      io.debug(`image routing: no reading in ${READING_WAIT_MS} ms; the effort is decided without it`)
+      await io.note({ backend: images.name, kind: 'timeout', detail: `no reading in ${READING_WAIT_MS} ms` })
       return null
     }
     if (read.ok) {
-      debug(`image routing: the images read as level ${read.reading.level} (${read.cached ? 'read before' : 'asked'}), from ${read.reading.images} image${read.reading.images === 1 ? '' : 's'}`)
+      io.debug(`image routing: the images read as level ${read.reading.level} (${read.cached ? 'read before' : 'asked'}), from ${read.reading.images} image${read.reading.images === 1 ? '' : 's'}`)
       return read.reading
     }
-    debug(`image routing: no reading (${read.reason}); the effort is decided without it`)
-    if (read.failure !== undefined) await note($, { backend: images.name, ...read.failure })
+    io.debug(`image routing: no reading (${read.reason}); the effort is decided without it`)
+    if (read.failure !== undefined) await io.note({ backend: images.name, ...read.failure })
     return null
   } catch (error) {
-    debug(`image routing: ${errorText(error)}`)
+    io.debug(`image routing: ${errorText(error)}`)
     return null
+  }
+}
+
+/** What a reading needs of the engine, from this file's hooks. */
+function readIoOf($: EngineInterface): ReadIo {
+  return {
+    backend: backendOf($),
+    files: filesOf($),
+    store: { get: () => $.state.get(READINGS), set: (value: ReferenceReadings, options) => $.state.set(READINGS, value, options) },
+    now: () => $.clock.now(),
+    debug: (line) => $.ui.log(line, { to: 'debug' }),
+    note: (failure) => note($, failure),
   }
 }
 
@@ -214,7 +239,7 @@ async function decide($: EngineInterface, ctx: Ctx, taken: NonNullable<ReturnTyp
   if (ctx.images !== null && isOn(IMAGE_ROUTING_SWITCH)) {
     const found = takePasted(texts)
     if (found === null || found.sources.length === 0) debug('image routing: the message came with images, but none was found to read; its effort is decided without a reading')
-    else reading = await readReference($, ctx, found.sources)
+    else reading = await readReference(readIoOf($), ctx, found.sources)
   }
   // The effort question, as a message's ever is: the reading is in its state. Its answer is written as the pending decision.
   const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []

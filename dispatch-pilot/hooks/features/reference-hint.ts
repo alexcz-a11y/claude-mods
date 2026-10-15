@@ -4,23 +4,22 @@
 // (core/complexity.ts `latestReading`, written when the images were read: with a message, or when the main agent met them), so
 // no request is made for it and nothing waits. Nothing with `image-routing` off, and nothing before any image was read: the
 // requests are then what they always were.
+//
+// The caller hands over the readings' cell as a closure (`{ get: () => $.state.get(READINGS) }`): `$` may not cross a file.
 
-import type { EngineInterface } from 'claude-code'
 import type { ReferenceReading } from '../decision/complexity.ts'
 import { latestReading, type ReferenceReadings } from '../core/complexity.ts'
+import type { Cell } from '../core/plans.ts'
 import { isOn } from '../core/switches.ts'
 import { IMAGE_ROUTING_SWITCH } from './image-routing.ts'
 
-const READINGS = { plugin: 'dispatch-pilot', key: 'referenceReadings' } as const
-
 /** What the session's latest reference images read as, for a request that carries no image of its own; undefined when there is none or the feature is off. Never throws. */
-export async function sessionReading($: EngineInterface): Promise<ReferenceReading | undefined> {
+export async function sessionReading(readings: Pick<Cell<ReferenceReadings>, 'get'>, debug: (line: string) => void): Promise<ReferenceReading | undefined> {
   if (!isOn(IMAGE_ROUTING_SWITCH)) return undefined
   try {
-    const store = { get: () => $.state.get(READINGS), set: (value: ReferenceReadings, options?: { ifVersion?: number }) => $.state.set(READINGS, value, options) }
-    return (await latestReading(store)) ?? undefined
+    return (await latestReading(readings)) ?? undefined
   } catch (error) {
-    $.ui.log(`reference reading not read for an agent: ${String(error)}`, { to: 'debug' })
+    debug(`reference reading not read for an agent: ${String(error)}`)
     return undefined
   }
 }

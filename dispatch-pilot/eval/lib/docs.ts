@@ -208,3 +208,22 @@ export function checkOneWriter(sources: Readonly<Record<string, string>>): strin
   }
   return problems
 }
+
+/**
+ * DEVELOPMENT.md 「事件和 matcher」: `$` is used only in the file of the hook that holds it. A function another file can import
+ * takes closures (`BackendIo`, `Cell`, ...) and never `$`, and `$` is never put in an object (`{ $, s, e }`): the engine refuses
+ * a mod that does either when it loads it, and the test kit does not. `sources` is text by path relative to hooks/.
+ */
+export function checkEngineStaysHome(sources: Readonly<Record<string, string>>): string[] {
+  const problems: string[] = []
+  const takes = (path: string, name: string) => `\`${path}\`: exports \`${name}\`, which takes \`$\`; take closures instead (BackendIo, Cell, ...): \`$\` may not cross a file`
+  for (const [path, text] of Object.entries(sources)) {
+    // Comments may mention `$` as they like.
+    const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    // An exported function or arrow function with a parameter called `$`, first or not.
+    for (const [, name, params] of code.matchAll(/export\s+(?:async\s+)?function\s+(\w+)\s*(?:<[^>(]*>)?\(([^)]*)\)/g)) if (/(?:^|,)\s*\$\s*(?::|,|$)/.test(params ?? '')) problems.push(takes(path, name ?? ''))
+    for (const [, name, params] of code.matchAll(/export\s+const\s+(\w+)\s*=\s*(?:async\s*)?\(([^)]*)\)\s*(?::[^=]*)?=>/g)) if (/(?:^|,)\s*\$\s*(?::|,|$)/.test(params ?? '')) problems.push(takes(path, name ?? ''))
+    if (/[{,]\s*\$\s*[,}]/.test(code)) problems.push(`\`${path}\`: puts \`$\` in an object; pass it as a separate argument within the file, or hand over closures`)
+  }
+  return problems
+}
