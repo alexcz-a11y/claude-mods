@@ -16,7 +16,7 @@
 import type { RenderNode } from 'claude-code'
 import type { Effort } from '../decision/effort.ts'
 import type { Model, Reading } from '../core/report.ts'
-import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, fit, MODEL_BG, MODEL_FG, mmss, MUTED, OK, padLeft, pct, ribbonCells, rgb, SKILL, soft, SPIN, stateGlyph, STATUS_COLOR, WARN, type Raster, type TT } from './kit.tsx'
+import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, fit, MODEL_BG, MODEL_FG, mmss, MUTED, OK, padLeft, pct, ribbonCells, rgb, SKILL, soft, SPIN, stateGlyph, STATUS_COLOR, WARN, width, type Raster, type TT } from './kit.tsx'
 import { FEATURE_WORDS, isWholeWorkflow, type AgentRow, type BandEvent, type ScreenView } from './view.ts'
 
 /** What the band is laid out in: `bodyColumns` and `maxRows` of its props. */
@@ -132,17 +132,19 @@ function squeezedLine(t: TT, view: ScreenView, cols: number) {
  * The columns of an agent row for the band's width: the status cell and the effort narrow first, then the ribbon
  * goes (under six cells it says nothing), so a row never wraps.
  */
-function columnsOf(cols: number, ribbons: boolean) {
+function columnsOf(cols: number, ribbons: boolean, checks = 0) {
   const status = cols >= 140 ? 30 : cols >= 110 ? 26 : cols >= 80 ? 22 : cols >= 70 ? 16 : 10
   // The effort's pips and word (12), or under 70 columns its pips alone.
   const effort = cols >= 70 ? 12 : 5
   // marker 1, glyph 2, chip 8+1, effort and a space, a space before the status cell
   const fixed = 1 + 2 + 9 + effort + 1 + 1
-  const left = Math.max(0, cols - fixed - status)
+  // The count of a row's checks (a cell after the status, its widest) takes what the name can spare; the name keeps its ten.
+  const counted = checks === 0 ? 0 : Math.min(checks + 1, Math.max(0, cols - fixed - status - 10))
+  const left = Math.max(0, cols - fixed - status - counted)
   // Narrow, the name keeps half of what is left: it says who the row is.
   const name = Math.max(10, Math.min(32, Math.round(left * (cols >= 110 ? 0.4 : 0.5))))
   const ribbon = ribbons && left - name >= 6 ? Math.min(48, left - name) : 0
-  return { status, effort, name: ribbon === 0 ? Math.max(8, left) : name, ribbon }
+  return { status, effort, name: ribbon === 0 ? Math.max(8, left) : name, ribbon, checks: counted }
 }
 
 function liveBand(t: TT, view: ScreenView, size: BandSize, act: BandActs, raster: Raster | undefined) {
@@ -162,7 +164,7 @@ function liveBand(t: TT, view: ScreenView, size: BandSize, act: BandActs, raster
   const eventRoom = Math.max(0, budget - used)
   const hiddenEvents = view.events.length > eventRoom ? view.events.length - Math.max(0, eventRoom - 1) : 0
   const shownEvents = hiddenEvents > 0 ? view.events.slice(view.events.length - Math.max(0, eventRoom - 1)) : view.events
-  const cols = columnsOf(size.cols, raster !== undefined)
+  const cols = columnsOf(size.cols, raster !== undefined, Math.max(0, ...shownRows.map((row) => width(row.checks))))
   return (
     <Box key="band" flexDirection="column" width={size.cols}>
       {strip(t, view, size.cols)}
@@ -280,6 +282,11 @@ function agentRow(t: TT, view: ScreenView, row: AgentRow, i: number, cols: Retur
       <Box width={cols.status} flexShrink={0}>
         <Text color={STATUS_COLOR[row.status.tone]} wrap="truncate-end">{row.status.text}</Text>
       </Box>
+      {cols.checks === 0 ? null : (
+        <Box width={cols.checks} flexShrink={0}>
+          <Text color={MUTED} wrap="truncate-end">{row.checks === '' ? '' : ` ${row.checks}`}</Text>
+        </Box>
+      )}
     </Box>
   )
 }
