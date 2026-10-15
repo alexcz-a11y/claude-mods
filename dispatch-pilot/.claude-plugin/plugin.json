@@ -13,7 +13,7 @@
     "decisionModel": {
       "type": "string",
       "title": "决策模型",
-      "description": "由哪个模型做决定：pplx（默认，Perplexity 的 pplx-decider-v1.1-27b，要 Perplexity 的 API key）或 jev（TypeSafe，要 TypeSafe 的 API key）。设成 jev 就始终用 Jev；其他情况（pplx、没设）有 Perplexity key 就用 pplx，没有但有 TypeSafe key 就退回 Jev，决策日志里记一条原因，两种 key 都没有就不发请求，每一轮都按会话自己的 effort 走。以前版本里的 clef 已移除，设成 clef 的老配置按没设处理，debug log 会记一条。出错时，消息不经路由地放行。有几项选项的默认值随决策模型而定：Jev 取它能接受的值（最近 32 条消息、16 步；带 skill 题的消息请求上下文预算 6000 token，其余请求 24000）；pplx 的窗口大得多，所有问题用英文问，最近 2000 条消息，除 skill 题以外的请求预算 48000 token，等待时间也长（发消息 8000 毫秒，重判和 find_skill 6000）。",
+      "description": "由哪个模型做决定：pplx（默认，Perplexity 的 pplx-decider-v1.1-27b，要 Perplexity 的 API key）或 jev（TypeSafe，要 TypeSafe 的 API key）。设成 jev 就始终用 Jev；其他情况（pplx、没设）有 Perplexity key 就用 pplx，没有但有 TypeSafe key 就退回 Jev，决策日志里记一条原因，两种 key 都没有就不发请求，每一轮都按会话自己的 effort 走。以前版本里的 clef 已移除，设成 clef 的老配置按没设处理，debug log 会记一条。出错时，消息不经路由地放行。有几项选项的默认值随决策模型而定：Jev 取它能接受的值（最近 2000 条消息、16 步；带 skill 题的消息请求上下文预算 6000 token，重判 24000，发消息时的 effort 题、派出 agent 和 Workflow 里的 agent 96000，超过 24000 的请求带长上下文请求头）；pplx 的窗口大得多，所有问题用英文问，最近 2000 条消息，除 skill 题以外的请求预算 48000 token，等待时间也长（发消息 8000 毫秒，重判和 find_skill 6000）。",
       "options": ["pplx", "jev"],
       "default": "pplx"
     },
@@ -37,6 +37,18 @@
       "description": "mod 每秒最多向 Perplexity 发几个请求（1 到 50），只对 pplx 有用，Jev 不受它限制。Perplexity 的文档写每个组织每秒 10 个；默认 5，几个同时派出的 agent 可以一起发出，也给同一个 key 的其他会话留出余量。超出的请求在 mod 里排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待时间。遇到 429 时，剩余的等待时间够用就按 Retry-After 重试一次，不够就不经路由地放行，看板上写「被限速」。",
       "default": 5
     },
+    "jevQps": {
+      "type": "number",
+      "title": "Jev 每秒请求数",
+      "description": "mod 每秒最多向 TypeSafe 发几个请求（1 到 1000），只对 Jev 有用。填你的账号在 TypeSafe 控制台（Rate limits）里的限额；默认 80，是默认套餐的值。超出的请求在 mod 里排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待时间。",
+      "default": 80
+    },
+    "jevTokensPerSecond": {
+      "type": "number",
+      "title": "Jev 每秒 input token 数",
+      "description": "mod 每秒最多向 TypeSafe 发多少 input token（10000 到 100000000），只对 Jev 有用。填你的账号在 TypeSafe 控制台（Rate limits）里的限额；默认 100000，是默认套餐的值。按令牌桶算：最多存 5 秒的额度，一阵请求可以一下用掉（例如一条消息的长 effort 请求加几批 agent），之后按每秒的额度补；额度不够的请求排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待时间。遇到 429 或 529 时所有请求按 Retry-After 暂停，收到的那个请求在剩余等待时间够用时重试一次。",
+      "default": 100000
+    },
     "timeoutMs": {
       "type": "number",
       "title": "决策超时（毫秒）",
@@ -45,12 +57,12 @@
     "contextMessages": {
       "type": "number",
       "title": "随消息发送的最近消息条数",
-      "description": "决策模型除了你的消息，还读几条最近的消息（上限随决策模型：Jev 最多 32，pplx 最多 2000）：只有文字和调用过的工具名，从不含文件内容和工具输出，secret 已脱敏。默认就是各自的上限（Jev 32，pplx 2000；实际发多少由上下文预算决定，不是这个条数）。"
+      "description": "决策模型除了你的消息，还读几条最近的消息（0 到 2000）：只有文字和调用过的工具名，从不含文件内容和工具输出，secret 已脱敏。默认就是上限 2000（实际发多少由上下文预算决定，不是这个条数）。"
     },
     "contextTokens": {
       "type": "number",
       "title": "上下文预算（token）",
-      "description": "你的消息加上最近的消息一共最多占多少 token（100 到 16000；pplx 到 48000），中英文按同一个尺度数，旧消息先丢。按请求的种类取：带 skill 推荐那一题的消息（以及 find_skill 的第一段）取 6000，因为它带着每个 skill 的画像（约 2.2 万 token，按 Jev 的算法），state 加这一题必须留在 Jev 的 32k 之内；其余请求（发消息时主 agent 的 effort 题，它单独发一个请求；重判、派出 agent、一批 Workflow 调用）题目都很短，Jev 取 24000，pplx 取 48000。你自己设了值，每个种类都取它和自己上限里较小的一个。决策超时变多时，把它调小。"
+      "description": "你的消息加上最近的消息一共最多占多少 token（100 到 16000；pplx 到 48000），中英文按同一个尺度数，旧消息先丢。按请求的种类取：带 skill 推荐那一题的消息（以及 find_skill 的第一段）取 6000，因为它带着每个 skill 的画像（约 2.2 万 token，按 Jev 的算法），state 加这一题必须留在 Jev 的 32k 之内；其余请求题目都很短：重判 Jev 取 24000；发消息时主 agent 的 effort 题（它单独发一个请求）、派出 agent 和 Workflow 里的 agent，Jev 取 96000（超过 24000 时带长上下文请求头），pplx 取 48000（派出 agent 32000）。你自己设了值，每个种类都取它和自己上限里较小的一个。决策超时变多时，把它调小。"
     },
     "thetaMax": {
       "type": "number",

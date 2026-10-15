@@ -6,11 +6,12 @@
 //
 // The decision reads the person's own words this turn (`said`), so a model
 // they name for the work wins over the decision model, which wins over the
-// main agent's pick; with pplx it also reads the conversation the agent is
-// dispatched from, what the main agent wrote the brief out of
-// (BACKEND_DEFAULTS agentBackground). Agents dispatched together (one message, several Agent
-// calls) each get their own request and start as soon as their own answer is
-// in. A failed or late answer lets the agent start as the main agent asked.
+// main agent's pick; it also reads the problem summary and the conversation
+// the agent is dispatched from, what the main agent wrote the brief out of
+// (BACKEND_DEFAULTS agentBackground). Agents dispatched together (one message,
+// several Agent calls) share one request (core/agent-lane.ts, ADR 0009): what
+// they share goes in once, each brief beside it. A failed or late answer lets
+// the agent start as the main agent asked.
 //
 // The main agent reads, after the Agent tool's result, the model and effort its
 // agent started with and whose choice the model was (#34): agent.spawn runs
@@ -20,12 +21,12 @@
 // Its switch is `dispatched-agents` (`/dp dispatched-agents off`).
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { describeAsked, type BackendIo, type Failure } from '../decision/backend.ts'
-import { conversationUpTo, describeState, messageText, type ContextMessage } from '../decision/context.ts'
-import { decideDispatch, dispatchEvidence, dispatchNote, dispatchPart, dispatchReason, dispatchState, modelFamily, termsOf, type Dispatch, type DispatchNote } from '../decision/dispatched-agent.ts'
+import { within, type Failure } from '../decision/backend.ts'
+import { conversationUpTo, messageText, type ContextMessage } from '../decision/context.ts'
+import { dispatchEvidence, dispatchNote, dispatchReason, modelFamily, termsOf, type DispatchNote } from '../decision/dispatched-agent.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { renderSummary } from '../decision/summary.ts'
-import { answersFor, mergeParts } from '../decision/system-one.ts'
+import { agentCallsBeside, askAgent, type AgentAnswer, type AgentInput, type LaneIo } from '../core/agent-lane.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
 import { report, type ReportIo } from '../core/report.ts'
@@ -102,32 +103,37 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       return started
     }
     const { value: said = [] } = await $.state.get(SAID)
-    // The problem the main agent is on goes along as background, with no hint (#41): the summary and the count, while the
-    // unresolved switch is on and there are any.
+    // The problem the main agent is on goes along as background, with no hint (#41): the summary (the cheap model's, Haiku 5.5
+    // by default) and the count, while the unresolved switch is on and there are any.
     const { value: held } = isOn(UNRESOLVED_SWITCH) ? await $.state.get(COUNT) : { value: undefined }
-    // The conversation the agent is dispatched from (the main one, or the dispatching agent's own), up to the Agent call,
-    // where the decision model reads it (BACKEND_DEFAULTS agentBackground).
-    const recent = ctx.config.agents.background ? await conversationOf($, e.parentAgentId) : []
+    // The conversation the agent is dispatched from (the main one, or the dispatching agent's own): up to the Agent call
+    // where the decision model reads it (BACKEND_DEFAULTS agentBackground), and the Agent calls of the same message, which
+    // are asked about with it.
+    const recent = await conversationOf($, e.parentAgentId)
     // What the session's reference images read as (#64): the latest reading, as text.
     const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
-    const lines = recent.length === 0 ? [] : (conversationUpTo(recent, ctx.config.context.messages, e.tool_use_id) ?? conversationUpTo(recent, ctx.config.context.messages) ?? [])
-    const dispatch: Dispatch = {
-      user_message: said.join('\n'),
-      agent_type: e.subagentType,
-      description: e.description,
-      prompt: e.prompt,
-      requested_model: e.model ?? null,
-      ...(held?.summary === undefined ? {} : { problem_summary: renderSummary(held.summary, ctx.ask.language) }),
-      ...(held === undefined || held.count === 0 ? {} : { unresolved_count: held.count }),
-      ...(reference === undefined ? {} : { reference_complexity: reference }),
-      ...(lines.length === 0 ? {} : { recent_context: lines }),
+    const lines = !ctx.config.agents.background || recent.length === 0 ? [] : (conversationUpTo(recent, ctx.config.context.messages, e.tool_use_id) ?? conversationUpTo(recent, ctx.config.context.messages) ?? [])
+    const input: AgentInput = {
+      dispatch: { user_message: '', agent_type: e.subagentType, description: e.description, prompt: e.prompt, requested_model: e.model ?? null },
+      shared: {
+        words: said.join('\n'),
+        background: {
+          ...(held?.summary === undefined ? {} : { problem_summary: renderSummary(held.summary, ctx.ask.language) }),
+          ...(held === undefined || held.count === 0 ? {} : { unresolved_count: held.count }),
+          ...(reference === undefined ? {} : { reference_complexity: reference }),
+          ...(lines.length === 0 ? {} : { recent: lines }),
+        },
+      },
     }
-    const part = dispatchPart(dispatch, settings)
-    const request = mergeParts(dispatchState(dispatch, ctx.config.contextByKind.agent), [part])
-    const io: BackendIo = {
-      fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+    const io: LaneIo = {
+      backend: {
+        fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+        sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+        pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+      },
+      now: () => $.clock.now(),
       sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
-      pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+      debug: (line) => $.ui.log(line, { to: 'debug' }),
     }
     const reporting: ReportIo = {
       board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
@@ -139,10 +145,12 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     const about = `${quoteStart(e.description)}（${e.subagentType}）`
     /** What every report of this agent says of it; its id is known once it has started (a spawn is not yet an agent). */
     const reportOf = (agent: string) => ({ feature: SWITCH, agent, subject: about, node: { kind: 'agent' as const, name: e.name ?? (e.description === '' ? e.subagentType : e.description), type: e.subagentType } })
-    const startedAt = await $.clock.now()
-    const asked = await ctx.backend.ask(io, request, ctx.config.timeoutMs)
-    const ms = (await $.clock.now()) - startedAt
-    $.ui.log(`request [${Object.keys(request.questions).join(', ')}] to ${ctx.backend.name} for agent ${about}: ${describeAsked(asked, ms)}; ${describeState(request.state)}`, { to: 'debug' })
+    // Asked with the agents dispatched beside it (core/agent-lane.ts), which logs the request; it waits `agents.waitMs` at most.
+    const waitMs = ctx.config.agents.waitMs
+    const deadline = (await $.clock.now()) + waitMs
+    const call = { id: e.tool_use_id, siblings: agentCallsBeside(recent, e.tool_use_id) }
+    const late: AgentAnswer = { ok: false, failure: { kind: 'timeout', detail: `no answer in ${waitMs} ms` } }
+    const asked = await within(io.sleep, askAgent(ctx, settings, { key: `agent:${e.parentAgentId ?? 'main'}`, kind: 'agent', input, call, deadline, about: `agent ${about}`, io }), waitMs, late)
     // The agent starts as the main agent asked; the board says why it was not routed, once it has an id to say it of.
     // A spawn refused beneath started no agent: there is nothing to say of it.
     const notRouted = async (failure: Failure) => {
@@ -153,8 +161,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       return started
     }
     if (!asked.ok) return notRouted(asked.failure)
-    const decision = decideDispatch(answersFor(part, asked.answers), dispatch, settings)
-    if (!decision.answered) return notRouted({ kind: 'parse', detail: 'no answer about the agent' })
+    const decision = asked.decision
     // The main agent's pick, when it stands, goes on as the main agent wrote it.
     const spawn = decision.model !== null && decision.model !== modelFamily(e.model) ? { ...e, model: decision.model } : e
     const result = await next(spawn)

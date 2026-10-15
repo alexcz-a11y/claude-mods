@@ -22,9 +22,11 @@ import type { Answer, Part, State } from '../decision/system-one.ts'
 /**
  * A part's answers, by its own question ids (a missing or malformed one is
  * left out), and the state they were asked about (a follow-up request, such
- * as the skills' second stage, asks about the same); or why there are none.
+ * as the skills' second stage, asks about the same) and how long the message's
+ * requests were given (`waitMs`: the follow-up takes what is left of it); or
+ * why there are none.
  */
-export type PartOutcome = { ok: true; answers: Readonly<Record<string, Answer>>; state: State } | { ok: false; failure: Failure }
+export type PartOutcome = { ok: true; answers: Readonly<Record<string, Answer>>; state: State; waitMs: number } | { ok: false; failure: Failure }
 
 /** A feature's share of a message's decision request. */
 export type Contribution = Part & {

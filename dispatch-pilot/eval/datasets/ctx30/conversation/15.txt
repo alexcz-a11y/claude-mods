@@ -1,0 +1,133 @@
+%% R7 写 v2.14.0 给客户看的更新说明
+@@ user
+v2.14.0 今天下午发。帮我写一份给客户看的更新说明，放在帮助中心的“产品更新”里，语气轻松一点，别写技术细节，按“新功能”“改进”“修复”分三块。素材就是这次合进去的这些 PR：客户标签筛选、深色模式、复制发票、客户列表的最近开票日期、首页变快、CSV 导出变快、备注变长、登录验证码放宽、webhook 重试变长。别的内部改动（CI、镜像、监控、测试提速之类）不要写。
+
+@@ assistant tools=Read*3,Write
+写好了，放在 `docs-site/docs/changelog/2026-10-15-v2.14.0.md`，全文如下：
+
+```markdown
+---
+title: 10 月更新：深色模式、复制发票，以及更快的首页
+date: 2026-10-15
+---
+
+这个版本我们主要做了两件事：把大家呼声最高的几个小功能做出来，再把几个“等得让人着急”的地方变快。
+
+## 新功能
+
+**深色模式**
+晚上对账的朋友有福了。在「设置 → 外观」里可以选择“跟随系统”“浅色”或“深色”。选“跟随系统”的话，电脑或手机切换到深色时，后台会自动跟着变暗。这个设置保存在你的账号上，换一台电脑登录也会保留。
+
+**复制发票**
+每个月都给同一个客户开同样内容的发票？现在打开任意一张发票，点右上角的「复制」，就会生成一张内容相同的新草稿：客户、明细、备注、付款条款都会带过去，日期和发票号会重新生成。改一改日期和数量，就能直接发布。已作废的发票也可以复制。
+
+**按标签筛选客户**
+客户列表的筛选里新增了“标签”。可以同时选多个标签，例如“VIP”加“批发”，列表只显示同时带有这两个标签的客户。
+
+**客户列表新增“最近开票”**
+客户列表多了一列“最近开票”，显示这位客户最近一次开票是多久以前，并且可以按它排序。超过 90 天没有开票的客户，日期会显示成灰色，方便你找出好久没有往来的客户。
+
+## 改进
+
+**首页打开更快**
+对于发票和收款很多的商户，首页的“最近 7 天收款”图表以前要好几秒才能出来，现在基本是一打开就有。
+
+**CSV 导出更快**
+导出发票明细的 CSV 比以前快了很多，导出 2000 张发票的明细只需要几秒钟，不会再出现等很久然后失败的情况。
+
+**发票备注可以写得更长**
+发票备注的上限从 200 字提高到了 5000 字，长一点的付款说明、银行信息、合同条款都能写进去。备注很长时，PDF 会自动换页。
+
+**登录验证码更宽松**
+登录页的图形验证码，输错的次数上限从每分钟 5 次放宽到了 10 次，不容易再被“请一分钟后再试”拦住。
+
+**Webhook 重试时间更长**
+如果你接入了我们的 Webhook，而你的服务器偶尔需要停机维护：现在我们会在约 2 小时内最多重试 8 次（以前是约 30 分钟内 5 次），短时间的维护不会再导致漏收事件。详细的重试间隔见开发者文档。
+
+## 修复
+
+- 修复了商户在“付款条款”里修改账期后，新开发票有时仍使用旧账期的问题。现在修改后立即生效。
+- 修复了深色模式下发票详情页明细表格的斑马纹看不清的问题。
+
+如果你在使用中遇到任何问题，欢迎随时在后台右下角联系我们。
+```
+
+几点说明：
+1. 素材里你列的 9 项都写了；“付款条款修改后不立即生效”是 PR #838 修的，算客户能感知到的修复，我放进了“修复”；斑马纹那条是做深色模式时顺手修的，也放进去了。
+2. 没写内部的改动（CI、镜像、监控、测试提速、路由库升级、Sentry）。
+3. 数字都和实际一致：5000 字、10 次、8 次约 2 小时、90 天变灰。
+4. 帮助中心的“产品更新”列表是按 front matter 里的 `date` 排序的，这篇会排在最上面。
+
+@@ user
+挺好，就这样。标题改成“10 月更新：深色模式和复制发票来了”。
+
+@@ assistant tools=Edit
+改了标题。
+
+%% R8 客户说发票邮件进了垃圾箱
+@@ user
+有个客户投诉：我们发的发票邮件，他的客户那边经常进垃圾箱。他贴了一封邮件的原始头，我放在这里：
+
+```
+Received-SPF: softfail (google.com: domain of transitioning bounce@mail.ledgerly.io does not designate 203.0.113.48 as permitted sender)
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@ledgerly.io header.s=lk2024;
+       spf=softfail (google.com: domain of transitioning bounce@mail.ledgerly.io does not designate 203.0.113.48 as permitted sender) smtp.mailfrom=bounce@mail.ledgerly.io;
+       dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=ledgerly.io
+```
+
+你看看是我们的问题还是他客户那边的问题。
+
+@@ assistant tools=Read*3,Grep*2,Bash*3
+是我们这边的配置问题，而且这次能看得很清楚。
+
+**这几行头说明了什么**
+
+1. `dkim=pass`：邮件内容的签名验证通过了，说明邮件确实是我们发的、没有被篡改。这一项没问题。
+2. `spf=softfail`：收件方去查 `mail.ledgerly.io` 这个域名的 SPF 记录，发现发信的服务器 IP `203.0.113.48` 不在允许的列表里。“softfail”的意思是“不太像是授权的，但别直接拒收”，很多邮箱会因此把邮件放进垃圾箱。
+3. `dmarc=pass (p=NONE ...)`：DMARC 通过了，因为 DKIM 通过且和发件域名对齐；但我们的 DMARC 策略是 `p=none`，只是观察，不会强制什么。
+
+所以问题出在 SPF：发信的 IP 没有登记。
+
+**为什么 IP 没登记**
+
+我们的发票邮件是通过邮件服务商发的（`worker/notify/smtp.go` 里配置的是服务商的 SMTP），退信地址用的是 `bounce@mail.ledgerly.io`。查了一下 `mail.ledgerly.io` 现在的 SPF 记录（`dig TXT mail.ledgerly.io`）：
+
+```
+"v=spf1 include:_spf.oldprovider.example ~all"
+```
+
+还是以前那家服务商的。看提交记录，今年 8 月我们换了邮件服务商，SMTP 的地址和账号都改了，但 DNS 里 `mail.ledgerly.io` 的 SPF 没有跟着改。新服务商的发信 IP（`203.0.113.48` 就是其中之一）都不在旧服务商的列表里，所以从 8 月起，所有发票邮件的 SPF 都是 softfail。之所以没有全部进垃圾箱，是因为 DKIM 是对的，很多邮箱看 DKIM 和发件人信誉也会放行；但 Gmail 和部分企业邮箱对 SPF 比较严格。
+
+**怎么修**
+
+把 `mail.ledgerly.io` 的 SPF 改成新服务商的：
+
+```
+"v=spf1 include:spf.newprovider.example ~all"
+```
+
+新服务商的文档里给的就是这个 `include`。DNS 在 `deploy/terraform/dns.tf` 里管，我改了这一条记录，`terraform plan` 只有这一处变化：
+
+```
+  # aws_route53_record.mail_spf will be updated in-place
+  ~ resource "aws_route53_record" "mail_spf" {
+      ~ records = [
+          - "v=spf1 include:_spf.oldprovider.example ~all",
+          + "v=spf1 include:spf.newprovider.example ~all",
+        ]
+    }
+Plan: 0 to add, 1 to change, 0 to destroy.
+```
+
+`terraform apply` 要 SRE 那边执行，我没有执行。生效以后（TTL 是 300 秒，五分钟左右），可以让客户再发一封，看头里的 `spf=` 变成 `pass`。
+
+**另外两个建议**（不急）：
+- DMARC 现在是 `p=none`，SPF 修好、观察两周没问题以后，可以改成 `p=quarantine`，这样别人冒充我们发的邮件会被收件方拦下来；
+- 旧服务商的账号如果已经不用了，可以注销，避免旧的 SMTP 账号还能被用来发信。
+
+@@ user
+DNS 我让 SRE 改。DMARC 的事以后再说。
+
+@@ assistant tools=Bash
+好。PR #846 只有 `dns.tf` 这一处改动，描述里写了验证方法。

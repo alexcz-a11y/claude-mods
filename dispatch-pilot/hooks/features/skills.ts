@@ -232,7 +232,8 @@ export function registerSkills(on: On, ctx: Ctx): void {
         }
         // Beside the main agent's own decision for the message: in the log, not on its node.
         const about = { feature: SWITCH, agent: 'main', aside: true as const, forTurn: e.turnId === undefined ? ('next' as const) : ('current' as const), subject: quoteStart(e.text) }
-        const left = ctx.config.timeoutMs - ((await $.clock.now()) - startedAt)
+        // What the message's requests were given (longer when its effort request is long), less what the first took.
+        const left = (outcome.ok ? outcome.waitMs : ctx.config.timeoutMs) - ((await $.clock.now()) - startedAt)
         // No answer (the main-effort decision says why) or none about the skills: nothing suggested.
         const ranked = outcome.ok ? await ranker.rank(outcome.answers, catalog, { state: outcome.state, timeoutMs: left }) : null
         if (ranked === null) {

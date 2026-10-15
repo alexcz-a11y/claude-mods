@@ -1,0 +1,165 @@
+%% S25 危险操作按钮的规矩：新建 DangerButton，不许直接改颜色（E05）
+@@ user mark=E05
+定个规矩：删除、作废这种危险操作的按钮要统一成红色。但别直接在页面上改颜色：新建一个 `DangerButton` 组件，照 `PrimaryButton` 的写法，颜色用设计给的 token `--color-danger`，然后把删除发票、作废发票两个地方的按钮换成它。以后别的危险按钮也都用它。确认弹窗不用动。你先看看，下午再弄。
+
+@@ assistant tools=Read*4,Grep*2 mark=E05
+看了，准备工作都在。
+
+**`web/src/components/PrimaryButton.tsx`**（现在 38 行）：
+
+```tsx
+type Props = ButtonHTMLAttributes<HTMLButtonElement> & { loading?: boolean; size?: 'sm' | 'md' }
+
+export function PrimaryButton({ loading, size = 'md', children, className, ...rest }: Props) {
+  return (
+    <button
+      {...rest}
+      disabled={rest.disabled || loading}
+      className={clsx(styles.button, styles[size], className)}
+      aria-busy={loading || undefined}
+    >
+      {loading ? <Spinner size={size} /> : children}
+    </button>
+  )
+}
+```
+
+样式在 `PrimaryButton.module.css`，用的是 `--color-primary` 和 `--color-primary-hover`。
+
+**token**：`web/src/styles/tokens.css` 里已经有 `--color-danger: #d92d20` 和 `--color-danger-hover: #b42318`，深色主题里也有对应的值。
+
+**要换的两个地方**：
+1. `web/src/pages/invoices/Detail.tsx` 第 212 行：作废发票，现在是 `<PrimaryButton onClick={openVoidDialog}>作废</PrimaryButton>`；
+2. `web/src/pages/invoices/List.tsx` 第 88 行：批量删除，`<PrimaryButton onClick={openDeleteDialog} disabled={!selected.length}>删除所选</PrimaryButton>`。
+
+搜了一下全仓库，别的危险操作（删除客户、撤销 API key）现在用的是 `SecondaryButton`，你说“以后”，这次就不动它们。
+
+**做法**：新建 `web/src/components/DangerButton.tsx` 和 `DangerButton.module.css`，结构照抄 `PrimaryButton`，只把颜色换成 danger 的两个 token；两处页面把 `PrimaryButton` 换成 `DangerButton`；`components/index.ts` 里导出。弹窗不动。
+
+@@ user
+下午弄，先记着。
+
+@@ assistant
+好。
+
+%% S26 给 agent 配的只读 kubeconfig（A03）
+@@ user mark=A03
+我给 agent 配了个只读的 kubeconfig，在 `~/.kube/ledgerly-readonly`，对 prod 只有 get、list、watch 权限，改不了任何东西，也看不了 Secret。以后查线上的镜像版本、副本数、Pod 状态这种事，派个 agent 用它跑 `kubectl get` 就行，不用找 SRE。
+
+@@ assistant tools=Bash*3 mark=A03
+验证了一下，确实是只读的：
+
+```
+$ kubectl --kubeconfig ~/.kube/ledgerly-readonly -n prod auth can-i --list
+Resources                          Non-Resource URLs   Resource Names   Verbs
+pods                               []                  []               [get list watch]
+pods/log                           []                  []               [get list watch]
+deployments.apps                   []                  []               [get list watch]
+replicasets.apps                   []                  []               [get list watch]
+services                           []                  []               [get list watch]
+...
+$ kubectl --kubeconfig ~/.kube/ledgerly-readonly -n prod auth can-i delete pod
+no
+$ kubectl --kubeconfig ~/.kube/ledgerly-readonly -n prod get secrets
+Error from server (Forbidden): secrets is forbidden: User "agent-readonly" cannot list resource "secrets" in API group "" in the namespace "prod"
+```
+
+`prod` 里的 Deployment 有三个：`api`、`worker`、`payout-worker`。查某个 Deployment 当前的镜像，一条命令就够：
+
+```
+kubectl --kubeconfig ~/.kube/ledgerly-readonly -n prod get deploy <名字> \
+  -o jsonpath='{.spec.template.spec.containers[0].image}'
+```
+
+@@ user
+对，就是这个用法。
+
+@@ assistant
+好，记下了。
+
+%% S27 store.Tx 改成带 context：64 个调用点，每个都要判断（E10）
+@@ user
+`store.Tx(fn)` 不带 context，请求超时、客户端断开都取消不了里面的查询。我想改成 `store.Tx(ctx, fn)`。你先看看要动多少地方，有什么坑。
+
+@@ assistant tools=Grep*5,Read*9 mark=E10
+看完了，这个改动比签名变化大得多。
+
+**现在的实现**：`api/internal/store/tx.go`
+
+```go
+func (s *Store) Tx(fn func(q *Queries) error) error {
+    for attempt := 1; ; attempt++ {
+        tx, err := s.pool.Begin(context.Background())
+        if err != nil {
+            return err
+        }
+        err = fn(s.WithTx(tx))
+        if err == nil {
+            err = tx.Commit(context.Background())
+        } else {
+            _ = tx.Rollback(context.Background())
+        }
+        if isSerializationFailure(err) && attempt < 3 {
+            continue
+        }
+        return err
+    }
+}
+```
+
+里面全是 `context.Background()`，`fn` 里的查询也拿不到调用方的 ctx（`Queries` 的方法要 ctx，现在各个调用点是在闭包里自己传 ctx，有的传请求的，有的传 `context.Background()`）。可串行化冲突时最多重试 3 次。
+
+**调用点**：64 个，分布在 11 个包：
+
+| 包 | 个数 | 现在闭包里用的 ctx |
+|---|---|---|
+| api/internal/invoice | 14 | 请求的 ctx |
+| api/internal/payment | 9 | 请求的 ctx |
+| api/internal/refund | 6 | 请求的 ctx |
+| api/internal/customer | 5 | 请求的 ctx |
+| api/internal/auth | 4 | 请求的 ctx |
+| api/internal/admin | 3 | 请求的 ctx |
+| worker/reminder | 6 | 任务的 ctx |
+| worker/payout | 7 | 任务的 ctx |
+| worker/export | 3 | 任务的 ctx |
+| worker/webhook | 2 | 任务的 ctx |
+| cmd/（维护工具） | 5 | `context.Background()` |
+
+**每个调用点都要单独判断的情况**：
+1. **handler 里起的 goroutine**：有 9 个调用点在 `go func() { ... }()` 里，比如发票发送成功后异步记一条审计日志。它们现在闭包里用的是请求的 ctx，请求返回后 ctx 就取消了；以前因为 `Tx` 本身用 `context.Background()`，这个问题被掩盖了。改了以后这 9 处会开始随机失败，要逐个决定是改成 `context.WithoutCancel(ctx)`，还是挪进队列。
+2. **事务提交的结果不确定**：ctx 在 `Commit` 进行中被取消，pgx 会直接关掉连接，这时事务可能已经提交，也可能没有。调用方如果在 `Tx` 返回错误后做补偿（比如 `payment` 包里有 3 处“事务失败就调渠道撤销”），就可能撤销一笔其实已经成功的支付。
+3. **重试**：ctx 已经取消时还要不要重试可串行化冲突？不重试的话，原本能成功的请求会失败；重试的话要先检查 ctx。
+4. **嵌套**：有 4 处在 `fn` 里面又调了别的会开事务的函数，现在是两个独立事务，改的时候顺便会暴露出来。
+5. **worker 的任务**：任务的 ctx 在 lease 到期或 worker 退出时取消，取消以后半截的事务回滚，任务会被重新执行，要确认这些任务都是可以重放的。
+
+**结论**：签名改起来是机械的，但 64 个调用点里至少 20 多个要逐个看语义，第 2 条涉及支付的补偿逻辑，第 5 条和任务队列的重放有关，都要想清楚再动。
+
+@@ user mark=E10
+对，每个调用点用哪个 ctx 得一个个看，取消的时候事务和重试怎么处理也要想清楚。不急，先记着。
+
+@@ assistant
+好，记下了。动手的时候我会先把 64 个调用点按上面 5 类分好，每一类的处理方式先跟你确认。
+
+%% D7 解释 reminder 的发送时间怎么算
+@@ user
+问一下，逾期提醒是几点发的？有商户说他的客户半夜收到催款短信。
+
+@@ assistant tools=Read*3,Grep
+`worker/reminder/job.go` 每小时整点跑一次，选出“今天该提醒”的发票，马上发邮件和短信。“今天”是按 UTC 算的，没有考虑客户或商户的时区，所以对大部分在 UTC+8 的客户，提醒集中在每天北京时间 8 点（UTC 0 点）那一次发出；但有一种情况会半夜发：
+
+```go
+due := inv.DueAt
+if now.Sub(due) >= time.Duration(rule.DaysAfter)*24*time.Hour { send(...) }
+```
+
+规则是“到期后满 N 天”，按小时精度比较。到期时间是 UTC 零点附近的话，“满 N 天”这个时刻就落在 UTC 零点附近，对应北京时间早上 8 点；但如果发票是手动改过到期时间的（后台可以改到任意时刻），满 N 天的时刻就可能落在任何一个小时，比如北京时间凌晨 2 点。这个商户的客户收到的应该就是这种。
+
+另外，短信渠道那边本身没有静默时段的限制。
+
+要避免的话，可以在发送前判断客户所在时区的当地时间，落在 22 点到 8 点之间就推迟到当地 8 点。客户的时区我们没有存，只能用商户的时区近似。这个要改的话，和之前说的 PDF 日期的时区问题可以一起看。
+
+@@ user
+嗯，先跟商户解释一下，改不改以后再说。
+
+@@ assistant
+好。

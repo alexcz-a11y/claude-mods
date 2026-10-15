@@ -1,0 +1,103 @@
+%% X2-1 后台首页的汇总接口慢：缺索引（已做完）
+@@ user
+后台首页打开要四五秒，大商户更慢。前端说是 `GET /v1/dashboard/summary` 慢，你看看。
+
+@@ assistant tools=Read*4,Grep*2,Bash*6,Write,Edit*2
+看了，慢在一条查询上，已经改好，需要加一个索引。
+
+**接口做了什么**：`api/internal/dashboard/summary.go` 一次请求跑 4 条查询：本月开票总额、本月已收款、逾期金额、最近 7 天每天的收款。前三条很快（都有合适的索引），慢的是最后一条：
+
+```sql
+-- name: DailyReceipts :many
+SELECT date_trunc('day', paid_at AT TIME ZONE @tz) AS day, sum(amount) AS total
+FROM payments
+WHERE merchant_id = @merchant_id
+  AND status = 'succeeded'
+  AND paid_at >= now() - interval '7 days'
+GROUP BY 1 ORDER BY 1;
+```
+
+**执行计划**（在本地用一个造了 300 万条 payments 的商户测的）：
+
+```
+GroupAggregate  (actual time=3812.4..3812.9 rows=7 loops=1)
+  ->  Sort  (actual time=3812.1..3812.3 rows=8406 loops=1)
+        ->  Bitmap Heap Scan on payments  (actual time=41.0..3790.6 rows=8406 loops=1)
+              Recheck Cond: (merchant_id = 90001)
+              Filter: ((status = 'succeeded') AND (paid_at >= (now() - '7 days'::interval)))
+              Rows Removed by Filter: 2991594
+              ->  Bitmap Index Scan on payments_merchant_id_idx  (actual time=29.8..29.8 rows=3000000 loops=1)
+```
+
+只有 `merchant_id` 上的索引，商户的 300 万条全捞出来再按时间过滤。大商户就是这个情况。
+
+**改法**：
+1. 新迁移 `migrations/202610140815_payments_merchant_paid_at_idx.sql`（按新规范用时间戳命名）：
+
+   ```sql
+   -- +goose NO TRANSACTION
+   -- +goose Up
+   CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_merchant_paid_at_idx
+     ON payments (merchant_id, paid_at) WHERE status = 'succeeded';
+   -- +goose Down
+   DROP INDEX CONCURRENTLY IF EXISTS payments_merchant_paid_at_idx;
+   ```
+
+   部分索引只包含成功的支付，体积小一些。`CONCURRENTLY` 不锁表，所以要 `NO TRANSACTION`。
+2. 查询本身不用改。加了索引以后的计划：
+
+   ```
+   GroupAggregate  (actual time=9.8..10.1 rows=7 loops=1)
+     ->  Index Scan using payments_merchant_paid_at_idx on payments  (actual time=0.04..8.9 rows=8406 loops=1)
+           Index Cond: ((merchant_id = 90001) AND (paid_at >= (now() - '7 days'::interval)))
+   ```
+
+   3.8 秒 → 10 毫秒。
+
+**其他**：`payments` 在生产上 1800 万行左右，`CREATE INDEX CONCURRENTLY` 大概要几分钟，不锁表，但会多读一遍全表，按发布清单由小周在发布窗口执行。`make migrate-lint` 通过。
+
+@@ user
+好，PR 提了跟小周说一声。
+
+@@ assistant tools=Bash
+PR #816 已提，描述里写了索引的大小估计（生产上约 400 MB）和执行时间，@ 了小周。
+
+%% X2-2 前端路由库小版本升级（已做完）
+@@ user
+React Router 还是 6.22，控制台一堆 future flag 的警告，升到 6 的最新版，把警告处理掉。
+
+@@ assistant tools=Read*3,Edit*6,Bash*5
+升好了，6.22.3 → 6.26.2，警告全部处理了。
+
+**警告是什么**：6.26 开始提示 v7 里会改的几个默认行为，要求显式打开 future flag：
+
+```
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early.
+```
+
+**改动**：
+1. `web/package.json`：`react-router-dom` `^6.22.3` → `^6.26.2`；
+2. `web/src/main.tsx`：`createBrowserRouter(routes, { future: { v7_relativeSplatPath: true, v7_fetcherPersist: true, v7_normalizeFormMethod: true, v7_partialHydration: true, v7_skipActionErrorRevalidation: true } })`，`<RouterProvider router={router} future={{ v7_startTransition: true }} />`；
+3. `v7_relativeSplatPath` 会改变 splat 路由里相对链接的解析。仓库里只有一个 splat 路由：`/docs/*`（帮助中心），里面有 4 个 `<Link to="../xxx">`。按新规则逐个改成了从 `/docs` 出发的写法，手工点了一遍，链接都对；
+4. `v7_normalizeFormMethod` 让 `useNavigation().formMethod` 变成大写。`web/src/pages/invoices/Edit.tsx` 里有一处 `navigation.formMethod === 'post'`，改成了 `'POST'`。
+
+**验证**：
+
+```
+$ pnpm -C web build
+✓ built in 14.82s
+$ pnpm -C web vitest run
+ Test Files  64 passed (64)
+      Tests  402 passed (402)
+$ pnpm -C web exec playwright test
+  37 passed (2.4m)
+```
+
+开发服务器启动后控制台没有警告了。
+
+@@ user
+好。
+
+@@ assistant tools=Bash
+PR #817 已提。

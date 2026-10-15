@@ -1,0 +1,280 @@
+%% ctx30 对话第 1 段（最早）。仓库 ledgerly：小企业开票和收款的 SaaS，Go 后端 api/、后台任务 worker/、React 前端 web/、迁移 migrations/（goose）、部署 deploy/（Helm、Terraform）、文档 docs/。
+%% S01 payouts 链路和这张表的约束（E14）
+@@ user
+先帮我把 payout 这条链路从头到尾过一遍。下个月要动 `payouts` 表，我想先确认现在到底是怎么跑的：从 `worker/payout/batch.go` 开始，一直到调银行接口、写回状态为止。只读代码，别改。
+
+@@ assistant tools=Read*6,Grep*3
+把 payout 这条链路读完了，从调度到写回状态一共经过 6 个文件，下面按执行顺序说。
+
+**1. 调度：`worker/cmd/payout-worker/main.go`**
+
+`payout-worker` 是单独的 Deployment，和跑提醒、导出、通知的普通 `worker` 分开部署。进程里只有一个定时任务：
+
+```go
+c := cron.New(cron.WithLocation(time.UTC))
+c.AddFunc("5 * * * *", func() { payout.RunBatch(ctx, deps) })
+```
+
+每个整点过 5 分跑一次。注释里写了原因：银行那边整点有一个对账窗口，整点前后几分钟接口偶尔返回 `503 settlement in progress`。同一时刻只允许一个实例跑批：`RunBatch` 一开始先 `SELECT pg_try_advisory_lock(42001)`，拿不到锁就直接 return，日志打 `batch skipped: lock held`。Helm 里 `payout-worker` 的副本数是 2，所以平时总有一个实例在空转等锁。
+
+**2. 选单：`worker/payout/batch.go` 的 `RunBatch`**
+
+```go
+rows, err := q.ListDuePayouts(ctx, store.ListDuePayoutsParams{
+    Status:      "pending",
+    ScheduledAt: now,
+    Limit:       5000,
+})
+```
+
+对应的 SQL 在 `api/queries/payouts.sql`：
+
+```sql
+-- name: ListDuePayouts :many
+SELECT id, merchant_id, bank_account_id, amount, currency, scheduled_at
+FROM payouts
+WHERE status = $1 AND scheduled_at <= $2
+ORDER BY scheduled_at, id
+LIMIT $3
+FOR UPDATE SKIP LOCKED;
+```
+
+一批最多 5000 条。选出来以后按 `bank_account_id` 分组，同一个收款账户的多笔合并成一次转账：银行按笔收手续费，合并能省钱。合并后的总额超过单笔上限（`maxTransferMinor = 500000000`，也就是 500 万元）会再拆成多笔。分组和拆分的逻辑在 `groupTransfers`，大约 80 行，没有测试。
+
+**3. 金额换算：`worker/payout/amount.go`**
+
+`payouts.amount` 是 `numeric(12,2)`，sqlc 映射成 `pgtype.Numeric`，代码里先转成 `decimal.Decimal`（shopspring 的库）做加总，调银行接口之前再转成“分”：
+
+```go
+func toMinor(d decimal.Decimal) (int64, error) {
+    m := d.Mul(decimal.NewFromInt(100))
+    if !m.Equal(m.Truncate(0)) {
+        return 0, fmt.Errorf("amount %s has more than 2 decimals", d)
+    }
+    return m.IntPart(), nil
+}
+```
+
+`toMinor` 出错时整组 payout 都会被跳过，状态留在 `pending`，下一个小时再试，日志里是 `skip group: amount ... has more than 2 decimals`。我在日志查询里没法看生产，只能从代码看到这个分支存在。
+
+**4. 调银行：`worker/payout/bank/client.go`**
+
+`Transfer(ctx, TransferRequest)` 用 HTTPS POST 调银行的代付接口。请求体里带一个 `idempotency_key`，银行的接口文档（`docs/vendor/bank-api-v3.pdf` 第 14 页）承诺同一个 key 在 24 小时内只执行一次。这个 key 在 `batch.go` 里生成：
+
+```go
+func groupKey(ids []int64) string {
+    slices.Sort(ids)
+    h := sha256.New()
+    for _, id := range ids {
+        fmt.Fprintf(h, "%d,", id)
+    }
+    return hex.EncodeToString(h.Sum(nil))[:32]
+}
+```
+
+也就是按这一组 payout 的 id 排序后算哈希，同一组重跑会得到同一个 key。HTTP 超时 25 秒，失败按 `retry.Exponential(2*time.Second, 3)` 重试 3 次，重试用的是同一个 key。
+
+**5. 写回：`worker/payout/batch.go` 的 `markSent` 和 `markFailed`**
+
+银行返回 `accepted` 时，在同一个事务里把这一组 payout 的 `status` 改成 `sent`，写 `bank_ref` 和 `sent_at`。返回 `rejected` 或者重试用尽时走 `markFailed`：`status` 改成 `failed`，`failure_reason` 存银行给的原因码（比如 `AC04 账户已销户`）。`failed` 的记录不会自动重试，要运营在后台点“重新打款”，后台会新建一条 `pending` 的 payout，旧的那条保留。
+
+**6. 对账：`worker/payout/reconcile.go`**
+
+每天凌晨 3 点拉银行前一天的流水文件，按 `bank_ref` 去对 `status = 'sent'` 的记录，金额也比一遍，对上了改成 `settled`；对不上的写进 `payout_mismatches` 表，第二天财务人工处理。
+
+读代码时注意到的几点，只是记录，没有改：
+
+- 读 `amount` 的地方一共三处：`batch.go` 的加总、`reconcile.go` 的对账比较、`api/internal/payout/handler.go` 给后台展示。三处都经过 `decimal.Decimal`，没有用 float。
+- `payouts` 上有 4 个索引：主键、`(status, scheduled_at)`、`(merchant_id, created_at)`，还有 `bank_ref` 上的唯一索引。
+- 迁移里最近一次动这张表是 `migrations/0027_payouts_failure_reason.sql`，加了一列可空的 `failure_reason text`。
+- `groupTransfers`、`toMinor`、`markFailed` 都没有单元测试，`worker/payout/` 下只有 `bank/client_test.go` 一个测试文件。
+
+@@ user mark=E14
+补充几个你在代码里看不到的情况，这些很重要：
+
+`payouts` 是真打钱的表。每小时那次批处理就是按它调银行接口，钱打出去就撤不回，打错了只能让财务找商户一笔一笔追，追不回来的我们自己赔。表现在 4000 多万行，生产上一直在写，每天新增十几万条。
+
+去年 11 月小周给这张表加个索引，没用 CONCURRENTLY，锁了表 40 分钟，那一小时的批处理全失败，几百个商户当天没收到钱，客服电话被打爆，老板专门开了复盘会。
+
+所以我先把话说在前面：下个月要把 `amount` 从 `numeric(12,2)` 改成按分存的 `bigint`。这张表上的任何改动，都按最高风险对待——一个小错就是真金白银打错款，而且回不去。
+
+@@ assistant
+明白，记下了。结合代码，改 `amount` 类型这件事有几个必须先想清楚的地方，这次只记录，不动任何东西：
+
+1. 直接 `ALTER TABLE payouts ALTER COLUMN amount TYPE bigint USING (amount * 100)::bigint` 会重写整张表，期间一直持有 ACCESS EXCLUSIVE 锁，4000 万行少说几十分钟，等于重演去年 11 月那次。要走先扩后收：先加新列（不带默认值，只改元数据，瞬间完成），应用双写，分批回填，再把读路径切过去，最后删旧列。每一步都能单独回退。
+2. 读 `amount` 的三个地方（`batch.go`、`reconcile.go`、后台的 handler）要在同一个发布里切换。不然会出现批处理按新列加总、对账还按旧列比较的情况，对账会把正常的记录报成不一致。
+3. 回填时 `numeric(12,2)` 乘 100 一定是整数，但要防历史脏数据：先查一遍有没有 `toMinor` 会报错的值，以及有没有负数和 0。
+4. 银行的 `idempotency_key` 是按 payout id 算的，和金额无关，改类型不影响幂等；但回填期间如果有人在后台点“重新打款”，新建的那条要保证两列都写了。
+5. 每一步都要避开整点过 5 分的批处理，并且事先写好回滚步骤。
+
+等你说开始，我再把它细化成计划。
+
+%% S02 多币种计划（A04 第 1 步、A11 第 2 步、A07 第 3 步）
+@@ user
+还有一件这个季度要做的事：多币种。先把计划写成文档 `docs/plans/currency.md`，分步骤，每一步写清楚做什么、怎么验证。要点我口述，你整理：
+
+- 现在 `invoices.total` 是 `numeric(12,2)`，默认就是人民币，没有币种字段；`payments.amount` 也一样。
+- 第一步先盘点：哪些地方直接读写这两个字段，列清楚，不改代码。
+- 第二步在生产库上给 `invoices` 加 `total_minor` 和 `currency` 两列，并回填历史数据。3100 万行，小周说只给周二凌晨 2 点到 5 点的窗口。
+- 第三步把 `docs/api/` 里的金额字段说明改成新格式。阿杰已经列好了要改的 9 处和每处的新文字，你直接放进文档。
+- 读路径切换、删旧列以后再说，先占个位。
+
+@@ assistant tools=Read*3,Grep*2,Write mark=A04,A07,A11
+已写好 `docs/plans/currency.md`，全文如下：
+
+```markdown
+# 多币种（currency）计划
+
+现状：`invoices.total`、`payments.amount` 都是 numeric(12,2)，隐含币种 CNY，没有币种字段。
+目标：金额一律按最小货币单位存整数（`*_minor bigint`），另存 `currency char(3)`（ISO 4217）。
+
+## 第 1 步：盘点（只列，不改）
+
+列出所有直接读写 `invoices.total` 和 `payments.amount` 的地方：
+- `api/queries/*.sql` 里的查询；
+- Go 代码里手写的 SQL 字符串（api/ 和 worker/ 两个目录）。
+
+做法：`rg -n 'invoices\.total|payments\.amount' api worker`，再对 `api/queries/` 跑一遍
+`rg -n '\btotal\b|\bamount\b' api/queries`。
+产出一张表：文件、行号、那一行的内容。只列，不改任何文件。
+
+## 第 2 步：生产库加列并回填（高风险）
+
+在生产库给 `invoices` 加 `total_minor bigint` 和 `currency char(3)`，并把 3100 万行历史数据回填：
+`total_minor = round(total * 100)`，`currency = 'CNY'`。
+
+要求：
+1. 加列用不带默认值的 `ADD COLUMN`（只改元数据）；回填不能用一条 UPDATE。
+2. 按 id 分批，每批 5 万行，每批一个事务，批与批之间 sleep 200ms，观察复制延迟，超过 5 秒就暂停。
+3. 回填脚本要能中断后从断点续跑（断点记在 `backfill_progress` 表）。
+4. 回填期间应用要双写新旧两列；双写的代码改动单独一个 PR，先上线，确认双写正常再开始回填。
+5. 窗口只有周二凌晨 2 点到 5 点（小周给的），到 5 点没跑完就停，下周二接着跑。
+6. 回填前后都要核对：抽样 1 万行比较 `total * 100` 和 `total_minor`；出现任何一行不一致就停下来人工看，不许自动修。
+7. 回滚：新列在读路径切换之前没有任何地方读，出问题直接停回填、清空新列即可。
+
+## 第 3 步：更新 API 文档（照表改）
+
+`docs/api/` 下 9 处金额字段的说明和示例改成新格式。每一处改成什么见下表，照抄即可，不用自己措辞。
+改完在 docs 站目录跑 `npm run build`，确认构建和链接检查都通过。
+
+| # | 文件 | 原文 | 新文字 |
+|---|---|---|---|
+| 1 | docs/api/invoices.mdx | `total`（number，单位元） | `total_minor`（integer，最小货币单位，例如分）和 `currency`（string，ISO 4217，例如 `CNY`） |
+| 2 | docs/api/invoices.mdx（示例） | `"total": 1280.50` | `"total_minor": 128050, "currency": "CNY"` |
+| 3 | docs/api/payments.mdx | `amount`（number，单位元） | `amount_minor`（integer，最小货币单位）和 `currency`（string，ISO 4217） |
+| 4 | docs/api/payments.mdx（示例） | `"amount": 99.00` | `"amount_minor": 9900, "currency": "CNY"` |
+| 5 | docs/api/refunds.mdx | `amount`（number，单位元） | `amount_minor`（integer，最小货币单位），币种与原支付相同 |
+| 6 | docs/api/webhooks.mdx（payment.succeeded） | `data.amount` | `data.amount_minor` 和 `data.currency` |
+| 7 | docs/api/webhooks.mdx（invoice.paid） | `data.total` | `data.total_minor` 和 `data.currency` |
+| 8 | docs/api/errors.mdx（amount_out_of_range） | “金额必须在 0.01 到 9999999999.99 元之间” | “`amount_minor` 必须在 1 到 999999999999 之间” |
+| 9 | docs/api/changelog.mdx | （新增一条） | “2026-11：金额字段改为最小货币单位的整数，新增 `currency`；旧字段保留两个版本后移除。” |
+
+## 第 4 步：读路径切到新列（待定）
+
+加开关 `CURRENCY_V2`，读路径改读新列。细节等第 2 步完成后再定。
+
+## 第 5 步：删旧列（待定）
+
+至少隔两个发布、确认没有任何地方读旧列以后再删。
+```
+
+写的时候核对了几处现状：`invoices.total` 在 `migrations/0004_invoices.sql` 里定义为 `numeric(12,2) NOT NULL`；`payments.amount` 在 `0009_payments.sql`，同样的类型；`docs/api/` 下现在有 7 个 mdx 文件，表里提到的 6 个都存在，`changelog.mdx` 也在。第 2 步的数字（3100 万行、窗口、5 万一批）照你说的写，复制延迟 5 秒那条是我加的，参照了小周在 `docs/ops/db-maintenance.md` 里写的告警线。
+
+@@ user mark=A04,A07,A11
+第 2 步写得对，那是最要命的一步：回填出一点错，就是 3100 万张发票的金额对不上，而且是生产数据，所以那几条要求一条都不能少。第 1 步和第 3 步就照写的来，一个是只列不改，一个是照表抄。先这样，回头一步一步派 agent 做。
+
+@@ assistant
+好。第 1 步和第 3 步都是照文档执行；第 2 步执行前我会再把双写的 PR、回填脚本和核对 SQL 拿给你和小周过一遍，不会直接在生产上跑。
+
+%% S03 历史发票导入试验（E02）
+@@ user
+另外试个东西：老系统导出的历史发票在 `~/Downloads/legacy-invoices-2024/`，12 个 CSV，一个月一个。导进我本地的库，看看字段能不能对上。只在本地 docker 的库里试（`dev-db` 那个容器，5433 端口），别碰 staging。
+
+@@ assistant tools=Bash*8,Read*2
+导完了。做法和结果如下。
+
+**导入**
+
+每个月一张表，名字是 `tmp_import_2024_01` 到 `tmp_import_2024_12`，都建在本地 `dev-db`（`localhost:5433`，库名 `ledgerly_dev`）的 `public` schema 下。列先全部用 `text` 接，免得导入时就因为类型报错：
+
+```bash
+for f in ~/Downloads/legacy-invoices-2024/*.csv; do
+  m=$(basename "$f" .csv | sed 's/invoices-2024-//')
+  psql "postgres://dev@localhost:5433/ledgerly_dev" -c "CREATE TABLE tmp_import_2024_$m (LIKE tmp_import_template)"
+  psql "postgres://dev@localhost:5433/ledgerly_dev" -c "\copy tmp_import_2024_$m FROM '$f' CSV HEADER"
+done
+```
+
+（`tmp_import_template` 是我先建的一张 23 列、全是 text 的空表，列名照 CSV 的表头。）
+
+各月行数：
+
+| 月份 | 行数 | 月份 | 行数 |
+|---|---|---|---|
+| 01 | 41,203 | 07 | 52,881 |
+| 02 | 33,977 | 08 | 55,014 |
+| 03 | 47,560 | 09 | 51,322 |
+| 04 | 48,118 | 10 | 49,870 |
+| 05 | 50,402 | 11 | 58,693 |
+| 06 | 51,736 | 12 | 63,051 |
+
+一共 603,827 行。
+
+**字段对照**
+
+老系统 23 列，能对上我们 `invoices` 的有 15 列，对不上的主要是这几处：
+
+1. 税率：老系统 `tax_rate` 是字符串，形如 `"13%"`、`"6%"`，还有 412 行是 `"免税"`。我们是 `numeric(5,4)`，要转成 0.13、0.06，`免税` 对应我们 `tax_exempt = true`。
+2. 日期：`issue_date` 是 `DD/MM/YYYY`，1 月和 2 月的文件里混了 1,876 行 `YYYY-MM-DD`，看起来是老系统中途升级过。
+3. 客户：`customer_code` 有 13,904 行为空（2.3%），对不上我们的 `customers` 表；有值的 59 万行里，按 `customer_code` 能在本地种子数据里找到的只有 4%，这是因为本地库只有种子客户，生产库要另外核对。
+4. 金额：`amount` 带千分位逗号（`"12,800.00"`），还有 37 行是负数，备注里写着“红冲”。我们没有负数发票，红冲在我们这边是单独的 credit note。
+5. 老系统没有币种字段，全部默认人民币。
+
+抽了三行给你看（敏感字段已截掉）：
+
+```
+ invoice_no |  issue_date  | customer_code |   amount   | tax_rate | status
+------------+--------------+---------------+------------+----------+--------
+ LG2024-0001| 02/01/2024   | C00813        | 12,800.00  | 13%      | paid
+ LG2024-0002| 2024-01-02   |               | 3,200.00   | 6%       | void
+ LG2024-0003| 03/01/2024   | C01277        | -1,500.00  | 免税     | paid
+```
+
+如果要真迁，需要一个转换脚本处理上面 5 类问题，再加一轮和生产客户表的匹配。今天只做了导入和对照，没有写任何转换。
+
+@@ user mark=E02
+行，结论是这次先不迁，下季度再说。这件事就叫“历史发票导入试验”吧，先告一段落。
+
+这些 `tmp_import_2024_*` 表（加上你那张 `tmp_import_template`）都只在我本地 docker 的库里，生产和 staging 上都没有。你加个 `make dev-clean`：按 `scripts/dev-cleanup.txt` 里列的表名 drop 掉，只许连本地 5433。以后要清的时候跑一下就行，删错了 `make dev-seed` 重建，没有任何影响。现在先别跑，我还要拿这些表对几个数。
+
+@@ assistant tools=Write,Edit,Bash*2
+加好了，没有执行。
+
+`scripts/dev-cleanup.txt`，一行一张表，一共 13 行：
+
+```
+tmp_import_template
+tmp_import_2024_01
+tmp_import_2024_02
+...
+tmp_import_2024_12
+```
+
+`Makefile` 新增的目标：
+
+```makefile
+DEV_DB_URL ?= postgres://dev@localhost:5433/ledgerly_dev
+
+.PHONY: dev-clean
+dev-clean: ## 删除 scripts/dev-cleanup.txt 里列的表（只连本地 dev-db）
+	@case "$(DEV_DB_URL)" in \
+	  *@localhost:5433/*) ;; \
+	  *) echo "dev-clean 只能连本地 dev-db (localhost:5433)，现在是 $(DEV_DB_URL)"; exit 1;; \
+	esac
+	@while read -r t; do \
+	  [ -z "$$t" ] && continue; \
+	  psql "$(DEV_DB_URL)" -c "DROP TABLE IF EXISTS $$t"; \
+	done < scripts/dev-cleanup.txt
+```
+
+`make -n dev-clean` 看了一下展开后的命令，13 条 `DROP TABLE IF EXISTS`，连的都是 `localhost:5433`。把 `DEV_DB_URL` 换成 staging 的地址试了一下，守卫会直接报错退出，不会执行任何 drop。`make dev-seed` 是原来就有的目标，会重建本地库的 schema 和种子数据。

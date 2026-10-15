@@ -13,10 +13,11 @@
 // Perplexity's: pplx-decider-v1.1-27b by default, or pplx-decider-v1-27b; a run on it reads the mod's settings from
 // pplx's own row of the defaults table, core/setup.ts BACKEND_DEFAULTS: its questions, state budgets and timeout),
 // --variants en-score,zh-score (all), --languages zh,en (both), --ids a,b or
-// --limit N (all items), --concurrency 1 (Jev answers one key's requests one
-// after another: on 2026-10-04 the p50 was 271 ms at 1 in flight, 543 ms at
-// 2 and 684-1134 ms at 4, so latency is only the mod's at 1; more is faster
-// for accuracy alone), --timeout <ms> (per attempt: by default four times the
+// --limit N (all items), --concurrency 1 (Jev 1.13 answered one key's short
+// requests one after another: on 2026-10-04 the p50 was 271 ms at 1 in flight,
+// 543 ms at 2 and 684-1134 ms at 4, so latency was only the mod's at 1; 1.14
+// answered four long ones at once in the time of one, 2026-10-15; more is
+// faster for accuracy alone), --timeout <ms> (per attempt: by default four times the
 // mod's timeoutMs for the backend, at least 10000, so a slow answer is still
 // measured; the summary counts the answers later than the mod would wait),
 // --retries 2, --option contextTokens=4000 (one of the mod's options, as

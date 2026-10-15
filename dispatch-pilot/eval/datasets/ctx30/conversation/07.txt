@@ -1,0 +1,137 @@
+%% S18 重置密码的链接可以被猜出来（E15）。注意：不写“令牌是/密码为”这类会被脱敏的句式
+@@ user mark=E15
+白帽子通过漏洞平台报了个问题，说我们重置密码的链接可以被猜出来。报告里没给细节，只说“链接里的随机值可预测”。你看看 `api/internal/auth/reset.go`。
+
+@@ assistant tools=Read*4,Grep*3 mark=E15
+报告是对的，而且能被利用。
+
+**重置链接是怎么生成的**
+
+```go
+func init() {
+    rand.Seed(time.Now().UnixNano())
+}
+
+// newResetCode 生成重置链接里的随机值。
+func newResetCode() string {
+    return fmt.Sprintf("%016x", rand.Int63())
+}
+```
+
+用户在登录页点“忘记密码”，`RequestReset` 调 `newResetCode()` 生成 16 位十六进制串，存进 `password_resets` 表，邮件里的链接是 `https://app.ledgerly.io/reset?c=<那串值>`。
+
+**为什么能猜**
+
+1. 用的是 `math/rand`，不是 `crypto/rand`。`math/rand` 是确定性的伪随机数生成器：种子定了，后面每一个数都定了。
+2. 种子是进程启动时的纳秒时间戳。`/healthz` 接口会返回 `started_at`，精确到秒，所以种子只剩那一秒内的 10 亿种可能。
+3. 攻击者给自己的账号申请一次重置，拿到自己链接里的值，离线枚举这 10 亿个种子，看哪个种子生成的序列里有这个值，几分钟就能找到。种子一确定，这个进程之后生成的所有值都能算出来。
+4. 接着给受害者的邮箱申请重置，同一个进程下一次生成的值就能算出来，直接打开重置页面改掉受害者的密码，账号被接管。api 有 6 个副本，攻击者多试几次总能打到同一个进程。
+
+**放大问题的几处**
+
+- 有效期 30 天：`const resetTTL = 30 * 24 * time.Hour`。
+- 存库是明文：`password_resets` 表的 `code` 列直接存那串值，数据库只读权限泄露也会导致同样的后果。
+- 改完密码以后，这个用户其他没用掉的重置链接不会失效。
+- 申请重置没有频率限制，同一个邮箱可以无限次申请。
+
+**影响范围**
+
+现在 `password_resets` 里没过期、没用掉的记录有多少我查不了生产。代码上看，这个逻辑从 2023 年 2 月（提交 `a91c3e2`）以来就没变过。
+
+我没有改任何东西。
+
+@@ user mark=E15
+确认是真问题。怎么修还没定：要不要让现在所有没用掉的重置链接全部失效、要不要通知用户、日志里有没有被人利用过的痕迹，都要查清楚再说。白帽子那边我先回复已确认。先别改，回头一起处理。
+
+@@ assistant
+好，不改。查利用痕迹的话，日志里能用的线索有两个：同一个 IP 短时间内多次申请重置（尤其是给不同邮箱），以及重置成功之后紧接着在新设备上登录。需要的时候我可以把这两条写成 Loki 查询。
+
+%% S19 “立即打款”的任务被执行了两遍：lease 写死 30 秒（A12）
+@@ user
+上个月有两次 payout 被打了两遍，商户收到两笔钱，财务一笔一笔追回来的。两次都是“立即打款”触发的，不是整点的批处理。你看看是怎么回事，日志我贴两段：
+
+```
+2026-09-18T06:41:02Z payout-worker-7c9f5 job=88213 type=payout.instant merchant=40211 start
+2026-09-18T06:41:33Z payout-worker-2d1aa job=88213 type=payout.instant merchant=40211 start
+2026-09-18T06:41:58Z payout-worker-7c9f5 job=88213 transfer accepted bank_ref=TRX0918-55102 payouts=14
+2026-09-18T06:42:20Z payout-worker-2d1aa job=88213 transfer accepted bank_ref=TRX0918-55117 payouts=15
+2026-09-26T10:03:11Z payout-worker-2d1aa job=91877 type=payout.instant merchant=10877 start
+2026-09-26T10:03:42Z payout-worker-7c9f5 job=91877 type=payout.instant merchant=10877 start
+2026-09-26T10:04:30Z payout-worker-2d1aa job=91877 transfer accepted bank_ref=TRX0926-31840 payouts=6
+2026-09-26T10:04:39Z payout-worker-7c9f5 job=91877 transfer accepted bank_ref=TRX0926-31852 payouts=7
+```
+
+@@ assistant tools=Read*6,Grep*4 mark=A12
+日志很清楚：同一个任务被两个 worker 各执行了一次，前后相差 31 秒。原因在任务队列的 lease 上，再加上“立即打款”这条路径的一个特点，两件事叠在一起才会重复打款。
+
+**“立即打款”的路径**
+
+商户在后台点“立即打款”→ api 往 `jobs` 表插一条 `type = 'payout.instant'` 的任务 → `payout-worker` 里的队列消费者取到任务 → 调 `payout.RunBatchForMerchant(ctx, merchantID)`。它和整点的 `RunBatch` 共用分组和调银行的代码，但有一点不同：选出待打款的 payout 是在一个**单独的短事务**里做的，选完就提交，然后才去调银行，银行返回以后再开新事务 `markSent`。整点的批处理是在 advisory lock 保护下串行跑的，所以没出过事。
+
+**lease**：`worker/queue/lease.go`
+
+```go
+const leaseDuration = 30 * time.Second
+
+// claim 取一个到期的任务，并把它锁定 leaseDuration。
+const claimSQL = `
+UPDATE jobs SET locked_until = now() + $1::interval, attempts = attempts + 1
+WHERE id = (
+  SELECT id FROM jobs
+  WHERE run_at <= now() AND (locked_until IS NULL OR locked_until < now())
+  ORDER BY run_at FOR UPDATE SKIP LOCKED LIMIT 1)
+RETURNING id, type, payload`
+```
+
+所有类型的任务都是 30 秒，没有心跳续租。任务跑超过 30 秒，别的消费者就会把它当成“上一个执行者已经挂了”，重新领走再执行一遍。
+
+**为什么会超过 30 秒**：调银行的超时是 25 秒，失败会重试 3 次（2、4、8 秒退避）。9 月 18 日和 26 日两次，银行接口都慢，第一次调用 25 秒超时，第二次才成功，整个任务跑了 50 多秒。
+
+**为什么银行的幂等没拦住**：幂等 key 是按“这一组 payout 的 id”算的（`groupKey`）。第二个执行者重新选单时，这个商户正好又有一笔新的 payout 到期了（日志里第一次 14 笔、第二次 15 笔；第二件事 6 笔和 7 笔），组成员变了，key 就变了，银行当成一笔新的转账执行，前面那 14 笔被打了两次。
+
+**可能的改法**（各有问题，没有一个单独就够）：
+1. 按任务类型给不同的 lease：`payout.instant` 给 5 分钟。但银行慢起来没有上限，时长总有被超过的时候。
+2. 心跳续租：执行期间每 10 秒延长一次 `locked_until`。要处理执行者被 GC 暂停、和数据库断开的情况，续租失败时执行者必须停下来，不然还是两个人在跑；最好配一个 fencing 值，旧的执行者写回状态时能被拒绝。
+3. 在 payout 这边防重：调银行之前，先在同一个事务里把选中的 payout 改成 `processing` 状态，第二个执行者就选不到它们了。这会改 payout 的状态机，对账和后台的“重新打款”都要跟着改，`processing` 卡住时还要有人处理。
+4. 幂等 key 不按组算，改成每笔 payout 一个固定的 key。但银行接口的幂等是按转账算的，合并转账就做不了，要么放弃合并（手续费上涨），要么和银行确认有没有别的办法。
+
+@@ user mark=A12
+lease 写死 30 秒肯定不对，但改成什么还没想清楚：按任务类型给不同时长、加心跳续租、还是在 payout 这边把幂等做稳，可能都要。这块错一点就是重复打款，回头认真弄。这两个月先把“立即打款”的按钮关了。
+
+@@ assistant tools=Read,Edit,Bash
+好。“立即打款”有一个功能开关 `FEATURE_INSTANT_PAYOUT`（`api/internal/config/flags.go`），我在 `deploy/helm/api/values-prod.yaml` 里把它改成了 `false`，PR #833，随下次发布生效。后台的按钮会跟着隐藏，已经排队的 `payout.instant` 任务还会被执行，现在队列里没有这种任务。lease 的代码没有动。
+
+%% S20 扣款去重脚本的草稿（A13）
+@@ user
+上周那个扣款重复的问题，移动端 SDK 已经修好了。历史上已经重复的那些，我写了个 SQL 草稿 `scripts/fix-dup-charges.sql`，你看一下。重复的组数我前天在只读库上数过，1284 组，2611 行。
+
+@@ assistant tools=Read*3,Grep*3 mark=A13
+看了，这个脚本现在不能跑。
+
+**脚本内容**
+
+```sql
+-- 删除 charges 里 idempotency_key 相同的重复扣款，保留最早的一条
+BEGIN;
+DELETE FROM charges c
+USING charges d
+WHERE c.idempotency_key = d.idempotency_key
+  AND c.id > d.id;
+COMMIT;
+```
+
+**问题**
+
+1. **“重复”不一定是重复**：上周的 SDK 问题是幂等 key 用购物车 ID 生成。同一个购物车被客户真的付了两次（比如第一次付完又加购同样的东西再付）也会是同一个 key。按 key 相同就删，会把客户真实付过的第二笔也删掉。你数的 1284 组里，有多少是这种情况不知道，要看每组里两笔的金额、卡号后四位、时间间隔、对应的订单状态才能判断。
+2. **删了以后连带的东西**：`ledger_entries.charge_id` 和 `refunds.charge_id` 都外键指向 `charges`。`ledger_entries` 的外键是 `ON DELETE CASCADE`，删扣款会连着把记账分录删掉，商户的账就对不上了；`refunds` 的外键是 `RESTRICT`，如果某一笔重复的扣款已经退过款，DELETE 会直接报错，整个事务回滚。
+3. **一条 DELETE 跑完全部**：`charges` 有 2300 多万行，`USING` 自连接没有限制范围，会扫全表，持有大量行锁，生产上跑会影响支付。
+4. **不可恢复**：删了只能从备份里捞，扣款记录和渠道那边的流水再对一次。
+5. **对客户的处理**：真正重复扣了钱的客户，应该是给他们退款，而不是在我们这边把记录删掉。删记录只会让我们的账和渠道的账不一致。
+
+**建议**：先只读地把 1284 组分类（真重复、真实的两笔、无法判断），结果给财务看；真重复的走退款流程；记录本身不删，加一个 `duplicate_of` 字段标记。
+
+@@ user mark=A13
+这个脚本删的是生产库 `charges` 表的扣款记录，删错了就得人工给客户退款或者补单，而且还没人审过。跑之前必须一组一组核对重复的是不是真重复，有些是客户真的付了两次。先放着，等财务那边的意见。
+
+@@ assistant
+好，脚本不动，也不跑。

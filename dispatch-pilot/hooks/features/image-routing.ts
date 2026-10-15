@@ -18,7 +18,7 @@
 import type { EngineInterface, HttpInit, On } from 'claude-code'
 import { type BackendIo, describeAsked, errorText, within } from '../decision/backend.ts'
 import type { ReferenceReading } from '../decision/complexity.ts'
-import { askGroup, type AskIo } from '../core/ask-group.ts'
+import { askGroups, type AskIo } from '../core/ask-group.ts'
 import { readReferenceComplexity, type ComplexityIo, type ReferenceReadings, type ReferenceSource } from '../core/complexity.ts'
 import { enteringPrompt } from '../core/core.ts'
 import type { Cell } from '../core/plans.ts'
@@ -249,7 +249,7 @@ async function decide($: EngineInterface, ctx: Ctx, taken: NonNullable<ReturnTyp
   const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
   const spent = (await $.clock.now()) - startedAt
   const io: AskIo = { backend, now: () => $.clock.now(), debug }
-  await askGroup(io, ctx, { prompt: taken.prompt, messages, group: [taken.deferred(reading)], timeoutMs: Math.max(200, Math.min(ctx.config.timeoutMs, HOOK_ROOM_MS - spent)) })
+  await askGroups(io, ctx, { prompt: taken.prompt, messages, groups: [[taken.deferred(reading)]], maxWaitMs: Math.max(200, HOOK_ROOM_MS - spent) })
 }
 
 /** A reading that failed, for the board's notes: beside the route, no toast (the effort is decided all the same). */

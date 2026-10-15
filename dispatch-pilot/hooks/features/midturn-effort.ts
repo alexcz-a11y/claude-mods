@@ -47,7 +47,7 @@ import { wasBlocked } from '../core/outcomes.ts'
 import { floorHeld, MAIN, redecided, turnKey, update, type Cell, type TurnRecord } from '../core/plans.ts'
 import { hintDecision, type UnresolvedState } from '../core/unresolved.ts'
 import { report, type HintRecord, type NodeFailure, type ReportIo } from '../core/report.ts'
-import type { Ctx } from '../core/setup.ts'
+import { redecisionWaitMs, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import { UNRESOLVED_SWITCH } from './unresolved.ts'
 
@@ -316,7 +316,8 @@ async function launch(io: LaunchIo, s: Settings, step: MainStep, starting: Start
   const ask = async (reading: ReferenceReading | null): Promise<Asked> => {
     read = reading
     const request = mergeParts(midturnState({ ...input, ...(reading === null ? {} : { reference_complexity: reading }) }, s.limits), [midturnEffortPart(s.ctx.ask, { hint: hint !== undefined })])
-    return s.ctx.backend.ask(io.backend, request, s.ctx.config.timeoutMs)
+    // As long as a long request may take: one about agents may be ahead of it (the step still waits only `waitMs`).
+    return s.ctx.backend.ask(io.backend, request, redecisionWaitMs(s.ctx.config))
   }
   const asking = reference === undefined ? ask(null) : reference.reading.then(ask)
   const entry: InFlight = { forStep: upcoming, reason, answer: asking, settled: null, ms: 0, ...(hint === undefined ? {} : { hint }), ...(reference === undefined ? {} : { referenced: true as const }) }

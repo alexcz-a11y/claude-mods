@@ -1,0 +1,106 @@
+%% X1-1 发票发送流程加链路追踪（已做完）
+@@ user
+发票发送这条链路（点“发送”→ 生成 PDF → 发邮件 → 触发 webhook）加上 OpenTelemetry 的 trace，现在 Grafana 里有 Tempo 了，但我们的服务一个 span 都没上报。
+
+@@ assistant tools=Read*6,Grep*3,Edit*8,Bash*4
+加好了，在 Tempo 里能看到完整的一条 trace，从 api 的请求一直到 worker 的 webhook 投递。
+
+**接入**：
+1. `go.opentelemetry.io/otel` 和 OTLP 的 gRPC exporter，初始化放在新的 `internal/telemetry/telemetry.go`，api 和 worker 的 `main.go` 各调一次 `telemetry.Init(ctx, serviceName)`；
+2. exporter 的地址读 `OTEL_EXPORTER_OTLP_ENDPOINT`，Helm 的 values 里两个服务都加了，指向集群里的 Tempo（`tempo-distributor.observability:4317`）；为空时不初始化（本地开发不报错）；
+3. 采样：生产 10%（`ParentBased(TraceIDRatioBased(0.1))`），staging 100%。
+
+**span**：
+- api：`otelhttp` 中间件包住整个 router，每个请求一个根 span，名字用路由模板（`POST /v1/invoices/{id}/send`），不用实际路径，避免基数爆炸；
+- 发送流程里手动加了三个子 span：`invoice.render_pdf`、`invoice.send_email`、`queue.enqueue`；
+- pgx 用 `otelpgx` 加了 tracer，每条查询一个 span，SQL 只记录语句模板，不记录参数；
+- worker：取任务时从 `jobs.meta`（前面加的那列）里取出 trace 上下文，作为父 span 继续，所以 webhook 投递的 span 和 api 的请求在同一条 trace 里。
+
+**效果**（staging）：发送一张发票的 trace 一共 23 个 span，总耗时 1.84 秒，其中渲染 PDF 0.21 秒、发邮件 1.31 秒（SMTP 服务商慢）、其余是数据库和入队。webhook 投递在 4 秒后作为同一条 trace 的后续出现。
+
+**开销**：本地压测（`k6`，`POST /v1/invoices/{id}/send`，50 并发），加 trace 前后 p50 从 212 毫秒到 214 毫秒，可以忽略。
+
+```
+$ go test ./internal/telemetry/... ./api/... ./worker/...
+ok  	github.com/ledgerly/ledgerly/internal/telemetry	0.208s
+...（全部通过）
+```
+
+@@ user
+好。
+
+@@ assistant tools=Bash
+PR #832 已提。
+
+%% X1-2 发票“复制为新草稿”（已做完）
+@@ user
+加个功能：发票详情页加一个“复制”按钮，复制成一张新的草稿，明细、客户、备注都带过去，日期、号码、状态重新来。产品说每月固定开同样发票的商户很需要这个。
+
+@@ assistant tools=Read*5,Edit*6,Write*2,Bash*4
+做完了，前后端都有。
+
+**后端**：`POST /v1/invoices/{id}/duplicate`
+- `api/internal/invoice/duplicate.go`：在一个事务里读原发票和明细，插入新发票（状态 `draft`，`issued_at`、`due_at` 为空，号码按商户的设置分配或留空），复制明细行（新的行 ID，金额、税率、商品原样）；
+- 带过去：客户、币种、明细、备注、付款条款、模板；不带：号码、日期、状态、付款记录、发送记录、附件（附件是另存的文件，复制要拷 S3 对象，产品说这期不要）；
+- 作废的发票也允许复制（产品确认过）；草稿也允许；
+- 权限：和查看发票一样，同一个商户才能复制；
+- `api/openapi.yaml` 加了这个接口；测试 5 个用例：普通复制、带 6 行明细的、作废的、别的商户的（404）、复制后原发票不变。
+
+**前端**：
+- `web/src/pages/invoices/Detail.tsx` 的操作区加一个“复制”按钮（用的是 `SecondaryButton`），点了调接口，成功后跳到新草稿的编辑页，toast“已复制为新草稿”；
+- `web/src/api/invoices.ts` 加 `duplicateInvoice(id)`；
+- 测试：`Detail.test.tsx` 加 1 个用例。
+
+```
+$ go test ./api/internal/invoice/...
+ok  	github.com/ledgerly/ledgerly/api/internal/invoice	5.982s
+$ pnpm -C web vitest run src/pages/invoices
+ ✓ src/pages/invoices/Detail.test.tsx (9 tests)
+ ✓ src/pages/invoices/List.test.tsx (7 tests)
+```
+
+@@ user
+可以。
+
+@@ assistant tools=Bash
+PR #834 已提。
+
+%% X1-3 api 的镜像太大（已做完）
+@@ user
+api 的镜像 1.1G，拉一次要好久，发布时 Pod 起得慢。能不能小一点？
+
+@@ assistant tools=Read*2,Edit*2,Bash*5
+改好了，api 镜像 1.12 GB → 31 MB，worker 1.18 GB → 64 MB。
+
+**原因**：`docker/api.Dockerfile` 是单阶段的，直接 `FROM golang:1.22.8-bookworm`，在里面编译完就运行，整个 Go 工具链、源码、模块缓存都在镜像里。
+
+**改法**：多阶段构建：
+
+```dockerfile
+FROM golang:1.22.8-bookworm AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/api ./api/cmd/server
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/api /api
+COPY --from=build /src/assets /assets
+USER nonroot:nonroot
+ENTRYPOINT ["/api"]
+```
+
+几点说明：
+- `CGO_ENABLED=0`：api 没有用到 cgo，静态编译后可以用 distroless 的 static 镜像；
+- `assets/`（字体和模板）要一起拷进去，PDF 渲染要用；
+- distroless 里没有 shell，`kubectl exec` 进不去了。排查时可以用 `kubectl debug` 挂一个临时容器，我在 `docs/ops/debugging.md` 里加了一段说明；
+- worker 的镜像大一些，因为它多拷了一份中文字体的粗体。
+
+**验证**：本地 `docker build` 两个镜像，起来跑了一遍 e2e，通过；在 staging 上部署了一次，Pod 从拉镜像到就绪由 48 秒降到 9 秒。
+
+@@ user
+好。
+
+@@ assistant tools=Bash
+PR #835 已提。

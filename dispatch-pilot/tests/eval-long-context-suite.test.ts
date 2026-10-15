@@ -110,9 +110,8 @@ test('the three versions of a question: the deep one is read only as far back as
   expect(net.bodies.every((body) => Object.keys(body.questions).join() === 'effort.level,effort.unresolved')).toBe(true)
 })
 
-test('a larger budget reaches the deep rounds, and the mod\'s 32 messages are another limit the run says it lifts', async () => {
-  const mod = settingsFrom({ decisionModel: 'jev' })
-  const wide = withStateTokens(mod, 48000)
+test('a larger budget reaches the deep rounds, and a limit on the messages (Jev\'s 32 until 2026-10-15) is another limit the run says it lifts', async () => {
+  const wide = withStateMessages(withStateTokens(settingsFrom({ decisionModel: 'jev' }), 48000), 32)
   const rows = await run([item('long-001')], reader(), ['zh-score-deep'], wide)
   expect(shownBy(rows)).toEqual(['zh-score-deep: high / unresolved']) // 48000 tokens, but the state keeps 32 messages
   expect(rows[0]?.detail?.seen).toBe(false)
@@ -129,7 +128,7 @@ test('the plain variants carry no summary and no count; the flow variants carry 
   const summary: Summary = { problem: '重连在弱网下一直掉线', tried: [{ text: '把退避的上限调到 30 秒', unresolved: true }, { text: '给心跳加了抖动', unresolved: true }, { text: '换了重连的库' }], status: '助手在读周围的代码' }
   const file: SummaryFile = { items: { 'long-001': { conversation: fingerprint(conversationOf(base, 'deep')), count: 2, summary } } }
   const net = reader()
-  await run([base], net, ['zh-score-deep', 'zh-flow'], withStateMessages(settingsFrom({ decisionModel: 'jev' }), 1000), longContextSuite(file))
+  await run([base], net, ['zh-score-deep', 'zh-flow'], withStateMessages(withStateTokens(settingsFrom({ decisionModel: 'jev' }), 24000), 1000), longContextSuite(file))
 
   const [plain, flow] = net.bodies
   expect(Object.keys(plain.state)).toEqual(['user_message', 'recent_context'])

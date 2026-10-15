@@ -377,7 +377,7 @@ function stateTokens(state: Record<string, unknown>): number {
   return Object.values(state).reduce((sum: number, value) => sum + (typeof value === 'string' ? estimateTokens(value) : estimateTokens(Object.values(value as Record<string, string>).join(' '))), 0)
 }
 
-test('a script with many agent() calls is asked about in several requests sent together, each call once under its own place in the script', { options: KEY }, async ($, on) => {
+test('a script with many agent() calls is asked about in several requests sent together (Jev answers several of a key at once: four lanes, core/agent-lane.ts), each call once under its own place in the script', { options: KEY }, async ($, on) => {
   const w = workflowWorld($, on, { backend: (request) => ({ after: 1000, reply: siteJev(() => ({ model: { sonnet: 1 } }))(request) }) })
   const running = w.workflow({ script: manyAgents(20) })
   await w.clock.settle()
@@ -623,7 +623,7 @@ test("the person's words go to the decision model once for the whole script, mas
   expect(estimateTokens(words)).toBeLessThanOrEqual(300)
   expect(words.endsWith('别外传')).toBe(true)
   expect(words).toContain('[REDACTED]')
-  expect(Object.keys(w.requests[1]?.body.state)).toEqual(['brief_0', 'brief_1', 'user_message'])
+  expect(Object.keys(w.requests[1]?.body.state)).toEqual(['brief_0', 'brief_1', 'user_message', 'workflow_script'])
 })
 
 test('no answer within timeoutMs: the script goes through as written, the tool answers as it always does, and the board says why', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {

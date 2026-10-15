@@ -216,13 +216,15 @@ test("a run on Perplexity asks with pplx's own settings: the budgets, the timeou
 // model with a bigger window gains from a longer conversation (#43: Perplexity's takes 262144 tokens a request).
 test('--state-tokens sets the budget of every kind of request, so a long conversation is cut at the run\'s budget and not at the mod\'s', () => {
   const long = (words: number) => Array.from({ length: words }, (_, i) => `w${i}`).join(' ')
-  const recent = Array.from({ length: 24 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', text: `${i}: ${long(2500)}` }))
+  // About 150,000 tokens: longer than the mod's 96000 for a message's effort request.
+  const recent = Array.from({ length: 48 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', text: `${i}: ${long(2500)}` }))
   const item = { id: 'x', en: { message: 'still broken', recent_context: recent }, zh: { message: '还是不行', recent_context: recent } } as unknown as UnresolvedItem
   const variant = UNRESOLVED_VARIANTS['en-score-wide'] as (typeof UNRESOLVED_VARIANTS)[string]
   const settings = settingsFrom(optionsFor('jev', {}))
   const tokensOf = (s: typeof settings) => estimateTokens(JSON.stringify(unresolvedRequest(item, 'en', variant, s).request.state))
 
-  expect(tokensOf(settings)).toBeLessThanOrEqual(24_000)
+  expect(tokensOf(settings)).toBeLessThanOrEqual(96_000)
+  expect(tokensOf(settings)).toBeGreaterThan(90_000)
   const wider = withStateTokens(settings, 48_000)
   expect(tokensOf(wider)).toBeGreaterThan(30_000)
   expect(tokensOf(wider)).toBeLessThanOrEqual(48_000)

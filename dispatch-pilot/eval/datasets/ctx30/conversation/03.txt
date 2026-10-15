@@ -1,0 +1,209 @@
+%% S07 第一次尝试（调大超时）没用（E13）
+@@ user mark=E13
+PDF 那个，120 秒上线两天了，还是 504。客户说 300 张的照样挂，而且现在要等两分钟才报错，体验更差了。800 张那个客户分了四次导，每次 200 张，四次里还是挂了两次。Grafana 上 `/v1/exports/pdf` 的 p50 是 74 秒，p99 就是 120 秒，顶着超时。
+
+@@ assistant tools=Read*3,Bash*2,Grep
+调大超时没解决，而且数字里有一处说不通：本地 200 张是 42 秒，线上 200 张会超过 120 秒，线上每张比本地慢了 3 倍以上。
+
+我能想到的几个可能，按可疑程度排：
+
+1. **CPU 限额**：`deploy/helm/api/values.yaml` 里 api 的 `resources.limits.cpu` 是 `500m`。gofpdf 渲染和 zip 压缩都是纯 CPU，本地是不限 CPU 跑的。被 CFS 限流时会表现成整体变慢。但这只能解释两三倍，而且其他接口没看到同样的变慢。
+2. **字体反复加载**：每张发票都 `AddUTF8Font` 两次，一次读 6 MB 左右的 TTF 再解析，一个请求 200 张就是 2.4 GB 的读取和解析。本地有页缓存所以快，线上的容器文件系统是 overlay，第一次读会慢一些。但同一个 Pod 里反复读同一个文件，理论上也会进页缓存。
+3. **数据库**：`GetInvoiceWithLines` 每张一次查询，200 张就是 200 次往返；线上数据库在另一个可用区，单次往返 1 毫秒左右，200 次也就零点几秒，不像是主因。
+4. **GC**：每张 PDF 渲染会分配几十 MB 的临时对象，api 的内存限额 1 GiB，GOGC 默认 100。GC 频繁时也会拖慢，同时其他请求的延迟也应该升高，但面板上其他路由正常。
+
+这几个我都没法在本地复现出 3 倍的差距，要拿到线上的 profile 才能定位。可以在 staging 上开 pprof（`api/cmd/server/main.go` 里 `debug` 路由已经有了，只是 `ENABLE_PPROF` 默认关），用和线上一样的资源限额跑一次 300 张的导出，同时抓 30 秒的 CPU profile。
+
+另外，120 秒这个超时现在对所有接口生效，这件事本身也不好，等这个问题有了结论建议改回 30 秒，只给导出单独放宽或者改成异步。
+
+@@ user
+先放一放，今天先弄别的。
+
+@@ assistant
+好，PDF 导出先放着，staging 抓 profile 的做法我记下了。
+
+%% D2 CI 里的 Go 小版本升级
+@@ user
+CI 里 Go 还是 1.22.5，govulncheck 报了两个标准库的问题，升到最新的 1.22 小版本吧。
+
+@@ assistant tools=Read*3,Edit*4,Bash*3
+升好了，最新的 1.22 小版本是 1.22.8。改了 4 个地方：
+
+- `.github/workflows/ci.yml`：`actions/setup-go` 的 `go-version: '1.22.5'` → `'1.22.8'`（两个 job：test 和 lint）；
+- `.github/workflows/release.yml`：同上；
+- `docker/api.Dockerfile` 和 `docker/worker.Dockerfile`：基础镜像 `golang:1.22.5-bookworm` → `golang:1.22.8-bookworm`；
+- `go.mod` 里的 `go 1.22` 和 `toolchain go1.22.5` → `toolchain go1.22.8`。
+
+本地验证：
+
+```
+$ go version
+go version go1.22.8 darwin/arm64
+$ go build ./...
+$ go test ./... 2>&1 | tail -3
+ok  	github.com/ledgerly/ledgerly/worker/reminder	1.214s
+ok  	github.com/ledgerly/ledgerly/worker/payout/bank	0.388s
+ok  	github.com/ledgerly/ledgerly/api/internal/webhook	0.902s
+$ govulncheck ./...
+No vulnerabilities found.
+```
+
+之前报的两个是 `net/http` 和 `encoding/gob` 的，1.22.7 就修了，1.22.8 也包含。`go test` 全部通过，一共 61 个包。
+
+@@ user
+好，提 PR 吧。
+
+@@ assistant tools=Bash*2
+PR #815 已提，标题 `ci: bump Go to 1.22.8`，CI 跑完全绿。
+
+%% S08 通知模块重构：把 Notifier 拆成两个接口（E08）
+@@ user
+`api/internal/notify` 里那个 `Notifier` 接口太大了，email 和短信混在一起，测试里写个 fake 要实现一堆用不上的方法。想拆。你先看看影响面，先别改。
+
+@@ assistant tools=Grep*4,Read*6
+看完了，影响面比想象的小。
+
+**现状**：`api/internal/notify/notifier.go`
+
+```go
+type Notifier interface {
+    SendInvoiceEmail(ctx context.Context, inv Invoice, to string) error
+    SendReceiptEmail(ctx context.Context, p Payment, to string) error
+    SendReminderEmail(ctx context.Context, inv Invoice, to string, daysOverdue int) error
+    SendPayoutReceipt(ctx context.Context, p Payout, to string) error
+    SendPasswordResetEmail(ctx context.Context, u User, link string) error
+    SendWelcomeEmail(ctx context.Context, u User) error
+    SendDigestEmail(ctx context.Context, m Merchant, d Digest) error
+    SendOTP(ctx context.Context, phone, code string) error
+    SendReminderSMS(ctx context.Context, inv Invoice, phone string, daysOverdue int) error
+    SendPayoutSMS(ctx context.Context, p Payout, phone string) error
+    SendLoginAlertSMS(ctx context.Context, u User, phone string) error
+    SendTestSMS(ctx context.Context, phone string) error
+}
+```
+
+12 个方法：7 个邮件、5 个短信。
+
+**实现**：
+- `smtpNotifier`（`notify/smtp.go`）：邮件 7 个是真的，短信 5 个都是 `return ErrNotSupported`；
+- `twilioNotifier`（`notify/twilio.go`）：短信 5 个是真的，邮件 7 个都是 `return ErrNotSupported`；
+- `multiNotifier`（`notify/multi.go`）：把前两个包起来，按方法名转发给对应的那个，这是唯一同时实现了 12 个方法的；
+- `fakeNotifier`（`notify/notifytest/fake.go`）：测试用，12 个方法都记录调用。
+
+**调用点**：`Notifier` 作为依赖注入的地方只有 4 个：
+1. `api/internal/invoice/send.go`：`SendInvoiceEmail`；
+2. `worker/reminder/job.go`：`SendReminderEmail` 和 `SendReminderSMS`（两种都用）；
+3. `api/internal/auth/otp.go`：`SendOTP`；
+4. `worker/payout/notify.go`：`SendPayoutReceipt`。
+
+另外两处是组装：`api/cmd/server/main.go` 和 `worker/main.go` 里 `notify.NewMulti(smtp, twilio)`。剩下 6 个方法（欢迎邮件、摘要邮件、登录提醒短信、测试短信等）现在没有任何调用方，是预留的。
+
+**方案**：
+1. `notifier.go` 拆成 `EmailNotifier`（7 个方法）和 `SMSNotifier`（5 个方法）两个接口；
+2. `smtpNotifier` 只实现 `EmailNotifier`，`twilioNotifier` 只实现 `SMSNotifier`，删掉那 12 个 `ErrNotSupported` 的桩；
+3. `multiNotifier` 删掉，组装的两处改成分别注入；
+4. 4 个调用点改成依赖窄接口：invoice、auth、payout 各要一个，reminder 两个都要（结构体里放两个字段）；
+5. `fakeNotifier` 拆成 `FakeEmail` 和 `FakeSMS`，用到它的测试有 9 个文件，只改构造的那一行；
+6. 行为不变：所有方法签名、发送逻辑都不动。
+
+估计改 10 个左右的源文件加 9 个测试文件里的构造，`go build ./...` 和现有测试能直接验证。没有数据库、配置和接口的变化。
+
+@@ user mark=E08
+嗯，就照这个方案拆：两个接口，四个调用点，不改任何行为。这个就当通知模块的重构，回头开始做的时候我说“通知模块的重构”你就知道是这个。
+
+@@ assistant
+好，记下了：通知模块的重构 = 上面这 6 条，`Notifier` 拆成 `EmailNotifier` 和 `SMSNotifier`，4 个调用点，行为不变。
+
+%% S09 worker 被 OOM kill，原因不明，先不查（E11）
+@@ user mark=E11
+worker 这两天被 OOM kill 了 5 次。看 Grafana 内存是一天涨 2G 左右，涨到 limit 就被杀，重启以后又从 300M 开始涨。不是 payout-worker，是普通的那个 worker。
+
+@@ assistant tools=Read*4,Grep*2
+先说清楚现在能确定的和不能确定的。
+
+**worker 里在跑什么**（`worker/main.go`）：
+- 逾期提醒：每小时扫一次逾期发票，发邮件和短信；
+- 邮件和短信的发送队列消费者：4 个 goroutine；
+- 每日摘要：凌晨 6 点给商户发前一天的摘要邮件；
+- 导出任务：CSV 导出（PDF 导出现在还在 api 里同步做，不在 worker）；
+- webhook 投递：`worker/webhook/dispatch.go`，16 个并发投递。
+
+**可能的方向**（都只是猜测，没有证据）：
+1. 某个进程内缓存没有上限：我搜了一下，`worker/` 下有三处 `map` 当缓存用：`reminder` 的商户设置缓存、`webhook` 的端点配置缓存、`notify` 的模板缓存。三处都没有过期和大小限制，但商户数是几万量级，单靠这三个不像能一天涨 2G。
+2. goroutine 泄漏：webhook 投递在对端超时的时候会不会留下 goroutine，要看运行时的 goroutine 数量。
+3. 大对象：每日摘要一次性把所有商户的数据加载进内存，但那是每天一次，不会是线性增长。
+
+**没法确定的原因**：没有 heap profile，代码里看不出哪一个是真凶，也可能是几个叠加。`worker` 有 `/debug/pprof`，可以间隔 6 小时抓两次 heap 对比。
+
+@@ user mark=E11
+现在先不查，这周发布要紧，原因完全不知道，等发布完再说。你别动 worker 的代码，limit 也先别改，告警我自己在 Grafana 上加，挂了它会自己重启。
+
+@@ assistant
+好，不动。等你说要查的时候，我从抓两次 heap profile 对比开始。
+
+%% S10 webhook 不带签名头就放行（A15）
+@@ user mark=A15
+我刚看代码发现个问题：`api/internal/webhook/verify.go` 里，请求如果没带 `X-Ledgerly-Signature` 头，`Verify` 直接返回 nil，等于不校验。支付渠道回调我们的 `/v1/webhooks/payment` 也走这个，任何人只要不带签名头就能伪造“支付成功”。
+
+@@ assistant tools=Read*3,Grep*3
+确认，问题是真的，而且范围比支付回调更大。
+
+```go
+// Verify 校验入站 webhook 的签名。
+func Verify(r *http.Request, body []byte, key []byte) error {
+    sig := r.Header.Get("X-Ledgerly-Signature")
+    if sig == "" {
+        return nil // 兼容老版本的渠道 SDK，它们不带签名
+    }
+    mac := hmac.New(sha256.New, key)
+    mac.Write(body)
+    want := hex.EncodeToString(mac.Sum(nil))
+    if !hmac.Equal([]byte(sig), []byte(want)) {
+        return ErrBadSignature
+    }
+    return nil
+}
+```
+
+签名头为空时直接通过；只有带了签名、签名又不对时才拒绝。
+
+**用到 `Verify` 的入站端点一共 5 个**（`api/internal/webhook/routes.go`）：
+1. `/v1/webhooks/payment`：支付成功、失败，会把发票标成已付；
+2. `/v1/webhooks/refund`：退款结果；
+3. `/v1/webhooks/payout`：银行代付的状态回执；
+4. `/v1/webhooks/dispute`：拒付通知；
+5. `/v1/webhooks/subscription`：订阅续费。
+
+五个都是先 `Verify` 再处理，所以都能被不带签名头的请求绕过。最严重的是第 1 个：伪造一条 `payment.succeeded`，发票就会被标成已付款，商户会以为收到了钱。
+
+**注释里说的“老版本的渠道 SDK”**：提交记录显示这一行是 2023 年 5 月加的，当时有一家渠道的旧 SDK 不发签名。现在还有没有渠道依赖这个行为，代码里看不出来，要查最近的入站日志：按端点统计不带 `X-Ledgerly-Signature` 的请求数和来源 IP。
+
+我没有改代码。
+
+@@ user mark=A15
+这个先别改。我写了个笔记 `docs/notes/webhook-1014.md`，你看一下，把你查到的补充进去。要做的事：查历史日志里有没有不带签名头、却被当成成功处理的回调，有的话要一笔笔核对是不是伪造的；修 `Verify`；确认另外 4 个端点是不是一样的问题；还有老 SDK 那边怎么过渡也要想清楚，不能直接一刀切把真的回调也拒了。回头派人处理。
+
+@@ assistant tools=Read,Edit mark=A15
+补充好了。`docs/notes/webhook-1014.md` 现在是：
+
+```markdown
+# 2026-10-14 入站 webhook 签名校验可被绕过
+
+## 问题
+`api/internal/webhook/verify.go` 的 `Verify` 在请求没有 `X-Ledgerly-Signature` 头时直接返回 nil。
+任何人不带签名头，就能向 5 个入站端点发送会被当真处理的回调。
+
+## 受影响的端点
+payment（会把发票标成已付）、refund、payout、dispute、subscription。
+
+## 要做的事
+1. 查历史：从 Loki 拉最近 90 天这 5 个端点不带签名头的请求，按来源 IP 和渠道归类；
+   被当成成功处理的（例如发票被标成已付）逐笔和渠道的对账单核对，确认是不是伪造。
+2. 修 `Verify`：缺签名头要拒绝。
+3. 另外 4 个端点逐个确认处理逻辑，看有没有别的绕过路径。
+4. 过渡：先确认还有哪些渠道不带签名（看第 1 步的结果），和对方确认升级时间；
+   过渡期内的放行方式要单独评估，不能一刀切把真回调也拒了。
+
+## 状态
+未处理。
+```

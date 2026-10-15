@@ -69,11 +69,12 @@ test('with the feature off, the readings kept are not given to an agent', { opti
 
 test("an agent's state with the reading stays within the budget for an agent: a long brief is cut, the reading is not", { options: JEV }, async ($, on) => {
   const w = await readSession($, on)
-  await w.spawn({ prompt: `${'Model every plank of the hull, every rope and every sail. '.repeat(4000)}`, description: 'Model the ship' })
+  await w.spawn({ prompt: `${'Model every plank of the hull, every rope and every sail. '.repeat(8000)}`, description: 'Model the ship' })
 
   const state = w.requests.find(asksAgent)?.body.state
   expect(state.reference_complexity).toMatchObject({ level: 3 })
-  expect(sentTokens(state)).toBeLessThanOrEqual(24000)
+  expect(sentTokens(state)).toBeLessThanOrEqual(96000)
+  expect(sentTokens(state)).toBeGreaterThan(90000)
 })
 
 // ---- A Workflow's agents ----------------------------------------------------------------------------------------------------------------
@@ -90,7 +91,7 @@ test('the batch request for a Workflow script carries the reading once, as text,
 
   const sent = w.requests.filter(asksAgent)
   expect(sent).toHaveLength(1)
-  expect(Object.keys(sent[0]?.body.state)).toEqual(['brief_0', 'brief_1', 'user_message', 'reference_complexity'])
+  expect(Object.keys(sent[0]?.body.state)).toEqual(['brief_0', 'brief_1', 'user_message', 'reference_complexity', 'workflow_script'])
   expect(sent[0]?.body.state.reference_complexity).toMatchObject({ level: 3, images: 1 })
   expect(sent[0]?.body.assets).toBeUndefined()
 })
@@ -105,7 +106,7 @@ test("a script's batch with the reading stays within its budget, and so does eac
   expect(sent.length).toBeGreaterThan(1)
   for (const request of sent) {
     expect(request.body.state.reference_complexity).toMatchObject({ level: 3 })
-    expect(sentTokens(request.body.state)).toBeLessThanOrEqual(24000)
+    expect(sentTokens(request.body.state)).toBeLessThanOrEqual(96000)
   }
 })
 
@@ -114,7 +115,7 @@ test('with the feature off, a Workflow script is asked about as it always was', 
   await w.command('dp', 'image-routing off')
   await w.workflow({ script: TIDY })
 
-  expect(Object.keys(w.requests.find(asksAgent)?.body.state)).toEqual(['brief_0', 'brief_1', 'user_message'])
+  expect(Object.keys(w.requests.find(asksAgent)?.body.state)).toEqual(['brief_0', 'brief_1', 'user_message', 'workflow_script'])
 })
 
 const SAVED = '/work/.claude/workflow-scripts/tidy.js'

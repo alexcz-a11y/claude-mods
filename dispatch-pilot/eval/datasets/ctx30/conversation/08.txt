@@ -1,0 +1,171 @@
+%% D5 go test 太慢：testcontainers 每个测试起一次 Postgres（已改）
+@@ user
+`go test ./...` 本地要跑三分多钟，CI 上更久，看看能不能快一点。
+
+@@ assistant tools=Bash*6,Read*5,Edit*4
+找到主要原因了，已经改完，本地从 3 分 24 秒降到 58 秒。
+
+**定位**
+
+`go test ./... -json | go run ./tools/testtime`（仓库里现成的小工具，按包汇总耗时）：
+
+| 包 | 耗时 |
+|---|---|
+| api/internal/store | 71.2s |
+| api/internal/invoice | 38.5s |
+| api/internal/payment | 29.0s |
+| worker/reminder | 21.7s |
+| api/internal/customer | 14.9s |
+| 其余 56 个包 | 合计 48.3s |
+
+前五个包都用了 testcontainers 起 Postgres。看了 `internal/testdb/testdb.go`：
+
+```go
+func New(t *testing.T) *pgxpool.Pool {
+    ctx := context.Background()
+    c, err := postgres.Run(ctx, "postgres:15-alpine", ...)
+    ...
+    t.Cleanup(func() { c.Terminate(ctx) })
+    runMigrations(t, c)
+    return pool
+}
+```
+
+**每个测试函数**都起一个新容器、跑一遍全部 41 个迁移。`store` 包有 58 个用到数据库的测试，就是 58 次容器启动加 58 次迁移，每次 1.1 秒左右。
+
+**改法**
+1. `testdb` 改成每个包只起一个容器：在 `TestMain` 里起容器、跑迁移，做成模板库 `ledgerly_template`；
+2. 每个测试用 `CREATE DATABASE test_<随机后缀> TEMPLATE ledgerly_template` 拿一个干净的库（Postgres 从模板复制，几十毫秒），`t.Cleanup` 里 `DROP DATABASE`；
+3. 用到数据库的 5 个包各加一个 `TestMain`：
+
+   ```go
+   func TestMain(m *testing.M) { os.Exit(testdb.Main(m)) }
+   ```
+
+4. `testdb.New(t)` 的签名不变，测试代码本身不用改。
+
+**结果**
+
+| 包 | 改之前 | 改之后 |
+|---|---|---|
+| api/internal/store | 71.2s | 9.8s |
+| api/internal/invoice | 38.5s | 6.1s |
+| api/internal/payment | 29.0s | 5.0s |
+| worker/reminder | 21.7s | 4.4s |
+| api/internal/customer | 14.9s | 3.9s |
+
+整体 3 分 24 秒 → 58 秒。`go test ./... -count=3` 跑了三遍，全部通过，没有测试之间互相影响（每个测试还是独立的库）。CI 上 test job 预计能从 6 分多降到 2 分左右。
+
+@@ user
+不错，提吧。
+
+@@ assistant tools=Bash
+PR #827 已提，CI 的 test job 用了 2 分 11 秒。
+
+%% S21 发票模板多语言：脚本已验证，剩下 4 个模板照跑（E01）
+@@ user
+德国那个客户要德文发票。`templates/invoice/` 下 6 个模板里有一堆中文硬编码。翻译那边已经把 key 和译文给过来了，在 `locales/de.json`、`locales/en.json`，对照表在 `docs/i18n-invoice-keys.md`，47 行，每行是模板里的原文和对应的 key。你写个脚本按表替换，先在 `standard` 和 `compact` 两个模板上试。
+
+@@ assistant tools=Read*5,Grep*2,Write,Bash*5 mark=E01
+写好了，也在两个模板上试过了。
+
+**对照表**：`docs/i18n-invoice-keys.md` 是一张 Markdown 表，47 行，形如：
+
+```
+| 原文 | key |
+|---|---|
+| 发票号码 | invoice.number |
+| 开票日期 | invoice.issued_at |
+| 到期日 | invoice.due_at |
+| 购买方 | invoice.buyer |
+| 合计（大写） | invoice.total_in_words |
+...
+```
+
+`locales/zh.json`、`en.json`、`de.json` 里这 47 个 key 都有，我用 `jq` 核对过，三个文件的 key 完全一致。
+
+**脚本**：`scripts/i18n-replace.mjs`
+
+```js
+// 用法：node scripts/i18n-replace.mjs templates/invoice/<名字>.hbs
+// 按 docs/i18n-invoice-keys.md 把模板里的中文原文替换成 {{t "key"}}，原地改写。
+import { readFileSync, writeFileSync } from 'node:fs'
+
+const [file] = process.argv.slice(2)
+const table = readFileSync('docs/i18n-invoice-keys.md', 'utf8')
+  .split('\n')
+  .filter((line) => /^\| [^-]/.test(line) && !line.startsWith('| 原文'))
+  .map((line) => line.split('|').map((cell) => cell.trim()))
+  .map(([, text, key]) => ({ text, key }))
+  .sort((a, b) => b.text.length - a.text.length) // 长的先换，免得“合计”吃掉“合计（大写）”
+
+let src = readFileSync(file, 'utf8')
+let replaced = 0
+for (const { text, key } of table) {
+  const parts = src.split(`>${text}<`)
+  if (parts.length > 1) {
+    replaced += parts.length - 1
+    src = parts.join(`>{{t "${key}"}}<`)
+  }
+}
+const left = src.match(/>[^<{]*[一-鿿][^<{]*</g) ?? []
+if (left.length > 0) {
+  console.error(`还有 ${left.length} 处中文没有对应的 key：\n${left.join('\n')}`)
+  process.exit(1)
+}
+writeFileSync(file, src)
+console.log(`${file}: 替换 ${replaced} 处`)
+```
+
+只替换夹在标签之间的完整文本（`>原文<`），不会误改属性和注释；替换完如果还有中文剩下，就报错退出，不写文件。
+
+**试跑**：
+
+```
+$ node scripts/i18n-replace.mjs templates/invoice/standard.hbs
+templates/invoice/standard.hbs: 替换 19 处
+$ node scripts/i18n-replace.mjs templates/invoice/compact.hbs
+templates/invoice/compact.hbs: 替换 14 处
+$ make render-sample LOCALE=de && make render-sample LOCALE=en && make render-sample LOCALE=zh
+rendered 6 samples to out/samples/
+$ pnpm -C templates test
+ ✓ render.test.ts (12 tests) 1.84s
+```
+
+`out/samples/` 下德文、英文、中文的样张我都打开看了，版面没变，只是文字换了语言；德文最长的“Rechnungsdatum”在抬头那一栏也没有被截断。剩下 4 个模板（`receipt`、`credit-note`、`reminder`、`quote`）还没跑，我用 `--dry-run` 的方式数了一下（改成只打印不写），它们一共能替换 41 处，没有剩下没对应的中文。
+
+@@ user mark=E01
+好，就这么定了：剩下四个模板（`receipt`、`credit-note`、`reminder`、`quote`）以后直接跑这个脚本就行，`node scripts/i18n-replace.mjs templates/invoice/<名字>.hbs`，对照表已经覆盖了全部 47 处，不用改脚本也不用加 key，跑完 `make render-sample` 看没报错就提交。今天先提这两个模板的。
+
+@@ assistant tools=Bash*2
+好。`standard` 和 `compact` 两个模板加上脚本已经提了 PR #830。剩下四个以后照你说的跑。
+
+%% D6 后台设置页加深色模式开关（已做完）
+@@ user
+后台设置页加个深色模式的开关，跟随系统、浅色、深色三个选项，存在用户偏好里。设计说颜色已经都在 token 里了。
+
+@@ assistant tools=Read*5,Edit*4,Write,Bash*3
+做完了。
+
+**现状**：`web/src/styles/tokens.css` 里已经有两套颜色：`:root { ... }` 是浅色，`[data-theme="dark"] { ... }` 是深色，设计说的没错，但没有地方设置 `data-theme`，所以一直是浅色。
+
+**改动**
+1. `web/src/hooks/useTheme.ts`（新）：读写用户偏好里的 `theme`（`'system' | 'light' | 'dark'`），`system` 时监听 `matchMedia('(prefers-color-scheme: dark)')` 的变化；把算出来的结果写到 `document.documentElement.dataset.theme`。
+2. `web/src/pages/settings/Appearance.tsx`：在现有的“外观”分组里加一个三选一的单选组，文案“跟随系统 / 浅色 / 深色”。
+3. 用户偏好是 `PATCH /v1/me/preferences`，后端的 `preferences` 是 JSONB，不需要改后端，只是多存一个键。
+4. `web/index.html` 里加了一小段内联脚本，在 React 加载之前先读 `localStorage` 里缓存的主题设置 `data-theme`，避免深色用户刷新时先闪一下白屏。
+5. 测试：`useTheme.test.ts` 4 个用例（默认跟随系统、系统切换时跟着变、选深色、选浅色），`Appearance.test.tsx` 1 个用例。
+
+**检查**：深色下逐个页面看了一遍，发票详情页的表格斑马纹在深色下对比度不够（`--color-row-alt` 在深色里没有定义，回退成了浅色的值），我在 `tokens.css` 的深色部分补了一个值。其他页面没问题。
+
+```
+$ pnpm -C web vitest run src/hooks/useTheme src/pages/settings
+ ✓ src/hooks/useTheme.test.ts (4 tests)
+ ✓ src/pages/settings/Appearance.test.tsx (1 test)
+```
+
+@@ user
+可以。
+
+@@ assistant tools=Bash
+PR #831 已提。

@@ -1,0 +1,103 @@
+%% S28 搜索框输中文时列表闪：输入法组合输入，三处同样的写法（E09）
+@@ user
+发票搜索框输中文的时候，列表一直在闪，打一个字闪好几下。英文没问题。
+
+@@ assistant tools=Read*5,Grep*3,Bash mark=E09
+原因找到了，是输入法的组合输入没处理，而且同样的写法有三处。
+
+**发票搜索**：`web/src/hooks/useInvoiceSearch.ts`
+
+```ts
+export function useInvoiceSearch() {
+  const [keyword, setKeyword] = useState('')
+  const query = useQuery({
+    queryKey: ['invoices', 'search', keyword],
+    queryFn: () => api.get('/v1/invoices', { params: { q: keyword } }),
+    enabled: keyword.length > 0,
+  })
+  return { keyword, setKeyword, ...query }
+}
+```
+
+搜索框是 `<input value={keyword} onChange={(e) => setKeyword(e.target.value)} />`。用拼音输入法打“北京”的时候，组合过程中输入框的值会依次变成 `b`、`be`、`bei`、`bei j`、`bei ji`……每一次 `onChange` 都改 `keyword`，每次都发一个请求、列表换一次结果，最后选中“北京”才是真正的关键词。打一个词会触发五六次请求，结果陆续回来，列表就一直在闪；返回顺序乱的时候，最后显示的甚至可能是 `bei ji` 的结果。
+
+英文没问题，因为没有组合输入，而且英文的每个中间状态本来就是合法的前缀。
+
+**同样的写法还有两处**（看提交记录是照着发票搜索复制的）：
+- `web/src/components/CustomerPicker.tsx`：开票时选客户的下拉搜索；
+- `web/src/components/ProductSearch.tsx`：添加明细行时搜商品。
+
+`CustomerPicker` 有 300 毫秒的防抖，闪得轻一点，但组合过程中停顿超过 300 毫秒还是会发出拼音的请求；`ProductSearch` 没有防抖。
+
+**修法**：组合输入期间（`compositionstart` 到 `compositionend`）不更新查询用的关键词，组合结束时用最终的值更新；再统一加 250 毫秒的防抖。三处都要改，最好抽一个共用的 hook，比如：
+
+```ts
+const { inputProps, value } = useImeSafeInput({ debounceMs: 250 })
+// <input {...inputProps} />，value 是组合结束、防抖之后的值
+```
+
+测试可以用 Testing Library 的 `fireEvent.compositionStart` / `compositionEnd` 模拟输入法。
+
+@@ user mark=E09
+对，就是输入法的问题。三个地方都要改，抽一个共用的 `useImeSafeInput`，改的时候补测试。回头弄。
+
+@@ assistant
+好，记下了：抽 `useImeSafeInput`，三处换上，补组合输入的测试。
+
+%% S29 退款索引的迁移文件名不合新规范；还没合、没在任何环境跑过（A10）
+@@ user
+小周昨天提交的那个迁移 `migrations/0042_refunds_created_at_idx.sql` 文件名不对。上个月改了规范，迁移文件要用时间戳开头：`YYYYMMDDHHMM_描述.sql`，旧的那些编号文件不动，新的都要用时间戳。你看看这个文件现在是什么情况。
+
+@@ assistant tools=Read*3,Bash*4 mark=A10
+查了，这个文件改名没有风险。
+
+**文件内容**：
+
+```sql
+-- +goose NO TRANSACTION
+-- +goose Up
+CREATE INDEX CONCURRENTLY IF NOT EXISTS refunds_created_at_idx ON refunds (created_at);
+
+-- +goose Down
+DROP INDEX CONCURRENTLY IF EXISTS refunds_created_at_idx;
+```
+
+**状态**：
+- 只在小周的分支 `feat/refund-created-at-idx` 上，还没有合进 `main`（`git branch -r --contains` 只有这一个分支）；
+- 本地 dev 库 `goose status` 显示 `Pending`，没跑过；
+- staging 和生产的迁移只在发布窗口由小周执行，这个文件不在任何一次发布里，所以哪个环境都没有跑过。goose 记录在 `goose_db_version` 表里的版本号里也不可能有它。
+
+**规范**：`docs/conventions/migrations.md` 第 2 条写着“2026-09-15 之后新增的迁移，文件名以 UTC 时间戳开头：`YYYYMMDDHHMM_描述.sql`”。`make migrate-lint`（`scripts/migrate-lint.sh`）会检查这一条，它在 CI 里，小周的分支 CI 现在就是红的，失败原因正是 `0042_refunds_created_at_idx.sql: new migrations must start with a timestamp`。
+
+**改法**：按小周提交的时间（2026-10-13 09:30 UTC）改成 `migrations/202610130930_refunds_created_at_idx.sql`，内容不动。因为没有任何环境跑过，改名不会让 goose 认为有一个“已执行的迁移不见了”。改完 `make migrate-lint` 应该就过了。
+
+@@ user mark=A10
+对，这个迁移还没合，哪个环境都没跑过，只是名字不对。内容一个字都不改，改个名、跑一下 `make migrate-lint` 就行。小周今天请假，回头派个 agent 在他的分支上改。
+
+@@ assistant
+好。
+
+%% S30 客户来信问 reverse charge 发票是否合规（A14）
+@@ user mark=A14
+客户来了封邮件，我存到 `support/drafts/4812.md` 了，内容是：
+
+> 你好，我们公司在德国，用你们的系统给奥地利的企业客户开发票，适用 reverse charge（Steuerschuldnerschaft des Leistungsempfängers）。系统生成的发票上写了这句说明，但是没有打印对方公司的增值税识别号（UID）。按 2025 年以后的欧盟增值税规定，这样的发票合规吗？如果不合规，我们在系统里要怎么设置？另外，我们给瑞士客户开的发票是不是也要这样写？
+
+你先看看我们系统现在是怎么处理的。
+
+@@ assistant tools=Read*4,Grep*3 mark=A14
+系统这边的情况查清楚了，合规本身我没法在仓库里确认。
+
+**系统现在的处理**：
+- 发票上有没有 reverse charge 说明，取决于 `invoices.reverse_charge`（开票时勾选），勾上以后模板里打印 `{{t "invoice.reverse_charge_note"}}`，德文是“Steuerschuldnerschaft des Leistungsempfängers”。
+- 客户的增值税号存在 `customers.vat_id`。`templates/invoice/compact.hbs` 会打印它，但 `standard.hbs`（默认模板）不打印。这个客户用的应该是默认模板，所以发票上没有对方的 UID。
+- 开票时没有任何校验：勾了 reverse charge 但客户没填 `vat_id`，也能开出来。
+- 瑞士不在欧盟，系统里没有针对非欧盟客户的特殊处理，是否打印说明完全由开票人勾选决定。
+
+**合规的部分**：客户问的是“2025 年以后的欧盟规定下，reverse charge 发票不打印买方增值税号是否合规”，以及瑞士客户要怎么写。仓库里没有任何关于税务合规的文档或规则（`docs/` 下搜过 VAT、reverse charge、Umsatzsteuer，只有模板的翻译 key），这只能靠对欧盟增值税指令、德国和奥地利本地规定、以及瑞士规定的了解来回答。我对增值税指令里发票必须载明的事项有印象，但具体到 2025 年以后的版本、德奥两国的执行细节和瑞士的情况，我没法在这里查证，答错了客户可能因此被罚。
+
+@@ user mark=A14
+这个回答错了客户可能被罚，我们也要担责任。仓库里没有任何合规文档，只能靠对规定本身的了解。回头派个 agent 写回复草稿，我再看。系统那边模板不打印 UID 的事先记下，等合规的结论出来再定改不改。
+
+@@ assistant
+好，记下了。

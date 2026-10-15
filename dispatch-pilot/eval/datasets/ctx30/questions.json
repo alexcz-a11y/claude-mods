@@ -1,0 +1,318 @@
+[
+  {
+    "id": "E01",
+    "kind": "effort",
+    "gold": "low",
+    "naive": "high",
+    "user_message": "发票模板多语言那块，剩下的四个模板也按之前定的弄了吧。",
+    "rationale": "之前定的做法：剩下四个模板（receipt、credit-note、reminder、quote）各跑一次已经验证过的 `node scripts/i18n-replace.mjs templates/invoice/<名字>.hbs`，对照表覆盖全部 47 处，不改脚本、不加 key，跑完 `make render-sample` 没报错就提交。工作就是执行几条现成的命令：low。看不到这段约定时，“给四个模板做多语言”像是跨文件的功能开发。"
+  },
+  {
+    "id": "E02",
+    "kind": "effort",
+    "gold": "low",
+    "naive": "xhigh",
+    "user_message": "历史发票导入试验留下的那些表，清掉吧。",
+    "rationale": "这些 tmp_import 表只在用户本地 docker 的 dev 库里，生产和 staging 都没有；用户定好了清理方法：跑一次带本地守卫的 `make dev-clean`，删错了 `make dev-seed` 重建，没有任何影响。执行一条命令：low。看不到时，“导入试验留下的表要删掉”像是有数据风险的删表操作。"
+  },
+  {
+    "id": "E03",
+    "kind": "effort",
+    "gold": "low",
+    "naive": "max",
+    "user_message": "安全审计报告里那三项，处理一下吧。",
+    "rationale": "审计的三项都是依赖的 patch 升级，已经核对过只有修复、没有接口变化；用户定好：发布出去以后跑一次 `make deps-patch`，CI 绿了就算处理完，审计那边他去回。执行一条命令：low。看不到时，“处理安全审计的问题”像是安全工作。"
+  },
+  {
+    "id": "E04",
+    "kind": "effort",
+    "gold": "medium",
+    "naive": "high",
+    "user_message": "退款接口按设计稿把那个字段加上吧。",
+    "rationale": "设计稿和改动点都已经定死：可选的 `reason` 字段（不超过 200 字），存进早就有的 `refunds.reason` 列；只改 openapi.yaml、handler 的请求结构和校验、refunds.sql 的两条查询再 sqlc generate，金额逻辑一个字不动。几个文件里常规、需求明确的修改：medium。看不到时，“改退款接口”涉及钱，容易判高。"
+  },
+  {
+    "id": "E05",
+    "kind": "effort",
+    "gold": "medium",
+    "naive": "low",
+    "user_message": "作废发票那个按钮改成红色吧。",
+    "rationale": "用户早先定了规矩：危险操作的按钮不许直接改颜色，要新建 `DangerButton` 组件（照 `PrimaryButton` 写，用 token `--color-danger`），再把作废发票、删除发票两处换成它。新建一个组件加改一两个页面，需求明确的常规修改：medium。看不到这条规矩时，改按钮颜色像是改一行。"
+  },
+  {
+    "id": "E06",
+    "kind": "effort",
+    "gold": "medium",
+    "naive": "high",
+    "user_message": "payout 失败的 Slack 通知，按我们说的接上吧。",
+    "rationale": "做法已经定死：`worker/notify/slack.go` 加 `SendPayoutFailed`，用现成的 `PostMessage` 和已经配好的 `SLACK_WEBHOOK_PAYOUTS`，消息格式定好；`batch.go` 在 `markFailed` 之后调用；发 Slack 失败只打 warn，不影响 payout 状态；不加测试。两个文件里需求明确的常规修改：medium。看不到时，给打款流程接通知像是要设计的集成工作。"
+  },
+  {
+    "id": "E07",
+    "kind": "effort",
+    "gold": "high",
+    "naive": "medium",
+    "user_message": "PDF 上日期差一天那个，修一下吧。",
+    "rationale": "原因已经查明是时区：PDF、邮件、到期日计算三处都按 UTC 而不是商户时区；用户要求三处都改，并保证逾期提醒（worker/reminder）跟着对，还要补测试。原因已描述、跨多个文件、要想清楚的修改并写测试：high。看不到时，“日期差一天”像是改一处格式化。"
+  },
+  {
+    "id": "E08",
+    "kind": "effort",
+    "gold": "high",
+    "naive": "xhigh",
+    "user_message": "通知模块的重构，按之前说的开始做吧。",
+    "rationale": "之前定的范围：把 12 个方法的 `Notifier` 拆成 `EmailNotifier` 和 `SMSNotifier`，只有 4 个调用点、约 10 个文件，不改任何行为。跨多个文件、要想清楚但范围明确的修改：high。看不到时，“通知模块重构”像是牵连很多依赖方的大重构。"
+  },
+  {
+    "id": "E09",
+    "kind": "effort",
+    "gold": "high",
+    "naive": "medium",
+    "user_message": "搜索框输中文时列表闪的那个问题，处理一下。",
+    "rationale": "原因已经查明：输入法组合输入时每个拼音字母都触发查询；同样的写法在三个地方（发票搜索、CustomerPicker、ProductSearch），用户要求抽一个共用的 `useImeSafeInput` 并补测试。原因已描述、跨三个组件的修改加测试：high。看不到时像是一个界面小毛病。"
+  },
+  {
+    "id": "E10",
+    "kind": "effort",
+    "gold": "xhigh",
+    "naive": "medium",
+    "user_message": "把 `store.Tx` 改成传 context 的版本吧。",
+    "rationale": "之前查过：`store.Tx` 有 64 个调用点、分布在 11 个包，其中有 handler 派生的 goroutine、后台任务、维护工具，每个调用点用哪个 ctx 要一个个判断；取消时事务提交结果未知、可串行化重试要不要继续，这些故障模式都要想清楚。牵连很多依赖方的重构加故障模式推敲：xhigh。看不到时像是改一个函数签名。"
+  },
+  {
+    "id": "E11",
+    "kind": "effort",
+    "gold": "xhigh",
+    "naive": "medium",
+    "user_message": "看一下 worker 为什么又重启了。",
+    "rationale": "worker 每天内存涨约 2G、被 OOM kill，用户明确说原因完全不知道、之前没查过也没试过任何修复。这是第一次真正去查一个原因未知的故障：xhigh（不是 max：没有多次尝试失败）。看不到时，“看一下为什么重启”像是看一眼日志。"
+  },
+  {
+    "id": "E12",
+    "kind": "effort",
+    "gold": "xhigh",
+    "naive": "high",
+    "user_message": "限流那个，开始做吧。",
+    "rationale": "之前讨论过：限流要同时落在 API 中间件、webhook 投递和 worker 队列三处，Redis 挂了放行还是拒绝、6 个实例的计数一致性、队列里一个商户不能饿死别人，这些都没定。跨多个组件的设计加故障模式：xhigh。看不到时像是加一个中间件；最近那段对话里还改过一个登录验证码的次数上限，容易被带低。"
+  },
+  {
+    "id": "E13",
+    "kind": "effort",
+    "gold": "max",
+    "naive": "xhigh",
+    "user_message": "PDF 导出超时，今天又有客户反馈了。",
+    "rationale": "批量导出 PDF 超时已经改过三次（调大超时、缓存字体和模板、改成异步任务），每次上线后用户都说还是不行，原因至今不明。之前多次尝试都没解决的故障：max。看不到时只是一个新报的超时；最近那段对话里 CSV 导出超时一改就好，容易被带低。"
+  },
+  {
+    "id": "E14",
+    "kind": "effort",
+    "gold": "max",
+    "naive": "high",
+    "user_message": "`payouts.amount` 的类型改一下吧。",
+    "rationale": "payouts 是真打钱的表，4000 多万行、生产上一直在写，钱打出去撤不回；去年给它加索引锁表导致一小时批处理全失败；用户明确说这张表上任何改动都按最高风险对待。一个细微错误就代价高昂且难以挽回、涉及数据完整性：max。看不到时像是一次普通的改列类型；最近那段对话里 invoices.memo 改类型很顺利，容易被带低。"
+  },
+  {
+    "id": "E15",
+    "kind": "effort",
+    "gold": "max",
+    "naive": "high",
+    "user_message": "重置密码那个问题，你来处理吧。",
+    "rationale": "白帽子报告、已确认：重置密码链接里的值由按启动时间做种子的 math/rand 生成、有效期 30 天、明文存库，可被预测进而接管账号；怎么修、要不要让现有链接全部失效、要不要通知用户、有没有被利用过都还没定。安全问题：max。看不到时像是一个普通的功能问题。"
+  },
+  {
+    "id": "A01",
+    "kind": "agent",
+    "gold": "haiku",
+    "naive": "sonnet",
+    "user_message": "发布清单第 4 项，派个 agent 核对一下。",
+    "brief": {
+      "description": "核对发布清单第 4 项",
+      "agent_type": "general-purpose",
+      "prompt": "按 `docs/release-checklist.md` 的第 4 项，核对下一个版本 v2.15.0（上一个 tag 是 v2.14.0），把结果汇报给我。"
+    },
+    "rationale": "清单第 4 项是：用 `git diff --name-only <上一个tag>..HEAD -- migrations/` 列出新增的迁移文件，把文件名贴出来，不用看内容；用户也确认“就是贴个文件名列表”。执行一条命令并汇报结果的只读查找：haiku。看不到清单内容时，“核对发布清单的一项”可能是任何事。"
+  },
+  {
+    "id": "A02",
+    "kind": "agent",
+    "gold": "haiku",
+    "naive": "sonnet",
+    "user_message": "昨晚 main 上的 CI 挂了，派个 agent 看看。",
+    "brief": {
+      "description": "汇报 CI 失败",
+      "agent_type": "general-purpose",
+      "prompt": "按 `docs/agents.md` 里「CI 失败」那一节的要求，汇报昨晚 `main` 分支上失败的那次 CI 运行。"
+    },
+    "rationale": "「CI 失败」一节规定：只用 `gh run list` 找到那次运行、`gh run view --log-failed` 把失败的 job、step 和最后 30 行原样贴回，不分析、不改文件、不重跑。读日志并汇报内容：haiku。看不到这一节时，“看 CI 为什么挂”像是要分析原因。"
+  },
+  {
+    "id": "A03",
+    "kind": "agent",
+    "gold": "haiku",
+    "naive": "opus",
+    "user_message": "看看线上 payout-worker 现在跑的是哪个版本。",
+    "brief": {
+      "description": "查线上镜像版本",
+      "agent_type": "general-purpose",
+      "prompt": "用 `~/.kube/ledgerly-readonly` 这个 kubeconfig，查 `prod` 命名空间里 `payout-worker` 当前的镜像 tag，报给我。"
+    },
+    "rationale": "这个 kubeconfig 是用户专门给 agent 配的，对 prod 只有 get/list 权限，改不了任何东西；查镜像就是一条 `kubectl get deploy ... -o jsonpath` 。执行一条只读命令并汇报结果：haiku。看不到时，“在生产环境上操作 payout-worker”容易判成要审慎的生产工作。"
+  },
+  {
+    "id": "A04",
+    "kind": "agent",
+    "gold": "haiku",
+    "naive": "sonnet",
+    "user_message": "货币计划可以开始了，第一步派个 agent 去做。",
+    "brief": {
+      "description": "货币计划第 1 步",
+      "agent_type": "general-purpose",
+      "prompt": "按 `docs/plans/currency.md` 做第 1 步。"
+    },
+    "rationale": "计划第 1 步是盘点：两条 rg 命令找出读写 `invoices.total`、`payments.amount` 的地方，列成“文件、行号、内容”的表，只列不改；用户也说“一个是只列不改”。在仓库里搜索并列表：haiku。看不到计划时不知道第 1 步是什么。"
+  },
+  {
+    "id": "A05",
+    "kind": "agent",
+    "gold": "haiku",
+    "naive": "haiku",
+    "trap": true,
+    "user_message": "把上周 PDF 导出超时的那些请求都找出来给我看看。",
+    "brief": {
+      "description": "列出 PDF 导出超时的请求",
+      "agent_type": "general-purpose",
+      "prompt": "在 Loki 里查上周（10 月 6 日到 12 日）`api` 服务 `POST /v1/exports/pdf` 返回 504 的请求，用 `logcli query` 把 request_id、时间、商户 ID 列成表格。只查不改。"
+    },
+    "rationale": "陷阱题：任务说明本身就是一条日志查询加列表，只读，haiku。对话里 PDF 导出超时是一个改了三次都没好的难题，读到这段历史容易被带成要审慎判断的排查工作，但这个 agent 只负责把请求列出来。"
+  },
+  {
+    "id": "A06",
+    "kind": "agent",
+    "gold": "sonnet",
+    "naive": "opus",
+    "user_message": "发票列表翻页那个可以修了，派个 agent。",
+    "brief": {
+      "description": "修发票列表翻页",
+      "agent_type": "general-purpose",
+      "prompt": "修复发票列表翻页的问题：`web/src/pages/invoices/List.tsx` 翻到第二页以后显示的还是第一页的数据。改完跑 `pnpm vitest run src/pages/invoices`。"
+    },
+    "rationale": "原因之前已经查清：后端上周改成了 cursor 分页、忽略 `page` 参数，前端 `useInvoices` 还在传 `page`；要改的是这个 hook、List.tsx 的翻页和对应测试。原因已知的 bug：sonnet。看不到时，任务说明只描述了现象，像一个原因未知的 bug。"
+  },
+  {
+    "id": "A07",
+    "kind": "agent",
+    "gold": "sonnet",
+    "naive": "opus",
+    "user_message": "货币计划第三步也派个 agent 做了吧。",
+    "brief": {
+      "description": "货币计划第 3 步",
+      "agent_type": "general-purpose",
+      "prompt": "按 `docs/plans/currency.md` 做第 3 步。"
+    },
+    "rationale": "计划第 3 步是照一张 9 行的表更新 `docs/api/` 里的金额字段说明（表里给了文件、原文和新文字，照抄），再跑 `npm run build`；用户也说“一个是照表抄”。按书面需求跨几个文件的修改：sonnet。看不到计划时，“多币种计划的一步”听起来涉及钱和迁移。"
+  },
+  {
+    "id": "A08",
+    "kind": "agent",
+    "gold": "sonnet",
+    "naive": "opus",
+    "user_message": "payout 的测试可以补了，派个 agent。",
+    "brief": {
+      "description": "补 payout 批处理测试",
+      "agent_type": "general-purpose",
+      "prompt": "给 `worker/payout/batch.go` 补单元测试，用例照 `docs/plans/payout-tests.md`。跑 `go test ./worker/payout/...`。"
+    },
+    "rationale": "测试计划已经写好 8 个用例，用现成的假银行 `bankfake` 和 `store.Fake`，不连网络、不连数据库；用户要求 `batch.go` 一行都不许改。给现有代码按书面计划写测试：sonnet。看不到时，给打款批处理写测试听起来涉及钱。"
+  },
+  {
+    "id": "A09",
+    "kind": "agent",
+    "gold": "sonnet",
+    "naive": "opus",
+    "user_message": "备份检查脚本，派个 agent 改一下。",
+    "brief": {
+      "description": "改备份检查脚本",
+      "agent_type": "general-purpose",
+      "prompt": "按 `docs/ops/backup-check.md` 的要求改 `scripts/backup-check.sh`，改完用 `bash scripts/backup-check.sh --dry-run` 验证。"
+    },
+    "rationale": "要求文档写得很具体：检查最近 3 个备份、缺失或大小为 0 就 exit 1、输出格式不变、只用 `aws s3 ls` 不下载不删除、`--dry-run` 读测试数据。脚本只读、不碰备份本身。按书面需求改一个 shell 脚本：sonnet。看不到时，“改生产备份相关的脚本”容易判成高风险。"
+  },
+  {
+    "id": "A10",
+    "kind": "agent",
+    "gold": "sonnet",
+    "naive": "opus",
+    "user_message": "退款索引那个迁移改个名，派个 agent。",
+    "brief": {
+      "description": "迁移文件改名",
+      "agent_type": "general-purpose",
+      "prompt": "把 `migrations/0042_refunds_created_at_idx.sql` 按新的命名规范改名，内容不动，改完跑 `make migrate-lint`。"
+    },
+    "rationale": "这个迁移还没合进 main，哪个环境都没跑过，只是文件名不合新规范（时间戳开头）；用户说内容一个字不改，改名后跑 lint 就行。改文件名需要写文件（haiku 不适用），是一个需求明确的小改动：sonnet。看不到时，“动迁移文件”像是有数据风险的工作。"
+  },
+  {
+    "id": "A11",
+    "kind": "agent",
+    "gold": "opus",
+    "naive": "sonnet",
+    "user_message": "货币计划第二步可以开始了，派个 agent 去做。",
+    "brief": {
+      "description": "货币计划第 2 步",
+      "agent_type": "general-purpose",
+      "prompt": "按 `docs/plans/currency.md` 做第 2 步。"
+    },
+    "rationale": "计划第 2 步是在生产库上给 3100 万行的 invoices 加列并分批回填：不能锁表、要能断点续跑、只有凌晨窗口、要先上线双写、出现不一致要停下来；用户说这是“最要命的一步”。生产环境的数据迁移、一个细微错误就代价高昂：opus。看不到计划时，“按计划做一步”像是照写好的步骤执行。"
+  },
+  {
+    "id": "A12",
+    "kind": "agent",
+    "gold": "opus",
+    "naive": "sonnet",
+    "user_message": "lease 那个派个 agent 改一下。",
+    "brief": {
+      "description": "改任务 lease 时长",
+      "agent_type": "general-purpose",
+      "prompt": "改 `worker/queue/lease.go`，让任务的 lease 时长不再写死 30 秒。"
+    },
+    "rationale": "之前查明：lease 写死 30 秒，跑得久的 payout 任务过期后被另一个 worker 重领，上个月两次重复打款；改法还没定（按任务类型给时长、心跳续租、payout 侧的幂等都要考虑），用户说“错一点就是重复打款”。并发、涉及钱、方案未定的设计：opus。看不到时像是把一个常量改成可配置。"
+  },
+  {
+    "id": "A13",
+    "kind": "agent",
+    "gold": "opus",
+    "naive": "haiku",
+    "user_message": "那个去重的脚本跑一下吧，派个 agent。",
+    "brief": {
+      "description": "运行扣款去重脚本",
+      "agent_type": "general-purpose",
+      "prompt": "运行 `scripts/fix-dup-charges.sql`，把结果报给我。"
+    },
+    "rationale": "这个脚本是没人审过的草稿，删除生产库 `charges` 表里按 idempotency_key 判定的重复扣款；其中有些是客户真的付了两次，删错了要人工给客户退款或补单。用户要求跑之前一组一组核对。生产环境、涉及钱、不可挽回、需要逐条判断：opus。看不到时，“运行一个脚本并汇报结果”像是一条命令的事。"
+  },
+  {
+    "id": "A14",
+    "kind": "agent",
+    "gold": "opus",
+    "naive": "sonnet",
+    "user_message": "4812 那封邮件，派个 agent 写个回复草稿。",
+    "brief": {
+      "description": "客户邮件回复草稿",
+      "agent_type": "general-purpose",
+      "prompt": "回复 `support/drafts/4812.md` 里客户的问题，写一封回复草稿，写在同一个文件末尾。"
+    },
+    "rationale": "客户问的是：德国公司给奥地利企业客户开 reverse charge 发票、不打印对方增值税号，按 2025 年以后的欧盟规定是否合规、系统该怎么设置。结论取决于欧盟增值税规定这类仓库外的事实，仓库里没有任何合规文档可查，答错客户可能被罚：opus。看不到邮件内容时，“写一封客服回复”像是普通的写作。"
+  },
+  {
+    "id": "A15",
+    "kind": "agent",
+    "gold": "opus",
+    "naive": "sonnet",
+    "user_message": "webhook 那个问题，派个 agent 处理。",
+    "brief": {
+      "description": "处理 webhook 问题",
+      "agent_type": "general-purpose",
+      "prompt": "按 `docs/notes/webhook-1014.md` 处理 `api/internal/webhook/verify.go` 的问题。"
+    },
+    "rationale": "笔记里记的是：请求不带签名头时 `Verify` 直接放行，任何人都能伪造“支付成功”回调；要查历史日志有没有被利用、修 `Verify`、确认另外 4 个 webhook 端点、想好老客户端怎么过渡。安全问题加排查：opus。看不到笔记时，“按笔记修一个文件”像是照写好的步骤执行；最近那段对话里还顺利改过一次 webhook 的重试次数。"
+  }
+]

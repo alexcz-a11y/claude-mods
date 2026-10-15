@@ -1,0 +1,198 @@
+%% S04 PDF 批量导出 504 的报告和第一次尝试：调大超时（E13）
+@@ user mark=E13
+客户反馈批量导出 PDF 经常 504。后台“发票列表 → 勾选 → 导出 PDF”，选 200 张以上基本必挂，几十张没事。有个客户月底要导 800 多张给会计，一直导不出来。你看看。
+
+@@ assistant tools=Grep*2,Read*5,Bash*3
+看了一下，导出是同步做的，整条路径如下。
+
+**接口**：`POST /v1/exports/pdf`，handler 在 `api/internal/export/pdf.go`：
+
+```go
+func (h *Handler) ExportPDF(w http.ResponseWriter, r *http.Request) {
+    ids, err := decodeIDs(r)
+    if err != nil {
+        httpx.Error(w, r, err)
+        return
+    }
+    w.Header().Set("Content-Type", "application/zip")
+    w.Header().Set("Content-Disposition", `attachment; filename="invoices.zip"`)
+    zw := zip.NewWriter(w)
+    for _, id := range ids {
+        inv, err := h.store.GetInvoiceWithLines(r.Context(), id)
+        if err != nil {
+            log.Ctx(r.Context()).Error().Err(err).Int64("invoice_id", id).Msg("export: load")
+            continue
+        }
+        f, _ := zw.Create(inv.Number + ".pdf")
+        if err := h.renderer.Render(r.Context(), inv, f); err != nil {
+            log.Ctx(r.Context()).Error().Err(err).Int64("invoice_id", id).Msg("export: render")
+        }
+    }
+    zw.Close()
+}
+```
+
+整个 zip 边渲染边写进响应，所有发票在一个请求里串行处理。
+
+**渲染**：`api/internal/invoice/pdf/render.go`，用的是 gofpdf。每张发票都会 `gofpdf.New("P", "mm", "A4", "")`，然后 `AddUTF8Font("NotoSansSC", "", fontPath)` 加载中文字体（`assets/fonts/NotoSansSC-Regular.ttf`，5.8 MB），粗体再加载一次 `NotoSansSC-Bold.ttf`（6.1 MB），然后按模板画抬头、明细表格、合计和备注。
+
+**超时**：两层都是 30 秒。
+- ingress：`deploy/helm/api/values.yaml` 里 `nginx.ingress.kubernetes.io/proxy-read-timeout: "30"`；
+- 服务端：`api/cmd/server/main.go` 里 `http.Server{ReadTimeout: 10 * time.Second, WriteTimeout: 30 * time.Second}`。
+
+30 秒内没写完，ingress 先断开，客户端看到 504。
+
+**本地测了一下**（`go test -run XXX -bench BenchmarkExportPDF -benchtime 1x ./api/internal/export/`，用种子数据里同一个商户的发票，每张 8 行明细）：
+
+| 张数 | 耗时 |
+|---|---|
+| 50 | 9.8s |
+| 100 | 20.4s |
+| 200 | 41.7s |
+| 400 | 88.0s |
+
+基本线性，每张约 0.2 秒，200 张就超过 30 秒，和客户说的对得上。
+
+**先做了一个最直接的改动**：把两层超时都调到 120 秒。
+- `deploy/helm/api/values.yaml`：`proxy-read-timeout: "120"`、`proxy-send-timeout: "120"`；
+- `api/cmd/server/main.go`：`WriteTimeout: 120 * time.Second`。
+
+PR #812。说明两点，都写进了 PR 描述：
+1. 这只是让 500 张以内能在 2 分钟里出来，不解决渲染慢本身。800 张按每张 0.2 秒算要 160 秒，还是会超。
+2. `WriteTimeout` 是整个 server 的设置，120 秒对 api 的所有接口都生效，慢客户端能占住连接更久。目前 api 有 6 个副本、每个副本最多 512 个并发连接，影响不大，但值得知道。
+
+要根治得把导出挪到后台任务（前端轮询或者发邮件给下载链接），或者让渲染变快，这两件事都比调超时大得多。
+
+@@ user
+先这样上，看看效果，800 张那个客户我让他先分几次导。
+
+@@ assistant
+好。PR #812 里两个改动放在一起，CI 已通过，等你 approve 后随下一次发布上线。上线后可以在 Grafana 的「API 延迟」面板里按路由看 `/v1/exports/pdf` 的 p99，确认有没有落在 120 秒以内。
+
+%% D1 发票号为什么会跳号（只是解释）
+@@ user
+问个事：发票号是怎么生成的？有客户问为什么他们的发票号中间跳了几个，以为我们丢了数据。
+
+@@ assistant tools=Grep*2,Read*3
+发票号的生成在 `api/internal/invoice/number.go`，逻辑不复杂，跳号是预期内的，不是丢数据。
+
+**怎么生成的**
+
+每个商户在 `invoice_counters` 表里有一行计数器（主键 `merchant_id`，字段 `prefix`、`next_value`、`year`）。新建发票时在同一个事务里：
+
+```go
+func (s *Service) nextNumber(ctx context.Context, tx store.Querier, merchantID int64, issuedYear int) (string, error) {
+    c, err := tx.BumpInvoiceCounter(ctx, store.BumpInvoiceCounterParams{MerchantID: merchantID, Year: int32(issuedYear)})
+    if err != nil {
+        return "", err
+    }
+    return fmt.Sprintf("%s%d-%05d", c.Prefix, c.Year, c.Value), nil
+}
+```
+
+`BumpInvoiceCounter` 是一条 `UPDATE invoice_counters SET next_value = CASE WHEN year = $2 THEN next_value + 1 ELSE 1 END, year = $2 WHERE merchant_id = $1 RETURNING ...`，行锁保证同一个商户并发建发票时不会拿到同一个号。因为和插入发票在同一个事务里，插入失败回滚时计数器也会回滚，所以失败的请求不会造成跳号。
+
+**为什么会跳**
+
+1. **草稿被删除**：默认设置下，发票在创建草稿时就分配号码（`merchant_settings.number_on_issue = false`）。草稿删掉，号码不会回收。看了一下这个客户（商户 ID 你没给，我按“跳号”查了种子数据里的类似情况）：典型的是建了草稿又删掉，号码就空出来了。
+2. **作废的发票**：作废后号码保留，列表默认不显示作废的发票（筛选里勾上“已作废”才看得到），客户可能以为是跳号。
+3. **跨年重置**：`year` 变了以后从 1 开始，新年第一张是 `INV2026-00001`，不算跳号，但有客户会误会。
+
+**怎么避免**
+
+商户设置里有“发布时才编号”（`number_on_issue = true`）：草稿没有号码，点“发布”时才分配。打开以后删草稿不会再空出号码。作废的还是会保留号码，这是税务上要求的，不能回收。
+
+@@ user
+明白了，我跟客户说开“发布时才编号”，作废的在筛选里能看到。
+
+@@ assistant
+好。这个开关在后台「设置 → 发票编号」里，页面上有一段说明写了打开前后的区别，可以直接把那段发给客户。
+
+%% S05 发布检查清单（A01：第 4 项只是贴迁移文件名）
+@@ user
+把发布前的检查清单写成 `docs/release-checklist.md`，以后每次发布照着走。我说你写：
+
+- CI 全绿；
+- CHANGELOG 有这次的条目；
+- openapi 的版本号和 tag 一致；
+- 迁移文件列个清单：就是让人知道这次带了哪些迁移，贴文件名就行，内容小周会审；
+- 生产上的迁移小周在发布窗口里执行，不是我们执行；
+- 发布后半小时盯两个面板。
+
+@@ assistant tools=Read*2,Write mark=A01
+写好了，`docs/release-checklist.md` 全文：
+
+```markdown
+# 发布检查清单
+
+每次打 tag 之前按顺序过一遍，全部满足再发布。
+
+1. CI 上 `main` 最新一次运行全绿：`make test`、`make lint`、e2e（Playwright）三个 job。
+2. `CHANGELOG.md` 有这个版本的条目，每条带 PR 号。
+3. `api/openapi.yaml` 里的 `info.version` 和这次的 tag 一致（tag 是 `v2.14.0`，这里就是 `2.14.0`）。
+4. 列出这次带了哪些迁移：
+   `git diff --name-only <上一个tag>..HEAD -- migrations/`
+   把输出的文件名贴到发布单里就行，不用看内容，也不用判断对不对（内容由小周审）。
+5. 生产上的迁移由小周在发布窗口里执行，不是我们执行。
+6. 发布后 30 分钟内盯 Grafana 的「API 错误率」和「worker 队列积压」两个面板，有异常就回滚
+   （`helm rollback api` / `helm rollback worker`，命令见 `docs/ops/rollback.md`）。
+```
+
+第 3 项我核对了现在的 `api/openapi.yaml`，`info.version` 是 `2.13.0`，和最新的 tag `v2.13.0` 一致。第 6 项里两个面板的名字照 Grafana 上现有的写的，回滚命令引用了已有的 `docs/ops/rollback.md`，没有在清单里重复。
+
+@@ user mark=A01
+对，第 4 项就是用那条 `git diff` 跑一下，把输出的文件名列表贴出来，别的不用管，内容不用看也不用判断。
+
+@@ assistant
+好，清单就这样。以后发布前要核对哪一项，按编号说就行。
+
+%% S06 payout 失败发 Slack 通知：方案定死（E06）
+@@ user
+payout 失败的时候要在 Slack 的 #payouts 频道发通知。现在失败了没人知道，第二天商户来问才发现。你先看看怎么接，先别改。
+
+@@ assistant tools=Read*4,Grep*2
+看完了，接起来很顺，现成的东西基本都有。
+
+**现有的 Slack 发送**：`worker/notify/slack.go` 里已经有
+
+```go
+// PostMessage 往一个 incoming webhook 发一条纯文本消息。
+func PostMessage(ctx context.Context, webhookURL, text string) error
+```
+
+现在只有逾期提醒的日报在用（`worker/reminder/digest.go`）。它带 5 秒超时，对非 2xx 返回 error，`worker/notify/slacktest` 里有一个假的 Slack 服务器，`slack_test.go` 已经覆盖了成功、超时、500 三种情况。
+
+**配置**：`worker/config/config.go` 里已经有一个 `SlackWebhookPayouts string`（环境变量 `SLACK_WEBHOOK_PAYOUTS`），Helm 的 `deploy/helm/worker/values.yaml` 里也已经从 Secret 注入了，但是没有任何代码读它，看提交记录是去年有人加了配置没接完。
+
+**失败分支**：`worker/payout/batch.go` 里重试用尽或银行明确拒绝时调用
+
+```go
+func (b *Batch) markFailed(ctx context.Context, group []store.Payout, reason string) error
+```
+
+它在一个事务里把这组 payout 的 `status` 改成 `failed`、写 `failure_reason`。
+
+**我的方案**：
+
+1. `worker/notify/slack.go` 加一个函数：
+
+   ```go
+   func SendPayoutFailed(ctx context.Context, webhookURL string, p store.Payout, reason string) error {
+       text := fmt.Sprintf("Payout %d 失败：%s %s → 商户 %d，原因：%s",
+           p.ID, p.Amount.String(), p.Currency, p.MerchantID, reason)
+       return PostMessage(ctx, webhookURL, text)
+   }
+   ```
+
+2. `worker/payout/batch.go` 的 `markFailed` 成功提交事务之后，对这组里的每一笔调 `SendPayoutFailed`。一组最多几十笔，一笔一条消息，频道里能直接搜 payout ID。
+3. 发 Slack 失败只打一条 `log.Warn`，不返回错误，不影响 payout 的状态，也不触发重试。payout 状态以数据库为准，通知只是提醒。
+4. `SLACK_WEBHOOK_PAYOUTS` 为空时（本地开发）直接跳过，不发。
+5. 测试：`PostMessage` 已经有 `slacktest` 的用例覆盖，`SendPayoutFailed` 只是拼一句话再调它，我觉得不用单独加；`batch.go` 现在本来就没有测试。
+
+改动就两个文件，`slack.go` 加十来行，`batch.go` 在 `markFailed` 后面加一个循环。
+
+@@ user mark=E06
+就按你写的这个来：`slack.go` 加 `SendPayoutFailed`，消息格式就用你写的那句，`batch.go` 在 `markFailed` 提交之后调，发 Slack 失败只打 warn、不影响 payout 的状态，变量为空就跳过。测试不用加。回头我说接上你就照这个做，到时候不用再讨论了。
+
+@@ assistant
+好，记下了：两个文件，照上面的 1 到 5 条做，不加测试。等你说接上我再改。

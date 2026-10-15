@@ -204,7 +204,7 @@ test('an image the row gives only as a block, where no program can write it to a
 })
 
 test('when the effort request fails too, the turn is not routed and says why: it goes out at the engine effort', { options: JEV }, async ($, on) => {
-  const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 3, (request) => (isReading(request) ? undefined : { status: 429, body: 'slow down' })) })
+  const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 3, (request) => (isReading(request) ? undefined : { status: 503, body: 'overloaded' })) })
   await w.submit('Build this scene', { images: [SCENE] })
   await w.step({ index: 0, effort: 'medium' })
 

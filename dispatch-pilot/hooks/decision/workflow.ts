@@ -7,7 +7,8 @@
 // the way the eval measures an agent. Several calls share one request: each in
 // a part of its own (`agent-0`, `agent-1`, ...) reading a state field of its own
 // (`brief_0`, `brief_1`, ...), the person's words in one `user_message`, and
-// with pplx the script and the conversation once (`WorkflowBackground`).
+// the script and the conversation once (`WorkflowBackground`). Dispatched agents
+// that start together share requests the same way (`agentBatches`, core/agent-lane.ts).
 //
 // Pure (see system-one.ts).
 
@@ -19,6 +20,7 @@ import {
   dispatchBrief,
   dispatchPart,
   dispatchReason,
+  dispatchState,
   dispatchWords,
   modelFamily,
   type Dispatch,
@@ -98,20 +100,11 @@ function withoutPlaceholders(template: string): string {
 export const MAX_CALLS = 24
 /** At most this many calls share one request: every question reads the whole state, so each brief added to it dilutes the others (guide §2.1 S5, S6). */
 export const MAX_PER_REQUEST = 8
-/** At most this many requests are sent for one script, all at once. */
+/** At most this many requests are sent for one script, one lane at a time (core/agent-lane.ts). */
 export const MAX_REQUESTS = 4
 
-/** The most a script's requests may wait in all: the hook has 10 seconds, and what follows them must still fit. */
+/** The most a hook waits for requests about agents in all: the hook has 10 seconds, and what follows them must still fit. */
 export const BATCHES_BUDGET_MS = 8000
-
-/**
- * How long each of a script's requests may wait: sent at once to one key,
- * they can queue behind each other, so each gets the mod's timeout once per
- * request, within BATCHES_BUDGET_MS.
- */
-export function batchesTimeoutMs(timeoutMs: number, requests: number): number {
-  return Math.min(BATCHES_BUDGET_MS, timeoutMs * Math.max(1, requests))
-}
 /** The briefs of a request take at least this many tokens each. */
 const MIN_BRIEF = 150
 /** What a brief's field adds to it as it is sent (`"brief_12":` and a comma), at most. */
@@ -119,8 +112,8 @@ const BRIEF_FIELD = 8
 
 /**
  * What a script's requests carry beside its calls' briefs and the person's words, once in each request: the
- * background the calls were written in. Each part is left out when it is absent (Jev's requests carry none of it:
- * core/setup.ts BACKEND_DEFAULTS `agentBackground`; the eval's items have no script and no conversation).
+ * background the calls were written in. Each part is left out when it is absent (with BACKEND_DEFAULTS `agentBackground`
+ * off, the script and the conversation; the eval's items have neither).
  */
 export type WorkflowBackground = {
   /** The script as the run has it (`workflow_script`): how its calls hang together, and the data a prompt is built from. */
@@ -137,7 +130,7 @@ export type WorkflowBackground = {
 /** The state field that holds the script. */
 export const SCRIPT_FIELD = 'workflow_script'
 /** The script takes at most this share of a request's budget: the briefs, which the questions are about, come first. */
-const SCRIPT_SHARE = 1 / 3
+export const SCRIPT_SHARE = 1 / 3
 /** A script cut to fit keeps this share of its budget for its end (the last calls, what it returns). */
 const SCRIPT_TAIL = 0.3
 
@@ -161,8 +154,6 @@ export function workflowBatches(
   tokens: number,
   options: { perRequest?: number; background?: WorkflowBackground; written?: boolean } = {},
 ): { batches: Batch[]; skipped: Skipped[] } {
-  const perRequest = options.perRequest ?? MAX_PER_REQUEST
-  const background = options.background ?? {}
   const skipped: Skipped[] = []
   const readable = parsed.calls.filter((call) => {
     const tells = tellsTheWork(call.prompt)
@@ -171,7 +162,38 @@ export function workflowBatches(
     return tells && !(options.written === true && call.edit === null)
   })
   if (readable.length === 0) return { batches: [], skipped }
-  // The person's words as a dispatched agent's decision reads them, shared by every call, with the summary and the count.
+  const items = readable.map((call): BatchItem => ({ index: call.index, dispatch: callDispatch(call, parsed.meta, words) }))
+  const { batches, capped } = dispatchBatches(items, words, settings, tokens, { ...options, maxItems: MAX_CALLS, maxRequests: MAX_REQUESTS })
+  for (const index of capped) skipped.push({ index, reason: 'capped' })
+  return { batches, skipped: skipped.sort((a, b) => a.index - b.index) }
+}
+
+/** One agent of a request about several, by its index: its part is `agent-<index>`, its brief `brief_<index>`. */
+export type BatchItem = { index: number; dispatch: Dispatch }
+
+/**
+ * The requests about several agents that share the person's `words` and a `background` (a script's calls; agents that
+ * start together, core/agent-lane.ts), and the items left out (`capped`). Items share a request while their briefs fit
+ * the state's budget (`tokens`: the person's words a third at most, the briefs the rest, each brief an equal share of
+ * it), their questions fit the 64 a request may hold, and no more than `perRequest` do (MAX_PER_REQUEST in the mod; the
+ * eval asks with 1 to compare). What does not fit in `maxRequests` requests (or in `maxItems` items) is left out. What
+ * the briefs leave of a request's budget goes to its `background`: the script (a third of the budget at most), then the
+ * conversation, newest first.
+ */
+export function dispatchBatches(
+  items: readonly BatchItem[],
+  words: string,
+  settings: DispatchSettings,
+  tokens: number,
+  options: { perRequest?: number; background?: WorkflowBackground; maxItems?: number; maxRequests?: number } = {},
+): { batches: Batch[]; capped: number[] } {
+  const perRequest = options.perRequest ?? MAX_PER_REQUEST
+  const maxItems = options.maxItems ?? MAX_CALLS
+  const maxRequests = options.maxRequests ?? MAX_REQUESTS
+  const background = options.background ?? {}
+  const capped: number[] = []
+  if (items.length === 0) return { batches: [], capped }
+  // The person's words as a dispatched agent's decision reads them, shared by every item, with the summary and the count.
   // Sizes are of the state as sent (field names, quotes and escapes counted), so a request's whole state keeps within `tokens`.
   const shared: State = {
     user_message: dispatchWords(words, tokens),
@@ -180,26 +202,25 @@ export function workflowBatches(
     ...referenceField(background.reference_complexity),
   }
   const room = Math.max(MIN_BRIEF, tokens - estimateTokens(JSON.stringify(shared)))
-  // Each brief may take an equal share of a request holding as many of the calls as one request holds at most:
-  // all of the room for a script of one call, an eighth of it for one of eight or more (less its field's name).
-  const share = Math.max(MIN_BRIEF, Math.floor(room / Math.min(readable.length, perRequest, MAX_CALLS)) - BRIEF_FIELD)
+  // Each brief may take an equal share of a request holding as many of the items as one request holds at most:
+  // all of the room for one item, an eighth of it for eight or more (less its field's name).
+  const share = Math.max(MIN_BRIEF, Math.floor(room / Math.min(items.length, perRequest, maxItems)) - BRIEF_FIELD)
   type Group = { state: Record<string, unknown>; parts: Part[]; calls: number[]; used: number; questions: number }
   const groups: Group[] = []
-  for (const [position, call] of readable.entries()) {
-    if (position >= MAX_CALLS) {
-      skipped.push({ index: call.index, reason: 'capped' })
+  for (const [position, { index, dispatch }] of items.entries()) {
+    if (position >= maxItems) {
+      capped.push(index)
       continue
     }
-    const dispatch = callDispatch(call, parsed.meta, words)
-    const part = dispatchPart(dispatch, shapeOf(call.index, settings))
-    const field = `brief_${call.index}`
+    const part = dispatchPart(dispatch, shapeOf(index, settings))
+    const field = `brief_${index}`
     const brief = withinTokens((budget) => dispatchBrief(dispatch, budget), Math.min(share, room))
     const size = estimateTokens(JSON.stringify({ [field]: brief }))
     const questions = Object.keys(part.questions).length
     let group = groups.at(-1)
     if (group === undefined || group.calls.length >= perRequest || group.used + size > room || group.questions + questions > MAX_QUESTIONS) {
-      if (groups.length >= MAX_REQUESTS) {
-        skipped.push({ index: call.index, reason: 'capped' })
+      if (groups.length >= maxRequests) {
+        capped.push(index)
         continue
       }
       group = { state: {}, parts: [], calls: [], used: 0, questions: 0 }
@@ -207,12 +228,47 @@ export function workflowBatches(
     }
     group.state[field] = brief
     group.parts.push(part)
-    group.calls.push(call.index)
+    group.calls.push(index)
     group.used += size
     group.questions += questions
   }
   const batches = groups.map((group): Batch => ({ request: mergeParts(withBackground({ ...group.state, ...shared }, background, tokens), group.parts), parts: group.parts, calls: group.calls }))
-  return { batches, skipped: skipped.sort((a, b) => a.index - b.index) }
+  return { batches, capped }
+}
+
+/** What the agents that share requests (core/agent-lane.ts) share: the person's words and the background they were written in. */
+export type AgentShared = { words: string; background: WorkflowBackground }
+
+/**
+ * The requests about agents that start together (core/agent-lane.ts), each agent's place in `dispatches` its index. One
+ * dispatched agent alone is asked as one always was (`dispatchState`, part `agent` reading `brief`: the eval's request,
+ * with its background); several, or a Workflow's agents, share requests as a script's calls do (`dispatchBatches`), so
+ * what they share goes in once. Each dispatch is the agent's own fields; the person's words come from `shared`.
+ */
+export function agentBatches(kind: 'agent' | 'workflow', dispatches: readonly Dispatch[], shared: AgentShared, settings: DispatchSettings, tokens: number): Batch[] {
+  const own = dispatches.map((dispatch): Dispatch => ({ ...dispatch, user_message: shared.words }))
+  const alone = own[0]
+  if (kind === 'agent' && own.length === 1 && alone !== undefined) {
+    const { background } = shared
+    const dispatch: Dispatch = {
+      ...alone,
+      ...(background.problem_summary ? { problem_summary: background.problem_summary } : {}),
+      ...(background.unresolved_count ? { unresolved_count: background.unresolved_count } : {}),
+      ...(background.reference_complexity === undefined ? {} : { reference_complexity: background.reference_complexity }),
+      ...((background.recent ?? []).length === 0 ? {} : { recent_context: background.recent }),
+    }
+    const part = dispatchPart(dispatch, settings)
+    return [{ request: mergeParts(dispatchState(dispatch, tokens), [part]), parts: [part], calls: [0] }]
+  }
+  // Every agent of the group is asked about: as many requests as its briefs take, never one left out.
+  const items = own.map((dispatch, index): BatchItem => ({ index, dispatch }))
+  return dispatchBatches(items, shared.words, settings, tokens, { background: shared.background, maxItems: items.length, maxRequests: items.length }).batches
+}
+
+/** An agent's decision from the answers to its batch's request: `decideDispatch` on its part's answers. */
+export function agentDecision(batch: Batch, at: number, answers: Readonly<Record<string, unknown>>, dispatch: Dispatch, settings: DispatchSettings): DispatchDecision | null {
+  const part = batch.parts[at]
+  return part === undefined ? null : decideDispatch(answersFor(part, answers), dispatch, settings)
 }
 
 /**
@@ -232,10 +288,10 @@ function withBackground(base: State, background: WorkflowBackground, tokens: num
 
 /**
  * The requests for a script's calls (`workflowBatches`): within `budgets.one`
- * while one request holds them all; when they take several, which go out
- * together, each within `budgets.each`, the size the decision model answers
- * several of at once in time (core/setup.ts BACKEND_DEFAULTS `contextByKind`:
- * `workflow` and `agent`).
+ * while one request holds them all; when they take several, which go out as the
+ * lanes allow (core/agent-lane.ts), each within `budgets.each`, the size the
+ * decision model answers several of in time (core/setup.ts BACKEND_DEFAULTS
+ * `contextByKind`: `workflow` and `agent`).
  */
 export function planBatches(
   parsed: ParsedWorkflow,
@@ -267,15 +323,16 @@ export function readOutcomes(parsed: ParsedWorkflow, plan: { batches: readonly B
         return
       }
       const decision = decideDispatch(answersFor(batch.parts[k] as Part, result.answers), callDispatch(call, parsed.meta, words), shapeOf(index, settings))
-      const write = decision.answered ? writeFor(call, decision) : null
-      outcomes[index] = !decision.answered
-        ? { kind: 'left', reason: 'unanswered', failure: { kind: 'parse', detail: 'no answer about the agent' } }
-        : write === null
-          ? { kind: 'kept', decision }
-          : { kind: 'written', decision, write }
+      outcomes[index] = !decision.answered ? { kind: 'left', reason: 'unanswered', failure: { kind: 'parse', detail: 'no answer about the agent' } } : callOutcome(call, decision)
     })
   })
   return outcomes
+}
+
+/** What a decision made for a call comes to: a model or an effort to write into it, or the call kept as the script has it. */
+export function callOutcome(call: AgentCall, decision: DispatchDecision): Extract<CallOutcome, { kind: 'written' | 'kept' }> {
+  const write = writeFor(call, decision)
+  return write === null ? { kind: 'kept', decision } : { kind: 'written', decision, write }
 }
 
 /** What to write into a call for its decision; null when there is nothing to write. */

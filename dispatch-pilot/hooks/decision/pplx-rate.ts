@@ -1,7 +1,7 @@
 // The rate limit on pplx requests (#51; ADR 0006). A Perplexity Tier 0 account takes 1 request a second (QPS), and one
 // message sends two or three (the effort question, the skills' two stages) while a mid-turn re-decision, a dispatched
 // agent or find_skill ask beside them, so every pplx request goes through this queue, which aims at `qps` requests in any
-// second, the effort question of a message first, the rest in the order they came. Jev does not pass through it.
+// second, the effort question of a message first, the rest in the order they came. Jev has pacing of its own (jev-rate.ts).
 //
 // What is kept and what is only aimed at: the count of the latest sends is kept in a `$.state` cell with optimistic writes
 // (`ifVersion`), so two requests never both take the last place of a second. Priority and order are kept by the queue,
@@ -32,8 +32,8 @@ const WINDOW_MS = 1000
 /** How often a lost write of the cell is tried again before the limit is given up for this request. */
 const ATTEMPTS = 8
 
-/** The effort question of a message goes before everything else; the rest keep their order. */
-function priorityOf(request: DecisionRequest): number {
+/** The effort question of a message goes before everything else; the rest keep their order (Jev's pacing too, jev-rate.ts). */
+export function priorityOf(request: DecisionRequest): number {
   return Object.keys(request.questions).some((id) => id.startsWith(`${EFFORT_PART}.`)) ? 0 : 1
 }
 
@@ -124,8 +124,8 @@ export function rateLimited(backend: Backend, qps: number): Backend {
   }
 }
 
-/** The answer as the callers get it: a failure without `retryAfterMs`, which only passes between the backend and this queue (the board keeps what the person reads of it, in `detail`); with the `notes` the debug log is to carry. */
-function handedOver(asked: Asked, notes: readonly string[]): Asked {
+/** The answer as the callers get it: a failure without `retryAfterMs`, which only passes between the backend and this queue (the board keeps what the person reads of it, in `detail`); with the `notes` the debug log is to carry. Jev's pacing too (jev-rate.ts). */
+export function handedOver(asked: Asked, notes: readonly string[]): Asked {
   const withNotes = notes.length === 0 ? asked : { ...asked, notes: [...(asked.notes ?? []), ...notes] }
   if (withNotes.ok || withNotes.failure.retryAfterMs === undefined) return withNotes
   const { retryAfterMs: _wait, ...failure } = withNotes.failure
