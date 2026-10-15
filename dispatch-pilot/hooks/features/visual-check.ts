@@ -28,6 +28,7 @@ import { report, type ReportIo } from '../core/report.ts'
 import { type CallTrouble, reportCall } from '../core/visual-check-report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
+import { checkSeries } from './visual-check-series.ts'
 
 const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
@@ -41,6 +42,10 @@ const SWITCH = 'visual-check'
  * hook's own 10 s count only the mod's code, not `$.http.fetch` or `$.process.run`.
  */
 const REQUEST_MS = 8000
+
+/** A series of quality levels (#61) needs the zoomed re-check of each pair, which needs the boxes only Jev answers: with pplx the call says so and asks nothing. */
+const SERIES_NEEDS_JEV =
+  'visual_check cannot compare a series of quality levels now: a series is compared pair by pair on enlarged crops (the zoomed re-check), which needs a TypeSafe key, and the decision model that takes images here is pplx. Look at the levels yourself (visual_check with look: true), or compare two of them at a time with compare_to, which with pplx catches only clear differences.'
 
 /** What a tool call answers: a string, or Messages API blocks (the engine takes nothing else of a registered tool). */
 type Block = { type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
@@ -128,10 +133,10 @@ export function registerVisualCheck(on: On, ctx: Ctx): void {
       const files = await filesOf($)
       // Looking at images asks nothing of the decision model.
       if (parsed.input.look) return { result: await look(files, parsed.input.images, parsed.input.span) }
-      // #61: a series of quality levels is compared pair by pair here.
-      if (parsed.input.comparison.kind === 'sequence') return { result: 'visual_check cannot compare a series of images (sequence) yet. Compare two of them at a time with compare_to, or look at them yourself.' }
       const images = ctx.images
       if (images === null) return { result: `visual_check has no decision model that takes images (it needs a TypeSafe or a Perplexity key), so it checked nothing. ${LOOK_YOURSELF}` }
+      // #61: a series of quality levels is compared pair by pair, by the zoomed re-check, which needs the boxes only Jev answers.
+      if (parsed.input.comparison.kind === 'sequence' && images.name !== 'jev') return { result: SERIES_NEEDS_JEV }
       const io: BackendIo = {
         fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
         sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
@@ -145,7 +150,7 @@ export function registerVisualCheck(on: On, ctx: Ctx): void {
         return asked
       }
       const deps: Deps = { files, ask, backend: images.name, agent, now: () => $.clock.now(), debug: reportTo.debug, report: (record, trouble) => reportCall(reportTo, agent, record, trouble) }
-      return { result: await check(deps, parsed.input) }
+      return { result: parsed.input.comparison.kind === 'sequence' ? await checkSeries(deps, parsed.input) : await check(deps, parsed.input) }
     } catch (error) {
       $.ui.log(`visual_check failed: ${errorText(error)}`, { to: 'debug' })
       // A bug of the mod's own, beside the agent's route: a note on the board, no toast.

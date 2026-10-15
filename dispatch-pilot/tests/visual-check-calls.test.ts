@@ -58,15 +58,6 @@ test('a call that is not whole is answered with what it lacks, and asks nothing'
   expect(w.requests).toHaveLength(0)
 })
 
-test('a series of quality levels (sequence) is not supported yet: the call says so and asks nothing', { options: JEV }, async ($, on) => {
-  const w = world($, on, { session: true, files: FILES, process: true, backend: jev([0, 1, 0, 0, 0]) })
-  await w.start()
-  const answer = await w.visualCheck({ images: [SHOT, '/shots/other.png'], sequence: true, checks: CHECKS })
-
-  expect(answer.result).toBe('visual_check cannot compare a series of images (sequence) yet. Compare two of them at a time with compare_to, or look at them yourself.')
-  expect(w.requests).toHaveLength(0)
-})
-
 // ---- Who calls ---------------------------------------------------------------------------------------
 
 test('a dispatched agent calls it as the main agent does: the same request, the same answer', { options: JEV }, async ($, on) => {

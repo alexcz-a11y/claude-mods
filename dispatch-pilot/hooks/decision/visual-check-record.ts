@@ -6,8 +6,12 @@
 
 import type { CheckResult, Comparison, Verdict } from './visual-check.ts'
 
-/** One check as the log keeps it. `zoomed`: its verdict rests on the zoomed re-check of the part (#59), not on the whole image. `why`: for an unsure verdict, the reason (as the tool tells the agent). */
-export type CheckRecord = { part: string; property: string; verdict: Verdict; probability: number | null; zoomed: boolean; why?: string }
+/**
+ * One check as the log keeps it. `zoomed`: its verdict rests on the zoomed re-check of the part (#59), not on the whole image. `why`:
+ * for an unsure verdict, the reason (as the tool tells the agent). `pair`: in a series of quality levels (#61) a check is made on
+ * each two neighbouring levels, and this is which two, counted from 1.
+ */
+export type CheckRecord = { part: string; property: string; verdict: Verdict; probability: number | null; zoomed: boolean; why?: string; pair?: [number, number] }
 
 /** What the screenshot was checked against: the kind, and the paths of the images it was compared with (none for a spec). */
 export type AgainstRecord = { kind: Comparison['kind']; paths: string[] }
@@ -47,6 +51,15 @@ export function recordOf(call: { image: string; comparison: Comparison; backend:
   return { image: call.image, against: { kind: call.comparison.kind, paths: pathsOf(call.comparison) }, backend: call.backend, checks, zoomed: checks.some((check) => check.zoomed), ms: Math.max(0, Math.round(call.ms)) }
 }
 
+/**
+ * The record of a series of quality levels (#61): the first level is the call's image, `against.paths` are all the levels in order,
+ * and each pair of neighbours has its checks, in the order of the pairs (a series that could not be read has one set of checks, of no pair).
+ */
+export function seriesRecordOf(call: { levels: readonly string[]; backend: string; pairs: readonly { from?: number; to?: number; results: readonly CheckResult[] }[]; ms: number }): VisualCheckRecord {
+  const checks = call.pairs.flatMap((pair) => recordOf({ image: '', comparison: { kind: 'sequence' }, backend: call.backend, results: pair.results, ms: 0 }).checks.map((check): CheckRecord => ({ ...check, ...(pair.from === undefined || pair.to === undefined ? {} : { pair: [pair.from, pair.to] as [number, number] }) })))
+  return { image: call.levels[0] ?? '', against: { kind: 'sequence', paths: [...call.levels] }, backend: call.backend, checks, zoomed: checks.some((check) => check.zoomed), ms: Math.max(0, Math.round(call.ms)) }
+}
+
 /** How many of the checks came out each way. */
 export function tallyOf(checks: readonly { verdict: Verdict }[]): CheckTally {
   const count = (verdict: Verdict) => checks.filter((check) => check.verdict === verdict).length
@@ -66,7 +79,8 @@ export function tallyText(tally: CheckTally): string {
 
 /** One check in the person's words: `the title · is fully visible 过 97%（整图）`. */
 export function checkWords(check: CheckRecord): string {
-  const named = check.part === '' ? check.property : `${check.part} · ${check.property}`
+  const level = check.pair === undefined ? '' : `档 ${check.pair[0]}→${check.pair[1]} · `
+  const named = `${level}${check.part === '' ? check.property : `${check.part} · ${check.property}`}`
   const odds = check.probability === null ? '' : ` ${percent(check.probability)}`
   return `${named} ${VERDICT_WORDS[check.verdict]}${odds}（${check.zoomed ? '放大复核' : '整图'}）`
 }
