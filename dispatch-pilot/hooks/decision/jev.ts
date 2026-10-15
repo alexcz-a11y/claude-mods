@@ -16,6 +16,12 @@ export const JEV_MODEL = 'jev-latest'
 export const JEV_IMAGE_MODEL = 'jev-1.14.0'
 /** Each request containing an image needs this header, else Jev answers 400. */
 export const JEV_IMAGES_HEADER = 'TypeSafe-Danger-Zone-Images'
+/**
+ * With this header a request may hold 262k tokens, for the request and for the state with any one question (64k and 32k
+ * without), on Jev 1.14 and 1.13 alike (docs.typesafe.ai/models, Long context). Slower and less accurate, the docs say; only
+ * the eval asks with it (eval/run.ts --long-context), to measure what a longer state gains.
+ */
+export const JEV_LONG_CONTEXT_HEADER = 'TypeSafe-Danger-Zone-Long-Context'
 
 /** A random version 4 UUID (a module's sandbox has no `crypto.randomUUID`). It only keeps references from meeting the text around them, so it needs no strength. */
 function uuid(): string {
@@ -25,11 +31,15 @@ function uuid(): string {
   })
 }
 
-/** `newId`: the id every reference of a request with images starts with, new for each request (a test gives a fixed one). */
-export function jevBackend(apiKey: string, options: { url?: string; model?: string; newId?: () => string } = {}): Backend {
+/**
+ * `newId`: the id every reference of a request with images starts with, new for each request (a test gives a fixed one).
+ * `longContext`: every request carries JEV_LONG_CONTEXT_HEADER (the eval's --long-context; the mod never sets it).
+ */
+export function jevBackend(apiKey: string, options: { url?: string; model?: string; newId?: () => string; longContext?: boolean } = {}): Backend {
   const url = options.url ?? JEV_URL
   const model = options.model ?? JEV_MODEL
   const newId = options.newId ?? uuid
+  const longContext: Record<string, string> = options.longContext === true ? { [JEV_LONG_CONTEXT_HEADER]: 'true' } : {}
   return {
     name: 'jev',
     configured: apiKey !== '',
@@ -41,7 +51,7 @@ export function jevBackend(apiKey: string, options: { url?: string; model?: stri
       } catch (error) {
         return { ok: false, failure: { kind: 'request', detail: errorText(error) } }
       }
-      const posted = await postJson(io, url, { authorization: `Bearer ${apiKey}`, ...sent.headers }, sent.body, timeoutMs)
+      const posted = await postJson(io, url, { authorization: `Bearer ${apiKey}`, ...longContext, ...sent.headers }, sent.body, timeoutMs)
       const asked = readAsked(posted)
       // A failure's detail goes to the debug log: what it echoes of the key stays out.
       const kept: Asked = asked.ok ? asked : { ok: false, failure: { ...asked.failure, detail: asked.failure.detail.split(apiKey).join('[REDACTED]') } }

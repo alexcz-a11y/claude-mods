@@ -190,14 +190,16 @@ export function credential(name: string): string | undefined {
 /**
  * The decision backend under evaluation (`jev` or `pplx`), with the
  * credentials it needs (`credential`); `secrets` are those values, to keep
- * them out of anything written. Throws, saying what is missing, when a
- * credential is not found or the backend is not known.
+ * them out of anything written. `longContext`: Jev's requests carry the
+ * long-context header (eval/run.ts --long-context). Throws, saying what is
+ * missing, when a credential is not found or the backend is not known.
  */
-export function backendFor(name: string, model?: string): { backend: Backend; secrets: string[] } {
+export function backendFor(name: string, model?: string, options: { longContext?: boolean } = {}): { backend: Backend; secrets: string[] } {
+  if (options.longContext === true && name !== 'jev') throw new Error(`--long-context is Jev's header, not ${name}'s`)
   if (name === 'jev') {
     const key = credential('TYPESAFE_API_KEY')
     if (key === undefined) throw new Error(`no TYPESAFE_API_KEY in the environment or ${CREDENTIALS_FILE}`)
-    return { backend: jevBackend(key, model === undefined ? {} : { model }), secrets: [key] }
+    return { backend: jevBackend(key, { ...(model === undefined ? {} : { model }), ...(options.longContext === true ? { longContext: true } : {}) }), secrets: [key] }
   }
   if (name === 'pplx') {
     const key = credential('PERPLEXITY_API_KEY')
