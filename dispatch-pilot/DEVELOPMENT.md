@@ -294,7 +294,7 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 - **读图规整**（`loadImage`）。sips 查尺寸和格式 → `planSize` 定尺寸（Jev：每边 256–1568、78,400–2,458,624 像素；pplx：不超过 2,048 个 32×32 图块；`look`：长边不超过 1568，小图不放大）→ 需要时 `sips -z H W [-s format png|jpeg]` 写到临时文件 → `$.fs.read` 的 bytes 模式 → JPEG 的 EXIF 方向不是 1 就转正（Jev 不应用方向；sips 读不出方向，所以从 JPEG 的字节里读 `readImageHeader`，再用 `uprightArgs`，七种方向对照 Pillow 的 `exif_transpose` 实测过）。格式：PNG 和 JPEG 原样，HEIC 一类照片转 JPEG（质量 85），其余转 PNG。引擎只读 4 MiB：读被拒（不管错误文字，引擎的措辞没测过）就依次改成 JPEG、3/4 大小、1/2 大小再读。一次请求的图合计有 token 预算（`imageMegapixelBudget`：Jev 24k，pplx 32k 再除以题数），超了统一缩一个份额重做（`loadImages`）。临时文件在 `$TMPDIR`（没有就 `/tmp`）下 `dispatch-pilot-<随机>/`，会话里第一次要用时建，不清理。
 - **不在 CLI**（`$.process.run` 拒绝）。没有 sips：读 bytes，按文件头判断，PNG 或 JPEG、在限制内、方向正才直接发；其余写明原因记没把握。
 - **请求的等待。** 每个带图请求最多 8 秒（`REQUEST_MS`，不受发消息时 Jev 的 1500 毫秒限制）；pplx 的请求带 `pace`，照样限速。debug log 一行：`visual_check request [check.0, ...] to jev: answered in 310 ms by ... (N input tokens); images: 1 (1200x800), about 2496 tokens`，从不写图的内容和密钥。
-- **输入的取舍**（票没写死的地方）。① 比较对象至多一种（`reference`、`compare_to`、`sequence`、`spec`），两种以上回文字说明；一种都不给时每条检查项按自己的话判（和文字规范同样处理）。② 非 `look`、非 `sequence` 的调用 `images` 只能有一张（要核对几张就调用几次；`reference` 可以多张，都放进同一个请求）。③ `sequence`（#61）现在回「暂不支持」，录屏（#60）见「录屏」一条。④ `same_view` 给放大复核用（不给就按两张图的宽高比推断）。⑤ pplx 一次请求最多 8 张图（截图加参考图），多了在读图之前就记没把握。
+- **输入的取舍**（票没写死的地方）。① 比较对象至多一种（`reference`、`compare_to`、`sequence`、`spec`），两种以上回文字说明；一种都不给时每条检查项按自己的话判（和文字规范同样处理）。② 非 `look`、非 `sequence` 的调用 `images` 只能有一张（要核对几张就调用几次；`reference` 可以多张，都放进同一个请求）。③ `sequence`（#61）见「档位序列」一节，录屏（#60）见「录屏」一条。④ `same_view` 给放大复核用（不给就按两张图的宽高比推断）。⑤ pplx 一次请求最多 8 张图（截图加参考图），多了在读图之前就记没把握。
 - **录屏（#60）。** `images` 的路径按扩展名认录屏（`isRecording`：mov、mp4、m4v、webm、mkv、avi 等；GIF 是 sips 读得动的图，不算）。只有要核对的那一个可以是录屏，且只对文字规范或不给对象（`reference`、`compare_to` 回「没把握」并写明原因，参考图是录屏也一样）。输入多两个可选数：`from_seconds`、`to_seconds`（默认全片；`to` 要大于 `from`，数字字符串也收；非录屏时忽略）。
   - **抽帧**（`core/video-frames.ts` 的 `readRecording`，经 `ImageFilesIo.run`，位置在 `subjectsOf` 里）：先 `ffmpeg -hide_banner -i <文件>` 从 stderr 的 `Duration:` 读长度（它以 exit code 1 结束，没有输出文件，是正常的），再按 `frameTimes` 在时间段内均匀取 N 个时刻（Jev 12、pplx 8，`FRAME_COUNT`；首尾都取；到全片结尾时最后一帧往前让 0.1 秒，因为 ffmpeg 在 `-ss` 等于结尾时没有帧），一帧一次 `ffmpeg -hide_banner -loglevel error -y -ss <秒> -i <文件> -frames:v 1 -q:v 2 <临时>.jpg`，每次最多 60 秒（`$.process.run` 默认 30 秒不够长录屏 seek）。某个时刻没有帧（exit ≠ 0；变帧率的录屏画面静止到结尾时会这样）就依次往前退 0.25、1、4、16 秒再试，退到时间段起点之前就放弃；帧上记的是真正取的那一秒。文件路径不是绝对路径的一律写成 `./路径`，不会被当成选项或协议（`http:`、`concat:`）。验证过：ffmpeg 8.1.2 在 `-ss` 超出最后一帧时 exit 234 且不写文件，所以以 exit code 判断成败。
   - **规整。** 抽出的 JPEG 当作普通图走 `loadImages`（限制、转正方向、合计 token 预算：Jev 24k，pplx 32k 除以题数），帧一起缩，不拼联系表。`loadImage` 的 `share` 现在是「限制允许的尺寸」的份额（#60 之前对超限的图是原图的份额，超限图的合计会超预算；录屏帧常常超限）。
@@ -345,8 +345,17 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 - **判定。** 只看裁图上的「一致」概率：≥0.9 过，≤0.2 不过，其间没把握；对着几张参考图（不同侧面的照片）时取最高的一个。某条检查项的放大复核做不了（没点名部分、模型没框出、sips 失败、请求二失败或没答）：退回整图的答案，只采信不过，其余记没把握，原因里写放大复核为什么失败（`fallBack`）。点名框的置信度不参与判断；本来就没有选择题。
 - **另一处可能不同。** `where.screen` 的框置信度 ≥0.2 且面积 ≤25% 才报（两端都含），并附两张图同一块的裁图；这块若有一半以上落在已经不过的检查项的框里，不重复报（那条检查项自己带裁图）。裁图做不了仍报，不附图。
 - **回答里的裁图。** 不过的检查项附截图的裁图和比较对象的裁图（多张参考图时取概率最低的那一对），最多三条检查项；裁图占截图面积超过 90% 的不附（和整张图没区别）；之后是「另一处」的两张，最后才是没把握时的整张截图。文字里按顺序列出每张图是什么（`cropLabel`）。
-- **`comparePair(deps, { candidate, other, sameView }, checks)`**（`core/zoom-review.ts`）。给任意一对已读好的图（`LoadedImage`）和点名的部分，不经请求一的整图判断：发一个只有框题的请求，裁图，发请求二，回 `ZoomOutcome`（每条检查项的结果、不过的裁图、另一处）。做不了的检查项记没把握并写明原因，从不抛错。#61 的档位序列对相邻两档调用它。
+- **`comparePair(deps, { candidate, other, sameView }, checks)`**（`core/zoom-review.ts`）。给任意一对已读好的图（`LoadedImage`）和点名的部分，不经请求一的整图判断：发一个只有框题的请求，裁图，发请求二，回 `ZoomOutcome`（每条检查项的结果、不过的裁图、另一处）。做不了的检查项记没把握并写明原因，从不抛错。#61 的档位序列对相邻两档调用它（`core/quality-series.ts`）。
 - **测试。** 接缝 1：`tests/visual-check-zoom-request.test.ts`（请求一的框题）、`-crops.test.ts`（sips 参数、两种视角、边距、最小尺寸、长宽比、请求二的题和图）、`-verdicts.test.ts`（判定、退回、原因）、`-report.test.ts`（回答里的裁图、另一处的两个条件）、`-limits.test.ts`（题数和 token 的上限、`comparePair`）、`-board.test.ts`（日志里的「是否放大复核」、放大复核请求失败的 note）。world 的零件 `tests/support/zoom.ts`：`zoomBackend({ whole, boxes, zoom, zoomReply })` 按题号分开回答请求一和请求二（`where.screen` 默认是置信度 0.05 的框，不报）。
+
+**档位序列（#61，ADR 0008）。** `visual_check` 收到 `sequence: true`：`images` 是同一机位下按档位从低到高排的 2 到 12 张静态图（`MAX_LEVELS`），`checks` 点名档位可能改变的部分。只在 Jev 上做：它是一连串放大复核，要框题；图像后端是 pplx 时，调用不发请求，回一句说明「档位序列需要放大复核，需要 TypeSafe 的 key，当前不可用」（`features/visual-check.ts` 的 `SERIES_NEEDS_JEV`），pplx 版工具说明里也写了同一件事（`SERIES_UNAVAILABLE`），Jev 版有一段 `SERIES_DESCRIPTION`。
+- **分工。** `decision/visual-check-sequence.ts`（纯，评测 #65 共用）：`pairConclusion`（一对的结论：每条检查项都「过」才是 `same`，有一条「不过」就是 `differs`，其余 `unsure`）、`seriesVerdict`（从哪一档起往上看不出差别）、`pairWaves`（分批）、`MAX_LEVELS`、两版工具说明的文字；`decision/visual-check-sequence-text.ts`（英文，回答的文字 `seriesText`）；`core/quality-series.ts` 的 `compareLevels(deps, levels, sameView, checks)` 对相邻两档调 `comparePair`（高档当 candidate，低档当 other），经闭包做文件和请求；`features/visual-check-series.ts` 的 `checkSeries` 读图、汇报、回答，`features/visual-check.ts` 只多了分派一行。
+- **判定。** 「没差别」是整个设计里较弱的那个方向，所以要每对每个点名的区域都在裁图上「过」（≥ 0.9，`judge`）才算；任一区域不过，这一对就是 `differs`，没把握（0.2 到 0.9 之间、请求失败、没点名部分）是 `unsure`，同样不算没差别。`seriesVerdict` 取最上面连续的 `same` 对的起点：第 k 对到最后一对都是 `same`，就是「从第 k 档起」；最上面一对 `differs` 就是「没有这样的档」（所有对都 `differs` 时写成「每一档都有差别」）；最上面一对 `unsure` 是「说不准」。下面某一对看着没差别、上面又有差别的，不算。全屏「哪里不同」的框（没点名的另一处）只在那一对下面报一句文字，不改结论，也不附裁图（一串档位的裁图会把上下文撑大；要看用 `look: true`）。
+- **分批。** 每一对是自己的请求（一个框题请求，一个裁图请求，裁图请求由 `batchPairs` 再按 48k token 拆），不是把所有档位塞进一个请求：一个请求只放两张图。图读到 `JEV_IMAGE_LIMITS` 以内就够（两张最大的约 12,800 token，在一个请求的 24,000 以内），不再按预算缩。对数多时 `pairWaves` 把各对分成几批：一批内的各对同时发，一批发完再发下一批，一批的图像合计不超过 `WAVE_TOKENS`（72,000，约三个满请求）、至多 `WAVE_PAIRS`（6）对；一对不拆。每个请求仍是 `REQUEST_MS`（8 秒）的上限，所以整个调用不会有哪个请求等得比平时久。
+- **录屏。** 档位序列只比静态图。动态效果（闪烁、波纹抖动）静态图上看不出来：工具说明和回答里都写明，要从每一档的录屏里同一时刻各取一帧（例如 ffmpeg），把这些帧当作序列；给了录屏路径就回一句说明。
+- **汇报。** 一次调用一条决策日志（`seriesRecordOf`，`decision/visual-check-record.ts`）：`image` 是第一档，`against` 是 `{ kind: 'sequence', paths: 全部档位 }`，每对每条检查项一条 `CheckRecord`，带可选的 `pair: [低档, 高档]`（从 1 数；读不了图时没有）；日志的字句多一个前缀「档 1→2 · 」。计数的 N 是做过的检查数（每对每条检查项各算一次）。请求失败只写 board notes，不弹 toast。回答最后要求 agent 在最终汇报里列出试了哪些档、比了哪些区域、结论和概率。
+- **不做实测。** 按用户的决定（#55 的 Out of Scope），档位序列的阈值和判定没有实测过，只有放大复核本身的实验（圆角、颜色、缺图标靠得住，边距和 4 px 偏移、字重抓不到）；所以回答里照旧写「过只代表没看出明显问题」。
+- **测试。** 接缝 2：`tests/visual-check-sequence-verdict.test.ts`（`pairConclusion`、`seriesVerdict`、`pairWaves`）。接缝 1：`tests/visual-check-sequence.test.ts`（相邻两档的请求、回答的文字、任一区域没过、说不准、分批的时间、超时只影响那一对）、`-calls.test.ts`（档数的上下限、录屏、读不了的档、pplx、工具说明）、`-board.test.ts`（日志、计数、失败的 note）。world 的零件 `tests/support/series.ts`：档位文件 `levels(n, size)`（标签就是路径）和 `seriesBackend({ zoom, boxes, reply })`，按请求里图的标签认出是哪一对，每对各回各的答案。
 
 **「`Config` 晚一点才知道用哪一行」怎么解决：方案 3，两行都先算好，`ctx` 每次读时选。** 难点是环境变量只能在 `session.start` 里异步读，而 `Config` 的默认值行取决于最后用哪个模型（一个 0.3.1 的老用户只有 TypeSafe key 时必须得到恰好是 Jev 的默认值，1500 毫秒、6000/24000、中文、0.3），不少功能又在 register 时把 `ctx.config.*` 取走了。`setup()` 对 pplx 和 Jev 各算一份 `Config`（`readConfig(options, table, backend)`，纯、便宜）和各建一个后端，`Ctx` 的 `config`、`backend`、`ask`、`fellBack` 是 getter，每次读时按 `chooseBackend` 取其中一份（`secrets.perplexityEnvKey` 读完之前，环境变量里的 key 还看不到，只有 `session.start` 之后才对）。没选「`ctx` 里放个会被替换的 `current`，在 `session.start` 和 `prompt.submit` 里 `await resolve($)`」（方案 2）：getter 不要求每个入口都记得先 resolve，热重载（`register` 重新执行、`session.start` 再触发）也自然对。代价是 register 时取走 `ctx.config.*` 的功能必须改成用时再读：`midturn-effort`、`escalation` 的 `Settings` 现在是 getter 对象；`dispatchSettings(ctx)`（派出 agent、两个 Workflow 功能）和 `rankingSettings(ctx)`（skill 推荐、find_skill）返回 getter 对象；`skills`、`find-skill` 的 `policy`、`findWaitMs`、`findByProfile` 在用的地方读。不随决策模型变的值（`neverSuggested`、`alwaysListed`、`profileModel`、`workflowMode`、`profilesPerSession`）仍在 register 时取；`skills` 开关的默认值（开）也不随决策模型而变，所以不放进表里。新写的功能不要在 register 时取 `ctx.config.<随决策模型而定的值>`；`tests/decision-model.test.ts` 里有「环境变量里有 key」的例子（重判等待 6000 毫秒、派出 agent 的 max 门槛 0.47）会在这么做时失败。
 
@@ -631,6 +640,7 @@ hooks/
 │   ├── skills.ts           对主 agent 隐藏 skill 列表、换成一句提示，发消息时推荐 skill（#10）
 │   ├── visual-check.ts     agent 的 visual_check 工具（看图核对，#57，ADR 0008）：会话开始时注册（有图像后端才注册），被调用时读图、发一个带图请求、按 0.9 / 0.2 判定、回答 Messages API 块；流程分阶段，放大复核（#59）、抽帧（#60）、汇报（#58）接在各自留好的位置
 │   ├── screenshot-takeover.ts  截图接管（#62，ADR 0008）：开关 `screenshot-takeover`（默认关）；`tool.call` 在 `next` 之后，把 Read 读到的、本循环里新生成的图片文件和 MCP 工具结果里的 image 块换成一段英文说明（Read 的换成文本形态的结果，MCP 的先用 `base64 -D -o` 存成临时文件）；每次接管汇报一条 aside 日志加一次计数
+│   ├── visual-check-series.ts  visual_check 的档位序列（#61）：`checkSeries` 读各档、对相邻两档做放大复核、汇报、回答
 │   ├── workflow-agents.ts  提交 Workflow 时判断脚本里每个 agent() 的模型和 effort，写进脚本或退回（#8）
 │   └── workflow-labels.ts  脚本写不进去的 Workflow：运行开始时判断各调用，agent 启动时按 label 写计划表；Workflow 工具描述里的常驻提示（#9）
 ├── board/                  看板的画面（ADR 0004）：只画「决定汇报」的数据，功能不碰
@@ -658,6 +668,7 @@ hooks/
 │   ├── work-files.ts       mod 的临时目录（#62）：`$TMPDIR/dispatch-pilot/<会话 id>/`，每个会话一个子目录；`newWorkFile(io, 扩展名)` 给出新文件的路径（缩过的图、抽出的帧、接管存下的截图都放这里）
 │   ├── image-crops.ts      裁图并放大（#59）：`cropImage` 用两次 sips 把图的一块裁下来放大到长边 1000 px，读成 base64
 │   ├── zoom-review.ts      放大复核（#59）：`zoomReview`（裁图、请求二、判定）、`comparePair`（对任意一对图，#61 用）
+│   ├── quality-series.ts   档位序列（#61）：`compareLevels` 对相邻两档调 `comparePair`，按 `pairWaves` 分批发
 │   ├── image-files.ts      读图规整（#57，凡是要给决策模型图的功能都用它）：经 `ImageFilesIo` 的三个闭包用 sips 查尺寸、缩放、转格式、转正方向，读成 base64（`loadImage`、`loadImages`）；不在 CLI 时按文件头判断
 │   ├── complexity.ts       参考图的复杂度读数和读数的存取（#63，ADR 0008）：`readReferenceComplexity(io, sources)`（一组图：规整、按内容 hash 认组、同一组只问一次、读数存在 `$.state` 的 `referenceReadings`）和 `latestReading`（取最近一组的读数）；凡是要用读数的功能（#64 的中途重判、派出 agent、Workflow）都经这里，读数的存取只在这里；经 `ComplexityIo` 的闭包用 `$`
 │   ├── ask-group.ts        投票箱里一组 part 的一次请求（从 core.ts 提出来）：拼请求、发出、记 debug 行、把回答分给各 part；发消息时核心用它，带图的消息在 `turn.start` 里 image-routing 也用它，发出去的和记下的是同一份
@@ -692,6 +703,8 @@ hooks/
     ├── zoom.ts             放大复核的几何（#59，评测共用）：框、裁剪区域（边距 15%、至少 160 px、长宽比 ≤3.5）、按比例换算、sips 的参数、视角是否相同
     ├── visual-check-zoom.ts  放大复核的题和判定（#59，评测共用）：请求一里的框题（`locatePlan`、`withBoxes`）、请求二的 Noul（`zoomRequest`、`batchPairs`）、读回答、`judgeZoom`、`fallBack`
     ├── visual-check-frames.ts  看图核对读录屏（#60，评测共用）：`isRecording`、`FRAME_COUNT`（Jev 12、pplx 8）、`frameTimes`（取哪几秒）、ffmpeg 的参数（`probeArgs`、`frameArgs`）、`parseDuration`、`framesRequest`（帧的请求）
+    ├── visual-check-sequence.ts  档位序列的判断（#61，评测共用）：`pairConclusion`、`seriesVerdict`（从哪一档起往上看不出差别）、`pairWaves`（分批）、`MAX_LEVELS`、工具说明里档位序列的两段
+    ├── visual-check-sequence-text.ts  档位序列的回答（#61，英文）：`seriesText`
     ├── visual-check-record.ts  看图核对留给人看的（#58）：日志里的 `VisualCheckRecord`、`CheckTally`、看板和日志的中文字句（`tallyText`、`reasonText`）
     ├── visual-check-tool.ts  agent 读到的 visual_check（#57，英文）：工具说明（两版）、输入 schema、`parseVisualCheckInput`、回答的文字 `visualCheckText`
     ├── screenshot-takeover.ts  截图接管的判断（#62，纯）：给 agent 的说明 `takeoverNote`、Read 结果的文本形态 `noteAsReadResult`、从工具结果里找 image 块并换掉（`imageOf` 认 MCP 和 Messages API 两种写法，`swapImages`）
@@ -707,6 +720,7 @@ tests/support/pasted.ts     用户贴在消息里的图（#63）：`prompt.submi
 tests/support/images.ts     world 的二进制文件和程序（#57）：`FakeFile`（按格式、尺寸描述的图，`fileBase64` 给出真的 PNG/JPEG 文件头）、`readFake`（从请求里的 base64 读回尺寸和来历）、假的 `sips` 和 `mkdir`（`Program`）；假的 `ffmpeg(videos)`（#60：`videos` 是按绝对路径给的 `FakeVideo`（长度、宽高、帧率），不在 `files` 里；`-i` 单独一次回 `Duration:` 并以 1 结束，`-ss` 超出最后一帧回 234，否则把一帧写成带来历标签的 JPEG；用 `process: { programs: { ffmpeg: ffmpeg(videos) } }`，`ffmpeg: null` 是没装）
                             （#62 加）`FakeFile.mtimeMs`（`fs.stat` 的修改时间）、`readImageResult`（Read 读图时引擎给 `tool.call` 的结果：image 结果加 `[Image: …]` 文字和 ref）、`screenshotContent`（MCP 截图工具的内容块，`mcp` 和 `api` 两种写法）、导出的假 `base64 -D -o 文件`（stdin 解码成文件，假图的字节还原成同一张图；不是缺省程序，要用 `process: { programs: { base64 } }` 装上，#63 的测试靠它缺省没有来测「写不成文件」）
 tests/support/zoom.ts       放大复核的假决策模型（#59）：`zoomBackend` 按题号分开回答请求一（整图的 Noul、框题）和请求二（裁图的 Noul），`box()` 写一个框答案
+tests/support/series.ts     档位序列的假决策模型（#61）：`levels(n)` 档位文件、`seriesBackend` 按请求里图的标签认出是哪一对，每对各回各的答案
 tests/support/workflow.ts   Workflow 工具桩和按脚本里第几个调用作答的 siteJev（#8）；workflowWorld 在 world 之外加一层，不改 world.ts
 tests/support/workflow-run.ts  运行目录（journal、transcript）和 tool.describe 的桩；runWorld 在 workflowWorld 之外再加一层（#9）
 types/index.d.ts            $.state 的契约（PluginState）

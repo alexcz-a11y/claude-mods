@@ -3,6 +3,7 @@
 // written for the model, so in English. Pure (see system-one.ts).
 
 import { FRAME_COUNT, type Span, WHOLE_RECORDING } from './visual-check-frames.ts'
+import { MAX_LEVELS, SERIES_DESCRIPTION, SERIES_UNAVAILABLE } from './visual-check-sequence.ts'
 import type { Check, CheckResult, Comparison } from './visual-check.ts'
 import { boxArea, type Box } from './zoom.ts'
 
@@ -46,7 +47,7 @@ const BEFORE_YOU_FINISH =
 
 /** What the model reads about the tool, by the decision model that takes its images. Constants: nothing of the session goes in. */
 export function visualCheckDescription(backend: 'jev' | 'pplx'): string {
-  return [WHAT_IT_IS, HOW_TO_WRITE_CHECKS, WHAT_IT_JUDGES, backend === 'jev' ? COMPARING_WITH_ZOOM : COMPARING_COARSE, recordings(FRAME_COUNT[backend]), READING_THE_ANSWER, LOOK, BEFORE_YOU_FINISH].join(' ')
+  return [WHAT_IT_IS, HOW_TO_WRITE_CHECKS, WHAT_IT_JUDGES, backend === 'jev' ? COMPARING_WITH_ZOOM : COMPARING_COARSE, backend === 'jev' ? SERIES_DESCRIPTION : SERIES_UNAVAILABLE, recordings(FRAME_COUNT[backend]), READING_THE_ANSWER, LOOK, BEFORE_YOU_FINISH].join(' ')
 }
 
 /** The tool's input schema. */
@@ -70,7 +71,7 @@ export const VISUAL_CHECK_INPUT = {
     },
     sequence: {
       type: 'boolean',
-      description: 'images is a series of the same view at rising quality levels, to be compared pair by pair, to find the level from which they no longer look different.',
+      description: 'images is a series of the same view at rising quality levels, lowest first (2 to 12 stills), to be compared pair by pair in the parts the checks name, to find the level from which the higher ones no longer look different. Needs the zoomed re-check, so not with pplx.',
     },
     spec: {
       type: 'string',
@@ -178,6 +179,12 @@ export function parseVisualCheckInput(raw: Readonly<Record<string, unknown>>): {
   if (comparison.kind !== 'sequence' && images.length > 1) {
     return { ok: false, message: 'visual_check checks one screenshot per call: give one path in images, and call it again for the next screenshot.' }
   }
+  if (comparison.kind === 'sequence' && images.length < 2) {
+    return { ok: false, message: `visual_check with sequence: true compares each two neighbouring levels: give at least two images in images, lowest level first (you gave ${images.length}).` }
+  }
+  if (comparison.kind === 'sequence' && images.length > MAX_LEVELS) {
+    return { ok: false, message: `visual_check with sequence: true takes at most ${MAX_LEVELS} levels in one call (you gave ${images.length}): compare the ones around the level you suspect.` }
+  }
   const list: unknown[] = Array.isArray(raw.checks) ? raw.checks : []
   const checks = list.flatMap((item): Check[] => {
     if (typeof item === 'string') return text(item) === '' ? [] : [{ part: '', property: text(item) }]
@@ -230,7 +237,7 @@ const BASES = { whole: 'whole image', zoom: 'zoomed crop' } as const
 const percent = (share: number): string => `${Math.round(share * 100)}%`
 
 /** The place no check named, in words: where it is in the screenshot, how much of it, how sure the model is. */
-function placeLine(place: { box: Box; confidence: number; cropped: boolean }): string {
+export function placeLine(place:{ box: Box; confidence: number; cropped: boolean }): string {
   const { box, confidence } = place
   return `Another place may differ, which none of your checks named: ${percent(box.left)} to ${percent(box.right)} across and ${percent(box.top)} to ${percent(box.bottom)} down the screenshot (${percent(boxArea(box))} of it; the model is ${confidence.toFixed(2)} sure of the place).${place.cropped ? ' Crops of it are attached.' : ''} Look at it yourself.`
 }
