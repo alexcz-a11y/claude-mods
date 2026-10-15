@@ -5,19 +5,23 @@
 // Node only (fs, process): the tests never import this file; they import the
 // pure modules under lib/. Node 22.18+ runs .ts as is.
 
+import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { basename, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
+import type { ImageFilesIo } from '../hooks/core/image-files.ts'
 import type { BackendName } from '../hooks/core/setup.ts'
 import type { Backend, BackendIo } from '../hooks/decision/backend.ts'
+import { readImageHeader } from '../hooks/decision/image-header.ts'
 import { jevBackend } from '../hooks/decision/jev.ts'
 import { pplxBackend } from '../hooks/decision/pplx.ts'
 import { isKind, parseJsonl, type Kind } from './lib/datasets.ts'
 import { buildEvalV2, checkFinalGold, checkGold, checkItem, checkSegment, datasetWarnings, evalV2Jsonl, generatedFile, type Built, type FinalGold, type Segment, type V2Item, type V2Record } from './lib/eval-v2.ts'
 import { v2Item, type V2EvalItem } from './lib/eval-v2-suite.ts'
-import { optionsFor, settingsFrom, type OptionSpec, type SuiteHost } from './lib/suite.ts'
+import { optionsFor, settingsFrom, type ImageHost, type OptionSpec, type SuiteHost } from './lib/suite.ts'
+import { picturesOf, type VisualCheckItem } from './lib/visual-check-items.ts'
 
 /** The mod's directory (dispatch-pilot/). */
 export const MOD_DIR = resolve(import.meta.dirname, '..')
@@ -57,7 +61,7 @@ export function shown(path: string): string {
 export function datasetFile(nameOrPath: string): { kind: Kind; path: string } {
   const path = nameOrPath.endsWith('.jsonl') ? resolve(nameOrPath) : join(DATASETS_DIR, `${nameOrPath}.jsonl`)
   const kind = basename(path, '.jsonl')
-  if (!isKind(kind)) throw new Error(`${basename(path)}: a dataset file is named after its kind (effort-submit, effort-midturn, subagent, skill, unresolved, long-context)`)
+  if (!isKind(kind)) throw new Error(`${basename(path)}: a dataset file is named after its kind (effort-submit, effort-midturn, subagent, skill, unresolved, long-context, visual-check)`)
   return { kind, path }
 }
 
@@ -88,7 +92,78 @@ export function nodeHost(datasetPath: string, onBeside?: (name: string, text: st
       return JSON.parse(text)
     },
     read: async (path) => readFileSync(path.replace(/^~(?=\/|$)/, homedir()), 'utf8'),
+    // The pictures of a dataset are in a folder of its name beside it (datasets/visual-check/ for visual-check.jsonl).
+    images: nodeImageHost(join(dir, basename(datasetPath, '.jsonl'))),
   }
+}
+
+/** The most `readBytes` gives: the engine's `$.fs.read` refuses more than 4 MiB, and the mod's image code makes a picture smaller when it does. */
+const MOST_BYTES = 4 * 1024 * 1024
+
+/**
+ * The pictures of a dataset and the programs that size and cut them, over Node's file system and child processes: what the mod's
+ * image code (hooks/core/image-files.ts) asks of the engine, as the engine answers it. `run` is `$.process.run`: a program by its
+ * argument vector, no shell, its exit code returned (a program that cannot be run rejects); `readBytes` is `$.fs.read(path, { as:
+ * 'bytes' })`, 4 MiB at the most; new files go in a folder of the run's own in the system's temporary directory, removed when it ends.
+ */
+export function nodeImageHost(picturesDir: string): ImageHost {
+  let work: string | undefined
+  let count = 0
+  const io: ImageFilesIo = {
+    run: (argv, init) =>
+      new Promise((done, fail) => {
+        const [program, ...args] = argv
+        const child = execFile(program as string, args, { timeout: init?.timeoutMs ?? 30_000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
+          if (error === null) return done({ exitCode: 0, stdout, stderr })
+          const code = (error as { code?: unknown }).code
+          if (typeof code === 'number') return done({ exitCode: code, stdout, stderr })
+          fail(error)
+        })
+        if (init?.stdin !== undefined) child.stdin?.end(init.stdin)
+      }),
+    readBytes: async (path) => {
+      const size = statSync(path).size
+      if (size > MOST_BYTES) throw new Error(`${path} is ${size} bytes, over the 4 MiB a read gives`)
+      return readFileSync(path).toString('base64')
+    },
+    newFile: async (extension) => {
+      if (work === undefined) {
+        work = mkdtempSync(join(tmpdir(), 'visual-check-eval-'))
+        const dir = work
+        process.on('exit', () => rmSync(dir, { recursive: true, force: true }))
+      }
+      return join(work, `image-${++count}.${extension}`)
+    },
+  }
+  return { io, path: (relativePath) => join(picturesDir, relativePath) }
+}
+
+/**
+ * What a visual-check dataset names that is not as it should be, for eval/validate.ts (a test cannot read the disk): a picture that is
+ * not there or is not a PNG, and (warnings) a PNG in the dataset's folder that no item names. Paths are relative to `picturesDir`.
+ */
+export function checkPictures(items: readonly Record<string, unknown>[], picturesDir: string): { errors: string[]; warnings: string[] } {
+  const errors: string[] = []
+  const named = new Set<string>()
+  for (const item of items as unknown as VisualCheckItem[]) {
+    // An item that breaks the format has been reported; its pictures are not looked for.
+    let pictures: string[]
+    try {
+      pictures = picturesOf(item)
+    } catch {
+      continue
+    }
+    for (const picture of pictures) {
+      named.add(picture)
+      const path = join(picturesDir, picture)
+      if (!existsSync(path)) errors.push(`${item.id}: ${picture} is not in ${shown(picturesDir)}/`)
+      else if (readImageHeader(readFileSync(path).toString('base64'))?.format !== 'png') errors.push(`${item.id}: ${picture} is not a PNG`)
+    }
+  }
+  const unused = existsSync(picturesDir)
+    ? (readdirSync(picturesDir, { recursive: true }) as string[]).map((file) => file.split('\\').join('/')).filter((file) => file.endsWith('.png') && !named.has(file))
+    : []
+  return { errors, warnings: unused.map((file) => `${file} is in ${shown(picturesDir)}/ and no item names it`) }
 }
 
 /** Where credentials are read when the environment does not have them. */

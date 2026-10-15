@@ -1,0 +1,139 @@
+{
+  "c1": {
+    "id": "c1",
+    "v": "radius",
+    "aspect": "corner_radius",
+    "spec": "r1_radius",
+    "ids": [
+      "btn"
+    ],
+    "note": "primary button radius 12 -> 6",
+    "box": {
+      "left": 0.041025641025641026,
+      "right": 0.958974358974359,
+      "top": 0.6315165876777251,
+      "bottom": 0.6907582938388626
+    }
+  },
+  "c2": {
+    "id": "c2",
+    "v": "margin",
+    "aspect": "spacing",
+    "spec": "r2_margin",
+    "ids": [
+      "btn"
+    ],
+    "note": "primary button side margin 16 -> 24",
+    "box": {
+      "left": 0.041025641025641026,
+      "right": 0.958974358974359,
+      "top": 0.6315165876777251,
+      "bottom": 0.6907582938388626
+    }
+  },
+  "c3": {
+    "id": "c3",
+    "v": "color",
+    "aspect": "color",
+    "spec": "r3_color",
+    "ids": [
+      "btn"
+    ],
+    "note": "primary button #007AFF -> #3B82F6",
+    "box": {
+      "left": 0.041025641025641026,
+      "right": 0.958974358974359,
+      "top": 0.6315165876777251,
+      "bottom": 0.6907582938388626
+    }
+  },
+  "c4": {
+    "id": "c4",
+    "v": "weight",
+    "aspect": "font",
+    "spec": "r4_weight",
+    "ids": [
+      "btnlabel"
+    ],
+    "note": "button label weight 600 -> 400",
+    "box": {
+      "left": 0.2794871794871795,
+      "right": 0.7204727564102564,
+      "top": 0.6492890995260664,
+      "bottom": 0.6729857819905213
+    }
+  },
+  "c5": {
+    "id": "c5",
+    "v": "shift",
+    "aspect": "alignment",
+    "spec": "r5_icon_alignment",
+    "ids": [
+      "icon2"
+    ],
+    "note": "row 2 icon shifted 4px right",
+    "box": {
+      "left": 0.08205128205128205,
+      "right": 0.16666666666666666,
+      "top": 0.31575829383886256,
+      "bottom": 0.35011848341232227
+    }
+  },
+  "c6": {
+    "id": "c6",
+    "v": "noicon",
+    "aspect": "missing_element",
+    "spec": "r6_missing_icon",
+    "ids": [
+      "icon3"
+    ],
+    "note": "row 3 leading icon missing",
+    "box": {
+      "left": 0.08205128205128205,
+      "right": 0.1564102564102564,
+      "top": 0.3726303317535545,
+      "bottom": 0.40699052132701424
+    }
+  },
+  "c7": {
+    "id": "c7",
+    "v": "truncate",
+    "aspect": "text",
+    "spec": "r7_truncation",
+    "ids": [
+      "text:title1"
+    ],
+    "note": "row 1 title truncated \"Notific...\"",
+    "box": {
+      "left": 0.18974358974358974,
+      "right": 0.4500801282051282,
+      "top": 0.26421800947867297,
+      "bottom": 0.28791469194312796
+    }
+  },
+  "c8": {
+    "id": "c8",
+    "v": "tabs",
+    "aspect": "missing_element",
+    "spec": "r8_tab_bar",
+    "ids": [
+      "tabbar"
+    ],
+    "note": "tab bar has 3 tabs (Inbox gone)",
+    "box": {
+      "left": 0,
+      "right": 1,
+      "top": 0.9016587677725119,
+      "bottom": 1
+    }
+  },
+  "c9": {
+    "id": "c9",
+    "v": "same",
+    "aspect": "none",
+    "spec": "none",
+    "ids": [],
+    "note": "identical to the reference",
+    "box": null
+  }
+}

@@ -1,0 +1,109 @@
+{
+ "N": 12,
+ "X0": 20,
+ "X1": 200,
+ "xs": {
+  "linear": [
+   20,
+   36.4,
+   52.7,
+   69.1,
+   85.5,
+   101.8,
+   118.2,
+   134.5,
+   150.9,
+   167.3,
+   183.6,
+   200
+  ],
+  "ease_out": [
+   20,
+   64.8,
+   101.4,
+   130.8,
+   153.6,
+   170.8,
+   183.1,
+   191.3,
+   196.3,
+   198.9,
+   199.9,
+   200
+  ],
+  "spring": [
+   20,
+   110.4,
+   197.8,
+   241.1,
+   242,
+   221.9,
+   201.5,
+   190.9,
+   190.2,
+   194.7,
+   199.4,
+   200
+  ],
+  "janky": [
+   20,
+   64.8,
+   101.4,
+   130.8,
+   130.8,
+   130.8,
+   130.8,
+   130.8,
+   196.3,
+   198.9,
+   199.9,
+   200
+  ],
+  "wrong_end": [
+   20,
+   49.8,
+   74.3,
+   93.8,
+   109.1,
+   120.5,
+   128.7,
+   134.2,
+   137.6,
+   139.3,
+   139.9,
+   140
+  ]
+ },
+ "truth": {
+  "linear": {
+   "overshoot": false,
+   "stutter": false,
+   "end_ok": true,
+   "easing": "linear"
+  },
+  "ease_out": {
+   "overshoot": false,
+   "stutter": false,
+   "end_ok": true,
+   "easing": "ease_out"
+  },
+  "spring": {
+   "overshoot": true,
+   "stutter": false,
+   "end_ok": true,
+   "easing": "spring"
+  },
+  "janky": {
+   "overshoot": false,
+   "stutter": true,
+   "end_ok": true,
+   "easing": "stutter"
+  },
+  "wrong_end": {
+   "overshoot": false,
+   "stutter": false,
+   "end_ok": false,
+   "easing": "ease_out"
+  }
+ }
+}

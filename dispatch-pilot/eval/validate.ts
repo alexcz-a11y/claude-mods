@@ -6,6 +6,7 @@
 //
 //   node dispatch-pilot/eval/validate.ts                      every eval/datasets/*.jsonl, eval v2, then the README's configuration table
 //   node dispatch-pilot/eval/validate.ts effort-submit        eval/datasets/effort-submit.jsonl
+//   node dispatch-pilot/eval/validate.ts visual-check         eval/datasets/visual-check.jsonl, and that every picture it names is in eval/datasets/visual-check/ (a PNG)
 //   node dispatch-pilot/eval/validate.ts path/to/skill.jsonl  a file elsewhere (skill-catalog.json beside it)
 //   node dispatch-pilot/eval/validate.ts eval-v2              only eval v2 (#45): every file under eval/datasets/eval-v2/, and
 //                                                             eval-v2.jsonl built again against eval-v2/generated.json
@@ -19,7 +20,7 @@ import { parseArgs } from 'node:util'
 import { validateDataset } from './lib/datasets.ts'
 import { checkConfigTable, checkOneWriter, checkStructureTree } from './lib/docs.ts'
 import { longContextJsonl } from './long-context-items.ts'
-import { DATASETS_DIR, EVAL_V2_JSONL, MOD_DIR, catalogFor, datasetFile, readDataset, readManifest, validateEvalV2 } from './node.ts'
+import { DATASETS_DIR, EVAL_V2_JSONL, MOD_DIR, catalogFor, checkPictures, datasetFile, readDataset, readManifest, validateEvalV2 } from './node.ts'
 
 const { positionals } = parseArgs({ allowPositionals: true, options: {} })
 const everything = positionals.length === 0
@@ -37,11 +38,13 @@ for (const name of names) {
   const { errors, warnings } = validateDataset(kind, items, { catalog: catalogFor(kind, path) })
   // The long-context file is written from the items module (its one source): a hand edit of the JSONL is an error.
   const drift = kind === 'long-context' && readFileSync(path, 'utf8') !== longContextJsonl() ? ['the file is not what eval/long-context-items.ts makes: edit the items there and run node dispatch-pilot/eval/long-context-gen.ts'] : []
-  const all = [...unreadable, ...errors, ...drift]
+  // The pictures of the visual-check dataset are in the folder beside it, by the paths its items give: they must be there (a test cannot read the disk).
+  const pictures = kind === 'visual-check' ? checkPictures(items, join(DATASETS_DIR, kind)) : { errors: [], warnings: [] }
+  const all = [...unreadable, ...errors, ...drift, ...pictures.errors]
   const hard = items.filter((item) => item.difficulty === 'hard').length
   console.log(`${basename(path)}: ${items.length} items (${hard} hard): ${all.length === 0 ? 'ok' : `${all.length} errors`}`)
   for (const error of all) console.log(`  ${error}`)
-  for (const warning of warnings) console.log(`  warning: ${warning}`)
+  for (const warning of [...warnings, ...pictures.warnings]) console.log(`  warning: ${warning}`)
   if (all.length > 0) failed = true
 }
 if (everything || positionals.includes('eval-v2')) {

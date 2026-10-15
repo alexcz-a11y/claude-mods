@@ -30,7 +30,7 @@
 
 import type { Language } from './datasets.ts'
 import type { Row } from './runner.ts'
-import type { AnyItem, Settings, Suite } from './suite.ts'
+import type { AnyItem, Prices, Settings, Suite } from './suite.ts'
 
 /**
  * Chinese may be at most this far below English: exactly 4 points below
@@ -84,11 +84,14 @@ export type Summary = {
   constants: { answer: string; accuracy: number; exact: number; parts?: Record<string, number> }[]
 }
 
-/** `settings`: the run's (settingsFrom), which a suite's own figures may read (Suite.breakdown); without them there are none. */
-export function summarize<I extends AnyItem, P>(suite: Suite<I, P>, items: readonly I[], rows: readonly Row<P>[], options: { slowMs: number; settings?: Settings }): Summary {
+/**
+ * `settings`: the run's (settingsFrom), which a suite's own figures may read (Suite.breakdown); without them there are none.
+ * `prices`: what an input token costs, for a suite that reports the price of what it asks (the visual-check suite's cost of each image).
+ */
+export function summarize<I extends AnyItem, P>(suite: Suite<I, P>, items: readonly I[], rows: readonly Row<P>[], options: { slowMs: number; settings?: Settings; prices?: Prices }): Summary {
   const variants = [...new Set(rows.map((row) => row.variant))]
   const parts = partNames(rows.map((row) => row.parts))
-  const { settings } = options
+  const { settings, prices } = options
   // A baseline: the answer `answer` gives each item, scored on the whole dataset.
   const baseline = (label: string, answer: (item: I) => P) => {
     const grades = items.map((item) => suite.grade(item, answer(item)))
@@ -105,7 +108,7 @@ export function summarize<I extends AnyItem, P>(suite: Suite<I, P>, items: reado
     variants: variants.map((variant) => {
       const mine = rows.filter((row) => row.variant === variant)
       const summary = summarizeVariant(items, mine, variant, options.slowMs, parts)
-      return suite.breakdown === undefined || settings === undefined ? summary : { ...summary, breakdown: suite.breakdown(items, mine, variant, settings) }
+      return suite.breakdown === undefined || settings === undefined ? summary : { ...summary, breakdown: suite.breakdown(items, mine, variant, settings, prices) }
     }),
     constants: [
       ...suite.constants.map((answer) => baseline(suite.show(answer), () => answer)),
