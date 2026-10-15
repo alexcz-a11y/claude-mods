@@ -204,6 +204,8 @@ export type LogEntry = {
   hint?: HintRecord
   /** A visual_check call (#58): its checks and their verdicts, whether the zoomed re-check was done, how long it took. */
   visualCheck?: VisualCheckRecord
+  /** An entry of feature `decision-model`: which requests the fallback is about, the ones that decide (`text`) or the ones with images (`images`). */
+  fallbackFor?: 'text' | 'images'
 }
 
 /** What the reference images a request came with read as (`decision/complexity.ts`): the level, 0 (trivial) to 4 (very complex), and how many images it came from. */
@@ -1193,6 +1195,7 @@ async function reportFellBack(io: DecisionModelIo, fell: DecisionModelEvent): Pr
       turn,
       feature: DECISION_MODEL_FEATURE,
       tone: 'info',
+      fallbackFor: fell.for === 'images' ? 'images' : 'text',
       ...(fell.for === 'images'
         ? {
             outcome: `看图改用 ${using.name}`,
@@ -1209,7 +1212,7 @@ async function reportFellBack(io: DecisionModelIo, fell: DecisionModelEvent): Pr
     await update(io.decisions, (list) => {
       const kept = list ?? []
       // The entry of the same kind at this turn (a hot reload's session start again); the one for images stands beside the decision model's.
-      const at = kept.findIndex((old) => old.feature === DECISION_MODEL_FEATURE && old.turn === turn && old.outcome === entry.outcome)
+      const at = kept.findIndex((old) => old.feature === DECISION_MODEL_FEATURE && old.turn === turn && old.fallbackFor === entry.fallbackFor)
       return at < 0 ? appendEntry(kept, entry) : kept.map((old, i) => (i === at ? { n: old.n, ...entry } : old))
     })
   } catch (error) {

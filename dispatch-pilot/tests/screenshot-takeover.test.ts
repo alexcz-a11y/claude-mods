@@ -68,6 +68,20 @@ test('an image file that was there before the loop began is read as an image: a 
   expect(read.text).toContain('[Image:')
 })
 
+test('a file saved in the very millisecond the loop began is the loop\'s; one saved a millisecond before is a reference', { options: OPTIONS }, async ($, on) => {
+  const w = world($, on, { session: true, process: true, switches: ON, backend: BACKEND })
+  await w.start()
+  await w.clock.advance(5000)
+  w.save('/design/older.png', IMAGE)
+  await w.clock.advance(1)
+  await w.submit('把首页做成设计稿那样')
+  await w.step({ index: 0 })
+  w.save('/shots/same-moment.png', IMAGE)
+
+  expect(kindOf(await w.read('/design/older.png'))).toBe('image')
+  expect(kindOf(await w.read('/shots/same-moment.png'))).toBe('text')
+})
+
 test('a new turn is a new loop: what an earlier turn made is a reference image in the next', { options: OPTIONS }, async ($, on) => {
   const w = world($, on, { session: true, process: true, switches: ON, backend: BACKEND })
   await w.start()

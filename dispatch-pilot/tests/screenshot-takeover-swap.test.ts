@@ -1,8 +1,8 @@
-// What the takeover finds in a tool's result and what it puts there (decision/screenshot-takeover.ts, core/loop-start.ts, #62).
+// What the takeover finds in a tool's result and what it puts there (decision/screenshot-takeover.ts, #62). Which files are the
+// loop's is seen at the tool (screenshot-takeover.test.ts), not here.
 // Seam 2: the pure functions, against the shapes a result may have.
 
 import { expect, test } from 'claude-code/testing'
-import { isFromLoop, startedBefore } from '../hooks/core/loop-start.ts'
 import { extensionOf, formatOf, imageOf, noteAsReadResult, swapImages, takeoverNote } from '../hooks/decision/screenshot-takeover.ts'
 
 const MCP = { type: 'image', data: 'QUJD', mimeType: 'image/jpeg' }
@@ -51,12 +51,4 @@ test('the note names the file, the size and visual_check, with both ways to use 
 test('a file is saved under the extension of its media type, and named by its format', () => {
   expect(['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/heic', 'weird'].map(extensionOf)).toEqual(['png', 'jpg', 'jpg', 'gif', 'webp', 'png', 'png'])
   expect(['image/png', 'image/jpg', 'image/jpeg'].map(formatOf)).toEqual(['png', 'jpeg', 'jpeg'])
-})
-
-test('a file modified when the loop began or after is the loop\'s; one older than that is a reference', () => {
-  expect(isFromLoop(1000, 1000)).toBe(true)
-  expect(isFromLoop(1001, 1000)).toBe(true)
-  expect(isFromLoop(999, 1000)).toBe(false)
-  expect(startedBefore(999, 1000)).toBe(true)
-  expect(startedBefore(1000, 1000)).toBe(false)
 })
