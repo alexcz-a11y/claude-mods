@@ -13,7 +13,7 @@
 
 import { mock } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
-import { absolute, BASE_DIRS, type Disk, type FakeFile, fileBase64, fileSize, mkdir, type Program, sips } from './images.ts'
+import { absolute, BASE_DIRS, type Disk, type FakeFile, type FakeImage, fileBase64, fileSize, mkdir, type Program, sips } from './images.ts'
 import { attachmentsOf, type PastedImage, rowOf } from './pasted.ts'
 import type {
   AgentInfo,
@@ -263,9 +263,10 @@ export type ToolRun = {
   /**
    * How the call ends: the tool's text (default "ok"), an error the tool
    * reported (also how a refusal at the permission prompt reads), or a
-   * PreToolUse settings hook's refusal (the tool never runs).
+   * PreToolUse settings hook's refusal (the tool never runs), or the image a Read of a picture returns (the
+   * structured result the engine gives: `{ type: 'image', file: { base64, type, originalSize, dimensions } }`).
    */
-  ends?: { text: string } | { error: string } | { blockedByHook: string }
+  ends?: { text: string } | { error: string } | { blockedByHook: string } | { image: FakeImage }
 }
 
 /** One agent.spawn as it reached the engine, after every hook of the mod. */
@@ -294,6 +295,9 @@ export type SpawnOptions = {
  * task the script computed, `description` the call's label, `model` the call's own; `agentId` the id it starts under.
  */
 export type WorkflowSpawnOptions = { runId: string; agentIndex: number; agentId: string; label: string; prompt: string; model?: string }
+
+/** When a file nobody touched in the test was last changed: before the mock clock's first tick (0). */
+const LONG_AGO = -1
 
 /** The most one `$.fs.read` takes, in bytes (the engine's limit). */
 const READ_LIMIT = 4 * 1024 * 1024
@@ -370,6 +374,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   let streaming: Pick<StepOptions, 'answer' | 'tools' | 'parallel'> = {}
   /** How the tool call running now ends (set around each `$.tool.call` below). */
   let ending: ToolRun['ends'] | undefined
+  /** How the calls of a parallel step end, by their arguments as JSON. */
+  const parallelEnds = new Map<string, NonNullable<ToolRun['ends']>>()
 
   async function answer(reply: Reply): Promise<{ value: { status: number; ok: boolean; headers: Record<string, string>; text: string } } | { deny: string }> {
     if ('after' in reply) {
@@ -421,6 +427,13 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     if (!(e.path in disk)) return { deny: `ENOENT: ${e.path}` }
     const text = disk[e.path] as string
     return text.length > READ_LIMIT / 4 && new TextEncoder().encode(text).length > READ_LIMIT ? { deny: `over 4 MiB: ${e.path}` } : { value: text }
+  })
+  // What a file was last changed at: a picture of the world's disk says (`mtimeMs`), any other file is old.
+  on('fs.stat', (_$, e) => {
+    const file = binary.files.get(absolute(e.path))
+    if (file !== undefined) return { value: { kind: 'file' as const, size: fileSize(file), mtimeMs: file.mtimeMs ?? LONG_AGO, isLink: false } }
+    if (e.path in disk) return { value: { kind: 'file' as const, size: (disk[e.path] as string).length, mtimeMs: LONG_AGO, isLink: false } }
+    return { deny: `ENOENT: ${e.path}` }
   })
   on('fs.exists', (_$, e) => ({ value: e.path in disk || binary.files.has(absolute(e.path)) || binary.dirs.has(absolute(e.path)) || Object.keys(disk).some((path) => path.startsWith(`${e.path}/`)) }))
   // A directory of the disk: what lies directly under it, a file or a directory (one holding files further down).
@@ -625,9 +638,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     steps.push({ turnId: e.turnId, index: e.index, model: e.model, effort: e.effort, agentId: e.agentId })
     const { answer = '', tools = [], parallel = false } = streaming
     streaming = {}
+    parallelEnds.clear()
     if (answer) yield { kind: 'text' as const, index: 0, text: answer }
     const call = (run: ToolRun) => $.tool.call({ tool: run.tool, ...(run.input ?? {}), ...(e.agentId !== undefined ? { agentId: e.agentId } : {}) } as never)
     if (parallel) {
+      // Calls that run at once cannot share `ending`: the tool finds how each ends by its arguments.
+      for (const run of tools) if (run.ends !== undefined) parallelEnds.set(JSON.stringify(run.input ?? {}), run.ends)
       for (const [i, run] of tools.entries()) yield { kind: 'tool' as const, index: i + 1, id: `toolu_${e.turnId}_${e.index}_${i}`, name: run.tool }
       await Promise.all(tools.map(call))
     }
@@ -660,7 +676,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       toolCalls.push({ tool, id, input, isError: started.deny !== undefined, text })
       return started.deny !== undefined ? { result: text, text, isError: true as const } : { result: text, text }
     }
-    const end = ending ?? { text: 'ok' }
+    const end = ending ?? parallelEnds.get(JSON.stringify(input)) ?? { text: 'ok' }
+    if ('image' in end) {
+      const bytes = fileBase64(end.image)
+      toolCalls.push({ tool, id: id ?? '', input, isError: false, text: undefined })
+      return { result: { type: 'image', file: { base64: bytes, type: `image/${end.image.format}`, originalSize: fileSize(end.image), dimensions: { originalWidth: end.image.width, originalHeight: end.image.height, displayWidth: end.image.width, displayHeight: end.image.height } } }, text: '' } as never
+    }
     const failed = 'error' in end
     const text = failed ? end.error : 'text' in end ? end.text : 'ok'
     toolCalls.push({ tool, id: id ?? '', input, isError: failed, text })

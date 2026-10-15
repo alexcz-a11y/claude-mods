@@ -361,6 +361,12 @@ declare module 'claude-code' {
       /** The main agent's step in progress (its tool calls carry no turn id); null before the first. */
       mainStep: { turnId: string; index: number } | null
       /**
+       * When the main agent's loop began: the latest main turn's `turn.start` (`$.clock.now()`, ms). A file changed before it was
+       * there before the agent began (a reference image), one changed after it is the agent's own work. Written by
+       * hooks/core/loop-start.ts only.
+       */
+      mainLoopStart: { turnId: string; at: number }
+      /**
        * Each loop's failed tool calls and forced raises (#7), id `main` for the
        * main agent (its counts are those of the turn `turnId`; a new turn starts
        * them afresh) or the agentId of a dispatched or workflow agent (counted

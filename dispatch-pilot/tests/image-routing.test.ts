@@ -84,15 +84,18 @@ test('with the switch on, a message without an image goes as it always did: one 
 })
 
 test('a message typed during a running turn, with an image, is decided when it is sent as before: it starts no turn to wait for', { options: JEV }, async ($, on) => {
-  const w = world($, on, { switches: ON, files: FILES, process: true, backend: (request, n) => answering(3, n === 1 ? 1 : 4)(request) })
+  const w = world($, on, { switches: ON, files: FILES, process: true, backend: (request, n) => answering(3, n === 1 ? 1 : 4, (sent) => ('midturn.level' in (sent.body.questions ?? {}) ? jev(at(4))(sent) : undefined))(request) })
   await w.submit('Look at the log first')
   await w.step({ index: 0 })
   await w.submit('And build this scene too', { turnId: 't1', images: [SCENE] })
-  await w.step({ index: 1 })
 
-  expect(w.requests.filter(isReading)).toHaveLength(0)
-  expect(w.requests).toHaveLength(2)
-  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'max'])
+  // Its effort question went out when it was sent, with no reading in it. (The running turn then reads the image, and judges its
+  // effort again for the next step: features/reference-midturn.ts, tests/reference-midturn.test.ts.)
+  expect(w.requests.slice(0, 2).map((request) => Object.keys(request.body.questions))).toEqual([['effort.level'], ['effort.level']])
+  expect(w.requests[1]?.body.state.reference_complexity).toBeUndefined()
+  expect(w.requests[1]?.body.assets).toBeUndefined()
+  await w.step({ index: 1 })
+  expect(w.steps[1]?.effort).toBe('max')
 })
 
 test('a message a hook beneath refuses leaves nothing waiting for a later turn with the same text', { options: JEV }, async ($, on) => {

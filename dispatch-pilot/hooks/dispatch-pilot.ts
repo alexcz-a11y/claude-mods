@@ -10,6 +10,7 @@
 import type { Register } from 'claude-code'
 import { registerScreens } from './board/screens.tsx'
 import { registerCore } from './core/core.ts'
+import { registerLoopStart } from './core/loop-start.ts'
 import { registerReport } from './core/report.ts'
 import { setup } from './core/setup.ts'
 import { registerControl } from './features/control.ts'
@@ -19,6 +20,7 @@ import { registerFindSkill } from './features/find-skill.ts'
 import { registerImageRouting } from './features/image-routing.ts'
 import { registerMainEffort } from './features/main-effort.ts'
 import { registerMidturnEffort } from './features/midturn-effort.ts'
+import { registerReferenceMidturn } from './features/reference-midturn.ts'
 import { registerUnresolved } from './features/unresolved.ts'
 import { registerVisualCheck } from './features/visual-check.ts'
 import { registerSkillProfiles } from './features/skill-profiles.ts'
@@ -31,6 +33,8 @@ export const register: Register = (on, options) => {
 
   // The decision report keeps the board's turn count: outermost, so a turn is counted before anything beneath reads the board.
   registerReport(on)
+  // When the main agent's loop began, for image routing's "a file older than the loop" (#64).
+  registerLoopStart(on)
   // The screens draw the report's data (the band, the footer); no feature touches them.
   registerScreens(on)
 
@@ -39,6 +43,8 @@ export const register: Register = (on, options) => {
   registerMainEffort(on, ctx)
   registerUnresolved(on, ctx)
   registerEscalation(on, ctx) // above the mid-turn feature: its raise is in the plan before a mid-turn answer is applied
+  // Outside the mid-turn feature: a Read has been recorded in the turn's steps by the time this feature asks it to judge again.
+  registerReferenceMidturn(on, ctx)
   registerMidturnEffort(on, ctx)
   registerDispatchedAgents(on, ctx)
   registerWorkflowAgents(on, ctx)

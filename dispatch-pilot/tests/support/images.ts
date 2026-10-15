@@ -10,7 +10,7 @@
 // Not a test file (no `.test.ts`).
 
 /** A file the world's disk holds: an image, or any bytes the test gives as base64. `size` is the size on disk when it is not the bytes' own. */
-export type FakeFile = FakeImage | { base64: string; size?: number }
+export type FakeFile = FakeImage | { base64: string; size?: number; mtimeMs?: number }
 
 export type FakeImage = {
   /** The name sips gives the format: png, jpeg, tiff, gif, heic, bmp, ... */
@@ -23,6 +23,8 @@ export type FakeImage = {
   label?: string
   /** The EXIF orientation of a JPEG (1 to 8); left out for none. */
   orientation?: number
+  /** When the file was last changed (`$.fs.stat`'s `mtimeMs`, mock clock ms); left out: before the mock clock's first tick (-1), so older than any loop the test starts. */
+  mtimeMs?: number
 }
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
