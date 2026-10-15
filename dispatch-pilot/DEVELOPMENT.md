@@ -288,14 +288,25 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 
 **看图核对 `visual_check`（#57，ADR 0008）。** 只在有图像后端（`ctx.images`）时注册，`isDeferred: false`，名字 `mcp__dispatch-pilot__visual_check`；说明和 schema 是常量，说明按后端分两版（`visualCheckDescription('jev' | 'pplx')`：Jev 版有「放大复核」一段，pplx 版没有）。开关 `visual-check`（默认开）；开关关着或总开关关着，调用不发请求，回一句已关闭。派出 agent 调用和主 agent 一样（`e.agentId` 只用来分开连续不过的记录）。
 - **分工。** 判断全在 `decision/` 的纯模块里，评测（#65）共用：`visual-check.ts`（`Check`、`Comparison`、`judge`、`wholeImageRequest`、`readWholeImage`、`noteResults`）和 `visual-check-tool.ts`（工具说明、schema、`parseVisualCheckInput`、`visualCheckText`）。读图规整是 `core/image-files.ts` 加 `decision/image-fit.ts`、`decision/image-header.ts`，别的功能（放大复核、录屏抽帧、复杂度读数、截图接管）直接调用。`features/visual-check.ts` 只做接线和流程。
-- **一次调用的流程**（`features/visual-check.ts` 的 `check`，每个阶段留了后面的票接入的位置）：① `subjectsOf` 读图（截图和比较对象；#60 的录屏在这里抽帧）→ ② 请求一：每条检查项一道 Noul（题号 `check.<i>`），图在 state 里一次（`wholeImageRequest`；#59 在同一个请求里加框题）→ ③（#59）放大复核 → ④ 判定 → ⑤（#58）汇报 → 回答。任何一步失败，受影响的检查项记没把握并写明原因（`allUnsure`），工具从不报错。
-- **判定。** 「一致」概率 ≥ 0.9 过，≤ 0.2 不过，其间没把握（`PASS_AT`、`FAIL_AT`，两端都含）。没有参考图（文字规范，或什么都不给：每条检查项按自己的话）时过和不过都采信；有参考图或另一张截图（`reference`、`compare_to`）时整图只采信不过（`judge(p, 'fail')`），本该过的记没把握，原因写「a match with a reference cannot be confirmed from the whole image」，等放大复核（#59）来确认。检查项的题：`In \`candidate\`, is the <property> of <part> the same as in \`reference\`?`（比较）；`In \`screenshot\`, does <part> meet this requirement: <property>?`（规范）。
+- **一次调用的流程**（`features/visual-check.ts` 的 `check`，每个阶段留了后面的票接入的位置）：① `subjectsOf` 读图（截图和比较对象；#60 的录屏在这里抽帧）→ ② 请求一：每条检查项一道 Noul（题号 `check.<i>`），图在 state 里一次（`wholeImageRequest`；Jev 对着参考图或另一张截图时同一个请求里加框题，`withBoxes`，见下面「放大复核」）→ ③ 放大复核（#59，`zoomReview`）→ ④ 判定 → ⑤（#58）汇报 → 回答。任何一步失败，受影响的检查项记没把握并写明原因（`allUnsure`），工具从不报错。
+- **判定。** 「一致」概率 ≥ 0.9 过，≤ 0.2 不过，其间没把握（`PASS_AT`、`FAIL_AT`，两端都含）。没有参考图（文字规范，或什么都不给：每条检查项按自己的话）时过和不过都采信；有参考图或另一张截图（`reference`、`compare_to`）时整图只采信不过（`judge(p, 'fail')`），本该过的记没把握，原因写「a match with a reference cannot be confirmed from the whole image」，等放大复核来确认（放大复核做不了时就停在这里）。检查项的题：`In \`candidate\`, is the <property> of <part> the same as in \`reference\`?`（比较）；`In \`screenshot\`, does <part> meet this requirement: <property>?`（规范）。
 - **回答。** 一个英文文字块（结论、概率、依据是整图还是放大复核；有「过」时加一句「过不是验收」），没把握时附整张缩过的截图，`look: true` 只回图（失败的图是一块说明原因的文字）。同一个 agent、同一个循环里同一条检查项（按部分和属性的文字，忽略大小写和空白）连续两次不过，文字末尾加提醒；记录是 `features/visual-check.ts` 的模块级 `streaks`，`turn.start` 清（主 agent 每轮，派出 agent 每次运行），热重载丢掉的代价是少一次提醒；中间出现过或没把握就从头数。
 - **读图规整**（`loadImage`）。sips 查尺寸和格式 → `planSize` 定尺寸（Jev：每边 256–1568、78,400–2,458,624 像素；pplx：不超过 2,048 个 32×32 图块；`look`：长边不超过 1568，小图不放大）→ 需要时 `sips -z H W [-s format png|jpeg]` 写到临时文件 → `$.fs.read` 的 bytes 模式 → JPEG 的 EXIF 方向不是 1 就转正（Jev 不应用方向；sips 读不出方向，所以从 JPEG 的字节里读 `readImageHeader`，再用 `uprightArgs`，七种方向对照 Pillow 的 `exif_transpose` 实测过）。格式：PNG 和 JPEG 原样，HEIC 一类照片转 JPEG（质量 85），其余转 PNG。引擎只读 4 MiB：读被拒（不管错误文字，引擎的措辞没测过）就依次改成 JPEG、3/4 大小、1/2 大小再读。一次请求的图合计有 token 预算（`imageMegapixelBudget`：Jev 24k，pplx 32k 再除以题数），超了统一缩一个份额重做（`loadImages`）。临时文件在 `$TMPDIR`（没有就 `/tmp`）下 `dispatch-pilot-<随机>/`，会话里第一次要用时建，不清理。
 - **不在 CLI**（`$.process.run` 拒绝）。没有 sips：读 bytes，按文件头判断，PNG 或 JPEG、在限制内、方向正才直接发；其余写明原因记没把握。
 - **请求的等待。** 每个带图请求最多 8 秒（`REQUEST_MS`，不受发消息时 Jev 的 1500 毫秒限制）；pplx 的请求带 `pace`，照样限速。debug log 一行：`visual_check request [check.0, ...] to jev: answered in 310 ms by ... (N input tokens); images: 1 (1200x800), about 2496 tokens`，从不写图的内容和密钥。
-- **输入的取舍**（票没写死的地方）。① 比较对象至多一种（`reference`、`compare_to`、`sequence`、`spec`），两种以上回文字说明；一种都不给时每条检查项按自己的话判（和文字规范同样处理）。② 非 `look`、非 `sequence` 的调用 `images` 只能有一张（要核对几张就调用几次；`reference` 可以多张，都放进同一个请求）。③ `sequence`（#61）现在回「暂不支持」，录屏（#60）文件当作没法读，记没把握并写明原因。④ `same_view` 收下但这张票不用（#59 用）。⑤ pplx 一次请求最多 8 张图（截图加参考图），多了在读图之前就记没把握。
+- **输入的取舍**（票没写死的地方）。① 比较对象至多一种（`reference`、`compare_to`、`sequence`、`spec`），两种以上回文字说明；一种都不给时每条检查项按自己的话判（和文字规范同样处理）。② 非 `look`、非 `sequence` 的调用 `images` 只能有一张（要核对几张就调用几次；`reference` 可以多张，都放进同一个请求）。③ `sequence`（#61）现在回「暂不支持」，录屏（#60）文件当作没法读，记没把握并写明原因。④ `same_view` 给放大复核用（不给就按两张图的宽高比推断）。⑤ pplx 一次请求最多 8 张图（截图加参考图），多了在读图之前就记没把握。
 - **测试。** 接缝 1：`tests/visual-check*.test.ts`（登记、判定、比较、尺寸、失败、`look`、调用、连续不过、pplx、预算、方向、日志）。world 新零件见 `tests/support/images.ts` 和下文「测试怎么写」。接缝 2：`tests/image-header.test.ts`（真实的 PNG、JPEG 字节）。
+
+**放大复核（#59，ADR 0008）。** 只在 Jev 且对着参考图或另一张截图（`reference`、`compare_to`）时做；pplx 没有框题，不发框题也不做放大复核，判定停在整图。
+- **分工。** `decision/zoom.ts`（几何：`cropRect`、`scaleRect`、`unionBox`、`sipsCropArgs`、`sipsEnlargeArgs`、`sameView`，常量 `MARGIN`、`MIN_CROP`、`MAX_ASPECT`、`ENLARGE_TO`、`ELSEWHERE_*`）和 `decision/visual-check-zoom.ts`（题：`locatePlan`、`withBoxes`、`readLocated`、`zoomRequest`、`batchPairs`、`readZoom`、`judgeZoom`、`fallBack`）是纯模块，评测（#65）共用；`core/image-crops.ts`（`cropImage`：两次 sips，再读成 base64）和 `core/zoom-review.ts`（`zoomReview`、`comparePair`）经闭包做文件和请求；`features/visual-check.ts` 只接线并把裁图放进回答。
+- **请求一里的框题。** 在整图的 Noul 之外：每个点名了部分的检查项，在截图（`box.<i>.candidate`）和每张比较对象（`box.<i>.reference` / `.reference-<k>` / `.other`）上各一道 Box（`The primary button in \`candidate\`.`）；比较对象只有一张、且视角相同时再加一道全屏的 `where.screen`（`The region of \`candidate\` that differs from \`reference\`.`）。没点名部分的检查项没有框题；一个请求最多 64 题，放不下的（排在后面的）检查项不框，退回整图并写明原因。
+- **裁图。** 视角相同（`same_view` 或宽高比相差 ≤2%）：取两个框的并集，按截图的像素算裁剪区域，另一张图按比例取同一块（`scaleRect`）；视角不同：各裁各的。框外加 15%（每边，按框自己的宽高），每边至少 160 px，长宽比不超过 3.5:1（短边加长，图本身放不下就缩小），移进图内；再放大到长边 1000 px。sips 参数：`sips -c <h> <w> --cropOffset <y> <x> <源> --out <临时文件>`，然后 `sips -Z 1000 <临时文件> --out <临时文件>`。**两次调用不能合并**：实测（macOS 26）同一次调用里 `-Z` 先于 `-c` 生效。裁图从 `LoadedImage.file`（已转正、已缩到限制内的那个文件）裁，格式不变，放大后的尺寸按公式算（`enlargedSize`），不再查一次 sips。
+- **请求二。** 每对裁图一道 Noul（`zoom.<检查项>.<第几张比较对象>`），两张裁图在这道题的 instructions 里（`{ question, candidate_crop, reference_crop }`，`imageRef` 引用），state 只有一句说明。裁图合计按每百万像素 2,600 token 估，超过约 48k 就拆成几个请求同时发（`batchPairs`）。
+- **判定。** 只看裁图上的「一致」概率：≥0.9 过，≤0.2 不过，其间没把握；对着几张参考图（不同侧面的照片）时取最高的一个。某条检查项的放大复核做不了（没点名部分、模型没框出、sips 失败、请求二失败或没答）：退回整图的答案，只采信不过，其余记没把握，原因里写放大复核为什么失败（`fallBack`）。点名框的置信度不参与判断；本来就没有选择题。
+- **另一处可能不同。** `where.screen` 的框置信度 ≥0.2 且面积 ≤25% 才报（两端都含），并附两张图同一块的裁图；这块若有一半以上落在已经不过的检查项的框里，不重复报（那条检查项自己带裁图）。裁图做不了仍报，不附图。
+- **回答里的裁图。** 不过的检查项附截图的裁图和比较对象的裁图（多张参考图时取概率最低的那一对），最多三条检查项；裁图占截图面积超过 90% 的不附（和整张图没区别）；之后是「另一处」的两张，最后才是没把握时的整张截图。文字里按顺序列出每张图是什么（`cropLabel`）。
+- **`comparePair(deps, { candidate, other, sameView }, checks)`**（`core/zoom-review.ts`）。给任意一对已读好的图（`LoadedImage`）和点名的部分，不经请求一的整图判断：发一个只有框题的请求，裁图，发请求二，回 `ZoomOutcome`（每条检查项的结果、不过的裁图、另一处）。做不了的检查项记没把握并写明原因，从不抛错。#61 的档位序列对相邻两档调用它。
+- **测试。** 接缝 1：`tests/visual-check-zoom-request.test.ts`（请求一的框题）、`-crops.test.ts`（sips 参数、两种视角、边距、最小尺寸、长宽比、请求二的题和图）、`-verdicts.test.ts`（判定、退回、原因）、`-report.test.ts`（回答里的裁图、另一处的两个条件）、`-limits.test.ts`（题数和 token 的上限、`comparePair`）。world 的零件 `tests/support/zoom.ts`：`zoomBackend({ whole, boxes, zoom, zoomReply })` 按题号分开回答请求一和请求二（`where.screen` 默认是置信度 0.05 的框，不报）。
 
 **「`Config` 晚一点才知道用哪一行」怎么解决：方案 3，两行都先算好，`ctx` 每次读时选。** 难点是环境变量只能在 `session.start` 里异步读，而 `Config` 的默认值行取决于最后用哪个模型（一个 0.3.1 的老用户只有 TypeSafe key 时必须得到恰好是 Jev 的默认值，1500 毫秒、6000/24000、中文、0.3），不少功能又在 register 时把 `ctx.config.*` 取走了。`setup()` 对 pplx 和 Jev 各算一份 `Config`（`readConfig(options, table, backend)`，纯、便宜）和各建一个后端，`Ctx` 的 `config`、`backend`、`ask`、`fellBack` 是 getter，每次读时按 `chooseBackend` 取其中一份（`secrets.perplexityEnvKey` 读完之前，环境变量里的 key 还看不到，只有 `session.start` 之后才对）。没选「`ctx` 里放个会被替换的 `current`，在 `session.start` 和 `prompt.submit` 里 `await resolve($)`」（方案 2）：getter 不要求每个入口都记得先 resolve，热重载（`register` 重新执行、`session.start` 再触发）也自然对。代价是 register 时取走 `ctx.config.*` 的功能必须改成用时再读：`midturn-effort`、`escalation` 的 `Settings` 现在是 getter 对象；`dispatchSettings(ctx)`（派出 agent、两个 Workflow 功能）和 `rankingSettings(ctx)`（skill 推荐、find_skill）返回 getter 对象；`skills`、`find-skill` 的 `policy`、`findWaitMs`、`findByProfile` 在用的地方读。不随决策模型变的值（`neverSuggested`、`alwaysListed`、`profileModel`、`workflowMode`、`profilesPerSession`）仍在 register 时取；`skills` 开关的默认值（开）也不随决策模型而变，所以不放进表里。新写的功能不要在 register 时取 `ctx.config.<随决策模型而定的值>`；`tests/decision-model.test.ts` 里有「环境变量里有 key」的例子（重判等待 6000 毫秒、派出 agent 的 max 门槛 0.47）会在这么做时失败。
 
@@ -596,6 +607,8 @@ hooks/
 │   ├── profiles.ts         skill 画像（#11）：给模型的提示、读回答、store 的键和淘汰、readSessionSkills（目录加画像）
 │   ├── commands.ts         命令轮（#19）：command.run 记下的命令和随后提交的 prompt 对上，命令在决策请求里的说明，从引擎的命令消息读回输入的命令
 │   ├── prompts.ts          isPersonsMessage：判断哪些 prompt 是用户本人的新消息
+│   ├── image-crops.ts      裁图并放大（#59）：`cropImage` 用两次 sips 把图的一块裁下来放大到长边 1000 px，读成 base64
+│   ├── zoom-review.ts      放大复核（#59）：`zoomReview`（裁图、请求二、判定）、`comparePair`（对任意一对图，#61 用）
 │   ├── image-files.ts      读图规整（#57，凡是要给决策模型图的功能都用它）：经 `ImageFilesIo` 的三个闭包用 sips 查尺寸、缩放、转格式、转正方向，读成 base64（`loadImage`、`loadImages`）；不在 CLI 时按文件头判断
 │   ├── unresolved.ts       未解决次数（#39）和问题摘要（#40）的唯一写入者（moveCount、clearCount、queueSummary、landSummary 等）、「决定」的字句（含摘要没写成的）和 `UnresolvedRecord`（卡片画的记录）
 │   ├── skills.ts           skill 目录：loadCatalog（经闭包读命令、引擎的 skill 清单、settings、磁盘，找到每个 skill 的文件）；读和裁剪 skill 列表（#10）；rankingSettings、describeStages（#11）
@@ -622,6 +635,8 @@ hooks/
     ├── image-fit.ts        图要多大决策模型才收（#57）：两家的限制（`JEV_IMAGE_LIMITS`、`PPLX_IMAGE_LIMITS`、`LOOK_IMAGE_LIMITS`）、`planSize`（缩到哪个尺寸）、`uprightArgs`（按 EXIF 方向转正的 sips 参数）；mod 和评测共用
     ├── image-header.ts     PNG 和 JPEG 的文件头（#57）：尺寸、JPEG 的 EXIF 方向（`readImageHeader`，从 base64 直接读，不解码整张图）
     ├── visual-check.ts     看图核对的判断（#57，评测共用）：检查项和比较对象的类型、`wholeImageRequest`（请求一）、`readWholeImage`、`judge`（0.9 / 0.2）、连续两次不过的记录（`noteResults`、`forgetLoop`）
+    ├── zoom.ts             放大复核的几何（#59，评测共用）：框、裁剪区域（边距 15%、至少 160 px、长宽比 ≤3.5）、按比例换算、sips 的参数、视角是否相同
+    ├── visual-check-zoom.ts  放大复核的题和判定（#59，评测共用）：请求一里的框题（`locatePlan`、`withBoxes`）、请求二的 Noul（`zoomRequest`、`batchPairs`）、读回答、`judgeZoom`、`fallBack`
     ├── visual-check-tool.ts  agent 读到的 visual_check（#57，英文）：工具说明（两版）、输入 schema、`parseVisualCheckInput`、回答的文字 `visualCheckText`
     ├── jev.ts              Jev 后端（带图时：顶层 `assets`、`TypeSafe-Danger-Zone-Images` 头、固定 `jev-1.14.0`，`jevRequest`）
     ├── pplx.ts             Perplexity 后端（Decisions API，pplx-decider-v1.1-27b，#43、#50；`decisionModel: pplx` 选它；带图时 state 是数组，`pplxRequest`）
@@ -632,6 +647,7 @@ scripts/decide-stuck.ts     同上，一个卡住的循环的再判断（输入�
 eval/                       评测（接缝 2）：评测集、Node 脚本、结果，见下文「评测」
 tests/support/world.ts      接缝 1 的测试脚手架
 tests/support/images.ts     world 的二进制文件和程序（#57）：`FakeFile`（按格式、尺寸描述的图，`fileBase64` 给出真的 PNG/JPEG 文件头）、`readFake`（从请求里的 base64 读回尺寸和来历）、假的 `sips` 和 `mkdir`（`Program`，后面的票往上加 ffmpeg 等）
+tests/support/zoom.ts       放大复核的假决策模型（#59）：`zoomBackend` 按题号分开回答请求一（整图的 Noul、框题）和请求二（裁图的 Noul），`box()` 写一个框答案
 tests/support/workflow.ts   Workflow 工具桩和按脚本里第几个调用作答的 siteJev（#8）；workflowWorld 在 world 之外加一层，不改 world.ts
 tests/support/workflow-run.ts  运行目录（journal、transcript）和 tool.describe 的桩；runWorld 在 workflowWorld 之外再加一层（#9）
 types/index.d.ts            $.state 的契约（PluginState）

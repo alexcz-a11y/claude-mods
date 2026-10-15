@@ -3,6 +3,7 @@
 // written for the model, so in English. Pure (see system-one.ts).
 
 import type { Check, CheckResult, Comparison } from './visual-check.ts'
+import { boxArea, type Box } from './zoom.ts'
 
 /** The tool's name; the model calls it as `mcp__dispatch-pilot__visual_check`. */
 export const VISUAL_CHECK_TOOL = 'visual_check'
@@ -17,12 +18,9 @@ const HOW_TO_WRITE_CHECKS =
 const WHAT_IT_JUDGES =
   'It judges coarse, visible differences well: an element missing or extra, text cut off, clear overlap or misalignment, a large change of color, a clearly different shape, whether a rendering feature (foam, fog, reflections) is present and how strong. It cannot verify numbers (sizes, corner radii, color values, font weights): read those from the code or the runtime. It cannot judge feel (easing, texture, polish): look at the image yourself.'
 
-/**
- * With Jev: a part named in a check is cropped out of both images, enlarged and compared again. This is written ahead of the
- * zoomed re-check itself (#59): until that is in the flow, a comparison reaches only a FAIL or an UNSURE.
- */
+/** With Jev: a part named in a check is cropped out of both images, enlarged and compared again (#59, ADR 0008). */
 const COMPARING_WITH_ZOOM =
-  'Against a reference or another screenshot, each part you name is also cropped out of both images, enlarged and compared again, so that subtle differences (a smaller corner radius) can be caught and a match can PASS. Pass same_view: true when both images show the same view, so that the same area is cropped from both; with false (a photo of a real object against your render) the part is cropped from each image on its own. The tool also scans the whole image for a place where the two differ and reports it, even if no check named it.'
+  'Against a reference or another screenshot, each part you name is also cropped out of both images, enlarged and compared again, so that subtle differences (a smaller corner radius) can be caught and a match can PASS. Name a part in every check: a check that names none is judged on the whole images only, where a match can never PASS. Pass same_view: true when both images show the same view, so that the same area is cropped from both; with false (a photo of a real object against your render) the part is cropped from each image on its own. With several references (photos from different sides) a check passes if any one of them shows the part as your screenshot does. A FAIL comes with the crops of the part. When both images show the same view, the tool also scans the whole image for a place where the two differ and reports it, with crops, even if no check named it.'
 
 /** With pplx: no boxes, so no zoom (#56, ADR 0008). */
 const COMPARING_COARSE =
@@ -165,6 +163,15 @@ export type RunReport = {
   attached: boolean
   /** The checks that have now failed twice (or more) in a row in this loop, by their index. */
   repeated: readonly number[]
+  /** Zoomed crops (#59) that go along, as the images that follow the text (before the screenshot, if that goes along): what each one shows. */
+  crops?: readonly string[]
+  /** Another place the two images may differ (#59), which no check named; `cropped`: whether crops of it are among `crops`. */
+  elsewhere?: { box: Box; confidence: number; cropped: boolean } | null
+}
+
+/** What an attached crop shows: the `side` ('your screenshot' or the other image) of the check, or of the place no check named. */
+export function cropLabel(of: { check: number } | { place: true }, side: string): string {
+  return `${'check' in of ? `check ${of.check + 1}` : 'the other place'}: ${side}`
 }
 
 const AGAINST = {
@@ -179,6 +186,14 @@ const against = (comparison: Comparison): string => (comparison.kind === 'spec' 
 
 const BASES = { whole: 'whole image', zoom: 'zoomed crop' } as const
 
+const percent = (share: number): string => `${Math.round(share * 100)}%`
+
+/** The place no check named, in words: where it is in the screenshot, how much of it, how sure the model is. */
+function placeLine(place: { box: Box; confidence: number; cropped: boolean }): string {
+  const { box, confidence } = place
+  return `Another place may differ, which none of your checks named: ${percent(box.left)} to ${percent(box.right)} across and ${percent(box.top)} to ${percent(box.bottom)} down the screenshot (${percent(boxArea(box))} of it; the model is ${confidence.toFixed(2)} sure of the place).${place.cropped ? ' Crops of it are attached.' : ''} Look at it yourself.`
+}
+
 /** The answer's text: the verdicts, then what the agent is to do with them. */
 export function visualCheckText(report: RunReport): string {
   const { results } = report
@@ -191,6 +206,8 @@ export function visualCheckText(report: RunReport): string {
   })
   const passed = results.some((result) => result.verdict === 'pass')
   lines.push(`The number is the probability that the check holds.${passed ? ' PASS only means that nothing obviously wrong was seen; it is not an acceptance.' : ''}`)
+  if (report.elsewhere != null) lines.push(placeLine(report.elsewhere))
+  if (report.crops !== undefined && report.crops.length > 0) lines.push(`Zoomed crops are attached${report.attached ? ' before the screenshot' : ''}, in this order: ${report.crops.join('; ')}.`)
   if (report.attached) lines.push('The screenshot is attached, scaled down: look at it yourself for what is UNSURE.')
   for (const index of report.repeated) lines.push(`Check ${index + 1} has now failed twice in a row: look at the image yourself (visual_check with look: true) before you change anything else.`)
   return lines.join('\n')
