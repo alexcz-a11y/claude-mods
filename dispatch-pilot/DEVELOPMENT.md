@@ -286,6 +286,17 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 - **Box 题。** `system-one.ts` 有 `BoxQuestion`、`BoxAnswer`（`readAnswer` 读 `box` 的四条边和 `confidence`）。框题没有「找不到」的答案。
 - **测试。** `tests/image-request.test.ts`（接缝 2：两家的请求形状、token、debug log）、`tests/image-backend.test.ts`（密钥四种组合、`session.start` 的汇报）、`tests/image-world.test.ts`（world 的 `jev`、`pplx` 假后端认图：Jev 没带请求头回 400、`boxes` 给框题答案，pplx 第 9 张图回 400；pplx 带图请求的限速）。测试模块自己不能调 `$.http.fetch`，所以后两者里假后端放在测试自己的 `io.fetch` 后面。
 
+**看图核对 `visual_check`（#57，ADR 0008）。** 只在有图像后端（`ctx.images`）时注册，`isDeferred: false`，名字 `mcp__dispatch-pilot__visual_check`；说明和 schema 是常量，说明按后端分两版（`visualCheckDescription('jev' | 'pplx')`：Jev 版有「放大复核」一段，pplx 版没有）。开关 `visual-check`（默认开）；开关关着或总开关关着，调用不发请求，回一句已关闭。派出 agent 调用和主 agent 一样（`e.agentId` 只用来分开连续不过的记录）。
+- **分工。** 判断全在 `decision/` 的纯模块里，评测（#65）共用：`visual-check.ts`（`Check`、`Comparison`、`judge`、`wholeImageRequest`、`readWholeImage`、`noteResults`）和 `visual-check-tool.ts`（工具说明、schema、`parseVisualCheckInput`、`visualCheckText`）。读图规整是 `core/image-files.ts` 加 `decision/image-fit.ts`、`decision/image-header.ts`，别的功能（放大复核、录屏抽帧、复杂度读数、截图接管）直接调用。`features/visual-check.ts` 只做接线和流程。
+- **一次调用的流程**（`features/visual-check.ts` 的 `check`，每个阶段留了后面的票接入的位置）：① `subjectsOf` 读图（截图和比较对象；#60 的录屏在这里抽帧）→ ② 请求一：每条检查项一道 Noul（题号 `check.<i>`），图在 state 里一次（`wholeImageRequest`；#59 在同一个请求里加框题）→ ③（#59）放大复核 → ④ 判定 → ⑤（#58）汇报 → 回答。任何一步失败，受影响的检查项记没把握并写明原因（`allUnsure`），工具从不报错。
+- **判定。** 「一致」概率 ≥ 0.9 过，≤ 0.2 不过，其间没把握（`PASS_AT`、`FAIL_AT`，两端都含）。没有参考图（文字规范，或什么都不给：每条检查项按自己的话）时过和不过都采信；有参考图或另一张截图（`reference`、`compare_to`）时整图只采信不过（`judge(p, 'fail')`），本该过的记没把握，原因写「a match with a reference cannot be confirmed from the whole image」，等放大复核（#59）来确认。检查项的题：`In \`candidate\`, is the <property> of <part> the same as in \`reference\`?`（比较）；`In \`screenshot\`, does <part> meet this requirement: <property>?`（规范）。
+- **回答。** 一个英文文字块（结论、概率、依据是整图还是放大复核；有「过」时加一句「过不是验收」），没把握时附整张缩过的截图，`look: true` 只回图（失败的图是一块说明原因的文字）。同一个 agent、同一个循环里同一条检查项（按部分和属性的文字，忽略大小写和空白）连续两次不过，文字末尾加提醒；记录是 `features/visual-check.ts` 的模块级 `streaks`，`turn.start` 清（主 agent 每轮，派出 agent 每次运行），热重载丢掉的代价是少一次提醒；中间出现过或没把握就从头数。
+- **读图规整**（`loadImage`）。sips 查尺寸和格式 → `planSize` 定尺寸（Jev：每边 256–1568、78,400–2,458,624 像素；pplx：不超过 2,048 个 32×32 图块；`look`：长边不超过 1568，小图不放大）→ 需要时 `sips -z H W [-s format png|jpeg]` 写到临时文件 → `$.fs.read` 的 bytes 模式 → JPEG 的 EXIF 方向不是 1 就转正（Jev 不应用方向；sips 读不出方向，所以从 JPEG 的字节里读 `readImageHeader`，再用 `uprightArgs`，七种方向对照 Pillow 的 `exif_transpose` 实测过）。格式：PNG 和 JPEG 原样，HEIC 一类照片转 JPEG（质量 85），其余转 PNG。引擎只读 4 MiB：读被拒（不管错误文字，引擎的措辞没测过）就依次改成 JPEG、3/4 大小、1/2 大小再读。一次请求的图合计有 token 预算（`imageMegapixelBudget`：Jev 24k，pplx 32k 再除以题数），超了统一缩一个份额重做（`loadImages`）。临时文件在 `$TMPDIR`（没有就 `/tmp`）下 `dispatch-pilot-<随机>/`，会话里第一次要用时建，不清理。
+- **不在 CLI**（`$.process.run` 拒绝）。没有 sips：读 bytes，按文件头判断，PNG 或 JPEG、在限制内、方向正才直接发；其余写明原因记没把握。
+- **请求的等待。** 每个带图请求最多 8 秒（`REQUEST_MS`，不受发消息时 Jev 的 1500 毫秒限制）；pplx 的请求带 `pace`，照样限速。debug log 一行：`visual_check request [check.0, ...] to jev: answered in 310 ms by ... (N input tokens); images: 1 (1200x800), about 2496 tokens`，从不写图的内容和密钥。
+- **输入的取舍**（票没写死的地方）。① 比较对象至多一种（`reference`、`compare_to`、`sequence`、`spec`），两种以上回文字说明；一种都不给时每条检查项按自己的话判（和文字规范同样处理）。② 非 `look`、非 `sequence` 的调用 `images` 只能有一张（要核对几张就调用几次；`reference` 可以多张，都放进同一个请求）。③ `sequence`（#61）现在回「暂不支持」，录屏（#60）文件当作没法读，记没把握并写明原因。④ `same_view` 收下但这张票不用（#59 用）。⑤ pplx 一次请求最多 8 张图（截图加参考图），多了在读图之前就记没把握。
+- **测试。** 接缝 1：`tests/visual-check*.test.ts`（登记、判定、比较、尺寸、失败、`look`、调用、连续不过、pplx、预算、方向、日志）。world 新零件见 `tests/support/images.ts` 和下文「测试怎么写」。接缝 2：`tests/image-header.test.ts`（真实的 PNG、JPEG 字节）。
+
 **「`Config` 晚一点才知道用哪一行」怎么解决：方案 3，两行都先算好，`ctx` 每次读时选。** 难点是环境变量只能在 `session.start` 里异步读，而 `Config` 的默认值行取决于最后用哪个模型（一个 0.3.1 的老用户只有 TypeSafe key 时必须得到恰好是 Jev 的默认值，1500 毫秒、6000/24000、中文、0.3），不少功能又在 register 时把 `ctx.config.*` 取走了。`setup()` 对 pplx 和 Jev 各算一份 `Config`（`readConfig(options, table, backend)`，纯、便宜）和各建一个后端，`Ctx` 的 `config`、`backend`、`ask`、`fellBack` 是 getter，每次读时按 `chooseBackend` 取其中一份（`secrets.perplexityEnvKey` 读完之前，环境变量里的 key 还看不到，只有 `session.start` 之后才对）。没选「`ctx` 里放个会被替换的 `current`，在 `session.start` 和 `prompt.submit` 里 `await resolve($)`」（方案 2）：getter 不要求每个入口都记得先 resolve，热重载（`register` 重新执行、`session.start` 再触发）也自然对。代价是 register 时取走 `ctx.config.*` 的功能必须改成用时再读：`midturn-effort`、`escalation` 的 `Settings` 现在是 getter 对象；`dispatchSettings(ctx)`（派出 agent、两个 Workflow 功能）和 `rankingSettings(ctx)`（skill 推荐、find_skill）返回 getter 对象；`skills`、`find-skill` 的 `policy`、`findWaitMs`、`findByProfile` 在用的地方读。不随决策模型变的值（`neverSuggested`、`alwaysListed`、`profileModel`、`workflowMode`、`profilesPerSession`）仍在 register 时取；`skills` 开关的默认值（开）也不随决策模型而变，所以不放进表里。新写的功能不要在 register 时取 `ctx.config.<随决策模型而定的值>`；`tests/decision-model.test.ts` 里有「环境变量里有 key」的例子（重判等待 6000 毫秒、派出 agent 的 max 门槛 0.47）会在这么做时失败。
 
 **退回 Jev 要写下来。** `control.ts` 的 `session.start` 在读完环境变量之后，若 `ctx.fellBack`，`report(io, { fellBack: { asked: 'pplx', using: 'jev' } })`（`core/report.ts`，ADR 0004：只有 report 写给人看的东西；`asked`、`using` 是 `BackendName`，给人看的名字和各模型的密钥设置名都在 report.ts 的 `DECISION_MODELS` 一张表里）：决策日志里一条 `feature: 'decision-model'`、`tone: 'info'` 的会话级条目（没有 `agent`，同一轮号的热重载换掉前一条，像 skill-profiles 那样），依据面板里的「决策模型 · 改用别的决策模型」，原因写缺哪个 key、怎么补。看板的节点、band 和 toast 都不动（`view.ts` 的当前轮日志里也滤掉它）。注意它只在 `session.start` 才写：`tests/support/world.ts` 里给了 `env`、`switches` 或 `session` 的世界才跑 `session.start`（`w.start()`），其余的测试世界不跑，所以只有 TypeSafe key 的老测试也能不写日志地照常用 Jev。
@@ -564,6 +575,7 @@ hooks/
 │   ├── unresolved.ts       未解决次数的开关 `/dp unresolved`、`session.end` 清零（#39），每轮结束后在后台写问题摘要、热重载丢掉的写的善后（#40）；题和读回答在 main-effort.ts：它们挂在 effort 那一份投票箱里
 │   ├── skill-profiles.ts   会话开始时在后台给缺画像的 skill 写画像（#11）；注册在 skills 之外，等它读完目录
 │   ├── skills.ts           对主 agent 隐藏 skill 列表、换成一句提示，发消息时推荐 skill（#10）
+│   ├── visual-check.ts     agent 的 visual_check 工具（看图核对，#57，ADR 0008）：会话开始时注册（有图像后端才注册），被调用时读图、发一个带图请求、按 0.9 / 0.2 判定、回答 Messages API 块；流程分阶段，放大复核（#59）、抽帧（#60）、汇报（#58）接在各自留好的位置
 │   ├── workflow-agents.ts  提交 Workflow 时判断脚本里每个 agent() 的模型和 effort，写进脚本或退回（#8）
 │   └── workflow-labels.ts  脚本写不进去的 Workflow：运行开始时判断各调用，agent 启动时按 label 写计划表；Workflow 工具描述里的常驻提示（#9）
 ├── board/                  看板的画面（ADR 0004）：只画「决定汇报」的数据，功能不碰
@@ -584,6 +596,7 @@ hooks/
 │   ├── profiles.ts         skill 画像（#11）：给模型的提示、读回答、store 的键和淘汰、readSessionSkills（目录加画像）
 │   ├── commands.ts         命令轮（#19）：command.run 记下的命令和随后提交的 prompt 对上，命令在决策请求里的说明，从引擎的命令消息读回输入的命令
 │   ├── prompts.ts          isPersonsMessage：判断哪些 prompt 是用户本人的新消息
+│   ├── image-files.ts      读图规整（#57，凡是要给决策模型图的功能都用它）：经 `ImageFilesIo` 的三个闭包用 sips 查尺寸、缩放、转格式、转正方向，读成 base64（`loadImage`、`loadImages`）；不在 CLI 时按文件头判断
 │   ├── unresolved.ts       未解决次数（#39）和问题摘要（#40）的唯一写入者（moveCount、clearCount、queueSummary、landSummary 等）、「决定」的字句（含摘要没写成的）和 `UnresolvedRecord`（卡片画的记录）
 │   ├── skills.ts           skill 目录：loadCatalog（经闭包读命令、引擎的 skill 清单、settings、磁盘，找到每个 skill 的文件）；读和裁剪 skill 列表（#10）；rankingSettings、describeStages（#11）
 │   ├── switches.ts         开关：总开关和各功能的开关，defineSwitch 登记、isOn 判断；isShown：一项功能拥有的看板部分（parts）此刻画不画
@@ -606,6 +619,10 @@ hooks/
     ├── redact.ts           secret 脱敏
     ├── backend.ts          决策后端的接口、超时、失败分类（`BackendIo.pace`：限速要的时钟和 `$.state` 闭包）
     ├── images.ts           决策请求里的图（#56，ADR 0008）：`imageRef(name)`（state 和题目里的引用）、`placeImages`（两家共用，换引用、检查）、`imageTokens`（token 估算）、`describeImages`（debug log 里的一句）、`PPLX_MAX_IMAGES`
+    ├── image-fit.ts        图要多大决策模型才收（#57）：两家的限制（`JEV_IMAGE_LIMITS`、`PPLX_IMAGE_LIMITS`、`LOOK_IMAGE_LIMITS`）、`planSize`（缩到哪个尺寸）、`uprightArgs`（按 EXIF 方向转正的 sips 参数）；mod 和评测共用
+    ├── image-header.ts     PNG 和 JPEG 的文件头（#57）：尺寸、JPEG 的 EXIF 方向（`readImageHeader`，从 base64 直接读，不解码整张图）
+    ├── visual-check.ts     看图核对的判断（#57，评测共用）：检查项和比较对象的类型、`wholeImageRequest`（请求一）、`readWholeImage`、`judge`（0.9 / 0.2）、连续两次不过的记录（`noteResults`、`forgetLoop`）
+    ├── visual-check-tool.ts  agent 读到的 visual_check（#57，英文）：工具说明（两版）、输入 schema、`parseVisualCheckInput`、回答的文字 `visualCheckText`
     ├── jev.ts              Jev 后端（带图时：顶层 `assets`、`TypeSafe-Danger-Zone-Images` 头、固定 `jev-1.14.0`，`jevRequest`）
     ├── pplx.ts             Perplexity 后端（Decisions API，pplx-decider-v1.1-27b，#43、#50；`decisionModel: pplx` 选它；带图时 state 是数组，`pplxRequest`）
     └── pplx-rate.ts        pplx 的限速和 429 重试（#51）：`rateLimited(backend, qps)` 把后端包起来，按 `pplxQps` 排队，effort 先发；Jev 不经过
@@ -614,6 +631,7 @@ scripts/decide-agent.ts     同上，判断一个派出 agent（输入是评测�
 scripts/decide-stuck.ts     同上，一个卡住的循环的再判断（输入是 MidturnInput，见 `decision/midturn.ts`；请求用 #7 的 `stuckRequest` 拼）
 eval/                       评测（接缝 2）：评测集、Node 脚本、结果，见下文「评测」
 tests/support/world.ts      接缝 1 的测试脚手架
+tests/support/images.ts     world 的二进制文件和程序（#57）：`FakeFile`（按格式、尺寸描述的图，`fileBase64` 给出真的 PNG/JPEG 文件头）、`readFake`（从请求里的 base64 读回尺寸和来历）、假的 `sips` 和 `mkdir`（`Program`，后面的票往上加 ffmpeg 等）
 tests/support/workflow.ts   Workflow 工具桩和按脚本里第几个调用作答的 siteJev（#8）；workflowWorld 在 world 之外加一层，不改 world.ts
 tests/support/workflow-run.ts  运行目录（journal、transcript）和 tool.describe 的桩；runWorld 在 workflowWorld 之外再加一层（#9）
 types/index.d.ts            $.state 的契约（PluginState）
@@ -1028,6 +1046,7 @@ test('……', { options: { typesafeApiKey: 'k' } }, async ($, on) => {
 - 两段排序（#11）：`rates(shares, fits)` 同时回答一条消息的两个 skill 请求：第一个请求的 `skills.which` 和 `skills.hint` 都按 `shares`（各自只取自己的选项；effort 默认 medium），第二个请求（`isSecondSkillsRequest(request)` 为真）里每个 `skills.fits.<i>` 按它 instructions 里 skill 的名字取 `fits` 的值（没列出的是 0），`skills.best` 全给 fits 最高的那个。`disk` 也回答 `$.fs.list`（列出某个目录下的文件和子目录），同步 skill 的账号目录就这样找到。例子见 `tests/skill-ranking.test.ts`。
 - skill 画像（#11）：`model` 回答 `$.model.complete`（`(request, n) => Completion`：`{ text }`、`{ fails: 'api-error' | 'empty-reply' | 'aborted' }`、`{ reject }`（引擎拒绝发出，调用 reject）或 `{ after: ms, reply }`），每次调用记在 `w.completions`；没给 `model` 时每次调用都被拒绝。画像在 `session.start` 之后在后台写，所以先 `await w.start()` 再 `await w.clock.settle()`；再调一次 `w.start()` 就是「下一次会话」（同一个 store）。`w.storedKeys()` 列出 store 里现在的键。画像的状态和会话开始那一条决策日志用 `w.board().profiles`、`w.board().log` 断言（`seed: { profiles }` 是热重载前留下的）。例子见 `tests/skill-profiles.test.ts`。
 - `session` 打开时，mod 用 `$.tool.register` 注册的工具记在 `w.tools`（`registerError` 同样拒绝它们）。`w.findSkill(query, { agentId })` 像模型那样调用 `find_skill`（带 `agentId` 是派出 agent 的调用），返回工具的回答 `{ result }`。例子见 `tests/find-skill.test.ts`。
+- 二进制文件和程序（#57，`tests/support/images.ts`）。`files: { 路径: FakeFile }` 是 world 的二进制磁盘：`FakeFile` 用格式、宽高、`size`（磁盘上的大小，超过 4 MiB 时 `$.fs.read` 的 bytes 模式拒绝，和引擎一样）、`label`（来历）、`orientation`（JPEG 的 EXIF 方向）描述一张图，`fileBase64` 把它变成真的 PNG/JPEG 文件头加一段文字，所以 mod 从字节里读到的尺寸就是描述里的；`readFake(base64)` 把请求里的图读回 `{ format, width, height, label }`，测试用它看「发出去的是哪张图、做过什么」（派生文件的 label 是 `原路径 > resize 523x1568 > format png`）。`process: true`（或 `{ programs, unavailable }`）让 `$.process.run` 作答：程序是 `(args, disk) => { exitCode, stdout, stderr }`，默认有假的 `sips`（`-g`、`-Z`、`-z`、`-c`、`--cropOffset`、`-s format`、`-r`、`-f`、`--out`，输出文件落在 `w.files`，目录要先 `mkdir -p`，和真的一样）和 `mkdir`；`programs: { ffmpeg: fn }` 加程序，`{ sips: null }` 是没装，`unavailable: '原因'` 是不在 CLI（`$.process.run` 拒绝）。`w.ran` 是所有程序的参数表，`w.files`、`w.dirs` 是磁盘现在的样子。`w.visualCheck(input, { agentId })` 像模型那样调用 `visual_check`，返回 `{ result }`（字符串，或 Messages API 块的数组）。例子见 `tests/visual-check*.test.ts`。
 - `w.submit(text, { origin, turnId, wait })` 默认模拟用户在终端按回车；带 `turnId` 表示在那一轮进行中发的，不会开始新的一轮。`w.startTurn(text)` 模拟排队的消息稍后开始自己的一轮。`w.step({...})` 发出一步并把流读完。
 - `w.step({ index, answer, tools })` 还可以让这一步像真实引擎那样流出文字（`answer`），并在流还没结束时依次执行工具调用（`tools`，每个是 `{ tool, input, ends }`），所以功能的 `tool.call` hook 是在这一步之内触发的；`parallel: true` 让这一步的调用同时执行（每个都以 `ok` 结束），像引擎执行一个回答里的几个调用那样。一个 agent 的第 0 步（`agentId` 加 `index: 0`）之前先触发它自己那一轮的 `turn.start`（带 `agentId`，2.1.299 起引擎这样做）。`ends` 决定调用的结局：`{ text }`（成功，默认 `ok`）、`{ error }`（工具报错；用户在权限对话框里拒绝时也是这样，文字是引擎的那句话）、`{ blockedByHook }`（PreToolUse settings hook 拒绝，工具不会执行）。到达工具的调用记在 `w.toolCalls`（参数是经过 mod 各层改写后的样子；被 hook 拦下的调用不在其中）。`jev(levels, { confidence })` 可以指定回答的置信度（默认 0.7）。例子见 `tests/midturn-effort.test.ts`。
 - `w.spawn({ prompt, description, subagentType, model, fork, isTeammate, resume })` 模拟主 agent 调用 Agent 工具，返回 `{ model, agentId }`（agent 按到达引擎的顺序命名为 a1、a2……；带 `resume: { agentId }` 是唤醒一个已结束的 agent，引擎沿用它的 id）；`spawned` 记录每次派发到达引擎时的样子。拿到的 `agentId` 传给 `w.step` 就是这个 agent 的步。

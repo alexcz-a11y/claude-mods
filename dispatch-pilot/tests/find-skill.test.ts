@@ -52,8 +52,10 @@ test('at session start find_skill is registered: it takes a query, and its descr
   await w.command('dp', 'find-skill off')
   await w.start()
 
-  expect(w.tools).toHaveLength(2)
-  const [first, again] = w.tools
+  // The other tools the mod registers (visual_check, #57) are not this test's.
+  const registered = w.tools.filter((tool) => tool.name === 'find_skill')
+  expect(registered).toHaveLength(2)
+  const [first, again] = registered
   expect(first?.name).toBe('find_skill')
   // In the prompt's tool list, not behind ToolSearch: the main agent's listing is cut short, and this is its way to the rest.
   expect(first?.isDeferred).toBe(false)

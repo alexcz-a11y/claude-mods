@@ -19,6 +19,7 @@ import { registerFindSkill } from './features/find-skill.ts'
 import { registerMainEffort } from './features/main-effort.ts'
 import { registerMidturnEffort } from './features/midturn-effort.ts'
 import { registerUnresolved } from './features/unresolved.ts'
+import { registerVisualCheck } from './features/visual-check.ts'
 import { registerSkillProfiles } from './features/skill-profiles.ts'
 import { registerSkills } from './features/skills.ts'
 import { registerWorkflowAgents } from './features/workflow-agents.ts'
@@ -47,6 +48,7 @@ export const register: Register = (on, options) => {
   registerSkillProfiles(on, ctx)
   registerSkills(on, ctx)
   registerFindSkill(on, ctx)
+  registerVisualCheck(on, ctx)
 
   // The core: always last.
   registerCore(on, ctx)
