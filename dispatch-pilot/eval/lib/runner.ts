@@ -35,6 +35,8 @@ export type RunOptions = {
   concurrency: number
   /** Called as each row is done (progress). */
   onRow?: (row: Row<unknown>, done: number, total: number) => void
+  /** How many times every item is asked under each variant and language: 1 by default (`--repeat`, to see whether an answer is stable). */
+  repeats?: number
 }
 
 /** One answer: an item in one language under one variant. */
@@ -66,6 +68,15 @@ export type Row<P> = {
   model: string | null
   /** The state of the item's first request (what the decision model read). */
   state: State | null
+  /** Which time the item was asked (1-based), only in a run that asked more than once (`repeats`). */
+  repeat?: number
+}
+
+/** The rows of each time the run asked, in order: a run that asked once (rows with no `repeat`) is one time. */
+export function byRepeat<P>(rows: readonly Row<P>[]): Row<P>[][] {
+  const times = new Map<number, Row<P>[]>()
+  for (const row of rows) times.set(row.repeat ?? 1, [...(times.get(row.repeat ?? 1) ?? []), row])
+  return [...times.entries()].sort(([a], [b]) => a - b).map(([, own]) => own)
 }
 
 /**
@@ -122,7 +133,9 @@ export async function askRetrying(request: Sent['request'], options: Retrying): 
 
 export async function runSuite<I extends AnyItem, P>(suite: Suite<I, P>, items: readonly I[], options: RunOptions): Promise<Row<P>[]> {
   const languages = options.languages ?? LANGUAGES
-  const tasks = items.flatMap((item) => options.variants.flatMap((variant) => languages.map((language) => ({ item, variant, language }))))
+  const repeats = options.repeats ?? 1
+  if (!Number.isInteger(repeats) || repeats < 1) throw new RangeError(`repeats must be a whole number of 1 or more, not ${repeats}`)
+  const tasks = items.flatMap((item) => options.variants.flatMap((variant) => languages.flatMap((language) => Array.from({ length: repeats }, (_, i) => ({ item, variant, language, repeat: repeats === 1 ? undefined : i + 1 })))))
   const rows: Row<P>[] = new Array(tasks.length)
   let next = 0
   let done = 0
@@ -130,7 +143,8 @@ export async function runSuite<I extends AnyItem, P>(suite: Suite<I, P>, items: 
     while (next < tasks.length) {
       const at = next++
       const task = tasks[at] as (typeof tasks)[number]
-      rows[at] = await answer(suite, task.item, task.language, task.variant, options)
+      const row = await answer(suite, task.item, task.language, task.variant, options)
+      rows[at] = task.repeat === undefined ? row : { ...row, repeat: task.repeat }
       options.onRow?.(rows[at] as Row<unknown>, ++done, tasks.length)
     }
   }

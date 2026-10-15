@@ -1,0 +1,1276 @@
+{
+  "suite": "visual-check",
+  "label": "anim-target",
+  "date": "2026-10-15T13:18:22.656Z",
+  "backend": {
+    "name": "jev",
+    "model": "jev-1.14.0",
+    "answeredBy": [
+      "jev-1.14.0"
+    ]
+  },
+  "dataset": {
+    "path": "eval/datasets/visual-check.jsonl",
+    "items": 24,
+    "sha256": "6afaaffc9b41519207388fcd47e6df4a0d59a42df024d7c1352d89db07d54fe8",
+    "review": {
+      "file": null,
+      "decided": 0
+    }
+  },
+  "code": {
+    "hooks/board/band.tsx": "87056f61dd2962d0",
+    "hooks/board/footer.tsx": "5a0fec3e6576b79f",
+    "hooks/board/kit.tsx": "4dfb35f4462ead54",
+    "hooks/board/pane.tsx": "69037321fb039381",
+    "hooks/board/rationale.ts": "99f0ea2cb6b60855",
+    "hooks/board/reference.ts": "86407b19f188cdcf",
+    "hooks/board/screens.tsx": "26ea1591bf69fa19",
+    "hooks/board/view.ts": "270bf0fa79335b6f",
+    "hooks/core/ask-group.ts": "c49b4af733629e3a",
+    "hooks/core/ballot.ts": "5d1e5ec45883edb0",
+    "hooks/core/call-budget.ts": "aae29e3f20017ff1",
+    "hooks/core/commands.ts": "28134dac5b209cc5",
+    "hooks/core/complexity.ts": "933872206b882973",
+    "hooks/core/core.ts": "91af98e5ecf36d65",
+    "hooks/core/deferred.ts": "3cd01d399b45afa7",
+    "hooks/core/image-crops.ts": "35febfeae87ec6be",
+    "hooks/core/image-files.ts": "56085e4ae65188eb",
+    "hooks/core/loop-start.ts": "3df84dada92ec2b5",
+    "hooks/core/outcomes.ts": "8e9d74fc202b9142",
+    "hooks/core/plans.ts": "0d136ae461b3f1b0",
+    "hooks/core/profiles.ts": "942e7b2024cc3c7b",
+    "hooks/core/prompts.ts": "10e5220ada242496",
+    "hooks/core/quality-series.ts": "f65483be7320bf84",
+    "hooks/core/report.ts": "8f28699b75f06f62",
+    "hooks/core/setup.ts": "5853adf5fa208943",
+    "hooks/core/skills.ts": "2147b9433c4dc741",
+    "hooks/core/switches.ts": "8b5a41441f918d03",
+    "hooks/core/takeover-report.ts": "8a65b0eeae059a77",
+    "hooks/core/unresolved.ts": "a2fac6d5f4c31b27",
+    "hooks/core/video-frames.ts": "96685ccaa5aab816",
+    "hooks/core/visual-check-report.ts": "b63acdc3717938fc",
+    "hooks/core/work-files.ts": "6636260697cf054c",
+    "hooks/core/workflow-report.ts": "5cb3b78c950ff5f7",
+    "hooks/core/zoom-review.ts": "c63c67ea16ab35ee",
+    "hooks/decision/backend.ts": "bc650bfc08b78258",
+    "hooks/decision/complexity.ts": "4a860fff4ef34829",
+    "hooks/decision/context.ts": "9bbd78c0179909b9",
+    "hooks/decision/dispatched-agent.ts": "b69f42db3313b5ad",
+    "hooks/decision/effort.ts": "12dacd35816a2dda",
+    "hooks/decision/escalation.ts": "41a4ea13d756e2d2",
+    "hooks/decision/image-fit.ts": "517cf47b4beaf0d1",
+    "hooks/decision/image-header.ts": "1ee2601beb24931a",
+    "hooks/decision/images.ts": "2882ef1a6aa5b482",
+    "hooks/decision/jev.ts": "a7a5c36623a64b89",
+    "hooks/decision/keep-newest.ts": "600fdf1e9b38d55a",
+    "hooks/decision/midturn.ts": "56bbe288ea77dd1f",
+    "hooks/decision/model-ids.ts": "3dbc735c60cfdd50",
+    "hooks/decision/pplx-rate.ts": "d2199329be17abec",
+    "hooks/decision/pplx.ts": "57d70922b9620322",
+    "hooks/decision/redact.ts": "83c4b02966429254",
+    "hooks/decision/screenshot-takeover.ts": "fe524314e8a4a8e6",
+    "hooks/decision/skills.ts": "c7b4b1f731b879e2",
+    "hooks/decision/summary.ts": "54c374e245484682",
+    "hooks/decision/system-one.ts": "9b296fcfbe1750ca",
+    "hooks/decision/turn-start.ts": "bd1b08c461ed01bf",
+    "hooks/decision/unresolved.ts": "17a933f25c1d05c3",
+    "hooks/decision/visual-check-frames.ts": "7ed2beb45ee0fbd2",
+    "hooks/decision/visual-check-record.ts": "25d597ff5fb5ab87",
+    "hooks/decision/visual-check-sequence-text.ts": "31ccb43b128292ca",
+    "hooks/decision/visual-check-sequence.ts": "a445a43b6391891c",
+    "hooks/decision/visual-check-tool.ts": "b4617799de1f58a2",
+    "hooks/decision/visual-check-zoom.ts": "ebba1123e187104a",
+    "hooks/decision/visual-check.ts": "b53cbf5f317dad9d",
+    "hooks/decision/workflow-labels.ts": "a0453bd386f278b7",
+    "hooks/decision/workflow-script.ts": "93389a106f186b3c",
+    "hooks/decision/workflow.ts": "1ec0c874a6c52fc6",
+    "hooks/decision/zoom.ts": "5ad2c6f22fbc62d5",
+    "hooks/dispatch-pilot.ts": "fc0e29100de814e8",
+    "hooks/features/control.ts": "f190e3ed7388c0e2",
+    "hooks/features/dispatched-agents.ts": "2cab374594ea1991",
+    "hooks/features/escalation.ts": "374eb06afa49bc44",
+    "hooks/features/find-skill.ts": "4aa8d58bdb78ba22",
+    "hooks/features/image-routing.ts": "456e5b87f2b680b3",
+    "hooks/features/main-effort.ts": "5a2c772ae3c61ee1",
+    "hooks/features/midturn-effort.ts": "77d640659d9e2a85",
+    "hooks/features/reference-hint.ts": "b6157c90821649d3",
+    "hooks/features/reference-midturn.ts": "9c7ee3ba263f5553",
+    "hooks/features/screenshot-takeover.ts": "490e0c254e05b599",
+    "hooks/features/skill-profiles.ts": "30d01ca7172cf295",
+    "hooks/features/skills.ts": "f418f729a62f8995",
+    "hooks/features/unresolved.ts": "c94890d6f4547436",
+    "hooks/features/visual-check-look.ts": "9a2c38140cfa4662",
+    "hooks/features/visual-check-series.ts": "2605444655fdbd4e",
+    "hooks/features/visual-check.ts": "66d1029ac3a36781",
+    "hooks/features/workflow-agents.ts": "881f8a92652e7838",
+    "hooks/features/workflow-labels.ts": "063a28cc6b5178f2",
+    "hooks/hooks.json": "1b25c5b4d076064d",
+    "eval/lib/compare.ts": "bcfcf958eb7d10d5",
+    "eval/lib/datasets.ts": "7364481bd1b462c3",
+    "eval/lib/docs.ts": "0e41761be8440255",
+    "eval/lib/effort-midturn.ts": "6f105ae206ed1e9e",
+    "eval/lib/effort-submit.ts": "1d59e61978f0657c",
+    "eval/lib/estimate.ts": "fed87e8fe0b202d8",
+    "eval/lib/eval-v2-flow.ts": "62fb0897db7ee997",
+    "eval/lib/eval-v2-suite.ts": "7720d861db7865ba",
+    "eval/lib/eval-v2-thresholds.ts": "538b84c14a61a2d9",
+    "eval/lib/eval-v2.ts": "1b49e21d36fcb9b1",
+    "eval/lib/long-context.ts": "57c25a24f9219dc4",
+    "eval/lib/long-conversation.ts": "8bf092f7993911ed",
+    "eval/lib/long-filler.ts": "620b06d015f65e00",
+    "eval/lib/long-summaries.ts": "d6e09e9a8ca4136d",
+    "eval/lib/metrics.ts": "3575576404d785b9",
+    "eval/lib/numbers.ts": "d29abb88853a03a5",
+    "eval/lib/rescore.ts": "7d1e96b618bf105a",
+    "eval/lib/resummarize.ts": "64c29f6a2c2fb771",
+    "eval/lib/review.ts": "ad540fd4215ca433",
+    "eval/lib/runner.ts": "dde48eeb7d31c91f",
+    "eval/lib/skill.ts": "9324ab906c32a060",
+    "eval/lib/subagent.ts": "fe6a95ce66a46a81",
+    "eval/lib/suite.ts": "240390f1d092bc4c",
+    "eval/lib/suites.ts": "c9105d9dfd64738b",
+    "eval/lib/unresolved.ts": "ec7ed84ed273007f",
+    "eval/lib/visual-check-items.ts": "ff6a5b4a322c4ea7",
+    "eval/lib/visual-check.ts": "af0380dfdd11e6d7"
+  },
+  "settings": {
+    "context": {
+      "messages": 32,
+      "tokens": 6000
+    },
+    "messageStateTokens": 24000,
+    "stateMessagesLimit": 32,
+    "thetaMax": 0.5,
+    "roundUp": 0.3,
+    "timeoutMs": 1500,
+    "options": {
+      "decisionModel": "jev",
+      "pplxQps": 5,
+      "rejudgeEvery": 3,
+      "holdSteps": 5,
+      "escalateAfter": 2,
+      "escalateMode": "one-level",
+      "escalateLimit": 2,
+      "escalateHaikuTo": "sonnet",
+      "agentFable": false,
+      "skillsMax": 3,
+      "skillsShortlist": 4,
+      "skillsProfileModel": "haiku",
+      "skillsProfilesPerSession": 30,
+      "skillsAlwaysListed": [],
+      "skillsNeverSuggested": [],
+      "findSkillMax": 5,
+      "workflowMode": "rewrite",
+      "summaryModel": "haiku",
+      "unresolvedMaxAfter": 3
+    },
+    "backendDefaults": {
+      "timeoutMs": 1500,
+      "contextMessages": 32,
+      "contextTokens": 6000,
+      "rejudgeSteps": 16,
+      "rejudgeWaitMs": 300,
+      "thetaUp": 0.3,
+      "thetaDown": 0.55,
+      "thetaMax": 0.5,
+      "thetaExpected": 0.25,
+      "agentOverride": 0.6,
+      "skillsMinRelevance": 0.75,
+      "findSkillMinRelevance": 0.5
+    }
+  },
+  "run": {
+    "items": 5,
+    "variants": [
+      "mod"
+    ],
+    "languages": [
+      "zh"
+    ],
+    "repeats": 3,
+    "timeoutMs": 10000,
+    "retries": 2,
+    "concurrency": 1,
+    "requests": 15,
+    "attempts": 15,
+    "inputTokens": 100236,
+    "usd": 0.0042
+  },
+  "questions": {
+    "mod": {
+      "againstAReference": {
+        "check.0": {
+          "type": "noul",
+          "instructions": "In `candidate`, is the <property> of <part> the same as in `reference`?"
+        }
+      },
+      "againstASpec": {
+        "check.0": {
+          "type": "noul",
+          "instructions": "In `screenshot`, does <part> meet this requirement: <property>? The specification it belongs to is in `specification`."
+        }
+      },
+      "frames": {
+        "check.0": {
+          "type": "noul",
+          "instructions": "`frames` are 1 frames of a screen recording, in order of time (`seconds` is the time of each). Looking at how the picture changes from one frame to the next, does <part> meet this requirement: <property>? The specification it belongs to is in `specification`."
+        }
+      },
+      "complexity": {
+        "complexity.level": {
+          "type": "score",
+          "instructions": "The images in `reference_images` are references for something that is going to be built to match them (an interface, a 3D model, a scene, an animation). How complex is it to build it so that it matches them? Rate the work of reproducing what the images show, not how important or well known the subject is.",
+          "criteria": [
+            "A single plain shape or flat graphic with almost nothing to it and no fine detail, such as a plain cube, a solid-colour logo or one basic button.",
+            "A few plain elements laid out simply, with little detail: a basic screen with a handful of standard controls, or an object made of a few primitive shapes.",
+            "A moderate number of distinct parts with some detail or styling: an ordinary app screen, a recognisable object of several components, or a small scene with a few materials.",
+            "Many distinct parts with fine detail, layered materials, lighting or effects: a dense interface, a detailed model, or a scene with several kinds of surfaces.",
+            "A very large amount of intricate detail: a whole city or environment, an organic or highly detailed model with many parts, a scene with many interacting effects, or a screen of many interacting elements."
+          ]
+        }
+      },
+      "locating": {
+        "box.0.candidate": {
+          "type": "box",
+          "instructions": "<part> in `candidate`."
+        },
+        "box.0.reference": {
+          "type": "box",
+          "instructions": "<part> in `reference`."
+        },
+        "where.screen": {
+          "type": "box",
+          "instructions": "The region of `candidate` that differs from `reference`."
+        }
+      },
+      "zoomedReCheck": {
+        "zoom.0.0": {
+          "type": "noul",
+          "instructions": {
+            "question": "Both images are enlarged crops that show <part>, cut out of two images. Is the <property> of <part> the same in `candidate_crop` as in `reference_crop`?",
+            "candidate_crop": "⟦image:crop⟧",
+            "reference_crop": "⟦image:other⟧"
+          }
+        }
+      }
+    }
+  },
+  "scoring": "An item with checks: each check holds (the part is the same as in the reference, or the frames meet the requirement) or does not. A check that holds is right when it is judged PASS, a check that does not hold when it is judged FAIL; UNSURE is neither right nor wrong. The item is `correct` when none of its checks is judged the wrong way round (`false-pass`: a part that differs judged PASS, which must not happen; `false-fail`: a part that is the same judged FAIL), `exact` when every check is right: an item all UNSURE is correct and not exact, so read `exact` and the figures, not `correct` alone. A complexity item: right when the level the group reads as is in gold.accept, exact when it is gold.level; whether the groups read in the order of their rank is in the figures (`complexity`). The verdicts are the mod's (PASS from 0.9, FAIL up to 0.2; against a reference a PASS is the crop's and a whole image only fails, ADR 0008); the raw probabilities are kept with each answer, and `thresholds` gives what other bars would have said. Controls are the items in which nothing differs.",
+  "about": {
+    "variants": "`mod`: as the mod asks with the run's decision model: against a reference, Jev gets the checks and the Box questions in the first request and the zoomed re-check on the crops after it, pplx the first request alone; a motion is its frames in one request against its spec; a group of references is the complexity reading. `whole`: the first request alone with every decision model, so that what the zoomed re-check adds can be read from the two.",
+    "images": "The experiment's pictures (2026-10-15), copied into eval/datasets/visual-check/; sized and cut as the mod does (core/image-files.ts, core/zoom-review.ts, sips). A motion is its 12 frames as files (8 of them for pplx), not a recording: the mod's ffmpeg is not run."
+  },
+  "summary": {
+    "items": 5,
+    "variants": [
+      {
+        "variant": "mod",
+        "zh": {
+          "items": 5,
+          "answered": 5,
+          "failed": 0,
+          "accuracy": 1,
+          "exact": 0,
+          "misses": {},
+          "late": 0,
+          "retried": 0,
+          "inTime": 1
+        },
+        "en": {
+          "items": 5,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": 1,
+        "pass": true,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 5,
+          "p50": 895,
+          "p90": 988,
+          "max": 988,
+          "slow": 0
+        },
+        "tags": [
+          {
+            "tag": "control",
+            "items": 2,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "ease_out",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "janky",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "linear",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "spring",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "wrong_end",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          }
+        ],
+        "breakdown": {
+          "checks": {
+            "total": 15,
+            "differ": 3,
+            "same": 12,
+            "controlChecks": 6,
+            "answeredItems": 5
+          },
+          "falsePass": {
+            "count": 0,
+            "of": 3,
+            "items": []
+          },
+          "controlFails": {
+            "count": 0,
+            "of": 6,
+            "items": []
+          },
+          "falseFail": {
+            "count": 0,
+            "of": 12
+          },
+          "caught": {
+            "count": 0,
+            "of": 3,
+            "rate": 0
+          },
+          "unsure": {
+            "count": 12,
+            "of": 15,
+            "rate": 0.8,
+            "onDiffering": 1,
+            "onSame": 0.75
+          },
+          "byKind": {
+            "anim": {
+              "checks": 15,
+              "differ": 3,
+              "caught": 0,
+              "falsePass": 0,
+              "same": 12,
+              "falseFail": 0,
+              "unsure": 0.8
+            }
+          },
+          "elsewhere": {
+            "reported": 0,
+            "onControls": []
+          },
+          "cost": {
+            "all": {
+              "items": 5,
+              "images": 60,
+              "tokens": 33416,
+              "perImage": {
+                "tokens": 557,
+                "ms": 76,
+                "usd": 0.000023
+              },
+              "perItem": {
+                "tokens": 6683,
+                "ms": 911,
+                "usd": 0.000281
+              },
+              "usd": 0.001403
+            },
+            "byKind": {
+              "anim": {
+                "items": 5,
+                "images": 60,
+                "tokens": 33416,
+                "perImage": {
+                  "tokens": 557,
+                  "ms": 76,
+                  "usd": 0.000023
+                },
+                "perItem": {
+                  "tokens": 6683,
+                  "ms": 911,
+                  "usd": 0.000281
+                },
+                "usd": 0.001403
+              }
+            },
+            "requests": 5,
+            "latencyMs": {
+              "p50": 895,
+              "max": 988
+            }
+          },
+          "complexity": {
+            "groups": [],
+            "inOrder": null,
+            "strictlyInOrder": null,
+            "expectedStrictlyInOrder": null,
+            "meanLevelError": null
+          },
+          "thresholds": [
+            {
+              "passAt": 0.8,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 0,
+              "differ": 3,
+              "falseFail": 0,
+              "same": 12,
+              "unsureRate": 0.3333
+            },
+            {
+              "passAt": 0.8,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 0,
+              "differ": 3,
+              "falseFail": 0,
+              "same": 12,
+              "unsureRate": 0.3333
+            },
+            {
+              "passAt": 0.8,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 2,
+              "differ": 3,
+              "falseFail": 0,
+              "same": 12,
+              "unsureRate": 0.2
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 0,
+              "differ": 3,
+              "falseFail": 0,
+              "same": 12,
+              "unsureRate": 0.6
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 0,
+              "differ": 3,
+              "falseFail": 0,
+              "same": 12,
+              "unsureRate": 0.6
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 2,
+              "differ": 3,
+              "falseFail": 0,
+              "same": 12,
+              "unsureRate": 0.4667
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 0,
+              "differ": 3,
+              "falseFail": 0,
+              "same": 12,
+              "unsureRate": 0.8
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 0,
+              "differ": 3,
+              "falseFail": 0,
+              "same": 12,
+              "unsureRate": 0.8
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 2,
+              "differ": 3,
+              "falseFail": 0,
+              "same": 12,
+              "unsureRate": 0.6667
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 0,
+              "differ": 3,
+              "falseFail": 0,
+              "same": 12,
+              "unsureRate": 0.8667
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 0,
+              "differ": 3,
+              "falseFail": 0,
+              "same": 12,
+              "unsureRate": 0.8667
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 2,
+              "differ": 3,
+              "falseFail": 0,
+              "same": 12,
+              "unsureRate": 0.7333
+            }
+          ]
+        }
+      }
+    ],
+    "constants": [
+      {
+        "answer": "always pass",
+        "accuracy": 0.4,
+        "exact": 0.4
+      },
+      {
+        "answer": "always fail",
+        "accuracy": 0,
+        "exact": 0
+      },
+      {
+        "answer": "always unsure",
+        "accuracy": 1,
+        "exact": 0
+      }
+    ]
+  },
+  "repeatSummaries": [
+    {
+      "items": 5,
+      "variants": [
+        {
+          "variant": "mod",
+          "zh": {
+            "items": 5,
+            "answered": 5,
+            "failed": 0,
+            "accuracy": 1,
+            "exact": 0,
+            "misses": {},
+            "late": 0,
+            "retried": 0,
+            "inTime": 1
+          },
+          "en": {
+            "items": 5,
+            "answered": 0,
+            "failed": 0,
+            "accuracy": 0,
+            "exact": 0,
+            "misses": {},
+            "late": 0,
+            "retried": 0,
+            "inTime": 0
+          },
+          "gap": 1,
+          "pass": true,
+          "agreement": {
+            "items": 0,
+            "same": 0,
+            "rate": null
+          },
+          "latency": {
+            "answers": 5,
+            "p50": 901,
+            "p90": 1245,
+            "max": 1245,
+            "slow": 0
+          },
+          "tags": [
+            {
+              "tag": "control",
+              "items": 2,
+              "wrong": {
+                "zh": 0,
+                "en": 0
+              }
+            },
+            {
+              "tag": "ease_out",
+              "items": 1,
+              "wrong": {
+                "zh": 0,
+                "en": 0
+              }
+            },
+            {
+              "tag": "janky",
+              "items": 1,
+              "wrong": {
+                "zh": 0,
+                "en": 0
+              }
+            },
+            {
+              "tag": "linear",
+              "items": 1,
+              "wrong": {
+                "zh": 0,
+                "en": 0
+              }
+            },
+            {
+              "tag": "spring",
+              "items": 1,
+              "wrong": {
+                "zh": 0,
+                "en": 0
+              }
+            },
+            {
+              "tag": "wrong_end",
+              "items": 1,
+              "wrong": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          ],
+          "breakdown": {
+            "checks": {
+              "total": 15,
+              "differ": 3,
+              "same": 12,
+              "controlChecks": 6,
+              "answeredItems": 5
+            },
+            "falsePass": {
+              "count": 0,
+              "of": 3,
+              "items": []
+            },
+            "controlFails": {
+              "count": 0,
+              "of": 6,
+              "items": []
+            },
+            "falseFail": {
+              "count": 0,
+              "of": 12
+            },
+            "caught": {
+              "count": 1,
+              "of": 3,
+              "rate": 0.3333
+            },
+            "unsure": {
+              "count": 11,
+              "of": 15,
+              "rate": 0.7333,
+              "onDiffering": 0.6667,
+              "onSame": 0.75
+            },
+            "byKind": {
+              "anim": {
+                "checks": 15,
+                "differ": 3,
+                "caught": 1,
+                "falsePass": 0,
+                "same": 12,
+                "falseFail": 0,
+                "unsure": 0.7333
+              }
+            },
+            "elsewhere": {
+              "reported": 0,
+              "onControls": []
+            },
+            "cost": {
+              "all": {
+                "items": 5,
+                "images": 60,
+                "tokens": 33392,
+                "perImage": {
+                  "tokens": 557,
+                  "ms": 80,
+                  "usd": 0.000023
+                },
+                "perItem": {
+                  "tokens": 6678,
+                  "ms": 965,
+                  "usd": 0.00028
+                },
+                "usd": 0.001402
+              },
+              "byKind": {
+                "anim": {
+                  "items": 5,
+                  "images": 60,
+                  "tokens": 33392,
+                  "perImage": {
+                    "tokens": 557,
+                    "ms": 80,
+                    "usd": 0.000023
+                  },
+                  "perItem": {
+                    "tokens": 6678,
+                    "ms": 965,
+                    "usd": 0.00028
+                  },
+                  "usd": 0.001402
+                }
+              },
+              "requests": 5,
+              "latencyMs": {
+                "p50": 901,
+                "max": 1245
+              }
+            },
+            "complexity": {
+              "groups": [],
+              "inOrder": null,
+              "strictlyInOrder": null,
+              "expectedStrictlyInOrder": null,
+              "meanLevelError": null
+            },
+            "thresholds": [
+              {
+                "passAt": 0.8,
+                "failAt": 0.1,
+                "falsePass": 0,
+                "caught": 0,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.4
+              },
+              {
+                "passAt": 0.8,
+                "failAt": 0.2,
+                "falsePass": 0,
+                "caught": 1,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.3333
+              },
+              {
+                "passAt": 0.8,
+                "failAt": 0.3,
+                "falsePass": 0,
+                "caught": 2,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.2667
+              },
+              {
+                "passAt": 0.85,
+                "failAt": 0.1,
+                "falsePass": 0,
+                "caught": 0,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.6667
+              },
+              {
+                "passAt": 0.85,
+                "failAt": 0.2,
+                "falsePass": 0,
+                "caught": 1,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.6
+              },
+              {
+                "passAt": 0.85,
+                "failAt": 0.3,
+                "falsePass": 0,
+                "caught": 2,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.5333
+              },
+              {
+                "passAt": 0.9,
+                "failAt": 0.1,
+                "falsePass": 0,
+                "caught": 0,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.8
+              },
+              {
+                "passAt": 0.9,
+                "failAt": 0.2,
+                "falsePass": 0,
+                "caught": 1,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.7333
+              },
+              {
+                "passAt": 0.9,
+                "failAt": 0.3,
+                "falsePass": 0,
+                "caught": 2,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.6667
+              },
+              {
+                "passAt": 0.95,
+                "failAt": 0.1,
+                "falsePass": 0,
+                "caught": 0,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.8667
+              },
+              {
+                "passAt": 0.95,
+                "failAt": 0.2,
+                "falsePass": 0,
+                "caught": 1,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.8
+              },
+              {
+                "passAt": 0.95,
+                "failAt": 0.3,
+                "falsePass": 0,
+                "caught": 2,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.7333
+              }
+            ]
+          }
+        }
+      ],
+      "constants": [
+        {
+          "answer": "always pass",
+          "accuracy": 0.4,
+          "exact": 0.4
+        },
+        {
+          "answer": "always fail",
+          "accuracy": 0,
+          "exact": 0
+        },
+        {
+          "answer": "always unsure",
+          "accuracy": 1,
+          "exact": 0
+        }
+      ]
+    },
+    {
+      "items": 5,
+      "variants": [
+        {
+          "variant": "mod",
+          "zh": {
+            "items": 5,
+            "answered": 5,
+            "failed": 0,
+            "accuracy": 1,
+            "exact": 0,
+            "misses": {},
+            "late": 0,
+            "retried": 0,
+            "inTime": 1
+          },
+          "en": {
+            "items": 5,
+            "answered": 0,
+            "failed": 0,
+            "accuracy": 0,
+            "exact": 0,
+            "misses": {},
+            "late": 0,
+            "retried": 0,
+            "inTime": 0
+          },
+          "gap": 1,
+          "pass": true,
+          "agreement": {
+            "items": 0,
+            "same": 0,
+            "rate": null
+          },
+          "latency": {
+            "answers": 5,
+            "p50": 894,
+            "p90": 899,
+            "max": 899,
+            "slow": 0
+          },
+          "tags": [
+            {
+              "tag": "control",
+              "items": 2,
+              "wrong": {
+                "zh": 0,
+                "en": 0
+              }
+            },
+            {
+              "tag": "ease_out",
+              "items": 1,
+              "wrong": {
+                "zh": 0,
+                "en": 0
+              }
+            },
+            {
+              "tag": "janky",
+              "items": 1,
+              "wrong": {
+                "zh": 0,
+                "en": 0
+              }
+            },
+            {
+              "tag": "linear",
+              "items": 1,
+              "wrong": {
+                "zh": 0,
+                "en": 0
+              }
+            },
+            {
+              "tag": "spring",
+              "items": 1,
+              "wrong": {
+                "zh": 0,
+                "en": 0
+              }
+            },
+            {
+              "tag": "wrong_end",
+              "items": 1,
+              "wrong": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          ],
+          "breakdown": {
+            "checks": {
+              "total": 15,
+              "differ": 3,
+              "same": 12,
+              "controlChecks": 6,
+              "answeredItems": 5
+            },
+            "falsePass": {
+              "count": 0,
+              "of": 3,
+              "items": []
+            },
+            "controlFails": {
+              "count": 0,
+              "of": 6,
+              "items": []
+            },
+            "falseFail": {
+              "count": 0,
+              "of": 12
+            },
+            "caught": {
+              "count": 1,
+              "of": 3,
+              "rate": 0.3333
+            },
+            "unsure": {
+              "count": 11,
+              "of": 15,
+              "rate": 0.7333,
+              "onDiffering": 0.6667,
+              "onSame": 0.75
+            },
+            "byKind": {
+              "anim": {
+                "checks": 15,
+                "differ": 3,
+                "caught": 1,
+                "falsePass": 0,
+                "same": 12,
+                "falseFail": 0,
+                "unsure": 0.7333
+              }
+            },
+            "elsewhere": {
+              "reported": 0,
+              "onControls": []
+            },
+            "cost": {
+              "all": {
+                "items": 5,
+                "images": 60,
+                "tokens": 33428,
+                "perImage": {
+                  "tokens": 557,
+                  "ms": 74,
+                  "usd": 0.000023
+                },
+                "perItem": {
+                  "tokens": 6686,
+                  "ms": 891,
+                  "usd": 0.000281
+                },
+                "usd": 0.001404
+              },
+              "byKind": {
+                "anim": {
+                  "items": 5,
+                  "images": 60,
+                  "tokens": 33428,
+                  "perImage": {
+                    "tokens": 557,
+                    "ms": 74,
+                    "usd": 0.000023
+                  },
+                  "perItem": {
+                    "tokens": 6686,
+                    "ms": 891,
+                    "usd": 0.000281
+                  },
+                  "usd": 0.001404
+                }
+              },
+              "requests": 5,
+              "latencyMs": {
+                "p50": 894,
+                "max": 899
+              }
+            },
+            "complexity": {
+              "groups": [],
+              "inOrder": null,
+              "strictlyInOrder": null,
+              "expectedStrictlyInOrder": null,
+              "meanLevelError": null
+            },
+            "thresholds": [
+              {
+                "passAt": 0.8,
+                "failAt": 0.1,
+                "falsePass": 0,
+                "caught": 0,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.4
+              },
+              {
+                "passAt": 0.8,
+                "failAt": 0.2,
+                "falsePass": 0,
+                "caught": 1,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.3333
+              },
+              {
+                "passAt": 0.8,
+                "failAt": 0.3,
+                "falsePass": 0,
+                "caught": 2,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.2667
+              },
+              {
+                "passAt": 0.85,
+                "failAt": 0.1,
+                "falsePass": 0,
+                "caught": 0,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.6667
+              },
+              {
+                "passAt": 0.85,
+                "failAt": 0.2,
+                "falsePass": 0,
+                "caught": 1,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.6
+              },
+              {
+                "passAt": 0.85,
+                "failAt": 0.3,
+                "falsePass": 0,
+                "caught": 2,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.5333
+              },
+              {
+                "passAt": 0.9,
+                "failAt": 0.1,
+                "falsePass": 0,
+                "caught": 0,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.8
+              },
+              {
+                "passAt": 0.9,
+                "failAt": 0.2,
+                "falsePass": 0,
+                "caught": 1,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.7333
+              },
+              {
+                "passAt": 0.9,
+                "failAt": 0.3,
+                "falsePass": 0,
+                "caught": 2,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.6667
+              },
+              {
+                "passAt": 0.95,
+                "failAt": 0.1,
+                "falsePass": 0,
+                "caught": 0,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.9333
+              },
+              {
+                "passAt": 0.95,
+                "failAt": 0.2,
+                "falsePass": 0,
+                "caught": 1,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.8667
+              },
+              {
+                "passAt": 0.95,
+                "failAt": 0.3,
+                "falsePass": 0,
+                "caught": 2,
+                "differ": 3,
+                "falseFail": 0,
+                "same": 12,
+                "unsureRate": 0.8
+              }
+            ]
+          }
+        }
+      ],
+      "constants": [
+        {
+          "answer": "always pass",
+          "accuracy": 0.4,
+          "exact": 0.4
+        },
+        {
+          "answer": "always fail",
+          "accuracy": 0,
+          "exact": 0
+        },
+        {
+          "answer": "always unsure",
+          "accuracy": 1,
+          "exact": 0
+        }
+      ]
+    }
+  ],
+  "answers": [
+    {"id":"anim-linear","language":"zh","repeat":1,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure pass pass","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.83,"basis":"whole","trust":"both","whole":0.83,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"pass","p":0.93,"basis":"whole","trust":"both","whole":0.93},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.96,"basis":"whole","trust":"both","whole":0.96}],"requests":[{"questions":3,"images":12,"ms":988,"tokens":6640}],"ms":988,"attempts":1,"tokens":6640,"model":"jev-1.14.0"}},
+    {"id":"anim-linear","language":"zh","repeat":2,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure pass pass","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.84,"basis":"whole","trust":"both","whole":0.84,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"pass","p":0.91,"basis":"whole","trust":"both","whole":0.91},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.95,"basis":"whole","trust":"both","whole":0.95}],"requests":[{"questions":3,"images":12,"ms":1245,"tokens":6676}],"ms":1245,"attempts":1,"tokens":6676,"model":"jev-1.14.0"}},
+    {"id":"anim-linear","language":"zh","repeat":3,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure pass pass","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.84,"basis":"whole","trust":"both","whole":0.84,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"pass","p":0.9,"basis":"whole","trust":"both","whole":0.9},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.96,"basis":"whole","trust":"both","whole":0.96}],"requests":[{"questions":3,"images":12,"ms":894,"tokens":6676}],"ms":894,"attempts":1,"tokens":6676,"model":"jev-1.14.0"}},
+    {"id":"anim-ease_out","language":"zh","repeat":1,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure unsure unsure","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.81,"basis":"whole","trust":"both","whole":0.81,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.84,"basis":"whole","trust":"both","whole":0.84,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"unsure","p":0.87,"basis":"whole","trust":"both","whole":0.87,"why":"the decision model is not sure either way"}],"requests":[{"questions":3,"images":12,"ms":916,"tokens":6688}],"ms":916,"attempts":1,"tokens":6688,"model":"jev-1.14.0"}},
+    {"id":"anim-ease_out","language":"zh","repeat":2,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure unsure unsure","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.77,"basis":"whole","trust":"both","whole":0.77,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.85,"basis":"whole","trust":"both","whole":0.85,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"unsure","p":0.89,"basis":"whole","trust":"both","whole":0.89,"why":"the decision model is not sure either way"}],"requests":[{"questions":3,"images":12,"ms":903,"tokens":6700}],"ms":903,"attempts":1,"tokens":6700,"model":"jev-1.14.0"}},
+    {"id":"anim-ease_out","language":"zh","repeat":3,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure unsure unsure","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.78,"basis":"whole","trust":"both","whole":0.78,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.83,"basis":"whole","trust":"both","whole":0.83,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"unsure","p":0.88,"basis":"whole","trust":"both","whole":0.88,"why":"the decision model is not sure either way"}],"requests":[{"questions":3,"images":12,"ms":897,"tokens":6688}],"ms":897,"attempts":1,"tokens":6688,"model":"jev-1.14.0"}},
+    {"id":"anim-spring","language":"zh","repeat":1,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure unsure unsure","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":false,"verdict":"unsure","p":0.27,"basis":"whole","trust":"both","whole":0.27,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.52,"basis":"whole","trust":"both","whole":0.52,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"unsure","p":0.85,"basis":"whole","trust":"both","whole":0.85,"why":"the decision model is not sure either way"}],"requests":[{"questions":3,"images":12,"ms":887,"tokens":6700}],"ms":887,"attempts":1,"tokens":6700,"model":"jev-1.14.0"}},
+    {"id":"anim-spring","language":"zh","repeat":2,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure unsure unsure","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":false,"verdict":"unsure","p":0.24,"basis":"whole","trust":"both","whole":0.24,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.51,"basis":"whole","trust":"both","whole":0.51,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"unsure","p":0.83,"basis":"whole","trust":"both","whole":0.83,"why":"the decision model is not sure either way"}],"requests":[{"questions":3,"images":12,"ms":886,"tokens":6652}],"ms":886,"attempts":1,"tokens":6652,"model":"jev-1.14.0"}},
+    {"id":"anim-spring","language":"zh","repeat":3,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure unsure unsure","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":false,"verdict":"unsure","p":0.29,"basis":"whole","trust":"both","whole":0.29,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.49,"basis":"whole","trust":"both","whole":0.49,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"unsure","p":0.85,"basis":"whole","trust":"both","whole":0.85,"why":"the decision model is not sure either way"}],"requests":[{"questions":3,"images":12,"ms":899,"tokens":6676}],"ms":899,"attempts":1,"tokens":6676,"model":"jev-1.14.0"}},
+    {"id":"anim-janky","language":"zh","repeat":1,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure unsure pass","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.85,"basis":"whole","trust":"both","whole":0.85,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":false,"verdict":"unsure","p":0.34,"basis":"whole","trust":"both","whole":0.34,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.95,"basis":"whole","trust":"both","whole":0.95}],"requests":[{"questions":3,"images":12,"ms":868,"tokens":6712}],"ms":868,"attempts":1,"tokens":6712,"model":"jev-1.14.0"}},
+    {"id":"anim-janky","language":"zh","repeat":2,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure unsure pass","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.82,"basis":"whole","trust":"both","whole":0.82,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":false,"verdict":"unsure","p":0.36,"basis":"whole","trust":"both","whole":0.36,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.96,"basis":"whole","trust":"both","whole":0.96}],"requests":[{"questions":3,"images":12,"ms":901,"tokens":6688}],"ms":901,"attempts":1,"tokens":6688,"model":"jev-1.14.0"}},
+    {"id":"anim-janky","language":"zh","repeat":3,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure unsure pass","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.8,"basis":"whole","trust":"both","whole":0.8,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":false,"verdict":"unsure","p":0.35,"basis":"whole","trust":"both","whole":0.35,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.93,"basis":"whole","trust":"both","whole":0.93}],"requests":[{"questions":3,"images":12,"ms":883,"tokens":6688}],"ms":883,"attempts":1,"tokens":6688,"model":"jev-1.14.0"}},
+    {"id":"anim-wrong_end","language":"zh","repeat":1,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure unsure unsure","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.82,"basis":"whole","trust":"both","whole":0.82,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.65,"basis":"whole","trust":"both","whole":0.65,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":false,"verdict":"unsure","p":0.21,"basis":"whole","trust":"both","whole":0.21,"why":"the decision model is not sure either way"}],"requests":[{"questions":3,"images":12,"ms":895,"tokens":6676}],"ms":895,"attempts":1,"tokens":6676,"model":"jev-1.14.0"}},
+    {"id":"anim-wrong_end","language":"zh","repeat":2,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure unsure fail","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.82,"basis":"whole","trust":"both","whole":0.82,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.61,"basis":"whole","trust":"both","whole":0.61,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":false,"verdict":"fail","p":0.15,"basis":"whole","trust":"both","whole":0.15}],"requests":[{"questions":3,"images":12,"ms":890,"tokens":6676}],"ms":890,"attempts":1,"tokens":6676,"model":"jev-1.14.0"}},
+    {"id":"anim-wrong_end","language":"zh","repeat":3,"state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure unsure fail","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.83,"basis":"whole","trust":"both","whole":0.83,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.63,"basis":"whole","trust":"both","whole":0.63,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":false,"verdict":"fail","p":0.2,"basis":"whole","trust":"both","whole":0.2}],"requests":[{"questions":3,"images":12,"ms":880,"tokens":6700}],"ms":880,"attempts":1,"tokens":6700,"model":"jev-1.14.0"}}
+  ]
+}
