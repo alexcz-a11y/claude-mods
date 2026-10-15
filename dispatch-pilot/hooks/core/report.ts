@@ -193,11 +193,16 @@ export type LogEntry = {
   counts?: { failed: number; blocked: number; raised: number }
   /** A Workflow call's decision that was sent back to the main agent to write in (return mode). */
   sentBack?: true
+  /** The complexity reading of the reference images that went into this decision's request (#63). */
+  reference?: ReferenceRecord
   /** An unresolved-count judgement (`unresolved`). */
   unresolved?: UnresolvedRecord
   /** The strong hint was given with this decision's request (#41). */
   hint?: HintRecord
 }
+
+/** What the reference images a request came with read as (`decision/complexity.ts`): the level, 0 (trivial) to 4 (very complex), and how many images it came from. */
+export type ReferenceRecord = { level: number; images: number }
 
 /** The strong hint given with a request: the count it was given at, the setting it had reached, and `mid` when it was a mid-turn re-decision's. */
 export type HintRecord = { count: number; maxAfter: number; where?: 'mid' }
@@ -282,6 +287,7 @@ export type Decided = About & {
   forced?: ForcedRaise
   skills?: SkillsPicked
   counts?: LogEntry['counts']
+  reference?: ReferenceRecord
   unresolved?: UnresolvedRecord
   hint?: HintRecord
 }
@@ -1068,6 +1074,7 @@ function entryOf(decision: Decided, turn: number, at: number): Omit<LogEntry, 'n
     ...(decision.forced === undefined ? {} : { forced: decision.forced }),
     ...(decision.skills === undefined ? {} : { skills: decision.skills }),
     ...(decision.counts === undefined ? {} : { counts: decision.counts }),
+    ...(decision.reference === undefined ? {} : { reference: decision.reference }),
     ...(decision.unresolved === undefined ? {} : { unresolved: decision.unresolved }),
     ...(decision.hint === undefined ? {} : { hint: decision.hint }),
     ...(decision.sentBack === true ? { sentBack: true as const } : {}),

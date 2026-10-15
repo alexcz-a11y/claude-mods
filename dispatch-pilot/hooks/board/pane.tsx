@@ -44,6 +44,7 @@ import {
   type PaneState,
   type StepMark,
 } from './rationale.ts'
+import { referenceWords } from './reference.ts'
 import { FEATURE_WORDS, featureOf, levelOf, type AgentRow, type ScreenView } from './view.ts'
 
 /** What the pane is drawn from. */
@@ -414,6 +415,22 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, raster: 
   rows.push(hang(t, 'pane-card-reason', '理由', <Text color={MUTED} wrap="wrap">{entry.reason}</Text>, w))
   const level = levelOf(entry)
   if (entry.probs !== undefined) rows.push(hang(t, 'pane-card-probs', 'effort', probsLine(t, 'pane-card-probs-bar', entry.probs, level, w - LABEL, raster), w))
+  // What the reference images the message came with read as (image routing): the effort question had it in its state.
+  if (main && entry.reference !== undefined) {
+    const said = referenceWords(entry.reference)
+    rows.push(
+      hang(
+        t,
+        'pane-card-reference',
+        '参考图',
+        <Text wrap="wrap">
+          <Text bold>{said.level}</Text>
+          <Text color={MUTED}>{`  ${said.images}：${said.note}；${said.hint}`}</Text>
+        </Text>,
+        w,
+      ),
+    )
+  }
   rows.push(...traceRows(t, 'pane-card-step', entry.trace ?? [], w))
   if (level !== undefined) rows.push(hang(t, 'pane-card-result', '结果', effortTag(t, level, 12), w))
   if (main && entry.conf !== undefined) rows.push(hang(t, 'pane-card-conf', '置信', <Text color={MUTED} wrap="wrap">{`${pct(entry.conf)}：发消息时只记录，不参与选档`}</Text>, w))
