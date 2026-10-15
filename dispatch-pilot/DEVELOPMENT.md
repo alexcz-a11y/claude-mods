@@ -613,6 +613,7 @@ node dispatch-pilot/eval/run.ts skill --estimate          # skill 匹配（#16�
 node dispatch-pilot/eval/run.ts skill --label <名字>      # 用真实 Jev 跑 skill 匹配，两段请求都发
 node dispatch-pilot/eval/run.ts visual-check --estimate    # 看图核对（#65）：24 题 × 2 个变体，图按像素算 token（`lib/estimate.ts`），不按 base64 的长度；约 64 个请求、0.014 美元
 node dispatch-pilot/eval/run.ts visual-check --max-usd 0.10 --label <名字>   # 用真实 Jev 跑看图核对；估算超过 --max-usd 就一个请求也不发
+node dispatch-pilot/eval/run.ts visual-check --ids anim-linear,anim-ease_out,anim-spring,anim-janky,anim-wrong_end --variants mod --repeat 3 --model jev-1.14.0 --max-usd 0.05 --label anim-target   # 只跑指定的题（--ids）、每题问 N 遍看稳不稳（--repeat N，估算和花费都乘 N）：结果文件里每遍一行（answers 的 repeat），summary 是第一遍的，其余在 repeatSummaries
 node dispatch-pilot/eval/eval-v2-flow.ts --backend jev [--state-tokens N --state-messages 2000] [--estimate]   # eval v2 的真实流程（#45）：逐条用户消息判三选一、累计次数、Haiku 续写摘要，一个后端加预算一个文件，中断后再跑同一条命令接着跑
 node dispatch-pilot/eval/run.ts eval-v2 --variants zh-flow,en-flow --flow <流程文件> --label <名字>   # eval v2（#45）：最后一条消息的 effort 和三选一；zh-score/en-score 不带流程，zh-flow/en-flow 带流程文件里的次数和摘要；zh-score-alone/en-score-alone 只问 effort 题（unresolved 开关关着、也就是默认装好时 mod 发的请求），三选一一项记 null。不写 --variants 时这两个也跑，花费跟着多出它们的那份；量线上默认请求只写 --variants zh-score-alone
 node dispatch-pilot/eval/eval-v2-thresholds.ts <流程文件> [...]   # 三选一两档门槛的扫描（#45 给 #42）：误清零 ≤ 2% 下加一召回最高，另报中间轮次次数被误改的比例；不发请求
@@ -2002,9 +2003,9 @@ thetaMax 各组的可行区间：effort-submit 中文问法 0.30–0.58、英文
 
 #### 看图核对（visual-check，#65，spec #55 的接缝 2）
 
-Jev 出新版本时重跑一次，就知道看图核对准不准、能不能换、门槛（0.9、0.2）要不要调。`node dispatch-pilot/eval/run.ts visual-check`，`--backend pplx` 也能跑（没有框题和放大复核，视频取 8 帧）。**只用 2026-10-15 实验里已有的图，没有新做图，也没有新的实测**（用户的决定）。
+Jev 出新版本时重跑一次，就知道看图核对准不准、能不能换、门槛（0.9、0.2）要不要调。`node dispatch-pilot/eval/run.ts visual-check`，`--backend pplx` 也能跑（没有框题和放大复核，视频取 8 帧）。**只用 2026-10-15 实验里已有的图，没有新的实测**（用户的决定）；基线之后只重画了动画的 60 帧（加终点框，见下面「动画题重做」）。
 
-- **评测集**（`datasets/visual-check.jsonl`，24 题，格式见 `lib/visual-check-items.ts`；图和真值在 `datasets/visual-check/`）：界面 `ui` 9 题（一张参考图，9 张候选，其中 `c9` 与参考图完全相同）；3D 海面 `sea` 7 题（一张参考图，7 张候选，其中 `twin` 是同一片海的另一个时刻）；动画 `anim` 5 题（线性、缓出、弹簧、卡顿、终点大偏，各 12 帧）；参考图复杂度 `complexity` 3 组（立方体 2 张、海面 3 张、城市 4 张）。每题有若干条检查项，`gold.holds` 说每条是否成立（部分一致、要求满足）；一题里每条都成立就是对照（tag `control`，格式要求二者一致）。`validate.ts` 核对格式，也核对图都在、是 PNG（测试读不了磁盘，所以这一步在 `node.ts` 的 `checkPictures`）。真值来自实验的 `ui/truth.json`、`anim/truth.json` 和 `sea/run.ts` 的 TRUTH 表；每个界面候选另有一条没改动的部分的检查项（应当成立），测放大复核有没有误伤。
+- **评测集**（`datasets/visual-check.jsonl`，24 题，格式见 `lib/visual-check-items.ts`；图和真值在 `datasets/visual-check/`）：界面 `ui` 9 题（一张参考图，9 张候选，其中 `c9` 与参考图完全相同）；3D 海面 `sea` 7 题（一张参考图，7 张候选，其中 `twin` 是同一片海的另一个时刻）；动画 `anim` 5 题（线性、缓出、弹簧、卡顿、终点大偏，各 12 帧，每帧画着绿色虚线的 TARGET 终点框，规范和检查项描述终点的样子、不给像素）；参考图复杂度 `complexity` 3 组（立方体 2 张、海面 3 张、城市 4 张）。每题有若干条检查项，`gold.holds` 说每条是否成立（部分一致、要求满足）；一题里每条都成立就是对照（tag `control`，格式要求二者一致）。`validate.ts` 核对格式，也核对图都在、是 PNG（测试读不了磁盘，所以这一步在 `node.ts` 的 `checkPictures`）。真值来自实验的 `ui/truth.json`、`anim/truth.json` 和 `sea/run.ts` 的 TRUTH 表；每个界面候选另有一条没改动的部分的检查项（应当成立），测放大复核有没有误伤。
 - **请求就是线上的请求。** suite 不重写问法：`wholeImageRequest`、`locatePlan`/`withBoxes`、`readWholeImage`、`framesRequest`、`complexityRequest` 是 mod 的纯函数；读图、缩放、裁剪、复杂度读数直接用 `core/image-files.ts`、`core/zoom-review.ts`、`core/complexity.ts`，它们要的 `ImageFilesIo` 由 `eval/node.ts` 的 `nodeImageHost` 用 Node 的文件和 `child_process` 给（`SuiteHost.images`），所以裁图用的是同一份 sips 参数。流程照 `features/visual-check.ts` 的 `check`：请求一（全部检查项，Jev 再加框题）、放大复核（对裁图的 Noul）、判定。`tests/eval-visual-check-requests.test.ts` 在 world 里让 mod 的工具对同样的图（假磁盘）跑一遍，和 suite 的请求逐字比：Jev 的界面和海面（两个请求，含裁图的字节）、pplx、复杂度读数；录屏和 pplx 的动画只有图不同（mod 用 ffmpeg 抽 JPEG，评测集是现成的 PNG 帧），比的是别的部分。
 - **变体**：`mod`（mod 对所选决策模型的问法：Jev 加框题和放大复核，pplx 只有请求一）和 `whole`（只有请求一，放大复核没有时的样子，两者之差就是放大复核的作用）。动画和复杂度题两个变体相同。语言只有 `zh`（问题是 mod 的英文，不分语言），`--languages` 默认 `zh`。
 - **指标**（每个变体的 `summary.variants[].breakdown`，`run.ts` 末尾也打印）：`falsePass`（不成立的检查项被判过，**应为 0**，列出哪几题）；`controlFails`（对照里被判不过的检查项）、`falseFail`（成立的被判不过）；`caught`（不成立的被判不过的比例）；`unsure`（没把握的比例，总的、对不成立的、对成立的）；`byKind`；`elsewhere`（全屏「哪里不同」在对照上报了另一处，是误报）；`cost`（每张图的 token、延迟、花费，总的和按种类，另有每题的）；`complexity`（三组读数是否按立方体 < 海面 < 城市排：`inOrder`、`strictlyInOrder`，和不取整的期望 `expectedStrictlyInOrder`）；`thresholds`（每条检查项存着判定依据的原始概率，所以能按别的门槛重算 PASS 从 0.8–0.95、FAIL 到 0.1–0.3 的误判数，不再发请求）。`grade` 的 `correct` 是没有一条判反（没把握不算反），`exact` 是每条都判对：全部「没把握」是 `correct` 而不是 `exact`，看 `exact` 和上面的数字，不要只看 `correct`。
@@ -2028,8 +2029,23 @@ Jev 出新版本时重跑一次，就知道看图核对准不准、能不能换�
 - **放大复核让「一样」能判过**：对照 `ui-c9-same` 的三条检查项都判过（0.96–0.99，整图只能给没把握）；没改动的部分在被改过的候选上也都判过（界面 11 条成立的检查项，11 条判过）。另一处「哪里不同」在 2 题上报了，都不是对照。
 - **放大复核有时把整图的不过改成了没把握**：它的回答取代整图的（`zoomReview`）。`ui-c7-truncate` 整图 0.05（不过）、裁图 0.24（没把握）；`sea-big` 的浪高整图 0.12、裁图 0.22。所以 `whole` 比 `mod` 多抓 2 条。整图或裁图任何一个判不过就取不过，在这批题上会多抓 2 条（12 / 20），也会多出 1 条成立的被判不过（`sea-flat` 的雾：整图 0.14，裁图 0.40）。**没有改**：这是 mod 的流程，不是 #65 的范围，留给门槛的讨论。
 - **PASS 门槛 0.95 去掉那一条误判**，没把握从 56.4% 升到 61.8%（`thresholds`，其余门槛组合见结果文件）。字重（`c4`）和 4px 偏移（`c5`）仍是盲区，和实验一致。
-- **动画一条也没判出来**：15 条检查项概率都在 0.39–0.85，全是没把握，包括该判过的（`linear`、`ease_out` 没毛病）和该判不过的（回弹 0.60、卡顿 0.52、终点大偏 0.39）。实验里同样的帧用「卡片是不是冲过终点又回来」这样的直接问法能分开；这里的检查项是 mod 的 `framesRequest` 问法，写成「应该是怎样」的长句，分不开。这次没有调问法（基线只跑一次）；要改检查项的写法或 `framesRequest` 的问法，就得再跑评测。
+- **动画一条也没判出来**（基线用的是旧帧：没有画终点，终点只在文字里用像素给出）：15 条检查项概率都在 0.39–0.85，全是没把握，包括该判过的（`linear`、`ease_out` 没毛病）和该判不过的（回弹 0.60、卡顿 0.52、终点大偏 0.39）。原因是模型既要猜终点在哪、又要猜卡片有没有到过，两个变量。下面「动画题重做」把终点画进帧里再跑。
 - **复杂度的读数比实验的高一档**：实验里的题问法不同（立方体 0.14、海面 1.77、城市 3.14），mod 现在的 `complexityRequest` 把海面读成 2.44、城市读成 3.93（取整后城市是 4，gold 3，在接受的 2–4 之内）。顺序对，这是这项要的。
+
+**动画题重做（2026-10-15，`results/visual-check/2026-10-15-jev-anim-target.json`）。** 用户指出基线里动画的设计有根本问题：终点只在文字里用像素给出（「右边缘在 x=350」），画面上没有终点，模型既要猜终点在哪，又要猜卡片有没有过终点，换成人来判也判不了，两个变量。改法：每帧画出明确的终点（和卡片一样大、一样圆角的绿色虚线框，画在卡片上面，框上写 TARGET），规范和检查项只说画面上看得见的东西，不给像素（原文见 `datasets/visual-check.jsonl` 的 `anim-*`，参数和生成方式见 `datasets/README.md` 的「动画帧的终点」）。卡片的位置、真值都没变。跑法：`--ids` 选 5 条动画题、`--variants mod`（动画两个变体相同）、`--repeat 3`（这次新加的，看稳不稳）、`--model jev-1.14.0`；估算 0.0037 美元，`--max-usd 0.05`，实际 15 个请求、100,236 input token、0.0042 美元。每格是 3 遍的概率（旧基线的数在括号里）；判定按 mod 的 0.9 / 0.2：**过**、**不过**、没把握（不标）。
+
+| | ① 没越过 TARGET 框再退回来 | ② 一直动到 TARGET 框，没有停顿 | ③ 末帧正好落在 TARGET 框里 |
+|---|---|---|---|
+| `linear`（对照） | 0.83 / 0.84 / 0.84（0.85） | 0.93 / 0.91 / 0.90（0.82）**过** ×3 | 0.96 / 0.95 / 0.96（0.69）**过** ×3 |
+| `ease_out`（对照） | 0.81 / 0.77 / 0.78（0.81） | 0.84 / 0.85 / 0.83（0.79） | 0.87 / 0.89 / 0.88（0.62） |
+| `spring`（① 不成立） | 0.27 / 0.24 / 0.29（0.60） | 0.52 / 0.51 / 0.49（0.52） | 0.85 / 0.83 / 0.85（0.57） |
+| `janky`（② 不成立） | 0.85 / 0.82 / 0.80（0.82） | 0.34 / 0.36 / 0.35（0.52） | 0.95 / 0.96 / 0.93（0.68）**过** ×3 |
+| `wrong_end`（③ 不成立） | 0.82 / 0.82 / 0.83（0.65） | 0.65 / 0.61 / 0.63（0.63） | 0.21 / 0.15 / 0.20（0.39）没把握、**不过**、**不过** |
+
+- **稳**：同一格 3 遍的概率最多差 0.06（`wrong_end` ③：0.15–0.21），多数不到 0.04。判定只在门槛上的格子变过：`linear` ② 0.90 刚好够过、`wrong_end` ③ 0.21 比 0.2 高一点。
+- **分得开了，但门槛还是够不着。** 不成立的 3 条检查项（9 格）都是各自那一列里最低的：回弹 ① 0.24–0.29 对其余 0.77–0.85，卡顿 ② 0.34–0.36 对其余 0.49–0.93（回弹 ② 约 0.5、终点错 ② 约 0.6 本来成立，却比别的低：「有没有停」本身不容易判），终点错 ③ 0.15–0.21 对其余 0.83–0.96。但按 0.9 / 0.2，9 格里只有终点错 ③ 的 2 格判成不过，回弹和卡顿的 6 格都没把握，另有终点错 ③ 的 1 格（0.21）。**没有一格不成立却判过**（0 / 9）；成立的 36 格里 9 格判过（`linear` ②③、`janky` ③），没有一格判成不过。
+- **对照也只判过一半**：`linear` 两条判过，`ease_out` 一条也没有（最高 0.89）。按存下的概率重算（不再发请求）：FAIL 到 0.3 抓到 6 / 9（回弹 ① 和终点错 ③ 各 3 遍），到 0.4 抓到 9 / 9（加上卡顿 ②），成立的没有一格低于 0.49，所以没有误判；PASS 0.85 判过 16 / 36、0.8 判过 28 / 36，不成立却判过一直是 0。样本只有 5 个动画、3 遍，这是事后看出来的，改门槛要另外定，这次没有动 mod 的 0.9 / 0.2。
+- 和旧帧相比：旧基线里 ③ 的概率是 0.57–0.69（没毛病的）对 0.39（终点错），现在是 0.83–0.96 对 0.15–0.21，**画出终点这一项改动最大**；回弹 ① 从 0.60 降到 0.27、卡顿 ② 从 0.52 降到 0.35。
 
 **文件**：`results/eval-v2/2026-10-08-{pplx-A,pplx-A-plus,pplx-B,pplx-B-prime,jev-J,jev-J-prime}.json`（六组）、`compare.json`（两套门槛 x 两种题集的离线重算）、`thresholds-jev.json`、`thresholds-pplx.json`（三选一门槛扫描）；`results/eval-v2-flow/{jev-24000,pplx-48000,pplx-135000}.json`（真实流程）；`results/effort-submit/2026-10-08-{pplx,jev}-regress.json`（回归）。
 
