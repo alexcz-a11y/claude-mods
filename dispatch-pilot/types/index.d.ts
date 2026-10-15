@@ -245,6 +245,8 @@ declare module 'claude-code' {
         counts?: { failed: number; blocked: number; raised: number }
         /** A Workflow call's decision that was sent back to the main agent to write in (return mode). */
         sentBack?: true
+        /** The complexity reading of the reference images a message came with (#63) that went into its effort request: the level (0 to 4) and how many images it came from. */
+        reference?: { level: number; images: number }
         /** An unresolved-count judgement (`unresolved`): the count before and after the message, what the answer did to it, the options' probabilities, and the bars it was held to. */
         unresolved?: {
           before: number
@@ -337,6 +339,15 @@ declare module 'claude-code' {
       loops: StateFamily<{ startedAt: number }>
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+      /**
+       * The complexity readings of the reference images the session has met (#63; GLOSSARY 复杂度读数,
+       * hooks/core/complexity.ts), the latest groups' (at most 8), the one asked or reused last at the end. A group of
+       * images is recognised by `key`, a hash of the images' content (as they are sent), and asked once; `level` is
+       * 0 (trivial) to 4 (very complex), `images` how many images it came from, `at` when it was asked or last reused
+       * (`$.clock.now()`, ms). The latest is what a request that carries no image of its own (a dispatched agent's)
+       * takes. Written by hooks/core/complexity.ts only.
+       */
+      referenceReadings: { key: string; level: number; images: number; at: number }[]
       /**
        * The mid-turn re-decision's own record of a main turn (#5), id
        * `main:<turnId>` (turnKey): its steps, the tool calls they made and how

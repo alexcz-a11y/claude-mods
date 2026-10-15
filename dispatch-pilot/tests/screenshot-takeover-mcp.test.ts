@@ -5,7 +5,7 @@
 // person's decision), so both shapes it may have are tried: MCP's (`data`, `mimeType`) and the Messages API's (`source`).
 
 import { expect, test } from 'claude-code/testing'
-import { readFake, screenshotContent } from './support/images.ts'
+import { base64, readFake, screenshotContent } from './support/images.ts'
 import { jev, world } from './support/world.ts'
 
 const OPTIONS = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key', rejudgeEvery: 0 }
@@ -22,7 +22,7 @@ const savedPath = (text: string | undefined): string => /saved at (\S+) \(/.exec
 
 /** A session at the first step of a turn, with the takeover on. */
 async function begin(...[$, on, options]: Parameters<typeof world>) {
-  const w = world($, on, { session: true, process: true, switches: ON, env: { TMPDIR: '/var/T/' }, backend: BACKEND, ...options })
+  const w = world($, on, { session: true, process: { programs: { base64 } }, switches: ON, env: { TMPDIR: '/var/T/' }, backend: BACKEND, ...options })
   await w.start()
   await w.submit('把首页做成设计稿那样')
   await w.step({ index: 0 })

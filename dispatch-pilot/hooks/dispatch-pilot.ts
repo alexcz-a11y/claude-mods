@@ -17,6 +17,7 @@ import { registerControl } from './features/control.ts'
 import { registerDispatchedAgents } from './features/dispatched-agents.ts'
 import { registerEscalation } from './features/escalation.ts'
 import { registerFindSkill } from './features/find-skill.ts'
+import { registerImageRouting } from './features/image-routing.ts'
 import { registerMainEffort } from './features/main-effort.ts'
 import { registerMidturnEffort } from './features/midturn-effort.ts'
 import { registerUnresolved } from './features/unresolved.ts'
@@ -55,6 +56,7 @@ export const register: Register = (on, options) => {
   registerFindSkill(on, ctx)
   registerVisualCheck(on, ctx)
   registerScreenshotTakeover(on, ctx)
+  registerImageRouting(on, ctx)
 
   // The core: always last.
   registerCore(on, ctx)

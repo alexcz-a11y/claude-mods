@@ -3,7 +3,7 @@
 // events in; the board data, the band and the pane mounted through the mod out.
 
 import { expect, test } from 'claude-code/testing'
-import { screenshotContent } from './support/images.ts'
+import { base64, screenshotContent } from './support/images.ts'
 import { jev, world } from './support/world.ts'
 
 const OPTIONS = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key', rejudgeEvery: 0 }
@@ -31,7 +31,7 @@ async function agentRows(ui: { findAll: (query: { type?: string }) => Promise<Dr
 
 /** A session at the first step of a turn, the takeover on, a file the agent has saved and a screenshot tool that returns an image. */
 async function taken(...[$, on]: Parameters<typeof world>) {
-  const w = world($, on, { session: true, process: true, switches: { 'screenshot-takeover': true }, env: { TMPDIR: '/var/T' }, backend: BACKEND, store: {} })
+  const w = world($, on, { session: true, process: { programs: { base64 } }, switches: { 'screenshot-takeover': true }, env: { TMPDIR: '/var/T' }, backend: BACKEND, store: {} })
   await w.start()
   await w.submit('把首页做成设计稿那样')
   await w.step({ index: 0 })
