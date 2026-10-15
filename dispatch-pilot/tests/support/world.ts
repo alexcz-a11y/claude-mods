@@ -13,7 +13,7 @@
 
 import { mock } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
-import { absolute, BASE_DIRS, type Disk, type FakeFile, fileBase64, fileSize, mkdir, type Program, sips } from './images.ts'
+import { absolute, base64, BASE_DIRS, type Disk, type FakeFile, fileBase64, fileSize, mediaTypeOf, mkdir, type Program, readImageResult, sips } from './images.ts'
 import { attachmentsOf, type PastedImage, rowOf } from './pasted.ts'
 import type {
   AgentInfo,
@@ -113,6 +113,8 @@ export type WorldOptions = {
    * mod uses so far), each call is recorded in `w.ran`. `true` for the defaults.
    */
   process?: true | ProcessWorld
+  /** What `$.session.id()` answers (`s1` by default); `w.setSessionId` gives the process another, as a /clear does. */
+  sessionId?: string
   /**
    * The agents `$.agent.list()` names (dispatched agents, not a Workflow's): as the engine lists them, which a test
    * changes through `w.agents` as agents come and go. `{ deny }`: the roster cannot be read.
@@ -265,7 +267,7 @@ export type ToolRun = {
    * reported (also how a refusal at the permission prompt reads), or a
    * PreToolUse settings hook's refusal (the tool never runs).
    */
-  ends?: { text: string } | { error: string } | { blockedByHook: string }
+  ends?: { text: string } | { error: string } | { blockedByHook: string } | { returns: unknown; text?: string }
 }
 
 /** One agent.spawn as it reached the engine, after every hook of the mod. */
@@ -423,6 +425,14 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     return text.length > READ_LIMIT / 4 && new TextEncoder().encode(text).length > READ_LIMIT ? { deny: `over 4 MiB: ${e.path}` } : { value: text }
   })
   on('fs.exists', (_$, e) => ({ value: e.path in disk || binary.files.has(absolute(e.path)) || binary.dirs.has(absolute(e.path)) || Object.keys(disk).some((path) => path.startsWith(`${e.path}/`)) }))
+  // `$.fs.stat`: a file's size and when it was last modified (a fake image's `mtimeMs`, 0 when it has none), a directory, or ENOENT.
+  on('fs.stat', (_$, e) => {
+    const file = binary.files.get(absolute(e.path))
+    if (file !== undefined) return { value: { kind: 'file' as const, size: fileSize(file), mtimeMs: file.mtimeMs ?? 0, isLink: false } }
+    if (e.path in disk) return { value: { kind: 'file' as const, size: (disk[e.path] as string).length, mtimeMs: 0, isLink: false } }
+    if (binary.dirs.has(absolute(e.path))) return { value: { kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false } }
+    return { deny: `ENOENT: ${e.path}` }
+  })
   // A directory of the disk: what lies directly under it, a file or a directory (one holding files further down).
   on('fs.list', (_$, e) => {
     const under = `${(e.path ?? '').replace(/\/+$/, '')}/`
@@ -448,6 +458,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       return { value: { ...done, isStdoutTruncated: false, isStderrTruncated: false } }
     })
   }
+  let sessionId = options.sessionId ?? 's1'
+  on('session.id', () => ({ value: sessionId }))
   if (options.store !== undefined || options.switches !== undefined) {
     on('store.get', (_$, e) => ({ value: store.has(e.key) ? JSON.parse(store.get(e.key) as string) : undefined }))
     on('store.set', (_$, e) => {
@@ -661,6 +673,17 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       return started.deny !== undefined ? { result: text, text, isError: true as const } : { result: text, text }
     }
     const end = ending ?? { text: 'ok' }
+    // A tool that answers with a structured result (an MCP screenshot's content blocks).
+    if ('returns' in end) {
+      toolCalls.push({ tool, id: id ?? '', input, isError: false, text: end.text })
+      return { result: end.returns, text: end.text ?? '' }
+    }
+    // Read of an image file: the engine's structured result, with the `[Image: ...]` text it adds (#62).
+    const target = tool === 'Read' && typeof input.file_path === 'string' ? binary.files.get(absolute(input.file_path)) : undefined
+    if (ending === undefined && target !== undefined && 'format' in target && mediaTypeOf(target) !== null) {
+      toolCalls.push({ tool, id: id ?? '', input, isError: false, text: `[image ${String(input.file_path)}]` })
+      return readImageResult(String(input.file_path), target)
+    }
     const failed = 'error' in end
     const text = failed ? end.error : 'text' in end ? end.text : 'ok'
     toolCalls.push({ tool, id: id ?? '', input, isError: failed, text })
@@ -698,6 +721,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     dirs: binary.dirs,
     /** The argument vector of every program the mod ran (`$.process.run`), in order. */
     ran,
+    /** The process goes on under another session (a /clear): `$.session.id()` answers this from now on. */
+    setSessionId: (id: string) => {
+      sessionId = id
+    },
     commands,
     tools,
     /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */
@@ -874,6 +901,27 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
      */
     visualCheck: (input: Record<string, unknown>, call: { agentId?: string } = {}) =>
       $.tool.call({ tool: 'mcp__dispatch-pilot__visual_check', ...input, ...(call.agentId !== undefined ? { agentId: call.agentId } : {}) } as never),
+    /**
+     * The agent saves a file: it lands on the disk now, modified at this moment of the mock clock (`mtimeMs`), so it is newer than
+     * anything that began before now (the takeover tells a screenshot the loop made from a reference image by that).
+     */
+    save: (path: string, file: FakeFile) => {
+      binary.files.set(absolute(path), { ...file, mtimeMs: clock.now() })
+    },
+    /** The agent reads a file with the Read tool (`agentId`: from a dispatched agent's loop); resolves to the result as the engine gives it. */
+    read: (path: string, call: { agentId?: string } = {}) => $.tool.call({ tool: 'Read', tool_use_id: `toolu_${++calls}`, file_path: path, ...(call.agentId !== undefined ? { agentId: call.agentId } : {}) } as never),
+    /**
+     * The agent calls a tool, which ends as `ends` says (a tool's text by default; `{ returns }` for a structured result such as an
+     * MCP screenshot's content blocks); resolves to the result as the engine gives it, after every hook of the mod.
+     */
+    callTool: async (tool: string, call: { input?: Record<string, unknown>; ends?: ToolRun['ends']; agentId?: string } = {}) => {
+      ending = call.ends
+      try {
+        return await $.tool.call({ tool, tool_use_id: `toolu_${++calls}`, ...(call.input ?? {}), ...(call.agentId !== undefined ? { agentId: call.agentId } : {}) } as never)
+      } finally {
+        ending = undefined
+      }
+    },
     /** The engine's skill listing as one request of a loop carries it (`agentId`: a dispatched agent's; needs `skills`); resolves to what the model reads. */
     listing: (text: string, agentId?: string) =>
       $.prompt.attachment({ type: 'skill_listing', text, origin: { kind: 'engine' }, ...(agentId !== undefined ? { agentId } : {}) }),

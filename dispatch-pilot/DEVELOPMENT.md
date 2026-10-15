@@ -307,6 +307,16 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
   - **看板上。** `BoardPart` 加了 `checks`（`visual-check` 开关的 `parts`），关着开关，行上不画计数。计数在 band 的每个 agent 行里状态格的后面（`AgentRow.checks`；`columnsOf` 给它留宽度，名字至少留 10 格，列宽不够就截断）和依据卡片的「看图核对」一行；日志条目在依据面板里照常列出，带一个动词「已核对 / 核对失败」。依据面板顶部的开关列表本来就读 `listSwitches()`，`visual-check` 登记了就在里面。画面上的功能叫法在 `board/view.ts` 的 `FEATURE_WORDS`：看图核对、截图接管、带图路由（后两个的开关在 #62、#63 登记）。
 - **测试。** 接缝 1：`tests/visual-check*.test.ts`（登记、判定、比较、尺寸、失败、`look`、调用、连续不过、pplx、预算、方向、日志、录屏 `visual-check-recording*.test.ts`、看板计数 `visual-check-band|board|pane.test.ts`）。world 新零件见 `tests/support/images.ts` 和下文「测试怎么写」。接缝 2：`tests/image-header.test.ts`（真实的 PNG、JPEG 字节）。
 
+**截图接管（#62，ADR 0008）。** 开关 `screenshot-takeover`（默认关，不拥有看板部分；`/dp screenshot-takeover on`）。打开后 agent 在本循环里自己生成的图不进它的上下文，换成一段英文说明，由 `visual_check` 去看。`features/screenshot-takeover.ts` 是接线，判断在 `decision/screenshot-takeover.ts`（纯），汇报在 `core/takeover-report.ts`。
+- **生效条件。** 开关开着（总开关也开着），并且 agent 有地方可去：`visual-check` 开着、`ctx.images` 不是 null（没有 visual_check 可调，图换掉了 agent 就看不到了）。只处理模型自己的调用（`next.origin.plugin === 'engine'`），别的插件用 `$.tool.call` 调 Read 不动。出任何错，图原样给 agent，原因写 debug log。
+- **循环从什么时候算起**（`core/loop-start.ts`，#64 共用）。主 agent 每个 `turn.start` 记一次；派出 agent（含 Workflow 的、续跑的）在 `agent.spawn` 记（取 spawn 到达时的时刻，spawn 返回才知道 agentId；续跑 `resume` 是新的一轮循环，记新的时刻）；没见到 spawn 的 agent 用它第一个 `turn.start` 补上。都在 `$.state` 的 `loops` 族（id 是 `main` 或 agentId，值 `{ startedAt }`），热重载不丢。找不到记录就不接管（不知道哪些文件更早）。`isFromLoop(mtimeMs, startedAt)` 是 `mtimeMs >= startedAt`：和循环同一毫秒存下的算本循环的。state 的引用要在读它的文件里写成字面量（validate 的规定），所以读的人各写一行 `const LOOPS = { plugin: 'dispatch-pilot', key: 'loops' } as const`。
+- **Read。** `tool.call` 在 `next` 之后：结果是 `type: 'image'`，`$.fs.stat(file_path).mtimeMs` 不早于循环开始，就换成 `{ ...r（去掉 text 和 ref）, result: { type: 'text', file: { filePath, content: 说明, numLines: 1, startLine: 1, totalLines: 1 } } }`，这是 spec「实测得到的形状」里已实测的写法，不留 `[Image: …]`。尺寸取 `dimensions.originalWidth/Height`（磁盘上的原图，不是引擎缩过的），没有就从 base64 的文件头读。`stat` 失败（文件已不在）：不动。
+- **MCP 工具。** 名字以 `mcp__` 开头、不是 `mcp__dispatch-pilot__` 的工具，`isError` 的不动，结果里有 image 块就逐块存成文件、换成说明块。**引擎在 tool.call 里给 MCP 图块的形状没有实测**（用户决定不再测），所以两种写法都认：MCP 的 `{ type: 'image', data, mimeType }` 和 Messages API 的 `{ type: 'image', source: { type: 'base64', media_type, data } }`；结果可以是块数组，也可以是带 `content` 数组的对象（其余字段原样保留）。换完去掉 `text` 和 `ref`，让核心按 `result` 重新生成给模型看的内容（这一步同样没在真实引擎里验证）。存文件：`newWorkFile` 取路径，`$.process.run(['base64', '-D', '-o', 路径], { stdin: base64 })`（macOS 的 base64；`$.fs.write` 只写文本）。存不下来（不在 CLI、没有 base64、退出码不是 0、临时目录建不出）：这一块图原样留给 agent，不记日志、不计数。一个结果里有几张图，各存各的。
+- **说明**（`takeoverNote`，给模型看，英文）。三句：这张图在本循环里生成、被接管挡在上下文之外，存在哪里（路径、尺寸、格式）；用 `mcp__dispatch-pilot__visual_check` 检查（`images`、检查项）；要亲自看就加 `look: true`；并说明再用 Read 读它只会得到这段说明（接管会再接一次）。
+- **临时目录。** `core/work-files.ts`：`$TMPDIR/dispatch-pilot/<会话 id>/`（`$.session.id()`，非 `[A-Za-z0-9_-]` 的字符换成 `_`），第一次要用时 `mkdir -p`，文件名 `image-<本次加载的随机数>-<序号>.<扩展名>`（热重载后序号从头数，随机数不同，不会盖掉 agent 手里还有路径的旧文件）。不清理（系统会清 TMPDIR）。`/clear` 后进程换了会话 id，新文件进新目录。这同时改了 #57 的做法（原来是 `$TMPDIR/dispatch-pilot-<随机>/`，不分会话），`features/visual-check.ts` 和 `features/image-routing.ts`（#63 自己也有一份同样的写法，已改成调它）的 `newFile` 都走 `newWorkFile`。
+- **汇报**（`reportTakeover(io, agent, kept)`）。每张图一条 aside 的决定（`feature: 'screenshot-takeover'`，`subject` 是路径，`outcome` 「接管截图」，`reason` 写尺寸和去向，`tone: 'ok'`；依据面板的动词「已接管」），再一次 `{ tally: { feature: 'visual-check', agent, passed: 0, failed: 0, unsure: 0, takeovers: n } }`，看板那一行写「接管 n」，和核对计数在同一格（没做过核对时只写「接管 n」，`tallyText`）。这一格属于 `visual-check` 开关的 `checks` 部分：`visual-check` 关着时不画，而这时接管本来也不生效。
+- **测试。** 接缝 1：`tests/screenshot-takeover.test.ts`（Read：默认关、换成说明、参考图不动、新一轮、派出 agent 的 spawn、续跑、没有 visual_check 时不动）、`screenshot-takeover-mcp.test.ts`（两种图块写法、存成文件、`visual_check` 能读、`look` 取回、存不下来）、`screenshot-takeover-board.test.ts`（日志、「接管 n」、依据面板）、`session-files.test.ts`（临时目录）。接缝 2：`screenshot-takeover-swap.test.ts`。world 的新零件：`w.save(path, file)`（存下一个文件，修改时间是此刻的 mock 时钟）、`w.read(path, { agentId })`、`w.callTool(tool, { input, ends: { returns, text }, agentId })`（结果是结构化的，如 MCP 截图的内容块）、`sessionId` 选项和 `w.setSessionId`、`fs.stat` 桩（`FakeFile.mtimeMs`，缺省 0）；Read 读 `files` 里的图片文件时回引擎的结构化结果（`readImageResult`）。测试要让「更早就有的文件」早于循环：文件给 `mtimeMs`，再 `w.clock.advance(...)` 之后才 `submit`。
+
 **带图路由的第一半：复杂度读数和带图消息的推迟决定（#63，ADR 0008）。** 开关 `image-routing`（默认关：图会发给决策模型）。只管主 agent 在用户发消息时的 effort；中途重判、派出 agent 和 Workflow 是 #64，它们复用这里的读数。
 - **读数题和读法**在 `decision/complexity.ts`（纯，#65 评测共用）：一道 0–4 五档的 Score 题，英文问「照着这些参考图做出来有多复杂」，每档是一句情形的描述；图放在 state 的 `reference_images`。读数是各档概率的期望四舍五入（实测立方体 0.14、海面 1.77、城市 3.14，期望比最大概率那一档平滑）。`referenceState(reading)` 是 effort 请求里的 `reference_complexity` 字段：`{ level, scale, description, images }`；`turnStartPart({ reference })` 把它并进 state，effort 题本身不改，不带图时请求逐字不变。
 - **一组图得到读数、读数的存取**只在 `core/complexity.ts`：`readReferenceComplexity(io, sources)` 先规整图（每张不超过 100 万像素、一组最多 6 张，超了取前 6 张），按规整后字节的 hash（`referenceKey`，和顺序无关）认是不是读过的一组，读过的直接回（不发请求，并把它排到最近），没读过的发一个请求。读数存在 `$.state` 的 `referenceReadings`（最近 8 组，最近用的排最后；契约在 `types/index.d.ts`）。`latestReading(store)` 取最近一组的读数：#64 里不带图的请求（派出 agent、Workflow 批）用它。`ComplexityIo` 是闭包（`files`、`ask`、`store`、`now`、`backend`），谁要读就用自己的 `$` 造一份；`sources` 是 `{ path }`（文件）或 `{ base64 }`（引擎只给了字节，先用 `base64 -D -o` 写成文件）。不抛错：失败是 `{ ok: false, reason, failure? }`。
@@ -608,6 +618,7 @@ hooks/
 │   ├── skill-profiles.ts   会话开始时在后台给缺画像的 skill 写画像（#11）；注册在 skills 之外，等它读完目录
 │   ├── skills.ts           对主 agent 隐藏 skill 列表、换成一句提示，发消息时推荐 skill（#10）
 │   ├── visual-check.ts     agent 的 visual_check 工具（看图核对，#57，ADR 0008）：会话开始时注册（有图像后端才注册），被调用时读图、发一个带图请求、按 0.9 / 0.2 判定、回答 Messages API 块；流程分阶段，放大复核（#59）、抽帧（#60）、汇报（#58）接在各自留好的位置
+│   ├── screenshot-takeover.ts  截图接管（#62，ADR 0008）：开关 `screenshot-takeover`（默认关）；`tool.call` 在 `next` 之后，把 Read 读到的、本循环里新生成的图片文件和 MCP 工具结果里的 image 块换成一段英文说明（Read 的换成文本形态的结果，MCP 的先用 `base64 -D -o` 存成临时文件）；每次接管汇报一条 aside 日志加一次计数
 │   ├── workflow-agents.ts  提交 Workflow 时判断脚本里每个 agent() 的模型和 effort，写进脚本或退回（#8）
 │   └── workflow-labels.ts  脚本写不进去的 Workflow：运行开始时判断各调用，agent 启动时按 label 写计划表；Workflow 工具描述里的常驻提示（#9）
 ├── board/                  看板的画面（ADR 0004）：只画「决定汇报」的数据，功能不碰
@@ -630,6 +641,9 @@ hooks/
 │   ├── commands.ts         命令轮（#19）：command.run 记下的命令和随后提交的 prompt 对上，命令在决策请求里的说明，从引擎的命令消息读回输入的命令
 │   ├── prompts.ts          isPersonsMessage：判断哪些 prompt 是用户本人的新消息
 │   ├── visual-check-report.ts  看图核对的汇报（#58）：一次调用的 aside 决定、增量的计数、失败的 note（`reportCall`）
+│   ├── takeover-report.ts  截图接管的汇报（#62）：每张被接管的图一条 aside 决定（路径、尺寸），加一次 `takeovers` 计数（`reportTakeover`）
+│   ├── loop-start.ts       循环从什么时候算起（#62，#64 共用）：主 agent 的 `turn.start`、派出 agent 的 `agent.spawn` 记进 `$.state` 的 `loops`（不是功能，没有开关）；`isFromLoop` / `startedBefore` 按文件修改时间分「本循环里生成的」和「更早就有的」
+│   ├── work-files.ts       mod 的临时目录（#62）：`$TMPDIR/dispatch-pilot/<会话 id>/`，每个会话一个子目录；`newWorkFile(io, 扩展名)` 给出新文件的路径（缩过的图、抽出的帧、接管存下的截图都放这里）
 │   ├── image-crops.ts      裁图并放大（#59）：`cropImage` 用两次 sips 把图的一块裁下来放大到长边 1000 px，读成 base64
 │   ├── zoom-review.ts      放大复核（#59）：`zoomReview`（裁图、请求二、判定）、`comparePair`（对任意一对图，#61 用）
 │   ├── image-files.ts      读图规整（#57，凡是要给决策模型图的功能都用它）：经 `ImageFilesIo` 的三个闭包用 sips 查尺寸、缩放、转格式、转正方向，读成 base64（`loadImage`、`loadImages`）；不在 CLI 时按文件头判断
@@ -668,6 +682,7 @@ hooks/
     ├── visual-check-frames.ts  看图核对读录屏（#60，评测共用）：`isRecording`、`FRAME_COUNT`（Jev 12、pplx 8）、`frameTimes`（取哪几秒）、ffmpeg 的参数（`probeArgs`、`frameArgs`）、`parseDuration`、`framesRequest`（帧的请求）
     ├── visual-check-record.ts  看图核对留给人看的（#58）：日志里的 `VisualCheckRecord`、`CheckTally`、看板和日志的中文字句（`tallyText`、`reasonText`）
     ├── visual-check-tool.ts  agent 读到的 visual_check（#57，英文）：工具说明（两版）、输入 schema、`parseVisualCheckInput`、回答的文字 `visualCheckText`
+    ├── screenshot-takeover.ts  截图接管的判断（#62，纯）：给 agent 的说明 `takeoverNote`、Read 结果的文本形态 `noteAsReadResult`、从工具结果里找 image 块并换掉（`imageOf` 认 MCP 和 Messages API 两种写法，`swapImages`）
     ├── jev.ts              Jev 后端（带图时：顶层 `assets`、`TypeSafe-Danger-Zone-Images` 头、固定 `jev-1.14.0`，`jevRequest`）
     ├── pplx.ts             Perplexity 后端（Decisions API，pplx-decider-v1.1-27b，#43、#50；`decisionModel: pplx` 选它；带图时 state 是数组，`pplxRequest`）
     └── pplx-rate.ts        pplx 的限速和 429 重试（#51）：`rateLimited(backend, qps)` 把后端包起来，按 `pplxQps` 排队，effort 先发；Jev 不经过
@@ -678,6 +693,7 @@ eval/                       评测（接缝 2）：评测集、Node 脚本、结
 tests/support/world.ts      接缝 1 的测试脚手架
 tests/support/pasted.ts     用户贴在消息里的图（#63）：`prompt.submit` 的 attachments（只有元数据）和引擎随后追加的那一行（`session.append`，door 为 prompt：image 块加 `[Image: source: <路径>]` 文字）；`w.submit(text, { images })` 用它
 tests/support/images.ts     world 的二进制文件和程序（#57）：`FakeFile`（按格式、尺寸描述的图，`fileBase64` 给出真的 PNG/JPEG 文件头）、`readFake`（从请求里的 base64 读回尺寸和来历）、假的 `sips` 和 `mkdir`（`Program`）；假的 `ffmpeg(videos)`（#60：`videos` 是按绝对路径给的 `FakeVideo`（长度、宽高、帧率），不在 `files` 里；`-i` 单独一次回 `Duration:` 并以 1 结束，`-ss` 超出最后一帧回 234，否则把一帧写成带来历标签的 JPEG；用 `process: { programs: { ffmpeg: ffmpeg(videos) } }`，`ffmpeg: null` 是没装）
+                            （#62 加）`FakeFile.mtimeMs`（`fs.stat` 的修改时间）、`readImageResult`（Read 读图时引擎给 `tool.call` 的结果：image 结果加 `[Image: …]` 文字和 ref）、`screenshotContent`（MCP 截图工具的内容块，`mcp` 和 `api` 两种写法）、导出的假 `base64 -D -o 文件`（stdin 解码成文件，假图的字节还原成同一张图；不是缺省程序，要用 `process: { programs: { base64 } }` 装上，#63 的测试靠它缺省没有来测「写不成文件」）
 tests/support/zoom.ts       放大复核的假决策模型（#59）：`zoomBackend` 按题号分开回答请求一（整图的 Noul、框题）和请求二（裁图的 Noul），`box()` 写一个框答案
 tests/support/workflow.ts   Workflow 工具桩和按脚本里第几个调用作答的 siteJev（#8）；workflowWorld 在 world 之外加一层，不改 world.ts
 tests/support/workflow-run.ts  运行目录（journal、transcript）和 tool.describe 的桩；runWorld 在 workflowWorld 之外再加一层（#9）
