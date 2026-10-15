@@ -144,6 +144,24 @@ export async function loadImages(io: ImageFilesIo, paths: readonly string[], lim
   return smaller
 }
 
+/** What `loadAll` comes to: all the images, or why not, with the first image when that one was got (to hand back to look at). */
+export type LoadedAll = { ok: true; images: LoadedImage[] } | { ok: false; reason: string; first: LoadedImage | null }
+
+/** `loadImages`, read as a whole: every image, or the reason of the first that could not be had (a throw is a reason too). Never throws. */
+export async function loadAll(io: ImageFilesIo, paths: readonly string[], limits: ImageLimits, megapixels?: number): Promise<LoadedAll> {
+  let loaded: Loaded[]
+  try {
+    loaded = await loadImages(io, paths, limits, megapixels)
+  } catch (error) {
+    return { ok: false, reason: errorMessage(error), first: null }
+  }
+  const head = loaded[0]
+  const first = head?.ok === true ? head.image : null
+  const broken = loaded.find((one) => !one.ok)
+  if (broken !== undefined && !broken.ok) return { ok: false, reason: broken.reason, first }
+  return { ok: true, images: loaded.flatMap((one) => (one.ok ? [one.image] : [])) }
+}
+
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /**

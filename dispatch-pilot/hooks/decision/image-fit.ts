@@ -2,6 +2,8 @@
 // Jev takes no image outside its limits ("never resized to fit"), and pplx hangs for a minute on one over its tile count, so the
 // mod sizes every image itself (core/image-files.ts does it with sips; the eval does it the same way in Node). Pure (see system-one.ts).
 
+import type { BackendName } from './backend.ts'
+
 /** What a decision model takes of an image's pixels. A bound left out is none. */
 export type ImageLimits = {
   /** The shortest and the longest side. */
@@ -24,7 +26,7 @@ export const PPLX_IMAGE_LIMITS: ImageLimits = { maxTiles: 2048 }
 export const LOOK_IMAGE_LIMITS: ImageLimits = { maxSide: 1568 }
 
 /** The limits of the decision model that takes images. */
-export function limitsFor(backend: 'jev' | 'pplx'): ImageLimits {
+export function limitsFor(backend: BackendName): ImageLimits {
   return backend === 'jev' ? JEV_IMAGE_LIMITS : PPLX_IMAGE_LIMITS
 }
 

@@ -64,6 +64,21 @@ test('a new turn of the loop starts the count again', { options: JEV }, async ($
   expect(afterwards).not.toContain('failed twice')
 })
 
+test('an agent woken by a message after it finished (spawn with resume, then its own turn.start) is in a loop of its own: the count starts again', { options: JEV }, async ($, on) => {
+  const w = failing($, on, [0.05, 0.05, 0.05])
+  await w.start()
+  await w.submit('review the change and check the home screen')
+  await w.step({ index: 0 })
+  const started = await w.spawn({ prompt: 'Check the home screen.', description: 'check home' })
+  await $.turn.start({ text: 'Check the home screen.', turnId: 'sub-1', agentId: started.agentId })
+  await w.visualCheck({ images: [SHOT], checks: [BUTTON] }, { agentId: started.agentId })
+  await w.spawn({ prompt: 'Look again.', description: 'check home again', resume: { agentId: started.agentId ?? '' } })
+  await $.turn.start({ text: 'The coordinator sent a message while you were working: look again.', turnId: 'sub-2', agentId: started.agentId })
+  const again = text(await w.visualCheck({ images: [SHOT], checks: [BUTTON] }, { agentId: started.agentId }))
+
+  expect(again).not.toContain('failed twice')
+})
+
 test('each agent has its own count: the main agent’s FAIL and a dispatched agent’s are not two in a row, and the agent’s own run starts its count', { options: JEV }, async ($, on) => {
   const w = failing($, on, [0.05, 0.05, 0.05, 0.05])
   await w.start()

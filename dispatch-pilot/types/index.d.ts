@@ -280,6 +280,11 @@ declare module 'claude-code' {
           zoomed: boolean
           ms: number
         }
+        /**
+         * An entry of feature `decision-model` (the fallback to another decision model): which requests it is about, the ones that
+         * decide (`text`) or the ones that carry images (`images`). What the screens and the entry's replacement read, not its words.
+         */
+        fallbackFor?: 'text' | 'images'
       }[]
       /**
        * The agent the person picked on the band (its digit key, 0 the main agent) or paged to in the rationale

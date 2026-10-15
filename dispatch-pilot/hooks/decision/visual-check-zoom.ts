@@ -4,9 +4,9 @@
 // visual-check suite (#65) asks and reads the very same way, so this is pure (see system-one.ts): no `$`, no files.
 
 import { type Box, boxArea, coverage, ELSEWHERE_MAX_AREA, ELSEWHERE_MIN_CONFIDENCE, normalizeBox } from './zoom.ts'
-import { imageRef, imageTokens, type Picture } from './images.ts'
+import { imageRef, imageTokens, packByCost, type Picture } from './images.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part, type Question, type RequestImage, MAX_QUESTIONS } from './system-one.ts'
-import { judge, type Check, type CheckResult, type Comparison } from './visual-check.ts'
+import { judge, yesOf, type Check, type CheckResult } from './visual-check.ts'
 
 // ---- Locating: the Box questions of the first request ----------------------------------------------------------------
 
@@ -120,9 +120,6 @@ export type NamedPicture = { name: string; picture: Picture }
 /** The two crops of one check's part: from the screenshot, and from the image `reference` (its place among those compared with) is compared with. */
 export type ZoomPair = { index: number; reference: number; check: Check; candidate: NamedPicture; other: NamedPicture; otherField: string }
 
-/** The probability of a Noul answer; null for one that is missing or is another kind of answer. */
-const yesOf = (answer: Answer | undefined): number | null => (answer !== undefined && answer.type === 'noul' ? answer.noul : null)
-
 const questionId = (pair: Pick<ZoomPair, 'index' | 'reference'>): string => `${pair.index}.${pair.reference}`
 
 /** What a pair's question says: the crops are in its instructions, so that each costs only that question. */
@@ -143,20 +140,8 @@ export const ZOOM_REQUEST_TOKENS = 48_000
 
 /** The pairs split into requests whose crops cost about `ZOOM_REQUEST_TOKENS` each at the most (a pair is never split). */
 export function batchPairs(pairs: readonly ZoomPair[]): ZoomPair[][] {
-  const batches: ZoomPair[][] = []
-  let tokens = 0
-  for (const pair of pairs) {
-    const cost = imageTokens('jev', [pair.candidate.picture, pair.other.picture], 1)
-    const last = batches.at(-1)
-    if (last === undefined || tokens + cost > ZOOM_REQUEST_TOKENS || last.length >= MAX_QUESTIONS - 1) {
-      batches.push([pair])
-      tokens = cost
-    } else {
-      last.push(pair)
-      tokens += cost
-    }
-  }
-  return batches
+  const costs = pairs.map((pair) => imageTokens('jev', [pair.candidate.picture, pair.other.picture], 1))
+  return packByCost(costs, ZOOM_REQUEST_TOKENS, MAX_QUESTIONS - 1).map((batch) => batch.map((index) => pairs[index] as ZoomPair))
 }
 
 const requestImage = (crop: NamedPicture): RequestImage => ({ name: crop.name, format: crop.picture.format, base64: crop.picture.base64, width: crop.picture.width, height: crop.picture.height })
@@ -202,6 +187,3 @@ export function fallBack(whole: CheckResult, reason: string): CheckResult {
   if (whole.verdict === 'fail') return whole
   return { ...whole, verdict: 'unsure', why: whole.why === undefined ? reason : `${reason}; ${whole.why}` }
 }
-
-/** The comparison kinds that are checked against an image, and so can be zoomed. */
-export const isCompared = (comparison: Comparison): boolean => comparison.kind === 'reference' || comparison.kind === 'compare_to'

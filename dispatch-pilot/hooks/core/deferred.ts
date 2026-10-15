@@ -9,6 +9,7 @@
 // reload (its turn goes out unrouted).
 
 import type { ReferenceReading } from '../decision/complexity.ts'
+import { keepNewest } from '../decision/keep-newest.ts'
 import type { Contribution } from './ballot.ts'
 
 /** A message's effort part, to be built once its images' reading is known (null: it could not be read, or was not asked for). */
@@ -22,7 +23,7 @@ const MOST_WAITING = 8
 export function defer(prompt: string, deferred: Deferred): void {
   waiting.delete(prompt)
   waiting.set(prompt, deferred)
-  for (const oldest of [...waiting.keys()].slice(0, Math.max(0, waiting.size - MOST_WAITING))) waiting.delete(oldest)
+  keepNewest(waiting, MOST_WAITING)
 }
 
 /** The message was refused beneath, or is not waiting for a turn after all. */

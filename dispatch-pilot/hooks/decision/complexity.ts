@@ -7,6 +7,7 @@
 //
 // Pure (see system-one.ts): no `$`; the images arrive read and sized (core/image-files.ts).
 
+import type { BackendName } from './backend.ts'
 import { type ImageLimits, limitsFor } from './image-fit.ts'
 import { imageRef, type Picture } from './images.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part, type RequestImage } from './system-one.ts'
@@ -18,42 +19,35 @@ export const MAX_REFERENCE_IMAGES = 6
 export const REFERENCE_MAX_PIXELS = 1_000_000
 
 /** What the decision model takes of an image for a reading: its own limits, and about a megapixel at the most. */
-export function complexityLimits(backend: 'jev' | 'pplx'): ImageLimits {
+export function complexityLimits(backend: BackendName): ImageLimits {
   return { ...limitsFor(backend), maxPixels: REFERENCE_MAX_PIXELS }
 }
 
-/** The five levels, lowest first. `en`: the question's description of the level (the model's); `summary`: the level in the effort request's state (the model's); `zh`: what a person reads on the card. */
-export const COMPLEXITY_LEVELS: readonly { name: string; en: string; summary: string; zh: { name: string; note: string } }[] = [
+/**
+ * The five levels, lowest first, as the decision model reads them. `en`: the question's description of the level; `summary`: the
+ * level in the effort request's state. What a person reads on the card is another table (board/reference.ts).
+ */
+export const COMPLEXITY_LEVELS: readonly { name: string; en: string; summary: string }[] = [
   {
     name: 'trivial',
     en: 'A single plain shape or flat graphic with almost nothing to it and no fine detail, such as a plain cube, a solid-colour logo or one basic button.',
-    summary: 'trivial: a single plain shape or flat graphic, no fine detail',
-    zh: { name: '极简单', note: '一个朴素的形状或平面图形，几乎没有细节' },
-  },
+    summary: 'trivial: a single plain shape or flat graphic, no fine detail',  },
   {
     name: 'simple',
     en: 'A few plain elements laid out simply, with little detail: a basic screen with a handful of standard controls, or an object made of a few primitive shapes.',
-    summary: 'simple: a few plain elements laid out simply, little detail',
-    zh: { name: '简单', note: '几个朴素的元素、排得简单，细节很少' },
-  },
+    summary: 'simple: a few plain elements laid out simply, little detail',  },
   {
     name: 'moderate',
     en: 'A moderate number of distinct parts with some detail or styling: an ordinary app screen, a recognisable object of several components, or a small scene with a few materials.',
-    summary: 'moderate: a moderate number of distinct parts with some detail or styling',
-    zh: { name: '中等', note: '数量适中的不同部分，有一些细节或样式' },
-  },
+    summary: 'moderate: a moderate number of distinct parts with some detail or styling',  },
   {
     name: 'complex',
     en: 'Many distinct parts with fine detail, layered materials, lighting or effects: a dense interface, a detailed model, or a scene with several kinds of surfaces.',
-    summary: 'complex: many distinct parts with fine detail, layered materials, lighting or effects',
-    zh: { name: '较复杂', note: '很多不同的部分，细节精细，材质、光照或特效有多层' },
-  },
+    summary: 'complex: many distinct parts with fine detail, layered materials, lighting or effects',  },
   {
     name: 'very complex',
     en: 'A very large amount of intricate detail: a whole city or environment, an organic or highly detailed model with many parts, a scene with many interacting effects, or a screen of many interacting elements.',
-    summary: 'very complex: a very large amount of intricate detail, many parts or interacting effects',
-    zh: { name: '很复杂', note: '大量精细的细节，部分很多，或有许多相互作用的效果' },
-  },
+    summary: 'very complex: a very large amount of intricate detail, many parts or interacting effects',  },
 ]
 
 /** The reading part's name and its one question's id: `complexity.level` in the request. */
@@ -111,6 +105,11 @@ export const REFERENCE_FIELD = 'reference_complexity'
 export function referenceState(reading: ReferenceReading): Record<string, unknown> {
   const level = COMPLEXITY_LEVELS[reading.level]
   return { level: reading.level, scale: '0 (trivial) to 4 (very complex)', description: level?.summary ?? `level ${reading.level}`, images: reading.images }
+}
+
+/** The request state's field for a reading, or nothing when there is none (to spread into a state: `...referenceField(reading)`). */
+export function referenceField(reading: ReferenceReading | null | undefined): Record<string, unknown> {
+  return reading === undefined || reading === null ? {} : { [REFERENCE_FIELD]: referenceState(reading) }
 }
 
 /** Lowercase hexadecimal of bytes. */

@@ -12,19 +12,33 @@
 // The switch is `image-routing` (off by default: the images leave the machine), and the re-decision is the mid-turn feature's,
 // so it needs `midturn-effort` on too. With the first off, nothing here does anything.
 
-import type { On } from 'claude-code'
-import { errorText } from '../decision/backend.ts'
-import type { ReferenceReading } from '../decision/complexity.ts'
-import type { ReferenceSource } from '../core/complexity.ts'
+import type { EngineInterface, HttpInit, On } from 'claude-code'
+import { errorText, type BackendIo } from '../decision/backend.ts'
+import { keepNewest } from '../decision/keep-newest.ts'
+import type { ReferenceReadings } from '../core/complexity.ts'
+import type { ImageFilesIo } from '../core/image-files.ts'
 import { MAIN_LOOP, startedBefore } from '../core/loop-start.ts'
+import { MAIN, update, type Cell } from '../core/plans.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
+import { report, type NodeFailure, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { isOn, masterOn } from '../core/switches.ts'
-import { hasImage, IMAGE_ROUTING_SWITCH, pastedOf, readReference } from './image-routing.ts'
-import { judgeAgainWithReference } from './midturn-effort.ts'
+import { newWorkFile } from '../core/work-files.ts'
+import { type Block, hasImage, IMAGE_ROUTING_SWITCH, pastedOf, readReference, type ReadIo } from './image-routing.ts'
+import { askedFor, judgeAgainWithReference, type LaunchIo, type MidturnRecord } from './midturn-effort.ts'
+import { UNRESOLVED_SWITCH } from './unresolved.ts'
 
 const LOOPS = { plugin: 'dispatch-pilot', key: 'loops' } as const
 const MAIN_STEP = { plugin: 'dispatch-pilot', key: 'mainStep' } as const
+const READINGS = { plugin: 'dispatch-pilot', key: 'referenceReadings' } as const
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
+const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
+const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
+const MIDTURN = { plugin: 'dispatch-pilot', key: 'midturn' } as const
+const FAILURES = { plugin: 'dispatch-pilot', key: 'escalation', id: MAIN } as const
+const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
+const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
 
 /**
  * The messages with images typed into a running turn, by their words, with the turn they were typed into (module level: the
@@ -33,8 +47,6 @@ const MAIN_STEP = { plugin: 'dispatch-pilot', key: 'mainStep' } as const
  */
 const typedIn = new Map<string, string>()
 const MOST_TYPED = 8
-
-type Block = { type: string; [field: string]: unknown }
 
 export function registerReferenceMidturn(on: On, ctx: Ctx): void {
   /** Whether images met now are to be read: the feature is on and there is an image backend. */
@@ -52,7 +64,7 @@ export function registerReferenceMidturn(on: On, ctx: Ctx): void {
       const [started, modified] = await Promise.all([$.state.get({ ...LOOPS, id: MAIN_LOOP }), $.fs.stat(path).catch(() => null)])
       // Made in this loop (or no way to tell when the loop began): the agent's own picture, not a reference.
       if (modified === null || started.value === undefined || !startedBefore(modified.mtimeMs, started.value.startedAt)) return result
-      await judgeAgainWithReference($, ctx, readOf($, ctx, [{ path }]), '读到参考图')
+      await judgeAgainWithReference(launchIoOf($), ctx, readReference(readIoOf($), ctx, [{ path }]), '读到参考图')
     } catch (error) {
       $.ui.log(`reference images: ${errorText(error)}`, { to: 'debug' })
     }
@@ -66,7 +78,7 @@ export function registerReferenceMidturn(on: On, ctx: Ctx): void {
     if (typed) {
       typedIn.delete(e.text.trim())
       typedIn.set(e.text.trim(), e.turnId as string)
-      for (const oldest of [...typedIn.keys()].slice(0, Math.max(0, typedIn.size - MOST_TYPED))) typedIn.delete(oldest)
+      keepNewest(typedIn, MOST_TYPED)
     }
     const result = await next(e)
     if (typed && result.drop !== undefined) typedIn.delete(e.text.trim())
@@ -84,7 +96,7 @@ export function registerReferenceMidturn(on: On, ctx: Ctx): void {
       // The turn it was typed into must still be the one running.
       const step = (await $.state.get(MAIN_STEP)).value ?? null
       if (step === null || step.turnId !== turnId || row.sources.length === 0) return result
-      await judgeAgainWithReference($, ctx, readOf($, ctx, row.sources), '轮中贴了参考图')
+      await judgeAgainWithReference(launchIoOf($), ctx, readReference(readIoOf($), ctx, row.sources), '轮中贴了参考图')
     } catch (error) {
       $.ui.log(`reference images: ${errorText(error)}`, { to: 'debug' })
     }
@@ -92,7 +104,60 @@ export function registerReferenceMidturn(on: On, ctx: Ctx): void {
   })
 }
 
-/** The reading of `sources`, started now; it never rejects (null: there is none, and why is in the debug log and the board's notes). */
-function readOf($: Parameters<typeof readReference>[0], ctx: Ctx, sources: readonly ReferenceSource[]): Promise<ReferenceReading | null> {
-  return readReference($, ctx, sources).catch(() => null)
+/** What a request to the decision model needs of the engine, as closures (`$` may not cross a file, so this file builds its own). */
+function backendOf($: EngineInterface): BackendIo {
+  return {
+    fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+    sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+    pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+  }
+}
+
+/** What a reading of the pictures needs of the engine (features/image-routing.ts `ReadIo`). */
+function readIoOf($: EngineInterface): ReadIo {
+  const files: ImageFilesIo = {
+    run: (argv, init) => $.process.run(argv, init),
+    readBytes: async (path) => (await $.fs.read(path, { as: 'bytes' })).base64,
+    newFile: (extension) => newWorkFile({ run: (argv) => $.process.run(argv), tmpdir: () => $.env.get('TMPDIR'), sessionId: () => $.session.id() }, extension),
+  }
+  const reporting: ReportIo = {
+    board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+    decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+    debug: (line) => $.ui.log(line, { to: 'debug' }),
+    now: () => $.clock.now(),
+    toast: (text) => $.ui.toast(text),
+  }
+  return {
+    backend: backendOf($),
+    files,
+    store: { get: () => $.state.get(READINGS), set: (value: ReferenceReadings, options) => $.state.set(READINGS, value, options) },
+    now: () => $.clock.now(),
+    debug: (line) => $.ui.log(line, { to: 'debug' }),
+    note: (failure: NodeFailure) => report(reporting, { decision: { feature: IMAGE_ROUTING_SWITCH, agent: 'main', aside: true, failure } }),
+  }
+}
+
+/** What a re-decision needs of the engine (features/midturn-effort.ts `LaunchIo`). */
+function launchIoOf($: EngineInterface): LaunchIo {
+  return {
+    backend: backendOf($),
+    now: () => $.clock.now(),
+    mainStep: async () => (await $.state.get(MAIN_STEP)).value ?? null,
+    state: async (key) => {
+      const [{ value: turn }, { value: record }, { value: lock = null }, { value: failures }, { value: held }] = await Promise.all([
+        $.state.get({ ...TURNS, id: key }),
+        $.state.get({ ...MIDTURN, id: key }),
+        $.state.get(LOCK),
+        $.state.get(FAILURES),
+        isOn(UNRESOLVED_SWITCH) ? $.state.get(COUNT) : Promise.resolve({ value: undefined }),
+      ])
+      return { turn, record, lock, failures, held }
+    },
+    asked: async (key, upcoming) => {
+      const ref = { ...MIDTURN, id: key }
+      const cell: Cell<MidturnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
+      await update(cell, (r) => askedFor(r, upcoming))
+    },
+    debug: (line) => $.ui.log(line, { to: 'debug' }),
+  }
 }

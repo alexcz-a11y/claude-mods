@@ -8,6 +8,9 @@
 import type { HttpInit, HttpResponse } from 'claude-code'
 import type { DecisionRequest } from './system-one.ts'
 
+/** The decision models there are, by the name the person sets (`decisionModel`) and the code keys its tables by. */
+export type BackendName = 'pplx' | 'jev'
+
 /** What a backend needs from the host, as closures. */
 export type BackendIo = {
   fetch: (url: string, init: HttpInit) => Promise<HttpResponse>

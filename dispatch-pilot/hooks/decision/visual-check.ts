@@ -3,6 +3,7 @@
 // (see system-one.ts): no `$`, no files; the images arrive already read and sized (core/image-files.ts).
 
 import { imageRef, type Picture } from './images.ts'
+import { keepNewest } from './keep-newest.ts'
 import { answersFor, mergeParts, type DecisionRequest, type Part, type Question, type RequestImage, type Answer } from './system-one.ts'
 
 /** One thing to check: a part of the image, and one visible property of it (what to compare, or the requirement it must meet). */
@@ -45,6 +46,14 @@ export function judge(probability: number | null, trust: 'both' | 'fail'): { ver
   return { verdict: 'unsure', why: 'the decision model is not sure either way' }
 }
 
+/** All the checks end unsure, for a reason that touches them all. */
+export function allUnsure(checks: readonly Check[], why: string): CheckResult[] {
+  return checks.map((check) => ({ check, verdict: 'unsure' as const, probability: null, basis: 'whole' as const, why }))
+}
+
+/** The comparison kinds that are checked against an image, and so can be zoomed. */
+export const isCompared = (comparison: Comparison): boolean => comparison.kind === 'reference' || comparison.kind === 'compare_to'
+
 /** The part of a request that holds the checks' questions, named so that the question of a check is `check.<index>`. */
 export const CHECK_PART = 'check'
 
@@ -65,7 +74,7 @@ const named = (name: string, picture: Picture): RequestImage => ({ name, format:
  */
 export function wholeImageRequest(comparison: Comparison, subjects: Subjects, checks: readonly Check[]): { request: DecisionRequest; part: Part } {
   const { screenshot, references } = subjects
-  const compared = comparison.kind === 'reference' || comparison.kind === 'compare_to'
+  const compared = isCompared(comparison)
   const state: Record<string, unknown> = {}
   const images: RequestImage[] = []
   let ask: (check: Check) => string
@@ -93,7 +102,7 @@ export function wholeImageRequest(comparison: Comparison, subjects: Subjects, ch
 }
 
 /** The probability of a Noul answer; null for one that is missing or is another kind of answer. */
-function yesOf(answer: Answer | undefined): number | null {
+export function yesOf(answer: Answer | undefined): number | null {
   return answer !== undefined && answer.type === 'noul' ? answer.noul : null
 }
 
@@ -103,7 +112,7 @@ function yesOf(answer: Answer | undefined): number | null {
  */
 export function readWholeImage(comparison: Comparison, part: Part, answers: Readonly<Record<string, unknown>>, checks: readonly Check[]): CheckResult[] {
   const own = answersFor(part, answers)
-  const trust = comparison.kind === 'reference' || comparison.kind === 'compare_to' ? 'fail' : 'both'
+  const trust = isCompared(comparison) ? 'fail' : 'both'
   return checks.map((check, i) => {
     const probability = yesOf(own[String(i)])
     return { check, probability, basis: 'whole' as const, ...judge(probability, trust) }
@@ -137,7 +146,7 @@ export function noteResults(streaks: Streaks, agent: string, results: readonly C
   const mine = streaks.get(agent) ?? new Map<string, number>()
   streaks.delete(agent)
   streaks.set(agent, mine)
-  for (const oldest of [...streaks.keys()].slice(0, Math.max(0, streaks.size - MOST_AGENTS))) streaks.delete(oldest)
+  keepNewest(streaks, MOST_AGENTS)
   const repeated: number[] = []
   results.forEach((result, i) => {
     const key = checkKey(result.check)
@@ -149,6 +158,6 @@ export function noteResults(streaks: Streaks, agent: string, results: readonly C
     mine.set(key, count)
     if (count >= 2) repeated.push(i)
   })
-  for (const oldest of [...mine.keys()].slice(0, Math.max(0, mine.size - MOST_CHECKS))) mine.delete(oldest)
+  keepNewest(mine, MOST_CHECKS)
   return repeated
 }

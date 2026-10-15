@@ -4,6 +4,7 @@
 // `comparePair`: the named part located in both, cropped, enlarged, judged on the crops); this module is what comes of the pairs.
 // The eval's visual-check suite (#65) reads a series the very same way, so it is pure (see system-one.ts).
 
+import { packByCost } from './images.ts'
 import type { CheckResult } from './visual-check.ts'
 
 /** Most levels one call takes: each neighbouring pair is its own requests, and they go out in waves (`pairWaves`). */
@@ -69,17 +70,5 @@ export const WAVE_PAIRS = 6
  * what the images of each pair cost, in order. A pair is never split; the result holds the pairs' indexes.
  */
 export function pairWaves(tokens: readonly number[]): number[][] {
-  const waves: number[][] = []
-  let cost = 0
-  tokens.forEach((pair, index) => {
-    const last = waves.at(-1)
-    if (last === undefined || cost + pair > WAVE_TOKENS || last.length >= WAVE_PAIRS) {
-      waves.push([index])
-      cost = pair
-    } else {
-      last.push(index)
-      cost += pair
-    }
-  })
-  return waves
+  return packByCost(tokens, WAVE_TOKENS, WAVE_PAIRS)
 }

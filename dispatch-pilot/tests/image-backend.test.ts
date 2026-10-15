@@ -44,7 +44,7 @@ test('only a Perplexity key: the decision log says once that images go to pplx n
 
   const [entry, ...more] = await about(w)
   expect(more).toEqual([])
-  expect(entry).toMatchObject({ tone: 'info', outcome: '看图改用 pplx', reason: '没有 Jev 的密钥（typesafeApiKey），看图改用 pplx，放大复核不可用；补上密钥就用 Jev' })
+  expect(entry).toMatchObject({ tone: 'info', fallbackFor: 'images', outcome: '看图改用 pplx', reason: '没有 Jev 的密钥（typesafeApiKey），看图改用 pplx，放大复核不可用；补上密钥就用 Jev' })
   expect(JSON.stringify({ logs: w.logs, board: await w.board() })).not.toContain('pplx-test-key')
 })
 
@@ -63,7 +63,7 @@ test('with a TypeSafe key images go to Jev: nothing to say, whether or not there
 test('with only a TypeSafe key the entry is the one for the decision model (Jev decides), not for images', { options: { typesafeApiKey: 'ts-test-key' } }, async ($, on) => {
   const w = world($, on, { session: true, env: {} })
   await w.start()
-  expect(await about(w)).toMatchObject([{ outcome: '改用 Jev' }])
+  expect(await about(w)).toMatchObject([{ fallbackFor: 'text', outcome: '改用 Jev' }])
 })
 
 test('no key of either kind: images are unavailable, and the debug log says so (no entry: nothing changed for the person)', { options: {} }, async ($, on) => {

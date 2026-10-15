@@ -4,7 +4,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { absolute, type Disk, ok, readFake } from './support/images.ts'
-import type { PastedImage } from './support/pasted.ts'
+import { attachmentsOf, type PastedImage } from './support/pasted.ts'
 import { jev, pplx, type Reply, type Sent, world } from './support/world.ts'
 
 const JEV = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
@@ -96,6 +96,22 @@ test('a message typed during a running turn, with an image, is decided when it i
   expect(w.requests[1]?.body.assets).toBeUndefined()
   await w.step({ index: 1 })
   expect(w.steps[1]?.effort).toBe('max')
+})
+
+test('a message whose row never came is decided without a reading: the images of an earlier message are not guessed at', { options: JEV }, async ($, on) => {
+  const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 2) })
+  await w.submit('Look at the log first')
+  await w.step({ index: 0 })
+  // An earlier message with an image that no turn waited for (typed during the running one): its row is noted, and stays.
+  await w.submit('And build this scene too', { turnId: 't1', images: [SCENE] })
+  await w.step({ index: 1 })
+  // The next message says it has an image, but the engine's row for it does not come (the world appends none).
+  await $.prompt.submit({ text: 'Build the city', wait: false, origin: { kind: 'composer' }, attachments: attachmentsOf([{ shown: { format: 'png', width: 2000, height: 1200, label: 'shown-city' } }]) })
+  await w.step({ index: 0, turnId: 't2' })
+
+  const efforts = w.requests.filter((request) => request.body.state?.user_message === 'Build the city')
+  expect(efforts).toHaveLength(1)
+  expect(efforts[0]?.body.state.reference_complexity).toBeUndefined()
 })
 
 test('a message a hook beneath refuses leaves nothing waiting for a later turn with the same text', { options: JEV }, async ($, on) => {

@@ -2,7 +2,7 @@
 // never fails: a timeout, an HTTP error, sips failing, no CLI, a file that is not there. Seam 1, as visual-check.test.ts.
 
 import { expect, test } from 'claude-code/testing'
-import { sips } from './support/images.ts'
+import { ffmpeg, sips } from './support/images.ts'
 import { jev, world } from './support/world.ts'
 
 const JEV = { typesafeApiKey: 'ts-test-key' }
@@ -92,6 +92,31 @@ test('a decision model that does not answer in 8 seconds is given up on: the che
 
   expect(answer.text).toContain('(jev: no answer in 8000 ms)')
   expect(answer.types).toEqual(['text', 'image'])
+})
+
+test('a call that fails as a whole (a bug of the mod\'s own) answers with why, and the screenshot whole when it can be read', { options: JEV }, async ($, on) => {
+  let broken = false
+  on('http.fetch', { url: /(?:)/ }, (_$, e, next) => (broken ? { value: { status: 500, ok: false, headers: {} } as never } : next(e)))
+  const w = world($, on, { session: true, files: FILES, process: true, backend: jev([0, 1, 0, 0, 0]) })
+  await w.start()
+  broken = true
+  const answer = read(await w.visualCheck({ images: [SHOT], checks: CHECKS }))
+
+  expect(w.requests).toHaveLength(0)
+  expect(answer.text).toContain('visual_check could not run (an error in Dispatch Pilot, written to the debug log). Look at the images yourself.')
+  expect(answer.types).toEqual(['text', 'image'])
+})
+
+test('a call that fails as a whole, about a recording (no one image to hand back), answers with the text alone', { options: JEV }, async ($, on) => {
+  let broken = false
+  on('http.fetch', { url: /(?:)/ }, (_$, e, next) => (broken ? { value: { status: 500, ok: false, headers: {} } as never } : next(e)))
+  const w = world($, on, { session: true, process: { programs: { ffmpeg: ffmpeg({ '/rec/a.mov': { seconds: 3, width: 390, height: 844 } }) } }, backend: jev([0, 1, 0, 0, 0]) })
+  await w.start()
+  broken = true
+  const answer = read(await w.visualCheck({ images: ['/rec/a.mov'], checks: CHECKS }))
+
+  expect(answer.text).toContain('visual_check could not run')
+  expect(answer.types).toEqual(['text'])
 })
 
 test('a check the answer leaves out is UNSURE, the others are judged', { options: JEV }, async ($, on) => {

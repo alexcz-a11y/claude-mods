@@ -7,7 +7,7 @@
 // Pure of `$`: the engine comes in as closures (`ComplexityIo`), as for `BackendIo` and `ImageFilesIo`; a module cannot pass `$`
 // across an import, so every caller builds the closures from its own `$`.
 
-import { errorText, failureText, type Asked, type Failure } from '../decision/backend.ts'
+import { errorText, failureText, type Asked, type BackendName, type Failure } from '../decision/backend.ts'
 import { complexityLimits, complexityRequest, MAX_REFERENCE_IMAGES, readComplexity, referenceKey, type ReferenceReading } from '../decision/complexity.ts'
 import { readImageHeader } from '../decision/image-header.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
@@ -38,7 +38,7 @@ export type ComplexityIo = {
   store: Cell<ReferenceReadings>
   now: () => Promise<number>
   /** The decision model `ask` goes to: it sets the limits the images are brought within. */
-  backend: 'jev' | 'pplx'
+  backend: BackendName
   /** A line for the debug log. */
   debug?: (line: string) => void
 }
@@ -50,7 +50,7 @@ export type ReadingResult =
   | { ok: false; reason: string; failure?: Failure }
 
 /** The reading of the latest group asked or reused; null before any. */
-export async function latestReading(store: Cell<ReferenceReadings>): Promise<ReferenceReading | null> {
+export async function latestReading(store: Pick<Cell<ReferenceReadings>, 'get'>): Promise<ReferenceReading | null> {
   const latest = ((await store.get()).value ?? []).at(-1)
   return latest === undefined ? null : { level: latest.level, images: latest.images }
 }

@@ -12,7 +12,7 @@
 // scripts/decide*.ts read them from.
 
 import type { PluginOptions } from 'claude-code'
-import type { Backend } from '../decision/backend.ts'
+import type { Backend, BackendName } from '../decision/backend.ts'
 import type { ContextLimits } from '../decision/context.ts'
 import { DEFAULT_AGENT_MODELS, WORDS_SHARE, type AgentModel, type DispatchAsk, type DispatchSettings } from '../decision/dispatched-agent.ts'
 import type { EffortAsk, EffortRules } from '../decision/effort.ts'
@@ -24,8 +24,8 @@ import { pplxBackend } from '../decision/pplx.ts'
 import { rateLimited } from '../decision/pplx-rate.ts'
 import type { SkillPolicy } from '../decision/skills.ts'
 
-/** The decision models the person can choose (`decisionModel`): Perplexity's pplx-decider and TypeSafe's Jev. */
-export type BackendName = 'pplx' | 'jev'
+/** The decision models the person can choose (`decisionModel`): Perplexity's pplx-decider and TypeSafe's Jev (decision/backend.ts, where the pure modules read it). */
+export type { BackendName }
 
 /**
  * The decision model the person asked for: Jev when `decisionModel` names it, else pplx, the default (ADR 0006). Anything

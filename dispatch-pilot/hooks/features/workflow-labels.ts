@@ -56,6 +56,7 @@ const TERMS = { plugin: 'dispatch-pilot', key: 'workflowTerms' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
+const READINGS = { plugin: 'dispatch-pilot', key: 'referenceReadings' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'workflow-labels'
@@ -153,7 +154,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
         ...(held === undefined || held.count === 0 ? {} : { unresolved_count: held.count }),
       }
       // What the session's reference images read as (#64): in the requests, not in what the run keeps for its agents (they read the latest as each starts).
-      const reference = await sessionReading($)
+      const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
       const background = { ...problem, ...(reference === undefined ? {} : { reference_complexity: reference }) }
       const budgets = { one: ctx.config.contextByKind.workflow, each: ctx.config.contextByKind.agent }
       let sites: RunSite[] | null = null
@@ -356,7 +357,7 @@ async function decideAtStart(
   const launch = agent.run.launch
   const said = launch?.said ?? ((await $.state.get(SAID)).value ?? [])
   const words = said.join('\n')
-  const reference = await sessionReading($)
+  const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
   const background: WorkflowBackground = {
     ...(launch?.problem_summary === undefined ? {} : { problem_summary: launch.problem_summary }),
     ...(launch?.unresolved_count === undefined ? {} : { unresolved_count: launch.unresolved_count }),

@@ -11,7 +11,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { BACKEND_DEFAULTS } from '../hooks/core/setup.ts'
-import { checkConfigTable, checkOneWriter, checkStructureTree, checkSwitchList, declaredSwitches } from '../eval/lib/docs.ts'
+import { checkConfigTable, checkEngineStaysHome, checkOneWriter, checkStructureTree, checkSwitchList, declaredSwitches } from '../eval/lib/docs.ts'
 
 /** The decision models' defaults as these tests state them. */
 const DEFAULTS = {
@@ -271,4 +271,28 @@ test('the decision report has two entries, `report` and `reportStep`: a third ex
   expect(checkOneWriter({ 'core/report.ts': two })).toEqual([])
   const problems = checkOneWriter({ 'core/report.ts': `${two}\nexport async function reportTally(io, tally) {}\nexport const reportSwitch = (io, change) => {}` })
   expect(problems).toEqual([expect.stringMatching(/^`core\/report\.ts`: exports `reportTally`/), expect.stringMatching(/^`core\/report\.ts`: exports `reportSwitch`/)])
+})
+
+// The engine's `$` stays in the file of the hook that holds it (DEVELOPMENT.md 「事件和 matcher」): a function another file
+// imports takes closures, never `$`, and `$` is not put in an object. The real engine refuses such a mod at load time; the kit does not.
+
+test('a file that keeps `$` to itself, and shares closures, passes', () => {
+  expect(
+    checkEngineStaysHome({
+      'features/image-routing.ts': 'export async function readReference(io, ctx, sources) {}\nasync function decide($, ctx) {}\non("turn.start", async ($, e, next) => { await decide($, ctx) })',
+      'core/complexity.ts': '// readReference($, ctx) used to take $\nexport async function readReferenceComplexity(io, sources) {}',
+    }),
+  ).toEqual([])
+})
+
+test('an exported function that takes `$`, or `$` inside an object, is a problem', () => {
+  const problems = checkEngineStaysHome({
+    'features/a.ts': 'export async function readReference($: EngineInterface, ctx: Ctx) {}',
+    'features/b.ts': 'export function filesOf(\n  $: EngineInterface,\n) {}',
+    'features/c.ts': 'export const sessionReading = async ($: EngineInterface) => {}',
+    'features/d.ts': 'await launch({ $, s, e })',
+    'features/e.ts': 'const both = { s, $ }',
+    'features/f.ts': 'export async function later(ctx: Ctx, $: EngineInterface, n: number) {}',
+  })
+  expect(problems.map((problem) => problem.split(':')[0])).toEqual(['`features/a.ts`', '`features/b.ts`', '`features/c.ts`', '`features/d.ts`', '`features/e.ts`', '`features/f.ts`'])
 })
