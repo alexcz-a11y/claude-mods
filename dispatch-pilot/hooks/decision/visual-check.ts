@@ -3,7 +3,6 @@
 // (see system-one.ts): no `$`, no files; the images arrive already read and sized (core/image-files.ts).
 
 import { imageRef, type Picture } from './images.ts'
-import { redactSecrets } from './redact.ts'
 import { answersFor, mergeParts, type DecisionRequest, type Part, type Question, type RequestImage, type Answer } from './system-one.ts'
 
 /** One thing to check: a part of the image, and one visible property of it (what to compare, or the requirement it must meet). */
@@ -76,9 +75,9 @@ export function wholeImageRequest(comparison: Comparison, subjects: Subjects, ch
   if (!compared) {
     images.push(named('screenshot', screenshot))
     state.screenshot = imageRef('screenshot')
-    const spec = comparison.kind === 'spec' && comparison.spec !== null ? redactSecrets(comparison.spec) : null
+    const spec = comparison.kind === 'spec' ? comparison.spec : null
     if (spec !== null) state.specification = spec
-    ask = (check) => `In \`screenshot\`, does ${redactSecrets(check.part)} meet this requirement: ${redactSecrets(check.property)}?${spec === null ? '' : ' The specification it belongs to is in `specification`.'}`
+    ask = (check) => `In \`screenshot\`, does ${check.part} meet this requirement: ${check.property}?${spec === null ? '' : ' The specification it belongs to is in `specification`.'}`
   } else {
     images.push(named('candidate', screenshot))
     state.candidate = imageRef('candidate')
@@ -89,7 +88,7 @@ export function wholeImageRequest(comparison: Comparison, subjects: Subjects, ch
       state[name] = imageRef(name)
     })
     const those = names.length === 1 ? `\`${names[0]}\`` : `the reference images (${names.map((name) => `\`${name}\``).join(', ')}), which show it from different sides`
-    ask = (check) => `In \`candidate\`, is the ${redactSecrets(check.property)} of ${redactSecrets(check.part)} the same as in ${those}?`
+    ask = (check) => `In \`candidate\`, is the ${check.property} of ${check.part} the same as in ${those}?`
   }
   const questions: Record<string, Question> = Object.fromEntries(checks.map((check, i) => [String(i), { type: 'noul' as const, instructions: ask(check) }]))
   const part: Part = { part: CHECK_PART, questions }

@@ -6,7 +6,6 @@
 import { type Box, boxArea, coverage, ELSEWHERE_MAX_AREA, ELSEWHERE_MIN_CONFIDENCE, normalizeBox } from './zoom.ts'
 import { imageRef, imageTokens, type Picture } from './images.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part, type Question, type RequestImage, MAX_QUESTIONS } from './system-one.ts'
-import { redactSecrets } from './redact.ts'
 import { judge, type Check, type CheckResult } from './visual-check.ts'
 
 // ---- Locating: the Box questions of the first request ----------------------------------------------------------------
@@ -58,7 +57,7 @@ export function locatePlan(names: readonly string[], sameViews: readonly boolean
       return
     }
     room -= cost
-    const ask = (image: string): string => `${sentence(redactSecrets(check.part))} in \`${image}\`.`
+    const ask = (image: string): string => `${sentence(check.part)} in \`${image}\`.`
     const candidate = `${index}.candidate`
     boxes[candidate] = { type: 'box', instructions: ask('candidate') }
     const references = names.map((name) => `${index}.${name}`)
@@ -128,12 +127,11 @@ const questionId = (pair: Pick<ZoomPair, 'index' | 'reference'>): string => `${p
 
 /** What a pair's question says: the crops are in its instructions, so that each costs only that question. */
 function pairQuestion(pair: ZoomPair): Question {
-  const { otherField } = pair
-  const part = redactSecrets(pair.check.part)
+  const { check, otherField } = pair
   return {
     type: 'noul',
     instructions: {
-      question: `Both images are enlarged crops that show ${part}, cut out of two images. Is the ${redactSecrets(pair.check.property)} of ${part} the same in \`candidate_crop\` as in \`${otherField}\`?`,
+      question: `Both images are enlarged crops that show ${check.part}, cut out of two images. Is the ${check.property} of ${check.part} the same in \`candidate_crop\` as in \`${otherField}\`?`,
       candidate_crop: imageRef(pair.candidate.name),
       [otherField]: imageRef(pair.other.name),
     },
