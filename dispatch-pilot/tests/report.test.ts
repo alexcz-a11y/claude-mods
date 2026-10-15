@@ -175,6 +175,22 @@ test('a message typed while a turn runs is decided for that turn, not the next o
   expect(board.log.map((entry) => entry.turn)).toEqual([1, 1])
 })
 
+test("an agent's run is a turn of its own loop, not one of the board (its turn.start carries its agentId, 2.1.299 on): the count, the main agent's node and the turn's agents stay", { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
+  await w.submit('派两个 agent 分头查一下这两个文件')
+  await w.step({ index: 0 })
+  const first = await w.spawn({ prompt: 'List the exports of src/a.ts.', description: 'Read a.ts' })
+  const second = await w.spawn({ prompt: 'List the exports of src/b.ts.', description: 'Read b.ts' })
+  await w.step({ index: 0, turnId: 'sub-1', agentId: first.agentId, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.step({ index: 0, turnId: 'sub-2', agentId: second.agentId, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  const board = await w.board()
+  expect(board.turn).toBe(1)
+  expect(board.starts.map((start) => start.turn)).toEqual([1])
+  expect(board.main).toMatchObject({ turn: 1, decision: 1 })
+  expect(board.agents.map((node) => node.id)).toEqual([first.agentId, second.agentId])
+})
+
 test('the board holds the agents of the turn that runs and the one before it, no older', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
   for (const text of ['一', '二', '三']) {

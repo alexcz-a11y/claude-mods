@@ -254,6 +254,8 @@ export type SpawnOptions = {
   isTeammate?: true
   /** The loop the spawn happens in (a subagent dispatching an agent of its own); absent: the main agent. */
   parentAgentId?: string
+  /** The run resumes this agent (a finished subagent woken by a message, 2.1.299 on): `prompt` is the waking message. */
+  resume?: { agentId: string }
 }
 
 /**
@@ -280,6 +282,7 @@ function spawnInput(id: string, spawn: SpawnOptions & { workflow?: { runId: stri
     ...(spawn.isTeammate ? { isTeammate: true as const } : {}),
     ...(spawn.parentAgentId !== undefined ? { parentAgentId: spawn.parentAgentId } : {}),
     ...(spawn.workflow !== undefined ? { workflow: spawn.workflow } : {}),
+    ...(spawn.resume !== undefined ? { resume: spawn.resume } : {}),
   }
 }
 
@@ -538,11 +541,13 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   // The engine at the bottom of agent.spawn: it starts the agent on the model
   // it is handed (the parent's when none) and names it a1, a2, ... in the
   // order the spawns reach it. A Workflow agent's spawn can only be refused: it
-  // starts as its call has it, whatever a hook changed (2.1.294 on).
+  // starts as its call has it, whatever a hook changed (2.1.294 on). A resumed
+  // run goes on under the agent's own id (2.1.299 on).
   on('agent.spawn', (_$, e) => {
     spawned.push({ tool_use_id: e.tool_use_id, model: e.model, subagentType: e.subagentType, description: e.description, prompt: e.prompt, ...(e.workflow !== undefined ? { workflow: e.workflow } : {}) })
     const scripted = e.workflow === undefined ? undefined : workflowSpawns.get(`${e.workflow.runId}#${e.workflow.agentIndex}`)
     if (scripted !== undefined) return { model: scripted.model === undefined ? e.parentModel : (ENGINE_IDS[scripted.model] ?? scripted.model), agentId: scripted.agentId }
+    if (e.resume !== undefined) return { model: e.model ?? e.parentModel, agentId: e.resume.agentId }
     return { model: e.model ?? e.parentModel, agentId: `a${spawned.length}` }
   })
   // The engine at the bottom of turn.step: it records what the request went
@@ -814,6 +819,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
         ...(effort === null ? {} : { effort }),
         ...(step.agentId !== undefined ? { agentId: step.agentId } : {}),
       }
+      // An agent's run is a turn of its loop, and starts with a turn.start of its own before its first request (2.1.299 on).
+      if (step.agentId !== undefined && step.index === 0) await $.turn.start({ text: '', turnId: input.turnId, agentId: step.agentId })
       for await (const _chunk of $.turn.step(input)) {
         // drained: the hooks run as the stream is read
       }

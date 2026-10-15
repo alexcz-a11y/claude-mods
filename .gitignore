@@ -9,3 +9,6 @@
 # Claude Code: agent worktrees and local settings
 .claude/worktrees/
 .claude/settings.local.json
+
+# 本地工作文件（审查报告、交接文档等），不提交
+.scratch/

@@ -67,6 +67,19 @@ test("a dispatched agent's steps go out as the engine sent them", { options: KEY
   ])
 })
 
+test("an agent's run that starts while the person's message is entering (a background Workflow's next agent, 2.1.299 on) leaves the message's effort to the message's own turn", { options: KEY }, async ($, on) => {
+  // Beneath the mod, above the engine: the run starts once the message is decided, before the message's turn does.
+  on('prompt.submit', { text: /(?:)/ }, async (_$, e, next) => {
+    await $.turn.start({ text: 'Verify the IPv6 leak findings against the mihomo config.', turnId: 'turn-wa1', agentId: 'wa1' })
+    return next(e)
+  })
+  const w = world($, on, { backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })
+  await w.submit('把登录模块重构成三层，并补上测试')
+  await w.step({ index: 0 })
+
+  expect(w.steps.map((s) => s.effort)).toEqual(['high'])
+})
+
 test("the main agent's node shows the effort each turn goes out at", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: (request, n) => jev(n === 1 ? [0.05, 0.1, 0.7, 0.1, 0.05] : [0.9, 0.05, 0.05, 0, 0])(request) })
   await w.submit('把登录模块重构成三层')

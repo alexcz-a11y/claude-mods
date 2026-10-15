@@ -65,7 +65,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 ## 要求
 
-- **Claude Code 2.1.287 及以上**，mod 在 Claude Code 里默认启用。**0.4.3 测试用的是 Claude Code 2.1.296**（选 pplx 时派出 agent 和 Workflow 请求里的对话和脚本、agent 启动时才判断的读启动那一轮，在真实会话里实测过），0.4.2 也是（被 TaskStop 停掉的 Workflow agent 的结束实测过），0.4.1 也是（Workflow agent 的 `agent.spawn`、Haiku 5.5 的 effort 在真实会话里实测过），0.4.0 用的是 Claude Code 2.1.294（默认的 pplx 配置跑通一轮真实流程，见 #53），此前版本用的是 2.1.291（订阅登录，看板和依据面板在终端里看过）和 jev-1.13.0；缓存和评测的实测是在 2.1.289 上做的；跑 `eval/` 和 `scripts/` 里的 Node 脚本用的是 Node 26.5，用 mod 本身不需要 Node。
+- **Claude Code 2.1.287 及以上**，mod 在 Claude Code 里默认启用。**0.4.4 测试用的是 Claude Code 2.1.300**（派出 agent 自己那一轮的 `turn.start`、被 SendMessage 唤醒的 agent 的 `agent.spawn`，在真实会话里实测过），0.4.3 用的是 Claude Code 2.1.296（选 pplx 时派出 agent 和 Workflow 请求里的对话和脚本、agent 启动时才判断的读启动那一轮，在真实会话里实测过），0.4.2 也是（被 TaskStop 停掉的 Workflow agent 的结束实测过），0.4.1 也是（Workflow agent 的 `agent.spawn`、Haiku 5.5 的 effort 在真实会话里实测过），0.4.0 用的是 Claude Code 2.1.294（默认的 pplx 配置跑通一轮真实流程，见 #53），此前版本用的是 2.1.291（订阅登录，看板和依据面板在终端里看过）和 jev-1.13.0；缓存和评测的实测是在 2.1.289 上做的；跑 `eval/` 和 `scripts/` 里的 Node 脚本用的是 Node 26.5，用 mod 本身不需要 Node。
 - **只支持 Claude Code 订阅**（ADR 0001，`docs/adr/0001-main-agent-effort-only-no-model-switch.md`）。Dispatch Pilot 每轮、每一步都改主 agent 的 effort，但从不改它的模型：换模型必然让 prompt cache 失效，而在订阅下，同一个模型内切换 effort 保留缓存（2.1.289 上 Opus 5.5 加订阅实测）。Bedrock、Vertex 和各种网关上切换 effort 会让缓存失效，不在支持范围内。Claude Code 的文档只点名了 Opus 5.5、Sonnet 5.5 和 Fable 5.1 保留缓存，其他大多数模型上每档 effort 各有一份缓存，切换会重算整段请求（见 `docs/research/decision-models-and-caching.md` 的 3.4）。
 - **一个决策模型的账号。** 默认的决策模型是 pplx，要 Perplexity 的 API key（Decisions API）；Jev 要 TypeSafe 的 API key。没有 Perplexity 的 key、但有 TypeSafe 的 key 时，自动退回 Jev（0.3.1 的老用户升级后不会失去路由，依据面板的决策日志里会有一条说明原因）；两种 key 都没有时 mod 不发任何请求，每一轮都按会话自己的 effort 走，看板上写明缺的是 Perplexity 的 key。
 
@@ -249,7 +249,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 
 - **只支持 Claude Code 订阅**，见「要求」。
 - **决策请求整体失败时，你排除的模型仍可能按主 agent 的指定启动。** 哪些模型被排除，是决策模型从你的话里读出来的，没有它的回答就无从知道；mod 不改用关键词去猜，免得把只是提到某个模型的话当成排除。这是有意的取舍。
-- fork 出来的 agent（它总是用父 agent 的模型）和 agent team 的 teammate（它会长期存在、处理很多任务，派出时的一次判断看不到这些任务）不处理。
+- fork 出来的 agent（它总是用父 agent 的模型）和 agent team 的 teammate（它会长期存在、处理很多任务，派出时的一次判断看不到这些任务）不处理。已经结束、又被消息唤醒的 agent 不重新判断，沿用派出时的决定（引擎不让改它的模型）。
 - **主 agent 在推荐漏掉时不会自己去用 `find_skill`。** 一条要写 PR 描述、却没有推荐 `pr` 的消息，有提示、没有提示、提示写得更主动，主 agent 都直接写了正文；被明确要求查时，它能找到 `find_skill` 并用上。所以漏掉的推荐，目前只靠发消息时的推荐。
 - Jev 对同一个 key 的并发请求像是依次处理。Workflow 里 prompt 是数据的调用（fan-out）在 agent 启动时当场判断，几个 agent 几毫秒内一起启动，排在后面的可能超时，那些 agent 按引擎原样启动。
 - **选 pplx 时，派出的 agent 要多等几秒才启动。** 请求里带着派出它的那段对话，会话长了每个请求都满 32000 估算 token，pplx 约 4 到 5 秒才答（只带任务时不到 1 秒）。一次派出很多个（同一秒超过 `pplxQps` 个）时，后面的排到下一秒，最后几个可能超时、不经路由地启动；嫌慢可以调小 `contextTokens`。
