@@ -23,15 +23,12 @@
 import type { HttpInit, On } from 'claude-code'
 import { messageText } from '../decision/context.ts'
 import { EFFORT_PART } from '../decision/effort.ts'
-import { SKILLS_PART } from '../decision/skills.ts'
-import { answersFor, type State } from '../decision/system-one.ts'
-import { messageRequest } from '../decision/turn-start.ts'
-import { type Asked, type BackendIo, describeAsked, errorText } from '../decision/backend.ts'
-import { collect, type Contribution, type PartOutcome } from './ballot.ts'
+import { askGroup, type AskIo } from './ask-group.ts'
+import { collect, type Contribution } from './ballot.ts'
 import { forgetCommand, noteCommand, typedCommand } from './commands.ts'
 import { noteBlocked } from './outcomes.ts'
 import { newTurn, planStep, replace, takePending, turnKey, type Cell, type PendingDecision } from './plans.ts'
-import { messageLimits, type Ctx } from './setup.ts'
+import type { Ctx } from './setup.ts'
 import { reportStep, type StepIo } from './report.ts'
 import { masterOn } from './switches.ts'
 
@@ -48,6 +45,11 @@ const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 /** Prompts whose prompt.submit is letting them in right now: a turn that starts meanwhile is theirs. */
 const entering: string[] = []
 
+/** The prompt now being let in, when it is the only one: a turn that starts meanwhile is its (what a feature's `turn.start` takes its decision for). */
+export function enteringPrompt(): string | undefined {
+  return entering.length === 1 ? entering[0] : undefined
+}
+
 export function registerCore(on: On, ctx: Ctx): void {
   on('prompt.submit', async ($, e, next) => {
     // Every feature above has seen whether this is a command turn.
@@ -56,36 +58,18 @@ export function registerCore(on: On, ctx: Ctx): void {
     // Switched off (/dp off): whatever was put in the ballot is not asked.
     if (ballot.length === 0 || !masterOn()) return next(e)
     const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
-    const io: BackendIo = {
-      fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
-      sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
-      pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+    const io: AskIo = {
+      backend: {
+        fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+        sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+        pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+      },
+      now: () => $.clock.now(),
+      debug: (line) => $.ui.log(line, { to: 'debug' }),
     }
     // The main agent's effort goes in a request of its own (ADR 0005), the rest of the ballot in one. Both go out at once,
     // each is answered or fails on its own, and each part reads the outcome of the request it was in.
-    const blocks = (
-      await Promise.all(
-        requestGroups(ballot).map(async (group) => {
-          const startedAt = await $.clock.now()
-          const ids = group.flatMap((part) => Object.keys(part.questions).map((id) => `${part.part}.${id}`)).join(', ')
-          let asked: Asked
-          let state: State = {}
-          try {
-            // The state's budget follows the request's longest question: the skills' question leaves less than any other.
-            const limits = messageLimits(ctx.config, group.some((part) => part.part === SKILLS_PART))
-            const request = messageRequest({ prompt: e.text, messages, limits, parts: group })
-            state = request.state
-            asked = await ctx.backend.ask(io, request, ctx.config.timeoutMs)
-          } catch (error) {
-            // A part's malformed questions: nothing was sent.
-            asked = { ok: false, failure: { kind: 'request', detail: errorText(error) } }
-          }
-          const ms = (await $.clock.now()) - startedAt
-          $.ui.log(`request [${ids}] to ${ctx.backend.name}: ${describeAsked(asked, ms)}`, { to: 'debug' })
-          return settleAll(group, asked, state)
-        }),
-      )
-    ).flat()
+    const blocks = (await Promise.all(requestGroups(ballot).map((group) => askGroup(io, ctx, { prompt: e.text, messages, group })))).flat()
     entering.push(e.text)
     try {
       return await next(blocks.length > 0 ? { ...e, context: [...(e.context ?? []), ...blocks] } : e)
@@ -169,19 +153,4 @@ export function registerCore(on: On, ctx: Ctx): void {
  */
 function requestGroups(ballot: readonly Contribution[]): Contribution[][] {
   return [ballot.filter((part) => part.part === EFFORT_PART), ballot.filter((part) => part.part !== EFFORT_PART)].filter((group) => group.length > 0)
-}
-
-/** Hands each part its outcome (in parallel) and gathers the context blocks they return, in ballot order. */
-async function settleAll(ballot: readonly Contribution[], asked: Asked, state: State): Promise<string[]> {
-  const settled = await Promise.all(
-    ballot.map(async (contribution) => {
-      const outcome: PartOutcome = asked.ok ? { ok: true, answers: answersFor(contribution, asked.answers), state } : { ok: false, failure: asked.failure }
-      try {
-        return (await contribution.settle(outcome)) ?? []
-      } catch {
-        return []
-      }
-    }),
-  )
-  return settled.flat()
 }

@@ -307,6 +307,16 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
   - **看板上。** `BoardPart` 加了 `checks`（`visual-check` 开关的 `parts`），关着开关，行上不画计数。计数在 band 的每个 agent 行里状态格的后面（`AgentRow.checks`；`columnsOf` 给它留宽度，名字至少留 10 格，列宽不够就截断）和依据卡片的「看图核对」一行；日志条目在依据面板里照常列出，带一个动词「已核对 / 核对失败」。依据面板顶部的开关列表本来就读 `listSwitches()`，`visual-check` 登记了就在里面。画面上的功能叫法在 `board/view.ts` 的 `FEATURE_WORDS`：看图核对、截图接管、带图路由（后两个的开关在 #62、#63 登记）。
 - **测试。** 接缝 1：`tests/visual-check*.test.ts`（登记、判定、比较、尺寸、失败、`look`、调用、连续不过、pplx、预算、方向、日志、录屏 `visual-check-recording*.test.ts`、看板计数 `visual-check-band|board|pane.test.ts`）。world 新零件见 `tests/support/images.ts` 和下文「测试怎么写」。接缝 2：`tests/image-header.test.ts`（真实的 PNG、JPEG 字节）。
 
+**带图路由的第一半：复杂度读数和带图消息的推迟决定（#63，ADR 0008）。** 开关 `image-routing`（默认关：图会发给决策模型）。只管主 agent 在用户发消息时的 effort；中途重判、派出 agent 和 Workflow 是 #64，它们复用这里的读数。
+- **读数题和读法**在 `decision/complexity.ts`（纯，#65 评测共用）：一道 0–4 五档的 Score 题，英文问「照着这些参考图做出来有多复杂」，每档是一句情形的描述；图放在 state 的 `reference_images`。读数是各档概率的期望四舍五入（实测立方体 0.14、海面 1.77、城市 3.14，期望比最大概率那一档平滑）。`referenceState(reading)` 是 effort 请求里的 `reference_complexity` 字段：`{ level, scale, description, images }`；`turnStartPart({ reference })` 把它并进 state，effort 题本身不改，不带图时请求逐字不变。
+- **一组图得到读数、读数的存取**只在 `core/complexity.ts`：`readReferenceComplexity(io, sources)` 先规整图（每张不超过 100 万像素、一组最多 6 张，超了取前 6 张），按规整后字节的 hash（`referenceKey`，和顺序无关）认是不是读过的一组，读过的直接回（不发请求，并把它排到最近），没读过的发一个请求。读数存在 `$.state` 的 `referenceReadings`（最近 8 组，最近用的排最后；契约在 `types/index.d.ts`）。`latestReading(store)` 取最近一组的读数：#64 里不带图的请求（派出 agent、Workflow 批）用它。`ComplexityIo` 是闭包（`files`、`ask`、`store`、`now`、`backend`），谁要读就用自己的 `$` 造一份；`sources` 是 `{ path }`（文件）或 `{ base64 }`（引擎只给了字节，先用 `base64 -D -o` 写成文件）。不抛错：失败是 `{ ok: false, reason, failure? }`。
+- **带图的消息的流程。** ① `prompt.submit`：main-effort 看 `e.attachments` 里有没有 image（`hasImage`），开关开着、有图像后端、不是命令轮、不是报告、不是进行中的轮里发的，就不把 effort 题放进投票箱，而是交给 `core/deferred.ts`（一个从读数到 part 的函数）；此时只发投票箱里其他的题（skill 推荐等）。② `session.append`（door 为 prompt）：`features/image-routing.ts` 记下这条消息的 image 块和 `[Image: source: <路径>]` 文字（路径下是引擎缩小之前的原图），不读整个 `as: "api"` 会话。③ 主 agent 的 `turn.start`（在核心之前）：取走推迟的 part，先读图（最多等 `READING_WAIT_MS` = 3 秒，含规整），再用 `askGroup`（`core/ask-group.ts`，和发消息时同一个函数）发 effort 请求，state 带 `reference_complexity`；回答经原来 main-effort 的 `settle` 写成待用的决定，核心在同一次 `turn.start` 里认领，所以第一步就是这个 effort，计划表仍然只有核心写。decision 里 `forTurn` 记 `current`（这一轮已经开始）。
+- **失败。** 读数等不到、请求失败、图读不了、没找到图：debug log 一行，照常定（请求失败还往看板的 notes 记一条 `image-routing` 的失败，不弹 toast）。effort 请求也失败：和任何消息一样，这一轮按引擎原样发出，看板写 `routed: false` 和原因，弹 toast。hook 的 10 秒里 `$.clock.sleep` 算数，所以 effort 请求的等待取 `min(timeoutMs, 9000 − 读数用掉的)`。
+- **优先级没变。** 锁定 > 点名 > 路由抬到下限 > 引擎，`planStep` 没动；读数只是 state 里的一个字段，不进规则推演。
+- **依据卡片。** 日志条目 `LogEntry.reference = { level, images }`（`Decided.reference`，`entryOf` 复制），卡片多一行「参考图」（`board/reference.ts` 的 `referenceWords`：档位 3/4、中文档名和说明、来自几张图、「只作提示」）。
+- **偏离或没解决的地方**（票没写死的）。① 图的来源以 `[Image: source: <路径>]` 里的路径为准，没有这块文字时才用 image 块的字节（引擎已缩到长边 2000），这一条没在真实引擎上验证过 `session.append` 里是不是一定带这块文字。② 一轮进行中发的带图消息（`e.turnId` 有值）不推迟：它不开始新的一轮，走原来的路（#64 处理轮中贴图）。③ 读数匹配消息靠文字，对不上时取最近一条带图的行。④ 读数的档位用期望四舍五入，不是最大概率。
+- **测试。** 接缝 2：`tests/reference-complexity.test.ts`（题、读法、state 字段、hash）、`tests/reference-readings.test.ts`（一组图只问一次、缓存、上限、失败）。接缝 1：`tests/image-routing.test.ts`（带图的消息整条流程、默认关、不带图逐字不变、读数超时和失败、锁定、两家后端分工、图的来源）、`tests/image-routing-card.test.ts`（卡片）。world：`w.submit(text, { images })`（`tests/support/pasted.ts`：attachments 加引擎追加的那一行）、`jev(levels, { scores: { 'complexity.level': [...] } })` 按题号给 Score 题各自的概率。
+
 **「`Config` 晚一点才知道用哪一行」怎么解决：方案 3，两行都先算好，`ctx` 每次读时选。** 难点是环境变量只能在 `session.start` 里异步读，而 `Config` 的默认值行取决于最后用哪个模型（一个 0.3.1 的老用户只有 TypeSafe key 时必须得到恰好是 Jev 的默认值，1500 毫秒、6000/24000、中文、0.3），不少功能又在 register 时把 `ctx.config.*` 取走了。`setup()` 对 pplx 和 Jev 各算一份 `Config`（`readConfig(options, table, backend)`，纯、便宜）和各建一个后端，`Ctx` 的 `config`、`backend`、`ask`、`fellBack` 是 getter，每次读时按 `chooseBackend` 取其中一份（`secrets.perplexityEnvKey` 读完之前，环境变量里的 key 还看不到，只有 `session.start` 之后才对）。没选「`ctx` 里放个会被替换的 `current`，在 `session.start` 和 `prompt.submit` 里 `await resolve($)`」（方案 2）：getter 不要求每个入口都记得先 resolve，热重载（`register` 重新执行、`session.start` 再触发）也自然对。代价是 register 时取走 `ctx.config.*` 的功能必须改成用时再读：`midturn-effort`、`escalation` 的 `Settings` 现在是 getter 对象；`dispatchSettings(ctx)`（派出 agent、两个 Workflow 功能）和 `rankingSettings(ctx)`（skill 推荐、find_skill）返回 getter 对象；`skills`、`find-skill` 的 `policy`、`findWaitMs`、`findByProfile` 在用的地方读。不随决策模型变的值（`neverSuggested`、`alwaysListed`、`profileModel`、`workflowMode`、`profilesPerSession`）仍在 register 时取；`skills` 开关的默认值（开）也不随决策模型而变，所以不放进表里。新写的功能不要在 register 时取 `ctx.config.<随决策模型而定的值>`；`tests/decision-model.test.ts` 里有「环境变量里有 key」的例子（重判等待 6000 毫秒、派出 agent 的 max 门槛 0.47）会在这么做时失败。
 
 **退回 Jev 要写下来。** `control.ts` 的 `session.start` 在读完环境变量之后，若 `ctx.fellBack`，`report(io, { fellBack: { asked: 'pplx', using: 'jev' } })`（`core/report.ts`，ADR 0004：只有 report 写给人看的东西；`asked`、`using` 是 `BackendName`，给人看的名字和各模型的密钥设置名都在 report.ts 的 `DECISION_MODELS` 一张表里）：决策日志里一条 `feature: 'decision-model'`、`tone: 'info'` 的会话级条目（没有 `agent`，同一轮号的热重载换掉前一条，像 skill-profiles 那样），依据面板里的「决策模型 · 改用别的决策模型」，原因写缺哪个 key、怎么补。看板的节点、band 和 toast 都不动（`view.ts` 的当前轮日志里也滤掉它）。注意它只在 `session.start` 才写：`tests/support/world.ts` 里给了 `env`、`switches` 或 `session` 的世界才跑 `session.start`（`w.start()`），其余的测试世界不跑，所以只有 TypeSafe key 的老测试也能不写日志地照常用 Jev。
@@ -580,6 +590,7 @@ hooks/
 │   ├── dispatched-agents.ts  派出 agent 时判断它的模型和 effort（#6）
 │   ├── escalation.ts       失败计数和强制升档：主 agent 和派出 agent（#7）
 │   ├── find-skill.ts       主 agent 的 find_skill 工具：会话开始时注册，被调用时按查询给 skill 排序（#12）
+│   ├── image-routing.ts    带图路由的第一半（#63，ADR 0008）：开关 `image-routing`（默认关）；`session.append`（door 为 prompt）记下用户贴的图，`turn.start` 读出复杂度读数、再发 effort 题、写成待用的决定由核心认领；导出 `IMAGE_ROUTING_SWITCH`、`hasImage`
 │   ├── main-effort.ts      发消息时判断主 agent 的 effort（#2）
 │   ├── midturn-effort.ts   一轮中途重新判断主 agent 的 effort（#5）
 │   ├── unresolved.ts       未解决次数的开关 `/dp unresolved`、`session.end` 清零（#39），每轮结束后在后台写问题摘要、热重载丢掉的写的善后（#40）；题和读回答在 main-effort.ts：它们挂在 effort 那一份投票箱里
@@ -594,6 +605,7 @@ hooks/
 │   ├── band.tsx            终端的 band：状态条、每个 agent 一行（数字键、名字、模型标签、effort 标签、状态符号、时间色带、状态格）、事件流；空闲一行；不到 4 行时一行摘要
 │   ├── footer.tsx          终端的脚部摘要：状态符号、主 agent 的模型·effort、+N，最多 12 列
 │   ├── rationale.ts        依据面板看到的东西（纯函数）：选中的 agent 和它的决定（cardOf）、规则推演每一步的说法（stepLines，只读存下的步骤，不重算）、中途重判的结论（midVerdict）、按轮分组的日志和折叠键（logGroups）、顶部每项功能的开关（`switchWord`；整个 mod 关着时的 `offLine`）和 skill 画像（`profilesLine`）；面板的 id
+│   ├── reference.ts        卡片上「参考图」一行的中文（#63）：复杂度读数的档位、说明、来自几张图；只把存下的读数说成人话
 │   ├── pane.tsx            终端的依据面板：顶部灰字（每项功能的开关状态、锁定、skill 画像）、‹ 上一个 (p) / 下一个 › (n)、圆角的依据卡片、按轮分组的决策日志；悬挂缩进，不截断
 │   └── kit.tsx             视觉语言：色板（含状态格的 `STATUS_COLOR`）、effort 色阶、模型标签、单元格宽度、Raster 的格子、时间色带、概率条和置信条
 ├── core/                   各功能共用的机制，不含具体功能
@@ -608,6 +620,9 @@ hooks/
 │   ├── prompts.ts          isPersonsMessage：判断哪些 prompt 是用户本人的新消息
 │   ├── visual-check-report.ts  看图核对的汇报（#58）：一次调用的 aside 决定、增量的计数、失败的 note（`reportCall`）
 │   ├── image-files.ts      读图规整（#57，凡是要给决策模型图的功能都用它）：经 `ImageFilesIo` 的三个闭包用 sips 查尺寸、缩放、转格式、转正方向，读成 base64（`loadImage`、`loadImages`）；不在 CLI 时按文件头判断
+│   ├── complexity.ts       参考图的复杂度读数和读数的存取（#63，ADR 0008）：`readReferenceComplexity(io, sources)`（一组图：规整、按内容 hash 认组、同一组只问一次、读数存在 `$.state` 的 `referenceReadings`）和 `latestReading`（取最近一组的读数）；凡是要用读数的功能（#64 的中途重判、派出 agent、Workflow）都经这里，读数的存取只在这里；经 `ComplexityIo` 的闭包用 `$`
+│   ├── ask-group.ts        投票箱里一组 part 的一次请求（从 core.ts 提出来）：拼请求、发出、记 debug 行、把回答分给各 part；发消息时核心用它，带图的消息在 `turn.start` 里 image-routing 也用它，发出去的和记下的是同一份
+│   ├── deferred.ts         带图的消息推迟到 `turn.start` 才问的 effort 那一份（#63）：main-effort 不放进投票箱，交到这里（一个从读数到 part 的函数），image-routing 在一轮开始时取走
 │   ├── video-frames.ts     录屏抽帧（#60）：`readRecording` 经 `ImageFilesIo` 调 ffmpeg 查长度、在时间段内逐帧取成 JPEG，再交 `loadImages` 规整；失败回一句原因，从不抛
 │   ├── unresolved.ts       未解决次数（#39）和问题摘要（#40）的唯一写入者（moveCount、clearCount、queueSummary、landSummary 等）、「决定」的字句（含摘要没写成的）和 `UnresolvedRecord`（卡片画的记录）
 │   ├── skills.ts           skill 目录：loadCatalog（经闭包读命令、引擎的 skill 清单、settings、磁盘，找到每个 skill 的文件）；读和裁剪 skill 列表（#10）；rankingSettings、describeStages（#11）
@@ -634,6 +649,7 @@ hooks/
     ├── image-fit.ts        图要多大决策模型才收（#57）：两家的限制（`JEV_IMAGE_LIMITS`、`PPLX_IMAGE_LIMITS`、`LOOK_IMAGE_LIMITS`）、`planSize`（缩到哪个尺寸）、`uprightArgs`（按 EXIF 方向转正的 sips 参数）；mod 和评测共用
     ├── image-header.ts     PNG 和 JPEG 的文件头（#57）：尺寸、JPEG 的 EXIF 方向（`readImageHeader`，从 base64 直接读，不解码整张图）
     ├── visual-check.ts     看图核对的判断（#57，评测共用）：检查项和比较对象的类型、`wholeImageRequest`（请求一）、`readWholeImage`、`judge`（0.9 / 0.2）、连续两次不过的记录（`noteResults`、`forgetLoop`）
+    ├── complexity.ts       参考图的复杂度读数（#63，评测 #65 和 #64 共用）：0–4 五档的 Score 题（英文）、`complexityRequest`、`readComplexity`、`referenceState`（effort 请求的 state 里的 `reference_complexity`）、`referenceKey`（按内容认一组图）、每张图的上限（一组最多 6 张、约 100 万像素）
     ├── visual-check-frames.ts  看图核对读录屏（#60，评测共用）：`isRecording`、`FRAME_COUNT`（Jev 12、pplx 8）、`frameTimes`（取哪几秒）、ffmpeg 的参数（`probeArgs`、`frameArgs`）、`parseDuration`、`framesRequest`（帧的请求）
     ├── visual-check-record.ts  看图核对留给人看的（#58）：日志里的 `VisualCheckRecord`、`CheckTally`、看板和日志的中文字句（`tallyText`、`reasonText`）
     ├── visual-check-tool.ts  agent 读到的 visual_check（#57，英文）：工具说明（两版）、输入 schema、`parseVisualCheckInput`、回答的文字 `visualCheckText`
@@ -645,6 +661,7 @@ scripts/decide-agent.ts     同上，判断一个派出 agent（输入是评测�
 scripts/decide-stuck.ts     同上，一个卡住的循环的再判断（输入是 MidturnInput，见 `decision/midturn.ts`；请求用 #7 的 `stuckRequest` 拼）
 eval/                       评测（接缝 2）：评测集、Node 脚本、结果，见下文「评测」
 tests/support/world.ts      接缝 1 的测试脚手架
+tests/support/pasted.ts     用户贴在消息里的图（#63）：`prompt.submit` 的 attachments（只有元数据）和引擎随后追加的那一行（`session.append`，door 为 prompt：image 块加 `[Image: source: <路径>]` 文字）；`w.submit(text, { images })` 用它
 tests/support/images.ts     world 的二进制文件和程序（#57）：`FakeFile`（按格式、尺寸描述的图，`fileBase64` 给出真的 PNG/JPEG 文件头）、`readFake`（从请求里的 base64 读回尺寸和来历）、假的 `sips` 和 `mkdir`（`Program`）；假的 `ffmpeg(videos)`（#60：`videos` 是按绝对路径给的 `FakeVideo`（长度、宽高、帧率），不在 `files` 里；`-i` 单独一次回 `Duration:` 并以 1 结束，`-ss` 超出最后一帧回 234，否则把一帧写成带来历标签的 JPEG；用 `process: { programs: { ffmpeg: ffmpeg(videos) } }`，`ffmpeg: null` 是没装）
 tests/support/workflow.ts   Workflow 工具桩和按脚本里第几个调用作答的 siteJev（#8）；workflowWorld 在 world 之外加一层，不改 world.ts
 tests/support/workflow-run.ts  运行目录（journal、transcript）和 tool.describe 的桩；runWorld 在 workflowWorld 之外再加一层（#9）

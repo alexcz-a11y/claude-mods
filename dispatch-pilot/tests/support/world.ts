@@ -14,6 +14,7 @@
 import { mock } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
 import { absolute, BASE_DIRS, type Disk, type FakeFile, fileBase64, fileSize, mkdir, type Program, sips } from './images.ts'
+import { attachmentsOf, type PastedImage, rowOf } from './pasted.ts'
 import type {
   AgentInfo,
   CommandInfo,
@@ -225,6 +226,11 @@ export type SubmitOptions = {
   turnId?: string
   /** The person asked it to wait its turn (`chat:queueSubmit`). */
   wait?: boolean
+  /**
+   * Images pasted into the message (support/pasted.ts): `prompt.submit` carries their metadata as `attachments`, and the
+   * engine appends the message's row, with the images, before its turn starts (`session.append`, door `prompt`).
+   */
+  images?: readonly PastedImage[]
 }
 
 export type StepOptions = {
@@ -338,6 +344,9 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const agentCalls = new Set<string>()
   /** The Workflow agents being spawned, by `<runId>#<agentIndex>`: the id each starts under and the model its call gave it. */
   const workflowSpawns = new Map<string, { agentId: string; model: string | undefined }>()
+  /** The rows of messages with pasted images, by the message's text, until the engine appends them (support/pasted.ts). */
+  const pastedRows = new Map<string, ReturnType<typeof rowOf>>()
+  let rowCount = 0
   const disk = options.disk ?? {}
   /** The binary files, and the directories that exist, for `fs.read` as bytes and for the programs. */
   const binary: Disk = { files: new Map(Object.entries(options.files ?? {}).map(([path, file]) => [absolute(path), file])), dirs: new Set(BASE_DIRS) }
@@ -572,6 +581,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     if (dropped !== undefined) return { drop: dropped }
     const text = options.beneath?.rewrite?.(e.text) ?? e.text
     prompts.push({ text, context: e.context, origin: e.origin })
+    // The engine appends the message's row (its images included) before the turn starts.
+    const row = pastedRows.get(e.text)
+    if (row !== undefined) {
+      pastedRows.delete(e.text)
+      await $.session.append({ message: { type: 'user', role: 'user', content: row }, door: 'prompt', origin: e.origin ?? { kind: 'composer' }, uuid: `row-${++rowCount}` })
+    }
     // A command's turn starts with its command message, not the prompt as typed (measured on 2.1.291).
     const started = commandTurns.get(e.text) ?? text
     commandTurns.delete(e.text)
@@ -763,11 +778,13 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     /** Submits a prompt the way the engine does; resolves when it entered (or was queued). */
     submit: async (text: string, submit: SubmitOptions = {}) => {
       await booted()
+      if (submit.images !== undefined) pastedRows.set(text, rowOf(text, submit.images))
       return $.prompt.submit({
         text,
         wait: submit.wait ?? false,
         origin: submit.origin ?? { kind: 'composer' },
         ...(submit.turnId !== undefined ? { turnId: submit.turnId } : {}),
+        ...(submit.images !== undefined ? { attachments: attachmentsOf(submit.images) } : {}),
       })
     },
     /** Starts a turn for a prompt that waited in the queue; resolves to its id. */
@@ -912,6 +929,8 @@ export type AnswerExtra = {
   confidence?: number | null
   shares?: Record<string, Record<string, number>>
   nouls?: Record<string, number>
+  /** The probabilities of a Score question's levels by its id, where it is not the `levels` the backend was given (the reading `complexity.level` beside the effort `effort.level`). */
+  scores?: Record<string, readonly number[]>
   /** The answer to each Box question by its id (Jev 1.14 only); the middle of the image, confidence 0.5, for one left out. */
   boxes?: Record<string, { box: { top: number; bottom: number; left: number; right: number }; confidence: number }>
 }
@@ -954,8 +973,9 @@ export function jev(levels: readonly number[], extra: AnswerExtra = {}) {
         const given = extra.boxes?.[id]
         answers[id] = { type: 'box', box: given?.box ?? { top: 0.25, bottom: 0.75, left: 0.25, right: 0.75 }, confidence: given?.confidence ?? 0.5 }
       } else if (question.type === 'score') {
-        const probabilities = Object.fromEntries(levels.map((p, i) => [String(i), p]))
-        const score = levels.reduce((sum, p, i) => sum + p * i, 0)
+        const own = extra.scores?.[id] ?? levels
+        const probabilities = Object.fromEntries(own.map((p, i) => [String(i), p]))
+        const score = own.reduce((sum, p, i) => sum + p * i, 0)
         answers[id] = { type: 'score', score, legend: {}, probabilities, confidence: extra.confidence === undefined ? 0.7 : extra.confidence }
       } else if (question.type === 'choice' && extra.shares?.[id] !== undefined) {
         const shares = extra.shares[id] as Record<string, number>
