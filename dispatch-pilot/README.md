@@ -8,7 +8,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 决策模型只负责给出判断，不参与回答你。每个判断的结果写在看板上，依据记进决策日志，在依据面板里看（`/dp`），也可以用 `/dp log N` 在对话里列出。
 
-- **主 agent 的 effort。** 你每发一条消息，Dispatch Pilot 把这条消息和最近几条消息发给决策模型，问它这项工作需要多少逐步推理，得到 low、medium、high、xhigh、max 五档各自的概率。取概率最高的一档，并列时取较高的一档；如果高一档的概率也有 0.3 以上，就再往上取一档（升高容易：低估一档要付出质量，高估一档只多花 token）；`max` 只在它自己的概率达到 `thetaMax` 时才用。这一轮的每个模型请求都按这一档发出。一轮进行中，每隔几步（`rejudgeEvery`），以及主 agent 派出 agent、启动 Workflow 或加载 skill 时，会再判断一次（中途重判）；升档和降档都有防抖：升档要置信度达到 `thetaUp`（0.3），降档要达到 `thetaDown`（0.75）而且一次只降一档，升档之后 `holdSteps`（5）步之内不降。派出 agent 交回结果、后台任务结束，会话空闲时它们会开始主 agent 的新一轮，这样的一轮也走同样的判断：决策模型读到的是那条报告的文字，不推荐 skill，也不在这一轮中途重判（会话自己的 xhigh 用在只是看一眼结果上是浪费）；报告送进一轮正在进行的对话时不另外判断。其他会话的消息、插件自己发的消息和空消息都不判断。你输入的 skill 或 markdown 命令（例如 `/implement #19`）开始的一轮也照常判断：决策模型读你输入的命令和参数，以及这个命令是做什么的，不读命令展开后的正文；参数里的点名照样算；这样的一轮不推荐 skill。`/dp`、`/clear` 这类本地命令不开始一轮，也就不判断。
+- **主 agent 的 effort。** 你每发一条消息，Dispatch Pilot 把这条消息和最近几条消息发给决策模型，问它这项工作需要多少逐步推理，得到 low、medium、high、xhigh、max 五档各自的概率。取概率最高的一档，并列时取较高的一档；如果高一档的概率也够高（pplx 0.45，Jev 0.3），就再往上取一档（升高容易：低估一档要付出质量，高估一档只多花 token）；`max` 只在它自己的概率达到 `thetaMax` 时才用。这一轮的每个模型请求都按这一档发出。一轮进行中，每隔几步（`rejudgeEvery`），以及主 agent 派出 agent、启动 Workflow 或加载 skill 时，会再判断一次（中途重判）；升档和降档都有防抖：升档要置信度达到 `thetaUp`（pplx 0，Jev 0.3），降档要达到 `thetaDown`（0.55）而且一次只降一档，升档之后 `holdSteps`（5）步之内不降。派出 agent 交回结果、后台任务结束，会话空闲时它们会开始主 agent 的新一轮，这样的一轮也走同样的判断：决策模型读到的是那条报告的文字，不推荐 skill，也不在这一轮中途重判（会话自己的 xhigh 用在只是看一眼结果上是浪费）；报告送进一轮正在进行的对话时不另外判断。其他会话的消息、插件自己发的消息和空消息都不判断。你输入的 skill 或 markdown 命令（例如 `/implement #19`）开始的一轮也照常判断：决策模型读你输入的命令和参数，以及这个命令是做什么的，不读命令展开后的正文；参数里的点名照样算；这样的一轮不推荐 skill。`/dp`、`/clear` 这类本地命令不开始一轮，也就不判断。
 - **派出 agent 的模型和 effort。** 主 agent 用 Agent 工具派出一个 agent 时，决策模型为它选模型（默认在 haiku、sonnet、opus 中选，打开 `agentFable` 后加入 fable）和 effort（haiku 用的是 Haiku 5.5，它也接受 effort）。三个模型的分工按 Artificial Analysis 的基准定（见下面的「模型和 effort 的依据」）：haiku 只做一两步就能跑完、结果只需要收集起来并按要求排版的只读查找，sonnet 承担大多数执行类工作（终端、需求明确的代码修改、自动化、调研汇报），opus 做需要审慎判断或细微错误代价高的工作（安全、并发、涉及钱、迁移、生产）、难推理、设计、原因未知的 bug、科学或算法类代码，以及结论取决于记忆中的事实、而且无法在仓库或文档里查证的调研；fable 在 AA 上没有领先 Opus 的地方，价格是 2.5 倍，所以仍默认关闭。决策出来的 effort 不低于所选模型的下限：sonnet 和 opus 至少 medium，haiku 不带 effort。你在消息里点名的模型或 effort（「用 opus」「effort 开 low」）一定照办，下限和往上取的一档都不会改你点名的值，你排除的模型（「别用 opus」）不会用（决策请求整体失败时除外，见「局限和待评测」）。主 agent 自己为这个 agent 指定了模型时，只有决策模型选了别的、而且置信度达到 `agentOverride` 才推翻它。
 - **Workflow 里的 agent。** 主 agent 提交 Workflow 脚本时，对脚本里每个 `agent()` 调用点做同样的判断，把模型和 effort 写进脚本再运行，并告诉主 agent 写了什么；`workflowMode` 选 `return` 时改为退回脚本，附上逐个调用的推荐，让主 agent 自己写进去。脚本写不进去的（用 `scriptPath` 或 `name` 提交、恢复的运行、读不了的脚本），在每个 agent 启动时按它的 label 设置，这叫兜底。
 - **卡住时强制升档。** 主 agent 或派出 agent 的工具调用接连失败 `escalateAfter` 次时，再问决策模型一次，把它的 effort 升一档（`escalateMode` 选 `max` 则直接升到 max）；haiku agent 同样先升 effort，effort 已经到顶时改用 sonnet 接着做（`escalateHaikuTo`）。这些失败本来就在意料之中的，例如先写下、要看它红的测试，或者没找到东西而以非零退出的搜索，不升档；是不是预期内失败由决策模型判断，不靠关键词。你自己拒绝的调用从不算失败。
@@ -51,13 +51,13 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 - 派出 agent 和 Workflow 里的 agent：主 agent 写给它的任务（`prompt`）、描述、agent 类型，加上你这一轮说的话；`unresolved` 开着时还有问题摘要和次数（只当背景，不加强提示）。选 pplx 时，还有它的背景（ADR 0007）：派出它的那段对话，到这次 Agent 或 Workflow 调用为止（同样只有文字和工具名，**不包含文件内容和工具输出**；子 agent 派出的 agent 读那个子 agent 自己的对话）；Workflow 里的 agent 还有整个脚本（脱敏）。先放任务和你的话，背景填剩下的预算，脚本最多占三分之一，对话从新往旧放。选 Jev 时不带背景：它只等 1500 毫秒、对同一个 key 的请求一个一个答，几个 agent 一起派出时请求被对话填满，大多会超时。
 - Workflow 在后台运行、你又发了消息时，等到 agent 启动才判断的那些 agent（prompt 是数据的调用、读不了的脚本），读的仍是启动 Workflow 那一轮你的话、那时的问题摘要和到那次调用为止的对话，不是你后来的消息。
 - 打开 skill 推荐时：本会话每个 skill 的名字和画像（还没有画像的用描述），以及排在前面的几个 skill 的描述、画像和 SKILL.md 开头约 700 个字符。skill 画像由你自己的 Claude 登录写（模型是 `skillsProfileModel`），用你的用量，不经过决策模型的提供方。
-- 发送前对常见的 secret 格式脱敏，替换成 `[REDACTED]`：各家的 API key 和 token、`password=...` 这类赋值、URL 里的密码、私钥和 JWT。
-- 请求发往 TypeSafe（`api.typesafe.ai`）。
+- 发送前对常见的 secret 格式脱敏，替换成 `[REDACTED]`：各家的 API key 和 token（含 Perplexity 的 `pplx-...`）、`password=...` 这类赋值（键名带引号的 JSON 写法 `"apiKey": "..."` 也算）、URL 里的密码、私钥和 JWT。
+- 请求发往你用的决策模型：默认的 pplx 发往 Perplexity（`api.perplexity.ai`），选 Jev（或没有 Perplexity key、退回 Jev）时发往 TypeSafe（`api.typesafe.ai`）。
 - 每次请求的结果和每个决定都写进 debug log（`claude --debug-file <路径>`），不进入会话。
 
 ### 开销
 
-- **决策请求。** 评测里 800 个 effort 请求共 614,292 input token（平均约 770 个），Jev 约 0.026 美元。评测的上下文很短；Jev 的 state 现在最多约 6.7k token，一个这样的 effort 请求不到 0.0003 美元（Jev 只按输入计费，每百万 token 0.042 美元），带 skill 推荐的约 2.9 万 token，约 0.0012 美元。
+- **决策请求。** 评测里 800 个 effort 请求共 614,292 input token（平均约 770 个），Jev 约 0.026 美元。评测的上下文很短；Jev 的 state 现在最多约 6.7k token，一个这样的 effort 请求不到 0.0003 美元（Jev 只按输入计费，每百万 token 0.042 美元），带 skill 推荐的约 2.9 万 token，约 0.0012 美元。默认的 pplx 同样只按输入计费，每百万 token 0.02 美元，同样大小的请求约是 Jev 的一半。
 - **skill 推荐。** 打开后，每条消息的第一个请求还带着本会话每个 skill 的名字和画像：111 个 skill 都写好画像时约 2.19 万 input token（不带画像约 8.6k）；第一段分到 0.1 以上的 skill 才会发第二个请求，约 1.3k。作为交换，隐藏 skill 列表每个会话省下约 6.6k input token（本机 66 个 skill 时实测），换成的提示只有 360 个字符。
 - **skill 画像**用你自己的 Claude 登录写（模型是 `skillsProfileModel`），算在你的用量里：每份约 2k 输入和 200 输出 token，每个 SKILL.md 版本只写一次，每次会话开始最多写 `skillsProfilesPerSession` 份。
 - **问题摘要**同样用你自己的 Claude 登录写（模型是 `summaryModel`），算在你的用量里：你本人的消息开始的每一轮结束后一次，输入是上一份摘要加这一轮（你的话、主 agent 的最终回复、工具汇总，各自截断），输出不超过 500 token。
@@ -268,7 +268,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 
 - **上下文的范围。** 随消息发出的最近几条消息和 token 预算（2、4、8、16 条 × 1k–8k token）没有扫描：现有评测集的上下文太短，扫描测不出差别。Jev 的 `contextMessages`、`contextTokens`、`rejudgeSteps` 默认值是按 Jev 的上限算的（见「配置」），不是按准确率挑的：更多的上下文是不是让 Jev 判得更准、旧消息会不会干扰当前这条，都没有数据，各个门槛也是在 4 条、2000 个 token、4 步的设置上定的。
 - **按语言分别定门槛。** 各个置信度门槛都是中英文共用一个值，没有按语言分别校准。
-- **中途重判的默认值和写法。** `thetaUp` 0.3、`thetaDown` 0.75、`holdSteps` 5 是按 AA 的基准定的方向（升高容易、降低难），具体数值没有在评测集上扫过：真实的 Jev 评测（`en-score` 和 `zh-score`，和 0.2.1 的规则比）上，回答选出的档偏低少了 5.5 到 7.5 个百分点、准确率不降（+1 和 +4）；但中途重判后实际走的档（`sent`）偏低只少 2 到 6 个百分点，偏高多 6 到 8 个百分点，准确率在英文问法上降 6 个百分点、中文问法上持平，原因是 `thetaDown` 抬到 0.75 之后该降的一轮降不下来，见 [docs/research/aa-benchmarks-2026-10.md](../docs/research/aa-benchmarks-2026-10.md) 的第六节；`rejudgeEvery`、`rejudgeSteps` 的默认值仍是起点。这些都没有按语言分别校准；state 里放不放当前档位和计数、问题用英文还是中文，也没有结论。
+- **中途重判的默认值和写法。** 升高容易、降低难的方向是按 AA 的基准定的。`thetaDown` 在 0.2.2 抬到 0.75 后，真实的 Jev 评测（`en-score` 和 `zh-score`，和 0.2.1 的规则比）上，回答选出的档偏低少了 5.5 到 7.5 个百分点、准确率不降（+1 和 +4）；但中途重判后实际走的档（`sent`）偏低只少 2 到 6 个百分点，偏高多 6 到 8 个百分点，准确率在英文问法上降 6 个百分点、中文问法上持平，原因是 `thetaDown` 抬到 0.75 之后该降的一轮降不下来，见 [docs/research/aa-benchmarks-2026-10.md](../docs/research/aa-benchmarks-2026-10.md) 的第六节；0.2.3 在评测集上扫过之后改回 0.55（两个决策模型相同），pplx 的 `thetaUp` 0 来自 eval v2 的离线校准（ADR 0006）。`holdSteps`、`rejudgeEvery`、`rejudgeSteps` 的默认值仍是起点。这些都没有按语言分别校准；state 里放不放当前档位和计数、问题用英文还是中文，也没有结论。
 - **「预期内失败」这一问的写法和门槛。** `thetaExpected` 的默认值来自 11 个手写场景的小实验，样本太小，只能当起点；`escalateMode`、`escalateAfter` 和 `escalateLimit` 没有评测方法，按使用体验调。
 - **派出 agent 的门槛。** `agentOverride` 的默认值在两次 Jev 运行里都不是最好（0.4–0.5 时整题中文 +3、英文 +2 个百分点）；点名的门槛 0.5 偏低；`thetaMax` 取 0.3 比默认值好 1–2 个百分点。这几个默认值没有改。
 - **Workflow agent 启动时当场判断的排队。** 一次启动很多个 prompt 是数据的 agent 时，排在后面的会等到超时。常见的 fan-out（几个到十几个 agent）有多少能在 `timeoutMs` 之内答上，还没有量过。

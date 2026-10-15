@@ -53,7 +53,7 @@ test('a decision made raises no toast', { options: KEY }, async ($, on) => {
   expect(w.toasts).toEqual([])
 })
 
-test('routes failing within two seconds of the last toast raise none of their own (the engine would drop it); later ones do', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
+test('routes failing within two seconds of the last toast raise none of their own (the board has them; the engine dropped such a toast before 2.1.290); later ones do', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
   const w = world($, on, { backend: () => ({ status: 500, body: 'down' }) })
   await w.submit('第一条')
   await w.clock.advance(1500)

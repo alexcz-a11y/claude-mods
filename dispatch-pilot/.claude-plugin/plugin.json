@@ -98,7 +98,7 @@
     "escalateMode": {
       "type": "string",
       "title": "强制升档怎么升",
-      "description": "one-level：升一档，最高到 xhigh（决策模型自己有把握时可以更高）。max：直接升到 max。haiku agent 没有 effort 可升，改用下面的模型。",
+      "description": "one-level：升一档，最高到 xhigh（决策模型自己有把握时可以更高）。max：直接升到 max。haiku agent 也先升 effort，到顶（或你点名了 effort）时才改用下面的模型。",
       "options": ["one-level", "max"],
       "default": "one-level"
     },
@@ -116,7 +116,7 @@
     "escalateHaikuTo": {
       "type": "string",
       "title": "失败的 haiku agent 改用哪个模型",
-      "description": "haiku 没有 effort 可升，所以它的工具调用接连失败时，这个 agent 接下来改用这个模型：sonnet、opus 或 fable，或者完整的模型 id。别名会换成这一步需要的完整 id（引擎不认别名）；你为这个 agent 的工作点名的模型、排除的模型优先。留空表示不换。",
+      "description": "haiku agent 的工具调用接连失败、effort 已经到顶（或你点名了 effort）时，这个 agent 接下来改用这个模型：sonnet、opus 或 fable，或者完整的模型 id。别名会换成这一步需要的完整 id（引擎不认别名）；你为这个 agent 的工作点名的模型、排除的模型优先。留空表示不换。",
       "default": "sonnet"
     },
     "agentFable": {

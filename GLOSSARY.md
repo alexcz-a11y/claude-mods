@@ -45,7 +45,7 @@ _Avoid_: 上下文（太泛，发消息时的最近对话也叫上下文）
 _Avoid_: 轮中重判、中途判断
 
 **强制升档（Forced Escalation）**：
-主 agent 的一轮或一个派出 agent 里，计入的工具调用失败满阈值后，再问一次决策模型并强制升高它的 effort：升一档（最高到 xhigh）或直接到 max；haiku 没有 effort 可升，改用 sonnet。用户的拒绝不算失败，被用户自己的 hook 拦下只在开关「hook 拦截计为失败」打开时才算；升档后失败计数清零，每轮最多升有限的几次；失败是预期内的时候不升。
+主 agent 的一轮或一个派出 agent 里，计入的工具调用失败满阈值后，再问一次决策模型并强制升高它的 effort：升一档（最高到 xhigh）或直接到 max；haiku 也一样先升 effort，effort 到顶（或用户点名了 effort）时才改用 `escalateHaikuTo` 的模型（默认 sonnet）。用户的拒绝不算失败，被用户自己的 hook 拦下只在开关「hook 拦截计为失败」打开时才算；升档后失败计数清零，每轮最多升有限的几次；失败是预期内的时候不升。
 _Avoid_: 自动升级、重试升档
 
 **循环（Loop）**：
@@ -57,7 +57,7 @@ _Avoid_: 会话、任务（会话指整个 Claude Code 上下文，任务指派�
 _Avoid_: 保底、最低档
 
 **模型下限（Model Floor）**：
-按所选模型给派出 agent 的 effort 设的最低一档（`effortFloor`）：sonnet 和 opus 都至少 medium；haiku 不带 effort。它抬高的是决策出来的 effort；用户点名的 effort 和模型永远优先，不受它管。和上面的「下限（Floor）」不是一回事：那一个由强制升档写进计划表，这一个由模型决定。
+按所选模型给派出 agent 的 effort 设的最低一档（`effortFloor`）：sonnet 和 opus 都至少 medium；haiku 和 fable 没有下限。它抬高的是决策出来的 effort；用户点名的 effort 和模型永远优先，不受它管。和上面的「下限（Floor）」不是一回事：那一个由强制升档写进计划表，这一个由模型决定。
 _Avoid_: 下限（单说「下限」指计划表里的那一个）
 
 **预期内失败（Expected Failure）**：
