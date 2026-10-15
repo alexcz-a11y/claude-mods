@@ -269,12 +269,14 @@ declare module 'claude-code' {
          * the other screenshot; none for a spec), the decision model that judged it, each check with its verdict, the
          * probability that it holds and whether the verdict rests on the zoomed re-check (`zoomed`; `why` for an unsure one),
          * whether any did, and how long the call took in ms. Paths and numbers only: no image, no key, no specification text.
+         * A series of quality levels (`against.kind` 'sequence'): `paths` are all the levels, lowest first, `image` the first, and each
+         * check is made on each two neighbouring levels, `pair` being which two, counted from 1 (none for a series that could not be read).
          */
         visualCheck?: {
           image: string
           against: { kind: 'spec' | 'reference' | 'compare_to' | 'sequence'; paths: string[] }
           backend: string
-          checks: { part: string; property: string; verdict: 'pass' | 'fail' | 'unsure'; probability: number | null; zoomed: boolean; why?: string }[]
+          checks: { part: string; property: string; verdict: 'pass' | 'fail' | 'unsure'; probability: number | null; zoomed: boolean; why?: string; pair?: [number, number] }[]
           zoomed: boolean
           ms: number
         }
