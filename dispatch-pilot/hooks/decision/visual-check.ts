@@ -3,6 +3,7 @@
 // (see system-one.ts): no `$`, no files; the images arrive already read and sized (core/image-files.ts).
 
 import { imageRef, type Picture } from './images.ts'
+import { redactSecrets } from './redact.ts'
 import { answersFor, mergeParts, type DecisionRequest, type Part, type Question, type RequestImage, type Answer } from './system-one.ts'
 
 /** One thing to check: a part of the image, and one visible property of it (what to compare, or the requirement it must meet). */
@@ -45,6 +46,9 @@ export function judge(probability: number | null, trust: 'both' | 'fail'): { ver
   return { verdict: 'unsure', why: 'the decision model is not sure either way' }
 }
 
+/** The comparison kinds that are checked against an image, and so can be zoomed. */
+export const isCompared = (comparison: Comparison): boolean => comparison.kind === 'reference' || comparison.kind === 'compare_to'
+
 /** The part of a request that holds the checks' questions, named so that the question of a check is `check.<index>`. */
 export const CHECK_PART = 'check'
 
@@ -65,16 +69,16 @@ const named = (name: string, picture: Picture): RequestImage => ({ name, format:
  */
 export function wholeImageRequest(comparison: Comparison, subjects: Subjects, checks: readonly Check[]): { request: DecisionRequest; part: Part } {
   const { screenshot, references } = subjects
-  const compared = comparison.kind === 'reference' || comparison.kind === 'compare_to'
+  const compared = isCompared(comparison)
   const state: Record<string, unknown> = {}
   const images: RequestImage[] = []
   let ask: (check: Check) => string
   if (!compared) {
     images.push(named('screenshot', screenshot))
     state.screenshot = imageRef('screenshot')
-    const spec = comparison.kind === 'spec' ? comparison.spec : null
+    const spec = comparison.kind === 'spec' && comparison.spec !== null ? redactSecrets(comparison.spec) : null
     if (spec !== null) state.specification = spec
-    ask = (check) => `In \`screenshot\`, does ${check.part} meet this requirement: ${check.property}?${spec === null ? '' : ' The specification it belongs to is in `specification`.'}`
+    ask = (check) => `In \`screenshot\`, does ${redactSecrets(check.part)} meet this requirement: ${redactSecrets(check.property)}?${spec === null ? '' : ' The specification it belongs to is in `specification`.'}`
   } else {
     images.push(named('candidate', screenshot))
     state.candidate = imageRef('candidate')
@@ -85,7 +89,7 @@ export function wholeImageRequest(comparison: Comparison, subjects: Subjects, ch
       state[name] = imageRef(name)
     })
     const those = names.length === 1 ? `\`${names[0]}\`` : `the reference images (${names.map((name) => `\`${name}\``).join(', ')}), which show it from different sides`
-    ask = (check) => `In \`candidate\`, is the ${check.property} of ${check.part} the same as in ${those}?`
+    ask = (check) => `In \`candidate\`, is the ${redactSecrets(check.property)} of ${redactSecrets(check.part)} the same as in ${those}?`
   }
   const questions: Record<string, Question> = Object.fromEntries(checks.map((check, i) => [String(i), { type: 'noul' as const, instructions: ask(check) }]))
   const part: Part = { part: CHECK_PART, questions }
@@ -103,7 +107,7 @@ function yesOf(answer: Answer | undefined): number | null {
  */
 export function readWholeImage(comparison: Comparison, part: Part, answers: Readonly<Record<string, unknown>>, checks: readonly Check[]): CheckResult[] {
   const own = answersFor(part, answers)
-  const trust = comparison.kind === 'reference' || comparison.kind === 'compare_to' ? 'fail' : 'both'
+  const trust = isCompared(comparison) ? 'fail' : 'both'
   return checks.map((check, i) => {
     const probability = yesOf(own[String(i)])
     return { check, probability, basis: 'whole' as const, ...judge(probability, trust) }

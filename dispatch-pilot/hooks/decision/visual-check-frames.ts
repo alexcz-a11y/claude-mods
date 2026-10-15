@@ -3,6 +3,7 @@
 // so this is pure (see system-one.ts): no `$`, no files; core/video-frames.ts runs ffmpeg with it.
 
 import { imageRef, type Picture } from './images.ts'
+import { redactSecrets } from './redact.ts'
 import { mergeParts, type DecisionRequest, type Part, type Question, type RequestImage } from './system-one.ts'
 import { CHECK_PART, type Check } from './visual-check.ts'
 
@@ -72,9 +73,10 @@ const FRAMES_NAME = (i: number): string => `frame-${i + 1}`
 export function framesRequest(spec: string | null, frames: readonly Frame[], checks: readonly Check[]): { request: DecisionRequest; part: Part } {
   const images: RequestImage[] = frames.map((frame, i) => ({ name: FRAMES_NAME(i), format: frame.picture.format, base64: frame.picture.base64, width: frame.picture.width, height: frame.picture.height }))
   const state: Record<string, unknown> = { frames: frames.map((frame, i) => ({ seconds: frame.seconds, frame: imageRef(FRAMES_NAME(i)) })) }
-  if (spec !== null) state.specification = spec
+  const specification = spec === null ? null : redactSecrets(spec)
+  if (specification !== null) state.specification = specification
   const lead = `\`frames\` are ${frames.length} frames of a screen recording, in order of time (\`seconds\` is the time of each). Looking at how the picture changes from one frame to the next, does`
-  const ask = (check: Check) => `${lead} ${check.part === '' ? 'the screen' : check.part} meet this requirement: ${check.property}?${spec === null ? '' : ' The specification it belongs to is in `specification`.'}`
+  const ask = (check: Check) => `${lead} ${check.part === '' ? 'the screen' : redactSecrets(check.part)} meet this requirement: ${redactSecrets(check.property)}?${specification === null ? '' : ' The specification it belongs to is in `specification`.'}`
   const questions: Record<string, Question> = Object.fromEntries(checks.map((check, i) => [String(i), { type: 'noul' as const, instructions: ask(check) }]))
   const part: Part = { part: CHECK_PART, questions }
   return { request: { ...mergeParts(state, [part]), images }, part }

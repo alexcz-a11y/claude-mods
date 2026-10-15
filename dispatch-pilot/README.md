@@ -61,7 +61,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 ### 图像：发给谁，什么时候发
 
-**图没法脱敏。** 文字发出前会替换常见的 secret 格式，图不会：截图里的密钥、聊天记录、个人信息都会原样发出去。装之前请先想清楚你的 agent 会截什么图。debug log 只记张数、尺寸、估算的 token 和耗时，从不写图的内容和密钥。
+**图没法脱敏。** 文字发出前会替换常见的 secret 格式（`visual_check` 里 agent 写的规格、部件和要核对的属性也一样），图不会：截图里的密钥、聊天记录、个人信息都会原样发出去。装之前请先想清楚你的 agent 会截什么图。debug log 只记张数、尺寸、估算的 token 和耗时，从不写图的内容和密钥。
 
 **发给谁。** 带图的请求用图像后端，和 `decisionModel` 无关：
 
