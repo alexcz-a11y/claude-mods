@@ -12,8 +12,9 @@
 // Pure (see system-one.ts).
 
 import type { HttpResponse } from 'claude-code'
-import { postJson, type Asked, type Backend, type Failure } from './backend.ts'
-import { readResponse } from './system-one.ts'
+import { errorText, postJson, withNote, withoutBase64, type Asked, type Backend, type Failure } from './backend.ts'
+import { describeImages, PPLX_MAX_IMAGES, placeImages } from './images.ts'
+import { readResponse, type DecisionRequest } from './system-one.ts'
 
 export const PPLX_URL = 'https://api.perplexity.ai/v1/decisions'
 /**
@@ -38,12 +39,37 @@ export function pplxBackend(apiKey: string | (() => string), options: { url?: st
     async ask(io, request, timeoutMs) {
       const apiKey = keyNow()
       if (!apiKey) return { ok: false, failure: { kind: 'config', detail: 'no Perplexity API key: set perplexityApiKey or PERPLEXITY_API_KEY' } }
-      const posted = await postJson(io, url, { authorization: `Bearer ${apiKey}` }, { model, state: request.state, questions: request.questions }, timeoutMs, pplxFailure)
+      let body: unknown
+      try {
+        body = pplxRequest(request, model)
+      } catch (error) {
+        return { ok: false, failure: { kind: 'request', detail: errorText(error) } }
+      }
+      const posted = await postJson(io, url, { authorization: `Bearer ${apiKey}` }, body, timeoutMs, pplxFailure)
       const asked: Asked = posted.ok ? readAnswers(posted.response.text) : posted
       // A failure's detail goes to the debug log: what it echoes of the key stays out.
-      return asked.ok ? asked : { ok: false, failure: { ...asked.failure, detail: asked.failure.detail.split(apiKey).join('[REDACTED]') } }
+      return withNote(asked.ok ? asked : { ok: false, failure: { ...asked.failure, detail: asked.failure.detail.split(apiKey).join('[REDACTED]') } }, describeImages('pplx', request))
     },
   }
+}
+
+/**
+ * The body a request goes out with. Without images: the model, the state as an object and the questions. With images, the
+ * state is an array of parts (the API takes images only so): the state as text, then each image as an `image_url` data URL
+ * after a line that names it; the `imageRef`s of the state and the questions read `[image 1: reference]`. Questions cannot hold
+ * an image here, so every image is in the state (and counted again for each question, ADR 0008). Throws a RangeError for more
+ * than PPLX_MAX_IMAGES images (the API answers 400 to the ninth) or for what `placeImages` refuses.
+ */
+export function pplxRequest(request: DecisionRequest, model: string): unknown {
+  const images = request.images ?? []
+  if (images.length === 0) return { model, state: request.state, questions: request.questions }
+  if (images.length > PPLX_MAX_IMAGES) throw new RangeError(`${images.length} images in one request; pplx takes at most ${PPLX_MAX_IMAGES}`)
+  const { state, questions } = placeImages(request, (image, index) => `[image ${index + 1}: ${image.name}]`)
+  const parts = [
+    JSON.stringify(state),
+    ...images.flatMap((image, index) => [`[image ${index + 1}: ${image.name}]:`, { type: 'image_url', image_url: { url: `data:image/${image.format};base64,${image.base64}` } }]),
+  ]
+  return { model, state: parts, questions }
 }
 
 /**
@@ -73,7 +99,7 @@ function bodyReason(text: string): string {
   const error = parse(trimmed)?.error
   if (isRecord(error) && typeof error.message === 'string') return typeof error.type === 'string' ? `${error.type}: ${error.message}` : error.message
   if (/^<(!doctype|html)\b/i.test(trimmed)) return 'an HTML page, not JSON'
-  return trimmed.replace(/\s+/g, ' ').slice(0, 200)
+  return withoutBase64(trimmed).replace(/\s+/g, ' ').slice(0, 200)
 }
 
 /** The seconds a 429's `Retry-After` header asks to wait, when it has one. */
@@ -88,10 +114,10 @@ function readAnswers(text: string): Asked {
   try {
     body = JSON.parse(text)
   } catch {
-    return { ok: false, failure: { kind: 'parse', detail: `not JSON: ${text.slice(0, 200)}` } }
+    return { ok: false, failure: { kind: 'parse', detail: `not JSON: ${withoutBase64(text).slice(0, 200)}` } }
   }
   const response = readResponse(body)
-  if (response === null) return { ok: false, failure: { kind: 'parse', detail: `no answers: ${text.slice(0, 200)}` } }
+  if (response === null) return { ok: false, failure: { kind: 'parse', detail: `no answers: ${withoutBase64(text).slice(0, 200)}` } }
   return { ok: true, ...response }
 }
 

@@ -1134,7 +1134,12 @@ function without<T extends object, K extends keyof T>(value: T, ...keys: K[]): O
 // ---- what `report` does with the decision model's fallback ------------------------------
 
 /** The decision model that decides is not the one asked for (ADR 0006): e.g. `asked` is pplx, `using` is Jev, since there is no Perplexity key and there is a TypeSafe one. */
-export type DecisionModelEvent = { asked: BackendName; using: BackendName }
+export type DecisionModelEvent = {
+  asked: BackendName
+  using: BackendName
+  /** `images`: the model that takes requests with images is not Jev (#56): no TypeSafe key, so pplx, which cannot zoom. */
+  for?: 'images'
+}
 
 /** What a person reads of each decision model: its name, and the settings that hold its key (the options' names and the environment variable they type). The one place both are written. */
 const DECISION_MODELS: Readonly<Record<BackendName, { name: string; keys: string }>> = {
@@ -1160,14 +1165,23 @@ async function reportFellBack(io: DecisionModelIo, fell: DecisionModelEvent): Pr
       turn,
       feature: DECISION_MODEL_FEATURE,
       tone: 'info',
-      outcome: `改用 ${using.name}`,
-      subject: '',
-      reason: `没有 ${asked.name} 的密钥（${asked.keys}），改用 ${using.name}；补上密钥就用 ${asked.name}，decisionModel 设成 ${using.name} 则不再提示`,
+      ...(fell.for === 'images'
+        ? {
+            outcome: `看图改用 ${using.name}`,
+            subject: '',
+            reason: `没有 ${asked.name} 的密钥（${asked.keys}），看图改用 ${using.name}，放大复核不可用；补上密钥就用 ${asked.name}`,
+          }
+        : {
+            outcome: `改用 ${using.name}`,
+            subject: '',
+            reason: `没有 ${asked.name} 的密钥（${asked.keys}），改用 ${using.name}；补上密钥就用 ${asked.name}，decisionModel 设成 ${using.name} 则不再提示`,
+          }),
     }
     io.debug(`decision model: ${decisionLine(entry)}`)
     await update(io.decisions, (list) => {
       const kept = list ?? []
-      const at = kept.findIndex((old) => old.feature === DECISION_MODEL_FEATURE && old.turn === turn)
+      // The entry of the same kind at this turn (a hot reload's session start again); the one for images stands beside the decision model's.
+      const at = kept.findIndex((old) => old.feature === DECISION_MODEL_FEATURE && old.turn === turn && old.outcome === entry.outcome)
       return at < 0 ? appendEntry(kept, entry) : kept.map((old, i) => (i === at ? { n: old.n, ...entry } : old))
     })
   } catch (error) {

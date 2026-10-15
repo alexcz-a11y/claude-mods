@@ -115,6 +115,16 @@ export async function within<T, L>(sleep: BackendIo['sleep'], promise: Promise<T
   }
 }
 
+/** `asked` with `note` among its notes (a request with images says what it carried); `asked` as it is for a null note. */
+export function withNote(asked: Asked, note: string | null): Asked {
+  return note === null ? asked : { ...asked, notes: [...(asked.notes ?? []), note] }
+}
+
+/** Text from a response or an error with its long base64 runs (an image the API echoed back) left out: no image content reaches a log. */
+export function withoutBase64(text: string): string {
+  return text.replace(/[A-Za-z0-9+/_-]{60,}={0,2}/g, '[base64 left out]')
+}
+
 /** A request's outcome as every debug-log line about one writes it: `answered in 310 ms by jev-1.13.0 (626 input tokens)`, or the failure. */
 export function describeAsked(asked: Asked, ms: number): string {
   const notes = asked.notes === undefined || asked.notes.length === 0 ? '' : `; ${asked.notes.join('; ')}`
@@ -132,7 +142,7 @@ export function errorText(error: unknown): string {
 /** A non-2xx response as a failure, with the start of its body for the log. */
 export function httpFailure(response: HttpResponse): Failure {
   const status = response.status
-  const detail = `HTTP ${status}: ${response.text.replace(/\s+/g, ' ').slice(0, 200)}`
+  const detail = `HTTP ${status}: ${withoutBase64(response.text).replace(/\s+/g, ' ').slice(0, 200)}`
   if (status === 401 || status === 403) return { kind: 'config', status, detail }
   if (status === 429 || status === 502 || status === 503 || status === 529) return { kind: 'busy', status, detail }
   return { kind: 'http', status, detail }

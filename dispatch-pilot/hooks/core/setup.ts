@@ -51,6 +51,16 @@ export function chooseBackend(asked: BackendName, keys: { perplexity: string; ty
 }
 
 /**
+ * The decision model that takes requests with images (#56, ADR 0008), apart from the one that decides everything else and
+ * whatever `decisionModel` says: Jev with a TypeSafe key (its Box question and one-time image tokens make zooming possible);
+ * else pplx with a Perplexity key, which cannot zoom (`fellBack`); else none (null), and the features that need images are unavailable.
+ */
+export function chooseImageBackend(keys: { perplexity: string; typesafe: string }): Choice | null {
+  if (keys.typesafe !== '') return { backend: 'jev', fellBack: false }
+  return keys.perplexity !== '' ? { backend: 'pplx', fellBack: true } : null
+}
+
+/**
  * A `decisionModel` that names a decision model since removed (Clef, 0.4.0), left in the person's settings from before.
  * The engine reads a value outside the option's list as the option's default (and warns), so the mod is handed the
  * default, never the old value: this finds it in the settings file itself (`pluginConfigs[dispatch-pilot@...].options`,
@@ -397,6 +407,13 @@ export type Ctx = {
   readonly ask: EffortAsk
   /** Whether Jev decides only because there is no Perplexity key (a TypeSafe key is set): the session start records it. */
   readonly fellBack: boolean
+  /**
+   * The decision model that takes requests with images, with the backend to ask (`chooseImageBackend`); null when there is none
+   * and the features that need images are unavailable. `fellBack`: it is pplx for want of a TypeSafe key, which cannot zoom
+   * (needs Box questions). It is the same backend object as `backend` would be, so a pplx request goes through the rate limit
+   * (its `io` needs `pace`, as every request's does).
+   */
+  readonly images: { readonly name: BackendName; readonly backend: Backend; readonly fellBack: boolean } | null
 }
 
 export function setup(options: PluginOptions, table: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS): Ctx {
@@ -423,6 +440,10 @@ export function setup(options: PluginOptions, table: Readonly<Record<BackendName
     },
     get fellBack() {
       return choice().fellBack
+    },
+    get images() {
+      const chosen = chooseImageBackend({ perplexity: perplexityKey(configs.pplx, secrets), typesafe: configs.pplx.typesafeApiKey })
+      return chosen === null ? null : { name: chosen.backend, backend: backends[chosen.backend], fellBack: chosen.fellBack }
     },
   }
 }
