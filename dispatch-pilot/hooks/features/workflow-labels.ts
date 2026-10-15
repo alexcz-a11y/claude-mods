@@ -45,6 +45,7 @@ import { callNodeId, report, type Decided, type ReportIo } from '../core/report.
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import { callReports, workflowCallTitle, workflowLeft } from '../core/workflow-report.ts'
+import { sessionReading } from './reference-hint.ts'
 import { UNRESOLVED_SWITCH } from './unresolved.ts'
 
 const SAID = { plugin: 'dispatch-pilot', key: 'said' } as const
@@ -55,6 +56,7 @@ const TERMS = { plugin: 'dispatch-pilot', key: 'workflowTerms' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
+const READINGS = { plugin: 'dispatch-pilot', key: 'referenceReadings' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'workflow-labels'
@@ -151,19 +153,22 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
         ...(held?.summary === undefined ? {} : { problem_summary: renderSummary(held.summary, ctx.ask.language) }),
         ...(held === undefined || held.count === 0 ? {} : { unresolved_count: held.count }),
       }
+      // What the session's reference images read as (#64): in the requests, not in what the run keeps for its agents (they read the latest as each starts).
+      const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
+      const background = { ...problem, ...(reference === undefined ? {} : { reference_complexity: reference }) }
       const budgets = { one: ctx.config.contextByKind.workflow, each: ctx.config.contextByKind.agent }
       let sites: RunSite[] | null = null
       let decided: Parameters<typeof launchNote>[2] = null
       if (parsed !== null) {
         if (given === 'script') {
           // workflow-agents asked about the rest when the script was sent, and left the person's terms for each call.
-          const plan = planBatches(parsed, words, settings, budgets, { background: problem, written: true })
+          const plan = planBatches(parsed, words, settings, budgets, { background, written: true })
           const { value: terms = [] } = await $.state.get({ ...TERMS, id: e.tool_use_id }).catch(() => ({ value: undefined }))
           sites = inlineSites(parsed.calls, plan.skipped, terms)
         } else {
           // With pplx, the script and the conversation the run is launched from, up to its call (BACKEND_DEFAULTS agentBackground).
           const recent = ctx.config.agents.background ? (conversationUpTo(await conversationOf($, e.agentId), ctx.config.context.messages, e.tool_use_id) ?? []) : []
-          const plan = planBatches(parsed, words, settings, budgets, { background: { ...problem, ...(ctx.config.agents.background ? { script: text, recent } : {}) } })
+          const plan = planBatches(parsed, words, settings, budgets, { background: { ...background, ...(ctx.config.agents.background ? { script: text, recent } : {}) } })
           const io: BackendIo = {
             fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
             sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
@@ -352,9 +357,12 @@ async function decideAtStart(
   const launch = agent.run.launch
   const said = launch?.said ?? ((await $.state.get(SAID)).value ?? [])
   const words = said.join('\n')
+  const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
   const background: WorkflowBackground = {
     ...(launch?.problem_summary === undefined ? {} : { problem_summary: launch.problem_summary }),
     ...(launch?.unresolved_count === undefined ? {} : { unresolved_count: launch.unresolved_count }),
+    // The latest reading as this agent starts, not the one at the launch: the images read since are the work's too.
+    ...(reference === undefined ? {} : { reference_complexity: reference }),
     ...(ctx.config.agents.background && launch !== undefined ? { script: launch.script ?? null, recent: await launchConversation($, agent.run, ctx.config.context.messages) } : {}),
   }
   const site = agent.site

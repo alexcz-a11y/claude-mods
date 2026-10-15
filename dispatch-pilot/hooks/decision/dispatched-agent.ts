@@ -9,6 +9,7 @@
 // whose options describe the work each suits (jev-pilot's measured wording),
 // the effort a Score with the levels every effort question shares.
 
+import { referenceField, type ReferenceReading } from './complexity.ts'
 import { clipToTokens, estimateTokens, recentWithin, withinTokens } from './context.ts'
 import { DEFAULT_ASK, EFFORTS, effortQuestion, levelsText, pickEffort, probsOf, readEffort, traceEffort, type Effort, type EffortAsk, type EffortRules, type EffortTrace, type EffortReading, type Language } from './effort.ts'
 import { failureText, type Failure } from './backend.ts'
@@ -45,6 +46,8 @@ export type Dispatch = {
   problem_summary?: string
   /** How many times the person has said the problem is still unresolved; absent while it is 0 (#41). */
   unresolved_count?: number
+  /** What the latest reference images of the session read as (#64): text only, never the images; a hint, in the state as `reference_complexity`. Absent when none has been read or image routing is off. */
+  reference_complexity?: ReferenceReading
   /**
    * The conversation the agent was dispatched from, oldest first, a line per message (context.ts `recentLines`: the
    * text and the tools' names, never a tool's input or output): what the main agent worked from when it wrote the
@@ -404,6 +407,7 @@ export function dispatchState(dispatch: Dispatch, tokens: number, field: string 
       // The background the main agent works from: read by the decision model, never with a hint (#41).
       ...(dispatch.problem_summary ? { [SUMMARY_FIELD]: dispatch.problem_summary } : {}),
       ...(dispatch.unresolved_count ? { [COUNT_FIELD]: dispatch.unresolved_count } : {}),
+      ...referenceField(dispatch.reference_complexity),
     }
     const recent = recentWithin(dispatch.recent_context ?? [], budget - estimateTokens(JSON.stringify(state)))
     return recent === '' ? state : { ...state, recent_context: recent }

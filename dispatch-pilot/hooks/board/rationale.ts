@@ -278,6 +278,10 @@ export function entryVerb(entry: LogEntry): string {
       return entry.tone === 'ok' ? '画像就绪' : entry.tone === 'warn' ? '画像有失败' : entry.tone === 'fail' ? '画像停写' : '画像暂停'
     case 'decision-model':
       return '改用别的决策模型'
+    case 'visual-check':
+      return entry.tone === 'fail' ? '核对失败' : '已核对'
+    case 'screenshot-takeover':
+      return '已接管'
     default:
       return entry.tone === 'fail' ? '失败' : entry.tone === 'warn' ? '注意' : '记录'
   }

@@ -13,6 +13,8 @@
 
 import { mock } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
+import { absolute, base64, BASE_DIRS, type Disk, type FakeFile, fileBase64, fileSize, mediaTypeOf, mkdir, type Program, readImageResult, sips } from './images.ts'
+import { attachmentsOf, type PastedImage, rowOf } from './pasted.ts'
 import type {
   AgentInfo,
   CommandInfo,
@@ -101,6 +103,19 @@ export type WorldOptions = {
   /** Files the mod can read, by absolute path (`$.fs.read`, `$.fs.exists`). */
   disk?: Record<string, string>
   /**
+   * Binary files, by absolute path: images described by their format and size (support/images.ts `FakeFile`), which
+   * `$.fs.read(path, { as: 'bytes' })` returns as base64 (refused over 4 MiB, as the engine does) and the world's programs read
+   * and write. The programs' own output lands here too: `w.files` shows the disk as it stands.
+   */
+  files?: Record<string, FakeFile>
+  /**
+   * `$.process.run` answers as the CLI's does: the programs of the world run on the disk of `files` (sips and mkdir, the ones the
+   * mod uses so far), each call is recorded in `w.ran`. `true` for the defaults.
+   */
+  process?: true | ProcessWorld
+  /** What `$.session.id()` answers (`s1` by default); `w.setSessionId` gives the process another, as a /clear does. */
+  sessionId?: string
+  /**
    * The agents `$.agent.list()` names (dispatched agents, not a Workflow's): as the engine lists them, which a test
    * changes through `w.agents` as agents come and go. `{ deny }`: the roster cannot be read.
    */
@@ -181,6 +196,17 @@ export type Completion =
   /** The answer, after `after` ms of mock time (`w.clock.advance`). */
   | { after: number; reply: Completion }
 
+/** The programs `$.process.run` can start, and the engine it runs in. */
+export type ProcessWorld = {
+  /**
+   * The programs by name, over the defaults (`sips`, `mkdir`): a function is the program; `null` is one that is not installed
+   * (starting it rejects, as when ffmpeg is missing). A program that fails answers with an exit code, as a real one does.
+   */
+  programs?: Record<string, Program | null>
+  /** The engine is not the CLI: `$.process.run` rejects with this reason. */
+  unavailable?: string
+}
+
 /** The session's skills as the engine reports them to the mod (#10). */
 export type SkillsWorld = {
   /** What `$.command.list()` returns. */
@@ -202,6 +228,11 @@ export type SubmitOptions = {
   turnId?: string
   /** The person asked it to wait its turn (`chat:queueSubmit`). */
   wait?: boolean
+  /**
+   * Images pasted into the message (support/pasted.ts): `prompt.submit` carries their metadata as `attachments`, and the
+   * engine appends the message's row, with the images, before its turn starts (`session.append`, door `prompt`).
+   */
+  images?: readonly PastedImage[]
 }
 
 export type StepOptions = {
@@ -236,7 +267,7 @@ export type ToolRun = {
    * reported (also how a refusal at the permission prompt reads), or a
    * PreToolUse settings hook's refusal (the tool never runs).
    */
-  ends?: { text: string } | { error: string } | { blockedByHook: string }
+  ends?: { text: string } | { error: string } | { blockedByHook: string } | { returns: unknown; text?: string }
 }
 
 /** One agent.spawn as it reached the engine, after every hook of the mod. */
@@ -315,7 +346,14 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const agentCalls = new Set<string>()
   /** The Workflow agents being spawned, by `<runId>#<agentIndex>`: the id each starts under and the model its call gave it. */
   const workflowSpawns = new Map<string, { agentId: string; model: string | undefined }>()
+  /** The rows of messages with pasted images, by the message's text, until the engine appends them (support/pasted.ts). */
+  const pastedRows = new Map<string, ReturnType<typeof rowOf>>()
+  let rowCount = 0
   const disk = options.disk ?? {}
+  /** The binary files, and the directories that exist, for `fs.read` as bytes and for the programs. */
+  const binary: Disk = { files: new Map(Object.entries(options.files ?? {}).map(([path, file]) => [absolute(path), file])), dirs: new Set(BASE_DIRS) }
+  /** The argument vectors of every `$.process.run`, in order. */
+  const ran: string[][] = []
   const agents: AgentInfo[] = Array.isArray(options.agents) ? [...options.agents] : []
   const store = new Map(Object.entries({ ...(options.store ?? {}), ...(options.switches !== undefined ? { switches: { ...(options.store?.switches as object | undefined), ...options.switches } } : {}) }).map(([key, value]) => [key, JSON.stringify(value)]))
   const sessionWorld = options.session ?? (options.switches !== undefined || options.env !== undefined ? true : undefined)
@@ -377,11 +415,24 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   // A read over 4 MiB rejects, as the engine's does.
   on('fs.read', (_$, e) => {
     looked.files.push(e.path)
+    if (e.as === 'bytes') {
+      const file = binary.files.get(absolute(e.path))
+      if (file === undefined) return { deny: `ENOENT: ${e.path}` }
+      return fileSize(file) > READ_LIMIT ? { deny: `over 4 MiB: ${e.path}` } : { value: { base64: fileBase64(file) } }
+    }
     if (!(e.path in disk)) return { deny: `ENOENT: ${e.path}` }
     const text = disk[e.path] as string
     return text.length > READ_LIMIT / 4 && new TextEncoder().encode(text).length > READ_LIMIT ? { deny: `over 4 MiB: ${e.path}` } : { value: text }
   })
-  on('fs.exists', (_$, e) => ({ value: e.path in disk || Object.keys(disk).some((path) => path.startsWith(`${e.path}/`)) }))
+  on('fs.exists', (_$, e) => ({ value: e.path in disk || binary.files.has(absolute(e.path)) || binary.dirs.has(absolute(e.path)) || Object.keys(disk).some((path) => path.startsWith(`${e.path}/`)) }))
+  // `$.fs.stat`: a file's size and when it was last modified (a fake image's `mtimeMs`, 0 when it has none), a directory, or ENOENT.
+  on('fs.stat', (_$, e) => {
+    const file = binary.files.get(absolute(e.path))
+    if (file !== undefined) return { value: { kind: 'file' as const, size: fileSize(file), mtimeMs: file.mtimeMs ?? 0, isLink: false } }
+    if (e.path in disk) return { value: { kind: 'file' as const, size: (disk[e.path] as string).length, mtimeMs: 0, isLink: false } }
+    if (binary.dirs.has(absolute(e.path))) return { value: { kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false } }
+    return { deny: `ENOENT: ${e.path}` }
+  })
   // A directory of the disk: what lies directly under it, a file or a directory (one holding files further down).
   on('fs.list', (_$, e) => {
     const under = `${(e.path ?? '').replace(/\/+$/, '')}/`
@@ -394,6 +445,21 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     if (entries.size === 0) return { deny: `ENOENT: ${e.path}` }
     return { value: [...entries].map(([name, kind]) => ({ name, kind, size: 0, mtimeMs: 0, isLink: false })) }
   })
+  if (options.process !== undefined) {
+    const world = options.process === true ? {} : options.process
+    const programs: Record<string, Program | null> = { sips, mkdir, ...world.programs }
+    on('process.run', async (_$, e) => {
+      if (world.unavailable !== undefined) return { deny: world.unavailable }
+      ran.push([...e.argv])
+      const [name = '', ...args] = e.argv
+      const program = programs[name]
+      if (program === undefined || program === null) return { deny: `spawn ${name} ENOENT` }
+      const done = await program(args, binary, e.init)
+      return { value: { ...done, isStdoutTruncated: false, isStderrTruncated: false } }
+    })
+  }
+  let sessionId = options.sessionId ?? 's1'
+  on('session.id', () => ({ value: sessionId }))
   if (options.store !== undefined || options.switches !== undefined) {
     on('store.get', (_$, e) => ({ value: store.has(e.key) ? JSON.parse(store.get(e.key) as string) : undefined }))
     on('store.set', (_$, e) => {
@@ -527,6 +593,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     if (dropped !== undefined) return { drop: dropped }
     const text = options.beneath?.rewrite?.(e.text) ?? e.text
     prompts.push({ text, context: e.context, origin: e.origin })
+    // The engine appends the message's row (its images included) before the turn starts.
+    const row = pastedRows.get(e.text)
+    if (row !== undefined) {
+      pastedRows.delete(e.text)
+      await $.session.append({ message: { type: 'user', role: 'user', content: row }, door: 'prompt', origin: e.origin ?? { kind: 'composer' }, uuid: `row-${++rowCount}` })
+    }
     // A command's turn starts with its command message, not the prompt as typed (measured on 2.1.291).
     const started = commandTurns.get(e.text) ?? text
     commandTurns.delete(e.text)
@@ -601,6 +673,17 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       return started.deny !== undefined ? { result: text, text, isError: true as const } : { result: text, text }
     }
     const end = ending ?? { text: 'ok' }
+    // A tool that answers with a structured result (an MCP screenshot's content blocks).
+    if ('returns' in end) {
+      toolCalls.push({ tool, id: id ?? '', input, isError: false, text: end.text })
+      return { result: end.returns, text: end.text ?? '' }
+    }
+    // Read of an image file: the engine's structured result, with the `[Image: ...]` text it adds (#62).
+    const target = tool === 'Read' && typeof input.file_path === 'string' ? binary.files.get(absolute(input.file_path)) : undefined
+    if (ending === undefined && target !== undefined && 'format' in target && mediaTypeOf(target) !== null) {
+      toolCalls.push({ tool, id: id ?? '', input, isError: false, text: `[image ${String(input.file_path)}]` })
+      return readImageResult(String(input.file_path), target)
+    }
     const failed = 'error' in end
     const text = failed ? end.error : 'text' in end ? end.text : 'ok'
     toolCalls.push({ tool, id: id ?? '', input, isError: failed, text })
@@ -632,6 +715,16 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     agents,
     /** What the mod looked up: how often it read the roster (`roster`), and the files it read, in order (`files`). */
     looked,
+    /** The binary files on the world's disk as they stand, by absolute path: the test's own and what the programs wrote. */
+    files: binary.files,
+    /** The directories that exist on that disk. */
+    dirs: binary.dirs,
+    /** The argument vector of every program the mod ran (`$.process.run`), in order. */
+    ran,
+    /** The process goes on under another session (a /clear): `$.session.id()` answers this from now on. */
+    setSessionId: (id: string) => {
+      sessionId = id
+    },
     commands,
     tools,
     /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */
@@ -712,11 +805,13 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     /** Submits a prompt the way the engine does; resolves when it entered (or was queued). */
     submit: async (text: string, submit: SubmitOptions = {}) => {
       await booted()
+      if (submit.images !== undefined) pastedRows.set(text, rowOf(text, submit.images))
       return $.prompt.submit({
         text,
         wait: submit.wait ?? false,
         origin: submit.origin ?? { kind: 'composer' },
         ...(submit.turnId !== undefined ? { turnId: submit.turnId } : {}),
+        ...(submit.images !== undefined ? { attachments: attachmentsOf(submit.images) } : {}),
       })
     },
     /** Starts a turn for a prompt that waited in the queue; resolves to its id. */
@@ -800,6 +895,33 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
      */
     findSkill: (query: unknown, call: { agentId?: string } = {}) =>
       $.tool.call({ tool: 'mcp__dispatch-pilot__find_skill', query, ...(call.agentId !== undefined ? { agentId: call.agentId } : {}) }),
+    /**
+     * The agent calls the mod's visual_check tool with this input (`agentId`: from a dispatched agent's loop); resolves to the
+     * tool's answer, `{ result }`: a string, or an array of Messages API blocks.
+     */
+    visualCheck: (input: Record<string, unknown>, call: { agentId?: string } = {}) =>
+      $.tool.call({ tool: 'mcp__dispatch-pilot__visual_check', ...input, ...(call.agentId !== undefined ? { agentId: call.agentId } : {}) } as never),
+    /**
+     * The agent saves a file: it lands on the disk now, modified at this moment of the mock clock (`mtimeMs`), so it is newer than
+     * anything that began before now (the takeover tells a screenshot the loop made from a reference image by that).
+     */
+    save: (path: string, file: FakeFile) => {
+      binary.files.set(absolute(path), { ...file, mtimeMs: clock.now() })
+    },
+    /** The agent reads a file with the Read tool (`agentId`: from a dispatched agent's loop); resolves to the result as the engine gives it. */
+    read: (path: string, call: { agentId?: string } = {}) => $.tool.call({ tool: 'Read', tool_use_id: `toolu_${++calls}`, file_path: path, ...(call.agentId !== undefined ? { agentId: call.agentId } : {}) } as never),
+    /**
+     * The agent calls a tool, which ends as `ends` says (a tool's text by default; `{ returns }` for a structured result such as an
+     * MCP screenshot's content blocks); resolves to the result as the engine gives it, after every hook of the mod.
+     */
+    callTool: async (tool: string, call: { input?: Record<string, unknown>; ends?: ToolRun['ends']; agentId?: string } = {}) => {
+      ending = call.ends
+      try {
+        return await $.tool.call({ tool, tool_use_id: `toolu_${++calls}`, ...(call.input ?? {}), ...(call.agentId !== undefined ? { agentId: call.agentId } : {}) } as never)
+      } finally {
+        ending = undefined
+      }
+    },
     /** The engine's skill listing as one request of a loop carries it (`agentId`: a dispatched agent's; needs `skills`); resolves to what the model reads. */
     listing: (text: string, agentId?: string) =>
       $.prompt.attachment({ type: 'skill_listing', text, origin: { kind: 'engine' }, ...(agentId !== undefined ? { agentId } : {}) }),
@@ -849,7 +971,35 @@ function usageListing(listed: readonly ContextSkill[]): SessionUsage {
 }
 
 /** What a decision model's answer can be told besides the probabilities (`jev`, `pplx`). */
-export type AnswerExtra = { status?: number; choice?: string; confidence?: number | null; shares?: Record<string, Record<string, number>>; nouls?: Record<string, number> }
+export type AnswerExtra = {
+  status?: number
+  choice?: string
+  confidence?: number | null
+  shares?: Record<string, Record<string, number>>
+  nouls?: Record<string, number>
+  /** The probabilities of a Score question's levels by its id, where it is not the `levels` the backend was given (the reading `complexity.level` beside the effort `effort.level`). */
+  scores?: Record<string, readonly number[]>
+  /** The answer to each Box question by its id (Jev 1.14 only); the middle of the image, confidence 0.5, for one left out. */
+  boxes?: Record<string, { box: { top: number; bottom: number; left: number; right: number }; confidence: number }>
+}
+
+/** The images header Jev needs on a request with images or a Box question (the header's name is not case sensitive). */
+const JEV_IMAGES_HEADER = 'TypeSafe-Danger-Zone-Images'
+
+/** What the real Jev answers 400 to in a request with images (docs.typesafe.ai/images): no header, an asset nothing refers to, a Box question on a model without it. Null when it takes the request. */
+function jevImageRefusal(request: Sent): string | null {
+  const body = request.body ?? {}
+  const questions = Object.values((body.questions ?? {}) as Record<string, { type?: string }>)
+  const hasBox = questions.some((question) => question.type === 'box')
+  const assets = body.assets as Record<string, unknown> | undefined
+  if (assets === undefined && !hasBox) return null
+  const header = Object.entries(request.headers).find(([name]) => name.toLowerCase() === JEV_IMAGES_HEADER.toLowerCase())
+  if (header?.[1] !== 'true') return `A request with images or a Box question needs the ${JEV_IMAGES_HEADER}: true header`
+  if (hasBox && !['jev-1.14.0', 'jev-preview'].includes(String(body.model))) return `Box questions need jev-1.14.0, not ${String(body.model)}`
+  const text = JSON.stringify({ state: body.state, questions: body.questions })
+  const unused = Object.keys(assets ?? {}).filter((reference) => !text.includes(JSON.stringify(reference).slice(1, -1)))
+  return unused.length > 0 ? `asset ${unused[0]} is not referenced by the state or a question` : null
+}
 
 /**
  * A Jev answer to every question of the request it replies to: each `score`
@@ -862,12 +1012,18 @@ export type AnswerExtra = { status?: number; choice?: string; confidence?: numbe
  */
 export function jev(levels: readonly number[], extra: AnswerExtra = {}) {
   return (request: Sent): Reply => {
+    const refusal = jevImageRefusal(request)
+    if (refusal !== null) return { status: 400, body: { error: { message: refusal, type: 'invalid_request_error' } } }
     const answers: Record<string, unknown> = {}
     const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
     for (const [id, question] of Object.entries(questions)) {
-      if (question.type === 'score') {
-        const probabilities = Object.fromEntries(levels.map((p, i) => [String(i), p]))
-        const score = levels.reduce((sum, p, i) => sum + p * i, 0)
+      if (question.type === 'box') {
+        const given = extra.boxes?.[id]
+        answers[id] = { type: 'box', box: given?.box ?? { top: 0.25, bottom: 0.75, left: 0.25, right: 0.75 }, confidence: given?.confidence ?? 0.5 }
+      } else if (question.type === 'score') {
+        const own = extra.scores?.[id] ?? levels
+        const probabilities = Object.fromEntries(own.map((p, i) => [String(i), p]))
+        const score = own.reduce((sum, p, i) => sum + p * i, 0)
         answers[id] = { type: 'score', score, legend: {}, probabilities, confidence: extra.confidence === undefined ? 0.7 : extra.confidence }
       } else if (question.type === 'choice' && extra.shares?.[id] !== undefined) {
         const shares = extra.shares[id] as Record<string, number>
@@ -908,6 +1064,10 @@ export function pplx(levels: readonly number[], extra: AnswerExtra & { key?: str
     if (bearer === undefined || (key !== undefined && bearer !== key)) return { status: 401, body: { error: { message: 'Invalid API key', type: 'invalid_api_key', code: 401 } } }
     const extraFields = Object.keys(request.body ?? {}).filter((field) => !['model', 'state', 'questions'].includes(field))
     if (extraFields.length > 0) return { status: 400, body: { error: { message: `unknown field ${extraFields.join(', ')}`, type: 'invalid_request_error', code: 400 } } }
+    // Images are `image_url` parts of a state that is an array, eight at most; there is no Box question.
+    const pictures = Array.isArray(request.body?.state) ? (request.body.state as { type?: string }[]).filter((part) => typeof part === 'object' && part !== null && part.type === 'image_url').length : 0
+    if (pictures > 8) return { status: 400, body: { error: { message: 'At most 8 images are allowed per question', type: 'invalid_request_error', code: 400 } } }
+    if (Object.values((request.body?.questions ?? {}) as Record<string, { type?: string }>).some((question) => question.type === 'box')) return { status: 400, body: { error: { message: 'unknown question type box', type: 'invalid_request_error', code: 400 } } }
     if (request.body?.model !== PPLX.model) return { status: 400, body: { error: { message: `unknown model ${String(request.body?.model)}`, type: 'invalid_request_error', code: 400 } } }
     const reply = jev(levels, answering)(request)
     return 'body' in reply && typeof reply.body === 'object' && reply.body !== null ? { ...reply, body: { ...reply.body, model: PPLX.model } } : reply

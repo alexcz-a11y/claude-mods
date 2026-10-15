@@ -245,7 +245,7 @@ function detailOf(answers: Readonly<Record<string, Answer>>, decision: DispatchD
     pick: decision.pick?.model ?? null,
     confidence: decision.pick === null ? null : Math.round(decision.pick.confidence * 1000) / 1000,
     p_model: model?.type === 'choice' ? model.probabilities : null,
-    p_effort: effort === undefined || effort.type === 'noul' ? null : EFFORTS.map((level, i) => effort.probabilities[effort.type === 'score' ? String(i) : level] ?? 0),
+    p_effort: effort === undefined || effort.type === 'noul' || effort.type === 'box' ? null : EFFORTS.map((level, i) => effort.probabilities[effort.type === 'score' ? String(i) : level] ?? 0),
     nouls: Object.fromEntries(Object.entries(answers).flatMap(([id, answer]) => (answer.type === 'noul' ? [[id, answer.noul]] : []))),
     // Only when the person's words may name an effort (the question is asked then).
     ...(named?.type === 'choice' ? { p_named_effort: named.probabilities } : {}),

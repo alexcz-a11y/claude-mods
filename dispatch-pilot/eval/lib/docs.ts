@@ -143,6 +143,37 @@ export function checkStructureTree(development: string, modules: readonly string
   ]
 }
 
+/**
+ * The switches the code defines (`sources`: text by path relative to hooks/): the `name` of every `defineSwitch({ ... })`,
+ * a string in quotes or a constant of the same file (`const SWITCH = 'visual-check'`).
+ */
+export function declaredSwitches(sources: Readonly<Record<string, string>>): string[] {
+  const names = new Set<string>()
+  for (const text of Object.values(sources)) {
+    for (const [, name] of text.matchAll(/defineSwitch\(\s*\{\s*name:\s*([^,\s}]+)/g)) {
+      const literal = /^(['"])(.*)\1$/.exec(name ?? '')?.[2]
+      const constant = literal === undefined ? new RegExp(`const\\s+${name}\\s*=\\s*(['"])([^'"]*)\\1`).exec(text)?.[2] : undefined
+      const found = literal ?? constant
+      if (found !== undefined) names.add(found)
+    }
+  }
+  return [...names]
+}
+
+/**
+ * The README's list of `/dp <功能>` switches against the switches the code defines (`declared`, from declaredSwitches):
+ * the sentence that starts with 功能的开关是 (up to its first 。 or ；) names each of them in backticks, and nothing else.
+ */
+export function checkSwitchList(readme: string, declared: readonly string[]): string[] {
+  const sentence = /功能的开关是([^。；\n]*)/.exec(readme)?.[1]
+  if (sentence === undefined) return ['the README has no sentence that starts with "功能的开关是"']
+  const listed = [...sentence.matchAll(/`([^`]+)`/g)].map((match) => match[1] ?? '')
+  return [
+    ...declared.filter((name) => !listed.includes(name)).map((name) => `\`${name}\`: a switch the code defines, but the README's list of switches (功能的开关是) does not name it`),
+    ...listed.filter((name) => !declared.includes(name)).map((name) => `\`${name}\`: in the README's list of switches (功能的开关是), but the code defines no such switch`),
+  ]
+}
+
 /** The host closure through which a feature's report raises a toast (core/report.ts `ReportIo.toast`): the one way to `$.ui.toast`. */
 const TOAST_CLOSURE = 'toast: (text) => $.ui.toast(text)'
 
@@ -174,6 +205,25 @@ export function checkOneWriter(sources: Readonly<Record<string, string>>): strin
         if (name !== 'report' && name !== 'reportStep') problems.push(`\`${path}\`: exports \`${name}\`, a third entry; give \`report\` a new kind of \`Reported\` instead (spec #22: two entries)`)
       }
     }
+  }
+  return problems
+}
+
+/**
+ * DEVELOPMENT.md 「事件和 matcher」: `$` is used only in the file of the hook that holds it. A function another file can import
+ * takes closures (`BackendIo`, `Cell`, ...) and never `$`, and `$` is never put in an object (`{ $, s, e }`): the engine refuses
+ * a mod that does either when it loads it, and the test kit does not. `sources` is text by path relative to hooks/.
+ */
+export function checkEngineStaysHome(sources: Readonly<Record<string, string>>): string[] {
+  const problems: string[] = []
+  const takes = (path: string, name: string) => `\`${path}\`: exports \`${name}\`, which takes \`$\`; take closures instead (BackendIo, Cell, ...): \`$\` may not cross a file`
+  for (const [path, text] of Object.entries(sources)) {
+    // Comments may mention `$` as they like.
+    const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    // An exported function or arrow function with a parameter called `$`, first or not.
+    for (const [, name, params] of code.matchAll(/export\s+(?:async\s+)?function\s+(\w+)\s*(?:<[^>(]*>)?\(([^)]*)\)/g)) if (/(?:^|,)\s*\$\s*(?::|,|$)/.test(params ?? '')) problems.push(takes(path, name ?? ''))
+    for (const [, name, params] of code.matchAll(/export\s+const\s+(\w+)\s*=\s*(?:async\s*)?\(([^)]*)\)\s*(?::[^=]*)?=>/g)) if (/(?:^|,)\s*\$\s*(?::|,|$)/.test(params ?? '')) problems.push(takes(path, name ?? ''))
+    if (/[{,]\s*\$\s*[,}]/.test(code)) problems.push(`\`${path}\`: puts \`$\` in an object; pass it as a separate argument within the file, or hand over closures`)
   }
   return problems
 }

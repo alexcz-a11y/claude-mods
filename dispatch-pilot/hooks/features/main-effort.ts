@@ -22,14 +22,17 @@ import { EFFORTS, LEVEL, probsOf, readEffort, readingText, traceEffort, type Eff
 import { quoteStart } from '../decision/redact.ts'
 import { turnStartPart } from '../decision/turn-start.ts'
 import { givesHint, judgeUnresolved, readUnresolved, UNRESOLVED } from '../decision/unresolved.ts'
-import { contribute, type PartOutcome } from '../core/ballot.ts'
+import { contribute, type Contribution, type PartOutcome } from '../core/ballot.ts'
 import { commandOf, commandState } from '../core/commands.ts'
 import { hintDecision, keptCount, keptSummary, moveCount, unresolvedDecision, type CountCell } from '../core/unresolved.ts'
+import { defer, withdraw } from '../core/deferred.ts'
 import { addPending, revise, turnKey, update, type Cell, type PendingDecision, type TurnRecord } from '../core/plans.ts'
 import { isPersonsMessage, startsReportTurn } from '../core/prompts.ts'
-import { report, type HintRecord, type ReportIo, type UnresolvedRecord } from '../core/report.ts'
+import { report, type HintRecord, type ReferenceRecord, type ReportIo, type UnresolvedRecord } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
+import type { ReferenceReading } from '../decision/complexity.ts'
+import { hasImage, IMAGE_ROUTING_SWITCH } from './image-routing.ts'
 import { UNRESOLVED_SWITCH } from './unresolved.ts'
 
 const PENDING = { plugin: 'dispatch-pilot', key: 'pending' } as const
@@ -88,11 +91,15 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
     const count = counting ? await keptCount(countCell($)).catch(() => 0) : 0
     const maxAfter = ctx.config.unresolved.maxAfter
     const hint: HintRecord | undefined = givesHint(count, maxAfter) ? { count, maxAfter } : undefined
+    // A message with reference images (#63) is decided when its turn starts, once its images have been read: its effort part
+    // does not go in the ballot, and the image-routing feature asks it at `turn.start` (core/deferred.ts). That turn has started
+    // by then, so its decision is about the turn running.
+    const imaged = !handBack && ran === null && e.turnId === undefined && ctx.images !== null && isOn(IMAGE_ROUTING_SWITCH) && hasImage(e.attachments)
     // About the main agent of the turn this message starts, or of the one running when it was typed into it.
-    const forTurn = e.turnId === undefined ? ('next' as const) : ('current' as const)
+    const forTurn = e.turnId === undefined && !imaged ? ('next' as const) : ('current' as const)
 
     /** The effort this message's turn goes out at, and the board's word for it. */
-    const decideEffort = async (outcome: PartOutcome, io: ReportIo, unresolved?: UnresolvedRecord): Promise<Effort | null> => {
+    const decideEffort = async (outcome: PartOutcome, io: ReportIo, unresolved?: UnresolvedRecord, reference?: ReferenceRecord): Promise<Effort | null> => {
       const about = { feature: handBack ? 'main-effort (agent report)' : 'main-effort', agent: 'main', forTurn, subject: quoteStart(e.text) }
       if (!outcome.ok) {
         await report(io, { decision: { ...about, routed: false, failure: { backend: ctx.backend.name, ...outcome.failure } } })
@@ -118,6 +125,8 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
           probs: probsOf(reading),
           ...(reading.confidence === null ? {} : { conf: reading.confidence }),
           trace: steps,
+          // What the reference images it came with read as: the card draws it with the effort's.
+          ...(reference === undefined ? {} : { reference }),
           // What this message did to the unresolved count: the card draws it with the effort's.
           ...(unresolved === undefined ? {} : { unresolved }),
           // The card says the hint was given.
@@ -153,9 +162,10 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
       }
     }
 
-    contribute(e.text, {
+    /** The message's effort part; `reading`: what its reference images read as, when they have been (the state carries it, the decision reports it). */
+    const effortPart = (reading: ReferenceReading | null): Contribution => ({
       // Asked as the decision model's table says for these questions (Chinese with Jev); the other questions keep ctx.ask's.
-      ...turnStartPart({ ask: ctx.config.ask.turnStart, unresolved: counting, command, summary, count, maxAfter }),
+      ...turnStartPart({ ask: ctx.config.ask.turnStart, unresolved: counting, command, summary, count, maxAfter, reference: reading }),
       settle: async (outcome) => {
         const io: ReportIo = {
           board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
@@ -167,7 +177,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
         // The count first, so the effort's decision can say what this message did to it; neither depends on the other
         // (either answer can be missing, and the effort is decided and kept whatever becomes of the count).
         const counted = counting && outcome.ok ? await countUnresolved(outcome) : null
-        const effort = await decideEffort(outcome, io, counted?.unresolved)
+        const effort = await decideEffort(outcome, io, counted?.unresolved, reading ?? undefined)
         // A count that moved is a decision of its own in the log (an answer that left it as it was is on the effort's card only).
         if (counted?.unresolved !== undefined && counted.unresolved.before !== counted.unresolved.count) {
           await report(io, { decision: { feature: UNRESOLVED_SWITCH, agent: 'main', aside: true, forTurn, subject: quoteStart(e.text), ...counted } })
@@ -176,9 +186,12 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
         if (hint !== undefined) await report(io, { decision: { feature: UNRESOLVED_SWITCH, agent: 'main', aside: true, forTurn, subject: quoteStart(e.text), ...hintDecision(hint, effort) } })
       },
     })
+    if (imaged) defer(e.text, effortPart)
+    else contribute(e.text, effortPart(null))
 
     const result = await next(e)
     // Refused beneath: no turn will take this decision.
+    if (imaged && result.drop !== undefined) withdraw(e.text)
     const withdrawn = added as PendingDecision | null
     if (result.drop !== undefined && withdrawn !== null) {
       await update(pending, (list) => (list ?? []).filter((entry) => !(entry.text === withdrawn.text && entry.at === withdrawn.at)))

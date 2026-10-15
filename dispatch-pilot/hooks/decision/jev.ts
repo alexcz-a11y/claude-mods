@@ -2,32 +2,78 @@
 //
 // Pure (see system-one.ts).
 
-import { postJson, type Backend } from './backend.ts'
-import { readResponse } from './system-one.ts'
+import { errorText, postJson, withNote, withoutBase64, type Asked, type Backend, type Posted } from './backend.ts'
+import { describeImages, placeImages } from './images.ts'
+import { readResponse, type DecisionRequest } from './system-one.ts'
 
 export const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
 /** The alias of the current Jev; pin a version id (`jev-1.13.0`) to keep calibrated thresholds stable. */
 export const JEV_MODEL = 'jev-latest'
+/**
+ * The model a request with images is pinned to (#56, ADR 0008): the Box question is only in 1.14, and images are a
+ * "Dreamer-ready" feature that may change from one version to the next, so it moves when the eval says so, not with `jev-latest`.
+ */
+export const JEV_IMAGE_MODEL = 'jev-1.14.0'
+/** Each request containing an image needs this header, else Jev answers 400. */
+export const JEV_IMAGES_HEADER = 'TypeSafe-Danger-Zone-Images'
 
-export function jevBackend(apiKey: string, options: { url?: string; model?: string } = {}): Backend {
+/** A random version 4 UUID (a module's sandbox has no `crypto.randomUUID`). It only keeps references from meeting the text around them, so it needs no strength. */
+function uuid(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.floor(Math.random() * 16)
+    return (c === 'x' ? r : (r & 3) | 8).toString(16)
+  })
+}
+
+/** `newId`: the id every reference of a request with images starts with, new for each request (a test gives a fixed one). */
+export function jevBackend(apiKey: string, options: { url?: string; model?: string; newId?: () => string } = {}): Backend {
   const url = options.url ?? JEV_URL
   const model = options.model ?? JEV_MODEL
+  const newId = options.newId ?? uuid
   return {
     name: 'jev',
     configured: apiKey !== '',
     async ask(io, request, timeoutMs) {
       if (!apiKey) return { ok: false, failure: { kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey' } }
-      const posted = await postJson(io, url, { authorization: `Bearer ${apiKey}` }, { model, state: request.state, questions: request.questions }, timeoutMs)
-      if (!posted.ok) return posted
-      let body: unknown
+      let sent: { headers: Record<string, string>; body: unknown }
       try {
-        body = JSON.parse(posted.response.text)
-      } catch {
-        return { ok: false, failure: { kind: 'parse', detail: `not JSON: ${posted.response.text.slice(0, 200)}` } }
+        sent = jevRequest(request, model, newId())
+      } catch (error) {
+        return { ok: false, failure: { kind: 'request', detail: errorText(error) } }
       }
-      const response = readResponse(body)
-      if (response === null) return { ok: false, failure: { kind: 'parse', detail: `no answers: ${posted.response.text.slice(0, 200)}` } }
-      return { ok: true, ...response }
+      const posted = await postJson(io, url, { authorization: `Bearer ${apiKey}`, ...sent.headers }, sent.body, timeoutMs)
+      const asked = readAsked(posted)
+      // A failure's detail goes to the debug log: what it echoes of the key stays out.
+      const kept: Asked = asked.ok ? asked : { ok: false, failure: { ...asked.failure, detail: asked.failure.detail.split(apiKey).join('[REDACTED]') } }
+      return withNote(kept, describeImages('jev', request))
     },
   }
+}
+
+/** The answers out of a posted request, or why there are none. */
+function readAsked(posted: Posted): Asked {
+  if (!posted.ok) return posted
+  let body: unknown
+  try {
+    body = JSON.parse(posted.response.text)
+  } catch {
+    return { ok: false, failure: { kind: 'parse', detail: `not JSON: ${withoutBase64(posted.response.text).slice(0, 200)}` } }
+  }
+  const response = readResponse(body)
+  if (response === null) return { ok: false, failure: { kind: 'parse', detail: `no answers: ${withoutBase64(posted.response.text).slice(0, 200)}` } }
+  return { ok: true, ...response }
+}
+
+/**
+ * The extra headers and the body a request goes out with. Without images: the body it always had. With images (their
+ * references start with `id`): the images in the top-level `assets` (JSON with base64: a module's http body is a string, so no
+ * multipart), the references where the state and the questions had `imageRef`s, the pinned model and the images header.
+ * Throws a RangeError for a request Jev would answer 400 (see `placeImages`).
+ */
+export function jevRequest(request: DecisionRequest, model: string, id: string): { headers: Record<string, string>; body: unknown } {
+  const images = request.images ?? []
+  if (images.length === 0) return { headers: {}, body: { model, state: request.state, questions: request.questions } }
+  const { state, questions } = placeImages(request, (image) => `${id}-${image.name}`)
+  const assets = Object.fromEntries(images.map((image) => [`${id}-${image.name}`, { type: 'image', format: image.format, data_base64: image.base64 }]))
+  return { headers: { [JEV_IMAGES_HEADER]: 'true' }, body: { model: JEV_IMAGE_MODEL, state, assets, questions } }
 }

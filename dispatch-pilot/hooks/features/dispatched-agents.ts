@@ -31,6 +31,7 @@ import { isPersonsMessage } from '../core/prompts.ts'
 import { report, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, saidTokens, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
+import { sessionReading } from './reference-hint.ts'
 import { UNRESOLVED_SWITCH } from './unresolved.ts'
 
 const AGENTS = { plugin: 'dispatch-pilot', key: 'agents' } as const
@@ -39,6 +40,7 @@ const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
 const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
+const READINGS = { plugin: 'dispatch-pilot', key: 'referenceReadings' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'dispatched-agents'
@@ -106,6 +108,8 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     // The conversation the agent is dispatched from (the main one, or the dispatching agent's own), up to the Agent call,
     // where the decision model reads it (BACKEND_DEFAULTS agentBackground).
     const recent = ctx.config.agents.background ? await conversationOf($, e.parentAgentId) : []
+    // What the session's reference images read as (#64): the latest reading, as text.
+    const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
     const lines = recent.length === 0 ? [] : (conversationUpTo(recent, ctx.config.context.messages, e.tool_use_id) ?? conversationUpTo(recent, ctx.config.context.messages) ?? [])
     const dispatch: Dispatch = {
       user_message: said.join('\n'),
@@ -115,6 +119,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       requested_model: e.model ?? null,
       ...(held?.summary === undefined ? {} : { problem_summary: renderSummary(held.summary, ctx.ask.language) }),
       ...(held === undefined || held.count === 0 ? {} : { unresolved_count: held.count }),
+      ...(reference === undefined ? {} : { reference_complexity: reference }),
       ...(lines.length === 0 ? {} : { recent_context: lines }),
     }
     const part = dispatchPart(dispatch, settings)

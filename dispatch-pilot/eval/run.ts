@@ -3,6 +3,12 @@
 //   node dispatch-pilot/eval/run.ts effort-submit --estimate            what a run would send and cost; nothing is sent
 //   node dispatch-pilot/eval/run.ts effort-submit --label preliminary   every variant, both languages, against Jev
 //
+//   node dispatch-pilot/eval/run.ts visual-check --estimate             the visual_check suite (#65): pictures, so counted by their pixels
+//   node dispatch-pilot/eval/run.ts visual-check --max-usd 0.10         a run estimated over --max-usd sends nothing
+//
+//   node dispatch-pilot/eval/run.ts visual-check --ids anim-linear,anim-spring --variants mod --repeat 3
+//                                                                          only those items, each asked three times (--repeat)
+//
 // Options: --backend jev|pplx (jev), --model <id> (Jev's: jev-latest by default;
 // Perplexity's: pplx-decider-v1.1-27b by default, or pplx-decider-v1-27b; a run on it reads the mod's settings from
 // pplx's own row of the defaults table, core/setup.ts BACKEND_DEFAULTS: its questions, state budgets and timeout),
@@ -48,15 +54,15 @@ import { parseArgs } from 'node:util'
 import type { PluginOptions } from 'claude-code'
 import type { BackendName } from '../hooks/core/setup.ts'
 import type { Backend } from '../hooks/decision/backend.ts'
-import { estimateTokens } from '../hooks/decision/context.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { PPLX_MODEL } from '../hooks/decision/pplx.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
+import { estimateRun } from './lib/estimate.ts'
 import type { FlowFile } from './lib/eval-v2-flow.ts'
 import { summarize, type Summary } from './lib/metrics.ts'
 import { readNumber, type NumberRule } from './lib/numbers.ts'
-import { attemptMs as defaultAttemptMs, runSuite, stateDigest, type Row } from './lib/runner.ts'
+import { attemptMs as defaultAttemptMs, byRepeat, runSuite, stateDigest, type Row } from './lib/runner.ts'
 import { optionsFor, settingsFrom, withStateMessages, withStateTokens } from './lib/suite.ts'
 import { READS_FLOW, SUITES } from './lib/suites.ts'
 import { EVAL_V2_JSONL, PRICES, RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, formatResult, modCode, nodeHost, nodeIo, readDataset, readEvalV2Dataset, readManifest, shown } from './node.ts'
@@ -77,6 +83,7 @@ const { values, positionals } = parseArgs({
     option: { type: 'string', multiple: true, default: [] },
     estimate: { type: 'boolean', default: false },
     'max-usd': { type: 'string', default: '1' },
+    repeat: { type: 'string', default: '1' },
     'state-tokens': { type: 'string' },
     'state-messages': { type: 'string' },
     label: { type: 'string' },
@@ -143,6 +150,7 @@ if (values.ids !== undefined) {
   items = items.filter((item) => ids.includes(item.id))
 }
 if (values.limit !== undefined) items = items.slice(0, numberFlag('--limit', values.limit, { min: 1, integer: true }))
+if (items.length === 0) fail('no item to run: --ids names none of the dataset\'s items')
 
 // The mod's settings as the engine hands them over: the manifest's defaults, then --option; what the manifest leaves
 // unset, the backend's defaults (readConfig).
@@ -168,6 +176,8 @@ const timeoutFlag = values.timeout === undefined ? null : numberFlag('--timeout'
 const retries = numberFlag('--retries', values.retries, { min: 0, integer: true })
 const concurrency = numberFlag('--concurrency', values.concurrency, { min: 1, integer: true })
 const maxUsd = numberFlag('--max-usd', values['max-usd'], { min: 0 })
+// --repeat N asks every item N times (under each variant and language), to see whether an answer is stable; each time is summarized on its own.
+const repeats = numberFlag('--repeat', values.repeat, { min: 1, integer: true })
 const widened = stateTokens === null ? settingsFrom(options as PluginOptions) : withStateTokens(settingsFrom(options as PluginOptions), stateTokens)
 const settings = stateMessages === null ? widened : withStateMessages(widened, stateMessages)
 /** How long one attempt may take: --timeout, else four times the mod's timeoutMs for this backend, at least 10 s (lib/runner.ts). */
@@ -211,9 +221,11 @@ for (const item of items) {
     }
   }
 }
-const estimatedTokens = Math.round(ESTIMATE_FACTOR * planned.reduce((sum, request) => sum + estimateTokens(JSON.stringify({ model, ...request })), 0))
-const estimatedUsd = (estimatedTokens * price) / 1e6
-console.log(`${name}: ${items.length} items x ${variants.length} variants x ${languages.length} languages = ${planned.length} requests${suite.estimate === undefined ? '' : ' at most'}, about ${estimatedTokens} input tokens, about $${estimatedUsd.toFixed(4)} on ${backendName} (${model})`)
+// --repeat N: the same requests again, N times in all.
+const sending = Array.from({ length: repeats }, () => planned).flat()
+// A request with images counts their pixels' tokens as the decision model does, not the length of their base64 (lib/estimate.ts); one without is estimated as it always was.
+const { tokens: estimatedTokens, usd: estimatedUsd } = estimateRun(sending, { model, backend: backendName, factor: ESTIMATE_FACTOR, usdPerMillionTokens: price })
+console.log(`${name}: ${items.length} items x ${variants.length} variants x ${languages.length} languages${repeats === 1 ? '' : ` x ${repeats} times`} = ${sending.length} requests${suite.estimate === undefined ? '' : ' at most'}, about ${estimatedTokens} input tokens, about $${estimatedUsd.toFixed(4)} on ${backendName} (${model})`)
 if (values.estimate) process.exit(0)
 if (estimatedUsd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothing sent`)
 
@@ -237,17 +249,24 @@ const rows: Row<unknown>[] = await runSuite(suite, items, {
   timeoutMs: attemptMs,
   retries,
   concurrency,
+  repeats,
   onRow: (_row, done, total) => {
     if (done % 50 === 0 || done === total) process.stderr.write(`  ${done}/${total}\n`)
   },
 })
 for (const row of rows) row.ms = row.ms === null ? null : Math.round(row.ms)
 
-const summary = summarize(suite, items, rows, { slowMs: settings.timeoutMs, settings })
+// Each time the run asked is summarized on its own (an item is answered once in a summary); the file's `summary` is the first time's,
+// and with --repeat the others are in `repeatSummaries`.
+const [summary, ...repeatSummaries] = byRepeat(rows).map((own) => summarize(suite, items, own, { slowMs: settings.timeoutMs, settings, prices: { usdPerMillionTokens: price } })) as [Summary, ...Summary[]]
 const answeredBy = [...new Set(rows.flatMap((row) => (row.model === null ? [] : [row.model])))]
 const inputTokens = rows.reduce((sum, row) => sum + (row.inputTokens ?? 0), 0)
 const usd = (inputTokens * price) / 1e6
 report(summary)
+repeatSummaries.forEach((again, i) => {
+  console.log(`--- time ${i + 2} of ${repeats} ---`)
+  report(again)
+})
 // Requests sent: one per answer, more where a suite asks again (the skill suite's second stage).
 const requests = rows.reduce((sum, row) => sum + (row.requests ?? 1), 0)
 console.log(`answers ${rows.length}, requests ${requests} (attempts ${rows.reduce((sum, row) => sum + row.attempts, 0)}), input tokens ${inputTokens}, about $${usd.toFixed(4)}; answered by ${answeredBy.join(', ') || 'none'}`)
@@ -291,11 +310,12 @@ if (!values['no-save']) {
       // The options the run left unset, with the value the backend's defaults gave each (core/setup.ts BACKEND_DEFAULTS).
       backendDefaults: Object.fromEntries(settings.defaults.used),
     },
-    run: { items: items.length, variants, languages, timeoutMs: attemptMs, retries, concurrency, requests, attempts: rows.reduce((sum, row) => sum + row.attempts, 0), inputTokens, usd: Number(usd.toFixed(4)) },
+    run: { items: items.length, variants, languages, ...(repeats === 1 ? {} : { repeats }), timeoutMs: attemptMs, retries, concurrency, requests, attempts: rows.reduce((sum, row) => sum + row.attempts, 0), inputTokens, usd: Number(usd.toFixed(4)) },
     questions: Object.fromEntries(variants.map((variant) => [variant, suite.questions(variant)])),
     ...(suite.scoring === undefined ? {} : { scoring: suite.scoring }),
     ...(suite.about === undefined ? {} : { about: suite.about }),
     summary,
+    ...(repeatSummaries.length === 0 ? {} : { repeatSummaries }),
     answers: answersByItem(rows, suite.digestState === true),
   }
   const text = formatResult(result)
@@ -316,8 +336,9 @@ if (!values['no-save']) {
 function answersByItem(rows: readonly Row<unknown>[], digest: boolean): Record<string, unknown>[] {
   const groups = new Map<string, Record<string, unknown>>()
   for (const row of rows) {
-    const key = `${row.id} ${row.language}`
-    const group = groups.get(key) ?? { id: row.id, language: row.language, ...(digest ? {} : { state: row.state }) }
+    // A run that asked more than once has a line for each time (`repeat`).
+    const key = `${row.id} ${row.language} ${row.repeat ?? ''}`
+    const group = groups.get(key) ?? { id: row.id, language: row.language, ...(row.repeat === undefined ? {} : { repeat: row.repeat }), ...(digest ? {} : { state: row.state }) }
     group[row.variant] = Object.fromEntries(
       Object.entries({ answer: row.shown, correct: row.correct, gold: row.exact, miss: row.miss, parts: row.parts ?? null, ...row.detail, ms: row.ms, attempts: row.attempts, tokens: row.inputTokens, model: row.model, failure: row.failure, ...(digest ? { state: stateDigest(row.state) } : {}) }).filter(
         ([, value]) => value !== null,

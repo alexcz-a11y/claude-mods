@@ -1,6 +1,6 @@
 # 评测集的约定
 
-这里的五个评测集是 Dispatch Pilot 评测（`eval/`，见上一级的 DEVELOPMENT.md「评测」）的题目。每题怎么写、答案怎么标，都按这份约定；新加题、改题也照此。校验规则在 `eval/lib/datasets.ts`，`node dispatch-pilot/eval/validate.ts` 逐条检查。
+这里的评测集是 Dispatch Pilot 评测（`eval/`，见上一级的 DEVELOPMENT.md「评测」）的题目。每题怎么写、答案怎么标，都按这份约定；新加题、改题也照此。校验规则在 `eval/lib/datasets.ts`，`node dispatch-pilot/eval/validate.ts` 逐条检查。
 
 这份约定来自评测集起草时的两份说明（起草时的「README」和「SOURCES.md」，当时放在仓库之外）。审核总结（`eval/review/*.review-summary.md`）里说的「README 档位表」就是下面的「effort 档位的含义」，说的「SOURCES.md 的附加约定」就是下面各类题的「附加约定」。
 
@@ -15,6 +15,7 @@
 | `unresolved.jsonl` | 和主 agent 为同一个问题来回多轮都没解决时，发消息时判出的主 agent effort（以及这条消息和之前的问题是什么关系） | #37（spec #36） |
 | `long-context.jsonl`，加上 `long-context-summaries.json` | 决定答案的几轮在很长的对话里很早的位置时，决策模型读多远、读更多带来多少准确率（只有中文对话；由 `long-context-items.ts` 生成） | #44 |
 | `eval-v2/`（素材池、题目、两份金标、`generated.json`），生成 `eval-v2.jsonl`（不提交） | 多 agent 出题的 120 题长对话真实流程评测（只有中文对话）；格式见 `eval-v2/FORMAT.md` | #45 |
+| `visual-check.jsonl`，加上文件夹 `visual-check/`（图和真值） | 看图核对：界面和 3D 海面对着参考图、动画的 12 帧对着规范、一组参考图的复杂度读数（没有 `zh`/`en`，见下文） | #65（spec #55） |
 
 每个文件约 100 题（`unresolved.jsonl` 约 30 题，其中一部分对话很长），每行一个 JSON 对象，UTF-8，不加注释。eval v2 不是这种一行一题的手写文件：它的来源是 `eval-v2/` 下一个个 JSON 文件，格式和规则全在 `eval-v2/FORMAT.md`（见文末「eval v2」）。
 
@@ -221,6 +222,34 @@ effort 题的 `accept` 必须是连续的档位（例如 `["high","xhigh"]`，�
 ### eval v2（#45）
 
 120 题的长对话，由多个 agent 写成：素材作者写**素材段**（`eval-v2/pool/`，一段一轮普通工作，3000 到 5000 token，`same-problem` 段用占位符代替问题的名字），出题作者写**题目**（`eval-v2/items/`，开头、决定性几轮、最后几轮，不含答案）和**出题者金标**（`eval-v2/gold-author/`），标注者双盲另写一份（`eval-v2/gold-labeler/`）。`eval/eval-v2-gen.ts` 按种子把素材段拼进每一题，写出 `eval-v2.jsonl`（几十 MB，不提交）和提交的 `eval-v2/generated.json`（种子、JSONL 的 sha256、每题的深度和长度）；`validate.ts` 每次重新生成并核对。文件格式、占位符、四个深度档、生成规则、检查命令都在 `eval-v2/FORMAT.md`，规则的代码在 `eval/lib/eval-v2.ts`；作者自查用 `node dispatch-pilot/eval/eval-v2-check.ts <文件或目录>`。
+
+### visual-check（#65，spec #55）
+
+量的是 `visual_check` 用的决策模型（Jev，或没有 TypeSafe 密钥时的 pplx）判看图核对判得准不准。**图和真值是 2026-10-15 实验里已有的**（`.scratch/visual-judge-experiment-2026-10-15/`，被 .gitignore 忽略），复制进 `visual-check/` 提交，没有新做实测；唯一重画过的是动画的 60 帧（每帧加了终点框，见下面「动画帧的终点」）。24 题，**没有 `zh` 和 `en` 两面**（决策模型读的是 mod 的英文问法，不分语言）；`difficulty` 的 `hard` 占 75%。图的路径相对 `visual-check/`，都是 PNG，`validate.ts` 核对它们都在，也提醒没有题用的图。
+
+```json
+{ "id": "ui-c1-radius", "kind": "ui",
+  "asked": { "screenshot": "ui/c1.png", "reference": ["ui/ref.png"], "same_view": null,
+             "checks": [ { "part": "the primary button (\"Upgrade to Premium\")", "property": "corner radius" },
+                         { "part": "the tab bar at the bottom", "property": "number of tabs" } ] },
+  "gold": { "holds": [false, true] },
+  "rationale": "……", "difficulty": "hard", "tags": ["corner_radius"] }
+```
+
+| `kind` | 题数 | 图 | `asked` | `gold` |
+|---|---|---|---|---|
+| `ui` | 9 | 参考图 `ui/ref.png`（702×1519，iOS 的账户页），候选 `ui/c1.png`–`c9.png`：圆角 12→6、边距 16→24、颜色、按钮文字字重 600→400、一行图标右移 4px、一行图标没了、标题被截断、标签栏少一个标签，`c9` 与参考图完全相同 | `screenshot`、`reference`（一张或几张）、`same_view`（`null`：按宽高比推断，和 mod 一样）、`checks`（和 mod 的 `Check` 同形：`part` 点名部分，`property` 一个看得见的属性） | `holds`：每条检查项是否成立（这个部分和参考图一样）。每个候选另有一条没改动部分的检查项（应当成立），对照 `c9` 三条全部成立 |
+| `sea` | 7 | 参考图 `sea/ref.png` 和候选 `fogNone`、`fogDense`、`big`、`calm`、`flat`、`noFoam`、`twin`（`twin` 是同一片海的另一个时刻，对照）；640×400 | 同上，三条检查项：浪高、浪花量、雾的浓度 | 取自实验 `sea/run.ts` 的 TRUTH 表 |
+| `anim` | 5 | 一张卡片从左滑入的 12 帧，`linear`、`ease_out`、`spring`（回弹）、`janky`（中间几帧停住）、`wrong_end`（停在 x=140，离终点差 60px）；400×400，帧文件 `anim/<运动>-00.png`–`11.png`；**每帧都画出终点**（见下面「动画帧的终点」） | `frames`（每帧的文件和秒数，每 50 ms 一帧）、`spec`（规范：卡片从左滑入，终点是和卡片一样大、标着 TARGET 的绿色虚线框，画在最上层，卡片最后应当正好停在框里；文字里没有像素坐标）、`checks`（写成「应该是怎样」，用画面上看得见的东西：①右边缘没超过 TARGET 框的右边缘再退回来、②一直在动到 TARGET 框、③末帧正好落在 TARGET 框里） | `holds`，取自 `anim/truth.json` |
+| `complexity` | 3 | 三组参考图：立方体（`effort/cube-*.png`，2 张）、海面（`sea/ref.png`、`refB.png`、`refC.png`，3 张）、城市（`effort/city-*.png`，4 张） | `references` | `level`（实验里读出的档：0、2、3）、`accept`（相邻的几档）、`rank`（复杂度的顺序，评测看三组读出来是不是这个顺序） |
+
+- **对照。** 一题里每条检查项都成立（`gold.holds` 全是 `true`）就是对照，必须有标签 `control`，反过来也一样（格式的规则）：`ui-c9-same`、`sea-twin`，另有 `anim` 里没有毛病的 `linear` 和 `ease_out`。对照被判不过是误报，被判过是对的，没把握不算错。
+- **`blind-spot` 标签。** `c4`（字重）和 `c5`（4px 偏移）是实验里放大复核也抓不到的（落在没把握），所以留在集里作为已知的盲区；只要它们没被判过，指标就不扣分。
+- **真值文件。** `visual-check/ui/truth.json`（每个候选改了什么、改的地方的框）和 `anim/truth.json`（每种运动的 x 坐标和三个真值）是实验的原文件，原样复制，题目的 `gold` 由它们和 `sea/run.ts` 的 TRUTH 表来。
+- **动画帧的终点。** 第一版的帧只有背景、左上角的帧号、一条横贯的灰线和卡片，终点只在文字里用像素给出（右边缘在 x=350），模型既要猜终点在哪，又要猜卡片有没有到过，15 条检查项全部没把握（基线）。现在每帧都把终点画出来：一个和卡片同样大小（150×170）、同样圆角（18 px）的绿色虚线框（`#14A44D`，3 px 虚线），左边缘 x=200、和卡片同一个 top（110），画在卡片上面（卡片停对时正好落在框里）；框上方（左边缘对齐，top 90）一行绿色小字 `TARGET`。其余不变：背景、帧号、灰线、卡片、每帧卡片的位置（`anim/truth.json` 的 `xs`，没改）。`spring` 回弹到 242（右边缘 392，越过框的右边缘 350），`wrong_end` 停在 140（右边缘 290，框内只盖住一部分）。
+  - **帧是怎么生成的**：这类图一向没有提交生成脚本（上面说的「来源」同理），所以这次也没有：脚本在被忽略的 `.scratch/visual-judge-experiment-2026-10-15/anim-target/`（`card.html` 加 `build.ts`，无头 Chrome 经 CDP 按 `anim/truth.json` 的位置逐帧截图，400×400、缩放 1）。要重做就照上面的参数写一个页面：卡片按 `xs[运动][帧号]` 定位，终点框和 `TARGET` 的位置、颜色、大小如上，再逐帧截图覆盖 `anim/<运动>-NN.png`。真值不会变，因为它只取决于卡片的位置。
+  - **要求的写法。** 规范和检查项不再给像素，只说画面上看得见的东西：TARGET 框和卡片的相对位置。文字在 `visual-check.jsonl` 的五条 `anim-*` 里，五条的规范和检查项逐字相同。
+- **suite**（`lib/visual-check.ts`，变体 `mod` 和 `whole`）：请求和 mod 的逐字相同，细节、指标和花费见 DEVELOPMENT.md「评测」的「看图核对」。
 
 ## 来源
 

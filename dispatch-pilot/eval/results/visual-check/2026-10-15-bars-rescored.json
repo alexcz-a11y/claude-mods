@@ -1,0 +1,503 @@
+{
+  "what": "The visual-check results of 2026-10-15 judged again by the bars the user set that day (after the baseline and the animation redone with a TARGET box), from the probabilities the runs kept: no request was sent, the result files are untouched. `before` is the old bars (0.9 / 0.2 for every kind) and reproduces the stored verdicts; `now` is the mod's bars now.",
+  "date": "2026-10-15",
+  "by": "eval/rescore-visual-check.ts",
+  "bars": {
+    "before": {
+      "passAt": 0.9,
+      "failAt": 0.2,
+      "for": "every kind"
+    },
+    "now": {
+      "screenshot": {
+        "passAt": 0.8,
+        "failAt": 0.2
+      },
+      "recording": {
+        "passAt": 0.8,
+        "failAt": 0.4
+      },
+      "series": "PASS from 0.9, FAIL up to 0.2 (unchanged; no series is in the evaluation set)"
+    }
+  },
+  "results": [
+    {
+      "file": "eval/results/visual-check/2026-10-15-jev-baseline.json",
+      "label": "baseline",
+      "date": "2026-10-15T11:22:20.281Z",
+      "repeats": 1,
+      "variants": [
+        {
+          "variant": "mod",
+          "stored": {
+            "ui": {
+              "checks": 19,
+              "differ": 8,
+              "same": 11,
+              "falsePass": 1,
+              "falseFail": 0,
+              "caught": 3,
+              "passed": 11,
+              "unsure": 4,
+              "unsureDiffer": 4,
+              "unsureSame": 0
+            },
+            "sea": {
+              "checks": 21,
+              "differ": 9,
+              "same": 12,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 7,
+              "passed": 2,
+              "unsure": 12,
+              "unsureDiffer": 2,
+              "unsureSame": 10
+            },
+            "anim": {
+              "checks": 15,
+              "differ": 3,
+              "same": 12,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 0,
+              "passed": 0,
+              "unsure": 15,
+              "unsureDiffer": 3,
+              "unsureSame": 12
+            },
+            "all": {
+              "checks": 55,
+              "differ": 20,
+              "same": 35,
+              "falsePass": 1,
+              "falseFail": 0,
+              "caught": 10,
+              "passed": 13,
+              "unsure": 31,
+              "unsureDiffer": 9,
+              "unsureSame": 22
+            }
+          },
+          "before": {
+            "ui": {
+              "checks": 19,
+              "differ": 8,
+              "same": 11,
+              "falsePass": 1,
+              "falseFail": 0,
+              "caught": 3,
+              "passed": 11,
+              "unsure": 4,
+              "unsureDiffer": 4,
+              "unsureSame": 0
+            },
+            "sea": {
+              "checks": 21,
+              "differ": 9,
+              "same": 12,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 7,
+              "passed": 2,
+              "unsure": 12,
+              "unsureDiffer": 2,
+              "unsureSame": 10
+            },
+            "anim": {
+              "checks": 15,
+              "differ": 3,
+              "same": 12,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 0,
+              "passed": 0,
+              "unsure": 15,
+              "unsureDiffer": 3,
+              "unsureSame": 12
+            },
+            "all": {
+              "checks": 55,
+              "differ": 20,
+              "same": 35,
+              "falsePass": 1,
+              "falseFail": 0,
+              "caught": 10,
+              "passed": 13,
+              "unsure": 31,
+              "unsureDiffer": 9,
+              "unsureSame": 22
+            }
+          },
+          "now": {
+            "ui": {
+              "checks": 19,
+              "differ": 8,
+              "same": 11,
+              "falsePass": 1,
+              "falseFail": 0,
+              "caught": 3,
+              "passed": 11,
+              "unsure": 4,
+              "unsureDiffer": 4,
+              "unsureSame": 0
+            },
+            "sea": {
+              "checks": 21,
+              "differ": 9,
+              "same": 12,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 7,
+              "passed": 2,
+              "unsure": 12,
+              "unsureDiffer": 2,
+              "unsureSame": 10
+            },
+            "anim": {
+              "checks": 15,
+              "differ": 3,
+              "same": 12,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 1,
+              "passed": 4,
+              "unsure": 10,
+              "unsureDiffer": 2,
+              "unsureSame": 8
+            },
+            "all": {
+              "checks": 55,
+              "differ": 20,
+              "same": 35,
+              "falsePass": 1,
+              "falseFail": 0,
+              "caught": 11,
+              "passed": 17,
+              "unsure": 26,
+              "unsureDiffer": 8,
+              "unsureSame": 18
+            }
+          },
+          "notReproduced": 0
+        },
+        {
+          "variant": "whole",
+          "stored": {
+            "ui": {
+              "checks": 19,
+              "differ": 8,
+              "same": 11,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 4,
+              "passed": 0,
+              "unsure": 15,
+              "unsureDiffer": 4,
+              "unsureSame": 11
+            },
+            "sea": {
+              "checks": 21,
+              "differ": 9,
+              "same": 12,
+              "falsePass": 0,
+              "falseFail": 1,
+              "caught": 8,
+              "passed": 0,
+              "unsure": 12,
+              "unsureDiffer": 1,
+              "unsureSame": 11
+            },
+            "anim": {
+              "checks": 15,
+              "differ": 3,
+              "same": 12,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 0,
+              "passed": 0,
+              "unsure": 15,
+              "unsureDiffer": 3,
+              "unsureSame": 12
+            },
+            "all": {
+              "checks": 55,
+              "differ": 20,
+              "same": 35,
+              "falsePass": 0,
+              "falseFail": 1,
+              "caught": 12,
+              "passed": 0,
+              "unsure": 42,
+              "unsureDiffer": 8,
+              "unsureSame": 34
+            }
+          },
+          "before": {
+            "ui": {
+              "checks": 19,
+              "differ": 8,
+              "same": 11,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 4,
+              "passed": 0,
+              "unsure": 15,
+              "unsureDiffer": 4,
+              "unsureSame": 11
+            },
+            "sea": {
+              "checks": 21,
+              "differ": 9,
+              "same": 12,
+              "falsePass": 0,
+              "falseFail": 1,
+              "caught": 8,
+              "passed": 0,
+              "unsure": 12,
+              "unsureDiffer": 1,
+              "unsureSame": 11
+            },
+            "anim": {
+              "checks": 15,
+              "differ": 3,
+              "same": 12,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 0,
+              "passed": 0,
+              "unsure": 15,
+              "unsureDiffer": 3,
+              "unsureSame": 12
+            },
+            "all": {
+              "checks": 55,
+              "differ": 20,
+              "same": 35,
+              "falsePass": 0,
+              "falseFail": 1,
+              "caught": 12,
+              "passed": 0,
+              "unsure": 42,
+              "unsureDiffer": 8,
+              "unsureSame": 34
+            }
+          },
+          "now": {
+            "ui": {
+              "checks": 19,
+              "differ": 8,
+              "same": 11,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 4,
+              "passed": 0,
+              "unsure": 15,
+              "unsureDiffer": 4,
+              "unsureSame": 11
+            },
+            "sea": {
+              "checks": 21,
+              "differ": 9,
+              "same": 12,
+              "falsePass": 0,
+              "falseFail": 1,
+              "caught": 8,
+              "passed": 0,
+              "unsure": 12,
+              "unsureDiffer": 1,
+              "unsureSame": 11
+            },
+            "anim": {
+              "checks": 15,
+              "differ": 3,
+              "same": 12,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 0,
+              "passed": 5,
+              "unsure": 10,
+              "unsureDiffer": 3,
+              "unsureSame": 7
+            },
+            "all": {
+              "checks": 55,
+              "differ": 20,
+              "same": 35,
+              "falsePass": 0,
+              "falseFail": 1,
+              "caught": 12,
+              "passed": 5,
+              "unsure": 37,
+              "unsureDiffer": 8,
+              "unsureSame": 29
+            }
+          },
+          "notReproduced": 0
+        }
+      ]
+    },
+    {
+      "file": "eval/results/visual-check/2026-10-15-jev-anim-target.json",
+      "label": "anim-target",
+      "date": "2026-10-15T13:18:22.656Z",
+      "repeats": 3,
+      "variants": [
+        {
+          "variant": "mod",
+          "stored": {
+            "ui": {
+              "checks": 0,
+              "differ": 0,
+              "same": 0,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 0,
+              "passed": 0,
+              "unsure": 0,
+              "unsureDiffer": 0,
+              "unsureSame": 0
+            },
+            "sea": {
+              "checks": 0,
+              "differ": 0,
+              "same": 0,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 0,
+              "passed": 0,
+              "unsure": 0,
+              "unsureDiffer": 0,
+              "unsureSame": 0
+            },
+            "anim": {
+              "checks": 45,
+              "differ": 9,
+              "same": 36,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 2,
+              "passed": 9,
+              "unsure": 34,
+              "unsureDiffer": 7,
+              "unsureSame": 27
+            },
+            "all": {
+              "checks": 45,
+              "differ": 9,
+              "same": 36,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 2,
+              "passed": 9,
+              "unsure": 34,
+              "unsureDiffer": 7,
+              "unsureSame": 27
+            }
+          },
+          "before": {
+            "ui": {
+              "checks": 0,
+              "differ": 0,
+              "same": 0,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 0,
+              "passed": 0,
+              "unsure": 0,
+              "unsureDiffer": 0,
+              "unsureSame": 0
+            },
+            "sea": {
+              "checks": 0,
+              "differ": 0,
+              "same": 0,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 0,
+              "passed": 0,
+              "unsure": 0,
+              "unsureDiffer": 0,
+              "unsureSame": 0
+            },
+            "anim": {
+              "checks": 45,
+              "differ": 9,
+              "same": 36,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 2,
+              "passed": 9,
+              "unsure": 34,
+              "unsureDiffer": 7,
+              "unsureSame": 27
+            },
+            "all": {
+              "checks": 45,
+              "differ": 9,
+              "same": 36,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 2,
+              "passed": 9,
+              "unsure": 34,
+              "unsureDiffer": 7,
+              "unsureSame": 27
+            }
+          },
+          "now": {
+            "ui": {
+              "checks": 0,
+              "differ": 0,
+              "same": 0,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 0,
+              "passed": 0,
+              "unsure": 0,
+              "unsureDiffer": 0,
+              "unsureSame": 0
+            },
+            "sea": {
+              "checks": 0,
+              "differ": 0,
+              "same": 0,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 0,
+              "passed": 0,
+              "unsure": 0,
+              "unsureDiffer": 0,
+              "unsureSame": 0
+            },
+            "anim": {
+              "checks": 45,
+              "differ": 9,
+              "same": 36,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 9,
+              "passed": 28,
+              "unsure": 8,
+              "unsureDiffer": 0,
+              "unsureSame": 8
+            },
+            "all": {
+              "checks": 45,
+              "differ": 9,
+              "same": 36,
+              "falsePass": 0,
+              "falseFail": 0,
+              "caught": 9,
+              "passed": 28,
+              "unsure": 8,
+              "unsureDiffer": 0,
+              "unsureSame": 8
+            }
+          },
+          "notReproduced": 0
+        }
+      ]
+    }
+  ]
+}

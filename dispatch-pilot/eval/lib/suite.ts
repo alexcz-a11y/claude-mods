@@ -8,6 +8,7 @@
 
 import type { PluginOptions } from 'claude-code'
 import type { Asked, Failure } from '../../hooks/decision/backend.ts'
+import type { ImageFilesIo } from '../../hooks/core/image-files.ts'
 import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
 import { CONTEXT_KINDS, readConfig, type BackendName, type Config, type ContextKind } from '../../hooks/core/setup.ts'
 import type { Language } from './datasets.ts'
@@ -118,6 +119,9 @@ export function requestFailed(failure: Failure): { ok: false; failure: string } 
   return { ok: false, failure: `${failure.kind}: ${failure.detail}` }
 }
 
+/** What a run costs per token, for a suite that reports the price of what it asks (eval/node.ts PRICES): the price of a million input tokens, in dollars. */
+export type Prices = { usdPerMillionTokens: number }
+
 /** One request a suite sent: the backend's outcome, how long the answered attempt took, how many attempts it took. */
 export type Sent = { request: DecisionRequest; asked: Asked; ms: number; attempts: number }
 
@@ -149,6 +153,18 @@ export type SuiteHost = {
   beside: (name: string) => unknown
   /** A text file by its path (`~` the home directory); rejects when it cannot be read. */
   read: (path: string) => Promise<string>
+  /** The pictures beside the dataset and the programs that size and cut them (the visual-check suite); absent where a host has none. */
+  images?: ImageHost
+}
+
+/**
+ * What a suite that sends images needs of the machine: the files and programs the mod's own image code asks of the engine
+ * (`ImageFilesIo`: sips to size and cut, bytes to read, a place for new files), and where an item's picture is, by the path the
+ * dataset gives it (relative to eval/datasets/visual-check/). eval/node.ts gives it over Node's file system and child processes.
+ */
+export type ImageHost = {
+  io: ImageFilesIo
+  path: (relative: string) => string
 }
 
 export type Suite<I extends AnyItem, P> = {
@@ -186,7 +202,7 @@ export type Suite<I extends AnyItem, P> = {
    * ones every suite gets (metrics.ts), saved in that variant's summary as
    * `breakdown` (`subagent`: where models came from, thresholds swept).
    */
-  breakdown?: (items: readonly I[], rows: readonly Row<P>[], variant: string, settings: Settings) => Readonly<Record<string, unknown>>
+  breakdown?: (items: readonly I[], rows: readonly Row<P>[], variant: string, settings: Settings, prices?: Prices) => Readonly<Record<string, unknown>>
   /** Optional: lines eval/run.ts prints about one variant's summary, after the figures every suite gets. */
   report?: (summary: VariantSummary) => string[]
   /** Optional: how an answer is scored, in words, recorded with the results (what a reader needs to read the numbers). */

@@ -6,6 +6,7 @@
 //
 // Pure (see system-one.ts).
 
+import { referenceField, type ReferenceReading } from './complexity.ts'
 import { estimateTokens, turnStartState, type ContextLimits, type ContextMessage } from './context.ts'
 import { DEFAULT_ASK, turnStartEffortPart, type EffortAsk } from './effort.ts'
 import { renderSummary, SUMMARY_FIELD, type Summary } from './summary.ts'
@@ -40,6 +41,8 @@ export type TurnStartPartInput = {
   count?: number
   /** The count from which the effort question has the strong hint (`unresolvedMaxAfter`; 0 or none: never). */
   maxAfter?: number
+  /** What the reference images the message came with read as (#63): in the state as `reference_complexity`, a hint for the effort question, which is not changed. */
+  reference?: ReferenceReading | null
 }
 
 /**
@@ -56,6 +59,7 @@ export function turnStartPart(input: TurnStartPartInput = {}): Part {
     ...(input.command === undefined || input.command === null ? {} : { command: input.command }),
     ...(input.summary === undefined || input.summary === null ? {} : { [SUMMARY_FIELD]: renderSummary(input.summary, ask.language) }),
     ...(count > 0 ? { [COUNT_FIELD]: count } : {}),
+    ...referenceField(input.reference),
   }
   return Object.keys(state).length === 0 ? questions : { ...questions, state }
 }

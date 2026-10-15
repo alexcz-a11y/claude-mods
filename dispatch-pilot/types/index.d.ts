@@ -175,6 +175,12 @@ declare module 'claude-code' {
           }
           /** The failed tool calls, hook blocks and forced raises of the agent's loop (escalation); absent while none. `late`: a stuck re-decision is not back. */
           counts?: { failed: number; blocked: number; raised: number; late?: true }
+          /**
+           * The agent's visual_check calls of its loop, counted by verdict: checks that passed, failed, got no verdict
+           * to trust. The band's row says `核对 N：x 过 · y 不过 · z 没把握`. `takeovers`: images the screenshot takeover
+           * kept from the agent, added to the same count. Absent while the agent made no check (and for a new turn's node).
+           */
+          visualChecks?: { passed: number; failed: number; unsure: number; takeovers?: number }
         }[]
       }
       /**
@@ -239,6 +245,8 @@ declare module 'claude-code' {
         counts?: { failed: number; blocked: number; raised: number }
         /** A Workflow call's decision that was sent back to the main agent to write in (return mode). */
         sentBack?: true
+        /** The complexity reading of the reference images a message came with (#63) that went into its effort request: the level (0 to 4) and how many images it came from. */
+        reference?: { level: number; images: number }
         /** An unresolved-count judgement (`unresolved`): the count before and after the message, what the answer did to it, the options' probabilities, and the bars it was held to. */
         unresolved?: {
           before: number
@@ -256,6 +264,27 @@ declare module 'claude-code' {
          * feature `unresolved` that records the hint carry it.
          */
         hint?: { count: number; maxAfter: number; where?: 'mid' }
+        /**
+         * A visual_check call (`visual-check`): the screenshot, what it was checked against (`paths`: the reference images or
+         * the other screenshot; none for a spec), the decision model that judged it, each check with its verdict, the
+         * probability that it holds and whether the verdict rests on the zoomed re-check (`zoomed`; `why` for an unsure one),
+         * whether any did, and how long the call took in ms. Paths and numbers only: no image, no key, no specification text.
+         * A series of quality levels (`against.kind` 'sequence'): `paths` are all the levels, lowest first, `image` the first, and each
+         * check is made on each two neighbouring levels, `pair` being which two, counted from 1 (none for a series that could not be read).
+         */
+        visualCheck?: {
+          image: string
+          against: { kind: 'spec' | 'reference' | 'compare_to' | 'sequence'; paths: string[] }
+          backend: string
+          checks: { part: string; property: string; verdict: 'pass' | 'fail' | 'unsure'; probability: number | null; zoomed: boolean; why?: string; pair?: [number, number] }[]
+          zoomed: boolean
+          ms: number
+        }
+        /**
+         * An entry of feature `decision-model` (the fallback to another decision model): which requests it is about, the ones that
+         * decide (`text`) or the ones that carry images (`images`). What the screens and the entry's replacement read, not its words.
+         */
+        fallbackFor?: 'text' | 'images'
       }[]
       /**
        * The agent the person picked on the band (its digit key, 0 the main agent) or paged to in the rationale
@@ -306,8 +335,26 @@ declare module 'claude-code' {
        * which restarts the module, does not let a burst out. Written by that limiter only (through `BackendIo.pace`).
        */
       pplxRate: number[]
+      /**
+       * When each loop began (core/loop-start.ts; GLOSSARY 循环), id `main` for the main agent (its latest turn's
+       * `turn.start`) or the agentId of a dispatched or Workflow agent (its `agent.spawn`, so a resumed run starts it
+       * again; its first `turn.start` when no spawn was seen), `$.clock.now()` ms. The images work (spec #55) tells an
+       * image the loop made from one that was there before it by a file's modification time against this: the screenshot
+       * takeover (#62) takes over the first kind, the routing's reference images (#64) are the second. Written by that
+       * module only.
+       */
+      loops: StateFamily<{ startedAt: number }>
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+      /**
+       * The complexity readings of the reference images the session has met (#63; GLOSSARY 复杂度读数,
+       * hooks/core/complexity.ts), the latest groups' (at most 8), the one asked or reused last at the end. A group of
+       * images is recognised by `key`, a hash of the images' content (as they are sent), and asked once; `level` is
+       * 0 (trivial) to 4 (very complex), `images` how many images it came from, `at` when it was asked or last reused
+       * (`$.clock.now()`, ms). The latest is what a request that carries no image of its own (a dispatched agent's)
+       * takes. Written by hooks/core/complexity.ts only.
+       */
+      referenceReadings: { key: string; level: number; images: number; at: number }[]
       /**
        * The mid-turn re-decision's own record of a main turn (#5), id
        * `main:<turnId>` (turnKey): its steps, the tool calls they made and how

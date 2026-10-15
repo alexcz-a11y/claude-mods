@@ -13,12 +13,16 @@ export type ScoreQuestion = { type: 'score'; instructions: Text; criteria: reado
 export type ChoiceQuestion = { type: 'choice'; instructions: Text; criteria: Readonly<Record<string, Text | null>> }
 /** Yes or no; the answer is the probability of yes. */
 export type NoulQuestion = { type: 'noul'; instructions: Text; criteria?: { true?: Text; false?: Text } }
-export type Question = ScoreQuestion | ChoiceQuestion | NoulQuestion
+/** Where in an image something is (Jev 1.14 only; there is no "not found" answer: ask a Noul beside it); the answer is a box. */
+export type BoxQuestion = { type: 'box'; instructions: Text }
+export type Question = ScoreQuestion | ChoiceQuestion | NoulQuestion | BoxQuestion
 
 export type ScoreAnswer = { type: 'score'; score: number; probabilities: Readonly<Record<string, number>>; confidence: number | null }
 export type ChoiceAnswer = { type: 'choice'; choice: string; probabilities: Readonly<Record<string, number>>; confidence: number | null }
 export type NoulAnswer = { type: 'noul'; noul: number }
-export type Answer = ScoreAnswer | ChoiceAnswer | NoulAnswer
+/** A box in an image, each edge as a share of the image's height or width from the top left; `confidence` is how sure the model is of the thing it boxed, not whether it is there. */
+export type BoxAnswer = { type: 'box'; box: { top: number; bottom: number; left: number; right: number }; confidence: number | null }
+export type Answer = ScoreAnswer | ChoiceAnswer | NoulAnswer | BoxAnswer
 
 /**
  * What every question of a request reads: one object, its most important
@@ -28,8 +32,15 @@ export type Answer = ScoreAnswer | ChoiceAnswer | NoulAnswer
  */
 export type State = Readonly<Record<string, unknown>>
 
-/** One decision request, less the backend's own fields (`model`). */
-export type DecisionRequest = { state: State; questions: Readonly<Record<string, Question>> }
+/**
+ * An image a request carries (#56, ADR 0008). The state and the questions refer to it by `imageRef(name)` (images.ts) in any
+ * string, and each backend sends it in its own form (Jev's `assets`, pplx's `image_url` parts). Standard base64 of a PNG or a
+ * JPEG, already within the sizes the backend takes (the caller's job); `width` and `height` are its pixels, for the token estimate.
+ */
+export type RequestImage = { name: string; format: 'png' | 'jpeg'; base64: string; width: number; height: number }
+
+/** One decision request, less the backend's own fields (`model`). A request without `images` is the text-only one every backend has always sent. */
+export type DecisionRequest = { state: State; questions: Readonly<Record<string, Question>>; images?: readonly RequestImage[] }
 
 /**
  * One contributor's questions under its own name. In the request each id is
@@ -114,10 +125,18 @@ function readAnswer(type: Question['type'], raw: unknown): Answer | null {
   if (!isRecord(raw) || raw.type !== type) return null
   const confidence = typeof raw.confidence === 'number' ? raw.confidence : null
   if (raw.type === 'noul') return typeof raw.noul === 'number' ? { type: 'noul', noul: raw.noul } : null
+  if (raw.type === 'box') return readBox(raw.box, confidence)
   const probabilities = numbers(raw.probabilities)
   if (probabilities === null) return null
   if (raw.type === 'score') return { type: 'score', score: typeof raw.score === 'number' ? raw.score : Number.NaN, probabilities, confidence }
   return { type: 'choice', choice: typeof raw.choice === 'string' ? raw.choice : '', probabilities, confidence }
+}
+
+function readBox(raw: unknown, confidence: number | null): BoxAnswer | null {
+  if (!isRecord(raw)) return null
+  const { top, bottom, left, right } = raw
+  if (![top, bottom, left, right].every((edge) => typeof edge === 'number' && Number.isFinite(edge))) return null
+  return { type: 'box', box: { top: top as number, bottom: bottom as number, left: left as number, right: right as number }, confidence }
 }
 
 function numbers(value: unknown): Record<string, number> | null {

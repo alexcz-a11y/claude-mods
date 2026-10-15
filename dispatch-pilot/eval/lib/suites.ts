@@ -15,6 +15,7 @@ import { longContextSuite, SUMMARY_FILE, type SummaryFile } from './long-context
 import { skillSuite } from './skill.ts'
 import { agentSuite } from './subagent.ts'
 import { unresolved } from './unresolved.ts'
+import { visualCheckSuite } from './visual-check.ts'
 import type { AgentItem } from './datasets.ts'
 import type { Suite, SuiteHost } from './suite.ts'
 
@@ -39,4 +40,6 @@ export const SUITES: Readonly<Record<string, Suite<any, any> | SuiteFactory>> = 
   'long-context': (host) => longContextSuite(host.beside(SUMMARY_FILE) as SummaryFile | undefined),
   // eval-v2.jsonl with the final gold (eval/node.ts readEvalV2Dataset); the flow variants carry what the run's flow file holds.
   'eval-v2': async (_host, _items, run) => evalV2Suite(run?.flow as FlowFile | undefined),
+  // The pictures beside the dataset (eval/datasets/visual-check/) and the programs that size and cut them come from the host.
+  'visual-check': async (host) => visualCheckSuite(host.images),
 }

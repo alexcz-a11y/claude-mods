@@ -15,8 +15,8 @@ const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
 /** Whichever of the two decision models the request is for answers it with `levels`. */
 const either = (levels: readonly number[], extra: { key?: string } = {}) => (request: Sent): Reply => (request.url === PPLX_URL ? pplx(levels, extra)(request) : jev(levels)(request))
 
-/** The decision log's entries that say the decision model changed. */
-const fellBack = async (w: ReturnType<typeof world>) => (await w.board()).log.filter((entry) => entry.feature === 'decision-model')
+/** The decision log's entries that say the decision model changed (the one that says images go to pplx is image-backend.test.ts's). */
+const fellBack = async (w: ReturnType<typeof world>) => (await w.board()).log.filter((entry) => entry.feature === 'decision-model' && entry.fallbackFor === 'text')
 
 // ---- the choice ----------------------------------------------------------------------------------
 

@@ -1,0 +1,251 @@
+// Feature: visual_check (#57, ADR 0008). An agent (the main agent, or a dispatched one) hands this tool screenshots and a few
+// checks, and the decision model that takes images (Jev; pplx without a TypeSafe key) answers pass, fail or unsure for each, in a
+// second or two, where the agent would have had to look at every image itself.
+//
+// Its switch is `visual-check` (`/dp visual-check off`), on by default. The tool stays registered whatever the switches say,
+// with a description that never changes (the tool list is part of the prompt cache); switched off, it says so when called.
+//
+// A call is a line of stages (`check`), and each later ticket of the images work (#55) has its place in it: the zoomed re-check
+// (#59) goes between the first request and the verdicts, the frames of a recording (#60) are read where the images are, the
+// quality series (#61) is another kind of comparison, and the report to the board and the log (#58) goes after the verdicts.
+// Whatever goes wrong in a stage, the checks it touches end unsure with the reason, and the tool never fails.
+
+import type { EngineInterface, HttpInit, On } from 'claude-code'
+import { type Asked, type BackendIo, type BackendName, describeAsked, errorText, type Failure, failureText } from '../decision/backend.ts'
+import { imageMegapixelBudget, PPLX_MAX_IMAGES, type Picture } from '../decision/images.ts'
+import type { DecisionRequest } from '../decision/system-one.ts'
+import { LOOK_IMAGE_LIMITS, limitsFor } from '../decision/image-fit.ts'
+import { allUnsure, comparedNames, forgetLoop, isCompared, noteResults, readWholeImage, RECORDING_BARS, wholeImageRequest, type Check, type CheckResult, type Comparison, type Streaks } from '../decision/visual-check.ts'
+import { locatePlan, readLocated, withBoxes } from '../decision/visual-check-zoom.ts'
+import { sameView } from '../decision/zoom.ts'
+import { attachmentsOf, type Attachment, zoomReview } from '../core/zoom-review.ts'
+import { parseVisualCheckInput, type ShownPlace, visualCheckText, VISUAL_CHECK_INPUT, VISUAL_CHECK_TOOL, VISUAL_CHECK_TOOL_CALLED, visualCheckDescription, type VisualCheckInput } from '../decision/visual-check-tool.ts'
+import { FRAME_COUNT, type Frame, framesRequest, isRecording, type Span } from '../decision/visual-check-frames.ts'
+import { recordOf, type VisualCheckRecord } from '../decision/visual-check-record.ts'
+import { type ImageFilesIo, loadAll, type LoadedImage } from '../core/image-files.ts'
+import { callBudget } from '../core/call-budget.ts'
+import { readRecording } from '../core/video-frames.ts'
+import { report, type ReportIo } from '../core/report.ts'
+import { type CallTrouble, reportCall } from '../core/visual-check-report.ts'
+import { newWorkFile } from '../core/work-files.ts'
+import type { Ctx } from '../core/setup.ts'
+import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
+import { type AnswerBlock, imageBlock, load, look } from './visual-check-look.ts'
+import { checkSeries, type SeriesDeps } from './visual-check-series.ts'
+
+const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
+const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
+
+/** The switch's name, in `/dp` and in the decision log. */
+const SWITCH = 'visual-check'
+
+/**
+ * How long one request with images may take (ADR 0008): a tool call is not held to the 1500 ms Jev has beside a message. The
+ * requests of one call share the hook's 10 s, though: a request waits on a `$.clock.sleep`, which counts toward them
+ * (core/call-budget.ts), so each is also held to what is left of the call's time.
+ */
+const REQUEST_MS = 8000
+
+/** What a request that was not sent for want of time failed with: the checks it was for end unsure, with this for the reason. */
+const NO_TIME: Failure = { kind: 'timeout', detail: 'no time left in this call (a tool call has about 10 seconds in all)' }
+
+/** A series of quality levels (#61) needs the zoomed re-check of each pair, which needs the boxes only Jev answers: with pplx the call says so and asks nothing. */
+const SERIES_NEEDS_JEV =
+  'visual_check cannot compare a series of quality levels now: a series is compared pair by pair on enlarged crops (the zoomed re-check), which needs a TypeSafe key, and the decision model that takes images here is pplx. Look at the levels yourself (visual_check with look: true), or compare two of them at a time with compare_to, which with pplx catches only clear differences.'
+
+/** A call that did not run: the agent is told why, and that it can look at the images itself. */
+const LOOK_YOURSELF = 'Look at the images yourself.'
+
+/**
+ * How many times in a row each check has failed, by agent, in its loop (module level: a hot reload loses it, at the cost of one
+ * reminder less).
+ */
+const streaks: Streaks = new Map()
+
+/** Everything one call needs of the engine, as closures (a module may not pass `$` across an import). */
+function filesOf($: EngineInterface): ImageFilesIo {
+  return {
+    run: (argv, init) => $.process.run(argv, init),
+    readBytes: async (path) => (await $.fs.read(path, { as: 'bytes' })).base64,
+    // Derived images go to the session's directory in the mod's temporary directory (core/work-files.ts).
+    newFile: (extension) => newWorkFile({ run: (argv) => $.process.run(argv), tmpdir: () => $.env.get('TMPDIR'), sessionId: () => $.session.id() }, extension),
+  }
+}
+
+export function registerVisualCheck(on: On, ctx: Ctx): void {
+  defineSwitch({ name: SWITCH, info: '看图核对：agent 交上截图和检查项，决策模型对每条回答过、不过或没把握', parts: ['checks'] })
+
+  // Registered once every plugin is loaded, under a match-all matcher. Without a decision model that takes images (no TypeSafe
+  // and no Perplexity key) the tool would only ever fail, so it is not offered.
+  on('session.start', { cwd: /(?:)/ }, async ($, e, next) => {
+    const result = await next(e)
+    const images = ctx.images
+    if (images === null) return result
+    try {
+      const { tool } = await $.tool.register({
+        name: VISUAL_CHECK_TOOL,
+        description: visualCheckDescription(images.name),
+        inputSchema: VISUAL_CHECK_INPUT,
+        isDeferred: false,
+      })
+      if (tool !== VISUAL_CHECK_TOOL_CALLED) $.ui.log(`visual_check is registered as ${tool}, but the hook answers ${VISUAL_CHECK_TOOL_CALLED}: its calls will fail`, { to: 'debug' })
+    } catch (error) {
+      $.ui.log(`visual_check was not registered: ${errorText(error)}`, { to: 'debug' })
+    }
+    return result
+  })
+
+  // A loop begins (a turn of the main agent, an agent's run): the count of failed checks starts again. The spec wants it counted
+  // for the same agent in the same loop. A dispatched agent's run has a `turn.start` of its own with its `agentId` from 2.1.299 (measured
+  // on 2.1.300, and for a run woken by a message, DEVELOPMENT.md 「已实测」); before that an agent had no resumed run, so its one loop
+  // began with its first call and nothing needs forgetting. core/loop-start.ts keeps the loops' beginnings, but is not needed here.
+  on('turn.start', { turnId: /(?:)/ }, async (_$, e, next) => {
+    forgetLoop(streaks, e.agentId ?? 'main')
+    return next(e)
+  })
+
+  // The model's call: answered here, never passed on. Whatever goes wrong, the answer says so at once.
+  on('tool.call', { tool: VISUAL_CHECK_TOOL_CALLED }, async ($, e) => {
+    if (!masterOn()) return { result: `Dispatch Pilot is switched off (/dp on turns it back on), so visual_check checked nothing. ${LOOK_YOURSELF}` }
+    if (!isOn(SWITCH)) return { result: `visual_check is switched off (/dp ${SWITCH} on turns it back on), so it checked nothing. ${LOOK_YOURSELF}` }
+    const parsed = parseVisualCheckInput(e as Record<string, unknown>)
+    if (!parsed.ok) return { result: parsed.message }
+    const agent = e.agentId ?? 'main'
+    const reportTo: ReportIo = {
+      board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+      decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+      debug: (line) => $.ui.log(line, { to: 'debug' }),
+      now: () => $.clock.now(),
+      toast: (text) => $.ui.toast(text),
+    }
+    const files = filesOf($)
+    try {
+      // Looking at images asks nothing of the decision model.
+      if (parsed.input.look) return { result: await look(files, parsed.input.images, parsed.input.span) }
+      const images = ctx.images
+      if (images === null) return { result: `visual_check has no decision model that takes images (it needs a TypeSafe or a Perplexity key), so it checked nothing. ${LOOK_YOURSELF}` }
+      // #61: a series of quality levels is compared pair by pair, by the zoomed re-check, which needs the boxes only Jev answers.
+      if (parsed.input.comparison.kind === 'sequence' && images.name !== 'jev') return { result: SERIES_NEEDS_JEV }
+      const io: BackendIo = {
+        fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+        sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+        pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+      }
+      // The requests of this call share the hook's time (core/call-budget.ts).
+      const budget = callBudget(() => $.clock.now())
+      const ask = (request: DecisionRequest): Promise<Asked> =>
+        budget.run(
+          REQUEST_MS,
+          async (waitMs) => {
+            const startedAt = await $.clock.now()
+            const asked = await images.backend.ask(io, request, waitMs)
+            const ms = (await $.clock.now()) - startedAt
+            $.ui.log(`visual_check request [${Object.keys(request.questions).join(', ')}] to ${images.backend.name}: ${describeAsked(asked, ms)}`, { to: 'debug' })
+            return asked
+          },
+          { ok: false, failure: NO_TIME },
+        )
+      const deps: Deps = { files, ask, backend: images.name, agent, now: () => $.clock.now(), debug: reportTo.debug, report: (record, trouble) => reportCall(reportTo, agent, record, trouble) }
+      return { result: parsed.input.comparison.kind === 'sequence' ? await checkSeries(deps, parsed.input) : await check(deps, parsed.input) }
+    } catch (error) {
+      $.ui.log(`visual_check failed: ${errorText(error)}`, { to: 'debug' })
+      // A bug of the mod's own, beside the agent's route: a note on the board, no toast.
+      await report(reportTo, { decision: { feature: SWITCH, agent, aside: true, skipped: 'error' } })
+      // The whole image goes along when it can be read, so the agent still has it to look at (a recording has no one image).
+      const text: AnswerBlock = { type: 'text', text: `visual_check could not run (an error in Dispatch Pilot, written to the debug log). ${LOOK_YOURSELF}` }
+      const target = parsed.input.images[0]
+      const whole = target === undefined || isRecording(target) ? null : await load(files, target, LOOK_IMAGE_LIMITS)
+      return { result: whole?.ok === true ? [text, imageBlock(whole.image)] : [text] }
+    }
+  })
+}
+
+/** What a call needs of the world: files and programs, the decision model that takes images. */
+type Deps = SeriesDeps & {
+  /** Who calls: 'main', or a dispatched agent's id. */
+  agent: string
+}
+
+/** One call, from its input to its answer. */
+async function check(deps: Deps, input: VisualCheckInput): Promise<AnswerBlock[]> {
+  const { comparison, checks } = input
+  const target = input.images[0] as string
+  const startedAt = await deps.now()
+  let trouble: CallTrouble | undefined
+
+  // Stage 1, the images: the screenshot, and what it is compared with. A recording is read into its frames here (#60).
+  const subjects = await subjectsOf(deps, comparison, target, checks.length, input.span)
+  let results: CheckResult[]
+  let attached: Picture | null = subjects.screenshot
+  let crops: Attachment[] = []
+  let elsewhere: ShownPlace | null = null
+  if (!subjects.ok) {
+    results = allUnsure(checks, subjects.reason)
+    trouble = { kind: 'error' }
+    deps.debug(`visual_check could not use its images: ${subjects.reason}`)
+  } else if (subjects.kind === 'recording') {
+    // The frames of a recording, all in one request, in order of time: only the wording of the checks, or a spec, to judge them by.
+    const { request, part } = framesRequest(comparison.kind === 'spec' ? comparison.spec : null, subjects.frames, checks)
+    const asked = await deps.ask(request)
+    results = asked.ok ? readWholeImage(comparison, part, asked.answers, checks, RECORDING_BARS) : allUnsure(checks, failureText(deps.backend, asked.failure))
+    if (!asked.ok) trouble = { kind: 'request', failure: { backend: deps.backend, ...asked.failure } }
+  } else {
+    // Stage 2, the first request: every check about the whole images, in one request.
+    const whole = wholeImageRequest(comparison, { screenshot: subjects.screenshot, references: subjects.references }, checks)
+    const { part } = whole
+    // With Jev, against an image, the same request also locates the named parts (#59). pplx has no Box question.
+    const names = comparedNames(comparison, subjects.references.length)
+    const sameViews = subjects.references.map((reference) => sameView(input.sameView, subjects.screenshot, reference))
+    const plan = deps.backend === 'jev' && isCompared(comparison) ? locatePlan(names, sameViews, checks) : null
+    const asked = await deps.ask(plan === null ? whole.request : withBoxes(whole, plan))
+    // Stage 4, the verdicts: of the whole images.
+    results = asked.ok ? readWholeImage(comparison, part, asked.answers, checks) : allUnsure(checks, failureText(deps.backend, asked.failure))
+    if (!asked.ok) trouble = { kind: 'request', failure: { backend: deps.backend, ...asked.failure } }
+    // Stage 3 (#59), the zoomed re-check of the parts the checks name: the crops decide, the whole images only give a fail where it could not be made.
+    if (asked.ok && plan !== null) {
+      const zoomed = await zoomReview(deps, { candidate: subjects.screenshot, others: subjects.references, names, sameViews }, checks, results, plan, readLocated(plan, asked.answers))
+      results = zoomed.results
+      ;({ crops, elsewhere } = attachmentsOf(zoomed))
+      // A request of the zoomed re-check that failed is a note on the board like the first one (#58).
+      if (zoomed.failure !== null) trouble = { kind: 'request', failure: { backend: deps.backend, ...zoomed.failure } }
+    }
+  }
+  // The screenshot goes along for what is unsure, to be looked at.
+  if (!results.some((result) => result.verdict === 'unsure')) attached = null
+  const repeated = noteResults(streaks, deps.agent, results)
+  // Stage 5 (#58): the report to the board and the decision log; a recording is reported like a screenshot, by its path.
+  await deps.report(recordOf({ image: target, comparison, backend: deps.backend, results, ms: (await deps.now()) - startedAt }), trouble)
+  const text = visualCheckText({ target, against: comparison, results, attached: attached !== null, repeated, recording: isRecording(target), crops: crops.map((crop) => crop.label), elsewhere })
+  return [{ type: 'text', text }, ...crops.map((crop) => imageBlock(crop.picture)), ...(attached === null ? [] : [imageBlock(attached)])]
+}
+
+/**
+ * The images of a call, loaded; or why not, with the screenshot if that one was got (it is then still handed back to look at). A
+ * recording (#60) is its frames, in order of time, and there is no screenshot to hand back.
+ */
+type Subjects =
+  | { ok: true; kind: 'still'; screenshot: LoadedImage; references: LoadedImage[] }
+  | { ok: true; kind: 'recording'; screenshot: null; frames: Frame[] }
+  | { ok: false; reason: string; screenshot: LoadedImage | null }
+
+/** The screenshot and what it is compared with (the references, or the other screenshot; none against a spec), as one request holds them. */
+async function subjectsOf(deps: Deps, comparison: Comparison, target: string, questions: number, span: Span): Promise<Subjects> {
+  const others = comparison.kind === 'reference' ? comparison.paths : comparison.kind === 'compare_to' ? [comparison.path] : []
+  const paths = [target, ...others]
+  const compared = others.length > 0
+  if (isRecording(target)) {
+    if (compared) return { ok: false, screenshot: null, reason: `${target} is a recording, which is checked against a spec or on the wording of the checks alone, not against ${comparison.kind === 'reference' ? 'a reference' : 'another screenshot'}` }
+    const read = await readRecording(deps.files, target, span, FRAME_COUNT[deps.backend], limitsFor(deps.backend), imageMegapixelBudget(deps.backend, questions))
+    return read.ok ? { ok: true, kind: 'recording', screenshot: null, frames: read.frames } : { ok: false, screenshot: null, reason: read.reason }
+  }
+  const recording = others.find(isRecording)
+  if (recording !== undefined) return { ok: false, screenshot: null, reason: `${recording} is a recording, and only the screenshot to check can be one` }
+  if (deps.backend === 'pplx' && paths.length > PPLX_MAX_IMAGES) {
+    return { ok: false, screenshot: null, reason: `pplx takes at most ${PPLX_MAX_IMAGES} images in one request, and this call has ${paths.length}` }
+  }
+  const loaded = await loadAll(deps.files, paths, limitsFor(deps.backend), imageMegapixelBudget(deps.backend, questions))
+  if (!loaded.ok) return { ok: false, screenshot: loaded.first, reason: loaded.reason }
+  const [screenshot, ...references] = loaded.images
+  return screenshot === undefined ? { ok: false, screenshot: null, reason: 'no image was loaded' } : { ok: true, kind: 'still', screenshot, references }
+}

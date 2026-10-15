@@ -12,6 +12,7 @@
 // Pure (see system-one.ts).
 
 import type { Asked, Failure } from './backend.ts'
+import { referenceField, type ReferenceReading } from './complexity.ts'
 import { clipToTokens, estimateTokens, recentWithin, withinTokens } from './context.ts'
 import {
   decideDispatch,
@@ -129,6 +130,8 @@ export type WorkflowBackground = {
   /** The problem summary and the unresolved count, as a dispatched agent's request carries them: background, never a hint (#41). */
   problem_summary?: string
   unresolved_count?: number
+  /** What the latest reference images of the session read as (#64): text only, in every request as `reference_complexity`, the same for every call. */
+  reference_complexity?: ReferenceReading
 }
 
 /** The state field that holds the script. */
@@ -174,6 +177,7 @@ export function workflowBatches(
     user_message: dispatchWords(words, tokens),
     ...(background.problem_summary ? { [SUMMARY_FIELD]: background.problem_summary } : {}),
     ...(background.unresolved_count ? { [COUNT_FIELD]: background.unresolved_count } : {}),
+    ...referenceField(background.reference_complexity),
   }
   const room = Math.max(MIN_BRIEF, tokens - estimateTokens(JSON.stringify(shared)))
   // Each brief may take an equal share of a request holding as many of the calls as one request holds at most:

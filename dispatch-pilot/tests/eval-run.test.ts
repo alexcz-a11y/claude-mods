@@ -10,7 +10,7 @@ import { jevBackend } from '../hooks/decision/jev.ts'
 import type { EffortSubmitItem } from '../eval/lib/datasets.ts'
 import { effortSubmit } from '../eval/lib/effort-submit.ts'
 import { readNumber } from '../eval/lib/numbers.ts'
-import { askRetrying, attemptMs, RETRY_AFTER_MAX_MS, runSuite } from '../eval/lib/runner.ts'
+import { askRetrying, attemptMs, byRepeat, RETRY_AFTER_MAX_MS, runSuite } from '../eval/lib/runner.ts'
 import { optionsFor, optionsFrom, settingsFrom, withStateTokens } from '../eval/lib/suite.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { pplxBackend } from '../hooks/decision/pplx.ts'
@@ -136,6 +136,36 @@ test('a busy backend is asked again after a pause; a refused key is not; an unan
   expect(rows[1]?.failure).toMatch(/^config: HTTP 401/)
   // One pause of a second before the second attempt.
   expect(net.pauses).toEqual([1000])
+})
+
+test('--repeat asks every item again as many times as told, each time a row of its own that says which time it was; without it the rows carry no repeat', async () => {
+  const items = [item('a', '把登录拆成三层', 'high', ['high', 'xhigh'])]
+  // The backend answers differently each time it is asked, so that the rows can be told apart.
+  const net = network((body, n) => answer(body, n === 2 ? XHIGH : HIGH))
+  const options = { backend: jevBackend('k'), io: net.io, now: net.now, pause: net.pause, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['en-score'], languages: ['zh'] as const, timeoutMs: 10_000, retries: 0, concurrency: 1 }
+
+  const once = await runSuite(effortSubmit, items, options)
+  expect(once.length).toBe(1)
+  expect('repeat' in (once[0] as object)).toBe(false)
+
+  // The second request the backend sees (the first of the repeats) is the one answered XHIGH.
+  const rows = await runSuite(effortSubmit, items, { ...options, repeats: 3 })
+  expect(rows.map((r) => `${r.id} #${r.repeat}: ${r.shown}`)).toEqual(['a #1: xhigh', 'a #2: high', 'a #3: high'])
+  expect(net.bodies.length).toBe(4)
+
+  // The rows of one time, for a summary of its own: the rows without a repeat are one time.
+  expect(byRepeat(rows).map((group) => group.map((r) => r.repeat))).toEqual([[1], [2], [3]])
+  expect(byRepeat(once).length).toBe(1)
+  expect(byRepeat([]).length).toBe(0)
+})
+
+test('a repeat count that is not a whole number of 1 or more is refused before anything is asked', async () => {
+  const net = network((body) => answer(body, HIGH))
+  const options = { backend: jevBackend('k'), io: net.io, now: net.now, pause: net.pause, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['en-score'], timeoutMs: 10_000, retries: 0, concurrency: 1 }
+  for (const repeats of [0, -1, 1.5, Number.NaN]) {
+    await expect(runSuite(effortSubmit, [item('a', 'x', 'low', ['low'])], { ...options, repeats })).rejects.toThrow(/repeats/)
+  }
+  expect(net.bodies.length).toBe(0)
 })
 
 // The options a run asks with: what the engine hands the mod (the manifest's

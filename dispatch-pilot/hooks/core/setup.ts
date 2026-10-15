@@ -12,7 +12,7 @@
 // scripts/decide*.ts read them from.
 
 import type { PluginOptions } from 'claude-code'
-import type { Backend } from '../decision/backend.ts'
+import type { Backend, BackendName } from '../decision/backend.ts'
 import type { ContextLimits } from '../decision/context.ts'
 import { DEFAULT_AGENT_MODELS, WORDS_SHARE, type AgentModel, type DispatchAsk, type DispatchSettings } from '../decision/dispatched-agent.ts'
 import type { EffortAsk, EffortRules } from '../decision/effort.ts'
@@ -24,8 +24,8 @@ import { pplxBackend } from '../decision/pplx.ts'
 import { rateLimited } from '../decision/pplx-rate.ts'
 import type { SkillPolicy } from '../decision/skills.ts'
 
-/** The decision models the person can choose (`decisionModel`): Perplexity's pplx-decider and TypeSafe's Jev. */
-export type BackendName = 'pplx' | 'jev'
+/** The decision models the person can choose (`decisionModel`): Perplexity's pplx-decider and TypeSafe's Jev (decision/backend.ts, where the pure modules read it). */
+export type { BackendName }
 
 /**
  * The decision model the person asked for: Jev when `decisionModel` names it, else pplx, the default (ADR 0006). Anything
@@ -48,6 +48,16 @@ export function chooseBackend(asked: BackendName, keys: { perplexity: string; ty
   if (asked === 'jev') return { backend: 'jev', fellBack: false }
   if (keys.perplexity !== '') return { backend: 'pplx', fellBack: false }
   return keys.typesafe !== '' ? { backend: 'jev', fellBack: true } : { backend: 'pplx', fellBack: false }
+}
+
+/**
+ * The decision model that takes requests with images (#56, ADR 0008), apart from the one that decides everything else and
+ * whatever `decisionModel` says: Jev with a TypeSafe key (its Box question and one-time image tokens make zooming possible);
+ * else pplx with a Perplexity key, which cannot zoom (`fellBack`); else none (null), and the features that need images are unavailable.
+ */
+export function chooseImageBackend(keys: { perplexity: string; typesafe: string }): Choice | null {
+  if (keys.typesafe !== '') return { backend: 'jev', fellBack: false }
+  return keys.perplexity !== '' ? { backend: 'pplx', fellBack: true } : null
 }
 
 /**
@@ -397,6 +407,13 @@ export type Ctx = {
   readonly ask: EffortAsk
   /** Whether Jev decides only because there is no Perplexity key (a TypeSafe key is set): the session start records it. */
   readonly fellBack: boolean
+  /**
+   * The decision model that takes requests with images, with the backend to ask (`chooseImageBackend`); null when there is none
+   * and the features that need images are unavailable. `fellBack`: it is pplx for want of a TypeSafe key, which cannot zoom
+   * (needs Box questions). It is the same backend object as `backend` would be, so a pplx request goes through the rate limit
+   * (its `io` needs `pace`, as every request's does).
+   */
+  readonly images: { readonly name: BackendName; readonly backend: Backend; readonly fellBack: boolean } | null
 }
 
 export function setup(options: PluginOptions, table: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS): Ctx {
@@ -423,6 +440,10 @@ export function setup(options: PluginOptions, table: Readonly<Record<BackendName
     },
     get fellBack() {
       return choice().fellBack
+    },
+    get images() {
+      const chosen = chooseImageBackend({ perplexity: perplexityKey(configs.pplx, secrets), typesafe: configs.pplx.typesafeApiKey })
+      return chosen === null ? null : { name: chosen.backend, backend: backends[chosen.backend], fellBack: chosen.fellBack }
     },
   }
 }

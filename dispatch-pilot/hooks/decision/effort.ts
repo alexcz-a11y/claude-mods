@@ -83,7 +83,7 @@ export type EffortReading = { probabilities: readonly number[]; confidence: numb
  * when the answer is missing or puts no probability on any level.
  */
 export function readEffort(answer: Answer | undefined): EffortReading | null {
-  if (answer === undefined || answer.type === 'noul') return null
+  if (answer === undefined || answer.type === 'noul' || answer.type === 'box') return null
   const keys: readonly string[] = answer.type === 'score' ? EFFORTS.map((_, i) => String(i)) : EFFORTS
   const raw = keys.map((key) => answer.probabilities[key] ?? 0)
   const sum = raw.reduce((a, b) => a + b, 0)

@@ -18,8 +18,9 @@ import { estimateTokens, recentLines, said, type ContextMessage } from '../../ho
 import { EFFORTS, isEffort, type Effort } from '../../hooks/decision/effort.ts'
 import { DETAIL_KEYS, OUTCOME_WORDS, type MidturnInput } from '../../hooks/decision/midturn.ts'
 import { conversationOf, conversationTokens, decisiveMark } from './long-conversation.ts'
+import { checkVisualCheck, visualCheckQuotas, VISUAL_CHECK_FIELDS } from './visual-check-items.ts'
 
-export const KINDS = ['effort-submit', 'effort-midturn', 'subagent', 'skill', 'unresolved', 'long-context'] as const
+export const KINDS = ['effort-submit', 'effort-midturn', 'subagent', 'skill', 'unresolved', 'long-context', 'visual-check'] as const
 export type Kind = (typeof KINDS)[number]
 
 export function isKind(name: string): name is Kind {
@@ -201,7 +202,8 @@ export function validateDataset(kind: Kind, items: readonly unknown[], extra: Ex
     else if (seen.has(id)) add('appears twice')
     else seen.add(id)
     checkCommon(kind, raw, add)
-    if (!isRecord(raw.zh) || (kind !== 'long-context' && !isRecord(raw.en))) return
+    // The visual-check items have no language sides (visual-check-items.ts): their rules read the item as it is.
+    if (kind !== 'visual-check' && (!isRecord(raw.zh) || (kind !== 'long-context' && !isRecord(raw.en)))) return
     RULES[kind](raw, add)
     if (kind === 'skill' && statusOf !== null) checkSkillNames(raw, statusOf, add)
   })
@@ -220,6 +222,7 @@ const FIELDS: Record<Kind, readonly string[]> = {
   skill: ['id', 'zh', 'en', 'gold', 'accept', 'must_not', 'user_only_hint', 'rationale', 'difficulty', 'tags'],
   unresolved: ['id', 'zh', 'en', 'gold', 'accept', 'triage', 'rationale', 'difficulty', 'tags'],
   'long-context': ['id', 'zh', 'depth', 'gold', 'accept', 'triage', 'without', 'rationale', 'difficulty', 'tags'],
+  'visual-check': VISUAL_CHECK_FIELDS,
 }
 
 function checkCommon(kind: Kind, item: Record<string, unknown>, add: Add): void {
@@ -260,6 +263,7 @@ const RULES: Record<Kind, (item: Record<string, unknown>, add: Add) => void> = {
     checkOverBudget(item, add)
   },
   'long-context': checkLongContext,
+  'visual-check': checkVisualCheck,
 }
 
 /** What a long-context item is about, one tag each: where the rounds that decide the answer come from. */
@@ -680,6 +684,7 @@ const QUOTAS: Record<Kind, (items: readonly Record<string, unknown>[]) => string
     if (changing < 0.7) warnings.push(`the decisive rounds change the answer in ${percent(changing)} of items; the drafting rules ask for at least 70%`)
     return warnings
   },
+  'visual-check': visualCheckQuotas,
 }
 
 function share<T>(items: readonly T[], test: (item: T) => boolean): number {

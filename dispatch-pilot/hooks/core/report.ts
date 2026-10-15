@@ -58,6 +58,7 @@ import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
 import { isEffort, type Effort } from '../decision/effort.ts'
 import type { BackendName } from './setup.ts'
 import type { UnresolvedChange, UnresolvedOption, UnresolvedThresholds } from '../decision/unresolved.ts'
+import type { CheckTally, VisualCheckRecord } from '../decision/visual-check-record.ts'
 import { fitsTemplate, startedAs, startedIn } from '../decision/workflow-labels.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
 
@@ -107,6 +108,8 @@ export type BoardNode = {
   midturn?: { steps: number; judged: number; changed: number; late?: true; failure?: NodeFailure }
   /** The failed tool calls, hook blocks and forced raises of the agent's loop (the escalation feature counts them); absent while none. */
   counts?: { failed: number; blocked: number; raised: number; late?: true }
+  /** The agent's visual_check calls of the loop, counted by verdict (and the images the screenshot takeover kept from it, #62); absent while none. visual-check's. */
+  visualChecks?: CheckTally
 }
 
 /** What an agent's step read: its model by family and its effort as it went out (absent: a model without effort). */
@@ -193,11 +196,20 @@ export type LogEntry = {
   counts?: { failed: number; blocked: number; raised: number }
   /** A Workflow call's decision that was sent back to the main agent to write in (return mode). */
   sentBack?: true
+  /** The complexity reading of the reference images that went into this decision's request (#63). */
+  reference?: ReferenceRecord
   /** An unresolved-count judgement (`unresolved`). */
   unresolved?: UnresolvedRecord
   /** The strong hint was given with this decision's request (#41). */
   hint?: HintRecord
+  /** A visual_check call (#58): its checks and their verdicts, whether the zoomed re-check was done, how long it took. */
+  visualCheck?: VisualCheckRecord
+  /** An entry of feature `decision-model`: which requests the fallback is about, the ones that decide (`text`) or the ones with images (`images`). */
+  fallbackFor?: 'text' | 'images'
 }
+
+/** What the reference images a request came with read as (`decision/complexity.ts`): the level, 0 (trivial) to 4 (very complex), and how many images it came from. */
+export type ReferenceRecord = { level: number; images: number }
 
 /** The strong hint given with a request: the count it was given at, the setting it had reached, and `mid` when it was a mid-turn re-decision's. */
 export type HintRecord = { count: number; maxAfter: number; where?: 'mid' }
@@ -282,8 +294,11 @@ export type Decided = About & {
   forced?: ForcedRaise
   skills?: SkillsPicked
   counts?: LogEntry['counts']
+  reference?: ReferenceRecord
   unresolved?: UnresolvedRecord
   hint?: HintRecord
+  /** A visual_check call: what was checked, the verdicts, the times (#58). */
+  visualCheck?: VisualCheckRecord
 }
 
 /** A decision the feature could not make: the decision request failed. Not an entry of the log; it says why on the agent's node. */
@@ -320,6 +335,12 @@ export type Tallied =
   | { feature: 'midturn-effort'; agent: 'main'; steps: number; judged: number; changed: number; quiet: boolean; late?: true; failure?: NodeFailure }
   /** A loop's failed tool calls, hook blocks and forced raises. `turnStart`: the main agent's counts start over with a new turn. */
   | { feature: 'escalation'; agent: string; failed: number; blocked: number; raised: number; late?: true; turnStart?: true }
+  /**
+   * What a visual_check call found, to be added to its agent's count for the loop (#58): checks that passed, failed, got no
+   * verdict to trust; `takeovers`: images the screenshot takeover kept from the agent (#62). Unlike the two above these are
+   * the call's own numbers, not a running total: the board adds them to the node's.
+   */
+  | { feature: 'visual-check'; agent: string; passed: number; failed: number; unsure: number; takeovers?: number }
 
 /** What one model request went out with, as the core sends it. */
 export type StepReading = {
@@ -712,7 +733,7 @@ async function reportSpawn(io: StepIo, spawn: { agentId: string; name?: string; 
  */
 async function reportTally(io: ReportIo, tally: Tallied): Promise<void> {
   try {
-    const noteworthy = tally.late === true || ('failure' in tally && tally.failure !== undefined)
+    const noteworthy = ('late' in tally && tally.late === true) || ('failure' in tally && tally.failure !== undefined)
     const now = await io.now()
     const logged = noteworthy ? await lastLogged(io) : 0
     await modify(io.board, (current) => withTally(current ?? EMPTY, tally, { now, logged }))
@@ -764,6 +785,13 @@ function withTally(board: Board, tally: Tallied, when: { now: number; logged: nu
     next = { ...(old ?? newNode(board.turn, tally.agent, undefined, 'running')), midturn }
     if (tally.late === true && old?.midturn?.late !== true) note(next.turn, 'late', '')
     if (tally.failure !== undefined && JSON.stringify(old?.midturn?.failure) !== JSON.stringify(tally.failure)) note(next.turn, 'failed', failureLine(tally.failure.backend, tally.failure))
+  } else if (tally.feature === 'visual-check') {
+    const added = tally.passed + tally.failed + tally.unsure + (tally.takeovers ?? 0)
+    if (added === 0) return undefined
+    const was = old?.visualChecks
+    const takeovers = (was?.takeovers ?? 0) + (tally.takeovers ?? 0)
+    const visualChecks = { passed: (was?.passed ?? 0) + tally.passed, failed: (was?.failed ?? 0) + tally.failed, unsure: (was?.unsure ?? 0) + tally.unsure, ...(takeovers > 0 ? { takeovers } : {}) }
+    next = { ...(old ?? newNode(board.turn, tally.agent, undefined, 'running')), visualChecks }
   } else {
     const any = tally.failed + tally.blocked + tally.raised > 0
     if (old === undefined && !any) return undefined
@@ -1068,8 +1096,10 @@ function entryOf(decision: Decided, turn: number, at: number): Omit<LogEntry, 'n
     ...(decision.forced === undefined ? {} : { forced: decision.forced }),
     ...(decision.skills === undefined ? {} : { skills: decision.skills }),
     ...(decision.counts === undefined ? {} : { counts: decision.counts }),
+    ...(decision.reference === undefined ? {} : { reference: decision.reference }),
     ...(decision.unresolved === undefined ? {} : { unresolved: decision.unresolved }),
     ...(decision.hint === undefined ? {} : { hint: decision.hint }),
+    ...(decision.visualCheck === undefined ? {} : { visualCheck: decision.visualCheck }),
     ...(decision.sentBack === true ? { sentBack: true as const } : {}),
   }
 }
@@ -1134,7 +1164,12 @@ function without<T extends object, K extends keyof T>(value: T, ...keys: K[]): O
 // ---- what `report` does with the decision model's fallback ------------------------------
 
 /** The decision model that decides is not the one asked for (ADR 0006): e.g. `asked` is pplx, `using` is Jev, since there is no Perplexity key and there is a TypeSafe one. */
-export type DecisionModelEvent = { asked: BackendName; using: BackendName }
+export type DecisionModelEvent = {
+  asked: BackendName
+  using: BackendName
+  /** `images`: the model that takes requests with images is not Jev (#56): no TypeSafe key, so pplx, which cannot zoom. */
+  for?: 'images'
+}
 
 /** What a person reads of each decision model: its name, and the settings that hold its key (the options' names and the environment variable they type). The one place both are written. */
 const DECISION_MODELS: Readonly<Record<BackendName, { name: string; keys: string }>> = {
@@ -1160,14 +1195,24 @@ async function reportFellBack(io: DecisionModelIo, fell: DecisionModelEvent): Pr
       turn,
       feature: DECISION_MODEL_FEATURE,
       tone: 'info',
-      outcome: `改用 ${using.name}`,
-      subject: '',
-      reason: `没有 ${asked.name} 的密钥（${asked.keys}），改用 ${using.name}；补上密钥就用 ${asked.name}，decisionModel 设成 ${using.name} 则不再提示`,
+      fallbackFor: fell.for === 'images' ? 'images' : 'text',
+      ...(fell.for === 'images'
+        ? {
+            outcome: `看图改用 ${using.name}`,
+            subject: '',
+            reason: `没有 ${asked.name} 的密钥（${asked.keys}），看图改用 ${using.name}，放大复核不可用；补上密钥就用 ${asked.name}`,
+          }
+        : {
+            outcome: `改用 ${using.name}`,
+            subject: '',
+            reason: `没有 ${asked.name} 的密钥（${asked.keys}），改用 ${using.name}；补上密钥就用 ${asked.name}，decisionModel 设成 ${using.name} 则不再提示`,
+          }),
     }
     io.debug(`decision model: ${decisionLine(entry)}`)
     await update(io.decisions, (list) => {
       const kept = list ?? []
-      const at = kept.findIndex((old) => old.feature === DECISION_MODEL_FEATURE && old.turn === turn)
+      // The entry of the same kind at this turn (a hot reload's session start again); the one for images stands beside the decision model's.
+      const at = kept.findIndex((old) => old.feature === DECISION_MODEL_FEATURE && old.turn === turn && old.fallbackFor === entry.fallbackFor)
       return at < 0 ? appendEntry(kept, entry) : kept.map((old, i) => (i === at ? { n: old.n, ...entry } : old))
     })
   } catch (error) {
