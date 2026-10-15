@@ -2,6 +2,7 @@
 // never change in a session (the tool list is part of the prompt cache), and, further on, how its answer is worded. All of it is
 // written for the model, so in English. Pure (see system-one.ts).
 
+import { FRAME_COUNT, type Span, WHOLE_RECORDING } from './visual-check-frames.ts'
 import type { Check, CheckResult, Comparison } from './visual-check.ts'
 import { boxArea, type Box } from './zoom.ts'
 
@@ -32,12 +33,20 @@ const READING_THE_ANSWER =
 const LOOK =
   'With look: true nothing is judged: the images in images come back scaled to a size you can read, for when you need to see a screenshot yourself.'
 
+/**
+ * A recording (#60): the frames are cut with ffmpeg and sent together, in order of time. The counts are the backend's (the
+ * description is a constant per backend, like the rest).
+ */
+function recordings(frames: number): string {
+  return `images may also be a screen recording (.mov, .mp4, .webm, ...): ${frames} frames are cut from it, evenly through the part given by from_seconds and to_seconds (all of it by default), and judged together, so name the part with the motion and not a long recording. Check it against a spec or on the wording of the checks alone, not against a reference. Ask only coarse questions of motion: whether the element overshoots and springs back, whether it ends far from where it should, whether something appears or disappears. It cannot judge an easing curve or a slight stutter: look at those yourself. Word each check as what should be true ("the card settles without bouncing back"). It needs ffmpeg on this machine; without it the checks are UNSURE. For what is UNSURE, look at the recording with look: true.`
+}
+
 const BEFORE_YOU_FINISH =
   'Before you hand your work to the user, look at the final result yourself once. Name the checks you ran, and what they said, in your final report.'
 
 /** What the model reads about the tool, by the decision model that takes its images. Constants: nothing of the session goes in. */
 export function visualCheckDescription(backend: 'jev' | 'pplx'): string {
-  return [WHAT_IT_IS, HOW_TO_WRITE_CHECKS, WHAT_IT_JUDGES, backend === 'jev' ? COMPARING_WITH_ZOOM : COMPARING_COARSE, READING_THE_ANSWER, LOOK, BEFORE_YOU_FINISH].join(' ')
+  return [WHAT_IT_IS, HOW_TO_WRITE_CHECKS, WHAT_IT_JUDGES, backend === 'jev' ? COMPARING_WITH_ZOOM : COMPARING_COARSE, recordings(FRAME_COUNT[backend]), READING_THE_ANSWER, LOOK, BEFORE_YOU_FINISH].join(' ')
 }
 
 /** The tool's input schema. */
@@ -48,7 +57,7 @@ export const VISUAL_CHECK_INPUT = {
       type: 'array',
       items: { type: 'string' },
       minItems: 1,
-      description: 'Path of the screenshot to check (exactly one, unless look is true: then up to 8 paths of images to look at).',
+      description: 'Path of the screenshot, or screen recording, to check (exactly one, unless look is true: then up to 8 paths of images to look at).',
     },
     reference: {
       type: 'array',
@@ -86,7 +95,15 @@ export const VISUAL_CHECK_INPUT = {
     },
     look: {
       type: 'boolean',
-      description: 'Do not judge: return the images, scaled down to a size you can read.',
+      description: 'Do not judge: return the images, scaled down to a size you can read. A recording comes back as 8 frames.',
+    },
+    from_seconds: {
+      type: 'number',
+      description: 'For a recording: where in it to start, in seconds (0 by default).',
+    },
+    to_seconds: {
+      type: 'number',
+      description: 'For a recording: where in it to stop, in seconds (its end by default).',
     },
   },
   required: ['images'],
@@ -108,6 +125,25 @@ export type VisualCheckInput = {
   sameView: boolean | null
   checks: readonly Check[]
   look: boolean
+  /** The part of a recording to read (#60); the whole of it when the agent names none. */
+  span: Span
+}
+
+/** A number of seconds the model gave (a number, or a string of one); null for none, NaN for what is not a number. */
+function seconds(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN
+  return Number.isFinite(n) && n >= 0 ? n : Number.NaN
+}
+
+/** The span a call names, or what is wrong with it. */
+function spanOf(raw: Readonly<Record<string, unknown>>): { ok: true; span: Span } | { ok: false; message: string } {
+  const from = seconds(raw.from_seconds)
+  const to = seconds(raw.to_seconds)
+  if (Number.isNaN(from)) return { ok: false, message: 'visual_check: from_seconds must be a number of seconds, 0 or more.' }
+  if (Number.isNaN(to)) return { ok: false, message: 'visual_check: to_seconds must be a number of seconds, 0 or more.' }
+  if (to !== null && to <= (from ?? 0)) return { ok: false, message: `visual_check: to_seconds (${to}) must be after from_seconds (${from ?? 0}).` }
+  return { ok: true, span: from === null && to === null ? WHOLE_RECORDING : { from: from ?? 0, to } }
 }
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '')
@@ -125,6 +161,9 @@ export function parseVisualCheckInput(raw: Readonly<Record<string, unknown>>): {
   const images = paths(raw.images)
   if (images.length === 0) return { ok: false, message: 'visual_check needs images: the path of the screenshot to check.' }
   const look = raw.look === true
+  const named = spanOf(raw)
+  if (!named.ok) return named
+  const { span } = named
   const reference = paths(raw.reference)
   const compareTo = text(raw.compare_to)
   const spec = text(raw.spec)
@@ -134,7 +173,7 @@ export function parseVisualCheckInput(raw: Readonly<Record<string, unknown>>): {
     reference.length > 0 ? { kind: 'reference', paths: reference } : compareTo !== '' ? { kind: 'compare_to', path: compareTo } : raw.sequence === true ? { kind: 'sequence' } : { kind: 'spec', spec: spec === '' ? null : spec }
   if (look) {
     if (images.length > MAX_LOOK) return { ok: false, message: `visual_check with look: true returns at most ${MAX_LOOK} images at once (you gave ${images.length}).` }
-    return { ok: true, input: { images, comparison, sameView: null, checks: [], look } }
+    return { ok: true, input: { images, comparison, sameView: null, checks: [], look, span } }
   }
   if (comparison.kind !== 'sequence' && images.length > 1) {
     return { ok: false, message: 'visual_check checks one screenshot per call: give one path in images, and call it again for the next screenshot.' }
@@ -148,7 +187,7 @@ export function parseVisualCheckInput(raw: Readonly<Record<string, unknown>>): {
   })
   if (checks.length === 0) return { ok: false, message: 'visual_check needs checks: each names a part of the image and one visible property of it, e.g. { "part": "the primary button", "property": "corner radius" }.' }
   if (checks.length > MAX_CHECKS) return { ok: false, message: `visual_check takes at most ${MAX_CHECKS} checks in one call (you gave ${checks.length}): split them over two calls.` }
-  return { ok: true, input: { images, comparison, sameView: typeof raw.same_view === 'boolean' ? raw.same_view : null, checks, look } }
+  return { ok: true, input: { images, comparison, sameView: typeof raw.same_view === 'boolean' ? raw.same_view : null, checks, look, span } }
 }
 
 // ---- What a call answers -------------------------------------------------------------------------------------------
@@ -163,6 +202,8 @@ export type RunReport = {
   attached: boolean
   /** The checks that have now failed twice (or more) in a row in this loop, by their index. */
   repeated: readonly number[]
+  /** The target is a recording (#60): the verdicts rest on its frames, and what is unsure is looked at with `look: true`. */
+  recording?: boolean
   /** Zoomed crops (#59) that go along, as the images that follow the text (before the screenshot, if that goes along): what each one shows. */
   crops?: readonly string[]
   /** Another place the two images may differ (#59), which no check named; `cropped`: whether crops of it are among `crops`. */
@@ -202,13 +243,14 @@ export function visualCheckText(report: RunReport): string {
   results.forEach((result, i) => {
     const probability = result.probability === null ? 'n/a' : result.probability.toFixed(2)
     const check = result.check.part === '' ? result.check.property : `${result.check.part}: ${result.check.property}`
-    lines.push(`${i + 1}. ${result.verdict.toUpperCase()} ${probability} (${BASES[result.basis]}) ${check}${result.why === undefined ? '' : ` (${result.why})`}`)
+    lines.push(`${i + 1}. ${result.verdict.toUpperCase()} ${probability} (${report.recording === true && result.basis === 'whole' ? 'frames' : BASES[result.basis]}) ${check}${result.why === undefined ? '' : ` (${result.why})`}`)
   })
   const passed = results.some((result) => result.verdict === 'pass')
   lines.push(`The number is the probability that the check holds.${passed ? ' PASS only means that nothing obviously wrong was seen; it is not an acceptance.' : ''}`)
   if (report.elsewhere != null) lines.push(placeLine(report.elsewhere))
   if (report.crops !== undefined && report.crops.length > 0) lines.push(`Zoomed crops are attached${report.attached ? ' before the screenshot' : ''}, in this order: ${report.crops.join('; ')}.`)
   if (report.attached) lines.push('The screenshot is attached, scaled down: look at it yourself for what is UNSURE.')
+  if (report.recording === true && results.some((result) => result.verdict === 'unsure')) lines.push('For what is UNSURE, look at the recording yourself: visual_check with look: true and its path (and from_seconds and to_seconds) returns 8 frames of it.')
   for (const index of report.repeated) lines.push(`Check ${index + 1} has now failed twice in a row: look at the image yourself (visual_check with look: true) before you change anything else.`)
   return lines.join('\n')
 }

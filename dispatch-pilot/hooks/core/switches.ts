@@ -14,9 +14,10 @@
 
 /**
  * The parts of the agents' nodes on the board a feature writes, beside its decisions in the log (which are its
- * own by its name): `midturn`, the main agent's mid-turn re-decisions; `counts`, a loop's failed calls and forced raises.
+ * own by its name): `midturn`, the main agent's mid-turn re-decisions; `counts`, a loop's failed calls and forced raises;
+ * `checks`, a loop's visual_check verdicts.
  */
-export type BoardPart = 'midturn' | 'counts'
+export type BoardPart = 'midturn' | 'counts' | 'checks'
 
 export type SwitchSpec = {
   /** What the person types in `/dp <name> on|off`: lowercase letters, digits and `-`, starting with a letter. */

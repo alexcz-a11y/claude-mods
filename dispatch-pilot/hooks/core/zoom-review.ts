@@ -4,7 +4,7 @@
 // the verdict of each check off the crops. Like image-files.ts it keeps no state and asks for nothing but closures (a module cannot
 // pass `$` across an import): the files, and `ask`, which sends one request to the decision model that takes images.
 
-import { type Asked, failureText } from '../decision/backend.ts'
+import { type Asked, type Failure, failureText } from '../decision/backend.ts'
 import { imageRef } from '../decision/images.ts'
 import { mergeParts, type DecisionRequest } from '../decision/system-one.ts'
 import type { Check, CheckResult } from '../decision/visual-check.ts'
@@ -46,6 +46,8 @@ export type ZoomOutcome = {
   failed: FailedCrops[]
   /** Another place that may differ; null when there is none to report. */
   elsewhere: Place | null
+  /** The first request to the decision model that failed, if one did (the board keeps it as a note: #58); null when none did. */
+  failure: Failure | null
 }
 
 /** A crop is not worth showing when it is nearly all of the image: the agent has that already. */
@@ -131,11 +133,13 @@ export async function zoomReview(deps: ZoomDeps, subjects: ZoomSubjects, checks:
   pairs.sort((a, b) => a.index - b.index || a.reference - b.reference)
   // The second request(s): one Noul for each pair of crops, split where the crops would cost more than a request holds.
   const probabilities = new Map<ZoomPair, number | null>()
+  let failure: Failure | null = null
   await Promise.all(
     batchPairs(pairs).map(async (batch) => {
       const { request, part } = zoomRequest(batch)
       const asked = await deps.ask(request)
       if (!asked.ok) {
+        failure ??= asked.failure
         for (const pair of batch) {
           probabilities.set(pair, null)
           if (!reasons.has(pair.index)) reasons.set(pair.index, `the zoomed re-check failed (${failureText(deps.backend, asked.failure)})`)
@@ -167,7 +171,7 @@ export async function zoomReview(deps: ZoomDeps, subjects: ZoomSubjects, checks:
     }
     return judged
   })
-  return { results, failed, elsewhere: await placeOf(deps, subjects, located.elsewhere, failedBoxes) }
+  return { results, failed, elsewhere: await placeOf(deps, subjects, located.elsewhere, failedBoxes), failure }
 }
 
 /** Another place that may differ, with its crops, unless a check that failed has reported it already. */
@@ -194,7 +198,7 @@ export type ImagePair = { candidate: LoadedImage; other: LoadedImage; sameView: 
  */
 export async function comparePair(deps: ZoomDeps, pair: ImagePair, checks: readonly Check[]): Promise<ZoomOutcome> {
   const subjects: ZoomSubjects = { candidate: pair.candidate, others: [pair.other], names: ['other'], sameViews: [sameView(pair.sameView, pair.candidate, pair.other)] }
-  const unasked = (reason: string): ZoomOutcome => ({ results: checks.map((check) => ({ check, verdict: 'unsure', probability: null, basis: 'whole', why: reason })), failed: [], elsewhere: null })
+  const unasked = (reason: string, failure: Failure | null = null): ZoomOutcome => ({ results: checks.map((check) => ({ check, verdict: 'unsure', probability: null, basis: 'whole', why: reason })), failed: [], elsewhere: null, failure })
   const plan = locatePlan(subjects.names, subjects.sameViews, checks)
   if (plan.parts.length === 0) return unasked('no part of the image is named, so there is nothing to cut out')
   const state = { candidate: imageRef('candidate'), other: imageRef('other') }
@@ -202,7 +206,7 @@ export async function comparePair(deps: ZoomDeps, pair: ImagePair, checks: reado
     ...mergeParts(state, plan.parts),
     images: [pair.candidate, pair.other].map((image, i) => ({ name: i === 0 ? 'candidate' : 'other', format: image.format, base64: image.base64, width: image.width, height: image.height })),
   })
-  if (!asked.ok) return unasked(`the parts could not be located (${failureText(deps.backend, asked.failure)})`)
+  if (!asked.ok) return unasked(`the parts could not be located (${failureText(deps.backend, asked.failure)})`, asked.failure)
   const whole = checks.map((check): CheckResult => ({ check, verdict: 'unsure', probability: null, basis: 'whole', why: 'the whole images were not compared' }))
   return zoomReview(deps, subjects, checks, whole, plan, readLocated(plan, asked.answers))
 }

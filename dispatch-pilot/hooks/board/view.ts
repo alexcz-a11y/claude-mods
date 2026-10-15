@@ -17,6 +17,7 @@ import { failureWords } from '../decision/backend.ts'
 import { isEffort, type Effort } from '../decision/effort.ts'
 import { callWorkflowOf, ENDED_WORDS, type Board, type BoardNode, type BoardNote, type LogEntry, type Model, type Reading, type ReadingChange, type RuleStep } from '../core/report.ts'
 import type { BoardPart } from '../core/switches.ts'
+import { tallyText } from '../decision/visual-check-record.ts'
 import { mmss, pct } from './kit.tsx'
 
 /** What the screens are drawn from. */
@@ -52,6 +53,8 @@ export type AgentRow = {
   status: { tone: StatusTone; text: string }
   /** The person picked it (`selected`). */
   selected: boolean
+  /** Its visual_check count for the loop (`核对 3：1 过 · 1 不过 · 1 没把握`); empty while it made none, or the feature is off. */
+  checks: string
 }
 
 /** Something that happened in the turn, at `at` seconds from its start. */
@@ -129,6 +132,9 @@ export const FEATURE_WORDS: Readonly<Record<string, string>> = {
   'find-skill': 'skill 查询',
   'skill-profiles': 'skill 画像',
   'decision-model': '决策模型',
+  'visual-check': '看图核对',
+  'screenshot-takeover': '截图接管',
+  'image-routing': '带图路由',
 }
 
 /** The feature an entry or a note is of: its switch name (`main-effort (agent report)` is main-effort's). */
@@ -167,6 +173,7 @@ export function screenView(input: ScreenInput): ScreenView {
   const ordered = [...placed.filter(({ node }) => node.id === 'main'), ...others]
   const isPicked = (node: BoardNode) => input.selected !== null && input.selected.turn === node.turn && input.selected.id === node.id
   const counts = input.isShown('counts')
+  const shownChecks = input.isShown('checks')
   const rows: AgentRow[] = ordered.map(({ node, from, to }, i) => ({
     node,
     key: node.id === 'main' ? 0 : main === undefined ? (i + 1 <= 9 ? i + 1 : null) : i <= 9 ? i : null,
@@ -174,6 +181,7 @@ export function screenView(input: ScreenInput): ScreenView {
     to,
     status: node.id === 'main' ? mainStatus(node, mainEntries, input) : agentStatus(node, from, to, counts, input),
     selected: isPicked(node),
+    checks: shownChecks && node.visualChecks !== undefined ? tallyText(node.visualChecks) : '',
   }))
   const agents = nodes.filter((node) => node.id !== 'main')
   const counted = agents.filter((node) => !(isCallNode(node) && node.state === 'queued'))
