@@ -13,6 +13,7 @@
 
 import { mock } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
+import { absolute, BASE_DIRS, type Disk, type FakeFile, fileBase64, fileSize, mkdir, type Program, sips } from './images.ts'
 import type {
   AgentInfo,
   CommandInfo,
@@ -101,6 +102,17 @@ export type WorldOptions = {
   /** Files the mod can read, by absolute path (`$.fs.read`, `$.fs.exists`). */
   disk?: Record<string, string>
   /**
+   * Binary files, by absolute path: images described by their format and size (support/images.ts `FakeFile`), which
+   * `$.fs.read(path, { as: 'bytes' })` returns as base64 (refused over 4 MiB, as the engine does) and the world's programs read
+   * and write. The programs' own output lands here too: `w.files` shows the disk as it stands.
+   */
+  files?: Record<string, FakeFile>
+  /**
+   * `$.process.run` answers as the CLI's does: the programs of the world run on the disk of `files` (sips and mkdir, the ones the
+   * mod uses so far), each call is recorded in `w.ran`. `true` for the defaults.
+   */
+  process?: true | ProcessWorld
+  /**
    * The agents `$.agent.list()` names (dispatched agents, not a Workflow's): as the engine lists them, which a test
    * changes through `w.agents` as agents come and go. `{ deny }`: the roster cannot be read.
    */
@@ -180,6 +192,17 @@ export type Completion =
   | { reject: string }
   /** The answer, after `after` ms of mock time (`w.clock.advance`). */
   | { after: number; reply: Completion }
+
+/** The programs `$.process.run` can start, and the engine it runs in. */
+export type ProcessWorld = {
+  /**
+   * The programs by name, over the defaults (`sips`, `mkdir`): a function is the program; `null` is one that is not installed
+   * (starting it rejects, as when ffmpeg is missing). A program that fails answers with an exit code, as a real one does.
+   */
+  programs?: Record<string, Program | null>
+  /** The engine is not the CLI: `$.process.run` rejects with this reason. */
+  unavailable?: string
+}
 
 /** The session's skills as the engine reports them to the mod (#10). */
 export type SkillsWorld = {
@@ -316,6 +339,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   /** The Workflow agents being spawned, by `<runId>#<agentIndex>`: the id each starts under and the model its call gave it. */
   const workflowSpawns = new Map<string, { agentId: string; model: string | undefined }>()
   const disk = options.disk ?? {}
+  /** The binary files, and the directories that exist, for `fs.read` as bytes and for the programs. */
+  const binary: Disk = { files: new Map(Object.entries(options.files ?? {}).map(([path, file]) => [absolute(path), file])), dirs: new Set(BASE_DIRS) }
+  /** The argument vectors of every `$.process.run`, in order. */
+  const ran: string[][] = []
   const agents: AgentInfo[] = Array.isArray(options.agents) ? [...options.agents] : []
   const store = new Map(Object.entries({ ...(options.store ?? {}), ...(options.switches !== undefined ? { switches: { ...(options.store?.switches as object | undefined), ...options.switches } } : {}) }).map(([key, value]) => [key, JSON.stringify(value)]))
   const sessionWorld = options.session ?? (options.switches !== undefined || options.env !== undefined ? true : undefined)
@@ -377,11 +404,16 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   // A read over 4 MiB rejects, as the engine's does.
   on('fs.read', (_$, e) => {
     looked.files.push(e.path)
+    if (e.as === 'bytes') {
+      const file = binary.files.get(absolute(e.path))
+      if (file === undefined) return { deny: `ENOENT: ${e.path}` }
+      return fileSize(file) > READ_LIMIT ? { deny: `over 4 MiB: ${e.path}` } : { value: { base64: fileBase64(file) } }
+    }
     if (!(e.path in disk)) return { deny: `ENOENT: ${e.path}` }
     const text = disk[e.path] as string
     return text.length > READ_LIMIT / 4 && new TextEncoder().encode(text).length > READ_LIMIT ? { deny: `over 4 MiB: ${e.path}` } : { value: text }
   })
-  on('fs.exists', (_$, e) => ({ value: e.path in disk || Object.keys(disk).some((path) => path.startsWith(`${e.path}/`)) }))
+  on('fs.exists', (_$, e) => ({ value: e.path in disk || binary.files.has(absolute(e.path)) || binary.dirs.has(absolute(e.path)) || Object.keys(disk).some((path) => path.startsWith(`${e.path}/`)) }))
   // A directory of the disk: what lies directly under it, a file or a directory (one holding files further down).
   on('fs.list', (_$, e) => {
     const under = `${(e.path ?? '').replace(/\/+$/, '')}/`
@@ -394,6 +426,19 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     if (entries.size === 0) return { deny: `ENOENT: ${e.path}` }
     return { value: [...entries].map(([name, kind]) => ({ name, kind, size: 0, mtimeMs: 0, isLink: false })) }
   })
+  if (options.process !== undefined) {
+    const world = options.process === true ? {} : options.process
+    const programs: Record<string, Program | null> = { sips, mkdir, ...world.programs }
+    on('process.run', async (_$, e) => {
+      if (world.unavailable !== undefined) return { deny: world.unavailable }
+      ran.push([...e.argv])
+      const [name = '', ...args] = e.argv
+      const program = programs[name]
+      if (program === undefined || program === null) return { deny: `spawn ${name} ENOENT` }
+      const done = await program(args, binary, e.init)
+      return { value: { ...done, isStdoutTruncated: false, isStderrTruncated: false } }
+    })
+  }
   if (options.store !== undefined || options.switches !== undefined) {
     on('store.get', (_$, e) => ({ value: store.has(e.key) ? JSON.parse(store.get(e.key) as string) : undefined }))
     on('store.set', (_$, e) => {
@@ -632,6 +677,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     agents,
     /** What the mod looked up: how often it read the roster (`roster`), and the files it read, in order (`files`). */
     looked,
+    /** The binary files on the world's disk as they stand, by absolute path: the test's own and what the programs wrote. */
+    files: binary.files,
+    /** The directories that exist on that disk. */
+    dirs: binary.dirs,
+    /** The argument vector of every program the mod ran (`$.process.run`), in order. */
+    ran,
     commands,
     tools,
     /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */
@@ -800,6 +851,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
      */
     findSkill: (query: unknown, call: { agentId?: string } = {}) =>
       $.tool.call({ tool: 'mcp__dispatch-pilot__find_skill', query, ...(call.agentId !== undefined ? { agentId: call.agentId } : {}) }),
+    /**
+     * The agent calls the mod's visual_check tool with this input (`agentId`: from a dispatched agent's loop); resolves to the
+     * tool's answer, `{ result }`: a string, or an array of Messages API blocks.
+     */
+    visualCheck: (input: Record<string, unknown>, call: { agentId?: string } = {}) =>
+      $.tool.call({ tool: 'mcp__dispatch-pilot__visual_check', ...input, ...(call.agentId !== undefined ? { agentId: call.agentId } : {}) } as never),
     /** The engine's skill listing as one request of a loop carries it (`agentId`: a dispatched agent's; needs `skills`); resolves to what the model reads. */
     listing: (text: string, agentId?: string) =>
       $.prompt.attachment({ type: 'skill_listing', text, origin: { kind: 'engine' }, ...(agentId !== undefined ? { agentId } : {}) }),

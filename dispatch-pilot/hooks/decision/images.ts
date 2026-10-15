@@ -4,6 +4,9 @@
 
 import type { DecisionRequest, Question, RequestImage, State } from './system-one.ts'
 
+/** An image as a request sends it, less its name (the request gives it one). */
+export type Picture = Omit<RequestImage, 'name'>
+
 /** The most images pplx takes in one request (measured: the 9th is a 400 `At most 8 images are allowed per question`). */
 export const PPLX_MAX_IMAGES = 8
 
@@ -19,6 +22,19 @@ export const PPLX_TOKENS_PER_MEGAPIXEL = 1000
 export function imageTokens(backend: 'jev' | 'pplx', images: readonly Pick<RequestImage, 'width' | 'height'>[], questions: number): number {
   const megapixels = images.reduce((sum, image) => sum + image.width * image.height, 0) / 1_000_000
   return backend === 'jev' ? Math.round(megapixels * JEV_TOKENS_PER_MEGAPIXEL) : Math.round(megapixels * PPLX_TOKENS_PER_MEGAPIXEL) * questions
+}
+
+/**
+ * About how many input tokens the images of one request may cost in all. Jev: its context holds 32k for a question and the state
+ * (ADR 0008), so 24k leaves room for the rest. pplx: the share of its context an agent's request gets, where an image counts
+ * again for every question.
+ */
+export const IMAGE_TOKEN_BUDGET = { jev: 24_000, pplx: 32_000 } as const
+
+/** How many megapixels the images of a request of `questions` questions may total to stay within `IMAGE_TOKEN_BUDGET`. */
+export function imageMegapixelBudget(backend: 'jev' | 'pplx', questions: number): number {
+  const perMegapixel = backend === 'jev' ? JEV_TOKENS_PER_MEGAPIXEL : PPLX_TOKENS_PER_MEGAPIXEL * Math.max(1, questions)
+  return IMAGE_TOKEN_BUDGET[backend] / perMegapixel
 }
 
 /** What the debug log says of a request's images: how many, their sizes and the estimated tokens; never the images. Null for a request without images. */
