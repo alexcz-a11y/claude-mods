@@ -17,11 +17,16 @@ import type { DecisionRequest } from '../decision/system-one.ts'
 import { type ImageLimits, LOOK_IMAGE_LIMITS, limitsFor } from '../decision/image-fit.ts'
 import { forgetLoop, noteResults, readWholeImage, wholeImageRequest, type Check, type CheckResult, type Comparison, type Streaks } from '../decision/visual-check.ts'
 import { parseVisualCheckInput, visualCheckText, VISUAL_CHECK_INPUT, VISUAL_CHECK_TOOL, VISUAL_CHECK_TOOL_CALLED, visualCheckDescription, type VisualCheckInput } from '../decision/visual-check-tool.ts'
+import { recordOf, type VisualCheckRecord } from '../decision/visual-check-record.ts'
 import { type ImageFilesIo, type Loaded, type LoadedImage, loadImage, loadImages } from '../core/image-files.ts'
+import { report, type ReportIo } from '../core/report.ts'
+import { type CallTrouble, reportCall } from '../core/visual-check-report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 
 const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
+const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'visual-check'
@@ -72,7 +77,7 @@ async function filesOf($: EngineInterface): Promise<ImageFilesIo> {
 }
 
 export function registerVisualCheck(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: '看图核对：agent 交上截图和检查项，决策模型对每条回答过、不过或没把握' })
+  defineSwitch({ name: SWITCH, info: '看图核对：agent 交上截图和检查项，决策模型对每条回答过、不过或没把握', parts: ['checks'] })
 
   // Registered once every plugin is loaded, under a match-all matcher. Without a decision model that takes images (no TypeSafe
   // and no Perplexity key) the tool would only ever fail, so it is not offered.
@@ -106,6 +111,14 @@ export function registerVisualCheck(on: On, ctx: Ctx): void {
     if (!isOn(SWITCH)) return { result: `visual_check is switched off (/dp ${SWITCH} on turns it back on), so it checked nothing. ${LOOK_YOURSELF}` }
     const parsed = parseVisualCheckInput(e as Record<string, unknown>)
     if (!parsed.ok) return { result: parsed.message }
+    const agent = e.agentId ?? 'main'
+    const reportTo: ReportIo = {
+      board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+      decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+      debug: (line) => $.ui.log(line, { to: 'debug' }),
+      now: () => $.clock.now(),
+      toast: (text) => $.ui.toast(text),
+    }
     try {
       const files = await filesOf($)
       // Looking at images asks nothing of the decision model.
@@ -126,9 +139,12 @@ export function registerVisualCheck(on: On, ctx: Ctx): void {
         $.ui.log(`visual_check request [${Object.keys(request.questions).join(', ')}] to ${images.backend.name}: ${describeAsked(asked, ms)}`, { to: 'debug' })
         return asked
       }
-      return { result: await check({ files, ask, backend: images.name, agent: e.agentId ?? 'main' }, parsed.input) }
+      const deps: Deps = { files, ask, backend: images.name, agent, now: () => $.clock.now(), debug: reportTo.debug, report: (record, trouble) => reportCall(reportTo, agent, record, trouble) }
+      return { result: await check(deps, parsed.input) }
     } catch (error) {
       $.ui.log(`visual_check failed: ${errorText(error)}`, { to: 'debug' })
+      // A bug of the mod's own, beside the agent's route: a note on the board, no toast.
+      await report(reportTo, { decision: { feature: SWITCH, agent, aside: true, skipped: 'error' } })
       return { result: `visual_check could not run (an error in Dispatch Pilot, written to the debug log). ${LOOK_YOURSELF}` }
     }
   })
@@ -141,6 +157,12 @@ type Deps = {
   backend: 'jev' | 'pplx'
   /** Who calls: 'main', or a dispatched agent's id. */
   agent: string
+  /** `$.clock.now()`: a call's duration is in its record. */
+  now: () => Promise<number>
+  /** A line for the debug log. */
+  debug: (line: string) => void
+  /** Hands a finished call to the board and the decision log (core/visual-check-report.ts); `trouble`: what went wrong beyond a check's own doubt. */
+  report: (record: VisualCheckRecord, trouble?: CallTrouble) => Promise<void>
 }
 
 /** All the checks end unsure, for a reason that touches them all. */
@@ -152,24 +174,31 @@ function allUnsure(checks: readonly Check[], why: string): CheckResult[] {
 async function check(deps: Deps, input: VisualCheckInput): Promise<Block[]> {
   const { comparison, checks } = input
   const target = input.images[0] as string
+  const startedAt = await deps.now()
+  let trouble: CallTrouble | undefined
 
   // Stage 1, the images: the screenshot, and what it is compared with. (#60: a recording is read into its frames here.)
   const subjects = await subjectsOf(deps, comparison, target, checks.length)
   let results: CheckResult[]
   let attached: Picture | null = subjects.screenshot
-  if (!subjects.ok) results = allUnsure(checks, subjects.reason)
-  else {
+  if (!subjects.ok) {
+    results = allUnsure(checks, subjects.reason)
+    trouble = { kind: 'error' }
+    deps.debug(`visual_check could not use its images: ${subjects.reason}`)
+  } else {
     // Stage 2, the first request: every check about the whole images, in one request.
     const { request, part } = wholeImageRequest(comparison, { screenshot: subjects.screenshot, references: subjects.references }, checks)
     const asked = await deps.ask(request)
     // Stage 3 (#59): the zoomed re-check of the parts the checks name, when the checks compare two images.
     // Stage 4, the verdicts.
     results = asked.ok ? readWholeImage(comparison, part, asked.answers, checks) : allUnsure(checks, failureText(deps.backend, asked.failure))
+    if (!asked.ok) trouble = { kind: 'request', failure: { backend: deps.backend, ...asked.failure } }
   }
   // The screenshot goes along for what is unsure, to be looked at.
   if (!results.some((result) => result.verdict === 'unsure')) attached = null
   const repeated = noteResults(streaks, deps.agent, results)
-  // Stage 5 (#58): the report to the board and the decision log goes here.
+  // Stage 5 (#58): the report to the board and the decision log.
+  await deps.report(recordOf({ image: target, comparison, backend: deps.backend, results, ms: (await deps.now()) - startedAt }), trouble)
   const text = visualCheckText({ target, against: comparison, results, attached: attached !== null, repeated })
   return [{ type: 'text', text }, ...(attached === null ? [] : [imageBlock(attached)])]
 }

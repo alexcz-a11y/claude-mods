@@ -175,6 +175,12 @@ declare module 'claude-code' {
           }
           /** The failed tool calls, hook blocks and forced raises of the agent's loop (escalation); absent while none. `late`: a stuck re-decision is not back. */
           counts?: { failed: number; blocked: number; raised: number; late?: true }
+          /**
+           * The agent's visual_check calls of its loop, counted by verdict: checks that passed, failed, got no verdict
+           * to trust. The band's row says `核对 N：x 过 · y 不过 · z 没把握`. `takeovers`: images the screenshot takeover
+           * kept from the agent, added to the same count. Absent while the agent made no check (and for a new turn's node).
+           */
+          visualChecks?: { passed: number; failed: number; unsure: number; takeovers?: number }
         }[]
       }
       /**
@@ -256,6 +262,20 @@ declare module 'claude-code' {
          * feature `unresolved` that records the hint carry it.
          */
         hint?: { count: number; maxAfter: number; where?: 'mid' }
+        /**
+         * A visual_check call (`visual-check`): the screenshot, what it was checked against (`paths`: the reference images or
+         * the other screenshot; none for a spec), the decision model that judged it, each check with its verdict, the
+         * probability that it holds and whether the verdict rests on the zoomed re-check (`zoomed`; `why` for an unsure one),
+         * whether any did, and how long the call took in ms. Paths and numbers only: no image, no key, no specification text.
+         */
+        visualCheck?: {
+          image: string
+          against: { kind: 'spec' | 'reference' | 'compare_to' | 'sequence'; paths: string[] }
+          backend: string
+          checks: { part: string; property: string; verdict: 'pass' | 'fail' | 'unsure'; probability: number | null; zoomed: boolean; why?: string }[]
+          zoomed: boolean
+          ms: number
+        }
       }[]
       /**
        * The agent the person picked on the band (its digit key, 0 the main agent) or paged to in the rationale
