@@ -14,7 +14,7 @@ const ON = { 'image-routing': true }
 /** The level probabilities that read as `level` (0 to 4): for the complexity question and the effort questions alike. */
 const at = (level: number): number[] => [0, 1, 2, 3, 4].map((i) => (i === level ? 1 : 0))
 
-/** A picture that was on the disk long before the loop began (the reference the person gave a path to). */
+/** A picture that was on the disk before the loop began (mtime 0; the tests start the loop at 1000 ms): the reference the person gave a path to. */
 const SCENE: FakeImage = { format: 'png', width: 3000, height: 2000, label: 'scene' }
 const FILES = { '/refs/scene.png': SCENE }
 
@@ -26,11 +26,12 @@ const answering =
   (request: Sent): Reply =>
     other?.(request) ?? jev(at(midturn), { scores: { 'complexity.level': at(reading), 'effort.level': at(start), 'midturn.level': at(midturn) } })(request)
 
-/** A step whose one call is a Read of the picture at `path`, which the tool returns as the picture itself. */
-const reading = (index: number, path: string, picture: FakeImage = SCENE) => ({ index, effort: 'medium' as const, tools: [{ tool: 'Read', input: { file_path: path }, ends: { image: picture } }] })
+/** A step whose one call is a Read of the picture at `path` (a file of the world's disk: the tool returns it as the picture itself). */
+const reading = (index: number, path: string) => ({ index, effort: 'medium' as const, tools: [{ tool: 'Read', input: { file_path: path } }] })
 
 test('a Read of a picture that was there before the loop began is read at once and the effort is judged again, with the reading in its state, for the next step', { options: JEV }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 1, 3) })
+  await w.clock.advance(1000)
   await w.submit('Build the scene in three.js to look like the picture')
   await w.step({ index: 0, effort: 'medium' })
   await w.step(reading(1, '/refs/scene.png'))
@@ -50,6 +51,7 @@ test('a Read of a picture that was there before the loop began is read at once a
 test('a picture the agent made in this loop is not a reference: a Read of it asks nothing', { options: JEV }, async ($, on) => {
   // Changed after the turn started (the mock clock reads 0 then): a screenshot or a frame the agent took itself.
   const w = world($, on, { switches: ON, files: { '/shots/now.png': { ...SCENE, label: 'shot', mtimeMs: 5000 } }, process: true, backend: answering(3, 1, 3) })
+  await w.clock.advance(1000)
   await w.submit('Build the scene in three.js to look like the picture')
   await w.step({ index: 0, effort: 'medium' })
   await w.step(reading(1, '/shots/now.png'))
@@ -60,7 +62,8 @@ test('a picture the agent made in this loop is not a reference: a Read of it ask
 })
 
 test('a picture changed in an earlier turn is a reference again in a later one: the loop is the turn', { options: JEV }, async ($, on) => {
-  const w = world($, on, { switches: ON, files: { '/shots/old.png': { ...SCENE, label: 'old shot', mtimeMs: 1000 } }, process: true, backend: answering(3, 1, 3) })
+  const w = world($, on, { switches: ON, files: { '/shots/old.png': { ...SCENE, label: 'old shot', mtimeMs: 1500 } }, process: true, backend: answering(3, 1, 3) })
+  await w.clock.advance(1000)
   await w.submit('Build the scene in three.js')
   await w.step({ index: 0, effort: 'medium' })
   await w.clock.advance(60_000)
@@ -75,6 +78,7 @@ test('a picture changed in an earlier turn is a reference again in a later one: 
 
 test('by default the feature is off: a Read of a picture is read as it always was, no image leaves the machine', { options: JEV }, async ($, on) => {
   const w = world($, on, { files: FILES, process: true, backend: answering(3, 1, 3) })
+  await w.clock.advance(1000)
   await w.submit('Build the scene in three.js to look like the picture')
   await w.step({ index: 0, effort: 'medium' })
   await w.step(reading(1, '/refs/scene.png'))
@@ -87,6 +91,7 @@ test('by default the feature is off: a Read of a picture is read as it always wa
 
 test("the person's lock still wins: the effort of the next step is the locked one", { options: JEV }, async ($, on) => {
   const w = world($, on, { switches: ON, session: true, files: FILES, process: true, backend: answering(3, 1, 3) })
+  await w.clock.advance(1000)
   await w.start()
   await w.command('dp', 'lock low')
   await w.submit('Build the scene in three.js to look like the picture')
@@ -100,6 +105,7 @@ test("the person's lock still wins: the effort of the next step is the locked on
 
 test('a dispatched agent reading a picture does not judge the main agent again', { options: JEV }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 1, 3) })
+  await w.clock.advance(1000)
   await w.submit('Build the scene in three.js to look like the picture')
   await w.step({ index: 0, effort: 'medium' })
   await w.step({ ...reading(0, '/refs/scene.png'), agentId: 'a1' })
@@ -110,6 +116,7 @@ test('a dispatched agent reading a picture does not judge the main agent again',
 
 test('the same pictures read again are not asked twice, and each Read still judges the effort again', { options: { ...JEV, rejudgeEvery: 0 } }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 1, 3) })
+  await w.clock.advance(1000)
   await w.submit('Build the scene in three.js to look like the picture')
   await w.step({ index: 0, effort: 'medium' })
   await w.step(reading(1, '/refs/scene.png'))
@@ -122,6 +129,7 @@ test('the same pictures read again are not asked twice, and each Read still judg
 
 test('several pictures read in one step are one re-decision for the step', { options: JEV }, async ($, on) => {
   const w = world($, on, { switches: ON, files: { ...FILES, '/refs/city.png': { ...SCENE, label: 'city' } }, process: true, backend: answering(3, 1, 3) })
+  await w.clock.advance(1000)
   await w.submit('Build the scene in three.js to look like the pictures')
   await w.step({ index: 0, effort: 'medium' })
   await w.step({
@@ -129,8 +137,8 @@ test('several pictures read in one step are one re-decision for the step', { opt
     effort: 'medium',
     parallel: true,
     tools: [
-      { tool: 'Read', input: { file_path: '/refs/scene.png' }, ends: { image: SCENE } },
-      { tool: 'Read', input: { file_path: '/refs/city.png' }, ends: { image: SCENE } },
+      { tool: 'Read', input: { file_path: '/refs/scene.png' } },
+      { tool: 'Read', input: { file_path: '/refs/city.png' } },
     ],
   })
   await w.step({ index: 2, effort: 'medium' })
@@ -141,6 +149,7 @@ test('several pictures read in one step are one re-decision for the step', { opt
 test('a re-decision the schedule had already asked for the step is replaced by the one that knows of the pictures', { options: { ...JEV, rejudgeEvery: 2 } }, async ($, on) => {
   // Step 1's call starts the schedule's re-decision for step 2; the picture is read in the same step.
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 1, 3) })
+  await w.clock.advance(1000)
   await w.submit('Build the scene in three.js to look like the picture')
   await w.step({ index: 0, effort: 'medium' })
   await w.step(reading(1, '/refs/scene.png'))
@@ -153,6 +162,7 @@ test('a re-decision the schedule had already asked for the step is replaced by t
 
 test('without a reading the effort is judged again all the same: the image could not be read', { options: JEV }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 1, 3, (request) => (kind(request) === 'complexity.level' ? { status: 500, body: 'down' } : undefined)) })
+  await w.clock.advance(1000)
   await w.submit('Build the scene in three.js to look like the picture')
   await w.step({ index: 0, effort: 'medium' })
   await w.step(reading(1, '/refs/scene.png'))
@@ -167,6 +177,7 @@ test('without a reading the effort is judged again all the same: the image could
 
 test('the re-decision made with a reading says so on its card', { options: JEV }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 1, 3) })
+  await w.clock.advance(1000)
   await w.submit('Build the scene in three.js to look like the picture')
   await w.step({ index: 0, effort: 'medium' })
   await w.step(reading(1, '/refs/scene.png'))
@@ -177,6 +188,7 @@ test('the re-decision made with a reading says so on its card', { options: JEV }
 
 test('the re-decision with the reading stays within the budget of a re-decision: the reading takes its place and the steps are cut to the rest', { options: { ...JEV, contextTokens: 300 } }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 1, 3) })
+  await w.clock.advance(1000)
   await w.submit('Build the scene in three.js to look like the picture')
   await w.step({ index: 0, effort: 'medium', answer: 'a long thought about the lighthouse '.repeat(40) })
   await w.step({ ...reading(1, '/refs/scene.png'), answer: 'another long thought about the planks '.repeat(40) })
@@ -194,6 +206,7 @@ const PASTED: PastedImage = { path: '/refs/scene.png', shown: { format: 'png', w
 
 test('a message with images typed into the running turn is read and the effort judged again, for the next step', { options: JEV }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 1, 3) })
+  await w.clock.advance(1000)
   await w.submit('Build the scene in three.js')
   await w.step({ index: 0, effort: 'medium' })
   await w.submit('Here is what it should look like', { turnId: 't1', images: [PASTED] })
@@ -207,6 +220,7 @@ test('a message with images typed into the running turn is read and the effort j
 
 test('a message typed in without images reads nothing', { options: JEV }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 1, 3) })
+  await w.clock.advance(1000)
   await w.submit('Build the scene in three.js')
   await w.step({ index: 0, effort: 'medium' })
   await w.submit('Make the water bluer', { turnId: 't1' })
@@ -217,6 +231,7 @@ test('a message typed in without images reads nothing', { options: JEV }, async 
 
 test('a message with images that a hook beneath refuses reads nothing', { options: JEV }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 1, 3), beneath: { drop: (text) => (text.startsWith('Here') ? 'blocked' : undefined) } })
+  await w.clock.advance(1000)
   await w.submit('Build the scene in three.js')
   await w.step({ index: 0, effort: 'medium' })
   expect(await w.submit('Here is what it should look like', { turnId: 't1', images: [PASTED] })).toEqual({ drop: 'blocked' })

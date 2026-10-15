@@ -23,6 +23,7 @@ import { registerMidturnEffort } from './features/midturn-effort.ts'
 import { registerReferenceMidturn } from './features/reference-midturn.ts'
 import { registerUnresolved } from './features/unresolved.ts'
 import { registerVisualCheck } from './features/visual-check.ts'
+import { registerScreenshotTakeover } from './features/screenshot-takeover.ts'
 import { registerSkillProfiles } from './features/skill-profiles.ts'
 import { registerSkills } from './features/skills.ts'
 import { registerWorkflowAgents } from './features/workflow-agents.ts'
@@ -33,10 +34,11 @@ export const register: Register = (on, options) => {
 
   // The decision report keeps the board's turn count: outermost, so a turn is counted before anything beneath reads the board.
   registerReport(on)
-  // When the main agent's loop began, for image routing's "a file older than the loop" (#64).
-  registerLoopStart(on)
   // The screens draw the report's data (the band, the footer); no feature touches them.
   registerScreens(on)
+
+  // When each loop began (the screenshot takeover and the routing's reference images read it): no switch, no decision.
+  registerLoopStart(on)
 
   // Features, outermost first.
   registerControl(on, ctx)
@@ -56,6 +58,7 @@ export const register: Register = (on, options) => {
   registerSkills(on, ctx)
   registerFindSkill(on, ctx)
   registerVisualCheck(on, ctx)
+  registerScreenshotTakeover(on, ctx)
   registerImageRouting(on, ctx)
 
   // The core: always last.

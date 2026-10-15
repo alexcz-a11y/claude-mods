@@ -280,6 +280,8 @@ export function entryVerb(entry: LogEntry): string {
       return '改用别的决策模型'
     case 'visual-check':
       return entry.tone === 'fail' ? '核对失败' : '已核对'
+    case 'screenshot-takeover':
+      return '已接管'
     default:
       return entry.tone === 'fail' ? '失败' : entry.tone === 'warn' ? '注意' : '记录'
   }

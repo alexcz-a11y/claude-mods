@@ -328,6 +328,15 @@ declare module 'claude-code' {
        * which restarts the module, does not let a burst out. Written by that limiter only (through `BackendIo.pace`).
        */
       pplxRate: number[]
+      /**
+       * When each loop began (core/loop-start.ts; GLOSSARY 循环), id `main` for the main agent (its latest turn's
+       * `turn.start`) or the agentId of a dispatched or Workflow agent (its `agent.spawn`, so a resumed run starts it
+       * again; its first `turn.start` when no spawn was seen), `$.clock.now()` ms. The images work (spec #55) tells an
+       * image the loop made from one that was there before it by a file's modification time against this: the screenshot
+       * takeover (#62) takes over the first kind, the routing's reference images (#64) are the second. Written by that
+       * module only.
+       */
+      loops: StateFamily<{ startedAt: number }>
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
       /**
@@ -360,12 +369,6 @@ declare module 'claude-code' {
       }>
       /** The main agent's step in progress (its tool calls carry no turn id); null before the first. */
       mainStep: { turnId: string; index: number } | null
-      /**
-       * When the main agent's loop began: the latest main turn's `turn.start` (`$.clock.now()`, ms). A file changed before it was
-       * there before the agent began (a reference image), one changed after it is the agent's own work. Written by
-       * hooks/core/loop-start.ts only.
-       */
-      mainLoopStart: { turnId: string; at: number }
       /**
        * Each loop's failed tool calls and forced raises (#7), id `main` for the
        * main agent (its counts are those of the turn `turnId`; a new turn starts

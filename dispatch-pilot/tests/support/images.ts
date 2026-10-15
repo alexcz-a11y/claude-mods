@@ -23,7 +23,7 @@ export type FakeImage = {
   label?: string
   /** The EXIF orientation of a JPEG (1 to 8); left out for none. */
   orientation?: number
-  /** When the file was last changed (`$.fs.stat`'s `mtimeMs`, mock clock ms); left out: before the mock clock's first tick (-1), so older than any loop the test starts. */
+  /** When it was last modified (`$.fs.stat`'s `mtimeMs`, in mock clock ms); 0 when left out, a file from before anything began. `w.save` stamps the time now. */
   mtimeMs?: number
 }
 
@@ -112,6 +112,48 @@ export function readFake(base64: string): { format: 'png' | 'jpeg'; width: numbe
   return null
 }
 
+// ---- What the engine hands the mod of an image (#62) -----------------------------------------------------------------------
+
+/** The media type of a fake image, as the engine names it; null for a format the engine does not show as an image. */
+export function mediaTypeOf(file: FakeFile): 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | null {
+  if (!('format' in file)) return null
+  return file.format === 'png' || file.format === 'jpeg' || file.format === 'gif' || file.format === 'webp' ? `image/${file.format}` : null
+}
+
+/**
+ * What `tool.call` gets of a Read of an image file, as the engine gives it (spec #55 「实测得到的形状」, Claude Code 2.1.300): the
+ * image as a structured result (the engine scales it to 2000 on the long side for the model, and says so in `dimensions`), the
+ * `[Image: ...]` text it adds, and the reference (a number) the core would use for the model's message.
+ */
+export function readImageResult(path: string, file: FakeImage) {
+  const long = Math.max(file.width, file.height)
+  const scale = long > 2000 ? 2000 / long : 1
+  return {
+    result: {
+      type: 'image' as const,
+      file: {
+        base64: fileBase64(file),
+        type: mediaTypeOf(file) ?? 'image/png',
+        originalSize: fileSize(file),
+        dimensions: { originalWidth: file.width, originalHeight: file.height, displayWidth: Math.round(file.width * scale), displayHeight: Math.round(file.height * scale) },
+      },
+    },
+    ref: 7,
+    text: `[Image: source: ${path} (${file.width}x${file.height})]`,
+  }
+}
+
+/**
+ * The content of an MCP screenshot tool's result: a line of text and the image. `mcp` is MCP's own shape for an image block
+ * (`data`, `mimeType`); `api` the Messages API's (`source.data`, `source.media_type`). Which of them the engine hands a
+ * `tool.call` hook was never measured (the user decided on no more probes), so the mod reads both.
+ */
+export function screenshotContent(file: FakeImage, shape: 'mcp' | 'api' = 'mcp') {
+  const mediaType = mediaTypeOf(file) ?? 'image/png'
+  const image = shape === 'mcp' ? { type: 'image', data: fileBase64(file), mimeType: mediaType } : { type: 'image', source: { type: 'base64', media_type: mediaType, data: fileBase64(file) } }
+  return [{ type: 'text', text: 'Took a screenshot of the page.' }, image]
+}
+
 // ---- Programs ---------------------------------------------------------------------------------------------------------
 
 /** What a program prints and how it ends. */
@@ -150,6 +192,24 @@ export const mkdir: Program = (args, disk) => {
   for (const dir of args.filter((arg) => !arg.startsWith('-'))) {
     for (let at = absolute(dir); at !== '/' && !disk.dirs.has(at); at = parentOf(at)) disk.dirs.add(at)
   }
+  return ok()
+}
+
+/**
+ * `base64 -D -o <file>` (macOS's; the only form the mod uses, #62): decodes the text on stdin into the file. A fake image's
+ * bytes come back as the image they describe (`readFake`), so that the files the mod saves from an MCP tool's result can be read
+ * by the world's sips and `fs.read` like any other; bytes of any other kind are kept as they are. The output goes in a directory
+ * that exists; stdin that is no base64 text is an error with exit code 1.
+ */
+export const base64: Program = (args, disk, init) => {
+  const out = args[args.indexOf('-o') + 1]
+  if (!args.some((arg) => arg === '-D' || arg === '-d' || arg === '--decode') || args.indexOf('-o') < 0 || out === undefined) return { exitCode: 1, stdout: '', stderr: 'usage: base64 [-Ddh] [-b num] [-i in_file] [-o out_file]' }
+  const text = (init?.stdin ?? '').replace(/\s+/g, '')
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(text)) return { exitCode: 1, stdout: '', stderr: 'base64: invalid input' }
+  const target = absolute(out)
+  if (!disk.dirs.has(parentOf(target))) return { exitCode: 1, stdout: '', stderr: `base64: ${out}: No such file or directory` }
+  const image = readFake(text)
+  disk.files.set(target, image === null ? { base64: text } : { format: image.format, width: image.width, height: image.height, label: image.label })
   return ok()
 }
 

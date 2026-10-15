@@ -16,14 +16,14 @@ import type { On } from 'claude-code'
 import { errorText } from '../decision/backend.ts'
 import type { ReferenceReading } from '../decision/complexity.ts'
 import type { ReferenceSource } from '../core/complexity.ts'
-import { isOlder } from '../core/loop-start.ts'
+import { MAIN_LOOP, startedBefore } from '../core/loop-start.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
 import type { Ctx } from '../core/setup.ts'
 import { isOn, masterOn } from '../core/switches.ts'
 import { hasImage, IMAGE_ROUTING_SWITCH, pastedOf, readReference } from './image-routing.ts'
 import { judgeAgainWithReference } from './midturn-effort.ts'
 
-const LOOP_START = { plugin: 'dispatch-pilot', key: 'mainLoopStart' } as const
+const LOOPS = { plugin: 'dispatch-pilot', key: 'loops' } as const
 const MAIN_STEP = { plugin: 'dispatch-pilot', key: 'mainStep' } as const
 
 /**
@@ -49,9 +49,9 @@ export function registerReferenceMidturn(on: On, ctx: Ctx): void {
       const read = result.result as { type?: unknown } | undefined
       const path: unknown = e.file_path
       if (read?.type !== 'image' || typeof path !== 'string') return result
-      const [started, modified] = await Promise.all([$.state.get(LOOP_START), $.fs.stat(path).catch(() => null)])
-      // Made in this loop (or no way to tell when): the agent's own picture, not a reference.
-      if (modified === null || !isOlder(started.value, modified.mtimeMs)) return result
+      const [started, modified] = await Promise.all([$.state.get({ ...LOOPS, id: MAIN_LOOP }), $.fs.stat(path).catch(() => null)])
+      // Made in this loop (or no way to tell when the loop began): the agent's own picture, not a reference.
+      if (modified === null || started.value === undefined || !startedBefore(modified.mtimeMs, started.value.startedAt)) return result
       await judgeAgainWithReference($, ctx, readOf($, ctx, [{ path }]), '读到参考图')
     } catch (error) {
       $.ui.log(`reference images: ${errorText(error)}`, { to: 'debug' })

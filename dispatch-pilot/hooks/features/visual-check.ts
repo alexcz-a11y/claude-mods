@@ -15,14 +15,18 @@ import { type Asked, type BackendIo, describeAsked, errorText, failureText } fro
 import { imageMegapixelBudget, PPLX_MAX_IMAGES, type Picture } from '../decision/images.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
 import { type ImageLimits, LOOK_IMAGE_LIMITS, limitsFor } from '../decision/image-fit.ts'
-import { forgetLoop, noteResults, readWholeImage, wholeImageRequest, type Check, type CheckResult, type Comparison, type Streaks } from '../decision/visual-check.ts'
-import { parseVisualCheckInput, visualCheckText, VISUAL_CHECK_INPUT, VISUAL_CHECK_TOOL, VISUAL_CHECK_TOOL_CALLED, visualCheckDescription, type VisualCheckInput } from '../decision/visual-check-tool.ts'
+import { comparedNames, forgetLoop, noteResults, readWholeImage, wholeImageRequest, type Check, type CheckResult, type Comparison, type Streaks } from '../decision/visual-check.ts'
+import { isCompared, locatePlan, MAX_CROPPED_CHECKS, readLocated, withBoxes } from '../decision/visual-check-zoom.ts'
+import { type Box, sameView } from '../decision/zoom.ts'
+import { type ZoomOutcome, zoomReview } from '../core/zoom-review.ts'
+import { cropLabel, parseVisualCheckInput, visualCheckText, VISUAL_CHECK_INPUT, VISUAL_CHECK_TOOL, VISUAL_CHECK_TOOL_CALLED, visualCheckDescription, type VisualCheckInput } from '../decision/visual-check-tool.ts'
 import { FRAME_COUNT, type Frame, framesRequest, isRecording, LOOK_FRAME_COUNT, type Span } from '../decision/visual-check-frames.ts'
 import { recordOf, type VisualCheckRecord } from '../decision/visual-check-record.ts'
 import { type ImageFilesIo, type Loaded, type LoadedImage, loadImage, loadImages } from '../core/image-files.ts'
 import { type RecordingFrames, readRecording } from '../core/video-frames.ts'
 import { report, type ReportIo } from '../core/report.ts'
 import { type CallTrouble, reportCall } from '../core/visual-check-report.ts'
+import { newWorkFile } from '../core/work-files.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 
@@ -53,28 +57,13 @@ const LOOK_YOURSELF = 'Look at the images yourself.'
  */
 const streaks: Streaks = new Map()
 
-/** The session's temporary directory for derived images, made on first use; it holds nothing that outlives the session. */
-let workDir: Promise<string> | undefined
-let fileCount = 0
-
 /** Everything one call needs of the engine, as closures (a module may not pass `$` across an import). */
 async function filesOf($: EngineInterface): Promise<ImageFilesIo> {
   return {
     run: (argv, init) => $.process.run(argv, init),
     readBytes: async (path) => (await $.fs.read(path, { as: 'bytes' })).base64,
-    newFile: async (extension) => {
-      workDir ??= (async () => {
-        const base = ((await $.env.get('TMPDIR').catch(() => undefined)) ?? '').trim() || '/tmp'
-        const dir = `${base.replace(/\/+$/, '')}/dispatch-pilot-${Math.floor(Math.random() * 0xffffffff).toString(16)}`
-        await $.process.run(['mkdir', '-p', dir])
-        return dir
-      })().catch((error: unknown) => {
-        // Not made (no CLI, a full disk): the next call tries again.
-        workDir = undefined
-        throw error
-      })
-      return `${await workDir}/image-${++fileCount}.${extension}`
-    },
+    // Derived images go to the session's directory in the mod's temporary directory (core/work-files.ts).
+    newFile: (extension) => newWorkFile({ run: (argv) => $.process.run(argv), tmpdir: () => $.env.get('TMPDIR'), sessionId: () => $.session.id() }, extension),
   }
 }
 
@@ -183,6 +172,8 @@ async function check(deps: Deps, input: VisualCheckInput): Promise<Block[]> {
   const subjects = await subjectsOf(deps, comparison, target, checks.length, input.span)
   let results: CheckResult[]
   let attached: Picture | null = subjects.screenshot
+  let crops: Attachment[] = []
+  let elsewhere: { box: Box; confidence: number; cropped: boolean } | null = null
   if (!subjects.ok) {
     results = allUnsure(checks, subjects.reason)
     trouble = { kind: 'error' }
@@ -195,20 +186,48 @@ async function check(deps: Deps, input: VisualCheckInput): Promise<Block[]> {
     if (!asked.ok) trouble = { kind: 'request', failure: { backend: deps.backend, ...asked.failure } }
   } else {
     // Stage 2, the first request: every check about the whole images, in one request.
-    const { request, part } = wholeImageRequest(comparison, { screenshot: subjects.screenshot, references: subjects.references }, checks)
-    const asked = await deps.ask(request)
-    // Stage 3 (#59): the zoomed re-check of the parts the checks name, when the checks compare two images.
-    // Stage 4, the verdicts.
+    const whole = wholeImageRequest(comparison, { screenshot: subjects.screenshot, references: subjects.references }, checks)
+    const { part } = whole
+    // With Jev, against an image, the same request also locates the named parts (#59). pplx has no Box question.
+    const names = comparedNames(comparison, subjects.references.length)
+    const sameViews = subjects.references.map((reference) => sameView(input.sameView, subjects.screenshot, reference))
+    const plan = deps.backend === 'jev' && isCompared(comparison) ? locatePlan(names, sameViews, checks) : null
+    const asked = await deps.ask(plan === null ? whole.request : withBoxes(whole, plan))
+    // Stage 4, the verdicts: of the whole images.
     results = asked.ok ? readWholeImage(comparison, part, asked.answers, checks) : allUnsure(checks, failureText(deps.backend, asked.failure))
     if (!asked.ok) trouble = { kind: 'request', failure: { backend: deps.backend, ...asked.failure } }
+    // Stage 3 (#59), the zoomed re-check of the parts the checks name: the crops decide, the whole images only give a fail where it could not be made.
+    if (asked.ok && plan !== null) {
+      const zoomed = await zoomReview({ files: deps.files, ask: deps.ask, backend: deps.backend }, { candidate: subjects.screenshot, others: subjects.references, names, sameViews }, checks, results, plan, readLocated(plan, asked.answers))
+      results = zoomed.results
+      ;({ crops, elsewhere } = attachmentsOf(zoomed))
+      // A request of the zoomed re-check that failed is a note on the board like the first one (#58).
+      if (zoomed.failure !== null) trouble = { kind: 'request', failure: { backend: deps.backend, ...zoomed.failure } }
+    }
   }
   // The screenshot goes along for what is unsure, to be looked at.
   if (!results.some((result) => result.verdict === 'unsure')) attached = null
   const repeated = noteResults(streaks, deps.agent, results)
   // Stage 5 (#58): the report to the board and the decision log; a recording is reported like a screenshot, by its path.
   await deps.report(recordOf({ image: target, comparison, backend: deps.backend, results, ms: (await deps.now()) - startedAt }), trouble)
-  const text = visualCheckText({ target, against: comparison, results, attached: attached !== null, repeated, recording: isRecording(target) })
-  return [{ type: 'text', text }, ...(attached === null ? [] : [imageBlock(attached)])]
+  const text = visualCheckText({ target, against: comparison, results, attached: attached !== null, repeated, recording: isRecording(target), crops: crops.map((crop) => crop.label), elsewhere })
+  return [{ type: 'text', text }, ...crops.map((crop) => imageBlock(crop.picture)), ...(attached === null ? [] : [imageBlock(attached)])]
+}
+
+/** A crop that goes along with the answer, and what it shows. */
+type Attachment = { label: string; picture: Picture }
+
+/** The crops the answer shows (of the checks that failed, at most three; of another place) and what it says of that place. */
+function attachmentsOf(zoomed: ZoomOutcome): { crops: Attachment[]; elsewhere: { box: Box; confidence: number; cropped: boolean } | null } {
+  const crops: Attachment[] = zoomed.failed.slice(0, MAX_CROPPED_CHECKS).flatMap((one) => [
+    { label: cropLabel({ check: one.index }, 'your screenshot'), picture: one.candidate },
+    { label: cropLabel({ check: one.index }, 'the image it is compared with'), picture: one.other },
+  ])
+  const place = zoomed.elsewhere
+  if (place === null) return { crops, elsewhere: null }
+  const cropped = place.candidate !== null && place.other !== null
+  if (place.candidate !== null && place.other !== null) crops.push({ label: cropLabel({ place: true }, 'your screenshot'), picture: place.candidate }, { label: cropLabel({ place: true }, 'the image it is compared with'), picture: place.other })
+  return { crops, elsewhere: { box: place.place.box, confidence: place.place.confidence, cropped } }
 }
 
 const failed = (error: unknown): Loaded => ({ ok: false, reason: errorText(error) })
