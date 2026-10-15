@@ -7,6 +7,7 @@
 // `recent_steps`), field for field, so the eval (#14) builds exactly the
 // request the mod sends from a dataset row (spec #67).
 
+import { REFERENCE_FIELD, referenceState, type ReferenceReading } from './complexity.ts'
 import { clipToTokens, estimateTokens, messageText, withinTokens } from './context.ts'
 import { DEFAULT_ASK, EFFORTS, effortQuestion, traceEffort, type Effort, type EffortAsk, type EffortReading, type EffortRules, type EffortTrace, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
@@ -50,6 +51,8 @@ export type MidturnInput = {
   problem_summary?: string
   /** How many times the person has said the problem is still unresolved; absent while it is 0 (#41). */
   unresolved_count?: number
+  /** What the reference images the main agent has just read (a Read of a picture from before the loop, a picture typed in mid-turn) read as (#64): a hint, in the state as `reference_complexity`; absent when there is none. */
+  reference_complexity?: ReferenceReading
 }
 
 /**
@@ -176,6 +179,7 @@ function midturnFields(input: MidturnInput, limits: MidturnLimits, show: Midturn
     ...(input.trouble ? { trouble: input.trouble } : {}),
     ...(input.problem_summary ? { [SUMMARY_FIELD]: input.problem_summary } : {}),
     ...(input.unresolved_count ? { [COUNT_FIELD]: input.unresolved_count } : {}),
+    ...(input.reference_complexity ? { [REFERENCE_FIELD]: referenceState(input.reference_complexity) } : {}),
     step: input.step,
     ...(show.currentEffort === false ? {} : { current_effort: input.current_effort }),
     ...(show.counts === false ? {} : { counts: input.counts }),

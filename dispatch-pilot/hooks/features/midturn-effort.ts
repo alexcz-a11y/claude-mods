@@ -20,6 +20,7 @@
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
 import { describeAsked, errorText, within, type Asked, type BackendIo } from '../decision/backend.ts'
+import type { ReferenceReading } from '../decision/complexity.ts'
 import { messageText } from '../decision/context.ts'
 import { higherEffort, isEffort, probsOf, readEffort, readingText, type Effort } from '../decision/effort.ts'
 import {
@@ -100,16 +101,25 @@ type Starting = { name: string; detail: string }
  * `answer` never rejects, and once it resolves `settled` holds it and `ms`
  * how long it took.
  */
-type InFlight = { forStep: number; reason: string; answer: Promise<Asked>; settled: Asked | null; ms: number; hint?: HintRecord }
+type InFlight = {
+  forStep: number
+  reason: string
+  answer: Promise<Asked>
+  settled: Asked | null
+  ms: number
+  hint?: HintRecord
+  /** Asked once the reference images the turn met had been read (#64); `reading` is what they read as, known when the request goes out. */
+  referenced?: true
+  reading?: ReferenceReading | null
+}
 /** Re-decisions on their way, by turn key. Promises cannot live in $.state: a reload drops them (the step then keeps its effort). */
 const inFlight = new Map<string, InFlight>()
 /** The text of the main step streaming now, by turn key. */
 const streamed = new Map<string, { index: number; block: number; text: string }>()
 
-export function registerMidturnEffort(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: '一轮进行中重新判断主 agent 的 effort', parts: ['midturn'] })
-  // Read at each use: which decision model's settings these are is settled at the session start (core/setup.ts, `Ctx`).
-  const settings: Settings = {
+/** The feature's settings, read at each use: which decision model's settings these are is settled at the session start (core/setup.ts, `Ctx`). */
+function settingsOf(ctx: Ctx): Settings {
+  return {
     ctx,
     get every() {
       return ctx.config.midturn.every
@@ -124,6 +134,28 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
       return ctx.config.midturn.limits
     },
   }
+}
+
+/**
+ * Judges the main agent's effort again for its next step, now that it has met reference images (#64, features/reference-midturn.ts):
+ * `reading` is on its way (it never rejects, null when the images could not be read), and the request goes out the moment it is
+ * there, with `reference_complexity` in its state. The next step takes the answer as any re-decision's. Asked as a re-decision is
+ * (never for a locked turn, one the person did not start, or without a decision model), but not held to its schedule: once for the
+ * step, replacing the request its schedule may have started for it, which did not know of the images. Never throws.
+ */
+export async function judgeAgainWithReference($: EngineInterface, ctx: Ctx, reading: Promise<ReferenceReading | null>, reason: string): Promise<void> {
+  try {
+    if (!isOn(SWITCH)) return
+    const step = (await $.state.get(MAIN_STEP)).value ?? null
+    if (step !== null) await launch($, settingsOf(ctx), step, null, { reading, reason })
+  } catch (error) {
+    $.ui.log(`midturn: ${errorText(error)}`, { to: 'debug' })
+  }
+}
+
+export function registerMidturnEffort(on: On, ctx: Ctx): void {
+  defineSwitch({ name: SWITCH, info: '一轮进行中重新判断主 agent 的 effort', parts: ['midturn'] })
+  const settings = settingsOf(ctx)
 
   on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {
     // The main agent's own calls only: not a dispatched agent's, nor another plugin's $.tool.call.
@@ -212,7 +244,7 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
  * starting is a reason to: a phase tool, or a step index that is a multiple of
  * `every`. Once per step; the answer is left for that step to take.
  */
-async function launch($: EngineInterface, s: Settings, step: MainStep, starting: Starting): Promise<void> {
+async function launch($: EngineInterface, s: Settings, step: MainStep, starting: Starting | null, reference?: { reading: Promise<ReferenceReading | null>; reason: string }): Promise<void> {
   const upcoming = step.index + 1
   const key = turnKey(step.turnId, undefined)
   // Everything read at once: between the once-per-step check below and the entry that claims the step nothing waits, so
@@ -231,8 +263,11 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
   // may have failed: then from the session's own effort); never without a decision model set up (every request would
   // fail at once).
   if (turn === undefined || turn.person !== true || lock !== null || record === undefined || record.engine === null || s.ctx.backend.configured === false) return
-  const reason = PHASE_TOOLS.has(starting.name) ? starting.name : s.every > 0 && upcoming % s.every === 0 ? `每 ${s.every} 步` : null
-  if (reason === null || record.askedFor === upcoming || inFlight.get(key)?.forStep === upcoming) return
+  const reason = reference !== undefined ? reference.reason : starting !== null && PHASE_TOOLS.has(starting.name) ? starting.name : starting !== null && s.every > 0 && upcoming % s.every === 0 ? `每 ${s.every} 步` : null
+  if (reason === null) return
+  // A re-decision for the images met: the one request for the step that knows of them, in place of one the schedule may have sent.
+  const earlier = inFlight.get(key)
+  if (reference !== undefined ? earlier?.forStep === upcoming && earlier.referenced === true : record.askedFor === upcoming || earlier?.forStep === upcoming) return
   const count = held?.count ?? 0
   const summary = held?.summary
   const maxAfter = s.ctx.config.unresolved.maxAfter
@@ -246,17 +281,25 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
     ...(summary === undefined ? {} : { problem_summary: renderSummary(summary, s.ctx.ask.language) }),
     ...(count > 0 ? { unresolved_count: count } : {}),
   }
-  const request = mergeParts(midturnState(input, s.limits), [midturnEffortPart(s.ctx.ask, { hint: hint !== undefined })])
   const io: BackendIo = {
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
     sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
     pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
   }
-  const asking = s.ctx.backend.ask(io, request, s.ctx.config.timeoutMs)
-  const entry: InFlight = { forStep: upcoming, reason, answer: asking, settled: null, ms: 0, ...(hint === undefined ? {} : { hint }) }
+  /** What the images read as, when the request was sent with it. */
+  let read: ReferenceReading | null = null
+  /** The request, with what the images read as when they did (the reading comes first, so the request is sent after it). */
+  const ask = async (reading: ReferenceReading | null): Promise<Asked> => {
+    read = reading
+    const request = mergeParts(midturnState({ ...input, ...(reading === null ? {} : { reference_complexity: reading }) }, s.limits), [midturnEffortPart(s.ctx.ask, { hint: hint !== undefined })])
+    return s.ctx.backend.ask(io, request, s.ctx.config.timeoutMs)
+  }
+  const asking = reference === undefined ? ask(null) : reference.reading.then(ask)
+  const entry: InFlight = { forStep: upcoming, reason, answer: asking, settled: null, ms: 0, ...(hint === undefined ? {} : { hint }), ...(reference === undefined ? {} : { referenced: true as const }) }
   entry.answer = asking.then(async (answered) => {
     entry.ms = (await $.clock.now()) - sentAt
     entry.settled = answered
+    entry.reading = read
     return answered
   })
   inFlight.set(key, entry)
@@ -333,6 +376,8 @@ async function takeAnswer($: EngineInterface, s: Settings, e: { index: number; e
       conf: verdict.confidence,
       trace: [...verdict.trace.pick.steps, ...verdict.trace.steps],
       mid: midturnRecord(verdict, position, s.rules),
+      // What the reference images this re-decision was asked about read as (#64): the card draws it with the effort's.
+      ...(pending.reading == null ? {} : { reference: { level: pending.reading.level, images: pending.reading.images } }),
     },
   })
   await logHint(verdict.picked)
@@ -348,7 +393,7 @@ function newRecord(): MidturnRecord {
  * step's text and its tool calls with how they ended. Step `index` comes
  * last, its text as streamed so far, the call `starting` in it marked running.
  */
-function summaries(record: MidturnRecord, index: number, key: string, starting: Starting, language: 'en' | 'zh'): MidturnInput['recent_steps'] {
+function summaries(record: MidturnRecord, index: number, key: string, starting: Starting | null, language: 'en' | 'zh'): MidturnInput['recent_steps'] {
   const live = streamed.get(key)
   const now = record.recent.find((step) => step.index === index)
   const line = (t: { name: string; detail: string; outcome: Outcome }) => ({ name: t.name, result: resultLine(t.outcome, t.detail, language) })
@@ -356,7 +401,7 @@ function summaries(record: MidturnRecord, index: number, key: string, starting: 
     ...record.recent.filter((step) => step.index < index).map((step) => ({ assistant_text: step.text, tools: step.tools.map(line) })),
     {
       assistant_text: live?.index === index ? live.text : (now?.text ?? ''),
-      tools: [...(now?.tools ?? []).map(line), line({ ...starting, outcome: 'running' })],
+      tools: [...(now?.tools ?? []).map(line), ...(starting === null ? [] : [line({ ...starting, outcome: 'running' })])],
     },
   ]
 }
