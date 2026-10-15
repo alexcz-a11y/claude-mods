@@ -1,6 +1,6 @@
 # Dispatch Pilot
 
-Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在 Claude 之外调用一个决策模型（默认是 Perplexity 的 pplx；没有 Perplexity 的 key、但有 TypeSafe 的 key 时退回 TypeSafe 的 Jev，也可以指定用 Jev），替你决定 Claude Code 怎么干活：主 agent 每一轮用哪档 effort，派出的 agent 用哪个模型和哪档 effort，主 agent 该看哪几个 skill。
+Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在 Claude 之外调用一个决策模型（默认是 Perplexity 的 pplx；没有 Perplexity 的 key、但有 TypeSafe 的 key 时退回 TypeSafe 的 Jev，也可以指定用 Jev），替你决定 Claude Code 怎么干活：主 agent 每一轮用哪档 effort，派出的 agent 用哪个模型和哪档 effort，主 agent 该看哪几个 skill。它还能替 agent 看图：截图、录屏交给一个看图的模型核对，agent 不必自己看（0.5.0 起，见「看图核对」和「图像：发给谁，什么时候发」）。
 
 主 agent 的模型从不改变，所以 prompt cache 不受影响。这只在 Claude Code 订阅下成立，见「要求」。
 
@@ -16,6 +16,9 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 - **问题摘要。** 你本人的消息开始的那一轮结束后，一个便宜的模型（`summaryModel`，默认 haiku，用你的 Claude 登录和用量）在后台续写一份简短的摘要：问题是什么、试过哪些做法、现在到了哪一步，不超过 500 token，只记试过什么，不判断成没成功；你的下一条消息说「仍未解决」时，最后一次尝试标上「未解决」。决策模型发消息时读它，借此看到超出上下文预算的更早几轮；它从不等摘要写完，来不及时用上一份。写失败（出错、超时）保留旧摘要并在决策日志里记一条。问题解决、换了问题、`/clear` 和新会话时和次数一起清空，`/compact` 和热重载保留。依据面板里能看摘要全文。交给写摘要模型的内容先脱敏；`contextMessages` 为 0 时不写（摘要是对话的转述）。默认关闭，随 `unresolved` 开关一起打开和关闭。
 - **强提示。** 次数达到 `unresolvedMaxAfter`（默认 3，0 到 10，0 表示不给）时，发消息时和中途重判时 effort 题的说明里多一条：这项工作属于多次尝试都没解决的故障。它只描述情境：不写档位的名字或序号，`pickEffort` 的规则和 `thetaMax` 都不变，用不用最高一档仍由决策模型结合摘要和对话自己决定。次数和摘要也进这两种请求的 state（`unresolved_count`、`problem_summary`）；派出 agent 和 Workflow 里 agent 的决定读摘要和次数当背景，但从不加强提示（「查一个文件」这类子任务不该因此判到最高一档）。发消息时带的是这条消息之前的次数（这条消息自己的结论要同一个请求的回答才知道），所以默认设置下第四次说「仍未解决」的那条消息的中途重判先读到强提示，下一条消息的请求再带上。每次给了强提示，决策日志记一条（次数、已给强提示、决策模型判出的档位），依据卡片显示「已给强提示」；看板不新增事件。`unresolved` 开关关着（默认）时这些都不带。
 - **skill。** 主 agent 不再读完整的 skill 列表（装的 skill 多时这一段很长），读到的是一句固定的提示。改由决策模型在你发消息时，从本会话的 skill 里挑出相关的几个，连同名字、描述和相关度附在消息后面交给主 agent；只能由你触发的 skill 不推荐给主 agent，只在看板上提示你（「可试 /x」）。一轮进行中，主 agent 还可以用 `find_skill` 工具按几个词查 skill。skill 本身和 Skill 工具都不变，主 agent 仍然可以按名字加载任何 skill。
+- **看图核对**（`visual-check`，默认开）。agent 截了图、录了屏，不必自己看：它调用 `visual_check` 工具，交上截图或录屏、比较的对象和几条检查项。比较的对象可以是参考图（设计稿、实物照片）、另一张截图（改动前后、另一个画质档位）、一串画质档位，或一段文字规范；每条检查项点名图上的一个部分，加一个看得见的属性。图像后端（见下面的「图像：发给谁，什么时候发」）一两秒内对每条回答过、不过或没把握。有参考图或另一张截图时，先在两张图上框出点名的部分，裁下来放大再判断（放大复核，要 Jev），全屏另扫一遍「哪里不同」，没点名的地方变了也会报出来；录屏由 mod 用 `ffmpeg` 均匀抽帧，几帧一起判断，只问粗的运动问题（有没有回弹、终点是否大偏、元素出现或消失）。「不过」时附出问题那一块的裁图，「没把握」时把缩过的整图还给 agent 当场自己看，「过」只代表没看出明显问题。它只判粗的差异：尺寸、圆角、色值、字重这类数值查代码或运行时的值，缓动、质感这类观感自己看，交付前主 agent 仍亲自看一次最终结果。同一条检查项连续两次不过，回答里提醒先自己看一次图。比一串画质档位时（`sequence`，要 Jev），逐对比较相邻两档在点名区域里有没有看得出的差别，找到再往上看不出差别的那一档，省得交给你逐档去看。派出 agent 和 Workflow 里的 agent 也能用。
+- **截图接管**（`screenshot-takeover`，默认关）。打开后，agent 在当前这个循环里自己生成的图（截图、抽出的帧）在它看到之前被换成一句说明：图存在哪、有多大、请用看图核对；它要亲自看时，用 `visual_check` 的 `look: true` 取回缩过的原图。Read 读到的图片文件、截图类 MCP 工具返回的图都算。参考图、你贴的图和循环开始前就有的文件照常给 agent 看。适合调 3D 效果、反复建模这类粗调阶段：截图多，又不必每张都进上下文。它要 `visual-check` 开着、而且有图像后端，否则不生效（图换掉了 agent 就看不到了）。
+- **带图路由**（`image-routing`，默认关）。你贴了参考图让 agent 建模时，Dispatch Pilot 先把参考图交给图像后端，读出「照着做出来有多复杂」，是 0 到 4 的一个读数；同一组图只读一次。读数以文字作为提示进入主 agent 的 effort、派出 agent 和 Workflow 里 agent 的模型和 effort，只是提示，不直接定档，锁定、点名和下限照旧优先。带图的消息因此晚一点才定 effort（多等的时间不超过约 3 秒，等不到就照常按文字定）；一轮做到一半主 agent 读了参考图（修改时间早于这个循环的图片文件），或你又贴了图，会立刻重判一次（要 `midturn-effort` 开着）。agent 自己截的图不算参考图。读数失败时决定照常进行，只是不带读数。
 - **失败时放行。** 决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配密钥时，消息照常进入，不额外等待，这一轮用会话自己的 effort，看板上写明原因，并弹一个 toast。
 
 本文提到的配置项（例如 `escalateAfter`、`timeoutMs`），默认值都在「配置」的表里。每项功能都可以用 `/dp` 单独关掉，也可以整个 mod 一起关（见「控制：`/dp`」）。完整的行为规则（各种优先级、各种失败情形、看板和日志的写法）见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「它做什么」。
@@ -31,6 +34,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 - **prompt 上方的 band。** 一轮进行中，顶上一条状态条：第几轮、用时、agent 的运行 / 完成 / 失败 / 排队数、Workflow 的进度、中途重判的次数。下面每个 agent 一行：主 agent 在最前，其余按开始的先后，各带数字键（0 是主 agent，1 到 9 按先后）、名字、模型和 effort、状态，以及一条时间色带（同一根时间轴，看得出谁和谁并行）。状态格写运行或完成了多久、失败、排队，或者「未路由 · 原因」。再下面是这一轮的事件流：每个决定、中途重判和强制升档（一次改档只算一条，写从哪档到哪档）、skill 推荐和「可试 /x」、`find_skill` 的查询，以及请求失败、回答迟到。一轮结束后 band 折成一行：主 agent 的模型和 effort、这一档是怎么来的、「可试 /x」。引擎给 band 的行数不到 4 行时，退成一行摘要。
 - **脚部右端的摘要。** 连同和左边隔开的一列，不超过 12 列：状态符号、主 agent 的模型和 effort、`+N` 个运行中的 agent；放不下时 effort 先写短（`xhi`），再省掉模型。
 - **未路由。** 一轮或一个 agent 的模型和 effort 照引擎原样发出、没有经过 Dispatch Pilot 的决定，看板上总写原因：决策模型超时、连不上、繁忙、被限速、额度用完、密钥被拒绝、没配好、回答读不懂，或者功能已关。路由失败时还会弹一个 toast，写谁没路由和原因。
+- **看图核对的计数。** `visual-check` 开着时，band 里每个 agent 的行末多一格「核对 N：x 过 · y 不过 · z 没把握」（N 是检查项数，一轮里原地更新），截图接管开着时再加「接管 n」。每次核对和每次接管在决策日志里留一条：检查项、结论、概率、图片路径、是否放大复核、用时。核对出错不弹 toast，只在看板和日志里记。依据卡片多一行「看图核对」；带图路由读过参考图时，卡片多一行「参考图」，写读数的档位和来自几张图。
 - **选中一个 agent。** 在空的 prompt 里按它的数字键，依据面板就打开在它的卡片上。
 - **别的端。** Desktop 等不支持时间色带和概率条的端画同样内容的纯文字版：band 的每行没有时间色带，脚部是一个不超过 24 个字符的标签（同样连隔开的那一列算在内）。没在 Desktop 上亲眼看过。
 - 关掉的功能（`/dp <功能> off`）的决定、事件和计数不出现在 band 和脚部；`/dp off` 时 band 上没有 Dispatch Pilot 的内容，脚部写 `○ dp 已关`。`claude -p` 没有界面，内容写进 debug log。
@@ -52,8 +56,31 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 - Workflow 在后台运行、你又发了消息时，等到 agent 启动才判断的那些 agent（prompt 是数据的调用、读不了的脚本），读的仍是启动 Workflow 那一轮你的话、那时的问题摘要和到那次调用为止的对话，不是你后来的消息。
 - 打开 skill 推荐时：本会话每个 skill 的名字和画像（还没有画像的用描述），以及排在前面的几个 skill 的描述、画像和 SKILL.md 开头约 700 个字符。skill 画像由你自己的 Claude 登录写（模型是 `skillsProfileModel`），用你的用量，不经过决策模型的提供方。
 - 发送前对常见的 secret 格式脱敏，替换成 `[REDACTED]`：各家的 API key 和 token（含 Perplexity 的 `pplx-...`）、`password=...` 这类赋值（键名带引号的 JSON 写法 `"apiKey": "..."` 也算）、URL 里的密码、私钥和 JWT。
-- 请求发往你用的决策模型：默认的 pplx 发往 Perplexity（`api.perplexity.ai`），选 Jev（或没有 Perplexity key、退回 Jev）时发往 TypeSafe（`api.typesafe.ai`）。
+- 请求发往你用的决策模型：默认的 pplx 发往 Perplexity（`api.perplexity.ai`），选 Jev（或没有 Perplexity key、退回 Jev）时发往 TypeSafe（`api.typesafe.ai`）。**带图的请求不是这样，见下一节。**
 - 每次请求的结果和每个决定都写进 debug log（`claude --debug-file <路径>`），不进入会话。
+
+### 图像：发给谁，什么时候发
+
+**图没法脱敏。** 文字发出前会替换常见的 secret 格式，图不会：截图里的密钥、聊天记录、个人信息都会原样发出去。装之前请先想清楚你的 agent 会截什么图。debug log 只记张数、尺寸、估算的 token 和耗时，从不写图的内容和密钥。
+
+**发给谁。** 带图的请求用图像后端，和 `decisionModel` 无关：
+
+- 有 TypeSafe 的 key：发往 TypeSafe（`api.typesafe.ai`），固定用 `jev-1.14.0`（框题只有 1.14 有，也免得 `jev-latest` 改指向时看图的行为悄悄变），请求头带 `TypeSafe-Danger-Zone-Images: true`。
+- 没有 TypeSafe 的 key、但有 Perplexity 的 key：发往 Perplexity（`api.perplexity.ai`）。决策日志里记一条「看图改用 pplx」。
+- 两个 key 都没有：三项图像功能都不可用，`visual_check` 不会出现在 agent 的工具列表里。
+
+所以决策模型选了 pplx、又填了 TypeSafe 的 key 时，图发给 TypeSafe，不发给 Perplexity；不带图的决策仍照你选的决策模型走，带图路由读出的读数是文字，随后和别的文字一起发往你选的决策模型。
+
+**哪些功能、什么时候发。**
+
+- **看图核对：只在 agent 调用 `visual_check` 时发**（`look: true` 不发，只把缩过的图还给 agent）。发的是这次调用里 `images`、`reference`、`compare_to` 点名的图；录屏发抽出的帧（Jev 12 帧，pplx 8 帧）；有参考图时还有从图上裁下来的局部放大图。每次调用在对话里看得见。开关关着时调用不发请求。
+- **截图接管：自己不发任何图。** 它把图拦在 agent 之外；图会不会发给图像后端，要看 agent 之后是否拿它调用看图核对。
+- **带图路由：你发的消息带图时发**，一轮进行中主 agent 读了参考图或你又贴了图时也发；一组最多 6 张，每张缩到约 100 万像素以内，同一组图只发一次。agent 自己截的图不发。
+- 默认设置下，只有看图核对会发图（它默认开，但要 agent 去调用）。截图接管和带图路由默认关，装好后不会有图被自动发出去。
+
+**磁盘上的临时文件。** 缩图、裁图、抽帧要写临时文件，放在 `$TMPDIR/dispatch-pilot/<会话 id>/`（截图接管存下的 MCP 截图也在这里），mod 不清理，由系统清 `$TMPDIR`。缩图用 macOS 自带的 `sips`，录屏抽帧用 `ffmpeg`（要自己装）。不在 CLI 里（`$.process.run` 不可用）或没有 `sips` 时，图已经合格（PNG 或 JPEG、尺寸在限制内、方向正）就原样发，否则相关的检查项记没把握并写明原因；没有 `ffmpeg` 时，录屏的检查项记没把握。
+
+不想发图：`/dp visual-check off`（以及 `/dp image-routing off`、`/dp screenshot-takeover off`，后两个默认就是关）。
 
 ### 开销
 
@@ -61,13 +88,16 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 - **skill 推荐。** 打开后，每条消息的第一个请求还带着本会话每个 skill 的名字和画像：111 个 skill 都写好画像时约 2.19 万 input token（不带画像约 8.6k）；第一段分到 0.1 以上的 skill 才会发第二个请求，约 1.3k。作为交换，隐藏 skill 列表每个会话省下约 6.6k input token（本机 66 个 skill 时实测），换成的提示只有 360 个字符。
 - **skill 画像**用你自己的 Claude 登录写（模型是 `skillsProfileModel`），算在你的用量里：每份约 2k 输入和 200 输出 token，每个 SKILL.md 版本只写一次，每次会话开始最多写 `skillsProfilesPerSession` 份。
 - **问题摘要**同样用你自己的 Claude 登录写（模型是 `summaryModel`），算在你的用量里：你本人的消息开始的每一轮结束后一次，输入是上一份摘要加这一轮（你的话、主 agent 的最终回复、工具汇总，各自截断），输出不超过 500 token。
+- **图像**（只在你用到这些功能时才有开销）。看图核对：Jev 约每百万像素 2,600 token，每张图只算一次，每百万 token 0.042 美元；评测集基线里每张图平均约 2,300 token、不到 0.0001 美元，界面和海面的整套判断（整图加放大复核）一次约 6,000 token，延迟一题中位约 1.6 秒（两个请求接着发）。pplx 约每百万像素 1,000 token，要再乘题数，所以带图请求的题要少。带图路由的复杂度读数每张图约 1,000 token，另加最多约 3 秒的等待。截图接管不发请求，省的是 agent 上下文里的图。
 - `claude plugin details dispatch-pilot@alex-mods`（2.1.289）显示 0 个组件、常驻开销约 0 token：它看不到 mod 在运行时附加和替换的内容。
 
 ## 要求
 
-- **Claude Code 2.1.287 及以上**，mod 在 Claude Code 里默认启用。**0.4.5 测试用的是 Claude Code 2.1.300**（`find_skill` 直接在主 agent 的工具列表里，用 event-probe 实测过；看板的模型名新字色在浅色终端上目测过），0.4.4 也是（派出 agent 自己那一轮的 `turn.start`、被 SendMessage 唤醒的 agent 的 `agent.spawn`，在真实会话里实测过），0.4.3 用的是 Claude Code 2.1.296（选 pplx 时派出 agent 和 Workflow 请求里的对话和脚本、agent 启动时才判断的读启动那一轮，在真实会话里实测过），0.4.2 也是（被 TaskStop 停掉的 Workflow agent 的结束实测过），0.4.1 也是（Workflow agent 的 `agent.spawn`、Haiku 5.5 的 effort 在真实会话里实测过），0.4.0 用的是 Claude Code 2.1.294（默认的 pplx 配置跑通一轮真实流程，见 #53），此前版本用的是 2.1.291（订阅登录，看板和依据面板在终端里看过）和 jev-1.13.0；缓存和评测的实测是在 2.1.289 上做的；跑 `eval/` 和 `scripts/` 里的 Node 脚本用的是 Node 26.5，用 mod 本身不需要 Node。
+- **Claude Code 2.1.287 及以上**，mod 在 Claude Code 里默认启用。**0.5.0 测试用的是 Claude Code 2.1.300**（图像功能用到的引擎行为用 event-probe 实测过：引擎里图块的形状、引擎把图缩到长边 2000、换掉 Read 的图片结果又不留 `[Image: …]` 文字的写法、注册工具的回答能用哪些形式、hook 的 10 秒只算 mod 自己的代码；整套图像功能没有在真实会话里跑通一轮，见「局限」），0.4.5 也是（`find_skill` 直接在主 agent 的工具列表里，用 event-probe 实测过；看板的模型名新字色在浅色终端上目测过），0.4.4 也是（派出 agent 自己那一轮的 `turn.start`、被 SendMessage 唤醒的 agent 的 `agent.spawn`，在真实会话里实测过），0.4.3 用的是 Claude Code 2.1.296（选 pplx 时派出 agent 和 Workflow 请求里的对话和脚本、agent 启动时才判断的读启动那一轮，在真实会话里实测过），0.4.2 也是（被 TaskStop 停掉的 Workflow agent 的结束实测过），0.4.1 也是（Workflow agent 的 `agent.spawn`、Haiku 5.5 的 effort 在真实会话里实测过），0.4.0 用的是 Claude Code 2.1.294（默认的 pplx 配置跑通一轮真实流程，见 #53），此前版本用的是 2.1.291（订阅登录，看板和依据面板在终端里看过）和 jev-1.13.0；缓存和评测的实测是在 2.1.289 上做的；跑 `eval/` 和 `scripts/` 里的 Node 脚本用的是 Node 26.5，用 mod 本身不需要 Node。
 - **只支持 Claude Code 订阅**（ADR 0001，`docs/adr/0001-main-agent-effort-only-no-model-switch.md`）。Dispatch Pilot 每轮、每一步都改主 agent 的 effort，但从不改它的模型：换模型必然让 prompt cache 失效，而在订阅下，同一个模型内切换 effort 保留缓存（2.1.289 上 Opus 5.5 加订阅实测）。Bedrock、Vertex 和各种网关上切换 effort 会让缓存失效，不在支持范围内。Claude Code 的文档只点名了 Opus 5.5、Sonnet 5.5 和 Fable 5.1 保留缓存，其他大多数模型上每档 effort 各有一份缓存，切换会重算整段请求（见 `docs/research/decision-models-and-caching.md` 的 3.4）。
 - **一个决策模型的账号。** 默认的决策模型是 pplx，要 Perplexity 的 API key（Decisions API）；Jev 要 TypeSafe 的 API key。没有 Perplexity 的 key、但有 TypeSafe 的 key 时，自动退回 Jev（0.3.1 的老用户升级后不会失去路由，依据面板的决策日志里会有一条说明原因）；两种 key 都没有时 mod 不发任何请求，每一轮都按会话自己的 effort 走，看板上写明缺的是 Perplexity 的 key。
+- **要用全部图像功能，需要 TypeSafe 的 API key。** 放大复核、全屏「哪里不同」、档位序列、录屏取 12 帧都靠 Jev 1.14。只有 Perplexity 的 key 时（没有 TypeSafe 的 key），三项图像功能仍可用，但看图核对只做整图判断：不框、不裁、没有放大复核，有参考图时「过」只能记没把握；档位序列不可用；一个请求最多 8 张图，录屏取 8 帧。两个 key 都没有，图像功能都不可用。图发给谁见「图像：发给谁，什么时候发」。
+- **缩图、裁图用 macOS 自带的 `sips`，录屏抽帧用 `ffmpeg`**（要自己装）。只有看图核对和带图路由需要它们，其余功能不需要。
 
 ## 安装
 
@@ -236,7 +266,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 ```
 
 - 命令在一轮进行中也立即执行：锁定或解锁从下一步起生效。
-- 功能的开关是 `main-effort`、`unresolved`、`midturn-effort`、`dispatched-agents`、`workflow-agents`、`workflow-labels`、`escalation`、`skills`、`skill-profiles`、`find-skill` 和 `signals`；另有 `hook-block-failures`，打开后你自己的 settings hook 拦下的调用也算失败，参与强制升档。`unresolved` 和 `hook-block-failures` 默认关闭，其余默认开着。
+- 功能的开关是 `main-effort`、`unresolved`、`midturn-effort`、`dispatched-agents`、`workflow-agents`、`workflow-labels`、`escalation`、`skills`、`skill-profiles`、`find-skill`、`signals`、`hook-block-failures`、`visual-check`、`screenshot-takeover` 和 `image-routing`。`hook-block-failures` 打开后，你自己的 settings hook 拦下的调用也算失败，参与强制升档。`visual-check`（看图核对）、`screenshot-takeover`（截图接管）和 `image-routing`（带图路由）是 0.5.0 加的图像功能，会把图发给 TypeSafe 或 Perplexity（见「图像：发给谁，什么时候发」）。**默认关闭的有 `unresolved`、`hook-block-failures`、`screenshot-takeover` 和 `image-routing`，其余默认开着**，所以装好之后只有看图核对是开的，而且要 agent 去调用 `visual_check` 才会发图。
 - 开关保存下来，下次启动会话时还是你离开时的样子；只保存和默认值不同的开关，所以一个新增的功能默认开着。
 - 锁定只在当前会话里有效，`/dp unlock` 或会话结束时解除。锁定期间决策照常进行并记录，不想为此等决策模型的话，用 `/dp main-effort off`。
 - 依据面板的决策日志和 `/dp log N` 显示每项功能记录的决策：做了什么决定、针对哪条消息、理由（决策模型给出的各档概率和置信度）。同样的内容也写进 debug log，不进入对话。
@@ -254,6 +284,8 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 - Jev 对同一个 key 的并发请求像是依次处理。Workflow 里 prompt 是数据的调用（fan-out）在 agent 启动时当场判断，几个 agent 几毫秒内一起启动，排在后面的可能超时，那些 agent 按引擎原样启动。
 - **选 pplx 时，派出的 agent 要多等几秒才启动。** 请求里带着派出它的那段对话，会话长了每个请求都满 32000 估算 token，pplx 约 4 到 5 秒才答（只带任务时不到 1 秒）。一次派出很多个（同一秒超过 `pplxQps` 个）时，后面的排到下一秒，最后几个可能超时、不经路由地启动；嫌慢可以调小 `contextTokens`。
 - **Jev 的请求比以前大，延迟会多一点。** 默认值把 Jev 的 state 放到最多约 6.7k token（带 skill 题的请求，`contextTokens` 6000），发消息时带 skill 推荐的请求最多约 2.9 万 token；其余种类的 state 最多 24000（约 2.67 万 token），中途重判、派出 agent 和关着 skill 推荐的发消息请求，满了的话比以前多约 2.4 万 token，按每 1k 约 13 毫秒外推，最多多约 0.3 秒（同样是外推，没有量过）。已有的实测：Jev 处理 2.19 万 token（skill 第一段，带全部画像）时 p50 约 560 毫秒、p90 约 615 毫秒；另一次整体偏慢的运行里，这一段 218 条中有 24 条（约 11%）超过 1500 毫秒，这些消息的决策整个超时，effort 也没有经过路由。按每多 1k token 约多 13 毫秒外推，现在的 state 再多约 80 毫秒，慢的时段超过 1500 毫秒的消息会比 11% 更多；这是外推，没有在新默认值上量过。如果看板上「决策模型超时」变多，可以把 `contextTokens` 调小（每少 1k 约快 13 毫秒），或者把 `timeoutMs` 调大；skill 那一题本身有 2.2 万 token，想去掉这部分延迟只能 `/dp skills off`。
+- **看图核对只看得出粗的差异，「过」不是验收。** 评测集上（Jev 1.14，一次基线）：不成立的检查项里 1 条被判成过（字重，刚好 0.91 过了 0.9），抓到 10 条（共 20 条，界面 3/8，海面 7/9，动画 0/3），字重和 4 px 偏移是盲区；动画一条也没判出来，15 条都在没把握。所以它省的是「明显有问题的先挡住」，不省交付前主 agent 亲自看的那一次。
+- **图像功能没有在真实会话里端到端跑过**（用户决定不再做实测）：引擎里的图块、缩图、Read 结果的换法、注册工具的回答、hook 时限是用 event-probe 实测的，其余用测试里扮演引擎的 world 和评测里的真实 Jev 验证。**没验证的有**：截图类 MCP 工具返回的图块在 `tool.call` 里长什么样（两种写法都认）、`session.append` 里是否一定带 `[Image: source: …]` 文字、实物照片对渲染图和档位序列这两种用法（评测集没有）。
 - 大多数默认值是暂定的起点（表里标了 `起点`）：评测数据只够定下少数几项，其余的见下面的「还没有数据的事」。
 
 **问题用什么语言写。** 选 pplx 时所有问题都用英文写（eval v2：pplx 英文问法更准）。选 Jev 时，发消息时判断主 agent effort 的那一个问题用中文写；其余问题（一轮中途重判、派出 agent、Workflow 里的 agent、卡住时的强制升档、skill 推荐和 `find_skill`）都用英文。依据是 `effort-submit` 在现在的问法上的对比（Jev，各 1 次）：用中文问，中文题 85.0%、英文题 89.0%；用英文问，79.0%、78.0%。同样的请求之前跑过 3 次，中文问法也都高约 8 个百分点。其余问题在现在的问法上没有中文问法的数据，所以都没有改。派出 agent 和 skill 的评测已经有中文问法的变体（`models-hint-zh`、`profiles-zh`），还没有运行。发消息时的请求里，中文的 effort 问题和英文的 skill 问题放在一起，这种混合的请求没有单独评测过。
@@ -292,6 +324,8 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 - 中英差距的门槛是中文比英文低不超过 4 个百分点，正好低 4 个百分点也算通过。上面四行都在门槛之内：`effort-submit` 那一次正好是 −4.0，`skill` 是 −3.7。
 - Jev 单个 effort 请求的延迟 p50 约 0.28–0.42 秒，p90 约 0.32–0.46 秒；skill 带画像的第一段 p50 约 0.56–0.67 秒。
 - **`skill` 一行是 2026-10-04 测的**，之后问题改过措辞，没有重跑，只能当预览（见「局限和待评测」）；`effort-submit`、`effort-midturn` 的数字和 `subagent` 的 `models-hint` 是 2026-10-05 在 0.2.2 的规则和文字上重跑的（`subagent` 的其余变体没有重跑）。`subagent` 和 `skill` 的中文问法变体（`models-hint-zh`、`profiles-zh`）未运行。单次运行有波动：同一配置跑两次，单项准确率相差 0–4 个百分点，和 4 个百分点的门槛同一量级。评测的设置是 4 条消息、2000 个 token、4 步，不是 0.2.1 起 Jev 的默认值（32、6000、16）；评测集的上下文很短，离线重建请求核对过，换成新默认值后 `effort-submit` 的 200 个请求里 state 变了 2 个，`effort-midturn` 200 个里变了 10 个，`skill` 和 `subagent` 没有变，所以这些数字仍可以参考，但不是在新默认值上量的。
+
+**看图核对**另有一套评测（`visual-check`，24 题：界面、3D 海面、动画帧、参考图复杂度，带真值；图和真值在 `eval/datasets/visual-check/`），发的请求和 mod 逐字相同，Jev 出新版本时重跑。2026-10-15 在 `jev-1.14.0` 上的基线：64 个请求约 0.014 美元；不成立的检查项 1/20 判成过，抓到 10/20，对照（一模一样的图）12 条检查项没有一条被判不过；三组参考图的复杂度读数按立方体 < 海面 < 城市排对了。它是一次快照，没有调过问法和门槛，题少，差一两条不算差别。命令和指标见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「看图核对（visual-check，#65，spec #55 的接缝 2）」。
 
 变体、指标、常数基线、门槛的离线重扫、已知的问题题和复现的命令，见 [DEVELOPMENT.md](DEVELOPMENT.md) 的「评测（接缝 2）」。
 
