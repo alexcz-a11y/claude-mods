@@ -49,7 +49,7 @@ export function callDispatch(call: AgentCall, meta: ParsedWorkflow['meta'], word
 export type Batch = { request: DecisionRequest; parts: Part[]; calls: number[] }
 
 /** Why a call is not asked about: the script builds its prompt when it runs, or the script has more calls than are asked about. */
-export type Skipped = { index: number; reason: 'unreadable' | 'capped' }
+export type Skipped = { index: number; reason: 'unreadable' | 'capped' | 'unwritable' }
 
 /** The part and state field of call `index`: ids in a request are unique across calls. */
 function shapeOf(index: number, settings: DispatchSettings): DispatchSettings {
@@ -147,14 +147,16 @@ const SCRIPT_TAIL = 0.3
  * with 1 to compare). What does not fit in MAX_REQUESTS requests (or in
  * MAX_CALLS calls) is left out. What the briefs leave of a request's budget
  * goes to its `background`: the script (a third of the budget at most), then
- * the conversation, newest first.
+ * the conversation, newest first. `written`: the decisions are for writing into
+ * the script, so a call whose options cannot be edited (no object literal:
+ * `agent(prompt, OPTS)`) is left out too, for its agents to be decided as they start.
  */
 export function workflowBatches(
   parsed: ParsedWorkflow,
   words: string,
   settings: DispatchSettings,
   tokens: number,
-  options: { perRequest?: number; background?: WorkflowBackground } = {},
+  options: { perRequest?: number; background?: WorkflowBackground; written?: boolean } = {},
 ): { batches: Batch[]; skipped: Skipped[] } {
   const perRequest = options.perRequest ?? MAX_PER_REQUEST
   const background = options.background ?? {}
@@ -162,7 +164,8 @@ export function workflowBatches(
   const readable = parsed.calls.filter((call) => {
     const tells = tellsTheWork(call.prompt)
     if (!tells) skipped.push({ index: call.index, reason: 'unreadable' })
-    return tells
+    else if (options.written === true && call.edit === null) skipped.push({ index: call.index, reason: 'unwritable' })
+    return tells && !(options.written === true && call.edit === null)
   })
   if (readable.length === 0) return { batches: [], skipped }
   // The person's words as a dispatched agent's decision reads them, shared by every call, with the summary and the count.
@@ -235,7 +238,7 @@ export function planBatches(
   words: string,
   settings: DispatchSettings,
   budgets: { one: number; each: number },
-  options: { perRequest?: number; background?: WorkflowBackground } = {},
+  options: { perRequest?: number; background?: WorkflowBackground; written?: boolean } = {},
 ): { batches: Batch[]; skipped: Skipped[] } {
   const plan = workflowBatches(parsed, words, settings, budgets.one, options)
   return plan.batches.length > 1 && budgets.each < budgets.one ? workflowBatches(parsed, words, settings, budgets.each, options) : plan
@@ -331,6 +334,8 @@ export function leftWords(outcome: Extract<CallOutcome, { kind: 'left' }>, descr
       return '它的 prompt 要等脚本运行时才拼出来'
     case 'capped':
       return '脚本里的 agent() 比一次问得过来的多'
+    case 'unwritable':
+      return '它的选项不是对象字面量，写不进脚本'
     case 'failed':
     case 'unanswered':
       return outcome.failure === undefined ? '决策模型没有回答' : describe(outcome.failure)
@@ -368,6 +373,8 @@ export function leftText(outcome: Extract<CallOutcome, { kind: 'left' }>, descri
       return 'its prompt is built when the script runs'
     case 'capped':
       return 'the script has more agent() calls than are asked about'
+    case 'unwritable':
+      return 'its options are no object literal, so nothing can be written into them'
     case 'failed':
     case 'unanswered':
       return outcome.failure === undefined ? 'no answer from the decision model' : describe(outcome.failure)
@@ -420,7 +427,7 @@ export function returnNote(parsed: ParsedWorkflow, outcomes: readonly CallOutcom
  */
 export function rewriteNote(parsed: ParsedWorkflow, outcomes: readonly CallOutcome[], describe: (failure: Failure) => string): string | null {
   const decided = outcomes.some((outcome) => outcome.kind !== 'left')
-  if (!decided && !outcomes.some((outcome) => outcome.kind === 'left' && (outcome.reason === 'unreadable' || outcome.reason === 'capped'))) return null
+  if (!decided && !outcomes.some((outcome) => outcome.kind === 'left' && (outcome.reason === 'unreadable' || outcome.reason === 'capped' || outcome.reason === 'unwritable'))) return null
   const lines = outcomes.map((outcome, index) => {
     const call = parsed.calls[index] as AgentCall
     if (outcome.kind === 'left') return `${callName(call)}: left as written (${leftText(outcome, describe)})`

@@ -25,7 +25,7 @@ import { failureMeaning } from '../decision/backend.ts'
 import type { Effort } from '../decision/effort.ts'
 import { EFFORTS } from '../decision/effort.ts'
 import { type LogEntry, type ProfilesState, type Tone } from '../core/report.ts'
-import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, meterCells, MODEL_BG, MUTED, OK, pct, SKILL, softColor, stackCells, stateGlyph, STATUS_COLOR, WARN, width, type Raster, type TT } from './kit.tsx'
+import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, meterCells, MODEL_FG, MUTED, OK, pct, SKILL, softColor, stackCells, stateGlyph, STATUS_COLOR, WARN, width, type Raster, type TT } from './kit.tsx'
 import {
   cardOf,
   entryVerb,
@@ -404,7 +404,7 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, raster: 
         'pane-card-model',
         '模型',
         <Text wrap="wrap">
-          <Text color={MODEL_BG[entry.model]} bold>{entry.model}</Text>
+          <Text color={MODEL_FG[entry.model]} bold>{entry.model}</Text>
           {entry.conf === undefined ? null : <Text color={MUTED}>{`  置信 ${pct(entry.conf)}`}</Text>}
         </Text>,
         w,

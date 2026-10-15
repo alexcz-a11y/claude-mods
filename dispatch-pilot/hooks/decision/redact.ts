@@ -20,14 +20,15 @@ const PATTERNS: readonly (readonly [RegExp, string])[] = [
   [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, MASK], // AWS access key id
   [/\bAIza[0-9A-Za-z_-]{35}/g, MASK], // Google API key
   [/\bnpm_[A-Za-z0-9]{36}\b/g, MASK], // npm
+  [/\bpplx-[A-Za-z0-9]{24,}/g, MASK], // Perplexity (its model names, pplx-decider-..., are no key)
   [/\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, MASK], // JWT
   // Bearer and Basic credentials.
   [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{16,}/g, `$1 ${MASK}`],
   // The password of a URL: scheme://user:password@host.
   [/(\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:)[^\s@/]+@/gi, `$1${MASK}@`],
-  // name = "value" and name = value.
-  [new RegExp(String.raw`\b(${NAME})(\s*[:=]\s*)(["'])[^"'\n]{4,}\3`, 'gi'), `$1$2$3${MASK}$3`],
-  [new RegExp(String.raw`\b(${NAME})(\s*[:=]\s*)(?!\[REDACTED)[^\s"',;]{6,}`, 'gi'), `$1$2${MASK}`],
+  // name = "value" and name = value; the name may be quoted, as a JSON key or a dict's is.
+  [new RegExp(String.raw`\b(${NAME})(["']?\s*[:=]\s*)(["'])[^"'\n]{4,}\3`, 'gi'), `$1$2$3${MASK}$3`],
+  [new RegExp(String.raw`\b(${NAME})(["']?\s*[:=]\s*)(?!\[REDACTED)[^\s"',;]{6,}`, 'gi'), `$1$2${MASK}`],
   // 密码是 xxx, 密钥：xxx
   [/(密码|口令|密钥|秘钥|令牌)(\s*(?:[:：=]|是|为)\s*)[^\s，。,;；]{4,}/g, `$1$2${MASK}`],
 ]

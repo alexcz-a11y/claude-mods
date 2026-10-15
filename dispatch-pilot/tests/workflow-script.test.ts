@@ -184,7 +184,7 @@ const d = await agent('the real one')
   expect(parse(script).calls.map((call) => call.prompt)).toEqual(['the real one'])
 })
 
-test('a script of tens of thousands of lines is read in well under a second', () => {
+test('a script of tens of thousands of lines is read in well under a second', { timeoutMs: 30_000 }, () => {
   const body = Array.from({ length: 30_000 }, (_, i) => `const v${i} = await agent('Task number ${i} with a longer prompt that goes on a little', { label: 'task-${i}', schema: { type: 'object', properties: { a: { type: 'string' } } } })`).join('\n')
   const script = `${META}${body}\n`
   const started = Date.now()
@@ -192,9 +192,9 @@ test('a script of tens of thousands of lines is read in well under a second', ()
   const rewritten = rewriteWorkflow(parsed, parsed.calls.map(() => ({ model: 'sonnet', effort: 'low' })))
   expect(parsed.calls).toHaveLength(30_000)
   expect(rewritten.length).toBeGreaterThan(script.length)
-  // About 0.25 s alone; 5 s leaves room for the test files the suite runs in parallel (2026 ms once against the 2 s
-  // this had), and a reader that rescans the script for each call would still take tens of times longer.
-  expect(Date.now() - started).toBeLessThan(5000)
+  // About 0.25 s alone, 7-8 s with three suites running at once on a busy machine (5 s, the test's own timeout then, was
+  // not enough). A reader that rescans the script for each call scans it 30,000 times: minutes, far past 15 s.
+  expect(Date.now() - started).toBeLessThan(15_000)
 })
 
 test('only a call of the global agent is a call: not a member, a declaration, another name, or an option called agentType', () => {

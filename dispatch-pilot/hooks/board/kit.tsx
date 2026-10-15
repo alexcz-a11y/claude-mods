@@ -5,8 +5,9 @@
 // hook's file); nothing here reads the board.
 //
 // Colours: one accent (the theme's `claude`), the theme's semantic keys for
-// state, so light and dark terminals both read; hex only for the effort ramp
-// and the four model chips, mid tones that hold on either background.
+// state, so light and dark terminals both read; hex only for the effort ramp,
+// the four model chips (a light tint with dark ink on it, its own background)
+// and the four model inks, mid tones that hold on either background.
 
 import type { Elements, RenderNode } from 'claude-code'
 import { EFFORTS, type Effort } from '../decision/effort.ts'
@@ -51,6 +52,13 @@ export const MODEL_BG: Record<Model, string> = {
   fable: '#F2C078',
 }
 export const MODEL_INK = '#14171C'
+/** A model's name written as text, in its chip's hue: deep enough for a light terminal, light enough for a dark one (contrast 3.7 or more on white and on #1E1E1E). */
+export const MODEL_FG: Record<Model, string> = {
+  haiku: '#1F8A9A',
+  sonnet: '#5B6FD6',
+  opus: '#A05BC8',
+  fable: '#B07A1F',
+}
 
 /** A running agent's glyph, one frame per tick. */
 export const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']

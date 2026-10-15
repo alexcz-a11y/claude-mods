@@ -70,6 +70,13 @@ export function register(on) {
     return r
   })
 
+  // Where a plugin's registered tool waits: behind ToolSearch (`isDeferred: true`) or in the prompt's list (absent).
+  on('tool.describe', { tool: /^mcp__dispatch-pilot__/ }, async ($, e, next) => {
+    const r = await next(e)
+    $.ui.log(`${seq()} tool.describe tool=${e.tool} isDeferred=${e.isDeferred} result.isDeferred=${r && r.isDeferred}`, { to: 'debug' })
+    return r
+  })
+
   on('turn.complete', async ($, e, next) => {
     $.ui.log(`${seq()} turn.complete keys=[${keys(e)}] ${cut(e, 200)}`, { to: 'debug' })
     return next(e)

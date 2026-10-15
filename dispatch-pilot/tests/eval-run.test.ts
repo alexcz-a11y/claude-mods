@@ -9,9 +9,12 @@ import { EFFORTS } from '../hooks/decision/effort.ts'
 import { jevBackend } from '../hooks/decision/jev.ts'
 import type { EffortSubmitItem } from '../eval/lib/datasets.ts'
 import { effortSubmit } from '../eval/lib/effort-submit.ts'
-import { attemptMs, runSuite } from '../eval/lib/runner.ts'
+import { readNumber } from '../eval/lib/numbers.ts'
+import { askRetrying, attemptMs, RETRY_AFTER_MAX_MS, runSuite } from '../eval/lib/runner.ts'
 import { optionsFor, optionsFrom, settingsFrom, withStateTokens } from '../eval/lib/suite.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
+import { pplxBackend } from '../hooks/decision/pplx.ts'
+import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import type { UnresolvedItem } from '../eval/lib/datasets.ts'
 import { UNRESOLVED_VARIANTS, unresolvedRequest } from '../eval/lib/unresolved.ts'
 
@@ -203,4 +206,60 @@ test('--state-tokens sets the budget of every kind of request, so a long convers
 // 10 s, so a slow answer is still measured and a cold connection's first request does not fail outright.
 test("an attempt may take four times the mod's timeoutMs, at least 10 s: Jev's 1500 ms gives 10 s, 3000 ms 12 s", () => {
   expect([attemptMs(settingsFrom({ decisionModel: 'jev' }).timeoutMs), attemptMs(3000), attemptMs(5000)]).toEqual([10_000, 12_000, 20_000])
+})
+
+// run.ts reads its numbers with `readNumber`: a typo must stop the run before anything is sent, not turn into NaN (a spend
+// cap that `estimatedUsd > NaN` never reaches, retries that `attempt > NaN` never ends, a timeout that fires at once).
+test('a number flag takes a finite number within its bound; anything else is refused with the flag and what was written', () => {
+  expect(readNumber('--max-usd', '1', { min: 0 })).toBe(1)
+  expect(readNumber('--max-usd', '0.25', { min: 0 })).toBe(0.25)
+  expect(readNumber('--retries', '0', { min: 0, integer: true })).toBe(0)
+  expect(readNumber('--timeout', '240000', { min: 1, integer: true })).toBe(240_000)
+  expect(() => readNumber('--max-usd', '1o', { min: 0 })).toThrow('--max-usd takes a number of at least 0, not "1o"')
+  expect(() => readNumber('--max-usd', '', { min: 0 })).toThrow('--max-usd takes a number of at least 0, not ""')
+  expect(() => readNumber('--max-usd', 'Infinity', { min: 0 })).toThrow('--max-usd takes a number')
+  expect(() => readNumber('--max-usd', '-1', { min: 0 })).toThrow('--max-usd takes a number of at least 0, not "-1"')
+  expect(() => readNumber('--retries', 'two', { min: 0, integer: true })).toThrow('--retries takes a whole number of at least 0, not "two"')
+  expect(() => readNumber('--retries', '1.5', { min: 0, integer: true })).toThrow('--retries takes a whole number of at least 0, not "1.5"')
+  expect(() => readNumber('--concurrency', '0', { min: 1, integer: true })).toThrow('--concurrency takes a whole number of at least 1, not "0"')
+  expect(() => readNumber('--state-tokens', '99', { min: 100, integer: true })).toThrow('--state-tokens takes a whole number of at least 100, not "99"')
+})
+
+// Perplexity's quickstart: "A request over a limit returns 429 with a Retry-After header in seconds. Wait that long, then retry."
+// pplx.ts reads the header into `Failure.retryAfterMs`; the eval's backoff of 1 s and 2 s would ask again inside the window.
+const DECISION: DecisionRequest = { state: { user_message: 'x' }, questions: { 'review.defect': { type: 'noul', instructions: 'Does the review report a defect?' } } }
+
+/** A fake Perplexity network: the replies in turn, the last one repeated; the runner's pauses are recorded. */
+function pplxNetwork(replies: readonly { status: number; headers?: Record<string, string>; body?: unknown }[]) {
+  let n = 0
+  const pauses: number[] = []
+  const io: BackendIo = {
+    fetch: async () => {
+      const reply = replies[Math.min(n++, replies.length - 1)] as (typeof replies)[number]
+      return { status: reply.status, ok: reply.status >= 200 && reply.status < 300, headers: reply.headers ?? {}, text: JSON.stringify(reply.body ?? {}) }
+    },
+    sleep: (_ms, signal) => new Promise((_done, fail) => signal.addEventListener('abort', () => fail(new Error('aborted')))),
+  }
+  const retrying = { backend: pplxBackend('k'), io, timeoutMs: 10_000, retries: 3, now: () => 0, pause: async (ms: number) => void pauses.push(ms) }
+  return { retrying, pauses }
+}
+const ANSWERED = { status: 200, body: { model: 'pplx-decider-v1.1-27b', answers: { 'review.defect': { type: 'noul', noul: 0.9 } }, usage: { input_tokens: 5, output_tokens: 1 } } }
+
+test('a 429 with Retry-After is waited out as long as the header says before the request is asked again, not the 1 s, 2 s of the backoff', async () => {
+  const net = pplxNetwork([{ status: 429, headers: { 'Retry-After': '5' } }, { status: 429, headers: { 'retry-after': '7' } }, ANSWERED])
+  const sent = await askRetrying(DECISION, net.retrying)
+  expect(sent.asked.ok).toBe(true)
+  expect(sent.attempts).toBe(3)
+  expect(net.pauses).toEqual([5000, 7000])
+})
+
+test('a Retry-After longer than the eval will wait is cut to the most; a 429 without one, or a busy 5xx, keeps the backoff of 1 s, then 2 s', async () => {
+  const long = pplxNetwork([{ status: 429, headers: { 'retry-after': '3600' } }, ANSWERED])
+  await askRetrying(DECISION, long.retrying)
+  expect(long.pauses).toEqual([RETRY_AFTER_MAX_MS])
+
+  const none = pplxNetwork([{ status: 429 }, { status: 503 }, ANSWERED])
+  const sent = await askRetrying(DECISION, none.retrying)
+  expect(sent.attempts).toBe(3)
+  expect(none.pauses).toEqual([1000, 2000])
 })

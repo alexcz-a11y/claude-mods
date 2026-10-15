@@ -127,10 +127,20 @@ export function rescoreSubmit(result: StoredAnswers, items: readonly EffortSubmi
 }
 
 /**
- * The effort-midturn variants of a result: the level each stored answer picks and the level the mod would go on
- * at, before (the pick and gates of 0.2.1) and now (the current pick and `rules`, by default the gates the mod ships).
+ * The mid-turn gates the mod ships for the decision model a result was run on (`settings.options`, which names it and
+ * holds the options the run set: BACKEND_DEFAULTS has a row of gates for each model, pplx raising from 0 and Jev from 0.3).
+ * A result file from before the default moved to pplx names no decision model: those were Jev's.
  */
-export function rescoreMidturn(result: StoredAnswers, items: readonly EffortMidturnItem[], rules: MidturnRules = readConfig({ decisionModel: 'jev' }).midturn.rules): Compared[] {
+function midturnRulesOf(result: StoredAnswers): MidturnRules {
+  return readConfig({ decisionModel: 'jev', ...(result.settings.options ?? {}) } as Parameters<typeof readConfig>[0]).midturn.rules
+}
+
+/**
+ * The effort-midturn variants of a result: the level each stored answer picks and the level the mod would go on
+ * at, before (the pick and gates of 0.2.1) and now (the current pick and `rules`, by default the gates the mod ships
+ * for the decision model the result was run on).
+ */
+export function rescoreMidturn(result: StoredAnswers, items: readonly EffortMidturnItem[], rules: MidturnRules = midturnRulesOf(result)): Compared[] {
   const run = rulesOf(result)
   return result.summary.variants.flatMap(({ variant }) => {
     const rows = rowsOf(result, items, variant, 'p').map(({ item, language, detail }) => ({ item, reading: readingOf(detail), current: item[language].current_effort }))
@@ -157,10 +167,10 @@ export type ThetaDownRow = { variant: string; language: Language | 'both'; theta
 /**
  * A scan of the lowering gate over the stored answers of an effort-midturn result: for each variant, each language
  * and both together, each of `thetas`, the level the mod goes on at (`judgeMidturn`, `rules` otherwise as the mod
- * ships them, `thetaMax` and `roundUp` as the run had them) graded as `sent`. Only `thetaDown` differs from row to row; nothing is
+ * ships them for the decision model of the run, `thetaMax` and `roundUp` as the run had them) graded as `sent`. Only `thetaDown` differs from row to row; nothing is
  * asked again.
  */
-export function scanThetaDown(result: StoredAnswers, items: readonly EffortMidturnItem[], thetas: readonly number[], rules: MidturnRules = readConfig({ decisionModel: 'jev' }).midturn.rules): ThetaDownRow[] {
+export function scanThetaDown(result: StoredAnswers, items: readonly EffortMidturnItem[], thetas: readonly number[], rules: MidturnRules = midturnRulesOf(result)): ThetaDownRow[] {
   const run = rulesOf(result)
   return result.summary.variants.flatMap(({ variant }) => {
     const rows = rowsOf(result, items, variant, 'p').map(({ item, language, detail }) => ({ item, language, reading: readingOf(detail), current: item[language].current_effort }))

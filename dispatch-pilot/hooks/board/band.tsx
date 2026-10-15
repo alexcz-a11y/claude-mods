@@ -16,7 +16,7 @@
 import type { RenderNode } from 'claude-code'
 import type { Effort } from '../decision/effort.ts'
 import type { Model, Reading } from '../core/report.ts'
-import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, fit, MODEL_BG, mmss, MUTED, OK, padLeft, pct, ribbonCells, rgb, SKILL, soft, SPIN, stateGlyph, STATUS_COLOR, WARN, type Raster, type TT } from './kit.tsx'
+import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, fit, MODEL_BG, MODEL_FG, mmss, MUTED, OK, padLeft, pct, ribbonCells, rgb, SKILL, soft, SPIN, stateGlyph, STATUS_COLOR, WARN, type Raster, type TT } from './kit.tsx'
 import { FEATURE_WORDS, isWholeWorkflow, type AgentRow, type BandEvent, type ScreenView } from './view.ts'
 
 /** What the band is laid out in: `bodyColumns` and `maxRows` of its props. */
@@ -49,7 +49,7 @@ function readout(t: TT, model: Model | undefined, effort: Effort | number | unde
   const level = typeof effort === 'string' ? effort : undefined
   return (
     <Text>
-      {model === undefined ? null : <Text color={routed ? MODEL_BG[model] : WARN} bold>{model}</Text>}
+      {model === undefined ? null : <Text color={routed ? MODEL_FG[model] : WARN} bold>{model}</Text>}
       {model !== undefined && effort !== undefined ? <Text color={MUTED}>·</Text> : null}
       {effort === undefined ? null : <Text color={!routed ? WARN : level === undefined ? MUTED : EFFORT_COLOR[level]} bold>{String(effort)}</Text>}
     </Text>
@@ -316,7 +316,7 @@ function eventParts(t: TT, event: BandEvent): { glyph: RenderNode; tag: string; 
           <Text wrap="truncate-end">
             <Text bold={event.main}>{event.who}</Text>
             {muted(' → ')}
-            {event.model === undefined ? null : <Text color={MODEL_BG[event.model]} bold>{event.model}</Text>}
+            {event.model === undefined ? null : <Text color={MODEL_FG[event.model]} bold>{event.model}</Text>}
             {event.model !== undefined && event.effort !== undefined ? muted('·') : null}
             {event.effort === undefined ? null : effortWord(t, event.effort)}
             {event.reason === '' ? null : muted(`  ${event.reason}`)}

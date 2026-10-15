@@ -82,7 +82,7 @@ function siteOf(call: AgentCall, route: SiteRoute, terms: Terms | null): RunSite
 
 function routeOf(outcome: CallOutcome | undefined): SiteRoute {
   if (outcome === undefined || outcome.kind === 'kept') return { kind: 'script' }
-  if (outcome.kind === 'left') return outcome.reason === 'unreadable' || outcome.reason === 'capped' ? { kind: 'runtime' } : { kind: 'script' }
+  if (outcome.kind === 'left') return outcome.reason === 'unreadable' || outcome.reason === 'capped' || outcome.reason === 'unwritable' ? { kind: 'runtime' } : { kind: 'script' }
   const model = (outcome.write.model ?? null) as AgentModel | null
   const effort = typeof outcome.write.effort === 'string' ? (outcome.write.effort as Effort) : null
   return { kind: 'set', model, effort }
@@ -195,6 +195,21 @@ function escapeRegExp(text: string): string {
 
 /** What the engine's journal says of one agent: the label it started under. */
 export type JournalStart = { label: string; phase: string | null }
+
+/**
+ * What an agent's `agent-<agentId>.meta.json` in its run's directory says it started as: its `description` is the
+ * label the journal records (the call's label, else its prompt shortened the same way), `workflowPhase` its phase. The
+ * engine writes it before the agent's first step (2.1.289), and it stays small however long the run's journal grows.
+ * Null when it says neither.
+ */
+export function startedAs(meta: string): JournalStart | null {
+  try {
+    const row = JSON.parse(meta) as { description?: unknown; workflowPhase?: unknown }
+    return typeof row.description === 'string' ? { label: row.description, phase: typeof row.workflowPhase === 'string' ? row.workflowPhase : null } : null
+  } catch {
+    return null
+  }
+}
 
 /** The `started` line of `agentId` in a run's journal (`journal.jsonl`); null when the agent is not in it (yet). */
 export function startedIn(journal: string, agentId: string): JournalStart | null {
@@ -311,7 +326,7 @@ export function launchNote(
       return `- ${callName(call)}: ${outcomeOf(call, outcome.decision)}${why === '' ? '' : ` (${why})`}`
     }
     if (outcome.kind === 'kept') return `- ${callName(call)}: as the script has it (${outcomeOf(call, outcome.decision)})`
-    if (outcome.reason === 'unreadable' || outcome.reason === 'capped') return `- ${callName(call)}: decided as each of its agents starts, from its label and its task`
+    if (outcome.reason === 'unreadable' || outcome.reason === 'capped' || outcome.reason === 'unwritable') return `- ${callName(call)}: decided as each of its agents starts, from its label and its task`
     return `- ${callName(call)}: as the script has it (${outcome.failure === undefined ? 'no answer from the decision model' : launched.describe(outcome.failure)})`
   })
   const header = launched.outcomes.some((outcome) => outcome.kind !== 'left')

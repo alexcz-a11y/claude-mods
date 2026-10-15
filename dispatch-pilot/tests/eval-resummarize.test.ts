@@ -4,7 +4,7 @@
 // by hand below.
 
 import { expect, test } from 'claude-code/testing'
-import { resummarize } from '../eval/lib/resummarize.ts'
+import { resummarize, resummarizeAll } from '../eval/lib/resummarize.ts'
 
 /** A language's summary as an older run wrote it: no late, retried or inTime. */
 const older = (items: number, accuracy: number) => ({ items, answered: items, failed: 0, accuracy, exact: accuracy, misses: {} })
@@ -53,6 +53,26 @@ test('the rest of the file stays as the run wrote it, and a note says what was b
   expect(after.resummarized).toMatchObject({ date: '2026-10-05', by: 'eval/resummarize.ts' })
   // The language summaries keep the order the metrics write them in.
   expect(Object.keys(after.summary.variants[0]?.zh ?? {})).toEqual(['items', 'answered', 'failed', 'accuracy', 'exact', 'misses', 'late', 'retried', 'inTime'])
+})
+
+// eval/resummarize.ts with no arguments reads every JSON under results/<suite>/, and not all of them are runs: the flow
+// files of eval-v2-flow/ and the scans of eval-v2/ (compare.json, thresholds-*.json) hold no summary of variants.
+test('files that are no result (a flow file, a scan, text that is not JSON, a summary without the mod\'s timeout) are skipped with the reason, nothing throws, and the results among them are brought up to date', () => {
+  const { settings: _settings, ...noSettings } = stored()
+  const files = [
+    { file: 'run.json', text: JSON.stringify(stored()) },
+    { file: 'flow.json', text: JSON.stringify({ suite: 'eval-v2-flow', about: 'flow', items: {} }) },
+    { file: 'thresholds.json', text: JSON.stringify({ suite: 'eval-v2-thresholds', rows: [] }) },
+    { file: 'list.json', text: '[]' },
+    { file: 'broken.json', text: '{"suite": ' },
+    { file: 'no-settings.json', text: JSON.stringify(noSettings) },
+  ]
+  const { done, skipped } = resummarizeAll(files, '2026-10-14')
+  expect(done.map((one) => one.file)).toEqual(['run.json'])
+  expect(done[0]?.after.resummarized.date).toBe('2026-10-14')
+  expect(done[0]?.after.summary.variants[0]?.zh).toMatchObject({ late: 1, retried: 1, inTime: 0 })
+  expect(skipped.map((one) => one.file)).toEqual(['flow.json', 'thresholds.json', 'list.json', 'broken.json', 'no-settings.json'])
+  expect(skipped.every((one) => one.why !== '')).toBe(true)
 })
 
 test("an item that sent two requests (the skill suite's two stages, in stages_ms) is retried only past two attempts", () => {

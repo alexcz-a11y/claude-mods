@@ -38,8 +38,11 @@ import { rate, type VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
 import { requestFailed, variantIn, type Ask, type Decided, type Grade, type Settings, type Suite } from './suite.ts'
 
-/** How the effort question is asked, and how much of the conversation the state may hold. */
-export type Variant = { ask: EffortAsk; wide: boolean }
+/**
+ * How the effort question is asked, and how much of the conversation the state may hold; `unresolved: false` asks the effort
+ * question alone, as the mod does with the unresolved switch off (the default, #48), and not the three-way question beside it.
+ */
+export type Variant = { ask: EffortAsk; wide: boolean; unresolved?: boolean }
 
 /**
  * The variants by name: `<question language>-<primitive>[-wide]`. Without
@@ -77,7 +80,7 @@ export function unresolvedRequest(item: UnresolvedItem, language: Language, vari
 
 /** `unresolvedRequest` for a message and the conversation before it that are not an item's (the long-context suite builds its own). */
 export function askedRequest(asked: UnresolvedAsked, variant: Variant, settings: Settings, summary: Summary | null = null, count: { count: number; maxAfter: number } | null = null): { request: DecisionRequest; part: Part } {
-  const part = turnStartPart({ ask: variant.ask, unresolved: true, command: asked.command ?? null, summary, ...(count === null ? {} : count) })
+  const part = turnStartPart({ ask: variant.ask, unresolved: variant.unresolved !== false, command: asked.command ?? null, summary, ...(count === null ? {} : count) })
   // The mod's own limits: the request of its own (`wide`) or the one shared with the skills' question (messageLimits).
   const request = messageRequest({ prompt: asked.message, messages: contextMessages(asked.recent_context), limits: messageLimits(settings, !variant.wide), parts: [part] })
   return { request, part }
@@ -86,6 +89,7 @@ export function askedRequest(asked: UnresolvedAsked, variant: Variant, settings:
 /**
  * Sends a request `askedRequest` built and reads the answers as the mod reads them: the effort (`pickEffort` at `thetaMax`),
  * and the three-way question's answer, the option it leans to most, with what the mod's two bars would do to the count.
+ * A request that did not ask the three-way question (`Variant.unresolved: false`) has the effort alone, and no triage.
  */
 export async function askUnresolved(sent: { request: DecisionRequest; part: Part }, ask: Ask, settings: Settings): Promise<Decided<UnresolvedPrediction>> {
   const { asked } = await ask(sent.request)
@@ -93,6 +97,10 @@ export async function askUnresolved(sent: { request: DecisionRequest; part: Part
   const answers = answersFor(sent.part, asked.answers)
   const reading = readEffort(answers[LEVEL])
   if (reading === null) return { ok: false, failure: 'parse: no effort answer' }
+  if (!(UNRESOLVED in sent.part.questions)) {
+    const alone: Record<string, unknown> = { p: reading.probabilities.map((p) => Math.round(p * 1000) / 1000), confidence: reading.confidence }
+    return { ok: true, prediction: { effort: pickEffort(reading, settings), triage: null }, detail: alone }
+  }
   const said = readUnresolved(answers[UNRESOLVED])
   if (said === null) return { ok: false, failure: 'parse: no triage answer' }
   const judged = judgeUnresolved(said)

@@ -58,7 +58,7 @@ import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
 import { isEffort, type Effort } from '../decision/effort.ts'
 import type { BackendName } from './setup.ts'
 import type { UnresolvedChange, UnresolvedOption, UnresolvedThresholds } from '../decision/unresolved.ts'
-import { fitsTemplate, startedIn } from '../decision/workflow-labels.ts'
+import { fitsTemplate, startedAs, startedIn } from '../decision/workflow-labels.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
 
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
@@ -347,6 +347,8 @@ export type StepIo = ReportIo & {
   runDirs: () => Promise<readonly string[]>
   /** A run's journal text; null when it is not there. */
   journal: (dir: string) => Promise<string | null>
+  /** The text of an agent's `agent-<id>.meta.json` in a run's directory; null when it is not there. */
+  meta: (dir: string, agentId: string) => Promise<string | null>
 }
 
 /** What the module needs of the host, as closures (see the top of the file). */
@@ -794,10 +796,12 @@ async function identify(io: StepIo, id: string, look: { roster: boolean; dirs: r
   }
   if (look.dirs === null) return { identity: null, read: false }
   try {
-    // A Workflow's agents are in no roster: the journal of the run it started in has the label it started under.
+    // A Workflow's agents are in no roster: the run it started in has the label it started under, in the agent's
+    // meta.json (small) and in the journal (which a long run grows past what one read takes).
     for (const dir of [...look.dirs].reverse()) {
-      const journal = await io.journal(dir)
-      const start = journal === null ? null : startedIn(journal, id)
+      const meta = await io.meta(dir, id)
+      const journal = meta === null ? await io.journal(dir) : null
+      const start = meta !== null ? startedAs(meta) : journal === null ? null : startedIn(journal, id)
       if (start !== null) return { identity: { kind: 'wf', name: start.label, type: 'workflow' }, read: true }
     }
   } catch (error) {
@@ -987,6 +991,10 @@ function stepIo($: EngineInterface): StepIo {
     },
     journal: async (dir) => {
       const path = `${dir}/journal.jsonl`
+      return (await $.fs.exists(path)) ? await $.fs.read(path).catch(() => null) : null
+    },
+    meta: async (dir, agentId) => {
+      const path = `${dir}/agent-${agentId}.meta.json`
       return (await $.fs.exists(path)) ? await $.fs.read(path).catch(() => null) : null
     },
   }

@@ -1,6 +1,6 @@
 {
   "name": "dispatch-pilot",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Dispatch Pilot：一个在 Claude 之外的决策模型（默认 Perplexity 的 pplx，没有 Perplexity key 时退回 TypeSafe 的 Jev，也可以固定用 Jev）在你每次发消息时决定主 agent 这一轮的 effort，每一步都按这一档发出，一轮进行中每隔几步再判断一次；也为主 agent 派出的每个 agent 和 Workflow 脚本里的每个 agent 按 Artificial Analysis 的基准选模型和 effort（sonnet 和 opus 至少 medium）。主 agent 的模型从不改变，prompt cache 不受影响（只在 Claude Code 订阅下成立；Bedrock、Vertex 和网关上切换 effort 会让缓存失效）。它还不让主 agent 读完整的 skill 列表，改为在你发消息时推荐合适的几个，一轮中途主 agent 可以用 find_skill 工具查 skill。agent 的工具调用接连失败时强制升高它的 effort（haiku agent 的 effort 到顶后改用 sonnet），除非这些失败本来就在意料之中。所有判断和理由都放在看板上：prompt 上方的 band 列出本轮每个 agent 的模型和 effort，脚部一个短摘要，/dp 打开的依据面板写明每个决定的依据和决策日志。",
   "author": {
     "name": "alexcz-a11y",
@@ -98,7 +98,7 @@
     "escalateMode": {
       "type": "string",
       "title": "强制升档怎么升",
-      "description": "one-level：升一档，最高到 xhigh（决策模型自己有把握时可以更高）。max：直接升到 max。haiku agent 没有 effort 可升，改用下面的模型。",
+      "description": "one-level：升一档，最高到 xhigh（决策模型自己有把握时可以更高）。max：直接升到 max。haiku agent 也先升 effort，到顶（或你点名了 effort）时才改用下面的模型。",
       "options": ["one-level", "max"],
       "default": "one-level"
     },
@@ -116,7 +116,7 @@
     "escalateHaikuTo": {
       "type": "string",
       "title": "失败的 haiku agent 改用哪个模型",
-      "description": "haiku 没有 effort 可升，所以它的工具调用接连失败时，这个 agent 接下来改用这个模型：sonnet、opus 或 fable，或者完整的模型 id。别名会换成这一步需要的完整 id（引擎不认别名）；你为这个 agent 的工作点名的模型、排除的模型优先。留空表示不换。",
+      "description": "haiku agent 的工具调用接连失败、effort 已经到顶（或你点名了 effort）时，这个 agent 接下来改用这个模型：sonnet、opus 或 fable，或者完整的模型 id。别名会换成这一步需要的完整 id（引擎不认别名）；你为这个 agent 的工作点名的模型、排除的模型优先。留空表示不换。",
       "default": "sonnet"
     },
     "agentFable": {

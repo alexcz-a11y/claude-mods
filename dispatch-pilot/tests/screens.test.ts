@@ -53,7 +53,7 @@ test('a decision made raises no toast', { options: KEY }, async ($, on) => {
   expect(w.toasts).toEqual([])
 })
 
-test('routes failing within two seconds of the last toast raise none of their own (the engine would drop it); later ones do', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
+test('routes failing within two seconds of the last toast raise none of their own (the board has them; the engine dropped such a toast before 2.1.290); later ones do', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
   const w = world($, on, { backend: () => ({ status: 500, body: 'down' }) })
   await w.submit('第一条')
   await w.clock.advance(1500)
@@ -553,6 +553,37 @@ for (const { model, effort } of FOOTERS) {
       })
     }
   }
+}
+
+/** The WCAG contrast ratio of two `#rrggbb` colours, 1 to 21. */
+function contrast(a: string, b: string): number {
+  const luminance = (hex: string) => {
+    const [r = 0, g = 0, b = 0] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+  }
+  const [hi = 0, lo = 0] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+/** The colours a drawing writes a model's name in, as ink of its own (a chip, which brings its own background, is not one). */
+function modelInks(element: unknown, found: string[] = []): string[] {
+  if (element === null || typeof element !== 'object') return found
+  const { type, children = [], props = {} } = element as Drawn
+  if (type === 'Text' && typeof props.color === 'string' && props.backgroundColor === undefined && ['haiku', 'sonnet', 'opus', 'fable'].includes(shown(element).trim())) found.push(props.color)
+  for (const kid of Array.isArray(props.children) ? props.children : children) modelInks(kid, found)
+  return found
+}
+
+for (const model of ['haiku', 'sonnet', 'opus', 'fable'] as const) {
+  test(`${model}'s name in its colour reads on a light terminal and on a dark one (contrast 3 or more on white and on #1E1E1E): in the footer and the band's line once the turn is over`, async ($, on) => {
+    const w = world($, on, { seed: { board: boardOf(model, 'medium', 0) } })
+    const inks = [...modelInks(await (await w.footer()).drawn()), ...modelInks(await (await w.band({ isWorking: false })).drawn())]
+    expect(inks.length).toBeGreaterThan(0)
+    for (const ink of inks) {
+      expect(contrast(ink, '#FFFFFF'), `${ink} on white`).toBeGreaterThanOrEqual(3)
+      expect(contrast(ink, '#1E1E1E'), `${ink} on #1E1E1E`).toBeGreaterThanOrEqual(3)
+    }
+  })
 }
 
 /** The cells a drawn element takes on the terminal, laid out as Ink does: a Text its text; a Box its children side by side and the gaps between them (a column Box, its widest child). */

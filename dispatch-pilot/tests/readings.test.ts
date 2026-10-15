@@ -77,11 +77,12 @@ test("a loop nobody knows is not looked up again at every step: its journals onc
   // The roster at the loop's 1st, 2nd, 4th and 8th step: an agent it lists late is still found.
   expect(w.looked.roster).toBe(4)
 
-  // A run recorded later may have started it: its journals are read again at the next step.
+  // A run recorded later may have started it: it is looked for in that run at the next step, once (the agent's
+  // meta.json there says it is, so the run's journal is not read).
   await w.workflow({ script: SCRIPT })
   w.started('wf_test-2', 'fork-1', 'late-label')
   await w.agentStep('fork-1', { index: 8, model: 'claude-haiku-5-5', effort: null })
-  expect(w.looked.files.filter((path) => path === journal('wf_test-2'))).toHaveLength(1)
+  expect(w.looked.files.filter((path) => path.startsWith(`${runDir('wf_test-2')}/`))).toEqual([`${runDir('wf_test-2')}/agent-fork-1.meta.json`])
   expect(await fork()).toMatchObject([{ id: 'fork-1', kind: 'wf', name: 'late-label' }])
 })
 

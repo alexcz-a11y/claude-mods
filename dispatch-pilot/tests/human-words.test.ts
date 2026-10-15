@@ -5,7 +5,6 @@
 
 import { expect, test } from 'claude-code/testing'
 import { failureLine, failureMeaning, failureWords, type Failure } from '../hooks/decision/backend.ts'
-import { profileWhy } from '../hooks/core/report.ts'
 import { jev, world } from './support/world.ts'
 
 const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
@@ -42,14 +41,6 @@ test('a 429 reads as rate limited for pplx and as busy for Jev, in the line, the
   // A 503 is busy for both.
   const down: Failure = { kind: 'busy', status: 503, detail: 'HTTP 503' }
   expect([failureLine('pplx', down), failureWords({ backend: 'pplx', ...down })]).toEqual(['pplx：繁忙（状态码 503）', '决策模型繁忙'])
-})
-
-test('why a skill got no profile reads in Chinese; what the server said of itself is left as it said it', () => {
-  expect(profileWhy('empty-reply')).toBe('模型回了空内容')
-  expect(profileWhy('aborted')).toBe('请求被中断')
-  expect(profileWhy('an API error, HTTP 529 overloaded')).toBe('接口出错（状态码 529 overloaded）')
-  expect(profileWhy('an API error, HTTP none ')).toBe('接口出错（状态码 none）')
-  expect(profileWhy('something new')).toBe('something new')
 })
 
 test('after a decided turn the board, the log and /dp say nothing in English but model names, effort levels and option names the person types', { options: KEY }, async ($, on) => {

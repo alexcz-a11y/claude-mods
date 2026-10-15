@@ -52,6 +52,20 @@ test("an agent decided as it starts reads the person's words of the turn that la
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 medium'])
 })
 
+test("an agent whose label is none of its run's calls is decided as it starts by the launching turn's words too, though every call of the run was decided with it", { options: JEV }, async ($, on) => {
+  const saved = '/work/.claude/workflow-scripts/tidy.js'
+  const w = runWorld($, on, { disk: { [saved]: TIDY }, backend: siteJev((): SiteAnswer => ({ model: { sonnet: 0.9 }, effort: [0, 1, 0, 0, 0], nouls: { 'named.opus': 0.95 } })) })
+  await w.submit('这个 Workflow 的 agent 都用 opus 跑')
+  await w.workflow({ scriptPath: saved })
+  await w.submit('顺便帮我看看 README 的排版')
+  // A label no call of the script has (a child workflow()'s agent, say).
+  w.started('wf_test-1', 'wa3', 'summarize')
+  w.transcript('wf_test-1', 'wa3', 'Summarize the rename and the review in five bullet points.')
+  await w.agentStep('wa3', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  expect(w.requests.at(-1)?.body.state.user_message).toBe('这个 Workflow 的 agent 都用 opus 跑')
+})
+
 test('with pplx, an agent decided as it starts reads the run\'s script and the conversation up to the Workflow call, not what was said after it, within a dispatched agent\'s budget', { options: PPLX }, async ($, on) => {
   const transcript = [
     row('user', '这几个安全审查都并行跑一下'),

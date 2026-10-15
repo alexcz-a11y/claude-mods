@@ -294,3 +294,40 @@ test("an item's request is the mod's request for its last message after the conv
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: net.bodies[0].state, questions: net.bodies[0].questions })
   expect(String(net.bodies[0].state.recent_context)).toContain('DECISIVE')
 })
+
+// With the switch off (the default, #48) the mod asks `effort.level` alone, and the `-alone` variants ask just that: the
+// request an installation that never turned the switch on sends. (The other variants ask the three-way question, as the mod
+// does with the switch on.)
+test("the `-alone` variants send the request the mod sends with the switch off: the effort question only, no three-way question, nothing but the message and the conversation in the state", { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
+  const one = item('explicit-unresolved-01')
+  const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(one.turns.slice(0, -1)) })
+  await w.submit(one.turns.at(-1)?.text ?? '')
+
+  const net = network((body) => answers(body, [0, 0, 0.2, 0.7, 0.1]))
+  await run([one], net, ['zh-score-alone'], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }))
+  expect(Object.keys(net.bodies[0].questions)).toEqual(['effort.level'])
+  expect(w.requests).toHaveLength(1)
+  expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: net.bodies[0].state, questions: net.bodies[0].questions })
+})
+
+test('an `-alone` variant is scored on the effort alone: no three-way answer, no part of its own, and none of the figures of that question', async () => {
+  const { items, net } = fourItems()
+  const suite = evalV2Suite()
+  const settings = settingsFrom({ decisionModel: 'jev' })
+  const rows = await run(items, net, ['en-score-alone'], settings, suite)
+  expect(rows.map((r) => `${r.id}: ${r.shown}${r.correct ? ' right' : ` ${r.miss}`}${r.exact ? ' exact' : ''}`)).toEqual([
+    'explicit-unresolved-01: max right exact',
+    'resolved-01: xhigh over',
+    'single-attempt-01: high under',
+    'new-topic-01: medium right exact',
+  ])
+  expect(rows.every((r) => r.parts === null && r.ok)).toBe(true)
+  expect(rows[0]?.detail).toMatchObject({ p: MAX })
+  expect(rows[0]?.detail).not.toHaveProperty('triage')
+  const b = summarize(suite, items, rows, { slowMs: 1500, settings }).variants[0]?.breakdown as any
+  expect(b.triage).toBeNull()
+  expect(b.byBin.d1).toMatchObject({ items: 1, accuracy: 1, triage: null })
+  expect(b.top).toEqual({ items: 2, recall: 0.5, falseMax: 0 })
+  expect(suite.questions('en-score-alone')).not.toHaveProperty('unresolved')
+  expect(suite.questions('en-score')).toHaveProperty('unresolved')
+})

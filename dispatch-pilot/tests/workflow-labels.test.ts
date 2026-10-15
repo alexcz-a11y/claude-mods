@@ -60,6 +60,22 @@ test('an agent of a Workflow given by scriptPath goes out, on every step, with t
   expect(board.log.map((entry) => entry.feature)).toEqual(['workflow-labels', 'workflow-labels'])
 })
 
+test("an agent of a run whose journal has outgrown one read (past 4 MiB: every agent's result is in it) is found by the label its meta.json keeps: it goes out decided, and the board names it", { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, {
+    disk: { [SAVED]: TIDY },
+    backend: siteJev((i): SiteAnswer => (i === 0 ? { model: { sonnet: 0.8 }, effort: [0.1, 0.8, 0.1, 0, 0] } : { model: { opus: 0.9 }, effort: [0, 0.1, 0.8, 0.1, 0] })),
+  })
+  await w.workflow({ scriptPath: SAVED })
+  w.started('wf_test-1', 'wa1', 'rename')
+  // What the agents before it returned.
+  const journal = `${runDir('wf_test-1')}/journal.jsonl`
+  w.disk[journal] = `${w.disk[journal] ?? ''}${JSON.stringify({ type: 'result', key: 'v2:earlier', value: 'x'.repeat(4_500_000) })}\n`
+  await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
+  expect((await w.board()).agents.filter((node) => node.id === 'wa1').map((node) => [node.name, node.routed])).toEqual([['rename', true]])
+})
+
 test("an agent that takes its first step while its run is still being set up (the run starts before the tool call returns) waits for it, then goes out decided", { options: KEY }, async ($, on) => {
   const answer = siteJev((i): SiteAnswer => (i === 0 ? { model: { sonnet: 0.9 }, effort: [0, 1, 0, 0, 0] } : { model: { opus: 0.9 } }))
   const w = runWorld($, on, { disk: { [SAVED]: TIDY }, backend: (request) => ({ after: 300, reply: answer(request) }) })
@@ -519,6 +535,29 @@ test("an agent whose task does not reach the disk within 400 ms goes out as the 
   const board = await w.board()
   expect(board.agents.find((node) => node.id === 'wa1')).toMatchObject({ routed: false, why: '它的任务没能及时读到' })
   expect(board.agents.find((node) => node.id === 'wa1')?.failure).toBeUndefined()
+})
+
+test("in a script the main agent sends, a call whose options are no object literal (agent(prompt, OPTS)) cannot be written into: it is not asked about or said to be written, and its agent is decided as it starts", { options: KEY }, async ($, on) => {
+  const task = 'Review the authentication module for missing permission checks and list each gap with its file and line.'
+  const audit = `export const meta = { name: 'audit', description: 'Audit the auth module', phases: [] }
+const OPTS = { label: 'review-auth' }
+const found = await agent('${task}', OPTS)
+return found
+`
+  const w = runWorld($, on, { backend: siteJev((): SiteAnswer => ({ model: { opus: 0.9 }, effort: [0, 0, 0, 0.2, 0.8] })) })
+  const result = await w.workflow({ script: audit })
+  expect(w.requests).toHaveLength(0)
+  expect(w.reached[0]?.script).toBe(audit)
+  const told = (result.context ?? []).join('\n')
+  expect(told).not.toContain('wrote them into the script')
+  expect(told).toContain('as each one starts')
+
+  w.started('wf_test-1', 'wa1', 'review-auth')
+  w.transcript('wf_test-1', 'wa1', task)
+  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  expect(w.requests).toHaveLength(1)
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 max'])
 })
 
 test("in a script the main agent sends, the calls workflow-agents left as written (their prompt is data) are decided as each agent starts; the agents of the calls it wrote into are left alone", { options: KEY }, async ($, on) => {

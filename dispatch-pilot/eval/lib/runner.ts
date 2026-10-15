@@ -2,8 +2,9 @@
 // one backend the way the mod asks it, and graded. One row per answer.
 //
 // The eval is a batch, not the mod's hot path: a busy backend, a dropped
-// connection or a timeout is asked again after a pause (1 s, then 2 s, ...),
-// and only the answered attempt's latency counts. Anything else (a refused
+// connection or a timeout is asked again after a pause (the backend's own
+// Retry-After when it sent one, else 1 s, then 2 s, ...), and only the answered
+// attempt's latency counts. Anything else (a refused
 // key, a malformed request) is final: the row says why and counts as wrong.
 //
 // Pure: the network, the clock and the pauses are handed in.
@@ -97,10 +98,16 @@ export function attemptMs(modTimeoutMs: number): number {
 /** What asking again needs: the backend and its host, how long an attempt may take, how often to retry, the clock and the pause. */
 export type Retrying = { backend: Backend; io: BackendIo; timeoutMs: number; retries: number; now: () => number; pause: (ms: number) => Promise<void> }
 
+/** The most a `Retry-After` is waited for: a backend that asks for an hour is not waited on, the request is asked again after this and fails if it is still refused. */
+export const RETRY_AFTER_MAX_MS = 60_000
+
 /**
- * One request, asked again after a busy, network or timeout failure (after
- * 1 s, then 2 s, ...) up to `retries` more times: the answered (or last)
- * attempt's outcome, how long that attempt took, and how many there were.
+ * One request, asked again after a busy, network or timeout failure up to
+ * `retries` more times: the answered (or last) attempt's outcome, how long that
+ * attempt took, and how many there were. The pause is what the backend asked for
+ * when it said (a 429's `Retry-After`, `Failure.retryAfterMs`, at most
+ * `RETRY_AFTER_MAX_MS`: asking again inside the window is refused again), else
+ * 1 s, then 2 s, ...
  */
 export async function askRetrying(request: Sent['request'], options: Retrying): Promise<Sent> {
   for (let attempt = 1; ; attempt++) {
@@ -108,7 +115,8 @@ export async function askRetrying(request: Sent['request'], options: Retrying): 
     const asked = await options.backend.ask(options.io, request, options.timeoutMs)
     const ms = options.now() - started
     if (asked.ok || attempt > options.retries || !TRANSIENT.includes(asked.failure.kind)) return { request, asked, ms, attempts: attempt }
-    await options.pause(1000 * 2 ** (attempt - 1))
+    const asksFor = asked.failure.retryAfterMs
+    await options.pause(asksFor === undefined ? 1000 * 2 ** (attempt - 1) : Math.min(asksFor, RETRY_AFTER_MAX_MS))
   }
 }
 

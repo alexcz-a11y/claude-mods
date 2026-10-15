@@ -245,11 +245,13 @@ test('the decision log keeps the last 20 turns', { options: KEY }, async ($, on)
   expect(lines.at(-1)).toContain('#22 main-effort：effort high · "第 22 条消息"')
 })
 
-test('the decision log keeps at most 300 entries, however few turns they were made in', { options: KEY, timeoutMs: 30_000 }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
-  await w.submit('第一条')
+test('the decision log keeps at most 300 entries, however few turns they were made in', { options: KEY }, async ($, on) => {
+  // 297 decisions of the first turn already logged (a long turn's messages typed into it).
+  const logged = Array.from({ length: 297 }, (_, i) => ({ n: i + 1, turn: 1, at: 0, feature: 'main-effort', agent: 'main', tone: 'ok' as const, outcome: 'effort high', subject: `"第 ${i + 1} 条消息"`, reason: 'x' }))
+  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), seed: { board: { turn: 0, nodes: [] }, log: logged } })
+  await w.submit('第 298 条消息')
   // Messages typed into the running turn are decided too, and belong to it.
-  for (let i = 2; i <= 305; i++) await w.submit(`第 ${i} 条消息`, { turnId: 't1' })
+  for (let i = 299; i <= 305; i++) await w.submit(`第 ${i} 条消息`, { turnId: 't1' })
 
   const board = await w.board()
   expect(board.turn).toBe(1)
