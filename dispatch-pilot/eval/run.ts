@@ -55,6 +55,7 @@ import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
 import type { FlowFile } from './lib/eval-v2-flow.ts'
 import { summarize, type Summary } from './lib/metrics.ts'
+import { readNumber, type NumberRule } from './lib/numbers.ts'
 import { attemptMs as defaultAttemptMs, runSuite, stateDigest, type Row } from './lib/runner.ts'
 import { optionsFor, settingsFrom, withStateMessages, withStateTokens } from './lib/suite.ts'
 import { READS_FLOW, SUITES } from './lib/suites.ts'
@@ -86,6 +87,15 @@ const { values, positionals } = parseArgs({
 function fail(message: string): never {
   console.error(message)
   process.exit(2)
+}
+
+/** A number flag's value, or the run stops before anything is sent (a typo read as NaN would pass every check made with it). */
+function numberFlag(flag: string, text: string, rule: NumberRule): number {
+  try {
+    return readNumber(flag, text, rule)
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error))
+  }
 }
 
 const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|pplx] [--label <word>] ...')
@@ -132,7 +142,7 @@ if (values.ids !== undefined) {
   const ids = values.ids.split(',')
   items = items.filter((item) => ids.includes(item.id))
 }
-if (values.limit !== undefined) items = items.slice(0, Number(values.limit))
+if (values.limit !== undefined) items = items.slice(0, numberFlag('--limit', values.limit, { min: 1, integer: true }))
 
 // The mod's settings as the engine hands them over: the manifest's defaults, then --option; what the manifest leaves
 // unset, the backend's defaults (readConfig).
@@ -149,16 +159,19 @@ try {
 }
 // --state-tokens N widens (or narrows) the state's budget for every kind of request to N: past what the mod's own options
 // can reach (they only lower it), to see what a model with a bigger window gains (#43). The result records it.
-const stateTokens = values['state-tokens'] === undefined ? null : Number(values['state-tokens'])
-if (stateTokens !== null && !(Number.isInteger(stateTokens) && stateTokens >= 100)) fail('--state-tokens takes a whole number of at least 100')
+const stateTokens = values['state-tokens'] === undefined ? null : numberFlag('--state-tokens', values['state-tokens'], { min: 100, integer: true })
 // --state-messages N lifts the number of recent messages the state may hold (the mod's is at most 32, whatever the token budget),
 // so that a long conversation can fill a large --state-tokens (#44). The result records it.
-const stateMessages = values['state-messages'] === undefined ? null : Number(values['state-messages'])
-if (stateMessages !== null && !(Number.isInteger(stateMessages) && stateMessages >= 1)) fail('--state-messages takes a whole number of at least 1')
+const stateMessages = values['state-messages'] === undefined ? null : numberFlag('--state-messages', values['state-messages'], { min: 1, integer: true })
+// The other numbers, read before anything is sent: a typo is no spend cap, no end to the retries, a timer that fires at once, no worker.
+const timeoutFlag = values.timeout === undefined ? null : numberFlag('--timeout', values.timeout, { min: 1, integer: true })
+const retries = numberFlag('--retries', values.retries, { min: 0, integer: true })
+const concurrency = numberFlag('--concurrency', values.concurrency, { min: 1, integer: true })
+const maxUsd = numberFlag('--max-usd', values['max-usd'], { min: 0 })
 const widened = stateTokens === null ? settingsFrom(options as PluginOptions) : withStateTokens(settingsFrom(options as PluginOptions), stateTokens)
 const settings = stateMessages === null ? widened : withStateMessages(widened, stateMessages)
 /** How long one attempt may take: --timeout, else four times the mod's timeoutMs for this backend, at least 10 s (lib/runner.ts). */
-const attemptMs = values.timeout === undefined ? defaultAttemptMs(settings.timeoutMs) : Number(values.timeout)
+const attemptMs = timeoutFlag === null ? defaultAttemptMs(settings.timeoutMs) : timeoutFlag
 const model = values.model ?? (backendName === 'pplx' ? PPLX_MODEL : JEV_MODEL)
 const price = PRICES[backendName]
 // A flow file run with another backend or state than this run's is allowed (say, the 48000 flow under a 135000 state), and said.
@@ -202,7 +215,6 @@ const estimatedTokens = Math.round(ESTIMATE_FACTOR * planned.reduce((sum, reques
 const estimatedUsd = (estimatedTokens * price) / 1e6
 console.log(`${name}: ${items.length} items x ${variants.length} variants x ${languages.length} languages = ${planned.length} requests${suite.estimate === undefined ? '' : ' at most'}, about ${estimatedTokens} input tokens, about $${estimatedUsd.toFixed(4)} on ${backendName} (${model})`)
 if (values.estimate) process.exit(0)
-const maxUsd = Number(values['max-usd'])
 if (estimatedUsd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothing sent`)
 
 let chosen: { backend: Backend; secrets: string[] }
@@ -223,8 +235,8 @@ const rows: Row<unknown>[] = await runSuite(suite, items, {
   variants,
   languages,
   timeoutMs: attemptMs,
-  retries: Number(values.retries),
-  concurrency: Number(values.concurrency),
+  retries,
+  concurrency,
   onRow: (_row, done, total) => {
     if (done % 50 === 0 || done === total) process.stderr.write(`  ${done}/${total}\n`)
   },
@@ -279,7 +291,7 @@ if (!values['no-save']) {
       // The options the run left unset, with the value the backend's defaults gave each (core/setup.ts BACKEND_DEFAULTS).
       backendDefaults: Object.fromEntries(settings.defaults.used),
     },
-    run: { items: items.length, variants, languages, timeoutMs: attemptMs, retries: Number(values.retries), concurrency: Number(values.concurrency), requests, attempts: rows.reduce((sum, row) => sum + row.attempts, 0), inputTokens, usd: Number(usd.toFixed(4)) },
+    run: { items: items.length, variants, languages, timeoutMs: attemptMs, retries, concurrency, requests, attempts: rows.reduce((sum, row) => sum + row.attempts, 0), inputTokens, usd: Number(usd.toFixed(4)) },
     questions: Object.fromEntries(variants.map((variant) => [variant, suite.questions(variant)])),
     ...(suite.scoring === undefined ? {} : { scoring: suite.scoring }),
     ...(suite.about === undefined ? {} : { about: suite.about }),

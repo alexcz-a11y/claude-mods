@@ -6,7 +6,10 @@
 // (a command turn's carries its command), every turn before it is the conversation the mod reads (`askedRequest` of
 // lib/unresolved.ts: the effort part `turnStartPart` builds, the state `messageRequest` builds, at the budget and the
 // number of messages the run's settings give: `--state-tokens`, `--state-messages`). The conversation is Chinese only;
-// the variants are the language the questions are written in, and whether the request carries the mod's flow.
+// the variants are the language the questions are written in, whether the request carries the mod's flow, and whether the
+// three-way question is asked beside the effort question: the mod asks it only with the unresolved switch on (off by
+// default since #48, when its request has `effort.level` alone), so the `-alone` variants are the request of a default
+// installation and the others that of one with the switch on (the flow variants need it).
 //
 // Pure: no Node API.
 
@@ -34,14 +37,21 @@ export function v2Item(record: V2Record, gold: FinalGold): V2EvalItem {
   return { ...record, tags: [record.category, record.bin, record.relation, record.domain], gold }
 }
 
-/** How a variant asks: the language of the questions, and whether the request carries the flow's count and summary. */
-type Variant = { ask: EffortAsk; flow: boolean }
+/**
+ * How a variant asks: the language of the questions, whether the request carries the flow's count and summary, and whether
+ * the three-way question is asked beside the effort question (`unresolved`: the mod asks it with the switch on; with the
+ * switch off, the default since #48, it asks the effort question alone).
+ */
+type Variant = { ask: EffortAsk; flow: boolean; unresolved: boolean }
 
 export const V2_VARIANTS: Readonly<Record<string, Variant>> = {
-  'zh-score': { ask: { language: 'zh', primitive: 'score' }, flow: false },
-  'en-score': { ask: { language: 'en', primitive: 'score' }, flow: false },
-  'zh-flow': { ask: { language: 'zh', primitive: 'score' }, flow: true },
-  'en-flow': { ask: { language: 'en', primitive: 'score' }, flow: true },
+  'zh-score': { ask: { language: 'zh', primitive: 'score' }, flow: false, unresolved: true },
+  'en-score': { ask: { language: 'en', primitive: 'score' }, flow: false, unresolved: true },
+  // The mod's request with the switch off: the effort question alone (a flow's count and summary need the switch, so no flow variant of it).
+  'zh-score-alone': { ask: { language: 'zh', primitive: 'score' }, flow: false, unresolved: false },
+  'en-score-alone': { ask: { language: 'en', primitive: 'score' }, flow: false, unresolved: false },
+  'zh-flow': { ask: { language: 'zh', primitive: 'score' }, flow: true, unresolved: true },
+  'en-flow': { ask: { language: 'en', primitive: 'score' }, flow: true, unresolved: true },
 }
 
 /** The message of a record and the conversation before it, as `askedRequest` takes them. */
@@ -87,7 +97,7 @@ export function evalV2Suite(flow?: FlowFile): Suite<V2EvalItem, UnresolvedPredic
       const flowed = variant.flow ? carried(flow, item) : null
       if (typeof flowed === 'string') return { ok: false, failure: flowed }
       const count = flowed === null ? null : { count: flowed.count, maxAfter: settings.unresolved.maxAfter }
-      const sent = askedRequest(v2Asked(item), { ask: variant.ask, wide: true }, settings, flowed?.summary ?? null, count)
+      const sent = askedRequest(v2Asked(item), { ask: variant.ask, wide: true, unresolved: variant.unresolved }, settings, flowed?.summary ?? null, count)
       const decided = await askUnresolved(sent, ask, settings)
       if (!decided.ok) return decided
       const context = String(sent.request.state.recent_context ?? '')
@@ -111,18 +121,24 @@ export function evalV2Suite(flow?: FlowFile): Suite<V2EvalItem, UnresolvedPredic
     },
     show: (prediction) => (prediction.triage === null ? prediction.effort : `${prediction.effort} / ${prediction.triage}`),
     constants: EFFORTS.map((effort) => ({ effort, triage: null })),
-    questions: (variantName) => turnStartPart({ ask: variantIn(V2_VARIANTS, variantName).ask, unresolved: true }).questions,
+    questions: (variantName) => {
+      const variant = variantIn(V2_VARIANTS, variantName)
+      return turnStartPart({ ask: variant.ask, unresolved: variant.unresolved }).questions
+    },
     digestState: true,
     languages: ['zh'],
     about: {
-      variants: 'zh-score, en-score: the question in Chinese or English, the state the conversation and the message; zh-flow, en-flow: the same with the count and the summary the flow file holds at the last message (and the strong hint from unresolvedMaxAfter)',
+      variants:
+        'zh-score, en-score: the question in Chinese or English, the state the conversation and the message, the three-way question beside the effort question (the mod with the unresolved switch on); ' +
+        'zh-score-alone, en-score-alone: the same with the effort question alone (the mod with the switch off, the default since #48: its request has only effort.level), scored on the effort alone; ' +
+        'zh-flow, en-flow: the three-way question with the count and the summary the flow file holds at the last message (and the strong hint from unresolvedMaxAfter)',
       flow: flow === undefined ? null : { backend: flow.backend, settings: flow.settings, items: Object.keys(flow.items).length },
     },
     breakdown: (items, rows, variantName, settings) => breakdownOf(items, rows, variantIn(V2_VARIANTS, variantName), settings),
     report: reportOf,
     scoring:
       "The answer is the effort, right when it is in the final gold's accept (the mod's pickEffort over the backend's probabilities, thetaMax as set), exact when it is the gold effort; a wrong one is too high or too low. " +
-      'The three-way question is asked with it, as the mod asks it, its answer the option it leaned to most, scored against triage_final as a part of its own (`triage`; still_unresolved is unresolved, new_or_unrelated is new). ' +
+      'The three-way question is asked with it, as the mod asks it with the unresolved switch on (the `-alone` variants do not ask it: the mod with the switch off, the default), its answer the option it leaned to most, scored against triage_final as a part of its own (`triage`; still_unresolved is unresolved, new_or_unrelated is new). ' +
       '`top` is the recall of max over the items whose gold is max, `falseMax` the share of the items whose accept has no max that were given it; `byBin`, `byRelation`, `byBinRelation` and `byCategory` split the items. ' +
       '`seen` is whether the state held the decisive rounds (`all`: their first message; `any`: their newest line). `withoutDecisive` is, over the items whose effort_without_decisive is outside accept, the share answered exactly that: as if the decisive rounds had not been read. ' +
       '`thetaMax` is what other max thresholds would have given, from the probabilities each answer keeps (`p`; `triageP` keeps the three-way question\'s).',
@@ -159,6 +175,7 @@ function breakdownOf(items: readonly V2EvalItem[], rows: readonly Row<Unresolved
     return effort !== null && item.gold.accept.includes(effort)
   }
   const missed = (item: V2EvalItem, way: string) => rowOf.get(item.id)?.miss === way
+  const triaged = rows.some((row) => typeof row.prediction?.triage === 'string')
   const group = (members: readonly V2EvalItem[]) => ({
     items: members.length,
     accuracy: share(members.filter((item) => right(item)).length, members.length),
@@ -167,13 +184,13 @@ function breakdownOf(items: readonly V2EvalItem[], rows: readonly Row<Unresolved
     tooLow: share(members.filter((item) => missed(item, 'under')).length, members.length),
     top: needsTop(members).length,
     topRecall: share(needsTop(members).filter((item) => effortOf(item) === 'max').length, needsTop(members).length),
-    triage: share(members.filter((item) => triageOf(item) === gold(item)).length, members.length),
+    // A variant that did not ask the three-way question (the `-alone` ones) has no figure for it.
+    triage: triaged ? share(members.filter((item) => triageOf(item) === gold(item)).length, members.length) : null,
   })
   const detailOf = (item: V2EvalItem) => rowOf.get(item.id)?.detail
   const changed = items.filter((item) => !item.gold.accept.includes(item.gold.effort_without_decisive))
   const answeredSeen = items.filter((item) => typeof detailOf(item)?.seen === 'boolean')
   const sizes = rows.flatMap((row) => (typeof row.detail?.stateTokens === 'number' ? [row.detail.stateTokens] : []))
-  const triaged = rows.some((row) => typeof row.prediction?.triage === 'string')
   const open = items.filter((item) => gold(item) === 'unresolved')
   const rest = items.filter((item) => gold(item) !== 'unresolved')
   const changeOf = (item: V2EvalItem) => detailOf(item)?.triageChange

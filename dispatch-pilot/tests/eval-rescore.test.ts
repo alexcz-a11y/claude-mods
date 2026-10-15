@@ -20,7 +20,7 @@ const submit = (id: string, gold: EffortSubmitItem['gold'], accept: EffortSubmit
 })
 
 /** A stored result file as the rescoring reads it: one answer per language and item, the variant's `p` inside. */
-const stored = (variant: string, rows: [id: string, language: 'zh' | 'en', detail: Record<string, unknown>][], settings: { thetaMax: number; options?: Record<string, unknown> } = { thetaMax: 0.5 }) => ({
+const stored = (variant: string, rows: [id: string, language: 'zh' | 'en', detail: Record<string, unknown>][], settings: { thetaMax: number; roundUp?: number; options?: Record<string, unknown> } = { thetaMax: 0.5 }) => ({
   settings,
   summary: { variants: [{ variant }] },
   answers: rows.map(([id, language, detail]) => ({ id, language, [variant]: detail })),
@@ -120,6 +120,30 @@ test('a thetaDown scan: the level sent at each gate over the same stored answers
   expect(at('zh', 0.75)).toEqual({ n: 2, accuracy: 0.5, gold: 0.5, over: 0.5, under: 0 })
   expect(at('en', 0.55)).toEqual({ n: 2, accuracy: 1, gold: 1, over: 0, under: 0 })
   expect(at('en', 0.65)).toEqual({ n: 2, accuracy: 0.5, gold: 0.5, over: 0.5, under: 0 })
+})
+
+// A result file names the decision model it was run on (`settings.options.decisionModel`), and the gates are that model's
+// row of the defaults table (BACKEND_DEFAULTS): pplx raises on any answer (thetaUp 0), Jev from 0.3. A file from before the
+// default moved to pplx names none, and those were Jev's.
+test("the mid-turn gates are those of the decision model the result was run on: pplx's thetaUp 0 raises at a confidence of 0.2, Jev's 0.3 does not; a file that names none is Jev's", () => {
+  // At medium, the answer is high at 0.6 with a confidence of 0.2: gold high.
+  const items = [midturn('a', 'high', ['high'], 'medium')]
+  const rows: [string, 'zh' | 'en', Record<string, unknown>][] = [['a', 'zh', { p: [0, 0.4, 0.6, 0, 0], confidence: 0.2 }]]
+  const run = (options?: Record<string, unknown>) => ({ thetaMax: 0.47, roundUp: 0.45, ...(options === undefined ? {} : { options }) })
+  const sentNow = (result: ReturnType<typeof stored>) => rescoreMidturn(result, items).find((row) => row.what === 'sent')?.now
+  const raised = { n: 1, accuracy: 1, gold: 1, over: 0, under: 0 }
+  const kept = { n: 1, accuracy: 0, gold: 0, over: 0, under: 1 }
+
+  expect(sentNow(stored('en-score', rows, run({ decisionModel: 'pplx' })))).toEqual(raised)
+  expect(sentNow(stored('en-score', rows, run({ decisionModel: 'jev' })))).toEqual(kept)
+  expect(sentNow(stored('en-score', rows, run()))).toEqual(kept)
+  // A gate the person set is theirs, whatever the model.
+  expect(sentNow(stored('en-score', rows, run({ decisionModel: 'pplx', thetaUp: 0.5 })))).toEqual(kept)
+
+  // The thetaDown scan reads the same rules: at every gate, the raise is sent for pplx.
+  const scan = (options: Record<string, unknown>) => scanThetaDown(stored('en-score', rows, run(options)), items, [0.55]).find((row) => row.language === 'both')?.sent
+  expect(scan({ decisionModel: 'pplx' })).toEqual(raised)
+  expect(scan({ decisionModel: 'jev' })).toEqual(kept)
 })
 
 test('a thetaDown scan: at the gate the mod shipped with, the figures are what rescoreMidturn gives for `sent`', () => {
