@@ -11,7 +11,7 @@
 // Whatever goes wrong in a stage, the checks it touches end unsure with the reason, and the tool never fails.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { type Asked, type BackendIo, describeAsked, errorText, failureText } from '../decision/backend.ts'
+import { type Asked, type BackendIo, describeAsked, errorText, type Failure, failureText } from '../decision/backend.ts'
 import { imageMegapixelBudget, PPLX_MAX_IMAGES, type Picture } from '../decision/images.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
 import { type ImageLimits, LOOK_IMAGE_LIMITS, limitsFor } from '../decision/image-fit.ts'
@@ -23,6 +23,7 @@ import { cropLabel, parseVisualCheckInput, visualCheckText, VISUAL_CHECK_INPUT, 
 import { FRAME_COUNT, type Frame, framesRequest, isRecording, LOOK_FRAME_COUNT, type Span } from '../decision/visual-check-frames.ts'
 import { recordOf, type VisualCheckRecord } from '../decision/visual-check-record.ts'
 import { type ImageFilesIo, type Loaded, type LoadedImage, loadImage, loadImages } from '../core/image-files.ts'
+import { callBudget } from '../core/call-budget.ts'
 import { type RecordingFrames, readRecording } from '../core/video-frames.ts'
 import { report, type ReportIo } from '../core/report.ts'
 import { type CallTrouble, reportCall } from '../core/visual-check-report.ts'
@@ -39,10 +40,14 @@ const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const SWITCH = 'visual-check'
 
 /**
- * How long a request with images may take (ADR 0008): a tool call is not held to the 1500 ms Jev has beside a message, and the
- * hook's own 10 s count only the mod's code, not `$.http.fetch` or `$.process.run`.
+ * How long one request with images may take (ADR 0008): a tool call is not held to the 1500 ms Jev has beside a message. The
+ * requests of one call share the hook's 10 s, though: a request waits on a `$.clock.sleep`, which counts toward them
+ * (core/call-budget.ts), so each is also held to what is left of the call's time.
  */
 const REQUEST_MS = 8000
+
+/** What a request that was not sent for want of time failed with: the checks it was for end unsure, with this for the reason. */
+const NO_TIME: Failure = { kind: 'timeout', detail: 'no time left in this call (a tool call has about 10 seconds in all)' }
 
 /** A series of quality levels (#61) needs the zoomed re-check of each pair, which needs the boxes only Jev answers: with pplx the call says so and asks nothing. */
 const SERIES_NEEDS_JEV =
@@ -63,7 +68,7 @@ const LOOK_YOURSELF = 'Look at the images yourself.'
 const streaks: Streaks = new Map()
 
 /** Everything one call needs of the engine, as closures (a module may not pass `$` across an import). */
-async function filesOf($: EngineInterface): Promise<ImageFilesIo> {
+function filesOf($: EngineInterface): ImageFilesIo {
   return {
     run: (argv, init) => $.process.run(argv, init),
     readBytes: async (path) => (await $.fs.read(path, { as: 'bytes' })).base64,
@@ -115,8 +120,8 @@ export function registerVisualCheck(on: On, ctx: Ctx): void {
       now: () => $.clock.now(),
       toast: (text) => $.ui.toast(text),
     }
+    const files = filesOf($)
     try {
-      const files = await filesOf($)
       // Looking at images asks nothing of the decision model.
       if (parsed.input.look) return { result: await look(files, parsed.input.images, parsed.input.span) }
       const images = ctx.images
@@ -128,20 +133,31 @@ export function registerVisualCheck(on: On, ctx: Ctx): void {
         sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
         pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
       }
-      const ask = async (request: DecisionRequest): Promise<Asked> => {
-        const startedAt = await $.clock.now()
-        const asked = await images.backend.ask(io, request, REQUEST_MS)
-        const ms = (await $.clock.now()) - startedAt
-        $.ui.log(`visual_check request [${Object.keys(request.questions).join(', ')}] to ${images.backend.name}: ${describeAsked(asked, ms)}`, { to: 'debug' })
-        return asked
-      }
+      // The requests of this call share the hook's time (core/call-budget.ts).
+      const budget = callBudget(() => $.clock.now())
+      const ask = (request: DecisionRequest): Promise<Asked> =>
+        budget.run(
+          REQUEST_MS,
+          async (waitMs) => {
+            const startedAt = await $.clock.now()
+            const asked = await images.backend.ask(io, request, waitMs)
+            const ms = (await $.clock.now()) - startedAt
+            $.ui.log(`visual_check request [${Object.keys(request.questions).join(', ')}] to ${images.backend.name}: ${describeAsked(asked, ms)}`, { to: 'debug' })
+            return asked
+          },
+          { ok: false, failure: NO_TIME },
+        )
       const deps: Deps = { files, ask, backend: images.name, agent, now: () => $.clock.now(), debug: reportTo.debug, report: (record, trouble) => reportCall(reportTo, agent, record, trouble) }
       return { result: parsed.input.comparison.kind === 'sequence' ? await checkSeries(deps, parsed.input) : await check(deps, parsed.input) }
     } catch (error) {
       $.ui.log(`visual_check failed: ${errorText(error)}`, { to: 'debug' })
       // A bug of the mod's own, beside the agent's route: a note on the board, no toast.
       await report(reportTo, { decision: { feature: SWITCH, agent, aside: true, skipped: 'error' } })
-      return { result: `visual_check could not run (an error in Dispatch Pilot, written to the debug log). ${LOOK_YOURSELF}` }
+      // The whole image goes along when it can be read, so the agent still has it to look at (a recording has no one image).
+      const text: Block = { type: 'text', text: `visual_check could not run (an error in Dispatch Pilot, written to the debug log). ${LOOK_YOURSELF}` }
+      const target = parsed.input.images[0]
+      const whole = target === undefined || isRecording(target) ? null : await load(files, target, LOOK_IMAGE_LIMITS)
+      return { result: whole?.ok === true ? [text, imageBlock(whole.image)] : [text] }
     }
   })
 }
