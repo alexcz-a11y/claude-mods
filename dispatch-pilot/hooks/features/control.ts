@@ -46,15 +46,17 @@ export function registerControl(on: On, ctx: Ctx): void {
     ctx.secrets.perplexityEnvKey = ((await $.env.get('PERPLEXITY_API_KEY').catch(() => undefined)) ?? '').trim()
     // Which options the decision model's defaults decided (core/setup.ts BACKEND_DEFAULTS).
     $.ui.log(describeDefaults(ctx.config), { to: 'debug' })
-    // Jev decides only for want of a Perplexity key: the decision log says so (ADR 0006), where the person looks for why.
-    if (ctx.fellBack) {
-      const io: DecisionModelIo = {
-        board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
-        decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
-        debug: (line) => $.ui.log(line, { to: 'debug' }),
-      }
-      await report(io, { fellBack: { asked: 'pplx', using: 'jev' } })
+    const modelIo: DecisionModelIo = {
+      board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+      decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+      debug: (line) => $.ui.log(line, { to: 'debug' }),
     }
+    // Jev decides only for want of a Perplexity key: the decision log says so (ADR 0006), where the person looks for why.
+    if (ctx.fellBack) await report(modelIo, { fellBack: { asked: 'pplx', using: 'jev' } })
+    // The model that takes images (#56, ADR 0008) is chosen by the keys alone: pplx for want of a TypeSafe key is said once; none, in the debug log.
+    const images = ctx.images
+    if (images === null) $.ui.log('images: no decision model takes them (no TypeSafe or Perplexity key)', { to: 'debug' })
+    else if (images.fellBack) await report(modelIo, { fellBack: { asked: 'jev', using: images.name, for: 'images' } })
     if (ctx.config.backend === 'pplx') $.ui.log(`pplx key: ${ctx.config.perplexityApiKey !== '' ? 'from the options' : ctx.secrets.perplexityEnvKey !== '' ? 'from PERPLEXITY_API_KEY' : 'not set'}`, { to: 'debug' })
     // A decisionModel left over in the person's settings that names a model since removed: the engine reads it as the default.
     const removed = removedDecisionModel(await $.settings.read({ source: 'user' }).catch(() => undefined))

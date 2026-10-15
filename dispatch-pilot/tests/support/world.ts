@@ -849,7 +849,33 @@ function usageListing(listed: readonly ContextSkill[]): SessionUsage {
 }
 
 /** What a decision model's answer can be told besides the probabilities (`jev`, `pplx`). */
-export type AnswerExtra = { status?: number; choice?: string; confidence?: number | null; shares?: Record<string, Record<string, number>>; nouls?: Record<string, number> }
+export type AnswerExtra = {
+  status?: number
+  choice?: string
+  confidence?: number | null
+  shares?: Record<string, Record<string, number>>
+  nouls?: Record<string, number>
+  /** The answer to each Box question by its id (Jev 1.14 only); the middle of the image, confidence 0.5, for one left out. */
+  boxes?: Record<string, { box: { top: number; bottom: number; left: number; right: number }; confidence: number }>
+}
+
+/** The images header Jev needs on a request with images or a Box question (the header's name is not case sensitive). */
+const JEV_IMAGES_HEADER = 'TypeSafe-Danger-Zone-Images'
+
+/** What the real Jev answers 400 to in a request with images (docs.typesafe.ai/images): no header, an asset nothing refers to, a Box question on a model without it. Null when it takes the request. */
+function jevImageRefusal(request: Sent): string | null {
+  const body = request.body ?? {}
+  const questions = Object.values((body.questions ?? {}) as Record<string, { type?: string }>)
+  const hasBox = questions.some((question) => question.type === 'box')
+  const assets = body.assets as Record<string, unknown> | undefined
+  if (assets === undefined && !hasBox) return null
+  const header = Object.entries(request.headers).find(([name]) => name.toLowerCase() === JEV_IMAGES_HEADER.toLowerCase())
+  if (header?.[1] !== 'true') return `A request with images or a Box question needs the ${JEV_IMAGES_HEADER}: true header`
+  if (hasBox && !['jev-1.14.0', 'jev-preview'].includes(String(body.model))) return `Box questions need jev-1.14.0, not ${String(body.model)}`
+  const text = JSON.stringify({ state: body.state, questions: body.questions })
+  const unused = Object.keys(assets ?? {}).filter((reference) => !text.includes(JSON.stringify(reference).slice(1, -1)))
+  return unused.length > 0 ? `asset ${unused[0]} is not referenced by the state or a question` : null
+}
 
 /**
  * A Jev answer to every question of the request it replies to: each `score`
@@ -862,10 +888,15 @@ export type AnswerExtra = { status?: number; choice?: string; confidence?: numbe
  */
 export function jev(levels: readonly number[], extra: AnswerExtra = {}) {
   return (request: Sent): Reply => {
+    const refusal = jevImageRefusal(request)
+    if (refusal !== null) return { status: 400, body: { error: { message: refusal, type: 'invalid_request_error' } } }
     const answers: Record<string, unknown> = {}
     const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
     for (const [id, question] of Object.entries(questions)) {
-      if (question.type === 'score') {
+      if (question.type === 'box') {
+        const given = extra.boxes?.[id]
+        answers[id] = { type: 'box', box: given?.box ?? { top: 0.25, bottom: 0.75, left: 0.25, right: 0.75 }, confidence: given?.confidence ?? 0.5 }
+      } else if (question.type === 'score') {
         const probabilities = Object.fromEntries(levels.map((p, i) => [String(i), p]))
         const score = levels.reduce((sum, p, i) => sum + p * i, 0)
         answers[id] = { type: 'score', score, legend: {}, probabilities, confidence: extra.confidence === undefined ? 0.7 : extra.confidence }
@@ -908,6 +939,10 @@ export function pplx(levels: readonly number[], extra: AnswerExtra & { key?: str
     if (bearer === undefined || (key !== undefined && bearer !== key)) return { status: 401, body: { error: { message: 'Invalid API key', type: 'invalid_api_key', code: 401 } } }
     const extraFields = Object.keys(request.body ?? {}).filter((field) => !['model', 'state', 'questions'].includes(field))
     if (extraFields.length > 0) return { status: 400, body: { error: { message: `unknown field ${extraFields.join(', ')}`, type: 'invalid_request_error', code: 400 } } }
+    // Images are `image_url` parts of a state that is an array, eight at most; there is no Box question.
+    const pictures = Array.isArray(request.body?.state) ? (request.body.state as { type?: string }[]).filter((part) => typeof part === 'object' && part !== null && part.type === 'image_url').length : 0
+    if (pictures > 8) return { status: 400, body: { error: { message: 'At most 8 images are allowed per question', type: 'invalid_request_error', code: 400 } } }
+    if (Object.values((request.body?.questions ?? {}) as Record<string, { type?: string }>).some((question) => question.type === 'box')) return { status: 400, body: { error: { message: 'unknown question type box', type: 'invalid_request_error', code: 400 } } }
     if (request.body?.model !== PPLX.model) return { status: 400, body: { error: { message: `unknown model ${String(request.body?.model)}`, type: 'invalid_request_error', code: 400 } } }
     const reply = jev(levels, answering)(request)
     return 'body' in reply && typeof reply.body === 'object' && reply.body !== null ? { ...reply, body: { ...reply.body, model: PPLX.model } } : reply
