@@ -600,6 +600,8 @@ node dispatch-pilot/eval/run.ts effort-midturn --label <名字> [--variants en-s
 node dispatch-pilot/eval/run.ts subagent --label <名字>   # 派出 agent 的模型和 effort（#15）：六个变体 × 中英，1200 个请求，Jev 约 0.13 美元（估算）；--variants models-hint-zh 只跑中文问法，200 个请求，约 0.03 美元
 node dispatch-pilot/eval/run.ts skill --estimate          # skill 匹配（#16）：三个变体 × 中英，第二段按每条消息都发、短名单排满估算（上限：1308 个请求，约 0.90 美元；只跑 profiles-zh 是 436 个、约 0.37 美元）
 node dispatch-pilot/eval/run.ts skill --label <名字>      # 用真实 Jev 跑 skill 匹配，两段请求都发
+node dispatch-pilot/eval/run.ts visual-check --estimate    # 看图核对（#65）：24 题 × 2 个变体，图按像素算 token（`lib/estimate.ts`），不按 base64 的长度；约 64 个请求、0.014 美元
+node dispatch-pilot/eval/run.ts visual-check --max-usd 0.10 --label <名字>   # 用真实 Jev 跑看图核对；估算超过 --max-usd 就一个请求也不发
 node dispatch-pilot/eval/eval-v2-flow.ts --backend jev [--state-tokens N --state-messages 2000] [--estimate]   # eval v2 的真实流程（#45）：逐条用户消息判三选一、累计次数、Haiku 续写摘要，一个后端加预算一个文件，中断后再跑同一条命令接着跑
 node dispatch-pilot/eval/run.ts eval-v2 --variants zh-flow,en-flow --flow <流程文件> --label <名字>   # eval v2（#45）：最后一条消息的 effort 和三选一；zh-score/en-score 不带流程，zh-flow/en-flow 带流程文件里的次数和摘要；zh-score-alone/en-score-alone 只问 effort 题（unresolved 开关关着、也就是默认装好时 mod 发的请求），三选一一项记 null。不写 --variants 时这两个也跑，花费跟着多出它们的那份；量线上默认请求只写 --variants zh-score-alone
 node dispatch-pilot/eval/eval-v2-thresholds.ts <流程文件> [...]   # 三选一两档门槛的扫描（#45 给 #42）：误清零 ≤ 2% 下加一召回最高，另报中间轮次次数被误改的比例；不发请求
@@ -1166,13 +1168,14 @@ eval/
 ├── datasets/skill-profiles.json  快照里每个 skill 的画像，和 mod 存在 $.store 里的一样（#16，profiles.ts 写）
 ├── datasets/eval-v2/       eval v2（#45）的素材池、题目、两份金标和 generated.json；格式见其中的 FORMAT.md
 ├── datasets/eval-v2.jsonl  eval-v2-gen.ts 拼出的 eval v2 数据集（几十 MB，不提交，见 datasets/.gitignore）
+├── datasets/visual-check.jsonl  看图核对的评测集（#65）：一行一题，没有 zh/en 两面；图和真值在 datasets/visual-check/（ui、sea、anim、effort 四个子目录，约 4 MB 的 PNG，加 ui/truth.json、anim/truth.json）
 ├── review/<类>.review.jsonl 用户的审核决定（应用时由 apply-review.ts 放进来，和改动一起提交）
 ├── review/<类>.review-summary.md  审核总结：判断基准、规则决定（R1、R2……）和要跟进的事项
 ├── results/<类>/*.json     每次运行的结果：设置、答题的模型版本、汇总、逐题答案
 ├── results/eval-v2-flow/<后端>-<预算>.json  eval v2 的真实流程（#45，eval-v2-flow.ts 写）：每题每条用户消息的三选一概率和次数、最后一条消息带的次数和摘要；同目录的 haiku-cache.jsonl 不提交
 ├── results/probes/*.json   #17 的 Clef 截断 state 探针结果（历史：Clef 和写它的 probe-truncation.ts 已在 0.4.0 删除，结果文件保留；其他目录里文件名带 clef 的结果同样是历史）
 ├── plans/17-calibration.md #17 的方案、拍板、探针的结果和范围缩减
-├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、resummarize、rescore、compare、docs、各类题型的 suite；long-context 另有 long-conversation（三个版本的对话）、long-filler（中间轮次的生成器）、long-summaries（逐轮写问题摘要）；eval-v2（eval v2 的格式检查和拼装）、eval-v2-suite（eval v2 的 suite）、eval-v2-flow（真实流程）、eval-v2-thresholds（三选一门槛扫描）
+├── lib/                    纯模块（测试也 import）：datasets、review、suite、runner、metrics、resummarize、rescore、compare、docs、各类题型的 suite；long-context 另有 long-conversation（三个版本的对话）、long-filler（中间轮次的生成器）、long-summaries（逐轮写问题摘要）；eval-v2（eval v2 的格式检查和拼装）、eval-v2-suite（eval v2 的 suite）、eval-v2-flow（真实流程）、eval-v2-thresholds（三选一门槛扫描）；visual-check（看图核对的 suite 和指标）、visual-check-items（它的评测集格式）、estimate（带图的请求怎么估算 token）
 ├── long-context-items.ts   long-context 评测集的唯一来源（手写的决定性几轮、答案）；long-context-gen.ts 把它写成 datasets/long-context.jsonl
 └── validate.ts、run.ts、apply-review.ts、compare.ts、resummarize.ts、rescore.ts、profiles.ts、long-context-gen.ts、long-context-summaries.ts、eval-v2-gen.ts、eval-v2-check.ts、eval-v2-flow.ts、eval-v2-thresholds.ts、probe-truncation.ts、node.ts   Node 脚本
 ```
@@ -1982,6 +1985,37 @@ thetaMax 各组的可行区间：effort-submit 中文问法 0.30–0.58、英文
 在四种取法下都成立的三点：pplx 用英文问法明显更好（准确率高 3–7 点、max 召回高得多），和 Jev 相反；摘要和强提示对 pplx 基本没有提升（B 对 B′、A⁺ 对 A），对 Jev 只把 max 召回从 0 提到 3/28；决定性信息在 135000 之外的 d4，所有组都在 50% 上下，摘要没有补上。
 
 用户随后决定把 mod 换成 B′ 方案（另开票）。
+
+#### 看图核对（visual-check，#65，spec #55 的接缝 2）
+
+Jev 出新版本时重跑一次，就知道看图核对准不准、能不能换、门槛（0.9、0.2）要不要调。`node dispatch-pilot/eval/run.ts visual-check`，`--backend pplx` 也能跑（没有框题和放大复核，视频取 8 帧）。**只用 2026-10-15 实验里已有的图，没有新做图，也没有新的实测**（用户的决定）。
+
+- **评测集**（`datasets/visual-check.jsonl`，24 题，格式见 `lib/visual-check-items.ts`；图和真值在 `datasets/visual-check/`）：界面 `ui` 9 题（一张参考图，9 张候选，其中 `c9` 与参考图完全相同）；3D 海面 `sea` 7 题（一张参考图，7 张候选，其中 `twin` 是同一片海的另一个时刻）；动画 `anim` 5 题（线性、缓出、弹簧、卡顿、终点大偏，各 12 帧）；参考图复杂度 `complexity` 3 组（立方体 2 张、海面 3 张、城市 4 张）。每题有若干条检查项，`gold.holds` 说每条是否成立（部分一致、要求满足）；一题里每条都成立就是对照（tag `control`，格式要求二者一致）。`validate.ts` 核对格式，也核对图都在、是 PNG（测试读不了磁盘，所以这一步在 `node.ts` 的 `checkPictures`）。真值来自实验的 `ui/truth.json`、`anim/truth.json` 和 `sea/run.ts` 的 TRUTH 表；每个界面候选另有一条没改动的部分的检查项（应当成立），测放大复核有没有误伤。
+- **请求就是线上的请求。** suite 不重写问法：`wholeImageRequest`、`locatePlan`/`withBoxes`、`readWholeImage`、`framesRequest`、`complexityRequest` 是 mod 的纯函数；读图、缩放、裁剪、复杂度读数直接用 `core/image-files.ts`、`core/zoom-review.ts`、`core/complexity.ts`，它们要的 `ImageFilesIo` 由 `eval/node.ts` 的 `nodeImageHost` 用 Node 的文件和 `child_process` 给（`SuiteHost.images`），所以裁图用的是同一份 sips 参数。流程照 `features/visual-check.ts` 的 `check`：请求一（全部检查项，Jev 再加框题）、放大复核（对裁图的 Noul）、判定。`tests/eval-visual-check-requests.test.ts` 在 world 里让 mod 的工具对同样的图（假磁盘）跑一遍，和 suite 的请求逐字比：Jev 的界面和海面（两个请求，含裁图的字节）、pplx、复杂度读数；录屏和 pplx 的动画只有图不同（mod 用 ffmpeg 抽 JPEG，评测集是现成的 PNG 帧），比的是别的部分。
+- **变体**：`mod`（mod 对所选决策模型的问法：Jev 加框题和放大复核，pplx 只有请求一）和 `whole`（只有请求一，放大复核没有时的样子，两者之差就是放大复核的作用）。动画和复杂度题两个变体相同。语言只有 `zh`（问题是 mod 的英文，不分语言），`--languages` 默认 `zh`。
+- **指标**（每个变体的 `summary.variants[].breakdown`，`run.ts` 末尾也打印）：`falsePass`（不成立的检查项被判过，**应为 0**，列出哪几题）；`controlFails`（对照里被判不过的检查项）、`falseFail`（成立的被判不过）；`caught`（不成立的被判不过的比例）；`unsure`（没把握的比例，总的、对不成立的、对成立的）；`byKind`；`elsewhere`（全屏「哪里不同」在对照上报了另一处，是误报）；`cost`（每张图的 token、延迟、花费，总的和按种类，另有每题的）；`complexity`（三组读数是否按立方体 < 海面 < 城市排：`inOrder`、`strictlyInOrder`，和不取整的期望 `expectedStrictlyInOrder`）；`thresholds`（每条检查项存着判定依据的原始概率，所以能按别的门槛重算 PASS 从 0.8–0.95、FAIL 到 0.1–0.3 的误判数，不再发请求）。`grade` 的 `correct` 是没有一条判反（没把握不算反），`exact` 是每条都判对：全部「没把握」是 `correct` 而不是 `exact`，看 `exact` 和上面的数字，不要只看 `correct`。
+- **花费控制。** `--estimate` 和 `--max-usd` 是 `run.ts` 本来就有的；带图的请求按像素估算（`lib/estimate.ts` 的 `estimateRequest`：Jev 每百万像素约 2,600 token、每张图只计一次，pplx 约 1,000、按题数重复；文字部分照旧乘系数），以前按 base64 的长度估算会大几十倍。放大复核的请求要先有框才能裁，估算时 `suite.estimate` 用「每道框题答图中央」的假回答把流程走完（真的调 sips 裁图），所以估算里有放大复核那一轮请求，大小是中央框裁出来的，不是真实的框。花费 = 回答里的 `usage.input_tokens` × 0.042 美元每百万。
+- **失败怎么记。** 图读不到、请求失败、读数没有档位，这题是失败（`ok: false`，写明原因，不算判对也不算判错）；放大复核某一条失败时和 mod 一样退回整图的答案（只采信不过），其余记没把握，原因在这条的 `why`。
+- **通用表里的延迟列不适用。** `run.ts` 打印的 `>1500ms`、`late` 是按发消息时 Jev 的 1500 ms 等待算的；看图核对是工具调用，每个请求的上限是 8 秒（`features/visual-check.ts` 的 `REQUEST_MS`），所以这几列只当参考，延迟看 `cost`（每张图的毫秒数、每题的中位数和最大值）。
+
+**基线（2026-10-15，`results/visual-check/2026-10-15-jev-baseline.json`）。** 这是 #65 写定的一次基线（用户批准，不算新的实测）：真实的 Jev（答题的是 `jev-1.14.0`），24 题 × 2 个变体 = 64 个请求，343,915 input token，约 0.0144 美元（估算 0.0136）。只是 mod 现在的问法和门槛的快照，没有调过，题少（20 条不成立的检查项、35 条成立的），差一两条不算差别。
+
+| 指标 | `mod`（Jev：框题加放大复核） | `whole`（只有请求一） |
+|---|---|---|
+| 不成立却判成过 | **1 / 20**（`ui-c4-weight`：字重，放大复核给了 0.91，刚过 0.9；实验里同一张图是 0.82–0.89） | 0 / 20（整图只能判不过，设计如此） |
+| 对照被判不过（12 条检查项） | 0 | 0 |
+| 成立却判成不过 | 0 / 35 | 1 / 35 |
+| 抓到的差异（判不过） | 10 / 20（界面 3 / 8，海面 7 / 9，动画 0 / 3） | 12 / 20（界面 4 / 8，海面 8 / 9，动画 0 / 3） |
+| 没把握 | 56.4%（对不成立的 45%，对成立的 63%） | 76.4%（对成立的 97%：整图本来就确认不了「一样」） |
+| 每张图的 token / 延迟 / 花费 | 2,310 / 398 ms / 0.000097 美元；界面 6,122、海面 5,753、动画 559、复杂度 1,009 token | 1,095 / 169 ms / 0.000046 美元 |
+| 一题的延迟 | 中位 1,618 ms，最大 4,192 ms（两个请求接着发） | 中位 712 ms，最大 1,267 ms |
+| 三组参考图读出的档 | 立方体 0、海面 2、城市 4（期望 0.10 / 2.44 / 3.93），顺序对，严格递增 | 0 / 2 / 4（期望 0.08 / 2.42 / 3.94） |
+
+- **放大复核让「一样」能判过**：对照 `ui-c9-same` 的三条检查项都判过（0.96–0.99，整图只能给没把握）；没改动的部分在被改过的候选上也都判过（界面 11 条成立的检查项，11 条判过）。另一处「哪里不同」在 2 题上报了，都不是对照。
+- **放大复核有时把整图的不过改成了没把握**：它的回答取代整图的（`zoomReview`）。`ui-c7-truncate` 整图 0.05（不过）、裁图 0.24（没把握）；`sea-big` 的浪高整图 0.12、裁图 0.22。所以 `whole` 比 `mod` 多抓 2 条。整图或裁图任何一个判不过就取不过，在这批题上会多抓 2 条（12 / 20），也会多出 1 条成立的被判不过（`sea-flat` 的雾：整图 0.14，裁图 0.40）。**没有改**：这是 mod 的流程，不是 #65 的范围，留给门槛的讨论。
+- **PASS 门槛 0.95 去掉那一条误判**，没把握从 56.4% 升到 61.8%（`thresholds`，其余门槛组合见结果文件）。字重（`c4`）和 4px 偏移（`c5`）仍是盲区，和实验一致。
+- **动画一条也没判出来**：15 条检查项概率都在 0.39–0.85，全是没把握，包括该判过的（`linear`、`ease_out` 没毛病）和该判不过的（回弹 0.60、卡顿 0.52、终点大偏 0.39）。实验里同样的帧用「卡片是不是冲过终点又回来」这样的直接问法能分开；这里的检查项是 mod 的 `framesRequest` 问法，写成「应该是怎样」的长句，分不开。这次没有调问法（基线只跑一次）；要改检查项的写法或 `framesRequest` 的问法，就得再跑评测。
+- **复杂度的读数比实验的高一档**：实验里的题问法不同（立方体 0.14、海面 1.77、城市 3.14），mod 现在的 `complexityRequest` 把海面读成 2.44、城市读成 3.93（取整后城市是 4，gold 3，在接受的 2–4 之内）。顺序对，这是这项要的。
 
 **文件**：`results/eval-v2/2026-10-08-{pplx-A,pplx-A-plus,pplx-B,pplx-B-prime,jev-J,jev-J-prime}.json`（六组）、`compare.json`（两套门槛 x 两种题集的离线重算）、`thresholds-jev.json`、`thresholds-pplx.json`（三选一门槛扫描）；`results/eval-v2-flow/{jev-24000,pplx-48000,pplx-135000}.json`（真实流程）；`results/effort-submit/2026-10-08-{pplx,jev}-regress.json`（回归）。
 

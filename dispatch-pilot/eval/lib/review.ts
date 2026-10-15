@@ -41,6 +41,8 @@ const EDITABLE: Record<Kind, readonly string[]> = {
   unresolved: ['gold', 'accept', 'triage'],
   // The file is written from eval/long-context-items.ts: a review's changes are made there, not by apply-review.ts.
   'long-context': [],
+  // The truth of each item is the experiment's (eval/datasets/visual-check/): a review does not change it.
+  'visual-check': [],
 }
 
 const VERDICTS: readonly Verdict[] = ['agree', 'edit', 'note']

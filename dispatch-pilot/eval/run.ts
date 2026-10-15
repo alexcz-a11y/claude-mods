@@ -3,6 +3,9 @@
 //   node dispatch-pilot/eval/run.ts effort-submit --estimate            what a run would send and cost; nothing is sent
 //   node dispatch-pilot/eval/run.ts effort-submit --label preliminary   every variant, both languages, against Jev
 //
+//   node dispatch-pilot/eval/run.ts visual-check --estimate             the visual_check suite (#65): pictures, so counted by their pixels
+//   node dispatch-pilot/eval/run.ts visual-check --max-usd 0.10         a run estimated over --max-usd sends nothing
+//
 // Options: --backend jev|pplx (jev), --model <id> (Jev's: jev-latest by default;
 // Perplexity's: pplx-decider-v1.1-27b by default, or pplx-decider-v1-27b; a run on it reads the mod's settings from
 // pplx's own row of the defaults table, core/setup.ts BACKEND_DEFAULTS: its questions, state budgets and timeout),
@@ -48,11 +51,11 @@ import { parseArgs } from 'node:util'
 import type { PluginOptions } from 'claude-code'
 import type { BackendName } from '../hooks/core/setup.ts'
 import type { Backend } from '../hooks/decision/backend.ts'
-import { estimateTokens } from '../hooks/decision/context.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { PPLX_MODEL } from '../hooks/decision/pplx.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
+import { estimatedUsd as priceOf } from './lib/estimate.ts'
 import type { FlowFile } from './lib/eval-v2-flow.ts'
 import { summarize, type Summary } from './lib/metrics.ts'
 import { readNumber, type NumberRule } from './lib/numbers.ts'
@@ -211,8 +214,8 @@ for (const item of items) {
     }
   }
 }
-const estimatedTokens = Math.round(ESTIMATE_FACTOR * planned.reduce((sum, request) => sum + estimateTokens(JSON.stringify({ model, ...request })), 0))
-const estimatedUsd = (estimatedTokens * price) / 1e6
+// A request with images counts their pixels' tokens as the decision model does, not the length of their base64 (lib/estimate.ts); one without is estimated as it always was.
+const { tokens: estimatedTokens, usd: estimatedUsd } = priceOf(planned, { model, backend: backendName, factor: ESTIMATE_FACTOR, usdPerMillionTokens: price })
 console.log(`${name}: ${items.length} items x ${variants.length} variants x ${languages.length} languages = ${planned.length} requests${suite.estimate === undefined ? '' : ' at most'}, about ${estimatedTokens} input tokens, about $${estimatedUsd.toFixed(4)} on ${backendName} (${model})`)
 if (values.estimate) process.exit(0)
 if (estimatedUsd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothing sent`)
@@ -243,7 +246,7 @@ const rows: Row<unknown>[] = await runSuite(suite, items, {
 })
 for (const row of rows) row.ms = row.ms === null ? null : Math.round(row.ms)
 
-const summary = summarize(suite, items, rows, { slowMs: settings.timeoutMs, settings })
+const summary = summarize(suite, items, rows, { slowMs: settings.timeoutMs, settings, prices: { usdPerMillionTokens: price } })
 const answeredBy = [...new Set(rows.flatMap((row) => (row.model === null ? [] : [row.model])))]
 const inputTokens = rows.reduce((sum, row) => sum + (row.inputTokens ?? 0), 0)
 const usd = (inputTokens * price) / 1e6
