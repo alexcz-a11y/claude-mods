@@ -430,8 +430,9 @@ declare module 'claude-code' {
           } | null
         }[] | null
         /**
-         * What the turn that launched the run said, for its agents decided as each one starts (absent when it has none,
-         * or in a run an earlier load recorded): the person may have sent another message by then, about something else.
+         * What the turn that launched the run said, for its agents decided as each one starts (absent in a run an earlier
+         * version recorded, 0.4.4 and before, which kept it only for runs with calls left to their agents): the person may
+         * have sent another message by then, about something else.
          */
         launch?: {
           /** The person's words of that turn (`said` then). */

@@ -55,6 +55,8 @@ test('at session start find_skill is registered: it takes a query, and its descr
   expect(w.tools).toHaveLength(2)
   const [first, again] = w.tools
   expect(first?.name).toBe('find_skill')
+  // In the prompt's tool list, not behind ToolSearch: the main agent's listing is cut short, and this is its way to the rest.
+  expect(first?.isDeferred).toBe(false)
   expect(first?.inputSchema).toMatchObject({ type: 'object', properties: { query: { type: 'string' } }, required: ['query'] })
   for (const name of ['tdd', 'code-review', 'pdf', 'grill-me', 'wrangler']) expect(first?.description).not.toContain(name)
   expect(again).toEqual(first)

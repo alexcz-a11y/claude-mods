@@ -222,6 +222,8 @@ export type StepOptions = {
    * 2.1.289), so a hook on `tool.call` sees it inside the step.
    */
   tools?: ToolRun[]
+  /** The step's tool calls run at once, as the engine runs several calls of one response (each ends `ok`). */
+  parallel?: boolean
 }
 
 /** A tool call the model makes in a step, and how it ends. */
@@ -263,6 +265,9 @@ export type SpawnOptions = {
  * task the script computed, `description` the call's label, `model` the call's own; `agentId` the id it starts under.
  */
 export type WorkflowSpawnOptions = { runId: string; agentIndex: number; agentId: string; label: string; prompt: string; model?: string }
+
+/** The most one `$.fs.read` takes, in bytes (the engine's limit). */
+const READ_LIMIT = 4 * 1024 * 1024
 
 /** What the engine resolves a model alias to as it starts an agent (2.1.289). */
 const ENGINE_IDS: Record<string, string> = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' }
@@ -326,7 +331,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const commandTurns = new Map<string, string>()
   const tools: RegisteredToolSpec[] = []
   /** What the step being sent streams and runs (set by `step()`, read by the engine's turn.step below). */
-  let streaming: Pick<StepOptions, 'answer' | 'tools'> = {}
+  let streaming: Pick<StepOptions, 'answer' | 'tools' | 'parallel'> = {}
   /** How the tool call running now ends (set around each `$.tool.call` below). */
   let ending: ToolRun['ends'] | undefined
 
@@ -369,9 +374,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     return options.model ? complete(await options.model(e, completions.length)) : { deny: 'no model in this test' }
   })
   on('session.messages', (_$, e) => ({ value: (typeof options.messages === 'function' ? options.messages({ ...(e.agentId === undefined ? {} : { agentId: e.agentId }) }) : (options.messages ?? [])) as never }))
+  // A read over 4 MiB rejects, as the engine's does.
   on('fs.read', (_$, e) => {
     looked.files.push(e.path)
-    return e.path in disk ? { value: disk[e.path] as string } : { deny: `ENOENT: ${e.path}` }
+    if (!(e.path in disk)) return { deny: `ENOENT: ${e.path}` }
+    const text = disk[e.path] as string
+    return text.length > READ_LIMIT / 4 && new TextEncoder().encode(text).length > READ_LIMIT ? { deny: `over 4 MiB: ${e.path}` } : { value: text }
   })
   on('fs.exists', (_$, e) => ({ value: e.path in disk || Object.keys(disk).some((path) => path.startsWith(`${e.path}/`)) }))
   // A directory of the disk: what lies directly under it, a file or a directory (one holding files further down).
@@ -555,13 +563,18 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   // response still streams, as Claude Code does.
   on('turn.step', async function* (_$, e) {
     steps.push({ turnId: e.turnId, index: e.index, model: e.model, effort: e.effort, agentId: e.agentId })
-    const { answer = '', tools = [] } = streaming
+    const { answer = '', tools = [], parallel = false } = streaming
     streaming = {}
     if (answer) yield { kind: 'text' as const, index: 0, text: answer }
-    for (const [i, run] of tools.entries()) {
+    const call = (run: ToolRun) => $.tool.call({ tool: run.tool, ...(run.input ?? {}), ...(e.agentId !== undefined ? { agentId: e.agentId } : {}) } as never)
+    if (parallel) {
+      for (const [i, run] of tools.entries()) yield { kind: 'tool' as const, index: i + 1, id: `toolu_${e.turnId}_${e.index}_${i}`, name: run.tool }
+      await Promise.all(tools.map(call))
+    }
+    for (const [i, run] of (parallel ? [] : tools).entries()) {
       yield { kind: 'tool' as const, index: i + 1, id: `toolu_${e.turnId}_${e.index}_${i}`, name: run.tool }
       ending = run.ends
-      await $.tool.call({ tool: run.tool, ...(run.input ?? {}), ...(e.agentId !== undefined ? { agentId: e.agentId } : {}) } as never)
+      await call(run)
       ending = undefined
     }
     const toolUses = tools.map((run) => ({ name: run.tool, input: run.input ?? {} }))
@@ -809,7 +822,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     /** Sends one model request through the mod, drained to its end (its text streamed, its tools run). */
     step: async (step: StepOptions) => {
       await booted()
-      streaming = { answer: step.answer, tools: step.tools }
+      streaming = { answer: step.answer, tools: step.tools, parallel: step.parallel }
       const effort = step.effort === undefined ? 'xhigh' : step.effort
       const input = {
         turnId: step.turnId ?? turnIds.at(-1) ?? 't0',

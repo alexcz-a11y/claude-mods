@@ -182,3 +182,16 @@ test('common secret formats are masked, ordinary text is not', () => {
   const ordinary = 'Set the token budget to 2000 and the password policy doc lives in docs/auth.md; sk-learn is a library.'
   expect(redactSecrets(ordinary)).toBe(ordinary)
 })
+
+test('a secret written as JSON or a dict (its key quoted) and a Perplexity key are masked too; the decision model names are not', () => {
+  const cases: [string, string][] = [
+    ['{"apiKey":"abcd1234efgh5678"}', '{"apiKey":"[REDACTED]"}'],
+    ['{"password": "hunter2hunter2", "user": "ops"}', '{"password": "[REDACTED]", "user": "ops"}'],
+    ["{'token': 'abcd1234wxyz'}", "{'token': '[REDACTED]'}"],
+    ['key pplx-' + 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcdefghij in env', 'key [REDACTED] in env'],
+  ]
+  for (const [text, masked] of cases) expect(redactSecrets(text)).toBe(masked)
+
+  const ordinary = 'pplx-decider-v1.1-27b answers the "token" question; the "password" field is documented in docs/auth.md.'
+  expect(redactSecrets(ordinary)).toBe(ordinary)
+})

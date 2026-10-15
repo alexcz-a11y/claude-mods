@@ -215,12 +215,17 @@ export function registerMidturnEffort(on: On, ctx: Ctx): void {
 async function launch($: EngineInterface, s: Settings, step: MainStep, starting: Starting): Promise<void> {
   const upcoming = step.index + 1
   const key = turnKey(step.turnId, undefined)
-  const [{ value: turn }, { value: record }, { value: lock = null }, { value: failures }, sentAt] = await Promise.all([
+  // Everything read at once: between the once-per-step check below and the entry that claims the step nothing waits, so
+  // of the calls of a step that run together only the first asks.
+  // The problem the person is on, as of now (this turn's own message has moved the count already): the summary and the
+  // count go along, and the strong hint once the count has reached the setting (#41). Nothing of it with the switch off.
+  const [{ value: turn }, { value: record }, { value: lock = null }, { value: failures }, sentAt, { value: held }] = await Promise.all([
     $.state.get({ ...TURNS, id: key }),
     $.state.get({ ...MIDTURN, id: key }),
     $.state.get(LOCK),
     $.state.get(FAILURES),
     $.clock.now(),
+    isOn(UNRESOLVED_SWITCH) ? $.state.get(COUNT) : Promise.resolve({ value: undefined }),
   ])
   // Only a turn the person's own message started is re-decided, whether its start was decided or not (that request
   // may have failed: then from the session's own effort); never without a decision model set up (every request would
@@ -228,9 +233,6 @@ async function launch($: EngineInterface, s: Settings, step: MainStep, starting:
   if (turn === undefined || turn.person !== true || lock !== null || record === undefined || record.engine === null || s.ctx.backend.configured === false) return
   const reason = PHASE_TOOLS.has(starting.name) ? starting.name : s.every > 0 && upcoming % s.every === 0 ? `每 ${s.every} 步` : null
   if (reason === null || record.askedFor === upcoming || inFlight.get(key)?.forStep === upcoming) return
-  // The problem the person is on, as of now (this turn's own message has moved the count already): the summary and the
-  // count go along, and the strong hint once the count has reached the setting (#41). Nothing of it with the switch off.
-  const { value: held } = isOn(UNRESOLVED_SWITCH) ? await $.state.get(COUNT) : { value: undefined }
   const count = held?.count ?? 0
   const summary = held?.summary
   const maxAfter = s.ctx.config.unresolved.maxAfter

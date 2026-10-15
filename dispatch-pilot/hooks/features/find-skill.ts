@@ -119,7 +119,9 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
     const result = await next(e)
     if (ctx.backend.configured === false) return result
     try {
-      const { tool } = await $.tool.register({ name: TOOL, description: DESCRIPTION, inputSchema: INPUT })
+      // In the prompt's tool list (2.1.293 on; older engines put it behind ToolSearch, as the listing's hint allows for):
+      // the main agent's skill listing is cut short, and this is its way to the rest. Its description never changes.
+      const { tool } = await $.tool.register({ name: TOOL, description: DESCRIPTION, inputSchema: INPUT, isDeferred: false })
       if (tool !== TOOL_CALLED) $.ui.log(`find_skill is registered as ${tool}, but the hook answers ${TOOL_CALLED}: its calls will fail`, { to: 'debug' })
     } catch (error) {
       $.ui.log(`find_skill was not registered: ${errorText(error)}`, { to: 'debug' })

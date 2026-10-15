@@ -13,6 +13,8 @@
 //   agent-<agentId>.jsonl    the agent's transcript; its first line is the task,
 //                            framed, every line indented by two spaces. It lands
 //                            50-110 ms after the agent's first step begins.
+//   agent-<agentId>.meta.json  before its first step: its `description` is the
+//                            label the journal records, `workflowPhase` its phase
 //
 // Not a test file. Use it as `runWorld($, on, { backend: siteJev(...) })`.
 
@@ -57,6 +59,7 @@ export function runWorld($: Engine, on: On, options: WorkflowWorldOptions = {}) 
       const path = `${runDir(runId)}/journal.jsonl`
       const line = JSON.stringify({ type: 'started', key: `v2:${agentId}`, agentId, label, ...(phase !== undefined ? { phase } : {}) })
       disk[path] = `${disk[path] ?? `${JSON.stringify({ type: 'launched' })}\n`}${line}\n`
+      disk[`${runDir(runId)}/agent-${agentId}.meta.json`] = JSON.stringify({ agentType: 'workflow-subagent', description: label, ...(phase !== undefined ? { workflowPhase: phase } : {}), spawnDepth: 1 })
     },
     /** The agent's transcript lands on disk: its first line is its task as the engine frames it, then what follows. */
     transcript: (runId: string, agentId: string, task: string) => {

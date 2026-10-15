@@ -122,7 +122,8 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
         ...(held === undefined || held.count === 0 ? {} : { unresolved_count: held.count }),
         ...(ctx.config.agents.background ? { script: parsed.script, recent: conversationUpTo(recent, ctx.config.context.messages, e.tool_use_id) ?? conversationUpTo(recent, ctx.config.context.messages) ?? [] } : {}),
       }
-      const plan = planBatches(parsed, words, settings, { one: ctx.config.contextByKind.workflow, each: ctx.config.contextByKind.agent }, { background })
+      // What is decided here is written into the script: a call it cannot be written into is decided as its agents start (workflow-labels).
+      const plan = planBatches(parsed, words, settings, { one: ctx.config.contextByKind.workflow, each: ctx.config.contextByKind.agent }, { background, written: true })
       const timeoutMs = batchesTimeoutMs(ctx.config.timeoutMs, plan.batches.length)
       const asked = await Promise.all(
         plan.batches.map(async (batch) => {

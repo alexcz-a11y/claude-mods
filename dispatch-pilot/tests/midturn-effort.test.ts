@@ -159,6 +159,15 @@ test('one re-decision per step, however many of its calls are reasons; each requ
   ])
 })
 
+test('with the unresolved switch on too, the calls of a step that run at once ask one re-decision between them', { options: { ...KEY, rejudgeEvery: 0 } }, async ($, on) => {
+  const w = world($, on, { switches: { unresolved: true }, backend: answers(MEDIUM, { levels: XHIGH, confidence: 0.8 }) })
+  await w.submit('派三个 agent 分头查前端、后端和数据库')
+  await w.step({ index: 0, parallel: true, tools: ['查前端', '查后端', '查数据库'].map((description) => ({ tool: 'Agent', input: { description } })) })
+  await w.step({ index: 1 })
+
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level'])
+})
+
 test('an answer not back by its step: the step waits rejudgeWaitMs, keeps the effort it had and says so; the answer is used once it comes', { options: { ...KEY, rejudgeEvery: 2, rejudgeWaitMs: 300 } }, async ($, on) => {
   const quick = answers(MEDIUM, { levels: XHIGH, confidence: 0.8 })
   // The mid-turn answer takes a second of (mock) time, within the request's own timeout (timeoutMs, 1500).

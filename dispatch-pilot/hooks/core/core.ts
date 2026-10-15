@@ -152,6 +152,10 @@ export function registerCore(on: On, ctx: Ctx): void {
         const path = `${dir}/journal.jsonl`
         return (await $.fs.exists(path)) ? await $.fs.read(path).catch(() => null) : null
       },
+      meta: async (dir, agentId) => {
+        const path = `${dir}/agent-${agentId}.meta.json`
+        return (await $.fs.exists(path)) ? await $.fs.read(path).catch(() => null) : null
+      },
     }
     await reportStep(io, { ...(agentId === undefined ? {} : { agentId }), model: step.model, effort: step.effort, source })
     return yield* next(step)

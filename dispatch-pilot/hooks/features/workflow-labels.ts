@@ -30,6 +30,7 @@ import {
   sharedTerms,
   sitesFor,
   sitesOf,
+  startedAs,
   startedIn,
   taskOf,
   type Given,
@@ -88,7 +89,7 @@ type Launch = { said: string[]; problem_summary?: string; unresolved_count?: num
 
 /**
  * A run this feature routes the agents of (`labelRuns` in types/index.d.ts). `callId`: the Workflow tool call that launched it (a run recorded by an earlier load has none: the run's own id stands for it).
- * `launch`: what its launching turn said, for its agents decided as they start (absent when it has none, or an earlier load recorded it).
+ * `launch`: what its launching turn said, for its agents decided as they start (absent when an earlier version recorded it).
  */
 type LabelRun = { runId: string; callId?: string; dir: string; workflow: string | null; description: string | null; sites: RunSite[] | null; launch?: Launch }
 
@@ -156,7 +157,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       if (parsed !== null) {
         if (given === 'script') {
           // workflow-agents asked about the rest when the script was sent, and left the person's terms for each call.
-          const plan = planBatches(parsed, words, settings, budgets, { background: problem })
+          const plan = planBatches(parsed, words, settings, budgets, { background: problem, written: true })
           const { value: terms = [] } = await $.state.get({ ...TERMS, id: e.tool_use_id }).catch(() => ({ value: undefined }))
           sites = inlineSites(parsed.calls, plan.skipped, terms)
         } else {
@@ -185,17 +186,15 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
         }
       }
       // Every launched run is recorded, even one whose calls all run as the script says: their agents' plans still
-      // take the person's terms for the calls' work as they start. A run with agents decided as they start keeps what
-      // the launching turn said for them: by then the person may have sent another message, about something else.
-      const startsDecided = sites === null || sites.some((site) => site.route.kind === 'runtime')
-      const asLaunched: Launch | undefined = startsDecided
-        ? {
-            said,
-            ...problem,
-            ...(ctx.config.agents.background && text !== null ? { script: clipToTokens(text, ctx.config.contextByKind.agent, SCRIPT_KEPT_TAIL) } : {}),
-            ...(e.agentId === undefined ? {} : { caller: e.agentId }),
-          }
-        : undefined
+      // take the person's terms for the calls' work as they start. Each keeps what the launching turn said, for its
+      // agents decided as they start (a call whose prompt is data, an agent whose label is none of the calls'): by then
+      // the person may have sent another message, about something else.
+      const asLaunched: Launch = {
+        said,
+        ...problem,
+        ...(ctx.config.agents.background && text !== null ? { script: clipToTokens(text, ctx.config.contextByKind.agent, SCRIPT_KEPT_TAIL) } : {}),
+        ...(e.agentId === undefined ? {} : { caller: e.agentId }),
+      }
       const run: LabelRun = {
         runId: launched.runId,
         callId: e.tool_use_id,
@@ -203,7 +202,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
         workflow: parsed?.meta.name ?? launched.workflow,
         description: parsed?.meta.description ?? null,
         sites,
-        ...(asLaunched === undefined ? {} : { launch: asLaunched }),
+        launch: asLaunched,
       }
       const runs: Cell<LabelRun[]> = { get: () => $.state.get(RUNS), set: (value, options) => $.state.set(RUNS, value, options) }
       await update(runs, (list) => [...(list ?? []).filter((kept) => kept.runId !== run.runId), run].slice(-MAX_RUNS))
@@ -292,14 +291,31 @@ function reportingOf($: EngineInterface): ReportIo {
   }
 }
 
-/** The run of `runs` that `agentId` started in, newest first, and what its journal says of it; null when it is in none. */
+/** The run of `runs` that `agentId` started in, newest first, and what it started as there; null when it is in none. */
 async function findAgent($: EngineInterface, runs: readonly LabelRun[], agentId: string): Promise<{ run: LabelRun; start: JournalStart } | null> {
   for (const run of [...runs].reverse()) {
-    const journal = await $.fs.read(`${run.dir}/journal.jsonl`).catch(() => null)
-    const start = journal === null ? null : startedIn(journal, agentId)
+    const start = await startOf($, run.dir, agentId)
     if (start !== null) return { run, start }
   }
   return null
+}
+
+/**
+ * What `agentId` started as in the run at `dir`: its meta.json's label, else its journal's `started` line; null when
+ * the agent is not of the run. The meta.json first: a long run's journal holds every agent's result, and past 4 MiB
+ * `$.fs.read` refuses it (the debug log says so when it comes to that).
+ */
+async function startOf($: EngineInterface, dir: string, agentId: string): Promise<JournalStart | null> {
+  const meta = await $.fs.read(`${dir}/agent-${agentId}.meta.json`).catch(() => null)
+  const start = meta === null ? null : startedAs(meta)
+  if (start !== null) return start
+  const path = `${dir}/journal.jsonl`
+  try {
+    return startedIn(await $.fs.read(path), agentId)
+  } catch (error) {
+    if (await $.fs.exists(path)) $.ui.log(`workflow-labels: ${path} not read (${errorText(error)}); agent ${agentId} is not found in it`, { to: 'debug' })
+    return null
+  }
 }
 
 /** Waits for the Workflow calls being set up now, until `deadline` at most: the runs they recorded meanwhile, in the order they did. */
