@@ -269,12 +269,14 @@ declare module 'claude-code' {
          * the other screenshot; none for a spec), the decision model that judged it, each check with its verdict, the
          * probability that it holds and whether the verdict rests on the zoomed re-check (`zoomed`; `why` for an unsure one),
          * whether any did, and how long the call took in ms. Paths and numbers only: no image, no key, no specification text.
+         * A series of quality levels (`against.kind` 'sequence'): `paths` are all the levels, lowest first, `image` the first, and each
+         * check is made on each two neighbouring levels, `pair` being which two, counted from 1 (none for a series that could not be read).
          */
         visualCheck?: {
           image: string
           against: { kind: 'spec' | 'reference' | 'compare_to' | 'sequence'; paths: string[] }
           backend: string
-          checks: { part: string; property: string; verdict: 'pass' | 'fail' | 'unsure'; probability: number | null; zoomed: boolean; why?: string }[]
+          checks: { part: string; property: string; verdict: 'pass' | 'fail' | 'unsure'; probability: number | null; zoomed: boolean; why?: string; pair?: [number, number] }[]
           zoomed: boolean
           ms: number
         }
@@ -328,6 +330,15 @@ declare module 'claude-code' {
        * which restarts the module, does not let a burst out. Written by that limiter only (through `BackendIo.pace`).
        */
       pplxRate: number[]
+      /**
+       * When each loop began (core/loop-start.ts; GLOSSARY 循环), id `main` for the main agent (its latest turn's
+       * `turn.start`) or the agentId of a dispatched or Workflow agent (its `agent.spawn`, so a resumed run starts it
+       * again; its first `turn.start` when no spawn was seen), `$.clock.now()` ms. The images work (spec #55) tells an
+       * image the loop made from one that was there before it by a file's modification time against this: the screenshot
+       * takeover (#62) takes over the first kind, the routing's reference images (#64) are the second. Written by that
+       * module only.
+       */
+      loops: StateFamily<{ startedAt: number }>
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
       /**

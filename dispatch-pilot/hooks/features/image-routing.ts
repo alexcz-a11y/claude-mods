@@ -26,6 +26,7 @@ import type { ImageFilesIo } from '../core/image-files.ts'
 import { report, type NodeFailure, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
+import { newWorkFile } from '../core/work-files.ts'
 
 /** The switch's name, in `/dp` and in the decision log. */
 export const IMAGE_ROUTING_SWITCH = 'image-routing'
@@ -106,28 +107,13 @@ function takePasted(texts: readonly string[]): Pasted | null {
 
 // ---- The engine, as closures -----------------------------------------------------------------------------------------
 
-/** The session's temporary directory for derived images, made on first use; it holds nothing that outlives the session. */
-let workDir: Promise<string> | undefined
-let fileCount = 0
-
 /** Everything the images need of the engine, as closures (a module may not pass `$` across an import). */
-function filesOf($: EngineInterface): ImageFilesIo {
+export function filesOf($: EngineInterface): ImageFilesIo {
   return {
     run: (argv, init) => $.process.run(argv, init),
     readBytes: async (path) => (await $.fs.read(path, { as: 'bytes' })).base64,
-    newFile: async (extension) => {
-      workDir ??= (async () => {
-        const base = ((await $.env.get('TMPDIR').catch(() => undefined)) ?? '').trim() || '/tmp'
-        const dir = `${base.replace(/\/+$/, '')}/dispatch-pilot-${Math.floor(Math.random() * 0xffffffff).toString(16)}`
-        await $.process.run(['mkdir', '-p', dir])
-        return dir
-      })().catch((error: unknown) => {
-        // Not made (no CLI, a full disk): the next reading tries again.
-        workDir = undefined
-        throw error
-      })
-      return `${await workDir}/reference-${++fileCount}.${extension}`
-    },
+    // The session's directory in the mod's temporary directory, like every file the mod makes (core/work-files.ts, #62).
+    newFile: (extension) => newWorkFile({ run: (argv) => $.process.run(argv), tmpdir: () => $.env.get('TMPDIR'), sessionId: () => $.session.id() }, extension),
   }
 }
 
@@ -164,49 +150,71 @@ export function registerImageRouting(on: On, ctx: Ctx): void {
   })
 }
 
-/** The message's effort, decided with the reading of its images when there is one. */
-async function decide($: EngineInterface, ctx: Ctx, taken: NonNullable<ReturnType<typeof takeDeferred>>, texts: readonly string[]): Promise<void> {
-  const debug = (line: string) => $.ui.log(line, { to: 'debug' })
-  const backend: BackendIo = {
+/** What a request to the decision model needs of the engine, as closures. */
+function backendOf($: EngineInterface): BackendIo {
+  return {
     fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
     sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
     pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
   }
+}
+
+/**
+ * What the reference images `sources` read as: asked of the image backend (a group read before is answered from the readings
+ * kept), within `READING_WAIT_MS`. Null when there is no reading: no image backend, the images could not be read, the request
+ * failed or came too late; the board notes a failed one, beside the route and without a toast. Never throws. The message that
+ * starts a turn (below) and a picture met in the middle of one (features/reference-midturn.ts) read the same way.
+ */
+export async function readReference($: EngineInterface, ctx: Ctx, sources: readonly ReferenceSource[]): Promise<ReferenceReading | null> {
+  const images = ctx.images
+  if (images === null || sources.length === 0) return null
+  const debug = (line: string) => $.ui.log(line, { to: 'debug' })
+  const backend = backendOf($)
+  try {
+    const io: ComplexityIo = {
+      files: filesOf($),
+      ask: async (request) => {
+        const at = await $.clock.now()
+        const asked = await images.backend.ask(backend, request, READING_WAIT_MS)
+        debug(`complexity reading [${Object.keys(request.questions).join(', ')}] to ${images.backend.name}: ${describeAsked(asked, (await $.clock.now()) - at)}`)
+        return asked
+      },
+      store: { get: () => $.state.get(READINGS), set: (value: ReferenceReadings, options) => $.state.set(READINGS, value, options) },
+      now: () => $.clock.now(),
+      backend: images.name,
+      debug,
+    }
+    const late = { late: true } as const
+    const read = await within((ms, signal) => $.clock.sleep(ms, { signal }), readReferenceComplexity(io, sources), READING_WAIT_MS, late)
+    if ('late' in read) {
+      debug(`image routing: no reading in ${READING_WAIT_MS} ms; the effort is decided without it`)
+      await note($, { backend: images.name, kind: 'timeout', detail: `no reading in ${READING_WAIT_MS} ms` })
+      return null
+    }
+    if (read.ok) {
+      debug(`image routing: the images read as level ${read.reading.level} (${read.cached ? 'read before' : 'asked'}), from ${read.reading.images} image${read.reading.images === 1 ? '' : 's'}`)
+      return read.reading
+    }
+    debug(`image routing: no reading (${read.reason}); the effort is decided without it`)
+    if (read.failure !== undefined) await note($, { backend: images.name, ...read.failure })
+    return null
+  } catch (error) {
+    debug(`image routing: ${errorText(error)}`)
+    return null
+  }
+}
+
+/** The message's effort, decided with the reading of its images when there is one. */
+async function decide($: EngineInterface, ctx: Ctx, taken: NonNullable<ReturnType<typeof takeDeferred>>, texts: readonly string[]): Promise<void> {
+  const debug = (line: string) => $.ui.log(line, { to: 'debug' })
+  const backend = backendOf($)
   const startedAt = await $.clock.now()
   let reading: ReferenceReading | null = null
-  const images = ctx.images
   // Off since the message was sent: it is decided as any message is, without its images.
-  if (images !== null && isOn(IMAGE_ROUTING_SWITCH)) {
+  if (ctx.images !== null && isOn(IMAGE_ROUTING_SWITCH)) {
     const found = takePasted(texts)
-    if (found === null || found.sources.length === 0) {
-      debug('image routing: the message came with images, but none was found to read; its effort is decided without a reading')
-    } else {
-      const io: ComplexityIo = {
-        files: filesOf($),
-        ask: async (request) => {
-          const at = await $.clock.now()
-          const asked = await images.backend.ask(backend, request, READING_WAIT_MS)
-          debug(`complexity reading [${Object.keys(request.questions).join(', ')}] to ${images.backend.name}: ${describeAsked(asked, (await $.clock.now()) - at)}`)
-          return asked
-        },
-        store: { get: () => $.state.get(READINGS), set: (value: ReferenceReadings, options) => $.state.set(READINGS, value, options) },
-        now: () => $.clock.now(),
-        backend: images.name,
-        debug,
-      }
-      const late = { late: true } as const
-      const read = await within((ms, signal) => $.clock.sleep(ms, { signal }), readReferenceComplexity(io, found.sources), READING_WAIT_MS, late)
-      if ('late' in read) {
-        debug(`image routing: no reading in ${READING_WAIT_MS} ms; the effort is decided without it`)
-        await note($, { backend: images.name, kind: 'timeout', detail: `no reading in ${READING_WAIT_MS} ms` })
-      } else if (read.ok) {
-        reading = read.reading
-        debug(`image routing: the images read as level ${read.reading.level} (${read.cached ? 'read before' : 'asked'}), from ${read.reading.images} image${read.reading.images === 1 ? '' : 's'}`)
-      } else {
-        debug(`image routing: no reading (${read.reason}); the effort is decided without it`)
-        if (read.failure !== undefined) await note($, { backend: images.name, ...read.failure })
-      }
-    }
+    if (found === null || found.sources.length === 0) debug('image routing: the message came with images, but none was found to read; its effort is decided without a reading')
+    else reading = await readReference($, ctx, found.sources)
   }
   // The effort question, as a message's ever is: the reading is in its state. Its answer is written as the pending decision.
   const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
