@@ -515,6 +515,22 @@ test("a fork (it always runs on its parent's model) and a teammate (it lives acr
   expect(w.spawned.map((s) => s.model)).toEqual([undefined, 'sonnet'])
 })
 
+test('a finished agent woken by a message (agent.spawn with resume, 2.1.299 on) goes on as it was decided: nothing is asked, and its steps keep the effort decided at its dispatch', { options: KEY }, async ($, on) => {
+  // Asked again, the decision model would now say opus at max.
+  const answers: AgentAnswers[] = [{ model: { sonnet: 1 }, effort: [0, 0, 1, 0, 0] }, { model: { opus: 1 }, effort: [0, 0, 0, 0, 1] }]
+  const w = world($, on, { backend: (request, n) => agentJev(answers[Math.min(n, 2) - 1] ?? {})(request) })
+  const started = await w.spawn({ prompt: 'Rename getUser to fetchUser across src/api and run `pnpm test api`.', description: 'Rename getUser' })
+  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.complete({ agentId: started.agentId, turnId: 'sub-1' })
+  const resumed = await w.spawn({ prompt: 'Do the same in src/web.', description: 'Rename getUser', model: 'sonnet', resume: { agentId: started.agentId ?? '' } })
+  await w.step({ index: 0, turnId: 'sub-2', agentId: resumed.agentId, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  expect(resumed.agentId).toBe(started.agentId)
+  expect(w.requests).toHaveLength(1)
+  expect(w.spawned.map((s) => s.model)).toEqual(['sonnet', 'sonnet'])
+  expect(w.steps.map((s) => s.effort)).toEqual(['high', 'high'])
+})
+
 test("the decision reads the person's words this turn: the message that started it and those typed during it, masked; no other prompt", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { sonnet: 1 } }) })
   await w.submit('把登录模块拆成三层，测试账号的 token 是 ghp' + '_abcdefghijklmnopqrstuvwxyz0123456789')

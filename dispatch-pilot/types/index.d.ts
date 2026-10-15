@@ -65,7 +65,8 @@ declare module 'claude-code' {
        * hands it readings), read by anything that draws or tests.
        *
        * `turn` counts the main agent's turns the session has started (the
-       * module's own `turn.start` hook); the person's first message is turn 1.
+       * module's own `turn.start` hook, which leaves out an agent's run, one
+       * with `agentId`, 2.1.299 on); the person's first message is turn 1.
        * A decision made before its turn starts is filed under the turn to come
        * (`turn + 1`), so its node is already there when the turn begins.
        *

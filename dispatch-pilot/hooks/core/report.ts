@@ -1000,6 +1000,8 @@ function stepIo($: EngineInterface): StepIo {
  */
 export function registerReport(on: On): void {
   on('turn.start', { turnId: /(?:)/ }, async ($, e, next) => {
+    // The board counts the main loop's turns; an agent's run is a turn of its own loop (2.1.299 on).
+    if (e.agentId !== undefined) return next(e)
     try {
       const now = await $.clock.now()
       await update<Board>({ get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) }, (board) => startTurn(board, now))

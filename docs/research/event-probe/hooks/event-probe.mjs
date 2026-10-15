@@ -45,7 +45,7 @@ export function register(on) {
   })
 
   on('turn.start', async ($, e, next) => {
-    $.ui.log(`${seq()} turn.start BEFORE keys=[${keys(e)}] turnId=${e.turnId} text=${JSON.stringify(cut(e.text))}`, { to: 'debug' })
+    $.ui.log(`${seq()} turn.start BEFORE keys=[${keys(e)}] turnId=${e.turnId} agentId=${e.agentId} text=${JSON.stringify(cut(e.text))}`, { to: 'debug' })
     const r = await next(e)
     $.ui.log(`${seq()} turn.start AFTER ${cut(r)}`, { to: 'debug' })
     return r
@@ -64,7 +64,7 @@ export function register(on) {
   })
 
   on('agent.spawn', async ($, e, next) => {
-    $.ui.log(`${seq()} agent.spawn BEFORE tool_use_id=${e.tool_use_id} background=${e.background} model=${e.model} type=${e.subagentType}`, { to: 'debug' })
+    $.ui.log(`${seq()} agent.spawn BEFORE tool_use_id=${e.tool_use_id} background=${e.background} model=${e.model} type=${e.subagentType} parentAgentId=${e.parentAgentId} resume=${cut(e.resume)} workflow=${cut(e.workflow)} prompt=${JSON.stringify(cut(e.prompt, 80))}`, { to: 'debug' })
     const r = await next(e)
     $.ui.log(`${seq()} agent.spawn AFTER agentId=${r && r.agentId} model=${r && r.model}`, { to: 'debug' })
     return r

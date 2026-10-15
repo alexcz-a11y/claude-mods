@@ -101,6 +101,8 @@ export function registerCore(on: On, ctx: Ctx): void {
   })
 
   on('turn.start', async ($, e, next) => {
+    // An agent's run is a turn of its own loop (2.1.299 on): no message of the person starts it, and none is its to take.
+    if (e.agentId !== undefined) return next(e)
     const pending: Cell<PendingDecision[]> = { get: () => $.state.get(PENDING), set: (value, options) => $.state.set(PENDING, value, options) }
     // A command turn starts with the engine's command message: the prompt was the command as typed.
     const started = typedCommand(e.text) ?? e.text

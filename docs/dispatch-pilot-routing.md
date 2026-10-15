@@ -31,7 +31,7 @@ sequenceDiagram
 
     M->>E: 调用 Agent 工具（prompt、description、可选 model）
     E->>D: agent.spawn
-    alt fork、teammate 或功能关着
+    alt fork、teammate、被唤醒的 agent（e.resume）或功能关着
         D->>E: 原样放行
     else 正常路由
         D->>J: 一个请求：选哪个模型？每步用哪档 effort？<br/>你点名或排除了哪个模型、哪档 effort？<br/>（读任务和你的话；pplx 再读派出它的对话）
