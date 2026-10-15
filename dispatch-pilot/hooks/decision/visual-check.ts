@@ -51,6 +51,11 @@ export const CHECK_PART = 'check'
 /** The images a call checks: the screenshot, and what it is compared with. */
 export type Subjects = { screenshot: Picture; references: readonly Picture[] }
 
+/** The names the images a screenshot is compared with go by in a request: `reference` (`reference-1`, `reference-2`, ... for several) or `other`. */
+export function comparedNames(comparison: Comparison, count: number): string[] {
+  return comparison.kind === 'reference' && count > 1 ? Array.from({ length: count }, (_, i) => `reference-${i + 1}`) : [comparison.kind === 'reference' ? 'reference' : 'other']
+}
+
 const named = (name: string, picture: Picture): RequestImage => ({ name, format: picture.format, base64: picture.base64, width: picture.width, height: picture.height })
 
 /**
@@ -73,7 +78,7 @@ export function wholeImageRequest(comparison: Comparison, subjects: Subjects, ch
   } else {
     images.push(named('candidate', screenshot))
     state.candidate = imageRef('candidate')
-    const names = comparison.kind === 'reference' && references.length > 1 ? references.map((_, i) => `reference-${i + 1}`) : [comparison.kind === 'reference' ? 'reference' : 'other']
+    const names = comparedNames(comparison, references.length)
     references.forEach((picture, i) => {
       const name = names[i] as string
       images.push(named(name, picture))

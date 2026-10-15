@@ -33,7 +33,8 @@ test('images within the budget are not touched', { options: { typesafeApiKey: 't
   await w.start()
   await w.visualCheck({ images: ['/shots/a.png'], reference: ['/design/1.png'], checks: CHECKS })
 
-  expect(w.ran.filter((argv) => argv.includes('--out'))).toEqual([])
+  // Nothing is made of the images but the crops of the zoomed re-check (#59).
+  expect(w.ran.filter((argv) => argv.includes('--out') && argv[1] !== '-c' && argv[1] !== '-Z')).toEqual([])
 })
 
 test('with pplx an image is counted again for every check, so many checks leave each image a smaller share of the budget', { options: { perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
