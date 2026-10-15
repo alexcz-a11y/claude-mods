@@ -100,7 +100,10 @@ export function registerVisualCheck(on: On, ctx: Ctx): void {
     return result
   })
 
-  // A loop begins (a turn of the main agent, an agent's run): the count of failed checks starts again.
+  // A loop begins (a turn of the main agent, an agent's run): the count of failed checks starts again. The spec wants it counted
+  // for the same agent in the same loop. A dispatched agent's run has a `turn.start` of its own with its `agentId` from 2.1.299 (measured
+  // on 2.1.300, and for a run woken by a message, DEVELOPMENT.md 「已实测」); before that an agent had no resumed run, so its one loop
+  // began with its first call and nothing needs forgetting. core/loop-start.ts keeps the loops' beginnings, but is not needed here.
   on('turn.start', { turnId: /(?:)/ }, async (_$, e, next) => {
     forgetLoop(streaks, e.agentId ?? 'main')
     return next(e)

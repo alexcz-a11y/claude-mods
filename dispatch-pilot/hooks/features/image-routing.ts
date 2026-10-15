@@ -94,14 +94,17 @@ export function pastedOf(content: readonly Block[]): Pasted | null {
   return { text: texts.filter((text) => !text.startsWith('[Image')).join('\n').trim(), sources }
 }
 
-/** The images of the message the turn starts for (the one whose words are one of `texts`, else the latest); they are taken. */
+/**
+ * The images of the message the turn starts for (the latest one whose words are one of `texts`); they are taken. Null when no
+ * message matches: the images of another message are not guessed at, the effort is decided without a reading.
+ */
 function takePasted(texts: readonly string[]): Pasted | null {
   const wanted = texts.map((text) => text.trim())
   let at = -1
   pasted.forEach((one, i) => {
     if (wanted.includes(one.text)) at = i
   })
-  const found = pasted[at === -1 ? pasted.length - 1 : at]
+  const found = pasted[at]
   pasted.length = 0
   return found ?? null
 }
