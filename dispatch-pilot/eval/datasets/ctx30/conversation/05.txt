@@ -1,0 +1,151 @@
+%% S13 docs/agents.md 的「CI 失败」一节：只贴不分析（A02）
+@@ user
+以后 CI 挂了我会让你派 agent 去看。我不想让它分析一大堆，还顺手乱改代码。在 `docs/agents.md` 里加一节「CI 失败」：找到失败的那次运行，把失败的 job、step 和报错原样贴回来，不分析、不改文件、不重跑。原因我自己看。
+
+@@ assistant tools=Read,Edit mark=A02
+加好了。`docs/agents.md` 原来有三节：「通用约定」「改代码之前」「提交」。新的一节放在最后，全文：
+
+```markdown
+## CI 失败
+
+派 agent 看 CI 失败时，只做下面三件事：
+
+1. 找到那次运行：`gh run list --branch <分支> --status failure --limit 1`，
+   需要指定日期时加 `--created <YYYY-MM-DD>`。
+2. 取失败的日志：`gh run view <run-id> --log-failed`。
+   把失败的 job 名、step 名，以及每个失败 step 报错的最后 30 行，原样贴回来。
+3. 到此为止：不分析原因，不改任何文件，不重跑，不提 PR。
+
+原因由人来看。日志超过 30 行的部分不要总结，直接截断。
+```
+
+「通用约定」那节里原本有一句“遇到失败先尝试修复”，和这一节冲突，我在那句后面加了“CI 失败按最后一节处理”。
+
+@@ user mark=A02
+对，就这样，只贴不分析。以后我说派 agent 看 CI，就是按这一节来。
+
+@@ assistant
+好。
+
+%% S14 PDF 上的日期差一天：原因是时区（E07）
+@@ user
+有个客户说 PDF 上的开票日期比他实际开票那天早一天，他在悉尼。我看了一下后台页面上显示的是对的，只有 PDF 不对。
+
+@@ assistant tools=Grep*4,Read*6,Bash*2 mark=E07
+原因找到了：PDF 用的是 UTC，不是商户的时区。顺着日期往下查，同样的问题还有两处。
+
+**1. PDF**：`api/internal/invoice/pdf/render.go`
+
+```go
+issued := inv.IssuedAt.UTC().Format("2006-01-02")
+due := inv.DueAt.UTC().Format("2006-01-02")
+```
+
+`IssuedAt` 存的是 `timestamptz`，取出来格式化前转成了 UTC。悉尼现在是 UTC+11（夏令时），当地上午 11 点之前开的发票，UTC 还是前一天，PDF 上就早一天。后台页面是对的，因为前端用浏览器的时区显示。
+
+**2. 邮件**：`api/internal/invoice/email.go` 里给客户发发票邮件，正文“到期日：{{due}}”也是 `inv.DueAt.UTC().Format(...)`，问题一样。
+
+**3. 到期日的计算**：`api/internal/invoice/due.go`
+
+```go
+func dueAt(issued time.Time, terms int) time.Time {
+    d := issued.UTC().Truncate(24 * time.Hour)
+    return d.AddDate(0, 0, terms)
+}
+```
+
+先按 UTC 截到当天零点，再加账期天数。对东边的时区，这个“当天”可能是当地的前一天，所以到期日本身就早了一天，不只是显示问题。
+
+**商户时区**：`merchants.timezone` 字段早就有（IANA 名字，比如 `Australia/Sydney`），目前只有前端在用，后端没有任何地方读它。
+
+**影响面**：
+- 商户时区在 UTC 以东的（我们大部分商户在 `Asia/Shanghai`，UTC+8），当地早上 8 点之前开的发票都会受影响。查了一下种子数据的分布，生产上的比例要另查，估计不小，只是之前没人注意。
+- 西边的时区反过来，可能晚一天。
+- 到期日早一天，会让逾期提醒早一天：`worker/reminder/job.go` 判断逾期用的是 `due_at < now()`，到期日早了，提醒就提前一天发。
+
+**测试**：`due_test.go` 只测了 UTC 的情况，`render_test.go` 只比对版面，不看日期。
+
+@@ user mark=E07
+原因就是时区，没错。先不修，记一下：要改的是 PDF、邮件、到期日这三处，都要按商户的时区来；到期日改了以后，逾期提醒（`worker/reminder`）判断逾期也要跟着对，不然会提前一天催款。改的时候要补测试，至少覆盖上海、悉尼、洛杉矶三个时区。
+
+@@ assistant
+好，记下了：三处（PDF、邮件、到期日计算）按 `merchants.timezone`；逾期提醒的判断跟着核对；测试覆盖上海、悉尼、洛杉矶。等你说再改。
+
+%% D4 客户列表接口加标签筛选（已做完）
+@@ user
+客户列表接口加一个按标签筛选的参数，`GET /v1/customers?tag=vip`，可以传多个 `tag`，要同时满足。标签已经存在 `customer_tags` 表里了。
+
+@@ assistant tools=Read*4,Edit*5,Bash*3
+做完了。
+
+**改动**
+1. `api/openapi.yaml`：`GET /v1/customers` 加查询参数 `tag`（数组，`style: form`，`explode: true`，所以写成 `?tag=vip&tag=wholesale`）。
+2. `api/queries/customers.sql`：`ListCustomers` 加一个可选的标签条件。sqlc 不支持动态拼 SQL，所以用数组参数加 `cardinality` 判断：
+
+   ```sql
+   -- name: ListCustomers :many
+   SELECT c.*
+   FROM customers c
+   WHERE c.merchant_id = @merchant_id
+     AND (cardinality(@tags::text[]) = 0 OR c.id IN (
+           SELECT ct.customer_id FROM customer_tags ct
+           WHERE ct.tag = ANY(@tags::text[])
+           GROUP BY ct.customer_id
+           HAVING count(DISTINCT ct.tag) = cardinality(@tags::text[])))
+     AND (@cursor::bigint = 0 OR c.id < @cursor::bigint)
+   ORDER BY c.id DESC
+   LIMIT @page_size;
+   ```
+
+   `HAVING count(DISTINCT ct.tag) = cardinality(...)` 保证多个标签同时满足。
+3. `api/internal/customer/handler.go`：读 `r.URL.Query()["tag"]`，去重、去空、每个最长 32 字符、最多 10 个，超了返回 422。
+4. 测试：`handler_test.go` 加了 4 个用例（不传、一个标签、两个标签同时满足、超过 10 个返回 422），`store` 的集成测试加了 1 个（testcontainers 里起 Postgres）。
+
+**性能**：`customer_tags` 上已有 `(tag, customer_id)` 的索引。用种子数据（2 万客户、6 万条标签）看了执行计划，两个标签的查询走索引，3 毫秒。
+
+```
+$ go test ./api/internal/customer/... ./api/internal/store/...
+ok  	github.com/ledgerly/ledgerly/api/internal/customer	0.612s
+ok  	github.com/ledgerly/ledgerly/api/internal/store	14.880s
+```
+
+@@ user
+好，提 PR。
+
+@@ assistant tools=Bash
+PR #824 已提。
+
+%% S15 发票列表翻页：原因是前端没跟上 cursor 分页（A06）
+@@ user
+发票列表翻到第二页以后，显示的还是第一页的数据。阿杰说他这两周没动过前端。
+
+@@ assistant tools=Read*4,Grep*3,Bash*2 mark=A06
+原因找到了，是后端改了分页方式、前端没跟上。
+
+**后端**：上周的 PR #801 把 `GET /v1/invoices` 改成了 cursor 分页。响应里新增 `next_cursor`，请求用 `?cursor=<上一页的 next_cursor>` 翻页；为了兼容，`page` 参数还接收，但已经被忽略了（`api/internal/invoice/list.go` 里有一行注释 `// page is ignored since #801, kept for old clients`）。
+
+**前端**：`web/src/hooks/useInvoices.ts` 还在传 `page`：
+
+```ts
+export function useInvoices(filters: InvoiceFilters, page: number) {
+  return useQuery({
+    queryKey: ['invoices', filters, page],
+    queryFn: () => api.get('/v1/invoices', { params: { ...filters, page, page_size: 20 } }),
+  })
+}
+```
+
+`web/src/pages/invoices/List.tsx` 用 `<Pagination page={page} onChange={setPage} total={data.total} />`。后端忽略 `page`，每一页请求拿到的都是第一页，所以看起来翻页没反应。`total` 字段 #801 之后也不返回了，分页组件算出来的总页数是 `NaN`，只是正好没显示出来。
+
+**本地验证**：`curl 'localhost:8080/v1/invoices?page=2&page_size=20'` 和 `page=1` 返回的完全一样；用响应里的 `next_cursor` 请求，拿到的是第 21 到 40 条。
+
+**要改的地方**：
+1. `useInvoices.ts`：改用 TanStack Query 的 `useInfiniteQuery`，或者保留“上一页、下一页”按钮，用一个 cursor 栈记住走过的页。后台的交互是带页码的分页，但 cursor 分页没法跳页，所以只能改成“上一页、下一页”。
+2. `List.tsx`：分页组件换成上一页、下一页两个按钮，`next_cursor` 为空时禁用下一页。
+3. `web/src/pages/invoices/List.test.tsx`：现有的两个分页用例 mock 的是 `page` 参数，要改成 mock `next_cursor`。
+
+@@ user mark=A06
+原因清楚了，就是前端没跟上 cursor 分页。改成上一页、下一页两个按钮就行，不用跳页。先不改，回头派个 agent 修。
+
+@@ assistant
+好，记下了：前端改用 `next_cursor`，翻页改成上一页、下一页，测试跟着改。

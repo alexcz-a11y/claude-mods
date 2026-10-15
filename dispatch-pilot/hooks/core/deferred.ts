@@ -2,7 +2,7 @@
 // is made at `turn.start`, after its images have been read (features/image-routing.ts): the main-effort feature leaves the
 // effort part out of the message's ballot (core/ballot.ts) and hands it here instead, as a function from the reading to the
 // part, so that the part is built with the reading in its state and its report. The image-routing feature takes it at the turn's
-// start, asks it through the core's `askGroup`, and the answer is written as a pending decision, which the core claims in the same
+// start, asks it through the core's `askGroups`, and the answer is written as a pending decision, which the core claims in the same
 // `turn.start` as for any other message: the plan table keeps its one writer (ADR 0003).
 //
 // Pure module state, like the ballot: lost on a hot reload, which only costs the decision of a message submitted during that

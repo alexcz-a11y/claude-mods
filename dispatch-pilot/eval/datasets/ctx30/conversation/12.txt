@@ -1,0 +1,116 @@
+%% 最近这一段（常规请求读得到）：只有日常工作和误导内容，不放任何一题的关键信息。
+%% R1 客户列表加“最近开票日期”一列（已做完）
+@@ user
+客户列表加一列“最近开票日期”，能按它排序。销售说他们想一眼看出哪些客户很久没开票了。
+
+@@ assistant tools=Read*5,Grep*2,Edit*6,Bash*4
+做完了，前后端都改了，排序也支持。
+
+**后端**
+
+`GET /v1/customers` 的每一项加了 `last_invoiced_at`（可能为 null，表示从没开过票），`sort` 参数多了两个取值 `last_invoiced_at` 和 `-last_invoiced_at`。
+
+一开始想在列表查询里用子查询现算：
+
+```sql
+SELECT c.*, (SELECT max(i.issued_at) FROM invoices i WHERE i.customer_id = c.id) AS last_invoiced_at
+FROM customers c WHERE c.merchant_id = @merchant_id ...
+```
+
+但按它排序时，每一页都要把这个商户所有客户的 `max(issued_at)` 算一遍。大商户有 2 万多个客户、上百万张发票，本地造数据测了一下要 1.9 秒，不能接受。
+
+最后的做法是在 `customers` 上存一个冗余字段：
+- 迁移 `migrations/202610150820_customers_last_invoiced_at.sql`：加一列可空的 `last_invoiced_at timestamptz`，再加索引 `(merchant_id, last_invoiced_at DESC NULLS LAST, id DESC)`，索引用 `CONCURRENTLY` 建；
+- 发票“发布”的时候（`api/internal/invoice/issue.go`，状态从 draft 变成 issued 的那个事务里）顺便 `UPDATE customers SET last_invoiced_at = greatest(coalesce(last_invoiced_at, '-infinity'), $2) WHERE id = $1`；
+- 作废发票不回退这个值（产品确认过：“最近开过票”就是开过，作废也算）；
+- 存量数据用一个回填任务算一次：`jobs/backfill-last-invoiced.sql`，按商户分批，每批 500 个客户。`customers` 表只有 90 多万行，跑完大概两三分钟。
+
+排序用 cursor 分页，cursor 里编码了 `last_invoiced_at` 和 `id` 两个值，保证翻页稳定。null 的客户排在最后。
+
+**前端**
+
+`web/src/pages/customers/List.tsx` 加了一列“最近开票”，显示相对时间（“3 天前”“5 个月前”），鼠标悬停显示具体日期；表头可以点击排序，默认还是按创建时间。超过 90 天没开票的，日期显示成灰色，这是销售提的。
+
+**测试**
+
+- 后端：`issue_test.go` 加 2 个用例（发布时更新、更早的发票不会把时间往回改），`customer` 包的列表测试加 3 个（排序、翻页、null 排在最后）；
+- 前端：`List.test.tsx` 加 2 个用例（排序切换、灰色显示）。
+
+```
+$ go test ./api/internal/invoice/... ./api/internal/customer/...
+ok  	github.com/ledgerly/ledgerly/api/internal/invoice	6.112s
+ok  	github.com/ledgerly/ledgerly/api/internal/customer	4.207s
+$ pnpm -C web vitest run src/pages/customers
+ ✓ src/pages/customers/List.test.tsx (11 tests)
+```
+
+迁移和回填按发布清单走，回填任务的执行说明写在 PR 描述里了。
+
+@@ user
+好，提吧。
+
+@@ assistant tools=Bash
+PR #840 已提。
+
+%% R2 CSV 导出超时：一条查询的问题，一改就好（误导：和 PDF 导出无关）
+@@ user
+CSV 导出也有客户说超时了，导 2000 张发票的明细，转半天然后报错。
+
+@@ assistant tools=Read*4,Grep*2,Bash*5,Edit*2
+找到原因了，就是一条查询的问题，改完本地 2000 张从 70 多秒降到 3 秒。
+
+**CSV 导出的实现**：`api/internal/export/csv.go`，同步导出，不渲染任何东西，只是把发票和明细拼成 CSV。代码是这样的：
+
+```go
+for _, id := range ids {
+    inv, err := h.store.GetInvoice(ctx, id)
+    ...
+    lines, err := h.store.ListInvoiceLines(ctx, id)
+    ...
+    for _, l := range lines {
+        cust, err := h.store.GetCustomer(ctx, inv.CustomerID)
+        ...
+        w.Write(row(inv, l, cust))
+    }
+}
+```
+
+问题在最里面那一层：**每一行明细**都去查一次客户。2000 张发票、平均每张 9 行明细，就是 2000 次查发票、2000 次查明细、1.8 万次查客户，一共 2.2 万次数据库往返。线上数据库在另一个可用区，每次往返 3 毫秒左右，光往返就要 60 多秒，超过 ingress 的超时。
+
+**改法**：一条查询把需要的数据全部取出来：
+
+```sql
+-- name: ExportInvoiceRows :many
+SELECT i.number, i.issued_at, i.status, i.total,
+       c.name AS customer_name, c.vat_id AS customer_vat_id,
+       l.description, l.quantity, l.unit_price, l.tax_rate, l.amount
+FROM invoices i
+JOIN customers c ON c.id = i.customer_id
+JOIN invoice_lines l ON l.invoice_id = i.id
+WHERE i.merchant_id = @merchant_id AND i.id = ANY(@ids::bigint[])
+ORDER BY i.number, l.position;
+```
+
+`csv.go` 改成一边从这条查询的结果里读一边写 CSV（用 pgx 的 `rows.Next()` 流式读，不会把 1.8 万行一次性放进内存）。输出的列和顺序和以前完全一样，我用同一批发票导出改前改后两个文件做了 `diff`，没有差别。
+
+**效果**（本地，造了和线上相近的往返延迟）：
+
+| 张数 | 改之前 | 改之后 |
+|---|---|---|
+| 500 | 17.9s | 0.8s |
+| 2000 | 71.4s | 3.1s |
+| 5000 | 超时 | 7.6s |
+
+测试：`csv_test.go` 原有的 3 个用例都通过，加了 1 个 300 张发票的用例检查行数和列。PR #841。
+
+@@ user
+好，上了以后我让客户再试试。
+
+@@ assistant
+好。
+
+@@ user
+客户试了，2000 张 3 秒就出来了，CSV 这个好了，谢谢。
+
+@@ assistant
+好，那 CSV 导出这个就结了。

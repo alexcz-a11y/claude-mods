@@ -1,0 +1,157 @@
+%% S11 退款接口加 reason 字段：设计稿和改动点定死（E04）
+@@ user mark=E04
+产品给了个小需求：退款的时候可以填原因。设计稿我贴一下：
+
+> **退款原因（v1）**
+> - `POST /v1/refunds` 请求体加一个可选字段 `reason`，字符串，最长 200 个字（按字符算，不是字节）。前后空白去掉，去掉以后是空串就当没填。
+> - 存到 `refunds.reason`。
+> - `GET /v1/refunds/{id}` 和创建接口的响应里都带上 `reason`，没填就是 null。
+> - 后台页面这期不显示，下期再说。
+> - 不影响退款金额、状态流转和对渠道的调用，渠道那边不传原因。
+
+你看看要改哪些地方，先别动手。
+
+@@ assistant tools=Read*5,Grep*3 mark=E04
+看完了，比设计稿看起来还简单：`refunds.reason` 这一列早就有了。
+
+**现状**
+- `migrations/0031_refunds.sql` 里 `refunds` 表已经有 `reason text NULL`，去年建表时就加了，一直没有代码写它，生产上这一列全是 NULL。不需要新迁移。
+- `api/internal/refund/handler.go` 的请求结构：
+
+  ```go
+  type createRefundRequest struct {
+      PaymentID   int64           `json:"payment_id"`
+      Amount      decimal.Decimal `json:"amount"`
+      ExternalRef string          `json:"external_ref,omitempty"`
+  }
+  ```
+
+- 查询在 `api/queries/refunds.sql`：`CreateRefund`（INSERT ... RETURNING *）和 `GetRefund`（SELECT ... WHERE id = $1）。
+- 响应结构 `refundResponse` 在 `api/internal/refund/response.go`，由 `toResponse(store.Refund)` 转换。
+
+**要改的地方，一共 5 处**
+1. `api/openapi.yaml`：`RefundCreate` 加 `reason: {type: string, maxLength: 200, nullable: true}`；`Refund` 加 `reason: {type: string, nullable: true}`。
+2. `api/internal/refund/handler.go`：`createRefundRequest` 加 `Reason *string \`json:"reason,omitempty"\``；在现有的 `validate()` 里加一段：
+
+   ```go
+   if r.Reason != nil {
+       s := strings.TrimSpace(*r.Reason)
+       switch {
+       case s == "":
+           r.Reason = nil
+       case utf8.RuneCountInString(s) > 200:
+           return fieldError("reason", "最长 200 个字")
+       default:
+           r.Reason = &s
+       }
+   }
+   ```
+
+3. `api/queries/refunds.sql`：`CreateRefund` 的 INSERT 列表和 VALUES 各加一个 `reason`；`GetRefund` 用的是 `SELECT *`，生成代码会自动带上，不用改 SQL。改完跑 `make sqlc`（就是 `sqlc generate`）。
+4. `api/internal/refund/response.go`：`refundResponse` 加 `Reason *string \`json:"reason"\``，`toResponse` 里从 `pgtype.Text` 转一下。
+5. `api/internal/refund/handler_test.go`：已有的表驱动测试里加两行用例：超过 200 字返回 422，全是空格当没填。
+
+金额、状态机（`refund/state.go`）和调渠道的代码（`refund/gateway.go`）都不用碰。渠道请求结构里没有原因字段，设计稿也说不传。
+
+@@ user mark=E04
+对，就这几处，金额那块一个字都不动。设计稿就这样，等我说开始再做。
+
+@@ assistant
+好，记下了：5 处改动，不加迁移，不碰金额、状态和渠道。等你说开始。
+
+%% D3 e2e 偶发失败（已修）
+@@ user
+e2e 里 `web/e2e/invoice-create.spec.ts` 这周挂了三次，重跑又过，你看看。
+
+@@ assistant tools=Read*3,Bash*5,Edit*2
+找到两个原因，都已经改了。
+
+**原因 1：点完保存就断言 toast**
+
+```ts
+await page.getByRole('button', { name: '保存' }).click()
+await expect(page.getByText('发票已保存')).toBeVisible()
+```
+
+toast 是 `POST /v1/invoices` 返回之后才弹的。CI 上偶尔接口慢一点（e2e 用的是 docker 里的 api 和数据库，机器忙时 p99 能到 4 秒），而 `toBeVisible` 的默认超时是 5 秒，加上页面上其他请求，就会偶尔超时。
+
+改成先等接口返回再断言：
+
+```ts
+const saved = page.waitForResponse((r) => r.url().endsWith('/v1/invoices') && r.request().method() === 'POST')
+await page.getByRole('button', { name: '保存' }).click()
+expect((await saved).status()).toBe(201)
+await expect(page.getByText('发票已保存')).toBeVisible()
+```
+
+**原因 2：开票日期默认值取的是 `new Date()`**
+
+用例里断言开票日期输入框的值等于 `format(new Date(), 'yyyy-MM-dd')`，但页面里的默认值用的是商户时区（种子数据里是 `Asia/Shanghai`），CI 机器是 UTC。UTC 16:00 到 24:00 之间跑，两边差一天，用例就挂。这周挂的三次里有两次正好是北京时间凌晨。
+
+改成在用例开头固定时钟：
+
+```ts
+await page.clock.setFixedTime(new Date('2026-10-14T03:00:00Z'))
+```
+
+断言里的期望值也写成固定的 `2026-10-14`。
+
+**验证**
+
+```
+$ pnpm exec playwright test e2e/invoice-create.spec.ts --repeat-each 30
+Running 30 tests using 4 workers
+  30 passed (2.1m)
+```
+
+又把 `TZ=UTC` 和 `TZ=Asia/Shanghai` 各跑了 10 遍，都通过。改动只在这一个 spec 文件里。
+
+@@ user
+可以，合吧。
+
+@@ assistant tools=Bash*2
+PR #821 已提，CI 绿了。
+
+%% S12 PDF 导出第二次尝试：缓存字体和模板（E13）
+@@ user mark=E13
+PDF 导出那个回来弄。客户今天又投诉了，800 张那个客户说分批导也经常挂。你上次说的在 staging 抓 profile，抓一下。
+
+@@ assistant tools=Bash*7,Read*4,Edit*3
+抓到了，也做了第二次修改，结果如下。
+
+**staging 复现**：把 staging 的 api 资源限额改成和生产一样（CPU `500m`，内存 `1Gi`），开 `ENABLE_PPROF`，用种子商户导 300 张：131 秒，比本地慢 3 倍左右，和线上的现象一致。
+
+**CPU profile**（导出进行到一半时抓了 30 秒，`go tool pprof -top`）：
+
+```
+      flat  flat%   sum%        cum   cum%
+    11.20s 37.33% 37.33%     18.30s 61.00%  github.com/jung-kurt/gofpdf.(*utf8FontFile).parseTables
+     2.95s  9.83% 47.17%      2.95s  9.83%  runtime.memmove
+     2.70s  9.00% 56.17%      5.40s 18.00%  compress/flate.(*compressor).deflate
+     1.90s  6.33% 62.50%      2.80s  9.33%  runtime.scanobject
+     1.10s  3.67% 66.17%      1.10s  3.67%  github.com/jung-kurt/gofpdf.(*Fpdf).out
+```
+
+61% 的时间在解析 TTF 字体：每张发票都 `AddUTF8Font` 两次，每次都把 6 MB 的文件重新读一遍、重新解析字形表。本地机器快，这部分被掩盖了；限了 CPU 以后就是主要开销。
+
+**改法**（PR #829）：
+1. `api/internal/invoice/pdf/fonts.go` 新增一个包级的字体缓存：进程启动后第一次用到时用 `sync.Once` 把两个 TTF 读进内存，之后每张发票用 `AddUTF8FontFromBytes` 从内存里的字节加载，不再读文件；
+2. gofpdf 内部对同一份字节还是会解析字形表，所以又加了一层：渲染时只在第一页之前加载一次字体，同一个 zip 里的多张发票共用一个 `fontSet`，靠 `pdf.SetFontLoader` 把解析结果复用起来；
+3. 发票模板（`templates/invoice/standard.hbs` 编译后的结构）原来每张都重新解析，现在也缓存在包级变量里。
+
+**效果**：
+| 场景 | 改之前 | 改之后 |
+|---|---|---|
+| 本地 200 张 | 41.7s | 12.9s |
+| staging（生产同等限额）300 张 | 131s | 58s |
+| staging 500 张 | 超时 | 97s |
+
+单张的平均渲染时间从 0.43 秒降到 0.19 秒。按这个数字，线上 500 张应该能在 120 秒内完成。
+
+`go test ./api/internal/invoice/pdf/... ./api/internal/export/...` 全部通过；我另外比对了改前改后同一张发票渲染出的 PDF，用 `pdftotext` 转成文字逐行比较，内容一致。
+
+@@ user
+上吧。
+
+@@ assistant
+PR #829 已合进 main，会随今天下午的发布上线。上线后看 `/v1/exports/pdf` 的 p50 应该从 74 秒降到 30 秒左右，可以拿这个数确认效果。

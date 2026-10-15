@@ -71,6 +71,12 @@ export type Backend = {
    * back then. Absent reads as set up.
    */
   configured?: boolean
+  /**
+   * Whether `request` goes out past the model's regular limits (Jev's long-context header): it takes longer to answer, so
+   * it, and the requests sent beside it, wait longer (core/setup.ts `waitFor`). Absent: no request does (pplx takes 262k
+   * tokens in every request, and its wait is seconds already).
+   */
+  longContext?: (request: DecisionRequest) => boolean
   /** One decision request, answered within `timeoutMs` or failed; never throws. */
   ask: (io: BackendIo, request: DecisionRequest, timeoutMs: number) => Promise<Asked>
 }
@@ -142,13 +148,23 @@ export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** A non-2xx response as a failure, with the start of its body for the log. */
+/**
+ * A non-2xx response as a failure, with the start of its body for the log. A 429 or 529 that says how long to wait
+ * (`Retry-After`, in seconds) carries it as `retryAfterMs`, for a rate limit to wait as told (jev-rate.ts).
+ */
 export function httpFailure(response: HttpResponse): Failure {
   const status = response.status
   const detail = `HTTP ${status}: ${withoutBase64(response.text).replace(/\s+/g, ' ').slice(0, 200)}`
   if (status === 401 || status === 403) return { kind: 'config', status, detail }
-  if (status === 429 || status === 502 || status === 503 || status === 529) return { kind: 'busy', status, detail }
+  const wait = status === 429 || status === 529 ? retryAfterSeconds(response) : null
+  if (status === 429 || status === 502 || status === 503 || status === 529) return { kind: 'busy', status, detail, ...(wait === null ? {} : { retryAfterMs: Number(wait) * 1000 }) }
   return { kind: 'http', status, detail }
+}
+
+/** The seconds a response's `Retry-After` header asks to wait, when it gives a whole number of them (a date is not read). */
+export function retryAfterSeconds(response: HttpResponse): string | null {
+  const header = Object.entries(response.headers ?? {}).find(([name]) => name.toLowerCase() === 'retry-after')
+  return header !== undefined && /^\d+$/.test(String(header[1]).trim()) ? String(header[1]).trim() : null
 }
 
 /**

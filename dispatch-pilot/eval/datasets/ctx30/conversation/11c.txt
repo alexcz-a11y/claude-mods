@@ -1,0 +1,116 @@
+%% B3 种子数据怎么生成、怎么加一个测试商户（只是解释，加了一个商户）
+@@ user
+销售想在本地演示的时候用一个“餐饮连锁”的商户，有 5 家门店、几百个会员客户、每月固定开的服务费发票。种子数据是怎么生成的？能加一个这样的商户吗？
+
+@@ assistant tools=Read*5,Glob,Edit*2,Write,Bash*3
+种子数据是一个 Go 程序按配置生成的，加一个商户只要写一份配置。已经加好了。
+
+**种子数据怎么生成**
+
+`tools/seed/` 下是生成程序，`make dev-seed` 会调用它。它读 `tools/seed/merchants/*.yaml`，每个文件描述一个商户：基本信息、客户的数量和分布、商品、发票的生成规则（多少张、时间范围、状态的比例、明细行数的分布）。程序用固定的随机种子生成，所以每次生成的数据都一样，方便写测试和截图。
+
+现在有 6 个种子商户：
+
+| 文件 | 商户 | 特点 |
+|---|---|---|
+| `design-studio.yaml` | 设计工作室 | 客户少、单张金额大 |
+| `wholesale.yaml` | 批发商 | 客户多、明细行多 |
+| `saas.yaml` | 软件公司 | 订阅类、每月自动开票 |
+| `clinic.yaml` | 诊所 | 免税项目 |
+| `eu-consulting.yaml` | 德国的咨询公司 | 欧元、德文模板 |
+| `big-merchant.yaml` | 大商户 | 300 万条收款，用来测性能 |
+
+**新加的商户**：`tools/seed/merchants/restaurant-chain.yaml`
+
+```yaml
+name: 小满餐饮
+plan: business
+timezone: Asia/Shanghai
+locations: [静安店, 徐汇店, 浦东店, 杭州店, 苏州店]
+customers:
+  count: 420
+  kinds:
+    - { kind: member, share: 0.9, tags: [会员] }
+    - { kind: corporate, share: 0.1, tags: [企业客户, 月结] }
+products:
+  - { name: 企业团餐服务费, unit: 月, price: 6800.00, tax_rate: 0.06 }
+  - { name: 会议场地使用费, unit: 次, price: 1200.00, tax_rate: 0.06 }
+  - { name: 外卖平台代运营, unit: 月, price: 3500.00, tax_rate: 0.06 }
+invoices:
+  months: 12
+  recurring:
+    - { customer_kind: corporate, product: 企业团餐服务费, day_of_month: 1 }
+  adhoc_per_month: 30
+  status_mix: { paid: 0.82, issued: 0.12, overdue: 0.05, void: 0.01 }
+```
+
+12 个月下来是 42 个企业客户每月一张服务费发票（504 张），加上每月 30 张临时的发票（360 张），一共 864 张；会员客户主要是为了让客户列表看起来像真的，只有少数有发票。门店目前在系统里没有对应的概念，我放进了商户的“备注”里，销售演示时口头说明。
+
+**验证**：
+
+```
+$ make dev-seed
+seeded 7 merchants, 31,402 customers, 3,018,744 payments, 97,215 invoices
+$ psql "postgres://dev@localhost:5433/ledgerly_dev" -c "select count(*) from invoices i join merchants m on m.id = i.merchant_id where m.name = '小满餐饮'"
+ count
+-------
+   864
+```
+
+用 `dev-xiaoman@ledgerly.test` 登录能看到这个商户，首页图表、客户列表、发票列表都正常。账号写进了 `docs/dev-accounts.md`。
+
+@@ user
+好，我让销售自己拉代码跑。
+
+@@ assistant tools=Bash
+PR #852 已提。
+
+%% B4 写一份“怎么写好 PR 描述”（和任何一题无关）
+@@ user
+评审清单里说了 PR 描述要写清楚，但新人可能不知道什么叫写清楚。补一份“怎么写 PR 描述”的说明，带两个例子，一个好的一个不好的。放在评审清单后面就行。
+
+@@ assistant tools=Read,Edit
+加在 `docs/conventions/code-review.md` 末尾了：
+
+```markdown
+## 附：怎么写 PR 描述
+
+PR 描述是写给评审的人和半年后翻历史的人看的。他们不知道你这两天经历了什么，只能从描述里知道。
+
+一份好的描述回答三个问题：
+
+1. **改了什么**：一两句话说清楚这个 PR 做了什么，不要把 diff 再讲一遍。
+2. **为什么**：解决什么问题，是哪个 issue、哪个客户反馈、哪次事故引出来的。如果有别的做法，为什么没选。
+3. **怎么验证的**：跑了哪些测试；手动试了什么；有界面变化的贴前后截图；有性能变化的贴前后的数字。
+
+另外，如果有需要评审的人特别注意的地方（比如“这里改了锁的顺序”“迁移在大表上要跑几分钟”），单独写一段“请重点看”。
+
+### 不好的例子
+
+> 修复 bug。
+
+评审的人只能从 diff 里猜：修的是什么 bug？怎么确认修好了？会不会影响别的地方？
+
+### 好的例子
+
+> **改了什么**：给 `payments` 加一个 `(merchant_id, paid_at)` 的部分索引（只含成功的支付），后台首页“最近 7 天收款”的查询走这个索引。
+>
+> **为什么**：大商户打开首页要四五秒。原因是这条查询只能用 `merchant_id` 的索引，把商户的几百万条收款全取出来再按时间过滤。
+>
+> **怎么验证的**：
+> - 本地用一个 300 万条收款的商户看执行计划：3.8 秒降到 10 毫秒，计划贴在下面；
+> - 查询本身没改，返回结果不变，原有的测试全部通过；
+> - `make migrate-lint` 通过。
+>
+> **请重点看**：索引用 `CREATE INDEX CONCURRENTLY` 建，不锁表，但生产上 `payments` 有 1800 万行，建索引要几分钟、会多读一遍全表，需要在发布窗口执行。
+
+好的例子并不长，但评审的人读完就知道该怎么看这个 PR。
+```
+
+例子用的是今天首页加索引那个 PR 的真实情况，稍微改写了一下。
+
+@@ user
+好。
+
+@@ assistant tools=Bash
+已经并进 PR #851 一起提了。

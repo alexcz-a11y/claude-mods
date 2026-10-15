@@ -18,7 +18,7 @@
 // network, timeout, after --retries) stops that item, to be gone on with by the next run; a refused key or a spent quota
 // stops the run.
 //
-// Options: --model (the backend's: jev-latest, pplx-decider-v1.1-27b), --state-tokens N and --state-messages N (as run.ts;
+// Options: --model (the backend's: jev-1.14.0, pplx-decider-v1.1-27b), --state-tokens N and --state-messages N (as run.ts;
 // the mod's 24000 and 32 otherwise), --language zh|en (the questions; the decision model's ask.turnStart, core/setup.ts BACKEND_DEFAULTS, otherwise),
 // --thresholds add,reset (the bars; the mod's 0.5,0.7 otherwise), --option name=value (a mod option, as run.ts), --ids a,b,
 // --limit N, --concurrency 4 (items at once; the messages of one item go one after another), --timeout <ms>, --retries 2,

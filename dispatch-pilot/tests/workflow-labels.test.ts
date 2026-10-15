@@ -361,19 +361,19 @@ return [a, b, c, d]
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model}`)).toEqual(['wh claude-haiku-5-5', 'ws claude-sonnet-5', 'wo claude-opus-5-5', 'wf claude-fable-5-1'])
 })
 
-test('no answer within timeoutMs as an agent starts: it goes out as the engine made it, and the board says why', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
+test("no answer within an agent's wait as it starts (with Jev 6000 ms): it goes out as the engine made it, and the board says why", { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
   const answer = siteJev(() => ({ model: { opus: 0.9 } }))
-  const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: (request) => ({ after: 2000, reply: answer(request) }) })
+  const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: (request) => ({ after: 8000, reply: answer(request) }) })
   await w.workflow({ scriptPath: SAVED })
   w.started('wf_test-1', 'wa1', 'first')
   w.transcript('wf_test-1', 'wa1', 'Find why the nightly import drops rows, and fix it.')
 
   const step = w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
   await w.clock.settle()
-  await w.clock.advance(800)
+  await w.clock.advance(6000)
   await step
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
-  expect((await w.board()).agents.find((node) => node.id === 'wa1')).toMatchObject({ routed: false, why: 'jev：800 毫秒内没有回答', failure: { backend: 'jev', kind: 'timeout' } })
+  expect((await w.board()).agents.find((node) => node.id === 'wa1')).toMatchObject({ routed: false, why: 'jev：6000 毫秒内没有回答', failure: { backend: 'jev', kind: 'timeout' } })
 })
 
 test("an agent that already has a plan (one the main agent dispatched, or a first step the engine sends again after an error) keeps it: nothing is asked again", { options: KEY }, async ($, on) => {
@@ -603,4 +603,47 @@ return summary
   expect(board.log.find((entry) => entry.n === agents[1]?.decision)).toMatchObject({ feature: 'workflow-agents', model: 'haiku', subject: '"summary"（Workflow answers）' })
   expect(board.log.find((entry) => entry.n === agents[0]?.decision)).toMatchObject({ feature: 'workflow-labels', agent: 'wa1' })
   expect(board.agents.filter((node) => node.state === 'queued')).toEqual([])
+})
+
+// ---- A fan-out's agents start together and share a request (ADR 0009) -------------------------------------------------
+
+const FAN_OUT = `export const meta = { name: 'answers', description: 'Answer each question', phases: [] }
+const found = await parallel(QUESTIONS.map((q) => () => agent(q.prompt, { label: q.label })))
+return found
+`
+const QUESTIONS = [
+  ['wa1', 'q-auth', 'Is every route under src/api/admin checked for the admin role? Cite the file and line of each gap.'],
+  ['wa2', 'q-billing', 'Does the refund handler in src/billing/refund.ts ever pay out twice for one charge? Show the path if it does.'],
+  ['wa3', 'q-search', 'List the files under src/search that read the index directly instead of through the client.'],
+] as const
+
+test("a fan-out's agents that start together are asked about in one request once their tasks are read, each task a brief of its own; an agent that starts after it went out goes in the next", { options: KEY }, async ($, on) => {
+  const answer = siteJev((i): SiteAnswer => (i === 1 ? { model: { opus: 0.9 } } : { model: { haiku: 0.9 } }))
+  const w = runWorld($, on, { disk: { [SAVED]: FAN_OUT }, backend: (request) => ({ after: 1000, reply: answer(request) }) })
+  // The script's one call has its prompt in data: nothing is asked as the run starts.
+  await w.workflow({ scriptPath: SAVED })
+  expect(w.requests).toEqual([])
+  for (const [agentId, label] of QUESTIONS) w.started('wf_test-1', agentId, label)
+  const stepping = QUESTIONS.map(([agentId]) => w.agentStep(agentId, { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' }))
+  await w.clock.settle()
+  // The engine writes the agents' transcripts 50-110 ms after their first steps begin (2.1.289).
+  for (const [agentId, , task] of QUESTIONS) w.transcript('wf_test-1', agentId, task)
+  await w.clock.advance(25)
+  expect(w.requests).toHaveLength(1)
+  const [sent] = w.requests
+  expect(Object.keys(sent?.body.questions)).toEqual(['agent-0.model', 'agent-0.effort', 'agent-1.model', 'agent-1.effort', 'agent-2.model', 'agent-2.effort'])
+  expect([0, 1, 2].map((i) => [sent?.body.state[`brief_${i}`].label, sent?.body.state[`brief_${i}`].prompt])).toEqual(QUESTIONS.map(([, label, task]) => [label, task]))
+  await w.clock.advance(1000)
+  await Promise.all(stepping)
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model}`).sort()).toEqual(['wa1 claude-haiku-5-5', 'wa2 claude-opus-5-5', 'wa3 claude-haiku-5-5'])
+
+  // An agent of a later phase of the run: its own request.
+  w.started('wf_test-1', 'wa4', 'q-docs')
+  w.transcript('wf_test-1', 'wa4', 'Find the pages under docs/ that still describe the old search client.')
+  const later = w.agentStep('wa4', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.clock.settle()
+  expect(w.requests).toHaveLength(2)
+  expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['agent-0.model', 'agent-0.effort'])
+  await w.clock.advance(1000)
+  await later
 })

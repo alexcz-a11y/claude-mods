@@ -23,7 +23,7 @@
 import type { HttpInit, On } from 'claude-code'
 import { messageText } from '../decision/context.ts'
 import { EFFORT_PART } from '../decision/effort.ts'
-import { askGroup, type AskIo } from './ask-group.ts'
+import { askGroups, type AskIo } from './ask-group.ts'
 import { collect, type Contribution } from './ballot.ts'
 import { forgetCommand, noteCommand, typedCommand } from './commands.ts'
 import { noteBlocked } from './outcomes.ts'
@@ -68,8 +68,9 @@ export function registerCore(on: On, ctx: Ctx): void {
       debug: (line) => $.ui.log(line, { to: 'debug' }),
     }
     // The main agent's effort goes in a request of its own (ADR 0005), the rest of the ballot in one. Both go out at once,
-    // each is answered or fails on its own, and each part reads the outcome of the request it was in.
-    const blocks = (await Promise.all(requestGroups(ballot).map((group) => askGroup(io, ctx, { prompt: e.text, messages, group })))).flat()
+    // with one wait (a long effort request makes it longer for both), each is answered or fails on its own, and each part
+    // reads the outcome of the request it was in.
+    const blocks = await askGroups(io, ctx, { prompt: e.text, messages, groups: requestGroups(ballot) })
     entering.push(e.text)
     try {
       return await next(blocks.length > 0 ? { ...e, context: [...(e.context ?? []), ...blocks] } : e)

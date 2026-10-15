@@ -1,0 +1,58 @@
+%% X1-4 前端的 Sentry 报错没有版本号、堆栈看不懂（已做完）
+@@ user
+前端在 Sentry 上的报错，堆栈全是压缩后的代码，也看不出是哪个版本出的。弄一下 source map 和 release。
+
+@@ assistant tools=Read*4,Edit*5,Bash*4
+弄好了。现在每次发布 Sentry 上会有一个 release，报错的堆栈能还原到源码的文件和行号。
+
+**改动**：
+1. `web/vite.config.ts`：`build.sourcemap: 'hidden'`。生成 `.map` 文件，但产物里不加 `//# sourceMappingURL` 注释，浏览器不会去下载，用户看不到源码。
+2. 加了 `@sentry/vite-plugin`：构建时用 `SENTRY_RELEASE`（取 git tag，没有 tag 时取短 SHA）创建 release，把 `.map` 上传到 Sentry，上传完从产物目录里删掉 `.map`，不会被部署到 CDN。
+3. `web/src/main.tsx` 里 `Sentry.init` 加上 `release: import.meta.env.VITE_SENTRY_RELEASE`，和上传时用的是同一个值。
+4. `.github/workflows/release.yml` 的 web 构建步骤加了 `SENTRY_AUTH_TOKEN`（从仓库的 secrets 读，变量名就是这个，值我没有看）、`SENTRY_ORG`、`SENTRY_PROJECT` 三个环境变量。CI 里普通的 PR 构建不上传，只有打 tag 的 release 流程上传。
+5. Sentry 上把 `ledgerly-web` 项目的“Data Scrubbing”里加了一条规则，过滤报错里的邮箱和手机号，这一条是你之前提过的要求。
+
+**验证**：在 staging 上用一个临时的 release `staging-test-1` 走了一遍：故意在设置页触发一个 `TypeError`，Sentry 上的堆栈显示 `src/pages/settings/Appearance.tsx:42`，能点开看到源码行。产物目录里确认没有 `.map` 文件。
+
+@@ user
+好。
+
+@@ assistant tools=Bash
+PR #837 已提。
+
+%% X1-5 商户设置的缓存什么时候失效（只是解释）
+@@ user
+问一下：商户改了设置（比如付款条款），api 多久能生效？有商户说改完以后新开的发票还是旧的条款。
+
+@@ assistant tools=Read*3,Grep*3
+最多 10 分钟，大部分情况下是立刻生效，但有一种情况会等满 10 分钟。
+
+**缓存怎么做的**：`api/internal/merchant/settings.go`
+
+```go
+func (s *Service) Settings(ctx context.Context, merchantID int64) (Settings, error) {
+    if v, ok := s.local.Get(merchantID); ok { // 进程内缓存，30 秒
+        return v, nil
+    }
+    if v, err := s.redisGet(ctx, merchantID); err == nil { // Redis，10 分钟
+        s.local.Set(merchantID, v)
+        return v, nil
+    }
+    v, err := s.store.GetMerchantSettings(ctx, merchantID)
+    ...
+}
+```
+
+两层缓存：每个 api 副本自己有一个 30 秒的进程内缓存，下面是 Redis 里 10 分钟的缓存（就是之前看到的 `ms:` 前缀）。
+
+**更新的时候**：`UpdateSettings` 写完数据库以后会删掉 Redis 里的 key，所以 Redis 这一层是立刻失效的。但是进程内缓存删不掉别的副本的，所以其他 5 个副本最多还会用 30 秒的旧值。
+
+**为什么会等 10 分钟**：后台的“付款条款”不是走 `UpdateSettings` 改的，而是一个单独的接口 `PUT /v1/merchant/payment-terms`（`api/internal/merchant/terms.go`），它直接更新数据库，**没有删 Redis 的 key**。所以改付款条款以后，Redis 里的旧值要等 10 分钟过期。这个商户遇到的应该就是这个。
+
+修起来很简单：`terms.go` 里写完数据库以后调一下 `s.invalidate(ctx, merchantID)`，和 `UpdateSettings` 一样。要我改吗？
+
+@@ user
+改吧，顺手的事。
+
+@@ assistant tools=Edit,Bash*2
+改了：`terms.go` 写库成功后调用 `s.invalidate(ctx, merchantID)`，加了一个测试，确认改完付款条款后立刻读到的是新值（测试里用 miniredis）。PR #838。

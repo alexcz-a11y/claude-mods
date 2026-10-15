@@ -12,7 +12,7 @@
 // Pure (see system-one.ts).
 
 import type { HttpResponse } from 'claude-code'
-import { errorText, postJson, withNote, withoutBase64, type Asked, type Backend, type Failure } from './backend.ts'
+import { errorText, postJson, retryAfterSeconds, withNote, withoutBase64, type Asked, type Backend, type Failure } from './backend.ts'
 import { describeImages, PPLX_MAX_IMAGES, placeImages } from './images.ts'
 import { readResponse, type DecisionRequest } from './system-one.ts'
 
@@ -83,7 +83,7 @@ export function pplxRequest(request: DecisionRequest, model: string): unknown {
  */
 function pplxFailure(response: HttpResponse): Failure {
   const status = response.status
-  const wait = retryAfter(response)
+  const wait = retryAfterSeconds(response)
   const detail = `HTTP ${status}: ${bodyReason(response.text)}${wait === null || status !== 429 ? '' : ` (retry after ${wait} s)`}`
   if (status === 401 || status === 403) return { kind: 'config', status, detail }
   if (status === 429) return { kind: 'busy', status, detail, ...(wait === null ? {} : { retryAfterMs: Number(wait) * 1000 }) }
@@ -100,12 +100,6 @@ function bodyReason(text: string): string {
   if (isRecord(error) && typeof error.message === 'string') return typeof error.type === 'string' ? `${error.type}: ${error.message}` : error.message
   if (/^<(!doctype|html)\b/i.test(trimmed)) return 'an HTML page, not JSON'
   return withoutBase64(trimmed).replace(/\s+/g, ' ').slice(0, 200)
-}
-
-/** The seconds a 429's `Retry-After` header asks to wait, when it has one. */
-function retryAfter(response: HttpResponse): string | null {
-  const header = Object.entries(response.headers ?? {}).find(([name]) => name.toLowerCase() === 'retry-after')
-  return header !== undefined && /^\d+$/.test(String(header[1]).trim()) ? String(header[1]).trim() : null
 }
 
 /** The answers out of a 2xx body; a failure when it is not JSON or holds none. */

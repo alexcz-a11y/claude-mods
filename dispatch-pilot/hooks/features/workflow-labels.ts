@@ -17,8 +17,8 @@
 // Its switch is `workflow-labels` (`/dp workflow-labels off`).
 
 import type { EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
-import { describeAsked, errorText, failureLine, failureText, within, type BackendIo, type Failure } from '../decision/backend.ts'
-import { clipToTokens, conversationUpTo, describeState, type ContextMessage } from '../decision/context.ts'
+import { errorText, failureLine, failureText, within, type Failure } from '../decision/backend.ts'
+import { clipToTokens, conversationUpTo, type ContextMessage } from '../decision/context.ts'
 import { dispatchEvidence, modelFamily, termsOf, type AgentModel, type DispatchSettings, type Terms } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
 import {
@@ -38,8 +38,9 @@ import {
   type RunSite,
 } from '../decision/workflow-labels.ts'
 import { renderSummary } from '../decision/summary.ts'
-import { parseWorkflow, type AgentCall, type ParsedWorkflow } from '../decision/workflow-script.ts'
-import { batchesTimeoutMs, callResult, planBatches, readOutcomes, reasonOf, workflowBatches, type WorkflowBackground } from '../decision/workflow.ts'
+import { parseWorkflow, type AgentCall } from '../decision/workflow-script.ts'
+import { BATCHES_BUDGET_MS, callDispatch, callOutcome, callResult, planBatches, readOutcomes, reasonOf, SCRIPT_SHARE, tellsTheWork, type WorkflowBackground } from '../decision/workflow.ts'
+import { askAgent, askInLane, type AgentAnswer, type AgentInput, type LaneIo } from '../core/agent-lane.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { callNodeId, report, type Decided, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
@@ -83,9 +84,9 @@ const LABEL_HINT =
 
 /**
  * What the turn that launched a run said, kept for the run's agents decided as each one starts (`labelRuns` in
- * types/index.d.ts): the person's words (`said` then), the problem summary and count, the script (with pplx: its
- * text, cut to an agent's budget) and the loop that launched it (`caller`, absent for the main one): its conversation up
- * to the run's call is read as an agent starts.
+ * types/index.d.ts): the person's words (`said` then), the problem summary and count, the script (with the agents'
+ * background: its text, cut to the share of an agent's budget a script takes) and the loop that launched it (`caller`,
+ * absent for the main one): its conversation up to the run's call is read as an agent starts.
  */
 type Launch = { said: string[]; problem_summary?: string; unresolved_count?: number; script?: string; caller?: string }
 
@@ -166,23 +167,13 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
           const { value: terms = [] } = await $.state.get({ ...TERMS, id: e.tool_use_id }).catch(() => ({ value: undefined }))
           sites = inlineSites(parsed.calls, plan.skipped, terms)
         } else {
-          // With pplx, the script and the conversation the run is launched from, up to its call (BACKEND_DEFAULTS agentBackground).
+          // The script and the conversation the run is launched from, up to its call (BACKEND_DEFAULTS agentBackground).
           const recent = ctx.config.agents.background ? (conversationUpTo(await conversationOf($, e.agentId), ctx.config.context.messages, e.tool_use_id) ?? []) : []
           const plan = planBatches(parsed, words, settings, budgets, { background: { ...background, ...(ctx.config.agents.background ? { script: text, recent } : {}) } })
-          const io: BackendIo = {
-            fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
-            sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
-            pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
-          }
-          const timeoutMs = batchesTimeoutMs(ctx.config.timeoutMs, plan.batches.length)
-          const asked = await Promise.all(
-            plan.batches.map(async (batch) => {
-              const startedAt = await $.clock.now()
-              const answer = await ctx.backend.ask(io, batch.request, timeoutMs)
-              log(`request [${Object.keys(batch.request.questions).join(', ')}] to ${ctx.backend.name} for workflow ${JSON.stringify(parsed.meta.name)} (by label): ${describeAsked(answer, (await $.clock.now()) - startedAt)}; ${describeState(batch.request.state)}`)
-              return answer
-            }),
-          )
+          // Several requests go out as the lanes allow (core/agent-lane.ts, which logs each), all within the hook's budget.
+          const since = await $.clock.now()
+          const deadline = since + BATCHES_BUDGET_MS
+          const asked = await Promise.all(plan.batches.map((batch) => askInLane(ctx, batch.request, { deadline, since, about: `workflow ${JSON.stringify(parsed.meta.name)} (by label)`, io: laneIoOf($) })))
           const outcomes = readOutcomes(parsed, plan, asked, words, settings)
           sites = sitesOf(parsed.calls, outcomes)
           decided = { calls: parsed.calls, outcomes, describe: (failure) => failureText(ctx.backend.name, failure) }
@@ -197,7 +188,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       const asLaunched: Launch = {
         said,
         ...problem,
-        ...(ctx.config.agents.background && text !== null ? { script: clipToTokens(text, ctx.config.contextByKind.agent, SCRIPT_KEPT_TAIL) } : {}),
+        ...(ctx.config.agents.background && text !== null ? { script: clipToTokens(text, Math.floor(ctx.config.contextByKind.agent * SCRIPT_SHARE), SCRIPT_KEPT_TAIL) } : {}),
         ...(e.agentId === undefined ? {} : { caller: e.agentId }),
       }
       const run: LabelRun = {
@@ -285,6 +276,20 @@ async function routeAgent($: EngineInterface, ctx: Ctx, settings: DispatchSettin
   }
 }
 
+/** The module's way into `$` for a request about agents (core/agent-lane.ts). */
+function laneIoOf($: EngineInterface): LaneIo {
+  return {
+    backend: {
+      fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+      sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+      pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+    },
+    now: () => $.clock.now(),
+    sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+    debug: (line) => $.ui.log(line, { to: 'debug' }),
+  }
+}
+
 /** The module's way into `$` for a report (`$` may not cross an import). */
 function reportingOf($: EngineInterface): ReportIo {
   return {
@@ -342,7 +347,11 @@ type Settled = { ok: true; route: AgentRoute | null; terms: Terms | null; decisi
 
 /**
  * Decides one agent as it starts, from the task in its transcript, as the
- * workflow-agents feature decides a call (same request, same reading).
+ * workflow-agents feature decides a call (the same questions, the same reading),
+ * with the agents of its run that start beside it: a fan-out's agents start
+ * together, and share requests (core/agent-lane.ts). The agent joins its group
+ * at once and its task follows, so the group goes out once the tasks of all
+ * that joined it are read.
  */
 async function decideAtStart(
   $: EngineInterface,
@@ -350,62 +359,63 @@ async function decideAtStart(
   settings: DispatchSettings,
   agent: { run: LabelRun; agentId: string; label: string; site: RunSite | undefined; deadline: number },
 ): Promise<Settled> {
-  const task = await readTask($, agent.run.dir, agent.agentId, agent.deadline)
-  if (task === null) return { ok: false, reason: '它的任务没能及时读到' }
+  const now = await $.clock.now()
+  const deadline = Math.min(agent.deadline, now + ctx.config.agents.waitMs)
+  if (deadline - now < MIN_ASK_MS) return { ok: false, reason: '没有时间再问决策模型了' }
   // What the turn that launched the run said, not the turn the agent starts in: the person may have sent another message
   // since, about something else. A run an earlier load recorded kept none, and reads the words of now.
   const launch = agent.run.launch
-  const said = launch?.said ?? ((await $.state.get(SAID)).value ?? [])
-  const words = said.join('\n')
-  const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
-  const background: WorkflowBackground = {
-    ...(launch?.problem_summary === undefined ? {} : { problem_summary: launch.problem_summary }),
-    ...(launch?.unresolved_count === undefined ? {} : { unresolved_count: launch.unresolved_count }),
-    // The latest reading as this agent starts, not the one at the launch: the images read since are the work's too.
-    ...(reference === undefined ? {} : { reference_complexity: reference }),
-    ...(ctx.config.agents.background && launch !== undefined ? { script: launch.script ?? null, recent: await launchConversation($, agent.run, ctx.config.context.messages) } : {}),
-  }
   const site = agent.site
-  const call: AgentCall = {
-    index: 0,
-    line: site?.line ?? 0,
-    prompt: task,
-    // A label the engine made up from the task says nothing more.
-    label: isTaskStart(agent.label, task) ? null : agent.label,
-    labelKind: 'string',
-    agentType: site?.agentType ?? null,
-    model: site?.model ?? { kind: 'none' },
-    effort: site?.effort ?? { kind: 'none' },
-    edit: null,
-  }
-  const parsed: ParsedWorkflow = { script: '', meta: { name: agent.run.workflow, description: agent.run.description }, calls: [call] }
-  // One request for each agent, and the agents of a fan-out start together: a dispatched agent's budget, not a Workflow's one request's.
-  const plan = workflowBatches(parsed, words, settings, ctx.config.contextByKind.agent, { background })
-  const batch = plan.batches[0]
-  if (batch === undefined) return { ok: false, reason: '它的任务里没说要做什么' }
-  const timeoutMs = Math.min(ctx.config.timeoutMs, agent.deadline - (await $.clock.now()))
-  if (timeoutMs < MIN_ASK_MS) return { ok: false, reason: '没有时间再问决策模型了' }
-  const io: BackendIo = {
-    fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
-    sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
-    pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
-  }
-  const startedAt = await $.clock.now()
-  const asked = await ctx.backend.ask(io, batch.request, timeoutMs)
+  const meta = { name: agent.run.workflow, description: agent.run.description }
+  /** The call the agent's task stands for, once it is read; why there is nothing to ask when it is not. */
+  let call: AgentCall | null = null
+  let unasked = '它的任务没能及时读到'
+  const input = readTask($, agent.run.dir, agent.agentId, deadline).then(async (task): Promise<AgentInput | null> => {
+    if (task === null) return null
+    call = {
+      index: 0,
+      line: site?.line ?? 0,
+      prompt: task,
+      // A label the engine made up from the task says nothing more.
+      label: isTaskStart(agent.label, task) ? null : agent.label,
+      labelKind: 'string',
+      agentType: site?.agentType ?? null,
+      model: site?.model ?? { kind: 'none' },
+      effort: site?.effort ?? { kind: 'none' },
+      edit: null,
+    }
+    if (!tellsTheWork(task)) {
+      unasked = '它的任务里没说要做什么'
+      return null
+    }
+    const said = launch?.said ?? ((await $.state.get(SAID)).value ?? [])
+    const words = said.join('\n')
+    const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
+    const background: WorkflowBackground = {
+      ...(launch?.problem_summary === undefined ? {} : { problem_summary: launch.problem_summary }),
+      ...(launch?.unresolved_count === undefined ? {} : { unresolved_count: launch.unresolved_count }),
+      // The latest reading as this agent starts, not the one at the launch: the images read since are the work's too.
+      ...(reference === undefined ? {} : { reference_complexity: reference }),
+      ...(ctx.config.agents.background && launch !== undefined ? { script: launch.script ?? null, recent: await launchConversation($, agent.run, ctx.config.context.messages) } : {}),
+    }
+    return { dispatch: callDispatch(call, meta, words), shared: { words, background } }
+  })
   const about = `${JSON.stringify(agent.label)}（agent ${agent.agentId}，Workflow ${agent.run.workflow ?? '未命名'}）`
-  const log = (line: string) => $.ui.log(line, { to: 'debug' })
-  log(`request [${Object.keys(batch.request.questions).join(', ')}] to ${ctx.backend.name} for ${about}: ${describeAsked(asked, (await $.clock.now()) - startedAt)}; ${describeState(batch.request.state)}`)
-  const outcome = readOutcomes(parsed, plan, [asked], words, settings)[0]
-  if (outcome === undefined || outcome.kind === 'left') {
-    const failure = outcome?.kind === 'left' ? outcome.failure : undefined
-    return { ok: false, reason: failure === undefined ? '决策模型没有回答' : failureLine(ctx.backend.name, failure), ...(failure === undefined ? {} : { failure }) }
+  const late: AgentAnswer = { ok: false, failure: { kind: 'timeout', detail: `no answer in ${Math.round(deadline - now)} ms` } }
+  const io = laneIoOf($)
+  const answer = await within(io.sleep, askAgent(ctx, settings, { key: `run:${agent.run.runId}`, kind: 'workflow', input, deadline, about, io }), deadline - now, late)
+  const asked = call as AgentCall | null
+  if (!answer.ok || asked === null) {
+    if (!answer.ok && answer.unasked !== true) return { ok: false, reason: failureLine(ctx.backend.name, answer.failure), failure: answer.failure }
+    return { ok: false, reason: unasked }
   }
-  const requested = call.model.kind === 'literal' ? modelFamily(call.model.value) : null
+  const outcome = callOutcome(asked, answer.decision)
+  const requested = asked.model.kind === 'literal' ? modelFamily(asked.model.value) : null
   const family = outcome.decision.model ?? requested
   const decision = {
     // The entry's subject is the agent as it is told here, not the call.
     subject: about,
-    outcome: callResult(call, outcome.decision),
+    outcome: callResult(asked, outcome.decision),
     reason: `按它启动时的任务；${reasonOf(outcome.decision, requested, settings.thetaOverride)}`,
     ...dispatchEvidence(outcome.decision),
     ...(family === null ? {} : { model: family }),

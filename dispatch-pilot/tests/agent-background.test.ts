@@ -1,7 +1,8 @@
-// What an agent's decision reads beside its brief and the person's words (ADR 0007): with pplx, the background it was
-// written in, the conversation it was dispatched from and, for a Workflow's agents, the script; with Jev neither
-// (BACKEND_DEFAULTS agentBackground). And an agent of a Workflow decided as it starts reads what the turn that
-// launched its run said, not a message the person sent since. Seam 1: the engine's events in, the requests out.
+// What an agent's decision reads beside its brief and the person's words (ADR 0007, ADR 0009): the background it was
+// written in, the conversation it was dispatched from and, for a Workflow's agents, the script, with pplx and (since
+// 2026-10-15, within the long context) with Jev (BACKEND_DEFAULTS agentBackground). And an agent of a Workflow decided as
+// it starts reads what the turn that launched its run said, not a message the person sent since. Seam 1: the engine's
+// events in, the requests out.
 
 import { expect, test } from 'claude-code/testing'
 import type { SessionMessage } from 'claude-code'
@@ -121,12 +122,13 @@ test('with pplx, an agent a subagent dispatches reads the subagent\'s own conver
   expect(String(state.recent_context)).not.toContain('session writer')
 })
 
-test("with Jev, a dispatched agent's request is its brief and the person's words: no conversation", { options: JEV }, async ($, on) => {
+test("with Jev too, a dispatched agent's request carries the conversation it was dispatched from (since 2026-10-15)", { options: JEV }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), messages: DISPATCHING })
   await w.submit('the cache refresh and the session writer race somewhere; find out where')
   await w.spawn({ prompt: 'List every function in src/session that writes the session file.', subagentType: 'Explore' })
   const state = w.requests.find((request) => 'agent.model' in request.body.questions)?.body.state
-  expect(Object.keys(state)).toEqual(['brief', 'user_message'])
+  expect(Object.keys(state)).toEqual(['brief', 'user_message', 'recent_context'])
+  expect(String(state.recent_context)).toContain('I will send an Explore agent to map who writes the session')
 })
 
 // ---- a Workflow's agents decided when the script is sent ------------------------------------------------------
@@ -153,12 +155,14 @@ test('with pplx, the requests about a script\'s calls carry the script (secrets 
   expect(String(state.recent_context)).not.toContain('later words')
 })
 
-test("with Jev, the requests about a script's calls hold their briefs and the person's words: no script, no conversation", { options: JEV }, async ($, on) => {
-  const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { sonnet: 0.9 } })), messages: DISPATCHING })
+test("with Jev too, the requests about a script's calls carry the script and the conversation up to the Workflow call (since 2026-10-15)", { options: JEV }, async ($, on) => {
+  const transcript = [row('user', '把 getUser 改名，再审一下 diff'), row('assistant', 'Two steps in one Workflow: rename, then review.', [['Workflow', 'toolu_wf']]), row('user', 'later words')]
+  const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { sonnet: 0.9 } })), messages: transcript })
   await w.submit('把 getUser 改名，再审一下 diff')
-  await w.workflow({ script: TIDY })
+  await w.workflow({ script: TIDY, tool_use_id: 'toolu_wf' })
   const state = w.requests.find((request) => 'agent-0.model' in request.body.questions)?.body.state
-  expect(Object.keys(state)).toEqual(['brief_0', 'brief_1', 'user_message'])
+  expect(Object.keys(state)).toEqual(['brief_0', 'brief_1', 'user_message', SCRIPT_FIELD, 'recent_context'])
+  expect(String(state.recent_context)).not.toContain('later words')
 })
 
 test("a call's prompt is sent whole when it fits its share of the budget: a script of one call gives it all of it, not 400 tokens", { options: JEV }, async ($, on) => {
@@ -200,7 +204,7 @@ test('with pplx, a run given by path is asked about with the script it runs and 
 // ---- the budgets (seam 2) -----------------------------------------------------------------------------------
 
 test('a script whose calls take several requests, sent together, keeps each within the budget for several at once; one request takes the larger one', () => {
-  const settings = dispatchSettings({ config: readConfig(PPLX), ask: DEFAULT_ASK })
+  const settings = dispatchSettings({ config: readConfig(PPLX) })
   const prompt = (i: number) => `Audit module m${i}: ${Array.from({ length: 900 }, (_, k) => `check the handler h${k} for unchecked input;`).join(' ')}`
   const scriptOf = (n: number) =>
     `export const meta = { name: 'audit', description: 'Audit every module', phases: [] }\n${Array.from({ length: n }, (_, i) => `await agent(${JSON.stringify(prompt(i))}, { label: 'audit-${i}' })`).join('\n')}\n`

@@ -38,7 +38,7 @@ import { startedIn } from '../decision/workflow-labels.ts'
 import { endedAs, noteEnded, wasBlocked } from '../core/outcomes.ts'
 import { floorHeld, forced, MAIN, newTurn, redecided, replace, turnKey, update, type AgentPlan, type Cell, type TurnRecord } from '../core/plans.ts'
 import { report, type Decided, type ReportIo } from '../core/report.ts'
-import type { Ctx } from '../core/setup.ts'
+import { redecisionWaitMs, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 
 const ESCALATION = { plugin: 'dispatch-pilot', key: 'escalation' } as const
@@ -376,7 +376,8 @@ async function launch($: EngineInterface, s: Settings, id: string, agentId: stri
     pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
   }
   const startedAt = await $.clock.now()
-  entry.answer = s.ctx.backend.ask(io, request, s.ctx.config.timeoutMs).then(async (asked): Promise<Stuck> => {
+  // As long as a long request may take, as a mid-turn re-decision's: the step waits for it only `rejudgeWaitMs`.
+  entry.answer = s.ctx.backend.ask(io, request, redecisionWaitMs(s.ctx.config)).then(async (asked): Promise<Stuck> => {
     entry.ms = (await $.clock.now()) - startedAt
     $.ui.log(`request [${Object.keys(request.questions).join(', ')}] for ${entry.about} to ${s.ctx.backend.name}: ${describeAsked(asked, entry.ms)}`, { to: 'debug' })
     let stuck: Stuck = { reading: null, expected: null, failure: null, unread: false }

@@ -18,11 +18,14 @@ import { DEFAULT_AGENT_MODELS, WORDS_SHARE, type AgentModel, type DispatchAsk, t
 import type { EffortAsk, EffortRules } from '../decision/effort.ts'
 import { RAISE_MODES, type RaiseMode } from '../decision/escalation.ts'
 import { jevBackend } from '../decision/jev.ts'
+import { JEV_DEFAULT_LIMITS, jevRateLimited, type JevLimits } from '../decision/jev-rate.ts'
 import type { MidturnLimits, MidturnRules } from '../decision/midturn.ts'
 import { resolveModel, type ResolvedModel } from '../decision/model-ids.ts'
 import { pplxBackend } from '../decision/pplx.ts'
 import { rateLimited } from '../decision/pplx-rate.ts'
 import type { SkillPolicy } from '../decision/skills.ts'
+import type { DecisionRequest } from '../decision/system-one.ts'
+import { BATCHES_BUDGET_MS } from '../decision/workflow.ts'
 
 /** The decision models the person can choose (`decisionModel`): Perplexity's pplx-decider and TypeSafe's Jev (decision/backend.ts, where the pure modules read it). */
 export type { BackendName }
@@ -128,10 +131,11 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
   roundUp: number
   /**
    * How the decision model is asked, language and kind of question (the eval's variables, `effort-submit` for the effort question
-   * beside a message): `turnStart` for that question, `other` for every other one (the mid-turn re-decision, a dispatched agent
-   * and a Workflow's, a stuck loop, the skills, the problem summary's text). Not options.
+   * beside a message, `subagent` for an agent's): `turnStart` for that question, `agent` for the questions about a dispatched agent
+   * and a Workflow's, `other` for every other one (the mid-turn re-decision, a stuck loop, the skills, the problem summary's text).
+   * Not options.
    */
-  ask: { turnStart: EffortAsk; other: EffortAsk }
+  ask: { turnStart: EffortAsk; agent: EffortAsk; other: EffortAsk }
   /**
    * What the state of each other kind of request may take, in estimated tokens (`contextTokens` is the message that carries the
    * skills' question). Not options: each is the most that kind's longest question leaves, worked out in DEVELOPMENT.md (配置,
@@ -143,9 +147,20 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
    * Whether an agent's request carries the background it was written in, in what its brief and the person's words leave
    * of the budget: the conversation it was dispatched from (`recent_context`) and, for a Workflow's agents, the script
    * (`workflow_script`). It fills the request to its budget, so it is on where the decision model answers a full request
-   * in time, several at once. Not an option.
+   * in time. Not an option.
    */
   agentBackground: boolean
+  /**
+   * How long a request past the model's regular limits waits for its answer, at least (`Backend.longContext`: Jev's
+   * long-context header), and so does every request sent beside it, which may wait behind it for its place within the
+   * account's token rate (decision/jev-rate.ts); null where no request is (pplx). Not an option: set by the latency measured.
+   */
+  longWaitMs: number | null
+  /**
+   * How many requests about agents go out at once at most (core/agent-lane.ts): the agents that come while they are
+   * all out wait, and are merged into the next request. Not an option: set by how the model answers several at once.
+   */
+  agentLanes: number
   /**
    * How long find_skill's two requests may take in all, in ms; null: as long
    * as a message waits (`timeoutMs`). Not an option: set by the latency
@@ -159,28 +174,42 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
 
 /**
  * Jev's: the values the eval of #4, #14, #15 and #16 set or kept (README, 配置 has the table; DEVELOPMENT.md, 配置 what each rests on),
- * except the three that say how much Jev reads of the conversation: by the person's decision ("the more it is given, the
- * better it judges"), those are set to what Jev accepts, not to what the eval ran (4 messages, 2000 tokens, 4 steps; the
- * eval sets are too short to tell, and no comparison was run). Jev takes 64k tokens a request and 32k for "the state and
- * the longest question". The longest question is the first stage of the skills (111 skills with profiles: about 16k tokens
- * as the mod counts, 21.9k as Jev does), which shares its request with the state, so `contextTokens` is what that leaves,
- * 6000 (DEVELOPMENT.md, 配置, 「Jev 的上下文默认值怎么算」; tests/backend-defaults.test.ts checks the sum). The two counts
- * that fill it are at their most: `contextMessages` 32 and `rejudgeSteps` 16, so the token budget, not the count, ends what is sent.
+ * except the ones that say how much Jev reads of the conversation: by the person's decision ("the more it is given, the
+ * better it judges"), those are set to what Jev takes, not to what the eval ran (4 messages, 2000 tokens, 4 steps). Jev
+ * takes 64k tokens a request and 32k for "the state and the longest question", or 262k for both with its long-context
+ * header (decision/jev.ts, `needsLongContext`). The longest question is the first stage of the skills (111 skills with
+ * profiles: about 16k tokens as the mod counts, 21.9k as Jev does), which shares its request with the state, so
+ * `contextTokens` is what that leaves, 6000 (DEVELOPMENT.md, 配置, 「Jev 的上下文默认值怎么算」; tests/backend-defaults.test.ts
+ * checks the sum). The counts that fill a state are at their most (`contextMessages` 2000, `rejudgeSteps` 16), so the
+ * token budget, not the count, ends what is sent.
  */
 const JEV_DEFAULTS: BackendDefaults = {
   timeoutMs: 1500,
-  contextMessages: 32,
-  contextMessagesMax: 32,
+  // As many as pplx: the budget ends what is sent (32, the old most, held a long conversation to a fraction of 96000 tokens).
+  contextMessages: 2000,
+  contextMessagesMax: 2000,
   contextTokens: 6000,
   contextTokensMax: 16000,
-  // Every other kind of request has questions of at most 700 tokens as Jev counts them (the effort question 421, a re-decision's
-  // 295 with its trouble, an agent's 457, nine of them 1,836): the state plus the longest of them within 28,800 (90% of 32k)
-  // allows about 25,400 estimated tokens, and 24000 is the round number below it. A Workflow batch (at most 8 agents' questions,
-  // 20,100 in all) and the whole request stay within 57,600 (90% of 64k) too.
-  contextByKind: { messagePlain: 24000, rejudge: 24000, agent: 24000, workflow: 24000 },
-  // Off: Jev waits 1500 ms and answers one request of a key at a time, so agents dispatched together, each with a request
-  // filled to 24000 by the conversation (about 0.6 s each), would mostly go unrouted; and its eval was run without it.
-  agentBackground: false,
+  // A message's effort request and an agent's (dispatched, or a Workflow's) go past Jev's regular limits, with the long-context
+  // header (2026-10-15, DEVELOPMENT.md 「Jev 的长上下文」): the state takes up to 96000 estimated tokens, about 115k as Jev counts
+  // Chinese (1.2 a token; English up to 1.37, about 132k), within 40-60% of its 262,144: the share of a window a model reads
+  // best in, by the person's rule of thumb, and never full. Measured: the ctx30 run, 94k tokens of one conversation, 25 of 30
+  // right against 13 of 30 with the newest 24000 (p 0.0005); eval v2's whole conversations, 146k tokens on average (56%),
+  // came out no better than 24000 (60.0% against 67.5%); the docs call the long context less accurate than staying within
+  // the regular limits. A re-decision stays at 24000: it reads this turn's steps (16 at most, a few thousand tokens), and a
+  // step waits only `rejudgeWaitMs` for it. The other kinds have questions of at most 700 tokens as Jev counts them, a Workflow
+  // batch 20,100 for 8 agents, far under 262k.
+  contextByKind: { messagePlain: 96000, rejudge: 24000, agent: 96000, workflow: 96000 },
+  // On (2026-10-15): an agent's request reads the conversation it was dispatched from, and a Workflow's its script, to 96000
+  // tokens; the agents dispatched together share one request (core/agent-lane.ts), so the conversation is paid for once.
+  agentBackground: true,
+  // A request of 96000 estimated tokens took 1.0-1.6 s (p50 1.34 s) on 1.14 at 100-120k Jev tokens (eval v2, 2026-10-15); 3000
+  // leaves room for the wait for its place within the account's token rate (decision/jev-rate.ts) when a burst is out.
+  longWaitMs: 3000,
+  // Four: four long requests of one key sent at once (115k tokens each) were all answered in 1.39-1.53 s, one alone in 1.44 s
+  // (2026-10-15, DEVELOPMENT.md 「Jev 的长上下文」); more were not tried. The account's token rate paces them beyond that
+  // (decision/jev-rate.ts: four full ones take most of a burst). The agents that come while four are out go in the next request.
+  agentLanes: 4,
   rejudgeSteps: 16,
   // A step waits this long for a re-decision not yet back before it goes on at the level it had: Jev's mid-turn requests took about 280 ms
   // at p50 and 350 ms at p90 (DEVELOPMENT.md, 配置), and they are sent when the step's tools start, so they are mostly back by then.
@@ -202,8 +231,10 @@ const JEV_DEFAULTS: BackendDefaults = {
   // Raising is easy (DEVELOPMENT.md, 「按 AA 基准校正」): the level above the most probable one is taken from 0.3.
   roundUp: 0.3,
   // effort-submit on the current wording, one run each (2026-10-05): asked in Chinese, Chinese items 85% and English
-  // items 89%; asked in English, 79% and 78%. The questions asked later have no data in Chinese and stay in English.
-  ask: { turnStart: { language: 'zh', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
+  // items 89%; asked in English, 79% and 78%. An agent's questions are asked in Chinese since Jev 1.14 (the subagent eval of
+  // 2026-10-15, DEVELOPMENT.md 「Jev 1.14」: models-hint-zh 72/71% and again 72/72%, against models-hint's 71/68%; on 1.13 the
+  // Chinese wording had been the weaker, 67/64% and 65/65%). The other questions stay in English.
+  ask: { turnStart: { language: 'zh', primitive: 'score' }, agent: { language: 'zh', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
 }
 
 /**
@@ -230,6 +261,10 @@ const PPLX_DEFAULTS: BackendDefaults = {
   contextByKind: { messagePlain: 48000, rejudge: 48000, agent: 32000, workflow: 48000 },
   // On: pplx answers a full request in about 4 s, several at once (`pplxQps` lets five go together).
   agentBackground: true,
+  // pplx takes 262k in every request (no header), and its own wait is seconds already.
+  longWaitMs: null,
+  // Five: five requests of 32000 at once were all answered within 5.2 s (`pplxQps` lets five go in a second).
+  agentLanes: 5,
   rejudgeSteps: 16,
   // A re-decision takes seconds, not 300 ms: a step waits for it up to this long (the most the manifest allows is 8000).
   rejudgeWaitMs: 6000,
@@ -251,7 +286,7 @@ const PPLX_DEFAULTS: BackendDefaults = {
   // (English questions) took the level sent too high from 18.5% to 13.0% with the recall of max unchanged (11 of 16); eval v2's
   // level too low went from 12.5% to 15.0%.
   roundUp: 0.45,
-  ask: { turnStart: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
+  ask: { turnStart: { language: 'en', primitive: 'score' }, agent: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
 }
 
 /** The defaults by decision model: the only place they are written. */
@@ -280,6 +315,36 @@ export function saidTokens(config: Pick<Config, 'contextByKind'>): number {
   return Math.floor(Math.max(config.contextByKind.agent, config.contextByKind.workflow) * WORDS_SHARE)
 }
 
+/**
+ * How long an agent waits for its decision at most (`Config.agents.waitMs`): the request about it and one ahead of it in
+ * the lane (core/agent-lane.ts), each as long as a long request may wait, within what a hook can spare (BATCHES_BUDGET_MS).
+ * Jev 6000, pplx 8000.
+ */
+export function agentWaitMs(timeoutMs: number, longWaitMs: number | null): number {
+  return Math.min(BATCHES_BUDGET_MS, 2 * Math.max(timeoutMs, longWaitMs ?? 0))
+}
+
+/**
+ * How long requests sent together wait for their answers: `timeoutMs`, or `longWaitMs` at least once any of them goes past
+ * the decision model's regular limits (`Backend.longContext`), behind which the others may wait for their place within the
+ * account's token rate (decision/jev-rate.ts).
+ */
+export function waitFor(ctx: { readonly config: Pick<Config, 'timeoutMs' | 'longWaitMs'>; readonly backend: Pick<Backend, 'longContext'> }, requests: readonly DecisionRequest[]): number {
+  const { timeoutMs, longWaitMs } = ctx.config
+  if (longWaitMs === null || !requests.some((request) => ctx.backend.longContext?.(request) === true)) return timeoutMs
+  return Math.max(timeoutMs, longWaitMs)
+}
+
+/**
+ * How long a re-decision's request (mid-turn, or a stuck loop's) waits for its answer: as long as a long request may, since
+ * long ones of the mod's (a message's, an agent's) may be ahead of it for a place within the account's token rate
+ * (decision/jev-rate.ts). The step it is for waits only `rejudgeWaitMs` for it, and an answer that comes later is taken at
+ * a later step.
+ */
+export function redecisionWaitMs(config: Pick<Config, 'timeoutMs' | 'longWaitMs'>): number {
+  return Math.max(config.timeoutMs, config.longWaitMs ?? 0)
+}
+
 /** The settings are also the effort rules' parameters (`EffortRules`: `thetaMax` and `roundUp`): `traceEffort(reading, config)`. */
 export type Config = EffortRules & {
   /** The decision model the options were read for: its defaults (BACKEND_DEFAULTS) stand for what the person left unset. */
@@ -293,12 +358,25 @@ export type Config = EffortRules & {
   readonly typesafeApiKey: string
   /** The Perplexity key in the options (`perplexityApiKey`, trimmed; '' if unset; not enumerable either): the environment's (`Secrets`) stands where this is empty. */
   readonly perplexityApiKey: string
-  /** How many pplx requests the mod sends in a second at most (`pplxQps`; the account's limit): the rest wait their turn (decision/pplx-rate.ts). Jev has no such limit. */
+  /** How many pplx requests the mod sends in a second at most (`pplxQps`; the account's limit): the rest wait their turn (decision/pplx-rate.ts). */
   pplxQps: number
+  /**
+   * The TypeSafe account's limits (`jevQps`, `jevTokensPerSecond`; the console's rate limits, the default plan's 80 requests
+   * and 100,000 input tokens a second): every Jev request is paced within them (decision/jev-rate.ts).
+   */
+  jevLimits: JevLimits
   /** How long a decision request may take before the prompt goes on without it. */
   timeoutMs: number
-  /** How the decision model is asked (BACKEND_DEFAULTS ask): `turnStart` the effort question beside each message, `other` every other question (`ctx.ask`). */
-  ask: { turnStart: EffortAsk; other: EffortAsk }
+  /**
+   * How long a request past the decision model's regular limits waits, at least, and every request sent beside it
+   * (BACKEND_DEFAULTS longWaitMs; `waitFor`); null: no request is.
+   */
+  longWaitMs: number | null
+  /**
+   * How the decision model is asked (BACKEND_DEFAULTS ask): `turnStart` the effort question beside each message, `agent` the
+   * questions about an agent (a dispatched agent's and a Workflow's, `dispatchSettings`), `other` every other question (`ctx.ask`).
+   */
+  ask: { turnStart: EffortAsk; agent: EffortAsk; other: EffortAsk }
   /**
    * What the decision model reads of the conversation: how many recent messages, how many tokens in all. The tokens are the
    * budget of a message that carries the skills' question (and of find_skill's first stage); the other kinds of request have
@@ -342,6 +420,13 @@ export type Config = EffortRules & {
     workflowMode: 'rewrite' | 'return'
     /** Whether an agent's request carries the conversation it was dispatched from and, a Workflow's, the script (the decision model's: BACKEND_DEFAULTS `agentBackground`). */
     background: boolean
+    /** How many requests about agents go out at once at most (BACKEND_DEFAULTS `agentLanes`, core/agent-lane.ts). */
+    lanes: number
+    /**
+     * How long an agent waits for its decision at most before it starts as it was asked: for the request about it and one
+     * ahead of it in the lane, each as long as a long request may take, within the 8000 ms a hook can spare (`agentWaitMs`).
+     */
+    waitMs: number
   }
   /** Skills (#10, #11, #12). */
   skills: {
@@ -422,9 +507,9 @@ export function setup(options: PluginOptions, table: Readonly<Record<BackendName
   const configs: Record<BackendName, Config> = { pplx: readConfig(options, table, 'pplx'), jev: readConfig(options, table, 'jev') }
   const secrets: Secrets = { perplexityEnvKey: '' }
   const backends: Record<BackendName, Backend> = {
-    // Every pplx request goes through the rate limit (#51); Jev does not.
+    // Every request goes through its account's rate limit: pplx's (#51), Jev's (requests and input tokens a second).
     pplx: rateLimited(pplxBackend(() => perplexityKey(configs.pplx, secrets)), configs.pplx.pplxQps),
-    jev: jevBackend(configs.jev.typesafeApiKey),
+    jev: jevRateLimited(jevBackend(configs.jev.typesafeApiKey), () => configs.jev.jevLimits),
   }
   const choice = () => chooseBackend(asked, { perplexity: perplexityKey(configs.pplx, secrets), typesafe: configs.pplx.typesafeApiKey })
   return {
@@ -488,7 +573,12 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
     backend,
     defaults: { used, capped },
     pplxQps: whole(options.pplxQps, 1, 50, 5),
+    jevLimits: {
+      requestsPerSecond: whole(options.jevQps, 1, 1000, JEV_DEFAULT_LIMITS.requestsPerSecond),
+      tokensPerSecond: whole(options.jevTokensPerSecond, 10_000, 100_000_000, JEV_DEFAULT_LIMITS.tokensPerSecond),
+    },
     timeoutMs,
+    longWaitMs: defaults.longWaitMs,
     ask: defaults.ask,
     thetaMax,
     roundUp: defaults.roundUp,
@@ -520,6 +610,8 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
       thetaOverride: own('agentOverride', 0, 1),
       workflowMode: stringOf(options.workflowMode, 'rewrite') === 'return' ? 'return' : 'rewrite',
       background: defaults.agentBackground,
+      lanes: defaults.agentLanes,
+      waitMs: agentWaitMs(timeoutMs, defaults.longWaitMs),
     },
     skills: {
       suggest: { max: whole(options.skillsMax, 0, 10, 3), minRelevance: own('skillsMinRelevance', 0, 1) },
@@ -563,16 +655,17 @@ export function describeDefaults(config: Pick<Config, 'backend' | 'defaults'>): 
 /**
  * How an agent's model and effort are decided (decision/dispatched-agent.ts):
  * the same for a dispatched agent (#6) and a Workflow's agents (#8, #9), and
- * for the eval; `ask` is how its questions are written (the eval's variants).
+ * for the eval; its questions are asked as the decision model asks about an
+ * agent (`config.ask.agent`), and `ask` writes them otherwise (the eval's variants).
  */
-export function dispatchSettings(ctx: { config: Pick<Config, 'agents' | 'thetaMax' | 'roundUp'>; ask: EffortAsk }, ask: Partial<DispatchAsk> = {}): DispatchSettings {
+export function dispatchSettings(ctx: { config: Pick<Config, 'agents' | 'thetaMax' | 'roundUp' | 'ask'> }, ask: Partial<DispatchAsk> = {}): DispatchSettings {
   // Each read goes to `ctx`: a feature builds this when it registers, before the session start has settled the decision model.
   return {
     get models() {
       return ctx.config.agents.models
     },
     get ask() {
-      return { ...ctx.ask, ...ask }
+      return { ...ctx.config.ask.agent, ...ask }
     },
     get thetaOverride() {
       return ctx.config.agents.thetaOverride

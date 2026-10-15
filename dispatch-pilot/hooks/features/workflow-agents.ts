@@ -22,12 +22,13 @@
 // Its switch is `workflow-agents` (`/dp workflow-agents off`).
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { describeAsked, errorText, failureText, type BackendIo } from '../decision/backend.ts'
-import { conversationUpTo, describeState, type ContextMessage } from '../decision/context.ts'
+import { errorText, failureText } from '../decision/backend.ts'
+import { conversationUpTo, type ContextMessage } from '../decision/context.ts'
 import { termsOf } from '../decision/dispatched-agent.ts'
 import { renderSummary } from '../decision/summary.ts'
 import { parseWorkflow, rewriteWorkflow, type ParsedWorkflow } from '../decision/workflow-script.ts'
-import { batchesTimeoutMs, planBatches, readOutcomes, returnNote, rewriteNote, workflowFingerprint, type CallOutcome, type WorkflowBackground } from '../decision/workflow.ts'
+import { BATCHES_BUDGET_MS, planBatches, readOutcomes, returnNote, rewriteNote, workflowFingerprint, type CallOutcome, type WorkflowBackground } from '../decision/workflow.ts'
+import { askInLane, type LaneIo } from '../core/agent-lane.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { report, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
@@ -110,13 +111,18 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
 
       const { value: said = [] } = await $.state.get(SAID)
       const words = said.join('\n')
-      const io: BackendIo = {
-        fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+      const io: LaneIo = {
+        backend: {
+          fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+          sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+          pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+        },
+        now: () => $.clock.now(),
         sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
-        pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+        debug: log,
       }
-      // The problem the main agent is on, as a dispatched agent's request carries it (#41); with pplx, the script and the
-      // conversation the Workflow is launched from, up to its call (BACKEND_DEFAULTS agentBackground).
+      // The problem the main agent is on, as a dispatched agent's request carries it (#41): the summary and the count; the
+      // script and the conversation the Workflow is launched from, up to its call (BACKEND_DEFAULTS agentBackground).
       const { value: held } = isOn(UNRESOLVED_SWITCH) ? await $.state.get(COUNT) : { value: undefined }
       const recent = ctx.config.agents.background ? await conversationOf($, e.agentId) : []
       // What the session's reference images read as (#64): the latest reading, as text, the same for every call.
@@ -129,16 +135,10 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
       }
       // What is decided here is written into the script: a call it cannot be written into is decided as its agents start (workflow-labels).
       const plan = planBatches(parsed, words, settings, { one: ctx.config.contextByKind.workflow, each: ctx.config.contextByKind.agent }, { background, written: true })
-      const timeoutMs = batchesTimeoutMs(ctx.config.timeoutMs, plan.batches.length)
-      const asked = await Promise.all(
-        plan.batches.map(async (batch) => {
-          const startedAt = await $.clock.now()
-          const answer = await ctx.backend.ask(io, batch.request, timeoutMs)
-          const ids = Object.keys(batch.request.questions).join(', ')
-          log(`request [${ids}] to ${ctx.backend.name} for workflow ${JSON.stringify(parsed.meta.name)}: ${describeAsked(answer, (await $.clock.now()) - startedAt)}; ${describeState(batch.request.state)}`)
-          return answer
-        }),
-      )
+      // Several requests go out as the lanes allow (core/agent-lane.ts, which logs each), all within the hook's budget.
+      const since = await $.clock.now()
+      const deadline = since + BATCHES_BUDGET_MS
+      const asked = await Promise.all(plan.batches.map((batch) => askInLane(ctx, batch.request, { deadline, since, about: `workflow ${JSON.stringify(parsed.meta.name)}`, io })))
       const outcomes = readOutcomes(parsed, plan, asked, words, settings)
       const writes = outcomes.map((outcome) => (outcome.kind === 'written' ? outcome.write : null))
       const written = writes.filter((write) => write !== null).length

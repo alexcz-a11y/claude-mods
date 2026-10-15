@@ -25,7 +25,7 @@ test('a message gets one Jev decision, and its turn goes out at the decided effo
   expect(request?.url).toBe('https://api.typesafe.ai/v1/systemone')
   expect(request?.method).toBe('POST')
   expect(request?.headers.authorization).toBe('Bearer ts-test-key')
-  expect(request?.body.model).toBe('jev-latest')
+  expect(request?.body.model).toBe('jev-1.14.0')
   expect(request?.body.state.user_message).toBe('把登录模块重构成三层，并补上测试')
   // One Score question with five levels, lowest first (low .. max)
   expect(Object.keys(request?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
@@ -111,7 +111,8 @@ test('no answer within timeoutMs: the prompt goes in without waiting longer, the
 // `kind` is what the board records of the failure; `why` its words for it.
 const failures: { name: string; reply: Reply; kind: string; why: string }[] = [
   { name: 'the key is refused (401)', reply: { status: 401, body: { detail: 'Invalid API key' } }, kind: 'config', why: 'jev：密钥被拒绝（状态码 401）' },
-  { name: 'rate limited (429)', reply: { status: 429, body: { detail: 'Too Many Requests' } }, kind: 'busy', why: 'jev：繁忙（状态码 429）' },
+  // A 429 whose Retry-After the wait cannot cover; one it can is asked again (below).
+  { name: 'rate limited (429) for longer than the wait', reply: { status: 429, headers: { 'retry-after': '30' }, body: { detail: 'Too Many Requests' } }, kind: 'busy', why: 'jev：繁忙（状态码 429）' },
   { name: 'a server error (500)', reply: { status: 500, body: 'Internal Server Error' }, kind: 'http', why: 'jev：出错（状态码 500）' },
   { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }, kind: 'network', why: 'jev：连不上' },
   { name: 'a 200 that is not an answer', reply: { status: 200, body: '<html>maintenance</html>' }, kind: 'parse', why: 'jev：回答读不懂' },
@@ -130,6 +131,20 @@ for (const failure of failures) {
     expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, why: failure.why, failure: { backend: 'jev', kind: failure.kind } })
   })
 }
+
+test("a 429 whose Retry-After the wait covers is asked once more after it (decision/jev-rate.ts), and the turn goes out at the second answer", { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: (request, n) => (n === 1 ? { status: 429, headers: { 'retry-after': '1' }, body: { detail: 'Too Many Requests' } } : jev([0, 0, 1, 0, 0])(request)) })
+  const submitting = w.submit('解释一下这个函数做了什么')
+  await w.clock.settle()
+  expect(w.requests).toHaveLength(1)
+  await w.clock.advance(1000)
+  await submitting
+  await w.step({ index: 0, effort: 'medium' })
+
+  expect(w.requests.map((request) => request.at)).toEqual([0, 1000])
+  expect(w.steps.map((s) => s.effort)).toEqual(['high'])
+  expect((await w.board()).main).toMatchObject({ effort: 'high', routed: true })
+})
 
 test('no key of either kind: nothing is sent, the turn keeps the engine effort, the board says to set the Perplexity key', async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })

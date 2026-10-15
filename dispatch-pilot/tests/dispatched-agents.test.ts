@@ -3,6 +3,7 @@
 // spawn and the agent's steps reach the engine with, the request the decision
 // model got, the board (`w.board()`), the decision log.
 
+import type { SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import { dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
@@ -110,8 +111,9 @@ test("the main agent's pick reaches the decision model as a hint, and stands unl
   await w.spawn({ prompt: 'Run `pnpm lint` and list the warnings by file. Do not fix anything.', model: 'opus' })
 
   expect(w.spawned.map((s) => s.model)).toEqual(['haiku', 'opus'])
+  // Jev is asked about an agent in Chinese since 1.14: the pick is the instructions' 指定.
   const instructions = w.requests[0]?.body.questions['agent.model'].instructions
-  expect(instructions.requested).toContain('opus')
+  expect(instructions['指定']).toContain('opus')
 })
 
 test("agentOverride sets how sure the decision model must be to replace the main agent's pick", { options: { ...KEY, agentOverride: 0.9 } }, async ($, on) => {
@@ -281,28 +283,122 @@ test('an effort the person names reaches an agent that goes to haiku too (Haiku 
   expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^haiku xhigh · .*你在消息里点名了 effort（xhigh）/))
 })
 
-test('agents dispatched together are each decided on their own, and each starts as soon as its own answer is in',{ options: KEY }, async ($, on) => {
-  const w = world($, on, {
-    backend: (request) =>
-      String(request.body.state.brief.prompt).startsWith('Design')
-        ? { after: 1000, reply: agentJev({ model: { haiku: 0.05, sonnet: 0.05, opus: 0.9 }, effort: [0, 0, 0, 1, 0] })(request) }
-        : agentJev({ model: { haiku: 0.05, sonnet: 0.9, opus: 0.05 }, effort: [0, 0, 1, 0, 0] })(request),
-  })
-  // One assistant message with two Agent calls: two spawns at once.
+/** Jev answering a request about several agents (`agent-<i>` parts): each part as `answers(brief)` says, its brief read from `brief_<i>`. */
+function agentsJev(answers: (brief: { description?: string; prompt: string }) => AgentAnswers) {
+  return (request: Sent): Reply => {
+    const parts = new Set(Object.keys(request.body?.questions ?? {}).map((id) => id.slice(0, id.indexOf('.'))))
+    const out: Record<string, unknown> = {}
+    for (const part of parts) {
+      const brief = part === 'agent' ? request.body.state.brief : request.body.state[`brief_${part.slice('agent-'.length)}`]
+      const own = Object.fromEntries(Object.entries(request.body.questions).filter(([id]) => id.startsWith(`${part}.`)))
+      const reply = agentJev(answers(brief))({ ...request, body: { ...request.body, questions: own } }) as { body: { answers: Record<string, unknown> } }
+      Object.assign(out, reply.body.answers)
+    }
+    return { status: 200, body: { model: 'jev-1.14.0', answers: out, usage: { input_tokens: 400, output_tokens: 0 } } }
+  }
+}
+
+/** The transcript as the engine has it when one assistant message dispatched agents with these Agent calls (`toolu_1`, `toolu_2`, ... as the world numbers them). */
+const dispatching = (calls: number): SessionMessage[] => [
+  { role: 'user', text: '把缓存失效逻辑设计出来，再补上 LRU 的单测', toolUses: [] },
+  { role: 'assistant', text: 'Two agents: one designs the invalidation, one writes the LRU tests.', toolUses: [] },
+  ...Array.from({ length: calls }, (_, i): SessionMessage => ({ role: 'assistant', text: '', toolUses: [{ tool: 'Agent', tool_use_id: `toolu_${i + 1}`, input: {} } as never] })),
+]
+
+const DESIGN_OR_TESTS = (brief: { prompt: string }): AgentAnswers =>
+  brief.prompt.startsWith('Design') ? { model: { haiku: 0.05, sonnet: 0.05, opus: 0.9 }, effort: [0, 0, 0, 1, 0] } : { model: { haiku: 0.05, sonnet: 0.9, opus: 0.05 }, effort: [0, 0, 1, 0, 0] }
+
+test('agents dispatched together share one request: what they share once, each brief in a field of its own, each decided on its own (ADR 0009)', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: (request) => ({ after: 1200, reply: agentsJev(DESIGN_OR_TESTS)(request) }), messages: dispatching(2) })
+  // One assistant message with two Agent calls: two spawns at once, and neither starts before the one answer is in.
   const designing = w.spawn({ prompt: 'Design the cache invalidation across the three services.', description: 'Design cache invalidation' })
   const testing = w.spawn({ prompt: 'Write unit tests for src/cache/lru.ts covering eviction order.', description: 'LRU tests' })
-  const tests = await testing
-  // The tests agent started while the design agent's answer was still out.
-  expect(w.spawned.map((s) => s.description)).toEqual(['LRU tests'])
   await w.clock.settle()
-  await w.clock.advance(1000)
-  const design = await designing
+  expect(w.spawned).toEqual([])
+  await w.clock.advance(1200)
+  const [design, tests] = await Promise.all([designing, testing])
   await w.step({ index: 0, turnId: 'sub-1', agentId: design.agentId, model: 'claude-opus-5-5', effort: 'medium' })
   await w.step({ index: 0, turnId: 'sub-2', agentId: tests.agentId, model: 'claude-sonnet-5-5', effort: 'medium' })
 
-  expect(w.requests.map((r) => r.body.state.brief.description).sort()).toEqual(['Design cache invalidation', 'LRU tests'])
-  expect(w.spawned.map((s) => `${s.description}: ${String(s.model)}`)).toEqual(['LRU tests: sonnet', 'Design cache invalidation: opus'])
+  const asked = w.requests
+  expect(asked).toHaveLength(1)
+  const state = asked[0]?.body.state
+  expect(Object.keys(state)).toEqual(['brief_0', 'brief_1', 'user_message', 'recent_context'])
+  expect([state.brief_0.description, state.brief_1.description]).toEqual(['Design cache invalidation', 'LRU tests'])
+  expect(Object.keys(asked[0]?.body.questions)).toEqual(['agent-0.model', 'agent-0.effort', 'agent-1.model', 'agent-1.effort'])
+  expect(w.spawned.map((s) => `${s.description}: ${String(s.model)}`).sort()).toEqual(['Design cache invalidation: opus', 'LRU tests: sonnet'])
   expect(w.steps.map((s) => `${String(s.agentId)} ${String(s.effort)}`)).toEqual([`${design.agentId} xhigh`, `${tests.agentId} high`])
+  // One line in the debug log for the request, naming both agents.
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^request \[agent-0\.model, .*\] to jev for agent "Design cache invalidation"（general-purpose）, agent "LRU tests"（general-purpose）: answered/))
+})
+
+test("agents dispatched together read the problem summary (the cheap model's, Haiku 5.5 by default, while the unresolved switch is on) and the count once, in their shared request", { options: KEY }, async ($, on) => {
+  const summary = { problem: '导出的 CSV 缺行', tried: [{ text: '改了编码', unresolved: true as const }], status: '还在查', turn: 't1' }
+  const w = world($, on, { backend: agentsJev(DESIGN_OR_TESTS), messages: dispatching(2), switches: { unresolved: true }, seed: { unresolved: { count: 2, summary } } })
+  await Promise.all([
+    w.spawn({ prompt: 'Design the cache invalidation across the three services.', description: 'Design cache invalidation' }),
+    w.spawn({ prompt: 'Write unit tests for src/cache/lru.ts covering eviction order.', description: 'LRU tests' }),
+  ])
+  expect(w.requests).toHaveLength(1)
+  const state = w.requests[0]?.body.state
+  expect(Object.keys(state)).toEqual(['brief_0', 'brief_1', 'user_message', 'problem_summary', 'unresolved_count', 'recent_context'])
+  expect(String(state.problem_summary)).toContain('导出的 CSV 缺行')
+  expect(state.unresolved_count).toBe(2)
+})
+
+test('an agent of a message waits for the other Agent calls of its message 300 ms at most: one that never comes (a fork, say) holds it no longer', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: agentsJev(DESIGN_OR_TESTS), messages: dispatching(2) })
+  // Only the first of the two calls reaches the mod.
+  const designing = w.spawn({ prompt: 'Design the cache invalidation across the three services.', description: 'Design cache invalidation' })
+  await w.clock.settle()
+  expect(w.requests).toEqual([])
+  await w.clock.advance(300)
+  const design = await designing
+  expect(design.agentId).toBeDefined()
+  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent.model', 'agent.effort'])
+})
+
+test('agents that come while a request about agents is out do not wait for it: Jev answers several requests of a key at once, and the Agent calls of one message go out together', { options: KEY }, async ($, on) => {
+  // Two messages: the first dispatches one agent (toolu_1), the second two (toolu_2, toolu_3).
+  const messages: SessionMessage[] = [
+    { role: 'user', text: '先把缓存失效逻辑设计出来', toolUses: [] },
+    { role: 'assistant', text: '', toolUses: [{ tool: 'Agent', tool_use_id: 'toolu_1', input: {} } as never] },
+    { role: 'user', text: '再补上 LRU 和 TTL 的单测', toolUses: [] },
+    { role: 'assistant', text: '', toolUses: [{ tool: 'Agent', tool_use_id: 'toolu_2', input: {} } as never] },
+    { role: 'assistant', text: '', toolUses: [{ tool: 'Agent', tool_use_id: 'toolu_3', input: {} } as never] },
+  ]
+  const w = world($, on, { backend: (request) => ({ after: 1000, reply: agentsJev(DESIGN_OR_TESTS)(request) }), messages })
+  const first = w.spawn({ prompt: 'Design the cache invalidation across the three services.', description: 'Design cache invalidation' })
+  await w.clock.settle()
+  const second = w.spawn({ prompt: 'Write unit tests for src/cache/lru.ts covering eviction order.', description: 'LRU tests' })
+  const third = w.spawn({ prompt: 'Write unit tests for src/cache/ttl.ts covering expiry.', description: 'TTL tests' })
+  await w.clock.settle()
+  expect(w.requests.map((request) => [request.at, Object.keys(request.body.questions)])).toEqual([
+    [0, ['agent.model', 'agent.effort']],
+    [0, ['agent-0.model', 'agent-0.effort', 'agent-1.model', 'agent-1.effort']],
+  ])
+  await w.clock.advance(1000)
+  await Promise.all([first, second, third])
+  expect(w.spawned.map((s) => `${s.description}: ${String(s.model)}`).sort()).toEqual(['Design cache invalidation: opus', 'LRU tests: sonnet', 'TTL tests: sonnet'])
+})
+
+test("at most four requests about agents are out at once (Jev's agentLanes): a fifth loop's agents wait for a lane, and go together when one comes free", { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: (request) => ({ after: 1000, reply: agentsJev(DESIGN_OR_TESTS)(request) }) })
+  const lru = { prompt: 'Write unit tests for src/cache/lru.ts covering eviction order.', description: 'LRU tests' }
+  // Four agents, each dispatched by an agent of its own: four groups, four requests.
+  const four = ['p1', 'p2', 'p3', 'p4'].map((parentAgentId) => w.spawn({ ...lru, parentAgentId }))
+  await w.clock.settle()
+  expect(w.requests).toHaveLength(4)
+  const fifth = [w.spawn({ ...lru, parentAgentId: 'p5' }), w.spawn({ prompt: 'Design the cache invalidation across the three services.', description: 'Design cache invalidation', parentAgentId: 'p5' })]
+  await w.clock.settle()
+  expect(w.requests).toHaveLength(4)
+  await w.clock.advance(1000)
+  await w.clock.settle()
+  expect(w.requests.map((request) => request.at)).toEqual([0, 0, 0, 0, 1000])
+  expect(Object.keys(w.requests[4]?.body.questions)).toEqual(['agent-0.model', 'agent-0.effort', 'agent-1.model', 'agent-1.effort'])
+  await w.clock.advance(1000)
+  await Promise.all([...four, ...fifth])
+  expect(w.spawned.map((s) => String(s.model))).toEqual(['sonnet', 'sonnet', 'sonnet', 'sonnet', 'sonnet', 'opus'])
 })
 
 test('agents dispatched together each have their own decision on the board: model, effort, why, and the log entry it came from', { options: KEY }, async ($, on) => {
@@ -372,8 +468,9 @@ test("what the mod sends about an agent is exactly what the decision module buil
     workflow_description: null,
     label: null,
   }
-  const built = mergeParts(dispatchState(item, 2000), [dispatchPart(item)])
-  expect(w.requests[1]?.body).toEqual({ model: 'jev-latest', state: built.state, questions: built.questions })
+  // Jev is asked about an agent in Chinese since 1.14 (the eval's models-hint-zh).
+  const built = mergeParts(dispatchState(item, 2000), [dispatchPart(item, { ask: { language: 'zh' } })])
+  expect(w.requests[1]?.body).toEqual({ model: 'jev-1.14.0', state: built.state, questions: built.questions })
 })
 
 test('agentFable adds fable to the models the decision model may choose for an agent', { options: { ...KEY, agentFable: true } }, async ($, on) => {
@@ -449,17 +546,19 @@ test('/dp off stands dispatched agents down too: nothing is asked and the agent 
   expect((await w.board()).log).toEqual([])
 })
 
-test('no answer within timeoutMs: the agent starts then, on the model it was given, at the engine effort, and the board says why', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
+test("no answer within an agent's wait (with Jev 6000 ms: its own request and one ahead of it, each as long as a long one): the agent starts then, on the model it was given, at the engine effort, and the board says why", { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
   const w = world($, on, { backend: (request) => ({ after: 60_000, reply: agentJev({ model: { haiku: 1 } })(request) }) })
   const spawning = w.spawn({ prompt: 'Profile the checkout endpoint and find the slow query.', description: 'Profile checkout', model: 'opus' })
   await w.clock.settle()
-  await w.clock.advance(800)
+  await w.clock.advance(5999)
+  expect(w.spawned).toEqual([])
+  await w.clock.advance(1)
   const started = await spawning
   await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-opus-5-5', effort: 'xhigh' })
 
   expect(w.spawned.map((s) => s.model)).toEqual(['opus'])
   expect(w.steps.map((s) => String(s.effort))).toEqual(['xhigh'])
-  expect((await w.board()).agents).toMatchObject([{ id: started.agentId, routed: false, why: 'jev：800 毫秒内没有回答', failure: { backend: 'jev', kind: 'timeout' } }])
+  expect((await w.board()).agents).toMatchObject([{ id: started.agentId, routed: false, why: 'jev：6000 毫秒内没有回答', failure: { backend: 'jev', kind: 'timeout' } }])
 })
 
 const failures: { name: string; reply: Reply; why: string }[] = [

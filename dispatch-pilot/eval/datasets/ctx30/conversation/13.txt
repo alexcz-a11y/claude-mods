@@ -1,0 +1,104 @@
+%% R3 invoices.memo 从 varchar(200) 改成 text：只改元数据，很顺（误导：和 payouts.amount 无关）
+@@ user
+发票备注 `invoices.memo` 现在限制 200 字，好几个商户说不够用，要写长的付款说明。改成不限长度吧，前端的输入框也放开。
+
+@@ assistant tools=Read*4,Grep*3,Bash*4,Write,Edit*3
+改好了，这个改动很轻。
+
+**数据库**
+
+`invoices.memo` 现在是 `varchar(200)`。在 PostgreSQL 里，`varchar(n)` 改成 `text` 是二进制兼容的类型转换：只改系统表里的列定义，**不重写表、不重建索引**，只需要一瞬间的 ACCESS EXCLUSIVE 锁。`invoices` 虽然有 3100 万行，这个 ALTER 也是毫秒级的。我在本地造了 500 万行的表试了一下：
+
+```
+ledgerly_dev=# \timing on
+ledgerly_dev=# ALTER TABLE invoices ALTER COLUMN memo TYPE text;
+ALTER TABLE
+Time: 6.412 ms
+```
+
+`memo` 上没有索引，也没有视图依赖它（查了 `pg_depend`）。
+
+迁移文件 `migrations/202610150905_invoices_memo_text.sql`：
+
+```sql
+-- +goose Up
+ALTER TABLE invoices ALTER COLUMN memo TYPE text;
+-- +goose Down
+ALTER TABLE invoices ALTER COLUMN memo TYPE varchar(200);
+```
+
+回滚那一步要注意：如果已经有人写了超过 200 字的备注，改回 `varchar(200)` 会失败。我在 Down 上面加了注释说明，真要回滚得先截断。为了防止那一瞬间的锁等太久（如果正好有长事务在读 `invoices`，ALTER 会排队，后面的查询又排在 ALTER 后面），迁移开头加了 `SET lock_timeout = '3s';`，拿不到锁就失败，下次再跑，不会把表堵住。
+
+**后端**
+
+- `api/internal/invoice/validate.go`：`memo` 的长度校验从 200 改成 5000（不限长度不合适，前端和 PDF 都要放得下；5000 是和产品确认的数字）；
+- `api/openapi.yaml`：`memo` 的 `maxLength` 改成 5000；
+- sqlc 生成的类型本来就是 `pgtype.Text`，不用改。
+
+**前端**
+
+- `web/src/pages/invoices/Edit.tsx`：备注输入框从 `<input maxLength={200}>` 换成 `<textarea maxLength={5000}>`，加了字数提示；
+- PDF 模板里备注那一栏本来就是自动换行的，我渲染了一张 4800 字备注的发票，会自动分页，没有截断。
+
+**测试**
+
+```
+$ go test ./api/internal/invoice/...
+ok  	github.com/ledgerly/ledgerly/api/internal/invoice	6.034s
+$ pnpm -C web vitest run src/pages/invoices
+ ✓ src/pages/invoices/Edit.test.tsx (12 tests)
+$ make migrate-lint
+ok: 3 new migrations checked
+```
+
+@@ user
+好，这个简单。提 PR，迁移让小周发布的时候带上。
+
+@@ assistant tools=Bash
+PR #842 已提，描述里写了这个 ALTER 不重写表、有 3 秒的 `lock_timeout`，@ 了小周。
+
+%% R4 登录验证码：每分钟最多尝试次数从 5 改到 10（误导：不是那个限流）
+@@ user
+产品说登录页的图形验证码太严了：输错 5 次就要等一分钟，老年用户经常被锁。改成每分钟 10 次吧。
+
+@@ assistant tools=Read*3,Grep*2,Edit*2,Bash*3
+改了，就一个常量。
+
+**现在的逻辑**：`api/internal/auth/captcha.go`
+
+```go
+const maxCaptchaAttemptsPerMinute = 5
+
+func (c *Captcha) Check(ctx context.Context, sessionID, answer string) error {
+    n, err := c.attempts.Incr(ctx, sessionID, time.Minute)
+    if err != nil {
+        return err
+    }
+    if n > maxCaptchaAttemptsPerMinute {
+        return ErrTooManyAttempts
+    }
+    ...
+}
+```
+
+`attempts` 是一个按登录会话计数的计数器，存在 Redis 里，一分钟过期。超过次数返回 `ErrTooManyAttempts`，前端显示“尝试次数过多，请一分钟后再试”。
+
+**改动**：
+- 常量改成 `10`；
+- 前端的提示文字里写死了“5 次”（`web/src/pages/login/Captcha.tsx`），一起改成“10 次”；
+- `captcha_test.go` 里有一个用例是“第 6 次被拒”，改成“第 11 次被拒”，另外加了一个“第 10 次还能试”的用例。
+
+这个计数只管图形验证码的尝试次数，不影响密码错误的锁定策略（那个在 `auth/lockout.go`，连续错 10 次锁 15 分钟，没有改）。
+
+```
+$ go test ./api/internal/auth/...
+ok  	github.com/ledgerly/ledgerly/api/internal/auth	1.488s
+$ pnpm -C web vitest run src/pages/login
+ ✓ src/pages/login/Captcha.test.tsx (6 tests)
+```
+
+@@ user
+好。
+
+@@ assistant tools=Bash
+PR #843 已提。

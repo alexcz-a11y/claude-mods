@@ -19,7 +19,7 @@ const ZH = '上周的事故复盘里提到权限判断有漏洞，'
 const EN = "Last week's incident review said the permission checks have holes. "
 
 /**
- * An agent item longer than every budget (Jev's default for an agent's request is 24000 tokens): the
+ * An agent item longer than every budget (Jev's default for an agent's request is 96000 tokens): the
  * person's message is cut twice (to the context budget when it is kept for the
  * turn, then to a third of it in the agent's state) and the prompt once; both
  * hold a secret. The message
@@ -29,21 +29,21 @@ const EN = "Last week's incident review said the permission checks have holes. "
 const LONG: AgentItem = {
   id: 'subagent-900',
   zh: {
-    user_message: `${ZH.repeat(400)}（上次那版是 haiku 写的）${ZH.repeat(300)}密钥是 ${SECRET}，别外传。这次用 opus 认真审一下`,
+    user_message: `${ZH.repeat(1400)}（上次那版是 haiku 写的）${ZH.repeat(600)}密钥是 ${SECRET}，别外传。这次用 opus 认真审一下`,
     kind: 'agent',
     agent_type: 'general-purpose',
     description: '审查权限改动',
-    prompt: `${'逐条核对 src/policies/ 下每条规则与新的同部门规则是否冲突，'.repeat(1500)}token ${SECRET}，最后用表格汇报发现。`,
+    prompt: `${'逐条核对 src/policies/ 下每条规则与新的同部门规则是否冲突，'.repeat(2800)}token ${SECRET}，最后用表格汇报发现。`,
     requested_model: 'sonnet',
     workflow_description: null,
     label: null,
   },
   en: {
-    user_message: `${EN.repeat(400)}(haiku wrote the last version) ${EN.repeat(300)}The key is ${SECRET}, keep it private. Use opus to review it carefully this time.`,
+    user_message: `${EN.repeat(1400)}(haiku wrote the last version) ${EN.repeat(600)}The key is ${SECRET}, keep it private. Use opus to review it carefully this time.`,
     kind: 'agent',
     agent_type: 'general-purpose',
     description: 'Review permission change',
-    prompt: `${'Check each rule under src/policies/ against the new same-department rule. '.repeat(2500)}Token ${SECRET}. Report the findings as a table.`,
+    prompt: `${'Check each rule under src/policies/ against the new same-department rule. '.repeat(3600)}Token ${SECRET}. Report the findings as a table.`,
     requested_model: 'sonnet',
     workflow_description: null,
     label: null,
@@ -57,9 +57,11 @@ const LONG: AgentItem = {
 
 /**
  * The request the eval sends for `item` in `language` (asked of no backend:
- * the request is all that is read), its suite built over `dataset`.
+ * the request is all that is read), its suite built over `dataset`; by default
+ * as `models-hint-zh`, the variant the mod asks Jev with since 1.14
+ * (core/setup.ts BACKEND_DEFAULTS `ask.agent`).
  */
-async function evalRequest(item: AgentItem, language: Language, options: PluginOptions = {}, dataset: readonly AgentItem[] = [item], variant = 'models-hint'): Promise<DecisionRequest> {
+async function evalRequest(item: AgentItem, language: Language, options: PluginOptions = {}, dataset: readonly AgentItem[] = [item], variant = 'models-hint-zh'): Promise<DecisionRequest> {
   let sent: DecisionRequest | undefined
   const ask: Ask = async (request) => {
     sent = request
@@ -144,15 +146,19 @@ for (const language of ['zh', 'en'] as const) {
 
     const forScan = await evalRequest(SCAN, language, {}, [SCAN, SYNTH])
     const forSynth = await evalRequest(SYNTH, language, {}, [SCAN, SYNTH])
-    // requests[0] is the main agent's effort, decided when the message was sent; then the script's one request.
+    // requests[0] is the main agent's effort, decided when the message was sent; then the script's one request. The mod's
+    // carries the script beside what the eval's items have (BACKEND_DEFAULTS agentBackground, with Jev since 2026-10-15):
+    // the rest is the eval's, field for field, the briefs and the person's words taking the same budget.
     expect(w.requests).toHaveLength(2)
-    expect(w.requests[1]?.body).toEqual({ model: JEV_MODEL, state: forScan.state, questions: forScan.questions })
+    const { workflow_script: script, ...state } = w.requests[1]?.body.state
+    expect(String(script)).toContain("label: 'synthesize'")
+    expect({ ...w.requests[1]?.body, state }).toEqual({ model: JEV_MODEL, state: forScan.state, questions: forScan.questions })
     expect(forSynth).toEqual(forScan)
     // What the request holds, so the equality above is not two empty things.
     expect(Object.keys(forScan.questions)).toEqual(['agent-0.model', 'agent-0.effort', 'agent-1.model', 'agent-1.effort'])
     expect(forScan.state.brief_0).toEqual({ workflow_description: SCAN[language].workflow_description, label: 'scan:${pkg}', prompt: SCAN[language].prompt })
     // The pick the script wrote for the call is the main agent's: a hint in its model question.
-    expect(JSON.stringify(forScan.questions['agent-0.model'])).toContain('asked for opus')
+    expect(JSON.stringify(forScan.questions['agent-0.model'])).toContain('指定了 opus')
   })
 }
 

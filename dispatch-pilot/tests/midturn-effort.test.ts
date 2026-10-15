@@ -208,6 +208,23 @@ test('rejudgeWaitMs can be set up to 8000: a re-decision that takes 5 s is waite
   expect((await w.board()).notes ?? []).toEqual([])
 })
 
+test("a re-decision's request waits as long as a long request may (Jev: 3000 ms), since one about agents may be ahead of it: answered after 2.5 s, it is used at a later step, not failed", { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {
+  const quick = answers(MEDIUM, { levels: XHIGH, confidence: 0.8 })
+  const w = world($, on, { backend: (request) => (kind(request) === 'midturn.level' ? { after: 2500, reply: quick(request) } : quick(request)) })
+  await w.submit('把这个死锁查清楚')
+  await w.step(working(0))
+  await w.step(working(1))
+
+  const late = w.step(working(2))
+  await w.clock.settle()
+  await w.clock.advance(300)
+  await late
+  await w.clock.advance(2200) // the answer comes, past the 1500 ms a message waits
+  await w.step({ index: 3 })
+  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium', 'medium', 'xhigh'])
+  expect((await w.board()).main?.midturn).toEqual({ steps: 4, judged: 2, changed: 1 })
+})
+
 test('rejudgeWaitMs unset is the decision model\'s own (Jev: 300 ms): a re-decision 1 s late is not waited for', { options: { ...KEY, rejudgeEvery: 2 } }, async ($, on) => {
   const quick = answers(MEDIUM, { levels: XHIGH, confidence: 0.8 })
   const w = world($, on, { backend: (request) => (kind(request) === 'midturn.level' ? { after: 1000, reply: quick(request) } : quick(request)) })

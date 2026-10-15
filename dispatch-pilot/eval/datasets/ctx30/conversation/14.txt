@@ -1,0 +1,86 @@
+%% R5 出站 webhook 投递的重试次数从 5 改到 8（误导：和入站签名校验无关）
+@@ user
+有几个商户的服务器每天凌晨维护半小时，我们发给他们的 webhook 重试 5 次就放弃了，他们老是漏事件。重试次数加到 8 次吧，退避时间也拉长一点，总共能覆盖两小时左右。
+
+@@ assistant tools=Read*3,Edit*3,Bash*3
+改好了。
+
+**现在的重试**：出站投递在 `worker/webhook/dispatch.go`，失败后按指数退避重新入队：
+
+```go
+var retryDelays = []time.Duration{
+    30 * time.Second, 2 * time.Minute, 5 * time.Minute, 10 * time.Minute, 15 * time.Minute,
+}
+```
+
+5 次重试加起来约 32 分钟，正好被商户 30 分钟的维护窗口卡住：最后一次重试往往还在维护期内，然后就放弃了，事件标记为 `failed`，商户只能去后台的“事件日志”里手动重发。
+
+**改成**：
+
+```go
+var retryDelays = []time.Duration{
+    30 * time.Second, 2 * time.Minute, 5 * time.Minute, 10 * time.Minute,
+    15 * time.Minute, 20 * time.Minute, 30 * time.Minute, 40 * time.Minute,
+}
+```
+
+8 次，加起来 2 小时 2 分 30 秒，覆盖半小时的维护窗口绰绰有余，最后一次重试在事件产生两小时后。
+
+**其他跟着改的**：
+- `docs/api/webhooks.mdx` 里写了“最多重试 5 次，约 30 分钟”，改成“最多重试 8 次，约 2 小时”，并列出了每次的间隔；
+- 后台“事件日志”页面上显示的“剩余重试次数”是从 `len(retryDelays)` 算的，不用改；
+- `dispatch_test.go` 里断言重试次数的用例改成 8，另外加了一个用例确认第 8 次失败后状态变成 `failed`、不再入队。
+
+**对队列的影响**：多出来的 3 次重试只针对失败的投递。看了最近一周的数据，投递失败率 0.6%，每天大约 1.1 万次失败的投递，多 3 次重试每天最多多 3 万多个任务，相对每天 180 万个投递任务可以忽略。
+
+```
+$ go test ./worker/webhook/...
+ok  	github.com/ledgerly/ledgerly/worker/webhook	2.317s
+```
+
+@@ user
+好。
+
+@@ assistant tools=Bash
+PR #844 已提。
+
+%% R6 前端 formatMoney 改名 formatAmount（查找替换，已做完）
+@@ user
+阿杰说前端那个 `formatMoney` 名字容易和后端的 `money` 包混，统一改名叫 `formatAmount`，所有用到的地方一起改。
+
+@@ assistant tools=Grep*2,Edit*24,Bash*3
+改完了，纯改名，逻辑没动。
+
+**范围**：`web/src/utils/format.ts` 里的定义，加上 23 个文件里的 61 处调用：
+
+```
+$ rg -l '\bformatMoney\b' web/src | wc -l
+24
+$ rg -c '\bformatMoney\b' web/src | awk -F: '{s+=$2} END {print s}'
+62
+```
+
+（62 处里有 1 处是定义本身。）
+
+用 `rg -l '\bformatMoney\b' web/src | xargs sed -i '' 's/\bformatMoney\b/formatAmount/g'` 统一替换，然后：
+- `format.ts` 里保留了一个旧名字的别名，标成 `@deprecated`，免得阿杰那边还没合的分支冲突时直接编译失败，下个版本删；
+- 单元测试 `format.test.ts` 里的 `describe('formatMoney')` 一起改了名；
+- 搜了一下 `web/e2e/` 和文档，没有地方引用这个函数名。
+
+```
+$ rg '\bformatMoney\b' web/src
+web/src/utils/format.ts:/** @deprecated 用 formatAmount */
+web/src/utils/format.ts:export const formatMoney = formatAmount
+$ pnpm -C web tsc --noEmit
+$ pnpm -C web vitest run
+ Test Files  65 passed (65)
+      Tests  412 passed (412)
+```
+
+类型检查和测试都通过。PR #845，diff 是 24 个文件、每处一行的替换。
+
+@@ user
+可以，合吧。
+
+@@ assistant
+已合。

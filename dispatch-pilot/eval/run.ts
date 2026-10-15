@@ -9,14 +9,15 @@
 //   node dispatch-pilot/eval/run.ts visual-check --ids anim-linear,anim-spring --variants mod --repeat 3
 //                                                                          only those items, each asked three times (--repeat)
 //
-// Options: --backend jev|pplx (jev), --model <id> (Jev's: jev-latest by default;
+// Options: --backend jev|pplx (jev), --model <id> (Jev's: the mod's pinned version by default, jev-1.14.0;
 // Perplexity's: pplx-decider-v1.1-27b by default, or pplx-decider-v1-27b; a run on it reads the mod's settings from
 // pplx's own row of the defaults table, core/setup.ts BACKEND_DEFAULTS: its questions, state budgets and timeout),
 // --variants en-score,zh-score (all), --languages zh,en (both), --ids a,b or
-// --limit N (all items), --concurrency 1 (Jev answers one key's requests one
-// after another: on 2026-10-04 the p50 was 271 ms at 1 in flight, 543 ms at
-// 2 and 684-1134 ms at 4, so latency is only the mod's at 1; more is faster
-// for accuracy alone), --timeout <ms> (per attempt: by default four times the
+// --limit N (all items), --concurrency 1 (Jev 1.13 answered one key's short
+// requests one after another: on 2026-10-04 the p50 was 271 ms at 1 in flight,
+// 543 ms at 2 and 684-1134 ms at 4, so latency was only the mod's at 1; 1.14
+// answered four long ones at once in the time of one, 2026-10-15; more is
+// faster for accuracy alone), --timeout <ms> (per attempt: by default four times the
 // mod's timeoutMs for the backend, at least 10000, so a slow answer is still
 // measured; the summary counts the answers later than the mod would wait),
 // --retries 2, --option contextTokens=4000 (one of the mod's options, as
@@ -27,7 +28,9 @@
 // --label <word>, --no-save, --state-tokens N (the state's budget for every kind of request, past what --option
 // contextTokens can reach, which only lowers it), --state-messages N (how many recent messages the state may hold:
 // the mod's contextMessages is at most the decision model's (Jev: 32, core/setup.ts BACKEND_DEFAULTS contextMessagesMax), so a large
-// --state-tokens alone is still cut to the newest 32 messages with Jev).
+// --state-tokens alone is still cut to the newest 32 messages with Jev), --long-context (Jev only: every request carries the
+// TypeSafe-Danger-Zone-Long-Context header, so the request and the state with any one question may hold 262k tokens instead of
+// 64k and 32k; with --state-tokens and --state-messages it measures what a longer state gains; the result records it).
 //
 // eval-v2 (#45): the dataset is eval-v2.jsonl (built first when it is not there, and checked against
 // eval-v2/generated.json), each item scored against eval-v2/gold/; the conversations are Chinese only, so the run asks
@@ -86,6 +89,7 @@ const { values, positionals } = parseArgs({
     repeat: { type: 'string', default: '1' },
     'state-tokens': { type: 'string' },
     'state-messages': { type: 'string' },
+    'long-context': { type: 'boolean', default: false },
     label: { type: 'string' },
     'no-save': { type: 'boolean', default: false },
   },
@@ -157,6 +161,8 @@ if (items.length === 0) fail('no item to run: --ids names none of the dataset\'s
 const manifest = readManifest()
 const backendName = values.backend as BackendName
 if (backendName !== 'jev' && backendName !== 'pplx') fail(`no backend "${backendName}" (jev, pplx)`)
+const longContext = values['long-context'] === true
+if (longContext && backendName !== 'jev') fail(`--long-context is Jev's header, not ${backendName}'s`)
 let options: Record<string, unknown>
 try {
   // The decision model is the backend under evaluation (--backend), whatever the manifest's default says, and the settings
@@ -225,13 +231,13 @@ for (const item of items) {
 const sending = Array.from({ length: repeats }, () => planned).flat()
 // A request with images counts their pixels' tokens as the decision model does, not the length of their base64 (lib/estimate.ts); one without is estimated as it always was.
 const { tokens: estimatedTokens, usd: estimatedUsd } = estimateRun(sending, { model, backend: backendName, factor: ESTIMATE_FACTOR, usdPerMillionTokens: price })
-console.log(`${name}: ${items.length} items x ${variants.length} variants x ${languages.length} languages${repeats === 1 ? '' : ` x ${repeats} times`} = ${sending.length} requests${suite.estimate === undefined ? '' : ' at most'}, about ${estimatedTokens} input tokens, about $${estimatedUsd.toFixed(4)} on ${backendName} (${model})`)
+console.log(`${name}: ${items.length} items x ${variants.length} variants x ${languages.length} languages${repeats === 1 ? '' : ` x ${repeats} times`} = ${sending.length} requests${suite.estimate === undefined ? '' : ' at most'}, about ${estimatedTokens} input tokens, about $${estimatedUsd.toFixed(4)} on ${backendName} (${model}${longContext ? ', long context' : ''})`)
 if (values.estimate) process.exit(0)
 if (estimatedUsd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothing sent`)
 
 let chosen: { backend: Backend; secrets: string[] }
 try {
-  chosen = backendFor(backendName, model)
+  chosen = backendFor(backendName, model, { longContext })
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 }
@@ -301,6 +307,8 @@ if (!values['no-save']) {
       // The most recent messages the state may hold (the mod's, the decision model's most: 32 with Jev), and --state-messages when the run lifted it.
       stateMessagesLimit: settings.context.messages,
       ...(stateMessages === null ? {} : { stateMessages }),
+      // --long-context: every request carried Jev's long-context header (262k tokens for the request and for the state with one question).
+      ...(longContext ? { longContext: true } : {}),
       thetaMax: settings.thetaMax,
       // The threshold for taking the level above the run decided with (the decision model's, core/setup.ts BACKEND_DEFAULTS); eval/lib/rescore.ts decides stored answers again with it.
       roundUp: settings.roundUp,

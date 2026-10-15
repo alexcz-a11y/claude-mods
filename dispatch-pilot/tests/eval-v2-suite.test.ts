@@ -209,7 +209,8 @@ test('what other thresholds for max would have given, from the probabilities kep
 test('a state that does not reach the decisive rounds says so: 24000 tokens do not hold rounds 30000 back, 48000 with the messages lifted do', async () => {
   const deep = item('explicit-unresolved-01', (r) => (r.bin = 'd2'), 30000)
   const reader = () => network((body) => answers(body, String(body.state.recent_context).includes('DECISIVE') ? MAX : HIGH))
-  const near = await run([deep], reader(), ['zh-score'])
+  // Jev's state until 2026-10-15: the newest 24000 tokens, 32 messages.
+  const near = await run([deep], reader(), ['zh-score'], withStateMessages(withStateTokens(settingsFrom({ decisionModel: 'jev' }), 24000), 32))
   expect(near[0]).toMatchObject({ shown: 'high / unresolved', correct: false })
   expect(near[0]?.detail).toMatchObject({ seen: false, seenAny: false })
   const wide = await run([deep], reader(), ['zh-score'], withStateMessages(withStateTokens(settingsFrom({ decisionModel: 'jev' }), 48000), 2000))

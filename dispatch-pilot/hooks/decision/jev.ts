@@ -3,12 +3,18 @@
 // Pure (see system-one.ts).
 
 import { errorText, postJson, withNote, withoutBase64, type Asked, type Backend, type Posted } from './backend.ts'
+import { estimateTokens } from './context.ts'
 import { describeImages, placeImages } from './images.ts'
 import { readResponse, type DecisionRequest } from './system-one.ts'
 
 export const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
-/** The alias of the current Jev; pin a version id (`jev-1.13.0`) to keep calibrated thresholds stable. */
-export const JEV_MODEL = 'jev-latest'
+/**
+ * The Jev every decision without images is asked of: a version, not the `jev-latest` alias, so the thresholds stay those the
+ * eval measured on it (docs.typesafe.ai/models: "If you have tuned confidence thresholds against one version, send that
+ * version's ID instead of the alias"). 1.14 since 2026-10-15 (DEVELOPMENT.md 「Jev 1.14」): it ran the evals of 1.13 as well
+ * as 1.13 did, and the agents' questions in Chinese better. Move it when the eval says so.
+ */
+export const JEV_MODEL = 'jev-1.14.0'
 /**
  * The model a request with images is pinned to (#56, ADR 0008): the Box question is only in 1.14, and images are a
  * "Dreamer-ready" feature that may change from one version to the next, so it moves when the eval says so, not with `jev-latest`.
@@ -16,6 +22,30 @@ export const JEV_MODEL = 'jev-latest'
 export const JEV_IMAGE_MODEL = 'jev-1.14.0'
 /** Each request containing an image needs this header, else Jev answers 400. */
 export const JEV_IMAGES_HEADER = 'TypeSafe-Danger-Zone-Images'
+/**
+ * With this header a request may hold 262k tokens, for the request and for the state with any one question (64k and 32k
+ * without), on Jev 1.14 and 1.13 alike (docs.typesafe.ai/models, Long context). Slower and less accurate, the docs say, so a
+ * request carries it only when it is past the regular limits (`needsLongContext`); the eval's --long-context sends it on every one.
+ */
+export const JEV_LONG_CONTEXT_HEADER = 'TypeSafe-Danger-Zone-Long-Context'
+/**
+ * The most a request's state takes without the header, in the mod's estimated tokens: what Jev's 32k for the state and the
+ * longest question leaves beside a question of at most 700 tokens, at 90% and with Jev counting about 1.11 of each estimated
+ * token (DEVELOPMENT.md, 「Jev 的上下文默认值怎么算」; the skills' 6000 stays far under it).
+ */
+export const JEV_REGULAR_STATE = 24000
+/** The most a whole request (its state and every question) takes without the header, in estimated tokens: 90% of Jev's 64k at about 1.2 Jev tokens each. */
+export const JEV_REGULAR_REQUEST = 48000
+
+/**
+ * Whether a request is past Jev's regular limits and goes with the long-context header: its state over JEV_REGULAR_STATE, or
+ * the state and its questions together over JEV_REGULAR_REQUEST. A request with images never is (its features size it within the regular limits).
+ */
+export function needsLongContext(request: DecisionRequest): boolean {
+  if ((request.images ?? []).length > 0) return false
+  const state = estimateTokens(JSON.stringify(request.state))
+  return state > JEV_REGULAR_STATE || state + estimateTokens(JSON.stringify(request.questions)) > JEV_REGULAR_REQUEST
+}
 
 /** A random version 4 UUID (a module's sandbox has no `crypto.randomUUID`). It only keeps references from meeting the text around them, so it needs no strength. */
 function uuid(): string {
@@ -25,14 +55,20 @@ function uuid(): string {
   })
 }
 
-/** `newId`: the id every reference of a request with images starts with, new for each request (a test gives a fixed one). */
-export function jevBackend(apiKey: string, options: { url?: string; model?: string; newId?: () => string } = {}): Backend {
+/**
+ * `newId`: the id every reference of a request with images starts with, new for each request (a test gives a fixed one).
+ * `longContext`: every request carries JEV_LONG_CONTEXT_HEADER (the eval's --long-context); without it, only a request
+ * past the regular limits does (`needsLongContext`).
+ */
+export function jevBackend(apiKey: string, options: { url?: string; model?: string; newId?: () => string; longContext?: boolean } = {}): Backend {
   const url = options.url ?? JEV_URL
   const model = options.model ?? JEV_MODEL
   const newId = options.newId ?? uuid
+  const long = (request: DecisionRequest) => options.longContext === true || needsLongContext(request)
   return {
     name: 'jev',
     configured: apiKey !== '',
+    longContext: long,
     async ask(io, request, timeoutMs) {
       if (!apiKey) return { ok: false, failure: { kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey' } }
       let sent: { headers: Record<string, string>; body: unknown }
@@ -41,7 +77,8 @@ export function jevBackend(apiKey: string, options: { url?: string; model?: stri
       } catch (error) {
         return { ok: false, failure: { kind: 'request', detail: errorText(error) } }
       }
-      const posted = await postJson(io, url, { authorization: `Bearer ${apiKey}`, ...sent.headers }, sent.body, timeoutMs)
+      const longContext: Record<string, string> = long(request) ? { [JEV_LONG_CONTEXT_HEADER]: 'true' } : {}
+      const posted = await postJson(io, url, { authorization: `Bearer ${apiKey}`, ...longContext, ...sent.headers }, sent.body, timeoutMs)
       const asked = readAsked(posted)
       // A failure's detail goes to the debug log: what it echoes of the key stays out.
       const kept: Asked = asked.ok ? asked : { ok: false, failure: { ...asked.failure, detail: asked.failure.detail.split(apiKey).join('[REDACTED]') } }

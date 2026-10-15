@@ -74,7 +74,7 @@ test('with the switch on, a message without an image goes as it always did: one 
   expect(w.requests).toHaveLength(1)
   const sent = w.requests[0]
   expect(sent?.url).toBe('https://api.typesafe.ai/v1/systemone')
-  expect(sent?.body.model).toBe('jev-latest')
+  expect(sent?.body.model).toBe('jev-1.14.0')
   expect(Object.keys(sent?.body.state)).toEqual(['user_message', 'recent_context'])
   expect(Object.keys(sent?.body.questions)).toContain('effort.level')
   expect(sent?.body.assets).toBeUndefined()
@@ -204,7 +204,7 @@ test('an image the row gives only as a block, where no program can write it to a
 })
 
 test('when the effort request fails too, the turn is not routed and says why: it goes out at the engine effort', { options: JEV }, async ($, on) => {
-  const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 3, (request) => (isReading(request) ? undefined : { status: 429, body: 'slow down' })) })
+  const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 3, (request) => (isReading(request) ? undefined : { status: 503, body: 'overloaded' })) })
   await w.submit('Build this scene', { images: [SCENE] })
   await w.step({ index: 0, effort: 'medium' })
 
