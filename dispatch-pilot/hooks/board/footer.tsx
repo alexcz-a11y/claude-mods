@@ -7,7 +7,7 @@
 
 import type { Effort } from '../decision/effort.ts'
 import type { Model } from '../core/report.ts'
-import { ACCENT, EFFORT_COLOR, MODEL_BG, MUTED, SPIN, WARN, width, type TT } from './kit.tsx'
+import { ACCENT, EFFORT_COLOR, MODEL_FG, MUTED, SPIN, WARN, width, type TT } from './kit.tsx'
 import type { ScreenView } from './view.ts'
 
 /** The most cells Dispatch Pilot adds to the footer on the terminal. */
@@ -70,7 +70,7 @@ export function footerTree(t: TT, view: ScreenView, room = FOOTER_COLUMNS) {
       <Text>
         <Text color={parts.color} bold>{parts.glyph}</Text>
         {words.model === undefined && words.effort === undefined ? null : <Text> </Text>}
-        {words.model === undefined ? null : <Text color={parts.routed ? MODEL_BG[words.model] : WARN}>{words.model}</Text>}
+        {words.model === undefined ? null : <Text color={parts.routed ? MODEL_FG[words.model] : WARN}>{words.model}</Text>}
         {words.model !== undefined && words.effort !== undefined ? <Text color={MUTED}>·</Text> : null}
         {words.effort === undefined ? null : <Text color={!parts.routed ? WARN : level === undefined ? MUTED : EFFORT_COLOR[level]}>{words.effort}</Text>}
         {parts.more > 0 ? <Text color={ACCENT} bold>{` +${parts.more}`}</Text> : null}
