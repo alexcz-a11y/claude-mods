@@ -37,6 +37,16 @@ test('a recording becomes 12 frames, evenly through its length, in one request i
   expect(JSON.stringify(answer.result)).toContain('1. PASS 0.95 (frames) the card: settles in its place without bouncing back')
 })
 
+test('the bars of a recording are 0.8 and 0.4 and both are in: 0.8 passes, 0.79 is unsure, 0.41 is unsure, 0.4 fails', { options: JEV }, async ($, on) => {
+  const nouls = { 'check.0': 0.8, 'check.1': 0.79, 'check.2': 0.41, 'check.3': 0.4, 'check.4': 0.2 }
+  const w = world($, on, { session: true, process: { programs: { ffmpeg: ffmpeg(VIDEOS) } }, backend: jev([0, 1, 0, 0, 0], { nouls }) })
+  await w.start()
+  const answer = await w.visualCheck({ images: [REC], spec: SPEC, checks: ['a', 'b', 'c', 'd', 'e'].map((property) => ({ part: 'the card', property })) })
+
+  const blocks = answer.result as { type: string; text?: string }[]
+  expect(blocks[0]?.text?.split('\n').slice(1, 6).map((line) => line.split(' ').slice(0, 3).join(' '))).toEqual(['1. PASS 0.80', '2. UNSURE 0.79', '3. UNSURE 0.41', '4. FAIL 0.40', '5. FAIL 0.20'])
+})
+
 test('the time span the agent names is where the frames are cut: from its first second to its last, 12 of them, and ffmpeg is asked for each one', { options: JEV }, async ($, on) => {
   const w = world($, on, { session: true, process: { programs: { ffmpeg: ffmpeg(VIDEOS) } }, backend: jev([0, 1, 0, 0, 0]) })
   await w.start()

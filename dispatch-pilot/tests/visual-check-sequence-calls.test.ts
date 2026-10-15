@@ -74,7 +74,7 @@ test('the tool\'s description says what a series is for, that every named part m
 
   expect(description).toContain('To find the quality level from which higher ones look no different, give the screenshots of one view at rising levels in images, lowest first (2 to 12 levels), with sequence: true')
   expect(description).toContain('each two neighbouring levels are compared in every part you name')
-  expect(description).toContain('no difference only if every part you named passes')
+  expect(description).toContain('no difference only if every part you named passes (0.9 or more)')
   expect(description).toContain('A still does not show flicker or rippling jitter: for those cut the same moment out of a recording of each level (for example with ffmpeg) and give those frames as the series')
   expect(description).toContain('List the levels you tried, the parts you compared, the result and the probabilities')
 })

@@ -10,8 +10,9 @@
 //
 // Items and what is measured (the ticket's list): a check that holds judged PASS or FAIL, one that does not hold judged PASS (should
 // be none), FAIL on the controls, UNSURE, the tokens, the latency and the price of each image, and whether the groups of reference
-// images read in the order of their complexity. The raw probabilities are kept with each answer, so that the two bars (0.9 and 0.2)
-// can be swept offline: `thresholds` in the figures.
+// images read in the order of their complexity. The raw probabilities are kept with each answer, so that the bars (a screenshot 0.8
+// and 0.2, a recording 0.8 and 0.4; before 2026-10-15 0.9 and 0.2 for both) can be swept offline: `thresholds` in the figures, and
+// eval/lib/visual-check-rescore.ts for the verdicts of a stored result by the bars of now.
 //
 // Pure: no Node API; the pictures and programs come in as `ImageHost` (SuiteHost.images).
 
@@ -25,7 +26,7 @@ import { imageMegapixelBudget, PPLX_MAX_IMAGES } from '../../hooks/decision/imag
 import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
 import { FRAME_COUNT, framesRequest } from '../../hooks/decision/visual-check-frames.ts'
 import { batchPairs, locatePlan, readLocated, withBoxes, zoomRequest, type ZoomPair } from '../../hooks/decision/visual-check-zoom.ts'
-import { comparedNames, FAIL_AT, PASS_AT, readWholeImage, wholeImageRequest, type Basis, type Check, type CheckResult, type Comparison, type Verdict } from '../../hooks/decision/visual-check.ts'
+import { comparedNames, FAIL_AT, judge, PASS_AT, readWholeImage, RECORDING_BARS, RECORDING_FAIL_AT, SERIES_PASS_AT, wholeImageRequest, type Basis, type Check, type CheckResult, type Comparison, type Verdict } from '../../hooks/decision/visual-check.ts'
 import { sameView } from '../../hooks/decision/zoom.ts'
 import type { Language } from './datasets.ts'
 import { rate, type VariantSummary } from './metrics.ts'
@@ -159,7 +160,8 @@ export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualChe
     const { request, part } = framesRequest(spec, loaded.images.map((picture, i) => ({ picture, seconds: (frames[i] as { seconds: number }).seconds })), checks)
     const sent = await traces.ask(request)
     if (!sent.asked.ok) return requestFailed(sent.asked.failure)
-    const results = readWholeImage(comparisonOf(item), part, sent.asked.answers, checks)
+    // A motion is judged by the bars of a recording, as the mod judges the frames of one.
+    const results = readWholeImage(comparisonOf(item), part, sent.asked.answers, checks, RECORDING_BARS)
     return decided(item, results, results, false, loaded.images.length, null, traces.sent)
   }
 
@@ -249,7 +251,7 @@ export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualChe
       'An item with checks: each check holds (the part is the same as in the reference, or the frames meet the requirement) or does not. A check that holds is right when it is judged PASS, a check that does not hold when it is judged FAIL; UNSURE is neither right nor wrong. ' +
       'The item is `correct` when none of its checks is judged the wrong way round (`false-pass`: a part that differs judged PASS, which must not happen; `false-fail`: a part that is the same judged FAIL), `exact` when every check is right: an item all UNSURE is correct and not exact, so read `exact` and the figures, not `correct` alone. ' +
       'A complexity item: right when the level the group reads as is in gold.accept, exact when it is gold.level; whether the groups read in the order of their rank is in the figures (`complexity`). ' +
-      'The verdicts are the mod\'s (PASS from 0.9, FAIL up to 0.2; against a reference a PASS is the crop\'s and a whole image only fails, ADR 0008); the raw probabilities are kept with each answer, and `thresholds` gives what other bars would have said. Controls are the items in which nothing differs.',
+      'The verdicts are the mod\'s (PASS from 0.8, FAIL up to 0.2 for a screenshot and up to 0.4 for the frames of a motion, as of 2026-10-15; against a reference a PASS is the crop\'s and a whole image only fails, ADR 0008); the raw probabilities are kept with each answer, and `thresholds` gives what other bars would have said. Controls are the items in which nothing differs.',
     about: {
       variants:
         '`mod`: as the mod asks with the run\'s decision model: against a reference, Jev gets the checks and the Box questions in the first request and the zoomed re-check on the crops after it, pplx the first request alone; a motion is its frames in one request against its spec; a group of references is the complexity reading. ' +
@@ -320,15 +322,15 @@ function questionsOf(variant: string): unknown {
 
 // ---- Figures ----------------------------------------------------------------------------------------------------------------
 
-/** What the bars were swept over: PASS from, FAIL up to (the mod's are 0.9 and 0.2). */
-export const SWEPT = { passAt: [0.8, 0.85, PASS_AT, 0.95], failAt: [0.1, FAIL_AT, 0.3] } as const
+/**
+ * What the bars were swept over: PASS from, FAIL up to. The mod's sets are in the grid: a screenshot (PASS_AT 0.8, FAIL_AT 0.2),
+ * a recording (0.8, RECORDING_FAIL_AT 0.4), a series (SERIES_PASS_AT 0.9, 0.2).
+ */
+export const SWEPT = { passAt: [0.7, 0.75, PASS_AT, 0.85, SERIES_PASS_AT, 0.95], failAt: [0.1, FAIL_AT, 0.3, RECORDING_FAIL_AT] } as const
 
 /** The verdict a probability gives at other bars (`judge` of the mod, with the bars given). */
 export function verdictAt(p: number | null, trust: 'both' | 'fail', passAt: number, failAt: number): Verdict {
-  if (p === null) return 'unsure'
-  if (p <= failAt) return 'fail'
-  if (p >= passAt) return trust === 'both' ? 'pass' : 'unsure'
-  return 'unsure'
+  return judge(p, trust, { passAt, failAt }).verdict
 }
 
 /** The expected level of the five probabilities (the mod rounds this for its reading; unrounded it tells two groups of one level apart). */

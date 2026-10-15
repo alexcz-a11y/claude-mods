@@ -6,7 +6,7 @@
 import { type Box, boxArea, coverage, ELSEWHERE_MAX_AREA, ELSEWHERE_MIN_CONFIDENCE, normalizeBox } from './zoom.ts'
 import { imageRef, imageTokens, packByCost, type Picture } from './images.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part, type Question, type RequestImage, MAX_QUESTIONS } from './system-one.ts'
-import { judge, yesOf, type Check, type CheckResult } from './visual-check.ts'
+import { judge, STILL_BARS, yesOf, type Bars, type Check, type CheckResult } from './visual-check.ts'
 
 // ---- Locating: the Box questions of the first request ----------------------------------------------------------------
 
@@ -170,13 +170,13 @@ export const MAX_CROPPED_CHECKS = 3
 /**
  * The verdict of a check from the probabilities of "the same" on its crops (one for each image it is compared with). A part seen
  * from several sides matches if any one side matches, so the highest counts. Null when no crop was judged: the zoomed re-check
- * failed for this check.
+ * failed for this check. `bars`: a screenshot's unless the crops belong to a series (SERIES_BARS).
  */
-export function judgeZoom(check: Check, probabilities: readonly (number | null)[]): CheckResult | null {
+export function judgeZoom(check: Check, probabilities: readonly (number | null)[], bars: Bars = STILL_BARS): CheckResult | null {
   const given = probabilities.filter((p): p is number => p !== null)
   if (given.length === 0) return null
   const probability = Math.max(...given)
-  return { check, probability, basis: 'zoom', ...judge(probability, 'both') }
+  return { check, probability, basis: 'zoom', ...judge(probability, 'both', bars) }
 }
 
 /**

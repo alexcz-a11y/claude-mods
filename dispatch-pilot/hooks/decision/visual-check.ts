@@ -23,10 +23,26 @@ export type Comparison =
 /** A pass, a fail, or no verdict to trust. */
 export type Verdict = 'pass' | 'fail' | 'unsure'
 
-/** The probability that a check holds from which it passes (ADR 0008: "一致" at or above 0.9). */
-export const PASS_AT = 0.9
-/** The probability that a check holds up to which it fails (at or below 0.2). */
+// The bars (ADR 0008, revised 2026-10-15 by the user after two evaluations). A check passes at `passAt` or more and fails at `failAt`
+// or less; both ends are in. Three sets, each with its own constants so that no number is written twice.
+
+/** The probability that a check holds from which it passes (screenshot, crop, recording: 0.8; a series asks for more, SERIES_PASS_AT). */
+export const PASS_AT = 0.8
+/** The probability that a check holds up to which it fails on a screenshot (and on the whole images that stand in for a crop that failed). */
 export const FAIL_AT = 0.2
+/** The same for a recording: the frames of a motion give a lower score to a motion that is wrong, so the fail bar is higher (the evaluation of 2026-10-15). */
+export const RECORDING_FAIL_AT = 0.4
+/** The probability from which a pair of levels of a series counts as "no difference": the weak direction of the answers, so it stays at the old bar. */
+export const SERIES_PASS_AT = 0.9
+
+/** The two bars a probability is judged by. */
+export type Bars = { readonly passAt: number; readonly failAt: number }
+/** A screenshot, a crop of one, a pair of images. */
+export const STILL_BARS: Bars = { passAt: PASS_AT, failAt: FAIL_AT }
+/** A screen recording (read as its frames). */
+export const RECORDING_BARS: Bars = { passAt: PASS_AT, failAt: RECORDING_FAIL_AT }
+/** Each pair of neighbouring levels of a series. */
+export const SERIES_BARS: Bars = { passAt: SERIES_PASS_AT, failAt: FAIL_AT }
 
 /** What a verdict rests on: the whole image, or the crop of the part (#59). */
 export type Basis = 'whole' | 'zoom'
@@ -37,12 +53,12 @@ export type CheckResult = { check: Check; verdict: Verdict; probability: number 
 /**
  * The verdict for a probability that a check holds. A probability between the two bars is unsure. `trust`: what the probability
  * may decide: `both` (a pass and a fail), or `fail` (only a fail: the whole image cannot confirm that a part matches a
- * reference, ADR 0008).
+ * reference, ADR 0008). `bars`: a screenshot's unless said otherwise.
  */
-export function judge(probability: number | null, trust: 'both' | 'fail'): { verdict: Verdict; why?: string } {
+export function judge(probability: number | null, trust: 'both' | 'fail', bars: Bars = STILL_BARS): { verdict: Verdict; why?: string } {
   if (probability === null) return { verdict: 'unsure', why: 'the decision model gave no answer to this check' }
-  if (probability <= FAIL_AT) return { verdict: 'fail' }
-  if (probability >= PASS_AT) return trust === 'both' ? { verdict: 'pass' } : { verdict: 'unsure', why: 'a match with a reference cannot be confirmed from the whole image' }
+  if (probability <= bars.failAt) return { verdict: 'fail' }
+  if (probability >= bars.passAt) return trust === 'both' ? { verdict: 'pass' } : { verdict: 'unsure', why: 'a match with a reference cannot be confirmed from the whole image' }
   return { verdict: 'unsure', why: 'the decision model is not sure either way' }
 }
 
@@ -108,14 +124,15 @@ export function yesOf(answer: Answer | undefined): number | null {
 
 /**
  * What the answers to the first request say of each check, by the whole image. Against a spec, or against nothing, a high
- * probability passes; against a reference or another screenshot only a low one counts (`judge`).
+ * probability passes; against a reference or another screenshot only a low one counts (`judge`). `bars`: a recording's frames are
+ * judged by RECORDING_BARS, anything else by a screenshot's.
  */
-export function readWholeImage(comparison: Comparison, part: Part, answers: Readonly<Record<string, unknown>>, checks: readonly Check[]): CheckResult[] {
+export function readWholeImage(comparison: Comparison, part: Part, answers: Readonly<Record<string, unknown>>, checks: readonly Check[], bars: Bars = STILL_BARS): CheckResult[] {
   const own = answersFor(part, answers)
   const trust = isCompared(comparison) ? 'fail' : 'both'
   return checks.map((check, i) => {
     const probability = yesOf(own[String(i)])
-    return { check, probability, basis: 'whole' as const, ...judge(probability, trust) }
+    return { check, probability, basis: 'whole' as const, ...judge(probability, trust, bars) }
   })
 }
 

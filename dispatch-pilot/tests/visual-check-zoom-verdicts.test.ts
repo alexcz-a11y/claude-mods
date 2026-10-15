@@ -1,5 +1,5 @@
-// visual_check (#59): against a reference or another screenshot the verdict of a check is read off the crops: "the same" at 0.9 or more
-// passes, at 0.2 or less fails, between is unsure (ADR 0008). Where the crops could not be made or judged, the whole images' answer
+// visual_check (#59): against a reference or another screenshot the verdict of a check is read off the crops: "the same" at 0.8 or more
+// passes, at 0.2 or less fails, between is unsure (ADR 0008, bar revised 2026-10-15). Where the crops could not be made or judged, the whole images' answer
 // stands, but only a fail from it is taken. Seam 1, as visual-check.test.ts: the world's backend answers the two requests.
 
 import { expect, test } from 'claude-code/testing'
@@ -43,16 +43,15 @@ test('a check passes at 0.9 on its crops, fails at 0.2, and is unsure between: t
     '2. FAIL 0.20 (zoomed crop) the title: font weight',
     '3. UNSURE 0.50 (zoomed crop) the footer: margin (the decision model is not sure either way)',
   ])
-  // 0.9 is in: the bar is "at least".
 })
 
-test('0.9 passes and nothing under it does; only the crops are asked, as Noul: no choice question decides', { options: JEV }, async ($, on) => {
-  const w = world($, on, { session: true, files: FILES, process: true, backend: zoomBackend({ zoom: { 'zoom.0.0': 0.9, 'zoom.1.0': 0.89 } }) })
+test('0.8 passes and nothing under it does; only the crops are asked, as Noul: no choice question decides', { options: JEV }, async ($, on) => {
+  const w = world($, on, { session: true, files: FILES, process: true, backend: zoomBackend({ zoom: { 'zoom.0.0': 0.8, 'zoom.1.0': 0.79 } }) })
   await w.start()
   const answer = read(await w.visualCheck({ images: [SHOT], reference: [DESIGN], checks: [BUTTON, TITLE] }))
 
-  expect(answer.lines[1]).toContain('1. PASS 0.90 (zoomed crop)')
-  expect(answer.lines[2]).toContain('2. UNSURE 0.89 (zoomed crop)')
+  expect(answer.lines[1]).toContain('1. PASS 0.80 (zoomed crop)')
+  expect(answer.lines[2]).toContain('2. UNSURE 0.79 (zoomed crop)')
   for (const request of w.requests) expect(new Set(Object.values(request.body.questions).map((question: any) => question.type))).toEqual(new Set(request.body.questions['zoom.0.0'] === undefined ? ['noul', 'box'] : ['noul']))
 })
 
@@ -80,6 +79,20 @@ test('when the second request fails, a fail of the whole images stands and anyth
     '1. FAIL 0.10 (whole image) the primary button: corner radius',
     '2. UNSURE 0.97 (whole image) the title: font weight (the zoomed re-check failed (jev: busy (HTTP 503)); a match with a reference cannot be confirmed from the whole image)',
   ])
+})
+
+test('when the second request fails, the whole images fail a check at 0.2 and no higher: the bar of a screenshot stays 0.2', { options: JEV }, async ($, on) => {
+  const w = world($, on, {
+    session: true,
+    files: FILES,
+    process: true,
+    backend: zoomBackend({ whole: { 'check.0': 0.2, 'check.1': 0.3 }, zoomReply: { status: 503, body: 'overloaded' } }),
+  })
+  await w.start()
+  const answer = read(await w.visualCheck({ images: [SHOT], reference: [DESIGN], checks: [BUTTON, TITLE] }))
+
+  expect(answer.lines[1]).toBe('1. FAIL 0.20 (whole image) the primary button: corner radius')
+  expect(answer.lines[2]).toContain('2. UNSURE 0.30 (whole image) the title: font weight')
 })
 
 test('a pair the second request leaves unanswered is unsure, the others are judged', { options: JEV }, async ($, on) => {

@@ -5,7 +5,7 @@
 // The eval's visual-check suite (#65) reads a series the very same way, so it is pure (see system-one.ts).
 
 import { packByCost } from './images.ts'
-import type { CheckResult } from './visual-check.ts'
+import { SERIES_PASS_AT, type CheckResult } from './visual-check.ts'
 
 /** Most levels one call takes: each neighbouring pair is its own requests, and they go out in waves (`pairWaves`). */
 export const MAX_LEVELS = 12
@@ -14,7 +14,7 @@ export const MAX_LEVELS = 12
 
 /** With Jev, in the tool's description (visual-check-tool.ts): what a series is for, how it is judged, what to put in the final report. */
 export const SERIES_DESCRIPTION =
-  `To find the quality level from which higher ones look no different, give the screenshots of one view at rising levels in images, lowest first (2 to ${MAX_LEVELS} levels), with sequence: true, and name the parts the level may change: each two neighbouring levels are compared in every part you name, on enlarged crops, and the answer lists each pair and says from which level up nothing differs. It counts as no difference only if every part you named passes (0.9 or more). Use it instead of handing the user the levels to compare. A still does not show flicker or rippling jitter: for those cut the same moment out of a recording of each level (for example with ffmpeg) and give those frames as the series. List the levels you tried, the parts you compared, the result and the probabilities in your final report.`
+  `To find the quality level from which higher ones look no different, give the screenshots of one view at rising levels in images, lowest first (2 to ${MAX_LEVELS} levels), with sequence: true, and name the parts the level may change: each two neighbouring levels are compared in every part you name, on enlarged crops, and the answer lists each pair and says from which level up nothing differs. It counts as no difference only if every part you named passes (${SERIES_PASS_AT} or more). Use it instead of handing the user the levels to compare. A still does not show flicker or rippling jitter: for those cut the same moment out of a recording of each level (for example with ffmpeg) and give those frames as the series. List the levels you tried, the parts you compared, the result and the probabilities in your final report.`
 
 /** With pplx, in its description: a series needs the zoomed re-check, which needs the boxes only Jev answers. */
 export const SERIES_UNAVAILABLE =
@@ -24,7 +24,7 @@ export const SERIES_UNAVAILABLE =
 
 /**
  * What two neighbouring levels come to. "No difference" is the weak direction of the decision model's answers, which only a pass
- * at 0.9 on the crop of a part can show (ADR 0008), and it takes every part the checks name: `same` when all pass; `differs`
+ * at SERIES_PASS_AT (0.9: the old bar, kept for this; a screenshot passes at 0.8) on the crop of a part can show (ADR 0008), and it takes every part the checks name: `same` when all pass; `differs`
  * when any fails (a part known to differ outweighs a doubt about another); `unsure` otherwise.
  */
 export type PairConclusion = 'same' | 'differs' | 'unsure'

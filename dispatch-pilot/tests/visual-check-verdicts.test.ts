@@ -41,12 +41,12 @@ test('a probability of 0.2 or less is a FAIL, and between the bars a check is UN
   ])
 })
 
-test('the bars are 0.9 and 0.2 and both are in: 0.9 passes, 0.89 is unsure, 0.21 is unsure, 0.2 fails', { options: JEV }, async ($, on) => {
-  const nouls = { 'check.0': 0.9, 'check.1': 0.89, 'check.2': 0.21, 'check.3': 0.2 }
+test('the bars of a screenshot are 0.8 and 0.2 and both are in: 0.8 passes, 0.79 is unsure, 0.4 is unsure, 0.21 is unsure, 0.2 fails', { options: JEV }, async ($, on) => {
+  const nouls = { 'check.0': 0.8, 'check.1': 0.79, 'check.2': 0.4, 'check.3': 0.21, 'check.4': 0.2 }
   const w = world($, on, { session: true, files: FILES, process: true, backend: jev([0, 1, 0, 0, 0], { nouls }) })
   await w.start()
-  const answer = await w.visualCheck({ images: [SHOT], checks: ['a', 'b', 'c', 'd'].map((property) => ({ part: 'the button', property })) })
+  const answer = await w.visualCheck({ images: [SHOT], checks: ['a', 'b', 'c', 'd', 'e'].map((property) => ({ part: 'the button', property })) })
 
   const blocks = answer.result as { type: string; text?: string }[]
-  expect(blocks[0]?.text?.split('\n').slice(1, 5).map((line) => line.split(' ').slice(0, 3).join(' '))).toEqual(['1. PASS 0.90', '2. UNSURE 0.89', '3. UNSURE 0.21', '4. FAIL 0.20'])
+  expect(blocks[0]?.text?.split('\n').slice(1, 6).map((line) => line.split(' ').slice(0, 3).join(' '))).toEqual(['1. PASS 0.80', '2. UNSURE 0.79', '3. UNSURE 0.40', '4. UNSURE 0.21', '5. FAIL 0.20'])
 })

@@ -127,6 +127,24 @@ test('a part the model is not sure of is not a pass: the pair is UNSURE, and a t
   expect(result(lines)).toBe('Result: it could not be told from which level on the higher ones look alike: the top pair, level 2 to level 3, is UNSURE. Look at those two levels yourself (visual_check with look: true).')
 })
 
+test('"no difference" in a series needs 0.9, the old bar: 0.9 is the same, 0.89 and 0.8 (which pass a screenshot) are not, and 0.2 still differs', { options: JEV }, async ($, on) => {
+  const w = world($, on, {
+    session: true,
+    files: levels(5),
+    process: true,
+    backend: seriesBackend({ zoom: { '1-2': 0.2, '2-3': 0.8, '3-4': 0.89, '4-5': 0.9 } }),
+  })
+  await w.start()
+  const lines = read(await w.visualCheck({ images: [level(1), level(2), level(3), level(4), level(5)], sequence: true, checks: [FOAM] }))
+
+  expect(lines).toContain('Level 1 to level 2: DIFFERENT')
+  expect(lines).toContain('Level 2 to level 3: UNSURE')
+  expect(lines).toContain('Level 3 to level 4: UNSURE')
+  expect(lines).toContain('Level 4 to level 5: NO DIFFERENCE')
+  expect(lines).toContain('  1. PASS 0.90 (zoomed crop) the waves near the horizon: foam density')
+  expect(result(lines)).toBe('Result: from level 4 upward no difference was seen in the parts you named. Level 4 is the lowest level beyond which a higher one looks the same there.')
+})
+
 test('when every pair looks the same the higher levels look like the first from the start', { options: JEV }, async ($, on) => {
   const w = world($, on, { session: true, files: levels(3), process: true, backend: seriesBackend({ zoom: { '1-2': 0.95, '2-3': 0.93 } }) })
   await w.start()
