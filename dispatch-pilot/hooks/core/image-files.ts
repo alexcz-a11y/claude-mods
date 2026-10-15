@@ -87,8 +87,11 @@ export async function loadImage(io: ImageFilesIo, path: string, limits: ImageLim
   ] as Attempt[]).filter((attempt, i, all) => all.findIndex((other) => other.format === attempt.format && other.share === attempt.share) === i)
   let refused = ''
   for (const attempt of attempts) {
-    const size = planSize(Math.round(width * attempt.share), Math.round(height * attempt.share), limits)
-    // A share of the size can still be too small for the limits: it is then the smallest that fits (the size of the first attempt).
+    // A share is of the size the limits allow the image (#60: an image over a limit, as a frame of a recording is, would otherwise
+    // come to more than its share of a budget), and a share can still be too small for the limits: it is then the smallest that fits.
+    const whole = planSize(width, height, limits)
+    if (!whole.ok) return { ok: false, reason: `${path}: ${whole.reason}` }
+    const size = attempt.share === 1 ? whole : planSize(Math.round(whole.width * attempt.share), Math.round(whole.height * attempt.share), limits)
     if (!size.ok) return { ok: false, reason: `${path}: ${size.reason}` }
     const steps: string[] = []
     let file = path

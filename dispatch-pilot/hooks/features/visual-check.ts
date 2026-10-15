@@ -17,11 +17,18 @@ import type { DecisionRequest } from '../decision/system-one.ts'
 import { type ImageLimits, LOOK_IMAGE_LIMITS, limitsFor } from '../decision/image-fit.ts'
 import { forgetLoop, noteResults, readWholeImage, wholeImageRequest, type Check, type CheckResult, type Comparison, type Streaks } from '../decision/visual-check.ts'
 import { parseVisualCheckInput, visualCheckText, VISUAL_CHECK_INPUT, VISUAL_CHECK_TOOL, VISUAL_CHECK_TOOL_CALLED, visualCheckDescription, type VisualCheckInput } from '../decision/visual-check-tool.ts'
+import { FRAME_COUNT, type Frame, framesRequest, isRecording, LOOK_FRAME_COUNT, type Span } from '../decision/visual-check-frames.ts'
+import { recordOf, type VisualCheckRecord } from '../decision/visual-check-record.ts'
 import { type ImageFilesIo, type Loaded, type LoadedImage, loadImage, loadImages } from '../core/image-files.ts'
+import { type RecordingFrames, readRecording } from '../core/video-frames.ts'
+import { report, type ReportIo } from '../core/report.ts'
+import { type CallTrouble, reportCall } from '../core/visual-check-report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 
 const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
+const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
+const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'visual-check'
@@ -72,7 +79,7 @@ async function filesOf($: EngineInterface): Promise<ImageFilesIo> {
 }
 
 export function registerVisualCheck(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: '看图核对：agent 交上截图和检查项，决策模型对每条回答过、不过或没把握' })
+  defineSwitch({ name: SWITCH, info: '看图核对：agent 交上截图和检查项，决策模型对每条回答过、不过或没把握', parts: ['checks'] })
 
   // Registered once every plugin is loaded, under a match-all matcher. Without a decision model that takes images (no TypeSafe
   // and no Perplexity key) the tool would only ever fail, so it is not offered.
@@ -106,10 +113,18 @@ export function registerVisualCheck(on: On, ctx: Ctx): void {
     if (!isOn(SWITCH)) return { result: `visual_check is switched off (/dp ${SWITCH} on turns it back on), so it checked nothing. ${LOOK_YOURSELF}` }
     const parsed = parseVisualCheckInput(e as Record<string, unknown>)
     if (!parsed.ok) return { result: parsed.message }
+    const agent = e.agentId ?? 'main'
+    const reportTo: ReportIo = {
+      board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+      decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+      debug: (line) => $.ui.log(line, { to: 'debug' }),
+      now: () => $.clock.now(),
+      toast: (text) => $.ui.toast(text),
+    }
     try {
       const files = await filesOf($)
       // Looking at images asks nothing of the decision model.
-      if (parsed.input.look) return { result: await look(files, parsed.input.images) }
+      if (parsed.input.look) return { result: await look(files, parsed.input.images, parsed.input.span) }
       // #61: a series of quality levels is compared pair by pair here.
       if (parsed.input.comparison.kind === 'sequence') return { result: 'visual_check cannot compare a series of images (sequence) yet. Compare two of them at a time with compare_to, or look at them yourself.' }
       const images = ctx.images
@@ -126,9 +141,12 @@ export function registerVisualCheck(on: On, ctx: Ctx): void {
         $.ui.log(`visual_check request [${Object.keys(request.questions).join(', ')}] to ${images.backend.name}: ${describeAsked(asked, ms)}`, { to: 'debug' })
         return asked
       }
-      return { result: await check({ files, ask, backend: images.name, agent: e.agentId ?? 'main' }, parsed.input) }
+      const deps: Deps = { files, ask, backend: images.name, agent, now: () => $.clock.now(), debug: reportTo.debug, report: (record, trouble) => reportCall(reportTo, agent, record, trouble) }
+      return { result: await check(deps, parsed.input) }
     } catch (error) {
       $.ui.log(`visual_check failed: ${errorText(error)}`, { to: 'debug' })
+      // A bug of the mod's own, beside the agent's route: a note on the board, no toast.
+      await report(reportTo, { decision: { feature: SWITCH, agent, aside: true, skipped: 'error' } })
       return { result: `visual_check could not run (an error in Dispatch Pilot, written to the debug log). ${LOOK_YOURSELF}` }
     }
   })
@@ -141,6 +159,12 @@ type Deps = {
   backend: 'jev' | 'pplx'
   /** Who calls: 'main', or a dispatched agent's id. */
   agent: string
+  /** `$.clock.now()`: a call's duration is in its record. */
+  now: () => Promise<number>
+  /** A line for the debug log. */
+  debug: (line: string) => void
+  /** Hands a finished call to the board and the decision log (core/visual-check-report.ts); `trouble`: what went wrong beyond a check's own doubt. */
+  report: (record: VisualCheckRecord, trouble?: CallTrouble) => Promise<void>
 }
 
 /** All the checks end unsure, for a reason that touches them all. */
@@ -152,47 +176,67 @@ function allUnsure(checks: readonly Check[], why: string): CheckResult[] {
 async function check(deps: Deps, input: VisualCheckInput): Promise<Block[]> {
   const { comparison, checks } = input
   const target = input.images[0] as string
+  const startedAt = await deps.now()
+  let trouble: CallTrouble | undefined
 
-  // Stage 1, the images: the screenshot, and what it is compared with. (#60: a recording is read into its frames here.)
-  const subjects = await subjectsOf(deps, comparison, target, checks.length)
+  // Stage 1, the images: the screenshot, and what it is compared with. A recording is read into its frames here (#60).
+  const subjects = await subjectsOf(deps, comparison, target, checks.length, input.span)
   let results: CheckResult[]
   let attached: Picture | null = subjects.screenshot
-  if (!subjects.ok) results = allUnsure(checks, subjects.reason)
-  else {
+  if (!subjects.ok) {
+    results = allUnsure(checks, subjects.reason)
+    trouble = { kind: 'error' }
+    deps.debug(`visual_check could not use its images: ${subjects.reason}`)
+  } else if (subjects.kind === 'recording') {
+    // The frames of a recording, all in one request, in order of time: only the wording of the checks, or a spec, to judge them by.
+    const { request, part } = framesRequest(comparison.kind === 'spec' ? comparison.spec : null, subjects.frames, checks)
+    const asked = await deps.ask(request)
+    results = asked.ok ? readWholeImage(comparison, part, asked.answers, checks) : allUnsure(checks, failureText(deps.backend, asked.failure))
+    if (!asked.ok) trouble = { kind: 'request', failure: { backend: deps.backend, ...asked.failure } }
+  } else {
     // Stage 2, the first request: every check about the whole images, in one request.
     const { request, part } = wholeImageRequest(comparison, { screenshot: subjects.screenshot, references: subjects.references }, checks)
     const asked = await deps.ask(request)
     // Stage 3 (#59): the zoomed re-check of the parts the checks name, when the checks compare two images.
     // Stage 4, the verdicts.
     results = asked.ok ? readWholeImage(comparison, part, asked.answers, checks) : allUnsure(checks, failureText(deps.backend, asked.failure))
+    if (!asked.ok) trouble = { kind: 'request', failure: { backend: deps.backend, ...asked.failure } }
   }
   // The screenshot goes along for what is unsure, to be looked at.
   if (!results.some((result) => result.verdict === 'unsure')) attached = null
   const repeated = noteResults(streaks, deps.agent, results)
-  // Stage 5 (#58): the report to the board and the decision log goes here.
-  const text = visualCheckText({ target, against: comparison, results, attached: attached !== null, repeated })
+  // Stage 5 (#58): the report to the board and the decision log; a recording is reported like a screenshot, by its path.
+  await deps.report(recordOf({ image: target, comparison, backend: deps.backend, results, ms: (await deps.now()) - startedAt }), trouble)
+  const text = visualCheckText({ target, against: comparison, results, attached: attached !== null, repeated, recording: isRecording(target) })
   return [{ type: 'text', text }, ...(attached === null ? [] : [imageBlock(attached)])]
 }
 
 const failed = (error: unknown): Loaded => ({ ok: false, reason: errorText(error) })
 
-/** A path that is a recording, by its extension (a GIF is an image sips reads). */
-const RECORDING = /\.(mov|mp4|m4v|webm|mkv|avi)$/i
-
-const recordingReason = (path: string): string => `${path} is a recording, which visual_check cannot read yet: take screenshots of its frames`
-
-/** The images of a call, loaded; or why not, with the screenshot if that one was got (it is then still handed back to look at). */
-type Subjects = { ok: true; screenshot: LoadedImage; references: LoadedImage[] } | { ok: false; reason: string; screenshot: LoadedImage | null }
+/**
+ * The images of a call, loaded; or why not, with the screenshot if that one was got (it is then still handed back to look at). A
+ * recording (#60) is its frames, in order of time, and there is no screenshot to hand back.
+ */
+type Subjects =
+  | { ok: true; kind: 'still'; screenshot: LoadedImage; references: LoadedImage[] }
+  | { ok: true; kind: 'recording'; screenshot: null; frames: Frame[] }
+  | { ok: false; reason: string; screenshot: LoadedImage | null }
 
 /** The screenshot and what it is compared with (the references, or the other screenshot; none against a spec), as one request holds them. */
-async function subjectsOf(deps: Deps, comparison: Comparison, target: string, questions: number): Promise<Subjects> {
+async function subjectsOf(deps: Deps, comparison: Comparison, target: string, questions: number, span: Span): Promise<Subjects> {
   const others = comparison.kind === 'reference' ? comparison.paths : comparison.kind === 'compare_to' ? [comparison.path] : []
   const paths = [target, ...others]
+  const compared = others.length > 0
+  if (isRecording(target)) {
+    if (compared) return { ok: false, screenshot: null, reason: `${target} is a recording, which is checked against a spec or on the wording of the checks alone, not against ${comparison.kind === 'reference' ? 'a reference' : 'another screenshot'}` }
+    const read = await readRecording(deps.files, target, span, FRAME_COUNT[deps.backend], limitsFor(deps.backend), imageMegapixelBudget(deps.backend, questions))
+    return read.ok ? { ok: true, kind: 'recording', screenshot: null, frames: read.frames } : { ok: false, screenshot: null, reason: read.reason }
+  }
+  const recording = others.find(isRecording)
+  if (recording !== undefined) return { ok: false, screenshot: null, reason: `${recording} is a recording, and only the screenshot to check can be one` }
   if (deps.backend === 'pplx' && paths.length > PPLX_MAX_IMAGES) {
     return { ok: false, screenshot: null, reason: `pplx takes at most ${PPLX_MAX_IMAGES} images in one request, and this call has ${paths.length}` }
   }
-  const recording = paths.find((path) => RECORDING.test(path))
-  if (recording !== undefined) return { ok: false, screenshot: null, reason: recordingReason(recording) }
   let loaded: Loaded[]
   try {
     loaded = await loadImages(deps.files, paths, limitsFor(deps.backend), imageMegapixelBudget(deps.backend, questions))
@@ -203,19 +247,29 @@ async function subjectsOf(deps: Deps, comparison: Comparison, target: string, qu
   const screenshot = first?.ok ? first.image : null
   const broken = loaded.find((one) => !one.ok)
   if (broken !== undefined && !broken.ok) return { ok: false, screenshot, reason: broken.reason }
-  return screenshot === null ? { ok: false, screenshot, reason: 'no image was loaded' } : { ok: true, screenshot, references: loaded.slice(1).flatMap((one) => (one.ok ? [one.image] : [])) }
+  return screenshot === null ? { ok: false, screenshot, reason: 'no image was loaded' } : { ok: true, kind: 'still', screenshot, references: loaded.slice(1).flatMap((one) => (one.ok ? [one.image] : [])) }
 }
 
 /** An image file for `look`, loaded within the limits; a failure of any kind is a reason, never a throw. */
 async function load(files: ImageFilesIo, path: string, limits: ImageLimits): Promise<Loaded> {
-  if (RECORDING.test(path)) return { ok: false, reason: recordingReason(path) }
   return loadImage(files, path, limits).catch(failed)
 }
 
-/** `look`: the images as they are handed back, each one that cannot be got as a line saying why. */
-async function look(files: ImageFilesIo, paths: readonly string[]): Promise<Block[]> {
+/** `look` at a recording (#60): a line saying when each frame was cut, then the frames; or a line saying why there are none. */
+async function lookAtRecording(files: ImageFilesIo, path: string, span: Span): Promise<Block[]> {
+  const read = await readRecording(files, path, span, LOOK_FRAME_COUNT, LOOK_IMAGE_LIMITS).catch((error: unknown): RecordingFrames => ({ ok: false, reason: errorText(error) }))
+  if (!read.ok) return [{ type: 'text', text: read.reason }]
+  return [{ type: 'text', text: `Frames of ${path}, in order of time, cut at ${read.frames.map((frame) => `${frame.seconds} s`).join(', ')}.` }, ...read.frames.map((frame) => imageBlock(frame.picture))]
+}
+
+/** `look`: the images as they are handed back, each one that cannot be got as a line saying why; a recording as frames of it, through `span`. */
+async function look(files: ImageFilesIo, paths: readonly string[], span: Span): Promise<Block[]> {
   const blocks: Block[] = []
   for (const path of paths) {
+    if (isRecording(path)) {
+      blocks.push(...(await lookAtRecording(files, path, span)))
+      continue
+    }
     const loaded = await load(files, path, LOOK_IMAGE_LIMITS)
     blocks.push(loaded.ok ? imageBlock(loaded.image) : { type: 'text', text: loaded.reason })
   }

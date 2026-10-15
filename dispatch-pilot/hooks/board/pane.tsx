@@ -345,6 +345,7 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
   } else if (!node.routed && node.why !== undefined && node.why !== '' && node.state !== 'failed') {
     rows.push(hang(t, 'pane-card-why', '原因', text(node.why, WARN), w))
   }
+  if (row.checks !== '') rows.push(hang(t, 'pane-card-checks', '看图核对', text(row.checks), w, 10))
   if (node.locked === true) rows.push(hang(t, 'pane-card-lock', '锁定', text('照 /dp lock 发出这一档；决定照常记下，不影响发出的 effort（/dp unlock 解除）', MUTED), w))
   const route = card.route
   if (route !== undefined) rows.push(...decisionRows(t, route, main, w, raster))
@@ -635,7 +636,7 @@ function entryRows(t: TT, entry: LogEntry, cols: number, Bar: Raster | undefined
             {entry.model === undefined ? null : chip(t, entry.model, true)}
             {level === undefined || feature === 'skills' || feature === 'find-skill' ? null : <Text> </Text>}
             {level === undefined || feature === 'skills' || feature === 'find-skill' ? null : effortTag(t, level, 12)}
-            {feature === 'unresolved' ? <Text color={MUTED}>{`  ${entry.outcome}`}</Text> : null}
+            {feature === 'unresolved' || feature === 'visual-check' ? <Text color={MUTED}>{`  ${entry.outcome}`}</Text> : null}
           </Text>
         </Box>
         <Box>

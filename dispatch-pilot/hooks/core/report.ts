@@ -58,6 +58,7 @@ import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
 import { isEffort, type Effort } from '../decision/effort.ts'
 import type { BackendName } from './setup.ts'
 import type { UnresolvedChange, UnresolvedOption, UnresolvedThresholds } from '../decision/unresolved.ts'
+import type { CheckTally, VisualCheckRecord } from '../decision/visual-check-record.ts'
 import { fitsTemplate, startedAs, startedIn } from '../decision/workflow-labels.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
 
@@ -107,6 +108,8 @@ export type BoardNode = {
   midturn?: { steps: number; judged: number; changed: number; late?: true; failure?: NodeFailure }
   /** The failed tool calls, hook blocks and forced raises of the agent's loop (the escalation feature counts them); absent while none. */
   counts?: { failed: number; blocked: number; raised: number; late?: true }
+  /** The agent's visual_check calls of the loop, counted by verdict (and the images the screenshot takeover kept from it, #62); absent while none. visual-check's. */
+  visualChecks?: CheckTally
 }
 
 /** What an agent's step read: its model by family and its effort as it went out (absent: a model without effort). */
@@ -199,6 +202,8 @@ export type LogEntry = {
   unresolved?: UnresolvedRecord
   /** The strong hint was given with this decision's request (#41). */
   hint?: HintRecord
+  /** A visual_check call (#58): its checks and their verdicts, whether the zoomed re-check was done, how long it took. */
+  visualCheck?: VisualCheckRecord
 }
 
 /** What the reference images a request came with read as (`decision/complexity.ts`): the level, 0 (trivial) to 4 (very complex), and how many images it came from. */
@@ -290,6 +295,8 @@ export type Decided = About & {
   reference?: ReferenceRecord
   unresolved?: UnresolvedRecord
   hint?: HintRecord
+  /** A visual_check call: what was checked, the verdicts, the times (#58). */
+  visualCheck?: VisualCheckRecord
 }
 
 /** A decision the feature could not make: the decision request failed. Not an entry of the log; it says why on the agent's node. */
@@ -326,6 +333,12 @@ export type Tallied =
   | { feature: 'midturn-effort'; agent: 'main'; steps: number; judged: number; changed: number; quiet: boolean; late?: true; failure?: NodeFailure }
   /** A loop's failed tool calls, hook blocks and forced raises. `turnStart`: the main agent's counts start over with a new turn. */
   | { feature: 'escalation'; agent: string; failed: number; blocked: number; raised: number; late?: true; turnStart?: true }
+  /**
+   * What a visual_check call found, to be added to its agent's count for the loop (#58): checks that passed, failed, got no
+   * verdict to trust; `takeovers`: images the screenshot takeover kept from the agent (#62). Unlike the two above these are
+   * the call's own numbers, not a running total: the board adds them to the node's.
+   */
+  | { feature: 'visual-check'; agent: string; passed: number; failed: number; unsure: number; takeovers?: number }
 
 /** What one model request went out with, as the core sends it. */
 export type StepReading = {
@@ -718,7 +731,7 @@ async function reportSpawn(io: StepIo, spawn: { agentId: string; name?: string; 
  */
 async function reportTally(io: ReportIo, tally: Tallied): Promise<void> {
   try {
-    const noteworthy = tally.late === true || ('failure' in tally && tally.failure !== undefined)
+    const noteworthy = ('late' in tally && tally.late === true) || ('failure' in tally && tally.failure !== undefined)
     const now = await io.now()
     const logged = noteworthy ? await lastLogged(io) : 0
     await modify(io.board, (current) => withTally(current ?? EMPTY, tally, { now, logged }))
@@ -770,6 +783,13 @@ function withTally(board: Board, tally: Tallied, when: { now: number; logged: nu
     next = { ...(old ?? newNode(board.turn, tally.agent, undefined, 'running')), midturn }
     if (tally.late === true && old?.midturn?.late !== true) note(next.turn, 'late', '')
     if (tally.failure !== undefined && JSON.stringify(old?.midturn?.failure) !== JSON.stringify(tally.failure)) note(next.turn, 'failed', failureLine(tally.failure.backend, tally.failure))
+  } else if (tally.feature === 'visual-check') {
+    const added = tally.passed + tally.failed + tally.unsure + (tally.takeovers ?? 0)
+    if (added === 0) return undefined
+    const was = old?.visualChecks
+    const takeovers = (was?.takeovers ?? 0) + (tally.takeovers ?? 0)
+    const visualChecks = { passed: (was?.passed ?? 0) + tally.passed, failed: (was?.failed ?? 0) + tally.failed, unsure: (was?.unsure ?? 0) + tally.unsure, ...(takeovers > 0 ? { takeovers } : {}) }
+    next = { ...(old ?? newNode(board.turn, tally.agent, undefined, 'running')), visualChecks }
   } else {
     const any = tally.failed + tally.blocked + tally.raised > 0
     if (old === undefined && !any) return undefined
@@ -1077,6 +1097,7 @@ function entryOf(decision: Decided, turn: number, at: number): Omit<LogEntry, 'n
     ...(decision.reference === undefined ? {} : { reference: decision.reference }),
     ...(decision.unresolved === undefined ? {} : { unresolved: decision.unresolved }),
     ...(decision.hint === undefined ? {} : { hint: decision.hint }),
+    ...(decision.visualCheck === undefined ? {} : { visualCheck: decision.visualCheck }),
     ...(decision.sentBack === true ? { sentBack: true as const } : {}),
   }
 }
