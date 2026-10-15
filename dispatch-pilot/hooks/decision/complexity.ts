@@ -7,6 +7,7 @@
 //
 // Pure (see system-one.ts): no `$`; the images arrive read and sized (core/image-files.ts).
 
+import type { BackendName } from './backend.ts'
 import { type ImageLimits, limitsFor } from './image-fit.ts'
 import { imageRef, type Picture } from './images.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part, type RequestImage } from './system-one.ts'
@@ -18,7 +19,7 @@ export const MAX_REFERENCE_IMAGES = 6
 export const REFERENCE_MAX_PIXELS = 1_000_000
 
 /** What the decision model takes of an image for a reading: its own limits, and about a megapixel at the most. */
-export function complexityLimits(backend: 'jev' | 'pplx'): ImageLimits {
+export function complexityLimits(backend: BackendName): ImageLimits {
   return { ...limitsFor(backend), maxPixels: REFERENCE_MAX_PIXELS }
 }
 
@@ -104,6 +105,11 @@ export const REFERENCE_FIELD = 'reference_complexity'
 export function referenceState(reading: ReferenceReading): Record<string, unknown> {
   const level = COMPLEXITY_LEVELS[reading.level]
   return { level: reading.level, scale: '0 (trivial) to 4 (very complex)', description: level?.summary ?? `level ${reading.level}`, images: reading.images }
+}
+
+/** The request state's field for a reading, or nothing when there is none (to spread into a state: `...referenceField(reading)`). */
+export function referenceField(reading: ReferenceReading | null | undefined): Record<string, unknown> {
+  return reading === undefined || reading === null ? {} : { [REFERENCE_FIELD]: referenceState(reading) }
 }
 
 /** Lowercase hexadecimal of bytes. */

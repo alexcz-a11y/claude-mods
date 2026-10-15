@@ -644,6 +644,7 @@ hooks/
 │   ├── skills.ts           对主 agent 隐藏 skill 列表、换成一句提示，发消息时推荐 skill（#10）
 │   ├── visual-check.ts     agent 的 visual_check 工具（看图核对，#57，ADR 0008）：会话开始时注册（有图像后端才注册），被调用时读图、发一个带图请求、按 0.9 / 0.2 判定、回答 Messages API 块；流程分阶段，放大复核（#59）、抽帧（#60）、汇报（#58）接在各自留好的位置
 │   ├── screenshot-takeover.ts  截图接管（#62，ADR 0008）：开关 `screenshot-takeover`（默认关）；`tool.call` 在 `next` 之后，把 Read 读到的、本循环里新生成的图片文件和 MCP 工具结果里的 image 块换成一段英文说明（Read 的换成文本形态的结果，MCP 的先用 `base64 -D -o` 存成临时文件）；每次接管汇报一条 aside 日志加一次计数
+│   ├── visual-check-look.ts  visual_check 的 `look: true`：把图原样（限在 agent 看得清的大小内）交回，录屏交回它的帧；不问决策模型。也放回答用的块类型和 `imageBlock`
 │   ├── visual-check-series.ts  visual_check 的档位序列（#61）：`checkSeries` 读各档、对相邻两档做放大复核、汇报、回答
 │   ├── workflow-agents.ts  提交 Workflow 时判断脚本里每个 agent() 的模型和 effort，写进脚本或退回（#8）
 │   └── workflow-labels.ts  脚本写不进去的 Workflow：运行开始时判断各调用，agent 启动时按 label 写计划表；Workflow 工具描述里的常驻提示（#9）
@@ -699,8 +700,9 @@ hooks/
     ├── skills.ts           skill 的两段排序（modRanker 是推荐和 find_skill 共用的唯一入口；第一段 skillsPart，第二段 stageTwoPart）、画像的写法、挑选、给主 agent 的文字块；skillsRequest（#16 的评测用）
     ├── context.ts          state：token 估算和截断、最近的对话、turnStartState
     ├── redact.ts           secret 脱敏
-    ├── backend.ts          决策后端的接口、超时、失败分类（`BackendIo.pace`：限速要的时钟和 `$.state` 闭包）
-    ├── images.ts           决策请求里的图（#56，ADR 0008）：`imageRef(name)`（state 和题目里的引用）、`placeImages`（两家共用，换引用、检查）、`imageTokens`（token 估算）、`describeImages`（debug log 里的一句）、`PPLX_MAX_IMAGES`
+    ├── keep-newest.ts      只留一个当提醒用的 Map 里最近的几项（`keepNewest`）：推迟的消息、轮中贴图的消息、连续两次不过的记录都用
+    ├── backend.ts          决策后端的接口、超时、失败分类（`BackendIo.pace`：限速要的时钟和 `$.state` 闭包）、两家决策模型的名字 `BackendName`
+    ├── images.ts           决策请求里的图（#56，ADR 0008）：`imageRef(name)`（state 和题目里的引用）、`placeImages`（两家共用，换引用、检查）、`imageTokens`（token 估算）、`packByCost`（按 token 分批，放大复核的批和档位序列的波共用）、`describeImages`（debug log 里的一句）、`PPLX_MAX_IMAGES`
     ├── image-fit.ts        图要多大决策模型才收（#57）：两家的限制（`JEV_IMAGE_LIMITS`、`PPLX_IMAGE_LIMITS`、`LOOK_IMAGE_LIMITS`）、`planSize`（缩到哪个尺寸）、`uprightArgs`（按 EXIF 方向转正的 sips 参数）；mod 和评测共用
     ├── image-header.ts     PNG 和 JPEG 的文件头（#57）：尺寸、JPEG 的 EXIF 方向（`readImageHeader`，从 base64 直接读，不解码整张图）
     ├── visual-check.ts     看图核对的判断（#57，评测共用）：检查项和比较对象的类型、`wholeImageRequest`（请求一）、`readWholeImage`、`judge`（0.9 / 0.2）、连续两次不过的记录（`noteResults`、`forgetLoop`）

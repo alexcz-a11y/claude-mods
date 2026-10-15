@@ -12,7 +12,7 @@
 // Pure (see system-one.ts).
 
 import type { Asked, Failure } from './backend.ts'
-import { REFERENCE_FIELD, referenceState, type ReferenceReading } from './complexity.ts'
+import { referenceField, type ReferenceReading } from './complexity.ts'
 import { clipToTokens, estimateTokens, recentWithin, withinTokens } from './context.ts'
 import {
   decideDispatch,
@@ -177,7 +177,7 @@ export function workflowBatches(
     user_message: dispatchWords(words, tokens),
     ...(background.problem_summary ? { [SUMMARY_FIELD]: background.problem_summary } : {}),
     ...(background.unresolved_count ? { [COUNT_FIELD]: background.unresolved_count } : {}),
-    ...(background.reference_complexity ? { [REFERENCE_FIELD]: referenceState(background.reference_complexity) } : {}),
+    ...referenceField(background.reference_complexity),
   }
   const room = Math.max(MIN_BRIEF, tokens - estimateTokens(JSON.stringify(shared)))
   // Each brief may take an equal share of a request holding as many of the calls as one request holds at most:

@@ -3,6 +3,7 @@
 // (see system-one.ts): no `$`, no files; the images arrive already read and sized (core/image-files.ts).
 
 import { imageRef, type Picture } from './images.ts'
+import { keepNewest } from './keep-newest.ts'
 import { answersFor, mergeParts, type DecisionRequest, type Part, type Question, type RequestImage, type Answer } from './system-one.ts'
 
 /** One thing to check: a part of the image, and one visible property of it (what to compare, or the requirement it must meet). */
@@ -43,6 +44,11 @@ export function judge(probability: number | null, trust: 'both' | 'fail'): { ver
   if (probability <= FAIL_AT) return { verdict: 'fail' }
   if (probability >= PASS_AT) return trust === 'both' ? { verdict: 'pass' } : { verdict: 'unsure', why: 'a match with a reference cannot be confirmed from the whole image' }
   return { verdict: 'unsure', why: 'the decision model is not sure either way' }
+}
+
+/** All the checks end unsure, for a reason that touches them all. */
+export function allUnsure(checks: readonly Check[], why: string): CheckResult[] {
+  return checks.map((check) => ({ check, verdict: 'unsure' as const, probability: null, basis: 'whole' as const, why }))
 }
 
 /** The comparison kinds that are checked against an image, and so can be zoomed. */
@@ -96,7 +102,7 @@ export function wholeImageRequest(comparison: Comparison, subjects: Subjects, ch
 }
 
 /** The probability of a Noul answer; null for one that is missing or is another kind of answer. */
-function yesOf(answer: Answer | undefined): number | null {
+export function yesOf(answer: Answer | undefined): number | null {
   return answer !== undefined && answer.type === 'noul' ? answer.noul : null
 }
 
@@ -140,7 +146,7 @@ export function noteResults(streaks: Streaks, agent: string, results: readonly C
   const mine = streaks.get(agent) ?? new Map<string, number>()
   streaks.delete(agent)
   streaks.set(agent, mine)
-  for (const oldest of [...streaks.keys()].slice(0, Math.max(0, streaks.size - MOST_AGENTS))) streaks.delete(oldest)
+  keepNewest(streaks, MOST_AGENTS)
   const repeated: number[] = []
   results.forEach((result, i) => {
     const key = checkKey(result.check)
@@ -152,6 +158,6 @@ export function noteResults(streaks: Streaks, agent: string, results: readonly C
     mine.set(key, count)
     if (count >= 2) repeated.push(i)
   })
-  for (const oldest of [...mine.keys()].slice(0, Math.max(0, mine.size - MOST_CHECKS))) mine.delete(oldest)
+  keepNewest(mine, MOST_CHECKS)
   return repeated
 }

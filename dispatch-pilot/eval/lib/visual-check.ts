@@ -16,9 +16,9 @@
 // Pure: no Node API; the pictures and programs come in as `ImageHost` (SuiteHost.images).
 
 import { type ComplexityIo, readReferenceComplexity, type ReferenceReadings } from '../../hooks/core/complexity.ts'
-import { type ImageFilesIo, type LoadedImage, loadImages } from '../../hooks/core/image-files.ts'
+import { type ImageFilesIo, loadAll, type LoadedAll, type LoadedImage } from '../../hooks/core/image-files.ts'
 import { zoomReview } from '../../hooks/core/zoom-review.ts'
-import type { Asked } from '../../hooks/decision/backend.ts'
+import type { Asked, BackendName } from '../../hooks/decision/backend.ts'
 import { complexityRequest, COMPLEXITY_LEVEL, COMPLEXITY_LEVELS } from '../../hooks/decision/complexity.ts'
 import { limitsFor } from '../../hooks/decision/image-fit.ts'
 import { imageMegapixelBudget, PPLX_MAX_IMAGES } from '../../hooks/decision/images.ts'
@@ -109,20 +109,7 @@ const asAsked = (ask: Ask) => async (request: DecisionRequest): Promise<Asked> =
 const comparisonOf = (item: ComparedItem | AnimItem): Comparison => (item.kind === 'anim' ? { kind: 'spec', spec: item.asked.spec } : { kind: 'reference', paths: item.asked.reference })
 
 /** The images of a compared item, loaded as the mod loads a call's (features/visual-check.ts `subjectsOf`): within the model's limits, together within its token budget. */
-async function loadCompared(files: ImageFilesIo, paths: readonly string[], backend: 'jev' | 'pplx', checks: number): Promise<{ ok: true; images: LoadedImage[] } | { ok: false; reason: string }> {
-  let loaded: Awaited<ReturnType<typeof loadImages>>
-  try {
-    loaded = await loadImages(files, paths, limitsFor(backend), imageMegapixelBudget(backend, checks))
-  } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : String(error) }
-  }
-  const images: LoadedImage[] = []
-  for (const one of loaded) {
-    if (!one.ok) return { ok: false, reason: one.reason }
-    images.push(one.image)
-  }
-  return { ok: true, images }
-}
+const loadCompared = (files: ImageFilesIo, paths: readonly string[], backend: BackendName, checks: number): Promise<LoadedAll> => loadAll(files, paths, limitsFor(backend), imageMegapixelBudget(backend, checks))
 
 /** What an item's verdicts say beside the truth: a part that is the same (`holds`) judged FAIL, a part that differs judged PASS. */
 function outcomeOf(result: CheckResult, whole: CheckResult | undefined, compared: boolean): { outcome: CheckOutcome; trust: 'both' | 'fail'; whole: number | null } {
@@ -135,7 +122,7 @@ const areaOf = (box: { top: number; bottom: number; left: number; right: number 
 
 /** The suite. `images` is what a run gives it to read and cut pictures with (SuiteHost.images); without it every item says so. */
 export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualCheckItem, VisualPrediction> {
-  async function decideCompared(item: ComparedItem, variant: string, ask: Ask, backend: 'jev' | 'pplx', host: ImageHost): Promise<Decided<VisualPrediction>> {
+  async function decideCompared(item: ComparedItem, variant: string, ask: Ask, backend: BackendName, host: ImageHost): Promise<Decided<VisualPrediction>> {
     const { screenshot, reference, checks } = item.asked
     const comparison = comparisonOf(item)
     if (backend === 'pplx' && reference.length + 1 > PPLX_MAX_IMAGES) return { ok: false, failure: `images: pplx takes at most ${PPLX_MAX_IMAGES} images in one request` }
@@ -162,7 +149,7 @@ export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualChe
     return decided(item, results, wholeResults, true, loaded.images.length, elsewhere, traces.sent)
   }
 
-  async function decideAnim(item: AnimItem, ask: Ask, backend: 'jev' | 'pplx', host: ImageHost): Promise<Decided<VisualPrediction>> {
+  async function decideAnim(item: AnimItem, ask: Ask, backend: BackendName, host: ImageHost): Promise<Decided<VisualPrediction>> {
     const { checks, spec } = item.asked
     // pplx takes eight frames at the most: a recording is cut into fewer for it (FRAME_COUNT), here the dataset's frames are spread so.
     const frames = evenly(item.asked.frames, FRAME_COUNT[backend])
@@ -199,7 +186,7 @@ export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualChe
     return { ok: true, prediction: { kind: 'checks', outcomes: read.map(({ outcome }) => outcome) }, detail: detail as unknown as Record<string, unknown> }
   }
 
-  async function decideComplexity(item: ComplexityItem, ask: Ask, backend: 'jev' | 'pplx', host: ImageHost): Promise<Decided<VisualPrediction>> {
+  async function decideComplexity(item: ComplexityItem, ask: Ask, backend: BackendName, host: ImageHost): Promise<Decided<VisualPrediction>> {
     const traces = traced(ask)
     // The group is read as the mod reads one (core/complexity.ts): its images brought to about a megapixel, one Score question. A store of its own, so that no group is read from a cache.
     let kept: { value: ReferenceReadings | undefined; version: number } = { value: undefined, version: 0 }
@@ -256,7 +243,7 @@ export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualChe
       }, settings)
       return planned
     },
-    breakdown: (items, rows, variant, settings, prices) => breakdownOf(items, rows, variant, settings, prices),
+    breakdown: breakdownOf,
     report: reportOf,
     scoring:
       'An item with checks: each check holds (the part is the same as in the reference, or the frames meet the requirement) or does not. A check that holds is right when it is judged PASS, a check that does not hold when it is judged FAIL; UNSURE is neither right nor wrong. ' +
@@ -351,7 +338,7 @@ export function expectedLevel(p: readonly number[]): number | null {
 }
 
 type Counts = { checks: number; differ: number; same: number; caught: number; falsePass: number; falseFail: number; unsureDiffer: number; unsureSame: number; right: number }
-const none = (): Counts => ({ checks: 0, differ: 0, same: 0, caught: 0, falsePass: 0, falseFail: 0, unsureDiffer: 0, unsureSame: 0, right: 0 })
+const emptyCounts = (): Counts => ({ checks: 0, differ: 0, same: 0, caught: 0, falsePass: 0, falseFail: 0, unsureDiffer: 0, unsureSame: 0, right: 0 })
 
 function count(into: Counts, holds: boolean, verdict: Verdict): void {
   into.checks++
@@ -382,11 +369,11 @@ export function breakdownOf(items: readonly VisualCheckItem[], rows: readonly Ro
   const checked = answered.flatMap(({ item, row, detail }) => (detail.kind === 'complexity' ? [] : [{ item, row, detail }]))
   // Every check of every answered item, with the item it is in.
   const all = checked.flatMap(({ item, detail }) => detail.checks.map((check) => ({ item, check, control: item.tags.includes(CONTROL) })))
-  const total = none()
+  const total = emptyCounts()
   const byKind: Record<string, Counts> = {}
   for (const { item, check } of all) {
     count(total, check.holds, check.verdict)
-    count((byKind[item.kind] ??= none()), check.holds, check.verdict)
+    count((byKind[item.kind] ??= emptyCounts()), check.holds, check.verdict)
   }
   const controls = all.filter(({ control }) => control)
   const controlFails = controls.filter(({ check }) => check.verdict === 'fail')
@@ -396,7 +383,7 @@ export function breakdownOf(items: readonly VisualCheckItem[], rows: readonly Ro
 
   const sweep = SWEPT.passAt.flatMap((passAt) =>
     SWEPT.failAt.map((failAt) => {
-      const counts = none()
+      const counts = emptyCounts()
       for (const { check } of all) count(counts, check.holds, verdictAt(check.p, check.trust, passAt, failAt))
       return { passAt, failAt, falsePass: counts.falsePass, caught: counts.caught, differ: counts.differ, falseFail: counts.falseFail, same: counts.same, unsureRate: share(counts.unsureDiffer + counts.unsureSame, counts.checks) }
     }),
@@ -432,7 +419,7 @@ export function breakdownOf(items: readonly VisualCheckItem[], rows: readonly Ro
     falseFail: { count: total.falseFail, of: total.same },
     caught: { count: total.caught, of: total.differ, rate: share(total.caught, total.differ) },
     unsure: { count: unsure, of: answeredChecks, rate: share(unsure, answeredChecks), onDiffering: share(total.unsureDiffer, total.differ), onSame: share(total.unsureSame, total.same) },
-    byKind: Object.fromEntries(Object.entries(byKind).map(([kind, c]) => [kind, { checks: c.checks, differ: c.differ, caught: c.caught, falsePass: c.falsePass, same: c.same, falseFail: c.falseFail, unsure: share(c.unsureDiffer + c.unsureSame, c.checks) }])),
+    byKind: Object.fromEntries(Object.entries(byKind).map(([kind, own]) => [kind, { checks: own.checks, differ: own.differ, caught: own.caught, falsePass: own.falsePass, same: own.same, falseFail: own.falseFail, unsure: share(own.unsureDiffer + own.unsureSame, own.checks) }])),
     // Another place that differs reported by the whole-screen question: on an item with nothing to find it is a false alarm.
     elsewhere: {
       reported: checked.filter(({ detail }) => detail.elsewhere !== null).length,
@@ -463,24 +450,24 @@ function percentile(values: readonly (number | null)[], p: number): number | nul
 
 /** The figures a run prints for one variant, after the ones every suite gets. */
 function reportOf(summary: VariantSummary): string[] {
-  const b = summary.breakdown as ReturnType<typeof breakdownOf> | undefined
-  if (b === undefined) return []
+  const breakdown = summary.breakdown as ReturnType<typeof breakdownOf> | undefined
+  if (breakdown === undefined) return []
   const pct = (figure: number | null | undefined) => (figure == null ? '-' : `${(figure * 100).toFixed(1)}%`)
-  const num = (figure: number | null | undefined) => (figure == null ? '-' : String(figure))
-  const v = summary.variant
-  const falsePass = b.falsePass as { count: number; of: number; items: string[] }
-  const controlFails = b.controlFails as { count: number; of: number; items: string[] }
-  const falseFail = b.falseFail as { count: number; of: number }
-  const caught = b.caught as { count: number; of: number; rate: number | null }
-  const unsure = b.unsure as { count: number; of: number; rate: number | null; onDiffering: number | null; onSame: number | null }
-  const cost = b.cost as { all: { perImage: { tokens: number | null; ms: number | null; usd: number | null }; usd: number | null; images: number; tokens: number }; byKind: Record<string, { perImage: { tokens: number | null; ms: number | null; usd: number | null } }>; latencyMs: { p50: number | null; max: number } }
-  const complexity = b.complexity as { groups: { id: string; level: number | null; expected: number | null; gold: number }[]; inOrder: boolean | null; strictlyInOrder: boolean | null; expectedStrictlyInOrder: boolean | null }
-  const elsewhere = b.elsewhere as { reported: number; onControls: string[] }
+  const num = (figure: number | boolean | null | undefined) => (figure == null ? '-' : String(figure))
+  const variant = summary.variant
+  const falsePass = breakdown.falsePass as { count: number; of: number; items: string[] }
+  const controlFails = breakdown.controlFails as { count: number; of: number; items: string[] }
+  const falseFail = breakdown.falseFail as { count: number; of: number }
+  const caught = breakdown.caught as { count: number; of: number; rate: number | null }
+  const unsure = breakdown.unsure as { count: number; of: number; rate: number | null; onDiffering: number | null; onSame: number | null }
+  const cost = breakdown.cost as { all: { perImage: { tokens: number | null; ms: number | null; usd: number | null }; usd: number | null; images: number; tokens: number }; byKind: Record<string, { perImage: { tokens: number | null; ms: number | null; usd: number | null } }>; latencyMs: { p50: number | null; max: number } }
+  const complexity = breakdown.complexity as { groups: { id: string; level: number | null; expected: number | null; gold: number }[]; inOrder: boolean | null; strictlyInOrder: boolean | null; expectedStrictlyInOrder: boolean | null }
+  const elsewhere = breakdown.elsewhere as { reported: number; onControls: string[] }
   return [
-    `${v}: a part that differs judged PASS: ${falsePass.count} of ${falsePass.of}${falsePass.count > 0 ? ` (${falsePass.items.join(', ')})` : ' (it must be none)'}; the controls judged FAIL: ${controlFails.count} of ${controlFails.of} checks${controlFails.count > 0 ? ` (${controlFails.items.join(', ')})` : ''}; a part that is the same judged FAIL: ${falseFail.count} of ${falseFail.of}`,
-    `${v}: the differences caught (FAIL): ${caught.count} of ${caught.of} (${pct(caught.rate)}); UNSURE ${unsure.count} of ${unsure.of} checks (${pct(unsure.rate)}; on the ones that differ ${pct(unsure.onDiffering)}, on the ones that are the same ${pct(unsure.onSame)}); another place reported on ${elsewhere.reported} items${elsewhere.onControls.length > 0 ? `, on the controls ${elsewhere.onControls.join(', ')}` : ''}`,
-    `${v}: each image costs ${num(cost.all.perImage.tokens)} input tokens, ${num(cost.all.perImage.ms)} ms${cost.all.perImage.usd === null ? '' : `, $${cost.all.perImage.usd}`} (${cost.all.images} images, ${cost.all.tokens} tokens${cost.all.usd === null ? '' : `, $${cost.all.usd}`}); by kind ${Object.entries(cost.byKind).map(([kind, c]) => `${kind} ${num(c.perImage.tokens)} tokens ${num(c.perImage.ms)} ms`).join(', ')}; an item takes ${num(cost.latencyMs.p50)} ms at the median, ${cost.latencyMs.max} ms at most`,
-    `${v}: the groups of reference images read as ${complexity.groups.map((group) => `${group.id} ${num(group.level)} (expected ${num(group.expected)}, gold ${group.gold})`).join(', ')}: in order ${num(complexity.inOrder as unknown as number)}, strictly ${num(complexity.strictlyInOrder as unknown as number)}, by the unrounded expectation ${num(complexity.expectedStrictlyInOrder as unknown as number)}`,
+    `${variant}: a part that differs judged PASS: ${falsePass.count} of ${falsePass.of}${falsePass.count > 0 ? ` (${falsePass.items.join(', ')})` : ' (it must be none)'}; the controls judged FAIL: ${controlFails.count} of ${controlFails.of} checks${controlFails.count > 0 ? ` (${controlFails.items.join(', ')})` : ''}; a part that is the same judged FAIL: ${falseFail.count} of ${falseFail.of}`,
+    `${variant}: the differences caught (FAIL): ${caught.count} of ${caught.of} (${pct(caught.rate)}); UNSURE ${unsure.count} of ${unsure.of} checks (${pct(unsure.rate)}; on the ones that differ ${pct(unsure.onDiffering)}, on the ones that are the same ${pct(unsure.onSame)}); another place reported on ${elsewhere.reported} items${elsewhere.onControls.length > 0 ? `, on the controls ${elsewhere.onControls.join(', ')}` : ''}`,
+    `${variant}: each image costs ${num(cost.all.perImage.tokens)} input tokens, ${num(cost.all.perImage.ms)} ms${cost.all.perImage.usd === null ? '' : `, $${cost.all.perImage.usd}`} (${cost.all.images} images, ${cost.all.tokens} tokens${cost.all.usd === null ? '' : `, $${cost.all.usd}`}); by kind ${Object.entries(cost.byKind).map(([kind, c]) => `${kind} ${num(c.perImage.tokens)} tokens ${num(c.perImage.ms)} ms`).join(', ')}; an item takes ${num(cost.latencyMs.p50)} ms at the median, ${cost.latencyMs.max} ms at most`,
+    `${variant}: the groups of reference images read as ${complexity.groups.map((group) => `${group.id} ${num(group.level)} (expected ${num(group.expected)}, gold ${group.gold})`).join(', ')}: in order ${num(complexity.inOrder)}, strictly ${num(complexity.strictlyInOrder)}, by the unrounded expectation ${num(complexity.expectedStrictlyInOrder)}`,
   ]
 }
 

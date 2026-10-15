@@ -4,7 +4,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
-import { estimateRequest, estimatedUsd } from '../eval/lib/estimate.ts'
+import { estimateRequest, estimateRun } from '../eval/lib/estimate.ts'
 import { imageRef } from '../hooks/decision/images.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 
@@ -39,7 +39,7 @@ test("the price of a run is the text's estimate times the factor (what the decis
   const requests = [TEXT, PICTURE]
   const sums = requests.map((request) => estimateRequest(request, 'jev-1.14.0', 'jev'))
   const tokens = Math.round(1.6 * (sums[0]!.text + sums[1]!.text) + sums[0]!.images + sums[1]!.images)
-  expect(estimatedUsd(requests, { model: 'jev-1.14.0', backend: 'jev', factor: 1.6, usdPerMillionTokens: 0.042 })).toEqual({ tokens, usd: (tokens * 0.042) / 1e6 })
+  expect(estimateRun(requests, { model: 'jev-1.14.0', backend: 'jev', factor: 1.6, usdPerMillionTokens: 0.042 })).toEqual({ tokens, usd: (tokens * 0.042) / 1e6 })
   // Without a picture it is the sum the text estimate always gave.
-  expect(estimatedUsd([TEXT], { model: 'jev-1.14.0', backend: 'jev', factor: 1.6, usdPerMillionTokens: 0.042 }).tokens).toBe(Math.round(1.6 * estimateTokens(JSON.stringify({ model: 'jev-1.14.0', ...TEXT }))))
+  expect(estimateRun([TEXT], { model: 'jev-1.14.0', backend: 'jev', factor: 1.6, usdPerMillionTokens: 0.042 }).tokens).toBe(Math.round(1.6 * estimateTokens(JSON.stringify({ model: 'jev-1.14.0', ...TEXT }))))
 })

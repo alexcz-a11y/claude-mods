@@ -9,7 +9,7 @@
 // whose options describe the work each suits (jev-pilot's measured wording),
 // the effort a Score with the levels every effort question shares.
 
-import { REFERENCE_FIELD, referenceState, type ReferenceReading } from './complexity.ts'
+import { referenceField, type ReferenceReading } from './complexity.ts'
 import { clipToTokens, estimateTokens, recentWithin, withinTokens } from './context.ts'
 import { DEFAULT_ASK, EFFORTS, effortQuestion, levelsText, pickEffort, probsOf, readEffort, traceEffort, type Effort, type EffortAsk, type EffortRules, type EffortTrace, type EffortReading, type Language } from './effort.ts'
 import { failureText, type Failure } from './backend.ts'
@@ -407,7 +407,7 @@ export function dispatchState(dispatch: Dispatch, tokens: number, field: string 
       // The background the main agent works from: read by the decision model, never with a hint (#41).
       ...(dispatch.problem_summary ? { [SUMMARY_FIELD]: dispatch.problem_summary } : {}),
       ...(dispatch.unresolved_count ? { [COUNT_FIELD]: dispatch.unresolved_count } : {}),
-      ...(dispatch.reference_complexity ? { [REFERENCE_FIELD]: referenceState(dispatch.reference_complexity) } : {}),
+      ...referenceField(dispatch.reference_complexity),
     }
     const recent = recentWithin(dispatch.recent_context ?? [], budget - estimateTokens(JSON.stringify(state)))
     return recent === '' ? state : { ...state, recent_context: recent }

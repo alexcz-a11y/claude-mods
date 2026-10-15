@@ -55,7 +55,7 @@ import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { PPLX_MODEL } from '../hooks/decision/pplx.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
-import { estimatedUsd as priceOf } from './lib/estimate.ts'
+import { estimateRun } from './lib/estimate.ts'
 import type { FlowFile } from './lib/eval-v2-flow.ts'
 import { summarize, type Summary } from './lib/metrics.ts'
 import { readNumber, type NumberRule } from './lib/numbers.ts'
@@ -215,7 +215,7 @@ for (const item of items) {
   }
 }
 // A request with images counts their pixels' tokens as the decision model does, not the length of their base64 (lib/estimate.ts); one without is estimated as it always was.
-const { tokens: estimatedTokens, usd: estimatedUsd } = priceOf(planned, { model, backend: backendName, factor: ESTIMATE_FACTOR, usdPerMillionTokens: price })
+const { tokens: estimatedTokens, usd: estimatedUsd } = estimateRun(planned, { model, backend: backendName, factor: ESTIMATE_FACTOR, usdPerMillionTokens: price })
 console.log(`${name}: ${items.length} items x ${variants.length} variants x ${languages.length} languages = ${planned.length} requests${suite.estimate === undefined ? '' : ' at most'}, about ${estimatedTokens} input tokens, about $${estimatedUsd.toFixed(4)} on ${backendName} (${model})`)
 if (values.estimate) process.exit(0)
 if (estimatedUsd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothing sent`)

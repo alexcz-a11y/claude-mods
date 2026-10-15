@@ -67,7 +67,8 @@ const MOST_PASTED = 4
 /** A pasted image's bytes are kept for a reading only up to this long (base64 characters): the file the row names is the better source. */
 const MOST_BYTES = 12_000_000
 
-type Block = { type: string; [field: string]: unknown }
+/** A block of a row's content, as the engine appends it. */
+export type Block = { type: string; [field: string]: unknown }
 
 /**
  * The file a row names for an image the person pasted: the engine adds a text block, `[Image: source: <path> ...]`, with the

@@ -2,6 +2,7 @@
 // never change in a session (the tool list is part of the prompt cache), and, further on, how its answer is worded. All of it is
 // written for the model, so in English. Pure (see system-one.ts).
 
+import type { BackendName } from './backend.ts'
 import { FRAME_COUNT, type Span, WHOLE_RECORDING } from './visual-check-frames.ts'
 import { MAX_LEVELS, SERIES_DESCRIPTION, SERIES_UNAVAILABLE } from './visual-check-sequence.ts'
 import type { Check, CheckResult, Comparison } from './visual-check.ts'
@@ -46,7 +47,7 @@ const BEFORE_YOU_FINISH =
   'Before you hand your work to the user, look at the final result yourself once. Name the checks you ran, and what they said, in your final report.'
 
 /** What the model reads about the tool, by the decision model that takes its images. Constants: nothing of the session goes in. */
-export function visualCheckDescription(backend: 'jev' | 'pplx'): string {
+export function visualCheckDescription(backend: BackendName): string {
   return [WHAT_IT_IS, HOW_TO_WRITE_CHECKS, WHAT_IT_JUDGES, backend === 'jev' ? COMPARING_WITH_ZOOM : COMPARING_COARSE, backend === 'jev' ? SERIES_DESCRIPTION : SERIES_UNAVAILABLE, recordings(FRAME_COUNT[backend]), READING_THE_ANSWER, LOOK, BEFORE_YOU_FINISH].join(' ')
 }
 
@@ -214,7 +215,7 @@ export type RunReport = {
   /** Zoomed crops (#59) that go along, as the images that follow the text (before the screenshot, if that goes along): what each one shows. */
   crops?: readonly string[]
   /** Another place the two images may differ (#59), which no check named; `cropped`: whether crops of it are among `crops`. */
-  elsewhere?: { box: Box; confidence: number; cropped: boolean } | null
+  elsewhere?: ShownPlace | null
 }
 
 /** What an attached crop shows: the `side` ('your screenshot' or the other image) of the check, or of the place no check named. */
@@ -236,8 +237,11 @@ const BASES = { whole: 'whole image', zoom: 'zoomed crop' } as const
 
 const percent = (share: number): string => `${Math.round(share * 100)}%`
 
+/** Another place the two images may differ, as the answer shows it: where, how sure the model is, and whether crops of it come along. */
+export type ShownPlace = { box: Box; confidence: number; cropped: boolean }
+
 /** The place no check named, in words: where it is in the screenshot, how much of it, how sure the model is. */
-export function placeLine(place:{ box: Box; confidence: number; cropped: boolean }): string {
+export function placeLine(place: ShownPlace): string {
   const { box, confidence } = place
   return `Another place may differ, which none of your checks named: ${percent(box.left)} to ${percent(box.right)} across and ${percent(box.top)} to ${percent(box.bottom)} down the screenshot (${percent(boxArea(box))} of it; the model is ${confidence.toFixed(2)} sure of the place).${place.cropped ? ' Crops of it are attached.' : ''} Look at it yourself.`
 }

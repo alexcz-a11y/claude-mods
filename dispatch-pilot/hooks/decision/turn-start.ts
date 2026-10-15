@@ -6,7 +6,7 @@
 //
 // Pure (see system-one.ts).
 
-import { REFERENCE_FIELD, referenceState, type ReferenceReading } from './complexity.ts'
+import { referenceField, type ReferenceReading } from './complexity.ts'
 import { estimateTokens, turnStartState, type ContextLimits, type ContextMessage } from './context.ts'
 import { DEFAULT_ASK, turnStartEffortPart, type EffortAsk } from './effort.ts'
 import { renderSummary, SUMMARY_FIELD, type Summary } from './summary.ts'
@@ -59,7 +59,7 @@ export function turnStartPart(input: TurnStartPartInput = {}): Part {
     ...(input.command === undefined || input.command === null ? {} : { command: input.command }),
     ...(input.summary === undefined || input.summary === null ? {} : { [SUMMARY_FIELD]: renderSummary(input.summary, ask.language) }),
     ...(count > 0 ? { [COUNT_FIELD]: count } : {}),
-    ...(input.reference === undefined || input.reference === null ? {} : { [REFERENCE_FIELD]: referenceState(input.reference) }),
+    ...referenceField(input.reference),
   }
   return Object.keys(state).length === 0 ? questions : { ...questions, state }
 }

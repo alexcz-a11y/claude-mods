@@ -14,8 +14,8 @@
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
 import { errorText, type BackendIo } from '../decision/backend.ts'
-import type { ReferenceReading } from '../decision/complexity.ts'
-import type { ReferenceReadings, ReferenceSource } from '../core/complexity.ts'
+import { keepNewest } from '../decision/keep-newest.ts'
+import type { ReferenceReadings } from '../core/complexity.ts'
 import type { ImageFilesIo } from '../core/image-files.ts'
 import { MAIN_LOOP, startedBefore } from '../core/loop-start.ts'
 import { MAIN, update, type Cell } from '../core/plans.ts'
@@ -24,7 +24,7 @@ import { report, type NodeFailure, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { isOn, masterOn } from '../core/switches.ts'
 import { newWorkFile } from '../core/work-files.ts'
-import { hasImage, IMAGE_ROUTING_SWITCH, pastedOf, readReference, type ReadIo } from './image-routing.ts'
+import { type Block, hasImage, IMAGE_ROUTING_SWITCH, pastedOf, readReference, type ReadIo } from './image-routing.ts'
 import { askedFor, judgeAgainWithReference, type LaunchIo, type MidturnRecord } from './midturn-effort.ts'
 import { UNRESOLVED_SWITCH } from './unresolved.ts'
 
@@ -48,8 +48,6 @@ const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
 const typedIn = new Map<string, string>()
 const MOST_TYPED = 8
 
-type Block = { type: string; [field: string]: unknown }
-
 export function registerReferenceMidturn(on: On, ctx: Ctx): void {
   /** Whether images met now are to be read: the feature is on and there is an image backend. */
   const reading = () => masterOn() && isOn(IMAGE_ROUTING_SWITCH) && ctx.images !== null
@@ -66,7 +64,7 @@ export function registerReferenceMidturn(on: On, ctx: Ctx): void {
       const [started, modified] = await Promise.all([$.state.get({ ...LOOPS, id: MAIN_LOOP }), $.fs.stat(path).catch(() => null)])
       // Made in this loop (or no way to tell when the loop began): the agent's own picture, not a reference.
       if (modified === null || started.value === undefined || !startedBefore(modified.mtimeMs, started.value.startedAt)) return result
-      await judgeAgainWithReference(launchIoOf($), ctx, readOf($, ctx, [{ path }]), '读到参考图')
+      await judgeAgainWithReference(launchIoOf($), ctx, readReference(readIoOf($), ctx, [{ path }]), '读到参考图')
     } catch (error) {
       $.ui.log(`reference images: ${errorText(error)}`, { to: 'debug' })
     }
@@ -80,7 +78,7 @@ export function registerReferenceMidturn(on: On, ctx: Ctx): void {
     if (typed) {
       typedIn.delete(e.text.trim())
       typedIn.set(e.text.trim(), e.turnId as string)
-      for (const oldest of [...typedIn.keys()].slice(0, Math.max(0, typedIn.size - MOST_TYPED))) typedIn.delete(oldest)
+      keepNewest(typedIn, MOST_TYPED)
     }
     const result = await next(e)
     if (typed && result.drop !== undefined) typedIn.delete(e.text.trim())
@@ -98,17 +96,12 @@ export function registerReferenceMidturn(on: On, ctx: Ctx): void {
       // The turn it was typed into must still be the one running.
       const step = (await $.state.get(MAIN_STEP)).value ?? null
       if (step === null || step.turnId !== turnId || row.sources.length === 0) return result
-      await judgeAgainWithReference(launchIoOf($), ctx, readOf($, ctx, row.sources), '轮中贴了参考图')
+      await judgeAgainWithReference(launchIoOf($), ctx, readReference(readIoOf($), ctx, row.sources), '轮中贴了参考图')
     } catch (error) {
       $.ui.log(`reference images: ${errorText(error)}`, { to: 'debug' })
     }
     return result
   })
-}
-
-/** The reading of `sources`, started now; it never rejects (null: there is none, and why is in the debug log and the board's notes). */
-function readOf($: EngineInterface, ctx: Ctx, sources: readonly ReferenceSource[]): Promise<ReferenceReading | null> {
-  return readReference(readIoOf($), ctx, sources).catch(() => null)
 }
 
 /** What a request to the decision model needs of the engine, as closures (`$` may not cross a file, so this file builds its own). */

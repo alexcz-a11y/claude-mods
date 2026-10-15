@@ -5,10 +5,11 @@
 // pass `$` across an import): the files, and `ask`, which sends one request to the decision model that takes images.
 
 import { type Asked, type Failure, failureText } from '../decision/backend.ts'
-import { imageRef } from '../decision/images.ts'
+import { imageRef, type Picture } from '../decision/images.ts'
 import { mergeParts, type DecisionRequest } from '../decision/system-one.ts'
-import type { Check, CheckResult } from '../decision/visual-check.ts'
-import { batchPairs, type Boxed, type Elsewhere, fallBack, judgeZoom, type LocatePlan, locatePlan, readLocated, readZoom, withinFailed, zoomRequest, type ZoomPair } from '../decision/visual-check-zoom.ts'
+import { allUnsure, type Check, type CheckResult } from '../decision/visual-check.ts'
+import { cropLabel, type ShownPlace } from '../decision/visual-check-tool.ts'
+import { batchPairs, type Boxed, type Elsewhere, fallBack, judgeZoom, type LocatePlan, locatePlan, MAX_CROPPED_CHECKS, readLocated, readZoom, withinFailed, zoomRequest, type ZoomPair } from '../decision/visual-check-zoom.ts'
 import { type Box, cropRect, type Rect, sameView, scaleRect, unionBox } from '../decision/zoom.ts'
 import { type Crop, cropImage } from './image-crops.ts'
 import type { ImageFilesIo, LoadedImage } from './image-files.ts'
@@ -185,6 +186,22 @@ async function placeOf(deps: ZoomDeps, subjects: ZoomSubjects, elsewhere: Elsewh
   return { place: elsewhere, candidate: candidate.ok ? candidate.crop : null, other: theOther.ok ? theOther.crop : null }
 }
 
+/** A crop that goes along with the answer, and what it shows. */
+export type Attachment = { label: string; picture: Picture }
+
+/** The crops the answer shows (of the checks that failed, at most three; of another place) and what it says of that place. */
+export function attachmentsOf(zoomed: ZoomOutcome): { crops: Attachment[]; elsewhere: ShownPlace | null } {
+  const crops: Attachment[] = zoomed.failed.slice(0, MAX_CROPPED_CHECKS).flatMap((one) => [
+    { label: cropLabel({ check: one.index }, 'your screenshot'), picture: one.candidate },
+    { label: cropLabel({ check: one.index }, 'the image it is compared with'), picture: one.other },
+  ])
+  const place = zoomed.elsewhere
+  if (place === null) return { crops, elsewhere: null }
+  const cropped = place.candidate !== null && place.other !== null
+  if (place.candidate !== null && place.other !== null) crops.push({ label: cropLabel({ place: true }, 'your screenshot'), picture: place.candidate }, { label: cropLabel({ place: true }, 'the image it is compared with'), picture: place.other })
+  return { crops, elsewhere: { box: place.place.box, confidence: place.place.confidence, cropped } }
+}
+
 // ---- A pair of images, on their own ----------------------------------------------------------------------------------
 
 /** What `comparePair` compares: two images, and whether they show the same view (`null`: by the shapes of the images). */
@@ -198,7 +215,7 @@ export type ImagePair = { candidate: LoadedImage; other: LoadedImage; sameView: 
  */
 export async function comparePair(deps: ZoomDeps, pair: ImagePair, checks: readonly Check[]): Promise<ZoomOutcome> {
   const subjects: ZoomSubjects = { candidate: pair.candidate, others: [pair.other], names: ['other'], sameViews: [sameView(pair.sameView, pair.candidate, pair.other)] }
-  const unasked = (reason: string, failure: Failure | null = null): ZoomOutcome => ({ results: checks.map((check) => ({ check, verdict: 'unsure', probability: null, basis: 'whole', why: reason })), failed: [], elsewhere: null, failure })
+  const unasked = (reason: string, failure: Failure | null = null): ZoomOutcome => ({ results: allUnsure(checks, reason), failed: [], elsewhere: null, failure })
   const plan = locatePlan(subjects.names, subjects.sameViews, checks)
   if (plan.parts.length === 0) return unasked('no part of the image is named, so there is nothing to cut out')
   const state = { candidate: imageRef('candidate'), other: imageRef('other') }
@@ -207,6 +224,6 @@ export async function comparePair(deps: ZoomDeps, pair: ImagePair, checks: reado
     images: [pair.candidate, pair.other].map((image, i) => ({ name: i === 0 ? 'candidate' : 'other', format: image.format, base64: image.base64, width: image.width, height: image.height })),
   })
   if (!asked.ok) return unasked(`the parts could not be located (${failureText(deps.backend, asked.failure)})`, asked.failure)
-  const whole = checks.map((check): CheckResult => ({ check, verdict: 'unsure', probability: null, basis: 'whole', why: 'the whole images were not compared' }))
+  const whole = allUnsure(checks, 'the whole images were not compared')
   return zoomReview(deps, subjects, checks, whole, plan, readLocated(plan, asked.answers))
 }
