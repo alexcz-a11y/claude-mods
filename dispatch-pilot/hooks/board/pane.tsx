@@ -444,7 +444,11 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, raster: 
   }
   // The effort question had the strong hint (the count had reached the setting); the level is still the decision model's.
   if (main && entry.hint !== undefined) {
-    rows.push(hang(t, 'pane-card-hint', '强提示', <Text wrap="wrap"><Text color={OK} bold>{'已给强提示'}</Text><Text color={MUTED}>{`  次数 ${entry.hint.count} ≥ ${entry.hint.maxAfter}，档位仍由决策模型定`}</Text></Text>, w))
+    // A message's hint is a second effort question: `used` says whether its answer was taken (the message was judged still unresolved).
+    const unused = entry.hint.used === false
+    const head = unused ? '已给强提示 · 未采用' : '已给强提示 · 已采用'
+    const tail = unused ? `  次数 ${entry.hint.count} ≥ ${entry.hint.maxAfter}；这条没判为仍未解决，用的是不带提示的那一题` : `  次数 ${entry.hint.count} ≥ ${entry.hint.maxAfter}；用的是带强提示那一题的回答，max 门槛用强提示的`
+    rows.push(hang(t, 'pane-card-hint', '强提示', <Text wrap="wrap"><Text color={unused ? MUTED : OK} bold>{head}</Text><Text color={MUTED}>{tail}</Text></Text>, w))
   }
   return rows
 }

@@ -22,7 +22,7 @@ import { errorText } from '../decision/backend.ts'
 import { EFFORTS, LEVEL, probsOf, readEffort, readingText, traceEffort, type Effort, type EffortReading } from '../decision/effort.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { turnStartPart } from '../decision/turn-start.ts'
-import { givesHint, judgeUnresolved, readUnresolved, UNRESOLVED } from '../decision/unresolved.ts'
+import { givesHint, HINTED, judgeUnresolved, readUnresolved, UNRESOLVED, usesHinted } from '../decision/unresolved.ts'
 import { contribute, type Contribution, type PartOutcome } from '../core/ballot.ts'
 import { commandOf, commandState } from '../core/commands.ts'
 import { hintDecision, keptCount, keptSummary, moveCount, unresolvedDecision, type CountCell } from '../core/unresolved.ts'
@@ -30,7 +30,7 @@ import { defer, withdraw } from '../core/deferred.ts'
 import { addPending, revise, turnKey, update, type Cell, type PendingDecision, type TurnRecord } from '../core/plans.ts'
 import { isPersonsMessage, startsReportTurn } from '../core/prompts.ts'
 import { report, type HintRecord, type ReferenceRecord, type ReportIo, type UnresolvedRecord } from '../core/report.ts'
-import type { Ctx } from '../core/setup.ts'
+import { hintedRules, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import type { ReferenceReading } from '../decision/complexity.ts'
 import { hasImage, IMAGE_ROUTING_SWITCH } from './image-routing.ts'
@@ -99,6 +99,9 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
     // About the main agent of the turn this message starts, or of the one running when it was typed into it.
     const forTurn = e.turnId === undefined && !imaged ? ('next' as const) : ('current' as const)
 
+    /** Whether the hinted effort answer was the one used (set by decideEffort; false when it was not asked or not used). */
+    let hintUsed = false
+
     /** The effort this message's turn goes out at, and the board's word for it. */
     const decideEffort = async (outcome: PartOutcome, io: ReportIo, unresolved?: UnresolvedRecord, reference?: ReferenceRecord): Promise<Effort | null> => {
       const about = { feature: handBack ? 'main-effort (agent report)' : 'main-effort', agent: 'main', forTurn, subject: quoteStart(e.text) }
@@ -107,14 +110,19 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
         await wait(null)
         return null
       }
-      const reading = readEffort(outcome.answers[LEVEL])
+      // With the strong hint the request asked the hinted effort question beside the plain one: its answer is taken when this
+      // message's own three-way answer added one to the count (the problem is still unresolved), else the plain one's.
+      const hintedReading = hint === undefined || !usesHinted(unresolved?.change ?? null) ? null : readEffort(outcome.answers[HINTED])
+      const reading = hintedReading ?? readEffort(outcome.answers[LEVEL])
+      if (hint !== undefined) hintUsed = hintedReading !== null
       if (reading === null) {
         await report(io, { decision: { ...about, routed: false, failure: { backend: ctx.backend.name, kind: 'parse', detail: 'no effort answer' } } })
         await wait(null)
         return null
       }
-      // pickEffort's rules with their working: the board shows the steps, never recomputes them (#23).
-      const { effort, steps } = traceEffort(reading, ctx.config)
+      // pickEffort's rules with their working: the board shows the steps, never recomputes them (#23). With the strong hint, max has its own threshold.
+      const rules = hintedReading === null ? ctx.config : hintedRules(ctx.config, ctx.config)
+      const { effort, steps } = traceEffort(reading, rules)
       await report(io, {
         decision: {
           ...about,
@@ -122,7 +130,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
           outcome: `effort ${effort}`,
           // The level as data: what reads the log (the band, the pane) never reads it out of the words.
           effort,
-          reason: describeReading(reading, effort, ctx.config.thetaMax),
+          reason: describeReading(reading, effort, rules.thetaMax),
           probs: probsOf(reading),
           ...(reading.confidence === null ? {} : { conf: reading.confidence }),
           trace: steps,
@@ -130,8 +138,8 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
           ...(reference === undefined ? {} : { reference }),
           // What this message did to the unresolved count: the card draws it with the effort's.
           ...(unresolved === undefined ? {} : { unresolved }),
-          // The card says the hint was given.
-          ...(hint === undefined ? {} : { hint }),
+          // The card says the hint was given, and whether its answer was the one used.
+          ...(hint === undefined ? {} : { hint: { ...hint, used: hintedReading !== null } }),
         },
       })
       await wait(effort)
@@ -184,7 +192,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
           await report(io, { decision: { feature: UNRESOLVED_SWITCH, agent: 'main', aside: true, forTurn, subject: quoteStart(e.text), ...counted } })
         }
         // Each hint given is a decision of its own in the log: the count, that it was given, the level that came of it.
-        if (hint !== undefined) await report(io, { decision: { feature: UNRESOLVED_SWITCH, agent: 'main', aside: true, forTurn, subject: quoteStart(e.text), ...hintDecision(hint, effort) } })
+        if (hint !== undefined) await report(io, { decision: { feature: UNRESOLVED_SWITCH, agent: 'main', aside: true, forTurn, subject: quoteStart(e.text), ...hintDecision({ ...hint, used: hintUsed }, effort) } })
       },
     })
     if (imaged) defer(e.text, effortPart)

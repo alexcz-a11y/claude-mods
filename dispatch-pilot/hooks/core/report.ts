@@ -217,7 +217,11 @@ export type LogEntry = {
 export type ReferenceRecord = { level: number; images: number }
 
 /** The strong hint given with a request: the count it was given at, the setting it had reached, and `mid` when it was a mid-turn re-decision's. */
-export type HintRecord = { count: number; maxAfter: number; where?: 'mid' }
+/**
+ * A strong hint given: the count and the setting it reached; `where: 'mid'` for a mid-turn re-decision's. `used` (a message's):
+ * whether the hinted effort answer was the one taken (the message's own three-way answer said still unresolved); false: the plain one was.
+ */
+export type HintRecord = { count: number; maxAfter: number; where?: 'mid'; used?: boolean }
 
 /**
  * What one message's answer to the unresolved question did to the count: the count before and after, the change, the

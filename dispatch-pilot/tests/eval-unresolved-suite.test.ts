@@ -10,9 +10,10 @@ import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import { renderSummary, type Summary } from '../hooks/decision/summary.ts'
 import type { UnresolvedItem } from '../eval/lib/datasets.ts'
 import { summarize } from '../eval/lib/metrics.ts'
-import { runSuite } from '../eval/lib/runner.ts'
+import { askRetrying, runSuite } from '../eval/lib/runner.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
-import { UNRESOLVED_VARIANTS, unresolved, unresolvedRequest } from '../eval/lib/unresolved.ts'
+import { askedRequest, askUnresolved, UNRESOLVED_VARIANTS, unresolved, unresolvedRequest, type UnresolvedPrediction } from '../eval/lib/unresolved.ts'
+import { BACKEND_DEFAULTS } from '../hooks/core/setup.ts'
 import { transcript } from './support/conversation.ts'
 import { answers, ELSEWHERE, network, SOLVED, STILL } from './support/eval-network.ts'
 import { jev, UNRESOLVED_ON, world } from './support/world.ts'
@@ -217,3 +218,87 @@ test('when the person says it is still unresolved at 0.62, the mod adds one and 
   const rows = await run(items, net, ['zh-score'])
   expect(rows.filter((r) => r.language === 'zh').map((r) => [r.shown, r.detail?.triageChange])).toEqual(cases.map(([, triage, change]) => [`max / ${triage}`, change]))
 })
+
+// The strong hint at a message (#41): the request carries the hinted copy of the effort question beside the plain one, and the
+// eval reads the answers as the mod does: the hinted one, at hintThetaMax, only when the same request's three-way answer adds one.
+
+/** max at exactly `p`, the rest on xhigh: max at a threshold of `p` or less, else xhigh. */
+const maxAt = (p: number): number[] => [0, 0, 0.1, 0.9 - p, p]
+
+/** What the eval decides for the item's message after a conversation that took the count to 3 (the hint starts at 3), with the plain, hinted and three-way answers the test gives. */
+async function hintedAsk(plain: readonly number[], hinted: readonly number[], triage: Record<string, number>, variant = 'zh-score') {
+  const settings = settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' })
+  const net = network((body) => answers(body, plain, triage, hinted))
+  const ask = (request: Parameters<typeof askRetrying>[0]) => askRetrying(request, { backend: jevBackend('k'), io: net.io, timeoutMs: 10_000, retries: 0, now: net.now, pause: async () => {} })
+  const sent = askedRequest(item('unresolved-001').zh, UNRESOLVED_VARIANTS[variant] as Parameters<typeof askedRequest>[1], settings, SUMMARY, { count: 3, maxAfter: 3 })
+  const decided = await askUnresolved(sent, ask, settings)
+  return { sent, decided, bodies: net.bodies }
+}
+
+const prediction = (decided: Awaited<ReturnType<typeof hintedAsk>>['decided']): { prediction: UnresolvedPrediction; detail: Record<string, any> } => {
+  if (!decided.ok) throw new Error(decided.failure)
+  return { prediction: decided.prediction, detail: decided.detail as Record<string, any> }
+}
+
+test('the eval reads a hinted request as the mod does: still unresolved takes the hinted answer at hintThetaMax, and says both answers and which was used', async () => {
+  const { thetaMax, hintThetaMax } = BACKEND_DEFAULTS.jev
+  expect(hintThetaMax).toBeLessThan(thetaMax)
+  // The plain answer is high; the hinted one has max exactly at the hint's bar: max only by the hinted answer.
+  const { sent, decided, bodies } = await hintedAsk([0, 0.1, 0.8, 0.1, 0], maxAt(hintThetaMax), STILL)
+  expect(sent.hinted).toBe(true)
+  expect(Object.keys(bodies[0].questions)).toEqual(['effort.level', 'effort.unresolved', 'effort.level_unsolved'])
+  const { prediction: got, detail } = prediction(decided)
+  expect(got).toEqual({ effort: 'max', triage: 'unresolved' })
+  expect(detail).toMatchObject({ hintUsed: true, pPlain: [0, 0.1, 0.8, 0.1, 0], pHinted: maxAt(hintThetaMax).map((p) => Math.round(p * 1000) / 1000), triageChange: 'add' })
+  // The probabilities kept are those of the answer used.
+  expect(detail.p).toEqual(detail.pHinted)
+})
+
+test('the eval, as the mod: a message not called still unresolved takes the plain answer at thetaMax, even if the hinted answer says max', async () => {
+  const { hintThetaMax } = BACKEND_DEFAULTS.jev
+  for (const triage of [SOLVED, ELSEWHERE, { still_unresolved: 0.3, resolved: 0.4, new_or_unrelated: 0.3 }]) {
+    // Plain: max at the hint's bar, under thetaMax; hinted: max outright.
+    const { decided } = await hintedAsk(maxAt(hintThetaMax), [0, 0, 0.1, 0.1, 0.8], triage)
+    const { prediction: got, detail } = prediction(decided)
+    expect(got.effort).toBe('xhigh')
+    expect(detail).toMatchObject({ hintUsed: false })
+    expect(detail.p).toEqual(detail.pPlain)
+    expect(detail.pHinted).toEqual([0, 0, 0.1, 0.1, 0.8])
+  }
+})
+
+test('the eval, as the mod: the hinted answer used at hintThetaMax is a bar lower than thetaMax, and just under it is not max', async () => {
+  const { hintThetaMax } = BACKEND_DEFAULTS.jev
+  const { decided } = await hintedAsk(MAX, maxAt(hintThetaMax - 0.01), STILL)
+  expect(prediction(decided).prediction.effort).toBe('xhigh')
+})
+
+test('a request below the count that gives the hint asks only the plain question: no hinted answer, no pPlain/pHinted in the detail', async () => {
+  const settings = settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' })
+  const net = network((body) => answers(body, maxAt(BACKEND_DEFAULTS.jev.hintThetaMax), STILL))
+  const ask = (request: Parameters<typeof askRetrying>[0]) => askRetrying(request, { backend: jevBackend('k'), io: net.io, timeoutMs: 10_000, retries: 0, now: net.now, pause: async () => {} })
+  const sent = askedRequest(item('unresolved-001').zh, UNRESOLVED_VARIANTS['zh-score'] as Parameters<typeof askedRequest>[1], settings, SUMMARY, { count: 2, maxAfter: 3 })
+  expect(sent.hinted).toBe(false)
+  const { prediction: got, detail } = prediction(await askUnresolved(sent, ask, settings))
+  expect(Object.keys(net.bodies[0].questions)).toEqual(['effort.level', 'effort.unresolved'])
+  expect(got.effort).toBe('xhigh')
+  expect(detail).not.toHaveProperty('hintUsed')
+  expect(detail).not.toHaveProperty('pHinted')
+})
+
+// One world a test (the hooks are registered once), so one test for each way the three-way question can go.
+for (const [name, triage] of [['still unresolved', STILL], ['another problem', ELSEWHERE]] as const) {
+  test(`the eval and the mod answer a hinted message the same (${name}): the same request, the same level`, { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
+    const { hintThetaMax } = BACKEND_DEFAULTS.jev
+    const long = item('unresolved-001')
+    const w = world($, on, { switches: UNRESOLVED_ON, backend: (request) => jev(maxAt(hintThetaMax + 0.05), { shares: { 'effort.unresolved': triage }, scores: { 'effort.level_unsolved': maxAt(hintThetaMax) } })(request), messages: transcript(long.zh.recent_context), seed: { unresolved: { count: 3, summary: { ...SUMMARY, turn: 't1' } } } })
+    await w.submit(long.zh.message)
+    await w.step({ index: 0 })
+    // The same answers as the eval's fake network gives: plain max a little above the hint's bar (not enough for thetaMax), the hinted one at it.
+    const { sent, decided } = await hintedAsk(maxAt(hintThetaMax + 0.05), maxAt(hintThetaMax), triage)
+    expect(w.requests[0]?.body.questions).toEqual(sent.request.questions)
+    expect(w.steps.map((s) => s.effort)).toEqual([prediction(decided).prediction.effort])
+    // And the levels are those of the two readings: max by the hinted answer when still unresolved, xhigh by the plain one otherwise.
+    expect(w.steps.map((s) => s.effort)).toEqual([triage === STILL ? 'max' : 'xhigh'])
+  })
+}

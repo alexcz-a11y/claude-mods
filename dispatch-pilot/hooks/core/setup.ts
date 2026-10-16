@@ -131,6 +131,12 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
    */
   roundUp: number
   /**
+   * `thetaMax` for an effort question that carries the strong hint (#41: the problem has come back unsolved
+   * `unresolvedMaxAfter` times; decision/unresolved.ts `withHint`), at a message and mid-turn. Never above `thetaMax`.
+   * Not an option: set from the stored answers of the flows' hinted requests (DEVELOPMENT.md 「强提示（#41）」).
+   */
+  hintThetaMax: number
+  /**
    * How the decision model is asked, language and kind of question (the eval's variables, `effort-submit` for the effort question
    * beside a message, `subagent` for an agent's): `turnStart` for that question, `agent` for the questions about a dispatched agent
    * and a Workflow's, `other` for every other one (the mid-turn re-decision, a stuck loop, the skills, the problem summary's text).
@@ -231,6 +237,10 @@ const JEV_DEFAULTS: BackendDefaults = {
   findSkillProfiles: true,
   // Raising is easy (DEVELOPMENT.md, 「按 AA 基准校正」): the level above the most probable one is taken from 0.3.
   roundUp: 0.3,
+  // The hinted effort question's (2026-10-16, DEVELOPMENT.md 「强提示（#41）」): over the hinted answers of the flows,
+  // 0.4 took max recall to 20/20 on long-context and 7/7 on eval-v2 (0.5: 18/20 and 7/7), max where it is not accepted 9/15
+  // (0.5: 8/15); Jev's hinted answers of the real session that set this off were 0.37-0.48.
+  hintThetaMax: 0.4,
   // effort-submit on the current wording, one run each (2026-10-05): asked in Chinese, Chinese items 85% and English
   // items 89%; asked in English, 79% and 78%. An agent's questions are asked in Chinese since Jev 1.14 (the subagent eval of
   // 2026-10-15, DEVELOPMENT.md 「Jev 1.14」: models-hint-zh 72/71% and again 72/72%, against models-hint's 71/68%; on 1.13 the
@@ -287,6 +297,8 @@ const PPLX_DEFAULTS: BackendDefaults = {
   // (English questions) took the level sent too high from 18.5% to 13.0% with the recall of max unchanged (11 of 16); eval v2's
   // level too low went from 12.5% to 15.0%.
   roundUp: 0.45,
+  // Its own thetaMax: the hint was not measured on pplx with the wording of 2026-10-16.
+  hintThetaMax: 0.47,
   ask: { turnStart: { language: 'en', primitive: 'score' }, agent: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
 }
 
@@ -456,7 +468,14 @@ export type Config = EffortRules & {
     summaryModel: string
     /** The count from which the effort question of a message and of a mid-turn re-decision carries the strong hint (`unresolvedMaxAfter`; 0: never). */
     maxAfter: number
+    /** `thetaMax` for an effort question that carries the strong hint: the decision model's `hintThetaMax`, never above `thetaMax`. */
+    thetaMax: number
   }
+}
+
+/** The effort rules for an answer to an effort question that carried the strong hint: `thetaMax` is the hint's (`unresolved.thetaMax`). */
+export function hintedRules<R extends EffortRules>(rules: R, config: Pick<Config, 'unresolved'>): R {
+  return { ...rules, thetaMax: Math.min(rules.thetaMax, config.unresolved.thetaMax) }
 }
 
 /**
@@ -630,6 +649,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
     unresolved: {
       summaryModel: stringOf(options.summaryModel, DEFAULT_SUMMARY_MODEL).trim() || DEFAULT_SUMMARY_MODEL,
       maxAfter: whole(options.unresolvedMaxAfter, 0, 10, 3),
+      thetaMax: Math.min(thetaMax, defaults.hintThetaMax),
     },
   }
   // In the table's order, whatever order they were read in.

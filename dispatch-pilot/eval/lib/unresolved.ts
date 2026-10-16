@@ -27,12 +27,12 @@
 //
 // Pure: no Node API.
 
-import { messageLimits } from '../../hooks/core/setup.ts'
-import { EFFORTS, LEVEL, pickEffort, readEffort, type Effort, type EffortAsk } from '../../hooks/decision/effort.ts'
+import { hintedRules, messageLimits } from '../../hooks/core/setup.ts'
+import { EFFORTS, LEVEL, pickEffort, readEffort, type Effort, type EffortAsk, type EffortReading } from '../../hooks/decision/effort.ts'
 import type { Summary } from '../../hooks/decision/summary.ts'
 import { answersFor, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
 import { messageRequest, turnStartPart } from '../../hooks/decision/turn-start.ts'
-import { judgeUnresolved, readUnresolved, UNRESOLVED, UNRESOLVED_OPTIONS, type UnresolvedChange, type UnresolvedOption } from '../../hooks/decision/unresolved.ts'
+import { givesHint, HINTED, judgeUnresolved, readUnresolved, UNRESOLVED, UNRESOLVED_OPTIONS, usesHinted, type UnresolvedChange, type UnresolvedOption } from '../../hooks/decision/unresolved.ts'
 import { OVER_BUDGET, TRIAGES, type Language, type Triage, type UnresolvedAsked, type UnresolvedItem } from './datasets.ts'
 import { contextMessages, gradeEffort } from './effort-submit.ts'
 import { percentText, share, type VariantSummary } from './metrics.ts'
@@ -80,35 +80,46 @@ export function unresolvedRequest(item: UnresolvedItem, language: Language, vari
 }
 
 /** `unresolvedRequest` for a message and the conversation before it that are not an item's (the long-context suite builds its own). */
-export function askedRequest(asked: UnresolvedAsked, variant: UnresolvedVariant, settings: Settings, summary: Summary | null = null, count: { count: number; maxAfter: number } | null = null): { request: DecisionRequest; part: Part } {
+export function askedRequest(asked: UnresolvedAsked, variant: UnresolvedVariant, settings: Settings, summary: Summary | null = null, count: { count: number; maxAfter: number } | null = null): { request: DecisionRequest; part: Part; hinted: boolean } {
   const part = turnStartPart({ ask: variant.ask, unresolved: variant.unresolved !== false, command: asked.command ?? null, summary, ...(count === null ? {} : count) })
   // The mod's own limits: the request of its own (`wide`) or the one shared with the skills' question (messageLimits).
   const request = messageRequest({ prompt: asked.message, messages: contextMessages(asked.recent_context), limits: messageLimits(settings, !variant.wide), parts: [part] })
-  return { request, part }
+  return { request, part, hinted: count !== null && givesHint(count.count, count.maxAfter) }
 }
 
 /**
- * Sends a request `askedRequest` built and reads the answers as the mod reads them: the effort (`pickEffort` at `thetaMax`),
- * and the three-way question's answer, the option it leans to most, with what the mod's two bars would do to the count.
- * A request that did not ask the three-way question (`UnresolvedVariant.unresolved: false`) has the effort alone, and no triage.
+ * Sends a request `askedRequest` built and reads the answers as the mod reads them: the effort (`pickEffort` at `thetaMax`, or
+ * at the hint's when the request carried the strong hint: `hintedRules`), and the three-way question's answer, the option it
+ * leans to most, with what the mod's two bars would do to the count. A request that did not ask the three-way question
+ * (`UnresolvedVariant.unresolved: false`) has the effort alone, and no triage.
  */
-export async function askUnresolved(sent: { request: DecisionRequest; part: Part }, ask: Ask, settings: Settings): Promise<Decided<UnresolvedPrediction>> {
+export async function askUnresolved(sent: { request: DecisionRequest; part: Part; hinted?: boolean }, ask: Ask, settings: Settings): Promise<Decided<UnresolvedPrediction>> {
   const { asked } = await ask(sent.request)
   if (!asked.ok) return requestFailed(asked.failure)
   const answers = answersFor(sent.part, asked.answers)
-  const reading = readEffort(answers[LEVEL])
-  if (reading === null) return { ok: false, failure: 'parse: no effort answer' }
+  const plain = readEffort(answers[LEVEL])
+  if (plain === null) return { ok: false, failure: 'parse: no effort answer' }
+  const round = (reading: EffortReading) => reading.probabilities.map((p) => Math.round(p * 1000) / 1000)
   if (!(UNRESOLVED in sent.part.questions)) {
-    const alone: Record<string, unknown> = { p: reading.probabilities.map((p) => Math.round(p * 1000) / 1000), confidence: reading.confidence }
-    return { ok: true, prediction: { effort: pickEffort(reading, settings), triage: null }, detail: alone }
+    // Without the three-way question a hint is in the effort question itself (turnStartPart), so its rules are the hint's.
+    const rules = sent.hinted === true ? hintedRules(settings, settings) : settings
+    const alone: Record<string, unknown> = { p: round(plain), confidence: plain.confidence }
+    return { ok: true, prediction: { effort: pickEffort(plain, rules), triage: null }, detail: alone }
   }
   const said = readUnresolved(answers[UNRESOLVED])
   if (said === null) return { ok: false, failure: 'parse: no triage answer' }
   const judged = judgeUnresolved(said)
-  const effort = pickEffort(reading, settings)
+  // As the mod reads it (features/main-effort.ts): the hinted question's answer when the request asked it and this message
+  // added one to the count, at the hint's thetaMax; the plain one's otherwise.
+  const hintedReading = HINTED in sent.part.questions && usesHinted(judged.change) ? readEffort(answers[HINTED]) : null
+  const reading = hintedReading ?? plain
+  const effort = pickEffort(reading, hintedReading === null ? settings : hintedRules(settings, settings))
+  const asHinted = HINTED in sent.part.questions ? readEffort(answers[HINTED]) : null
   const detail: Record<string, unknown> = {
-    p: reading.probabilities.map((p) => Math.round(p * 1000) / 1000),
+    p: round(reading),
     confidence: reading.confidence,
+    // Both answers when the hinted question was asked, and which was used (for scans of the two thresholds).
+    ...(asHinted === null ? {} : { pPlain: round(plain), pHinted: round(asHinted), hintUsed: hintedReading !== null }),
     triage: TRIAGE_OF[judged.top],
     triageP: Object.fromEntries(UNRESOLVED_OPTIONS.map((option) => [TRIAGE_OF[option], Math.round(said.probabilities[option] * 1000) / 1000])),
     // What the mod's two bars make of the answer (it moves the count by this).

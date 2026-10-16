@@ -8,7 +8,7 @@
 
 import type { SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
-import { BACKEND_DEFAULTS, backendNameOf, chooseBackend, dispatchSettings, PER_BACKEND_OPTIONS, readConfig, setup } from '../hooks/core/setup.ts'
+import { BACKEND_DEFAULTS, backendNameOf, chooseBackend, dispatchSettings, hintedRules, PER_BACKEND_OPTIONS, readConfig, setup } from '../hooks/core/setup.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { DEFAULT_AGENT_MODELS, dispatchPart } from '../hooks/decision/dispatched-agent.ts'
 import { traceEffort, turnStartEffortPart, type EffortReading } from '../hooks/decision/effort.ts'
@@ -488,6 +488,25 @@ test("the round-up threshold is the decision model's: Jev takes the level above 
   // The settings are the effort rules' parameters as they are (what the main agent's feature and the eval hand `traceEffort`): the same answer, 0.3 above the most probable level.
   const answer = reading([0, 0.5, 0.3, 0.2, 0])
   expect([readConfig({ decisionModel: 'jev' }), readConfig(PPLX_OPTIONS)].map((config) => traceEffort(answer, config).effort)).toEqual(['high', 'medium'])
+})
+
+test("max has a lower bar of its own for an effort question with the strong hint: the decision model's hintThetaMax (Jev 0.4, pplx 0.47), never above the thetaMax in use", () => {
+  const jevConfig = readConfig({ decisionModel: 'jev' })
+  const pplxConfig = readConfig(PPLX_OPTIONS)
+  expect([BACKEND_DEFAULTS.jev.hintThetaMax, BACKEND_DEFAULTS.pplx.hintThetaMax]).toEqual([0.4, 0.47])
+  expect([jevConfig.unresolved.thetaMax, pplxConfig.unresolved.thetaMax]).toEqual([0.4, 0.47])
+  // The hint's rules are the same rules with only thetaMax lowered.
+  expect(hintedRules(jevConfig, jevConfig)).toEqual({ ...jevConfig, thetaMax: 0.4 })
+  expect(hintedRules(jevConfig, jevConfig).roundUp).toBe(jevConfig.roundUp)
+  // A thetaMax the person sets below the hint's wins: the hint never makes max harder to reach.
+  const strict = readConfig({ decisionModel: 'jev', thetaMax: 0.3 })
+  expect([strict.thetaMax, strict.unresolved.thetaMax, hintedRules(strict, strict).thetaMax]).toEqual([0.3, 0.3, 0.3])
+  // And above it, the hint's bar is the lower one.
+  const loose = readConfig({ decisionModel: 'jev', thetaMax: 0.7 })
+  expect([loose.thetaMax, loose.unresolved.thetaMax]).toEqual([0.7, 0.4])
+  // An answer with max at 0.42: not max under 0.5, max under the hint's 0.4.
+  const answer = reading([0, 0, 0.08, 0.5, 0.42])
+  expect([traceEffort(answer, jevConfig).effort, traceEffort(answer, hintedRules(jevConfig, jevConfig)).effort]).toEqual(['xhigh', 'max'])
 })
 
 test("how the questions are asked is the decision model's: with Jev the effort question beside a message and an agent's questions in Chinese and every other in English, with pplx all in English", () => {

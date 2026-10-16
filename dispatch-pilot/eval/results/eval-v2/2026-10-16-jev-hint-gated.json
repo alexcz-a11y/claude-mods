@@ -1,0 +1,1165 @@
+{
+  "suite": "eval-v2",
+  "label": "hint-gated",
+  "date": "2026-10-16T09:09:10.611Z",
+  "backend": {
+    "name": "jev",
+    "model": "jev-1.14.0",
+    "answeredBy": [
+      "jev-1.14.0"
+    ]
+  },
+  "dataset": {
+    "path": "eval/datasets/eval-v2.jsonl",
+    "items": 120,
+    "sha256": "0627776e14b4bbba2e0e255583719518d397a1e518e8135367c3d09cd8004ca0",
+    "gold": {
+      "dir": "eval/datasets/eval-v2/gold",
+      "files": 120,
+      "sha256": "e0d85aac4c249f8dded96873fe2756624b2116a5d13b11cb5394e6c4b7a8ea48"
+    },
+    "review": {
+      "file": null,
+      "decided": 0
+    }
+  },
+  "flow": {
+    "file": "eval/results/eval-v2-flow/jev-24000.json",
+    "sha256": "65fe600aebe8bcf51afe496104bfbd6f43bad1fc24e1d2c3f09c73beafb8b0d4",
+    "backend": {
+      "name": "jev",
+      "model": "jev-latest",
+      "answeredBy": [
+        "jev-1.13.0"
+      ]
+    },
+    "settings": {
+      "language": "zh",
+      "stateTokens": 24000,
+      "stateMessages": 32,
+      "thresholds": {
+        "add": 0.5,
+        "reset": 0.7
+      },
+      "maxAfter": 3
+    },
+    "summarizer": {
+      "model": "haiku",
+      "says": "claude-haiku-5-5",
+      "answeredBy": [
+        "claude-haiku-5-5"
+      ]
+    }
+  },
+  "code": {
+    "hooks/board/band.tsx": "4013bcc1d7ba238f",
+    "hooks/board/footer.tsx": "206e87a1e3837862",
+    "hooks/board/kit.tsx": "7af5e5a0660c694c",
+    "hooks/board/pane.tsx": "572d0efa599eef22",
+    "hooks/board/rationale.ts": "04473e660c458530",
+    "hooks/board/reference.ts": "86407b19f188cdcf",
+    "hooks/board/screens.tsx": "23de076c982f119d",
+    "hooks/board/view.ts": "18bef1110888cff0",
+    "hooks/core/agent-lane.ts": "cbda3299a1d2707a",
+    "hooks/core/ask-group.ts": "fb7bacd8c321a648",
+    "hooks/core/ballot.ts": "cbd8c44ae8efe973",
+    "hooks/core/call-budget.ts": "f9180f81a0a5995a",
+    "hooks/core/commands.ts": "38e7982035ede0aa",
+    "hooks/core/complexity.ts": "8f7d9a68aa26d62c",
+    "hooks/core/core.ts": "def0d6437bd72125",
+    "hooks/core/deferred.ts": "cd5c0d57c877d7ea",
+    "hooks/core/image-crops.ts": "860f412f07f56606",
+    "hooks/core/image-files.ts": "ec701ece1adb2526",
+    "hooks/core/loop-start.ts": "c290fc6e746d7b2b",
+    "hooks/core/outcomes.ts": "c8d71002433acedf",
+    "hooks/core/plans.ts": "40851299388b9691",
+    "hooks/core/profile-report.ts": "825c54c96fc6eb43",
+    "hooks/core/profiles.ts": "6f128a666ad0302e",
+    "hooks/core/prompts.ts": "ceb6aa21cf73ca5f",
+    "hooks/core/quality-series.ts": "31abc6d60a07d230",
+    "hooks/core/report.ts": "230bc4a66a329ab6",
+    "hooks/core/setup.ts": "bfebe1e7ed0e6299",
+    "hooks/core/skills.ts": "7b0c4757c75105cb",
+    "hooks/core/switches.ts": "8b5a41441f918d03",
+    "hooks/core/takeover-report.ts": "8a65b0eeae059a77",
+    "hooks/core/unresolved.ts": "71918a83d2dee5b4",
+    "hooks/core/video-frames.ts": "0ca71bcf50207792",
+    "hooks/core/visual-check-report.ts": "b63acdc3717938fc",
+    "hooks/core/work-files.ts": "6636260697cf054c",
+    "hooks/core/workflow-report.ts": "4d9da9a68201bc67",
+    "hooks/core/zoom-review.ts": "80c3f0be810d3254",
+    "hooks/decision/backend.ts": "73a7d5fb0a3d5390",
+    "hooks/decision/complexity.ts": "8ce330c702008e02",
+    "hooks/decision/context.ts": "0bd024e2787487af",
+    "hooks/decision/dispatched-agent.ts": "fe55b9c6eda01ac8",
+    "hooks/decision/effort.ts": "579dd0262cfde869",
+    "hooks/decision/escalation.ts": "b6daf79b761fd68f",
+    "hooks/decision/image-fit.ts": "5adbd5dc3a0c5548",
+    "hooks/decision/image-header.ts": "1ee2601beb24931a",
+    "hooks/decision/images.ts": "e04fefb9be2220ab",
+    "hooks/decision/jev-rate.ts": "23c8a346193400ab",
+    "hooks/decision/jev.ts": "d672ce852efac191",
+    "hooks/decision/keep-newest.ts": "862cfe18a916f1d3",
+    "hooks/decision/midturn.ts": "36e0df82787460f8",
+    "hooks/decision/model-ids.ts": "151e5bf8475b62aa",
+    "hooks/decision/pplx-rate.ts": "609d469e13357f81",
+    "hooks/decision/pplx.ts": "78da80996c6c8d02",
+    "hooks/decision/rate-queue.ts": "4858efb4c352a908",
+    "hooks/decision/redact.ts": "83c4b02966429254",
+    "hooks/decision/screenshot-takeover.ts": "fe524314e8a4a8e6",
+    "hooks/decision/skills.ts": "eda65f27cbaadaa7",
+    "hooks/decision/summary.ts": "c2becf5c15be54e7",
+    "hooks/decision/system-one.ts": "6d4f9957aca29d8b",
+    "hooks/decision/turn-start.ts": "1667c8d9cabc5719",
+    "hooks/decision/unresolved.ts": "af36c69a4e991516",
+    "hooks/decision/visual-check-frames.ts": "199b0beb4e55c61f",
+    "hooks/decision/visual-check-record.ts": "051b7ba2f0684644",
+    "hooks/decision/visual-check-sequence-text.ts": "f7aa2a42cda1204f",
+    "hooks/decision/visual-check-sequence.ts": "e9c6c586030fd442",
+    "hooks/decision/visual-check-tool.ts": "53577fbbe5709b00",
+    "hooks/decision/visual-check-zoom.ts": "b598f5ebfedf172d",
+    "hooks/decision/visual-check.ts": "1754e94614788d71",
+    "hooks/decision/workflow-labels.ts": "40b1ae476ae2b75f",
+    "hooks/decision/workflow-script.ts": "39285b69edca9799",
+    "hooks/decision/workflow.ts": "ca4d876cd66a9cc6",
+    "hooks/decision/zoom.ts": "bef1c79f03bddd6a",
+    "hooks/dispatch-pilot.ts": "fc0e29100de814e8",
+    "hooks/features/control.ts": "be34c7a167b063bd",
+    "hooks/features/dispatched-agents.ts": "c193e49d1fea1ad7",
+    "hooks/features/escalation.ts": "adec121dd81875f7",
+    "hooks/features/find-skill.ts": "c8a6f50121309ec5",
+    "hooks/features/image-routing.ts": "7f5f04f759c0a4b2",
+    "hooks/features/main-effort.ts": "4802e8cf2bc33a86",
+    "hooks/features/midturn-effort.ts": "9be08e3a5a562d4d",
+    "hooks/features/reference-hint.ts": "b6157c90821649d3",
+    "hooks/features/reference-midturn.ts": "511321d8e49f2113",
+    "hooks/features/screenshot-takeover.ts": "c1556a7be2aac634",
+    "hooks/features/skill-profiles.ts": "fa2d67095aa0bd91",
+    "hooks/features/skills.ts": "0a4d0f4d98bb81d5",
+    "hooks/features/unresolved.ts": "7b69cb2a97c42064",
+    "hooks/features/visual-check-look.ts": "9a2c38140cfa4662",
+    "hooks/features/visual-check-series.ts": "9184d78a30f5b383",
+    "hooks/features/visual-check.ts": "24d4a250b2f713a6",
+    "hooks/features/workflow-agents.ts": "4be3dcde041c4392",
+    "hooks/features/workflow-labels.ts": "e166a0be4bdf8001",
+    "hooks/hooks.json": "1b25c5b4d076064d",
+    "eval/lib/compare.ts": "bed9bff37206a970",
+    "eval/lib/ctx30.ts": "7820df4e33111d46",
+    "eval/lib/datasets.ts": "e6400f6b9e4bf648",
+    "eval/lib/docs.ts": "4fd38342c59ec688",
+    "eval/lib/effort-midturn.ts": "21cade3c2ccca1ed",
+    "eval/lib/effort-submit.ts": "1d59e61978f0657c",
+    "eval/lib/estimate.ts": "5330d3695c42864e",
+    "eval/lib/eval-v2-flow.ts": "66ec07f98d00f569",
+    "eval/lib/eval-v2-suite.ts": "6cdc24bd5eac7aa1",
+    "eval/lib/eval-v2-thresholds.ts": "03b586124a40ab80",
+    "eval/lib/eval-v2.ts": "bfcb6fb772a36084",
+    "eval/lib/long-context.ts": "10ccfea55c6964d2",
+    "eval/lib/long-conversation.ts": "8bf092f7993911ed",
+    "eval/lib/long-filler.ts": "7db067908915c1f9",
+    "eval/lib/long-summaries.ts": "d6e09e9a8ca4136d",
+    "eval/lib/metrics.ts": "27508762628793de",
+    "eval/lib/numbers.ts": "2e9db7e52edc88ee",
+    "eval/lib/random.ts": "c45cc17953bbbf52",
+    "eval/lib/rescore.ts": "342d6ce63e53f37a",
+    "eval/lib/resummarize.ts": "8b5f6877b8f20abb",
+    "eval/lib/review.ts": "ad540fd4215ca433",
+    "eval/lib/runner.ts": "dde48eeb7d31c91f",
+    "eval/lib/skill.ts": "d425ada7a4304a3e",
+    "eval/lib/subagent.ts": "eaf601b2f51ca7da",
+    "eval/lib/suite.ts": "7eeeca84271bab42",
+    "eval/lib/suites.ts": "c9105d9dfd64738b",
+    "eval/lib/unresolved.ts": "9c5e41e06c5b773d",
+    "eval/lib/validators.ts": "2b7e0fcddc697df1",
+    "eval/lib/visual-check-items.ts": "8cbf99b236b0a5ac",
+    "eval/lib/visual-check-rescore.ts": "8abe86377a4cf213",
+    "eval/lib/visual-check.ts": "7de2771d3a2d733b"
+  },
+  "settings": {
+    "context": {
+      "messages": 2000,
+      "tokens": 6000
+    },
+    "messageStateTokens": 96000,
+    "stateMessagesLimit": 2000,
+    "thetaMax": 0.5,
+    "roundUp": 0.3,
+    "timeoutMs": 1500,
+    "options": {
+      "decisionModel": "jev",
+      "pplxQps": 5,
+      "jevQps": 80,
+      "jevTokensPerSecond": 100000,
+      "rejudgeEvery": 3,
+      "holdSteps": 5,
+      "escalateAfter": 2,
+      "escalateMode": "one-level",
+      "escalateLimit": 2,
+      "escalateHaikuTo": "sonnet",
+      "agentFable": false,
+      "skillsMax": 3,
+      "skillsShortlist": 4,
+      "skillsProfileModel": "haiku",
+      "skillsProfilesPerSession": 30,
+      "skillsAlwaysListed": [],
+      "skillsNeverSuggested": [],
+      "findSkillMax": 5,
+      "workflowMode": "rewrite",
+      "summaryModel": "haiku",
+      "unresolvedMaxAfter": 3
+    },
+    "backendDefaults": {
+      "timeoutMs": 1500,
+      "contextMessages": 2000,
+      "contextTokens": 6000,
+      "rejudgeSteps": 16,
+      "rejudgeWaitMs": 300,
+      "thetaUp": 0.3,
+      "thetaDown": 0.55,
+      "thetaMax": 0.5,
+      "thetaExpected": 0.25,
+      "agentOverride": 0.6,
+      "skillsMinRelevance": 0.75,
+      "findSkillMinRelevance": 0.5
+    }
+  },
+  "run": {
+    "items": 24,
+    "variants": [
+      "zh-flow"
+    ],
+    "languages": [
+      "zh"
+    ],
+    "timeoutMs": 30000,
+    "retries": 2,
+    "concurrency": 2,
+    "requests": 24,
+    "attempts": 24,
+    "inputTokens": 2765149,
+    "usd": 0.1161
+  },
+  "questions": {
+    "zh-flow": {
+      "level": {
+        "type": "score",
+        "instructions": {
+          "问题": "结合 `recent_context`，完成 `user_message` 所要求的工作需要多少逐步推理？",
+          "评什么": "评的是请求要做的工作本身，而不是话题听起来有多重要。用文字给出的建议或解释，即使涉及架构或安全，也不算设计工作。",
+          "简短回复": "如果 `user_message` 只是同意、让继续或选一个选项（例如“go ahead”“1”“继续”），按它所同意的那项工作来评；那项工作写在 `recent_context` 的末尾。"
+        },
+        "criteria": [
+          "凭已知信息就能回答，或没有需要想清楚之处的机械性工作：查一个东西、执行一条命令、重命名或查找替换（即使跨很多文件）、列出搜索结果、格式化、改一行。",
+          "对一个或几个文件做常规、需求明确的修改，或针对眼前代码的直接提问。",
+          "跨多个文件、需要想清楚的修改，原因已经描述但仍需追查的 bug，编写测试，或仔细审查一份 diff。",
+          "跨多个组件的设计，原因未知的 bug，牵连很多依赖方的重构，或需要仔细推敲并发、性能或故障模式的工作。",
+          "全新的架构，安全或数据完整性问题，之前多次尝试都没解决的故障，或一个细微错误就代价高昂且难以挽回的工作。"
+        ]
+      },
+      "unresolved": {
+        "type": "choice",
+        "instructions": {
+          "问题": "`user_message` 对 `recent_context` 末尾用户和助手最近在处理的那个问题说了什么？",
+          "结果": "那个问题解没解决，只看用户自己的话。助手对自己的工作说的“已修复”“应该可以了”不算结果。"
+        },
+        "criteria": {
+          "still_unresolved": "用户说为那个问题试过的做法没有用，或者说问题还在：同样的报错又出现了、同样的错误行为、让再看一遍同一个问题，或者贴出的报错就是之前那个。",
+          "resolved": "用户说那个问题已经解决，或接受了结果：现在好了、谢谢、可以了，或者让提交、推送、收尾。",
+          "new_or_unrelated": "用户转到另一个问题或任务，问的和那个问题毫无关系，或者 `recent_context` 里没有更早的问题可言。"
+        }
+      }
+    }
+  },
+  "scoring": "The answer is the effort, right when it is in the final gold's accept (the mod's pickEffort over the backend's probabilities, thetaMax as set), exact when it is the gold effort; a wrong one is too high or too low. The three-way question is asked with it, as the mod asks it with the unresolved switch on (the `-alone` variants do not ask it: the mod with the switch off, the default), its answer the option it leaned to most, scored against triage_final as a part of its own (`triage`; still_unresolved is unresolved, new_or_unrelated is new). `top` is the recall of max over the items whose gold is max, `falseMax` the share of the items whose accept has no max that were given it; `byBin`, `byRelation`, `byBinRelation` and `byCategory` split the items. `seen` is whether the state held the decisive rounds (`all`: their first message; `any`: their newest line). `withoutDecisive` is, over the items whose effort_without_decisive is outside accept, the share answered exactly that: as if the decisive rounds had not been read. `thetaMax` is what other max thresholds would have given, from the probabilities each answer keeps (`p`; `triageP` keeps the three-way question's).",
+  "about": {
+    "variants": "zh-score, en-score: the question in Chinese or English, the state the conversation and the message, the three-way question beside the effort question (the mod with the unresolved switch on); zh-score-alone, en-score-alone: the same with the effort question alone (the mod with the switch off, the default since #48: its request has only effort.level), scored on the effort alone; zh-flow, en-flow: the three-way question with the count and the summary the flow file holds at the last message (and the strong hint from unresolvedMaxAfter)",
+    "flow": {
+      "backend": {
+        "name": "jev",
+        "model": "jev-latest",
+        "answeredBy": [
+          "jev-1.13.0"
+        ]
+      },
+      "settings": {
+        "language": "zh",
+        "stateTokens": 24000,
+        "stateMessages": 32,
+        "thresholds": {
+          "add": 0.5,
+          "reset": 0.7
+        },
+        "maxAfter": 3
+      },
+      "items": 120
+    }
+  },
+  "summary": {
+    "items": 24,
+    "variants": [
+      {
+        "variant": "zh-flow",
+        "zh": {
+          "items": 24,
+          "answered": 24,
+          "failed": 0,
+          "accuracy": 0.4167,
+          "exact": 0.3333,
+          "misses": {
+            "over": 14
+          },
+          "parts": {
+            "effort": 0.4167,
+            "triage": 0.7917
+          },
+          "late": 24,
+          "retried": 0,
+          "inTime": 0
+        },
+        "en": {
+          "items": 24,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "parts": {
+            "effort": 0,
+            "triage": 0
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": null,
+        "pass": null,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 24,
+          "p50": 2746,
+          "p90": 3027,
+          "max": 3312,
+          "slow": 24
+        },
+        "tags": [
+          {
+            "tag": "same-problem",
+            "items": 24,
+            "wrong": {
+              "zh": 14,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 14,
+                "en": 0
+              },
+              "triage": {
+                "zh": 5,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "d4",
+            "items": 6,
+            "wrong": {
+              "zh": 5,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 5,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "new-topic",
+            "items": 4,
+            "wrong": {
+              "zh": 4,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 4,
+                "en": 0
+              },
+              "triage": {
+                "zh": 2,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "cc-mods",
+            "items": 3,
+            "wrong": {
+              "zh": 3,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 3,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "cheap-agreement",
+            "items": 3,
+            "wrong": {
+              "zh": 3,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 3,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "d1",
+            "items": 6,
+            "wrong": {
+              "zh": 3,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 3,
+                "en": 0
+              },
+              "triage": {
+                "zh": 2,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "d2",
+            "items": 7,
+            "wrong": {
+              "zh": 3,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 3,
+                "en": 0
+              },
+              "triage": {
+                "zh": 2,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "d3",
+            "items": 5,
+            "wrong": {
+              "zh": 3,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 3,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "looks-hard-is-easy",
+            "items": 3,
+            "wrong": {
+              "zh": 3,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 3,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "backend-api",
+            "items": 6,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "database",
+            "items": 2,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "misleading-history",
+            "items": 2,
+            "wrong": {
+              "zh": 2,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 2,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "data-scripts",
+            "items": 1,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "devops-ci",
+            "items": 2,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "docs-writing",
+            "items": 2,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "frontend",
+            "items": 2,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "ios",
+            "items": 2,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "perf",
+            "items": 1,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "resolved",
+            "items": 2,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "security",
+            "items": 3,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 1,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "single-attempt",
+            "items": 2,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 1,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "explicit-unresolved",
+            "items": 3,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "hard-constraint",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          },
+          {
+            "tag": "implicit-unresolved",
+            "items": 4,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          }
+        ],
+        "breakdown": {
+          "flow": true,
+          "question": "zh",
+          "top": {
+            "items": 7,
+            "recall": 1,
+            "falseMax": 0.6
+          },
+          "tooHigh": 0.5833,
+          "tooLow": 0,
+          "byBin": {
+            "d1": {
+              "items": 6,
+              "accuracy": 0.5,
+              "exact": 0.5,
+              "tooHigh": 0.5,
+              "tooLow": 0,
+              "top": 3,
+              "topRecall": 1,
+              "triage": 0.6667
+            },
+            "d2": {
+              "items": 7,
+              "accuracy": 0.5714,
+              "exact": 0.2857,
+              "tooHigh": 0.4286,
+              "tooLow": 0,
+              "top": 2,
+              "topRecall": 1,
+              "triage": 0.7143
+            },
+            "d3": {
+              "items": 5,
+              "accuracy": 0.4,
+              "exact": 0.4,
+              "tooHigh": 0.6,
+              "tooLow": 0,
+              "top": 1,
+              "topRecall": 1,
+              "triage": 0.8
+            },
+            "d4": {
+              "items": 6,
+              "accuracy": 0.1667,
+              "exact": 0.1667,
+              "tooHigh": 0.8333,
+              "tooLow": 0,
+              "top": 1,
+              "topRecall": 1,
+              "triage": 1
+            }
+          },
+          "byRelation": {
+            "same-problem": {
+              "items": 24,
+              "accuracy": 0.4167,
+              "exact": 0.3333,
+              "tooHigh": 0.5833,
+              "tooLow": 0,
+              "top": 7,
+              "topRecall": 1,
+              "triage": 0.7917
+            },
+            "unrelated": {
+              "items": 0,
+              "accuracy": null,
+              "exact": null,
+              "tooHigh": null,
+              "tooLow": null,
+              "top": 0,
+              "topRecall": null,
+              "triage": null
+            }
+          },
+          "byBinRelation": {
+            "d1 same-problem": {
+              "items": 6,
+              "accuracy": 0.5,
+              "exact": 0.5,
+              "tooHigh": 0.5,
+              "tooLow": 0,
+              "top": 3,
+              "topRecall": 1,
+              "triage": 0.6667
+            },
+            "d1 unrelated": {
+              "items": 0,
+              "accuracy": null,
+              "exact": null,
+              "tooHigh": null,
+              "tooLow": null,
+              "top": 0,
+              "topRecall": null,
+              "triage": null
+            },
+            "d2 same-problem": {
+              "items": 7,
+              "accuracy": 0.5714,
+              "exact": 0.2857,
+              "tooHigh": 0.4286,
+              "tooLow": 0,
+              "top": 2,
+              "topRecall": 1,
+              "triage": 0.7143
+            },
+            "d2 unrelated": {
+              "items": 0,
+              "accuracy": null,
+              "exact": null,
+              "tooHigh": null,
+              "tooLow": null,
+              "top": 0,
+              "topRecall": null,
+              "triage": null
+            },
+            "d3 same-problem": {
+              "items": 5,
+              "accuracy": 0.4,
+              "exact": 0.4,
+              "tooHigh": 0.6,
+              "tooLow": 0,
+              "top": 1,
+              "topRecall": 1,
+              "triage": 0.8
+            },
+            "d3 unrelated": {
+              "items": 0,
+              "accuracy": null,
+              "exact": null,
+              "tooHigh": null,
+              "tooLow": null,
+              "top": 0,
+              "topRecall": null,
+              "triage": null
+            },
+            "d4 same-problem": {
+              "items": 6,
+              "accuracy": 0.1667,
+              "exact": 0.1667,
+              "tooHigh": 0.8333,
+              "tooLow": 0,
+              "top": 1,
+              "topRecall": 1,
+              "triage": 1
+            },
+            "d4 unrelated": {
+              "items": 0,
+              "accuracy": null,
+              "exact": null,
+              "tooHigh": null,
+              "tooLow": null,
+              "top": 0,
+              "topRecall": null,
+              "triage": null
+            }
+          },
+          "byCategory": {
+            "explicit-unresolved": {
+              "items": 3,
+              "accuracy": 1,
+              "exact": 1,
+              "tooHigh": 0,
+              "tooLow": 0,
+              "top": 3,
+              "topRecall": 1,
+              "triage": 1
+            },
+            "implicit-unresolved": {
+              "items": 4,
+              "accuracy": 1,
+              "exact": 1,
+              "tooHigh": 0,
+              "tooLow": 0,
+              "top": 4,
+              "topRecall": 1,
+              "triage": 1
+            },
+            "single-attempt": {
+              "items": 2,
+              "accuracy": 0.5,
+              "exact": 0,
+              "tooHigh": 0.5,
+              "tooLow": 0,
+              "top": 0,
+              "topRecall": null,
+              "triage": 1
+            },
+            "resolved": {
+              "items": 2,
+              "accuracy": 0.5,
+              "exact": 0.5,
+              "tooHigh": 0.5,
+              "tooLow": 0,
+              "top": 0,
+              "topRecall": null,
+              "triage": 0.5
+            },
+            "new-topic": {
+              "items": 4,
+              "accuracy": 0,
+              "exact": 0,
+              "tooHigh": 1,
+              "tooLow": 0,
+              "top": 0,
+              "topRecall": null,
+              "triage": 0.5
+            },
+            "cheap-agreement": {
+              "items": 3,
+              "accuracy": 0,
+              "exact": 0,
+              "tooHigh": 1,
+              "tooLow": 0,
+              "top": 0,
+              "topRecall": null,
+              "triage": 0.6667
+            },
+            "looks-hard-is-easy": {
+              "items": 3,
+              "accuracy": 0,
+              "exact": 0,
+              "tooHigh": 1,
+              "tooLow": 0,
+              "top": 0,
+              "topRecall": null,
+              "triage": 1
+            },
+            "misleading-history": {
+              "items": 2,
+              "accuracy": 0,
+              "exact": 0,
+              "tooHigh": 1,
+              "tooLow": 0,
+              "top": 0,
+              "topRecall": null,
+              "triage": 0.5
+            },
+            "hard-constraint": {
+              "items": 1,
+              "accuracy": 1,
+              "exact": 0,
+              "tooHigh": 0,
+              "tooLow": 0,
+              "top": 0,
+              "topRecall": null,
+              "triage": 1
+            }
+          },
+          "triage": {
+            "accuracy": 0.7917,
+            "confusion": {
+              "unresolved": {
+                "unresolved": 15,
+                "new": 1
+              },
+              "resolved": {
+                "new": 1,
+                "resolved": 1
+              },
+              "new": {
+                "new": 3,
+                "unresolved": 3
+              }
+            },
+            "change": {
+              "right": 0.6667,
+              "falseAdd": 0.375,
+              "lostRecord": 0
+            }
+          },
+          "seen": {
+            "all": 0.625,
+            "any": 0.625
+          },
+          "withoutDecisive": {
+            "items": 9,
+            "share": 0
+          },
+          "thetaMax": [
+            {
+              "thetaMax": 0.2,
+              "accuracy": 0.4167,
+              "topRecall": 1,
+              "falseMax": 0.6
+            },
+            {
+              "thetaMax": 0.3,
+              "accuracy": 0.4167,
+              "topRecall": 1,
+              "falseMax": 0.6
+            },
+            {
+              "thetaMax": 0.4,
+              "accuracy": 0.4167,
+              "topRecall": 1,
+              "falseMax": 0.6
+            },
+            {
+              "thetaMax": 0.5,
+              "accuracy": 0.4167,
+              "topRecall": 1,
+              "falseMax": 0.5333
+            },
+            {
+              "thetaMax": 0.6,
+              "accuracy": 0.4583,
+              "topRecall": 0.8571,
+              "falseMax": 0.4
+            },
+            {
+              "thetaMax": 0.7,
+              "accuracy": 0.4583,
+              "topRecall": 0.7143,
+              "falseMax": 0.3333
+            }
+          ],
+          "stateTokens": {
+            "mean": 94491,
+            "max": 95933
+          },
+          "carried": {
+            "items": 24,
+            "counted": 24,
+            "hinted": 24,
+            "summarized": 24
+          }
+        }
+      }
+    ],
+    "constants": [
+      {
+        "answer": "low",
+        "accuracy": 0.5417,
+        "exact": 0.2917
+      },
+      {
+        "answer": "medium",
+        "accuracy": 0.5833,
+        "exact": 0.2917
+      },
+      {
+        "answer": "high",
+        "accuracy": 0.4167,
+        "exact": 0
+      },
+      {
+        "answer": "xhigh",
+        "accuracy": 0.4167,
+        "exact": 0.125
+      },
+      {
+        "answer": "max",
+        "accuracy": 0.375,
+        "exact": 0.2917
+      }
+    ]
+  },
+  "answers": [
+    {"id":"cheap-agreement-01","language":"zh","zh-flow":{"answer":"max / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.01,0.01,0.03,0.23,0.72],"confidence":0.7,"pPlain":[0.07,0.03,0.23,0.55,0.12],"pHinted":[0.01,0.01,0.03,0.23,0.72],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.85,"resolved":0.01,"new":0.14},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":95416,"kept":58,"count":5,"hint":true,"summary":true,"ms":2135,"attempts":1,"tokens":116465,"model":"jev-1.14.0","state":{"user_message":"这么查下去不是办法 下次再出还是什么都看不到 加日志吧 补充那一步 还有 10/3 挂掉的那个金额转换那一步 抛异常的时候把转不过去的那几行原始值 列的 dtype 读到的补充表批次号都打出来 取数那三步也各补一行 当时从库回放到了哪个时间点 今晚 cron 之前合进去","problem_summary":"问题：门店渠道客单价日报的补充列在部分业务日期首次运行时为空，日志里有一条被 try/except 接住的 ValueError: could not convert string to float，运行状态仍为 ok，群里也没有报错。\n试过：\n1. 用 zgrep 检查 etl-01 上 30 天的日志和运行记录，找到 9/17、9/28、10/1 的首次运行，traceback 中间帧被折叠无法确定抛错行；随后列出回退方式、可能性和待办，代码和线上数据均未修改，只做…（未解决）\n2. 查折叠 traceback 的来源：定位 #90 的 CompactFormatter（只保留最外 3 帧），逐一翻 meta.etl_runs、飞书卡片、cron、journald、错误收集服务和 staging 日志，确认 4 次被接住异常的折叠帧无处可查，并给出…（未解决）\n3. 盘点 build_store_channel_aov 的测试：13 个用例全部通过、行覆盖 84%、分支覆盖 68%，列出 7 个未测分支和 9 处 fixture 与线上数据的差别（含金额 Decimal 与 float64 的类型差），并用三处临时改动验证…\n状态：测试盘点已完成并给出按顺序补测试的建议（未执行），目前等用户选择获取完整 traceback 的做法，之前的回退方式和是否找 DBA 要报表库备份也还没定。","unresolved_count":5,"recent_context":{"chars":152475,"lines":58,"first":"user: 11 月起抖音小店的订单也同步进业务库了 channel 是 douyin 我们这边哪些地方要改 你都弄好 日报周报对账都要能看到抖音","last":"assistant: [tools: Glob, Grep, Read, Bash] 盘完了：直接测到 build_store_channel_aov 的用例有 13 个，分在两个测试文件里，全部通过；行覆盖 84%，分支覆盖 68%。没测到的分支我挑出了 7 个和它的逻辑有关的；fixture 和真实数据之间列了 9"}}}},
+    {"id":"cheap-agreement-05","language":"zh","zh-flow":{"answer":"xhigh / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":false},"p":[0.19,0.11,0.31,0.37,0.02],"confidence":0.07,"pPlain":[0.19,0.11,0.31,0.37,0.02],"pHinted":[0.06,0.03,0.16,0.4,0.35],"hintUsed":false,"triage":"new","triageP":{"unresolved":0.45,"resolved":0.07,"new":0.48},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":94303,"kept":56,"count":3,"hint":true,"summary":true,"ms":1787,"attempts":1,"tokens":110486,"model":"jev-1.14.0","state":{"user_message":"改单那个这两周还是隔三差五地出 光靠日志对时间太费劲了 adjust_reservation 和它那个批量版本都加上指标吧 等锁花了多久做成直方图 锁超时按次数计 标签带上调用方和仓库 sku 就别带了 太多 dal 现在那几个指标怎么暴露的就照着来 弄完发个 patch","problem_summary":"问题：核对 dal/repos/inventory.py 用到的 ORM 模型与库里实际的表结构是否一致（可空、类型、长度、默认值、枚举、外键），模型暂不改动。\n试过：\n1. 写 scripts/diag/compare_models.py：用 sqlalchemy inspect 反射本地迁移建出的测试容器和 staging 只读库，逐列比较可空、类型（归一化后）、server_default、外键、index、unique 和枚举取值，输出 CSV；首轮因物化…\n2. 27 处不一致中，dal/repos/inventory.py 用到的 4 个模型占 5 处：两列模型标 NOT NULL 而库里可空（其中数值列在 staging 上 38% 为空），一列时间类型不带时区而库里是 timestamptz，一个外键库里有模型里…\n状态：脚本已写好并在测试容器与 staging 上跑完，模型文件未改、脚本未提交，等待用户确认这些不一致是否与客服改单的锁超时有关，以及是否修改模型。","unresolved_count":3,"recent_context":{"chars":154185,"lines":56,"first":"user: 运营后台两个人同时编辑同一个商品 后保存的会把先保存的整个盖掉 运营反馈过改好的价格被另一个改标题的人冲掉 加个并发控制吧 后保存的那个提示冲突 告诉他别人改了什么 别用锁那种 一个人开着页面半天不动别人就改不了了","last":"assistant: [tools: Read, Write, Bash] 脚本写好跑完了。全库 38 个模型、412 列，和实际的表一共有 27 处不一致；`dal/repos/inventory.py` 用到的 4 个模型里占了 5 处，分成三类：模型说不能为空、库里却允许为空；模型里时间列不带时区、库里是带时区的"}}}},
+    {"id":"cheap-agreement-07","language":"zh","zh-flow":{"answer":"max / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.03,0.01,0.01,0.18,0.77],"confidence":0.71,"pPlain":[0.09,0.02,0.06,0.67,0.16],"pHinted":[0.03,0.01,0.01,0.18,0.77],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.7,"resolved":0.01,"new":0.29},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":95588,"kept":50,"count":11,"hint":true,"summary":true,"ms":1685,"attempts":1,"tokens":112333,"model":"jev-1.14.0","state":{"user_message":"又倒了一次 这回开着 --debug-file 了 log 在 ~/tmp/ctx-1007.log 会话就是这个仓库下最新那个 jsonl 写个东西把两边按时间对起来 每次状态行的值 前后各三次工具调用 哪几步是并行的 中间有没有重载和 /compact 倒退的那几处标出来","problem_summary":"问题：ctx-meter 状态行上的上下文用量偶尔倒退回几步之前的数，需要找出可能的原因。\n试过：\n1. 先派三个只读 agent 查代码、引擎行为、git 历史和测试，并实测交互式与 claude -p 的差别，没有复现 TypeError: Cannot read properties of undefined (reading 'inputTokens')；随后重读 measureUsage 路径并列出 12 条可能原因…（未解决）\n2. 用 PATH 切换跑 2.1.287 到 2.1.290 四个版本，每版用同一份 store 备份和 debug log，对比 plugin test 与 validate --strict 的输出。（未解决）\n3. 对照官方文档和源码解释 next(e) 前后的语义、measureUsage 位于 next(e) 之后，以及 hook 抛错或超时后引擎跳过该 hook；在最小 mod 里实测 5 个用例。（未解决）\n4. 用 env-peek 插件对比会话沙箱、kit 和 Node 三处的时区、默认地区、Intl、setTimeout 等环境差异；measureUsage 路径没有用到随环境变化的 API，只有命令输出排序用了 localeCompare，三边都没有出现该 TypeE…\n状态：助手已报告 measureUsage 路径不受时区、地区等环境差异影响、三边环境对比已完成且仓库未改动；补算回调出错在真实会话 debug log 中是否留痕仍未验证，等待用户决定是否继续。","unresolved_count":11,"recent_context":{"chars":152790,"lines":50,"first":"user: 用 plugin test 那套写个临时用例吧 把 ctx-meter 状态行上的用量 可能出问题的那几种事件顺序在测试里摆一遍 看看测试里能不能看到「状态行上的上下文用量偶尔会倒退回几步之前的数」 文件名起个一看就是临时的 别提交","last":"assistant: [tools: Skill, Grep, Write, Bash, Read] 问这个的用处是：知道在 Node 和 kit 里得到的结果能不能直接当成会话里的结果。先说结论：三个地方在时区上一致，在「默认地区」和「有没有定时器、用的是哪个 JS 引擎」上不一致：会话里的沙箱和 kit 是同一套运"}}}},
+    {"id":"explicit-unresolved-02","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.01,0.01,0.01,0.11,0.86],"confidence":0.83,"pPlain":[0.04,0.04,0.08,0.25,0.59],"pHinted":[0.01,0.01,0.01,0.11,0.86],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.77,"resolved":0.01,"new":0.22},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":95210,"kept":58,"count":10,"hint":true,"summary":true,"ms":3312,"attempts":1,"tokens":117097,"model":"jev-1.14.0","state":{"user_message":"收银台确认支付那个 今天晚高峰我一直盯着看 还是有店员报操作失败 日志里也还是 `apply order transition: unexpected state`","problem_summary":"问题：收银台确认支付偶发报「操作失败」，日志为 confirm payment failed，err 为 apply order transition: unexpected state，集中在早晚高峰。\n试过：\n1. 前四轮合并：核对 41 次出错订单的 order_events，发现回调先改 paid 导致 paid→paid 被拒，于是让 CanTransition 幂等并加集成测试；发现 UpdateOrderStatus 只带 WHERE id 会盖掉中间更新，改为加 AND version 并重新……（未解决）\n2. 第七轮：在 OrderService.ConfirmPayment 和 WithTx 加 TEMP-DEBUG 日志（入参、返回值、耗时、ctx 剩余时间、事务状态、后端 pid），本地 13 遍 go test（空闲、pgbench 加压、缩短截止时间）均未复现 unexpected state…（未解决）\n3. 第八轮：查 internal/service/order.go 和 internal/handler/order.go 近三个月提交，筛出碰过 OrderService.ConfirmPayment 的 7 个（含 #812 被 #816 revert、#821 拆小重合），逐个列出作者、PR 动机、所在版本和 prod 上线时间，…（未解决）\n4. 第九轮：按用户要求在 service 层写集成测试 repro_integration_test.go（真实 postgres，每测试独立 schema，fake paylink，clock.Fixed），单线程 20 次全过；8 个 goroutine 并发 50 次全过，等锁日志有 214 条；加 QueryTracer…（未解决）\n状态：助手列出测试未能复现的 7 类原因（夹具数据、绕过 HTTP 中间件、单进程、网络和 PG 版本、定时任务、固定时钟、fake 总返回成功）及 5 个下一步方案，建议先做 HTTP 层测试和 PG 15，正…","unresolved_count":10,"recent_context":{"chars":165195,"lines":58,"first":"user: 给接口加个请求体大小限制 默认 1MB 上传退款凭证那个接口要 10MB 超了返回 413 错误格式跟别的接口一样","last":"assistant: [tools: Glob, Read, Write, Bash] 先看现有的集成测试是怎么搭的。 带 `integration` 构建标签的测试文件一共 14 个，基础设施都在 `internal/store/storetest/` 和 `internal/service/servicetest/"}}}},
+    {"id":"explicit-unresolved-10","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.03,0,0.01,0.11,0.85],"confidence":0.79,"pPlain":[0.1,0.02,0.06,0.22,0.6],"pHinted":[0.03,0,0.01,0.11,0.85],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.87,"resolved":0.01,"new":0.12},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":95095,"kept":64,"count":13,"hint":true,"summary":true,"ms":3250,"attempts":1,"tokens":113049,"model":"jev-1.14.0","state":{"user_message":"二次验证那个 今天客服又转了几单 都是输对了验证码还是提示请求处理失败 Loki 里 STEPUP_STATE_CONFLICT 一天还是两百多次 没解决","problem_summary":"问题：二次验证（verifyStepUp）在用户输入正确验证码后仍报请求处理失败，日志为 STEPUP_STATE_CONFLICT，需要找出原因并修复。\n试过：\n1. 阅读 verifyStepUp 及两条路由，判断 challenge 因验证码晚到、提交时已被定时任务置为 expired 而冲突，将有效期从 5 分钟改为 10 分钟并新增临近过期提交的处理；用 logcli 取 Loki 7 天 5 条样本对照…（未解决）\n2. 在本地分支 debug/trace（未提交）加 AUTH_DEBUG_TRACE 开关的 6 个观测点，跑集成测试取得正常与失败路径轨迹，本轮未复现 STEPUP_STATE_CONFLICT（未解决）\n3. 盘点 verifyStepUp 测试 12 个用例，行覆盖 94%、分支 83%，列出 7 个缺口写入 /tmp/test-gaps.md，未新增测试\n4. 只读梳理 verifyStepUp 前的 WAF、ALB 配置及 14 天的 ALB、WAF 访问日志；发现 GenericRFI_BODY 会拦带 https 回调地址的正常请求、后端 keep-alive 5…\n5. 用 semgrep 临时写 3 条变体规则（未提交，semgrep/tmp/ 本地忽略）扫描 src/，迭代 4 版后命中 26 处，人工分组为结构一致 6 处、部分相似 9 处、形似实不同 7 处、误报 4 处；其中 src/oauth/device.ts 有 3…\n状态：变体排查已完成并列出 6 处结构基本一致的位置，WAF/ALB 梳理的 6 个不确定点和查询文件 /tmp/edge-review/queries.sql 仍在，正在等待用户选择先对比 src/oauth/device.ts 的报错样本，还是补上跨函数读…","unresolved_count":13,"recent_context":{"chars":153082,"lines":64,"first":"user: sessions oauth_codes refresh_tokens 这几张表一直只进不出 sessions 听说已经两千多万行了 写个每晚的清理任务把过期的删掉 注意别锁表 别影响白天的流量 删多少留多久你给个建议","last":"assistant: [tools: Read, Write, Bash, Grep] 扫完了。临时写了 3 条规则，迭代了 4 版，最后一版在 `src/` 下命中 26 处；人工逐个看过以后，和 `verifyStepUp` 结构上基本一样的 6 处，部分相似的 9 处，形似实不同的 7 处，误报 4 处。规则文件"}}}},
+    {"id":"explicit-unresolved-12","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.01,0.01,0.01,0.21,0.76],"confidence":0.75,"pPlain":[0.05,0.02,0.07,0.65,0.21],"pHinted":[0.01,0.01,0.01,0.21,0.76],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.92,"resolved":0,"new":0.08},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":93580,"kept":48,"count":5,"hint":true,"summary":true,"ms":2834,"attempts":1,"tokens":122511,"model":"jev-1.14.0","state":{"user_message":"收银台扣款这个 昨晚高峰商户又报了好几单 日志里还是那个 unexpected EOF 还是没解决","problem_summary":"问题：排查收银台扣款接口偶发报错（PaymentService.Charge 调 paylink 时返回 unexpected EOF，重试一两次后成功）的原因。\n试过：\n1. 并行查依赖库已知问题、近 30 天发版配置和测试覆盖，并用 stern 与 logcli 按 req_id 拆出三次失败的前后经过（锁等待约 3 秒，PSP 重试约 15 秒）。；对 paylink 10 月 4 到 6 日的交易流水和回调记…（未解决）\n2. 通读 internal/service/charge.go 全文，用临时开启的 errorlint、nilerr、exhaustive 等 linter（未改配置）加人工逐行检查，按严重程度标出 12 处可疑点，只标不改。（未解决）\n3. 从容器和节点层只读排查：查 order-api 各 pod 的 CPU 限流比例、CPU 用量、GC 频率与堆大小、同节点其他 pod 的争抢、RDS 相关 DNS 查询量与 TCP 重传，聚焦 10 月 6 日 21:30 到 22:30。发现 m4zrt、tq2fd 限流…（未解决）\n4. 对 charge.go 所在包做本地复现：-race 单测 740 次、stress 并行 5312 次（两次失败是不稳定的 sleep 测试 TestOutboxRelay_DeliversInOrder，与 Charge 无关）、integration 测试 5 轮，均无数据竞争报告；带 race 的本地服…\n状态：助手在本地用 race 检测和 vegeta 压测均未复现 unexpected EOF，并列出本地与线上的差异（PSP 为假实现、数据库在本机、单进程、数据分布、配置不同），现等待用户决定是否加 PSP 延迟模拟…","unresolved_count":5,"recent_context":{"chars":178132,"lines":48,"first":"user: 客服那边整理了一批收银台扣款接口相关的工单 你挨个对一下日志 能对上的 对不上的 看着像别的问题的 都标出来 <pasted_content id=\"5a17\"> 收银台扣款接口相关工单汇总（客服二组，10 月 7 日上午整理，共 10 单） 1. 工单 #88213，10 月 5 日 09:42，商户：鲜","last":"assistant: [tools: Bash, Read, Write] 先确认 `internal/service/charge.go` 所在的包和它的测试文件，`go list -f` 看一下包路径、测试文件列表和依赖的测试辅助包。 包里 37 个测试用例，分在 5 个 `_test.go` 文件里。先跑一遍 `"}}}},
+    {"id":"hard-constraint-02","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.02,0,0.01,0.05,0.92],"confidence":0.88,"pPlain":[0.15,0.02,0.07,0.35,0.41],"pHinted":[0.02,0,0.01,0.05,0.92],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.62,"resolved":0.01,"new":0.37},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":95599,"kept":54,"count":9,"hint":true,"summary":true,"ms":2993,"attempts":1,"tokens":116913,"model":"jev-1.14.0","state":{"user_message":"提现审核今天上午又碰到一单 列表上显示 12,800 点开详情是 1,280 先止血吧 审核弹窗里的金额改成按单号拉详情来的","problem_summary":"问题：提现审核列表（src/pages/finance/WithdrawReview.tsx）在翻页或改筛选后，列表显示的提现金额与详情不一致，并伴随 TypeError: Cannot read properties of undefined (reading 'withdrawAmount')，怀疑与 2.21.3 之后的改动有关。\n试过：\n1. 只读排查（Read、Grep、Bash）：梳理打款金额来源（ApproveModal 默认取 row.withdrawAmount，后端只校验不超过可提现余额）和 4 条提交审核路径，定位报错栈顶在第 118 行（按勾选 id 在当前页查找行…（未解决）\n2. 排查持久化与刷新后恢复时序：只有 auth 是 skipHydration 并在 AppProviders effect 里手动恢复；dev 下刷新 10 次有 3 次首请求时 auth 未恢复，首请求 401 后刷新（未解决）\n3. 用户在 useWithdrawReview 和 useRequest 加 console.warn 后在 dev 下重走流程并贴出日志。助手判断挂载和筛选时 effect 重复执行、cleanup 未取消请求，dedupe 按 method 和 url 合并（未解决）\n4. 只读列出 10 条排查方向并按可能性、验证成本排序（请求重叠覆盖、多个刷新来源、账号和店铺差异、返回数据形状、URL 参数类型、残留状态、持久化老数据、后端行为等），每条…（未解决）\n状态：助手已列出排查清单并建好待办，等待用户选择先查哪几条（Q1）、是否现在去要运营账号和后端日志（Q2）、临时日志加在本地还是临时环境（Q3）。","unresolved_count":9,"recent_context":{"chars":158940,"lines":54,"first":"user: 数据组给了这期要加的埋点 你照着加 track 已经有了 在 src/utils/track.ts 对不上的地方列出来 我去跟他们对 <pasted_content id=\"9f3a\"> 后台埋点需求（数据组 10.14） 事件统一调 track(event, props)。公共属性 user_id、rol","last":"assistant: [tools: Read, Grep, TodoWrite] 清单列好了，也同步建成了待办（10 条，标题都以「验证」开头，状态都是未开始），一条都没动手。先交代排序的依据，免得误会：现在没有哪一条有直接证据，排序看的是三件事：这条路径上确实存在这个风险点；它能不能解释「列表里显示的提现金额和点开"}}}},
+    {"id":"implicit-unresolved-01","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.01,0,0.03,0.42,0.54],"confidence":0.57,"pPlain":[0.12,0.03,0.1,0.64,0.11],"pHinted":[0.01,0,0.03,0.42,0.54],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.91,"resolved":0.01,"new":0.08},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":94864,"kept":58,"count":4,"hint":true,"summary":true,"ms":2745,"attempts":1,"tokens":112854,"model":"jev-1.14.0","state":{"user_message":"真机又试了一下 切到 9 月 列表停在 8 月\nBillList loadMonth(_:) failed month=2026-09: NSCocoaErrorDomain Code=134060 (NSSQLiteErrorDomain=5 database is locked)","problem_summary":"问题：账单页切月份有时对不上：标题已是选中月份，列表却仍显示之前月份的账单，约十次中一两次出现，TestFlight 测试反复报告，控制台偶现 database is locked 报错。\n试过：\n1. 读取并搜索 Ledger/Features/Bills/BillListView.swift 中的 loadMonth(_:)，修改 bind() 中 .billsDidChange 订阅，改为 [weak self] 并在触发时读取 self.selectedMonth 而非 init 参数；新增 testRemoteChangeReloadsSelectedMonth 用例 [已提交]；在 ViewMo…（未解决）\n2. 真机 Debug 包开启 Main Thread Checker 连切约 14 次，报出后台线程写 sections 的警告，栈落在 loadMonth(_:) 的 database is locked 重试分支；将 ViewModel 标成 @MainActor，重试结果改为 await MainActor.run 后再写回，重试间隔…（未解决）\n3. 只读翻查历史 issue 和 PR（gh issue list/view、gh pr view、git log），筛出 6 个与账单页或其他页面列表/刷新不一致相近的 issue，另有 3 处无 issue 的相关改动，未在任何 issue 上评论，整理到 /tmp/issue-history/…（未解决）\n4. 用 git worktree 把 v3.8.1 与 main 各编 Debug 包装到两台同数据的模拟器上，同样执行连续快速切三次月份、插入 20 条、回前台，每边 5 遍并记录 loadMonth(_:) 日志与录屏；两边调用次数、触发来源…\n状态：助手并排对比完成：loadMonth(_:) 的调用次数和数据两边一致，差别在 #619 改成后台取数后同时触发的加载可能乱序写回，3.8.1 不会发生，目前在等用户确认反馈来自哪个 build 并决定是否…","unresolved_count":4,"recent_context":{"chars":146299,"lines":58,"first":"user: 3.8.0 传 TestFlight 被打回来了 邮件贴下面 你看看是哪里用了 加到隐私清单里 别的有隐患的也一起查了 省得来回传 <pasted_content id=\"e91b\"> Dear Developer, We identified one or more issues with a recen","last":"assistant: [tools: Bash, Read, Grep] 并排跑完了。两边 `loadMonth(_:)` 被调的次数、每次查到的数据完全一样，`xcodebuild test -scheme Ledger -destination 'platform=iOS Simulator,name=iPhone"}}}},
+    {"id":"implicit-unresolved-05","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.01,0,0.02,0.31,0.66],"confidence":0.68,"pPlain":[0.06,0.03,0.14,0.67,0.1],"pHinted":[0.01,0,0.02,0.31,0.66],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.89,"resolved":0.01,"new":0.1},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":95821,"kept":57,"count":6,"hint":true,"summary":true,"ms":2604,"attempts":1,"tokens":113334,"model":"jev-1.14.0","state":{"user_message":"今天 CI 的 build 日志\n- Broken anchor on source page path = /docs/api/messages/create: -> linking to /docs/guides/webhooks#param-event-id","problem_summary":"问题：构建日志里偶发的断锚警告：消息接口页的参数链接 /docs/guides/webhooks#param-event-id 有时指向错误位置，导致跳转停在页面顶部。\n试过：\n1. 排查 ParamTable 锚点生成：webhooks 指南中 event_id 在顶层和 data 下各出现一次，重名时后缀按渲染顺序分配，导致 param-event-id 归属不确定 [已改动，未经用户确认]；改为 ParamTable 加可选 path 前缀；………（未解决）\n2. 用户要求把断锚警告中的路由路径与 ParamTable 的 34 个路由逐个对照，等待决定（未解决）\n3. 在临时分支 tmp/probe-symbol 上用包装函数给 ParamTable 加入参出参日志（不推送），冷构建两次比对产物基本一致；断锚行落在静态生成步骤内，前后 1 秒涉及 9 页共 31 次调用，入口出口的入…（未解决）\n4. 用户要求只读地顺着数据走一遍：往上列出 ParamTable 的全部调用点，归纳三类输入（调用方参数、当前语言、文案对照表），往下查输出进入 HTML、水合、搜索索引的路径；按代码判…\n状态：助手完成了只读的数据流追踪，按代码和抽查结果判断 ParamTable 在构建与浏览器中取值一致，未改动仓库，现在等待用户决定是否在临时副本里写探针并运行。","unresolved_count":6,"recent_context":{"chars":151848,"lines":57,"first":"assistant: [tools: Bash, Glob, Read, Grep, WebFetch] 分析完了，没有改任何文件。先说结论，最该改的是这 4 处：**中文的短信签名页（读者看到的其实是英文）**、**邮件发件域名配置页（中英文都很差）**、**快速开始的中文版（没帮助的票数最多）**、**中文的 An","last":"assistant: [tools: Grep, Read, Bash] 先从 `ParamTable` 的定义往上找它的每一个输入，再往下找它的输出被谁用： 输入输出都理清了，再分别在构建产物和浏览器里核对一下实际的值： 走完了，什么都没改。先说结论：`ParamTable` 的输入只有三类，调用方传进来的参数、Do"}}}},
+    {"id":"implicit-unresolved-07","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.01,0,0.01,0.2,0.78],"confidence":0.78,"pPlain":[0.04,0.02,0.05,0.58,0.31],"pHinted":[0.01,0,0.01,0.2,0.78],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.9,"resolved":0.01,"new":0.09},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":93189,"kept":58,"count":4,"hint":true,"summary":true,"ms":2746,"attempts":1,"tokens":111961,"model":"jev-1.14.0","state":{"user_message":"staging 临时环境刚又出了一次\n`invalid_grant: refresh token reuse detected, family revoked`\n再看看","problem_summary":"问题：刷新令牌轮换中客户端并发刷新时整组令牌被当作重放吊销、用户被踢回登录页，现有观测不足以定位原因，需要补充观测方案。\n试过：\n1. 盘点现有日志、指标、trace、审计和告警的缺口，用 logcli 和 autocannon 压测 rotateRefreshToken，并只读核对定时任务与相关表、Redis key 的交集及 14 天 invalid_grant 逐小时分布；逐段读 rotateRefreshToken 的锁……（未解决）\n2. 从 Tempo 各取 8 条出错（invalid_grant reuse detected, family revoked）和正常的 rotateRefreshToken trace 并排对比（只读）：出错的 6 条形状与正常一致，但 SELECT ... FOR UPDATE 耗时 180ms 到 2.9s（正常约 2ms）；另 2 条多出…\n3. 在只读副本上对 rotateRefreshToken 涉及的 4 张表（users、sessions、refresh_tokens、audit_events）跑 11 条数据不变式检查（只读账号、20s 超时、限定近 30 天）：同一家族 2 行 active 的 17 个家族，已撤销会话…（未解决）\n4. 盘点 rotateRefreshToken 的测试覆盖：12 个用例经过它（单测 7、集成 5），行覆盖 94%、分支覆盖 83%；未测分支集中在内部入口、认不出的错误、审计写失败、内部入口用户不存在；单测假仓…\n状态：测试覆盖已盘完但没有补用例，7 项缺口清单写在 /tmp/test-gaps.md 等待用户决定是否补；11 条不变式检查中 17 个家族与具体请求的对应仍待完成。","unresolved_count":4,"recent_context":{"chars":150876,"lines":58,"first":"user: 服务之间用 client credentials 拿令牌 这几年 scope 越加越多 你盘点一下 每个服务申请了哪些 实际用了哪些 给个收窄建议 数据先别动","last":"assistant: [tools: Grep, Read, Bash] 盘完了：经过 `rotateRefreshToken` 的用例一共 12 个，单测 7 个、集成测试 5 个；两边合起来行覆盖 94%、分支覆盖 83%。没被测到的集中在四处：内部入口独有的那个分支、`catch` 里「认不出的错误原样抛出」的路"}}}},
+    {"id":"implicit-unresolved-09","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.03,0.01,0.03,0.22,0.71],"confidence":0.64,"pPlain":[0.08,0.04,0.15,0.39,0.34],"pHinted":[0.03,0.01,0.03,0.22,0.71],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.86,"resolved":0.02,"new":0.12},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":95199,"kept":56,"count":4,"hint":true,"summary":true,"ms":2838,"attempts":1,"tokens":116589,"model":"jev-1.14.0","state":{"user_message":"又抓到了\n`transition order status: update orders: 0 rows affected (version conflict)`\n再看看","problem_summary":"问题：高峰期及下午低峰时订单接口偶尔返回 500（日志 `transition order status: update orders: 0 rows affected (version conflict)`），商户重试一两次即恢复，状态流转走 internal/service/order_status.go 的 OrderService.TransitionStatus。\n试过：\n1. 读三个调用方定位根因：锁行后仍用事务外读到的旧 order.Version 更新；改为闭包内每次重试重新读取，补 55P03 测试，-count=50 与 -race 通过；之后用户有反馈；追查下午那单的 trace：paylink 超…（未解决）\n2. 分析 m4zrt 的 goroutine profile：连接池 20 条全部占满，848 个排队，占连接的 9 个停在 GetOrderForUpdate，疑似在等行锁，阻塞者和等待时长未确定（未解决）\n3. 读 pgx v5.6.0 源码，并用本地库做三组 ctx 取消实验（语句执行中取消、语句之间取消、提交回滚改用 WithoutCancel）：取消后连接被销毁不回池，回滚由数据库断连后自行完成，执行中取消…\n4. 在只读副本上统计最近 7 天出现 version conflict 日志的请求：389 个请求、296 个订单、87 个商户，按天、商户、客户端版本分组，与同期写请求总量对比，抽样对照未出问题的订单，发现 58…\n状态：已在只读副本上完成 7 天统计并把 296 个订单名单导出到 tmp/affected/，结论仅限于出现该日志的请求，还没有确定根因，等待用户决定下一步（按商户分层复核、查这些订单的 trace，或排…","unresolved_count":4,"recent_context":{"chars":162221,"lines":56,"first":"user: 有个商户接我们的订单 webhook 一直验签不过 他们开发发来的 你看下是我们的问题还是他们的 顺便看看文档是不是写得不清楚 我好回他 <pasted_content id=\"5d0a\"> 【商户 鲜果铺子 技术对接】 你好，我们按你们的商户文档接订单 webhook，验签一直失败，折腾两天了。 环境：P","last":"assistant: [tools: Bash, Read] 先确认连的是只读副本，会话本身也设成只读。 `psql \"$ORDERS_RO_URL\" -c 'select pg_is_in_recovery()'` 返回 `t`，是副本。之后每次连接都先执行 `SET default_transaction_read"}}}},
+    {"id":"looks-hard-is-easy-06","language":"zh","zh-flow":{"answer":"max / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.02,0.01,0.04,0.34,0.59],"confidence":0.56,"pPlain":[0.05,0.05,0.23,0.61,0.06],"pHinted":[0.02,0.01,0.04,0.34,0.59],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.939,"resolved":0.01,"new":0.051},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":94485,"kept":52,"count":7,"hint":true,"summary":true,"ms":2698,"attempts":1,"tokens":111590,"model":"jev-1.14.0","state":{"user_message":"同事回了 他那天确实点了两次拒绝 刚才我这又来了 让它批量改五个文件 第二个 Edit 没对上报错 它重读了又改上 对话里冒了那行灰字 状态行从那以后就停住了 五个都改完也没动 我存了一下文件热重载才跳过来 按上次说的改吧\n<pasted_content id=\"c5e2\">\n⏺ Update(pr-notes/README.md)\n  ⎿  Error: String to replace not found in file.\n⎿ edit-tally@inline: hook skipped (tool.call Edit, after next): TypeError: Cannot read properties of undefined (reading 'reduce')\n      at tallyEdits (edit-tally/hooks/edit-tally.ts:58:42)\n      at <anonymous> (edit-tally/hooks/edit-tally.ts:121:19)\n⏺ Read(pr-notes/README.md)\n  ⎿  Read 142 lines\n⏺ Update(pr-notes/README.md)\n  ⎿  Updated pr-notes/README.md with 9 additions and 3 removals\n状态行：edit-tally  1 file  +14 −2（从这以后一直停在这 五个文件都改完了也没变 存了一下 edit-tally.ts 热重载以后跳成 5 files +88 −19）\n</pasted_content id=\"c5e2\">","problem_summary":"问题：edit-tally 状态行上的增删行数不再刷新：Edit 失败后 hook 抛 TypeError，pendingRecompute 卡在 true，需重开会话才恢复；另怀疑与热重载、$.state/$.store 模块级变量，以及同机其他插件有关。\n试过：\n1. 读 debug log，定位到 edit-tally/hooks/edit-tally.ts:58 的 patch.reduce 在 Edit 出错结果上抛 TypeError，且 pendingRecompute 在 tallyEdits 之前已置 true 而未复位；代码未改动，并在 edit-tally/tests/ 下写临时用例测试 Edit/Write 出错………（未解决）\n2. 盘点同机插件：本 mod 为 --plugin-dir 加载，未从 my-mods 装过；另有 my-mods 两个 mod、team-tools 的 audit-log（挂 *，原样放行）和 notify、一个官方无 hooks 插件；用 debug log 的 load…（未解决）\n3. 梳理 tallyEdits 的全部调用路径：主 hook 每次事件都走、在 next 之后调用；session.start 从 $.store 读上次的值算初始状态；hook 末尾用 $.clock.after 延后补算一次。只读代码，用 LSP 与 git grep 核对，未改…\n4. 在 hook 中 tallyEdits 进出处加 [probe] 临时日志（只进 debug log，记入参与返回值的长度和摘要、耗时、$.state 版本，标 // PROBE）；用 claude -p stream-json 跑 9 条消息的会话（含两次相关操作和一次 /compact…\n状态：助手已完成 probe 日志并跑完一次非交互会话，日志显示 dispatch 序号连续、无 hook skipped、tallyEdits 最慢 3 毫秒、并行时出现同版本交错写入，但没有观察到状态行停滞，现正等用户选择下一…","unresolved_count":7,"recent_context":{"chars":153095,"lines":52,"first":"user: focus-timer 的提示文案我重新写了一版 照着换 逻辑别乱动 <pasted_content id=\"3e1a\"> 1. 命令描述（/ 补全里那行）：番茄钟 → 开始一段专注计时，到点提醒你 2. 参数提示：[分钟] → [分钟|stop] 3. 开始以后：已开始 25 分钟专注 → 开始专注 25","last":"assistant: [tools: Read, Edit, Bash] 先读 edit-tally/hooks/edit-tally.ts 里 tallyEdits 和调用它的 hook，看日志加在哪里、`$` 从哪拿： tallyEdits 本身不碰 `$`，是个纯函数，所以日志不能加在它里面，只能加在调用它的 h"}}}},
+    {"id":"looks-hard-is-easy-08","language":"zh","zh-flow":{"answer":"max / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.03,0.01,0.02,0.22,0.72],"confidence":0.66,"pPlain":[0.16,0.08,0.12,0.58,0.06],"pHinted":[0.03,0.01,0.02,0.22,0.72],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.84,"resolved":0.03,"new":0.13},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":95506,"kept":48,"count":4,"hint":true,"summary":true,"ms":2756,"attempts":1,"tokens":118962,"model":"jev-1.14.0","state":{"user_message":"人工评测过了 排序没问题 回到晚高峰搜索超时那个 昨晚又是一屏这个 按那天说的改\n<pasted_content id=\"b81d\">\n2026-10-21 20:41:07.118 ERROR [search-svc-5d8b7f9c6-n4wq7] c.a.s.api.ApiExceptionHandler : search failed traceId=6f1c0a3e9b2d4417 path=/v1/search\njava.net.SocketTimeoutException: 2,000 milliseconds timeout on connection http-outgoing-73 [ACTIVE]\n\tat org.elasticsearch.client.RestClient.extractAndWrapCause(RestClient.java:915)\n\tat org.elasticsearch.client.RestClient.performRequest(RestClient.java:300)\n\tat org.elasticsearch.client.RestClient.performRequest(RestClient.java:288)\n\tat co.elastic.clients.transport.rest_client.RestClientHttpClient.performRequest(RestClientHttpClient.java:91)\n\tat co.elastic.clients.transport.ElasticsearchTransportBase.performRequest(ElasticsearchTransportBase.java:144)\n\tat co.elastic.clients.elasticsearch.ElasticsearchClient.search(ElasticsearchClient.java:1977)\n\tat com.acme.search.service.SearchService.search(SearchService.java:118)\n\tat com.acme.search.api.SearchController.search(SearchController.java:64)\n\t...\n2026-10-21 20:41:07.902 ERROR [search-svc-5d8b7f9c6-h8zdk] c.a.s.api.ApiExceptionHandler : search failed traceId=0b93c27e51aa86f0 path=/v1/search\njava.net.SocketTimeoutException: 2,000 milliseconds timeout on connection http-outgoing-118 [ACTIVE]\n\t...\n2026-10-21 20:41:09.355 ERROR [search-svc-5d8b7f9c6-n4wq7] c.a.s.api.ApiExceptionHandler : search failed traceId=d27a4e81c60f3b95 path=/v1/search\njava.net.SocketTimeoutException: 2,000 milliseconds timeout on connection http-outgoing-91 [ACTIVE]\n\t...\n（20:36 到 21:04 一共 344 条 差不多都长这样）\n</pasted_content id=\"b81d\">","problem_summary":"问题：排查 x2kqp 晚高峰 SearchService.search 搜索变慢并返回 5xx 的原因，当前在本地分支上加分段计时以拆分 ES 调用前后各段耗时。\n试过：\n1. 先用 perf/profile.sh 抓高峰和凌晨的 async-profiler 火焰图，只读检查 search-cache、梳理 8 月 7 日以来的搜索相关改动、统计 Loki 中 SearchCache 超时 WARN，并读取 bq7ns 上 5 个滚动 gc 日志共约 31 小时，未见 Full…（未解决）\n2. 按 Loki 中昨晚 20:00–22:00 的 /v1/search 访问日志统计速率、页码、排序、筛选比例，写 bench/peak-mix.js 在本地容器化的 search-svc 上跑三轮；平台…\n3. 在分支 debug/stage-timers 上加分段计时（redis_get、es_lease、es_roundtrip、es_parse、map、redis_set、total），开关默认关闭；本地编译和测试通过（未解决）\n4. 在 staging 上用 Profile API 跑昨晚五组高 esTookMs 参数，查询体从 TRACE 日志原样取出只加 profile 字段，各条瓶颈不同，第 7 页 ES 端不比第 1 页贵，但无法关联线上高峰超时（未解决）\n5. 静态梳理进 SearchService.search 的调用路径：HTTP 入口两条、后台线程无调用，并列出每条路径的线程归属和 Redis、ES 等各层超时；未改代码，另对照生产线程列表和依赖版本核对（未解决）\n状态：代码未改，助手已完成对调用路径、线程和各层超时的静态梳理，并建议高峰时段隔 10 秒连抓三次线程转储以区分请求线程停在等 Redis、等 ES 还是自己反序列化，正等待用户决定是…","unresolved_count":4,"recent_context":{"chars":147458,"lines":48,"first":"user: 晚高峰的搜索超时 这块我想顺便把内存也看清楚 堆有 GC 日志可以看 堆外一直没人看过 容器 4G 堆占 3G 剩下那 1G 都是谁在用 离上限还有多远 你在 f8wlc 上看一下 只读","last":"assistant: [tools: Grep, LSP, Read, Bash] 理完了：进 `SearchService.search` 的只有 2 条路，都是 HTTP 进来的，后台线程一条都没有；测试里另有 7 处引用。代码没有动。线程、超时、每一层能不能被观测到都整理在下面，最后有三处值得留意的配合。 **怎"}}}},
+    {"id":"looks-hard-is-easy-12","language":"zh","zh-flow":{"answer":"max / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.02,0,0.01,0.22,0.75],"confidence":0.73,"pPlain":[0.07,0.01,0.04,0.7,0.18],"pHinted":[0.02,0,0.01,0.22,0.75],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.8,"resolved":0.01,"new":0.19},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":93005,"kept":48,"count":6,"hint":true,"summary":true,"ms":3027,"attempts":1,"tokens":120546,"model":"jev-1.14.0","state":{"user_message":"paylink 文档更新了 就是 PL 加 18 位 跟那天说的一样 回到确认支付 500 那个 昨晚又是一串 Sentry 上贴一条 按那天说的改\n<pasted_content id=\"e5b0\">\nconfirm payment: build order.paid event: payload failed schema validation\n  *fmt.wrapError\n    internal/handler/errors.go:41 handler.writeError\n    internal/handler/orders.go:388 (*OrderHandler).ConfirmPayment\n    internal/middleware/idempotency.go:96 Idempotency.func1\n    internal/middleware/auth.go:71 Auth.func1\ntags: env=prod  release=order-api@v1.45.1  route=POST /v1/orders/{orderID}/pay/confirm  status=500\nextra: order_id=ord_7R1C8V2N5Q  merchant_id=m_31207  channel=dcep\nevents: 9 in last 24h · first seen 2026-09-25 · last seen 2026-10-21 22:47\n</pasted_content id=\"e5b0\">","problem_summary":"问题：排查收银台确认支付接口偶发 500 的订单（confirm payment 报 payload failed schema validation），检查 outbox 写入、重复、顺序、relay 积压、orders.events 消费组 lag 及下游重复消费，只读不改 topic 和 offset。\n试过：\n1. 读 outbox 和 relay 代码，用 logcli 与 request_audit 找出近 3 天 118 个报错请求、97 个订单；带 -race 跑 TestConfirmPayment 25 次和 ./internal/... -count=3 未复现；读 Tempo trace 与 Loki，拆解耗时（两次连接池排队共 2.55 秒，…（未解决）\n2. 只读查看 order-api 6 个 pod 的节点分布和资源配置，用 Prometheus 查 CPU 限流、GC、堆、节点 PSI、CoreDNS、TCP 重传、RDS 连接数，m4zrt、tq2fd 限流峰值约 27%（未解决）\n3. 对照 api/openapi.yaml 与代码的字段、类型、枚举、状态码和错误体，列出 13 处不一致，其中错误体结构（代码包一层 error，Java SDK 1.x 按顶层 code 解析）与 500 最相关（未解决）\n4. 用只读副本统计近 7 天：389 个命中请求、296 个订单、87 个商户，按天、商户、客户端版本分组并与同期写请求总量对比（每万次约 1.6 次）；58 个订单被 Go SDK 按同一 Idempotency-Key 重试，间…\n状态：已给出近 7 天统计和对照结论（各天、商户、客户端版本无明显集中，明细条数偏多但受商户结构影响），并提出 4 条后续建议，正在等用户决定先做哪一步。","unresolved_count":6,"recent_context":{"chars":173673,"lines":48,"first":"user: 问个事 同一个订单如果几路同时进来 商户调 OrderService.ConfirmPayment 的请求 paylink 的支付回调 超时关单的 worker 运营后台改状态 按现在的代码能交错出哪些顺序 每种顺序最后库里是什么样 调用方看到什么 哪些被锁挡住了哪些挡不住 先别跑东西 就看代码推 给我一张","last":"assistant: [tools: Bash, Read] 先确认连的是只读副本，会话本身也设成只读。 `psql \"$ORDERS_RO_URL\" -c 'select pg_is_in_recovery()'` 返回 `t`，是副本。之后每次连接都先执行 `SET default_transaction_read"}}}},
+    {"id":"misleading-history-07","language":"zh","zh-flow":{"answer":"xhigh / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.343,0.02,0.03,0.465,0.141],"confidence":0,"pPlain":[0.343,0.02,0.03,0.465,0.141],"pHinted":[0.16,0.02,0.01,0.17,0.64],"hintUsed":false,"triage":"new","triageP":{"unresolved":0.46,"resolved":0.06,"new":0.48},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":95471,"kept":50,"count":5,"hint":true,"summary":true,"ms":2912,"attempts":1,"tokens":116420,"model":"jev-1.14.0","state":{"user_message":"9b2f4d1 撤了吧 产品那边定了","problem_summary":"问题：查清线上 psycopg.errors.InFailedSqlTransaction（current transaction is aborted）的成因，判断是否与 apply_order_adjustment 的加锁顺序、并发事务或会话缓存有关。\n试过：\n1. 前期派 agent 梳理写相关表的加锁路径（5 条与 apply_order_adjustment 加锁顺序相反），统计两周内 63 次错误的分布（02:00 到 04:00 占 29 次），并梳理近几个月提交、发版与 shop-dal 版本的时间线，均…（未解决）\n2. 用 DBA 提供的 pg_stat_statements 前 15 条（9 月 30 日重置后 7 天）找 apply_order_adjustment 的语句：本地抓取其 SQL 规范化后逐条比对，前 15 条均无法确定归属（多为高频小查询或定时任务，或 IN 列表被…\n3. 讲解已提交下每条语句取快照、写语句等锁后重检、可重复读下 40001 重试，以及 SQLAlchemy 身份映射与 expire_on_commit=False 导致的旧对象问题；静态扫描 dal/ 的 23 处加锁调用（15 处安全、6 处…\n4. 对照仓库核对 cs-backend 回复的 9 条：改单入口、请求级事务与依赖提交、事务内调用 order-api、tenacity 重试位置、shop-dal 版本落后、只清当前 pod 的缓存、连接池上限，并列出需 cs-backend 补充的…\n状态：助手对照仓库指出事务包住了 order-api 外部调用（行锁最多拿 5 秒）、tenacity 重试可能在已失败的事务里重试从而产生次生错误、线上 shop-dal 1.14.2 落后仓库 1.17.0，并算了连接池上限，现等…","unresolved_count":5,"recent_context":{"chars":158235,"lines":50,"first":"user: 把最近两周 `psycopg.errors.InFailedSqlTransaction: current transaction is aborted, commands ignored until end of transaction block` 出现的时间点都拉出来 对一下当时数据库的监控 连接数 ","last":"assistant: [tools: Read, Grep, Bash] 对着仓库逐条看完了。9 条里有 3 条值得担心：事务把外部调用包在了里面；重试很可能是在同一个已经出错的事务里重试的，那样后两次必然失败；他们线上跑的 `shop-dal` 是 1.14.2，比仓库现在的版本落后三个版本，`dal/repos/o"}}}},
+    {"id":"misleading-history-09","language":"zh","zh-flow":{"answer":"max / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":false},"p":[0.02,0,0.02,0.33,0.63],"confidence":0.62,"pPlain":[0.18,0.02,0.13,0.62,0.05],"pHinted":[0.02,0,0.02,0.33,0.63],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.78,"resolved":0.02,"new":0.2},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":91489,"kept":56,"count":3,"hint":true,"summary":true,"ms":2694,"attempts":1,"tokens":109535,"model":"jev-1.14.0","state":{"user_message":"客服又在催 c27e90b4 那单 你写两句我直接转过去 别写太技术","problem_summary":"问题：#916 工单：用户操作到一半时突然提示登录状态异常要求重新登录，日志对应 ConflictError: login ticket is not in a redeemable state，抛在 src/auth/ticket.ts 的 redeemLoginTicket 中，要求只调查不修改代码。\n试过：\n1. 阅读 src/auth/ticket.ts 的 redeemLoginTicket 与 src/auth/ticketStore.ts，确认报错来自 SELECT ... FOR UPDATE 后状态不是 issued 时抛出的 ConflictError（409，code 为 state_conflict）；在 Loki 上按原文搜索近 14 天日志并按 reqId 去重，每…（未解决）\n2. 封版期间不改代码、不加日志，#916 暂挂；改为只读整理日志分布、反复出现账号的时间线、调用链与事务、两边环境配置差异，供周会讲现状，不下结论（未解决）\n3. 沿 redeemLoginTicket 盘点路径上与时间相关的 14 处逻辑（过期判断、TTL、时间戳比较、时区、时钟来源），并在生产上测量 3 个 pod、所在节点、RDS 和 Redis 的时钟偏差，节点 C 约偏 +412ms，其余…\n4. 对 staging 与生产两边与 redeemLoginTicket 相关的 41 项配置（环境变量、ConfigMap/Secret 键名与指纹、功能开关、依赖服务版本）做只读比对，列出 12 项差异，Secret 值未输出，未改动任何内容\n状态：助手已完成两边配置的只读比对，列出 12 项差异但未找到与本单直接对应的原因，现等待用户选择下一步只读观测（优先看 auth.strict-client-binding 分桶，其次 lock_timeout 与读副本），或决定…","unresolved_count":3,"recent_context":{"chars":150710,"lines":56,"first":"user: 登录页那几个页面一直没上 CSP 你给加上 用 nonce 的那种 先 report-only 跑一阵 收一下违规报告 别一上来就把页面搞挂了","last":"assistant: [tools: Read, Bash, Grep] 两边都拉完了。和 `redeemLoginTicket` 这条路有关的配置一共 41 项，两边完全一样的 29 项，有差异的 12 项：环境变量 5 项、功能开关 3 项、Secret 2 项（只比了键名和值的指纹）、依赖服务 2 项。全程只读，"}}}},
+    {"id":"new-topic-04","language":"zh","zh-flow":{"answer":"xhigh / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.24,0.14,0.12,0.41,0.09],"confidence":0,"pPlain":[0.24,0.14,0.12,0.41,0.09],"pHinted":[0.05,0.03,0.02,0.22,0.68],"hintUsed":false,"triage":"new","triageP":{"unresolved":0.24,"resolved":0.03,"new":0.73},"triageChange":"reset","seen":false,"seenAny":false,"stateTokens":94246,"kept":50,"count":5,"hint":true,"summary":true,"ms":2715,"attempts":1,"tokens":115622,"model":"jev-1.14.0","state":{"user_message":"发布配置那个先放着 另外每次跑都有个黄色的警告 说 node20 的 action 要弃用了 让升到 node24 你把这个处理掉吧","problem_summary":"问题：部署流水线往配置中心发布服务配置的那一步出现 ReleaseError，需要查清是否被 GitHub API、ECR、STS 或 EKS API server 限流，并核对这类失败从报错到通知的每一环能否如实上报，以及日志本身是…\n试过：\n1. 用 Grep 梳理发布路径上的外部调用并核对配额；下载最近 8 次出错 run 的日志搜限流关键词，只有 3 次出现客户端本地限速；抽 40 次正常 run 对照；同一提交同一参数本地和 CI 各串行复………（未解决）\n2. 查 6 个出错窗口（前后各 15 分钟）的 EKS audit 与 authenticator 日志：控制器写操作量与参照窗口相当，runner 服务账号有 3 个非 2xx（409/404），无 401/403/429；人为写操作只在 9/28 的 search-svc 命名空间和…（未解决）\n3. 按 attempt 重新下载 8 次出错 run 的原始日志，逐项核对打码、截断、stdout/stderr 缓冲造成的顺序错乱、时间戳来源，并在临时仓库做小实验；ReleaseError 行在 8 份里都在且未被打码，但 publish 步…\n4. 只读追踪 publish_release 的 9 个取值：按 push 到 main、workflow_dispatch、workflow_call 三个入口逐层核对触发事件、vars/env、配置文件和写死的默认值，并用临时仓库验证 env 与 vars 的覆盖规则；静态结论…\n状态：助手只读完成了取值来源的静态梳理，未改动任何东西，现在等用户决定是否在临时分支上加一步打印这 9 个实际值（不含 secret）并在 staging 跑一次，以核对这些静态结论是否与出错…","unresolved_count":5,"recent_context":{"chars":156684,"lines":50,"first":"user: 权限这条线也理一下吧 部署流水线里往配置中心发布服务配置的那一步 从触发到跑完 每一步是用谁的身份在干活 GitHub 的 token AWS 的角色 集群里的权限 都列出来 再去 CloudTrail 里看看 `confcenter.errors.ReleaseError: no result recei","last":"assistant: [tools: Grep, Read, Glob, Bash] 先找有哪几个入口能执行到 `publish_release`，再按入口把每一层传下去的值列出来。 Grep 了整个仓库里对 `scripts/deploy/publish_config.py` 和 `publish_release` "}}}},
+    {"id":"new-topic-06","language":"zh","zh-flow":{"answer":"max / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":false},"p":[0.01,0,0.03,0.26,0.7],"confidence":0.7,"pPlain":[0.03,0.01,0.14,0.75,0.07],"pHinted":[0.01,0,0.03,0.26,0.7],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.62,"resolved":0.01,"new":0.37},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":91813,"kept":52,"count":8,"hint":true,"summary":true,"ms":2668,"attempts":1,"tokens":110811,"model":"jev-1.14.0","state":{"user_message":"参数表那个先放着 小周问他这两天提的 PR 怎么都没有预览地址的评论了 是预览站挂了吗 你跟我说下怎么回事就行 我回他","problem_summary":"问题：API 参考页参数表的默认值列有时整列为空，两位读者反馈，本人打开正常，构建日志里还出现一行 Docusaurus 静态生成警告（Cannot read properties of undefined (reading 'default')）。\n试过：\n1. 读取 batch-send.mdx 与 ParamDefault.tsx，确认默认值列由 ParamDefault 渲染（代码未改动）；用 gh run list 拉 7 月以来的 CI 与部署日志 grep 警告行，9/24 第 538 次部署起才出现，之后 31 次构建中有 11 次。；用…（未解决）\n2. 用 chrome-devtools 在本地冷构建的 serve 与线上站点各打开 9 页（guides、channels、api、console 各页，英文与中文），逐页看控制台、站内网络请求、正文 DOM 摘要与截图；两边控制台、请求、正文…（未解决）\n3. 冷构建本地产物并从 s3 只读拉取同一提交的线上产物，按 sha256 清单逐文件比对：2936 个文件中 2931 个逐字节相同，其余 5 个为 4 个 JS 与 1 个资源清单，仅模块编号排序不同；并检查路由。（未解决）\n4. 从上个发版 tag docs-v2.7 到 origin/main 共 112 个提交，按改动路径分类并筛出 83 个候选、其中 41 个可能相关，给出 git bisect 方案与判定脚本（每步连跑 10 轮 npm run clear && npm run build，出现警告即判坏）…（未解决）\n状态：助手已给出 bisect 方案与判定脚本草案（脚本与分类表存于 /tmp/bisect/，独立 worktree 尚未创建），等待用户确认后先做 docs-v2.7 与 main 两端定界。","unresolved_count":8,"recent_context":{"chars":143908,"lines":52,"first":"user: 客服把 9 月跟快速开始有关的工单整理了一份 你看看 快速开始那页按这个重写一下 英文中文都要 侧边栏 getting started 那几页的顺序也顺便调调 怎么顺怎么来 <pasted_content id=\"5c19\"> 9 月工单里和「快速开始」有关的共 63 张，按问题归类： 1. 不知道测试模式","last":"assistant: [tools: Bash, Read, Grep, Write] 方案在下面，bisect 没有启动，工作区也没动。概括一下：上个发版 tag `docs-v2.7`（8/18）到现在的 main 一共 112 个提交，按路径和类型筛完以后，真正需要二分的范围可以缩到 41 个，最多 6 步左右，"}}}},
+    {"id":"new-topic-08","language":"zh","zh-flow":{"answer":"xhigh / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.14,0.13,0.15,0.54,0.04],"confidence":0.28,"pPlain":[0.14,0.13,0.15,0.54,0.04],"pHinted":[0.04,0.02,0.02,0.19,0.73],"hintUsed":false,"triage":"new","triageP":{"unresolved":0.46,"resolved":0.02,"new":0.52},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":95933,"kept":49,"count":8,"hint":true,"summary":true,"ms":2697,"attempts":1,"tokens":111800,"model":"jev-1.14.0","state":{"user_message":"ctx-meter 先放一放 组里有人说 git-guard 拦不住 git restore . 他们九月中旬就装了 我自己用 --plugin-dir 试了是能拦的 你看下怎么回事 跟我说下就行 我去群里回他们","problem_summary":"问题：在 ctx-meter 的 measure 进出处加临时 [probe] 调试日志（只进 debug log），排查状态行上的上下文占用时不时往回跳的问题。\n试过：\n1. 先在 ctx-meter/hooks/ctx-meter.ts 加 PROBE 日志并核对 diff 与测试输出，再读文档在仓库外做失败实验、列出各出错位置的后果表，未改仓库文件；列出 12 条可能原因（H1 并行事件覆盖、H2 热重载………（未解决）\n2. 对照同事从 marketplace 装的版本与本地环境：核对代码版本一致，比较系统、终端、Claude Code 版本、加载方式、配置、其他插件和多会话（未解决）\n3. 只读盘点 mod 的 3 个测试文件，逐条列出 measure 相关分支的覆盖情况，未改任何文件、未新增测试，指出节流、补算、session.start 读快照、两次事件交错最相关却没测到（未解决）\n4. 读 plugin.json 的 userConfig 与代码里 options 的用法，列出阈值、开关、计算方式三项与 measure 的关系；再读文档和本机 settings 文件，确认 pluginConfigs 只从用户和 managed settings 读，并在 session.start 临时打…（未解决）\n状态：助手已实测确认 mod 实际拿到的配置与用户以为的不一样：计算方式因大小写写错被静默回退为默认值，阈值实为 70 而非仓库里的 60，并列出下一步（在交互会话 /config 核对、用 --settings…","unresolved_count":8,"recent_context":{"chars":152584,"lines":49,"first":"assistant: [tools: Bash, Read, Write] validate 报的和代码逐条对得上，没有多报或漏报；matcher 用一个小探针在 kit 里按 14 种事件形状试了一遍，调 measure 的那个 hook 会接到的范围比字面上看起来宽一些：模型的工具调用、MCP 工具的调用、派出 a","last":"assistant: [tools: Read, Grep, Edit, Bash] 先看 mod 声明了哪些配置、代码里怎么用： `.claude-plugin/plugin.json` 的 `userConfig` 里有 4 项。Grep 了 `options.` 在 ctx-meter/hooks/ctx-met"}}}},
+    {"id":"new-topic-10","language":"zh","zh-flow":{"answer":"max / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":false},"p":[0.02,0.01,0.03,0.5,0.44],"confidence":0.54,"pPlain":[0.15,0.13,0.15,0.55,0.02],"pHinted":[0.02,0.01,0.03,0.5,0.44],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.61,"resolved":0.01,"new":0.38},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":95642,"kept":54,"count":6,"hint":true,"summary":true,"ms":2731,"attempts":1,"tokens":114247,"model":"jev-1.14.0","state":{"user_message":"批量打标签那个先放一放 会员运营一直说会员列表一页 20 条太少 筛完一批人打标签要翻好几页 会员列表默认改成每页 50 条 别的列表还是 20 以前存的条数不用管","problem_summary":"问题：会员列表批量打标签后，部分行仍显示旧标签，刷新后正常；控制台偶发 TypeError: Cannot read properties of undefined (reading 'levelName')，位于 src/pages/members/MemberList.tsx。\n试过：\n1. 在 staging 用运营账号做 15 次批量打标签复现：2 次有几行停在旧标签且之后自行变对，1 次出现 levelName 报错，两者不是同一次；阅读 batchTag 调用链（selectedKeys、POST /api/members/batch-tag、成功后 reload…（未解决）\n2. 梳理 useMemberList 前的 7 个条件分支（权限码、店铺、功能开关、角色），读取 staging 功能开关 overrides，按账号类型列出走向表，未改代码\n3. 在 useMemberList 入口和出口加临时 [trace] 日志，并在请求拦截器和错误处理加日志，逻辑未改；vitest 与临时 e2e 各跑一轮，观察到开发环境 StrictMode 下的重复调用（未解决）\n4. 枚举 useMemberList 的 6 处引用（业务 4 处、单测 2 处），含别名再导出、动态 import 和事件总线的间接调用，归为 4 条入口路径：A 页面直接操作、B URL 参数跳入（工作台、全局搜索）、C 页…\n状态：已把 useMemberList 的调用方归成 4 条入口路径并标出参数形态差异，未改代码，尚未判断哪条路径与旧标签问题有关；现等待用户选择下一步，如在 ①–④ 加带前缀的临时日志复现、用 URL 直…","unresolved_count":6,"recent_context":{"chars":150874,"lines":54,"first":"user: 单测全量本地要跑三分多钟 CI 上五分钟 能不能弄快点 测试本身的逻辑别动 跑完的结果要跟现在一模一样","last":"assistant: [tools: Grep, Glob, Read] `useMemberList` 一共 6 处引用：业务代码 4 处，单测 2 处。往上追到用户能碰到的入口，归成 4 条路径：1 条是用户在页面上直接操作，1 条是从别的页面带着参数跳进来，1 条是多页签切回来，还有 1 条走全局事件总线，平时最"}}}},
+    {"id":"resolved-03","language":"zh","zh-flow":{"answer":"xhigh / new","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":false},"p":[0.2,0.04,0.04,0.61,0.11],"confidence":0.31,"pPlain":[0.2,0.04,0.04,0.61,0.11],"pHinted":[0.07,0.02,0.01,0.11,0.79],"hintUsed":false,"triage":"new","triageP":{"unresolved":0.31,"resolved":0.13,"new":0.56},"triageChange":"keep","seen":false,"seenAny":false,"stateTokens":93728,"kept":48,"count":18,"hint":true,"summary":true,"ms":2817,"attempts":1,"tokens":121481,"model":"jev-1.14.0","state":{"user_message":"支付这块就顺到这 分支我合了 今天上线 补数脚本也跑完了 补了 23 单 你把 #87 关了 关之前在票里评论一下预发压测那组数 再写一句线上补了 23 单","problem_summary":"问题：分析 Tempo 中订单支付接口偶发 500 的 trace（4bf92f35…），判断耗时集中在哪一步，以及 \"update order status: version conflict, 0 rows affected\" 是在哪一步产生的，并从容器、节点、内存/GC、CPU 限流、同节点其他…\n试过：\n1. 对照 span 列表与代码，区分中间件、handler、service.inTx、PaymentService.PayOrder 等自定义 span 和 pgxpool/pgx 查询 span 的来源，检查 QueryTracer 记录的属性和 obs.Start 记录 exception 的方式。；按耗时拆出各阶段占……\n2. 结论：500 出现在 UpdateOrderStatus 返回之后约 3 毫秒、下一次查库之前，写语句 span 未记录影响行数，无法区分是更新结果为 0 行还是后续逻辑判成错误；也无法确定是谁持有该订单行锁。\n3. 层面排查（只读）：查看 pod 分布、Deployment 资源配置与 automaxprocs；用 Prometheus 看 CPU 限流比例、CPU 用量、GC 频率、堆大小、working set 和 OOMKilled；看节点 ip-10-12-5-17 上同节点其他 pod 的 CPU（bi-ingest 无 li…（未解决）\n4. 对照 api/openapi.yaml 中订单支付两个 operation 与 handler 实际收发的字段名、类型、必填、枚举、状态码和错误体（只读，未改文件），并用 schemathesis 对本地服务跑 1240 个请求；列出 13 处出入，…\n状态：助手已列出 13 处 yaml 与代码的出入并标出与错误响应相关的 5 处，未改任何文件，正等待用户决定哪些改 yaml、哪些改代码以及处理顺序。","unresolved_count":18,"recent_context":{"chars":176919,"lines":48,"first":"user: 去看一下小程序和商户 SDK 那边调这几个接口的代码 超时 重试 幂等键 碰到 409 500 504 各自怎么处理的 跟 订单支付接口的偶发 500 对一下 那是别的组的仓库 只看不改","last":"assistant: [tools: Grep, Read, Bash] 先确定 yaml 里哪些部分和订单支付接口的偶发 500有关。从 `PaymentService.PayOrder` 往上找到它对应的 HTTP 入口，再按路由模板去 `api/openapi.yaml` 里搜。 `PaymentService."}}}},
+    {"id":"resolved-07","language":"zh","zh-flow":{"answer":"low / resolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.43,0.08,0.08,0.32,0.09],"confidence":0,"pPlain":[0.43,0.08,0.08,0.32,0.09],"pHinted":[0.09,0.03,0.02,0.14,0.72],"hintUsed":false,"triage":"resolved","triageP":{"unresolved":0.24,"resolved":0.48,"new":0.28},"triageChange":"keep","seen":true,"seenAny":true,"stateTokens":94405,"kept":54,"count":11,"hint":true,"summary":true,"ms":2856,"attempts":1,"tokens":114886,"model":"jev-1.14.0","state":{"user_message":"大促前那次 prod 今天发完了 冒烟一路绿 按你上次列的把那两处删了 开 PR 吧","problem_summary":"问题：冒烟检查（smoke check）偶发卡住，需要确认合并后是否还会出现，并在之后清理为排查加的 SMOKE_DEBUG 调试代码。\n试过：\n1. 合并冒烟检查改动后观察 staging、prod、托管 runner 共百余次运行未再卡住；按时间对齐 9/16 至 10/6 的 8 次 ledger-api 报错与值班交接；grep 确认 SMOKE_DEBUG 只在 scripts/smoke/ 下；横向搜索 63 个仓库；拉…（未解决）\n2. 对比 staging 与 prod 的冒烟检查：配置文件、GitHub environment 变量与 secret（只看名字和更新时间）、runner scale set、集群与网络，只对不改；差异有副本数、资源上限、外部地址、功能开关等（未解决）\n3. 审计冒烟路径上的 6 处缓存（工具缓存、依赖目录与插件缓存的键和生成时间、锁文件、脚本临时结果、CoreDNS 30 秒缓存），列出仓库现有缓存条目；比对 8 次出问题 run 与同期 248 个正…（未解决）\n4. 针对报错行的固定文本搜索上游 issue、文档与 changelog，读取依赖两个版本的源码并对比 9/21 升级的改动，找到 14 处相关结果、4 个 issue，逐条比对条件（NAT 空闲超时、代理、对端处理慢…\n状态：助手已完成上游搜索并列出对照结果，没有改动任何代码，现等待用户决定是否在临时分支打开库的调试日志、是否去对端查 8 个时间点的处理耗时，以及是否先查 TCP keepalive 的现状。","unresolved_count":11,"recent_context":{"chars":149880,"lines":54,"first":"user: charts/app 加个 values.schema.json 吧 之前有人把 values 里的键拼错了 helm 一声不吭就当没写 用的是默认值 跑了好久才发现 schema 写严一点 拼错的键要能直接报错 但是别把现在各服务的 values 搞挂了","last":"assistant: [tools: Grep, Read, WebSearch, WebFetch] 先确定这一行是谁打出来的，不然不知道该去哪个上游搜。 Grep 了我们自己的 `scripts/`、`.github/` 和 `scripts/smoke/smoke.sh`、`scripts/smoke/run.s"}}}},
+    {"id":"single-attempt-06","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":false,"parts":{"effort":true,"triage":true},"p":[0.02,0.03,0.02,0.17,0.76],"confidence":0.68,"pPlain":[0.11,0.05,0.08,0.61,0.15],"pHinted":[0.02,0.03,0.02,0.17,0.76],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.63,"resolved":0.01,"new":0.36},"triageChange":"add","seen":true,"seenAny":true,"stateTokens":94675,"kept":52,"count":5,"hint":true,"summary":true,"ms":2803,"attempts":1,"tokens":118884,"model":"jev-1.14.0","state":{"user_message":"订单状态那个 hotfix 发上去一个多星期了 Sentry 那个 issue 还在涨 今天早上又有商户报改状态的时候系统繁忙","problem_summary":"问题：v1.43.0 发版后，修改订单状态（PATCH /v1/orders/{orderID}）和收款（/pay）偶尔报 `transition order status: update order status: conn busy`，重试后成功，需要查明原因。\n试过：\n1. 逐行检查 internal/service/order_transition.go 的 OrderService.TransitionStatus，没有发现并发读写同一连接的写法，怀疑是等锁被取消后连接状态没清干净。；对比 v1.42.3..v1.43.0 之间与订单状态相关的提交，发…（未解决）\n2. 对 m4zrt 上一份 goroutine profile（debug=1）分组：连接池 20 条全被占、848 个在排队；占连接的 9 个停在 OrderService.TransitionStatus 的 GetOrderForUpdate 等数据库返回，另有订单列表 7 个、幂等 upsert 4 个；建议下……（未解决）\n3. 读 pgx v5.6.0 源码并在本地库做实验，验证 ctx 在语句执行中、语句之间、提交时被取消的三种情况：ctx 取消后连接被销毁，不会带着未结束事务回池；回滚由数据库在断连后自行完成……（未解决）\n4. 在 OrderService.TransitionStatus 和 store.WithTx 加 25 行 TEMP-DEBUG 临时日志（入参、返回值、耗时、ctx 剩余时间、事务状态、后端 pid），未提交；本地跑 13 遍（空闲 5 遍、pgbench 加压且池子 4 条 5 遍、ORDER_API_…（未解决）\n状态：已加临时日志并在本地跑 13 遍，未复现 conn busy，日志只描述了正常路径，等待用户决定是否同意把打点改成默认关的正式日志并在 staging 或 prod pod 上开启。","unresolved_count":5,"recent_context":{"chars":172022,"lines":52,"first":"user: 法务那边提的 用户注销以后 我们这边订单里的个人信息要在 15 个工作日内处理掉 但订单和支付记录本身要留三年 财务和税务要用 账号服务会调我们一个内部接口通知谁注销了 你把这块做了 接口他们说按我们的来","last":"assistant: [tools: Read, Edit, Bash] 先读 `internal/service/order_transition.go` 里 `OrderService.TransitionStatus` 前后的代码，看 logger 从哪拿、能不能拿到事务。 service 层的日志都是从 `ob"}}}},
+    {"id":"single-attempt-08","language":"zh","zh-flow":{"answer":"max / unresolved","correct":false,"gold":false,"miss":"over","parts":{"effort":false,"triage":true},"p":[0.03,0.01,0.04,0.35,0.57],"confidence":0.52,"pPlain":[0.1,0.02,0.1,0.76,0.02],"pHinted":[0.03,0.01,0.04,0.35,0.57],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.63,"resolved":0.01,"new":0.36},"triageChange":"add","seen":false,"seenAny":false,"stateTokens":93533,"kept":50,"count":4,"hint":true,"summary":true,"ms":2827,"attempts":1,"tokens":116773,"model":"jev-1.14.0","state":{"user_message":"账单页切月份那个 内测包我装上用了几天 今天还是碰到了一次 选的 10 月 列表里是 9 月的账","problem_summary":"问题：账单页切换月份时列表里出现别的月份的账单；需要梳理 loadMonth 的所有调用路径（界面、通知、后台任务）并标出线程和 context，暂不改代码。\n试过：\n1. 用 sourcekit-lsp findReferences 和按名字 Grep 查 loadMonth 的调用方，共 8 处（业务 5 处，测试 3 处），两种方法结果一致；又检查了 selector、通知名、Timer、asyncAfter 等间接调用和 target membership，并用 inco…；…………（未解决）\n2. 解压测试同事的 sysdiagnose，用 log show 按 21:40 到 21:48 过滤 Ledger 进程和 subsystem 日志，并查 runningboardd、dasd、SpringBoard、电量和崩溃记录，整理出时间线；loadMonth 的 debug 日志未持久化，只能从回到前…\n3. 带 -enableCodeCoverage 只跑单测（313 个用例全过），用 xccov 逐行看 BillListView.swift 和 loadMonth 的执行次数，列出没走到的分支：空月份、取数出错、分类为空、转账，另有一处单行 guard 的 else 没走到…\n4. 读 docs/adr 的 0004、0005、0006 三份 ADR 和 PR #512、#530、#590、#619 的描述与评审，并 Grep 代码里的 TODO、FIXME 和 ADR 引用，对照设计与实现，列出 5 处不一致，其中 3 处与月份切换相关；只读，未改代…\n状态：助手已整理出 5 处设计与实现的不一致（新加载未取消旧加载、写入 context 未设 author、HistoryTracker 无串行队列保护），并列出时间线和后续建议，未改代码，等待用户决定是否与 ADR 作者…","unresolved_count":4,"recent_context":{"chars":150025,"lines":50,"first":"user: 先别动手 你评估一下 loadMonth 和 Ledger/Features/Bills/BillListView.swift 这块要是动的话会牵扯到哪些地方 页面 测试 快照 UI 测试 导出 备份 小组件 统计 预算都算上 列个清单 每一项说一下牵扯多深 风险多大","last":"assistant: [tools: Glob, Read, Bash, Grep] 翻完了。和这块有关的设计文档有 3 份 ADR，相关的 PR 讨论 4 个，代码里的 TODO 3 处，还有 1 个开着的 issue。设计上的打算和现在的实现有 5 处对不上，其中 3 处在账单页的月份切换这条路上。下面每一条都写了"}}}}
+  ]
+}

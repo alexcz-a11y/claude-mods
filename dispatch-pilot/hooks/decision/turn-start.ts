@@ -54,7 +54,9 @@ export function turnStartPart(input: TurnStartPartInput = {}): Part {
   const part = turnStartEffortPart(ask)
   const count = input.count ?? 0
   const asked = input.unresolved === true ? withUnresolved(part, ask.language) : part
-  const questions = givesHint(count, input.maxAfter ?? 0) ? withHint(asked, ask.language) : asked
+  // With the three-way question in the request, the hinted effort question goes beside the plain one: its answer is used
+  // only when the same request says the problem is still unresolved (decision/unresolved.ts HINTED).
+  const questions = givesHint(count, input.maxAfter ?? 0) ? withHint(asked, ask.language, { beside: input.unresolved === true }) : asked
   const state: Record<string, unknown> = {
     ...(input.command === undefined || input.command === null ? {} : { command: input.command }),
     ...(input.summary === undefined || input.summary === null ? {} : { [SUMMARY_FIELD]: renderSummary(input.summary, ask.language) }),

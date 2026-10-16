@@ -211,9 +211,11 @@ test('a flow variant carries what the flow file says the last message\'s request
   expect(withFlow).toEqual(flow.bodies.at(-1))
   expect(withFlow.state.unresolved_count).toBe(4)
   expect(withFlow.state.problem_summary).toBe(renderSummary(flow.item.final?.summary as Summary, 'zh'))
-  expect(Object.keys(withFlow.questions['effort.level'].instructions)).toContain('未解决')
+  expect(Object.keys(withFlow.questions['effort.level_unsolved'].instructions)).toContain('未解决')
+  expect(Object.keys(withFlow.questions['effort.level'].instructions)).not.toContain('未解决')
   expect(Object.keys(plain.state)).toEqual(['user_message', 'recent_context'])
-  expect(rows[0]?.detail).toMatchObject({ count: 4, hint: true })
+  // Every message read as unresolved, so the hinted answer is the one the row's level comes from.
+  expect(rows[0]?.detail).toMatchObject({ count: 4, hint: true, hintUsed: true })
   const suite = evalV2Suite(flowFile({ [one.id]: flow.item }))
   const figures = summarize(suite, [one], rows, { slowMs: 1500, settings: settingsFrom({ decisionModel: 'jev' }) }).variants.map((v) => (v.breakdown as any).carried)
   // The flow variant's requests: how many had a count, the hint, a summary; the plain variant carries none of it.

@@ -1,0 +1,572 @@
+{
+  "suite": "long-context",
+  "label": "hint-gated",
+  "date": "2026-10-16T09:08:46.330Z",
+  "backend": {
+    "name": "jev",
+    "model": "jev-1.14.0",
+    "answeredBy": [
+      "jev-1.14.0"
+    ]
+  },
+  "dataset": {
+    "path": "eval/datasets/long-context.jsonl",
+    "items": 30,
+    "sha256": "bce7c7114c7984e72e43481cf52c041ed3b237924f58aa529b427221f8973a97",
+    "beside": {
+      "long-context-summaries.json": "474e1885ac69f9888b8b52e2d3f78507c0daee2a15a730fdb933a255c67195d2"
+    },
+    "review": {
+      "file": null,
+      "decided": 0
+    }
+  },
+  "code": {
+    "hooks/board/band.tsx": "4013bcc1d7ba238f",
+    "hooks/board/footer.tsx": "206e87a1e3837862",
+    "hooks/board/kit.tsx": "7af5e5a0660c694c",
+    "hooks/board/pane.tsx": "572d0efa599eef22",
+    "hooks/board/rationale.ts": "04473e660c458530",
+    "hooks/board/reference.ts": "86407b19f188cdcf",
+    "hooks/board/screens.tsx": "23de076c982f119d",
+    "hooks/board/view.ts": "18bef1110888cff0",
+    "hooks/core/agent-lane.ts": "cbda3299a1d2707a",
+    "hooks/core/ask-group.ts": "fb7bacd8c321a648",
+    "hooks/core/ballot.ts": "cbd8c44ae8efe973",
+    "hooks/core/call-budget.ts": "f9180f81a0a5995a",
+    "hooks/core/commands.ts": "38e7982035ede0aa",
+    "hooks/core/complexity.ts": "8f7d9a68aa26d62c",
+    "hooks/core/core.ts": "def0d6437bd72125",
+    "hooks/core/deferred.ts": "cd5c0d57c877d7ea",
+    "hooks/core/image-crops.ts": "860f412f07f56606",
+    "hooks/core/image-files.ts": "ec701ece1adb2526",
+    "hooks/core/loop-start.ts": "c290fc6e746d7b2b",
+    "hooks/core/outcomes.ts": "c8d71002433acedf",
+    "hooks/core/plans.ts": "40851299388b9691",
+    "hooks/core/profile-report.ts": "825c54c96fc6eb43",
+    "hooks/core/profiles.ts": "6f128a666ad0302e",
+    "hooks/core/prompts.ts": "ceb6aa21cf73ca5f",
+    "hooks/core/quality-series.ts": "31abc6d60a07d230",
+    "hooks/core/report.ts": "230bc4a66a329ab6",
+    "hooks/core/setup.ts": "bfebe1e7ed0e6299",
+    "hooks/core/skills.ts": "7b0c4757c75105cb",
+    "hooks/core/switches.ts": "8b5a41441f918d03",
+    "hooks/core/takeover-report.ts": "8a65b0eeae059a77",
+    "hooks/core/unresolved.ts": "71918a83d2dee5b4",
+    "hooks/core/video-frames.ts": "0ca71bcf50207792",
+    "hooks/core/visual-check-report.ts": "b63acdc3717938fc",
+    "hooks/core/work-files.ts": "6636260697cf054c",
+    "hooks/core/workflow-report.ts": "4d9da9a68201bc67",
+    "hooks/core/zoom-review.ts": "80c3f0be810d3254",
+    "hooks/decision/backend.ts": "73a7d5fb0a3d5390",
+    "hooks/decision/complexity.ts": "8ce330c702008e02",
+    "hooks/decision/context.ts": "0bd024e2787487af",
+    "hooks/decision/dispatched-agent.ts": "fe55b9c6eda01ac8",
+    "hooks/decision/effort.ts": "579dd0262cfde869",
+    "hooks/decision/escalation.ts": "b6daf79b761fd68f",
+    "hooks/decision/image-fit.ts": "5adbd5dc3a0c5548",
+    "hooks/decision/image-header.ts": "1ee2601beb24931a",
+    "hooks/decision/images.ts": "e04fefb9be2220ab",
+    "hooks/decision/jev-rate.ts": "23c8a346193400ab",
+    "hooks/decision/jev.ts": "d672ce852efac191",
+    "hooks/decision/keep-newest.ts": "862cfe18a916f1d3",
+    "hooks/decision/midturn.ts": "36e0df82787460f8",
+    "hooks/decision/model-ids.ts": "151e5bf8475b62aa",
+    "hooks/decision/pplx-rate.ts": "609d469e13357f81",
+    "hooks/decision/pplx.ts": "78da80996c6c8d02",
+    "hooks/decision/rate-queue.ts": "4858efb4c352a908",
+    "hooks/decision/redact.ts": "83c4b02966429254",
+    "hooks/decision/screenshot-takeover.ts": "fe524314e8a4a8e6",
+    "hooks/decision/skills.ts": "eda65f27cbaadaa7",
+    "hooks/decision/summary.ts": "c2becf5c15be54e7",
+    "hooks/decision/system-one.ts": "6d4f9957aca29d8b",
+    "hooks/decision/turn-start.ts": "1667c8d9cabc5719",
+    "hooks/decision/unresolved.ts": "af36c69a4e991516",
+    "hooks/decision/visual-check-frames.ts": "199b0beb4e55c61f",
+    "hooks/decision/visual-check-record.ts": "051b7ba2f0684644",
+    "hooks/decision/visual-check-sequence-text.ts": "f7aa2a42cda1204f",
+    "hooks/decision/visual-check-sequence.ts": "e9c6c586030fd442",
+    "hooks/decision/visual-check-tool.ts": "53577fbbe5709b00",
+    "hooks/decision/visual-check-zoom.ts": "b598f5ebfedf172d",
+    "hooks/decision/visual-check.ts": "1754e94614788d71",
+    "hooks/decision/workflow-labels.ts": "40b1ae476ae2b75f",
+    "hooks/decision/workflow-script.ts": "39285b69edca9799",
+    "hooks/decision/workflow.ts": "ca4d876cd66a9cc6",
+    "hooks/decision/zoom.ts": "bef1c79f03bddd6a",
+    "hooks/dispatch-pilot.ts": "fc0e29100de814e8",
+    "hooks/features/control.ts": "be34c7a167b063bd",
+    "hooks/features/dispatched-agents.ts": "c193e49d1fea1ad7",
+    "hooks/features/escalation.ts": "adec121dd81875f7",
+    "hooks/features/find-skill.ts": "c8a6f50121309ec5",
+    "hooks/features/image-routing.ts": "7f5f04f759c0a4b2",
+    "hooks/features/main-effort.ts": "4802e8cf2bc33a86",
+    "hooks/features/midturn-effort.ts": "9be08e3a5a562d4d",
+    "hooks/features/reference-hint.ts": "b6157c90821649d3",
+    "hooks/features/reference-midturn.ts": "511321d8e49f2113",
+    "hooks/features/screenshot-takeover.ts": "c1556a7be2aac634",
+    "hooks/features/skill-profiles.ts": "fa2d67095aa0bd91",
+    "hooks/features/skills.ts": "0a4d0f4d98bb81d5",
+    "hooks/features/unresolved.ts": "7b69cb2a97c42064",
+    "hooks/features/visual-check-look.ts": "9a2c38140cfa4662",
+    "hooks/features/visual-check-series.ts": "9184d78a30f5b383",
+    "hooks/features/visual-check.ts": "24d4a250b2f713a6",
+    "hooks/features/workflow-agents.ts": "4be3dcde041c4392",
+    "hooks/features/workflow-labels.ts": "e166a0be4bdf8001",
+    "hooks/hooks.json": "1b25c5b4d076064d",
+    "eval/lib/compare.ts": "bed9bff37206a970",
+    "eval/lib/ctx30.ts": "7820df4e33111d46",
+    "eval/lib/datasets.ts": "e6400f6b9e4bf648",
+    "eval/lib/docs.ts": "4fd38342c59ec688",
+    "eval/lib/effort-midturn.ts": "21cade3c2ccca1ed",
+    "eval/lib/effort-submit.ts": "1d59e61978f0657c",
+    "eval/lib/estimate.ts": "5330d3695c42864e",
+    "eval/lib/eval-v2-flow.ts": "66ec07f98d00f569",
+    "eval/lib/eval-v2-suite.ts": "6cdc24bd5eac7aa1",
+    "eval/lib/eval-v2-thresholds.ts": "03b586124a40ab80",
+    "eval/lib/eval-v2.ts": "bfcb6fb772a36084",
+    "eval/lib/long-context.ts": "10ccfea55c6964d2",
+    "eval/lib/long-conversation.ts": "8bf092f7993911ed",
+    "eval/lib/long-filler.ts": "7db067908915c1f9",
+    "eval/lib/long-summaries.ts": "d6e09e9a8ca4136d",
+    "eval/lib/metrics.ts": "27508762628793de",
+    "eval/lib/numbers.ts": "2e9db7e52edc88ee",
+    "eval/lib/random.ts": "c45cc17953bbbf52",
+    "eval/lib/rescore.ts": "342d6ce63e53f37a",
+    "eval/lib/resummarize.ts": "8b5f6877b8f20abb",
+    "eval/lib/review.ts": "ad540fd4215ca433",
+    "eval/lib/runner.ts": "dde48eeb7d31c91f",
+    "eval/lib/skill.ts": "d425ada7a4304a3e",
+    "eval/lib/subagent.ts": "eaf601b2f51ca7da",
+    "eval/lib/suite.ts": "7eeeca84271bab42",
+    "eval/lib/suites.ts": "c9105d9dfd64738b",
+    "eval/lib/unresolved.ts": "9c5e41e06c5b773d",
+    "eval/lib/validators.ts": "2b7e0fcddc697df1",
+    "eval/lib/visual-check-items.ts": "8cbf99b236b0a5ac",
+    "eval/lib/visual-check-rescore.ts": "8abe86377a4cf213",
+    "eval/lib/visual-check.ts": "7de2771d3a2d733b"
+  },
+  "settings": {
+    "context": {
+      "messages": 2000,
+      "tokens": 6000
+    },
+    "messageStateTokens": 96000,
+    "stateMessagesLimit": 2000,
+    "thetaMax": 0.5,
+    "roundUp": 0.3,
+    "timeoutMs": 1500,
+    "options": {
+      "decisionModel": "jev",
+      "pplxQps": 5,
+      "jevQps": 80,
+      "jevTokensPerSecond": 100000,
+      "rejudgeEvery": 3,
+      "holdSteps": 5,
+      "escalateAfter": 2,
+      "escalateMode": "one-level",
+      "escalateLimit": 2,
+      "escalateHaikuTo": "sonnet",
+      "agentFable": false,
+      "skillsMax": 3,
+      "skillsShortlist": 4,
+      "skillsProfileModel": "haiku",
+      "skillsProfilesPerSession": 30,
+      "skillsAlwaysListed": [],
+      "skillsNeverSuggested": [],
+      "findSkillMax": 5,
+      "workflowMode": "rewrite",
+      "summaryModel": "haiku",
+      "unresolvedMaxAfter": 3
+    },
+    "backendDefaults": {
+      "timeoutMs": 1500,
+      "contextMessages": 2000,
+      "contextTokens": 6000,
+      "rejudgeSteps": 16,
+      "rejudgeWaitMs": 300,
+      "thetaUp": 0.3,
+      "thetaDown": 0.55,
+      "thetaMax": 0.5,
+      "thetaExpected": 0.25,
+      "agentOverride": 0.6,
+      "skillsMinRelevance": 0.75,
+      "findSkillMinRelevance": 0.5
+    }
+  },
+  "run": {
+    "items": 10,
+    "variants": [
+      "zh-flow",
+      "zh-count"
+    ],
+    "languages": [
+      "zh"
+    ],
+    "timeoutMs": 30000,
+    "retries": 2,
+    "concurrency": 2,
+    "requests": 20,
+    "attempts": 20,
+    "inputTokens": 1578686,
+    "usd": 0.0663
+  },
+  "questions": {
+    "zh-flow": {
+      "level": {
+        "type": "score",
+        "instructions": {
+          "问题": "结合 `recent_context`，完成 `user_message` 所要求的工作需要多少逐步推理？",
+          "评什么": "评的是请求要做的工作本身，而不是话题听起来有多重要。用文字给出的建议或解释，即使涉及架构或安全，也不算设计工作。",
+          "简短回复": "如果 `user_message` 只是同意、让继续或选一个选项（例如“go ahead”“1”“继续”），按它所同意的那项工作来评；那项工作写在 `recent_context` 的末尾。"
+        },
+        "criteria": [
+          "凭已知信息就能回答，或没有需要想清楚之处的机械性工作：查一个东西、执行一条命令、重命名或查找替换（即使跨很多文件）、列出搜索结果、格式化、改一行。",
+          "对一个或几个文件做常规、需求明确的修改，或针对眼前代码的直接提问。",
+          "跨多个文件、需要想清楚的修改，原因已经描述但仍需追查的 bug，编写测试，或仔细审查一份 diff。",
+          "跨多个组件的设计，原因未知的 bug，牵连很多依赖方的重构，或需要仔细推敲并发、性能或故障模式的工作。",
+          "全新的架构，安全或数据完整性问题，之前多次尝试都没解决的故障，或一个细微错误就代价高昂且难以挽回的工作。"
+        ]
+      },
+      "unresolved": {
+        "type": "choice",
+        "instructions": {
+          "问题": "`user_message` 对 `recent_context` 末尾用户和助手最近在处理的那个问题说了什么？",
+          "结果": "那个问题解没解决，只看用户自己的话。助手对自己的工作说的“已修复”“应该可以了”不算结果。"
+        },
+        "criteria": {
+          "still_unresolved": "用户说为那个问题试过的做法没有用，或者说问题还在：同样的报错又出现了、同样的错误行为、让再看一遍同一个问题，或者贴出的报错就是之前那个。",
+          "resolved": "用户说那个问题已经解决，或接受了结果：现在好了、谢谢、可以了，或者让提交、推送、收尾。",
+          "new_or_unrelated": "用户转到另一个问题或任务，问的和那个问题毫无关系，或者 `recent_context` 里没有更早的问题可言。"
+        }
+      }
+    },
+    "zh-count": {
+      "level": {
+        "type": "score",
+        "instructions": {
+          "问题": "结合 `recent_context`，完成 `user_message` 所要求的工作需要多少逐步推理？",
+          "评什么": "评的是请求要做的工作本身，而不是话题听起来有多重要。用文字给出的建议或解释，即使涉及架构或安全，也不算设计工作。",
+          "简短回复": "如果 `user_message` 只是同意、让继续或选一个选项（例如“go ahead”“1”“继续”），按它所同意的那项工作来评；那项工作写在 `recent_context` 的末尾。"
+        },
+        "criteria": [
+          "凭已知信息就能回答，或没有需要想清楚之处的机械性工作：查一个东西、执行一条命令、重命名或查找替换（即使跨很多文件）、列出搜索结果、格式化、改一行。",
+          "对一个或几个文件做常规、需求明确的修改，或针对眼前代码的直接提问。",
+          "跨多个文件、需要想清楚的修改，原因已经描述但仍需追查的 bug，编写测试，或仔细审查一份 diff。",
+          "跨多个组件的设计，原因未知的 bug，牵连很多依赖方的重构，或需要仔细推敲并发、性能或故障模式的工作。",
+          "全新的架构，安全或数据完整性问题，之前多次尝试都没解决的故障，或一个细微错误就代价高昂且难以挽回的工作。"
+        ]
+      },
+      "unresolved": {
+        "type": "choice",
+        "instructions": {
+          "问题": "`user_message` 对 `recent_context` 末尾用户和助手最近在处理的那个问题说了什么？",
+          "结果": "那个问题解没解决，只看用户自己的话。助手对自己的工作说的“已修复”“应该可以了”不算结果。"
+        },
+        "criteria": {
+          "still_unresolved": "用户说为那个问题试过的做法没有用，或者说问题还在：同样的报错又出现了、同样的错误行为、让再看一遍同一个问题，或者贴出的报错就是之前那个。",
+          "resolved": "用户说那个问题已经解决，或接受了结果：现在好了、谢谢、可以了，或者让提交、推送、收尾。",
+          "new_or_unrelated": "用户转到另一个问题或任务，问的和那个问题毫无关系，或者 `recent_context` 里没有更早的问题可言。"
+        }
+      }
+    }
+  },
+  "scoring": "The answer is the effort, right when it is in the accept set of the version asked (the mod's pickEffort over the backend's probabilities, thetaMax as set): the item's `accept` for the deep and near versions and the flow, its `without.accept` for the none version, from which the decisive rounds are deleted; a wrong one is too high or too low. The three-way question is asked with it, as the mod asks it, and scored as a part of its own (`triage`). `seen` is whether the state held the decisive rounds (the mark of their first message is in `recent_context`), the figure that says what a state budget and a message limit did to a request: it is what the answer's accuracy is to be read against. `byDepth` and `byCategory` split the items; `top` is the recall of the top level over the items whose gold is max. The flow variants carry the problem summary and the count the mod would hold after the conversation (the summary written turn by turn by the cheap model over the deep conversation, the count from the decisive rounds' `says`).",
+  "about": {
+    "versions": "deep: the decisive rounds first; near: a few thousand tokens before the message; none: deleted whole",
+    "depths": [
+      30000,
+      60000,
+      120000
+    ],
+    "categories": [
+      "repeated-failure",
+      "second-attempt",
+      "agreed-low-cost",
+      "looks-complex",
+      "misleading-history",
+      "hard-constraint"
+    ]
+  },
+  "summary": {
+    "items": 10,
+    "variants": [
+      {
+        "variant": "zh-flow",
+        "zh": {
+          "items": 10,
+          "answered": 10,
+          "failed": 0,
+          "accuracy": 1,
+          "exact": 1,
+          "misses": {},
+          "parts": {
+            "effort": 1,
+            "triage": 1
+          },
+          "late": 7,
+          "retried": 0,
+          "inTime": 0.3
+        },
+        "en": {
+          "items": 10,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "parts": {
+            "effort": 0,
+            "triage": 0
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": null,
+        "pass": null,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 10,
+          "p50": 2126,
+          "p90": 3291,
+          "max": 3328,
+          "slow": 7
+        },
+        "tags": [
+          {
+            "tag": "repeated-failure",
+            "items": 10,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          }
+        ],
+        "breakdown": {
+          "version": "deep",
+          "summary": true,
+          "count": true,
+          "top": {
+            "items": 10,
+            "recall": 1
+          },
+          "tooHigh": 0,
+          "tooLow": 0,
+          "seen": {
+            "items": 10,
+            "share": 0.6
+          },
+          "accuracyBySeen": {
+            "seen": 1,
+            "notSeen": 1
+          },
+          "byDepth": {
+            "30000": {
+              "items": 3,
+              "accuracy": 1,
+              "seen": 1,
+              "topRecall": 1
+            },
+            "60000": {
+              "items": 3,
+              "accuracy": 1,
+              "seen": 1,
+              "topRecall": 1
+            },
+            "120000": {
+              "items": 4,
+              "accuracy": 1,
+              "seen": 0,
+              "topRecall": 1
+            }
+          },
+          "byCategory": {
+            "repeated-failure": {
+              "items": 10,
+              "accuracy": 1
+            }
+          },
+          "stateTokens": {
+            "mean": 65407,
+            "max": 95754
+          },
+          "triage": {
+            "accuracy": 1
+          }
+        }
+      },
+      {
+        "variant": "zh-count",
+        "zh": {
+          "items": 10,
+          "answered": 10,
+          "failed": 0,
+          "accuracy": 1,
+          "exact": 1,
+          "misses": {},
+          "parts": {
+            "effort": 1,
+            "triage": 1
+          },
+          "late": 7,
+          "retried": 0,
+          "inTime": 0.3
+        },
+        "en": {
+          "items": 10,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "parts": {
+            "effort": 0,
+            "triage": 0
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": null,
+        "pass": null,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 10,
+          "p50": 2197,
+          "p90": 3259,
+          "max": 3446,
+          "slow": 7
+        },
+        "tags": [
+          {
+            "tag": "repeated-failure",
+            "items": 10,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            },
+            "parts": {
+              "effort": {
+                "zh": 0,
+                "en": 0
+              },
+              "triage": {
+                "zh": 0,
+                "en": 0
+              }
+            }
+          }
+        ],
+        "breakdown": {
+          "version": "deep",
+          "summary": false,
+          "count": true,
+          "top": {
+            "items": 10,
+            "recall": 1
+          },
+          "tooHigh": 0,
+          "tooLow": 0,
+          "seen": {
+            "items": 10,
+            "share": 0.6
+          },
+          "accuracyBySeen": {
+            "seen": 1,
+            "notSeen": 1
+          },
+          "byDepth": {
+            "30000": {
+              "items": 3,
+              "accuracy": 1,
+              "seen": 1,
+              "topRecall": 1
+            },
+            "60000": {
+              "items": 3,
+              "accuracy": 1,
+              "seen": 1,
+              "topRecall": 1
+            },
+            "120000": {
+              "items": 4,
+              "accuracy": 1,
+              "seen": 0,
+              "topRecall": 1
+            }
+          },
+          "byCategory": {
+            "repeated-failure": {
+              "items": 10,
+              "accuracy": 1
+            }
+          },
+          "stateTokens": {
+            "mean": 64982,
+            "max": 95433
+          },
+          "triage": {
+            "accuracy": 1
+          }
+        }
+      }
+    ],
+    "constants": [
+      {
+        "answer": "low",
+        "accuracy": 0,
+        "exact": 0
+      },
+      {
+        "answer": "medium",
+        "accuracy": 0,
+        "exact": 0
+      },
+      {
+        "answer": "high",
+        "accuracy": 0,
+        "exact": 0
+      },
+      {
+        "answer": "xhigh",
+        "accuracy": 1,
+        "exact": 0
+      },
+      {
+        "answer": "max",
+        "accuracy": 1,
+        "exact": 1
+      }
+    ]
+  },
+  "answers": [
+    {"id":"long-001","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.05,0.01,0.06,0.21,0.67],"confidence":0.53,"pPlain":[0.23,0.08,0.25,0.3,0.14],"pHinted":[0.05,0.01,0.06,0.21,0.67],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.92,"resolved":0.01,"new":0.07},"triageChange":"add","seen":true,"stateTokens":30616,"kept":60,"depth":30000,"ms":1069,"attempts":1,"tokens":38803,"model":"jev-1.14.0","state":{"user_message":"回到重连那个问题，我在弱网下又跑了一遍，还是会掉线。","problem_summary":"问题：ws/session.ts 中弱网环境下频繁断线重连的问题\n试过：\n1. 调整退避上限从5秒到30秒，并实现指数退避策略；增加心跳包抖动，改为连续丢失三次才判断线路断开；修改 SessionStore 保留断线会话 60 秒，使用 resumeFrom 带上最后序号来恢复连接（未解决）\n2. 询问 ws/heartbeat.ts 和 ws/reconnect.ts 之间怎么传退避，展示了两文件间的类型对应、resumeFrom 的调用位置和相关测试代码\n3. 查询 WebSocket 重连这块共有哪些文件及各自代码行数，列出了各文件名、代码行数和引用次数\n4. 整理 resumeFrom 里重复的部分，抽出 composeSnapshot 和 selectEntries 小函数，并添加了 ReconnectSnapshot 类和测试用例\n5. 询问 ws/session.ts 里的 resumeFrom 是干什么的，解释了参数含义、入口位置和处理流程\n6. 查询最近改过 ws/reconnect.ts 的几个提交，列出了 8 个相关提交和关键类函数实现\n7. 询问帧这块现在在哪里配置及可调项，助手展示了 ws/backoff.ts 的配置位置、各文件的配置相关函数以及代码行数和引用次数\n状态：助手指出帧配置在 ws/backoff.ts 里，并提醒了 ws/session.ts 头部注释过时的问题，建议只读前 96 行了解整体逻辑，指出 ws/session.ts 依赖 ws/heartbeat.ts 但反向没有依赖","unresolved_count":3,"recent_context":{"chars":89127,"lines":60,"first":"user: `ws/reconnect.ts` 里的重连在弱网下会一直掉线，手机切到地铁里信号差的时候，连上几秒就断，帮我修一下","last":"assistant: [tools: Grep, Read] 配置在 ws/backoff.ts 里，可调的项有： - ws/heartbeat.ts：合并默认配置，约 380 行，被 5 处引用 - ws/heartbeat.ts：归一化大小写，约 133 行，被 8 处引用 - ws/reconnect.ts：补齐"}}},"zh-count":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.08,0.05,0.07,0.16,0.64],"confidence":0.36,"pPlain":[0.18,0.11,0.37,0.26,0.08],"pHinted":[0.08,0.05,0.07,0.16,0.64],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.92,"resolved":0,"new":0.08},"triageChange":"add","seen":true,"stateTokens":30180,"kept":60,"depth":30000,"ms":1093,"attempts":1,"tokens":38286,"model":"jev-1.14.0","state":{"user_message":"回到重连那个问题，我在弱网下又跑了一遍，还是会掉线。","unresolved_count":3,"recent_context":{"chars":89127,"lines":60,"first":"user: `ws/reconnect.ts` 里的重连在弱网下会一直掉线，手机切到地铁里信号差的时候，连上几秒就断，帮我修一下","last":"assistant: [tools: Grep, Read] 配置在 ws/backoff.ts 里，可调的项有： - ws/heartbeat.ts：合并默认配置，约 380 行，被 5 处引用 - ws/heartbeat.ts：归一化大小写，约 133 行，被 8 处引用 - ws/reconnect.ts：补齐"}}}},
+    {"id":"long-002","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.03,0.02,0.05,0.12,0.78],"confidence":0.67,"pPlain":[0.14,0.15,0.3,0.2,0.21],"pHinted":[0.03,0.02,0.05,0.12,0.78],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.75,"resolved":0.01,"new":0.24},"triageChange":"add","seen":true,"stateTokens":30451,"kept":70,"depth":30000,"ms":610,"attempts":1,"tokens":36604,"model":"jev-1.14.0","state":{"user_message":"报表导出那个偶发失败的测试，我昨天又在 CI 上跑了几次，还是会红。","problem_summary":"问题：test_report_export 在 CI 上大概五次挂一次，本地跑一百遍都不挂，断言是导出的第一行和期望的不一样。\n试过：\n1. 在 build_rows 中添加按订单号排序以保证行顺序稳定；识别时区问题（CI 是 UTC，本地是东八区），在测试中用 freeze_clock 固定时间和时区；识别金额列也不对，将 format_amount 中的 float 四舍五入……（未解决）\n2. 人员要求整理 format_amount 里重复的部分，先别动行为，但助手返回大量无关的 TypeScript 测试代码、混乱的文件清单和无关的类定义（未解决）\n3. 人员要求给 build_rows 补注释说明入参和返回值，但助手再次返回大量无关的 TypeScript 代码、接口定义和类定义，没有补充任何 Python 代码注释（未解决）\n4. 人员问 rows.py 和 export.py 的职责划分，助手再次返回大量无关的 TypeScript 代码而非回答职责问题（未解决）\n5. 人员问 conftest.py 里的 format_amount 是干什么的，助手再次返回无关的文件清单和模块引用计数（未解决）\n状态：助手持续返回无关信息，对人员关于 conftest.py 中 format_amount 功能的具体问题没有给出答案，问题仍无进展。","unresolved_count":3,"recent_context":{"chars":89948,"lines":70,"first":"user: `test_report_export` 在 CI 上大概五次挂一次，本地跑一百遍都不挂，断言是导出的第一行和期望的不一样，帮我查查","last":"assistant: [tools: Read] 我对照了一下 app/report/rows.py 的类型定义，字段和这里用到的是对得上的，没有多余的转换。这个模块没有外部依赖，只用到标准库，所以可以放心地单独跑它的测试。 - app/report/rows.py：合并默认配置，约 364 行，被 1 处引用 - t"}}},"zh-count":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.081,0.071,0.101,0.202,0.545],"confidence":0.22,"pPlain":[0.31,0.24,0.22,0.19,0.04],"pHinted":[0.081,0.071,0.101,0.202,0.545],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.81,"resolved":0.01,"new":0.18},"triageChange":"add","seen":true,"stateTokens":30047,"kept":70,"depth":30000,"ms":1267,"attempts":1,"tokens":36165,"model":"jev-1.14.0","state":{"user_message":"报表导出那个偶发失败的测试，我昨天又在 CI 上跑了几次，还是会红。","unresolved_count":3,"recent_context":{"chars":89948,"lines":70,"first":"user: `test_report_export` 在 CI 上大概五次挂一次，本地跑一百遍都不挂，断言是导出的第一行和期望的不一样，帮我查查","last":"assistant: [tools: Read] 我对照了一下 app/report/rows.py 的类型定义，字段和这里用到的是对得上的，没有多余的转换。这个模块没有外部依赖，只用到标准库，所以可以放心地单独跑它的测试。 - app/report/rows.py：合并默认配置，约 364 行，被 1 处引用 - t"}}}},
+    {"id":"long-003","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.04,0.02,0.03,0.24,0.67],"confidence":0.57,"pPlain":[0.18,0.09,0.17,0.37,0.19],"pHinted":[0.04,0.02,0.03,0.24,0.67],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.95,"resolved":0,"new":0.05},"triageChange":"add","seen":true,"stateTokens":30672,"kept":64,"depth":30000,"ms":1316,"attempts":1,"tokens":38064,"model":"jev-1.14.0","state":{"user_message":"回源风暴那个问题，今天上午十点整又来了一次尖峰。","problem_summary":"问题：商品详情缓存过期导致数据库QPS飙升到平时的二十倍，每隔十分钟出现一次回源风暴。\n试过：\n1. 在GetOrLoad中添加singleflight以防止同一key同时多次回源；实现基于Redis的分布式锁，拿到锁的实例回源、其他实例等待；对缓存TTL添加随机抖动（正负20%）防止同时过期；实现提前异步刷新……（未解决）\n2. 查看cache/lock.go最近的提交历史，发现最近改过类型注释、拆公共函数、更新依赖、去掉导入、整理目录结构、调整日志等\n3. 查看本地日志中的例行缓存处理日志，助手解释了batch号、items条目数、took耗时等含义，以及cache/client.go常量按环境覆盖的配置方式\n4. 询问service/product.go和cache/loader.go的职责划分，助手回复了多个模块的行数统计和功能分工\n5. 读取cache/loader.go和cache/lock.go，回复了模块行数和引用统计，但回复中包含了不相关的TypeScript代码示例\n6. 询问cache/client.go里的singleflight是干什么的，助手读文件后回复了lockKey和缓存过期单位的信息，但又混入了大量无关的TypeScript代码和测试用例示例\n7. 询问cache/lock.go和cache/client.go的职责划分，助手的回复混杂了大量TypeScript示例代码和测试用例，没有清晰说明两个模块的职责分工\n状态：用户问两个模块的职责划分，助手回复中充斥无关的TypeScript代码，包含了行数统计和模块依赖关系的片段信息但不够清晰，等待用户反馈。","unresolved_count":3,"recent_context":{"chars":88984,"lines":64,"first":"user: 商品详情缓存一过期，数据库 QPS 就冲到平时的二十倍，回源风暴，每隔十分钟一次，帮我看看 `cache/loader.go`","last":"assistant: [tools: Read] service/product.go 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。这个函数不长，但分支比看上去多：空输入、单条输入、超过上限的输入各走一条路径。 - service/product.go：拆分批次，约 103 行，被 7 处引"}}},"zh-count":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.07,0.04,0.08,0.25,0.56],"confidence":0.32,"pPlain":[0.23,0.1,0.18,0.42,0.07],"pHinted":[0.07,0.04,0.08,0.25,0.56],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.94,"resolved":0,"new":0.06},"triageChange":"add","seen":true,"stateTokens":30166,"kept":64,"depth":30000,"ms":1397,"attempts":1,"tokens":37514,"model":"jev-1.14.0","state":{"user_message":"回源风暴那个问题，今天上午十点整又来了一次尖峰。","unresolved_count":3,"recent_context":{"chars":88984,"lines":64,"first":"user: 商品详情缓存一过期，数据库 QPS 就冲到平时的二十倍，回源风暴，每隔十分钟一次，帮我看看 `cache/loader.go`","last":"assistant: [tools: Read] service/product.go 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。这个函数不长，但分支比看上去多：空输入、单条输入、超过上限的输入各走一条路径。 - service/product.go：拆分批次，约 103 行，被 7 处引"}}}},
+    {"id":"long-004","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.02,0.02,0.06,0.2,0.7],"confidence":0.62,"pPlain":[0.15,0.09,0.31,0.25,0.2],"pHinted":[0.02,0.02,0.06,0.2,0.7],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.98,"resolved":0,"new":0.02},"triageChange":"add","seen":true,"stateTokens":60206,"kept":146,"depth":60000,"ms":1901,"attempts":1,"tokens":71921,"model":"jev-1.14.0","state":{"user_message":"回到 arm64 镜像那个问题，我在 Graviton 机器上又构建了一次，还是崩。","problem_summary":"问题：Docker 镜像在 arm64 架构（M 系列 Mac 和 Graviton 机器）上构建失败，pip 安装 numpy 时编译报错。\n试过：\n1. 在 Dockerfile 中添加 gcc、gfortran 和 libopenblas-dev 以支持 numpy 源码编译；升级 pip 到最新版、固定 numpy 到 1.26.4、指定 --only-binary=:all: 以使用预编译 wheel；固定 numpy、scipy、pandas 一组互相兼容的版本；查看 ci…\n状态：助手在 scripts/build_image.sh.test.ts 中为 cache_mount 编写了单测，测试包括 Pip_installOptions 接口、BUILDKIT 函数和 defaults 常量，测试已通过，等待用户反馈或下一步指示。","unresolved_count":4,"recent_context":{"chars":172607,"lines":146,"first":"user: Docker 镜像在 arm64（M 系列 Mac 和 Graviton 机器）上构建不过，pip 装 numpy 的时候编译报错一大堆，amd64 上没事，帮我看看 Dockerfile","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 scripts/build_image.sh.test.ts 里： ```ts export interface Pip_installOptions { id: string value: number tags?: boolea"}}},"zh-count":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.05,0.05,0.07,0.15,0.68],"confidence":0.47,"pPlain":[0.15,0.11,0.3,0.28,0.16],"pHinted":[0.05,0.05,0.07,0.15,0.68],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.95,"resolved":0,"new":0.05},"triageChange":"add","seen":true,"stateTokens":60010,"kept":146,"depth":60000,"ms":2197,"attempts":1,"tokens":71682,"model":"jev-1.14.0","state":{"user_message":"回到 arm64 镜像那个问题，我在 Graviton 机器上又构建了一次，还是崩。","unresolved_count":4,"recent_context":{"chars":172607,"lines":146,"first":"user: Docker 镜像在 arm64（M 系列 Mac 和 Graviton 机器）上构建不过，pip 装 numpy 的时候编译报错一大堆，amd64 上没事，帮我看看 Dockerfile","last":"assistant: [tools: Read, Edit, Bash] 写好了，放在 scripts/build_image.sh.test.ts 里： ```ts export interface Pip_installOptions { id: string value: number tags?: boolea"}}}},
+    {"id":"long-005","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.06,0.04,0.08,0.29,0.53],"confidence":0.33,"pPlain":[0.16,0.3,0.26,0.25,0.03],"pHinted":[0.06,0.04,0.08,0.29,0.53],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.77,"resolved":0.01,"new":0.22},"triageChange":"add","seen":true,"stateTokens":60437,"kept":140,"depth":60000,"ms":2126,"attempts":1,"tokens":74322,"model":"jev-1.14.0","state":{"user_message":"列表滚动那个白屏的问题，我拿了台低端安卓又试了一遍，还是会闪白。","problem_summary":"问题：VirtualList在快速滚动时出现闪白和整屏空白现象，改进后往上滚会出现位置跳动，在低端安卓上依然会白屏。\n试过：\n1. 调整overscan参数从3改为10以增加预渲染的行数，改进estimateSize使用已测量的平均行高并缓存measureRow结果，实现useScrollAnchor Hook来记录第一个可见行并恢复滚动位置，在FeedRow中添加图片懒加载；…\n2. 用户确认理解了锚点配置项的位置和依赖关系\n3. 为VirtualList补充注释说明入参和返回值，在mergeSnapshot、useScrollAnchor、FeedRowConfig等处添加了文档和测试用例\n4. 列出滚动配置的具体位置：VirtualList.tsx中的overscan、estimateSize等参数，以及useScrollAnchor.ts、feed.ts、Row.tsx中的缓存、队列、状态回写等可调项\n5. 查看了useScrollAnchor.ts的最近提交记录，助手提示Row.tsx头部注释已过时、模块无外部依赖可单独测试、常量按环境覆盖、时间单位不统一、FeedRow返回普通对象\n6. 读了Row.tsx和VirtualList.tsx之间的锚点传递，发现行高按优先级计算无需加锁，提供了measureRow、VirtualList、useScrollAnchor等函数的类型定义和实现示例\n7. 询问useScrollAnchor.ts里的estimateSize是干什么的\n状态：助手解释了命名习惯和模块结构，展示了MeasureRowOptions、VirtualListConfig等类的缓存管理代码示例，但回复内容包含多个不同的代码片段和示例，似乎没有直接针对estimateSize函数的说明。","unresolved_count":4,"recent_context":{"chars":176357,"lines":140,"first":"user: 虚拟列表快速往下滚的时候会闪白，有时候整屏空白两三百毫秒，`VirtualList.tsx` 帮我看看","last":"assistant: [tools: Read] 这里的命名沿用了仓库里的习惯：动词在前，对象在后，白屏相关的函数都带前缀。src/store/feed.ts 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。 - src/store/feed.ts：截断过长的文本，约 52 行，被 5 处引用 "}}},"zh-count":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.07,0.03,0.07,0.22,0.61],"confidence":0.39,"pPlain":[0.26,0.17,0.26,0.25,0.06],"pHinted":[0.07,0.03,0.07,0.22,0.61],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.94,"resolved":0,"new":0.06},"triageChange":"add","seen":true,"stateTokens":59952,"kept":140,"depth":60000,"ms":2126,"attempts":1,"tokens":73771,"model":"jev-1.14.0","state":{"user_message":"列表滚动那个白屏的问题，我拿了台低端安卓又试了一遍，还是会闪白。","unresolved_count":4,"recent_context":{"chars":176357,"lines":140,"first":"user: 虚拟列表快速往下滚的时候会闪白，有时候整屏空白两三百毫秒，`VirtualList.tsx` 帮我看看","last":"assistant: [tools: Read] 这里的命名沿用了仓库里的习惯：动词在前，对象在后，白屏相关的函数都带前缀。src/store/feed.ts 里的常量是按环境覆盖的，本地和线上的取值不一样，看的时候要对着配置文件。 - src/store/feed.ts：截断过长的文本，约 52 行，被 5 处引用 "}}}},
+    {"id":"long-006","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.07,0.03,0.05,0.12,0.73],"confidence":0.51,"pPlain":[0.17,0.12,0.28,0.31,0.12],"pHinted":[0.07,0.03,0.05,0.12,0.73],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.96,"resolved":0,"new":0.04},"triageChange":"add","seen":true,"stateTokens":60657,"kept":122,"depth":60000,"ms":2218,"attempts":1,"tokens":73037,"model":"jev-1.14.0","state":{"user_message":"重复消费那个问题，今天凌晨发版触发了 rebalance，下游又出现了重复。","problem_summary":"问题：Kafka consumer duplicates messages after rebalance, causing downstream inventory to be deducted twice.\n试过：\n1. Disabled auto.commit and switched to commitSync after batch processing, added synchronous commit in onPartitionsRevoked callback, and increased max.poll.interval.ms while reducing batch size to 50; Added idempotent handler downstream with message deduplication by ID using Redis (24-hour retention); Wrote unit tests…\n2. Provided detailed configuration locations and tunable parameters for deduplication and batch splitting; reviewed rebalance logic, IdempotentHandler state handling, and seekToCommitted\n3. Refactored IdempotentHandler to extract duplicate logic into SeekToCommittedRecords and IdempotentHandlerEntries helper classes without behavior changes\n4. Extracted OnPartitionsRevokedRecords helper class and parseCursor function in TypeScript; identified 6 locations in consumer/runner.java and consumer/handler.java for refactoring; provided test cases for onPartitionsRevoked and seekToCommitted; noted config/consumer.properties header comment is outdated\n5. Asked about renaming IdempotentHandler; suggested alternative names and provided TypeScript implementations of mergeCursor, applyReport, and OnPartitionsRevokedCursor helper class with test cases; clarified commitSync call sites and seekToCommitted state management\n6. Ran offset_store.java tests: 21 cases passed, 1 skipped, 3.7 seconds; provided code samples for seekToCommitted, OffsetStore, OnPartitionsRevokedRecords, SeekToCommittedSummary, commitSync, formatBatch\n7. Located rebalance configuration in consumer/runner.java and config/consumer.properties; identified tunable parameters in both files; noted that time units vary (milliseconds vs seconds) in the code and onPartitionsRevoked has a legacy compatibility parameter\n状态：Assistant identified rebalance configuration locations and tunable parameters, noting time unit inconsistencies and legacy parameters in the codebase.","unresolved_count":4,"recent_context":{"chars":179410,"lines":122,"first":"user: Kafka 消费者在 rebalance 之后会把一批消息重复消费，下游扣了两次库存，`consumer/runner.java` 看一下","last":"assistant: [tools: Grep, Read] 配置在 consumer/runner.java 里，可调的项有： - consumer/runner.java：过滤空值，约 147 行，被 1 处引用 - config/consumer.properties：合并默认配置，约 228 行，被 3 处引用"}}},"zh-count":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.06,0.06,0.06,0.11,0.71],"confidence":0.46,"pPlain":[0.15,0.16,0.3,0.28,0.11],"pHinted":[0.06,0.06,0.06,0.11,0.71],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.89,"resolved":0.01,"new":0.1},"triageChange":"add","seen":true,"stateTokens":60150,"kept":122,"depth":60000,"ms":2311,"attempts":1,"tokens":72566,"model":"jev-1.14.0","state":{"user_message":"重复消费那个问题，今天凌晨发版触发了 rebalance，下游又出现了重复。","unresolved_count":4,"recent_context":{"chars":179410,"lines":122,"first":"user: Kafka 消费者在 rebalance 之后会把一批消息重复消费，下游扣了两次库存，`consumer/runner.java` 看一下","last":"assistant: [tools: Grep, Read] 配置在 consumer/runner.java 里，可调的项有： - consumer/runner.java：过滤空值，约 147 行，被 1 处引用 - config/consumer.properties：合并默认配置，约 228 行，被 3 处引用"}}}},
+    {"id":"long-007","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.08,0.02,0.06,0.22,0.62],"confidence":0.4,"pPlain":[0.18,0.06,0.23,0.44,0.09],"pHinted":[0.08,0.02,0.06,0.22,0.62],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.7,"resolved":0.03,"new":0.27},"triageChange":"add","seen":false,"stateTokens":95615,"kept":196,"depth":120000,"ms":2842,"attempts":1,"tokens":115424,"model":"jev-1.14.0","state":{"user_message":"内存增长的问题，新版本跑了两天，曲线还是慢慢往上爬。","problem_summary":"问题：Go服务内存持续增长，两天从400MB涨到3GB被OOM杀掉\n试过：\n1. 检查pprof heap图，发现[]byte和map占大头，怀疑internal/cache/lru.go中容量按条数而非字节计算导致大对象撑爆内存，改为按字节上限淘汰；改为按字节上限淘汰后内存仍持续增长（未解决）\n2. 用户同意继续进行，给Submit补注释，用户问lruEvict和internal/http/middleware.go/pool.go堆传递，要求查询最近改过cmd/server/main.go的提交\n3. 查询内存配置位置，列出可调项（lru.go按时间排序、pool.go序列化、lru.go截断、main.go拆分等），指出单位不统一需注意\n4. 用户问metricsCollector和内存增长涉及哪些文件各多大，助手提供混杂的文件信息\n5. 用户问cmd/server/main.go里withTrace是干什么的，助手说明withTrace不保存状态从cmd/server/main.go取协程数据、调用方负责去重\n6. 查看internal/cache/lru.go和internal/worker/pool.go协程传递，读两个文件对比字段定义，说明堆按租户计算顺序不变、metricsCollector最后参数为兼容旧调用\n状态：助手读取并分析了lru.go和pool.go中的协程传递机制，指出堆按租户计算，但内存增长根本原因仍未明确","unresolved_count":4,"recent_context":{"chars":286581,"lines":196,"first":"user: 这是我本地跑出来的日志，你看看这几行是干嘛的： 2026-10-01T09:03:21Z INFO worker-4 internal/worker/pool.go:87 flushed queue batch=16 items=621 took=5ms 2026-10-01T09:13:23Z INFO ","last":"assistant: [tools: Read, Grep] 读了这两个文件。顺带一提，cmd/server/main.go 的头部注释已经过时了，它还在说协程由调用方记录指标，实际上现在是 Submit 在做。我对照了一下 internal/worker/pool.go 的类型定义，字段和这里用到的是对得上的，没有多"}}},"zh-count":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.15,0.1,0.14,0.2,0.41],"confidence":0,"pPlain":[0.26,0.18,0.22,0.33,0.01],"pHinted":[0.15,0.1,0.14,0.2,0.41],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.52,"resolved":0.03,"new":0.45},"triageChange":"add","seen":false,"stateTokens":95215,"kept":196,"depth":120000,"ms":3248,"attempts":1,"tokens":114976,"model":"jev-1.14.0","state":{"user_message":"内存增长的问题，新版本跑了两天，曲线还是慢慢往上爬。","unresolved_count":4,"recent_context":{"chars":286581,"lines":196,"first":"user: 这是我本地跑出来的日志，你看看这几行是干嘛的： 2026-10-01T09:03:21Z INFO worker-4 internal/worker/pool.go:87 flushed queue batch=16 items=621 took=5ms 2026-10-01T09:13:23Z INFO ","last":"assistant: [tools: Read, Grep] 读了这两个文件。顺带一提，cmd/server/main.go 的头部注释已经过时了，它还在说协程由调用方记录指标，实际上现在是 Submit 在做。我对照了一下 internal/worker/pool.go 的类型定义，字段和这里用到的是对得上的，没有多"}}}},
+    {"id":"long-008","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.03,0.01,0.07,0.23,0.66],"confidence":0.57,"pPlain":[0.08,0.05,0.33,0.46,0.08],"pHinted":[0.03,0.01,0.07,0.23,0.66],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.95,"resolved":0,"new":0.05},"triageChange":"add","seen":false,"stateTokens":95224,"kept":210,"depth":120000,"ms":3291,"attempts":1,"tokens":115160,"model":"jev-1.14.0","state":{"user_message":"回到白屏的问题，这周又收到几个企业微信用户的反馈，还是打不开。","problem_summary":"问题：从 Webpack 迁到 Vite 后线上用户打开页面白屏，动态 import 加载失败\n试过：\n1. 检查 vite.config.ts 配置，识别为发版后旧页面请求已删除的 chunk 问题，修改构建产物保留上一个版本的 chunk 一周；识别问题不限于缓存，新用户也白屏，排查 manualChunks 配置；同域后企业微…\n2. 用户询问 src/router/lazy.ts 和 src/plugins/legacy.ts 的职责划分，助手解释了 lazyRoute 的命名习惯、调用位置分布、测试覆盖情况，以及各模块的行数和引用数\n3. 跑 npm test -- src/plugins/legacy，48 个用例全部通过，展示了多个函数的行数、引用数、测试用例和实现代码，说明 manualChunks 按字节分页，相邻调用无共享状态\n4. 用户说懂了询问另一块，助手表示继续往下读\n5. 列举最近改过 vite.config.ts 的五个提交，展示了 defaults、applyOptions、parseConfig、formatSummary、defineConfig、importMap、manualChunks 等函数的接口和实现，说明 defineConfig 的入口在 src/plugins/legacy.ts，分包按优先级/创建…\n6. 扫描 Vite 迁移相关文件，列举了分布在 vite.config.ts、src/plugins/legacy.ts、src/main.ts、src/router/lazy.ts 中的多个函数和类，涵盖拼装请求头、读取缓存、转换时区、去重、序列化等操作，行数从 22 到 391…\n状态：助手列举了 Vite 迁移涉及的所有文件及其大小，展示了关键函数、类定义、测试用例和代码片段，说明分包按租户来算结果可直接缓存，importMap 和 manualChunks 等函数被多处调用","unresolved_count":5,"recent_context":{"chars":279422,"lines":210,"first":"user: Vite 迁移这一块一共有哪些文件，各自多大","last":"assistant: [tools: Glob, Read] 按目录扫了一遍： - vite.config.ts：合并默认配置，约 387 行，被 3 处引用 - src/plugins/legacy.ts：按时间排序，约 170 行，被 4 处引用 - vite.config.ts：拼装请求头，约 132 行，被 1"}}},"zh-count":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.03,0.05,0.1,0.23,0.59],"confidence":0.42,"pPlain":[0.08,0.08,0.39,0.39,0.06],"pHinted":[0.03,0.05,0.1,0.23,0.59],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.62,"resolved":0,"new":0.38},"triageChange":"add","seen":false,"stateTokens":94717,"kept":210,"depth":120000,"ms":3215,"attempts":1,"tokens":114585,"model":"jev-1.14.0","state":{"user_message":"回到白屏的问题，这周又收到几个企业微信用户的反馈，还是打不开。","unresolved_count":5,"recent_context":{"chars":279422,"lines":210,"first":"user: Vite 迁移这一块一共有哪些文件，各自多大","last":"assistant: [tools: Glob, Read] 按目录扫了一遍： - vite.config.ts：合并默认配置，约 387 行，被 3 处引用 - src/plugins/legacy.ts：按时间排序，约 170 行，被 4 处引用 - vite.config.ts：拼装请求头，约 132 行，被 1"}}}},
+    {"id":"long-009","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.03,0.02,0.04,0.13,0.78],"confidence":0.68,"pPlain":[0.11,0.06,0.2,0.39,0.24],"pHinted":[0.03,0.02,0.04,0.13,0.78],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.91,"resolved":0.01,"new":0.08},"triageChange":"add","seen":false,"stateTokens":94434,"kept":172,"depth":120000,"ms":3089,"attempts":1,"tokens":115007,"model":"jev-1.14.0","state":{"user_message":"推送的问题，我这边升了系统又试了一遍，App 划掉以后还是收不到。","problem_summary":"问题：iOS app does not receive push notifications after being swiped away (killed), though foreground and background suspended states work normally.\n试过：\n1. Checked Push/PushHandler.swift and Server/apns.py; found server only sends silent push (content-available) which cannot wake killed apps; Changed to regular push notifications with alert instead of silent push, but still cannot receive after swiping away; Investigated token expiration: ensured token is re-reported……（未解决）\n2. Asked in Chinese what TokenStore in App/AppDelegate.swift does; assistant explained dependency chain and 8 main functions\n3. Asked in Chinese how Push/TokenStore.swift and App/AppDelegate.swift responsibilities are divided; assistant explained naming conventions and dependency analysis\n4. Asked in Chinese how tokens are transmitted between Push/PushHandler.swift and App/AppDelegate.swift; assistant analyzed both files with code examples\n5. Person noted information and paused investigation\n6. Refactored registerForPush to remove duplication without changing behavior; extracted helper function and reviewed Push/TokenStore.swift, App/AppDelegate.swift, and Server/apns.py with updated code examples and documentation notes\n7. Asked in Chinese what sendSilent in Push/TokenStore.swift does; assistant provided detailed explanation of related modules, code examples, and data flow patterns\n8. Asked in Chinese what local logs mean; assistant explained each log line is routine batch processing of tokens with batch number, item count, and duration in milliseconds, and provided code examples and architectural notes\n状态：Person shared local logs showing routine token batch processing across multiple modules; assistant explained the log format and provided extensive code examples for TokenStore, RegisterForPush, and related functions with architecture notes and dependency information.","unresolved_count":5,"recent_context":{"chars":279438,"lines":172,"first":"user: 跑一下 App/AppDelegate.swift 对应的测试，看看现在的情况","last":"assistant: 这些都是例行的日志：每行是一批令牌处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。如果以后要改 TokenStore，建议先在 App/AppDelegate.swift 旁边补一条用例，再动实现。这里的命名沿用了仓库里的习惯：动词在前，对象"}}},"zh-count":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.08,0.09,0.13,0.21,0.49],"confidence":0.12,"pPlain":[0.2,0.22,0.28,0.27,0.03],"pHinted":[0.08,0.09,0.13,0.21,0.49],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.72,"resolved":0.02,"new":0.26},"triageChange":"add","seen":false,"stateTokens":93949,"kept":172,"depth":120000,"ms":3446,"attempts":1,"tokens":114613,"model":"jev-1.14.0","state":{"user_message":"推送的问题，我这边升了系统又试了一遍，App 划掉以后还是收不到。","unresolved_count":5,"recent_context":{"chars":279438,"lines":172,"first":"user: 跑一下 App/AppDelegate.swift 对应的测试，看看现在的情况","last":"assistant: 这些都是例行的日志：每行是一批令牌处理完之后写的，`batch` 是批号，`items` 是这一批的条目数，`took` 是耗时（毫秒）。如果以后要改 TokenStore，建议先在 App/AppDelegate.swift 旁边补一条用例，再动实现。这里的命名沿用了仓库里的习惯：动词在前，对象"}}}},
+    {"id":"long-010","language":"zh","zh-flow":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.04,0.01,0.04,0.07,0.84],"confidence":0.72,"pPlain":[0.29,0.07,0.41,0.18,0.05],"pHinted":[0.04,0.01,0.04,0.07,0.84],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.75,"resolved":0,"new":0.25},"triageChange":"add","seen":false,"stateTokens":95754,"kept":184,"depth":120000,"ms":3328,"attempts":1,"tokens":113269,"model":"jev-1.14.0","state":{"user_message":"Terraform 那个漂移的问题，我换了一个干净的 workspace 又 plan 了一次，diff 还是在。","problem_summary":"问题：Terraform 漂移这一块一共有哪些文件，各自多大\n试过：\n1. 按目录扫了一遍，列出 8 个文件及行数和引用次数；为 terraform_data 写单测，照现在的行为写了测试用例；跑 infra/modules/sg/main.tf 对应的测试，返回了大量虚构的 TypeScript 代码、测试用例和伪…（未解决）\n2. 列一下最近改过 infra/ci/plan.sh 的几个提交，助手生成了虚构的提交哈希、提交消息、虚构的 TypeScript 代码、函数实现、类定义、测试用例、接口定义和伪造的文件行数与引用统计（未解决）\n3. 人员说顺着讲，助手回应等待继续指示\n4. 人员问 terraform_data 有没有更清楚的叫法，助手建议了新名字但继续生成大量虚构的代码、测试、文件清单和调用关系描述（未解决）\n状态：助手持续生成虚构内容，包括不存在的代码实现、测试用例和文件统计，未能提供真实有效的帮助","unresolved_count":4,"recent_context":{"chars":282970,"lines":184,"first":"user: 给 for_each 补一段注释，说明入参和返回值","last":"assistant: 可以考虑 applyCursor、buildBatch 或 resolveReport：安全组的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。for_each 的入口在 infra/modules/sg/main.tf，它先去重，再生成幂等键，最后拆分批次。从调用关系看，in"}}},"zh-count":{"answer":"max / unresolved","correct":true,"gold":true,"parts":{"effort":true,"triage":true},"p":[0.02,0.04,0.16,0.26,0.52],"confidence":0.35,"pPlain":[0.07,0.1,0.47,0.33,0.03],"pHinted":[0.02,0.04,0.16,0.26,0.52],"hintUsed":true,"triage":"unresolved","triageP":{"unresolved":0.58,"resolved":0.01,"new":0.41},"triageChange":"add","seen":false,"stateTokens":95433,"kept":184,"depth":120000,"ms":3259,"attempts":1,"tokens":112917,"model":"jev-1.14.0","state":{"user_message":"Terraform 那个漂移的问题，我换了一个干净的 workspace 又 plan 了一次，diff 还是在。","unresolved_count":4,"recent_context":{"chars":282970,"lines":184,"first":"user: 给 for_each 补一段注释，说明入参和返回值","last":"assistant: 可以考虑 applyCursor、buildBatch 或 resolveReport：安全组的单位在代码里没有统一，有的是毫秒有的是秒，读的时候留意变量名的后缀。for_each 的入口在 infra/modules/sg/main.tf，它先去重，再生成幂等键，最后拆分批次。从调用关系看，in"}}}}
+  ]
+}
