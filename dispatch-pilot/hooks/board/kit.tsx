@@ -5,9 +5,11 @@
 // hook's file); nothing here reads the board.
 //
 // Colours: one accent (the theme's `claude`), the theme's semantic keys for
-// state, so light and dark terminals both read; hex only for the effort ramp,
-// the four model chips (a light tint with dark ink on it, its own background)
-// and the four model inks, mid tones that hold on either background.
+// state, so light and dark terminals both read; hex only where a colour must
+// be a fixed one: the effort ramp (the meter's tick borrows two of its stops),
+// the four model chips (a light tint with dark ink on it, its own background),
+// the four model inks (mid tones that hold on either background), and the
+// greys of a Raster (the ribbon's track, what a finished bar softens toward).
 
 import type { Elements, RenderNode } from 'claude-code'
 import { EFFORTS, type Effort } from '../decision/effort.ts'
@@ -51,7 +53,7 @@ export const MODEL_BG: Record<Model, string> = {
   opus: '#D5A5F0',
   fable: '#F2C078',
 }
-export const MODEL_INK = '#14171C'
+const MODEL_INK = '#14171C'
 /** A model's name written as text, in its chip's hue: deep enough for a light terminal, light enough for a dark one (contrast 3.7 or more on white and on #1E1E1E). */
 export const MODEL_FG: Record<Model, string> = {
   haiku: '#1F8A9A',
@@ -82,7 +84,7 @@ export function showsText(node: RenderNode, engine: boolean): boolean {
 
 // ---- cell widths --------------------------------------------------------------
 
-/** The cells one code point takes on the terminal: CJK and fullwidth two, combining marks none. */
+/** The cells one code point takes on the terminal: CJK (extension B and later too), emoji and fullwidth two, combining marks none. */
 function cells(cp: number): number {
   if (cp < 0x20) return 0
   if (cp < 0x300) return 1
@@ -99,7 +101,10 @@ function cells(cp: number): number {
     (cp >= 0xf900 && cp <= 0xfaff) ||
     (cp >= 0xfe30 && cp <= 0xfe6f) ||
     (cp >= 0xff00 && cp <= 0xff60) ||
-    (cp >= 0xffe0 && cp <= 0xffe6)
+    (cp >= 0xffe0 && cp <= 0xffe6) ||
+    (cp >= 0x1f300 && cp <= 0x1f64f) ||
+    (cp >= 0x1f900 && cp <= 0x1f9ff) ||
+    (cp >= 0x20000 && cp <= 0x3fffd)
   )
     return 2
   return 1
@@ -128,7 +133,7 @@ export function fit(text: string, w: number): string {
 }
 
 /** The text fitted to `w` cells and padded on the right to fill them. */
-export function padRight(text: string, w: number): string {
+function padRight(text: string, w: number): string {
   const cut = fit(text, w)
   return cut + ' '.repeat(Math.max(0, w - width(cut)))
 }
@@ -150,6 +155,11 @@ export function pct(p: number): string {
   return p < 0.005 ? '.00' : p >= 0.995 ? '1.0' : p.toFixed(2).slice(1)
 }
 
+/** `pct` of a rule step's field, which is typed loosely: `?` where it is not a number. */
+export function pctText(value: unknown): string {
+  return typeof value === 'number' ? pct(value) : '?'
+}
+
 // ---- parts ------------------------------------------------------------------
 
 /** A model chip, 8 cells: the model's tint with dark ink; not routed, the engine's model in amber with a star. */
@@ -165,7 +175,7 @@ export function chip(t: TT, model: Model | undefined, routed: boolean) {
 }
 
 /** Five pips, as many filled as the level is high, in the level's colour: ▰▰▰▱▱. */
-export function pips(t: TT, effort: Effort) {
+function pips(t: TT, effort: Effort) {
   const { Text } = t
   const n = EFFORTS.indexOf(effort) + 1
   return (
@@ -178,18 +188,51 @@ export function pips(t: TT, effort: Effort) {
 
 /**
  * The effort as it went out, `w` cells: pips and the level's name in its colour; an integer budget as the engine
- * sent it; none (a model without effort) a dash.
+ * sent it; none (a model without effort) a dash. Under 6 cells (a narrow band) the pips alone.
  */
 export function effortTag(t: TT, effort: Effort | number | undefined, w = 12) {
   const { Text } = t
-  if (effort === undefined) return <Text color={MUTED}>{padRight('▱▱▱▱▱ —', w)}</Text>
-  if (typeof effort === 'number') return <Text color={MUTED}>{padRight(`▱▱▱▱▱ ${effort}`, w)}</Text>
+  const word = w > 5
+  if (effort === undefined) return <Text color={MUTED}>{padRight(word ? '▱▱▱▱▱ —' : '▱▱▱▱▱', w)}</Text>
+  if (typeof effort === 'number') return <Text color={MUTED}>{padRight(word ? `▱▱▱▱▱ ${effort}` : '▱▱▱▱▱', w)}</Text>
   return (
     <Text>
       {pips(t, effort)}
-      <Text color={EFFORT_COLOR[effort]} bold>
-        {padRight(` ${effort}`, Math.max(0, w - 5))}
-      </Text>
+      {word ? (
+        <Text color={EFFORT_COLOR[effort]} bold>
+          {padRight(` ${effort}`, w - 5)}
+        </Text>
+      ) : null}
+    </Text>
+  )
+}
+
+/** `opus·xhigh`: the model in its tint, the effort in the colour of `level` (grey when it is none); both amber when not routed. `bold` as the band draws it, not the footer. */
+export function readout(t: TT, model: Model | undefined, effort: string | number | undefined, level: Effort | undefined, routed: boolean, bold = true) {
+  const { Text } = t
+  const weight = bold ? { bold } : {}
+  return (
+    <Text>
+      {model === undefined ? null : <Text color={routed ? MODEL_FG[model] : WARN} {...weight}>{model}</Text>}
+      {model !== undefined && effort !== undefined ? <Text color={MUTED}>·</Text> : null}
+      {effort === undefined ? null : <Text color={!routed ? WARN : level === undefined ? MUTED : EFFORT_COLOR[level]} {...weight}>{String(effort)}</Text>}
+    </Text>
+  )
+}
+
+/** The skills of a decision: those suggested with their relevance, then those for the person to try (「可试 /x」). */
+export function skillsText(t: TT, skills: { suggest: readonly { name: string; relevance: number }[]; try: readonly { name: string }[] }) {
+  const { Text } = t
+  return (
+    <Text>
+      {skills.suggest.map((skill, i) => (
+        <Text>
+          {i > 0 ? <Text color={MUTED}>{' · '}</Text> : null}
+          {skill.name}
+          <Text color={OK}>{` ${pct(skill.relevance)}`}</Text>
+        </Text>
+      ))}
+      {skills.try.length === 0 ? null : <Text color={SKILL} bold>{`${skills.suggest.length > 0 ? '  ' : ''}可试 ${skills.try.map((skill) => `/${skill.name}`).join(' ')}`}</Text>}
     </Text>
   )
 }
@@ -222,7 +265,7 @@ function base64(bytes: readonly number[]): string {
 }
 
 /** The terminal's own colour, in a Raster cell. */
-export const DEFAULT = 0x01000000
+const DEFAULT = 0x01000000
 
 /** `#rrggbb` as the number a Raster cell takes. */
 export function rgb(hex: string): number {
@@ -230,10 +273,10 @@ export function rgb(hex: string): number {
 }
 
 /** One cell of a Raster: its glyph (one width-1 character), foreground, background. */
-export type RasterCell = [string, number, number]
+type RasterCell = [string, number, number]
 
 /** Cells, row by row, as the base64 of little-endian u32 triplets a Raster takes. */
-export function packCells(cells: readonly RasterCell[]): string {
+function packCells(cells: readonly RasterCell[]): string {
   const bytes: number[] = []
   const push = (v: number) => bytes.push(v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255)
   for (const [glyph, fg, bg] of cells) {
@@ -244,12 +287,15 @@ export function packCells(cells: readonly RasterCell[]): string {
   return base64(bytes)
 }
 
+/** Two colours mixed, `f` of the way from `a` to `b`. */
+function mix(a: number, b: number, f: number): number {
+  const ch = (shift: number) => Math.round(((a >> shift) & 255) * (1 - f) + ((b >> shift) & 255) * f)
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0)
+}
+
 /** A colour pulled toward grey: a finished agent's bar. */
 export function soft(hex: string): number {
-  const x = rgb(hex)
-  const grey = 0x9aa0a6
-  const mix = (shift: number) => Math.round(((x >> shift) & 255) * 0.45 + ((grey >> shift) & 255) * 0.55)
-  return (mix(16) << 16) | (mix(8) << 8) | mix(0)
+  return mix(rgb(hex), 0x9aa0a6, 0.55)
 }
 
 /** `soft`, as the `#rrggbb` a Text's colour takes: a level not picked. */
@@ -257,8 +303,9 @@ export function softColor(hex: string): string {
   return `#${soft(hex).toString(16).padStart(6, '0')}`
 }
 
-/** The ribbon's empty track. */
-const TRACK = rgb('#8A9099')
+/** The ribbon's empty track, and the bar of an agent with neither an effort nor a model. */
+export const TRACK_HEX = '#8A9099'
+const TRACK = rgb(TRACK_HEX)
 /** The left eighths, for where a bar ends inside a cell. */
 const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
 
@@ -288,14 +335,8 @@ export function ribbonCells(from: number, to: number | null, span: number, colum
   return packCells(out)
 }
 
-/** Two colours mixed, `f` of the way from `a` to `b`. */
-function mix(a: number, b: number, f: number): number {
-  const ch = (shift: number) => Math.round(((a >> shift) & 255) * (1 - f) + ((b >> shift) & 255) * f)
-  return (ch(16) << 16) | (ch(8) << 8) | ch(0)
-}
-
 /** The effort ramp's colour at `f` in 0..1, between its five stops. */
-export function rampAt(f: number): number {
+function rampAt(f: number): number {
   const stops = EFFORTS.map((level) => rgb(EFFORT_COLOR[level]))
   const x = Math.max(0, Math.min(1, f)) * (stops.length - 1)
   const i = Math.min(stops.length - 2, Math.floor(x))
@@ -336,8 +377,8 @@ export function stackCells(probs: Record<Effort, number>, picked: Effort | undef
 }
 
 /** The tick's colours: past the line, short of it. */
-const PASSED = rgb('#2BAE9C')
-const SHORT = rgb('#D1A21F')
+const PASSED = rgb(EFFORT_COLOR.medium)
+const SHORT = rgb(EFFORT_COLOR.high)
 
 /**
  * A confidence meter, `columns` cells: filled to `conf` along the ramp's cool half, a thin track beyond, and a tick

@@ -10,6 +10,7 @@
 // value means yes, `criteria.true` is yes. The mod and the eval build it with
 // `stuckRequest` (spec #67).
 
+import { withoutReminders } from './context.ts'
 import { DEFAULT_ASK, EFFORTS, higherEffort, traceEffort, type Effort, type EffortAsk, type EffortReading, type EffortRules, type EffortStep, type Language } from './effort.ts'
 import { midturnEffortPart, midturnState, outcomeOf, resultLine, toolDetail, type MidturnInput, type MidturnLimits, type MidturnStep, type MidturnTool, type Outcome } from './midturn.ts'
 import { mergeParts, type Answer, type DecisionRequest, type Part, type Question } from './system-one.ts'
@@ -136,7 +137,7 @@ export type TranscriptRow = {
 
 /** A row's words without what the engine wraps in <system-reminder> (not something anyone said). */
 function unwrapped(text: string): string {
-  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, ' ').trim()
+  return withoutReminders(text).trim()
 }
 
 /** The task an agent was given: the first thing said to it in its transcript ('' when there is none). */

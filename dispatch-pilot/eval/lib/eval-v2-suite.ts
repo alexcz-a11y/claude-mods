@@ -20,12 +20,12 @@ import { turnStartPart } from '../../hooks/decision/turn-start.ts'
 import { givesHint } from '../../hooks/decision/unresolved.ts'
 import { BIN_NAMES, RELATIONS, V2_CATEGORIES, type FinalGold, type V2Record } from './eval-v2.ts'
 import { conversationPrint, type FlowFile } from './eval-v2-flow.ts'
-import { TRIAGES, type Triage, type UnresolvedAsked } from './datasets.ts'
+import type { UnresolvedAsked } from './datasets.ts'
 import { gradeEffort } from './effort-submit.ts'
-import { rate, type VariantSummary } from './metrics.ts'
+import { percentText, share, type VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
 import { variantIn, type Grade, type Settings, type Suite } from './suite.ts'
-import { askedRequest, askUnresolved, TRIAGE_OF, type UnresolvedPrediction } from './unresolved.ts'
+import { askedRequest, askUnresolved, confusion, RIGHT_CHANGE, THETAS, TRIAGE_OF, type UnresolvedPrediction } from './unresolved.ts'
 
 export type { FinalGold } from './eval-v2.ts'
 
@@ -42,9 +42,9 @@ export function v2Item(record: V2Record, gold: FinalGold): V2EvalItem {
  * the three-way question is asked beside the effort question (`unresolved`: the mod asks it with the switch on; with the
  * switch off, the default since #48, it asks the effort question alone).
  */
-type Variant = { ask: EffortAsk; flow: boolean; unresolved: boolean }
+type V2Variant = { ask: EffortAsk; flow: boolean; unresolved: boolean }
 
-export const V2_VARIANTS: Readonly<Record<string, Variant>> = {
+export const V2_VARIANTS: Readonly<Record<string, V2Variant>> = {
   'zh-score': { ask: { language: 'zh', primitive: 'score' }, flow: false, unresolved: true },
   'en-score': { ask: { language: 'en', primitive: 'score' }, flow: false, unresolved: true },
   // The mod's request with the switch off: the effort question alone (a flow's count and summary need the switch, so no flow variant of it).
@@ -147,19 +147,8 @@ export function evalV2Suite(flow?: FlowFile): Suite<V2EvalItem, UnresolvedPredic
 
 type Figure = number | null
 
-/** `count` of `of`, null when there is nothing to count over. */
-function share(count: number, of: number): Figure {
-  return of === 0 ? null : rate(count, of)
-}
-
-/** The thresholds for max the figures are given at besides the run's own. */
-const THETAS = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
-
-/** What each judged change to the count should be, by the gold of the message: one more for a problem still unresolved, a clear for the rest. */
-const RIGHT_CHANGE: Readonly<Record<Triage, string>> = { unresolved: 'add', resolved: 'reset', new: 'reset' }
-
 /** The suite's own figures for one variant. */
-function breakdownOf(items: readonly V2EvalItem[], rows: readonly Row<UnresolvedPrediction>[], variant: Variant, settings: Settings): Record<string, unknown> {
+function breakdownOf(items: readonly V2EvalItem[], rows: readonly Row<UnresolvedPrediction>[], variant: V2Variant, settings: Settings): Record<string, unknown> {
   const rowOf = new Map(rows.filter((row) => row.language === 'zh').map((row) => [row.id, row]))
   const effortOf = (item: V2EvalItem, theta?: number): Effort | null => {
     const row = rowOf.get(item.id)
@@ -248,20 +237,6 @@ function breakdownOf(items: readonly V2EvalItem[], rows: readonly Row<Unresolved
   }
 }
 
-/** How often each answer of the three-way question was given for each gold: `{ resolved: { unresolved: 1 } }`; only what happened. */
-function confusion(items: readonly V2EvalItem[], said: (item: V2EvalItem) => Triage | null, gold: (item: V2EvalItem) => Triage): Record<string, Record<string, number>> {
-  const table: Record<string, Record<string, number>> = {}
-  for (const answer of TRIAGES) {
-    for (const item of items.filter((one) => gold(one) === answer)) {
-      const given = said(item)
-      if (given === null) continue
-      const row = (table[answer] ??= {})
-      row[given] = (row[given] ?? 0) + 1
-    }
-  }
-  return table
-}
-
 type GroupFigures = { items: number; accuracy: Figure; exact: Figure; tooHigh: Figure; tooLow: Figure; top: number; topRecall: Figure; triage: Figure }
 
 /** Lines about one variant, after the figures every suite gets. */
@@ -270,7 +245,7 @@ function reportOf(summary: VariantSummary): string[] {
     | { top: { items: number; recall: Figure; falseMax: Figure }; tooHigh: Figure; tooLow: Figure; byBin: Record<string, GroupFigures>; byRelation: Record<string, GroupFigures>; byBinRelation: Record<string, GroupFigures>; triage: { accuracy: Figure; change: { lostRecord: Figure; falseAdd: Figure } } | null; seen: { all: Figure; any: Figure }; withoutDecisive: { items: number; share: Figure }; stateTokens: { mean: number | null; max: number | null }; carried: { items: number; counted: number; hinted: number; summarized: number } | null }
     | undefined
   if (b === undefined) return []
-  const pct = (figure: Figure) => (figure === null ? '-' : `${(figure * 100).toFixed(1)}%`)
+  const pct = percentText
   const line = (name: string, g: GroupFigures) => `${summary.variant}: ${name}, ${g.items} items: accuracy ${pct(g.accuracy)}, exact ${pct(g.exact)}, too high ${pct(g.tooHigh)}, too low ${pct(g.tooLow)}, max recall ${pct(g.topRecall)} of ${g.top}, triage ${pct(g.triage)}`
   return [
     `${summary.variant}: max recall ${pct(b.top.recall)} over ${b.top.items} items whose gold is max, max where it is not accepted ${pct(b.top.falseMax)}; too high ${pct(b.tooHigh)}, too low ${pct(b.tooLow)}${b.triage === null ? '' : `; three-way question right ${pct(b.triage.accuracy)}, count lost ${pct(b.triage.change.lostRecord)}, added wrongly ${pct(b.triage.change.falseAdd)}`}`,

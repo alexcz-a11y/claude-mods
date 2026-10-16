@@ -5,6 +5,7 @@
 // the world's sips cuts and enlarges, and a test reads the arguments it ran with and the images in the request.
 
 import { expect, test } from 'claude-code/testing'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { readFake } from './support/images.ts'
 import { box, zoomBackend } from './support/zoom.ts'
 import { world } from './support/world.ts'
@@ -126,7 +127,7 @@ test('the second request has a Noul for each pair of crops, with the two crops i
   await w.visualCheck({ images: [SHOT], reference: [DESIGN], checks: [BUTTON, { part: 'the title', property: 'font weight' }] })
 
   const second = w.requests[1]?.body
-  expect(second.model).toBe('jev-1.14.0')
+  expect(second.model).toBe(JEV_MODEL)
   expect(w.requests[1]?.headers['TypeSafe-Danger-Zone-Images']).toBe('true')
   expect(Object.keys(second.questions)).toEqual(['zoom.0.0', 'zoom.1.0'])
   const reference = (name: string): string => Object.keys(second.assets).find((key) => key.endsWith(`-${name}`)) as string

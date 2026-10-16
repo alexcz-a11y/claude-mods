@@ -9,14 +9,14 @@ import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { frameTimes, WHOLE_RECORDING } from '../hooks/decision/visual-check-frames.ts'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
 import { type VisualCheckItem, visualCheckSuite } from '../eval/lib/visual-check.ts'
 import { askThrough, comparable, evalJev, evalPplx, imageHost } from './support/eval-images.ts'
 import { ffmpeg, readFake } from './support/images.ts'
-import { jev, pplx, world } from './support/world.ts'
+import { jev, KEY, pplx, world } from './support/world.ts'
 import { box, zoomBackend } from './support/zoom.ts'
 
-const JEV = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 const PPLX = { decisionModel: 'pplx', perplexityApiKey: 'pplx-test-key' }
 
 const frame = (n: number): string => `anim/spring-${String(n).padStart(2, '0')}.png`
@@ -70,8 +70,8 @@ async function bothAsk($: Engine, on: On, item: VisualCheckItem, input: Record<s
   return { w, sent, decided, ran: host.ran }
 }
 
-test("with Jev, an item compared with a reference is asked as the mod asks a call: the checks and the Box questions in the first request, one Noul for each pair of crops in the second", { options: JEV }, async ($, on) => {
-  const { w, sent, decided } = await bothAsk($, on, UI, { images: ['/set/ui/c1.png'], reference: ['/set/ui/ref.png'], checks: [BUTTON, TAB_BAR] }, JEV, ZOOMING)
+test("with Jev, an item compared with a reference is asked as the mod asks a call: the checks and the Box questions in the first request, one Noul for each pair of crops in the second", { options: KEY }, async ($, on) => {
+  const { w, sent, decided } = await bothAsk($, on, UI, { images: ['/set/ui/c1.png'], reference: ['/set/ui/ref.png'], checks: [BUTTON, TAB_BAR] }, KEY, ZOOMING)
 
   expect(decided.ok).toBe(true)
   // Two requests each, and each pair is the same on the wire: the URL, the headers (the key and the images header), the body (the pinned model, the state, the assets, the questions).
@@ -79,7 +79,7 @@ test("with Jev, an item compared with a reference is asked as the mod asks a cal
   expect(sent.map((request) => comparable(request))).toEqual(w.requests.map((request) => comparable(request)))
   // What they hold, so that the equality is not of two empty things.
   const [first, second] = sent
-  expect(first?.body.model).toBe('jev-1.14.0')
+  expect(first?.body.model).toBe(JEV_MODEL)
   expect(first?.headers['TypeSafe-Danger-Zone-Images']).toBe('true')
   expect(Object.keys(first?.body.assets)).toHaveLength(2)
   expect(Object.keys(first?.body.questions)).toEqual(['check.0', 'check.1', 'box.0.candidate', 'box.0.reference', 'box.1.candidate', 'box.1.reference', 'where.screen'])
@@ -90,17 +90,17 @@ test("with Jev, an item compared with a reference is asked as the mod asks a cal
   for (const label of crops) expect(label).toMatch(/^\/set\/ui\/(c1|ref)\.png > crop \d+x\d+\+\d+\+\d+ > fit /)
 })
 
-test('the same for a render of the sea against its reference, three checks, three pairs of crops', { options: JEV }, async ($, on) => {
+test('the same for a render of the sea against its reference, three checks, three pairs of crops', { options: KEY }, async ($, on) => {
   const sea = [{ part: 'the waves', property: 'height' }, { part: 'the white foam on the wave crests', property: 'amount' }, { part: 'the fog over the water', property: 'density' }]
-  const { w, sent, decided } = await bothAsk($, on, SEA, { images: ['/set/sea/big.png'], reference: ['/set/sea/ref.png'], checks: sea }, JEV, ZOOMING)
+  const { w, sent, decided } = await bothAsk($, on, SEA, { images: ['/set/sea/big.png'], reference: ['/set/sea/ref.png'], checks: sea }, KEY, ZOOMING)
 
   expect(decided.ok).toBe(true)
   expect(sent.map((request) => comparable(request))).toEqual(w.requests.map((request) => comparable(request)))
   expect(Object.keys(sent[1]?.body.questions)).toEqual(['zoom.0.0', 'zoom.1.0', 'zoom.2.0'])
 })
 
-test("the `whole` variant is the mod's first request without the Box questions, and no second", { options: JEV }, async ($, on) => {
-  const { w, sent, decided } = await bothAsk($, on, UI, { images: ['/set/ui/c1.png'], reference: ['/set/ui/ref.png'], checks: [BUTTON, TAB_BAR] }, JEV, ZOOMING, 'whole')
+test("the `whole` variant is the mod's first request without the Box questions, and no second", { options: KEY }, async ($, on) => {
+  const { w, sent, decided } = await bothAsk($, on, UI, { images: ['/set/ui/c1.png'], reference: ['/set/ui/ref.png'], checks: [BUTTON, TAB_BAR] }, KEY, ZOOMING, 'whole')
 
   expect(decided.ok).toBe(true)
   expect(sent).toHaveLength(1)
@@ -134,13 +134,13 @@ const ANIM = (): VisualCheckItem => {
   return { ...base, id: 'anim-spring', kind: 'anim', asked: { frames: TIMES.times.map((seconds, i) => ({ file: frame(i), seconds })), spec: SPEC, checks: CARD }, gold: { holds: [false, true] } }
 }
 
-test('a motion is its 12 frames in one request against its spec, as the mod asks a recording; only the pictures differ (the mod cuts JPEGs with ffmpeg, the dataset has PNG files)', { options: JEV }, async ($, on) => {
+test('a motion is its 12 frames in one request against its spec, as the mod asks a recording; only the pictures differ (the mod cuts JPEGs with ffmpeg, the dataset has PNG files)', { options: KEY }, async ($, on) => {
   const reply = jev([0, 1, 0, 0, 0], { nouls: { 'check.0': 0.1, 'check.1': 0.95 } })
   const w = world($, on, { session: true, files: FILES, process: { programs: { ffmpeg: ffmpeg({ '/rec/card.mov': { seconds: 0.55, width: 400, height: 400 } }) } }, backend: reply })
   await w.start()
   await w.visualCheck({ images: ['/rec/card.mov'], spec: SPEC, checks: CARD })
   const { ask, sent } = askThrough(evalJev('ts-test-key'), reply)
-  const decided = await visualCheckSuite(imageHost(FILES).host).decide(ANIM(), 'zh', 'mod', ask, settingsFrom(JEV as never))
+  const decided = await visualCheckSuite(imageHost(FILES).host).decide(ANIM(), 'zh', 'mod', ask, settingsFrom(KEY as never))
 
   expect(decided.ok).toBe(true)
   expect(w.requests).toHaveLength(1)
@@ -170,12 +170,12 @@ test("with pplx a motion is 8 of its frames, spread evenly through the 12, the f
 
 // ---- A group of reference images --------------------------------------------------------------------------------------------
 
-test('a group of reference images is read as the mod reads the images a person pastes: one Score question of five levels, the images in the state', { options: JEV, }, async ($, on) => {
+test('a group of reference images is read as the mod reads the images a person pastes: one Score question of five levels, the images in the state', { options: KEY, }, async ($, on) => {
   const reply = jev([0, 1, 0, 0, 0], { scores: { 'complexity.level': [0.87, 0.11, 0.02, 0, 0] } })
   const w = world($, on, { switches: { 'image-routing': true }, files: FILES, process: true, backend: reply })
   await w.submit('Build this cube', { images: ['/set/effort/cube-0.png', '/set/effort/cube-1.png'].map((path) => ({ path, shown: { format: 'png' as const, width: 640, height: 480, label: 'pasted' } })) })
   const { ask, sent } = askThrough(evalJev('ts-test-key'), reply)
-  const decided = await visualCheckSuite(imageHost(FILES).host).decide(REFERENCES, 'zh', 'mod', ask, settingsFrom(JEV as never))
+  const decided = await visualCheckSuite(imageHost(FILES).host).decide(REFERENCES, 'zh', 'mod', ask, settingsFrom(KEY as never))
 
   // The mod's first request is the reading, the second its effort question; the suite asks only the reading.
   expect(decided).toMatchObject({ ok: true, prediction: { kind: 'level', level: 0 } })

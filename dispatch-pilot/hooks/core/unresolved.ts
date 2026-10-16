@@ -58,7 +58,7 @@ function oneMore(current: UnresolvedState | undefined): UnresolvedState {
 /** The count before and after a change (a change that leaves it as it was is not written); a clear takes the summary too. */
 export async function moveCount(cell: CountCell, change: UnresolvedJudgement['change']): Promise<{ before: number; count: number }> {
   if (change === 'keep') {
-    const count = (await cell.get()).value?.count ?? 0
+    const count = await keptCount(cell)
     return { before: count, count }
   }
   const { before, after } = await replace(cell, (current) => (change === 'add' ? oneMore(current) : { count: countAfter(current?.count ?? 0, change) }))
@@ -94,13 +94,21 @@ export async function summaryFor(cell: CountCell, turn: string): Promise<{ wante
   return { wanted: state?.writing?.includes(turn) === true, previous: state?.summary ?? null }
 }
 
+/** `state` with the turns still being written and the turn owed a mark set as given; each is left out of it when there is none. */
+function withWriting(state: UnresolvedState, writing: readonly string[], owed: string | undefined): UnresolvedState {
+  const next: UnresolvedState = { ...state }
+  delete next.writing
+  delete next.owed
+  if (writing.length > 0) next.writing = [...writing]
+  if (owed !== undefined) next.owed = owed
+  return next
+}
+
 /** A write of `turn`'s summary ended without a summary (or is no longer wanted): it is off the list, and nothing is owed to it. */
 export async function dropSummary(cell: CountCell, turn: string): Promise<void> {
   await update(cell, (current) => {
     if (current === undefined) return { count: 0 }
-    const { writing, owed, ...rest } = current
-    const left = (writing ?? []).filter((queued) => queued !== turn)
-    return { ...rest, ...(left.length === 0 ? {} : { writing: left }), ...(owed === undefined || owed === turn ? {} : { owed }) }
+    return withWriting(current, (current.writing ?? []).filter((queued) => queued !== turn), current.owed === turn ? undefined : current.owed)
   })
 }
 
@@ -111,9 +119,8 @@ export async function dropSummary(cell: CountCell, turn: string): Promise<void> 
 export async function landSummary(cell: CountCell, turn: string, summary: Summary): Promise<boolean> {
   const { before } = await replace(cell, (current) => {
     if (current === undefined || current.writing?.includes(turn) !== true) return current ?? { count: 0 }
-    const { writing, owed, ...rest } = current
-    const left = writing.filter((queued) => queued !== turn)
-    return { ...rest, summary: { ...(owed === turn ? markLast(summary) : summary), turn }, ...(left.length === 0 ? {} : { writing: left }), ...(owed === undefined || owed === turn ? {} : { owed }) }
+    const { writing, owed } = current
+    return withWriting({ ...current, summary: { ...(owed === turn ? markLast(summary) : summary), turn } }, writing.filter((queued) => queued !== turn), owed === turn ? undefined : owed)
   })
   return before?.writing?.includes(turn) === true
 }
@@ -125,9 +132,8 @@ export async function lostSummaries(cell: CountCell, running: ReadonlySet<string
   if (lost.length === 0) return []
   await update(cell, (current) => {
     if (current?.writing === undefined) return current ?? { count: 0 }
-    const { writing, owed, ...rest } = current
-    const left = writing.filter((turn) => running.has(turn))
-    return { ...rest, ...(left.length === 0 ? {} : { writing: left }), ...(owed !== undefined && !lost.includes(owed) ? { owed } : {}) }
+    const { writing, owed } = current
+    return withWriting(current, writing.filter((turn) => running.has(turn)), owed !== undefined && lost.includes(owed) ? undefined : owed)
   })
   return lost
 }

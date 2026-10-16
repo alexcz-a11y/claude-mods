@@ -198,8 +198,9 @@ export function attachmentsOf(zoomed: ZoomOutcome): { crops: Attachment[]; elsew
   ])
   const place = zoomed.elsewhere
   if (place === null) return { crops, elsewhere: null }
-  const cropped = place.candidate !== null && place.other !== null
-  if (place.candidate !== null && place.other !== null) crops.push({ label: cropLabel({ place: true }, 'your screenshot'), picture: place.candidate }, { label: cropLabel({ place: true }, 'the image it is compared with'), picture: place.other })
+  const { candidate, other } = place
+  const cropped = candidate !== null && other !== null
+  if (cropped) crops.push({ label: cropLabel({ place: true }, 'your screenshot'), picture: candidate }, { label: cropLabel({ place: true }, 'the image it is compared with'), picture: other })
   return { crops, elsewhere: { box: place.place.box, confidence: place.place.confidence, cropped } }
 }
 

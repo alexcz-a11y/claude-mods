@@ -22,7 +22,7 @@ test('the main agent, a dispatched agent and Workflow agents each get a row: the
   await w.workflow({ script: SCRIPT })
   w.started('wf_test-1', 'wa1', 'review-auth')
   w.started('wf_test-1', 'wa2', 'review-billing')
-  await w.agentStep('wa1', { index: 0, model: 'claude-haiku-5-5', effort: null })
+  await w.agentStep('wa1', { index: 0, model: 'claude-haiku-4-5', effort: null })
   await w.agentStep('wa2', { index: 0, model: 'claude-opus-5-5', effort: 'high' })
 
   const board = await w.board()
@@ -56,11 +56,11 @@ test("a loop nobody launched (an engine fork) is not an agent of the board; one 
   const w = runWorld($, on, {})
   await w.submit('改个错别字')
   await w.step({ index: 0 })
-  await w.agentStep('fork-1', { index: 0, model: 'claude-haiku-5-5', effort: null })
+  await w.agentStep('fork-1', { index: 0, model: 'claude-haiku-4-5', effort: null })
   expect((await w.board()).agents).toEqual([])
 
   w.agents.push({ id: 'fork-1', description: '总结上下文', type: 'general-purpose', status: 'running' })
-  await w.agentStep('fork-1', { index: 1, model: 'claude-haiku-5-5', effort: null })
+  await w.agentStep('fork-1', { index: 1, model: 'claude-haiku-4-5', effort: null })
   expect((await w.board()).agents).toMatchObject([{ id: 'fork-1', name: '总结上下文', model: 'haiku' }])
 })
 
@@ -71,7 +71,7 @@ test("a loop nobody knows is not looked up again at every step: its journals onc
   w.started('wf_test-1', 'wa1', 'review-auth')
   const journal = (runId: string) => `${runDir(runId)}/journal.jsonl`
   const fork = async () => (await w.board()).agents.filter((node) => node.id === 'fork-1')
-  for (const index of [0, 1, 2, 3, 4, 5, 6, 7]) await w.agentStep('fork-1', { index, model: 'claude-haiku-5-5', effort: null })
+  for (const index of [0, 1, 2, 3, 4, 5, 6, 7]) await w.agentStep('fork-1', { index, model: 'claude-haiku-4-5', effort: null })
   expect(await fork()).toEqual([])
   expect(w.looked.files.filter((path) => path === journal('wf_test-1'))).toHaveLength(1)
   // The roster at the loop's 1st, 2nd, 4th and 8th step: an agent it lists late is still found.
@@ -81,9 +81,20 @@ test("a loop nobody knows is not looked up again at every step: its journals onc
   // meta.json there says it is, so the run's journal is not read).
   await w.workflow({ script: SCRIPT })
   w.started('wf_test-2', 'fork-1', 'late-label')
-  await w.agentStep('fork-1', { index: 8, model: 'claude-haiku-5-5', effort: null })
+  await w.agentStep('fork-1', { index: 8, model: 'claude-haiku-4-5', effort: null })
   expect(w.looked.files.filter((path) => path.startsWith(`${runDir('wf_test-2')}/`))).toEqual([`${runDir('wf_test-2')}/agent-fork-1.meta.json`])
   expect(await fork()).toMatchObject([{ id: 'fork-1', kind: 'wf', name: 'late-label' }])
+})
+
+test("a Workflow agent whose meta.json names no description is found by the journal's started line instead", async ($, on) => {
+  const w = runWorld($, on, {})
+  await w.submit('跑一个 workflow')
+  await w.workflow({ script: SCRIPT })
+  w.started('wf_test-1', 'wa1', 'review-auth')
+  w.disk[`${runDir('wf_test-1')}/agent-wa1.meta.json`] = JSON.stringify({ agentType: 'workflow-subagent', spawnDepth: 1 })
+  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'low' })
+
+  expect((await w.board()).agents).toMatchObject([{ id: 'wa1', kind: 'wf', name: 'review-auth', model: 'sonnet' }])
 })
 
 test("a Workflow agent whose run is not yet recorded when it starts is found by a later step, and starts when it first stepped", async ($, on) => {
@@ -162,8 +173,8 @@ test('a step with no effort (the engine sent it none) is read as it is: no effor
   const w = runWorld($, on, {})
   await w.submit('开一个 agent')
   w.agents.push({ id: 'a1', description: 'one', type: 'Explore', status: 'running' })
-  await w.agentStep('a1', { index: 0, model: 'claude-haiku-5-5', effort: null })
-  await w.agentStep('a1', { index: 1, model: 'claude-haiku-5-5', effort: null })
+  await w.agentStep('a1', { index: 0, model: 'claude-haiku-4-5', effort: null })
+  await w.agentStep('a1', { index: 1, model: 'claude-haiku-4-5', effort: null })
   const haiku = (await w.board()).agents[0]
   expect(haiku).toMatchObject({ model: 'haiku', state: 'running' })
   expect(haiku?.effort).toBeUndefined()
@@ -190,13 +201,13 @@ test('the readings change nothing a step goes out with: an agent nobody routed, 
   await w.submit('开几个 agent')
   w.agents.push({ id: 'a1', description: 'one', type: 'Explore', status: 'running' })
   await w.agentStep('a1', { index: 0, model: 'claude-sonnet-5', effort: 'medium' })
-  await w.agentStep('a1', { index: 1, model: 'claude-haiku-5-5', effort: null })
+  await w.agentStep('a1', { index: 1, model: 'claude-haiku-4-5', effort: null })
   await w.agentStep('stranger', { index: 0, model: 'claude-opus-5-5', effort: 'max' })
   await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 8000 })
 
   expect(w.steps.map((step) => [step.agentId, step.model, step.effort])).toEqual([
     ['a1', 'claude-sonnet-5', 'medium'],
-    ['a1', 'claude-haiku-5-5', undefined],
+    ['a1', 'claude-haiku-4-5', undefined],
     ['stranger', 'claude-opus-5-5', 'max'],
     ['wa1', 'claude-sonnet-5-5', 8000],
   ])

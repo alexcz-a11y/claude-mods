@@ -6,16 +6,15 @@
 import type { SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import type { BackendIo } from '../hooks/decision/backend.ts'
-import { EFFORTS } from '../hooks/decision/effort.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import { renderSummary, SUMMARY_SYSTEM } from '../hooks/decision/summary.ts'
 import type { V2Record, V2Turn } from '../eval/lib/eval-v2.ts'
 import { flowItem, type FlowItem } from '../eval/lib/eval-v2-flow.ts'
 import { askRetrying } from '../eval/lib/runner.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
-import { world, type Sent } from './support/world.ts'
-
-type Reply = { status: number; body: unknown }
+import { transcript } from './support/conversation.ts'
+import { answers as answersOf, type Reply } from './support/eval-network.ts'
+import { UNRESOLVED_ON, world, type Sent } from './support/world.ts'
 
 const STILL = { still_unresolved: 0.8, resolved: 0.05, new_or_unrelated: 0.15 }
 const ELSEWHERE = { still_unresolved: 0.05, resolved: 0.1, new_or_unrelated: 0.85 }
@@ -23,14 +22,7 @@ const UNSURE = { still_unresolved: 0.3, resolved: 0.4, new_or_unrelated: 0.3 }
 const HIGH = [0, 0.1, 0.8, 0.1, 0]
 
 /** A Jev answer to the effort question (`p` on the levels) and to the three-way question (`triage`), for a request body. */
-function answers(body: any, triage: Record<string, number>, p: readonly number[] = HIGH): Reply {
-  const out: Record<string, unknown> = {}
-  for (const [id, question] of Object.entries(body.questions as Record<string, { type: string }>)) {
-    if (id === 'effort.level') out[id] = { type: 'score', probabilities: Object.fromEntries(EFFORTS.map((_, i) => [String(i), p[i] ?? 0])), confidence: 0.5, score: 0 }
-    else out[id] = { type: question.type, probabilities: triage, confidence: 0.5, choice: '' }
-  }
-  return { status: 200, body: { model: 'jev-1.13.0', answers: out, usage: { input_tokens: 700 } } }
-}
+const answers = (body: any, triage: Record<string, number>, p: readonly number[] = HIGH): Reply => answersOf(body, p, triage)
 
 /** The conversation: a lead round, the decisive rounds (a problem raised, then said to be unresolved), a middle round, the message. */
 const TURNS: V2Turn[] = [
@@ -204,15 +196,10 @@ test('the bars can be set: at an add bar of 0.25 an unsure answer adds one', asy
   expect(item.messages.map((m) => m.change)).toEqual(['reset', 'reset', 'add', 'add', 'add'])
 })
 
-/** A conversation's turns as the engine's transcript holds them. */
-function transcript(turns: readonly V2Turn[]): SessionMessage[] {
-  return turns.map((turn) => ({ role: turn.role, text: turn.text, toolUses: (turn.tools ?? []).map((tool, i) => ({ tool_use_id: `toolu_${i}`, tool, input: {} })) }))
-}
-
 test('the mod living the same conversation sends the same request at every message, asks the cheap model the same prompts, and holds the same count and summary at the last message', { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
   let shown: SessionMessage[] = []
   const w = world($, on, {
-    switches: { unresolved: true },
+    switches: UNRESOLVED_ON,
     backend: (request: Sent) => answers(request.body, READS[msgOf(request.body.state.user_message)] ?? UNSURE),
     model: (_request, n) => ({ text: REPLIES[n - 1] ?? '' }),
     messages: () => shown,

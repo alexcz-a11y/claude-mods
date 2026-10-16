@@ -2,7 +2,8 @@
 // An item is a question with the rounds that decide its answer far back in a long conversation (`datasets.ts`
 // LongContextItem, built by `long-conversation.ts`), asked as the mod asks a message's effort question (the effort
 // part `turnStartPart` builds, over the state `messageRequest` builds), at the state budget and with the number of
-// messages the run's settings give (`--state-tokens`, `--state-messages`; the mod's own are 24000 and 32).
+// messages the run's settings give (`--state-tokens`, `--state-messages`; the mod's own are the decision model's
+// `contextByKind.messagePlain` and `contextMessagesMax`, core/setup.ts BACKEND_DEFAULTS).
 //
 // Variants, `<question language>-score-<version>`: the conversation as `deep` (the decisive rounds `depth` tokens back),
 // `near` (control a: the same rounds a few thousand tokens back) or `none` (control b: deleted whole, scored against the
@@ -23,7 +24,7 @@ import { turnStartPart } from '../../hooks/decision/turn-start.ts'
 import { CATEGORIES, DEPTHS, type LongContextItem } from './datasets.ts'
 import { gradeEffort } from './effort-submit.ts'
 import { conversationOf, decisiveMark, fingerprint, unresolvedCount, type Version } from './long-conversation.ts'
-import { rate, type VariantSummary } from './metrics.ts'
+import { percentText, share, type VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
 import { askUnresolved, askedRequest, type UnresolvedPrediction } from './unresolved.ts'
 import { variantIn, type Grade, type Settings, type Suite } from './suite.ts'
@@ -32,9 +33,9 @@ import { variantIn, type Grade, type Settings, type Suite } from './suite.ts'
  * How a variant asks: the language of the questions, which version of the conversation, and what of the mod's flow comes with it:
  * the problem summary, the count of times the person said it is unresolved (with the strong hint it makes from `unresolvedMaxAfter`).
  */
-type Variant = { ask: EffortAsk; version: Version; summary: boolean; count: boolean }
+type LongVariant = { ask: EffortAsk; version: Version; summary: boolean; count: boolean }
 
-export const LONG_CONTEXT_VARIANTS: Readonly<Record<string, Variant>> = Object.fromEntries([
+export const LONG_CONTEXT_VARIANTS: Readonly<Record<string, LongVariant>> = Object.fromEntries([
   ...(['zh', 'en'] as const).flatMap((language) => (['deep', 'near', 'none'] as const).map((version) => [`${language}-score-${version}`, { ask: { language, primitive: 'score' }, version, summary: false, count: false }] as const)),
   // The flow as the mod lives it, then each of its halves on its own (the deep conversation in all three).
   ...(['zh', 'en'] as const).flatMap((language) =>
@@ -65,7 +66,7 @@ export type SummaryFile = { about?: Record<string, unknown>; items: Record<strin
 export type LongPrediction = UnresolvedPrediction & { version: Version }
 
 /** The answer that is right for a version of the question: with the decisive rounds in it, or without them. */
-export function answerOf(item: LongContextItem, version: Version): { gold: Effort; accept: readonly Effort[] } {
+export function answerFor(item: LongContextItem, version: Version): { gold: Effort; accept: readonly Effort[] } {
   return version === 'none' ? item.without : item
 }
 
@@ -107,7 +108,7 @@ export function longContextSuite(summaries: SummaryFile | undefined): Suite<Long
       return { ok: true, prediction: { ...decided.prediction, version: variant.version }, detail }
     },
     grade(item, prediction): Grade {
-      const effort = gradeEffort({ gold: answerOf(item, prediction.version).gold, accept: answerOf(item, prediction.version).accept }, prediction.effort)
+      const effort = gradeEffort({ gold: answerFor(item, prediction.version).gold, accept: answerFor(item, prediction.version).accept }, prediction.effort)
       return prediction.triage === null ? effort : { ...effort, parts: { effort: effort.correct, triage: prediction.triage === item.triage } }
     },
     show: (prediction) => (prediction.triage === null ? prediction.effort : `${prediction.effort} / ${prediction.triage}`),
@@ -128,18 +129,13 @@ export function longContextSuite(summaries: SummaryFile | undefined): Suite<Long
 
 type Figure = number | null
 
-/** `count` of `of`, null when there is nothing to count over. */
-function share(count: number, of: number): Figure {
-  return of === 0 ? null : rate(count, of)
-}
-
 /** The suite's own figures for one variant. */
-function breakdownOf(items: readonly LongContextItem[], rows: readonly Row<LongPrediction>[], variant: Variant): Record<string, unknown> {
+function breakdownOf(items: readonly LongContextItem[], rows: readonly Row<LongPrediction>[], variant: LongVariant): Record<string, unknown> {
   const rowOf = new Map(rows.filter((row) => row.language === 'zh').map((row) => [row.id, row]))
   const right = (item: LongContextItem) => rowOf.get(item.id)?.correct === true
   const seenOf = (item: LongContextItem) => rowOf.get(item.id)?.detail?.seen
   const accuracy = (group: readonly LongContextItem[]) => share(group.filter(right).length, group.length)
-  const needsTop = items.filter((item) => answerOf(item, variant.version).gold === 'max')
+  const needsTop = items.filter((item) => answerFor(item, variant.version).gold === 'max')
   const missed = (way: string) => share(items.filter((item) => rowOf.get(item.id)?.miss === way).length, items.length)
   const countable = items.filter((item) => typeof seenOf(item) === 'boolean')
   const seen = countable.filter((item) => seenOf(item) === true)
@@ -147,7 +143,7 @@ function breakdownOf(items: readonly LongContextItem[], rows: readonly Row<LongP
     DEPTHS.map((depth) => {
       const group = items.filter((item) => item.depth === depth)
       const groupSeen = group.filter((item) => typeof seenOf(item) === 'boolean')
-      return [String(depth), { items: group.length, accuracy: accuracy(group), seen: share(groupSeen.filter((item) => seenOf(item) === true).length, groupSeen.length), topRecall: share(group.filter((item) => answerOf(item, variant.version).gold === 'max' && rowOf.get(item.id)?.prediction?.effort === 'max').length, group.filter((item) => answerOf(item, variant.version).gold === 'max').length) }]
+      return [String(depth), { items: group.length, accuracy: accuracy(group), seen: share(groupSeen.filter((item) => seenOf(item) === true).length, groupSeen.length), topRecall: share(group.filter((item) => answerFor(item, variant.version).gold === 'max' && rowOf.get(item.id)?.prediction?.effort === 'max').length, group.filter((item) => answerFor(item, variant.version).gold === 'max').length) }]
     }),
   )
   const byCategory = Object.fromEntries(
@@ -178,7 +174,7 @@ function breakdownOf(items: readonly LongContextItem[], rows: readonly Row<LongP
 function reportOf(summary: VariantSummary): string[] {
   const b = summary.breakdown as { top: { items: number; recall: Figure }; tooHigh: Figure; tooLow: Figure; seen: { items: number; share: Figure }; accuracyBySeen: { seen: Figure; notSeen: Figure }; byDepth: Record<string, { items: number; accuracy: Figure; seen: Figure; topRecall: Figure }>; stateTokens: { mean: number | null; max: number | null }; triage: { accuracy: Figure } | null } | undefined
   if (b === undefined) return []
-  const pct = (figure: Figure) => (figure === null ? '-' : `${(figure * 100).toFixed(1)}%`)
+  const pct = percentText
   return [
     `${summary.variant}: state held the decisive rounds in ${pct(b.seen.share)} of ${b.seen.items} answers; right when held ${pct(b.accuracyBySeen.seen)}, when not ${pct(b.accuracyBySeen.notSeen)}; state ${b.stateTokens.mean ?? '-'} tokens on average, ${b.stateTokens.max ?? '-'} at most`,
     `${summary.variant}: top level recall ${pct(b.top.recall)} over ${b.top.items} items whose gold is max; too high ${pct(b.tooHigh)}, too low ${pct(b.tooLow)}${b.triage === null ? '' : `; three-way question right ${pct(b.triage.accuracy)}`}`,

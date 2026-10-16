@@ -4,16 +4,17 @@
 // world), and it suggests and hints what the mod would from the same answers.
 
 import { expect, test } from 'claude-code/testing'
-import type { PluginOptions, SessionMessage } from 'claude-code'
+import type { PluginOptions } from 'claude-code'
 import { profileKey } from '../hooks/core/profiles.ts'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
-import type { SkillProfile } from '../hooks/decision/skills.ts'
-import type { ContextEntry, SkillItem } from '../eval/lib/datasets.ts'
+import type { SkillItem } from '../eval/lib/datasets.ts'
 import { summarize } from '../eval/lib/metrics.ts'
 import { runSuite } from '../eval/lib/runner.ts'
 import { skillSuite } from '../eval/lib/skill.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
+import { transcriptWithResults } from './support/conversation.ts'
+import { profileOf } from './support/skill-profiles.ts'
 import { isSecondSkillsRequest, rates, world, type Reply, type Sent, type SkillsWorld } from './support/world.ts'
 
 const TDD_DESCRIPTION = 'Test-driven development. Use when the user wants to build features or fix bugs test-first.'
@@ -69,14 +70,6 @@ async function read(path: string): Promise<string> {
   return text
 }
 
-/** A profile whose every field names its skill. */
-function profileOf(name: string): SkillProfile {
-  return {
-    en: { what: `${name}: what it does`, use_when: `${name}: when to use it`, not_for: `${name}: when not to` },
-    zh: { what: `${name}：用途`, use_when: `${name}：何时用`, not_for: `${name}：何时不用` },
-  }
-}
-
 /** Each skill's profile under the key the mod files it by in its store (written by haiku from its SKILL.md, or from its description without one). */
 const STORE: Record<string, unknown> = Object.fromEntries(
   [
@@ -117,23 +110,6 @@ const ITEM: SkillItem = {
 }
 
 /**
- * The transcript `$.session.messages()` gives for a conversation the dataset
- * writes as `recent_context`: an assistant reply's tool calls carry their
- * input and output, and each call's result comes back on a user row of its
- * own with no text (Claude Code 2.1.289).
- */
-function transcript(context: readonly ContextEntry[]): SessionMessage[] {
-  return context.flatMap((entry, i): SessionMessage[] => {
-    const tools = entry.tools ?? []
-    const uses = tools.map((tool, j) => ({ tool_use_id: `toolu_${i}_${j}`, tool, input: { file_path: '/repo/secret.ts' }, text: 'FILE CONTENT that never travels' }))
-    const row: SessionMessage = { role: entry.role, text: entry.text, toolUses: uses }
-    if (uses.length === 0) return [row]
-    const results: SessionMessage = { role: 'user', text: '', toolUses: [], toolResults: uses.map((use) => ({ tool_use_id: use.tool_use_id, text: use.text, isError: false })) }
-    return [row, results]
-  })
-}
-
-/**
  * Jev's own client (jevBackend) over a fake network that answers as the
  * world's backend answers the mod (`answer`); every request body it carried
  * is kept, as it went out.
@@ -159,7 +135,7 @@ const ANSWER = rates({ tdd: 0.55, 'code-review': 0.2, 'grill-me': 0.15, run: 0.0
 
 for (const language of ['zh', 'en'] as const) {
   test(`the eval asks about an item what the mod asks when the person sends its message after its conversation, in both stages, each skill offered by its profile (${language})`, { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
-    const w = world($, on, { backend: ANSWER, skills: SKILLS, disk: DISK, store: STORE, messages: transcript(ITEM[language].recent_context) })
+    const w = world($, on, { backend: ANSWER, skills: SKILLS, disk: DISK, store: STORE, messages: transcriptWithResults(ITEM[language].recent_context) })
     await w.submit(ITEM[language].message)
 
     const suite = await skillSuite({ catalog: CATALOG, profiles: PROFILES, read })
@@ -199,7 +175,7 @@ const PICKS: { options: PluginOptions; suggest: string[]; tried: string[]; shown
 
 for (const { options, suggest, tried, shown } of PICKS) {
   test(`from the same answers the eval suggests and hints what the mod does, under the person's options (${JSON.stringify(options)})`, { options: { decisionModel: 'jev', typesafeApiKey: 'k', ...options } }, async ($, on) => {
-    const w = world($, on, { backend: ANSWER, skills: SKILLS, disk: DISK, store: STORE, messages: transcript(ITEM.zh.recent_context) })
+    const w = world($, on, { backend: ANSWER, skills: SKILLS, disk: DISK, store: STORE, messages: transcriptWithResults(ITEM.zh.recent_context) })
     await w.submit(ITEM.zh.message)
     await w.step({ index: 0 })
 
@@ -498,7 +474,7 @@ test('what the suite read besides its items is recorded with the results, and a 
 
 test('the descriptions variant asks what the mod asks before any profile is written: each skill by its description', { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
   // No store: the mod finds no profile, as on a first session.
-  const w = world($, on, { backend: ANSWER, skills: SKILLS, disk: DISK, messages: transcript(ITEM.zh.recent_context) })
+  const w = world($, on, { backend: ANSWER, skills: SKILLS, disk: DISK, messages: transcriptWithResults(ITEM.zh.recent_context) })
   await w.submit(ITEM.zh.message)
 
   const suite = await skillSuite({ catalog: CATALOG, profiles: PROFILES, read })

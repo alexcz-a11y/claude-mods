@@ -7,7 +7,7 @@ import type { SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import type { SkillsWorld } from './support/world.ts'
-import { jev, pplx, rates, world, type Sent } from './support/world.ts'
+import { jev, KEY, pplx, rates, world, type Sent } from './support/world.ts'
 
 /** `pplxQps: 50`: these tests are about what pplx is asked and how long it is waited for, not the 1 QPS of a Tier 0 account (pplx-rate.test.ts). */
 const PPLX = { decisionModel: 'pplx', perplexityApiKey: 'pplx-test-key', pplxQps: 50 }
@@ -127,7 +127,7 @@ test('max goes out at 0.47 with pplx', { options: PPLX }, async ($, on) => {
   expect((await w.board()).log[0]?.trace?.[1]).toMatchObject({ rule: 'max-gate', applied: false, thetaMax: 0.47 })
 })
 
-test('the same answer with Jev stays at xhigh: Jev needs 0.5 for max', { options: { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' } }, async ($, on) => {
+test('the same answer with Jev stays at xhigh: Jev needs 0.5 for max', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 0.2, 0.32, 0.48]) })
   await w.submit('把这个死锁查清楚')
   await w.step({ index: 0, effort: 'low' })

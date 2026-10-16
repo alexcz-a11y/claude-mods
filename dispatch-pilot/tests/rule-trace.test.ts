@@ -174,7 +174,7 @@ test('pickEffort walks: most likely, max gate, round up, in that order, each say
   }
 })
 
-test('model floor and plan floor lift the result, and say so; without either the steps are absent', () => {
+test('the model floor lifts the result, and says so; without it the step is absent', () => {
   const low = read([0.8, 0.1, 0.1, 0, 0])
   const bare = traceEffort(low, JEV_RULES)
   expect(bare.steps.map((s) => s.rule)).toEqual(['top', 'max-gate', 'round-up'])
@@ -191,15 +191,7 @@ test('model floor and plan floor lift the result, and say so; without either the
   const fable = traceEffort(low, JEV_RULES, { model: { name: 'fable', floor: null } })
   expect(fable.effort).toBe('low')
   expect(rule(fable.steps, 'model-floor')).toMatchObject({ applied: false, floor: null })
-
-  // The plan's floor, and a forced raise (the same step, marked).
-  const plan = traceEffort(low, JEV_RULES, { model: { name: 'sonnet', floor: 'medium' }, plan: { floor: 'xhigh', forced: true } })
-  expect(plan.effort).toBe('xhigh')
-  expect(plan.steps.map((s) => s.rule)).toEqual(['top', 'max-gate', 'round-up', 'model-floor', 'plan-floor'])
-  expect(rule(plan.steps, 'plan-floor')).toMatchObject({ applied: true, floor: 'xhigh', forced: true, from: 'medium', level: 'xhigh' })
-  const held = traceEffort(read([0, 0, 0, 1, 0]), JEV_RULES, { plan: { floor: 'high' } })
-  expect(held.effort).toBe('xhigh')
-  expect(rule(held.steps, 'plan-floor')).toMatchObject({ applied: false, forced: false })
+  expect(sonnet.steps.map((s) => s.rule)).toEqual(['top', 'max-gate', 'round-up', 'model-floor'])
 })
 
 const RULES: MidturnRules = { thetaUp: 0.4, thetaDown: 0.6, thetaMax: 0.5, roundUp: 0.3, holdSteps: 3 }

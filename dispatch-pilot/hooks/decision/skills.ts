@@ -463,10 +463,10 @@ export function modRanker(io: SkillRankerIo, settings: RankerSettings): SkillRan
     )
     const second = stageTwoPart(candidates, { language }) as Part
     const timeoutMs = Math.floor(asked.timeoutMs ?? settings.timeoutMs)
-    const asked2: Asked =
+    const reply: Asked =
       timeoutMs >= 1 ? await io.ask(mergeParts(asked.state, [second]), timeoutMs) : { ok: false, failure: { kind: 'timeout', detail: 'no time left for the second request' } }
-    if (!asked2.ok) return { ranked: [], ...put, failed: asked2.failure }
-    const ranked = readStageTwo(answersFor(second, asked2.answers), candidates)
+    if (!reply.ok) return { ranked: [], ...put, failed: reply.failure }
+    const ranked = readStageTwo(answersFor(second, reply.answers), candidates)
     if (ranked === null) return { ranked: [], ...put, failed: { kind: 'parse', detail: 'no fits answer' } }
     return { ranked, ...put }
   }

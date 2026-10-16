@@ -12,9 +12,11 @@ import { estimateTokens, messageText, recentLines } from '../../hooks/decision/c
 import { EFFORTS, isEffort, type Effort } from '../../hooks/decision/effort.ts'
 import { redactSecrets } from '../../hooks/decision/redact.ts'
 import { UNRESOLVED_OPTIONS, type UnresolvedOption } from '../../hooks/decision/unresolved.ts'
-import { isRecord } from './datasets.ts'
+import { contiguous, type Checked } from './datasets.ts'
+import { mulberry32 } from './random.ts'
+import { exactKeys as exactKeysAdding, isRecord, nonEmpty } from './validators.ts'
 
-export type Checked = { errors: string[]; warnings: string[] }
+export type { Checked }
 
 /** The ten areas of work; each is one made-up repository (FORMAT.md), and an item's conversation stays in its own. */
 export const DOMAINS = ['frontend', 'backend-api', 'database', 'ios', 'data-scripts', 'devops-ci', 'cc-mods', 'docs-writing', 'perf', 'security'] as const
@@ -233,9 +235,6 @@ export function checkItem(raw: unknown, name: string): Checked & { sizes: { open
   return { errors, warnings, sizes }
 }
 
-/** The three-way question's answers, as the mod names its options (`hooks/decision/unresolved.ts`). */
-export const TRIAGE_ANSWERS = UNRESOLVED_OPTIONS
-
 /** A gold file: the author's or the labeler's answers to an item, the same fields on both sides. */
 export type V2Gold = {
   id: string
@@ -297,7 +296,7 @@ function checkGoldFields(raw: unknown, name: string, asked: readonly string[] | 
     if (isEffort(raw.effort) && !accept.includes(raw.effort)) errors.push(`effort "${raw.effort}" is not in accept ${JSON.stringify(accept)}`)
   }
   const triage = (value: unknown, field: string) => {
-    if (!(TRIAGE_ANSWERS as readonly unknown[]).includes(value)) errors.push(`${field} ${JSON.stringify(value)} is not one of ${TRIAGE_ANSWERS.join(', ')}`)
+    if (!(UNRESOLVED_OPTIONS as readonly unknown[]).includes(value)) errors.push(`${field} ${JSON.stringify(value)} is not one of ${UNRESOLVED_OPTIONS.join(', ')}`)
   }
   triage(raw.triage_final, 'triage_final')
   const answers = raw.triage_decisive
@@ -316,12 +315,6 @@ function checkGoldFields(raw: unknown, name: string, asked: readonly string[] | 
   }
   if (!nonEmpty(raw.rationale)) errors.push('rationale must be a non-empty string')
   return { errors, warnings }
-}
-
-/** Whether `levels` are adjacent levels (in any order). */
-function contiguous(levels: readonly Effort[]): boolean {
-  const at = [...new Set(levels)].map((level) => EFFORTS.indexOf(level)).sort((a, b) => a - b)
-  return at.every((index, i) => i === 0 || index === (at[i - 1] as number) + 1)
 }
 
 /** The placeholders' values: all of them for a same-problem item (any segment may use any), none for an unrelated one. */
@@ -439,13 +432,7 @@ function oneOf<T extends string>(value: unknown, list: readonly T[], field: stri
 }
 
 function exactKeys(value: Record<string, unknown>, keys: readonly string[], at: string, errors: string[]): void {
-  const prefix = at === '' ? '' : `${at}.`
-  for (const key of keys) if (!(key in value)) errors.push(`${prefix}${key} is missing`)
-  for (const key of Object.keys(value)) if (!keys.includes(key)) errors.push(`${at === '' ? '' : `${at} has an `}unknown field ${key}`)
-}
-
-function nonEmpty(value: unknown): value is string {
-  return typeof value === 'string' && value.trim() !== ''
+  exactKeysAdding(value, keys, at, (message) => errors.push(message))
 }
 
 /**
@@ -771,11 +758,5 @@ function hash32(text: string): number {
 
 /** A seeded generator (mulberry32 over the seed's hash): the same seed, the same numbers. */
 function random(seed: string): () => number {
-  let a = hash32(seed)
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0
-    let t = Math.imul(a ^ (a >>> 15), 1 | a)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
+  return mulberry32(hash32(seed))
 }

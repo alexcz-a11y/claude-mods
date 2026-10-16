@@ -122,7 +122,7 @@ export function registerControl(on: On, ctx: Ctx): void {
         }
         case 'master':
           setMaster(command.on)
-          await report(reporting, { switched: { master: command.on } })
+          await report(reporting, { switched: true })
           return { text: `Dispatch Pilot 已${command.on ? '打开' : '关闭'}${await save('master')}` }
         case 'switch': {
           const spec = listSwitches().find((s) => s.name === command.name)
@@ -130,7 +130,7 @@ export function registerControl(on: On, ctx: Ctx): void {
             const names = listSwitches().map((s) => s.name).join(', ')
             return { text: `没有叫「${command.name}」的开关（现有：${names}）` }
           }
-          await report(reporting, { switched: { feature: spec.name, on: command.on } })
+          await report(reporting, { switched: true })
           return { text: `${spec.name} 已${command.on ? '打开' : '关闭'}：${spec.info}${await save(spec.name)}` }
         }
         case 'lock': {

@@ -12,12 +12,10 @@ import { COUNT_FIELD } from '../hooks/decision/unresolved.ts'
 import { planBatches, SCRIPT_FIELD } from '../hooks/decision/workflow.ts'
 import { parseWorkflow } from '../hooks/decision/workflow-script.ts'
 import { dispatchSettings, readConfig } from '../hooks/core/setup.ts'
-import { DEFAULT_ASK } from '../hooks/decision/effort.ts'
 import { siteJev, workflowWorld, type SiteAnswer } from './support/workflow.ts'
 import { runWorld } from './support/workflow-run.ts'
-import { jev, pplx, world } from './support/world.ts'
+import { jev, KEY, pplx, UNRESOLVED_ON, world } from './support/world.ts'
 
-const JEV = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 /** `pplxQps: 50`: these tests are about what is asked, not the rate it is asked at. */
 const PPLX = { decisionModel: 'pplx', perplexityApiKey: 'pplx-test-key', pplxQps: 50 }
 
@@ -36,7 +34,7 @@ const TASK = 'Is every route under src/api/admin checked for the admin role? Cit
 
 // ---- the defect: a later message is not the launching turn's -------------------------------------------------
 
-test("an agent decided as it starts reads the person's words of the turn that launched its run, not a message they sent while it ran", { options: JEV }, async ($, on) => {
+test("an agent decided as it starts reads the person's words of the turn that launched its run, not a message they sent while it ran", { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { backend: siteJev((): SiteAnswer => ({ model: { sonnet: 0.9 }, effort: [0, 1, 0, 0, 0], nouls: { 'named.opus': 0.95 } })) })
   await w.submit('这几个安全审查都用 opus 跑')
   await w.workflow({ script: ANSWERS })
@@ -53,7 +51,7 @@ test("an agent decided as it starts reads the person's words of the turn that la
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 medium'])
 })
 
-test("an agent whose label is none of its run's calls is decided as it starts by the launching turn's words too, though every call of the run was decided with it", { options: JEV }, async ($, on) => {
+test("an agent whose label is none of its run's calls is decided as it starts by the launching turn's words too, though every call of the run was decided with it", { options: KEY }, async ($, on) => {
   const saved = '/work/.claude/workflow-scripts/tidy.js'
   const w = runWorld($, on, { disk: { [saved]: TIDY }, backend: siteJev((): SiteAnswer => ({ model: { sonnet: 0.9 }, effort: [0, 1, 0, 0, 0], nouls: { 'named.opus': 0.95 } })) })
   await w.submit('这个 Workflow 的 agent 都用 opus 跑')
@@ -122,7 +120,7 @@ test('with pplx, an agent a subagent dispatches reads the subagent\'s own conver
   expect(String(state.recent_context)).not.toContain('session writer')
 })
 
-test("with Jev too, a dispatched agent's request carries the conversation it was dispatched from (since 2026-10-15)", { options: JEV }, async ($, on) => {
+test("with Jev too, a dispatched agent's request carries the conversation it was dispatched from (since 2026-10-15)", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), messages: DISPATCHING })
   await w.submit('the cache refresh and the session writer race somewhere; find out where')
   await w.spawn({ prompt: 'List every function in src/session that writes the session file.', subagentType: 'Explore' })
@@ -155,7 +153,7 @@ test('with pplx, the requests about a script\'s calls carry the script (secrets 
   expect(String(state.recent_context)).not.toContain('later words')
 })
 
-test("with Jev too, the requests about a script's calls carry the script and the conversation up to the Workflow call (since 2026-10-15)", { options: JEV }, async ($, on) => {
+test("with Jev too, the requests about a script's calls carry the script and the conversation up to the Workflow call (since 2026-10-15)", { options: KEY }, async ($, on) => {
   const transcript = [row('user', '把 getUser 改名，再审一下 diff'), row('assistant', 'Two steps in one Workflow: rename, then review.', [['Workflow', 'toolu_wf']]), row('user', 'later words')]
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { sonnet: 0.9 } })), messages: transcript })
   await w.submit('把 getUser 改名，再审一下 diff')
@@ -165,7 +163,7 @@ test("with Jev too, the requests about a script's calls carry the script and the
   expect(String(state.recent_context)).not.toContain('later words')
 })
 
-test("a call's prompt is sent whole when it fits its share of the budget: a script of one call gives it all of it, not 400 tokens", { options: JEV }, async ($, on) => {
+test("a call's prompt is sent whole when it fits its share of the budget: a script of one call gives it all of it, not 400 tokens", { options: KEY }, async ($, on) => {
   const steps = Array.from({ length: 120 }, (_, i) => `Step ${i + 1}: migrate the handler in src/api/routes/r${i}.ts to the new router and keep its tests green.`).join(' ')
   const script = `export const meta = { name: 'migrate', description: 'Move every route to the new router', phases: [] }
 await agent(${JSON.stringify(steps)}, { label: 'migrate' })
@@ -177,9 +175,9 @@ await agent(${JSON.stringify(steps)}, { label: 'migrate' })
   expect(brief.prompt).toBe(steps)
 })
 
-test("a script's requests carry the problem summary and the unresolved count while the unresolved switch is on, as a dispatched agent's do", { options: JEV }, async ($, on) => {
+test("a script's requests carry the problem summary and the unresolved count while the unresolved switch is on, as a dispatched agent's do", { options: KEY }, async ($, on) => {
   const summary = { problem: '导出的 CSV 缺行', tried: [{ text: '改了编码', unresolved: true as const }], status: '还在查', turn: 't1' }
-  const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { sonnet: 0.9 } })), switches: { unresolved: true }, seed: { unresolved: { count: 2, summary } } })
+  const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { sonnet: 0.9 } })), switches: UNRESOLVED_ON, seed: { unresolved: { count: 2, summary } } })
   // The session starts first: the switches are read there.
   await w.start()
   await w.workflow({ script: TIDY })

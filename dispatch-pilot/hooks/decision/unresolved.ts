@@ -4,7 +4,7 @@
 // Pure (see system-one.ts): the mod and the eval import it as it is. The
 // question is one more Choice in the main agent's effort part (`effort.unresolved`),
 // so it goes in the effort request and reads that request's state: `user_message`
-// and the 24000 tokens of `recent_context`. It is written to TypeSafe's guide for
+// and the `recent_context` the effort request's budget holds. It is written to TypeSafe's guide for
 // Choice (docs/research/typesafe-question-guide.md §2.4): each option is a
 // situation, the instructions name the state fields they read and hold the whole
 // question, and the options keep one fixed order (guide C5: jev-1.13 leans toward
@@ -13,7 +13,7 @@
 // The count is only a basis for the decision model's effort judgment, never a rule
 // (ADR 0005): this module says how a reading changes the count, nothing about effort.
 
-import type { Language } from './effort.ts'
+import { LEVEL, type Language } from './effort.ts'
 import type { Answer, Part, Question } from './system-one.ts'
 
 /** The question's id inside the effort part: `effort.unresolved` in the request. */
@@ -57,7 +57,7 @@ const WORDS: Record<Language, { instructions: Readonly<Record<string, string>>; 
 }
 
 /** The question, asked in `language`. */
-export function unresolvedQuestion(language: Language): Question {
+function unresolvedQuestion(language: Language): Question {
   const { instructions, options } = WORDS[language]
   return { type: 'choice', instructions, criteria: options }
 }
@@ -94,13 +94,13 @@ const HINT: Record<Language, { key: string; text: string }> = {
   },
 }
 
-/** The part with the strong hint added to its effort question (`level`: the main agent's at a message, and the mid-turn one). */
+/** The part with the strong hint added to its effort question (`LEVEL`: the main agent's at a message, and the mid-turn one's, which has the same id). */
 export function withHint(part: Part, language: Language): Part {
-  const level = part.questions.level
+  const level = part.questions[LEVEL]
   // The effort questions' instructions are always an object (see effort.ts); anything else is left as it is.
   if (level === undefined || typeof level.instructions !== 'object' || Array.isArray(level.instructions)) return part
   const { key, text } = HINT[language]
-  return { ...part, questions: { ...part.questions, level: { ...level, instructions: { ...level.instructions, [key]: text } } } }
+  return { ...part, questions: { ...part.questions, [LEVEL]: { ...level, instructions: { ...level.instructions, [key]: text } } } }
 }
 
 /** The probability of each option (three numbers summing to 1) and the backend's confidence. */

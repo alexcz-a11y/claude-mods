@@ -7,7 +7,7 @@
 // and eval/eval-v2-thresholds.ts scans:
 //
 //   node dispatch-pilot/eval/eval-v2-flow.ts --backend jev --estimate      how many requests and summary writes, the cost; nothing is asked
-//   node dispatch-pilot/eval/eval-v2-flow.ts --backend jev                 -> eval/results/eval-v2-flow/jev-24000.json (the mod's budget)
+//   node dispatch-pilot/eval/eval-v2-flow.ts --backend jev                 -> eval/results/eval-v2-flow/jev-96000.json (the mod's budget; jev-24000.json was run at Jev's budget of that day)
 //   node dispatch-pilot/eval/eval-v2-flow.ts --backend pplx --state-tokens 48000 --state-messages 2000 --timeout 240000 --max-usd 20
 //   node dispatch-pilot/eval/eval-v2-flow.ts --backend pplx --state-tokens 135000 --state-messages 2000 --timeout 240000 --max-usd 40
 //
@@ -19,7 +19,7 @@
 // stops the run.
 //
 // Options: --model (the backend's: jev-1.14.0, pplx-decider-v1.1-27b), --state-tokens N and --state-messages N (as run.ts;
-// the mod's 24000 and 32 otherwise), --language zh|en (the questions; the decision model's ask.turnStart, core/setup.ts BACKEND_DEFAULTS, otherwise),
+// the mod's contextByKind.messagePlain and contextMessages for the backend otherwise), --language zh|en (the questions; the decision model's ask.turnStart, core/setup.ts BACKEND_DEFAULTS, otherwise),
 // --thresholds add,reset (the bars; the mod's 0.5,0.7 otherwise), --option name=value (a mod option, as run.ts), --ids a,b,
 // --limit N, --concurrency 4 (items at once; the messages of one item go one after another), --timeout <ms>, --retries 2,
 // --summary-model haiku, --tries 3 (asks of a turn whose reply is no summary; the mod asks once, `claude -p` fails for
@@ -32,7 +32,6 @@
 //
 // Credentials as run.ts: TYPESAFE_API_KEY, PERPLEXITY_API_KEY, from the environment or ~/.config/dispatch-pilot/eval.env.
 
-import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -47,12 +46,13 @@ import { PPLX_MODEL } from '../hooks/decision/pplx.ts'
 import { readSummary, SUMMARY_SYSTEM } from '../hooks/decision/summary.ts'
 import { turnStartPart } from '../hooks/decision/turn-start.ts'
 import { UNRESOLVED_THRESHOLDS, type UnresolvedThresholds } from '../hooks/decision/unresolved.ts'
+import { ESTIMATE_FACTOR } from './lib/estimate.ts'
 import { lineTokens } from './lib/eval-v2.ts'
 import { conversationPrint, flowItem, type FlowFile, type FlowItem } from './lib/eval-v2-flow.ts'
 import type { V2EvalItem } from './lib/eval-v2-suite.ts'
 import { attemptMs as defaultAttemptMs, askRetrying } from './lib/runner.ts'
 import { optionsFor, settingsFrom, withStateMessages, withStateTokens } from './lib/suite.ts'
-import { EVAL_V2_FLOW_DIR, PRICES, backendFor, nodeIo, readEvalV2Dataset, readManifest, shown } from './node.ts'
+import { EVAL_V2_FLOW_DIR, PRICES, backendFor, claudeComplete, nodeIo, numberFlag, readEvalV2Dataset, readManifest, shown } from './node.ts'
 
 const { values } = parseArgs({
   options: {
@@ -93,10 +93,8 @@ try {
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 }
-const stateTokens = values['state-tokens'] === undefined ? null : Number(values['state-tokens'])
-if (stateTokens !== null && !(Number.isInteger(stateTokens) && stateTokens >= 100)) fail('--state-tokens takes a whole number of at least 100')
-const stateMessages = values['state-messages'] === undefined ? null : Number(values['state-messages'])
-if (stateMessages !== null && !(Number.isInteger(stateMessages) && stateMessages >= 1)) fail('--state-messages takes a whole number of at least 1')
+const stateTokens = values['state-tokens'] === undefined ? null : numberFlag('--state-tokens', values['state-tokens'], { min: 100, integer: true })
+const stateMessages = values['state-messages'] === undefined ? null : numberFlag('--state-messages', values['state-messages'], { min: 1, integer: true })
 const widened = stateTokens === null ? settingsFrom(options) : withStateTokens(settingsFrom(options), stateTokens)
 const settings = stateMessages === null ? widened : withStateMessages(widened, stateMessages)
 const budget = settings.contextByKind.messagePlain
@@ -109,9 +107,13 @@ const thresholds: UnresolvedThresholds = values.thresholds === undefined ? UNRES
   return { add, reset }
 })()
 const model = values.model ?? (backendName === 'pplx' ? PPLX_MODEL : JEV_MODEL)
-const attemptMs = values.timeout === undefined ? defaultAttemptMs(settings.timeoutMs) : Number(values.timeout)
+const attemptMs = values.timeout === undefined ? defaultAttemptMs(settings.timeoutMs) : numberFlag('--timeout', values.timeout, { min: 1, integer: true })
 const summaryModel = values['summary-model']
-const tries = Number(values.tries)
+const tries = numberFlag('--tries', values.tries, { min: 1, integer: true })
+// The other numbers, read before anything is sent (a typo is no spend cap, no worker, no end to the retries).
+const retries = numberFlag('--retries', values.retries, { min: 0, integer: true })
+const concurrency = numberFlag('--concurrency', values.concurrency, { min: 1, integer: true })
+const maxUsd = numberFlag('--max-usd', values['max-usd'], { min: 0 })
 
 // ---- the dataset and the file ----
 const read = readEvalV2Dataset()
@@ -124,7 +126,7 @@ if (values.ids !== undefined) {
   if (unknown.length > 0) fail(`no item ${unknown.join(', ')} in eval-v2`)
   items = items.filter((item) => ids.includes(item.id))
 }
-if (values.limit !== undefined) items = items.slice(0, Number(values.limit))
+if (values.limit !== undefined) items = items.slice(0, numberFlag('--limit', values.limit, { min: 1, integer: true }))
 
 const label = values.label === undefined ? '' : `-${values.label.replace(/[^A-Za-z0-9-]+/g, '-')}`
 const out = values.out ?? join(EVAL_V2_FLOW_DIR, `${backendName}-${budget}${language === 'zh' ? '' : `-${language}`}${label}.json`)
@@ -174,12 +176,11 @@ for (const { item, from } of due) {
   requests += ats.length
   writes += Math.max(0, ats.length - 1)
 }
-// The factors of run.ts: what each backend counted against the mod's estimate.
-const factor = backendName === 'pplx' ? 3 : 1.6
+const factor = ESTIMATE_FACTOR[backendName]
 const usd = (factor * tokens * PRICES[backendName]) / 1e6
 console.log(`eval-v2 flow, ${backendName} (${model}), state ${budget} tokens / ${settings.context.messages} messages, questions in ${language}, bars ${thresholds.add}/${thresholds.reset}: ${items.length - due.length} of ${items.length} items done, ${due.length} to run: ${requests} requests, about ${Math.round(factor * tokens)} input tokens, about $${usd.toFixed(2)}; up to ${writes} summary writes with claude -p --model ${summaryModel}; -> ${shown(out)}`)
 if (values.estimate || due.length === 0) process.exit(0)
-if (usd > Number(values['max-usd'])) fail(`the estimate is over --max-usd ${values['max-usd']}: nothing sent`)
+if (usd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothing sent`)
 
 let chosen: ReturnType<typeof backendFor>
 try {
@@ -199,26 +200,9 @@ const SETTINGS = JSON.stringify({ alwaysThinkingEnabled: false })
 const answeredBy = new Set(file.summarizer.answeredBy)
 
 /** One `claude -p` call: the reply's text and the models it reports, or null (an error, a minute without an answer). */
-function claude(prompt: string, system: string): Promise<{ text: string; models: string[] } | null> {
-  return new Promise((done) => {
-    const args = ['-p', '--model', summaryModel, '--safe-mode', '--setting-sources', 'project', '--tools', '', '--system-prompt-file', system, '--output-format', 'json', '--no-session-persistence', '--settings', SETTINGS, '--strict-mcp-config']
-    const child = spawn('claude', args, { cwd: dir, env: { ...process.env, MAX_THINKING_TOKENS: '0' }, stdio: ['pipe', 'pipe', 'pipe'] })
-    let output = ''
-    const timer = setTimeout(() => child.kill(), 60_000)
-    child.stdout.on('data', (chunk) => (output += chunk))
-    child.on('error', () => done(null))
-    child.on('close', () => {
-      clearTimeout(timer)
-      try {
-        const result = JSON.parse(output) as { result?: string; is_error?: boolean; modelUsage?: Record<string, unknown> }
-        if (result.is_error || typeof result.result !== 'string') return done(null)
-        done({ text: result.result, models: Object.keys(result.modelUsage ?? {}) })
-      } catch {
-        done(null)
-      }
-    })
-    child.stdin.end(prompt)
-  })
+async function claude(prompt: string, system: string): Promise<{ text: string; models: string[] } | null> {
+  const reply = await claudeComplete(prompt, { model: summaryModel, systemFile: system, cwd: dir, settings: SETTINGS })
+  return 'failed' in reply ? null : reply
 }
 
 const cacheFile = join(EVAL_V2_FLOW_DIR, 'haiku-cache.jsonl')
@@ -296,7 +280,7 @@ const started = new Date()
 const run = { date: started.toISOString(), items: 0, requests: 0, inputTokens: 0 }
 file.runs = [...(file.runs ?? []), run]
 const ask = async (request: Parameters<typeof askRetrying>[0]) => {
-  const sent = await askRetrying(request, { backend, io: nodeIo, timeoutMs: attemptMs, retries: Number(values.retries), now: () => performance.now(), pause: (ms) => new Promise((done) => setTimeout(done, ms)) })
+  const sent = await askRetrying(request, { backend, io: nodeIo, timeoutMs: attemptMs, retries, now: () => performance.now(), pause: (ms) => new Promise((done) => setTimeout(done, ms)) })
   run.requests++
   if (sent.asked.ok) {
     run.inputTokens += sent.asked.inputTokens ?? 0
@@ -330,7 +314,7 @@ const worker = async () => {
     save()
   }
 }
-await Promise.all(Array.from({ length: Math.max(1, Math.min(Number(values.concurrency), due.length)) }, worker))
+await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, due.length)) }, worker))
 save()
 rmSync(dir, { recursive: true, force: true })
 const left = items.filter((item) => file.items[item.id]?.final === undefined)

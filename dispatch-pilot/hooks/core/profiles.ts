@@ -13,6 +13,7 @@
 import { clipToTokens } from '../decision/context.ts'
 import { redactSecrets } from '../decision/redact.ts'
 import type { SkillProfile } from '../decision/skills.ts'
+import { isRecord } from '../decision/system-one.ts'
 import { loadCatalog, type CatalogIo, type CatalogSkill } from './skills.ts'
 
 /** Bumped when the prompt changes: every profile is written again. */
@@ -20,20 +21,20 @@ export const PROFILE_VERSION = 1
 /** A profile's store key is this prefix and a hash of what it was written from. */
 export const PROFILE_PREFIX = 'profile.'
 /** How much of a SKILL.md the model reads: its start, where a skill says what it is for. */
-export const SOURCE_TOKENS = 3000
+const SOURCE_TOKENS = 3000
 /** The reply's cap, and how long one completion may take. */
 export const PROFILE_MAX_TOKENS = 700
 export const PROFILE_TIMEOUT_MS = 60_000
 /** A field longer than this (characters) is cut: English, Chinese. */
-export const EN_CHARS = 200
-export const ZH_CHARS = 60
+const EN_CHARS = 200
+const ZH_CHARS = 60
 /**
  * The store keeps at most this many profiles; past it the oldest written that
  * the session does not use go, down to EVICT_TO. At most about 1.3 KB each
  * (the field caps), so they take well under 1 MiB of the store's 4 MiB.
  */
 export const MAX_PROFILES = 500
-export const EVICT_TO = 400
+const EVICT_TO = 400
 /**
  * And at most this many bytes of them (key and JSON value), whatever their
  * count: entries another version wrote may be bigger. Past it the oldest go
@@ -41,7 +42,7 @@ export const EVICT_TO = 400
  * to the mod's other keys.
  */
 export const MAX_PROFILE_BYTES = 2 * 1024 * 1024
-export const EVICT_TO_BYTES = 1.5 * 1024 * 1024
+const EVICT_TO_BYTES = 1.5 * 1024 * 1024
 
 export const PROFILE_SYSTEM =
   'You write short routing profiles of Claude Code skills. A router that reads requests written in Chinese or English uses them to decide whether a skill fits a request. Reply with one JSON object and nothing else.'
@@ -210,8 +211,4 @@ function side(value: Record<string, unknown>, max: number): SkillProfile['en'] |
 function tidy(text: string, max: number): string {
   const chars = [...redactSecrets(text).replace(/\s+/g, ' ').trim()]
   return chars.length > max ? `${chars.slice(0, max - 1).join('').trimEnd()}…` : chars.join('')
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

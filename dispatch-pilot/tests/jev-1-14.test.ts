@@ -7,9 +7,8 @@ import { expect, test } from 'claude-code/testing'
 import { dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
-import { jev, pplx, world, type Reply, type Sent } from './support/world.ts'
+import { jev, KEY, pplx, world, type Reply, type Sent } from './support/world.ts'
 
-const JEV = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 const PPLX = { decisionModel: 'pplx', perplexityApiKey: 'pplx-test-key' }
 
 const MESSAGE = '这个改动涉及权限判断，帮我审一下'
@@ -30,7 +29,7 @@ function answering(request: Sent): Reply {
   return { status: 200, body: { model: 'jev-1.14.0', answers, usage: { input_tokens: 100, output_tokens: 0 } } }
 }
 
-test('every Jev decision is asked of jev-1.14.0, the version the eval measured, not of the jev-latest alias', { options: JEV }, async ($, on) => {
+test('every Jev decision is asked of jev-1.14.0, the version the eval measured, not of the jev-latest alias', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
   await w.submit(MESSAGE)
 
@@ -38,7 +37,7 @@ test('every Jev decision is asked of jev-1.14.0, the version the eval measured, 
   expect(w.requests[0]?.body.model).toBe('jev-1.14.0')
 })
 
-test('with Jev, an agent the main agent dispatches is asked about in Chinese: the questions the eval asked as models-hint-zh', { options: JEV }, async ($, on) => {
+test('with Jev, an agent the main agent dispatches is asked about in Chinese: the questions the eval asked as models-hint-zh', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: answering })
   await w.submit(MESSAGE)
   await w.spawn({ prompt: PROMPT, description: '审查权限改动', subagentType: 'general-purpose' })

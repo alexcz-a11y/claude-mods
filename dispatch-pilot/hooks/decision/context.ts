@@ -65,12 +65,14 @@ export function clipToTokens(text: string, budget: number, tailShare = 0): strin
   return end ? `${start} … ${end}` : `${start}…`
 }
 
-/** Leaves out what the engine wraps in <system-reminder> (not something anyone said), collapses whitespace. */
+/** Leaves out what the engine wraps in <system-reminder> (not something anyone said). */
+export function withoutReminders(text: string): string {
+  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, ' ')
+}
+
+/** What was said in `text`: without the reminders, whitespace collapsed. */
 export function said(text: string): string {
-  return text
-    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return withoutReminders(text).replace(/\s+/g, ' ').trim()
 }
 
 /** The tools a reply called, in order: `Bash x3 (1 failed), Read`. */
@@ -178,13 +180,14 @@ export function withinTokens<S extends State>(build: (budget: number) => S, toke
  * to fit if it must be.
  */
 export function turnStartState(input: TurnStartInput): State {
-  return withinTokens((tokens) => turnStartFields(input, tokens), input.limits.tokens)
+  // The lines do not depend on the budget: the conversation is walked and masked once, not at each try of `withinTokens`.
+  const lines = recentLines(input.messages, input.prompt, input.limits.messages)
+  return withinTokens((tokens) => turnStartFields(input.prompt, lines, tokens), input.limits.tokens)
 }
 
-/** The fields of a message's state, with `tokens` for the message and the recent conversation. */
-function turnStartFields(input: TurnStartInput, tokens: number): State {
-  const message = messageText(input.prompt, tokens)
-  const lines = recentLines(input.messages, input.prompt, input.limits.messages)
+/** The fields of a message's state, with `tokens` for the message and the recent conversation (`lines`). */
+function turnStartFields(prompt: string, lines: readonly string[], tokens: number): State {
+  const message = messageText(prompt, tokens)
   return { user_message: message, recent_context: recentWithin(lines, tokens - estimateTokens(message)) }
 }
 

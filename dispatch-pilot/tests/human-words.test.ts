@@ -5,9 +5,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { failureLine, failureMeaning, failureWords, type Failure } from '../hooks/decision/backend.ts'
-import { jev, world } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+import { jev, KEY, world } from './support/world.ts'
 
 /** Words and abbreviations a person must not meet: an HTTP code's name, a unit, an option's internal name, the old English log words. */
 const LEFTOVER = /\b(HTTP|ms|thetaMax|thetaUp|thetaDown|thetaExpected|holdSteps|agentOverride|escalateHaikuTo|kept|written|failed|confidence|decided|pick|unreadable|unreachable|refused|expected|asked|ruled)\b/
@@ -21,7 +19,7 @@ test('a failed decision request reads in Chinese, with the decision model named 
     [{ kind: 'network', detail: 'ENOTFOUND' }, 'jev：连不上'],
     [{ kind: 'busy', status: 503, detail: 'HTTP 503' }, 'jev：繁忙（状态码 503）'],
     [{ kind: 'busy', status: 429, detail: 'HTTP 429' }, 'jev：繁忙（状态码 429）'],
-    [{ kind: 'quota', status: 429, detail: 'HTTP 429' }, 'jev：今天的额度用完了'],
+    [{ kind: 'quota', status: 402, detail: 'HTTP 402' }, 'jev：额度用完了（状态码 402）'],
     [{ kind: 'http', status: 500, detail: 'HTTP 500' }, 'jev：出错（状态码 500）'],
     [{ kind: 'parse', detail: 'not JSON' }, 'jev：回答读不懂'],
     [{ kind: 'request', detail: 'bad' }, 'jev：请求出错（详见 debug log）'],
@@ -67,5 +65,14 @@ test('a route that failed is Chinese on the toast and on the board', { options: 
   const main = (await w.board()).main
   expect(main?.why).toBe('jev：繁忙（状态码 503）')
   expect(w.toasts.map((toast) => toast.text)).toEqual(['主 agent 未路由：决策模型繁忙（jev：繁忙（状态码 503））'])
+  for (const text of [main?.why ?? '', ...w.toasts.map((toast) => toast.text)]) expect(text).not.toMatch(LEFTOVER)
+})
+
+test('an account out of credits (402) says so on the board and the toast, instead of an error of the decision model', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: () => ({ status: 402, body: { error_type: 'billing_error', message: 'Your organization has no available TypeSafe API credits.' } }) })
+  await w.submit('把登录模块重构成三层')
+  const main = (await w.board()).main
+  expect(main).toMatchObject({ routed: false, why: 'jev：额度用完了（状态码 402）', failure: { backend: 'jev', kind: 'quota', status: 402 } })
+  expect(w.toasts.map((toast) => toast.text)).toEqual(['主 agent 未路由：决策模型额度用完（jev：额度用完了（状态码 402））'])
   for (const text of [main?.why ?? '', ...w.toasts.map((toast) => toast.text)]) expect(text).not.toMatch(LEFTOVER)
 })

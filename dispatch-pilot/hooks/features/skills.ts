@@ -11,8 +11,8 @@
 // (features/skill-profiles.ts writes them in the background at session
 // start), by its description until then.
 //
-// Its switch is `skills` (`/dp skills off`, and `/dp off`). It starts on, with
-// either decision model; `/dp skills on|off` turns it on or off. Off, nothing is suggested and the main agent gets the listing back:
+// Its switch is `skills` (`/dp skills off`, and `/dp off`). Off, nothing is
+// suggested and the main agent gets the listing back:
 // a listing the engine asks about from then on passes as it is, and one
 // already withheld in this conversation (the engine keeps that answer) goes
 // beside the next message.

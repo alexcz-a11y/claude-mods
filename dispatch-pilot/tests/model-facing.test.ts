@@ -10,8 +10,7 @@ import { failureText, type Failure } from '../hooks/decision/backend.ts'
 import { dispatchNote, type DispatchDecision } from '../hooks/decision/dispatched-agent.ts'
 import { leftText, whyOf } from '../hooks/decision/workflow.ts'
 import { siteJev, workflowWorld } from './support/workflow.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+import { KEY } from './support/world.ts'
 
 const TIDY = `export const meta = { name: 'tidy-api', description: 'Rename getUser to fetchUser in src/api, then review the diff', phases: [{ title: 'Edit', detail: 'rename and test' }, { title: 'Review', detail: 'check the diff' }] }
 phase('Edit')
@@ -59,7 +58,7 @@ test('a failed decision request is worded in English wherever the model reads it
     [{ kind: 'timeout', detail: 'no answer in 1500 ms' }, 'jev: no answer in 1500 ms'],
     [{ kind: 'network', detail: 'ENOTFOUND' }, 'jev: unreachable'],
     [{ kind: 'busy', status: 503, detail: 'HTTP 503' }, 'jev: busy (HTTP 503)'],
-    [{ kind: 'quota', status: 429, detail: 'HTTP 429' }, 'jev: daily quota used up'],
+    [{ kind: 'quota', status: 402, detail: 'HTTP 402' }, 'jev: out of credits (HTTP 402)'],
     [{ kind: 'http', status: 500, detail: 'HTTP 500' }, 'jev: HTTP 500'],
     [{ kind: 'parse', detail: 'not JSON' }, 'jev: unreadable answer'],
     [{ kind: 'request', detail: 'bad' }, 'jev: bad request (see debug log)'],

@@ -8,10 +8,10 @@
 // with, the decision requests, the board.
 
 import { expect, test } from 'claude-code/testing'
+import { shown } from './support/drawn.ts'
 import { siteJev, type SiteAnswer } from './support/workflow.ts'
 import { runWorld } from './support/workflow-run.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+import { KEY } from './support/world.ts'
 
 /**
  * A script whose agents start one after another, the later one's prompt built
@@ -80,15 +80,6 @@ test("a Workflow agent the engine spawns, whose call's prompt is built as the sc
   expect(board.log.find((entry) => entry.n === agents[1]?.decision)).toMatchObject({ feature: 'workflow-labels', agent: 'wa2', model: 'sonnet', effort: 'high' })
   expect(board.log.map((entry) => entry.feature)).not.toContain('dispatched-agents')
 })
-
-/** What a drawn element reads as, its text and its children's in order. */
-function shown(element: unknown): string {
-  if (typeof element === 'string' || typeof element === 'number') return String(element)
-  if (element === null || typeof element !== 'object') return ''
-  const { children = [], props = {} } = element as { props?: Record<string, unknown>; children?: unknown[] }
-  const kids = Array.isArray(props.children) ? props.children : children
-  return kids.map(shown).join('')
-}
 
 /** A call that runs once per batch, its label a template: one decision for every agent it starts. */
 const BATCHES = `export const meta = { name: 'transcribe-batches', description: 'Transcribe each batch of panel screenshots', phases: [] }

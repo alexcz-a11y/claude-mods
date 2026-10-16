@@ -17,8 +17,8 @@ import type { Failure } from './backend.ts'
 import { modelFamily, termsOf, type AgentModel, type Terms } from './dispatched-agent.ts'
 import type { Effort } from './effort.ts'
 import { modelId } from './model-ids.ts'
-import type { AgentCall, Written } from './workflow-script.ts'
-import { callName, outcomeOf, whyOf, type CallOutcome, type Skipped } from './workflow.ts'
+import { cooked, templatePieces, type AgentCall, type Written } from './workflow-script.ts'
+import { callName, decidedAtStart, decidedLine, outcomeOf, type CallOutcome, type Skipped } from './workflow.ts'
 
 /** How the agents of one call are routed. */
 export type SiteRoute =
@@ -35,7 +35,7 @@ export type LabelMatch =
   | { kind: 'exact'; label: string }
   /** A template label: a regular expression's source, its `${...}` matching anything. */
   | { kind: 'pattern'; source: string }
-  /** No label: the engine records the prompt's start; `whole` when the prompt is a string, not a template. */
+  /** No label: the engine records the prompt's start; `whole` when the prompt has no placeholder, so `head` is all of it. */
   | { kind: 'head'; head: string; whole: boolean }
   /** Nothing to tell it by: a label, or a prompt without one, that the script works out when it runs. */
   | { kind: 'none' }
@@ -82,7 +82,7 @@ function siteOf(call: AgentCall, route: SiteRoute, terms: Terms | null): RunSite
 
 function routeOf(outcome: CallOutcome | undefined): SiteRoute {
   if (outcome === undefined || outcome.kind === 'kept') return { kind: 'script' }
-  if (outcome.kind === 'left') return outcome.reason === 'unreadable' || outcome.reason === 'capped' || outcome.reason === 'unwritable' ? { kind: 'runtime' } : { kind: 'script' }
+  if (outcome.kind === 'left') return decidedAtStart(outcome) ? { kind: 'runtime' } : { kind: 'script' }
   const model = (outcome.write.model ?? null) as AgentModel | null
   const effort = typeof outcome.write.effort === 'string' ? (outcome.write.effort as Effort) : null
   return { kind: 'set', model, effort }
@@ -105,11 +105,12 @@ function matchOf(call: AgentCall): LabelMatch {
     return source === null ? { kind: 'none' } : { kind: 'pattern', source }
   }
   if (call.labelKind === 'none' && call.prompt !== null) {
-    const pieces = call.prompt.includes('${') ? templatePieces(call.prompt) : [{ text: call.prompt, placeholder: false }]
+    const template = call.promptTemplate === true
+    const pieces = template ? templatePieces(call.prompt) : [{ text: call.prompt, placeholder: false }]
     const first = pieces[0]
     const whole = pieces.length === 1 && first?.placeholder === false
     // A string prompt is already cooked; a template's text is as written.
-    const head = first === undefined || first.placeholder ? '' : flat(whole ? first.text : cooked(first.text))
+    const head = first === undefined || first.placeholder ? '' : flat(template ? cooked(first.text) : first.text)
     return head === '' ? { kind: 'none' } : { kind: 'head', head: whole ? head.slice(0, ENGINE_LABEL) : head, whole }
   }
   return { kind: 'none' }
@@ -145,48 +146,6 @@ function startsAs(label: string, match: { head: string; whole: boolean }): boole
   const recorded = flat(label)
   if (match.whole || match.head.length >= ENGINE_LABEL) return recorded === flat(match.head.slice(0, ENGINE_LABEL))
   return recorded.startsWith(match.head)
-}
-
-/** A template's text as written, cut into its own text and its `${...}` (braces counted, so a placeholder holding an object goes whole). */
-function templatePieces(template: string): { text: string; placeholder: boolean }[] {
-  const pieces: { text: string; placeholder: boolean }[] = []
-  let text = ''
-  let i = 0
-  while (i < template.length) {
-    if (template.charAt(i) === '\\') {
-      text += template.slice(i, i + 2)
-      i += 2
-    } else if (template.charAt(i) === '$' && template.charAt(i + 1) === '{') {
-      let depth = 1
-      let end = i + 2
-      while (end < template.length && depth > 0) {
-        if (template.charAt(end) === '{') depth++
-        else if (template.charAt(end) === '}') depth--
-        end++
-      }
-      if (text !== '') pieces.push({ text, placeholder: false })
-      pieces.push({ text: template.slice(i, end), placeholder: true })
-      text = ''
-      i = end
-    } else {
-      text += template.charAt(i)
-      i++
-    }
-  }
-  if (text !== '') pieces.push({ text, placeholder: false })
-  return pieces
-}
-
-const ESCAPES: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', v: '\v', '0': '\0' }
-
-/** A template's own text as the script's value has it: its escapes worked out. */
-function cooked(raw: string): string {
-  return raw.replace(/\\(?:u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|(\r\n|[\s\S]))/g, (_, braced?: string, unicode?: string, hex?: string, plain?: string) => {
-    const code = braced ?? unicode ?? hex
-    if (code !== undefined) return String.fromCodePoint(Number.parseInt(code, 16))
-    if (plain === '\n' || plain === '\r\n') return ''
-    return ESCAPES[plain as string] ?? (plain as string)
-  })
 }
 
 function escapeRegExp(text: string): string {
@@ -301,6 +260,20 @@ export function agentPlan(route: { model: AgentModel | null; effort: Effort | nu
 /** How the Workflow tool was handed the script: inline (`script`), by `scriptPath`, by `name`, or inline to resume an earlier run. */
 export type Given = 'script' | 'path' | 'name' | 'resume'
 
+/** How a Workflow call was submitted; `script` holds the text when it was inline and is not a resume. */
+export type Submission = { given: 'script'; script: string } | { given: Exclude<Given, 'script'> }
+
+/**
+ * How the Workflow tool call `e` hands over its script. The one reading of it, for the features that rewrite a script
+ * (`script`: the engine runs the text as sent) and those that route by label (every other way): a path or a name runs a
+ * script the tool reads itself, and a resume matches the earlier run's agents by their prompts and options.
+ */
+export function submissionOf(e: { scriptPath?: string | undefined; script?: string | undefined; name?: string | undefined; resumeFromRunId?: string | undefined }): Submission {
+  if (e.scriptPath !== undefined) return { given: 'path' }
+  if (e.script === undefined || e.name !== undefined) return { given: 'name' }
+  return e.resumeFromRunId !== undefined ? { given: 'resume' } : { given: 'script', script: e.script }
+}
+
 /**
  * What the main agent reads after the Workflow tool's result about the agents
  * this feature routes as they start; null when there is nothing to say.
@@ -321,12 +294,9 @@ export function launchNote(
   if (launched === null) return null
   const lines = launched.outcomes.map((outcome, index) => {
     const call = launched.calls[index] as AgentCall
-    if (outcome.kind === 'written') {
-      const why = whyOf(outcome.decision)
-      return `- ${callName(call)}: ${outcomeOf(call, outcome.decision)}${why === '' ? '' : ` (${why})`}`
-    }
+    if (outcome.kind === 'written') return `- ${decidedLine(call, outcome.decision)}`
     if (outcome.kind === 'kept') return `- ${callName(call)}: as the script has it (${outcomeOf(call, outcome.decision)})`
-    if (outcome.reason === 'unreadable' || outcome.reason === 'capped' || outcome.reason === 'unwritable') return `- ${callName(call)}: decided as each of its agents starts, from its label and its task`
+    if (decidedAtStart(outcome)) return `- ${callName(call)}: decided as each of its agents starts, from its label and its task`
     return `- ${callName(call)}: as the script has it (${outcome.failure === undefined ? 'no answer from the decision model' : launched.describe(outcome.failure)})`
   })
   const header = launched.outcomes.some((outcome) => outcome.kind !== 'left')

@@ -5,24 +5,17 @@
 //   node dispatch-pilot/eval/real.ts <results file> [<results file> ...]
 
 import { readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { isEffort } from '../hooks/decision/effort.ts'
 import type { EffortMidturnItem, EffortSubmitItem } from './lib/datasets.ts'
 import { gradeEffort } from './lib/effort-submit.ts'
 import { rate } from './lib/metrics.ts'
-import { DATASETS_DIR, MOD_DIR, readDataset, shown } from './node.ts'
+import { DATASETS_DIR, readDataset, resultFile, shown } from './node.ts'
 
 const pct = (value: number) => (value * 100).toFixed(1)
 console.log(['file', 'variant', 'n', 'accuracy', 'gold', 'too high', 'too low'].join('  '))
 for (const path of process.argv.slice(2)) {
-  const file = [resolve(path), resolve(MOD_DIR, path)].find((candidate) => {
-    try {
-      readFileSync(candidate)
-      return true
-    } catch {
-      return false
-    }
-  })
+  const file = resultFile(path)
   if (file === undefined) throw new Error(`no results file ${path}`)
   const result = JSON.parse(readFileSync(file, 'utf8')) as { suite: string; summary: { variants: { variant: string }[] }; answers: Record<string, unknown>[] }
   const items = readDataset(join(DATASETS_DIR, `${result.suite}.jsonl`)).items as unknown as (EffortSubmitItem | EffortMidturnItem)[]
@@ -31,6 +24,8 @@ for (const path of process.argv.slice(2)) {
     // `answer` is the level the answer picked; a mid-turn answer also keeps `sent`, the level the mod went on at.
     for (const field of result.suite === 'effort-midturn' ? (['answer', 'sent'] as const) : (['answer'] as const)) {
       const grades = result.answers.flatMap((line) => {
+        // A run that asked more than once has a line for each time (`repeat`); the first time's are the ones its summary counts.
+        if (line.repeat !== undefined && line.repeat !== 1) return []
         const answer = line[variant] as Record<string, unknown> | undefined
         const item = byId.get(String(line.id))
         const level = answer?.[field]

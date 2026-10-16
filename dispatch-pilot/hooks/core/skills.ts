@@ -14,9 +14,9 @@ import type { Config } from './setup.ts'
 /**
  * What the two stages of a ranking said, for a decision's reason: the skills
  * the main agent can load that stage one put forward with their shares, and
- * none's (`first`); the same of its question on the skills only the person
- * can start, when it was asked (`hint`); how well each fits by stage two, or
- * that stage one put none forward.
+ * none's; the same of its question on the skills only the person can start,
+ * when it was asked; how well each fits by stage two, or that stage one put
+ * none forward.
  */
 export function describeStages(ranking: SkillRanking): string {
   const shares = (shortlist: readonly SkillShare[], none: number) => [...shortlist.map((entry) => `${entry.name} ${entry.share.toFixed(2)}`), `都不合适 ${none.toFixed(2)}`].join('、')
@@ -70,7 +70,7 @@ export type CommandLike = { name: string; description: string; source: string; p
 export type ListedLike = { name: string; source: string; pluginName?: string }
 
 /** The settings sources, lowest precedence first (as `$.settings.read({ source })` names them). */
-export const SETTINGS_SOURCES = ['user', 'project', 'local', 'flag', 'policy'] as const
+const SETTINGS_SOURCES = ['user', 'project', 'local', 'flag', 'policy'] as const
 export type SettingsSourceName = (typeof SETTINGS_SOURCES)[number]
 
 /** What the catalog reads of the session, as closures over `$`. */

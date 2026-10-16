@@ -3,6 +3,7 @@
 // visual-check.test.ts: the world's backend answers, and a test reads the request that went out.
 
 import { expect, test } from 'claude-code/testing'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { zoomBackend } from './support/zoom.ts'
 import { pplx, world } from './support/world.ts'
 
@@ -26,7 +27,7 @@ test('against a reference the first request holds, beside the Noul of each check
   await w.visualCheck({ images: [SHOT], reference: [DESIGN], checks: [BUTTON, TAB_BAR] })
 
   const first = w.requests[0]?.body
-  expect(first.model).toBe('jev-1.14.0')
+  expect(first.model).toBe(JEV_MODEL)
   expect(first.questions).toEqual({
     'check.0': { type: 'noul', instructions: 'In `candidate`, is the corner radius of the primary button the same as in `reference`?' },
     'check.1': { type: 'noul', instructions: 'In `candidate`, is the color of the tab bar the same as in `reference`?' },

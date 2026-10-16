@@ -18,6 +18,8 @@ export type AgentCall = {
   line: number
   /** The prompt as written (a template keeps its `${...}`), for the decision model; null when the script builds it at run time. */
   prompt: string | null
+  /** The prompt is a template with a `${...}`, so `prompt` is its text as written, escapes and all (any other prompt's is its value, escapes worked out). Absent: not one. */
+  promptTemplate?: boolean
   /** The `label` option as written; null when there is none or it is built at run time. */
   label: string | null
   /**
@@ -50,8 +52,8 @@ export type ParsedWorkflow = {
   calls: AgentCall[]
 }
 
-/** What to write into one call: a model, an effort (`null` takes out the one the script wrote). */
-export type CallWrite = { model?: string; effort?: string | null }
+/** What to write into one call: a model, an effort. */
+export type CallWrite = { model?: string; effort?: string }
 
 /** Where one call takes its edits: its options object, or the spot an options argument goes. */
 type CallEdit = { kind: 'object'; object: ObjectLiteral } | { kind: 'append'; at: number; trailingComma: boolean }
@@ -113,7 +115,7 @@ export function rewriteWorkflow(parsed: ParsedWorkflow, writes: readonly (CallWr
       const added = entriesOf(write)
       if (added.length > 0) edits.push({ start: edit.at, end: edit.at, text: `${edit.trailingComma ? ' ' : ', '}{ ${added.join(', ')} }` })
     } else {
-      edits.push(...objectEdits(parsed.script, edit.object, write))
+      edits.push(...objectEdits(edit.object, write))
     }
   }
   // In one pass over the script. An edit that starts inside the one before it
@@ -131,42 +133,33 @@ export function rewriteWorkflow(parsed: ParsedWorkflow, writes: readonly (CallWr
 
 type Edit = { start: number; end: number; text: string }
 
-/** The `model: 'x'` and `effort: 'y'` entries a write adds to an options object. */
-function entriesOf(write: CallWrite): string[] {
+/** The `model: 'x'` and `effort: 'y'` entries of a write, as they are written into an options object. */
+export function entriesOf(write: CallWrite): string[] {
   const entries: string[] = []
   if (write.model !== undefined) entries.push(`model: '${write.model}'`)
-  if (typeof write.effort === 'string') entries.push(`effort: '${write.effort}'`)
+  if (write.effort !== undefined) entries.push(`effort: '${write.effort}'`)
   return entries
 }
 
 /**
  * The edits that put a write into an options object: the value of a `model`
  * or `effort` the script already wrote is replaced where it stands; one it
- * did not write goes after the last property. An effort to take out means the
- * object is written out again from its properties, without it.
+ * did not write goes after the last property.
  */
-function objectEdits(src: string, object: ObjectLiteral, write: CallWrite): Edit[] {
+function objectEdits(object: ObjectLiteral, write: CallWrite): Edit[] {
   // The last property of a key is the one that counts, as in JavaScript.
   const existing = (key: string): Property | undefined => object.properties.findLast((property) => property.key === key)
-  // What a property the script wrote is replaced with: its value, or all of it when it is a shorthand (`{ model }`).
-  const replaced = new Map<Property, Edit>()
+  const edits: Edit[] = []
   const added: string[] = []
-  let removed: Property | undefined
+  // A property the script wrote is replaced by its value, or all of it when it is a shorthand (`{ model }`).
   const set = (key: 'model' | 'effort', value: string) => {
     const at = existing(key)
     if (at === undefined) added.push(`${key}: '${value}'`)
-    else if (at.value !== null) replaced.set(at, { start: at.value.start, end: at.value.end, text: `'${value}'` })
-    else replaced.set(at, { start: at.start, end: at.end, text: `${key}: '${value}'` })
+    else if (at.value !== null) edits.push({ start: at.value.start, end: at.value.end, text: `'${value}'` })
+    else edits.push({ start: at.start, end: at.end, text: `${key}: '${value}'` })
   }
   if (write.model !== undefined) set('model', write.model)
-  if (typeof write.effort === 'string') set('effort', write.effort)
-  else if (write.effort === null) removed = existing('effort')
-  if (removed !== undefined) {
-    const kept = object.properties.filter((property) => property !== removed).map((property) => propertyText(src, property, replaced.get(property)))
-    const body = [...kept, ...added].join(', ')
-    return [{ start: object.open, end: object.close + 1, text: body === '' ? '{}' : `{ ${body} }` }]
-  }
-  const edits: Edit[] = [...replaced.values()]
+  if (write.effort !== undefined) set('effort', write.effort)
   if (added.length > 0) {
     const text = added.join(', ')
     const last = object.properties[object.properties.length - 1]
@@ -175,12 +168,6 @@ function objectEdits(src: string, object: ObjectLiteral, write: CallWrite): Edit
     else edits.push({ start: last.end, end: last.end, text: `, ${text}` })
   }
   return edits
-}
-
-/** A property's source text, with `edit` (a span inside it) applied when given. */
-function propertyText(src: string, property: Property, edit: Edit | undefined): string {
-  if (edit === undefined) return src.slice(property.start, property.end)
-  return src.slice(property.start, edit.start) + edit.text + src.slice(edit.end, property.end)
 }
 
 // --- tokens -----------------------------------------------------------------
@@ -422,10 +409,12 @@ function readCall(src: string, stream: Stream, at: number, lineOf: (offset: numb
   const { args, trailingComma } = splitArguments(stream, open)
   const promptArg = args[0]
   if (promptArg === undefined || args.length > 2 || (tokens[promptArg.first] as Token).text === '...') return null
+  const prompt = textOf(src, tokens, promptArg.first, promptArg.last)
   const call: AgentCall = {
     index: 0,
     line: lineOf((tokens[at] as Token).start),
-    prompt: textOf(src, tokens, promptArg.first, promptArg.last)?.text ?? null,
+    prompt: prompt?.text ?? null,
+    ...(prompt?.interpolated === true ? { promptTemplate: true } : {}),
     label: null,
     labelKind: 'none',
     agentType: null,
@@ -497,12 +486,16 @@ function readObject(src: string, stream: Stream, first: number, last: number): O
 
 // --- text -------------------------------------------------------------------
 
-/** The text of tokens `first`..`last` when they are one string or one template; a template keeps its `${...}` as written. */
+/** The text of tokens `first`..`last` when they are one string or one template; a template with a `${...}` keeps it, and the rest, as written. */
 function textOf(src: string, tokens: readonly Token[], first: number, last: number): { text: string; interpolated: boolean } | null {
   if (first !== last) return null
   const token = tokens[first] as Token
   if (token.kind === 'str') return { text: stringValue(token.text), interpolated: false }
-  if (token.kind === 'tpl') return { text: src.slice(token.start + 1, token.end - 1), interpolated: (token.streams ?? []).length > 0 }
+  if (token.kind === 'tpl') {
+    const text = src.slice(token.start + 1, token.end - 1)
+    const interpolated = (token.streams ?? []).length > 0
+    return { text: interpolated ? text : cooked(text), interpolated }
+  }
   return null
 }
 
@@ -522,12 +515,44 @@ function lineCounter(src: string): (offset: number) => number {
 
 const ESCAPES: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', v: '\v', '0': '\0' }
 
-/** The value of a string literal's source text. */
-function stringValue(literal: string): string {
-  return literal.slice(1, -1).replace(/\\(?:u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|(\r\n|[\s\S]))/g, (_, braced?: string, unicode?: string, hex?: string, plain?: string) => {
+/** The value of the text between a literal's quotes (or backticks): its escapes worked out. */
+export function cooked(raw: string): string {
+  return raw.replace(/\\(?:u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|(\r\n|[\s\S]))/g, (_, braced?: string, unicode?: string, hex?: string, plain?: string) => {
     const code = braced ?? unicode ?? hex
     if (code !== undefined) return String.fromCodePoint(Number.parseInt(code, 16))
     if (plain === '\n' || plain === '\r\n') return ''
     return ESCAPES[plain as string] ?? (plain as string)
   })
+}
+
+const stringValue = (literal: string): string => cooked(literal.slice(1, -1))
+
+/** A template's text as written, cut into its own text (escapes kept, `\${` among it) and its `${...}` (braces counted, so a placeholder holding an object goes whole). */
+export function templatePieces(template: string): { text: string; placeholder: boolean }[] {
+  const pieces: { text: string; placeholder: boolean }[] = []
+  let text = ''
+  let i = 0
+  while (i < template.length) {
+    if (template.charAt(i) === '\\') {
+      text += template.slice(i, i + 2)
+      i += 2
+    } else if (template.charAt(i) === '$' && template.charAt(i + 1) === '{') {
+      let depth = 1
+      let end = i + 2
+      while (end < template.length && depth > 0) {
+        if (template.charAt(end) === '{') depth++
+        else if (template.charAt(end) === '}') depth--
+        end++
+      }
+      if (text !== '') pieces.push({ text, placeholder: false })
+      pieces.push({ text: template.slice(i, end), placeholder: true })
+      text = ''
+      i = end
+    } else {
+      text += template.charAt(i)
+      i++
+    }
+  }
+  if (text !== '') pieces.push({ text, placeholder: false })
+  return pieces
 }

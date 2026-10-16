@@ -18,6 +18,7 @@
 // in case the turn ends first and the message starts a turn of its own.
 
 import type { EngineInterface, On } from 'claude-code'
+import { errorText } from '../decision/backend.ts'
 import { EFFORTS, LEVEL, probsOf, readEffort, readingText, traceEffort, type Effort, type EffortReading } from '../decision/effort.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { turnStartPart } from '../decision/turn-start.ts'
@@ -82,7 +83,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
 
     // The person's own message also asks whether it says the problem they are on is still not solved (the unresolved
     // count); a report that starts a turn is no word of theirs, and the switch can leave the question out. It travels
-    // in this part, so it is in the effort request with the 24000-token state it reads (ADR 0005).
+    // in this part, so it is in the effort request with the state it reads (ADR 0005).
     const counting = !handBack && isOn(UNRESOLVED_SWITCH)
     // The summary there is: a write that is not done yet is no reason to wait, the decision uses the one before it.
     const summary = counting ? await keptSummary(countCell($)).catch(() => null) : null
@@ -157,7 +158,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
       try {
         return unresolvedDecision(judged, await moveCount(countCell($), judged.change))
       } catch (error) {
-        $.ui.log(`unresolved count not kept: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+        $.ui.log(`unresolved count not kept: ${errorText(error)}`, { to: 'debug' })
         return null
       }
     }

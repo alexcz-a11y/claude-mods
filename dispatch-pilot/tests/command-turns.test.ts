@@ -5,11 +5,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { profileKey } from '../hooks/core/profiles.ts'
-import { jev, world, type SkillsWorld } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
-/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
-const UNRESOLVED_ON = { unresolved: true }
+import { jev, KEY, type SkillsWorld, UNRESOLVED_ON, world } from './support/world.ts'
 
 test('a command turn gets the effort question about the command as typed, and goes out at the decided effort', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0.1, 0.2, 0.7, 0]) })

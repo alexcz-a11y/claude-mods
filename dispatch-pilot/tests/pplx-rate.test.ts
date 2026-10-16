@@ -2,7 +2,7 @@
 // mod sends 5 by default, and one message sends two or three (the effort question, the skills' two stages), so the mod queues
 // them itself (`pplxQps`), effort first, and when a 429 comes anyway it asks once more if what time is left allows. Seam 1 (engine events in, what reaches the decision
 // backend and when, and the board, out) on the mock clock; the 429 and its `Retry-After` as the API sends them are seam 2
-// (pplx.test.ts). Every test here sets `decisionModel: pplx`, which is not the default until #52.
+// (pplx.test.ts). Every test here sets `decisionModel: pplx` (the default) itself, with `pplxQps` 1 or what it is about.
 
 import { expect, test } from 'claude-code/testing'
 import { readConfig } from '../hooks/core/setup.ts'
@@ -79,7 +79,7 @@ test("the effort request of a message goes before a skills request that was queu
   ])
 })
 
-test('Jev is not queued: the same message sends all its requests at once', { options: { typesafeApiKey: 'ts-test-key' } }, async ($, on) => {
+test("Jev is paced by the account's limits, not queued like pplx: at the default plan's the same message sends all its requests at once, and no pplx record is written", { options: { typesafeApiKey: 'ts-test-key' } }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 }, [0, 1, 0, 0, 0]), skills: SKILLS })
   await w.submit('先写一个失败的测试')
   expect(w.requests.map((request) => request.url)).toEqual(Array(3).fill('https://api.typesafe.ai/v1/systemone'))

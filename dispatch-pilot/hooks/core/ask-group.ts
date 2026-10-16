@@ -62,20 +62,21 @@ export async function askGroups(io: AskIo, ctx: Ctx, input: AskInput): Promise<s
       const asked: Asked = 'request' in one ? await ctx.backend.ask(io.backend, one.request, waitMs) : { ok: false, failure: { kind: 'request', detail: errorText(one.error) } }
       const ms = (await io.now()) - startedAt
       io.debug(`request [${ids}] to ${ctx.backend.name}: ${describeAsked(asked, ms)}`)
-      return settleAll(one.group, asked, 'request' in one ? one.request.state : {}, waitMs)
+      return settleAll(io, one.group, asked, 'request' in one ? one.request.state : {}, waitMs)
     }),
   )
   return blocks.flat()
 }
 
-/** Hands each part its outcome (in parallel) and gathers the context blocks they return, in ballot order. */
-async function settleAll(ballot: readonly Contribution[], asked: Asked, state: State, waitMs: number): Promise<string[]> {
+/** Hands each part its outcome (in parallel) and gathers the context blocks they return, in ballot order. A part whose `settle` throws is logged and gives none. */
+async function settleAll(io: AskIo, ballot: readonly Contribution[], asked: Asked, state: State, waitMs: number): Promise<string[]> {
   const settled = await Promise.all(
     ballot.map(async (contribution) => {
       const outcome: PartOutcome = asked.ok ? { ok: true, answers: answersFor(contribution, asked.answers), state, waitMs } : { ok: false, failure: asked.failure }
       try {
         return (await contribution.settle(outcome)) ?? []
-      } catch {
+      } catch (error) {
+        io.debug(`${contribution.part} could not settle its outcome: ${errorText(error)}`)
         return []
       }
     }),

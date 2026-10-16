@@ -18,8 +18,8 @@ import { isEffort, type Effort } from '../decision/effort.ts'
 import { UNRESOLVED_OPTIONS } from '../decision/unresolved.ts'
 import { OPTION_WORDS } from '../core/unresolved.ts'
 import type { LogEntry, ProfilesState, RuleStep, Tone, UnresolvedRecord } from '../core/report.ts'
-import { pct } from './kit.tsx'
-import { featureOf, type AgentRow, type ScreenView } from './view.ts'
+import { pctText } from './kit.tsx'
+import { agentOf, featureOf, type AgentRow, type ScreenView } from './view.ts'
 
 /** The pane's id: `$.ui.open`, `$.ui.close` and the `ui.render` hook's `requestId`. */
 export const PANE_ID = 'dp-rationale'
@@ -39,11 +39,11 @@ export type PaneState = {
 export const NO_PANE_STATE: PaneState = { folds: [], failures: false }
 
 /** The keys that fold a turn of the log, newest turn first: one for each of the 20 turns it keeps, never p, n (paging) or f (the failed skills). */
-export const FOLD_KEYS = ['a', 'b', 'c', 'd', 'e', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'o', 'q', 'r', 's', 't', 'u', 'v', 'w'] as const
+const FOLD_KEYS = ['a', 'b', 'c', 'd', 'e', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'o', 'q', 'r', 's', 't', 'u', 'v', 'w'] as const
 /** The key that lists the skills that got no profile. */
 export const FAILURES_KEY = 'f'
 /** How many of the newest turns are open until the person folds them; older ones are folded. */
-export const OPEN_TURNS = 2
+const OPEN_TURNS = 2
 
 // ---- the card -------------------------------------------------------------------
 
@@ -71,7 +71,7 @@ export function cardOf(view: ScreenView, log: readonly LogEntry[]): Card {
   const { node } = row
   const route = node.decision === undefined ? undefined : log.find((entry) => entry.n === node.decision)
   // An agent's id is its own across turns; the main agent's entries are those of its node's turn.
-  const mine = (entry: LogEntry) => (entry.agent ?? '') === node.id && (node.id !== 'main' || entry.turn === node.turn)
+  const mine = (entry: LogEntry) => agentOf(entry) === node.id && (node.id !== 'main' || entry.turn === node.turn)
   const raises = log.filter((entry) => mine(entry) && featureOf(entry.feature) === 'escalation' && entry.forced !== undefined)
   const mids = node.id !== 'main' ? [] : log.filter((entry) => mine(entry) && entry.mid !== undefined && entry.forced === undefined && (featureOf(entry.feature) === 'midturn-effort' || featureOf(entry.feature) === 'escalation'))
   return { row, index, count: view.rows.length, route, raises, mids }
@@ -89,12 +89,12 @@ export function unresolvedWords(record: UnresolvedRecord): { count: string; verd
   const { add, reset } = record.thresholds
   const moved = record.before !== record.count
   const verdict = record.change === 'add' ? '次数加一' : record.change === 'reset' ? (moved ? '次数清零' : '本来就是 0，不用清零') : '次数不变'
-  const crossed = p.resolved >= reset ? 'resolved' : 'new_or_unrelated'
+  // A reset's option is the one the record says the answer leaned to most: the bar is over half, so no other option can pass it.
   const bars =
     record.change === 'add'
       ? `仍未解决 ${percent(p.still_unresolved)} ≥ 加一门槛 ${percent(add)}`
       : record.change === 'reset'
-        ? `${OPTION_WORDS[crossed]} ${percent(p[crossed])} ≥ 清零门槛 ${percent(reset)}`
+        ? `${OPTION_WORDS[record.top]} ${percent(p[record.top])} ≥ 清零门槛 ${percent(reset)}`
         : `都没到：仍未解决 < 加一门槛 ${percent(add)}，其余 < 清零门槛 ${percent(reset)}`
   return {
     count: moved ? `次数 ${record.before} → ${record.count}` : `次数 ${record.count}`,
@@ -114,10 +114,9 @@ export function pageTo(card: Card, view: ScreenView, step: -1 | 1): AgentRow | n
 export type StepMark = 'hit' | 'pass' | 'lift' | 'raise'
 
 /** One step of the rules' working, worded: its mark, the rule's name, what it did. */
-export type StepLine = { mark: StepMark; head: string; body: string }
+type StepLine = { mark: StepMark; head: string; body: string }
 
-const num = (value: unknown) => (typeof value === 'number' ? pct(value) : '?')
-const word = (value: unknown) => (value === null || value === undefined ? '—' : String(value))
+const word =(value: unknown) => (value === null || value === undefined ? '—' : String(value))
 
 /** The steps the rules walked, as the card writes them (each from the step's own fields). */
 export function stepLines(trace: readonly RuleStep[]): StepLine[] {
@@ -129,29 +128,23 @@ function stepLine(step: RuleStep, top: RuleStep | undefined): StepLine {
   const on = step.applied
   switch (step.rule) {
     case 'top':
-      return { mark: 'hit', head: '最可能', body: `${word(step.level)} ${num(step.p)}${step.tie === true ? '（并列，取高的一档）' : ''}` }
+      return { mark: 'hit', head: '最可能', body: `${word(step.level)} ${pctText(step.p)}${step.tie === true ? '（并列，取高的一档）' : ''}` }
     case 'max-gate':
-      if (on) return { mark: 'hit', head: 'max 门槛', body: `max ${num(step.p)} < ${num(step.thetaMax)}，改取其余最可能的 ${word(step.level)}` }
-      return { mark: 'pass', head: 'max 门槛', body: top?.level === 'max' ? `max ${num(step.p)} ≥ ${num(step.thetaMax)}，可以取 max` : '最可能的不是 max，不用过门槛' }
+      if (on) return { mark: 'hit', head: 'max 门槛', body: `max ${pctText(step.p)} < ${pctText(step.thetaMax)}，改取其余最可能的 ${word(step.level)}` }
+      return { mark: 'pass', head: 'max 门槛', body: top?.level === 'max' ? `max ${pctText(step.p)} ≥ ${pctText(step.thetaMax)}，可以取 max` : '最可能的不是 max，不用过门槛' }
     case 'round-up':
-      if (on) return { mark: 'hit', head: '上取一档', body: `${word(step.above)} ${num(step.p)} ≥ ${num(step.threshold)}，取高一档 ${word(step.level)}` }
+      if (on) return { mark: 'hit', head: '上取一档', body: `${word(step.above)} ${pctText(step.p)} ≥ ${pctText(step.threshold)}，取高一档 ${word(step.level)}` }
       if (step.above === null) return { mark: 'pass', head: '上取一档', body: '已是最高一档' }
-      if (step.blockedByMax === true) return { mark: 'pass', head: '上取一档', body: `max ${num(step.p)} ≥ ${num(step.threshold)}，但没到 max 门槛 ${num(step.thetaMax)}，不上取` }
-      return { mark: 'pass', head: '上取一档', body: `${word(step.above)} ${num(step.p)} < ${num(step.threshold)}，不上取` }
+      if (step.blockedByMax === true) return { mark: 'pass', head: '上取一档', body: `max ${pctText(step.p)} ≥ ${pctText(step.threshold)}，但没到 max 门槛 ${pctText(step.thetaMax)}，不上取` }
+      return { mark: 'pass', head: '上取一档', body: `${word(step.above)} ${pctText(step.p)} < ${pctText(step.threshold)}，不上取` }
     case 'model-floor':
       if (step.floor === null) return { mark: 'pass', head: '模型下限', body: `${word(step.model)} 没有下限` }
       if (on) return { mark: 'lift', head: '模型下限', body: `${word(step.model)} 至少 ${word(step.floor)}，${word(step.from)} 抬到 ${word(step.level)}` }
       return { mark: 'pass', head: '模型下限', body: `${word(step.model)} 至少 ${word(step.floor)}，${word(step.from)} 已够` }
-    case 'plan-floor': {
-      const head = step.forced === true ? '强制升档' : '计划下限'
-      if (step.floor === null) return { mark: 'pass', head, body: '没有下限' }
-      if (on) return { mark: step.forced === true ? 'raise' : 'lift', head, body: `至少 ${word(step.floor)}，${word(step.from)} 抬到 ${word(step.level)}` }
-      return { mark: 'pass', head, body: `至少 ${word(step.floor)}，${word(step.from)} 已够` }
-    }
     case 'forced-raise':
       return { mark: 'raise', head: '强制升档', body: `${word(step.from)} → ${word(step.level)}（${step.mode === 'max' ? '直接升到 max' : '升一档'}）` }
     case 'theta-up':
-      return { mark: on ? 'hit' : 'pass', head: '升档门槛', body: `置信 ${num(step.confidence)} ${on ? '≥' : '<'} ${num(step.threshold)}，${on ? '把握够' : '把握不够'}` }
+      return { mark: on ? 'hit' : 'pass', head: '升档门槛', body: `置信 ${pctText(step.confidence)} ${on ? '≥' : '<'} ${pctText(step.threshold)}，${on ? '把握够' : '把握不够'}` }
     case 'higher-of':
       return on ? { mark: 'hit', head: '取较高', body: `判断的 ${word(step.level)} 高于强制的 ${word(step.from)}，取 ${word(step.level)}` } : { mark: 'pass', head: '取较高', body: `判断的不比强制的高，取 ${word(step.from)}` }
     case 'suggest':
@@ -160,7 +153,7 @@ function stepLine(step: RuleStep, top: RuleStep | undefined): StepLine {
       if (on) return { mark: 'hit', head: '防抖', body: `升档后才 ${word(step.sinceRaise)} 步（${word(step.holdSteps)} 步内不降），还差 ${word(step.remaining)} 步` }
       return { mark: 'pass', head: '防抖', body: step.sinceRaise === null ? '这一轮没有升过档，可以降' : `升档已过 ${word(step.sinceRaise)} 步（${word(step.holdSteps)} 步内不降），可以降` }
     case 'theta-down':
-      return { mark: on ? 'hit' : 'pass', head: '降档门槛', body: `置信 ${num(step.confidence)} ${on ? '≥' : '<'} ${num(step.threshold)}，${on ? '把握够' : '把握不够'}` }
+      return { mark: on ? 'hit' : 'pass', head: '降档门槛', body: `置信 ${pctText(step.confidence)} ${on ? '≥' : '<'} ${pctText(step.threshold)}，${on ? '把握够' : '把握不够'}` }
     case 'one-step':
       return { mark: 'hit', head: '一次一档', body: `${word(step.from)} 降到 ${word(step.level)}` }
     case 'floor':
@@ -173,7 +166,7 @@ function stepLine(step: RuleStep, top: RuleStep | undefined): StepLine {
 }
 
 /** A mid-turn re-decision as the card's row says it: what it suggested, how sure it was against the line it had to pass, where it ended. */
-export type MidVerdict = {
+type MidVerdict = {
   picked: Effort
   current: Effort
   result: Effort
@@ -344,14 +337,4 @@ export function profilesLine(profiles: ProfilesState): { text: string; tone: 'mu
     return { text: `skill 画像：已停写（${why}） · ${counts}`, tone: stop?.reason === 'off' ? 'muted' : 'fail' }
   }
   return { text: `skill 画像：${counts}`, tone: profiles.failed > 0 ? 'warn' : 'muted' }
-}
-
-/** The pane's top line when the whole mod is switched off; null while it is on. */
-export function offLine(master: boolean): string | null {
-  return master ? null : 'Dispatch Pilot 已关：不发决策请求，每一步照引擎原样发出（/dp on 打开）'
-}
-
-/** A switch's state in the word the pane lists it with (every switch is listed, the ones that are off in grey). */
-export function switchWord(on: boolean): string {
-  return on ? '开' : '关'
 }

@@ -9,6 +9,7 @@ import { type ImageFilesIo, loadImage } from '../hooks/core/image-files.ts'
 import { comparePair, type ZoomDeps } from '../hooks/core/zoom-review.ts'
 import { JEV_IMAGE_LIMITS } from '../hooks/decision/image-fit.ts'
 import type { Answer, DecisionRequest } from '../hooks/decision/system-one.ts'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { BASE_DIRS, type FakeFile, fileBase64, sips } from './support/images.ts'
 import { zoomBackend } from './support/zoom.ts'
 import { world } from './support/world.ts'
@@ -85,7 +86,7 @@ test('comparePair locates the parts in a pair of images, cuts the crops and judg
     backend: 'jev',
     ask: async (request) => {
       asked.push(request)
-      return { ok: true, answers: answers(request), model: 'jev-1.14.0', inputTokens: 100 }
+      return { ok: true, answers: answers(request), model: JEV_MODEL, inputTokens: 100 }
     },
   }
   const outcome = await comparePair(deps, { candidate: high.image, other: low.image, sameView: null }, [
@@ -108,7 +109,8 @@ test('comparePair locates the parts in a pair of images, cuts the crops and judg
   // The part that differs brings its crops; so does the other place, 0.3 sure and a sixth of the screen.
   expect(outcome.failed.map((one) => one.index)).toEqual([1])
   expect(outcome.elsewhere?.place.confidence).toBe(0.3)
-  expect(outcome.elsewhere?.candidate?.file).toMatch(/^\/tmp\/pair\/image-\d+\.png$/)
+  expect(outcome.elsewhere?.candidate).toMatchObject({ format: 'png' })
+  expect(outcome.elsewhere?.other).toMatchObject({ format: 'png' })
 })
 
 test('comparePair never throws: where the Boxes cannot be asked for, every check is unsure with the reason', { options: JEV }, async ($, on) => {

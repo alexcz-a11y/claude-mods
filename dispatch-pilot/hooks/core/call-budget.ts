@@ -10,11 +10,11 @@
 //
 // Pure (see system-one.ts): the clock is a closure.
 
-/** What the requests of one call may wait in all: the hook's 10 seconds, less one for the rest of its work (image-routing's `HOOK_ROOM_MS`). */
+/** What the requests of one call may wait in all: the hook's 10 seconds, less one for the rest of its work (image-routing's effort request shares it). */
 export const CALL_ROOM_MS = 9000
 
 /** A request with less time than this is not sent: Jev's own wait beside a message is 1.5 seconds, and a request with images takes longer. */
-export const LEAST_REQUEST_MS = 1500
+const LEAST_REQUEST_MS = 1500
 
 export type CallBudget = {
   /**
@@ -24,15 +24,15 @@ export type CallBudget = {
   run: <T>(limitMs: number, request: (waitMs: number) => Promise<T>, unsent: T) => Promise<T>
 }
 
-/** A budget of `roomMs` for one call; `now` is the clock (`$.clock.now()`). */
-export function callBudget(now: () => Promise<number>, roomMs: number = CALL_ROOM_MS): CallBudget {
+/** A budget of `CALL_ROOM_MS` for one call; `now` is the clock (`$.clock.now()`). */
+export function callBudget(now: () => Promise<number>): CallBudget {
   let waiting = 0
   let since = 0
   let used = 0
   return {
     async run(limitMs, request, unsent) {
       const at = await now()
-      const left = roomMs - used - (waiting > 0 ? at - since : 0)
+      const left = CALL_ROOM_MS - used - (waiting > 0 ? at - since : 0)
       if (left < LEAST_REQUEST_MS) return unsent
       if (waiting++ === 0) since = at
       try {

@@ -31,9 +31,9 @@ export function runDir(runId: string): string {
   return `${SESSION}/subagents/workflows/${runId}`
 }
 
-/** Where the tool persists the script of a run it was handed by name or inline (the result's `scriptPath`). */
-export function persisted(runId: string): string {
-  return `${SESSION}/workflows/scripts/workflow-${runId}.js`
+/** Where the tool persists the script of a run it was handed by name (`<name>-<runId>.js`) or inline (`workflow-<runId>.js`): the result's `scriptPath`. */
+export function persisted(runId: string, name = 'workflow'): string {
+  return `${SESSION}/workflows/scripts/${name}-${runId}.js`
 }
 
 /** The frame the engine writes before a workflow agent's task (2.1.289). */

@@ -5,12 +5,9 @@
 
 import { expect, test } from 'claude-code/testing'
 import { profileKey } from '../hooks/core/profiles.ts'
-import type { Reply, Sent, SkillsWorld } from './support/world.ts'
-import { isSecondSkillsRequest, jev, pplx, rates, world } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
-/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
-const UNRESOLVED_ON = { unresolved: true }
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
+import { offered, profileOf } from './support/skill-profiles.ts'
+import { isSecondSkillsRequest, jev, KEY, pplx, rates, type SkillsWorld, UNRESOLVED_ON, world } from './support/world.ts'
 
 // A session's skills as Claude Code reports them: three the main agent can
 // load (one synced from claude.ai), one only the person can start.
@@ -291,14 +288,6 @@ for (const chosen of WAITS) {
   })
 }
 
-/** A profile whose every field names its skill, so a request shows whose it is. */
-function profileOf(name: string) {
-  return {
-    en: { what: `${name}: what it does`, use_when: `${name}: when to use it`, not_for: `${name}: when not to` },
-    zh: { what: `${name}：用途`, use_when: `${name}：何时用`, not_for: `${name}：何时不用` },
-  }
-}
-
 /** The store as an earlier session left it: a profile of each skill the main agent can load (none has a SKILL.md here: each was written from its description). */
 function storedProfiles(): Record<string, unknown> {
   const skills = [
@@ -307,12 +296,6 @@ function storedProfiles(): Record<string, unknown> {
     { name: 'anthropic-skills:pdf', description: PDF_DESCRIPTION },
   ]
   return Object.fromEntries(skills.map((skill) => [profileKey(skill, null, 'haiku'), { name: skill.name, at: 1, profile: profileOf(skill.name) }]))
-}
-
-/** What a skill with a profile is offered as. */
-function offered(name: string) {
-  const { en, zh } = profileOf(name)
-  return { what: en.what, use_when: en.use_when, not_for: en.not_for, 用途: zh.what, 何时用: zh.use_when, 何时不用: zh.not_for }
 }
 
 test("with Jev, find_skill's first request offers each skill by its profile, as a message's does; the second re-reads it by its profile too", { options: KEY }, async ($, on) => {
@@ -324,7 +307,7 @@ test("with Jev, find_skill's first request offers each skill by its profile, as 
 })
 
 test('an answer that leaves the skills question out is a failure too', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: () => ({ status: 200, body: { model: 'jev-1.13.0', answers: {} } }), skills: SKILLS, disk: PERSON_FILES })
+  const w = world($, on, { backend: () => ({ status: 200, body: { model: JEV_MODEL, answers: {} } }), skills: SKILLS, disk: PERSON_FILES })
   const answer = await w.findSkill('write the tests first')
 
   expect(answer.result).toBe(`find_skill could not rate the skills (jev: unreadable answer). ${SKILL_TOOL_LINE}`)
@@ -389,8 +372,8 @@ test('each call goes to the debug log (its requests, what it returned and why) a
   const decision =
     '查到 anthropic-skills:pdf、code-review · "fill in a form in a PDF"：第一段 anthropic-skills:pdf 0.70、code-review 0.20、都不合适 0.08；第二段相关度 anthropic-skills:pdf 0.93、code-review 0.61；相关度 0.50 起返回，最多 5 个'
   expect(w.logs).toEqual([
-    { text: 'request [skills.which] to jev for find_skill "fill in a form in a PDF": answered in 0 ms by jev-1.13.0 (300 input tokens)', to: 'debug' },
-    { text: 'second request [skills.best, skills.fits.0, skills.fits.1] to jev for find_skill "fill in a form in a PDF": answered in 0 ms by jev-1.13.0 (300 input tokens)', to: 'debug' },
+    { text: `request [skills.which] to jev for find_skill "fill in a form in a PDF": answered in 0 ms by ${JEV_MODEL} (300 input tokens)`, to: 'debug' },
+    { text: `second request [skills.best, skills.fits.0, skills.fits.1] to jev for find_skill "fill in a form in a PDF": answered in 0 ms by ${JEV_MODEL} (300 input tokens)`, to: 'debug' },
     { text: decision, to: 'debug' },
     { text: 'request [skills.which] to jev for find_skill "review a branch before merging": http: HTTP 500: boom (0 ms)', to: 'debug' },
   ])

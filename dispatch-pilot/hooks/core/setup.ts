@@ -26,6 +26,7 @@ import { rateLimited } from '../decision/pplx-rate.ts'
 import type { SkillPolicy } from '../decision/skills.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
 import { BATCHES_BUDGET_MS } from '../decision/workflow.ts'
+import { listSwitches } from './switches.ts'
 
 /** The decision models the person can choose (`decisionModel`): Perplexity's pplx-decider and TypeSafe's Jev (decision/backend.ts, where the pure modules read it). */
 export type { BackendName }
@@ -501,6 +502,7 @@ export type Ctx = {
   readonly images: { readonly name: BackendName; readonly backend: Backend; readonly fellBack: boolean } | null
 }
 
+/** `table` is only a test's way to read a table the shipped one does not have (a decision model not added yet). */
 export function setup(options: PluginOptions, table: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS): Ctx {
   const asked = backendNameOf(options)
   // Both are worked out here, whichever decides: pure and cheap, and `chooseBackend` picks between them once the environment is read.
@@ -511,7 +513,8 @@ export function setup(options: PluginOptions, table: Readonly<Record<BackendName
     pplx: rateLimited(pplxBackend(() => perplexityKey(configs.pplx, secrets)), configs.pplx.pplxQps),
     jev: jevRateLimited(jevBackend(configs.jev.typesafeApiKey), () => configs.jev.jevLimits),
   }
-  const choice = () => chooseBackend(asked, { perplexity: perplexityKey(configs.pplx, secrets), typesafe: configs.pplx.typesafeApiKey })
+  const keys = () => ({ perplexity: perplexityKey(configs.pplx, secrets), typesafe: configs.pplx.typesafeApiKey })
+  const choice = () => chooseBackend(asked, keys())
   return {
     get config() {
       return configs[choice().backend]
@@ -527,7 +530,7 @@ export function setup(options: PluginOptions, table: Readonly<Record<BackendName
       return choice().fellBack
     },
     get images() {
-      const chosen = chooseImageBackend({ perplexity: perplexityKey(configs.pplx, secrets), typesafe: configs.pplx.typesafeApiKey })
+      const chosen = chooseImageBackend(keys())
       return chosen === null ? null : { name: chosen.backend, backend: backends[chosen.backend], fellBack: chosen.fellBack }
     },
   }
@@ -549,7 +552,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
   /** A per-backend option: the person's value within [min, max], else the decision model's default (noted for the log). */
   const own = (option: PerBackendOption, min: number, max: number, round = false) => {
     const set = options[option]
-    if (typeof set !== 'number' || !Number.isFinite(set)) {
+    if (!isNumber(set)) {
       used.push([option, defaults[option]])
       return defaults[option]
     }
@@ -559,11 +562,11 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
     return value
   }
   const whole = (value: unknown, min: number, max: number, fallback: number) => Math.round(numberIn(value, min, max, fallback))
+  const { roundUp } = defaults
   const thetaMax = own('thetaMax', 0, 1)
   // `contextTokens` by kind of request: unset, each kind's own (BACKEND_DEFAULTS); set, the smaller of it and each kind's.
   const contextTokens = own('contextTokens', 100, defaults.contextTokensMax, true)
-  const contextSet = typeof options.contextTokens === 'number' && Number.isFinite(options.contextTokens)
-  const byKind = (cap: number) => (contextSet ? Math.min(contextTokens, cap) : cap)
+  const byKind = (cap: number) => (isNumber(options.contextTokens) ? Math.min(contextTokens, cap) : cap)
   const context = { messages: own('contextMessages', 0, defaults.contextMessagesMax, true), tokens: byKind(defaults.contextTokens) }
   const contextByKind = Object.fromEntries(CONTEXT_KINDS.map((kind) => [kind, byKind(defaults.contextByKind[kind])])) as Record<ContextKind, number>
   const haikuToWritten = stringOf(options.escalateHaikuTo, 'sonnet').trim()
@@ -581,7 +584,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
     longWaitMs: defaults.longWaitMs,
     ask: defaults.ask,
     thetaMax,
-    roundUp: defaults.roundUp,
+    roundUp,
     context,
     contextByKind,
     midturn: {
@@ -593,7 +596,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
         thetaUp: own('thetaUp', 0, 1),
         thetaDown: own('thetaDown', 0, 1),
         thetaMax,
-        roundUp: defaults.roundUp,
+        roundUp,
         holdSteps: whole(options.holdSteps, 0, 50, 5),
       },
     },
@@ -643,13 +646,16 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
  * One debug-log line on what the decision model's defaults decided, e.g.
  * `settings for jev: left unset, so jev's defaults: timeoutMs 1500, ...;
  * skill suggestions on until /dp skills off; contextTokens 20000 reads as
- * 16000, the most with jev`.
+ * 16000, the most with jev`. The skills' switch is read as it stands, so the session start loads the person's switches first.
  */
-export function describeDefaults(config: Pick<Config, 'backend' | 'defaults'>): string {
+export function describeDefaults(config: Pick<Config, 'backend' | 'defaults' | 'skills'>): string {
   const { backend, defaults } = config
   const used = defaults.used.length === 0 ? 'every option set' : `left unset, so ${backend}'s defaults: ${defaults.used.map(([option, value]) => `${option} ${value}`).join(', ')}`
   const capped = defaults.capped.map((cap) => `; ${cap.option} ${cap.set} reads as ${cap.read}, the most with ${backend}`).join('')
-  return `settings for ${backend}: ${used}; skill suggestions on until /dp skills off${capped}`
+  // The skills' own switch, not `isOn`: with the master switch off the skills' switch has not moved, and `/dp skills on` would not turn anything on.
+  const skillsSwitchOn = listSwitches().find((info) => info.name === 'skills')?.on ?? true
+  const suggestions = !skillsSwitchOn ? 'skill suggestions off (/dp skills on)' : config.skills.suggest.max === 0 ? 'skill suggestions off (skillsMax 0)' : 'skill suggestions on until /dp skills off'
+  return `settings for ${backend}: ${used}; ${suggestions}${capped}`
 }
 
 /**
@@ -680,23 +686,27 @@ export function dispatchSettings(ctx: { config: Pick<Config, 'agents' | 'thetaMa
 }
 
 /** The cheap model that writes skill profiles, unless the person names another (`skillsProfileModel`). */
-export const DEFAULT_PROFILE_MODEL = 'haiku'
+const DEFAULT_PROFILE_MODEL = 'haiku'
 
 /** The cheap model that writes the problem summary, unless the person names another (`summaryModel`). */
-export const DEFAULT_SUMMARY_MODEL = 'haiku'
+const DEFAULT_SUMMARY_MODEL = 'haiku'
+
+function isNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
 
 /** A numeric option clamped to [min, max]; `fallback` when it is not a number. */
-export function numberIn(value: unknown, min: number, max: number, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
+function numberIn(value: unknown, min: number, max: number, fallback: number): number {
+  return isNumber(value) ? Math.min(max, Math.max(min, value)) : fallback
 }
 
 /** A string option; `fallback` when it is not a string. A sensitive one never set arrives as ''. */
-export function stringOf(value: unknown, fallback: string): string {
+function stringOf(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback
 }
 
 /** A list-of-names option (`multiple` in the manifest; a comma-separated string also reads): trimmed, empty ones dropped. */
-export function namesOf(value: unknown): string[] {
+function namesOf(value: unknown): string[] {
   const items = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : []
   return items.flatMap((item) => (typeof item === 'string' && item.trim() !== '' ? [item.trim()] : []))
 }

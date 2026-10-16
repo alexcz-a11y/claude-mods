@@ -51,3 +51,15 @@ test('only answers both runs have are compared: an item one run has no answer fo
   const b = { ...run({ 'q1 zh': 'high' }, { zh: 1, en: 1, agree: 1, p50: 300 }), answers: [{ id: 'q1', language: 'zh', 'en-score': { answer: 'high' } }, { id: 'q2', language: 'zh', 'en-score': { failure: 'timeout' } }] }
   expect(compareRuns(a, b).map(({ same, compared }) => ({ same, compared }))).toEqual([{ same: 1, compared: 1 }])
 })
+
+test('a run that asked more than once has a line for each time (repeat): the same time is compared with the same, and a run of one language has a null gap', () => {
+  const lines = (answers: Record<string, string>) => Object.entries(answers).map(([key, answer]) => {
+    const [id, language, repeat] = key.split(' ')
+    return { id, language, repeat: Number(repeat), 'en-score': { answer } }
+  })
+  const variant = { variant: 'en-score', zh: { accuracy: 1 }, en: { accuracy: 0 }, gap: null, agreement: { rate: null }, latency: { p50: 100 } }
+  const a = { summary: { variants: [variant] }, answers: lines({ 'q1 zh 1': 'high', 'q1 zh 2': 'low' }) }
+  const b = { summary: { variants: [variant] }, answers: lines({ 'q1 zh 1': 'high', 'q1 zh 2': 'high' }) }
+  // Time 1 against time 1 (same), time 2 against time 2 (differ): not each against the last line of the other.
+  expect(compareRuns(a, b).map(({ same, compared, gap }) => ({ same, compared, gap }))).toEqual([{ same: 1, compared: 2, gap: { a: null, b: null } }])
+})

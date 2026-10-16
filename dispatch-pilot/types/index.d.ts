@@ -487,7 +487,7 @@ declare module 'claude-code' {
           /** The problem summary, worded for the decision model, and the unresolved count, while the unresolved switch was on (#41). */
           problem_summary?: string
           unresolved_count?: number
-          /** The script's text, cut to an agent's budget (pplx only: BACKEND_DEFAULTS agentBackground). */
+          /** The script's text, cut to a third of an agent's budget (`SCRIPT_SHARE`); kept where the decision model's `agentBackground` is on (Jev and pplx both). */
           script?: string
           /** The loop that called the Workflow tool, absent for the main one: its conversation up to the run's call is read as an agent starts. */
           caller?: string

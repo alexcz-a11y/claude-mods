@@ -11,10 +11,15 @@ export type Picture = Omit<RequestImage, 'name'>
 /** The most images pplx takes in one request (measured: the 9th is a 400 `At most 8 images are allowed per question`). */
 export const PPLX_MAX_IMAGES = 8
 
-/** Jev counts about this many input tokens for each megapixel of an image (measured 2026-10-15; the docs give no figure). */
-export const JEV_TOKENS_PER_MEGAPIXEL = 2600
-/** pplx counts about this many (the docs: "about 1,000 input tokens per megapixel"). */
-export const PPLX_TOKENS_PER_MEGAPIXEL = 1000
+/**
+ * What an image costs each decision model: input tokens for each megapixel, and whether it counts again for every question.
+ * Jev: about 2600 (measured 2026-10-15; the docs give no figure), once however many questions use it. pplx: about 1000 (the
+ * docs: "about 1,000 input tokens per megapixel"), again for every question.
+ */
+const IMAGE_COST: Readonly<Record<BackendName, { perMegapixel: number; perQuestion: boolean }>> = {
+  jev: { perMegapixel: 2600, perQuestion: false },
+  pplx: { perMegapixel: 1000, perQuestion: true },
+}
 
 /**
  * Items with the `costs` given, in order, split into groups (their indexes) whose costs add up to `maxCost` at the most and that
@@ -42,7 +47,8 @@ export function packByCost(costs: readonly number[], maxCost: number, maxItems: 
  */
 export function imageTokens(backend: BackendName, images: readonly Pick<RequestImage, 'width' | 'height'>[], questions: number): number {
   const megapixels = images.reduce((sum, image) => sum + image.width * image.height, 0) / 1_000_000
-  return backend === 'jev' ? Math.round(megapixels * JEV_TOKENS_PER_MEGAPIXEL) : Math.round(megapixels * PPLX_TOKENS_PER_MEGAPIXEL) * questions
+  const { perMegapixel, perQuestion } = IMAGE_COST[backend]
+  return Math.round(megapixels * perMegapixel) * (perQuestion ? questions : 1)
 }
 
 /**
@@ -50,12 +56,12 @@ export function imageTokens(backend: BackendName, images: readonly Pick<RequestI
  * (ADR 0008), so 24k leaves room for the rest. pplx: the share of its context an agent's request gets, where an image counts
  * again for every question.
  */
-export const IMAGE_TOKEN_BUDGET = { jev: 24_000, pplx: 32_000 } as const
+const IMAGE_TOKEN_BUDGET = { jev: 24_000, pplx: 32_000 } as const
 
 /** How many megapixels the images of a request of `questions` questions may total to stay within `IMAGE_TOKEN_BUDGET`. */
 export function imageMegapixelBudget(backend: BackendName, questions: number): number {
-  const perMegapixel = backend === 'jev' ? JEV_TOKENS_PER_MEGAPIXEL : PPLX_TOKENS_PER_MEGAPIXEL * Math.max(1, questions)
-  return IMAGE_TOKEN_BUDGET[backend] / perMegapixel
+  const { perMegapixel, perQuestion } = IMAGE_COST[backend]
+  return IMAGE_TOKEN_BUDGET[backend] / (perMegapixel * (perQuestion ? Math.max(1, questions) : 1))
 }
 
 /** What the debug log says of a request's images: how many, their sizes and the estimated tokens; never the images. Null for a request without images. */
@@ -66,8 +72,8 @@ export function describeImages(backend: BackendName, request: DecisionRequest): 
   return `images: ${images.length} (${sizes}), about ${imageTokens(backend, images, Object.keys(request.questions).length)} tokens`
 }
 
-/** An image's name:what `imageRef` and the backends' references are made of. */
-export const IMAGE_NAME = /^[A-Za-z0-9_-]{1,40}$/
+/** What an image's name may be: it is what `imageRef` and the backends' references are made of. */
+const IMAGE_NAME = /^[A-Za-z0-9_-]{1,40}$/
 
 /** Written in a string of the state or of a question, where the image belongs: "Is `candidate` ..." is `Is ${imageRef('candidate')} ...`. */
 export function imageRef(name: string): string {

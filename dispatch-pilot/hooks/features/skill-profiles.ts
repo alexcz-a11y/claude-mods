@@ -113,7 +113,7 @@ async function writeProfiles($: EngineInterface, ctx: Ctx, catalog: readonly Cat
         break
       }
       if (written >= settings.perSession) {
-        await tell({ event: 'quota', perSession: settings.perSession, left: due.length - written })
+        await tell({ event: 'quota', perSession: settings.perSession, left: due.length - tried })
         break
       }
       const markdown = skill.file === null ? null : await $.fs.read(skill.file).catch(() => null)

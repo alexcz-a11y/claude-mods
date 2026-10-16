@@ -14,24 +14,25 @@
 // `…`, never wraps; the full story is the rationale pane's (#30).
 
 import type { RenderNode } from 'claude-code'
-import type { Effort } from '../decision/effort.ts'
-import type { Model, Reading } from '../core/report.ts'
-import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, fit, MODEL_BG, MODEL_FG, mmss, MUTED, OK, padLeft, pct, ribbonCells, rgb, SKILL, soft, SPIN, stateGlyph, STATUS_COLOR, WARN, width, type Raster, type TT } from './kit.tsx'
+import { EFFORTS, type Effort } from '../decision/effort.ts'
+import type { BoardNode, Reading } from '../core/report.ts'
+import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, fit, MODEL_BG, mmss, MUTED, OK, padLeft, pct, readout, ribbonCells, rgb, SKILL, skillsText, soft, SPIN, stateGlyph, STATUS_COLOR, TRACK_HEX, WARN, width, type Raster, type TT } from './kit.tsx'
 import { FEATURE_WORDS, isWholeWorkflow, type AgentRow, type BandEvent, type ScreenView } from './view.ts'
 
 /** What the band is laid out in: `bodyColumns` and `maxRows` of its props. */
-export type BandSize = { cols: number; rows: number }
+type BandSize = { cols: number; rows: number }
 
 /** What the band's Buttons do: a digit picks an agent for the rationale pane. */
-export type BandActs = { select: (row: AgentRow) => void }
+type BandActs = { select: (row: AgentRow) => void }
 
 /** The most rows the band takes, however tall the engine lets it be (outside fullscreen `maxRows` is the terminal's height). */
 const MOST_ROWS = 16
 /** Under this many rows the band is one line (an inline pane took the room). */
 const SQUEEZED = 4
+/** From this many columns the hint is spelled out at the end of a line. */
+const WIDE = 100
 /** Where to read the rest. */
 const HINT = '/dp log 看依据'
-
 
 /** The band's tree (`raster`: the terminal's Raster constructor, for the time ribbons; none, none drawn), or null when there is nothing of Dispatch Pilot's to show (switched off, no turn yet). */
 export function bandTree(t: TT, view: ScreenView, size: BandSize, act: BandActs, raster?: Raster): RenderNode | null {
@@ -43,17 +44,14 @@ export function bandTree(t: TT, view: ScreenView, size: BandSize, act: BandActs,
 
 // ---- one line ---------------------------------------------------------------------
 
-/** `opus·xhigh`: the model in its chip's tint, the effort in its ramp colour (amber when not routed). */
-function readout(t: TT, model: Model | undefined, effort: Effort | number | undefined, routed: boolean) {
-  const { Text } = t
-  const level = typeof effort === 'string' ? effort : undefined
-  return (
-    <Text>
-      {model === undefined ? null : <Text color={routed ? MODEL_FG[model] : WARN} bold>{model}</Text>}
-      {model !== undefined && effort !== undefined ? <Text color={MUTED}>·</Text> : null}
-      {effort === undefined ? null : <Text color={!routed ? WARN : level === undefined ? MUTED : EFFORT_COLOR[level]} bold>{String(effort)}</Text>}
-    </Text>
-  )
+/** An agent's `opus·xhigh`, as it went out (the effort an integer budget has no colour of its own). */
+function nodeReadout(t: TT, node: BoardNode) {
+  return readout(t, node.model, node.effort, typeof node.effort === 'string' ? node.effort : undefined, node.routed)
+}
+
+/** How many agents the view counts. */
+function agentCount(view: ScreenView): number {
+  return view.counts.running + view.counts.done + view.counts.failed + view.counts.queued
 }
 
 /** The agents in a few glyphs: ⠏3 running, ✔2 done, ✘1 failed, ○1 waiting. */
@@ -73,7 +71,7 @@ function tally(t: TT, view: ScreenView) {
 function idleLine(t: TT, view: ScreenView, cols: number) {
   const { Box, Text } = t
   const main = view.rows.find((row) => row.node.id === 'main')?.node
-  const agents = view.counts.done + view.counts.failed + view.counts.running + view.counts.queued
+  const agents = agentCount(view)
   const routed = main?.routed !== false
   return (
     <Box key="band-idle" width={cols}>
@@ -84,7 +82,7 @@ function idleLine(t: TT, view: ScreenView, cols: number) {
         {main === undefined ? null : (
           <Text>
             <Text color={MUTED}>{' · 主 agent '}</Text>
-            {readout(t, main.model, main.effort, routed)}
+            {nodeReadout(t, main)}
           </Text>
         )}
         {view.summary.reason === '' ? null : <Text color={routed ? MUTED : WARN}>{` · ${view.summary.reason}`}</Text>}
@@ -95,7 +93,7 @@ function idleLine(t: TT, view: ScreenView, cols: number) {
             {tally(t, view)}
           </Text>
         )}
-        {cols >= 100 ? <Text color={MUTED}>{` · ${HINT}`}</Text> : null}
+        {cols >= WIDE ? <Text color={MUTED}>{` · ${HINT}`}</Text> : null}
       </Text>
     </Box>
   )
@@ -114,7 +112,7 @@ function squeezedLine(t: TT, view: ScreenView, cols: number) {
         {main === undefined ? null : (
           <Text>
             <Text color={MUTED}>{' · 主 agent '}</Text>
-            {readout(t, main.node.model, main.node.effort, main.node.routed)}
+            {nodeReadout(t, main.node)}
             <Text color={STATUS_COLOR[main.status.tone]}>{` ${main.status.text}`}</Text>
           </Text>
         )}
@@ -165,10 +163,12 @@ function liveBand(t: TT, view: ScreenView, size: BandSize, act: BandActs, raster
   const hiddenEvents = view.events.length > eventRoom ? view.events.length - Math.max(0, eventRoom - 1) : 0
   const shownEvents = hiddenEvents > 0 ? view.events.slice(view.events.length - Math.max(0, eventRoom - 1)) : view.events
   const cols = columnsOf(size.cols, raster !== undefined, Math.max(0, ...shownRows.map((row) => width(row.checks))))
+  // Every agent's ribbon has the same span, so bars that overlap ran side by side.
+  const span = Math.max(view.elapsed, ...view.rows.map((one) => one.to ?? one.from), 1)
   return (
     <Box key="band" flexDirection="column" width={size.cols}>
       {strip(t, view, size.cols)}
-      {shownRows.map((row, i) => agentRow(t, view, row, i, cols, act, raster))}
+      {shownRows.map((row, i) => agentRow(t, view, row, i, cols, span, act, raster))}
       {hiddenRows.length > 0 ? (
         <Box key="band-more-agents">
           <Text color={MUTED} wrap="truncate-end">{`   ┊ 另有 ${hiddenRows.length} 个 agent：${foldTally(hiddenRows)} · ${HINT}`}</Text>
@@ -204,7 +204,7 @@ function foldTally(rows: readonly AgentRow[]): string {
 function strip(t: TT, view: ScreenView, cols: number) {
   const { Box, Text } = t
   const sep = <Text color={MUTED}>{'  ▏ '}</Text>
-  const agents = view.counts.running + view.counts.done + view.counts.failed + view.counts.queued
+  const agents = agentCount(view)
   return (
     <Box key="band-strip" width={cols} justifyContent="space-between">
       <Box flexShrink={1}>
@@ -235,7 +235,7 @@ function strip(t: TT, view: ScreenView, cols: number) {
           )}
         </Text>
       </Box>
-      {cols >= 100 ? (
+      {cols >= WIDE ? (
         <Box flexShrink={0}>
           <Text color={MUTED}>{`  0-9 选中 · ${HINT}`}</Text>
         </Box>
@@ -244,20 +244,19 @@ function strip(t: TT, view: ScreenView, cols: number) {
   )
 }
 
-/** The bar's colour on the ribbon: the effort's (a finished agent's softened), red for a failed one, the model's tint for one without effort. */
+/** The bar's colour on the ribbon: the effort's (a finished agent's softened), a softened red for a failed one, the model's tint for one without effort. */
 function barColor(row: AgentRow): number {
   const { node } = row
   if (node.state === 'failed') return soft(EFFORT_COLOR.max)
-  const base = typeof node.effort === 'string' ? EFFORT_COLOR[node.effort] : node.model !== undefined ? MODEL_BG[node.model] : '#8A9099'
+  const base = typeof node.effort === 'string' ? EFFORT_COLOR[node.effort] : node.model !== undefined ? MODEL_BG[node.model] : TRACK_HEX
   return node.state === 'done' ? soft(base) : rgb(base)
 }
 
-/** One agent: marker, glyph, its digit and name, model chip, effort tag, time ribbon, status cell. */
-function agentRow(t: TT, view: ScreenView, row: AgentRow, i: number, cols: ReturnType<typeof columnsOf>, act: BandActs, Ribbon: Raster | undefined) {
+/** One agent: marker, glyph, its digit and name, model chip, effort tag, time ribbon over `span` seconds, status cell. */
+function agentRow(t: TT, view: ScreenView, row: AgentRow, i: number, cols: ReturnType<typeof columnsOf>, span: number, act: BandActs, Ribbon: Raster | undefined) {
   const { Box, Button, Text } = t
   const { node } = row
   const whole = isWholeWorkflow(node)
-  const span = Math.max(view.elapsed, ...view.rows.map((one) => one.to ?? one.from), 1)
   const done = node.state === 'done' && !row.selected
   return (
     <Box key={`band-agent-${i}`}>
@@ -300,9 +299,9 @@ const SKIPPED: Record<string, string> = {
   error: '出错了，见 debug log',
 }
 
-function effortWord(t: TT, effort: string) {
+function effortWord(t: TT, effort: Effort) {
   const { Text } = t
-  return <Text color={effort in EFFORT_COLOR ? EFFORT_COLOR[effort as Effort] : MUTED} bold>{effort}</Text>
+  return <Text color={EFFORT_COLOR[effort]} bold>{effort}</Text>
 }
 
 function readingText(reading: Reading): string {
@@ -323,9 +322,7 @@ function eventParts(t: TT, event: BandEvent): { glyph: RenderNode; tag: string; 
           <Text wrap="truncate-end">
             <Text bold={event.main}>{event.who}</Text>
             {muted(' → ')}
-            {event.model === undefined ? null : <Text color={MODEL_FG[event.model]} bold>{event.model}</Text>}
-            {event.model !== undefined && event.effort !== undefined ? muted('·') : null}
-            {event.effort === undefined ? null : effortWord(t, event.effort)}
+            {readout(t, event.model, event.effort, event.effort, true)}
             {event.reason === '' ? null : muted(`  ${event.reason}`)}
           </Text>
         ),
@@ -345,7 +342,7 @@ function eventParts(t: TT, event: BandEvent): { glyph: RenderNode; tag: string; 
       }
     }
     case 'midturn': {
-      const up = EFFORT_ORDER.indexOf(event.to) > EFFORT_ORDER.indexOf(event.from)
+      const up = EFFORTS.indexOf(event.to) > EFFORTS.indexOf(event.from)
       return {
         glyph: <Text color={EFFORT_COLOR[event.to]} bold>{up ? '↑' : '↓'}</Text>,
         tag: '重判',
@@ -393,16 +390,7 @@ function eventParts(t: TT, event: BandEvent): { glyph: RenderNode; tag: string; 
         tag: '推荐',
         tagColor: MUTED,
         body: (
-          <Text wrap="truncate-end">
-            {event.suggest.map((skill, i) => (
-              <Text>
-                {i > 0 ? muted(' · ') : null}
-                {skill.name}
-                <Text color={OK}>{` ${pct(skill.relevance)}`}</Text>
-              </Text>
-            ))}
-            {event.tried.length === 0 ? null : <Text color={SKILL} bold>{`${event.suggest.length > 0 ? '  ' : ''}可试 ${event.tried.map((skill) => `/${skill.name}`).join(' ')}`}</Text>}
-          </Text>
+          <Text wrap="truncate-end">{skillsText(t, { suggest: event.suggest, try: event.tried })}</Text>
         ),
       }
     case 'find':
@@ -429,8 +417,6 @@ function eventParts(t: TT, event: BandEvent): { glyph: RenderNode; tag: string; 
     }
   }
 }
-
-const EFFORT_ORDER: readonly string[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 /** One event: when (m:ss from the turn's start), the rail, its glyph and tag, what happened. */
 function eventRow(t: TT, event: BandEvent, i: number, count: number, folded: boolean, cols: number) {

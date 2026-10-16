@@ -1,7 +1,7 @@
 // The problem summary (#36, #40; GLOSSARY 问题摘要): a short running record of the
 // problem the person and the main agent are on, for the decision model to read
 // beside the conversation, so that it sees the rounds that no longer fit the
-// 24000 tokens of `recent_context`. A cheap model continues it after each of the
+// budget of `recent_context`. A cheap model continues it after each of the
 // person's turns, in the background; this module writes what it is asked, reads its
 // reply into a fixed structure within `SUMMARY_TOKENS`, and words the summary for
 // the decision model.
@@ -77,7 +77,7 @@ export function readSummary(reply: string): Summary | null {
  * The summary within `SUMMARY_TOKENS`: each part cut to its share, then, while it is still over, the two earliest
  * tries made one item (their texts together, cut to an item's share) so that the newest stay as they were written.
  */
-export function fit(summary: Summary): Summary {
+function fit(summary: Summary): Summary {
   let tried = summary.tried.map((attempt) => ({ ...attempt, text: clipToTokens(attempt.text, ATTEMPT_TOKENS) }))
   const cut = { problem: clipToTokens(summary.problem, PROBLEM_TOKENS), status: clipToTokens(summary.status, STATUS_TOKENS) }
   const size = () => estimateTokens(renderSummary({ ...cut, tried }, 'zh'))

@@ -58,6 +58,19 @@ test('a call that is not whole is answered with what it lacks, and asks nothing'
   expect(w.requests).toHaveLength(0)
 })
 
+test('a path is only trimmed at its ends: a U+202F before AM (a macOS screenshot name) or a run of spaces inside it stays, in images and in compare_to', { options: JEV }, async ($, on) => {
+  const MAC = '/shots/Screenshot 2026-10-15 at 10.00.00 AM.png'
+  const SPACED = '/shots/two  spaces.png'
+  const files = { [MAC]: { format: 'png', width: 1200, height: 800 }, [SPACED]: { format: 'png', width: 1200, height: 800 } }
+  const w = world($, on, { session: true, files, process: true, backend: jev([0, 1, 0, 0, 0]) })
+  await w.start()
+
+  const mac = JSON.stringify((await w.visualCheck({ images: [`  ${MAC}\n`], checks: CHECKS })).result)
+  expect(mac).toContain(`Visual check of ${MAC} `)
+  const both = JSON.stringify((await w.visualCheck({ images: [SPACED], compare_to: ` ${MAC} `, checks: CHECKS })).result)
+  expect(both).toContain(`Visual check of ${SPACED} against the other screenshot`)
+})
+
 // ---- Who calls ---------------------------------------------------------------------------------------
 
 test('a dispatched agent calls it as the main agent does: the same request, the same answer', { options: JEV }, async ($, on) => {

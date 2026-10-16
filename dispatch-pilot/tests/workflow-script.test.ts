@@ -5,6 +5,9 @@
 
 import { expect, test } from 'claude-code/testing'
 import { parseWorkflow, rewriteWorkflow, type CallWrite, type ParsedWorkflow } from '../hooks/decision/workflow-script.ts'
+import { problemBackground, problemFields, readingBackground, tellsTheWork } from '../hooks/decision/workflow.ts'
+import { submissionOf } from '../hooks/decision/workflow-labels.ts'
+import { renderSummary } from '../hooks/decision/summary.ts'
 
 const META = "export const meta = { name: 'demo', description: 'A demo workflow', phases: [] }\n"
 
@@ -38,6 +41,26 @@ await pipeline(files, (file) => agent(\`Migrate \${file} to the new API, keeping
   const [call] = parse(script).calls
   expect(call?.prompt).toBe('Migrate ${file} to the new API, keeping the exports.')
   expect(call?.label).toBe('migrate:${file}')
+})
+
+test('a template prompt without a ${...} is its value, escapes worked out, as a string is; one with a ${...} is kept as written and flagged', () => {
+  const script = `${META}const a = await agent(\`first line\\nsecond line \\u4e2d\\u6587\`)
+const b = await agent('keep the \${HOME} that this string holds')
+const c = await agent(\`Migrate \${file}\\nnow\`)
+`
+  const [a, b, c] = parse(script).calls
+  expect([a?.prompt, a?.promptTemplate]).toEqual(['first line\nsecond line 中文', undefined])
+  expect([b?.prompt, b?.promptTemplate]).toEqual(['keep the ${HOME} that this string holds', undefined])
+  expect([c?.prompt, c?.promptTemplate]).toEqual(['Migrate ${file}\\nnow', true])
+})
+
+test('a prompt tells the work unless it is a template whose own words are too few: a ${ in a string or a runtime task is only text', () => {
+  expect(tellsTheWork('Fix the flaky test in src/a.test.ts and rerun it.')).toBe(true)
+  expect(tellsTheWork('Replace ${HOME} in the file', false)).toBe(true)
+  expect(tellsTheWork('Fix it.', true)).toBe(true)
+  expect(tellsTheWork('${CONTEXT}\n\n${row.prompt}', true)).toBe(false)
+  expect(tellsTheWork('Migrate ${file} to the new API, keeping the exports.', true)).toBe(true)
+  expect(tellsTheWork(null)).toBe(false)
 })
 
 test("a template's interpolation is code: braces and quotes inside it do not end it early, and an agent() call inside it is found", () => {
@@ -100,17 +123,6 @@ const c = await agent('three', { model: 'sonnet', label: 'c', effort: 'medium' }
 test('an options object with a spread gets the model and effort after it, so they win', () => {
   const script = `${META}const a = await agent('one', { ...common, label: 'a' })\n`
   expect(rewriteAll(script, { model: 'sonnet', effort: 'low' })).toBe(`${META}const a = await agent('one', { ...common, label: 'a', model: 'sonnet', effort: 'low' })\n`)
-})
-
-test("an effort to take out is taken out, and the object stays valid whichever property it was", () => {
-  const script = `${META}const a = await agent('one', { effort: 'high' })
-const b = await agent('two', { label: 'b', effort: 'high', schema: { type: 'object' } })
-const c = await agent('three', { label: 'c', effort: 'high', })
-`
-  expect(rewriteAll(script, { model: 'haiku', effort: null })).toBe(`${META}const a = await agent('one', { model: 'haiku' })
-const b = await agent('two', { label: 'b', schema: { type: 'object' }, model: 'haiku' })
-const c = await agent('three', { label: 'c', model: 'haiku' })
-`)
 })
 
 test('options that are not an object literal are left alone: the call is found, but nothing is written into it', () => {
@@ -209,4 +221,25 @@ const f = await agent('the real one', { agentType: 'general-purpose', label: 're
   const calls = parse(script).calls
   expect(calls.map((call) => call.prompt)).toEqual(['the real one'])
   expect(calls[0]?.agentType).toBe('general-purpose')
+})
+
+test('how a Workflow call hands over its script: a path, a name (or no script), a resume, or the script itself, in that order of precedence', () => {
+  expect(submissionOf({ scriptPath: '/a.js', script: 'x', name: 'n' })).toEqual({ given: 'path' })
+  expect(submissionOf({})).toEqual({ given: 'name' })
+  expect(submissionOf({ script: 'x', name: 'n' })).toEqual({ given: 'name' })
+  expect(submissionOf({ script: 'x', resumeFromRunId: 'wf_1' })).toEqual({ given: 'resume' })
+  expect(submissionOf({ script: 'x' })).toEqual({ given: 'script', script: 'x' })
+})
+
+test("the background of a request: the problem summary and the count while there are any, the reading when there is one; what is absent, or a count of 0, is left out", () => {
+  const summary = { problem: 'The build fails on CI.', tried: [{ text: 'Cleared the cache.' }], status: 'Still failing.' }
+  expect(problemBackground(undefined, 'en')).toEqual({})
+  expect(problemBackground({ count: 0 }, 'en')).toEqual({})
+  expect(problemBackground({ count: 2 }, 'en')).toEqual({ unresolved_count: 2 })
+  expect(problemBackground({ count: 0, summary }, 'zh')).toEqual({ problem_summary: renderSummary(summary, 'zh') })
+  expect(problemBackground({ count: 3, summary }, 'en')).toEqual({ problem_summary: renderSummary(summary, 'en'), unresolved_count: 3 })
+  expect(problemFields({ problem_summary: 'kept', unresolved_count: 0 })).toEqual({ problem_summary: 'kept' })
+  expect(problemFields(undefined)).toEqual({})
+  expect(readingBackground(undefined)).toEqual({})
+  expect(readingBackground({ level: 2, images: 1 })).toEqual({ reference_complexity: { level: 2, images: 1 } })
 })

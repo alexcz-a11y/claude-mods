@@ -10,7 +10,7 @@ import { expect, test } from 'claude-code/testing'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { imageRef } from '../hooks/decision/images.ts'
-import { JEV_LONG_CONTEXT_HEADER, JEV_REGULAR_REQUEST, JEV_REGULAR_STATE, jevBackend, needsLongContext } from '../hooks/decision/jev.ts'
+import { JEV_LONG_CONTEXT_HEADER, JEV_MODEL, JEV_REGULAR_REQUEST, JEV_REGULAR_STATE, jevBackend, needsLongContext } from '../hooks/decision/jev.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 
 const KEY = 'ts-test-key-1234567890'
@@ -22,7 +22,7 @@ function network() {
   const io: BackendIo = {
     fetch: async (_url, init) => {
       seen.push({ headers: { ...(init.headers as Record<string, string>) }, body: JSON.parse(String(init.body)) })
-      const out: Partial<HttpResponse> & { status: number } = { status: 200, text: JSON.stringify({ model: 'jev-1.14.0', answers: { done: { type: 'noul', noul: 0.8 } }, usage: { input_tokens: 90000, output_tokens: 0 } }) }
+      const out: Partial<HttpResponse> & { status: number } = { status: 200, text: JSON.stringify({ model: JEV_MODEL, answers: { done: { type: 'noul', noul: 0.8 } }, usage: { input_tokens: 90000, output_tokens: 0 } }) }
       return { headers: {}, text: '', ...out, ok: true }
     },
     sleep: (_ms, signal) => new Promise((_done, fail) => signal.addEventListener('abort', () => fail(new Error('aborted')))),
@@ -43,14 +43,14 @@ const hasHeader = (sent: Seen | undefined) => Object.keys(sent?.headers ?? {}).s
 
 test('a Jev backend built for long context sends every request with the long-context header, and the body as it always was', async () => {
   const net = network()
-  const asked = await jevBackend(KEY, { model: 'jev-1.14.0', longContext: true }).ask(net.io, PLAIN, 60_000)
+  const asked = await jevBackend(KEY, { model: JEV_MODEL, longContext: true }).ask(net.io, PLAIN, 60_000)
 
   expect(asked.ok).toBe(true)
   const [sent] = net.seen
   expect(JEV_LONG_CONTEXT_HEADER).toBe('TypeSafe-Danger-Zone-Long-Context')
   expect(sent?.headers['TypeSafe-Danger-Zone-Long-Context']).toBe('true')
   expect(sent?.headers.authorization).toBe(`Bearer ${KEY}`)
-  expect(sent?.body).toEqual({ model: 'jev-1.14.0', state: PLAIN.state, questions: PLAIN.questions })
+  expect(sent?.body).toEqual({ model: JEV_MODEL, state: PLAIN.state, questions: PLAIN.questions })
 })
 
 test('a Jev backend built as the mod builds it sends no long-context header on a request within the regular limits', async () => {

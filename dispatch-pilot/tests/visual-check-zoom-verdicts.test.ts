@@ -3,6 +3,7 @@
 // stands, but only a fail from it is taken. Seam 1, as visual-check.test.ts: the world's backend answers the two requests.
 
 import { expect, test } from 'claude-code/testing'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { sips } from './support/images.ts'
 import { box, zoomBackend } from './support/zoom.ts'
 import { pplx, world } from './support/world.ts'
@@ -96,7 +97,7 @@ test('when the second request fails, the whole images fail a check at 0.2 and no
 })
 
 test('a pair the second request leaves unanswered is unsure, the others are judged', { options: JEV }, async ($, on) => {
-  const reply = () => ({ status: 200, body: { model: 'jev-1.14.0', answers: { 'zoom.0.0': { type: 'noul', noul: 0.97 } }, usage: { input_tokens: 100 } } })
+  const reply = () => ({ status: 200, body: { model: JEV_MODEL, answers: { 'zoom.0.0': { type: 'noul', noul: 0.97 } }, usage: { input_tokens: 100 } } })
   const w = world($, on, { session: true, files: FILES, process: true, backend: zoomBackend({ zoomReply: reply }) })
   await w.start()
   const answer = read(await w.visualCheck({ images: [SHOT], reference: [DESIGN], checks: [BUTTON, TITLE] }))

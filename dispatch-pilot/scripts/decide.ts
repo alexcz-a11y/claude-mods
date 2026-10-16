@@ -17,11 +17,11 @@
 // Credentials come from the environment or ~/.config/dispatch-pilot/eval.env
 // (as the eval reads them) and are never printed. Node 22.18+ runs .ts as is.
 
+import { messageLimits } from '../hooks/core/setup.ts'
 import { turnStartState } from '../hooks/decision/context.ts'
 import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { answersFor, mergeParts } from '../hooks/decision/system-one.ts'
-import { attemptMs } from '../eval/lib/runner.ts'
-import { nodeIo, scriptArgs, scriptDecision } from '../eval/node.ts'
+import { nodeIo, scriptArgs, scriptDecision, scriptTimeout } from '../eval/node.ts'
 
 const USAGE = 'node scripts/decide.ts <message> [--zh | --en] [--choice] [--timeout ms]'
 const { values, positionals } = scriptArgs(USAGE, { zh: { type: 'boolean' }, en: { type: 'boolean' }, choice: { type: 'boolean' } })
@@ -35,11 +35,11 @@ const { settings, backend } = scriptDecision()
 const { turnStart } = settings.ask
 const language = values.zh === true ? 'zh' : values.en === true ? 'en' : turnStart.language
 const part = turnStartEffortPart({ language, primitive: values.choice === true ? 'choice' : turnStart.primitive })
-const request = mergeParts(turnStartState({ prompt, messages: [], limits: settings.context }), [part])
+const request = mergeParts(turnStartState({ prompt, messages: [], limits: messageLimits(settings, false) }), [part])
 console.log(JSON.stringify({ questions: Object.keys(request.questions), language, state: request.state }))
 
 const started = performance.now()
-const asked = await backend.ask(nodeIo, request, Number(values.timeout ?? attemptMs(settings.timeoutMs)))
+const asked = await backend.ask(nodeIo, request, scriptTimeout(values.timeout, settings.timeoutMs))
 const ms = Math.round(performance.now() - started)
 if (!asked.ok) {
   console.log(JSON.stringify({ ok: false, backend: backend.name, failure: asked.failure, ms }))

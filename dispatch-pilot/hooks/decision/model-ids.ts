@@ -15,7 +15,7 @@
 
 import { AGENT_MODELS, modelFamily, type AgentModel } from './dispatched-agent.ts'
 
-export const MODEL_IDS: Readonly<Record<AgentModel, string>> = {
+const MODEL_IDS: Readonly<Record<AgentModel, string>> = {
   haiku: 'claude-haiku-5-5',
   sonnet: 'claude-sonnet-5-5',
   opus: 'claude-opus-5-5',

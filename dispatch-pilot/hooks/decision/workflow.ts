@@ -13,9 +13,10 @@
 // Pure (see system-one.ts).
 
 import type { Asked, Failure } from './backend.ts'
-import { referenceField, type ReferenceReading } from './complexity.ts'
+import type { ReferenceReading } from './complexity.ts'
 import { clipToTokens, estimateTokens, recentWithin, withinTokens } from './context.ts'
 import {
+  backgroundState,
   decideDispatch,
   dispatchBrief,
   dispatchPart,
@@ -27,12 +28,11 @@ import {
   type DispatchDecision,
   type DispatchSettings,
 } from './dispatched-agent.ts'
-import { EFFORTS } from './effort.ts'
+import { EFFORTS, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
-import { SUMMARY_FIELD } from './summary.ts'
+import { renderSummary, type Summary } from './summary.ts'
 import { answersFor, MAX_QUESTIONS, mergeParts, type DecisionRequest, type Part, type State } from './system-one.ts'
-import { COUNT_FIELD } from './unresolved.ts'
-import type { AgentCall, CallWrite, ParsedWorkflow } from './workflow-script.ts'
+import { entriesOf, templatePieces, type AgentCall, type CallWrite, type ParsedWorkflow } from './workflow-script.ts'
 
 /** The dispatched agent one `agent()` call stands for, in the eval item's shape. */
 export function callDispatch(call: AgentCall, meta: ParsedWorkflow['meta'], words: string): Dispatch {
@@ -48,10 +48,10 @@ export function callDispatch(call: AgentCall, meta: ParsedWorkflow['meta'], word
   }
 }
 
-/** One decision request, about the calls at `calls` (their indexes in the script). */
+/** One decision request, about the items at `calls`: a script's calls by their indexes in it, an agent lane's agents by their places in its group (`agentBatches`). */
 export type Batch = { request: DecisionRequest; parts: Part[]; calls: number[] }
 
-/** Why a call is not asked about: the script builds its prompt when it runs, or the script has more calls than are asked about. */
+/** Why a call is not asked about: the script builds its prompt when it runs, the script has more calls than are asked about, or its options cannot be written into. */
 export type Skipped = { index: number; reason: 'unreadable' | 'capped' | 'unwritable' }
 
 /** The part and state field of call `index`: ids in a request are unique across calls. */
@@ -67,41 +67,23 @@ const MIN_OWN_TOKENS = 6
  * written: a string, or a template without placeholders, is the whole task; a
  * template with placeholders must have words of its own (`${CONTEXT}\n\n${row.prompt}`
  * is a shared context and a table row, which says nothing of the work).
+ * `template`: the prompt is a template literal's text as written; only then
+ * is a `${` in it a placeholder.
  */
-export function tellsTheWork(prompt: string | null): prompt is string {
+export function tellsTheWork(prompt: string | null, template = false): prompt is string {
   if (prompt === null) return false
-  if (!prompt.includes('${')) return true
-  return estimateTokens(withoutPlaceholders(prompt).replace(/\s+/g, ' ').trim()) >= MIN_OWN_TOKENS
-}
-
-/** A template's text with each `${...}` taken out (its braces counted, so a placeholder holding an object or a nested template goes whole). */
-function withoutPlaceholders(template: string): string {
-  let out = ''
-  let i = 0
-  while (i < template.length) {
-    if (template.charAt(i) === '$' && template.charAt(i + 1) === '{') {
-      let depth = 1
-      i += 2
-      while (i < template.length && depth > 0) {
-        if (template.charAt(i) === '{') depth++
-        else if (template.charAt(i) === '}') depth--
-        i++
-      }
-      out += ' '
-    } else {
-      out += template.charAt(i)
-      i++
-    }
-  }
-  return out
+  const pieces = template ? templatePieces(prompt) : []
+  if (!pieces.some((piece) => piece.placeholder)) return true
+  const own = pieces.filter((piece) => !piece.placeholder).map((piece) => piece.text).join(' ')
+  return estimateTokens(own.replace(/\s+/g, ' ').trim()) >= MIN_OWN_TOKENS
 }
 
 /** At most this many calls of a script are asked about. */
-export const MAX_CALLS = 24
+const MAX_CALLS = 24
 /** At most this many calls share one request: every question reads the whole state, so each brief added to it dilutes the others (guide §2.1 S5, S6). */
 export const MAX_PER_REQUEST = 8
 /** At most this many requests are sent for one script, one lane at a time (core/agent-lane.ts). */
-export const MAX_REQUESTS = 4
+const MAX_REQUESTS = 4
 
 /** The most a hook waits for requests about agents in all: the hook has 10 seconds, and what follows them must still fit. */
 export const BATCHES_BUDGET_MS = 8000
@@ -125,6 +107,34 @@ export type WorkflowBackground = {
   unresolved_count?: number
   /** What the latest reference images of the session read as (#64): text only, in every request as `reference_complexity`, the same for every call. */
   reference_complexity?: ReferenceReading
+}
+
+/** The problem part of a background: the summary and the count. */
+type ProblemBackground = Pick<WorkflowBackground, 'problem_summary' | 'unresolved_count'>
+
+/** The problem summary and the unresolved count out of anything that holds them, as a request carries them: a field that is absent (a count of 0 too) is left out. */
+export function problemFields(held: ProblemBackground | undefined): ProblemBackground {
+  return {
+    ...(held?.problem_summary === undefined ? {} : { problem_summary: held.problem_summary }),
+    ...(held?.unresolved_count === undefined || held.unresolved_count === 0 ? {} : { unresolved_count: held.unresolved_count }),
+  }
+}
+
+/**
+ * The problem part of the background from the stored count and summary (`$.state` `unresolved`, #41): the summary worded for
+ * the decision model, and the count while the person has said "still unresolved" at all. `held`: undefined while the
+ * unresolved switch is off or nothing is stored.
+ */
+export function problemBackground(held: { count: number; summary?: Summary } | undefined, language: Language): ProblemBackground {
+  return problemFields({
+    ...(held?.summary === undefined ? {} : { problem_summary: renderSummary(held.summary, language) }),
+    ...(held === undefined ? {} : { unresolved_count: held.count }),
+  })
+}
+
+/** The reference reading part of the background (#64): the latest reading of the session's reference images, or nothing. */
+export function readingBackground(reference: ReferenceReading | undefined): Pick<WorkflowBackground, 'reference_complexity'> {
+  return reference === undefined ? {} : { reference_complexity: reference }
 }
 
 /** The state field that holds the script. */
@@ -156,7 +166,7 @@ export function workflowBatches(
 ): { batches: Batch[]; skipped: Skipped[] } {
   const skipped: Skipped[] = []
   const readable = parsed.calls.filter((call) => {
-    const tells = tellsTheWork(call.prompt)
+    const tells = tellsTheWork(call.prompt, call.promptTemplate === true)
     if (!tells) skipped.push({ index: call.index, reason: 'unreadable' })
     else if (options.written === true && call.edit === null) skipped.push({ index: call.index, reason: 'unwritable' })
     return tells && !(options.written === true && call.edit === null)
@@ -169,7 +179,7 @@ export function workflowBatches(
 }
 
 /** One agent of a request about several, by its index: its part is `agent-<index>`, its brief `brief_<index>`. */
-export type BatchItem = { index: number; dispatch: Dispatch }
+type BatchItem = { index: number; dispatch: Dispatch }
 
 /**
  * The requests about several agents that share the person's `words` and a `background` (a script's calls; agents that
@@ -195,12 +205,7 @@ export function dispatchBatches(
   if (items.length === 0) return { batches: [], capped }
   // The person's words as a dispatched agent's decision reads them, shared by every item, with the summary and the count.
   // Sizes are of the state as sent (field names, quotes and escapes counted), so a request's whole state keeps within `tokens`.
-  const shared: State = {
-    user_message: dispatchWords(words, tokens),
-    ...(background.problem_summary ? { [SUMMARY_FIELD]: background.problem_summary } : {}),
-    ...(background.unresolved_count ? { [COUNT_FIELD]: background.unresolved_count } : {}),
-    ...referenceField(background.reference_complexity),
-  }
+  const shared: State = { user_message: dispatchWords(words, tokens), ...backgroundState(background) }
   const room = Math.max(MIN_BRIEF, tokens - estimateTokens(JSON.stringify(shared)))
   // Each brief may take an equal share of a request holding as many of the items as one request holds at most:
   // all of the room for one item, an eighth of it for eight or more (less its field's name).
@@ -212,8 +217,9 @@ export function dispatchBatches(
       capped.push(index)
       continue
     }
-    const part = dispatchPart(dispatch, shapeOf(index, settings))
-    const field = `brief_${index}`
+    const shape = shapeOf(index, settings)
+    const part = dispatchPart(dispatch, shape)
+    const field = shape.field as string
     const brief = withinTokens((budget) => dispatchBrief(dispatch, budget), Math.min(share, room))
     const size = estimateTokens(JSON.stringify({ [field]: brief }))
     const questions = Object.keys(part.questions).length
@@ -252,9 +258,8 @@ export function agentBatches(kind: 'agent' | 'workflow', dispatches: readonly Di
     const { background } = shared
     const dispatch: Dispatch = {
       ...alone,
-      ...(background.problem_summary ? { problem_summary: background.problem_summary } : {}),
-      ...(background.unresolved_count ? { unresolved_count: background.unresolved_count } : {}),
-      ...(background.reference_complexity === undefined ? {} : { reference_complexity: background.reference_complexity }),
+      ...problemFields(background),
+      ...readingBackground(background.reference_complexity),
       ...((background.recent ?? []).length === 0 ? {} : { recent_context: background.recent }),
     }
     const part = dispatchPart(dispatch, settings)
@@ -354,22 +359,36 @@ function writeFor(call: AgentCall, decision: DispatchDecision): CallWrite | null
 
 // --- what is said about the decisions ----------------------------------------
 
+/** How a call is named: its label, else `otherwise`. */
+const labelled = (call: AgentCall, otherwise: string): string => (call.label !== null ? JSON.stringify(call.label) : otherwise)
+
 /** How a call is named in what the main agent and the person read: its label, else where it is. */
 export function callName(call: AgentCall): string {
-  return call.label !== null ? JSON.stringify(call.label) : `agent() at line ${call.line}`
+  return labelled(call, `agent() at line ${call.line}`)
+}
+
+/** What the model and effort of a call come to: what was decided, else what the script had, else `session` (the session's model). */
+function modelAndEffort(call: AgentCall, decision: DispatchDecision, session: string): string {
+  const model = decision.model ?? (call.model.kind === 'literal' ? (modelFamily(call.model.value) ?? call.model.value) : session)
+  return decision.effort === null ? model : `${model} ${decision.effort}`
 }
 
 /** The model and effort a call runs with, as a few words: what was decided, else what the script had. */
 export function outcomeOf(call: AgentCall, decision: DispatchDecision): string {
-  const model = decision.model ?? (call.model.kind === 'literal' ? (modelFamily(call.model.value) ?? call.model.value) : 'the session model')
-  return decision.effort === null ? model : `${model} ${decision.effort}`
+  return modelAndEffort(call, decision, 'the session model')
+}
+
+/** A decided call as the main agent reads it: its name, the model and effort, and in brackets why. */
+export function decidedLine(call: AgentCall, decision: DispatchDecision): string {
+  const why = whyOf(decision)
+  return `${callName(call)}: ${outcomeOf(call, decision)}${why === '' ? '' : ` (${why})`}`
 }
 
 // What the person reads of the same (the board, the decision log): Chinese. The words above are the main agent's.
 
 /** How a call is named to the person: its label, else where it is. */
 export function callTitle(call: AgentCall): string {
-  return call.label !== null ? JSON.stringify(call.label) : callPlace(call)
+  return labelled(call, callPlace(call))
 }
 
 /** Where a call is, for the person: `第 3 行的 agent()`. */
@@ -379,8 +398,7 @@ export function callPlace(call: AgentCall): string {
 
 /** `outcomeOf`, for the person. */
 export function callResult(call: AgentCall, decision: DispatchDecision): string {
-  const model = decision.model ?? (call.model.kind === 'literal' ? (modelFamily(call.model.value) ?? call.model.value) : '会话的模型')
-  return decision.effort === null ? model : `${model} ${decision.effort}`
+  return modelAndEffort(call, decision, '会话的模型')
 }
 
 /** Why a call is routed as it is, for the person (`dispatchReason`, a kept model being the script's). */
@@ -388,19 +406,34 @@ export function reasonOf(decision: DispatchDecision, requested: string | null, t
   return dispatchReason(decision, requested, thetaOverride, '脚本指定的')
 }
 
+type Left = Extract<CallOutcome, { kind: 'left' }>
+
+/** Whether a call is left for its agents to be decided as they start: the script gives nothing to read or to write into (`unreadable`, `capped`, `unwritable`). */
+export function decidedAtStart(outcome: CallOutcome): boolean {
+  return outcome.kind === 'left' && (outcome.reason === 'unreadable' || outcome.reason === 'capped' || outcome.reason === 'unwritable')
+}
+
+/** The words for why a call was left as the script wrote it: for the main agent, and for the person. */
+const LEFT_WORDS = {
+  unreadable: { en: 'its prompt is built when the script runs', zh: '它的 prompt 要等脚本运行时才拼出来' },
+  capped: { en: 'the script has more agent() calls than are asked about', zh: '脚本里的 agent() 比一次问得过来的多' },
+  unwritable: { en: 'its options are no object literal, so nothing can be written into them', zh: '它的选项不是对象字面量，写不进脚本' },
+  unanswered: { en: 'no answer from the decision model', zh: '决策模型没有回答' },
+} as const
+
+function leftIn(language: 'en' | 'zh', outcome: Left, describe: (failure: Failure) => string): string {
+  const reason = outcome.reason === 'failed' ? 'unanswered' : outcome.reason
+  return outcome.failure !== undefined && reason === 'unanswered' ? describe(outcome.failure) : LEFT_WORDS[reason][language]
+}
+
+/** Why a call was left as the script wrote it, for the main agent. */
+export function leftText(outcome: Left, describe: (failure: Failure) => string): string {
+  return leftIn('en', outcome, describe)
+}
+
 /** `leftText`, for the person. */
-export function leftWords(outcome: Extract<CallOutcome, { kind: 'left' }>, describe: (failure: Failure) => string): string {
-  switch (outcome.reason) {
-    case 'unreadable':
-      return '它的 prompt 要等脚本运行时才拼出来'
-    case 'capped':
-      return '脚本里的 agent() 比一次问得过来的多'
-    case 'unwritable':
-      return '它的选项不是对象字面量，写不进脚本'
-    case 'failed':
-    case 'unanswered':
-      return outcome.failure === undefined ? '决策模型没有回答' : describe(outcome.failure)
-  }
+export function leftWords(outcome: Left, describe: (failure: Failure) => string): string {
+  return leftIn('zh', outcome, describe)
 }
 
 /** Why a call got the model and effort it did, in a few words for the main agent: whose model it is, how sure the decision model was, how likely its effort level. */
@@ -427,21 +460,6 @@ export function whyOf(decision: DispatchDecision): string {
   return [model, effort].filter((part) => part !== '').join('; ')
 }
 
-/** Why a call was left as the script wrote it, in a few words. */
-export function leftText(outcome: Extract<CallOutcome, { kind: 'left' }>, describe: (failure: Failure) => string): string {
-  switch (outcome.reason) {
-    case 'unreadable':
-      return 'its prompt is built when the script runs'
-    case 'capped':
-      return 'the script has more agent() calls than are asked about'
-    case 'unwritable':
-      return 'its options are no object literal, so nothing can be written into them'
-    case 'failed':
-    case 'unanswered':
-      return outcome.failure === undefined ? 'no answer from the decision model' : describe(outcome.failure)
-  }
-}
-
 /**
  * Which Workflow this is, however its options are written: its name and
  * prompts. A main agent that adds a model and effort to a script it was sent
@@ -466,11 +484,7 @@ export function workflowFingerprint(parsed: ParsedWorkflow): string {
 export function returnNote(parsed: ParsedWorkflow, outcomes: readonly CallOutcome[]): string {
   const lines = outcomes.flatMap((outcome, index) => {
     if (outcome.kind !== 'written') return []
-    const entries = [
-      outcome.write.model === undefined ? null : `model: '${outcome.write.model}'`,
-      typeof outcome.write.effort === 'string' ? `effort: '${outcome.write.effort}'` : null,
-    ].filter((entry) => entry !== null)
-    return [`- ${callName(parsed.calls[index] as AgentCall)}: ${entries.join(', ')}`]
+    return [`- ${callName(parsed.calls[index] as AgentCall)}: ${entriesOf(outcome.write).join(', ')}`]
   })
   return [
     "Dispatch Pilot (the user's routing plugin) did not start this Workflow. It hands the choice of each agent()'s model and effort back to you, and these are what its decision model chose:",
@@ -488,13 +502,12 @@ export function returnNote(parsed: ParsedWorkflow, outcomes: readonly CallOutcom
  */
 export function rewriteNote(parsed: ParsedWorkflow, outcomes: readonly CallOutcome[], describe: (failure: Failure) => string): string | null {
   const decided = outcomes.some((outcome) => outcome.kind !== 'left')
-  if (!decided && !outcomes.some((outcome) => outcome.kind === 'left' && (outcome.reason === 'unreadable' || outcome.reason === 'capped' || outcome.reason === 'unwritable'))) return null
+  if (!decided && !outcomes.some(decidedAtStart)) return null
   const lines = outcomes.map((outcome, index) => {
     const call = parsed.calls[index] as AgentCall
     if (outcome.kind === 'left') return `${callName(call)}: left as written (${leftText(outcome, describe)})`
     if (outcome.kind === 'kept') return `${callName(call)}: kept as written (${outcomeOf(call, outcome.decision)})`
-    const why = whyOf(outcome.decision)
-    return `${callName(call)}: ${outcomeOf(call, outcome.decision)}${why === '' ? '' : ` (${why})`}`
+    return decidedLine(call, outcome.decision)
   })
   const written = outcomes.some((outcome) => outcome.kind === 'written')
   const header = written

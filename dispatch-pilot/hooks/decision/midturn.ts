@@ -9,15 +9,15 @@
 
 import { referenceField, type ReferenceReading } from './complexity.ts'
 import { clipToTokens, estimateTokens, messageText, withinTokens } from './context.ts'
-import { DEFAULT_ASK, EFFORTS, effortQuestion, traceEffort, type Effort, type EffortAsk, type EffortReading, type EffortRules, type EffortTrace, type Language } from './effort.ts'
+import { DEFAULT_ASK, EFFORTS, effortQuestion, LEVEL, traceEffort, type Effort, type EffortAsk, type EffortReading, type EffortRules, type EffortTrace, type Language } from './effort.ts'
 import { redactSecrets } from './redact.ts'
 import type { Part, State } from './system-one.ts'
 import { COUNT_FIELD, withHint } from './unresolved.ts'
 import { SUMMARY_FIELD } from './summary.ts'
 
-/** The mid-turn part's name and its one question's id: `midturn.level` in the request. */
+/** The mid-turn part's name and its one question's id: `midturn.level` in the request (the id is the message's effort question's too, so one hint fits both). */
 export const MIDTURN_PART = 'midturn'
-export const MIDTURN_LEVEL = 'level'
+export const MIDTURN_LEVEL = LEVEL
 
 /** One tool call of a step: the tool's name and how it ended, in one line ("成功：…", "Failed: …"). */
 export type MidturnTool = { name: string; result: string }
@@ -106,17 +106,14 @@ export const DETAIL_KEYS = ['description', 'skill', 'name', 'file_path', 'notebo
  * '' when nothing fits.
  */
 export function toolDetail(input: Readonly<Record<string, unknown>>): string {
-  const text = (key: string): string => (typeof input[key] === 'string' ? (input[key] as string).trim() : '')
-  const path = text('file_path') || text('notebook_path')
-  const named =
-    text('description') ||
-    text('skill') ||
-    text('name') ||
-    (path ? path.split('/').filter(Boolean).slice(-2).join('/') : '') ||
-    text('pattern') ||
-    text('query') ||
-    text('url') ||
-    (text('command').split('\n')[0] ?? '')
+  let named = ''
+  for (const key of DETAIL_KEYS) {
+    const value = typeof input[key] === 'string' ? (input[key] as string).trim() : ''
+    if (key === 'file_path' || key === 'notebook_path') named = value.split('/').filter(Boolean).slice(-2).join('/')
+    else if (key === 'command') named = value.split('\n')[0] ?? ''
+    else named = value
+    if (named !== '') break
+  }
   return clipToTokens(redactSecrets(named).replace(/\s+/g, ' ').trim(), DETAIL_TOKENS)
 }
 

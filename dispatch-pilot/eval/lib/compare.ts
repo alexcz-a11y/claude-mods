@@ -14,7 +14,7 @@ export type SavedRun = {
       variant: string
       zh: { accuracy: number }
       en: { accuracy: number }
-      gap: number
+      gap: number | null
       agreement: { rate: number | null }
       latency: { p50: number | null }
     }[]
@@ -31,13 +31,14 @@ export type VariantComparison = {
   compared: number
   zh: Paired<number>
   en: Paired<number>
-  gap: Paired<number>
+  gap: Paired<number | null>
   agreement: Paired<number | null>
   p50: Paired<number | null>
 }
 
 export function compareRuns(a: SavedRun, b: SavedRun): VariantComparison[] {
-  const key = (row: Record<string, unknown>) => `${String(row.id)} ${String(row.language)}`
+  // A run that asked more than once has a line for each time (`repeat`): the same time is compared with the same.
+  const key = (row: Record<string, unknown>) => `${String(row.id)} ${String(row.language)} ${String(row.repeat ?? 1)}`
   const others = new Map(b.answers.map((row) => [key(row), row]))
   return a.summary.variants.flatMap((mine) => {
     const theirs = b.summary.variants.find((v) => v.variant === mine.variant)

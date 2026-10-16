@@ -5,18 +5,18 @@
 // features/visual-check.ts, which has read the call, checked the switches and built the closures; like that file, a call here never
 // fails: whatever goes wrong, the answer says so.
 
-import { errorText, type Asked, type BackendName } from '../decision/backend.ts'
+import type { BackendName } from '../decision/backend.ts'
 import { limitsFor } from '../decision/image-fit.ts'
-import type { DecisionRequest } from '../decision/system-one.ts'
 import { type PairReport, seriesText } from '../decision/visual-check-sequence-text.ts'
 import { seriesRecordOf, type VisualCheckRecord } from '../decision/visual-check-record.ts'
 import { isRecording } from '../decision/visual-check-frames.ts'
 import { allUnsure } from '../decision/visual-check.ts'
 import type { VisualCheckInput } from '../decision/visual-check-tool.ts'
-import { type ImageFilesIo, loadAll, type LoadedImage } from '../core/image-files.ts'
+import { loadAll, type LoadedImage } from '../core/image-files.ts'
 import { compareLevels } from '../core/quality-series.ts'
 import type { ZoomDeps } from '../core/zoom-review.ts'
 import type { CallTrouble } from '../core/visual-check-report.ts'
+import type { AnswerBlock } from './visual-check-look.ts'
 
 /** What a call needs of the world: files and programs, the decision model that takes images (Jev: a series needs its boxes), the report. */
 export type SeriesDeps = ZoomDeps & {
@@ -30,7 +30,7 @@ export type SeriesDeps = ZoomDeps & {
   report: (record: VisualCheckRecord, trouble?: CallTrouble) => Promise<void>
 }
 
-type TextBlock = { type: 'text'; text: string }
+type TextBlock = Extract<AnswerBlock, { type: 'text' }>
 
 /** A call that did not run: the agent is told why, and that it can look at the images itself. */
 const LOOK_YOURSELF = 'Look at the levels yourself (visual_check with look: true).'

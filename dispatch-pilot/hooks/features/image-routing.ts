@@ -18,7 +18,9 @@
 import type { EngineInterface, HttpInit, On } from 'claude-code'
 import { type BackendIo, describeAsked, errorText, within } from '../decision/backend.ts'
 import type { ReferenceReading } from '../decision/complexity.ts'
+import { MIN_ASK_MS } from '../core/agent-lane.ts'
 import { askGroups, type AskIo } from '../core/ask-group.ts'
+import { CALL_ROOM_MS } from '../core/call-budget.ts'
 import { readReferenceComplexity, type ComplexityIo, type ReferenceReadings, type ReferenceSource } from '../core/complexity.ts'
 import { enteringPrompt } from '../core/core.ts'
 import type { Cell } from '../core/plans.ts'
@@ -38,13 +40,7 @@ const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** How long the turn's start waits for the reading: the images prepared and the request answered (ADR 0008: about 3 seconds). */
-export const READING_WAIT_MS = 3000
-
-/**
- * The hook's own time, which a `$.clock.sleep` counts toward (10 s): the effort request after the reading waits for what is
- * left of this, never longer than the decision model's own setting.
- */
-const HOOK_ROOM_MS = 9000
+const READING_WAIT_MS = 3000
 
 /** Whether a prompt's attachments (`prompt.submit`'s `e.attachments`) include an image. */
 export function hasImage(attachments: readonly { type: string }[] | undefined): boolean {
@@ -249,7 +245,8 @@ async function decide($: EngineInterface, ctx: Ctx, taken: NonNullable<ReturnTyp
   const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
   const spent = (await $.clock.now()) - startedAt
   const io: AskIo = { backend, now: () => $.clock.now(), debug }
-  await askGroups(io, ctx, { prompt: taken.prompt, messages, groups: [[taken.deferred(reading)]], maxWaitMs: Math.max(200, HOOK_ROOM_MS - spent) })
+  // A `$.clock.sleep` counts toward the hook's 10 s: the effort request waits for what is left of the call room, never longer than the decision model's own setting.
+  await askGroups(io, ctx, { prompt: taken.prompt, messages, groups: [[taken.deferred(reading)]], maxWaitMs: Math.max(MIN_ASK_MS, CALL_ROOM_MS - spent) })
 }
 
 /** A reading that failed, for the board's notes: beside the route, no toast (the effort is decided all the same). */

@@ -64,8 +64,8 @@ export function legacyPickEffort(reading: EffortReading, thetaMax: number): Effo
   return EFFORTS[level] as Effort
 }
 
-/** The mid-turn gates as they were before the AA routing. */
-export const LEGACY_RULES: Omit<MidturnRules, keyof EffortRules> = { thetaUp: 0.4, thetaDown: 0.6, holdSteps: 3 }
+/** The mid-turn gates as they were before the AA routing (`legacySent` has no raise to hold, so no holdSteps). */
+export const LEGACY_RULES: Pick<MidturnRules, 'thetaUp' | 'thetaDown'> = { thetaUp: 0.4, thetaDown: 0.6 }
 
 /**
  * What the mod went on at after a mid-turn answer, by the rule before: the
@@ -82,10 +82,14 @@ function legacySent(reading: EffortReading, current: Effort, thetaMax: number): 
   return current
 }
 
-/** The answers one variant holds, with the item each is about: those that were decided (they kept their level probabilities). */
+/**
+ * The answers one variant holds, with the item each is about: those that were decided (they kept their level probabilities).
+ * A run that asked more than once has a line for each time (`repeat`); the first time's are read, as its `summary` is.
+ */
 function rowsOf<I extends { id: string }>(result: StoredAnswers, items: readonly I[], variant: string, field: string): { item: I; language: Language; detail: Readonly<Record<string, unknown>> }[] {
   const byId = new Map(items.map((item) => [item.id, item]))
   return result.answers.flatMap((line) => {
+    if (line.repeat !== undefined && line.repeat !== 1) return []
     const detail = line[variant]
     const item = byId.get(String(line.id))
     const language = line.language === 'zh' || line.language === 'en' ? line.language : null

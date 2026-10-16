@@ -92,7 +92,7 @@ type Settings = {
 }
 
 /** A step of the main agent: its turn and its index. */
-export type MainStep = { turnId: string; index: number }
+type MainStep = { turnId: string; index: number }
 /** A tool call as it starts: its name and what it works on. */
 type Starting = { name: string; detail: string }
 
@@ -138,14 +138,17 @@ function settingsOf(ctx: Ctx): Settings {
 
 /**
  * Judges the main agent's effort again for its next step, now that it has met reference images (#64, features/reference-midturn.ts):
- * `reading` is on its way (it never rejects, null when the images could not be read), and the request goes out the moment it is
- * there, with `reference_complexity` in its state. The next step takes the answer as any re-decision's. Asked as a re-decision is
- * (never for a locked turn, one the person did not start, or without a decision model), but not held to its schedule: once for the
- * step, replacing the request its schedule may have started for it, which did not know of the images. Never throws.
+ * `read` reads them (it never rejects, resolves to null when the images could not be read) and is called only with this
+ * feature's switch on: with it off no image is sent. Then the request goes out the moment the reading is there, with
+ * `reference_complexity` in its state. The next step takes the answer as any re-decision's. Asked as a re-decision is (never for
+ * a locked turn, one the person did not start, or without a decision model: the images are read all the same, the reading
+ * serves the dispatched agents), but not held to its schedule: once for the step, replacing the request its schedule may have
+ * started for it, which did not know of the images. Never throws.
  */
-export async function judgeAgainWithReference(io: LaunchIo, ctx: Ctx, reading: Promise<ReferenceReading | null>, reason: string): Promise<void> {
+export async function judgeAgainWithReference(io: LaunchIo, ctx: Ctx, read: () => Promise<ReferenceReading | null>, reason: string): Promise<void> {
   try {
     if (!isOn(SWITCH)) return
+    const reading = read()
     const step = await io.mainStep()
     if (step !== null) await launch(io, settingsOf(ctx), step, null, { reading, reason })
   } catch (error) {
@@ -157,7 +160,7 @@ export async function judgeAgainWithReference(io: LaunchIo, ctx: Ctx, reading: P
 type Failures = { turnId: string; failures: number; hookBlocks: number; base: { failures: number; hookBlocks: number } }
 
 /** What a re-decision is asked from, read at once. */
-export type LaunchState = {
+type LaunchState = {
   turn: TurnRecord | undefined
   record: MidturnRecord | undefined
   /** Whether the person's lock holds the effort: anything but null. */

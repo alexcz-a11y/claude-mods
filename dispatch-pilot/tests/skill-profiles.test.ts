@@ -6,9 +6,8 @@
 
 import type { ModelCompleteRequest } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
-import { rates, world, type Completion, type SkillsWorld } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+import { offered, profileOf } from './support/skill-profiles.ts'
+import { KEY, rates, type Completion, type SkillsWorld, world } from './support/world.ts'
 
 const TDD_DESCRIPTION = 'Test-driven development. Use when the user wants to build features or fix bugs test-first.'
 const REVIEW_DESCRIPTION = 'Review the changes since a fixed point along two axes: Standards and Spec.'
@@ -35,14 +34,6 @@ const files = (): Record<string, string> => ({
   [REVIEW_FILE]: `---\nname: code-review\ndescription: ${REVIEW_DESCRIPTION}\n---\n\n# Code review\n\nReview the diff against the repo's standards, then against the issue.\n`,
 })
 
-/** A profile whose every field names its skill, so a test can tell whose it is. */
-function profileOf(name: string) {
-  return {
-    en: { what: `${name}: what it does`, use_when: `${name}: when to use it`, not_for: `${name}: when not to` },
-    zh: { what: `${name}：用途`, use_when: `${name}：何时用`, not_for: `${name}：何时不用` },
-  }
-}
-
 /** The skill a profile completion is about, as its prompt names it. */
 function skillOf(request: ModelCompleteRequest): string {
   const prompt = typeof request.prompt === 'string' ? request.prompt : request.prompt.map((block) => block.text).join('')
@@ -52,12 +43,6 @@ function skillOf(request: ModelCompleteRequest): string {
 /** The cheap model: each skill's profile as JSON, unless `special` says otherwise for that skill. */
 function writer(special: Record<string, Completion> = {}) {
   return (request: ModelCompleteRequest): Completion => special[skillOf(request)] ?? { text: JSON.stringify(profileOf(skillOf(request))) }
-}
-
-/** What a skill with a profile is offered as, in the first stage's Choice. */
-function offered(name: string) {
-  const { en, zh } = profileOf(name)
-  return { what: en.what, use_when: en.use_when, not_for: en.not_for, 用途: zh.what, 何时用: zh.use_when, 何时不用: zh.not_for }
 }
 
 test('at session start the cheap model writes a profile of each skill from its SKILL.md, and the next message offers the skills by their profiles', { options: KEY }, async ($, on) => {
@@ -320,6 +305,31 @@ test('the state follows the writing: planned, written so far, and the skills lef
   await w.clock.settle()
   await w.clock.advance(30_000)
   expect((await w.board()).profiles).toMatchObject({ phase: 'done', kept: 2, planned: 1, written: 1, deferred: 0 })
+})
+
+test("the session's quota being reached changes nothing in the state, so it is no write of it: the start, the profile written, the finish", { options: { ...KEY, skillsProfilesPerSession: 1 } }, async ($, on) => {
+  let writes = 0
+  on('state.set', { plugin: 'dispatch-pilot', key: 'skillProfiles' }, async (_$, e, next) => {
+    writes++
+    return next(e)
+  })
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: writer() })
+  await w.start()
+  await w.clock.settle()
+
+  expect((await w.board()).profiles).toMatchObject({ phase: 'done', planned: 1, written: 1, deferred: 2 })
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringContaining('left to write at a later session start (at most 1 each)'))
+  expect(writes).toBe(3)
+})
+
+test('the skills left when the quota is reached leave out those already dealt with, a failed one included', { options: { ...KEY, skillsProfilesPerSession: 1 } }, async ($, on) => {
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: files(), store: {}, session: true, model: writer({ tdd: { text: 'Sorry, I cannot help with that.' } }) })
+  await w.start()
+  await w.clock.settle()
+
+  // tdd failed and code-review was written: only computer-use is left.
+  expect(w.completions.map(skillOf)).toEqual(['tdd', 'code-review'])
+  expect(w.logs.map((log) => log.text)).toContain('skill profiles: 1 left to write at a later session start (at most 1 each)')
 })
 
 test('an API error stops the writing: the state says why, the skills not tried are left for later, and the decision log entry is fail', { options: KEY }, async ($, on) => {

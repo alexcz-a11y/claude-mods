@@ -1,8 +1,9 @@
-// The README's configuration table against what the mod ships (#18), and
-// DEVELOPMENT.md's 「结构」 tree against the modules under hooks/. Pure: no
-// `$`, no fs. The tests feed it tables of their own (tests/docs-sync.test.ts);
-// `node dispatch-pilot/eval/validate.ts` runs it on the real README.md and
-// plugin.json, which a test file cannot read.
+// What the docs and the code must agree on, checked as text: the README's configuration table against what the mod ships (#18,
+// `checkConfigTable`), DEVELOPMENT.md's 「结构」 tree against the modules under hooks/ (`checkStructureTree`), the README's list of
+// switches against the switches the code defines (`checkSwitchList`), and, over the sources of hooks/, the rules the docs state:
+// the decision report is the one writer of what people see (`checkOneWriter`, ADR 0004) and `$` never leaves the file of its
+// hook (`checkEngineStaysHome`). Pure: no `$`, no fs. The tests feed it tables of their own (tests/docs-sync.test.ts);
+// `node dispatch-pilot/eval/validate.ts` runs it on the real README.md and plugin.json, which a test file cannot read.
 //
 // The table is every row under the README's `## 配置` heading (its `###`
 // groups included) whose first cell is an option's name in backticks:

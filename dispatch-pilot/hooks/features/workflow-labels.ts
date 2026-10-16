@@ -17,7 +17,7 @@
 // Its switch is `workflow-labels` (`/dp workflow-labels off`).
 
 import type { EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
-import { errorText, failureLine, failureText, within, type Failure } from '../decision/backend.ts'
+import { errorText, failureLine, failureText, timedOut, within, type Failure } from '../decision/backend.ts'
 import { clipToTokens, conversationUpTo, type ContextMessage } from '../decision/context.ts'
 import { dispatchEvidence, modelFamily, termsOf, type AgentModel, type DispatchSettings, type Terms } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
@@ -32,15 +32,29 @@ import {
   sitesOf,
   startedAs,
   startedIn,
+  submissionOf,
   taskOf,
   type Given,
   type JournalStart,
   type RunSite,
 } from '../decision/workflow-labels.ts'
-import { renderSummary } from '../decision/summary.ts'
 import { parseWorkflow, type AgentCall } from '../decision/workflow-script.ts'
-import { BATCHES_BUDGET_MS, callDispatch, callOutcome, callResult, planBatches, readOutcomes, reasonOf, SCRIPT_SHARE, tellsTheWork, type WorkflowBackground } from '../decision/workflow.ts'
-import { askAgent, askInLane, type AgentAnswer, type AgentInput, type LaneIo } from '../core/agent-lane.ts'
+import {
+  BATCHES_BUDGET_MS,
+  callDispatch,
+  callOutcome,
+  callResult,
+  planBatches,
+  problemBackground,
+  problemFields,
+  readingBackground,
+  readOutcomes,
+  reasonOf,
+  SCRIPT_SHARE,
+  tellsTheWork,
+  type WorkflowBackground,
+} from '../decision/workflow.ts'
+import { askAgent, askInLane, MIN_ASK_MS, type AgentAnswer, type AgentInput, type LaneIo } from '../core/agent-lane.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { callNodeId, report, type Decided, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, type Ctx } from '../core/setup.ts'
@@ -75,8 +89,6 @@ const STEP_BUDGET_MS = 9000
  */
 const TASK_WAIT_MS = 400
 const TASK_POLL_MS = 25
-/** A decision request needs at least this long to be worth sending. */
-const MIN_ASK_MS = 200
 
 /** What the Workflow tool's description gains for the main agent: fixed words, nothing of the session in them. */
 const LABEL_HINT =
@@ -120,12 +132,12 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
   // and keeps it, so the words never change and the prompt cache holds.
   on('tool.describe', { tool: 'Workflow' }, async ($, e, next) => {
     const described = await next(e)
-    if (!isOn(SWITCH) || !ctx.backend.configured) return described
+    if (!isOn(SWITCH) || ctx.backend.configured === false) return described
     return { ...described, description: `${described.description}\n\n${LABEL_HINT}` }
   })
 
   on('tool.call', { tool: 'Workflow' }, async ($, e, next) => {
-    if (!isOn(SWITCH) || !ctx.backend.configured) return next(e)
+    if (!isOn(SWITCH) || ctx.backend.configured === false) return next(e)
     const log = (line: string) => $.ui.log(line, { to: 'debug' })
     const reporting = reportingOf($)
     let settled: (run: LabelRun | null) => void = () => {}
@@ -134,13 +146,14 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
     let recorded: LabelRun | null = null
     let result: ToolCallResult | undefined
     try {
-      const given: Given = e.scriptPath !== undefined ? 'path' : e.script === undefined || e.name !== undefined ? 'name' : e.resumeFromRunId !== undefined ? 'resume' : 'script'
+      const sub = submissionOf(e)
+      const given: Given = sub.given
       result = await next(e)
       const launched = launchedRun(result)
       if (launched === null || result.deny !== undefined) return result
       // The script the run uses: the one sent (as workflow-agents passed it on: what it wrote is in it,
       // the calls it left are as they were), else the copy the tool runs.
-      const text = given === 'script' ? (e.script ?? null) : await $.fs.read(launched.scriptPath).catch(() => null)
+      const text = sub.given === 'script' ? sub.script : await $.fs.read(launched.scriptPath).catch(() => null)
       const parsed = text === null ? null : parseWorkflow(text)
       if (parsed !== null && parsed.calls.length === 0) return result
 
@@ -150,13 +163,10 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       const said = given === 'script' ? await $.state.get(SAID).then((read) => read.value ?? [], () => []) : ((await $.state.get(SAID)).value ?? [])
       const words = said.join('\n')
       const { value: held } = isOn(UNRESOLVED_SWITCH) ? await $.state.get(COUNT).catch(() => ({ value: undefined })) : { value: undefined }
-      const problem = {
-        ...(held?.summary === undefined ? {} : { problem_summary: renderSummary(held.summary, ctx.ask.language) }),
-        ...(held === undefined || held.count === 0 ? {} : { unresolved_count: held.count }),
-      }
+      const problem = problemBackground(held, ctx.ask.language)
       // What the session's reference images read as (#64): in the requests, not in what the run keeps for its agents (they read the latest as each starts).
       const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
-      const background = { ...problem, ...(reference === undefined ? {} : { reference_complexity: reference }) }
+      const background = { ...problem, ...readingBackground(reference) }
       const budgets = { one: ctx.config.contextByKind.workflow, each: ctx.config.contextByKind.agent }
       let sites: RunSite[] | null = null
       let decided: Parameters<typeof launchNote>[2] = null
@@ -285,7 +295,6 @@ function laneIoOf($: EngineInterface): LaneIo {
       pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
     },
     now: () => $.clock.now(),
-    sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
     debug: (line) => $.ui.log(line, { to: 'debug' }),
   }
 }
@@ -392,18 +401,17 @@ async function decideAtStart(
     const words = said.join('\n')
     const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
     const background: WorkflowBackground = {
-      ...(launch?.problem_summary === undefined ? {} : { problem_summary: launch.problem_summary }),
-      ...(launch?.unresolved_count === undefined ? {} : { unresolved_count: launch.unresolved_count }),
+      ...problemFields(launch),
       // The latest reading as this agent starts, not the one at the launch: the images read since are the work's too.
-      ...(reference === undefined ? {} : { reference_complexity: reference }),
+      ...readingBackground(reference),
       ...(ctx.config.agents.background && launch !== undefined ? { script: launch.script ?? null, recent: await launchConversation($, agent.run, ctx.config.context.messages) } : {}),
     }
     return { dispatch: callDispatch(call, meta, words), shared: { words, background } }
   })
   const about = `${JSON.stringify(agent.label)}（agent ${agent.agentId}，Workflow ${agent.run.workflow ?? '未命名'}）`
-  const late: AgentAnswer = { ok: false, failure: { kind: 'timeout', detail: `no answer in ${Math.round(deadline - now)} ms` } }
+  const late: AgentAnswer = { ok: false, failure: timedOut(Math.round(deadline - now)) }
   const io = laneIoOf($)
-  const answer = await within(io.sleep, askAgent(ctx, settings, { key: `run:${agent.run.runId}`, kind: 'workflow', input, deadline, about, io }), deadline - now, late)
+  const answer = await within(io.backend.sleep, askAgent(ctx, settings, { key: `run:${agent.run.runId}`, kind: 'workflow', input, deadline, about, io }), deadline - now, late)
   const asked = call as AgentCall | null
   if (!answer.ok || asked === null) {
     if (!answer.ok && answer.unasked !== true) return { ok: false, reason: failureLine(ctx.backend.name, answer.failure), failure: answer.failure }

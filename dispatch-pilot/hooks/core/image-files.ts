@@ -3,15 +3,16 @@
 // zoomed re-check, the frames of a recording, the complexity reading), so it keeps no state of its own and asks for nothing but
 // the closures of an `ImageFilesIo`: like BackendIo, they are built where `$` is (a module cannot pass `$` across imports).
 
+import { errorText } from '../decision/backend.ts'
 import { fits, type ImageLimits, planSize, turnsSides, uprightArgs } from '../decision/image-fit.ts'
 import { readImageHeader } from '../decision/image-header.ts'
 import type { Picture } from '../decision/images.ts'
 
 /** What a program run gives back (`$.process.run`). */
-export type ProcessOutput = { exitCode: number; stdout: string; stderr: string }
+type ProcessOutput = { exitCode: number; stdout: string; stderr: string }
 
 /** What a program may be run with besides its arguments (`$.process.run`'s `init`; the 30 second default of a run is long enough for sips, not for ffmpeg). */
-export type ProcessInit = { stdin?: string; timeoutMs?: number }
+type ProcessInit = { stdin?: string; timeoutMs?: number }
 
 /**
  * What the image functions need of the engine. All reject when the engine cannot do it (`run` outside the CLI, `readBytes` for a
@@ -27,20 +28,25 @@ export type ImageFilesIo = {
 }
 
 /**
- * An image ready to send, and what was done to it on the way. `path` is the file it came from; `file` is the one whose bytes
- * `base64` holds, at the size `width` by `height` and upright (`path` itself when nothing had to be done to it), for what is
- * done to the image further (the zoomed re-check crops from it).
+ * An image ready to send. `file` is the one whose bytes `base64` holds, at the size `width` by `height` and upright (the file it
+ * came from when nothing had to be done to it), for what is done to the image further (the zoomed re-check crops from it).
  */
-export type LoadedImage = Picture & { path: string; file: string; steps: readonly string[] }
+export type LoadedImage = Picture & { file: string }
 
 /** An image loaded, or why it could not be (written for the model, in English). */
 export type Loaded = { ok: true; image: LoadedImage } | { ok: false; reason: string }
 
 /** What sips says of an image. */
-export type ImageInfo = { width: number; height: number; format: string }
+type ImageInfo = { width: number; height: number; format: string }
 
 /** A path as an argument of a program: one that starts with a dash is not taken for an option (the path is the model's). */
-const asArgument = (path: string): string => (path.startsWith('-') ? `./${path}` : path)
+export const asArgument = (path: string): string => (path.startsWith('-') ? `./${path}` : path)
+
+/** The first line of what a program said, for a reason. */
+const firstLine = (text: string): string => text.trim().split('\n')[0]?.slice(0, 200) ?? ''
+
+/** Why a program run failed, for a reason: the exit code and the first line it said. */
+export const failedRun = (run: ProcessOutput): string => `exit code ${run.exitCode}: ${firstLine(run.stderr) || firstLine(run.stdout) || 'no message'}`
 
 /** The size and format of an image file, or why sips could not read it. */
 async function inspect(io: ImageFilesIo, path: string): Promise<{ ok: true; info: ImageInfo } | { ok: false; reason: string }> {
@@ -57,9 +63,6 @@ function formatFor(format: string): 'png' | 'jpeg' {
   return format === 'png' || format === 'jpeg' ? format : /^(heic|heif|jp2|dng|raw)$/.test(format) ? 'jpeg' : 'png'
 }
 
-/** The first line of what a program said, for a reason. */
-const firstLine = (text: string): string => text.trim().split('\n')[0]?.slice(0, 200) ?? ''
-
 /** A way to bring the file to what the request sends: in this format, at this share of the size the limits allow. */
 type Attempt = { format: 'png' | 'jpeg'; share: number }
 
@@ -74,7 +77,7 @@ export async function loadImage(io: ImageFilesIo, path: string, limits: ImageLim
   try {
     inspected = await inspect(io, path)
   } catch (error) {
-    return loadWithoutSips(io, path, limits, errorMessage(error))
+    return loadWithoutSips(io, path, limits, errorText(error))
   }
   if (!inspected.ok) return inspected
   const { width, height, format } = inspected.info
@@ -93,15 +96,13 @@ export async function loadImage(io: ImageFilesIo, path: string, limits: ImageLim
     if (!whole.ok) return { ok: false, reason: `${path}: ${whole.reason}` }
     const size = attempt.share === 1 ? whole : planSize(Math.round(whole.width * attempt.share), Math.round(whole.height * attempt.share), limits)
     if (!size.ok) return { ok: false, reason: `${path}: ${size.reason}` }
-    const steps: string[] = []
     let file = path
-    if (size.width !== width || size.height !== height || attempt.format !== format) {
+    const resize = size.width !== width || size.height !== height
+    const convert = attempt.format !== format
+    if (resize || convert) {
       file = await io.newFile(attempt.format === 'jpeg' ? 'jpg' : 'png')
-      const resize = size.width !== width || size.height !== height
-      const run = await io.run(['sips', ...(resize ? ['-z', String(size.height), String(size.width)] : []), ...(attempt.format !== format ? ['-s', 'format', attempt.format] : []), ...(attempt.format === 'jpeg' && attempt.format !== format ? ['-s', 'formatOptions', '85'] : []), asArgument(path), '--out', file])
-      if (run.exitCode !== 0) return { ok: false, reason: `sips could not prepare ${path} (exit code ${run.exitCode}: ${firstLine(run.stderr) || firstLine(run.stdout) || 'no message'})` }
-      if (resize) steps.push(`scaled ${width}x${height} to ${size.width}x${size.height}`)
-      if (attempt.format !== format) steps.push(`converted ${format} to ${attempt.format}`)
+      const run = await io.run(['sips', ...(resize ? ['-z', String(size.height), String(size.width)] : []), ...(convert ? ['-s', 'format', attempt.format] : []), ...(attempt.format === 'jpeg' && convert ? ['-s', 'formatOptions', '85'] : []), asArgument(path), '--out', file])
+      if (run.exitCode !== 0) return { ok: false, reason: `sips could not prepare ${path} (${failedRun(run)})` }
     }
     try {
       let base64 = await io.readBytes(file)
@@ -112,15 +113,14 @@ export async function loadImage(io: ImageFilesIo, path: string, limits: ImageLim
       if (orientation > 1) {
         const upright = await io.newFile('jpg')
         const turned = await io.run(['sips', ...uprightArgs(orientation), asArgument(file), '--out', upright])
-        if (turned.exitCode !== 0) return { ok: false, reason: `sips could not turn ${path} upright (exit code ${turned.exitCode}: ${firstLine(turned.stderr) || firstLine(turned.stdout) || 'no message'})` }
+        if (turned.exitCode !== 0) return { ok: false, reason: `sips could not turn ${path} upright (${failedRun(turned)})` }
         base64 = await io.readBytes(upright)
         readFrom = upright
         if (turnsSides(orientation)) [wide, high] = [high, wide]
-        steps.push(`turned upright (EXIF orientation ${orientation})`)
       }
-      return { ok: true, image: { path, file: readFrom, format: attempt.format, base64, width: wide, height: high, steps } }
+      return { ok: true, image: { file: readFrom, format: attempt.format, base64, width: wide, height: high } }
     } catch (error) {
-      refused = errorMessage(error)
+      refused = errorText(error)
     }
   }
   return { ok: false, reason: `${path} could not be read: ${refused}` }
@@ -153,7 +153,7 @@ export async function loadAll(io: ImageFilesIo, paths: readonly string[], limits
   try {
     loaded = await loadImages(io, paths, limits, megapixels)
   } catch (error) {
-    return { ok: false, reason: errorMessage(error), first: null }
+    return { ok: false, reason: errorText(error), first: null }
   }
   const head = loaded[0]
   const first = head?.ok === true ? head.image : null
@@ -161,8 +161,6 @@ export async function loadAll(io: ImageFilesIo, paths: readonly string[], limits
   if (broken !== undefined && !broken.ok) return { ok: false, reason: broken.reason, first }
   return { ok: true, images: loaded.flatMap((one) => (one.ok ? [one.image] : [])) }
 }
-
-const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /**
  * Where sips cannot run (outside the CLI): a PNG or a JPEG that already fits, and is upright, is read as it is, its size from its
@@ -173,11 +171,11 @@ async function loadWithoutSips(io: ImageFilesIo, path: string, limits: ImageLimi
   try {
     base64 = await io.readBytes(path)
   } catch (error) {
-    return { ok: false, reason: `${path} could not be read: ${errorMessage(error)}` }
+    return { ok: false, reason: `${path} could not be read: ${errorText(error)}` }
   }
   const header = readImageHeader(base64)
   if (header === null) return { ok: false, reason: `${path} is not a PNG or a JPEG, and sips could not run to convert it (${why})` }
   if (!fits(header.width, header.height, limits)) return { ok: false, reason: `${path} is ${header.width}x${header.height}, which the decision model does not take, and sips could not run to resize it (${why})` }
   if (header.orientation > 1) return { ok: false, reason: `${path} lies on its side by its EXIF orientation, which the decision model does not apply, and sips could not run to turn it upright (${why})` }
-  return { ok: true, image: { path, file: path, format: header.format, base64, width: header.width, height: header.height, steps: ['read without sips'] } }
+  return { ok: true, image: { file: path, format: header.format, base64, width: header.width, height: header.height } }
 }

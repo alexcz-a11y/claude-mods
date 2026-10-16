@@ -2,9 +2,8 @@
 // in $.state out (`w.board()`), plus what `/dp log` and the debug log say of it.
 
 import { expect, test } from 'claude-code/testing'
-import { jev, world, type Reply } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
+import { jev, KEY, type Reply, world } from './support/world.ts'
 
 test("a decided message is on the board: its decision in the log (the level decided as data, beside its words), linked from the main agent's node of the turn it starts", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })
@@ -52,7 +51,7 @@ const FAILED: { name: string; backend: () => Reply; why: string; failure: Record
   { name: 'no answer in time', backend: () => ({ after: 60_000, reply: { status: 200, body: {} } }), why: 'jev：800 毫秒内没有回答', failure: { backend: 'jev', kind: 'timeout', detail: 'no answer in 800 ms' } },
   { name: 'the key is refused', backend: () => ({ status: 401, body: { detail: 'Invalid API key' } }), why: 'jev：密钥被拒绝（状态码 401）', failure: { backend: 'jev', kind: 'config', status: 401 } },
   { name: 'the network is down', backend: () => ({ reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }), why: 'jev：连不上', failure: { backend: 'jev', kind: 'network' } },
-  { name: 'an answer without the effort question', backend: () => ({ status: 200, body: { model: 'jev-1.13.0', answers: {} } }), why: 'jev：回答读不懂', failure: { backend: 'jev', kind: 'parse', detail: 'no effort answer' } },
+  { name: 'an answer without the effort question', backend: () => ({ status: 200, body: { model: JEV_MODEL, answers: {} } }), why: 'jev：回答读不懂', failure: { backend: 'jev', kind: 'parse', detail: 'no effort answer' } },
 ]
 
 for (const failed of FAILED) {
@@ -130,7 +129,7 @@ test('a model without effort is read without one: the node keeps the model, and 
   await w.submit('解释一下这个函数')
   await w.step({ index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
   expect((await w.board()).main?.effort).toBe('high')
-  await w.step({ index: 1, model: 'claude-haiku-5-5', effort: null })
+  await w.step({ index: 1, model: 'claude-haiku-4-5', effort: null })
 
   const main = (await w.board()).main
   expect(main?.model).toBe('haiku')
@@ -230,7 +229,7 @@ test('a board that cannot be read stops nothing either: the decision is still lo
   await w.step({ index: 0, effort: 'xhigh' })
 
   expect(w.steps.map((s) => s.effort)).toEqual(['high'])
-  expect((await w.board()).log.map((entry) => entry.outcome)).toEqual(['effort high'])
+  expect((await w.board()).log.map((entry) => [entry.turn, entry.outcome])).toEqual([[1, 'effort high']])
   expect(w.logs.map((l) => l.text)).toContainEqual(expect.stringMatching(/^board not read: /))
 })
 

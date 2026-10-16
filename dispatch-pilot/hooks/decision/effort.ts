@@ -127,23 +127,20 @@ export type EffortStep =
   | { rule: 'round-up'; applied: boolean; level: Effort; above: Effort | null; p: number; threshold: number; blockedByMax: boolean; thetaMax: number }
   /** The agent's model has a floor (sonnet and opus: medium; `floor` null for none) and the level was under it. */
   | { rule: 'model-floor'; applied: boolean; level: Effort; from: Effort; model: string; floor: Effort | null }
-  /** The plan's floor, or a forced raise (`forced`), lifted the level. */
-  | { rule: 'plan-floor'; applied: boolean; level: Effort; from: Effort; floor: Effort | null; forced: boolean }
 
 /** The result of the effort rules and the steps that led to it (the last step's `level` is `effort`). */
 export type EffortTrace = { effort: Effort; steps: EffortStep[] }
 
-/** What lifts the picked level afterwards: the model's floor and the plan's floor or forced raise. Each step appears in the trace only when given. */
+/** What lifts the picked level afterwards: the model's floor. Its step appears in the trace only when given. */
 export type EffortLifts = {
   model?: { name: string; floor: Effort | null }
-  plan?: { floor: Effort | null; forced?: boolean }
 }
 
 /**
  * `pickEffort` with its working: the steps the rules walked (`top`,
- * `max-gate`, `round-up`, then `model-floor` and `plan-floor` when `lifts`
- * gives them), each saying whether it took effect. `pickEffort` is this
- * function's `effort`: one set of rules, never two.
+ * `max-gate`, `round-up`, then `model-floor` when `lifts` gives it), each
+ * saying whether it took effect. `pickEffort` is this function's `effort`:
+ * one set of rules, never two.
  */
 export function traceEffort(reading: EffortReading, rules: EffortRules, lifts: EffortLifts = {}): EffortTrace {
   const { thetaMax, roundUp } = rules
@@ -174,11 +171,6 @@ export function traceEffort(reading: EffortReading, rules: EffortRules, lifts: E
     const from = level
     level = lift(level, lifts.model.floor)
     steps.push({ rule: 'model-floor', applied: level !== from, level: name(level), from: name(from), model: lifts.model.name, floor: lifts.model.floor })
-  }
-  if (lifts.plan !== undefined) {
-    const from = level
-    level = lift(level, lifts.plan.floor)
-    steps.push({ rule: 'plan-floor', applied: level !== from, level: name(level), from: name(from), floor: lifts.plan.floor, forced: lifts.plan.forced === true })
   }
   return { effort: name(level), steps }
 }

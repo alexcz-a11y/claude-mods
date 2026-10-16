@@ -39,18 +39,10 @@ const MOST_REFERENCES = 6
 /** The tag of an item in which nothing differs and nothing is violated: every check holds. */
 export const CONTROL = 'control'
 
-type Add = (message: string) => void
+import { adjacent, exactKeys, isRecord, nonEmpty, type Add } from './validators.ts'
 
 /** Top-level fields of an item. */
 export const VISUAL_CHECK_FIELDS = ['id', 'kind', 'asked', 'gold', 'rationale', 'difficulty', 'tags'] as const
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
-const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value.trim() !== ''
-
-function exactKeys(value: Record<string, unknown>, keys: readonly string[], at: string, add: Add): void {
-  for (const key of keys) if (!(key in value)) add(`${at}.${key} is missing`)
-  for (const key of Object.keys(value)) if (!keys.includes(key)) add(`${at} has an unknown field ${key}`)
-}
 
 /** A picture's path in the dataset: relative to eval/datasets/visual-check/, inside it, a PNG. */
 function checkPath(value: unknown, at: string, add: Add): void {
@@ -67,12 +59,6 @@ function checkChecks(value: unknown, add: Add): void {
     exactKeys(check, ['part', 'property'], at, add)
     for (const key of ['part', 'property'] as const) if (!nonEmpty(check[key])) add(`${at}.${key} must be a non-empty string`)
   })
-}
-
-/** Whether `levels` are whole levels that run on without a gap (in any order). */
-function contiguous(levels: readonly number[]): boolean {
-  const sorted = [...new Set(levels)].sort((a, b) => a - b)
-  return sorted.every((level, i) => i === 0 || level === (sorted[i - 1] as number) + 1)
 }
 
 /** An item of a kind: its asked and gold in the shape of the kind, and the tag `control` exactly when every check holds. */
@@ -146,7 +132,7 @@ function checkComplexity(item: Record<string, unknown>, asked: Record<string, un
   else {
     if (new Set(accept).size !== accept.length) add(`gold.accept ${JSON.stringify(accept)} names a level twice`)
     if (whole(level, 0, 4) && !accept.includes(level)) add(`gold.level ${level} is not in gold.accept ${JSON.stringify(accept)}`)
-    if (!contiguous(accept as number[])) add(`gold.accept ${JSON.stringify(accept)} is not contiguous: acceptable levels must be adjacent`)
+    if (!adjacent(accept as number[])) add(`gold.accept ${JSON.stringify(accept)} is not contiguous: acceptable levels must be adjacent`)
   }
   if (!whole(gold.rank, 0, Number.MAX_SAFE_INTEGER)) add(`gold.rank ${JSON.stringify(gold.rank)} must be a whole number: the group's place in the order, the least complex first`)
 }

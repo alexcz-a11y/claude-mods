@@ -57,7 +57,7 @@ export function registerUnresolved(on: On, ctx: Ctx): void {
     try {
       await clearCount(countCell($))
     } catch (error) {
-      $.ui.log(`unresolved count not cleared: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+      $.ui.log(`unresolved count not cleared: ${errorText(error)}`, { to: 'debug' })
     }
     return next(e)
   })

@@ -212,7 +212,7 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
       const ranking = await ranker.rank(answers, offeredSkills, { state: request.state })
       if (ranking === null) return { ok: false, failure: 'parse: no answer about the skills' }
       if (ranking.failed !== undefined) return { ok: false, failure: `second request: ${ranking.failed.kind}: ${ranking.failed.detail}` }
-      const { suggest, hint } = pickSkills(ranking, offeredSkills, suggestPolicy(settings))
+      const { suggest, hint } = pickSkills(ranking, offeredSkills, settings.skills.suggest)
       return {
         ok: true,
         prediction: { suggest: suggest.map((skill) => skill.name), hint: hint.map((skill) => skill.name) },
@@ -284,19 +284,8 @@ async function sha256(text: string): Promise<string> {
 }
 
 /**
- * An answer scores by the review's rules (eval/review/skill.review-summary.md),
- * in two parts. `suggest`, the skills the main agent is shown: where no skill
- * fits (gold empty), right only when none is suggested; otherwise right when
- * one suggested is acceptable and none is in must_not. A skill in neither
- * list (neutral) costs nothing beside an acceptable one, but alone it misses.
- * `hint`, the skills only the person can start, named on the status line:
- * where the item hints none, right only when none is hinted; otherwise right
- * when one hinted is among user_only_hint. The answer is right when both
- * parts are; exact when it suggests the gold skills and hints the
- * user_only_hint ones, no more and no fewer. A miss names each part that
- * missed: `must-not`, `extra` (a skill where none fits), `neutral-only`,
- * `missed` (none where one fits); `hint-extra`, `hint-missed`, `hint-other`
- * (only skills the item does not hint).
+ * An answer scores by the review's rules (eval/review/skill.review-summary.md), in the two parts `SCORING` says (`suggest`
+ * and `hint`); a miss names each part that missed, as `SCORING` lists them.
  */
 export function gradeSkills(item: SkillItem, answer: SkillAnswer): Grade {
   const suggestMiss = suggestionMiss(item, answer.suggest)
@@ -335,16 +324,6 @@ function hintingMiss(item: SkillItem, hint: readonly string[]): string | null {
 function showAnswer(answer: SkillAnswer): string {
   const suggested = [...answer.suggest].sort().join(', ') || 'none'
   return answer.hint.length === 0 ? suggested : `${suggested} | try ${[...answer.hint].sort().map((name) => `/${name}`).join(' ')}`
-}
-
-/** How many skills a message is shown at most, and the least relevance one needs, as the mod reads them (core/setup.ts). */
-function suggestPolicy(settings: Settings): SkillPolicy {
-  return settings.skills.suggest
-}
-
-/** How many skills find_skill returns at most, and the least relevance one needs, as the mod reads them (core/setup.ts). */
-function findPolicy(settings: Settings): SkillPolicy {
-  return settings.skills.find
 }
 
 /**
@@ -426,8 +405,9 @@ type Latency = { answers: number; p50: number | null; p90: number | null; max: n
 function skillBreakdown(items: readonly SkillItem[], rows: readonly Row<SkillAnswer>[], offeredSkills: readonly CatalogSkill[], settings: Settings): SkillBreakdown {
   const answered = (language: Language) => new Map(rows.filter((row) => row.language === language).map((row) => [row.id, row]))
   const by = { zh: answered('zh'), en: answered('en') }
-  const suggestBar = suggestPolicy(settings)
-  const findBar = findPolicy(settings)
+  // How many skills a message is shown at most and find_skill returns at most, and the least relevance each needs, as the mod reads them (core/setup.ts).
+  const suggestBar = settings.skills.suggest
+  const findBar = settings.skills.find
 
   const groups = GROUPS.map(({ group, has }) => {
     const mine = items.filter(has)

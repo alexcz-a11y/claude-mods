@@ -1,12 +1,14 @@
 // Jev's pacing (decision/jev-rate.ts, 2026-10-15): an account may send so many requests and input tokens a second (the
 // default plan's 80 and 100,000); the tokens come out of a bucket that holds BURST_SECONDS of the rate and fills at it. A
-// 429 or 529 holds every request back as long as it says, and the refused one asks once more when its time allows. Seam 2:
-// the pacing over a backend that records when each request reached it, on the mock clock.
+// 429 or 529 holds every request back as long as it says (at most MAX_HOLD_MS), and the refused one asks once more, in its
+// old place in line, when its time allows. Seam 2: the pacing over a backend that records when each request reached it, on
+// the mock clock.
 
 import { expect, mock, test } from 'claude-code/testing'
 import type { Asked, Backend, BackendIo } from '../hooks/decision/backend.ts'
-import { BURST_SECONDS, JEV_DEFAULT_LIMITS, jevRateLimited, jevRequestTokens, type JevLimits } from '../hooks/decision/jev-rate.ts'
+import { BURST_SECONDS, JEV_DEFAULT_LIMITS, jevRateLimited, jevRequestTokens, MAX_HOLD_MS, type JevLimits } from '../hooks/decision/jev-rate.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 
 type Clock = ReturnType<typeof mock.clock>
 
@@ -16,7 +18,7 @@ function request(name: string, chars: number, effort = false): DecisionRequest {
   return { state: { name, c: '会'.repeat(chars) }, questions: { [id]: { type: 'noul', instructions: 'Is it?' } } }
 }
 
-const answered = (inputTokens: number | null = null): Asked => ({ ok: true, answers: {}, model: 'jev-1.14.0', inputTokens })
+const answered = (inputTokens: number | null = null): Asked => ({ ok: true, answers: {}, model: JEV_MODEL, inputTokens })
 
 /** A backend that records when each request reached it, and answers after `delayMs` as `answer` says. */
 function recording(answer: (name: string, n: number) => Asked = () => answered(), delayMs = 0) {
@@ -228,6 +230,153 @@ test('a request whose place cannot come within its own wait fails as a timeout, 
   expect(asked).toEqual({ ok: false, failure: { kind: 'timeout', detail: 'no answer in 1500 ms' } })
   expect(calls.map((call) => call.name)).toEqual(['first'])
   await first
+})
+
+test('a request with less than 200 ms left is never sent: nothing could answer it in that time', async (_$, on) => {
+  const clock = mock.clock(on)
+  const { backend, calls } = recording()
+  const asked = await paced(backend).ask(hostOf(clock), request('late', 10), 150)
+  expect(asked).toEqual({ ok: false, failure: { kind: 'timeout', detail: 'no answer in 150 ms' } })
+  expect(calls).toEqual([])
+})
+
+/** A refusal of the account: a 429 (or 529) that asks to wait `retryAfterMs`, or says nothing of it. */
+const refusal = (retryAfterMs?: number, status = 429): Asked => ({ ok: false, failure: { kind: 'busy', status, detail: `HTTP ${status}: slow down`, ...(retryAfterMs === undefined ? {} : { retryAfterMs }) } })
+
+test('the second 429, the one the retry meets, holds every request back too', async (_$, on) => {
+  const clock = mock.clock(on)
+  const { backend, calls } = recording((_name, n) => (n === 1 ? refusal(1000) : n === 2 ? refusal(3000) : answered()))
+  const jev = paced(backend)
+  const io = hostOf(clock)
+  const first = jev.ask(io, request('first', 10), 8000)
+  await clock.settle()
+  await clock.advance(1000)
+  // The retry is the answer, and it is a 429 too, with no retry of its own.
+  expect(await first).toEqual({
+    ok: false,
+    failure: { kind: 'busy', status: 429, detail: 'HTTP 429: slow down' },
+    notes: ['HTTP 429, asked again after 1000 ms', "waited 1000 ms for its place within the account's rate limit"],
+  })
+
+  const later = jev.ask(io, request('later', 10), 8000)
+  await clock.settle()
+  expect(calls.map((call) => [call.name, call.at])).toEqual([
+    ['first', 0],
+    ['first', 1000],
+  ])
+  // The second 429 asked for 3 s from the moment it came: the next request goes then, not at once.
+  await clock.advance(3000)
+  expect((await later).ok).toBe(true)
+  expect(calls.at(-1)).toEqual({ name: 'later', at: 4000 })
+})
+
+test('a Retry-After of an hour holds the requests back for MAX_HOLD_MS only: the refused one asks again then', async (_$, on) => {
+  const clock = mock.clock(on)
+  const { backend, calls } = recording((_name, n) => (n === 1 ? refusal(3_600_000) : answered()))
+  const jev = paced(backend)
+  const io = hostOf(clock)
+  const first = jev.ask(io, request('first', 10), 8000)
+  await clock.settle()
+  const later = jev.ask(io, request('later', 10), 8000)
+  await clock.settle()
+  expect(calls.map((call) => call.name)).toEqual(['first'])
+  await clock.advance(MAX_HOLD_MS)
+  const [again, other] = await Promise.all([first, later])
+  expect(calls.map((call) => [call.name, call.at])).toEqual([
+    ['first', 0],
+    ['first', MAX_HOLD_MS],
+    ['later', MAX_HOLD_MS],
+  ])
+  expect(again.ok && other.ok).toBe(true)
+  expect(again.notes).toContain(`HTTP 429, asked again after ${MAX_HOLD_MS} ms`)
+})
+
+test("a request that the hold of a 429 keeps from going within its wait fails as busy, not as a timeout, and is not sent", async (_$, on) => {
+  const clock = mock.clock(on)
+  const { backend, calls } = recording((_name, n) => (n === 1 ? refusal(4000) : answered()))
+  const jev = paced(backend)
+  const io = hostOf(clock)
+  await jev.ask(io, request('first', 10), 1500)
+  const held = await jev.ask(io, request('held', 10), 1500)
+  // Told to wait 4 s, and asked to answer within 1.5: the account is busy, which is not the same as no answer.
+  expect(held).toEqual({ ok: false, failure: { kind: 'busy', status: 429, detail: expect.stringContaining('not sent') } })
+  expect(calls.map((call) => call.name)).toEqual(['first'])
+  // The hold ends, and requests go again.
+  await clock.advance(4000)
+  expect((await jev.ask(io, request('after', 10), 1500)).ok).toBe(true)
+})
+
+test('the hold is in place before the tokens a refused request gives back wake the one waiting for them: it does not go in between', async (_$, on) => {
+  const clock = mock.clock(on)
+  // The first request is refused after 100 ms with a wait of 2 s; the second lacks tokens for as long as the first has them.
+  const { backend, calls } = recording((name, n) => (name === 'first' && n === 1 ? refusal(2000) : answered()), 100)
+  const jev = paced(backend, SLOW)
+  const io = hostOf(clock)
+  const [firstOne, secondOne] = [request('first', 2300), request('second', 2300)]
+  const [first, second] = [firstOne, secondOne].map(jevRequestTokens) as [number, number]
+  // Two do not fit the bucket of 5,000 at once.
+  expect(first + second).toBeGreaterThan(5000)
+  const asking = [jev.ask(io, firstOne, 8000)]
+  await clock.settle()
+  asking.push(jev.ask(io, secondOne, 8000))
+  await clock.settle()
+  expect(calls.map((call) => call.name)).toEqual(['first'])
+  // The refusal at 100 ms gives the first one's tokens back: the second could go then, but the account said to wait until 2100.
+  await clock.advance(100)
+  await clock.settle()
+  expect(calls.map((call) => call.name)).toEqual(['first'])
+  await clock.advance(10_000)
+  await Promise.all(asking)
+  // The first asks again at 2100 (its old place), the second when the bucket has filled what the first took out again.
+  const lackMs = Math.ceil(first + second - 5000)
+  expect(calls.map((call) => [call.name, call.at])).toEqual([
+    ['first', 0],
+    ['first', 2100],
+    ['second', 2100 + lackMs],
+  ])
+})
+
+test('a request that asks again keeps its old place in line: one that came while it was out does not go first', async (_$, on) => {
+  const clock = mock.clock(on)
+  // One request a second. The first is refused (asked to wait no longer) after 100 ms; the second came at 10 ms and waits for the second.
+  const { backend, calls } = recording((name, n) => (name === 'first' && n === 1 ? refusal(0) : answered()), 100)
+  const jev = paced(backend, { requestsPerSecond: 1, tokensPerSecond: 100_000 })
+  const io = hostOf(clock)
+  const asking = [jev.ask(io, request('first', 10), 5000)]
+  await clock.settle()
+  await clock.advance(10)
+  asking.push(jev.ask(io, request('second', 10), 5000))
+  await clock.settle()
+  await clock.advance(5000)
+  await Promise.all(asking)
+  // The retry of the first is the first in line again, though the second asked after it first went out.
+  expect(calls.map((call) => [call.name, call.at])).toEqual([
+    ['first', 0],
+    ['first', 1000],
+    ['second', 2000],
+  ])
+})
+
+test('a clock that fails does not leave the request at the head of the queue: the next request still goes', async (_$, on) => {
+  const clock = mock.clock(on)
+  const { backend, calls } = recording()
+  const jev = paced(backend)
+  const io = hostOf(clock)
+  let reads = 0
+  const flaky: BackendIo = {
+    ...io,
+    pace: {
+      ...(io.pace as NonNullable<BackendIo['pace']>),
+      // The first read is the deadline's, the second the request's wait for its place.
+      now: async () => {
+        if (++reads === 2) throw new Error('clock failed')
+        return clock.now()
+      },
+    },
+  }
+  await expect(jev.ask(flaky, request('broken', 10), 3000)).rejects.toThrow('clock failed')
+  expect((await jev.ask(io, request('next', 10), 3000)).ok).toBe(true)
+  expect(calls.map((call) => call.name)).toEqual(['next'])
 })
 
 test('a request without the hook clock (the eval, which paces itself) goes straight through', async () => {

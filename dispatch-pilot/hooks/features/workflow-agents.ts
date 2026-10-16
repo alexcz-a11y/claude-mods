@@ -25,9 +25,9 @@ import type { EngineInterface, HttpInit, On } from 'claude-code'
 import { errorText, failureText } from '../decision/backend.ts'
 import { conversationUpTo, type ContextMessage } from '../decision/context.ts'
 import { termsOf } from '../decision/dispatched-agent.ts'
-import { renderSummary } from '../decision/summary.ts'
+import { submissionOf } from '../decision/workflow-labels.ts'
 import { parseWorkflow, rewriteWorkflow, type ParsedWorkflow } from '../decision/workflow-script.ts'
-import { BATCHES_BUDGET_MS, planBatches, readOutcomes, returnNote, rewriteNote, workflowFingerprint, type CallOutcome, type WorkflowBackground } from '../decision/workflow.ts'
+import { BATCHES_BUDGET_MS, planBatches, problemBackground, readingBackground, readOutcomes, returnNote, rewriteNote, workflowFingerprint, type CallOutcome, type WorkflowBackground } from '../decision/workflow.ts'
 import { askInLane, type LaneIo } from '../core/agent-lane.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { report, type ReportIo } from '../core/report.ts'
@@ -60,8 +60,8 @@ type PassReason = 'scriptPath' | 'name' | 'resume' | 'unreadable' | 'no agents' 
 
 /** What the feature does with one submission, settled before the tool is called. */
 type Route =
-  /** The script goes through as it is, and the board says `why` (null: nothing to say), `asWritten`: by design, not a miss. */
-  | { kind: 'pass'; reason: PassReason; why: string | null; asWritten?: true }
+  /** The script goes through as it is, and the board says `why` (null: nothing to say). */
+  | { kind: 'pass'; reason: PassReason; why: string | null }
   /** The Workflow is sent back (return mode). */
   | { kind: 'refuse'; deny: string }
   /** The tool is called with `script` (null: as submitted), the decisions in `outcomes`. */
@@ -85,7 +85,7 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
       toast: (text) => $.ui.toast(text),
     }
     /** The Workflow as a whole is not routed: say why on the board (null: nothing to say of it). */
-    const notRouted = (why: string | null, extra: { asWritten?: true } = {}) => report(reporting, { decision: workflowLeft(SWITCH, { id: e.tool_use_id, title: workflowCallTitle(e) }, why, extra) })
+    const notRouted = (why: string | null) => report(reporting, { decision: workflowLeft(SWITCH, { id: e.tool_use_id, title: workflowCallTitle(e) }, why) })
     /** One report for each call of the script: the decisions made, and why the others are left as written. */
     const reportCalls = (parsed: ParsedWorkflow, outcomes: readonly CallOutcome[], options: { suffix?: string; sentBack?: true } = {}) =>
       report(reporting, { decisions: callReports(SWITCH, { id: e.tool_use_id, parsed }, outcomes, { backend: ctx.backend.name, thetaOverride: settings.thetaOverride, ...options }) })
@@ -93,20 +93,20 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
     /** Settles what to do with this submission: asks the decision model, and reads its answers. */
     const decide = async (): Promise<Route> => {
       // What this does not rewrite: a script given by path or name, or resumed (its cache matches on each call's prompt and options).
-      const given: PassReason | null = e.scriptPath !== undefined ? 'scriptPath' : e.script === undefined || e.name !== undefined ? 'name' : e.resumeFromRunId !== undefined ? 'resume' : null
-      if (given !== null || e.script === undefined) {
-        const how = given === 'scriptPath' ? '按路径提交，没有改写' : given === 'resume' ? '接着早先的运行，没有改写' : '按名字提交，没有改写'
-        return { kind: 'pass', reason: given ?? 'name', why: how }
+      const sub = submissionOf(e)
+      if (sub.given !== 'script') {
+        const how = sub.given === 'path' ? '按路径提交，没有改写' : sub.given === 'resume' ? '接着早先的运行，没有改写' : '按名字提交，没有改写'
+        return { kind: 'pass', reason: sub.given === 'path' ? 'scriptPath' : sub.given, why: how }
       }
 
-      const parsed = parseWorkflow(e.script)
+      const parsed = parseWorkflow(sub.script)
       if (parsed === null) return { kind: 'pass', reason: 'unreadable', why: '读不懂这个脚本' }
       if (parsed.calls.length === 0) return { kind: 'pass', reason: 'no agents', why: null }
 
       // A Workflow already sent back runs as it is submitted, whatever the second submission says.
       const fingerprint = workflowFingerprint(parsed)
       if (sendBack && ((await $.state.get(RETURNED)).value ?? []).includes(fingerprint)) {
-        return { kind: 'pass', reason: 'second', why: '早先退回过一次，这次照原样运行', asWritten: true }
+        return { kind: 'pass', reason: 'second', why: '早先退回过一次，这次照原样运行' }
       }
 
       const { value: said = [] } = await $.state.get(SAID)
@@ -118,7 +118,6 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
           pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
         },
         now: () => $.clock.now(),
-        sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
         debug: log,
       }
       // The problem the main agent is on, as a dispatched agent's request carries it (#41): the summary and the count; the
@@ -128,9 +127,8 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
       // What the session's reference images read as (#64): the latest reading, as text, the same for every call.
       const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
       const background: WorkflowBackground = {
-        ...(held?.summary === undefined ? {} : { problem_summary: renderSummary(held.summary, ctx.ask.language) }),
-        ...(held === undefined || held.count === 0 ? {} : { unresolved_count: held.count }),
-        ...(reference === undefined ? {} : { reference_complexity: reference }),
+        ...problemBackground(held, ctx.ask.language),
+        ...readingBackground(reference),
         ...(ctx.config.agents.background ? { script: parsed.script, recent: conversationUpTo(recent, ctx.config.context.messages, e.tool_use_id) ?? conversationUpTo(recent, ctx.config.context.messages) ?? [] } : {}),
       }
       // What is decided here is written into the script: a call it cannot be written into is decided as its agents start (workflow-labels).
@@ -164,7 +162,7 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
     if (route.kind === 'refuse') return { deny: route.deny }
     if (route.kind === 'pass') {
       const result = await next(e)
-      await notRouted(route.why, route.asWritten === true ? { asWritten: true } : {})
+      await notRouted(route.why)
       log(`workflow${e.name === undefined ? '' : ` ${JSON.stringify(e.name)}`} let through as it is: ${route.reason}`)
       return result
     }

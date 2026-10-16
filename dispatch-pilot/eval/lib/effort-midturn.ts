@@ -37,7 +37,7 @@ import { answersFor, mergeParts, type DecisionRequest, type Part } from '../../h
 import type { EffortMidturnItem, Language, MidturnAsked, MidturnRowTool } from './datasets.ts'
 import { gradeEffort } from './effort-submit.ts'
 import type { Row } from './runner.ts'
-import { rate } from './metrics.ts'
+import { percentText, rate } from './metrics.ts'
 import { requestFailed, variantIn, type Settings, type Suite } from './suite.ts'
 
 /**
@@ -140,7 +140,7 @@ export const effortMidturn: Suite<EffortMidturnItem, Effort> = {
   report: (summary) => {
     const breakdown = summary.breakdown as MidturnBreakdown | undefined
     if (breakdown === undefined) return []
-    const pct = (value: number) => `${(value * 100).toFixed(1)}%`
+    const pct = percentText
     const directions = breakdown.directions.map((d) => `${d.direction} ${pct(d.accuracy.zh)}/${pct(d.accuracy.en)} of ${d.items}`).join(', ')
     return [
       `${summary.variant}: right by the way the level should move (zh/en of n): ${directions}`,

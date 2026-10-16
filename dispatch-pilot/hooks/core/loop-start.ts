@@ -6,7 +6,7 @@
 //   - the reference images of the routing (#64) are the files that are not (`startedBefore`).
 //
 // Recording it is not a feature and has no switch: it costs one `$.state.set` per loop. A reader asks for the loop of an agent
-// with `$.state.get({ plugin: 'dispatch-pilot', key: 'loops', id: agent })` (`MAIN_LOOP` for the main agent), and gets
+// with `$.state.get({ plugin: 'dispatch-pilot', key: 'loops', id: agent })` (`MAIN` for the main agent), and gets
 // `{ startedAt }`, or nothing when no beginning was seen: it is then not known which files are older, and the reader leaves the
 // file as it is. (`validate` wants a state reference's plugin and key written as literals in the file that reads it, so a reader
 // declares `const LOOPS = { plugin: 'dispatch-pilot', key: 'loops' } as const` itself.) The state outlives a hot reload, which
@@ -14,12 +14,10 @@
 
 import type { On } from 'claude-code'
 import { errorText } from '../decision/backend.ts'
+import { MAIN } from './plans.ts'
 
 /** The `$.state` family of the loops' beginnings, by loop: `main` or the agentId. */
 const LOOPS = { plugin: 'dispatch-pilot', key: 'loops' } as const
-
-/** The main agent's id among the loops. */
-export const MAIN_LOOP = 'main'
 
 /**
  * Whether a file modified at `mtimeMs` (`$.fs.stat`) was made in the loop that began at `startedAt`. A file saved in the very
@@ -41,7 +39,7 @@ export function registerLoopStart(on: On): void {
     try {
       const startedAt = await $.clock.now()
       if (e.agentId === undefined) {
-        await $.state.set({ ...LOOPS, id: MAIN_LOOP }, { startedAt })
+        await $.state.set({ ...LOOPS, id: MAIN }, { startedAt })
       } else if ((await $.state.get({ ...LOOPS, id: e.agentId })).value === undefined) {
         await $.state.set({ ...LOOPS, id: e.agentId }, { startedAt })
       }

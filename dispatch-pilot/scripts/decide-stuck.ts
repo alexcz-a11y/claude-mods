@@ -23,8 +23,7 @@ import { readExpected, stuckRequest } from '../hooks/decision/escalation.ts'
 import { EFFORTS, pickEffort, readEffort } from '../hooks/decision/effort.ts'
 import { MIDTURN_LEVEL, type MidturnInput } from '../hooks/decision/midturn.ts'
 import { answersFor, type Part } from '../hooks/decision/system-one.ts'
-import { attemptMs } from '../eval/lib/runner.ts'
-import { nodeIo, scriptArgs, scriptDecision } from '../eval/node.ts'
+import { nodeIo, scriptArgs, scriptDecision, scriptTimeout } from '../eval/node.ts'
 
 const USAGE = 'node scripts/decide-stuck.ts <input.json> [--zh] [--steps 4] [--timeout ms]'
 const { values, positionals } = scriptArgs(USAGE, { zh: { type: 'boolean' }, steps: { type: 'string' } })
@@ -44,7 +43,7 @@ const { request, effortPart, expectedPart } = stuckRequest(input, {
 console.log(JSON.stringify({ questions: Object.keys(request.questions), state: request.state }))
 
 const started = performance.now()
-const asked = await backend.ask(nodeIo, request, Number(values.timeout ?? attemptMs(settings.timeoutMs)))
+const asked = await backend.ask(nodeIo, request, scriptTimeout(values.timeout, settings.timeoutMs))
 const ms = Math.round(performance.now() - started)
 if (!asked.ok) {
   console.log(JSON.stringify({ ok: false, backend: backend.name, failure: asked.failure, ms }))

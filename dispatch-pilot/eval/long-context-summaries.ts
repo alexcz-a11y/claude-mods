@@ -15,7 +15,6 @@
 // thinking, no user or project settings, safe mode, no MCP, in an empty directory. The mod's own call also cuts the reply at 1000
 // tokens (`maxTokens`); here the reply is read whole and then cut to the record's 500 tokens by `readSummary`, as the mod does.
 
-import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,7 +25,7 @@ import { SUMMARY_FILE, type SummaryFile } from './lib/long-context.ts'
 import { conversationOf, fingerprint, unresolvedCount } from './lib/long-conversation.ts'
 import { writeSummary } from './lib/long-summaries.ts'
 import { longContextItems } from './long-context-items.ts'
-import { DATASETS_DIR, shown } from './node.ts'
+import { DATASETS_DIR, claudeComplete, numberFlag, shown } from './node.ts'
 
 const { values } = parseArgs({
   options: {
@@ -38,6 +37,7 @@ const { values } = parseArgs({
   },
 })
 
+const concurrency = numberFlag('--concurrency', values.concurrency, { min: 1, integer: true })
 const FILE = join(DATASETS_DIR, SUMMARY_FILE)
 const SETTINGS = JSON.stringify({ enabledPlugins: { 'jev-pilot@jev-pilot': false }, alwaysThinkingEnabled: false })
 const items: LongContextItem[] = longContextItems()
@@ -58,27 +58,11 @@ writeFileSync(systemFile, SUMMARY_SYSTEM)
 const answeredBy = new Set<string>(((before.about?.answered_by as string[] | undefined) ?? []))
 
 /** One completion through `claude -p`: the reply's text, or null when there is none (an error, a timeout of a minute). */
-function complete(prompt: string): Promise<string | null> {
-  return new Promise((done) => {
-    const args = ['-p', '--model', values.model, '--safe-mode', '--setting-sources', 'project', '--tools', '', '--system-prompt-file', systemFile, '--output-format', 'json', '--no-session-persistence', '--settings', SETTINGS, '--strict-mcp-config']
-    const child = spawn('claude', args, { cwd: dir, env: { ...process.env, MAX_THINKING_TOKENS: '0' }, stdio: ['pipe', 'pipe', 'pipe'] })
-    let out = ''
-    const timer = setTimeout(() => child.kill(), 60_000)
-    child.stdout.on('data', (chunk) => (out += chunk))
-    child.on('error', () => done(null))
-    child.on('close', () => {
-      clearTimeout(timer)
-      try {
-        const result = JSON.parse(out) as { result?: string; is_error?: boolean; modelUsage?: Record<string, unknown> }
-        if (result.is_error || typeof result.result !== 'string') return done(null)
-        for (const name of Object.keys(result.modelUsage ?? {})) answeredBy.add(name)
-        done(result.result)
-      } catch {
-        done(null)
-      }
-    })
-    child.stdin.end(prompt)
-  })
+async function complete(prompt: string): Promise<string | null> {
+  const reply = await claudeComplete(prompt, { model: values.model, systemFile, cwd: dir, settings: SETTINGS })
+  if ('failed' in reply) return null
+  for (const name of reply.models) answeredBy.add(name)
+  return reply.text
 }
 
 const written: SummaryFile['items'] = { ...before.items }
@@ -105,7 +89,7 @@ const worker = async () => {
     save()
   }
 }
-await Promise.all(Array.from({ length: Math.max(1, Number(values.concurrency)) }, worker))
+await Promise.all(Array.from({ length: concurrency }, worker))
 rmSync(dir, { recursive: true, force: true })
 save()
 const missing = items.filter((item) => written[item.id] === undefined)

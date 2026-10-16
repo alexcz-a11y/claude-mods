@@ -4,7 +4,7 @@
 // most; and what each pair does to the count in the middle rounds (cleared in a same-problem stretch, raised in an
 // unrelated one). Nothing is asked of any model.
 //
-//   node dispatch-pilot/eval/eval-v2-thresholds.ts dispatch-pilot/eval/results/eval-v2-flow/jev-24000.json
+//   node dispatch-pilot/eval/eval-v2-thresholds.ts dispatch-pilot/eval/results/eval-v2-flow/jev-24000.json   (the flow run at Jev's 24000-token state of that day)
 //   node dispatch-pilot/eval/eval-v2-thresholds.ts dispatch-pilot/eval/results/eval-v2-flow/pplx-48000.json dispatch-pilot/eval/results/eval-v2-flow/pplx-135000.json
 //
 // Several files: each on its own, then all their messages together (one backend's set over its budgets).
@@ -18,7 +18,7 @@ import { parseArgs } from 'node:util'
 import type { Relation } from './lib/eval-v2.ts'
 import type { FlowFile } from './lib/eval-v2-flow.ts'
 import { barFigures, scanBars, scanPoints, type BarFigures, type MiddlePoint, type Scan, type ScanItem, type TriagePoint } from './lib/eval-v2-thresholds.ts'
-import { EVAL_V2_GENERATED, readFinalGold, shown } from './node.ts'
+import { EVAL_V2_GENERATED, numberFlag, readFinalGold, shown } from './node.ts'
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -28,7 +28,12 @@ if (positionals.length === 0) {
   console.error('usage: node dispatch-pilot/eval/eval-v2-thresholds.ts <flow file> [<flow file> ...] [--max-false-reset 0.02] [--max-false-add <share>] [--step 0.01] [--out <file>]')
   process.exit(2)
 }
-const options = { maxFalseReset: Number(values['max-false-reset']), ...(values['max-false-add'] === undefined ? {} : { maxFalseAdd: Number(values['max-false-add']) }), step: Number(values.step) }
+const options = {
+  maxFalseReset: numberFlag('--max-false-reset', values['max-false-reset'], { min: 0 }),
+  ...(values['max-false-add'] === undefined ? {} : { maxFalseAdd: numberFlag('--max-false-add', values['max-false-add'], { min: 0 }) }),
+  // A step of 0 would scan the same pair for ever.
+  step: numberFlag('--step', values.step, { min: 0.001 }),
+}
 
 // The items: their relation from generated.json, their final gold.
 const generated = JSON.parse(readFileSync(EVAL_V2_GENERATED, 'utf8')) as { items: { id: string; relation: Relation }[] }
