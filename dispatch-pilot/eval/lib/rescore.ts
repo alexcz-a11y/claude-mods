@@ -235,3 +235,41 @@ function effortUnder(kind: 'before' | 'now', decision: DispatchDecision, thetaMa
   if (decision.model === 'haiku') return null
   return decision.namedEffort ?? legacyPickEffort(decision.reading, thetaMax)
 }
+
+/** One stored answer graded again: its item, language and variant, and whether it is right under the rules given. */
+export type Regraded = { id: string; language: Language; variant: string; correct: boolean }
+
+/**
+ * Every decided answer of an effort-submit, effort-midturn or subagent result graded under `rules` instead of the run's
+ * (`thetaMax`, `roundUp`): the level picked (effort-submit, effort-midturn: what their summaries grade), the model and
+ * the effort (subagent, as `rescoreAgents` decides them now). An answer that was not decided (a failed request) is not
+ * here: the paired test (lib/paired.ts) counts it wrong. Nothing is asked again; with the run's own rules each answer
+ * comes out as it was stored.
+ */
+export function regrade(suite: string, result: StoredAnswers, items: readonly { id: string }[], rules: EffortRules): Regraded[] {
+  if (suite === 'effort-submit' || suite === 'effort-midturn') {
+    return result.summary.variants.flatMap(({ variant }) =>
+      rowsOf(result, items as readonly EffortSubmitItem[], variant, 'p').map(({ item, language, detail }) => ({
+        id: item.id,
+        language,
+        variant,
+        // An effort-midturn item has its gold and accept where an effort-submit item has them (gradeEffort reads only those).
+        correct: gradeEffort(item, pickEffort(readingOf(detail), rules)).correct,
+      })),
+    )
+  }
+  if (suite === 'subagent') {
+    const config = readConfig({ decisionModel: 'jev', ...(result.settings.options ?? {}), thetaMax: rules.thetaMax } as Parameters<typeof readConfig>[0])
+    return result.summary.variants.flatMap(({ variant }) => {
+      const variantAsk = AGENT_VARIANTS[variant]?.ask
+      if (variantAsk === undefined) return []
+      const shape = { ...dispatchSettings({ config }, variantAsk), ...rules }
+      return rowsOf(result, items as readonly AgentItem[], variant, 'p_effort').map(({ item, language, detail }) => {
+        const decision = decideDispatch(answersOf(detail), item[language], shape)
+        const decided = decision.answered && decision.model !== null && decision.reading !== null
+        return { id: item.id, language, variant, correct: decided && gradeAgent(item, { model: decision.model as AgentItem['gold']['model'], effort: gradedEffort(decision) }).correct }
+      })
+    })
+  }
+  throw new RangeError(`no regrading for the ${suite} suite (effort-submit, effort-midturn, subagent)`)
+}

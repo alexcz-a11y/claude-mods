@@ -13,6 +13,7 @@
 //
 // Pure: no Node API.
 
+export { mcnemar } from './paired.ts'
 import { BACKEND_DEFAULTS } from '../../hooks/core/setup.ts'
 import { JEV_REGULAR_STATE } from '../../hooks/decision/jev.ts'
 import { estimateTokens, recentLines, recentWithin, withinTokens, type ContextMessage } from '../../hooks/decision/context.ts'
@@ -186,20 +187,4 @@ function mostProbable(p: Record<string, number>): string | null {
 
 function round(value: number): number {
   return Math.round(value * 1000) / 1000
-}
-
-/** The exact two-sided binomial test of the pairs only one run got right (McNemar's, exact). */
-export function mcnemar(onlyA: number, onlyB: number): number {
-  const n = onlyA + onlyB
-  if (n === 0) return 1
-  const k = Math.min(onlyA, onlyB)
-  let tail = 0
-  for (let i = 0; i <= k; i++) tail += choose(n, i)
-  return Math.min(1, (2 * tail) / 2 ** n)
-}
-
-function choose(n: number, k: number): number {
-  let out = 1
-  for (let i = 1; i <= k; i++) out = (out * (n - k + i)) / i
-  return out
 }

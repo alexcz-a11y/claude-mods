@@ -152,10 +152,14 @@ export async function runSuite<I extends AnyItem, P>(suite: Suite<I, P>, items: 
   return rows
 }
 
-async function answer<I extends AnyItem, P>(suite: Suite<I, P>, item: I, language: Language, variant: string, options: RunOptions): Promise<Row<P>> {
+/**
+ * One item in one language under one variant, decided and graded. `send` asks one request: by default on its own, with retries;
+ * the merged run (merge.ts) hands one that asks it together with the other requests of the same state.
+ */
+export async function answer<I extends AnyItem, P>(suite: Suite<I, P>, item: I, language: Language, variant: string, options: RunOptions, send: Ask = (request) => askRetrying(request, options)): Promise<Row<P>> {
   const sent: Sent[] = []
   const ask: Ask = async (request) => {
-    const one = await askRetrying(request, options)
+    const one = await send(request)
     sent.push(one)
     return one
   }
