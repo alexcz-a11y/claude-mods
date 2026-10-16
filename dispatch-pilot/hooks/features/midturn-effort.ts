@@ -47,7 +47,7 @@ import { wasBlocked } from '../core/outcomes.ts'
 import { floorHeld, MAIN, redecided, turnKey, update, type Cell, type TurnRecord } from '../core/plans.ts'
 import { hintDecision, type UnresolvedState } from '../core/unresolved.ts'
 import { report, type HintRecord, type NodeFailure, type ReportIo } from '../core/report.ts'
-import { redecisionWaitMs, type Ctx } from '../core/setup.ts'
+import { hintedRules, redecisionWaitMs, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import { UNRESOLVED_SWITCH } from './unresolved.ts'
 
@@ -415,7 +415,9 @@ async function takeAnswer($: EngineInterface, s: Settings, e: { index: number; e
   const turnCell: Cell<TurnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
   const sinceRaise = turn.raisedAt == null ? null : e.index - turn.raisedAt
   const position = { current, sinceRaise, atLeast: floor }
-  const verdict = judgeMidturn(reading, position, s.rules)
+  // With the strong hint, max has its own threshold (core/setup.ts hintedRules).
+  const rules = pending.hint === undefined ? s.rules : hintedRules(s.rules, s.ctx.config)
+  const verdict = judgeMidturn(reading, position, rules)
   await update(turnCell, (r) => redecided(r ?? turn, current, verdict.effort, e.index))
   // Beside the turn's own decision (the node's link to it stays), with the rules' working: the answer's pick, then the move.
   await report(ioOf($), {
@@ -425,12 +427,12 @@ async function takeAnswer($: EngineInterface, s: Settings, e: { index: number; e
       aside: true,
       subject: `第 ${e.index} 步（${pending.reason}）`,
       outcome: `effort ${verdict.effort}${verdict.effort === current ? '（保持）' : `（原 ${current}）`}`,
-      reason: `${readingText(reading)}；${verdictReason(verdict, position, s.rules)}`,
+      reason: `${readingText(reading)}；${verdictReason(verdict, position, rules)}`,
       tone: verdict.effort === current ? 'info' : 'ok',
       probs: probsOf(reading),
       conf: verdict.confidence,
       trace: [...verdict.trace.pick.steps, ...verdict.trace.steps],
-      mid: midturnRecord(verdict, position, s.rules),
+      mid: midturnRecord(verdict, position, rules),
       // What the reference images this re-decision was asked about read as (#64): the card draws it with the effort's.
       ...(pending.reading == null ? {} : { reference: { level: pending.reading.level, images: pending.reading.images } }),
     },

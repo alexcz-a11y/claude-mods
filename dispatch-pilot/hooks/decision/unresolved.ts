@@ -80,27 +80,65 @@ export function givesHint(count: number, maxAfter: number): boolean {
 
 /**
  * The strong hint, as one more instruction of an effort question: this work belongs to a problem that several attempts
- * did not solve. It names the situation the question's own descriptions already hold, never a level and never a number
- * (ADR 0005); the decision model weighs it with the rest. The key is in the language of the instructions.
+ * did not solve, which is the situation the top level's description names. It names that situation in the description's
+ * own words, never a level and never a number; the decision model weighs it with the rest. The key is in the language of
+ * the instructions.
+ *
+ * `rate`: the effort questions' own instruction on what to rate (the work the message asks for, not how important its
+ * topic sounds) gets a sentence more: the work of an unsolved failure is rated as that failure, not as the step the message
+ * names. Without it the two instructions pulled apart and Jev rated the step: on a real session (2026-10-16, DEVELOPMENT.md
+ * 「强提示（#41）」) the hint alone moved the top level's probability from 0-1% to 1-3%. With it Jev leans to the top level
+ * on nearly every hinted request, whatever the message asks; a softer wording ("still rate a simple step as simple") took
+ * the top level below what the old hint gave. So at a message the hinted question is asked beside the plain one and its
+ * answer is used only when the same request's three-way question says the problem is still unresolved (`HINTED`).
  */
-const HINT: Record<Language, { key: string; text: string }> = {
+const HINT: Record<Language, { key: string; text: string; rateKey: string; rate: string }> = {
   en: {
     key: 'unsolved',
-    text: 'This work belongs to a failure that several earlier attempts have not solved: `unresolved_count` is how many times the person has said it is still not solved, and `problem_summary` (when there is one) and `recent_context` show what was tried.',
+    text: 'This work belongs to a failure that several earlier attempts have not solved: `unresolved_count` is how many times the person has said it is still not solved, and `problem_summary` (when there is one) and `recent_context` show what was tried. This is the situation the criteria describe as "a failure that resisted earlier attempts".',
+    rateKey: 'rate',
+    rate: 'But when this work belongs to a failure that several attempts have not solved (see `unsolved`), rate how hard that failure is as a whole, not the one step the message literally asks for.',
   },
   zh: {
     key: '未解决',
-    text: '这项工作属于多次尝试都没解决的故障：`unresolved_count` 是用户已经说过“仍未解决”的次数，`problem_summary`（有的话）和对话记着试过什么。',
+    text: '这项工作属于多次尝试都没解决的故障：`unresolved_count` 是用户已经说过“仍未解决”的次数，`problem_summary`（有的话）和对话记着试过什么。这正是评分标准里“之前多次尝试都没解决的故障”所说的情形。',
+    rateKey: '评什么',
+    rate: '但如果这项工作属于多次尝试都没解决的故障（见 `未解决`），按这个故障整体的难度来评，而不是这条消息字面上要做的那一步。',
   },
 }
 
-/** The part with the strong hint added to its effort question (`LEVEL`: the main agent's at a message, and the mid-turn one's, which has the same id). */
-export function withHint(part: Part, language: Language): Part {
-  const level = part.questions[LEVEL]
+/**
+ * The id of the hinted effort question asked beside the plain one at a message (`effort.level_unsolved`): the plain
+ * question stays as it is, so a message that turns out solved or about something else is decided as without the hint.
+ */
+export const HINTED = 'level_unsolved'
+
+/** An effort question with the strong hint, and its instruction on what to rate (in its place) told how to rate an unsolved failure. */
+function hinted(level: Question, language: Language): Question {
   // The effort questions' instructions are always an object (see effort.ts); anything else is left as it is.
-  if (level === undefined || typeof level.instructions !== 'object' || Array.isArray(level.instructions)) return part
-  const { key, text } = HINT[language]
-  return { ...part, questions: { ...part.questions, [LEVEL]: { ...level, instructions: { ...level.instructions, [key]: text } } } }
+  if (typeof level.instructions !== 'object' || Array.isArray(level.instructions)) return level
+  const { key, text, rateKey, rate } = HINT[language]
+  const own = level.instructions as Readonly<Record<string, unknown>>
+  const rated = typeof own[rateKey] === 'string' ? { ...own, [rateKey]: `${own[rateKey] as string}${language === 'zh' ? '' : ' '}${rate}` } : own
+  return { ...level, instructions: { ...rated, [key]: text } } as Question
+}
+
+/**
+ * The part with the strong hint. `beside` (a message's effort part, which asks the three-way question too): the hinted
+ * question is added as `HINTED` and `LEVEL` stays as it is. Otherwise (a mid-turn re-decision, asked once the message has
+ * been judged still unresolved) `LEVEL` itself carries the hint.
+ */
+export function withHint(part: Part, language: Language, options: { beside?: boolean } = {}): Part {
+  const level = part.questions[LEVEL]
+  if (level === undefined) return part
+  const question = hinted(level, language)
+  if (question === level) return part
+  return { ...part, questions: { ...part.questions, [options.beside === true ? HINTED : LEVEL]: question } }
+}
+
+/** Whether a message's hinted effort answer is the one to use: the request asked it and its three-way answer added one to the count. */
+export function usesHinted(change: UnresolvedChange | null): boolean {
+  return change === 'add'
 }
 
 /** The probability of each option (three numbers summing to 1) and the backend's confidence. */

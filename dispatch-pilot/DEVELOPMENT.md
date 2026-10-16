@@ -121,11 +121,23 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev）�
 ### 强提示（#41）
 
 - **给谁、什么时候。** 四处请求读摘要（`problem_summary`）和次数（`unresolved_count`，值为 0 时不放）：发消息时 effort 请求（`decision/turn-start.ts` 的 `turnStartPart({ summary, count, maxAfter })`）、中途重判请求（`MidturnInput.problem_summary` / `unresolved_count`，`midturnState` 放进 state 开头）、派出 agent 的请求（`Dispatch.problem_summary` / `unresolved_count`，`dispatchState`），以及 Workflow 里 agent 的请求（`WorkflowBackground.problem_summary` / `unresolved_count`，每个请求一份；agent 启动时才判断的用启动运行那一轮的，0.4.3 起，ADR 0007）。强提示只给前两处，派出 agent 和 Workflow 的从不加（子任务像「查一个文件」不该因此判到最高一档）。`/dp unresolved off` 时四处都不带。
-- **强提示是什么。** `decision/unresolved.ts` 的 `withHint(part, language)`：给 effort 题（`level`，发消息时和中途重判的同一个 id）的说明多加一条（中文键 `未解决`，英文键 `unsolved`）：这项工作属于多次尝试都没解决的故障，`unresolved_count` 是用户说过「仍未解决」的次数，试过什么在 `problem_summary` 和对话里。写成情境，和 effort 题最高一档里「之前多次尝试都没解决的故障」同一个说法；不出现档位名字或数字（`tests/unresolved-hint.test.ts` 钉住），也不碰 `pickEffort`、`thetaMax` 和计划表：用不用最高一档仍由决策模型定（ADR 0005）。三选一的题不加强提示。`givesHint(count, maxAfter)`：`maxAfter > 0` 且 `count >= maxAfter`。
+- **强提示是什么。** `decision/unresolved.ts` 的 `withHint(part, language, { beside })`：effort 题的说明多一条（中文键 `未解决`，英文键 `unsolved`）：这项工作属于多次尝试都没解决的故障，`unresolved_count` 是用户说过「仍未解决」的次数，试过什么在 `problem_summary` 和对话里，这正是评分标准里「之前多次尝试都没解决的故障」所说的情形；同时「评什么」（英文 `rate`）后面补一句：属于多次尝试都没解决的故障时，按故障整体的难度来评，而不是这条消息字面上要做的那一步。不出现档位名字或数字（`tests/unresolved-hint.test.ts` 钉住）。三选一的题不加强提示。`givesHint(count, maxAfter)`：`maxAfter > 0` 且 `count >= maxAfter`。
+- **发消息时两道 effort 题，按同一个请求的三选一取用。** 发消息的请求（带三选一时）`effort.level` 原样不动，旁边多问一道 `effort.level_unsolved`（`HINTED`，带强提示的那一版）。这条消息自己的三选一判「仍未解决」（次数加一，`usesHinted`）时取 `level_unsolved` 的回答，max 门槛用 `hintThetaMax`（`hintedRules`）；判已解决、新问题或不变时取 `level` 的回答，门槛照旧。所以说「好了，合吧」「先放着，另一件事」的那条消息（次数还是之前的）不会被强提示带高。中途重判没有三选一，强提示直接加在 `midturn.level` 上，门槛也用 `hintThetaMax`。决定和日志条目的 `hint` 带 `used`（发消息时取了哪一道）。
+- **`hintThetaMax`。** BACKEND_DEFAULTS 的内部值（不是选项），读成 `ctx.config.unresolved.thetaMax`，不会高于 `thetaMax`：Jev 0.4，pplx 0.47（等于它的 `thetaMax`：pplx 没量过这次的写法）。这是强提示唯一碰到的规则（ADR 0010 修订了 ADR 0005「次数不是规则」）。
 - **用的是哪个次数。** 发消息时读 `$.state` 里这条消息**之前**的次数（这条消息自己的结论在同一个请求的回答里，请求发出时还不知道），所以 `unresolvedMaxAfter` 为 3 时，第三次说「仍未解决」的那条消息的请求还不带强提示（读到的是 2），它的中途重判带（那时次数已经是 3）；下一条消息的请求带。（把最初提问也算一条消息，就是第四条消息的中途重判。）中途重判读的是重判发出时的次数。`maxAfter` 想让「这条消息自己」也算，只能在次数加一之后再问一次，违背「同一个请求」，没做。
 - **配置。** `unresolvedMaxAfter`（0 到 10，默认 3，0 不给），读成 `ctx.config.unresolved.maxAfter`（#42 定）。
-- **日志。** 每次给了强提示，`features/main-effort.ts`（发消息时，在 effort 的决定和次数的决定之后）和 `features/midturn-effort.ts`（中途重判，取回回答时）各记一条 `feature: 'unresolved'`、`aside` 的决定（`core/unresolved.ts` 的 `hintDecision`）：`已给强提示（次数 3）`，理由里写阈值和决策模型判出的档位（中途重判的是 `pickEffort` 的结果；请求失败时写「没有给出档位」，档位字段不写）；条目带 `hint: { count, maxAfter, where? }`（`HintRecord`）。发消息时的 effort 决定（`main-effort`）也带同一个 `hint`，依据卡片据此多一行「强提示：已给强提示」（`pane-card-hint`）；日志行的动词是「给了强提示」。看板不新增事件（band 的 `eventsOf` 不认 `unresolved`），规则推演不新增步骤。
-- **eval。** `eval/lib/unresolved.ts` 的 `unresolvedRequest(..., summary, { count, maxAfter })` 用同一个 `turnStartPart`，所以 #42 要量强提示时请求和 mod 的逐字相同（`tests/eval-unresolved-suite.test.ts` 用 world 核对）；数据集里没有次数，suite 现在不传。
+- **日志。** 每次给了强提示，`features/main-effort.ts`（发消息时，在 effort 的决定和次数的决定之后）和 `features/midturn-effort.ts`（中途重判，取回回答时）各记一条 `feature: 'unresolved'`、`aside` 的决定（`core/unresolved.ts` 的 `hintDecision`）：`已给强提示（次数 3）`，理由里写阈值和决策模型判出的档位（中途重判的是 `pickEffort` 的结果；请求失败时写「没有给出档位」，档位字段不写）；条目带 `hint: { count, maxAfter, where?, used? }`（`HintRecord`）。发消息时的 effort 决定（`main-effort`）也带同一个 `hint`，依据卡片据此多一行「强提示：已给强提示 · 已采用 / 未采用」（`pane-card-hint`，按 `used`：这条消息取的是不是带强提示那一题的回答）；日志行的动词是「给了强提示」。看板不新增事件（band 的 `eventsOf` 不认 `unresolved`），规则推演不新增步骤。
+- **eval。** `eval/lib/unresolved.ts` 的 `unresolvedRequest(..., summary, { count, maxAfter })` 用同一个 `turnStartPart`，所以 #42 要量强提示时请求和 mod 的逐字相同（`tests/eval-unresolved-suite.test.ts` 用 world 核对）；数据集里没有次数，suite 现在不传。`askUnresolved` 按 mod 的取法读两道题（`hintUsed`），并把两道的概率都存下（`pPlain`、`pHinted`），门槛可以离线扫。
+- **为什么这样改（2026-10-16）。** 用户在真实会话（keyboard 项目，未解决 5 轮以上）里看到 Jev 给 max 的概率一直很低，还会降档。按 transcript 重放 mod 的请求：三选一判「仍未解决」85–97%，次数正常累加，从第 4 条起每条都带了旧的强提示，但它只把 p(max) 从 0–1% 提到 1–3%：旧强提示和「评什么」（评请求本身的工作，不看话题多重要）冲突，Jev 按字面那一步评。在各套流程里带强提示的题上量了三种写法（Jev 1.14，state 96000；long-context `zh-flow`/`zh-count` 带提示的 20 条，金标全是 max；eval-v2 `zh-flow` 带提示的 24 题，流程文件 `jev-24000.json`，金标 max 7、xhigh 3、low/medium 14）：
+
+  | 写法（thetaMax 0.5） | long-context 判对 / max 召回 | eval-v2 判对 / max 召回 / 金标不含 max 却给 max |
+  |---|---|---|
+  | 旧强提示 | 11/20 · 1/20 | 11/24 · 4/7 · 1/15 |
+  | 强版（上面的写法，直接替换 `level`） | 19/20 · 18/20 | 9/24 · 7/7 · 13/15 |
+  | 弱版（「把失败当作更难的证据，但这一步本身简单时仍按它评」） | 12/20 · 0/20 | 11/24 · 1/7 · 0/15 |
+  | 强版 + 按同一请求三选一取用（现在的做法），`hintThetaMax` 0.4 | 20/20 · 20/20 | 10/24 · 7/7 · 9/15 |
+
+  强版让 Jev 几乎一律给 max，弱版压得比旧的还低：措辞分不出「多次没解决的难题」和「同一个问题里很简单的一步」。按三选一取用挡住了解决、换题的消息，剩下给高的多是同一个未解决问题里的简单一步（`cheap-agreement`、`looks-hard-is-easy`），用户的决定是问题没解决期间这可以接受（问题一解决次数清零，强提示就没了）；另有 2–3 题是三选一把「先放着，另一件事」读成了仍未解决。结果文件 `eval/results/long-context/2026-10-16-jev-hint-*.json`、`eval/results/eval-v2/2026-10-16-jev-hint-*.json`（`hint-base` 的 eval-v2 有 83 题超时，作废，用 `hint-base24`）。Jev 长请求自己有抖动：同一请求两次 p 最多差 0.11。没有量：pplx、中途重判的强提示、新的流程文件（eval-v2 的次数和摘要是 1.13 在 24000 下跑出的）。
 
 ### 失败时放行
 

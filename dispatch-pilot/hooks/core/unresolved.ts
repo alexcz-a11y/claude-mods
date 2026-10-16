@@ -207,7 +207,10 @@ export function hintDecision(hint: HintRecord, effort: Effort | null): Pick<Deci
   const came = effort === null ? '这次请求没有给出档位' : `决策模型判出 ${effort}`
   return {
     outcome: `已给强提示（次数 ${hint.count}）`,
-    reason: `${where}：次数 ${hint.count} ≥ ${hint.maxAfter}（unresolvedMaxAfter），effort 题多了一条强提示：这项工作属于多次尝试都没解决的故障；档位仍由决策模型定，${came}`,
+    reason:
+      hint.used === false
+        ? `${where}：次数 ${hint.count} ≥ ${hint.maxAfter}（unresolvedMaxAfter），请求里另问了一道带强提示的 effort 题；这条消息没判为仍未解决，用的是不带提示的那一题，${came}`
+        : `${where}：次数 ${hint.count} ≥ ${hint.maxAfter}（unresolvedMaxAfter），effort 题带强提示：这项工作属于多次尝试都没解决的故障，按故障整体的难度评，max 门槛用强提示的；${came}`,
     tone: 'info',
     hint,
     ...(effort === null ? {} : { effort }),

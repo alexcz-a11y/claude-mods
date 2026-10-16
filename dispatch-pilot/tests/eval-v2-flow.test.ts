@@ -254,7 +254,10 @@ test('from the count unresolvedMaxAfter sets on, the request carries the strong 
   const { item } = await flowItem(record(turns), { ask, complete: async () => written('第二页是空的', ['改 offset'], '在改'), settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh' })
 
   expect(item.messages.map((m) => `${m.msg} ${m.before}${m.hint ? ' hint' : ''}`)).toEqual(['d1 0', 'd2 0', 'd3 1', 'd4 2', 'f1 3 hint'])
-  expect(Object.keys(bodies[4].questions['effort.level'].instructions)).toContain('未解决')
-  expect(Object.keys(bodies[3].questions['effort.level'].instructions)).not.toContain('未解决')
+  // The hint is the hinted copy of the effort question beside the plain one, which has none of it.
+  expect(Object.keys(bodies[4].questions['effort.level_unsolved'].instructions)).toContain('未解决')
+  expect(Object.keys(bodies[4].questions['effort.level'].instructions)).not.toContain('未解决')
+  expect(JSON.stringify(bodies[4].questions['effort.level'])).toBe(JSON.stringify(bodies[3].questions['effort.level']))
+  expect(bodies[3].questions['effort.level_unsolved']).toBeUndefined()
   expect(item.final).toMatchObject({ count: 3, hint: true })
 })
