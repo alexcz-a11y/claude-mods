@@ -11,17 +11,17 @@
 // Whatever goes wrong in a stage, the checks it touches end unsure with the reason, and the tool never fails.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { type Asked, type BackendIo, type BackendName, describeAsked, errorText, type Failure, failureText } from '../decision/backend.ts'
+import { type Asked, type BackendIo, describeAsked, errorText, type Failure, failureText } from '../decision/backend.ts'
 import { imageMegapixelBudget, PPLX_MAX_IMAGES, type Picture } from '../decision/images.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
 import { LOOK_IMAGE_LIMITS, limitsFor } from '../decision/image-fit.ts'
-import { allUnsure, comparedNames, forgetLoop, isCompared, noteResults, readWholeImage, RECORDING_BARS, wholeImageRequest, type Check, type CheckResult, type Comparison, type Streaks } from '../decision/visual-check.ts'
+import { allUnsure, comparedNames, forgetLoop, isCompared, noteResults, readWholeImage, RECORDING_BARS, wholeImageRequest, type CheckResult, type Comparison, type Streaks } from '../decision/visual-check.ts'
 import { locatePlan, readLocated, withBoxes } from '../decision/visual-check-zoom.ts'
 import { sameView } from '../decision/zoom.ts'
 import { attachmentsOf, type Attachment, zoomReview } from '../core/zoom-review.ts'
 import { parseVisualCheckInput, type ShownPlace, visualCheckText, VISUAL_CHECK_INPUT, VISUAL_CHECK_TOOL, VISUAL_CHECK_TOOL_CALLED, visualCheckDescription, type VisualCheckInput } from '../decision/visual-check-tool.ts'
 import { FRAME_COUNT, type Frame, framesRequest, isRecording, type Span } from '../decision/visual-check-frames.ts'
-import { recordOf, type VisualCheckRecord } from '../decision/visual-check-record.ts'
+import { recordOf } from '../decision/visual-check-record.ts'
 import { type ImageFilesIo, loadAll, type LoadedImage } from '../core/image-files.ts'
 import { callBudget } from '../core/call-budget.ts'
 import { readRecording } from '../core/video-frames.ts'
@@ -63,7 +63,7 @@ const LOOK_YOURSELF = 'Look at the images yourself.'
  */
 const streaks: Streaks = new Map()
 
-/** Everything one call needs of the engine, as closures (a module may not pass `$` across an import). */
+/** The files and programs one call works with, as closures (a module may not pass `$` across an import). */
 function filesOf($: EngineInterface): ImageFilesIo {
   return {
     run: (argv, init) => $.process.run(argv, init),

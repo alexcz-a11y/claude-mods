@@ -49,7 +49,7 @@ import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part } 
 import { MAX_PER_REQUEST, planBatches, readOutcomes } from '../../hooks/decision/workflow.ts'
 import type { AgentCall, ParsedWorkflow } from '../../hooks/decision/workflow-script.ts'
 import { isRecord, PRIORITIES, type AgentAnswer, type AgentItem, type Language } from './datasets.ts'
-import { rate } from './metrics.ts'
+import { percentText, rate, share } from './metrics.ts'
 import type { Row } from './runner.ts'
 import { requestFailed, variantIn, type Ask, type Decided, type Grade, type Settings, type Suite } from './suite.ts'
 
@@ -289,7 +289,7 @@ const SUITE: Omit<Suite<AgentItem, AgentAnswer>, 'decide'> = {
   report: (summary) => {
     const own = summary.breakdown as AgentBreakdown | undefined
     if (own === undefined) return []
-    const pct = (rate: number | null) => (rate === null ? '-' : `${(rate * 100).toFixed(1)}%`)
+    const pct = percentText
     const pair = (counts: Record<Language, number> | undefined) => `${counts?.zh ?? 0}/${counts?.en ?? 0}`
     const wrong = (entry: { items: number; wrong: Record<Language, number>; parts?: Record<string, Record<Language, number>> }) =>
       `${pair(entry.wrong)} of ${entry.items} (model ${pair(entry.parts?.model)}, effort ${pair(entry.parts?.effort)})`
@@ -331,7 +331,7 @@ function agreement(items: readonly AgentItem[], zh: Answered, en: Answered): { i
     if (a.model === b.model) model++
     if (a.effort === b.effort) effort++
   }
-  return { items: both, model: both === 0 ? null : rate(model, both), effort: both === 0 ? null : rate(effort, both) }
+  return { items: both, model: share(model, both), effort: share(effort, both) }
 }
 
 /** Wrong answers among `items` in each language, whole and by part (as metrics.ts counts them by tag); an unanswered item is wrong in every part. */

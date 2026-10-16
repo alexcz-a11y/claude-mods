@@ -83,3 +83,55 @@ test("an item that sent two requests (the skill suite's two stages, in stages_ms
   first['en-score'] = { answer: 'high', correct: true, ms: 300, attempts: 3, stages_ms: [200, 100] }
   expect(resummarize(result, '2026-10-05').summary.variants[0]?.zh.retried).toBe(1)
 })
+
+// A visual-check result is shaped differently from the others: one language, the number of requests an answer took is the
+// length of its `requests` (the zoomed re-check is a second one), and a run with --repeat has a line for each time of the
+// run. Reading it as the others used to count the second request as a retry and every time as the first.
+const checks = (ms: number, attempts: number, requests: number) => ({ answer: 'PASS', correct: true, ms, attempts, requests: Array.from({ length: requests }, () => ({ questions: 3 })) })
+function visualCheck() {
+  const language = (inTime: number, late: number) => ({ items: 2, answered: 2, failed: 0, accuracy: 1, exact: 0.5, misses: {}, late, retried: 0, inTime })
+  const empty = { items: 2, answered: 0, failed: 0, accuracy: 0, exact: 0, misses: {}, late: 0, retried: 0, inTime: 0 }
+  return {
+    suite: 'visual-check',
+    settings: { timeoutMs: 1500 },
+    // The first time: one answer in 900 ms, one past the mod's wait; the second time: both in time.
+    summary: { items: 2, variants: [{ variant: 'mod', zh: language(0.5, 1), en: empty, gap: 1, pass: true }], constants: [] },
+    repeatSummaries: [{ items: 2, variants: [{ variant: 'mod', zh: language(1, 0), en: empty, gap: 1, pass: true }], constants: [] }],
+    answers: [
+      { id: 'a', language: 'zh', repeat: 1, state: {}, mod: checks(900, 1, 1) },
+      { id: 'b', language: 'zh', repeat: 1, state: {}, mod: checks(1800, 2, 2) },
+      { id: 'a', language: 'zh', repeat: 2, state: {}, mod: checks(800, 1, 1) },
+      { id: 'b', language: 'zh', repeat: 2, state: {}, mod: checks(1400, 2, 2) },
+    ],
+  }
+}
+
+test('a visual-check result is already up to date: two requests are not a retry, and each time of a --repeat run is summarized from its own lines', () => {
+  const before = visualCheck()
+  const after = resummarize(before, '2026-10-15')
+  expect(after.summary).toEqual(before.summary)
+  expect(after.repeatSummaries).toEqual(before.repeatSummaries)
+  const { done } = resummarizeAll([{ file: 'visual-check.json', text: JSON.stringify(before) }], '2026-10-15')
+  expect(done.map((one) => one.changed)).toEqual([false])
+})
+
+test('a summary that is out of date is changed, and the repeat summaries with it: the lines of the first time do not count in the second', () => {
+  const before = visualCheck()
+  const first = before.summary.variants[0] as { zh: { late: number; inTime: number } }
+  first.zh.late = 0
+  first.zh.inTime = 1
+  const { done } = resummarizeAll([{ file: 'visual-check.json', text: JSON.stringify(before) }], '2026-10-15')
+  expect(done.map((one) => one.changed)).toEqual([true])
+  expect(done[0]?.after.summary.variants[0]?.zh).toMatchObject({ late: 1, retried: 0, inTime: 0.5 })
+  expect(done[0]?.after.repeatSummaries?.[0]?.variants[0]?.zh).toMatchObject({ late: 0, retried: 0, inTime: 1 })
+})
+
+test('a run of one language has no gap and no pass (null): they stay null, and the file still counts as a result', () => {
+  const before = visualCheck()
+  const variant = before.summary.variants[0] as { gap: number | null; pass: boolean | null }
+  variant.gap = null
+  variant.pass = null
+  const { done, skipped } = resummarizeAll([{ file: 'one-language.json', text: JSON.stringify(before) }], '2026-10-15')
+  expect(skipped).toEqual([])
+  expect([done[0]?.after.summary.variants[0]?.gap, done[0]?.after.summary.variants[0]?.pass]).toEqual([null, null])
+})

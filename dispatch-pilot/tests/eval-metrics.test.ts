@@ -3,9 +3,10 @@
 
 import { expect, test } from 'claude-code/testing'
 import type { Effort } from '../hooks/decision/effort.ts'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import type { EffortSubmitItem } from '../eval/lib/datasets.ts'
 import { effortSubmit } from '../eval/lib/effort-submit.ts'
-import { summarize } from '../eval/lib/metrics.ts'
+import { percentText, share, summarize } from '../eval/lib/metrics.ts'
 import type { Row } from '../eval/lib/runner.ts'
 
 function item(id: string, gold: Effort, accept: Effort[], tags: string[]): EffortSubmitItem {
@@ -39,7 +40,7 @@ function row(id: string, language: 'zh' | 'en', effort: Effort | null, ms: numbe
     ms,
     attempts: 1,
     inputTokens: 700,
-    model: 'jev-1.13.0',
+    model: JEV_MODEL,
     state: null,
   }
 }
@@ -110,6 +111,23 @@ test('Chinese passes when it is at most 4 points below English: 3 and 4.0 points
   const past = rated(9599, 10_000)
   expect([past?.gap, past?.pass]).toEqual([-0.0401, false])
   expect([rated(95)?.gap, rated(95)?.pass]).toEqual([-0.05, false])
+})
+
+// eval-v2 and visual-check are asked in Chinese only: the English side has no answers, and "English accuracy 0" would make the
+// gap equal the Chinese accuracy and the run pass whatever it scored.
+test('a run in one language has no gap and no pass (null), not a gap against an English accuracy of zero', () => {
+  const [summary] = summarize(effortSubmit, ITEMS, ROWS.filter((r) => r.language === 'zh'), { slowMs: 500 }).variants
+  expect([summary?.gap, summary?.pass]).toEqual([null, null])
+  expect(summary?.zh.accuracy).toBe(0.5)
+  expect(summary?.en).toMatchObject({ items: 4, answered: 0, accuracy: 0 })
+  // English alone has none either.
+  const [english] = summarize(effortSubmit, ITEMS, ROWS.filter((r) => r.language === 'en'), { slowMs: 500 }).variants
+  expect([english?.gap, english?.pass]).toEqual([null, null])
+})
+
+test('a share of nothing is null, not zero, and a figure prints as a percent with one place, `-` for none', () => {
+  expect([share(1, 4), share(0, 0)]).toEqual([0.25, null])
+  expect([percentText(0.2512), percentText(null), percentText(undefined)]).toEqual(['25.1%', '-', '-'])
 })
 
 test('latency is over answered requests, nearest rank; slow counts those over the given limit', () => {

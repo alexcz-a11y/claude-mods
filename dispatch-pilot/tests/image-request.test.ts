@@ -8,7 +8,7 @@ import type { HttpResponse } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import { describeAsked, type BackendIo } from '../hooks/decision/backend.ts'
 import { imageRef, imageTokens } from '../hooks/decision/images.ts'
-import { JEV_IMAGE_MODEL, jevBackend } from '../hooks/decision/jev.ts'
+import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import { pplxBackend } from '../hooks/decision/pplx.ts'
 import type { DecisionRequest, RequestImage } from '../hooks/decision/system-one.ts'
 
@@ -31,7 +31,7 @@ function network(reply: (seen: Seen) => Partial<HttpResponse> & { status: number
   return { io, seen }
 }
 
-const ANSWER = { status: 200, text: JSON.stringify({ model: 'jev-1.14.0', answers: { 'check.same': { type: 'noul', noul: 0.9 } }, usage: { input_tokens: 5000, output_tokens: 0 } }) }
+const ANSWER = { status: 200, text: JSON.stringify({ model: JEV_MODEL, answers: { 'check.same': { type: 'noul', noul: 0.9 } }, usage: { input_tokens: 5000, output_tokens: 0 } }) }
 
 const image = (name: string, extra: Partial<RequestImage> = {}): RequestImage => ({ name, format: 'png', base64: `${name.toUpperCase()}BASE64==`, width: 1000, height: 1000, ...extra })
 
@@ -71,7 +71,6 @@ test('a Jev request with images carries the images header and pins the model to 
   expect(sent?.headers['TypeSafe-Danger-Zone-Images']).toBe('true')
   expect(sent?.headers.authorization).toBe(`Bearer ${KEY}`)
   expect(sent?.body.model).toBe('jev-1.14.0')
-  expect(JEV_IMAGE_MODEL).toBe('jev-1.14.0')
 })
 
 test('each Jev request gets references of its own: the same images in two requests are not under the same references', async () => {
@@ -92,7 +91,7 @@ test('a Jev request without images is what it was: the current model, no assets,
   await jevBackend(KEY).ask(net.io, plain, 1500)
 
   const [sent] = net.seen
-  expect(sent?.body).toEqual({ model: 'jev-1.14.0', state: { note: 'x' }, questions: plain.questions })
+  expect(sent?.body).toEqual({ model: JEV_MODEL, state: { note: 'x' }, questions: plain.questions })
   expect(Object.keys(sent?.headers ?? {}).sort()).toEqual(['authorization', 'content-type'])
 })
 
@@ -121,7 +120,7 @@ test('the debug log line of a request with images says how many, their sizes and
   const pplx = await pplxBackend('pplx-test-key').ask(network(() => PPLX_ANSWER).io, COMPARE, 1500)
 
   // 4 images of 1000 x 1000 and 2 questions: Jev 4 x 2,600; pplx 4 x 1,000 x 2.
-  expect(describeAsked(jev, 310)).toBe('answered in 310 ms by jev-1.14.0 (5000 input tokens); images: 4 (1000x1000, 1000x1000, 1000x1000, 1000x1000), about 10400 tokens')
+  expect(describeAsked(jev, 310)).toBe(`answered in 310 ms by ${JEV_MODEL} (5000 input tokens); images: 4 (1000x1000, 1000x1000, 1000x1000, 1000x1000), about 10400 tokens`)
   expect(describeAsked(pplx, 310)).toBe('answered in 310 ms by pplx-decider-v1.1-27b (9000 input tokens); images: 4 (1000x1000, 1000x1000, 1000x1000, 1000x1000), about 8000 tokens')
 })
 

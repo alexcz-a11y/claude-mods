@@ -3,6 +3,7 @@
 // core's turn.step writer reads them on every step.
 
 import type { TurnStepInput } from 'claude-code'
+import type { StateCell } from '../decision/backend.ts'
 import { modelFamily, type Terms } from '../decision/dispatched-agent.ts'
 import { EFFORTS, higherEffort, isEffort, type Effort } from '../decision/effort.ts'
 
@@ -174,10 +175,7 @@ export function floorHeld(plan: (Plan & { floorUntil?: number | null }) | undefi
 }
 
 /** A $.state value reached through closures (the hook that owns `$` builds them). */
-export type Cell<T> = {
-  get: () => Promise<{ value: T | undefined; version: number }>
-  set: (value: T, options: { ifVersion: number }) => Promise<{ isSet: boolean; version: number }>
-}
+export type Cell<T> = StateCell<T>
 
 /**
  * Read-modify-write that retries when another write landed in between

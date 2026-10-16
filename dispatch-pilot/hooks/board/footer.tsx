@@ -7,7 +7,7 @@
 
 import type { Effort } from '../decision/effort.ts'
 import type { Model } from '../core/report.ts'
-import { ACCENT, EFFORT_COLOR, MODEL_FG, MUTED, SPIN, WARN, width, type TT } from './kit.tsx'
+import { ACCENT, MUTED, readout, SPIN, WARN, width, type TT } from './kit.tsx'
 import type { ScreenView } from './view.ts'
 
 /** The most cells Dispatch Pilot adds to the footer on the terminal. */
@@ -18,10 +18,10 @@ export const TAG_CHARS = 24
 const SHORT: Record<Effort, string> = { low: 'low', medium: 'med', high: 'high', xhigh: 'xhi', max: 'max' }
 
 /** What the footer says, as parts: the glyph and its colour, the readout's words, the agents running. */
-export type FooterParts = { glyph: string; color: string; model?: Model; effort?: string; level?: Effort; more: number; routed: boolean }
+type FooterParts ={ glyph: string; color: string; model?: Model; effort?: string; level?: Effort; more: number; routed: boolean }
 
 /** The footer's parts for the view; null when there is nothing to say (no turn yet). */
-export function footerParts(view: ScreenView): FooterParts | null {
+function footerParts(view: ScreenView): FooterParts | null {
   if (view.off) return { glyph: '○', color: MUTED, effort: 'dp 已关', more: 0, routed: true }
   const main = view.rows.find((row) => row.node.id === 'main')?.node
   if (main === undefined && view.counts.running === 0) return null
@@ -40,7 +40,7 @@ export function footerParts(view: ScreenView): FooterParts | null {
 }
 
 /** The words that fit, longest first: the model and the effort, the effort short, the effort alone, short. */
-export function footerWords(parts: FooterParts, room = FOOTER_COLUMNS): { model?: Model; effort?: string } {
+function footerWords(parts: FooterParts, room = FOOTER_COLUMNS): { model?: Model; effort?: string } {
   const short = parts.level === undefined ? parts.effort : SHORT[parts.level]
   const tries: { model?: Model; effort?: string }[] = [
     { ...(parts.model === undefined ? {} : { model: parts.model }), ...(parts.effort === undefined ? {} : { effort: parts.effort }) },
@@ -53,7 +53,7 @@ export function footerWords(parts: FooterParts, room = FOOTER_COLUMNS): { model?
 }
 
 /** The footer as plain text, with these words. */
-export function footerText(parts: FooterParts, words: { model?: Model; effort?: string }): string {
+function footerText(parts: FooterParts, words: { model?: Model; effort?: string }): string {
   const readout = [words.model, words.effort].filter((word) => word !== undefined).join('·')
   return [parts.glyph, readout, parts.more > 0 ? `+${parts.more}` : ''].filter((part) => part !== '').join(' ')
 }
@@ -70,9 +70,7 @@ export function footerTree(t: TT, view: ScreenView, room = FOOTER_COLUMNS) {
       <Text>
         <Text color={parts.color} bold>{parts.glyph}</Text>
         {words.model === undefined && words.effort === undefined ? null : <Text> </Text>}
-        {words.model === undefined ? null : <Text color={parts.routed ? MODEL_FG[words.model] : WARN}>{words.model}</Text>}
-        {words.model !== undefined && words.effort !== undefined ? <Text color={MUTED}>·</Text> : null}
-        {words.effort === undefined ? null : <Text color={!parts.routed ? WARN : level === undefined ? MUTED : EFFORT_COLOR[level]}>{words.effort}</Text>}
+        {readout(t, words.model, words.effort, level, parts.routed, false)}
         {parts.more > 0 ? <Text color={ACCENT} bold>{` +${parts.more}`}</Text> : null}
       </Text>
     </Box>

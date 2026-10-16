@@ -5,7 +5,7 @@
 // Node only (fs, process): the tests never import this file; they import the
 // pure modules under lib/. Node 22.18+ runs .ts as is.
 
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -20,6 +20,8 @@ import { pplxBackend } from '../hooks/decision/pplx.ts'
 import { isKind, parseJsonl, type Kind } from './lib/datasets.ts'
 import { buildEvalV2, checkFinalGold, checkGold, checkItem, checkSegment, datasetWarnings, evalV2Jsonl, generatedFile, type Built, type FinalGold, type Segment, type V2Item, type V2Record } from './lib/eval-v2.ts'
 import { v2Item, type V2EvalItem } from './lib/eval-v2-suite.ts'
+import { readNumber, type NumberRule } from './lib/numbers.ts'
+import { attemptMs } from './lib/runner.ts'
 import { optionsFor, settingsFrom, type ImageHost, type OptionSpec, type SuiteHost } from './lib/suite.ts'
 import { picturesOf, type VisualCheckItem } from './lib/visual-check-items.ts'
 
@@ -55,6 +57,19 @@ export function modCode(): Record<string, string> {
 export function shown(path: string): string {
   const inside = relative(MOD_DIR, path)
   return inside.startsWith('..') ? path : inside
+}
+
+/** Every eval/results/<suite>/*.json except the probes', in order: what the scripts that read results work on when no file is named. */
+export function resultFiles(): string[] {
+  return readdirSync(RESULTS_DIR)
+    .filter((suite) => suite !== 'probes' && statSync(join(RESULTS_DIR, suite)).isDirectory())
+    .flatMap((suite) => readdirSync(join(RESULTS_DIR, suite)).filter((name) => name.endsWith('.json')).map((name) => join(RESULTS_DIR, suite, name)))
+    .sort()
+}
+
+/** A results file named on the command line: as given (relative to where the script runs) or relative to the mod; undefined when neither exists. */
+export function resultFile(path: string): string | undefined {
+  return [resolve(path), resolve(MOD_DIR, path)].find((candidate) => existsSync(candidate))
 }
 
 /** A dataset named by its kind (`effort-submit`) or by a path to its JSONL; the kind is the file's name. */
@@ -221,6 +236,16 @@ export function formatResult(result: Record<string, unknown> & { answers: readon
  */
 export const PRICES: Readonly<Record<BackendName, number>> = { jev: 0.042, pplx: 0.02 }
 
+/** A number flag's value; a typo stops the script (exit 2) before anything is sent, as `Number()` would read it as NaN and pass every check made with it (lib/numbers.ts). */
+export function numberFlag(flag: string, text: string, rule: NumberRule): number {
+  try {
+    return readNumber(flag, text, rule)
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(2)
+  }
+}
+
 /**
  * What scripts/decide*.ts share, read with node:util parseArgs: `--timeout <ms>`
  * and each script's own flags (`extra`).
@@ -233,6 +258,11 @@ export function scriptArgs(usage: string, extra: Record<string, { type: 'string'
     console.error(`${error instanceof Error ? error.message : String(error)}\nusage: ${usage}`)
     process.exit(2)
   }
+}
+
+/** A script's `--timeout`: the milliseconds given, else what the eval gives one attempt (four times the mod's timeoutMs, at least 10 s). */
+export function scriptTimeout(given: string | boolean | undefined, modTimeoutMs: number): number {
+  return typeof given === 'string' ? numberFlag('--timeout', given, { min: 1, integer: true }) : attemptMs(modTimeoutMs)
 }
 
 /**
@@ -250,6 +280,45 @@ export function scriptDecision(assignments: readonly string[] = []): { settings:
     console.error(error instanceof Error ? error.message : String(error))
     process.exit(2)
   }
+}
+
+/**
+ * One completion through `claude -p` on the person's own login, as bare as the CLI allows (`$.model.complete` exists only inside
+ * Claude Code): `systemFile` is the whole system prompt, no tools, no thinking, safe mode, no MCP, `settings` (a JSON text) over
+ * the project's, `cwd` an empty directory, `prompt` on stdin. The reply's text and the models `claude -p` reports, or why there is none
+ * (an error, no answer in a minute). Used by eval-v2-flow.ts, long-context-summaries.ts and profiles.ts, which write the cheap model's
+ * summaries and profiles the way the mod's calls read them.
+ */
+export function claudeComplete(prompt: string, options: { model: string; systemFile: string; cwd: string; settings: string }): Promise<{ text: string; models: string[] } | { failed: string }> {
+  return new Promise((done) => {
+    const args = ['-p', '--model', options.model, '--safe-mode', '--setting-sources', 'project', '--tools', '', '--system-prompt-file', options.systemFile, '--output-format', 'json', '--no-session-persistence', '--settings', options.settings, '--strict-mcp-config']
+    const child = spawn('claude', args, { cwd: options.cwd, env: { ...process.env, MAX_THINKING_TOKENS: '0' }, stdio: ['pipe', 'pipe', 'pipe'] })
+    let out = ''
+    let err = ''
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill()
+    }, 60_000)
+    child.stdout.on('data', (chunk) => (out += chunk))
+    child.stderr.on('data', (chunk) => (err += chunk))
+    child.on('error', (error) => {
+      clearTimeout(timer)
+      done({ failed: error.message })
+    })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      if (timedOut) return done({ failed: 'claude -p gave no answer in 60 s' })
+      try {
+        const result = JSON.parse(out) as { result?: string; is_error?: boolean; modelUsage?: Record<string, unknown> }
+        if (result.is_error || typeof result.result !== 'string') return done({ failed: `claude -p answered an error (exit ${code}): ${String(result.result).slice(0, 200)}` })
+        done({ text: result.result, models: Object.keys(result.modelUsage ?? {}) })
+      } catch {
+        done({ failed: `claude -p exited ${code}: ${(err || out).slice(0, 200)}` })
+      }
+    })
+    child.stdin.end(prompt)
+  })
 }
 
 /** Node's fetch and timers as a backend's host. */

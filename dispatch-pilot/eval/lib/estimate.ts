@@ -8,6 +8,15 @@ import { estimateTokens } from '../../hooks/decision/context.ts'
 import { imageTokens } from '../../hooks/decision/images.ts'
 import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
 
+/**
+ * What each decision model counted over the mod's estimate of the same text. Jev: 6468 tokens for 8 effort-submit requests
+ * estimated at 4127 (2026-10-04), so 1.6. Perplexity counts differently, by the kind of text: against the estimate (without the
+ * factor) its input tokens were 0.7 times for the skill suite, 0.9 for effort-submit, 1.0 for effort-midturn, 1.7 for subagent and
+ * 2.9 for unresolved (2026-10-07: the long logs of its conversations tokenize four times as densely as the estimate's four
+ * characters a token), so its factor is 3, so as never to estimate less than a run costs.
+ */
+export const ESTIMATE_FACTOR: Readonly<Record<BackendName, number>> = { jev: 1.6, pplx: 3 }
+
 /** A request's estimated tokens: its text as the mod estimates it (the request as it goes out, with its model, less the images), and its pictures as the decision model counts them. */
 export function estimateRequest(request: DecisionRequest, model: string, backend: BackendName): { text: number; images: number } {
   const { images = [], ...text } = request

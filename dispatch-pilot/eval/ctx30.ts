@@ -1,5 +1,6 @@
 // The ctx30 experiment (lib/ctx30.ts): thirty questions about one long conversation in one request, asked of Jev 1.14
-// with the mod's context (the newest 24000 estimated tokens) and with the long-context header (the whole conversation).
+// with the regular context (the newest 24000 estimated tokens, the most Jev takes without the header) and with the long-context
+// header (the whole conversation).
 //
 //   node dispatch-pilot/eval/ctx30.ts           check: sizes, where each question's decisive turns are, what each request holds
 //   node dispatch-pilot/eval/ctx30.ts --run     ask both requests once and write results/ctx30/<date>-jev114.json
@@ -89,7 +90,7 @@ async function ask(longContext: boolean, request: typeof regular.request): Promi
   return { ok: true, reads: readRun(probes, asked.answers), inputTokens: asked.inputTokens, ms, model: asked.model }
 }
 
-// The regular request is the mod's 24000-token state; Jev counts a little more than the mod estimates, so should Jev
+// The regular request is a 24000-token state (REGULAR_TOKENS); Jev counts a little more than the mod estimates, so should Jev
 // answer that it is over its 32k a question, it is sent again with a smaller state (and the result says so).
 let regularTokens = REGULAR_TOKENS
 let regularRun = await ask(false, regular.request)

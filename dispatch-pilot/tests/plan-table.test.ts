@@ -5,9 +5,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { jev, world } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+import { jev, KEY, world } from './support/world.ts'
 
 /** Answers the mod's $.state.get for these values (`key` or `key/id`); everything else reads the kit's store. */
 function table(on: On, values: Record<string, unknown>) {
@@ -73,10 +71,10 @@ test("an agent whose step goes to haiku goes at its planned effort, lifted to it
 test("an agent planned off a model that takes no effort onto one that takes an effort goes out at its planned effort, though the engine, reckoning with the first, gave the step none", async ($, on) => {
   table(on, { 'agents/a1': { effort: 'high', floor: null, model: 'claude-opus-5-5', terms: null }, 'agents/a2': { effort: null, floor: null, model: 'claude-opus-5-5', terms: null } })
   const w = world($, on)
-  // A step the engine sent without an effort (as for a model that takes none).
-  await w.step({ index: 0, turnId: 'sub-1', agentId: 'a1', model: 'claude-haiku-5-5', effort: null })
+  // A step the engine sent without an effort, as for a model that takes none (Haiku 4.5; Haiku 5.5 takes one).
+  await w.step({ index: 0, turnId: 'sub-1', agentId: 'a1', model: 'claude-haiku-4-5', effort: null })
   // Nothing planned for the effort: the step goes as the engine made it, the new model's own default.
-  await w.step({ index: 0, turnId: 'sub-2', agentId: 'a2', model: 'claude-haiku-5-5', effort: null })
+  await w.step({ index: 0, turnId: 'sub-2', agentId: 'a2', model: 'claude-haiku-4-5', effort: null })
 
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['a1 claude-opus-5-5 high', 'a2 claude-opus-5-5 undefined'])
 })

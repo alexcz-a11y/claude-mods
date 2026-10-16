@@ -7,45 +7,9 @@ import type { SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import { dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
-import { world, type Reply, type Sent } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
-
-type AgentAnswers = {
-  /** The model question's probability for each option (an option left out gets 0). */
-  model?: Record<string, number>
-  /** The effort levels' probabilities, lowest first. */
-  effort?: readonly number[]
-  /** Each yes/no question's answer by its id within the part (`named.haiku`); the rest get 0. */
-  nouls?: Record<string, number>
-  /** The named-effort question's probability for each option (`none`, `low` .. `max`); without it the answer is `none`. */
-  namedEffort?: Record<string, number>
-}
-
-/** Jev answering a dispatched agent's request: every question it asked, by type. */
-function agentJev(answers: AgentAnswers) {
-  return (request: Sent): Reply => {
-    const out: Record<string, unknown> = {}
-    const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
-    for (const [id, question] of Object.entries(questions)) {
-      const local = id.slice(id.indexOf('.') + 1)
-      if (question.type === 'choice') {
-        const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
-        const given = local === 'named_effort' ? (answers.namedEffort ?? { none: 1 }) : answers.model
-        const probabilities = Object.fromEntries(options.map((option) => [option, given?.[option] ?? 0]))
-        const choice = options.reduce((best, option) => ((probabilities[option] ?? 0) > (probabilities[best] ?? 0) ? option : best), options[0] ?? '')
-        out[id] = { type: 'choice', choice, probabilities, confidence: 0.5 }
-      } else if (question.type === 'score') {
-        const levels = answers.effort ?? [0, 0, 1, 0, 0]
-        const probabilities = Object.fromEntries(levels.map((p, i) => [String(i), p]))
-        out[id] = { type: 'score', score: levels.reduce((sum, p, i) => sum + p * i, 0), legend: {}, probabilities, confidence: 0.7 }
-      } else {
-        out[id] = { type: 'noul', noul: answers.nouls?.[local] ?? 0 }
-      }
-    }
-    return { status: 200, body: { model: 'jev-1.13.0', answers: out, usage: { input_tokens: 400, output_tokens: 0 } } }
-  }
-}
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
+import { agentJev, type SiteAnswer } from './support/workflow.ts'
+import { KEY, type Reply, type Sent, UNRESOLVED_ON, world } from './support/world.ts'
 
 test('a dispatched agent starts on the model decided for it, and every one of its steps goes out at the effort decided for it', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 0.05, sonnet: 0.85, opus: 0.1 }, effort: [0, 0.1, 0.8, 0.1, 0] }) })
@@ -284,7 +248,7 @@ test('an effort the person names reaches an agent that goes to haiku too (Haiku 
 })
 
 /** Jev answering a request about several agents (`agent-<i>` parts): each part as `answers(brief)` says, its brief read from `brief_<i>`. */
-function agentsJev(answers: (brief: { description?: string; prompt: string }) => AgentAnswers) {
+function agentsJev(answers: (brief: { description?: string; prompt: string }) => SiteAnswer) {
   return (request: Sent): Reply => {
     const parts = new Set(Object.keys(request.body?.questions ?? {}).map((id) => id.slice(0, id.indexOf('.'))))
     const out: Record<string, unknown> = {}
@@ -294,7 +258,7 @@ function agentsJev(answers: (brief: { description?: string; prompt: string }) =>
       const reply = agentJev(answers(brief))({ ...request, body: { ...request.body, questions: own } }) as { body: { answers: Record<string, unknown> } }
       Object.assign(out, reply.body.answers)
     }
-    return { status: 200, body: { model: 'jev-1.14.0', answers: out, usage: { input_tokens: 400, output_tokens: 0 } } }
+    return { status: 200, body: { model: JEV_MODEL, answers: out, usage: { input_tokens: 400, output_tokens: 0 } } }
   }
 }
 
@@ -305,7 +269,7 @@ const dispatching = (calls: number): SessionMessage[] => [
   ...Array.from({ length: calls }, (_, i): SessionMessage => ({ role: 'assistant', text: '', toolUses: [{ tool: 'Agent', tool_use_id: `toolu_${i + 1}`, input: {} } as never] })),
 ]
 
-const DESIGN_OR_TESTS = (brief: { prompt: string }): AgentAnswers =>
+const DESIGN_OR_TESTS = (brief: { prompt: string }): SiteAnswer =>
   brief.prompt.startsWith('Design') ? { model: { haiku: 0.05, sonnet: 0.05, opus: 0.9 }, effort: [0, 0, 0, 1, 0] } : { model: { haiku: 0.05, sonnet: 0.9, opus: 0.05 }, effort: [0, 0, 1, 0, 0] }
 
 test('agents dispatched together share one request: what they share once, each brief in a field of its own, each decided on its own (ADR 0009)', { options: KEY }, async ($, on) => {
@@ -334,7 +298,7 @@ test('agents dispatched together share one request: what they share once, each b
 
 test("agents dispatched together read the problem summary (the cheap model's, Haiku 5.5 by default, while the unresolved switch is on) and the count once, in their shared request", { options: KEY }, async ($, on) => {
   const summary = { problem: '导出的 CSV 缺行', tried: [{ text: '改了编码', unresolved: true as const }], status: '还在查', turn: 't1' }
-  const w = world($, on, { backend: agentsJev(DESIGN_OR_TESTS), messages: dispatching(2), switches: { unresolved: true }, seed: { unresolved: { count: 2, summary } } })
+  const w = world($, on, { backend: agentsJev(DESIGN_OR_TESTS), messages: dispatching(2), switches: UNRESOLVED_ON, seed: { unresolved: { count: 2, summary } } })
   await Promise.all([
     w.spawn({ prompt: 'Design the cache invalidation across the three services.', description: 'Design cache invalidation' }),
     w.spawn({ prompt: 'Write unit tests for src/cache/lru.ts covering eviction order.', description: 'LRU tests' }),
@@ -470,7 +434,7 @@ test("what the mod sends about an agent is exactly what the decision module buil
   }
   // Jev is asked about an agent in Chinese since 1.14 (the eval's models-hint-zh).
   const built = mergeParts(dispatchState(item, 2000), [dispatchPart(item, { ask: { language: 'zh' } })])
-  expect(w.requests[1]?.body).toEqual({ model: 'jev-1.14.0', state: built.state, questions: built.questions })
+  expect(w.requests[1]?.body).toEqual({ model: JEV_MODEL, state: built.state, questions: built.questions })
 })
 
 test('agentFable adds fable to the models the decision model may choose for an agent', { options: { ...KEY, agentFable: true } }, async ($, on) => {
@@ -565,7 +529,7 @@ const failures: { name: string; reply: Reply; why: string }[] = [
   { name: 'the key is refused (401)', reply: { status: 401, body: { detail: 'Invalid API key' } }, why: 'jev：密钥被拒绝（状态码 401）' },
   { name: 'a server error (500)', reply: { status: 500, body: 'Internal Server Error' }, why: 'jev：出错（状态码 500）' },
   { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }, why: 'jev：连不上' },
-  { name: "an answer without the agent's questions", reply: { status: 200, body: { model: 'jev-1.13.0', answers: {} } }, why: 'jev：回答读不懂' },
+  { name: "an answer without the agent's questions", reply: { status: 200, body: { model: JEV_MODEL, answers: {} } }, why: 'jev：回答读不懂' },
 ]
 
 for (const failure of failures) {
@@ -616,7 +580,7 @@ test("a fork (it always runs on its parent's model) and a teammate (it lives acr
 
 test('a finished agent woken by a message (agent.spawn with resume, 2.1.299 on) goes on as it was decided: nothing is asked, and its steps keep the effort decided at its dispatch', { options: KEY }, async ($, on) => {
   // Asked again, the decision model would now say opus at max.
-  const answers: AgentAnswers[] = [{ model: { sonnet: 1 }, effort: [0, 0, 1, 0, 0] }, { model: { opus: 1 }, effort: [0, 0, 0, 0, 1] }]
+  const answers: SiteAnswer[] = [{ model: { sonnet: 1 }, effort: [0, 0, 1, 0, 0] }, { model: { opus: 1 }, effort: [0, 0, 0, 0, 1] }]
   const w = world($, on, { backend: (request, n) => agentJev(answers[Math.min(n, 2) - 1] ?? {})(request) })
   const started = await w.spawn({ prompt: 'Rename getUser to fetchUser across src/api and run `pnpm test api`.', description: 'Rename getUser' })
   await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-sonnet-5-5', effort: 'medium' })

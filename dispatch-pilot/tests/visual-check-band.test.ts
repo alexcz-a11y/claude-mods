@@ -2,9 +2,10 @@
 // band's events. Seam 1: engine events in, the band mounted through the mod out.
 
 import { expect, test } from 'claude-code/testing'
-import { jev, world } from './support/world.ts'
+import { type Drawn, shown } from './support/drawn.ts'
+import { jev, KEY, world } from './support/world.ts'
 
-const OPTIONS = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key', rejudgeEvery: 0 }
+const OPTIONS = { ...KEY, rejudgeEvery: 0 }
 const SHOT = '/shots/home.png'
 const FILES = { [SHOT]: { format: 'png', width: 1200, height: 800 } }
 const CHECKS = [
@@ -14,18 +15,6 @@ const CHECKS = [
 ]
 /** The first check holds, the second does not, the third is in between. */
 const MIXED = jev([0, 1, 0, 0, 0], { nouls: { 'check.0': 0.97, 'check.1': 0.05, 'check.2': 0.5 } })
-
-type Drawn = { type?: string; key?: string | undefined; props?: Record<string, unknown>; children?: unknown[] }
-
-/** What a drawn element shows: its descendants' text in order, a Button as `hotkey: label`. */
-function shown(element: unknown): string {
-  if (typeof element === 'string' || typeof element === 'number') return String(element)
-  if (element === null || typeof element !== 'object') return ''
-  const { children = [], props = {} } = element as Drawn
-  const label = typeof props.label === 'string' ? `${typeof props.hotkey === 'string' ? `${props.hotkey}: ` : ''}${props.label}` : ''
-  const kids = Array.isArray(props.children) ? props.children : children
-  return label + kids.map(shown).join('')
-}
 
 /** The band's rows an agent each, in order. */
 async function agentRows(ui: { findAll: (query: { type?: string }) => Promise<Drawn[]> }): Promise<Drawn[]> {

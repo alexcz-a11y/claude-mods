@@ -15,11 +15,11 @@ export type Size = { width: number; height: number }
 export type Rect = { x: number; y: number; width: number; height: number }
 
 /** The margin around a box, as a share of the box's own size on each side. */
-export const MARGIN = 0.15
+const MARGIN = 0.15
 /** A crop is at least this many pixels on each side: a smaller piece is not enough to see the context of a part. */
-export const MIN_CROP = 160
+const MIN_CROP = 160
 /** A crop is at most this many times longer than wide (or wider than long). */
-export const MAX_ASPECT = 3.5
+const MAX_ASPECT = 3.5
 /** A crop is enlarged until its longer side is this long (Jev takes 256 to 1568 on each side). */
 export const ENLARGE_TO = 1000
 

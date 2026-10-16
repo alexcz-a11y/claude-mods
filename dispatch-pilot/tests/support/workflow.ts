@@ -15,6 +15,7 @@
 
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
+import { JEV_MODEL } from '../../hooks/decision/jev.ts'
 import { world, type Reply, type Sent, type WorldOptions } from './world.ts'
 
 /** One call that reached the Workflow tool, after every hook of the mod. */
@@ -74,7 +75,8 @@ export function workflowWorld($: Engine, on: On, options: WorkflowWorldOptions =
     runs++
     const runId = `wf_test-${runs}`
     const dir = '/home/u/.claude/projects/p/s1'
-    const path = input.scriptPath ?? `${dir}/workflows/scripts/workflow-${runId}.js`
+    // A run by `name` is persisted as `<name>-<runId>.js` (2.1.296); a script handed over inline is `workflow-<runId>.js` here.
+    const path = input.scriptPath ?? `${dir}/workflows/scripts/${input.name ?? 'workflow'}-${runId}.js`
     return {
       result: { status: 'async_launched' as const, taskId: `task${runs}`, taskType: 'local_workflow' as const, runId, summary: 'a workflow', transcriptDir: `${dir}/subagents/workflows/${runId}`, scriptPath: path },
       text: `Workflow launched in background. Task ID: task${runs}\nScript file: ${path}\nRun ID: ${runId}`,
@@ -106,31 +108,48 @@ export type SiteAnswer = {
 }
 
 /**
+ * Jev's answer to every question of a request, by its type: `of(id)` says what the question's part is given (`answer`) and the
+ * question's id within the part (`local`, which the nouls and the named-effort question are looked up by). An option or a noul the
+ * answer leaves out gets 0; a score without levels gets `effort` (medium by default).
+ */
+export function answerByType(request: Sent, of: (id: string) => { answer: SiteAnswer; local: string }, effort: readonly number[] = [0, 0, 1, 0, 0]): Reply {
+  const out: Record<string, unknown> = {}
+  const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
+  for (const [id, question] of Object.entries(questions)) {
+    const { answer, local } = of(id)
+    if (question.type === 'choice') {
+      const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
+      const given = local === 'named_effort' ? (answer.namedEffort ?? { none: 1 }) : answer.model
+      const probabilities = Object.fromEntries(options.map((option) => [option, given?.[option] ?? 0]))
+      const choice = options.reduce((best, option) => ((probabilities[option] ?? 0) > (probabilities[best] ?? 0) ? option : best), options[0] ?? '')
+      out[id] = { type: 'choice', choice, probabilities, confidence: 0.5 }
+    } else if (question.type === 'score') {
+      const levels = answer.effort ?? effort
+      out[id] = { type: 'score', score: levels.reduce((sum, p, i) => sum + p * i, 0), legend: {}, probabilities: Object.fromEntries(levels.map((p, i) => [String(i), p])), confidence: 0.7 }
+    } else {
+      out[id] = { type: 'noul', noul: answer.nouls?.[local] ?? 0 }
+    }
+  }
+  return { status: 200, body: { model: JEV_MODEL, answers: out, usage: { input_tokens: 400, output_tokens: 0 } } }
+}
+
+/**
  * Jev answering a Workflow's request: the questions of part `agent-<i>` as
  * `answers(i)` says; any other question (the message's own effort, asked when
  * the person sends a message) gets a plain `high`.
  */
 export function siteJev(answers: (index: number) => SiteAnswer) {
-  return (request: Sent): Reply => {
-    const out: Record<string, unknown> = {}
-    const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
-    for (const [id, question] of Object.entries(questions)) {
+  return (request: Sent): Reply =>
+    answerByType(request, (id) => {
       const site = /^agent-(\d+)\.(.*)$/.exec(id)
-      const answer: SiteAnswer = site ? answers(Number(site[1])) : {}
-      const local = site ? (site[2] as string) : id
-      if (question.type === 'choice') {
-        const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
-        const given = local === 'named_effort' ? (answer.namedEffort ?? { none: 1 }) : answer.model
-        const probabilities = Object.fromEntries(options.map((option) => [option, given?.[option] ?? 0]))
-        const choice = options.reduce((best, option) => ((probabilities[option] ?? 0) > (probabilities[best] ?? 0) ? option : best), options[0] ?? '')
-        out[id] = { type: 'choice', choice, probabilities, confidence: 0.5 }
-      } else if (question.type === 'score') {
-        const levels = answer.effort ?? [0, 0, 1, 0, 0]
-        out[id] = { type: 'score', score: levels.reduce((sum, p, i) => sum + p * i, 0), legend: {}, probabilities: Object.fromEntries(levels.map((p, i) => [String(i), p])), confidence: 0.7 }
-      } else {
-        out[id] = { type: 'noul', noul: answer.nouls?.[local] ?? 0 }
-      }
-    }
-    return { status: 200, body: { model: 'jev-1.13.0', answers: out, usage: { input_tokens: 400, output_tokens: 0 } } }
-  }
+      return { answer: site ? answers(Number(site[1])) : {}, local: site ? (site[2] as string) : id }
+    })
+}
+
+/**
+ * Jev answering the request of a dispatched agent (its questions are `agent.model`, `agent.effort`, ...) as `answers` says.
+ * `effort`: the levels a score gets when `answers` names none.
+ */
+export function agentJev(answers: SiteAnswer, effort?: readonly number[]) {
+  return (request: Sent): Reply => answerByType(request, (id) => ({ answer: answers, local: id.slice(id.indexOf('.') + 1) }), effort)
 }

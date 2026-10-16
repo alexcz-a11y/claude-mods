@@ -17,7 +17,7 @@ import { errorText, type BackendIo } from '../decision/backend.ts'
 import { keepNewest } from '../decision/keep-newest.ts'
 import type { ReferenceReadings } from '../core/complexity.ts'
 import type { ImageFilesIo } from '../core/image-files.ts'
-import { MAIN_LOOP, startedBefore } from '../core/loop-start.ts'
+import { startedBefore } from '../core/loop-start.ts'
 import { MAIN, update, type Cell } from '../core/plans.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
 import { report, type NodeFailure, type ReportIo } from '../core/report.ts'
@@ -61,10 +61,10 @@ export function registerReferenceMidturn(on: On, ctx: Ctx): void {
       const read = result.result as { type?: unknown } | undefined
       const path: unknown = e.file_path
       if (read?.type !== 'image' || typeof path !== 'string') return result
-      const [started, modified] = await Promise.all([$.state.get({ ...LOOPS, id: MAIN_LOOP }), $.fs.stat(path).catch(() => null)])
+      const [started, modified] = await Promise.all([$.state.get({ ...LOOPS, id: MAIN }), $.fs.stat(path).catch(() => null)])
       // Made in this loop (or no way to tell when the loop began): the agent's own picture, not a reference.
       if (modified === null || started.value === undefined || !startedBefore(modified.mtimeMs, started.value.startedAt)) return result
-      await judgeAgainWithReference(launchIoOf($), ctx, readReference(readIoOf($), ctx, [{ path }]), '读到参考图')
+      await judgeAgainWithReference(launchIoOf($), ctx, () => readReference(readIoOf($), ctx, [{ path }]), '读到参考图')
     } catch (error) {
       $.ui.log(`reference images: ${errorText(error)}`, { to: 'debug' })
     }
@@ -96,7 +96,7 @@ export function registerReferenceMidturn(on: On, ctx: Ctx): void {
       // The turn it was typed into must still be the one running.
       const step = (await $.state.get(MAIN_STEP)).value ?? null
       if (step === null || step.turnId !== turnId || row.sources.length === 0) return result
-      await judgeAgainWithReference(launchIoOf($), ctx, readReference(readIoOf($), ctx, row.sources), '轮中贴了参考图')
+      await judgeAgainWithReference(launchIoOf($), ctx, () => readReference(readIoOf($), ctx, row.sources), '轮中贴了参考图')
     } catch (error) {
       $.ui.log(`reference images: ${errorText(error)}`, { to: 'debug' })
     }

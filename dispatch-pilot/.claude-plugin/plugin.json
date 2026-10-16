@@ -1,7 +1,7 @@
 {
   "name": "dispatch-pilot",
-  "version": "0.6.0",
-  "description": "Dispatch Pilot：一个在 Claude 之外的决策模型（默认 Perplexity 的 pplx，没有 Perplexity key 时退回 TypeSafe 的 Jev，也可以固定用 Jev）在你每次发消息时决定主 agent 这一轮的 effort，每一步都按这一档发出，一轮进行中每隔几步再判断一次；也为主 agent 派出的每个 agent 和 Workflow 脚本里的每个 agent 按 Artificial Analysis 的基准选模型和 effort（sonnet 和 opus 至少 medium）。主 agent 的模型从不改变，prompt cache 不受影响（只在 Claude Code 订阅下成立；Bedrock、Vertex 和网关上切换 effort 会让缓存失效）。它还不让主 agent 读完整的 skill 列表，改为在你发消息时推荐合适的几个，一轮中途主 agent 可以用 find_skill 工具查 skill。它还能替 agent 看图核对：agent 交上截图或录屏和几条检查项，由 TypeSafe 的 Jev（没有 TypeSafe key 时用 pplx）一两秒内回答过、不过或没把握，不必自己看；可选的截图接管把 agent 自己生成的图换成一句说明，带图路由按参考图的复杂度定 effort（这两项默认关；图没法脱敏，会发给 TypeSafe 或 Perplexity）。agent 的工具调用接连失败时强制升高它的 effort（haiku agent 的 effort 到顶后改用 sonnet），除非这些失败本来就在意料之中。所有判断和理由都放在看板上：prompt 上方的 band 列出本轮每个 agent 的模型和 effort，脚部一个短摘要，/dp 打开的依据面板写明每个决定的依据和决策日志。",
+  "version": "0.6.1",
+  "description": "Dispatch Pilot：一个在 Claude 之外的决策模型（默认 Perplexity 的 pplx，没有 Perplexity key 时退回 TypeSafe 的 Jev，也可以固定用 Jev）在你每次发消息时决定主 agent 这一轮的 effort，每一步都按这一档发出，一轮进行中每隔几步再判断一次；也为主 agent 派出的每个 agent 和 Workflow 脚本里的每个 agent 按 Artificial Analysis 的基准选模型和 effort（sonnet 和 opus 至少 medium）。主 agent 的模型从不改变，prompt cache 不受影响（只在 Claude Code 订阅下成立；Bedrock、Vertex 和网关上切换 effort 会让缓存失效）。它还不让主 agent 读完整的 skill 列表，改为在你发消息时推荐合适的几个，一轮中途主 agent 可以用 find_skill 工具查 skill。它还能替 agent 看图核对：agent 交上截图或录屏和几条检查项，由 TypeSafe 的 Jev（没有 TypeSafe key 时用 pplx）一两秒内回答过、不过或没把握，不必自己看；可选的截图接管把 agent 自己生成的图换成一句说明，带图路由按参考图的复杂度定 effort（这两项默认关。图没法脱敏：带图路由会把你贴的参考图发给 TypeSafe 或 Perplexity，看图核对会把 agent 交上来的图发过去；截图接管自己不发图）。agent 的工具调用失败累计到一定次数时强制升高它的 effort（haiku agent 的 effort 到顶后改用 sonnet），除非这些失败本来就在意料之中。所有判断和理由都放在看板上：prompt 上方的 band 列出本轮每个 agent 的模型和 effort，脚部一个短摘要，/dp 打开的依据面板写明每个决定的依据和决策日志。",
   "author": {
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
@@ -46,7 +46,7 @@
     "jevTokensPerSecond": {
       "type": "number",
       "title": "Jev 每秒 input token 数",
-      "description": "mod 每秒最多向 TypeSafe 发多少 input token（10000 到 100000000），只对 Jev 有用。填你的账号在 TypeSafe 控制台（Rate limits）里的限额；默认 100000，是默认套餐的值。按令牌桶算：最多存 5 秒的额度，一阵请求可以一下用掉（例如一条消息的长 effort 请求加几批 agent），之后按每秒的额度补；额度不够的请求排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待时间。遇到 429 或 529 时所有请求按 Retry-After 暂停，收到的那个请求在剩余等待时间够用时重试一次。",
+      "description": "mod 每秒最多向 TypeSafe 发多少 input token（10000 到 100000000），只对 Jev 有用。填你的账号在 TypeSafe 控制台（Rate limits）里的限额；默认 100000，是默认套餐的值。按令牌桶算：最多存 5 秒的额度，一阵请求可以一下用掉（例如一条消息的长 effort 请求加几批 agent），之后按每秒的额度补；额度不够的请求排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待时间；离自己的等待结束不到 200 毫秒的请求不发。遇到 429 或 529 时所有请求按 Retry-After 暂停，最多暂停 5 秒（Retry-After 写得再长也只停 5 秒），重试遇到的第二次 429 也让所有请求暂停；收到的那个请求在剩余等待时间够用时重试一次，被暂停挡得在自己的等待里发不出去的请求不发，看板写「繁忙」而不是「超时」。",
       "default": 100000
     },
     "timeoutMs": {
@@ -104,7 +104,7 @@
     "escalateAfter": {
       "type": "number",
       "title": "失败几次后强制升档",
-      "description": "主 agent 或它派出的 agent，工具调用失败满这么多次（1 到 20）就再问一次决策模型并升高 effort，除非这些失败本来就在意料之中（先写下要看它红的测试、没找到东西的搜索）。你自己拒绝的调用从不算；被你自己的 hook 拦下的调用要 /dp hook-block-failures on 之后才算。",
+      "description": "主 agent 或它派出的 agent，工具调用的失败累计满这么多次（1 到 20，中间成功不清零）就再问一次决策模型并升高 effort，除非这些失败本来就在意料之中（先写下要看它红的测试、没找到东西的搜索）。你自己拒绝的调用从不算；被你自己的 hook 拦下的调用要 /dp hook-block-failures on 之后才算。",
       "default": 2
     },
     "escalateMode": {
@@ -128,7 +128,7 @@
     "escalateHaikuTo": {
       "type": "string",
       "title": "失败的 haiku agent 改用哪个模型",
-      "description": "haiku agent 的工具调用接连失败、effort 已经到顶（或你点名了 effort）时，这个 agent 接下来改用这个模型：sonnet、opus 或 fable，或者完整的模型 id。别名会换成这一步需要的完整 id（引擎不认别名）；你为这个 agent 的工作点名的模型、排除的模型优先。留空表示不换。",
+      "description": "haiku agent 的工具调用失败累计到升档的次数、effort 已经到顶（或你点名了 effort）时，这个 agent 接下来改用这个模型：sonnet、opus 或 fable，或者完整的模型 id。别名会换成这一步需要的完整 id（引擎不认别名）；你为这个 agent 的工作点名的模型、排除的模型优先。留空表示不换。",
       "default": "sonnet"
     },
     "agentFable": {

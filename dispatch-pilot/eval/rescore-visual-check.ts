@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
-import { BARS_NOTE, KINDS, rescoreResult, type Rescored, type Tally } from './lib/visual-check-rescore.ts'
+import { BARS_NOTE, CHECKED_KINDS, rescoreResult, type Rescored, type VerdictTally } from './lib/visual-check-rescore.ts'
 import { RESULTS_DIR, shown } from './node.ts'
 
 const { values, positionals } = parseArgs({ allowPositionals: true, options: { write: { type: 'string' }, date: { type: 'string' } } })
@@ -19,10 +19,10 @@ const files = positionals.length > 0 ? positionals : [join(DIR, '2026-10-15-jev-
 const rescored = files.map((file) => rescoreResult(shown(file), JSON.parse(readFileSync(file, 'utf8'))))
 
 const fraction = (n: number, of: number) => (of === 0 ? '-' : `${n}/${of}`)
-const line = (label: string, t: Tally) =>
+const line = (label: string, t: VerdictTally) =>
   `  ${label.padEnd(5)} ${String(t.checks).padStart(3)} checks | false pass ${fraction(t.falsePass, t.differ).padStart(6)} | false fail ${fraction(t.falseFail, t.same).padStart(6)} | caught ${fraction(t.caught, t.differ).padStart(6)} | passed ${fraction(t.passed, t.same).padStart(6)} | unsure ${fraction(t.unsure, t.checks).padStart(6)}${t.checks === 0 ? '' : ` (${((100 * t.unsure) / t.checks).toFixed(1)}%)`}`
 const show = (v: Rescored, which: 'before' | 'now') => {
-  for (const kind of [...KINDS, 'all'] as const) if (v[which][kind].checks > 0) console.log(line(kind, v[which][kind]))
+  for (const kind of [...CHECKED_KINDS, 'all'] as const) if (v[which][kind].checks > 0) console.log(line(kind, v[which][kind]))
 }
 for (const file of rescored) {
   for (const v of file.variants) {

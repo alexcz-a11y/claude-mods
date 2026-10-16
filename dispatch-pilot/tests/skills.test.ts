@@ -7,11 +7,7 @@ import { expect, test } from 'claude-code/testing'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { pickSkills, readHints, readSkills, skillsPart, skillsRequest, type SkillOption } from '../hooks/decision/skills.ts'
 import type { Reply, Sent, SkillsWorld } from './support/world.ts'
-import { isSecondSkillsRequest, jev, rates, world, type World } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
-/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
-const UNRESOLVED_ON = { unresolved: true }
+import { isSecondSkillsRequest, jev, KEY, rates, type World, UNRESOLVED_ON, world } from './support/world.ts'
 
 /** The skills decisions the board keeps, oldest first. */
 async function skillDecisions(w: World) {
@@ -141,6 +137,9 @@ test('/dp off brings the withheld listing back the same way; switched on again, 
 
   expect(w.prompts[0]?.context).toEqual([RESTORED])
   expect(w.prompts[1]?.context?.[0]).toContain('- tdd (relevance 0.70)')
+  // Only the suggestions: the listing went back with the first message and does not go again.
+  expect(w.prompts[1]?.context).toHaveLength(1)
+  expect(w.prompts[1]?.context).not.toContain(RESTORED)
   expect(w.prompts[2]?.context).toBeUndefined()
 })
 

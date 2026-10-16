@@ -15,22 +15,16 @@
 // part's accuracy. The model part of a subagent run is as it was stored: the model options were reworded, so the
 // effect of the new wording needs the suite run again (eval/run.ts).
 
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { AgentItem, EffortMidturnItem, EffortSubmitItem } from './lib/datasets.ts'
 import { rescoreAgents, rescoreMidturn, rescoreSubmit, scanThetaDown, type Compared, type StoredAnswers, type Tally } from './lib/rescore.ts'
-import { DATASETS_DIR, RESULTS_DIR, readDataset, shown } from './node.ts'
+import { DATASETS_DIR, readDataset, resultFiles, shown } from './node.ts'
 
 const { values, positionals } = parseArgs({ allowPositionals: true, options: { markdown: { type: 'boolean', default: false }, 'theta-down': { type: 'string' } } })
 
-const files =
-  positionals.length > 0
-    ? positionals
-    : readdirSync(RESULTS_DIR)
-        .filter((suite) => suite !== 'probes' && statSync(join(RESULTS_DIR, suite)).isDirectory())
-        .flatMap((suite) => readdirSync(join(RESULTS_DIR, suite)).filter((name) => name.endsWith('.json')).map((name) => join(RESULTS_DIR, suite, name)))
-        .sort()
+const files = positionals.length > 0 ? positionals : resultFiles()
 
 const items = (suite: string) => readDataset(join(DATASETS_DIR, `${suite}.jsonl`)).items
 

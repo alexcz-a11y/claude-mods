@@ -5,7 +5,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import type { BackendIo } from '../hooks/decision/backend.ts'
-import { jevBackend } from '../hooks/decision/jev.ts'
+import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import type { AgentItem } from '../eval/lib/datasets.ts'
 import { summarize } from '../eval/lib/metrics.ts'
 import { runSuite, type Row } from '../eval/lib/runner.ts'
@@ -61,7 +61,7 @@ function network(answers: Record<string, Answers>) {
         } else out[id] = { type: 'noul', noul: said.nouls?.[local] ?? 0 }
       }
       clock += 100
-      return { status: 200, ok: true, headers: {}, text: JSON.stringify({ model: 'jev-1.13.0', answers: out, usage: { input_tokens: 1600 } }) }
+      return { status: 200, ok: true, headers: {}, text: JSON.stringify({ model: JEV_MODEL, answers: out, usage: { input_tokens: 1600 } }) }
     },
     // The backend's own timeout timer: never fires here; it is aborted once the answer is in.
     sleep: (_ms, signal) => new Promise((_done, fail) => signal.addEventListener('abort', () => fail(new Error('aborted')))),

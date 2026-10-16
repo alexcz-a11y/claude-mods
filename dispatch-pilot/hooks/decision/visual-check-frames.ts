@@ -4,7 +4,7 @@
 
 import { imageRef, type Picture } from './images.ts'
 import { mergeParts, type DecisionRequest, type Part, type Question, type RequestImage } from './system-one.ts'
-import { CHECK_PART, type Check } from './visual-check.ts'
+import { CHECK_PART, requestImage, type Check } from './visual-check.ts'
 
 /** A path that is a recording, by its extension (a GIF is an image sips reads). */
 const RECORDING = /\.(mov|mp4|m4v|webm|mkv|avi|mpe?g|ogv|3gp|flv|wmv)$/i
@@ -70,7 +70,7 @@ const FRAMES_NAME = (i: number): string => `frame-${i + 1}`
  * spec's are (`readWholeImage`).
  */
 export function framesRequest(spec: string | null, frames: readonly Frame[], checks: readonly Check[]): { request: DecisionRequest; part: Part } {
-  const images: RequestImage[] = frames.map((frame, i) => ({ name: FRAMES_NAME(i), format: frame.picture.format, base64: frame.picture.base64, width: frame.picture.width, height: frame.picture.height }))
+  const images: RequestImage[] = frames.map((frame, i) => requestImage(FRAMES_NAME(i), frame.picture))
   const state: Record<string, unknown> = { frames: frames.map((frame, i) => ({ seconds: frame.seconds, frame: imageRef(FRAMES_NAME(i)) })) }
   if (spec !== null) state.specification = spec
   const lead = `\`frames\` are ${frames.length} frames of a screen recording, in order of time (\`seconds\` is the time of each). Looking at how the picture changes from one frame to the next, does`

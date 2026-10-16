@@ -8,9 +8,8 @@ import { estimateTokens } from '../hooks/decision/context.ts'
 import type { PastedImage } from './support/pasted.ts'
 import { siteJev } from './support/workflow.ts'
 import { runWorld } from './support/workflow-run.ts'
-import { jev, type Reply, type Sent } from './support/world.ts'
+import { jev, KEY, type Reply, type Sent } from './support/world.ts'
 
-const JEV = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 const ON = { 'image-routing': true }
 
 const at = (level: number): number[] => [0, 1, 2, 3, 4].map((i) => (i === level ? 1 : 0))
@@ -38,7 +37,7 @@ async function readSession($: Parameters<typeof runWorld>[0], on: Parameters<typ
 
 // ---- A dispatched agent -----------------------------------------------------------------------------------------------------------
 
-test('an agent the main agent starts is decided with what the latest reference images read as, as text and after its brief and the words', { options: JEV }, async ($, on) => {
+test('an agent the main agent starts is decided with what the latest reference images read as, as text and after its brief and the words', { options: KEY }, async ($, on) => {
   const w = await readSession($, on)
   await w.spawn({ prompt: 'Model the lighthouse from the reference picture in Blender.', description: 'Model the lighthouse' })
 
@@ -51,7 +50,7 @@ test('an agent the main agent starts is decided with what the latest reference i
   expect(JSON.stringify(sent?.body)).not.toContain('data_base64')
 })
 
-test('before any reference image has been read, an agent is decided as it always was', { options: JEV }, async ($, on) => {
+test('before any reference image has been read, an agent is decided as it always was', { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { switches: ON, files: FILES, process: true, backend })
   await w.submit('Rename getUser to fetchUser')
   await w.spawn({ prompt: 'Rename getUser to fetchUser across src/api.', description: 'Rename' })
@@ -59,7 +58,7 @@ test('before any reference image has been read, an agent is decided as it always
   expect(Object.keys(w.requests.find(asksAgent)?.body.state)).toEqual(['brief', 'user_message'])
 })
 
-test('with the feature off, the readings kept are not given to an agent', { options: JEV }, async ($, on) => {
+test('with the feature off, the readings kept are not given to an agent', { options: KEY }, async ($, on) => {
   const w = await readSession($, on)
   await w.command('dp', 'image-routing off')
   await w.spawn({ prompt: 'Model the lighthouse from the reference picture in Blender.', description: 'Model the lighthouse' })
@@ -67,7 +66,7 @@ test('with the feature off, the readings kept are not given to an agent', { opti
   expect(Object.keys(w.requests.find(asksAgent)?.body.state)).toEqual(['brief', 'user_message'])
 })
 
-test("an agent's state with the reading stays within the budget for an agent: a long brief is cut, the reading is not", { options: JEV }, async ($, on) => {
+test("an agent's state with the reading stays within the budget for an agent: a long brief is cut, the reading is not", { options: KEY }, async ($, on) => {
   const w = await readSession($, on)
   await w.spawn({ prompt: `${'Model every plank of the hull, every rope and every sail. '.repeat(8000)}`, description: 'Model the ship' })
 
@@ -85,7 +84,7 @@ const review = await agent('Review the exported lighthouse model for gaps agains
 return { modelled, review }
 `
 
-test('the batch request for a Workflow script carries the reading once, as text, for every call', { options: JEV }, async ($, on) => {
+test('the batch request for a Workflow script carries the reading once, as text, for every call', { options: KEY }, async ($, on) => {
   const w = await readSession($, on)
   await w.workflow({ script: TIDY })
 
@@ -96,7 +95,7 @@ test('the batch request for a Workflow script carries the reading once, as text,
   expect(sent[0]?.body.assets).toBeUndefined()
 })
 
-test("a script's batch with the reading stays within its budget, and so does each batch of a script that takes several", { options: JEV }, async ($, on) => {
+test("a script's batch with the reading stays within its budget, and so does each batch of a script that takes several", { options: KEY }, async ($, on) => {
   const calls = Array.from({ length: 12 }, (_, i) => `agent('Model part ${i} of the lighthouse: ${'plank and rope and sail, '.repeat(900)}', { label: 'part-${i}' })`).join('\n')
   const script = `export const meta = { name: 'parts', description: 'Model the parts', phases: [] }\n${calls}\nreturn 1\n`
   const w = await readSession($, on)
@@ -110,7 +109,7 @@ test("a script's batch with the reading stays within its budget, and so does eac
   }
 })
 
-test('with the feature off, a Workflow script is asked about as it always was', { options: JEV }, async ($, on) => {
+test('with the feature off, a Workflow script is asked about as it always was', { options: KEY }, async ($, on) => {
   const w = await readSession($, on)
   await w.command('dp', 'image-routing off')
   await w.workflow({ script: TIDY })
@@ -120,7 +119,7 @@ test('with the feature off, a Workflow script is asked about as it always was', 
 
 const SAVED = '/work/.claude/workflow-scripts/tidy.js'
 
-test('the requests for a script run by its path (decided by label as the run starts) carry the reading, and so does an agent decided as it starts', { options: JEV }, async ($, on) => {
+test('the requests for a script run by its path (decided by label as the run starts) carry the reading, and so does an agent decided as it starts', { options: KEY }, async ($, on) => {
   const w = await readSession($, on, { disk: { [SAVED]: TIDY } })
   await w.workflow({ scriptPath: SAVED })
   const launch = w.requests.filter(asksAgent)

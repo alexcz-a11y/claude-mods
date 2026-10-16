@@ -3,9 +3,7 @@
 // engine, the decision backend, the store and the debug log out.
 
 import { expect, test } from 'claude-code/testing'
-import { jev, world } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+import { jev, KEY, world } from './support/world.ts'
 
 // ---- The lock ---------------------------------------------------------------
 

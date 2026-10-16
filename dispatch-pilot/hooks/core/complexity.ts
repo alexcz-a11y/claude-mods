@@ -1,8 +1,8 @@
 // Reading a group of reference images, and keeping the readings (#63, ADR 0008). The one place that gets "the complexity reading of
-// these images": the message that starts a turn (features/image-routing.ts) calls it, and so will #64's mid-turn re-decision, the
-// dispatched agents and the Workflow agents, none of them knowing how the images are prepared, asked or kept. A group of images
-// is read once: the readings are kept in `$.state` (`referenceReadings`) under a hash of the images' content, the latest of them
-// is what a request that carries no images of its own (an agent's, a Workflow batch's) takes (`latestReading`).
+// these images": features/image-routing.ts calls it (for the message that starts a turn, and for the images the main agent meets,
+// #64), without knowing how the images are prepared, asked or kept. A group of images is read once: the readings are kept in
+// `$.state` (`referenceReadings`) under a hash of the images' content, the latest of them is what a request that carries no images
+// of its own (an agent's, a Workflow batch's) takes (`latestReading`, through features/reference-hint.ts).
 //
 // Pure of `$`: the engine comes in as closures (`ComplexityIo`), as for `BackendIo` and `ImageFilesIo`; a module cannot pass `$`
 // across an import, so every caller builds the closures from its own `$`.
@@ -21,7 +21,7 @@ export type KeptReading = ReferenceReading & { key: string; at: number }
 export type ReferenceReadings = KeptReading[]
 
 /** The readings of this many groups are kept: a conversation moves from one reference to the next. */
-export const READINGS_KEPT = 8
+const READINGS_KEPT = 8
 
 /**
  * An image to read. `path`: a file (a pasted image's original, a file the agent read). `base64`: the bytes of a PNG or a JPEG the

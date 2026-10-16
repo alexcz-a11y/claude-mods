@@ -21,11 +21,11 @@
 // Its switch is `dispatched-agents` (`/dp dispatched-agents off`).
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { within, type Failure } from '../decision/backend.ts'
+import { timedOut, within, type Failure } from '../decision/backend.ts'
 import { conversationUpTo, messageText, type ContextMessage } from '../decision/context.ts'
 import { dispatchEvidence, dispatchNote, dispatchReason, modelFamily, termsOf, type DispatchNote } from '../decision/dispatched-agent.ts'
 import { quoteStart } from '../decision/redact.ts'
-import { renderSummary } from '../decision/summary.ts'
+import { problemBackground, readingBackground } from '../decision/workflow.ts'
 import { agentCallsBeside, askAgent, type AgentAnswer, type AgentInput, type LaneIo } from '../core/agent-lane.ts'
 import { update, type Cell } from '../core/plans.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
@@ -48,8 +48,8 @@ const SWITCH = 'dispatched-agents'
 /**
  * The notes spawns left for their Agent tool calls, by the call's tool_use_id: written by the agent.spawn inside the
  * call, taken as the call returns. A module variable (CLAUDE.md): the kit's `$.state` does not show the outer hook
- * what the nested spawn wrote (DEVELOPMENT.md 已实测, not yet measured on the engine), and a hot reload while an
- * agent runs loses only that agent's note. At most MAX_NOTES are kept: past that (calls whose result never came
+ * what the nested spawn wrote (measured in the kit, DEVELOPMENT.md 已实测的引擎行为; not yet on the engine), and a hot
+ * reload while an agent runs loses only that agent's note. At most MAX_NOTES are kept: past that (calls whose result never came
  * back, or more agents running at once) the oldest go.
  */
 const pendingNotes = new Map<string, string>()
@@ -118,9 +118,8 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       shared: {
         words: said.join('\n'),
         background: {
-          ...(held?.summary === undefined ? {} : { problem_summary: renderSummary(held.summary, ctx.ask.language) }),
-          ...(held === undefined || held.count === 0 ? {} : { unresolved_count: held.count }),
-          ...(reference === undefined ? {} : { reference_complexity: reference }),
+          ...problemBackground(held, ctx.ask.language),
+          ...readingBackground(reference),
           ...(lines.length === 0 ? {} : { recent: lines }),
         },
       },
@@ -132,7 +131,6 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
         pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
       },
       now: () => $.clock.now(),
-      sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
       debug: (line) => $.ui.log(line, { to: 'debug' }),
     }
     const reporting: ReportIo = {
@@ -149,8 +147,8 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     const waitMs = ctx.config.agents.waitMs
     const deadline = (await $.clock.now()) + waitMs
     const call = { id: e.tool_use_id, siblings: agentCallsBeside(recent, e.tool_use_id) }
-    const late: AgentAnswer = { ok: false, failure: { kind: 'timeout', detail: `no answer in ${waitMs} ms` } }
-    const asked = await within(io.sleep, askAgent(ctx, settings, { key: `agent:${e.parentAgentId ?? 'main'}`, kind: 'agent', input, call, deadline, about: `agent ${about}`, io }), waitMs, late)
+    const late: AgentAnswer = { ok: false, failure: timedOut(waitMs) }
+    const asked = await within(io.backend.sleep, askAgent(ctx, settings, { key: `agent:${e.parentAgentId ?? 'main'}`, kind: 'agent', input, call, deadline, about: `agent ${about}`, io }), waitMs, late)
     // The agent starts as the main agent asked; the board says why it was not routed, once it has an id to say it of.
     // A spawn refused beneath started no agent: there is nothing to say of it.
     const notRouted = async (failure: Failure) => {

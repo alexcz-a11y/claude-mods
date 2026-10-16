@@ -3,9 +3,9 @@
 // written for the model, so in English. Pure (see system-one.ts).
 
 import type { BackendName } from './backend.ts'
-import { FRAME_COUNT, type Span, WHOLE_RECORDING } from './visual-check-frames.ts'
+import { FRAME_COUNT, LOOK_FRAME_COUNT, type Span, WHOLE_RECORDING } from './visual-check-frames.ts'
 import { MAX_LEVELS, SERIES_DESCRIPTION, SERIES_UNAVAILABLE } from './visual-check-sequence.ts'
-import type { Check, CheckResult, Comparison } from './visual-check.ts'
+import { percent, type Check, type CheckResult, type Comparison } from './visual-check.ts'
 import { boxArea, type Box } from './zoom.ts'
 
 /** The tool's name; the model calls it as `mcp__dispatch-pilot__visual_check`. */
@@ -56,6 +56,11 @@ export function visualCheckDescription(backend: BackendName): string {
   return [WHAT_IT_IS, HOW_TO_WRITE_CHECKS, WHAT_IT_JUDGES, READING_THE_ANSWER, LOOK, BEFORE_YOU_FINISH, jev ? COMPARING_WITH_ZOOM : COMPARING_COARSE, jev ? SERIES_DESCRIPTION : SERIES_UNAVAILABLE, recordings(FRAME_COUNT[backend])].join(' ')
 }
 
+/** Most checks one call takes: they are all in one request, with their images. */
+export const MAX_CHECKS = 24
+/** Most images `look` returns at once. */
+const MAX_LOOK = 8
+
 /** The tool's input schema. */
 export const VISUAL_CHECK_INPUT = {
   type: 'object',
@@ -64,7 +69,7 @@ export const VISUAL_CHECK_INPUT = {
       type: 'array',
       items: { type: 'string' },
       minItems: 1,
-      description: 'Path of the screenshot, or screen recording, to check (exactly one, unless look is true: then up to 8 paths of images to look at).',
+      description: `Path of the screenshot, or screen recording, to check (exactly one, unless look is true: then up to ${MAX_LOOK} paths of images to look at).`,
     },
     reference: {
       type: 'array',
@@ -77,7 +82,7 @@ export const VISUAL_CHECK_INPUT = {
     },
     sequence: {
       type: 'boolean',
-      description: 'images is a series of the same view at rising quality levels, lowest first (2 to 12 stills), to be compared pair by pair in the parts the checks name, to find the level from which the higher ones no longer look different. Needs the zoomed re-check, so not with pplx.',
+      description: `images is a series of the same view at rising quality levels, lowest first (2 to ${MAX_LEVELS} stills), to be compared pair by pair in the parts the checks name, to find the level from which the higher ones no longer look different. Needs the zoomed re-check, so not with pplx.`,
     },
     spec: {
       type: 'string',
@@ -102,7 +107,7 @@ export const VISUAL_CHECK_INPUT = {
     },
     look: {
       type: 'boolean',
-      description: 'Do not judge: return the images, scaled down to a size you can read. A recording comes back as 8 frames.',
+      description: `Do not judge: return the images, scaled down to a size you can read. A recording comes back as ${LOOK_FRAME_COUNT} frames.`,
     },
     from_seconds: {
       type: 'number',
@@ -118,11 +123,6 @@ export const VISUAL_CHECK_INPUT = {
 } as const
 
 // ---- What a call is given ------------------------------------------------------------------------------------------
-
-/** Most checks one call takes: they are all in one request, with their images. */
-export const MAX_CHECKS = 24
-/** Most images `look` returns at once. */
-export const MAX_LOOK = 8
 
 /** A call's input, read. */
 export type VisualCheckInput = {
@@ -155,9 +155,12 @@ function spanOf(raw: Readonly<Record<string, unknown>>): { ok: true; span: Span 
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '')
 
+/** A path the model gave: trimmed at its ends and otherwise as it is (a macOS screenshot's name holds a U+202F before AM or PM, and a run of spaces is a name too). */
+const pathText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
+
 function paths(value: unknown): string[] {
   const list = typeof value === 'string' ? [value] : Array.isArray(value) ? value : []
-  return list.map(text).filter((path) => path !== '')
+  return list.map(pathText).filter((path) => path !== '')
 }
 
 /**
@@ -172,7 +175,7 @@ export function parseVisualCheckInput(raw: Readonly<Record<string, unknown>>): {
   if (!named.ok) return named
   const { span } = named
   const reference = paths(raw.reference)
-  const compareTo = text(raw.compare_to)
+  const compareTo = pathText(raw.compare_to)
   const spec = text(raw.spec)
   const given = [reference.length > 0 ? 'reference' : '', compareTo !== '' ? 'compare_to' : '', raw.sequence === true ? 'sequence' : '', spec !== '' ? 'spec' : ''].filter((name) => name !== '')
   if (given.length > 1) return { ok: false, message: `visual_check checks against one thing: give only one of reference, compare_to, sequence and spec (you gave ${given.join(' and ')}).` }
@@ -240,7 +243,12 @@ const against = (comparison: Comparison): string => (comparison.kind === 'spec' 
 
 const BASES = { whole: 'whole image', zoom: 'zoomed crop' } as const
 
-const percent = (share: number): string => `${Math.round(share * 100)}%`
+/** One check as the answer lists it: its number, verdict, probability, what the verdict rests on, the check and, for an unsure one, why. `recording`: the whole image is the frames. */
+export function checkLine(result: CheckResult, i: number, recording = false): string {
+  const probability = result.probability === null ? 'n/a' : result.probability.toFixed(2)
+  const check = result.check.part === '' ? result.check.property : `${result.check.part}: ${result.check.property}`
+  return `${i + 1}. ${result.verdict.toUpperCase()} ${probability} (${recording && result.basis === 'whole' ? 'frames' : BASES[result.basis]}) ${check}${result.why === undefined ? '' : ` (${result.why})`}`
+}
 
 /** Another place the two images may differ, as the answer shows it: where, how sure the model is, and whether crops of it come along. */
 export type ShownPlace = { box: Box; confidence: number; cropped: boolean }
@@ -256,17 +264,13 @@ export function visualCheckText(report: RunReport): string {
   const { results } = report
   const kinds = (['pass', 'fail', 'unsure'] as const).map((verdict) => ({ verdict, count: results.filter((result) => result.verdict === verdict).length })).filter((kind) => kind.count > 0)
   const lines = [`Visual check of ${report.target} ${against(report.against)}: ${kinds.map((kind) => `${kind.count} ${kind.verdict.toUpperCase()}`).join(', ')}.`]
-  results.forEach((result, i) => {
-    const probability = result.probability === null ? 'n/a' : result.probability.toFixed(2)
-    const check = result.check.part === '' ? result.check.property : `${result.check.part}: ${result.check.property}`
-    lines.push(`${i + 1}. ${result.verdict.toUpperCase()} ${probability} (${report.recording === true && result.basis === 'whole' ? 'frames' : BASES[result.basis]}) ${check}${result.why === undefined ? '' : ` (${result.why})`}`)
-  })
+  results.forEach((result, i) => lines.push(checkLine(result, i, report.recording === true)))
   const passed = results.some((result) => result.verdict === 'pass')
   lines.push(`The number is the probability that the check holds.${passed ? ' PASS only means that nothing obviously wrong was seen; it is not an acceptance.' : ''}`)
   if (report.elsewhere != null) lines.push(placeLine(report.elsewhere))
   if (report.crops !== undefined && report.crops.length > 0) lines.push(`Zoomed crops are attached${report.attached ? ' before the screenshot' : ''}, in this order: ${report.crops.join('; ')}.`)
   if (report.attached) lines.push('The screenshot is attached, scaled down: look at it yourself for what is UNSURE.')
-  if (report.recording === true && results.some((result) => result.verdict === 'unsure')) lines.push('For what is UNSURE, look at the recording yourself: visual_check with look: true and its path (and from_seconds and to_seconds) returns 8 frames of it.')
+  if (report.recording === true && results.some((result) => result.verdict === 'unsure')) lines.push(`For what is UNSURE, look at the recording yourself: visual_check with look: true and its path (and from_seconds and to_seconds) returns ${LOOK_FRAME_COUNT} frames of it.`)
   for (const index of report.repeated) lines.push(`Check ${index + 1} has now failed twice in a row: look at the image yourself (visual_check with look: true) before you change anything else.`)
   return lines.join('\n')
 }

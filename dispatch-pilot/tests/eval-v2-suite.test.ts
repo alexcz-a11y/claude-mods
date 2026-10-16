@@ -4,8 +4,6 @@
 // the flow variants carry the count and the summary the flow file (eval-v2-flow.ts) holds at the last message.
 
 import { expect, test } from 'claude-code/testing'
-import type { BackendIo } from '../hooks/decision/backend.ts'
-import { EFFORTS } from '../hooks/decision/effort.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import { renderSummary, type Summary } from '../hooks/decision/summary.ts'
 import type { V2Record, V2Turn } from '../eval/lib/eval-v2.ts'
@@ -14,40 +12,9 @@ import { evalV2Suite, v2Item, type FinalGold, type V2EvalItem } from '../eval/li
 import { summarize } from '../eval/lib/metrics.ts'
 import { askRetrying, runSuite } from '../eval/lib/runner.ts'
 import { settingsFrom, withStateMessages, withStateTokens } from '../eval/lib/suite.ts'
-import { jev, world } from './support/world.ts'
-/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
-const UNRESOLVED_ON = { unresolved: true }
-
-type Reply = { status: number; body: unknown }
-
-const STILL = { still_unresolved: 0.7, resolved: 0.2, new_or_unrelated: 0.1 }
-
-/** A Jev answer to the effort question putting `p` on the levels (lowest first), and to the three-way question `triage`. */
-function answers(body: any, p: readonly number[], triage: Record<string, number> = STILL): Reply {
-  const out: Record<string, unknown> = {}
-  for (const [id, question] of Object.entries(body.questions as Record<string, { type: string }>)) {
-    if (id === 'effort.level') out[id] = { type: 'score', probabilities: Object.fromEntries(EFFORTS.map((_, i) => [String(i), p[i] ?? 0])), confidence: 0.5, score: 0 }
-    else out[id] = { type: question.type, probabilities: triage, confidence: 0.5, choice: '' }
-  }
-  return { status: 200, body: { model: 'jev-1.13.0', answers: out, usage: { input_tokens: 700 } } }
-}
-
-function network(reply: (body: any) => Reply) {
-  const bodies: any[] = []
-  let clock = 0
-  const io: BackendIo = {
-    fetch: async (_url, init) => {
-      const body = JSON.parse(String(init.body))
-      bodies.push(body)
-      const { status, body: out } = reply(body)
-      clock += 120
-      return { status, ok: status >= 200 && status < 300, headers: {}, text: JSON.stringify(out) }
-    },
-    sleep: (_ms, signal) => new Promise((_done, fail) => signal.addEventListener('abort', () => fail(new Error('aborted')))),
-  }
-  return { io, bodies, now: () => clock }
-}
-
+import { transcript } from './support/conversation.ts'
+import { answers, ELSEWHERE, network, STILL } from './support/eval-network.ts'
+import { jev, UNRESOLVED_ON, world } from './support/world.ts'
 /** `n` tokens of Chinese prose (one a character). */
 function prose(n: number): string {
   const sentence = '我把这一层的入参和返回值又对了一遍，顺手记下了调用方各自传的默认值。'
@@ -111,17 +78,10 @@ function gold(id: string, change: (gold: FinalGold) => void = () => {}): FinalGo
 
 const item = (id: string, change?: (record: V2Record) => void, middle?: number, goldChange?: (gold: FinalGold) => void): V2EvalItem => v2Item(record(id, change, middle), gold(id, goldChange))
 
-/** An item's conversation before its message, as the engine's transcript holds it. */
-function transcript(turns: readonly V2Turn[]) {
-  return turns.map((turn) => ({ role: turn.role, text: turn.text, toolUses: (turn.tools ?? []).map((tool, i) => ({ tool_use_id: `toolu_${i}`, tool, input: {}, text: '' })) }))
-}
-
 async function run(items: V2EvalItem[], net: ReturnType<typeof network>, variants: string[], settings = settingsFrom({ decisionModel: 'jev' }), suite = evalV2Suite()) {
   return runSuite(suite, items, { backend: jevBackend('k'), io: net.io, now: net.now, pause: async () => {}, settings, variants, languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 }
 
-const SOLVED = { still_unresolved: 0.1, resolved: 0.8, new_or_unrelated: 0.1 }
-const ELSEWHERE = { still_unresolved: 0.1, resolved: 0.1, new_or_unrelated: 0.8 }
 const MAX = [0, 0, 0.1, 0.2, 0.7]
 const XHIGH = [0, 0, 0.1, 0.8, 0.1]
 const HIGH = [0, 0.1, 0.8, 0.1, 0]
@@ -223,7 +183,7 @@ function flowFile(items: Record<string, FlowItem>): FlowFile {
   return {
     suite: 'eval-v2-flow',
     about: 'test',
-    backend: { name: 'jev', model: JEV_MODEL, answeredBy: ['jev-1.13.0'] },
+    backend: { name: 'jev', model: JEV_MODEL, answeredBy: [JEV_MODEL] },
     settings: { language: 'zh', stateTokens: 24000, stateMessages: 32, thresholds: { add: 0.5, reset: 0.7 }, maxAfter: 3 },
     summarizer: { model: 'haiku', says: null, answeredBy: [], how: 'test', asked: 0, failed: 0, cached: 0 },
     dataset: { sha256: 'test', items: Object.keys(items).length },

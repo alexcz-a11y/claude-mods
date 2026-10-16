@@ -3,11 +3,11 @@
 // world's (tests/support/images.ts), the pasted message's row is appended by the world's engine (tests/support/pasted.ts).
 
 import { expect, test } from 'claude-code/testing'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { absolute, type Disk, ok, readFake } from './support/images.ts'
 import { attachmentsOf, type PastedImage } from './support/pasted.ts'
-import { jev, pplx, type Reply, type Sent, world } from './support/world.ts'
+import { jev, KEY, pplx, type Reply, type Sent, world } from './support/world.ts'
 
-const JEV = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 const ON = { 'image-routing': true }
 
 /** The level probabilities that read as `level` (0 to 4), for the complexity question and the effort question. */
@@ -28,7 +28,7 @@ const answering =
 /** The fake Perplexity Decisions API, answering the effort question with `levels` (and other Score questions by their ids). */
 const pplxAnswer = (levels: readonly number[], scores: Record<string, readonly number[]> = {}) => pplx(levels, { key: 'pplx-test-key', scores: { 'effort.level': levels, ...scores } })
 
-test('a message with a reference image: the images are read first (to the image backend), then the effort is asked with the reading, and the first step goes out at that effort', { options: JEV }, async ($, on) => {
+test('a message with a reference image: the images are read first (to the image backend), then the effort is asked with the reading, and the first step goes out at that effort', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 3) })
   await w.submit('Build this scene in three.js', { images: [SCENE] })
   await w.step({ index: 0 })
@@ -53,7 +53,7 @@ test('a message with a reference image: the images are read first (to the image 
 
 // ---- What does not change ------------------------------------------------------------------------------------------------------
 
-test('by default the feature is off: a message with an image is decided when it is sent, as any message is, and no image leaves the machine', { options: JEV }, async ($, on) => {
+test('by default the feature is off: a message with an image is decided when it is sent, as any message is, and no image leaves the machine', { options: KEY }, async ($, on) => {
   const w = world($, on, { files: FILES, process: true, backend: answering(3, 2) })
   await w.submit('Build this scene in three.js', { images: [SCENE] })
   await w.step({ index: 0 })
@@ -66,7 +66,7 @@ test('by default the feature is off: a message with an image is decided when it 
   expect(w.ran).toEqual([])
 })
 
-test('with the switch on, a message without an image goes as it always did: one request when it is sent, the state as it was, no reading', { options: JEV }, async ($, on) => {
+test('with the switch on, a message without an image goes as it always did: one request when it is sent, the state as it was, no reading', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 2) })
   await w.submit('Rename the helper to buildQueue everywhere')
   await w.step({ index: 0 })
@@ -74,7 +74,7 @@ test('with the switch on, a message without an image goes as it always did: one 
   expect(w.requests).toHaveLength(1)
   const sent = w.requests[0]
   expect(sent?.url).toBe('https://api.typesafe.ai/v1/systemone')
-  expect(sent?.body.model).toBe('jev-1.14.0')
+  expect(sent?.body.model).toBe(JEV_MODEL)
   expect(Object.keys(sent?.body.state)).toEqual(['user_message', 'recent_context'])
   expect(Object.keys(sent?.body.questions)).toContain('effort.level')
   expect(sent?.body.assets).toBeUndefined()
@@ -83,7 +83,7 @@ test('with the switch on, a message without an image goes as it always did: one 
   expect((await w.board()).log.at(-1)?.reference).toBeUndefined()
 })
 
-test('a message typed during a running turn, with an image, is decided when it is sent as before: it starts no turn to wait for', { options: JEV }, async ($, on) => {
+test('a message typed during a running turn, with an image, is decided when it is sent as before: it starts no turn to wait for', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: (request, n) => answering(3, n === 1 ? 1 : 4, (sent) => ('midturn.level' in (sent.body.questions ?? {}) ? jev(at(4))(sent) : undefined))(request) })
   await w.submit('Look at the log first')
   await w.step({ index: 0 })
@@ -98,7 +98,7 @@ test('a message typed during a running turn, with an image, is decided when it i
   expect(w.steps[1]?.effort).toBe('max')
 })
 
-test('a message whose row never came is decided without a reading: the images of an earlier message are not guessed at', { options: JEV }, async ($, on) => {
+test('a message whose row never came is decided without a reading: the images of an earlier message are not guessed at', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 2) })
   await w.submit('Look at the log first')
   await w.step({ index: 0 })
@@ -114,7 +114,7 @@ test('a message whose row never came is decided without a reading: the images of
   expect(efforts[0]?.body.state.reference_complexity).toBeUndefined()
 })
 
-test('a message a hook beneath refuses leaves nothing waiting for a later turn with the same text', { options: JEV }, async ($, on) => {
+test('a message a hook beneath refuses leaves nothing waiting for a later turn with the same text', { options: KEY }, async ($, on) => {
   let refuse = true
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 2), beneath: { drop: () => (refuse ? 'blocked by a UserPromptSubmit hook' : undefined) } })
   expect(await w.submit('Build this scene', { images: [SCENE] })).toEqual({ drop: 'blocked by a UserPromptSubmit hook' })
@@ -131,7 +131,7 @@ test('a message a hook beneath refuses leaves nothing waiting for a later turn w
 
 // ---- The same images are read once ------------------------------------------------------------------------------------------
 
-test('the same reference image sent again in the conversation is read once: the second message is decided with the reading kept', { options: JEV }, async ($, on) => {
+test('the same reference image sent again in the conversation is read once: the second message is decided with the reading kept', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 2) })
   await w.submit('Build this scene', { images: [SCENE] })
   await w.step({ index: 0 })
@@ -144,7 +144,7 @@ test('the same reference image sent again in the conversation is read once: the 
   expect(w.steps.map((s) => s.effort)).toEqual(['high', 'high'])
 })
 
-test('another image is another reading', { options: JEV }, async ($, on) => {
+test('another image is another reading', { options: KEY }, async ($, on) => {
   const other: PastedImage = { path: '/refs/city.png', shown: { format: 'png', width: 2000, height: 1200, label: 'shown-city' } }
   const w = world($, on, { switches: ON, files: { ...FILES, '/refs/city.png': { format: 'png', width: 2400, height: 1440, label: 'city' } }, process: true, backend: answering(3, 2) })
   await w.submit('Build this scene', { images: [SCENE] })
@@ -155,7 +155,7 @@ test('another image is another reading', { options: JEV }, async ($, on) => {
 
 // ---- When the reading does not come ---------------------------------------------------------------------------------------------
 
-test('a reading that fails: the effort is decided without it, the first step still goes out at it, and the board notes the failure without a toast', { options: JEV }, async ($, on) => {
+test('a reading that fails: the effort is decided without it, the first step still goes out at it, and the board notes the failure without a toast', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 3, (request) => (isReading(request) ? { status: 500, body: 'down' } : undefined)) })
   await w.submit('Build this scene', { images: [SCENE] })
   await w.step({ index: 0 })
@@ -170,7 +170,7 @@ test('a reading that fails: the effort is decided without it, the first step sti
   expect(w.toasts).toEqual([])
 })
 
-test('a reading that takes more than about 3 seconds is not waited for: the effort is decided without it', { options: JEV }, async ($, on) => {
+test('a reading that takes more than about 3 seconds is not waited for: the effort is decided without it', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 2, (request) => (isReading(request) ? { after: 60_000, reply: jev(at(3))(request) } : undefined)) })
   const submitting = w.submit('Build this scene', { images: [SCENE] })
   await w.clock.settle()
@@ -184,7 +184,7 @@ test('a reading that takes more than about 3 seconds is not waited for: the effo
   expect((await w.board()).notes).toEqual([expect.objectContaining({ feature: 'image-routing', kind: 'failed' })])
 })
 
-test('an image that cannot be read (the file is gone) is no reading: no request for it, the effort is decided without it', { options: JEV }, async ($, on) => {
+test('an image that cannot be read (the file is gone) is no reading: no request for it, the effort is decided without it', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: ON, files: {}, process: true, backend: answering(3, 2) })
   await w.submit('Build this scene', { images: [SCENE] })
   await w.step({ index: 0 })
@@ -194,7 +194,7 @@ test('an image that cannot be read (the file is gone) is no reading: no request 
   expect(w.steps[0]?.effort).toBe('high')
 })
 
-test('an image the row gives only as a block, where no program can write it to a file, is no reading: the effort is decided without it', { options: JEV }, async ($, on) => {
+test('an image the row gives only as a block, where no program can write it to a file, is no reading: the effort is decided without it', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 2) })
   await w.submit('Build this scene', { images: [{ shown: { format: 'png', width: 2000, height: 1333 } }] })
   await w.step({ index: 0 })
@@ -203,7 +203,7 @@ test('an image the row gives only as a block, where no program can write it to a
   expect(w.steps[0]?.effort).toBe('high')
 })
 
-test('when the effort request fails too, the turn is not routed and says why: it goes out at the engine effort', { options: JEV }, async ($, on) => {
+test('when the effort request fails too, the turn is not routed and says why: it goes out at the engine effort', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: answering(3, 3, (request) => (isReading(request) ? undefined : { status: 503, body: 'overloaded' })) })
   await w.submit('Build this scene', { images: [SCENE] })
   await w.step({ index: 0, effort: 'medium' })
@@ -216,7 +216,7 @@ test('when the effort request fails too, the turn is not routed and says why: it
 
 // ---- The order of precedence is the same ---------------------------------------------------------------------------------------
 
-test("the person's lock still wins: the decision is made and logged, the step goes out at the locked effort", { options: JEV }, async ($, on) => {
+test("the person's lock still wins: the decision is made and logged, the step goes out at the locked effort", { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: ON, session: true, files: FILES, process: true, backend: answering(3, 4) })
   await w.start()
   await w.command('dp', 'lock low')
@@ -260,7 +260,7 @@ test('with only a Perplexity key the images go to pplx (as image parts of its st
 
 // ---- Where the image comes from ---------------------------------------------------------------------------------------------------
 
-test('a row that names no file: the image block itself is written to a file and read', { options: JEV }, async ($, on) => {
+test('a row that names no file: the image block itself is written to a file and read', { options: KEY }, async ($, on) => {
   // macOS's `base64 -D -o <file>` decodes its standard input into a file.
   const base64 = (args: readonly string[], disk: Disk, init?: { stdin?: string }) => {
     const out = args[args.indexOf('-o') + 1] as string

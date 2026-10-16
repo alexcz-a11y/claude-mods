@@ -11,6 +11,7 @@
 // Pure module state, the latest calls only: lost on a hot reload (a call that
 // ended before it then reads as the transcript has it).
 
+import { keepNewest } from '../decision/keep-newest.ts'
 import type { Outcome } from '../decision/midturn.ts'
 
 /** At most this many calls are remembered, the oldest dropped first. */
@@ -37,10 +38,7 @@ export function wasBlocked(id: string): boolean {
 export function noteEnded(id: string, outcome: Exclude<Outcome, 'running'>): void {
   endings.delete(id)
   endings.set(id, outcome)
-  for (const old of endings.keys()) {
-    if (endings.size <= MAX_CALLS) break
-    endings.delete(old)
-  }
+  keepNewest(endings, MAX_CALLS)
 }
 
 /** How the call `id` ended, when it was seen ending. */

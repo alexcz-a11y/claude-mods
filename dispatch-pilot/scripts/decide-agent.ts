@@ -26,8 +26,7 @@ import { dispatchSettings, saidTokens } from '../hooks/core/setup.ts'
 import { messageText } from '../hooks/decision/context.ts'
 import { decideDispatch, dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { answersFor, mergeParts } from '../hooks/decision/system-one.ts'
-import { attemptMs } from '../eval/lib/runner.ts'
-import { nodeIo, scriptArgs, scriptDecision } from '../eval/node.ts'
+import { nodeIo, scriptArgs, scriptDecision, scriptTimeout } from '../eval/node.ts'
 
 const USAGE = 'node scripts/decide-agent.ts (--file <jsonl> --id <id> [--lang en] | <item JSON>) [--zh] [--work] [--noul] [--choice] [--fable] [--timeout ms]'
 const { values, positionals } = scriptArgs(USAGE, {
@@ -63,11 +62,12 @@ if (typeof values.file === 'string') {
 // The manifest's defaults and the decision model's, as the engine and the mod give them; --fable turns agentFable on.
 const { settings, backend } = scriptDecision(values.fable === true ? ['agentFable=true'] : [])
 
+// The agent's questions are asked as the decision model's table says for agents (`ask.agent`); the flags write them otherwise.
 const shape = dispatchSettings(
-  { config: settings, ask: settings.ask.other },
+  { config: settings },
   {
-    language: values.zh === true ? 'zh' : settings.ask.other.language,
-    primitive: values.choice === true ? 'choice' : settings.ask.other.primitive,
+    language: values.zh === true ? 'zh' : settings.ask.agent.language,
+    primitive: values.choice === true ? 'choice' : settings.ask.agent.primitive,
     options: values.work === true ? 'work' : 'models',
     requested: values.noul === true ? 'noul' : 'hint',
   },
@@ -78,7 +78,7 @@ const request = mergeParts(dispatchState(dispatch, settings.contextByKind.agent)
 console.log(JSON.stringify({ questions: Object.keys(request.questions), state: request.state }))
 
 const started = performance.now()
-const asked = await backend.ask(nodeIo, request, Number(values.timeout ?? attemptMs(settings.timeoutMs)))
+const asked = await backend.ask(nodeIo, request, scriptTimeout(values.timeout, settings.timeoutMs))
 const ms = Math.round(performance.now() - started)
 if (!asked.ok) {
   console.log(JSON.stringify({ ok: false, backend: backend.name, failure: asked.failure, ms }))

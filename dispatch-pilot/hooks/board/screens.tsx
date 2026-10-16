@@ -63,7 +63,7 @@ async function viewOf($: EngineInterface, isWorking: boolean): Promise<ScreenVie
 
 /** One more frame in `TICK_MS` while something runs; none once nothing does. */
 function tick($: EngineInterface, view: ScreenView): void {
-  const moving = view.live && (view.counts.running > 0 || view.rows.some((row) => row.node.state === 'running'))
+  const moving = view.live && view.rows.some((row) => row.node.state === 'running')
   if (!moving || ticking !== null) return
   try {
     ticking = $.clock.after(TICK_MS, () => {

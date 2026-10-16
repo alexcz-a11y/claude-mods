@@ -1,12 +1,14 @@
 // The rationale pane on the terminal (spec #22 「依据面板」, prototype D): at
-// its top, every feature switch with its state (the ones off in grey), the lock and how the skill profiles went (in
-// grey); ‹ 上一个 (p) / 下一个 › (n); the rounded card of the agent picked (its
-// state and why not routed, the model it was given and why, the effort
-// probabilities, the rules' working step by step, the result, the main agent's
-// confidence note, its forced raises and mid-turn re-decisions with a
-// confidence meter); then the decision log grouped by turn, folded with a
-// letter key. Pure: drawn from `rationale.ts`'s view of the data with the
-// terminal's element table; the Buttons call `act`.
+// its top, every feature switch with its state (the ones off in grey), the lock
+// and how the skill profiles went (grey; amber or red when some failed or
+// writing stopped); ‹ 上一个 (p) / 下一个 › (n); the rounded card of the agent
+// picked (its state and why not routed, the model it was given and why, the
+// effort probabilities, the rules' working step by step, the result, the main
+// agent's confidence note, its forced raises and mid-turn re-decisions with a
+// confidence meter); the problem summary the session holds; then the decision
+// log grouped by turn, folded with a letter key. Pure: drawn from
+// `rationale.ts`'s view of the data with the terminal's element table; the
+// Buttons call `act`.
 //
 // The other surfaces get the same pane in plain text (#31): `paneTree` is given
 // the terminal's Raster only on the terminal; without it the probabilities are
@@ -25,18 +27,16 @@ import { failureMeaning } from '../decision/backend.ts'
 import type { Effort } from '../decision/effort.ts'
 import { EFFORTS } from '../decision/effort.ts'
 import { type LogEntry, type ProfilesState, type Tone } from '../core/report.ts'
-import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, meterCells, MODEL_FG, MUTED, OK, pct, SKILL, softColor, stackCells, stateGlyph, STATUS_COLOR, WARN, width, type Raster, type TT } from './kit.tsx'
+import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, meterCells, MODEL_FG, MUTED, OK, pct, skillsText, softColor, stackCells, stateGlyph, STATUS_COLOR, WARN, width, type Raster, type TT } from './kit.tsx'
 import {
   cardOf,
   entryVerb,
   FAILURES_KEY,
   logGroups,
   midVerdict,
-  offLine,
   pageTo,
   profilesLine,
   stepLines,
-  switchWord,
   unresolvedWords,
   verdictWords,
   type Card,
@@ -48,7 +48,7 @@ import { referenceWords } from './reference.ts'
 import { FEATURE_WORDS, featureOf, levelOf, type AgentRow, type ScreenView } from './view.ts'
 
 /** What the pane is drawn from. */
-export type PaneInput = {
+type PaneInput = {
   view: ScreenView
   log: readonly LogEntry[]
   /** How the session's skill profiles went; null when there is no record, or the skills or skill-profiles switch is off. */
@@ -66,7 +66,7 @@ export type PaneInput = {
 }
 
 /** What the pane's Buttons do: pick another agent's card, fold or open a turn of the log, list the failed skills. */
-export type PaneActs = {
+type PaneActs = {
   pick: (row: AgentRow) => void
   fold: (turn: number, open: boolean) => void
   failures: (open: boolean) => void
@@ -90,17 +90,22 @@ const NUMBER = 6
 /** From this many cells the card's model chip and effort tag sit beside the agent's name; narrower, under it. */
 const HEAD_BESIDE = 48
 
+/** An empty row. */
+function blank(t: TT, key: string) {
+  const { Box, Text } = t
+  return (
+    <Box key={key}>
+      <Text> </Text>
+    </Box>
+  )
+}
+
 export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, raster?: Raster) {
   const { Box, Button, Text } = t
   const { view } = input
   const card = cardOf(view, input.log)
   const prev = pageTo(card, view, -1)
   const next = pageTo(card, view, 1)
-  const blank = (key: string) => (
-    <Box key={key}>
-      <Text> </Text>
-    </Box>
-  )
   return (
     <Box key="pane" flexDirection="column" width={cols}>
       <Box key="pane-head" width={cols}>
@@ -135,7 +140,7 @@ export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, r
       <Box key="pane-card" flexDirection="column" width={cols} borderStyle="round" borderColor={MUTED} paddingX={1}>
         {cardRows(t, card, input, Math.max(10, cols - 4), raster)}
       </Box>
-      {blank('pane-gap')}
+      {blank(t, 'pane-gap')}
       {summaryRows(t, input.summary, cols)}
       {logRows(t, input, cols, act, raster)}
     </Box>
@@ -174,11 +179,7 @@ function summaryRows(t: TT, summary: PaneInput['summary'], cols: number): Render
     )
   })
   if (summary.status !== '') rows.push(hang(t, 'pane-summary-status', '状态', <Text wrap="wrap">{summary.status}</Text>, w))
-  rows.push(
-    <Box key="pane-summary-gap">
-      <Text> </Text>
-    </Box>,
-  )
+  rows.push(blank(t, 'pane-summary-gap'))
   return [
     <Box key="pane-summary" flexDirection="column" width={cols}>
       {rows}
@@ -191,11 +192,10 @@ function summaryRows(t: TT, summary: PaneInput['summary'], cols: number): Render
 function topLines(t: TT, input: PaneInput, cols: number, act: PaneActs): RenderNode[] {
   const { Box, Button, Text } = t
   const rows: RenderNode[] = []
-  const off = offLine(input.master)
-  if (off !== null) {
+  if (!input.master) {
     rows.push(
       <Box key="pane-off" width={cols}>
-        <Text color={MUTED} wrap="wrap">{off}</Text>
+        <Text color={MUTED} wrap="wrap">Dispatch Pilot 已关：不发决策请求，每一步照引擎原样发出（/dp on 打开）</Text>
       </Box>,
     )
   }
@@ -208,7 +208,7 @@ function topLines(t: TT, input: PaneInput, cols: number, act: PaneActs): RenderN
         </Box>
         {input.switches.map((one) => (
           <Box key={`pane-switch-${one.name}`} flexShrink={0}>
-            <Text {...(one.on ? {} : { color: MUTED })}>{`${one.name} ${switchWord(one.on)}  `}</Text>
+            <Text {...(one.on ? {} : { color: MUTED })}>{`${one.name} ${one.on ? '开' : '关'}  `}</Text>
           </Box>
         ))}
       </Box>,
@@ -342,19 +342,13 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
     rows.push(hang(t, 'pane-card-backend', '后端', text(node.failure.backend), w))
     rows.push(hang(t, 'pane-card-detail', '细节', text(node.why ?? node.failure.detail), w))
     rows.push(hang(t, 'pane-card-where', '排查', text('debug log（claude --debug-file <路径>）里有这次请求的那一行，写着它发了什么、等了多久、怎么失败的', MUTED), w))
-  } else if (!node.routed && node.why !== undefined && node.why !== '' && node.state !== 'failed') {
-    rows.push(hang(t, 'pane-card-why', '原因', text(node.why, WARN), w))
   }
   if (row.checks !== '') rows.push(hang(t, 'pane-card-checks', '看图核对', text(row.checks), w, 10))
   if (node.locked === true) rows.push(hang(t, 'pane-card-lock', '锁定', text('照 /dp lock 发出这一档；决定照常记下，不影响发出的 effort（/dp unlock 解除）', MUTED), w))
   const route = card.route
   if (route !== undefined) rows.push(...decisionRows(t, route, main, w, raster))
   for (const raise of card.raises) {
-    rows.push(
-      <Box key={`pane-raise-gap-${raise.n}`}>
-        <Text> </Text>
-      </Box>,
-    )
+    rows.push(blank(t, `pane-raise-gap-${raise.n}`))
     rows.push(hang(t, `pane-raise-${raise.n}`, '强制升档', text(`#${raise.n} ${raise.subject}${raise.counts === undefined ? '' : `：工具调用失败 ${raise.counts.failed}${raise.counts.blocked > 0 ? ` · 被 hook 拦下 ${raise.counts.blocked}` : ''} · 第 ${raise.counts.raised} 次升档`}`, WARN), w, 10))
     rows.push(...traceRows(t, `pane-raise-${raise.n}`, raise.trace ?? [], w))
     const level = levelOf(raise)
@@ -362,11 +356,7 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
   }
   if (card.mids.length > 0) {
     const counted = node.midturn
-    rows.push(
-      <Box key="pane-mid-gap">
-        <Text> </Text>
-      </Box>,
-    )
+    rows.push(blank(t, 'pane-mid-gap'))
     rows.push(
       <Box key="pane-mid-head" width={w}>
         <Text wrap="wrap">
@@ -622,6 +612,7 @@ function entryRows(t: TT, entry: LogEntry, cols: number, Bar: Raster | undefined
   const inner = Math.max(10, cols - 2)
   const bar = Math.max(8, Math.min(20, inner - 47))
   const skills = entry.skills
+  const showsLevel = level !== undefined && feature !== 'skills' && feature !== 'find-skill'
   return (
     <Box key={`pane-entry-${entry.n}`} width={cols}>
       <Box width={2} flexShrink={0}>
@@ -634,8 +625,8 @@ function entryRows(t: TT, entry: LogEntry, cols: number, Bar: Raster | undefined
             <Text color={LOG_COLOR[entry.tone]} bold>{entryVerb(entry)}</Text>
             {entry.model === undefined ? null : <Text> </Text>}
             {entry.model === undefined ? null : chip(t, entry.model, true)}
-            {level === undefined || feature === 'skills' || feature === 'find-skill' ? null : <Text> </Text>}
-            {level === undefined || feature === 'skills' || feature === 'find-skill' ? null : effortTag(t, level, 12)}
+            {showsLevel ? <Text> </Text> : null}
+            {showsLevel ? effortTag(t, level, 12) : null}
             {feature === 'unresolved' || feature === 'visual-check' ? <Text color={MUTED}>{`  ${entry.outcome}`}</Text> : null}
           </Text>
         </Box>
@@ -659,16 +650,7 @@ function entryRows(t: TT, entry: LogEntry, cols: number, Bar: Raster | undefined
         )}
         {skills === undefined || skills.suggest.length + skills.try.length === 0 ? null : (
           <Box>
-            <Text wrap="wrap">
-              {skills.suggest.map((skill, i) => (
-                <Text>
-                  {i > 0 ? <Text color={MUTED}>{' · '}</Text> : null}
-                  {skill.name}
-                  <Text color={OK}>{` ${pct(skill.relevance)}`}</Text>
-                </Text>
-              ))}
-              {skills.try.length === 0 ? null : <Text color={SKILL} bold>{`${skills.suggest.length > 0 ? '  ' : ''}可试 ${skills.try.map((skill) => `/${skill.name}`).join(' ')}`}</Text>}
-            </Text>
+            <Text wrap="wrap">{skillsText(t, skills)}</Text>
           </Box>
         )}
         <Box>

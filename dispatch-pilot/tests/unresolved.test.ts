@@ -5,11 +5,8 @@
 
 import { expect, test } from 'claude-code/testing'
 import { COUNT_FIELD } from '../hooks/decision/unresolved.ts'
-import { jev, world, type Sent } from './support/world.ts'
+import { jev, KEY, type Sent, UNRESOLVED_ON, world } from './support/world.ts'
 
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
-/** The switch is off until the person turns it on (#48): these tests are about what it does when on. */
-const UNRESOLVED_ON = { unresolved: true }
 /** What the decision model leans to, as shares of the question's three options. */
 const SAYS = {
   still: { still_unresolved: 0.8, resolved: 0.05, new_or_unrelated: 0.15 },
@@ -85,6 +82,10 @@ test('/clear and a new session start the count over; /compact keeps it', { optio
   expect(w.unresolved()).toBe(0)
   await w.submit('还是不行')
   expect(w.unresolved()).toBe(1)
+
+  // The session ends for good (quit, resume elsewhere): the next one starts from 0, as after a /clear.
+  await w.end('prompt_input_exit')
+  expect(w.unresolved()).toBe(0)
 })
 
 test('a hand-back or a task notice that starts a turn is not asked and does not touch the count; a message typed into a running turn counts', { options: KEY }, async ($, on) => {
@@ -167,7 +168,7 @@ test('never set, the switch is off: the effort request goes alone, the count sta
   expect(w.stored('switches')).toBeUndefined()
 })
 
-test('/dp unresolved on turns the question, the count and the summary on as they were with the switch on by default', { options: KEY }, async ($, on) => {
+test('/dp unresolved on turns the question, the count and the summary on (they are off until then, #48), and off turns them off again', { options: KEY }, async ($, on) => {
   const said = { now: 'still' as Says }
   const w = world($, on, { backend: backend(said), session: true, store: {}, model: () => ({ text: '{}' }) })
   await w.start()

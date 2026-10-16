@@ -4,6 +4,7 @@
 // verdicts, the sizes) are only tested through here.
 
 import { expect, test } from 'claude-code/testing'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { readFake } from './support/images.ts'
 import { jev, world } from './support/world.ts'
 
@@ -117,7 +118,7 @@ test('the checks against a spec go to Jev in one request with the screenshot in 
   const sent = w.requests[0]
   expect(sent?.url).toBe('https://api.typesafe.ai/v1/systemone')
   expect(sent?.headers['TypeSafe-Danger-Zone-Images']).toBe('true')
-  expect(sent?.body.model).toBe('jev-1.14.0')
+  expect(sent?.body.model).toBe(JEV_MODEL)
   const [reference, ...others] = Object.keys(sent?.body.assets)
   expect(others).toEqual([])
   expect(reference).toMatch(/-screenshot$/)

@@ -25,9 +25,11 @@ export const PPLX_IMAGE_LIMITS: ImageLimits = { maxTiles: 2048 }
 /** What the agent is handed back to look at (`look: true`, an image that is unsure): not larger than it reads well; a small one stays small. */
 export const LOOK_IMAGE_LIMITS: ImageLimits = { maxSide: 1568 }
 
+const BACKEND_LIMITS: Readonly<Record<BackendName, ImageLimits>> = { jev: JEV_IMAGE_LIMITS, pplx: PPLX_IMAGE_LIMITS }
+
 /** The limits of the decision model that takes images. */
 export function limitsFor(backend: BackendName): ImageLimits {
-  return backend === 'jev' ? JEV_IMAGE_LIMITS : PPLX_IMAGE_LIMITS
+  return BACKEND_LIMITS[backend]
 }
 
 /** How many 32 by 32 tiles an image covers. */

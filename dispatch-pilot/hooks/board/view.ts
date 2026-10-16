@@ -7,8 +7,9 @@
 //
 // Pure: the board, the log, the time and the switches come in as data and
 // closures (`ScreenInput`). A feature that is off owns nothing here: its
-// decisions, notes and board parts are left out (spec story 34). The skill
-// profiles' state and log entry are never shown (#33).
+// decisions, notes and board parts are left out (spec story 34). The log
+// entries of the skill profiles and of the decision model's fallback are left
+// off the band (#33); the pane shows them.
 //
 // The words are the screens' own (Chinese, GLOSSARY terms); `why` on a node
 // comes in the decision report's words (Chinese too, #32).
@@ -18,7 +19,7 @@ import { isEffort, type Effort } from '../decision/effort.ts'
 import { callWorkflowOf, ENDED_WORDS, type Board, type BoardNode, type BoardNote, type LogEntry, type Model, type Reading, type ReadingChange, type RuleStep } from '../core/report.ts'
 import type { BoardPart } from '../core/switches.ts'
 import { tallyText } from '../decision/visual-check-record.ts'
-import { mmss, pct } from './kit.tsx'
+import { mmss, pct, pctText, SPIN } from './kit.tsx'
 
 /** What the screens are drawn from. */
 export type ScreenInput = {
@@ -102,7 +103,7 @@ export const TICK_MS = 200
  * A Workflow call's node, standing for an agent that has not started (`callNodeId`). One written as a template
  * stays once its agents start, marked started, for the agents after them: the screens show those agents, not it.
  */
-export function isCallNode(node: BoardNode): boolean {
+function isCallNode(node: BoardNode): boolean {
   return callWorkflowOf(node.id) !== null
 }
 
@@ -142,30 +143,39 @@ export function featureOf(feature: string): string {
   return feature.split(' ')[0] ?? feature
 }
 
+/** The agent an entry is about: the main agent when it names none. */
+export function agentOf(entry: LogEntry): string {
+  return entry.agent ?? 'main'
+}
+
 export function screenView(input: ScreenInput): ScreenView {
   const { board, now } = input
-  const frame = Math.floor(now / TICK_MS) % 10
+  const frame = Math.floor(now / TICK_MS) % SPIN.length
   const turn = board.turn
   const startOf = (of: number) => board.starts?.find((start) => start.turn === of)?.at
   const start = startOf(turn)
   const elapsed = start === undefined ? 0 : Math.max(0, (now - start) / 1000)
   const empty = { off: !input.master, turn, elapsed, live: false, rows: [], events: [], counts: { running: 0, done: 0, failed: 0, queued: 0 }, workflow: null, midturn: null, summary: { reason: '', tried: [] }, frame }
   if (!input.master) return empty
-  // The turn's agents, and those of earlier turns that still run (a Workflow's outlive the turn that launched it);
-  // not a call whose agents started (a template's, kept for its later agents).
-  const nodes = board.nodes.filter((node) => !(isCallNode(node) && node.state !== 'queued') && (node.turn === turn || (node.turn < turn && active(node))))
+  // The turn's agents, and those of earlier turns that still run (a Workflow's outlive the turn that launched it; a
+  // main agent's turn is over when the next starts, whatever its node says); not a call whose agents started (a
+  // template's, kept for its later agents).
+  const nodes = board.nodes.filter((node) => !(isCallNode(node) && node.state !== 'queued') && (node.turn === turn || (node.turn < turn && node.id !== 'main' && active(node))))
   const main = nodes.find((node) => node.turn === turn && node.id === 'main')
   const log = input.log.filter((entry) => entry.turn === turn && entry.feature !== 'skill-profiles' && entry.feature !== 'decision-model')
-  const mainEntries = log.filter((entry) => entry.agent === 'main')
+  const mainEntries = log.filter((entry) => agentOf(entry) === 'main')
   // Where a node sits on this turn's time axis: its own turn's start may be earlier.
   const shift = (node: BoardNode) => {
     const own = startOf(node.turn)
     return own === undefined || start === undefined ? 0 : (own - start) / 1000
   }
   const placed = nodes.map((node) => {
-    const from = Math.max(0, node.t0 + shift(node))
-    const to = node.state === 'queued' ? null : node.dur !== undefined ? Math.max(from, node.t0 + shift(node) + node.dur) : node.state === 'running' ? Math.max(from, elapsed) : from
-    return { node, from, to }
+    const began = node.t0 + shift(node)
+    const from = Math.max(0, began)
+    const to = node.state === 'queued' ? null : node.dur !== undefined ? Math.max(from, began + node.dur) : node.state === 'running' ? Math.max(from, elapsed) : from
+    // How long a running agent has run: from its own start, which an earlier turn's agent has before this turn's axis begins.
+    const ran = Math.max(0, elapsed - began)
+    return { node, from, to, ran }
   })
   const others = placed
     .filter(({ node }) => node.id !== 'main')
@@ -174,12 +184,12 @@ export function screenView(input: ScreenInput): ScreenView {
   const isPicked = (node: BoardNode) => input.selected !== null && input.selected.turn === node.turn && input.selected.id === node.id
   const counts = input.isShown('counts')
   const shownChecks = input.isShown('checks')
-  const rows: AgentRow[] = ordered.map(({ node, from, to }, i) => ({
+  const rows: AgentRow[] = ordered.map(({ node, from, to, ran }, i) => ({
     node,
     key: node.id === 'main' ? 0 : main === undefined ? (i + 1 <= 9 ? i + 1 : null) : i <= 9 ? i : null,
     from,
     to,
-    status: node.id === 'main' ? mainStatus(node, mainEntries, input) : agentStatus(node, from, to, counts, input),
+    status: node.id === 'main' ? mainStatus(node, mainEntries, input) : agentStatus(node, ran, counts, input),
     selected: isPicked(node),
     checks: shownChecks && node.visualChecks !== undefined ? tallyText(node.visualChecks) : '',
   }))
@@ -231,15 +241,14 @@ function mainStatus(node: BoardNode, entries: readonly LogEntry[], input: Screen
   return { tone: 'muted', text: `已决定 · ${mainReason(entries, input) || '照计划'}` }
 }
 
-/** An agent's cell: failed and why, not routed and why, how long it has run or ran, queued; its failed calls and raises after. */
-function agentStatus(node: BoardNode, from: number, to: number | null, showCounts: boolean, input: ScreenInput): AgentRow['status'] {
+/** An agent's cell: failed and why, not routed and why, how long it has run (`ran`, seconds) or ran, queued; its failed calls and raises after. */
+function agentStatus(node: BoardNode, ran: number, showCounts: boolean, input: ScreenInput): AgentRow['status'] {
   const extra = showCounts && node.counts !== undefined ? countsText(node.counts) : ''
   if (node.state === 'failed') return { tone: 'fail', text: node.why !== undefined && ENDED.has(node.why) ? `失败 · ${node.why}` : '失败' }
   if (!node.routed && node.state !== 'queued') return { tone: 'warn', text: `未路由 · ${notRoutedWhy(node, input)}${extra}` }
   if (node.state === 'queued') return { tone: 'muted', text: node.routed || (node.why === undefined && node.failure === undefined) ? '排队' : `排队 · 未路由 · ${notRoutedWhy(node, input)}` }
-  const ran = to === null ? 0 : to - from
   if (node.state === 'running') return { tone: 'run', text: `运行 ${mmss(ran)}${extra}` }
-  return { tone: 'done', text: `完成 ${mmss(node.dur ?? ran)}${extra}` }
+  return { tone: 'done', text: `完成 ${mmss(node.dur ?? 0)}${extra}` }
 }
 
 /** A loop's counts in a few words: ` · 失败 2 · 拦截 1 · 升档 1`, the zero ones left out. */
@@ -263,18 +272,17 @@ function mainReason(entries: readonly LogEntry[], input: ScreenInput): string {
 }
 
 /** The rule that settled the level, from the rules' own working (never recomputed): the round-up, the max gate, else the most likely level. */
-export function traceReason(trace: readonly RuleStep[] | undefined): string {
+function traceReason(trace: readonly RuleStep[] | undefined): string {
   if (trace === undefined) return ''
   const step = (rule: string) => trace.find((one) => one.rule === rule)
-  const num = (value: unknown) => (typeof value === 'number' ? pct(value) : '?')
   const up = step('round-up')
-  if (up?.applied === true) return `上取一档 ${String(up.above)} ${num(up.p)}`
+  if (up?.applied === true) return `上取一档 ${String(up.above)} ${pctText(up.p)}`
   const gate = step('max-gate')
-  if (gate?.applied === true) return `max ${num(gate.p)} 未到 ${num(gate.thetaMax)}`
-  const lift = trace.find((one) => (one.rule === 'model-floor' || one.rule === 'plan-floor') && one.applied)
+  if (gate?.applied === true) return `max ${pctText(gate.p)} 未到 ${pctText(gate.thetaMax)}`
+  const lift = trace.find((one) => one.rule === 'model-floor' && one.applied)
   if (lift !== undefined) return `下限抬到 ${String(lift.level)}`
   const top = step('top')
-  return top === undefined ? '' : `最可能 ${String(top.level)} ${num(top.p)}`
+  return top === undefined ? '' : `最可能 ${String(top.level)} ${pctText(top.p)}`
 }
 
 // ---- events -------------------------------------------------------------------
@@ -287,7 +295,7 @@ function whoOf(id: string | undefined, nodes: readonly BoardNode[], fallback: st
 
 /** The Workflow an entry belongs to: its call's tool call id, or its agent's Workflow. */
 function workflowOf(entry: LogEntry, nodes: readonly BoardNode[]): { id: string; name: string } | null {
-  const agent = entry.agent ?? ''
+  const agent = agentOf(entry)
   const node = nodes.find((one) => one.id === agent)
   if (node?.workflow !== undefined) return node.workflow
   const id = callWorkflowOf(agent)
@@ -364,12 +372,12 @@ function eventsOf(board: Board, log: readonly LogEntry[], nodes: readonly BoardN
 /** A change a decision logged just before it accounts for: one about the same agent that moved its level, since that agent's previous change. */
 function explained(change: ReadingChange, changes: readonly ReadingChange[], log: readonly LogEntry[]): boolean {
   const before = changes.filter((other) => other.id === change.id && other.after < change.after).reduce((latest, other) => Math.max(latest, other.after), 0)
-  return log.some((entry) => (entry.agent ?? 'main') === change.id && entry.n <= change.after && entry.n > before && moved(entry))
+  return log.some((entry) => agentOf(entry) === change.id && entry.n <= change.after && entry.n > before && moved(entry))
 }
 
 /** A decision about one agent's route: who, what it got, why in a few words. */
 function decidedOf(entry: LogEntry, nodes: readonly BoardNode[]): BandEvent {
-  const main = entry.agent === 'main'
+  const main = agentOf(entry) === 'main'
   const level = main ? levelOf(entry) : entry.effort
   return {
     at: entry.at ?? 0,

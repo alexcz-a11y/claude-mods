@@ -13,7 +13,7 @@
 
 import { mock } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
-import { absolute, base64, BASE_DIRS, type Disk, type FakeFile, fileBase64, fileSize, mediaTypeOf, mkdir, type Program, readImageResult, sips } from './images.ts'
+import { absolute, BASE_DIRS, type Disk, type FakeFile, fileBase64, fileSize, mediaTypeOf, mkdir, type Program, readImageResult, sips } from './images.ts'
 import { attachmentsOf, type PastedImage, rowOf } from './pasted.ts'
 import type {
   AgentInfo,
@@ -30,13 +30,19 @@ import type {
   RenderPropsOf,
   RenderSurface,
   SessionContextBreakdown,
+  SessionEndReason,
   SessionMeasureInput,
   SessionMessage,
   SessionUsage,
   SettingsSource,
   RegisteredToolSpec,
-  ToolSpec,
 } from 'claude-code'
+import { JEV_MODEL } from '../../hooks/decision/jev.ts'
+
+/** The plugin options of a test that decides with Jev: `{ options: KEY }`. */
+export const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+/** The switch that turns the unresolved-problem question on: `world(..., { switches: UNRESOLVED_ON })`. */
+export const UNRESOLVED_ON = { unresolved: true }
 
 /** The board's `$.state` values, as the contract declares them (types/index.d.ts): the board data tests assert on. */
 export type BoardNode = PluginState['dispatch-pilot']['board']['nodes'][number]
@@ -109,8 +115,8 @@ export type WorldOptions = {
    */
   files?: Record<string, FakeFile>
   /**
-   * `$.process.run` answers as the CLI's does: the programs of the world run on the disk of `files` (sips and mkdir, the ones the
-   * mod uses so far), each call is recorded in `w.ran`. `true` for the defaults.
+   * `$.process.run` answers as the CLI's does: the programs of the world run on the disk of `files` (sips and mkdir by default,
+   * base64 and ffmpeg when `programs` names them), each call is recorded in `w.ran`. `true` for the defaults.
    */
   process?: true | ProcessWorld
   /** What `$.session.id()` answers (`s1` by default); `w.setSessionId` gives the process another, as a /clear does. */
@@ -215,8 +221,6 @@ export type SkillsWorld = {
   listed?: ContextSkill[] | null
   /** `skillOverrides` per settings source (`$.settings.read({ source })`). */
   overrides?: Partial<Record<SettingsSource, Record<string, string>>>
-  /** `$.env.get('HOME')`; `/home/u` by default. */
-  home?: string
   /** `$.session.cwd()`; `/work` by default. */
   cwd?: string
 }
@@ -300,7 +304,7 @@ export type WorkflowSpawnOptions = { runId: string; agentIndex: number; agentId:
 /** The most one `$.fs.read` takes, in bytes (the engine's limit). */
 const READ_LIMIT = 4 * 1024 * 1024
 
-/** What the engine resolves a model alias to as it starts an agent (2.1.289). */
+/** What the engine resolves a model alias to as it starts an agent (2.1.289; `haiku` is Haiku 5.5 from 2.1.296, DEVELOPMENT.md 「已实测的引擎行为」). */
 const ENGINE_IDS: Record<string, string> = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' }
 
 /** The agent.spawn the engine raises for one Agent tool call (`id`, the call's tool_use_id). */
@@ -357,9 +361,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const agents: AgentInfo[] = Array.isArray(options.agents) ? [...options.agents] : []
   const store = new Map(Object.entries({ ...(options.store ?? {}), ...(options.switches !== undefined ? { switches: { ...(options.store?.switches as object | undefined), ...options.switches } } : {}) }).map(([key, value]) => [key, JSON.stringify(value)]))
   const sessionWorld = options.session ?? (options.switches !== undefined || options.env !== undefined ? true : undefined)
-  /** The session start the world runs for `options.switches` (and `w.start()`), once. */
+  /** The first session start: the one the world runs by itself for `options.switches` / `options.env`, or the test's first `w.start()`. */
   let starting: Promise<unknown> | undefined
-  const startSession = () => (starting ??= $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true }))
+  const beginSession = () => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  const startSession = () => (starting ??= beginSession())
   /** Before the first thing a test makes the engine do: the session has started, so the switches the test set are loaded. */
   const booted = async () => {
     if (options.switches !== undefined || options.env !== undefined) await startSession()
@@ -491,7 +496,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     })
   }
   // One `mock.env` for the world: the skills' `HOME` and the variables the test sets.
-  if (options.skills !== undefined || options.env !== undefined) mock.env(on, { ...(options.skills === undefined ? {} : { HOME: options.skills.home ?? '/home/u' }), ...options.env })
+  if (options.skills !== undefined || options.env !== undefined) mock.env(on, { ...(options.skills === undefined ? {} : { HOME: '/home/u' }), ...options.env })
   if (options.skills !== undefined) {
     const skills = options.skills
     on('session.cwd', () => ({ value: skills.cwd ?? '/work' }))
@@ -504,48 +509,24 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       value: e?.source === undefined ? {} : { ...(e.source === 'user' ? options.userSettings : {}), ...(options.skills === undefined ? {} : { skillOverrides: options.skills.overrides?.[e.source] ?? {} }) },
     }))
   }
-  // The board data (the 「决定汇报」 module's `board` and `decisionLog`) is kept here, not in the kit's state: the test
-  // body has no `$.state` to read it back with, and `options.seed` can stand for what an earlier load left. Versions
-  // work as the host's do (a write lands unless `ifVersion` is stale), and values go through JSON as they would.
-  const held: { board: { value: unknown; version: number }; decisionLog: { value: unknown; version: number }; skillProfiles: { value: unknown; version: number }; unresolved: { value: unknown; version: number }; pplxRate: { value: unknown; version: number } } = {
-    board: { value: options.seed?.board, version: options.seed?.board === undefined ? 0 : 1 },
-    decisionLog: { value: options.seed?.log, version: options.seed?.log === undefined ? 0 : 1 },
-    skillProfiles: { value: options.seed?.profiles, version: options.seed?.profiles === undefined ? 0 : 1 },
-    unresolved: { value: options.seed?.unresolved, version: options.seed?.unresolved === undefined ? 0 : 1 },
-    pplxRate: { value: options.seed?.pplxRate, version: options.seed?.pplxRate === undefined ? 0 : 1 },
+  // The board data (the 「决定汇报」 module's `board` and `decisionLog`), the skill profiles, the unresolved count and the pplx rate
+  // limit's record of the latest sends are kept here, not in the kit's state: the test body has no `$.state` to read them back with,
+  // and `options.seed` can stand for what an earlier load left. Versions work as the host's do (a write lands unless `ifVersion` is
+  // stale), and values go through JSON both ways as they would, so a mod that changes a value it read in place changes nothing here.
+  const seeds = { board: options.seed?.board, decisionLog: options.seed?.log, skillProfiles: options.seed?.profiles, unresolved: options.seed?.unresolved, pplxRate: options.seed?.pplxRate }
+  const held = Object.fromEntries(Object.entries(seeds).map(([key, value]) => [key, { value, version: value === undefined ? 0 : 1 }])) as { [K in keyof typeof seeds]: { value: unknown; version: number } }
+  const cloned = (value: unknown): never => (value === undefined ? undefined : JSON.parse(JSON.stringify(value))) as never
+  for (const key of ['board', 'decisionLog', 'skillProfiles', 'unresolved', 'pplxRate'] as const) {
+    // One handler for the five keys: the matcher's type is narrower than a loop over them can show.
+    const match = { plugin: 'dispatch-pilot', key } as never
+    on('state.get', match, () => ({ value: { value: cloned(held[key].value), version: held[key].version } }))
+    on('state.set', match, (_$, e: { value: unknown; ifVersion?: number }) => {
+      // `pplxRateContended`: every write of the pplx record is turned down as if another load had written first.
+      if ((key === 'pplxRate' && options.pplxRateContended === true) || (e.ifVersion !== undefined && e.ifVersion !== held[key].version)) return { value: { isSet: false, version: held[key].version } }
+      held[key] = { value: cloned(e.value), version: held[key].version + 1 }
+      return { value: { isSet: true, version: held[key].version } }
+    })
   }
-  on('state.get', { plugin: 'dispatch-pilot', key: 'board' }, () => ({ value: { value: held.board.value as never, version: held.board.version } }))
-  on('state.get', { plugin: 'dispatch-pilot', key: 'decisionLog' }, () => ({ value: { value: held.decisionLog.value as never, version: held.decisionLog.version } }))
-  on('state.set', { plugin: 'dispatch-pilot', key: 'board' }, (_$, e) => {
-    if (e.ifVersion !== undefined && e.ifVersion !== held.board.version) return { value: { isSet: false, version: held.board.version } }
-    held.board = { value: JSON.parse(JSON.stringify(e.value)), version: held.board.version + 1 }
-    return { value: { isSet: true, version: held.board.version } }
-  })
-  on('state.set', { plugin: 'dispatch-pilot', key: 'decisionLog' }, (_$, e) => {
-    if (e.ifVersion !== undefined && e.ifVersion !== held.decisionLog.version) return { value: { isSet: false, version: held.decisionLog.version } }
-    held.decisionLog = { value: JSON.parse(JSON.stringify(e.value)), version: held.decisionLog.version + 1 }
-    return { value: { isSet: true, version: held.decisionLog.version } }
-  })
-  on('state.get', { plugin: 'dispatch-pilot', key: 'skillProfiles' }, () => ({ value: { value: held.skillProfiles.value as never, version: held.skillProfiles.version } }))
-  on('state.set', { plugin: 'dispatch-pilot', key: 'skillProfiles' }, (_$, e) => {
-    if (e.ifVersion !== undefined && e.ifVersion !== held.skillProfiles.version) return { value: { isSet: false, version: held.skillProfiles.version } }
-    held.skillProfiles = { value: JSON.parse(JSON.stringify(e.value)), version: held.skillProfiles.version + 1 }
-    return { value: { isSet: true, version: held.skillProfiles.version } }
-  })
-  // The unresolved count is kept here too, so a test reads what the mod stored and seeds what a hot reload would keep.
-  on('state.get', { plugin: 'dispatch-pilot', key: 'unresolved' }, () => ({ value: { value: held.unresolved.value as never, version: held.unresolved.version } }))
-  on('state.set', { plugin: 'dispatch-pilot', key: 'unresolved' }, (_$, e) => {
-    if (e.ifVersion !== undefined && e.ifVersion !== held.unresolved.version) return { value: { isSet: false, version: held.unresolved.version } }
-    held.unresolved = { value: JSON.parse(JSON.stringify(e.value)), version: held.unresolved.version + 1 }
-    return { value: { isSet: true, version: held.unresolved.version } }
-  })
-  // The pplx rate limit's record of the latest sends, kept here for the same reason: a test reads it, and seeds what a hot reload keeps.
-  on('state.get', { plugin: 'dispatch-pilot', key: 'pplxRate' }, () => ({ value: { value: held.pplxRate.value as never, version: held.pplxRate.version } }))
-  on('state.set', { plugin: 'dispatch-pilot', key: 'pplxRate' }, (_$, e) => {
-    if (options.pplxRateContended === true || (e.ifVersion !== undefined && e.ifVersion !== held.pplxRate.version)) return { value: { isSet: false, version: held.pplxRate.version } }
-    held.pplxRate = { value: JSON.parse(JSON.stringify(e.value)), version: held.pplxRate.version + 1 }
-    return { value: { isSet: true, version: held.pplxRate.version } }
-  })
   // The status row the mod must never draw on (ADR 0004): recorded, so a test can say it stayed empty.
   on('ui.status', (_$, e) => {
     statuses.push(e.text)
@@ -627,8 +608,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     spawned.push({ tool_use_id: e.tool_use_id, model: e.model, subagentType: e.subagentType, description: e.description, prompt: e.prompt, ...(e.workflow !== undefined ? { workflow: e.workflow } : {}) })
     const scripted = e.workflow === undefined ? undefined : workflowSpawns.get(`${e.workflow.runId}#${e.workflow.agentIndex}`)
     if (scripted !== undefined) return { model: scripted.model === undefined ? e.parentModel : (ENGINE_IDS[scripted.model] ?? scripted.model), agentId: scripted.agentId }
-    if (e.resume !== undefined) return { model: e.model ?? e.parentModel, agentId: e.resume.agentId }
-    return { model: e.model ?? e.parentModel, agentId: `a${spawned.length}` }
+    // The model comes back resolved to the full id, as the engine returns it (`sonnet` is `claude-sonnet-5-5`).
+    const resolved = e.model === undefined ? e.parentModel : (ENGINE_IDS[e.model] ?? e.model)
+    if (e.resume !== undefined) return { model: resolved, agentId: e.resume.agentId }
+    return { model: resolved, agentId: `a${spawned.length}` }
   })
   // The engine at the bottom of turn.step: it records what the request went
   // out with, streams the response's text, and runs each tool call while the
@@ -860,14 +843,20 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
         ...(spawn.model !== undefined ? { model: spawn.model } : {}),
       } as never)
     },
-    /** The session starts (needs `session`): the mod sets itself up and registers its commands. */
-    start: () => (options.switches !== undefined || options.env !== undefined ? startSession() : $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })),
+    /**
+     * The session starts (needs `session`): the mod sets itself up and registers its commands. The first start is the one the
+     * world may already have run by itself; every call after it is the next session (a restart, `/resume`), run again.
+     */
+    start: () => (starting === undefined ? startSession() : beginSession()),
     /** The engine reports the session's context, limits and cost (needs `session`). */
     measure: (input: SessionMeasureInput) => $.session.measure(input),
     /** Runs a slash command as the person types it (`/dp lock max` is `command('dp', 'lock max')`); resolves to the text it printed. */
     command: async (name: string, args = '') => {
       await booted()
-      return (await $.command.run({ command: name, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })).text ?? ''
+      const text = (await $.command.run({ command: name, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })).text ?? ''
+      // The engine puts the plugin's name before a command's answer (2.1.296, DEVELOPMENT.md 「已实测的引擎行为」): the mod's own text must not.
+      if (text.startsWith('dispatch-pilot: ')) throw new Error(`the command's text carries the plugin's name, which the engine adds: ${text}`)
+      return text
     },
     /**
      * The person types a prompt command (a skill, a markdown command): as Claude Code runs one (measured on 2.1.291),
@@ -889,6 +878,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     compact: () => $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'earlier work', toolUses: [] }] }),
     /** The person's `/clear` (needs `session`): the conversation ends, the process goes on, no session.start follows. */
     clear: () => $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } }),
+    /** The session ends for another reason (`resume`, `logout`, `prompt_input_exit`, `other`; needs `session`): what the mod keeps for one session starts over, as for a new session. */
+    end: (reason: SessionEndReason) => $.session.end({ reason, sessionId: 's1', resume: { id: 's1' } }),
     /**
      * The model calls the mod's find_skill tool with this query (`agentId`: from a dispatched agent's loop);
      * resolves to the tool's answer, `{ result }`.
@@ -972,7 +963,6 @@ function usageListing(listed: readonly ContextSkill[]): SessionUsage {
 
 /** What a decision model's answer can be told besides the probabilities (`jev`, `pplx`). */
 export type AnswerExtra = {
-  status?: number
   choice?: string
   confidence?: number | null
   shares?: Record<string, Record<string, number>>
@@ -1042,7 +1032,7 @@ export function jev(levels: readonly number[], extra: AnswerExtra = {}) {
         answers[id] = { type: 'noul', noul: extra.nouls?.[id] ?? 0.5 }
       }
     }
-    return { status: extra.status ?? 200, body: { model: 'jev-1.13.0', answers, usage: { input_tokens: 300, output_tokens: 0 } } }
+    return { status: 200, body: { model: JEV_MODEL, answers, usage: { input_tokens: 300, output_tokens: 0 } } }
   }
 }
 
@@ -1082,6 +1072,13 @@ export function pplx(levels: readonly number[], extra: AnswerExtra & { key?: str
 export function withoutUnresolved(body: any): any {
   const { 'effort.unresolved': _asked, ...questions } = body?.questions ?? {}
   return { ...body, questions }
+}
+
+/** The ids of a request's questions, joined: `effort.level` for a message, `midturn.level,escalation.expected` for a stuck loop. The unresolved question travels in the message's effort request (#39) and is left out. */
+export function kind(request: Sent | undefined): string {
+  return Object.keys(request?.body?.questions ?? {})
+    .filter((id) => id !== 'effort.unresolved')
+    .join(',')
 }
 
 /** Whether a request is a message's second skills request (#11): the shortlist re-read, one `skills.fits.<i>` each. */

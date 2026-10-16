@@ -8,11 +8,8 @@ import { turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
 import { withUnresolved } from '../hooks/decision/unresolved.ts'
-import { jev, world, type Reply } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
-/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
-const UNRESOLVED_ON = { unresolved: true }
+import { workflowWorld } from './support/workflow.ts'
+import { jev, KEY, type Reply, UNRESOLVED_ON, world } from './support/world.ts'
 
 test('a message gets one Jev decision, and its turn goes out at the decided effort', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })
@@ -25,7 +22,7 @@ test('a message gets one Jev decision, and its turn goes out at the decided effo
   expect(request?.url).toBe('https://api.typesafe.ai/v1/systemone')
   expect(request?.method).toBe('POST')
   expect(request?.headers.authorization).toBe('Bearer ts-test-key')
-  expect(request?.body.model).toBe('jev-1.14.0')
+  expect(request?.body.model).toBe(JEV_MODEL)
   expect(request?.body.state.user_message).toBe('把登录模块重构成三层，并补上测试')
   // One Score question with five levels, lowest first (low .. max)
   expect(Object.keys(request?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
@@ -116,7 +113,7 @@ const failures: { name: string; reply: Reply; kind: string; why: string }[] = [
   { name: 'a server error (500)', reply: { status: 500, body: 'Internal Server Error' }, kind: 'http', why: 'jev：出错（状态码 500）' },
   { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }, kind: 'network', why: 'jev：连不上' },
   { name: 'a 200 that is not an answer', reply: { status: 200, body: '<html>maintenance</html>' }, kind: 'parse', why: 'jev：回答读不懂' },
-  { name: 'an answer without the effort question', reply: { status: 200, body: { model: 'jev-1.13.0', answers: {} } }, kind: 'parse', why: 'jev：回答读不懂' },
+  { name: 'an answer without the effort question', reply: { status: 200, body: { model: JEV_MODEL, answers: {} } }, kind: 'parse', why: 'jev：回答读不懂' },
 ]
 
 for (const failure of failures) {
@@ -357,22 +354,16 @@ test('what the mod sends is exactly what the decision module builds, so the eval
   const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 1, 0, 0, 0]), messages: TRANSCRIPT })
   await w.submit('改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉')
 
-  // Jev is asked about the effort in Chinese (core/setup.ts BACKEND_DEFAULTS turnStartLanguage).
+  // Jev is asked about the effort in Chinese (core/setup.ts BACKEND_DEFAULTS, Jev's ask.turnStart).
   const built = mergeParts(turnStartState({ prompt: '改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉', messages: TRANSCRIPT, limits: { messages: 4, tokens: 2000 } }), [withUnresolved(turnStartEffortPart({ language: 'zh' }), 'zh')])
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, ...built })
 })
 
 test("the turn's record keeps its message masked and cut to the context budget, as later decisions read it", { options: { ...KEY, contextTokens: 100 } }, async ($, on) => {
-  const writes: { key: string; id: string | undefined; value: unknown }[] = []
-  on('state.set', async (_$, e, next) => {
-    const write = e as { key: string; id?: string; value: unknown }
-    writes.push({ key: write.key, id: write.id, value: write.value })
-    return next(e)
-  })
-  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]) })
+  const w = workflowWorld($, on, { backend: jev([0, 1, 0, 0, 0]) })
   await w.submit(`把 token=abcd1234efgh5678 换成读环境变量。${'顺便检查一下其他地方有没有类似的硬编码。'.repeat(20)}`)
 
-  const record = writes.find((write) => write.key === 'turns' && write.id === 'main:t1')?.value as { prompt: string } | undefined
+  const record = w.stateWrites.find((write) => write.key === 'turns' && write.id === 'main:t1')?.value as { prompt: string } | undefined
   expect(record?.prompt.startsWith('把 token=[REDACTED] 换成读环境变量。')).toBe(true)
   expect(record?.prompt).not.toContain('abcd1234efgh5678')
   expect(estimateTokens(record?.prompt ?? '')).toBeLessThanOrEqual(100)
@@ -395,7 +386,7 @@ test('each request and decision is written to the debug log, never into the conv
 
   expect(w.logs.map((l) => l.to)).toEqual(['debug', 'debug', 'debug'])
   expect(w.logs.map((l) => l.text)).toEqual([
-    'request [effort.level] to jev: answered in 0 ms by jev-1.13.0 (300 input tokens)',
+    `request [effort.level] to jev: answered in 0 ms by ${JEV_MODEL} (300 input tokens)`,
     'effort high · "把登录模块重构成三层"：概率 low 0.05, medium 0.10, high 0.60, xhigh 0.20, max 0.05；置信度 0.70',
     'request [effort.level] to jev: http: HTTP 500: boom (0 ms)',
   ])

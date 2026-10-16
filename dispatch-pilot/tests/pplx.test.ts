@@ -155,6 +155,13 @@ const failures: { name: string; status: number; text: string; headers?: Record<s
     kind: 'config',
     detail: /^HTTP 401: invalid_api_key: Invalid API key provided/,
   },
+  {
+    name: 'an account out of credits (402, seen when the account ran dry: its body does not matter) is a quota failure, not an error of the mod',
+    status: 402,
+    text: '',
+    kind: 'quota',
+    detail: /^HTTP 402: empty body$/,
+  },
   { name: 'a 404 has an empty body', status: 404, text: '', kind: 'http', detail: /^HTTP 404: empty body$/ },
   { name: 'a 405 has an empty body too', status: 405, text: '', kind: 'http', detail: /^HTTP 405: empty body$/ },
   {

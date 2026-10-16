@@ -49,8 +49,8 @@ export function withStateTokens(settings: Settings, tokens: number): Settings {
 
 /**
  * The settings with the number of recent messages the state may hold set to `messages` (the mod's own is at most the decision
- * model's, `contextMessagesMax`: with Jev the newest 32, whatever the token budget, so a state of 96000 tokens still stops at the 32nd message back). With
- * `withStateTokens` it lets a long conversation fill a large budget; not what the mod runs with (#44, `run.ts --state-messages`).
+ * model's, `contextMessagesMax`: 2000 for both, whatever the token budget). With `withStateTokens` it lets a long conversation
+ * fill a large budget; not what the mod runs with (#44, `run.ts --state-messages`).
  */
 export function withStateMessages(settings: Settings, messages: number): Settings {
   return { ...settings, context: { ...settings.context, messages } }
@@ -170,7 +170,7 @@ export type ImageHost = {
 export type Suite<I extends AnyItem, P> = {
   /** The dataset it reads: eval/datasets/<name>.jsonl. */
   name: string
-  /** The ways it can ask (eval variables), by name; the first is how the mod asks today. */
+  /** The ways it can ask (eval variables), by name; which of them is how the mod asks today is for each suite's own head comment to say (effort-submit: `modVariant`). */
   variants: readonly string[]
   /** Asks about one item in one language, through `ask`, exactly as the mod would. */
   decide: (item: I, language: Language, variant: string, ask: Ask, settings: Settings) => Promise<Decided<P>>

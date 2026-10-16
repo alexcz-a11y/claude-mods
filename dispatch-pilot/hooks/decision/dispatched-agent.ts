@@ -52,7 +52,7 @@ export type Dispatch = {
    * The conversation the agent was dispatched from, oldest first, a line per message (context.ts `recentLines`: the
    * text and the tools' names, never a tool's input or output): what the main agent worked from when it wrote the
    * brief. Sent in what the brief and the person's words leave of the budget, newest first. Absent: none is sent
-   * (Jev, whose decision model does not read it: BACKEND_DEFAULTS `agentBackground`; the eval's items have none).
+   * (a backend whose `agentBackground` is off, BACKEND_DEFAULTS; the eval's items have none).
    */
   recent_context?: readonly string[]
 }
@@ -81,7 +81,7 @@ export type DispatchShape = {
   field?: string
 }
 
-export const AGENT_PART = 'agent'
+const AGENT_PART = 'agent'
 export const BRIEF = 'brief'
 /** The question ids within the part; a yes/no question about one model is `<prefix>.<model>`. */
 export const MODEL = 'model'
@@ -98,7 +98,7 @@ export const REQUESTED_FITS = 'requested_fits'
  * The kind of work each model suits, and the option name for it. Written from
  * Artificial Analysis' Intelligence Index v4.3.2 (docs/research/aa-benchmarks-2026-10.md),
  * each option one situation, never a degree (guide §2.4):
- * - Haiku 4.5 scores 0% on Terminal-Bench and 3.2% on AutomationBench: it is for a lookup of one or two steps whose result
+ * - Haiku (AA lists only Haiku 4.5) scores 0% on Terminal-Bench and 3.2% on AutomationBench: it is for a lookup of one or two steps whose result
  *   is only gathered and laid out as asked, not a long run of tool calls, not a write, not a judgment.
  * - Sonnet 5.5 matches or beats Opus 5.5 on terminal work, automation and knowledge work (Terminal-Bench 63.6% against
  *   59.6%, AutomationBench 71.8% against 69.5%) and trails it where facts, hard reasoning and scientific code decide
@@ -398,20 +398,30 @@ export function dispatchBrief(dispatch: Dispatch, tokens: number): Record<string
  * the brief has the rest; the conversation it was dispatched from
  * (`recent_context`), when there is one, fills what the two leave.
  */
-export function dispatchState(dispatch: Dispatch, tokens: number, field: string = BRIEF): State {
+export function dispatchState(dispatch: Dispatch, tokens: number): State {
   return withinTokens((budget) => {
     const words = dispatchWords(dispatch.user_message, budget)
     const state: State = {
-      [field]: dispatchBrief(dispatch, budget - estimateTokens(words)),
+      [BRIEF]: dispatchBrief(dispatch, budget - estimateTokens(words)),
       user_message: words,
-      // The background the main agent works from: read by the decision model, never with a hint (#41).
-      ...(dispatch.problem_summary ? { [SUMMARY_FIELD]: dispatch.problem_summary } : {}),
-      ...(dispatch.unresolved_count ? { [COUNT_FIELD]: dispatch.unresolved_count } : {}),
-      ...referenceField(dispatch.reference_complexity),
+      ...backgroundState(dispatch),
     }
     const recent = recentWithin(dispatch.recent_context ?? [], budget - estimateTokens(JSON.stringify(state)))
     return recent === '' ? state : { ...state, recent_context: recent }
   }, tokens)
+}
+
+/**
+ * The state fields that carry the background the main agent works from: the problem summary, the unresolved count (while
+ * it is above 0) and the reference reading. Read by the decision model, never with a hint (#41, #64); a field is left out
+ * when it is absent.
+ */
+export function backgroundState(background: Pick<Dispatch, 'problem_summary' | 'unresolved_count' | 'reference_complexity'>): State {
+  return {
+    ...(background.problem_summary ? { [SUMMARY_FIELD]: background.problem_summary } : {}),
+    ...(background.unresolved_count ? { [COUNT_FIELD]: background.unresolved_count } : {}),
+    ...referenceField(background.reference_complexity),
+  }
 }
 
 /** The person's words as a request about an agent (or a Workflow's agents) reads them: secrets masked, at most a third of `tokens`. */
@@ -614,7 +624,7 @@ export function termsOf(decision: DispatchDecision): Terms | null {
  * What the log says of a decision beyond whose model it is: the models ruled
  * out and what stood in for them, and the effort the person asked for.
  */
-export function decisionNotes(decision: DispatchDecision): string[] {
+function decisionNotes(decision: DispatchDecision): string[] {
   const notes: string[] = []
   if (decision.banned.length > 0) notes.push(`排除了 ${decision.banned.join('、')}`)
   if (decision.pick?.nearest === true) notes.push(`回答没给其余模型留下概率，取最接近的 ${decision.pick.model}`)

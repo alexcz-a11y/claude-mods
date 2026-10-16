@@ -2,6 +2,7 @@
 // never fails: a timeout, an HTTP error, sips failing, no CLI, a file that is not there. Seam 1, as visual-check.test.ts.
 
 import { expect, test } from 'claude-code/testing'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { ffmpeg, sips } from './support/images.ts'
 import { jev, world } from './support/world.ts'
 
@@ -120,7 +121,7 @@ test('a call that fails as a whole, about a recording (no one image to hand back
 })
 
 test('a check the answer leaves out is UNSURE, the others are judged', { options: JEV }, async ($, on) => {
-  const answered = (request: { body: any }) => ({ status: 200, body: { model: 'jev-1.14.0', answers: { 'check.0': { type: 'noul', noul: 0.95 } }, usage: { input_tokens: 100 } }, request })
+  const answered = (request: { body: any }) => ({ status: 200, body: { model: JEV_MODEL, answers: { 'check.0': { type: 'noul', noul: 0.95 } }, usage: { input_tokens: 100 } }, request })
   const w = world($, on, { session: true, files: FILES, process: true, backend: (request) => answered(request) })
   await w.start()
   const answer = read(await w.visualCheck({ images: [SHOT], checks: [...CHECKS, { part: 'the footer', property: 'is visible' }] }))

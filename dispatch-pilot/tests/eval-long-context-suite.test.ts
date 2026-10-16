@@ -3,9 +3,7 @@
 // come from the same functions, and the budget and the number of messages the state may hold are what the run sets (#44).
 
 import { expect, test } from 'claude-code/testing'
-import type { BackendIo } from '../hooks/decision/backend.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
-import { EFFORTS } from '../hooks/decision/effort.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import { renderSummary, type Summary } from '../hooks/decision/summary.ts'
 import { turnStartPart } from '../hooks/decision/turn-start.ts'
@@ -15,40 +13,8 @@ import { LONG_CONTEXT_VARIANTS, longContextSuite, type SummaryFile } from '../ev
 import { summarize } from '../eval/lib/metrics.ts'
 import { runSuite, stateDigest } from '../eval/lib/runner.ts'
 import { settingsFrom, withStateMessages, withStateTokens } from '../eval/lib/suite.ts'
-import { jev, world } from './support/world.ts'
-/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
-const UNRESOLVED_ON = { unresolved: true }
-
-type Reply = { status: number; body: unknown }
-
-const STILL = { still_unresolved: 0.7, resolved: 0.2, new_or_unrelated: 0.1 }
-
-/** A Jev answer to the effort question putting `p` on the levels (lowest first), and to the three-way question `STILL`. */
-function answers(body: any, p: readonly number[]): Reply {
-  const out: Record<string, unknown> = {}
-  for (const [id, question] of Object.entries(body.questions as Record<string, { type: string }>)) {
-    if (id === 'effort.level') out[id] = { type: 'score', probabilities: Object.fromEntries(EFFORTS.map((_, i) => [String(i), p[i] ?? 0])), confidence: 0.5, score: 0 }
-    else out[id] = { type: question.type, probabilities: STILL, confidence: 0.5, choice: '' }
-  }
-  return { status: 200, body: { model: 'jev-1.13.0', answers: out, usage: { input_tokens: 700 } } }
-}
-
-function network(reply: (body: any) => Reply) {
-  const bodies: any[] = []
-  let clock = 0
-  const io: BackendIo = {
-    fetch: async (_url, init) => {
-      const body = JSON.parse(String(init.body))
-      bodies.push(body)
-      const { status, body: out } = reply(body)
-      clock += 120
-      return { status, ok: status >= 200 && status < 300, headers: {}, text: JSON.stringify(out) }
-    },
-    sleep: (_ms, signal) => new Promise((_done, fail) => signal.addEventListener('abort', () => fail(new Error('aborted')))),
-  }
-  return { io, bodies, now: () => clock }
-}
-
+import { answers, network } from './support/eval-network.ts'
+import { jev, UNRESOLVED_ON, world } from './support/world.ts'
 /** The questions of the request the mod sends (the part's, under the part's name). */
 function asked(input: { count?: number; maxAfter?: number }): Record<string, unknown> {
   const questions = turnStartPart({ ask: { language: 'zh', primitive: 'score' }, unresolved: true, ...input }).questions

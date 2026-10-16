@@ -6,24 +6,11 @@
 // the data a person needs, not for whole lines of wording.
 
 import { expect, test } from 'claude-code/testing'
+import { type Drawn, inventory, shown } from './support/drawn.ts'
 import { runWorld } from './support/workflow-run.ts'
-import { jev, world, type LogEntry, type ProfilesState, type Sent } from './support/world.ts'
+import { jev, KEY, type LogEntry, type ProfilesState, type Sent, world } from './support/world.ts'
 
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 const PANE = 'dp-rationale'
-
-/** A drawn element as plain data (what `drawn()` and `find` hand back). */
-type Drawn = { type?: string; key?: string | undefined; props?: Record<string, unknown>; children?: unknown[] }
-
-/** What a drawn element shows: its descendants' text in order, a Button as `hotkey: label`. */
-function shown(element: unknown): string {
-  if (typeof element === 'string' || typeof element === 'number') return String(element)
-  if (element === null || typeof element !== 'object') return ''
-  const { children = [], props = {} } = element as Drawn
-  const label = typeof props.label === 'string' ? `${typeof props.hotkey === 'string' ? `${props.hotkey}: ` : ''}${props.label}` : ''
-  const kids = Array.isArray(props.children) ? props.children : children
-  return label + kids.map(shown).join('')
-}
 
 // ---- opening and closing ---------------------------------------------------------
 
@@ -143,6 +130,14 @@ test('not routed: the card says why in a few words, then the failure in full (it
   expect(shown(await ui.find({ key: 'pane-card-where' }))).toContain('debug log')
   // Nothing decided: no probabilities, no rules.
   expect(await ui.find({ key: 'pane-card-probs' })).toBeUndefined()
+})
+
+test('not routed with a reason but no failed request: the state row says it, and the card does not say it again', async ($, on) => {
+  const main = { turn: 1, id: 'main', kind: 'main' as const, name: '主 agent', type: 'main', state: 'running' as const, t0: 0, routed: false, why: '这一轮没有判断出档位' }
+  const w = world($, on, { seed: { board: { turn: 1, starts: [{ turn: 1, at: 0 }], nodes: [main] } } })
+  const ui = await w.pane()
+  expect(shown(await ui.find({ key: 'pane-card-state' }))).toContain('未路由 · 这一轮没有判断出档位')
+  expect(await ui.find({ key: 'pane-card-why' })).toBeUndefined()
 })
 
 /** Jev answering the message's request with `start` and each mid-turn request with the next of `midturn`. */
@@ -432,20 +427,6 @@ test('the session start\'s profiles entry is in the log under its turn, its tone
 // ---- the other surfaces: the same pane in text (#31) -------------------------------
 
 const SURFACES = ['desktop', 'vscode', 'mobile'] as const
-
-/** The element types in a drawn tree and how many nodes it has (Desktop refuses a tree of 2000). */
-function inventory(element: unknown, seen: { types: Set<string>; nodes: number } = { types: new Set(), nodes: 0 }) {
-  if (typeof element === 'string') {
-    seen.nodes += 1
-    return seen
-  }
-  if (element === null || typeof element !== 'object') return seen
-  const { type, children = [], props = {} } = element as Drawn
-  seen.nodes += 1
-  if (type !== undefined) seen.types.add(type)
-  for (const child of Array.isArray(props.children) ? props.children : children) inventory(child, seen)
-  return seen
-}
 
 test("on a surface other than the terminal the pane is the same pane in text: the card with the probabilities as numbers, the rules' working, the mid-turn meter as its line, the log; no Raster", { options: { ...KEY, rejudgeEvery: 2, holdSteps: 3 } }, async ($, on) => {
   const LOW = [0.9, 0.1, 0, 0, 0]

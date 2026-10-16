@@ -6,7 +6,7 @@
 import { type Box, boxArea, coverage, ELSEWHERE_MAX_AREA, ELSEWHERE_MIN_CONFIDENCE, normalizeBox } from './zoom.ts'
 import { imageRef, imageTokens, packByCost, type Picture } from './images.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part, type Question, type RequestImage, MAX_QUESTIONS } from './system-one.ts'
-import { judge, STILL_BARS, yesOf, type Bars, type Check, type CheckResult } from './visual-check.ts'
+import { judge, requestImage, STILL_BARS, yesOf, type Bars, type Check, type CheckResult } from './visual-check.ts'
 
 // ---- Locating: the Box questions of the first request ----------------------------------------------------------------
 
@@ -144,14 +144,12 @@ export function batchPairs(pairs: readonly ZoomPair[]): ZoomPair[][] {
   return packByCost(costs, ZOOM_REQUEST_TOKENS, MAX_QUESTIONS - 1).map((batch) => batch.map((index) => pairs[index] as ZoomPair))
 }
 
-const requestImage = (crop: NamedPicture): RequestImage => ({ name: crop.name, format: crop.picture.format, base64: crop.picture.base64, width: crop.picture.width, height: crop.picture.height })
-
 /** One request for these pairs: a Noul for each, its two crops in the instructions. */
 export function zoomRequest(pairs: readonly ZoomPair[]): { request: DecisionRequest; part: Part } {
   const questions = Object.fromEntries(pairs.map((pair) => [questionId(pair), pairQuestion(pair)]))
   const part: Part = { part: ZOOM_PART, questions }
   const images = new Map<string, RequestImage>()
-  for (const pair of pairs) for (const crop of [pair.candidate, pair.other]) if (!images.has(crop.name)) images.set(crop.name, requestImage(crop))
+  for (const pair of pairs) for (const crop of [pair.candidate, pair.other]) if (!images.has(crop.name)) images.set(crop.name, requestImage(crop.name, crop.picture))
   // Nothing in the state is for the questions to read: the crops are in the instructions.
   return { request: { ...mergeParts({ task: 'Each question compares one part of two images, as shown in two enlarged crops.' }, [part]), images: [...images.values()] }, part }
 }

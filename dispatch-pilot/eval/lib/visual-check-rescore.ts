@@ -12,12 +12,12 @@ import { isRecord } from './datasets.ts'
 export const BARS_BEFORE: Bars = { passAt: 0.9, failAt: FAIL_AT }
 
 /** The kinds of item with checks, and the bars the mod judges each by now: the frames of an animation are a recording's, the rest are stills. */
-export const KINDS = ['ui', 'sea', 'anim'] as const
-export type Kind = (typeof KINDS)[number]
-export const barsNow = (kind: Kind): Bars => (kind === 'anim' ? RECORDING_BARS : STILL_BARS)
+export const CHECKED_KINDS = ['ui', 'sea', 'anim'] as const
+export type CheckedKind = (typeof CHECKED_KINDS)[number]
+export const barsNow = (kind: CheckedKind): Bars => (kind === 'anim' ? RECORDING_BARS : STILL_BARS)
 
 /** What the checks of a group came to. `unsure` counts the checks with no verdict to trust; the rates are over `checks`, `differ` or `same`. */
-export type Tally = {
+export type VerdictTally = {
   checks: number
   /** Checks that do not hold (the part differs, the requirement is not met). */
   differ: number
@@ -36,10 +36,10 @@ export type Tally = {
   unsureSame: number
 }
 
-const emptyTally = (): Tally => ({ checks: 0, differ: 0, same: 0, falsePass: 0, falseFail: 0, caught: 0, passed: 0, unsure: 0, unsureDiffer: 0, unsureSame: 0 })
+const emptyTally = (): VerdictTally => ({ checks: 0, differ: 0, same: 0, falsePass: 0, falseFail: 0, caught: 0, passed: 0, unsure: 0, unsureDiffer: 0, unsureSame: 0 })
 
 /** One more check in `into`. */
-function add(into: Tally, holds: boolean, verdict: Verdict): void {
+function add(into: VerdictTally, holds: boolean, verdict: Verdict): void {
   into.checks++
   if (holds) into.same++
   else into.differ++
@@ -61,22 +61,22 @@ type StoredAnswer = { id: string; repeat?: number; language: string } & Record<s
 export type Rescored = {
   variant: string
   /** The verdicts as stored (the bars of the day of the run). */
-  stored: Record<Kind | 'all', Tally>
+  stored: Record<CheckedKind | 'all', VerdictTally>
   /** The same probabilities judged by the bars before 2026-10-15; they must reproduce `stored`. */
-  before: Record<Kind | 'all', Tally>
+  before: Record<CheckedKind | 'all', VerdictTally>
   /** The same probabilities judged by the bars of now. */
-  now: Record<Kind | 'all', Tally>
+  now: Record<CheckedKind | 'all', VerdictTally>
   /** How many checks the old bars gave a different verdict from the stored one (0: the probabilities reproduce the run). */
   notReproduced: number
 }
 
-const emptyGroups = (): Record<Kind | 'all', Tally> => ({ ui: emptyTally(), sea: emptyTally(), anim: emptyTally(), all: emptyTally() })
+const emptyGroups = (): Record<CheckedKind | 'all', VerdictTally> => ({ ui: emptyTally(), sea: emptyTally(), anim: emptyTally(), all: emptyTally() })
 
 /** The checks stored in an answer's variant, with its kind; none for a complexity item or an answer that failed. */
-function checksOf(answer: StoredAnswer, variant: string): { kind: Kind; checks: StoredCheck[] } | null {
+function checksOf(answer: StoredAnswer, variant: string): { kind: CheckedKind; checks: StoredCheck[] } | null {
   const own = answer[variant]
-  if (!isRecord(own) || !(KINDS as readonly unknown[]).includes(own.kind) || !Array.isArray(own.checks)) return null
-  return { kind: own.kind as Kind, checks: own.checks as StoredCheck[] }
+  if (!isRecord(own) || !(CHECKED_KINDS as readonly unknown[]).includes(own.kind) || !Array.isArray(own.checks)) return null
+  return { kind: own.kind as CheckedKind, checks: own.checks as StoredCheck[] }
 }
 
 /**
@@ -110,7 +110,7 @@ export function variantsOf(result: unknown): string[] {
 }
 
 /** The answers of a stored result. */
-export const answersOf = (result: unknown): StoredAnswer[] => (isRecord(result) && Array.isArray(result.answers) ? (result.answers as StoredAnswer[]) : [])
+export const storedAnswers = (result: unknown): StoredAnswer[] => (isRecord(result) && Array.isArray(result.answers) ? (result.answers as StoredAnswer[]) : [])
 
 /** One result file's figures. */
 export type RescoredFile = { file: string; label: string; date: string; repeats: number; variants: Rescored[] }
@@ -123,7 +123,7 @@ export function rescoreResult(file: string, result: unknown): RescoredFile {
     label: isRecord(result) && typeof result.label === 'string' ? result.label : '',
     date: isRecord(result) && typeof result.date === 'string' ? result.date : '',
     repeats: typeof run.repeats === 'number' ? run.repeats : 1,
-    variants: variantsOf(result).map((variant) => rescoreVariant(answersOf(result), variant)),
+    variants: variantsOf(result).map((variant) => rescoreVariant(storedAnswers(result), variant)),
   }
 }
 

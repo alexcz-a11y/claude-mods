@@ -5,9 +5,7 @@
 // the mod's: the parts, the state and its budget come from the same functions.
 
 import { expect, test } from 'claude-code/testing'
-import type { BackendIo } from '../hooks/decision/backend.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
-import { EFFORTS } from '../hooks/decision/effort.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import { renderSummary, type Summary } from '../hooks/decision/summary.ts'
 import type { UnresolvedItem } from '../eval/lib/datasets.ts'
@@ -15,49 +13,11 @@ import { summarize } from '../eval/lib/metrics.ts'
 import { runSuite } from '../eval/lib/runner.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
 import { UNRESOLVED_VARIANTS, unresolved, unresolvedRequest } from '../eval/lib/unresolved.ts'
-import { jev, world } from './support/world.ts'
-/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
-const UNRESOLVED_ON = { unresolved: true }
-
+import { transcript } from './support/conversation.ts'
+import { answers, ELSEWHERE, network, SOLVED, STILL } from './support/eval-network.ts'
+import { jev, UNRESOLVED_ON, world } from './support/world.ts'
 /** A log long enough to overrun a 6000-token budget but not 24000: pasted output, ASCII, about 4 characters a token. */
 const LOG = Array.from({ length: 700 }, (_, i) => `2026-10-05T10:${String(i % 60).padStart(2, '0')}:11Z worker-3 handler.ts:${100 + (i % 40)} retry ${i} of order-${i * 7} failed: ETIMEDOUT`).join('\n')
-
-/** One HTTP reply of the fake network: a status and a JSON body. */
-type Reply = { status: number; body: unknown }
-
-/** What the decision model leans to for the three-way question: the mod's own option names. */
-const STILL = { still_unresolved: 0.7, resolved: 0.2, new_or_unrelated: 0.1 }
-const SOLVED = { still_unresolved: 0.1, resolved: 0.8, new_or_unrelated: 0.1 }
-const ELSEWHERE = { still_unresolved: 0.1, resolved: 0.1, new_or_unrelated: 0.8 }
-
-/** A Jev answer to the effort question putting `p` on the levels (lowest first), and to the three-way question the probabilities `triage`. */
-function answers(body: any, p: readonly number[], triage: Record<string, number> = STILL): Reply {
-  const out: Record<string, unknown> = {}
-  for (const [id, question] of Object.entries(body.questions as Record<string, { type: string }>)) {
-    if (id === 'effort.level') {
-      const probabilities = Object.fromEntries(EFFORTS.map((_, i) => [String(i), p[i] ?? 0]))
-      out[id] = { type: 'score', probabilities, confidence: 0.5, score: 0 }
-    } else out[id] = { type: question.type, probabilities: triage, confidence: 0.5, choice: '' }
-  }
-  return { status: 200, body: { model: 'jev-1.13.0', answers: out, usage: { input_tokens: 700 } } }
-}
-
-/** A fake network: `reply` answers each request. */
-function network(reply: (body: any) => Reply) {
-  const bodies: any[] = []
-  let clock = 0
-  const io: BackendIo = {
-    fetch: async (_url, init) => {
-      const body = JSON.parse(String(init.body))
-      bodies.push(body)
-      const { status, body: out } = reply(body)
-      clock += 120
-      return { status, ok: status >= 200 && status < 300, headers: {}, text: JSON.stringify(out) }
-    },
-    sleep: (_ms, signal) => new Promise((_done, fail) => signal.addEventListener('abort', () => fail(new Error('aborted')))),
-  }
-  return { io, bodies, now: () => clock }
-}
 
 const HIGH = [0, 0.1, 0.6, 0.2, 0.1]
 /** xhigh and max at 0.45 each: max at a thetaMax of 0.4, xhigh at 0.5. */
@@ -97,11 +57,6 @@ function overBudget(id: string, change: (item: UnresolvedItem) => void = () => {
     i.tags.push('over-budget')
     change(i)
   })
-}
-
-/** An item's conversation as the engine's transcript holds it (what `$.session.messages()` hands the mod). */
-function transcript(entries: UnresolvedItem['zh']['recent_context']) {
-  return entries.map((entry) => ({ role: entry.role, text: entry.text, toolUses: (entry.tools ?? []).map((tool, i) => ({ tool_use_id: `toolu_${i}`, tool, input: {}, text: '' })) }))
 }
 
 async function run(items: UnresolvedItem[], net: ReturnType<typeof network>, variants: string[], suite = unresolved) {

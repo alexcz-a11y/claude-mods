@@ -22,7 +22,7 @@
 import { judgeUnresolved, UNRESOLVED_THRESHOLDS, type UnresolvedOption, type UnresolvedThresholds } from '../../hooks/decision/unresolved.ts'
 import type { FinalGold, Relation } from './eval-v2.ts'
 import type { FlowFile } from './eval-v2-flow.ts'
-import { rate } from './metrics.ts'
+import { share } from './metrics.ts'
 
 type Probs = Record<UnresolvedOption, number>
 
@@ -32,8 +32,6 @@ export type TriagePoint = { id: string; msg: string; gold: UnresolvedOption; pro
 export type MiddlePoint = { id: string; msg: string; relation: Relation; probs: Probs }
 
 type Figure = number | null
-
-const share = (count: number, of: number): Figure => (of === 0 ? null : rate(count, of))
 
 /** What a pair of bars does: to the decisive messages, and in the middle rounds. */
 export type BarFigures = UnresolvedThresholds & {

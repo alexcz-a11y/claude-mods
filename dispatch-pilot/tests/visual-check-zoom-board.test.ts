@@ -4,9 +4,9 @@
 
 import { expect, test } from 'claude-code/testing'
 import { zoomBackend } from './support/zoom.ts'
-import { world } from './support/world.ts'
+import { KEY, world } from './support/world.ts'
 
-const OPTIONS = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key', rejudgeEvery: 0 }
+const OPTIONS = { ...KEY, rejudgeEvery: 0 }
 const SHOT = '/shots/home.png'
 const DESIGN = '/design/home.png'
 const FILES = {

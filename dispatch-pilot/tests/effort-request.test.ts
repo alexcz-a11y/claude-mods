@@ -10,11 +10,7 @@ import { turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
 import { withUnresolved } from '../hooks/decision/unresolved.ts'
-import { jev, rates, world, type Reply, type Sent, type SkillsWorld } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
-/** The switch is off until the person turns it on (#48): these tests are about what the request is with it on. */
-const UNRESOLVED_ON = { unresolved: true }
+import { jev, KEY, rates, type Sent, type SkillsWorld, UNRESOLVED_ON, world } from './support/world.ts'
 
 const SKILLS: SkillsWorld = {
   commands: [
@@ -133,8 +129,8 @@ test('each request is logged on its own line in the debug log', { options: KEY }
 
   const lines = w.logs.map((entry) => entry.text).filter((text) => text.startsWith('request '))
   expect(lines).toEqual([
-    'request [effort.level, effort.unresolved] to jev: answered in 0 ms by jev-1.13.0 (300 input tokens)',
-    'request [skills.which] to jev: answered in 0 ms by jev-1.13.0 (300 input tokens)',
+    `request [effort.level, effort.unresolved] to jev: answered in 0 ms by ${JEV_MODEL} (300 input tokens)`,
+    `request [skills.which] to jev: answered in 0 ms by ${JEV_MODEL} (300 input tokens)`,
   ])
 })
 

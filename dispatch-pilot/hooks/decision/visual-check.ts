@@ -20,6 +20,9 @@ export type Comparison =
   /** The images are a series of one view at rising quality levels (#61). */
   | { kind: 'sequence' }
 
+/** A share as a whole percent: `0.97` is `97%`. */
+export const percent = (share: number): string => `${Math.round(share * 100)}%`
+
 /** A pass, a fail, or no verdict to trust. */
 export type Verdict = 'pass' | 'fail' | 'unsure'
 
@@ -81,7 +84,8 @@ export function comparedNames(comparison: Comparison, count: number): string[] {
   return comparison.kind === 'reference' && count > 1 ? Array.from({ length: count }, (_, i) => `reference-${i + 1}`) : [comparison.kind === 'reference' ? 'reference' : 'other']
 }
 
-const named = (name: string, picture: Picture): RequestImage => ({ name, format: picture.format, base64: picture.base64, width: picture.width, height: picture.height })
+/** A picture as an image of a request, under `name`. */
+export const requestImage = (name: string, picture: Picture): RequestImage => ({ name, format: picture.format, base64: picture.base64, width: picture.width, height: picture.height })
 
 /**
  * The first request of a call (the whole images): one Noul for each check, all in the same request, the images in the state
@@ -95,18 +99,18 @@ export function wholeImageRequest(comparison: Comparison, subjects: Subjects, ch
   const images: RequestImage[] = []
   let ask: (check: Check) => string
   if (!compared) {
-    images.push(named('screenshot', screenshot))
+    images.push(requestImage('screenshot', screenshot))
     state.screenshot = imageRef('screenshot')
     const spec = comparison.kind === 'spec' ? comparison.spec : null
     if (spec !== null) state.specification = spec
     ask = (check) => `In \`screenshot\`, does ${check.part} meet this requirement: ${check.property}?${spec === null ? '' : ' The specification it belongs to is in `specification`.'}`
   } else {
-    images.push(named('candidate', screenshot))
+    images.push(requestImage('candidate', screenshot))
     state.candidate = imageRef('candidate')
     const names = comparedNames(comparison, references.length)
     references.forEach((picture, i) => {
       const name = names[i] as string
-      images.push(named(name, picture))
+      images.push(requestImage(name, picture))
       state[name] = imageRef(name)
     })
     const those = names.length === 1 ? `\`${names[0]}\`` : `the reference images (${names.map((name) => `\`${name}\``).join(', ')}), which show it from different sides`

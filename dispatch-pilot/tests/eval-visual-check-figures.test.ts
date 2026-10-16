@@ -4,6 +4,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { judge, type Verdict } from '../hooks/decision/visual-check.ts'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { summarize } from '../eval/lib/metrics.ts'
 import type { Row } from '../eval/lib/runner.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
@@ -67,7 +68,7 @@ const check = (holds: boolean, verdict: Verdict, p: number | null, extra: Partia
 const checked = (kind: 'ui' | 'sea', images: number, checks: CheckDetail[], extra: Partial<CheckedDetail> = {}): CheckedDetail => ({ kind, images, checks, elsewhere: null, requests: [{ questions: 2, images, ms: 300, tokens: 1000 }], ...extra })
 
 function row(id: string, prediction: VisualPrediction, detail: CheckedDetail | ReadingDetail, extra: Partial<Row<VisualPrediction>> = {}): Row<VisualPrediction> {
-  return { id, language: 'zh', variant: 'mod', ok: true, prediction, shown: null, correct: true, exact: true, miss: null, failure: null, detail: detail as unknown as Record<string, unknown>, ms: 400, attempts: 1, inputTokens: 2000, model: 'jev-1.14.0', state: null, requests: 2, ...extra }
+  return { id, language: 'zh', variant: 'mod', ok: true, prediction, shown: null, correct: true, exact: true, miss: null, failure: null, detail: detail as unknown as Record<string, unknown>, ms: 400, attempts: 1, inputTokens: 2000, model: JEV_MODEL, state: null, requests: 2, ...extra }
 }
 const verdicts = (c: readonly CheckDetail[]): VisualPrediction => ({ kind: 'checks', outcomes: c.map((one) => ({ verdict: one.verdict, probability: one.p, basis: one.basis })) })
 

@@ -11,13 +11,12 @@
 // Pure: no Node API.
 
 import type { Effort } from '../hooks/decision/effort.ts'
-import type { DecisiveEntry, LongContextItem, Triage, Vocab } from './lib/datasets.ts'
+import { CATEGORIES, type DecisiveEntry, type LongContextItem, type Triage, type Vocab } from './lib/datasets.ts'
 
 const u = (text: string, says?: Triage): DecisiveEntry => ({ role: 'user', text, ...(says === undefined ? {} : { says }) })
 const a = (text: string, ...tools: string[]): DecisiveEntry => ({ role: 'assistant', text, ...(tools.length === 0 ? {} : { tools }) })
 
-type Category = (typeof CATEGORY_TAGS)[number]
-const CATEGORY_TAGS = ['repeated-failure', 'second-attempt', 'agreed-low-cost', 'looks-complex', 'misleading-history', 'hard-constraint'] as const
+type Category = (typeof CATEGORIES)[number]
 
 type Draft = {
   category: Category

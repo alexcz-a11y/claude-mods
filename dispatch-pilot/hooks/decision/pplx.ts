@@ -12,9 +12,9 @@
 // Pure (see system-one.ts).
 
 import type { HttpResponse } from 'claude-code'
-import { errorText, postJson, retryAfterSeconds, withNote, withoutBase64, type Asked, type Backend, type Failure } from './backend.ts'
+import { errorText, postJson, readPosted, retryAfterSeconds, withNote, withoutBase64, withoutKey, type Backend, type Failure } from './backend.ts'
 import { describeImages, PPLX_MAX_IMAGES, placeImages } from './images.ts'
-import { readResponse, type DecisionRequest } from './system-one.ts'
+import { isRecord, type DecisionRequest } from './system-one.ts'
 
 export const PPLX_URL = 'https://api.perplexity.ai/v1/decisions'
 /**
@@ -46,9 +46,7 @@ export function pplxBackend(apiKey: string | (() => string), options: { url?: st
         return { ok: false, failure: { kind: 'request', detail: errorText(error) } }
       }
       const posted = await postJson(io, url, { authorization: `Bearer ${apiKey}` }, body, timeoutMs, pplxFailure)
-      const asked: Asked = posted.ok ? readAnswers(posted.response.text) : posted
-      // A failure's detail goes to the debug log: what it echoes of the key stays out.
-      return withNote(asked.ok ? asked : { ok: false, failure: { ...asked.failure, detail: asked.failure.detail.split(apiKey).join('[REDACTED]') } }, describeImages('pplx', request))
+      return withNote(withoutKey(readPosted(posted), apiKey), describeImages('pplx', request))
     },
   }
 }
@@ -60,7 +58,7 @@ export function pplxBackend(apiKey: string | (() => string), options: { url?: st
  * an image here, so every image is in the state (and counted again for each question, ADR 0008). Throws a RangeError for more
  * than PPLX_MAX_IMAGES images (the API answers 400 to the ninth) or for what `placeImages` refuses.
  */
-export function pplxRequest(request: DecisionRequest, model: string): unknown {
+function pplxRequest(request: DecisionRequest, model: string): unknown {
   const images = request.images ?? []
   if (images.length === 0) return { model, state: request.state, questions: request.questions }
   if (images.length > PPLX_MAX_IMAGES) throw new RangeError(`${images.length} images in one request; pplx takes at most ${PPLX_MAX_IMAGES}`)
@@ -73,7 +71,8 @@ export function pplxRequest(request: DecisionRequest, model: string): unknown {
 }
 
 /**
- * A non-2xx response as a failure. 401 and 403 are the key; 429 and the
+ * A non-2xx response as a failure. 401 and 403 are the key; 402 is an account
+ * out of credits (`quota`); 429 and the
  * service's own 500, 502, 503 and 529 are worth asking again (`busy`), 429 with
  * the wait `Retry-After` asked for in the detail and as `retryAfterMs` (the
  * rate limiter, pplx-rate.ts, retries on it); 504 is the model not answering
@@ -86,6 +85,7 @@ function pplxFailure(response: HttpResponse): Failure {
   const wait = retryAfterSeconds(response)
   const detail = `HTTP ${status}: ${bodyReason(response.text)}${wait === null || status !== 429 ? '' : ` (retry after ${wait} s)`}`
   if (status === 401 || status === 403) return { kind: 'config', status, detail }
+  if (status === 402) return { kind: 'quota', status, detail }
   if (status === 429) return { kind: 'busy', status, detail, ...(wait === null ? {} : { retryAfterMs: Number(wait) * 1000 }) }
   if (status === 500 || status === 502 || status === 503 || status === 529) return { kind: 'busy', status, detail }
   if (status === 504 || status === 408) return { kind: 'timeout', status, detail }
@@ -102,19 +102,6 @@ function bodyReason(text: string): string {
   return withoutBase64(trimmed).replace(/\s+/g, ' ').slice(0, 200)
 }
 
-/** The answers out of a 2xx body; a failure when it is not JSON or holds none. */
-function readAnswers(text: string): Asked {
-  let body: unknown
-  try {
-    body = JSON.parse(text)
-  } catch {
-    return { ok: false, failure: { kind: 'parse', detail: `not JSON: ${withoutBase64(text).slice(0, 200)}` } }
-  }
-  const response = readResponse(body)
-  if (response === null) return { ok: false, failure: { kind: 'parse', detail: `no answers: ${withoutBase64(text).slice(0, 200)}` } }
-  return { ok: true, ...response }
-}
-
 function parse(text: string): Record<string, unknown> | null {
   try {
     const value: unknown = JSON.parse(text)
@@ -122,8 +109,4 @@ function parse(text: string): Record<string, unknown> | null {
   } catch {
     return null
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

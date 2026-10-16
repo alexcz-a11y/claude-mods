@@ -11,6 +11,7 @@ import type { BackendName } from './backend.ts'
 import { type ImageLimits, limitsFor } from './image-fit.ts'
 import { imageRef, type Picture } from './images.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part, type RequestImage } from './system-one.ts'
+import { requestImage } from './visual-check.ts'
 
 /** A group is at most this many images; one that has more is read by its first ones. */
 export const MAX_REFERENCE_IMAGES = 6
@@ -31,23 +32,28 @@ export const COMPLEXITY_LEVELS: readonly { name: string; en: string; summary: st
   {
     name: 'trivial',
     en: 'A single plain shape or flat graphic with almost nothing to it and no fine detail, such as a plain cube, a solid-colour logo or one basic button.',
-    summary: 'trivial: a single plain shape or flat graphic, no fine detail',  },
+    summary: 'trivial: a single plain shape or flat graphic, no fine detail',
+  },
   {
     name: 'simple',
     en: 'A few plain elements laid out simply, with little detail: a basic screen with a handful of standard controls, or an object made of a few primitive shapes.',
-    summary: 'simple: a few plain elements laid out simply, little detail',  },
+    summary: 'simple: a few plain elements laid out simply, little detail',
+  },
   {
     name: 'moderate',
     en: 'A moderate number of distinct parts with some detail or styling: an ordinary app screen, a recognisable object of several components, or a small scene with a few materials.',
-    summary: 'moderate: a moderate number of distinct parts with some detail or styling',  },
+    summary: 'moderate: a moderate number of distinct parts with some detail or styling',
+  },
   {
     name: 'complex',
     en: 'Many distinct parts with fine detail, layered materials, lighting or effects: a dense interface, a detailed model, or a scene with several kinds of surfaces.',
-    summary: 'complex: many distinct parts with fine detail, layered materials, lighting or effects',  },
+    summary: 'complex: many distinct parts with fine detail, layered materials, lighting or effects',
+  },
   {
     name: 'very complex',
     en: 'A very large amount of intricate detail: a whole city or environment, an organic or highly detailed model with many parts, a scene with many interacting effects, or a screen of many interacting elements.',
-    summary: 'very complex: a very large amount of intricate detail, many parts or interacting effects',  },
+    summary: 'very complex: a very large amount of intricate detail, many parts or interacting effects',
+  },
 ]
 
 /** The reading part's name and its one question's id: `complexity.level` in the request. */
@@ -64,7 +70,7 @@ const IMAGES_FIELD = 'reference_images'
 export function complexityRequest(pictures: readonly Picture[]): { request: DecisionRequest; part: Part } {
   if (pictures.length === 0) throw new RangeError('a complexity reading needs at least one image')
   if (pictures.length > MAX_REFERENCE_IMAGES) throw new RangeError(`${pictures.length} images in one reading; at most ${MAX_REFERENCE_IMAGES}`)
-  const images: RequestImage[] = pictures.map((picture, i) => ({ name: `reference-${i + 1}`, format: picture.format, base64: picture.base64, width: picture.width, height: picture.height }))
+  const images: RequestImage[] = pictures.map((picture, i) => requestImage(`reference-${i + 1}`, picture))
   const part: Part = {
     part: COMPLEXITY_PART,
     questions: {

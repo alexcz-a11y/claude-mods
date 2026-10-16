@@ -7,49 +7,16 @@
 // decision log out.
 
 import { expect, test } from 'claude-code/testing'
-import { siteJev, type SiteAnswer } from './support/workflow.ts'
+import { agentJev, siteJev, type SiteAnswer } from './support/workflow.ts'
 import { runWorld } from './support/workflow-run.ts'
-import { world, type Reply, type Sent, type ToolRun } from './support/world.ts'
+import { KEY, type Reply, type Sent, type ToolRun, world } from './support/world.ts'
 
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 /** No periodic mid-turn re-decisions: the only requests are the message's, the spawn's and a stuck agent's. */
 const ONLY = { ...KEY, rejudgeEvery: 0 }
 
-type AgentAnswers = {
-  /** The model question's probability for each option (an option left out gets 0). */
-  model?: Record<string, number>
-  /** The effort levels' probabilities, lowest first. */
-  effort?: readonly number[]
-  /** Each yes/no question's answer by its id within the part (`named.haiku`); the rest get 0. */
-  nouls?: Record<string, number>
-  /** The named-effort question's probability for each option (`none`, `low` .. `max`); without it the answer is `none`. */
-  namedEffort?: Record<string, number>
-}
-
 /** Jev answering the agent's request at spawn with `spawn`; anything else (the message, a stuck agent: not expected) as plainly. */
-function agentJev(spawn: AgentAnswers) {
-  return (request: Sent): Reply => {
-    const out: Record<string, unknown> = {}
-    const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
-    const atSpawn = 'agent.model' in questions
-    for (const [id, question] of Object.entries(questions)) {
-      const local = id.slice(id.indexOf('.') + 1)
-      const answers = atSpawn ? spawn : {}
-      if (question.type === 'choice') {
-        const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
-        const given = local === 'named_effort' ? (answers.namedEffort ?? { none: 1 }) : answers.model
-        const probabilities = Object.fromEntries(options.map((option) => [option, given?.[option] ?? 0]))
-        const choice = options.reduce((best, option) => ((probabilities[option] ?? 0) > (probabilities[best] ?? 0) ? option : best), options[0] ?? '')
-        out[id] = { type: 'choice', choice, probabilities, confidence: 0.5 }
-      } else if (question.type === 'score') {
-        const levels = answers.effort ?? [0, 1, 0, 0, 0]
-        out[id] = { type: 'score', score: 1, legend: {}, probabilities: Object.fromEntries(levels.map((p, i) => [String(i), p])), confidence: 0.7 }
-      } else {
-        out[id] = { type: 'noul', noul: answers.nouls?.[local] ?? 0 }
-      }
-    }
-    return { status: 200, body: { model: 'jev-1.13.0', answers: out, usage: { input_tokens: 400, output_tokens: 0 } } }
-  }
+function spawnJev(spawn: SiteAnswer) {
+  return (request: Sent): Reply => agentJev('agent.model' in (request.body?.questions ?? {}) ? spawn : {}, [0, 1, 0, 0, 0])(request)
 }
 
 const FAILS = { error: 'exit status 1' }
@@ -79,7 +46,7 @@ async function escalations(w: ReturnType<typeof world>): Promise<string[]> {
 }
 
 test('a haiku the person named for an agent stays its model however its calls fail: at the top level it is not switched to sonnet, and the log says why', { options: ONLY }, async ($, on) => {
-  const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.1 }, effort: AT_TOP, nouls: { 'named.haiku': 0.9 } }), store: {}, session: true })
+  const w = world($, on, { backend: spawnJev({ model: { haiku: 0.9, sonnet: 0.1 }, effort: AT_TOP, nouls: { 'named.haiku': 0.9 } }), store: {}, session: true })
   await w.start()
   await w.submit('用 haiku 查一下哪些文件引用了 legacyAuth，别改代码')
   const { agentId } = (await w.spawn({ prompt: 'List every file under src/ that imports legacyAuth.', description: 'Find legacyAuth' })) as { agentId: string }
@@ -97,7 +64,7 @@ test('a haiku the person named for an agent stays its model however its calls fa
 })
 
 test('a model the person ruled out is never the one a failing haiku agent at the top level is switched to: it goes on as the next model up that is not ruled out', { options: ONLY }, async ($, on) => {
-  const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.1 }, effort: AT_TOP, nouls: { 'banned.sonnet': 0.9 } }), store: {}, session: true })
+  const w = world($, on, { backend: spawnJev({ model: { haiku: 0.9, sonnet: 0.1 }, effort: AT_TOP, nouls: { 'banned.sonnet': 0.9 } }), store: {}, session: true })
   await w.start()
   await w.submit('别用 sonnet，太贵了。派个 agent 去查 auth 的测试为什么挂')
   const { agentId } = (await w.spawn({ prompt: 'Find out why the auth tests fail. Report the cause only.', description: 'Why auth fails' })) as { agentId: string }
@@ -111,7 +78,7 @@ test('a model the person ruled out is never the one a failing haiku agent at the
 })
 
 test('when the person ruled out every model above haiku that agents may run on, the failing haiku agent at the top level stays on haiku, and the log says why', { options: ONLY }, async ($, on) => {
-  const w = world($, on, { backend: agentJev({ model: { haiku: 0.9 }, effort: AT_TOP, nouls: { 'banned.sonnet': 0.9, 'banned.opus': 0.9 } }), store: {}, session: true })
+  const w = world($, on, { backend: spawnJev({ model: { haiku: 0.9 }, effort: AT_TOP, nouls: { 'banned.sonnet': 0.9, 'banned.opus': 0.9 } }), store: {}, session: true })
   await w.start()
   await w.submit('sonnet 和 opus 都别用，额度不够了。派个 agent 查一下 auth 的测试')
   const { agentId } = (await w.spawn({ prompt: 'Find out why the auth tests fail.', description: 'Why auth fails' })) as { agentId: string }
@@ -125,7 +92,7 @@ test('when the person ruled out every model above haiku that agents may run on, 
 })
 
 test('an effort the person named for an agent is not raised when its calls keep failing', { options: ONLY }, async ($, on) => {
-  const w = world($, on, { backend: agentJev({ model: { sonnet: 0.9 }, effort: [0, 0, 1, 0, 0], namedEffort: { none: 0, low: 1 } }), store: {}, session: true })
+  const w = world($, on, { backend: spawnJev({ model: { sonnet: 0.9 }, effort: [0, 0, 1, 0, 0], namedEffort: { none: 0, low: 1 } }), store: {}, session: true })
   await w.start()
   await w.submit('派个 agent 把 auth 的测试修好，effort 开 low 就行')
   const { agentId } = (await w.spawn({ prompt: 'Make the failing auth tests pass.', description: 'Fix auth tests' })) as { agentId: string }

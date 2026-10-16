@@ -7,17 +7,7 @@ import { estimateTokens } from '../hooks/decision/context.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { midturnEffortPart, midturnState, type MidturnInput } from '../hooks/decision/midturn.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
-import { jev, world, type Sent } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
-
-/** The ids of a request's questions: `effort.level` when a message is sent, `midturn.level` mid-turn. */
-function kind(request: Sent | undefined): string {
-  // The unresolved question travels in the message's effort request (#39); these tests are about the others.
-  return Object.keys(request?.body?.questions ?? {})
-    .filter((id) => id !== 'effort.unresolved')
-    .join(',')
-}
+import { jev, KEY, kind, type Sent, UNRESOLVED_ON, world } from './support/world.ts'
 
 /** Jev answering the message's request with `start` and each mid-turn request with the next of `midturn`. */
 function answers(start: readonly number[], ...midturn: { levels: readonly number[]; confidence?: number | null }[]) {
@@ -155,12 +145,12 @@ test('one re-decision per step, however many of its calls are reasons; each requ
 
   expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level'])
   expect(w.logs.filter((l) => l.text.startsWith('request [midturn.level]')).map((l) => `${String(l.to)}: ${l.text}`)).toEqual([
-    'debug: request [midturn.level] for step 1 (Agent) to jev: answered in 0 ms by jev-1.13.0 (300 input tokens)',
+    `debug: request [midturn.level] for step 1 (Agent) to jev: answered in 0 ms by ${JEV_MODEL} (300 input tokens)`,
   ])
 })
 
 test('with the unresolved switch on too, the calls of a step that run at once ask one re-decision between them', { options: { ...KEY, rejudgeEvery: 0 } }, async ($, on) => {
-  const w = world($, on, { switches: { unresolved: true }, backend: answers(MEDIUM, { levels: XHIGH, confidence: 0.8 }) })
+  const w = world($, on, { switches: UNRESOLVED_ON, backend: answers(MEDIUM, { levels: XHIGH, confidence: 0.8 }) })
   await w.submit('派三个 agent 分头查前端、后端和数据库')
   await w.step({ index: 0, parallel: true, tools: ['查前端', '查后端', '查数据库'].map((description) => ({ tool: 'Agent', input: { description } })) })
   await w.step({ index: 1 })

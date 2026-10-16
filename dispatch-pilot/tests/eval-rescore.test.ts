@@ -154,3 +154,13 @@ test('a thetaDown scan: at the gate the mod shipped with, the figures are what r
   expect(row?.language).toBe('both')
   expect(row?.sent).toEqual(sent?.now)
 })
+
+// A run with --repeat has a line for each time (`repeat`); its summary counts the first time, so the rescoring reads that one.
+test('the lines of the later times of a repeat run are not counted again', () => {
+  const items = [submit('a', 'high', ['high'])]
+  const result = stored('zh-score', [['a', 'zh', { p: [0, 0, 1, 0, 0], confidence: 0.9 }]])
+  const again = { id: 'a', language: 'zh', repeat: 2, 'zh-score': { p: [1, 0, 0, 0, 0], confidence: 0.9 } }
+  const first = { ...result.answers[0], repeat: 1 }
+  const [row] = rescoreSubmit({ ...result, answers: [first, again] }, items)
+  expect(row?.now).toEqual({ n: 1, accuracy: 1, gold: 1, over: 0, under: 0 })
+})

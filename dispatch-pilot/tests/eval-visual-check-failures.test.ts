@@ -3,6 +3,7 @@
 // what a run plans to send, for `--estimate` and `--max-usd`: the requests of the whole flow, with their images, not only the first.
 
 import { expect, test } from 'claude-code/testing'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
 import { type VisualCheckItem, visualCheckSuite } from '../eval/lib/visual-check.ts'
 import { askThrough, evalJev, imageHost } from './support/eval-images.ts'
@@ -118,7 +119,7 @@ test("an animation is read by the bars of a recording, as in the mod: PASS from 
 })
 
 test('the reading of a group whose answer has no level is no answer either, with the reason', async () => {
-  const { decided } = await decide(CUBE, () => ({ status: 200, body: { model: 'jev-1.14.0', answers: {}, usage: { input_tokens: 10, output_tokens: 0 } } }))
+  const { decided } = await decide(CUBE, () => ({ status: 200, body: { model: JEV_MODEL, answers: {}, usage: { input_tokens: 10, output_tokens: 0 } } }))
   expect(decided).toMatchObject({ ok: false, failure: expect.stringContaining('no complexity level') })
 })
 

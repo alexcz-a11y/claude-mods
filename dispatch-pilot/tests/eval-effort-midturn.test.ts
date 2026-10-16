@@ -14,15 +14,7 @@ import { effortMidturn, midturnRequest } from '../eval/lib/effort-midturn.ts'
 import { summarize } from '../eval/lib/metrics.ts'
 import { runSuite, type Row } from '../eval/lib/runner.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
-import { jev, world, type Sent, type ToolRun, type World } from './support/world.ts'
-
-/** The ids of a request's questions: `effort.level` when a message is sent, `midturn.level` mid-turn. */
-function kind(request: Sent | undefined): string {
-  // The unresolved question travels in the message's effort request (#39); these tests are about the others.
-  return Object.keys(request?.body?.questions ?? {})
-    .filter((id) => id !== 'effort.unresolved')
-    .join(',')
-}
+import { jev, kind, world, type ToolRun, type World } from './support/world.ts'
 
 /** A turn as the main agent works it: the person's message, then each step's text and tool calls. */
 type Turn = { message: string; steps: { answer: string; tools: ToolRun[] }[] }
@@ -305,7 +297,7 @@ function answered(item: EffortMidturnItem, language: 'zh' | 'en', picked: Effort
   const grade = picked === null ? { correct: false, exact: false } : effortMidturn.grade(item, picked)
   const failure = picked === null ? 'timeout: no answer in 10000 ms' : null
   const detail = picked === null ? null : { sent: sent ?? picked }
-  return { id: item.id, language, variant: 'en-score', ok: picked !== null, prediction: picked, shown: picked, correct: grade.correct, exact: grade.exact, miss: grade.miss ?? null, failure, detail, ms: 300, attempts: 1, inputTokens: 900, model: 'jev-1.13.0', state: null }
+  return { id: item.id, language, variant: 'en-score', ok: picked !== null, prediction: picked, shown: picked, correct: grade.correct, exact: grade.exact, miss: grade.miss ?? null, failure, detail, ms: 300, attempts: 1, inputTokens: 900, model: JEV_MODEL, state: null }
 }
 
 test('the report scores keeping the current level as a baseline, and gives the accuracy by the way the level should move and of the level the mod would send', () => {

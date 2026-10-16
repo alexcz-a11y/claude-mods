@@ -46,8 +46,8 @@ export type TurnStartPartInput = {
 }
 
 /**
- * The effort part, still named `effort` (so that it goes in the effort request with its own 24000-token state): its
- * questions, and the state fields beyond `user_message` and `recent_context` that they read.
+ * The effort part, still named `effort` (so that it goes in the effort request, which has a state budget of its own,
+ * `contextByKind.messagePlain`): its questions, and the state fields beyond `user_message` and `recent_context` that they read.
  */
 export function turnStartPart(input: TurnStartPartInput = {}): Part {
   const ask = { ...DEFAULT_ASK, ...input.ask }

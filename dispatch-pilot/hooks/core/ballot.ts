@@ -34,8 +34,8 @@ export type Contribution = Part & {
    * Called once, before the prompt enters the session, with this part's
    * outcome. Resolves to context blocks the model reads after the prompt
    * (none by default). It runs inside the core's hook, so it may use the
-   * `$` of the hook that contributed it; whatever it throws is logged and
-   * skipped.
+   * `$` of the hook that contributed it; whatever it throws goes to the debug
+   * log and is skipped (core/ask-group.ts).
    */
   settle: (outcome: PartOutcome) => Promise<readonly string[] | void> | readonly string[] | void
 }
@@ -49,6 +49,8 @@ const MAX_OPEN = 32
 export function contribute(prompt: string, contribution: Contribution): void {
   const list = open.get(prompt) ?? []
   list.push(contribution)
+  // Set again so that a prompt that already had a ballot is the newest, not the first to go below.
+  open.delete(prompt)
   open.set(prompt, list)
   let total = 0
   for (const waiting of open.values()) total += waiting.length

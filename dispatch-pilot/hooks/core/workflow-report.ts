@@ -82,7 +82,7 @@ export function callReports(
  * there is nothing to show of it (a script with no agent() call). `agent`:
  * the node's id, the Workflow call's own unless a feature has a second thing to say of it.
  */
-export function workflowLeft(feature: string, run: { id: string; title: string }, why: string | null, extra: { asWritten?: true; agent?: string } = {}): Left {
+export function workflowLeft(feature: string, run: { id: string; title: string }, why: string | null, extra: { agent?: string } = {}): Left {
   return {
     feature,
     agent: extra.agent ?? run.id,
@@ -90,6 +90,5 @@ export function workflowLeft(feature: string, run: { id: string; title: string }
     why: why ?? '',
     node: { kind: 'wf', name: run.title, type: 'workflow', state: 'done' },
     ...(why === null ? { offBoard: true as const } : {}),
-    ...(extra.asWritten === true ? { asWritten: true as const } : {}),
   }
 }

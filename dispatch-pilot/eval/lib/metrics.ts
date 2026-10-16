@@ -4,7 +4,8 @@
 //   with no answer counts as wrong; how many failed is beside it), and how
 //   often the answer was the gold one;
 // - the gap, Chinese accuracy minus English, and whether it passes the bar
-//   (Chinese at most 4 points below English, exactly 4 passing: MAX_GAP);
+//   (Chinese at most 4 points below English, exactly 4 passing: MAX_GAP); both
+//   null when a language has no answers (a run in one language has no gap);
 // - answers the mod would not have had: those that came after its wait
 //   (`slowMs`, its timeoutMs) and those the eval got only by asking again
 //   (more attempts than requests: the mod never retries); how many of each
@@ -69,8 +70,10 @@ export type VariantSummary = {
   variant: string
   zh: LanguageSummary
   en: LanguageSummary
-  gap: number
-  pass: boolean
+  /** Chinese accuracy minus English; null when the run asked in one language only (results saved before that hold a number, English as zero accuracy). */
+  gap: number | null
+  /** Whether the gap is within the bar; null with no gap. */
+  pass: boolean | null
   agreement: { items: number; same: number; rate: number | null }
   latency: { answers: number; p50: number | null; p90: number | null; max: number | null; slow: number }
   tags: TagSummary[]
@@ -128,7 +131,8 @@ function summarizeVariant(items: readonly AnyItem[], rows: readonly Row<unknown>
   const of = (language: Language) => rows.filter((row) => row.language === language)
   const zh = languageSummary(items.length, of('zh'), parts, slowMs)
   const en = languageSummary(items.length, of('en'), parts, slowMs)
-  const gap = round(zh.accuracy - en.accuracy)
+  // A run of one language (eval-v2, visual-check) has no other side to measure against: no gap, so nothing to pass.
+  const gap = of('zh').length > 0 && of('en').length > 0 ? round(zh.accuracy - en.accuracy) : null
 
   const byId = (language: Language) => new Map(of(language).map((row) => [row.id, row]))
   const [zhRows, enRows] = [byId('zh'), byId('en')]
@@ -162,7 +166,7 @@ function summarizeVariant(items: readonly AnyItem[], rows: readonly Row<unknown>
     zh,
     en,
     gap,
-    pass: passes(gap),
+    pass: gap === null ? null : passes(gap),
     agreement: { items: both, same, rate: both === 0 ? null : rate(same, both) },
     latency: { answers: times.length, p50: nearestRank(times, 0.5), p90: nearestRank(times, 0.9), max: times.at(-1) ?? null, slow: times.filter((ms) => ms > slowMs).length },
     tags: [...tags]
@@ -220,6 +224,16 @@ export function nearestRank(sorted: readonly number[], p: number): number | null
 /** count over of, rounded to four places; 0 when there is nothing to count over. */
 export function rate(count: number, of: number): number {
   return of === 0 ? 0 : round(count / of)
+}
+
+/** `rate`, but null when there is nothing to count over (a share of no items says nothing). */
+export function share(count: number, of: number): number | null {
+  return of === 0 ? null : rate(count, of)
+}
+
+/** A rate as the scripts print it, in percent with one place and `%`; `-` for none. */
+export function percentText(figure: number | null | undefined): string {
+  return figure == null ? '-' : `${(figure * 100).toFixed(1)}%`
 }
 
 function round(value: number): number {

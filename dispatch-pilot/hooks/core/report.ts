@@ -20,10 +20,12 @@
 //                           forced raises: on the agent's node); `switched`, the
 //                           person flipped the mod or a feature (`/dp`: the
 //                           screens draw again); `profiles`, how writing the
-//                           session's skill profiles goes (#33); `unplaced`, a
-//                           pane the person asked for that the surface did not
-//                           place (a toast). `io` is what that kind needs of the
-//                           host (`IoOf`): a `ReportIo` for most.
+//                           session's skill profiles goes (#33; core/profile-report.ts
+//                           has its data); `fellBack`, the decision model in use
+//                           is not the one asked for; `unplaced`, a pane the
+//                           person asked for that the surface did not place (a
+//                           toast). `io` is what that kind needs of the host
+//                           (`IoOf`): a `ReportIo` for most.
 //   reportStep(io, step)    记一步读数: the reading of one model request, the
 //                           model and effort an agent's step went out with,
 //                           whoever's loop it is. Only observes, never decides
@@ -34,7 +36,7 @@
 // module hears with hooks of its own (`registerReport`, which the entry file
 // registers first: `turn.start`, `agent.spawn`, `turn.complete`, changing nothing
 // in them); nobody calls those. What else is exported (`decisionLine`,
-// `appendEntry`, `startTurn`, `profileWhy`, the types) only shapes or reads data.
+// `callNodeId`, `unplacedText`, the types) only shapes or reads data.
 //
 // Pure but for those hooks: `$` stays in the hook owner's file (it may not cross
 // an import), so the caller builds its io of closures, a `ReportIo` as:
@@ -61,6 +63,9 @@ import type { UnresolvedChange, UnresolvedOption, UnresolvedThresholds } from '.
 import type { CheckTally, VisualCheckRecord } from '../decision/visual-check-record.ts'
 import { fitsTemplate, startedAs, startedIn } from '../decision/workflow-labels.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
+import { profilesAdvance, profilesBegin, profilesEntry, profilesLine, type ProfileEvent, type ProfilesState } from './profile-report.ts'
+
+export type { ProfileEvent, ProfilesState, ProfilesStop } from './profile-report.ts'
 
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
@@ -236,7 +241,7 @@ export type ForcedRaise = { kind: 'effort' | 'model'; from: string; to: string; 
 export type SkillsPicked = { suggest: { name: string; relevance: number }[]; try: { name: string; relevance: number }[] }
 
 /** The log keeps the entries of this many latest turns, and at most `LOG_ENTRIES` of them. */
-export const LOG_TURNS = 20
+const LOG_TURNS = 20
 export const LOG_ENTRIES = 300
 
 // ---- what a feature hands over ------------------------------------------------
@@ -306,11 +311,10 @@ export type NotDecided = About & { failure: NodeFailure }
 
 /**
  * No decision was asked for, or none could be made without a failed request: why the agent (or the Workflow) runs
- * as it was written, in a few words, on its node. Not a log entry. `asWritten`: by design, not a miss (the Workflow
- * was already sent back once). `offBoard`: nothing to show at all, so nothing is written (a script with no agent()
- * call).
+ * as it was written, in a few words, on its node. Not a log entry. `offBoard`: nothing to show at all, so nothing is
+ * written (a script with no agent() call).
  */
-export type Left = About & { why: string; asWritten?: true; offBoard?: true }
+export type Left = About & { why: string; offBoard?: true }
 
 /**
  * An agent whose decision was made earlier, for its call, has started: the agent is on the board as the one the
@@ -333,8 +337,8 @@ export type ReportedDecision = Decided | NotDecided | Left | Started | Skipped
 export type Tallied =
   /** The main agent's turn as the mid-turn re-decision sees it. `quiet`: not re-decided yet this turn (nothing to show). `late`: the answer for this step is not back; `failure`: its request failed. */
   | { feature: 'midturn-effort'; agent: 'main'; steps: number; judged: number; changed: number; quiet: boolean; late?: true; failure?: NodeFailure }
-  /** A loop's failed tool calls, hook blocks and forced raises. `turnStart`: the main agent's counts start over with a new turn. */
-  | { feature: 'escalation'; agent: string; failed: number; blocked: number; raised: number; late?: true; turnStart?: true }
+  /** A loop's failed tool calls, hook blocks and forced raises (all 0: none yet, as the main agent's at a new turn). */
+  | { feature: 'escalation'; agent: string; failed: number; blocked: number; raised: number; late?: true }
   /**
    * What a visual_check call found, to be added to its agent's count for the loop (#58): checks that passed, failed, got no
    * verdict to trust; `takeovers`: images the screenshot takeover kept from the agent (#62). Unlike the two above these are
@@ -343,7 +347,7 @@ export type Tallied =
   | { feature: 'visual-check'; agent: string; passed: number; failed: number; unsure: number; takeovers?: number }
 
 /** What one model request went out with, as the core sends it. */
-export type StepReading = {
+type StepReading = {
   /** Absent for the main agent. */
   agentId?: string
   /** The model id as sent. */
@@ -355,7 +359,7 @@ export type StepReading = {
 }
 
 /** An agent of the roster `$.agent.list()` answers, as far as a node needs it. */
-export type RosterAgent = { id: string; name?: string; description: string; type: string }
+type RosterAgent = { id: string; name?: string; description: string; type: string }
 
 /**
  * What the readings need beyond `ReportIo`: the roster of dispatched agents, and the directories of the session's
@@ -395,7 +399,7 @@ export type Reported =
   /** What a feature counts as a loop goes (`Tallied`). */
   | { tally: Tallied }
   /** The person flipped the mod or a feature (`/dp`). */
-  | { switched: Switched }
+  | { switched: true }
   /** How writing the session's skill profiles goes (`ProfileEvent`). */
   | { profiles: ProfileEvent }
   /** The decision model in use is not the one asked for: no Perplexity key, so Jev (`DecisionModelEvent`). */
@@ -410,7 +414,7 @@ export type NoticeIo = Pick<ReportIo, 'debug' | 'now' | 'toast'>
 export type DecisionModelIo = Pick<ReportIo, 'board' | 'decisions' | 'debug'>
 
 /** The host closures each kind of report needs: a switch only the redraw, the skill profiles their own state, a pane not placed the toast, the rest a `ReportIo`. */
-export type IoOf<R extends Reported> = R extends { switched: Switched }
+type IoOf<R extends Reported> = R extends { switched: true }
   ? SwitchIo
   : R extends { profiles: ProfileEvent }
     ? ProfilesIo
@@ -429,7 +433,7 @@ export async function report<R extends Reported>(io: IoOf<R>, what: R): Promise<
   if ('decision' in item) return reportDecisions(io as ReportIo, [item.decision])
   if ('decisions' in item) return reportDecisions(io as ReportIo, item.decisions)
   if ('tally' in item) return reportTally(io as ReportIo, item.tally)
-  if ('switched' in item) return reportSwitch(io as SwitchIo, item.switched)
+  if ('switched' in item) return reportSwitch(io as SwitchIo)
   if ('profiles' in item) return reportProfiles(io as ProfilesIo, item.profiles)
   if ('fellBack' in item) return reportFellBack(io as DecisionModelIo, item.fellBack)
   return reportUnplaced(io as NoticeIo, item.unplaced)
@@ -463,12 +467,14 @@ async function reportDecisions(io: ReportIo, decisions: readonly ReportedDecisio
   if (decisions.length === 0) return
   try {
     // Which turn each is for. A board that cannot be read does not stop a decision from being logged (as turn 1).
+    let unread = false
     const board = await read(io.board).catch((error: unknown) => {
       io.debug(`board not read: ${errorText(error)}`)
+      unread = true
       return EMPTY
     })
     const now = await io.now()
-    const turnOf = (decision: ReportedDecision) => board.turn + (decision.forTurn === 'next' ? 1 : 0)
+    const turnOf = (decision: ReportedDecision) => Math.max(unread ? 1 : 0, board.turn + (decision.forTurn === 'next' ? 1 : 0))
     const made = decisions.filter(isDecided)
     for (const decision of made) io.debug(decisionLine(decision))
     // The number of each decision in the log, in the order made.
@@ -490,11 +496,11 @@ async function reportDecisions(io: ReportIo, decisions: readonly ReportedDecisio
       }
     }
     // A request beside the route that came to nothing: a note for the band's event stream, after the log's last entry.
-    const noted = decisions.filter((decision) => 'skipped' in decision || ('failure' in decision && decision.aside === true))
+    const noted = decisions.filter((decision): decision is Skipped | (NotDecided & { aside: true }) => 'skipped' in decision || ('failure' in decision && decision.aside === true))
     const logged = noted.length === 0 ? 0 : (numbers.at(-1) ?? (await lastLogged(io)))
     const notes = noted.map((decision): BoardNote => {
       const of = { turn: turnOf(decision), id: decision.agent, feature: decision.feature, at: elapsed(board, turnOf(decision), now), after: logged }
-      return 'skipped' in decision ? { ...of, kind: 'skipped', why: decision.skipped } : { ...of, kind: 'failed', why: 'failure' in decision ? failureLine(decision.failure.backend, decision.failure) : '' }
+      return 'skipped' in decision ? { ...of, kind: 'skipped', why: decision.skipped } : { ...of, kind: 'failed', why: failureLine(decision.failure.backend, decision.failure) }
     })
     let after = board
     // A decision beside the agent's route is not on its node; a Workflow with nothing to show is not on the board.
@@ -648,7 +654,7 @@ export async function reportStep(io: StepIo, step: StepReading): Promise<void> {
 export const ENDED_WORDS = { error: '出错', refusal: '拒绝回答', aborted: '被中断' } as const
 
 /** How a loop's turn ended (`turn.complete`). */
-export type LoopEnd = { agentId?: string; reason: 'answer' | 'aborted' | 'refusal' | 'error'; durationMs: number }
+type LoopEnd = { agentId?: string; reason: 'answer' | 'aborted' | 'refusal' | 'error'; durationMs: number }
 
 /**
  * Reports the end of a loop's turn: done after an answer, else failed (and
@@ -676,13 +682,13 @@ async function reportEnd(io: StepIo, end: LoopEnd): Promise<void> {
         const turn = old?.turn ?? board.turn
         const stood = old === undefined && !main ? callNodeOf(board, identity) : undefined
         const base = old ?? { ...newNode(turn, id, identity ?? undefined, 'running'), ...carriedFrom(stood, true) }
-        const failed = end.reason !== 'answer'
+        const { reason } = end
         const next: BoardNode = {
           ...base,
           ...(old === undefined && !main ? { t0: elapsed(board, turn, seen) } : {}),
-          state: failed ? 'failed' : 'done',
+          state: reason === 'answer' ? 'done' : 'failed',
           dur: Math.round(end.durationMs) / 1000,
-          ...(failed && base.why === undefined ? { why: end.reason === 'aborted' ? ENDED_WORDS.aborted : end.reason === 'refusal' ? ENDED_WORDS.refusal : ENDED_WORDS.error } : {}),
+          ...(reason !== 'answer' && base.why === undefined ? { why: ENDED_WORDS[reason] } : {}),
         }
         return { ...board, nodes: takenOver(board.nodes, old, stood, next) }
       },
@@ -709,8 +715,7 @@ async function reportSpawn(io: StepIo, spawn: { agentId: string; name?: string; 
         const old = continuing(board, spawn.agentId)
         if (old !== undefined && begun(old)) return undefined
         const turn = old?.turn ?? board.turn
-        const name = spawn.name !== undefined && spawn.name !== '' ? spawn.name : spawn.description !== '' ? spawn.description : spawn.agentId
-        const base = old ?? newNode(turn, spawn.agentId, { kind: 'agent', name, type: spawn.type }, 'queued')
+        const base = old ?? newNode(turn, spawn.agentId, { kind: 'agent', name: nameOf(spawn.name, spawn.description, spawn.agentId), type: spawn.type }, 'queued')
         const next: BoardNode = { ...base, state: 'queued', t0: elapsed(board, turn, now) }
         return { ...board, nodes: [...board.nodes.filter((node) => node !== old), next] }
       },
@@ -744,9 +749,6 @@ async function reportTally(io: ReportIo, tally: Tallied): Promise<void> {
 
 // ---- what `report` does with a switch -------------------------------------------
 
-/** What the person flipped with `/dp`: the whole mod, or one feature. */
-export type Switched = { master: boolean } | { feature: string; on: boolean }
-
 /** What a switch needs of the host: `() => $.ui.invalidate('ui.render')`, the screens drawn again. */
 export type SwitchIo = { redraw: () => void }
 
@@ -757,7 +759,7 @@ export type SwitchIo = { redraw: () => void }
  * parts of the nodes it writes, `defineSwitch`'s `parts`), so they are drawn
  * again now. Never throws.
  */
-function reportSwitch(io: SwitchIo, _change: Switched): void {
+function reportSwitch(io: SwitchIo): void {
   try {
     io.redraw()
   } catch {
@@ -806,6 +808,11 @@ function withTally(board: Board, tally: Tallied, when: { now: number; logged: nu
   return notes.length === 0 ? changed : withNotes(changed, notes)
 }
 
+/** What a dispatched agent is called on the board: its name, else its description, else its id. */
+function nameOf(name: string | undefined, description: string, id: string): string {
+  return name !== undefined && name !== '' ? name : description !== '' ? description : id
+}
+
 /** Who a loop with no node is, from what the engine and the Workflow journals say; null: not an agent the board shows. */
 type Identity = { kind: 'agent' | 'wf'; name: string; type: string }
 
@@ -817,7 +824,7 @@ async function identify(io: StepIo, id: string, look: { roster: boolean; dirs: r
   if (look.roster) {
     try {
       const info = (await io.agents()).find((agent) => agent.id === id)
-      if (info !== undefined) return { identity: { kind: 'agent', name: info.name !== undefined && info.name !== '' ? info.name : info.description !== '' ? info.description : id, type: info.type }, read: true }
+      if (info !== undefined) return { identity: { kind: 'agent', name: nameOf(info.name, info.description, id), type: info.type }, read: true }
     } catch (error) {
       io.debug(`agent roster not read: ${errorText(error)}`)
     }
@@ -828,8 +835,12 @@ async function identify(io: StepIo, id: string, look: { roster: boolean; dirs: r
     // meta.json (small) and in the journal (which a long run grows past what one read takes).
     for (const dir of [...look.dirs].reverse()) {
       const meta = await io.meta(dir, id)
-      const journal = meta === null ? await io.journal(dir) : null
-      const start = meta !== null ? startedAs(meta) : journal === null ? null : startedIn(journal, id)
+      // A meta.json that names no description says nothing: the journal is read then too.
+      let start = meta === null ? null : startedAs(meta)
+      if (start === null) {
+        const journal = await io.journal(dir)
+        start = journal === null ? null : startedIn(journal, id)
+      }
       if (start !== null) return { identity: { kind: 'wf', name: start.label, type: 'workflow' }, read: true }
     }
   } catch (error) {
@@ -861,7 +872,8 @@ const MISSED_KEPT = 64
  * `identify` for a step, at most as often as the answer can change: the first step of a loop no one knows (an engine
  * fork) reads the roster and every run's journal, and its later steps would read them all again. After a miss, the
  * journals are read again only once the session has another run directory (a Workflow's agent can step before its run
- * is recorded), or after they could not be read; the roster at the loop's 2nd, 4th, 8th... step (an agent it lists late).
+ * is recorded); the roster at the loop's 2nd, 4th, 8th... step (an agent it lists late), and the journals too when they
+ * could not be read the time before.
  */
 async function lookUp(io: StepIo, id: string): Promise<Identity | null> {
   const miss = missed.get(id)
@@ -986,7 +998,7 @@ function elapsed(board: Board, turn: number, ms: number): number {
  * outlive the turn that launched it while the person goes on talking. A stopped Workflow's agents end (`turn.complete`,
  * `aborted`); the calls of agents it never started stay queued until then, and the screens leave them out.
  */
-export function startTurn(board: Board | undefined, now: number): Board {
+function startTurn(board: Board | undefined, now: number): Board {
   const turn = (board?.turn ?? 0) + 1
   const kept = (of: number) => of >= turn - 1
   // The main agent's turn is over when the next one starts, whatever its node says.
@@ -1006,6 +1018,7 @@ export function startTurn(board: Board | undefined, now: number): Board {
  * the same file, so the core builds its `StepIo` itself (core.ts, `turn.step`): keep the two alike.
  */
 function stepIo($: EngineInterface): StepIo {
+  const textAt = async (path: string) => ((await $.fs.exists(path)) ? await $.fs.read(path).catch(() => null) : null)
   return {
     board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
     decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
@@ -1017,14 +1030,8 @@ function stepIo($: EngineInterface): StepIo {
       const [noted, labelled] = await Promise.all([$.state.get(WORKFLOW_RUNS), $.state.get(LABEL_RUNS)])
       return [...new Set([...(noted.value ?? []), ...(labelled.value ?? [])].map((run) => run.dir))]
     },
-    journal: async (dir) => {
-      const path = `${dir}/journal.jsonl`
-      return (await $.fs.exists(path)) ? await $.fs.read(path).catch(() => null) : null
-    },
-    meta: async (dir, agentId) => {
-      const path = `${dir}/agent-${agentId}.meta.json`
-      return (await $.fs.exists(path)) ? await $.fs.read(path).catch(() => null) : null
-    },
+    journal: (dir) => textAt(`${dir}/journal.jsonl`),
+    meta: (dir, agentId) => textAt(`${dir}/agent-${agentId}.meta.json`),
   }
 }
 
@@ -1040,7 +1047,7 @@ export function registerReport(on: On): void {
     if (e.agentId !== undefined) return next(e)
     try {
       const now = await $.clock.now()
-      await update<Board>({ get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) }, (board) => startTurn(board, now))
+      await update(stepIo($).board, (board) => startTurn(board, now))
     } catch {
       // the count is the board's own: a turn starts without it
     }
@@ -1070,7 +1077,7 @@ export function decisionLine(decision: { outcome: string; subject?: string; reas
 }
 
 /** The list with `entry` added last, numbered, the entries of turns older than the latest `LOG_TURNS` dropped, and then the oldest past `LOG_ENTRIES`. */
-export function appendEntry(list: readonly LogEntry[], entry: Omit<LogEntry, 'n'>): LogEntry[] {
+function appendEntry(list: readonly LogEntry[], entry: Omit<LogEntry, 'n'>): LogEntry[] {
   const all = [...list, { n: (list.at(-1)?.n ?? 0) + 1, ...entry }]
   const latest = Math.max(...all.map((kept) => kept.turn))
   return all.filter((kept) => kept.turn > latest - LOG_TURNS).slice(-LOG_ENTRIES)
@@ -1143,6 +1150,17 @@ async function read(cell: Cell<Board>): Promise<Board> {
   return (await cell.get()).value ?? EMPTY
 }
 
+/** The turn a session start belongs to: the board's, and at least 1, where the first message will be (a board that cannot be read puts it there). */
+async function sessionTurn(cell: Cell<Board>): Promise<number> {
+  return Math.max(1, (await read(cell).catch(() => EMPTY)).turn)
+}
+
+/** The list with `entry` in the place of the entry `same` finds, keeping its number; else added last. */
+function replacingOrAppending(list: readonly LogEntry[], same: (kept: LogEntry) => boolean, entry: Omit<LogEntry, 'n'>): LogEntry[] {
+  const at = list.findIndex(same)
+  return at < 0 ? appendEntry(list, entry) : list.map((kept, i) => (i === at ? { n: kept.n, ...entry } : kept))
+}
+
 /** `update` that writes only when `change` has something to write (it returns undefined when the value stands). */
 async function modify<T>(cell: Cell<T>, change: (current: T | undefined) => T | undefined, attempts = 8): Promise<void> {
   for (let attempt = 0; attempt < attempts; attempt++) {
@@ -1178,7 +1196,7 @@ const DECISION_MODELS: Readonly<Record<BackendName, { name: string; keys: string
 }
 
 /** The feature name of the entry the fallback leaves in the decision log. */
-export const DECISION_MODEL_FEATURE = 'decision-model'
+const DECISION_MODEL_FEATURE = 'decision-model'
 
 /**
  * The session's one entry in the decision log saying why Jev decides although pplx is the default: at the turn the session
@@ -1189,8 +1207,7 @@ async function reportFellBack(io: DecisionModelIo, fell: DecisionModelEvent): Pr
   try {
     const asked = DECISION_MODELS[fell.asked]
     const using = DECISION_MODELS[fell.using]
-    // A board that cannot be read puts the session start at turn 1, where the first message will be.
-    const turn = Math.max(1, (await read(io.board).catch(() => EMPTY)).turn)
+    const turn = await sessionTurn(io.board)
     const entry: Omit<LogEntry, 'n'> = {
       turn,
       feature: DECISION_MODEL_FEATURE,
@@ -1209,12 +1226,8 @@ async function reportFellBack(io: DecisionModelIo, fell: DecisionModelEvent): Pr
           }),
     }
     io.debug(`decision model: ${decisionLine(entry)}`)
-    await update(io.decisions, (list) => {
-      const kept = list ?? []
-      // The entry of the same kind at this turn (a hot reload's session start again); the one for images stands beside the decision model's.
-      const at = kept.findIndex((old) => old.feature === DECISION_MODEL_FEATURE && old.turn === turn && old.fallbackFor === entry.fallbackFor)
-      return at < 0 ? appendEntry(kept, entry) : kept.map((old, i) => (i === at ? { n: old.n, ...entry } : old))
-    })
+    // The entry of the same kind at this turn (a hot reload's session start again); the one for images stands beside the decision model's.
+    await update(io.decisions, (list) => replacingOrAppending(list ?? [], (old) => old.feature === DECISION_MODEL_FEATURE && old.turn === turn && old.fallbackFor === entry.fallbackFor, entry))
   } catch (error) {
     try {
       io.debug(`decision model fallback not reported: ${errorText(error)}`)
@@ -1226,62 +1239,8 @@ async function reportFellBack(io: DecisionModelIo, fell: DecisionModelEvent): Pr
 
 // ---- what `report` does with the skill profiles' events ----------------------------
 
-/** Why writing the profiles stopped for the session (types/index.d.ts, `skillProfiles.stop`). */
-export type ProfilesStopReason = 'store-read' | 'model-refused' | 'api-error' | 'store-write' | 'off' | 'error'
-
-/** How writing the session's skill profiles went (#33; types/index.d.ts, `skillProfiles`). */
-export type ProfilesState = {
-  phase: 'writing' | 'done' | 'stopped'
-  /** The turn the session start belongs to: the turn of its decision log entry. */
-  turn: number
-  model: string
-  kept: number
-  planned: number
-  written: number
-  failed: number
-  deferred: number
-  stop?: { reason: ProfilesStopReason; detail: string }
-  failures: { name: string; reason: string }[]
-}
-
-/** The failed skills the state names; `failed` still counts every one. */
-export const PROFILES_FAILURES_KEPT = 50
-
 /** What the skill profiles' report needs of the host: the board (for the turn), the decision log, the debug log, and the state it keeps. */
 export type ProfilesIo = Pick<ReportIo, 'board' | 'decisions' | 'debug'> & { profiles: Cell<ProfilesState> }
-
-/** Why the writing stopped, with what the debug line and the state say of it. */
-export type ProfilesStop =
-  | { reason: 'model-refused'; model: string; detail: string }
-  | { reason: 'api-error'; skill: string; why: string; ms: number }
-  | { reason: 'store-write'; skill: string; detail: string }
-  | { reason: 'off' }
-  | { reason: 'error'; detail: string }
-
-/**
- * What happens as the skill profiles are written (features/skill-profiles.ts), in the order it happens. `left`:
- * the skills lacking a profile that this session did not get to.
- */
-export type ProfileEvent =
-  /** The session start has read the catalog: `offered` skills can have one, `due` of them lack one; at most `perSession` are written. */
-  | { event: 'start'; model: string; perSession: number; offered: number; due: number }
-  /** The store cannot be read: nothing is kept or written. */
-  | { event: 'unreadable'; model: string; offered: number }
-  /** Another session wrote the profile meanwhile: it is kept. */
-  | { event: 'found' }
-  | { event: 'written'; skill: string; model: string; ms: number; input: number; output: number }
-  /** The model gave no profile for the skill (`why`: the reply's reason); the writing goes on. */
-  | { event: 'failed'; skill: string; why: string; ms: number }
-  /** The reply for the skill is no profile; the writing goes on. */
-  | { event: 'unfit'; skill: string; ms: number; text: string }
-  /** The session's most is written; `left` is what no longer fits (the debug line counts what is not written, failed included). */
-  | { event: 'quota'; perSession: number; left: number }
-  /** The loop is over, as it should be. */
-  | { event: 'finish'; left: number }
-  | { event: 'stop'; cause: ProfilesStop; left: number }
-  /** The store's oldest profiles were dropped (`total` kept before, `kb` of them). */
-  | { event: 'tidied'; dropped: number; total: number; kb: number }
-  | { event: 'tidy-failed'; detail: string }
 
 /**
  * Reports one thing that happened while the skill profiles were being written: the debug log line (the words
@@ -1297,14 +1256,13 @@ async function reportProfiles(io: ProfilesIo, event: ProfileEvent): Promise<void
     if (event.event === 'tidied' || event.event === 'tidy-failed') return
     let after: ProfilesState | undefined
     if (event.event === 'start' || event.event === 'unreadable') {
-      // A board that cannot be read puts the session start at turn 1, where the first message will be.
-      const turn = Math.max(1, (await read(io.board).catch(() => EMPTY)).turn)
-      const first = profilesBegin(event, turn)
+      const first = profilesBegin(event, await sessionTurn(io.board))
       await modify(io.profiles, () => (after = first))
     } else {
       await modify(io.profiles, (current) => {
         after = current !== undefined && current.phase === 'writing' ? profilesAdvance(current, event) : undefined
-        return after
+        // An event that changes nothing (`quota`) is no write.
+        return after === current ? undefined : after
       })
     }
     if (after !== undefined && after.phase !== 'writing') await update(io.decisions, (list) => profilesLogged(list ?? [], after as ProfilesState))
@@ -1317,125 +1275,8 @@ async function reportProfiles(io: ProfilesIo, event: ProfileEvent): Promise<void
   }
 }
 
-/** The debug log's line for an event; null when it has none. */
-function profilesLine(event: ProfileEvent): string | null {
-  switch (event.event) {
-    case 'start':
-      return `skill profiles: ${event.offered - event.due} kept, ${event.due} to write with ${event.model} (at most ${event.perSession} this session)`
-    case 'unreadable':
-      return 'skill profiles: the store cannot be read, so no profile is kept or written; skills are rated by their descriptions'
-    case 'found':
-      return null
-    case 'written':
-      return `skill profile written for ${event.skill} by ${event.model} in ${event.ms} ms (${event.input} input, ${event.output} output tokens)`
-    case 'failed':
-      return `skill profiles: no profile for ${event.skill} (${event.why}, ${event.ms} ms)`
-    case 'unfit':
-      return `skill profiles: the reply for ${event.skill} is not a profile (${event.ms} ms): ${JSON.stringify(event.text.slice(0, 80))}`
-    case 'quota':
-      return `skill profiles: ${event.left} left to write at a later session start (at most ${event.perSession} each)`
-    case 'finish':
-      return null
-    case 'stop': {
-      const cause = event.cause
-      const more = 'no more profiles are written this session'
-      if (cause.reason === 'model-refused') return `skill profiles: ${cause.model} was refused (${cause.detail}); ${more}`
-      if (cause.reason === 'api-error') return `skill profiles: no profile for ${cause.skill} (${cause.why}, ${cause.ms} ms); ${more}`
-      if (cause.reason === 'store-write') return `skill profiles: the store did not keep the profile of ${cause.skill} (${cause.detail}); ${more}`
-      if (cause.reason === 'error') return `skill profiles: stopped writing (${cause.detail})`
-      return null
-    }
-    case 'tidied':
-      return `skill profiles: dropped the ${event.dropped} oldest of ${event.total} kept (${event.kb} KB)`
-    case 'tidy-failed':
-      return `skill profiles: could not tidy the store (${event.detail})`
-  }
-}
-
-/** The state a session start begins with. Nothing to write (or no store to keep it): it is over at once. */
-function profilesBegin(event: Extract<ProfileEvent, { event: 'start' | 'unreadable' }>, turn: number): ProfilesState {
-  if (event.event === 'unreadable') {
-    return { phase: 'stopped', turn, model: event.model, kept: 0, planned: 0, written: 0, failed: 0, deferred: event.offered, stop: { reason: 'store-read', detail: '' }, failures: [] }
-  }
-  const planned = event.due > 0 ? Math.max(0, Math.min(event.due, event.perSession)) : 0
-  return { phase: planned > 0 ? 'writing' : 'done', turn, model: event.model, kept: event.offered - event.due, planned, written: 0, failed: 0, deferred: event.due - planned, failures: [] }
-}
-
-/**
- * What the model's reply for a skill said it failed with (the engine's reason, as the feature words it), in the
- * person's words: `empty-reply`, `an API error, HTTP 529 overloaded`. What the server said of itself stays as it
- * said it; anything this does not know is left as it is.
- */
-export function profileWhy(why: string): string {
-  if (why === 'empty-reply') return '模型回了空内容'
-  if (why === 'aborted') return '请求被中断'
-  const api = /^an API error, HTTP (\S+)(?: (.*))?$/.exec(why)
-  if (api !== null) return `接口出错（状态码 ${api[1]}${api[2] === undefined || api[2] === '' ? '' : ` ${api[2]}`}）`
-  return why
-}
-
-/** The state after an event that comes while the profiles are being written. */
-function profilesAdvance(state: ProfilesState, event: ProfileEvent): ProfilesState {
-  switch (event.event) {
-    case 'found':
-      return { ...state, kept: state.kept + 1 }
-    case 'written':
-      return { ...state, written: state.written + 1 }
-    case 'failed':
-    case 'unfit': {
-      const reason = event.event === 'failed' ? profileWhy(event.why) : '回复不是画像'
-      const failures = state.failures.length < PROFILES_FAILURES_KEPT ? [...state.failures, { name: event.skill, reason }] : state.failures
-      return { ...state, failed: state.failed + 1, failures }
-    }
-    case 'finish':
-      return { ...state, phase: 'done', deferred: event.left }
-    case 'stop': {
-      const cause = event.cause
-      const detail = cause.reason === 'api-error' ? profileWhy(cause.why) : cause.reason === 'store-write' ? `${cause.skill}：${cause.detail}` : cause.reason === 'off' ? '' : cause.detail
-      return { ...state, phase: 'stopped', deferred: event.left, stop: { reason: cause.reason, detail } }
-    }
-    default:
-      return state
-  }
-}
-
 /** The log with the session's profiles entry: a start again at the same turn (a hot reload) takes the place of the one before. */
 function profilesLogged(list: readonly LogEntry[], state: ProfilesState): LogEntry[] {
   const entry = profilesEntry(state)
-  const at = list.findIndex((kept) => kept.feature === 'skill-profiles' && kept.turn === state.turn)
-  if (at < 0) return appendEntry(list, entry)
-  return list.map((kept, i) => (i === at ? { n: kept.n, ...entry } : kept))
-}
-
-/** How many failed skills the entry's reason names. */
-const PROFILES_NAMED = 3
-
-function profilesEntry(state: ProfilesState): Omit<LogEntry, 'n'> {
-  const stopped = state.phase === 'stopped'
-  const counts = [`保留 ${state.kept}`, `新写 ${state.written}`, ...(state.failed > 0 ? [`失败 ${state.failed}`] : []), ...(state.deferred > 0 ? [`延后 ${state.deferred}`] : [])].join(' · ')
-  const named = state.failures.slice(0, PROFILES_NAMED).map((failure) => `${failure.name}：${failure.reason}`)
-  const failed = state.failed > 0 ? `（${named.join('；')}${state.failed > named.length ? `；另有 ${state.failed - named.length} 个` : ''}）` : ''
-  const stop = state.stop
-  const why =
-    stop === undefined
-      ? ''
-      : stop.reason === 'store-read'
-        ? '读不到本地存储，不保留也不写'
-        : stop.reason === 'model-refused'
-          ? `引擎拒绝了 ${state.model}（${stop.detail}）`
-          : stop.reason === 'api-error'
-            ? `${state.model} 返回了接口错误：${stop.detail}`
-            : stop.reason === 'store-write'
-              ? `本地存储存不下画像（${stop.detail}）`
-              : stop.reason === 'off'
-                ? '写的过程中被关掉了'
-                : `出错了（${stop.detail}）`
-  return {
-    turn: state.turn,
-    feature: 'skill-profiles',
-    tone: stopped ? (stop?.reason === 'off' ? 'info' : 'fail') : state.failed > 0 ? 'warn' : 'ok',
-    outcome: stopped ? '画像停写' : state.failed > 0 ? `画像：${state.failed} 个失败` : '画像就绪',
-    subject: '',
-    reason: `${stopped ? `${why}；` : ''}${counts}${failed}`,
-  }
+  return replacingOrAppending(list, (kept) => kept.feature === 'skill-profiles' && kept.turn === state.turn, entry)
 }

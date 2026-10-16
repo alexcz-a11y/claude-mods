@@ -60,9 +60,9 @@ export function seriesVerdict(pairs: readonly PairConclusion[]): SeriesVerdict {
 // ---- Sending the pairs ----------------------------------------------------------------------------------------------
 
 /** About how many input tokens the images of the pairs in one wave may cost in all: three requests at the 24,000 tokens a Jev request takes of images. */
-export const WAVE_TOKENS = 72_000
+const WAVE_TOKENS = 72_000
 /** Most pairs in one wave, however small their images: each is a few requests of its own. */
-export const WAVE_PAIRS = 6
+const WAVE_PAIRS = 6
 
 /**
  * The pairs split into waves that go out one after the other, the pairs of a wave at once: a series of many levels at full size

@@ -187,24 +187,24 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       const asked = await askLogged($, ctx, 'request', about, request, waitMs)
       const left = waitMs - ((await $.clock.now()) - startedAt)
       const ranked = asked.ok ? await ranker.rank(answersFor(part, asked.answers), candidates, { state: request.state, timeoutMs: left }) : null
-      const failure = !asked.ok ? asked.failure : ranked === null ? { kind: 'parse' as const, detail: 'no answer about the skills' } : ranked.failed
-      if (ranked === null || failure !== undefined) {
-        const lost = failure ?? { kind: 'parse' as const, detail: 'no answer about the skills' }
-        const why = failureText(ctx.backend.name, lost)
-        await report(io, { decision: { ...call, failure: { backend: ctx.backend.name, ...lost } } })
+      const unranked = { kind: 'parse' as const, detail: 'no answer about the skills' }
+      const lost = !asked.ok ? asked.failure : ranked === null ? unranked : ranked.failed
+      if (ranked === null || lost !== undefined) {
+        const failure = lost ?? unranked
+        const why = failureText(ctx.backend.name, failure)
+        await report(io, { decision: { ...call, failure: { backend: ctx.backend.name, ...failure } } })
         return { result: `find_skill could not rate the skills (${why}). ${CARRY_ON}` }
       }
-      const ranking = ranked
 
       // Only skills the main agent can load were asked about, and they alone can come back.
-      const { suggest } = pickSkills(ranking, candidates, policy())
+      const { suggest } = pickSkills(ranked, candidates, policy())
       const names = suggest.map((skill) => skill.name).join('、')
       await report(io, {
         decision: {
           ...call,
           subject: quoteStart(query),
           outcome: suggest.length > 0 ? `查到 ${names}` : '没查到 skill',
-          reason: describeRanking(ranking, policy()),
+          reason: describeRanking(ranked, policy()),
           tone: suggest.length > 0 ? 'ok' : 'info',
           skills: { suggest: suggest.map(({ name, relevance }) => ({ name, relevance })), try: [] },
         },

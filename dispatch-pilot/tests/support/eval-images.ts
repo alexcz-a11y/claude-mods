@@ -67,7 +67,7 @@ export function askThrough(backend: Backend, reply: (request: Sent) => Reply): {
   }
 }
 
-/** Jev as the eval's run builds it (eval/node.ts `backendFor`: the key and, by default, the `jev-latest` model name). */
+/** Jev as the eval's run builds it (eval/node.ts `backendFor`: the key and, by default, the mod's pinned model, JEV_MODEL). */
 export const evalJev = (key: string): Backend => jevBackend(key, { model: JEV_MODEL })
 /** pplx as the eval's run builds it. */
 export const evalPplx = (key: string): Backend => pplxBackend(key)

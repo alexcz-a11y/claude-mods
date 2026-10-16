@@ -4,9 +4,9 @@
 
 import { expect, test } from 'claude-code/testing'
 import { level, levels, seriesBackend } from './support/series.ts'
-import { world } from './support/world.ts'
+import { KEY, world } from './support/world.ts'
 
-const OPTIONS = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key', rejudgeEvery: 0 }
+const OPTIONS = { ...KEY, rejudgeEvery: 0 }
 const FOAM = { part: 'the waves near the horizon', property: 'foam density' }
 const SUN = { part: 'the reflection of the sun', property: 'brightness' }
 

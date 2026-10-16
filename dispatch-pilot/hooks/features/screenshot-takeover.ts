@@ -5,7 +5,7 @@
 //   - a Read that returns an image file modified since the loop began (core/loop-start.ts): the result is swapped for a Read
 //     result in its text form, which the engine records without the `[Image: ...]` text it adds to an image;
 //   - an image block in the result of an MCP tool (a screenshot tool): saved as a file in the session's temporary directory
-//     (`base64 -D`, since `$.fs.write` writes text only) and swapped for the note.
+//     (`base64 -D -o`, macOS's flags like the image work's `sips`; `$.fs.write` writes text only) and swapped for the note.
 //
 // Not taken: an image file that was there before the loop began (a reference image), the images the person pastes (they never
 // come through Read), and dispatch-pilot's own tools (`look: true` hands the image back through the tool). The switch is
@@ -15,7 +15,8 @@
 import type { EngineInterface, On } from 'claude-code'
 import { errorText } from '../decision/backend.ts'
 import { extensionOf, formatOf, type Kept, noteAsReadResult, sizeOfImage, swapImages, takeoverNote } from '../decision/screenshot-takeover.ts'
-import { isFromLoop, MAIN_LOOP } from '../core/loop-start.ts'
+import { isFromLoop } from '../core/loop-start.ts'
+import { MAIN } from '../core/plans.ts'
 import type { ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
@@ -63,7 +64,7 @@ export function registerScreenshotTakeover(on: On, ctx: Ctx): void {
     const given = result.result as { type?: unknown } | string | null | undefined
     if (typeof given !== 'object' || given === null || given.type !== 'image') return result
     const read = given as ReadImage
-    const agent = e.agentId ?? MAIN_LOOP
+    const agent = e.agentId ?? MAIN
     try {
       // Where no beginning is known, which files are older cannot be told: the image is left as it is.
       const loop = (await $.state.get({ ...LOOPS, id: agent })).value
@@ -87,7 +88,7 @@ export function registerScreenshotTakeover(on: On, ctx: Ctx): void {
   on('tool.call', { tool: /^mcp__/ }, async ($, e, next) => {
     const result = await next(e)
     if (!acts() || next.origin.plugin !== 'engine' || result.deny !== undefined || ('isError' in result && result.isError === true) || e.tool.startsWith(OWN_TOOLS)) return result
-    const agent = e.agentId ?? MAIN_LOOP
+    const agent = e.agentId ?? MAIN
     try {
       const kept: Kept[] = []
       const swapped = await swapImages(result.result, async (image) => {

@@ -6,7 +6,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { EFFORTS } from '../hooks/decision/effort.ts'
-import { jevBackend } from '../hooks/decision/jev.ts'
+import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import type { EffortSubmitItem } from '../eval/lib/datasets.ts'
 import { effortSubmit } from '../eval/lib/effort-submit.ts'
 import { readNumber } from '../eval/lib/numbers.ts'
@@ -38,7 +38,7 @@ type Reply = { status: number; body: unknown }
 function answer(body: any, p: readonly number[]): Reply {
   const [id, question] = Object.entries(body.questions as Record<string, { type: string }>)[0] as [string, { type: string }]
   const probabilities = Object.fromEntries(EFFORTS.map((level, i) => [question.type === 'score' ? String(i) : level, p[i] ?? 0]))
-  return { status: 200, body: { model: 'jev-1.13.0', answers: { [id]: { type: question.type, probabilities, confidence: 0.5, score: 0, choice: '' } }, usage: { input_tokens: 700 } } }
+  return { status: 200, body: { model: JEV_MODEL, answers: { [id]: { type: question.type, probabilities, confidence: 0.5, score: 0, choice: '' } }, usage: { input_tokens: 700 } } }
 }
 
 /** A fake network: `reply` answers each request; every reply takes 120 ms of the fake clock; the runner's pauses are recorded. */
@@ -99,7 +99,7 @@ test('each item is asked in both languages under each variant, as the mod asks i
     'b zh-choice en: low right, gold',
   ])
   // What each answer records: the reading (for calibrating thresholds later), who answered, at what cost.
-  expect(rows[0]).toMatchObject({ ok: true, attempts: 1, inputTokens: 700, model: 'jev-1.13.0', failure: null })
+  expect(rows[0]).toMatchObject({ ok: true, attempts: 1, inputTokens: 700, model: JEV_MODEL, failure: null })
   expect(rows[0]?.detail).toEqual({ p: [0, 0, 0.3, 0.6, 0.1], confidence: 0.5 })
   expect(rows[0]?.state).toEqual({ user_message: '把登录拆成三层（中文）', recent_context: '' })
   // The variant decides how the question is written; the person's words go as they are.

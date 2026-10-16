@@ -1,7 +1,7 @@
 // The `unresolved` dataset and its suite (seam 2): the format an item must have
 // (what `eval/validate.ts` accepts and refuses), and how the suite asks an item
-// and scores the answers: the final effort always, the three-way question when
-// the mod asks it (it does not yet: spec #36, ticket #37).
+// and scores the answers: the final effort always, and the three-way question
+// when the mod asks it (spec #36, ticket #37; the mod asks it with the unresolved switch on).
 
 import { expect, test } from 'claude-code/testing'
 import { validateDataset } from '../eval/lib/datasets.ts'

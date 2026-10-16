@@ -2,6 +2,7 @@
 // for every feature that sends a recording to a decision model: it keeps no state of its own and asks for nothing but the closures of
 // an `ImageFilesIo` (the same as image-files.ts, which sizes the frames), built where `$` is.
 
+import { errorText } from '../decision/backend.ts'
 import type { ImageLimits } from '../decision/image-fit.ts'
 import { type Frame, frameArgs, frameTimes, parseDuration, probeArgs, type Span } from '../decision/visual-check-frames.ts'
 import { type ImageFilesIo, type LoadedImage, loadImages } from './image-files.ts'
@@ -13,7 +14,7 @@ const RUN = { timeoutMs: 60_000 }
 export type RecordingFrames = { ok: true; frames: (Frame & { picture: LoadedImage })[] } | { ok: false; reason: string }
 
 /** What an error says, less the engine's `plugin: $.call: ` in front of it. */
-const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error)).replace(/^[\w.-]+: \$\.[\w.]+: /, '')
+const errorMessage = (error: unknown): string => errorText(error).replace(/^[\w.-]+: \$\.[\w.]+: /, '')
 
 /** The last line a program said, for a reason (ffmpeg ends with the one that names the failure). */
 const lastLine = (text: string): string => text.trim().split('\n').pop()?.trim().slice(0, 200) ?? ''

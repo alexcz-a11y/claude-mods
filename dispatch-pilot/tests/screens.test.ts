@@ -4,11 +4,10 @@
 // by key and look for the data a person needs (a model, an effort, a reason), not for whole lines of wording.
 
 import { expect, test } from 'claude-code/testing'
+import { type Drawn, inventory, shown } from './support/drawn.ts'
 import { siteJev } from './support/workflow.ts'
 import { runWorld } from './support/workflow-run.ts'
-import { jev, rates, world } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+import { jev, KEY, rates, world } from './support/world.ts'
 
 // ---- never the status row (ADR 0004) --------------------------------------------
 
@@ -77,19 +76,6 @@ test('a failed request beside the route (the skills, a re-decision) raises no to
 
 // ---- the band: a turn going ---------------------------------------------------------
 
-/** A drawn element as plain data (what `drawn()` and `find` hand back). */
-type Drawn = { type?: string; key?: string | undefined; props?: Record<string, unknown>; children?: unknown[] }
-
-/** What a drawn element shows: its descendants' text in order, a Button as `hotkey: label` (FoundElement's own `text` is only its string children). */
-function shown(element: unknown): string {
-  if (typeof element === 'string' || typeof element === 'number') return String(element)
-  if (element === null || typeof element !== 'object') return ''
-  const { children = [], props = {} } = element as Drawn
-  const label = typeof props.label === 'string' ? `${typeof props.hotkey === 'string' ? `${props.hotkey}: ` : ''}${props.label}` : ''
-  const kids = Array.isArray(props.children) ? props.children : children
-  return label + kids.map(shown).join('')
-}
-
 /** The band's rows an agent each, as they read, in order. */
 async function agentRows(ui: { findAll: (query: { type?: string }) => Promise<Drawn[]> }): Promise<string[]> {
   return (await ui.findAll({ type: 'Box' })).filter((box) => box.key?.startsWith('band-agent-')).map((box) => shown(box))
@@ -106,7 +92,7 @@ test('a turn with several agents: the main agent first, then each in the order i
   await w.clock.advance(3000)
   // One the engine started on its own, unknown to the decisions: its steps go out as the engine made them.
   w.agents.push({ id: 'a9', description: '写迁移脚本', type: 'general-purpose', status: 'running' })
-  await w.agentStep('a9', { index: 0, model: 'claude-haiku-5-5', effort: null })
+  await w.agentStep('a9', { index: 0, model: 'claude-haiku-4-5', effort: null })
   await w.clock.advance(4000)
   await w.complete({ agentId: 'a9', durationMs: 4000 })
 
@@ -403,20 +389,6 @@ test('before any turn, and with the survey up, the band and the footer are what 
 /** Every surface but the terminal: the band and the footer tag are text there, never a Raster. */
 const SURFACES = ['desktop', 'vscode', 'mobile'] as const
 
-/** The element types in a drawn tree, and how many nodes it has (Desktop refuses a tree of 2000). */
-function inventory(element: unknown, seen: { types: Set<string>; nodes: number } = { types: new Set(), nodes: 0 }) {
-  if (typeof element === 'string') {
-    seen.nodes += 1
-    return seen
-  }
-  if (element === null || typeof element !== 'object') return seen
-  const { type, children = [], props = {} } = element as Drawn
-  seen.nodes += 1
-  if (type !== undefined) seen.types.add(type)
-  for (const child of Array.isArray(props.children) ? props.children : children) inventory(child, seen)
-  return seen
-}
-
 test('on a surface other than the terminal the band is the same band in text: the strip, a row an agent with its digit, model, effort and state, the events; no Raster', { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { backend: jev([0, 0.1, 0.2, 0.7, 0], { choice: 'sonnet' }) })
   await w.submit('把这几个模块都审查一遍')
@@ -602,3 +574,43 @@ function cellsWide(element: unknown): number {
 function addedCells(drawn: unknown, mode: string | undefined): number {
   return cellsWide(drawn) - (mode === undefined ? 0 : cellsOf(mode))
 }
+
+// ---- the band, from a seeded board ------------------------------------------------------
+
+type SeedNode = Seed['nodes'][number]
+
+function mainOf(turn: number, over: Partial<SeedNode> = {}): SeedNode {
+  return { turn, id: 'main', kind: 'main', name: '主 agent', type: 'main', model: 'opus', effort: 'xhigh', state: 'running', t0: 0, routed: true, ...over }
+}
+
+test("an agent still running from an earlier turn shows the time it has run itself: 5:30 half a minute into the turn it outlived", async ($, on) => {
+  const agent: SeedNode = { turn: 1, id: 'wa1', kind: 'wf', name: 'audit:auth', type: 'general-purpose', model: 'sonnet', effort: 'high', state: 'running', t0: 0, routed: true, workflow: { id: 'wf_1', name: 'audit' } }
+  const w = world($, on, { seed: { board: { turn: 2, starts: [{ turn: 1, at: 0 }, { turn: 2, at: 300000 }], nodes: [agent, mainOf(2)] } } })
+  await w.clock.advance(330000)
+  const rows = await agentRows(await w.band({ columns: 180, rows: 12 }))
+  expect(rows).toHaveLength(2)
+  expect(rows[1]).toContain('audit:auth')
+  expect(rows[1]).toContain('运行 5:30')
+})
+
+test("the main agent of an earlier turn that never ended is not carried into the next: the turn over is the one line, with its own main agent", async ($, on) => {
+  const board = { turn: 2, starts: [{ turn: 1, at: 0 }, { turn: 2, at: 60000 }], nodes: [mainOf(1), mainOf(2, { state: 'done', dur: 4, model: 'sonnet', effort: 'high' })] }
+  const w = world($, on, { seed: { board } })
+  await w.clock.advance(70000)
+  const ui = await w.band({ isWorking: false })
+  expect(await ui.find({ key: 'band' })).toBeUndefined()
+  const line = shown(await ui.find({ key: 'band-idle' }))
+  expect(line).toContain('第 2 轮')
+  expect(line).toContain('sonnet·high')
+  // The footer is the new turn's main agent too (its model goes first for want of room).
+  expect(shown(await (await w.footer()).find({ key: 'dp-footer' }))).toBe('◆ high')
+})
+
+test("under 70 columns the effort is its five pips alone, a level and none alike, never a word cut short", async ($, on) => {
+  const nothing: SeedNode = { turn: 1, id: 'a9', kind: 'agent', name: '写迁移脚本', type: 'general-purpose', model: 'haiku', state: 'running', t0: 1, routed: true }
+  const w = world($, on, { seed: { board: { turn: 1, starts: [{ turn: 1, at: 0 }], nodes: [mainOf(1), nothing] } } })
+  const rows = await agentRows(await w.band({ columns: 60, rows: 12 }))
+  expect(rows[0]).toContain('▰▰▰▰▱')
+  expect(rows[1]).toContain('▱▱▱▱▱')
+  for (const row of rows) expect(row).not.toContain('▱…')
+})

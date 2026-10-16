@@ -10,11 +10,9 @@ import { briefOf, expectedFailurePart, rowsFromTranscript, stepsFromRows, type T
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { midturnEffortPart, midturnState, type MidturnInput } from '../hooks/decision/midturn.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
-import { siteJev } from './support/workflow.ts'
+import { agentJev, siteJev } from './support/workflow.ts'
 import { runDir, runWorld } from './support/workflow-run.ts'
-import { jev, world, type Reply, type Sent, type ToolRun, type World } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+import { jev, KEY, kind, type Reply, type Sent, type ToolRun, type World, world } from './support/world.ts'
 
 /** The escalation decisions the board keeps, oldest first. */
 async function escalations(w: World) {
@@ -23,14 +21,6 @@ async function escalations(w: World) {
 
 /** No periodic mid-turn re-decisions (they have their own tests): the only requests are this feature's. */
 const ONLY = { ...KEY, rejudgeEvery: 0 }
-
-/** The ids of a request's questions, joined: `effort.level` for a message, `midturn.level,escalation.expected` for a stuck loop. */
-function kind(request: Sent | undefined): string {
-  // The unresolved question travels in the message's effort request (#39); these tests are about the others.
-  return Object.keys(request?.body?.questions ?? {})
-    .filter((id) => id !== 'effort.unresolved')
-    .join(',')
-}
 
 const LOW = [0.9, 0.1, 0, 0, 0]
 const MEDIUM = [0, 1, 0, 0, 0]
@@ -128,6 +118,22 @@ test('the re-decision goes out as the call that reaches the threshold ends, befo
 
   expect(w.requests).toHaveLength(2)
   expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'high'])
+})
+
+test('calls of one step that fail together send one stuck re-decision between them, not one each', { options: { ...ONLY, escalateAfter: 1 } }, async ($, on) => {
+  const w = world($, on, { backend: answers(MEDIUM) })
+  await w.submit('把登录模块重构成三层，并补上测试')
+  await w.step({ index: 0, effort: 'medium' })
+  // Both calls are past the threshold (1) as they end, at the same moment.
+  const fails = (command: string) => w.callTool('Bash', { input: { command, description: command }, ends: FAILS })
+  await Promise.all([fails('pnpm test auth'), fails('pnpm test api')])
+  await w.clock.settle()
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midturn.level,escalation.expected'])
+
+  await w.step({ index: 1, effort: 'medium' })
+  expect(w.requests).toHaveLength(2)
+  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'high'])
+  expect((await w.board()).main?.counts).toEqual({ failed: 2, blocked: 0, raised: 1 })
 })
 
 test('an answer not back by the next step: the step waits rejudgeWaitMs, goes out as it was and the board notes it; the raise comes with the answer, at a later step', { options: { ...ONLY, rejudgeWaitMs: 300 } }, async ($, on) => {
@@ -567,25 +573,7 @@ type Spawn = {
 /** Jev answering an agent's decision at spawn with `spawn`, a stuck re-decision with `stuck`, and anything else (a message) with `start`. */
 function withAgents(spawn: Spawn, stuck: Stuck = {}, start: readonly number[] = MEDIUM) {
   const stuckAnswer = answers(start, stuck)
-  return (request: Sent): Reply => {
-    const questions = (request.body?.questions ?? {}) as Record<string, { type: string; criteria?: unknown }>
-    if (!('agent.model' in questions)) return stuckAnswer(request)
-    const out: Record<string, unknown> = {}
-    for (const [id, question] of Object.entries(questions)) {
-      if (question.type === 'choice') {
-        const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
-        const probabilities = Object.fromEntries(options.map((option) => [option, spawn.model[option] ?? 0]))
-        const choice = options.reduce((best, option) => ((probabilities[option] ?? 0) > (probabilities[best] ?? 0) ? option : best), options[0] ?? '')
-        out[id] = { type: 'choice', choice, probabilities, confidence: 0.9 }
-      } else if (question.type === 'score') {
-        const levels = spawn.effort ?? MEDIUM
-        out[id] = { type: 'score', score: 0, legend: {}, probabilities: Object.fromEntries(levels.map((p, i) => [String(i), p])), confidence: 0.7 }
-      } else {
-        out[id] = { type: 'noul', noul: 0 }
-      }
-    }
-    return { status: 200, body: { model: 'jev-1.13.0', answers: out, usage: { input_tokens: 400, output_tokens: 0 } } }
-  }
+  return (request: Sent): Reply => ('agent.model' in (request.body?.questions ?? {}) ? agentJev(spawn, MEDIUM)(request) : stuckAnswer(request))
 }
 
 /** The transcript of an agent whose two calls failed: its task, one step, the two results. */
@@ -797,6 +785,25 @@ return fixed
   expect(w.requests[0]?.body.state.user_message).toBe('Find why checkout.spec.ts times out intermittently and fix the cause.')
   // Found expected: nothing is forced.
   expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'medium'])
+})
+
+test("a workflow agent's transcript is read though the run's journal is not (past 4 MiB `$.fs.read` refuses it): its own file says it is of the run", { options: ONLY }, async ($, on) => {
+  const script = `export const meta = { name: 'fix', description: 'Fix the flaky checkout test', phases: [] }
+const fixed = await agent('Find why checkout.spec.ts times out intermittently and fix the cause.', { label: 'fix' })
+return fixed
+`
+  const w = runWorld($, on, { messages: refusing('wa1'), disk: { '/work/fix.js': script }, backend: answers(MEDIUM, { expected: 0.9 }) })
+  await w.command('dp', 'workflow-labels off')
+  await w.workflow({ scriptPath: '/work/fix.js' })
+  w.disk[`${runDir('wf_test-1')}/agent-wa1.jsonl`] = agentTranscript('Find why checkout.spec.ts times out intermittently and fix the cause.', [
+    { text: 'Running the checkout tests first.', calls: [{ id: 'toolu_1', command: 'npx playwright test checkout', description: 'Run the checkout tests', error: 'Timeout of 30000ms exceeded' }] },
+  ])
+  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium', tools: agentFailing })
+  await w.agentStep('wa1', { index: 1, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  // No journal on the disk at all: the agent is found by its transcript, and asked about.
+  expect(w.requests.map(kind)).toEqual(['midturn.level,escalation.expected'])
+  expect(w.requests[0]?.body.state.user_message).toBe('Find why checkout.spec.ts times out intermittently and fix the cause.')
 })
 
 test('a dispatched agent whose failures are found expected is re-decided by the effort answer, as the main agent is', { options: ONLY }, async ($, on) => {

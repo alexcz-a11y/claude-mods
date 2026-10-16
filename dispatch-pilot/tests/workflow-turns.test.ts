@@ -4,10 +4,10 @@
 // in; out, the board.
 
 import { expect, test } from 'claude-code/testing'
+import { type Drawn, shown } from './support/drawn.ts'
 import { siteJev } from './support/workflow.ts'
 import { runWorld } from './support/workflow-run.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+import { KEY } from './support/world.ts'
 
 /** A script the main agent saved earlier and runs again by its path; its call already names the model and effort that will be decided for it. */
 const SAVED = '/work/.claude/workflow-scripts/research.js'
@@ -35,17 +35,6 @@ test("a Workflow agent decided to run as its script has it stays routed on the b
   await w.agentStep('wa1', { index: 2, model: 'claude-sonnet-5-5', effort: 'xhigh' })
   expect(await routedOf()).toEqual([[1, 'running', true]])
 })
-
-type Drawn = { key?: string; children?: unknown[]; props?: { children?: unknown; label?: unknown } }
-
-/** The text a drawn element shows. */
-function shown(element: unknown): string {
-  if (typeof element === 'string' || typeof element === 'number') return String(element)
-  if (element === null || typeof element !== 'object') return ''
-  const { children = [], props = {} } = element as Drawn
-  const kids = Array.isArray(props.children) ? props.children : children
-  return (typeof props.label === 'string' ? props.label : '') + kids.map(shown).join('')
-}
 
 test("the band shows a Workflow agent of an earlier turn while it runs, routed, and no longer once a stop ended it", { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { disk: { [SAVED]: RESEARCH }, backend: siteJev(() => ({ model: { sonnet: 0.9 }, effort: [0, 0, 0, 1, 0] })) })

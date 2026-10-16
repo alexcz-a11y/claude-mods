@@ -54,7 +54,7 @@ export function forgetCommand(text: string): void {
 }
 
 /** A command's description is cut to this many tokens: what it is for is said at its start. */
-export const COMMAND_TOKENS = 150
+const COMMAND_TOKENS = 150
 
 /**
  * What the decision model reads about a command turn's command, beside the

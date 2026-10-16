@@ -4,9 +4,9 @@
 
 import { expect, test } from 'claude-code/testing'
 import { ffmpeg, type FakeVideo } from './support/images.ts'
-import { jev, world } from './support/world.ts'
+import { jev, KEY, world } from './support/world.ts'
 
-const OPTIONS = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key', rejudgeEvery: 0 }
+const OPTIONS = { ...KEY, rejudgeEvery: 0 }
 const REC = '/rec/transition.mov'
 const VIDEOS: Record<string, FakeVideo> = { [REC]: { seconds: 3.5, width: 390, height: 844 } }
 const CHECKS = [

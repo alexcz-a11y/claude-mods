@@ -93,7 +93,8 @@ export function registerCore(on: On, ctx: Ctx): void {
     const started = typedCommand(e.text) ?? e.text
     // Its own prompt's decision: the prompt now entering (whatever an inner
     // hook made of its text), else a queued prompt with the turn's text.
-    const texts = entering.length === 1 ? [entering[0] as string, started] : [started]
+    const entered = enteringPrompt()
+    const texts = entered === undefined ? [started] : [entered, started]
     const { before } = await replace(pending, (list) => takePending(list ?? [], texts).rest)
     // What the landed write took out of the list it found.
     const own = takePending(before ?? [], texts).taken

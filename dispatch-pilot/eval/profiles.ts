@@ -24,7 +24,6 @@
 // 1.5k input and 220 output tokens and 2.7 s, the scale of the mod's own
 // completions (DEVELOPMENT.md, 开发); the 111 profiles, 4 at a time, 2 min 47 s.
 
-import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -32,7 +31,7 @@ import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { PROFILE_SYSTEM, PROFILE_VERSION, profileKey, profilePrompt, readProfile, type StoredProfile } from '../hooks/core/profiles.ts'
 import { catalogSkills } from './lib/skill.ts'
-import { DATASETS_DIR, nodeHost, shown } from './node.ts'
+import { DATASETS_DIR, claudeComplete, nodeHost, numberFlag, shown } from './node.ts'
 
 const { values } = parseArgs({
   options: {
@@ -43,6 +42,7 @@ const { values } = parseArgs({
   },
 })
 
+const concurrency = numberFlag('--concurrency', values.concurrency, { min: 1, integer: true })
 const CATALOG = join(DATASETS_DIR, 'skill-catalog.json')
 const PROFILES = join(DATASETS_DIR, 'skill-profiles.json')
 const SETTINGS = JSON.stringify({ enabledPlugins: { 'jev-pilot@jev-pilot': false }, alwaysThinkingEnabled: false })
@@ -76,27 +76,7 @@ const systemFile = join(dir, 'system.txt')
 writeFileSync(systemFile, PROFILE_SYSTEM)
 
 /** One completion through `claude -p`: the reply's text and the model that answered, or why there is none. */
-function complete(prompt: string): Promise<{ text: string; models: string[] } | { failed: string }> {
-  return new Promise((done) => {
-    const args = ['-p', '--model', model, '--safe-mode', '--setting-sources', 'project', '--tools', '', '--system-prompt-file', systemFile, '--output-format', 'json', '--no-session-persistence', '--settings', SETTINGS, '--strict-mcp-config']
-    const child = spawn('claude', args, { cwd: dir, env: { ...process.env, MAX_THINKING_TOKENS: '0' }, stdio: ['pipe', 'pipe', 'pipe'] })
-    let out = ''
-    let err = ''
-    child.stdout.on('data', (chunk) => (out += chunk))
-    child.stderr.on('data', (chunk) => (err += chunk))
-    child.on('error', (error) => done({ failed: error.message }))
-    child.on('close', (code) => {
-      try {
-        const result = JSON.parse(out) as { result?: string; is_error?: boolean; modelUsage?: Record<string, unknown> }
-        if (result.is_error || typeof result.result !== 'string') return done({ failed: `claude -p answered an error (exit ${code}): ${String(result.result).slice(0, 200)}` })
-        done({ text: result.result, models: Object.keys(result.modelUsage ?? {}) })
-      } catch {
-        done({ failed: `claude -p exited ${code}: ${(err || out).slice(0, 200)}` })
-      }
-    })
-    child.stdin.end(prompt)
-  })
-}
+const complete = (prompt: string) => claudeComplete(prompt, { model, systemFile, cwd: dir, settings: SETTINGS })
 
 const written: Record<string, StoredProfile> = {}
 const answeredBy = new Set<string>()
@@ -126,7 +106,7 @@ const worker = async () => {
     if (written[key] === undefined) failed.push(skill.name)
   }
 }
-await Promise.all(Array.from({ length: Math.max(1, Number(values.concurrency)) }, worker))
+await Promise.all(Array.from({ length: concurrency }, worker))
 rmSync(dir, { recursive: true, force: true })
 
 // In the snapshot's order, as the mod writes them (the skills the main agent can load first).

@@ -1,7 +1,8 @@
 // The `ctx30` experiment (2026-10-15, the person's design): thirty questions about one long conversation, all in one
-// request, asked of Jev 1.14 twice: with the context the mod sends a message today (the newest 24000 estimated tokens,
-// within Jev's default 32k a question and 64k a request) and with the long-context header (the whole conversation, within
-// 262k). Each question's decisive turns lie beyond those 24000 tokens, so only the second request can see them.
+// request, asked of Jev 1.14 twice: with the context the mod sent a message when the experiment ran (the newest 24000
+// estimated tokens: the most Jev takes without the header, within its 32k a question and 64k a request; the mod now sends up to
+// 96000, with the header) and with the long-context header (the whole conversation, within 262k). Each question's decisive
+// turns lie beyond those 24000 tokens, so only the second request can see them.
 //
 // The conversation is one long working session in a made-up repository (ledgerly), written by hand in
 // datasets/ctx30/conversation/*.txt; the questions are in datasets/ctx30/questions.json: fifteen ask the main agent's

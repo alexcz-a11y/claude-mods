@@ -6,10 +6,10 @@
 
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import type { Reply } from './support/world.ts'
+import { KEY } from './support/world.ts'
 import { siteJev, workflowWorld, type SiteAnswer } from './support/workflow.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
 
 /** Two agents in sequence, each with a label. */
 const TIDY = `export const meta = { name: 'tidy-api', description: 'Rename getUser to fetchUser in src/api, then review the diff', phases: [{ title: 'Edit', detail: 'rename and test' }, { title: 'Review', detail: 'check the diff' }] }
@@ -645,7 +645,7 @@ const failures: { name: string; reply: Reply; why: string }[] = [
   { name: 'the key is refused (401)', reply: { status: 401, body: { detail: 'Invalid API key' } }, why: 'jev：密钥被拒绝（状态码 401）' },
   { name: 'a server error (500)', reply: { status: 500, body: 'Internal Server Error' }, why: 'jev：出错（状态码 500）' },
   { name: 'the network is down', reply: { reject: 'getaddrinfo ENOTFOUND api.typesafe.ai' }, why: 'jev：连不上' },
-  { name: "an answer without the agents' questions", reply: { status: 200, body: { model: 'jev-1.13.0', answers: {} } }, why: 'jev：回答读不懂' },
+  { name: "an answer without the agents' questions", reply: { status: 200, body: { model: JEV_MODEL, answers: {} } }, why: 'jev：回答读不懂' },
 ]
 
 for (const failure of failures) {

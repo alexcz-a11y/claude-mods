@@ -1,5 +1,5 @@
 // Image files and programs for the world (tests/support/world.ts, #57): the files the mod reads as bytes (`$.fs.read(path,
-// { as: 'bytes' })`) and the programs it runs (`$.process.run`: sips, and later ffmpeg and the rest), on a disk of the test's own.
+// { as: 'bytes' })`) and the programs it runs (`$.process.run`: sips, mkdir, base64 and ffmpeg), on a disk of the test's own.
 //
 // A file is described, not drawn: its format, its pixels' width and height, and a `label`, the story of how it came to be (the
 // derived files a program writes carry the source and what was done: `/shots/a.png > resize 522x1568`). `fileBase64` makes the

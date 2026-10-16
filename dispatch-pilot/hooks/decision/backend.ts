@@ -1,12 +1,12 @@
 // The decision backend's interface: one implementation per decision model
-// (Jev's in jev.ts), the same requests and answers.
+// (Jev's in jev.ts, pplx's in pplx.ts), the same requests and answers.
 //
 // Pure (see system-one.ts): a backend reaches the network only through the
 // `io` it is handed, which the mod builds from `$` in the hook that calls it
 // (`$` itself may not cross an import) and a Node script builds from `fetch`.
 
 import type { HttpInit, HttpResponse } from 'claude-code'
-import type { DecisionRequest } from './system-one.ts'
+import { readResponse, type DecisionRequest } from './system-one.ts'
 
 /** The decision models there are, by the name the person sets (`decisionModel`) and the code keys its tables by. */
 export type BackendName = 'pplx' | 'jev'
@@ -17,9 +17,9 @@ export type BackendIo = {
   /** Resolves after `ms`; rejects at once when `signal` aborts. */
   sleep: (ms: number, signal: AbortSignal) => Promise<void>
   /**
-   * What the pplx rate limit (pplx-rate.ts) keeps its count with: the clock, and a `$.state` cell for the times of the
-   * latest sends. The hooks of the mod give it; the eval, which paces its own requests, leaves it out, and a backend
-   * without a limit ignores it.
+   * What the rate limits (pplx-rate.ts, jev-rate.ts) pace with: the clock, and for pplx a `$.state` cell for the times of
+   * the latest sends (Jev's keeps its count in the backend object and does not read it). The hooks of the mod give it; the
+   * eval, which paces its own requests, leaves it out, and a backend without a limit ignores it.
    */
   pace?: {
     now: () => Promise<number>
@@ -28,7 +28,7 @@ export type BackendIo = {
   }
 }
 
-/** A `$.state` value reached through closures (the hook that owns `$` builds them); the same shape as core/plans.ts `Cell`. */
+/** A `$.state` value reached through closures (the hook that owns `$` builds them); core/plans.ts `Cell` is this type. */
 export type StateCell<T> = {
   get: () => Promise<{ value: T | undefined; version: number }>
   set: (value: T, options: { ifVersion: number }) => Promise<{ isSet: boolean; version: number }>
@@ -39,8 +39,8 @@ export type Failure = {
   /**
    * `config`: no key, or the key was refused (401/403). `timeout`: no answer
    * in time. `network`: the request never completed. `busy`: rate limited or
-   * overloaded (429, 502, 503, 529). `quota`: the account's allowance for the
-   * day is spent, so asking again today is pointless. `http`: any other
+   * overloaded (429, 502, 503, 529), or held back by a rate limit's wait. `quota`: the account has no credits
+   * left (402, from TypeSafe and Perplexity alike), so asking again is pointless until it is topped up. `http`: any other
    * non-2xx (400 and 422 mean this mod sent a bad request). `parse`: a 2xx that is not a System One answer. `request`:
    * the request could not be built (a part's bug).
    */
@@ -49,7 +49,7 @@ export type Failure = {
   detail: string
   /** The HTTP status, when there was one. */
   status?: number
-  /** How long a 429 asked to wait before asking again (its `Retry-After`, in ms); only a 429 that gave a number has it. */
+  /** How long a 429 (or Jev's 529) asked to wait before asking again (its `Retry-After`, in ms); only one that gave a number has it. */
   retryAfterMs?: number
 }
 
@@ -101,8 +101,33 @@ export async function postJson(
     (response): Posted => (response.ok ? { ok: true, response } : { ok: false, failure: classify(response) }),
     (error: unknown): Posted => ({ ok: false, failure: { kind: 'network', detail: errorText(error) } }),
   )
-  const late: Posted = { ok: false, failure: { kind: 'timeout', detail: `no answer in ${timeoutMs} ms` } }
+  const late: Posted = { ok: false, failure: timedOut(timeoutMs) }
   return within(io.sleep, call, timeoutMs, late)
+}
+
+/** The failure of a request that was not answered in `timeoutMs`; `failureLine` reads the number back out of its detail. */
+export function timedOut(timeoutMs: number): Failure {
+  return { kind: 'timeout', detail: `no answer in ${timeoutMs} ms` }
+}
+
+/** The answers out of a posted request, or why there are none (a 2xx body that is not JSON, or holds no answers). */
+export function readPosted(posted: Posted): Asked {
+  if (!posted.ok) return posted
+  const text = posted.response.text
+  let body: unknown
+  try {
+    body = JSON.parse(text)
+  } catch {
+    return { ok: false, failure: { kind: 'parse', detail: `not JSON: ${withoutBase64(text).slice(0, 200)}` } }
+  }
+  const response = readResponse(body)
+  if (response === null) return { ok: false, failure: { kind: 'parse', detail: `no answers: ${withoutBase64(text).slice(0, 200)}` } }
+  return { ok: true, ...response }
+}
+
+/** `asked` with the key out of a failure's detail: a failure goes to the debug log, and what the API echoes of the key stays out. */
+export function withoutKey(asked: Asked, apiKey: string): Asked {
+  return asked.ok ? asked : { ok: false, failure: { ...asked.failure, detail: asked.failure.detail.split(apiKey).join('[REDACTED]') } }
 }
 
 /**
@@ -134,7 +159,7 @@ export function withoutBase64(text: string): string {
   return text.replace(/[A-Za-z0-9+/_-]{60,}={0,2}/g, '[base64 left out]')
 }
 
-/** A request's outcome as every debug-log line about one writes it: `answered in 310 ms by jev-1.13.0 (626 input tokens)`, or the failure. */
+/** A request's outcome as every debug-log line about one writes it: `answered in 310 ms by jev-1.14.0 (626 input tokens)`, or the failure. */
 export function describeAsked(asked: Asked, ms: number): string {
   const notes = asked.notes === undefined || asked.notes.length === 0 ? '' : `; ${asked.notes.join('; ')}`
   if (!asked.ok) return `${asked.failure.kind}: ${asked.failure.detail} (${ms} ms)${notes}`
@@ -149,13 +174,15 @@ export function errorText(error: unknown): string {
 }
 
 /**
- * A non-2xx response as a failure, with the start of its body for the log. A 429 or 529 that says how long to wait
+ * A non-2xx response as a failure, with the start of its body for the log. A 402 is an account out of credits (TypeSafe and
+ * Perplexity both answer so). A 429 or 529 that says how long to wait
  * (`Retry-After`, in seconds) carries it as `retryAfterMs`, for a rate limit to wait as told (jev-rate.ts).
  */
 export function httpFailure(response: HttpResponse): Failure {
   const status = response.status
   const detail = `HTTP ${status}: ${withoutBase64(response.text).replace(/\s+/g, ' ').slice(0, 200)}`
   if (status === 401 || status === 403) return { kind: 'config', status, detail }
+  if (status === 402) return { kind: 'quota', status, detail }
   const wait = status === 429 || status === 529 ? retryAfterSeconds(response) : null
   if (status === 429 || status === 502 || status === 503 || status === 529) return { kind: 'busy', status, detail, ...(wait === null ? {} : { retryAfterMs: Number(wait) * 1000 }) }
   return { kind: 'http', status, detail }
@@ -184,7 +211,7 @@ export function failureText(backend: string, failure: Failure): string {
     case 'busy':
       return `${backend}: busy (HTTP ${failure.status ?? '?'})`
     case 'quota':
-      return `${backend}: daily quota used up`
+      return `${backend}: out of credits (HTTP ${failure.status ?? '?'})`
     case 'http':
       return `${backend}: HTTP ${failure.status ?? '?'}`
     case 'parse':
@@ -215,6 +242,7 @@ const FAILURE_WORDS: { readonly [K in Failure['kind']]: { words: (failure: Named
     words: () => '决策模型超时',
     means: () => '没有在等待时间内回答',
     line: (backend, failure) => {
+      // The board keeps a failure's detail and not its fields, so the wait is read back out of what `timedOut` wrote.
       const ms = /\b(\d+) ms\b/.exec(failure.detail)?.[1]
       return ms === undefined ? `${backend}：没有及时回答` : `${backend}：${ms} 毫秒内没有回答`
     },
@@ -226,7 +254,7 @@ const FAILURE_WORDS: { readonly [K in Failure['kind']]: { words: (failure: Named
     means: (failure) => (rateLimited(failure.backend, failure) ? '请求太密，被决策模型限速了（状态码 429）' : '决策模型一时繁忙（状态码 429 之类）'),
     line: (backend, failure) => (rateLimited(backend, failure) ? `${backend}：被限速（状态码 429）` : `${backend}：繁忙（状态码 ${failure.status ?? '?'}）`),
   },
-  quota: { words: () => '决策模型额度用完', means: () => '决策模型的额度用完了', line: (backend) => `${backend}：今天的额度用完了` },
+  quota: { words: () => '决策模型额度用完', means: () => '决策模型账号的额度用完了（状态码 402）', line: (backend, failure) => `${backend}：额度用完了（状态码 ${failure.status ?? '?'}）` },
   http: { words: () => '决策模型出错', means: () => '决策模型回了一个出错的状态码', line: (backend, failure) => `${backend}：出错（状态码 ${failure.status ?? '?'}）` },
   parse: { words: () => '读不懂决策模型的回答', means: () => '回答里没有能用的判断', line: (backend) => `${backend}：回答读不懂` },
   request: { words: () => '决策请求出错', means: () => '请求本身出了错', line: (backend) => `${backend}：请求出错（详见 debug log）` },

@@ -13,6 +13,7 @@
 
 import { estimateTokens } from '../../hooks/decision/context.ts'
 import type { ContextEntry, Vocab } from './datasets.ts'
+import { mulberry32 } from './random.ts'
 
 type Random = () => number
 
@@ -20,13 +21,7 @@ type Random = () => number
 function random(seed: string): Random {
   let h = 2166136261
   for (const char of seed) h = Math.imul(h ^ char.codePointAt(0)!, 16777619)
-  let a = h >>> 0
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0
-    let t = Math.imul(a ^ (a >>> 15), 1 | a)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
+  return mulberry32(h)
 }
 
 function pick<T>(r: Random, list: readonly T[]): T {

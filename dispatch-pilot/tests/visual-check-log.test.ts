@@ -2,6 +2,7 @@
 // sizes and what they cost, and never their content (nor a key). Seam 1: the log lines the world collects.
 
 import { expect, test } from 'claude-code/testing'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { jev, world } from './support/world.ts'
 
 const KEY = 'ts-test-key-4d9e'
@@ -20,7 +21,7 @@ test('the debug log has one line for the request: its questions, who answered, h
   await w.visualCheck({ images: [SHOT], checks: CHECK })
 
   const lines = w.logs.filter((log) => log.to === 'debug' && log.text.startsWith('visual_check'))
-  expect(lines.map((log) => log.text)).toEqual(['visual_check request [check.0] to jev: answered in 0 ms by jev-1.13.0 (300 input tokens); images: 1 (1200x800), about 2496 tokens'])
+  expect(lines.map((log) => log.text)).toEqual([`visual_check request [check.0] to jev: answered in 0 ms by ${JEV_MODEL} (300 input tokens); images: 1 (1200x800), about 2496 tokens`])
   for (const log of w.logs) {
     expect(log.text).not.toContain(imageOf(w.requests[0]))
     expect(log.text).not.toContain(KEY)

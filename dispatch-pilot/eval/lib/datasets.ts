@@ -18,7 +18,10 @@ import { estimateTokens, recentLines, said, type ContextMessage } from '../../ho
 import { EFFORTS, isEffort, type Effort } from '../../hooks/decision/effort.ts'
 import { DETAIL_KEYS, OUTCOME_WORDS, type MidturnInput } from '../../hooks/decision/midturn.ts'
 import { conversationOf, conversationTokens, decisiveMark } from './long-conversation.ts'
+import { adjacent, exactKeys, isRecord, nonEmpty, type Add } from './validators.ts'
 import { checkVisualCheck, visualCheckQuotas, VISUAL_CHECK_FIELDS } from './visual-check-items.ts'
+
+export { isRecord }
 
 export const KINDS = ['effort-submit', 'effort-midturn', 'subagent', 'skill', 'unresolved', 'long-context', 'visual-check'] as const
 export type Kind = (typeof KINDS)[number]
@@ -90,8 +93,9 @@ export type LongContextItem = {
 }
 
 /**
- * The tag of an unresolved item whose conversation overruns what the mod
- * reads of it when a message is sent (the state's budget, `BACKEND_DEFAULTS.jev.contextTokens`): its earlier rounds fall outside.
+ * The tag of an unresolved item whose conversation overruns the state budget of the request the effort question shared with
+ * the skills' before #38 (`BACKEND_DEFAULTS.jev.contextTokens`, 6000): its earlier rounds fall outside. The mod's effort request
+ * has a budget of its own now (`contextByKind.messagePlain`); the tag keeps the line the dataset was drawn against.
  */
 export const OVER_BUDGET = 'over-budget'
 
@@ -151,14 +155,6 @@ export type AgentItem = Item<AgentAsked, AgentAnswer, { model: Model[]; effort: 
  */
 export type SkillItem = Item<SubmitAsked, string[], string[]> & { must_not: string[]; user_only_hint: string[] }
 
-/**
- * The snapshot of the person's skills the skill items are written against
- * (`skill-catalog.json`): `status` is `candidate` (the main agent may load
- * it: the only names gold and accept take), `user-only-frontmatter` (the
- * only names user_only_hint takes) or `off`.
- */
-export type SkillCatalog = { skills: readonly { name: string; status: string }[] }
-
 /** What some kinds are checked against besides their items. */
 export type Extra = { catalog?: unknown }
 
@@ -212,7 +208,6 @@ export function validateDataset(kind: Kind, items: readonly unknown[], extra: Ex
   return { errors, warnings }
 }
 
-type Add = (message: string) => void
 
 /** Top-level fields of each kind's items. */
 const FIELDS: Record<Kind, readonly string[]> = {
@@ -420,7 +415,7 @@ export function stateTokens(asked: SubmitAsked): number {
   return estimateTokens(JSON.stringify({ user_message: asked.message, recent_context: recentLines(messages, asked.message, Number.MAX_SAFE_INTEGER).join('\n') }))
 }
 
-/** The context budget of the state a message's request has today, in estimated tokens. */
+/** The state budget the `over-budget` tag is drawn against (the request shared with the skills' question), in estimated tokens. */
 const BUDGET = BACKEND_DEFAULTS.jev.contextTokens
 
 /** An item is tagged `over-budget` exactly when its state overruns the budget in both languages (no item is long in one language only). */
@@ -632,9 +627,8 @@ function checkEffortAnswer(item: Record<string, unknown>, add: Add): void {
 }
 
 /** Whether `levels` are adjacent levels (in any order). */
-function contiguous(levels: readonly Effort[]): boolean {
-  const at = [...new Set(levels)].map((level) => EFFORTS.indexOf(level)).sort((a, b) => a - b)
-  return at.every((index, i) => i === 0 || index === (at[i - 1] as number) + 1)
+export function contiguous(levels: readonly Effort[]): boolean {
+  return adjacent(levels.map((level) => EFFORTS.indexOf(level)))
 }
 
 /** Every kind's items lean hard: at least 70% (spec: 题目偏难). */
@@ -695,20 +689,7 @@ function percent(rate: number): string {
   return `${Math.round(rate * 1000) / 10}%`
 }
 
-function exactKeys(value: Record<string, unknown>, keys: readonly string[], at: string, add: Add): void {
-  for (const key of keys) if (!(key in value)) add(`${at}.${key} is missing`)
-  for (const key of Object.keys(value)) if (!keys.includes(key)) add(`${at} has an unknown field ${key}`)
-}
-
 function wholeNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0
 }
 
-function nonEmpty(value: unknown): value is string {
-  return typeof value === 'string' && value.trim() !== ''
-}
-
-/** A JSON object (not null, not an array). */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}

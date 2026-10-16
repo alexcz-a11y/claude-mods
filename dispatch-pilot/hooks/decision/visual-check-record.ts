@@ -4,7 +4,7 @@
 //
 // The record holds paths, verdicts, probabilities and times, and never an image's bytes, a key or the specification's text.
 
-import type { CheckResult, Comparison, Verdict } from './visual-check.ts'
+import { percent, type CheckResult, type Comparison, type Verdict } from './visual-check.ts'
 
 /**
  * One check as the log keeps it. `zoomed`: its verdict rests on the zoomed re-check of the part (#59), not on the whole image. `why`:
@@ -67,8 +67,6 @@ export function tallyOf(checks: readonly { verdict: Verdict }[]): CheckTally {
 }
 
 export const VERDICT_WORDS: Readonly<Record<Verdict, string>> = { pass: '过', fail: '不过', unsure: '没把握' }
-
-const percent = (p: number) => `${Math.round(p * 100)}%`
 
 /** The count in the person's words, for the board's row and the log: `核对 3：1 过 · 1 不过 · 1 没把握`, then `· 接管 n` when the takeover kept some images. */
 export function tallyText(tally: CheckTally): string {

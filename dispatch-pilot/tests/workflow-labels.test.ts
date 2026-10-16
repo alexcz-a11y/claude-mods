@@ -9,8 +9,7 @@
 import { expect, test } from 'claude-code/testing'
 import { siteJev, type SiteAnswer } from './support/workflow.ts'
 import { persisted, runDir, runWorld } from './support/workflow-run.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
+import { KEY } from './support/world.ts'
 
 /** A script the main agent saved earlier and runs again by its path. */
 const SAVED = '/work/.claude/workflow-scripts/tidy.js'
@@ -422,7 +421,7 @@ return results
 test('a Workflow given by name is read from the copy the tool runs, and a template label finds its call for every agent the call starts', { options: KEY }, async ($, on) => {
   // The engine resolves the name and persists the script it runs (the result's scriptPath).
   const w = runWorld($, on, {
-    disk: { [persisted('wf_test-1')]: MIGRATE },
+    disk: { [persisted('wf_test-1', 'migrate-logger')]: MIGRATE },
     backend: siteJev((i): SiteAnswer => (i === 0 ? { model: { sonnet: 0.9 }, effort: [0, 1, 0, 0, 0] } : { model: { haiku: 0.9 }, effort: [1, 0, 0, 0, 0] })),
   })
   await w.workflow({ name: 'migrate-logger', args: ['src/a.ts', 'src/b.ts'] })
@@ -460,6 +459,26 @@ return [a, b]
   w.started('wf_test-1', 'wa1', 'List every exported function in src/auth/session.ts and repo')
   await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
   w.started('wf_test-1', 'wa2', 'Review src/billing/invoice.ts for rounding errors in the inv')
+  await w.agentStep('wa2', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-haiku-5-5 high', 'wa2 claude-opus-5-5 high'])
+})
+
+test('a call without a label whose prompt is a backtick string with an escape, or a quoted string that holds a ${, is found by its prompt as the script\'s value has it', { options: KEY }, async ($, on) => {
+  const script = `export const meta = { name: 'audit', description: 'Audit two modules', phases: [] }
+const a = await agent(\`List every exported function in src/auth/session.ts\\nand report their signatures only.\`)
+const b = await agent('Replace the \${HOME} placeholder in src/config/paths.ts, then run the tests.')
+return [a, b]
+`
+  const w = runWorld($, on, {
+    disk: { [SAVED]: script },
+    backend: siteJev((i): SiteAnswer => (i === 0 ? { model: { haiku: 0.9 } } : { model: { opus: 0.9 }, effort: [0, 0, 1, 0, 0] })),
+  })
+  await w.workflow({ scriptPath: SAVED })
+
+  w.started('wf_test-1', 'wa1', 'List every exported function in src/auth/session.ts and repo')
+  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  w.started('wf_test-1', 'wa2', 'Replace the ${HOME} placeholder in src/config/paths.ts, then')
   await w.agentStep('wa2', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
 
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-haiku-5-5 high', 'wa2 claude-opus-5-5 high'])

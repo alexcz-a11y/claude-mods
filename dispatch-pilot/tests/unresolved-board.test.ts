@@ -4,23 +4,8 @@
 // the mod.
 
 import { expect, test } from 'claude-code/testing'
-import { jev, world, type Sent } from './support/world.ts'
-
-const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
-/** The switch is off until the person turns it on (#48): these tests are about what it does when on. */
-const UNRESOLVED_ON = { unresolved: true }
-
-type Drawn = { type?: string; key?: string | undefined; props?: Record<string, unknown>; children?: unknown[] }
-
-/** What a drawn element shows: its descendants' text in order, a Button as `hotkey: label`. */
-function shown(element: unknown): string {
-  if (typeof element === 'string' || typeof element === 'number') return String(element)
-  if (element === null || typeof element !== 'object') return ''
-  const { children = [], props = {} } = element as Drawn
-  const label = typeof props.label === 'string' ? `${typeof props.hotkey === 'string' ? `${props.hotkey}: ` : ''}${props.label}` : ''
-  const kids = Array.isArray(props.children) ? props.children : children
-  return label + kids.map(shown).join('')
-}
+import { shown } from './support/drawn.ts'
+import { jev, KEY, type Sent, UNRESOLVED_ON, world } from './support/world.ts'
 
 const STILL = { still_unresolved: 0.62, resolved: 0.05, new_or_unrelated: 0.33 }
 const SOLVED = { still_unresolved: 0.1, resolved: 0.8, new_or_unrelated: 0.1 }

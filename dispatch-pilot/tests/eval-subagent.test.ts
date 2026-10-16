@@ -203,7 +203,7 @@ test("from the same answers the eval decides each of a Workflow's agents as the 
   const suite = agentSuite([SCAN, SYNTH])
   const ask: Ask = async (request) => {
     const reply = answers({ url: '', method: 'POST', headers: {}, body: request, at: 0 }) as { body: { answers: Record<string, never> } }
-    return { request, asked: { ok: true, answers: reply.body.answers, model: 'jev-1.13.0', inputTokens: 400 }, ms: 0, attempts: 1 }
+    return { request, asked: { ok: true, answers: reply.body.answers, model: JEV_MODEL, inputTokens: 400 }, ms: 0, attempts: 1 }
   }
   const decided = await Promise.all([SCAN, SYNTH].map((item) => suite.decide(item, 'zh', 'models-hint', ask, settingsFrom({ decisionModel: 'jev' }))))
   expect(decided.map((one) => (one.ok ? `${one.prediction.model} ${one.prediction.effort}` : one.failure))).toEqual(['opus xhigh', 'sonnet medium'])
@@ -257,7 +257,7 @@ test("the eval decides an agent as the mod does from the same answers, under the
   const w = world($, on, {
     backend: (request) => {
       const answers = byPrompt.get(request.body.state.brief?.prompt) ?? { model: {}, effort: [0, 0, 1, 0, 0] }
-      return { status: 200, body: { model: 'jev-1.13.0', answers: answersTo(request.body.questions, answers), usage: { input_tokens: 1500 } } }
+      return { status: 200, body: { model: JEV_MODEL, answers: answersTo(request.body.questions, answers), usage: { input_tokens: 1500 } } }
     },
   })
   const mod: string[] = []
@@ -273,7 +273,7 @@ test("the eval decides an agent as the mod does from the same answers, under the
       item,
       'zh',
       'models-hint',
-      async (request) => ({ request, asked: { ok: true, answers: answersTo(request.questions, answers), model: 'jev-1.13.0', inputTokens: 1500 }, ms: 0, attempts: 1 }),
+      async (request) => ({ request, asked: { ok: true, answers: answersTo(request.questions, answers), model: JEV_MODEL, inputTokens: 1500 }, ms: 0, attempts: 1 }),
       settingsFrom({ decisionModel: 'jev', agentOverride: 0.9, agentFable: true }),
     )
     evaluated.push(decided.ok ? `${item.id}: ${decided.prediction.model} ${decided.prediction.effort ?? '—'}` : `${item.id}: ${decided.failure}`)

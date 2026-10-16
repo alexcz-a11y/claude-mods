@@ -20,7 +20,7 @@
 //
 // Module state: a hot reload loses the groups waiting, whose hooks go with the old module.
 
-import { describeAsked, type Asked, type BackendIo, type Failure } from '../decision/backend.ts'
+import { describeAsked, timedOut, type Asked, type BackendIo, type Failure } from '../decision/backend.ts'
 import { describeState } from '../decision/context.ts'
 import type { Dispatch, DispatchDecision, DispatchSettings } from '../decision/dispatched-agent.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
@@ -29,10 +29,9 @@ import { waitFor, type Ctx } from './setup.ts'
 
 /** What the lane needs of the engine, from the hook of the agent that waits: each brings its own, and a request goes out through a waiting one's. */
 export type LaneIo = {
+  /** Its `sleep` is the one the lane waits on too (the host's `$.clock.sleep`). */
   backend: BackendIo
   now: () => Promise<number>
-  /** Resolves after `ms`; rejects at once when `signal` aborts (the host's `$.clock.sleep`). */
-  sleep: (ms: number, signal: AbortSignal) => Promise<void>
   debug: (line: string) => void
 }
 
@@ -60,9 +59,9 @@ export type AgentAsk = {
 export type AgentAnswer = { ok: true; decision: DispatchDecision } | { ok: false; failure: Failure; unasked?: true }
 
 /** A group waits at most this long for the Agent calls of its message that have not arrived (a fork's, a teammate's never do). */
-export const GATHER_MS = 300
-/** A request needs at least this long to be worth sending. */
-const MIN_ASK_MS = 200
+const GATHER_MS = 300
+/** A request needs at least this long to be worth sending (the Workflow labels' per-agent ask uses it too). */
+export const MIN_ASK_MS = 200
 /** The Agent calls that arrived lately, so a group that waits for one knows it came (to another group, when one was full). */
 const ARRIVED_KEPT = 256
 
@@ -103,7 +102,7 @@ export function askAgent(ctx: Ctx, settings: DispatchSettings, ask: AgentAsk): P
       // The calls of its message that have not arrived: the group waits for them, GATHER_MS at most (once).
       if (!group.gathering && missing(group)) {
         group.gathering = true
-        ask.io.sleep(GATHER_MS, group.stop.signal).then(
+        ask.io.backend.sleep(GATHER_MS, group.stop.signal).then(
           () => {
             group.gathered = true
             pump(ctx)
@@ -115,10 +114,7 @@ export function askAgent(ctx: Ctx, settings: DispatchSettings, ask: AgentAsk): P
     // When the request was made, for the failure of an agent whose lane never came (its wait in ms).
     void ask.io.now().then((now) => (member.since = now), () => undefined)
     Promise.resolve(ask.input)
-      .then(
-        (input) => input,
-        () => null,
-      )
+      .catch(() => null)
       .then((input) => {
         member.input = input
         if (input === null) {
@@ -198,7 +194,7 @@ function pump(ctx: Ctx): void {
 
 /** The failure of a request that never went out in time. */
 function late(waitedMs: number): Failure {
-  return { kind: 'timeout', detail: `no answer in ${Math.max(0, Math.round(waitedMs))} ms` }
+  return timedOut(Math.max(0, Math.round(waitedMs)))
 }
 
 /**
@@ -207,7 +203,8 @@ function late(waitedMs: number): Failure {
  */
 async function askGroup(ctx: Ctx, group: Group): Promise<void> {
   group.stop.abort()
-  const members = group.members.filter((member) => member.input !== null && member.input !== undefined)
+  // Every input is in by now (`complete`), and an agent with none to ask about left the group.
+  const members = group.members
   const first = members.reduce<Member | undefined>((best, member) => (best === undefined || member.ask.deadline > best.ask.deadline ? member : best), undefined)
   if (first === undefined) return
   const io = first.ask.io

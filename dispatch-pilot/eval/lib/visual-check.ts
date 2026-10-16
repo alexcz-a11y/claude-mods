@@ -29,7 +29,7 @@ import { batchPairs, locatePlan, readLocated, withBoxes, zoomRequest, type ZoomP
 import { comparedNames, FAIL_AT, judge, PASS_AT, readWholeImage, RECORDING_BARS, RECORDING_FAIL_AT, SERIES_PASS_AT, wholeImageRequest, type Basis, type Check, type CheckResult, type Comparison, type Verdict } from '../../hooks/decision/visual-check.ts'
 import { sameView } from '../../hooks/decision/zoom.ts'
 import type { Language } from './datasets.ts'
-import { rate, type VariantSummary } from './metrics.ts'
+import { nearestRank, percentText, share, type VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
 import { requestFailed, type Ask, type Decided, type Grade, type ImageHost, type Sent, type Settings, type Suite } from './suite.ts'
 import { CONTROL, type AnimItem, type ComparedItem, type ComplexityItem, type VisualCheckItem } from './visual-check-items.ts'
@@ -357,7 +357,6 @@ function count(into: Counts, holds: boolean, verdict: Verdict): void {
   }
 }
 
-const share = (n: number, of: number): number | null => (of === 0 ? null : rate(n, of))
 const mean = (values: readonly number[]): number | null => (values.length === 0 ? null : Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 100) / 100)
 
 /** What the answers of one variant come to: the ticket's measures. `prices`: the price of an input token, for the cost of each image (none: no dollars). */
@@ -431,7 +430,7 @@ export function breakdownOf(items: readonly VisualCheckItem[], rows: readonly Ro
       all: cost(answered),
       byKind: Object.fromEntries((['ui', 'sea', 'anim', 'complexity'] as const).flatMap((kind) => (answered.some(({ item }) => item.kind === kind) ? [[kind, cost(answered.filter(({ item }) => item.kind === kind))]] : []))),
       requests: answered.reduce((sum, { detail }) => sum + detail.requests.length, 0),
-      latencyMs: { p50: percentile(answered.map(({ row }) => row.ms), 0.5), max: Math.max(0, ...answered.map(({ row }) => row.ms ?? 0)) },
+      latencyMs: { p50: nearestRank(answered.flatMap(({ row }) => (row.ms === null ? [] : [row.ms])).sort((a, b) => a - b), 0.5), max: Math.max(0, ...answered.map(({ row }) => row.ms ?? 0)) },
     },
     complexity: {
       groups,
@@ -445,16 +444,11 @@ export function breakdownOf(items: readonly VisualCheckItem[], rows: readonly Ro
   }
 }
 
-function percentile(values: readonly (number | null)[], p: number): number | null {
-  const sorted = values.flatMap((value) => (value === null ? [] : [value])).sort((a, b) => a - b)
-  return sorted.length === 0 ? null : (sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)] as number)
-}
-
 /** The figures a run prints for one variant, after the ones every suite gets. */
 function reportOf(summary: VariantSummary): string[] {
   const breakdown = summary.breakdown as ReturnType<typeof breakdownOf> | undefined
   if (breakdown === undefined) return []
-  const pct = (figure: number | null | undefined) => (figure == null ? '-' : `${(figure * 100).toFixed(1)}%`)
+  const pct = percentText
   const num = (figure: number | boolean | null | undefined) => (figure == null ? '-' : String(figure))
   const variant = summary.variant
   const falsePass = breakdown.falsePass as { count: number; of: number; items: string[] }

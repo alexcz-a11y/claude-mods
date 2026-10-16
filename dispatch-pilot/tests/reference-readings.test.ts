@@ -10,6 +10,7 @@ import type { ImageFilesIo } from '../hooks/core/image-files.ts'
 import type { Cell } from '../hooks/core/plans.ts'
 import type { Asked } from '../hooks/decision/backend.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
+import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { absolute, BASE_DIRS, type Disk, type FakeFile, fileBase64, mkdir, ok, type Program, readFake, sips } from './support/images.ts'
 
 /** A disk and the programs of the world on it, as the closures the mod's image functions take. */
@@ -61,7 +62,7 @@ function model(levels: readonly number[], failure?: { kind: 'timeout' | 'http'; 
   const ask = async (request: DecisionRequest): Promise<Asked> => {
     asked.push(request)
     if (failure !== undefined) return { ok: false, failure }
-    return { ok: true, answers: { 'complexity.level': { type: 'score', score: 0, probabilities: Object.fromEntries(levels.map((p, i) => [String(i), p])), confidence: 0.7 } }, model: 'jev-1.14.0', inputTokens: 100 }
+    return { ok: true, answers: { 'complexity.level': { type: 'score', score: 0, probabilities: Object.fromEntries(levels.map((p, i) => [String(i), p])), confidence: 0.7 } }, model: JEV_MODEL, inputTokens: 100 }
   }
   return { ask, asked }
 }

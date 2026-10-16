@@ -27,19 +27,21 @@
 // BACKEND_DEFAULTS), --max-usd 1 (refuse a run estimated to cost more),
 // --label <word>, --no-save, --state-tokens N (the state's budget for every kind of request, past what --option
 // contextTokens can reach, which only lowers it), --state-messages N (how many recent messages the state may hold:
-// the mod's contextMessages is at most the decision model's (Jev: 32, core/setup.ts BACKEND_DEFAULTS contextMessagesMax), so a large
-// --state-tokens alone is still cut to the newest 32 messages with Jev), --long-context (Jev only: every request carries the
+// the mod's contextMessages is at most the decision model's (2000 for both, core/setup.ts BACKEND_DEFAULTS contextMessagesMax), so
+// this only matters for a conversation longer than that), --long-context (Jev only: every request carries the
 // TypeSafe-Danger-Zone-Long-Context header, so the request and the state with any one question may hold 262k tokens instead of
 // 64k and 32k; with --state-tokens and --state-messages it measures what a longer state gains; the result records it).
 //
 // eval-v2 (#45): the dataset is eval-v2.jsonl (built first when it is not there, and checked against
 // eval-v2/generated.json), each item scored against eval-v2/gold/; the conversations are Chinese only, so the run asks
-// --languages zh unless told otherwise; the variants are zh-score, en-score (the question's language) and zh-flow,
-// en-flow, which carry the count and the summary the flow file given with --flow <file> holds at the last message
+// --languages zh unless told otherwise; the variants are zh-score, en-score (the question's language), zh-score-alone,
+// en-score-alone (the effort question alone, as the mod asks with the unresolved switch off) and zh-flow, en-flow, which
+// carry the count and the summary the flow file given with --flow <file> holds at the last message
 // (eval/eval-v2-flow.ts writes one per backend and budget):
 //
 //   node dispatch-pilot/eval/run.ts eval-v2 --backend pplx --state-tokens 135000 --state-messages 2000 --timeout 240000 --variants zh-score,en-score --label A
 //   node dispatch-pilot/eval/run.ts eval-v2 --backend jev --variants zh-flow,en-flow --flow dispatch-pilot/eval/results/eval-v2-flow/jev-24000.json --label J
+//                                                                          (jev-24000.json is the flow saved with Jev's 24000-token state of that day, not the mod's budget now)
 //
 // Credentials: TYPESAFE_API_KEY for Jev; PERPLEXITY_API_KEY for Perplexity: the environment first, then
 // ~/.config/dispatch-pilot/eval.env. Never printed or saved.
@@ -61,14 +63,13 @@ import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { PPLX_MODEL } from '../hooks/decision/pplx.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
-import { estimateRun } from './lib/estimate.ts'
+import { ESTIMATE_FACTOR, estimateRun } from './lib/estimate.ts'
 import type { FlowFile } from './lib/eval-v2-flow.ts'
-import { summarize, type Summary } from './lib/metrics.ts'
-import { readNumber, type NumberRule } from './lib/numbers.ts'
+import { percentText, summarize, type Summary } from './lib/metrics.ts'
 import { attemptMs as defaultAttemptMs, byRepeat, runSuite, stateDigest, type Row } from './lib/runner.ts'
 import { optionsFor, settingsFrom, withStateMessages, withStateTokens } from './lib/suite.ts'
 import { READS_FLOW, SUITES } from './lib/suites.ts'
-import { EVAL_V2_JSONL, PRICES, RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, formatResult, modCode, nodeHost, nodeIo, readDataset, readEvalV2Dataset, readManifest, shown } from './node.ts'
+import { EVAL_V2_JSONL, PRICES, RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, formatResult, modCode, nodeHost, nodeIo, numberFlag, readDataset, readEvalV2Dataset, readManifest, shown } from './node.ts'
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -98,15 +99,6 @@ const { values, positionals } = parseArgs({
 function fail(message: string): never {
   console.error(message)
   process.exit(2)
-}
-
-/** A number flag's value, or the run stops before anything is sent (a typo read as NaN would pass every check made with it). */
-function numberFlag(flag: string, text: string, rule: NumberRule): number {
-  try {
-    return readNumber(flag, text, rule)
-  } catch (error) {
-    return fail(error instanceof Error ? error.message : String(error))
-  }
 }
 
 const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|pplx] [--label <word>] ...')
@@ -174,7 +166,7 @@ try {
 // --state-tokens N widens (or narrows) the state's budget for every kind of request to N: past what the mod's own options
 // can reach (they only lower it), to see what a model with a bigger window gains (#43). The result records it.
 const stateTokens = values['state-tokens'] === undefined ? null : numberFlag('--state-tokens', values['state-tokens'], { min: 100, integer: true })
-// --state-messages N lifts the number of recent messages the state may hold (the mod's is at most 32, whatever the token budget),
+// --state-messages N lifts the number of recent messages the state may hold (the mod's is at most 2000, whatever the token budget),
 // so that a long conversation can fill a large --state-tokens (#44). The result records it.
 const stateMessages = values['state-messages'] === undefined ? null : numberFlag('--state-messages', values['state-messages'], { min: 1, integer: true })
 // The other numbers, read before anything is sent: a typo is no spend cap, no end to the retries, a timer that fires at once, no worker.
@@ -204,14 +196,7 @@ if (flow !== null) {
 
 // The estimate: the requests a run sends (a suite that asks again after
 // reading an answer says what it may send at most: Suite.estimate; another
-// counts what it sends first), at the mod's token estimate times what Jev
-// actually counted: 6468 tokens for 8 effort-submit requests estimated at
-// 4127 (2026-10-04), so 1.6.
-// Perplexity counts differently, by the kind of text: against the mod's estimate (without the factor) its input tokens
-// were 0.7 times for the skill suite, 0.9 for effort-submit, 1.0 for effort-midturn, 1.7 for subagent and 2.9 for
-// unresolved (2026-10-07: the long logs of its conversations tokenize four times as densely as the estimate's four
-// characters a token), so its factor is 3, so as never to estimate less than a run costs.
-const ESTIMATE_FACTOR = backendName === 'pplx' ? 3 : 1.6
+// counts what it sends first), at the mod's token estimate times what the decision model counted over it (ESTIMATE_FACTOR).
 const planned: DecisionRequest[] = []
 for (const item of items) {
   for (const variant of variants) {
@@ -230,7 +215,7 @@ for (const item of items) {
 // --repeat N: the same requests again, N times in all.
 const sending = Array.from({ length: repeats }, () => planned).flat()
 // A request with images counts their pixels' tokens as the decision model does, not the length of their base64 (lib/estimate.ts); one without is estimated as it always was.
-const { tokens: estimatedTokens, usd: estimatedUsd } = estimateRun(sending, { model, backend: backendName, factor: ESTIMATE_FACTOR, usdPerMillionTokens: price })
+const { tokens: estimatedTokens, usd: estimatedUsd } = estimateRun(sending, { model, backend: backendName, factor: ESTIMATE_FACTOR[backendName], usdPerMillionTokens: price })
 console.log(`${name}: ${items.length} items x ${variants.length} variants x ${languages.length} languages${repeats === 1 ? '' : ` x ${repeats} times`} = ${sending.length} requests${suite.estimate === undefined ? '' : ' at most'}, about ${estimatedTokens} input tokens, about $${estimatedUsd.toFixed(4)} on ${backendName} (${model}${longContext ? ', long context' : ''})`)
 if (values.estimate) process.exit(0)
 if (estimatedUsd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothing sent`)
@@ -300,11 +285,11 @@ if (!values['no-save']) {
     code: modCode(),
     settings: {
       context: settings.context,
-      // The budget of a message's state as the run asked it (contextByKind.messagePlain: 24000 for Jev; the effort question's
-      // request of its own, ADR 0005), and --state-tokens when the run set one for every kind of request.
+      // The budget of a message's state as the run asked it (contextByKind.messagePlain: the effort question's request of its
+      // own, ADR 0005), and --state-tokens when the run set one for every kind of request.
       messageStateTokens: settings.contextByKind.messagePlain,
       ...(stateTokens === null ? {} : { stateTokens }),
-      // The most recent messages the state may hold (the mod's, the decision model's most: 32 with Jev), and --state-messages when the run lifted it.
+      // The most recent messages the state may hold (the mod's, at most the decision model's), and --state-messages when the run lifted it.
       stateMessagesLimit: settings.context.messages,
       ...(stateMessages === null ? {} : { stateMessages }),
       // --long-context: every request carried Jev's long-context header (262k tokens for the request and for the state with one question).
@@ -338,8 +323,9 @@ if (!values['no-save']) {
 }
 
 /**
- * One line per item and language: the state the model read once, then each variant's answer. A suite that digests its states
- * (`digestState`: its variants read different states, each tens of thousands of tokens) has a digest of each variant's state beside its answer.
+ * One line per item and language: the state the model read, then each variant's answer. A variant that read another state than the
+ * line's (the unresolved suite's `-wide` variants, the effort-midturn suite's) keeps its own beside its answer. A suite that digests its
+ * states (`digestState`: its variants read different states, each tens of thousands of tokens) has a digest of each variant's state beside its answer.
  */
 function answersByItem(rows: readonly Row<unknown>[], digest: boolean): Record<string, unknown>[] {
   const groups = new Map<string, Record<string, unknown>>()
@@ -347,8 +333,10 @@ function answersByItem(rows: readonly Row<unknown>[], digest: boolean): Record<s
     // A run that asked more than once has a line for each time (`repeat`).
     const key = `${row.id} ${row.language} ${row.repeat ?? ''}`
     const group = groups.get(key) ?? { id: row.id, language: row.language, ...(row.repeat === undefined ? {} : { repeat: row.repeat }), ...(digest ? {} : { state: row.state }) }
+    // `gold` is the answer's `exact` flag, as the files have always named it.
+    const own = digest ? stateDigest(row.state) : JSON.stringify(row.state) === JSON.stringify(group.state) ? null : row.state
     group[row.variant] = Object.fromEntries(
-      Object.entries({ answer: row.shown, correct: row.correct, gold: row.exact, miss: row.miss, parts: row.parts ?? null, ...row.detail, ms: row.ms, attempts: row.attempts, tokens: row.inputTokens, model: row.model, failure: row.failure, ...(digest ? { state: stateDigest(row.state) } : {}) }).filter(
+      Object.entries({ answer: row.shown, correct: row.correct, gold: row.exact, miss: row.miss, parts: row.parts ?? null, ...row.detail, ms: row.ms, attempts: row.attempts, tokens: row.inputTokens, model: row.model, failure: row.failure, state: own }).filter(
         ([, value]) => value !== null,
       ),
     )
@@ -358,20 +346,22 @@ function answersByItem(rows: readonly Row<unknown>[], digest: boolean): Record<s
 }
 
 function report(summary: Summary): void {
-  const pct = (rate: number | null) => (rate === null ? '-' : `${(rate * 100).toFixed(1)}%`)
+  const pct = percentText
+  // A language the run did not ask has no figures to show (its summary holds zeros).
+  const ran = (language: Language, figure: number | null) => (languages.includes(language) ? figure : null)
   const pad = (cells: readonly string[]) => cells.map((cell, i) => (i === 0 ? cell.padEnd(10) : cell.padStart(8))).join(' ')
   console.log(pad(['variant', 'zh acc', 'en acc', 'gap', 'pass', 'agree', 'zh gold', 'en gold', 'p50 ms', 'p90 ms', `>${settings.timeoutMs}ms`, 'failed']))
   for (const v of summary.variants) {
     console.log(
       pad([
         v.variant,
-        pct(v.zh.accuracy),
-        pct(v.en.accuracy),
-        `${(v.gap * 100).toFixed(1)}`,
-        v.pass ? 'yes' : 'no',
+        pct(ran('zh', v.zh.accuracy)),
+        pct(ran('en', v.en.accuracy)),
+        v.gap === null ? '-' : (v.gap * 100).toFixed(1),
+        v.pass === null ? '-' : v.pass ? 'yes' : 'no',
         pct(v.agreement.rate),
-        pct(v.zh.exact),
-        pct(v.en.exact),
+        pct(ran('zh', v.zh.exact)),
+        pct(ran('en', v.en.exact)),
         String(v.latency.p50 ?? '-'),
         String(v.latency.p90 ?? '-'),
         String(v.latency.slow),
@@ -381,7 +371,7 @@ function report(summary: Summary): void {
   }
   for (const v of summary.variants) {
     console.log(
-      `${v.variant}: as the mod would have had it (within ${settings.timeoutMs} ms, at the first attempt; a later or retried answer counted as none) right zh/en: ${pct(v.zh.inTime)}/${pct(v.en.inTime)}; late answers zh/en: ${v.zh.late}/${v.en.late}; retried zh/en: ${v.zh.retried}/${v.en.retried}`,
+      `${v.variant}: as the mod would have had it (within ${settings.timeoutMs} ms, at the first attempt; a later or retried answer counted as none) right zh/en: ${pct(ran('zh', v.zh.inTime))}/${pct(ran('en', v.en.inTime))}; late answers zh/en: ${v.zh.late}/${v.en.late}; retried zh/en: ${v.zh.retried}/${v.en.retried}`,
     )
   }
   for (const v of summary.variants) {
