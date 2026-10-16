@@ -17,6 +17,23 @@ import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
  */
 export const ESTIMATE_FACTOR: Readonly<Record<BackendName, number>> = { jev: 1.6, pplx: 3 }
 
+/**
+ * What Liquid's d1-ultra counted over the mod's estimate (lib/d1.ts): 0.86-0.97 of it for effort-submit's requests and a
+ * Chinese conversation of 12000-28000 estimated tokens (2026-10-15), so 1.1. It counts each question with the whole state
+ * ("Each question is billed as its own prompt"): `estimateRunPerQuestion`.
+ */
+export const D1_ESTIMATE_FACTOR = 1.1
+
+/** The input tokens and the price of `requests` on a decision model that counts the state once for each question (d1-ultra): each question with the state, times `factor`. */
+export function estimateRunPerQuestion(requests: readonly DecisionRequest[], options: { model: string; factor: number; usdPerMillionTokens: number }): { tokens: number; usd: number } {
+  const text = requests.reduce(
+    (sum, request) => sum + Object.values(request.questions).reduce((own, question) => own + estimateTokens(JSON.stringify({ model: options.model, state: request.state, questions: { q: question } })), 0),
+    0,
+  )
+  const tokens = Math.round(options.factor * text)
+  return { tokens, usd: (tokens * options.usdPerMillionTokens) / 1e6 }
+}
+
 /** A request's estimated tokens: its text as the mod estimates it (the request as it goes out, with its model, less the images), and its pictures as the decision model counts them. */
 export function estimateRequest(request: DecisionRequest, model: string, backend: BackendName): { text: number; images: number } {
   const { images = [], ...text } = request

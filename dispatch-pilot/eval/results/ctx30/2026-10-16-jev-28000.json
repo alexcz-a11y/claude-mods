@@ -1,0 +1,482 @@
+{
+  "experiment": "ctx30",
+  "date": "2026-10-16",
+  "backend": "jev",
+  "model": "jev-1.14.0",
+  "tokens": 28000,
+  "kept": 120,
+  "conversationTokens": 62061,
+  "visible": [
+    "E09",
+    "A10",
+    "A14"
+  ],
+  "runs": {
+    "s28000": {
+      "ok": true,
+      "model": "jev-1.14.0",
+      "inputTokens": 51053,
+      "ms": 1002
+    }
+  },
+  "summary": {
+    "s28000": {
+      "right": 15,
+      "effort": 6,
+      "agent": 9
+    }
+  },
+  "answers": [
+    {
+      "id": "E01",
+      "kind": "effort",
+      "gold": "low",
+      "s28000": {
+        "answer": "medium",
+        "top": "medium",
+        "p": {
+          "low": 0.08,
+          "medium": 0.66,
+          "high": 0.22,
+          "xhigh": 0.03,
+          "max": 0.01
+        }
+      }
+    },
+    {
+      "id": "E02",
+      "kind": "effort",
+      "gold": "low",
+      "s28000": {
+        "answer": "high",
+        "top": "high",
+        "p": {
+          "low": 0.14,
+          "medium": 0.31,
+          "high": 0.32,
+          "xhigh": 0.1,
+          "max": 0.13
+        }
+      }
+    },
+    {
+      "id": "E03",
+      "kind": "effort",
+      "gold": "low",
+      "s28000": {
+        "answer": "medium",
+        "top": "medium",
+        "p": {
+          "low": 0.15,
+          "medium": 0.27,
+          "high": 0.23,
+          "xhigh": 0.26,
+          "max": 0.09
+        }
+      }
+    },
+    {
+      "id": "E04",
+      "kind": "effort",
+      "gold": "medium",
+      "s28000": {
+        "answer": "medium",
+        "top": "medium",
+        "p": {
+          "low": 0.03,
+          "medium": 0.58,
+          "high": 0.28,
+          "xhigh": 0.1,
+          "max": 0.01
+        }
+      }
+    },
+    {
+      "id": "E05",
+      "kind": "effort",
+      "gold": "medium",
+      "s28000": {
+        "answer": "medium",
+        "top": "medium",
+        "p": {
+          "low": 0.3,
+          "medium": 0.7,
+          "high": 0,
+          "xhigh": 0,
+          "max": 0
+        }
+      }
+    },
+    {
+      "id": "E06",
+      "kind": "effort",
+      "gold": "medium",
+      "s28000": {
+        "answer": "high",
+        "top": "medium",
+        "p": {
+          "low": 0.06,
+          "medium": 0.5,
+          "high": 0.33,
+          "xhigh": 0.1,
+          "max": 0.01
+        }
+      }
+    },
+    {
+      "id": "E07",
+      "kind": "effort",
+      "gold": "high",
+      "s28000": {
+        "answer": "high",
+        "top": "high",
+        "p": {
+          "low": 0.02,
+          "medium": 0.2,
+          "high": 0.59,
+          "xhigh": 0.19,
+          "max": 0
+        }
+      }
+    },
+    {
+      "id": "E08",
+      "kind": "effort",
+      "gold": "high",
+      "s28000": {
+        "answer": "xhigh",
+        "top": "xhigh",
+        "p": {
+          "low": 0.11,
+          "medium": 0.1,
+          "high": 0.07,
+          "xhigh": 0.7,
+          "max": 0.02
+        }
+      }
+    },
+    {
+      "id": "E09",
+      "kind": "effort",
+      "gold": "high",
+      "s28000": {
+        "answer": "high",
+        "top": "high",
+        "p": {
+          "low": 0.08,
+          "medium": 0.12,
+          "high": 0.76,
+          "xhigh": 0.04,
+          "max": 0
+        }
+      }
+    },
+    {
+      "id": "E10",
+      "kind": "effort",
+      "gold": "xhigh",
+      "s28000": {
+        "answer": "high",
+        "top": "high",
+        "p": {
+          "low": 0.03,
+          "medium": 0.19,
+          "high": 0.51,
+          "xhigh": 0.27,
+          "max": 0
+        }
+      }
+    },
+    {
+      "id": "E11",
+      "kind": "effort",
+      "gold": "xhigh",
+      "s28000": {
+        "answer": "xhigh",
+        "top": "xhigh",
+        "p": {
+          "low": 0.17,
+          "medium": 0.04,
+          "high": 0.36,
+          "xhigh": 0.43,
+          "max": 0
+        }
+      }
+    },
+    {
+      "id": "E12",
+      "kind": "effort",
+      "gold": "xhigh",
+      "s28000": {
+        "answer": "xhigh",
+        "top": "xhigh",
+        "p": {
+          "low": 0.31,
+          "medium": 0.19,
+          "high": 0.15,
+          "xhigh": 0.32,
+          "max": 0.03
+        }
+      }
+    },
+    {
+      "id": "E13",
+      "kind": "effort",
+      "gold": "max",
+      "s28000": {
+        "answer": "xhigh",
+        "top": "high",
+        "p": {
+          "low": 0.11,
+          "medium": 0.14,
+          "high": 0.39,
+          "xhigh": 0.35,
+          "max": 0.01
+        }
+      }
+    },
+    {
+      "id": "E14",
+      "kind": "effort",
+      "gold": "max",
+      "s28000": {
+        "answer": "high",
+        "top": "medium",
+        "p": {
+          "low": 0.04,
+          "medium": 0.35,
+          "high": 0.33,
+          "xhigh": 0.26,
+          "max": 0.02
+        }
+      }
+    },
+    {
+      "id": "E15",
+      "kind": "effort",
+      "gold": "max",
+      "s28000": {
+        "answer": "xhigh",
+        "top": "xhigh",
+        "p": {
+          "low": 0.23,
+          "medium": 0.22,
+          "high": 0.22,
+          "xhigh": 0.3,
+          "max": 0.03
+        }
+      }
+    },
+    {
+      "id": "A01",
+      "kind": "agent",
+      "gold": "haiku",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.39,
+          "sonnet": 0.61,
+          "opus": 0
+        }
+      }
+    },
+    {
+      "id": "A02",
+      "kind": "agent",
+      "gold": "haiku",
+      "s28000": {
+        "answer": "haiku",
+        "top": "haiku",
+        "p": {
+          "haiku": 0.53,
+          "sonnet": 0.47,
+          "opus": 0
+        }
+      }
+    },
+    {
+      "id": "A03",
+      "kind": "agent",
+      "gold": "haiku",
+      "s28000": {
+        "answer": "haiku",
+        "top": "haiku",
+        "p": {
+          "haiku": 0.94,
+          "sonnet": 0.06,
+          "opus": 0
+        }
+      }
+    },
+    {
+      "id": "A04",
+      "kind": "agent",
+      "gold": "haiku",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.2,
+          "sonnet": 0.79,
+          "opus": 0.01
+        }
+      }
+    },
+    {
+      "id": "A05",
+      "kind": "agent",
+      "gold": "haiku",
+      "trap": true,
+      "s28000": {
+        "answer": "haiku",
+        "top": "haiku",
+        "p": {
+          "haiku": 0.95,
+          "sonnet": 0.05,
+          "opus": 0
+        }
+      }
+    },
+    {
+      "id": "A06",
+      "kind": "agent",
+      "gold": "sonnet",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.01,
+          "sonnet": 0.99,
+          "opus": 0
+        }
+      }
+    },
+    {
+      "id": "A07",
+      "kind": "agent",
+      "gold": "sonnet",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.04,
+          "sonnet": 0.93,
+          "opus": 0.03
+        }
+      }
+    },
+    {
+      "id": "A08",
+      "kind": "agent",
+      "gold": "sonnet",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0,
+          "sonnet": 0.99,
+          "opus": 0.01
+        }
+      }
+    },
+    {
+      "id": "A09",
+      "kind": "agent",
+      "gold": "sonnet",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.01,
+          "sonnet": 0.99,
+          "opus": 0
+        }
+      }
+    },
+    {
+      "id": "A10",
+      "kind": "agent",
+      "gold": "sonnet",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.09,
+          "sonnet": 0.9,
+          "opus": 0.01
+        }
+      }
+    },
+    {
+      "id": "A11",
+      "kind": "agent",
+      "gold": "opus",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.07,
+          "sonnet": 0.92,
+          "opus": 0.01
+        }
+      }
+    },
+    {
+      "id": "A12",
+      "kind": "agent",
+      "gold": "opus",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.02,
+          "sonnet": 0.95,
+          "opus": 0.03
+        }
+      }
+    },
+    {
+      "id": "A13",
+      "kind": "agent",
+      "gold": "opus",
+      "s28000": {
+        "answer": "haiku",
+        "top": "haiku",
+        "p": {
+          "haiku": 0.49,
+          "sonnet": 0.16,
+          "opus": 0.35
+        }
+      }
+    },
+    {
+      "id": "A14",
+      "kind": "agent",
+      "gold": "opus",
+      "s28000": {
+        "answer": "opus",
+        "top": "opus",
+        "p": {
+          "haiku": 0.02,
+          "sonnet": 0.2,
+          "opus": 0.78
+        }
+      }
+    },
+    {
+      "id": "A15",
+      "kind": "agent",
+      "gold": "opus",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.03,
+          "sonnet": 0.89,
+          "opus": 0.08
+        }
+      }
+    }
+  ]
+}

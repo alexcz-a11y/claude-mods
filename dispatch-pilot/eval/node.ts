@@ -21,6 +21,7 @@ import { isKind, parseJsonl, type Kind } from './lib/datasets.ts'
 import { buildEvalV2, checkFinalGold, checkGold, checkItem, checkSegment, datasetWarnings, evalV2Jsonl, generatedFile, type Built, type FinalGold, type Segment, type V2Item, type V2Record } from './lib/eval-v2.ts'
 import { v2Item, type V2EvalItem } from './lib/eval-v2-suite.ts'
 import { readNumber, type NumberRule } from './lib/numbers.ts'
+import { d1Backend } from './lib/d1.ts'
 import { attemptMs } from './lib/runner.ts'
 import { optionsFor, settingsFrom, type ImageHost, type OptionSpec, type SuiteHost } from './lib/suite.ts'
 import { picturesOf, type VisualCheckItem } from './lib/visual-check-items.ts'
@@ -203,7 +204,7 @@ export function credential(name: string): string | undefined {
 }
 
 /**
- * The decision backend under evaluation (`jev` or `pplx`), with the
+ * The decision backend under evaluation (`jev`, `pplx`, or `d1`: Liquid's d1-ultra, lib/d1.ts), with the
  * credentials it needs (`credential`); `secrets` are those values, to keep
  * them out of anything written. `longContext`: Jev's requests carry the
  * long-context header (eval/run.ts --long-context). Throws, saying what is
@@ -221,7 +222,12 @@ export function backendFor(name: string, model?: string, options: { longContext?
     if (key === undefined) throw new Error(`no PERPLEXITY_API_KEY in the environment or ${CREDENTIALS_FILE}`)
     return { backend: pplxBackend(key, model === undefined ? {} : { model }), secrets: [key] }
   }
-  throw new Error(`no backend "${name}" (jev, pplx)`)
+  if (name === 'd1') {
+    const key = credential('LIQUID_API_KEY')
+    if (key === undefined) throw new Error(`no LIQUID_API_KEY in the environment or ${CREDENTIALS_FILE}`)
+    return { backend: d1Backend(key, model === undefined ? {} : { model }), secrets: [key] }
+  }
+  throw new Error(`no backend "${name}" (jev, pplx, d1)`)
 }
 
 /** A result file's text: pretty JSON, each answer on a line of its own (eval/run.ts writes it, eval/resummarize.ts rewrites it). */

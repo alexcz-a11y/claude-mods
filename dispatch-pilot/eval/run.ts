@@ -43,7 +43,13 @@
 //   node dispatch-pilot/eval/run.ts eval-v2 --backend jev --variants zh-flow,en-flow --flow dispatch-pilot/eval/results/eval-v2-flow/jev-24000.json --label J
 //                                                                          (jev-24000.json is the flow saved with Jev's 24000-token state of that day, not the mod's budget now)
 //
-// Credentials: TYPESAFE_API_KEY for Jev; PERPLEXITY_API_KEY for Perplexity: the environment first, then
+// --backend d1 (DEVELOPMENT.md 「d1-ultra 核验」): Liquid's d1-ultra (lib/d1.ts), asked with Jev's row of the defaults (its
+// questions, thresholds and budgets), so the requests are those Jev is asked; it reads at most 32768 tokens for the state
+// with any one question and counts the state once for each question, so a run on it gives --state-tokens 28000 and is
+// estimated question by question. --merge: the questions of every request with the same state go in one request
+// (lib/merge.ts: an item's variants that differ only in their question, a Workflow's agents); the result records it.
+//
+// Credentials: TYPESAFE_API_KEY for Jev; PERPLEXITY_API_KEY for Perplexity; LIQUID_API_KEY for d1: the environment first, then
 // ~/.config/dispatch-pilot/eval.env. Never printed or saved.
 //
 // Saves eval/results/<suite>/<date>-<backend>[-<label>].json: the settings,
@@ -63,7 +69,9 @@ import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { PPLX_MODEL } from '../hooks/decision/pplx.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
-import { ESTIMATE_FACTOR, estimateRun } from './lib/estimate.ts'
+import { D1_MODEL, D1_PRICE } from './lib/d1.ts'
+import { D1_ESTIMATE_FACTOR, ESTIMATE_FACTOR, estimateRun, estimateRunPerQuestion } from './lib/estimate.ts'
+import { runSuiteMerged } from './lib/merge.ts'
 import type { FlowFile } from './lib/eval-v2-flow.ts'
 import { percentText, summarize, type Summary } from './lib/metrics.ts'
 import { attemptMs as defaultAttemptMs, byRepeat, runSuite, stateDigest, type Row } from './lib/runner.ts'
@@ -91,6 +99,7 @@ const { values, positionals } = parseArgs({
     'state-tokens': { type: 'string' },
     'state-messages': { type: 'string' },
     'long-context': { type: 'boolean', default: false },
+    merge: { type: 'boolean', default: false },
     label: { type: 'string' },
     'no-save': { type: 'boolean', default: false },
   },
@@ -101,7 +110,7 @@ function fail(message: string): never {
   process.exit(2)
 }
 
-const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|pplx] [--label <word>] ...')
+const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|pplx|d1] [--merge] [--label <word>] ...')
 const entry = SUITES[name] ?? fail(`no suite for "${name}" yet (suites: ${Object.keys(SUITES).join(', ')})`)
 const sha = (text: string) => createHash('sha256').update(text).digest('hex')
 /** The dataset: a kind's JSONL, checked against its format; or eval-v2.jsonl, checked against generated.json, with its final gold. */
@@ -151,10 +160,13 @@ if (items.length === 0) fail('no item to run: --ids names none of the dataset\'s
 // The mod's settings as the engine hands them over: the manifest's defaults, then --option; what the manifest leaves
 // unset, the backend's defaults (readConfig).
 const manifest = readManifest()
-const backendName = values.backend as BackendName
-if (backendName !== 'jev' && backendName !== 'pplx') fail(`no backend "${backendName}" (jev, pplx)`)
+const asked = values.backend as BackendName | 'd1'
+if (asked !== 'jev' && asked !== 'pplx' && asked !== 'd1') fail(`no backend "${asked}" (jev, pplx, d1)`)
+/** The row of the defaults the run reads (d1 has none of its own: Jev's, lib/d1.ts). */
+const backendName: BackendName = asked === 'd1' ? 'jev' : asked
 const longContext = values['long-context'] === true
-if (longContext && backendName !== 'jev') fail(`--long-context is Jev's header, not ${backendName}'s`)
+if (longContext && asked !== 'jev') fail(`--long-context is Jev's header, not ${asked}'s`)
+const merged = values.merge === true
 let options: Record<string, unknown>
 try {
   // The decision model is the backend under evaluation (--backend), whatever the manifest's default says, and the settings
@@ -180,8 +192,9 @@ const widened = stateTokens === null ? settingsFrom(options as PluginOptions) : 
 const settings = stateMessages === null ? widened : withStateMessages(widened, stateMessages)
 /** How long one attempt may take: --timeout, else four times the mod's timeoutMs for this backend, at least 10 s (lib/runner.ts). */
 const attemptMs = timeoutFlag === null ? defaultAttemptMs(settings.timeoutMs) : timeoutFlag
-const model = values.model ?? (backendName === 'pplx' ? PPLX_MODEL : JEV_MODEL)
-const price = PRICES[backendName]
+const model = values.model ?? (asked === 'd1' ? D1_MODEL : asked === 'pplx' ? PPLX_MODEL : JEV_MODEL)
+const price = asked === 'd1' ? D1_PRICE : PRICES[backendName]
+if (merged && repeats !== 1) fail('--merge asks each item once: no --repeat')
 // A flow file run with another backend or state than this run's is allowed (say, the 48000 flow under a 135000 state), and said.
 if (flow !== null) {
   const ran = flow.file.settings
@@ -215,21 +228,25 @@ for (const item of items) {
 // --repeat N: the same requests again, N times in all.
 const sending = Array.from({ length: repeats }, () => planned).flat()
 // A request with images counts their pixels' tokens as the decision model does, not the length of their base64 (lib/estimate.ts); one without is estimated as it always was.
-const { tokens: estimatedTokens, usd: estimatedUsd } = estimateRun(sending, { model, backend: backendName, factor: ESTIMATE_FACTOR[backendName], usdPerMillionTokens: price })
-console.log(`${name}: ${items.length} items x ${variants.length} variants x ${languages.length} languages${repeats === 1 ? '' : ` x ${repeats} times`} = ${sending.length} requests${suite.estimate === undefined ? '' : ' at most'}, about ${estimatedTokens} input tokens, about $${estimatedUsd.toFixed(4)} on ${backendName} (${model}${longContext ? ', long context' : ''})`)
+// d1 counts the state once for each question, merged or not (lib/estimate.ts); the others as they always were (a merged run on Jev costs at most this).
+const { tokens: estimatedTokens, usd: estimatedUsd } =
+  asked === 'd1'
+    ? estimateRunPerQuestion(sending, { model, factor: D1_ESTIMATE_FACTOR, usdPerMillionTokens: price })
+    : estimateRun(sending, { model, backend: backendName, factor: ESTIMATE_FACTOR[backendName], usdPerMillionTokens: price })
+console.log(`${name}: ${items.length} items x ${variants.length} variants x ${languages.length} languages${repeats === 1 ? '' : ` x ${repeats} times`} = ${sending.length} requests${suite.estimate === undefined ? '' : ' at most'}${merged ? ' (fewer merged)' : ''}, about ${estimatedTokens} input tokens, about $${estimatedUsd.toFixed(4)} on ${asked} (${model}${longContext ? ', long context' : ''})`)
 if (values.estimate) process.exit(0)
 if (estimatedUsd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothing sent`)
 
 let chosen: { backend: Backend; secrets: string[] }
 try {
-  chosen = backendFor(backendName, model, { longContext })
+  chosen = backendFor(asked, model, { longContext })
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 }
 const { backend, secrets } = chosen
 
 const started = new Date()
-const rows: Row<unknown>[] = await runSuite(suite, items, {
+const runOptions = {
   backend,
   io: nodeIo,
   now: () => performance.now(),
@@ -241,10 +258,12 @@ const rows: Row<unknown>[] = await runSuite(suite, items, {
   retries,
   concurrency,
   repeats,
-  onRow: (_row, done, total) => {
+  onRow: (_row: unknown, done: number, total: number) => {
     if (done % 50 === 0 || done === total) process.stderr.write(`  ${done}/${total}\n`)
   },
-})
+}
+const mergedRun = merged ? await runSuiteMerged(suite, items, runOptions) : null
+const rows: Row<unknown>[] = mergedRun === null ? await runSuite(suite, items, runOptions) : mergedRun.rows
 for (const row of rows) row.ms = row.ms === null ? null : Math.round(row.ms)
 
 // Each time the run asked is summarized on its own (an item is answered once in a summary); the file's `summary` is the first time's,
@@ -258,9 +277,10 @@ repeatSummaries.forEach((again, i) => {
   console.log(`--- time ${i + 2} of ${repeats} ---`)
   report(again)
 })
-// Requests sent: one per answer, more where a suite asks again (the skill suite's second stage).
-const requests = rows.reduce((sum, row) => sum + (row.requests ?? 1), 0)
-console.log(`answers ${rows.length}, requests ${requests} (attempts ${rows.reduce((sum, row) => sum + row.attempts, 0)}), input tokens ${inputTokens}, about $${usd.toFixed(4)}; answered by ${answeredBy.join(', ') || 'none'}`)
+// Requests sent: one per answer, more where a suite asks again (the skill suite's second stage); a merged run's, as it sent them.
+const requests = mergedRun?.requests ?? rows.reduce((sum, row) => sum + (row.requests ?? 1), 0)
+const attempts = mergedRun?.attempts ?? rows.reduce((sum, row) => sum + row.attempts, 0)
+console.log(`answers ${rows.length}, requests ${requests} (attempts ${attempts}), input tokens ${inputTokens}, about $${usd.toFixed(4)}; answered by ${answeredBy.join(', ') || 'none'}`)
 
 if (!values['no-save']) {
   const reviewPath = join(REVIEW_DIR, `${kind}.review.jsonl`)
@@ -294,6 +314,10 @@ if (!values['no-save']) {
       ...(stateMessages === null ? {} : { stateMessages }),
       // --long-context: every request carried Jev's long-context header (262k tokens for the request and for the state with one question).
       ...(longContext ? { longContext: true } : {}),
+      // --merge: the questions of the requests with one state went in one request (lib/merge.ts).
+      ...(merged ? { merged: true } : {}),
+      // The row of the defaults the settings came from, where it is not the backend's own (d1 reads Jev's).
+      ...(asked === backendName ? {} : { defaultsOf: backendName }),
       thetaMax: settings.thetaMax,
       // The threshold for taking the level above the run decided with (the decision model's, core/setup.ts BACKEND_DEFAULTS); eval/lib/rescore.ts decides stored answers again with it.
       roundUp: settings.roundUp,
@@ -303,7 +327,7 @@ if (!values['no-save']) {
       // The options the run left unset, with the value the backend's defaults gave each (core/setup.ts BACKEND_DEFAULTS).
       backendDefaults: Object.fromEntries(settings.defaults.used),
     },
-    run: { items: items.length, variants, languages, ...(repeats === 1 ? {} : { repeats }), timeoutMs: attemptMs, retries, concurrency, requests, attempts: rows.reduce((sum, row) => sum + row.attempts, 0), inputTokens, usd: Number(usd.toFixed(4)) },
+    run: { items: items.length, variants, languages, ...(repeats === 1 ? {} : { repeats }), timeoutMs: attemptMs, retries, concurrency, requests, attempts, inputTokens, usd: Number(usd.toFixed(4)) },
     questions: Object.fromEntries(variants.map((variant) => [variant, suite.questions(variant)])),
     ...(suite.scoring === undefined ? {} : { scoring: suite.scoring }),
     ...(suite.about === undefined ? {} : { about: suite.about }),

@@ -4,19 +4,32 @@
 //
 //   node dispatch-pilot/eval/ctx30.ts           check: sizes, where each question's decisive turns are, what each request holds
 //   node dispatch-pilot/eval/ctx30.ts --run     ask both requests once and write results/ctx30/<date>-jev114.json
+//   node dispatch-pilot/eval/ctx30.ts --run --backend d1 --tokens 28000
+//                                               one request, the newest 28000 estimated tokens, asked of d1-ultra (or jev: past
+//                                               24000 it carries Jev's long-context header, as the mod sends it), written to
+//                                               results/ctx30/<date>-<backend>-<tokens>.json; the questions whose decisive turns
+//                                               that state holds are listed (DEVELOPMENT.md 「d1-ultra 核验」)
 //
 // Exits 1 when the check finds a fault: a decisive turn the regular request can see, a question with no decisive turn
 // (a trap aside), a mark naming no question, text the mod's masking would change.
 
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { parseArgs } from 'node:util'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
+import { D1_MODEL } from './lib/d1.ts'
 import { DATASETS_DIR, RESULTS_DIR, backendFor, nodeIo } from './node.ts'
 import { REGULAR_TOKENS, conversationLines, ctx30Request, depths, maskedMessages, mcnemar, parseConversation, probeQuestion, readRun, type Probe, type Read } from './lib/ctx30.ts'
 
 const DIR = join(DATASETS_DIR, 'ctx30')
-const run = process.argv.includes('--run')
+const { values } = parseArgs({ options: { run: { type: 'boolean', default: false }, backend: { type: 'string', default: 'jev' }, tokens: { type: 'string' } } })
+const run = values.run === true
+const backendName = values.backend as string
+if (backendName !== 'jev' && backendName !== 'd1') throw new Error(`--backend takes jev or d1, not ${backendName}`)
+const budgetTokens = values.tokens === undefined ? null : Number(values.tokens)
+if (budgetTokens !== null && !(Number.isInteger(budgetTokens) && budgetTokens >= 1000)) throw new Error(`--tokens takes a whole number of 1000 or more, not ${values.tokens}`)
+if (backendName === 'd1' && budgetTokens === null) throw new Error('d1 reads at most 32768 tokens a question: give it --tokens (28000)')
 
 const folder = join(DIR, 'conversation')
 const files = readdirSync(folder).filter((file) => file.endsWith('.txt')).sort().map((name) => ({ name, text: readFileSync(join(folder, name), 'utf8') }))
@@ -72,6 +85,38 @@ if (errors.length > 0) {
   process.exit(1)
 }
 if (!run) process.exit(0)
+
+// ---- --tokens: one request with that state budget, of --backend ----
+if (budgetTokens !== null) {
+  const budget = ctx30Request(lines, probes, budgetTokens)
+  const holds = lines.length - budget.kept
+  const visible = probes.filter((probe) => messages.some((message, i) => i >= holds && message.marks.includes(probe.id))).map((probe) => probe.id)
+  const model = backendName === 'd1' ? D1_MODEL : JEV_MODEL
+  const { backend, secrets } = backendFor(backendName, model)
+  const started = Date.now()
+  const asked = await backend.ask(nodeIo, budget.request, 120000)
+  const ms = Date.now() - started
+  if (!asked.ok) {
+    let failure = `${asked.failure.kind}: ${asked.failure.status ?? ''} ${asked.failure.detail}`
+    for (const secret of secrets) failure = failure.split(secret).join('[REDACTED]')
+    console.error(`refused: ${failure}`)
+    process.exit(1)
+  }
+  const key = `s${budgetTokens}`
+  const reads = readRun(probes, asked.answers)
+  const right = (kind?: Probe['kind']) => probes.filter((probe) => (kind === undefined || probe.kind === kind) && reads.get(probe.id)?.answer === probe.gold).length
+  const summary = { right: right(), effort: right('effort'), agent: right('agent') }
+  const answers = probes.map((probe) => ({ id: probe.id, kind: probe.kind, gold: probe.gold, ...(probe.kind === 'agent' && probe.trap ? { trap: true } : {}), [key]: reads.get(probe.id) ?? null }))
+  const date = new Date().toISOString().slice(0, 10)
+  const out = join(RESULTS_DIR, 'ctx30')
+  mkdirSync(out, { recursive: true })
+  const path = join(out, `${date}-${backendName}-${budgetTokens}.json`)
+  writeFileSync(path, `${JSON.stringify({ experiment: 'ctx30', date, backend: backendName, model, tokens: budgetTokens, kept: budget.kept, conversationTokens: total, visible, runs: { [key]: { ok: true, model: asked.model, inputTokens: asked.inputTokens, ms } }, summary: { [key]: summary }, answers }, null, 2)}\n`)
+  console.log(`${backendName} at ${budgetTokens}: the newest ${budget.kept} messages; decisive turns within it: ${visible.join(', ') || 'none'}`)
+  console.log(`${summary.right}/30 (effort ${summary.effort}/15, agent ${summary.agent}/15), ${asked.inputTokens} input tokens, ${ms} ms by ${asked.model}`)
+  console.log(`written: ${path}`)
+  process.exit(0)
+}
 
 // ---- the run: each request once, regular first ----
 

@@ -1,0 +1,482 @@
+{
+  "experiment": "ctx30",
+  "date": "2026-10-16",
+  "backend": "d1",
+  "model": "d1-ultra",
+  "tokens": 28000,
+  "kept": 120,
+  "conversationTokens": 62061,
+  "visible": [
+    "E09",
+    "A10",
+    "A14"
+  ],
+  "runs": {
+    "s28000": {
+      "ok": true,
+      "model": "d1-ultra",
+      "inputTokens": 775110,
+      "ms": 4702
+    }
+  },
+  "summary": {
+    "s28000": {
+      "right": 16,
+      "effort": 7,
+      "agent": 9
+    }
+  },
+  "answers": [
+    {
+      "id": "E01",
+      "kind": "effort",
+      "gold": "low",
+      "s28000": {
+        "answer": "medium",
+        "top": "medium",
+        "p": {
+          "low": 0.105,
+          "medium": 0.565,
+          "high": 0.283,
+          "xhigh": 0.034,
+          "max": 0.013
+        }
+      }
+    },
+    {
+      "id": "E02",
+      "kind": "effort",
+      "gold": "low",
+      "s28000": {
+        "answer": "high",
+        "top": "medium",
+        "p": {
+          "low": 0.106,
+          "medium": 0.381,
+          "high": 0.313,
+          "xhigh": 0.071,
+          "max": 0.129
+        }
+      }
+    },
+    {
+      "id": "E03",
+      "kind": "effort",
+      "gold": "low",
+      "s28000": {
+        "answer": "max",
+        "top": "max",
+        "p": {
+          "low": 0.074,
+          "medium": 0.11,
+          "high": 0.172,
+          "xhigh": 0.134,
+          "max": 0.509
+        }
+      }
+    },
+    {
+      "id": "E04",
+      "kind": "effort",
+      "gold": "medium",
+      "s28000": {
+        "answer": "medium",
+        "top": "medium",
+        "p": {
+          "low": 0.075,
+          "medium": 0.659,
+          "high": 0.201,
+          "xhigh": 0.032,
+          "max": 0.032
+        }
+      }
+    },
+    {
+      "id": "E05",
+      "kind": "effort",
+      "gold": "medium",
+      "s28000": {
+        "answer": "low",
+        "top": "low",
+        "p": {
+          "low": 0.735,
+          "medium": 0.248,
+          "high": 0.013,
+          "xhigh": 0.002,
+          "max": 0.001
+        }
+      }
+    },
+    {
+      "id": "E06",
+      "kind": "effort",
+      "gold": "medium",
+      "s28000": {
+        "answer": "medium",
+        "top": "medium",
+        "p": {
+          "low": 0.147,
+          "medium": 0.395,
+          "high": 0.28,
+          "xhigh": 0.104,
+          "max": 0.074
+        }
+      }
+    },
+    {
+      "id": "E07",
+      "kind": "effort",
+      "gold": "high",
+      "s28000": {
+        "answer": "high",
+        "top": "high",
+        "p": {
+          "low": 0.089,
+          "medium": 0.392,
+          "high": 0.433,
+          "xhigh": 0.066,
+          "max": 0.019
+        }
+      }
+    },
+    {
+      "id": "E08",
+      "kind": "effort",
+      "gold": "high",
+      "s28000": {
+        "answer": "xhigh",
+        "top": "xhigh",
+        "p": {
+          "low": 0.141,
+          "medium": 0.121,
+          "high": 0.163,
+          "xhigh": 0.484,
+          "max": 0.09
+        }
+      }
+    },
+    {
+      "id": "E09",
+      "kind": "effort",
+      "gold": "high",
+      "s28000": {
+        "answer": "high",
+        "top": "high",
+        "p": {
+          "low": 0.004,
+          "medium": 0.025,
+          "high": 0.87,
+          "xhigh": 0.099,
+          "max": 0.003
+        }
+      }
+    },
+    {
+      "id": "E10",
+      "kind": "effort",
+      "gold": "xhigh",
+      "s28000": {
+        "answer": "xhigh",
+        "top": "high",
+        "p": {
+          "low": 0.089,
+          "medium": 0.108,
+          "high": 0.41,
+          "xhigh": 0.371,
+          "max": 0.022
+        }
+      }
+    },
+    {
+      "id": "E11",
+      "kind": "effort",
+      "gold": "xhigh",
+      "s28000": {
+        "answer": "xhigh",
+        "top": "xhigh",
+        "p": {
+          "low": 0.022,
+          "medium": 0.076,
+          "high": 0.37,
+          "xhigh": 0.498,
+          "max": 0.033
+        }
+      }
+    },
+    {
+      "id": "E12",
+      "kind": "effort",
+      "gold": "xhigh",
+      "s28000": {
+        "answer": "xhigh",
+        "top": "xhigh",
+        "p": {
+          "low": 0.209,
+          "medium": 0.172,
+          "high": 0.243,
+          "xhigh": 0.255,
+          "max": 0.122
+        }
+      }
+    },
+    {
+      "id": "E13",
+      "kind": "effort",
+      "gold": "max",
+      "s28000": {
+        "answer": "xhigh",
+        "top": "xhigh",
+        "p": {
+          "low": 0.015,
+          "medium": 0.044,
+          "high": 0.382,
+          "xhigh": 0.514,
+          "max": 0.046
+        }
+      }
+    },
+    {
+      "id": "E14",
+      "kind": "effort",
+      "gold": "max",
+      "s28000": {
+        "answer": "high",
+        "top": "high",
+        "p": {
+          "low": 0.103,
+          "medium": 0.186,
+          "high": 0.291,
+          "xhigh": 0.251,
+          "max": 0.169
+        }
+      }
+    },
+    {
+      "id": "E15",
+      "kind": "effort",
+      "gold": "max",
+      "s28000": {
+        "answer": "low",
+        "top": "low",
+        "p": {
+          "low": 0.284,
+          "medium": 0.211,
+          "high": 0.222,
+          "xhigh": 0.165,
+          "max": 0.117
+        }
+      }
+    },
+    {
+      "id": "A01",
+      "kind": "agent",
+      "gold": "haiku",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.161,
+          "sonnet": 0.821,
+          "opus": 0.018
+        }
+      }
+    },
+    {
+      "id": "A02",
+      "kind": "agent",
+      "gold": "haiku",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.385,
+          "sonnet": 0.601,
+          "opus": 0.014
+        }
+      }
+    },
+    {
+      "id": "A03",
+      "kind": "agent",
+      "gold": "haiku",
+      "s28000": {
+        "answer": "haiku",
+        "top": "haiku",
+        "p": {
+          "haiku": 0.832,
+          "sonnet": 0.134,
+          "opus": 0.034
+        }
+      }
+    },
+    {
+      "id": "A04",
+      "kind": "agent",
+      "gold": "haiku",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.051,
+          "sonnet": 0.848,
+          "opus": 0.101
+        }
+      }
+    },
+    {
+      "id": "A05",
+      "kind": "agent",
+      "gold": "haiku",
+      "trap": true,
+      "s28000": {
+        "answer": "haiku",
+        "top": "haiku",
+        "p": {
+          "haiku": 0.859,
+          "sonnet": 0.138,
+          "opus": 0.003
+        }
+      }
+    },
+    {
+      "id": "A06",
+      "kind": "agent",
+      "gold": "sonnet",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.016,
+          "sonnet": 0.841,
+          "opus": 0.142
+        }
+      }
+    },
+    {
+      "id": "A07",
+      "kind": "agent",
+      "gold": "sonnet",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.013,
+          "sonnet": 0.789,
+          "opus": 0.198
+        }
+      }
+    },
+    {
+      "id": "A08",
+      "kind": "agent",
+      "gold": "sonnet",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.008,
+          "sonnet": 0.777,
+          "opus": 0.215
+        }
+      }
+    },
+    {
+      "id": "A09",
+      "kind": "agent",
+      "gold": "sonnet",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.022,
+          "sonnet": 0.946,
+          "opus": 0.031
+        }
+      }
+    },
+    {
+      "id": "A10",
+      "kind": "agent",
+      "gold": "sonnet",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.175,
+          "sonnet": 0.771,
+          "opus": 0.054
+        }
+      }
+    },
+    {
+      "id": "A11",
+      "kind": "agent",
+      "gold": "opus",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.022,
+          "sonnet": 0.672,
+          "opus": 0.305
+        }
+      }
+    },
+    {
+      "id": "A12",
+      "kind": "agent",
+      "gold": "opus",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.012,
+          "sonnet": 0.782,
+          "opus": 0.206
+        }
+      }
+    },
+    {
+      "id": "A13",
+      "kind": "agent",
+      "gold": "opus",
+      "s28000": {
+        "answer": "opus",
+        "top": "opus",
+        "p": {
+          "haiku": 0.132,
+          "sonnet": 0.196,
+          "opus": 0.672
+        }
+      }
+    },
+    {
+      "id": "A14",
+      "kind": "agent",
+      "gold": "opus",
+      "s28000": {
+        "answer": "opus",
+        "top": "opus",
+        "p": {
+          "haiku": 0.007,
+          "sonnet": 0.03,
+          "opus": 0.963
+        }
+      }
+    },
+    {
+      "id": "A15",
+      "kind": "agent",
+      "gold": "opus",
+      "s28000": {
+        "answer": "sonnet",
+        "top": "sonnet",
+        "p": {
+          "haiku": 0.014,
+          "sonnet": 0.668,
+          "opus": 0.319
+        }
+      }
+    }
+  ]
+}
