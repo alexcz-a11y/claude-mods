@@ -1,11 +1,11 @@
-// The agents of a Workflow now pass agent.spawn too (2.1.294 on: `workflow` is
-// set, and a hook can only refuse the spawn, a change to its model is ignored).
-// They are still the Workflow features' (#8 writes the script, #9 decides the
-// rest as each agent starts): the dispatched-agents feature (#6) must not take
-// them for agents the main agent dispatched. Seam 1: the Workflow tool call, the
-// spawns the engine raises for the script's agent() calls, the run's journal and
-// transcripts, the agents' steps in; out, the model and effort each step goes out
-// with, the decision requests, the board.
+// The agents of a Workflow pass agent.spawn (2.1.294 on: `workflow` is set; a
+// model set there is the one the agent starts on, 2.1.300 on). They are the
+// Workflow features' (#8 writes the script, #9 routes the rest at their
+// spawns): the dispatched-agents feature (#6) must not take them for agents the
+// main agent dispatched. Seam 1: the Workflow tool call, the spawns the engine
+// raises for the script's agent() calls, the agents' steps in; out, the model
+// each agent starts on, the model and effort each step goes out with, the
+// decision requests, the board.
 
 import { expect, test } from 'claude-code/testing'
 import { shown } from './support/drawn.ts'
@@ -33,7 +33,7 @@ const DECIDED = (request: Parameters<ReturnType<typeof siteJev>>[0]) => {
   return siteJev(() => answer)(request)
 }
 
-test("a Workflow agent the engine spawns, whose call's prompt is built as the script runs, goes out on every step with the model and effort decided as it starts, not as its spawn left it", { options: KEY }, async ($, on) => {
+test("a Workflow agent the engine spawns, whose call's prompt is built as the script runs, starts on the model decided at its spawn and goes out at its effort on every step", { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { backend: DECIDED })
   await w.workflow({ script: INVENTORY })
   // workflow-agents wrote the transcribe call, and left the map call (its prompt is a call of the script's own).
@@ -42,18 +42,15 @@ test("a Workflow agent the engine spawns, whose call's prompt is built as the sc
   expect(w.requests).toHaveLength(1)
 
   // The transcribe agent runs first, as the script has it.
-  await w.workflowSpawn('toolu_wf', { runId: 'wf_test-1', agentIndex: 1, agentId: 'wa1', label: 'transcribe', prompt: 'Transcribe every control on the panel screenshots in shots/ into a JSON list of label and value.', model: 'sonnet' })
-  w.started('wf_test-1', 'wa1', 'transcribe')
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
-  await w.agentStep('wa1', { index: 1, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.started('wf_test-1', 'wa1', 'transcribe', { prompt: 'Transcribe every control on the panel screenshots in shots/ into a JSON list of label and value.', model: 'sonnet' })
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
+  await w.agentStep('wa1', { index: 1, effort: 'medium' })
 
-  // Two minutes on, the map agent starts with the task the script built from it, on the session's model.
+  // Two minutes on, the map agent is spawned with the task the script built from it; its call names no model.
   await w.clock.advance(120_000)
-  await w.workflowSpawn('toolu_wf', { runId: 'wf_test-1', agentIndex: 2, agentId: 'wa2', label: 'map:clashmac', prompt: MAP_TASK })
-  w.started('wf_test-1', 'wa2', 'map:clashmac')
-  w.transcript('wf_test-1', 'wa2', MAP_TASK)
-  await w.agentStep('wa2', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
-  await w.agentStep('wa2', { index: 1, model: 'claude-opus-5-5', effort: 'xhigh' })
+  await w.started('wf_test-1', 'wa2', 'map:clashmac', { prompt: MAP_TASK })
+  await w.agentStep('wa2', { index: 0, effort: 'xhigh' })
+  await w.agentStep('wa2', { index: 1, effort: 'xhigh' })
 
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual([
     'wa1 claude-sonnet-5-5 medium',
@@ -61,12 +58,12 @@ test("a Workflow agent the engine spawns, whose call's prompt is built as the sc
     'wa2 claude-sonnet-5-5 high',
     'wa2 claude-sonnet-5-5 high',
   ])
-  // Nothing is asked at the spawns: the launch asked about transcribe, the map agent's first step about it.
+  // The launch asked about transcribe, the map agent's spawn about it.
   expect(w.requests).toHaveLength(2)
-  // The spawns reach the engine as it raised them.
+  // The transcribe agent starts as the script has it; the map agent's spawn is set to the model decided for it.
   expect(w.spawned.map((s) => [s.description, s.model])).toEqual([
     ['transcribe', 'sonnet'],
-    ['map:clashmac', undefined],
+    ['map:clashmac', 'sonnet'],
   ])
 
   // The board: each agent is a node of the Workflow in its call's place, the map agent with the model it runs on; no call waits.
@@ -96,9 +93,8 @@ test("a call whose label is a template stands for every agent it starts: each on
 
   for (const [i, id] of ['cm1', 'cm2'].entries()) {
     const agentId = `wa${i + 1}`
-    await w.workflowSpawn('toolu_wf', { runId: 'wf_test-1', agentIndex: i + 1, agentId, label: `transcribe:${id}`, prompt: `Transcribe every control on the screenshots of batch ${id} into a JSON list.`, model: 'sonnet' })
-    w.started('wf_test-1', agentId, `transcribe:${id}`)
-    await w.agentStep(agentId, { index: 0, model: 'claude-sonnet-5-5', effort: 'high' })
+    await w.started('wf_test-1', agentId, `transcribe:${id}`, { prompt: `Transcribe every control on the screenshots of batch ${id} into a JSON list.`, model: 'sonnet' })
+    await w.agentStep(agentId, { index: 0, effort: 'high' })
   }
 
   const board = await w.board()
@@ -118,8 +114,28 @@ test("a call whose label is a template stands for every agent it starts: each on
   expect(rows.join('\n')).not.toContain('排队')
 
   // The third batch's agent finds the same call.
-  await w.workflowSpawn('toolu_wf', { runId: 'wf_test-1', agentIndex: 3, agentId: 'wa3', label: 'transcribe:cm3', prompt: 'Transcribe every control on the screenshots of batch cm3 into a JSON list.', model: 'sonnet' })
-  w.started('wf_test-1', 'wa3', 'transcribe:cm3')
-  await w.agentStep('wa3', { index: 0, model: 'claude-sonnet-5-5', effort: 'high' })
+  await w.started('wf_test-1', 'wa3', 'transcribe:cm3', { prompt: 'Transcribe every control on the screenshots of batch cm3 into a JSON list.', model: 'sonnet' })
+  await w.agentStep('wa3', { index: 0, effort: 'high' })
   expect((await w.board()).agents.find((node) => node.id === 'wa3')).toMatchObject({ routed: true, decision: entry?.n })
+})
+
+test("an agent the engine spawns before the Workflow tool returns, while workflow-agents is yet to report its call, still takes the call's place and decision on the board", { options: KEY }, async ($, on) => {
+  const script = `export const meta = { name: 'probe-view', description: 'probe', phases: [] }
+const a = await agent('Use the Bash tool to run sleep 45, then reply with only: slept', { label: 'sleeper' })
+return a
+`
+  let early: Promise<unknown> = Promise.resolve()
+  const w = runWorld($, on, {
+    backend: siteJev(() => ({ model: { haiku: 0.9 }, effort: [1, 0, 0, 0, 0] })),
+    // The script as workflow-agents passed it on: the call runs on haiku, as written into it.
+    during: (runId, toolUseId) => (early = w.workflowSpawn(toolUseId, { runId, agentIndex: 1, agentId: 'wa1', label: 'sleeper', prompt: 'Use the Bash tool to run sleep 45, then reply with only: slept', model: 'haiku' })),
+  })
+  await w.submit('跑一下这个 workflow')
+  await w.workflow({ script })
+  await early
+  await w.agentStep('wa1', { index: 0, model: 'claude-haiku-5-5', effort: 'low' })
+
+  const board = await w.board()
+  const entry = board.log.find((e) => e.feature === 'workflow-agents')
+  expect(board.agents.filter((node) => node.kind === 'wf').map((node) => [node.id, node.name, node.state, node.routed, node.decision, node.workflow?.name])).toEqual([['wa1', 'sleeper', 'running', true, entry?.n, 'probe-view']])
 })

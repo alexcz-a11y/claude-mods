@@ -89,7 +89,7 @@ _Avoid_: 指定（指定专指主 agent 在派出时写的模型）、钦点
 _Avoid_: 条件、限制、偏好
 
 **兜底（Label Fallback）**：
-Workflow 里没能在启动前改写的 `agent()` 调用（prompt 读不出任务、脚本读不了、调用太多），在这个 agent 启动时按它的 label 对上调用，再判断一次模型和 effort（#9）。
+Workflow 里没能在启动前改写的 `agent()` 调用（prompt 读不出任务、脚本读不了、调用太多），在这个 agent 派出时（`agent.spawn`）按它的 label 对上调用，模型设在派出上，effort 写进计划（#9）。
 _Avoid_: 补救、后备路由
 
 **接缝（Seam）**：

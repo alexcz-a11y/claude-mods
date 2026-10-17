@@ -1,43 +1,28 @@
 // Feature: the Workflow fallback (#9). The agents of a Workflow whose script
 // the workflow-agents feature (#8) could not write into get their model and
-// effort when each one starts, by its label.
+// effort as each one is spawned, by its label.
 //
 // When the Workflow tool launches a run this feature has work in (a script
 // given by path or by name, a resumed run, a script workflow-agents could not
 // read, or calls of it whose prompt is data), it reads the script the run uses,
 // asks the decision model about each call it can read (path, name and resume:
 // workflow-agents asked about the calls of an inline script), and records the
-// run. When an agent of the run takes its first step, the run's journal says
-// which label it started under; the label says which call it is, and that
-// call's decision goes into the plan table under the agent's id, which the core
-// sends on every step of it. An agent whose call could not be decided ahead
-// (its prompt is data, the script cannot be read) is decided then, from the
-// task in its own transcript.
+// run. Each agent of the run passes `agent.spawn` (`e.workflow`), whose
+// `description` is its label and `prompt` its task (2.1.300 on, a model set
+// there is the one it starts on): the label says which call it is, and that
+// call's model is set on the spawn, its effort put into the plan table under
+// the agent's id, which the core sends on every step of it. An agent whose call
+// could not be decided ahead (its prompt is data, the script cannot be read) is
+// decided then, from its task.
 //
 // Its switch is `workflow-labels` (`/dp workflow-labels off`).
 
-import type { EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
+import type { AgentSpawnInput, EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
 import { errorText, failureLine, failureText, timedOut, within, type Failure } from '../decision/backend.ts'
 import { clipToTokens, conversationUpTo, type ContextMessage } from '../decision/context.ts'
 import { dispatchEvidence, modelFamily, termsOf, type AgentModel, type DispatchSettings, type Terms } from '../decision/dispatched-agent.ts'
 import type { Effort } from '../decision/effort.ts'
-import {
-  agentPlan,
-  inlineSites,
-  isTaskStart,
-  launchNote,
-  sameRoute,
-  sharedTerms,
-  sitesFor,
-  sitesOf,
-  startedAs,
-  startedIn,
-  submissionOf,
-  taskOf,
-  type Given,
-  type JournalStart,
-  type RunSite,
-} from '../decision/workflow-labels.ts'
+import { inlineSites, isTaskStart, launchNote, sameRoute, sharedTerms, sitesFor, sitesOf, submissionOf, type Given, type RunSite } from '../decision/workflow-labels.ts'
 import { parseWorkflow, type AgentCall } from '../decision/workflow-script.ts'
 import {
   BATCHES_BUDGET_MS,
@@ -78,17 +63,10 @@ const SWITCH = 'workflow-labels'
 /** At most this many runs are kept. */
 const MAX_RUNS = 8
 /**
- * How long an agent's first step may wait in all (for its run to be set up,
- * its transcript, a decision): a hook has 10 s of its own, and waits count.
+ * How long an agent's spawn may wait in all (for its run to be set up, a
+ * decision): a hook has 10 s of its own, and waits count.
  */
-const STEP_BUDGET_MS = 9000
-/**
- * How long an agent's first step waits for its transcript, and how often it
- * looks. The engine writes it 50-110 ms after the step begins (2.1.289), also
- * while the step waits.
- */
-const TASK_WAIT_MS = 400
-const TASK_POLL_MS = 25
+const SPAWN_BUDGET_MS = 9000
 
 /** What the Workflow tool's description gains for the main agent: fixed words, nothing of the session in them. */
 const LABEL_HINT =
@@ -106,7 +84,7 @@ type Launch = { said: string[]; problem_summary?: string; unresolved_count?: num
  * A run this feature routes the agents of (`labelRuns` in types/index.d.ts). `callId`: the Workflow tool call that launched it (a run recorded by an earlier load has none: the run's own id stands for it).
  * `launch`: what its launching turn said, for its agents decided as they start (absent when an earlier version recorded it).
  */
-type LabelRun = { runId: string; callId?: string; dir: string; workflow: string | null; description: string | null; sites: RunSite[] | null; launch?: Launch }
+type LabelRun = { runId: string; callId?: string; workflow: string | null; description: string | null; sites: RunSite[] | null; launch?: Launch }
 
 /** A script kept for a run's agents, cut to fit, keeps this share for its end (the last calls, what it returns). */
 const SCRIPT_KEPT_TAIL = 0.3
@@ -115,17 +93,20 @@ const SCRIPT_KEPT_TAIL = 0.3
 type AgentRoute = { model: AgentModel | null; effort: Effort | null }
 
 /**
- * Workflow tool calls being set up, each resolving to the run it recorded
- * (null: none). A run's first agent can take its first step before the call
- * has recorded the run (measured on 2.1.289: 1 ms after the tool returned), so
- * an agent found in no recorded run waits for these. The run comes through
- * here, not `$.state`: every `$.state.get` of one dispatch reads the moment
- * the dispatch began.
+ * Workflow tool calls being set up, by the call's tool_use_id, each resolving
+ * to the run it recorded (null: none). A run's first agent is spawned before
+ * the call has recorded the run (measured on 2.1.302: the spawn comes while the
+ * tool's `next` is still out, and the tool does not wait for it), so a spawn
+ * under a call being set up waits for it. The run comes through here, not
+ * `$.state`: every `$.state.get` of one dispatch reads the moment the dispatch
+ * began. A module variable (CLAUDE.md): a hot reload while a run is set up
+ * costs its first agents their call's decision, and they are decided from
+ * their own task instead.
  */
-const launching = new Set<Promise<LabelRun | null>>()
+const launching = new Map<string, Promise<LabelRun | null>>()
 
 export function registerWorkflowLabels(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: 'Workflow 里脚本改写不到的 agent，启动时按 label 设定模型和 effort' })
+  defineSwitch({ name: SWITCH, info: 'Workflow 里脚本改写不到的 agent，派出时按 label 设定模型和 effort' })
   const settings = dispatchSettings(ctx)
 
   // The standing hint: the engine renders a tool's description once per session
@@ -142,7 +123,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
     const reporting = reportingOf($)
     let settled: (run: LabelRun | null) => void = () => {}
     const launch = new Promise<LabelRun | null>((resolve) => (settled = resolve))
-    launching.add(launch)
+    launching.set(e.tool_use_id, launch)
     let recorded: LabelRun | null = null
     let result: ToolCallResult | undefined
     try {
@@ -204,7 +185,6 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       const run: LabelRun = {
         runId: launched.runId,
         callId: e.tool_use_id,
-        dir: launched.dir,
         workflow: parsed?.meta.name ?? launched.workflow,
         description: parsed?.meta.description ?? null,
         sites,
@@ -222,67 +202,94 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       await report(reporting, { decision: workflowLeft(SWITCH, { id: e.tool_use_id, title: workflowCallTitle(e) }, '出错了，详见 debug log', { agent: `${e.tool_use_id}:labels` }) })
       return result
     } finally {
-      launching.delete(launch)
+      launching.delete(e.tool_use_id)
       settled(recorded)
     }
   })
 
-  on('turn.step', { agentId: /(?:)/ }, async function* ($, e, next) {
-    const agentId = e.agentId
-    if (agentId === undefined || e.index !== 0 || !isOn(SWITCH)) return yield* next(e)
+  on('agent.spawn', { tool_use_id: /(?:)/ }, async ($, e, next) => {
+    // A resumed agent goes on as it was decided: the engine keeps its model, and its plan is the one written at its spawn.
+    if (e.workflow === undefined || e.resume !== undefined || !isOn(SWITCH) || ctx.backend.configured === false) return next(e)
+    const reporting = reportingOf($)
+    let routed: Routed | null = null
+    let failed: unknown
     try {
-      await routeAgent($, ctx, settings, agentId, e.model)
+      routed = await routeSpawn($, ctx, settings, e)
+    } catch (error) {
+      failed = error
+    }
+    const result = await next(routed?.spawn ?? e)
+    if (result.deny !== undefined || result.agentId === undefined) return result
+    const agentId = result.agentId
+    // The agent has started: nothing after this may fail its spawn.
+    try {
+      if (failed !== undefined) throw failed
+      await routed?.started(agentId, reporting)
     } catch (error) {
       $.ui.log(`workflow-labels: agent ${agentId} is not routed: ${errorText(error)}`, { to: 'debug' })
-      await report(reportingOf($), { decision: { feature: SWITCH, agent: agentId, why: '出错了，详见 debug log', subject: agentId, node: { kind: 'wf', name: agentId, type: 'workflow', state: 'running' } } })
+      await report(reporting, { decision: { feature: SWITCH, agent: agentId, why: '出错了，详见 debug log', subject: agentId, node: { kind: 'wf', name: e.description === '' ? agentId : e.description, type: 'workflow', state: 'queued' } } })
     }
-    return yield* next(e)
+    return result
   })
 }
 
-/** At an agent's first step: finds the run and the call it belongs to, and plans its steps. */
-async function routeAgent($: EngineInterface, ctx: Ctx, settings: DispatchSettings, agentId: string, stepModel: string): Promise<void> {
-  const deadline = (await $.clock.now()) + STEP_BUDGET_MS
-  // An agent with a plan already is someone's: dispatched (and planned at its spawn), or decided at a first step the engine sends again.
-  const [{ value: planned }, { value: runs = [] }] = await Promise.all([$.state.get({ ...AGENTS, id: agentId }), $.state.get(RUNS)])
-  if (planned !== undefined) return
-  let found = await findAgent($, runs, agentId)
-  if (found === null && launching.size > 0) found = await findAgent($, await settleLaunches($, deadline), agentId)
-  if (found === null) return
-  const { run, start } = found
-  const candidates = run.sites === null ? [] : sitesFor(start.label, run.sites)
+/**
+ * What routing one spawn comes to: the spawn to start (its model set when it changes), and what is written and reported
+ * once the agent has its id.
+ */
+type Routed = { spawn: AgentSpawnInput; started: (agentId: string, reporting: ReportIo) => Promise<void> }
+
+/** As a Workflow's agent is spawned: finds its run and the call it belongs to, and decides it; null when it is no run's this routes. */
+async function routeSpawn($: EngineInterface, ctx: Ctx, settings: DispatchSettings, e: AgentSpawnInput): Promise<Routed | null> {
+  const flow = e.workflow
+  if (flow === undefined) return null
+  const deadline = (await $.clock.now()) + SPAWN_BUDGET_MS
+  const run = await runOf($, flow.runId, e.tool_use_id, deadline)
+  if (run === null) return null
+  // The label the engine gives the agent (its call's, a template's filled in, else the start of its prompt) and its task.
+  const label = e.description
+  const candidates = run.sites === null ? [] : sitesFor(label, run.sites)
   const route = run.sites === null ? null : routeOf(candidates)
   if (route?.kind === 'script') {
     // The script runs it as written (workflow-agents wrote into it); the person's terms for its work still go into its plan.
     const terms = sharedTerms(candidates)
-    if (terms !== null) await $.state.set({ ...AGENTS, id: agentId }, { effort: null, floor: null, model: null, terms })
-    return
+    return {
+      spawn: e,
+      started: async (agentId) => {
+        if (terms !== null) await $.state.set({ ...AGENTS, id: agentId }, { effort: null, floor: null, model: null, terms })
+      },
+    }
   }
+  const site = candidates.length === 1 ? candidates[0] : undefined
   const settled: Settled =
     route?.kind === 'set'
       ? { ok: true, route, terms: sharedTerms(candidates), decision: null }
-      : await decideAtStart($, ctx, settings, { run, agentId, label: start.label, site: candidates.length === 1 ? candidates[0] : undefined, deadline })
+      : await decideAtStart($, ctx, settings, { run, label, task: e.prompt, site, deadline })
+  // The model is set on the spawn (an alias resolves there); the effort and the person's terms go into the plan.
+  const model = settled.ok ? (settled.route?.model ?? null) : null
+  const spawn = model !== null && model !== modelFamily(e.model ?? e.parentModel) ? { ...e, model } : e
   // The agent is on the board as the agent it is: a node of the Workflow, taking the place of its call's when that is known.
   const callId = run.callId ?? run.runId
-  const site = candidates.length === 1 ? candidates[0] : undefined
-  const about = {
+  const about = (agentId: string) => ({
     feature: SWITCH,
     agent: agentId,
-    subject: JSON.stringify(start.label),
-    node: { kind: 'wf' as const, name: start.label, type: site?.agentType ?? 'workflow', state: 'running' as const, workflow: { id: callId, name: run.workflow ?? '未命名' } },
+    subject: JSON.stringify(label),
+    node: { kind: 'wf' as const, name: label, type: site?.agentType ?? 'workflow', state: 'queued' as const, workflow: { id: callId, name: run.workflow ?? '未命名' } },
     ...(site === undefined || run.sites === null ? {} : { replaces: callNodeId(callId, run.sites.indexOf(site)) }),
-  }
-  const reporting = reportingOf($)
-  if (settled.ok) {
-    const plan = settled.route === null ? null : agentPlan(settled.route, stepModel)
-    // The decision made as the agent starts has its entry now; one made with its run is the entry that stands for its call.
-    await report(reporting, { decision: settled.decision === null ? { ...about, started: true } : { ...about, routed: true, ...settled.decision } })
-    const terms = settled.terms
-    if ((plan !== null && (plan.model !== null || plan.effort !== null)) || terms !== null) {
-      await $.state.set({ ...AGENTS, id: agentId }, { effort: plan?.effort ?? null, floor: null, model: plan?.model ?? null, terms })
-    }
-  } else {
-    await report(reporting, { decision: settled.failure === undefined ? { ...about, why: settled.reason } : { ...about, routed: false, failure: { backend: ctx.backend.name, ...settled.failure } } })
+  })
+  return {
+    spawn,
+    started: async (agentId, reporting) => {
+      if (!settled.ok) {
+        await report(reporting, { decision: settled.failure === undefined ? { ...about(agentId), why: settled.reason } : { ...about(agentId), routed: false, failure: { backend: ctx.backend.name, ...settled.failure } } })
+        return
+      }
+      // The decision made as the agent starts has its entry now; one made with its run is the entry that stands for its call.
+      const decided = settled.decision === null ? { ...about(agentId), started: true as const } : { ...about(agentId), routed: true as const, ...settled.decision }
+      await report(reporting, { decision: decided })
+      const effort = settled.route?.effort ?? null
+      if (effort !== null || settled.terms !== null) await $.state.set({ ...AGENTS, id: agentId }, { effort, floor: null, model: null, terms: settled.terms })
+    },
   }
 }
 
@@ -310,41 +317,19 @@ function reportingOf($: EngineInterface): ReportIo {
   }
 }
 
-/** The run of `runs` that `agentId` started in, newest first, and what it started as there; null when it is in none. */
-async function findAgent($: EngineInterface, runs: readonly LabelRun[], agentId: string): Promise<{ run: LabelRun; start: JournalStart } | null> {
-  for (const run of [...runs].reverse()) {
-    const start = await startOf($, run.dir, agentId)
-    if (start !== null) return { run, start }
-  }
-  return null
-}
-
 /**
- * What `agentId` started as in the run at `dir`: its meta.json's label, else its journal's `started` line; null when
- * the agent is not of the run. The meta.json first: a long run's journal holds every agent's result, and past 4 MiB
- * `$.fs.read` refuses it (the debug log says so when it comes to that).
+ * The run `runId` this feature recorded: the one the Workflow call `callId` is setting up, waited for until `deadline` at
+ * most, else the one recorded already; null when it is in neither.
  */
-async function startOf($: EngineInterface, dir: string, agentId: string): Promise<JournalStart | null> {
-  const meta = await $.fs.read(`${dir}/agent-${agentId}.meta.json`).catch(() => null)
-  const start = meta === null ? null : startedAs(meta)
-  if (start !== null) return start
-  const path = `${dir}/journal.jsonl`
-  try {
-    return startedIn(await $.fs.read(path), agentId)
-  } catch (error) {
-    if (await $.fs.exists(path)) $.ui.log(`workflow-labels: ${path} not read (${errorText(error)}); agent ${agentId} is not found in it`, { to: 'debug' })
-    return null
+async function runOf($: EngineInterface, runId: string, callId: string, deadline: number): Promise<LabelRun | null> {
+  const pending = launching.get(callId)
+  if (pending !== undefined) {
+    const left = deadline - (await $.clock.now())
+    const run = left > 0 ? await within((ms, signal) => $.clock.sleep(ms, { signal }), pending, left, null) : null
+    if (run?.runId === runId) return run
   }
-}
-
-/** Waits for the Workflow calls being set up now, until `deadline` at most: the runs they recorded meanwhile, in the order they did. */
-async function settleLaunches($: EngineInterface, deadline: number): Promise<LabelRun[]> {
-  const recorded: LabelRun[] = []
-  const left = deadline - (await $.clock.now())
-  if (left <= 0) return recorded
-  const all = Promise.all([...launching].map((launch) => launch.then((run) => (run === null ? undefined : recorded.push(run)))))
-  await within((ms, signal) => $.clock.sleep(ms, { signal }), all, left, undefined)
-  return recorded
+  const { value: runs = [] } = await $.state.get(RUNS)
+  return runs.find((kept) => kept.runId === runId) ?? null
 }
 
 /**
@@ -355,18 +340,16 @@ async function settleLaunches($: EngineInterface, deadline: number): Promise<Lab
 type Settled = { ok: true; route: AgentRoute | null; terms: Terms | null; decision: Omit<Decided, 'feature' | 'agent' | 'node' | 'replaces'> | null } | { ok: false; reason: string; failure?: Failure }
 
 /**
- * Decides one agent as it starts, from the task in its transcript, as the
- * workflow-agents feature decides a call (the same questions, the same reading),
- * with the agents of its run that start beside it: a fan-out's agents start
- * together, and share requests (core/agent-lane.ts). The agent joins its group
- * at once and its task follows, so the group goes out once the tasks of all
- * that joined it are read.
+ * Decides one agent as it is spawned, from its task, as the workflow-agents
+ * feature decides a call (the same questions, the same reading), with the
+ * agents of its run spawned beside it: a fan-out's agents are spawned together,
+ * and share requests (core/agent-lane.ts).
  */
 async function decideAtStart(
   $: EngineInterface,
   ctx: Ctx,
   settings: DispatchSettings,
-  agent: { run: LabelRun; agentId: string; label: string; site: RunSite | undefined; deadline: number },
+  agent: { run: LabelRun; label: string; task: string; site: RunSite | undefined; deadline: number },
 ): Promise<Settled> {
   const now = await $.clock.now()
   const deadline = Math.min(agent.deadline, now + ctx.config.agents.waitMs)
@@ -376,27 +359,22 @@ async function decideAtStart(
   const launch = agent.run.launch
   const site = agent.site
   const meta = { name: agent.run.workflow, description: agent.run.description }
-  /** The call the agent's task stands for, once it is read; why there is nothing to ask when it is not. */
-  let call: AgentCall | null = null
-  let unasked = '它的任务没能及时读到'
-  const input = readTask($, agent.run.dir, agent.agentId, deadline).then(async (task): Promise<AgentInput | null> => {
-    if (task === null) return null
-    call = {
-      index: 0,
-      line: site?.line ?? 0,
-      prompt: task,
-      // A label the engine made up from the task says nothing more.
-      label: isTaskStart(agent.label, task) ? null : agent.label,
-      labelKind: 'string',
-      agentType: site?.agentType ?? null,
-      model: site?.model ?? { kind: 'none' },
-      effort: site?.effort ?? { kind: 'none' },
-      edit: null,
-    }
-    if (!tellsTheWork(task)) {
-      unasked = '它的任务里没说要做什么'
-      return null
-    }
+  const task = agent.task
+  /** The call the agent's task stands for. */
+  const call: AgentCall = {
+    index: 0,
+    line: site?.line ?? 0,
+    prompt: task,
+    // A label the engine made up from the task says nothing more.
+    label: isTaskStart(agent.label, task) ? null : agent.label,
+    labelKind: 'string',
+    agentType: site?.agentType ?? null,
+    model: site?.model ?? { kind: 'none' },
+    effort: site?.effort ?? { kind: 'none' },
+    edit: null,
+  }
+  if (!tellsTheWork(task)) return { ok: false, reason: '它的任务里没说要做什么' }
+  const input = (async (): Promise<AgentInput> => {
     const said = launch?.said ?? ((await $.state.get(SAID)).value ?? [])
     const words = said.join('\n')
     const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
@@ -407,23 +385,19 @@ async function decideAtStart(
       ...(ctx.config.agents.background && launch !== undefined ? { script: launch.script ?? null, recent: await launchConversation($, agent.run, ctx.config.context.messages) } : {}),
     }
     return { dispatch: callDispatch(call, meta, words), shared: { words, background } }
-  })
-  const about = `${JSON.stringify(agent.label)}（agent ${agent.agentId}，Workflow ${agent.run.workflow ?? '未命名'}）`
+  })()
+  const about = `${JSON.stringify(agent.label)}（Workflow ${agent.run.workflow ?? '未命名'}）`
   const late: AgentAnswer = { ok: false, failure: timedOut(Math.round(deadline - now)) }
   const io = laneIoOf($)
   const answer = await within(io.backend.sleep, askAgent(ctx, settings, { key: `run:${agent.run.runId}`, kind: 'workflow', input, deadline, about, io }), deadline - now, late)
-  const asked = call as AgentCall | null
-  if (!answer.ok || asked === null) {
-    if (!answer.ok && answer.unasked !== true) return { ok: false, reason: failureLine(ctx.backend.name, answer.failure), failure: answer.failure }
-    return { ok: false, reason: unasked }
-  }
-  const outcome = callOutcome(asked, answer.decision)
-  const requested = asked.model.kind === 'literal' ? modelFamily(asked.model.value) : null
+  if (!answer.ok) return { ok: false, reason: failureLine(ctx.backend.name, answer.failure), failure: answer.failure }
+  const outcome = callOutcome(call, answer.decision)
+  const requested = call.model.kind === 'literal' ? modelFamily(call.model.value) : null
   const family = outcome.decision.model ?? requested
   const decision = {
     // The entry's subject is the agent as it is told here, not the call.
     subject: about,
-    outcome: callResult(asked, outcome.decision),
+    outcome: callResult(call, outcome.decision),
     reason: `按它启动时的任务；${reasonOf(outcome.decision, requested, settings.thetaOverride)}`,
     ...dispatchEvidence(outcome.decision),
     ...(family === null ? {} : { model: family }),
@@ -449,31 +423,17 @@ async function conversationOf($: EngineInterface, agentId: string | undefined): 
   return Array.isArray(read) ? (read as ContextMessage[]) : []
 }
 
-/** The task in an agent's transcript, waiting briefly for the engine to write it; null when it is not there in time. */
-async function readTask($: EngineInterface, dir: string, agentId: string, deadline: number): Promise<string | null> {
-  const path = `${dir}/agent-${agentId}.jsonl`
-  for (let waited = 0; ; waited += TASK_POLL_MS) {
-    if (await $.fs.exists(path)) {
-      const text = await $.fs.read(path).catch(() => null)
-      const task = text === null ? null : taskOf(text)
-      if (task !== null) return task
-    }
-    if (waited >= TASK_WAIT_MS || (await $.clock.now()) + TASK_POLL_MS > deadline) return null
-    await $.clock.sleep(TASK_POLL_MS)
-  }
-}
-
 /** The one route all of `sites` share; null when there is none, or they differ. */
 function routeOf(sites: readonly RunSite[]): RunSite['route'] | null {
   const first = sites[0]
   return first !== undefined && sites.every((site) => sameRoute(site.route, first.route)) ? first.route : null
 }
 
-/** The run the Workflow tool's result says it launched: its id, its directory, the script it runs and the workflow's name. */
-function launchedRun(result: ToolCallResult): { runId: string; dir: string; scriptPath: string; workflow: string | null } | null {
-  const launched = result.result as { runId?: unknown; transcriptDir?: unknown; scriptPath?: unknown; workflowName?: unknown } | undefined
+/** The run the Workflow tool's result says it launched: its id, the script it runs and the workflow's name. */
+function launchedRun(result: ToolCallResult): { runId: string; scriptPath: string; workflow: string | null } | null {
+  const launched = result.result as { runId?: unknown; scriptPath?: unknown; workflowName?: unknown } | undefined
   if (typeof launched !== 'object' || launched === null) return null
-  const { runId, transcriptDir, scriptPath, workflowName } = launched
-  if (typeof runId !== 'string' || typeof transcriptDir !== 'string' || typeof scriptPath !== 'string') return null
-  return { runId, dir: transcriptDir, scriptPath, workflow: typeof workflowName === 'string' ? workflowName : null }
+  const { runId, scriptPath, workflowName } = launched
+  if (typeof runId !== 'string' || typeof scriptPath !== 'string') return null
+  return { runId, scriptPath, workflow: typeof workflowName === 'string' ? workflowName : null }
 }

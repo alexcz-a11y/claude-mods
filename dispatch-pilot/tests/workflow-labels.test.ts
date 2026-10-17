@@ -1,14 +1,14 @@
 // The Workflow fallback (#9): the agents of a Workflow the workflow-agents
 // feature (#8) could not rewrite (given by scriptPath or by name, resumed, a
 // script it cannot read, calls whose prompt it cannot read) get their model
-// and effort when each one starts, by its label. Seam 1: the Workflow tool call
-// and the agents' steps in, the run's journal and transcripts on the disk
-// beneath `$.fs`; out, the model and effort each step goes out with, the
-// decision requests, what the main agent is told, the board (`w.board()`).
+// and effort as each one is spawned, by its label. Seam 1: the Workflow tool
+// call, the agents' spawns (label and task) and steps in; out, the model each
+// agent starts on, the model and effort each step goes out with, the decision
+// requests, what the main agent is told, the board (`w.board()`).
 
 import { expect, test } from 'claude-code/testing'
 import { siteJev, type SiteAnswer } from './support/workflow.ts'
-import { persisted, runDir, runWorld } from './support/workflow-run.ts'
+import { persisted, runWorld } from './support/workflow-run.ts'
 import { KEY } from './support/world.ts'
 
 /** A script the main agent saved earlier and runs again by its path. */
@@ -19,7 +19,7 @@ const review = await agent('Review the diff of src/policies/document.ts for perm
 return { edited, review }
 `
 
-test('an agent of a Workflow given by scriptPath goes out, on every step, with the model and effort decided for its call, found by its label in the journal', { options: KEY }, async ($, on) => {
+test('an agent of a Workflow given by scriptPath starts on the model decided for its call, found by the label it is spawned with, and goes out at its effort on every step', { options: KEY }, async ($, on) => {
   const w = runWorld($, on, {
     disk: { [SAVED]: TIDY },
     backend: siteJev((i) =>
@@ -32,12 +32,14 @@ test('an agent of a Workflow given by scriptPath goes out, on every step, with t
   // The script runs as written: the path reaches the tool untouched.
   expect(w.reached).toEqual([{ scriptPath: SAVED, launched: true }])
 
-  w.started('wf_test-1', 'wa1', 'rename')
-  await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
-  await w.agentStep('wa1', { index: 1, model: 'claude-opus-5-5', effort: 'xhigh' })
-  w.started('wf_test-1', 'wa2', 'review')
-  await w.agentStep('wa2', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+  await w.started('wf_test-1', 'wa1', 'rename')
+  await w.agentStep('wa1', { index: 0, effort: 'xhigh' })
+  await w.agentStep('wa1', { index: 1, effort: 'xhigh' })
+  await w.started('wf_test-1', 'wa2', 'review')
+  await w.agentStep('wa2', { index: 0, effort: 'xhigh' })
 
+  // The model is set on the spawn, by its alias (the engine resolves it); the review's call is on the main agent's model already.
+  expect(w.spawned.map((spawn) => spawn.model)).toEqual(['sonnet', undefined])
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual([
     'wa1 claude-sonnet-5-5 medium',
     'wa1 claude-sonnet-5-5 medium',
@@ -59,37 +61,22 @@ test('an agent of a Workflow given by scriptPath goes out, on every step, with t
   expect(board.log.map((entry) => entry.feature)).toEqual(['workflow-labels', 'workflow-labels'])
 })
 
-test("an agent of a run whose journal has outgrown one read (past 4 MiB: every agent's result is in it) is found by the label its meta.json keeps: it goes out decided, and the board names it", { options: KEY }, async ($, on) => {
-  const w = runWorld($, on, {
-    disk: { [SAVED]: TIDY },
-    backend: siteJev((i): SiteAnswer => (i === 0 ? { model: { sonnet: 0.8 }, effort: [0.1, 0.8, 0.1, 0, 0] } : { model: { opus: 0.9 }, effort: [0, 0.1, 0.8, 0.1, 0] })),
-  })
-  await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'rename')
-  // What the agents before it returned.
-  const journal = `${runDir('wf_test-1')}/journal.jsonl`
-  w.disk[journal] = `${w.disk[journal] ?? ''}${JSON.stringify({ type: 'result', key: 'v2:earlier', value: 'x'.repeat(4_500_000) })}\n`
-  await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
-
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
-  expect((await w.board()).agents.filter((node) => node.id === 'wa1').map((node) => [node.name, node.routed])).toEqual([['rename', true]])
-})
-
-test("an agent that takes its first step while its run is still being set up (the run starts before the tool call returns) waits for it, then goes out decided", { options: KEY }, async ($, on) => {
+test("an agent spawned while its run is still being set up (the run starts before the tool call returns) waits for it, then starts decided", { options: KEY }, async ($, on) => {
   const answer = siteJev((i): SiteAnswer => (i === 0 ? { model: { sonnet: 0.9 }, effort: [0, 1, 0, 0, 0] } : { model: { opus: 0.9 } }))
   const w = runWorld($, on, { disk: { [SAVED]: TIDY }, backend: (request) => ({ after: 300, reply: answer(request) }) })
   const call = w.workflow({ scriptPath: SAVED })
   await w.clock.settle()
   // The run has started; the decision about its calls is on its way.
   expect(w.reached).toHaveLength(1)
-  w.started('wf_test-1', 'wa1', 'rename')
-  const step = w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+  let started = false
+  const spawn = w.started('wf_test-1', 'wa1', 'rename').then(() => (started = true))
   await w.clock.settle()
-  expect(w.steps).toHaveLength(0)
+  expect(started).toBe(false)
 
   await w.clock.advance(300)
   await call
-  await step
+  await spawn
+  await w.agentStep('wa1', { index: 0, effort: 'xhigh' })
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
 })
 
@@ -122,13 +109,13 @@ test('/dp workflow-labels off: no agent is routed and no run recorded, nothing i
   const w = runWorld($, on, { disk: { [SAVED]: TIDY }, backend: TIDY_DECIDED })
   expect(await w.command('dp', 'status')).toMatch(/开 +workflow-labels +\S/)
   await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'rename')
-  await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+  await w.started('wf_test-1', 'wa1', 'rename')
+  await w.agentStep('wa1', { index: 0, effort: 'xhigh' })
   expect((await w.board()).agents.filter((node) => node.id === 'wa1')).toMatchObject([{ routed: true, model: 'sonnet' }])
 
   expect(await w.command('dp', 'workflow-labels off')).toContain('workflow-labels 已关闭')
-  w.started('wf_test-1', 'wa2', 'review')
-  await w.agentStep('wa2', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+  await w.started('wf_test-1', 'wa2', 'review')
+  await w.agentStep('wa2', { index: 0, effort: 'xhigh' })
   await w.workflow({ scriptPath: SAVED })
   expect(w.requests).toHaveLength(1)
   expect((await w.describeWorkflow('Run a workflow script.')).description).toBe('Run a workflow script.')
@@ -136,20 +123,20 @@ test('/dp workflow-labels off: no agent is routed and no run recorded, nothing i
   await w.command('dp', 'workflow-labels on')
   await w.workflow({ scriptPath: SAVED })
   expect(w.requests).toHaveLength(2)
-  w.started('wf_test-3', 'wa3', 'review')
-  await w.agentStep('wa3', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+  await w.started('wf_test-3', 'wa3', 'review')
+  await w.agentStep('wa3', { index: 0, effort: 'xhigh' })
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium', 'wa2 claude-opus-5-5 xhigh', 'wa3 claude-opus-5-5 high'])
 })
 
-test('/dp off stands the fallback down too: nothing is asked when a Workflow starts or when its agents do, and every step goes out as the engine made it', { options: KEY }, async ($, on) => {
+test('/dp off stands the fallback down too: nothing is asked when a Workflow starts or when its agents are spawned, and every agent starts and goes out as the engine made it', { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: siteJev(() => ({ model: { opus: 0.9 } })) })
   await w.command('dp', 'off')
   await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'first')
-  w.transcript('wf_test-1', 'wa1', 'Find why the nightly import drops rows, and fix it.')
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.started('wf_test-1', 'wa1', 'first', { prompt: 'Find why the nightly import drops rows, and fix it.', model: 'sonnet' })
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
 
   expect(w.requests).toHaveLength(0)
+  expect(w.spawned.map((spawn) => spawn.model)).toEqual(['sonnet'])
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
   expect((await w.board()).agents).toEqual([])
 })
@@ -164,8 +151,8 @@ test('a decision request that fails when the run starts leaves its agents as the
     ['review', false, 'jev：出错（状态码 500）', 'http'],
   ])
 
-  w.started('wf_test-1', 'wa1', 'rename')
-  await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+  await w.started('wf_test-1', 'wa1', 'rename')
+  await w.agentStep('wa1', { index: 0, effort: 'xhigh' })
   // Nothing more is asked as the agent starts.
   expect(w.requests).toHaveLength(1)
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 xhigh'])
@@ -176,9 +163,8 @@ test("an agent whose own decision fails goes out as the engine made it; the boar
   const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: (request, n) => (n === 1 ? { status: 500, body: 'Internal Server Error' } : answer(request)) })
   await w.workflow({ scriptPath: SAVED })
   for (const agentId of ['wa1', 'wa2']) {
-    w.started('wf_test-1', agentId, 'first')
-    w.transcript('wf_test-1', agentId, `List the files under src/${agentId} and report their sizes.`)
-    await w.agentStep(agentId, { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+    await w.started('wf_test-1', agentId, 'first', { prompt: `List the files under src/${agentId} and report their sizes.`, model: 'sonnet' })
+    await w.agentStep(agentId, { index: 0, effort: 'medium' })
   }
 
   // The agent sent to haiku goes out at its decided effort, not the engine's: Haiku 5.5 takes one.
@@ -200,12 +186,10 @@ test("each agent of a script that cannot be read has its own decision on the boa
       siteJev((): SiteAnswer => (String(request.body.state.brief_0.prompt).startsWith('Find') ? { model: { opus: 0.9 }, effort: [0, 0, 0, 1, 0] } : { model: { haiku: 0.9 } }))(request),
   })
   await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'first')
-  w.transcript('wf_test-1', 'wa1', 'Find why the nightly import drops rows, and fix it.')
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
-  w.started('wf_test-1', 'wa2', 'second')
-  w.transcript('wf_test-1', 'wa2', 'List the files under src/import and report their sizes.')
-  await w.agentStep('wa2', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.started('wf_test-1', 'wa1', 'first', { prompt: 'Find why the nightly import drops rows, and fix it.', model: 'sonnet' })
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
+  await w.started('wf_test-1', 'wa2', 'second', { prompt: 'List the files under src/import and report their sizes.', model: 'sonnet' })
+  await w.agentStep('wa2', { index: 0, effort: 'medium' })
 
   const board = await w.board()
   const started = board.agents.filter((node) => node.id.startsWith('wa'))
@@ -214,7 +198,7 @@ test("each agent of a script that cannot be read has its own decision on the boa
     ['wa2', 'second', 'haiku', 'high', true],
   ])
   expect(started.map((node) => board.log.find((entry) => entry.n === node.decision)?.agent)).toEqual(['wa1', 'wa2'])
-  expect(board.log[0]).toMatchObject({ feature: 'workflow-labels', subject: expect.stringContaining('"first"（agent wa1，Workflow') })
+  expect(board.log[0]).toMatchObject({ feature: 'workflow-labels', subject: expect.stringContaining('"first"（Workflow') })
   expect(board.log[0]?.reason).toMatch(/^按它启动时的任务；已决定；选 opus/)
   expect(board.log[0]?.trace?.map((step) => step.rule)).toContain('top')
 })
@@ -236,11 +220,11 @@ test("an error of the feature's own when the run starts leaves the tool's result
   expect(w.logs.some((log) => log.to === 'debug' && log.text.includes('the state cannot be written'))).toBe(true)
 })
 
-test("an error of the feature's own as an agent starts lets the step go out as the engine made it, and the board says to look in the debug log", { options: KEY }, async ($, on) => {
+test("an error of the feature's own as an agent is spawned lets it start and go out as the engine made it, and the board says to look in the debug log", { options: KEY }, async ($, on) => {
   on('state.get', async (_$, e, next) => (e.key === 'labelRuns' ? { deny: 'the state cannot be read' } : next(e)))
   const w = runWorld($, on)
-  w.started('wf_test-1', 'wa1', 'rename')
-  await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+  await w.started('wf_test-1', 'wa1', 'rename')
+  await w.agentStep('wa1', { index: 0, effort: 'xhigh' })
 
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 xhigh'])
   expect((await w.board()).agents.map((node) => [node.id, node.routed, node.why])).toEqual([['wa1', false, '出错了，详见 debug log']])
@@ -254,15 +238,14 @@ test("each decision is logged with its reason, in the debug log and /dp log, nev
   })
   await w.workflow({ scriptPath: SAVED })
   await w.workflow({ scriptPath: '/work/.claude/workflow-scripts/frozen.js' })
-  w.started('wf_test-2', 'wa1', 'first')
-  w.transcript('wf_test-2', 'wa1', 'Find why the nightly import drops rows, and fix it.')
-  await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+  await w.started('wf_test-2', 'wa1', 'first', { prompt: 'Find why the nightly import drops rows, and fix it.' })
+  await w.agentStep('wa1', { index: 0, effort: 'xhigh' })
 
   const shown = await w.command('dp', 'log 10')
   expect(shown).toMatch(/workflow-labels：sonnet medium · "rename"（Workflow tidy-api）：已决定；选 sonnet，置信度 1\.00；effort 概率 low 0\.00, medium 1\.00/)
   expect(shown).toMatch(/workflow-labels：opus high · "review"（Workflow tidy-api）：已决定；选 opus/)
   // (The tool's result names the workflow; this stub's does not, so it is `unnamed` here.)
-  expect(shown).toMatch(/workflow-labels：sonnet medium · "first"（agent wa1，Workflow \S+）：按它启动时的任务；已决定；选 sonnet/)
+  expect(shown).toMatch(/workflow-labels：sonnet medium · "first"（Workflow \S+）：按它启动时的任务；已决定；选 sonnet/)
   const debug = w.logs.filter((log) => log.to === 'debug').map((log) => log.text)
   expect(debug.some((line) => line.startsWith('sonnet medium · "rename"（Workflow tidy-api）：已决定'))).toBe(true)
   expect(w.logs.every((log) => log.to === 'debug')).toBe(true)
@@ -302,32 +285,27 @@ return [quick, deep]
   const asStarts = siteJev((): SiteAnswer => ({ model: { opus: 0.9 }, effort: [0, 0, 0, 0, 1] }))
   const w = runWorld($, on, { disk: { [SAVED]: twice }, backend: (request, n) => (n === 1 ? atLaunch(request) : asStarts(request)) })
   await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'check')
-  w.transcript('wf_test-1', 'wa1', 'Find the race between the cache refresh and the session writer in src/session, and fix it.')
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.started('wf_test-1', 'wa1', 'check', { prompt: 'Find the race between the cache refresh and the session writer in src/session, and fix it.' })
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
 
   expect(w.requests).toHaveLength(2)
   expect(w.requests[1]?.body.state.brief_0.prompt).toBe('Find the race between the cache refresh and the session writer in src/session, and fix it.')
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 max'])
 })
 
-test("an agent the run's journal does not list (yet), or that started in no run this routes, goes out as the engine made it: nothing is asked, nothing is waited for", { options: KEY }, async ($, on) => {
+test("an agent of a run this did not record (launched before the mod loaded, or with the fallback off), or one the main agent dispatched, starts and goes out as the engine made it: nothing is asked, nothing is waited for", { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { disk: { [SAVED]: TIDY }, backend: TIDY_DECIDED })
   await w.workflow({ scriptPath: SAVED })
-  // The journal has only its first line: no agent has started in it.
-  w.disk['/home/u/.claude/projects/p/s1/subagents/workflows/wf_test-1/journal.jsonl'] = '{"type":"launched"}\n'
+  await w.workflowSpawn('', { runId: 'wf_earlier', agentIndex: 1, agentId: 'wa1', label: 'rename', prompt: 'Rename getUser to fetchUser across src/api and run pnpm test api.' })
   await w.agentStep('wa1', { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
   // An agent the main agent dispatched, in no Workflow run.
   await w.agentStep('a1', { index: 0, model: 'claude-sonnet-5-5', effort: 'low' })
 
   expect(w.requests).toHaveLength(1)
+  expect(w.spawned.map((spawn) => spawn.model)).toEqual([undefined])
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 xhigh', 'a1 claude-sonnet-5-5 low'])
   // The calls decided when the run started are still waiting for their agents, which never came.
-  expect((await w.board()).agents.map((node) => [node.name, node.state])).toEqual([
-    ['rename', 'queued'],
-    ['review', 'queued'],
-    ['tidy', 'done'],
-  ])
+  expect((await w.board()).agents.filter((node) => node.state === 'queued').map((node) => node.name)).toEqual(['rename', 'review'])
 })
 
 test("a resumed run keeps its script as sent, so the cache of each agent() still matches; its agents get their calls' choices as they start", { options: KEY }, async ($, on) => {
@@ -335,15 +313,15 @@ test("a resumed run keeps its script as sent, so the cache of each agent() still
   await w.workflow({ script: TIDY, resumeFromRunId: 'wf_earlier' })
   expect(w.reached).toEqual([{ script: TIDY, resumeFromRunId: 'wf_earlier', launched: true }])
 
-  w.started('wf_test-1', 'wa1', 'review')
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.started('wf_test-1', 'wa1', 'review', { model: 'sonnet' })
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 high'])
 })
 
-test("a step names the model by the id the API knows, never by its alias (the engine sends a step's model as written: `haiku` is a 404), and a step already on the decided family keeps its own", { options: { ...KEY, agentFable: true } }, async ($, on) => {
+test("an agent's model is set on its spawn by the family's alias, which the engine resolves (Fable included), and left alone when its call is on the decided family already", { options: { ...KEY, agentFable: true } }, async ($, on) => {
   const four = `export const meta = { name: 'four', description: 'One of each', phases: [] }
 const a = await agent('List the files under src/ and report their sizes.', { label: 'h' })
-const b = await agent('Rename getUser to fetchUser across src/api and run pnpm test api.', { label: 's' })
+const b = await agent('Rename getUser to fetchUser across src/api and run pnpm test api.', { label: 's', model: 'sonnet' })
 const c = await agent('Design the retry policy for the payment webhooks and write it up.', { label: 'o' })
 const d = await agent('Prove the lease protocol in docs/lease.md safe under clock skew, or find the counterexample.', { label: 'f' })
 return [a, b, c, d]
@@ -352,44 +330,41 @@ return [a, b, c, d]
   const w = runWorld($, on, { disk: { [SAVED]: four }, backend: siteJev((i): SiteAnswer => ({ model: { [families[i] as string]: 1 }, effort: [0, 0, 1, 0, 0] })) })
   await w.workflow({ scriptPath: SAVED })
   for (const label of ['h', 's', 'o', 'f']) {
-    w.started('wf_test-1', `w${label}`, label)
-    // The engine's id for a sonnet after a fallback (seen on 2.1.289): a family, not one exact id.
-    await w.agentStep(`w${label}`, { index: 0, model: 'claude-sonnet-5', effort: 'medium' })
+    await w.started('wf_test-1', `w${label}`, label, label === 's' ? { model: 'sonnet' } : {})
+    await w.agentStep(`w${label}`, { index: 0, effort: 'medium' })
   }
 
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model}`)).toEqual(['wh claude-haiku-5-5', 'ws claude-sonnet-5', 'wo claude-opus-5-5', 'wf claude-fable-5-1'])
+  expect(w.spawned.map((spawn) => spawn.model)).toEqual(['haiku', 'sonnet', undefined, 'fable'])
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model}`)).toEqual(['wh claude-haiku-5-5', 'ws claude-sonnet-5-5', 'wo claude-opus-5-5', 'wf claude-fable-5-1'])
 })
 
-test("no answer within an agent's wait as it starts (with Jev 6000 ms): it goes out as the engine made it, and the board says why", { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
+test("no answer within an agent's wait as it is spawned (with Jev 6000 ms): it starts and goes out as the engine made it, and the board says why", { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
   const answer = siteJev(() => ({ model: { opus: 0.9 } }))
   const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: (request) => ({ after: 8000, reply: answer(request) }) })
   await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'first')
-  w.transcript('wf_test-1', 'wa1', 'Find why the nightly import drops rows, and fix it.')
-
-  const step = w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  const spawn = w.started('wf_test-1', 'wa1', 'first', { prompt: 'Find why the nightly import drops rows, and fix it.', model: 'sonnet' })
   await w.clock.settle()
   await w.clock.advance(6000)
-  await step
+  await spawn
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
   expect((await w.board()).agents.find((node) => node.id === 'wa1')).toMatchObject({ routed: false, why: 'jev：6000 毫秒内没有回答', failure: { backend: 'jev', kind: 'timeout' } })
 })
 
-test("an agent that already has a plan (one the main agent dispatched, or a first step the engine sends again after an error) keeps it: nothing is asked again", { options: KEY }, async ($, on) => {
+test("an agent is decided once, at its spawn: a first step the engine sends again (a retry after an API error) asks nothing again and keeps its plan", { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: siteJev(() => ({ model: { opus: 0.9 }, effort: [0, 0, 1, 0, 0] })) })
   await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'first')
-  w.transcript('wf_test-1', 'wa1', 'Find why the nightly import drops rows, and fix it.')
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.started('wf_test-1', 'wa1', 'first', { prompt: 'Find why the nightly import drops rows, and fix it.', model: 'sonnet' })
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
   // The engine sends the first request again (a retry after an API error).
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
 
   expect(w.requests).toHaveLength(1)
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 high', 'wa1 claude-opus-5-5 high'])
   expect((await w.board()).agents.find((node) => node.id === 'wa1')).toMatchObject({ routed: true, model: 'opus', effort: 'high' })
 })
 
-test("an agent of a run this has no work in does not wait while workflow-agents is still deciding about another Workflow", { options: KEY }, async ($, on) => {
+test("an agent of a run this has no work in is not held at its spawn while workflow-agents is still deciding about another Workflow", { options: KEY }, async ($, on) => {
   const answer = siteJev((): SiteAnswer => ({ model: { sonnet: 0.9 }, effort: [0, 1, 0, 0, 0] }))
   const w = runWorld($, on, { backend: (request) => ({ after: 300, reply: answer(request) }) })
   // The first run's script is the main agent's own and readable: workflow-agents wrote it, there is nothing to do as its agents start.
@@ -401,15 +376,17 @@ test("an agent of a run this has no work in does not wait while workflow-agents 
   // A second Workflow is sent; workflow-agents asks about it before the tool runs it.
   const second = w.workflow({ script: TIDY.replace('tidy-api', 'tidy-api-2') })
   await w.clock.settle()
-  w.started('wf_test-1', 'wa1', 'rename')
-  const step = w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  let started = false
+  const spawn = w.started('wf_test-1', 'wa1', 'rename', { model: 'sonnet' }).then(() => (started = true))
   await w.clock.settle()
-  // The first run's agent went out at once.
+  // The first run's agent started at once.
+  expect(started).toBe(true)
+  await spawn
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
 
   await w.clock.advance(300)
   await second
-  await step
 })
 
 /** A saved workflow: a pipeline over files, each stage's label a template. */
@@ -431,8 +408,8 @@ test('a Workflow given by name is read from the copy the tool runs, and a templa
   expect(w.requests[0]?.body.state.brief_0.label).toBe('migrate:${file}')
 
   for (const [agentId, label] of [['wa1', 'migrate:src/a.ts'], ['wa2', 'migrate:src/b.ts'], ['wa3', 'check:src/a.ts']] as const) {
-    w.started('wf_test-1', agentId, label)
-    await w.agentStep(agentId, { index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
+    await w.started('wf_test-1', agentId, label)
+    await w.agentStep(agentId, { index: 0, effort: 'xhigh' })
   }
 
   // The check agent goes to haiku at its decided low, not the engine's xhigh: Haiku 5.5 takes an effort.
@@ -443,7 +420,7 @@ test('a Workflow given by name is read from the copy the tool runs, and a templa
   ])
 })
 
-test("a call without a label is found by the start of its prompt, which is what the engine records for it (whitespace collapsed, 60 characters)", { options: KEY }, async ($, on) => {
+test("a call without a label is found by the start of its prompt, which is what the engine labels its agents with (whitespace collapsed, 60 characters)", { options: KEY }, async ($, on) => {
   const audit = `export const meta = { name: 'audit', description: 'Audit two modules', phases: [] }
 const a = await agent('List every exported function in src/auth/session.ts\\nand report their signatures only.')
 const b = await agent(\`Review src/billing/\${args.file} for rounding errors in the invoice totals; explain each one.\`)
@@ -455,11 +432,11 @@ return [a, b]
   })
   await w.workflow({ scriptPath: SAVED, args: { file: 'invoice.ts' } })
 
-  // As 2.1.289 recorded such agents: the prompt, its line break a space, cut at 60 characters.
-  w.started('wf_test-1', 'wa1', 'List every exported function in src/auth/session.ts and repo')
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
-  w.started('wf_test-1', 'wa2', 'Review src/billing/invoice.ts for rounding errors in the inv')
-  await w.agentStep('wa2', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  // As the engine labels such agents: the prompt, its line break a space, cut at 60 characters.
+  await w.started('wf_test-1', 'wa1', 'List every exported function in src/auth/session.ts and repo', { model: 'sonnet' })
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
+  await w.started('wf_test-1', 'wa2', 'Review src/billing/invoice.ts for rounding errors in the inv', { model: 'sonnet' })
+  await w.agentStep('wa2', { index: 0, effort: 'medium' })
 
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-haiku-5-5 high', 'wa2 claude-opus-5-5 high'])
 })
@@ -476,10 +453,10 @@ return [a, b]
   })
   await w.workflow({ scriptPath: SAVED })
 
-  w.started('wf_test-1', 'wa1', 'List every exported function in src/auth/session.ts and repo')
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
-  w.started('wf_test-1', 'wa2', 'Replace the ${HOME} placeholder in src/config/paths.ts, then')
-  await w.agentStep('wa2', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.started('wf_test-1', 'wa1', 'List every exported function in src/auth/session.ts and repo', { model: 'sonnet' })
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
+  await w.started('wf_test-1', 'wa2', 'Replace the ${HOME} placeholder in src/config/paths.ts, then', { model: 'sonnet' })
+  await w.agentStep('wa2', { index: 0, effort: 'medium' })
 
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-haiku-5-5 high', 'wa2 claude-opus-5-5 high'])
 })
@@ -490,7 +467,7 @@ const a = await agent(TASKS.first, { label: 'first' })
 return a
 `
 
-test("each agent of a script that cannot be read is decided when it starts, from the task in its transcript, as a workflow agent is", { options: KEY }, async ($, on) => {
+test("each agent of a script that cannot be read is decided when it is spawned, from the task its spawn carries", { options: KEY }, async ($, on) => {
   const w = runWorld($, on, {
     disk: { [SAVED]: FROZEN },
     backend: siteJev(() => ({ model: { haiku: 0.05, sonnet: 0.15, opus: 0.8 }, effort: [0, 0, 0.2, 0.8, 0] })),
@@ -499,61 +476,13 @@ test("each agent of a script that cannot be read is decided when it starts, from
   // Nothing is asked when the run starts: no call can be read.
   expect(w.requests).toHaveLength(0)
 
-  w.started('wf_test-1', 'wa1', 'first')
-  w.transcript('wf_test-1', 'wa1', 'Find why the nightly import drops rows whose\ncurrency is missing, and fix it.')
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.started('wf_test-1', 'wa1', 'first', { prompt: 'Find why the nightly import drops rows whose\ncurrency is missing, and fix it.', model: 'sonnet' })
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
 
   expect(w.requests).toHaveLength(1)
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent-0.model', 'agent-0.effort'])
   expect(w.requests[0]?.body.state.brief_0).toEqual({ label: 'first', prompt: 'Find why the nightly import drops rows whose\ncurrency is missing, and fix it.' })
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 xhigh'])
-})
-
-test("an agent's transcript that relays the person's request before its task (as earlier engines write it) is decided from its task, not the relayed request", { options: KEY }, async ($, on) => {
-  const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: siteJev(() => ({ model: { opus: 0.9 }, effort: [0, 0, 0, 1, 0] })) })
-  await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'first')
-  w.transcript('wf_test-1', 'wa1', 'Find why the nightly import drops rows, and fix it.')
-  const path = `${runDir('wf_test-1')}/agent-wa1.jsonl`
-  const relayed = { type: 'user', message: { role: 'user', content: '[Workflow harness — user request] The harness relays, verbatim and indented below, the user request.\n  look at the importer' } }
-  w.disk[path] = `${JSON.stringify(relayed)}\n${w.disk[path] ?? ''}`
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
-
-  expect(w.requests[0]?.body.state.brief_0.prompt).toBe('Find why the nightly import drops rows, and fix it.')
-})
-
-test("an agent's task is not on disk yet when its first step begins: the step waits for the engine to write it (50-110 ms on 2.1.289), then goes out decided", { options: KEY }, async ($, on) => {
-  const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: siteJev(() => ({ model: { opus: 0.9 }, effort: [0, 0, 0, 1, 0] })) })
-  await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'first')
-
-  const step = w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
-  await w.clock.settle()
-  await w.clock.advance(50)
-  // Nothing has gone out while the step waits.
-  expect(w.steps).toHaveLength(0)
-  w.transcript('wf_test-1', 'wa1', 'Find why the nightly import drops rows, and fix it.')
-  await w.clock.advance(50)
-  await step
-
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 xhigh'])
-})
-
-test("an agent whose task does not reach the disk within 400 ms goes out as the engine made it, with nothing asked, and the board says why", { options: KEY }, async ($, on) => {
-  const w = runWorld($, on, { disk: { [SAVED]: FROZEN }, backend: siteJev(() => ({ model: { opus: 0.9 } })) })
-  await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'first')
-
-  const step = w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
-  await w.clock.settle()
-  await w.clock.advance(500)
-  await step
-
-  expect(w.requests).toHaveLength(0)
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-sonnet-5-5 medium'])
-  const board = await w.board()
-  expect(board.agents.find((node) => node.id === 'wa1')).toMatchObject({ routed: false, why: '它的任务没能及时读到' })
-  expect(board.agents.find((node) => node.id === 'wa1')?.failure).toBeUndefined()
 })
 
 test("in a script the main agent sends, a call whose options are no object literal (agent(prompt, OPTS)) cannot be written into: it is not asked about or said to be written, and its agent is decided as it starts", { options: KEY }, async ($, on) => {
@@ -571,9 +500,8 @@ return found
   expect(told).not.toContain('wrote them into the script')
   expect(told).toContain('as each one starts')
 
-  w.started('wf_test-1', 'wa1', 'review-auth')
-  w.transcript('wf_test-1', 'wa1', task)
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.started('wf_test-1', 'wa1', 'review-auth', { prompt: task, model: 'sonnet' })
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
 
   expect(w.requests).toHaveLength(1)
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 max'])
@@ -596,12 +524,11 @@ return summary
   // The main agent is told those agents are decided as they start.
   expect((result.context ?? []).join('\n')).toContain("Dispatch Pilot (the user's routing plugin) sets the model and effort of the agents of the agent() calls it leaves as written, as each one starts, from its label and its task.")
 
-  w.started('wf_test-1', 'wa1', 'q-auth')
-  w.transcript('wf_test-1', 'wa1', 'Is every route under src/api/admin checked for the admin role? Cite the file and line of each gap.')
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
-  w.started('wf_test-1', 'wa2', 'summary')
+  await w.started('wf_test-1', 'wa1', 'q-auth', { prompt: 'Is every route under src/api/admin checked for the admin role? Cite the file and line of each gap.', model: 'sonnet' })
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
   // The engine runs the summary as the script has it: haiku at high.
-  await w.agentStep('wa2', { index: 0, model: 'claude-haiku-5-5', effort: 'high' })
+  await w.started('wf_test-1', 'wa2', 'summary', { prompt: 'Summarize the three answers in five bullet points for the release notes.', model: 'haiku' })
+  await w.agentStep('wa2', { index: 0, effort: 'high' })
 
   expect(w.requests).toHaveLength(2)
   expect(w.requests[1]?.body.state.brief_0).toEqual({
@@ -636,30 +563,25 @@ const QUESTIONS = [
   ['wa3', 'q-search', 'List the files under src/search that read the index directly instead of through the client.'],
 ] as const
 
-test("a fan-out's agents that start together are asked about in one request once their tasks are read, each task a brief of its own; an agent that starts after it went out goes in the next", { options: KEY }, async ($, on) => {
+test("a fan-out's agents spawned together are asked about in one request, each task a brief of its own; an agent spawned after it went out goes in the next", { options: KEY }, async ($, on) => {
   const answer = siteJev((i): SiteAnswer => (i === 1 ? { model: { opus: 0.9 } } : { model: { haiku: 0.9 } }))
   const w = runWorld($, on, { disk: { [SAVED]: FAN_OUT }, backend: (request) => ({ after: 1000, reply: answer(request) }) })
   // The script's one call has its prompt in data: nothing is asked as the run starts.
   await w.workflow({ scriptPath: SAVED })
   expect(w.requests).toEqual([])
-  for (const [agentId, label] of QUESTIONS) w.started('wf_test-1', agentId, label)
-  const stepping = QUESTIONS.map(([agentId]) => w.agentStep(agentId, { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' }))
+  const spawning = QUESTIONS.map(([agentId, label, task]) => w.started('wf_test-1', agentId, label, { prompt: task, model: 'sonnet' }))
   await w.clock.settle()
-  // The engine writes the agents' transcripts 50-110 ms after their first steps begin (2.1.289).
-  for (const [agentId, , task] of QUESTIONS) w.transcript('wf_test-1', agentId, task)
-  await w.clock.advance(25)
   expect(w.requests).toHaveLength(1)
   const [sent] = w.requests
   expect(Object.keys(sent?.body.questions)).toEqual(['agent-0.model', 'agent-0.effort', 'agent-1.model', 'agent-1.effort', 'agent-2.model', 'agent-2.effort'])
   expect([0, 1, 2].map((i) => [sent?.body.state[`brief_${i}`].label, sent?.body.state[`brief_${i}`].prompt])).toEqual(QUESTIONS.map(([, label, task]) => [label, task]))
   await w.clock.advance(1000)
-  await Promise.all(stepping)
+  await Promise.all(spawning)
+  for (const [agentId] of QUESTIONS) await w.agentStep(agentId, { index: 0, effort: 'medium' })
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model}`).sort()).toEqual(['wa1 claude-haiku-5-5', 'wa2 claude-opus-5-5', 'wa3 claude-haiku-5-5'])
 
   // An agent of a later phase of the run: its own request.
-  w.started('wf_test-1', 'wa4', 'q-docs')
-  w.transcript('wf_test-1', 'wa4', 'Find the pages under docs/ that still describe the old search client.')
-  const later = w.agentStep('wa4', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  const later = w.started('wf_test-1', 'wa4', 'q-docs', { prompt: 'Find the pages under docs/ that still describe the old search client.', model: 'sonnet' })
   await w.clock.settle()
   expect(w.requests).toHaveLength(2)
   expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['agent-0.model', 'agent-0.effort'])

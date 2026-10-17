@@ -8,9 +8,9 @@
 // dispatched it, or its Workflow run), and the group is asked about in one request: what they share once, each agent's
 // brief beside it (decision/workflow.ts `agentBatches`; one dispatched agent alone is asked as one always was).
 //
-// A group is asked once it is complete: every member's input is in (a Workflow agent's task is read from its transcript
-// after it starts), and every Agent call of the message it came from has arrived, or GATHER_MS has passed (a call the mod
-// does not route never arrives). Then it waits for a lane: at most `lanes` requests about agents are out at once
+// A group is asked once it is complete: every member's input is in (a Workflow agent's is built from what its run's
+// launching turn said, as it is spawned), and every Agent call of the message it came from has arrived, or GATHER_MS has
+// passed (a call the mod does not route never arrives). Then it waits for a lane: at most `lanes` requests about agents are out at once
 // (BACKEND_DEFAULTS agentLanes: Jev four, pplx five). An agent that comes while its group waits joins it, up to
 // MAX_PER_REQUEST; one past that opens a group of its own. Requests made elsewhere about a Workflow's calls (its script read
 // when it is submitted or launched) take a lane the same way (`askInLane`).

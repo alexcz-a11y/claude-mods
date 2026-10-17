@@ -42,6 +42,8 @@ export const NO_PANE_STATE: PaneState = { folds: [], failures: false }
 const FOLD_KEYS = ['a', 'b', 'c', 'd', 'e', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'o', 'q', 'r', 's', 't', 'u', 'v', 'w'] as const
 /** The key that lists the skills that got no profile. */
 export const FAILURES_KEY = 'f'
+/** The key that puts the picked agent's transcript in the main view, and the main conversation back. */
+export const VIEW_KEY = 'x'
 /** How many of the newest turns are open until the person folds them; older ones are folded. */
 const OPEN_TURNS = 2
 

@@ -76,6 +76,21 @@ function tick($: EngineInterface, view: ScreenView): void {
   }
 }
 
+/**
+ * Puts an agent's transcript in the main view (null: the main conversation back), from a press in the pane; a view the
+ * engine does not move is the decision report's to tell (a toast).
+ */
+async function showTranscript($: EngineInterface, agentId: string | null): Promise<void> {
+  // The engine's refusal comes back as `deny`; a hook's, as an error.
+  const why = await $.ui.view(agentId === null ? {} : { agentId }).then(
+    (shown) => shown.deny,
+    (error: unknown) => errorText(error),
+  )
+  if (why === undefined) return
+  const io: NoticeIo = { debug: (line) => $.ui.log(line, { to: 'debug' }), now: () => $.clock.now(), toast: (text) => $.ui.toast(text) }
+  await report(io, { unviewed: { agent: agentId, reason: why } })
+}
+
 /** The agent picked, its card shown in the rationale pane (written from a press, never while drawing). */
 async function pick($: EngineInterface, row: AgentRow): Promise<void> {
   await $.state.set(SELECTED, { turn: row.node.turn, id: row.node.id })
@@ -155,9 +170,11 @@ export function registerScreens(on: On): void {
       const shown = isOn('skills') && isOn('skill-profiles') ? (profiles.value ?? null) : null
       // The summary the session holds, while the feature that writes it is on.
       const summary = isOn('unresolved') ? (count.value?.summary ?? null) : null
-      const input = { view, log: entries, profiles: shown, switches: listSwitches().map((s) => ({ name: s.name, on: s.on })), master: masterOn(), lock: lock.value ?? null, summary, state }
+      const viewing = e.props.view.agentId ?? null
+      const input = { view, log: entries, profiles: shown, switches: listSwitches().map((s) => ({ name: s.name, on: s.on })), master: masterOn(), lock: lock.value ?? null, viewing, summary, state }
       const act = {
         pick: (row: AgentRow) => void pick($, row).catch(() => undefined),
+        view: (agentId: string | null) => void showTranscript($, agentId).catch(() => undefined),
         fold: (turn: number, open: boolean) => void $.state.set(PANE_VIEW, withFold(state, turn, open, entries)).catch(() => undefined),
         failures: (open: boolean) => void $.state.set(PANE_VIEW, { ...state, failures: open }).catch(() => undefined),
       }
