@@ -1,6 +1,6 @@
 // What the agents' decisions read of the session's reference images (#64, ADR 0008): the latest reading, as text, never an image.
 // A dispatched agent's decision (`agent.spawn`), a Workflow script's batch requests and the by-label fallback (an agent decided as
-// it starts) ask here for the reading to put in their state as `reference_complexity`. It is the latest one the session has kept
+// it is spawned) ask here for the reading to put in their state as `reference_complexity`. It is the latest one the session has kept
 // (core/complexity.ts `latestReading`, written when the images were read: with a message, or when the main agent met them), so
 // no request is made for it and nothing waits. Nothing with `image-routing` off, and nothing before any image was read: the
 // requests are then what they always were.

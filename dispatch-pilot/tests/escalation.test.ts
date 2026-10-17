@@ -736,7 +736,7 @@ return fixed
     backend: (request) => (kind(request) === 'midturn.level,escalation.expected' ? answers(MEDIUM, { expected: 0.9 })(request) : siteJev(() => ({ model: { sonnet: 0.9 }, effort: [0, 1, 0, 0, 0] }))(request)),
   })
   await w.workflow({ scriptPath: '/work/fix.js' })
-  w.started('wf_test-1', 'wa1', 'fix')
+  await w.started('wf_test-1', 'wa1', 'fix')
   w.disk[`${runDir('wf_test-1')}/agent-wa1.jsonl`] = agentTranscript('Find why checkout.spec.ts times out intermittently and fix the cause.', [
     {
       text: 'Running the checkout tests first.',
@@ -767,7 +767,7 @@ return fixed
   const w = runWorld($, on, { messages: refusing('wa1'), disk: { '/work/fix.js': script }, backend: answers(MEDIUM, { expected: 0.9 }) })
   await w.command('dp', 'workflow-labels off')
   await w.workflow({ scriptPath: '/work/fix.js' })
-  w.started('wf_test-1', 'wa1', 'fix')
+  await w.started('wf_test-1', 'wa1', 'fix')
   w.disk[`${runDir('wf_test-1')}/agent-wa1.jsonl`] = agentTranscript('Find why checkout.spec.ts times out intermittently and fix the cause.', [
     {
       text: 'Running the checkout tests first.',

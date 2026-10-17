@@ -53,7 +53,7 @@ export function callReports(
       feature,
       agent: callNodeId(run.id, call.index),
       subject: `${callTitle(call)}（Workflow ${title}）`,
-      // Named as its agent will be (the journal's label), so that agent takes its place when it starts.
+      // Named as its agent will be (the label it is spawned with), so that agent takes its place when it is spawned.
       node: { kind: 'wf' as const, name: call.label ?? callPlace(call), type: call.agentType ?? 'workflow', state: 'queued' as const, workflow: { id: run.id, name: title } },
     }
     if (outcome.kind === 'left') {

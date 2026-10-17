@@ -5,7 +5,7 @@
 // 2.1.289: `model: 'haiku'` on a workflow agent's step is a 404, `model:
 // haiku`, and the agent fails; a full id runs). So whatever writes a model into the plan table
 // writes the id below, never the alias. `agent.spawn` resolves aliases itself:
-// the dispatched-agents feature (#6) keeps writing aliases there.
+// the dispatched-agents (#6) and workflow-labels (#9) features write aliases there.
 //
 // The ids are the current models of each family, as Claude Code 2.1.296 names
 // them (its `haiku` alias starts an agent on `claude-haiku-5-5`). Update them

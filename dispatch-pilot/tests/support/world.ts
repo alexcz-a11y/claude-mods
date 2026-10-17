@@ -305,7 +305,7 @@ export type WorkflowSpawnOptions = { runId: string; agentIndex: number; agentId:
 const READ_LIMIT = 4 * 1024 * 1024
 
 /** What the engine resolves a model alias to as it starts an agent (2.1.289; `haiku` is Haiku 5.5 from 2.1.296, DEVELOPMENT.md 「已实测的引擎行为」). */
-const ENGINE_IDS: Record<string, string> = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' }
+const ENGINE_IDS: Record<string, string> = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5', fable: 'claude-fable-5-1' }
 
 /** The agent.spawn the engine raises for one Agent tool call (`id`, the call's tool_use_id). */
 function spawnInput(id: string, spawn: SpawnOptions & { workflow?: { runId: string; agentIndex: number } }) {
@@ -349,7 +349,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   /** The Agent tool calls `agentTool` made: the engine spawns their agents inside them. */
   const agentCalls = new Set<string>()
   /** The Workflow agents being spawned, by `<runId>#<agentIndex>`: the id each starts under and the model its call gave it. */
-  const workflowSpawns = new Map<string, { agentId: string; model: string | undefined }>()
+  const workflowSpawns = new Map<string, string>()
   /** The rows of messages with pasted images, by the message's text, until the engine appends them (support/pasted.ts). */
   const pastedRows = new Map<string, ReturnType<typeof rowOf>>()
   let rowCount = 0
@@ -601,15 +601,15 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   on('command.run', () => ({}))
   // The engine at the bottom of agent.spawn: it starts the agent on the model
   // it is handed (the parent's when none) and names it a1, a2, ... in the
-  // order the spawns reach it. A Workflow agent's spawn can only be refused: it
-  // starts as its call has it, whatever a hook changed (2.1.294 on). A resumed
-  // run goes on under the agent's own id (2.1.299 on).
+  // order the spawns reach it; a Workflow agent under the id the test gives it,
+  // on the model it is handed too (2.1.300 on). A resumed run goes on under the
+  // agent's own id (2.1.299 on).
   on('agent.spawn', (_$, e) => {
     spawned.push({ tool_use_id: e.tool_use_id, model: e.model, subagentType: e.subagentType, description: e.description, prompt: e.prompt, ...(e.workflow !== undefined ? { workflow: e.workflow } : {}) })
-    const scripted = e.workflow === undefined ? undefined : workflowSpawns.get(`${e.workflow.runId}#${e.workflow.agentIndex}`)
-    if (scripted !== undefined) return { model: scripted.model === undefined ? e.parentModel : (ENGINE_IDS[scripted.model] ?? scripted.model), agentId: scripted.agentId }
     // The model comes back resolved to the full id, as the engine returns it (`sonnet` is `claude-sonnet-5-5`).
     const resolved = e.model === undefined ? e.parentModel : (ENGINE_IDS[e.model] ?? e.model)
+    const scripted = e.workflow === undefined ? undefined : workflowSpawns.get(`${e.workflow.runId}#${e.workflow.agentIndex}`)
+    if (scripted !== undefined) return { model: resolved, agentId: scripted }
     if (e.resume !== undefined) return { model: resolved, agentId: e.resume.agentId }
     return { model: resolved, agentId: `a${spawned.length}` }
   })
@@ -728,7 +728,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
      * Draws the rationale pane (`Pane`, requestId `id`) through the mod as a surface would, the board as it stands: a
      * body of `columns` cells (75 is the dock beside a 170-column transcript), docked unless `placement` says inline.
      */
-    pane: async (at: { id?: string; columns?: number; rows?: number; placement?: 'dock' | 'inline'; surface?: RenderSurface; focused?: boolean } = {}) => {
+    pane: async (at: { id?: string; columns?: number; rows?: number; placement?: 'dock' | 'inline'; surface?: RenderSurface; focused?: boolean; view?: string } = {}) => {
       await booted()
       const props: RenderPropsOf['Pane'] = {
         title: '依据',
@@ -736,7 +736,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
         bodyColumns: at.columns ?? 75,
         placement: at.placement ?? 'dock',
         scroll: { offset: 0, bodyRows: at.rows ?? 40 },
-        view: {},
+        view: at.view === undefined ? {} : { agentId: at.view },
       }
       return $.ui.mount({ plugin: 'dispatch-pilot', surface: at.surface ?? 'terminal', component: 'Pane', requestId: at.id ?? 'dp-rationale', props, viewport: { columns: 170, rows: 50, isFullscreen: true } })
     },
@@ -816,7 +816,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
      */
     workflowSpawn: async (toolUseId: string, spawn: WorkflowSpawnOptions) => {
       await booted()
-      workflowSpawns.set(`${spawn.runId}#${spawn.agentIndex}`, { agentId: spawn.agentId, model: spawn.model })
+      workflowSpawns.set(`${spawn.runId}#${spawn.agentIndex}`, spawn.agentId)
       return $.agent.spawn(
         spawnInput(toolUseId, {
           prompt: spawn.prompt,

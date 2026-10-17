@@ -36,15 +36,23 @@ export type WorkflowWorldOptions = WorldOptions & {
   parseError?: (script: string) => string | undefined
   /** An error of any other kind the tool reports instead of launching (its whole text); undefined for a script it launches. */
   fails?: (script: string) => string | undefined
+  /**
+   * What the run starts before the tool returns, given its id and the Workflow call's: the engine spawns a run's first
+   * agents while the tool's `next` is still out, and returns without waiting for them (2.1.302), so a test starts them
+   * here and awaits them itself.
+   */
+  during?: (runId: string, toolUseId: string) => Promise<unknown>
 }
 
 /** One `$.state.set` the mod made, as it reached the state beneath. */
 export type StateWrite = { key: string; id: string | undefined; value: unknown }
 
 export function workflowWorld($: Engine, on: On, options: WorkflowWorldOptions = {}) {
-  const { parseError, fails, ...rest } = options
+  const { parseError, fails, during, ...rest } = options
   const reached: Reached[] = []
   const stateWrites: StateWrite[] = []
+  /** The Workflow tool call that launched each run, by the run's id: its agents' spawns come under it. */
+  const callOf = new Map<string, string>()
   let runs = 0
 
   // What the mod writes to `$.state`, seen on its way to the state the kit keeps.
@@ -74,6 +82,8 @@ export function workflowWorld($: Engine, on: On, options: WorkflowWorldOptions =
     if (other !== undefined) return { isError: true as const, result: `Error: ${other}`, text: `<tool_use_error>${other}</tool_use_error>` }
     runs++
     const runId = `wf_test-${runs}`
+    callOf.set(runId, e.tool_use_id)
+    void during?.(runId, e.tool_use_id)
     const dir = '/home/u/.claude/projects/p/s1'
     // A run by `name` is persisted as `<name>-<runId>.js` (2.1.296); a script handed over inline is `workflow-<runId>.js` here.
     const path = input.scriptPath ?? `${dir}/workflows/scripts/${input.name ?? 'workflow'}-${runId}.js`
@@ -90,6 +100,8 @@ export function workflowWorld($: Engine, on: On, options: WorkflowWorldOptions =
     reached,
     /** Every value the mod wrote to `$.state`, in order (`key`, the family's `id`, the value). */
     stateWrites,
+    /** The tool_use_id of the Workflow tool call that launched run `runId`; '' for a run no call launched here. */
+    callOf: (runId: string) => callOf.get(runId) ?? '',
     /** The main agent calls the Workflow tool: resolves to what the tool, or a hook of the mod, answered. */
     workflow: (input: WorkflowInput) => $.tool.call({ tool: 'Workflow', ...input }),
   }

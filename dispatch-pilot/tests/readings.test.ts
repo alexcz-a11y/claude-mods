@@ -1,10 +1,11 @@
 // The readings (#27): what the board knows of every agent from the engine's own events. The core hands the module
-// each step as it sends it (`turn.step`), the module's own hooks hear an agent spawned and a loop's turn end.
+// each step as it sends it (`turn.step`), the module's own hooks hear an agent spawned (a Workflow's agents too) and a
+// loop's turn end.
 // Seam 1: engine events in, `w.board()` out. None of it routes anything: these tests run without a decision
 // backend, so every step goes out as the engine made it and the board shows what that was.
 
 import { expect, test } from 'claude-code/testing'
-import { runDir, runWorld } from './support/workflow-run.ts'
+import { runWorld } from './support/workflow-run.ts'
 
 /** A Workflow with one agent() call, as the main agent hands it to the tool. */
 const SCRIPT = `export const meta = { name: 'audit', description: 'audit the api', phases: [] }
@@ -20,8 +21,8 @@ test('the main agent, a dispatched agent and Workflow agents each get a row: the
   await w.spawn({ prompt: 'review login', description: '审查登录模块', subagentType: 'Explore' })
   await w.agentStep('a1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
   await w.workflow({ script: SCRIPT })
-  w.started('wf_test-1', 'wa1', 'review-auth')
-  w.started('wf_test-1', 'wa2', 'review-billing')
+  await w.started('wf_test-1', 'wa1', 'review-auth')
+  await w.started('wf_test-1', 'wa2', 'review-billing')
   await w.agentStep('wa1', { index: 0, model: 'claude-haiku-4-5', effort: null })
   await w.agentStep('wa2', { index: 0, model: 'claude-opus-5-5', effort: 'high' })
 
@@ -42,7 +43,7 @@ test("a dispatched agent is named by its name, else by its description; a Workfl
   await w.agentStep('a1', { index: 0 })
   await w.agentStep('a2', { index: 0 })
   await w.workflow({ script: SCRIPT })
-  w.started('wf_test-1', 'wa1', 'review-auth', 'phase one')
+  await w.started('wf_test-1', 'wa1', 'review-auth')
   await w.agentStep('wa1', { index: 0 })
 
   expect((await w.board()).agents.map((node) => [node.name, node.kind, node.type])).toEqual([
@@ -64,64 +65,41 @@ test("a loop nobody launched (an engine fork) is not an agent of the board; one 
   expect((await w.board()).agents).toMatchObject([{ id: 'fork-1', name: '总结上下文', model: 'haiku' }])
 })
 
-test("a loop nobody knows is not looked up again at every step: its journals once more only when another Workflow run is recorded, the roster only now and then", async ($, on) => {
+test("a loop nobody knows is not looked up again at every step: the roster only now and then, and no Workflow run's files", async ($, on) => {
   const w = runWorld($, on, {})
   await w.submit('改个错别字')
   await w.workflow({ script: SCRIPT })
-  w.started('wf_test-1', 'wa1', 'review-auth')
-  const journal = (runId: string) => `${runDir(runId)}/journal.jsonl`
+  await w.started('wf_test-1', 'wa1', 'review-auth')
   const fork = async () => (await w.board()).agents.filter((node) => node.id === 'fork-1')
   for (const index of [0, 1, 2, 3, 4, 5, 6, 7]) await w.agentStep('fork-1', { index, model: 'claude-haiku-4-5', effort: null })
   expect(await fork()).toEqual([])
-  expect(w.looked.files.filter((path) => path === journal('wf_test-1'))).toHaveLength(1)
+  expect(w.looked.files).toEqual([])
   // The roster at the loop's 1st, 2nd, 4th and 8th step: an agent it lists late is still found.
   expect(w.looked.roster).toBe(4)
-
-  // A run recorded later may have started it: it is looked for in that run at the next step, once (the agent's
-  // meta.json there says it is, so the run's journal is not read).
-  await w.workflow({ script: SCRIPT })
-  w.started('wf_test-2', 'fork-1', 'late-label')
-  await w.agentStep('fork-1', { index: 8, model: 'claude-haiku-4-5', effort: null })
-  expect(w.looked.files.filter((path) => path.startsWith(`${runDir('wf_test-2')}/`))).toEqual([`${runDir('wf_test-2')}/agent-fork-1.meta.json`])
-  expect(await fork()).toMatchObject([{ id: 'fork-1', kind: 'wf', name: 'late-label' }])
 })
 
-test("a Workflow agent whose meta.json names no description is found by the journal's started line instead", async ($, on) => {
-  const w = runWorld($, on, {})
-  await w.submit('跑一个 workflow')
-  await w.workflow({ script: SCRIPT })
-  w.started('wf_test-1', 'wa1', 'review-auth')
-  w.disk[`${runDir('wf_test-1')}/agent-wa1.meta.json`] = JSON.stringify({ agentType: 'workflow-subagent', spawnDepth: 1 })
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'low' })
-
-  expect((await w.board()).agents).toMatchObject([{ id: 'wa1', kind: 'wf', name: 'review-auth', model: 'sonnet' }])
-})
-
-test("a Workflow agent whose run is not yet recorded when it starts is found by a later step, and starts when it first stepped", async ($, on) => {
+test("a Workflow agent is on the board from its spawn, in its call's place and queued, and starts at its first step", async ($, on) => {
   const w = runWorld($, on, {})
   await w.submit('跑一个 workflow')
   await w.step({ index: 0 })
-  await w.clock.advance(200)
-  await w.agentStep('wa1', { index: 0 })
-  expect((await w.board()).agents).toEqual([])
-  await w.clock.advance(300)
   await w.workflow({ script: SCRIPT })
-  w.started('wf_test-1', 'wa1', 'review-auth')
+  await w.clock.advance(200)
+  await w.started('wf_test-1', 'wa1', 'review-auth')
+  expect((await w.board()).agents).toMatchObject([{ id: 'wa1', kind: 'wf', name: 'review-auth', state: 'queued' }])
   await w.clock.advance(100)
-  await w.agentStep('wa1', { index: 1 })
+  await w.agentStep('wa1', { index: 0 })
 
   const wa1 = (await w.board()).agents[0]
   expect(wa1).toMatchObject({ id: 'wa1', name: 'review-auth', state: 'running' })
-  // Seen first 300 ms before the run was recorded, 200 ms into the turn.
-  expect(wa1?.t0).toBe(0.2)
+  expect(wa1?.t0).toBe(0.3)
 })
 
-test('a fan-out of Workflow agents stepping at once each get their row: no reading is lost to the others writing the board', async ($, on) => {
+test('a fan-out of Workflow agents spawned and stepping at once each get their row: nothing is lost to the others writing the board', async ($, on) => {
   const w = runWorld($, on, {})
   await w.submit('跑一个大的 workflow')
   await w.workflow({ script: SCRIPT })
   const ids = Array.from({ length: 16 }, (_, i) => `wa${i + 1}`)
-  for (const id of ids) w.started('wf_test-1', id, `review-${id}`)
+  await Promise.all(ids.map((id) => w.started('wf_test-1', id, `review-${id}`)))
   await Promise.all(ids.map((id) => w.agentStep(id, { index: 0, model: 'claude-sonnet-5-5', effort: 'low' })))
 
   expect((await w.board()).agents.map((node) => node.id).filter((id) => id.startsWith('wa')).sort()).toEqual([...ids].sort())
@@ -270,7 +248,7 @@ test("the main agent runs from the turn's start (t0 0) until its turn ends, then
   await w.submit('跑一个 workflow')
   await w.step({ index: 0 })
   await w.workflow({ script: SCRIPT })
-  w.started('wf_test-1', 'wa1', 'review-auth')
+  await w.started('wf_test-1', 'wa1', 'review-auth')
   await w.clock.advance(1000)
   await w.agentStep('wa1', { index: 0 })
   // The main turn ends while the Workflow's agent still runs.

@@ -127,8 +127,7 @@ test('the requests for a script run by its path (decided by label as the run sta
   expect(launch[0]?.body.state.reference_complexity).toMatchObject({ level: 3, images: 1 })
 
   // An agent whose label is none of the script's calls: decided as it starts, from its task.
-  w.started('wf_test-1', 'wa3', 'summarize')
-  w.transcript('wf_test-1', 'wa3', 'Summarize the rename and the review in five bullet points.')
+  await w.started('wf_test-1', 'wa3', 'summarize', { prompt: 'Summarize the rename and the review in five bullet points.' })
   await w.agentStep('wa3', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
   const start = w.requests.filter(asksAgent).at(-1)
   expect(start?.body.state.reference_complexity).toMatchObject({ level: 3, images: 1 })

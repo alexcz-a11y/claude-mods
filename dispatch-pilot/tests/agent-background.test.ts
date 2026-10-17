@@ -40,9 +40,8 @@ test("an agent decided as it starts reads the person's words of the turn that la
   await w.workflow({ script: ANSWERS })
   // The Workflow runs in the background; the person, idle, asks about something else.
   await w.submit('顺便帮我看看 README 的排版')
-  w.started('wf_test-1', 'wa1', 'q-auth')
-  w.transcript('wf_test-1', 'wa1', TASK)
-  await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.started('wf_test-1', 'wa1', 'q-auth', { prompt: TASK, model: 'sonnet' })
+  await w.agentStep('wa1', { index: 0, effort: 'medium' })
 
   const sent = w.requests.at(-1)?.body
   expect(sent.state.user_message).toBe('这几个安全审查都用 opus 跑')
@@ -58,8 +57,7 @@ test("an agent whose label is none of its run's calls is decided as it starts by
   await w.workflow({ scriptPath: saved })
   await w.submit('顺便帮我看看 README 的排版')
   // A label no call of the script has (a child workflow()'s agent, say).
-  w.started('wf_test-1', 'wa3', 'summarize')
-  w.transcript('wf_test-1', 'wa3', 'Summarize the rename and the review in five bullet points.')
+  await w.started('wf_test-1', 'wa3', 'summarize', { prompt: 'Summarize the rename and the review in five bullet points.' })
   await w.agentStep('wa3', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
 
   expect(w.requests.at(-1)?.body.state.user_message).toBe('这个 Workflow 的 agent 都用 opus 跑')
@@ -76,8 +74,7 @@ test('with pplx, an agent decided as it starts reads the run\'s script and the c
   await w.submit('这几个安全审查都并行跑一下')
   await w.workflow({ script: ANSWERS, tool_use_id: 'toolu_wf' })
   await w.submit('顺便帮我看看 README 的排版')
-  w.started('wf_test-1', 'wa1', 'q-auth')
-  w.transcript('wf_test-1', 'wa1', TASK)
+  await w.started('wf_test-1', 'wa1', 'q-auth', { prompt: TASK })
   await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
 
   const state = w.requests.at(-1)?.body.state

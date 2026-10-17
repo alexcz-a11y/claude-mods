@@ -1,7 +1,7 @@
 // A Workflow runs in the background: the person sends more messages while its
 // agents are still running, and each message starts a main turn. Seam 1: the
-// Workflow tool call, the main turns, the run's journal and the agents' steps
-// in; out, the board.
+// Workflow tool call, the main turns, the agents' spawns and steps in; out, the
+// board.
 
 import { expect, test } from 'claude-code/testing'
 import { type Drawn, shown } from './support/drawn.ts'
@@ -21,7 +21,7 @@ test("a Workflow agent decided to run as its script has it stays routed on the b
   const w = runWorld($, on, { disk: { [SAVED]: RESEARCH }, backend: siteJev(() => ({ model: { sonnet: 0.9 }, effort: [0, 0, 0, 1, 0] })) })
   await w.startTurn('重开一下你的workflow')
   await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'research:ipv6')
+  await w.started('wf_test-1', 'wa1', 'research:ipv6')
   const routedOf = async () => (await w.board()).nodes.filter((node) => node.id === 'wa1').map((node) => [node.turn, node.state, node.routed])
 
   await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'xhigh' })
@@ -41,7 +41,7 @@ test("the band shows a Workflow agent of an earlier turn while it runs, routed, 
   const agentRows = async () => ((await (await w.band({ columns: 180, rows: 12 })).findAll({ type: 'Box' })) as Drawn[]).filter((box) => box.key?.startsWith('band-agent-')).map((box) => shown(box))
   await w.startTurn('重开一下你的workflow')
   await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'research:ipv6')
+  await w.started('wf_test-1', 'wa1', 'research:ipv6')
   await w.agentStep('wa1', { index: 0, model: 'claude-sonnet-5-5', effort: 'xhigh' })
   await w.startTurn('关掉 IPv6 会不会漏？')
   await w.startTurn('STUN 和 WebRTC 不是已经拦了吗？')
@@ -64,7 +64,7 @@ test("a Workflow agent that starts after the person sent two more messages is ro
   await w.workflow({ scriptPath: SAVED })
   await w.startTurn('关掉 IPv6 会不会漏？')
   await w.startTurn('STUN 和 WebRTC 不是已经拦了吗？')
-  w.started('wf_test-1', 'wa2', 'verify:ipv6')
+  await w.started('wf_test-1', 'wa2', 'verify:ipv6')
   await w.agentStep('wa2', { index: 0, model: 'claude-sonnet-5-5', effort: 'xhigh' })
   expect((await w.board()).nodes.filter((node) => node.id === 'wa2').map((node) => [node.state, node.routed, node.decision !== undefined])).toEqual([['running', true, true]])
 })

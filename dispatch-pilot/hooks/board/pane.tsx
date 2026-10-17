@@ -1,7 +1,9 @@
 // The rationale pane on the terminal (spec #22 「依据面板」, prototype D): at
 // its top, every feature switch with its state (the ones off in grey), the lock
 // and how the skill profiles went (grey; amber or red when some failed or
-// writing stopped); ‹ 上一个 (p) / 下一个 › (n); the rounded card of the agent
+// writing stopped); ‹ 上一个 (p) / 下一个 › (n), and 看它的对话 (x) that puts the
+// picked agent's transcript in the main view (↩ 回主对话 (x) while one is
+// there); the rounded card of the agent
 // picked (its state and why not routed, the model it was given and why, the
 // effort probabilities, the rules' working step by step, the result, the main
 // agent's confidence note, its forced raises and mid-turn re-decisions with a
@@ -38,6 +40,7 @@ import {
   profilesLine,
   stepLines,
   unresolvedWords,
+  VIEW_KEY,
   verdictWords,
   type Card,
   type LogGroup,
@@ -58,6 +61,8 @@ type PaneInput = {
   master: boolean
   /** The person's lock on the main agent's effort. */
   lock: Effort | null
+  /** The agent whose transcript is in the main view beside the pane (`e.props.view`); null for the main conversation. */
+  viewing: string | null
   /** The problem summary the session holds (`$.state` `unresolved`); null when there is none, or the `unresolved` switch is off. */
   summary: { problem: string; tried: readonly { text: string; unresolved?: true }[]; status: string } | null
   state: PaneState
@@ -65,9 +70,10 @@ type PaneInput = {
   window?: { entries: number; mids: number }
 }
 
-/** What the pane's Buttons do: pick another agent's card, fold or open a turn of the log, list the failed skills. */
+/** What the pane's Buttons do: pick another agent's card, show an agent's transcript (null: the main one), fold or open a turn of the log, list the failed skills. */
 type PaneActs = {
   pick: (row: AgentRow) => void
+  view: (agentId: string | null) => void
   fold: (turn: number, open: boolean) => void
   failures: (open: boolean) => void
 }
@@ -133,6 +139,7 @@ export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, r
         <Box flexShrink={0}>
           <Button key="pane-next" label="下一个 › (n)" hotkey="n" variant="primary" onPress={() => (next === null ? undefined : act.pick(next))} />
         </Box>
+        {viewButton(t, card.row, input.viewing, act)}
         <Box flexGrow={1} flexShrink={1}>
           <Text color={MUTED} wrap="wrap">{'  band 上按 0-9 直接选'}</Text>
         </Box>
@@ -145,6 +152,26 @@ export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, r
       {logRows(t, input, cols, act, raster)}
     </Box>
   )
+}
+
+/**
+ * The button that puts the picked agent's transcript in the main view, or the main conversation back while an agent's is
+ * there: none for the main agent's own card. Nor for a Workflow's agent: the engine refuses to show one (2.1.302, measured:
+ * `$.ui.view` answers that no agent is under that id).
+ */
+function viewButton(t: TT, row: AgentRow | null, viewing: string | null, act: PaneActs): RenderNode[] {
+  const { Box, Button, Text } = t
+  const back = viewing !== null
+  if (!back && (row === null || row.node.kind !== 'agent')) return []
+  const label = back ? `↩ 回主对话 (${VIEW_KEY})` : `看它的对话 (${VIEW_KEY})`
+  return [
+    <Box key="pane-view-gap" flexShrink={0}>
+      <Text> </Text>
+    </Box>,
+    <Box key="pane-view" flexShrink={0}>
+      <Button key="pane-view-button" label={label} hotkey={VIEW_KEY} onPress={() => act.view(back ? null : (row?.node.id ?? null))} />
+    </Box>,
+  ]
 }
 
 // ---- the problem summary -------------------------------------------------------------------

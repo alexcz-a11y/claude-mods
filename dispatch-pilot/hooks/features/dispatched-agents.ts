@@ -88,9 +88,10 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
   on('agent.spawn', { tool_use_id: /(?:)/ }, async ($, e, next) => {
     // A fork always runs on its parent's model. A teammate lives across many
     // tasks that one decision at its spawn cannot see. A Workflow's agent is the
-    // Workflow features': a plan written here would keep workflow-labels from
-    // setting its model. A resumed run (2.1.299 on) goes on as its agent was
-    // decided: the engine keeps its model, and its plan is the one written here.
+    // Workflow features': workflow-agents wrote its call into the script, or
+    // workflow-labels routes it at this same spawn. A resumed run (2.1.299 on)
+    // goes on as its agent was decided: the engine keeps its model, and its plan
+    // is the one written here.
     if (e.fork || e.isTeammate || e.workflow !== undefined || e.resume !== undefined) return next(e)
     /** Leaves the note for the Agent tool call this spawn belongs to. */
     const leaveNote = (note: DispatchNote) => {

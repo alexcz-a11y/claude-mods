@@ -1,8 +1,9 @@
 // Feature: the agents of a Workflow (#8). When the main agent submits a
 // Workflow script, each `agent()` call of it gets its own decision on model
-// and effort, and they are written into the script before the tool runs it.
-// The agents of a Workflow never pass the Agent tool (no agent.spawn), so the
-// script is the one place their model and effort can be set ahead of time.
+// and effort, and they are written into the script before the tool runs it:
+// one request for the whole script before any agent starts, and the main agent
+// reads what was written. The calls this cannot write into are routed as their
+// agents are spawned (workflow-labels, #9).
 //
 // The main agent is told what was written and why, in what the tool returns.
 // A script this cannot read, one given by path or by name, and one resumed

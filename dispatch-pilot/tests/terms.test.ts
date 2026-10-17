@@ -123,16 +123,16 @@ const workflowStep = (index: number, model: string, effort: 'low' | 'medium' | '
 /** The decisions about a script's one call: `call` answers it (part agent-0); the stuck agent's request is answered as not expected. */
 const oneCall = (call: SiteAnswer) => siteJev((i) => (i === 0 ? call : {}))
 
-test('a workflow agent the label fallback sent to haiku at the top level is switched to sonnet when its calls keep failing: by the model the plan put it on, not the one the engine named', { options: ONLY }, async ($, on) => {
+test('a workflow agent the label fallback sent to haiku at the top level is switched to sonnet when its calls keep failing: by the model it started on', { options: ONLY }, async ($, on) => {
   const script = `export const meta = { name: 'scan', description: 'List what imports legacyAuth', phases: [] }
 const found = await agent('List every file under src/ that imports legacyAuth. Report file:line only.', { label: 'scan' })
 return found
 `
   const w = runWorld($, on, { ...NO_TRANSCRIPTS, disk: { [SAVED]: script }, backend: oneCall({ model: { haiku: 0.9 }, effort: AT_TOP }) })
   await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'scan')
-  await w.agentStep('wa1', workflowStep(0, 'claude-opus-5-5', 'xhigh', failing))
-  await w.agentStep('wa1', workflowStep(1, 'claude-opus-5-5', 'xhigh'))
+  await w.started('wf_test-1', 'wa1', 'scan')
+  await w.agentStep('wa1', workflowStep(0, 'claude-haiku-5-5', 'xhigh', failing))
+  await w.agentStep('wa1', workflowStep(1, 'claude-haiku-5-5', 'xhigh'))
 
   // On haiku at its decided xhigh, the top level; switched to sonnet, the same effort.
   expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(['claude-haiku-5-5 xhigh', 'claude-sonnet-5-5 xhigh'])
@@ -145,10 +145,10 @@ return fixed
 `
   const w = runWorld($, on, { ...NO_TRANSCRIPTS, disk: { [SAVED]: script }, backend: oneCall({ model: { opus: 0.9 }, effort: [0, 0, 1, 0, 0] }) })
   await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'fix')
-  // The engine resolved the script's haiku, at its own medium.
-  await w.agentStep('wa1', workflowStep(0, 'claude-haiku-5-5', 'medium', failing))
-  await w.agentStep('wa1', workflowStep(1, 'claude-haiku-5-5', 'medium'))
+  await w.started('wf_test-1', 'wa1', 'fix', { model: 'haiku' })
+  // The spawn's model was set to opus; the engine's own effort is medium.
+  await w.agentStep('wa1', workflowStep(0, 'claude-opus-5-5', 'medium', failing))
+  await w.agentStep('wa1', workflowStep(1, 'claude-opus-5-5', 'medium'))
 
   expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(['claude-opus-5-5 high', 'claude-opus-5-5 xhigh'])
 })
@@ -161,9 +161,11 @@ return done
   const w = runWorld($, on, { disk: { [SAVED]: script }, backend: oneCall({ model: { sonnet: 0.9 }, effort: [0, 0, 1, 0, 0], nouls: { 'named.opus': 0.9 } }) })
   await w.submit('用 opus 把 src/net 的重试逻辑重构一下')
   await w.workflow({ scriptPath: SAVED })
-  w.started('wf_test-1', 'wa1', 'refactor')
-  await w.agentStep('wa1', workflowStep(0, 'claude-sonnet-5-5', 'medium'))
+  // The engine worked the script's model out as sonnet; the spawn sets the one the person named.
+  await w.started('wf_test-1', 'wa1', 'refactor', { model: 'sonnet' })
+  await w.agentStep('wa1', workflowStep(0, 'claude-opus-5-5', 'medium'))
 
+  expect(w.spawned.map((spawn) => spawn.model)).toEqual(['opus'])
   expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(['claude-opus-5-5 high'])
 })
 
@@ -189,7 +191,7 @@ return found
   await w.submit('用 haiku 列一下哪些文件引用了 legacyAuth')
   await w.workflow({ script })
   expect(w.reached[0]?.script).toContain("{ label: 'scan', model: 'haiku', effort: 'xhigh' }")
-  w.started('wf_test-1', 'wa1', 'scan')
+  await w.started('wf_test-1', 'wa1', 'scan')
   // The engine runs the call as written into the script: haiku at xhigh.
   await w.agentStep('wa1', workflowStep(0, HAIKU, 'xhigh', failing))
   await w.agentStep('wa1', workflowStep(1, HAIKU, 'xhigh'))

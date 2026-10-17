@@ -1,14 +1,14 @@
 # Dispatch Pilot 的路由逻辑：普通子 agent 与 Workflow agent
 
-本文最初对应 dispatch-pilot 0.4.1（Claude Code 2.1.296 实测），现按 0.6.0 的代码更新；决策模型读到什么、预算多大，见第四节（ADR 0007、0009）。主 agent 自己的模型从不改变，这里只讲它派出去的 agent。
+本文最初对应 dispatch-pilot 0.4.1（Claude Code 2.1.296 实测），现按 0.7.0 的代码更新（Workflow agent 在派出时路由，Claude Code 2.1.300 起）；决策模型读到什么、预算多大，见第四节（ADR 0007、0009）。主 agent 自己的模型从不改变，这里只讲它派出去的 agent。
 
 两类 agent 的根本区别：
 
 | | 普通子 agent | Workflow agent |
 |---|---|---|
 | 谁启动它 | 主 agent 调用 Agent 工具 | Workflow 脚本里的 `agent()` |
-| 什么时候决定 | 启动那一刻（`agent.spawn`）决定一次 | 能读懂的调用在**提交脚本时**决定；prompt 要运行时才拼出来的调用，在**那个 agent 自己的第 0 步**决定 |
-| 模型怎么改 | 改 `agent.spawn` 的 model（写别名，引擎解析） | 写进脚本的 `agent()` 选项；或写进计划表，由核心在每一步写完整模型 ID |
+| 什么时候决定 | 启动那一刻（`agent.spawn`）决定一次 | 能读懂的调用在**提交脚本时**决定；prompt 要运行时才拼出来的调用，在**那个 agent 派出时**（`agent.spawn`）决定 |
+| 模型怎么改 | 改 `agent.spawn` 的 model（写别名，引擎解析） | 写进脚本的 `agent()` 选项；或改 `agent.spawn` 的 model（同左） |
 | effort 怎么改 | 写进计划表，核心每一步写出 | 同左 |
 | 负责的功能 | `dispatched-agents` | `workflow-agents`（提交时）+ `workflow-labels`（运行中） |
 
@@ -94,54 +94,54 @@ flowchart TD
     T -- "scriptPath / name / resume" --> P1["不改写脚本"]
     P1 --> L1["workflow-labels：工具启动后读运行用的脚本，<br/>对每个调用问一次决策模型，决定先记下来"]
     T -- "inline script" --> R{"脚本读得懂吗？"}
-    R -- 否 --> P2["不改写；之后每个 agent<br/>在第 0 步当场决定"]
+    R -- 否 --> P2["不改写；之后每个 agent<br/>派出时当场决定"]
     R -- 是 --> Q["workflow-agents：每个 agent() 调用点问一次<br/>（循环、parallel 里的调用也只问一次），分批发请求"]
     Q --> K{"这个调用的 prompt<br/>提交时读得出来吗？"}
     K -- "读得出来<br/>（字符串或模板）" --> W["把决定的 model、effort<br/>直接写进这个 agent() 的选项"]
-    K -- "读不出来<br/>（运行时才拼，如 MAP_PROMPT(...)）" --> X["留着不写，标成<br/>「启动时再定」"]
+    K -- "读不出来<br/>（运行时才拼，如 MAP_PROMPT(...)）" --> X["留着不写，标成<br/>「派出时再定」"]
     W --> Run["工具运行改写后的脚本"]
     X --> Run
     P2 --> Run
     L1 --> Run
-    Run --> N["工具结果后面告诉主 agent：<br/>写了什么、哪些等启动时再定"]
-    Run --> Rec["workflow-labels 记下这次运行：<br/>runId、运行目录、每个调用的去向"]
+    Run --> N["工具结果后面告诉主 agent：<br/>写了什么、哪些等派出时再定"]
+    Run --> Rec["workflow-labels 记下这次运行：<br/>runId、每个调用的去向"]
 ```
 
 `workflowMode: return` 时不改写，而是把决定退回给主 agent，让它自己写进脚本再交一次。
 
-### 阶段 2：脚本运行中，每个 agent 启动时
+### 阶段 2：脚本运行中，每个 agent 派出时
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant S as Workflow 脚本
     participant E as 引擎
-    participant D as dispatched-agents / 看板 spawn hook
     participant L as workflow-labels
     participant J as 决策模型
     participant P as 计划表 agents
+    participant B as 看板 spawn hook
     participant C as 核心 turn.step
 
     S->>E: 运行到 agent(prompt, { label })<br/>（prompt 可能用到前面 agent 的结果）
-    E->>D: agent.spawn（带 workflow 字段）
-    D->>E: 跳过：Workflow agent 不归它们管<br/>（引擎也不让改它的模型）
-    E->>E: journal 写一行 started（agentId、label）
-    E->>L: 这个 agent 的第 0 步 turn.step
-    L->>L: 按 label 在记下的运行里找到它的 agent() 调用
+    E->>L: agent.spawn（带 workflow 字段；description 是 label，prompt 是任务）<br/>dispatched-agents 跳过它
+    L->>L: 按 runId 找到记下的运行（运行的第一个 agent 等 Workflow 调用处理完），<br/>按 label 找到它的 agent() 调用
     alt 调用已写进脚本
+        L->>E: next(e)，模型照脚本
         L->>P: 只写你的约束（点名、排除）
     else 提交时已决定、脚本没改写（path / name / resume）
-        L->>P: 写决定好的模型（完整 ID）和 effort
-    else 启动时再定（prompt 运行时才拼）
-        L->>E: 读这个 agent 的 transcript，取出真实任务
-        L->>J: 按这个任务和启动运行那一轮的话问模型和 effort<br/>（再加脚本、到 Workflow 调用为止的对话）
+        L->>E: next(spawn)，model 改成决定的别名
+        L->>P: 写决定好的 effort 和约束
+    else 派出时再定（prompt 运行时才拼）
+        L->>J: 按派出带来的任务和启动运行那一轮的话问模型和 effort<br/>（再加脚本、到 Workflow 调用为止的对话；一起派出的合进一个请求）
         J-->>L: 回答
-        L->>P: 写模型（完整 ID，如 claude-sonnet-5-5）和 effort
+        L->>E: next(spawn)，model 改成决定的别名
+        L->>P: 写 effort 和约束
     end
-    L->>C: next(e)
+    E-->>B: agentId：节点接替它的调用的节点
     loop 这个 agent 的每一步（含第 0 步）
+        E->>C: turn.step
         C->>P: 读计划
-        C->>E: 写出这一步的 model 和 effort
+        C->>E: 写出这一步的 effort
     end
 ```
 
@@ -158,7 +158,7 @@ gantt
     section 运行中
     transcribe 各批（脚本里写好的 sonnet high） :b1, 00:06, 50s
     verify 各批（脚本里写好的 sonnet high） :b2, after b1, 40s
-    map clashmac 启动，第 0 步当场决定 :crit, c1, after b2, 2s
+    map clashmac 派出时当场决定 :crit, c1, after b2, 2s
     map clashmac 按决定的模型和 effort 运行 :c2, after c1, 50s
 ```
 
@@ -191,7 +191,7 @@ flowchart LR
 | 普通子 agent | 任务、描述、agent 类型、你这一轮的话；`unresolved` 开着时的问题摘要和次数 | 派出它的对话，到这次 Agent 调用为止（子 agent 派出的读那个子 agent 的） | 96000 / 32000 |
 | Workflow：一个请求装得下所有调用 | 每个调用的 brief（平分预算）、你这一轮的话、摘要和次数 | 整个脚本（最多三分之一）、到这次 Workflow 调用为止的对话 | 96000 / 48000 |
 | Workflow：分成几个请求同时发 | 同上 | 同上 | 96000 / 每个 32000 |
-| Workflow：agent 启动时当场判断 | 它的真实任务、**启动运行那一轮**的话、那时的摘要和次数 | 那份脚本、到那次 Workflow 调用为止的对话 | 96000 / 32000 |
+| Workflow：agent 派出时当场判断 | 派出带来的任务、**启动运行那一轮**的话、那时的摘要和次数 | 那份脚本、到那次 Workflow 调用为止的对话 | 96000 / 32000 |
 
 - 对话只有文字和工具名，不含文件内容和工具输出；任务和你的话先放，背景填剩下的预算，对话从新往旧放。
 - 预算按 pplx 的回答时间定，不按窗口：pplx 一个请求最多 262,144 token，但 48000 估算 token 单发就要 4.3–5.9 秒，而一次决策最多等 8 秒；几个 agent 一起派出时，同时 5 个 32000 都在 5.2 秒内。`pplxQps` 默认 5，让它们一起发出。

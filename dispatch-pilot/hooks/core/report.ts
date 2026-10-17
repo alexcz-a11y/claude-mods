@@ -24,6 +24,8 @@
 //                           has its data); `fellBack`, the decision model in use
 //                           is not the one asked for; `unplaced`, a pane the
 //                           person asked for that the surface did not place (a
+//                           toast); `unviewed`, a transcript the person asked
+//                           for from the pane that the engine did not show (a
 //                           toast). `io` is what that kind needs of the host
 //                           (`IoOf`): a `ReportIo` for most.
 //   reportStep(io, step)    记一步读数: the reading of one model request, the
@@ -61,16 +63,15 @@ import { isEffort, type Effort } from '../decision/effort.ts'
 import type { BackendName } from './setup.ts'
 import type { UnresolvedChange, UnresolvedOption, UnresolvedThresholds } from '../decision/unresolved.ts'
 import type { CheckTally, VisualCheckRecord } from '../decision/visual-check-record.ts'
-import { fitsTemplate, startedAs, startedIn } from '../decision/workflow-labels.ts'
+import { fitsTemplate } from '../decision/workflow-labels.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
+import { masterOn } from './switches.ts'
 import { profilesAdvance, profilesBegin, profilesEntry, profilesLine, type ProfileEvent, type ProfilesState } from './profile-report.ts'
 
 export type { ProfileEvent, ProfilesState, ProfilesStop } from './profile-report.ts'
 
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
-const WORKFLOW_RUNS = { plugin: 'dispatch-pilot', key: 'workflowRuns' } as const
-const LABEL_RUNS = { plugin: 'dispatch-pilot', key: 'labelRuns' } as const
 
 // ---- the data (mirrors types/index.d.ts) --------------------------------------
 
@@ -366,18 +367,12 @@ type StepReading = {
 type RosterAgent = { id: string; name?: string; description: string; type: string }
 
 /**
- * What the readings need beyond `ReportIo`: the roster of dispatched agents, and the directories of the session's
- * Workflow runs (to tell a Workflow's agent, and its label, from the journal). `stepIo($)` builds it.
+ * What the readings need beyond `ReportIo`: the roster of dispatched agents (a Workflow's agents have their nodes from
+ * their spawns). `stepIo($)` builds it.
  */
 export type StepIo = ReportIo & {
   /** `() => $.agent.list()`: dispatched agents only, a Workflow's are not in it. */
   agents: () => Promise<readonly RosterAgent[]>
-  /** The run directories the mod noted (`workflowRuns`, `labelRuns`), oldest first. */
-  runDirs: () => Promise<readonly string[]>
-  /** A run's journal text; null when it is not there. */
-  journal: (dir: string) => Promise<string | null>
-  /** The text of an agent's `agent-<id>.meta.json` in a run's directory; null when it is not there. */
-  meta: (dir: string, agentId: string) => Promise<string | null>
 }
 
 /** What the module needs of the host, as closures (see the top of the file). */
@@ -410,6 +405,8 @@ export type Reported =
   | { fellBack: DecisionModelEvent }
   /** A pane the person asked for (a digit on the band) that the surface did not place, with the surface's reason; it was closed again. */
   | { unplaced: { reason: string } }
+  /** A transcript the person asked for from the pane (an agent's, or the main one back: `agent` null) that the engine did not show, with its reason. */
+  | { unviewed: { agent: string | null; reason: string } }
 
 /** What a toast of its own needs of the host: the debug log, the clock and the toast. */
 export type NoticeIo = Pick<ReportIo, 'debug' | 'now' | 'toast'>
@@ -424,7 +421,7 @@ type IoOf<R extends Reported> = R extends { switched: true }
     ? ProfilesIo
     : R extends { fellBack: DecisionModelEvent }
       ? DecisionModelIo
-      : R extends { unplaced: unknown }
+      : R extends { unplaced: unknown } | { unviewed: unknown }
         ? NoticeIo
         : ReportIo
 
@@ -440,7 +437,18 @@ export async function report<R extends Reported>(io: IoOf<R>, what: R): Promise<
   if ('switched' in item) return reportSwitch(io as SwitchIo)
   if ('profiles' in item) return reportProfiles(io as ProfilesIo, item.profiles)
   if ('fellBack' in item) return reportFellBack(io as DecisionModelIo, item.fellBack)
+  if ('unviewed' in item) return reportUnviewed(io as NoticeIo, item.unviewed)
   return reportUnplaced(io as NoticeIo, item.unplaced)
+}
+
+/** A transcript the pane asked for and the engine did not show: the debug line and a toast with the engine's reason. Never throws. */
+async function reportUnviewed(io: NoticeIo, unviewed: { agent: string | null; reason: string }): Promise<void> {
+  try {
+    io.debug(`transcript of ${unviewed.agent ?? 'main'} not shown: ${unviewed.reason}`)
+    toastOnce(io, await io.now(), unviewed.agent === null ? `没能回到主对话：${unviewed.reason}` : `没能打开这个 agent 的对话：${unviewed.reason}`)
+  } catch {
+    // a notice that cannot be given leaves the view as it is
+  }
 }
 
 /** The rationale pane was not placed, in the person's words: why (the surface's own reason), and where to look instead. */
@@ -590,10 +598,10 @@ const READING_ATTEMPTS = 32
  * Entry two (记一步读数): reports the reading of one step, the model (by family) and the effort it
  * went out with, whether the effort was routed, and that the agent is running.
  * Reading never changes what is sent. The agent's node is made at its first
- * step when the board has none (named from the roster of dispatched agents, or
- * from the label its Workflow journal gives it; a loop neither knows is not an
- * agent of the board), carries its start, and a reading that differs from the
- * node's previous one adds a change event. Writes the board only when
+ * step when the board has none (named from the roster of dispatched agents; a
+ * Workflow's agent has its node from its spawn, and a loop neither knows is not
+ * an agent of the board), carries its start, and a reading that differs from
+ * the node's previous one adds a change event. Writes the board only when
  * something is new. Never throws.
  */
 export async function reportStep(io: StepIo, step: StepReading): Promise<void> {
@@ -611,8 +619,9 @@ export async function reportStep(io: StepIo, step: StepReading): Promise<void> {
     const seen = main ? now : seenAt(id, now)
     const peek = await read(io.board)
     const before = main ? mainNode(peek) : continuing(peek, id)
-    // A node that has not begun is named now (the roster may know it only from here on); one that has keeps its name.
-    const identity = main || (before !== undefined && begun(before)) ? null : await lookUp(io, id)
+    // A node that has not begun is named now (the roster may know it only from here on); one that has keeps its name, and
+    // a Workflow's agent has its name from its spawn.
+    const identity = main || (before !== undefined && (begun(before) || before.kind === 'wf')) ? null : await lookUp(io, id)
     if (!main && before === undefined && identity === null) return
     const prior = main ? undefined : (before ?? callNodeOf(peek, identity))
     if (!routed && prior?.routed === true && prior.decision !== undefined) routed = await wentOutAsDecided(io, prior.decision, reading)
@@ -627,7 +636,9 @@ export async function reportStep(io: StepIo, step: StepReading): Promise<void> {
         const started = old !== undefined && begun(old)
         // A Workflow's agent that starts takes the place of the node its call stood for, and what was decided for it.
         const stood = old === undefined && !main ? callNodeOf(board, identity) : undefined
-        const base = old ?? { ...newNode(turn, id, identity ?? undefined, 'running'), ...carriedFrom(stood, routed) }
+        // A node made before its first step (a spawn, a decision) that now goes out routed has nothing left to say of why it would not be.
+        const made = old !== undefined && !started && routed ? without(old, 'why', 'failure') : old
+        const base = made ?? { ...newNode(turn, id, identity ?? undefined, 'running'), ...carriedFrom(stood, routed) }
         const named = identity !== null && !started ? { kind: identity.kind, name: identity.name, type: identity.type } : {}
         const next: BoardNode = {
           ...without(base, 'model', 'effort', 'locked', 'dur'),
@@ -674,7 +685,7 @@ async function reportEnd(io: StepIo, end: LoopEnd): Promise<void> {
     const known = main ? mainNode(peek) : continuing(peek, id)
     // The loop is over: whatever its steps missed, it is looked up once more in full.
     missed.delete(id)
-    const identity = main || known !== undefined ? null : (await identify(io, id, { roster: true, dirs: await runDirsOf(io) })).identity
+    const identity = main || known !== undefined ? null : await identify(io, id)
     if (!main && known === undefined && identity === null) return
     const seen = main || known !== undefined ? now : (firstSeen.get(id) ?? now - end.durationMs)
     await modify(
@@ -705,13 +716,19 @@ async function reportEnd(io: StepIo, end: LoopEnd): Promise<void> {
 }
 
 /**
- * Reports a dispatched agent started: queued until its first step. Its node is
- * made (or, when a decision about it made one, marked queued from now); the
- * agent's own first step starts it. Never throws.
+ * Reports an agent started: queued until its first step. Its node is made (or,
+ * when a decision about it made one, marked queued from now); the agent's own
+ * first step starts it. A Workflow's agent (`workflow`: the Workflow tool
+ * call's id) is called by its label, and takes the place of the node its call
+ * stood for. Never throws.
  */
-async function reportSpawn(io: StepIo, spawn: { agentId: string; name?: string; description: string; type: string }): Promise<void> {
+async function reportSpawn(io: StepIo, spawn: { agentId: string; name?: string; description: string; type: string; workflow?: string }): Promise<void> {
   try {
     const now = await io.now()
+    const identity: Identity =
+      spawn.workflow === undefined
+        ? { kind: 'agent', name: nameOf(spawn.name, spawn.description, spawn.agentId), type: spawn.type }
+        : { kind: 'wf', name: nameOf(undefined, spawn.description, spawn.agentId), type: 'workflow' }
     await modify(
       io.board,
       (current) => {
@@ -719,9 +736,11 @@ async function reportSpawn(io: StepIo, spawn: { agentId: string; name?: string; 
         const old = continuing(board, spawn.agentId)
         if (old !== undefined && begun(old)) return undefined
         const turn = old?.turn ?? board.turn
-        const base = old ?? newNode(turn, spawn.agentId, { kind: 'agent', name: nameOf(spawn.name, spawn.description, spawn.agentId), type: spawn.type }, 'queued')
+        const stood = old === undefined ? callNodeOf(board, identity, spawn.workflow) : undefined
+        // Routed as its call was: its first step is checked against the call's decision.
+        const base = old ?? { ...newNode(turn, spawn.agentId, identity, 'queued'), ...carriedFrom(stood, false), routed: stood?.routed ?? false }
         const next: BoardNode = { ...base, state: 'queued', t0: elapsed(board, turn, now) }
-        return { ...board, nodes: [...board.nodes.filter((node) => node !== old), next] }
+        return { ...board, nodes: takenOver(board.nodes, old, stood, next) }
       },
       READING_ATTEMPTS,
     )
@@ -817,88 +836,47 @@ function nameOf(name: string | undefined, description: string, id: string): stri
   return name !== undefined && name !== '' ? name : description !== '' ? description : id
 }
 
-/** Who a loop with no node is, from what the engine and the Workflow journals say; null: not an agent the board shows. */
+/** Who a loop with no node is, from what the engine says; null: not an agent the board shows. */
 type Identity = { kind: 'agent' | 'wf'; name: string; type: string }
 
-/**
- * Who a loop is, by the roster (`roster`) and the journals of the run directories `dirs` (null: none read). `read`
- * is false when the directories or a journal could not be read, so a miss may not be one.
- */
-async function identify(io: StepIo, id: string, look: { roster: boolean; dirs: readonly string[] | null }): Promise<{ identity: Identity | null; read: boolean }> {
-  if (look.roster) {
-    try {
-      const info = (await io.agents()).find((agent) => agent.id === id)
-      if (info !== undefined) return { identity: { kind: 'agent', name: nameOf(info.name, info.description, id), type: info.type }, read: true }
-    } catch (error) {
-      io.debug(`agent roster not read: ${errorText(error)}`)
-    }
-  }
-  if (look.dirs === null) return { identity: null, read: false }
+/** Who a loop is, by the roster; null when it is not there, or the roster cannot be read. */
+async function identify(io: StepIo, id: string): Promise<Identity | null> {
   try {
-    // A Workflow's agents are in no roster: the run it started in has the label it started under, in the agent's
-    // meta.json (small) and in the journal (which a long run grows past what one read takes).
-    for (const dir of [...look.dirs].reverse()) {
-      const meta = await io.meta(dir, id)
-      // A meta.json that names no description says nothing: the journal is read then too.
-      let start = meta === null ? null : startedAs(meta)
-      if (start === null) {
-        const journal = await io.journal(dir)
-        start = journal === null ? null : startedIn(journal, id)
-      }
-      if (start !== null) return { identity: { kind: 'wf', name: start.label, type: 'workflow' }, read: true }
-    }
+    const info = (await io.agents()).find((agent) => agent.id === id)
+    return info === undefined ? null : { kind: 'agent', name: nameOf(info.name, info.description, id), type: info.type }
   } catch (error) {
-    io.debug(`workflow journals not read: ${errorText(error)}`)
-    return { identity: null, read: false }
-  }
-  return { identity: null, read: true }
-}
-
-/** The session's Workflow run directories, oldest first; null when they cannot be read. */
-async function runDirsOf(io: StepIo): Promise<readonly string[] | null> {
-  try {
-    return await io.runDirs()
-  } catch (error) {
-    io.debug(`workflow journals not read: ${errorText(error)}`)
+    io.debug(`agent roster not read: ${errorText(error)}`)
     return null
   }
 }
 
 /**
- * The loops a step found no one to be, by id: how many of its steps have looked, and the run directories whose
- * journals it was looked for in (null: they could not be read). Module state: a hot reload forgets it, and costs each
- * such loop one full look-up more.
+ * The loops a step found no one to be, by id: how many of their steps have looked. Module state: a hot reload forgets
+ * it, and costs each such loop one look-up more.
  */
-const missed = new Map<string, { sightings: number; dirs: string | null }>()
+const missed = new Map<string, number>()
 const MISSED_KEPT = 64
 
 /**
  * `identify` for a step, at most as often as the answer can change: the first step of a loop no one knows (an engine
- * fork) reads the roster and every run's journal, and its later steps would read them all again. After a miss, the
- * journals are read again only once the session has another run directory (a Workflow's agent can step before its run
- * is recorded); the roster at the loop's 2nd, 4th, 8th... step (an agent it lists late), and the journals too when they
- * could not be read the time before.
+ * fork) reads the roster, and its later steps would read it again. After a miss, the roster is read again at the
+ * loop's 2nd, 4th, 8th... step (an agent it lists late).
  */
 async function lookUp(io: StepIo, id: string): Promise<Identity | null> {
-  const miss = missed.get(id)
-  const sightings = (miss?.sightings ?? 0) + 1
-  const roster = miss === undefined || (sightings & (sightings - 1)) === 0
-  const dirs = await runDirsOf(io)
-  const seen = dirs === null ? null : dirs.join('\n')
-  const journals = miss === undefined || seen === null || miss.dirs === null ? roster : seen !== miss.dirs
-  const found = roster || journals ? await identify(io, id, { roster, dirs: journals ? dirs : null }) : { identity: null, read: true }
+  const sightings = (missed.get(id) ?? 0) + 1
+  const found = missed.get(id) === undefined || (sightings & (sightings - 1)) === 0 ? await identify(io, id) : null
   // The newest miss goes last, so the oldest go first past `MISSED_KEPT`.
   missed.delete(id)
-  if (found.identity !== null) return found.identity
-  missed.set(id, { sightings, dirs: !journals ? (miss?.dirs ?? null) : found.read ? seen : null })
+  if (found !== null) return found
+  missed.set(id, sightings)
   for (const key of missed.keys()) if (missed.size > MISSED_KEPT) missed.delete(key)
   return null
 }
 
 /**
  * When a loop no node was made for was first seen (module state: a hot reload forgets it, and an agent only
- * found later then starts at that step). A Workflow's first agent can step before its run is recorded, so its
- * name comes with a later step, or with the end of its loop, and starts when it first stepped.
+ * found later then starts at that step). An agent the roster lists late has its name from a later step, or from
+ * the end of its loop, and starts when it first stepped.
  */
 const firstSeen = new Map<string, number>()
 const FIRST_SEEN_KEPT = 64
@@ -913,13 +891,16 @@ function seenAt(id: string, now: number): number {
 
 /**
  * The node a Workflow call of a script stands for before its agent starts (a decision was made for the call, or it
- * was left as written): one of the Workflow's calls, queued and called what the agent's label is; else one whose
- * label is a template the agent's label fits (`verify:${b.id}` for `verify:st4`), queued or already started by
- * another of its agents. Null when there is none, or the agent is not a Workflow's.
+ * was left as written): one of the Workflow's calls (of the Workflow `workflow`, when it is given), queued and called
+ * what the agent's label is; else one whose label is a template the agent's label fits (`verify:${b.id}` for
+ * `verify:st4`), queued or already started by another of its agents. Null when there is none, or the agent is not a
+ * Workflow's.
  */
-function callNodeOf(board: Board, identity: Identity | null | undefined): BoardNode | undefined {
+function callNodeOf(board: Board, identity: Identity | null | undefined, workflow?: string): BoardNode | undefined {
   if (identity === null || identity === undefined || identity.kind !== 'wf') return undefined
-  const calls = board.nodes.filter((node) => node.kind === 'wf' && node.workflow !== undefined && callWorkflowOf(node.id) === node.workflow.id)
+  const calls = board.nodes.filter(
+    (node) => node.kind === 'wf' && node.workflow !== undefined && callWorkflowOf(node.id) === node.workflow.id && (workflow === undefined || node.workflow.id === workflow),
+  )
   return (
     calls.find((node) => node.state === 'queued' && node.name === identity.name) ??
     calls.find((node) => (node.state === 'queued' || node.state === 'running') && fitsTemplate(node.name, identity.name))
@@ -1022,7 +1003,6 @@ function startTurn(board: Board | undefined, now: number): Board {
  * the same file, so the core builds its `StepIo` itself (core.ts, `turn.step`): keep the two alike.
  */
 function stepIo($: EngineInterface): StepIo {
-  const textAt = async (path: string) => ((await $.fs.exists(path)) ? await $.fs.read(path).catch(() => null) : null)
   return {
     board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
     decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
@@ -1030,12 +1010,6 @@ function stepIo($: EngineInterface): StepIo {
     now: () => $.clock.now(),
     toast: (text) => $.ui.toast(text),
     agents: () => $.agent.list(),
-    runDirs: async () => {
-      const [noted, labelled] = await Promise.all([$.state.get(WORKFLOW_RUNS), $.state.get(LABEL_RUNS)])
-      return [...new Set([...(noted.value ?? []), ...(labelled.value ?? [])].map((run) => run.dir))]
-    },
-    journal: (dir) => textAt(`${dir}/journal.jsonl`),
-    meta: (dir, agentId) => textAt(`${dir}/agent-${agentId}.meta.json`),
   }
 }
 
@@ -1060,9 +1034,16 @@ export function registerReport(on: On): void {
 
   on('agent.spawn', { tool_use_id: /(?:)/ }, async ($, e, next) => {
     const result = await next(e)
-    // A Workflow's agent (spawned too, 2.1.294 on) gets its node at its first step, from its run's journal: in its call's place.
-    if (result.deny !== undefined || result.agentId === undefined || e.workflow !== undefined) return result
-    await reportSpawn(stepIo($), { agentId: result.agentId, ...(e.name === undefined ? {} : { name: e.name }), description: e.description, type: e.subagentType })
+    if (result.deny !== undefined || result.agentId === undefined) return result
+    // A Workflow's agent is on the board, in its call's place, while Dispatch Pilot is on.
+    if (e.workflow !== undefined && !masterOn()) return result
+    await reportSpawn(stepIo($), {
+      agentId: result.agentId,
+      ...(e.name === undefined ? {} : { name: e.name }),
+      description: e.description,
+      type: e.subagentType,
+      ...(e.workflow === undefined ? {} : { workflow: e.tool_use_id }),
+    })
     return result
   })
 
@@ -1127,26 +1108,54 @@ function newNode(turn: number, id: string, node: About['node'], state: AgentStat
 /** The board with the decision on its agent's node of `turn` (the node made when there is none), `n` the decision's number in the log when it has one. */
 function withNode(board: Board, turn: number, decision: Decided | NotDecided | Left | Started, n: number | undefined): Board {
   const old = board.nodes.find((node) => node.turn === turn && node.id === decision.agent)
+  const late = old === undefined ? lateCall(board, turn, decision, n) : undefined
+  if (late !== undefined) return late
   // The node that stood for the agent before it started gives it what was decided for it, and goes (a template's stays, started).
   const stood = old === undefined && decision.replaces !== undefined ? board.nodes.find((node) => node.id === decision.replaces) : undefined
   const inherited = stood?.decision === undefined ? {} : { decision: stood.decision }
   const base = old ?? { ...newNode(turn, decision.agent, decision.node, decision.forTurn === 'next' ? 'queued' : 'running'), ...inherited }
+  return { ...board, nodes: takenOver(board.nodes, old, stood, decided(base, decision, n)) }
+}
+
+/** `base` with the decision on it: what was decided and whether it routed, or why not. */
+function decided(base: BoardNode, decision: Decided | NotDecided | Left | Started, n: number | undefined): BoardNode {
   const routed = decision.routed === undefined ? {} : { routed: decision.routed }
-  let next: BoardNode
-  if ('failure' in decision) {
-    next = { ...base, ...routed, why: failureLine(decision.failure.backend, decision.failure), failure: decision.failure }
-  } else if ('why' in decision) {
-    next = { ...without(base, 'failure'), routed: false, why: decision.why }
-  } else if ('started' in decision) {
-    next = { ...without(base, 'why', 'failure'), routed: true, state: 'running' }
-  } else {
-    next = {
-      ...(decision.routed === true ? without(base, 'why', 'failure') : base),
-      ...routed,
-      ...(n === undefined ? {} : { decision: n }),
-    }
+  if ('failure' in decision) return { ...base, ...routed, why: failureLine(decision.failure.backend, decision.failure), failure: decision.failure }
+  if ('why' in decision) return { ...without(base, 'failure'), routed: false, why: decision.why }
+  if ('started' in decision) return { ...without(base, 'why', 'failure'), routed: true, state: 'running' }
+  return {
+    ...(decision.routed === true ? without(base, 'why', 'failure') : base),
+    ...routed,
+    ...(n === undefined ? {} : { decision: n }),
   }
-  return { ...board, nodes: takenOver(board.nodes, old, stood, next) }
+}
+
+/**
+ * The board once a Workflow call's decision reaches it after the call's agents have started, undefined when none has:
+ * the engine spawns a run's first agents before the Workflow tool returns (2.1.302), and workflow-agents reports its
+ * calls after it does, so an agent can be on the board, named by its label, before its call. Each such agent of this
+ * turn (one not yet of any Workflow, nor decided, called what the call is or fitting its template) takes the decision
+ * and the Workflow; the call waits on the board no more (a template's stays, started, for its agents to come).
+ */
+function lateCall(board: Board, turn: number, decision: Decided | NotDecided | Left | Started, n: number | undefined): Board | undefined {
+  const node = decision.node
+  if (callWorkflowOf(decision.agent) === null || node?.kind !== 'wf' || node.workflow === undefined) return undefined
+  const started = board.nodes.filter(
+    (one) =>
+      one.turn === turn &&
+      one.kind === 'wf' &&
+      callWorkflowOf(one.id) === null &&
+      one.workflow === undefined &&
+      one.decision === undefined &&
+      (one.state === 'queued' || one.state === 'running') &&
+      (one.name === node.name || fitsTemplate(node.name, one.name)),
+  )
+  if (started.length === 0) return undefined
+  const taken = new Map(started.map((one) => [one, { ...decided({ ...one, workflow: node.workflow }, decision, n), state: one.state }] as const))
+  const nodes = board.nodes.map((one) => taken.get(one) ?? one)
+  // A template's call stands for its agents still to come: started, so the screens leave it out (`isCallNode`).
+  const template = node.name.includes('${') ? [decided({ ...newNode(turn, decision.agent, node, 'running'), state: 'running' }, decision, n)] : []
+  return { ...board, nodes: [...nodes, ...template] }
 }
 
 /** The value of a cell, or the empty board. */

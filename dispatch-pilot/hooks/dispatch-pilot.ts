@@ -20,6 +20,7 @@ import { registerFindSkill } from './features/find-skill.ts'
 import { registerImageRouting } from './features/image-routing.ts'
 import { registerMainEffort } from './features/main-effort.ts'
 import { registerMidturnEffort } from './features/midturn-effort.ts'
+import { registerPromptHint } from './features/prompt-hint.ts'
 import { registerReferenceMidturn } from './features/reference-midturn.ts'
 import { registerUnresolved } from './features/unresolved.ts'
 import { registerVisualCheck } from './features/visual-check.ts'
@@ -60,6 +61,8 @@ export const register: Register = (on, options) => {
   registerVisualCheck(on, ctx)
   registerScreenshotTakeover(on, ctx)
   registerImageRouting(on, ctx)
+  // The prompt box's hint: it decides nothing, and reads only the switches and the lock.
+  registerPromptHint(on)
 
   // The core: always last.
   registerCore(on, ctx)

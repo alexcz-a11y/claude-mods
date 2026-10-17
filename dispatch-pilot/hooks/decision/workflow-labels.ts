@@ -1,22 +1,21 @@
 // The Workflow fallback (#9): which `agent()` call of a script an agent of a
-// running Workflow stands for, found by the label the engine recorded for it,
-// and what to set on that agent's steps.
+// running Workflow stands for, found by the label it is spawned with, and what
+// the main agent is told of it.
 //
-// A Workflow's agents never pass `agent.spawn`, and the workflow-agents
-// feature (#8) can write their model and effort into the script only when the
-// script is inline and it can read the call. For the rest (a script given by
-// path or by name, a resumed run, a script it cannot read, a call whose prompt
-// is data), the model and effort are set on each agent's own steps: the run's
-// journal says which label each agent started under, the label says which call
-// it is, and the call's decision (made when the run started, or from the
-// agent's own prompt when it starts) goes into the plan table.
+// The workflow-agents feature (#8) can write the agents' model and effort into
+// the script only when the script is inline and it can read the call. For the
+// rest (a script given by path or by name, a resumed run, a script it cannot
+// read, a call whose prompt is data), each agent is routed as it is spawned
+// (`agent.spawn` with `e.workflow`, 2.1.300 on): the spawn's `description` is
+// its label, the label says which call it is, and the call's decision (made
+// when the run started, or from the agent's own prompt then) sets the spawn's
+// model and goes into the plan table.
 //
 // Pure (see system-one.ts).
 
 import type { Failure } from './backend.ts'
-import { modelFamily, termsOf, type AgentModel, type Terms } from './dispatched-agent.ts'
+import { termsOf, type AgentModel, type Terms } from './dispatched-agent.ts'
 import type { Effort } from './effort.ts'
-import { modelId } from './model-ids.ts'
 import { cooked, templatePieces, type AgentCall, type Written } from './workflow-script.ts'
 import { callName, decidedAtStart, decidedLine, outcomeOf, type CallOutcome, type Skipped } from './workflow.ts'
 
@@ -29,18 +28,18 @@ export type SiteRoute =
   /** Left to the script: the workflow-agents feature wrote it, it already says what was decided, or no decision was made. */
   | { kind: 'script' }
 
-/** How a label the journal recorded is told to be a call's. */
+/** How the label an agent is spawned with is told to be a call's. */
 export type LabelMatch =
   /** A label the script writes as a string: that string. */
   | { kind: 'exact'; label: string }
   /** A template label: a regular expression's source, its `${...}` matching anything. */
   | { kind: 'pattern'; source: string }
-  /** No label: the engine records the prompt's start; `whole` when the prompt has no placeholder, so `head` is all of it. */
+  /** No label: the engine labels the agent with the prompt's start; `whole` when the prompt has no placeholder, so `head` is all of it. */
   | { kind: 'head'; head: string; whole: boolean }
   /** Nothing to tell it by: a label, or a prompt without one, that the script works out when it runs. */
   | { kind: 'none' }
 
-/** One `agent()` call of a run's script, as the fallback keeps it (`labelRuns` in types/index.d.ts). */
+/** One `agent()` call of a run's script, as this feature keeps it (`labelRuns` in types/index.d.ts). */
 export type RunSite = {
   /** The line it starts on, for the log. */
   line: number
@@ -89,14 +88,14 @@ function routeOf(outcome: CallOutcome | undefined): SiteRoute {
 }
 
 /**
- * How the label the engine records for one of the call's agents is told to be
- * this call's. A label the script writes as a string is that string. A
- * template label (`migrate:${file}`, read as written: the parser keeps its
- * `${...}`) is a pattern: its own text must be there, each placeholder matches
- * anything; one with no text of its own says nothing. A call without a label
- * is recorded under the start of its prompt (measured on 2.1.289: whitespace
- * collapsed, cut at 60 characters): a string prompt's start, or a template's
- * own text before its first placeholder.
+ * How the label the engine gives one of the call's agents is told to be this
+ * call's. A label the script writes as a string is that string. A template
+ * label (`migrate:${file}`, read as written: the parser keeps its `${...}`) is
+ * a pattern: its own text must be there, each placeholder matches anything;
+ * one with no text of its own says nothing. A call without a label is labelled
+ * with the start of its prompt (measured on 2.1.289: whitespace collapsed, cut
+ * at 60 characters): a string prompt's start, or a template's own text before
+ * its first placeholder.
  */
 function matchOf(call: AgentCall): LabelMatch {
   if (call.labelKind === 'string' && call.label !== null) return { kind: 'exact', label: call.label }
@@ -133,7 +132,7 @@ export function fitsTemplate(written: string, label: string): boolean {
   return source !== null && new RegExp(source).test(label)
 }
 
-/** How many characters of a prompt the engine records as the label of a call without one. */
+/** How many characters of a prompt the engine labels the agent of a call without a label with. */
 const ENGINE_LABEL = 60
 
 /** Text with each run of whitespace one space, trimmed: how a label and a prompt's start compare. */
@@ -141,7 +140,7 @@ function flat(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
 }
 
-/** Whether `label` is what the engine records for a call without one whose prompt starts as `match` says. */
+/** Whether `label` is what the engine labels the agent of a call without one, whose prompt starts as `match` says, with. */
 function startsAs(label: string, match: { head: string; whole: boolean }): boolean {
   const recorded = flat(label)
   if (match.whole || match.head.length >= ENGINE_LABEL) return recorded === flat(match.head.slice(0, ENGINE_LABEL))
@@ -152,45 +151,11 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-/** What the engine's journal says of one agent: the label it started under. */
-export type JournalStart = { label: string; phase: string | null }
-
 /**
- * What an agent's `agent-<agentId>.meta.json` in its run's directory says it started as: its `description` is the
- * label the journal records (the call's label, else its prompt shortened the same way), `workflowPhase` its phase. The
- * engine writes it before the agent's first step (2.1.289), and it stays small however long the run's journal grows.
- * Null when it says neither.
- */
-export function startedAs(meta: string): JournalStart | null {
-  try {
-    const row = JSON.parse(meta) as { description?: unknown; workflowPhase?: unknown }
-    return typeof row.description === 'string' ? { label: row.description, phase: typeof row.workflowPhase === 'string' ? row.workflowPhase : null } : null
-  } catch {
-    return null
-  }
-}
-
-/** The `started` line of `agentId` in a run's journal (`journal.jsonl`); null when the agent is not in it (yet). */
-export function startedIn(journal: string, agentId: string): JournalStart | null {
-  for (const line of journal.split('\n')) {
-    if (!line.includes(agentId)) continue
-    try {
-      const row = JSON.parse(line) as { type?: unknown; agentId?: unknown; label?: unknown; phase?: unknown }
-      if (row.type === 'started' && row.agentId === agentId && typeof row.label === 'string') {
-        return { label: row.label, phase: typeof row.phase === 'string' ? row.phase : null }
-      }
-    } catch {
-      // a line being written: not this agent's
-    }
-  }
-  return null
-}
-
-/**
- * The calls of `sites` an agent the journal recorded under `label` can be
- * one of: the calls whose string label it is; else those whose template it
- * fits; else, when none does, the calls nothing tells apart (a label or prompt
- * the script works out when it runs).
+ * The calls of `sites` an agent spawned with `label` can be one of: the
+ * calls whose string label it is; else those whose template it fits; else,
+ * when none does, the calls nothing tells apart (a label or prompt the script
+ * works out when it runs).
  */
 export function sitesFor(label: string, sites: readonly RunSite[]): RunSite[] {
   const exact = sites.filter((site) => site.match.kind === 'exact' && site.match.label === label)
@@ -221,40 +186,10 @@ export function isRelayedRequest(text: string): boolean {
   return text.trimStart().startsWith(RELAYED_REQUEST)
 }
 
-/**
- * The task a workflow agent was given, from its transcript
- * (`agent-<agentId>.jsonl`): the first user message (past one that relays
- * the person's request, as some engines write first), without the frame the
- * engine puts around a task a script computed. Null when the transcript holds
- * no such message (yet).
- */
-export function taskOf(transcript: string): string | null {
-  for (const line of transcript.split('\n')) {
-    let row: { type?: unknown; message?: { role?: unknown; content?: unknown } }
-    try {
-      row = JSON.parse(line) as typeof row
-    } catch {
-      continue
-    }
-    if (row.type !== 'user' || row.message?.role !== 'user') continue
-    const content = row.message.content
-    const text = typeof content === 'string' ? content : Array.isArray(content) ? content.map((block: { text?: unknown }) => (typeof block?.text === 'string' ? block.text : '')).join('') : ''
-    if (isRelayedRequest(text)) continue
-    return computedTask(text) ?? (text.trim() === '' ? null : text)
-  }
-  return null
-}
-
-/** Whether `label` is only what the engine records for an agent of a call without a label: the start of its task. */
+/** Whether `label` is only what the engine labels the agent of a call without one with: the start of its task. */
 export function isTaskStart(label: string, task: string): boolean {
   const recorded = flat(label)
   return recorded !== '' && flat(flat(task).slice(0, ENGINE_LABEL)) === recorded
-}
-
-/** What one agent's steps go out with: a model id when it changes the step's family (null keeps the step's own), and the effort. */
-export function agentPlan(route: { model: AgentModel | null; effort: Effort | null }, stepModel: string): { model: string | null; effort: Effort | null } {
-  const model = route.model !== null && route.model !== modelFamily(stepModel) ? modelId(route.model) : null
-  return { model, effort: route.effort }
 }
 
 /** How the Workflow tool was handed the script: inline (`script`), by `scriptPath`, by `name`, or inline to resume an earlier run. */

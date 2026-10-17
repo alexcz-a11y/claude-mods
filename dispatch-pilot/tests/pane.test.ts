@@ -510,3 +510,59 @@ test('entries too big for the usual window (each lists dozens of skills) are dra
   expect(await ui.find({ key: 'pane-entry-1' })).toBeUndefined()
   expect(shown(await ui.find({ key: 'pane-log-more-1' }))).toMatch(/更早 \d+ 条/)
 })
+
+// ---- an agent's transcript in the main view (`$.ui.view`, 2.1.300) ---------------------------------------------------
+
+test("a dispatched agent's card offers its transcript (x): the press puts it in the main view; a view the engine refuses says why in a toast", { options: KEY }, async ($, on) => {
+  const views: { agentId?: string }[] = []
+  let refuse: string | undefined
+  on('ui.view', (_$, e) => {
+    views.push(e)
+    // The engine's own refusal is its answer, not a hook's deny.
+    return { value: refuse === undefined ? {} : { deny: refuse } }
+  })
+  const w = runWorld($, on, { backend: jev([0, 1, 0, 0, 0], { choice: 'sonnet' }) })
+  await w.submit('派个 agent 去审查登录模块')
+  await w.step({ index: 0 })
+  const started = await w.spawn({ prompt: 'Review src/auth/login.ts and list the risks.', description: '审查登录模块' })
+  await w.agentStep(started.agentId ?? '', { index: 0, model: 'claude-sonnet-5-5', effort: 'medium' })
+
+  const ui = await w.pane()
+  // The main agent's own card: nothing to open.
+  expect(await ui.find({ key: 'pane-view-button' })).toBeUndefined()
+  await ui.press({ key: 'pane-next' })
+  expect(shown(await ui.find({ key: 'pane-view' }))).toContain('看它的对话 (x)')
+  await ui.press({ key: 'pane-view-button' })
+  expect(views).toEqual([{ agentId: started.agentId }])
+
+  refuse = 'no agent holds the id'
+  await ui.press({ key: 'pane-view-button' })
+  expect(w.toasts.at(-1)?.text).toBe('没能打开这个 agent 的对话：no agent holds the id')
+})
+
+test("while an agent's transcript is in the main view, the pane offers the main conversation back (x), whichever card is picked", { options: KEY }, async ($, on) => {
+  const views: { agentId?: string }[] = []
+  on('ui.view', (_$, e) => {
+    views.push(e)
+    return { value: {} }
+  })
+  const w = runWorld($, on, { backend: jev([0, 1, 0, 0, 0], { choice: 'sonnet' }) })
+  await w.submit('派个 agent 去审查登录模块')
+  const started = await w.spawn({ prompt: 'Review src/auth/login.ts and list the risks.', description: '审查登录模块' })
+  const ui = await w.pane({ view: started.agentId })
+  expect(shown(await ui.find({ key: 'pane-view' }))).toContain('↩ 回主对话 (x)')
+  await ui.press({ key: 'pane-view-button' })
+  expect(views).toEqual([{}])
+})
+
+test("a Workflow agent's card offers no transcript: the engine refuses to show a run's agent (2.1.302)", { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, {})
+  await w.submit('跑一个 workflow')
+  await w.workflow({ script: "export const meta = { name: 'audit', description: 'audit', phases: [] }\nconst a = await agent('Audit the auth module.', { label: 'review-auth' })\nreturn a\n" })
+  await w.started('wf_test-1', 'wa1', 'review-auth')
+  await w.agentStep('wa1', { index: 0 })
+  const ui = await w.pane()
+  await ui.press({ key: 'pane-next' })
+  expect(shown(await ui.find({ key: 'pane-head' }))).toContain('review-auth')
+  expect(await ui.find({ key: 'pane-view-button' })).toBeUndefined()
+})

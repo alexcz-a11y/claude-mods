@@ -38,8 +38,6 @@ const AGENTS = { plugin: 'dispatch-pilot', key: 'agents' } as const
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
-const WORKFLOW_RUNS = { plugin: 'dispatch-pilot', key: 'workflowRuns' } as const
-const LABEL_RUNS = { plugin: 'dispatch-pilot', key: 'labelRuns' } as const
 const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 
 /** Prompts whose prompt.submit is letting them in right now: a turn that starts meanwhile is theirs. */
@@ -130,18 +128,6 @@ export function registerCore(on: On, ctx: Ctx): void {
       now: () => $.clock.now(),
       toast: (text) => $.ui.toast(text),
       agents: () => $.agent.list(),
-      runDirs: async () => {
-        const [noted, labelled] = await Promise.all([$.state.get(WORKFLOW_RUNS), $.state.get(LABEL_RUNS)])
-        return [...new Set([...(noted.value ?? []), ...(labelled.value ?? [])].map((run) => run.dir))]
-      },
-      journal: async (dir) => {
-        const path = `${dir}/journal.jsonl`
-        return (await $.fs.exists(path)) ? await $.fs.read(path).catch(() => null) : null
-      },
-      meta: async (dir, agentId) => {
-        const path = `${dir}/agent-${agentId}.meta.json`
-        return (await $.fs.exists(path)) ? await $.fs.read(path).catch(() => null) : null
-      },
     }
     await reportStep(io, { ...(agentId === undefined ? {} : { agentId }), model: step.model, effort: step.effort, source })
     return yield* next(step)
