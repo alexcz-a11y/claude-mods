@@ -107,3 +107,26 @@ export function parseOverrides(stored: unknown): Record<string, boolean> {
 export function loadOverrides(stored: unknown): void {
   flipped = parseOverrides(stored)
 }
+
+/** The `$.store` key the person's switches are kept under. */
+export const SWITCHES_KEY = 'switches'
+
+/** Where the person's switches are kept (`$.store` under `SWITCHES_KEY`), as the caller reaches it. */
+export type SwitchStore = { get: () => Promise<unknown>; set: (value: Record<string, boolean>) => Promise<unknown> }
+
+/**
+ * Keeps one switch as the person just flipped it (`/dp <name> on|off`, the pane's buttons), beside whatever another
+ * session saved meanwhile; false when the store cannot be used.
+ */
+export async function keepSwitch(store: SwitchStore, name: string): Promise<boolean> {
+  try {
+    const saved = parseOverrides(await store.get())
+    const now = overrides()[name]
+    if (now === undefined) delete saved[name]
+    else saved[name] = now
+    await store.set(saved)
+    return true
+  } catch {
+    return false
+  }
+}

@@ -34,6 +34,8 @@ export type PaneState = {
   folds: { turn: number; open: boolean }[]
   /** The skills that got no profile are listed. */
   failures: boolean
+  /** Off the terminal: the switches and the lock are shown at the bottom of the pane (folded at first). */
+  switches?: boolean
 }
 
 export const NO_PANE_STATE: PaneState = { folds: [], failures: false }

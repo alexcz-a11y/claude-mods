@@ -30,7 +30,7 @@ import { failureMeaning } from '../decision/backend.ts'
 import type { Effort } from '../decision/effort.ts'
 import { EFFORTS } from '../decision/effort.ts'
 import { type LogEntry, type ProfilesState, type Tone } from '../core/report.ts'
-import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, MODEL_FG, MUTED, OK, pct, skillsText, softColor, stateGlyph, STATUS_COLOR, WARN, width, type Marks, type TT } from './kit.tsx'
+import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, effortWord, MODEL_FG, MUTED, OK, pct, skillsText, softColor, stateGlyph, STATUS_COLOR, WARN, width, type Marks, type TT } from './kit.tsx'
 import {
   cardOf,
   entryVerb,
@@ -52,7 +52,7 @@ import { referenceWords } from './reference.ts'
 import { FEATURE_WORDS, featureOf, levelOf, type AgentRow, type ScreenView } from './view.ts'
 
 /** What the pane is drawn from. */
-type PaneInput = {
+export type PaneInput = {
   view: ScreenView
   log: readonly LogEntry[]
   /** How the session's skill profiles went; null when there is no record, or the skills or skill-profiles switch is off. */
@@ -74,6 +74,8 @@ type PaneInput = {
    * label itself, and VS Code and the mobile app take no keys, so there the label is the words alone. Absent: true.
    */
   spellKeys?: boolean
+  /** Whether the engine can put an agent's transcript in the main view (`$.ui.view`, from 2.1.300): without it no 看它的对话. Absent: true. */
+  canView?: boolean
 }
 
 /** A Button's label with its key spelled after it where the surface does not draw the key itself. */
@@ -81,18 +83,22 @@ function keyed(label: string, key: string, spell: boolean | undefined): string {
   return spell === false ? label : `${label} (${key})`
 }
 
-/** What the pane's Buttons do: pick another agent's card, show an agent's transcript (null: the main one), fold or open a turn of the log, list the failed skills. */
-type PaneActs = {
+/**
+ * What the pane's Buttons do: pick another agent's card, show an agent's transcript (null: the main one), fold or open
+ * a turn of the log, list the failed skills; `close`, off the terminal (where Esc closes it), the pane's own 关闭.
+ */
+export type PaneActs = {
   pick: (row: AgentRow) => void
   view: (agentId: string | null) => void
   fold: (turn: number, open: boolean) => void
   failures: (open: boolean) => void
+  close?: () => void
 }
 
-const LOG_COLOR: Record<Tone, string> = { ok: OK, warn: WARN, fail: BAD, info: MUTED }
-const LOG_GLYPH: Record<Tone, string> = { ok: '✔', warn: '⚠', fail: '✘', info: '·' }
+export const LOG_COLOR: Record<Tone, string> = { ok: OK, warn: WARN, fail: BAD, info: MUTED }
+export const LOG_GLYPH: Record<Tone, string> = { ok: '✔', warn: '⚠', fail: '✘', info: '·' }
 /** The order a turn's header counts its tones in. */
-const LOG_TONES: readonly Tone[] = ['ok', 'info', 'warn', 'fail']
+export const LOG_TONES: readonly Tone[] = ['ok', 'info', 'warn', 'fail']
 const MARK: Record<StepMark, { glyph: string; color: string }> = {
   hit: { glyph: '●', color: ACCENT },
   pass: { glyph: '○', color: MUTED },
@@ -108,7 +114,7 @@ const NUMBER = 6
 const HEAD_BESIDE = 48
 
 /** An empty row. */
-function blank(t: TT, key: string) {
+export function blank(t: TT, key: string) {
   const { Box, Text } = t
   return (
     <Box key={key}>
@@ -138,6 +144,11 @@ export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, m
             <Text color={MUTED}>{`  ${card.index + 1}/${card.count}`}</Text>
           </Box>
         )}
+        {act.close === undefined ? null : (
+          <Box key="pane-close-box" flexShrink={0} paddingLeft={2}>
+            <Button key="pane-close" label="关闭" role="dismiss" plain dimColor onPress={act.close} />
+          </Box>
+        )}
       </Box>
       {topLines(t, input, cols, act)}
       <Box key="pane-nav" width={cols} flexWrap="wrap">
@@ -150,7 +161,7 @@ export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, m
         <Box flexShrink={0}>
           <Button key="pane-next" label={keyed('下一个 ›', 'n', input.spellKeys)} hotkey="n" variant="primary" onPress={() => (next === null ? undefined : act.pick(next))} />
         </Box>
-        {viewButton(t, card.row, input.viewing, act, input.spellKeys)}
+        {input.canView === false ? null : viewButton(t, card.row, input.viewing, act, input.spellKeys)}
         <Box flexGrow={1} flexShrink={1}>
           <Text color={MUTED} wrap="wrap">{input.spellKeys === false ? '  band 上点 agent 直接选' : '  band 上按 0-9 直接选'}</Text>
         </Box>
@@ -170,7 +181,7 @@ export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, m
  * there: none for the main agent's own card. Nor for a Workflow's agent: the engine refuses to show one (2.1.302, measured:
  * `$.ui.view` answers that no agent is under that id).
  */
-function viewButton(t: TT, row: AgentRow | null, viewing: string | null, act: PaneActs, spellKeys: boolean | undefined): RenderNode[] {
+export function viewButton(t: TT, row: AgentRow | null, viewing: string | null, act: PaneActs, spellKeys: boolean | undefined): RenderNode[] {
   const { Box, Button, Text } = t
   const back = viewing !== null
   if (!back && (row === null || row.node.kind !== 'agent')) return []
@@ -188,7 +199,7 @@ function viewButton(t: TT, row: AgentRow | null, viewing: string | null, act: Pa
 // ---- the problem summary -------------------------------------------------------------------
 
 /** The problem summary in full (the decision model reads it beside the conversation): nothing at all while there is none. */
-function summaryRows(t: TT, summary: PaneInput['summary'], cols: number): RenderNode[] {
+export function summaryRows(t: TT, summary: PaneInput['summary'], cols: number): RenderNode[] {
   const { Box, Text } = t
   if (summary === null) return []
   const w = Math.max(10, cols - 2)
@@ -322,7 +333,12 @@ function hang(t: TT, key: string, label: string, content: RenderNode, w: number,
   )
 }
 
-function cardRows(t: TT, card: Card, input: PaneInput, w: number, marks: Marks | undefined): RenderNode[] {
+/**
+ * The card's rows: its head (the agent's name, model and effort), its state, the decision its route came from, its
+ * forced raises and mid-turn re-decisions. `app` for the other surfaces: a larger name and the effort as its word,
+ * the rules as a list without the rail, the probabilities' shares on the line under their bar (pane-app.tsx).
+ */
+export function cardRows(t: TT, card: Card, input: PaneInput, w: number, marks: Marks | undefined, app = false): RenderNode[] {
   const { Box, Text } = t
   const row = card.row
   if (row === null) {
@@ -353,7 +369,22 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, marks: Marks |
   )
   // Narrow, the readout goes under the name: the name keeps its room.
   const beside = w >= HEAD_BESIDE
-  const rows: RenderNode[] = [
+  const head = app
+    ? [
+        <Box key="pane-card-head" width={w} flexWrap="wrap">
+          <Box flexShrink={1} paddingRight={1}>
+            <Text size="heading" weight="semibold" wrap="wrap">{node.name}</Text>
+          </Box>
+          <Box flexShrink={0} paddingRight={1} alignItems="center">
+            {chip(t, node.model, node.routed)}
+          </Box>
+          <Box flexShrink={0} alignItems="center">
+            {effortWord(t, node.effort)}
+          </Box>
+        </Box>,
+      ]
+    : null
+  const rows: RenderNode[] = head !== null ? [...head, hang(t, 'pane-card-state', '状态', text(row.status.text, STATUS_COLOR[row.status.tone]), w)] : [
     <Box key="pane-card-head" width={w}>
       <Box width={2} flexShrink={0}>
         {main ? <Text color={node.routed ? ACCENT : WARN}>◆</Text> : stateGlyph(t, node.state, input.view.frame, node.routed)}
@@ -384,13 +415,13 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, marks: Marks |
   if (row.checks !== '') rows.push(hang(t, 'pane-card-checks', '看图核对', text(row.checks), w, 10))
   if (node.locked === true) rows.push(hang(t, 'pane-card-lock', '锁定', text('照 /dp lock 发出这一档；决定照常记下，不影响发出的 effort（/dp unlock 解除）', MUTED), w))
   const route = card.route
-  if (route !== undefined) rows.push(...decisionRows(t, route, main, w, marks))
+  if (route !== undefined) rows.push(...decisionRows(t, route, main, w, marks, app))
   for (const raise of card.raises) {
     rows.push(blank(t, `pane-raise-gap-${raise.n}`))
     rows.push(hang(t, `pane-raise-${raise.n}`, '强制升档', text(`#${raise.n} ${raise.subject}${raise.counts === undefined ? '' : `：工具调用失败 ${raise.counts.failed}${raise.counts.blocked > 0 ? ` · 被 hook 拦下 ${raise.counts.blocked}` : ''} · 第 ${raise.counts.raised} 次升档`}`, WARN), w, 10))
-    rows.push(...traceRows(t, `pane-raise-${raise.n}`, raise.trace ?? [], w))
+    rows.push(...traceRows(t, `pane-raise-${raise.n}`, raise.trace ?? [], w, app))
     const level = levelOf(raise)
-    if (level !== undefined) rows.push(hang(t, `pane-raise-${raise.n}-result`, '结果', effortTag(t, level, 12), w))
+    if (level !== undefined) rows.push(hang(t, `pane-raise-${raise.n}-result`, '结果', app ? effortWord(t, level) : effortTag(t, level, 12), w))
   }
   if (card.mids.length > 0) {
     const counted = node.midturn
@@ -424,7 +455,7 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, marks: Marks |
  * A decision's rows on the card: the model it gave (an agent's; the main agent's model is never decided) and why,
  * the effort's probabilities, the rules' working, the result; the main agent's confidence, which only goes on record.
  */
-function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, marks: Marks | undefined): RenderNode[] {
+function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, marks: Marks | undefined, app = false): RenderNode[] {
   const { Text } = t
   const rows: RenderNode[] = []
   if (!main && entry.model !== undefined) {
@@ -443,7 +474,7 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, marks: M
   }
   rows.push(hang(t, 'pane-card-reason', '理由', <Text color={MUTED} wrap="wrap">{entry.reason}</Text>, w))
   const level = levelOf(entry)
-  if (entry.probs !== undefined) rows.push(hang(t, 'pane-card-probs', 'effort', probsLine(t, 'pane-card-probs-bar', entry.probs, level, w - LABEL, marks), w))
+  if (entry.probs !== undefined) rows.push(hang(t, 'pane-card-probs', 'effort', probsLine(t, 'pane-card-probs-bar', entry.probs, level, w - LABEL, marks, app), w))
   // What the reference images the message came with read as (image routing): the effort question had it in its state.
   if (main && entry.reference !== undefined) {
     const said = referenceWords(entry.reference)
@@ -460,8 +491,8 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, marks: M
       ),
     )
   }
-  rows.push(...traceRows(t, 'pane-card-step', entry.trace ?? [], w))
-  if (level !== undefined) rows.push(hang(t, 'pane-card-result', '结果', effortTag(t, level, 12), w))
+  rows.push(...traceRows(t, 'pane-card-step', entry.trace ?? [], w, app))
+  if (level !== undefined) rows.push(hang(t, 'pane-card-result', '结果', app ? effortWord(t, level) : effortTag(t, level, 12), w))
   if (main && entry.conf !== undefined) rows.push(hang(t, 'pane-card-conf', '置信', <Text color={MUTED} wrap="wrap">{`${pct(entry.conf)}：发消息时只记录，不参与选档`}</Text>, w))
   // What this message did to the unresolved count: the count and what came of it, then the three options' odds against the two bars.
   if (main && entry.unresolved !== undefined) {
@@ -491,8 +522,8 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, marks: M
   return rows
 }
 
-/** The rules' working, one row a step: the rail, its mark, the rule, what it did (wrapping under its own column). */
-function traceRows(t: TT, key: string, trace: LogEntry['trace'] & object, w: number): RenderNode[] {
+/** The rules' working, one row a step: the rail (`app`: none, a list), its mark, the rule, what it did (wrapping under its own column). */
+function traceRows(t: TT, key: string, trace: LogEntry['trace'] & object, w: number, app = false): RenderNode[] {
   const { Box, Text } = t
   const lines = stepLines(trace)
   return lines.map((line, i) => {
@@ -500,8 +531,8 @@ function traceRows(t: TT, key: string, trace: LogEntry['trace'] & object, w: num
     const pass = line.mark === 'pass'
     return (
       <Box key={`${key}-${i}`} width={w}>
-        <Box width={4} flexShrink={0}>
-          <Text color={MUTED}>{i === lines.length - 1 ? '  └ ' : '  ├ '}</Text>
+        <Box width={app ? LABEL : 4} flexShrink={0}>
+          <Text color={MUTED}>{app ? '' : i === lines.length - 1 ? '  └ ' : '  ├ '}</Text>
         </Box>
         <Box width={2} flexShrink={0}>
           <Text color={mark.color} bold>{mark.glyph}</Text>
@@ -517,9 +548,27 @@ function traceRows(t: TT, key: string, trace: LogEntry['trace'] & object, w: num
   })
 }
 
-/** The effort probabilities: a stacked bar (narrower in a narrow pane) and each level's share, the decided level bold in its colour. */
-function probsLine(t: TT, key: string, probs: Record<Effort, number>, picked: Effort | undefined, w: number, marks: Marks | undefined) {
+/**
+ * The effort probabilities: a stacked bar (narrower in a narrow pane) and each level's share, the decided level bold in
+ * its colour; `app`, the bar as wide as the column with the shares on the line under it.
+ */
+function probsLine(t: TT, key: string, probs: Record<Effort, number>, picked: Effort | undefined, w: number, marks: Marks | undefined, app = false) {
   const { Box, Text } = t
+  const shares = EFFORTS.map((level, i) => (
+    <Text color={level === picked ? EFFORT_COLOR[level] : softColor(EFFORT_COLOR[level])} bold={level === picked} tabular>
+      {`${level} ${pct(probs[level])}${i === EFFORTS.length - 1 ? '' : app ? '  ' : ' '}`}
+    </Text>
+  ))
+  if (app) {
+    return (
+      <Box flexDirection="column" width={w}>
+        {marks === undefined ? null : marks.stack(key, probs, picked, Math.max(8, Math.min(48, w - 1)))}
+        <Box key={`${key.replace(/-bar$/, '')}-legend`}>
+          <Text wrap="wrap">{shares}</Text>
+        </Box>
+      </Box>
+    )
+  }
   const bar = Math.max(8, Math.min(20, w - 47))
   return (
     <Box width={w}>
@@ -529,13 +578,7 @@ function probsLine(t: TT, key: string, probs: Record<Effort, number>, picked: Ef
         </Box>
       )}
       <Box flexGrow={1} flexShrink={1}>
-        <Text wrap="wrap">
-          {EFFORTS.map((level, i) => (
-            <Text color={level === picked ? EFFORT_COLOR[level] : softColor(EFFORT_COLOR[level])} bold={level === picked} tabular>
-              {`${level} ${pct(probs[level])}${i === EFFORTS.length - 1 ? '' : ' '}`}
-            </Text>
-          ))}
-        </Text>
+        <Text wrap="wrap">{shares}</Text>
       </Box>
     </Box>
   )

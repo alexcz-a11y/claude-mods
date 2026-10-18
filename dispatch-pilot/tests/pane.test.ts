@@ -438,7 +438,7 @@ test("on a surface other than the terminal the pane is the same pane: the card w
   for (const surface of SURFACES) {
     const ui = await w.pane({ surface })
     expect(shown(await ui.find({ key: 'pane-head' })), surface).toContain('主 agent')
-    expect(shown(await ui.find({ key: 'pane-card-probs' }))).toMatch(/low \.00 medium \.70 high \.30 xhigh \.00 max \.00/)
+    expect(shown(await ui.find({ key: 'pane-card-probs' }))).toMatch(/low \.00 +medium \.70 +high \.30 +xhigh \.00 +max \.00/)
     const rules = await steps(ui)
     expect(rules[0]).toMatch(/●.*最可能.*medium \.70/)
     const mids = (await ui.findAll({ type: 'Box' })).filter((box) => /^pane-mid-\d+$/.test(box.key ?? '')).map((box) => shown(box))
@@ -446,9 +446,7 @@ test("on a surface other than the terminal the pane is the same pane: the card w
     expect(mids.join('\n')).toMatch(/\.80 ≥ \.30 升档线.*升到 xhigh/)
     expect(mids.join('\n')).toMatch(/建议 low · 当前 xhigh.*防抖中，还差 1 步/)
     expect(shown(await ui.find({ key: 'pane-log-head' }))).toContain('决策日志')
-    expect(await listed(ui, 'main-effort'), surface).toMatchObject({ text: 'main-effort 开', color: undefined })
-    expect(await listed(ui, 'hook-block-failures'), surface).toMatchObject({ text: 'hook-block-failures 关', color: 'inactive' })
-    expect((await ui.findAll({ type: 'Button' })).filter((button) => button.key === 'pane-prev' || button.key === 'pane-next')).toHaveLength(2)
+    // The switches as words and ‹ 上一个 / 下一个 › are the terminal's; here tabs and buttons (desktop-pane.test.ts).
     expect(inventory(await ui.drawn()).types.has('Raster'), surface).toBe(false)
     const svgs = (await ui.findAll({ type: 'Svg' })).map((svg) => String(svg.props.alt))
     expect(svgs, surface).toContain('effort 概率：low .00 medium .70 high .30 xhigh .00 max .00')
@@ -459,7 +457,7 @@ test("on a surface other than the terminal the pane is the same pane: the card w
   }
 })
 
-test("on a surface other than the terminal p and n still page, and the log still folds", { options: KEY }, async ($, on) => {
+test("on a surface other than the terminal the agents are picked from tabs (desktop-pane.test.ts), and the log still folds", { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { backend: jev([0, 1, 0, 0, 0], { choice: 'sonnet' }) })
   await w.submit('派个 agent')
   await w.step({ index: 0 })
@@ -467,8 +465,9 @@ test("on a surface other than the terminal p and n still page, and the log still
   await w.agentStep(one.agentId ?? '', { index: 0, model: 'claude-sonnet-5-5' })
   await w.complete()
   const ui = await w.pane({ surface: 'desktop' })
-  await ui.press({ key: 'pane-next' })
-  expect(shown(await ui.find({ key: 'pane-head' }))).toMatch(/审查.*2\/2/)
+  await ui.press({ key: 'pane-tab-1' })
+  await ui.redraw()
+  expect(shown(await ui.find({ key: 'pane-card-head' }))).toContain('审查')
   expect(await ui.find({ key: 'pane-entry-1' })).toBeDefined()
   await ui.press({ key: 'pane-fold-1' })
   expect(await ui.find({ key: 'pane-entry-1' })).toBeUndefined()

@@ -295,16 +295,22 @@ declare module 'claude-code' {
       /**
        * The rationale pane's own view (hooks/board/rationale.ts `PaneState`): the turns of the decision log the
        * person folded (`open` false) or opened, the others as the pane leaves them (the newest two open); whether
-       * the skills that got no profile are listed. Absent until the person pressed one of its keys. Written by
-       * the pane's buttons only.
+       * the skills that got no profile are listed; off the terminal, whether the switches and the lock are shown.
+       * Absent until the person pressed one of its keys. Written by the pane's buttons only.
        */
-      paneView: { folds: { turn: number; open: boolean }[]; failures: boolean }
+      paneView: { folds: { turn: number; open: boolean }[]; failures: boolean; switches?: boolean }
       /**
        * Whether the person folded the band to its one line, on a surface that has no fold of its own (Desktop,
        * VS Code, the mobile app; the terminal folds the band itself). Kept for the session, every turn alike.
        * Absent until they pressed 收起. Written by the band's fold button only.
        */
       bandFolded: boolean
+      /**
+       * The prompt hint for the draft being written, where the band's idle line shows it (a session on Desktop,
+       * which has no status line for it); null when the draft has none or a turn started. Written by prompt-hint.ts
+       * and, as a turn starts, the status hooks (screens.tsx).
+       */
+      draftHint: string | null
       /**
        * The unresolved count (hooks/core/unresolved.ts; GLOSSARY 未解决次数): how many of the person's messages in a
        * row said the problem they and the main agent are on is still not solved. The decision model reads each
