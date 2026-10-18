@@ -12,9 +12,10 @@
 // `rationale.ts`'s view of the data with the terminal's element table; the
 // Buttons call `act`.
 //
-// The other surfaces get the same pane in plain text (#31): `paneTree` is given
-// the terminal's Raster only on the terminal; without it the probabilities are
-// their numbers alone and the confidence meter is its line (`.42 < .55 降档线`).
+// Every surface gets the same pane (#31): `paneTree` is given the surface's
+// marks, the probability bars and the confidence meters as a Raster on the
+// terminal and as an Svg where there is one; without marks the probabilities
+// are their numbers alone and the meter is its line (`.42 < .55 降档线`).
 // Desktop refuses a tree of 2000 nodes, so there `PaneInput.window` keeps the
 // log and the re-decisions to the latest and says how many it left out.
 //
@@ -29,7 +30,7 @@ import { failureMeaning } from '../decision/backend.ts'
 import type { Effort } from '../decision/effort.ts'
 import { EFFORTS } from '../decision/effort.ts'
 import { type LogEntry, type ProfilesState, type Tone } from '../core/report.ts'
-import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, meterCells, MODEL_FG, MUTED, OK, pct, skillsText, softColor, stackCells, stateGlyph, STATUS_COLOR, WARN, width, type Raster, type TT } from './kit.tsx'
+import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, MODEL_FG, MUTED, OK, pct, skillsText, softColor, stateGlyph, STATUS_COLOR, WARN, width, type Marks, type TT } from './kit.tsx'
 import {
   cardOf,
   entryVerb,
@@ -68,6 +69,16 @@ type PaneInput = {
   state: PaneState
   /** Draw only the latest this many log entries (over the open turns) and mid-turn re-decisions, for a surface that refuses a large tree; none: all. */
   window?: { entries: number; mids: number }
+  /**
+   * Whether a Button's label spells its key (`‹ 上一个 (p)`): the terminal's do. Desktop draws the key beside the
+   * label itself, and VS Code and the mobile app take no keys, so there the label is the words alone. Absent: true.
+   */
+  spellKeys?: boolean
+}
+
+/** A Button's label with its key spelled after it where the surface does not draw the key itself. */
+function keyed(label: string, key: string, spell: boolean | undefined): string {
+  return spell === false ? label : `${label} (${key})`
 }
 
 /** What the pane's Buttons do: pick another agent's card, show an agent's transcript (null: the main one), fold or open a turn of the log, list the failed skills. */
@@ -106,7 +117,7 @@ function blank(t: TT, key: string) {
   )
 }
 
-export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, raster?: Raster) {
+export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, marks?: Marks) {
   const { Box, Button, Text } = t
   const { view } = input
   const card = cardOf(view, input.log)
@@ -131,25 +142,25 @@ export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, r
       {topLines(t, input, cols, act)}
       <Box key="pane-nav" width={cols} flexWrap="wrap">
         <Box flexShrink={0}>
-          <Button key="pane-prev" label="‹ 上一个 (p)" hotkey="p" onPress={() => (prev === null ? undefined : act.pick(prev))} />
+          <Button key="pane-prev" label={keyed('‹ 上一个', 'p', input.spellKeys)} hotkey="p" onPress={() => (prev === null ? undefined : act.pick(prev))} />
         </Box>
         <Box flexShrink={0}>
           <Text> </Text>
         </Box>
         <Box flexShrink={0}>
-          <Button key="pane-next" label="下一个 › (n)" hotkey="n" variant="primary" onPress={() => (next === null ? undefined : act.pick(next))} />
+          <Button key="pane-next" label={keyed('下一个 ›', 'n', input.spellKeys)} hotkey="n" variant="primary" onPress={() => (next === null ? undefined : act.pick(next))} />
         </Box>
-        {viewButton(t, card.row, input.viewing, act)}
+        {viewButton(t, card.row, input.viewing, act, input.spellKeys)}
         <Box flexGrow={1} flexShrink={1}>
-          <Text color={MUTED} wrap="wrap">{'  band 上按 0-9 直接选'}</Text>
+          <Text color={MUTED} wrap="wrap">{input.spellKeys === false ? '  band 上点 agent 直接选' : '  band 上按 0-9 直接选'}</Text>
         </Box>
       </Box>
       <Box key="pane-card" flexDirection="column" width={cols} borderStyle="round" borderColor={MUTED} paddingX={1}>
-        {cardRows(t, card, input, Math.max(10, cols - 4), raster)}
+        {cardRows(t, card, input, Math.max(10, cols - 4), marks)}
       </Box>
       {blank(t, 'pane-gap')}
       {summaryRows(t, input.summary, cols)}
-      {logRows(t, input, cols, act, raster)}
+      {logRows(t, input, cols, act, marks)}
     </Box>
   )
 }
@@ -159,11 +170,11 @@ export function paneTree(t: TT, input: PaneInput, cols: number, act: PaneActs, r
  * there: none for the main agent's own card. Nor for a Workflow's agent: the engine refuses to show one (2.1.302, measured:
  * `$.ui.view` answers that no agent is under that id).
  */
-function viewButton(t: TT, row: AgentRow | null, viewing: string | null, act: PaneActs): RenderNode[] {
+function viewButton(t: TT, row: AgentRow | null, viewing: string | null, act: PaneActs, spellKeys: boolean | undefined): RenderNode[] {
   const { Box, Button, Text } = t
   const back = viewing !== null
   if (!back && (row === null || row.node.kind !== 'agent')) return []
-  const label = back ? `↩ 回主对话 (${VIEW_KEY})` : `看它的对话 (${VIEW_KEY})`
+  const label = keyed(back ? '↩ 回主对话' : '看它的对话', VIEW_KEY, spellKeys)
   return [
     <Box key="pane-view-gap" flexShrink={0}>
       <Text> </Text>
@@ -311,7 +322,7 @@ function hang(t: TT, key: string, label: string, content: RenderNode, w: number,
   )
 }
 
-function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster | undefined): RenderNode[] {
+function cardRows(t: TT, card: Card, input: PaneInput, w: number, marks: Marks | undefined): RenderNode[] {
   const { Box, Text } = t
   const row = card.row
   if (row === null) {
@@ -373,7 +384,7 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
   if (row.checks !== '') rows.push(hang(t, 'pane-card-checks', '看图核对', text(row.checks), w, 10))
   if (node.locked === true) rows.push(hang(t, 'pane-card-lock', '锁定', text('照 /dp lock 发出这一档；决定照常记下，不影响发出的 effort（/dp unlock 解除）', MUTED), w))
   const route = card.route
-  if (route !== undefined) rows.push(...decisionRows(t, route, main, w, raster))
+  if (route !== undefined) rows.push(...decisionRows(t, route, main, w, marks))
   for (const raise of card.raises) {
     rows.push(blank(t, `pane-raise-gap-${raise.n}`))
     rows.push(hang(t, `pane-raise-${raise.n}`, '强制升档', text(`#${raise.n} ${raise.subject}${raise.counts === undefined ? '' : `：工具调用失败 ${raise.counts.failed}${raise.counts.blocked > 0 ? ` · 被 hook 拦下 ${raise.counts.blocked}` : ''} · 第 ${raise.counts.raised} 次升档`}`, WARN), w, 10))
@@ -402,7 +413,7 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
       )
     }
     for (const entry of left > 0 ? card.mids.slice(left) : card.mids) {
-      const mid = midRow(t, entry, w, raster)
+      const mid = midRow(t, entry, w, marks)
       if (mid !== null) rows.push(mid)
     }
   }
@@ -413,7 +424,7 @@ function cardRows(t: TT, card: Card, input: PaneInput, w: number, raster: Raster
  * A decision's rows on the card: the model it gave (an agent's; the main agent's model is never decided) and why,
  * the effort's probabilities, the rules' working, the result; the main agent's confidence, which only goes on record.
  */
-function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, raster: Raster | undefined): RenderNode[] {
+function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, marks: Marks | undefined): RenderNode[] {
   const { Text } = t
   const rows: RenderNode[] = []
   if (!main && entry.model !== undefined) {
@@ -424,7 +435,7 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, raster: 
         '模型',
         <Text wrap="wrap">
           <Text color={MODEL_FG[entry.model]} bold>{entry.model}</Text>
-          {entry.conf === undefined ? null : <Text color={MUTED}>{`  置信 ${pct(entry.conf)}`}</Text>}
+          {entry.conf === undefined ? null : <Text color={MUTED} tabular>{`  置信 ${pct(entry.conf)}`}</Text>}
         </Text>,
         w,
       ),
@@ -432,7 +443,7 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, raster: 
   }
   rows.push(hang(t, 'pane-card-reason', '理由', <Text color={MUTED} wrap="wrap">{entry.reason}</Text>, w))
   const level = levelOf(entry)
-  if (entry.probs !== undefined) rows.push(hang(t, 'pane-card-probs', 'effort', probsLine(t, 'pane-card-probs-bar', entry.probs, level, w - LABEL, raster), w))
+  if (entry.probs !== undefined) rows.push(hang(t, 'pane-card-probs', 'effort', probsLine(t, 'pane-card-probs-bar', entry.probs, level, w - LABEL, marks), w))
   // What the reference images the message came with read as (image routing): the effort question had it in its state.
   if (main && entry.reference !== undefined) {
     const said = referenceWords(entry.reference)
@@ -507,20 +518,20 @@ function traceRows(t: TT, key: string, trace: LogEntry['trace'] & object, w: num
 }
 
 /** The effort probabilities: a stacked bar (narrower in a narrow pane) and each level's share, the decided level bold in its colour. */
-function probsLine(t: TT, key: string, probs: Record<Effort, number>, picked: Effort | undefined, w: number, Bar: Raster | undefined) {
+function probsLine(t: TT, key: string, probs: Record<Effort, number>, picked: Effort | undefined, w: number, marks: Marks | undefined) {
   const { Box, Text } = t
   const bar = Math.max(8, Math.min(20, w - 47))
   return (
     <Box width={w}>
-      {Bar === undefined ? null : (
-        <Box width={bar + 2} flexShrink={0}>
-          <Bar key={key} columns={bar} rows={1} cells={stackCells(probs, picked, bar)} />
+      {marks === undefined ? null : (
+        <Box width={bar + 2} flexShrink={0} alignItems="center">
+          {marks.stack(key, probs, picked, bar)}
         </Box>
       )}
       <Box flexGrow={1} flexShrink={1}>
         <Text wrap="wrap">
           {EFFORTS.map((level, i) => (
-            <Text color={level === picked ? EFFORT_COLOR[level] : softColor(EFFORT_COLOR[level])} bold={level === picked}>
+            <Text color={level === picked ? EFFORT_COLOR[level] : softColor(EFFORT_COLOR[level])} bold={level === picked} tabular>
               {`${level} ${pct(probs[level])}${i === EFFORTS.length - 1 ? '' : ' '}`}
             </Text>
           ))}
@@ -531,7 +542,7 @@ function probsLine(t: TT, key: string, probs: Record<Effort, number>, picked: Ef
 }
 
 /** One mid-turn re-decision: its number and step, the level suggested and the current one; the confidence meter with its line's tick, and the conclusion. */
-function midRow(t: TT, entry: LogEntry, w: number, Meter: Raster | undefined) {
+function midRow(t: TT, entry: LogEntry, w: number, marks: Marks | undefined) {
   const { Box, Text } = t
   const verdict = midVerdict(entry)
   const level = (value: Effort) => <Text color={EFFORT_COLOR[value]} bold>{value}</Text>
@@ -559,15 +570,15 @@ function midRow(t: TT, entry: LogEntry, w: number, Meter: Raster | undefined) {
         <Box width={NUMBER} flexShrink={0}>
           <Text> </Text>
         </Box>
-        {verdict.conf === undefined || Meter === undefined ? null : (
-          <Box width={meter + 1} flexShrink={0}>
-            <Meter key={`pane-mid-meter-${entry.n}`} columns={meter} rows={1} cells={meterCells(verdict.conf, verdict.threshold, verdict.passed, meter)} />
+        {verdict.conf === undefined || marks === undefined ? null : (
+          <Box width={meter + 1} flexShrink={0} alignItems="center">
+            {marks.meter(`pane-mid-meter-${entry.n}`, { conf: verdict.conf, threshold: verdict.threshold, passed: verdict.passed }, meter)}
           </Box>
         )}
         <Box flexGrow={1} flexShrink={1}>
           <Text wrap="wrap">
-            {verdict.conf === undefined ? null : <Text bold>{pct(verdict.conf)}</Text>}
-            <Text color={MUTED}>{`${against}  → `}</Text>
+            {verdict.conf === undefined ? null : <Text bold tabular>{pct(verdict.conf)}</Text>}
+            <Text color={MUTED} tabular>{`${against}  → `}</Text>
             <Text color={moved ? EFFORT_COLOR[verdict.result] : verdict.kind === 'blocked' || verdict.kind === 'held' ? WARN : MUTED} bold={moved}>{verdictWords(verdict)}</Text>
           </Text>
         </Box>
@@ -578,7 +589,7 @@ function midRow(t: TT, entry: LogEntry, w: number, Meter: Raster | undefined) {
 
 // ---- the decision log ------------------------------------------------------------------
 
-function logRows(t: TT, input: PaneInput, cols: number, act: PaneActs, raster: Raster | undefined): RenderNode[] {
+function logRows(t: TT, input: PaneInput, cols: number, act: PaneActs, marks: Marks | undefined): RenderNode[] {
   const { Box, Text } = t
   const groups = logGroups(input.log, input.state)
   const rows: RenderNode[] = [
@@ -594,13 +605,13 @@ function logRows(t: TT, input: PaneInput, cols: number, act: PaneActs, raster: R
   for (const group of groups) {
     const shown = group.open ? Math.min(room, group.entries.length) : 0
     room -= shown
-    rows.push(groupRows(t, group, cols, act, raster, group.entries.length - shown))
+    rows.push(groupRows(t, group, cols, act, marks, group.entries.length - shown))
   }
   return rows
 }
 
 /** One turn of the log; `left` of its oldest entries (an open turn's) are left out for want of room. */
-function groupRows(t: TT, group: LogGroup, cols: number, act: PaneActs, raster: Raster | undefined, left: number) {
+function groupRows(t: TT, group: LogGroup, cols: number, act: PaneActs, marks: Marks | undefined, left: number) {
   const { Box, Button, Text } = t
   const { counts } = group
   const label = `${group.open ? '▾' : '▸'} 第 ${group.turn} 轮`
@@ -621,7 +632,7 @@ function groupRows(t: TT, group: LogGroup, cols: number, act: PaneActs, raster: 
           <Text>
             <Text color={MUTED}>{`  ${group.entries.length} 条`}</Text>
             {/* By the glyph and colour each of its rows draws. */}
-            {LOG_TONES.map((tone) => (counts[tone] > 0 ? <Text color={LOG_COLOR[tone]}>{` ${LOG_GLYPH[tone]}${counts[tone]}`}</Text> : null))}
+            {LOG_TONES.map((tone) => (counts[tone] > 0 ? <Text color={LOG_COLOR[tone]} tabular>{` ${LOG_GLYPH[tone]}${counts[tone]}`}</Text> : null))}
           </Text>
         </Box>
       </Box>
@@ -630,13 +641,13 @@ function groupRows(t: TT, group: LogGroup, cols: number, act: PaneActs, raster: 
           <Text color={MUTED} wrap="wrap">{`  更早 ${left} 条没有画出：折起别的轮，或 /dp log N 看最近 N 条`}</Text>
         </Box>
       ) : null}
-      {group.open ? group.entries.slice(left).map((entry) => entryRows(t, entry, cols, raster)) : null}
+      {group.open ? group.entries.slice(left).map((entry) => entryRows(t, entry, cols, marks)) : null}
     </Box>
   )
 }
 
 /** One decision: its tone's glyph, then its number, what it did and to what level; whose and about what; the probabilities; the skills; why. */
-function entryRows(t: TT, entry: LogEntry, cols: number, Bar: Raster | undefined) {
+function entryRows(t: TT, entry: LogEntry, cols: number, marks: Marks | undefined) {
   const { Box, Text } = t
   const level = levelOf(entry)
   const feature = featureOf(entry.feature)
@@ -647,7 +658,7 @@ function entryRows(t: TT, entry: LogEntry, cols: number, Bar: Raster | undefined
   return (
     <Box key={`pane-entry-${entry.n}`} width={cols}>
       <Box width={2} flexShrink={0}>
-        <Text color={LOG_COLOR[entry.tone]} bold>{LOG_GLYPH[entry.tone]}</Text>
+        <Text color={LOG_COLOR[entry.tone]} bold mono>{LOG_GLYPH[entry.tone]}</Text>
       </Box>
       <Box flexDirection="column" flexGrow={1} flexShrink={1}>
         <Box>
@@ -669,13 +680,13 @@ function entryRows(t: TT, entry: LogEntry, cols: number, Bar: Raster | undefined
         </Box>
         {entry.probs === undefined ? null : (
           <Box>
-            {Bar === undefined ? null : (
-              <Box width={bar + 2} flexShrink={0}>
-                <Bar key={`pane-entry-probs-${entry.n}`} columns={bar} rows={1} cells={stackCells(entry.probs, level, bar)} />
+            {marks === undefined ? null : (
+              <Box width={bar + 2} flexShrink={0} alignItems="center">
+                {marks.stack(`pane-entry-probs-${entry.n}`, entry.probs, level, bar)}
               </Box>
             )}
             <Box flexGrow={1} flexShrink={1}>
-              <Text color={MUTED} wrap="wrap">{EFFORTS.map((one) => `${one} ${pct(entry.probs?.[one] ?? 0)}`).join(' ')}</Text>
+              <Text color={MUTED} tabular wrap="wrap">{EFFORTS.map((one) => `${one} ${pct(entry.probs?.[one] ?? 0)}`).join(' ')}</Text>
             </Box>
           </Box>
         )}

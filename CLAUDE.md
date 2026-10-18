@@ -61,7 +61,7 @@ command claude plugin test ./<mod>                   # 运行该目录下全部 
 tsc -p ./<mod>                                       # 用生成的 tsconfig.json 做类型检查（需要先加载过一次 mod）
 claude -p "/<command>" --plugin-dir ./<mod>          # 非交互地验证 mod 注册的命令
 claude --debug-file ./mod-debug.log --plugin-dir ./<mod>   # 调试；日志里出现 "hooks module <mod>@inline loaded" 说明加载成功
-scripts/check.sh [<mod>]                             # 提交前的全部检查：test、validate --strict、tsc、<mod>/eval/validate.ts、marketplace 清单
+scripts/check.sh [<mod>]                             # 提交前的全部检查：test、validate --strict、tsc、<mod>/eval/validate.ts、marketplace 清单，再用 Claude Desktop 自带的 Claude Code 跑一遍 validate（低于 mod 的最低版本时只记 note）
 scripts/test-one.sh <mod> <file.test.ts>...          # 只跑指定的测试文件（其余临时移走，退出时放回）
 docs/research/event-probe/run.sh "<prompt>"          # 实测引擎在某种输入下发哪些事件、什么顺序
 claude --plugin-dir ./dispatch-pilot --plugin-dir ./docs/research/board-scenes   # 用固定场景目测 dispatch-pilot 的看板和依据面板（herdr 里的做法见它的 README）

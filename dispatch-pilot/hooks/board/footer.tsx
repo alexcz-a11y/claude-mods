@@ -68,10 +68,10 @@ export function footerTree(t: TT, view: ScreenView, room = FOOTER_COLUMNS) {
   return (
     <Box key="dp-footer">
       <Text>
-        <Text color={parts.color} bold>{parts.glyph}</Text>
+        <Text color={parts.color} bold mono>{parts.glyph}</Text>
         {words.model === undefined && words.effort === undefined ? null : <Text> </Text>}
         {readout(t, words.model, words.effort, level, parts.routed, false)}
-        {parts.more > 0 ? <Text color={ACCENT} bold>{` +${parts.more}`}</Text> : null}
+        {parts.more > 0 ? <Text color={ACCENT} bold tabular>{` +${parts.more}`}</Text> : null}
       </Text>
     </Box>
   )

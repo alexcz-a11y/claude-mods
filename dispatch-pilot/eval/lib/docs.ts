@@ -189,15 +189,17 @@ const TOAST_CLOSURE = 'toast: (text) => $.ui.toast(text)'
 export function checkOneWriter(sources: Readonly<Record<string, string>>): string[] {
   // The files that show people nothing themselves (#33): the debug log closure they hand the report is the only `$.ui` they hold.
   const silent: [string, RegExp, string][] = [['features/skill-profiles.ts', /\$\.ui\./, 'uses `$.ui` itself (a log line, a toast, the status row)']]
-  const rules: [RegExp, string][] = [
-    [/\$\.ui\.status\(/, 'draws on the status row (`$.ui.status`), which the band and the footer replace'],
+  // The status line where the band is not drawn (ADR 0011): set only from what board/status-line.ts says, by these two.
+  const statusLine = new Set(['board/screens.tsx', 'features/prompt-hint.ts'])
+  const rules: [RegExp, string, Set<string>?][] = [
+    [/\$\.ui\.status\(/, 'draws on the status row (`$.ui.status`), which the band and the footer replace (a session without a terminal: board/status-line.ts, ADR 0011)', statusLine],
     [/\$\.ui\.toast\(/, 'raises a toast itself'],
     [/\b(?:setStatus|pauseStatus|recordDecision)\(/, 'calls a writer of the old status line or decision log'],
   ]
   const problems: string[] = []
   for (const [path, text] of Object.entries(sources)) {
     const code = text.split(TOAST_CLOSURE).join('')
-    for (const [pattern, what] of rules) if (pattern.test(code)) problems.push(`\`${path}\`: ${what}; hand the decision report the data instead (ADR 0004)`)
+    for (const [pattern, what, allowed] of rules) if (pattern.test(code) && allowed?.has(path) !== true) problems.push(`\`${path}\`: ${what}; hand the decision report the data instead (ADR 0004)`)
     const quiet = code.split("debug: (line) => $.ui.log(line, { to: 'debug' })").join('')
     for (const [file, pattern, what] of silent) if (path === file && pattern.test(quiet)) problems.push(`\`${path}\`: ${what}; hand the decision report the data instead (ADR 0004)`)
     // The report's two entries (spec #22): features and screens call `report`, the core `reportStep`.

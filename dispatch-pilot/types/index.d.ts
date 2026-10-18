@@ -300,6 +300,12 @@ declare module 'claude-code' {
        */
       paneView: { folds: { turn: number; open: boolean }[]; failures: boolean }
       /**
+       * Whether the person folded the band to its one line, on a surface that has no fold of its own (Desktop,
+       * VS Code, the mobile app; the terminal folds the band itself). Kept for the session, every turn alike.
+       * Absent until they pressed 收起. Written by the band's fold button only.
+       */
+      bandFolded: boolean
+      /**
        * The unresolved count (hooks/core/unresolved.ts; GLOSSARY 未解决次数): how many of the person's messages in a
        * row said the problem they and the main agent are on is still not solved. The decision model reads each
        * message (the `effort.unresolved` question) and the count moves by its answer: one more, back to nothing,

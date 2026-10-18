@@ -1,8 +1,14 @@
 // The screens' visual language (spec #22 「视觉语言」, prototype D's kit): the
 // palette, the cell-width helpers the fixed columns need, and the small parts
-// every screen draws (a model chip, an effort tag, a state glyph, a Raster's
-// cells). Pure: the element table comes in as `t` (`$.ui.resolve(e)` in the
-// hook's file); nothing here reads the board.
+// every screen draws (a model chip, an effort tag, a state glyph, the marks:
+// a time ribbon, a stacked bar, a meter, as a Raster's cells on the terminal
+// and as an Svg on the surfaces that have one). Pure: the element table comes
+// in as `t` (`$.ui.resolve(e)` in the hook's file); nothing here reads the board.
+//
+// Faces: the terminal is monospaced; Desktop draws text in a proportional face,
+// so whatever stands in a column or changes by itself is drawn `mono` (a chip,
+// the pips, a glyph, a column padded with spaces) or `tabular` (a number). The
+// terminal ignores both.
 //
 // Colours: one accent (the theme's `claude`), the theme's semantic keys for
 // state, so light and dark terminals both read; hex only where a colour must
@@ -25,6 +31,24 @@ export type T = Elements['terminal']
 export type TT = Pick<T, 'Box' | 'Text' | 'Button'>
 /** The terminal's Raster constructor: given to a drawing on the terminal, absent on every other surface (a Raster is refused there). */
 export type Raster = T['Raster']
+/** The Svg constructor of the surfaces that draw one (Desktop, VS Code, the mobile app); the terminal has none. */
+export type Svg = Elements['desktop']['Svg']
+
+/** A time ribbon's bar: from `from` to `to` seconds (null: queued, a dot where it was spawned) of a `span` every ribbon shares, in `color` (`#rrggbb`). */
+export type RibbonBar = { from: number; to: number | null; span: number; color: string }
+/** A confidence meter: filled to `conf`, a tick at `threshold` (none when no line was asked), green when `passed`, amber when not. */
+export type MeterMark = { conf: number; threshold: number | undefined; passed: boolean | null }
+
+/**
+ * The marks a drawing puts beside its words, `columns` cells wide each: a time ribbon, the effort probabilities'
+ * stacked bar, a confidence meter. The terminal draws them as a Raster's cells (`rasterMarks`), the surfaces with an
+ * Svg as a small SVG (`svgMarks`); a surface with neither gets none, and the words alone say the same.
+ */
+export type Marks = {
+  ribbon: (key: string, bar: RibbonBar, columns: number) => RenderNode
+  stack: (key: string, probs: Record<Effort, number>, picked: Effort | undefined, columns: number) => RenderNode
+  meter: (key: string, mark: MeterMark, columns: number) => RenderNode
+}
 
 export const ACCENT = 'claude'
 export const OK = 'success'
@@ -150,7 +174,7 @@ export function mmss(seconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-/** A probability or confidence in two digits: `.59`, `1.0`. */
+/** A probability or confidence in two digits: `.59`, `1.0`. Drawn `tabular` where it stands in a column, so its digits line up on a surface whose face is proportional. */
 export function pct(p: number): string {
   return p < 0.005 ? '.00' : p >= 0.995 ? '1.0' : p.toFixed(2).slice(1)
 }
@@ -165,10 +189,10 @@ export function pctText(value: unknown): string {
 /** A model chip, 8 cells: the model's tint with dark ink; not routed, the engine's model in amber with a star. */
 export function chip(t: TT, model: Model | undefined, routed: boolean) {
   const { Text } = t
-  if (model === undefined) return <Text color={MUTED}>{padRight(' —', 8)}</Text>
-  if (!routed) return <Text color={WARN} bold>{padRight(` ${model}*`, 8)}</Text>
+  if (model === undefined) return <Text color={MUTED} mono>{padRight(' —', 8)}</Text>
+  if (!routed) return <Text color={WARN} bold mono>{padRight(` ${model}*`, 8)}</Text>
   return (
-    <Text backgroundColor={MODEL_BG[model]} color={MODEL_INK} bold>
+    <Text backgroundColor={MODEL_BG[model]} color={MODEL_INK} bold mono>
       {` ${model.padEnd(6)} `}
     </Text>
   )
@@ -179,7 +203,7 @@ function pips(t: TT, effort: Effort) {
   const { Text } = t
   const n = EFFORTS.indexOf(effort) + 1
   return (
-    <Text>
+    <Text mono>
       <Text color={EFFORT_COLOR[effort]}>{'▰'.repeat(n)}</Text>
       <Text color={MUTED}>{'▱'.repeat(5 - n)}</Text>
     </Text>
@@ -193,8 +217,8 @@ function pips(t: TT, effort: Effort) {
 export function effortTag(t: TT, effort: Effort | number | undefined, w = 12) {
   const { Text } = t
   const word = w > 5
-  if (effort === undefined) return <Text color={MUTED}>{padRight(word ? '▱▱▱▱▱ —' : '▱▱▱▱▱', w)}</Text>
-  if (typeof effort === 'number') return <Text color={MUTED}>{padRight(word ? `▱▱▱▱▱ ${effort}` : '▱▱▱▱▱', w)}</Text>
+  if (effort === undefined) return <Text color={MUTED} mono>{padRight(word ? '▱▱▱▱▱ —' : '▱▱▱▱▱', w)}</Text>
+  if (typeof effort === 'number') return <Text color={MUTED} mono>{padRight(word ? `▱▱▱▱▱ ${effort}` : '▱▱▱▱▱', w)}</Text>
   return (
     <Text>
       {pips(t, effort)}
@@ -229,7 +253,7 @@ export function skillsText(t: TT, skills: { suggest: readonly { name: string; re
         <Text>
           {i > 0 ? <Text color={MUTED}>{' · '}</Text> : null}
           {skill.name}
-          <Text color={OK}>{` ${pct(skill.relevance)}`}</Text>
+          <Text color={OK} tabular>{` ${pct(skill.relevance)}`}</Text>
         </Text>
       ))}
       {skills.try.length === 0 ? null : <Text color={SKILL} bold>{`${skills.suggest.length > 0 ? '  ' : ''}可试 ${skills.try.map((skill) => `/${skill.name}`).join(' ')}`}</Text>}
@@ -240,10 +264,10 @@ export function skillsText(t: TT, skills: { suggest: readonly { name: string; re
 /** An agent's state: a spinner while it runs (amber when its steps are not routed), ✔ done, ✘ failed, ○ queued. */
 export function stateGlyph(t: TT, state: AgentState, frame: number, routed: boolean) {
   const { Text } = t
-  if (state === 'running') return <Text color={routed ? ACCENT : WARN} bold>{SPIN[frame % SPIN.length]}</Text>
-  if (state === 'done') return <Text color={OK}>✔</Text>
-  if (state === 'failed') return <Text color={BAD} bold>✘</Text>
-  return <Text color={MUTED}>○</Text>
+  if (state === 'running') return <Text color={routed ? ACCENT : WARN} bold mono>{SPIN[frame % SPIN.length]}</Text>
+  if (state === 'done') return <Text color={OK} mono>✔</Text>
+  if (state === 'failed') return <Text color={BAD} bold mono>✘</Text>
+  return <Text color={MUTED} mono>○</Text>
 }
 
 // ---- Raster cells ---------------------------------------------------------------
@@ -298,9 +322,14 @@ export function soft(hex: string): number {
   return mix(rgb(hex), 0x9aa0a6, 0.55)
 }
 
+/** A Raster cell's colour as `#rrggbb`. */
+export function hexOf(color: number): string {
+  return `#${color.toString(16).padStart(6, '0')}`
+}
+
 /** `soft`, as the `#rrggbb` a Text's colour takes: a level not picked. */
 export function softColor(hex: string): string {
-  return `#${soft(hex).toString(16).padStart(6, '0')}`
+  return hexOf(soft(hex))
 }
 
 /** The ribbon's empty track, and the bar of an agent with neither an effort nor a model. */
@@ -336,7 +365,7 @@ export function ribbonCells(from: number, to: number | null, span: number, colum
 }
 
 /** The effort ramp's colour at `f` in 0..1, between its five stops. */
-function rampAt(f: number): number {
+export function rampAt(f: number): number {
   const stops = EFFORTS.map((level) => rgb(EFFORT_COLOR[level]))
   const x = Math.max(0, Math.min(1, f)) * (stops.length - 1)
   const i = Math.min(stops.length - 2, Math.floor(x))
@@ -377,8 +406,10 @@ export function stackCells(probs: Record<Effort, number>, picked: Effort | undef
 }
 
 /** The tick's colours: past the line, short of it. */
-const PASSED = rgb(EFFORT_COLOR.medium)
-const SHORT = rgb(EFFORT_COLOR.high)
+export const PASSED_HEX = EFFORT_COLOR.medium
+export const SHORT_HEX = EFFORT_COLOR.high
+const PASSED = rgb(PASSED_HEX)
+const SHORT = rgb(SHORT_HEX)
 
 /**
  * A confidence meter, `columns` cells: filled to `conf` along the ramp's cool half, a thin track beyond, and a tick
@@ -396,4 +427,93 @@ export function meterCells(conf: number, threshold: number | undefined, passed: 
     else out.push(['─', TRACK, DEFAULT])
   }
   return packCells(out)
+}
+
+// ---- Svg markup ---------------------------------------------------------------------
+
+/** One mark's SVG document, its size in CSS pixels, and what it says for a reader that cannot see it. */
+type SvgMark = { source: string; alt: string; width: number; height: number }
+
+/** A length in an SVG attribute: one decimal at most. */
+function px(n: number): string {
+  return String(Math.round(n * 10) / 10)
+}
+
+function svgDoc(w: number, h: number, body: string): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${px(w)}" height="${px(h)}" viewBox="0 0 ${px(w)} ${px(h)}">${body}</svg>`
+}
+
+/** The track every mark sits on: the ribbon's grey, half see-through, so it reads on a light and a dark theme. */
+function track(w: number, y: number, h: number): string {
+  return `<rect x="0" y="${px(y)}" width="${px(w)}" height="${px(h)}" rx="${px(h / 2)}" fill="${TRACK_HEX}" fill-opacity="0.45"/>`
+}
+
+/** One agent's time ribbon, `w` pixels: a thin track, the bar from `from` to `to` in its colour (at least 2 pixels), a queued agent's dot. */
+export function ribbonSvg(bar: RibbonBar, w: number): SvgMark {
+  const h = 8
+  const scale = w / Math.max(bar.span, 1)
+  const start = Math.max(0, Math.min(w, bar.from * scale))
+  const alt = bar.to === null ? `排队，${mmss(bar.from)} 派出` : `${mmss(bar.from)} 到 ${mmss(bar.to)}`
+  if (bar.to === null) return { source: svgDoc(w, h, `${track(w, 3.5, 1)}<circle cx="${px(Math.min(w - 2, Math.max(2, start)))}" cy="4" r="2" fill="${TRACK_HEX}"/>`), alt, width: w, height: h }
+  const end = Math.max(start + 2, Math.min(w, bar.to * scale))
+  const x = Math.min(start, w - 2)
+  return { source: svgDoc(w, h, `${track(w, 3.5, 1)}<rect x="${px(x)}" y="1" width="${px(end - x)}" height="6" rx="2" fill="${bar.color}"/>`), alt, width: w, height: h }
+}
+
+/** The effort probabilities as one 100% stacked bar, `w` pixels, rounded at its ends: a segment per level, the levels not picked softened. */
+export function stackSvg(probs: Record<Effort, number>, picked: Effort | undefined, w: number): SvgMark {
+  const h = 10
+  const total = EFFORTS.reduce((sum, level) => sum + probs[level], 0) || 1
+  let at = 0
+  const parts: string[] = []
+  for (const level of EFFORTS) {
+    const sw = (probs[level] / total) * w
+    if (sw > 0.05) parts.push(`<rect x="${px(at)}" y="0" width="${px(sw)}" height="${h}" fill="${level === picked || picked === undefined ? EFFORT_COLOR[level] : softColor(EFFORT_COLOR[level])}"/>`)
+    at += sw
+  }
+  const body = `<clipPath id="r"><rect width="${px(w)}" height="${h}" rx="3"/></clipPath>${track(w, 0, h)}<g clip-path="url(#r)">${parts.join('')}</g>`
+  return { source: svgDoc(w, h, body), alt: `effort 概率：${EFFORTS.map((level) => `${level} ${pct(probs[level])}`).join(' ')}`, width: w, height: h }
+}
+
+/** A confidence meter, `w` pixels: filled to `conf` along the ramp's cool half, a track beyond, a tick at `threshold` (green when passed, amber when not). */
+export function meterSvg(mark: MeterMark, w: number): SvgMark {
+  const h = 10
+  const fill = Math.max(0, Math.min(1, mark.conf)) * w
+  const from = hexOf(rampAt(0.2))
+  const to = hexOf(rampAt(0.6))
+  const tick = mark.threshold === undefined ? '' : `<rect x="${px(Math.max(0, Math.min(w - 2, mark.threshold * w - 1)))}" y="0" width="2" height="${h}" rx="1" fill="${mark.passed === true ? PASSED_HEX : SHORT_HEX}"/>`
+  const body = `<linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient>${track(w, 3, 4)}${fill > 0.5 ? `<rect x="0" y="2" width="${px(fill)}" height="6" rx="3" fill="url(#g)"/>` : ''}${tick}`
+  const alt = `置信 ${pct(mark.conf)}${mark.threshold === undefined ? '' : `，门槛 ${pct(mark.threshold)}`}`
+  return { source: svgDoc(w, h, body), alt, width: w, height: h }
+}
+
+// ---- the marks, per surface ---------------------------------------------------------
+
+/** The marks as a Raster's cells: the terminal's. */
+export function rasterMarks(Raster: Raster): Marks {
+  return {
+    ribbon: (key, bar, columns) => <Raster key={key} columns={columns} rows={1} cells={ribbonCells(bar.from, bar.to, bar.span, columns, rgb(bar.color))} />,
+    stack: (key, probs, picked, columns) => <Raster key={key} columns={columns} rows={1} cells={stackCells(probs, picked, columns)} />,
+    meter: (key, mark, columns) => <Raster key={key} columns={columns} rows={1} cells={meterCells(mark.conf, mark.threshold, mark.passed, columns)} />,
+  }
+}
+
+/**
+ * The CSS pixels one cell is taken to be where an Svg is drawn: a Box's width there is in cells of the surface's
+ * own metric, which the mod cannot read, so a mark is drawn a little short of its cells rather than past them.
+ */
+export const CELL_PX = 7
+
+/** The marks as a small SVG each, `columns` cells of `CELL_PX`: the surfaces that have an Svg. An Svg takes no key, so a keyed Box holds it. */
+export function svgMarks(Svg: Svg, Box: TT['Box']): Marks {
+  const draw = (key: string, mark: SvgMark) => (
+    <Box key={key}>
+      <Svg source={mark.source} alt={mark.alt} width={mark.width} height={mark.height} />
+    </Box>
+  )
+  return {
+    ribbon: (key, bar, columns) => draw(key, ribbonSvg(bar, columns * CELL_PX)),
+    stack: (key, probs, picked, columns) => draw(key, stackSvg(probs, picked, columns * CELL_PX)),
+    meter: (key, mark, columns) => draw(key, meterSvg(mark, columns * CELL_PX)),
+  }
 }

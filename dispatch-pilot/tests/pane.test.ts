@@ -428,7 +428,7 @@ test('the session start\'s profiles entry is in the log under its turn, its tone
 
 const SURFACES = ['desktop', 'vscode', 'mobile'] as const
 
-test("on a surface other than the terminal the pane is the same pane in text: the card with the probabilities as numbers, the rules' working, the mid-turn meter as its line, the log; no Raster", { options: { ...KEY, rejudgeEvery: 2, holdSteps: 3 } }, async ($, on) => {
+test("on a surface other than the terminal the pane is the same pane: the card with the probabilities as a bar (an Svg) and numbers, the rules' working, the mid-turn meter (an Svg) and its line, the log; no Raster", { options: { ...KEY, rejudgeEvery: 2, holdSteps: 3 } }, async ($, on) => {
   const LOW = [0.9, 0.1, 0, 0, 0]
   const XHIGH = [0, 0, 0.1, 0.8, 0.1]
   const w = world($, on, { backend: answers([0, 0.7, 0.3, 0, 0], { levels: XHIGH, confidence: 0.8 }, { levels: LOW, confidence: 0.5 }) })
@@ -450,6 +450,11 @@ test("on a surface other than the terminal the pane is the same pane in text: th
     expect(await listed(ui, 'hook-block-failures'), surface).toMatchObject({ text: 'hook-block-failures 关', color: 'inactive' })
     expect((await ui.findAll({ type: 'Button' })).filter((button) => button.key === 'pane-prev' || button.key === 'pane-next')).toHaveLength(2)
     expect(inventory(await ui.drawn()).types.has('Raster'), surface).toBe(false)
+    const svgs = (await ui.findAll({ type: 'Svg' })).map((svg) => String(svg.props.alt))
+    expect(svgs, surface).toContain('effort 概率：low .00 medium .70 high .30 xhigh .00 max .00')
+    expect(await ui.find({ key: 'pane-card-probs-bar' }), surface).toMatchObject({ type: 'Box' })
+    expect((await ui.findAll({ type: 'Box' })).filter((box) => box.key?.startsWith('pane-mid-meter-')).length, surface).toBe(mids.length)
+    expect(svgs.join('\n')).toMatch(/置信 \.80，门槛 \.30/)
     await ui.unmount()
   }
 })
