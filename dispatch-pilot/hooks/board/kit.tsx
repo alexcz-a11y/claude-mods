@@ -34,8 +34,12 @@ export type Raster = T['Raster']
 /** The Svg constructor of the surfaces that draw one (Desktop, VS Code, the mobile app); the terminal has none. */
 export type Svg = Elements['desktop']['Svg']
 
-/** A time ribbon's bar: from `from` to `to` seconds (null: queued, a dot where it was spawned) of a `span` every ribbon shares, in `color` (`#rrggbb`). */
-export type RibbonBar = { from: number; to: number | null; span: number; color: string }
+/**
+ * A time ribbon's bar: from `from` to `to` seconds (null: queued, a dot where it was spawned) of a `span` every ribbon
+ * shares, in `color` (`#rrggbb`); a running agent's grows on by itself for `grow` seconds, up to the next redraw where
+ * the screens redraw seldom (an Svg's animation; the terminal's cells redraw every frame instead).
+ */
+export type RibbonBar = { from: number; to: number | null; span: number; color: string; grow?: number }
 /** A confidence meter: filled to `conf`, a tick at `threshold` (none when no line was asked), green when `passed`, amber when not. */
 export type MeterMark = { conf: number; threshold: number | undefined; passed: boolean | null }
 
@@ -88,6 +92,11 @@ export const MODEL_FG: Record<Model, string> = {
 
 /** A running agent's glyph, one frame per tick. */
 export const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+
+/** The running glyph for a frame: the spinner's, or a still dot where the screens redraw too seldom to spin (frame -1). */
+export function spin(frame: number): string {
+  return frame < 0 ? '●' : (SPIN[frame % SPIN.length] ?? '●')
+}
 
 /** How many nodes a drawn tree has: Desktop refuses one of 2000 (the engine's own limit is 20000, and a test's mount does not check it). */
 export function nodeCount(node: RenderNode): number {
@@ -231,6 +240,18 @@ export function effortTag(t: TT, effort: Effort | number | undefined, w = 12) {
   )
 }
 
+/** The effort as its word alone in its colour, without the terminal's pips: the other surfaces' (a budget in grey, none a dash). */
+export function effortWord(t: TT, effort: Effort | number | undefined) {
+  const { Text } = t
+  if (effort === undefined) return <Text color={MUTED}>—</Text>
+  if (typeof effort === 'number') return <Text color={MUTED} tabular>{String(effort)}</Text>
+  return (
+    <Text color={EFFORT_COLOR[effort]} weight="semibold">
+      {effort}
+    </Text>
+  )
+}
+
 /** `opus·xhigh`: the model in its tint, the effort in the colour of `level` (grey when it is none); both amber when not routed. `bold` as the band draws it, not the footer. */
 export function readout(t: TT, model: Model | undefined, effort: string | number | undefined, level: Effort | undefined, routed: boolean, bold = true) {
   const { Text } = t
@@ -261,10 +282,10 @@ export function skillsText(t: TT, skills: { suggest: readonly { name: string; re
   )
 }
 
-/** An agent's state: a spinner while it runs (amber when its steps are not routed), ✔ done, ✘ failed, ○ queued. */
+/** An agent's state: a spinner while it runs (a still dot off the terminal; amber when its steps are not routed), ✔ done, ✘ failed, ○ queued. */
 export function stateGlyph(t: TT, state: AgentState, frame: number, routed: boolean) {
   const { Text } = t
-  if (state === 'running') return <Text color={routed ? ACCENT : WARN} bold mono>{SPIN[frame % SPIN.length]}</Text>
+  if (state === 'running') return <Text color={routed ? ACCENT : WARN} bold mono>{spin(frame)}</Text>
   if (state === 'done') return <Text color={OK} mono>✔</Text>
   if (state === 'failed') return <Text color={BAD} bold mono>✘</Text>
   return <Text color={MUTED} mono>○</Text>
@@ -431,8 +452,8 @@ export function meterCells(conf: number, threshold: number | undefined, passed: 
 
 // ---- Svg markup ---------------------------------------------------------------------
 
-/** One mark's SVG document, its size in CSS pixels, and what it says for a reader that cannot see it. */
-type SvgMark = { source: string; alt: string; width: number; height: number }
+/** One mark's SVG document, its size in CSS pixels, what it says for a reader that cannot see it, and whether it moves by itself (an animation, drawn interactive). */
+type SvgMark = { source: string; alt: string; width: number; height: number; moving?: true }
 
 /** A length in an SVG attribute: one decimal at most. */
 function px(n: number): string {
@@ -448,7 +469,10 @@ function track(w: number, y: number, h: number): string {
   return `<rect x="0" y="${px(y)}" width="${px(w)}" height="${px(h)}" rx="${px(h / 2)}" fill="${TRACK_HEX}" fill-opacity="0.45"/>`
 }
 
-/** One agent's time ribbon, `w` pixels: a thin track, the bar from `from` to `to` in its colour (at least 2 pixels), a queued agent's dot. */
+/**
+ * One agent's time ribbon, `w` pixels: a thin track, the bar from `from` to `to` in its colour (at least 2 pixels), a
+ * queued agent's dot. A bar that grows (`grow`) animates its width to where it will be `grow` seconds on, and stays there.
+ */
 export function ribbonSvg(bar: RibbonBar, w: number): SvgMark {
   const h = 8
   const scale = w / Math.max(bar.span, 1)
@@ -457,6 +481,12 @@ export function ribbonSvg(bar: RibbonBar, w: number): SvgMark {
   if (bar.to === null) return { source: svgDoc(w, h, `${track(w, 3.5, 1)}<circle cx="${px(Math.min(w - 2, Math.max(2, start)))}" cy="4" r="2" fill="${TRACK_HEX}"/>`), alt, width: w, height: h }
   const end = Math.max(start + 2, Math.min(w, bar.to * scale))
   const x = Math.min(start, w - 2)
+  const grow = bar.grow ?? 0
+  if (grow > 0) {
+    const later = Math.max(end, Math.min(w, (bar.to + grow) * scale))
+    const animate = `<animate attributeName="width" from="${px(end - x)}" to="${px(later - x)}" dur="${px(grow)}s" fill="freeze"/>`
+    return { source: svgDoc(w, h, `${track(w, 3.5, 1)}<rect x="${px(x)}" y="1" width="${px(end - x)}" height="6" rx="2" fill="${bar.color}">${animate}</rect>`), alt, width: w, height: h, moving: true }
+  }
   return { source: svgDoc(w, h, `${track(w, 3.5, 1)}<rect x="${px(x)}" y="1" width="${px(end - x)}" height="6" rx="2" fill="${bar.color}"/>`), alt, width: w, height: h }
 }
 
@@ -504,11 +534,18 @@ export function rasterMarks(Raster: Raster): Marks {
  */
 export const CELL_PX = 7
 
-/** The marks as a small SVG each, `columns` cells of `CELL_PX`: the surfaces that have an Svg. An Svg takes no key, so a keyed Box holds it. */
+/**
+ * The marks as a small SVG each, `columns` cells of `CELL_PX`: the surfaces that have an Svg. An Svg takes no key, so a
+ * keyed Box holds it. One that moves is drawn interactive: only then does the surface run its SMIL animation.
+ */
 export function svgMarks(Svg: Svg, Box: TT['Box']): Marks {
   const draw = (key: string, mark: SvgMark) => (
     <Box key={key}>
-      <Svg source={mark.source} alt={mark.alt} width={mark.width} height={mark.height} />
+      {mark.moving === true ? (
+        <Svg source={mark.source} alt={mark.alt} width={mark.width} height={mark.height} isInteractive />
+      ) : (
+        <Svg source={mark.source} alt={mark.alt} width={mark.width} height={mark.height} />
+      )}
     </Box>
   )
   return {

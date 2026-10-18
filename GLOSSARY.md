@@ -121,7 +121,7 @@ Dispatch Pilot 常驻给人看的实时界面：prompt 上方的 band 列出本�
 _Avoid_: 状态栏、状态行、仪表盘
 
 **状态行（Status Line）**：
-prompt 下方的 `$.ui.status` 那一行。Dispatch Pilot 只在不带终端的会话（Desktop、VS Code）里用它，写 band 的一行摘要；用户写消息时写 prompt 提示（ADR 0011）。终端上不用，因为终端会在这一行前面加一个关不掉的 ⚠（ADR 0004）。它不是看板。
+prompt 下方的 `$.ui.status` 那一行。Dispatch Pilot 只在既不带终端、也不在 Desktop 上的会话（VS Code、手机）里用它，写 band 的一行摘要；用户写消息时写 prompt 提示（ADR 0011）。终端上不用，因为终端会在这一行前面加一个关不掉的 ⚠（ADR 0004）；Desktop 上也不用，那里 band 空闲时照样画着那一行，prompt 提示改写到 band 的空闲行上（ADR 0012）。它不是看板。
 _Avoid_: 状态栏
 
 **读数（Readout）**：

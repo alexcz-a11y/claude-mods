@@ -13,3 +13,5 @@ ADR 0004 停用了 `$.ui.status`，理由出在终端上：那一行前面的 �
 **其他。** 字体方面，Desktop 的正文是比例字体，所以模型标签、pip、状态符号和用空格对齐的列用 `mono`，数字用 `tabular`；终端忽略这两个属性。折叠方面，终端的引擎自己会折叠 band，其他端在 band 上放一个「收起 / 展开」按钮，折叠状态存进 `$.state` 的 `bandFolded`，整个会话有效。按键方面，Desktop 会在按钮旁边自己画出按键，VS Code 和手机不接受按键，所以终端以外的端，依据面板的按钮文字不再写「(p)」。
 
 代价：状态行和 Svg 在真实的 Desktop 上都还没亲眼看过。写这份 ADR 时，Desktop 自带的 Claude Code 是 2.1.299，加载不了 Dispatch Pilot，它需要 2.1.300。目前只用测试里扮演引擎的 world 和渲染出的 SVG 文件验证过。如果 Desktop 不发 `prompt.edit`，状态行上的提示就不会出现，但摘要不受影响。
+
+后来被 ADR 0012 改了：会话里有 Desktop 时不写状态行，prompt 提示改写到 band 的空闲行；非终端端重画放慢到 5 秒，运行中的色带用 SMIL 自己长；Desktop 的依据面板另画一份，按「点」来用。

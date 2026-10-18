@@ -37,6 +37,8 @@ export type ScreenInput = {
   isShown: (part: BoardPart) => boolean
   /** The engine says a model turn is running (`isWorking` of the band's props). */
   isWorking: boolean
+  /** Drawn for a surface that redraws every `SLOW_TICK_MS` (all but the terminal): no spinner, ribbons that look ahead. Absent: false. */
+  slow?: boolean
 }
 
 /** How an agent's status cell reads: its tone picks the colour (kit.tsx `STATUS_COLOR`). Not a log entry's `Tone`. */
@@ -92,12 +94,21 @@ export type ScreenView = {
   midturn: { judged: number; changed: number } | null
   /** A finished turn in one line: why the main agent's effort, the skills for the person to try. */
   summary: { reason: string; tried: string[] }
-  /** A spinner frame for this moment. */
+  /** A spinner frame for this moment; -1 on a surface that redraws seldom, where a spinner would stand still (`spin`). */
   frame: number
+  /** Seconds until the next redraw while an agent runs, which a running ribbon grows through by itself: 0 on the terminal, which redraws every frame. */
+  ahead: number
 }
 
-/** The spinner turns one frame each `TICK_MS`; the screens redraw at that pace while an agent runs. */
+/** The spinner turns one frame each `TICK_MS`; the terminal's screens redraw at that pace while an agent runs. */
 export const TICK_MS = 200
+
+/**
+ * How often the screens redraw on the other surfaces while an agent runs. A redraw gives every Button a new handle,
+ * and Desktop sends a press with the handle of the tree it shows: one drawn over meanwhile is lost (`ui_press not
+ * handled`, measured on 2.1.299). So no spinner there, and a running ribbon grows by itself up to the next redraw.
+ */
+export const SLOW_TICK_MS = 5000
 
 /**
  * A Workflow call's node, standing for an agent that has not started (`callNodeId`). One written as a template
@@ -150,12 +161,13 @@ export function agentOf(entry: LogEntry): string {
 
 export function screenView(input: ScreenInput): ScreenView {
   const { board, now } = input
-  const frame = Math.floor(now / TICK_MS) % SPIN.length
+  const frame = input.slow === true ? -1 : Math.floor(now / TICK_MS) % SPIN.length
+  const ahead = input.slow === true ? SLOW_TICK_MS / 1000 : 0
   const turn = board.turn
   const startOf = (of: number) => board.starts?.find((start) => start.turn === of)?.at
   const start = startOf(turn)
   const elapsed = start === undefined ? 0 : Math.max(0, (now - start) / 1000)
-  const empty = { off: !input.master, turn, elapsed, live: false, rows: [], events: [], counts: { running: 0, done: 0, failed: 0, queued: 0 }, workflow: null, midturn: null, summary: { reason: '', tried: [] }, frame }
+  const empty = { off: !input.master, turn, elapsed, live: false, rows: [], events: [], counts: { running: 0, done: 0, failed: 0, queued: 0 }, workflow: null, midturn: null, summary: { reason: '', tried: [] }, frame, ahead }
   if (!input.master) return empty
   // The turn's agents, and those of earlier turns that still run (a Workflow's outlive the turn that launched it; a
   // main agent's turn is over when the next starts, whatever its node says); not a call whose agents started (a
@@ -214,6 +226,7 @@ export function screenView(input: ScreenInput): ScreenView {
     midturn,
     summary: summaryOf(main, mainEntries, log, input),
     frame,
+    ahead,
   }
 }
 

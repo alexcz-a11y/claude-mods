@@ -7,7 +7,7 @@
 
 import type { Effort } from '../decision/effort.ts'
 import type { Model } from '../core/report.ts'
-import { ACCENT, MUTED, readout, SPIN, WARN, width, type TT } from './kit.tsx'
+import { ACCENT, MUTED, readout, spin, WARN, width, type TT } from './kit.tsx'
 import type { ScreenView } from './view.ts'
 
 /** The most cells Dispatch Pilot adds to the footer on the terminal. */
@@ -29,7 +29,7 @@ function footerParts(view: ScreenView): FooterParts | null {
   const routed = main?.routed !== false
   const level = typeof main?.effort === 'string' ? main.effort : undefined
   return {
-    glyph: running ? (SPIN[view.frame] ?? '◆') : '◆',
+    glyph: running ? spin(view.frame) : '◆',
     color: routed ? ACCENT : WARN,
     ...(main?.model === undefined ? {} : { model: main.model }),
     ...(main?.effort === undefined ? {} : { effort: String(main.effort) }),

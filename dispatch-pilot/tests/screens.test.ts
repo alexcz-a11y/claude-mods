@@ -389,7 +389,7 @@ test('before any turn, and with the survey up, the band and the footer are what 
 /** Every surface but the terminal: no Raster there; the time ribbons are an Svg (each of these has one). */
 const SURFACES = ['desktop', 'vscode', 'mobile'] as const
 
-test('on a surface other than the terminal the band is the same band: the strip, a row an agent with its digit, model, effort and state, its time ribbon an Svg, the events; no Raster', { options: KEY }, async ($, on) => {
+test('on a surface other than the terminal the band is the same band: the strip, a row an agent with its name to click (no digit key), model, effort and state, its time ribbon an Svg, the events; no Raster', { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { backend: jev([0, 0.1, 0.2, 0.7, 0], { choice: 'sonnet' }) })
   await w.submit('把这几个模块都审查一遍')
   await w.step({ index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
@@ -402,15 +402,16 @@ test('on a surface other than the terminal the band is the same band: the strip,
     const ui = await w.band({ surface, rows: 12 })
     const rows = await agentRows(ui)
     expect(rows, surface).toHaveLength(2)
-    expect(rows[0]).toContain('0: 主 agent')
+    expect(rows[0]).toContain('主 agent')
+    expect(rows[0]).not.toContain('0:')
     expect(rows[0]).toMatch(/opus.*xhigh/)
-    expect(rows[1]).toContain('1: 审查登录模块')
+    expect(rows[1]).toContain('审查登录模块')
     expect(rows[1]).toContain('sonnet')
     expect(rows[1]).toContain(String(w.steps.find((step) => step.agentId === first.agentId)?.effort))
     expect(rows[1]).toContain('运行 0:03')
     expect(shown(await ui.find({ key: 'band-strip' }))).toContain('第 1 轮')
     expect((await eventRows(ui))[0]).toMatch(/决定.*主 agent/)
-    expect((await ui.findAll({ type: 'Button' })).filter((button) => button.key?.startsWith('band-pick-')).map((button) => button.props.hotkey)).toEqual(['0', '1'])
+    expect((await ui.findAll({ type: 'Button' })).filter((button) => button.key?.startsWith('band-pick-')).map((button) => button.props.hotkey)).toEqual([undefined, undefined])
     const seen = inventory(await ui.drawn())
     expect(seen.types.has('Raster'), surface).toBe(false)
     expect(seen.nodes).toBeLessThan(2000)

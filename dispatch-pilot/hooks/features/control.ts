@@ -11,6 +11,9 @@
 //
 // A pane the surface does not place (one that places no panes) is closed again
 // at once, and the answer says so (spec #22: no pane left open and waiting).
+// Only a session with a terminal hands the pane the keyboard (p / n, Esc):
+// elsewhere the person clicks, and a pane asking for the keys is shown again
+// whenever it is hidden (Desktop, while the engine lists the request).
 //
 // What the person flips is kept in $.store and loaded back at session start.
 // The engine puts the plugin's name before a command's answer, so the texts
@@ -20,19 +23,17 @@
 // percentages, cost) in the debug log. Only recorded: nothing reads them to
 // decide anything (spec, 可见性与控制; a later quota-saving mode may).
 
-import type { On, SessionMeasureInput } from 'claude-code'
+import type { EngineInterface, On, RenderSurface, SessionMeasureInput } from 'claude-code'
 import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
 import { decisionLine, LOG_ENTRIES, report, unplacedText, type DecisionModelIo, type LogEntry, type SwitchIo } from '../core/report.ts'
 import { describeDefaults, keySource, removedDecisionModel, type Ctx } from '../core/setup.ts'
-import { defineSwitch, isOn, listSwitches, loadOverrides, masterOn, overrides, parseOverrides, setMaster, setSwitch } from '../core/switches.ts'
+import { defineSwitch, isOn, keepSwitch, listSwitches, loadOverrides, masterOn, setMaster, setSwitch, SWITCHES_KEY } from '../core/switches.ts'
 import { errorText } from '../decision/backend.ts'
 import { PANE_COLUMNS, PANE_ID, PANE_TITLE } from '../board/rationale.ts'
 
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
-/** The switches the person flipped, in $.store. */
-const SWITCHES_KEY = 'switches'
 
 export function registerControl(on: On, ctx: Ctx): void {
   defineSwitch({ name: 'signals', info: '把上下文、限额和花费的读数记进 debug log，不参与任何决策' })
@@ -94,18 +95,8 @@ export function registerControl(on: On, ctx: Ctx): void {
     const reporting: SwitchIo = { redraw: () => $.ui.invalidate('ui.render') }
     // Keeps one switch as the person just flipped it, beside whatever another session saved meanwhile;
     // says so when it cannot.
-    const save = async (name: string) => {
-      try {
-        const saved = parseOverrides(await $.store.get(SWITCHES_KEY))
-        const now = overrides()[name]
-        if (now === undefined) delete saved[name]
-        else saved[name] = now
-        await $.store.set(SWITCHES_KEY, saved)
-        return ''
-      } catch {
-        return '（没有保存：本地存储用不了，只在这个会话里有效）'
-      }
-    }
+    const save = async (name: string) =>
+      (await keepSwitch({ get: () => $.store.get(SWITCHES_KEY), set: (value) => $.store.set(SWITCHES_KEY, value) }, name)) ? '' : '（没有保存：本地存储用不了，只在这个会话里有效）'
     try {
       switch (command.kind) {
         case 'pane': {
@@ -114,8 +105,10 @@ export function registerControl(on: On, ctx: Ctx): void {
             await $.ui.close({ id: PANE_ID })
             return { text: '依据面板已关闭' }
           }
-          const opened = await $.ui.open({ id: PANE_ID, title: PANE_TITLE, focus: true, closeOnEscape: true, columns: PANE_COLUMNS })
-          if (opened.isPlaced) return { text: '依据面板已打开：p / n 翻看 agent，Esc 关闭' }
+          const keys = await takesKeys($)
+          // `focus` is true or left out (the host's check).
+          const opened = await $.ui.open({ id: PANE_ID, title: PANE_TITLE, ...(keys ? { focus: true as const } : {}), closeOnEscape: true, columns: PANE_COLUMNS })
+          if (opened.isPlaced) return { text: keys ? '依据面板已打开：p / n 翻看 agent，Esc 关闭' : '依据面板已打开' }
           await $.ui.close({ id: PANE_ID })
           return { text: unplacedText(opened.reason) }
         }
@@ -156,6 +149,12 @@ export function registerControl(on: On, ctx: Ctx): void {
       return { text: `出错了（${errorText(error)}）` }
     }
   })
+}
+
+/** Whether the pane takes the keyboard: where the session has a terminal, or where it does not say where it draws. */
+async function takesKeys($: EngineInterface): Promise<boolean> {
+  const surfaces: readonly RenderSurface[] = await $.session.surfaces().catch(() => [])
+  return surfaces.length === 0 || surfaces.includes('terminal')
 }
 
 type Control =
