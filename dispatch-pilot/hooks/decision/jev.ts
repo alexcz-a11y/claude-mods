@@ -56,21 +56,27 @@ function uuid(): string {
 }
 
 /**
+ * The key is a string, or a function that gives it when asked: the mod's key may come from the environment, which is read
+ * after the backend is built (core/setup.ts `Secrets`), as pplx's may. `configured` follows it.
  * `newId`: the id every reference of a request with images starts with, new for each request (a test gives a fixed one).
  * `longContext`: every request carries JEV_LONG_CONTEXT_HEADER (the eval's --long-context); without it, only a request
  * past the regular limits does (`needsLongContext`).
  */
-export function jevBackend(apiKey: string, options: { url?: string; model?: string; newId?: () => string; longContext?: boolean } = {}): Backend {
+export function jevBackend(apiKey: string | (() => string), options: { url?: string; model?: string; newId?: () => string; longContext?: boolean } = {}): Backend {
   const url = options.url ?? JEV_URL
   const model = options.model ?? JEV_MODEL
   const newId = options.newId ?? uuid
   const long = (request: DecisionRequest) => options.longContext === true || needsLongContext(request)
+  const keyNow = typeof apiKey === 'function' ? apiKey : () => apiKey
   return {
     name: 'jev',
-    configured: apiKey !== '',
+    get configured() {
+      return keyNow() !== ''
+    },
     longContext: long,
     async ask(io, request, timeoutMs) {
-      if (!apiKey) return { ok: false, failure: { kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey' } }
+      const apiKey = keyNow()
+      if (!apiKey) return { ok: false, failure: { kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey or TYPESAFE_API_KEY' } }
       let sent: { headers: Record<string, string>; body: unknown }
       try {
         sent = jevRequest(request, model, newId())

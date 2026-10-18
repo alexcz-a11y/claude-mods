@@ -94,7 +94,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 ## 要求
 
-- **Claude Code 2.1.300 及以上**，mod 在 Claude Code 里默认启用。兜底在 `agent.spawn` 上设 Workflow agent 的模型，2.1.300 起才生效；更早的版本上这些 agent 只改得了 effort，模型按脚本或引擎的走。**0.7.0 测试用的是 Claude Code 2.1.302**（兜底改在 `agent.spawn` 上：派出时改模型对 Workflow agent 生效、派出带着 label 和任务、没写 label 的调用 label 是 prompt 前 60 个字符、运行的第一个 agent 在 Workflow 工具返回之前就派出而工具不等它，用临时探针在真实会话里实测过；新的兜底用测试里扮演引擎的 world 验证过，没有在真实会话里跑过一轮），0.6.2 用的是 Claude Code 2.1.301（强提示改成另问一道 effort 题、按同一请求的三选一取用、max 门槛用 `hintThetaMax`：用测试里扮演引擎的 world 和评测里的真实 Jev 验证过，没有在真实会话里跑过一轮），0.6.1 也是（全面代码审查的修复，用测试里扮演引擎的 world 验证过，没有在真实会话里跑过一轮），0.6.0 也是（Jev 1.14 的长上下文、一起派出的 agent 合进一个请求和 Jev 的限速，用测试里扮演引擎的 world 和评测里的真实 Jev 验证过，没有在真实会话里跑过一轮），0.5.0 用的是 Claude Code 2.1.300（图像功能用到的引擎行为用 event-probe 实测过：引擎里图块的形状、引擎把图缩到长边 2000、换掉 Read 的图片结果又不留 `[Image: …]` 文字的写法、注册工具的回答能用哪些形式、hook 的 10 秒只算 mod 自己的代码；整套图像功能没有在真实会话里跑通一轮，见「局限」），0.4.5 也是（`find_skill` 直接在主 agent 的工具列表里，用 event-probe 实测过；看板的模型名新字色在浅色终端上目测过），0.4.4 也是（派出 agent 自己那一轮的 `turn.start`、被 SendMessage 唤醒的 agent 的 `agent.spawn`，在真实会话里实测过），0.4.3 用的是 Claude Code 2.1.296（选 pplx 时派出 agent 和 Workflow 请求里的对话和脚本、agent 启动时才判断的读启动那一轮，在真实会话里实测过），0.4.2 也是（被 TaskStop 停掉的 Workflow agent 的结束实测过），0.4.1 也是（Workflow agent 的 `agent.spawn`、Haiku 5.5 的 effort 在真实会话里实测过），0.4.0 用的是 Claude Code 2.1.294（默认的 pplx 配置跑通一轮真实流程，见 #53），此前版本用的是 2.1.291（订阅登录，看板和依据面板在终端里看过）和 jev-1.13.0；缓存和评测的实测是在 2.1.289 上做的；跑 `eval/` 和 `scripts/` 里的 Node 脚本用的是 Node 26.5，用 mod 本身不需要 Node。
+- **Claude Code 2.1.300 及以上**，mod 在 Claude Code 里默认启用。兜底在 `agent.spawn` 上设 Workflow agent 的模型，2.1.300 起才生效；更早的版本上这些 agent 只改得了 effort，模型按脚本或引擎的走。**0.7.1 测试用的是 Claude Code 2.1.302**（`TYPESAFE_API_KEY` 的环境变量兜底，用测试里扮演引擎的 world 验证过；为它而做的 Claude Desktop 没法试，Desktop 内置的 2.1.299 加载不了 0.7.0 起的 mod，见「安装」的「Claude Desktop」），0.7.0 也是（兜底改在 `agent.spawn` 上：派出时改模型对 Workflow agent 生效、派出带着 label 和任务、没写 label 的调用 label 是 prompt 前 60 个字符、运行的第一个 agent 在 Workflow 工具返回之前就派出而工具不等它，用临时探针在真实会话里实测过；新的兜底用测试里扮演引擎的 world 验证过，没有在真实会话里跑过一轮），0.6.2 用的是 Claude Code 2.1.301（强提示改成另问一道 effort 题、按同一请求的三选一取用、max 门槛用 `hintThetaMax`：用测试里扮演引擎的 world 和评测里的真实 Jev 验证过，没有在真实会话里跑过一轮），0.6.1 也是（全面代码审查的修复，用测试里扮演引擎的 world 验证过，没有在真实会话里跑过一轮），0.6.0 也是（Jev 1.14 的长上下文、一起派出的 agent 合进一个请求和 Jev 的限速，用测试里扮演引擎的 world 和评测里的真实 Jev 验证过，没有在真实会话里跑过一轮），0.5.0 用的是 Claude Code 2.1.300（图像功能用到的引擎行为用 event-probe 实测过：引擎里图块的形状、引擎把图缩到长边 2000、换掉 Read 的图片结果又不留 `[Image: …]` 文字的写法、注册工具的回答能用哪些形式、hook 的 10 秒只算 mod 自己的代码；整套图像功能没有在真实会话里跑通一轮，见「局限」），0.4.5 也是（`find_skill` 直接在主 agent 的工具列表里，用 event-probe 实测过；看板的模型名新字色在浅色终端上目测过），0.4.4 也是（派出 agent 自己那一轮的 `turn.start`、被 SendMessage 唤醒的 agent 的 `agent.spawn`，在真实会话里实测过），0.4.3 用的是 Claude Code 2.1.296（选 pplx 时派出 agent 和 Workflow 请求里的对话和脚本、agent 启动时才判断的读启动那一轮，在真实会话里实测过），0.4.2 也是（被 TaskStop 停掉的 Workflow agent 的结束实测过），0.4.1 也是（Workflow agent 的 `agent.spawn`、Haiku 5.5 的 effort 在真实会话里实测过），0.4.0 用的是 Claude Code 2.1.294（默认的 pplx 配置跑通一轮真实流程，见 #53），此前版本用的是 2.1.291（订阅登录，看板和依据面板在终端里看过）和 jev-1.13.0；缓存和评测的实测是在 2.1.289 上做的；跑 `eval/` 和 `scripts/` 里的 Node 脚本用的是 Node 26.5，用 mod 本身不需要 Node。
 - **只支持 Claude Code 订阅**（ADR 0001，`docs/adr/0001-main-agent-effort-only-no-model-switch.md`）。Dispatch Pilot 每轮、每一步都改主 agent 的 effort，但从不改它的模型：换模型必然让 prompt cache 失效，而在订阅下，同一个模型内切换 effort 保留缓存（2.1.289 上 Opus 5.5 加订阅实测）。Bedrock、Vertex 和各种网关上切换 effort 会让缓存失效，不在支持范围内。Claude Code 的文档只点名了 Opus 5.5、Sonnet 5.5 和 Fable 5.1 保留缓存，其他大多数模型上每档 effort 各有一份缓存，切换会重算整段请求（见 `docs/research/decision-models-and-caching.md` 的 3.4）。
 - **一个决策模型的账号。** 默认的决策模型是 pplx，要 Perplexity 的 API key（Decisions API）；Jev 要 TypeSafe 的 API key。没有 Perplexity 的 key、但有 TypeSafe 的 key 时，自动退回 Jev（0.3.1 的老用户升级后不会失去路由，依据面板的决策日志里会有一条说明原因）；两种 key 都没有时 mod 不发任何请求，每一轮都按会话自己的 effort 走，看板上写明缺的是 Perplexity 的 key。
 - **要用全部图像功能，需要 TypeSafe 的 API key。** 放大复核、全屏「哪里不同」、档位序列、录屏取 12 帧都靠 Jev 1.14。只有 Perplexity 的 key 时（没有 TypeSafe 的 key），三项图像功能仍可用，但看图核对只做整图判断：不框、不裁、没有放大复核，有参考图时「过」只能记没把握；档位序列不可用；一个请求最多 8 张图，录屏取 8 帧。两个 key 都没有，图像功能都不可用。图发给谁见「图像：发给谁，什么时候发」。
@@ -120,15 +120,19 @@ claude plugin install dispatch-pilot@alex-mods --scope user
    jq -n '{perplexityApiKey: env.PERPLEXITY_API_KEY}' | claude plugin configure dispatch-pilot@alex-mods --values-stdin
    ```
 
-2. 设环境变量 `PERPLEXITY_API_KEY`（启动 Claude Code 的环境里要有）。Claude Code Desktop 读不到敏感的 userConfig（#35），用环境变量就绕开了这个问题。
+2. 设环境变量 `PERPLEXITY_API_KEY`（启动 Claude Code 的环境里要有）。在 Claude Desktop 里只能用这一种，填在哪见下面的「Claude Desktop」。
 
 **不要用 `claude plugin install --config perplexityApiKey=...` 传密钥，也不要用 `jq --arg`**：它们的值会出现在进程参数里，同一台机器上的 `ps` 看得到。
 
 `--values-stdin` 读一个 JSON 对象，值都是单行字符串，没写到的选项保持原值。保存之后要重启 Claude Code 才生效，命令也会提示 `Configuration saved. Restart Claude Code to apply it.`。不带参数运行 `claude plugin configure dispatch-pilot@alex-mods` 会列出所有选项，并标出哪些还没有设置。
 
-key 只放在请求头里，不会出现在 debug log、看板、依据面板和 `$.state` 里；会话开始时 debug log 只写 key 从哪里来（选项还是环境变量），不写 key 本身。
+**Jev。** 想用 Jev，就把 `decisionModel` 设成 `jev`（在 `/config` 里选，或写进 `pluginConfigs`），再给它 TypeSafe 的 API key，给法同上，同时给了也用第 1 种：配置对话框里填 `typesafeApiKey`（或者 stdin 的 JSON 里写 `typesafeApiKey`），或者设环境变量 `TYPESAFE_API_KEY`。全部图像功能也要这个 key（见「要求」），不管决策模型是哪个。设成 `jev` 就始终用 Jev，哪怕也有 Perplexity 的 key。Jev 的决策固定用 `jev-1.14.0`，不跟着 `jev-latest` 走：门槛是在这个版本上量过的，TypeSafe 换版本时 mod 的行为不会悄悄变。
 
-**Jev。** 想用 Jev，就把 `decisionModel` 设成 `jev`（在 `/config` 里选，或写进 `pluginConfigs`），再填 TypeSafe 的 API key `typesafeApiKey`，填法同上（配置对话框，或 stdin 的 JSON 里写 `typesafeApiKey`；环境变量 `TYPESAFE_API_KEY` 只用来放进 stdin，mod 本身不读它）。设成 `jev` 就始终用 Jev，哪怕也有 Perplexity 的 key。Jev 的决策固定用 `jev-1.14.0`，不跟着 `jev-latest` 走：门槛是在这个版本上量过的，TypeSafe 换版本时 mod 的行为不会悄悄变。
+两种 key 都只放在请求头里，不会出现在 debug log、看板、依据面板和 `$.state` 里；会话开始时 debug log 只写 key 从哪里来（`pplx key:`、`jev key:` 后面是 `from the options`、环境变量名或 `not set`），不写 key 本身。
+
+**Claude Desktop（Code 标签）。** Desktop 的 Code 标签收不到 keychain 里的敏感 userConfig（#35，上游 anthropics/claude-code#89749）：在那里 mod 拿到的 `typesafeApiKey`、`perplexityApiKey` 总是空的，配置对话框里填过也一样。Desktop 也不读 `~/.zshrc` 里 export 的变量。所以在 Desktop 里，密钥要放进它的本地环境编辑器：在 prompt 框的环境下拉里，鼠标悬停在 Local 上，点齿轮，加上 `PERPLEXITY_API_KEY` 和（或）`TYPESAFE_API_KEY`。这里存的变量加密保存，每个本地会话都会带上。不要写进 settings.json 的 `env`：那里是明文。
+
+Desktop 内置的 Claude Code 版本还要在 2.1.300 及以上（在 Desktop 的会话里运行 `/status`，看 Claude Code 那一行）。0.7.0 起 mod 用到 `prompt.change` 事件，2.1.299 不认它，整个模块加载失败，而且界面上什么也不报：没有看板，`/dp` 也没有，只有 `--debug-file` 的日志里有一行 `hooks module dispatch-pilot@alex-mods failed to load`。0.7.1 的环境变量兜底（`TYPESAFE_API_KEY`）只用测试里扮演引擎的 world 验证过，没有在真实的 Desktop 会话里试过：写这段时 Desktop 内置的是 2.1.299，加载不了 Dispatch Pilot。
 
 **只有 TypeSafe 的 key 的老用户**不用改任何配置：`decisionModel` 没设（或设的是 `pplx`、已移除的 `clef`、拼错的值）又没有 Perplexity 的 key 时，用 Jev，每个会话的决策日志（`/dp` 打开的依据面板）里有一条「改用 Jev」写明原因。以后想换成 pplx，只要填上 Perplexity 的 key。
 
@@ -162,7 +166,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 
 选项的值存在两个地方：
 
-- **敏感项**（`typesafeApiKey`、`perplexityApiKey`）存进平台的安全凭据存储（Claude Code 文档的说法），输入时被遮住，不在 `/config` 里出现。用配置对话框（`/plugin configure dispatch-pilot@alex-mods`），或者 `claude plugin configure ... --values-stdin` 填，见「安装」。
+- **敏感项**（`typesafeApiKey`、`perplexityApiKey`）存进平台的安全凭据存储（Claude Code 文档的说法），输入时被遮住，不在 `/config` 里出现。用配置对话框（`/plugin configure dispatch-pilot@alex-mods`），或者 `claude plugin configure ... --values-stdin` 填，见「安装」。两项为空时分别读环境变量 `TYPESAFE_API_KEY`、`PERPLEXITY_API_KEY`；Claude Desktop 的 Code 标签读不到敏感项（#35），在那里只能用环境变量，见「安装」的「Claude Desktop」。
 - **其他选项**存在 user settings 的 `pluginConfigs` 下，在 `/config` 面板里一项一行，可以直接改（需要 Claude Code 2.1.269 及以上）。两个列表项 `skillsAlwaysListed` 和 `skillsNeverSuggested` 不在 `/config` 里出现，要在 `~/.claude/settings.json` 里写成字符串数组。项目和本地 settings 里的 `pluginConfigs` 会被 Claude Code 忽略。
 
 ```json
@@ -190,7 +194,7 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 | 选项 | 作用 | Jev | pplx |
 |---|---|---|---|
 | `decisionModel` | 决策模型，在 `/config` 里是下拉选择：`pplx`（Perplexity 的 `pplx-decider-v1.1-27b`）或 `jev`（TypeSafe 的 Jev）。默认 `pplx`；填了别的值（包括已移除的 `clef`），按没设处理。设成 `jev` 就始终用 Jev；其他情况有 Perplexity 的 key 用 pplx，没有但有 TypeSafe 的 key 就退回 Jev（决策日志里记一条原因），两种都没有就不发请求 | `pplx` | `pplx` |
-| `typesafeApiKey` | TypeSafe 的 API key，选 `jev` 时用；没有 Perplexity 的 key 时默认的 pplx 退回 Jev，用的也是它。敏感项 | `空` | `空` |
+| `typesafeApiKey` | TypeSafe 的 API key，选 `jev` 时用；没有 Perplexity 的 key 时默认的 pplx 退回 Jev，用的也是它；全部图像功能也要它。敏感项。为空时读环境变量 `TYPESAFE_API_KEY`，两处都有就用这里的。key 只放在请求头里，不进日志、看板和 `$.state` | `空` | `空` |
 | `perplexityApiKey` | Perplexity 的 API key，默认的决策模型 pplx 用它。敏感项。为空时读环境变量 `PERPLEXITY_API_KEY`，两处都有就用这里的；Perplexity 和 TypeSafe 的 key 都没有时不发任何请求。key 只放在请求头里，不进日志、看板和 `$.state` | `空` | `空` |
 | `pplxQps` | 每秒最多向 Perplexity 发几个请求（1–50），只对 `pplx` 有用，Jev 看下面两项。Perplexity 的文档写每个组织每秒 10 个；默认 5，几个同时派出的 agent 可以一起发出（实测同时发 5 到 8 个都没有 429，而按 1 个每秒排队时第 4、5 个要 8.5 秒、10.7 秒才答完），也给同一个 key 的其他会话留出余量。超出的在 mod 里排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待。遇到 429 时，剩余等待时间不少于 `Retry-After` 加约 5 秒就按 `Retry-After` 重试一次，不够就不经路由地放行，看板写「被限速」 | `5` 仅 `pplx` 用 | `5` |
 | `jevQps` | 每秒最多向 TypeSafe 发几个请求（1–1000），只对 `jev` 有用。填你的账号在 TypeSafe 控制台 Rate limits 页上的限额，默认 80 是默认套餐的值。超出的在 mod 里排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待 | `80` 默认套餐 | `80` 仅 `jev` 用 |

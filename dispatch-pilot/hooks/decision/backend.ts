@@ -234,7 +234,7 @@ const FAILURE_WORDS: { readonly [K in Failure['kind']]: { words: (failure: Named
     line: (backend, failure) => {
       if (failure.status !== undefined) return `${backend}：密钥被拒绝（状态码 ${failure.status}）`
       // Nothing was sent: what is not set up (the option and the variable names are the ones the person types; any one of them does).
-      const missing = ['typesafeApiKey', 'perplexityApiKey', 'PERPLEXITY_API_KEY'].filter((name) => failure.detail.includes(name))
+      const missing = ['typesafeApiKey', 'TYPESAFE_API_KEY', 'perplexityApiKey', 'PERPLEXITY_API_KEY'].filter((name) => failure.detail.includes(name))
       return missing.length === 0 ? `${backend}：没有配好密钥或账号` : `${backend}：没有填 ${missing.join(' 或 ')}`
     },
   },

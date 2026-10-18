@@ -53,7 +53,7 @@ test('the Workflow sent back in return mode tells the main agent in English what
 
 test('a failed decision request is worded in English wherever the model reads it', () => {
   const words: [Failure, string][] = [
-    [{ kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey' }, 'jev: no TypeSafe API key: set typesafeApiKey'],
+    [{ kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey or TYPESAFE_API_KEY' }, 'jev: no TypeSafe API key: set typesafeApiKey or TYPESAFE_API_KEY'],
     [{ kind: 'config', status: 401, detail: 'HTTP 401' }, 'jev: key refused (HTTP 401)'],
     [{ kind: 'timeout', detail: 'no answer in 1500 ms' }, 'jev: no answer in 1500 ms'],
     [{ kind: 'network', detail: 'ENOTFOUND' }, 'jev: unreachable'],

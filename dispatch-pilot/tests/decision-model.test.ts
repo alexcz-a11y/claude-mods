@@ -96,7 +96,7 @@ test('decisionModel jev with no TypeSafe key is not routed, whatever Perplexity 
   await w.submit('解释一下这个函数做了什么')
   await w.step({ index: 0, effort: 'medium' })
   expect(w.requests).toHaveLength(0)
-  expect((await w.board()).main).toMatchObject({ routed: false, why: 'jev：没有填 typesafeApiKey', failure: { backend: 'jev', kind: 'config' } })
+  expect((await w.board()).main).toMatchObject({ routed: false, why: 'jev：没有填 typesafeApiKey 或 TYPESAFE_API_KEY', failure: { backend: 'jev', kind: 'config' } })
 })
 
 test('decisionModel clef, left over from 0.3.x, reads as unset: pplx with a Perplexity key', { options: { decisionModel: 'clef', typesafeApiKey: 'ts-test-key', perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {

@@ -1205,7 +1205,7 @@ export type DecisionModelEvent = {
 /** What a person reads of each decision model: its name, and the settings that hold its key (the options' names and the environment variable they type). The one place both are written. */
 const DECISION_MODELS: Readonly<Record<BackendName, { name: string; keys: string }>> = {
   pplx: { name: 'pplx', keys: 'perplexityApiKey 或环境变量 PERPLEXITY_API_KEY' },
-  jev: { name: 'Jev', keys: 'typesafeApiKey' },
+  jev: { name: 'Jev', keys: 'typesafeApiKey 或环境变量 TYPESAFE_API_KEY' },
 }
 
 /** The feature name of the entry the fallback leaves in the decision log. */

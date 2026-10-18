@@ -367,7 +367,7 @@ export type Config = EffortRules & {
    * unset, with the value each took, and an option set above that model's most, read as the most.
    */
   defaults: { used: readonly (readonly [PerBackendOption, number])[]; capped: readonly { option: PerBackendOption; set: number; read: number }[] }
-  /** The TypeSafe key in the options (`typesafeApiKey`, trimmed; '' if unset). Not enumerable (see readConfig): it is not in a written-out or copied config. */
+  /** The TypeSafe key in the options (`typesafeApiKey`, trimmed; '' if unset). Not enumerable (see readConfig): it is not in a written-out or copied config. The environment's (`Secrets`) stands where this is empty. */
   readonly typesafeApiKey: string
   /** The Perplexity key in the options (`perplexityApiKey`, trimmed; '' if unset; not enumerable either): the environment's (`Secrets`) stands where this is empty. */
   readonly perplexityApiKey: string
@@ -486,6 +486,8 @@ export function hintedRules<R extends EffortRules>(rules: R, config: Pick<Config
 export type Secrets = {
   /** `PERPLEXITY_API_KEY`, trimmed; '' while unread or unset. */
   perplexityEnvKey: string
+  /** `TYPESAFE_API_KEY`, trimmed; '' while unread or unset. Desktop hands a mod no sensitive option (#35): this is its way in there. */
+  typesafeEnvKey: string
 }
 
 /** The Perplexity key in use: the options' (`perplexityApiKey`) first, else the environment's. '' for none. */
@@ -493,10 +495,23 @@ export function perplexityKey(config: Pick<Config, 'perplexityApiKey'>, secrets:
   return config.perplexityApiKey !== '' ? config.perplexityApiKey : secrets.perplexityEnvKey
 }
 
+/** The TypeSafe key in use: the options' (`typesafeApiKey`) first, else the environment's. '' for none. */
+export function typesafeKey(config: Pick<Config, 'typesafeApiKey'>, secrets: Secrets): string {
+  return config.typesafeApiKey !== '' ? config.typesafeApiKey : secrets.typesafeEnvKey
+}
+
+/**
+ * Where a key in use came from, for the session start's debug line: `from the options`, `from <variable>` or `not set`.
+ * Never the key itself.
+ */
+export function keySource(option: string, environment: string, variable: string): string {
+  return option !== '' ? 'from the options' : environment !== '' ? `from ${variable}` : 'not set'
+}
+
 /**
  * What the entry hands every feature's register: data and pure functions, never `$`.
  *
- * Which decision model decides is not known at register: the Perplexity key may be in the environment, which the session start
+ * Which decision model decides is not known at register: either key may be in the environment, which the session start
  * reads (`secrets`). `config`, `backend`, `ask` and `fellBack` are therefore read afresh at each use and follow the choice: a
  * feature that keeps a value from `ctx.config` when it registers keeps the wrong model's (the defaults differ), so it reads
  * `ctx.config` where it acts.
@@ -526,13 +541,13 @@ export function setup(options: PluginOptions, table: Readonly<Record<BackendName
   const asked = backendNameOf(options)
   // Both are worked out here, whichever decides: pure and cheap, and `chooseBackend` picks between them once the environment is read.
   const configs: Record<BackendName, Config> = { pplx: readConfig(options, table, 'pplx'), jev: readConfig(options, table, 'jev') }
-  const secrets: Secrets = { perplexityEnvKey: '' }
+  const secrets: Secrets = { perplexityEnvKey: '', typesafeEnvKey: '' }
   const backends: Record<BackendName, Backend> = {
     // Every request goes through its account's rate limit: pplx's (#51), Jev's (requests and input tokens a second).
     pplx: rateLimited(pplxBackend(() => perplexityKey(configs.pplx, secrets)), configs.pplx.pplxQps),
-    jev: jevRateLimited(jevBackend(configs.jev.typesafeApiKey), () => configs.jev.jevLimits),
+    jev: jevRateLimited(jevBackend(() => typesafeKey(configs.jev, secrets)), () => configs.jev.jevLimits),
   }
-  const keys = () => ({ perplexity: perplexityKey(configs.pplx, secrets), typesafe: configs.pplx.typesafeApiKey })
+  const keys = () => ({ perplexity: perplexityKey(configs.pplx, secrets), typesafe: typesafeKey(configs.jev, secrets) })
   const choice = () => chooseBackend(asked, keys())
   return {
     get config() {
