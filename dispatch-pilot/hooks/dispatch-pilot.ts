@@ -8,7 +8,7 @@
 // above `registerCore` (DEVELOPMENT.md, 开发).
 
 import type { Register } from 'claude-code'
-import { registerScreens } from './board/screens.tsx'
+import { registerScreens, registerStatus } from './board/screens.tsx'
 import { registerCore } from './core/core.ts'
 import { registerLoopStart } from './core/loop-start.ts'
 import { registerReport } from './core/report.ts'
@@ -33,7 +33,9 @@ import { registerWorkflowLabels } from './features/workflow-labels.ts'
 export const register: Register = (on, options) => {
   const ctx = setup(options)
 
-  // The decision report keeps the board's turn count: outermost, so a turn is counted before anything beneath reads the board.
+  // The status line where the band is not drawn: outermost of all, so a turn's end reads the board the report wrote.
+  registerStatus(on)
+  // The decision report keeps the board's turn count: outermost but the status line, so a turn is counted before anything beneath reads the board.
   registerReport(on)
   // The screens draw the report's data (the band, the footer); no feature touches them.
   registerScreens(on)

@@ -2,10 +2,16 @@
 // written to by a feature): the band above the prompt (`AbovePrompt`), the
 // summary at the right end of the footer (`SessionMode`) and the rationale pane
 // (`Pane`, the pane `/dp` opens). One hook tree for every surface, branching on
-// `e.surface`: the terminal draws the full design (band.tsx, footer.tsx,
-// pane.tsx) with its Raster; every other surface gets the same trees in plain
-// text, without a Raster (the tag in the footer in at most 24 characters, the
-// log in a window short of Desktop's 2000 nodes), until the Svg versions.
+// `e.surface`: every surface draws the same design (band.tsx, footer.tsx,
+// pane.tsx), its marks (time ribbons, probability bars, confidence meters) a
+// Raster on the terminal and an Svg on Desktop, VS Code and the mobile app;
+// off the terminal the footer's tag is at most 24 characters and the log keeps
+// to a window short of Desktop's 2000 nodes.
+//
+// Where the band is not drawn (a session without a terminal: VS Code draws
+// none, Desktop's is gone while idle), the status line under the prompt says
+// the band's line in words (status-line.ts, ADR 0011): its hooks set it as a
+// turn starts and ends, an agent starts and the person runs `/dp`.
 //
 // Each hook reads the board, the log and the agent the person picked from
 // $.state while it draws, so the host draws it again when they change; while
@@ -14,16 +20,17 @@
 // draw in the same place: the engine's drawing beneath goes in first (spec
 // story 38); the pane is Dispatch Pilot's own.
 
-import type { EngineInterface, On, Timer } from 'claude-code'
+import type { EngineInterface, On, RenderInput, Timer } from 'claude-code'
 import { errorText } from '../decision/backend.ts'
 import { report, type NoticeIo } from '../core/report.ts'
 import { isOn, isShown, listSwitches, masterOn } from '../core/switches.ts'
-import { bandTree } from './band.tsx'
+import { bandTree, statusText } from './band.tsx'
 import { FOOTER_COLUMNS, footerTree, TAG_CHARS } from './footer.tsx'
 import { paneTree } from './pane.tsx'
-import { nodeCount, showsText } from './kit.tsx'
+import { nodeCount, rasterMarks, showsText, svgMarks, type Marks } from './kit.tsx'
 import { NO_PANE_STATE, PANE_COLUMNS, PANE_ID, PANE_TITLE, withFold } from './rationale.ts'
 import { screenView, TICK_MS, type AgentRow, type ScreenView } from './view.ts'
+import { hintLineIs, statusLineUsed, surfacesAre, turnLineIs, type StatusUpdate } from './status-line.ts'
 
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
@@ -32,6 +39,7 @@ const PROFILES = { plugin: 'dispatch-pilot', key: 'skillProfiles' } as const
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const PANE_VIEW = { plugin: 'dispatch-pilot', key: 'paneView' } as const
 const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
+const BAND_FOLD = { plugin: 'dispatch-pilot', key: 'bandFolded' } as const
 
 /** The log's windows for a surface that refuses a large tree, widest first: what the pane keeps of the log and of the re-decisions. */
 const WINDOWS = [
@@ -59,6 +67,11 @@ async function viewOf($: EngineInterface, isWorking: boolean): Promise<ScreenVie
     isShown,
     isWorking,
   })
+}
+
+/** The surface's marks: a Raster's cells on the terminal, an Svg where the surface has one. */
+function marksOf($: EngineInterface, e: RenderInput<'AbovePrompt' | 'Pane'>): Marks {
+  return e.surface === 'terminal' ? rasterMarks($.ui.resolve(e).Raster) : svgMarks($.ui.resolve(e).Svg, $.ui.resolve(e).Box)
 }
 
 /** One more frame in `TICK_MS` while something runs; none once nothing does. */
@@ -96,6 +109,62 @@ async function pick($: EngineInterface, row: AgentRow): Promise<void> {
   await $.state.set(SELECTED, { turn: row.node.turn, id: row.node.id })
 }
 
+/** Sets the status line to what `update` says, when it changed. */
+function putStatusLine($: EngineInterface, update: StatusUpdate): void {
+  if (update.changed) $.ui.status(update.line)
+}
+
+/** The status line again from the board: where the session draws (it can change), then the band's line. */
+async function refreshStatus($: EngineInterface): Promise<void> {
+  const surfaces = await $.session.surfaces().catch(() => [] as const)
+  putStatusLine($, surfacesAre(surfaces))
+  // A session with a terminal has no line: the board is not read for it.
+  if (statusLineUsed()) putStatusLine($, turnLineIs(statusText(await viewOf($, false))))
+}
+
+/** `refreshStatus`, once the event is through: a line that cannot be set never stops anything. */
+async function refreshQuietly($: EngineInterface): Promise<void> {
+  try {
+    await refreshStatus($)
+  } catch {
+    // the line keeps what it said
+  }
+}
+
+/**
+ * The status line's hooks (status-line.ts), which only watch: outermost of all (dispatch-pilot.ts), so that when a
+ * turn ends the line reads the board the decision report has just written.
+ */
+export function registerStatus(on: On): void {
+  on('session.start', { cwd: /(?:)/ }, async ($, e, next) => {
+    const result = await next(e)
+    await refreshQuietly($)
+    return result
+  })
+  on('turn.start', { turnId: /(?:)/ }, async ($, e, next) => {
+    const result = await next(e)
+    // The draft the hint was about has been sent.
+    if (e.agentId === undefined) putStatusLine($, hintLineIs(null))
+    await refreshQuietly($)
+    return result
+  })
+  on('agent.spawn', { tool_use_id: /(?:)/ }, async ($, e, next) => {
+    const result = await next(e)
+    await refreshQuietly($)
+    return result
+  })
+  on('turn.complete', { turnId: /(?:)/ }, async ($, e, next) => {
+    const result = await next(e)
+    await refreshQuietly($)
+    return result
+  })
+  on('command.run', { command: 'dp' }, async ($, e, next) => {
+    const result = await next(e)
+    await refreshQuietly($)
+    return result
+  })
+}
+
 export function registerScreens(on: On): void {
   // The band above the prompt.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -103,10 +172,12 @@ export function registerScreens(on: On): void {
     const own = await next(e)
     try {
       const t = $.ui.resolve(e)
-      // The time ribbons are the terminal's Raster; elsewhere the rows are the same without them.
-      const ribbon = e.surface === 'terminal' ? $.ui.resolve(e).Raster : undefined
-      const view = await viewOf($, e.props.isWorking)
+      // The time ribbons: the terminal's Raster, an Svg elsewhere.
+      const marks = marksOf($, e)
+      const [view, folded] = await Promise.all([viewOf($, e.props.isWorking), e.surface === 'terminal' ? null : $.state.get(BAND_FOLD)])
       tick($, view)
+      // The terminal folds the band itself; elsewhere the band has its own fold, kept for the session.
+      const fold = folded === null ? undefined : { folded: folded.value === true, set: (value: boolean) => void $.state.set(BAND_FOLD, value).catch(() => undefined) }
       // A digit picks an agent and brings up its card: a press is the person's asking, so the pane is placed at
       // any width; it opens without taking the keys, so the next digit still picks. One not placed is closed again,
       // and the decision report tells the person why in a toast.
@@ -119,7 +190,7 @@ export function registerScreens(on: On): void {
           await report(io, { unplaced: { reason: opened.reason } })
         }
       }
-      const tree = bandTree(t, view, { cols: e.props.bodyColumns, rows: e.props.maxRows }, { select: (row) => void select(row).catch(() => undefined) }, ribbon)
+      const tree = bandTree(t, view, { cols: e.props.bodyColumns, rows: e.props.maxRows }, { select: (row) => void select(row).catch(() => undefined), ...(fold === undefined ? {} : { fold }) }, marks)
       if (tree === null) return own
       const { Box } = t
       return (
@@ -171,19 +242,21 @@ export function registerScreens(on: On): void {
       // The summary the session holds, while the feature that writes it is on.
       const summary = isOn('unresolved') ? (count.value?.summary ?? null) : null
       const viewing = e.props.view.agentId ?? null
-      const input = { view, log: entries, profiles: shown, switches: listSwitches().map((s) => ({ name: s.name, on: s.on })), master: masterOn(), lock: lock.value ?? null, viewing, summary, state }
+      // The terminal's labels spell their keys; Desktop draws a key beside its Button, and the others take none.
+      const input = { view, log: entries, profiles: shown, switches: listSwitches().map((s) => ({ name: s.name, on: s.on })), master: masterOn(), lock: lock.value ?? null, viewing, summary, state, spellKeys: e.surface === 'terminal' }
       const act = {
         pick: (row: AgentRow) => void pick($, row).catch(() => undefined),
         view: (agentId: string | null) => void showTranscript($, agentId).catch(() => undefined),
         fold: (turn: number, open: boolean) => void $.state.set(PANE_VIEW, withFold(state, turn, open, entries)).catch(() => undefined),
         failures: (open: boolean) => void $.state.set(PANE_VIEW, { ...state, failures: open }).catch(() => undefined),
       }
-      if (e.surface === 'terminal') return paneTree(t, input, e.props.bodyColumns, act, $.ui.resolve(e).Raster)
-      // Elsewhere: the same pane in text, in the widest window of the log that stays short of Desktop's 2000 nodes.
-      let tree = paneTree(t, { ...input, window: WINDOWS[0] }, e.props.bodyColumns, act)
+      const marks = marksOf($, e)
+      if (e.surface === 'terminal') return paneTree(t, input, e.props.bodyColumns, act, marks)
+      // Elsewhere: the same pane, in the widest window of the log that stays short of Desktop's 2000 nodes.
+      let tree = paneTree(t, { ...input, window: WINDOWS[0] }, e.props.bodyColumns, act, marks)
       for (const window of WINDOWS.slice(1)) {
         if (nodeCount(tree) < MOST_NODES) break
-        tree = paneTree(t, { ...input, window }, e.props.bodyColumns, act)
+        tree = paneTree(t, { ...input, window }, e.props.bodyColumns, act, marks)
       }
       return tree
     } catch (error) {

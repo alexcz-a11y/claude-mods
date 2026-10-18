@@ -11,23 +11,35 @@
 // the hint painted on it; the box keeps the same text and the cursor at its end,
 // where a recall leaves it.
 //
+// In a session without a terminal (VS Code, Desktop) the same hint also goes on
+// the status line under the prompt (board/status-line.ts), in case the app does
+// not draw `virtualText`; the line goes back to the band's once the turn starts.
+//
 // Its switch is `prompt-hint` (`/dp prompt-hint off`).
 
 import type { EngineInterface, On, PromptDecoration } from 'claude-code'
 import { promptHint } from '../decision/prompt-hint.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
+import { hintLineIs, statusLineUsed } from '../board/status-line.ts'
 
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 
 /** The switch's name, in `/dp`. */
 const SWITCH = 'prompt-hint'
 
-/** The decorations that draw the hint after `text`; none when there is nothing to say. */
+/**
+ * The decorations that draw the hint after `text`; none when there is nothing to say. Where the session uses the
+ * status line, the hint goes on it too.
+ */
 async function hintDecorations($: EngineInterface, text: string): Promise<PromptDecoration[]> {
   // Off with the mod too, but then the hint says so: the master switch is read on its own.
-  if (masterOn() && !isOn(SWITCH)) return []
-  const { value: lock = null } = masterOn() ? await $.state.get(LOCK) : { value: null }
-  const hint = promptHint(text, { master: masterOn(), lock, agents: isOn('dispatched-agents') || isOn('workflow-agents') || isOn('workflow-labels') })
+  const silenced = masterOn() && !isOn(SWITCH)
+  const { value: lock = null } = masterOn() && !silenced ? await $.state.get(LOCK) : { value: null }
+  const hint = silenced ? null : promptHint(text, { master: masterOn(), lock, agents: isOn('dispatched-agents') || isOn('workflow-agents') || isOn('workflow-labels') })
+  if (statusLineUsed()) {
+    const update = hintLineIs(hint)
+    if (update.changed) $.ui.status(update.line)
+  }
   return hint === null ? [] : [{ start: text.length, end: text.length, virtualText: `  ${hint}`, dimColor: true }]
 }
 

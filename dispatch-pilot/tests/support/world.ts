@@ -162,6 +162,8 @@ export type WorldOptions = {
    * Without it those calls reject, and the skills feature finds no skills.
    */
   skills?: SkillsWorld
+  /** Where the session draws (`$.session.surfaces()`, the status line reads it); unanswered when left out, as in a terminal's session the mod finds no line to use. */
+  surfaces?: readonly RenderSurface[]
   /** What `$.settings.read({ source: 'user' })` returns beside the skills' `skillOverrides`: the person's own settings file. */
   userSettings?: Record<string, unknown>
   /**
@@ -465,6 +467,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   }
   let sessionId = options.sessionId ?? 's1'
   on('session.id', () => ({ value: sessionId }))
+  if (options.surfaces !== undefined) on('session.surfaces', () => ({ value: options.surfaces ?? [] }))
   if (options.store !== undefined || options.switches !== undefined) {
     on('store.get', (_$, e) => ({ value: store.has(e.key) ? JSON.parse(store.get(e.key) as string) : undefined }))
     on('store.set', (_$, e) => {

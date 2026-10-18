@@ -386,10 +386,10 @@ test('before any turn, and with the survey up, the band and the footer are what 
 
 // ---- the other surfaces: the same band in plain text (#31) ---------------------------
 
-/** Every surface but the terminal: the band and the footer tag are text there, never a Raster. */
+/** Every surface but the terminal: no Raster there; the time ribbons are an Svg (each of these has one). */
 const SURFACES = ['desktop', 'vscode', 'mobile'] as const
 
-test('on a surface other than the terminal the band is the same band in text: the strip, a row an agent with its digit, model, effort and state, the events; no Raster', { options: KEY }, async ($, on) => {
+test('on a surface other than the terminal the band is the same band: the strip, a row an agent with its digit, model, effort and state, its time ribbon an Svg, the events; no Raster', { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { backend: jev([0, 0.1, 0.2, 0.7, 0], { choice: 'sonnet' }) })
   await w.submit('把这几个模块都审查一遍')
   await w.step({ index: 0, model: 'claude-opus-5-5', effort: 'xhigh' })
@@ -410,10 +410,18 @@ test('on a surface other than the terminal the band is the same band in text: th
     expect(rows[1]).toContain('运行 0:03')
     expect(shown(await ui.find({ key: 'band-strip' }))).toContain('第 1 轮')
     expect((await eventRows(ui))[0]).toMatch(/决定.*主 agent/)
-    expect((await ui.findAll({ type: 'Button' })).map((button) => button.props.hotkey)).toEqual(['0', '1'])
+    expect((await ui.findAll({ type: 'Button' })).filter((button) => button.key?.startsWith('band-pick-')).map((button) => button.props.hotkey)).toEqual(['0', '1'])
     const seen = inventory(await ui.drawn())
     expect(seen.types.has('Raster'), surface).toBe(false)
     expect(seen.nodes).toBeLessThan(2000)
+    expect((await ui.findAll({ type: 'Box' })).filter((box) => box.key?.startsWith('band-ribbon-')).map((box) => box.key), surface).toEqual(['band-ribbon-0', 'band-ribbon-1'])
+    const ribbons = await ui.findAll({ type: 'Svg' })
+    expect(ribbons, surface).toHaveLength(2)
+    for (const svg of ribbons) {
+      expect(String(svg.props.source)).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="[\d.]+" height="8"/)
+      expect(String(svg.props.source).length).toBeLessThan(131072)
+      expect(String(svg.props.alt)).toMatch(/^\d+:\d\d 到 \d+:\d\d$/)
+    }
     await ui.unmount()
   }
 })

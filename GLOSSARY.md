@@ -120,6 +120,10 @@ _Avoid_: 汇报器、状态管理
 Dispatch Pilot 常驻给人看的实时界面：prompt 上方的 band 列出本轮每个 agent 的模型、effort 和发生的事件，一轮结束后折成一行写上一轮的结果；脚部右侧一个短摘要。只显示读数和结论，依据放在依据面板。
 _Avoid_: 状态栏、状态行、仪表盘
 
+**状态行（Status Line）**：
+prompt 下方的 `$.ui.status` 那一行。Dispatch Pilot 只在不带终端的会话（Desktop、VS Code）里用它，写 band 的一行摘要；用户写消息时写 prompt 提示（ADR 0011）。终端上不用，因为终端会在这一行前面加一个关不掉的 ⚠（ADR 0004）。它不是看板。
+_Avoid_: 状态栏
+
 **读数（Readout）**：
 一个 agent 此刻实际发出的模型和 effort，取自它最近的一步。读数只反映结果，不改变任何决定；它变了，看板上记一条事件。
 _Avoid_: 状态、当前值

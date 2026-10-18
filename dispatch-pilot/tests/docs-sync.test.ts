@@ -255,6 +255,11 @@ test('a file that draws on the status row, the report included, raises a toast i
   expect(problems.map((problem) => problem.split(':')[0])).toEqual(['`core/report.ts`', '`features/a.ts`', '`features/b.ts`', '`board/band.tsx`'])
 })
 
+test('the status line of a session without a terminal (ADR 0011) is set by the screens and the prompt hint alone', () => {
+  expect(checkOneWriter({ 'board/screens.tsx': 'if (update.changed) $.ui.status(update.line)', 'features/prompt-hint.ts': 'if (update.changed) $.ui.status(update.line)' })).toEqual([])
+  expect(checkOneWriter({ 'board/band.tsx': '$.ui.status(line)', 'features/main-effort.ts': '$.ui.status(line)' }).map((problem) => problem.split(':')[0])).toEqual(['`board/band.tsx`', '`features/main-effort.ts`'])
+})
+
 test('skill-profiles holds only the debug closure of `$.ui`: a log line, a toast or a status of its own is a problem', () => {
   const closure = "const io = { debug: (line) => $.ui.log(line, { to: 'debug' }), profiles }\nawait report(io, { profiles: event })"
   expect(checkOneWriter({ 'features/skill-profiles.ts': closure })).toEqual([])
