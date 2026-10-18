@@ -23,7 +23,7 @@
 import type { On, SessionMeasureInput } from 'claude-code'
 import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
 import { decisionLine, LOG_ENTRIES, report, unplacedText, type DecisionModelIo, type LogEntry, type SwitchIo } from '../core/report.ts'
-import { describeDefaults, removedDecisionModel, type Ctx } from '../core/setup.ts'
+import { describeDefaults, keySource, removedDecisionModel, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, listSwitches, loadOverrides, masterOn, overrides, parseOverrides, setMaster, setSwitch } from '../core/switches.ts'
 import { errorText } from '../decision/backend.ts'
 import { PANE_COLUMNS, PANE_ID, PANE_TITLE } from '../board/rationale.ts'
@@ -41,9 +41,10 @@ export function registerControl(on: On, ctx: Ctx): void {
   on('session.start', { cwd: /(?:)/ }, async ($, e, next) => {
     // The person's switches first: the features beneath read them while the session starts.
     loadOverrides(await $.store.get(SWITCHES_KEY).catch(() => undefined))
-    // The environment's Perplexity key (the options' comes first), for the requests that follow; never written down, only where it came from.
-    // Read before anything is said of the decision model: whether it is pplx or Jev depends on it (core/setup.ts, `Ctx`).
+    // The environment's keys (the options' come first), for the requests that follow; never written down, only where they came from.
+    // Read before anything is said of the decision model: whether it is pplx or Jev, and who takes images, depends on them (core/setup.ts, `Ctx`).
     ctx.secrets.perplexityEnvKey = ((await $.env.get('PERPLEXITY_API_KEY').catch(() => undefined)) ?? '').trim()
+    ctx.secrets.typesafeEnvKey = ((await $.env.get('TYPESAFE_API_KEY').catch(() => undefined)) ?? '').trim()
     // Which options the decision model's defaults decided (core/setup.ts BACKEND_DEFAULTS).
     $.ui.log(describeDefaults(ctx.config), { to: 'debug' })
     const modelIo: DecisionModelIo = {
@@ -57,7 +58,9 @@ export function registerControl(on: On, ctx: Ctx): void {
     const images = ctx.images
     if (images === null) $.ui.log('images: no decision model takes them (no TypeSafe or Perplexity key)', { to: 'debug' })
     else if (images.fellBack) await report(modelIo, { fellBack: { asked: 'jev', using: images.name, for: 'images' } })
-    if (ctx.config.backend === 'pplx') $.ui.log(`pplx key: ${ctx.config.perplexityApiKey !== '' ? 'from the options' : ctx.secrets.perplexityEnvKey !== '' ? 'from PERPLEXITY_API_KEY' : 'not set'}`, { to: 'debug' })
+    if (ctx.config.backend === 'pplx') $.ui.log(`pplx key: ${keySource(ctx.config.perplexityApiKey, ctx.secrets.perplexityEnvKey, 'PERPLEXITY_API_KEY')}`, { to: 'debug' })
+    // Jev's key serves the decisions when Jev decides and the images when Jev takes them (whatever decides the rest).
+    if (ctx.config.backend === 'jev' || images?.name === 'jev') $.ui.log(`jev key: ${keySource(ctx.config.typesafeApiKey, ctx.secrets.typesafeEnvKey, 'TYPESAFE_API_KEY')}`, { to: 'debug' })
     // A decisionModel left over in the person's settings that names a model since removed: the engine reads it as the default.
     const removed = removedDecisionModel(await $.settings.read({ source: 'user' }).catch(() => undefined))
     if (removed !== null) $.ui.log(`decisionModel ${removed} 已移除，按没设处理`, { to: 'debug' })

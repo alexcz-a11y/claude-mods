@@ -44,7 +44,7 @@ test('only a Perplexity key: the decision log says once that images go to pplx n
 
   const [entry, ...more] = await about(w)
   expect(more).toEqual([])
-  expect(entry).toMatchObject({ tone: 'info', fallbackFor: 'images', outcome: '看图改用 pplx', reason: '没有 Jev 的密钥（typesafeApiKey），看图改用 pplx，放大复核不可用；补上密钥就用 Jev' })
+  expect(entry).toMatchObject({ tone: 'info', fallbackFor: 'images', outcome: '看图改用 pplx', reason: '没有 Jev 的密钥（typesafeApiKey 或环境变量 TYPESAFE_API_KEY），看图改用 pplx，放大复核不可用；补上密钥就用 Jev' })
   expect(JSON.stringify({ logs: w.logs, board: await w.board() })).not.toContain('pplx-test-key')
 })
 

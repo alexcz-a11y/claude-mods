@@ -12,7 +12,7 @@ const LEFTOVER = /\b(HTTP|ms|thetaMax|thetaUp|thetaDown|thetaExpected|holdSteps|
 
 test('a failed decision request reads in Chinese, with the decision model named and the number the backend gave', () => {
   const words: [Failure, string][] = [
-    [{ kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey' }, 'jev：没有填 typesafeApiKey'],
+    [{ kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey or TYPESAFE_API_KEY' }, 'jev：没有填 typesafeApiKey 或 TYPESAFE_API_KEY'],
     [{ kind: 'config', status: 401, detail: 'HTTP 401' }, 'jev：密钥被拒绝（状态码 401）'],
     [{ kind: 'timeout', detail: 'no answer in 1500 ms' }, 'jev：1500 毫秒内没有回答'],
     [{ kind: 'timeout', detail: 'no time left for the second request' }, 'jev：没有及时回答'],
