@@ -132,7 +132,10 @@ claude plugin install dispatch-pilot@alex-mods --scope user
 
 两种 key 都只放在请求头里，不会出现在 debug log、看板、依据面板和 `$.state` 里；会话开始时 debug log 只写 key 从哪里来（`pplx key:`、`jev key:` 后面是 `from the options`、环境变量名或 `not set`），不写 key 本身。
 
-**Claude Desktop（Code 标签）。** Desktop 的 Code 标签收不到 keychain 里的敏感 userConfig（#35，上游 anthropics/claude-code#89749）：在那里 mod 拿到的 `typesafeApiKey`、`perplexityApiKey` 总是空的，配置对话框里填过也一样。Desktop 也不读 `~/.zshrc` 里 export 的变量。所以在 Desktop 里，密钥要放进它的本地环境编辑器：在 prompt 框的环境下拉里，鼠标悬停在 Local 上，点齿轮，加上 `PERPLEXITY_API_KEY` 和（或）`TYPESAFE_API_KEY`。这里存的变量加密保存，每个本地会话都会带上。不要写进 settings.json 的 `env`：那里是明文。
+**Claude Desktop（Code 标签）。** Desktop 的 Code 标签收不到 keychain 里的敏感 userConfig（#35，上游 anthropics/claude-code#89749）：在那里 mod 拿到的 `typesafeApiKey`、`perplexityApiKey` 总是空的，配置对话框里填过也一样。Desktop 也不读 `~/.zshrc` 里 export 的变量（从 Dock 或 Finder 打开时，它只从 shell 配置里取 `PATH` 和固定的几个 Claude Code 变量）。所以在 Desktop 里，密钥只能用环境变量 `PERPLEXITY_API_KEY` 和（或）`TYPESAFE_API_KEY` 给，可以放在两个地方：
+
+- **已保存的环境（加密保存）。** 从 Desktop 2.31226.0（2026-10-08）起，环境变量挂在已保存的环境上，不再有对所有本地会话都生效的那一份。每个已保存的环境各有一份变量，开会话时选的是哪个环境，会话就带上哪个环境的变量；「This computer」从空白开始，不带任何变量。所以每个用来开会话的环境都要加上密钥，直接从「This computer」开的会话拿不到。改版前全机通用的变量，已经复制进了 Desktop 自动建的那些环境。Claude Code 文档的 Desktop 页还写着鼠标悬停在 Local 上、点齿轮打开本地环境编辑器，那是改版前的入口。
+- **`~/.claude/settings.json` 的 `env`（明文）。** 写在这里，Desktop 的每个会话都拿得到，终端也一样，不用一个环境一个环境地加；代价是密钥明文存在这个文件里。同一个变量两处都设了，Desktop 的会话用已保存环境里的那个：Desktop 启动会话时，它给的环境优先于 settings 文件的 `env`。
 
 Desktop 内置的 Claude Code 版本还要在 2.1.300 及以上（在 Desktop 的会话里运行 `/status`，看 Claude Code 那一行）。0.7.0 起 mod 用到 `prompt.change` 事件，2.1.299 不认它，整个模块加载失败，而且界面上什么也不报：没有看板，`/dp` 也没有，只有 `--debug-file` 的日志里有一行 `hooks module dispatch-pilot@alex-mods failed to load`。0.7.1 的环境变量兜底（`TYPESAFE_API_KEY`）只用测试里扮演引擎的 world 验证过，没有在真实的 Desktop 会话里试过：写这段时 Desktop 内置的是 2.1.299，加载不了 Dispatch Pilot。
 
