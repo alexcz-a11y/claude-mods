@@ -263,28 +263,42 @@ test('both requests share one wait: the second gets what the first left of timeo
   expect((await w.board()).notes).toMatchObject([{ feature: 'find-skill', kind: 'failed', why: 'jev：1100 毫秒内没有回答' }])
 })
 
+// The second's 800 ms stop at 8000 ms from the start, so the two requests stay within a hook's 10 s.
+test('with Jev and timeoutMs 8000, a first request of 7600 ms leaves the second 400 ms, not 800: the two stay within 8000 ms', { options: { ...KEY, timeoutMs: 8000 } }, async ($, on) => {
+  const answer1 = rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 })
+  const w = world($, on, { backend: (request) => ({ after: isSecondSkillsRequest(request) ? 60_000 : 7600, reply: answer1(request) }), skills: SKILLS, disk: PERSON_FILES })
+  const calling = w.findSkill('write the tests first')
+  await w.clock.settle()
+  await w.clock.advance(7600)
+  await w.clock.advance(400)
+  const answer = await calling
+
+  expect(answer.result).toBe(`find_skill could not rate the skills (jev: no answer in 400 ms). ${SKILL_TOOL_LINE}`)
+})
+
 // ---- By decision model: how long the call waits, what its first request offers ----------
 
 // The wait is the decision model's (core/setup.ts BACKEND_DEFAULTS): with Jev a message's (timeoutMs, 1500 ms), with pplx 6000 ms
-// (findSkillWaitMs), less than the message's 8000 so that the call leaves a hook's 10 s room.
+// (findSkillWaitMs), less than the message's 8000 so that the call leaves a hook's 10 s room. With Jev the second request has
+// 800 ms at least (skillsSecondStageMs), so the 400 ms the first left become 800; with pplx it has what the first left.
 const WAITS = [
-  { name: 'Jev', options: KEY, model: jev, wait: 1500, backend: 'jev' },
-  { name: 'pplx', options: { decisionModel: 'pplx', perplexityApiKey: 'pplx-test-key' }, model: pplx, wait: 6000, backend: 'pplx' },
+  { name: 'Jev', options: KEY, model: jev, wait: 1500, second: 800, backend: 'jev' },
+  { name: 'pplx', options: { decisionModel: 'pplx', perplexityApiKey: 'pplx-test-key' }, model: pplx, wait: 6000, second: 400, backend: 'pplx' },
 ] as const
 
 for (const chosen of WAITS) {
-  test(`with ${chosen.name}, find_skill's two requests share ${chosen.wait} ms in all: the second gets what the first left, and given up, the call says so`, { options: chosen.options }, async ($, on) => {
+  test(`with ${chosen.name}, find_skill's two requests share ${chosen.wait} ms: the second gets what the first left (${chosen.second} ms at least), and given up, the call says so`, { options: chosen.options }, async ($, on) => {
     const answer = rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 }, [0, 1, 0, 0, 0], chosen.model)
     // The first request answers 400 ms before the wait is over; the second would take a minute.
     const w = world($, on, { backend: (request) => ({ after: isSecondSkillsRequest(request) ? 60_000 : chosen.wait - 400, reply: answer(request) }), skills: SKILLS, disk: PERSON_FILES })
     const calling = w.findSkill('write the tests first')
     await w.clock.settle()
     await w.clock.advance(chosen.wait - 400)
-    await w.clock.advance(400)
+    await w.clock.advance(chosen.second)
     const result = await calling
 
     expect(w.requests).toHaveLength(2)
-    expect(result.result).toBe(`find_skill could not rate the skills (${chosen.backend}: no answer in 400 ms). ${SKILL_TOOL_LINE}`)
+    expect(result.result).toBe(`find_skill could not rate the skills (${chosen.backend}: no answer in ${chosen.second} ms). ${SKILL_TOOL_LINE}`)
   })
 }
 

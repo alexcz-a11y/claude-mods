@@ -175,6 +175,11 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
    * counts toward it (the mods reference, Limits): this leaves room for the rest.
    */
   findSkillWaitMs: number | null
+  /**
+   * The least a skills ranking's second request is given, in ms, however much of the wait the first took (beside a message
+   * and in find_skill); null: only what the first left. Not an option: set by the latency measured.
+   */
+  skillsSecondStageMs: number | null
   /** Whether find_skill's first request offers a skill by its profile (else by its description); the second re-reads it by both. */
   findSkillProfiles: boolean
 }
@@ -234,6 +239,10 @@ const JEV_DEFAULTS: BackendDefaults = {
   skillsMinRelevance: 0.75,
   findSkillMinRelevance: 0.5,
   findSkillWaitMs: null,
+  // Several sessions on one key slow the first request (26k tokens) from 0.6-0.8 s to 0.9-1.3 s, and the second took
+  // 0.27-0.48 s: sharing 1500 ms, 3 of 15 messages lost the second (2026-10-19, five sessions at once). 800 ms is above
+  // the second's slowest; a message waits 2.3 s at most then, 3.8 s with a long effort request (`longWaitMs`).
+  skillsSecondStageMs: 800,
   findSkillProfiles: true,
   // Raising is easy (DEVELOPMENT.md, 「按 AA 基准校正」): the level above the most probable one is taken from 0.3.
   roundUp: 0.3,
@@ -292,6 +301,8 @@ const PPLX_DEFAULTS: BackendDefaults = {
   findSkillMinRelevance: 0.5,
   // Find_skill's two requests wait as long as the profiles' question takes (a message's wait would be 8000 ms of a 10 s hook).
   findSkillWaitMs: 6000,
+  // pplx's waits are seconds already, and a longer one would go past a hook's 10 s.
+  skillsSecondStageMs: null,
   findSkillProfiles: true,
   // The level above the most probable one is taken from 0.45 (ADR 0006): the offline scan of the stored effort-submit answers
   // (English questions) took the level sent too high from 18.5% to 13.0% with the recall of max unchanged (11 of 16); eval v2's
@@ -449,6 +460,8 @@ export type Config = EffortRules & {
     find: SkillPolicy
     /** How long find_skill's two requests may take in all (the decision model's: BACKEND_DEFAULTS findSkillWaitMs). */
     findWaitMs: number
+    /** The least a ranking's second request is given (BACKEND_DEFAULTS skillsSecondStageMs); null: what the first left. */
+    secondStageMs: number | null
     /** Whether find_skill's first request offers skills by their profiles (the decision model's: findSkillProfiles). */
     findByProfile: boolean
     /** How many of stage one's best stage two re-reads. */
@@ -654,6 +667,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
       suggest: { max: whole(options.skillsMax, 0, 10, 3), minRelevance: own('skillsMinRelevance', 0, 1) },
       find: { max: whole(options.findSkillMax, 1, 10, 5), minRelevance: own('findSkillMinRelevance', 0, 1) },
       findWaitMs: defaults.findSkillWaitMs ?? timeoutMs,
+      secondStageMs: defaults.skillsSecondStageMs,
       findByProfile: defaults.findSkillProfiles,
       shortlist: whole(options.skillsShortlist, 1, 10, 4),
       alwaysListed: namesOf(options.skillsAlwaysListed),

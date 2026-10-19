@@ -31,7 +31,7 @@ import { readSessionSkills } from '../core/profiles.ts'
 import { isPersonsMessage } from '../core/prompts.ts'
 import { report, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
-import { describeStages, listingNames, rankingSettings, trimListing, type CatalogSkill } from '../core/skills.ts'
+import { describeStages, listingNames, rankingSettings, secondStageMs, trimListing, type CatalogSkill } from '../core/skills.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 
 const SHOWN = { plugin: 'dispatch-pilot', key: 'skillsShown' } as const
@@ -217,7 +217,8 @@ export function registerSkills(on: On, ctx: Ctx): void {
     const shown: Cell<string[]> = { get: () => $.state.get(SHOWN), set: (value, options) => $.state.set(SHOWN, value, options) }
     /** The skills this message describes for the first time. */
     let described: string[] = []
-    // Both requests share the message's wait: the second gets what the first left of timeoutMs.
+    // Both requests share the message's wait: the second gets what the first left of timeoutMs, and with Jev 800 ms at least
+    // (core/skills.ts secondStageMs).
     const startedAt = await $.clock.now()
 
     contribute(e.text, {
@@ -233,7 +234,7 @@ export function registerSkills(on: On, ctx: Ctx): void {
         // Beside the main agent's own decision for the message: in the log, not on its node.
         const about = { feature: SWITCH, agent: 'main', aside: true as const, forTurn: e.turnId === undefined ? ('next' as const) : ('current' as const), subject: quoteStart(e.text) }
         // What the message's requests were given (longer when its effort request is long), less what the first took.
-        const left = (outcome.ok ? outcome.waitMs : ctx.config.timeoutMs) - ((await $.clock.now()) - startedAt)
+        const left = secondStageMs(outcome.ok ? outcome.waitMs : ctx.config.timeoutMs, (await $.clock.now()) - startedAt, ctx.config.skills.secondStageMs)
         // No answer (the main-effort decision says why) or none about the skills: nothing suggested.
         const ranked = outcome.ok ? await ranker.rank(outcome.answers, catalog, { state: outcome.state, timeoutMs: left }) : null
         if (ranked === null) {

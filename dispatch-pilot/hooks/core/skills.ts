@@ -54,6 +54,18 @@ export function rankingSettings(ctx: { config: Pick<Config, 'timeoutMs' | 'conte
   }
 }
 
+/** The most a ranking's two requests take together when the second's floor goes past their wait: a hook has 10 s in all. */
+const STAGES_MOST_MS = 8000
+
+/**
+ * How long a ranking's second request may take: what the first left of the two requests' wait, and at least `floorMs`
+ * (BACKEND_DEFAULTS skillsSecondStageMs) within STAGES_MOST_MS of the start. Null `floorMs`: what the first left.
+ */
+export function secondStageMs(waitMs: number, elapsedMs: number, floorMs: number | null): number {
+  const left = waitMs - elapsedMs
+  return floorMs === null ? left : Math.max(left, Math.min(floorMs, STAGES_MOST_MS - elapsedMs))
+}
+
 /** One skill of the session, as the decision model is offered it. */
 export type CatalogSkill = SkillOption & {
   /** Where it comes from, by the engine's word (`userSettings`, `plugin`, `built-in`, `syncedSkills`, ...). */

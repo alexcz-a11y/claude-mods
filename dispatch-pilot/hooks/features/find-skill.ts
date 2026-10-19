@@ -22,7 +22,7 @@ import { answersFor, mergeParts, type DecisionRequest } from '../decision/system
 import { readSessionSkills } from '../core/profiles.ts'
 import { report, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
-import { describeStages, rankingSettings, type CatalogSkill } from '../core/skills.ts'
+import { describeStages, rankingSettings, secondStageMs, type CatalogSkill } from '../core/skills.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 
 const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
@@ -178,14 +178,14 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
 
       // The same state as beside a message, the work named in place of the message; the ranker's second
       // request (#11) asks about the same. Both requests share one wait: the second gets what the first left
-      // of it. The wait is the decision model's (findWaitMs: a message's timeoutMs with Jev),
+      // of it, and with Jev 800 ms at least (core/skills.ts secondStageMs). The wait is the decision model's (findWaitMs: a message's timeoutMs with Jev),
       // within the hook's own 10 s.
       const waitMs = ctx.config.skills.findWaitMs
       const startedAt = await $.clock.now()
       const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
       const request = mergeParts(turnStartState({ prompt: query, messages, limits: ctx.config.context }), [part])
       const asked = await askLogged($, ctx, 'request', about, request, waitMs)
-      const left = waitMs - ((await $.clock.now()) - startedAt)
+      const left = secondStageMs(waitMs, (await $.clock.now()) - startedAt, ctx.config.skills.secondStageMs)
       const ranked = asked.ok ? await ranker.rank(answersFor(part, asked.answers), candidates, { state: request.state, timeoutMs: left }) : null
       const unranked = { kind: 'parse' as const, detail: 'no answer about the skills' }
       const lost = !asked.ok ? asked.failure : ranked === null ? unranked : ranked.failed

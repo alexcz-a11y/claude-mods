@@ -117,6 +117,40 @@ test('both requests share the message’s wait: the second gets what the first l
   expect((await w.board()).notes).toMatchObject([{ turn: 1, id: 'main', feature: 'skills', kind: 'failed', why: 'jev：1100 毫秒内没有回答' }])
 })
 
+// With Jev the second request has 800 ms at least (BACKEND_DEFAULTS skillsSecondStageMs): several sessions on one key slow the
+// first to 0.9-1.3 s, which left the second 200 ms of 1500 and it failed without being sent (2026-10-19).
+test('with Jev, a first request that takes most of the wait still leaves the second 800 ms, and the skill it rates is suggested', { options: KEY }, async ($, on) => {
+  const answer = rates({ tdd: 0.62, '(none)': 0.38 }, { tdd: 0.97 })
+  const w = world($, on, {
+    // The first request answers after 1300 ms, 200 ms short of the 1500 ms wait; the second takes 300 ms.
+    backend: (request) => ({ after: isSecondSkillsRequest(request) ? 300 : 1300, reply: answer(request) }),
+    skills: SKILLS,
+    disk: FILES,
+  })
+  const entering = w.submit('先写一个失败的测试')
+  await w.clock.settle()
+  await w.clock.advance(1300)
+  await w.clock.advance(300)
+  await entering
+
+  expect(w.requests).toHaveLength(3)
+  expect(w.prompts[0]?.context?.join('\n')).toContain('- tdd (relevance 0.97)')
+  expect((await w.board()).notes.filter((note) => note.feature === 'skills')).toEqual([])
+})
+
+test('with Jev, the second request given its 800 ms and no answer: nothing is suggested and the board says it waited 800 ms', { options: KEY }, async ($, on) => {
+  const answer = rates({ tdd: 0.62, '(none)': 0.38 }, { tdd: 0.97 })
+  const w = world($, on, { backend: (request) => ({ after: isSecondSkillsRequest(request) ? 60_000 : 1300, reply: answer(request) }), skills: SKILLS, disk: FILES })
+  const entering = w.submit('先写一个失败的测试')
+  await w.clock.settle()
+  await w.clock.advance(1300)
+  await w.clock.advance(800)
+  await entering
+
+  expect(w.prompts[0]?.context).toBeUndefined()
+  expect((await w.board()).notes).toMatchObject([{ turn: 1, id: 'main', feature: 'skills', kind: 'failed', why: 'jev：800 毫秒内没有回答' }])
+})
+
 test('a second request that fails suggests nothing and leaves no skills decision (a note on the board says why) until a message is rated again', { options: KEY }, async ($, on) => {
   const answer = rates({ tdd: 0.62, '(none)': 0.38 }, { tdd: 0.97 })
   let refuse = true
