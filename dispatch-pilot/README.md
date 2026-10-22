@@ -38,7 +38,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 - **选中一个 agent。** 在空的 prompt 里按它的数字键，依据面板就打开在它的卡片上。
 - **别的端（Desktop、VS Code、手机）。** 时间色带、概率条和置信条改用 Svg 画（这些端没有终端的 Raster），数字用等宽数字，列能对齐。这些端用鼠标点，不用按键（ADR 0012）：band 状态条右边有「依据」（打开依据面板）和「▾ 收起」（折成一行，行末是「▸ 展开」，本会话里一直保持）；agent 的名字可以点，不带数字键；effort 写成彩色的字。agent 在跑时每 5 秒才重画一次，运行中的色带自己往前长。依据面板顶上是一排 agent 标签、「看它的对话」和「关闭」；卡片里的规则是一张清单，effort 概率是一条堆叠条，份额写在下面；决策日志点轮次折叠，每条一行，指着它看概率和理由；最下面「功能开关」展开后，每个开关一个按钮，effort 锁定用下拉选择，按下就改，和 `/dp` 改的一样会保存。脚部是一个不超过 24 个字符的标签。
 - **状态行（只在 VS Code 和手机上）。** VS Code 不画 band，所以用 prompt 下方的状态行写 band 的一行摘要：第几轮、主 agent 的模型·effort；一轮结束后加上这一档是怎么来的和「可试 /x」；还有各个 agent 的个数。你写消息时，prompt 提示也写在这一行（ADR 0011）。终端上不用状态行，因为终端会在这一行前面加一个关不掉的 ⚠（ADR 0004）；Desktop 上也不用，band 空闲时照样画着那一行，你写消息时 prompt 提示就写在 band 的那一行上（ADR 0012）。
-- **Desktop 用的是它自带的 Claude Code**，要 2.1.300 及以上，否则整个 mod 加载不了，而且不报错（怎么看版本、密钥怎么填，见「安装」的「Claude Desktop」）。版本不够时，在菜单 Claude → Check for Updates 更新 Desktop，再开新会话。上面这些在 Desktop 上都还没亲眼看过（本机 Desktop 自带的是 2.1.299），只用测试里扮演引擎的 world 测过界面树，SVG 也渲染出来看过。
+- **Desktop 用的是它自带的 Claude Code**，要 2.1.300 及以上，否则整个 mod 加载不了，而且不报错（怎么看版本、密钥怎么填，见「安装」的「Claude Desktop」）。版本不够时，在菜单 Claude → Check for Updates 更新 Desktop，再开新会话。本机 Desktop 自带的 Claude Code 已是 2.1.308（2026-10-22），main 上的版本直接在 Desktop 里用，不再另出兼容版；2.1.308 上只跑过 `plugin validate`，界面还没在它上面亲眼看过（0.8.1 的改动在 2.1.299 的兼容版上真机点过）。
 - 关掉的功能（`/dp <功能> off`）的决定、事件和计数不出现在 band 和脚部；`/dp off` 时 band 上没有 Dispatch Pilot 的内容，脚部写 `○ dp 已关`。`claude -p` 没有界面，内容写进 debug log。
 
 ### 依据面板
@@ -137,7 +137,7 @@ claude plugin install dispatch-pilot@alex-mods --scope user
 - **已保存的环境（加密保存）。** 从 Desktop 2.31226.0（2026-10-08）起，环境变量挂在已保存的环境上，不再有对所有本地会话都生效的那一份。每个已保存的环境各有一份变量，开会话时选的是哪个环境，会话就带上哪个环境的变量；「This computer」从空白开始，不带任何变量。所以每个用来开会话的环境都要加上密钥，直接从「This computer」开的会话拿不到。改版前全机通用的变量，已经复制进了 Desktop 自动建的那些环境。Claude Code 文档的 Desktop 页还写着鼠标悬停在 Local 上、点齿轮打开本地环境编辑器，那是改版前的入口。
 - **`~/.claude/settings.json` 的 `env`（明文）。** 写在这里，Desktop 的每个会话都拿得到，终端也一样，不用一个环境一个环境地加；代价是密钥明文存在这个文件里。同一个变量两处都设了，Desktop 的会话用已保存环境里的那个：Desktop 启动会话时，它给的环境优先于 settings 文件的 `env`。
 
-Desktop 内置的 Claude Code 版本还要在 2.1.300 及以上（在 Desktop 的会话里运行 `/status`，看 Claude Code 那一行）。0.7.0 起 mod 用到 `prompt.change` 事件，2.1.299 不认它，整个模块加载失败，而且界面上什么也不报：没有看板，`/dp` 也没有，只有 `--debug-file` 的日志里有一行 `hooks module dispatch-pilot@alex-mods failed to load`。0.7.1 的环境变量兜底（`TYPESAFE_API_KEY`）只用测试里扮演引擎的 world 验证过，没有在真实的 Desktop 会话里试过：写这段时 Desktop 内置的是 2.1.299，加载不了 Dispatch Pilot。
+Desktop 内置的 Claude Code 版本还要在 2.1.300 及以上（在 Desktop 的会话里运行 `/status`，看 Claude Code 那一行）。0.7.0 起 mod 用到 `prompt.change` 事件，2.1.299 不认它，整个模块加载失败，而且界面上什么也不报：没有看板，`/dp` 也没有，只有 `--debug-file` 的日志里有一行 `hooks module dispatch-pilot@alex-mods failed to load`。0.7.1 的环境变量兜底（`TYPESAFE_API_KEY`）只用测试里扮演引擎的 world 验证过，没有在真实的 Desktop 会话里试过：写这段时 Desktop 内置的是 2.1.299，加载不了 Dispatch Pilot。2026-10-22 起 Desktop 内置的是 2.1.308，可以加载。
 
 **只有 TypeSafe 的 key 的老用户**不用改任何配置：`decisionModel` 没设（或设的是 `pplx`、已移除的 `clef`、拼错的值）又没有 Perplexity 的 key 时，用 Jev，每个会话的决策日志（`/dp` 打开的依据面板）里有一条「改用 Jev」写明原因。以后想换成 pplx，只要填上 Perplexity 的 key。
 
