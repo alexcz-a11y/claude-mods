@@ -15,6 +15,11 @@
       "name": "prefer-search-tools",
       "source": "./prefer-search-tools",
       "description": "只改写 auto 模式提醒里让模型在 Bash 里用 grep 和 find 搜索的那一句，改成用 Grep 和 Glob 工具，提醒的其余部分原样保留。"
+    },
+    {
+      "name": "graphiti-recall",
+      "source": "./graphiti-recall",
+      "description": "替模型查 Graphiti 记忆：每轮开头、运行中（第一次读写文件、高风险命令、报错）和派子代理时调用服务端 recall，只注入过了相关度线的记忆；每次召回在对话里留一行灰字，写明查询词和是否真的送到了模型。"
     }
   ]
 }

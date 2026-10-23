@@ -22,7 +22,7 @@ fi
 # The oldest Claude Code each mod asks for (its README's 「要求」). Desktop's own
 # Claude Code older than this refusing the mod is a note, not a failure: the
 # mod does not run there until Desktop updates. A mod not listed must load in it.
-typeset -A MIN_CLAUDE_CODE=(dispatch-pilot 2.1.300)
+typeset -A MIN_CLAUDE_CODE=(dispatch-pilot 2.1.300 graphiti-recall 2.1.304)
 autoload -Uz is-at-least
 
 # Claude Desktop's own Claude Code: the newest it has fetched (macOS). Empty where there is no Desktop.
