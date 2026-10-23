@@ -1,6 +1,6 @@
 {
   "name": "image-pane",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "在终端右侧停靠栏里显示本会话的图片：你发给 agent 的图，以及 agent（含子 agent）读到、截到、工具返回的图。只在终端里工作，Claude Desktop 里整个 mod 不做任何事。",
   "author": { "name": "alexcz-a11y", "url": "https://github.com/alexcz-a11y" },
   "repository": "https://github.com/alexcz-a11y/claude-mods",

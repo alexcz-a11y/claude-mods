@@ -27,6 +27,8 @@ declare module 'claude-code' {
       selected: number | null
       /** 已收过的图的指纹，去重用 */
       seen: string[]
+      /** 已经手的工具调用的 tool_use_id：tool.call 看过的，或 turn.step 从对话里收过的 */
+      calls: string[]
     }
   }
 }

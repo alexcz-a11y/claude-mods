@@ -12,6 +12,7 @@ const KEEP = 200
 const images = atom({ plugin: 'image-pane', key: 'images' } as const, [])
 const selected = atom({ plugin: 'image-pane', key: 'selected' } as const, null)
 const seen = atom({ plugin: 'image-pane', key: 'seen' } as const, [])
+const calls = atom({ plugin: 'image-pane', key: 'calls' } as const, [])
 
 // 解码 stdin 的 base64，留作 <n>.orig.<ext>，「打开原图」找不到真实来源时打开它。
 // 显示用的 PNG 先从真实来源 $4（Read 的文件、贴图的原文件）做：引擎给的那份已缩小并可能重编码成 JPEG，
@@ -36,6 +37,9 @@ if [ -z "$done" ]; then
   fi
 fi
 sips -g pixelWidth -g pixelHeight "$png" 2>/dev/null | awk '/pixelWidth/{w=$2}/pixelHeight/{h=$2}END{print w" "h}'
+# 长边超过 1600 先缩到 1600：栏宽画不出更多像素，而 herdr 把图解成 RGBA 再转给外层终端，
+# 3248×2122 解开约 27 MiB，base64 后超过它 32 MiB 的图形帧上限，整张被丢掉，栏里只剩空白。
+sips -g pixelWidth -g pixelHeight "$png" 2>/dev/null | awk '/pixel/{if($2>1600)big=1}END{exit !big}' && sips -Z 1600 "$png" >/dev/null 2>&1
 for side in 1600 1200 800 500; do
   [ "$(wc -c < "$png")" -le 2000000 ] && break
   sips -Z $side "$png" >/dev/null 2>&1 || break
@@ -105,6 +109,8 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const r = await next(e)
     if (!isTerminal || r.deny !== undefined || r.isError) return r
+    const id = (e as unknown as { tool_use_id?: unknown }).tool_use_id
+    if (typeof id === 'string') await update($, calls, list => [...list, id].slice(-KEEP))
     const found = findImages(r.result)
     if (found.length === 0) return r
     const input = e as unknown as { file_path?: unknown }
@@ -116,6 +122,14 @@ export const register: Register = on => {
     }).catch(() => {})
 
     return r
+  })
+
+  // 上面那个 tool.call 看不到的工具结果：先加载的 mod 在 tool.call 里直接答掉、不往下传的调用
+  // （dispatch-pilot 的 visual_check），classic.PostToolUse 也不为它们触发。它们的结果仍会进对话，
+  // 所以每一步发请求前，看最后一条用户消息里的 tool_result，收 tool.call 没经手的那些。
+  on('turn.step', async function* ($, e, next) {
+    if (isTerminal) await collectUnseen($, e.agentId).catch(() => {})
+    return yield* next(e)
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
@@ -172,6 +186,25 @@ async function openOriginal($: EngineInterface, one: ImageEntry) {
     if (run?.exitCode === 0) return
   }
   await $.ui.toast('打不开这张图的原图：文件可能已被移走。')
+}
+
+async function collectUnseen($: EngineInterface, agentId: string | undefined) {
+  const messages = agentId === undefined ? await $.session.messages({ as: 'api' }) : await $.session.messages({ as: 'api', agentId })
+  if (!Array.isArray(messages)) return
+  const lastUser = messages.findLastIndex(m => m.role === 'user')
+  const results = (messages[lastUser]?.content ?? []).filter(b => b.type === 'tool_result')
+  if (results.length === 0) return
+  const known = new Set(await read($, calls))
+  const uses = (messages[lastUser - 1]?.content ?? []).filter(b => b.type === 'tool_use')
+  for (const result of results) {
+    const id = String(result.tool_use_id)
+    if (known.has(id)) continue
+    await update($, calls, list => [...list, id].slice(-KEEP))
+    const found = findImages(result.content)
+    if (found.length === 0) continue
+    const tool = String(uses.find(u => u.id === id)?.name ?? '')
+    await collect($, found, { origin: classify(tool), tool: tool || undefined, agentId })
+  }
 }
 
 type Meta = { origin: Origin; tool?: string; agentId?: string; sourcePath?: string }

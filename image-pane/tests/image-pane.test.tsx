@@ -128,3 +128,55 @@ test('没有原文件路径时不传来源', async ($, on) => {
 
   expect(saved[0]?.at(-1)).toBe('')
 })
+
+// visual_check 这类工具由先加载的 mod 在 tool.call 里直接答掉，image-pane 的 tool.call 看不到，只能从对话里收。
+function conversation(on: On, toolUseId: string, data = PNG) {
+  on('session.messages', () => ({
+    value: [
+      { role: 'user', content: [{ type: 'text', text: '看图' }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: toolUseId, name: 'mcp__dispatch-pilot__visual_check', input: {} }] },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: toolUseId, content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data } }] },
+        ],
+      },
+    ],
+  }))
+}
+
+async function step($: { turn: { step: (e: never) => AsyncIterable<unknown> } }) {
+  for await (const _ of $.turn.step({ turnId: 't1', index: 1, model: 'opus', messageCount: 3 } as never)) {
+    // 只要跑完
+  }
+}
+
+test('tool.call 没经手的工具结果里的图，下一步从对话里收', async ($, on) => {
+  engine(on, ['terminal'])
+  conversation(on, 'toolu_vc')
+  on('turn.step', async function* (_, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [] } as never
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await step($)
+
+  const ui = await $.ui.mount(PANE)
+  expect((await ui.find({ type: 'Text', text: /1\/1 · 工具结果/ }))?.text).toMatch(/visual_check/)
+  await ui.unmount()
+})
+
+test('tool.call 已经手的调用不从对话里再收一次', async ($, on) => {
+  engine(on, ['terminal'])
+  // 对话里那份和 tool.call 拿到的字节不同（引擎可能重编码），指纹去重拦不住，要靠 tool_use_id。
+  conversation(on, 'toolu_seen', `${PNG}AAAA`)
+  on('turn.step', async function* (_, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [] } as never
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'toolu_seen' } as never)
+  await step($)
+
+  const ui = await $.ui.mount(PANE)
+  expect(await ui.find({ type: 'Text', text: /^1\/1/ })).toBeTruthy()
+  await ui.unmount()
+})
