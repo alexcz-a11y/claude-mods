@@ -1,7 +1,7 @@
 {
   "name": "prefer-search-tools",
-  "version": "0.1.0",
-  "description": "auto 模式（以及 bypass 模式）插给模型的那段提醒里，有一句让模型在 Bash 里用 grep 和 find 搜索。这个 mod 只拿掉这一句，换成用 Grep 工具搜内容、用 Glob 工具找文件名；提醒的其余部分原样保留。认不出这句时整段原样放行。",
+  "version": "0.2.0",
+  "description": "auto 模式（以及 bypass 模式）插给模型的那段提醒里，有一句让模型在 Bash 里用 grep 和 find 搜索。这个 mod 只拿掉这一句，换成用 Grep 工具搜内容、用 Glob 工具找文件名；提醒的其余部分原样保留。认不出这句时整段原样放行。子 agent 收不到这段提醒，所以每个子 agent 启动时，在它的任务末尾追加同一句。",
   "author": {
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
