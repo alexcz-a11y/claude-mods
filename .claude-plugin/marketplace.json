@@ -20,6 +20,11 @@
       "name": "graphiti-recall",
       "source": "./graphiti-recall",
       "description": "替模型查 Graphiti 记忆：每轮开头、运行中（第一次读写文件、高风险命令、报错）和派子代理时调用服务端 recall，只注入过了相关度线的记忆；每次召回在对话里留一行灰字，写明查询词和是否真的送到了模型。"
+    },
+    {
+      "name": "image-pane",
+      "source": "./image-pane",
+      "description": "在终端右侧停靠栏显示本会话的图片：你发给 agent 的图，以及 agent 和子 agent 读到、截到、工具返回的图。只在终端里工作，Claude Desktop 里不做任何事。"
     }
   ]
 }
