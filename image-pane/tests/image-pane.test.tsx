@@ -45,7 +45,7 @@ test('PNG 宽高和格子尺寸', () => {
   expect(fitCells(1000, 2000, 40, 10)).toEqual({ columns: 10, rows: 10 })
 })
 
-function engine(on: On, surfaces: RenderSurface[], opened?: string[][]) {
+function engine(on: On, surfaces: RenderSurface[], opened?: string[][], saved?: string[][]) {
   on('session.surfaces', () => ({ value: surfaces }))
   on('session.id', () => ({ value: 's1' }))
   on('command.register', () => ({ value: { command: 'images' } }))
@@ -53,6 +53,7 @@ function engine(on: On, surfaces: RenderSurface[], opened?: string[][]) {
   on('fs.read', () => ({ value: { base64: PNG } }))
   on('process.run', (_, e) => {
     if (e.argv[0] === 'open') opened?.push([...e.argv])
+    else saved?.push([...e.argv])
     return { value: { exitCode: 0, stdout: '1 1', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -107,4 +108,23 @@ test('贴图消息里的原文件路径', () => {
   expect(imageSources('[Image: source: /Users/a/Pictures/截屏2026-10-23 02.08.11.png]')).toEqual([
     '/Users/a/Pictures/截屏2026-10-23 02.08.11.png',
   ])
+})
+
+test('Read 的图从原文件做显示用的 PNG，读不到时脚本回退到引擎那份', async ($, on) => {
+  const saved: string[][] = []
+  engine(on, ['terminal'], undefined, saved)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.tool.call({ tool: 'Read', file_path: '/Users/a/logo.png' } as never)
+
+  // argv：sh -c SAVE sh <dir> <n> <mediaType> <source>
+  expect(saved[0]?.slice(4)).toEqual(['/tmp/image-pane/s1', '1', 'image/png', '/Users/a/logo.png'])
+})
+
+test('没有原文件路径时不传来源', async ($, on) => {
+  const saved: string[][] = []
+  engine(on, ['terminal'], undefined, saved)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.tool.call({ tool: 'mcp__computer-use__app_screenshot' } as never)
+
+  expect(saved[0]?.at(-1)).toBe('')
 })

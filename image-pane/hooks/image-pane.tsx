@@ -13,15 +13,27 @@ const images = atom({ plugin: 'image-pane', key: 'images' } as const, [])
 const selected = atom({ plugin: 'image-pane', key: 'selected' } as const, null)
 const seen = atom({ plugin: 'image-pane', key: 'seen' } as const, [])
 
-// 解码 stdin 的 base64，非 PNG 用 sips 转成 PNG（macOS 才有 sips，别处只收 PNG），
-// 未缩小的原件留作 <n>.orig.<ext>，「打开原图」找不到真实来源时打开它。
-// 报原图宽高，再把超过 2 MiB 的缩小：iTerm2 只画 `{ png }` 字节，字节最多 2 MiB。
-const SAVE = `dir=$1; name=$2; mt=$3
+// 解码 stdin 的 base64，留作 <n>.orig.<ext>，「打开原图」找不到真实来源时打开它。
+// 显示用的 PNG 先从真实来源 $4（Read 的文件、贴图的原文件）做：引擎给的那份已缩小并可能重编码成 JPEG，
+// 透明背景已经丢了。来源读不到或不是图片，再回退到 stdin 那份。非 PNG 用 sips 转成 PNG（macOS 才有 sips，别处只收 PNG）。
+// 报宽高，再把超过 2 MiB 的缩小：iTerm2 只画 `{ png }` 字节，字节最多 2 MiB。
+const SAVE = `dir=$1; name=$2; mt=$3; src=$4
 mkdir -p "$dir" || exit 1
 ext=\${mt#image/}; orig="$dir/$name.orig.$ext"; png="$dir/$name.png"
 base64 -d > "$orig" || exit 1
-if [ "$mt" = image/png ]; then cp "$orig" "$png"; else
-  sips -s format png "$orig" --out "$png" >/dev/null 2>&1 || exit 2
+done=
+if [ -n "$src" ] && [ -f "$src" ]; then
+  case "$(sips -g format "$src" 2>/dev/null | awk '/format:/{print $2}')" in
+    png) cp "$src" "$png" && done=1 ;;
+    jpeg|gif|tiff|bmp|heic|webp) sips -s format png "$src" --out "$png" >/dev/null 2>&1 && done=1 ;;
+  esac
+  # 认不出的文件 sips 会报 <nil>，写出的 PNG 也读不出宽度：都不算，回退。
+  sips -g pixelWidth "$png" 2>/dev/null | grep -q 'pixelWidth: [0-9]' || done=
+fi
+if [ -z "$done" ]; then
+  if [ "$mt" = image/png ]; then cp "$orig" "$png"; else
+    sips -s format png "$orig" --out "$png" >/dev/null 2>&1 || exit 2
+  fi
 fi
 sips -g pixelWidth -g pixelHeight "$png" 2>/dev/null | awk '/pixelWidth/{w=$2}/pixelHeight/{h=$2}END{print w" "h}'
 for side in 1600 1200 800 500; do
@@ -176,7 +188,9 @@ async function collect($: EngineInterface, found: FoundImage[], meta: Meta) {
   for (const f of fresh) {
     const entry: ImageEntry = { n, ...meta, mediaType: f.mediaType, at: Date.now() }
     try {
-      const run = await $.process.run(['/bin/sh', '-c', SAVE, 'sh', dir, String(n), f.mediaType], {
+      // 一次收到几张图时对不上哪张是来源，只在一张时用它。
+      const source = fresh.length === 1 ? (meta.sourcePath ?? '') : ''
+      const run = await $.process.run(['/bin/sh', '-c', SAVE, 'sh', dir, String(n), f.mediaType, source], {
         stdin: f.base64,
         timeoutMs: 8000,
       })
