@@ -68,15 +68,59 @@ const RISKY =
 export const isRisky = (command: string) => RISKY.test(command)
 
 const SECRET = /((?:token|key|secret|passw(?:or)?d|auth)[\w-]*\s*[=:]\s*)\S+/gi
-const LONG = /[A-Za-z0-9+/_=-]{32,}/g
+// Long runs read as keys; `/` is left out so a long path stays readable.
+const LONG = /[A-Za-z0-9+_=-]{32,}/g
+
+const redact = (text: string) => text.replace(SECRET, '$1***').replace(LONG, '***').replace(/\s+/g, ' ').trim()
+
+// A leading `cd <dir> &&` keeps only the folder's name: the rest of the path says nothing.
+const CD = /^cd\s+("[^"]+"|'[^']+'|\S+)\s*(?:&&|;)\s*/
 
 export function commandQuery(command: string): string {
-  return command.replace(SECRET, '$1***').replace(LONG, '***').replace(/\s+/g, ' ').trim().slice(0, 120)
+  const cd = CD.exec(command.trim())
+  const dir = cd ? (cd[1] as string).replace(/^["']|["']$/g, '').replace(/\/+$/, '').split('/').at(-1) : ''
+  const rest = cd ? command.trim().slice(cd[0].length) : command
+  return redact(`${dir ? `${dir}: ` : ''}${rest}`).slice(0, 120)
 }
 
-export function errorQuery(text: string): string | null {
-  const line = text.split('\n').map(l => l.trim()).find(l => l.length > 3)
-  return line ? line.slice(0, 200) : null
+// Lines a failed tool's output opens or pads with that say nothing about what went wrong.
+const NOISE = /^(exit code -?\d+|errors?:?|traceback \(most recent call last\):|shell cwd was reset to .*)$/i
+const EXCEPTION = /^[\w.$]*(error|exception)\b[^:]*:\s*\S/i
+const FAILURE =
+  /\b(error|fail(ed|ure)?|fatal|denied|refused|not found|no such|cannot|can't|unable|timed? ?out|invalid|unknown|missing|blocked)\b|错误|失败|拒绝|超时|找不到/i
+
+// The line of a failed tool's output that says what went wrong: an exception line, else the first
+// line naming a failure, else the first line that is not noise.
+export function errorLine(text: string): string | null {
+  const lines = text
+    .replace(/<\/?tool_use_error>/g, '\n')
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 3 && !NOISE.test(l))
+  const line = lines.find(l => EXCEPTION.test(l)) ?? lines.find(l => FAILURE.test(l)) ?? lines[0]
+  return line ? redact(line).slice(0, 120) : null
+}
+
+// What a failed tool call is searched with: what ran (the command, the file, the MCP tool), then
+// the line saying what went wrong. `Exit code 1` alone finds nothing.
+export function failureQuery(
+  tool: string,
+  input: { command?: string; file_path?: string; notebook_path?: string },
+  text: string,
+  cwd: string,
+): string | null {
+  const path = input.file_path ?? input.notebook_path
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(tool)
+  const subject =
+    tool === 'Bash' && input.command
+      ? commandQuery(input.command)
+      : path
+        ? path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path
+        : mcp
+          ? `${mcp[1]} ${mcp[2]}`
+          : tool
+  const q = [subject, errorLine(text)].filter(Boolean).join(' · ')
+  return q.length >= 2 ? q : null
 }
 
 const SKIP_PATH = /(^|\/)(node_modules|\.git|\.claude-plugin\/types)(\/|$)|^\/private\/tmp\/|^\/tmp\/|\/\.claude\/plugins\//

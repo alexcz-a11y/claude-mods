@@ -2,7 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import {
   atLeast,
   commandQuery,
-  errorQuery,
+  failureQuery,
   fileQuery,
   idsIn,
   isGroupId,
@@ -32,6 +32,7 @@ const PAUSE_MS = 5 * 60_000
 const MAX_FAILS = 3
 const MID_TURN_MAX = 3
 const BUDGET = { turn: 3_000, tool: 1_200, agent: 1_200 }
+const SHOWN = 100 // characters of a query its transcript line shows
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'NotebookEdit'])
 const QUIET_TOOLS = /^(mcp__graphiti__|mcp__ccd_|mcp__graphiti-recall__)|^(ToolSearch|TodoWrite|Skill|AskUserQuestion|EnterPlanMode|ExitPlanMode)$/
 
@@ -165,13 +166,13 @@ function settle($: EngineInterface, gate: Gate, verdict: string, injected: boole
   if (gate.done) return
   gate.done = true
   if (injected) injectedItems += Number(gate.summary.match(/\d+/g)?.reduce((a, b) => a + Number(b), 0) ?? 0)
-  line($, `#${gate.id} · ${gate.label} · 查询「${gate.query.slice(0, 60)}」 · ${verdict}`)
+  line($, `#${gate.id} · ${gate.label} · 查询「${gate.query.slice(0, SHOWN)}」 · ${verdict}`)
   status($)
 }
 
 function nothing($: EngineInterface, where: Where, what: string, query: string, r: Recalled | { error: string }) {
   const verdict = 'error' in r ? `检索失败：${r.error.slice(0, 80)}` : '无相关记忆，未注入'
-  line($, `· ${label(where, what)} · 查询「${query.slice(0, 60)}」 · ${verdict}`)
+  line($, `· ${label(where, what)} · 查询「${query.slice(0, SHOWN)}」 · ${verdict}`)
 }
 
 function topFact(r: Recalled | { error: string }) {
@@ -223,7 +224,7 @@ export const register: Register = on => {
     status($)
     if (arg === 'last') {
       const text = last.length
-        ? last.slice(-5).map(g => `#${g.id} ${g.label} 「${g.query.slice(0, 60)}」\n${g.block}`).join('\n\n')
+        ? last.slice(-5).map(g => `#${g.id} ${g.label} 「${g.query.slice(0, SHOWN)}」\n${g.block}`).join('\n\n')
         : '本会话还没有注入过记忆。'
       return { text }
     }
@@ -254,7 +255,7 @@ export const register: Register = on => {
         if (!gate) return nothing($, 'turn', '', query, r)
         carried = { id: gate.id, block: gate.block, summary: gate.summary, label: gate.label, query }
       })
-      line($, `· 轮首 · 查询「${query.slice(0, 60)}」 · 6 秒内未返回，结果到了再附在下一个工具结果后`)
+      line($, `· 轮首 · 查询「${query.slice(0, SHOWN)}」 · 6 秒内未返回，结果到了再附在下一个工具结果后`)
       return next({ ...e, context })
     }
     if (topic && topFact(early)) topics.set(topic, topFact(early) as string)
@@ -298,11 +299,11 @@ export const register: Register = on => {
     const ran = await next(e)
     if (ran.deny !== undefined) return ran
 
-    // A tool that failed: search with its error unless something is already on the way.
+    // A tool that failed: search with what ran and its error unless something is already on the way.
     let errorPending: Promise<Recalled | { error: string }> | null = null
     let errorQ: string | null = null
     if (!pending && ran.isError && budgetLeft && ran.text) {
-      errorQ = errorQuery(ran.text)
+      errorQ = failureQuery(tool, input, ran.text, cwd)
       if (errorQ) {
         calls += 1
         what = `${tool} 报错`
@@ -314,7 +315,7 @@ export const register: Register = on => {
     if (!waiting) return attachCarried(ran)
     const got = await Promise.race([waiting, $.clock.sleep(errorPending ? TURN_WAIT_MS : TOOL_GRACE_MS).then(() => null)])
     if (got === null) {
-      line($, `· 工具后 · ${what} · 查询「${q.slice(0, 60)}」 · 超时，未注入`)
+      line($, `· 工具后 · ${what} · 查询「${q.slice(0, SHOWN)}」 · 超时，未注入`)
       return attachCarried(ran)
     }
     if (topic && topFact(got)) topics.set(topic, topFact(got) as string)
@@ -344,7 +345,7 @@ export const register: Register = on => {
     const gate = got && !('error' in got) ? prepare('agent', e.description, query, got) : null
     if (!gate) {
       if (got) nothing($, 'agent', e.description, query, got)
-      else line($, `· 子代理 · ${e.description} · 查询「${query.slice(0, 60)}」 · 超时，未注入`)
+      else line($, `· 子代理 · ${e.description} · 查询「${query.slice(0, SHOWN)}」 · 超时，未注入`)
       return next(e)
     }
     const r = await next({ ...e, prompt: `${e.prompt}\n\n${gate.block}` })

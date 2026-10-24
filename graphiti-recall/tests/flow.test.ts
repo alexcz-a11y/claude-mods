@@ -41,3 +41,31 @@ test('a message gets a marked block beside it; an acknowledgement gets none', as
   expect((ack.context ?? []).some(c => c.includes('graphiti-recall #'))).toBe(false)
   expect(calls.filter(t => t === 'recall').length).toBe(1)
 })
+
+test('a failed Bash call is searched with its command and error line, not "Exit code 1"', async ($, on) => {
+  const queries: string[] = []
+  on('session.start', { cwd: '/repo' }, (_, e) => ({ cwd: e.cwd }))
+  on('session.version', () => ({ value: { version: '2.1.309', builtAt: '' } }))
+  on('command.register', () => ({ value: { command: 'recall' } }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '/repo', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('fs.exists', () => ({ value: true }))
+  on('fs.read', () => ({ value: 'graphiti\n' }))
+  on('mcp.call', (_, e) => {
+    if (e.tool === 'recall') queries.push(e.args.query as string)
+    const body = e.tool === 'recall' ? { facts: [FACT], nodes: [] } : { episodes: [] }
+    return { value: { content: [{ type: 'text', text: JSON.stringify({ result: body }) }], isError: false } }
+  })
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '' }, text: 'Exit code 1\nnpm ERR! missing script: build', isError: true }) as never)
+  on('ui.log', () => ({ value: undefined }))
+  on('ui.status', () => ({ value: undefined }))
+  on('clock.sleep', async () => {
+    for (let i = 0; i < 200; i++) await Promise.resolve()
+    return { value: undefined }
+  })
+  register(on, {})
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const r = await $.tool.call({ tool: 'Bash', command: 'npm run build' } as never)
+  expect(queries).toEqual(['npm run build · npm ERR! missing script: build'])
+  expect((r.context ?? []).some(c => c.includes('[graphiti-recall #r1'))).toBe(true)
+})

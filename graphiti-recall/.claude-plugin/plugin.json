@@ -1,6 +1,6 @@
 {
   "name": "graphiti-recall",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "替模型查 Graphiti 记忆：每轮开头按你的原话、运行中按第一次读写的文件、高风险命令和报错、派出子代理时按任务，调用服务端 recall，只把过了相关度线的事实和实体注入上下文。每次召回在对话里留一行灰字，写明查询词和是否真的随请求送到了模型。",
   "author": { "name": "alexcz-a11y", "url": "https://github.com/alexcz-a11y" },
   "repository": "https://github.com/alexcz-a11y/claude-mods",
