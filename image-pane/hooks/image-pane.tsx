@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { ImageEntry } from '../types'
-import { classify, findImages, imageSources, fingerprint, fitCells, ORIGIN_LABEL, pngSize } from './core'
+import { CELL_ASPECT, classify, findImages, imageSources, fingerprint, fitCells, ORIGIN_LABEL, pngSize } from './core'
 import type { FoundImage, Origin } from './core'
 
 const PANE = 'image-pane'
@@ -66,7 +66,10 @@ async function pngOf($: EngineInterface, one: ImageEntry): Promise<string | null
 // 热重载会重跑 session.start，所以放模块变量即可，丢了会在下一次 session.start 补回。
 let isTerminal = false
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  // 换了字体或行距时在 /config 里改；终端里 `printf '\e[16t'` 回报的 `6;高;宽` 相除就是它。
+  const aspect = typeof options.cellAspect === 'number' && options.cellAspect > 0 ? options.cellAspect : CELL_ASPECT
+
   on('session.start', async ($, e, next) => {
     const surfaces = await $.session.surfaces()
     isTerminal = e.surface === 'terminal' || surfaces.includes('terminal')
@@ -145,7 +148,7 @@ export const register: Register = on => {
     const one = list[at]
     if (!one) return next(e)
     const go = (to: number) => update($, selected, () => (to >= list.length - 1 ? null : list[Math.max(0, to)]?.n ?? null))
-    const size = fitCells(one.width, one.height, bodyColumns, scroll.bodyRows - 4)
+    const size = fitCells(one.width, one.height, bodyColumns, scroll.bodyRows - 4, aspect)
     const alt = `${ORIGIN_LABEL[one.origin]} ${one.sourcePath ?? one.file ?? ''}`.trim()
     const time = new Date(one.at).toTimeString().slice(0, 5)
     const png = await pngOf($, one)

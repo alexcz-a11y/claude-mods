@@ -41,8 +41,11 @@ test('按工具名分来源', () => {
 test('PNG 宽高和格子尺寸', () => {
   expect(pngSize(PNG)).toEqual({ width: 1, height: 1 })
   expect(pngSize('not-a-png-at-all-but-long-enough-xxxx')).toBe(null)
-  expect(fitCells(2000, 1000, 40, 30)).toEqual({ columns: 40, rows: 10 })
-  expect(fitCells(1000, 2000, 40, 10)).toEqual({ columns: 10, rows: 10 })
+  expect(fitCells(2000, 1000, 40, 30, 2)).toEqual({ columns: 40, rows: 10 })
+  expect(fitCells(1000, 2000, 40, 10, 2)).toEqual({ columns: 10, rows: 10 })
+  // 默认 17/8：正方形的图 34 列宽占 16 行，16 行高占 34 列。
+  expect(fitCells(1000, 1000, 34, 30)).toEqual({ columns: 34, rows: 16 })
+  expect(fitCells(1000, 1000, 80, 16)).toEqual({ columns: 34, rows: 16 })
 })
 
 function engine(on: On, surfaces: RenderSurface[], opened?: string[][], saved?: string[][]) {

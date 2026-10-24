@@ -1,9 +1,17 @@
 {
   "name": "image-pane",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "在终端右侧停靠栏里显示本会话的图片：你发给 agent 的图，以及 agent（含子 agent）读到、截到、工具返回的图。只在终端里工作，Claude Desktop 里整个 mod 不做任何事。",
   "author": { "name": "alexcz-a11y", "url": "https://github.com/alexcz-a11y" },
   "repository": "https://github.com/alexcz-a11y/claude-mods",
   "license": "MIT",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "cellAspect": {
+      "type": "number",
+      "title": "终端格子高宽比",
+      "description": "一个字符格的高除以宽，用来让图片按原比例显示。在终端里运行 printf '\\e[16t'; read -rs -t1 -d t r; printf '%q\\n' \"$r\"，回报的 6;高;宽 相除即是。默认 2.125（iTerm2 的 Hack 14pt）。",
+      "default": 2.125
+    }
+  }
 }

@@ -18,6 +18,7 @@
 - 显示用的 PNG 优先从原文件做（Read 读的文件、你贴图时的原文件）：引擎放进对话的那份已缩小，贴图还会重编码成 JPEG，透明背景会丢。原文件读不到、不是图片，或一次收到多张对不上来源时，回退到引擎那份。
 - 工具结果的图在 `tool.call` 里收。先加载的 mod 在 `tool.call` 里直接答掉、不往下传的调用（例如 dispatch-pilot 的 `visual_check`）image-pane 看不到，这些在下一步发请求前（`turn.step`）从对话里的 `tool_result` 收，按 `tool_use_id` 不重复收。
 - 图片字节不进 `$.state`：解码后写到 `/tmp/image-pane/<sessionId>/<n>.png`，界面让终端自己读这个文件。非 PNG（JPEG、WebP、GIF）用 macOS 的 `sips` 转成 PNG；别的系统上只能显示 PNG，其余只留文字条目。
+- 图按原比例显示要知道终端一格的高宽比，默认 2.125（iTerm2 的 Hack 14pt 实测 8×17 point）。换了字体或行距就在 `/config` 里改 `cellAspect`：在终端里运行 `printf '\e[16t'; read -rs -t1 -d t r; printf '%q\n' "$r"`，回报 `6;高;宽`，高除以宽即是。窗口大小、全屏与否和 herdr 都不影响它。
 - 每会话最多保留 200 张，重复的图（同一张截图再读一次）只收一次。
 
 ## 运行

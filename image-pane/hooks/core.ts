@@ -62,19 +62,24 @@ export function pngSize(base64: string): { width: number; height: number } | nul
   }
 }
 
-// 终端一格大约宽 1、高 2，所以行数是列数乘高宽比再除以 2。
+// 格子的高宽比：iTerm2 的 Hack 14pt 实测一格 8×17 point（herdr 里 16×34 像素），17/8。
+// 它只跟字体、字号和行距有关，跟窗口大小、全屏与否、herdr 都无关；按 2 算图会被纵向拉长约 6%。
+export const CELL_ASPECT = 17 / 8
+
+// 行数是列数乘图的高宽比再除以格子的高宽比。Image 会把图拉伸到填满整个框，所以框的比例必须和图一致。
 export function fitCells(
   width: number | undefined,
   height: number | undefined,
   columns: number,
   rows: number,
+  aspect = CELL_ASPECT,
 ): { columns: number; rows: number } {
   const cols = Math.max(1, Math.min(255, columns))
   const maxRows = Math.max(1, Math.min(255, rows))
   if (!width || !height) return { columns: cols, rows: Math.min(maxRows, Math.round(cols / 3)) || 1 }
-  const want = Math.round((cols * height) / width / 2)
+  const want = Math.round((cols * height) / width / aspect)
   if (want <= maxRows) return { columns: cols, rows: Math.max(1, want) }
-  return { columns: Math.max(1, Math.min(cols, Math.round((maxRows * 2 * width) / height))), rows: maxRows }
+  return { columns: Math.max(1, Math.min(cols, Math.round((maxRows * aspect * width) / height))), rows: maxRows }
 }
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
