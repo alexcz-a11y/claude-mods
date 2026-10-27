@@ -1,8 +1,19 @@
 {
   "name": "graphiti-recall",
-  "version": "0.1.1",
-  "description": "替模型查 Graphiti 记忆：每轮开头按你的原话、运行中按第一次读写的文件、高风险命令和报错、派出子代理时按任务，调用服务端 recall，只把过了相关度线的事实和实体注入上下文。每次召回在对话里留一行灰字，写明查询词和是否真的随请求送到了模型。",
-  "author": { "name": "alexcz-a11y", "url": "https://github.com/alexcz-a11y" },
+  "version": "0.2.0",
+  "description": "替模型查 Graphiti 记忆：每轮开头按你的原话、运行中按第一次读写的文件、高风险命令和报错、派出子代理时按任务，先用 Haiku 把要查的文本改写成关键词，再调用服务端 recall，只把过了相关度线的事实和实体注入上下文。每次召回在对话里留一行灰字，写明查询词和是否真的随请求送到了模型。",
+  "author": {
+    "name": "alexcz-a11y",
+    "url": "https://github.com/alexcz-a11y"
+  },
   "repository": "https://github.com/alexcz-a11y/claude-mods",
-  "license": "MIT"
+  "license": "MIT",
+  "userConfig": {
+    "rewriteModel": {
+      "type": "string",
+      "title": "改写查询的模型",
+      "description": "调 recall 之前，用哪个模型（别名如 haiku，或完整的模型 id）把这条消息、子代理任务、高风险命令或报错改写成一两组关键词；只送这一条的文本，不送对话。它通过你的 Claude Code 登录运行，用的是你套餐的用量。3 秒内没改写成就用原文查。留空则不改写。",
+      "default": "haiku"
+    }
+  }
 }

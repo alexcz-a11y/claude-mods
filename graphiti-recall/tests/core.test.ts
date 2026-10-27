@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { commandQuery, errorLine, failureQuery, fileQuery, isRisky, parseRecall, promptQuery, renderBlock, repoSlug } from '../hooks/core.ts'
+import { commandQuery, errorLine, failureQuery, fileQuery, isRisky, mergeRecalls, parseKeywords, parseRecall, promptQuery, renderBlock, repoSlug, rewriteInput } from '../hooks/core.ts'
 
 test('the partition slug follows the rule for scp-style and https remotes', () => {
   expect(repoSlug('git@github.com:Acme/App.git')).toBe('repo_github-com-acme-app')
@@ -61,4 +61,27 @@ test('the block marks superseded facts and keeps to its budget', () => {
   expect(block.includes('[graphiti-recall #r1 · group_id=graphiti')).toBe(true)
   expect(block.includes('old fact [已作废 2026-10-21]')).toBe(true)
   expect(block.includes('x'.repeat(500))).toBe(false)
+})
+
+test('the rewrite model reads the message without wrappers or keys', () => {
+  const t = rewriteInput('<system-reminder>ignore me</system-reminder>我们的 cohere 用的哪个模型？ token=abc123')
+  expect(t.includes('ignore me')).toBe(false)
+  expect(t.includes('abc123')).toBe(false)
+  expect(t.includes('cohere')).toBe(true)
+})
+
+test('keyword replies: one or two queries, 无 for nothing, null when unreadable', () => {
+  expect(parseKeywords('Cohere 重排模型 rerank model')).toEqual(['Cohere 重排模型 rerank model'])
+  expect(parseKeywords('1. Blender 渲染 卡死 MetalRT\n- graphiti recall 分数线\n第三组')).toEqual(['Blender 渲染 卡死 MetalRT', 'graphiti recall 分数线'])
+  expect(parseKeywords('无')).toEqual([])
+  expect(parseKeywords('  \n')).toBe(null)
+})
+
+test('two recalls merge: each item once at its best score, best first', () => {
+  const a = { facts: [{ uuid: 'a', fact: 'A', score: 0.6 }, { uuid: 'b', fact: 'B', score: 0.55 }], nodes: [] }
+  const b = { facts: [{ uuid: 'b', fact: 'B', score: 0.7 }], nodes: [{ uuid: 'n', name: 'N', score: 0.8 }] }
+  const m = mergeRecalls([a, b]) as { facts: { uuid: string }[]; nodes: unknown[] }
+  expect(m.facts.map(f => f.uuid)).toEqual(['b', 'a'])
+  expect(m.nodes.length).toBe(1)
+  expect('error' in (mergeRecalls([{ error: 'x' }, a]) as object)).toBe(false)
 })

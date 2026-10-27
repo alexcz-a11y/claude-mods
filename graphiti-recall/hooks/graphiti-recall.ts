@@ -7,25 +7,31 @@ import {
   idsIn,
   isGroupId,
   isRisky,
+  mergeRecalls,
+  parseKeywords,
   parseRecall,
   parseToolText,
   promptQuery,
   type Recalled,
   renderBlock,
   renderDirectory,
+  REWRITE_SYSTEM,
   repoSlug,
+  rewritePrompt,
   topicOf,
   uuidsIn,
 } from './core.ts'
 
 // Searches Graphiti for the model through the server's `recall` tool and injects what clears its
 // relevance floor: beside the user's message, after some tool results, and into a subagent's task.
+// The server scores how useful the whole query is, so a message, a subagent's task, a risky command
+// or a failure is first rewritten into keywords by a small model; a file's path already is keywords.
 // Each recall gets one dim transcript line (`$.ui.log`, which the model never reads) naming the
 // query and whether the block really reached the model's request.
 
 const SERVER = 'graphiti'
 const MIN_VERSION = '2.1.304'
-const TURN_WAIT_MS = 6_000 // the turn starts without the block after this; it rides on the next tool result
+const TURN_WAIT_MS = 8_000 // the turn starts without the block after this; it rides on the next tool result
 const TOOL_GRACE_MS = 3_000 // how long a finished tool waits for its recall
 const SLOW_MS = 8_000 // a recall slower than this, or failing, pauses recall
 const PAUSE_MS = 5 * 60_000
@@ -33,6 +39,7 @@ const MAX_FAILS = 3
 const MID_TURN_MAX = 3
 const BUDGET = { turn: 3_000, tool: 1_200, agent: 1_200 }
 const SHOWN = 100 // characters of a query its transcript line shows
+const REWRITE_MS = 4_000 // Haiku at low effort answers in 1.7–3.1 s; past this the rewrite is dropped and the plain query is searched
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'NotebookEdit'])
 const QUIET_TOOLS = /^(mcp__graphiti__|mcp__ccd_|mcp__graphiti-recall__)|^(ToolSearch|TodoWrite|Skill|AskUserQuestion|EnterPlanMode|ExitPlanMode)$/
 
@@ -51,6 +58,7 @@ type Gate = {
 }
 
 let cwd = ''
+let rewriteModel = 'haiku'
 let groupId: string | null = null
 let disabledWhy: string | null = null
 let enabled = true
@@ -132,6 +140,38 @@ async function recall($: EngineInterface, query: string, center?: string): Promi
   }
 }
 
+// The text rewritten into one or two keyword queries; `why` when there are none (the plain query is
+// searched then). Only this message or tool call is sent, never the conversation.
+async function keywords($: EngineInterface, input: string): Promise<{ queries: string[] } | { why: string }> {
+  if (!rewriteModel) return { why: 'off' }
+  try {
+    const r = await $.model.complete({ model: rewriteModel, system: REWRITE_SYSTEM, prompt: rewritePrompt(input), maxTokens: 120, effort: 'low', timeoutMs: REWRITE_MS })
+    if (!r.isAnswered) return { why: r.reason === 'aborted' ? '超时' : r.reason }
+    const queries = parseKeywords(r.text)
+    return queries ? { queries } : { why: '回复读不出关键词' }
+  } catch (err) {
+    return { why: String(err).slice(0, 80) }
+  }
+}
+
+type Searched = { query: string; r: Recalled | { error: string } } | { query: string; skipped: true }
+
+// Rewrites `input` (when given) and recalls each query, merged. `query` is what the transcript line
+// and the block show: the keywords, or the plain query marked as such when the rewrite failed.
+async function search($: EngineInterface, plain: string, input: string | null, center?: string): Promise<Searched> {
+  const k = input ? await keywords($, input) : null
+  if (k && 'queries' in k && !k.queries.length) return { query: plain, skipped: true }
+  const queries = k && 'queries' in k ? k.queries : [plain]
+  const query = k && 'why' in k && k.why !== 'off' ? `原文（改写未成：${k.why}）${plain}` : queries.join(' | ')
+  calls += queries.length
+  const rs = await Promise.all(queries.map(q => recall($, q, center)))
+  return { query, r: mergeRecalls(rs) }
+}
+
+function skippedLine($: EngineInterface, where: Where, what: string, plain: string) {
+  line($, `· ${label(where, what)} · 「${plain.slice(0, SHOWN)}」 · 改写判定没有可检索的主题，未查询`)
+}
+
 function fail($: EngineInterface, why: string) {
   fails += 1
   pausedUntil = now() + PAUSE_MS
@@ -179,7 +219,8 @@ function topFact(r: Recalled | { error: string }) {
   return 'error' in r ? undefined : r.facts[0]?.source_node_uuid
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  if (typeof options?.rewriteModel === 'string') rewriteModel = options.rewriteModel.trim()
   on('session.start', async ($, e, next) => {
     const r = await next(e)
     cwd = e.cwd
@@ -240,28 +281,34 @@ export const register: Register = on => {
       context.push(directory)
       directory = null
     }
-    const query = ready() ? promptQuery(e.text) : null
-    if (!query) return context.length === (e.context ?? []).length ? next(e) : next({ ...e, context })
-    calls += 1
-    const topic = topicOf(query)
-    const pending = recall($, query, topic ? topics.get(topic) : undefined)
+    const plain = ready() ? promptQuery(e.text) : null
+    if (!plain) return context.length === (e.context ?? []).length ? next(e) : next({ ...e, context })
+    const topic = topicOf(plain)
+    const pending = search($, plain, e.text, topic ? topics.get(topic) : undefined)
     const early = await Promise.race([pending, $.clock.sleep(TURN_WAIT_MS).then(() => null)])
     if (early === null) {
       // Too slow for the turn's start: it goes on the first tool result it is ready for.
-      pending.then(r => {
+      pending.then(s => {
+        if ('skipped' in s) return skippedLine($, 'turn', '', plain)
+        const { query, r } = s
         if (topic && topFact(r)) topics.set(topic, topFact(r) as string)
         if ('error' in r) return nothing($, 'turn', '', query, r)
         const gate = prepare('turn', '超时后补上', query, r)
         if (!gate) return nothing($, 'turn', '', query, r)
         carried = { id: gate.id, block: gate.block, summary: gate.summary, label: gate.label, query }
       })
-      line($, `· 轮首 · 查询「${query.slice(0, SHOWN)}」 · 6 秒内未返回，结果到了再附在下一个工具结果后`)
+      line($, `· 轮首 · 「${plain.slice(0, SHOWN)}」 · 8 秒内未返回，结果到了再附在下一个工具结果后`)
       return next({ ...e, context })
     }
-    if (topic && topFact(early)) topics.set(topic, topFact(early) as string)
-    const gate = 'error' in early ? null : prepare('turn', '', query, early)
+    if ('skipped' in early) {
+      skippedLine($, 'turn', '', plain)
+      return next({ ...e, context })
+    }
+    const { query } = early
+    if (topic && topFact(early.r)) topics.set(topic, topFact(early.r) as string)
+    const gate = 'error' in early.r ? null : prepare('turn', '', query, early.r)
     if (!gate) {
-      nothing($, 'turn', '', query, early)
+      nothing($, 'turn', '', query, early.r)
       return next({ ...e, context })
     }
     const r = await next({ ...e, context: [...context, gate.block] })
@@ -281,6 +328,7 @@ export const register: Register = on => {
 
     let what = ''
     let query: string | null = null
+    let rewrite = false
     const input = e as unknown as { file_path?: string; notebook_path?: string; command?: string }
     const path = input.file_path ?? input.notebook_path
     if (FILE_TOOLS.has(tool) && path && !filesSeen.has(path)) {
@@ -290,38 +338,43 @@ export const register: Register = on => {
     } else if (tool === 'Bash' && input.command && isRisky(input.command)) {
       query = commandQuery(input.command)
       what = 'Bash'
+      rewrite = true
     }
     const budgetLeft = midTurn < MID_TURN_MAX && lastInjectStep !== step
     const topic = path ?? (query ? topicOf(query) : null)
-    const pending = query && budgetLeft ? recall($, query, topic ? topics.get(topic) : undefined) : null
-    if (pending) calls += 1
+    const center = topic ? topics.get(topic) : undefined
+    const pending = query && budgetLeft ? search($, query, rewrite ? query : null, center) : null
 
     const ran = await next(e)
     if (ran.deny !== undefined) return ran
 
     // A tool that failed: search with what ran and its error unless something is already on the way.
-    let errorPending: Promise<Recalled | { error: string }> | null = null
+    let errorPending: Promise<Searched> | null = null
     let errorQ: string | null = null
     if (!pending && ran.isError && budgetLeft && ran.text) {
       errorQ = failureQuery(tool, input, ran.text, cwd)
       if (errorQ) {
-        calls += 1
         what = `${tool} 报错`
-        errorPending = recall($, errorQ)
+        errorPending = search($, errorQ, errorQ)
       }
     }
     const waiting = pending ?? errorPending
-    const q = (pending ? query : errorQ) as string
+    const plain = (pending ? query : errorQ) as string
     if (!waiting) return attachCarried(ran)
     const got = await Promise.race([waiting, $.clock.sleep(errorPending ? TURN_WAIT_MS : TOOL_GRACE_MS).then(() => null)])
     if (got === null) {
-      line($, `· 工具后 · ${what} · 查询「${q.slice(0, SHOWN)}」 · 超时，未注入`)
+      line($, `· 工具后 · ${what} · 「${plain.slice(0, SHOWN)}」 · 超时，未注入`)
       return attachCarried(ran)
     }
-    if (topic && topFact(got)) topics.set(topic, topFact(got) as string)
-    const gate = 'error' in got ? null : prepare('tool', what, q, got)
+    if ('skipped' in got) {
+      skippedLine($, 'tool', what, plain)
+      return attachCarried(ran)
+    }
+    const q = got.query
+    if (topic && topFact(got.r)) topics.set(topic, topFact(got.r) as string)
+    const gate = 'error' in got.r ? null : prepare('tool', what, q, got.r)
     if (!gate) {
-      nothing($, 'tool', what, q, got)
+      nothing($, 'tool', what, q, got.r)
       return attachCarried(ran)
     }
     midTurn += 1
@@ -338,14 +391,17 @@ export const register: Register = on => {
 
   on('agent.spawn', async ($, e, next) => {
     if (!ready()) return next(e)
-    const query = promptQuery(`${e.description} ${e.prompt.slice(0, 300)}`)
-    if (!query) return next(e)
-    calls += 1
-    const got = await Promise.race([recall($, query), $.clock.sleep(TURN_WAIT_MS).then(() => null)])
-    const gate = got && !('error' in got) ? prepare('agent', e.description, query, got) : null
+    const plain = promptQuery(`${e.description} ${e.prompt.slice(0, 300)}`)
+    if (!plain) return next(e)
+    const got = await Promise.race([search($, plain, `${e.description}\n${e.prompt}`), $.clock.sleep(TURN_WAIT_MS).then(() => null)])
+    if (got && 'skipped' in got) {
+      skippedLine($, 'agent', e.description, plain)
+      return next(e)
+    }
+    const gate = got && !('error' in got.r) ? prepare('agent', e.description, got.query, got.r) : null
     if (!gate) {
-      if (got) nothing($, 'agent', e.description, query, got)
-      else line($, `· 子代理 · ${e.description} · 查询「${query.slice(0, SHOWN)}」 · 超时，未注入`)
+      if (got) nothing($, 'agent', e.description, got.query, got.r)
+      else line($, `· 子代理 · ${e.description} · 「${plain.slice(0, SHOWN)}」 · 超时，未注入`)
       return next(e)
     }
     const r = await next({ ...e, prompt: `${e.prompt}\n\n${gate.block}` })
