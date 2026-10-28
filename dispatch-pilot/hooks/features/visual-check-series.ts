@@ -5,7 +5,7 @@
 // features/visual-check.ts, which has read the call, checked the switches and built the closures; like that file, a call here never
 // fails: whatever goes wrong, the answer says so.
 
-import type { BackendName } from '../decision/backend.ts'
+import type { ImageBackendName } from '../decision/backend.ts'
 import { limitsFor } from '../decision/image-fit.ts'
 import { type PairReport, seriesText } from '../decision/visual-check-sequence-text.ts'
 import { seriesRecordOf, type VisualCheckRecord } from '../decision/visual-check-record.ts'
@@ -21,7 +21,7 @@ import type { AnswerBlock } from './visual-check-look.ts'
 /** What a call needs of the world: files and programs, the decision model that takes images (Jev: a series needs its boxes), the report. */
 export type SeriesDeps = ZoomDeps & {
   /** The decision model that takes images (Jev: a series needs its boxes). */
-  backend: BackendName
+  backend: ImageBackendName
   /** `$.clock.now()`: a call's duration is in its record. */
   now: () => Promise<number>
   /** A line for the debug log. */

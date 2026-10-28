@@ -1,27 +1,28 @@
 // The real flow over an eval v2 conversation (seam 2, #45): at each of the person's messages, in order, the request the
-// mod sends (the effort question and the three-way question beside it, with the problem summary and the count it holds
-// then), the count moved by the mod's two bars, and after each turn the summary continued by the cheap model with the
-// mod's own prompt. Seam 1 checks that the mod living the same conversation sends the same requests and prompts.
+// mod sends (the effort part: the effort question and its Nouls, with the problem summary and the count it holds then),
+// the count moved by the three Nouls about the problem as the mod moves it (ADR 0014), and after each turn the summary
+// continued by the cheap model with the mod's own prompt. Seam 1 checks that the mod living the same conversation sends
+// the same requests and prompts.
 
 import type { SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
-import { renderSummary, SUMMARY_SYSTEM } from '../hooks/decision/summary.ts'
+import { SUMMARY_SYSTEM, summaryState } from '../hooks/decision/summary.ts'
 import type { V2Record, V2Turn } from '../eval/lib/eval-v2.ts'
 import { flowItem, type FlowItem } from '../eval/lib/eval-v2-flow.ts'
 import { askRetrying } from '../eval/lib/runner.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
 import { transcript } from './support/conversation.ts'
 import { answers as answersOf, type Reply } from './support/eval-network.ts'
-import { UNRESOLVED_ON, world, type Sent } from './support/world.ts'
+import { OWN_EFFORT, UNRESOLVED_ON, world, type Sent } from './support/world.ts'
 
-const STILL = { still_unresolved: 0.8, resolved: 0.05, new_or_unrelated: 0.15 }
-const ELSEWHERE = { still_unresolved: 0.05, resolved: 0.1, new_or_unrelated: 0.85 }
-const UNSURE = { still_unresolved: 0.3, resolved: 0.4, new_or_unrelated: 0.3 }
+const STILL = { still_failing: 0.8, solved: 0.05, new_task: 0.15 }
+const ELSEWHERE = { still_failing: 0.05, solved: 0.1, new_task: 0.85 }
+const UNSURE = { still_failing: 0.5, solved: 0.4, new_task: 0.3 }
 const HIGH = [0, 0.1, 0.8, 0.1, 0]
 
-/** A Jev answer to the effort question (`p` on the levels) and to the three-way question (`triage`), for a request body. */
+/** A Jev answer to the effort question (`p` on the levels) and to the Nouls about the problem (`triage`), for a request body. */
 const answers = (body: any, triage: Record<string, number>, p: readonly number[] = HIGH): Reply => answersOf(body, p, triage)
 
 /** The conversation: a lead round, the decisive rounds (a problem raised, then said to be unresolved), a middle round, the message. */
@@ -98,26 +99,26 @@ const REPLIES = [
   written('订单列表第二页是空的', ['offset 改成 (page - 1) * size [unresolved]', '请求里补上 page'], '助手在理调用链'),
 ]
 
-test('every message of the person is asked in order, as the mod asks it, and the count moves by the mod\'s two bars; the last message carries the count and the summary the conversation left', async () => {
+test('every message of the person is asked in order, as the mod asks it, and the count moves as the mod moves it; the last message carries the count and the summary the conversation left', async () => {
   const net = backend()
   const model = cheap(REPLIES)
   const { item, stopped } = await flowItem(record(), { ask: net.ask, complete: model.complete, settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh' })
 
   expect(stopped).toBeNull()
   expect(net.bodies.map((body) => msgOf(body.state.user_message))).toEqual(['p1', 'd1', 'd2', 'm1', 'f1'])
-  expect(net.bodies.every((body) => Object.keys(body.questions).join() === 'effort.level,effort.unresolved')).toBe(true)
+  expect(net.bodies.every((body) => Object.keys(body.questions).join() === OWN_EFFORT.join())).toBe(true)
   expect(item.messages.map((m) => `${m.msg} ${m.before}→${m.after} ${m.change}`)).toEqual(['p1 0→0 reset', 'd1 0→0 reset', 'd2 0→1 add', 'm1 1→1 keep', 'f1 1→2 add'])
-  // The probabilities each answer gave, for scanning the bars offline.
+  // The probabilities each answer gave, kept with the message.
   expect(item.messages[2]).toMatchObject({ msg: 'd2', at: 4, part: 'decisive', triage: STILL, p: HIGH })
   // The first request has no summary yet; each later one the summary written after the turn before it, and the count from the first "still unresolved" on.
   expect('problem_summary' in net.bodies[0].state).toBe(false)
-  expect(net.bodies[1].state.problem_summary).toBe(renderSummary({ problem: '订单导出加一列备注', tried: [{ text: '导出加了备注列' }], status: '助手加好了' }, 'zh'))
+  expect(net.bodies[1].state.problem_summary).toEqual(summaryState({ problem: '订单导出加一列备注', tried: [{ text: '导出加了备注列' }], status: '助手加好了' }))
   expect(net.bodies[3].state.unresolved_count).toBe(1)
   expect('unresolved_count' in net.bodies[2].state).toBe(false)
   // What the last message's request carried.
   const last = { problem: '订单列表第二页是空的', tried: [{ text: 'offset 改成 (page - 1) * size', unresolved: true as const }, { text: '请求里补上 page' }], status: '助手在理调用链' }
-  expect(item.final).toEqual({ count: 1, summary: last, hint: false })
-  expect(net.bodies[4].state.problem_summary).toBe(renderSummary(last, 'zh'))
+  expect(item.final).toEqual({ count: 1, summary: last })
+  expect(net.bodies[4].state.problem_summary).toEqual(summaryState(last))
 })
 
 test('the summary is continued after each turn but the last: a clear starts it over, a "still unresolved" marks its last try before the turn is written about', async () => {
@@ -187,13 +188,8 @@ test('an answer the mod could not read leaves the count as it is, as the mod doe
   expect(item.messages[2]).toMatchObject({ msg: 'd2', before: 0, after: 0, change: 'keep', write: 'failed' })
   expect(item.messages[2]?.failure).toMatch(/^http/)
   // The summary of d1's turn stayed: it is what m1's request read, not marked (nothing said it was unresolved).
-  expect(net.bodies[3].state.problem_summary).toBe(renderSummary({ problem: '订单列表第二页是空的', tried: [{ text: 'offset 改成 (page - 1) * size' }], status: '助手改了 offset' }, 'zh'))
+  expect(net.bodies[3].state.problem_summary).toEqual(summaryState({ problem: '订单列表第二页是空的', tried: [{ text: 'offset 改成 (page - 1) * size' }], status: '助手改了 offset' }))
   expect(model.prompts).toHaveLength(6)
-})
-
-test('the bars can be set: at an add bar of 0.25 an unsure answer adds one', async () => {
-  const { item } = await flowItem(record(), { ask: backend().ask, complete: cheap(REPLIES).complete, settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh', thresholds: { add: 0.25, reset: 0.8 } })
-  expect(item.messages.map((m) => m.change)).toEqual(['reset', 'reset', 'add', 'add', 'add'])
 })
 
 test('the mod living the same conversation sends the same request at every message, asks the cheap model the same prompts, and holds the same count and summary at the last message', { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
@@ -220,9 +216,10 @@ test('the mod living the same conversation sends the same request at every messa
     await w.clock.settle()
   }
 
+  // In English, as the mod asks (ADR 0014).
   const net = backend()
   const model = cheap(REPLIES)
-  const { item } = await flowItem(record(), { ask: net.ask, complete: model.complete, settings: settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }), language: 'zh' })
+  const { item } = await flowItem(record(), { ask: net.ask, complete: model.complete, settings: settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }), language: 'en' })
   expect(w.requests.map((request) => request.body)).toEqual(net.bodies.map((body) => ({ model: JEV_MODEL, state: body.state, questions: body.questions })))
   expect(w.completions.map((request) => request.prompt)).toEqual(model.prompts)
   expect(w.completions.every((request) => request.system === SUMMARY_SYSTEM && request.model === 'haiku')).toBe(true)
@@ -230,7 +227,7 @@ test('the mod living the same conversation sends the same request at every messa
   expect(w.unresolved()).toBe(item.messages.at(-1)?.after)
 })
 
-test('from the count unresolvedMaxAfter sets on, the request carries the strong hint, as the mod\'s does', async () => {
+test('the count goes in the state as the mod puts it there, and no question changes with it (no hinted copy since ADR 0014)', async () => {
   const turns: V2Turn[] = [
     { role: 'user', msg: 'd1', part: 'decisive', text: '订单列表翻到第二页是空的，帮我查一下' },
     { role: 'assistant', part: 'decisive', text: '改了 offset。' },
@@ -253,11 +250,10 @@ test('from the count unresolvedMaxAfter sets on, the request carries the strong 
   const ask = (request: Parameters<typeof askRetrying>[0]) => askRetrying(request, { backend: jevBackend('k'), io, timeoutMs: 10_000, retries: 0, now: () => 0, pause: async () => {} })
   const { item } = await flowItem(record(turns), { ask, complete: async () => written('第二页是空的', ['改 offset'], '在改'), settings: settingsFrom({ decisionModel: 'jev' }), language: 'zh' })
 
-  expect(item.messages.map((m) => `${m.msg} ${m.before}${m.hint ? ' hint' : ''}`)).toEqual(['d1 0', 'd2 0', 'd3 1', 'd4 2', 'f1 3 hint'])
-  // The hint is the hinted copy of the effort question beside the plain one, which has none of it.
-  expect(Object.keys(bodies[4].questions['effort.level_unsolved'].instructions)).toContain('未解决')
-  expect(Object.keys(bodies[4].questions['effort.level'].instructions)).not.toContain('未解决')
+  expect(item.messages.map((m) => `${m.msg} ${m.before}`)).toEqual(['d1 0', 'd2 0', 'd3 1', 'd4 2', 'f1 3'])
+  // No hinted copy of the effort question any more (ADR 0014): the count goes in the state, the same questions every time.
+  expect(Object.keys(bodies[4].questions)).toEqual(Object.keys(bodies[3].questions))
   expect(JSON.stringify(bodies[4].questions['effort.level'])).toBe(JSON.stringify(bodies[3].questions['effort.level']))
-  expect(bodies[3].questions['effort.level_unsolved']).toBeUndefined()
-  expect(item.final).toMatchObject({ count: 3, hint: true })
+  expect(bodies[4].state.unresolved_count).toBe(3)
+  expect(item.final).toMatchObject({ count: 3 })
 })

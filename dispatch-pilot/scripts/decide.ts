@@ -8,10 +8,10 @@
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' [--zh | --en] [--choice] [--timeout 5000]
 //
 // The question is written as the mod writes it for the decision model asked
-// (Chinese with Jev: the table's ask.turnStart); `--zh` or `--en` writes it in that language, `--choice` asks a Choice, as the
+// (English: the table's ask.turnStart); `--zh` or `--en` writes it in that language, `--choice` asks a Choice, as the
 // eval's variants do. Prints the request (questions, state) and the answer:
-// each level's probability, the confidence, the level the mod picks (the mod's
-// thetaMax and roundUp), the latency. `--timeout` defaults to what the eval gives one
+// each level's probability, the confidence, the base level of the mod's rules
+// (decision/effort.ts; this script asks the effort question alone), the latency. `--timeout` defaults to what the eval gives one
 // attempt: four times the mod's timeoutMs, at least 10 s (eval/lib/runner.ts
 // attemptMs), so a cold connection's first request does not fail outright.
 // Credentials come from the environment or ~/.config/dispatch-pilot/eval.env
@@ -19,7 +19,7 @@
 
 import { messageLimits } from '../hooks/core/setup.ts'
 import { turnStartState } from '../hooks/decision/context.ts'
-import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart } from '../hooks/decision/effort.ts'
+import { baseEffort, EFFORTS, LEVEL, readEffort, turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { answersFor, mergeParts } from '../hooks/decision/system-one.ts'
 import { nodeIo, scriptArgs, scriptDecision, scriptTimeout } from '../eval/node.ts'
 
@@ -59,6 +59,7 @@ console.log(
     ms,
     probabilities: Object.fromEntries(EFFORTS.map((level, i) => [level, Number((reading.probabilities[i] ?? 0).toFixed(3))])),
     confidence: reading.confidence,
-    effort: pickEffort(reading, settings),
+    // The effort question's base level (decision/effort.ts): the floors need the Nouls this script does not ask.
+    effort: baseEffort(reading),
   }),
 )

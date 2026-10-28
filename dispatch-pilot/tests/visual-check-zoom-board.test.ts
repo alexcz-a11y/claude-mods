@@ -6,7 +6,7 @@ import { expect, test } from 'claude-code/testing'
 import { zoomBackend } from './support/zoom.ts'
 import { KEY, world } from './support/world.ts'
 
-const OPTIONS = { ...KEY, rejudgeEvery: 0 }
+const OPTIONS = KEY
 const SHOT = '/shots/home.png'
 const DESIGN = '/design/home.png'
 const FILES = {

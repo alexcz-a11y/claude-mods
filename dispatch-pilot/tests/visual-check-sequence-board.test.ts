@@ -6,7 +6,7 @@ import { expect, test } from 'claude-code/testing'
 import { level, levels, seriesBackend } from './support/series.ts'
 import { KEY, world } from './support/world.ts'
 
-const OPTIONS = { ...KEY, rejudgeEvery: 0 }
+const OPTIONS = KEY
 const FOAM = { part: 'the waves near the horizon', property: 'foam density' }
 const SUN = { part: 'the reflection of the sun', property: 'brightness' }
 

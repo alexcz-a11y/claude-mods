@@ -5,13 +5,15 @@
 // agent. The main agent's own model and cache are untouched (ADR 0001).
 //
 // The decision reads the person's own words this turn (`said`), so a model
-// they name for the work wins over the decision model, which wins over the
-// main agent's pick; it also reads the problem summary and the conversation
+// they name for the work wins; else the model table reads the decision
+// model's yes/no answers about the brief, and raises the main agent's pick but
+// never lowers it (ADR 0015). It also reads the problem summary and the conversation
 // the agent is dispatched from, what the main agent wrote the brief out of
 // (BACKEND_DEFAULTS agentBackground). Agents dispatched together (one message,
 // several Agent calls) share one request (core/agent-lane.ts, ADR 0009): what
 // they share goes in once, each brief beside it. A failed or late answer lets
-// the agent start as the main agent asked.
+// the agent start as the main agent asked. A fork, a teammate and a resumed run
+// are not asked about; the board says why.
 //
 // The main agent reads, after the Agent tool's result, the model and effort its
 // agent started with and whose choice the model was (#34): agent.spawn runs
@@ -33,7 +35,7 @@ import { report, type ReportIo } from '../core/report.ts'
 import { dispatchSettings, saidTokens, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import { sessionReading } from './reference-hint.ts'
-import { UNRESOLVED_SWITCH } from './unresolved.ts'
+import { SUMMARY_SWITCH } from './unresolved.ts'
 
 const AGENTS = { plugin: 'dispatch-pilot', key: 'agents' } as const
 const SAID = { plugin: 'dispatch-pilot', key: 'said' } as const
@@ -86,13 +88,36 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
   })
 
   on('agent.spawn', { tool_use_id: /(?:)/ }, async ($, e, next) => {
-    // A fork always runs on its parent's model. A teammate lives across many
-    // tasks that one decision at its spawn cannot see. A Workflow's agent is the
-    // Workflow features': workflow-agents wrote its call into the script, or
-    // workflow-labels routes it at this same spawn. A resumed run (2.1.299 on)
-    // goes on as its agent was decided: the engine keeps its model, and its plan
-    // is the one written here.
-    if (e.fork || e.isTeammate || e.workflow !== undefined || e.resume !== undefined) return next(e)
+    // A Workflow's agent is the Workflow features': workflow-agents wrote its call into the script, or workflow-labels
+    // routes it at this same spawn.
+    if (e.workflow !== undefined) return next(e)
+    const reporting: ReportIo = {
+      board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+      decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+      debug: (line) => $.ui.log(line, { to: 'debug' }),
+      now: () => $.clock.now(),
+      toast: (text) => $.ui.toast(text),
+    }
+    const about = `${quoteStart(e.description)}（${e.subagentType}）`
+    /** What every report of this agent says of it; its id is known once it has started (a spawn is not yet an agent). */
+    const reportOf = (agent: string) => ({ feature: SWITCH, agent, subject: about, node: { kind: 'agent' as const, name: e.name ?? (e.description === '' ? e.subagentType : e.description), type: e.subagentType } })
+    // A fork, a teammate and a resumed run are not asked about (leftAsItIs): the node says why, so the board does not
+    // read 没有判断. A node of this turn that already has a decision or a reason keeps it: an agent resumed in the turn it
+    // was dispatched in stays on the board as it was decided.
+    const left = leftAsItIs(e)
+    if (left !== null) {
+      const started = await next(e)
+      if (started.deny !== undefined || started.agentId === undefined || !isOn(SWITCH)) return started
+      try {
+        const { value: board } = await $.state.get(BOARD)
+        const turn = board?.turn
+        const node = board?.nodes.find((one) => one.id === started.agentId && one.turn === turn)
+        if (node === undefined || (!node.routed && node.why === undefined)) await report(reporting, { decision: { ...reportOf(started.agentId), why: left } })
+      } catch (error) {
+        $.ui.log(`agent ${about} started (${started.agentId}), but why it was not asked about was not recorded: ${String(error)}`, { to: 'debug' })
+      }
+      return started
+    }
     /** Leaves the note for the Agent tool call this spawn belongs to. */
     const leaveNote = (note: DispatchNote) => {
       pendingNotes.set(e.tool_use_id, dispatchNote(note))
@@ -105,8 +130,8 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     }
     const { value: said = [] } = await $.state.get(SAID)
     // The problem the main agent is on goes along as background, with no hint (#41): the summary (the cheap model's, Haiku 5.5
-    // by default) and the count, while the unresolved switch is on and there are any.
-    const { value: held } = isOn(UNRESOLVED_SWITCH) ? await $.state.get(COUNT) : { value: undefined }
+    // by default; while its switch is on) and the count, when there are any.
+    const { value: held } = await $.state.get(COUNT)
     // The conversation the agent is dispatched from (the main one, or the dispatching agent's own): up to the Agent call
     // where the decision model reads it (BACKEND_DEFAULTS agentBackground), and the Agent calls of the same message, which
     // are asked about with it.
@@ -119,7 +144,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       shared: {
         words: said.join('\n'),
         background: {
-          ...problemBackground(held, ctx.ask.language),
+          ...problemBackground(held, isOn(SUMMARY_SWITCH)),
           ...readingBackground(reference),
           ...(lines.length === 0 ? {} : { recent: lines }),
         },
@@ -134,16 +159,6 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       now: () => $.clock.now(),
       debug: (line) => $.ui.log(line, { to: 'debug' }),
     }
-    const reporting: ReportIo = {
-      board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
-      decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
-      debug: (line) => $.ui.log(line, { to: 'debug' }),
-      now: () => $.clock.now(),
-      toast: (text) => $.ui.toast(text),
-    }
-    const about = `${quoteStart(e.description)}（${e.subagentType}）`
-    /** What every report of this agent says of it; its id is known once it has started (a spawn is not yet an agent). */
-    const reportOf = (agent: string) => ({ feature: SWITCH, agent, subject: about, node: { kind: 'agent' as const, name: e.name ?? (e.description === '' ? e.subagentType : e.description), type: e.subagentType } })
     // Asked with the agents dispatched beside it (core/agent-lane.ts), which logs the request; it waits `agents.waitMs` at most.
     const waitMs = ctx.config.agents.waitMs
     const deadline = (await $.clock.now()) + waitMs
@@ -165,7 +180,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     const spawn = decision.model !== null && decision.model !== modelFamily(e.model) ? { ...e, model: decision.model } : e
     const result = await next(spawn)
     if (result.deny !== undefined) return result
-    leaveNote({ routed: true, decision, started: result.model, requested: modelFamily(e.model), thetaOverride: settings.thetaOverride })
+    leaveNote({ routed: true, decision, started: result.model, requested: modelFamily(e.model) })
     // The agent has started: nothing after this may fail its spawn.
     try {
       // The effort and the person's terms go into the plan (what changes the agent later keeps to the
@@ -183,7 +198,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
           ...reportOf(result.agentId ?? e.tool_use_id),
           routed: true,
           outcome,
-          reason: dispatchReason(decision, modelFamily(e.model), settings.thetaOverride, '主 agent 指定的'),
+          reason: dispatchReason(decision, modelFamily(e.model), '主 agent 指定的'),
           ...dispatchEvidence(decision),
           ...(family === null ? {} : { model: family }),
           ...(decision.effort === null ? {} : { effort: decision.effort }),
@@ -194,6 +209,19 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
     }
     return result
   })
+}
+
+/**
+ * Why an agent is left as it is, with nothing asked, in its node's words on the board; null for one that is asked
+ * about. A fork always runs on its parent's model and effort. A teammate lives across many tasks that one decision at
+ * its spawn cannot see. A resumed run (2.1.299 on) goes on as its agent was decided: the engine keeps its model, and its
+ * plan is the one written here.
+ */
+function leftAsItIs(spawn: { fork: boolean; isTeammate?: true; resume?: { agentId: string }; parentAgentId?: string }): string | null {
+  if (spawn.fork) return `fork 沿用${spawn.parentAgentId === undefined ? '主 agent' : '派出它的 agent'} 的模型和 effort`
+  if (spawn.isTeammate === true) return 'teammate 跨多个任务，派出时不判断'
+  if (spawn.resume !== undefined) return '续跑沿用原来的决定'
+  return null
 }
 
 /** The conversation of the loop `agentId` (absent: the main one), as the transcript rows; none when it cannot be read. */

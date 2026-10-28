@@ -9,7 +9,7 @@ import type { EffortSubmitItem } from '../eval/lib/datasets.ts'
 import { modVariant, submitRequest, SUBMIT_VARIANTS } from '../eval/lib/effort-submit.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
 import { transcriptWithResults } from './support/conversation.ts'
-import { jev, withoutUnresolved, world } from './support/world.ts'
+import { jev, world } from './support/world.ts'
 
 /** An item as the dataset writes it: a short follow-up whose meaning is in the conversation before it. */
 const ITEM: EffortSubmitItem = {
@@ -39,11 +39,14 @@ const ITEM: EffortSubmitItem = {
   tags: ['follow-up'],
 }
 
-// The mod asks Jev as the `zh-score` variant (modVariant: the effort question beside a message is in the decision
-// model's language).
+// The mod asks Jev as the `en-score` variant (modVariant: the effort part beside a message is in English, Jev's best
+// language, ADR 0014).
 const BACKENDS = [
-  { name: 'Jev', options: { decisionModel: 'jev', typesafeApiKey: 'k' }, variant: 'zh-score', reply: jev([0, 0, 0.2, 0.7, 0.1]), model: JEV_MODEL },
+  { name: 'Jev', options: { decisionModel: 'jev', typesafeApiKey: 'k' }, variant: 'en-score', reply: jev([0, 0, 0.2, 0.7, 0.1]), model: JEV_MODEL },
 ] as const
+
+/** The questions of the person's own message: the effort question and its eight Nouls. */
+const OWN = ['effort.level', 'effort.stakes.undo', 'effort.stakes.live', 'effort.stakes.access', 'effort.cause_unknown', 'effort.still_failing', 'effort.solved', 'effort.new_task', 'effort.constraint', 'effort.confirm', 'effort.escalate']
 
 for (const chosen of BACKENDS) {
   for (const language of ['zh', 'en'] as const) {
@@ -55,9 +58,9 @@ for (const chosen of BACKENDS) {
       expect(modVariant(settings)).toBe(chosen.variant)
       const { request } = submitRequest(ITEM, language, SUBMIT_VARIANTS[chosen.variant] as EffortAsk, settings)
       expect(w.requests).toHaveLength(1)
-      expect(withoutUnresolved(w.requests[0]?.body)).toEqual({ model: chosen.model, state: request.state, questions: request.questions })
-      // The unresolved switch is off until the person turns it on (#48): the request asks the effort question alone.
-      expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
+      expect(w.requests[0]?.body).toEqual({ model: chosen.model, state: request.state, questions: request.questions })
+      // The whole effort part, as the mod asks it of the person's message.
+      expect(Object.keys(w.requests[0]?.body.questions)).toEqual(OWN)
       // What the request holds, so the equality above is not two empty things.
       expect(request.state.user_message).toContain('[REDACTED]')
       expect(String(request.state.recent_context)).toContain('[tools: Grep, Read x2]')
@@ -78,17 +81,18 @@ test("with skills to ask about, the mod's effort request is the eval's as it is,
   const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcriptWithResults(ITEM.zh.recent_context), skills })
   await w.submit(ITEM.zh.message)
 
-  const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({ decisionModel: 'jev' }))
-  expect(withoutUnresolved(w.requests[0]?.body)).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
-  expect(Object.keys(request.questions)).toEqual(['effort.level'])
-  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.which'])
+  const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['en-score'] as EffortAsk, settingsFrom({ decisionModel: 'jev' }))
+  expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
+  expect(Object.keys(request.questions)).toEqual(OWN)
+  // One skill: no Choice over it (ADR 0018), only the gate.
+  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices'])
 })
 
 test("the eval cuts the conversation to the mod's limits as the mod does", { options: { decisionModel: 'jev', typesafeApiKey: 'k', contextMessages: 2, contextTokens: 100 } }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcriptWithResults(ITEM.zh.recent_context) })
   await w.submit(ITEM.zh.message)
 
-  const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['zh-score'] as EffortAsk, settingsFrom({ decisionModel: 'jev', contextMessages: 2, contextTokens: 100 }))
-  expect(withoutUnresolved(w.requests[0]?.body)).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
+  const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['en-score'] as EffortAsk, settingsFrom({ decisionModel: 'jev', contextMessages: 2, contextTokens: 100 }))
+  expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   expect(String(request.state.recent_context)).not.toContain('登录接口')
 })

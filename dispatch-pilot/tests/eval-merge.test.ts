@@ -60,10 +60,10 @@ test('a merged run asks the variants of an item that share a state in one reques
   const rows = await runSuite(effortSubmit, items, options(alone.io))
   expect(run.requests).toBe(2)
   expect(alone.sent.length).toBe(4)
-  for (const one of merged.sent) expect(Object.keys(one.body.questions).map((id) => id.split('.')[0]).sort()).toEqual(['m0', 'm1'])
+  for (const one of merged.sent) expect([...new Set(Object.keys(one.body.questions).map((id) => id.split('.')[0]))].sort()).toEqual(['m0', 'm1'])
   expect(run.rows.map((row) => [row.id, row.variant, row.shown, row.correct])).toEqual(rows.map((row) => [row.id, row.variant, row.shown, row.correct]))
-  // Each answer's part of the request's tokens: two questions of 100 each, one to each variant.
-  expect(run.rows.map((row) => row.inputTokens)).toEqual([100, 100, 100, 100])
+  // Each answer's part of the request's tokens: twenty-two questions of 100 each, the eleven of its effort part to each variant.
+  expect(run.rows.map((row) => row.inputTokens)).toEqual([1100, 1100, 1100, 1100])
 })
 
 test('merging: the same request once, another state apart, at most 64 questions a request', () => {

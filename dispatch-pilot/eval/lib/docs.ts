@@ -10,7 +10,7 @@
 //
 //   | 选项 | 作用 | Jev | pplx |
 //   | `timeoutMs` | how long a message waits | `1500` | `8000` |
-//   | `thetaUp` | threshold to raise effort | `0.3` 按 AA 基准 | `0` 离线校准 |
+//   | `contextTokens` | the state's budget | `6000` | `6000` |
 //
 // Each default cell starts with the default in backticks (`空` for an empty
 // text or list, `true` or `false` for a boolean) and may go on with a note
@@ -30,6 +30,7 @@ type Row = { option: string; cells: string[] }
 const BACKENDS: readonly { label: string; backend: BackendName }[] = [
   { label: 'Jev', backend: 'jev' },
   { label: 'pplx', backend: 'pplx' },
+  { label: 'd1-ultra', backend: 'd1-ultra' },
 ]
 
 /** Where the default columns start in a row: the option, then what it does. */
@@ -188,7 +189,8 @@ const TOAST_CLOSURE = 'toast: (text) => $.ui.toast(text)'
  */
 export function checkOneWriter(sources: Readonly<Record<string, string>>): string[] {
   // The files that show people nothing themselves (#33): the debug log closure they hand the report is the only `$.ui` they hold.
-  const silent: [string, RegExp, string][] = [['features/skill-profiles.ts', /\$\.ui\./, 'uses `$.ui` itself (a log line, a toast, the status row)']]
+  // None is left since ADR 0018 took the skill profiles out; a file that should be so goes here.
+  const silent: [string, RegExp, string][] = []
   // The status line where the band is not drawn (ADR 0011): set only from what board/status-line.ts says, by these two.
   const statusLine = new Set(['board/screens.tsx', 'features/prompt-hint.ts'])
   const rules: [RegExp, string, Set<string>?][] = [

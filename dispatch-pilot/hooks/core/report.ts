@@ -1,7 +1,7 @@
 // The decision report (「决定汇报」, ADR 0004): the one writer of what Dispatch
 // Pilot shows people. The board, the decision log, the debug log and the toasts
 // are all written here, from the same structured data in $.state
-// (types/index.d.ts: `board`, `decisionLog`, `skillProfiles`); the screens
+// (types/index.d.ts: `board`, `decisionLog`); the screens
 // (hooks/board/) only draw that data.
 //
 // Two entries, and nothing else, are for others to call:
@@ -15,14 +15,12 @@
 //                           route that failed raises a toast); `decisions`,
 //                           several of one event (the agent() calls of a
 //                           Workflow script: one write each, one toast at most);
-//                           `tally`, what a feature counts as a loop goes (the
-//                           mid-turn re-decisions, a loop's failed calls and
-//                           forced raises: on the agent's node); `switched`, the
+//                           `tally`, what a feature counts as a loop goes (a
+//                           loop's failed calls and model step-ups, its
+//                           visual checks: on the agent's node); `switched`, the
 //                           person flipped the mod or a feature (`/dp`: the
-//                           screens draw again); `profiles`, how writing the
-//                           session's skill profiles goes (#33; core/profile-report.ts
-//                           has its data); `fellBack`, the decision model in use
-//                           is not the one asked for; `unplaced`, a pane the
+//                           screens draw again); `fellBack`, the images go to another
+//                           decision model for want of a TypeSafe key; `unplaced`, a pane the
 //                           person asked for that the surface did not place (a
 //                           toast); `unviewed`, a transcript the person asked
 //                           for from the pane that the engine did not show (a
@@ -61,15 +59,12 @@ import { errorText, failureLine, failureWords, type Failure } from '../decision/
 import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
 import { isEffort, type Effort } from '../decision/effort.ts'
 import type { BackendName } from './setup.ts'
+import type { Verdict } from '../decision/nouls.ts'
 import type { UnresolvedChange, UnresolvedOption, UnresolvedThresholds } from '../decision/unresolved.ts'
 import type { CheckTally, VisualCheckRecord } from '../decision/visual-check-record.ts'
 import { fitsTemplate } from '../decision/workflow-labels.ts'
 import { type Cell, type EffortSource, update } from './plans.ts'
 import { masterOn } from './switches.ts'
-import { profilesAdvance, profilesBegin, profilesEntry, profilesLine, type ProfileEvent, type ProfilesState } from './profile-report.ts'
-
-export type { ProfileEvent, ProfilesState, ProfilesStop } from './profile-report.ts'
-
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
@@ -110,10 +105,8 @@ export type BoardNode = {
   decision?: number
   /** The Workflow it belongs to (a Workflow agent, or the call of the script that stands for it before it starts). */
   workflow?: { id: string; name: string }
-  /** The main agent's mid-turn re-decisions of the turn: steps made, decisions, level changes; `late`: an answer is not back, `failure`: the latest request failed. midturn-effort's. */
-  midturn?: { steps: number; judged: number; changed: number; late?: true; failure?: NodeFailure }
-  /** The failed tool calls, hook blocks and forced raises of the agent's loop (the escalation feature counts them); absent while none. */
-  counts?: { failed: number; blocked: number; raised: number; late?: true }
+  /** The failed tool calls, hook blocks and model step-ups of the agent's loop (the escalation feature counts them); absent while none. */
+  counts?: { failed: number; blocked: number; raised: number }
   /** The agent's visual_check calls of the loop, counted by verdict (and the images the screenshot takeover kept from it, #62); absent while none. visual-check's. */
   visualChecks?: CheckTally
 }
@@ -150,7 +143,7 @@ export type ReadingChange = {
 /**
  * What a feature met beside an agent's route that is neither a decision nor the route itself, for the band's
  * event stream (types/index.d.ts, `board.notes`): a request that failed (`failed`, `why` its words), one that
- * gave nothing to use (`skipped`, `why` the Skip), an answer not back in time (`late`, `why` '').
+ * gave nothing to use (`skipped`, `why` the Skip).
  */
 export type BoardNote = {
   turn: number
@@ -161,7 +154,7 @@ export type BoardNote = {
   at: number
   /** The `n` of the decision log's last entry when it was written. */
   after: number
-  kind: 'failed' | 'skipped' | 'late'
+  kind: 'failed' | 'skipped'
   why: string
 }
 
@@ -196,7 +189,6 @@ export type LogEntry = {
   /** The model (by family) and effort an agent was decided to run with (the main agent: its effort only); the agent's node says what its steps went out with. */
   model?: Model
   effort?: Effort
-  mid?: { current: Effort; picked: Effort; result: Effort; threshold?: number; held?: string; remaining?: number }
   forced?: ForcedRaise
   skills?: SkillsPicked
   counts?: { failed: number; blocked: number; raised: number }
@@ -206,41 +198,31 @@ export type LogEntry = {
   reference?: ReferenceRecord
   /** An unresolved-count judgement (`unresolved`). */
   unresolved?: UnresolvedRecord
-  /** The strong hint was given with this decision's request (#41). */
-  hint?: HintRecord
   /** A visual_check call (#58): its checks and their verdicts, whether the zoomed re-check was done, how long it took. */
   visualCheck?: VisualCheckRecord
-  /** An entry of feature `decision-model`: which requests the fallback is about, the ones that decide (`text`) or the ones with images (`images`). */
+  /** An entry of feature `decision-model`: which requests the fallback is about; `images` since 0.9.0, `text` only in an entry an earlier version wrote (the decision model no longer falls back, ADR 0014). */
   fallbackFor?: 'text' | 'images'
 }
 
 /** What the reference images a request came with read as (`decision/complexity.ts`): the level, 0 (trivial) to 4 (very complex), and how many images it came from. */
 export type ReferenceRecord = { level: number; images: number }
 
-/** The strong hint given with a request: the count it was given at, the setting it had reached, and `mid` when it was a mid-turn re-decision's. */
 /**
- * A strong hint given: the count and the setting it reached; `where: 'mid'` for a mid-turn re-decision's. `used` (a message's):
- * whether the hinted effort answer was the one taken (the message's own three-way answer said still unresolved); false: the plain one was.
- */
-export type HintRecord = { count: number; maxAfter: number; where?: 'mid'; used?: boolean }
-
-/**
- * What one message's answer to the unresolved question did to the count: the count before and after, the change, the
- * option the answer leaned to most and every option's probability, the backend's confidence (on record only), and
- * the two bars it was held to. The card draws it as it is; nothing is worked out again (ADR 0004).
+ * What one message's answers to the unresolved questions did to the count: the count before and after, the change, each
+ * question's probability (null: no answer) and verdict, and the two bars they were held to. The card draws it as it is;
+ * nothing is worked out again (ADR 0004).
  */
 export type UnresolvedRecord = {
   before: number
   count: number
   change: UnresolvedChange
-  top: UnresolvedOption
-  probs: Record<UnresolvedOption, number>
-  conf?: number
+  probs: Record<UnresolvedOption, number | null>
+  verdicts: Record<UnresolvedOption, Verdict>
   thresholds: UnresolvedThresholds
 }
 
-/** A raise the failures forced: the level (or, for a haiku agent, the model) it went from and to, and the level it holds the agent at least at. */
-export type ForcedRaise = { kind: 'effort' | 'model'; from: string; to: string; floor?: Effort }
+/** A model step-up the failures forced on a dispatched agent (features/escalation.ts): the model it went from and to. */
+export type ForcedRaise = { kind: 'model'; from: string; to: string }
 
 /** The skills a message (or a find_skill call) got: those suggested to the main agent, and those only the person can start (「可试 /x」), each with its relevance. */
 export type SkillsPicked = { suggest: { name: string; relevance: number }[]; try: { name: string; relevance: number }[] }
@@ -278,7 +260,7 @@ type About = {
    */
   replaces?: string
   /**
-   * A decision beside the agent's route (a mid-turn re-decision, a forced raise, a skill suggestion): in the log,
+   * A decision beside the agent's route (a model step-up, a skill suggestion): in the log,
    * and not on the agent's node (its `decision` link, `routed` and `why` stay the route's).
    */
   aside?: true
@@ -295,7 +277,6 @@ export type Decided = About & {
   conf?: number
   trace?: RuleStep[]
   floor?: LogEntry['floor']
-  mid?: LogEntry['mid']
   /** The model (by family) and the effort it decided for an agent: in the log entry, since the node's own are what its steps read. */
   model?: Model
   effort?: Effort
@@ -306,7 +287,6 @@ export type Decided = About & {
   counts?: LogEntry['counts']
   reference?: ReferenceRecord
   unresolved?: UnresolvedRecord
-  hint?: HintRecord
   /** A visual_check call: what was checked, the verdicts, the times (#58). */
   visualCheck?: VisualCheckRecord
 }
@@ -340,13 +320,11 @@ export type ReportedDecision = Decided | NotDecided | Left | Started | Skipped
 
 /** What a feature counts as its loop goes (`report`'s `tally`), not a decision of its own. */
 export type Tallied =
-  /** The main agent's turn as the mid-turn re-decision sees it. `quiet`: not re-decided yet this turn (nothing to show). `late`: the answer for this step is not back; `failure`: its request failed. */
-  | { feature: 'midturn-effort'; agent: 'main'; steps: number; judged: number; changed: number; quiet: boolean; late?: true; failure?: NodeFailure }
-  /** A loop's failed tool calls, hook blocks and forced raises (all 0: none yet, as the main agent's at a new turn). */
-  | { feature: 'escalation'; agent: string; failed: number; blocked: number; raised: number; late?: true }
+  /** A loop's failed tool calls, hook blocks and model step-ups (all 0: none yet, as the main agent's at a new turn). */
+  | { feature: 'escalation'; agent: string; failed: number; blocked: number; raised: number }
   /**
    * What a visual_check call found, to be added to its agent's count for the loop (#58): checks that passed, failed, got no
-   * verdict to trust; `takeovers`: images the screenshot takeover kept from the agent (#62). Unlike the two above these are
+   * verdict to trust; `takeovers`: images the screenshot takeover kept from the agent (#62). Unlike the one above these are
    * the call's own numbers, not a running total: the board adds them to the node's.
    */
   | { feature: 'visual-check'; agent: string; passed: number; failed: number; unsure: number; takeovers?: number }
@@ -399,8 +377,6 @@ export type Reported =
   | { tally: Tallied }
   /** The person flipped the mod or a feature (`/dp`). */
   | { switched: true }
-  /** How writing the session's skill profiles goes (`ProfileEvent`). */
-  | { profiles: ProfileEvent }
   /** The decision model in use is not the one asked for: no Perplexity key, so Jev (`DecisionModelEvent`). */
   | { fellBack: DecisionModelEvent }
   /** A pane the person asked for (a digit on the band) that the surface did not place, with the surface's reason; it was closed again. */
@@ -414,16 +390,14 @@ export type NoticeIo = Pick<ReportIo, 'debug' | 'now' | 'toast'>
 /** What the decision model's fallback needs of the host: the board (for the turn), the decision log and the debug log. */
 export type DecisionModelIo = Pick<ReportIo, 'board' | 'decisions' | 'debug'>
 
-/** The host closures each kind of report needs: a switch only the redraw, the skill profiles their own state, a pane not placed the toast, the rest a `ReportIo`. */
+/** The host closures each kind of report needs: a switch only the redraw, a pane not placed the toast, the rest a `ReportIo`. */
 type IoOf<R extends Reported> = R extends { switched: true }
   ? SwitchIo
-  : R extends { profiles: ProfileEvent }
-    ? ProfilesIo
-    : R extends { fellBack: DecisionModelEvent }
-      ? DecisionModelIo
-      : R extends { unplaced: unknown } | { unviewed: unknown }
-        ? NoticeIo
-        : ReportIo
+  : R extends { fellBack: DecisionModelEvent }
+    ? DecisionModelIo
+    : R extends { unplaced: unknown } | { unviewed: unknown }
+      ? NoticeIo
+      : ReportIo
 
 /**
  * Entry one (记一条决定): reports what a feature hands over, by its kind; `io` is what that kind needs of the host
@@ -435,7 +409,6 @@ export async function report<R extends Reported>(io: IoOf<R>, what: R): Promise<
   if ('decisions' in item) return reportDecisions(io as ReportIo, item.decisions)
   if ('tally' in item) return reportTally(io as ReportIo, item.tally)
   if ('switched' in item) return reportSwitch(io as SwitchIo)
-  if ('profiles' in item) return reportProfiles(io as ProfilesIo, item.profiles)
   if ('fellBack' in item) return reportFellBack(io as DecisionModelIo, item.fellBack)
   if ('unviewed' in item) return reportUnviewed(io as NoticeIo, item.unviewed)
   return reportUnplaced(io as NoticeIo, item.unplaced)
@@ -752,19 +725,14 @@ async function reportSpawn(io: StepIo, spawn: { agentId: string; name?: string; 
 // ---- what `report` does with a tally --------------------------------------------
 
 /**
- * Reports what a feature counts as its loop goes, which is no decision: the
- * mid-turn re-decision's steps, decisions and changes of the main agent's
- * turn, and each loop's failed tool calls and forced raises. On the agent's
- * node of the current turn (`midturn`, `counts`); an answer that is late, or a
- * re-decision's request that failed, is also a note for the band's event
- * stream. Writes the board only when the node changed. Never throws.
+ * Reports what a feature counts as its loop goes, which is no decision: each
+ * loop's failed tool calls and model step-ups, an agent's visual checks. On
+ * the agent's node of the current turn (`counts`, `visualChecks`). Writes the
+ * board only when the node changed. Never throws.
  */
 async function reportTally(io: ReportIo, tally: Tallied): Promise<void> {
   try {
-    const noteworthy = ('late' in tally && tally.late === true) || ('failure' in tally && tally.failure !== undefined)
-    const now = await io.now()
-    const logged = noteworthy ? await lastLogged(io) : 0
-    await modify(io.board, (current) => withTally(current ?? EMPTY, tally, { now, logged }))
+    await modify(io.board, (current) => withTally(current ?? EMPTY, tally))
   } catch (error) {
     io.debug(`tally not kept on the board: ${errorText(error)}`)
   }
@@ -792,25 +760,15 @@ function reportSwitch(io: SwitchIo): void {
 
 /**
  * The board with the tally on its agent's node (the main agent's of the turn running, an agent's where its steps
- * go on: `continuing`), and a note when an answer just went late or a request just failed; undefined when the
- * node already says it, or there is nothing to say. A loop with no node is no agent of the board (the readings
- * make nodes), the main agent's is made.
+ * go on: `continuing`); undefined when the node already says it, or there is nothing to say. A loop with no node is
+ * no agent of the board (the readings make nodes), the main agent's is made.
  */
-function withTally(board: Board, tally: Tallied, when: { now: number; logged: number }): Board | undefined {
+function withTally(board: Board, tally: Tallied): Board | undefined {
   const main = tally.agent === 'main'
   const old = main ? mainNode(board) : continuing(board, tally.agent)
   if (old === undefined && !main) return undefined
   let next: BoardNode
-  const notes: BoardNote[] = []
-  const note = (turn: number, kind: BoardNote['kind'], why: string) =>
-    notes.push({ turn, id: tally.agent, feature: tally.feature, at: elapsed(board, turn, when.now), after: when.logged, kind, why })
-  if (tally.feature === 'midturn-effort') {
-    if (tally.quiet) return undefined
-    const midturn = { steps: tally.steps, judged: tally.judged, changed: tally.changed, ...(tally.late === true ? { late: true as const } : {}), ...(tally.failure === undefined ? {} : { failure: tally.failure }) }
-    next = { ...(old ?? newNode(board.turn, tally.agent, undefined, 'running')), midturn }
-    if (tally.late === true && old?.midturn?.late !== true) note(next.turn, 'late', '')
-    if (tally.failure !== undefined && JSON.stringify(old?.midturn?.failure) !== JSON.stringify(tally.failure)) note(next.turn, 'failed', failureLine(tally.failure.backend, tally.failure))
-  } else if (tally.feature === 'visual-check') {
+  if (tally.feature === 'visual-check') {
     const added = tally.passed + tally.failed + tally.unsure + (tally.takeovers ?? 0)
     if (added === 0) return undefined
     const was = old?.visualChecks
@@ -821,14 +779,10 @@ function withTally(board: Board, tally: Tallied, when: { now: number; logged: nu
     const any = tally.failed + tally.blocked + tally.raised > 0
     if (old === undefined && !any) return undefined
     const base = old ?? newNode(board.turn, tally.agent, undefined, 'running')
-    next = any
-      ? { ...base, counts: { failed: tally.failed, blocked: tally.blocked, raised: tally.raised, ...(tally.late === true ? { late: true as const } : {}) } }
-      : without(base, 'counts')
-    if (tally.late === true && old?.counts?.late !== true) note(next.turn, 'late', '')
+    next = any ? { ...base, counts: { failed: tally.failed, blocked: tally.blocked, raised: tally.raised } } : without(base, 'counts')
   }
   if (old !== undefined && JSON.stringify(old) === JSON.stringify(next)) return undefined
-  const changed = { ...board, nodes: [...board.nodes.filter((node) => node !== old), next] }
-  return notes.length === 0 ? changed : withNotes(changed, notes)
+  return { ...board, nodes: [...board.nodes.filter((node) => node !== old), next] }
 }
 
 /** What a dispatched agent is called on the board: its name, else its description, else its id. */
@@ -1084,13 +1038,11 @@ function entryOf(decision: Decided, turn: number, at: number): Omit<LogEntry, 'n
     ...(decision.floor === undefined ? {} : { floor: decision.floor }),
     ...(decision.model === undefined ? {} : { model: decision.model }),
     ...(decision.effort === undefined ? {} : { effort: decision.effort }),
-    ...(decision.mid === undefined ? {} : { mid: decision.mid }),
     ...(decision.forced === undefined ? {} : { forced: decision.forced }),
     ...(decision.skills === undefined ? {} : { skills: decision.skills }),
     ...(decision.counts === undefined ? {} : { counts: decision.counts }),
     ...(decision.reference === undefined ? {} : { reference: decision.reference }),
     ...(decision.unresolved === undefined ? {} : { unresolved: decision.unresolved }),
-    ...(decision.hint === undefined ? {} : { hint: decision.hint }),
     ...(decision.visualCheck === undefined ? {} : { visualCheck: decision.visualCheck }),
     ...(decision.sentBack === true ? { sentBack: true as const } : {}),
   }
@@ -1194,26 +1146,29 @@ function without<T extends object, K extends keyof T>(value: T, ...keys: K[]): O
 
 // ---- what `report` does with the decision model's fallback ------------------------------
 
-/** The decision model that decides is not the one asked for (ADR 0006): e.g. `asked` is pplx, `using` is Jev, since there is no Perplexity key and there is a TypeSafe one. */
+/**
+ * The model that takes requests with images is not the one it should be (#56, ADR 0008): `asked` is Jev, `using` pplx, since
+ * there is no TypeSafe key, so it cannot zoom. The decision model itself never falls back (ADR 0014).
+ */
 export type DecisionModelEvent = {
   asked: BackendName
   using: BackendName
-  /** `images`: the model that takes requests with images is not Jev (#56): no TypeSafe key, so pplx, which cannot zoom. */
-  for?: 'images'
+  for: 'images'
 }
 
 /** What a person reads of each decision model: its name, and the settings that hold its key (the options' names and the environment variable they type). The one place both are written. */
 const DECISION_MODELS: Readonly<Record<BackendName, { name: string; keys: string }>> = {
   pplx: { name: 'pplx', keys: 'perplexityApiKey 或环境变量 PERPLEXITY_API_KEY' },
   jev: { name: 'Jev', keys: 'typesafeApiKey 或环境变量 TYPESAFE_API_KEY' },
+  'd1-ultra': { name: 'd1-ultra', keys: 'liquidApiKey 或环境变量 LIQUID_API_KEY' },
 }
 
 /** The feature name of the entry the fallback leaves in the decision log. */
 const DECISION_MODEL_FEATURE = 'decision-model'
 
 /**
- * The session's one entry in the decision log saying why Jev decides although pplx is the default: at the turn the session
- * start belongs to, with the debug line. A session start again at the same turn (a hot reload) takes the place of the entry
+ * The session's one entry in the decision log saying why another model takes the images: at the turn the session start
+ * belongs to, with the debug line. A session start again at the same turn (a hot reload) takes the place of the entry
  * before. Not on the board's nodes, in no band or footer, and no toast. Never throws.
  */
 async function reportFellBack(io: DecisionModelIo, fell: DecisionModelEvent): Promise<void> {
@@ -1225,18 +1180,10 @@ async function reportFellBack(io: DecisionModelIo, fell: DecisionModelEvent): Pr
       turn,
       feature: DECISION_MODEL_FEATURE,
       tone: 'info',
-      fallbackFor: fell.for === 'images' ? 'images' : 'text',
-      ...(fell.for === 'images'
-        ? {
-            outcome: `看图改用 ${using.name}`,
-            subject: '',
-            reason: `没有 ${asked.name} 的密钥（${asked.keys}），看图改用 ${using.name}，放大复核不可用；补上密钥就用 ${asked.name}`,
-          }
-        : {
-            outcome: `改用 ${using.name}`,
-            subject: '',
-            reason: `没有 ${asked.name} 的密钥（${asked.keys}），改用 ${using.name}；补上密钥就用 ${asked.name}，decisionModel 设成 ${using.name} 则不再提示`,
-          }),
+      fallbackFor: fell.for,
+      outcome: `看图改用 ${using.name}`,
+      subject: '',
+      reason: `没有 ${asked.name} 的密钥（${asked.keys}），看图改用 ${using.name}，放大复核不可用；补上密钥就用 ${asked.name}`,
     }
     io.debug(`decision model: ${decisionLine(entry)}`)
     // The entry of the same kind at this turn (a hot reload's session start again); the one for images stands beside the decision model's.
@@ -1248,48 +1195,4 @@ async function reportFellBack(io: DecisionModelIo, fell: DecisionModelEvent): Pr
       // nowhere left to say it
     }
   }
-}
-
-// ---- what `report` does with the skill profiles' events ----------------------------
-
-/** What the skill profiles' report needs of the host: the board (for the turn), the decision log, the debug log, and the state it keeps. */
-export type ProfilesIo = Pick<ReportIo, 'board' | 'decisions' | 'debug'> & { profiles: Cell<ProfilesState> }
-
-/**
- * Reports one thing that happened while the skill profiles were being written: the debug log line (the words
- * the feature used to log itself), the state `skillProfiles`, kept up to date as the profiles are written, and,
- * when the writing ends (`finish`, `stop`, or a session start with nothing to write), the session's one entry in the
- * decision log: tone `ok`, `warn` when a skill failed, `fail` when the writing stopped (`info` when the person
- * switched it off meanwhile). Not on the board's nodes, in no band or footer, and no toast. Never throws.
- */
-async function reportProfiles(io: ProfilesIo, event: ProfileEvent): Promise<void> {
-  try {
-    const line = profilesLine(event)
-    if (line !== null) io.debug(line)
-    if (event.event === 'tidied' || event.event === 'tidy-failed') return
-    let after: ProfilesState | undefined
-    if (event.event === 'start' || event.event === 'unreadable') {
-      const first = profilesBegin(event, await sessionTurn(io.board))
-      await modify(io.profiles, () => (after = first))
-    } else {
-      await modify(io.profiles, (current) => {
-        after = current !== undefined && current.phase === 'writing' ? profilesAdvance(current, event) : undefined
-        // An event that changes nothing (`quota`) is no write.
-        return after === current ? undefined : after
-      })
-    }
-    if (after !== undefined && after.phase !== 'writing') await update(io.decisions, (list) => profilesLogged(list ?? [], after as ProfilesState))
-  } catch (error) {
-    try {
-      io.debug(`skill profiles not reported: ${errorText(error)}`)
-    } catch {
-      // nowhere left to say it
-    }
-  }
-}
-
-/** The log with the session's profiles entry: a start again at the same turn (a hot reload) takes the place of the one before. */
-function profilesLogged(list: readonly LogEntry[], state: ProfilesState): LogEntry[] {
-  const entry = profilesEntry(state)
-  return replacingOrAppending(list, (kept) => kept.feature === 'skill-profiles' && kept.turn === state.turn, entry)
 }

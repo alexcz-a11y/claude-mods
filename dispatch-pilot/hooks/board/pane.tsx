@@ -1,48 +1,41 @@
 // The rationale pane on the terminal (spec #22 「依据面板」, prototype D): at
-// its top, every feature switch with its state (the ones off in grey), the lock
-// and how the skill profiles went (grey; amber or red when some failed or
-// writing stopped); ‹ 上一个 (p) / 下一个 › (n), and 看它的对话 (x) that puts the
+// its top, every feature switch with its state (the ones off in grey) and the
+// lock; ‹ 上一个 (p) / 下一个 › (n), and 看它的对话 (x) that puts the
 // picked agent's transcript in the main view (↩ 回主对话 (x) while one is
 // there); the rounded card of the agent
 // picked (its state and why not routed, the model it was given and why, the
 // effort probabilities, the rules' working step by step, the result, the main
-// agent's confidence note, its forced raises and mid-turn re-decisions with a
-// confidence meter); the problem summary the session holds; then the decision
-// log grouped by turn, folded with a letter key. Pure: drawn from
-// `rationale.ts`'s view of the data with the terminal's element table; the
-// Buttons call `act`.
+// agent's confidence note, an agent's model step-ups); the problem summary the
+// session holds; then the decision log grouped by turn, folded with a letter
+// key. Pure: drawn from `rationale.ts`'s view of the data with the terminal's
+// element table; the Buttons call `act`.
 //
 // Every surface gets the same pane (#31): `paneTree` is given the surface's
-// marks, the probability bars and the confidence meters as a Raster on the
-// terminal and as an Svg where there is one; without marks the probabilities
-// are their numbers alone and the meter is its line (`.42 < .55 降档线`).
+// marks, the probability bars as a Raster on the terminal and as an Svg where
+// there is one; without marks the probabilities are their numbers alone.
 // Desktop refuses a tree of 2000 nodes, so there `PaneInput.window` keeps the
-// log and the re-decisions to the latest and says how many it left out.
+// log to the latest entries and says how many it left out.
 //
 // Nothing is cut: a long name, a reason or a subject wraps under its own
 // column (a hanging indent: the label column has a fixed width, the text goes
 // on beneath the content column), so the docked pane of about 75 columns
-// keeps every word. Only the short rows (a rule's step, the meter) stay one
-// line when they fit; the bars narrow with the pane.
+// keeps every word. Only the short rows (a rule's step) stay one line when
+// they fit; the bars narrow with the pane.
 
 import type { RenderNode } from 'claude-code'
 import { failureMeaning } from '../decision/backend.ts'
 import type { Effort } from '../decision/effort.ts'
 import { EFFORTS } from '../decision/effort.ts'
-import { type LogEntry, type ProfilesState, type Tone } from '../core/report.ts'
+import { type LogEntry, type Tone } from '../core/report.ts'
 import { ACCENT, BAD, chip, EFFORT_COLOR, effortTag, effortWord, MODEL_FG, MUTED, OK, pct, skillsText, softColor, stateGlyph, STATUS_COLOR, WARN, width, type Marks, type TT } from './kit.tsx'
 import {
   cardOf,
   entryVerb,
-  FAILURES_KEY,
   logGroups,
-  midVerdict,
   pageTo,
-  profilesLine,
   stepLines,
   unresolvedWords,
   VIEW_KEY,
-  verdictWords,
   type Card,
   type LogGroup,
   type PaneState,
@@ -55,8 +48,6 @@ import { FEATURE_WORDS, featureOf, levelOf, type AgentRow, type ScreenView } fro
 export type PaneInput = {
   view: ScreenView
   log: readonly LogEntry[]
-  /** How the session's skill profiles went; null when there is no record, or the skills or skill-profiles switch is off. */
-  profiles: ProfilesState | null
   /** Every feature's switch by name with its state, in registration order. */
   switches: readonly { name: string; on: boolean }[]
   master: boolean
@@ -64,11 +55,11 @@ export type PaneInput = {
   lock: Effort | null
   /** The agent whose transcript is in the main view beside the pane (`e.props.view`); null for the main conversation. */
   viewing: string | null
-  /** The problem summary the session holds (`$.state` `unresolved`); null when there is none, or the `unresolved` switch is off. */
+  /** The problem summary the session holds (`$.state` `unresolved`); null when there is none, or the `summary` switch is off. */
   summary: { problem: string; tried: readonly { text: string; unresolved?: true }[]; status: string } | null
   state: PaneState
-  /** Draw only the latest this many log entries (over the open turns) and mid-turn re-decisions, for a surface that refuses a large tree; none: all. */
-  window?: { entries: number; mids: number }
+  /** Draw only the latest this many log entries (over the open turns), for a surface that refuses a large tree; none: all. */
+  window?: { entries: number }
   /**
    * Whether a Button's label spells its key (`‹ 上一个 (p)`): the terminal's do. Desktop draws the key beside the
    * label itself, and VS Code and the mobile app take no keys, so there the label is the words alone. Absent: true.
@@ -85,13 +76,12 @@ function keyed(label: string, key: string, spell: boolean | undefined): string {
 
 /**
  * What the pane's Buttons do: pick another agent's card, show an agent's transcript (null: the main one), fold or open
- * a turn of the log, list the failed skills; `close`, off the terminal (where Esc closes it), the pane's own 关闭.
+ * a turn of the log; `close`, off the terminal (where Esc closes it), the pane's own 关闭.
  */
 export type PaneActs = {
   pick: (row: AgentRow) => void
   view: (agentId: string | null) => void
   fold: (turn: number, open: boolean) => void
-  failures: (open: boolean) => void
   close?: () => void
 }
 
@@ -103,13 +93,10 @@ const MARK: Record<StepMark, { glyph: string; color: string }> = {
   hit: { glyph: '●', color: ACCENT },
   pass: { glyph: '○', color: MUTED },
   lift: { glyph: '▲', color: OK },
-  raise: { glyph: '↑', color: WARN },
 }
 
 /** The label column of the card's rows. */
 const LABEL = 8
-/** The column a mid-turn re-decision's number takes. */
-const NUMBER = 6
 /** From this many cells the card's model chip and effort tag sit beside the agent's name; narrower, under it. */
 const HEAD_BESIDE = 48
 
@@ -270,49 +257,6 @@ function topLines(t: TT, input: PaneInput, cols: number, act: PaneActs): RenderN
       </Box>,
     )
   }
-  const profiles = input.profiles
-  if (profiles !== null) {
-    const line = profilesLine(profiles)
-    const open = input.state.failures
-    rows.push(
-      <Box key="pane-profiles" width={cols}>
-        <Box flexGrow={1} flexShrink={1}>
-          <Text color={line.tone === 'fail' ? BAD : line.tone === 'warn' ? WARN : MUTED} wrap="wrap">{line.text}</Text>
-        </Box>
-        {profiles.failed === 0 ? null : (
-          <Box flexShrink={0}>
-            <Text> </Text>
-            <Button key="pane-profile-failures" label={open ? '▾ 收起失败的 skill' : '▸ 看失败的 skill'} hotkey={FAILURES_KEY} plain dimColor onPress={() => act.failures(!open)} />
-          </Box>
-        )}
-      </Box>,
-    )
-    if (open) {
-      profiles.failures.forEach((failure, i) => {
-        rows.push(
-          <Box key={`pane-profile-failure-${i}`} width={cols}>
-            <Box width={4} flexShrink={0}>
-              <Text color={WARN}>{'  ✘'}</Text>
-            </Box>
-            <Box flexGrow={1} flexShrink={1}>
-              <Text wrap="wrap">
-                <Text bold>{failure.name}</Text>
-                <Text color={MUTED}>{`  ${failure.reason}`}</Text>
-              </Text>
-            </Box>
-          </Box>,
-        )
-      })
-      const unnamed = profiles.failed - profiles.failures.length
-      if (unnamed > 0) {
-        rows.push(
-          <Box key="pane-profile-failure-more" width={cols}>
-            <Text color={MUTED} wrap="wrap">{`    另有 ${unnamed} 个没有记下名字`}</Text>
-          </Box>,
-        )
-      }
-    }
-  }
   return rows
 }
 
@@ -335,8 +279,8 @@ function hang(t: TT, key: string, label: string, content: RenderNode, w: number,
 
 /**
  * The card's rows: its head (the agent's name, model and effort), its state, the decision its route came from, its
- * forced raises and mid-turn re-decisions. `app` for the other surfaces: a larger name and the effort as its word,
- * the rules as a list without the rail, the probabilities' shares on the line under their bar (pane-app.tsx).
+ * model step-ups. `app` for the other surfaces: a larger name and the effort as its word, the rules as a list without
+ * the rail, the probabilities' shares on the line under their bar (pane-app.tsx).
  */
 export function cardRows(t: TT, card: Card, input: PaneInput, w: number, marks: Marks | undefined, app = false): RenderNode[] {
   const { Box, Text } = t
@@ -418,35 +362,8 @@ export function cardRows(t: TT, card: Card, input: PaneInput, w: number, marks: 
   if (route !== undefined) rows.push(...decisionRows(t, route, main, w, marks, app))
   for (const raise of card.raises) {
     rows.push(blank(t, `pane-raise-gap-${raise.n}`))
-    rows.push(hang(t, `pane-raise-${raise.n}`, '强制升档', text(`#${raise.n} ${raise.subject}${raise.counts === undefined ? '' : `：工具调用失败 ${raise.counts.failed}${raise.counts.blocked > 0 ? ` · 被 hook 拦下 ${raise.counts.blocked}` : ''} · 第 ${raise.counts.raised} 次升档`}`, WARN), w, 10))
-    rows.push(...traceRows(t, `pane-raise-${raise.n}`, raise.trace ?? [], w, app))
-    const level = levelOf(raise)
-    if (level !== undefined) rows.push(hang(t, `pane-raise-${raise.n}-result`, '结果', app ? effortWord(t, level) : effortTag(t, level, 12), w))
-  }
-  if (card.mids.length > 0) {
-    const counted = node.midturn
-    rows.push(blank(t, 'pane-mid-gap'))
-    rows.push(
-      <Box key="pane-mid-head" width={w}>
-        <Text wrap="wrap">
-          <Text color={ACCENT} bold>中途重判</Text>
-          {counted === undefined ? null : <Text color={MUTED}>{`  本轮重判 ${counted.judged} 次 · 改档 ${counted.changed} 次`}</Text>}
-        </Text>
-      </Box>,
-    )
-    const room = input.window?.mids ?? card.mids.length
-    const left = card.mids.length - room
-    if (left > 0) {
-      rows.push(
-        <Box key="pane-mid-more" width={w}>
-          <Text color={MUTED} wrap="wrap">{`更早 ${left} 次重判没有画出`}</Text>
-        </Box>,
-      )
-    }
-    for (const entry of left > 0 ? card.mids.slice(left) : card.mids) {
-      const mid = midRow(t, entry, w, marks)
-      if (mid !== null) rows.push(mid)
-    }
+    rows.push(hang(t, `pane-raise-${raise.n}`, '升模型', text(`#${raise.n} ${raise.subject}${raise.counts === undefined ? '' : `：工具调用失败 ${raise.counts.failed}${raise.counts.blocked > 0 ? ` · 被 hook 拦下 ${raise.counts.blocked}` : ''} · 第 ${raise.counts.raised} 次升模型`}`, WARN), w, 10))
+    if (raise.forced !== undefined) rows.push(hang(t, `pane-raise-${raise.n}-result`, '结果', text(`${raise.forced.from || '（不明）'} → ${raise.forced.to}`), w))
   }
   return rows
 }
@@ -493,8 +410,8 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, marks: M
   }
   rows.push(...traceRows(t, 'pane-card-step', entry.trace ?? [], w, app))
   if (level !== undefined) rows.push(hang(t, 'pane-card-result', '结果', app ? effortWord(t, level) : effortTag(t, level, 12), w))
-  if (main && entry.conf !== undefined) rows.push(hang(t, 'pane-card-conf', '置信', <Text color={MUTED} wrap="wrap">{`${pct(entry.conf)}：发消息时只记录，不参与选档`}</Text>, w))
-  // What this message did to the unresolved count: the count and what came of it, then the three options' odds against the two bars.
+  if (main && entry.conf !== undefined) rows.push(hang(t, 'pane-card-conf', '置信', <Text color={MUTED} wrap="wrap">{`${pct(entry.conf)}：只记录，不参与定档`}</Text>, w))
+  // What this message did to the unresolved count: the count and what came of it, then the three questions' answers against the bars.
   if (main && entry.unresolved !== undefined) {
     const said = unresolvedWords(entry.unresolved)
     rows.push(
@@ -509,15 +426,7 @@ function decisionRows(t: TT, entry: LogEntry, main: boolean, w: number, marks: M
         w,
       ),
     )
-    rows.push(hang(t, 'pane-card-unresolved-odds', '三选一', <Text color={MUTED} wrap="wrap">{`${said.odds}；${said.bars}`}</Text>, w))
-  }
-  // The effort question had the strong hint (the count had reached the setting); the level is still the decision model's.
-  if (main && entry.hint !== undefined) {
-    // A message's hint is a second effort question: `used` says whether its answer was taken (the message was judged still unresolved).
-    const unused = entry.hint.used === false
-    const head = unused ? '已给强提示 · 未采用' : '已给强提示 · 已采用'
-    const tail = unused ? `  次数 ${entry.hint.count} ≥ ${entry.hint.maxAfter}；这条没判为仍未解决，用的是不带提示的那一题` : `  次数 ${entry.hint.count} ≥ ${entry.hint.maxAfter}；用的是带强提示那一题的回答，max 门槛用强提示的`
-    rows.push(hang(t, 'pane-card-hint', '强提示', <Text wrap="wrap"><Text color={unused ? MUTED : OK} bold>{head}</Text><Text color={MUTED}>{tail}</Text></Text>, w))
+    rows.push(hang(t, 'pane-card-unresolved-odds', '是非题', <Text color={MUTED} wrap="wrap">{`${said.odds}；${said.bars}`}</Text>, w))
   }
   return rows
 }
@@ -579,52 +488,6 @@ function probsLine(t: TT, key: string, probs: Record<Effort, number>, picked: Ef
       )}
       <Box flexGrow={1} flexShrink={1}>
         <Text wrap="wrap">{shares}</Text>
-      </Box>
-    </Box>
-  )
-}
-
-/** One mid-turn re-decision: its number and step, the level suggested and the current one; the confidence meter with its line's tick, and the conclusion. */
-function midRow(t: TT, entry: LogEntry, w: number, marks: Marks | undefined) {
-  const { Box, Text } = t
-  const verdict = midVerdict(entry)
-  const level = (value: Effort) => <Text color={EFFORT_COLOR[value]} bold>{value}</Text>
-  if (verdict === null) return null
-  const meter = Math.max(8, Math.min(20, w - NUMBER - 36))
-  const moved = verdict.kind === 'up' || verdict.kind === 'down'
-  const sign = verdict.passed === null ? '' : verdict.passed ? '≥' : '<'
-  const against = verdict.threshold === undefined || verdict.line === null ? '' : ` ${sign} ${pct(verdict.threshold)} ${verdict.line === 'up' ? '升档线' : '降档线'}`
-  return (
-    <Box key={`pane-mid-${entry.n}`} flexDirection="column" width={w}>
-      <Box width={w}>
-        <Box width={NUMBER} flexShrink={0}>
-          <Text bold>{`#${entry.n}`}</Text>
-        </Box>
-        <Box flexGrow={1} flexShrink={1}>
-          <Text wrap="wrap">
-            <Text color={MUTED}>{`${entry.subject} · 建议 `}</Text>
-            {level(verdict.picked)}
-            <Text color={MUTED}>{' · 当前 '}</Text>
-            {level(verdict.current)}
-          </Text>
-        </Box>
-      </Box>
-      <Box width={w}>
-        <Box width={NUMBER} flexShrink={0}>
-          <Text> </Text>
-        </Box>
-        {verdict.conf === undefined || marks === undefined ? null : (
-          <Box width={meter + 1} flexShrink={0} alignItems="center">
-            {marks.meter(`pane-mid-meter-${entry.n}`, { conf: verdict.conf, threshold: verdict.threshold, passed: verdict.passed }, meter)}
-          </Box>
-        )}
-        <Box flexGrow={1} flexShrink={1}>
-          <Text wrap="wrap">
-            {verdict.conf === undefined ? null : <Text bold tabular>{pct(verdict.conf)}</Text>}
-            <Text color={MUTED} tabular>{`${against}  → `}</Text>
-            <Text color={moved ? EFFORT_COLOR[verdict.result] : verdict.kind === 'blocked' || verdict.kind === 'held' ? WARN : MUTED} bold={moved}>{verdictWords(verdict)}</Text>
-          </Text>
-        </Box>
       </Box>
     </Box>
   )
@@ -718,7 +581,7 @@ function entryRows(t: TT, entry: LogEntry, cols: number, marks: Marks | undefine
         <Box>
           <Text wrap="wrap">
             <Text color={MUTED}>{FEATURE_WORDS[feature] ?? feature}</Text>
-            {entry.subject === '' ? (feature === 'skill-profiles' || feature === 'decision-model' ? <Text>{'  会话开始'}</Text> : null) : <Text>{`  ${entry.subject}`}</Text>}
+            {entry.subject === '' ? (feature === 'decision-model' ? <Text>{'  会话开始'}</Text> : null) : <Text>{`  ${entry.subject}`}</Text>}
           </Text>
         </Box>
         {entry.probs === undefined ? null : (

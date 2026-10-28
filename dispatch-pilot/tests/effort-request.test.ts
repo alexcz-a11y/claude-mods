@@ -6,11 +6,10 @@
 import { expect, test } from 'claude-code/testing'
 import type { SessionMessage } from 'claude-code'
 import { estimateTokens, turnStartState } from '../hooks/decision/context.ts'
-import { turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
-import { withUnresolved } from '../hooks/decision/unresolved.ts'
-import { jev, KEY, rates, type Sent, type SkillsWorld, UNRESOLVED_ON, world } from './support/world.ts'
+import { turnStartPart } from '../hooks/decision/turn-start.ts'
+import { jev, KEY, OWN_EFFORT, rates, type Sent, type SkillsWorld, UNRESOLVED_ON, world } from './support/world.ts'
 
 const SKILLS: SkillsWorld = {
   commands: [
@@ -24,6 +23,8 @@ const SKILLS: SkillsWorld = {
 }
 
 const ids = (request: Sent) => Object.keys(request.body.questions)
+/** The skills' first request over two skills (ADR 0018): the Choice, then the gate. */
+const SKILLS_FIRST = ['skills.which', 'skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices']
 const isEffort = (request: Sent) => ids(request).some((id) => id.startsWith('effort.'))
 const isSkills = (request: Sent) => ids(request).some((id) => id.startsWith('skills.'))
 
@@ -36,11 +37,11 @@ test("with skills on, the effort question goes alone in its request and the skil
   await w.step({ index: 0 })
 
   const [effort, skills] = w.requests
-  expect(ids(effort as Sent)).toEqual(['effort.level', 'effort.unresolved'])
-  expect(ids(skills as Sent)).toEqual(['skills.which'])
+  expect(ids(effort as Sent)).toEqual(OWN_EFFORT)
+  expect(ids(skills as Sent)).toEqual(SKILLS_FIRST)
   expect(w.steps.map((s) => s.effort)).toEqual(['high'])
   // The skills' second stage follows its own request.
-  expect(w.requests.map(ids)).toEqual([['effort.level', 'effort.unresolved'], ['skills.which'], ['skills.fits.0']])
+  expect(w.requests.map(ids)).toEqual([OWN_EFFORT, SKILLS_FIRST, ['skills.which', 'skills.fits.0', 'skills.fits.1']])
 })
 
 test('the effort request is exactly the decision module effort question over the state of a plain message; the skills request carries no effort question', { options: KEY }, async ($, on) => {
@@ -51,7 +52,7 @@ test('the effort request is exactly the decision module effort question over the
   const w = world($, on, { switches: UNRESOLVED_ON, backend: rates({ '(none)': 1 }), skills: SKILLS, messages })
   await w.submit('要，先写失败的测试')
 
-  const built = mergeParts(turnStartState({ prompt: '要，先写失败的测试', messages, limits: { messages: 32, tokens: 24000 } }), [withUnresolved(turnStartEffortPart({ language: 'zh' }), 'zh')])
+  const built = mergeParts(turnStartState({ prompt: '要，先写失败的测试', messages, limits: { messages: 32, tokens: 24000 } }), [turnStartPart({ ask: { language: 'en' } })])
   expect(w.requests.find(isEffort)?.body).toEqual({ model: JEV_MODEL, ...built })
   expect(w.requests.filter(isSkills).some(isEffort)).toBe(false)
 })
@@ -78,7 +79,7 @@ test('the two requests are on their way before either has answered', { options: 
 
   const submitting = w.submit('先写一个失败的测试')
   await w.clock.settle()
-  expect(w.requests.map(ids)).toEqual([['effort.level', 'effort.unresolved'], ['skills.which']])
+  expect(w.requests.map(ids)).toEqual([OWN_EFFORT, SKILLS_FIRST])
   await w.clock.advance(400)
   await submitting
   // Answered in parallel: the message waited for the slower of them, not for both.
@@ -103,7 +104,7 @@ test('the effort request failing leaves the skills suggestion as it is; the turn
 
   expect(w.steps.map((s) => s.effort)).toEqual(['medium'])
   expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, failure: { backend: 'jev', kind: 'busy' } })
-  expect(w.prompts[0]?.context?.[0]).toContain('- tdd (relevance 0.90)')
+  expect(w.prompts[0]?.context?.[0]).toContain('Relevant to the current request: tdd.')
 })
 
 test('one request timing out does not hold back the other: the prompt goes in at timeoutMs with the answer that came', { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
@@ -129,8 +130,8 @@ test('each request is logged on its own line in the debug log', { options: KEY }
 
   const lines = w.logs.map((entry) => entry.text).filter((text) => text.startsWith('request '))
   expect(lines).toEqual([
-    `request [effort.level, effort.unresolved] to jev: answered in 0 ms by ${JEV_MODEL} (300 input tokens)`,
-    `request [skills.which] to jev: answered in 0 ms by ${JEV_MODEL} (300 input tokens)`,
+    `request [${OWN_EFFORT.join(', ')}] to jev: answered in 0 ms by ${JEV_MODEL} (300 input tokens)`,
+    `request [${SKILLS_FIRST.join(', ')}] to jev: answered in 0 ms by ${JEV_MODEL} (300 input tokens)`,
   ])
 })
 
@@ -139,7 +140,7 @@ test('with only the effort question (skills off) one request goes out, none for 
   await w.start()
   await w.submit('先写一个失败的测试')
 
-  expect(w.requests.map(ids)).toEqual([['effort.level']])
+  expect(w.requests.map(ids)).toEqual([OWN_EFFORT])
 })
 
 test('with only the skills question (main-effort off) one request goes out, none for the effort', { options: KEY }, async ($, on) => {
@@ -147,6 +148,6 @@ test('with only the skills question (main-effort off) one request goes out, none
   await w.start()
   await w.submit('先写一个失败的测试')
 
-  expect(w.requests.map(ids)).toEqual([['skills.which']])
+  expect(w.requests.map(ids)).toEqual([SKILLS_FIRST])
 })
 

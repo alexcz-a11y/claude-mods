@@ -16,7 +16,7 @@
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { JEV_MODEL } from '../../hooks/decision/jev.ts'
-import { world, type Reply, type Sent, type WorldOptions } from './world.ts'
+import { leadsTo, world, type Reply, type Sent, type WorldOptions } from './world.ts'
 
 /** One call that reached the Workflow tool, after every hook of the mod. */
 export type Reached = {
@@ -109,7 +109,7 @@ export function workflowWorld($: Engine, on: On, options: WorkflowWorldOptions =
 
 /** What the decision model answers about one `agent()` of a script. */
 export type SiteAnswer = {
-  /** The model question's probability for each option (an option left out gets 0). */
+  /** The model the yes/no answers about the brief lead the model table to: the entry with the highest number (`leadsTo`), under any `nouls` given. */
   model?: Record<string, number>
   /** The effort levels' probabilities, lowest first. */
   effort?: readonly number[]
@@ -121,8 +121,9 @@ export type SiteAnswer = {
 
 /**
  * Jev's answer to every question of a request, by its type: `of(id)` says what the question's part is given (`answer`) and the
- * question's id within the part (`local`, which the nouls and the named-effort question are looked up by). An option or a noul the
- * answer leaves out gets 0; a score without levels gets `effort` (medium by default).
+ * question's id within the part (`local`, which the nouls and the named-effort question are looked up by). A noul the answer
+ * leaves out gets what `model` leads to (`leadsTo`), else 0; an option left out gets 0; a score without levels gets `effort`
+ * (medium by default).
  */
 export function answerByType(request: Sent, of: (id: string) => { answer: SiteAnswer; local: string }, effort: readonly number[] = [0, 0, 1, 0, 0]): Reply {
   const out: Record<string, unknown> = {}
@@ -131,7 +132,7 @@ export function answerByType(request: Sent, of: (id: string) => { answer: SiteAn
     const { answer, local } = of(id)
     if (question.type === 'choice') {
       const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
-      const given = local === 'named_effort' ? (answer.namedEffort ?? { none: 1 }) : answer.model
+      const given = local === 'named_effort' ? (answer.namedEffort ?? { none: 1 }) : undefined
       const probabilities = Object.fromEntries(options.map((option) => [option, given?.[option] ?? 0]))
       const choice = options.reduce((best, option) => ((probabilities[option] ?? 0) > (probabilities[best] ?? 0) ? option : best), options[0] ?? '')
       out[id] = { type: 'choice', choice, probabilities, confidence: 0.5 }
@@ -139,7 +140,7 @@ export function answerByType(request: Sent, of: (id: string) => { answer: SiteAn
       const levels = answer.effort ?? effort
       out[id] = { type: 'score', score: levels.reduce((sum, p, i) => sum + p * i, 0), legend: {}, probabilities: Object.fromEntries(levels.map((p, i) => [String(i), p])), confidence: 0.7 }
     } else {
-      out[id] = { type: 'noul', noul: answer.nouls?.[local] ?? 0 }
+      out[id] = { type: 'noul', noul: answer.nouls?.[local] ?? leadsTo(answer.model)[local] ?? 0 }
     }
   }
   return { status: 200, body: { model: JEV_MODEL, answers: out, usage: { input_tokens: 400, output_tokens: 0 } } }

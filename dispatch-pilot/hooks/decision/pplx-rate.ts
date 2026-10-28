@@ -1,6 +1,6 @@
 // The rate limit on pplx requests (#51; ADR 0006). A Perplexity Tier 0 account takes 1 request a second (QPS), and one
-// message sends two or three (the effort question, the skills' two stages) while a mid-turn re-decision, a dispatched
-// agent or find_skill ask beside them, so every pplx request goes through the queue (rate-queue.ts), which aims at `qps`
+// message sends two or three (the effort question, the skills' two stages) while a dispatched agent or find_skill ask
+// beside them, so every pplx request goes through the queue (rate-queue.ts), which aims at `qps`
 // requests in any second, the effort question of a message first, the rest in the order they came. Jev has pacing of its
 // own (jev-rate.ts).
 //

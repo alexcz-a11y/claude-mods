@@ -14,6 +14,11 @@
 // Whatever goes wrong with the reading, the effort is decided without it; when the effort request fails, the turn goes out
 // unrouted, and says why (the main-effort feature's report). A lock, and an effort or a model the person named, still come
 // first: the plan table's priorities are not touched (core/plans.ts `planStep`).
+//
+// A message with images typed into a running turn (#64) is decided once, at once, on its words (features/main-effort.ts),
+// before the step that delivers it: a second decision made once its images were read could come after that step and land on
+// a step of tool results, where a level no longer goes out (ADR 0013), while the board would show it. For the same reason a
+// picture the main agent reads in the middle of a turn decides nothing.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
 import { type BackendIo, describeAsked, errorText, within } from '../decision/backend.ts'
@@ -120,17 +125,17 @@ function filesOf($: EngineInterface): ImageFilesIo {
 
 export function registerImageRouting(on: On, ctx: Ctx): void {
   defineSwitch({ name: IMAGE_ROUTING_SWITCH, info: '带图路由：发消息带参考图时，先读出图的复杂度，再决定主 agent 的 effort（默认关，图会发给决策模型）', default: false })
+  /** Whether images met now are to be read: the feature is on and there is an image backend. */
+  const reading = () => isOn(IMAGE_ROUTING_SWITCH) && ctx.images !== null
 
-  // The message's row: its images, noted for the turn that starts next. Looked at only while the feature could use them, and
-  // never changed.
-  on('session.append', { door: 'prompt' }, async (_$, e, next) => {
-    if (e.agentId === undefined && e.message.type === 'user' && isOn(IMAGE_ROUTING_SWITCH) && ctx.images !== null) {
-      const one = pastedOf(e.message.content as Block[])
-      if (one !== null) {
-        pasted.push(one)
-        if (pasted.length > MOST_PASTED) pasted.shift()
-      }
-    }
+  // The message's row: its images are noted for the turn that starts next. Looked at only while the feature could use them,
+  // and never changed. A message typed into a running turn (door `queue`) is not: it was decided on its words.
+  on('session.append', { door: /^prompt$/ }, async (_$, e, next) => {
+    if (e.agentId !== undefined || e.message.type !== 'user' || !reading()) return next(e)
+    const one = pastedOf(e.message.content as Block[])
+    if (one === null) return next(e)
+    pasted.push(one)
+    if (pasted.length > MOST_PASTED) pasted.shift()
     return next(e)
   })
 
@@ -143,12 +148,13 @@ export function registerImageRouting(on: On, ctx: Ctx): void {
     if (taken === null) return next(e)
     try {
       // Switched off (/dp off) since the message was sent: nothing is asked, the turn goes out as the engine made it.
-      if (masterOn()) await decide($, ctx, taken, [e.text, taken.prompt])
+      if (masterOn()) await decide($, ctx, taken, reading() ? takePasted([e.text, taken.prompt]) : null)
     } catch (error) {
       $.ui.log(`image routing: ${errorText(error)}`, { to: 'debug' })
     }
     return next(e)
   })
+
 }
 
 /** What a request to the decision model needs of the engine, as closures. */
@@ -160,10 +166,7 @@ function backendOf($: EngineInterface): BackendIo {
   }
 }
 
-/**
- * Everything a reading needs of the engine, as closures: `$` may not cross a file (DEVELOPMENT.md 「事件和 matcher」), and a picture
- * met in the middle of a turn (features/reference-midturn.ts) is read the same way. Each hook file builds it from its own `$`.
- */
+/** Everything a reading needs of the engine, as closures: `$` may not cross a file (DEVELOPMENT.md 「事件和 matcher」). */
 export type ReadIo = {
   backend: BackendIo
   files: ImageFilesIo
@@ -177,8 +180,7 @@ export type ReadIo = {
 /**
  * What the reference images `sources` read as: asked of the image backend (a group read before is answered from the readings
  * kept), within `READING_WAIT_MS`. Null when there is no reading: no image backend, the images could not be read, the request
- * failed or came too late; the board notes a failed one, beside the route and without a toast. Never throws. The message that
- * starts a turn (below) and a picture met in the middle of one (features/reference-midturn.ts) read the same way.
+ * failed or came too late; the board notes a failed one, beside the route and without a toast. Never throws.
  */
 export async function readReference(io: ReadIo, ctx: Ctx, sources: readonly ReferenceSource[]): Promise<ReferenceReading | null> {
   const images = ctx.images
@@ -229,15 +231,14 @@ function readIoOf($: EngineInterface): ReadIo {
   }
 }
 
-/** The message's effort, decided with the reading of its images when there is one. */
-async function decide($: EngineInterface, ctx: Ctx, taken: NonNullable<ReturnType<typeof takeDeferred>>, texts: readonly string[]): Promise<void> {
+/** The message's effort, decided with the reading of its images (`found`; null: the feature was switched off meanwhile) when there is one. */
+async function decide($: EngineInterface, ctx: Ctx, taken: NonNullable<ReturnType<typeof takeDeferred>>, found: Pasted | null): Promise<void> {
   const debug = (line: string) => $.ui.log(line, { to: 'debug' })
   const backend = backendOf($)
   const startedAt = await $.clock.now()
   let reading: ReferenceReading | null = null
   // Off since the message was sent: it is decided as any message is, without its images.
   if (ctx.images !== null && isOn(IMAGE_ROUTING_SWITCH)) {
-    const found = takePasted(texts)
     if (found === null || found.sources.length === 0) debug('image routing: the message came with images, but none was found to read; its effort is decided without a reading')
     else reading = await readReference(readIoOf($), ctx, found.sources)
   }

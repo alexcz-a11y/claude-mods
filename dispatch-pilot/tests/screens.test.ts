@@ -7,11 +7,11 @@ import { expect, test } from 'claude-code/testing'
 import { type Drawn, inventory, shown } from './support/drawn.ts'
 import { siteJev } from './support/workflow.ts'
 import { runWorld } from './support/workflow-run.ts'
-import { jev, KEY, rates, world } from './support/world.ts'
+import { isSecondSkillsRequest, jev, KEY, rates, world } from './support/world.ts'
 
 // ---- never the status row (ADR 0004) --------------------------------------------
 
-test('nothing the mod does draws on the status row: decisions, failures, agents, re-decisions, switches and the mod off and on', { options: { ...KEY, rejudgeEvery: 1 } }, async ($, on) => {
+test('nothing the mod does draws on the status row: decisions, failures, agents, switches and the mod off and on', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: (request, n) => (n === 3 ? { status: 500, body: 'down' } : jev([0, 0.2, 0.7, 0.1, 0])(request)), store: {}, session: true })
   await w.start()
   await w.submit('把登录模块重构成三层')
@@ -21,7 +21,7 @@ test('nothing the mod does draws on the status row: decisions, failures, agents,
   await w.step({ index: 1 })
   await w.complete({ agentId: started.agentId })
   await w.complete()
-  for (const args of ['midturn-effort off', 'midturn-effort on', 'lock high', 'unlock', 'off', 'on', 'log']) await w.command('dp', args)
+  for (const args of ['escalation off', 'escalation on', 'lock high', 'unlock', 'off', 'on', 'log']) await w.command('dp', args)
   await w.submit('再看看测试')
   await w.step({ index: 0 })
 
@@ -63,14 +63,18 @@ test('routes failing within two seconds of the last toast raise none of their ow
   expect(w.toasts.map((toast) => toast.at)).toEqual([0, 2100])
 })
 
-test('a failed request beside the route (the skills, a re-decision) raises no toast: its own route stands', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: (request, n) => (n === 1 ? jev([0, 0, 1, 0, 0])(request) : { status: 500, body: 'down' }) })
-  await w.submit('把登录模块重构成三层')
-  await w.step({ index: 0, tools: [{ tool: 'Agent', input: { description: 'x' } }] })
-  await w.step({ index: 1 })
-  // The re-decision asked as the agent was dispatched failed: a note for the band, no toast.
-  expect(w.requests).toHaveLength(2)
-  expect((await w.board()).notes).toMatchObject([{ turn: 1, id: 'main', feature: 'midturn-effort', kind: 'failed', why: 'jev：出错（状态码 500）' }])
+/** A session with one skill to suggest, for the tests whose message also asks the skills' questions. */
+const SKILLS = { commands: [{ name: 'tdd', description: 'Test-driven development.', source: 'user' as const }], listed: [{ name: 'tdd', source: 'userSettings' as const, tokens: 20 }] }
+const SKILL_DISK = { '/home/u/.claude/skills/tdd/SKILL.md': '---\nname: tdd\n---\nRed, green.\n' }
+
+test('a failed request beside the route (the skills) raises no toast: its own route stands', { options: KEY }, async ($, on) => {
+  const first = rates({ tdd: 0.8, '(none)': 0.2 }, {}, [0, 0, 1, 0, 0])
+  const w = world($, on, { backend: (request) => (isSecondSkillsRequest(request) ? { status: 500, body: 'down' } : first(request)), skills: SKILLS, disk: SKILL_DISK })
+  await w.submit('先写失败的测试')
+  await w.step({ index: 0 })
+  // The skills' second request failed: a note for the band, no toast; the route stands.
+  expect((await w.board()).notes).toMatchObject([{ turn: 1, id: 'main', feature: 'skills', kind: 'failed', why: 'jev：出错（状态码 500）' }])
+  expect((await w.board()).main).toMatchObject({ routed: true, effort: 'high' })
   expect(w.toasts).toEqual([])
 })
 
@@ -199,75 +203,76 @@ async function eventRows(ui: { findAll: (query: { type?: string }) => Promise<Dr
   return (await ui.findAll({ type: 'Box' })).filter((box) => box.key?.startsWith('band-event-')).map((box) => shown(box))
 }
 
-test("the event stream: the turn's decision, the skills suggested, and an effort changed mid-turn as one event (from, to and why), not one per step", { options: { ...KEY, skillsMinRelevance: 0.5, rejudgeEvery: 0 } }, async ($, on) => {
-  const first = rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 })
-  const w = runWorld($, on, {
-    // The message (its effort request, the skills request and its second stage) is medium; the re-decision as the agent is dispatched says xhigh, surely.
-    backend: (request, n) => (n <= 3 ? first(request) : jev([0, 0, 0.1, 0.9, 0], { confidence: 0.8 })(request)),
-    skills: { commands: [{ name: 'tdd', description: 'Test-driven development.', source: 'user' }], listed: [{ name: 'tdd', source: 'userSettings', tokens: 20 }] },
-    disk: { '/home/u/.claude/skills/tdd/SKILL.md': '---\nname: tdd\n---\nRed, green.\n' },
-  })
-  await w.submit('先写失败的测试，再派个 agent 去查')
-  await w.step({ index: 0, effort: 'xhigh', tools: [{ tool: 'Agent', input: { description: '查' } }] })
-  await w.clock.advance(2000)
-  for (const index of [1, 2, 3]) await w.step({ index, effort: 'xhigh' })
-  expect(w.steps.map((step) => step.effort)).toEqual(['medium', 'xhigh', 'xhigh', 'xhigh'])
+test("the event stream: the turn's decision and the skills suggested; the steps that follow at the same level add nothing", { options: { ...KEY, skillsMinRelevance: 0.5 } }, async ($, on) => {
+  const w = runWorld($, on, { backend: rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 }), skills: SKILLS, disk: SKILL_DISK })
+  await w.submit('先写失败的测试')
+  for (const index of [0, 1, 2]) await w.step({ index, effort: 'xhigh' })
+  expect(w.steps.map((step) => step.effort)).toEqual(['medium', 'medium', 'medium'])
 
   const events = await eventRows(await w.band())
-  expect(events).toHaveLength(3)
+  expect(events).toHaveLength(2)
   expect(events[0]).toMatch(/决定.*主 agent → medium/)
   expect(events[1]).toMatch(/推荐.*tdd \.90/)
-  expect(events[2]).toMatch(/重判.*medium → xhigh.*置信 \.80/)
+})
+
+/** Two failing calls of an agent's step. */
+const FAILING = [
+  { tool: 'Bash', input: { command: 'pnpm test' }, ends: { error: 'exit 1' } },
+  { tool: 'Bash', input: { command: 'pnpm test --bail' }, ends: { error: 'exit 1' } },
+]
+
+test("an agent's model step-up is an event of its own, with the failures behind it: its model change is not a second one", { options: { ...KEY, escalateAfter: 2 } }, async ($, on) => {
+  const w = runWorld($, on, { backend: jev([0, 1, 0, 0, 0], { choice: 'sonnet' }) })
+  await w.submit('派个 agent 去修测试')
+  await w.step({ index: 0 })
+  const started = await w.spawn({ prompt: 'Make the failing auth tests pass.', description: '修测试' })
+  await w.agentStep(started.agentId ?? '', { index: 0, model: 'claude-sonnet-5-5', tools: FAILING })
+  await w.agentStep(started.agentId ?? '', { index: 1, model: 'claude-sonnet-5-5' })
+  expect(w.steps.filter((step) => step.agentId !== undefined).map((step) => step.model)).toEqual(['claude-sonnet-5-5', 'claude-opus-5-5'])
+
+  const ui = await w.band()
+  const events = await eventRows(ui)
+  expect(events.at(-1)).toMatch(/升级.*修测试  升模型 claude-sonnet-5-5 → claude-opus-5-5.*工具调用失败 2/)
   expect(events.some((event) => event.includes('改档'))).toBe(false)
+  expect((await agentRows(ui))[1]).toContain('失败 2 · 升模型 1')
 })
 
-test('a forced raise is an event of its own, with the failures that forced it', { options: { ...KEY, rejudgeEvery: 0, escalateAfter: 2 } }, async ($, on) => {
-  // Medium for the message; the failures are not what the work expects.
-  const w = runWorld($, on, { backend: jev([0, 1, 0, 0, 0], { nouls: { 'escalation.expected': 0.05 } }) })
-  await w.submit('把登录模块重构成三层')
-  const failing = { tool: 'Bash', input: { command: 'pnpm test' }, ends: { error: 'exit 1' } }
-  await w.step({ index: 0, tools: [failing, failing] })
-  await w.step({ index: 1 })
-  expect(w.steps.map((step) => step.effort)).toEqual(['medium', 'high'])
+test('what only the old status line used to say is in the stream now: a skills request that failed', { options: KEY }, async ($, on) => {
+  const first = rates({ tdd: 0.8, '(none)': 0.2 })
+  const w = runWorld($, on, { backend: (request) => (isSecondSkillsRequest(request) ? { status: 500, body: 'down' } : first(request)), skills: SKILLS, disk: SKILL_DISK })
+  await w.submit('先写失败的测试')
+  await w.step({ index: 0 })
 
   const events = await eventRows(await w.band())
-  expect(events.at(-1)).toMatch(/升档.*主 agent  medium → high.*失败 2/)
-})
-
-test('what only the old status line used to say is in the stream now: a re-decision that failed, a skills request that gave nothing', { options: { ...KEY, rejudgeEvery: 0 } }, async ($, on) => {
-  const w = runWorld($, on, { backend: (request, n) => (n === 1 ? jev([0, 1, 0, 0, 0])(request) : { status: 500, body: 'down' }) })
-  await w.submit('派个 agent 去查')
-  await w.step({ index: 0, tools: [{ tool: 'Agent', input: { description: '查' } }] })
-  await w.step({ index: 1 })
-
-  const events = await eventRows(await w.band())
-  expect(events.at(-1)).toMatch(/失败.*中途重判失败 · jev：出错（状态码 500）/)
+  expect(events.at(-1)).toMatch(/失败.*skill 推荐失败 · jev：出错（状态码 500）/)
 })
 
 // ---- what is switched off, what is picked, what is never shown -------------------------
 
-test('a feature switched off leaves the band and the footer: its decisions, its notes and the parts of the board it owns; on again, they are back', { options: { ...KEY, skillsMinRelevance: 0.5, rejudgeEvery: 0 } }, async ($, on) => {
+test('a feature switched off leaves the band and the footer: its decisions, its notes and the parts of the board it owns; on again, they are back', { options: { ...KEY, skillsMinRelevance: 0.5 } }, async ($, on) => {
   const first = rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 })
   const w = runWorld($, on, {
-    backend: (request, n) => (n <= 3 ? first(request) : jev([0, 0, 0.1, 0.9, 0], { confidence: 0.8 })(request)),
-    skills: { commands: [{ name: 'tdd', description: 'Test-driven development.', source: 'user' }], listed: [{ name: 'tdd', source: 'userSettings', tokens: 20 }] },
-    disk: { '/home/u/.claude/skills/tdd/SKILL.md': '---\nname: tdd\n---\nRed, green.\n' },
+    backend: (request) => ('agent.effort' in request.body.questions ? jev([0, 1, 0, 0, 0], { choice: 'sonnet' })(request) : first(request)),
+    skills: SKILLS,
+    disk: SKILL_DISK,
     store: {},
   })
-  await w.submit('先写失败的测试，再派个 agent 去查')
-  await w.step({ index: 0, tools: [{ tool: 'Agent', input: { description: '查' } }] })
-  await w.step({ index: 1 })
+  await w.submit('先写失败的测试，再派个 agent 去修')
+  await w.step({ index: 0 })
+  const started = await w.spawn({ prompt: 'Make the failing auth tests pass.', description: '修测试' })
+  await w.agentStep(started.agentId ?? '', { index: 0, model: 'claude-sonnet-5-5', tools: FAILING })
+  await w.agentStep(started.agentId ?? '', { index: 1, model: 'claude-sonnet-5-5' })
   const all = shown(await (await w.band()).drawn())
   expect(all).toContain('推荐')
-  expect(all).toContain('中途重判 2 次')
+  expect(all).toContain('升模型')
 
-  for (const name of ['skills', 'midturn-effort']) await w.command('dp', `${name} off`)
+  for (const name of ['skills', 'escalation']) await w.command('dp', `${name} off`)
   const ui = await w.band()
   const left = shown(await ui.drawn())
   expect(left).not.toContain('推荐')
-  expect(left).not.toContain('重判')
-  // What stands is the readout: the main agent at the effort its steps go out with.
-  expect((await agentRows(ui))[0]).toContain('xhigh')
+  expect(left).not.toContain('升模型')
+  // What stands is the readout: the agent on the model its steps go out with.
+  expect((await agentRows(ui))[1]).toContain('opus')
 
   await w.command('dp', 'skills on')
   expect(shown(await (await w.band()).drawn())).toContain('推荐')
@@ -308,23 +313,6 @@ test("a digit picks an agent for the rationale pane: its row is marked, and the 
   expect(rows.filter((row) => row.startsWith('▌'))).toHaveLength(1)
 })
 
-test('the skill profiles are never shown on the band or in the footer: neither their state nor their log entry', { options: KEY }, async ($, on) => {
-  const profiles = { phase: 'writing' as const, turn: 1, model: 'haiku', kept: 3, planned: 5, written: 2, failed: 1, deferred: 4, failures: [{ name: 'tdd', reason: '回复不是画像' }] }
-  const entry = { n: 1, turn: 1, at: 0, feature: 'skill-profiles', tone: 'warn' as const, outcome: '画像：1 个失败', subject: '', reason: '保留 3 · 新写 2 · 失败 1（tdd：回复不是画像）' }
-  const w = runWorld($, on, { backend: jev([0, 1, 0, 0, 0]), seed: { profiles, log: [entry] } })
-  await w.submit('改个错别字')
-  await w.step({ index: 0 })
-  const live = shown(await (await w.band()).drawn())
-  await w.complete()
-  const idle = shown(await (await w.band({ isWorking: false })).drawn())
-  const footer = shown(await (await w.footer()).drawn())
-  for (const text of [live, idle, footer]) {
-    expect(text).not.toMatch(/profile|画像|haiku|2\/5|tdd/)
-  }
-  // The turn's own decision is there all the same.
-  expect(live).toContain('主 agent → medium')
-})
-
 // ---- the band: a turn over, a band squeezed, other mods ------------------------------
 
 test("once the turn is over the band is one line: the main agent's model and effort, how the rules came to it, the skills to try", { options: { ...KEY, skillsMinRelevance: 0.5 } }, async ($, on) => {
@@ -342,9 +330,9 @@ test("once the turn is over the band is one line: the main agent's model and eff
   expect(await ui.find({ key: 'band' })).toBeUndefined()
   const line = shown(await ui.find({ key: 'band-idle' }))
   expect(line).toContain('第 1 轮')
-  expect(line).toContain('opus·xhigh')
-  // xhigh came from the round-up: high was most likely, xhigh close behind.
-  expect(line).toContain('上取一档 xhigh .35')
+  expect(line).toContain('opus·high')
+  // high is where the answer stands (2.3), rounded.
+  expect(line).toContain('位置 2.3 → high')
   expect(line).toContain('可试 /grill-me')
 })
 

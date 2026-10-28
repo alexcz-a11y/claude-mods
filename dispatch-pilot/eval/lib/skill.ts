@@ -1,34 +1,27 @@
-// The skill suite: the skills suggested beside a message the person sends
-// (#10, ranked in two stages since #11). An item is the message and the
-// conversation before it; the session's skills are the person's own, as a
-// snapshot of their machine records them (skill-catalog.json beside the
-// dataset), each offered by the profile the mod would have written for it
-// (skill-profiles.json, the store's entries) and re-read in stage two from its
-// SKILL.md on disk. The requests are built by the ranking the mod uses
-// (hooks/decision/skills.ts: skillsRequest, then modRanker's second stage),
-// with the mod's settings, so the eval measures what the mod sends.
+// The skill suite: the skill suggested beside a message the person sends
+// (#10, picked as TypeSafe's skill suggestion cookbook picks it since ADR 0018).
+// An item is the message and the conversation before it; the session's skills
+// are the person's own, as a snapshot of their machine records them
+// (skill-catalog.json beside the dataset), each offered by its own description
+// and re-read in stage two from its SKILL.md on disk. The requests are built by
+// the ranking the mod uses (hooks/decision/skills.ts: skillsRequest, then
+// modRanker's second stage), with the mod's settings and the run's decision
+// model's bars, so the eval measures what the mod sends.
 //
-// Variants: `profiles` (the mod once its profiles are written),
-// `descriptions` (before they are, or with `skill-profiles` off), and
-// `profiles-zh` (`profiles` with the skill questions of both stages in
-// Chinese, as the mod's ranker writes them when told to; the mod asks them in
-// English).
+// One variant, `cookbook`: how the mod asks. (The variants of profiles and of
+// Chinese questions went with ADR 0018: the mod writes no profiles and asks the
+// cookbook's English questions.)
 //
 // Pure: no Node API. What it reads besides its items comes in as SkillSources.
 
-import { lookUpProfiles } from '../../hooks/core/profiles.ts'
 import { rankingSettings, type CatalogSkill } from '../../hooks/core/skills.ts'
-import { DEFAULT_ASK } from '../../hooks/decision/effort.ts'
 import {
   modRanker,
   pickSkills,
-  readHints,
-  readSkills,
-  shortlistCounts,
+  SHORTLIST,
   skillOpening,
   skillsRequest,
   stageTwoPart,
-  type SkillPolicy,
   type SkillRanker,
   type SkillRankerIo,
   type SkillRanking,
@@ -38,36 +31,20 @@ import { isRecord, type Language, type SkillItem, type SubmitAsked } from './dat
 import { contextMessages } from './effort-submit.ts'
 import { nearestRank, rate, type VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
-import { requestFailed, settingsFrom, variantIn, type Grade, type Settings, type Suite } from './suite.ts'
+import { requestFailed, settingsFrom, type Grade, type Settings, type Suite } from './suite.ts'
 
-/** What the suite decides for a message: the skills the main agent is shown, and those only the person can start, hinted on the status line. */
+/** What the suite decides for a message: the skill the main agent is shown (one at most), and the one only the person can start, hinted on the status line. */
 export type SkillAnswer = { suggest: string[]; hint: string[] }
 
 /** What the suite reads besides its items. */
 export type SkillSources = {
   /** skill-catalog.json as parsed: the snapshot of the person's skills. */
   catalog: unknown
-  /** skill-profiles.json as parsed (`{ profiles: { <store key>: { name, at, profile } } }`); without it every skill is offered by its description. */
-  profiles: unknown
   /** A SKILL.md by the path the snapshot records (`~` the home directory); rejects when it cannot be read. */
   read: (path: string) => Promise<string>
 }
 
-/**
- * How a variant asks: whether each skill is offered by its profile, and the
- * language of the skill questions of both stages. The effort question beside
- * them is always the run's decision model's (`ask.turnStart`).
- */
-type SkillVariant = { profiles: boolean; language: Language }
-
-/** The variants by name; the first is how the mod asks once its profiles are written. */
-const SKILL_VARIANT_TABLE: Readonly<Record<string, SkillVariant>> = {
-  profiles: { profiles: true, language: DEFAULT_ASK.language },
-  descriptions: { profiles: false, language: DEFAULT_ASK.language },
-  'profiles-zh': { profiles: true, language: 'zh' },
-}
-
-export const SKILL_VARIANTS: readonly string[] = Object.keys(SKILL_VARIANT_TABLE)
+export const SKILL_VARIANTS: readonly string[] = ['cookbook']
 
 /**
  * The session's skills in the snapshot as the mod's catalog holds them
@@ -94,76 +71,41 @@ export function catalogSkills(catalog: unknown): CatalogSkill[] {
   return [...of('candidate', 'model'), ...of('user-only-frontmatter', 'person')]
 }
 
-/** The profiles a profiles file holds, by store key. */
-function storedEntries(file: unknown): ReadonlyMap<string, unknown> {
-  const entries = isRecord(file) && isRecord(file.profiles) ? file.profiles : {}
-  return new Map(Object.entries(entries))
-}
-
-/**
- * The skill suite over the person's skills (`sources`): each SKILL.md read
- * once, as the mod reads them for their profile keys and the second stage.
- */
+/** The skill suite over the person's skills (`sources`): each SKILL.md read once, as the mod reads them for the second stage. */
 export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem, SkillAnswer>> {
   const skills = catalogSkills(sources.catalog)
   const texts = new Map<string, string | null>()
   for (const skill of skills) if (skill.file !== null && !texts.has(skill.file)) texts.set(skill.file, await sources.read(skill.file).catch(() => null))
   const markdown = (file: string | null): string | null => (file === null ? null : (texts.get(file) ?? null))
-  const stored = storedEntries(sources.profiles)
-  const profiled = new Map<string, Promise<CatalogSkill[]>>()
 
-  /** The skills offered under `variant` and the person's options, as the mod offers them for a message. */
-  const offered = async (variant: string, settings: Settings): Promise<CatalogSkill[]> => {
-    const model = settings.skills.profileModel
-    let found = profiled.get(model)
-    if (found === undefined) {
-      const io = {
-        read: async (path: string) => {
-          const text = markdown(path)
-          if (text === null) throw new Error(`cannot read ${path}`)
-          return text
-        },
-        get: async (key: string) => stored.get(key),
-      }
-      found = lookUpProfiles(skills, io, model).then((looked) => looked.skills)
-      profiled.set(model, found)
-    }
+  /** The skills offered under the person's options, as the mod offers them for a message. */
+  const offered = (settings: Settings): CatalogSkill[] => {
     const never = new Set(settings.skills.neverSuggested)
-    const kept = (await found).filter((skill) => !never.has(skill.name))
-    return variantIn(SKILL_VARIANT_TABLE, variant).profiles ? kept : kept.map((skill) => ({ ...skill, profile: null }))
+    return skills.filter((skill) => !never.has(skill.name))
   }
-  /** The language `variant` writes the skill questions in. */
-  const wordingOf = (variant: string): Language => variantIn(SKILL_VARIANT_TABLE, variant).language
-
   /** The opening of a skill's SKILL.md as stage two reads it (null without one), as the mod reads it for its catalog's skill of that name. */
   const openingOf = (offeredSkills: readonly CatalogSkill[], name: string): string | null => {
     const text = markdown(offeredSkills.find((skill) => skill.name === name)?.file ?? null)
     return text === null ? null : skillOpening(text)
   }
-  /** The mod's ranker under the person's settings, its questions in `wording`; `ask` sends stage two. */
-  const rankerFor = (offeredSkills: readonly CatalogSkill[], settings: Settings, ask: SkillRankerIo['ask'], wording: Language): SkillRanker =>
-    modRanker({ ask, opening: async (option) => openingOf(offeredSkills, option.name) }, rankingSettings({ config: settings, ask: { language: wording } }))
+  /** The mod's ranker for a message under the person's settings; `ask` sends stage two. */
+  const rankerFor = (offeredSkills: readonly CatalogSkill[], settings: Settings, ask: SkillRankerIo['ask']): SkillRanker =>
+    modRanker({ ask, opening: async (option) => openingOf(offeredSkills, option.name) }, rankingSettings({ config: settings }, 'message'))
   /** Stage one's request, as the mod sends it when the person sends this message after this conversation (the effort question has its own request). */
   const firstRequest = (asked: SubmitAsked, offeredSkills: readonly CatalogSkill[], settings: Settings, ranker: SkillRanker) =>
     skillsRequest({ message: asked.message, recent_context: contextMessages(asked.recent_context) }, offeredSkills, { limits: settings.context, ranker })
-  /** Stage two's request for these candidates, about stage one's state, its questions in `wording`. */
-  const secondRequest = (state: DecisionRequest['state'], offeredSkills: readonly CatalogSkill[], candidates: readonly CatalogSkill[], wording: Language) =>
-    mergeParts(state, [stageTwoPart(candidates.map((option) => ({ option, opening: openingOf(offeredSkills, option.name) })), { language: wording }) as Part])
+  /** Stage two's request for these candidates, about stage one's state. */
+  const secondRequest = (state: DecisionRequest['state'], offeredSkills: readonly CatalogSkill[], candidates: readonly CatalogSkill[]) =>
+    mergeParts(state, [stageTwoPart(candidates.map((option) => ({ option, opening: openingOf(offeredSkills, option.name) }))) as Part])
   const unsent: SkillRankerIo['ask'] = async () => ({ ok: false, failure: { kind: 'config', detail: 'not sent' } })
 
-  // What each variant asks under the manifest's defaults, recorded with the
-  // results: stage one in full; stage two for the first two skills.
+  // What the variant asks under the manifest's defaults, recorded with the results: stage one in full; stage two for the first two skills.
   const defaults = settingsFrom({ decisionModel: 'jev' })
-  const asks: Record<string, unknown> = {}
-  for (const variant of SKILL_VARIANTS) {
-    const offeredSkills = await offered(variant, defaults)
-    const wording = wordingOf(variant)
-    const { request } = firstRequest({ message: '', recent_context: [] }, offeredSkills, defaults, rankerFor(offeredSkills, defaults, unsent, wording))
-    asks[variant] = request === null ? null : { first: request.questions, second: secondRequest(request.state, offeredSkills, offeredSkills.slice(0, 2), wording).questions }
-  }
+  const defaultSkills = offered(defaults)
+  const { request: shown } = firstRequest({ message: '', recent_context: [] }, defaultSkills, defaults, rankerFor(defaultSkills, defaults, unsent))
+  const asks: Record<string, unknown> = { cookbook: shown === null ? null : { first: shown.questions, second: secondRequest(shown.state, defaultSkills, defaultSkills.slice(0, 2)).questions } }
 
-  // What was read, against the snapshot the dataset was written for: each
-  // SKILL.md beside the sha256 the snapshot recorded, and the profiles found.
+  // What was read, against the snapshot the dataset was written for: each SKILL.md beside the sha256 the snapshot recorded.
   const recorded = snapshotHashes(sources.catalog)
   const filed = skills.filter((skill) => skill.file !== null)
   const unreadable = filed.filter((skill) => markdown(skill.file) === null).map((skill) => skill.name)
@@ -173,76 +115,60 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
     const want = recorded.get(skill.name)
     if (text !== null && want !== undefined && (await sha256(text)) !== want) changed.push(skill.name)
   }
-  const unprofiled = (await offered('profiles', defaults)).filter((skill) => !skill.profile).map((skill) => skill.name)
   const skillsCount = (names: readonly string[]) => `${names.length} ${names.length === 1 ? 'skill' : 'skills'}`
   const about = {
     skills: { offered: skills.length, model: skills.filter((skill) => skill.by === 'model').length, person: skills.filter((skill) => skill.by === 'person').length },
-    profiles: { model: defaults.skills.profileModel, with: skills.length - unprofiled.length, without: unprofiled },
     files: { read: filed.length - unreadable.length, unreadable, changed },
     warnings: [
       ...(changed.length > 0 ? [`SKILL.md differs from the snapshot for ${skillsCount(changed)}: ${changed.join(', ')}`] : []),
       ...(unreadable.length > 0 ? [`SKILL.md cannot be read for ${skillsCount(unreadable)}: ${unreadable.join(', ')}`] : []),
-      ...(unprofiled.length > 0 ? [`no profile in skill-profiles.json for ${skillsCount(unprofiled)} (the profiles variant offers them by their descriptions): ${unprofiled.join(', ')}`] : []),
     ],
   }
 
   return {
     name: 'skill',
     variants: SKILL_VARIANTS,
-    async decide(item, language, variant, ask, settings) {
-      const offeredSkills = await offered(variant, settings)
+    async decide(item, language, _variant, ask, settings) {
+      const offeredSkills = offered(settings)
       // How long each stage's answered request took, in order.
       const stages: number[] = []
-      const ranker = rankerFor(
-        offeredSkills,
-        settings,
-        async (request) => {
-          const sent = await ask(request)
-          stages.push(sent.ms)
-          return sent.asked
-        },
-        wordingOf(variant),
-      )
+      const ranker = rankerFor(offeredSkills, settings, async (request) => {
+        const sent = await ask(request)
+        stages.push(sent.ms)
+        return sent.asked
+      })
       const { request, part } = firstRequest(item[language], offeredSkills, settings, ranker)
       if (request === null) return { ok: false, failure: 'request: no skill to offer' }
       const first = await ask(request)
       stages.push(first.ms)
       if (!first.asked.ok) return requestFailed(first.asked.failure)
-      const answers = answersFor(part, first.asked.answers)
-      const ranking = await ranker.rank(answers, offeredSkills, { state: request.state })
+      const ranking = await ranker.rank(answersFor(part, first.asked.answers), offeredSkills, { state: request.state })
       if (ranking === null) return { ok: false, failure: 'parse: no answer about the skills' }
       if (ranking.failed !== undefined) return { ok: false, failure: `second request: ${ranking.failed.kind}: ${ranking.failed.detail}` }
-      const { suggest, hint } = pickSkills(ranking, offeredSkills, settings.skills.suggest)
+      const { suggest, hint } = pickSkills(ranking, offeredSkills, settings.guide.skills)
       return {
         ok: true,
         prediction: { suggest: suggest.map((skill) => skill.name), hint: hint.map((skill) => skill.name) },
-        detail: detailOf(readSkills(answers, offeredSkills), readHints(answers, offeredSkills), ranking, stages),
+        detail: detailOf(ranking, stages),
       }
     },
     grade: gradeSkills,
     show: showAnswer,
     constants: [{ suggest: [], hint: [] }],
     questions: (variant) => asks[variant],
-    // Stage one as decide asks it, and stage two as if each question of
-    // stage one had put a full shortlist forward: of the skills the main
-    // agent can load, the acceptable ones first, then the others in order; of
-    // those only the person can start, the hinted ones first.
-    async estimate(item, language, variant, settings) {
-      const offeredSkills = await offered(variant, settings)
-      const wording = wordingOf(variant)
-      const { request, part } = firstRequest(item[language], offeredSkills, settings, rankerFor(offeredSkills, settings, unsent, wording))
+    // Stage one as decide asks it, and stage two as if each Choice of stage one had put a full shortlist forward: the
+    // acceptable skills first, then the others in order; of those only the person can start, the hinted ones first.
+    async estimate(item, language, _variant, settings) {
+      const offeredSkills = offered(settings)
+      const { request } = firstRequest(item[language], offeredSkills, settings, rankerFor(offeredSkills, settings, unsent))
       if (request === null) return []
-      const counts = shortlistCounts(rankingSettings({ config: settings, ask: { language: wording } }).shortlist)
-      const fullest = (by: CatalogSkill['by'], wanted: readonly string[], count: number) => {
+      const fullest = (by: CatalogSkill['by'], wanted: readonly string[]) => {
         const mine = offeredSkills.filter((option) => option.by === by)
-        return [...wanted.flatMap((name) => mine.filter((option) => option.name === name)), ...mine.filter((option) => !wanted.includes(option.name))].slice(0, count)
+        return [...wanted.flatMap((name) => mine.filter((option) => option.name === name)), ...mine.filter((option) => !wanted.includes(option.name))].slice(0, SHORTLIST)
       }
-      return [request, secondRequest(request.state, offeredSkills, [...fullest('model', item.accept, counts.model), ...fullest('person', item.user_only_hint, counts.person)], wording)]
+      return [request, secondRequest(request.state, offeredSkills, [...fullest('model', item.accept), ...fullest('person', item.user_only_hint)])]
     },
-    breakdown: (items, rows, _variant, settings) => {
-      const never = new Set(settings.skills.neverSuggested)
-      return skillBreakdown(items, rows, skills.filter((skill) => !never.has(skill.name)), settings)
-    },
+    breakdown: (items, rows) => skillBreakdown(items, rows),
     report: reportLines,
     scoring: SCORING,
     about,
@@ -250,7 +176,7 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
 }
 
 const SCORING =
-  'suggest (the skills the main agent is shown: at most skillsMax, with relevance skillsMinRelevance or more): where no skill fits (gold empty), right only when nothing is suggested; otherwise right when a suggested skill is in accept and none is in must_not. A neutral skill (in neither list) costs nothing beside an acceptable one, but suggested alone it misses. hint (the skills only the person can start, named on the status line, at most 2 a message): where user_only_hint is empty, right only when nothing is hinted; otherwise right when a hinted skill is in user_only_hint. Whole answer (accuracy): both parts right; exact (gold): the suggested skills are the gold ones and the hinted ones those of user_only_hint, no more and no fewer. No decision (a request failed, no answer about the skills, the second request failed) is wrong. Misses: must-not, extra (a skill where none fits), neutral-only, missed (none where one fits), hint-extra, hint-missed, hint-other. Latency: both stages together (the mod gives them one wait, timeoutMs); the eval does not cut stage two to what stage one left of it, it counts the answers past timeoutMs.'
+  "suggest (the skill the main agent is shown: at most one, the cookbook's; nothing when the three gate questions average below the decision model's bar, or when the best fit of the three re-read is under its bar): where no skill fits (gold empty), right only when nothing is suggested; otherwise right when the suggested skill is in accept and not in must_not. A neutral skill (in neither list) suggested alone misses. hint (the skill only the person can start, named on the status line, at most one a message): where user_only_hint is empty, right only when nothing is hinted; otherwise right when the hinted skill is in user_only_hint. Whole answer (accuracy): both parts right; exact (gold): the suggested skills are the gold ones and the hinted ones those of user_only_hint, no more and no fewer. No decision (a request failed, no answer about the skills, the second request failed) is wrong. Misses: must-not, extra (a skill where none fits), neutral-only, missed (none where one fits), hint-extra, hint-missed, hint-other. Latency: both stages together (the mod gives them one wait, timeoutMs); the eval does not cut stage two to what stage one left of it, it counts the answers past timeoutMs."
 
 /** The lines eval/run.ts prints about a variant's own figures. */
 function reportLines(summary: VariantSummary): string[] {
@@ -259,15 +185,11 @@ function reportLines(summary: VariantSummary): string[] {
   const pct = (value: number | undefined) => (value === undefined ? '-' : `${Math.round(value * 1000) / 10}`)
   const ms = (value: number | null) => (value === null ? '-' : `${value}`)
   const v = summary.variant
-  const swept = (entries: readonly Swept[], field: string) => entries.map((entry) => `${entry.value}${entry.current ? '*' : ''} ${pct(entry.zh[field])}/${pct(entry.en[field])}`).join(', ')
-  const best = (bar: 'skillsMinRelevance' | 'findSkillMinRelevance', field: string) =>
-    (['zh', 'en'] as const).map((language) => `${language} ${own.best[bar][language].values.join(', ')} (${pct(own.best[bar][language][field])}%)`).join('; ')
   return [
     `${v}: right by situation, whole answer zh/en % (items): ${own.groups.map((group) => `${group.group} ${pct(group.zh.whole)}/${pct(group.en.whole)} (${group.items})`).join(', ')}`,
     `${v}: stage one p50 ${ms(own.stages.first.p50)} ms, p90 ${ms(own.stages.first.p90)} ms; stage two asked for ${pct(own.stages.second.share)}% of answers, p50 ${ms(own.stages.second.p50)} ms, p90 ${ms(own.stages.second.p90)} ms`,
-    `${v}: of the ${own.funnel.zh.items} items a skill fits, stage one put an acceptable one forward for zh ${own.funnel.zh.shortlisted}, en ${own.funnel.en.shortlisted}; one passed skillsMinRelevance for zh ${own.funnel.zh.passed}, en ${own.funnel.en.passed}`,
-    `${v}: skillsMinRelevance (* the run's), whole answer right zh/en %: ${swept(own.sweeps.skillsMinRelevance, 'whole')}; best ${best('skillsMinRelevance', 'whole')}`,
-    `${v}: findSkillMinRelevance (* the run's), returned skills right zh/en %: ${swept(own.sweeps.findSkillMinRelevance, 'suggest')}; recall zh/en %: ${swept(own.sweeps.findSkillMinRelevance, 'recall')}; best ${best('findSkillMinRelevance', 'suggest')}`,
+    `${v}: the gate stopped zh/en % of the items no skill fits ${pct(own.gate.zh.quietStopped)}/${pct(own.gate.en.quietStopped)}, of those a skill fits ${pct(own.gate.zh.neededStopped)}/${pct(own.gate.en.neededStopped)}`,
+    `${v}: of the ${own.funnel.zh.items} items a skill fits, stage one put an acceptable one forward for zh ${own.funnel.zh.shortlisted}, en ${own.funnel.en.shortlisted}; one was suggested for zh ${own.funnel.zh.passed}, en ${own.funnel.en.passed}`,
   ]
 }
 
@@ -327,32 +249,28 @@ function showAnswer(answer: SkillAnswer): string {
 }
 
 /**
- * What a run keeps of an answer: stage one's five highest shares (0.01 and
- * up) of the skills the main agent can load (`first`) and none's, and of
- * those only the person can start (`hints`, when that question was asked);
- * stage two's fit for each skill stage one put forward, in the ranking's
- * order and as answered (the relevance the bars compare, kept whole so a
- * sweep at the run's own bar is the run); how long each stage's request
- * took, in ms.
+ * What a run keeps of an answer: the gate's mean (null when it was not read) and whether it stopped the ranking; what each
+ * Choice of stage one put forward, with its share; stage two's fit for each candidate and whom its Choices picked; how long
+ * each stage's request took, in ms.
  */
-function detailOf(first: SkillRanking | null, hints: SkillRanking | null, ranking: SkillRanking, stages: readonly number[]): Record<string, unknown> {
-  const top = (reading: SkillRanking | null) => (reading?.ranked ?? []).filter((entry) => entry.relevance >= 0.01).slice(0, 5).map((entry) => ({ name: entry.name, share: round(entry.relevance) }))
+function detailOf(ranking: SkillRanking, stages: readonly number[]): Record<string, unknown> {
+  const shares = (entries: SkillRanking['shortlist']) => entries.map((entry) => ({ name: entry.name, share: round(entry.share) }))
   return {
-    first: top(first),
-    none: round(ranking.none),
-    ...(ranking.hints === undefined ? {} : { hints: top(hints) }),
-    fits: ranking.ranked.map((entry) => ({ name: entry.name, relevance: entry.relevance })),
+    gate: ranking.gate === null ? null : round(ranking.gate.mean),
+    stopped: ranking.stopped === 'gate',
+    first: shares(ranking.shortlist),
+    hints: shares(ranking.hints),
+    fits: ranking.fits.map((fit) => ({ name: fit.name, relevance: round(fit.fit) })),
+    winner: ranking.winner,
+    hint_winner: ranking.hintWinner,
     stages_ms: stages.map((ms) => Math.round(ms)),
   }
 }
 
-/** A stage two fit as an answer records it (detailOf). */
-type Fit = { name: string; relevance: number }
-
-/** The fits an answer records; null for an answer without them (no answer). */
-function fitsOf(row: Row<SkillAnswer> | undefined): Fit[] | null {
-  const fits = row?.ok ? row.detail?.fits : undefined
-  return Array.isArray(fits) ? (fits as Fit[]) : null
+/** The shortlist an answer records; null for an answer without one (no answer). */
+function shortlistOf(row: Row<SkillAnswer> | undefined): string[] | null {
+  const first = row?.ok ? row.detail?.first : undefined
+  return Array.isArray(first) ? (first as { name: string }[]).map((entry) => entry.name) : null
 }
 
 /**
@@ -372,11 +290,7 @@ const GROUPS: readonly { group: string; has: (item: SkillItem) => boolean }[] = 
   { group: 'needs-context', has: (item) => item.tags.includes('needs-context') },
 ]
 
-/** The bars swept, besides the run's own. */
-const BARS = [0.3, 0.4, 0.5, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95] as const
-
 type Rates = Record<string, number>
-type Swept = { value: number; current?: true; zh: Rates; en: Rates }
 
 /** The suite's own figures for one variant (Suite.breakdown). */
 export type SkillBreakdown = {
@@ -384,30 +298,17 @@ export type SkillBreakdown = {
   groups: { group: string; items: number; zh: Rates; en: Rates }[]
   /** Each stage's latency over its answered requests; how many answers asked stage two, and what share. */
   stages: { first: Latency; second: Latency & { share: number } }
-  /** Of the items a skill fits, in each language: those where stage one put an acceptable skill forward, and where one passed skillsMinRelevance. */
+  /** In each language, the share of the items no skill fits (`quietStopped`) and of those a skill fits (`neededStopped`) the gate stopped. */
+  gate: Record<Language, Rates>
+  /** Of the items a skill fits, in each language: those where stage one put an acceptable skill forward, and where one was suggested. */
   funnel: Record<Language, { items: number; shortlisted: number; passed: number }>
-  /**
-   * The two bars swept over the answers the run got (nothing asked again):
-   * `skillsMinRelevance`, the skills suggested and hinted again (at most
-   * skillsMax), graded whole and in parts; `findSkillMinRelevance`, what
-   * find_skill would return (at most findSkillMax, only skills the main
-   * agent can load), graded as suggestions (`suggest`), with `recall` (of the
-   * items a skill fits, those it returns an acceptable skill for) and
-   * `quiet` (of those no skill fits, those it returns nothing for).
-   */
-  sweeps: { skillsMinRelevance: Swept[]; findSkillMinRelevance: Swept[] }
-  /** Each bar's best values in each language: the highest whole answer (skillsMinRelevance) or suggestion (findSkillMinRelevance) right, and every value that reaches it. */
-  best: Record<'skillsMinRelevance' | 'findSkillMinRelevance', Record<Language, Rates & { values: number[] }>>
 }
 
 type Latency = { answers: number; p50: number | null; p90: number | null; max: number | null }
 
-function skillBreakdown(items: readonly SkillItem[], rows: readonly Row<SkillAnswer>[], offeredSkills: readonly CatalogSkill[], settings: Settings): SkillBreakdown {
+function skillBreakdown(items: readonly SkillItem[], rows: readonly Row<SkillAnswer>[]): SkillBreakdown {
   const answered = (language: Language) => new Map(rows.filter((row) => row.language === language).map((row) => [row.id, row]))
   const by = { zh: answered('zh'), en: answered('en') }
-  // How many skills a message is shown at most and find_skill returns at most, and the least relevance each needs, as the mod reads them (core/setup.ts).
-  const suggestBar = settings.skills.suggest
-  const findBar = settings.skills.find
 
   const groups = GROUPS.map(({ group, has }) => {
     const mine = items.filter(has)
@@ -422,77 +323,34 @@ function skillBreakdown(items: readonly SkillItem[], rows: readonly Row<SkillAns
   const second = stage(1)
   const stages = { first: latency(stage(0)), second: { ...latency(second), share: rate(second.length, rows.filter((row) => row.ok).length) } }
 
-  const funnel = (language: Language) => {
+  const stopped = (row: Row<SkillAnswer> | undefined) => row !== undefined && row.ok && row.detail?.stopped === true
+  const gate = (language: Language): Rates => {
+    const quiet = items.filter((item) => item.gold.length === 0)
     const needed = items.filter((item) => item.gold.length > 0)
-    const fitsFor = (item: SkillItem) => (fitsOf(by[language].get(item.id)) ?? []).filter((fit) => item.accept.includes(fit.name))
     return {
-      items: needed.length,
-      shortlisted: needed.filter((item) => fitsFor(item).length > 0).length,
-      passed: needed.filter((item) => fitsFor(item).some((fit) => fit.relevance >= suggestBar.minRelevance)).length,
+      quietStopped: rate(quiet.filter((item) => stopped(by[language].get(item.id))).length, quiet.length),
+      neededStopped: rate(needed.filter((item) => stopped(by[language].get(item.id))).length, needed.length),
     }
   }
 
-  /** The answer the mod would have given an item under `policy`, from what the run recorded; null without one. */
-  const repick = (item: SkillItem, language: Language, policy: SkillPolicy) => {
-    const fits = fitsOf(by[language].get(item.id))
-    return fits === null ? null : pickSkills({ ranked: fits, none: 0 }, offeredSkills, policy)
-  }
-  const suggestRates = (value: number) => {
-    const rates = (language: Language): Rates => {
-      const grades = items.map((item) => {
-        const picked = repick(item, language, { ...suggestBar, minRelevance: value })
-        return picked === null ? null : gradeSkills(item, { suggest: picked.suggest.map((skill) => skill.name), hint: picked.hint.map((skill) => skill.name) })
-      })
-      const share = (right: (grade: Grade) => boolean) => rate(grades.filter((grade) => grade !== null && right(grade)).length, items.length)
-      return { whole: share((grade) => grade.correct), suggest: share((grade) => grade.parts?.suggest === true), hint: share((grade) => grade.parts?.hint === true) }
+  const funnel = (language: Language) => {
+    const needed = items.filter((item) => item.gold.length > 0)
+    const row = (item: SkillItem) => by[language].get(item.id)
+    return {
+      items: needed.length,
+      shortlisted: needed.filter((item) => (shortlistOf(row(item)) ?? []).some((name) => item.accept.includes(name))).length,
+      passed: needed.filter((item) => {
+        const answer = row(item)
+        return answer !== undefined && answer.ok && (answer.prediction?.suggest ?? []).some((name) => item.accept.includes(name))
+      }).length,
     }
-    return { zh: rates('zh'), en: rates('en') }
   }
-  const findRates = (value: number) => {
-    const rates = (language: Language): Rates => {
-      const returned = items.map((item) => {
-        const picked = repick(item, language, { ...findBar, minRelevance: value })
-        return { item, names: picked === null ? null : picked.suggest.map((skill) => skill.name) }
-      })
-      const needed = returned.filter(({ item }) => item.gold.length > 0)
-      const none = returned.filter(({ item }) => item.gold.length === 0)
-      return {
-        suggest: rate(returned.filter(({ item, names }) => names !== null && suggestionMiss(item, names) === null).length, items.length),
-        recall: rate(needed.filter(({ item, names }) => names !== null && names.some((name) => item.accept.includes(name))).length, needed.length),
-        quiet: rate(none.filter(({ names }) => names !== null && names.length === 0).length, none.length),
-      }
-    }
-    return { zh: rates('zh'), en: rates('en') }
-  }
-  const sweeps = {
-    skillsMinRelevance: sweep(suggestBar.minRelevance, suggestRates),
-    findSkillMinRelevance: sweep(findBar.minRelevance, findRates),
-  }
-  return {
-    groups,
-    stages,
-    funnel: { zh: funnel('zh'), en: funnel('en') },
-    sweeps,
-    best: { skillsMinRelevance: best(sweeps.skillsMinRelevance, 'whole'), findSkillMinRelevance: best(sweeps.findSkillMinRelevance, 'suggest') },
-  }
+
+  return { groups, stages, gate: { zh: gate('zh'), en: gate('en') }, funnel: { zh: funnel('zh'), en: funnel('en') } }
 }
 
 function isRight(row: Row<SkillAnswer> | undefined, right: (row: Row<SkillAnswer>) => boolean): boolean {
   return row !== undefined && row.ok && right(row)
-}
-
-/** A bar's values (BARS and the run's own, marked), each with the rates `at` gives it. */
-function sweep(current: number, at: (value: number) => { zh: Rates; en: Rates }): Swept[] {
-  return [...new Set([...BARS, current])].sort((a, b) => a - b).map((value) => ({ value, ...(value === current ? { current: true as const } : {}), ...at(value) }))
-}
-
-/** In each language, the highest `field` a sweep reached and every value that reached it. */
-function best(swept: readonly Swept[], field: string): Record<Language, Rates & { values: number[] }> {
-  const of = (language: Language) => {
-    const top = Math.max(...swept.map((entry) => entry[language][field] ?? 0))
-    return { [field]: top, values: swept.filter((entry) => entry[language][field] === top).map((entry) => entry.value) } as Rates & { values: number[] }
-  }
-  return { zh: of('zh'), en: of('en') }
 }
 
 /** p50 and p90 by nearest rank, as metrics.ts takes them; the max. */
@@ -504,4 +362,3 @@ function latency(values: readonly number[]): Latency {
 function round(value: number): number {
   return Math.round(value * 1000) / 1000
 }
-

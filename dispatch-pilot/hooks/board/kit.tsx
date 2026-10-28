@@ -1,8 +1,8 @@
 // The screens' visual language (spec #22 「视觉语言」, prototype D's kit): the
 // palette, the cell-width helpers the fixed columns need, and the small parts
 // every screen draws (a model chip, an effort tag, a state glyph, the marks:
-// a time ribbon, a stacked bar, a meter, as a Raster's cells on the terminal
-// and as an Svg on the surfaces that have one). Pure: the element table comes
+// a time ribbon, a stacked bar, as a Raster's cells on the terminal and as an
+// Svg on the surfaces that have one). Pure: the element table comes
 // in as `t` (`$.ui.resolve(e)` in the hook's file); nothing here reads the board.
 //
 // Faces: the terminal is monospaced; Desktop draws text in a proportional face,
@@ -12,8 +12,7 @@
 //
 // Colours: one accent (the theme's `claude`), the theme's semantic keys for
 // state, so light and dark terminals both read; hex only where a colour must
-// be a fixed one: the effort ramp (the meter's tick borrows two of its stops),
-// the four model chips (a light tint with dark ink on it, its own background),
+// be a fixed one: the effort ramp, the four model chips (a light tint with dark ink on it, its own background),
 // the four model inks (mid tones that hold on either background), and the
 // greys of a Raster (the ribbon's track, what a finished bar softens toward).
 
@@ -40,18 +39,15 @@ export type Svg = Elements['desktop']['Svg']
  * the screens redraw seldom (an Svg's animation; the terminal's cells redraw every frame instead).
  */
 export type RibbonBar = { from: number; to: number | null; span: number; color: string; grow?: number }
-/** A confidence meter: filled to `conf`, a tick at `threshold` (none when no line was asked), green when `passed`, amber when not. */
-export type MeterMark = { conf: number; threshold: number | undefined; passed: boolean | null }
 
 /**
  * The marks a drawing puts beside its words, `columns` cells wide each: a time ribbon, the effort probabilities'
- * stacked bar, a confidence meter. The terminal draws them as a Raster's cells (`rasterMarks`), the surfaces with an
- * Svg as a small SVG (`svgMarks`); a surface with neither gets none, and the words alone say the same.
+ * stacked bar. The terminal draws them as a Raster's cells (`rasterMarks`), the surfaces with an Svg as a small SVG
+ * (`svgMarks`); a surface with neither gets none, and the words alone say the same.
  */
 export type Marks = {
   ribbon: (key: string, bar: RibbonBar, columns: number) => RenderNode
   stack: (key: string, probs: Record<Effort, number>, picked: Effort | undefined, columns: number) => RenderNode
-  meter: (key: string, mark: MeterMark, columns: number) => RenderNode
 }
 
 export const ACCENT = 'claude'
@@ -426,30 +422,6 @@ export function stackCells(probs: Record<Effort, number>, picked: Effort | undef
   return packCells(out)
 }
 
-/** The tick's colours: past the line, short of it. */
-export const PASSED_HEX = EFFORT_COLOR.medium
-export const SHORT_HEX = EFFORT_COLOR.high
-const PASSED = rgb(PASSED_HEX)
-const SHORT = rgb(SHORT_HEX)
-
-/**
- * A confidence meter, `columns` cells: filled to `conf` along the ramp's cool half, a thin track beyond, and a tick
- * at `threshold` (green when `passed`, amber when not; none when no line was asked).
- */
-export function meterCells(conf: number, threshold: number | undefined, passed: boolean | null, columns: number): string {
-  const tick = threshold === undefined ? -1 : Math.min(columns - 1, Math.round(threshold * columns))
-  const fill = Math.max(0, Math.min(1, conf)) * columns
-  const out: RasterCell[] = []
-  for (let c = 0; c < columns; c++) {
-    const color = rampAt(0.2 + (c / columns) * 0.4)
-    if (c === tick) out.push(['┃', passed === true ? PASSED : SHORT, c < fill ? color : DEFAULT])
-    else if (c + 1 <= fill) out.push(['█', color, DEFAULT])
-    else if (c < fill) out.push(['▌', color, DEFAULT])
-    else out.push(['─', TRACK, DEFAULT])
-  }
-  return packCells(out)
-}
-
 // ---- Svg markup ---------------------------------------------------------------------
 
 /** One mark's SVG document, its size in CSS pixels, what it says for a reader that cannot see it, and whether it moves by itself (an animation, drawn interactive). */
@@ -505,18 +477,6 @@ export function stackSvg(probs: Record<Effort, number>, picked: Effort | undefin
   return { source: svgDoc(w, h, body), alt: `effort 概率：${EFFORTS.map((level) => `${level} ${pct(probs[level])}`).join(' ')}`, width: w, height: h }
 }
 
-/** A confidence meter, `w` pixels: filled to `conf` along the ramp's cool half, a track beyond, a tick at `threshold` (green when passed, amber when not). */
-export function meterSvg(mark: MeterMark, w: number): SvgMark {
-  const h = 10
-  const fill = Math.max(0, Math.min(1, mark.conf)) * w
-  const from = hexOf(rampAt(0.2))
-  const to = hexOf(rampAt(0.6))
-  const tick = mark.threshold === undefined ? '' : `<rect x="${px(Math.max(0, Math.min(w - 2, mark.threshold * w - 1)))}" y="0" width="2" height="${h}" rx="1" fill="${mark.passed === true ? PASSED_HEX : SHORT_HEX}"/>`
-  const body = `<linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient>${track(w, 3, 4)}${fill > 0.5 ? `<rect x="0" y="2" width="${px(fill)}" height="6" rx="3" fill="url(#g)"/>` : ''}${tick}`
-  const alt = `置信 ${pct(mark.conf)}${mark.threshold === undefined ? '' : `，门槛 ${pct(mark.threshold)}`}`
-  return { source: svgDoc(w, h, body), alt, width: w, height: h }
-}
-
 // ---- the marks, per surface ---------------------------------------------------------
 
 /** The marks as a Raster's cells: the terminal's. */
@@ -524,7 +484,6 @@ export function rasterMarks(Raster: Raster): Marks {
   return {
     ribbon: (key, bar, columns) => <Raster key={key} columns={columns} rows={1} cells={ribbonCells(bar.from, bar.to, bar.span, columns, rgb(bar.color))} />,
     stack: (key, probs, picked, columns) => <Raster key={key} columns={columns} rows={1} cells={stackCells(probs, picked, columns)} />,
-    meter: (key, mark, columns) => <Raster key={key} columns={columns} rows={1} cells={meterCells(mark.conf, mark.threshold, mark.passed, columns)} />,
   }
 }
 
@@ -551,6 +510,5 @@ export function svgMarks(Svg: Svg, Box: TT['Box']): Marks {
   return {
     ribbon: (key, bar, columns) => draw(key, ribbonSvg(bar, columns * CELL_PX)),
     stack: (key, probs, picked, columns) => draw(key, stackSvg(probs, picked, columns * CELL_PX)),
-    meter: (key, mark, columns) => draw(key, meterSvg(mark, columns * CELL_PX)),
   }
 }

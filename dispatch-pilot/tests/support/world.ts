@@ -37,20 +37,28 @@ import type {
   SettingsSource,
   RegisteredToolSpec,
 } from 'claude-code'
+import { BRIEF_NOULS } from '../../hooks/decision/dispatched-agent.ts'
 import { JEV_MODEL } from '../../hooks/decision/jev.ts'
+import type { TurnRecord } from '../../hooks/core/plans.ts'
 
 /** The plugin options of a test that decides with Jev: `{ options: KEY }`. */
 export const KEY = { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' }
-/** The switch that turns the unresolved-problem question on: `world(..., { switches: UNRESOLVED_ON })`. */
-export const UNRESOLVED_ON = { unresolved: true }
+/** The questions of the effort part of the person's own message (ADR 0014): the effort question and its eight Nouls, by id. */
+export const OWN_EFFORT = ['effort.level', 'effort.stakes.undo', 'effort.stakes.live', 'effort.stakes.access', 'effort.cause_unknown', 'effort.still_failing', 'effort.solved', 'effort.new_task', 'effort.constraint', 'effort.confirm', 'effort.escalate']
+/** The questions of a report's turn (a hand-back, a task notice): nothing about the person's words. */
+export const REPORT_EFFORT = OWN_EFFORT.slice(0, 5)
+
+/**
+ * The problem summary's switch on, as it is by default (0.9.0: the unresolved count is always kept, ADR 0014): a test that
+ * reads the count or the summary says so with `world(..., { switches: UNRESOLVED_ON })`, which also starts the session.
+ */
+export const UNRESOLVED_ON = { summary: true }
 
 /** The board's `$.state` values, as the contract declares them (types/index.d.ts): the board data tests assert on. */
 export type BoardNode = PluginState['dispatch-pilot']['board']['nodes'][number]
 export type LogEntry = PluginState['dispatch-pilot']['decisionLog'][number]
 export type ReadingChange = NonNullable<PluginState['dispatch-pilot']['board']['changes']>[number]
 export type BoardNote = NonNullable<PluginState['dispatch-pilot']['board']['notes']>[number]
-/** The skill profiles' state (`skillProfiles`, #33): the session's one record of writing them. */
-export type ProfilesState = NonNullable<PluginState['dispatch-pilot']['skillProfiles']>
 
 /**
  * The board data as `w.board()` reads it from `$.state` (spec #22 「数据」): `turn`, `nodes` and `log` are the
@@ -67,8 +75,6 @@ export type BoardView = {
   /** What the features met beside the agents' routes (`board.notes`): a failed request, an answer of no use, a late one. */
   notes: BoardNote[]
   log: LogEntry[]
-  /** The skill profiles' state (#33); undefined before the session start reported one. */
-  profiles: ProfilesState | undefined
   main: BoardNode | undefined
   agents: BoardNode[]
 }
@@ -179,10 +185,13 @@ export type WorldOptions = {
   seed?: {
     board?: PluginState['dispatch-pilot']['board']
     log?: LogEntry[]
-    profiles?: ProfilesState
     unresolved?: PluginState['dispatch-pilot']['unresolved']
     /** When the latest pplx requests went out (mock clock ms): the rate limit's record, which a hot reload keeps (#51). */
     pplxRate?: number[]
+    /** The person's lasting rules (ADR 0014). */
+    constraints?: PluginState['dispatch-pilot']['constraints']
+    /** The facts of the person's latest turn, where the next message's decision finds them (ADR 0014). */
+    lastTurn?: PluginState['dispatch-pilot']['lastTurn']
   }
   /** Every write of the pplx rate limit's record is turned down as if another load had written first (#51): the limit cannot be kept. */
   pplxRateContended?: boolean
@@ -512,15 +521,15 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       value: e?.source === undefined ? {} : { ...(e.source === 'user' ? options.userSettings : {}), ...(options.skills === undefined ? {} : { skillOverrides: options.skills.overrides?.[e.source] ?? {} }) },
     }))
   }
-  // The board data (the 「决定汇报」 module's `board` and `decisionLog`), the skill profiles, the unresolved count and the pplx rate
-  // limit's record of the latest sends are kept here, not in the kit's state: the test body has no `$.state` to read them back with,
+  // The board data (the 「决定汇报」 module's `board` and `decisionLog`), the unresolved count, the pplx rate
+  // limit's record of the latest sends, the person's lasting rules and their latest turn's facts are kept here, not in the kit's state: the test body has no `$.state` to read them back with,
   // and `options.seed` can stand for what an earlier load left. Versions work as the host's do (a write lands unless `ifVersion` is
   // stale), and values go through JSON both ways as they would, so a mod that changes a value it read in place changes nothing here.
-  const seeds = { board: options.seed?.board, decisionLog: options.seed?.log, skillProfiles: options.seed?.profiles, unresolved: options.seed?.unresolved, pplxRate: options.seed?.pplxRate }
+  const seeds = { board: options.seed?.board, decisionLog: options.seed?.log, unresolved: options.seed?.unresolved, pplxRate: options.seed?.pplxRate, constraints: options.seed?.constraints, lastTurn: options.seed?.lastTurn }
   const held = Object.fromEntries(Object.entries(seeds).map(([key, value]) => [key, { value, version: value === undefined ? 0 : 1 }])) as { [K in keyof typeof seeds]: { value: unknown; version: number } }
   const cloned = (value: unknown): never => (value === undefined ? undefined : JSON.parse(JSON.stringify(value))) as never
-  for (const key of ['board', 'decisionLog', 'skillProfiles', 'unresolved', 'pplxRate'] as const) {
-    // One handler for the five keys: the matcher's type is narrower than a loop over them can show.
+  for (const key of ['board', 'decisionLog', 'unresolved', 'pplxRate', 'constraints', 'lastTurn'] as const) {
+    // One handler for the six keys: the matcher's type is narrower than a loop over them can show.
     const match = { plugin: 'dispatch-pilot', key } as never
     on('state.get', match, () => ({ value: { value: cloned(held[key].value), version: held[key].version } }))
     on('state.set', match, (_$, e: { value: unknown; ifVersion?: number }) => {
@@ -530,6 +539,20 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       return { value: { isSet: true, version: held[key].version } }
     })
   }
+  // The plan table's turn records (`turns`, by turnKey) are kept here too, so a test can read what a turn left for the next
+  // message (`w.turnRecord`: the facts the escalation feature writes as a turn ends, ADR 0013). Versions work as above.
+  const turnRecords = new Map<string, { value: unknown; version: number }>()
+  const turnsKey = { plugin: 'dispatch-pilot', key: 'turns' } as never
+  on('state.get', turnsKey, (_$, e: { id?: string }) => {
+    const record = turnRecords.get(e.id ?? '') ?? { value: undefined, version: 0 }
+    return { value: { value: cloned(record.value), version: record.version } }
+  })
+  on('state.set', turnsKey, (_$, e: { id?: string; value: unknown; ifVersion?: number }) => {
+    const record = turnRecords.get(e.id ?? '') ?? { value: undefined, version: 0 }
+    if (e.ifVersion !== undefined && e.ifVersion !== record.version) return { value: { isSet: false, version: record.version } }
+    turnRecords.set(e.id ?? '', { value: cloned(e.value), version: record.version + 1 })
+    return { value: { isSet: true, version: record.version + 1 } }
+  })
   // The status row the mod must never draw on (ADR 0004): recorded, so a test can say it stayed empty.
   on('ui.status', (_$, e) => {
     statuses.push(e.text)
@@ -689,8 +712,14 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     summary: () => (held.unresolved.value as PluginState['dispatch-pilot']['unresolved'] | undefined)?.summary,
     /** Everything the mod keeps under the `unresolved` key: the count, the summary, the turns whose summaries are being written. */
     unresolvedState: () => (held.unresolved.value as PluginState['dispatch-pilot']['unresolved'] | undefined) ?? { count: 0 },
+    /** The person's lasting rules the mod holds now ([] when there are none). */
+    constraints: () => (held.constraints.value as PluginState['dispatch-pilot']['constraints'] | undefined) ?? [],
+    /** The facts of the person's latest turn as the mod holds them (null or undefined: none). */
+    lastTurn: () => held.lastTurn.value as PluginState['dispatch-pilot']['lastTurn'] | undefined,
     /** When the latest pplx requests went out (the rate limit's record in `$.state`, mock clock ms); undefined while none did. */
     pplxRate: (): number[] | undefined => held.pplxRate.value as number[] | undefined,
+    /** The main turn's record in the plan table (`turns`, `main:<turnId>`) as it stands; undefined before the turn started. */
+    turnRecord: (turnId: string) => turnRecords.get(`main:${turnId}`)?.value as TurnRecord | undefined,
     statuses,
     logs,
     steps,
@@ -783,7 +812,6 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
         starts: board?.starts ?? [],
         notes: board?.notes ?? [],
         log: (held.decisionLog.value as LogEntry[] | undefined) ?? [],
-        profiles: (held.skillProfiles.value as ProfilesState | undefined) ?? undefined,
         main: current.find((node) => node.id === 'main'),
         agents: current.filter((node) => node.id !== 'main'),
       }
@@ -995,13 +1023,30 @@ function jevImageRefusal(request: Sent): string | null {
 }
 
 /**
+ * The yes/no answers about an agent's brief (by id within its part) that lead the model table (decision/dispatched-agent.ts,
+ * ADR 0015) to the most probable model of `model`: haiku a read-only lookup of a step or two, sonnet nothing at all, opus an
+ * approach left open, fable a frontier problem (asked with agentFable only).
+ */
+export function leadsTo(model: Readonly<Record<string, number>> | undefined): Record<string, number> {
+  if (model === undefined) return {}
+  const top = Object.entries(model).reduce<[string, number] | null>((best, entry) => (best === null || entry[1] > best[1] ? entry : best), null)?.[0]
+  return top === 'haiku' ? { writes: 0, few_steps: 1, report_only: 1 } : top === 'opus' ? { design_open: 1 } : top === 'fable' ? { frontier: 1 } : {}
+}
+
+/** The ids, within an agent's part, of the yes/no questions about its brief. */
+const BRIEF_IDS: ReadonlySet<string> = new Set(BRIEF_NOULS)
+
+/**
  * A Jev answer to every question of the request it replies to: each `score`
  * question gets `levels` as its probabilities (lowest level first) and
  * `confidence` (0.7 by default), each `choice` the option named in `choice`
  * (or its first), or the probabilities `shares` gives for its question id
  * (options it leaves out get 0), each `noul` the value `nouls` gives for its
- * question id, else 0.5. The unresolved question (`effort.unresolved`) is
- * answered "new or unrelated" unless `shares` says otherwise: no count moves.
+ * question id, else 0.5; the effort part's Nouls (`effort.stakes.undo`,
+ * `effort.still_failing` ...) else 0: no stake, no failure, no count moves.
+ * An agent's Nouls about its brief (`agent.writes`, `agent-2.design_open` ...)
+ * lead the model table to the model `choice` names (`leadsTo`), else read 0:
+ * sonnet, nothing lifted.
  */
 export function jev(levels: readonly number[], extra: AnswerExtra = {}) {
   return (request: Sent): Reply => {
@@ -1024,15 +1069,15 @@ export function jev(levels: readonly number[], extra: AnswerExtra = {}) {
         const probabilities = Object.fromEntries(options.map((o) => [o, shares[o] ?? 0]))
         const pick = options.reduce((best, o) => ((probabilities[o] ?? 0) > (probabilities[best] ?? 0) ? o : best), options[0] ?? '')
         answers[id] = { type: 'choice', choice: pick, probabilities, confidence: 0.5 }
-      } else if (question.type === 'choice' && id === 'effort.unresolved') {
-        // Unless a test says otherwise (`shares`), the message is no word about an earlier problem: the count stays at 0.
-        answers[id] = { type: 'choice', choice: 'new_or_unrelated', probabilities: { still_unresolved: 0, resolved: 0, new_or_unrelated: 1 }, confidence: 1 }
       } else if (question.type === 'choice') {
         const options = Object.keys((question.criteria ?? {}) as Record<string, unknown>)
         const pick = extra.choice ?? options[0] ?? ''
         answers[id] = { type: 'choice', choice: pick, probabilities: Object.fromEntries(options.map((o) => [o, o === pick ? 1 : 0])), confidence: 1 }
       } else {
-        answers[id] = { type: 'noul', noul: extra.nouls?.[id] ?? 0.5 }
+        const local = id.slice(id.indexOf('.') + 1)
+        const brief = id.startsWith('agent') && BRIEF_IDS.has(local)
+        const led = brief ? (leadsTo(extra.choice === undefined ? undefined : { [extra.choice]: 1 })[local] ?? 0) : undefined
+        answers[id] = { type: 'noul', noul: extra.nouls?.[id] ?? led ?? (id.startsWith('effort.') ? 0 : 0.5) }
       }
     }
     return { status: 200, body: { model: JEV_MODEL, answers, usage: { input_tokens: 300, output_tokens: 0 } } }
@@ -1067,47 +1112,57 @@ export function pplx(levels: readonly number[], extra: AnswerExtra & { key?: str
   }
 }
 
-/**
- * A request's body without the unresolved question (#39): it travels in the message's effort request beside the
- * effort question and reads the same state, so the effort-submit eval, which measures the effort question alone,
- * compares its request to the mod's with it left out. (The `unresolved` dataset's eval asks it, #37.)
- */
-export function withoutUnresolved(body: any): any {
-  const { 'effort.unresolved': _asked, ...questions } = body?.questions ?? {}
-  return { ...body, questions }
+/** A request's question ids without an agent's Nouls about its brief (ADR 0015): `agent.effort`, `agent.named.opus`, `agent-1.effort` ... */
+export function withoutBrief(ids: readonly string[]): string[] {
+  return ids.filter((id) => !(id.startsWith('agent') && BRIEF_IDS.has(id.slice(id.indexOf('.') + 1))))
 }
 
-/** The ids of a request's questions, joined: `effort.level` for a message, `midturn.level,escalation.expected` for a stuck loop. The unresolved question travels in the message's effort request (#39) and is left out. */
+/**
+ * The ids of a request's questions, joined: `effort.level` for a message, `agent.effort` for an agent. The Nouls that travel
+ * in a message's effort part beside its effort question (ADR 0014), and an agent's about its brief (ADR 0015), are left out.
+ */
 export function kind(request: Sent | undefined): string {
-  return Object.keys(request?.body?.questions ?? {})
-    .filter((id) => id !== 'effort.unresolved')
+  return withoutBrief(Object.keys(request?.body?.questions ?? {}))
+    .filter((id) => !id.startsWith('effort.') || id === 'effort.level')
     .join(',')
 }
 
-/** Whether a request is a message's second skills request (#11): the shortlist re-read, one `skills.fits.<i>` each. */
+/** Whether a request is a message's second skills request (ADR 0018): the shortlist re-read, one `skills.fits.<i>` each. */
 export function isSecondSkillsRequest(request: Sent): boolean {
   return Object.keys(request.body?.questions ?? {}).some((id) => id.startsWith('skills.fits.'))
 }
 
+/** The skill a `skills.fits.<i>` question asks about: the cookbook's wording names it, `Does the skill 'tdd' do ...`. */
+export function fitsSkill(instructions: unknown): string {
+  return typeof instructions === 'string' ? (/^Does the skill '([^']+)'/.exec(instructions)?.[1] ?? '') : ''
+}
+
 /**
- * Jev answering both requests a message's skills take (#11): the first (each
- * Score `levels`, effort medium by default; `skills.which`, the skills the
- * main agent can load, and `skills.hint`, those only the person can start,
- * each these `shares` of its own options), and the second, where each
- * `skills.fits.<i>` is the fit `fits` gives the skill its instructions name
- * (0 when left out) and `skills.best` puts all on the best-fitting one. `model` is the decision model that answers
- * (`jev` by default, or `pplx`).
+ * Jev answering both requests a message's skills take (ADR 0018): the first (each Score `levels`, effort medium by
+ * default; `skills.which`, the skills the main agent can load, and `skills.hint`, those only the person can start, each
+ * these `shares` of its own options; the three gate questions each saying a skill is needed with 1 less the share `shares`
+ * gives `(none)`, `prose_suffices` the other way round, so `{ '(none)': 1 }` reads as "nothing here needs a skill"), and
+ * the second, where each `skills.fits.<i>` is the fit `fits` gives the skill it names (0 when left out) and each Choice
+ * picks the best-fitting of its options. `model` is the decision model that answers (`jev` by default, or `pplx`).
  */
 export function rates(shares: Record<string, number>, fits: Record<string, number> = {}, levels: readonly number[] = [0, 1, 0, 0, 0], model: typeof jev = jev) {
   return (request: Sent): Reply => {
-    if (!isSecondSkillsRequest(request)) return model(levels, { shares: { 'skills.which': shares, 'skills.hint': shares } })(request)
-    const questions = request.body.questions as Record<string, { instructions?: { skill?: { name?: string } } }>
+    if (!isSecondSkillsRequest(request)) {
+      const needed = 1 - (shares['(none)'] ?? 0)
+      const gate = { 'skills.gate.acts_on_user_system': needed, 'skills.gate.would_follow_documented_procedure': needed, 'skills.gate.prose_suffices': 1 - needed }
+      // A Choice whose options `shares` names none of spreads evenly, as a real one sums to 1.
+      const asked = (request.body?.questions ?? {}) as Record<string, { criteria?: Record<string, unknown> }>
+      const spread = (id: string) => {
+        const options = Object.keys(asked[id]?.criteria ?? {})
+        return options.some((option) => (shares[option] ?? 0) > 0) ? shares : Object.fromEntries(options.map((option) => [option, 1 / options.length]))
+      }
+      return model(levels, { shares: { 'skills.which': spread('skills.which'), 'skills.hint': spread('skills.hint') }, nouls: gate })(request)
+    }
+    const questions = request.body.questions as Record<string, { instructions?: unknown }>
     const nouls: Record<string, number> = {}
     for (const [id, question] of Object.entries(questions)) {
-      if (id.startsWith('skills.fits.')) nouls[id] = fits[question.instructions?.skill?.name ?? ''] ?? 0
+      if (id.startsWith('skills.fits.')) nouls[id] = fits[fitsSkill(question.instructions)] ?? 0
     }
-    const named = Object.values(questions).flatMap((question) => question.instructions?.skill?.name ?? [])
-    const best = named.reduce((top, name) => ((fits[name] ?? 0) > (fits[top] ?? 0) ? name : top), named[0] ?? '')
-    return model(levels, { nouls, shares: { 'skills.best': { [best]: 1 } } })(request)
+    return model(levels, { nouls, shares: { 'skills.which': fits, 'skills.hint': fits } })(request)
   }
 }

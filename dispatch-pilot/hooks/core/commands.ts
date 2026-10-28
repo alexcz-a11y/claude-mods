@@ -10,7 +10,7 @@
 // of a prompt submitted during that reload (it is routed as a plain message).
 
 import { clipToTokens } from '../decision/context.ts'
-import { profileFields, type SkillOption } from '../decision/skills.ts'
+import type { SkillOption } from '../decision/skills.ts'
 
 /** A command the person ran: its name as the engine resolved it, and everything typed after it. */
 export type RanCommand = { command: string; args: string }
@@ -59,12 +59,10 @@ const COMMAND_TOKENS = 150
 /**
  * What the decision model reads about a command turn's command, beside the
  * command as typed (`command` in the state; never the prompt it expands to):
- * its skill's profile in brief, both languages, when one is written, else
  * its description (the skill's, or `$.command.list()`'s). Null when neither
  * is known.
  */
 export function commandState(name: string, skill: SkillOption | undefined, listed: string | undefined): Readonly<Record<string, string>> | null {
-  if (skill?.profile) return { name, ...profileFields(skill.profile, true) }
   const description = (skill?.description || listed || '').trim()
   return description === '' ? null : { name, description: clipToTokens(description, COMMAND_TOKENS) }
 }

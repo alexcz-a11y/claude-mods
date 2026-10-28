@@ -2,7 +2,7 @@
 // mod sends 5 by default, and one message sends two or three (the effort question, the skills' two stages), so the mod queues
 // them itself (`pplxQps`), effort first, and when a 429 comes anyway it asks once more if what time is left allows. Seam 1 (engine events in, what reaches the decision
 // backend and when, and the board, out) on the mock clock; the 429 and its `Retry-After` as the API sends them are seam 2
-// (pplx.test.ts). Every test here sets `decisionModel: pplx` (the default) itself, with `pplxQps` 1 or what it is about.
+// (pplx.test.ts). Every test here sets `decisionModel: pplx` itself (Jev is the default), with `pplxQps` 1 or what it is about.
 
 import { expect, test } from 'claude-code/testing'
 import { readConfig } from '../hooks/core/setup.ts'
@@ -17,7 +17,7 @@ const SKILLS: SkillsWorld = {
 }
 
 const ids = (request: Sent): string[] => Object.keys(request.body?.questions ?? {})
-/** What each request asked, in the order it was sent, with when (mock ms from the start of the test). */
+/** What each request asked (its first question: with one skill, the skills' first request starts with the gate, ADR 0018), in the order it was sent, with when (mock ms from the start of the test). */
 const timeline = (w: { requests: Sent[] }, from = 0) => w.requests.map((request) => [ids(request)[0], request.at - from])
 
 /** pplx answering a message with skills: medium effort, `tdd` suggested. */
@@ -31,22 +31,22 @@ test('one message sends its effort request at once and its skills request a seco
   expect(timeline(w, start)).toEqual([['effort.level', 0]])
 
   await w.clock.advance(1000)
-  expect(timeline(w, start)).toEqual([['effort.level', 0], ['skills.which', 1000]])
+  expect(timeline(w, start)).toEqual([['effort.level', 0], ['skills.gate.acts_on_user_system', 1000]])
   // The skills' second stage is a request too: one more second.
   await w.clock.advance(1000)
   await submitting
-  expect(timeline(w, start)).toEqual([['effort.level', 0], ['skills.which', 1000], ['skills.fits.0', 2000]])
+  expect(timeline(w, start)).toEqual([['effort.level', 0], ['skills.gate.acts_on_user_system', 1000], ['skills.fits.0', 2000]])
 })
 
 test('pplxQps 2 lets two requests out in the same second: the effort and the skills request go together, the second stage follows a second later', { options: { ...PPLX, pplxQps: 2 } }, async ($, on) => {
   const w = world($, on, { backend: answering(), skills: SKILLS })
   const submitting = w.submit('先写一个失败的测试')
   await w.clock.settle()
-  expect(timeline(w)).toEqual([['effort.level', 0], ['skills.which', 0]])
+  expect(timeline(w)).toEqual([['effort.level', 0], ['skills.gate.acts_on_user_system', 0]])
 
   await w.clock.advance(1000)
   await submitting
-  expect(timeline(w)).toEqual([['effort.level', 0], ['skills.which', 0], ['skills.fits.0', 1000]])
+  expect(timeline(w)).toEqual([['effort.level', 0], ['skills.gate.acts_on_user_system', 0], ['skills.fits.0', 1000]])
 })
 
 test("the effort request of a message goes before a skills request that was queued earlier: two messages at once, one place a second", { options: PPLX }, async ($, on) => {
@@ -66,14 +66,14 @@ test("the effort request of a message goes before a skills request that was queu
     ['effort.level', '再补一个集成测试', 1000],
   ])
   await w.clock.advance(1000)
-  expect(timeline(w).slice(2)).toEqual([['skills.which', 2000]])
+  expect(timeline(w).slice(2)).toEqual([['skills.gate.acts_on_user_system', 2000]])
   await w.clock.advance(10_000)
   await Promise.all([first, second])
   expect(w.requests.map((request) => [ids(request)[0], request.at])).toEqual([
     ['effort.level', 0],
     ['effort.level', 1000],
-    ['skills.which', 2000],
-    ['skills.which', 3000],
+    ['skills.gate.acts_on_user_system', 2000],
+    ['skills.gate.acts_on_user_system', 3000],
     ['skills.fits.0', 4000],
     ['skills.fits.0', 5000],
   ])
@@ -108,20 +108,20 @@ test('a request that cannot be sent before its wait runs out is not held up for 
 
   // The skills request would be sent at 1000, after the 500 ms it may take: it was never sent.
   expect(timeline(w)).toEqual([['effort.level', 0]])
-  expect(w.logs.map((log) => log.text).filter((text) => text.includes('skills.which'))).toEqual([expect.stringContaining('to pplx: timeout: no answer in 500 ms')])
+  expect(w.logs.map((log) => log.text).filter((text) => text.includes('skills.gate.acts_on_user_system'))).toEqual([expect.stringContaining('to pplx: timeout: no answer in 500 ms')])
 })
 
 test('the time in the queue is taken from the request\'s own wait: a skills request sent at 1000 has what is left of 1500', { options: { ...PPLX, timeoutMs: 1500 } }, async ($, on) => {
-  const w = world($, on, { backend: (request) => (ids(request).includes('skills.which') ? { after: 700, reply: answering()(request) } : answering()(request)), skills: SKILLS })
+  const w = world($, on, { backend: (request) => (ids(request).includes('skills.gate.acts_on_user_system') ? { after: 700, reply: answering()(request) } : answering()(request)), skills: SKILLS })
   const submitting = w.submit('先写一个失败的测试')
   await w.clock.settle()
   await w.clock.advance(1000)
-  expect(timeline(w)).toEqual([['effort.level', 0], ['skills.which', 1000]])
+  expect(timeline(w)).toEqual([['effort.level', 0], ['skills.gate.acts_on_user_system', 1000]])
 
   // 700 ms after the send is 1700, 200 past the wait of 1500 counted from the ask.
   await w.clock.advance(500)
   await submitting
-  expect(w.logs.map((log) => log.text).filter((text) => text.includes('[skills.which]'))).toEqual([expect.stringContaining('to pplx: timeout: no answer in 1500 ms')])
+  expect(w.logs.map((log) => log.text).filter((text) => text.includes('[skills.gate.acts_on_user_system,'))).toEqual([expect.stringContaining('to pplx: timeout: no answer in 1500 ms')])
 })
 
 test('a record that cannot be written lets the request out, and the debug log says the limit was not kept for it', { options: PPLX }, async ($, on) => {
@@ -129,7 +129,7 @@ test('a record that cannot be written lets the request out, and the debug log sa
   await w.submit('先写一个失败的测试')
 
   expect(timeline(w)).toEqual([['effort.level', 0]])
-  expect(w.logs.map((log) => log.text).filter((text) => text.includes('[effort.level]'))).toEqual([expect.stringContaining('rate limit not kept (the record of sends could not be written after 8 tries)')])
+  expect(w.logs.map((log) => log.text).filter((text) => text.includes('[effort.level'))).toEqual([expect.stringContaining('rate limit not kept (the record of sends could not be written after 8 tries)')])
 })
 
 // ---- a 429 ----------------------------------------------------------------------------------------
@@ -223,7 +223,7 @@ test('the retry takes a place like any request, and keeps its priority: a 429 th
   await w.clock.advance(1000)
   expect(timeline(w)).toEqual([['effort.level', 0], ['effort.level', 1000]])
   await w.clock.advance(1000)
-  expect(timeline(w).slice(2)).toEqual([['skills.which', 2000]])
+  expect(timeline(w).slice(2)).toEqual([['skills.gate.acts_on_user_system', 2000]])
   await w.clock.advance(5000)
   await submitting
 })

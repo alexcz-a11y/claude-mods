@@ -7,7 +7,7 @@ import { expect, test } from 'claude-code/testing'
 import { parseWorkflow, rewriteWorkflow, type CallWrite, type ParsedWorkflow } from '../hooks/decision/workflow-script.ts'
 import { problemBackground, problemFields, readingBackground, tellsTheWork } from '../hooks/decision/workflow.ts'
 import { submissionOf } from '../hooks/decision/workflow-labels.ts'
-import { renderSummary } from '../hooks/decision/summary.ts'
+import { summaryState } from '../hooks/decision/summary.ts'
 
 const META = "export const meta = { name: 'demo', description: 'A demo workflow', phases: [] }\n"
 
@@ -233,12 +233,15 @@ test('how a Workflow call hands over its script: a path, a name (or no script), 
 
 test("the background of a request: the problem summary and the count while there are any, the reading when there is one; what is absent, or a count of 0, is left out", () => {
   const summary = { problem: 'The build fails on CI.', tried: [{ text: 'Cleared the cache.' }], status: 'Still failing.' }
-  expect(problemBackground(undefined, 'en')).toEqual({})
-  expect(problemBackground({ count: 0 }, 'en')).toEqual({})
-  expect(problemBackground({ count: 2 }, 'en')).toEqual({ unresolved_count: 2 })
-  expect(problemBackground({ count: 0, summary }, 'zh')).toEqual({ problem_summary: renderSummary(summary, 'zh') })
-  expect(problemBackground({ count: 3, summary }, 'en')).toEqual({ problem_summary: renderSummary(summary, 'en'), unresolved_count: 3 })
-  expect(problemFields({ problem_summary: 'kept', unresolved_count: 0 })).toEqual({ problem_summary: 'kept' })
+  expect(problemBackground(undefined, true)).toEqual({})
+  expect(problemBackground({ count: 0 }, true)).toEqual({})
+  expect(problemBackground({ count: 2 }, true)).toEqual({ unresolved_count: 2 })
+  expect(problemBackground({ count: 0, summary }, true)).toEqual({ problem_summary: summaryState(summary) })
+  expect(problemBackground({ count: 3, summary }, true)).toEqual({ problem_summary: summaryState(summary), unresolved_count: 3 })
+  // The summary's switch off: the count still goes, the summary does not.
+  expect(problemBackground({ count: 3, summary }, false)).toEqual({ unresolved_count: 3 })
+  const kept = summaryState(summary)
+  expect(problemFields({ problem_summary: kept, unresolved_count: 0 })).toEqual({ problem_summary: kept })
   expect(problemFields(undefined)).toEqual({})
   expect(readingBackground(undefined)).toEqual({})
   expect(readingBackground({ level: 2, images: 1 })).toEqual({ reference_complexity: { level: 2, images: 1 } })

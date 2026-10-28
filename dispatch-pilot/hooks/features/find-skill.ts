@@ -2,11 +2,14 @@
 // listing (features/skills.ts, ADR 0002), so when, partway through a turn,
 // the work turns out to need a skill nobody suggested, the main agent can ask:
 // it calls the tool with a few words on the work, and the decision model rates
-// the session's skills against them, the same way it rates them beside a
-// message (the same ranker, `modRanker`, in the same two stages (#11), over the
-// same skills and their profiles, with the recent conversation read by the
-// same rules). Nothing is pushed: the skills come back only as the tool's
-// answer.
+// the session's skills against them with the ranker it picks a message's skill
+// with (`modRanker`, ADR 0018), over the same skills by their own descriptions,
+// with the recent conversation read by the same rules. Two differences: the
+// main agent has asked for a skill, so the gate (does this need a skill at
+// all) is not asked; and it may get several back, so stage two re-reads as
+// many as it may return (findSkillMax) and returns every one whose fit reaches
+// the bar, best first. Nothing is pushed: the skills come back only as the
+// tool's answer.
 //
 // Its switch is `find-skill` (`/dp find-skill off`), apart from `skills`
 // (spec #56). The tool stays registered whatever the switches say, with a
@@ -16,13 +19,13 @@
 import type { EngineInterface, HttpInit, On } from 'claude-code'
 import { type Asked, type BackendIo, describeAsked, errorText, failureText } from '../decision/backend.ts'
 import { turnStartState } from '../decision/context.ts'
+import { fitsBarText, type SkillBars } from '../decision/guides.ts'
 import { quoteStart } from '../decision/redact.ts'
-import { modRanker, pickSkills, skillOpening, type SkillPick, type SkillPolicy, type SkillRanking } from '../decision/skills.ts'
+import { findSkills, modRanker, skillOpening, type SkillPick } from '../decision/skills.ts'
 import { answersFor, mergeParts, type DecisionRequest } from '../decision/system-one.ts'
-import { readSessionSkills } from '../core/profiles.ts'
 import { report, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
-import { describeStages, rankingSettings, secondStageMs, type CatalogSkill } from '../core/skills.ts'
+import { describeStages, loadCatalog, rankingSettings, secondStageMs, type CatalogSkill } from '../core/skills.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
 
 const CATALOG = { plugin: 'dispatch-pilot', key: 'skillCatalog' } as const
@@ -32,8 +35,6 @@ const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'find-skill'
-/** The skills feature's switch for profiles (#11): off, skills are rated by their descriptions here too. */
-const PROFILES = 'skill-profiles'
 /** The tool's name; the model calls it as `mcp__dispatch-pilot__find_skill`. */
 const TOOL = 'find_skill'
 const TOOL_CALLED = 'mcp__dispatch-pilot__find_skill'
@@ -57,28 +58,24 @@ const CARRY_ON = 'Carry on without it, or load a skill you know with the Skill t
 
 /**
  * The session's skills: as read earlier this session (the skills feature
- * reads them at its start), else read now, with the profiles the store holds
- * (#11), and kept for the session; null when the session cannot be read.
+ * reads them at its start), else read now and kept for the session; null
+ * when the session cannot be read.
  */
-async function sessionCatalog($: EngineInterface, model: string): Promise<CatalogSkill[] | null> {
+async function sessionCatalog($: EngineInterface): Promise<CatalogSkill[] | null> {
   const { value } = await $.state.get(CATALOG)
   if (value) return value.skills
-  const found = await readSessionSkills(
-    {
-      commands: () => $.command.list(),
-      listed: async () => (await $.session.usage({ breakdown: 'summary' })).context.breakdown?.skills?.skillFrontmatter ?? [],
-      overrides: async (source) => (await $.settings.read({ source })).skillOverrides,
-      home: () => $.env.get('HOME'),
-      cwd: () => $.session.cwd(),
-      exists: (path) => $.fs.exists(path),
-      read: (path) => $.fs.read(path),
-      list: (path) => $.fs.list(path),
-      get: (key) => $.store.get(key),
-    },
-    model,
-  )
-  if (found !== null) await $.state.set(CATALOG, { skills: found.skills })
-  return found?.skills ?? null
+  const skills = await loadCatalog({
+    commands: () => $.command.list(),
+    listed: async () => (await $.session.usage({ breakdown: 'summary' })).context.breakdown?.skills?.skillFrontmatter ?? [],
+    overrides: async (source) => (await $.settings.read({ source })).skillOverrides,
+    home: () => $.env.get('HOME'),
+    cwd: () => $.session.cwd(),
+    exists: (path) => $.fs.exists(path),
+    read: (path) => $.fs.read(path),
+    list: (path) => $.fs.list(path),
+  }).catch(() => null)
+  if (skills !== null) await $.state.set(CATALOG, { skills })
+  return skills
 }
 
 /** One decision request for find_skill through the person's decision model, its outcome in the debug log. */
@@ -106,11 +103,11 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
 
   /** Skills never offered (the option the skills feature reads too). */
   const neverSuggested = new Set(ctx.config.skills.neverSuggested)
-  const policy = (): SkillPolicy => ctx.config.skills.find
-  /** How the mod's ranker ranks: the settings it rates the skills beside each message with. */
-  const rankBy = rankingSettings(ctx)
-  /** The model whose profiles the skills are offered by (#11). */
-  const model = ctx.config.skills.profileModel
+  /** The decision model's bars (decision/guides.ts), and how many skills come back at most (findSkillMax). */
+  const bars = () => ctx.config.guide.skills
+  const most = () => ctx.config.skills.findMax
+  /** How the mod's ranker ranks for find_skill: no gate, as many re-read as may come back. */
+  const rankBy = rankingSettings(ctx, 'find')
 
   // Registered once every plugin is loaded, under a match-all matcher (other
   // features set themselves up at session start too). Without a decision
@@ -150,15 +147,16 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
     // The main agent's own call, beside its decision for the turn: in the log, not on its node.
     const call = { feature: SWITCH, agent: 'main', aside: true as const }
     try {
-      // The skills the main agent can load, as a message asks about them: their question of stage
-      // one is the very one beside a message (those only the person can start have one of their
-      // own, which is not asked: they never come back); each by its profile, as beside a message,
-      // unless profiles are switched off.
-      const known = await sessionCatalog($, model)
-      const candidates = known?.filter((skill) => skill.by === 'model' && !neverSuggested.has(skill.name)).map((skill) => (isOn(PROFILES) ? skill : { ...skill, profile: null })) ?? null
+      // The skills the main agent can load (those only the person can start never come back), each by its own description.
+      const known = await sessionCatalog($)
+      const candidates = known?.filter((skill) => skill.by === 'model' && !neverSuggested.has(skill.name)) ?? null
       if (candidates === null) {
         await report(io, { decision: { ...call, skipped: 'unread' as const } })
         return { result: `find_skill could not read this session's skills. ${CARRY_ON}` }
+      }
+      if (candidates.length === 0) {
+        await report(io, { decision: { ...call, skipped: 'none' as const } })
+        return { result: `This session has no skill that find_skill could return. ${CARRY_ON}` }
       }
       const about = `for find_skill ${quoteStart(query)}`
       const ranker = modRanker(
@@ -168,25 +166,19 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
         },
         rankBy,
       )
-      // The first request offers each skill by its profile where the decision model can read them all in time
-      // (BACKEND_DEFAULTS findSkillProfiles), else by its description; the second re-reads by both.
-      const part = ranker.part(ctx.config.skills.findByProfile ? candidates : candidates.map((skill) => ({ ...skill, profile: null })))
-      if (part === null) {
-        await report(io, { decision: { ...call, skipped: 'none' as const } })
-        return { result: `This session has no skill that find_skill could return. ${CARRY_ON}` }
-      }
 
-      // The same state as beside a message, the work named in place of the message; the ranker's second
-      // request (#11) asks about the same. Both requests share one wait: the second gets what the first left
-      // of it, and with Jev 800 ms at least (core/skills.ts secondStageMs). The wait is the decision model's (findWaitMs: a message's timeoutMs with Jev),
-      // within the hook's own 10 s.
+      // The same state as beside a message, the work named in place of the message; the ranker's second request asks
+      // about the same. Both requests share one wait: the second gets what the first left of it, and with Jev 800 ms at
+      // least (core/skills.ts secondStageMs). The wait is the decision model's (findWaitMs: a message's timeoutMs with
+      // Jev), within the hook's own 10 s. With one skill alone there is no Choice to ask first: it is re-read at once.
       const waitMs = ctx.config.skills.findWaitMs
       const startedAt = await $.clock.now()
       const messages = ctx.config.context.messages > 0 ? await $.session.messages().catch(() => []) : []
-      const request = mergeParts(turnStartState({ prompt: query, messages, limits: ctx.config.context }), [part])
-      const asked = await askLogged($, ctx, 'request', about, request, waitMs)
+      const state = turnStartState({ prompt: query, messages, limits: ctx.config.context })
+      const part = ranker.part(candidates)
+      const asked: Asked = part === null ? { ok: true, answers: {}, model: null, inputTokens: null } : await askLogged($, ctx, 'request', about, mergeParts(state, [part]), waitMs)
       const left = secondStageMs(waitMs, (await $.clock.now()) - startedAt, ctx.config.skills.secondStageMs)
-      const ranked = asked.ok ? await ranker.rank(answersFor(part, asked.answers), candidates, { state: request.state, timeoutMs: left }) : null
+      const ranked = asked.ok ? await ranker.rank(part === null ? {} : answersFor(part, asked.answers), candidates, { state, timeoutMs: left }) : null
       const unranked = { kind: 'parse' as const, detail: 'no answer about the skills' }
       const lost = !asked.ok ? asked.failure : ranked === null ? unranked : ranked.failed
       if (ranked === null || lost !== undefined) {
@@ -196,20 +188,19 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
         return { result: `find_skill could not rate the skills (${why}). ${CARRY_ON}` }
       }
 
-      // Only skills the main agent can load were asked about, and they alone can come back.
-      const { suggest } = pickSkills(ranked, candidates, policy())
-      const names = suggest.map((skill) => skill.name).join('、')
+      const picks = findSkills(ranked, candidates, bars(), most())
+      const names = picks.map((skill) => skill.name).join('、')
       await report(io, {
         decision: {
           ...call,
           subject: quoteStart(query),
-          outcome: suggest.length > 0 ? `查到 ${names}` : '没查到 skill',
-          reason: describeRanking(ranked, policy()),
-          tone: suggest.length > 0 ? 'ok' : 'info',
-          skills: { suggest: suggest.map(({ name, relevance }) => ({ name, relevance })), try: [] },
+          outcome: picks.length > 0 ? `查到 ${names}` : '没查到 skill',
+          reason: `${describeStages(ranked, bars(), 'find')}；最多返回 ${most()} 个`,
+          tone: picks.length > 0 ? 'ok' : 'info',
+          skills: { suggest: picks.map(({ name, relevance }) => ({ name, relevance })), try: [] },
         },
       })
-      return { result: found(query, suggest, policy()) }
+      return { result: found(query, picks, bars()) }
     } catch (error) {
       $.ui.log(`find_skill failed: ${errorText(error)}`, { to: 'debug' })
       await report(io, { decision: { ...call, skipped: 'error' as const } })
@@ -218,18 +209,13 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
   })
 }
 
-/** Why: what each stage of the ranking said (`describeStages`), and the bar a skill had to reach. */
-function describeRanking(ranking: SkillRanking, policy: SkillPolicy): string {
-  return `${describeStages(ranking)}；相关度 ${policy.minRelevance.toFixed(2)} 起返回，最多 ${policy.max} 个`
-}
-
 /** The answer: the skills that fit, each by name, relevance and description, most relevant first; or that none does. */
-function found(query: string, suggest: readonly SkillPick[], policy: SkillPolicy): string {
-  if (suggest.length === 0) {
-    return `No skill fits "${query}": none reached relevance ${policy.minRelevance.toFixed(2)}. Carry on without one, try other words for the work, or load a skill you know with the Skill tool by its exact name.`
+function found(query: string, picks: readonly SkillPick[], bars: SkillBars): string {
+  if (picks.length === 0) {
+    return `No skill fits "${query}": none reached relevance ${fitsBarText(bars)}. Carry on without one, try other words for the work, or load a skill you know with the Skill tool by its exact name.`
   }
   return [
     `Skills that fit "${query}", rated by Dispatch Pilot’s decision model (relevance 0 to 1), most relevant first. Load one with the Skill tool by its exact name if it fits the work:`,
-    ...suggest.map((skill) => `- ${skill.name} (relevance ${skill.relevance.toFixed(2)})${skill.description ? `: ${skill.description}` : ''}`),
+    ...picks.map((skill) => `- ${skill.name} (relevance ${skill.relevance.toFixed(2)})${skill.description ? `: ${skill.description}` : ''}`),
   ].join('\n')
 }

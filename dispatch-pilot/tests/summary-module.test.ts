@@ -4,7 +4,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens, turnStartState, type ContextMessage } from '../hooks/decision/context.ts'
-import { markLast, readSummary, renderSummary, summaryPrompt, SUMMARY_FIELD, SUMMARY_SYSTEM, SUMMARY_TOKENS, turnTools, type Summary } from '../hooks/decision/summary.ts'
+import { markLast, readSummary, renderSummary, summaryPrompt, summaryState, SUMMARY_FIELD, SUMMARY_SYSTEM, SUMMARY_TOKENS, turnTools, type Summary } from '../hooks/decision/summary.ts'
 import { messageRequest, turnStartPart } from '../hooks/decision/turn-start.ts'
 
 test('a reply is read into the fixed structure: the problem in a sentence, what was tried item by item (the marked one flagged), the status', () => {
@@ -99,22 +99,21 @@ test('the tools of the turn that just ended are the ones called after the person
   expect(turnTools([])).toBe('')
 })
 
-test('the effort part of a message\'s request is the effort question; the unresolved question joins it when asked, and the command and the summary are fields of the state', () => {
+test("the effort part of a message's request: the effort question and its Nouls; the command and the summary are fields of the state, the summary with named fields", () => {
   const plain = turnStartPart({ ask: { language: 'zh' } })
   expect(plain.part).toBe('effort')
-  expect(Object.keys(plain.questions)).toEqual(['level'])
+  expect(Object.keys(plain.questions)[0]).toBe('level')
   expect(plain.state).toBeUndefined()
 
-  const full = turnStartPart({ ask: { language: 'zh' }, unresolved: true, command: { name: 'debug', description: '系统地排查一个故障' }, summary: SUMMARY })
-  // Still the effort part: it goes in the request of its own, with the state of 24000 tokens.
+  const full = turnStartPart({ ask: { language: 'zh' }, command: { name: 'debug', description: '系统地排查一个故障' }, summary: SUMMARY })
+  // Still the effort part: it goes in the request of its own.
   expect(full.part).toBe('effort')
-  expect(Object.keys(full.questions)).toEqual(['level', 'unresolved'])
-  expect(full.state).toEqual({ command: { name: 'debug', description: '系统地排查一个故障' }, [SUMMARY_FIELD]: renderSummary(SUMMARY, 'zh') })
+  expect(Object.keys(full.questions)).toEqual(Object.keys(plain.questions))
+  expect(full.state).toEqual({ command: { name: 'debug', description: '系统地排查一个故障' }, [SUMMARY_FIELD]: summaryState(SUMMARY) })
 
-  // In English the summary is worded in English, like the questions.
+  // The summary's fields are the same in either language: what the cheap model wrote, in English since 0.9.0.
   const english = turnStartPart({ ask: { language: 'en' }, summary: SUMMARY })
-  expect(english.state).toEqual({ [SUMMARY_FIELD]: renderSummary(SUMMARY, 'en') })
-  expect(Object.keys(english.questions)).toEqual(['level'])
+  expect(english.state).toEqual({ [SUMMARY_FIELD]: summaryState(SUMMARY) })
 })
 
 test('the fields a part adds to the state are counted in the state\'s budget: the conversation gives way to them, so the whole state still fits (a decision model may read only the head of a long state, and sort its keys)', () => {
@@ -128,7 +127,7 @@ test('the fields a part adds to the state are counted in the state\'s budget: th
   expect(estimateTokens(JSON.stringify(without.state))).toBeLessThanOrEqual(2000)
   // The summary is whole, the message too; the conversation is what gave way.
   expect(withSummary.state.user_message).toBe('还是不行')
-  expect(String(withSummary.state[SUMMARY_FIELD])).toContain('第 5 次')
+  expect(JSON.stringify(withSummary.state[SUMMARY_FIELD])).toContain('第 5 次')
   expect(estimateTokens(String(withSummary.state.recent_context))).toBeLessThan(estimateTokens(String(without.state.recent_context)))
   // A part with no fields leaves the budget as it was.
   expect(without.state).toEqual(turnStartState({ prompt: '还是不行', messages, limits }))

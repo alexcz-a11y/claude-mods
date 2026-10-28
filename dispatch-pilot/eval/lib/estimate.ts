@@ -11,16 +11,19 @@ import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
 /**
  * What each decision model counted over the mod's estimate of the same text. Jev: 6468 tokens for 8 effort-submit requests
  * estimated at 4127 (2026-10-04), so 1.6. Perplexity counts differently, by the kind of text: against the estimate (without the
- * factor) its input tokens were 0.7 times for the skill suite, 0.9 for effort-submit, 1.0 for effort-midturn, 1.7 for subagent and
+ * factor) its input tokens were 0.7 times for the skill suite, 0.9 for effort-submit, 1.0 for the mid-turn suite (since removed), 1.7 for subagent and
  * 2.9 for unresolved (2026-10-07: the long logs of its conversations tokenize four times as densely as the estimate's four
  * characters a token), so its factor is 3, so as never to estimate less than a run costs.
  */
-export const ESTIMATE_FACTOR: Readonly<Record<BackendName, number>> = { jev: 1.6, pplx: 3 }
+export const ESTIMATE_FACTOR: Readonly<Record<BackendName, number>> = { jev: 1.6, pplx: 3, 'd1-ultra': 1.1 }
 
 /**
  * What Liquid's d1-ultra counted over the mod's estimate (lib/d1.ts): 0.86-0.97 of it for effort-submit's requests and a
- * Chinese conversation of 12000-28000 estimated tokens (2026-10-15), so 1.1. It counts each question with the whole state
- * ("Each question is billed as its own prompt"): `estimateRunPerQuestion`.
+ * Chinese conversation of 12000-28000 estimated tokens (2026-10-15), 1.092 for a conversation half Chinese and half English
+ * with code (2026-10-28), so 1.1. On 2026-10-15 it billed each question with the whole state ("Each question is billed as its
+ * own prompt"), so the old `--backend d1` runs estimate with `estimateRunPerQuestion`; on 2026-10-28 ten questions over one
+ * state were billed 1,641 tokens (the console's "billed its state and images once plus each question's own tokens"), so that
+ * estimate is now high, never low.
  */
 export const D1_ESTIMATE_FACTOR = 1.1
 
@@ -37,7 +40,9 @@ export function estimateRunPerQuestion(requests: readonly DecisionRequest[], opt
 /** A request's estimated tokens: its text as the mod estimates it (the request as it goes out, with its model, less the images), and its pictures as the decision model counts them. */
 export function estimateRequest(request: DecisionRequest, model: string, backend: BackendName): { text: number; images: number } {
   const { images = [], ...text } = request
-  return { text: estimateTokens(JSON.stringify({ model, ...text })), images: imageTokens(backend, images, Object.keys(request.questions).length) }
+  // d1-ultra is sent no images (they stay with Jev, ADR 0017): a request of it has none to count.
+  const pictures = backend === 'd1-ultra' ? 0 : imageTokens(backend, images, Object.keys(request.questions).length)
+  return { text: estimateTokens(JSON.stringify({ model, ...text })), images: pictures }
 }
 
 /**

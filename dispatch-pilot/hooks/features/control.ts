@@ -43,9 +43,10 @@ export function registerControl(on: On, ctx: Ctx): void {
     // The person's switches first: the features beneath read them while the session starts.
     loadOverrides(await $.store.get(SWITCHES_KEY).catch(() => undefined))
     // The environment's keys (the options' come first), for the requests that follow; never written down, only where they came from.
-    // Read before anything is said of the decision model: whether it is pplx or Jev, and who takes images, depends on them (core/setup.ts, `Ctx`).
+    // Read before anything is said of the decision model: who takes images depends on them (core/setup.ts, `Ctx`).
     ctx.secrets.perplexityEnvKey = ((await $.env.get('PERPLEXITY_API_KEY').catch(() => undefined)) ?? '').trim()
     ctx.secrets.typesafeEnvKey = ((await $.env.get('TYPESAFE_API_KEY').catch(() => undefined)) ?? '').trim()
+    ctx.secrets.liquidEnvKey = ((await $.env.get('LIQUID_API_KEY').catch(() => undefined)) ?? '').trim()
     // Which options the decision model's defaults decided (core/setup.ts BACKEND_DEFAULTS).
     $.ui.log(describeDefaults(ctx.config), { to: 'debug' })
     const modelIo: DecisionModelIo = {
@@ -53,13 +54,12 @@ export function registerControl(on: On, ctx: Ctx): void {
       decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
       debug: (line) => $.ui.log(line, { to: 'debug' }),
     }
-    // Jev decides only for want of a Perplexity key: the decision log says so (ADR 0006), where the person looks for why.
-    if (ctx.fellBack) await report(modelIo, { fellBack: { asked: 'pplx', using: 'jev' } })
     // The model that takes images (#56, ADR 0008) is chosen by the keys alone: pplx for want of a TypeSafe key is said once; none, in the debug log.
     const images = ctx.images
     if (images === null) $.ui.log('images: no decision model takes them (no TypeSafe or Perplexity key)', { to: 'debug' })
     else if (images.fellBack) await report(modelIo, { fellBack: { asked: 'jev', using: images.name, for: 'images' } })
     if (ctx.config.backend === 'pplx') $.ui.log(`pplx key: ${keySource(ctx.config.perplexityApiKey, ctx.secrets.perplexityEnvKey, 'PERPLEXITY_API_KEY')}`, { to: 'debug' })
+    if (ctx.config.backend === 'd1-ultra') $.ui.log(`d1-ultra key: ${keySource(ctx.config.liquidApiKey, ctx.secrets.liquidEnvKey, 'LIQUID_API_KEY')}`, { to: 'debug' })
     // Jev's key serves the decisions when Jev decides and the images when Jev takes them (whatever decides the rest).
     if (ctx.config.backend === 'jev' || images?.name === 'jev') $.ui.log(`jev key: ${keySource(ctx.config.typesafeApiKey, ctx.secrets.typesafeEnvKey, 'TYPESAFE_API_KEY')}`, { to: 'debug' })
     // A decisionModel left over in the person's settings that names a model since removed: the engine reads it as the default.

@@ -4,12 +4,11 @@
 import { expect, test } from 'claude-code/testing'
 import type { SessionMessage } from 'claude-code'
 import { estimateTokens, turnStartState } from '../hooks/decision/context.ts'
-import { turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
-import { withUnresolved } from '../hooks/decision/unresolved.ts'
+import { turnStartPart } from '../hooks/decision/turn-start.ts'
 import { workflowWorld } from './support/workflow.ts'
-import { jev, KEY, type Reply, UNRESOLVED_ON, world } from './support/world.ts'
+import { jev, KEY, OWN_EFFORT as OWN, REPORT_EFFORT as REPORT, type Reply, UNRESOLVED_ON, world } from './support/world.ts'
 
 test('a message gets one Jev decision, and its turn goes out at the decided effort', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })
@@ -24,8 +23,8 @@ test('a message gets one Jev decision, and its turn goes out at the decided effo
   expect(request?.headers.authorization).toBe('Bearer ts-test-key')
   expect(request?.body.model).toBe(JEV_MODEL)
   expect(request?.body.state.user_message).toBe('把登录模块重构成三层，并补上测试')
-  // One Score question with five levels, lowest first (low .. max)
-  expect(Object.keys(request?.body.questions)).toEqual(['effort.level', 'effort.unresolved'])
+  // The effort question, a Score of five levels lowest first (low .. max), and its Nouls
+  expect(Object.keys(request?.body.questions)).toEqual(OWN)
   expect(request?.body.questions['effort.level'].type).toBe('score')
   expect(request?.body.questions['effort.level'].criteria).toHaveLength(5)
   expect(w.steps.map((s) => s.effort)).toEqual(['high'])
@@ -143,14 +142,14 @@ test("a 429 whose Retry-After the wait covers is asked once more after it (decis
   expect((await w.board()).main).toMatchObject({ effort: 'high', routed: true })
 })
 
-test('no key of either kind: nothing is sent, the turn keeps the engine effort, the board says to set the Perplexity key', async ($, on) => {
+test('no key of either kind: nothing is sent, the turn keeps the engine effort, the board says to set the TypeSafe key (Jev decides by default)', async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
   await w.submit('解释一下这个函数做了什么')
   await w.step({ index: 0, effort: 'medium' })
 
   expect(w.requests).toHaveLength(0)
   expect(w.steps.map((s) => s.effort)).toEqual(['medium'])
-  expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, why: 'pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY', failure: { backend: 'pplx', kind: 'config', detail: 'no Perplexity API key: set perplexityApiKey or PERPLEXITY_API_KEY' } })
+  expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, why: 'jev：没有填 typesafeApiKey 或 TYPESAFE_API_KEY', failure: { backend: 'jev', kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey or TYPESAFE_API_KEY' } })
 })
 
 test('a decision that comes back after a failure leaves no reason on the next turn', { options: KEY }, async ($, on) => {
@@ -182,8 +181,9 @@ test("what is not the person's own new message is not decided, and changes no tu
 })
 
 // A turn that a dispatched agent's hand-back or a background task's notice starts (the session was idle: no running turn
-// to join) is the main agent's turn like any other: it gets the same effort question, the report's text read as the message.
-// Nothing is asked about skills (it is no request of the person's), and a lock of the person's still holds.
+// to join) is the main agent's turn like any other: it gets the effort question, the stakes and the unknown cause, the
+// report's text read as the message. Nothing is asked about the person's words (whether it still fails, a lasting rule) or
+// about skills (it is no request of the person's), and a lock of the person's still holds.
 
 const REPORTS = [
   { name: 'a background task notice', origin: { kind: 'task-notification' } as const, text: 'Background task "lint" completed' },
@@ -197,7 +197,7 @@ for (const report of REPORTS) {
     await w.step({ index: 0, effort: 'xhigh' })
 
     expect(w.requests).toHaveLength(1)
-    expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['effort.level'])
+    expect(Object.keys(w.requests[0]?.body.questions)).toEqual(REPORT)
     expect(w.requests[0]?.body.state.user_message).toBe(report.text)
     expect(w.steps.map((s) => String(s.effort))).toEqual(['low'])
     expect((await w.board()).main).toMatchObject({ effort: 'low', routed: true })
@@ -212,8 +212,8 @@ test('a report that starts a turn is asked no skill question, though a message o
   await w.submit('先写一个失败的测试')
   await w.submit('Background task "lint" completed', { origin: { kind: 'task-notification' } })
 
-  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toContain('skills.which')
-  expect(Object.keys(w.requests.at(-1)?.body.questions)).toEqual(['effort.level'])
+  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toContain('skills.gate.acts_on_user_system')
+  expect(Object.keys(w.requests.at(-1)?.body.questions)).toEqual(REPORT)
 })
 
 test("the person's lock holds over a report's decision: the turn goes out at the locked effort", { options: KEY }, async ($, on) => {
@@ -354,8 +354,8 @@ test('what the mod sends is exactly what the decision module builds, so the eval
   const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 1, 0, 0, 0]), messages: TRANSCRIPT })
   await w.submit('改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉')
 
-  // Jev is asked about the effort in Chinese (core/setup.ts BACKEND_DEFAULTS, Jev's ask.turnStart).
-  const built = mergeParts(turnStartState({ prompt: '改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉', messages: TRANSCRIPT, limits: { messages: 4, tokens: 2000 } }), [withUnresolved(turnStartEffortPart({ language: 'zh' }), 'zh')])
+  // Jev is asked in English (core/setup.ts BACKEND_DEFAULTS, Jev's ask.turnStart; ADR 0014).
+  const built = mergeParts(turnStartState({ prompt: '改吧，顺便把 token=abcd1234efgh5678 这个硬编码也去掉', messages: TRANSCRIPT, limits: { messages: 4, tokens: 2000 } }), [turnStartPart({ ask: { language: 'en' } })])
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, ...built })
 })
 
@@ -386,14 +386,14 @@ test('each request and decision is written to the debug log, never into the conv
 
   expect(w.logs.map((l) => l.to)).toEqual(['debug', 'debug', 'debug'])
   expect(w.logs.map((l) => l.text)).toEqual([
-    `request [effort.level] to jev: answered in 0 ms by ${JEV_MODEL} (300 input tokens)`,
-    'effort high · "把登录模块重构成三层"：概率 low 0.05, medium 0.10, high 0.60, xhigh 0.20, max 0.05；置信度 0.70',
-    'request [effort.level] to jev: http: HTTP 500: boom (0 ms)',
+    `request [${OWN.join(', ')}] to jev: answered in 0 ms by ${JEV_MODEL} (300 input tokens)`,
+    'effort high · "把登录模块重构成三层"：概率 low 0.05, medium 0.10, high 0.60, xhigh 0.20, max 0.05；位置 2.10；置信度 0.70（只记录）',
+    `request [${OWN.join(', ')}] to jev: http: HTTP 500: boom (0 ms)`,
   ])
 })
 
-test('max is used only when its own probability reaches thetaMax', { options: { ...KEY, thetaMax: 0.6 } }, async ($, on) => {
-  // Most likely max, but at 0.5, below thetaMax: the most likely of the rest.
+test('the level is where the answer stands, rounded, not its most probable level: max at 0.5 with the rest below it is xhigh; at 0.65, max', { options: KEY }, async ($, on) => {
+  // Positions 3.15 and 3.55.
   const w = world($, on, { backend: (request, n) => jev(n === 1 ? [0, 0.1, 0.15, 0.25, 0.5] : [0, 0, 0.1, 0.25, 0.65])(request) })
   await w.submit('设计一个跨区域的数据迁移方案，保证零停机')
   await w.step({ index: 0 })

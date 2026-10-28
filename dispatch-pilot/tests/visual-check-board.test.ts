@@ -7,7 +7,7 @@ import { expect, test } from 'claude-code/testing'
 import { report, type Board, type LogEntry, type ReportIo } from '../hooks/core/report.ts'
 import { jev, KEY, world } from './support/world.ts'
 
-const OPTIONS = { ...KEY, rejudgeEvery: 0 }
+const OPTIONS = KEY
 const SHOT = '/shots/home.png'
 const FILES = { [SHOT]: { format: 'png', width: 1200, height: 800 } }
 const CHECKS = [

@@ -10,7 +10,7 @@ import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
 import type { LogEntry } from '../core/report.ts'
 import { ACCENT, BAD, chip, effortWord, fit, MUTED, pct, skillsText, WARN, type Marks, type T } from './kit.tsx'
 import { blank, cardRows, LOG_COLOR, LOG_GLYPH, LOG_TONES, summaryRows, viewButton, type PaneActs, type PaneInput } from './pane.tsx'
-import { cardOf, entryVerb, logGroups, profilesLine, type LogGroup } from './rationale.ts'
+import { cardOf, entryVerb, logGroups, type LogGroup } from './rationale.ts'
 import { FEATURE_WORDS, featureOf, levelOf, type AgentRow } from './view.ts'
 
 /** The elements the pane draws with off the terminal: the text parts', and the picker where the surface has one (the mobile app has none). */
@@ -199,7 +199,7 @@ function entryRows(t: AppT, entry: LogEntry, cols: number, marks: Marks | undefi
 /**
  * The switches and the lock, folded under one line that says how many are on and the lock; open, a button for each
  * switch (Dispatch Pilot itself first, the ones off dim) and the lock's picker (its words where the surface has no
- * picker); how the skill profiles went.
+ * picker).
  */
 function switchRows(t: AppT, input: PaneInput, cols: number, act: AppPaneActs): RenderNode[] {
   const { Box, Button, Select, Text } = t
@@ -236,14 +236,5 @@ function switchRows(t: AppT, input: PaneInput, cols: number, act: AppPaneActs): 
       )}
     </Box>,
   )
-  const profiles = input.profiles
-  if (profiles !== null) {
-    const line = profilesLine(profiles)
-    rows.push(
-      <Box key="pane-profiles" width={cols} paddingLeft={2}>
-        <Text color={line.tone === 'fail' ? BAD : line.tone === 'warn' ? WARN : MUTED} wrap="wrap">{line.text}</Text>
-      </Box>,
-    )
-  }
   return rows
 }

@@ -290,7 +290,7 @@ function foldTally(rows: readonly AgentRow[]): string {
     .join(' ')
 }
 
-/** The strip: the turn and its time, the agents' tally, the Workflow's progress, the mid-turn re-decisions; at the right the hint, or 依据, and the fold's button where the band has one. */
+/** The strip: the turn and its time, the agents' tally, the Workflow's progress; at the right the hint, or 依据, and the fold's button where the band has one. */
 function strip(t: TT, view: ScreenView, cols: number, fold?: BandActs['fold'], open?: BandActs['open']) {
   const { Box, Text } = t
   const sep = <Text color={MUTED}>{'  ▏ '}</Text>
@@ -315,12 +315,6 @@ function strip(t: TT, view: ScreenView, cols: number, fold?: BandActs['fold'], o
               <Text color={MUTED}>{'Workflow '}</Text>
               <Text bold tabular>{String(view.workflow.done)}</Text>
               <Text color={MUTED} tabular>{`/${view.workflow.total}`}</Text>
-            </Text>
-          )}
-          {view.midturn === null ? null : (
-            <Text>
-              {sep}
-              <Text color={MUTED}>{`中途重判 ${view.midturn.judged} 次 · 改档 ${view.midturn.changed}`}</Text>
             </Text>
           )}
         </Text>
@@ -434,32 +428,15 @@ function eventParts(t: TT, event: BandEvent): { glyph: RenderNode; tag: string; 
         ),
       }
     }
-    case 'midturn': {
-      const up = EFFORTS.indexOf(event.to) > EFFORTS.indexOf(event.from)
-      return {
-        glyph: <Text color={EFFORT_COLOR[event.to]} bold>{up ? '↑' : '↓'}</Text>,
-        tag: '重判',
-        tagColor: MUTED,
-        body: (
-          <Text wrap="truncate-end">
-            {event.who}
-            {muted(' ')}
-            {effortWord(t, event.from)}
-            {muted(' → ')}
-            {effortWord(t, event.to)}
-            {event.conf === undefined ? null : <Text color={MUTED} tabular>{`  置信 ${pct(event.conf)}${event.threshold === undefined ? '' : ` ≥ ${pct(event.threshold)}`}`}</Text>}
-          </Text>
-        ),
-      }
-    }
     case 'raise':
+      // The tag column takes two characters: the body says what went up.
       return {
         glyph: <Text color={WARN} bold>↑</Text>,
-        tag: '升档',
+        tag: '升级',
         tagColor: WARN,
         body: (
           <Text color={WARN} wrap="truncate-end">
-            {`${event.who}  ${event.from} → ${event.to}`}
+            {`${event.who}  升模型 ${event.from} → ${event.to}`}
             <Text color={MUTED}>{`  工具调用失败 ${event.failed}${event.blocked > 0 ? ` · 拦截 ${event.blocked}` : ''}`}</Text>
           </Text>
         ),
@@ -500,9 +477,6 @@ function eventParts(t: TT, event: BandEvent): { glyph: RenderNode; tag: string; 
       }
     case 'note': {
       const what = FEATURE_WORDS[event.feature] ?? event.feature
-      if (event.note === 'late') {
-        return { glyph: <Text color={WARN}>◷</Text>, tag: '迟到', tagColor: WARN, body: <Text color={WARN} wrap="truncate-end">{`${event.who} · ${what}的回答没赶上这一步，沿用原来的档`}</Text> }
-      }
       if (event.note === 'skipped') {
         return { glyph: <Text color={MUTED}>·</Text>, tag: '跳过', tagColor: MUTED, body: <Text color={MUTED} wrap="truncate-end">{`${what} · ${SKIPPED[event.why] ?? event.why}`}</Text> }
       }

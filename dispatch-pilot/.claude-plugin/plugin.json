@@ -1,7 +1,7 @@
 {
   "name": "dispatch-pilot",
-  "version": "0.8.2",
-  "description": "Dispatch Pilot：一个在 Claude 之外的决策模型（默认 Perplexity 的 pplx，没有 Perplexity key 时退回 TypeSafe 的 Jev，也可以固定用 Jev）在你每次发消息时决定主 agent 这一轮的 effort，每一步都按这一档发出，一轮进行中每隔几步再判断一次；也为主 agent 派出的每个 agent 和 Workflow 脚本里的每个 agent 按 Artificial Analysis 的基准选模型和 effort（sonnet 和 opus 至少 medium）。主 agent 的模型从不改变，prompt cache 不受影响（只在 Claude Code 订阅下成立；Bedrock、Vertex 和网关上切换 effort 会让缓存失效）。它还不让主 agent 读完整的 skill 列表，改为在你发消息时推荐合适的几个，一轮中途主 agent 可以用 find_skill 工具查 skill。它还能替 agent 看图核对：agent 交上截图或录屏和几条检查项，由 TypeSafe 的 Jev（没有 TypeSafe key 时用 pplx）一两秒内回答过、不过或没把握，不必自己看；可选的截图接管把 agent 自己生成的图换成一句说明，带图路由按参考图的复杂度定 effort（这两项默认关。图没法脱敏：带图路由会把你贴的参考图发给 TypeSafe 或 Perplexity，看图核对会把 agent 交上来的图发过去；截图接管自己不发图）。agent 的工具调用失败累计到一定次数时强制升高它的 effort（haiku agent 的 effort 到顶后改用 sonnet），除非这些失败本来就在意料之中。所有判断和理由都放在看板上：prompt 上方的 band 列出本轮每个 agent 的模型和 effort，脚部一个短摘要，/dp 打开的依据面板写明每个决定的依据和决策日志。",
+  "version": "0.9.0",
+  "description": "Dispatch Pilot：一个在 Claude 之外的决策模型（TypeSafe 的 Jev；也可以显式改用 Perplexity 的 pplx 或 Liquid 的 d1-ultra）在你每次发消息时回答几道窄题：这项工作要想多少、出错能不能挽回、是不是线上或真钱、动不动权限、原因是否未知、你是不是在说上次没修好、有没有给出长期规矩；再由代码按固定规则定出主 agent 这一轮的 effort，每一步都按这一档发出（一轮中途改 effort，Claude Code 要等到下一条消息才发出，所以一轮之内不再重新判断）；也为主 agent 派出的每个 agent 和 Workflow 脚本里的每个 agent 按 Artificial Analysis 的基准选模型和 effort（sonnet 和 opus 至少 medium）。主 agent 的模型从不改变，prompt cache 不受影响（只在 Claude Code 订阅下成立；Bedrock、Vertex 和网关上切换 effort 会让缓存失效）。它还不让主 agent 读完整的 skill 列表，改为在你发消息时照 TypeSafe 的 skill 推荐 cookbook 先判断要不要 skill、最多推荐一个，一轮中途主 agent 可以用 find_skill 工具查 skill。它还能替 agent 看图核对：agent 交上截图或录屏和几条检查项，由 TypeSafe 的 Jev（没有 TypeSafe key 时用 pplx）一两秒内回答过、不过或没把握，不必自己看；可选的截图接管把 agent 自己生成的图换成一句说明，带图路由按参考图的复杂度定 effort（这两项默认关。图没法脱敏：带图路由会把你贴的参考图发给 TypeSafe 或 Perplexity，看图核对会把 agent 交上来的图发过去；截图接管自己不发图）。派出的 agent 工具调用失败累计到一定次数时改用更强的模型（haiku 换 sonnet，再换 opus）；主 agent 这一轮的失败记下来，留给下一条消息的判断。所有判断和理由都放在看板上：prompt 上方的 band 列出本轮每个 agent 的模型和 effort，脚部一个短摘要，/dp 打开的依据面板写明每个决定的依据和决策日志。",
   "author": {
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
@@ -13,21 +13,28 @@
     "decisionModel": {
       "type": "string",
       "title": "决策模型",
-      "description": "由哪个模型做决定：pplx（默认，Perplexity 的 pplx-decider-v1.1-27b，要 Perplexity 的 API key）或 jev（TypeSafe，要 TypeSafe 的 API key）。设成 jev 就始终用 Jev；其他情况（pplx、没设）有 Perplexity key 就用 pplx，没有但有 TypeSafe key 就退回 Jev，决策日志里记一条原因，两种 key 都没有就不发请求，每一轮都按会话自己的 effort 走。以前版本里的 clef 已移除，设成 clef 的老配置按没设处理，debug log 会记一条。出错时，消息不经路由地放行。有几项选项的默认值随决策模型而定：Jev 取它能接受的值（最近 2000 条消息、16 步；带 skill 题的消息请求上下文预算 6000 token，重判 24000，发消息时的 effort 题、派出 agent 和 Workflow 里的 agent 96000，超过 24000 的请求带长上下文请求头）；pplx 的窗口大得多，所有问题用英文问，最近 2000 条消息，除 skill 题以外的请求预算 48000 token，等待时间也长（发消息 8000 毫秒，重判和 find_skill 6000）。",
-      "options": ["pplx", "jev"],
-      "default": "pplx"
+      "description": "由哪个模型做决定：jev（默认，TypeSafe 的 Jev，要 TypeSafe 的 API key）、pplx（Perplexity 的 pplx-decider-v1.1-27b，要 Perplexity 的 API key；0.9.0 起不再评测）或 d1-ultra（Liquid 的 d1-ultra，要 Liquid 的 API key；按 Liquid 官方的读法：是非题 > 0.8 为是、< 0.2 为否，派出 agent 用一道选模型档位的选择题；没有评测；看图仍用 Jev）。不会按密钥自动换：选 jev 而没有 TypeSafe key 时，不发请求，看板写明缺 key，每一轮都按会话自己的 effort 走。以前版本里的 clef 已移除，设成 clef 的老配置按没设处理，debug log 会记一条。出错时，消息不经路由地放行。有几项选项的默认值随决策模型而定：Jev 的请求都留在它的常规上限之内（带 skill 题的消息请求上下文预算 6000 token，发消息时的 effort 题、派出 agent 和 Workflow 里的 agent 24000），所有问题用英文问，等 1500 毫秒；pplx 的窗口大得多，除 skill 题以外的请求预算 48000 token，等待时间也长（发消息 8000 毫秒，find_skill 6000）。",
+      "options": ["jev", "pplx", "d1-ultra"],
+      "default": "jev"
     },
     "typesafeApiKey": {
       "type": "string",
       "title": "TypeSafe API key",
-      "description": "TypeSafe System One 的 API key，Jev 在那里运行（决策模型选 jev 时用；没有 Perplexity key 时默认的 pplx 也会退回 Jev，用的就是它；全部图像功能也要它）。留空就读环境变量 TYPESAFE_API_KEY；两处都有，用这里的。key 只放在请求头里，不进日志、看板和状态。Claude Desktop 的 Code 标签收不到这里填的值（#35），在那里把 TYPESAFE_API_KEY 放进 Desktop 的本地环境编辑器（prompt 框的环境下拉 → 悬停 Local → 齿轮）。",
+      "description": "TypeSafe System One 的 API key，Jev 在那里运行（默认的决策模型要它；全部图像功能也要它）。留空就读环境变量 TYPESAFE_API_KEY；两处都有，用这里的。key 只放在请求头里，不进日志、看板和状态。Claude Desktop 的 Code 标签收不到这里填的值（#35），在那里把 TYPESAFE_API_KEY 放进 Desktop 的本地环境编辑器（prompt 框的环境下拉 → 悬停 Local → 齿轮）。",
       "default": "",
       "sensitive": true
     },
     "perplexityApiKey": {
       "type": "string",
       "title": "Perplexity API key",
-      "description": "Perplexity Decisions API 的 API key，pplx 在那里运行（默认的决策模型要它）。留空就读环境变量 PERPLEXITY_API_KEY；两处都有，用这里的。key 只放在请求头里，不进日志、看板和状态。Perplexity 和 TypeSafe 的 key 都没有，就不发任何请求，每一轮都按会话自己的 effort 走。",
+      "description": "Perplexity Decisions API 的 API key，只在 decisionModel 设成 pplx 时用，没有 TypeSafe key 时看图核对也用它（不能放大复核）。留空就读环境变量 PERPLEXITY_API_KEY；两处都有，用这里的。key 只放在请求头里，不进日志、看板和状态。",
+      "default": "",
+      "sensitive": true
+    },
+    "liquidApiKey": {
+      "type": "string",
+      "title": "Liquid API key",
+      "description": "Liquid 的 API key（以 liquid_ 开头），只在 decisionModel 设成 d1-ultra 时用；看图核对和带图路由不用它，仍用 TypeSafe 的 key。留空就读环境变量 LIQUID_API_KEY；两处都有，用这里的。key 只放在请求头里，不进日志、看板和状态。Claude Desktop 的 Code 标签收不到这里填的值（#35），在那里把 LIQUID_API_KEY 放进 Desktop 的本地环境编辑器（prompt 框的环境下拉 → 悬停 Local → 齿轮）。Liquid 的控制台写明它的所有模型零数据保留：不存储、不记录，也不拿发过去的内容训练。",
       "default": "",
       "sensitive": true
     },
@@ -62,114 +69,31 @@
     "contextTokens": {
       "type": "number",
       "title": "上下文预算（token）",
-      "description": "你的消息加上最近的消息一共最多占多少 token（100 到 16000；pplx 到 48000），中英文按同一个尺度数，旧消息先丢。按请求的种类取：带 skill 推荐那一题的消息（以及 find_skill 的第一段）取 6000，因为它带着每个 skill 的画像（约 2.2 万 token，按 Jev 的算法），state 加这一题必须留在 Jev 的 32k 之内；其余请求题目都很短：重判 Jev 取 24000；发消息时主 agent 的 effort 题（它单独发一个请求）、派出 agent 和 Workflow 里的 agent，Jev 取 96000（超过 24000 时带长上下文请求头），pplx 取 48000（派出 agent 32000）。你自己设了值，每个种类都取它和自己上限里较小的一个。决策超时变多时，把它调小。"
-    },
-    "thetaMax": {
-      "type": "number",
-      "title": "用 max 的门槛",
-      "description": "决策模型给 max 的概率至少达到它（0 到 1），主 agent 才用 max；否则取其余几档里最可能的。默认随决策模型：Jev 0.5，pplx 0.47。"
-    },
-    "rejudgeEvery": {
-      "type": "number",
-      "title": "每几步重新判断一次 effort",
-      "description": "一轮进行中，主 agent 的 effort 每隔这么多步重新判断一次（0 到 50；0 表示不按步数重判）。主 agent 派出 agent、启动 Workflow 或加载 skill 时也会重判。",
-      "default": 3
-    },
-    "thetaUp": {
-      "type": "number",
-      "title": "中途升档的门槛",
-      "description": "重判时，决策模型的置信度至少达到它（0 到 1）才会升档。默认随决策模型：Jev 0.3，pplx 0。"
-    },
-    "thetaDown": {
-      "type": "number",
-      "title": "中途降档的门槛",
-      "description": "重判时，决策模型的置信度至少达到它（0 到 1，不低于升档门槛）才会降档，一次最多降一档。默认 0.55（两个决策模型相同）。"
-    },
-    "holdSteps": {
-      "type": "number",
-      "title": "升档后多少步内不降",
-      "description": "重判升档之后，这么多步（0 到 50）之内不再降档。",
-      "default": 5
-    },
-    "rejudgeSteps": {
-      "type": "number",
-      "title": "重判时读的最近步数",
-      "description": "重判时决策模型读这一轮最近的几步（1 到 16）：主 agent 写的最后一段文字和它调用的工具、每个调用怎么结束的，从不含文件内容和工具输出，secret 已脱敏；上下文预算也限制它。默认 16（两个决策模型相同；实际发多少由上下文预算决定，不是这个步数）。"
-    },
-    "rejudgeWaitMs": {
-      "type": "number",
-      "title": "等迟到的重判多久（毫秒）",
-      "description": "重判在工具运行时就发出；下一个请求发出时它还没回来，就最多再等这么久（0 到 8000），然后沿用原来的 effort，看板的事件流记一条「迟到」。默认随决策模型：Jev 300，pplx 6000。"
+      "description": "你的消息加上最近的消息一共最多占多少 token（100 到 16000；pplx 到 48000），中英文按同一个尺度数，旧消息先丢。按请求的种类取：带 skill 推荐那一题的消息（以及 find_skill 的第一段）取 6000，因为它带着每个 skill 的描述，state 加这一题必须留在 Jev 的 32k 之内；其余请求题目都很短：发消息时主 agent 的 effort 题（它单独发一个请求）、派出 agent 和 Workflow 里的 agent，Jev 取 24000（留在常规上限内，不带长上下文请求头），pplx 取 48000（派出 agent 32000）。更早的几轮靠问题摘要、你的长期约束和上一轮的失败记录带进来。你自己设了值，每个种类都取它和自己上限里较小的一个。决策超时变多时，把它调小。"
     },
     "escalateAfter": {
       "type": "number",
-      "title": "失败几次后强制升档",
-      "description": "主 agent 或它派出的 agent，工具调用的失败累计满这么多次（1 到 20，中间成功不清零）就再问一次决策模型并升高 effort，除非这些失败本来就在意料之中（先写下要看它红的测试、没找到东西的搜索）。你自己拒绝的调用从不算；被你自己的 hook 拦下的调用要 /dp hook-block-failures on 之后才算。",
+      "title": "失败几次后升模型",
+      "description": "派出的 agent（包括 Workflow 里的），工具调用的失败累计满这么多次（1 到 20，中间成功不清零）就从下一步起改用更强一档的模型：haiku 换成下面设的模型（默认 sonnet），sonnet 换 opus，opus 只在打开 agentFable 时换 fable；不再问决策模型，也不升 effort（一轮中途改 effort 不会发出）。主 agent 这一轮的失败不升任何东西，只在这一轮结束时记下来，留给你下一条消息的判断（失败是否到了这个次数也记下）。你自己拒绝的调用从不算；被你自己的 hook 拦下的调用要 /dp hook-block-failures on 之后才算。",
       "default": 2
-    },
-    "escalateMode": {
-      "type": "string",
-      "title": "强制升档怎么升",
-      "description": "one-level：升一档，最高到 xhigh（决策模型自己有把握时可以更高）。max：直接升到 max。haiku agent 也先升 effort，到顶（或你点名了 effort）时才改用下面的模型。",
-      "options": ["one-level", "max"],
-      "default": "one-level"
     },
     "escalateLimit": {
       "type": "number",
-      "title": "每轮最多升档几次",
-      "description": "主 agent 的一轮（或一个派出 agent）最多因为工具调用失败升几次档（0 到 10）。每次升档之后，失败从零重新数。",
+      "title": "每个 agent 最多升几次模型",
+      "description": "一个派出的 agent 最多因为工具调用失败换几次模型（0 到 10）。每次换过之后（或已经到顶、换不了时），失败从零重新数。",
       "default": 2
-    },
-    "thetaExpected": {
-      "type": "number",
-      "title": "认定失败是预期内的门槛",
-      "description": "决策模型认为这些失败是预期内的概率至少达到它（0 到 1），就不强制升档：失败从零重新数，effort 交给普通的中途重判规则。故意取得低：在几个手写场景上量过，Jev 给预期内的失败 0.15 到 0.72，给不是预期内的 0.09 到 0.16。默认 0.25。"
     },
     "escalateHaikuTo": {
       "type": "string",
       "title": "失败的 haiku agent 改用哪个模型",
-      "description": "haiku agent 的工具调用失败累计到升档的次数、effort 已经到顶（或你点名了 effort）时，这个 agent 接下来改用这个模型：sonnet、opus 或 fable，或者完整的模型 id。别名会换成这一步需要的完整 id（引擎不认别名）；你为这个 agent 的工作点名的模型、排除的模型优先。留空表示不换。",
+      "description": "haiku agent 的工具调用失败累计到 escalateAfter 次时，这个 agent 接下来改用这个模型：sonnet、opus 或 fable，或者完整的模型 id。别名会换成这一步需要的完整 id（引擎不认别名）；你为这个 agent 的工作点名的模型、排除的模型优先。留空表示 haiku agent 不换。",
       "default": "sonnet"
     },
     "agentFable": {
       "type": "boolean",
       "title": "派出的 agent 可以用 fable",
-      "description": "把 fable 加进决策模型可以为派出的 agent 选的模型（不加是 haiku、sonnet 和 opus）。fable 比 opus 贵。你在消息里自己点名的模型，不管这个开关都照用。",
+      "description": "打开后，派出 agent 时多问一道「是不是严格证明、没有现成答案的新算法或架构」，是就用 fable（不打开时模型表只给 haiku、sonnet 和 opus）。fable 比 opus 贵。你在消息里自己点名的模型、主 agent 自己指定的 fable，不管这个开关都照用。",
       "default": false
-    },
-    "agentOverride": {
-      "type": "number",
-      "title": "推翻主 agent 选的模型所需的置信度",
-      "description": "主 agent 为它派出的 agent 指定了模型时，决策模型的选择置信度至少达到它（0 到 1）才会推翻。你在消息里自己点名的模型从不被推翻。默认 0.6。"
-    },
-    "skillsMax": {
-      "type": "number",
-      "title": "最多推荐几个 skill",
-      "description": "一条消息最多推荐几个 skill（0 到 10）；达到下面的相关度的不够，就更少，或者一个也没有。",
-      "default": 3
-    },
-    "skillsMinRelevance": {
-      "type": "number",
-      "title": "推荐所需的最低相关度",
-      "description": "一个 skill 要被推荐至少要有的相关度（0 到 1）：决策模型认为这个 skill 正好做这条消息要做的那种工作的概率，每个 skill 重读开头的说明后单独判断。默认 0.75。"
-    },
-    "skillsShortlist": {
-      "type": "number",
-      "title": "第二段补读几个 skill",
-      "description": "主 agent 能加载的 skill 里，第一段给分最高的几个会补读 SKILL.md 开头、逐个判断（1 到 10）；另外最多 2 个只能由你触发的 skill 一起补读。第一段给分不到 0.1 的 skill 不补读；两段请求合计最多等决策超时那么久。",
-      "default": 4
-    },
-    "skillsProfileModel": {
-      "type": "string",
-      "title": "写 skill 画像的模型",
-      "description": "用哪个模型（别名如 haiku，或完整的模型 id）读每个 skill 的 SKILL.md，写一份中英文的简短画像，每个 SKILL.md 版本只写一次，让决策模型中英文都能对上。它在后台通过你的 Claude Code 登录运行，用的是你套餐的用量。换了模型，所有画像重写。",
-      "default": "haiku"
-    },
-    "skillsProfilesPerSession": {
-      "type": "number",
-      "title": "每个会话最多写几份 skill 画像",
-      "description": "每次会话开始，最多写几份还没有的 skill 画像（0 到 500；0 表示不写）。其余留给以后的会话，第一次装了很多 skill 时，用量被摊开。",
-      "default": 30
     },
     "skillsAlwaysListed": {
       "type": "string",
@@ -188,13 +112,8 @@
     "findSkillMax": {
       "type": "number",
       "title": "find_skill 最多返回几个 skill",
-      "description": "主 agent 的 find_skill 工具对一次查询最多返回几个 skill（1 到 10）；达到下面的相关度的不够，就更少，或者一个也没有。",
+      "description": "主 agent 的 find_skill 工具对一次查询最多返回几个 skill（1 到 10）：第一段给分最高的这么多个会在第二段补读 SKILL.md 开头、逐个判断「是否正好做这件事」，过了决策模型的门槛（Jev、pplx ≥ 0.30，d1-ultra > 0.5）的才返回，不够就更少，或者一个也没有。",
       "default": 5
-    },
-    "findSkillMinRelevance": {
-      "type": "number",
-      "title": "find_skill 返回所需的最低相关度",
-      "description": "find_skill 要返回一个 skill 至少要有的相关度（0 到 1）：决策模型认为这个 skill 正好做主 agent 说的那项工作的概率，每个 skill 重读开头的说明后单独判断。默认 0.5。"
     },
     "workflowMode": {
       "type": "string",
@@ -206,13 +125,13 @@
     "summaryModel": {
       "type": "string",
       "title": "写问题摘要的模型",
-      "description": "用哪个模型（别名如 haiku，或完整的模型 id）在你本人的消息开始的那一轮结束后，在后台续写一份简短的问题摘要：问题是什么、试过哪些做法、现在到了哪一步（不超过 500 token，只记试过什么，不判断成没成功）。决策模型发消息时一并读它，借此看到超出上下文预算的更早几轮。它通过你的 Claude Code 登录运行，用的是你套餐的用量；交给它的内容先脱敏。unresolved 开关关着（默认）或 contextMessages 为 0 时不写。",
+      "description": "用哪个模型（别名如 haiku，或完整的模型 id）在你本人的消息开始的那一轮结束后，在后台用英文续写一份简短的问题摘要：问题是什么、试过哪些做法、现在到了哪一步（不超过 500 token，只记试过什么，不判断成没成功）。决策模型发消息时一并读它（以有名字的字段发送），借此看到超出上下文预算的更早几轮。它通过你的 Claude Code 登录运行，用的是你套餐的用量；交给它的内容先脱敏。summary 开关关着（/dp summary off）或 contextMessages 为 0 时不写。",
       "default": "haiku"
     },
     "unresolvedMaxAfter": {
       "type": "number",
-      "title": "未解决几次之后给强提示",
-      "description": "你说「仍未解决」的次数（未解决次数）达到它（0 到 10），发消息时和中途重判时 effort 题带强提示：这项工作属于多次尝试都没解决的故障，按故障整体的难度评。发消息时另问一道带强提示的 effort 题，只有这条消息被判为仍未解决时才用它的回答（说「好了」或换话题的那条不用）；用它时 max 门槛降到决策模型的 hintThetaMax（Jev 0.4）。强提示不写档位的名字，也不设档位下限。0 表示不给强提示，只带摘要和次数。派出 agent 的决定也读摘要和次数，但从不加强提示。unresolved 开关关着（默认，/dp unresolved on 打开）时都不带。",
+      "title": "仍未解决几次之后直接用 max",
+      "description": "你说「还是不行」的次数（未解决次数，算上这一条）达到它（0 到 10），而且这条消息又被判为仍未解决时，这一轮直接用 max（规则 R5，写在代码里，不再是给决策模型的强提示）。0 表示从不因此用 max。次数一直在记，不受任何开关影响；问题解决、换了任务、/clear 和新会话时清零。派出 agent 的决定也读次数，但不受这条规则影响。",
       "default": 3
     }
   }

@@ -2,7 +2,7 @@
 // `agents.lanes` requests about agents are out at once.
 //
 // Each agent used to have a request of its own. With its background in it (the person's words, the problem summary, the
-// conversation it was dispatched from, a Workflow's script: up to 96000 tokens with Jev), the agents of one message would
+// conversation it was dispatched from, a Workflow's script: up to 24000 tokens with Jev), the agents of one message would
 // each send the same background again: a long request each, out of the account's token rate (decision/jev-rate.ts: about
 // 1.2 s of the default plan's for each). Here an agent waits in a group, one per conversation (`key`: the loop that
 // dispatched it, or its Workflow run), and the group is asked about in one request: what they share once, each agent's

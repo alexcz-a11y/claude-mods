@@ -11,7 +11,12 @@
 import { estimateTokens, messageText, recentLines } from '../../hooks/decision/context.ts'
 import { EFFORTS, isEffort, type Effort } from '../../hooks/decision/effort.ts'
 import { redactSecrets } from '../../hooks/decision/redact.ts'
-import { UNRESOLVED_OPTIONS, type UnresolvedOption } from '../../hooks/decision/unresolved.ts'
+/**
+ * What the gold files call what a message says of the problem: the three-way question's names of before 0.9.0 (the mod now
+ * asks three Nouls, ADR 0014; eval/lib/eval-v2-suite.ts maps these to the dataset's triage names).
+ */
+export const V2_TRIAGES = ['still_unresolved', 'resolved', 'new_or_unrelated'] as const
+export type V2Triage = (typeof V2_TRIAGES)[number]
 import { contiguous, type Checked } from './datasets.ts'
 import { mulberry32 } from './random.ts'
 import { exactKeys as exactKeysAdding, isRecord, nonEmpty } from './validators.ts'
@@ -241,8 +246,8 @@ export type V2Gold = {
   effort: Effort
   accept: Effort[]
   effort_without_decisive: Effort
-  triage_final: UnresolvedOption
-  triage_decisive: { msg: string; triage: UnresolvedOption }[]
+  triage_final: V2Triage
+  triage_decisive: { msg: string; triage: V2Triage }[]
   rationale: string
 }
 
@@ -296,7 +301,7 @@ function checkGoldFields(raw: unknown, name: string, asked: readonly string[] | 
     if (isEffort(raw.effort) && !accept.includes(raw.effort)) errors.push(`effort "${raw.effort}" is not in accept ${JSON.stringify(accept)}`)
   }
   const triage = (value: unknown, field: string) => {
-    if (!(UNRESOLVED_OPTIONS as readonly unknown[]).includes(value)) errors.push(`${field} ${JSON.stringify(value)} is not one of ${UNRESOLVED_OPTIONS.join(', ')}`)
+    if (!(V2_TRIAGES as readonly unknown[]).includes(value)) errors.push(`${field} ${JSON.stringify(value)} is not one of ${V2_TRIAGES.join(', ')}`)
   }
   triage(raw.triage_final, 'triage_final')
   const answers = raw.triage_decisive

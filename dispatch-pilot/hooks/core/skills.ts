@@ -1,55 +1,61 @@
 // The skill catalog: which skills the session has, who may start each one,
-// and what each is for. The skills feature (#10) suggests from it, the
-// find_skill tool (#12) answers from it, and its bilingual profiles (#11,
-// core/profiles.ts) are written for it. Also the engine's skill listing, read
+// and what each is for. The skills feature (#10) suggests from it and the
+// find_skill tool (#12) answers from it. Also the engine's skill listing, read
 // and trimmed, and how the ranking is described and set up.
 //
 // Pure: no `$`. Whatever reads the session (commands, settings, disk) comes
 // in as closures the hook that owns `$` builds (DEVELOPMENT.md, 开发).
 
-import type { Language } from '../decision/effort.ts'
-import { questionBudget, SHORTLIST_FLOOR, type RankerSettings, type SkillOption, type SkillRanking, type SkillShare } from '../decision/skills.ts'
+import { fitsBar, fitsBarText, type SkillBars } from '../decision/guides.ts'
+import { questionBudget, SHORTLIST, type RankerSettings, type SkillOption, type SkillRanking, type SkillShare } from '../decision/skills.ts'
 import type { Config } from './setup.ts'
 
 /**
- * What the two stages of a ranking said, for a decision's reason: the skills
- * the main agent can load that stage one put forward with their shares, and
- * none's; the same of its question on the skills only the person can start,
- * when it was asked; how well each fits by stage two, or that stage one put
- * none forward.
+ * What the two requests of a ranking said, for a decision's reason (ADR 0018): the gate's mean against its bar (when it
+ * was asked), what each Choice of stage one put forward with its share, each candidate's fit by stage two against the
+ * bar, and, beside a message, of each kind whose best fit reaches it, whom stage two's Choice picked (find_skill returns
+ * by the fits alone); or that the gate stopped it.
  */
-export function describeStages(ranking: SkillRanking): string {
-  const shares = (shortlist: readonly SkillShare[], none: number) => [...shortlist.map((entry) => `${entry.name} ${entry.share.toFixed(2)}`), `都不合适 ${none.toFixed(2)}`].join('、')
-  const shortlist = ranking.shortlist ?? []
-  const hint = ranking.hints === undefined ? '' : `；只能你触发的 ${shares(ranking.hints.shortlist, ranking.hints.none)}`
-  const second =
-    shortlist.length + (ranking.hints?.shortlist.length ?? 0) === 0
-      ? `没有 skill 的份额到 ${SHORTLIST_FLOOR.toFixed(2)}`
-      : `第二段相关度 ${ranking.ranked.map((entry) => `${entry.name} ${entry.relevance.toFixed(2)}`).join('、')}`
-  return `第一段 ${shares(shortlist, ranking.none)}${hint}；${second}`
+export function describeStages(ranking: SkillRanking, bars: SkillBars, kind: RankingKind = 'message'): string {
+  const shares = (entries: readonly SkillShare[]) => entries.map((entry) => `${entry.name} ${entry.share.toFixed(2)}`).join('、')
+  const parts: string[] = []
+  if (ranking.gate !== null) parts.push(`要不要 skill ${ranking.gate.mean.toFixed(2)}（低于 ${bars.gateBelow.toFixed(2)} 不推荐）`)
+  if (ranking.stopped === 'gate') return parts.join('；')
+  if (ranking.shortlist.length > 0) parts.push(`第一段 ${shares(ranking.shortlist)}`)
+  if (ranking.hints.length > 0) parts.push(`只能你触发的 ${shares(ranking.hints)}`)
+  if (ranking.fits.length > 0) {
+    const passes = (by: SkillOption['by']) => ranking.fits.some((fit) => fit.by === by && fitsBar(bars, fit.fit))
+    const picked = kind === 'find' ? [] : [passes('model') ? ranking.winner : null, passes('person') ? ranking.hintWinner : null].filter((name): name is string => name !== null)
+    const fits = ranking.fits.map((fit) => `${fit.name} ${fit.fit.toFixed(2)}`).join('、')
+    parts.push(`第二段相关度 ${fits}（${fitsBarText(bars)} 才${kind === 'find' ? '返回' : '推荐'}）${picked.length > 0 ? `，选择题选 ${picked.join('、')}` : ''}`)
+  }
+  return parts.join('；')
 }
 
+/** Where skills are ranked: beside a message (with the gate, the cookbook's shortlist) or for find_skill (no gate, findSkillMax). */
+export type RankingKind = 'message' | 'find'
+
 /**
- * How skills are ranked (`modRanker`'s settings), from the person's options
- * (core/setup.ts), the same wherever skills are ranked: the message's
- * suggestions and find_skill (#12). Stage one's question fits beside the state
- * the person's context budget allows; stage two may take up to `timeoutMs` (a
- * caller with less left tells `rank` so: features/skills.ts, find-skill.ts).
+ * How skills are ranked (`modRanker`'s settings), the same way wherever they are: beside a message and for find_skill
+ * (#12), which asks no gate and re-reads as many as it may return. Stage one's question fits beside the state the
+ * person's context budget allows; stage two may take up to `timeoutMs` (a caller with less left tells `rank` so:
+ * features/skills.ts, find-skill.ts); the bars are the decision model's guide's (decision/guides.ts).
  */
-export function rankingSettings(ctx: { config: Pick<Config, 'timeoutMs' | 'context' | 'skills'>; ask: { language: Language } }): RankerSettings {
+export function rankingSettings(ctx: { config: Pick<Config, 'timeoutMs' | 'context' | 'skills' | 'guide'> }, kind: RankingKind): RankerSettings {
   // Each read goes to `ctx`: the features build this when they register, before the session start has settled the decision model.
   return {
-    get language() {
-      return ctx.ask.language
-    },
+    gate: kind === 'message',
     get shortlist() {
-      return ctx.config.skills.shortlist
+      return kind === 'message' ? SHORTLIST : ctx.config.skills.findMax
     },
     get questionTokens() {
       return questionBudget(ctx.config.context.tokens)
     },
     get timeoutMs() {
       return ctx.config.timeoutMs
+    },
+    get bars() {
+      return ctx.config.guide.skills
     },
   }
 }
@@ -72,8 +78,6 @@ export type CatalogSkill = SkillOption & {
   source: string
   /** Its SKILL.md (or command file) on disk, found by Claude Code's layout; null when there is none to read (a built-in skill). */
   file: string | null
-  /** The store key of its profile (core/profiles.ts), once looked up: it changes with the SKILL.md. */
-  profileKey?: string | null
 }
 
 /** A command as `$.command.list()` gives it (the part read here). */

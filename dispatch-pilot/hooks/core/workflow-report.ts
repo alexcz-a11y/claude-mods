@@ -36,14 +36,14 @@ export function workflowCallTitle(input: { name?: string; scriptPath?: string; s
 /**
  * One report for each call of the script that has an outcome: a decision made
  * (`outcome` adds `suffix`: ` (sent back)`; `sentBack` says so as data), or
- * why the call is left as written. `thetaOverride`: the setting the reasons
- * read; `backend`: the decision model's name, for a failed request's words.
+ * why the call is left as written. `backend`: the decision model's name, for
+ * a failed request's words.
  */
 export function callReports(
   feature: string,
   run: WorkflowRun,
   outcomes: readonly CallOutcome[],
-  options: { backend: string; thetaOverride: number; suffix?: string; sentBack?: true },
+  options: { backend: string; suffix?: string; sentBack?: true },
 ): ReportedDecision[] {
   const title = workflowTitle(run.parsed)
   return outcomes.flatMap((outcome, index): ReportedDecision[] => {
@@ -67,7 +67,7 @@ export function callReports(
         ...about,
         routed: true,
         outcome: `${callResult(call, decision)}${options.suffix ?? ''}`,
-        reason: reasonOf(decision, requested, options.thetaOverride),
+        reason: reasonOf(decision, requested),
         ...dispatchEvidence(decision),
         ...(family === null ? {} : { model: family }),
         ...(decision.effort === null ? {} : { effort: decision.effort }),

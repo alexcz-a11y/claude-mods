@@ -7,7 +7,7 @@ import { type Drawn, shown } from './support/drawn.ts'
 import { base64, screenshotContent } from './support/images.ts'
 import { jev, KEY, world } from './support/world.ts'
 
-const OPTIONS = { ...KEY, rejudgeEvery: 0 }
+const OPTIONS = KEY
 const SHOT = '/shots/home.png'
 const IMAGE = { format: 'png', width: 1200, height: 800 }
 const TOOL = 'mcp__chrome-devtools__take_screenshot'

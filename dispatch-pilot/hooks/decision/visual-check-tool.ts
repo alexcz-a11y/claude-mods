@@ -2,7 +2,7 @@
 // never change in a session (the tool list is part of the prompt cache), and, further on, how its answer is worded. All of it is
 // written for the model, so in English. Pure (see system-one.ts).
 
-import type { BackendName } from './backend.ts'
+import type { ImageBackendName } from './backend.ts'
 import { FRAME_COUNT, LOOK_FRAME_COUNT, type Span, WHOLE_RECORDING } from './visual-check-frames.ts'
 import { MAX_LEVELS, SERIES_DESCRIPTION, SERIES_UNAVAILABLE } from './visual-check-sequence.ts'
 import { percent, type Check, type CheckResult, type Comparison } from './visual-check.ts'
@@ -51,7 +51,7 @@ function recordings(frames: number): string {
 }
 
 /** What the model reads about the tool, by the decision model that takes its images. Constants: nothing of the session goes in. */
-export function visualCheckDescription(backend: BackendName): string {
+export function visualCheckDescription(backend: ImageBackendName): string {
   const jev = backend === 'jev'
   return [WHAT_IT_IS, HOW_TO_WRITE_CHECKS, WHAT_IT_JUDGES, READING_THE_ANSWER, LOOK, BEFORE_YOU_FINISH, jev ? COMPARING_WITH_ZOOM : COMPARING_COARSE, jev ? SERIES_DESCRIPTION : SERIES_UNAVAILABLE, recordings(FRAME_COUNT[backend])].join(' ')
 }

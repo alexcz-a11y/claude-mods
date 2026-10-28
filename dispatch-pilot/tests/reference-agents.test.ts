@@ -72,8 +72,8 @@ test("an agent's state with the reading stays within the budget for an agent: a 
 
   const state = w.requests.find(asksAgent)?.body.state
   expect(state.reference_complexity).toMatchObject({ level: 3 })
-  expect(sentTokens(state)).toBeLessThanOrEqual(96000)
-  expect(sentTokens(state)).toBeGreaterThan(90000)
+  expect(sentTokens(state)).toBeLessThanOrEqual(24000)
+  expect(sentTokens(state)).toBeGreaterThan(23000)
 })
 
 // ---- A Workflow's agents ----------------------------------------------------------------------------------------------------------------

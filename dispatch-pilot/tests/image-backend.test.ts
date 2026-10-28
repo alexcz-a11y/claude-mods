@@ -24,7 +24,7 @@ test('the ctx gives the features the image backend beside the decision backend, 
   expect([jevChosenPplxKey.backend.name, jevChosenPplxKey.images?.name, jevChosenPplxKey.images?.fellBack]).toEqual(['jev', 'pplx', true])
 
   const none = setup({})
-  expect([none.backend.name, none.images]).toEqual(['pplx', null])
+  expect([none.backend.name, none.images]).toEqual(['jev', null])
 })
 
 test('a Perplexity key that is only in the environment, read at the session start, is found too', () => {
@@ -60,10 +60,10 @@ test('with a TypeSafe key images go to Jev: nothing to say, whether or not there
   expect(await about(w)).toEqual([])
 })
 
-test('with only a TypeSafe key the entry is the one for the decision model (Jev decides), not for images', { options: { typesafeApiKey: 'ts-test-key' } }, async ($, on) => {
+test('with only a TypeSafe key there is nothing to say either: Jev decides and takes the images, the default (ADR 0014)', { options: { typesafeApiKey: 'ts-test-key' } }, async ($, on) => {
   const w = world($, on, { session: true, env: {} })
   await w.start()
-  expect(await about(w)).toMatchObject([{ fallbackFor: 'text', outcome: '改用 Jev' }])
+  expect(await about(w)).toEqual([])
 })
 
 test('no key of either kind: images are unavailable, and the debug log says so (no entry: nothing changed for the person)', { options: {} }, async ($, on) => {

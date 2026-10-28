@@ -19,7 +19,7 @@
 import { type ComplexityIo, readReferenceComplexity, type ReferenceReadings } from '../../hooks/core/complexity.ts'
 import { type ImageFilesIo, loadAll, type LoadedAll, type LoadedImage } from '../../hooks/core/image-files.ts'
 import { zoomReview } from '../../hooks/core/zoom-review.ts'
-import type { Asked, BackendName } from '../../hooks/decision/backend.ts'
+import type { Asked, ImageBackendName } from '../../hooks/decision/backend.ts'
 import { complexityRequest, COMPLEXITY_LEVEL, COMPLEXITY_LEVELS } from '../../hooks/decision/complexity.ts'
 import { limitsFor } from '../../hooks/decision/image-fit.ts'
 import { imageMegapixelBudget, PPLX_MAX_IMAGES } from '../../hooks/decision/images.ts'
@@ -110,7 +110,7 @@ const asAsked = (ask: Ask) => async (request: DecisionRequest): Promise<Asked> =
 const comparisonOf = (item: ComparedItem | AnimItem): Comparison => (item.kind === 'anim' ? { kind: 'spec', spec: item.asked.spec } : { kind: 'reference', paths: item.asked.reference })
 
 /** The images of a compared item, loaded as the mod loads a call's (features/visual-check.ts `subjectsOf`): within the model's limits, together within its token budget. */
-const loadCompared = (files: ImageFilesIo, paths: readonly string[], backend: BackendName, checks: number): Promise<LoadedAll> => loadAll(files, paths, limitsFor(backend), imageMegapixelBudget(backend, checks))
+const loadCompared = (files: ImageFilesIo, paths: readonly string[], backend: ImageBackendName, checks: number): Promise<LoadedAll> => loadAll(files, paths, limitsFor(backend), imageMegapixelBudget(backend, checks))
 
 /** What an item's verdicts say beside the truth: a part that is the same (`holds`) judged FAIL, a part that differs judged PASS. */
 function outcomeOf(result: CheckResult, whole: CheckResult | undefined, compared: boolean): { outcome: CheckOutcome; trust: 'both' | 'fail'; whole: number | null } {
@@ -123,7 +123,7 @@ const areaOf = (box: { top: number; bottom: number; left: number; right: number 
 
 /** The suite. `images` is what a run gives it to read and cut pictures with (SuiteHost.images); without it every item says so. */
 export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualCheckItem, VisualPrediction> {
-  async function decideCompared(item: ComparedItem, variant: string, ask: Ask, backend: BackendName, host: ImageHost): Promise<Decided<VisualPrediction>> {
+  async function decideCompared(item: ComparedItem, variant: string, ask: Ask, backend: ImageBackendName, host: ImageHost): Promise<Decided<VisualPrediction>> {
     const { screenshot, reference, checks } = item.asked
     const comparison = comparisonOf(item)
     if (backend === 'pplx' && reference.length + 1 > PPLX_MAX_IMAGES) return { ok: false, failure: `images: pplx takes at most ${PPLX_MAX_IMAGES} images in one request` }
@@ -150,7 +150,7 @@ export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualChe
     return decided(item, results, wholeResults, true, loaded.images.length, elsewhere, traces.sent)
   }
 
-  async function decideAnim(item: AnimItem, ask: Ask, backend: BackendName, host: ImageHost): Promise<Decided<VisualPrediction>> {
+  async function decideAnim(item: AnimItem, ask: Ask, backend: ImageBackendName, host: ImageHost): Promise<Decided<VisualPrediction>> {
     const { checks, spec } = item.asked
     // pplx takes eight frames at the most: a recording is cut into fewer for it (FRAME_COUNT), here the dataset's frames are spread so.
     const frames = evenly(item.asked.frames, FRAME_COUNT[backend])
@@ -188,7 +188,7 @@ export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualChe
     return { ok: true, prediction: { kind: 'checks', outcomes: read.map(({ outcome }) => outcome) }, detail: detail as unknown as Record<string, unknown> }
   }
 
-  async function decideComplexity(item: ComplexityItem, ask: Ask, backend: BackendName, host: ImageHost): Promise<Decided<VisualPrediction>> {
+  async function decideComplexity(item: ComplexityItem, ask: Ask, backend: ImageBackendName, host: ImageHost): Promise<Decided<VisualPrediction>> {
     const traces = traced(ask)
     // The group is read as the mod reads one (core/complexity.ts): its images brought to about a megapixel, one Score question. A store of its own, so that no group is read from a cache.
     let kept: { value: ReferenceReadings | undefined; version: number } = { value: undefined, version: 0 }
@@ -225,6 +225,8 @@ export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualChe
       if (!(VISUAL_VARIANTS as readonly string[]).includes(variant)) throw new RangeError(`no variant "${variant}" (${VISUAL_VARIANTS.join(', ')})`)
       if (images === undefined) return { ok: false, failure: 'config: this run has no host for pictures and programs (SuiteHost.images)' }
       const backend = settings.backend
+      // The pictures go to Jev or pplx only (ADR 0017): d1-ultra takes none.
+      if (backend === 'd1-ultra') return { ok: false, failure: 'config: d1-ultra takes no pictures; run the visual-check suite with --backend jev or pplx' }
       if (item.kind === 'complexity') return decideComplexity(item, ask, backend, images)
       if (item.kind === 'anim') return decideAnim(item, ask, backend, images)
       return decideCompared(item, variant, ask, backend, images)

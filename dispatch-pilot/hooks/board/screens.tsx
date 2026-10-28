@@ -3,8 +3,8 @@
 // summary at the right end of the footer (`SessionMode`) and the rationale pane
 // (`Pane`, the pane `/dp` opens). One hook tree for every surface, branching on
 // `e.surface`: every surface draws the same design (band.tsx, footer.tsx,
-// pane.tsx), its marks (time ribbons, probability bars, confidence meters) a
-// Raster on the terminal and an Svg on Desktop, VS Code and the mobile app;
+// pane.tsx), its marks (time ribbons, probability bars) a Raster on the
+// terminal and an Svg on Desktop, VS Code and the mobile app;
 // off the terminal the footer's tag is at most 24 characters and the log keeps
 // to a window short of Desktop's 2000 nodes.
 //
@@ -39,20 +39,14 @@ import { bandHintIs, hintLineIs, statusLineUsed, surfacesAre, turnLineIs, type S
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const SELECTED = { plugin: 'dispatch-pilot', key: 'selected' } as const
-const PROFILES = { plugin: 'dispatch-pilot', key: 'skillProfiles' } as const
 const LOCK = { plugin: 'dispatch-pilot', key: 'lock' } as const
 const PANE_VIEW = { plugin: 'dispatch-pilot', key: 'paneView' } as const
 const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
 const BAND_FOLD = { plugin: 'dispatch-pilot', key: 'bandFolded' } as const
 const DRAFT_HINT = { plugin: 'dispatch-pilot', key: 'draftHint' } as const
 
-/** The log's windows for a surface that refuses a large tree, widest first: what the pane keeps of the log and of the re-decisions. */
-const WINDOWS = [
-  { entries: 40, mids: 20 },
-  { entries: 16, mids: 8 },
-  { entries: 4, mids: 3 },
-  { entries: 0, mids: 0 },
-] as const
+/** The log's windows for a surface that refuses a large tree, widest first: what the pane keeps of the log. */
+const WINDOWS = [{ entries: 40 }, { entries: 16 }, { entries: 4 }, { entries: 0 }] as const
 /** A tree this big is drawn again in the next window: Desktop refuses 2000. */
 const MOST_NODES = 1800
 
@@ -273,23 +267,21 @@ export function registerScreens(on: On): void {
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e, next) => {
     try {
       const t = $.ui.resolve(e)
-      const [view, log, profiles, lock, kept, count] = await Promise.all([viewOf($, false, e.surface !== 'terminal'), $.state.get(DECISIONS), $.state.get(PROFILES), $.state.get(LOCK), $.state.get(PANE_VIEW), $.state.get(COUNT)])
+      const [view, log, lock, kept, count] = await Promise.all([viewOf($, false, e.surface !== 'terminal'), $.state.get(DECISIONS), $.state.get(LOCK), $.state.get(PANE_VIEW), $.state.get(COUNT)])
       tick($, view)
       const entries = log.value ?? []
       const state = kept.value ?? NO_PANE_STATE
-      const shown = isOn('skills') && isOn('skill-profiles') ? (profiles.value ?? null) : null
       // The summary the session holds, while the feature that writes it is on.
-      const summary = isOn('unresolved') ? (count.value?.summary ?? null) : null
+      const summary = isOn('summary') ? (count.value?.summary ?? null) : null
       const viewing = e.props.view.agentId ?? null
       // The terminal's labels spell their keys; Desktop draws a key beside its Button, and the others take none.
       // Claude Desktop's own engine (2.1.299) has no `$.ui.view`: no 看它的对话 there, rather than a button that only says so.
       const canView = await viewsTranscripts($)
-      const input = { view, log: entries, profiles: shown, switches: listSwitches().map((s) => ({ name: s.name, on: s.on })), master: masterOn(), lock: lock.value ?? null, viewing, summary, state, spellKeys: e.surface === 'terminal', canView }
+      const input = { view, log: entries, switches: listSwitches().map((s) => ({ name: s.name, on: s.on })), master: masterOn(), lock: lock.value ?? null, viewing, summary, state, spellKeys: e.surface === 'terminal', canView }
       const act = {
         pick: (row: AgentRow) => void pick($, row).catch(() => undefined),
         view: (agentId: string | null) => void showTranscript($, agentId).catch(() => undefined),
         fold: (turn: number, open: boolean) => void $.state.set(PANE_VIEW, withFold(state, turn, open, entries)).catch(() => undefined),
-        failures: (open: boolean) => void $.state.set(PANE_VIEW, { ...state, failures: open }).catch(() => undefined),
         // Off the terminal the pane's own 关闭: the surface's × is not always heard (Desktop).
         ...(e.surface === 'terminal' ? {} : { close: () => void $.ui.close({ id: PANE_ID }).catch(() => undefined) }),
       }

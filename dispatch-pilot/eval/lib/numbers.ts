@@ -1,4 +1,4 @@
-// A number given on the command line (eval/node.ts numberFlag and scriptTimeout: eval/run.ts, the eval-v2, long-context and profiles suites, scripts/decide*.ts), read strictly: `Number()` turns a typo into NaN, and NaN passes
+// A number given on the command line (eval/node.ts numberFlag and scriptTimeout: eval/run.ts, the eval-v2 and long-context suites, scripts/decide*.ts), read strictly: `Number()` turns a typo into NaN, and NaN passes
 // every comparison the run makes with it unseen (`estimatedUsd > NaN` is false: no spend cap; `attempt > NaN` is
 // false: no end to the retries; a timer of NaN ms fires at once; no worker is started for NaN requests in flight).
 //

@@ -1,13 +1,15 @@
 // Runs the real flow over eval v2 (#45; lib/eval-v2-flow.ts): for every item, each of the person's messages in order is
-// asked of one backend at one state budget as the mod asks it (the effort question and the three-way question beside it,
-// with the summary, the count and, from unresolvedMaxAfter on, the strong hint), the count moved by the mod's two bars,
-// and after each turn the problem summary continued by the cheap model from the mod's own prompt, through
-// `claude -p --model haiku` (`$.model.complete` exists only inside Claude Code; done as eval/long-context-summaries.ts does
-// it). One file per backend and budget, which the eval-v2 suite's flow variants carry (`run.ts eval-v2 --flow <file>`)
-// and eval/eval-v2-thresholds.ts scans:
+// asked of one backend at one state budget as the mod asks it (the effort part: the effort question and its Nouls, with
+// the summary and the count in the state, ADR 0014), the count moved by the three Nouls about the problem as the mod moves
+// it, and after each turn the problem summary continued by the cheap model from the mod's own prompt (written in English
+// since 0.9.0), through `claude -p --model haiku` (`$.model.complete` exists only inside Claude Code; done as
+// eval/long-context-summaries.ts does it). One file per backend and budget, which the eval-v2 suite's flow variants carry
+// (`run.ts eval-v2 --flow <file>`). The files written before 0.9.0 hold Chinese summaries made with the old prompt: run
+// it again (with --no-cache, or the cache keys on the new prompt anyway) for the new format.
 //
 //   node dispatch-pilot/eval/eval-v2-flow.ts --backend jev --estimate      how many requests and summary writes, the cost; nothing is asked
-//   node dispatch-pilot/eval/eval-v2-flow.ts --backend jev                 -> eval/results/eval-v2-flow/jev-96000.json (the mod's budget; jev-24000.json was run at Jev's budget of that day)
+//   node dispatch-pilot/eval/eval-v2-flow.ts --backend jev --label en      -> eval/results/eval-v2-flow/jev-24000-en.json (the mod's budget and questions since 0.9.0;
+//                                                                          jev-24000.json is 1.13's, written with other settings, so a run without --label refuses it)
 //   node dispatch-pilot/eval/eval-v2-flow.ts --backend pplx --state-tokens 48000 --state-messages 2000 --timeout 240000 --max-usd 20
 //   node dispatch-pilot/eval/eval-v2-flow.ts --backend pplx --state-tokens 135000 --state-messages 2000 --timeout 240000 --max-usd 40
 //
@@ -20,7 +22,7 @@
 //
 // Options: --model (the backend's: jev-1.14.0, pplx-decider-v1.1-27b), --state-tokens N and --state-messages N (as run.ts;
 // the mod's contextByKind.messagePlain and contextMessages for the backend otherwise), --language zh|en (the questions; the decision model's ask.turnStart, core/setup.ts BACKEND_DEFAULTS, otherwise),
-// --thresholds add,reset (the bars; the mod's 0.5,0.7 otherwise), --option name=value (a mod option, as run.ts), --ids a,b,
+// --option name=value (a mod option, as run.ts), --ids a,b,
 // --limit N, --concurrency 4 (items at once; the messages of one item go one after another), --timeout <ms>, --retries 2,
 // --summary-model haiku, --tries 3 (asks of a turn whose reply is no summary; the mod asks once, `claude -p` fails for
 // reasons of its own), --out <file>, --label <word> (added to the file's name), --estimate, --max-usd 1, --no-cache.
@@ -61,7 +63,6 @@ const { values } = parseArgs({
     'state-tokens': { type: 'string' },
     'state-messages': { type: 'string' },
     language: { type: 'string' },
-    thresholds: { type: 'string' },
     option: { type: 'string', multiple: true, default: [] },
     ids: { type: 'string' },
     limit: { type: 'string' },
@@ -100,12 +101,8 @@ const settings = stateMessages === null ? widened : withStateMessages(widened, s
 const budget = settings.contextByKind.messagePlain
 const language = (values.language ?? settings.ask.turnStart.language) as Language
 if (language !== 'zh' && language !== 'en') fail(`--language takes zh or en, not ${language}`)
-const thresholds: UnresolvedThresholds = values.thresholds === undefined ? UNRESOLVED_THRESHOLDS : (() => {
-  const [add, reset] = values.thresholds.split(',').map(Number)
-  if (add === undefined || reset === undefined || !(add > 0 && add < 1 && reset > 0 && reset < 1)) fail(`--thresholds takes add,reset, two numbers between 0 and 1, not ${values.thresholds}`)
-  if (add + reset <= 1) console.log(`warning: add + reset is ${add + reset}: the mod keeps it over 1, so that one answer never meets both bars`)
-  return { add, reset }
-})()
+// The Nouls' bars are TypeSafe's starting values (ADR 0014), not a setting: the file records them.
+const thresholds: UnresolvedThresholds = UNRESOLVED_THRESHOLDS
 const model = values.model ?? (backendName === 'pplx' ? PPLX_MODEL : JEV_MODEL)
 const attemptMs = values.timeout === undefined ? defaultAttemptMs(settings.timeoutMs) : numberFlag('--timeout', values.timeout, { min: 1, integer: true })
 const summaryModel = values['summary-model']
@@ -137,7 +134,7 @@ const file: FlowFile = existsSync(out)
   : {
       suite: 'eval-v2-flow',
       about:
-        "The real flow over eval v2 (eval/eval-v2-flow.ts, lib/eval-v2-flow.ts): at each of the person's messages the mod's request (effort and three-way question, the summary and the count it held, the strong hint from unresolvedMaxAfter on), the count moved by the bars, the summary continued after each turn by the cheap model from the mod's prompt. Per item: each message's probabilities and count before and after; `final` is what the last message's request carried.",
+        "The real flow over eval v2 (eval/eval-v2-flow.ts, lib/eval-v2-flow.ts): at each of the person's messages the mod's request (the effort part, the summary and the count it held), the count moved by the Nouls about the problem, the summary continued after each turn by the cheap model from the mod's prompt. Per item: each message's probabilities and count before and after; `final` is what the last message's request carried.",
       backend: { name: backendName, model, answeredBy: [] },
       settings: ran,
       summarizer: { model: summaryModel, says: null, answeredBy: [], how, asked: 0, failed: 0, cached: 0 },
@@ -164,7 +161,7 @@ const due = items.flatMap((item) => {
 
 // ---- the estimate: requests at the state each would hold (the budget at most), the questions, the summary writes ----
 const people = (item: V2EvalItem) => item.turns.flatMap((turn, at) => (turn.role === 'user' ? [at] : []))
-const questions = estimateTokens(JSON.stringify({ model, questions: turnStartPart({ ask: { language, primitive: 'score' }, unresolved: true, count: 3, maxAfter: 3 }).questions }))
+const questions = estimateTokens(JSON.stringify({ model, questions: turnStartPart({ ask: { language, primitive: 'score' } }).questions }))
 let requests = 0
 let tokens = 0
 let writes = 0
@@ -178,7 +175,7 @@ for (const { item, from } of due) {
 }
 const factor = ESTIMATE_FACTOR[backendName]
 const usd = (factor * tokens * PRICES[backendName]) / 1e6
-console.log(`eval-v2 flow, ${backendName} (${model}), state ${budget} tokens / ${settings.context.messages} messages, questions in ${language}, bars ${thresholds.add}/${thresholds.reset}: ${items.length - due.length} of ${items.length} items done, ${due.length} to run: ${requests} requests, about ${Math.round(factor * tokens)} input tokens, about $${usd.toFixed(2)}; up to ${writes} summary writes with claude -p --model ${summaryModel}; -> ${shown(out)}`)
+console.log(`eval-v2 flow, ${backendName} (${model}), state ${budget} tokens / ${settings.context.messages} messages, questions in ${language}, bars ${thresholds.yes}/${thresholds.no}: ${items.length - due.length} of ${items.length} items done, ${due.length} to run: ${requests} requests, about ${Math.round(factor * tokens)} input tokens, about $${usd.toFixed(2)}; up to ${writes} summary writes with claude -p --model ${summaryModel}; -> ${shown(out)}`)
 if (values.estimate || due.length === 0) process.exit(0)
 if (usd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothing sent`)
 
@@ -295,7 +292,7 @@ const stopped: string[] = []
 const worker = async () => {
   while (next < due.length && halted === null) {
     const { item, from } = due[next++] as (typeof due)[number]
-    const result = await flowItem(item, { ask, complete, settings, language, thresholds, tries, onMessage: (now: FlowItem) => {
+    const result = await flowItem(item, { ask, complete, settings, language, tries, onMessage: (now: FlowItem) => {
       file.items[item.id] = now
       saveSoon()
     } }, from)
@@ -309,7 +306,7 @@ const worker = async () => {
       const last = result.item.final
       const failures = result.item.messages.filter((message) => message.failure !== undefined).length
       const unwritten = result.item.messages.filter((message) => message.write === 'failed').length
-      console.log(`  ${item.id}: ${result.item.messages.length} messages, count ${last?.count ?? 0} at the last${last?.hint ? ' (hint)' : ''}${failures > 0 ? `, ${failures} unanswered` : ''}${unwritten > 0 ? `, ${unwritten} summaries not written` : ''} (${++finished}/${due.length})`)
+      console.log(`  ${item.id}: ${result.item.messages.length} messages, count ${last?.count ?? 0} at the last${failures > 0 ? `, ${failures} unanswered` : ''}${unwritten > 0 ? `, ${unwritten} summaries not written` : ''} (${++finished}/${due.length})`)
     }
     save()
   }

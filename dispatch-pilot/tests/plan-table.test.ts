@@ -88,14 +88,6 @@ test("an effort the person named for an agent is the effort of its steps: no flo
   expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(['claude-sonnet-5-5 low'])
 })
 
-test("a floor with an end (a forced raise holds for holdSteps) lifts the steps before that step, not the ones from it", async ($, on) => {
-  table(on, { 'turns/main:t1': { effort: 'low', floor: 'high', floorUntil: 3, model: null, prompt: '', decisions: 1, changes: 0, person: true, raisedAt: 1 } })
-  const w = world($, on)
-  for (const index of [1, 2, 3, 4]) await w.step({ index, turnId: 't1', effort: 'medium' })
-
-  expect(w.steps.map((s) => `${s.index} ${String(s.effort)}`)).toEqual(['1 high', '2 high', '3 low', '4 low'])
-})
-
 test('a floor lifts the effort to at least its level and never lowers it', async ($, on) => {
   const record = (effort: string | null) => ({ effort, floor: 'high', model: null, prompt: '', decisions: 1, changes: 0 })
   table(on, { 'turns/main:t1': record('low'), 'turns/main:t2': record('xhigh'), 'turns/main:t3': record(null), 'turns/main:t4': record(null) })

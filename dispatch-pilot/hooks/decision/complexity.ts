@@ -1,13 +1,13 @@
 // The complexity reading (#63, ADR 0008): how complex it is to build what a group of reference images shows, as one Score question
 // of five levels asked of Jev (or of pplx without a TypeSafe key), and what the answer is made into. The reading goes into the
-// state of the effort request of a message with images (`reference_complexity`), and #64 puts the same field in the mid-turn
-// re-decision, the dispatched agents' and the Workflow agents' requests. The eval's visual-check suite (#65) asks and reads the
+// state of the effort request of a message with images (`reference_complexity`, one typed into a running turn too), and #64
+// puts the same field in the dispatched agents' and the Workflow agents' requests. The eval's visual-check suite (#65) asks and reads the
 // same way. The question is its own request, not a question beside the effort question: the questions of a request do not see
 // each other's answers, and the effort question is not sensitive to images (ADR 0008).
 //
 // Pure (see system-one.ts): no `$`; the images arrive read and sized (core/image-files.ts).
 
-import type { BackendName } from './backend.ts'
+import type { ImageBackendName } from './backend.ts'
 import { type ImageLimits, limitsFor } from './image-fit.ts'
 import { imageRef, type Picture } from './images.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part, type RequestImage } from './system-one.ts'
@@ -20,7 +20,7 @@ export const MAX_REFERENCE_IMAGES = 6
 export const REFERENCE_MAX_PIXELS = 1_000_000
 
 /** What the decision model takes of an image for a reading: its own limits, and about a megapixel at the most. */
-export function complexityLimits(backend: BackendName): ImageLimits {
+export function complexityLimits(backend: ImageBackendName): ImageLimits {
   return { ...limitsFor(backend), maxPixels: REFERENCE_MAX_PIXELS }
 }
 
@@ -104,7 +104,7 @@ export function readComplexity(part: Part, answers: Readonly<Record<string, unkn
   return { level: Math.min(COMPLEXITY_LEVELS.length - 1, Math.max(0, Math.round(expected))), images }
 }
 
-/** The effort request's state field (and the mid-turn re-decision's, the dispatched agent's, ...) that carries a reading. */
+/** The effort request's state field (and the dispatched agent's, the Workflow agents') that carries a reading. */
 export const REFERENCE_FIELD = 'reference_complexity'
 
 /** What the decision model is told of a reading, in the field `REFERENCE_FIELD`. A hint for the question, never a level the answer is to take. */

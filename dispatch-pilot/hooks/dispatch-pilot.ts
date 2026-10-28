@@ -19,13 +19,10 @@ import { registerEscalation } from './features/escalation.ts'
 import { registerFindSkill } from './features/find-skill.ts'
 import { registerImageRouting } from './features/image-routing.ts'
 import { registerMainEffort } from './features/main-effort.ts'
-import { registerMidturnEffort } from './features/midturn-effort.ts'
 import { registerPromptHint } from './features/prompt-hint.ts'
-import { registerReferenceMidturn } from './features/reference-midturn.ts'
 import { registerUnresolved } from './features/unresolved.ts'
 import { registerVisualCheck } from './features/visual-check.ts'
 import { registerScreenshotTakeover } from './features/screenshot-takeover.ts'
-import { registerSkillProfiles } from './features/skill-profiles.ts'
 import { registerSkills } from './features/skills.ts'
 import { registerWorkflowAgents } from './features/workflow-agents.ts'
 import { registerWorkflowLabels } from './features/workflow-labels.ts'
@@ -47,17 +44,12 @@ export const register: Register = (on, options) => {
   registerControl(on, ctx)
   registerMainEffort(on, ctx)
   registerUnresolved(on, ctx)
-  registerEscalation(on, ctx) // above the mid-turn feature: its raise is in the plan before a mid-turn answer is applied
-  // Outside the mid-turn feature: a Read has been recorded in the turn's steps by the time this feature asks it to judge again.
-  registerReferenceMidturn(on, ctx)
-  registerMidturnEffort(on, ctx)
+  registerEscalation(on, ctx)
   registerDispatchedAgents(on, ctx)
   registerWorkflowAgents(on, ctx)
   // Inside workflow-agents: a Workflow call is this feature's only once that feature has sent the script on, so the
   // agents of other runs never wait while it is still deciding.
   registerWorkflowLabels(on, ctx)
-  // Outside skills: at session start it writes the profiles of the skills that feature has just read.
-  registerSkillProfiles(on, ctx)
   registerSkills(on, ctx)
   registerFindSkill(on, ctx)
   registerVisualCheck(on, ctx)

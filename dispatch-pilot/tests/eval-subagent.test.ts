@@ -12,14 +12,14 @@ import type { Language, AgentItem } from '../eval/lib/datasets.ts'
 import { agentSuite } from '../eval/lib/subagent.ts'
 import { settingsFrom, type Ask } from '../eval/lib/suite.ts'
 import { siteJev, workflowWorld } from './support/workflow.ts'
-import { jev, world } from './support/world.ts'
+import { jev, leadsTo, withoutBrief, world } from './support/world.ts'
 
 const SECRET = 'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWx'
 const ZH = '上周的事故复盘里提到权限判断有漏洞，'
 const EN = "Last week's incident review said the permission checks have holes. "
 
 /**
- * An agent item longer than every budget (Jev's default for an agent's request is 96000 tokens): the
+ * An agent item longer than every budget (Jev's default for an agent's request is 24000 tokens): the
  * person's message is cut twice (to the context budget when it is kept for the
  * turn, then to a third of it in the agent's state) and the prompt once; both
  * hold a secret. The message
@@ -58,10 +58,10 @@ const LONG: AgentItem = {
 /**
  * The request the eval sends for `item` in `language` (asked of no backend:
  * the request is all that is read), its suite built over `dataset`; by default
- * as `models-hint-zh`, the variant the mod asks Jev with since 1.14
- * (core/setup.ts BACKEND_DEFAULTS `ask.agent`).
+ * as `nouls`, the variant the mod asks with (core/setup.ts BACKEND_DEFAULTS
+ * `ask.agent`: English, ADR 0014; the Nouls about the brief, ADR 0015).
  */
-async function evalRequest(item: AgentItem, language: Language, options: PluginOptions = {}, dataset: readonly AgentItem[] = [item], variant = 'models-hint-zh'): Promise<DecisionRequest> {
+async function evalRequest(item: AgentItem, language: Language, options: PluginOptions = {}, dataset: readonly AgentItem[] = [item], variant = 'nouls'): Promise<DecisionRequest> {
   let sent: DecisionRequest | undefined
   const ask: Ask = async (request) => {
     sent = request
@@ -96,7 +96,7 @@ for (const language of ['zh', 'en'] as const) {
     // Asked about opus, named at the end; not about haiku, which the mod cut
     // from the middle when it kept the message for the turn.
     expect(asked.user_message).toContain('haiku')
-    expect(Object.keys(request.questions)).toEqual(['agent.model', 'agent.effort', 'agent.named.opus', 'agent.banned.opus'])
+    expect(withoutBrief(Object.keys(request.questions))).toEqual(['agent.effort', 'agent.named.opus', 'agent.banned.opus'])
   })
 }
 
@@ -155,40 +155,40 @@ for (const language of ['zh', 'en'] as const) {
     expect({ ...w.requests[1]?.body, state }).toEqual({ model: JEV_MODEL, state: forScan.state, questions: forScan.questions })
     expect(forSynth).toEqual(forScan)
     // What the request holds, so the equality above is not two empty things.
-    expect(Object.keys(forScan.questions)).toEqual(['agent-0.model', 'agent-0.effort', 'agent-1.model', 'agent-1.effort'])
+    expect(withoutBrief(Object.keys(forScan.questions))).toEqual(['agent-0.effort', 'agent-1.effort'])
     expect(forScan.state.brief_0).toEqual({ workflow_description: SCAN[language].workflow_description, label: 'scan:${pkg}', prompt: SCAN[language].prompt })
-    // The pick the script wrote for the call is the main agent's: a hint in its model question.
-    expect(JSON.stringify(forScan.questions['agent-0.model'])).toContain('指定了 opus')
+    // The pick the script wrote for the call is in no question: the table weighs it afterwards (ADR 0015).
+    expect(JSON.stringify(forScan.questions)).not.toContain('opus')
   })
 }
 
 test("the single variant asks about each of a Workflow's agents in a request of its own, with the part and the brief the script's request gives it", async () => {
-  const scan = await evalRequest(SCAN, 'zh', {}, [SCAN, SYNTH], 'models-hint-single')
-  const synth = await evalRequest(SYNTH, 'zh', {}, [SCAN, SYNTH], 'models-hint-single')
-  expect(Object.keys(scan.questions)).toEqual(['agent-0.model', 'agent-0.effort'])
-  expect(Object.keys(synth.questions)).toEqual(['agent-1.model', 'agent-1.effort'])
+  const scan = await evalRequest(SCAN, 'zh', {}, [SCAN, SYNTH], 'nouls-single')
+  const synth = await evalRequest(SYNTH, 'zh', {}, [SCAN, SYNTH], 'nouls-single')
+  expect(withoutBrief(Object.keys(scan.questions))).toEqual(['agent-0.effort'])
+  expect(withoutBrief(Object.keys(synth.questions))).toEqual(['agent-1.effort'])
   expect(Object.keys(synth.state)).toEqual(['brief_1', 'user_message'])
 })
 
 /** Whether a value holds Chinese text anywhere. */
 const hasChinese = (value: unknown) => /[一-鿿]/.test(JSON.stringify(value))
 
-test('the models-hint-zh variant asks what models-hint asks, every question written in Chinese: the same state, the same questions in the same order', async () => {
+test('the nouls-zh variant asks what nouls asks, every question written in Chinese: the same state, the same questions in the same order', async () => {
   for (const [item, dataset] of [
     [LONG, [LONG]],
     [SCAN, [SCAN, SYNTH]],
   ] as const) {
-    const english = await evalRequest(item, 'en', {}, dataset, 'models-hint')
-    const chinese = await evalRequest(item, 'en', {}, dataset, 'models-hint-zh')
+    const english = await evalRequest(item, 'en', {}, dataset, 'nouls')
+    const chinese = await evalRequest(item, 'en', {}, dataset, 'nouls-zh')
     expect(chinese.state).toEqual(english.state)
     expect(Object.keys(chinese.questions)).toEqual(Object.keys(english.questions))
     expect(hasChinese(english.questions)).toBe(false)
     for (const [id, question] of Object.entries(chinese.questions)) expect([id, hasChinese(question)]).toEqual([id, true])
   }
   // The questions as the mod writes them in Chinese (decision/dispatched-agent.ts), the brief's field named in them.
-  const asked = await evalRequest(LONG, 'zh', {}, [LONG], 'models-hint-zh')
-  expect(asked.questions['agent.model']?.instructions).toMatchObject({ 问题: '哪个模型是能把 `brief` 做好的最便宜的一个？' })
-  expect(JSON.stringify(asked.questions['agent.model']?.instructions)).toContain('写 `brief` 的主 agent 指定了 sonnet')
+  const asked = await evalRequest(LONG, 'zh', {}, [LONG], 'nouls-zh')
+  expect(asked.questions['agent.design_open']?.instructions).toMatchObject({ 问题: '`brief.prompt` 是否要求 agent 自己选一个任务里没给出的做法？' })
+  expect(JSON.stringify(asked.questions)).not.toContain('sonnet')
   expect(asked.questions['agent.effort']?.instructions).toMatchObject({ 问题: '一个派出的 agent 要完成 `brief`，需要多少逐步推理？' })
 })
 
@@ -205,13 +205,13 @@ test("from the same answers the eval decides each of a Workflow's agents as the 
     const reply = answers({ url: '', method: 'POST', headers: {}, body: request, at: 0 }) as { body: { answers: Record<string, never> } }
     return { request, asked: { ok: true, answers: reply.body.answers, model: JEV_MODEL, inputTokens: 400 }, ms: 0, attempts: 1 }
   }
-  const decided = await Promise.all([SCAN, SYNTH].map((item) => suite.decide(item, 'zh', 'models-hint', ask, settingsFrom({ decisionModel: 'jev' }))))
+  const decided = await Promise.all([SCAN, SYNTH].map((item) => suite.decide(item, 'zh', 'nouls', ask, settingsFrom({ decisionModel: 'jev' }))))
   expect(decided.map((one) => (one.ok ? `${one.prediction.model} ${one.prediction.effort}` : one.failure))).toEqual(['opus xhigh', 'sonnet medium'])
   expect(told).toContain('"scan:${pkg}": opus xhigh')
   expect(told).toContain('"synthesize": sonnet medium')
 })
 
-/** A decision model's answers about one agent: the model question's probabilities, the effort levels', and yes/no answers by id within the part (0 otherwise). */
+/** A decision model's answers about one agent: the model its Nouls about the brief lead the table to (`leadsTo`), the effort levels', and yes/no answers by id within the part (0 otherwise). */
 type Answers = { model: Record<string, number>; effort: readonly number[]; nouls?: Record<string, number> }
 
 /** The answers part of a backend's reply to a request about one agent, every question answered from `answers`. */
@@ -219,9 +219,8 @@ function answersTo(questions: Readonly<Record<string, { type: string }>>, answer
   const out: Record<string, unknown> = {}
   for (const [id, question] of Object.entries(questions)) {
     const local = id.slice(id.indexOf('.') + 1)
-    if (question.type === 'choice') out[id] = { type: 'choice', choice: '', probabilities: answers.model, confidence: 0.5 }
-    else if (question.type === 'score') out[id] = { type: 'score', score: 0, probabilities: Object.fromEntries(answers.effort.map((p, i) => [String(i), p])), confidence: 0.6 }
-    else out[id] = { type: 'noul', noul: answers.nouls?.[local] ?? 0 }
+    if (question.type === 'score') out[id] = { type: 'score', score: 0, probabilities: Object.fromEntries(answers.effort.map((p, i) => [String(i), p])), confidence: 0.6 }
+    else if (question.type === 'noul') out[id] = { type: 'noul', noul: answers.nouls?.[local] ?? leadsTo(answers.model)[local] ?? 0 }
   }
   return out
 }
@@ -242,11 +241,11 @@ function agentItem(id: string, asked: Partial<AgentItem['zh']>): AgentItem {
   return { id, zh, en: zh, gold: { model: 'sonnet', effort: 'medium' }, accept: { model: ['sonnet'], effort: ['medium'] }, rationale: '理由', difficulty: 'hard', tags: ['priority:none'] }
 }
 
-test("the eval decides an agent as the mod does from the same answers, under the mod's options (agentOverride, agentFable)", { options: { decisionModel: 'jev', typesafeApiKey: 'k', agentOverride: 0.9, agentFable: true } }, async ($, on) => {
+test("the eval decides an agent as the mod does from the same answers, under the mod's options (agentFable)", { options: { decisionModel: 'jev', typesafeApiKey: 'k', agentFable: true } }, async ($, on) => {
   const cases: { item: AgentItem; answers: Answers }[] = [
-    // Of four options p 0.9 is confidence 0.87: under agentOverride 0.9, the main agent's opus stands.
+    // The table gives haiku: the main agent's opus is never lowered.
     { item: agentItem('keep', { requested_model: 'opus' }), answers: { model: { haiku: 0.9, sonnet: 0.05, opus: 0.05, fable: 0 }, effort: [0, 0, 0, 1, 0] } },
-    // fable is offered (agentFable): sure enough to replace the main agent's sonnet.
+    // The frontier question is asked (agentFable) and says yes: the main agent's sonnet is raised to fable.
     { item: agentItem('fable', { requested_model: 'sonnet' }), answers: { model: { haiku: 0, sonnet: 0, opus: 0.02, fable: 0.98 }, effort: [0, 0, 0, 0.3, 0.7] } },
     // The person names sonnet for the work: it wins over the main agent's opus and the decision model's haiku.
     { item: agentItem('named', { user_message: '这活儿 sonnet 就够了', requested_model: 'opus' }), answers: { model: { haiku: 0.97, sonnet: 0.01, opus: 0.01, fable: 0.01 }, effort: [0, 1, 0, 0, 0], nouls: { 'named.sonnet': 0.9 } } },
@@ -272,9 +271,9 @@ test("the eval decides an agent as the mod does from the same answers, under the
     const decided = await agentSuite([item]).decide(
       item,
       'zh',
-      'models-hint',
+      'nouls',
       async (request) => ({ request, asked: { ok: true, answers: answersTo(request.questions, answers), model: JEV_MODEL, inputTokens: 1500 }, ms: 0, attempts: 1 }),
-      settingsFrom({ decisionModel: 'jev', agentOverride: 0.9, agentFable: true }),
+      settingsFrom({ decisionModel: 'jev', agentFable: true }),
     )
     evaluated.push(decided.ok ? `${item.id}: ${decided.prediction.model} ${decided.prediction.effort ?? '—'}` : `${item.id}: ${decided.failure}`)
   }

@@ -11,7 +11,7 @@
 | `effort-submit.jsonl` | 发消息时主 agent 的 effort | #4 |
 | `effort-midturn.jsonl` | 一轮中途重新判断主 agent 的 effort | #14 |
 | `subagent.jsonl` | 派出 agent（普通派发，以及 Workflow 里的 `agent()`）的模型和 effort | #15 |
-| `skill.jsonl`，加上 `skill-catalog.json`、`skill-profiles.json` | skill 匹配（用本机真实的 skill 目录出题） | #16 |
+| `skill.jsonl`，加上 `skill-catalog.json` | skill 匹配（用本机真实的 skill 目录出题） | #16 |
 | `unresolved.jsonl` | 和主 agent 为同一个问题来回多轮都没解决时，发消息时判出的主 agent effort（以及这条消息和之前的问题是什么关系） | #37（spec #36） |
 | `long-context.jsonl`，加上 `long-context-summaries.json` | 决定答案的几轮在很长的对话里很早的位置时，决策模型读多远、读更多带来多少准确率（只有中文对话；由 `long-context-items.ts` 生成） | #44 |
 | `eval-v2/`（素材池、题目、两份金标、`generated.json`），生成 `eval-v2.jsonl`（不提交） | 多 agent 出题的 120 题长对话真实流程评测（只有中文对话）；格式见 `eval-v2/FORMAT.md` | #45 |
@@ -146,7 +146,6 @@ effort 题的 `accept` 必须是连续的档位（例如 `["high","xhigh"]`，�
 ```
 
 - 题目必须基于 `skill-catalog.json`：本机真实 skill 目录的快照（名字、描述、来源、是否 `disable-model-invocation`、SKILL.md 的位置和 sha256）。快照按用户的决定反映撤销 jev-pilot 写进 settings 的 `user-invocable-only` 覆盖之后的环境：被这些覆盖挡住的已安装 skill 算作主 agent 能加载的候选；frontmatter 写了 `disable-model-invocation` 的仍只用于 `user_only_hint`；仓库 settings 里设成 off 的保持 off。
-- `skill-profiles.json` 是快照里每个 skill 的画像，键和值都和 mod 存进 `$.store` 的一样（`eval/profiles.ts` 写）。
 - 答案：`"gold": ["skill-a"]`（最该推荐的 skill，按优先顺序；空数组表示「不该推荐任何 skill」）；`"accept": ["skill-a", "skill-b"]`（推荐了其中任何一个都算对）；另有两个字段：
   - `"must_not": ["skill-x"]`：推荐了就算错的 skill（典型的是看起来相关、其实不适用的干扰项）。
   - `"user_only_hint": ["skill-y"]`：只能由用户本人触发（`disable-model-invocation: true`）、应该在状态行提示用户而不是推荐给主 agent 的 skill。

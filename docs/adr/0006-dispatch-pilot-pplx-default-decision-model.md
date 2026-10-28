@@ -20,3 +20,7 @@ pplx 下的取值：
 - 对 pplx 也关掉"往上取一档"：判高只比 0.45 低 0.5 点，却少 1 个 max 召回，还放弃了"拿不准时偏高"的方向。
 
 后来被 ADR 0009 改了：Jev 的预算不再是 6000 和 24000。发消息时的 effort 题、派出 agent 和 Workflow 里的 agent 现在最多 96000（带长上下文请求头），`contextMessages` 从 32 改成 2000，Jev 的请求还要按账号的限额限速；6000 只剩带 skill 题的请求，24000 只剩中途重判。
+
+后来被 ADR 0013 改了：中途重判和「预期内失败」那一问删了，pplx 的 `rejudgeWaitMs` 6000、`thetaUp` 0、`thetaDown` 0.55、`thetaExpected`，以及「每次中途重判都可能停顿几秒」都不再有。
+
+后来被 ADR 0014 改了：默认决策模型换回 Jev，pplx 只在 `decisionModel` 设成 `pplx` 时用，不按密钥自动换，0.9.0 起不再评测；它的门槛（`thetaMax` 0.47、往上取一档 0.45）随规则一起去掉；`unresolved` 开关去掉，次数一直数，摘要有自己默认开的 `summary` 开关；所有问题对两个模型都用英文。

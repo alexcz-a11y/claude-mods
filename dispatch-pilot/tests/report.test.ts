@@ -21,7 +21,7 @@ test("a decided message is on the board: its decision in the log (the level deci
     effort: 'high',
     outcome: 'effort high',
     subject: '"把登录模块重构成三层，并补上测试"',
-    reason: '概率 low 0.05, medium 0.10, high 0.70, xhigh 0.10, max 0.05；置信度 0.70',
+    reason: '概率 low 0.05, medium 0.10, high 0.70, xhigh 0.10, max 0.05；位置 2.00；置信度 0.70（只记录）',
     conf: 0.7,
   })
   // The decision model's levels, as it gave them (the reading normalizes them, so to two decimals).
@@ -30,19 +30,26 @@ test("a decided message is on the board: its decision in the log (the level deci
   expect(board.main).toMatchObject({ turn: 1, id: 'main', kind: 'main', name: '主 agent', routed: true, decision: 1 })
 })
 
-test("the main agent's decision carries the rule trace that picked its level: max held back, the round-up blocked by it", { options: KEY }, async ($, on) => {
+test("the main agent's decision carries the rule trace that decided its level: the position, the second peak, then each floor in order (ADR 0014)", { options: KEY }, async ($, on) => {
+  // max is the most probable level, but the answer stands at 3.25: xhigh.
   const w = world($, on, { backend: jev([0, 0.05, 0.1, 0.4, 0.45]) })
   await w.submit('把登录模块重构成三层，并补上测试')
 
   const entry = (await w.board()).log[0]
   expect(entry).toMatchObject({ outcome: 'effort xhigh' })
   expect(entry?.trace?.map((step) => [step.rule, step.applied, step.level])).toEqual([
-    ['top', true, 'max'],
-    ['max-gate', true, 'xhigh'],
-    ['round-up', false, 'xhigh'],
+    ['position', true, 'xhigh'],
+    ['two-peaked', false, 'xhigh'],
+    ['ultrathink', false, 'xhigh'],
+    ['escalate', false, 'xhigh'],
+    ['confirm', false, 'xhigh'],
+    ['stakes', false, 'xhigh'],
+    ['cause-unknown', false, 'xhigh'],
+    ['stuck-again', false, 'xhigh'],
+    ['unresolved-count', false, 'xhigh'],
   ])
-  expect(entry?.trace?.[1]).toMatchObject({ thetaMax: 0.5 })
-  expect(entry?.trace?.[2]).toMatchObject({ above: 'max', blockedByMax: true, threshold: 0.3 })
+  expect(Number((entry?.trace?.[0]?.position as number).toFixed(2))).toBe(3.25)
+  expect(entry?.trace?.[1]).toMatchObject({ peak: null, threshold: 0.3 })
 })
 
 // ---- a decision that could not be made ----------------------------------------

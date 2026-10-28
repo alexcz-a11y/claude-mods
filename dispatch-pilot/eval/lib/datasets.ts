@@ -16,14 +16,13 @@
 import { BACKEND_DEFAULTS } from '../../hooks/core/setup.ts'
 import { estimateTokens, recentLines, said, type ContextMessage } from '../../hooks/decision/context.ts'
 import { EFFORTS, isEffort, type Effort } from '../../hooks/decision/effort.ts'
-import { DETAIL_KEYS, OUTCOME_WORDS, type MidturnInput } from '../../hooks/decision/midturn.ts'
 import { conversationOf, conversationTokens, decisiveMark } from './long-conversation.ts'
 import { adjacent, exactKeys, isRecord, nonEmpty, type Add } from './validators.ts'
 import { checkVisualCheck, visualCheckQuotas, VISUAL_CHECK_FIELDS } from './visual-check-items.ts'
 
 export { isRecord }
 
-export const KINDS = ['effort-submit', 'effort-midturn', 'subagent', 'skill', 'unresolved', 'long-context', 'visual-check'] as const
+export const KINDS = ['effort-submit', 'subagent', 'skill', 'unresolved', 'long-context', 'visual-check'] as const
 export type Kind = (typeof KINDS)[number]
 
 export function isKind(name: string): name is Kind {
@@ -98,27 +97,6 @@ export type LongContextItem = {
  * has a budget of its own now (`contextByKind.messagePlain`); the tag keeps the line the dataset was drawn against.
  */
 export const OVER_BUDGET = 'over-budget'
-
-/**
- * One tool call of an effort-midturn row: its name; `input`, the arguments
- * that say what it worked on (only those the mod's toolDetail reads,
- * DETAIL_KEYS; never what it wrote or returned); `result`, how it ended (the
- * words the mod's line starts with) and, in the dataset's own words, what
- * came of it. The mod never sends what came of a call: the suite writes each
- * call's line from its outcome and `input`, as the mod does.
- */
-export type MidturnRowTool = { name: string; result: string; input: Readonly<Record<string, string>> }
-export type MidturnRowStep = { assistant_text: string; tools: readonly MidturnRowTool[] }
-
-/**
- * effort-midturn: a snippet of a turn as the mid-turn re-decision reads it,
- * field for field (MidturnInput): the person's message, the step about to go
- * out, the level it goes at, the turn's counts and its latest steps, each
- * call as the dataset writes it (MidturnRowTool). A row has no `trouble`; a
- * suite adds one where #7 would.
- */
-export type MidturnAsked = Omit<MidturnInput, 'trouble' | 'recent_steps'> & { recent_steps: readonly MidturnRowStep[] }
-export type EffortMidturnItem = Item<MidturnAsked, Effort, Effort[]>
 
 /** `subagent` (dispatched agents): the models a dispatched agent can be given (fable only where an item really needs it). */
 export const MODELS = ['haiku', 'sonnet', 'opus', 'fable'] as const
@@ -212,7 +190,6 @@ export function validateDataset(kind: Kind, items: readonly unknown[], extra: Ex
 /** Top-level fields of each kind's items. */
 const FIELDS: Record<Kind, readonly string[]> = {
   'effort-submit': ['id', 'zh', 'en', 'gold', 'accept', 'rationale', 'difficulty', 'tags'],
-  'effort-midturn': ['id', 'zh', 'en', 'gold', 'accept', 'rationale', 'difficulty', 'tags'],
   subagent: ['id', 'zh', 'en', 'gold', 'accept', 'rationale', 'difficulty', 'tags'],
   skill: ['id', 'zh', 'en', 'gold', 'accept', 'must_not', 'user_only_hint', 'rationale', 'difficulty', 'tags'],
   unresolved: ['id', 'zh', 'en', 'gold', 'accept', 'triage', 'rationale', 'difficulty', 'tags'],
@@ -234,11 +211,6 @@ const RULES: Record<Kind, (item: Record<string, unknown>, add: Add) => void> = {
   'effort-submit': (item, add) => {
     checkSubmitAsked(item, add)
     checkEffortAnswer(item, add)
-  },
-  'effort-midturn': (item, add) => {
-    checkMidturnAsked(item, add)
-    checkEffortAnswer(item, add)
-    if (Array.isArray(item.accept) && item.accept.length > 2) add(`accept ${JSON.stringify(item.accept)} is wider than at most two levels`)
   },
   subagent: (item, add) => {
     checkAgentAsked(item, add)
@@ -429,98 +401,6 @@ function checkOverBudget(item: Record<string, unknown>, add: Add): void {
   else if (!tagged && over.length > 0) add(`the conversation overruns ${BUDGET} tokens in ${over.map(([language]) => language).join(' and ')} (${list}) and has no ${OVER_BUDGET} tag`)
 }
 
-/**
- * How a tool call ended, as each tool result of a midturn item starts: the
- * words the mod's line starts with (OUTCOME_WORDS), then `：` or `: `. A row
- * holds only calls that have ended, so none is still running.
- */
-const OUTCOMES: Record<Language, readonly string[]> = {
-  zh: (['ok', 'failed', 'blocked', 'denied'] as const).map((outcome) => `${OUTCOME_WORDS.zh[outcome]}：`),
-  en: (['ok', 'failed', 'blocked', 'denied'] as const).map((outcome) => `${OUTCOME_WORDS.en[outcome]}: `),
-}
-const COUNTS = ['judgments', 'changes', 'failures', 'hook_blocks'] as const
-
-/**
- * `{ message, step, current_effort, counts, recent_steps }` in both languages:
- * the step (`turn.step`'s index, from 0), the current level and the counts
- * the same in both, the recent steps oldest first, the same tools in both,
- * each result starting with how the call ended (`成功：` / `Success: ` ...),
- * each input the same in both but for its description. `counts.failures`
- * counts since the counts last started over (the turn's start, or a forced
- * escalation), as the mod counts them; hook blocks and denials are not
- * failures.
- */
-function checkMidturnAsked(item: Record<string, unknown>, add: Add): void {
-  const steps: Partial<Record<Language, unknown[]>> = {}
-  for (const language of LANGUAGES) {
-    const asked = item[language] as Record<string, unknown>
-    exactKeys(asked, ['message', 'step', 'current_effort', 'counts', 'recent_steps'], language, add)
-    if (!nonEmpty(asked.message)) add(`${language}.message must be a non-empty string`)
-    if (!wholeNumber(asked.step)) add(`${language}.step must be a whole number (the step's index, from 0)`)
-    if (!isEffort(asked.current_effort)) add(`${language}.current_effort must be an effort level`)
-    if (!isRecord(asked.counts)) add(`${language}.counts must be an object`)
-    else {
-      exactKeys(asked.counts, COUNTS, `${language}.counts`, add)
-      for (const key of COUNTS) if (key in asked.counts && !wholeNumber(asked.counts[key])) add(`${language}.counts.${key} must be a whole number`)
-    }
-    if (!Array.isArray(asked.recent_steps)) {
-      add(`${language}.recent_steps must be an array`)
-      continue
-    }
-    steps[language] = asked.recent_steps
-    asked.recent_steps.forEach((step, i) => checkRecentStep(step, language, `${language}.recent_steps[${i}]`, add))
-  }
-  const zh = item.zh as Record<string, unknown>
-  const en = item.en as Record<string, unknown>
-  for (const field of ['step', 'current_effort'] as const) if (zh[field] !== en[field]) add(`${field} differs between zh and en`)
-  if (JSON.stringify(zh.counts) !== JSON.stringify(en.counts)) add('counts differ between zh and en')
-  const [zhSteps, enSteps] = [steps.zh, steps.en]
-  if (zhSteps === undefined || enSteps === undefined) return
-  if (zhSteps.length !== enSteps.length) return add(`zh.recent_steps has ${zhSteps.length} steps, en.recent_steps ${enSteps.length}`)
-  zhSteps.forEach((step, i) => {
-    const other = enSteps[i]
-    const tools = isRecord(step) && Array.isArray(step.tools) ? step.tools : []
-    const others = isRecord(other) && Array.isArray(other.tools) ? other.tools : []
-    if (tools.length !== others.length) return add(`recent_steps[${i}] calls ${tools.length} tools in zh, ${others.length} in en`)
-    tools.forEach((tool, j) => {
-      const twin = others[j]
-      if (!isRecord(tool) || !isRecord(twin)) return
-      if (tool.name !== twin.name) add(`recent_steps[${i}].tools[${j}].name differs between zh and en`)
-      const [a, b] = [outcome(tool.result, 'zh'), outcome(twin.result, 'en')]
-      if (a !== -1 && b !== -1 && a !== b) add(`recent_steps[${i}].tools[${j}] outcome differs between zh and en`)
-      // What a call worked on is the same in both languages; its description is the model's words, in the turn's language.
-      if (!isRecord(tool.input) || !isRecord(twin.input)) return
-      for (const key of new Set([...Object.keys(tool.input), ...Object.keys(twin.input)])) {
-        if (key === 'description' ? key in tool.input !== key in twin.input : tool.input[key] !== twin.input[key]) add(`recent_steps[${i}].tools[${j}].input.${key} differs between zh and en`)
-      }
-    })
-  })
-}
-
-function checkRecentStep(step: unknown, language: Language, at: string, add: Add): void {
-  if (!isRecord(step)) return add(`${at} must be an object`)
-  exactKeys(step, ['assistant_text', 'tools'], at, add)
-  if (typeof step.assistant_text !== 'string') add(`${at}.assistant_text must be a string`)
-  if (!Array.isArray(step.tools)) return add(`${at}.tools must be an array`)
-  step.tools.forEach((tool, j) => {
-    const where = `${at}.tools[${j}]`
-    if (!isRecord(tool)) return add(`${where} must be an object`)
-    exactKeys(tool, ['name', 'result', 'input'], where, add)
-    if (!nonEmpty(tool.name)) add(`${where}.name must be a tool name`)
-    if (outcome(tool.result, language) === -1) add(`${where}.result must start with one of ${OUTCOMES[language].map((p) => JSON.stringify(p)).join(', ')}`)
-    if (!isRecord(tool.input)) return add(`${where}.input must be an object (the arguments that say what the call worked on; {} for none)`)
-    for (const [key, value] of Object.entries(tool.input)) {
-      if (!(DETAIL_KEYS as readonly string[]).includes(key)) add(`${where}.input has ${key}: an input holds only ${DETAIL_KEYS.join(', ')}`)
-      else if (!nonEmpty(value)) add(`${where}.input.${key} must be a non-empty string`)
-    }
-  })
-}
-
-/** Which way a tool result says the call ended (an index into OUTCOMES), -1 when it does not say. */
-function outcome(result: unknown, language: Language): number {
-  return typeof result === 'string' ? OUTCOMES[language].findIndex((prefix) => result.startsWith(prefix)) : -1
-}
-
 const AGENT_FIELDS = ['user_message', 'kind', 'agent_type', 'description', 'prompt', 'requested_model', 'workflow_description', 'label'] as const
 
 /** Both languages: the same kind, agent type, requested model and label; the fields each kind sets, and only those. */
@@ -640,7 +520,6 @@ function hardQuota(items: readonly Record<string, unknown>[]): string[] {
 /** Each kind's own dataset-wide shares. */
 const QUOTAS: Record<Kind, (items: readonly Record<string, unknown>[]) => string[]> = {
   'effort-submit': () => [],
-  'effort-midturn': () => [],
   subagent: (items) => {
     const workflow = share(items, (item) => isRecord(item.zh) && item.zh.kind === 'workflow')
     return workflow < 0.3 ? [`workflow agents are ${percent(workflow)} of items; the drafting rules ask for at least 30%`] : []
@@ -689,7 +568,4 @@ function percent(rate: number): string {
   return `${Math.round(rate * 1000) / 10}%`
 }
 
-function wholeNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0
-}
 

@@ -7,9 +7,9 @@
 // the decision model.
 //
 // The summary records what was tried, never whether it worked: that is the
-// person's next message to say (story 14), and the three-way question reads it
-// there (decision/unresolved.ts). When that answer is "still unresolved", the
-// last try is marked (`markLast`) so that what the record shows is what failed.
+// person's next message to say (story 14), and the Nouls about the problem read it
+// there (decision/unresolved.ts). When `still_failing` says yes, the last try is
+// marked (`markLast`) so that what the record shows is what failed.
 //
 // Pure (see system-one.ts): the mod and the eval import it as it is.
 
@@ -100,7 +100,7 @@ export const SUMMARY_SYSTEM = [
   'Record what was tried, not whether it solved the problem: only the person\'s next message says that. Never write that something is fixed, solved or working, and never add "[unresolved]" yourself.',
   'If the latest turn is about another problem than the record\'s, start a new record for it.',
   `The whole record stays within ${SUMMARY_TOKENS} tokens: when there are many attempts, merge the earliest ones into one sentence.`,
-  'Write in the language the person writes in. Plain text in the strings, no markdown.',
+  'Write in English, whatever language the person writes in; keep names, paths, commands and error text exactly as they are. Plain text in the strings, no markdown.',
 ].join('\n')
 
 /** What is cut from the turn before it goes to the cheap model, in tokens: the person's words, the assistant's reply, its tools. */
@@ -166,7 +166,17 @@ export function markLast(summary: Summary): Summary {
   return { ...summary, tried: [...summary.tried.slice(0, -1), { ...last, unresolved: true }] }
 }
 
-/** The labels of a summary in each language. */
+/**
+ * The summary as a request's state carries it (`problem_summary`): named fields, not text (TypeSafe's guide: "JSON objects
+ * with descriptive keys work better than a string"), each try with whether the person said it did not work.
+ */
+export type SummaryState = { problem: string; tried: { text: string; unresolved: boolean }[]; status: string }
+
+export function summaryState(summary: Summary): SummaryState {
+  return { problem: summary.problem, tried: summary.tried.map((attempt) => ({ text: attempt.text, unresolved: attempt.unresolved === true })), status: summary.status }
+}
+
+/** The labels of a summary in each language: the pane shows it as text. */
 const WORDS: Record<Language, { problem: string; tried: string; status: string; unresolved: string }> = {
   en: { problem: 'Problem', tried: 'Tried', status: 'Status', unresolved: 'unresolved' },
   zh: { problem: '问题', tried: '试过', status: '状态', unresolved: '未解决' },

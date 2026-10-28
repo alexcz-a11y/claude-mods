@@ -1,130 +1,120 @@
-// Forced escalation (#7): the request a loop whose tool calls keep failing is
-// asked about, what the loop is read from, and the rules that turn the answer
-// into a level.
+// Forced escalation (#7, ADR 0013): how a tool call ended, which model a
+// dispatched agent whose calls keep failing goes on as, what is kept of the
+// main agent's turn for the next message, and how an agent's transcript reads.
 //
-// Pure (see system-one.ts). The request is the mid-turn effort request
-// (midturn.ts, with its `trouble`) and one more question: is what failed what
-// the work expects at this point (a test written to fail first, a search that
-// finds nothing), or is the work stuck? Written to TypeSafe's guide for Noul
-// (docs/research/typesafe-question-guide.md §2.5): one yes/no question, a high
-// value means yes, `criteria.true` is yes. The mod and the eval build it with
-// `stuckRequest` (spec #67).
+// Pure (see system-one.ts). Claude Code 2.1.312 keeps a model's effort from
+// one message with input to the next: an effort written on a step whose new
+// input is tool results does not go out, a model written on any step does
+// (measured, DEVELOPMENT.md 「已实测的引擎行为」). So nothing here raises an
+// effort mid-turn or asks the decision model: a failing dispatched agent goes
+// on as the next model up, and the main agent's turn leaves its facts
+// (`TurnFacts`) for the next message's decision.
 
-import { withoutReminders } from './context.ts'
-import { DEFAULT_ASK, EFFORTS, higherEffort, traceEffort, type Effort, type EffortAsk, type EffortReading, type EffortRules, type EffortStep, type Language } from './effort.ts'
-import { midturnEffortPart, midturnState, outcomeOf, resultLine, toolDetail, type MidturnInput, type MidturnLimits, type MidturnStep, type MidturnTool, type Outcome } from './midturn.ts'
-import { mergeParts, type Answer, type DecisionRequest, type Part, type Question } from './system-one.ts'
+import { clipToTokens, withoutReminders } from './context.ts'
+import { AGENT_MODELS, modelFamily, type AgentModel, type Terms } from './dispatched-agent.ts'
+import type { Effort } from './effort.ts'
+import { modelId, type ResolvedModel } from './model-ids.ts'
+import { redactSecrets } from './redact.ts'
 import { computedTask, isRelayedRequest } from './workflow-labels.ts'
 
-/** The part's name and its one question's id: `escalation.expected` in a request. */
-export const ESCALATION_PART = 'escalation'
-export const EXPECTED = 'expected'
+/**
+ * How a tool call ended: `ok`, `failed` (the tool reported an error),
+ * `blocked` (a hook refused it), `denied` (the person, or a permission rule
+ * for them, refused it).
+ */
+export type Outcome = 'ok' | 'failed' | 'blocked' | 'denied'
+
+/** How a call ended, as the engine resolved `tool.call`: what the hooks beneath, the permission check and the tool said. */
+export type ToolEnding = { deny?: string; isError?: boolean; text?: string }
+
+/** The engine's own words when the person refuses a call, or a permission rule refuses it for them. */
+const DENIED = /^(?:The user doesn't want to (?:proceed with this tool use|take this action)|Permission (?:to use|for this)\b)/
 
 /**
- * How a forced raise moves the level: `one-level` goes up one level, never
- * past xhigh; `max` goes straight to max.
+ * A call's outcome: `blocked` when a hook refused it (`{ deny }` from a hook
+ * beneath, or a PreToolUse settings hook, `blockedByHook`); `denied` when
+ * the error is the engine's refusal on the person's behalf (matched on its
+ * text, so never for an MCP tool, whose text is its own); `failed` for any
+ * other error; else `ok`.
  */
-export const RAISE_MODES = ['one-level', 'max'] as const
-export type RaiseMode = (typeof RAISE_MODES)[number]
+export function outcomeOf(tool: string, ending: ToolEnding, blockedByHook: boolean): Outcome {
+  if (typeof ending.deny === 'string' || blockedByHook) return 'blocked'
+  if (ending.isError !== true) return 'ok'
+  if (!tool.startsWith('mcp__') && DENIED.test((ending.text ?? '').trim())) return 'denied'
+  return 'failed'
+}
 
-/** The level a forced raise goes to from `current`; null when there is nowhere to go (xhigh or max in `one-level`, max in `max`). */
-export function forcedTarget(current: Effort, mode: RaiseMode): Effort | null {
-  const at = EFFORTS.indexOf(current)
-  const top = mode === 'max' ? EFFORTS.indexOf('max') : EFFORTS.indexOf('xhigh')
-  const to = mode === 'max' ? top : Math.min(at + 1, top)
-  return to > at ? (EFFORTS[to] as Effort) : null
+/** Where a failing agent goes: the model it steps up to (`note`: why not the usual one), or why it stays on the one it has. */
+export type StepUp = { to: ResolvedModel; note: string } | { why: string }
+
+/** What a step-up reads of the settings: escalateHaikuTo resolved (null: names no model) and as written, the models agents may run on. */
+export type StepUpSettings = { haikuTo: ResolvedModel | null; haikuToWritten: string; models: readonly AgentModel[] }
+
+/**
+ * The model a dispatched agent whose calls keep failing goes on as: one rung up.
+ * A haiku agent goes to `escalateHaikuTo` (sonnet unless the person set
+ * another); any other agent to the next model up of those agents may run on
+ * (fable only with `agentFable`). A model the person ruled out for the work is
+ * passed over for the next one up. None, with why: the person named the
+ * agent's model, its model is of no family the mod knows, it is at the top, or
+ * every model up is ruled out or off.
+ */
+export function stepUp(model: string, settings: StepUpSettings, terms: Terms | null): StepUp {
+  if (terms?.model != null) return { why: `${terms.model} 是你给它点名的模型` }
+  const family = modelFamily(model)
+  if (family === null) return { why: `${model === '' ? '它的模型' : model} 不属于 haiku、sonnet、opus、fable，不知道往哪升` }
+  const banned = terms?.banned ?? []
+  const above = (from: AgentModel) => AGENT_MODELS.slice(AGENT_MODELS.indexOf(from) + 1).find((up) => settings.models.includes(up) && !banned.includes(up))
+  if (family === 'haiku') {
+    const to = settings.haikuTo
+    if (to === null) return { why: settings.haikuToWritten === '' ? '没有设置失败的 haiku 改用哪个模型' : `设置的改用模型 ${JSON.stringify(settings.haikuToWritten)} 这个 mod 不认识` }
+    if (!banned.includes(to.family)) return { to, note: '' }
+    const up = above(to.family)
+    if (up !== undefined) return { to: { family: up, id: modelId(up) }, note: `（${to.family} 被你排除了）` }
+    return { why: `haiku 以上的模型都被你排除了（${AGENT_MODELS.filter((one) => one !== 'haiku' && banned.includes(one)).join('、')}）` }
+  }
+  const up = above(family)
+  if (up !== undefined) return { to: { family: up, id: modelId(up) }, note: '' }
+  const ruledOut = AGENT_MODELS.slice(AGENT_MODELS.indexOf(family) + 1).filter((one) => settings.models.includes(one) && banned.includes(one))
+  if (ruledOut.length > 0) return { why: `${family} 以上的模型都被你排除了（${ruledOut.join('、')}）` }
+  return { why: family === 'opus' && !settings.models.includes('fable') ? '已经是 opus（fable 要打开 agentFable）' : `已经是最高一档的 ${family}` }
 }
 
 /**
- * One step of a forced raise's working, besides the effort rules' own (`EffortStep`) that read the answer's pick.
- * Data only, like them (ADR 0004).
+ * What the main agent's turn did, kept on its turn record when a turn the
+ * person's own message started ends (`facts` in types/index.d.ts): the next
+ * message's decision reads it, since an effort raised in the middle of a turn
+ * no longer goes out (ADR 0013).
  */
-export type RaiseStep =
-  /** The failures force the loop from `from` to `level` (one level up, or max: `mode`). */
-  | { rule: 'forced-raise'; applied: true; level: Effort; from: Effort; mode: RaiseMode }
-  /** The answer's own pick counts only when it is sure enough: `confidence` >= `threshold` (thetaUp). */
-  | { rule: 'theta-up'; applied: boolean; confidence: number; threshold: number }
-  /** The higher of the forced level (`from`) and the answer's pick; `applied` when the pick was higher. */
-  | { rule: 'higher-of'; applied: boolean; level: Effort; from: Effort }
-
-/**
- * The level a forced raise ends at, with its working: `target` (the one level,
- * or max, the failures force, from `from`), or the decision model's own pick
- * when that is higher and its answer is sure enough (`thetaUp`, as for any
- * mid-turn raise); the level above the pick from `roundUp` and `max` only past `thetaMax`, as everywhere. The steps are the
- * forced raise, then (with an answer) the effort rules' walk to its pick, the
- * confidence check and the comparison.
- */
-export function traceRaise(
-  reading: EffortReading | null,
-  forced: { from: Effort; target: Effort; mode: RaiseMode },
-  rules: EffortRules & { thetaUp: number },
-): { level: Effort; steps: (EffortStep | RaiseStep)[] } {
-  const { target } = forced
-  const steps: (EffortStep | RaiseStep)[] = [{ rule: 'forced-raise', applied: true, level: target, from: forced.from, mode: forced.mode }]
-  if (reading === null) return { level: target, steps }
-  const pick = traceEffort(reading, rules)
-  const confidence = reading.confidence ?? Math.max(...reading.probabilities)
-  const sure = confidence >= rules.thetaUp
-  steps.push(...pick.steps, { rule: 'theta-up', applied: sure, confidence, threshold: rules.thetaUp })
-  if (!sure) return { level: target, steps }
-  const level = higherEffort(target, pick.effort) as Effort
-  steps.push({ rule: 'higher-of', applied: level !== target, level, from: target })
-  return { level, steps }
+export type TurnFacts = {
+  /** The effort the turn's steps went out at (its last step's, as the core sent it); null for a model without one. */
+  effort: Effort | null
+  /** Tool calls that ended in the turn (a plugin's refusal not counted), those that failed, and those a hook refused. */
+  calls: number
+  failed: number
+  blocked: number
+  /** Whether the failures counted toward escalating (hook blocks only with `hook-block-failures` on) reached `escalateAfter`. */
+  stuck: boolean
+  /** The last failed or blocked calls, at most `MAX_ERRORS`, oldest first: each the tool and the first line it said, masked and clipped. */
+  errors: string[]
 }
 
-/** What went wrong, in one English sentence for the decision model's state (`trouble`): `2 tool calls have failed while working on this request`. */
-export function troubleText(counted: { failures: number; hookBlocks: number }): string {
-  const n = counted.failures + counted.hookBlocks
-  const how = counted.hookBlocks > 0 ? 'failed or been blocked by a hook' : 'failed'
-  return `${n} tool call${n === 1 ? ' has' : 's have'} ${how} while working on this request`
+/** At most this many error lines are kept. */
+export const MAX_ERRORS = 2
+/** An error line keeps at most this many tokens. */
+const ERROR_TOKENS = 40
+/** A line that only says a call failed, not why: passed over for the next one. */
+const NOISE = /^(?:exit code -?\d+|errors?:?)$/i
+
+/** A failed or blocked call in one line: `Bash: npm ERR! missing script: test`, secrets masked, then cut; the tool alone when it said nothing. */
+export function errorLine(tool: string, text: string | undefined): string {
+  const line = (text ?? '').split('\n').map((one) => one.trim()).find((one) => one !== '' && !NOISE.test(one)) ?? ''
+  return clipToTokens(redactSecrets(line === '' ? tool : `${tool}: ${line}`), ERROR_TOKENS)
 }
 
-const EXPECTED_QUESTION: Record<Language, Question> = {
-  en: {
-    type: 'noul',
-    instructions: 'Are the failed tool calls in `recent_steps` what the work on `user_message` expects at this point, rather than a sign that the work is stuck?',
-    criteria: {
-      true: 'The failures are part of how the work goes: a test written first and run to watch it fail, a search or check that exits with an error because it found nothing or has something to report, a command run to find out whether something exists or works.',
-      false: 'The failures are obstacles: the same call failing again and again, a command, path or tool that does not exist or is used wrongly, an error in code just written, or a fix that did not take.',
-    },
-  },
-  zh: {
-    type: 'noul',
-    instructions: '`recent_steps` 里失败的工具调用，是不是 `user_message` 这项工作此时本来就会遇到的，而不是工作卡住的迹象？',
-    criteria: {
-      true: '失败本来就是工作的一部分：先写下并运行、要看它失败的测试；因为没找到东西或有东西要报告而以错误退出的搜索或检查；为了弄清某样东西是否存在、能否运行而执行的命令。',
-      false: '失败是障碍：同一个调用一再失败；命令、路径或工具不存在或用法不对；刚写的代码有错误；修复没有生效。',
-    },
-  },
-}
-
-/** The part a stuck re-decision adds to its request: `escalation.expected`. */
-export function expectedFailurePart(ask: Partial<EffortAsk> = {}): Part {
-  const asked = { ...DEFAULT_ASK, ...ask }
-  return { part: ESCALATION_PART, questions: { [EXPECTED]: EXPECTED_QUESTION[asked.language] } }
-}
-
-/** The probability that the failures were expected (the answer's `noul`); null without a usable answer. */
-export function readExpected(answers: Readonly<Record<string, Answer>>): number | null {
-  const answer = answers[EXPECTED]
-  return answer?.type === 'noul' ? answer.noul : null
-}
-
-/** A stuck re-decision's request, and its parts to read the answers back with. */
-export type StuckRequest = { request: DecisionRequest; effortPart: Part | null; expectedPart: Part }
-
-/**
- * The request a stuck loop's re-decision sends (`input` with its `trouble`):
- * the mid-turn state and effort question, with the trouble flag, and whether
- * the failures were expected. A loop raised by another model, not a level (a
- * haiku agent at the top level), is asked the second only, its state without a current level.
- */
-export function stuckRequest(input: MidturnInput, options: { limits: MidturnLimits; ask?: Partial<EffortAsk>; effort: boolean }): StuckRequest {
-  const effortPart = options.effort ? midturnEffortPart(options.ask, { trouble: true }) : null
-  const expectedPart = expectedFailurePart(options.ask)
-  const state = midturnState(input, options.limits, options.effort ? {} : { currentEffort: false })
-  return { request: mergeParts(state, effortPart === null ? [expectedPart] : [effortPart, expectedPart]), effortPart, expectedPart }
+/** The error lines kept with `line` added last, the oldest dropped past MAX_ERRORS. */
+export function withError(errors: readonly string[], line: string): string[] {
+  return [...errors, line].slice(-MAX_ERRORS)
 }
 
 /** A transcript row as `$.session.messages()` gives it (the part read here); `rowsFromTranscript` reads an agent's transcript file to the same shape. */
@@ -147,42 +137,6 @@ export function briefOf(rows: readonly TranscriptRow[]): string {
     if (words !== '') return words
   }
   return ''
-}
-
-/**
- * What a loop has done since the last thing a person said, as the decision
- * model reads it: the steps, oldest first, each the text the agent wrote and
- * its tool calls with how they ended (the mid-turn request's `recent_steps`).
- * The transcript gives a response one row per block and the tool results rows
- * of their own, so a step is the run of assistant rows between two user rows.
- * `ended` says how a call ended when it was seen ending (a call that has just
- * ended has no result in the transcript yet, and a hook's refusal reads as
- * any error there); the transcript says it for the rest.
- */
-export function stepsFromRows(rows: readonly TranscriptRow[], options: { language: Language; ended?: (toolUseId: string) => Exclude<Outcome, 'running'> | undefined }): MidturnStep[] {
-  const said = (row: TranscriptRow) => row.role === 'user' && unwrapped(row.text) !== '' && (row.toolResults?.length ?? 0) === 0
-  const from = rows.findLastIndex(said) + 1
-  const steps: MidturnStep[] = []
-  let texts: string[] = []
-  let tools: MidturnTool[] = []
-  const close = () => {
-    if (texts.length > 0 || tools.length > 0) steps.push({ assistant_text: texts.join('\n'), tools })
-    texts = []
-    tools = []
-  }
-  for (const row of rows.slice(from)) {
-    if (row.role === 'user') {
-      close()
-      continue
-    }
-    if (row.text.trim() !== '') texts.push(row.text.trim())
-    for (const use of row.toolUses ?? []) {
-      const outcome = (use.tool_use_id === undefined ? undefined : options.ended?.(use.tool_use_id)) ?? outcomeOf(use.tool, { isError: use.isError, text: use.text }, false)
-      tools.push({ name: use.tool, result: resultLine(outcome, toolDetail(use.input ?? {}), options.language) })
-    }
-  }
-  close()
-  return steps
 }
 
 /**

@@ -9,9 +9,9 @@
 // `near` (control a: the same rounds a few thousand tokens back) or `none` (control b: deleted whole, scored against the
 // answer without them); and `<question language>-flow`: the deep conversation as the mod would have it after living it,
 // with the problem summary the cheap model wrote turn by turn (`long-context-summaries.json`, eval/long-context-summaries.ts),
-// the count of the person's "unresolved" messages, and the strong hint the count makes (`unresolvedMaxAfter`). The plain
-// variants carry neither summary nor count: the state is the conversation and the message. `<language>-summary` and
-// `<language>-count` are the two halves of the flow asked on their own (what the summary does, what the count and the hint do).
+// and the count of the person's "still failing" messages (which rule R5 reads at `unresolvedMaxAfter`). The plain variants
+// carry neither summary nor count: the state is the conversation and the message. `<language>-summary` and
+// `<language>-count` are the two halves of the flow asked on their own (what the summary does, what the count does).
 //
 // The conversation is Chinese only; English is only the language the questions are written in.
 //
@@ -31,7 +31,7 @@ import { variantIn, type Grade, type Settings, type Suite } from './suite.ts'
 
 /**
  * How a variant asks: the language of the questions, which version of the conversation, and what of the mod's flow comes with it:
- * the problem summary, the count of times the person said it is unresolved (with the strong hint it makes from `unresolvedMaxAfter`).
+ * the problem summary, the count of times the person said it is still failing (which rule R5 reads at `unresolvedMaxAfter`).
  */
 type LongVariant = { ask: EffortAsk; version: Version; summary: boolean; count: boolean }
 
@@ -62,7 +62,7 @@ export type SummaryEntry = {
 }
 export type SummaryFile = { about?: Record<string, unknown>; items: Record<string, SummaryEntry> }
 
-/** What the suite decides: the effort and the answer to the three-way question; the version it was asked about, which says what is right. */
+/** What the suite decides: the effort and what the Nouls said of the problem; the version it was asked about, which says what is right. */
 export type LongPrediction = UnresolvedPrediction & { version: Version }
 
 /** The answer that is right for a version of the question: with the decisive rounds in it, or without them. */
@@ -91,7 +91,7 @@ export function longContextSuite(summaries: SummaryFile | undefined): Suite<Long
         if (kept.count !== made) return { ok: false, failure: `the summary file says count ${kept.count} for ${item.id}, the decisive rounds make ${made}: write it again` }
         summary = kept.summary
       }
-      // The count is the decisive rounds' own; the strong hint is the mod's own function of it and of the person's `unresolvedMaxAfter`.
+      // The count is the decisive rounds' own; rule R5 reads it at the person's `unresolvedMaxAfter`, as the mod does.
       if (variant.count) count = { count: unresolvedCount(item), maxAfter: settings.unresolved.maxAfter }
       const sent = askedRequest({ message: item.zh.message, recent_context: entries }, { ask: variant.ask, wide: true }, settings, summary, count)
       const decided = await askUnresolved(sent, ask, settings)
@@ -113,14 +113,14 @@ export function longContextSuite(summaries: SummaryFile | undefined): Suite<Long
     },
     show: (prediction) => (prediction.triage === null ? prediction.effort : `${prediction.effort} / ${prediction.triage}`),
     constants: EFFORTS.map((effort) => ({ effort, triage: null, version: 'deep' as const })),
-    questions: (variantName) => turnStartPart({ ask: variantIn(LONG_CONTEXT_VARIANTS, variantName).ask, unresolved: true }).questions,
+    questions: (variantName) => turnStartPart({ ask: variantIn(LONG_CONTEXT_VARIANTS, variantName).ask }).questions,
     digestState: true,
     about: { versions: 'deep: the decisive rounds first; near: a few thousand tokens before the message; none: deleted whole', depths: DEPTHS, categories: CATEGORIES },
     breakdown: (items, rows, variantName) => breakdownOf(items, rows, variantIn(LONG_CONTEXT_VARIANTS, variantName)),
     report: reportOf,
     scoring:
-      'The answer is the effort, right when it is in the accept set of the version asked (the mod\'s pickEffort over the backend\'s probabilities, thetaMax as set): the item\'s `accept` for the deep and near versions and the flow, its `without.accept` for the none version, from which the decisive rounds are deleted; a wrong one is too high or too low. ' +
-      'The three-way question is asked with it, as the mod asks it, and scored as a part of its own (`triage`). ' +
+      'The answer is the effort, right when it is in the accept set of the version asked (decision/message-effort.ts over the answers, as the mod decides: the position, two peaks, the floors): the item\'s `accept` for the deep and near versions and the flow, its `without.accept` for the none version, from which the decisive rounds are deleted; a wrong one is too high or too low. ' +
+      'The Nouls about the problem are asked with it, as the mod asks them, and what they say is scored as a part of its own (`triage`). ' +
       '`seen` is whether the state held the decisive rounds (the mark of their first message is in `recent_context`), the figure that says what a state budget and a message limit did to a request: it is what the answer\'s accuracy is to be read against. ' +
       '`byDepth` and `byCategory` split the items; `top` is the recall of the top level over the items whose gold is max. ' +
       'The flow variants carry the problem summary and the count the mod would hold after the conversation (the summary written turn by turn by the cheap model over the deep conversation, the count from the decisive rounds\' `says`).',
@@ -177,7 +177,7 @@ function reportOf(summary: VariantSummary): string[] {
   const pct = percentText
   return [
     `${summary.variant}: state held the decisive rounds in ${pct(b.seen.share)} of ${b.seen.items} answers; right when held ${pct(b.accuracyBySeen.seen)}, when not ${pct(b.accuracyBySeen.notSeen)}; state ${b.stateTokens.mean ?? '-'} tokens on average, ${b.stateTokens.max ?? '-'} at most`,
-    `${summary.variant}: top level recall ${pct(b.top.recall)} over ${b.top.items} items whose gold is max; too high ${pct(b.tooHigh)}, too low ${pct(b.tooLow)}${b.triage === null ? '' : `; three-way question right ${pct(b.triage.accuracy)}`}`,
+    `${summary.variant}: top level recall ${pct(b.top.recall)} over ${b.top.items} items whose gold is max; too high ${pct(b.tooHigh)}, too low ${pct(b.tooLow)}${b.triage === null ? '' : `; the problem's Nouls right ${pct(b.triage.accuracy)}`}`,
     ...Object.entries(b.byDepth).map(([depth, group]) => `${summary.variant}: ${depth} deep, ${group.items} items: accuracy ${pct(group.accuracy)}, state held the rounds ${pct(group.seen)}, top level recall ${pct(group.topRecall)}`),
   ]
 }
