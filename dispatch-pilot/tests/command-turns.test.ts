@@ -102,3 +102,15 @@ test('a command typed while a turn runs is decided, and the turn it starts later
   expect(w.steps.at(-1)?.effort).toBe('xhigh')
   expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: true })
 })
+
+test('a command typed with a trailing space still finds its decision: the engine trims the arguments its turn starts with (Desktop, 2.1.309)', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 0, 0, 1, 0]) })
+  await w.submit('先看一下这个仓库')
+  await w.step({ index: 0 })
+  await w.slash('implement', '#19 ', { turnId: 't1' })
+  await w.startTurn('<command-message>implement</command-message>\n<command-name>/implement</command-name>\n<command-args>#19</command-args>')
+  await w.step({ index: 0, effort: 'medium' })
+
+  expect(w.steps.at(-1)?.effort).toBe('xhigh')
+  expect((await w.board()).main).toMatchObject({ effort: 'xhigh', routed: true })
+})

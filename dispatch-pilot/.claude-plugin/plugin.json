@@ -1,6 +1,6 @@
 {
   "name": "dispatch-pilot",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Dispatch Pilot：一个在 Claude 之外的决策模型（TypeSafe 的 Jev；也可以显式改用 Perplexity 的 pplx 或 Liquid 的 d1-ultra）在你每次发消息时回答几道窄题：这项工作要想多少、出错能不能挽回、是不是线上或真钱、动不动权限、原因是否未知、你是不是在说上次没修好、有没有给出长期规矩；再由代码按固定规则定出主 agent 这一轮的 effort，每一步都按这一档发出（一轮中途改 effort，Claude Code 要等到下一条消息才发出，所以一轮之内不再重新判断）；也为主 agent 派出的每个 agent 和 Workflow 脚本里的每个 agent 按 Artificial Analysis 的基准选模型和 effort（sonnet 和 opus 至少 medium）。主 agent 的模型从不改变，prompt cache 不受影响（只在 Claude Code 订阅下成立；Bedrock、Vertex 和网关上切换 effort 会让缓存失效）。它还不让主 agent 读完整的 skill 列表，改为在你发消息时照 TypeSafe 的 skill 推荐 cookbook 先判断要不要 skill、最多推荐一个，一轮中途主 agent 可以用 find_skill 工具查 skill。它还能替 agent 看图核对：agent 交上截图或录屏和几条检查项，由 TypeSafe 的 Jev（没有 TypeSafe key 时用 pplx）一两秒内回答过、不过或没把握，不必自己看；可选的截图接管把 agent 自己生成的图换成一句说明，带图路由按参考图的复杂度定 effort（这两项默认关。图没法脱敏：带图路由会把你贴的参考图发给 TypeSafe 或 Perplexity，看图核对会把 agent 交上来的图发过去；截图接管自己不发图）。派出的 agent 工具调用失败累计到一定次数时改用更强的模型（haiku 换 sonnet，再换 opus）；主 agent 这一轮的失败记下来，留给下一条消息的判断。所有判断和理由都放在看板上：prompt 上方的 band 列出本轮每个 agent 的模型和 effort，脚部一个短摘要，/dp 打开的依据面板写明每个决定的依据和决策日志。",
   "author": {
     "name": "alexcz-a11y",

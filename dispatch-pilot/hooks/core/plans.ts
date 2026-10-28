@@ -75,16 +75,26 @@ export function addPending(list: readonly PendingDecision[], entry: PendingDecis
 
 /**
  * Takes the decision of the prompt that started a turn: the newest entry
- * whose text is the first of `texts` that has one. The rest wait on.
+ * whose text is the first of `texts` that has one. The rest wait on. Texts
+ * match whatever whitespace they start, end or are spaced with: the engine
+ * trims a command's arguments in the message its turn starts with, so
+ * `/implement-spec 可以继续了 ` as typed comes back without its last space
+ * (measured on 2.1.309 and Desktop, 2026-10-28).
  */
 export function takePending(list: readonly PendingDecision[], texts: readonly string[]): { taken: PendingDecision | null; rest: PendingDecision[] } {
   for (const text of texts) {
+    const wanted = squashed(text)
     for (let i = list.length - 1; i >= 0; i--) {
       const entry = list[i] as PendingDecision
-      if (entry.text === text) return { taken: entry, rest: [...list.slice(0, i), ...list.slice(i + 1)] }
+      if (squashed(entry.text) === wanted) return { taken: entry, rest: [...list.slice(0, i), ...list.slice(i + 1)] }
     }
   }
   return { taken: null, rest: [...list] }
+}
+
+/** A text with its ends trimmed and every run of whitespace one space. */
+function squashed(text: string): string {
+  return text.trim().replace(/\s+/g, ' ')
 }
 
 /** What the writer reads for one step. */
