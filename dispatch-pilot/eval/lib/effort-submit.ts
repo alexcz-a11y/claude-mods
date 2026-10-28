@@ -11,16 +11,18 @@
 
 import { messageLimits, type Config } from '../../hooks/core/setup.ts'
 import { turnStartState, type ContextMessage } from '../../hooks/decision/context.ts'
-import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart, type Effort, type EffortAsk } from '../../hooks/decision/effort.ts'
-import { answersFor, mergeParts, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
+import { EFFORTS, LEVEL, readEffort, type Effort, type EffortAsk, type EffortReading } from '../../hooks/decision/effort.ts'
+import { decideMessage, messageSignals, type MessageDecision, type MessageSignals } from '../../hooks/decision/message-effort.ts'
+import { turnStartPart } from '../../hooks/decision/turn-start.ts'
+import { countAfter, judgeUnresolved, readUnresolved, type UnresolvedJudgement } from '../../hooks/decision/unresolved.ts'
+import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part } from '../../hooks/decision/system-one.ts'
 import type { ContextEntry, EffortSubmitItem, Language } from './datasets.ts'
 import { requestFailed, variantIn, type Grade, type Suite } from './suite.ts'
 
 /**
  * The variants by name: `<question language>-<primitive>`. The mod asks as
- * `zh-score` with Jev (`modVariant`: the effort question beside a message is
- * asked as the decision model's table says, core/setup.ts BACKEND_DEFAULTS
- * ask.turnStart).
+ * `en-score` (`modVariant`: the effort part beside a message is asked as the
+ * decision model's table says, core/setup.ts BACKEND_DEFAULTS ask.turnStart).
  */
 export const SUBMIT_VARIANTS: Readonly<Record<string, EffortAsk>> = {
   'en-score': { language: 'en', primitive: 'score' },
@@ -58,18 +60,47 @@ export const effortSubmit: Suite<EffortSubmitItem, Effort> = {
     const { request, part } = submitRequest(item, language, variantAsk(variant), settings)
     const { asked } = await ask(request)
     if (!asked.ok) return requestFailed(asked.failure)
-    const reading = readEffort(answersFor(part, asked.answers)[LEVEL])
-    if (reading === null) return { ok: false, failure: 'parse: no effort answer' }
-    return {
-      ok: true,
-      prediction: pickEffort(reading, settings),
-      detail: { p: reading.probabilities.map((p) => Math.round(p * 1000) / 1000), confidence: reading.confidence },
-    }
+    const decided = decideMessageEffort(answersFor(part, asked.answers), { text: item[language].message, count: 0, lastTurn: null, maxAfter: settings.unresolved.maxAfter })
+    if (decided === null) return { ok: false, failure: 'parse: no effort answer' }
+    return { ok: true, prediction: decided.decision.effort, detail: decisionDetail(decided) }
   },
   grade: gradeEffort,
   show: (effort) => effort,
   constants: EFFORTS,
-  questions: (variant) => turnStartEffortPart(variantAsk(variant)).questions,
+  questions: (variant) => turnStartPart({ ask: variantAsk(variant) }).questions,
+}
+
+/** A message's effort decided from its effort part's answers, as the mod decides it (features/main-effort.ts). */
+export type MessageEffort = { reading: EffortReading; judged: UnresolvedJudgement | null; count: number; signals: MessageSignals; decision: MessageDecision }
+
+/**
+ * The effort of a message from its part's answers (by the part's own ids): the answers move the count as the mod's do
+ * (`count` is the count before the message), then decision/message-effort.ts decides. Null without an effort answer.
+ */
+export function decideMessageEffort(answers: Readonly<Record<string, Answer>>, input: { text: string; count: number; lastTurn: MessageSignals['lastTurn']; maxAfter: number; own?: boolean }): MessageEffort | null {
+  const reading = readEffort(answers[LEVEL])
+  if (reading === null) return null
+  const own = input.own !== false
+  const unresolved = own ? readUnresolved(answers) : null
+  const judged = unresolved === null ? null : judgeUnresolved(unresolved)
+  const count = judged === null ? input.count : countAfter(input.count, judged.change)
+  const signals = messageSignals(answers, { own, text: input.text, lastTurn: input.lastTurn, count, maxAfter: input.maxAfter, lock: null })
+  return { reading, judged, count, signals, decision: decideMessage(reading, signals) }
+}
+
+/** What a result row keeps of a message's decision: the levels' probabilities, the confidence, the Nouls' answers and the rule that lifted the level. */
+export function decisionDetail(decided: MessageEffort): Record<string, unknown> {
+  const round = (p: number | null) => (p === null ? null : Math.round(p * 1000) / 1000)
+  const { signals, judged, decision } = decided
+  return {
+    p: decided.reading.probabilities.map((p) => Math.round(p * 1000) / 1000),
+    confidence: decided.reading.confidence,
+    base: decision.steps.find((step) => step.rule === 'two-peaked')?.level ?? null,
+    stakes: { undo: round(signals.stakes.undo), live: round(signals.stakes.live), access: round(signals.stakes.access) },
+    cause: round(signals.causeUnknown),
+    ...(judged === null ? {} : { unresolved: { ...judged.probabilities }, change: judged.change }),
+    lifted: decision.lifted,
+  }
 }
 
 /**
@@ -82,13 +113,13 @@ export function contextMessages(context: readonly ContextEntry[]): ContextMessag
 }
 
 /**
- * The request the mod sends when the person sends the item's message in `language`: one effort question, asked as `ask`
- * says, in a request of its own (ADR 0005) whose state has the budget of a plain message (`contextByKind.messagePlain`),
- * not the smaller one the skills' request shares with its question.
+ * The request the mod sends when the person sends the item's message in `language`: the effort part (ADR 0014: the effort
+ * question and its Nouls), asked as `ask` says, in a request of its own (ADR 0005) whose state has the budget of a plain
+ * message (`contextByKind.messagePlain`). The items have no summary, count, lasting rules or previous turn.
  */
 export function submitRequest(item: EffortSubmitItem, language: Language, ask: EffortAsk, settings: Config): { request: DecisionRequest; part: Part } {
   const asked = item[language]
-  const part = turnStartEffortPart(ask)
+  const part = turnStartPart({ ask })
   const state = turnStartState({ prompt: asked.message, messages: contextMessages(asked.recent_context), limits: messageLimits(settings, false) })
   return { request: mergeParts(state, [part]), part }
 }

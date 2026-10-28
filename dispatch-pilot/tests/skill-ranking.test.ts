@@ -1,10 +1,10 @@
-// Skills ranked in two stages (#11): the message's one decision request rates
-// every skill (stage one, a Choice over those the main agent can load and one
-// over those only the person can start); a second request re-reads
-// the opening of the few rated highest and judges each on its own (stage two,
-// one yes/no `fits` per skill), and that absolute fit is the relevance the main
-// agent is shown. Seam 1: engine events in; what reaches the decision model,
-// the main agent and the board out.
+// Skills ranked in two stages, as TypeSafe's skill suggestion cookbook ranks
+// them (ADR 0018): the message's skills request rates every skill (stage one, a
+// Choice over those the main agent can load and one over those only the person
+// can start, beside the gate); a second request re-reads the three rated highest
+// with the opening of each SKILL.md (a Choice over them) and judges each on its
+// own (one yes/no `fits` per skill). Seam 1: engine events in; what reaches the
+// decision model, the main agent and the board out.
 
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
@@ -33,7 +33,7 @@ const FILES: Record<string, string> = {
   '/home/u/.claude/skills/code-review/SKILL.md': `---\nname: code-review\ndescription: ${REVIEW_DESCRIPTION}\n---\n\n# Code review\n\nReview the diff against the repo's standards, then against the issue.\n`,
 }
 
-test('the skills rated highest are re-read in a second request, and the relevance shown is how well each fits on its own', { options: { ...KEY, skillsMinRelevance: 0.5 } }, async ($, on) => {
+test("the three skills rated highest are re-read in a second request: a Choice over them, each by its description and the opening of its SKILL.md, and a yes/no each", { options: KEY }, async ($, on) => {
   const w = world($, on, {
     backend: rates({ tdd: 0.62, 'code-review': 0.23, 'anthropic-skills:computer-use': 0.01, '(none)': 0.14 }, { tdd: 0.97, 'code-review': 0.35 }),
     skills: SKILLS,
@@ -48,22 +48,18 @@ test('the skills rated highest are re-read in a second request, and the relevanc
   expect(isSecondSkillsRequest(first!)).toBe(false)
   // The second request asks about the same message and conversation.
   expect(second?.body.state).toEqual(first?.body.state)
-  // One yes/no question per skill rated high enough, with the opening of its SKILL.md; one Choice between them.
-  expect(Object.keys(second?.body.questions)).toEqual(['skills.best', 'skills.fits.0', 'skills.fits.1'])
+  expect(Object.keys(second?.body.questions)).toEqual(['skills.which', 'skills.fits.0', 'skills.fits.1', 'skills.fits.2'])
+  // The cookbook's `f"{description_full} — {body[:excerpt]}"`: the frontmatter left out; a skill with no SKILL.md by its description.
+  expect(second?.body.questions['skills.which'].criteria).toEqual({
+    tdd: `${TDD_DESCRIPTION} — # Test-Driven Development Write one failing test, then only the code that makes it pass.`,
+    'code-review': `${REVIEW_DESCRIPTION} — # Code review Review the diff against the repo's standards, then against the issue.`,
+    'anthropic-skills:computer-use': 'Read this skill before the first step of any request to do something in an app on the person’s own computer.',
+  })
   const fits = second?.body.questions['skills.fits.0']
-  expect(fits.type).toBe('noul')
-  expect(fits.instructions.skill.name).toBe('tdd')
-  expect(fits.instructions.skill.opening).toContain('Write one failing test, then only the code that makes it pass.')
-  expect(fits.instructions.skill.opening).not.toContain('description:')
-  expect(Object.keys(second?.body.questions['skills.best'].criteria)).toEqual(['tdd', 'code-review'])
+  expect(fits).toEqual({ type: 'noul', instructions: `Does the skill 'tdd' do the specific thing the user's request asks for? It is described as: ${TDD_DESCRIPTION}` })
 
   expect(w.prompts[0]?.context).toEqual([
-    [
-      '<skill_relevance>',
-      'Skills that may fit this message, rated by Dispatch Pilot’s decision model (relevance 0 to 1). Most skills are left out of the skill listing in this session: load one of these with the Skill tool by its exact name if it fits the work, and skip any that does not.',
-      `- tdd (relevance 0.97): ${TDD_DESCRIPTION}`,
-      '</skill_relevance>',
-    ].join('\n'),
+    ['<skill_relevance>', 'Relevant to the current request: tdd. Ignore this if it does not fit what the user actually asked for.', `tdd: ${TDD_DESCRIPTION}`, '</skill_relevance>'].join('\n'),
   ])
 })
 
@@ -89,9 +85,10 @@ test("a plugin's skill is re-read from its SKILL.md, also where the plugin's man
     },
   })
   await w.submit('把首页重新排一下版')
-  const second = w.withoutEffort[1]?.body.questions
-  expect(second['skills.fits.0'].instructions.skill.opening).toBe('Lay out the page on a grid first.')
-  expect(second['skills.fits.1'].instructions.skill.opening).toBe('Build, then push to the host.')
+  expect(w.withoutEffort[1]?.body.questions['skills.which'].criteria).toEqual({
+    'acme:design': 'Design pages. — Lay out the page on a grid first.',
+    'acme:deploy': 'Deploy the site. — Build, then push to the host.',
+  })
 })
 
 test('both requests share the message’s wait: the second gets what the first left of timeoutMs, and given up, the message goes on with nothing suggested and the board notes why', { options: { ...KEY, timeoutMs: 1500 } }, async ($, on) => {
@@ -134,7 +131,7 @@ test('with Jev, a first request that takes most of the wait still leaves the sec
   await entering
 
   expect(w.requests).toHaveLength(3)
-  expect(w.prompts[0]?.context?.join('\n')).toContain('- tdd (relevance 0.97)')
+  expect(w.prompts[0]?.context?.join('\n')).toContain('Relevant to the current request: tdd.')
   expect((await w.board()).notes.filter((note) => note.feature === 'skills')).toEqual([])
 })
 
@@ -169,34 +166,26 @@ test('a second request that fails suggests nothing and leaves no skills decision
 // The decision module's interface (pure): what the eval (#16) and find_skill
 // (#12) build the same questions with.
 
-/** Thirty skills, each with a profile of some length. */
-const PROFILED: SkillOption[] = Array.from({ length: 30 }, (_, i) => ({
+/** Thirty skills, each with a long description. */
+const DESCRIBED: SkillOption[] = Array.from({ length: 30 }, (_, i) => ({
   name: `skill-${i}`,
-  description: `Skill ${i}.`,
+  description: `Skill ${i} does one rather specific kind of work for the user. ${'Use it when the user asks for that kind of work, in so many words or by describing it. '.repeat(4)}`,
   by: 'model',
-  profile: {
-    en: { what: `Skill ${i} does one rather specific kind of work for the user.`, use_when: 'The user asks for that kind of work, in so many words or by describing it.', not_for: 'Nearby work that another skill covers.' },
-    zh: { what: `第${i}个 skill 专门做某一类工作。`, use_when: '用户要求做这类工作，或描述了这类工作。', not_for: '其他 skill 负责的相近工作。' },
-  },
 }))
 
-test('stage one keeps its question within its token budget: past it the "not for" fields go first, then the last skills fall back to their descriptions', () => {
-  const question = (budget: number) => skillsPart(PROFILED, { budget })?.questions.which
+test('stage one keeps its Choice within its token budget: past it every description is cut to the same length, the most that fits, and no skill is left out', () => {
+  const question = (budget: number) => skillsPart(DESCRIBED, { budget, gate: false })?.questions.which
   const criteria = (budget: number) => {
     const which = question(budget)
-    return which?.type === 'choice' ? (which.criteria as Record<string, unknown>) : {}
+    return which?.type === 'choice' ? (which.criteria as Record<string, string | null>) : {}
   }
   const size = (budget: number) => estimateTokens(JSON.stringify(question(budget)))
   const full = size(1_000_000)
-  expect(criteria(1_000_000)['skill-0']).toHaveProperty('not_for')
-
-  const trimmed = criteria(full - 1)
-  expect(Object.values(trimmed).filter((criterion) => typeof criterion === 'object' && criterion !== null && 'not_for' in criterion)).toEqual([])
-  expect(trimmed['skill-29']).toHaveProperty('用途')
+  expect(criteria(1_000_000)['skill-0']).toBe(DESCRIBED[0]?.description.trim())
 
   const tight = Math.floor(full / 3)
-  expect(criteria(tight)['skill-0']).toHaveProperty('what')
-  expect(criteria(tight)['skill-29']).toBe('Skill 29.')
   expect(size(tight)).toBeLessThanOrEqual(tight)
-  expect(Object.keys(criteria(tight))).toHaveLength(31)
+  expect(Object.keys(criteria(tight))).toHaveLength(30)
+  expect(String(criteria(tight)['skill-0']).startsWith('Skill 0 does one rather specific kind of work')).toBe(true)
+  expect(String(criteria(tight)['skill-0']).length).toBeLessThan(String(DESCRIBED[0]?.description).length)
 })

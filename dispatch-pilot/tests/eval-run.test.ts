@@ -100,7 +100,7 @@ test('each item is asked in both languages under each variant, as the mod asks i
   ])
   // What each answer records: the reading (for calibrating thresholds later), who answered, at what cost.
   expect(rows[0]).toMatchObject({ ok: true, attempts: 1, inputTokens: 700, model: JEV_MODEL, failure: null })
-  expect(rows[0]?.detail).toEqual({ p: [0, 0, 0.3, 0.6, 0.1], confidence: 0.5 })
+  expect(rows[0]?.detail).toMatchObject({ p: [0, 0, 0.3, 0.6, 0.1], confidence: 0.5, base: 'xhigh', lifted: null })
   expect(rows[0]?.state).toEqual({ user_message: '把登录拆成三层（中文）', recent_context: '' })
   // The variant decides how the question is written; the person's words go as they are.
   const asked = net.bodies.filter((b) => b.state.user_message === '把登录拆成三层 (English)')
@@ -205,33 +205,33 @@ test("a run on Perplexity asks with pplx's own settings: the budgets, the timeou
     'pplx',
     8000,
     { messages: 2000, tokens: 6000 },
-    { messagePlain: 48000, rejudge: 48000, agent: 32000, workflow: 48000 },
+    { messagePlain: 48000, agent: 32000, workflow: 48000 },
     { turnStart: { language: 'en', primitive: 'score' }, agent: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
   ])
-  expect([pplx.thetaMax, pplx.roundUp, pplx.midturn.rules.thetaUp, pplx.midturn.waitMs, pplx.skills.findWaitMs]).toEqual([0.47, 0.45, 0, 6000, 6000])
-  expect([jevSettings.backend, jevSettings.timeoutMs, jevSettings.thetaMax, jevSettings.roundUp, jevSettings.ask.turnStart.language]).toEqual(['jev', 1500, 0.5, 0.3, 'zh'])
+  expect(pplx.skills.findWaitMs).toBe(6000)
+  expect([jevSettings.backend, jevSettings.timeoutMs, jevSettings.ask.turnStart.language]).toEqual(['jev', 1500, 'en'])
 })
 
 // A run can widen the state's budget past what any decision model of the mod has (`--state-tokens`), to see whether a
 // model with a bigger window gains from a longer conversation (#43: Perplexity's takes 262144 tokens a request).
 test('--state-tokens sets the budget of every kind of request, so a long conversation is cut at the run\'s budget and not at the mod\'s', () => {
   const long = (words: number) => Array.from({ length: words }, (_, i) => `w${i}`).join(' ')
-  // About 150,000 tokens: longer than the mod's 96000 for a message's effort request.
+  // About 150,000 tokens: far longer than the mod's 24000 for a message's effort request (Jev's regular limit, ADR 0014).
   const recent = Array.from({ length: 48 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', text: `${i}: ${long(2500)}` }))
   const item = { id: 'x', en: { message: 'still broken', recent_context: recent }, zh: { message: '还是不行', recent_context: recent } } as unknown as UnresolvedItem
   const variant = UNRESOLVED_VARIANTS['en-score-wide'] as (typeof UNRESOLVED_VARIANTS)[string]
   const settings = settingsFrom(optionsFor('jev', {}))
   const tokensOf = (s: typeof settings) => estimateTokens(JSON.stringify(unresolvedRequest(item, 'en', variant, s).request.state))
 
-  expect(tokensOf(settings)).toBeLessThanOrEqual(96_000)
-  expect(tokensOf(settings)).toBeGreaterThan(90_000)
+  expect(tokensOf(settings)).toBeLessThanOrEqual(24_000)
+  expect(tokensOf(settings)).toBeGreaterThan(18_000)
   const wider = withStateTokens(settings, 48_000)
   expect(tokensOf(wider)).toBeGreaterThan(30_000)
   expect(tokensOf(wider)).toBeLessThanOrEqual(48_000)
-  // Every kind of request, not only a message's: the mid-turn re-decision, the dispatched agent, the Workflow's agents.
-  expect([wider.context.tokens, wider.contextByKind, wider.midturn.limits.tokens]).toEqual([48_000, { messagePlain: 48_000, rejudge: 48_000, agent: 48_000, workflow: 48_000 }, 48_000])
+  // Every kind of request, not only a message's: the dispatched agent, the Workflow's agents.
+  expect([wider.context.tokens, wider.contextByKind]).toEqual([48_000, { messagePlain: 48_000, agent: 48_000, workflow: 48_000 }])
   // The rest of the settings stay as they were.
-  expect({ ...wider, context: settings.context, contextByKind: settings.contextByKind, midturn: settings.midturn }).toEqual(settings)
+  expect({ ...wider, context: settings.context, contextByKind: settings.contextByKind }).toEqual(settings)
 })
 
 // How long the eval (and scripts/decide*.ts) gives one attempt unless told: four times the mod's timeoutMs, at least

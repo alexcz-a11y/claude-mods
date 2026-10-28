@@ -9,7 +9,7 @@
 import { expect, test } from 'claude-code/testing'
 import { siteJev, type SiteAnswer } from './support/workflow.ts'
 import { persisted, runWorld } from './support/workflow-run.ts'
-import { KEY } from './support/world.ts'
+import { KEY, withoutBrief } from './support/world.ts'
 
 /** A script the main agent saved earlier and runs again by its path. */
 const SAVED = '/work/.claude/workflow-scripts/tidy.js'
@@ -199,8 +199,8 @@ test("each agent of a script that cannot be read has its own decision on the boa
   ])
   expect(started.map((node) => board.log.find((entry) => entry.n === node.decision)?.agent)).toEqual(['wa1', 'wa2'])
   expect(board.log[0]).toMatchObject({ feature: 'workflow-labels', subject: expect.stringContaining('"first"（Workflow') })
-  expect(board.log[0]?.reason).toMatch(/^按它启动时的任务；已决定；选 opus/)
-  expect(board.log[0]?.trace?.map((step) => step.rule)).toContain('top')
+  expect(board.log[0]?.reason).toMatch(/^按它启动时的任务；模型表第 3 行（方案未定） → opus/)
+  expect(board.log[0]?.trace?.map((step) => step.rule)).toContain('position')
 })
 
 test("an error of the feature's own when the run starts leaves the tool's result as it was, and the board says to look in the debug log", { options: KEY }, async ($, on) => {
@@ -242,12 +242,12 @@ test("each decision is logged with its reason, in the debug log and /dp log, nev
   await w.agentStep('wa1', { index: 0, effort: 'xhigh' })
 
   const shown = await w.command('dp', 'log 10')
-  expect(shown).toMatch(/workflow-labels：sonnet medium · "rename"（Workflow tidy-api）：已决定；选 sonnet，置信度 1\.00；effort 概率 low 0\.00, medium 1\.00/)
-  expect(shown).toMatch(/workflow-labels：opus high · "review"（Workflow tidy-api）：已决定；选 opus/)
+  expect(shown).toMatch(/workflow-labels：sonnet medium · "rename"（Workflow tidy-api）：模型表第 5 行 → sonnet；effort 概率 low 0\.00, medium 1\.00/)
+  expect(shown).toMatch(/workflow-labels：opus high · "review"（Workflow tidy-api）：模型表第 3 行（方案未定） → opus/)
   // (The tool's result names the workflow; this stub's does not, so it is `unnamed` here.)
-  expect(shown).toMatch(/workflow-labels：sonnet medium · "first"（Workflow \S+）：按它启动时的任务；已决定；选 sonnet/)
+  expect(shown).toMatch(/workflow-labels：sonnet medium · "first"（Workflow \S+）：按它启动时的任务；模型表第 5 行 → sonnet/)
   const debug = w.logs.filter((log) => log.to === 'debug').map((log) => log.text)
-  expect(debug.some((line) => line.startsWith('sonnet medium · "rename"（Workflow tidy-api）：已决定'))).toBe(true)
+  expect(debug.some((line) => line.startsWith('sonnet medium · "rename"（Workflow tidy-api）：模型表第 5 行'))).toBe(true)
   expect(w.logs.every((log) => log.to === 'debug')).toBe(true)
 })
 
@@ -263,7 +263,7 @@ return { edited, found }
   expect(told).toBe(
     [
       "Dispatch Pilot (the user's routing plugin) chose a model and an effort for the agent() calls of this Workflow. The script is unchanged: each agent gets its call's choice as it starts, found by its label.",
-      '- "rename": sonnet medium (model: decided, confidence 1.00; effort: p 1.00)',
+      '- "rename": sonnet medium (model: its rules read the brief as ordinary work, which gets sonnet; effort: p 1.00)',
       '- agent() at line 3: decided as each of its agents starts, from its label and its task',
     ].join('\n'),
   )
@@ -480,7 +480,7 @@ test("each agent of a script that cannot be read is decided when it is spawned, 
   await w.agentStep('wa1', { index: 0, effort: 'medium' })
 
   expect(w.requests).toHaveLength(1)
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent-0.model', 'agent-0.effort'])
+  expect(withoutBrief(Object.keys(w.requests[0]?.body.questions))).toEqual(['agent-0.effort'])
   expect(w.requests[0]?.body.state.brief_0).toEqual({ label: 'first', prompt: 'Find why the nightly import drops rows whose\ncurrency is missing, and fix it.' })
   expect(w.steps.map((s) => `${String(s.agentId)} ${s.model} ${String(s.effort)}`)).toEqual(['wa1 claude-opus-5-5 xhigh'])
 })
@@ -573,7 +573,7 @@ test("a fan-out's agents spawned together are asked about in one request, each t
   await w.clock.settle()
   expect(w.requests).toHaveLength(1)
   const [sent] = w.requests
-  expect(Object.keys(sent?.body.questions)).toEqual(['agent-0.model', 'agent-0.effort', 'agent-1.model', 'agent-1.effort', 'agent-2.model', 'agent-2.effort'])
+  expect(withoutBrief(Object.keys(sent?.body.questions))).toEqual(['agent-0.effort', 'agent-1.effort', 'agent-2.effort'])
   expect([0, 1, 2].map((i) => [sent?.body.state[`brief_${i}`].label, sent?.body.state[`brief_${i}`].prompt])).toEqual(QUESTIONS.map(([, label, task]) => [label, task]))
   await w.clock.advance(1000)
   await Promise.all(spawning)
@@ -584,7 +584,7 @@ test("a fan-out's agents spawned together are asked about in one request, each t
   const later = w.started('wf_test-1', 'wa4', 'q-docs', { prompt: 'Find the pages under docs/ that still describe the old search client.', model: 'sonnet' })
   await w.clock.settle()
   expect(w.requests).toHaveLength(2)
-  expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['agent-0.model', 'agent-0.effort'])
+  expect(withoutBrief(Object.keys(w.requests[1]?.body.questions))).toEqual(['agent-0.effort'])
   await w.clock.advance(1000)
   await later
 })

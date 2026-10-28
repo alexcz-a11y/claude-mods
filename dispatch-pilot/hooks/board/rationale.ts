@@ -1,23 +1,23 @@
 // What the rationale pane shows of the board (spec #22 「依据面板」, GLOSSARY
 // 依据面板 / 依据卡片 / 规则推演): the card of the agent picked, with its
 // decisions and the rules' working step by step; the decision log grouped by
-// turn; the lines at its top (what is switched off, the lock, how the skill
-// profiles went).
+// turn; the lines at its top (what is switched off, the lock).
 //
 // Pure, like view.ts: the board's data, the switches and the pane's own view
 // state come in as data. The rules' working is only worded here, never worked
-// out again (ADR 0004): every step is one that `pickEffort`, `judgeMidturn` or a
-// forced raise stored with its decision, and whether it took effect is the
-// step's own `applied`.
+// out again (ADR 0004): every step is one the rules stored with their decision
+// (decision/effort.ts, decision/message-effort.ts, decision/dispatched-agent.ts),
+// and whether it took effect is the step's own `applied`.
 //
 // The words are the pane's own (Chinese, GLOSSARY terms); a log entry's
 // `reason` and a node's `why` come in the decision report's words (Chinese
 // too, #32).
 
-import { isEffort, type Effort } from '../decision/effort.ts'
+import { SIGNS } from '../decision/dispatched-agent.ts'
+import { noBar, yesBar } from '../decision/guides.ts'
 import { UNRESOLVED_OPTIONS } from '../decision/unresolved.ts'
-import { OPTION_WORDS } from '../core/unresolved.ts'
-import type { LogEntry, ProfilesState, RuleStep, Tone, UnresolvedRecord } from '../core/report.ts'
+import { OPTION_WORDS, VERDICT_WORDS } from '../core/unresolved.ts'
+import type { LogEntry, RuleStep, Tone, UnresolvedRecord } from '../core/report.ts'
 import { pctText } from './kit.tsx'
 import { agentOf, featureOf, type AgentRow, type ScreenView } from './view.ts'
 
@@ -28,22 +28,18 @@ export const PANE_TITLE = '依据'
 /** The body columns it asks for when docked beside a fullscreen transcript. */
 export const PANE_COLUMNS = 76
 
-/** The pane's own view state (`$.state` `paneView`): the log's turns the person folded or opened, the failed skills shown. */
+/** The pane's own view state (`$.state` `paneView`): the log's turns the person folded or opened. */
 export type PaneState = {
   /** A turn the person folded (`open` false) or opened; the others are as `OPEN_TURNS` says. */
   folds: { turn: number; open: boolean }[]
-  /** The skills that got no profile are listed. */
-  failures: boolean
   /** Off the terminal: the switches and the lock are shown at the bottom of the pane (folded at first). */
   switches?: boolean
 }
 
-export const NO_PANE_STATE: PaneState = { folds: [], failures: false }
+export const NO_PANE_STATE: PaneState = { folds: [] }
 
-/** The keys that fold a turn of the log, newest turn first: one for each of the 20 turns it keeps, never p, n (paging) or f (the failed skills). */
+/** The keys that fold a turn of the log, newest turn first: one for each of the 20 turns it keeps, never p, n (paging) or f (it listed the skills that got no profile until ADR 0018; kept free). */
 const FOLD_KEYS = ['a', 'b', 'c', 'd', 'e', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'o', 'q', 'r', 's', 't', 'u', 'v', 'w'] as const
-/** The key that lists the skills that got no profile. */
-export const FAILURES_KEY = 'f'
 /** The key that puts the picked agent's transcript in the main view, and the main conversation back. */
 export const VIEW_KEY = 'x'
 /** How many of the newest turns are open until the person folds them; older ones are folded. */
@@ -60,10 +56,8 @@ export type Card = {
   count: number
   /** The decision its route came from (its node's `decision`). */
   route: LogEntry | undefined
-  /** Forced raises of its loop (escalation), oldest first. */
+  /** Model step-ups of its loop (escalation), oldest first. */
   raises: LogEntry[]
-  /** The main agent's mid-turn re-decisions of its turn, oldest first. */
-  mids: LogEntry[]
 }
 
 /** The card of the agent picked on the band (`selected`); the main agent when none is, or the one picked is no longer on it. */
@@ -71,39 +65,41 @@ export function cardOf(view: ScreenView, log: readonly LogEntry[]): Card {
   const picked = view.rows.findIndex((row) => row.selected)
   const index = picked >= 0 ? picked : 0
   const row = view.rows[index] ?? null
-  if (row === null) return { row: null, index: 0, count: 0, route: undefined, raises: [], mids: [] }
+  if (row === null) return { row: null, index: 0, count: 0, route: undefined, raises: [] }
   const { node } = row
   const route = node.decision === undefined ? undefined : log.find((entry) => entry.n === node.decision)
   // An agent's id is its own across turns; the main agent's entries are those of its node's turn.
   const mine = (entry: LogEntry) => agentOf(entry) === node.id && (node.id !== 'main' || entry.turn === node.turn)
   const raises = log.filter((entry) => mine(entry) && featureOf(entry.feature) === 'escalation' && entry.forced !== undefined)
-  const mids = node.id !== 'main' ? [] : log.filter((entry) => mine(entry) && entry.mid !== undefined && entry.forced === undefined && (featureOf(entry.feature) === 'midturn-effort' || featureOf(entry.feature) === 'escalation'))
-  return { row, index, count: view.rows.length, route, raises, mids }
+  return { row, index, count: view.rows.length, route, raises }
 }
 
 const percent = (p: number) => `${Math.round(p * 100)}%`
 
 /**
- * What an answer to the unresolved question did to the count, in the card's words: the count (`次数 2 → 3`), what that
- * came to (`次数加一`), the options' probabilities, and the bar each was held to. Written from the record the decision
- * stored with its two bars, never worked out again (ADR 0004).
+ * What the answers to the unresolved questions did to the count, in the card's words: the count (`次数 2 → 3`), what that
+ * came to (`次数加一`), each question's probability and verdict, and the bars they were held to. Written from the record the
+ * decision stored, never worked out again (ADR 0004).
  */
 export function unresolvedWords(record: UnresolvedRecord): { count: string; verdict: string; odds: string; bars: string } {
   const p = record.probs
-  const { add, reset } = record.thresholds
+  const held = { yes: record.thresholds.yes, no: record.thresholds.no, inclusive: record.thresholds.inclusive !== false }
+  const yes = yesBar(held, percent)
+  const no = noBar(held, percent)
   const moved = record.before !== record.count
   const verdict = record.change === 'add' ? '次数加一' : record.change === 'reset' ? (moved ? '次数清零' : '本来就是 0，不用清零') : '次数不变'
-  // A reset's option is the one the record says the answer leaned to most: the bar is over half, so no other option can pass it.
   const bars =
     record.change === 'add'
-      ? `仍未解决 ${percent(p.still_unresolved)} ≥ 加一门槛 ${percent(add)}`
+      ? `仍未解决 ${yes}`
       : record.change === 'reset'
-        ? `${OPTION_WORDS[record.top]} ${percent(p[record.top])} ≥ 清零门槛 ${percent(reset)}`
-        : `都没到：仍未解决 < 加一门槛 ${percent(add)}，其余 < 清零门槛 ${percent(reset)}`
+        ? record.verdicts.solved === 'yes'
+          ? `已经解决 ${yes}`
+          : `新任务 ${yes}，仍未解决 ${no}`
+        : `是 ${yes}，否 ${no}，都没成立`
   return {
     count: moved ? `次数 ${record.before} → ${record.count}` : `次数 ${record.count}`,
     verdict,
-    odds: UNRESOLVED_OPTIONS.map((option) => `${OPTION_WORDS[option]} ${percent(p[option])}`).join(' · '),
+    odds: UNRESOLVED_OPTIONS.map((option) => `${OPTION_WORDS[option]} ${p[option] === null ? '没回答' : percent(p[option] as number)}（${VERDICT_WORDS[record.verdicts[option]]}）`).join(' · '),
     bars,
   }
 }
@@ -114,8 +110,8 @@ export function pageTo(card: Card, view: ScreenView, step: -1 | 1): AgentRow | n
   return view.rows[Math.max(0, Math.min(view.rows.length - 1, card.index + step))] ?? null
 }
 
-/** How a step of the rules reads: it decided (`hit`), it passed without effect (`pass`), a floor lifted the level (`lift`), the failures forced a raise (`raise`). */
-export type StepMark = 'hit' | 'pass' | 'lift' | 'raise'
+/** How a step of the rules reads: it decided (`hit`), it passed without effect (`pass`), a floor lifted the level (`lift`). */
+export type StepMark = 'hit' | 'pass' | 'lift'
 
 /** One step of the rules' working, worded: its mark, the rule's name, what it did. */
 type StepLine = { mark: StepMark; head: string; body: string }
@@ -124,125 +120,102 @@ const word =(value: unknown) => (value === null || value === undefined ? '—' :
 
 /** The steps the rules walked, as the card writes them (each from the step's own fields). */
 export function stepLines(trace: readonly RuleStep[]): StepLine[] {
-  const top = trace.find((step) => step.rule === 'top')
-  return trace.map((step) => stepLine(step, top))
+  return trace.map((step) => stepLine(step))
 }
 
-function stepLine(step: RuleStep, top: RuleStep | undefined): StepLine {
+const VERDICTS: Readonly<Record<string, string>> = { yes: '是', band: '拿不准', no: '否' }
+/** A Noul's probability and verdict as the card writes them: `62%（拿不准）`, or 没回答. */
+const said = (p: unknown, verdict: unknown) => (typeof p === 'number' ? `${pctText(p)}（${VERDICTS[String(verdict)] ?? word(verdict)}）` : '没回答')
+/** A floor step: lifted (`lift`), a floor that did not need to lift (`pass`), or no floor at all (`pass`). */
+const floorLine = (step: RuleStep, head: string, body: string): StepLine => {
+  const floor = step.floor === null || step.floor === undefined ? '没有下限' : step.applied ? `下限 ${word(step.floor)}，抬到 ${word(step.level)}` : `下限 ${word(step.floor)}，已够`
+  return { mark: step.applied ? 'lift' : 'pass', head, body: `${body} → ${floor}` }
+}
+
+/** A Noul about an agent's brief by its field in the steps (decision/dispatched-agent.ts SIGNS): `cause` is 原因未知. */
+const SIGN_WORDS: Readonly<Record<string, string>> = Object.fromEntries(Object.values(SIGNS).map(({ key, words }) => [key, words]))
+/** The Nouls a step about an agent's brief holds, as the card writes them: `写入 5%（否） · 一两步 91%（是）`. */
+const signsBody = (step: RuleStep) =>
+  Object.entries(SIGN_WORDS)
+    .filter(([key]) => `${key}Verdict` in step)
+    .map(([key, words]) => `${words} ${said(step[key], step[`${key}Verdict`])}`)
+    .join(' · ')
+
+/** The model table's row as the card writes it: `第 3b 行（原因未知拿不准）→ sonnet，effort 至少 max`, and what stood in for a model ruled out. */
+function tableBody(step: RuleStep): string {
+  if (step.row === '1') return `第 1 行：你点名了 ${word(step.model)}`
+  const why = typeof step.why === 'string' ? `（${step.why.split(',').map((key) => SIGN_WORDS[key] ?? key).join('、')}${step.row === '3b' ? '拿不准' : ''}）` : ''
+  const effort = step.row === '3b' ? '，effort 至少 max' : ''
+  const skipped = step.model === step.wanted ? '' : step.model === null ? `；${word(step.wanted)} 被你排除，没有别的可用` : `；${word(step.wanted)} 被你排除，取最近的 ${word(step.model)}`
+  return `第 ${word(step.row)} 行${why} → ${word(step.wanted)}${effort}${skipped}`
+}
+
+/** The route's step as the card writes it (d1-ultra): `powerful 62%（置信度 0.71）→ opus`, or the fall back, and what stood in for a model ruled out. */
+function routeBody(step: RuleStep): string {
+  const confidence = typeof step.confidence === 'number' ? step.confidence.toFixed(2) : '没有'
+  const skipped = step.model === step.wanted ? '' : step.model === null ? `；${word(step.wanted)} 被你排除，没有别的可用` : `；${word(step.wanted)} 被你排除，取 ${word(step.model)}`
+  if (step.fellBack === true) return `拿不准（置信度 ${confidence} < ${word(step.below)}）→ 最强的 ${word(step.wanted)}${skipped}`
+  return `${word(step.tier)} ${typeof step.p === 'number' ? pctText(step.p) : '—'}（置信度 ${confidence}）→ ${word(step.wanted)}${skipped}`
+}
+
+function stepLine(step: RuleStep): StepLine {
   const on = step.applied
   switch (step.rule) {
-    case 'top':
-      return { mark: 'hit', head: '最可能', body: `${word(step.level)} ${pctText(step.p)}${step.tie === true ? '（并列，取高的一档）' : ''}` }
-    case 'max-gate':
-      if (on) return { mark: 'hit', head: 'max 门槛', body: `max ${pctText(step.p)} < ${pctText(step.thetaMax)}，改取其余最可能的 ${word(step.level)}` }
-      return { mark: 'pass', head: 'max 门槛', body: top?.level === 'max' ? `max ${pctText(step.p)} ≥ ${pctText(step.thetaMax)}，可以取 max` : '最可能的不是 max，不用过门槛' }
-    case 'round-up':
-      if (on) return { mark: 'hit', head: '上取一档', body: `${word(step.above)} ${pctText(step.p)} ≥ ${pctText(step.threshold)}，取高一档 ${word(step.level)}` }
-      if (step.above === null) return { mark: 'pass', head: '上取一档', body: '已是最高一档' }
-      if (step.blockedByMax === true) return { mark: 'pass', head: '上取一档', body: `max ${pctText(step.p)} ≥ ${pctText(step.threshold)}，但没到 max 门槛 ${pctText(step.thetaMax)}，不上取` }
-      return { mark: 'pass', head: '上取一档', body: `${word(step.above)} ${pctText(step.p)} < ${pctText(step.threshold)}，不上取` }
+    case 'lookup-signs':
+      return { mark: on ? 'hit' : 'pass', head: '只读查找', body: signsBody(step) }
+    case 'careful-signs':
+      return { mark: on ? 'hit' : 'pass', head: '审慎', body: signsBody(step) }
+    case 'model-table':
+      return { mark: 'hit', head: '模型表', body: tableBody(step) }
+    case 'route':
+      return { mark: 'hit', head: '路由', body: routeBody(step) }
+    case 'named-model':
+      return { mark: 'hit', head: '点名', body: `你点名了 ${word(step.model)}` }
+    case 'main-pick': {
+      const who = step.asker === 'script' ? '脚本' : '主 agent'
+      // `by`: the rules' model came from the route (d1-ultra) or the table (an entry without it: the table).
+      const theirs = step.by === 'route' ? '路由给的' : '表里的'
+      if (step.outcome === 'upgraded') return { mark: 'lift', head: who, body: `指定 ${word(step.requested)}；${theirs} ${word(step.table)} 更强，升级到 ${word(step.model)}` }
+      return { mark: 'hit', head: who, body: `指定 ${word(step.requested)}；${step.table === null ? '决策模型没回答关于任务的题' : `${theirs} ${word(step.table)} 不比它强`}，保留（只升不降）` }
+    }
+    case 'unsure':
+      return floorLine(step, '拿不准', step.row === '3b' ? '模型表第 3b 行：要不要 opus 拿不准' : step.row === null ? '没有模型表' : `模型表第 ${word(step.row)} 行`)
+    case 'named-effort':
+      return { mark: 'hit', head: '点名', body: `你点名了 effort ${word(step.level)}（规则定的是 ${word(step.decided)}），下限不动它` }
+    case 'position':
+      return { mark: 'hit', head: '位置', body: `${typeof step.position === 'number' ? step.position.toFixed(2) : word(step.position)}，四舍五入到 ${word(step.level)}` }
+    case 'two-peaked':
+      if (on) return { mark: 'hit', head: '双峰', body: `${word(step.peak)} ${pctText(step.p)} ≥ ${pctText(step.threshold)}，上取一档到 ${word(step.level)}` }
+      return { mark: 'pass', head: '双峰', body: `高两档以上没有一档 ≥ ${pctText(step.threshold)}` }
+    case 'low-confidence': {
+      const confidence = typeof step.confidence === 'number' ? step.confidence.toFixed(2) : '没有'
+      if (on) return { mark: 'hit', head: '置信度', body: `${confidence} < ${word(step.threshold)}，拿不准，上取一档到 ${word(step.level)}` }
+      return { mark: 'pass', head: '置信度', body: typeof step.confidence === 'number' ? `${confidence}，不低于 ${word(step.threshold)}` : '没有给出置信度，不动' }
+    }
     case 'model-floor':
       if (step.floor === null) return { mark: 'pass', head: '模型下限', body: `${word(step.model)} 没有下限` }
       if (on) return { mark: 'lift', head: '模型下限', body: `${word(step.model)} 至少 ${word(step.floor)}，${word(step.from)} 抬到 ${word(step.level)}` }
       return { mark: 'pass', head: '模型下限', body: `${word(step.model)} 至少 ${word(step.floor)}，${word(step.from)} 已够` }
-    case 'forced-raise':
-      return { mark: 'raise', head: '强制升档', body: `${word(step.from)} → ${word(step.level)}（${step.mode === 'max' ? '直接升到 max' : '升一档'}）` }
-    case 'theta-up':
-      return { mark: on ? 'hit' : 'pass', head: '升档门槛', body: `置信 ${pctText(step.confidence)} ${on ? '≥' : '<'} ${pctText(step.threshold)}，${on ? '把握够' : '把握不够'}` }
-    case 'higher-of':
-      return on ? { mark: 'hit', head: '取较高', body: `判断的 ${word(step.level)} 高于强制的 ${word(step.from)}，取 ${word(step.level)}` } : { mark: 'pass', head: '取较高', body: `判断的不比强制的高，取 ${word(step.from)}` }
-    case 'suggest':
-      return { mark: 'hit', head: '建议', body: `${word(step.picked)}，当前 ${word(step.current)}${step.direction === 'same' ? '，不变' : ''}` }
-    case 'hold':
-      if (on) return { mark: 'hit', head: '防抖', body: `升档后才 ${word(step.sinceRaise)} 步（${word(step.holdSteps)} 步内不降），还差 ${word(step.remaining)} 步` }
-      return { mark: 'pass', head: '防抖', body: step.sinceRaise === null ? '这一轮没有升过档，可以降' : `升档已过 ${word(step.sinceRaise)} 步（${word(step.holdSteps)} 步内不降），可以降` }
-    case 'theta-down':
-      return { mark: on ? 'hit' : 'pass', head: '降档门槛', body: `置信 ${pctText(step.confidence)} ${on ? '≥' : '<'} ${pctText(step.threshold)}，${on ? '把握够' : '把握不够'}` }
-    case 'one-step':
-      return { mark: 'hit', head: '一次一档', body: `${word(step.from)} 降到 ${word(step.level)}` }
-    case 'floor':
-      return on ? { mark: 'lift', head: '下限', body: `至少 ${word(step.floor)}，${word(step.from)} 抬到 ${word(step.level)}` } : { mark: 'pass', head: '下限', body: `至少 ${word(step.floor)}，${word(step.from)} 已够` }
+    case 'ultrathink':
+      return floorLine(step, 'ultrathink', step.named === true ? '消息里写了 ultrathink' : '消息里没有 ultrathink')
+    case 'escalate':
+      return floorLine(step, '要求多想', said(step.p, step.verdict))
+    case 'confirm':
+      return floorLine(step, '确认', `${said(step.p, step.verdict)} · 上一轮 ${step.lastEffort === null || step.lastEffort === undefined ? '没有记录' : word(step.lastEffort)}`)
+    case 'stakes':
+      return floorLine(step, '出错代价', `难以挽回 ${said(step.undo, step.undoVerdict)} · 线上或真钱 ${said(step.live, step.liveVerdict)} · 权限 ${said(step.access, step.accessVerdict)}`)
+    case 'cause-unknown':
+      return floorLine(step, '原因未知', said(step.p, step.verdict))
+    case 'stuck-again':
+      return floorLine(step, '上一轮卡住', `仍未解决 ${said(step.p, step.verdict)} · 上一轮${step.stuck === true ? `失败到了门槛（${word(step.lastEffort)}）` : '没卡住'}`)
+    case 'unresolved-count':
+      return floorLine(step, '未解决次数', `仍未解决 ${said(step.p, step.verdict)} · 次数 ${word(step.count)}，门槛 ${step.maxAfter === 0 ? '不用' : word(step.maxAfter)}`)
+    case 'lock':
+      return { mark: 'hit', head: '锁定', body: `锁在 ${word(step.level)}（规则定的是 ${word(step.decided)}）` }
     default: {
       const fields = Object.entries(step).filter(([key]) => key !== 'rule' && key !== 'applied').map(([key, value]) => `${key} ${word(value)}`)
       return { mark: on ? 'hit' : 'pass', head: step.rule, body: fields.join(' · ') }
     }
-  }
-}
-
-/** A mid-turn re-decision as the card's row says it: what it suggested, how sure it was against the line it had to pass, where it ended. */
-type MidVerdict = {
-  picked: Effort
-  current: Effort
-  result: Effort
-  /** The confidence the answer had, and the line a move needed (absent: none was asked, the lowering held or the level the same). */
-  conf?: number
-  threshold?: number
-  /** The answer passed that line (its step's own `applied`); null when no line was asked. */
-  passed: boolean | null
-  /** `up` / `down` moved; `blocked` a move short of the line; `held` a lowering waiting after a raise; `same` the level suggested is the current one. */
-  kind: 'up' | 'down' | 'blocked' | 'held' | 'same'
-  /** Which line: the raise's or the lowering's. */
-  line: 'up' | 'down' | null
-  /** The steps still to wait, while held. */
-  remaining?: number
-  /** A floor that lifted the result. */
-  floor?: Effort
-}
-
-export function midVerdict(entry: LogEntry): MidVerdict | null {
-  const mid = entry.mid
-  if (mid === undefined) return null
-  const steps = entry.trace ?? []
-  const suggest = steps.find((step) => step.rule === 'suggest')
-  const theta = steps.find((step) => step.rule === 'theta-up' || step.rule === 'theta-down')
-  const hold = steps.find((step) => step.rule === 'hold' && step.applied)
-  const floor = steps.find((step) => step.rule === 'floor' && step.applied)
-  const conf = typeof theta?.confidence === 'number' ? theta.confidence : entry.conf
-  const threshold = typeof theta?.threshold === 'number' ? theta.threshold : mid.threshold
-  const direction = suggest?.direction ?? (mid.picked === mid.current ? 'same' : null)
-  const line = theta === undefined ? (direction === 'up' ? 'up' : direction === 'down' ? 'down' : null) : theta.rule === 'theta-up' ? 'up' : 'down'
-  const passed = theta === undefined ? null : theta.applied
-  const kind: MidVerdict['kind'] =
-    hold !== undefined || mid.held !== undefined
-      ? 'held'
-      : direction === 'same'
-        ? 'same'
-        : passed === false
-          ? 'blocked'
-          : mid.result === mid.current
-            ? 'same'
-            : line === 'down'
-              ? 'down'
-              : 'up'
-  const remaining = typeof hold?.remaining === 'number' ? hold.remaining : mid.remaining
-  return {
-    picked: mid.picked,
-    current: mid.current,
-    result: mid.result,
-    ...(conf === undefined ? {} : { conf }),
-    ...(threshold === undefined || kind === 'held' ? {} : { threshold }),
-    passed: kind === 'held' ? null : passed,
-    kind,
-    line: kind === 'held' ? 'down' : line,
-    ...(kind === 'held' && remaining !== undefined ? { remaining } : {}),
-    ...(floor !== undefined && isEffort(floor.floor) ? { floor: floor.floor } : {}),
-  }
-}
-
-/** A verdict's conclusion in words: `升到 high`, `降档被拦，保持 xhigh`, `防抖中，还差 3 步，保持 xhigh`. */
-export function verdictWords(verdict: MidVerdict): string {
-  const lifted = verdict.floor === undefined ? '' : `（下限 ${verdict.floor}）`
-  switch (verdict.kind) {
-    case 'up':
-      return `升到 ${verdict.result}${lifted}`
-    case 'down':
-      return `降一档到 ${verdict.result}${lifted}`
-    case 'blocked':
-      return `${verdict.line === 'down' ? '降档' : '升档'}被拦，保持 ${verdict.result}${lifted}`
-    case 'held':
-      return `防抖中${verdict.remaining === undefined ? '' : `，还差 ${verdict.remaining} 步`}，保持 ${verdict.result}${lifted}`
-    case 'same':
-      return `建议就是当前档，保持 ${verdict.result}${lifted}`
   }
 }
 
@@ -258,21 +231,14 @@ export function entryVerb(entry: LogEntry): string {
     case 'workflow-agents':
     case 'workflow-labels':
       return entry.sentBack === true ? '退回改写' : '已决定'
-    case 'midturn-effort': {
-      const verdict = midVerdict(entry)
-      if (verdict === null) return '已重判'
-      return verdict.kind === 'up' ? '升档' : verdict.kind === 'down' ? '降档' : verdict.kind === 'held' ? '防抖中' : '保持'
-    }
     case 'escalation':
-      return entry.forced !== undefined ? '强制升档' : entry.mid !== undefined && entry.mid.result !== entry.mid.current ? '重判改档' : '未升档'
+      return entry.forced !== undefined ? '升模型' : '没升模型'
     case 'unresolved':
-      return entry.hint !== undefined ? '给了强提示' : entry.unresolved === undefined ? '记录' : unresolvedWords(entry.unresolved).verdict
+      return entry.unresolved === undefined ? '记录' : unresolvedWords(entry.unresolved).verdict
     case 'skills':
       return entry.skills !== undefined && entry.skills.suggest.length + entry.skills.try.length > 0 ? '已建议' : '没有建议'
     case 'find-skill':
       return entry.skills !== undefined && entry.skills.suggest.length > 0 ? '查到' : '没查到'
-    case 'skill-profiles':
-      return entry.tone === 'ok' ? '画像就绪' : entry.tone === 'warn' ? '画像有失败' : entry.tone === 'fail' ? '画像停写' : '画像暂停'
     case 'decision-model':
       return '改用别的决策模型'
     case 'visual-check':
@@ -317,28 +283,4 @@ export function logGroups(log: readonly LogEntry[], state: PaneState): LogGroup[
 export function withFold(state: PaneState, turn: number, open: boolean, log: readonly LogEntry[]): PaneState {
   const kept = new Set(log.map((entry) => entry.turn))
   return { ...state, folds: [...state.folds.filter((fold) => fold.turn !== turn && kept.has(fold.turn)), { turn, open }] }
-}
-
-// ---- the top lines ------------------------------------------------------------------
-
-/** Why writing the profiles stopped, in a few words (the stop's `detail` follows in its own words). */
-const STOPPED: Record<NonNullable<ProfilesState['stop']>['reason'], (model: string) => string> = {
-  'store-read': () => '读不到本地存储，不保留也不写',
-  'model-refused': (model) => `引擎拒绝了 ${model}`,
-  'api-error': (model) => `${model} 返回了接口错误`,
-  'store-write': () => '本地存储存不下画像',
-  off: () => '写的过程中被关掉了',
-  error: () => '出错了',
-}
-
-/** How the session's skill profiles went, in one line: `skill 画像：保留 52 · 新写 3 · 失败 1`, `生成中 2/5`, or why it stopped. */
-export function profilesLine(profiles: ProfilesState): { text: string; tone: 'muted' | 'warn' | 'fail' } {
-  const counts = [`保留 ${profiles.kept}`, ...(profiles.phase === 'writing' ? [] : [`新写 ${profiles.written}`]), ...(profiles.failed > 0 ? [`失败 ${profiles.failed}`] : []), ...(profiles.deferred > 0 && profiles.phase !== 'writing' ? [`延后 ${profiles.deferred}`] : [])].join(' · ')
-  if (profiles.phase === 'writing') return { text: `skill 画像：生成中 ${profiles.written}/${profiles.planned} · ${counts}`, tone: profiles.failed > 0 ? 'warn' : 'muted' }
-  if (profiles.phase === 'stopped') {
-    const stop = profiles.stop
-    const why = stop === undefined ? '' : `${STOPPED[stop.reason](profiles.model)}${stop.detail === '' ? '' : `：${stop.detail}`}`
-    return { text: `skill 画像：已停写（${why}） · ${counts}`, tone: stop?.reason === 'off' ? 'muted' : 'fail' }
-  }
-  return { text: `skill 画像：${counts}`, tone: profiles.failed > 0 ? 'warn' : 'muted' }
 }

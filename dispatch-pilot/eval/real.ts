@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isEffort } from '../hooks/decision/effort.ts'
-import type { EffortMidturnItem, EffortSubmitItem } from './lib/datasets.ts'
+import type { EffortSubmitItem } from './lib/datasets.ts'
 import { gradeEffort } from './lib/effort-submit.ts'
 import { rate } from './lib/metrics.ts'
 import { DATASETS_DIR, readDataset, resultFile, shown } from './node.ts'
@@ -18,11 +18,11 @@ for (const path of process.argv.slice(2)) {
   const file = resultFile(path)
   if (file === undefined) throw new Error(`no results file ${path}`)
   const result = JSON.parse(readFileSync(file, 'utf8')) as { suite: string; summary: { variants: { variant: string }[] }; answers: Record<string, unknown>[] }
-  const items = readDataset(join(DATASETS_DIR, `${result.suite}.jsonl`)).items as unknown as (EffortSubmitItem | EffortMidturnItem)[]
+  const items = readDataset(join(DATASETS_DIR, `${result.suite}.jsonl`)).items as unknown as EffortSubmitItem[]
   const byId = new Map(items.map((item) => [item.id, item]))
   for (const { variant } of result.summary.variants) {
-    // `answer` is the level the answer picked; a mid-turn answer also keeps `sent`, the level the mod went on at.
-    for (const field of result.suite === 'effort-midturn' ? (['answer', 'sent'] as const) : (['answer'] as const)) {
+    // `answer` is the level the answer picked.
+    for (const field of ['answer'] as const) {
       const grades = result.answers.flatMap((line) => {
         // A run that asked more than once has a line for each time (`repeat`); the first time's are the ones its summary counts.
         if (line.repeat !== undefined && line.repeat !== 1) return []
@@ -33,7 +33,7 @@ for (const path of process.argv.slice(2)) {
       })
       const share = (count: number) => pct(rate(count, grades.length))
       console.log(
-        [shown(file).replace(/^eval\/results\//, ''), `${variant}${field === 'sent' ? ' (sent)' : ''}`, String(grades.length), share(grades.filter((g) => g.correct).length), share(grades.filter((g) => g.exact).length), share(grades.filter((g) => g.miss === 'over').length), share(grades.filter((g) => g.miss === 'under').length)].join('  '),
+        [shown(file).replace(/^eval\/results\//, ''), variant, String(grades.length), share(grades.filter((g) => g.correct).length), share(grades.filter((g) => g.exact).length), share(grades.filter((g) => g.miss === 'over').length), share(grades.filter((g) => g.miss === 'under').length)].join('  '),
       )
     }
   }

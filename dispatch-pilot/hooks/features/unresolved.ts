@@ -1,10 +1,11 @@
-// Feature: the unresolved count and the problem summary (#39, #40; GLOSSARY 未解决次数,
-// 问题摘要). Each of the person's messages is asked, in the effort request, whether it
-// says the problem they and the main agent are on is still not solved, is solved, or is
-// another one; the answer moves the count (core/unresolved.ts). The question and the
-// reading of its answer are in features/main-effort.ts, which owns the effort part of
-// the ballot they travel in (one contribution per part); this file owns the switch,
-// the count's start-over and the summary.
+// Feature: the unresolved count and the problem summary (#39, #40, ADR 0014; GLOSSARY
+// 未解决次数, 问题摘要, 长期约束). Each of the person's messages is asked, in the effort
+// request, whether it says the earlier attempt failed, the problem is solved, or another
+// task begins; the answers move the count (core/unresolved.ts). The questions and the
+// reading of their answers are in features/main-effort.ts, which owns the effort part of
+// the ballot they travel in (one contribution per part); this file owns the summary's
+// switch, the summary, and the start-over of what the session keeps of the problem (the
+// count, the summary, the person's lasting rules, the facts of their last turn).
 //
 // The summary is a record of the problem for the decision model to read beside the
 // conversation. When a turn that the person's own message started ends, a cheap model
@@ -15,10 +16,11 @@
 // a reload of the mod lost leaves the summary as it was and is told to the decision
 // report; one the count's start-over overtook is dropped when it lands.
 //
-// The count is per session: `/clear` and a new session start it over (`session.end`
+// All of it is per session: `/clear` and a new session start it over (`session.end`
 // fires for both; `session.start` also fires on a hot reload, which must keep it),
-// a compaction keeps it. Switched off, the question is not asked, the count stays as it
-// is and no summary is written.
+// a compaction keeps it. The count is kept whatever the switches say (it costs nothing,
+// and rule R5 reads it); the summary's switch (`summary`, on unless the person turns it
+// off) only stops the summary being written and sent.
 
 import type { EngineInterface, ModelCompleteResult, On } from 'claude-code'
 import { errorText } from '../decision/backend.ts'
@@ -32,12 +34,19 @@ import { defineSwitch, isOn } from '../core/switches.ts'
 import { clearCount, dropSummary, landSummary, lostSummaries, queueSummary, summaryFailure, summaryFor, type CountCell, type SummaryFailure } from '../core/unresolved.ts'
 
 const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
+const CONSTRAINTS = { plugin: 'dispatch-pilot', key: 'constraints' } as const
+const LAST_TURN = { plugin: 'dispatch-pilot', key: 'lastTurn' } as const
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
-/** The switch's name: `/dp unresolved on|off`. */
-export const UNRESOLVED_SWITCH = 'unresolved'
+/**
+ * The summary's switch: `/dp summary on|off`. It was `unresolved` (off by default, the count and the summary together)
+ * before 0.9.0; a setting kept under that name is left alone and means nothing now, so the summary is on for everyone.
+ */
+export const SUMMARY_SWITCH = 'summary'
+/** The feature name the count's decisions go in the log under (it has no switch: it is always kept). */
+export const UNRESOLVED_FEATURE = 'unresolved'
 
 /** The writes of this load of the mod: after the one before it (they are chained), and the turns they are for. A hot reload empties both. */
 let chain: Promise<void> = Promise.resolve()
@@ -49,15 +58,18 @@ let refused = false
 type Write = { turn: string; subject: string; shown: Omit<TurnInput, 'previous'> }
 
 export function registerUnresolved(on: On, ctx: Ctx): void {
-  // Off until the person turns it on (#48, ADR 0006); what they set by hand is in $.store and wins.
-  defineSwitch({ name: UNRESOLVED_SWITCH, info: '每条消息判断同一个问题是否仍未解决，数未解决的次数；每轮结束后在后台写问题摘要（默认关）', default: false })
+  // On unless the person turns it off (ADR 0014): with the state within Jev's regular limits, the summary is how the earlier
+  // rounds of a long conversation reach the decision model.
+  defineSwitch({ name: SUMMARY_SWITCH, info: '每轮结束后在后台用便宜的模型续写问题摘要，发消息时给决策模型读（默认开）' })
 
   on('session.end', { reason: /(?:)/ }, async ($, e, next) => {
     refused = false
     try {
       await clearCount(countCell($))
+      await $.state.set(CONSTRAINTS, [])
+      await $.state.set(LAST_TURN, null)
     } catch (error) {
-      $.ui.log(`unresolved count not cleared: ${errorText(error)}`, { to: 'debug' })
+      $.ui.log(`what the session kept of the problem not cleared: ${errorText(error)}`, { to: 'debug' })
     }
     return next(e)
   })
@@ -77,7 +89,7 @@ export function registerUnresolved(on: On, ctx: Ctx): void {
   on('turn.complete', { turnId: /(?:)/ }, async ($, e, next) => {
     const result = await next(e)
     // The summary is a paraphrase of the conversation: none is written when the person sends the decision model none (`contextMessages` 0).
-    if (e.agentId !== undefined || refused || !isOn(UNRESOLVED_SWITCH) || ctx.backend.configured === false || ctx.config.context.messages <= 0) return result
+    if (e.agentId !== undefined || refused || !isOn(SUMMARY_SWITCH) || ctx.backend.configured === false || ctx.config.context.messages <= 0) return result
     try {
       const { value: turn } = await $.state.get({ ...TURNS, id: turnKey(e.turnId, undefined) })
       // Only the person's own message: a hand-back or a task notice that started the turn is no word of theirs.
@@ -112,7 +124,7 @@ function reportIo($: EngineInterface): ReportIo {
 /** A write that did not make a summary, told to the decision report (the one that was there stays). `turn` only names the write in the debug log. */
 async function tell($: EngineInterface, turn: string, failure: SummaryFailure, model: string, subject = ''): Promise<void> {
   $.ui.log(`summary for turn ${turn}: ${failure === 'lost' ? 'lost to a reload' : failure}`, { to: 'debug' })
-  await report(reportIo($), { decision: { feature: UNRESOLVED_SWITCH, agent: 'main', aside: true, subject, ...summaryFailure(failure, model) } })
+  await report(reportIo($), { decision: { feature: SUMMARY_SWITCH, agent: 'main', aside: true, subject, ...summaryFailure(failure, model) } })
 }
 
 /**
@@ -125,7 +137,7 @@ async function writeSummary($: EngineInterface, ctx: Ctx, write: Write): Promise
   try {
     const { wanted, previous } = await summaryFor(cell, write.turn)
     // Cleared since the turn ended (solved, another problem, /clear), or switched off meanwhile: nothing to write.
-    if (!wanted || !isOn(UNRESOLVED_SWITCH) || refused) {
+    if (!wanted || !isOn(SUMMARY_SWITCH) || refused) {
       await dropSummary(cell, write.turn)
       return
     }

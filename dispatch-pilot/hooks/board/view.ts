@@ -8,8 +8,8 @@
 // Pure: the board, the log, the time and the switches come in as data and
 // closures (`ScreenInput`). A feature that is off owns nothing here: its
 // decisions, notes and board parts are left out (spec story 34). The log
-// entries of the skill profiles and of the decision model's fallback are left
-// off the band (#33); the pane shows them.
+// entries of the decision model's fallback are left off the band (#33); the
+// pane shows them.
 //
 // The words are the screens' own (Chinese, GLOSSARY terms); `why` on a node
 // comes in the decision report's words (Chinese too, #32).
@@ -64,7 +64,6 @@ export type AgentRow = {
 export type BandEvent = { at: number } & (
   | { kind: 'decided'; who: string; main: boolean; model?: Model; effort?: Effort; reason: string; ok: boolean }
   | { kind: 'workflow'; name: string; calls: number; models: Partial<Record<Model, number>>; sentBack: boolean; byLabel: boolean }
-  | { kind: 'midturn'; who: string; from: Effort; to: Effort; conf?: number; threshold?: number }
   | { kind: 'raise'; who: string; from: string; to: string; failed: number; blocked: number }
   | { kind: 'change'; who: string; from: Reading; to: Reading }
   | { kind: 'skills'; suggest: { name: string; relevance: number }[]; tried: { name: string; relevance: number }[] }
@@ -90,8 +89,6 @@ export type ScreenView = {
   counts: { running: number; done: number; failed: number; queued: number }
   /** The Workflow agents of the turn: done of all its calls and agents. */
   workflow: { done: number; total: number } | null
-  /** The main agent's mid-turn re-decisions this turn (midturn-effort's part); null when none or switched off. */
-  midturn: { judged: number; changed: number } | null
   /** A finished turn in one line: why the main agent's effort, the skills for the person to try. */
   summary: { reason: string; tried: string[] }
   /** A spinner frame for this moment; -1 on a surface that redraws seldom, where a spinner would stand still (`spin`). */
@@ -130,19 +127,18 @@ function active(node: BoardNode): boolean {
 
 /**
  * The words a person reads for each feature (an entry's, a note's), the band's and the pane's alike: the GLOSSARY's
- * terms (强制升档, 中途重判, 兜底, skill 推荐, skill 查询, skill 画像). A feature it lacks is called by its switch name.
+ * terms (失败升模型, 兜底, skill 推荐, skill 查询, skill 画像). A feature it lacks is called by its switch name.
  */
 export const FEATURE_WORDS: Readonly<Record<string, string>> = {
   'main-effort': '主 agent 的 effort',
-  unresolved: '未解决次数与摘要',
+  unresolved: '未解决次数',
+  summary: '问题摘要',
   'dispatched-agents': '派出 agent',
   'workflow-agents': 'Workflow 里的 agent',
   'workflow-labels': 'Workflow 兜底',
-  'midturn-effort': '中途重判',
-  escalation: '强制升档',
+  escalation: '失败升模型',
   skills: 'skill 推荐',
   'find-skill': 'skill 查询',
-  'skill-profiles': 'skill 画像',
   'decision-model': '决策模型',
   'visual-check': '看图核对',
   'screenshot-takeover': '截图接管',
@@ -167,14 +163,14 @@ export function screenView(input: ScreenInput): ScreenView {
   const startOf = (of: number) => board.starts?.find((start) => start.turn === of)?.at
   const start = startOf(turn)
   const elapsed = start === undefined ? 0 : Math.max(0, (now - start) / 1000)
-  const empty = { off: !input.master, turn, elapsed, live: false, rows: [], events: [], counts: { running: 0, done: 0, failed: 0, queued: 0 }, workflow: null, midturn: null, summary: { reason: '', tried: [] }, frame, ahead }
+  const empty = { off: !input.master, turn, elapsed, live: false, rows: [], events: [], counts: { running: 0, done: 0, failed: 0, queued: 0 }, workflow: null, summary: { reason: '', tried: [] }, frame, ahead }
   if (!input.master) return empty
   // The turn's agents, and those of earlier turns that still run (a Workflow's outlive the turn that launched it; a
   // main agent's turn is over when the next starts, whatever its node says); not a call whose agents started (a
   // template's, kept for its later agents).
   const nodes = board.nodes.filter((node) => !(isCallNode(node) && node.state !== 'queued') && (node.turn === turn || (node.turn < turn && node.id !== 'main' && active(node))))
   const main = nodes.find((node) => node.turn === turn && node.id === 'main')
-  const log = input.log.filter((entry) => entry.turn === turn && entry.feature !== 'skill-profiles' && entry.feature !== 'decision-model')
+  const log = input.log.filter((entry) => entry.turn === turn && entry.feature !== 'decision-model')
   const mainEntries = log.filter((entry) => agentOf(entry) === 'main')
   // Where a node sits on this turn's time axis: its own turn's start may be earlier.
   const shift = (node: BoardNode) => {
@@ -208,7 +204,6 @@ export function screenView(input: ScreenInput): ScreenView {
   const agents = nodes.filter((node) => node.id !== 'main')
   const counted = agents.filter((node) => !(isCallNode(node) && node.state === 'queued'))
   const flows = agents.filter((node) => node.workflow !== undefined)
-  const midturn = main?.midturn !== undefined && input.isShown('midturn') ? { judged: main.midturn.judged, changed: main.midturn.changed } : null
   return {
     off: false,
     turn,
@@ -223,7 +218,6 @@ export function screenView(input: ScreenInput): ScreenView {
       queued: counted.filter((node) => node.state === 'queued').length,
     },
     workflow: flows.length === 0 ? null : { done: flows.filter((node) => node.state === 'done' || node.state === 'failed').length, total: flows.length },
-    midturn,
     summary: summaryOf(main, mainEntries, log, input),
     frame,
     ahead,
@@ -254,7 +248,7 @@ function mainStatus(node: BoardNode, entries: readonly LogEntry[], input: Screen
   return { tone: 'muted', text: `已决定 · ${mainReason(entries, input) || '照计划'}` }
 }
 
-/** An agent's cell: failed and why, not routed and why, how long it has run (`ran`, seconds) or ran, queued; its failed calls and raises after. */
+/** An agent's cell: failed and why, not routed and why, how long it has run (`ran`, seconds) or ran, queued; its failed calls and step-ups after. */
 function agentStatus(node: BoardNode, ran: number, showCounts: boolean, input: ScreenInput): AgentRow['status'] {
   const extra = showCounts && node.counts !== undefined ? countsText(node.counts) : ''
   if (node.state === 'failed') return { tone: 'fail', text: node.why !== undefined && ENDED.has(node.why) ? `失败 · ${node.why}` : '失败' }
@@ -264,9 +258,9 @@ function agentStatus(node: BoardNode, ran: number, showCounts: boolean, input: S
   return { tone: 'done', text: `完成 ${mmss(node.dur ?? 0)}${extra}` }
 }
 
-/** A loop's counts in a few words: ` · 失败 2 · 拦截 1 · 升档 1`, the zero ones left out. */
+/** A loop's counts in a few words: ` · 失败 2 · 拦截 1 · 升模型 1`, the zero ones left out. */
 function countsText(counts: NonNullable<BoardNode['counts']>): string {
-  return [counts.failed > 0 ? `失败 ${counts.failed}` : '', counts.blocked > 0 ? `拦截 ${counts.blocked}` : '', counts.raised > 0 ? `升档 ${counts.raised}` : '']
+  return [counts.failed > 0 ? `失败 ${counts.failed}` : '', counts.blocked > 0 ? `拦截 ${counts.blocked}` : '', counts.raised > 0 ? `升模型 ${counts.raised}` : '']
     .filter((part) => part !== '')
     .map((part) => ` · ${part}`)
     .join('')
@@ -277,25 +271,35 @@ function mainReason(entries: readonly LogEntry[], input: ScreenInput): string {
   for (const entry of [...entries].reverse()) {
     const feature = featureOf(entry.feature)
     if (!input.isOn(feature)) continue
-    if (feature === 'escalation' && entry.forced !== undefined) return `强制升档 → ${entry.forced.to}`
-    if (feature === 'midturn-effort' && entry.mid !== undefined && entry.mid.result !== entry.mid.current) return `中途重判 → ${entry.mid.result}`
     if (feature === 'main-effort') return traceReason(entry.trace)
   }
   return ''
 }
 
-/** The rule that settled the level, from the rules' own working (never recomputed): the round-up, the max gate, else the most likely level. */
+/** What the board calls each floor of a message's decision (decision/message-effort.ts). */
+const FLOOR_WORDS: Readonly<Record<string, string>> = {
+  ultrathink: 'ultrathink',
+  escalate: '要求多想',
+  confirm: '确认',
+  stakes: '出错代价',
+  'cause-unknown': '原因未知',
+  'stuck-again': '上一轮卡住',
+  'unresolved-count': '未解决次数',
+  unsure: '拿不准',
+  'model-floor': '模型下限',
+}
+
+/** The rule that settled the level, from the rules' own working (never recomputed): the last floor that lifted it, two peaks, else the position. */
 function traceReason(trace: readonly RuleStep[] | undefined): string {
   if (trace === undefined) return ''
-  const step = (rule: string) => trace.find((one) => one.rule === rule)
-  const up = step('round-up')
-  if (up?.applied === true) return `上取一档 ${String(up.above)} ${pctText(up.p)}`
-  const gate = step('max-gate')
-  if (gate?.applied === true) return `max ${pctText(gate.p)} 未到 ${pctText(gate.thetaMax)}`
-  const lift = trace.find((one) => one.rule === 'model-floor' && one.applied)
-  if (lift !== undefined) return `下限抬到 ${String(lift.level)}`
-  const top = step('top')
-  return top === undefined ? '' : `最可能 ${String(top.level)} ${pctText(top.p)}`
+  const lift = [...trace].reverse().find((one) => one.applied && one.rule in FLOOR_WORDS)
+  if (lift !== undefined) return `${FLOOR_WORDS[lift.rule]}：至少 ${String(lift.level)}`
+  const peaks = trace.find((one) => one.rule === 'two-peaked')
+  if (peaks?.applied === true) return `双峰（${String(peaks.peak)} ${pctText(peaks.p)}），上取一档`
+  const unsure = trace.find((one) => one.rule === 'low-confidence')
+  if (unsure?.applied === true && typeof unsure.confidence === 'number') return `置信度 ${unsure.confidence.toFixed(2)}，上取一档`
+  const position = trace.find((one) => one.rule === 'position')
+  return position === undefined || typeof position.position !== 'number' ? '' : `位置 ${position.position.toFixed(1)} → ${String(position.level)}`
 }
 
 // ---- events -------------------------------------------------------------------
@@ -317,9 +321,9 @@ function workflowOf(entry: LogEntry, nodes: readonly BoardNode[]): { id: string;
   return { id, name }
 }
 
-/** Whether an entry moved the level it is about: a re-decision that changed it, a forced raise. */
+/** Whether an entry moved what it is about without being its route: a model step-up. */
 function moved(entry: LogEntry): boolean {
-  return entry.forced !== undefined || (entry.mid !== undefined && entry.mid.result !== entry.mid.current)
+  return entry.forced !== undefined
 }
 
 function eventsOf(board: Board, log: readonly LogEntry[], nodes: readonly BoardNode[], input: ScreenInput): BandEvent[] {
@@ -358,9 +362,7 @@ function eventsOf(board: Board, log: readonly LogEntry[], nodes: readonly BoardN
     }
     flush()
     if (feature === 'main-effort' || feature === 'dispatched-agents') add(decidedOf(entry, nodes), entry.n)
-    else if (feature === 'midturn-effort' && entry.mid !== undefined && entry.mid.result !== entry.mid.current) {
-      add({ at, kind: 'midturn', who: whoOf(entry.agent, nodes, entry.subject), from: entry.mid.current, to: entry.mid.result, ...(entry.conf === undefined ? {} : { conf: entry.conf }), ...(entry.mid.threshold === undefined ? {} : { threshold: entry.mid.threshold }) }, entry.n)
-    } else if (feature === 'escalation' && entry.forced !== undefined) {
+    else if (feature === 'escalation' && entry.forced !== undefined) {
       add({ at, kind: 'raise', who: whoOf(entry.agent, nodes, entry.subject), from: entry.forced.from, to: entry.forced.to, failed: entry.counts?.failed ?? 0, blocked: entry.counts?.blocked ?? 0 }, entry.n)
     } else if (feature === 'skills' && entry.skills !== undefined && (entry.skills.suggest.length > 0 || entry.skills.try.length > 0)) {
       add({ at, kind: 'skills', suggest: entry.skills.suggest, tried: entry.skills.try }, entry.n)
@@ -369,7 +371,7 @@ function eventsOf(board: Board, log: readonly LogEntry[], nodes: readonly BoardN
     }
   }
   flush()
-  // A reading that changed, unless the decision just before it says so already (a re-decision, a forced raise).
+  // A reading that changed, unless the decision just before it says so already (a model step-up).
   const changes = (board.changes ?? []).filter((change) => change.turn === turn)
   for (const change of changes) {
     if (explained(change, changes, log)) continue
@@ -389,6 +391,24 @@ function explained(change: ReadingChange, changes: readonly ReadingChange[], log
 }
 
 /** A decision about one agent's route: who, what it got, why in a few words. */
+/** How an agent's model was come to, from its rules' own working (decision/dispatched-agent.ts): the table's row, and the main agent's pick kept or raised. */
+function agentReason(trace: readonly RuleStep[] | undefined): string {
+  const table = trace?.find((one) => one.rule === 'model-table')
+  const route = trace?.find((one) => one.rule === 'route')
+  const named = trace?.some((one) => one.rule === 'named-model') === true
+  if (table === undefined && route === undefined && !named) return ''
+  const pick = trace?.find((one) => one.rule === 'main-pick')
+  const rules =
+    named || table?.row === '1'
+      ? '你点名'
+      : route !== undefined
+        ? route.fellBack === true
+          ? `路由拿不准 → ${String(route.wanted)}`
+          : `路由 ${String(route.tier)} ${typeof route.p === 'number' ? pctText(route.p) : ''}`.trim()
+        : `模型表 ${String(table?.row)}`
+  return pick === undefined ? rules : `${rules} · ${pick.outcome === 'upgraded' ? '升级' : '保留'} ${String(pick.requested)}`
+}
+
 function decidedOf(entry: LogEntry, nodes: readonly BoardNode[]): BandEvent {
   const main = agentOf(entry) === 'main'
   const level = main ? levelOf(entry) : entry.effort
@@ -399,20 +419,19 @@ function decidedOf(entry: LogEntry, nodes: readonly BoardNode[]): BandEvent {
     main,
     ...(entry.model === undefined ? {} : { model: entry.model }),
     ...(level === undefined ? {} : { effort: level }),
-    reason: main ? traceReason(entry.trace) : entry.conf === undefined ? '' : `置信 ${pct(entry.conf)}`,
+    reason: main ? traceReason(entry.trace) : agentReason(entry.trace),
     ok: entry.tone !== 'fail' && entry.tone !== 'warn',
   }
 }
 
 /**
  * The level a decision ended at, from its own fields (never its words): the effort it decided, else the rules' last
- * step's level (an entry an earlier version wrote), else a re-decision's result.
+ * step's level (an entry an earlier version wrote).
  */
 export function levelOf(entry: LogEntry): Effort | undefined {
   if (entry.effort !== undefined) return entry.effort
   const last = entry.trace?.at(-1)?.level
-  if (isEffort(last)) return last
-  return entry.mid?.result
+  return isEffort(last) ? last : undefined
 }
 
 // ---- the summary --------------------------------------------------------------

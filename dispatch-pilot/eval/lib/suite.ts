@@ -34,7 +34,7 @@ export function settingsFrom(options: PluginOptions, table?: Parameters<typeof r
 
 /**
  * The settings with the state's budget set to `tokens` for every kind of request (a message's, the skills' request,
- * a mid-turn re-decision, a dispatched agent, a Workflow's agents). The mod's options only lower a budget
+ * a dispatched agent, a Workflow's agents). The mod's options only lower a budget
  * (`contextTokens` is the smaller of it and the model's); this widens it, to measure what a decision model with a
  * bigger window gains from a longer conversation (#43, `run.ts --state-tokens`). Not what the mod runs with.
  */
@@ -43,7 +43,6 @@ export function withStateTokens(settings: Settings, tokens: number): Settings {
     ...settings,
     context: { ...settings.context, tokens },
     contextByKind: Object.fromEntries(CONTEXT_KINDS.map((kind) => [kind, tokens])) as Record<ContextKind, number>,
-    midturn: { ...settings.midturn, limits: { ...settings.midturn.limits, tokens } },
   }
 }
 
@@ -145,8 +144,8 @@ export type AnyItem = { id: string; tags: string[] }
 
 /**
  * What a suite may read besides its items, from the machine the eval runs on
- * (the skill suite: the catalog and the profiles beside its dataset, the
- * skills' SKILL.md files). eval/node.ts provides it over Node's file system.
+ * (the skill suite: the catalog beside its dataset, the skills' SKILL.md
+ * files). eval/node.ts provides it over Node's file system.
  */
 export type SuiteHost = {
   /** A JSON file beside the dataset, parsed; undefined when there is none. */
@@ -179,7 +178,7 @@ export type Suite<I extends AnyItem, P> = {
   show: (prediction: P) => string
   /** The answers a suite would score by always giving one of them, reported beside its accuracy. */
   constants: readonly P[]
-  /** Optional: baselines whose answer depends on the item (effort-midturn: keep the current level), by name; scored and reported with the constants. */
+  /** Optional: baselines whose answer depends on the item, by name; scored and reported with the constants. */
   baselines?: Readonly<Record<string, (item: I) => P>>
   /** The questions a variant asks, recorded with the results (what a prompt change changes). */
   questions: (variant: string) => unknown
@@ -193,8 +192,8 @@ export type Suite<I extends AnyItem, P> = {
   /**
    * Optional: what a suite built from more than its items read (SuiteHost),
    * recorded with the results; eval/run.ts prints its `warnings` (the skill
-   * suite: SKILL.md files that differ from the catalog snapshot, skills
-   * without a profile).
+   * suite: SKILL.md files that differ from the catalog snapshot, or that
+   * cannot be read).
    */
   about?: Readonly<Record<string, unknown>> & { warnings?: readonly string[] }
   /**

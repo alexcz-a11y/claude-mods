@@ -46,7 +46,8 @@ import { dispatchSettings, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import { callReports, workflowCallTitle, workflowLeft } from '../core/workflow-report.ts'
 import { sessionReading } from './reference-hint.ts'
-import { UNRESOLVED_SWITCH } from './unresolved.ts'
+import { SUMMARY_SWITCH } from './unresolved.ts'
+import type { SummaryState } from '../decision/summary.ts'
 
 const SAID = { plugin: 'dispatch-pilot', key: 'said' } as const
 const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
@@ -78,7 +79,7 @@ const LABEL_HINT =
  * background: its text, cut to the share of an agent's budget a script takes) and the loop that launched it (`caller`,
  * absent for the main one): its conversation up to the run's call is read as an agent starts.
  */
-type Launch = { said: string[]; problem_summary?: string; unresolved_count?: number; script?: string; caller?: string }
+type Launch = { said: string[]; problem_summary?: SummaryState; unresolved_count?: number; script?: string; caller?: string }
 
 /**
  * A run this feature routes the agents of (`labelRuns` in types/index.d.ts). `callId`: the Workflow tool call that launched it (a run recorded by an earlier load has none: the run's own id stands for it).
@@ -143,8 +144,8 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       // they cannot be read, that feature could not route the script either.
       const said = given === 'script' ? await $.state.get(SAID).then((read) => read.value ?? [], () => []) : ((await $.state.get(SAID)).value ?? [])
       const words = said.join('\n')
-      const { value: held } = isOn(UNRESOLVED_SWITCH) ? await $.state.get(COUNT).catch(() => ({ value: undefined })) : { value: undefined }
-      const problem = problemBackground(held, ctx.ask.language)
+      const { value: held } = await $.state.get(COUNT).catch(() => ({ value: undefined }))
+      const problem = problemBackground(held, isOn(SUMMARY_SWITCH))
       // What the session's reference images read as (#64): in the requests, not in what the run keeps for its agents (they read the latest as each starts).
       const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
       const background = { ...problem, ...readingBackground(reference) }
@@ -169,7 +170,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
           sites = sitesOf(parsed.calls, outcomes)
           decided = { calls: parsed.calls, outcomes, describe: (failure) => failureText(ctx.backend.name, failure) }
           // One report for each call: the decisions made, and why the others wait for their agents or are left as written.
-          await report(reporting, { decisions: callReports(SWITCH, { id: e.tool_use_id, parsed }, outcomes, { backend: ctx.backend.name, thetaOverride: settings.thetaOverride }) })
+          await report(reporting, { decisions: callReports(SWITCH, { id: e.tool_use_id, parsed }, outcomes, { backend: ctx.backend.name }) })
         }
       }
       // Every launched run is recorded, even one whose calls all run as the script says: their agents' plans still
@@ -398,7 +399,7 @@ async function decideAtStart(
     // The entry's subject is the agent as it is told here, not the call.
     subject: about,
     outcome: callResult(call, outcome.decision),
-    reason: `按它启动时的任务；${reasonOf(outcome.decision, requested, settings.thetaOverride)}`,
+    reason: `按它启动时的任务；${reasonOf(outcome.decision, requested)}`,
     ...dispatchEvidence(outcome.decision),
     ...(family === null ? {} : { model: family }),
     ...(outcome.decision.effort === null ? {} : { effort: outcome.decision.effort }),

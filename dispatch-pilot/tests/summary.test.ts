@@ -1,12 +1,13 @@
-// The problem summary (#40): seam 1 (engine events in; what reaches the cheap model, `$.state`, the decision
-// backend and the decision log out). After each turn that the person's own message started, a cheap model
-// continues the record of the problem in the background (`$.model.complete` is stubbed in `world`); the
-// decision never waits for it; the decision model reads it from the next message on.
+// The problem summary (#40, ADR 0014): seam 1 (engine events in; what reaches the cheap model, `$.state`, the
+// decision backend and the decision log out). After each turn that the person's own message started, a cheap model
+// continues the record of the problem in the background (`$.model.complete` is stubbed in `world`); the decision
+// never waits for it; the decision model reads it from the next message on, as named fields. Its switch is
+// `summary`, on by default.
 
 import type { ModelCompleteRequest, SessionMessage } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
-import { renderSummary, SUMMARY_TOKENS } from '../hooks/decision/summary.ts'
+import { renderSummary, summaryState, SUMMARY_TOKENS } from '../hooks/decision/summary.ts'
 import { jev, KEY, rates, type Completion, UNRESOLVED_ON, world } from './support/world.ts'
 
 const MEDIUM = [0.05, 0.7, 0.2, 0.05, 0]
@@ -75,17 +76,18 @@ test('only a turn the person\'s own message started is written: a command turn c
   expect(w.summary()?.turn).toBe('t3')
 })
 
-/** What the decision model answers the unresolved question: by the bars it neither adds nor clears (the summary is left as it is), or it reads "still unresolved", or that the problem is solved, or another one. */
+/** What the decision model says of the problem: nothing that moves the count (the summary is left as it is), or that it still fails, or that it is solved, or another task. */
+const problem = (still: number, solved: number, task: number) => ({ 'effort.still_failing': still, 'effort.solved': solved, 'effort.new_task': task })
 const SAYS = {
-  unsure: { still_unresolved: 0.3, resolved: 0.4, new_or_unrelated: 0.3 },
-  still: { still_unresolved: 0.8, resolved: 0.05, new_or_unrelated: 0.15 },
-  solved: { still_unresolved: 0.05, resolved: 0.85, new_or_unrelated: 0.1 },
-  elsewhere: { still_unresolved: 0.05, resolved: 0.1, new_or_unrelated: 0.85 },
+  unsure: problem(0.5, 0.4, 0.3),
+  still: problem(0.85, 0.05, 0.1),
+  solved: problem(0.05, 0.85, 0.1),
+  elsewhere: problem(0.05, 0.1, 0.85),
 } as const
 type Says = keyof typeof SAYS
 
-/** Jev answering the effort question as MEDIUM and the unresolved question as `said.now` says (changeable between messages). */
-const deciding = (said: { now: Says }) => (request: Parameters<ReturnType<typeof jev>>[0]) => jev(MEDIUM, { shares: { 'effort.unresolved': SAYS[said.now] } })(request)
+/** Jev answering the effort question as MEDIUM and the Nouls about the problem as `said.now` says (changeable between messages). */
+const deciding = (said: { now: Says }) => (request: Parameters<ReturnType<typeof jev>>[0]) => jev(MEDIUM, { nouls: SAYS[said.now] })(request)
 
 /** The summary field of a request's state. */
 const summaryOf = (request: { body?: { state?: Record<string, unknown> } } | undefined) => request?.body?.state?.problem_summary
@@ -102,19 +104,19 @@ test('the summary is in the state of the effort request from the next message on
   await w.clock.settle()
 
   await w.submit('嗯，再看看')
-  const first = '问题：登录接口返回 502\n试过：\n1. 把超时调到 30 秒\n状态：助手在等日志'
-  expect(summaryOf(w.requests[1])).toBe(first)
+  const first = { problem: '登录接口返回 502', tried: [{ text: '把超时调到 30 秒', unresolved: false }], status: '助手在等日志' }
+  expect(summaryOf(w.requests[1])).toEqual(first)
   // The second turn's write takes 4 seconds: the next message does not wait, it reads the summary there is.
   await w.complete()
   await w.clock.settle()
   const sentAt = w.clock.now()
   await w.submit('还是没好')
   expect(w.clock.now()).toBe(sentAt)
-  expect(summaryOf(w.requests[2])).toBe(first)
+  expect(summaryOf(w.requests[2])).toEqual(first)
 
   await w.clock.advance(4000)
   await w.submit('再来一次')
-  expect(summaryOf(w.requests[3])).toBe('问题：登录接口返回 502\n试过：\n1. 把超时调到 30 秒\n2. 换成 fake timers\n状态：助手在等日志')
+  expect(summaryOf(w.requests[3])).toEqual({ ...first, tried: [...first.tried, { text: '换成 fake timers', unresolved: false }] })
   // Beside the effort question's request there is none to carry it here, and the summary's field is the effort request's alone.
   expect(w.requests.every((request) => Object.keys(request.body.questions).every((id) => id.startsWith('effort.')))).toBe(true)
 })
@@ -131,7 +133,7 @@ test('a write that fails leaves the summary as it was and puts an entry in the d
   await turn('登录接口返回 502')
   const kept = w.summary()
   expect(kept?.tried).toEqual([{ text: '把超时调到 30 秒' }])
-  const failures = () => w.board().then((board) => board.log.filter((entry) => entry.feature === 'unresolved' && entry.outcome === '摘要没写成'))
+  const failures = () => w.board().then((board) => board.log.filter((entry) => entry.feature === 'summary' && entry.outcome === '摘要没写成'))
   expect(await failures()).toEqual([])
 
   const cases: [Completion, RegExp][] = [
@@ -194,7 +196,7 @@ test('the skills\' request does not carry the summary: it is a field of the effo
   await w.submit('先写一个失败的测试')
 
   const effort = w.requests.find((request) => 'effort.level' in request.body.questions)
-  expect(effort?.body.state.problem_summary).toBe(renderSummary(kept, 'zh'))
+  expect(effort?.body.state.problem_summary).toEqual(summaryState(kept))
   expect(w.withoutEffort.length).toBeGreaterThan(0)
   expect(w.withoutEffort.every((request) => !('problem_summary' in request.body.state))).toBe(true)
 })
@@ -219,7 +221,7 @@ test('"still unresolved" marks the last attempt of the summary (the unresolved c
   expect(w.summary()?.tried).toEqual([{ text: '把超时调到 30 秒', unresolved: true }, { text: '换成 fake timers' }])
   said.now = 'unsure'
   await w.submit('嗯')
-  expect(summaryOf(w.requests.at(-1))).toContain('1. 把超时调到 30 秒（未解决）\n2. 换成 fake timers')
+  expect(summaryOf(w.requests.at(-1))).toEqual({ problem: '登录接口返回 502', tried: [{ text: '把超时调到 30 秒', unresolved: true }, { text: '换成 fake timers', unresolved: false }], status: '助手在等日志' })
 })
 
 for (const [label, now] of [['the problem is solved', 'solved'], ['another problem begins', 'elsewhere']] as const) {
@@ -236,7 +238,7 @@ for (const [label, now] of [['the problem is solved', 'solved'], ['another probl
     expect(w.unresolved()).toBe(0)
     expect(w.summary()).toBeUndefined()
     // The message itself was asked about before its answer cleared anything, so it read the summary there was; the cheap model is shown none.
-    expect(summaryOf(w.requests.at(-1))).toContain('登录接口返回 502')
+    expect(JSON.stringify(summaryOf(w.requests.at(-1)))).toContain('登录接口返回 502')
     await w.complete()
     await w.clock.settle()
     expect(promptOf(w.completions.at(-1))).toMatch(/none yet/i)
@@ -299,13 +301,13 @@ test('a reload of the mod loses a write in flight: the summary stays as it was a
   await w.start()
 
   expect(w.unresolvedState()).toEqual({ count: 1, summary: kept })
-  const entries = (await w.board()).log.filter((entry) => entry.feature === 'unresolved')
+  const entries = (await w.board()).log.filter((entry) => entry.feature === 'summary')
   expect(entries).toHaveLength(1)
   expect(entries[0]).toMatchObject({ outcome: '摘要没写成', tone: 'warn' })
   expect(entries[0]?.reason).toContain('热重载')
   // Starting the session again finds nothing more to tell.
   await w.start()
-  expect((await w.board()).log.filter((entry) => entry.feature === 'unresolved')).toHaveLength(1)
+  expect((await w.board()).log.filter((entry) => entry.feature === 'summary')).toHaveLength(1)
 })
 
 test('writes go one after the other: a turn that ends before the last write is done waits for it, and continues what it wrote', { options: KEY }, async ($, on) => {
@@ -343,7 +345,7 @@ test('an engine that refuses the model is told once, and not asked again this se
   }
 
   expect(w.completions).toHaveLength(1)
-  const entries = (await w.board()).log.filter((entry) => entry.feature === 'unresolved')
+  const entries = (await w.board()).log.filter((entry) => entry.feature === 'summary')
   expect(entries).toHaveLength(1)
   expect(entries[0]?.reason).toContain('引擎拒绝了写摘要的模型 haiku')
   expect(entries[0]?.reason).toContain('model haiku is not allowed')
@@ -364,14 +366,14 @@ test('summaryModel names the model that writes it (haiku is the default, in the 
 })
 
 for (const { label, options, off } of [
-  { label: '/dp unresolved is off', options: KEY, off: true },
+  { label: '/dp summary is off', options: KEY, off: true },
   { label: 'there is no decision model to read it (no key)', options: {} },
   { label: 'the person sends the decision model no conversation (contextMessages 0)', options: { ...KEY, contextMessages: 0 } },
 ]) {
   test(`no summary is written when ${label}`, { options }, async ($, on) => {
     const w = world($, on, { switches: UNRESOLVED_ON, backend: jev(MEDIUM), model: () => written('p', ['a']), session: true, store: {} })
     await w.start()
-    if (off) await w.command('dp', 'unresolved off')
+    if (off) await w.command('dp', 'summary off')
     await w.submit('登录接口返回 502')
     await w.complete({ answer: '改好了' })
     await w.clock.settle()

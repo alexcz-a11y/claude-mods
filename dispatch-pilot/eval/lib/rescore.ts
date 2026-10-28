@@ -1,29 +1,27 @@
-// Stored answers decided again under the rules of the AA routing (README, 「它做什么」; DEVELOPMENT.md,
-// 「按 AA 基准校正」), each against the rule before it (0.2.1), without asking again: the effort a
-// level-probability answer picks (the level above the most likely one taken at 0.3 or more), the level a
-// mid-turn answer sends (the gates the mod ships, 0.3 up and since 0.2.3 0.55 down, against 0.4 and 0.6;
-// `scanThetaDown` runs the lowering gate over a list of values), and a dispatched agent's
-// effort lifted to its model's floor. Nothing here asks a decision model: every figure comes from the
-// probabilities a result file kept (`p`, `p_effort` ...), graded against the dataset as the suites grade.
+// Stored answers decided again under the effort question's base rule of 0.9.0 (ADR 0014: the position rounded, one up when
+// two-peaked; a dispatched agent's lifted to its model's floor), each against the rule the run itself had (the most likely
+// level, the max gate at the file's `thetaMax`, the level above at its `roundUp`), without asking again. A stored answer
+// has the effort question's probabilities only, not the Nouls the floors read, so this measures the base rule alone.
+// Nothing here asks a decision model: every figure comes from the probabilities a result file kept (`p`, `p_effort` ...),
+// graded against the dataset as the suites grade.
 //
-// What it cannot say: the model options of a dispatched agent were reworded, so stored answers about the
-// model are no longer what the mod would be given; the model part is taken as it was stored, and only the
-// effort part is decided again. Rerun the subagent suite (eval/run.ts) for the effect of the new wording.
+// What it cannot say: a dispatched agent's model is chosen by the model table on yes/no questions a run before 0.9.0
+// never asked (ADR 0015), so the model part is taken as the run stored it (its answer), and only the effort part is
+// decided again: the base rule and the model's floor, the floors' Nouls not being stored. Rerun the subagent suite
+// (eval/run.ts) for the effect of the table.
 //
 // Pure: no Node API; eval/rescore.ts reads the files.
 
-import { dispatchSettings, readConfig } from '../../hooks/core/setup.ts'
-import { EFFORTS, pickEffort, type Effort, type EffortReading, type EffortRules } from '../../hooks/decision/effort.ts'
-import { decideDispatch, type DispatchDecision } from '../../hooks/decision/dispatched-agent.ts'
-import { judgeMidturn, type MidturnRules } from '../../hooks/decision/midturn.ts'
-import { isRecord, type AgentItem, type EffortMidturnItem, type EffortSubmitItem, type Language } from './datasets.ts'
+import { baseEffort, EFFORTS, isEffort, traceEffort, type Effort, type EffortReading } from '../../hooks/decision/effort.ts'
+import { AGENT_MODELS, effortFloor, type AgentModel } from '../../hooks/decision/dispatched-agent.ts'
+import { isRecord, type AgentItem, type EffortSubmitItem, type Language } from './datasets.ts'
 import { gradeEffort } from './effort-submit.ts'
-import { answersOf, AGENT_VARIANTS, gradeAgent, gradedEffort } from './subagent.ts'
+import { gradeAgent } from './subagent.ts'
 import { rate } from './metrics.ts'
 
-/** What a result file holds that is read here; the rest is kept as it is. */
+/** What a result file holds that is read here; the rest is kept as it is. A file written from 0.9.0 on records no `thetaMax`. */
 export type StoredAnswers = {
-  settings: { thetaMax: number; roundUp?: number; options?: Readonly<Record<string, unknown>> }
+  settings: { thetaMax?: number; roundUp?: number; options?: Readonly<Record<string, unknown>> }
   summary: { variants: readonly { variant: string }[] }
   answers: readonly Readonly<Record<string, unknown>>[]
 }
@@ -31,9 +29,29 @@ export type StoredAnswers = {
 /** The threshold for taking the level above in a result file that does not record one: the constant it was before it became a decision model's setting (#49). */
 const ROUND_UP_BEFORE_THE_TABLE = 0.3
 
-/** The effort rules' thresholds as the run had them (`thetaMax`, and `roundUp` when the file records it). */
-function rulesOf(result: StoredAnswers): EffortRules {
-  return { thetaMax: result.settings.thetaMax, roundUp: result.settings.roundUp ?? ROUND_UP_BEFORE_THE_TABLE }
+/** The thresholds of the rule a run had before 0.9.0 (`thetaMax`, and `roundUp` when the file records it). */
+export type RecordedRules = { thetaMax: number; roundUp: number }
+
+/** The recorded rule's thresholds as the run had them; null for a run of 0.9.0 or later, which decided by the base rule. */
+function rulesOf(result: StoredAnswers): RecordedRules | null {
+  const { thetaMax, roundUp } = result.settings
+  return thetaMax === undefined ? null : { thetaMax, roundUp: roundUp ?? ROUND_UP_BEFORE_THE_TABLE }
+}
+
+/**
+ * The rule before 0.9.0, as a run recorded it: the most probable level (a tie to the higher), `max` only at `thetaMax`, then
+ * the level above when it has `roundUp` (max again only at `thetaMax`). Kept to measure the base rule against; a run that
+ * recorded none (`null`) had the base rule.
+ */
+export function recordedPickEffort(reading: EffortReading, rules: RecordedRules | null): Effort {
+  if (rules === null) return baseEffort(reading)
+  const p = reading.probabilities
+  const at = (i: number) => p[i] ?? 0
+  const last = EFFORTS.length - 1
+  let level = EFFORTS.indexOf(legacyPickEffort(reading, rules.thetaMax))
+  const above = level + 1
+  if (above <= last && at(above) >= rules.roundUp && (above < last || at(above) >= rules.thetaMax)) level = above
+  return EFFORTS[level] as Effort
 }
 
 /**
@@ -44,7 +62,7 @@ function rulesOf(result: StoredAnswers): EffortRules {
  */
 export type Tally = { n: number; accuracy: number; gold: number; over: number; under: number; effort?: number }
 
-/** A variant (and what is decided: `picked` the level of the answer, `sent` the level the mod goes on at) under the rule before and under the rule now. */
+/** A variant (and what is decided: `picked` the level of the answer, `agent` an agent's model and effort) under the run's recorded rule (`before`) and the base rule now. */
 export type Compared = { variant: string; what: string; before: Tally; now: Tally }
 
 /**
@@ -62,24 +80,6 @@ export function legacyPickEffort(reading: EffortReading, thetaMax: number): Effo
   let level = top(EFFORTS.length)
   if (level === EFFORTS.length - 1 && (p[level] ?? 0) < thetaMax) level = top(EFFORTS.length - 1)
   return EFFORTS[level] as Effort
-}
-
-/** The mid-turn gates as they were before the AA routing (`legacySent` has no raise to hold, so no holdSteps). */
-export const LEGACY_RULES: Pick<MidturnRules, 'thetaUp' | 'thetaDown'> = { thetaUp: 0.4, thetaDown: 0.6 }
-
-/**
- * What the mod went on at after a mid-turn answer, by the rule before: the
- * answer's level (`legacyPickEffort`) when higher and sure enough, one level
- * down when lower and surer still, else the level it was at. (`judgeMidturn`
- * is the rule now; a re-decision here never has a raise to hold.)
- */
-function legacySent(reading: EffortReading, current: Effort, thetaMax: number): Effort {
-  const picked = legacyPickEffort(reading, thetaMax)
-  const at = (level: Effort) => EFFORTS.indexOf(level)
-  const confidence = reading.confidence ?? Math.max(...reading.probabilities)
-  if (at(picked) > at(current)) return confidence >= LEGACY_RULES.thetaUp ? picked : current
-  if (at(picked) < at(current)) return confidence >= Math.max(LEGACY_RULES.thetaDown, LEGACY_RULES.thetaUp) ? (EFFORTS[at(current) - 1] as Effort) : current
-  return current
 }
 
 /**
@@ -116,7 +116,7 @@ function tally(graded: readonly { item: { gold: Effort; accept: readonly Effort[
   }
 }
 
-/** The effort-submit variants of a result: the level picked from each stored answer, before and now. */
+/** The effort-submit variants of a result: the level picked from each stored answer, under the recorded rule and the base rule. */
 export function rescoreSubmit(result: StoredAnswers, items: readonly EffortSubmitItem[]): Compared[] {
   const rules = rulesOf(result)
   return result.summary.variants.map(({ variant }) => {
@@ -124,95 +124,34 @@ export function rescoreSubmit(result: StoredAnswers, items: readonly EffortSubmi
     return {
       variant,
       what: 'picked',
-      before: tally(rows.map(({ item, detail }) => ({ item, effort: legacyPickEffort(readingOf(detail), rules.thetaMax) }))),
-      now: tally(rows.map(({ item, detail }) => ({ item, effort: pickEffort(readingOf(detail), rules) }))),
+      before: tally(rows.map(({ item, detail }) => ({ item, effort: recordedPickEffort(readingOf(detail), rules) }))),
+      now: tally(rows.map(({ item, detail }) => ({ item, effort: baseEffort(readingOf(detail)) }))),
     }
   })
 }
 
-/**
- * The mid-turn gates the mod ships for the decision model a result was run on (`settings.options`, which names it and
- * holds the options the run set: BACKEND_DEFAULTS has a row of gates for each model, pplx raising from 0 and Jev from 0.3).
- * A result file from before the default moved to pplx names no decision model: those were Jev's.
- */
-function midturnRulesOf(result: StoredAnswers): MidturnRules {
-  return readConfig({ decisionModel: 'jev', ...(result.settings.options ?? {}) } as Parameters<typeof readConfig>[0]).midturn.rules
+/** A stored answer about an agent: the model the run gave it (its answer's first word), its effort reading, the effort the person named. */
+type StoredAgent = { model: AgentModel; reading: EffortReading; named: Effort | null }
+
+function storedAgent(detail: Readonly<Record<string, unknown>>): StoredAgent | null {
+  const model = typeof detail.answer === 'string' ? detail.answer.split(' ')[0] : undefined
+  if (!(AGENT_MODELS as readonly unknown[]).includes(model)) return null
+  return { model: model as AgentModel, reading: readingOf(detail, 'p_effort'), named: isEffort(detail.named_effort) ? detail.named_effort : null }
 }
 
 /**
- * The effort-midturn variants of a result: the level each stored answer picks and the level the mod would go on
- * at, before (the pick and gates of 0.2.1) and now (the current pick and `rules`, by default the gates the mod ships
- * for the decision model the result was run on).
- */
-export function rescoreMidturn(result: StoredAnswers, items: readonly EffortMidturnItem[], rules: MidturnRules = midturnRulesOf(result)): Compared[] {
-  const run = rulesOf(result)
-  return result.summary.variants.flatMap(({ variant }) => {
-    const rows = rowsOf(result, items, variant, 'p').map(({ item, language, detail }) => ({ item, reading: readingOf(detail), current: item[language].current_effort }))
-    return [
-      {
-        variant,
-        what: 'picked',
-        before: tally(rows.map(({ item, reading }) => ({ item, effort: legacyPickEffort(reading, run.thetaMax) }))),
-        now: tally(rows.map(({ item, reading }) => ({ item, effort: pickEffort(reading, run) }))),
-      },
-      {
-        variant,
-        what: 'sent',
-        before: tally(rows.map(({ item, reading, current }) => ({ item, effort: legacySent(reading, current, run.thetaMax) }))),
-        now: tally(rows.map(({ item, reading, current }) => ({ item, effort: judgeMidturn(reading, { current, sinceRaise: null }, { ...rules, ...run }).effort }))),
-      },
-    ]
-  })
-}
-
-/** The level a mid-turn variant sends at one `thetaDown`, over the answers of one language (`both`: all of them). */
-export type ThetaDownRow = { variant: string; language: Language | 'both'; thetaDown: number; sent: Tally }
-
-/**
- * A scan of the lowering gate over the stored answers of an effort-midturn result: for each variant, each language
- * and both together, each of `thetas`, the level the mod goes on at (`judgeMidturn`, `rules` otherwise as the mod
- * ships them for the decision model of the run, `thetaMax` and `roundUp` as the run had them) graded as `sent`. Only `thetaDown` differs from row to row; nothing is
- * asked again.
- */
-export function scanThetaDown(result: StoredAnswers, items: readonly EffortMidturnItem[], thetas: readonly number[], rules: MidturnRules = midturnRulesOf(result)): ThetaDownRow[] {
-  const run = rulesOf(result)
-  return result.summary.variants.flatMap(({ variant }) => {
-    const rows = rowsOf(result, items, variant, 'p').map(({ item, language, detail }) => ({ item, language, reading: readingOf(detail), current: item[language].current_effort }))
-    return thetas.flatMap((thetaDown) =>
-      (['both', 'zh', 'en'] as const).map((language) => ({
-        variant,
-        language,
-        thetaDown,
-        sent: tally(
-          rows
-            .filter((row) => language === 'both' || row.language === language)
-            .map(({ item, reading, current }) => ({ item, effort: judgeMidturn(reading, { current, sinceRaise: null }, { ...rules, ...run, thetaDown }).effort })),
-        ),
-      })),
-    )
-  })
-}
-
-/**
- * The dispatched-agent variants of a result: each stored answer decided again from its probabilities (`answersOf`),
- * the model as the mod decides it from them, the effort under the rule before (the level picked as before, the person's
- * named effort kept, none on haiku) and under the rule now (`decideDispatch`: the pick, the level above, the floor).
+ * The dispatched-agent variants of a result: each stored answer's model as the run gave it, its effort under the recorded
+ * rule (the person's named effort kept) and under the rule now (the base rule and the model's floor).
  */
 export function rescoreAgents(result: StoredAnswers, items: readonly AgentItem[]): Compared[] {
-  // A result file from before the default moved to pplx names no decision model: those were Jev's.
-  const config = readConfig({ decisionModel: 'jev', ...(result.settings.options ?? {}), thetaMax: result.settings.thetaMax } as Parameters<typeof readConfig>[0])
   const run = rulesOf(result)
   return result.summary.variants.flatMap(({ variant }) => {
-    const variantAsk = AGENT_VARIANTS[variant]?.ask
-    if (variantAsk === undefined) return []
-    const shape = { ...dispatchSettings({ config }, variantAsk), ...run }
-    const decided = rowsOf(result, items, variant, 'p_effort').flatMap(({ item, language, detail }) => {
-      const answers = answersOf(detail)
-      const decision = decideDispatch(answers, item[language], shape)
-      return decision.answered && decision.model !== null && decision.reading !== null ? [{ item, decision, thetaMax: shape.thetaMax }] : []
+    const decided = rowsOf(result, items, variant, 'p_effort').flatMap(({ item, detail }) => {
+      const agent = storedAgent(detail)
+      return agent === null ? [] : [{ item, agent }]
     })
-    const prediction = (kind: 'before' | 'now') =>
-      decided.map(({ item, decision, thetaMax }) => ({ item, prediction: { model: decision.model as AgentItem['gold']['model'], effort: effortUnder(kind, decision, thetaMax) } }))
+    if (decided.length === 0) return []
+    const prediction = (kind: 'before' | 'now') => decided.map(({ item, agent }) => ({ item, prediction: { model: agent.model, effort: effortUnder(kind, agent, run) } }))
     const tallyAgents = (kind: 'before' | 'now'): Tally => {
       const grades = prediction(kind).map(({ item, prediction }) => gradeAgent(item, prediction))
       const share = (count: number) => rate(count, grades.length)
@@ -229,47 +168,45 @@ export function rescoreAgents(result: StoredAnswers, items: readonly AgentItem[]
   })
 }
 
-/** The effort a decision gives an agent under the rule before (`before`) or now: haiku none, the person's named effort theirs. */
-function effortUnder(kind: 'before' | 'now', decision: DispatchDecision, thetaMax: number): Effort | null {
-  if (kind === 'now' || decision.reading === null) return gradedEffort(decision)
-  if (decision.model === 'haiku') return null
-  return decision.namedEffort ?? legacyPickEffort(decision.reading, thetaMax)
+/**
+ * The effort a stored answer gives its agent under the recorded rule (`before`) or the base rule now with the model's floor:
+ * the person's named effort theirs; none on haiku, as the datasets grade it (subagent.ts `gradedEffort`).
+ */
+function effortUnder(kind: 'before' | 'now', agent: StoredAgent, rules: RecordedRules | null): Effort | null {
+  if (agent.model === 'haiku') return null
+  if (agent.named !== null) return agent.named
+  return kind === 'now' ? traceEffort(agent.reading, { model: { name: agent.model, floor: effortFloor(agent.model) } }).effort : recordedPickEffort(agent.reading, rules)
 }
 
-/** One stored answer graded again: its item, language and variant, and whether it is right under the rules given. */
+/** One stored answer graded again: its item, language and variant, and whether it is right under the rule given. */
 export type Regraded = { id: string; language: Language; variant: string; correct: boolean }
 
 /**
- * Every decided answer of an effort-submit, effort-midturn or subagent result graded under `rules` instead of the run's
- * (`thetaMax`, `roundUp`): the level picked (effort-submit, effort-midturn: what their summaries grade), the model and
- * the effort (subagent, as `rescoreAgents` decides them now). An answer that was not decided (a failed request) is not
- * here: the paired test (lib/paired.ts) counts it wrong. Nothing is asked again; with the run's own rules each answer
- * comes out as it was stored.
+ * Every decided answer of an effort-submit or subagent result graded again: under `rules` when given (the recorded rule
+ * with those thresholds), else under the base rule now: the level picked (effort-submit: what its summaries grade), the
+ * model and the effort (subagent, as `rescoreAgents` decides them now). An answer that was not decided (a failed request)
+ * is not here: the paired test (lib/paired.ts) counts it wrong. Nothing is asked again.
  */
-export function regrade(suite: string, result: StoredAnswers, items: readonly { id: string }[], rules: EffortRules): Regraded[] {
-  if (suite === 'effort-submit' || suite === 'effort-midturn') {
+export function regrade(suite: string, result: StoredAnswers, items: readonly { id: string }[], rules?: RecordedRules): Regraded[] {
+  const pick = (reading: EffortReading) => (rules === undefined ? baseEffort(reading) : recordedPickEffort(reading, rules))
+  if (suite === 'effort-submit') {
     return result.summary.variants.flatMap(({ variant }) =>
       rowsOf(result, items as readonly EffortSubmitItem[], variant, 'p').map(({ item, language, detail }) => ({
         id: item.id,
         language,
         variant,
-        // An effort-midturn item has its gold and accept where an effort-submit item has them (gradeEffort reads only those).
-        correct: gradeEffort(item, pickEffort(readingOf(detail), rules)).correct,
+        correct: gradeEffort(item, pick(readingOf(detail))).correct,
       })),
     )
   }
   if (suite === 'subagent') {
-    const config = readConfig({ decisionModel: 'jev', ...(result.settings.options ?? {}), thetaMax: rules.thetaMax } as Parameters<typeof readConfig>[0])
-    return result.summary.variants.flatMap(({ variant }) => {
-      const variantAsk = AGENT_VARIANTS[variant]?.ask
-      if (variantAsk === undefined) return []
-      const shape = { ...dispatchSettings({ config }, variantAsk), ...rules }
-      return rowsOf(result, items as readonly AgentItem[], variant, 'p_effort').map(({ item, language, detail }) => {
-        const decision = decideDispatch(answersOf(detail), item[language], shape)
-        const decided = decision.answered && decision.model !== null && decision.reading !== null
-        return { id: item.id, language, variant, correct: decided && gradeAgent(item, { model: decision.model as AgentItem['gold']['model'], effort: gradedEffort(decision) }).correct }
-      })
-    })
+    return result.summary.variants.flatMap(({ variant }) =>
+      rowsOf(result, items as readonly AgentItem[], variant, 'p_effort').map(({ item, language, detail }) => {
+        const agent = storedAgent(detail)
+        const effort = agent === null ? null : effortUnder(rules === undefined ? 'now' : 'before', agent, rules ?? null)
+        return { id: item.id, language, variant, correct: agent !== null && gradeAgent(item, { model: agent.model, effort }).correct }
+      }),
+    )
   }
-  throw new RangeError(`no regrading for the ${suite} suite (effort-submit, effort-midturn, subagent)`)
+  throw new RangeError(`no regrading for the ${suite} suite (effort-submit, subagent)`)
 }

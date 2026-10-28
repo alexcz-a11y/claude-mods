@@ -28,7 +28,7 @@ import { collect, type Contribution } from './ballot.ts'
 import { forgetCommand, noteCommand, typedCommand } from './commands.ts'
 import { noteBlocked } from './outcomes.ts'
 import { newTurn, planStep, replace, takePending, turnKey, type Cell, type PendingDecision } from './plans.ts'
-import type { Ctx } from './setup.ts'
+import { saidTokens, type Ctx } from './setup.ts'
 import { reportStep, type StepIo } from './report.ts'
 import { masterOn } from './switches.ts'
 
@@ -96,10 +96,10 @@ export function registerCore(on: On, ctx: Ctx): void {
     const { before } = await replace(pending, (list) => takePending(list ?? [], texts).rest)
     // What the landed write took out of the list it found.
     const own = takePending(before ?? [], texts).taken
-    // The turn's message as the decision model read it (later decisions about the turn reuse it). A pending
-    // entry, decided or not, says the person's own message started the turn (only such a turn is re-decided);
-    // one marked `report` says a report did (decided at its start, not re-decided).
-    const prompt = messageText(started, ctx.config.contextByKind.rejudge)
+    // The turn's message, kept as the person's words are (`saidTokens`): what is written about the turn later reads it. A
+    // pending entry, decided or not, says the person's own message started the turn (only such a turn keeps its facts as
+    // it ends); one marked `report` says a report did.
+    const prompt = messageText(started, saidTokens(ctx.config))
     await $.state.set({ ...TURNS, id: turnKey(e.turnId, undefined) }, newTurn(prompt, own?.effort ?? null, own !== null && own.report !== true))
     return next(e)
   })

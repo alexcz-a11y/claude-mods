@@ -164,7 +164,7 @@ test('a step with no effort (the engine sent it none) is read as it is: no effor
 })
 
 test("a change is placed after the decision made before it: the event carries the log's latest number", async ($, on) => {
-  const w = runWorld($, on, { seed: { log: [{ n: 7, turn: 1, feature: 'midturn-effort', agent: 'main', tone: 'ok', outcome: 'effort high', subject: '', reason: 'x' }] } })
+  const w = runWorld($, on, { seed: { log: [{ n: 7, turn: 1, feature: 'main-effort', agent: 'main', tone: 'ok', outcome: 'effort high', subject: '', reason: 'x' }] } })
   await w.submit('重构登录模块')
   await w.step({ index: 0, effort: 'xhigh' })
   await w.step({ index: 1, effort: 'high' })
@@ -220,7 +220,7 @@ test("a dispatched agent is queued from its spawn to its first step, running unt
   const done = (await w.board()).agents[0]
   expect(done).toMatchObject({ state: 'done', t0: 3.5, dur: 4.2 })
   // Nobody decided its model and effort (there is no key): that is the one thing its node says of it.
-  expect(done?.why).toBe('pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY')
+  expect(done?.why).toBe('jev：没有填 typesafeApiKey 或 TYPESAFE_API_KEY')
 })
 
 test('a loop that ends in an error, a refusal or an interruption is failed, and says which; the main agent too', async ($, on) => {

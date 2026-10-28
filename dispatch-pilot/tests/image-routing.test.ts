@@ -6,7 +6,7 @@ import { expect, test } from 'claude-code/testing'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { absolute, type Disk, ok, readFake } from './support/images.ts'
 import { attachmentsOf, type PastedImage } from './support/pasted.ts'
-import { jev, KEY, pplx, type Reply, type Sent, world } from './support/world.ts'
+import { jev, KEY, kind, pplx, type Reply, type Sent, world } from './support/world.ts'
 
 const ON = { 'image-routing': true }
 
@@ -84,14 +84,14 @@ test('with the switch on, a message without an image goes as it always did: one 
 })
 
 test('a message typed during a running turn, with an image, is decided when it is sent as before: it starts no turn to wait for', { options: KEY }, async ($, on) => {
-  const w = world($, on, { switches: ON, files: FILES, process: true, backend: (request, n) => answering(3, n === 1 ? 1 : 4, (sent) => ('midturn.level' in (sent.body.questions ?? {}) ? jev(at(4))(sent) : undefined))(request) })
+  const w = world($, on, { switches: ON, files: FILES, process: true, backend: (request, n) => answering(3, n === 1 ? 1 : 4)(request) })
   await w.submit('Look at the log first')
   await w.step({ index: 0 })
   await w.submit('And build this scene too', { turnId: 't1', images: [SCENE] })
 
-  // Its effort question went out when it was sent, with no reading in it. (The running turn then reads the image, and judges its
-  // effort again for the next step: features/reference-midturn.ts, tests/reference-midturn.test.ts.)
-  expect(w.requests.slice(0, 2).map((request) => Object.keys(request.body.questions))).toEqual([['effort.level'], ['effort.level']])
+  // Its effort question went out when it was sent, with no reading in it, and it is the only one (see the tests of a message
+  // typed in with images, below).
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'effort.level'])
   expect(w.requests[1]?.body.state.reference_complexity).toBeUndefined()
   expect(w.requests[1]?.body.assets).toBeUndefined()
   await w.step({ index: 1 })
@@ -231,7 +231,7 @@ test("the person's lock still wins: the decision is made and logged, the step go
 
 // ---- Which decision model gets what ------------------------------------------------------------------------------------------------
 
-test('the images go to Jev, and the effort question to the decision model the person chose (pplx by default)', { options: { typesafeApiKey: 'ts-test-key', perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
+test('the images go to Jev, and the effort question to the decision model the person chose (here pplx)', { options: { decisionModel: 'pplx', typesafeApiKey: 'ts-test-key', perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
   const w = world($, on, {
     switches: ON,
     files: FILES,
@@ -246,7 +246,7 @@ test('the images go to Jev, and the effort question to the decision model the pe
   expect(w.steps[0]?.effort).toBe('high')
 })
 
-test('with only a Perplexity key the images go to pplx (as image parts of its state), and the effort question too', { options: { perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
+test('pplx chosen with only a Perplexity key: the images go to pplx (as image parts of its state), and the effort question too', { options: { decisionModel: 'pplx', perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
   const w = world($, on, { switches: ON, files: FILES, process: true, backend: pplxAnswer(at(2), { 'complexity.level': at(4) }) })
   await w.submit('Build this scene', { images: [SCENE] })
   await w.step({ index: 0 })
@@ -277,4 +277,75 @@ test('a row that names no file: the image block itself is written to a file and 
   const asset = Object.values(w.requests[0]?.body.assets)[0] as { data_base64: string }
   expect(readFake(asset.data_base64)?.label).toContain('block-only')
   expect(w.requests[1]?.body.state.reference_complexity).toMatchObject({ level: 2 })
+})
+
+// ---- A message with images typed into the running turn (#64, ADR 0014) -------------------------------------------------------
+
+/** Jev reading the images at `reading`, deciding a message at `start`, and the request that carries a reading at `again`. */
+const typedAnswering = (reading: number, start: number, again: number) => (request: Sent): Reply =>
+  jev(at(1), { scores: { 'complexity.level': at(reading), 'effort.level': at(request.body.state?.reference_complexity === undefined ? start : again) } })(request)
+
+test('a message with images typed into the running turn is decided once, on its words, when it is sent: its images are not read and nothing decides it again, since a second decision could land on a step of tool results, where it would not go out', { options: KEY }, async ($, on) => {
+  // The first message reads as medium, the one typed in as xhigh; a reading of the images (never asked) would say max.
+  const levels: Record<string, number> = { 'Build the scene in three.js': 1, 'Here is what it should look like': 3 }
+  const w = world($, on, { switches: ON, files: FILES, process: true, backend: (request) => jev(at(1), { scores: { 'complexity.level': at(4), 'effort.level': at(levels[String(request.body.state?.user_message)] ?? 1) } })(request) })
+  await w.submit('Build the scene in three.js')
+  await w.step({ index: 0, effort: 'medium' })
+  await w.submit('Here is what it should look like', { turnId: 't1', images: [SCENE] })
+  // The step that delivers it, then one of tool results: both at the level decided on its words.
+  await w.step({ index: 1, effort: 'medium', tools: [{ tool: 'Read', input: { file_path: '/refs/scene.png' } }] })
+  await w.step({ index: 2, effort: 'medium' })
+
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'effort.level'])
+  expect(w.requests.filter(isReading)).toHaveLength(0)
+  expect(w.requests[1]?.body.state.reference_complexity).toBeUndefined()
+  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'xhigh', 'xhigh'])
+  // The board keeps one decision for it, the one that went out: never a level the engine would not apply.
+  expect((await w.board()).log.filter((entry) => entry.feature === 'main-effort').map((entry) => [entry.outcome, entry.reference?.level])).toEqual([
+    ['effort medium', undefined],
+    ['effort xhigh', undefined],
+  ])
+  expect(w.turnRecord('t1')?.effort).toBe('xhigh')
+})
+
+test('a message typed in without images reads nothing: it is decided once, when it is sent', { options: KEY }, async ($, on) => {
+  const w = world($, on, { switches: ON, files: FILES, process: true, backend: typedAnswering(3, 1, 3) })
+  await w.submit('Build the scene in three.js')
+  await w.step({ index: 0, effort: 'medium' })
+  await w.submit('Make the water bluer', { turnId: 't1' })
+  await w.step({ index: 1, effort: 'medium' })
+
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'effort.level'])
+})
+
+test('a message with images typed in that a hook beneath refuses reads nothing', { options: KEY }, async ($, on) => {
+  const w = world($, on, { switches: ON, files: FILES, process: true, backend: typedAnswering(3, 1, 3), beneath: { drop: (text) => (text.startsWith('Here') ? 'blocked' : undefined) } })
+  await w.submit('Build the scene in three.js')
+  await w.step({ index: 0, effort: 'medium' })
+  expect(await w.submit('Here is what it should look like', { turnId: 't1', images: [SCENE] })).toEqual({ drop: 'blocked' })
+  await w.step({ index: 1, effort: 'medium' })
+
+  // The message's effort was asked when it was sent, as any message's; its images were not read.
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'effort.level'])
+})
+
+test('with the feature off a message with images typed in is decided once, when it is sent, and no image leaves the machine', { options: KEY }, async ($, on) => {
+  const w = world($, on, { files: FILES, process: true, backend: typedAnswering(3, 1, 3) })
+  await w.submit('Build the scene in three.js')
+  await w.step({ index: 0, effort: 'medium' })
+  await w.submit('Here is what it should look like', { turnId: 't1', images: [SCENE] })
+  await w.step({ index: 1, effort: 'medium' })
+
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'effort.level'])
+  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium'])
+})
+
+test('a picture the main agent reads in the middle of a turn decides nothing: an effort written mid-turn would not go out (ADR 0013)', { options: KEY }, async ($, on) => {
+  const w = world($, on, { switches: ON, files: FILES, process: true, backend: typedAnswering(3, 1, 3) })
+  await w.submit('Build the scene in three.js to look like the picture')
+  await w.step({ index: 0, effort: 'medium', tools: [{ tool: 'Read', input: { file_path: '/refs/scene.png' } }] })
+  await w.step({ index: 1, effort: 'medium' })
+
+  expect(w.requests.map(kind)).toEqual(['effort.level'])
+  expect(w.steps.map((s) => s.effort)).toEqual(['medium', 'medium'])
 })

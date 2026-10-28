@@ -13,7 +13,7 @@ declare module 'claude-code' {
        * Effort decided for the person's message at prompt.submit, waiting for
        * the turn that message starts (core's turn.start takes it); oldest
        * first, at most 16. `effort` null: the decision failed (the turn is
-       * still the person's own, so mid-turn re-decisions may route it).
+       * still the person's own, so it keeps its facts as it ends).
        */
       pending: { text: string; effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null; at: number; report?: true }[]
       /**
@@ -23,22 +23,33 @@ declare module 'claude-code' {
       turns: StateFamily<{
         /** The routed effort: the latest decision; null leaves the engine's. */
         effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        /** No step of the turn goes below it while it holds (forced raises); null for none. */
+        /** No step of the turn goes below it; null for none. */
         floor: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
         /** The model to name, for a dispatched or workflow agent only; never sent for main. */
         model: string | null
         /** The text the turn started with (main), redacted and clipped; '' when unknown. */
         prompt: string
-        /** Decisions made for the turn: the one at its start plus re-decisions. */
+        /** Decisions made for the turn: the one at its start plus those of messages typed into it. */
         decisions: number
         /** Times the routed effort moved from one decided level to another. */
         changes: number
         /** Whether the person's own message started the turn (decided at its start or not). */
         person: boolean
-        /** The step from which `floor` no longer holds; null: for the rest of the turn. */
-        floorUntil: number | null
-        /** The step the turn's effort last went up mid-turn (re-decided or forced); null when it has not. */
-        raisedAt: number | null
+        /**
+         * What the turn did, for the next message's decision (ADR 0013; features/escalation.ts writes it as a turn the
+         * person's own message started ends, absent until then): the effort its steps went out at (the last one's; null
+         * for a model without one), its tool calls (a plugin's refusal not counted), those that failed and those a hook
+         * refused, whether the failures counted toward escalating reached `escalateAfter`, and the last failed or blocked
+         * calls (at most two, oldest first), each the tool and the first line it said, masked and clipped.
+         */
+        facts?: {
+          effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+          calls: number
+          failed: number
+          blocked: number
+          stuck: boolean
+          errors: string[]
+        }
       }>
       /**
        * A plan for every turn of one dispatched or workflow agent, id = agentId
@@ -101,8 +112,7 @@ declare module 'claude-code' {
         /**
          * What a feature met beside an agent's route, for the band's event stream, oldest first (at most 50, of
          * the nodes' turns): a request that failed (`failed`: `why` in a few words), one that gave nothing to use
-         * (`skipped`: `why` is `unanswered`, `unread`, `none` or `error`), an answer not back in time (`late`).
-         * Absent in a board an earlier version wrote.
+         * (`skipped`: `why` is `unanswered`, `unread`, `none` or `error`). Absent in a board an earlier version wrote.
          */
         notes?: {
           turn: number
@@ -114,7 +124,7 @@ declare module 'claude-code' {
           at: number
           /** The `n` of the last `decisionLog` entry when it was written. */
           after: number
-          kind: 'failed' | 'skipped' | 'late'
+          kind: 'failed' | 'skipped'
           why: string
         }[]
         nodes: {
@@ -161,20 +171,8 @@ declare module 'claude-code' {
            * starts, the call of the script that stands for it (id `<tool_use_id>#<index>`, state `queued`).
            */
           workflow?: { id: string; name: string }
-          /**
-           * The main agent's mid-turn re-decisions this turn (midturn-effort): steps made, decisions (the turn's
-           * own at its start included), level changes. `late`: the answer for the step is not back; `failure`: the
-           * latest request failed. Absent until the turn was re-decided once.
-           */
-          midturn?: {
-            steps: number
-            judged: number
-            changed: number
-            late?: true
-            failure?: { backend: string; kind: 'config' | 'timeout' | 'network' | 'busy' | 'quota' | 'http' | 'parse' | 'request'; detail: string; status?: number }
-          }
-          /** The failed tool calls, hook blocks and forced raises of the agent's loop (escalation); absent while none. `late`: a stuck re-decision is not back. */
-          counts?: { failed: number; blocked: number; raised: number; late?: true }
+          /** The failed tool calls, hook blocks and model step-ups of the agent's loop (escalation); absent while none. */
+          counts?: { failed: number; blocked: number; raised: number }
           /**
            * The agent's visual_check calls of its loop, counted by verdict: checks that passed, failed, got no verdict
            * to trust. The band's row says `核对 N：x 过 · y 不过 · z 没把握`. `takeovers`: images the screenshot takeover
@@ -197,7 +195,7 @@ declare module 'claude-code' {
         at?: number
         /** Who decided: the feature's switch name (a report's decision adds ` (agent report)`). */
         feature: string
-        /** `main`, or the agentId it was about; absent for an entry of a feature not yet migrated, and for the session's (`skill-profiles`, #33). */
+        /** `main`, or the agentId it was about; absent for an entry of a feature not yet migrated, and for the session's (the decision model's fallback). */
         agent?: string
         tone: 'ok' | 'warn' | 'fail' | 'info'
         /** What was decided, in a few words: `effort high`. */
@@ -210,7 +208,7 @@ declare module 'claude-code' {
         probs?: { low: number; medium: number; high: number; xhigh: number; max: number }
         /** The decision model's confidence. */
         conf?: number
-        /** The rules' working, step by step (`pickEffort`, `judgeMidturn`): each step names its rule and whether it took effect; the rest of its fields are the rule's own. */
+        /** The rules' working, step by step (decision/effort.ts, decision/message-effort.ts): each step names its rule and whether it took effect; the rest of its fields are the rule's own. */
         trace?: { rule: string; applied: boolean; [field: string]: string | number | boolean | null }[]
         /** The model's floor lifted the effort (`from` to `to`, because of `model`). */
         floor?: {
@@ -225,45 +223,28 @@ declare module 'claude-code' {
          */
         model?: 'haiku' | 'sonnet' | 'opus' | 'fable'
         effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-        /** A mid-turn re-decision: the effort it was at, the level the answer picked, where it ended, and why it did not move (`held`). */
-        mid?: {
-          current: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-          picked: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-          result: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-          /** The confidence the move needed (thetaUp for a raise, thetaDown for a lowering); absent while the lowering was held, and when the answer was the level itself. */
-          threshold?: number
-          /** Why a lowering did not happen: it was held after a raise. */
-          held?: string
-          /** The steps still to wait before a held lowering may go through. */
-          remaining?: number
-        }
-        /** A raise the failures forced (escalation): what it went from and to (levels, or for a haiku agent models), and the level it keeps the agent at least at. */
-        forced?: { kind: 'effort' | 'model'; from: string; to: string; floor?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' }
+        /** A model step-up the failures forced on a dispatched agent (escalation): the model it went from and to, as its steps name them. */
+        forced?: { kind: 'model'; from: string; to: string }
         /** The skills a message or a find_skill call got: those suggested to the main agent, and those only the person can start (「可试 /x」), each with its relevance. */
         skills?: { suggest: { name: string; relevance: number }[]; try: { name: string; relevance: number }[] }
-        /** The loop's counts when it was raised (escalation). */
+        /** The loop's counts when its failures were dealt with (escalation). */
         counts?: { failed: number; blocked: number; raised: number }
         /** A Workflow call's decision that was sent back to the main agent to write in (return mode). */
         sentBack?: true
         /** The complexity reading of the reference images a message came with (#63) that went into its effort request: the level (0 to 4) and how many images it came from. */
         reference?: { level: number; images: number }
-        /** An unresolved-count judgement (`unresolved`): the count before and after the message, what the answer did to it, the options' probabilities, and the bars it was held to. */
+        /**
+         * An unresolved-count judgement (`unresolved`): the count before and after the message, what the answers did to it,
+         * each question's probability (null: no answer) and verdict, and the bars they were held to (ADR 0014).
+         */
         unresolved?: {
           before: number
           count: number
           change: 'add' | 'reset' | 'keep'
-          top: 'still_unresolved' | 'resolved' | 'new_or_unrelated'
-          probs: { still_unresolved: number; resolved: number; new_or_unrelated: number }
-          conf?: number
-          thresholds: { add: number; reset: number }
+          probs: { still_failing: number | null; solved: number | null; new_task: number | null }
+          verdicts: { still_failing: 'yes' | 'band' | 'no'; solved: 'yes' | 'band' | 'no'; new_task: 'yes' | 'band' | 'no' }
+          thresholds: { yes: number; no: number }
         }
-        /**
-         * The strong hint was given with this decision's request (the effort question of a message, or of a mid-turn
-         * re-decision, had one more instruction): the count it was given at and the setting (`unresolvedMaxAfter`) it
-         * had reached. `where: 'mid'` for a mid-turn re-decision's; the main agent's effort decision and the entry of
-         * feature `unresolved` that records the hint carry it.
-         */
-        hint?: { count: number; maxAfter: number; where?: 'mid' }
         /**
          * A visual_check call (`visual-check`): the screenshot, what it was checked against (`paths`: the reference images or
          * the other screenshot; none for a spec), the decision model that judged it, each check with its verdict, the
@@ -281,8 +262,9 @@ declare module 'claude-code' {
           ms: number
         }
         /**
-         * An entry of feature `decision-model` (the fallback to another decision model): which requests it is about, the ones that
-         * decide (`text`) or the ones that carry images (`images`). What the screens and the entry's replacement read, not its words.
+         * An entry of feature `decision-model` (another model takes the images, #56): which requests it is about. `text` only in
+         * an entry an earlier version wrote (the decision model no longer falls back, ADR 0014). What the screens and the
+         * entry's replacement read, not its words.
          */
         fallbackFor?: 'text' | 'images'
       }[]
@@ -294,11 +276,11 @@ declare module 'claude-code' {
       selected: { turn: number; id: string } | null
       /**
        * The rationale pane's own view (hooks/board/rationale.ts `PaneState`): the turns of the decision log the
-       * person folded (`open` false) or opened, the others as the pane leaves them (the newest two open); whether
-       * the skills that got no profile are listed; off the terminal, whether the switches and the lock are shown.
+       * person folded (`open` false) or opened, the others as the pane leaves them (the newest two open); off the
+       * terminal, whether the switches and the lock are shown.
        * Absent until the person pressed one of its keys. Written by the pane's buttons only.
        */
-      paneView: { folds: { turn: number; open: boolean }[]; failures: boolean; switches?: boolean }
+      paneView: { folds: { turn: number; open: boolean }[]; switches?: boolean }
       /**
        * Whether the person folded the band to its one line, on a surface that has no fold of its own (Desktop,
        * VS Code, the mobile app; the terminal folds the band itself). Kept for the session, every turn alike.
@@ -314,9 +296,10 @@ declare module 'claude-code' {
       /**
        * The unresolved count (hooks/core/unresolved.ts; GLOSSARY 未解决次数): how many of the person's messages in a
        * row said the problem they and the main agent are on is still not solved. The decision model reads each
-       * message (the `effort.unresolved` question) and the count moves by its answer: one more, back to nothing,
-       * or as it was. Per session: `/clear` and a new session start it over, `/compact` keeps it, a hot reload
-       * does not lose it. Absent until a message moved it; read as 0. Written by that module only.
+       * message (`effort.still_failing`, `effort.solved`, `effort.new_task`) and the count moves by the answers: one
+       * more, back to nothing, or as it was. Kept whatever the switches say (ADR 0014). Per session: `/clear` and a new
+       * session start it over, `/compact` keeps it, a hot reload does not lose it. Absent until a message moved it; read
+       * as 0. Written by that module only.
        *
        * With it, the problem summary (#40; GLOSSARY 问题摘要): what a cheap model has written, after each turn
        * of the person's own, of the problem they are on (the problem, what was tried, where things stand), which the
@@ -359,6 +342,28 @@ declare module 'claude-code' {
       /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
       lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
       /**
+       * The person's lasting rules for the work (decision/constraints.ts; GLOSSARY 长期约束, ADR 0014): each message of theirs
+       * the `effort.constraint` question said sets one, verbatim and masked, with the last paragraph of the assistant's message
+       * before it; at most 5, oldest first. Every later effort request carries them (`standing_constraints`). Per session:
+       * `/clear` and a new session empty it. Written by features/main-effort.ts (and emptied by features/unresolved.ts).
+       */
+      constraints: { person_said: string; assistant_before: string }[]
+      /**
+       * Where the next message finds the facts of the person's latest turn (features/escalation.ts writes it as such a turn
+       * ends, beside its `turns` record): that turn and its facts. null after `/clear` and in a new session.
+       */
+      lastTurn: {
+        turnId: string
+        facts: {
+          effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+          calls: number
+          failed: number
+          blocked: number
+          stuck: boolean
+          errors: string[]
+        }
+      } | null
+      /**
        * The complexity readings of the reference images the session has met (#63; GLOSSARY 复杂度读数,
        * hooks/core/complexity.ts), the latest groups' (at most 8), the one asked or reused last at the end. A group of
        * images is recognised by `key`, a hash of the images' content (as they are sent), and asked once; `level` is
@@ -368,53 +373,32 @@ declare module 'claude-code' {
        */
       referenceReadings: { key: string; level: number; images: number; at: number }[]
       /**
-       * The mid-turn re-decision's own record of a main turn (#5), id
-       * `main:<turnId>` (turnKey): its steps, the tool calls they made and how
-       * they ended, and when its effort was last asked about.
-       */
-      midturn: StateFamily<{
-        /** Steps the turn has made: the latest step's index + 1. */
-        steps: number
-        /** The engine's own effort on the latest step; null when the model takes no level (nothing to re-decide). */
-        engine: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        /** The step the latest re-decision was asked for; null before the first. */
-        askedFor: number | null
-        /** The latest steps, oldest first (at most 16): the last text written and the tools called, each with how it ended. */
-        recent: {
-          index: number
-          text: string
-          tools: { name: string; detail: string; outcome: 'ok' | 'failed' | 'blocked' | 'denied' }[]
-        }[]
-      }>
-      /** The main agent's step in progress (its tool calls carry no turn id); null before the first. */
-      mainStep: { turnId: string; index: number } | null
-      /**
-       * Each loop's failed tool calls and forced raises (#7), id `main` for the
-       * main agent (its counts are those of the turn `turnId`; a new turn starts
-       * them afresh) or the agentId of a dispatched or workflow agent (counted
-       * for as long as it lives). The one count of failures: the mid-turn
-       * re-decision (#5) sends the main agent's in its counts. Written by
-       * features/escalation.ts only.
+       * Each loop's tool calls, failures and model step-ups (#7, ADR 0013), id
+       * `main` for the main agent (its counts are those of the turn `turnId`; a
+       * new turn starts them afresh, and the facts of the one that ended went on
+       * its `turns` record) or the agentId of a dispatched or workflow agent
+       * (counted for as long as it lives). Written by features/escalation.ts only.
        */
       escalation: StateFamily<{
         /** The main turn the counts belong to; '' for an agent. */
         turnId: string
+        /** Tool calls that ended since the loop began (a plugin's refusal not counted); only the main agent's are all counted. */
+        calls: number
         /** Tool calls that failed since the loop began (hook blocks and the person's refusals not counted). */
         failures: number
         /** Tool calls a hook refused. */
         hookBlocks: number
-        /** The counts when they last started over (a forced raise, failures found expected, nothing left to raise): what is counted is the rest. */
+        /** The counts when they last started over (an agent's step-up, or one that could not be made): what is counted is the rest. */
         base: { failures: number; hookBlocks: number }
-        /** Forced raises so far (an expected-failure verdict is not one). */
+        /** An agent's step-ups so far (one that could not be made is not one). */
         raises: number
-        /** The loop's latest step, the engine's effort and model on it: what a stuck re-decision asked as a call ends reads. */
+        /** The loop's latest step and the model the engine named on it. */
         step: number | null
-        engine: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
         model: string | null
-        /** The step a stuck re-decision was last asked for; null before the first. */
-        askedFor: number | null
-        /** An agent's step at its latest forced raise (the main agent's is its turn's `raisedAt`); null before one. */
-        raisedAt: number | null
+        /** The main agent's: the effort its latest step went out at, as the core sends it; null for none. */
+        effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+        /** The main agent's: the last failed or blocked calls (at most two), each the tool and the first line it said, masked and clipped. */
+        errors: string[]
         /** The escalation switch was off when the loop was last seen: what was counted meanwhile is written off once it is on. */
         paused: boolean
       }>
@@ -494,8 +478,8 @@ declare module 'claude-code' {
         launch?: {
           /** The person's words of that turn (`said` then). */
           said: string[]
-          /** The problem summary, worded for the decision model, and the unresolved count, while the unresolved switch was on (#41). */
-          problem_summary?: string
+          /** The problem summary as the decision model reads it (named fields), while the summary switch was on, and the unresolved count. */
+          problem_summary?: { problem: string; tried: { text: string; unresolved: boolean }[]; status: string }
           unresolved_count?: number
           /** The script's text, cut to a third of an agent's budget (`SCRIPT_SHARE`); kept where the decision model's `agentBackground` is on (Jev and pplx both). */
           script?: string
@@ -524,14 +508,10 @@ declare module 'claude-code' {
       skillsShown: string[]
       /**
        * The session's skills (hooks/core/skills.ts `CatalogSkill`), read once
-       * per session by the skills feature (#10). The skill-profiles feature
-       * (#11, features/skill-profiles.ts) reads it and puts each profile in
-       * as it is written. find_skill (#12) reads it, and reads and keeps it
-       * itself when the skills feature did not. `file` is the SKILL.md (or
-       * command file) found on disk, null when none (a built-in skill);
-       * `profileKey` the store key of its profile (core/profiles.ts),
-       * `profile` that profile once written (null until then). null: read it
-       * again.
+       * per session by the skills feature (#10). find_skill (#12) reads it,
+       * and reads and keeps it itself when the skills feature did not. `file`
+       * is the SKILL.md (or command file) found on disk, null when none (a
+       * built-in skill). null: read it again.
        */
       skillCatalog: {
         skills: {
@@ -540,40 +520,8 @@ declare module 'claude-code' {
           by: 'model' | 'person'
           source: string
           file: string | null
-          profileKey?: string | null
-          profile?: {
-            en: { what: string; use_when: string; not_for: string }
-            zh: { what: string; use_when: string; not_for: string }
-          } | null
         }[]
       } | null
-      /**
-       * How writing the session's skill profiles went (#33; the 「决定汇报」 module, core/report.ts
-       * `report` with `profiles`, from the events of features/skill-profiles.ts): one record per session start,
-       * replaced by the next. Written as the profiles are, so a screen can say 生成中 2/5. Absent until
-       * a session start reported one (no record while the skills or skill-profiles switch is off).
-       * Counts: `kept` profiles already there (another session's included), `planned` the most this
-       * session writes (the ones lacking, capped by skillsProfilesPerSession), `written` this session's
-       * own, `failed` skills it got no profile for (`failures` names them, at most 50), `deferred` the
-       * ones left for a later session start. The ones written are not named.
-       */
-      skillProfiles: {
-        /** `writing`: the background writing is going on; `done`: it ended as it should; `stopped`: it gave up for this session (`stop` says why). */
-        phase: 'writing' | 'done' | 'stopped'
-        /** The turn the session start belongs to (`board.turn`, or 1 before the first message): the turn of its decision log entry. */
-        turn: number
-        /** The model that writes them (`skillsProfileModel`). */
-        model: string
-        kept: number
-        planned: number
-        written: number
-        failed: number
-        deferred: number
-        /** Why it stopped: `store-read` the store cannot be read, `model-refused` the engine refused the model, `api-error` the model answered with an API error, `store-write` the store would not keep a profile, `off` the person switched it off meanwhile, `error` something broke. `detail`: the words of it; '' when there are none. Only with `phase: 'stopped'`. */
-        stop?: { reason: 'store-read' | 'model-refused' | 'api-error' | 'store-write' | 'off' | 'error'; detail: string }
-        /** The skills a profile was not written for, in the order they failed, with why in a few words. */
-        failures: { name: string; reason: string }[]
-      }
       /**
        * How the skills feature answered the main agent's skill listing, which
        * the engine keeps for the conversation (#10): `withheld` (with the

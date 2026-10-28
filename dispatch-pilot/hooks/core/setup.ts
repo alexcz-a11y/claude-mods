@@ -12,52 +12,41 @@
 // scripts/decide*.ts read them from.
 
 import type { PluginOptions } from 'claude-code'
-import type { Backend, BackendName } from '../decision/backend.ts'
+import type { Backend, BackendName, ImageBackendName } from '../decision/backend.ts'
 import type { ContextLimits } from '../decision/context.ts'
 import { DEFAULT_AGENT_MODELS, WORDS_SHARE, type AgentModel, type DispatchAsk, type DispatchSettings } from '../decision/dispatched-agent.ts'
-import type { EffortAsk, EffortRules } from '../decision/effort.ts'
-import { RAISE_MODES, type RaiseMode } from '../decision/escalation.ts'
-import { jevBackend } from '../decision/jev.ts'
+import type { EffortAsk } from '../decision/effort.ts'
+import { LIQUID_GUIDE, TYPESAFE_GUIDE, type Guide } from '../decision/guides.ts'
+import { jevBackend, JEV_REGULAR_STATE } from '../decision/jev.ts'
 import { JEV_DEFAULT_LIMITS, jevRateLimited, type JevLimits } from '../decision/jev-rate.ts'
-import type { MidturnLimits, MidturnRules } from '../decision/midturn.ts'
+import { liquidBackend } from '../decision/liquid.ts'
 import { resolveModel, type ResolvedModel } from '../decision/model-ids.ts'
 import { pplxBackend } from '../decision/pplx.ts'
 import { rateLimited } from '../decision/pplx-rate.ts'
-import type { SkillPolicy } from '../decision/skills.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
 import { BATCHES_BUDGET_MS } from '../decision/workflow.ts'
 import { listSwitches } from './switches.ts'
 
-/** The decision models the person can choose (`decisionModel`): Perplexity's pplx-decider and TypeSafe's Jev (decision/backend.ts, where the pure modules read it). */
-export type { BackendName }
+/** The decision models the person can choose (`decisionModel`): TypeSafe's Jev, Perplexity's pplx-decider and Liquid's d1-ultra (decision/backend.ts, where the pure modules read it). */
+export type { BackendName, ImageBackendName }
 
 /**
- * The decision model the person asked for: Jev when `decisionModel` names it, else pplx, the default (ADR 0006). Anything
- * that names neither (unset, a typo, the `clef` of a 0.3.x configuration) reads as unset. Which one decides in the end also
- * depends on the keys (`chooseBackend`).
+ * The decision model that decides (ADR 0014, ADR 0017): pplx or d1-ultra only when `decisionModel` names it, else Jev, the
+ * default. Anything else (unset, a typo, the `clef` of a 0.3.x configuration) reads as unset. Nothing falls back on the keys:
+ * without its key the model chosen fails every request with that key named as the one missing, and the board says so.
  */
 export function backendNameOf(options: PluginOptions): BackendName {
-  return options.decisionModel === 'jev' ? 'jev' : 'pplx'
+  return options.decisionModel === 'pplx' ? 'pplx' : options.decisionModel === 'd1-ultra' ? 'd1-ultra' : 'jev'
 }
 
-/** Which decision model decides, and whether it is not the one asked for. */
-export type Choice = { backend: BackendName; fellBack: boolean }
-
-/**
- * The decision model that decides (ADR 0006). Jev when the person asked for Jev. Otherwise pplx when there is a Perplexity key;
- * with none, Jev when there is a TypeSafe key (`fellBack`: a 0.3.1 configuration keeps its routing); with neither, pplx, which
- * then fails every request with the Perplexity key named as the one missing.
- */
-export function chooseBackend(asked: BackendName, keys: { perplexity: string; typesafe: string }): Choice {
-  if (asked === 'jev') return { backend: 'jev', fellBack: false }
-  if (keys.perplexity !== '') return { backend: 'pplx', fellBack: false }
-  return keys.typesafe !== '' ? { backend: 'jev', fellBack: true } : { backend: 'pplx', fellBack: false }
-}
+/** Which decision model takes the requests with images, and whether it is not Jev (`chooseImageBackend`). */
+export type Choice = { backend: ImageBackendName; fellBack: boolean }
 
 /**
  * The decision model that takes requests with images (#56, ADR 0008), apart from the one that decides everything else and
  * whatever `decisionModel` says: Jev with a TypeSafe key (its Box question and one-time image tokens make zooming possible);
- * else pplx with a Perplexity key, which cannot zoom (`fellBack`); else none (null), and the features that need images are unavailable.
+ * else pplx with a Perplexity key, which cannot zoom (`fellBack`); else none (null), and the features that need images are
+ * unavailable. Never d1-ultra (ADR 0017): with it deciding the rest, the images are still Jev's.
  */
 export function chooseImageBackend(keys: { perplexity: string; typesafe: string }): Choice | null {
   if (keys.typesafe !== '') return { backend: 'jev', fellBack: false }
@@ -86,36 +75,30 @@ export const PER_BACKEND_OPTIONS = [
   'timeoutMs',
   'contextMessages',
   'contextTokens',
-  'rejudgeSteps',
-  'rejudgeWaitMs',
-  'thetaUp',
-  'thetaDown',
-  'thetaMax',
-  'thetaExpected',
-  'agentOverride',
-  'skillsMinRelevance',
-  'findSkillMinRelevance',
 ] as const
 export type PerBackendOption = (typeof PER_BACKEND_OPTIONS)[number]
 
 /**
  * The kinds of request whose state has a budget of its own (`contextTokens`
  * reads by kind): a message that carries the skills' question (and find_skill's
- * first stage) is `Config.context`; the rest are these. `rejudge` is a
- * mid-turn re-decision and a stuck one.
+ * first stage) is `Config.context`; the rest are these.
  */
-export const CONTEXT_KINDS = ['messagePlain', 'rejudge', 'agent', 'workflow'] as const
+export const CONTEXT_KINDS = ['messagePlain', 'agent', 'workflow'] as const
 export type ContextKind = (typeof CONTEXT_KINDS)[number]
 
 /**
  * What one decision model brings: each option's default where the person left
  * it unset, the most `contextTokens` and `contextMessages` read as, how every
- * question is asked and the threshold for taking the level above.
+ * question is asked, and how its answers are read (`guide`: its maker's guide,
+ * decision/guides.ts). The rules that turn answers into levels are the same for
+ * every decision model (decision/message-effort.ts, ADR 0014); the bars they
+ * read a Noul at, the rule for an unsure effort answer and how an agent's model
+ * is chosen are its guide's (ADR 0017).
  *
  * Adding a decision model means touching, beyond its entry here: `BackendName`; the backend in decision/ and its
- * construction in `setup()` (`configs`, `backends`, and whether it passes through the rate limit); `backendNameOf` and
- * `chooseBackend` (which key decides, and what it falls back to); `DECISION_MODELS` in core/report.ts (its name and key
- * settings, for the fallback entry); `decisionModel`'s options in plugin.json, its key option and the README's
+ * construction in `setup()` (`configs`, `backends`, and whether it passes through the rate limit); `backendNameOf` (the
+ * `decisionModel` value that names it) and `chooseImageBackend` (whether it takes images); `DECISION_MODELS` in
+ * core/report.ts (its name and key settings, for the entry about images); `decisionModel`'s options in plugin.json, its key option and the README's
  * configuration tables (a column each); and, for the eval, `backendFor` and `PRICES` in eval/node.ts, `--backend` in
  * eval/run.ts and eval/eval-v2-flow.ts, and the BACKENDS list in eval/lib/docs.ts. A `Record<BackendName, ...>` the compiler
  * checks (this table, `setup()`, PRICES, DECISION_MODELS); the rest it does not, and tests/docs-sync.test.ts only the README tables.
@@ -126,21 +109,10 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
   /** `contextMessages` above this reads as this. */
   contextMessagesMax: number
   /**
-   * The least probability the level above the most probable one needs to be taken instead (`EffortRules.roundUp`, decision/effort.ts).
-   * Not an option: set from the stored answers of the decision model (eval/resummarize.ts), like the other values of the table.
-   */
-  roundUp: number
-  /**
-   * `thetaMax` for an effort question that carries the strong hint (#41: the problem has come back unsolved
-   * `unresolvedMaxAfter` times; decision/unresolved.ts `withHint`), at a message and mid-turn. Never above `thetaMax`.
-   * Not an option: set from the stored answers of the flows' hinted requests (DEVELOPMENT.md 「强提示（#41）」).
-   */
-  hintThetaMax: number
-  /**
-   * How the decision model is asked, language and kind of question (the eval's variables, `effort-submit` for the effort question
-   * beside a message, `subagent` for an agent's): `turnStart` for that question, `agent` for the questions about a dispatched agent
-   * and a Workflow's, `other` for every other one (the mid-turn re-decision, a stuck loop, the skills, the problem summary's text).
-   * Not options.
+   * How the decision model is asked, language and kind of question (the eval's variables, `effort-submit` for the effort part
+   * beside a message, `subagent` for an agent's): `turnStart` for that part, `agent` for the questions about a dispatched agent
+   * and a Workflow's, `other` for every other one (the skills). Not options. English throughout (ADR 0014: TypeSafe names
+   * English as the language Jev is most accurate in).
    */
   ask: { turnStart: EffortAsk; agent: EffortAsk; other: EffortAsk }
   /**
@@ -180,20 +152,19 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
    * and in find_skill); null: only what the first left. Not an option: set by the latency measured.
    */
   skillsSecondStageMs: number | null
-  /** Whether find_skill's first request offers a skill by its profile (else by its description); the second re-reads it by both. */
-  findSkillProfiles: boolean
+  /** How its answers are read: its maker's guide (decision/guides.ts; Jev and pplx TypeSafe's, d1-ultra Liquid's). Not an option. */
+  guide: Guide
 }
 
 /**
- * Jev's: the values the eval of #4, #14, #15 and #16 set or kept (README, 配置 has the table; DEVELOPMENT.md, 配置 what each rests on),
- * except the ones that say how much Jev reads of the conversation: by the person's decision ("the more it is given, the
- * better it judges"), those are set to what Jev takes, not to what the eval ran (4 messages, 2000 tokens, 4 steps). Jev
- * takes 64k tokens a request and 32k for "the state and the longest question", or 262k for both with its long-context
- * header (decision/jev.ts, `needsLongContext`). The longest question is the first stage of the skills (111 skills with
- * profiles: about 16k tokens as the mod counts, 21.9k as Jev does), which shares its request with the state, so
- * `contextTokens` is what that leaves, 6000 (DEVELOPMENT.md, 配置, 「Jev 的上下文默认值怎么算」; tests/backend-defaults.test.ts
- * checks the sum). The counts that fill a state are at their most (`contextMessages` 2000, `rejudgeSteps` 16), so the
- * token budget, not the count, ends what is sent.
+ * Jev's, the default decision model (ADR 0014). Jev takes 64k tokens a request and 32k for "the state and the longest
+ * question" (262k for both with its long-context header, which the docs call slower and less accurate: decision/jev.ts sends
+ * it only for a request that would not fit otherwise). The longest question is the first stage of the skills, a Choice over
+ * every skill (measured with 111 skills offered by their profiles, before ADR 0018: about 16k tokens as the mod counts, 21.9k
+ * as Jev does; by their own descriptions it is shorter, and cut to `questionBudget` when it is not), which shares its request
+ * with the state, so `contextTokens` is what that leaves, 6000 (DEVELOPMENT.md, 配置, 「Jev 的上下文默认值怎么算」; tests/backend-defaults.test.ts
+ * checks the sum). Every other kind of request stays within the regular limits too (`contextByKind`). The count that fills a
+ * state is at its most (`contextMessages` 2000), so the token budget, not the count, ends what is sent.
  */
 const JEV_DEFAULTS: BackendDefaults = {
   timeoutMs: 1500,
@@ -202,69 +173,44 @@ const JEV_DEFAULTS: BackendDefaults = {
   contextMessagesMax: 2000,
   contextTokens: 6000,
   contextTokensMax: 16000,
-  // A message's effort request and an agent's (dispatched, or a Workflow's) go past Jev's regular limits, with the long-context
-  // header (2026-10-15, DEVELOPMENT.md 「Jev 的长上下文」): the state takes up to 96000 estimated tokens, about 115k as Jev counts
-  // Chinese (1.2 a token; English up to 1.37, about 132k), within 40-60% of its 262,144: the share of a window a model reads
-  // best in, by the person's rule of thumb, and never full. Measured: the ctx30 run, 94k tokens of one conversation, 25 of 30
-  // right against 13 of 30 with the newest 24000 (p 0.0005); eval v2's whole conversations, 146k tokens on average (56%),
-  // came out no better than 24000 (60.0% against 67.5%); the docs call the long context less accurate than staying within
-  // the regular limits. A re-decision stays at 24000: it reads this turn's steps (16 at most, a few thousand tokens), and a
-  // step waits only `rejudgeWaitMs` for it. The other kinds have questions of at most 700 tokens as Jev counts them, a Workflow
-  // batch 20,100 for 8 agents, far under 262k.
-  contextByKind: { messagePlain: 96000, rejudge: 24000, agent: 96000, workflow: 96000 },
-  // On (2026-10-15): an agent's request reads the conversation it was dispatched from, and a Workflow's its script, to 96000
-  // tokens; the agents dispatched together share one request (core/agent-lane.ts), so the conversation is paid for once.
+  // Within Jev's regular limits (ADR 0014; TypeSafe: the long context is "slower and less accurate ... turn it on only for
+  // requests that need it"): the state takes what 32k leaves beside the request's longest question at 90%, with Jev counting
+  // about 1.2 of each estimated token, `JEV_REGULAR_STATE` (24000). The effort request's longest question, the effort Score,
+  // is about 450 estimated tokens and its nine questions about 2000 together; an agent's longest is its effort Score, about
+  // 330, and its 11 to 19 questions (ADR 0015) about 2,900 at most, 4 agents a request (the 64 questions a request holds,
+  // decision/workflow.ts MAX_PER_REQUEST) about 11,500, so the request stays within the 64k too (`JEV_REGULAR_REQUEST`). What lies further back
+  // in a long conversation reaches the effort request as code-kept facts instead: the problem summary, the person's lasting
+  // rules (`standing_constraints`) and the previous turn's failures (`last_turn`).
+  contextByKind: { messagePlain: JEV_REGULAR_STATE, agent: JEV_REGULAR_STATE, workflow: JEV_REGULAR_STATE },
+  // On (2026-10-15): an agent's request reads the conversation it was dispatched from, and a Workflow's its script, within its
+  // budget; the agents dispatched together share one request (core/agent-lane.ts), so the conversation is paid for once.
   agentBackground: true,
-  // A request of 96000 estimated tokens took 1.0-1.6 s (p50 1.34 s) on 1.14 at 100-120k Jev tokens (eval v2, 2026-10-15); 3000
-  // leaves room for the wait for its place within the account's token rate (decision/jev-rate.ts) when a burst is out.
+  // For a request that still goes past the regular limits (several agents merged into one request with long briefs: Jev's
+  // long-context header, decision/jev.ts): one of 96000 estimated tokens took 1.0-1.6 s on 1.14 (2026-10-15); 3000 leaves
+  // room for the wait for its place within the account's token rate (decision/jev-rate.ts) when a burst is out.
   longWaitMs: 3000,
   // Four: four long requests of one key sent at once (115k tokens each) were all answered in 1.39-1.53 s, one alone in 1.44 s
   // (2026-10-15, DEVELOPMENT.md 「Jev 的长上下文」); more were not tried. The account's token rate paces them beyond that
   // (decision/jev-rate.ts: four full ones take most of a burst). The agents that come while four are out go in the next request.
   agentLanes: 4,
-  rejudgeSteps: 16,
-  // A step waits this long for a re-decision not yet back before it goes on at the level it had: Jev's mid-turn requests took about 280 ms
-  // at p50 and 350 ms at p90 (DEVELOPMENT.md, 配置), and they are sent when the step's tools start, so they are mostly back by then.
-  rejudgeWaitMs: 300,
-  // Raising is easy, lowering is hard (AA: a Sonnet 5.5 at medium scores 41 on the index and at high 47, at low 36; Terminal-Bench
-  // 20.7% at low against 43.9% at high): 0.4 to 0.3 for a raise, 0.6 to 0.75 for a lowering, 3 to 5 steps held after a raise.
-  // The lowering gate came back down to 0.55 in 0.2.3: with 0.75 the level sent was too high too often (too high 11.5/11.0% to
-  // 19.5/17.5%); a scan of the stored effort-midturn answers (eval/rescore.ts --theta-down) found none of 0.55 to 0.75 to bring it back, and 0.55 is the one with the least too high and too low together.
-  thetaUp: 0.3,
-  thetaDown: 0.55,
-  thetaMax: 0.5,
-  thetaExpected: 0.25,
-  agentOverride: 0.6,
-  // #16, both runs on the old wording: from 0.7 to 0.75 the Chinese-English gap of the skill suggestions went from -3.7 to -2.3 points.
-  skillsMinRelevance: 0.75,
-  findSkillMinRelevance: 0.5,
   findSkillWaitMs: null,
   // Several sessions on one key slow the first request (26k tokens) from 0.6-0.8 s to 0.9-1.3 s, and the second took
   // 0.27-0.48 s: sharing 1500 ms, 3 of 15 messages lost the second (2026-10-19, five sessions at once). 800 ms is above
   // the second's slowest; a message waits 2.3 s at most then, 3.8 s with a long effort request (`longWaitMs`).
   skillsSecondStageMs: 800,
-  findSkillProfiles: true,
-  // Raising is easy (DEVELOPMENT.md, 「按 AA 基准校正」): the level above the most probable one is taken from 0.3.
-  roundUp: 0.3,
-  // The hinted effort question's (2026-10-16, DEVELOPMENT.md 「强提示（#41）」): over the hinted answers of the flows,
-  // 0.4 took max recall to 20/20 on long-context and 7/7 on eval-v2 (0.5: 18/20 and 7/7), max where it is not accepted 9/15
-  // (0.5: 8/15); Jev's hinted answers of the real session that set this off were 0.37-0.48.
-  hintThetaMax: 0.4,
-  // effort-submit on the current wording, one run each (2026-10-05): asked in Chinese, Chinese items 85% and English
-  // items 89%; asked in English, 79% and 78%. An agent's questions are asked in Chinese since Jev 1.14 (the subagent eval of
-  // 2026-10-15, DEVELOPMENT.md 「Jev 1.14」: models-hint-zh 72/71% and again 72/72%, against models-hint's 71/68%; on 1.13 the
-  // Chinese wording had been the weaker, 67/64% and 65/65%). The other questions stay in English.
-  ask: { turnStart: { language: 'zh', primitive: 'score' }, agent: { language: 'zh', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
+  // English throughout (ADR 0014): TypeSafe names English as the language Jev is most accurate in; the person's own words go as they are.
+  ask: { turnStart: { language: 'en', primitive: 'score' }, agent: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
+  guide: TYPESAFE_GUIDE,
 }
 
 /**
- * pplx-decider-v1.1-27b's: B′ of eval v2 (#45, ADR 0006: the state within 48000 tokens, every question in English, no problem
- * summary), with the thresholds calibrated on its own stored answers (DEVELOPMENT.md, eval v2 的结果). It takes 262,144 tokens
+ * pplx-decider-v1.1-27b's, used only when `decisionModel` names it (ADR 0014: no longer evaluated). From B′ of eval v2 (#45,
+ * ADR 0006: the state within 48000 tokens, every question in English). It takes 262,144 tokens
  * a request (state and questions), so what it reads is not cut to Jev's 32k: 2000 messages (the budget, not the count, ends
  * what is sent) and its state up to what it answers within a message's wait (below); the skills' two stages keep Jev's 6000,
- * since the profiles of the skills are the same length for either model. A request takes seconds, not Jev's fraction of one,
- * so a message waits 8000 ms (a hook has 10 s) and a step 6000 ms for a re-decision. What the eval did not calibrate for pplx
- * (the failure bar, the agents' override, the skills' relevance) is Jev's.
+ * since the skills' Choice is the same length for either model. A request takes seconds, not Jev's fraction of one,
+ * so a message waits 8000 ms (a hook has 10 s). What the eval did not calibrate for pplx (the skills' relevance) is
+ * Jev's.
  */
 const PPLX_DEFAULTS: BackendDefaults = {
   timeoutMs: 8000,
@@ -278,45 +224,56 @@ const PPLX_DEFAULTS: BackendDefaults = {
   // at once, each request filled with the conversation (`agentBackground`): five at once at 32000 took 5.2 s at most, three
   // at 48000 up to 7.6 s. So a dispatched agent's request, and each of a Workflow's when it takes several (`planBatches`),
   // is 32000; a Workflow's one request keeps 48000.
-  contextByKind: { messagePlain: 48000, rejudge: 48000, agent: 32000, workflow: 48000 },
+  contextByKind: { messagePlain: 48000, agent: 32000, workflow: 48000 },
   // On: pplx answers a full request in about 4 s, several at once (`pplxQps` lets five go together).
   agentBackground: true,
   // pplx takes 262k in every request (no header), and its own wait is seconds already.
   longWaitMs: null,
   // Five: five requests of 32000 at once were all answered within 5.2 s (`pplxQps` lets five go in a second).
   agentLanes: 5,
-  rejudgeSteps: 16,
-  // A re-decision takes seconds, not 300 ms: a step waits for it up to this long (the most the manifest allows is 8000).
-  rejudgeWaitMs: 6000,
-  // Calibrated offline on the stored pplx answers (eval v2, DEVELOPMENT.md): thetaMax 0.47 (0.48 sits on submit-034's p(max) of
-  // 0.480), thetaDown 0.55 as Jev's (from 0.6 up, the English score question sends the level too high more often than Jev).
-  // thetaUp 0 raises a level mid-turn on any answer above it (0.3 is the cautious alternative); it does not move the level a
-  // message is sent at, which thetaMax and roundUp decide.
-  thetaUp: 0,
-  thetaDown: 0.55,
-  thetaMax: 0.47,
-  thetaExpected: 0.25,
-  agentOverride: 0.6,
-  skillsMinRelevance: 0.75,
-  findSkillMinRelevance: 0.5,
-  // Find_skill's two requests wait as long as the profiles' question takes (a message's wait would be 8000 ms of a 10 s hook).
+  // Find_skill's two requests wait as long as the skills' Choice takes (a message's wait would be 8000 ms of a 10 s hook).
   findSkillWaitMs: 6000,
   // pplx's waits are seconds already, and a longer one would go past a hook's 10 s.
   skillsSecondStageMs: null,
-  findSkillProfiles: true,
-  // The level above the most probable one is taken from 0.45 (ADR 0006): the offline scan of the stored effort-submit answers
-  // (English questions) took the level sent too high from 18.5% to 13.0% with the recall of max unchanged (11 of 16); eval v2's
-  // level too low went from 12.5% to 15.0%.
-  roundUp: 0.45,
-  // Its own thetaMax: the hint was not measured on pplx with the wording of 2026-10-16.
-  hintThetaMax: 0.47,
   ask: { turnStart: { language: 'en', primitive: 'score' }, agent: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
+  // pplx answers as Jev does (the same System One API), and is no longer evaluated: TypeSafe's guide, as Jev's.
+  guide: TYPESAFE_GUIDE,
+}
+
+/**
+ * d1-ultra's, Liquid's decision model, used only when `decisionModel` names it (ADR 0017; no eval, the person's choice).
+ * Its answers are read by Liquid's guide (decision/guides.ts). A question reads at most 32,768 of Liquid's tokens, its state
+ * with it, and there is no long-context header (decision/liquid.ts): Liquid counted 1.092 of its tokens for each estimated one
+ * (2026-10-28, DEVELOPMENT.md 「d1-ultra 的预算」), so Jev's budgets fit it as they are (24000 estimated: about 26,200 of its
+ * tokens, about 27,200 with the longest question, the effort Score; 83% of the 32,768), and the skills' 6000 beside their
+ * question too. It answers more slowly than Jev: a state of 25,484 of its tokens with one question took 2.7 s, and a full
+ * message request (11 questions, 25,689 tokens) 2.0 s, where Jev took 0.9 s (2026-10-28), so a message waits 4000 ms
+ * (`timeoutMs`, about one and a half times the slower); find_skill's two requests 6000.
+ */
+const LIQUID_DEFAULTS: BackendDefaults = {
+  timeoutMs: 4000,
+  contextMessages: 2000,
+  contextMessagesMax: 2000,
+  contextTokens: 6000,
+  contextTokensMax: 16000,
+  contextByKind: { messagePlain: JEV_REGULAR_STATE, agent: JEV_REGULAR_STATE, workflow: JEV_REGULAR_STATE },
+  agentBackground: true,
+  // No long-context header: every request stays within its regular limits.
+  longWaitMs: null,
+  // Four, as Jev's: Liquid takes 20 requests a second a model, shared by all of an account's keys.
+  agentLanes: 4,
+  findSkillWaitMs: 6000,
+  // Not measured: the second stage's state is the skills' 6000 and a few openings, about a third of the first's tokens.
+  skillsSecondStageMs: 1500,
+  ask: { turnStart: { language: 'en', primitive: 'score' }, agent: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
+  guide: LIQUID_GUIDE,
 }
 
 /** The defaults by decision model: the only place they are written. */
 export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = {
   pplx: PPLX_DEFAULTS,
   jev: JEV_DEFAULTS,
+  'd1-ultra': LIQUID_DEFAULTS,
 }
 
 /**
@@ -359,18 +316,8 @@ export function waitFor(ctx: { readonly config: Pick<Config, 'timeoutMs' | 'long
   return Math.max(timeoutMs, longWaitMs)
 }
 
-/**
- * How long a re-decision's request (mid-turn, or a stuck loop's) waits for its answer: as long as a long request may, since
- * long ones of the mod's (a message's, an agent's) may be ahead of it for a place within the account's token rate
- * (decision/jev-rate.ts). The step it is for waits only `rejudgeWaitMs` for it, and an answer that comes later is taken at
- * a later step.
- */
-export function redecisionWaitMs(config: Pick<Config, 'timeoutMs' | 'longWaitMs'>): number {
-  return Math.max(config.timeoutMs, config.longWaitMs ?? 0)
-}
-
-/** The settings are also the effort rules' parameters (`EffortRules`: `thetaMax` and `roundUp`): `traceEffort(reading, config)`. */
-export type Config = EffortRules & {
+/** The settings, read once per load (the effort rules themselves have no parameters: decision/message-effort.ts, ADR 0014). */
+export type Config = {
   /** The decision model the options were read for: its defaults (BACKEND_DEFAULTS) stand for what the person left unset. */
   backend: BackendName
   /**
@@ -382,6 +329,10 @@ export type Config = EffortRules & {
   readonly typesafeApiKey: string
   /** The Perplexity key in the options (`perplexityApiKey`, trimmed; '' if unset; not enumerable either): the environment's (`Secrets`) stands where this is empty. */
   readonly perplexityApiKey: string
+  /** The Liquid key in the options (`liquidApiKey`, trimmed; '' if unset; not enumerable either): the environment's (`Secrets`) stands where this is empty. */
+  readonly liquidApiKey: string
+  /** How the answers are read: the decision model's guide (BACKEND_DEFAULTS guide; decision/guides.ts). */
+  guide: Guide
   /** How many pplx requests the mod sends in a second at most (`pplxQps`; the account's limit): the rest wait their turn (decision/pplx-rate.ts). */
   pplxQps: number
   /**
@@ -404,31 +355,17 @@ export type Config = EffortRules & {
   /**
    * What the decision model reads of the conversation: how many recent messages, how many tokens in all. The tokens are the
    * budget of a message that carries the skills' question (and of find_skill's first stage); the other kinds of request have
-   * theirs in `contextByKind` (a mid-turn re-decision's in `midturn.limits`, too).
+   * theirs in `contextByKind`.
    */
   context: ContextLimits
   /** The tokens the state of each other kind of request may take: the decision model's default for the kind, or what the person set if smaller. */
   contextByKind: Readonly<Record<ContextKind, number>>
-  /** The main agent's effort decided again while a turn runs (#5); a stuck loop's re-decision (#7) reads its loop the same way. */
-  midturn: {
-    /** Re-decide at every step whose index is a multiple of this; 0 for never. */
-    every: number
-    /** How long a step waits for a re-decision (or a stuck one) not back yet. */
-    waitMs: number
-    /** What a re-decision reads: the latest steps, within the context budget. */
-    limits: MidturnLimits
-    /** How an answer moves the level: thetaUp, thetaDown, thetaMax, roundUp, holdSteps. */
-    rules: MidturnRules
-  }
-  /** Forced escalation (#7). */
+  /** Forced escalation (#7, ADR 0013): a dispatched agent whose calls keep failing goes on as the next model up. */
   escalation: {
-    /** Counted failures that make a loop stuck. */
+    /** Counted failures that make an agent step up. */
     after: number
-    mode: RaiseMode
-    /** Forced raises a loop gets at most. */
+    /** Step-ups an agent gets at most in a run. */
     limit: number
-    /** The failures count as expected when the answer reaches this probability. */
-    thetaExpected: number
     /** The model a failing haiku agent is switched to, resolved to a full id; null: never switch (left empty, or a name no model family has). */
     haikuTo: ResolvedModel | null
     /** `escalateHaikuTo` as the person wrote it, for the log when it names no model. */
@@ -436,10 +373,8 @@ export type Config = EffortRules & {
   }
   /** Dispatched agents and a Workflow's agents (#6, #8, #9). */
   agents: {
-    /** The models the decision model may choose, cheapest first (fable with `agentFable`). */
+    /** The models the model table may give, weakest first (fable with `agentFable`, ADR 0015). */
     models: readonly AgentModel[]
-    /** The decision model's pick replaces the main agent's (or the script's) only at this confidence or above. */
-    thetaOverride: number
     /** `rewrite` writes a Workflow's decisions into its script; `return` sends the Workflow back with them, once. */
     workflowMode: 'rewrite' | 'return'
     /** Whether an agent's request carries the conversation it was dispatched from and, a Workflow's, the script (the decision model's: BACKEND_DEFAULTS `agentBackground`). */
@@ -452,43 +387,29 @@ export type Config = EffortRules & {
      */
     waitMs: number
   }
-  /** Skills (#10, #11, #12). */
+  /**
+   * Skills (#10, #12; ADR 0018). A message is suggested one skill at most, picked as TypeSafe's skill suggestion cookbook
+   * picks it; the bars are the decision model's guide's (`guide.skills`), not options.
+   */
   skills: {
-    /** What a message is suggested: at most `max`, from `minRelevance`. */
-    suggest: SkillPolicy
-    /** What find_skill returns: at most `max`, from `minRelevance`. */
-    find: SkillPolicy
+    /** How many skills find_skill returns at most (`findSkillMax`), and so re-reads in its second request. */
+    findMax: number
     /** How long find_skill's two requests may take in all (the decision model's: BACKEND_DEFAULTS findSkillWaitMs). */
     findWaitMs: number
     /** The least a ranking's second request is given (BACKEND_DEFAULTS skillsSecondStageMs); null: what the first left. */
     secondStageMs: number | null
-    /** Whether find_skill's first request offers skills by their profiles (the decision model's: findSkillProfiles). */
-    findByProfile: boolean
-    /** How many of stage one's best stage two re-reads. */
-    shortlist: number
     /** Skills the main agent keeps in its listing (names as the listing spells them). */
     alwaysListed: readonly string[]
     /** Skills never offered, to the main agent or to the person. */
     neverSuggested: readonly string[]
-    /** The model that writes skill profiles; part of every profile's key. */
-    profileModel: string
-    /** How many missing profiles a session start writes at most. */
-    profilesPerSession: number
   }
-  /** The unresolved count and the problem summary (#39, #40). */
+  /** The unresolved count and the problem summary (#39, #40, ADR 0014). */
   unresolved: {
     /** The model that writes the problem summary after each of the person's turns (`summaryModel`). */
     summaryModel: string
-    /** The count from which the effort question of a message and of a mid-turn re-decision carries the strong hint (`unresolvedMaxAfter`; 0: never). */
+    /** The count from which a message still failing goes to max (`unresolvedMaxAfter`, rule R5; 0: never). */
     maxAfter: number
-    /** `thetaMax` for an effort question that carries the strong hint: the decision model's `hintThetaMax`, never above `thetaMax`. */
-    thetaMax: number
   }
-}
-
-/** The effort rules for an answer to an effort question that carried the strong hint: `thetaMax` is the hint's (`unresolved.thetaMax`). */
-export function hintedRules<R extends EffortRules>(rules: R, config: Pick<Config, 'unresolved'>): R {
-  return { ...rules, thetaMax: Math.min(rules.thetaMax, config.unresolved.thetaMax) }
 }
 
 /**
@@ -501,6 +422,8 @@ export type Secrets = {
   perplexityEnvKey: string
   /** `TYPESAFE_API_KEY`, trimmed; '' while unread or unset. Desktop hands a mod no sensitive option (#35): this is its way in there. */
   typesafeEnvKey: string
+  /** `LIQUID_API_KEY`, trimmed; '' while unread or unset. */
+  liquidEnvKey: string
 }
 
 /** The Perplexity key in use: the options' (`perplexityApiKey`) first, else the environment's. '' for none. */
@@ -511,6 +434,11 @@ export function perplexityKey(config: Pick<Config, 'perplexityApiKey'>, secrets:
 /** The TypeSafe key in use: the options' (`typesafeApiKey`) first, else the environment's. '' for none. */
 export function typesafeKey(config: Pick<Config, 'typesafeApiKey'>, secrets: Secrets): string {
   return config.typesafeApiKey !== '' ? config.typesafeApiKey : secrets.typesafeEnvKey
+}
+
+/** The Liquid key in use: the options' (`liquidApiKey`) first, else the environment's. '' for none. */
+export function liquidKey(config: Pick<Config, 'liquidApiKey'>, secrets: Secrets): string {
+  return config.liquidApiKey !== '' ? config.liquidApiKey : secrets.liquidEnvKey
 }
 
 /**
@@ -524,13 +452,12 @@ export function keySource(option: string, environment: string, variable: string)
 /**
  * What the entry hands every feature's register: data and pure functions, never `$`.
  *
- * Which decision model decides is not known at register: either key may be in the environment, which the session start
- * reads (`secrets`). `config`, `backend`, `ask` and `fellBack` are therefore read afresh at each use and follow the choice: a
- * feature that keeps a value from `ctx.config` when it registers keeps the wrong model's (the defaults differ), so it reads
- * `ctx.config` where it acts.
+ * The decision model is the one `decisionModel` names (Jev unless it names pplx), known at register. Which model takes the
+ * images depends on the keys, which the session start reads from the environment (`secrets`), so `images` is read afresh at
+ * each use.
  */
 export type Ctx = {
-  /** The settings of the decision model that decides (`chooseBackend`). */
+  /** The settings of the decision model that decides (`backendNameOf`). */
   readonly config: Config
   /** The decision model that decides. */
   readonly backend: Backend
@@ -538,44 +465,34 @@ export type Ctx = {
   readonly secrets: Secrets
   /** How every question but the effort question beside a message is asked: the decision model's (`config.ask.other`). */
   readonly ask: EffortAsk
-  /** Whether Jev decides only because there is no Perplexity key (a TypeSafe key is set): the session start records it. */
-  readonly fellBack: boolean
   /**
    * The decision model that takes requests with images, with the backend to ask (`chooseImageBackend`); null when there is none
    * and the features that need images are unavailable. `fellBack`: it is pplx for want of a TypeSafe key, which cannot zoom
    * (needs Box questions). It is the same backend object as `backend` would be, so a pplx request goes through the rate limit
    * (its `io` needs `pace`, as every request's does).
    */
-  readonly images: { readonly name: BackendName; readonly backend: Backend; readonly fellBack: boolean } | null
+  readonly images: { readonly name: ImageBackendName; readonly backend: Backend; readonly fellBack: boolean } | null
 }
 
 /** `table` is only a test's way to read a table the shipped one does not have (a decision model not added yet). */
 export function setup(options: PluginOptions, table: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS): Ctx {
   const asked = backendNameOf(options)
-  // Both are worked out here, whichever decides: pure and cheap, and `chooseBackend` picks between them once the environment is read.
-  const configs: Record<BackendName, Config> = { pplx: readConfig(options, table, 'pplx'), jev: readConfig(options, table, 'jev') }
-  const secrets: Secrets = { perplexityEnvKey: '', typesafeEnvKey: '' }
+  // Both are worked out here (pure and cheap): the one asked for decides, and the other may still take the images (`chooseImageBackend`).
+  const configs: Record<BackendName, Config> = { pplx: readConfig(options, table, 'pplx'), jev: readConfig(options, table, 'jev'), 'd1-ultra': readConfig(options, table, 'd1-ultra') }
+  const secrets: Secrets = { perplexityEnvKey: '', typesafeEnvKey: '', liquidEnvKey: '' }
   const backends: Record<BackendName, Backend> = {
     // Every request goes through its account's rate limit: pplx's (#51), Jev's (requests and input tokens a second).
     pplx: rateLimited(pplxBackend(() => perplexityKey(configs.pplx, secrets)), configs.pplx.pplxQps),
     jev: jevRateLimited(jevBackend(() => typesafeKey(configs.jev, secrets)), () => configs.jev.jevLimits),
+    // No limit of the mod's own: Liquid's 20 a second is far above what a session sends; its 429 is a busy failure (fail open).
+    'd1-ultra': liquidBackend(() => liquidKey(configs['d1-ultra'], secrets)),
   }
   const keys = () => ({ perplexity: perplexityKey(configs.pplx, secrets), typesafe: typesafeKey(configs.jev, secrets) })
-  const choice = () => chooseBackend(asked, keys())
   return {
-    get config() {
-      return configs[choice().backend]
-    },
-    get backend() {
-      return backends[choice().backend]
-    },
+    config: configs[asked],
+    backend: backends[asked],
     secrets,
-    get ask() {
-      return configs[choice().backend].ask.other
-    },
-    get fellBack() {
-      return choice().fellBack
-    },
+    ask: configs[asked].ask.other,
     get images() {
       const chosen = chooseImageBackend(keys())
       return chosen === null ? null : { name: chosen.backend, backend: backends[chosen.backend], fellBack: chosen.fellBack }
@@ -609,8 +526,6 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
     return value
   }
   const whole = (value: unknown, min: number, max: number, fallback: number) => Math.round(numberIn(value, min, max, fallback))
-  const { roundUp } = defaults
-  const thetaMax = own('thetaMax', 0, 1)
   // `contextTokens` by kind of request: unset, each kind's own (BACKEND_DEFAULTS); set, the smaller of it and each kind's.
   const contextTokens = own('contextTokens', 100, defaults.contextTokensMax, true)
   const byKind = (cap: number) => (isNumber(options.contextTokens) ? Math.min(contextTokens, cap) : cap)
@@ -619,9 +534,10 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
   const haikuToWritten = stringOf(options.escalateHaikuTo, 'sonnet').trim()
   // A hook's own budget is 10 s and the timer's wait counts toward it.
   const timeoutMs = own('timeoutMs', 200, 8000)
-  const config: Omit<Config, 'typesafeApiKey' | 'perplexityApiKey'> = {
+  const config: Omit<Config, 'typesafeApiKey' | 'perplexityApiKey' | 'liquidApiKey'> = {
     backend,
     defaults: { used, capped },
+    guide: defaults.guide,
     pplxQps: whole(options.pplxQps, 1, 50, 5),
     jevLimits: {
       requestsPerSecond: whole(options.jevQps, 1, 1000, JEV_DEFAULT_LIMITS.requestsPerSecond),
@@ -630,55 +546,31 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
     timeoutMs,
     longWaitMs: defaults.longWaitMs,
     ask: defaults.ask,
-    thetaMax,
-    roundUp,
     context,
     contextByKind,
-    midturn: {
-      every: whole(options.rejudgeEvery, 0, 50, 3),
-      // A hook's own budget is 10 s and the timer's wait counts toward it, as for `timeoutMs`.
-      waitMs: own('rejudgeWaitMs', 0, 8000, true),
-      limits: { steps: own('rejudgeSteps', 1, 16, true), tokens: contextByKind.rejudge },
-      rules: {
-        thetaUp: own('thetaUp', 0, 1),
-        thetaDown: own('thetaDown', 0, 1),
-        thetaMax,
-        roundUp,
-        holdSteps: whole(options.holdSteps, 0, 50, 5),
-      },
-    },
     escalation: {
       after: whole(options.escalateAfter, 1, 20, 2),
-      mode: RAISE_MODES.find((mode) => mode === options.escalateMode) ?? 'one-level',
       limit: whole(options.escalateLimit, 0, 10, 2),
-      thetaExpected: own('thetaExpected', 0, 1),
       haikuTo: haikuToWritten === '' ? null : resolveModel(haikuToWritten),
       haikuToWritten,
     },
     agents: {
       models: options.agentFable === true ? [...DEFAULT_AGENT_MODELS, 'fable'] : DEFAULT_AGENT_MODELS,
-      thetaOverride: own('agentOverride', 0, 1),
       workflowMode: stringOf(options.workflowMode, 'rewrite') === 'return' ? 'return' : 'rewrite',
       background: defaults.agentBackground,
       lanes: defaults.agentLanes,
       waitMs: agentWaitMs(timeoutMs, defaults.longWaitMs),
     },
     skills: {
-      suggest: { max: whole(options.skillsMax, 0, 10, 3), minRelevance: own('skillsMinRelevance', 0, 1) },
-      find: { max: whole(options.findSkillMax, 1, 10, 5), minRelevance: own('findSkillMinRelevance', 0, 1) },
+      findMax: whole(options.findSkillMax, 1, 10, 5),
       findWaitMs: defaults.findSkillWaitMs ?? timeoutMs,
       secondStageMs: defaults.skillsSecondStageMs,
-      findByProfile: defaults.findSkillProfiles,
-      shortlist: whole(options.skillsShortlist, 1, 10, 4),
       alwaysListed: namesOf(options.skillsAlwaysListed),
       neverSuggested: namesOf(options.skillsNeverSuggested),
-      profileModel: stringOf(options.skillsProfileModel, DEFAULT_PROFILE_MODEL).trim() || DEFAULT_PROFILE_MODEL,
-      profilesPerSession: whole(options.skillsProfilesPerSession, 0, 500, 30),
     },
     unresolved: {
       summaryModel: stringOf(options.summaryModel, DEFAULT_SUMMARY_MODEL).trim() || DEFAULT_SUMMARY_MODEL,
       maxAfter: whole(options.unresolvedMaxAfter, 0, 10, 3),
-      thetaMax: Math.min(thetaMax, defaults.hintThetaMax),
     },
   }
   // In the table's order, whatever order they were read in.
@@ -688,6 +580,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
   return Object.defineProperties(config, {
     typesafeApiKey: { value: stringOf(options.typesafeApiKey, '').trim(), enumerable: false },
     perplexityApiKey: { value: stringOf(options.perplexityApiKey, '').trim(), enumerable: false },
+    liquidApiKey: { value: stringOf(options.liquidApiKey, '').trim(), enumerable: false },
   }) as Config
 }
 
@@ -703,7 +596,7 @@ export function describeDefaults(config: Pick<Config, 'backend' | 'defaults' | '
   const capped = defaults.capped.map((cap) => `; ${cap.option} ${cap.set} reads as ${cap.read}, the most with ${backend}`).join('')
   // The skills' own switch, not `isOn`: with the master switch off the skills' switch has not moved, and `/dp skills on` would not turn anything on.
   const skillsSwitchOn = listSwitches().find((info) => info.name === 'skills')?.on ?? true
-  const suggestions = !skillsSwitchOn ? 'skill suggestions off (/dp skills on)' : config.skills.suggest.max === 0 ? 'skill suggestions off (skillsMax 0)' : 'skill suggestions on until /dp skills off'
+  const suggestions = !skillsSwitchOn ? 'skill suggestions off (/dp skills on)' : 'skill suggestions on until /dp skills off'
   return `settings for ${backend}: ${used}; ${suggestions}${capped}`
 }
 
@@ -713,7 +606,7 @@ export function describeDefaults(config: Pick<Config, 'backend' | 'defaults' | '
  * for the eval; its questions are asked as the decision model asks about an
  * agent (`config.ask.agent`), and `ask` writes them otherwise (the eval's variants).
  */
-export function dispatchSettings(ctx: { config: Pick<Config, 'agents' | 'thetaMax' | 'roundUp' | 'ask'> }, ask: Partial<DispatchAsk> = {}): DispatchSettings {
+export function dispatchSettings(ctx: { config: Pick<Config, 'agents' | 'ask' | 'guide'> }, ask: Partial<DispatchAsk> = {}): DispatchSettings {
   // Each read goes to `ctx`: a feature builds this when it registers, before the session start has settled the decision model.
   return {
     get models() {
@@ -722,20 +615,11 @@ export function dispatchSettings(ctx: { config: Pick<Config, 'agents' | 'thetaMa
     get ask() {
       return { ...ctx.config.ask.agent, ...ask }
     },
-    get thetaOverride() {
-      return ctx.config.agents.thetaOverride
-    },
-    get thetaMax() {
-      return ctx.config.thetaMax
-    },
-    get roundUp() {
-      return ctx.config.roundUp
+    get guide() {
+      return ctx.config.guide
     },
   }
 }
-
-/** The cheap model that writes skill profiles, unless the person names another (`skillsProfileModel`). */
-const DEFAULT_PROFILE_MODEL = 'haiku'
 
 /** The cheap model that writes the problem summary, unless the person names another (`summaryModel`). */
 const DEFAULT_SUMMARY_MODEL = 'haiku'

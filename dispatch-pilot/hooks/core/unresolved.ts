@@ -1,10 +1,10 @@
 // The unresolved count and the problem summary that goes with it: the one module
-// that writes them (`$.state` `unresolved`; GLOSSARY 未解决次数, 问题摘要, ADR 0005).
-// The main-effort feature moves the count by each message's answer; the unresolved
+// that writes them (`$.state` `unresolved`; GLOSSARY 未解决次数, 问题摘要, ADR 0014).
+// The main-effort feature moves the count by each message's answers; the unresolved
 // feature starts it over when the conversation ends and keeps the summary (a cheap
-// model writes it after each of the person's turns, in the background). They only
-// count and record; both are a basis for the decision model's judgment of effort,
-// never a rule.
+// model writes it after each of the person's turns, in the background). The count is
+// kept whatever the switches say (it costs nothing) and is a fact rule R5 reads
+// (decision/message-effort.ts); the summary is the decision model's to read.
 //
 // The summary starts over wherever the count does: the problem is solved, another
 // one begins, `/clear`, a new session. A write of it that is still going on then
@@ -12,11 +12,12 @@
 //
 // Cells come in as closures (a `$` cannot cross a file), like the plan table's.
 
+import { noBar, yesBar } from '../decision/guides.ts'
 import { countAfter, UNRESOLVED_OPTIONS, type UnresolvedJudgement, type UnresolvedOption } from '../decision/unresolved.ts'
 import { markLast, SUMMARY_TIMEOUT_MS, type Summary } from '../decision/summary.ts'
+import type { Verdict } from '../decision/nouls.ts'
 import { replace, update, type Cell } from './plans.ts'
-import type { Effort } from '../decision/effort.ts'
-import type { Decided, HintRecord, UnresolvedRecord } from './report.ts'
+import type { Decided, UnresolvedRecord } from './report.ts'
 
 /** The summary as it is kept: the turn it was last written for beside it. */
 export type StoredSummary = Summary & { turn: string }
@@ -34,12 +35,15 @@ export type UnresolvedState = {
 /** The stored count and summary (`$.state` `unresolved`). */
 export type CountCell = Cell<UnresolvedState>
 
-/** What the log and the card call the three options. */
+/** What the log and the card call the three questions. */
 export const OPTION_WORDS: Readonly<Record<UnresolvedOption, string>> = {
-  still_unresolved: '仍未解决',
-  resolved: '已经解决',
-  new_or_unrelated: '新问题或无关',
+  still_failing: '仍未解决',
+  solved: '已经解决',
+  new_task: '新任务',
 }
+
+/** What the log and the card call a verdict. */
+export const VERDICT_WORDS: Readonly<Record<Verdict, string>> = { yes: '是', band: '拿不准', no: '否' }
 
 /**
  * The state after one more message that said "still unresolved": the count up by one, and the last attempt of the
@@ -70,7 +74,7 @@ export async function clearCount(cell: CountCell): Promise<void> {
   await update(cell, () => ({ count: 0 }))
 }
 
-/** The count the session holds now (0 when none): what the effort request carries, and what the strong hint is given at. */
+/** The count the session holds now (0 when none): what the effort request carries, and what rule R5 reads. */
 export async function keptCount(cell: CountCell): Promise<number> {
   return (await cell.get()).value?.count ?? 0
 }
@@ -164,55 +168,30 @@ export function summaryFailure(failure: SummaryFailure, model: string): Pick<Dec
   return { outcome: '摘要没写成', reason: `${why}；问题摘要保持原样`, tone: 'warn' }
 }
 
-const pct = (p: number) => `${Math.round(p * 100)}%`
+const pct = (p: number | null) => (p === null ? '没回答' : `${Math.round(p * 100)}%`)
 
-/** What a judged answer did to the count, as the log's decision: the count's move in a few words, why, and the record the card draws. */
-export function unresolvedDecision(judged: UnresolvedJudgement, moved: { before: number; count: number }): Pick<Decided, 'outcome' | 'reason' | 'tone' | 'conf' | 'unresolved'> {
+/** What judged answers did to the count, as the log's decision: the count's move in a few words, why, and the record the card draws. */
+export function unresolvedDecision(judged: UnresolvedJudgement, moved: { before: number; count: number }): Pick<Decided, 'outcome' | 'reason' | 'tone' | 'unresolved'> {
   const p = judged.probabilities
+  const v = judged.verdicts
   const t = judged.thresholds
-  const odds = UNRESOLVED_OPTIONS.map((option) => `${OPTION_WORDS[option]} ${pct(p[option])}`).join(' · ')
-  const crossed: UnresolvedOption = p.resolved >= t.reset ? 'resolved' : 'new_or_unrelated'
+  const bars = { yes: t.yes, no: t.no, inclusive: t.inclusive !== false }
+  const yes = yesBar(bars, (x) => pct(x))
+  const no = noBar(bars, (x) => pct(x))
+  const odds = UNRESOLVED_OPTIONS.map((option) => `${OPTION_WORDS[option]} ${pct(p[option])}（${VERDICT_WORDS[v[option]]}）`).join(' · ')
   const rule =
     judged.change === 'add'
-      ? `仍未解决 ${pct(p.still_unresolved)} ≥ 加一门槛 ${pct(t.add)}，次数加一`
+      ? `仍未解决 ${yes}，次数加一`
       : judged.change === 'reset'
-        ? `${OPTION_WORDS[crossed]} ${pct(p[crossed])} ≥ 清零门槛 ${pct(t.reset)}，次数清零`
-        : `仍未解决没到加一门槛 ${pct(t.add)}，已经解决、新问题或无关也没到清零门槛 ${pct(t.reset)}，次数不变`
-  const conf = judged.confidence === null ? '没有' : judged.confidence.toFixed(2)
-  const record: UnresolvedRecord = {
-    before: moved.before,
-    count: moved.count,
-    change: judged.change,
-    top: judged.top,
-    probs: { ...p },
-    ...(judged.confidence === null ? {} : { conf: judged.confidence }),
-    thresholds: t,
-  }
+        ? v.solved === 'yes'
+          ? `已经解决 ${yes}，次数清零`
+          : `新任务 ${yes} 且仍未解决 ${no}，次数清零`
+        : `没有一条规则成立（加一要仍未解决 ${yes}；清零要已经解决 ${yes}，或新任务 ${yes} 且仍未解决 ${no}），次数不变`
+  const record: UnresolvedRecord = { before: moved.before, count: moved.count, change: judged.change, probs: { ...p }, verdicts: { ...v }, thresholds: t }
   return {
     outcome: judged.change === 'keep' ? `次数 ${moved.count}（不变）` : `次数 ${moved.before} → ${moved.count}`,
-    reason: `${odds}；${rule}；置信度 ${conf}（只记录，不参与）`,
+    reason: `${odds}；${rule}`,
     tone: judged.change === 'keep' ? 'info' : 'ok',
-    ...(judged.confidence === null ? {} : { conf: judged.confidence }),
     unresolved: record,
-  }
-}
-
-/**
- * A strong hint given, as the log's decision (beside the effort's own, never a node of the board): the count it was
- * given at, the setting it had reached, and the level the decision model came to (`effort`; null when the request got no
- * usable answer). `where: 'mid'` for a mid-turn re-decision's.
- */
-export function hintDecision(hint: HintRecord, effort: Effort | null): Pick<Decided, 'outcome' | 'reason' | 'tone' | 'hint' | 'effort'> {
-  const where = hint.where === 'mid' ? '中途重判' : '发消息时'
-  const came = effort === null ? '这次请求没有给出档位' : `决策模型判出 ${effort}`
-  return {
-    outcome: `已给强提示（次数 ${hint.count}）`,
-    reason:
-      hint.used === false
-        ? `${where}：次数 ${hint.count} ≥ ${hint.maxAfter}（unresolvedMaxAfter），请求里另问了一道带强提示的 effort 题；这条消息没判为仍未解决，用的是不带提示的那一题，${came}`
-        : `${where}：次数 ${hint.count} ≥ ${hint.maxAfter}（unresolvedMaxAfter），effort 题带强提示：这项工作属于多次尝试都没解决的故障，按故障整体的难度评，max 门槛用强提示的；${came}`,
-    tone: 'info',
-    hint,
-    ...(effort === null ? {} : { effort }),
   }
 }

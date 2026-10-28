@@ -5,7 +5,7 @@
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
-import { renderSummary, type Summary } from '../hooks/decision/summary.ts'
+import { summaryState, type Summary } from '../hooks/decision/summary.ts'
 import { turnStartPart } from '../hooks/decision/turn-start.ts'
 import type { LongContextItem } from '../eval/lib/datasets.ts'
 import { conversationOf, fingerprint } from '../eval/lib/long-conversation.ts'
@@ -14,10 +14,10 @@ import { summarize } from '../eval/lib/metrics.ts'
 import { runSuite, stateDigest } from '../eval/lib/runner.ts'
 import { settingsFrom, withStateMessages, withStateTokens } from '../eval/lib/suite.ts'
 import { answers, network } from './support/eval-network.ts'
-import { jev, UNRESOLVED_ON, world } from './support/world.ts'
-/** The questions of the request the mod sends (the part's, under the part's name). */
-function asked(input: { count?: number; maxAfter?: number }): Record<string, unknown> {
-  const questions = turnStartPart({ ask: { language: 'zh', primitive: 'score' }, unresolved: true, ...input }).questions
+import { jev, OWN_EFFORT, UNRESOLVED_ON, world } from './support/world.ts'
+/** The questions of a person's message as the `zh-` variants ask them (the part's, under the part's name): the same whatever the state holds. */
+function asked(): Record<string, unknown> {
+  const questions = turnStartPart({ ask: { language: 'zh', primitive: 'score' } }).questions
   return Object.fromEntries(Object.entries(questions).map(([id, question]) => [`effort.${id}`, question]))
 }
 
@@ -73,7 +73,7 @@ test('the three versions of a question: the deep one is read only as far back as
   // 24000 tokens do not reach 30000 back; the near version has the rounds at the end; with them deleted high is what is right.
   expect(shownBy(rows)).toEqual(['zh-score-deep: high / unresolved', 'zh-score-near: max / unresolved (right)', 'zh-score-none: high / unresolved (right)'])
   expect(rows.map((r) => r.detail?.seen)).toEqual([false, true, null])
-  expect(net.bodies.every((body) => Object.keys(body.questions).join() === 'effort.level,effort.unresolved')).toBe(true)
+  expect(net.bodies.every((body) => Object.keys(body.questions).join() === OWN_EFFORT.join())).toBe(true)
 })
 
 test('a larger budget reaches the deep rounds, and a limit on the messages (Jev\'s 32 until 2026-10-15) is another limit the run says it lifts', async () => {
@@ -89,7 +89,7 @@ test('a larger budget reaches the deep rounds, and a limit on the messages (Jev\
   expect(Number(lifted[0]?.detail?.stateTokens)).toBeGreaterThan(30000)
 })
 
-test('the plain variants carry no summary and no count; the flow variants carry what the mod keeps after the conversation: the summary, the count, and the strong hint from the count the person set', async () => {
+test('the plain variants carry no summary and no count; the flow variants carry what the mod keeps after the conversation: the summary and the count', async () => {
   const base = item('long-001')
   const summary: Summary = { problem: '重连在弱网下一直掉线', tried: [{ text: '把退避的上限调到 30 秒', unresolved: true }, { text: '给心跳加了抖动', unresolved: true }, { text: '换了重连的库' }], status: '助手在读周围的代码' }
   const file: SummaryFile = { items: { 'long-001': { conversation: fingerprint(conversationOf(base, 'deep')), count: 2, summary } } }
@@ -99,27 +99,26 @@ test('the plain variants carry no summary and no count; the flow variants carry 
   const [plain, flow] = net.bodies
   expect(Object.keys(plain.state)).toEqual(['user_message', 'recent_context'])
   // The count is the decisive rounds' own (two of the person's messages said it was unresolved): the flow's state has it, and the summary.
-  expect(flow.state.problem_summary).toBe(renderSummary(summary, 'zh'))
+  expect(flow.state.problem_summary).toEqual(summaryState(summary))
   expect(flow.state.unresolved_count).toBe(2)
-  // Two is under the three the mod gives the strong hint from: the questions are the plain ones.
-  expect(flow.questions).toEqual(asked({ count: 2, maxAfter: 3 }))
+  // The count and the summary are facts of the state: the questions are the plain ones.
+  expect(flow.questions).toEqual(asked())
   expect(flow.questions).toEqual(plain.questions)
   // A budget that counts the summary's tokens: the state is within it as sent.
   expect(estimateTokens(JSON.stringify(flow.state))).toBeLessThanOrEqual(24000)
 })
 
-test('with the count at the one the person set, the flow carries the strong hint', async () => {
+test('with the count at unresolvedMaxAfter the flow asks the plain questions all the same: rule R5 reads the count in code (ADR 0014)', async () => {
   const base = item('long-001', (i) => i.zh.decisive.splice(4, 0, { role: 'user', text: '又掉线了', says: 'unresolved' }, { role: 'assistant', text: '重新写了重连。', tools: ['Edit'] }))
   const summary: Summary = { problem: '重连一直掉线', tried: [{ text: '调退避', unresolved: true }], status: '在等日志' }
   const file: SummaryFile = { items: { 'long-001': { conversation: fingerprint(conversationOf(base, 'deep')), count: 3, summary } } }
   const net = reader()
   await run([base], net, ['zh-flow'], settingsFrom({ decisionModel: 'jev' }), longContextSuite(file))
   expect(net.bodies[0].state.unresolved_count).toBe(3)
-  expect(net.bodies[0].questions).toEqual(asked({ count: 3, maxAfter: 3 }))
-  expect(net.bodies[0].questions).not.toEqual(asked({}))
+  expect(net.bodies[0].questions).toEqual(asked())
 })
 
-test('the flow has two halves asked on their own, to tell what each does: the summary alone carries no count and no hint, the count alone carries the count and the hint and no summary (so it needs no summary file)', async () => {
+test('the flow has two halves asked on their own, to tell what each does: the summary alone carries no count, the count alone carries the count and no summary (so it needs no summary file)', async () => {
   const base = item('long-001', (i) => i.zh.decisive.splice(4, 0, { role: 'user', text: '又掉线了', says: 'unresolved' }, { role: 'assistant', text: '重新写了重连。', tools: ['Edit'] }))
   const summary: Summary = { problem: '重连一直掉线', tried: [{ text: '调退避', unresolved: true }], status: '在等日志' }
   const file: SummaryFile = { items: { 'long-001': { conversation: fingerprint(conversationOf(base, 'deep')), count: 3, summary } } }
@@ -127,10 +126,10 @@ test('the flow has two halves asked on their own, to tell what each does: the su
   await run([base], net, ['zh-summary', 'zh-count'], settingsFrom({ decisionModel: 'jev' }), longContextSuite(file))
   const [onlySummary, onlyCount] = net.bodies
   expect(Object.keys(onlySummary.state).sort()).toEqual(['problem_summary', 'recent_context', 'user_message'])
-  expect(onlySummary.questions).toEqual(asked({}))
+  expect(onlySummary.questions).toEqual(asked())
   expect(Object.keys(onlyCount.state).sort()).toEqual(['recent_context', 'unresolved_count', 'user_message'])
   expect(onlyCount.state.unresolved_count).toBe(3)
-  expect(onlyCount.questions).toEqual(asked({ count: 3, maxAfter: 3 }))
+  expect(onlyCount.questions).toEqual(asked())
 
   const withoutFile = await run([base], reader(), ['zh-count'])
   expect(withoutFile[0]?.ok).toBe(true)
@@ -170,8 +169,9 @@ test("the flow's request is the mod's request for that message after that conver
   const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript, seed: { unresolved: { count: 2, summary: { ...summary, turn: 't1' } } } })
   await w.submit(base.zh.message)
 
+  // `en-flow`: the mod asks in English (ADR 0014); the conversation is Chinese either way.
   const net = reader()
-  await run([base], net, ['zh-flow'], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }), longContextSuite({ items: { 'long-001': { conversation: fingerprint(entries), count: 2, summary } } }))
+  await run([base], net, ['en-flow'], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }), longContextSuite({ items: { 'long-001': { conversation: fingerprint(entries), count: 2, summary } } }))
   expect(w.requests).toHaveLength(1)
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: net.bodies[0].state, questions: net.bodies[0].questions })
 })

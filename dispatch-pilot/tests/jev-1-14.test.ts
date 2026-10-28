@@ -1,7 +1,7 @@
 // Jev 1.14 (2026-10-15, DEVELOPMENT.md 「Jev 1.14」): every Jev decision is asked of the pinned jev-1.14.0, not of the
-// `jev-latest` alias, so the thresholds stay those the eval measured; and an agent's questions, a dispatched agent's and a
-// Workflow's alike, are asked in Chinese with Jev (the eval's models-hint-zh, as good as or better than models-hint on 1.14),
-// in English with pplx. Seam 1: engine events in, the request the decision model got out.
+// `jev-latest` alias. An agent's questions, a dispatched agent's and a Workflow's alike, are asked in English with either
+// decision model since 0.9.0 (ADR 0014: TypeSafe names English as the language Jev is most accurate in; before it Jev was
+// asked in Chinese, the eval's models-hint-zh). Seam 1: engine events in, the request the decision model got out.
 
 import { expect, test } from 'claude-code/testing'
 import { dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
@@ -37,14 +37,14 @@ test('every Jev decision is asked of jev-1.14.0, the version the eval measured, 
   expect(w.requests[0]?.body.model).toBe('jev-1.14.0')
 })
 
-test('with Jev, an agent the main agent dispatches is asked about in Chinese: the questions the eval asked as models-hint-zh', { options: KEY }, async ($, on) => {
+test('with Jev, an agent the main agent dispatches is asked about in English, as the decision module builds it', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: answering })
   await w.submit(MESSAGE)
   await w.spawn({ prompt: PROMPT, description: '审查权限改动', subagentType: 'general-purpose' })
 
-  const built = mergeParts(dispatchState(ITEM, 2000), [dispatchPart(ITEM, { ask: { language: 'zh' } })])
+  const built = mergeParts(dispatchState(ITEM, 2000), [dispatchPart(ITEM, { ask: { language: 'en' } })])
   expect(w.requests[1]?.body.questions).toEqual(built.questions)
-  expect(JSON.stringify(w.requests[1]?.body.questions)).toMatch(/[一-鿿]/)
+  expect(JSON.stringify(w.requests[1]?.body.questions)).not.toMatch(/[一-鿿]/)
 })
 
 test('with pplx, an agent is still asked about in English', { options: PPLX }, async ($, on) => {
@@ -52,7 +52,7 @@ test('with pplx, an agent is still asked about in English', { options: PPLX }, a
   await w.submit(MESSAGE)
   await w.spawn({ prompt: PROMPT, description: '审查权限改动', subagentType: 'general-purpose' })
 
-  const agentRequest = w.requests.find((request) => JSON.stringify(request.body).includes('agent.model'))
+  const agentRequest = w.requests.find((request) => JSON.stringify(request.body).includes('agent.effort'))
   expect(agentRequest).toBeDefined()
   expect(JSON.stringify(agentRequest?.body.questions ?? {})).not.toMatch(/[一-鿿]/)
 })

@@ -9,7 +9,7 @@ import { dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/di
 import { mergeParts } from '../hooks/decision/system-one.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { agentJev, type SiteAnswer } from './support/workflow.ts'
-import { KEY, type Reply, type Sent, UNRESOLVED_ON, world } from './support/world.ts'
+import { KEY, type Reply, type Sent, UNRESOLVED_ON, withoutBrief, world } from './support/world.ts'
 
 test('a dispatched agent starts on the model decided for it, and every one of its steps goes out at the effort decided for it', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 0.05, sonnet: 0.85, opus: 0.1 }, effort: [0, 0.1, 0.8, 0.1, 0] }) })
@@ -20,7 +20,9 @@ test('a dispatched agent starts on the model decided for it, and every one of it
   expect(w.spawned.map((s) => s.model)).toEqual(['sonnet'])
   expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(['claude-sonnet-5-5 high', 'claude-sonnet-5-5 high'])
   expect(w.requests).toHaveLength(1)
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent.model', 'agent.effort'])
+  // The yes/no questions about the brief and the effort question (ADR 0015).
+  expect(withoutBrief(Object.keys(w.requests[0]?.body.questions))).toEqual(['agent.effort'])
+  expect(Object.keys(w.requests[0]?.body.questions)).toContain('agent.design_open')
 })
 
 test("an agent's effort is lifted to its model's floor, and the log says so: sonnet and opus at medium at least; the person's effort is never lifted", { options: KEY }, async ($, on) => {
@@ -38,21 +40,26 @@ test("an agent's effort is lifted to its model's floor, and the log says so: son
   for (const [i, started] of spawned.entries()) await w.step({ index: 0, turnId: `sub-${i}`, agentId: started.agentId, model: i < 2 ? 'claude-sonnet-5-5' : 'claude-opus-5-5', effort: 'xhigh' })
 
   expect(w.steps.map((s) => String(s.effort))).toEqual(['medium', 'high', 'medium', 'low'])
-  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^sonnet medium · .*effort 从 low 抬到 medium（模型下限：sonnet）/))
-  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^opus medium · .*effort 从 low 抬到 medium（模型下限：opus）/))
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^sonnet medium · .*effort 从 low 抬到 medium（模型下限）/))
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^opus medium · .*effort 从 low 抬到 medium（模型下限）/))
 
-  // The log entry keeps what the card needs: the levels' probabilities, the rules' working, the floor that lifted.
+  // The log entry keeps what the card needs: the levels' probabilities and the rules' working, the floor that lifted among it.
   const lifted = (await w.board()).log.find((entry) => entry.agent === spawned[0]?.agentId)
-  expect(lifted).toMatchObject({ outcome: 'sonnet medium', floor: { from: 'low', to: 'medium', model: 'sonnet' }, conf: 1 })
+  expect(lifted).toMatchObject({ outcome: 'sonnet medium' })
   expect(Object.keys(lifted?.probs ?? {})).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
-  expect(lifted?.trace?.map((step) => [step.rule, step.applied, step.level])).toEqual([
-    ['top', true, 'low'],
-    ['max-gate', false, 'low'],
-    ['round-up', false, 'low'],
+  expect(lifted?.trace?.map((step) => [step.rule, step.applied, step.level ?? null])).toEqual([
+    ['lookup-signs', false, null],
+    ['careful-signs', false, null],
+    ['model-table', true, null],
+    ['position', true, 'low'],
+    ['two-peaked', false, 'low'],
+    ['stakes', false, 'low'],
+    ['cause-unknown', false, 'low'],
+    ['unsure', false, 'low'],
     ['model-floor', true, 'medium'],
   ])
-  // The effort the person asked for is theirs: no floor, and the rules' working is the decision model's.
-  expect((await w.board()).log.find((entry) => entry.agent === spawned[3]?.agentId)?.floor).toBeUndefined()
+  // The effort the person asked for is theirs: the rules' working ends with it, over the decided one.
+  expect((await w.board()).log.find((entry) => entry.agent === spawned[3]?.agentId)?.trace?.at(-1)).toEqual({ rule: 'named-effort', applied: true, level: 'low', decided: 'xhigh' })
 })
 
 test('an agent sent to haiku goes out at the effort decided for it on every step: Haiku 5.5 takes one (spec #32 held haiku without one, as Haiku 4.5 took none)', { options: KEY }, async ($, on) => {
@@ -66,26 +73,17 @@ test('an agent sent to haiku goes out at the effort decided for it on every step
   expect(w.steps.map((s) => String(s.effort))).toEqual(['xhigh', 'xhigh'])
 })
 
-test("the main agent's pick reaches the decision model as a hint, and stands unless it is sure of another one (agentOverride, default 0.6)", { options: KEY }, async ($, on) => {
-  // Of three options, p 0.9 is confidence 0.85; p 0.5 is confidence 0.25.
-  const sure = { haiku: 0.9, sonnet: 0.05, opus: 0.05 }
-  const unsure = { haiku: 0.5, sonnet: 0.3, opus: 0.2 }
-  const w = world($, on, { backend: (request, n) => agentJev({ model: n === 1 ? sure : unsure })(request) })
-  await w.spawn({ prompt: 'Run `pnpm test` and list the failing tests by package. Do not fix anything.', model: 'opus' })
-  await w.spawn({ prompt: 'Run `pnpm lint` and list the warnings by file. Do not fix anything.', model: 'opus' })
+test("the main agent's pick is never in a question; it is kept unless the table's model is stronger, then raised to it, never lowered (ADR 0015)", { options: KEY }, async ($, on) => {
+  // The first brief reads as a lookup (haiku), the second as a design left open (opus).
+  const w = world($, on, { backend: (request, n) => agentJev({ model: n === 1 ? { haiku: 1 } : { opus: 1 } })(request) })
+  await w.spawn({ prompt: 'Run `pnpm test` and list the failing tests by package. Do not fix anything.', model: 'sonnet' })
+  await w.spawn({ prompt: 'Work out how the three services should invalidate the shared cache.', model: 'claude-sonnet-5-5' })
 
-  expect(w.spawned.map((s) => s.model)).toEqual(['haiku', 'opus'])
-  // Jev is asked about an agent in Chinese since 1.14: the pick is the instructions' 指定.
-  const instructions = w.requests[0]?.body.questions['agent.model'].instructions
-  expect(instructions['指定']).toContain('opus')
-})
-
-test("agentOverride sets how sure the decision model must be to replace the main agent's pick", { options: { ...KEY, agentOverride: 0.9 } }, async ($, on) => {
-  const w = world($, on, { backend: agentJev({ model: { haiku: 0.9, sonnet: 0.05, opus: 0.05 } }) })
-  await w.spawn({ prompt: 'Run `pnpm test` and list the failing tests by package. Do not fix anything.', model: 'claude-opus-5-5' })
-
-  // Confidence 0.85 < 0.9: the main agent's pick stands, as it named it.
-  expect(w.spawned.map((s) => s.model)).toEqual(['claude-opus-5-5'])
+  expect(w.spawned.map((s) => s.model)).toEqual(['sonnet', 'opus'])
+  expect(JSON.stringify(w.requests.map((request) => request.body.questions))).not.toContain('sonnet')
+  const reasons = (await w.board()).log.map((entry) => entry.reason)
+  expect(reasons[0]).toMatch(/^沿用主 agent 指定的 sonnet（模型表第 4 行（写入、一两步、只汇报） → haiku，不比它强）/)
+  expect(reasons[1]).toMatch(/^模型表第 3 行（方案未定） → opus；主 agent 指定的 sonnet 升级到 opus/)
 })
 
 test("a model the person names for the work in this turn's message wins over the decision model and the main agent", { options: KEY }, async ($, on) => {
@@ -133,12 +131,13 @@ test('a model the person names is used even when it is not among the options (fa
   const started = await w.spawn({ prompt: '证明 docs/scheduler.md 第 3 节的优先级继承调度算法满足两条性质；不成立就构造反例。', description: '证明调度算法正确性' })
   await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-fable-5-1', effort: 'xhigh' })
 
-  expect(Object.keys(w.requests[1]?.body.questions['agent.model'].criteria)).toEqual(['haiku', 'sonnet', 'opus'])
+  // Without agentFable the frontier question is not asked: the person's fable stands all the same.
+  expect(Object.keys(w.requests[1]?.body.questions)).not.toContain('agent.frontier')
   expect(w.spawned.map((s) => s.model)).toEqual(['fable'])
   expect(w.steps.map((s) => `${String(s.agentId)} ${String(s.effort)}`)).toEqual([`${started.agentId} max`])
 })
 
-test("a model the person rules out is not used: the decision model's next choice takes its place, even over the main agent's pick of it", { options: KEY }, async ($, on) => {
+test("a model the person rules out is not used: the nearest allowed takes its place, even over the main agent's pick of it", { options: KEY }, async ($, on) => {
   const w = world($, on, {
     backend: (request, n) =>
       agentJev(
@@ -151,16 +150,15 @@ test("a model the person rules out is not used: the decision model's next choice
   })
   await w.submit('这周额度快用完了，派 agent 的时候别用 opus。帮我想想消息队列从 RabbitMQ 换到 Kafka 值不值得')
   await w.spawn({ prompt: '评估把消息队列从 RabbitMQ 换成 Kafka 是否值得：对比三种做法，给出建议、迁移成本和风险。', description: '评估 MQ 迁移' })
-  // The main agent asks for opus all the same; sonnet's 0.5 would not be sure
-  // enough to replace a pick that stands, but this one is ruled out.
+  // The main agent asks for opus all the same: ruled out, its pick does not count, and the table's sonnet stands.
   await w.spawn({ prompt: '列出 12 个服务里依赖消息优先级和延迟队列插件的地方。', description: '查 MQ 特性依赖', model: 'opus' })
 
-  expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['agent.model', 'agent.effort', 'agent.named.opus', 'agent.banned.opus'])
+  expect(withoutBrief(Object.keys(w.requests[1]?.body.questions))).toEqual(['agent.effort', 'agent.named.opus', 'agent.banned.opus'])
   expect(w.spawned.map((s) => s.model)).toEqual(['sonnet', 'sonnet'])
 })
 
-test('a model the person rules out is never the one the agent starts on, whichever way the answer leans: all its probability on the model ruled out, with or without the main agent asking for it', { options: KEY }, async ($, on) => {
-  // The answer puts everything on opus and nothing on the models left; the person ruled opus out.
+test('a model the person rules out is never the one the agent starts on: the table gives opus, ruled out, and the nearest allowed takes its place, with or without the main agent asking for it', { options: KEY }, async ($, on) => {
+  // The answers lead the table to opus; the person ruled opus out.
   const w = world($, on, { backend: (request, n) => (n === 1 ? agentJev({})(request) : agentJev({ model: { opus: 1 }, nouls: { 'banned.opus': 0.92 } })(request)) })
   await w.submit('这周额度快用完了，派 agent 的时候别用 opus。帮我想想消息队列从 RabbitMQ 换到 Kafka 值不值得')
   await w.spawn({ prompt: '评估把消息队列从 RabbitMQ 换成 Kafka 是否值得：对比三种做法，给出建议、迁移成本和风险。', description: '评估 MQ 迁移' })
@@ -169,7 +167,7 @@ test('a model the person rules out is never the one the agent starts on, whichev
 
   // The nearest model that is left, not the one ruled out.
   expect(w.spawned.map((s) => s.model)).toEqual(['sonnet', 'sonnet', 'sonnet'])
-  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/排除了 opus.*没给其余模型留下概率.*最接近的 sonnet/))
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/opus 被你排除，取最近的 sonnet.*排除了 opus/))
 })
 
 test("a request that failed as a whole decided nothing, so a model the person ruled out is not known: the agent starts as the main agent asked", { options: KEY }, async ($, on) => {
@@ -289,14 +287,14 @@ test('agents dispatched together share one request: what they share once, each b
   const state = asked[0]?.body.state
   expect(Object.keys(state)).toEqual(['brief_0', 'brief_1', 'user_message', 'recent_context'])
   expect([state.brief_0.description, state.brief_1.description]).toEqual(['Design cache invalidation', 'LRU tests'])
-  expect(Object.keys(asked[0]?.body.questions)).toEqual(['agent-0.model', 'agent-0.effort', 'agent-1.model', 'agent-1.effort'])
+  expect(withoutBrief(Object.keys(asked[0]?.body.questions))).toEqual(['agent-0.effort', 'agent-1.effort'])
   expect(w.spawned.map((s) => `${s.description}: ${String(s.model)}`).sort()).toEqual(['Design cache invalidation: opus', 'LRU tests: sonnet'])
   expect(w.steps.map((s) => `${String(s.agentId)} ${String(s.effort)}`)).toEqual([`${design.agentId} xhigh`, `${tests.agentId} high`])
   // One line in the debug log for the request, naming both agents.
-  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^request \[agent-0\.model, .*\] to jev for agent "Design cache invalidation"（general-purpose）, agent "LRU tests"（general-purpose）: answered/))
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^request \[agent-0\.writes, .*\] to jev for agent "Design cache invalidation"（general-purpose）, agent "LRU tests"（general-purpose）: answered/))
 })
 
-test("agents dispatched together read the problem summary (the cheap model's, Haiku 5.5 by default, while the unresolved switch is on) and the count once, in their shared request", { options: KEY }, async ($, on) => {
+test("agents dispatched together read the problem summary (the cheap model's, Haiku 5.5 by default, its switch on as by default) and the count once, in their shared request", { options: KEY }, async ($, on) => {
   const summary = { problem: '导出的 CSV 缺行', tried: [{ text: '改了编码', unresolved: true as const }], status: '还在查', turn: 't1' }
   const w = world($, on, { backend: agentsJev(DESIGN_OR_TESTS), messages: dispatching(2), switches: UNRESOLVED_ON, seed: { unresolved: { count: 2, summary } } })
   await Promise.all([
@@ -306,7 +304,7 @@ test("agents dispatched together read the problem summary (the cheap model's, Ha
   expect(w.requests).toHaveLength(1)
   const state = w.requests[0]?.body.state
   expect(Object.keys(state)).toEqual(['brief_0', 'brief_1', 'user_message', 'problem_summary', 'unresolved_count', 'recent_context'])
-  expect(String(state.problem_summary)).toContain('导出的 CSV 缺行')
+  expect(state.problem_summary).toEqual({ problem: '导出的 CSV 缺行', tried: [{ text: '改了编码', unresolved: true }], status: '还在查' })
   expect(state.unresolved_count).toBe(2)
 })
 
@@ -319,7 +317,7 @@ test('an agent of a message waits for the other Agent calls of its message 300 m
   await w.clock.advance(300)
   const design = await designing
   expect(design.agentId).toBeDefined()
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent.model', 'agent.effort'])
+  expect(withoutBrief(Object.keys(w.requests[0]?.body.questions))).toEqual(['agent.effort'])
 })
 
 test('agents that come while a request about agents is out do not wait for it: Jev answers several requests of a key at once, and the Agent calls of one message go out together', { options: KEY }, async ($, on) => {
@@ -337,9 +335,9 @@ test('agents that come while a request about agents is out do not wait for it: J
   const second = w.spawn({ prompt: 'Write unit tests for src/cache/lru.ts covering eviction order.', description: 'LRU tests' })
   const third = w.spawn({ prompt: 'Write unit tests for src/cache/ttl.ts covering expiry.', description: 'TTL tests' })
   await w.clock.settle()
-  expect(w.requests.map((request) => [request.at, Object.keys(request.body.questions)])).toEqual([
-    [0, ['agent.model', 'agent.effort']],
-    [0, ['agent-0.model', 'agent-0.effort', 'agent-1.model', 'agent-1.effort']],
+  expect(w.requests.map((request) => [request.at, withoutBrief(Object.keys(request.body.questions))])).toEqual([
+    [0, ['agent.effort']],
+    [0, ['agent-0.effort', 'agent-1.effort']],
   ])
   await w.clock.advance(1000)
   await Promise.all([first, second, third])
@@ -359,7 +357,7 @@ test("at most four requests about agents are out at once (Jev's agentLanes): a f
   await w.clock.advance(1000)
   await w.clock.settle()
   expect(w.requests.map((request) => request.at)).toEqual([0, 0, 0, 0, 1000])
-  expect(Object.keys(w.requests[4]?.body.questions)).toEqual(['agent-0.model', 'agent-0.effort', 'agent-1.model', 'agent-1.effort'])
+  expect(withoutBrief(Object.keys(w.requests[4]?.body.questions))).toEqual(['agent-0.effort', 'agent-1.effort'])
   await w.clock.advance(1000)
   await Promise.all([...four, ...fifth])
   expect(w.spawned.map((s) => String(s.model))).toEqual(['sonnet', 'sonnet', 'sonnet', 'sonnet', 'sonnet', 'opus'])
@@ -396,7 +394,7 @@ test('agents dispatched together each have their own decision on the board: mode
   expect(read.find((node) => node.id === design.agentId)).toMatchObject({ state: 'running', model: 'opus', effort: 'xhigh', routed: true })
   expect(read.find((node) => node.id === tests.agentId)).toMatchObject({ state: 'running', model: 'sonnet', effort: 'high', routed: true })
   expect(board.log.filter((entry) => entry.feature === 'dispatched-agents').map((entry) => entry.outcome)).toEqual(['opus xhigh', 'sonnet high'])
-  expect(board.log.find((entry) => entry.agent === design.agentId)?.reason).toMatch(/置信度 0\.85/)
+  expect(board.log.find((entry) => entry.agent === design.agentId)?.reason).toMatch(/^模型表第 3 行（方案未定） → opus/)
 })
 
 test("an agent the decision model could not be asked about is on the board as not routed, with the reason, next to the one that was routed", { options: KEY }, async ($, on) => {
@@ -432,16 +430,16 @@ test("what the mod sends about an agent is exactly what the decision module buil
     workflow_description: null,
     label: null,
   }
-  // Jev is asked about an agent in Chinese since 1.14 (the eval's models-hint-zh).
-  const built = mergeParts(dispatchState(item, 2000), [dispatchPart(item, { ask: { language: 'zh' } })])
+  // Jev is asked about an agent in English (ADR 0014).
+  const built = mergeParts(dispatchState(item, 2000), [dispatchPart(item, { ask: { language: 'en' } })])
   expect(w.requests[1]?.body).toEqual({ model: JEV_MODEL, state: built.state, questions: built.questions })
 })
 
-test('agentFable adds fable to the models the decision model may choose for an agent', { options: { ...KEY, agentFable: true } }, async ($, on) => {
-  const w = world($, on, { backend: agentJev({ model: { haiku: 0.02, sonnet: 0.03, opus: 0.15, fable: 0.8 }, effort: [0, 0, 0, 0.2, 0.8] }) })
+test('agentFable asks the frontier question, and a frontier problem goes to fable; without it fable is never the table\'s', { options: { ...KEY, agentFable: true } }, async ($, on) => {
+  const w = world($, on, { backend: agentJev({ model: { fable: 1 }, effort: [0, 0, 0, 0.2, 0.8] }) })
   await w.spawn({ prompt: 'Prove that the lease-renewal protocol keeps mutual exclusion under clock drift; build a counterexample if it does not.', description: 'Prove mutual exclusion' })
 
-  expect(Object.keys(w.requests[0]?.body.questions['agent.model'].criteria)).toEqual(['haiku', 'sonnet', 'opus', 'fable'])
+  expect(Object.keys(w.requests[0]?.body.questions)).toContain('agent.frontier')
   expect(w.spawned.map((s) => s.model)).toEqual(['fable'])
 })
 
@@ -475,8 +473,8 @@ test("each dispatched agent's decision is logged with its reason: in the debug l
 
   expect(w.logs.length).toBeGreaterThan(0)
   expect(w.logs.every((log) => log.to === 'debug')).toBe(true)
-  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^sonnet high · "Rename getUser"（general-purpose）：.*置信度 0\.85/))
-  expect(await w.command('dp', 'log 10')).toMatch(/#1 dispatched-agents：sonnet high · "Rename getUser"（general-purpose）：.*置信度 0\.85/)
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^sonnet high · "Rename getUser"（general-purpose）：模型表第 5 行 → sonnet/))
+  expect(await w.command('dp', 'log 10')).toMatch(/#1 dispatched-agents：sonnet high · "Rename getUser"（general-purpose）：模型表第 5 行 → sonnet/)
 })
 
 test('/dp dispatched-agents off lets agents start as the main agent sent them, with nothing asked; on brings the decisions back', { options: KEY }, async ($, on) => {
@@ -545,13 +543,13 @@ for (const failure of failures) {
   })
 }
 
-test('no key of either kind: nothing is sent, the agent starts as the main agent asked, and the board says to set the Perplexity key', async ($, on) => {
+test('no key of either kind: nothing is sent, the agent starts as the main agent asked, and the board says to set the TypeSafe key', async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 1 } }) })
   await w.spawn({ prompt: 'Summarize what src/billing/invoice.ts does.', model: 'sonnet' })
 
   expect(w.requests).toHaveLength(0)
   expect(w.spawned.map((s) => s.model)).toEqual(['sonnet'])
-  expect((await w.board()).agents).toMatchObject([{ routed: false, why: 'pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY', failure: { backend: 'pplx', kind: 'config' } }])
+  expect((await w.board()).agents).toMatchObject([{ routed: false, why: 'jev：没有填 typesafeApiKey 或 TYPESAFE_API_KEY', failure: { backend: 'jev', kind: 'config' } }])
 })
 
 test('a spawn refused beneath, after the decision failed, started no agent: nothing of it on the board, no toast, nothing left running', { options: KEY }, async ($, on) => {
@@ -569,13 +567,18 @@ test('a spawn refused beneath, after the decision failed, started no agent: noth
   expect(w.toasts.map((toast) => toast.text)).toEqual([expect.stringContaining('主 agent 未路由')])
 })
 
-test("a fork (it always runs on its parent's model) and a teammate (it lives across many tasks) are left as they are, with no decision asked", { options: KEY }, async ($, on) => {
+test("a fork (it always runs on its parent's model) and a teammate (it lives across many tasks) are left as they are, with no decision asked; the board says why", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 1 } }) })
-  await w.spawn({ prompt: 'Carry on from here and check the tests.', subagentType: 'fork', fork: true })
-  await w.spawn({ prompt: 'You review every pull request the team opens.', description: 'reviewer', isTeammate: true, model: 'sonnet' })
+  const fork = await w.spawn({ prompt: 'Carry on from here and check the tests.', subagentType: 'fork', fork: true })
+  const nested = await w.spawn({ prompt: 'Carry on from here and fix the lint.', subagentType: 'fork', fork: true, parentAgentId: fork.agentId ?? '' })
+  const mate = await w.spawn({ prompt: 'You review every pull request the team opens.', description: 'reviewer', isTeammate: true, model: 'sonnet' })
 
   expect(w.requests).toHaveLength(0)
-  expect(w.spawned.map((s) => s.model)).toEqual([undefined, 'sonnet'])
+  expect(w.spawned.map((s) => s.model)).toEqual([undefined, undefined, 'sonnet'])
+  const board = await w.board()
+  expect(board.agents.find((node) => node.id === fork.agentId)).toMatchObject({ routed: false, why: 'fork 沿用主 agent 的模型和 effort' })
+  expect(board.agents.find((node) => node.id === nested.agentId)).toMatchObject({ routed: false, why: 'fork 沿用派出它的 agent 的模型和 effort' })
+  expect(board.agents.find((node) => node.id === mate.agentId)).toMatchObject({ routed: false, why: 'teammate 跨多个任务，派出时不判断' })
 })
 
 test('a finished agent woken by a message (agent.spawn with resume, 2.1.299 on) goes on as it was decided: nothing is asked, and its steps keep the effort decided at its dispatch', { options: KEY }, async ($, on) => {
@@ -592,6 +595,24 @@ test('a finished agent woken by a message (agent.spawn with resume, 2.1.299 on) 
   expect(w.requests).toHaveLength(1)
   expect(w.spawned.map((s) => s.model)).toEqual(['sonnet', 'sonnet'])
   expect(w.steps.map((s) => s.effort)).toEqual(['high', 'high'])
+  // Resumed in the turn it was dispatched in, its node keeps the decision: no reason is written over it.
+  const node = (await w.board()).agents.find((one) => one.id === started.agentId)
+  expect(node).toMatchObject({ routed: true })
+  expect(node?.why).toBeUndefined()
+})
+
+test('a run resumed in a later turn is on the board with why nothing was asked: it goes on as decided at its dispatch', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: agentJev({ model: { sonnet: 1 }, effort: [0, 0, 1, 0, 0] }) })
+  await w.submit('把 getUser 改名为 fetchUser')
+  const started = await w.spawn({ prompt: 'Rename getUser to fetchUser across src/api.', description: 'Rename getUser' })
+  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-sonnet-5-5', effort: 'medium' })
+  await w.complete({ agentId: started.agentId, turnId: 'sub-1' })
+  await w.submit('web 那边也改一下')
+  const resumed = await w.spawn({ prompt: 'Do the same in src/web.', description: 'Rename getUser', model: 'sonnet', resume: { agentId: started.agentId ?? '' } })
+
+  const board = await w.board()
+  expect(board.turn).toBe(2)
+  expect(board.agents.find((node) => node.id === resumed.agentId)).toMatchObject({ routed: false, why: '续跑沿用原来的决定' })
 })
 
 test("the decision reads the person's words this turn: the message that started it and those typed during it, masked; no other prompt", { options: KEY }, async ($, on) => {
@@ -604,7 +625,7 @@ test("the decision reads the person's words this turn: the message that started 
   await w.submit('好，提交吧')
   await w.spawn({ prompt: 'Commit the change with a conventional message.' })
 
-  const words = w.requests.filter((r) => 'agent.model' in r.body.questions).map((r) => r.body.state.user_message)
+  const words = w.requests.filter((r) => 'agent.effort' in r.body.questions).map((r) => r.body.state.user_message)
   expect(words).toEqual(['把登录模块拆成三层，测试账号的 token 是 [REDACTED]\n另外，测试那部分单独派个 agent', '好，提交吧'])
 })
 
@@ -616,18 +637,17 @@ function noteOf(result: { context?: readonly string[] }): string | undefined {
   return result.context?.find((line) => line.includes('Dispatch Pilot'))
 }
 
-test("the Agent tool's result tells the main agent the model and effort its agent started with, and that its pick was overridden, with the confidence (#34)", { options: KEY }, async ($, on) => {
-  // Of three options, p 0.9 is confidence 0.85: over agentOverride 0.6.
-  const w = world($, on, { backend: agentJev({ model: { haiku: 0.05, sonnet: 0.9, opus: 0.05 }, effort: [0, 0.1, 0.8, 0.1, 0] }) })
-  const result = await w.agentTool({ prompt: 'Rename getUser to fetchUser across src/api and run `pnpm test api`.', description: 'Rename getUser', model: 'opus' })
+test("the Agent tool's result tells the main agent the model and effort its agent started with, and that its pick was raised, with the table's reading (#34)", { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: agentJev({ model: { opus: 1 }, effort: [0, 0.1, 0.8, 0.1, 0] }) })
+  const result = await w.agentTool({ prompt: 'Work out how the three services should invalidate the shared cache.', description: 'Design cache invalidation', model: 'haiku' })
 
-  expect(w.spawned.map((s) => s.model)).toEqual(['sonnet'])
+  expect(w.spawned.map((s) => s.model)).toEqual(['opus'])
   const note = noteOf(result)
-  expect(note).toContain('sonnet at effort high')
-  expect(note).toMatch(/overrode the opus you asked for.*confidence 0\.85.*0\.60/)
+  expect(note).toContain('opus at effort high')
+  expect(note).toContain('raised from the haiku you asked for: its rules read the brief as work that needs careful judgment (design_open), which gets opus')
 })
 
-test("the note says whose choice the model was: the main agent's pick kept, the user's named model, the decision model's with no pick (#34)", { options: KEY }, async ($, on) => {
+test("the note says whose choice the model was: the main agent's pick kept, the user's named model, the table's with no pick (#34)", { options: KEY }, async ($, on) => {
   const unsure = { haiku: 0.5, sonnet: 0.3, opus: 0.2 }
   const w = world($, on, {
     backend: (request) => {
@@ -647,7 +667,7 @@ test("the note says whose choice the model was: the main agent's pick kept, the 
   expect(kept).toMatch(/kept the opus you asked for/)
   expect(named).toMatch(/haiku at effort high.*the user named it/)
   expect(named).toContain('Effort: chosen by its decision model')
-  expect(decided).toMatch(/sonnet.*chosen by its decision model \(confidence 0\.85\)/)
+  expect(decided).toMatch(/sonnet.*Model: its rules read the brief as ordinary work, which gets sonnet\./)
 })
 
 test('an agent that was not routed: the note says it started as the main agent asked, and why (#34)', { options: KEY }, async ($, on) => {

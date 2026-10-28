@@ -8,7 +8,7 @@ import { expect, test } from 'claude-code/testing'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import type { Reply } from './support/world.ts'
-import { KEY } from './support/world.ts'
+import { KEY, withoutBrief } from './support/world.ts'
 import { siteJev, workflowWorld, type SiteAnswer } from './support/workflow.ts'
 
 /** Two agents in sequence, each with a label. */
@@ -37,7 +37,7 @@ test('each agent() of a submitted script is written with the model and effort de
   ])
   // One request asked about both agents, each in its own part, each brief in its own state field.
   expect(w.requests).toHaveLength(1)
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent-0.model', 'agent-0.effort', 'agent-1.model', 'agent-1.effort'])
+  expect(withoutBrief(Object.keys(w.requests[0]?.body.questions))).toEqual(['agent-0.effort', 'agent-1.effort'])
   expect(w.requests[0]?.body.state.brief_0).toEqual({
     workflow_description: 'Rename getUser to fetchUser in src/api, then review the diff',
     label: 'rename',
@@ -46,8 +46,8 @@ test('each agent() of a submitted script is written with the model and effort de
   expect(w.requests[0]?.body.state.brief_1.label).toBe('review')
   // The main agent reads what was written, per agent.
   const told = (result.context ?? []).join('\n')
-  expect(told).toContain('"rename": sonnet medium (model: decided, confidence 0.70; effort: p 0.80)')
-  expect(told).toContain('"review": opus xhigh (model: decided, confidence 0.85; effort: p 0.80)')
+  expect(told).toContain('"rename": sonnet medium (model: its rules read the brief as ordinary work, which gets sonnet; effort: p 0.80)')
+  expect(told).toContain('"review": opus xhigh (model: its rules read the brief as work that needs careful judgment (design_open), which gets opus; effort: p 0.80)')
 
   // The board has one node for each agent, before any of them starts: its label, and the log entry it came from, with the model and effort decided.
   const board = await w.board()
@@ -68,8 +68,9 @@ test('each agent() of a submitted script is written with the model and effort de
     ['workflow-agents', true, 'ok'],
   ])
   expect(board.log[1]).toMatchObject({ outcome: 'opus xhigh' })
-  expect(Math.round((board.log[1]?.conf ?? 0) * 100) / 100).toBe(0.85)
-  expect(board.log[1]?.trace?.map((step) => step.rule)).toEqual(['top', 'max-gate', 'round-up', 'model-floor'])
+  // The rules' working, the same steps a dispatched agent's take (ADR 0015): the review's open design sends it to opus.
+  expect(board.log[1]?.trace?.map((step) => step.rule)).toEqual(['lookup-signs', 'careful-signs', 'model-table', 'position', 'two-peaked', 'stakes', 'cause-unknown', 'unsure', 'model-floor'])
+  expect(board.log[1]?.trace?.[2]).toMatchObject({ rule: 'model-table', row: '3', model: 'opus', why: 'design' })
 })
 
 test("an agent sent to haiku gets its decided effort written over the script's own: Haiku 5.5 takes one", { options: KEY }, async ($, on) => {
@@ -81,25 +82,25 @@ return files
   const result = await w.workflow({ script: scan })
 
   expect(w.reached.map((r) => r.script)).toEqual([scan.replace("{ label: 'scan', effort: 'high' }", "{ label: 'scan', effort: 'xhigh', model: 'haiku' }")])
-  expect((result.context ?? []).join('\n')).toContain('"scan": haiku xhigh (model: decided, confidence 0.85; effort: p 1.00)')
+  expect((result.context ?? []).join('\n')).toContain('"scan": haiku xhigh (model: its rules read the brief as a read-only lookup of a step or two whose result is only reported (writes, few_steps, report_only), which gets haiku; effort: p 1.00)')
 })
 
-test("the model the script wrote reaches the decision model as a hint, and stands unless it is sure of another one (agentOverride, default 0.6)", { options: KEY }, async ($, on) => {
+test("the model the script wrote is in no question: it is kept unless the table's model is stronger, then raised to it, never lowered (ADR 0015)", { options: KEY }, async ($, on) => {
   const triage = `export const meta = { name: 'triage', description: 'Triage the failing checks', phases: [] }
 const failing = await agent('Run \`pnpm test\` and list the failing tests by package. Do not fix anything.', { model: 'opus', label: 'list' })
 const lint = await agent('Run \`pnpm lint\` and list the warnings by file. Do not fix anything.', { label: 'lint', model: 'claude-opus-5-5' })
 return { failing, lint }
 `
-  // Of three options, p 0.9 is confidence 0.85, p 0.5 is 0.25.
+  // The first brief reads as an open design (opus), the second as a lookup (haiku).
   const w = workflowWorld($, on, {
-    backend: siteJev((i) => (i === 0 ? { model: { haiku: 0.9, sonnet: 0.05, opus: 0.05 } } : { model: { haiku: 0.5, sonnet: 0.3, opus: 0.2 }, effort: [0, 1, 0, 0, 0] })),
+    backend: siteJev((i): SiteAnswer => (i === 0 ? { model: { opus: 1 } } : { model: { haiku: 1 }, effort: [0, 1, 0, 0, 0] })),
   })
-  await w.workflow({ script: triage })
+  await w.workflow({ script: triage.replace("{ model: 'opus', label: 'list' }", "{ model: 'haiku', label: 'list' }") })
 
-  // Jev is asked about an agent in Chinese since 1.14: the pick is the instructions' 指定.
-  expect(w.requests[0]?.body.questions['agent-0.model'].instructions['指定']).toContain('opus')
+  // No question names the script's model (ADR 0015): the table weighs it afterwards.
+  expect(JSON.stringify(w.requests[0]?.body.questions)).not.toContain('opus')
   expect(w.reached.map((r) => r.script)).toEqual([
-    triage.replace("{ model: 'opus', label: 'list' }", "{ model: 'haiku', label: 'list', effort: 'high' }").replace("model: 'claude-opus-5-5' }", "model: 'claude-opus-5-5', effort: 'medium' }"),
+    triage.replace("{ model: 'opus', label: 'list' }", "{ model: 'opus', label: 'list', effort: 'high' }").replace("model: 'claude-opus-5-5' }", "model: 'claude-opus-5-5', effort: 'medium' }"),
   ])
 })
 
@@ -140,7 +141,7 @@ return [a, b]
   const result = await w.workflow({ script: mixed })
 
   // Only the readable call was asked about; its ids keep its place in the script.
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent-1.model', 'agent-1.effort'])
+  expect(withoutBrief(Object.keys(w.requests[0]?.body.questions))).toEqual(['agent-1.effort'])
   expect(w.reached.map((r) => r.script)).toEqual([mixed.replace("{ label: 'static' }", "{ label: 'static', model: 'haiku', effort: 'high' }")])
   expect((result.context ?? []).join('\n')).toMatch(/agent\(\) at line 2: left as written \(its prompt is built when the script runs\)/)
   // The call left as written is on the board too, with why.
@@ -161,7 +162,7 @@ return verdict
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { sonnet: 1 } })) })
   const result = await w.workflow({ script: shared })
 
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['agent-1.model', 'agent-1.effort'])
+  expect(withoutBrief(Object.keys(w.requests[0]?.body.questions))).toEqual(['agent-1.effort'])
   expect(w.reached.map((r) => r.script)).toEqual([shared.replace("{ label: 'verify:all' }", "{ label: 'verify:all', model: 'sonnet', effort: 'high' }")])
   expect((result.context ?? []).join('\n')).toContain('"review:${l.key}": left as written (its prompt is built when the script runs)')
   expect((await w.board()).agents.map((node) => [node.name, node.routed, node.why])).toEqual([
@@ -232,7 +233,7 @@ return unit
 
   const sent = w.requests[1]?.body
   expect(sent?.state.user_message).toBe('把这几个检查都用 haiku 跑，省点额度')
-  expect(Object.keys(sent?.questions)).toEqual(['agent-0.model', 'agent-0.effort', 'agent-0.named.haiku', 'agent-0.banned.haiku'])
+  expect(withoutBrief(Object.keys(sent?.questions))).toEqual(['agent-0.effort', 'agent-0.named.haiku', 'agent-0.banned.haiku'])
   expect(w.reached.map((r) => r.script)).toEqual([checks.replace("model: 'sonnet' }", "model: 'haiku', effort: 'high' }")])
 })
 
@@ -262,8 +263,8 @@ return [a, b, c]
       .replace("{ label: 'billing' }", "{ label: 'billing', model: 'opus', effort: 'xhigh' }"),
   ])
   const told = (result.context ?? []).join('\n')
-  expect(told).toContain('"rename": sonnet high (model: decided, confidence 0.85; effort: you asked for it)')
-  expect(told).toContain('"billing": opus xhigh (model: decided, confidence 0.85; effort: p 0.80)')
+  expect(told).toContain('"rename": sonnet high (model: its rules read the brief as ordinary work, which gets sonnet; effort: you asked for it)')
+  expect(told).toContain('"billing": opus xhigh (model: its rules read the brief as work that needs careful judgment (design_open), which gets opus; effort: p 0.80)')
 })
 
 test("an effort the person asks for reaches a call that goes to haiku too (Haiku 5.5 takes one): it is written over the script's own, and the main agent is told it was asked for", { options: KEY }, async ($, on) => {
@@ -276,7 +277,7 @@ return files
   const result = await w.workflow({ script: scan })
 
   expect(w.reached.map((r) => r.script)).toEqual([scan.replace("{ label: 'scan', effort: 'low' }", "{ label: 'scan', effort: 'xhigh', model: 'haiku' }")])
-  expect((result.context ?? []).join('\n')).toContain('"scan": haiku xhigh (model: decided, confidence 0.85; effort: you asked for it)')
+  expect((result.context ?? []).join('\n')).toContain('"scan": haiku xhigh (model: its rules read the brief as a read-only lookup of a step or two whose result is only reported (writes, few_steps, report_only), which gets haiku; effort: you asked for it)')
   expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/你在消息里点名了 effort（xhigh）/))
 })
 
@@ -379,33 +380,34 @@ function stateTokens(state: Record<string, unknown>): number {
 
 test('a script with many agent() calls is asked about in several requests sent together (Jev answers several of a key at once: four lanes, core/agent-lane.ts), each call once under its own place in the script', { options: KEY }, async ($, on) => {
   const w = workflowWorld($, on, { backend: (request) => ({ after: 1000, reply: siteJev(() => ({ model: { sonnet: 1 } }))(request) }) })
-  const running = w.workflow({ script: manyAgents(20) })
+  const running = w.workflow({ script: manyAgents(16) })
   await w.clock.settle()
-  // Every request is out before any answer is in.
-  expect(w.requests).toHaveLength(3)
+  // Every request is out before any answer is in: four calls a request (MAX_PER_REQUEST), four lanes.
+  expect(w.requests).toHaveLength(4)
   await w.clock.advance(1000)
   await running
 
   const ids = w.requests.map((request) => Object.keys(request.body.questions))
-  expect(ids.map((list) => list.length)).toEqual([16, 16, 8])
-  expect(ids.flat().sort()).toEqual(Array.from({ length: 20 }, (_, i) => [`agent-${i}.effort`, `agent-${i}.model`]).flat().sort())
-  expect((w.reached[0]?.script ?? '').match(/\{ label: 'pkg-\d+', model: 'sonnet', effort: 'high' \}/g)).toHaveLength(20)
-  // Every one of the 20 has its own node and its own entry in the log.
+  expect(ids.map((list) => list.length)).toEqual([44, 44, 44, 44])
+  expect(withoutBrief(ids.flat()).sort()).toEqual(Array.from({ length: 16 }, (_, i) => `agent-${i}.effort`).sort())
+  expect((w.reached[0]?.script ?? '').match(/\{ label: 'pkg-\d+', model: 'sonnet', effort: 'high' \}/g)).toHaveLength(16)
+  // Every one of the 16 has its own node and its own entry in the log.
   const board = await w.board()
-  expect(board.agents).toHaveLength(20)
+  expect(board.agents).toHaveLength(16)
   expect(board.agents.every((node) => node.routed)).toBe(true)
-  expect(board.log).toHaveLength(20)
+  expect(board.log).toHaveLength(16)
   expect(board.log.every((entry) => entry.model === 'sonnet' && entry.effort === 'high')).toBe(true)
-  expect(new Set(board.agents.map((node) => node.decision)).size).toBe(20)
+  expect(new Set(board.agents.map((node) => node.decision)).size).toBe(16)
 })
 
 test("a request holds at most 64 questions: the models the person's words mention add questions to each call, so fewer calls share a request", { options: KEY }, async ($, on) => {
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { sonnet: 1 } })) })
-  // Four models mentioned: a yes/no question each for "named" and for "banned" beside the model and the effort, ten per call.
+  // Four models mentioned: a yes/no question each for "named" and for "banned" beside the ten about the brief and the
+  // effort, 19 a call: three calls to a request, not four.
   await w.submit('这周额度紧张：别用 opus 和 fable，haiku 和 sonnet 看着用')
   await w.workflow({ script: manyAgents(12) })
 
-  expect(w.requests.slice(1).map((request) => Object.keys(request.body.questions).length)).toEqual([60, 60])
+  expect(w.requests.slice(1).map((request) => Object.keys(request.body.questions).length)).toEqual([57, 57, 57, 57])
   expect((await w.board()).agents.filter((node) => node.routed)).toHaveLength(12)
 })
 
@@ -413,7 +415,8 @@ test('the agents beyond the first 24 are left as written, and the main agent is 
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { sonnet: 1 } })) })
   const result = await w.workflow({ script: manyAgents(30) })
 
-  expect(w.requests).toHaveLength(3)
+  // Six requests of four calls (MAX_REQUESTS, MAX_PER_REQUEST).
+  expect(w.requests).toHaveLength(6)
   const script = w.reached[0]?.script ?? ''
   expect(script.match(/model: 'sonnet'/g)).toHaveLength(24)
   expect(script).toContain("{ label: 'pkg-24' }")
@@ -427,16 +430,17 @@ test("a request that fails leaves only its own calls as written: the others are 
   const w = workflowWorld($, on, { backend: (request, n) => (n === 2 ? { status: 500, body: 'Internal Server Error' } : siteJev(() => ({ model: { sonnet: 1 } }))(request)) })
   await w.workflow({ script: manyAgents(20) })
 
+  // Five requests of four calls; the second (pkg-4 to pkg-7) fails.
   const script = w.reached[0]?.script ?? ''
-  expect(script.match(/model: 'sonnet'/g)).toHaveLength(12)
-  expect(script).toContain("{ label: 'pkg-8' }")
+  expect(script.match(/model: 'sonnet'/g)).toHaveLength(16)
+  expect(script).toContain("{ label: 'pkg-4' }")
   expect(script).toContain("model: 'sonnet', effort: 'high' }")
   const board = await w.board()
-  expect(board.agents.filter((node) => node.routed)).toHaveLength(12)
-  expect(board.agents.filter((node) => !node.routed).map((node) => node.why)).toEqual(Array(8).fill('jev：出错（状态码 500）'))
+  expect(board.agents.filter((node) => node.routed)).toHaveLength(16)
+  expect(board.agents.filter((node) => !node.routed).map((node) => node.why)).toEqual(Array(4).fill('jev：出错（状态码 500）'))
   expect(board.agents.find((node) => !node.routed)?.failure).toMatchObject({ backend: 'jev', kind: 'http', status: 500 })
   // Only the calls decided are in the log.
-  expect(board.log).toHaveLength(12)
+  expect(board.log).toHaveLength(16)
 })
 
 test("the state of each request stays within the context budget: long prompts are cut to an equal share each, and calls share a request while a share is at least 150 tokens", { options: { ...KEY, contextTokens: 900 } }, async ($, on) => {
@@ -531,11 +535,11 @@ test("each agent's decision is logged with its reason: in the debug log, never i
 
   expect(w.logs.length).toBeGreaterThan(0)
   expect(w.logs.every((log) => log.to === 'debug')).toBe(true)
-  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^request \[agent-0\.model, agent-0\.effort, agent-1\.model, agent-1\.effort\] to jev for workflow "tidy-api": answered in \d+ ms/))
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^request \[agent-0\.writes, .*, agent-1\.effort\] to jev for workflow "tidy-api": answered in \d+ ms/))
   const log = (await w.command('dp', 'log 10')).split('\n')
   expect(log[0]).toBe('最近 2 条决定，最新的在最后')
-  expect(log[1]).toMatch(/^#1 workflow-agents：sonnet high · "rename"（Workflow tidy-api）：已决定；选 sonnet，置信度 0\.70；effort 概率 /)
-  expect(log[2]).toMatch(/^#2 workflow-agents：opus high · "review"（Workflow tidy-api）：已决定；选 opus，置信度 0\.85；effort 概率 /)
+  expect(log[1]).toMatch(/^#1 workflow-agents：sonnet high · "rename"（Workflow tidy-api）：模型表第 5 行 → sonnet；effort 概率 /)
+  expect(log[2]).toMatch(/^#2 workflow-agents：opus high · "review"（Workflow tidy-api）：模型表第 3 行（方案未定） → opus；effort 概率 /)
 })
 
 test("the person's terms for each call are kept, before the tool runs, for the plans of the call's agents (read beneath, in the same call, by the label fallback)", { options: KEY }, async ($, on) => {
@@ -610,7 +614,7 @@ return proof
     label: 'proof',
     prompt: 'Prove that the lease-renewal protocol keeps mutual exclusion under clock drift. The test token is [REDACTED].',
   })
-  expect(Object.keys(sent.questions['agent-0.model'].criteria)).toEqual(['haiku', 'sonnet', 'opus', 'fable'])
+  expect(Object.keys(sent.questions)).toContain('agent-0.frontier')
   expect(w.reached.map((r) => r.script)).toEqual([careful.replace("agentType: 'general-purpose' }", "agentType: 'general-purpose', model: 'fable', effort: 'max' }")])
 })
 
@@ -663,14 +667,14 @@ for (const failure of failures) {
   })
 }
 
-test('no key of either kind: nothing is sent, the script goes through as written, and the board says to set the Perplexity key', async ($, on) => {
+test('no key of either kind: nothing is sent, the script goes through as written, and the board says to set the TypeSafe key', async ($, on) => {
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 1 } })) })
   await w.workflow({ script: TIDY })
 
   expect(w.requests).toHaveLength(0)
   expect(w.reached.map((r) => r.script)).toEqual([TIDY])
   expect((await w.board()).agents.map((node) => [node.name, node.routed, node.why, node.failure?.kind])).toEqual([
-    ['rename', false, 'pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY', 'config'],
-    ['review', false, 'pplx：没有填 perplexityApiKey 或 PERPLEXITY_API_KEY', 'config'],
+    ['rename', false, 'jev：没有填 typesafeApiKey 或 TYPESAFE_API_KEY', 'config'],
+    ['review', false, 'jev：没有填 typesafeApiKey 或 TYPESAFE_API_KEY', 'config'],
   ])
 })

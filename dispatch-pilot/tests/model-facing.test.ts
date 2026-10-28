@@ -30,8 +30,8 @@ test('the note the main agent reads after a rewritten Workflow is English, with 
   expect(told).toBe(
     [
       "Dispatch Pilot (the user's routing plugin) decided a model and an effort for each agent() call of this Workflow and wrote them into the script before it ran:",
-      '- "rename": sonnet medium (model: decided, confidence 0.70; effort: p 0.80)',
-      '- "review": opus xhigh (model: decided, confidence 0.85; effort: p 0.80)',
+      '- "rename": sonnet medium (model: its rules read the brief as ordinary work, which gets sonnet; effort: p 0.80)',
+      '- "review": opus xhigh (model: its rules read the brief as work that needs careful judgment (design_open), which gets opus; effort: p 0.80)',
       'The script file named above holds these changes. To change one, edit its model or effort there and run that file with scriptPath.',
     ].join('\n'),
   )
@@ -72,31 +72,35 @@ test('why a Workflow call was left as written, and why a call got its model and 
   expect(leftText({ kind: 'left', reason: 'capped' }, describe)).toBe('the script has more agent() calls than are asked about')
   expect(leftText({ kind: 'left', reason: 'failed' }, describe)).toBe('no answer from the decision model')
   expect(leftText({ kind: 'left', reason: 'failed', failure: { kind: 'busy', status: 503, detail: 'HTTP 503' } }, describe)).toBe('jev: busy (HTTP 503)')
-  const decision = { source: 'user', pick: null, effort: 'high', effortSource: 'user', reading: null, model: 'opus' } as unknown as Parameters<typeof whyOf>[0]
+  const decision = { source: 'user', table: null, requested: null, effort: 'high', effortSource: 'user', reading: null, model: 'opus' } as unknown as Parameters<typeof whyOf>[0]
   expect(whyOf(decision)).toBe('model: you asked for it; effort: you asked for it')
 })
 
 test("the note beside a dispatched agent's Agent tool result is English, word for word (#34)", () => {
-  const decided: DispatchDecision = { model: 'sonnet', effort: 'high', source: 'decided', pick: { model: 'sonnet', confidence: 0.85 }, banned: [], reading: null, answered: true, effortSource: 'decided', trace: null }
+  const opus = { row: '3' as const, wanted: 'opus' as const, model: 'opus' as const, why: ['cause_unknown' as const] }
+  const haiku = { row: '4' as const, wanted: 'haiku' as const, model: 'haiku' as const, why: ['writes' as const, 'few_steps' as const, 'report_only' as const] }
+  const decided: DispatchDecision = { model: 'opus', effort: 'high', source: 'table', table: opus, route: null, requested: null, banned: [], signs: {}, reading: null, answered: true, namedEffort: null, effortSource: 'decided', steps: [] }
   const failure: Failure = { kind: 'http', detail: 'HTTP 500', status: 500 }
-  const routed = (decision: DispatchDecision, started: string, requested: 'haiku' | 'sonnet' | 'opus' | null) => dispatchNote({ routed: true, decision, started, requested, thetaOverride: 0.6 })
-  const policy = " This is the user's routing policy: only a model the user names in their message is never changed."
+  const routed = (decision: DispatchDecision, started: string, requested: 'haiku' | 'sonnet' | 'opus' | null) => dispatchNote({ routed: true, decision, started, requested })
+  const policy = " This is the user's routing policy: a model the user names is used as named, and a model you ask for is kept unless the work calls for a stronger one."
   expect([
-    routed(decided, 'claude-sonnet-5-5', 'opus'),
-    routed({ ...decided, banned: ['opus'] }, 'claude-sonnet-5-5', 'opus'),
-    routed(decided, 'claude-sonnet-5-5', null),
-    routed({ ...decided, source: 'requested', model: 'opus', effort: 'medium', pick: { model: 'sonnet', confidence: 0.4 }, liftedFrom: 'low' }, 'opus', 'opus'),
-    routed({ ...decided, source: 'requested', model: 'opus' }, 'opus', 'opus'),
-    routed({ ...decided, source: 'user', model: 'haiku', effort: 'low' }, 'haiku', null),
-    routed({ ...decided, source: 'none', model: null, pick: null, effort: null, effortSource: 'none' }, 'claude-opus-5-5', null),
+    routed({ ...decided, requested: { model: 'sonnet', outcome: 'upgraded' } }, 'claude-opus-5-5', 'sonnet'),
+    routed({ ...decided, model: 'sonnet', banned: ['opus'], table: { ...opus, model: 'sonnet' } }, 'claude-sonnet-5-5', 'opus'),
+    routed(decided, 'claude-opus-5-5', null),
+    routed({ ...decided, source: 'requested', model: 'opus', effort: 'medium', table: haiku, requested: { model: 'opus', outcome: 'kept' }, lifted: { from: 'low', by: 'model-floor' } }, 'opus', 'opus'),
+    routed({ ...decided, source: 'requested', requested: { model: 'opus', outcome: 'kept' } }, 'opus', 'opus'),
+    routed({ ...decided, effort: 'xhigh', lifted: { from: 'medium', by: 'cause-unknown' } }, 'opus', null),
+    routed({ ...decided, source: 'user', model: 'haiku', effort: 'low', table: { row: '1', wanted: 'haiku', model: 'haiku', why: [] } }, 'haiku', null),
+    routed({ ...decided, source: 'none', model: null, table: null, effort: null, effortSource: 'none' }, 'claude-opus-5-5', null),
     dispatchNote({ routed: false, started: 'claude-sonnet-5-5', why: { failure, backend: 'jev' } }),
     dispatchNote({ routed: false, started: 'opus', why: 'off' }),
   ]).toEqual([
-    "Dispatch Pilot (the user's routing plugin) started this agent on sonnet at effort high. Model: overrode the opus you asked for: its decision model chose sonnet at confidence 0.85, over the 0.60 it takes to override you. Effort: chosen by its decision model." + policy,
-    "Dispatch Pilot (the user's routing plugin) started this agent on sonnet at effort high. Model: the user ruled out the opus you asked for, so its decision model chose sonnet among the others (confidence 0.85). Effort: chosen by its decision model." + policy,
-    "Dispatch Pilot (the user's routing plugin) started this agent on sonnet at effort high. Model: chosen by its decision model (confidence 0.85). Effort: chosen by its decision model." + policy,
-    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort medium. Model: kept the opus you asked for (its decision model leaned to sonnet at confidence 0.40, under the 0.60 it takes to override you). Effort: low lifted to medium, the floor for opus." + policy,
-    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort high. Model: kept the opus you asked for (its decision model leaned to sonnet at confidence 0.85, but it judged the opus you asked for fits the work). Effort: chosen by its decision model." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort high. Model: raised from the sonnet you asked for: its rules read the brief as work that needs careful judgment (cause_unknown), which gets opus. Effort: chosen by its decision model." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on sonnet at effort high. Model: the user ruled out the opus you asked for; its rules read the brief as work that needs careful judgment (cause_unknown), which gets opus; the user ruled opus out, so sonnet. Effort: chosen by its decision model." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort high. Model: its rules read the brief as work that needs careful judgment (cause_unknown), which gets opus. Effort: chosen by its decision model." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort medium. Model: kept the opus you asked for (its rules read the brief as a read-only lookup of a step or two whose result is only reported (writes, few_steps, report_only), which gets haiku, which is not stronger). Effort: low lifted to medium, as the floor for opus." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort high. Model: kept the opus you asked for. Effort: chosen by its decision model." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort xhigh. Model: its rules read the brief as work that needs careful judgment (cause_unknown), which gets opus. Effort: medium lifted to xhigh, as the work includes finding a cause nobody has named." + policy,
     "Dispatch Pilot (the user's routing plugin) started this agent on haiku at effort low. Model: the user named it. Effort: chosen by its decision model." + policy,
     "Dispatch Pilot (the user's routing plugin) started this agent on opus. Model: the engine's. Effort: the session's." + policy,
     "Dispatch Pilot (the user's routing plugin) did not route this agent (jev: HTTP 500): it started as you asked, on sonnet, at the session's effort.",

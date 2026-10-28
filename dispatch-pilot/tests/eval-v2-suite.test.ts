@@ -5,7 +5,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
-import { renderSummary, type Summary } from '../hooks/decision/summary.ts'
+import { summaryState, type Summary } from '../hooks/decision/summary.ts'
 import type { V2Record, V2Turn } from '../eval/lib/eval-v2.ts'
 import { flowItem, type FlowFile, type FlowItem } from '../eval/lib/eval-v2-flow.ts'
 import { evalV2Suite, v2Item, type FinalGold, type V2EvalItem } from '../eval/lib/eval-v2-suite.ts'
@@ -109,7 +109,7 @@ function fourItems() {
   return { items, net }
 }
 
-test('the answer is the effort, scored against the final gold: acceptable, exact, too high or too low; the three-way question is a part of its own, scored against triage_final', async () => {
+test('the answer is the effort, scored against the final gold: acceptable, exact, too high or too low; what the Nouls say of the problem is a part of its own, scored against triage_final', async () => {
   const { items, net } = fourItems()
   const rows = await run(items, net, ['zh-score'])
   expect(rows.map((r) => `${r.id}: ${r.shown}${r.correct ? ' right' : ` ${r.miss}`}${r.exact ? ' exact' : ''}, triage ${r.parts?.triage ? 'right' : 'wrong'}`)).toEqual([
@@ -118,8 +118,8 @@ test('the answer is the effort, scored against the final gold: acceptable, exact
     'single-attempt-01: high / new under, triage right',
     'new-topic-01: medium / unresolved right exact, triage right',
   ])
-  // Each answer keeps the probabilities it was decided from, to decide again offline at other thresholds.
-  expect(rows[0]?.detail).toMatchObject({ p: MAX, triageP: { unresolved: 0.7, resolved: 0.2, new: 0.1 }, triageChange: 'add' })
+  // Each answer keeps the probabilities it was decided from, the Nouls' answers and what they did to the count.
+  expect(rows[0]?.detail).toMatchObject({ p: MAX, unresolved: STILL, triage: 'unresolved', triageChange: 'add', lifted: null })
 })
 
 test('the figures of a variant: the recall of max, too high and too low, each split by bin, by relation and by both, and the three-way question', async () => {
@@ -152,20 +152,6 @@ test('the figures of a variant: the recall of max, too high and too low, each sp
   expect(b.seen).toEqual({ all: 1, any: 1 })
 })
 
-test('what other thresholds for max would have given, from the probabilities kept', async () => {
-  const items = [item('explicit-unresolved-01'), item('explicit-unresolved-02'), item('resolved-01', () => {}, 2000, (g) => ((g.effort = 'high'), (g.accept = ['high', 'xhigh'])))]
-  // xhigh and max at 0.45 each: max at a thetaMax of 0.4, xhigh at 0.5.
-  const near = [0, 0, 0.1, 0.45, 0.45]
-  const net = network((body) => answers(body, String(body.state.user_message).startsWith('explicit-unresolved-01') ? MAX : near))
-  const suite = evalV2Suite()
-  const settings = settingsFrom({ decisionModel: 'jev' })
-  const rows = await run(items, net, ['zh-score'], settings, suite)
-  const b = summarize(suite, items, rows, { slowMs: 1500, settings }).variants[0]?.breakdown as any
-  const at = (theta: number) => b.thetaMax.find((row: any) => row.thetaMax === theta)
-  expect(at(0.5)).toEqual({ thetaMax: 0.5, accuracy: 1, topRecall: 0.5, falseMax: 0 })
-  expect(at(0.4)).toEqual({ thetaMax: 0.4, accuracy: 0.6667, topRecall: 1, falseMax: 1 })
-})
-
 test('a state that does not reach the decisive rounds says so: 24000 tokens do not hold rounds 30000 back, 48000 with the messages lifted do', async () => {
   const deep = item('explicit-unresolved-01', (r) => (r.bin = 'd2'), 30000)
   const reader = () => network((body) => answers(body, String(body.state.recent_context).includes('DECISIVE') ? MAX : HIGH))
@@ -184,7 +170,7 @@ function flowFile(items: Record<string, FlowItem>): FlowFile {
     suite: 'eval-v2-flow',
     about: 'test',
     backend: { name: 'jev', model: JEV_MODEL, answeredBy: [JEV_MODEL] },
-    settings: { language: 'zh', stateTokens: 24000, stateMessages: 32, thresholds: { add: 0.5, reset: 0.7 }, maxAfter: 3 },
+    settings: { language: 'zh', stateTokens: 24000, stateMessages: 32, thresholds: { yes: 0.7, no: 0.3 }, maxAfter: 3 },
     summarizer: { model: 'haiku', says: null, answeredBy: [], how: 'test', asked: 0, failed: 0, cached: 0 },
     dataset: { sha256: 'test', items: Object.keys(items).length },
     items,
@@ -200,26 +186,25 @@ async function flowOf(one: V2EvalItem) {
   return { item, bodies: net.bodies }
 }
 
-test('a flow variant carries what the flow file says the last message\'s request carried: the count, the summary, and the strong hint once the count reached unresolvedMaxAfter; it is the flow\'s own request for that message', async () => {
+test('a flow variant carries what the flow file says the last message\'s request carried: the count and the summary; it is the flow\'s own request for that message', async () => {
   const one = item('explicit-unresolved-01')
   const flow = await flowOf(one)
-  // Every message read as unresolved: p1, d1, d2, m1 make the count 4 by the last message, past the 3 the hint starts at.
-  expect(flow.item.final).toMatchObject({ count: 4, hint: true })
+  // Every message read as still failing: p1, d1, d2, m1 make the count 4 by the last message.
+  expect(flow.item.final).toMatchObject({ count: 4 })
   const net = network((body) => answers(body, MAX))
   const rows = await run([one], net, ['zh-flow', 'zh-score'], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }), evalV2Suite(flowFile({ [one.id]: flow.item })))
   const [withFlow, plain] = net.bodies
   expect(withFlow).toEqual(flow.bodies.at(-1))
   expect(withFlow.state.unresolved_count).toBe(4)
-  expect(withFlow.state.problem_summary).toBe(renderSummary(flow.item.final?.summary as Summary, 'zh'))
-  expect(Object.keys(withFlow.questions['effort.level_unsolved'].instructions)).toContain('未解决')
-  expect(Object.keys(withFlow.questions['effort.level'].instructions)).not.toContain('未解决')
+  expect(withFlow.state.problem_summary).toEqual(summaryState(flow.item.final?.summary as Summary))
+  // The count and the summary are facts of the state: the questions are the plain variant's.
+  expect(withFlow.questions).toEqual(plain.questions)
   expect(Object.keys(plain.state)).toEqual(['user_message', 'recent_context'])
-  // Every message read as unresolved, so the hinted answer is the one the row's level comes from.
-  expect(rows[0]?.detail).toMatchObject({ count: 4, hint: true, hintUsed: true })
+  expect(rows[0]?.detail).toMatchObject({ count: 4, summary: true })
   const suite = evalV2Suite(flowFile({ [one.id]: flow.item }))
   const figures = summarize(suite, [one], rows, { slowMs: 1500, settings: settingsFrom({ decisionModel: 'jev' }) }).variants.map((v) => (v.breakdown as any).carried)
-  // The flow variant's requests: how many had a count, the hint, a summary; the plain variant carries none of it.
-  expect(figures).toEqual([{ items: 1, counted: 1, hinted: 1, summarized: 1 }, null])
+  // The flow variant's requests: how many had a count, a summary; the plain variant carries none of it.
+  expect(figures).toEqual([{ items: 1, counted: 1, summarized: 1 }, null])
 })
 
 test('a flow variant with no flow file, without the item in it, with a flow of another conversation or one not finished is not asked: nothing is made up', async () => {
@@ -241,8 +226,9 @@ test("a flow variant's request is the mod's request for the last message with th
   const summary = flow.item.final?.summary as Summary
   const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(one.turns.slice(0, -1)), seed: { unresolved: { count: 4, summary: { ...summary, turn: 't9' } } } })
   await w.submit(one.turns.at(-1)?.text ?? '')
+  // `en-flow`: the mod asks in English (ADR 0014).
   const net = network((body) => answers(body, MAX))
-  await run([one], net, ['zh-flow'], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }), evalV2Suite(flowFile({ [one.id]: flow.item })))
+  await run([one], net, ['en-flow'], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }), evalV2Suite(flowFile({ [one.id]: flow.item })))
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: net.bodies[0].state, questions: net.bodies[0].questions })
 })
 
@@ -252,45 +238,8 @@ test("an item's request is the mod's request for its last message after the conv
   await w.submit(one.turns.at(-1)?.text ?? '')
 
   const net = network((body) => answers(body, [0, 0, 0.2, 0.7, 0.1]))
-  await run([one], net, ['zh-score'], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }))
+  await run([one], net, ['en-score'], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }))
   expect(w.requests).toHaveLength(1)
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: net.bodies[0].state, questions: net.bodies[0].questions })
   expect(String(net.bodies[0].state.recent_context)).toContain('DECISIVE')
-})
-
-// With the switch off (the default, #48) the mod asks `effort.level` alone, and the `-alone` variants ask just that: the
-// request an installation that never turned the switch on sends. (The other variants ask the three-way question, as the mod
-// does with the switch on.)
-test("the `-alone` variants send the request the mod sends with the switch off: the effort question only, no three-way question, nothing but the message and the conversation in the state", { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
-  const one = item('explicit-unresolved-01')
-  const w = world($, on, { backend: jev([0, 0, 0.2, 0.7, 0.1]), messages: transcript(one.turns.slice(0, -1)) })
-  await w.submit(one.turns.at(-1)?.text ?? '')
-
-  const net = network((body) => answers(body, [0, 0, 0.2, 0.7, 0.1]))
-  await run([one], net, ['zh-score-alone'], settingsFrom({ decisionModel: 'jev', typesafeApiKey: 'k' }))
-  expect(Object.keys(net.bodies[0].questions)).toEqual(['effort.level'])
-  expect(w.requests).toHaveLength(1)
-  expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: net.bodies[0].state, questions: net.bodies[0].questions })
-})
-
-test('an `-alone` variant is scored on the effort alone: no three-way answer, no part of its own, and none of the figures of that question', async () => {
-  const { items, net } = fourItems()
-  const suite = evalV2Suite()
-  const settings = settingsFrom({ decisionModel: 'jev' })
-  const rows = await run(items, net, ['en-score-alone'], settings, suite)
-  expect(rows.map((r) => `${r.id}: ${r.shown}${r.correct ? ' right' : ` ${r.miss}`}${r.exact ? ' exact' : ''}`)).toEqual([
-    'explicit-unresolved-01: max right exact',
-    'resolved-01: xhigh over',
-    'single-attempt-01: high under',
-    'new-topic-01: medium right exact',
-  ])
-  expect(rows.every((r) => r.parts === null && r.ok)).toBe(true)
-  expect(rows[0]?.detail).toMatchObject({ p: MAX })
-  expect(rows[0]?.detail).not.toHaveProperty('triage')
-  const b = summarize(suite, items, rows, { slowMs: 1500, settings }).variants[0]?.breakdown as any
-  expect(b.triage).toBeNull()
-  expect(b.byBin.d1).toMatchObject({ items: 1, accuracy: 1, triage: null })
-  expect(b.top).toEqual({ items: 2, recall: 0.5, falseMax: 0 })
-  expect(suite.questions('en-score-alone')).not.toHaveProperty('unresolved')
-  expect(suite.questions('en-score')).toHaveProperty('unresolved')
 })

@@ -7,13 +7,13 @@ import { expect, test } from 'claude-code/testing'
 import { shown } from './support/drawn.ts'
 import { jev, KEY, type Sent, UNRESOLVED_ON, world } from './support/world.ts'
 
-const STILL = { still_unresolved: 0.62, resolved: 0.05, new_or_unrelated: 0.33 }
-const SOLVED = { still_unresolved: 0.1, resolved: 0.8, new_or_unrelated: 0.1 }
-const UNSURE = { still_unresolved: 0.3, resolved: 0.4, new_or_unrelated: 0.3 }
+const STILL = { still_failing: 0.75, solved: 0.05, new_task: 0.2 }
+const SOLVED = { still_failing: 0.1, solved: 0.8, new_task: 0.1 }
+const UNSURE = { still_failing: 0.3, solved: 0.4, new_task: 0.3 }
 
-/** Jev answering the effort question as `high` and the unresolved question with the shares `said.now` holds. */
+/** Jev answering the effort question as `high` and the three Nouls about the problem with what `said.now` holds. */
 function backend(said: { now: Record<string, number> }) {
-  return (request: Sent) => jev([0.05, 0.1, 0.7, 0.1, 0.05], { shares: { 'effort.unresolved': said.now } })(request)
+  return (request: Sent) => jev([0.05, 0.1, 0.7, 0.1, 0.05], { nouls: Object.fromEntries(Object.entries(said.now).map(([id, p]) => [`effort.${id}`, p])) })(request)
 }
 
 test('a count that moves is a decision in the log, beside the effort decision; one that stays is not, and the main agent\'s node keeps the effort decision as its own', { options: KEY }, async ($, on) => {
@@ -34,15 +34,15 @@ test('a count that moves is a decision in the log, beside the effort decision; o
     { turn: 1, agent: 'main', outcome: '次数 0 → 1', tone: 'ok' },
     { turn: 3, agent: 'main', outcome: '次数 1 → 0', tone: 'ok' },
   ])
-  expect(counted[0]?.unresolved).toMatchObject({ before: 0, count: 1, change: 'add', top: 'still_unresolved', thresholds: { add: 0.5, reset: 0.7 }, conf: 0.5 })
-  expect(Number((counted[0]?.unresolved?.probs.still_unresolved ?? 0).toFixed(2))).toBe(0.62)
-  expect(counted[0]?.reason).toContain('仍未解决 62%')
-  expect(counted[0]?.reason).toContain('加一门槛 50%')
-  expect(counted[1]?.reason).toContain('已经解决 80% ≥ 清零门槛 70%')
+  expect(counted[0]?.unresolved).toMatchObject({ before: 0, count: 1, change: 'add', verdicts: { still_failing: 'yes', solved: 'no', new_task: 'no' }, thresholds: { yes: 0.7, no: 0.3 } })
+  expect(counted[0]?.unresolved?.probs.still_failing).toBe(0.75)
+  expect(counted[0]?.reason).toContain('仍未解决 75%（是）')
+  expect(counted[0]?.reason).toContain('仍未解决 ≥ 70%，次数加一')
+  expect(counted[1]?.reason).toContain('已经解决 ≥ 70%，次数清零')
   // Every answered message has its conclusion with its effort decision, moved or not: that is what the card draws.
   const efforts = log.filter((entry) => entry.feature === 'main-effort')
   expect(efforts.map((entry) => entry.unresolved?.change)).toEqual(['add', 'keep', 'reset'])
-  expect(efforts[1]?.unresolved).toMatchObject({ before: 1, count: 1, change: 'keep', top: 'resolved' })
+  expect(efforts[1]?.unresolved).toMatchObject({ before: 1, count: 1, change: 'keep', verdicts: { solved: 'band' } })
   // The node's decision is the effort's, as before: it is no entry of the count's.
   const node = (await w.board()).nodes.find((one) => one.turn === 3 && one.id === 'main')
   expect(log.find((entry) => entry.n === node?.decision)?.feature).toBe('main-effort')
@@ -65,14 +65,14 @@ test("the card of the main agent shows the count and the conclusion of this mess
 
   const ui = await w.pane()
   const card = shown(await ui.find({ key: 'pane-card-unresolved' }))
-  // The count the message left (it stayed at 2), the options' probabilities, and what that did.
+  // The count the message left (it stayed at 2), each question's probability and verdict, and what that did.
   expect(card).toContain('次数 2')
   expect(card).toContain('不变')
   const odds = shown(await ui.find({ key: 'pane-card-unresolved-odds' }))
-  expect(odds).toContain('仍未解决 30%')
-  expect(odds).toContain('已经解决 40%')
-  expect(odds).toContain('新问题或无关 30%')
-  expect(odds).toContain('都没到')
+  expect(odds).toContain('仍未解决 30%（否）')
+  expect(odds).toContain('已经解决 40%（拿不准）')
+  expect(odds).toContain('新任务 30%（否）')
+  expect(odds).toContain('都没成立')
 
   // The band says nothing more for it (story 34): not a row, not an event of the stream.
   const band = await w.band()
@@ -128,7 +128,7 @@ test('a message that leaves no answer to the question has no conclusion on its c
   await w.submit('改个错别字')
   await w.step({ index: 0 })
   const ui = await w.pane()
-  // Answered "new or unrelated" at 100%: reset at a count of 0, so nothing moved and the conclusion says so.
+  // Every Noul answered no: the count stays at 0, so nothing moved and the conclusion says so.
   expect(shown(await ui.find({ key: 'pane-card-unresolved' }))).toContain('次数 0')
   expect((await w.board()).log.filter((entry) => entry.feature === 'unresolved')).toEqual([])
 })

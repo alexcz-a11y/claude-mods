@@ -1,6 +1,6 @@
 # Dispatch Pilot 的路由逻辑：普通子 agent 与 Workflow agent
 
-本文最初对应 dispatch-pilot 0.4.1（Claude Code 2.1.296 实测），现按 0.7.0 的代码更新（Workflow agent 在派出时路由，Claude Code 2.1.300 起）；决策模型读到什么、预算多大，见第四节（ADR 0007、0009）。主 agent 自己的模型从不改变，这里只讲它派出去的 agent。
+本文最初对应 dispatch-pilot 0.4.1（Claude Code 2.1.296 实测），现按 0.7.0 的代码更新（Workflow agent 在派出时路由，Claude Code 2.1.300 起）；决策模型读到什么、预算多大，见第四节（ADR 0007、0009）。0.9.0 起模型由是非题加代码里的模型表定（ADR 0015），下面的「模型和 effort 怎么定」按它改过。主 agent 自己的模型从不改变，这里只讲它派出去的 agent。
 
 两类 agent 的根本区别：
 
@@ -34,9 +34,9 @@ sequenceDiagram
     alt fork、teammate、被唤醒的 agent（e.resume）或功能关着
         D->>E: 原样放行
     else 正常路由
-        D->>J: 一个请求：选哪个模型？每步用哪档 effort？<br/>你点名或排除了哪个模型、哪档 effort？<br/>（读任务和你的话，再读派出它的对话；同一条消息里派出的几个 agent 合进一个请求，ADR 0009）
-        J-->>D: 各选项概率
-        D->>D: decideDispatch 算出模型和 effort
+        D->>J: 一个请求：关于任务的十道是非题（改不改东西、几步、只汇报、出错代价、原因未知、方案未定、仓库外事实、科学计算；开了 agentFable 加前沿难题）<br/>每步用哪档 effort？你点名或排除了哪个模型、哪档 effort？<br/>（读任务和你的话，再读派出它的对话；同一条消息里派出的几个 agent 合进一个请求，每个请求最多 4 个，ADR 0009、0015）
+        J-->>D: 每道是非题的概率、各档概率
+        D->>D: decideDispatch 按模型表定模型，按基础档和下限定 effort
         D->>E: next(spawn)，model 改成决定的别名
         E-->>D: agentId 和实际模型
         D->>P: agents[agentId] = { effort, terms }
@@ -53,28 +53,32 @@ sequenceDiagram
 
 ### 模型和 effort 怎么定（decideDispatch）
 
+是非题 ≥ 0.7 算是、≤ 0.3 算否，中间拿不准（TypeSafe 的起点）；你点名、排除的模型和点名的 effort 也按 0.7 算。
+
 ```mermaid
 flowchart TD
-    A["决策模型的回答"] --> B{"你在消息里<br/>点名了模型？"}
+    A["决策模型的回答"] --> B{"① 你在消息里<br/>点名了模型？"}
     B -- 是 --> M1["用你点名的模型"]
-    B -- 否 --> C{"主 agent 指定了模型？"}
-    C -- 否 --> M2["用决策模型选的<br/>（排除的模型不选）"]
-    C -- 是 --> D{"决策模型选了别的，<br/>且置信度 ≥ agentOverride（0.6）？"}
-    D -- 是 --> M2
-    D -- 否 --> M3["保留主 agent 的指定<br/>（被你排除时除外）"]
+    B -- 否 --> T{"模型表，第一条成立的定模型<br/>② 开了 agentFable 且前沿难题是 → fable<br/>③ 出错代价、原因未知、方案未定、仓库外事实、科学计算任一为是 → opus<br/>③b 这七题任一拿不准 → sonnet，effort 至少 max<br/>④ 不改东西、一两步、只汇报 → haiku<br/>⑤ 其余 → sonnet"}
+    T --> X{"表给的被你排除了？"}
+    X -- 是 --> N["换最近的可用模型<br/>先往强的找，没有再往弱的找"]
+    X -- 否 --> C
+    N --> C{"主 agent 指定了模型<br/>（你没排除它）？"}
+    C -- 否 --> M2["用表给的"]
+    C -->|是，表给的更强| M3["升级到表给的"]
+    C -->|是，表给的不比它强| M4["保留主 agent 的指定（只升不降）"]
 
     M1 --> E
     M2 --> E
     M3 --> E
+    M4 --> E
     E{"你在消息里<br/>点名了 effort？"}
-    E -- 是 --> F1["用你点名的 effort<br/>（不受下限影响）"]
-    E -- 否 --> F2["决策模型的 effort<br/>（往上取一档、max 门槛）"]
-    F2 --> G{"低于模型下限？<br/>sonnet / opus 至少 medium"}
-    G -- 是 --> F3["抬到下限"]
-    G -- 否 --> F4["照用"]
+    E -- 是 --> F1["用你点名的 effort<br/>（不受任何下限影响）"]
+    E -- 否 --> F2["基础档：各档概率的加权位置四舍五入，双峰再高一档"]
+    F2 --> G["按下限抬，只抬不压，取最高：<br/>出错代价（max / xhigh / high）、原因未知（xhigh / high）<br/>表停在 ③b（max）、模型下限（sonnet、opus 至少 medium）"]
 ```
 
-haiku（Haiku 5.5）和其他模型一样带 effort，没有下限。
+haiku（Haiku 5.5）和其他模型一样带 effort，没有模型下限。
 
 ### 请求失败时
 
@@ -170,15 +174,14 @@ gantt
 flowchart LR
     A["每一步 turn.step"] --> B["核心 planStep：<br/>模型 = 计划的，没有就用引擎的<br/>effort = 点名的 > 计划的（抬到下限）> 引擎的"]
     B --> C["看板记下这一步实际发出的模型和 effort"]
-    A --> D{"工具调用失败累计<br/>达到 escalateAfter？"}
-    D -- 否 --> A
-    D -- 是 --> E["再问决策模型：失败是预期内的吗？"]
-    E -- 预期内 --> A
-    E -- 不是 --> F{"effort 已经到顶？"}
-    F -- 否 --> G["effort 升一档<br/>（escalateMode: max 则直接到 max）"]
-    F -- "是，且是 haiku agent" --> H["改用 escalateHaikuTo（默认 sonnet）"]
-    F -- "是，其他模型" --> I["保持，记一条决定"]
+    T["工具调用结束"] --> D{"计入的失败累计<br/>达到 escalateAfter？"}
+    D -- 否 --> T
+    D -- 是 --> F{"能升吗？<br/>没点名模型、没到 escalateLimit、<br/>往上还有没被排除的模型"}
+    F -- 能 --> G["计划的模型升一档，下一步起生效：<br/>haiku → escalateHaikuTo（默认 sonnet）<br/>sonnet → opus → fable（要 agentFable）<br/>effort 不变，不问决策模型"]
+    F -- 不能 --> I["保持，记一条决定写明原因"]
 ```
+
+0.9.0 起（ADR 0013）失败到门槛不再问决策模型「是不是预期内的」，也不升 effort（2.1.312 起一轮中途改 effort 不生效），只换模型。
 
 看板上：依据面板里的「模型」是**决定**，agent 行上的模型是**实际发出的**。两者不一致说明决定没生效，以 agent 行为准。
 

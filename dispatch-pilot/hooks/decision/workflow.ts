@@ -23,14 +23,16 @@ import {
   dispatchReason,
   dispatchState,
   dispatchWords,
+  floorWhy,
   modelFamily,
+  rulesWhy,
   type Dispatch,
   type DispatchDecision,
   type DispatchSettings,
 } from './dispatched-agent.ts'
-import { EFFORTS, type Language } from './effort.ts'
+import { EFFORTS } from './effort.ts'
 import { redactSecrets } from './redact.ts'
-import { renderSummary, type Summary } from './summary.ts'
+import { summaryState, type Summary, type SummaryState } from './summary.ts'
 import { answersFor, MAX_QUESTIONS, mergeParts, type DecisionRequest, type Part, type State } from './system-one.ts'
 import { entriesOf, templatePieces, type AgentCall, type CallWrite, type ParsedWorkflow } from './workflow-script.ts'
 
@@ -80,10 +82,13 @@ export function tellsTheWork(prompt: string | null, template = false): prompt is
 
 /** At most this many calls of a script are asked about. */
 const MAX_CALLS = 24
-/** At most this many calls share one request: every question reads the whole state, so each brief added to it dilutes the others (guide §2.1 S5, S6). */
-export const MAX_PER_REQUEST = 8
-/** At most this many requests are sent for one script, one lane at a time (core/agent-lane.ts). */
-const MAX_REQUESTS = 4
+/**
+ * At most this many calls share one request: every question reads the whole state, so each brief added to it dilutes the
+ * others (guide §2.1 S5, S6), and an agent takes 12 questions (13 with fable; ADR 0015) of the 64 a request holds.
+ */
+export const MAX_PER_REQUEST = 4
+/** At most this many requests are sent for one script, one lane at a time (core/agent-lane.ts): MAX_CALLS at MAX_PER_REQUEST each. */
+const MAX_REQUESTS = 6
 
 /** The most a hook waits for requests about agents in all: the hook has 10 seconds, and what follows them must still fit. */
 export const BATCHES_BUDGET_MS = 8000
@@ -102,8 +107,8 @@ export type WorkflowBackground = {
   script?: string | null
   /** The conversation the Workflow was launched from (`recent_context`), oldest first, a line per message (context.ts `recentLines`). */
   recent?: readonly string[]
-  /** The problem summary and the unresolved count, as a dispatched agent's request carries them: background, never a hint (#41). */
-  problem_summary?: string
+  /** The problem summary (named fields, decision/summary.ts `summaryState`) and the unresolved count, as a dispatched agent's request carries them: background, never a rule. */
+  problem_summary?: SummaryState
   unresolved_count?: number
   /** What the latest reference images of the session read as (#64): text only, in every request as `reference_complexity`, the same for every call. */
   reference_complexity?: ReferenceReading
@@ -121,13 +126,13 @@ export function problemFields(held: ProblemBackground | undefined): ProblemBackg
 }
 
 /**
- * The problem part of the background from the stored count and summary (`$.state` `unresolved`, #41): the summary worded for
- * the decision model, and the count while the person has said "still unresolved" at all. `held`: undefined while the
- * unresolved switch is off or nothing is stored.
+ * The problem part of the background from the stored count and summary (`$.state` `unresolved`): the summary with its named
+ * fields while `summaryOn` (its switch), and the count while the person has said "still failing" at all. `held`: undefined
+ * while nothing is stored.
  */
-export function problemBackground(held: { count: number; summary?: Summary } | undefined, language: Language): ProblemBackground {
+export function problemBackground(held: { count: number; summary?: Summary } | undefined, summaryOn: boolean): ProblemBackground {
   return problemFields({
-    ...(held?.summary === undefined ? {} : { problem_summary: renderSummary(held.summary, language) }),
+    ...(held?.summary === undefined || !summaryOn ? {} : { problem_summary: summaryState(held.summary) }),
     ...(held === undefined ? {} : { unresolved_count: held.count }),
   })
 }
@@ -402,8 +407,8 @@ export function callResult(call: AgentCall, decision: DispatchDecision): string 
 }
 
 /** Why a call is routed as it is, for the person (`dispatchReason`, a kept model being the script's). */
-export function reasonOf(decision: DispatchDecision, requested: string | null, thetaOverride: number): string {
-  return dispatchReason(decision, requested, thetaOverride, '脚本指定的')
+export function reasonOf(decision: DispatchDecision, requested: string | null): string {
+  return dispatchReason(decision, requested, '脚本指定的')
 }
 
 type Left = Extract<CallOutcome, { kind: 'left' }>
@@ -442,18 +447,18 @@ export function whyOf(decision: DispatchDecision): string {
     decision.source === 'user'
       ? 'model: you asked for it'
       : decision.source === 'requested'
-        ? "model: the script's own kept"
-        : decision.pick === null
+        ? "model: the script's own kept, never lowered"
+        : rulesWhy(decision) === null
           ? ''
-          : `model: decided, confidence ${decision.pick.confidence.toFixed(2)}`
+          : `model: ${rulesWhy(decision)}${decision.requested?.outcome === 'upgraded' ? `, raised from the script's ${decision.requested.model}` : ''}`
   const level = decision.effort === null ? -1 : EFFORTS.indexOf(decision.effort)
   const effort =
     decision.effort === null
       ? ''
       : decision.effortSource === 'user'
         ? 'effort: you asked for it'
-        : decision.liftedFrom !== undefined
-          ? `effort: ${decision.liftedFrom} lifted to ${decision.effort}, the floor for ${decision.model ?? 'its model'}`
+        : decision.lifted !== undefined
+          ? `effort: ${decision.lifted.from} lifted to ${decision.effort}, as ${floorWhy(decision.lifted.by, decision.model ?? 'its model')}`
           : decision.reading === null
             ? ''
             : `effort: p ${(decision.reading.probabilities[level] ?? 0).toFixed(2)}`

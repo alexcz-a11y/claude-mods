@@ -1,13 +1,11 @@
-// find_skill (#12): mid-turn, the main agent asks for the skills that fit a
-// piece of work. Seam 1: the engine's session start and tool call in; what
-// reaches the decision backend, the tool's answer, the board data and the
-// logs out; a failed call is a note on the board.
+// find_skill (#12, ADR 0018): mid-turn, the main agent asks for the skills
+// that fit a piece of work. Seam 1: the engine's session start and tool call
+// in; what reaches the decision backend, the tool's answer, the board data and
+// the logs out; a failed call is a note on the board.
 
 import { expect, test } from 'claude-code/testing'
-import { profileKey } from '../hooks/core/profiles.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
-import { offered, profileOf } from './support/skill-profiles.ts'
-import { isSecondSkillsRequest, jev, KEY, pplx, rates, type SkillsWorld, UNRESOLVED_ON, world } from './support/world.ts'
+import { isSecondSkillsRequest, jev, KEY, OWN_EFFORT, pplx, rates, type SkillsWorld, UNRESOLVED_ON, world } from './support/world.ts'
 
 // A session's skills as Claude Code reports them: three the main agent can
 // load (one synced from claude.ai), one only the person can start.
@@ -34,8 +32,16 @@ const REVIEW_DESCRIPTION = 'Review the changes since a fixed point along two axe
 const SKILL_TOOL_LINE = 'Carry on without it, or load a skill you know with the Skill tool by its exact name.'
 
 // Jev's answers come from `rates(shares, fits)` (support/world.ts): the first
-// request's shares of the skills question, then the second request's fit of
-// each skill re-read (#11: the fit is the relevance that comes back).
+// request's shares of the skills Choice, then the second request's fit of each
+// skill re-read (the fit is the relevance that comes back). find_skill asks no
+// gate: the main agent has asked for a skill.
+
+/** The questions of a second request that re-reads `n` skills the main agent can load: the Choice over them (two or more) and a yes/no each. */
+function reread(n: number): string[] {
+  return [...(n >= 2 ? ['skills.which'] : []), ...Array.from({ length: n }, (_, i) => `skills.fits.${i}`)]
+}
+/** A message's stage one over SKILLS: the Choice over the three the main agent can load (grill-me alone has no Choice) and the gate. */
+const MESSAGE_FIRST = ['skills.which', 'skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices']
 
 // ---- Registration -------------------------------------------------------------
 
@@ -104,27 +110,29 @@ test('the decision model reads the work the main agent names and the recent conv
   const w = world($, on, { backend: rates({ 'anthropic-skills:pdf': 0.9, '(none)': 0.1 }, { 'anthropic-skills:pdf': 0.9 }), skills: SKILLS, disk: PERSON_FILES, messages })
   await w.findSkill('fill in a form in a PDF')
 
+  // No gate: the main agent has asked for a skill.
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(['skills.which'])
   expect(w.requests[0]?.body.state).toEqual({
     user_message: 'fill in a form in a PDF',
     recent_context: 'user: 把这份合同 PDF 里的表格填好，再发给我\nassistant: [tools: Read, mcp__dispatch-pilot__find_skill] 先看看文件。',
   })
-  // The skill rated in the first request is re-read in a second (#11), about the same work and conversation.
+  // The skills rated in the first request are re-read in a second, as many as may come back (findSkillMax 5: all three here),
+  // about the same work and conversation.
   expect(w.requests).toHaveLength(2)
-  expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['skills.fits.0'])
+  expect(Object.keys(w.requests[1]?.body.questions)).toEqual(reread(3))
   expect(w.requests[1]?.body.state).toEqual(w.requests[0]?.body.state)
 })
 
-test('find_skill asks the very question a message asks about the skills the main agent can load: the same skills in the same order, in the same words; the question on those only the person can start it leaves out', { options: KEY }, async ($, on) => {
+test('find_skill asks the very Choice a message asks about the skills the main agent can load: the same skills in the same order, in the same words; the gate it leaves out', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, disk: PERSON_FILES })
   await w.submit('先把合同里的表格填好')
   await w.findSkill('fill in a form in a PDF')
 
-  // The message's effort request and its skills request, then the call's.
-  expect(w.requests).toHaveLength(3)
-  expect(Object.keys(w.requests[1]?.body.questions)).toEqual(['skills.which', 'skills.hint'])
+  // The message's effort request and its skills request (its gate said no: no second), then the call's two.
+  expect(w.requests).toHaveLength(4)
+  expect(Object.keys(w.requests[1]?.body.questions)).toEqual(MESSAGE_FIRST)
   const beside = w.requests[1]?.body.questions['skills.which']
-  expect(Object.keys(beside.criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:pdf', '(none)'])
+  expect(Object.keys(beside.criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:pdf'])
   expect(w.requests[2]?.body.questions).toEqual({ 'skills.which': beside })
 })
 
@@ -136,8 +144,8 @@ test('find_skill speaks only when called: the steps around the call ask nothing 
   await w.step({ index: 1 })
   await w.step({ index: 2 })
 
-  // The message's three requests (effort, skills, the skills' second stage), then the call's two: none for the steps.
-  expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([['effort.level', 'effort.unresolved'], ['skills.which', 'skills.hint'], ['skills.fits.0'], ['skills.which'], ['skills.fits.0']])
+  // The message's three requests (effort, skills, the skills' second stage: its three and grill-me), then the call's two: none for the steps.
+  expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([OWN_EFFORT, MESSAGE_FIRST, reread(4), ['skills.which'], reread(3)])
   expect(answer.context).toBeUndefined()
 })
 
@@ -155,10 +163,10 @@ test('findSkillMax caps how many skills come back, the most relevant first', { o
   expect(answer).not.toContain('tdd')
 })
 
-test('findSkillMinRelevance is the relevance a skill needs to come back', { options: { ...KEY, findSkillMinRelevance: 0.4 } }, async ($, on) => {
-  const w = world($, on, { backend: rates({ 'anthropic-skills:pdf': 0.45, 'code-review': 0.35, '(none)': 0.2 }, { 'anthropic-skills:pdf': 0.45, 'code-review': 0.35 }), skills: SKILLS, disk: PERSON_FILES })
+test("a skill comes back when its fit reaches the decision model's bar: with Jev the cookbook's 0.30", { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ 'anthropic-skills:pdf': 0.45, 'code-review': 0.35, '(none)': 0.2 }, { 'anthropic-skills:pdf': 0.3, 'code-review': 0.29 }), skills: SKILLS, disk: PERSON_FILES })
   const answer = String((await w.findSkill('fill in a form in a PDF')).result)
-  expect(answer).toContain('\n- anthropic-skills:pdf (relevance 0.45): ')
+  expect(answer).toContain('\n- anthropic-skills:pdf (relevance 0.30): ')
   expect(answer).not.toContain('code-review')
 })
 
@@ -166,7 +174,7 @@ test('when no skill reaches the bar the answer says so, and still points at the 
   const w = world($, on, { backend: rates({ tdd: 0.06, '(none)': 0.94 }, { tdd: 0.04 }), skills: SKILLS, disk: PERSON_FILES })
   const answer = await w.findSkill('rename a variable')
   expect(answer.result).toBe(
-    'No skill fits "rename a variable": none reached relevance 0.50. Carry on without one, try other words for the work, or load a skill you know with the Skill tool by its exact name.',
+    'No skill fits "rename a variable": none reached relevance ≥ 0.30. Carry on without one, try other words for the work, or load a skill you know with the Skill tool by its exact name.',
   )
 })
 
@@ -192,7 +200,7 @@ test('a skill only the person can start is neither asked about nor returned to t
 test('skills named in skillsNeverSuggested are neither asked about nor returned', { options: { ...KEY, skillsNeverSuggested: ['code-review', 'grill-me'] } }, async ($, on) => {
   const w = world($, on, { backend: rates({ 'code-review': 0.8, '(none)': 0.2 }), skills: SKILLS, disk: PERSON_FILES })
   const answer = String((await w.findSkill('review a branch before merging')).result)
-  expect(Object.keys(w.requests[0]?.body.questions['skills.which'].criteria)).toEqual(['tdd', 'anthropic-skills:pdf', '(none)'])
+  expect(Object.keys(w.requests[0]?.body.questions['skills.which'].criteria)).toEqual(['tdd', 'anthropic-skills:pdf'])
   expect(answer).not.toContain('code-review')
 })
 
@@ -222,7 +230,7 @@ test('find_skill has a switch of its own: with the suggestions off since an earl
   await w.start()
   const answer = String((await w.findSkill('write the tests first')).result)
 
-  expect(Object.keys(w.requests[0]?.body.questions['skills.which'].criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:pdf', '(none)'])
+  expect(Object.keys(w.requests[0]?.body.questions['skills.which'].criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:pdf'])
   expect(answer).toContain('\n- tdd (relevance 0.80): ')
 })
 
@@ -302,24 +310,6 @@ for (const chosen of WAITS) {
   })
 }
 
-/** The store as an earlier session left it: a profile of each skill the main agent can load (none has a SKILL.md here: each was written from its description). */
-function storedProfiles(): Record<string, unknown> {
-  const skills = [
-    { name: 'tdd', description: SKILLS.commands[0]?.description ?? '' },
-    { name: 'code-review', description: REVIEW_DESCRIPTION },
-    { name: 'anthropic-skills:pdf', description: PDF_DESCRIPTION },
-  ]
-  return Object.fromEntries(skills.map((skill) => [profileKey(skill, null, 'haiku'), { name: skill.name, at: 1, profile: profileOf(skill.name) }]))
-}
-
-test("with Jev, find_skill's first request offers each skill by its profile, as a message's does; the second re-reads it by its profile too", { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 }), skills: SKILLS, disk: PERSON_FILES, store: storedProfiles() })
-  await w.findSkill('write the tests first')
-
-  expect(w.requests[0]?.body.questions['skills.which'].criteria.tdd).toEqual(offered('tdd'))
-  expect(w.requests[1]?.body.questions['skills.fits.0'].instructions.skill).toMatchObject(offered('tdd'))
-})
-
 test('an answer that leaves the skills question out is a failure too', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: () => ({ status: 200, body: { model: JEV_MODEL, answers: {} } }), skills: SKILLS, disk: PERSON_FILES })
   const answer = await w.findSkill('write the tests first')
@@ -382,12 +372,12 @@ test('each call goes to the debug log (its requests, what it returned and why) a
   await w.findSkill('fill in a form in a PDF')
   await w.findSkill('review a branch before merging')
 
-  // What each stage said: the first request's shares of the skills it put forward, the second's fits.
+  // What each stage said: the first request's shares of the skills it put forward, the second's fits against the bar.
   const decision =
-    '查到 anthropic-skills:pdf、code-review · "fill in a form in a PDF"：第一段 anthropic-skills:pdf 0.70、code-review 0.20、都不合适 0.08；第二段相关度 anthropic-skills:pdf 0.93、code-review 0.61；相关度 0.50 起返回，最多 5 个'
+    '查到 anthropic-skills:pdf、code-review · "fill in a form in a PDF"：第一段 anthropic-skills:pdf 0.76、code-review 0.22、tdd 0.02；第二段相关度 anthropic-skills:pdf 0.93、code-review 0.61、tdd 0.00（≥ 0.30 才返回）；最多返回 5 个'
   expect(w.logs).toEqual([
     { text: `request [skills.which] to jev for find_skill "fill in a form in a PDF": answered in 0 ms by ${JEV_MODEL} (300 input tokens)`, to: 'debug' },
-    { text: `second request [skills.best, skills.fits.0, skills.fits.1] to jev for find_skill "fill in a form in a PDF": answered in 0 ms by ${JEV_MODEL} (300 input tokens)`, to: 'debug' },
+    { text: `second request [${reread(3).join(', ')}] to jev for find_skill "fill in a form in a PDF": answered in 0 ms by ${JEV_MODEL} (300 input tokens)`, to: 'debug' },
     { text: decision, to: 'debug' },
     { text: 'request [skills.which] to jev for find_skill "review a branch before merging": http: HTTP 500: boom (0 ms)', to: 'debug' },
   ])

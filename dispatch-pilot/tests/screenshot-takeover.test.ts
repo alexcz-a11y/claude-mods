@@ -6,7 +6,7 @@
 import { expect, test } from 'claude-code/testing'
 import { jev, KEY, world } from './support/world.ts'
 
-const OPTIONS = { ...KEY, rejudgeEvery: 0 }
+const OPTIONS = KEY
 const ON = { 'screenshot-takeover': true }
 const SHOT = '/shots/home.png'
 const IMAGE = { format: 'png', width: 1200, height: 800 }

@@ -8,7 +8,7 @@ import { expect, test } from 'claude-code/testing'
 import { base64, readFake, screenshotContent } from './support/images.ts'
 import { jev, KEY, world } from './support/world.ts'
 
-const OPTIONS = { ...KEY, rejudgeEvery: 0 }
+const OPTIONS = KEY
 const ON = { 'screenshot-takeover': true }
 const TOOL = 'mcp__chrome-devtools__take_screenshot'
 const PAGE = { format: 'png', width: 1440, height: 900, label: 'the page as the browser tool drew it' }

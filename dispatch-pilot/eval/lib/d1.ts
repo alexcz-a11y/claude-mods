@@ -1,29 +1,18 @@
-// d1-ultra, Liquid AI's decision model (released 2026-10-15): the same System One request and answers as Jev's
-// (`{model, state, questions}` in, `answers` with each level's probability and `usage.input_tokens` out), at Liquid's
-// endpoint with a Liquid key. For the eval only (DEVELOPMENT.md 「d1-ultra 核验」): the mod has no such backend, and a run
-// on it reads Jev's row of the defaults (its questions, thresholds and budgets), so the requests are the ones Jev is asked.
-// No images (Liquid takes them in a top-level `images` array, not Jev's `assets`) and no long-context header (it has none).
+// d1-ultra, Liquid AI's decision model, as the eval's `--backend d1` asks it (DEVELOPMENT.md 「d1-ultra 核验」, 2026-10-16): the
+// mod's own backend (hooks/decision/liquid.ts), named `d1` as those runs were. Such a run reads Jev's row of the defaults (its
+// questions, thresholds and budgets), so its requests are the ones Jev is asked; it is not the mod's d1-ultra (ADR 0017), whose
+// answers are read by Liquid's guide and whose agents are routed by one Choice. That one has no eval: the person's choice.
 //
 // Pure: the network is handed in.
 
-import { postJson, readPosted, withoutKey, type Backend } from '../../hooks/decision/backend.ts'
+import type { Backend } from '../../hooks/decision/backend.ts'
+import { liquidBackend, LIQUID_MODEL, LIQUID_URL } from '../../hooks/decision/liquid.ts'
 
-export const D1_URL = 'https://api.liquid.ai/decisions/v1/systemone'
-export const D1_MODEL = 'd1-ultra'
+export const D1_URL = LIQUID_URL
+export const D1_MODEL = LIQUID_MODEL
 /** Input price per million tokens; output is free (liquid.ai/pricing, 2026-10-15). */
 export const D1_PRICE = 0.042
 
 export function d1Backend(apiKey: string, options: { url?: string; model?: string } = {}): Backend {
-  const url = options.url ?? D1_URL
-  const model = options.model ?? D1_MODEL
-  return {
-    name: 'd1',
-    configured: apiKey !== '',
-    async ask(io, request, timeoutMs) {
-      if (!apiKey) return { ok: false, failure: { kind: 'config', detail: 'no Liquid API key: set LIQUID_API_KEY' } }
-      if ((request.images ?? []).length > 0) return { ok: false, failure: { kind: 'request', detail: 'the eval sends d1 no images' } }
-      const posted = await postJson(io, url, { authorization: `Bearer ${apiKey}` }, { model, state: request.state, questions: request.questions }, timeoutMs)
-      return withoutKey(readPosted(posted), apiKey)
-    },
-  }
+  return liquidBackend(apiKey, { ...options, name: 'd1' })
 }

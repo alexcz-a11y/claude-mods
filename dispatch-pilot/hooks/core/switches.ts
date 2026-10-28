@@ -2,9 +2,9 @@
 // The person flips them with `/dp` (features/control.ts); the core and the
 // features read them here. A feature registers its switch in its register:
 //
-//   defineSwitch({ name: 'midturn-effort', info: "re-decides the main agent's effort while a turn runs", parts: ['midturn'] })
+//   defineSwitch({ name: 'escalation', info: 'a failing agent goes on as a stronger model', parts: ['counts'] })
 //
-// and asks `isOn('midturn-effort')` where it would act (DEVELOPMENT.md, 开发).
+// and asks `isOn('escalation')` where it would act (DEVELOPMENT.md, 开发).
 // The screens ask the same as they draw: a feature that is off leaves its
 // decisions and the board parts it owns off the band and the footer.
 //
@@ -14,10 +14,9 @@
 
 /**
  * The parts of the agents' nodes on the board a feature writes, beside its decisions in the log (which are its
- * own by its name): `midturn`, the main agent's mid-turn re-decisions; `counts`, a loop's failed calls and forced raises;
- * `checks`, a loop's visual_check verdicts.
+ * own by its name): `counts`, a loop's failed calls and model step-ups; `checks`, a loop's visual_check verdicts.
  */
-export type BoardPart = 'midturn' | 'counts' | 'checks'
+export type BoardPart = 'counts' | 'checks'
 
 export type SwitchSpec = {
   /** What the person types in `/dp <name> on|off`: lowercase letters, digits and `-`, starting with a letter. */

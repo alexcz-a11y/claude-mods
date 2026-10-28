@@ -1,24 +1,19 @@
-// How the engine's tool calls ended, as the hooks saw them end: shared by the
-// features that read a loop's steps (the mid-turn re-decision #5, the forced
-// raise #7), so each call is told apart once.
+// Which of the engine's tool calls a PreToolUse settings hook refused, for the
+// escalation feature (#7), which tells a call's ending apart once
+// (decision/escalation.ts `outcomeOf`).
 //
 // A PreToolUse settings hook's refusal reaches `tool.call` as any error would,
 // its reason the text, so the core notes the calls such a hook refused
 // (`noteBlocked`, from its classic.PreToolUse hook, beneath every feature's
-// tool.call). The forced raise notes how each call ended (`noteEnded`): a
-// transcript read the moment a call ends does not hold its result yet.
+// tool.call).
 //
-// Pure module state, the latest calls only: lost on a hot reload (a call that
-// ended before it then reads as the transcript has it).
-
-import { keepNewest } from '../decision/keep-newest.ts'
-import type { Outcome } from '../decision/midturn.ts'
+// Pure module state, the latest calls only: lost on a hot reload (a call
+// refused before it then reads as a failure).
 
 /** At most this many calls are remembered, the oldest dropped first. */
 const MAX_CALLS = 256
 
 const blockedIds = new Set<string>()
-const endings = new Map<string, Exclude<Outcome, 'running'>>()
 
 /** Remembers that a PreToolUse settings hook refused the call `id`. */
 export function noteBlocked(id: string): void {
@@ -32,16 +27,4 @@ export function noteBlocked(id: string): void {
 /** Whether a PreToolUse settings hook refused the call `id`. */
 export function wasBlocked(id: string): boolean {
   return blockedIds.has(id)
-}
-
-/** Remembers how the call `id` ended. */
-export function noteEnded(id: string, outcome: Exclude<Outcome, 'running'>): void {
-  endings.delete(id)
-  endings.set(id, outcome)
-  keepNewest(endings, MAX_CALLS)
-}
-
-/** How the call `id` ended, when it was seen ending. */
-export function endedAs(id: string): Exclude<Outcome, 'running'> | undefined {
-  return endings.get(id)
 }

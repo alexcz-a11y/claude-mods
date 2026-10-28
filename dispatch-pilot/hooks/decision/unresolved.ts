@@ -1,193 +1,130 @@
-// The unresolved-count question the decision model answers about each message
-// of the person's, and how its answer moves the count (#36, #39; GLOSSARY 未解决次数).
+// The questions about the problem the person and the main agent are on, asked of each of the person's messages, and how
+// their answers move the unresolved count (#36, #39; GLOSSARY 未解决次数; ADR 0014).
 //
-// Pure (see system-one.ts): the mod and the eval import it as it is. The
-// question is one more Choice in the main agent's effort part (`effort.unresolved`),
-// so it goes in the effort request and reads that request's state: `user_message`
-// and the `recent_context` the effort request's budget holds. It is written to TypeSafe's guide for
-// Choice (docs/research/typesafe-question-guide.md §2.4): each option is a
-// situation, the instructions name the state fields they read and hold the whole
-// question, and the options keep one fixed order (guide C5: jev-1.13 leans toward
-// the first one, so the order is set here and checked in the eval).
-//
-// The count is only a basis for the decision model's effort judgment, never a rule
-// (ADR 0005): this module says how a reading changes the count, nothing about effort.
+// Pure (see system-one.ts): the mod and the eval import it as it is. Three yes/no questions (Nouls) in the main agent's
+// effort part, so they read that request's state: does the message say the earlier attempt failed, does it say the problem
+// is solved, does it turn to another task. They were one Choice; a message can say two of them at once ("still broken, and
+// also do X"), and TypeSafe's guide asks for a Noul per statement when more than one can be true. Only the person's own
+// words count. The code decides what the answers do to the count (here) and to the effort (decision/message-effort.ts, R4 and R5).
 
-import { LEVEL, type Language } from './effort.ts'
+import type { Language } from './effort.ts'
+import { TYPESAFE_GUIDE, type NoulBars } from './guides.ts'
+import { readNoul, verdictOf, type Verdict } from './nouls.ts'
 import type { Answer, Part, Question } from './system-one.ts'
 
-/** The question's id inside the effort part: `effort.unresolved` in the request. */
-export const UNRESOLVED = 'unresolved'
-
-/**
- * What `user_message` says of the problem the person and the assistant were on, in the order the options are asked:
- * the problem is still there, it is solved, or it is another one. The first is the one a lean toward the first
- * option costs least: a count one too high is made up at the next message, a count lost is not (clearing needs
- * more certainty, below).
- */
-export const UNRESOLVED_OPTIONS = ['still_unresolved', 'resolved', 'new_or_unrelated'] as const
+/** The questions' ids inside the effort part: `effort.still_failing`, `effort.solved`, `effort.new_task`. */
+export const STILL_FAILING = 'still_failing'
+export const SOLVED = 'solved'
+export const NEW_TASK = 'new_task'
+export const UNRESOLVED_OPTIONS = [STILL_FAILING, SOLVED, NEW_TASK] as const
 export type UnresolvedOption = (typeof UNRESOLVED_OPTIONS)[number]
 
-/** The instructions and the option descriptions, in the language the question is asked in. */
-const WORDS: Record<Language, { instructions: Readonly<Record<string, string>>; options: Record<UnresolvedOption, string> }> = {
+type Words = { question: string; yes: string; no: string }
+
+/** The questions' words, in the language they are asked in; `results` is said once, on each. */
+const WORDS: Record<Language, { results: string; questions: Record<UnresolvedOption, Words> }> = {
   en: {
-    instructions: {
-      question: 'What does `user_message` say about the problem the person and the assistant were last working on at the end of `recent_context`?',
-      results: 'Only the person\'s own words say whether that problem is solved. What the assistant said about its own work, such as "fixed" or "should work now", is not a result.',
-    },
-    options: {
-      still_unresolved:
-        'The person says that what was tried for that problem did not work, or that it still happens: the same error again, the same wrong behaviour, a request to look at the same problem once more, or a pasted error that is the one from before.',
-      resolved: 'The person says that problem is solved or accepts the result: it works now, thanks, looks good, or a request to commit, push or wrap up what was done for it.',
-      new_or_unrelated:
-        'The person turns to a different problem or task, asks something that has nothing to do with that problem, or `recent_context` holds no earlier problem to speak of.',
+    results: 'Only the person\'s own words count. What the assistant said about its own work, such as "fixed" or "should work now", is not a result.',
+    questions: {
+      [STILL_FAILING]: {
+        question: 'Does `user_message` say that what was tried for the problem the person and the assistant were last working on, at the end of `recent_context`, did not work, or that the problem still happens?',
+        yes: 'The person says the earlier attempt did not work or the problem is still there: the same error again, the same wrong behaviour, a request to look at the same problem once more, or a pasted error that is the one from before.',
+        no: 'The person does not say the earlier attempt failed: they accept it, ask for something else, or `recent_context` holds no earlier problem.',
+      },
+      [SOLVED]: {
+        question: 'Does `user_message` say that the problem the person and the assistant were last working on, at the end of `recent_context`, is solved, or accept the result?',
+        yes: 'The person says the problem is solved or accepts the result: it works now, thanks, looks good, or a request to commit, push or wrap up what was done for it.',
+        no: 'The person does not say the problem is solved and does not accept a result: they only agree to a plan or tell the assistant to go ahead or continue ("ok, do it", "continue", "选 2"), which is not the problem solved, or they say nothing of it.',
+      },
+      [NEW_TASK]: {
+        question: 'Does `user_message` turn to a different problem or task than the one the person and the assistant were last working on at the end of `recent_context`?',
+        yes: 'The person turns to another problem or task, asks something that has nothing to do with that problem, or `recent_context` holds no earlier problem to speak of.',
+        no: 'The person stays with the same problem or task.',
+      },
     },
   },
   zh: {
-    instructions: {
-      问题: '`user_message` 对 `recent_context` 末尾用户和助手最近在处理的那个问题说了什么？',
-      结果: '那个问题解没解决，只看用户自己的话。助手对自己的工作说的“已修复”“应该可以了”不算结果。',
-    },
-    options: {
-      still_unresolved: '用户说为那个问题试过的做法没有用，或者说问题还在：同样的报错又出现了、同样的错误行为、让再看一遍同一个问题，或者贴出的报错就是之前那个。',
-      resolved: '用户说那个问题已经解决，或接受了结果：现在好了、谢谢、可以了，或者让提交、推送、收尾。',
-      new_or_unrelated: '用户转到另一个问题或任务，问的和那个问题毫无关系，或者 `recent_context` 里没有更早的问题可言。',
+    results: '只看用户自己的话。助手对自己的工作说的“已修复”“应该可以了”不算结果。',
+    questions: {
+      [STILL_FAILING]: {
+        question: '`user_message` 是否在说：为 `recent_context` 末尾用户和助手最近在处理的那个问题试过的做法没有用，或者问题还在？',
+        yes: '用户说之前的尝试没有用、问题还在：同样的报错又出现了、同样的错误行为、让再看一遍同一个问题，或者贴出的报错就是之前那个。',
+        no: '用户没说之前的尝试失败：他接受了结果、要做别的事，或者 `recent_context` 里没有更早的问题。',
+      },
+      [SOLVED]: {
+        question: '`user_message` 是否在说 `recent_context` 末尾用户和助手最近在处理的那个问题已经解决，或接受了结果？',
+        yes: '用户说那个问题已经解决，或接受了结果：现在好了、谢谢、可以了，或者让提交、推送、收尾。',
+        no: '用户没说问题已经解决，也没接受结果：只是同意某个方案、让助手照做或继续（「好，就这么做」「继续」「选 2」），这不算问题已经解决；或者根本没提这件事。',
+      },
+      [NEW_TASK]: {
+        question: '`user_message` 是否转到了和 `recent_context` 末尾用户和助手最近在处理的问题不同的另一个问题或任务？',
+        yes: '用户转到另一个问题或任务，问的和那个问题毫无关系，或者 `recent_context` 里没有更早的问题可言。',
+        no: '用户还在说同一个问题或任务。',
+      },
     },
   },
 }
 
-/** The question, asked in `language`. */
-function unresolvedQuestion(language: Language): Question {
-  const { instructions, options } = WORDS[language]
-  return { type: 'choice', instructions, criteria: options }
+/** The three questions, by id, asked in `language`. */
+export function unresolvedQuestions(language: Language): Record<UnresolvedOption, Question> {
+  const { results, questions } = WORDS[language]
+  const key = language === 'zh' ? { question: '问题', results: '结果' } : { question: 'question', results: 'results' }
+  return Object.fromEntries(
+    UNRESOLVED_OPTIONS.map((id) => [id, { type: 'noul', instructions: { [key.question]: questions[id].question, [key.results]: results }, criteria: { true: questions[id].yes, false: questions[id].no } }]),
+  ) as Record<UnresolvedOption, Question>
 }
 
-/** The effort part with the unresolved question added to it (the part keeps its name: the question goes in the effort request). */
+/** The effort part with the three questions added to it (the part keeps its name: they go in the effort request). */
 export function withUnresolved(part: Part, language: Language): Part {
-  return { ...part, questions: { ...part.questions, [UNRESOLVED]: unresolvedQuestion(language) } }
+  return { ...part, questions: { ...part.questions, ...unresolvedQuestions(language) } }
 }
 
-/** The count's field in the state of a request that carries it (beside `problem_summary`); present from the first "still unresolved" on. */
+/** The count's field in the state of a request that carries it (beside `problem_summary`); present from the first "still failing" on. */
 export const COUNT_FIELD = 'unresolved_count'
 
-/**
- * Whether a count calls for the strong hint: it has reached `maxAfter` (the setting; 0 for never). Only a hint (ADR 0005):
- * what it does to the effort is the decision model's to say.
- */
-export function givesHint(count: number, maxAfter: number): boolean {
-  return maxAfter > 0 && count >= maxAfter
+/** Each question's probability of yes; null where its answer is missing. */
+export type UnresolvedReading = { probabilities: Readonly<Record<UnresolvedOption, number | null>> }
+
+/** The three answers among a part's (by the part's own ids). Null when none of them came back. */
+export function readUnresolved(answers: Readonly<Record<string, Answer>>): UnresolvedReading | null {
+  const probabilities = Object.fromEntries(UNRESOLVED_OPTIONS.map((id) => [id, readNoul(answers[id])])) as Record<UnresolvedOption, number | null>
+  return UNRESOLVED_OPTIONS.every((id) => probabilities[id] === null) ? null : { probabilities }
 }
 
 /**
- * The strong hint, as one more instruction of an effort question: this work belongs to a problem that several attempts
- * did not solve, which is the situation the top level's description names. It names that situation in the description's
- * own words, never a level and never a number; the decision model weighs it with the rest. The key is in the language of
- * the instructions.
- *
- * `rate`: the effort questions' own instruction on what to rate (the work the message asks for, not how important its
- * topic sounds) gets a sentence more: the work of an unsolved failure is rated as that failure, not as the step the message
- * names. Without it the two instructions pulled apart and Jev rated the step: on a real session (2026-10-16, DEVELOPMENT.md
- * 「强提示（#41）」) the hint alone moved the top level's probability from 0-1% to 1-3%. With it Jev leans to the top level
- * on nearly every hinted request, whatever the message asks; a softer wording ("still rate a simple step as simple") took
- * the top level below what the old hint gave. So at a message the hinted question is asked beside the plain one and its
- * answer is used only when the same request's three-way question says the problem is still unresolved (`HINTED`).
+ * The bars a Noul is held to: the decision model's guide (decision/guides.ts). `inclusive` false: Liquid's, a probability must
+ * pass a bar; absent (a record an earlier version kept) reads as TypeSafe's, on a bar counts.
  */
-const HINT: Record<Language, { key: string; text: string; rateKey: string; rate: string }> = {
-  en: {
-    key: 'unsolved',
-    text: 'This work belongs to a failure that several earlier attempts have not solved: `unresolved_count` is how many times the person has said it is still not solved, and `problem_summary` (when there is one) and `recent_context` show what was tried. This is the situation the criteria describe as "a failure that resisted earlier attempts".',
-    rateKey: 'rate',
-    rate: 'But when this work belongs to a failure that several attempts have not solved (see `unsolved`), rate how hard that failure is as a whole, not the one step the message literally asks for.',
-  },
-  zh: {
-    key: '未解决',
-    text: '这项工作属于多次尝试都没解决的故障：`unresolved_count` 是用户已经说过“仍未解决”的次数，`problem_summary`（有的话）和对话记着试过什么。这正是评分标准里“之前多次尝试都没解决的故障”所说的情形。',
-    rateKey: '评什么',
-    rate: '但如果这项工作属于多次尝试都没解决的故障（见 `未解决`），按这个故障整体的难度来评，而不是这条消息字面上要做的那一步。',
-  },
-}
-
-/**
- * The id of the hinted effort question asked beside the plain one at a message (`effort.level_unsolved`): the plain
- * question stays as it is, so a message that turns out solved or about something else is decided as without the hint.
- */
-export const HINTED = 'level_unsolved'
-
-/** An effort question with the strong hint, and its instruction on what to rate (in its place) told how to rate an unsolved failure. */
-function hinted(level: Question, language: Language): Question {
-  // The effort questions' instructions are always an object (see effort.ts); anything else is left as it is.
-  if (typeof level.instructions !== 'object' || Array.isArray(level.instructions)) return level
-  const { key, text, rateKey, rate } = HINT[language]
-  const own = level.instructions as Readonly<Record<string, unknown>>
-  const rated = typeof own[rateKey] === 'string' ? { ...own, [rateKey]: `${own[rateKey] as string}${language === 'zh' ? '' : ' '}${rate}` } : own
-  return { ...level, instructions: { ...rated, [key]: text } } as Question
-}
-
-/**
- * The part with the strong hint. `beside` (a message's effort part, which asks the three-way question too): the hinted
- * question is added as `HINTED` and `LEVEL` stays as it is. Otherwise (a mid-turn re-decision, asked once the message has
- * been judged still unresolved) `LEVEL` itself carries the hint.
- */
-export function withHint(part: Part, language: Language, options: { beside?: boolean } = {}): Part {
-  const level = part.questions[LEVEL]
-  if (level === undefined) return part
-  const question = hinted(level, language)
-  if (question === level) return part
-  return { ...part, questions: { ...part.questions, [options.beside === true ? HINTED : LEVEL]: question } }
-}
-
-/** Whether a message's hinted effort answer is the one to use: the request asked it and its three-way answer added one to the count. */
-export function usesHinted(change: UnresolvedChange | null): boolean {
-  return change === 'add'
-}
-
-/** The probability of each option (three numbers summing to 1) and the backend's confidence. */
-export type UnresolvedReading = { probabilities: Readonly<Record<UnresolvedOption, number>>; confidence: number | null }
-
-/**
- * The options' probabilities an answer gives, normalized (backends round them). Null when the answer is missing, not a
- * Choice, or puts no probability on any of the three options.
- */
-export function readUnresolved(answer: Answer | undefined): UnresolvedReading | null {
-  if (answer === undefined || answer.type !== 'choice') return null
-  const raw = UNRESOLVED_OPTIONS.map((option) => answer.probabilities[option] ?? 0)
-  const sum = raw.reduce((a, b) => a + b, 0)
-  if (!(sum > 0)) return null
-  const [still, resolved, other] = raw.map((p) => p / sum) as [number, number, number]
-  return { probabilities: { still_unresolved: still, resolved, new_or_unrelated: other }, confidence: answer.confidence }
-}
-
-/**
- * The two bars an answer has to reach (probability of the option, after normalizing). Adding takes less certainty than
- * clearing: a message that was not about the problem costs one count at worst, a clear that was wrong loses the record
- * of several tries (story 9). Their sum is over 1, so one answer never meets both and the order they are checked in
- * decides nothing. Provisional: #6 sets them from the eval's `unresolved` dataset and writes the reason here.
- */
-export type UnresolvedThresholds = { add: number; reset: number }
-export const UNRESOLVED_THRESHOLDS: UnresolvedThresholds = { add: 0.5, reset: 0.7 }
+export type UnresolvedThresholds = { yes: number; no: number; inclusive?: boolean }
+/** TypeSafe's bars, Jev's and pplx's. */
+export const UNRESOLVED_THRESHOLDS: UnresolvedThresholds = { yes: TYPESAFE_GUIDE.noul.yes, no: TYPESAFE_GUIDE.noul.no, inclusive: true }
 
 /** What a reading does to the count: one more, back to nothing, or nothing. */
 export type UnresolvedChange = 'add' | 'reset' | 'keep'
 
-/** A reading judged: what it does to the count, the option it leaned to most, and the bars it was held to (the log keeps all of it). */
+/** A reading judged: what it does to the count, each question's verdict and probability, the bars (the log keeps all of it). */
 export type UnresolvedJudgement = {
   change: UnresolvedChange
-  top: UnresolvedOption
-  probabilities: Readonly<Record<UnresolvedOption, number>>
-  confidence: number | null
+  verdicts: Readonly<Record<UnresolvedOption, Verdict>>
+  probabilities: Readonly<Record<UnresolvedOption, number | null>>
   thresholds: UnresolvedThresholds
 }
 
 /**
- * "Still unresolved" at the lower bar adds one; "resolved" or "new or unrelated", each on its own, at the higher bar
- * clears; any other answer leaves the count as it is. Ties for the top go to the earlier option.
+ * still_failing yes: one more. Else solved yes, or new_task yes with still_failing no: back to nothing. Anything else (the
+ * band, or answers missing) leaves the count as it is: a count lost is worse than one left standing for a message. A message
+ * that only agrees or goes on (decision/asks.ts `confirm`) moves nothing by itself: `solved`'s criteria say it is no solution.
+ * Read at `bars` (TypeSafe's unless given).
  */
-export function judgeUnresolved(reading: UnresolvedReading, thresholds: UnresolvedThresholds = UNRESOLVED_THRESHOLDS): UnresolvedJudgement {
-  const p = reading.probabilities
-  const top = UNRESOLVED_OPTIONS.reduce((best, option) => (p[option] > p[best] ? option : best), UNRESOLVED_OPTIONS[0])
+export function judgeUnresolved(reading: UnresolvedReading, bars: NoulBars = TYPESAFE_GUIDE.noul): UnresolvedJudgement {
+  const verdict = (id: UnresolvedOption): Verdict => {
+    const p = reading.probabilities[id]
+    return p === null ? 'band' : verdictOf(p, bars)
+  }
+  const verdicts = { [STILL_FAILING]: verdict(STILL_FAILING), [SOLVED]: verdict(SOLVED), [NEW_TASK]: verdict(NEW_TASK) } as Record<UnresolvedOption, Verdict>
   const change: UnresolvedChange =
-    p.still_unresolved >= thresholds.add ? 'add' : p.resolved >= thresholds.reset || p.new_or_unrelated >= thresholds.reset ? 'reset' : 'keep'
-  return { change, top, probabilities: p, confidence: reading.confidence, thresholds }
+    verdicts[STILL_FAILING] === 'yes' ? 'add' : verdicts[SOLVED] === 'yes' || (verdicts[NEW_TASK] === 'yes' && verdicts[STILL_FAILING] === 'no') ? 'reset' : 'keep'
+  return { change, verdicts, probabilities: reading.probabilities, thresholds: { yes: bars.yes, no: bars.no, inclusive: bars.inclusive } }
 }
 
 /** The count after a change. */

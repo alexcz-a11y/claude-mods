@@ -2,7 +2,8 @@
 // item the record the mod would hold at the end of the deep conversation, written turn by turn by the same cheap model (haiku) from
 // the mod's own prompt and read the mod's own way (decision/summary.ts: SUMMARY_SYSTEM, summaryPrompt, readSummary), with the
 // person's messages moving the record as the dataset's `says` have it (lib/long-summaries.ts). The suite then asks with the
-// summary, the count and the strong hint, so the flow is the same in every run (a summary is not written twice the same way).
+// summary and the count, so the flow is the same in every run (a summary is not written twice the same way). The summaries
+// written before 0.9.0 are Chinese, from the old prompt: `--force` writes them all again in the new format (English, ADR 0014).
 //
 //   node dispatch-pilot/eval/long-context-summaries.ts --estimate    how many items need writing and how many calls that is; nothing is asked
 //   node dispatch-pilot/eval/long-context-summaries.ts               writes the missing ones; keeps those written for the same conversation
@@ -11,7 +12,7 @@
 // --force (write again those already written), --model haiku (the mod's summaryModel).
 //
 // `$.model.complete` exists only inside Claude Code, so each turn is one `claude -p` on the person's own login (their
-// subscription), as bare as the CLI allows, as eval/profiles.ts does it: the system prompt is SUMMARY_SYSTEM alone, no tools, no
+// subscription), as bare as the CLI allows (eval/node.ts claudeComplete): the system prompt is SUMMARY_SYSTEM alone, no tools, no
 // thinking, no user or project settings, safe mode, no MCP, in an empty directory. The mod's own call also cuts the reply at 1000
 // tokens (`maxTokens`); here the reply is read whole and then cut to the record's 500 tokens by `readSummary`, as the mod does.
 

@@ -77,7 +77,7 @@ export function resultFile(path: string): string | undefined {
 export function datasetFile(nameOrPath: string): { kind: Kind; path: string } {
   const path = nameOrPath.endsWith('.jsonl') ? resolve(nameOrPath) : join(DATASETS_DIR, `${nameOrPath}.jsonl`)
   const kind = basename(path, '.jsonl')
-  if (!isKind(kind)) throw new Error(`${basename(path)}: a dataset file is named after its kind (effort-submit, effort-midturn, subagent, skill, unresolved, long-context, visual-check)`)
+  if (!isKind(kind)) throw new Error(`${basename(path)}: a dataset file is named after its kind (effort-submit, subagent, skill, unresolved, long-context, visual-check)`)
   return { kind, path }
 }
 
@@ -292,8 +292,8 @@ export function scriptDecision(assignments: readonly string[] = []): { settings:
  * One completion through `claude -p` on the person's own login, as bare as the CLI allows (`$.model.complete` exists only inside
  * Claude Code): `systemFile` is the whole system prompt, no tools, no thinking, safe mode, no MCP, `settings` (a JSON text) over
  * the project's, `cwd` an empty directory, `prompt` on stdin. The reply's text and the models `claude -p` reports, or why there is none
- * (an error, no answer in a minute). Used by eval-v2-flow.ts, long-context-summaries.ts and profiles.ts, which write the cheap model's
- * summaries and profiles the way the mod's calls read them.
+ * (an error, no answer in a minute). Used by eval-v2-flow.ts and long-context-summaries.ts, which write the cheap model's
+ * summaries the way the mod's calls read them.
  */
 export function claudeComplete(prompt: string, options: { model: string; systemFile: string; cwd: string; settings: string }): Promise<{ text: string; models: string[] } | { failed: string }> {
   return new Promise((done) => {

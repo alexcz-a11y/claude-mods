@@ -198,8 +198,8 @@ test('/dp log shows the last decisions with their reasons, newest last; /dp log 
 
   await w.submit('把登录模块重构成三层')
   await w.submit('改个错别字')
-  const first = 'effort high · "把登录模块重构成三层"：概率 low 0.05, medium 0.10, high 0.60, xhigh 0.20, max 0.05；置信度 0.70'
-  const second = 'effort low · "改个错别字"：概率 low 0.90, medium 0.05, high 0.05, xhigh 0.00, max 0.00；置信度 0.70'
+  const first = 'effort high · "把登录模块重构成三层"：概率 low 0.05, medium 0.10, high 0.60, xhigh 0.20, max 0.05；位置 2.10；置信度 0.70（只记录）'
+  const second = 'effort low · "改个错别字"：概率 low 0.90, medium 0.05, high 0.05, xhigh 0.00, max 0.00；位置 0.15；置信度 0.70（只记录）'
   expect((await w.command('dp', 'log 10')).split('\n')).toEqual(['最近 2 条决定，最新的在最后', `#1 main-effort：${first}`, `#2 main-effort：${second}`])
   expect((await w.command('dp', 'log 1')).split('\n')).toEqual(['最近 1 条决定，最新的在最后', `#2 main-effort：${second}`])
 
@@ -211,13 +211,13 @@ test('/dp log shows the last decisions with their reasons, newest last; /dp log 
   expect(w.logs.every((l) => l.to === 'debug')).toBe(true)
 })
 
-test('a decision that thetaMax held back says so in its reason', { options: { ...KEY, thetaMax: 0.6 } }, async ($, on) => {
-  // Most likely max, but at 0.5, below thetaMax: the most likely of the rest.
-  const w = world($, on, { backend: jev([0, 0.1, 0.15, 0.25, 0.5]) })
-  await w.submit('设计一个跨区域的数据迁移方案，保证零停机')
+test('a decision that a floor lifted says which in its reason', { options: KEY }, async ($, on) => {
+  // Position 1.0 (medium); hard to undo and on a live system: R2 takes it to max.
+  const w = world($, on, { backend: jev([0, 1, 0, 0, 0], { nouls: { 'effort.stakes.undo': 0.9, 'effort.stakes.live': 0.8 } }) })
+  await w.submit('把生产库的旧订单表删掉')
 
   expect((await w.command('dp', 'log 10')).split('\n')[1]).toBe(
-    '#1 main-effort：effort xhigh · "设计一个跨区域的数据迁移方案，保证零停机"：概率 low 0.00, medium 0.10, high 0.15, xhigh 0.25, max 0.50；max 的概率没到 max 门槛 0.60；置信度 0.70',
+    '#1 main-effort：effort max · "把生产库的旧订单表删掉"：概率 low 0.00, medium 1.00, high 0.00, xhigh 0.00, max 0.00；位置 1.00；出错代价 定下限，抬到 max；置信度 0.70（只记录）',
   )
 })
 

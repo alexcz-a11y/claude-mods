@@ -7,18 +7,17 @@
 // The conversation is one long working session in a made-up repository (ledgerly), written by hand in
 // datasets/ctx30/conversation/*.txt; the questions are in datasets/ctx30/questions.json: fifteen ask the main agent's
 // effort for a message the person might send next, fifteen the model of an agent the main agent might dispatch next.
-// Every question has one right answer. The questions are the mod's own Chinese ones (decision/effort.ts,
-// decision/dispatched-agent.ts); what each asks about (the message, the agent's brief) goes in its instructions instead
+// Every question has one right answer. The questions are the mod's own Chinese ones as they were then (decision/effort.ts;
+// the model question as `MODEL_QUESTION_THEN` keeps it); what each asks about (the message, the agent's brief) goes in its instructions instead
 // of the state, since thirty share one state, and an agent's question says what `recent_context` is.
 //
 // Pure: no Node API.
 
 export { mcnemar } from './paired.ts'
-import { BACKEND_DEFAULTS } from '../../hooks/core/setup.ts'
 import { JEV_REGULAR_STATE } from '../../hooks/decision/jev.ts'
 import { estimateTokens, recentLines, recentWithin, withinTokens, type ContextMessage } from '../../hooks/decision/context.ts'
-import { AGENT_MODELS, DEFAULT_DISPATCH_ASK, MODEL, dispatchBrief, dispatchPart, type AgentModel, type Dispatch } from '../../hooks/decision/dispatched-agent.ts'
-import { EFFORTS, LEVEL, pickEffort, readEffort, turnStartEffortPart, type Effort } from '../../hooks/decision/effort.ts'
+import { AGENT_MODELS, dispatchBrief, type AgentModel, type Dispatch } from '../../hooks/decision/dispatched-agent.ts'
+import { baseEffort, EFFORTS, LEVEL, readEffort, turnStartEffortPart, type Effort } from '../../hooks/decision/effort.ts'
 import { redactSecrets } from '../../hooks/decision/redact.ts'
 import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part, type Question } from '../../hooks/decision/system-one.ts'
 
@@ -52,6 +51,30 @@ export const PART = 'q'
 export const REGULAR_TOKENS = JEV_REGULAR_STATE
 /** What the agent questions say `recent_context` is: the mod's own model question said nothing of it (Jev got none then). */
 export const BACKGROUND = '`recent_context` 是主 agent 派出这个 agent 之前和用户的对话。'
+
+/**
+ * The mod's Chinese model question as it was when the experiment ran (0.8.x): one Choice among the models, each described by
+ * the work it suits. ADR 0015 replaced it with yes/no questions about the brief and a table in code; it is kept here so the
+ * experiment asks what it asked.
+ */
+const MODEL_QUESTION_THEN: Question = {
+  type: 'choice',
+  instructions: { 问题: '哪个模型是能把 `brief` 做好的最便宜的一个？', 关注: '评的是 `brief.prompt` 要求的工作：要读什么、判断什么、写什么、检查什么。' },
+  criteria: {
+    haiku: {
+      适用: '一两步就能跑完、结果只需要收集起来并按要求排版（列表、表格、计数）、出错也容易发现的只读查找：在仓库里搜索某个模式，找某个东西在哪里定义，列出匹配的文件，读一个文件、日志或测试输出并汇报内容，执行一条命令并汇报结果。',
+      不适用: '需要连续很多步工具调用的探查，以及任何要写入或修改文件、或需要判断的工作。',
+    },
+    sonnet: {
+      适用: '大多数负责执行的工作：终端和 shell 操作，需求明确的代码修改（原因已知的 bug、按书面需求实现的功能、给现有代码写测试、范围明确的重构、跨几个文件的修改），自动化流程的步骤，以及对仓库内材料的调研或审查并汇报。',
+      不适用: '结论取决于仓库外的事实（API 的行为、标准、版本之间的差异）而且记错代价高的工作、难推理的工作、需求不明确的设计，或原因未知的 bug。',
+    },
+    opus: {
+      适用: '需要审慎判断、或一个细微错误就代价高昂的工作：安全、并发、涉及钱、数据迁移或生产环境；难推理的工作、设计，或原因未知的 bug；科学、数值或算法类代码；结论取决于记忆中的事实、而且无法在仓库或文档里查证的调研或解答。',
+      不适用: '书面计划和测试已经覆盖的执行类工作。',
+    },
+  },
+}
 
 const HEAD = /^@@ (user|assistant)((?: [a-z]+=\S+)*)\s*$/
 const ATTRIBUTE = / ([a-z]+)=(\S+)/g
@@ -127,14 +150,14 @@ export function maskedMessages(messages: readonly Ctx30Message[]): string[] {
   return messages.filter((message) => redactSecrets(message.text) !== message.text).map((message) => message.at)
 }
 
-/** The question about one probe: the mod's Chinese effort question or model question, with what it asks about in its instructions. */
+/** The question about one probe: the mod's Chinese effort question, or the model question as it was then, with what it asks about in its instructions. */
 export function probeQuestion(probe: Probe): Question {
   if (probe.kind === 'effort') {
     const asked = turnStartEffortPart({ language: 'zh', primitive: 'score' }).questions[LEVEL] as Question & { instructions: Record<string, string> }
     return { ...asked, instructions: { user_message: probe.user_message, ...asked.instructions } } as Question
   }
   const dispatch: Dispatch = { user_message: probe.user_message, agent_type: probe.brief.agent_type, description: probe.brief.description, prompt: probe.brief.prompt, requested_model: null }
-  const asked = dispatchPart(dispatch, { ask: { ...DEFAULT_DISPATCH_ASK, language: 'zh' } }).questions[MODEL] as Question & { instructions: Record<string, string> }
+  const asked = MODEL_QUESTION_THEN as Question & { instructions: Record<string, string> }
   return {
     ...asked,
     instructions: { brief: dispatchBrief(dispatch, REGULAR_TOKENS), user_message: probe.user_message, 背景: BACKGROUND, ...asked.instructions },
@@ -163,9 +186,8 @@ export function readProbe(probe: Probe, answer: Answer | undefined): Read {
   if (probe.kind === 'effort') {
     const reading = readEffort(answer)
     if (reading === null) return { answer: null, top: null, p: null }
-    const { thetaMax, roundUp } = BACKEND_DEFAULTS.jev
     const p = Object.fromEntries(EFFORTS.map((level, i) => [level, round(reading.probabilities[i] ?? 0)]))
-    return { answer: pickEffort(reading, { thetaMax, roundUp }), top: mostProbable(p), p }
+    return { answer: baseEffort(reading), top: mostProbable(p), p }
   }
   if (answer === undefined || answer.type !== 'choice') return { answer: null, top: null, p: null }
   const p = Object.fromEntries(AGENT_MODELS.filter((model) => model in answer.probabilities).map((model) => [model, round(answer.probabilities[model] ?? 0)]))

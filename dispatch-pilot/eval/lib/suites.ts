@@ -1,13 +1,12 @@
 // Every suite the eval can run, by the name of the dataset it reads
 // (eval/datasets/<name>.jsonl). A new kind of dataset brings its suite in a
-// file of its own beside effort-submit.ts and adds one line here (#14
-// effort-midturn, #15 subagent, #16 skill). A suite that needs more than one
+// file of its own beside effort-submit.ts and adds one line here (#15
+// subagent, #16 skill). A suite that needs more than one
 // item at a time is built when a run starts: from what the host gives it
-// (SuiteHost: the skill suite's catalog, profiles and SKILL.md files), or
+// (SuiteHost: the skill suite's catalog and SKILL.md files), or
 // from the dataset's items (the `subagent` suite: a Workflow's agents are asked
 // about together).
 
-import { effortMidturn } from './effort-midturn.ts'
 import { effortSubmit } from './effort-submit.ts'
 import type { FlowFile } from './eval-v2-flow.ts'
 import { evalV2Suite } from './eval-v2-suite.ts'
@@ -32,9 +31,8 @@ export type SuiteFactory = (host: SuiteHost, items: readonly unknown[], run?: Su
 // metrics are generic over them, so the table holds them loosely.
 export const SUITES: Readonly<Record<string, Suite<any, any> | SuiteFactory>> = {
   'effort-submit': effortSubmit,
-  'effort-midturn': effortMidturn,
   subagent: async (_host, items) => agentSuite(items as readonly AgentItem[]),
-  skill: (host) => skillSuite({ catalog: host.beside('skill-catalog.json'), profiles: host.beside('skill-profiles.json'), read: host.read }),
+  skill: (host) => skillSuite({ catalog: host.beside('skill-catalog.json'), read: host.read }),
   unresolved,
   // The summaries beside the dataset are what the flow variants carry; without the file those variants say so.
   'long-context': (host) => longContextSuite(host.beside(SUMMARY_FILE) as SummaryFile | undefined),

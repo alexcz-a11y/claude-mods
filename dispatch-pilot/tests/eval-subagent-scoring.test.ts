@@ -11,6 +11,7 @@ import { summarize } from '../eval/lib/metrics.ts'
 import { runSuite, type Row } from '../eval/lib/runner.ts'
 import { agentSuite } from '../eval/lib/subagent.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
+import { leadsTo } from './support/world.ts'
 
 /** An agent item whose message is `<id>（中文）` / `<id> (English)`, so the fake network knows what it is asked about. */
 function item(id: string, gold: AgentItem['gold'], accept: AgentItem['accept'], more: { requested?: AgentItem['zh']['requested_model']; tags?: string[]; kind?: 'agent' | 'workflow'; words?: string } = {}): AgentItem {
@@ -39,7 +40,11 @@ function item(id: string, gold: AgentItem['gold'], accept: AgentItem['accept'], 
   }
 }
 
-/** What the decision model answers about one agent: the model question, the effort levels (lowest first), yes/no answers by id within the part; a question left out gets no answer. */
+/**
+ * What the decision model answers about one agent: the model its Nouls about the brief lead the table to (`leadsTo`), the
+ * effort levels (lowest first), yes/no answers by id within the part; with neither `model` nor `nouls` the brief's Nouls get
+ * no answer, and a question left out gets none.
+ */
 type Answers = { model?: Record<string, number>; effort?: readonly number[]; nouls?: Record<string, number> }
 
 /** A fake network: Jev answering each request about `<id> <language>` from `answers`; every reply takes 100 ms of the fake clock. */
@@ -54,11 +59,11 @@ function network(answers: Record<string, Answers>) {
       const out: Record<string, unknown> = {}
       for (const [id, question] of Object.entries(body.questions as Record<string, { type: string }>)) {
         const local = id.slice(id.indexOf('.') + 1)
-        if (question.type === 'choice') {
-          if (said.model) out[id] = { type: 'choice', choice: '', probabilities: said.model, confidence: 0.5 }
-        } else if (question.type === 'score') {
+        if (question.type === 'score') {
           if (said.effort) out[id] = { type: 'score', score: 0, probabilities: Object.fromEntries(said.effort.map((p, i) => [String(i), p])), confidence: 0.6 }
-        } else out[id] = { type: 'noul', noul: said.nouls?.[local] ?? 0 }
+        } else if (question.type === 'noul' && (said.model !== undefined || said.nouls !== undefined)) {
+          out[id] = { type: 'noul', noul: said.nouls?.[local] ?? leadsTo(said.model)[local] ?? 0 }
+        }
       }
       clock += 100
       return { status: 200, ok: true, headers: {}, text: JSON.stringify({ model: JEV_MODEL, answers: out, usage: { input_tokens: 1600 } }) }
@@ -98,11 +103,11 @@ test('each answer is graded on its model and on its effort; haiku carries no eff
     'b en': { model: HAIKU, effort: HIGH },
     'c zh': { model: SONNET, effort: LOW },
     'c en': { model: OPUS, effort: LOW },
-    // Sure of haiku (confidence 0.85): the main agent's opus is replaced.
+    // The table gives haiku: the main agent's opus is never lowered.
     'd zh': { model: HAIKU, effort: MAX },
     'd en': { model: OPUS, effort: MAX },
   })
-  const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['models-hint'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['nouls'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
   expect(rows.map(line)).toEqual([
     // The effort decided is lifted to the model's floor (sonnet and opus at medium): low is not an answer for either.
@@ -113,19 +118,18 @@ test('each answer is graded on its model and on its effort; haiku carries no eff
     // accept.effort is one set for every acceptable model: low is acceptable whatever the model, but neither can be at low.
     'c zh: sonnet medium wrong (effort-over); model right, effort wrong',
     'c en: opus medium wrong (model-over effort-over); model wrong, effort wrong',
-    // Without effort (haiku) where a level is needed: the effort misses too, below.
-    'd zh: haiku wrong (model-under effort-under); model wrong, effort wrong',
+    'd zh: opus max right, gold; model right, effort right',
     'd en: opus max right, gold; model right, effort right',
   ])
 })
 
 /**
- * Six items and how each was answered (models-hint, the mod's thresholds),
- * zh | en, with the parts right (model, effort):
+ * Six items and how each was answered (nouls, the model table), zh | en,
+ * with the parts right (model, effort):
  *   a  opus medium (model; low lifted to the floor) | sonnet high (both)
  *   b  sonnet medium (none) | haiku (both)
  *   c  sonnet medium (model; low lifted to the floor) | opus medium (none)
- *   d  haiku over the main agent's opus, sure at 0.85 (none) | opus max, its pick kept (both)
+ *   d  opus max, the table's haiku not lowering the main agent's opus (both) | opus max, its pick kept (both)
  *   w  sonnet medium (both) | sonnet high (both)      a workflow's agent
  *   u  sonnet, named at 0.8 (both; its low lifted to medium) | haiku, named at only 0.3 (none)
  */
@@ -155,97 +159,80 @@ const SIX_ANSWERS: Record<string, Answers> = {
 
 async function runSix() {
   const settings = settingsFrom({ decisionModel: 'jev' })
-  const rows = await runSuite(agentSuite(SIX), SIX, { backend: jevBackend('k'), ...network(SIX_ANSWERS), settings, variants: ['models-hint'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  const rows = await runSuite(agentSuite(SIX), SIX, { backend: jevBackend('k'), ...network(SIX_ANSWERS), settings, variants: ['nouls'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
   return summarize(agentSuite(SIX), SIX, rows, { slowMs: 1500, settings })
 }
 
 test('a run reports the model, the effort and the whole answer right in each language, by tag, and for each constant answer', async () => {
   const summary = await runSix()
   const [v] = summary.variants
-  // zh: model a c w u, effort w u, both w u; en: model a b d w, effort a b d w, both a b d w.
-  expect(v?.zh.parts).toEqual({ model: 0.6667, effort: 0.3333 })
-  expect(v?.zh.accuracy).toBe(0.3333)
+  // zh: model a c d w u, effort d w u, both d w u; en: model a b d w, effort a b d w, both a b d w.
+  expect(v?.zh.parts).toEqual({ model: 0.8333, effort: 0.5 })
+  expect(v?.zh.accuracy).toBe(0.5)
   expect(v?.en.parts).toEqual({ model: 0.6667, effort: 0.6667 })
   expect(v?.en.accuracy).toBe(0.6667)
   expect(v?.tags).toEqual([
     { tag: 'priority:none', items: 4, wrong: { zh: 3, en: 1 }, parts: { model: { zh: 1, en: 1 }, effort: { zh: 3, en: 1 } } },
-    { tag: 'priority:main-kept', items: 1, wrong: { zh: 1, en: 0 }, parts: { model: { zh: 1, en: 0 }, effort: { zh: 1, en: 0 } } },
     { tag: 'priority:user', items: 1, wrong: { zh: 0, en: 1 }, parts: { model: { zh: 0, en: 1 }, effort: { zh: 0, en: 1 } } },
     { tag: 'fan-out', items: 1, wrong: { zh: 0, en: 0 }, parts: { model: { zh: 0, en: 0 }, effort: { zh: 0, en: 0 } } },
+    { tag: 'priority:main-kept', items: 1, wrong: { zh: 0, en: 0 }, parts: { model: { zh: 0, en: 0 }, effort: { zh: 0, en: 0 } } },
   ])
   // Always haiku: right on b and c. Always sonnet high: sonnet is acceptable on a c w u, high on a w.
   expect(summary.constants.find((c) => c.answer === 'haiku')).toEqual({ answer: 'haiku', accuracy: 0.3333, exact: 0.3333, parts: { model: 0.3333, effort: 0.3333 } })
   expect(summary.constants.find((c) => c.answer === 'sonnet high')).toEqual({ answer: 'sonnet high', accuracy: 0.3333, exact: 0.1667, parts: { model: 0.6667, effort: 0.3333 } })
 })
 
-test("the suite's own figures: each part agreed on in both languages, each kind of agent, where the model came from in each priority case", async () => {
+test("the suite's own figures: each part agreed on in both languages, each kind of agent, where the model came from in each priority case, each row of the model table", async () => {
   const [v] = (await runSix()).variants
   expect(v?.breakdown).toMatchObject({
-    // Answered in both languages: all six; the same model only for w, the same effort only for c (medium, medium).
-    agreement: { items: 6, model: 0.1667, effort: 0.1667 },
+    // Answered in both languages: all six; the same model for d and w, the same effort for c (medium) and d (max).
+    agreement: { items: 6, model: 0.3333, effort: 0.3333 },
     kinds: [
-      { kind: 'agent', items: 5, wrong: { zh: 4, en: 2 }, parts: { model: { zh: 2, en: 2 }, effort: { zh: 4, en: 2 } } },
+      { kind: 'agent', items: 5, wrong: { zh: 3, en: 2 }, parts: { model: { zh: 1, en: 2 }, effort: { zh: 3, en: 2 } } },
       { kind: 'workflow', items: 1, wrong: { zh: 0, en: 0 }, parts: { model: { zh: 0, en: 0 }, effort: { zh: 0, en: 0 } } },
     ],
-    // d: overridden in zh, the main agent's pick kept in en; u: named in zh only.
+    // d: the main agent's pick kept in both; u: named in zh only.
     sources: {
-      'priority:none': { zh: { decided: 4 }, en: { decided: 4 } },
-      'priority:main-kept': { zh: { decided: 1 }, en: { requested: 1 } },
-      'priority:user': { zh: { user: 1 }, en: { decided: 1 } },
+      'priority:none': { zh: { table: 4 }, en: { table: 4 } },
+      'priority:main-kept': { zh: { requested: 1 }, en: { requested: 1 } },
+      'priority:user': { zh: { user: 1 }, en: { table: 1 } },
+    },
+    // zh: a 3, b c w 5, d 4, u 1; en: a w 5, b u 4, c d 3. With the model right: zh a, c w, d, u; en a w, b, d.
+    rows: {
+      '1': { zh: { answers: 1, model: 1 }, en: { answers: 0, model: 0 } },
+      '3': { zh: { answers: 1, model: 1 }, en: { answers: 2, model: 1 } },
+      '4': { zh: { answers: 1, model: 1 }, en: { answers: 2, model: 1 } },
+      '5': { zh: { answers: 3, model: 2 }, en: { answers: 2, model: 2 } },
     },
   })
 })
 
-type Rates = { model: number; effort: number; joint: number }
-type Swept = { value: number; current?: true; zh: Rates; en: Rates }
-
-test("thresholds are swept over the answers already given, nothing asked again; at the run's own values the sweep is the run", async () => {
-  const [v] = (await runSix()).variants
-  const sweeps = v?.breakdown?.sweeps as Record<string, Swept[]>
-  const at = (name: string, value: number) => sweeps[name]?.find((swept) => swept.value === value)
-
-  expect(at('thetaOverride', 0.6)).toEqual({ value: 0.6, current: true, zh: { model: 0.6667, effort: 0.3333, joint: 0.3333 }, en: { model: 0.6667, effort: 0.6667, joint: 0.6667 } })
-  // At 0.9 the main agent's opus stands on d in zh (haiku was 0.85 sure), and opus max is right.
-  expect(at('thetaOverride', 0.9)).toEqual({ value: 0.9, zh: { model: 0.8333, effort: 0.5, joint: 0.5 }, en: { model: 0.6667, effort: 0.6667, joint: 0.6667 } })
-  expect(sweeps.thetaOverride?.map((swept) => swept.value)).toEqual([0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1])
-  // At 0.3 sonnet counts as named on u in en (0.3) as well; at 0.9 not even in zh (0.8).
-  expect(at('thetaNamed', 0.5)?.current).toBe(true)
-  expect(at('thetaNamed', 0.3)?.en).toEqual({ model: 0.8333, effort: 0.8333, joint: 0.8333 })
-  expect(at('thetaNamed', 0.9)?.zh).toEqual({ model: 0.5, effort: 0.1667, joint: 0.1667 })
-  expect(sweeps.thetaMax?.find((swept) => swept.current)?.value).toBe(0.5)
-  // requested_fits is asked only when the main agent's pick is a question of its own (noul).
-  expect(sweeps.thetaFit).toBeUndefined()
-})
-
-test("in the noul variants the main agent's pick goes only when the work is also outside it (requested_fits under thetaFit), swept as well", async () => {
-  const items = [SIX[3] as AgentItem]
-  const settings = settingsFrom({ decisionModel: 'jev', agentOverride: 0.7 })
-  const net = network({ 'd zh': { model: HAIKU, effort: MAX, nouls: { requested_fits: 0.4 } }, 'd en': { model: HAIKU, effort: MAX, nouls: { requested_fits: 0.6 } } })
-  const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings, variants: ['models-noul'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
-  const [v] = summarize(agentSuite(items), items, rows, { slowMs: 1500, settings }).variants
-  const sweeps = v?.breakdown?.sweeps as Record<string, Swept[]>
-
-  // Sure of haiku (0.85 over agentOverride 0.7); the opus pick goes only where it is said not to fit (zh 0.4).
-  expect(rows.map((row) => `${row.language} ${row.shown}`)).toEqual(['zh haiku', 'en opus max'])
-  expect(sweeps.thetaFit?.map((swept) => `${swept.value}${swept.current ? ' (now)' : ''}: zh ${swept.zh.joint}, en ${swept.en.joint}`)).toEqual(['0.3: zh 1, en 1', '0.5 (now): zh 0, en 1', '0.7: zh 0, en 0'])
-  // The run's own agentOverride is among the values swept, marked as the run's.
-  expect(sweeps.thetaOverride?.filter((swept) => swept.current).map((swept) => swept.value)).toEqual([0.7])
-})
-
-test('what an answer records: where its model came from, the pick and its confidence, and the raw answers to decide again from', async () => {
+test('what an answer records: where its model came from, the table\'s row, the main agent\'s pick kept or raised, and the raw answers to decide again from', async () => {
   const items = [item('d', { model: 'opus', effort: 'max' }, { model: ['opus'], effort: ['xhigh', 'max'] }, { requested: 'opus', tags: ['priority:main-kept'], words: ' 别用 sonnet' })]
   const net = network({ 'd zh': { model: { haiku: 0.9, sonnet: 0.02, opus: 0.08 }, effort: MAX, nouls: { 'named.sonnet': 0.1, 'banned.sonnet': 0.95 } } })
-  const [row] = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['models-hint'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  const [row] = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['nouls'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
-  expect(row?.shown).toBe('haiku')
-  // Among the models not ruled out (haiku, opus): p 0.9 / 0.98 is confidence 0.84.
+  // The table gives haiku (a lookup); the main agent's opus is kept, never lowered.
+  expect(row?.shown).toBe('opus max')
   expect(row?.detail).toEqual({
-    source: 'decided',
-    pick: 'haiku',
-    confidence: 0.837,
-    p_model: { haiku: 0.9, sonnet: 0.02, opus: 0.08 },
+    source: 'requested',
+    row: '4',
+    requested: 'kept',
     p_effort: [0, 0, 0, 0.2, 0.8],
-    nouls: { 'named.sonnet': 0.1, 'banned.sonnet': 0.95 },
+    nouls: {
+      writes: 0,
+      few_steps: 1,
+      report_only: 1,
+      'stakes.undo': 0,
+      'stakes.live': 0,
+      'stakes.access': 0,
+      cause_unknown: 0,
+      design_open: 0,
+      outside_facts: 0,
+      science_code: 0,
+      'named.sonnet': 0.1,
+      'banned.sonnet': 0.95,
+    },
   })
 })
 
@@ -261,7 +248,7 @@ test('no decision is a failure that says why (no answer about the agent, every m
     'f zh': {},
     'g zh': { model: { haiku: 0, sonnet: 0, opus: 1 }, effort: LOW, nouls: { 'banned.opus': 0.9 } },
   })
-  const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['models-hint'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
+  const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['nouls'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
   expect(rows.map(line)).toEqual([
     'e zh: no answer (none: every model offered was ruled out: haiku, sonnet, opus)',

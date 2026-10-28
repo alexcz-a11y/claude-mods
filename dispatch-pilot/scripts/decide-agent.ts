@@ -9,10 +9,9 @@
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-agent.ts --file subagent.jsonl --id subagent-011 [--lang en]
 //   TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-agent.ts '{"user_message":"...","agent_type":"Explore","description":"...","prompt":"...","requested_model":null}'
 //
-// Variants (eval variables): --zh (questions in
-// Chinese), --work (options named by the kind of work), --noul (the main
-// agent's pick asked about on its own), --choice (effort as a Choice), --fable
-// (fable among the options, as agentFable does). The person's words are kept
+// Variants (eval variables): --zh (questions in Chinese), --choice (effort as
+// a Choice), --fable (the frontier question asked and fable in the model
+// table, as agentFable does; ADR 0015). The person's words are kept
 // as the mod keeps them for the turn (masked, cut to contextTokens). Prints
 // the request (question ids, state), the answers that matter, the decision
 // and, for an eval item, its gold. `--timeout` defaults to what the eval gives
@@ -28,14 +27,12 @@ import { decideDispatch, dispatchPart, dispatchState, type Dispatch } from '../h
 import { answersFor, mergeParts } from '../hooks/decision/system-one.ts'
 import { nodeIo, scriptArgs, scriptDecision, scriptTimeout } from '../eval/node.ts'
 
-const USAGE = 'node scripts/decide-agent.ts (--file <jsonl> --id <id> [--lang en] | <item JSON>) [--zh] [--work] [--noul] [--choice] [--fable] [--timeout ms]'
+const USAGE = 'node scripts/decide-agent.ts (--file <jsonl> --id <id> [--lang en] | <item JSON>) [--zh] [--choice] [--fable] [--timeout ms]'
 const { values, positionals } = scriptArgs(USAGE, {
   file: { type: 'string' },
   id: { type: 'string' },
   lang: { type: 'string' },
   zh: { type: 'boolean' },
-  work: { type: 'boolean' },
-  noul: { type: 'boolean' },
   choice: { type: 'boolean' },
   fable: { type: 'boolean' },
 })
@@ -68,8 +65,6 @@ const shape = dispatchSettings(
   {
     language: values.zh === true ? 'zh' : settings.ask.agent.language,
     primitive: values.choice === true ? 'choice' : settings.ask.agent.primitive,
-    options: values.work === true ? 'work' : 'models',
-    requested: values.noul === true ? 'noul' : 'hint',
   },
 )
 const dispatch: Dispatch = { ...written, user_message: messageText(written.user_message, saidTokens(settings)) }

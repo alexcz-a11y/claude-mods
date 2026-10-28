@@ -29,7 +29,7 @@ const writtenOut = async (w: ReturnType<typeof world>, state: string[]) => JSON.
 // ---- the choice ----------------------------------------------------------------------------------
 
 test('typesafeKey: the options first, the environment where they are empty, else none; keySource says where it came from, never what', () => {
-  const secrets = { perplexityEnvKey: '', typesafeEnvKey: 'env-key' }
+  const secrets = { perplexityEnvKey: '', typesafeEnvKey: 'env-key', liquidEnvKey: '' }
   expect(typesafeKey(readConfig({ typesafeApiKey: 'opt-key' }), secrets)).toBe('opt-key')
   expect(typesafeKey(readConfig({}), secrets)).toBe('env-key')
   expect(typesafeKey(readConfig({}), { ...secrets, typesafeEnvKey: '' })).toBe('')
@@ -40,16 +40,11 @@ test('typesafeKey: the options first, the environment where they are empty, else
   ])
 })
 
-test('a TypeSafe key only in the environment, once read, is the one Jev decides with (the way back from pplx) and takes images with', () => {
+test('a TypeSafe key only in the environment, once read, is the one Jev (the default) decides with and takes images with', () => {
   const ctx = setup({})
-  expect([ctx.backend.name, ctx.backend.configured, ctx.images]).toEqual(['pplx', false, null])
+  expect([ctx.backend.name, ctx.backend.configured, ctx.images]).toEqual(['jev', false, null])
   ctx.secrets.typesafeEnvKey = 'env-key'
-  expect([ctx.backend.name, ctx.backend.configured, ctx.fellBack, ctx.images?.name, ctx.images?.backend.configured, ctx.images?.fellBack]).toEqual(['jev', true, true, 'jev', true, false])
-
-  const asked = setup({ decisionModel: 'jev' })
-  expect(asked.backend.configured).toBe(false)
-  asked.secrets.typesafeEnvKey = 'env-key'
-  expect([asked.backend.name, asked.backend.configured, asked.fellBack]).toEqual(['jev', true, false])
+  expect([ctx.backend.name, ctx.backend.configured, ctx.images?.name, ctx.images?.backend.configured, ctx.images?.fellBack]).toEqual(['jev', true, 'jev', true, false])
 })
 
 // ---- only the environment ------------------------------------------------------------------------
@@ -70,13 +65,13 @@ test('only TYPESAFE_API_KEY, with decisionModel jev: Jev is asked with it, the t
   expect(await writtenOut(w, state)).not.toContain('env-key-7c1d')
 })
 
-test('only TYPESAFE_API_KEY and no decisionModel: Jev decides for want of a Perplexity key, as with the key in the options', { options: {} }, async ($, on) => {
+test('only TYPESAFE_API_KEY and no decisionModel: Jev, the default, decides with it, and nothing is said about the choice', { options: {} }, async ($, on) => {
   const w = world($, on, { session: true, env: { TYPESAFE_API_KEY: 'env-key' }, backend: jev([0, 0, 1, 0, 0]) })
   await w.start()
   await w.submit('解释一下这个函数做了什么')
 
   expect(w.requests.map((request) => request.headers.authorization)).toEqual(['Bearer env-key'])
-  expect((await w.board()).log.filter((entry) => entry.feature === 'decision-model')).toMatchObject([{ fallbackFor: 'text', outcome: '改用 Jev' }])
+  expect((await w.board()).log.filter((entry) => entry.feature === 'decision-model')).toEqual([])
   // pplx decides nothing, so there is no line for its key; Jev's says where its key came from.
   expect(w.logs.map((log) => log.text)).not.toContainEqual(expect.stringContaining('pplx key:'))
   expect(keyLine(w)).toEqual(['jev key: from TYPESAFE_API_KEY'])
@@ -88,7 +83,7 @@ test('a TypeSafe key with spaces around it in the environment is sent without th
   expect(w.requests.map((request) => request.headers.authorization)).toEqual(['Bearer env-key'])
 })
 
-test('only TYPESAFE_API_KEY, with pplx deciding on a Perplexity key: images still go to Jev, with the environment key', { options: { perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
+test('only TYPESAFE_API_KEY, with pplx chosen and its key set: images still go to Jev, with the environment key', { options: { decisionModel: 'pplx', perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
   const shot = '/shots/home.png'
   const w = world($, on, { session: true, env: { TYPESAFE_API_KEY: 'env-key' }, files: { [shot]: { format: 'png', width: 1200, height: 800 } }, process: true, backend: jev([0, 1, 0, 0, 0]) })
   await w.start()
@@ -137,13 +132,13 @@ test('no TypeSafe key in the options or the environment, with decisionModel jev:
   expect(keyLine(w)).toEqual(['jev key: not set'])
 })
 
-test('only a Perplexity key, and no TypeSafe key anywhere: the decision log says images go to pplx, naming both places for the TypeSafe key', { options: { perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
+test('only a Perplexity key, and no TypeSafe key anywhere: the decision log says images go to pplx, naming both places for the TypeSafe key; Jev, which decides, has none', { options: { perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
   const w = world($, on, { session: true, env: {} })
   await w.start()
   expect((await w.board()).log.filter((entry) => entry.feature === 'decision-model')).toMatchObject([
     { fallbackFor: 'images', reason: '没有 Jev 的密钥（typesafeApiKey 或环境变量 TYPESAFE_API_KEY），看图改用 pplx，放大复核不可用；补上密钥就用 Jev' },
   ])
-  expect(keyLine(w)).toEqual([])
+  expect(keyLine(w)).toEqual(['jev key: not set'])
 })
 
 // ---- a key echoed back ---------------------------------------------------------------------------

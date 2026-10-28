@@ -36,7 +36,7 @@ import { dispatchSettings, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn } from '../core/switches.ts'
 import { callReports, workflowCallTitle, workflowLeft } from '../core/workflow-report.ts'
 import { sessionReading } from './reference-hint.ts'
-import { UNRESOLVED_SWITCH } from './unresolved.ts'
+import { SUMMARY_SWITCH } from './unresolved.ts'
 
 const SAID = { plugin: 'dispatch-pilot', key: 'said' } as const
 const COUNT = { plugin: 'dispatch-pilot', key: 'unresolved' } as const
@@ -89,7 +89,7 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
     const notRouted = (why: string | null) => report(reporting, { decision: workflowLeft(SWITCH, { id: e.tool_use_id, title: workflowCallTitle(e) }, why) })
     /** One report for each call of the script: the decisions made, and why the others are left as written. */
     const reportCalls = (parsed: ParsedWorkflow, outcomes: readonly CallOutcome[], options: { suffix?: string; sentBack?: true } = {}) =>
-      report(reporting, { decisions: callReports(SWITCH, { id: e.tool_use_id, parsed }, outcomes, { backend: ctx.backend.name, thetaOverride: settings.thetaOverride, ...options }) })
+      report(reporting, { decisions: callReports(SWITCH, { id: e.tool_use_id, parsed }, outcomes, { backend: ctx.backend.name, ...options }) })
 
     /** Settles what to do with this submission: asks the decision model, and reads its answers. */
     const decide = async (): Promise<Route> => {
@@ -123,12 +123,12 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
       }
       // The problem the main agent is on, as a dispatched agent's request carries it (#41): the summary and the count; the
       // script and the conversation the Workflow is launched from, up to its call (BACKEND_DEFAULTS agentBackground).
-      const { value: held } = isOn(UNRESOLVED_SWITCH) ? await $.state.get(COUNT) : { value: undefined }
+      const { value: held } = await $.state.get(COUNT)
       const recent = ctx.config.agents.background ? await conversationOf($, e.agentId) : []
       // What the session's reference images read as (#64): the latest reading, as text, the same for every call.
       const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
       const background: WorkflowBackground = {
-        ...problemBackground(held, ctx.ask.language),
+        ...problemBackground(held, isOn(SUMMARY_SWITCH)),
         ...readingBackground(reference),
         ...(ctx.config.agents.background ? { script: parsed.script, recent: conversationUpTo(recent, ctx.config.context.messages, e.tool_use_id) ?? conversationUpTo(recent, ctx.config.context.messages) ?? [] } : {}),
       }

@@ -34,10 +34,9 @@
 //
 // eval-v2 (#45): the dataset is eval-v2.jsonl (built first when it is not there, and checked against
 // eval-v2/generated.json), each item scored against eval-v2/gold/; the conversations are Chinese only, so the run asks
-// --languages zh unless told otherwise; the variants are zh-score, en-score (the question's language), zh-score-alone,
-// en-score-alone (the effort question alone, as the mod asks with the unresolved switch off) and zh-flow, en-flow, which
-// carry the count and the summary the flow file given with --flow <file> holds at the last message
-// (eval/eval-v2-flow.ts writes one per backend and budget):
+// --languages zh unless told otherwise; the variants are zh-score, en-score (the question's language) and zh-flow, en-flow,
+// which carry the count and the summary the flow file given with --flow <file> holds at the last message
+// (eval/eval-v2-flow.ts writes one per backend and budget); the mod asks as en-flow (ADR 0014):
 //
 //   node dispatch-pilot/eval/run.ts eval-v2 --backend pplx --state-tokens 135000 --state-messages 2000 --timeout 240000 --variants zh-score,en-score --label A
 //   node dispatch-pilot/eval/run.ts eval-v2 --backend jev --variants zh-flow,en-flow --flow dispatch-pilot/eval/results/eval-v2-flow/jev-24000.json --label J
@@ -204,7 +203,8 @@ if (flow !== null) {
     ran.stateMessages !== settings.context.messages ? `message limit ${ran.stateMessages} (this run: ${settings.context.messages})` : '',
     ran.maxAfter !== settings.unresolved.maxAfter ? `unresolvedMaxAfter ${ran.maxAfter} (this run: ${settings.unresolved.maxAfter})` : '',
   ].filter((text) => text !== '')
-  console.log(`flow: ${shown(flow.path)}, questions in ${ran.language}, bars ${ran.thresholds.add}/${ran.thresholds.reset}${differs.length === 0 ? '' : `; warning: it was run with ${differs.join(', ')}`}`)
+  // The bars as the file recorded them: `yes`/`no` since 0.9.0, `add`/`reset` (the three-way question's) before it.
+  console.log(`flow: ${shown(flow.path)}, questions in ${ran.language}, bars ${Object.values(ran.thresholds).join('/')}${differs.length === 0 ? '' : `; warning: it was run with ${differs.join(', ')}`}`)
 }
 
 // The estimate: the requests a run sends (a suite that asks again after
@@ -318,11 +318,10 @@ if (!values['no-save']) {
       ...(merged ? { merged: true } : {}),
       // The row of the defaults the settings came from, where it is not the backend's own (d1 reads Jev's).
       ...(asked === backendName ? {} : { defaultsOf: backendName }),
-      thetaMax: settings.thetaMax,
-      // The threshold for taking the level above the run decided with (the decision model's, core/setup.ts BACKEND_DEFAULTS); eval/lib/rescore.ts decides stored answers again with it.
-      roundUp: settings.roundUp,
+      // The rules that turn the answers into an effort have no parameters since 0.9.0 (ADR 0014): the result records the count R5 reads.
+      unresolvedMaxAfter: settings.unresolved.maxAfter,
       timeoutMs: settings.timeoutMs,
-      // Every option as the run read it (a feature's own, such as agentOverride), less the sensitive ones.
+      // Every option as the run read it (a feature's own, such as agentFable), less the sensitive ones.
       options: Object.fromEntries(Object.entries(options).filter(([key]) => manifest.userConfig?.[key]?.sensitive !== true)),
       // The options the run left unset, with the value the backend's defaults gave each (core/setup.ts BACKEND_DEFAULTS).
       backendDefaults: Object.fromEntries(settings.defaults.used),
@@ -348,7 +347,7 @@ if (!values['no-save']) {
 
 /**
  * One line per item and language: the state the model read, then each variant's answer. A variant that read another state than the
- * line's (the unresolved suite's `-wide` variants, the effort-midturn suite's) keeps its own beside its answer. A suite that digests its
+ * line's (the unresolved suite's `-wide` variants) keeps its own beside its answer. A suite that digests its
  * states (`digestState`: its variants read different states, each tens of thousands of tokens) has a digest of each variant's state beside its answer.
  */
 function answersByItem(rows: readonly Row<unknown>[], digest: boolean): Record<string, unknown>[] {

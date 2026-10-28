@@ -4,14 +4,11 @@
 
 import { expect, test } from 'claude-code/testing'
 import { estimateTokens, turnStartState } from '../hooks/decision/context.ts'
-import { EFFORTS, pickEffort, readEffort, turnStartEffortPart, type EffortRules } from '../hooks/decision/effort.ts'
+import { baseEffort, EFFORTS, readEffort, turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { redactSecrets } from '../hooks/decision/redact.ts'
 import { answersFor, mergeParts, QUESTION_ID, type Part } from '../hooks/decision/system-one.ts'
 
 const STATE = { user_message: '把登录模块重构成三层', recent_context: '' }
-
-/** The effort rules with the level above taken from 0.3, as Jev has them (core/setup.ts BACKEND_DEFAULTS); `thetaMax` as each case says. */
-const at = (thetaMax: number): EffortRules => ({ thetaMax, roundUp: 0.3 })
 
 test('the effort question in each eval variant: English or Chinese, Score or Choice, the same five levels', () => {
   const english = turnStartEffortPart()
@@ -19,8 +16,9 @@ test('the effort question in each eval variant: English or Chinese, Score or Cho
   const choice = turnStartEffortPart({ primitive: 'choice' })
   const request = mergeParts(STATE, [english])
 
-  // Defaults (spec): English instructions, a five-level Score, id effort.level.
-  expect(Object.keys(request.questions)).toEqual(['effort.level'])
+  // Defaults: English instructions, a five-level Score, id effort.level, with the stakes and the unknown cause beside it (ADR 0014).
+  expect(Object.keys(request.questions)).toEqual(['effort.level', 'effort.stakes.undo', 'effort.stakes.live', 'effort.stakes.access', 'effort.cause_unknown'])
+  expect(Object.keys(turnStartEffortPart({}, { stakes: false }).questions)).toEqual(['level'])
   expect(request.state).toEqual(STATE)
   const score = english.questions.level
   expect(score?.type).toBe('score')
@@ -39,41 +37,21 @@ test('the effort question in each eval variant: English or Chinese, Score or Cho
   for (const id of Object.keys(mergeParts(STATE, [chinese]).questions)) expect(QUESTION_ID.test(id)).toBe(true)
 })
 
-test('an answer reads back the same from a Score and a Choice: normalized, ties up, max only past thetaMax', () => {
+test('an answer reads back the same from a Score and a Choice: normalized, its position rounded, two peaks taken one level up', () => {
   const fromScore = readEffort({ type: 'score', score: 2.1, probabilities: { 0: 0.0, 1: 0.1, 2: 0.4, 3: 0.4, 4: 0.1 }, confidence: 0.5 })
   const fromChoice = readEffort({ type: 'choice', choice: 'high', probabilities: { low: 0, medium: 0.1, high: 0.4, xhigh: 0.4, max: 0.1 }, confidence: 0.5 })
   expect(fromScore?.probabilities).toEqual([0, 0.1, 0.4, 0.4, 0.1])
   expect(fromChoice?.probabilities).toEqual([0, 0.1, 0.4, 0.4, 0.1])
-  // A tie goes to the higher level.
-  expect(pickEffort(fromScore!, at(0.5))).toBe('xhigh')
+  // Position 2.5: half goes up.
+  expect(baseEffort(fromScore!)).toBe('xhigh')
   // Rounded probabilities are normalized before use.
   const rounded = readEffort({ type: 'score', score: 0, probabilities: { 0: 0.5, 1: 0.5, 2: 0, 3: 0, 4: 0.5 }, confidence: null })
   expect(rounded?.probabilities.map((p) => Number(p.toFixed(3)))).toEqual([0.333, 0.333, 0, 0, 0.333])
-  expect(pickEffort(rounded!, at(0.3))).toBe('max')
-  expect(pickEffort(rounded!, at(0.4))).toBe('medium')
+  // Position 1.67 rounds to high; max (two above) has a third: two-peaked, so one level up.
+  expect(baseEffort(rounded!)).toBe('xhigh')
   // No usable answer: no reading.
   expect(readEffort(undefined)).toBeNull()
   expect(readEffort({ type: 'score', score: 0, probabilities: {}, confidence: null })).toBeNull()
-})
-
-test('raising is easy: the level above the most probable one is taken when it has 0.3 or more, once, and max only past thetaMax', () => {
-  const read = (probabilities: number[]) => ({ probabilities, confidence: 0.6 })
-  // The level above the most probable one has 0.3: one level up (0.3 itself counts).
-  expect(pickEffort(read([0, 0.5, 0.3, 0.2, 0]), at(0.5))).toBe('high')
-  expect(pickEffort(read([0.6, 0.3, 0.1, 0, 0]), at(0.5))).toBe('medium')
-  // Just under 0.3: the most probable level stays.
-  expect(pickEffort(read([0, 0.5, 0.29, 0.21, 0]), at(0.5))).toBe('medium')
-  // One level only, whatever lies further up.
-  expect(pickEffort(read([0, 0.4, 0.3, 0.3, 0]), at(0.5))).toBe('high')
-  // Only the level directly above counts: a level two up with 0.3 does not pull it.
-  expect(pickEffort(read([0, 0.5, 0.2, 0.3, 0]), at(0.5))).toBe('medium')
-  // Nothing above the top.
-  expect(pickEffort(read([0, 0, 0.1, 0.1, 0.8]), at(0.5))).toBe('max')
-  // max is not reached by a raise unless its own probability reaches thetaMax.
-  expect(pickEffort(read([0, 0, 0.2, 0.5, 0.3]), at(0.5))).toBe('xhigh')
-  expect(pickEffort(read([0, 0, 0.2, 0.4, 0.4]), at(0.5))).toBe('xhigh')
-  expect(pickEffort(read([0, 0, 0.2, 0.3, 0.5]), at(0.5))).toBe('max')
-  expect(pickEffort(read([0, 0, 0.2, 0.5, 0.3]), at(0.3))).toBe('max')
 })
 
 test('several parts share one request; each gets back its own answers under its own ids', () => {
@@ -84,7 +62,7 @@ test('several parts share one request; each gets back its own answers under its 
       'fit.0': { type: 'noul', instructions: 'Does the first candidate fit?' },
     },
   }
-  const effort = turnStartEffortPart()
+  const effort = turnStartEffortPart(undefined, { stakes: false })
   const request = mergeParts(STATE, [effort, skills])
   expect(Object.keys(request.questions)).toEqual(['effort.level', 'skills.which', 'skills.fit.0'])
 

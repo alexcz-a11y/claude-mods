@@ -97,7 +97,7 @@ test('with pplx, a dispatched agent\'s request carries the conversation it was d
   await w.submit('the cache refresh and the session writer race somewhere; find out where')
   await w.spawn({ prompt: 'List every function in src/session that writes the session file.', description: 'Map session writers', subagentType: 'Explore' })
 
-  const state = w.requests.find((request) => 'agent.model' in request.body.questions)?.body.state
+  const state = w.requests.find((request) => 'agent.effort' in request.body.questions)?.body.state
   expect(Object.keys(state)).toEqual(['brief', 'user_message', 'recent_context'])
   expect(String(state.recent_context).split('\n')).toEqual([
     'user: the cache refresh and the session writer race somewhere; find out where',
@@ -112,7 +112,7 @@ test('with pplx, an agent a subagent dispatches reads the subagent\'s own conver
   const w = world($, on, { backend: pplx([0, 1, 0, 0, 0]), messages })
   await w.spawn({ prompt: 'Audit src/payments/refund.ts for refunds issued without a check.', parentAgentId: 'sub-1' })
 
-  const state = w.requests.find((request) => 'agent.model' in request.body.questions)?.body.state
+  const state = w.requests.find((request) => 'agent.effort' in request.body.questions)?.body.state
   expect(String(state.recent_context)).toContain('Splitting the audit: one agent per module.')
   expect(String(state.recent_context)).not.toContain('session writer')
 })
@@ -121,7 +121,7 @@ test("with Jev too, a dispatched agent's request carries the conversation it was
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), messages: DISPATCHING })
   await w.submit('the cache refresh and the session writer race somewhere; find out where')
   await w.spawn({ prompt: 'List every function in src/session that writes the session file.', subagentType: 'Explore' })
-  const state = w.requests.find((request) => 'agent.model' in request.body.questions)?.body.state
+  const state = w.requests.find((request) => 'agent.effort' in request.body.questions)?.body.state
   expect(Object.keys(state)).toEqual(['brief', 'user_message', 'recent_context'])
   expect(String(state.recent_context)).toContain('I will send an Explore agent to map who writes the session')
 })
@@ -142,7 +142,7 @@ test('with pplx, the requests about a script\'s calls carry the script (secrets 
   await w.submit('把 getUser 改名，再审一下 diff')
   await w.workflow({ script: TIDY, tool_use_id: 'toolu_wf' })
 
-  const state = w.requests.find((request) => 'agent-0.model' in request.body.questions)?.body.state
+  const state = w.requests.find((request) => 'agent-0.effort' in request.body.questions)?.body.state
   expect(Object.keys(state)).toEqual(['brief_0', 'brief_1', 'user_message', SCRIPT_FIELD, 'recent_context'])
   expect(String(state[SCRIPT_FIELD])).toContain("label: 'review'")
   expect(String(state[SCRIPT_FIELD])).toContain('[REDACTED]')
@@ -155,7 +155,7 @@ test("with Jev too, the requests about a script's calls carry the script and the
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { sonnet: 0.9 } })), messages: transcript })
   await w.submit('把 getUser 改名，再审一下 diff')
   await w.workflow({ script: TIDY, tool_use_id: 'toolu_wf' })
-  const state = w.requests.find((request) => 'agent-0.model' in request.body.questions)?.body.state
+  const state = w.requests.find((request) => 'agent-0.effort' in request.body.questions)?.body.state
   expect(Object.keys(state)).toEqual(['brief_0', 'brief_1', 'user_message', SCRIPT_FIELD, 'recent_context'])
   expect(String(state.recent_context)).not.toContain('later words')
 })
@@ -167,19 +167,19 @@ await agent(${JSON.stringify(steps)}, { label: 'migrate' })
 `
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { sonnet: 0.9 } })) })
   await w.workflow({ script })
-  const brief = w.requests.find((request) => 'agent-0.model' in request.body.questions)?.body.state.brief_0
+  const brief = w.requests.find((request) => 'agent-0.effort' in request.body.questions)?.body.state.brief_0
   expect(estimateTokens(steps)).toBeGreaterThan(2500)
   expect(brief.prompt).toBe(steps)
 })
 
-test("a script's requests carry the problem summary and the unresolved count while the unresolved switch is on, as a dispatched agent's do", { options: KEY }, async ($, on) => {
+test("a script's requests carry the problem summary (its switch on, as by default) and the unresolved count, as a dispatched agent's do", { options: KEY }, async ($, on) => {
   const summary = { problem: '导出的 CSV 缺行', tried: [{ text: '改了编码', unresolved: true as const }], status: '还在查', turn: 't1' }
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { sonnet: 0.9 } })), switches: UNRESOLVED_ON, seed: { unresolved: { count: 2, summary } } })
   // The session starts first: the switches are read there.
   await w.start()
   await w.workflow({ script: TIDY })
-  const state = w.requests.find((request) => 'agent-0.model' in request.body.questions)?.body.state
-  expect(String(state[SUMMARY_FIELD])).toContain('导出的 CSV 缺行')
+  const state = w.requests.find((request) => 'agent-0.effort' in request.body.questions)?.body.state
+  expect(state[SUMMARY_FIELD]).toEqual({ problem: '导出的 CSV 缺行', tried: [{ text: '改了编码', unresolved: true }], status: '还在查' })
   expect(state[COUNT_FIELD]).toBe(2)
 })
 
@@ -191,7 +191,7 @@ test('with pplx, a run given by path is asked about with the script it runs and 
   const w = runWorld($, on, { disk: { [saved]: TIDY }, backend: siteJev(() => ({ model: { sonnet: 0.9 } })), messages: transcript })
   await w.submit('rerun the tidy script')
   await w.workflow({ scriptPath: saved, tool_use_id: 'toolu_wf' })
-  const state = w.requests.find((request) => 'agent-0.model' in request.body.questions)?.body.state
+  const state = w.requests.find((request) => 'agent-0.effort' in request.body.questions)?.body.state
   expect(String(state[SCRIPT_FIELD])).toContain("label: 'rename'")
   expect(String(state.recent_context)).toContain('Running it again from its file.')
 })
@@ -205,11 +205,12 @@ test('a script whose calls take several requests, sent together, keeps each with
     `export const meta = { name: 'audit', description: 'Audit every module', phases: [] }\n${Array.from({ length: n }, (_, i) => `await agent(${JSON.stringify(prompt(i))}, { label: 'audit-${i}' })`).join('\n')}\n`
   const budgets = { one: 48000, each: 32000 }
 
+  // Four calls a request at most (MAX_PER_REQUEST: an agent asks 11 to 19 of the 64 questions a request holds, ADR 0015).
   const many = planBatches(parseWorkflow(scriptOf(10)) as NonNullable<ReturnType<typeof parseWorkflow>>, 'audit everything', settings, budgets)
-  expect(many.batches.length).toBe(2)
+  expect(many.batches.map((batch) => batch.calls.length)).toEqual([4, 4, 2])
   for (const batch of many.batches) expect(sentTokens(batch.request.state)).toBeLessThanOrEqual(32000)
 
-  const one = planBatches(parseWorkflow(scriptOf(6)) as NonNullable<ReturnType<typeof parseWorkflow>>, 'audit everything', settings, budgets)
+  const one = planBatches(parseWorkflow(scriptOf(4)) as NonNullable<ReturnType<typeof parseWorkflow>>, 'audit everything', settings, budgets)
   expect(one.batches.length).toBe(1)
   expect(sentTokens(one.batches[0]?.request.state)).toBeGreaterThan(32000)
   expect(sentTokens(one.batches[0]?.request.state)).toBeLessThanOrEqual(48000)

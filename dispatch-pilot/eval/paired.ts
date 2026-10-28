@@ -9,7 +9,7 @@
 //
 // A run is a result file of eval/run.ts, or of eval/ctx30.ts (its variants are the requests it sent: regular, long, or
 // the state budget's). `:variant` picks one; `@thetaMax,roundUp` grades its stored answers again under those rules
-// (lib/rescore.ts `regrade`: effort-submit, effort-midturn and subagent), else they are graded as they were stored.
+// (lib/rescore.ts `regrade`: effort-submit and subagent), else they are graded as they were stored.
 // --language zh|en: only that language's answers.
 
 import { readFileSync } from 'node:fs'
@@ -76,15 +76,17 @@ if (values.scan) {
     if (one.variant === null) throw new Error(`--scan takes each run with its variant: ${one.path}:<variant>`)
     return { ...one, result: read(one.path) }
   })
-  const first = runs[0]?.result.settings ?? { thetaMax: 0.5, roundUp: 0.3 }
+  // A run of 0.9.0 or later records no thresholds (it decided by the base rule): the scan starts from 0.8.x's.
+  const settings = runs[0]?.result.settings
+  const first = { thetaMax: settings?.thetaMax ?? 0.5, roundUp: settings?.roundUp ?? 0.3 }
   const accuracy = (rules: Rules) => runs.reduce((sum, run) => {
     const own = outcomes(run.result, run.variant as string, rules)
     return sum + [...own.values()].filter(Boolean).length / Math.max(1, own.size)
   }, 0) / runs.length
-  const scanned = scanRules(accuracy, { thetaMax: first.thetaMax, roundUp: first.roundUp ?? 0.3 })
-  const asRun = accuracy({ thetaMax: first.thetaMax, roundUp: first.roundUp ?? 0.3 })
+  const scanned = scanRules(accuracy, first)
+  const asRun = accuracy(first)
   console.log(`runs: ${runs.map((run) => `${shown(run.path)}:${run.variant}`).join(', ')}${language === undefined ? '' : ` (${language})`}`)
-  console.log(`as run (thetaMax ${first.thetaMax}, roundUp ${first.roundUp ?? 0.3}): mean ${(asRun * 100).toFixed(1)}%`)
+  console.log(`as run (thetaMax ${first.thetaMax}, roundUp ${first.roundUp}): mean ${(asRun * 100).toFixed(1)}%`)
   for (const { rules, accuracy: mean } of scanned.slice(0, 10)) {
     const each = runs.map((run) => {
       const own = outcomes(run.result, run.variant as string, rules)
