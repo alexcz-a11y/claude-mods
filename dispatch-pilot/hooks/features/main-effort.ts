@@ -172,7 +172,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
         return null
       }
       const { value: lock = null } = await $.state.get(LOCK).catch(() => ({ value: null }))
-      const signals = messageSignals(outcome.answers, { own, text: e.text, lastTurn: lastTurn === null ? null : { effort: lastTurn.effort, stuck: lastTurn.stuck }, count: countAfterThis, maxAfter, lock })
+      const signals = messageSignals(outcome.answers, { own, text: e.text, lastTurn: lastTurn === null ? null : { effort: lastTurn.effort, stuck: lastTurn.stuck }, count: countAfterThis, maxAfter, lock, ultrathinkOff: ctx.engineEnv.ultrathinkOff })
       const decision = decideMessage(reading, signals, ctx.config.guide)
       const effort = decision.effort
       await report(io, {

@@ -52,6 +52,24 @@ test("the main agent's decision carries the rule trace that decided its level: t
   expect(entry?.trace?.[1]).toMatchObject({ peak: null, threshold: 0.3 })
 })
 
+test('CLAUDE_CODE_DISABLE_ULTRATHINK set: a message naming ultrathink stays at its level, and the trace and the card say the switch turned the keyword off', { options: KEY }, async ($, on) => {
+  const w = world($, on, { env: { CLAUDE_CODE_DISABLE_ULTRATHINK: '1' }, backend: jev([0, 1, 0, 0, 0]) })
+  await w.submit('ultrathink 一下这个并发问题')
+
+  const entry = (await w.board()).log[0]
+  expect(entry).toMatchObject({ outcome: 'effort medium' })
+  expect(entry?.trace?.find((step) => step.rule === 'ultrathink')).toMatchObject({ applied: false, level: 'medium', named: true, off: true })
+})
+
+test('CLAUDE_CODE_DISABLE_ULTRATHINK set to false: the keyword is on, and R1 lifts the message to xhigh', { options: KEY }, async ($, on) => {
+  const w = world($, on, { env: { CLAUDE_CODE_DISABLE_ULTRATHINK: 'false' }, backend: jev([0, 1, 0, 0, 0]) })
+  await w.submit('ultrathink 一下这个并发问题')
+
+  const entry = (await w.board()).log[0]
+  expect(entry).toMatchObject({ outcome: 'effort xhigh' })
+  expect(entry?.trace?.find((step) => step.rule === 'ultrathink')).toMatchObject({ applied: true, level: 'xhigh', named: true })
+})
+
 // ---- a decision that could not be made ----------------------------------------
 
 const FAILED: { name: string; backend: () => Reply; why: string; failure: Record<string, unknown> }[] = [

@@ -86,6 +86,17 @@ test("the main agent's card: why, the effort's probabilities, the rules' working
   expect(shown(await ui.find({ key: 'pane-card-conf' }))).toMatch(/\.25：只记录，不参与定档/)
 })
 
+test("the card's ultrathink row says when CLAUDE_CODE_DISABLE_ULTRATHINK turned the keyword off", { options: KEY }, async ($, on) => {
+  const w = world($, on, { env: { CLAUDE_CODE_DISABLE_ULTRATHINK: 'yes' }, backend: jev([0, 1, 0, 0, 0]) })
+  await w.submit('ultrathink 一下这个并发问题')
+  await w.step({ index: 0, model: 'claude-opus-5-5' })
+
+  const ui = await w.pane()
+  const rules = await steps(ui)
+  expect(rules[2]).toMatch(/○.*ultrathink.*消息里写了 ultrathink，但 CLAUDE_CODE_DISABLE_ULTRATHINK 关掉了这个关键词/)
+  expect(shown(await ui.find({ key: 'pane-card-result' }))).toContain('medium')
+})
+
 test('the card draws the rules as they were stored with the decision, never working them out again from the probabilities', async ($, on) => {
   // A decision whose stored working does not follow from its probabilities: the card says what was stored.
   const board = { turn: 1, starts: [{ turn: 1, at: 0 }], nodes: [{ turn: 1, id: 'main', kind: 'main' as const, name: '主 agent', type: 'main', model: 'opus' as const, effort: 'low' as const, state: 'running' as const, t0: 0, routed: true, decision: 1 }] }

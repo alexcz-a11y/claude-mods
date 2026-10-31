@@ -103,7 +103,7 @@ test("the note beside a dispatched agent's Agent tool result is English, word fo
     "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort xhigh. Model: its rules read the brief as work that needs careful judgment (cause_unknown), which gets opus. Effort: medium lifted to xhigh, as the work includes finding a cause nobody has named." + policy,
     "Dispatch Pilot (the user's routing plugin) started this agent on haiku at effort low. Model: the user named it. Effort: chosen by its decision model." + policy,
     "Dispatch Pilot (the user's routing plugin) started this agent on opus. Model: the engine's. Effort: the session's." + policy,
-    "Dispatch Pilot (the user's routing plugin) did not route this agent (jev: HTTP 500): it started as you asked, on sonnet, at the session's effort.",
-    "Dispatch Pilot (the user's routing plugin) has its dispatched-agents feature switched off, so it did not route this agent: it started as you asked, on opus, at the session's effort.",
+    "Dispatch Pilot (the user's routing plugin) did not route this agent (jev: HTTP 500): it started as you asked, on sonnet, at the effort Claude Code gives it.",
+    "Dispatch Pilot (the user's routing plugin) has its dispatched-agents feature switched off, so it did not route this agent: it started as you asked, on opus, at the effort Claude Code gives it.",
   ])
 })
