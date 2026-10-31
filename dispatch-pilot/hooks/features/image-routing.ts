@@ -3,24 +3,31 @@
 //
 // The switch is `image-routing` (`/dp image-routing on`), off by default: the images leave the machine for the decision model.
 //
-// The effort question of such a message is not in its ballot (features/main-effort.ts hands it to core/deferred.ts instead). The
-// images are not in `prompt.submit` (it carries their metadata only), they are in the message's row when the engine appends it
-// (`session.append`, door `prompt`; the row also names the file the original is in). So the decision waits for the turn:
-//   1. session.append  notes the message's images (their files, or their bytes when no file is named), not the whole conversation.
-//   2. turn.start      reads the images (core/complexity.ts: a request to the decision model that takes images, at most ~3 s, a
-//                      group asked only once), then sends the effort question with the reading in its state, as any message's,
-//                      and writes the answer as a pending decision, which the core claims in this same `turn.start`: the first
-//                      step goes out at that effort. The core stays the one writer of the plan (ADR 0003).
+// The effort question of such a message is not in its ballot (features/main-effort.ts hands it to core/deferred.ts instead). It
+// is decided in one of two ways (ADR 0019):
+//   prompt.submit      Claude Code 2.1.316 on: `$.prompt.media` hands any `prompt.submit` hook the bytes of the message's images
+//                      (after the engine's own resize; `attachedImages`). They are read (core/complexity.ts: a request to the
+//                      decision model that takes images, at most ~3 s, a group asked only once), and the effort part goes in the
+//                      message's ballot with the reading in its state, as any message's: the core sends it a moment later, in the
+//                      same `prompt.submit`, and gives it what is left of the hook's room (`waitedMs`). A message typed into a
+//                      running turn (#64) is decided this way too, before the step that delivers it.
+//   turn.start         an engine before 2.1.316 refuses the read (`{ deny }`; so does the test kit, which has no implementation):
+//                      the images are in the message's row when the engine appends it (`session.append`, door `prompt`; the row
+//                      also names the file the original is in), so the decision waits for the turn:
+//                        1. session.append  notes the message's images (their files, or their bytes when no file is named).
+//                        2. turn.start      reads them, then sends the effort question with the reading in its state, and
+//                                           writes the answer as a pending decision, which the core claims in this same
+//                                           `turn.start`: the first step goes out at that effort. The core stays the one
+//                                           writer of the plan (ADR 0003).
+//                      A message typed into a running turn cannot wait for a turn to start: it is decided at once, on its words.
 // Whatever goes wrong with the reading, the effort is decided without it; when the effort request fails, the turn goes out
 // unrouted, and says why (the main-effort feature's report). A lock, and an effort or a model the person named, still come
 // first: the plan table's priorities are not touched (core/plans.ts `planStep`).
 //
-// A message with images typed into a running turn (#64) is decided once, at once, on its words (features/main-effort.ts),
-// before the step that delivers it: a second decision made once its images were read could come after that step and land on
-// a step of tool results, where a level no longer goes out (ADR 0013), while the board would show it. For the same reason a
-// picture the main agent reads in the middle of a turn decides nothing.
+// A picture the main agent reads in the middle of a turn decides nothing: a decision made then could land on a step of tool
+// results, where a level no longer goes out (ADR 0013), while the board would show it.
 
-import type { EngineInterface, HttpInit, On } from 'claude-code'
+import type { EngineInterface, HttpInit, On, PromptMedia, PromptMediaArgs } from 'claude-code'
 import { type BackendIo, describeAsked, errorText, within } from '../decision/backend.ts'
 import type { ReferenceReading } from '../decision/complexity.ts'
 import { MIN_ASK_MS } from '../core/agent-lane.ts'
@@ -29,7 +36,8 @@ import { CALL_ROOM_MS } from '../core/call-budget.ts'
 import { readReferenceComplexity, type ComplexityIo, type ReferenceReadings, type ReferenceSource } from '../core/complexity.ts'
 import { enteringPrompt } from '../core/core.ts'
 import type { Cell } from '../core/plans.ts'
-import { takeDeferred } from '../core/deferred.ts'
+import { contribute } from '../core/ballot.ts'
+import { isDeferred, takeDeferred } from '../core/deferred.ts'
 import type { ImageFilesIo } from '../core/image-files.ts'
 import { report, type NodeFailure, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
@@ -111,6 +119,53 @@ function takePasted(texts: readonly string[]): Pasted | null {
   return found ?? null
 }
 
+// ---- The images as the message is submitted (2.1.316 on) ----------------------------------------------------------------
+
+/** What reads one slice of an attached item: `$.prompt.media`, as a closure. */
+export type MediaRead = (args: PromptMediaArgs) => Promise<PromptMedia>
+
+/**
+ * The message's images as `prompt.submit` hands them: `ok` with their bytes, or why there are none. Unavailable (`ok: false`)
+ * when the engine refuses a read (`{ deny }`: an engine before 2.1.316) or the read throws (the test kit has no implementation):
+ * the images are then read from the message's row, as before. An image the engine could not process (`{ unreadable }`) or too big
+ * to keep (`MOST_BYTES` of base64) is left out (`skipped`), the others still read.
+ */
+export type Attached = { ok: true; sources: ReferenceSource[]; skipped: number } | { ok: false; reason: string }
+
+/** Reads every image of `attachments` through `read`, slice by slice (4 MiB a call, `next` goes on). Never throws. */
+export async function attachedImages(read: MediaRead, attachments: readonly { type: string; id?: string }[]): Promise<Attached> {
+  const sources: ReferenceSource[] = []
+  let skipped = 0
+  try {
+    for (const attachment of attachments) {
+      if (attachment.type !== 'image' || attachment.id === undefined) continue
+      let base64 = ''
+      let offset: number | undefined
+      let kept = true
+      for (;;) {
+        const slice = await read(offset === undefined ? { id: attachment.id } : { id: attachment.id, offset })
+        if (slice.deny !== undefined) return { ok: false, reason: `the engine refused its bytes (${slice.deny})` }
+        if (slice.unreadable !== undefined) {
+          kept = false
+          break
+        }
+        base64 += slice.base64
+        if (base64.length > MOST_BYTES) {
+          kept = false
+          break
+        }
+        if (slice.next === undefined) break
+        offset = slice.next
+      }
+      if (kept && base64 !== '') sources.push({ base64 })
+      else skipped++
+    }
+  } catch (error) {
+    return { ok: false, reason: `its bytes could not be read (${errorText(error)})` }
+  }
+  return { ok: true, sources, skipped }
+}
+
 // ---- The engine, as closures -----------------------------------------------------------------------------------------
 
 /** The files the images need of the engine, as closures. */
@@ -128,8 +183,44 @@ export function registerImageRouting(on: On, ctx: Ctx): void {
   /** Whether images met now are to be read: the feature is on and there is an image backend. */
   const reading = () => isOn(IMAGE_ROUTING_SWITCH) && ctx.images !== null
 
+  // The message as it is submitted (inside main-effort's hook, above the core's): when the engine hands over its images' bytes
+  // (2.1.316 on), they are read now and its effort part goes in the ballot with the reading. Otherwise one typed into a running
+  // turn goes in on its words, and one that starts a turn waits for it (below).
+  on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
+    if (!isDeferred(e.text)) return next(e)
+    const debug = (line: string) => $.ui.log(line, { to: 'debug' })
+    try {
+      const startedAt = await $.clock.now()
+      // Off since main-effort deferred it (or the whole mod): nothing is read; the part goes in on its words, the core decides whether to ask.
+      const attached: Attached = reading() && masterOn() ? await attachedImages((args) => $.prompt.media(args), e.attachments ?? []) : { ok: false, reason: 'image routing is off' }
+      if (attached.ok) {
+        const taken = takeDeferred([e.text])
+        if (taken !== null) {
+          let read: ReferenceReading | null = null
+          if (attached.sources.length === 0) debug(`image routing: none of the message's images could be read as submitted (${attached.skipped} left out); its effort is decided without a reading`)
+          else {
+            if (attached.skipped > 0) debug(`image routing: ${attached.skipped} of the message's images left out (unreadable or too big)`)
+            read = await readReference(readIoOf($), ctx, attached.sources)
+          }
+          const waitedMs = (await $.clock.now()) - startedAt
+          contribute(e.text, { ...taken.deferred(read, 'submit'), ...(waitedMs > 0 ? { waitedMs } : {}) })
+        }
+      } else if (e.turnId !== undefined) {
+        debug(`image routing: ${attached.reason}; typed into a running turn, the message is decided on its words`)
+        const taken = takeDeferred([e.text])
+        if (taken !== null) contribute(e.text, taken.deferred(null, 'submit'))
+      } else debug(`image routing: ${attached.reason}; the message is decided when its turn starts, from its row`)
+    } catch (error) {
+      debug(`image routing: ${errorText(error)}`)
+      // Typed into a running turn, the part must not wait for a turn start that will not take it.
+      const taken = e.turnId !== undefined ? takeDeferred([e.text]) : null
+      if (taken !== null) contribute(e.text, taken.deferred(null, 'submit'))
+    }
+    return next(e)
+  })
+
   // The message's row: its images are noted for the turn that starts next. Looked at only while the feature could use them,
-  // and never changed. A message typed into a running turn (door `queue`) is not: it was decided on its words.
+  // and never changed. A message typed into a running turn (door `queue`) is not: it was decided at its submit.
   on('session.append', { door: /^prompt$/ }, async (_$, e, next) => {
     if (e.agentId !== undefined || e.message.type !== 'user' || !reading()) return next(e)
     const one = pastedOf(e.message.content as Block[])
@@ -247,7 +338,7 @@ async function decide($: EngineInterface, ctx: Ctx, taken: NonNullable<ReturnTyp
   const spent = (await $.clock.now()) - startedAt
   const io: AskIo = { backend, now: () => $.clock.now(), debug }
   // A `$.clock.sleep` counts toward the hook's 10 s: the effort request waits for what is left of the call room, never longer than the decision model's own setting.
-  await askGroups(io, ctx, { prompt: taken.prompt, messages, groups: [[taken.deferred(reading)]], maxWaitMs: Math.max(MIN_ASK_MS, CALL_ROOM_MS - spent) })
+  await askGroups(io, ctx, { prompt: taken.prompt, messages, groups: [[taken.deferred(reading, 'turn-start')]], maxWaitMs: Math.max(MIN_ASK_MS, CALL_ROOM_MS - spent) })
 }
 
 /** A reading that failed, for the board's notes: beside the route, no toast (the effort is decided all the same). */

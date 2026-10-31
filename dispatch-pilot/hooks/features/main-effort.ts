@@ -19,9 +19,13 @@
 // A message typed while a turn runs (`e.turnId`) is delivered into that turn at its next step (a `queued_command` attachment;
 // measured on 2.1.289), and the hook decides it before that: its decision takes the running turn from then on, that step
 // carrying input (a model keeps its level from one message with input to the next). It also waits as pending, in case the
-// turn ends first and the message starts a turn of its own. It is decided once, on its words: images it came with are not
-// read for it, since a second decision made once they are read could land on a step of tool results, where it would not go
-// out (ADR 0013).
+// turn ends first and the message starts a turn of its own. It is decided once, in its own `prompt.submit`: with the reading
+// of its images when the engine hands their bytes to the hook (`$.prompt.media`, 2.1.316 on, ADR 0019), else on its words. A
+// decision made later, once they are read, could land on a step of tool results, where it would not go out (ADR 0013).
+//
+// A message with reference images (#63, image routing on) leaves its effort part to the image-routing feature
+// (core/deferred.ts): read as it is submitted, it goes in the ballot with the reading; on an engine before 2.1.316 a message that
+// starts a turn is decided once that turn starts, from the images of its row.
 
 import type { EngineInterface, On } from 'claude-code'
 import { errorText } from '../decision/backend.ts'
@@ -38,7 +42,7 @@ import type { Answer } from '../decision/system-one.ts'
 import { contribute, type Contribution, type PartOutcome } from '../core/ballot.ts'
 import { commandOf, commandState } from '../core/commands.ts'
 import { keptCount, keptSummary, moveCount, unresolvedDecision, type CountCell } from '../core/unresolved.ts'
-import { defer, withdraw } from '../core/deferred.ts'
+import { defer, withdraw, type DecidedAt } from '../core/deferred.ts'
 import { addPending, revise, turnKey, update, type Cell, type PendingDecision, type TurnRecord } from '../core/plans.ts'
 import { isPersonsMessage, startsReportTurn } from '../core/prompts.ts'
 import { report, type ReferenceRecord, type ReportIo, type UnresolvedRecord } from '../core/report.ts'
@@ -118,12 +122,13 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
     const constraints: StandingConstraint[] = own ? ((await $.state.get(CONSTRAINTS).catch(() => ({ value: undefined }))).value ?? []) : []
     const lastTurn: TurnFacts | null = (await $.state.get(LAST_TURN).catch(() => ({ value: undefined }))).value?.facts ?? null
     const maxAfter = ctx.config.unresolved.maxAfter
-    // A message with reference images (#63) that starts a turn is decided when its turn starts, once its images have been
-    // read: its effort part does not go in the ballot, and the image-routing feature asks it at `turn.start`
-    // (core/deferred.ts). One typed into a running turn is decided now, on its words alone (above).
-    const imaged = own && ran === null && e.turnId === undefined && ctx.images !== null && isOn(IMAGE_ROUTING_SWITCH) && hasImage(e.attachments)
-    // About the main agent of the turn this message starts, or of the one running when it was typed into it.
-    const forTurn = e.turnId === undefined && !imaged ? ('next' as const) : ('current' as const)
+    // A message with reference images (#63): its effort part waits for the image-routing feature (core/deferred.ts), which reads
+    // the images as the message is submitted and puts the part in the ballot, or (an engine before 2.1.316, a message that starts
+    // a turn) asks it once the turn starts (above).
+    const imaged = own && ran === null && ctx.images !== null && isOn(IMAGE_ROUTING_SWITCH) && hasImage(e.attachments)
+    // About the main agent of the turn this message starts, or of the one running when it was typed into it; a part decided
+    // once its turn has started is about that turn (`effortPart`).
+    let forTurn: 'next' | 'current' = e.turnId === undefined ? 'next' : 'current'
 
     /** What the person's answers do to the count, which is moved here: the record the log and the card keep; null without answers (the count stays). */
     const countUnresolved = async (answers: Readonly<Record<string, Answer>>): Promise<(Awaited<ReturnType<typeof unresolvedDecision>> & { after: number }) | null> => {
@@ -202,30 +207,36 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
       return effort
     }
 
-    /** The message's effort part; `reading`: what its reference images read as, when they have been (the state carries it, the decision reports it). */
-    const effortPart = (reading: ReferenceReading | null): Contribution => ({
-      ...turnStartPart({ ask: ctx.config.ask.turnStart, kind: own ? 'own' : 'report', command, summary, count, reference: reading, lastTurn, constraints }),
-      settle: async (outcome) => {
-        const io: ReportIo = {
-          board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
-          decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
-          debug: (line) => $.ui.log(line, { to: 'debug' }),
-          now: () => $.clock.now(),
-          toast: (text) => $.ui.toast(text),
-        }
-        // The count first, so the effort's decision can read it (R5) and say what this message did to it.
-        const counted = own && outcome.ok ? await countUnresolved(outcome.answers) : null
-        const countAfterThis = counted?.after ?? count
-        await decideEffort(outcome, io, counted?.unresolved, countAfterThis, reading ?? undefined)
-        // A count that moved is a decision of its own in the log (one left as it was is on the effort's card only).
-        if (counted?.unresolved !== undefined && counted.unresolved.before !== counted.unresolved.count) {
-          await report(io, { decision: { feature: UNRESOLVED_FEATURE, agent: 'main', aside: true, forTurn, subject: quoteStart(e.text), outcome: counted.outcome, reason: counted.reason, tone: counted.tone, unresolved: counted.unresolved } })
-        }
-        if (own && outcome.ok) await keepConstraint(outcome.answers, io)
-      },
-    })
+    /**
+     * The message's effort part; `reading`: what its reference images read as, when they have been (the state carries it, the
+     * decision reports it); `at`: where it is decided (core/deferred.ts).
+     */
+    const effortPart = (reading: ReferenceReading | null, at: DecidedAt): Contribution => {
+      if (at === 'turn-start') forTurn = 'current'
+      return {
+        ...turnStartPart({ ask: ctx.config.ask.turnStart, kind: own ? 'own' : 'report', command, summary, count, reference: reading, lastTurn, constraints }),
+        settle: async (outcome) => {
+          const io: ReportIo = {
+            board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+            decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+            debug: (line) => $.ui.log(line, { to: 'debug' }),
+            now: () => $.clock.now(),
+            toast: (text) => $.ui.toast(text),
+          }
+          // The count first, so the effort's decision can read it (R5) and say what this message did to it.
+          const counted = own && outcome.ok ? await countUnresolved(outcome.answers) : null
+          const countAfterThis = counted?.after ?? count
+          await decideEffort(outcome, io, counted?.unresolved, countAfterThis, reading ?? undefined)
+          // A count that moved is a decision of its own in the log (one left as it was is on the effort's card only).
+          if (counted?.unresolved !== undefined && counted.unresolved.before !== counted.unresolved.count) {
+            await report(io, { decision: { feature: UNRESOLVED_FEATURE, agent: 'main', aside: true, forTurn, subject: quoteStart(e.text), outcome: counted.outcome, reason: counted.reason, tone: counted.tone, unresolved: counted.unresolved } })
+          }
+          if (own && outcome.ok) await keepConstraint(outcome.answers, io)
+        },
+      }
+    }
     if (imaged) defer(e.text, effortPart)
-    else contribute(e.text, effortPart(null))
+    else contribute(e.text, effortPart(null, 'submit'))
 
     const result = await next(e)
     // Refused beneath: no turn will take this decision.

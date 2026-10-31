@@ -24,7 +24,9 @@ import type { HttpInit, On } from 'claude-code'
 import { messageText } from '../decision/context.ts'
 import { EFFORT_PART } from '../decision/effort.ts'
 import { askGroups, type AskIo } from './ask-group.ts'
-import { collect, type Contribution } from './ballot.ts'
+import { MIN_ASK_MS } from './agent-lane.ts'
+import { ballotWaitMs, collect, type Contribution } from './ballot.ts'
+import { CALL_ROOM_MS } from './call-budget.ts'
 import { forgetCommand, noteCommand, typedCommand } from './commands.ts'
 import { noteBlocked } from './outcomes.ts'
 import { newTurn, planStep, replace, takePending, turnKey, type Cell, type PendingDecision } from './plans.ts'
@@ -68,7 +70,9 @@ export function registerCore(on: On, ctx: Ctx): void {
     // The main agent's effort goes in a request of its own (ADR 0005), the rest of the ballot in one. Both go out at once,
     // with one wait (a long effort request makes it longer for both), each is answered or fails on its own, and each part
     // reads the outcome of the request it was in.
-    const blocks = await askGroups(io, ctx, { prompt: e.text, messages, groups: requestGroups(ballot) })
+    // A part whose hook already waited on the decision model (image-routing's reading, ADR 0019) leaves the requests less room.
+    const maxWaitMs = ballotWaitMs(ballot, CALL_ROOM_MS, MIN_ASK_MS)
+    const blocks = await askGroups(io, ctx, { prompt: e.text, messages, groups: requestGroups(ballot), ...(maxWaitMs === undefined ? {} : { maxWaitMs }) })
     entering.push(e.text)
     try {
       return await next(blocks.length > 0 ? { ...e, context: [...(e.context ?? []), ...blocks] } : e)
