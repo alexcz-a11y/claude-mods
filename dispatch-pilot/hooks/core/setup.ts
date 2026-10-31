@@ -426,6 +426,15 @@ export type Secrets = {
   liquidEnvKey: string
 }
 
+/**
+ * Claude Code's own variables, read at the session start (features/control.ts) as the engine reads them; the defaults stand
+ * until then, and in a test that sets none.
+ */
+export type EngineEnv = {
+  /** `CLAUDE_CODE_DISABLE_ULTRATHINK` turns the `ultrathink` keyword off (2.1.316; `ultrathinkOffBy`): R1 lifts nothing. */
+  ultrathinkOff: boolean
+}
+
 /** The Perplexity key in use: the options' (`perplexityApiKey`) first, else the environment's. '' for none. */
 export function perplexityKey(config: Pick<Config, 'perplexityApiKey'>, secrets: Secrets): string {
   return config.perplexityApiKey !== '' ? config.perplexityApiKey : secrets.perplexityEnvKey
@@ -463,6 +472,8 @@ export type Ctx = {
   readonly backend: Backend
   /** What the session start read from the environment (a key not in the options). */
   readonly secrets: Secrets
+  /** Claude Code's own variables the session start read (features/control.ts), for the rules that follow the engine. */
+  readonly engineEnv: EngineEnv
   /** How every question but the effort question beside a message is asked: the decision model's (`config.ask.other`). */
   readonly ask: EffortAsk
   /**
@@ -492,6 +503,7 @@ export function setup(options: PluginOptions, table: Readonly<Record<BackendName
     config: configs[asked],
     backend: backends[asked],
     secrets,
+    engineEnv: { ultrathinkOff: false },
     ask: configs[asked].ask.other,
     get images() {
       const chosen = chooseImageBackend(keys())

@@ -4,6 +4,7 @@
 //   base   the effort question's position, rounded; one level up when the answer is unsure, as the decision model's guide
 //          says (decision/guides.ts: two-peaked for Jev and pplx, confidence below 0.5 for d1-ultra; decision/effort.ts `traceEffort`)
 //   R1     `ultrathink` in the person's message                                   → at least xhigh
+//          (none while CLAUDE_CODE_DISABLE_ULTRATHINK turns the keyword off, as the engine reads it: `ultrathinkOffBy`)
 //   ask    escalate yes: the person asks for more thought or a stronger model     → at least xhigh (ADR 0016)
 //          confirm yes: the person only goes on with what was offered             → at least the previous turn's effort
 //   R2     stakes.undo yes, and stakes.live or stakes.access yes                   → max
@@ -30,8 +31,13 @@ import { STILL_FAILING } from './unresolved.ts'
 
 /** What the floors read, beside the effort answer. Probabilities are null where an answer is missing (or not asked). */
 export type MessageSignals = {
-  /** The person's message names `ultrathink` (`namesUltrathink`); false for a report's turn. */
+  /** The person's message names `ultrathink` (`namesUltrathink`); false for a report's turn, and while the keyword is off. */
   ultrathink: boolean
+  /**
+   * The message names `ultrathink`, but `CLAUDE_CODE_DISABLE_ULTRATHINK` turns the keyword off (Claude Code 2.1.316): the engine
+   * does not raise the turn, so R1 lifts nothing either, and the board says why. Absent: the keyword is on, or not named.
+   */
+  ultrathinkOff?: boolean
   stakes: { undo: number | null; live: number | null; access: number | null }
   causeUnknown: number | null
   stillFailing: number | null
@@ -71,9 +77,12 @@ export type MessageDecision = {
  * The signals of a message out of its effort part's answers (by the part's own ids) and what the session kept: the mod and the
  * eval read them alike. `own`: the person's own words (a report's turn has no ultrathink and no "still failing" of theirs).
  */
-export function messageSignals(answers: Readonly<Record<string, Answer>>, input: { own: boolean; text: string; lastTurn: MessageSignals['lastTurn']; count: number; maxAfter: number; lock: Effort | null }): MessageSignals {
+export function messageSignals(answers: Readonly<Record<string, Answer>>, input: { own: boolean; text: string; lastTurn: MessageSignals['lastTurn']; count: number; maxAfter: number; lock: Effort | null; ultrathinkOff?: boolean }): MessageSignals {
+  const named = input.own && namesUltrathink(input.text)
+  const off = input.ultrathinkOff === true
   return {
-    ultrathink: input.own && namesUltrathink(input.text),
+    ultrathink: named && !off,
+    ...(named && off ? { ultrathinkOff: true } : {}),
     stakes: { undo: readNoul(answers[STAKES_UNDO]), live: readNoul(answers[STAKES_LIVE]), access: readNoul(answers[STAKES_ACCESS]) },
     causeUnknown: readNoul(answers[CAUSE_UNKNOWN]),
     stillFailing: input.own ? readNoul(answers[STILL_FAILING]) : null,
@@ -122,7 +131,7 @@ export function decideMessage(reading: EffortReading, signals: MessageSignals, g
   }
   const pct = (p: number | null) => (p === null ? null : Math.round(p * 1000) / 1000)
 
-  floorStep('ultrathink', signals.ultrathink ? 'xhigh' : null, { named: signals.ultrathink })
+  floorStep('ultrathink', signals.ultrathink ? 'xhigh' : null, signals.ultrathinkOff === true ? { named: true, off: true } : { named: signals.ultrathink })
 
   const escalate = verdictOrNo(signals.escalate, bars)
   floorStep('escalate', escalate === 'yes' ? 'xhigh' : null, { p: pct(signals.escalate), verdict: escalate, ...held })
@@ -208,4 +217,12 @@ export function namesUltrathink(text: string): boolean {
     }
   }
   return false
+}
+
+/**
+ * Whether `CLAUDE_CODE_DISABLE_ULTRATHINK`'s value turns the keyword off, read as Claude Code 2.1.316 reads it (its boolean
+ * variables: `1`, `true`, `yes` or `on`, any case, spaces trimmed). Unset, empty, `0`, `false` or anything else leaves it on.
+ */
+export function ultrathinkOffBy(value: string | undefined): boolean {
+  return value !== undefined && ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
 }

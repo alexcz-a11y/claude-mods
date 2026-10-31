@@ -24,7 +24,7 @@
 | 6 | **图像尺寸的失败方式差别很大。** Jev：宽高须在 256–1568 px、总像素 78,400–2,458,624，范围外直接 400/413，「never resized」。pplx：超过 2,048 个图块**不会报 400**，会挂约一分钟再返回 `504`。dispatch-pilot 发消息时的等待只有 8000 ms，所以发图前必须在本地把尺寸压到限制内。 | https://docs.typesafe.ai/images.md ；https://docs.perplexity.ai/docs/decisions/quickstart |
 | 7 | **价格：pplx $0.02/M，Jev $0.042/M，输出都免费，都不另收图像费。** 带图请求的钱主要看图像 token 数，而 Jev 的这个数字未文档化。 | https://docs.perplexity.ai/docs/getting-started/pricing ；https://docs.typesafe.ai/models.md |
 | 8 | **带图延迟：pplx 有一个官方数据点，Jev 没有。** pplx cookbook：一张 1,000 图块的截图（单次请求约 7,300 input token）五次请求 258–1141 ms，第一次约 1 秒。Jev 带图延迟未文档化。 | https://docs.perplexity.ai/docs/cookbook/examples/decisions-api-browser-agent/README |
-| 9 | **mod 这一侧：user scope 安装拿不到「本次提交」的图像字节。** `$.prompt.media` 只答 mod managed settings install，其余返回 `{ deny }`；`prompt.submit` 的 `e.attachments` 只给图的种类、MIME 和文件名，没有字节。图要等进了会话以后，从 `$.session.messages({ as: "api" })` 的 `image` 块里读（推断：下一个事件起可读，需要用 event-probe 实测）。 | 本地 `index.d.ts`（见第 4 节） |
+| 9 | **（2.1.316 起不再成立，见第 4 节开头的更正）mod 这一侧：user scope 安装拿不到「本次提交」的图像字节。** `$.prompt.media` 只答 mod managed settings install，其余返回 `{ deny }`；`prompt.submit` 的 `e.attachments` 只给图的种类、MIME 和文件名，没有字节。图要等进了会话以后，从 `$.session.messages({ as: "api" })` 的 `image` 块里读（推断：下一个事件起可读，需要用 event-probe 实测）。 | 本地 `index.d.ts`（见第 4 节） |
 
 ---
 
@@ -253,6 +253,8 @@ body = {
 ---
 
 ## 4. mod 这一侧能拿到哪些图
+
+> **更正（2026-10-31，Claude Code 2.1.316）：** 2.1.316 生成的声明把 `$.prompt.media` 改成 "For a `prompt.submit` hook; else `{ deny }`"，`PromptMedia` 改成 "Only a hook on the `prompt.submit` that lists the item is answered"，不再只答 mod managed settings install。同日用临时探针 mod 实测（`--plugin-dir` 加载，debug log 写 tier user；`claude -p --input-format stream-json` 贴一张 40×30 的 PNG，探针在 `prompt.submit` 里读完就 `{ drop }`，没有发模型请求）：`e.attachments` 是 `[{ type: "image", mediaType: "image/png", id: "media_…" }]`，`$.prompt.media({ id })` 返回 `type: "image"`、`mediaType: "image/png"`、`size: 114`，没有 `deny`。下面第 4 节的表写的是 2.1.300 的声明，`$.prompt.media` 那几行在 2.1.316 起要读成「能」。
 
 依据：`dispatch-pilot/.claude-plugin/types/claude-code/index.d.ts`（Claude Code 2.1.300 生成，共 16,670 行；该目录在 `.gitignore` 里，用 `cat -n … | grep` 或 Read 查看）。dispatch-pilot 以 user scope 安装，不是 mod managed settings install。本节只读声明，**没有运行**任何 mod，所以「声明说能读」不等于「实测能读」。
 

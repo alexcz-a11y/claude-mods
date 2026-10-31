@@ -25,6 +25,7 @@
 
 import type { EngineInterface, On, RenderSurface, SessionMeasureInput } from 'claude-code'
 import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
+import { ultrathinkOffBy } from '../decision/message-effort.ts'
 import { decisionLine, LOG_ENTRIES, report, unplacedText, type DecisionModelIo, type LogEntry, type SwitchIo } from '../core/report.ts'
 import { describeDefaults, keySource, removedDecisionModel, type Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, keepSwitch, listSwitches, loadOverrides, masterOn, setMaster, setSwitch, SWITCHES_KEY } from '../core/switches.ts'
@@ -47,6 +48,9 @@ export function registerControl(on: On, ctx: Ctx): void {
     ctx.secrets.perplexityEnvKey = ((await $.env.get('PERPLEXITY_API_KEY').catch(() => undefined)) ?? '').trim()
     ctx.secrets.typesafeEnvKey = ((await $.env.get('TYPESAFE_API_KEY').catch(() => undefined)) ?? '').trim()
     ctx.secrets.liquidEnvKey = ((await $.env.get('LIQUID_API_KEY').catch(() => undefined)) ?? '').trim()
+    // Claude Code's switch for the `ultrathink` keyword (2.1.316): off there, R1 lifts nothing either (decision/message-effort.ts).
+    ctx.engineEnv.ultrathinkOff = ultrathinkOffBy(await $.env.get('CLAUDE_CODE_DISABLE_ULTRATHINK').catch(() => undefined))
+    if (ctx.engineEnv.ultrathinkOff) $.ui.log('CLAUDE_CODE_DISABLE_ULTRATHINK turns the ultrathink keyword off: rule R1 lifts nothing', { to: 'debug' })
     // Which options the decision model's defaults decided (core/setup.ts BACKEND_DEFAULTS).
     $.ui.log(describeDefaults(ctx.config), { to: 'debug' })
     const modelIo: DecisionModelIo = {

@@ -1029,7 +1029,8 @@ export function floorWhy(by: AgentFloor, model: string): string {
  * What the main agent reads after the Agent tool's result (#34; the model's words, English): the model and the
  * effort its agent started with and whose choice the model was, or that the agent was not routed and why.
  * `started` is the model the engine reports it started on (an alias or an id); `requested` the main agent's pick
- * (by family).
+ * (by family). Not routed, the agent runs at the effort Claude Code gives it: the session's, or since 2.1.316
+ * `CLAUDE_CODE_SUBAGENT_EFFORT`'s where that is set, so the note names neither.
  */
 export type DispatchNote =
   | { routed: true; decision: DispatchDecision; started: string; requested: AgentModel | null }
@@ -1040,7 +1041,7 @@ export function dispatchNote(note: DispatchNote): string {
   const model = modelFamily(note.started) ?? note.started
   if (!note.routed) {
     const why = note.why === 'off' ? 'has its dispatched-agents feature switched off, so it did not route this agent' : `did not route this agent (${failureText(note.why.backend, note.why.failure)})`
-    return `${head} ${why}: it started as you asked, on ${model}, at the session's effort.`
+    return `${head} ${why}: it started as you asked, on ${model}, at the effort Claude Code gives it.`
   }
   const { decision } = note
   const on = decision.effort === null ? `on ${model}` : `on ${model} at effort ${decision.effort}`

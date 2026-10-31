@@ -197,6 +197,7 @@ function stepLine(step: RuleStep): StepLine {
       if (on) return { mark: 'lift', head: '模型下限', body: `${word(step.model)} 至少 ${word(step.floor)}，${word(step.from)} 抬到 ${word(step.level)}` }
       return { mark: 'pass', head: '模型下限', body: `${word(step.model)} 至少 ${word(step.floor)}，${word(step.from)} 已够` }
     case 'ultrathink':
+      if (step.off === true) return floorLine(step, 'ultrathink', '消息里写了 ultrathink，但 CLAUDE_CODE_DISABLE_ULTRATHINK 关掉了这个关键词')
       return floorLine(step, 'ultrathink', step.named === true ? '消息里写了 ultrathink' : '消息里没有 ultrathink')
     case 'escalate':
       return floorLine(step, '要求多想', said(step.p, step.verdict))

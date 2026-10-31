@@ -3,7 +3,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { traceEffort, type EffortReading } from '../hooks/decision/effort.ts'
-import { decideMessage, namesUltrathink, type MessageSignals } from '../hooks/decision/message-effort.ts'
+import { decideMessage, messageSignals, namesUltrathink, ultrathinkOffBy, type MessageSignals } from '../hooks/decision/message-effort.ts'
 import { verdictOf } from '../hooks/decision/nouls.ts'
 import { decideDispatch, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 
@@ -105,6 +105,28 @@ test('ultrathink is asked for where Claude Code would take it: a word of its own
   const not = ['the word "ultrathink" raises effort', "what does 'ultrathink' do", '`ultrathink` 是什么', 'see docs/ultrathink.md', 'open ~/notes/ultrathink/today', 'ultrathinking about it', 'run --ultrathink', '「ultrathink」这个词', '```\nultrathink\n```']
   for (const text of asks) expect([text, namesUltrathink(text)]).toEqual([text, true])
   for (const text of not) expect([text, namesUltrathink(text)]).toEqual([text, false])
+})
+
+test('CLAUDE_CODE_DISABLE_ULTRATHINK read as Claude Code 2.1.316 reads its boolean variables: 1, true, yes or on, any case, trimmed', () => {
+  for (const value of ['1', 'true', 'TRUE', ' yes ', 'On']) expect([value, ultrathinkOffBy(value)]).toEqual([value, true])
+  for (const value of [undefined, '', '0', 'false', 'no', 'off', '2', 'disable']) expect([value, ultrathinkOffBy(value)]).toEqual([value, false])
+})
+
+test('with the keyword off, a message naming ultrathink lifts nothing, and its step says the switch turned it off', () => {
+  const input = { own: true, text: 'please ultrathink', lastTurn: null, count: 0, maxAfter: 3, lock: null }
+  const on = messageSignals({}, input)
+  expect([on.ultrathink, on.ultrathinkOff]).toEqual([true, undefined])
+  const off = messageSignals({}, { ...input, ultrathinkOff: true })
+  expect([off.ultrathink, off.ultrathinkOff]).toEqual([false, true])
+  // Not named: nothing to say, the switch or not.
+  expect(messageSignals({}, { ...input, text: 'see docs/ultrathink.md', ultrathinkOff: true }).ultrathinkOff).toBe(undefined)
+  // A report's turn has no ultrathink of the person's.
+  expect(messageSignals({}, { ...input, own: false, ultrathinkOff: true }).ultrathinkOff).toBe(undefined)
+
+  const decided = decideMessage(read([0, 1, 0, 0, 0]), { ...QUIET, ultrathink: false, ultrathinkOff: true })
+  expect(decided.effort).toBe('medium')
+  expect(decided.lifted).toBe(null)
+  expect(step(decided.steps, 'ultrathink')).toEqual({ rule: 'ultrathink', applied: false, level: 'medium', floor: null, named: true, off: true })
 })
 
 test("a dispatched agent's effort: the base rule, the floors and its model's floor, each a step (ADR 0015)", () => {

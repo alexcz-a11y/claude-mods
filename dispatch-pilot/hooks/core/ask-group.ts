@@ -1,7 +1,7 @@
 // The requests of a message's ballot: asked of the decision model that decides, logged, and each part of each handed its
-// outcome. The core sends a ballot's groups at `prompt.submit`; the image-routing feature (#63) sends the main agent's
-// effort group at `turn.start`, once the reference images have been read. One function, so that what is asked of the model
-// and what is logged are the same wherever the effort question goes out (ADR 0005).
+// outcome. The core sends a ballot's groups at `prompt.submit`; on an engine before 2.1.316 the image-routing feature (#63)
+// sends the main agent's effort group at `turn.start`, once the reference images have been read (ADR 0019). One function, so
+// that what is asked of the model and what is logged are the same wherever the effort question goes out (ADR 0005).
 //
 // The requests of one message go out at once and share one wait (`waitFor`): when one of them is past the decision
 // model's regular limits (the effort question's, with a long conversation), the others may wait behind it for their place

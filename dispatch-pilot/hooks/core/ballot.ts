@@ -38,6 +38,21 @@ export type Contribution = Part & {
    * log and is skipped (core/ask-group.ts).
    */
   settle: (outcome: PartOutcome) => Promise<readonly string[] | void> | readonly string[] | void
+  /**
+   * How long the hook that contributed it already waited on the decision model for this message (image-routing's reading of its
+   * images, ADR 0019). The message's requests then wait no longer than the hook's room less it (`ballotWaitMs`), as the two
+   * requests of the turn.start path share it.
+   */
+  waitedMs?: number
+}
+
+/**
+ * The most a ballot's requests may wait: what is left of the call room (`CALL_ROOM_MS`, core/call-budget.ts) after the longest a
+ * part already waited, at least `leastMs`; undefined when no part waited (the decision model's own wait stands).
+ */
+export function ballotWaitMs(ballot: readonly Contribution[], roomMs: number, leastMs: number): number | undefined {
+  const waited = ballot.reduce((most, part) => Math.max(most, part.waitedMs ?? 0), 0)
+  return waited > 0 ? Math.max(leastMs, roomMs - waited) : undefined
 }
 
 /** Ballots waiting for the core, by prompt text (the engine gives a prompt no id); oldest first. */

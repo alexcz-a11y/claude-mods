@@ -28,4 +28,4 @@ claude --plugin-dir ./image-pane
 claude plugin install image-pane@alex-mods --scope user
 ```
 
-测试时的 Claude Code 版本：2.1.309（Desktop 自带的 2.1.308 上 validate 通过）。
+测试时的 Claude Code 版本：2.1.309；2.1.316 上测试、validate 和类型检查也通过（Desktop 自带的 2.1.309 上 validate 通过）。
