@@ -32,7 +32,7 @@
 `/recall` 看状态，`/recall off` / `/recall on` 开关，`/recall last` 看最近几次注入了什么。状态行显示本会话的次数和条数。
 
 ## 分区
-和 `~/.claude/CLAUDE.md` 同一套规则：`.graphiti-group-id` 文件 → `repo_<slug>` → `life`。仓库没有 origin、也没有那个文件时不猜，直接停用。
+和 `~/.claude/CLAUDE.md` 同一套规则：`.graphiti-group-id` 文件（先看主 worktree 根目录，即 `git worktree list` 的第一行，再看当前 worktree 根目录）→ `repo_<slug>` → `life`。仓库没有 origin、也没有那个文件时不猜，直接停用。
 
 ## 出错时
 一次检索报错或超过 8 秒，暂停 5 分钟；连续 3 次失败，本会话停用。

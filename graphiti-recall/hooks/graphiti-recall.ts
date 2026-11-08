@@ -100,7 +100,10 @@ async function partition($: EngineInterface, cwd: string): Promise<string | null
     return (await $.fs.exists(p)) ? (await $.fs.read(p)).trim() : null
   }
   if (top) {
-    const pinned = await fileAt(top)
+    // 主 worktree（git worktree list 的第一行）优先：linked worktree 的分支没带这个文件时也读得到。
+    const list = await git('worktree', 'list', '--porcelain')
+    const main = list?.split('\n')[0]?.match(/^worktree (.+)$/)?.[1]
+    const pinned = (main && main !== top ? await fileAt(main) : null) ?? (await fileAt(top))
     if (pinned) return pinned
     const origin = await git('remote', 'get-url', 'origin')
     if (origin) return repoSlug(origin)

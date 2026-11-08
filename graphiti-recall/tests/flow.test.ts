@@ -133,3 +133,36 @@ test('a failed rewrite falls back to the plain query and says so; 无 searches n
   expect(queries.length).toBe(1)
   expect(lines.some(l => l.includes('没有可检索的主题'))).toBe(true)
 })
+
+test('a linked worktree whose branch lacks .graphiti-group-id takes the main worktree file', async ($, on) => {
+  const MAIN = '/repo'
+  const WT = '/repo/.claude/worktrees/v3'
+  const out: Record<string, string> = {
+    'rev-parse --show-toplevel': WT,
+    'worktree list --porcelain': `worktree ${MAIN}\nHEAD f4ea493\nbranch refs/heads/main\n\nworktree ${WT}\nHEAD 84ae3b3\nbranch refs/heads/feat/v3-stage\n`,
+    'remote get-url origin': 'https://github.com/alexcz-a11y/siri-qianwen.git',
+  }
+  on('session.start', { cwd: WT }, (_, e) => ({ cwd: e.cwd }))
+  on('session.version', () => ({ value: { version: '2.1.309', builtAt: '' } }))
+  on('command.register', () => ({ value: { command: 'recall' } }))
+  on('process.run', (_, e) => ({ value: { exitCode: 0, stdout: out[e.argv.slice(3).join(' ')] ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('fs.exists', (_, e) => ({ value: e.path === `${MAIN}/.graphiti-group-id` }))
+  on('fs.read', () => ({ value: 'repo_apple-intelligence\n' }))
+  on('mcp.call', (_, e) => {
+    const body = e.tool === 'recall' ? { facts: [FACT], nodes: [] } : { episodes: [] }
+    return { value: { content: [{ type: 'text', text: JSON.stringify({ result: body }) }], isError: false } }
+  })
+  on('prompt.submit', { wait: false }, (_, e) => ({ text: e.text, context: e.context }))
+  on('ui.log', () => ({ value: undefined }))
+  on('ui.status', () => ({ value: undefined }))
+  on('clock.sleep', async () => {
+    for (let i = 0; i < 200; i++) await Promise.resolve()
+    return { value: undefined }
+  })
+  register(on, {})
+
+  await $.session.start({ cwd: WT, surface: 'terminal', isInteractive: true })
+  const r = await $.prompt.submit({ text: 'Desktop 里的 Claude Code 版本', wait: false, origin: { kind: 'composer' } })
+  const block = (r.context ?? []).find(c => c.includes('[graphiti-recall #r1'))
+  expect(block?.includes('group_id=repo_apple-intelligence')).toBe(true)
+})
