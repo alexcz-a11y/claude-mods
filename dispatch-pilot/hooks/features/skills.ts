@@ -18,10 +18,10 @@
 // beside the next message.
 // The find_skill tool (#12) has a switch of its own.
 
-import type { EngineInterface, HttpInit, On } from 'claude-code'
+import type { EngineInterface, HttpInit, On, PromptOrigin } from 'claude-code'
 import { type Asked, type BackendIo, describeAsked } from '../decision/backend.ts'
 import { quoteStart } from '../decision/redact.ts'
-import { modRanker, pickSkills, relevanceBlock, skillOpening, type SkillPick } from '../decision/skills.ts'
+import { mentionBlock, modRanker, namedSkills, pickSkills, relevanceBlock, skillBody, skillOpening, typedNames, type Mention, type SkillPick } from '../decision/skills.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
 import { contribute } from '../core/ballot.ts'
 import { commandOf } from '../core/commands.ts'
@@ -90,6 +90,30 @@ async function openingOf($: EngineInterface, catalog: readonly CatalogSkill[], n
   const file = catalog.find((skill) => skill.name === name)?.file ?? null
   if (file === null) return null
   return skillOpening(await $.fs.read(file))
+}
+
+/**
+ * The note on the skills a message typed into a running turn names by `/name` (`mentionBlock`), or null when it names
+ * none of the session's. A skill only the person can start counts only typed at the terminal (`composer`), as the engine
+ * counts it for the message a turn starts with; its instructions are read from its file.
+ */
+async function mentionsNote($: EngineInterface, e: { text: string; origin?: PromptOrigin }): Promise<string | null> {
+  if (typedNames(e.text).length === 0) return null
+  const catalog = await sessionCatalog($)
+  if (catalog === null) return null
+  const typed = e.origin?.kind === 'composer'
+  const named = namedSkills(e.text, catalog).filter((skill) => skill.by === 'model' || typed)
+  if (named.length === 0) return null
+  const mentions = await Promise.all(
+    named.map(async (skill): Promise<Mention> => {
+      if (skill.by === 'model') return { name: skill.name, by: 'model' }
+      const body = skill.file === null ? null : await $.fs.read(skill.file).then(skillBody, () => null)
+      return { name: skill.name, by: 'person', file: skill.file, body }
+    }),
+  )
+  const said = mentions.map((mention) => (mention.by === 'model' ? mention.name : `${mention.name} (only the person can start it: ${mention.body ? 'its instructions given' : 'its instructions could not be read'})`))
+  $.ui.log(`skills named in ${quoteStart(e.text)}, typed into a running turn: ${said.join(', ')}`, { to: 'debug' })
+  return mentionBlock(mentions)
 }
 
 export function registerSkills(on: On, ctx: Ctx): void {
@@ -169,8 +193,12 @@ export function registerSkills(on: On, ctx: Ctx): void {
   })
 
   // The person's message: the skills questions go into its ballot (one decision request, sent by the core).
-  on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
-    if (!isPersonsMessage(e)) return next(e)
+  on('prompt.submit', { text: /(?:)/ }, async ($, typedIn, next) => {
+    if (!isPersonsMessage(typedIn)) return next(typedIn)
+    // Typed into a running turn (`turnId`): the engine does not act on a `/name` in it, so the skills it names are said
+    // beside it, whether or not a decision model is set up (nothing is asked). A message that starts a turn is the engine's.
+    const note = typedIn.turnId !== undefined && isOn(SWITCH) ? await mentionsNote($, typedIn).catch(() => null) : null
+    const e = note === null ? typedIn : { ...typedIn, context: [...(typedIn.context ?? []), note] }
     if (!active()) {
       // Switched off after the listing was withheld: the engine keeps its answer for the conversation
       // (a $.ui.invalidate does not bring it back), so the listing goes beside this message, once.

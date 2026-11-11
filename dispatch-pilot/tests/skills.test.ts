@@ -11,13 +11,17 @@ import { LIQUID_GUIDE, TYPESAFE_GUIDE } from '../hooks/decision/guides.ts'
 import {
   EXCERPT_CHARS,
   findSkills,
+  MENTION_BODY_CHARS,
+  mentionBlock,
   modRanker,
+  namedSkills,
   pickSkills,
   readGate,
   relevanceBlock,
   skillOpening,
   skillsPart,
   skillsRequest,
+  typedNames,
   wantsSkill,
   type SkillOption,
   type SkillRanking,
@@ -398,6 +402,120 @@ test('a skill only the person can start is never suggested to the main agent: th
   // 0.30 is the cookbook's bar, and a fit on it counts.
   expect(w.prompts[0]?.context).toEqual([suggested('code-review', REVIEW_DESCRIPTION)])
   expect(await picked(w)).toEqual({ suggest: ['code-review'], try: ['grill-me'] })
+})
+
+// A message typed while the main agent works (2026-11-11, 2.1.322: 「这里提醒一下 做票严格按照 /implement-spec 来」). The engine
+// notes a `/name` only in the message a turn starts with, and its Skill tool lets a skill only the person can start
+// load only when that message names it; the main agent went to find_skill, which never returns such a skill.
+const GRILL_NOTE = [
+  '<skill_mentions>',
+  "The user's message contains /grill-me, which is the name of a skill only the user can start. They typed it while you were working, where the Skill tool may refuse to load it, so its instructions are below: typing its name is the user starting the skill. If they are asking you to run it, follow these instructions from here on as if the skill had been loaded; there is no need to call the Skill tool for it. If they only mention it, do not run it.",
+  '<skill name="grill-me">',
+  'Base directory for this skill: /home/u/.claude/skills/grill-me',
+  '',
+  'Ask one question at a time.',
+  '</skill>',
+  '</skill_mentions>',
+].join('\n')
+
+/** What the main agent reads beside the message typed into the running turn, the skill suggestion left out. */
+async function typedInto(w: World, text: string, origin?: Parameters<World['submit']>[1]) {
+  await w.submit('先审一下这个分支')
+  await w.submit(text, { turnId: 't1', ...origin })
+  return (w.prompts[1]?.context ?? []).filter((block) => !block.startsWith('<skill_relevance>'))
+}
+
+test('a skill only the person can start, named (/name) in a message typed while the main agent works, reaches it as its instructions: the engine neither notes it there nor lets the Skill tool load it', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: WITH_PERSONS, disk: PERSON_FILES })
+  expect(await typedInto(w, '这里提醒一下 接下来严格按照 /grill-me 来')).toEqual([GRILL_NOTE])
+  // The message that started the turn is the engine's to note (`skill_mention`), and its Skill tool loads the skill.
+  expect(w.prompts[0]?.context?.join('\n')).not.toContain('skill_mentions')
+  expect(w.logs.filter((log) => log.text.startsWith('skills named'))).toEqual([
+    { text: 'skills named in "这里提醒一下 接下来严格按照 /grill-me 来", typed into a running turn: grill-me (only the person can start it: its instructions given)', to: 'debug' },
+  ])
+})
+
+test('a message that starts a turn gets no such note, whatever it names: the engine notes it and its Skill tool loads the skill', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: WITH_PERSONS, disk: PERSON_FILES })
+  await w.submit('这个方案按 /grill-me 来，再 /tdd')
+  expect(w.prompts[0]?.context?.join('\n')).not.toContain('skill_mentions')
+})
+
+test("a skill the main agent can load, named in a message typed while it works, gets the engine's own note; a plugin's skill is named in full or by its own name", { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: WITH_PERSONS, disk: PERSON_FILES })
+  const [note] = await typedInto(w, '改完用 /tdd 补测试，然后 /release 和 /computer-use')
+  expect(note?.split('\n')).toEqual([
+    '<skill_mentions>',
+    'The user\'s message contains /tdd, which is the name of a skill. If they are asking you to run it, call the Skill tool with skill: "tdd", passing any arguments they gave as args. If they only mention it, do not run it.',
+    '',
+    "The user's message contains /ship:release, which is the name of a skill only the user can start. They typed it while you were working, where the Skill tool may refuse to load it, so its instructions are below: typing its name is the user starting the skill. If they are asking you to run it, follow these instructions from here on as if the skill had been loaded; there is no need to call the Skill tool for it. If they only mention it, do not run it.",
+    '<skill name="ship:release">',
+    'Base directory for this skill: /home/u/.claude/plugins/cache/acme/ship/1.0.0/skills/release',
+    '',
+    'Release.',
+    '</skill>',
+    '',
+    'The user\'s message contains /anthropic-skills:computer-use, which is the name of a skill. If they are asking you to run it, call the Skill tool with skill: "anthropic-skills:computer-use", passing any arguments they gave as args. If they only mention it, do not run it.',
+    '</skill_mentions>',
+  ])
+})
+
+test('only what the person typed at the terminal starts a skill of theirs: over Remote Control a skill the main agent can load is still noted, one only the person can start is not', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: WITH_PERSONS, disk: PERSON_FILES })
+  const [note, ...more] = await typedInto(w, '按 /grill-me 来，再 /tdd 补测试', { origin: { kind: 'bridge' } })
+  expect(note).toContain('call the Skill tool with skill: "tdd"')
+  expect(note).not.toContain('grill-me')
+  expect(more).toEqual([])
+})
+
+// Pasted text; a path, a name inside a word, a skill switched off in settings; the command a message starts with.
+for (const text of ['<pasted_content id="a1">照 /grill-me 来</pasted_content> 看看这段', '看 /Users/u/grill-me 和 src/grill-me，按/grill-me来，或者 /claude-handoff', '/grill-me 这个方案']) {
+  test(`no skill is named by ${JSON.stringify(text)}`, { options: KEY }, async ($, on) => {
+    const w = world($, on, { backend: rates({ '(none)': 1 }), skills: WITH_PERSONS, disk: PERSON_FILES })
+    expect(await typedInto(w, text)).toEqual([])
+  })
+}
+
+test('with the skills switch off nothing is said about a skill named mid-turn', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: WITH_PERSONS, disk: PERSON_FILES, store: { switches: { skills: false } }, session: true })
+  await w.start()
+  expect(await typedInto(w, '接下来严格按照 /grill-me 来')).toEqual([])
+})
+
+test('without a decision model a skill named mid-turn is still said: nothing is asked for it', async ($, on) => {
+  const w = world($, on, { skills: WITH_PERSONS, disk: PERSON_FILES })
+  expect(await typedInto(w, '接下来严格按照 /grill-me 来')).toEqual([GRILL_NOTE])
+})
+
+test('a skill of the person whose file cannot be read, or runs too long to put beside a message: the main agent is told to ask for the command, or pointed at the file', () => {
+  expect(mentionBlock([{ name: 'grill-me', by: 'person', file: '/home/u/.claude/commands/grill-me.md', body: null }])).toBe(
+    [
+      '<skill_mentions>',
+      "The user's message contains /grill-me, which is the name of a skill only the user can start. They typed it while you were working, where the Skill tool may refuse to load it, and Dispatch Pilot could not read its instructions. If they are asking you to run it, tell them to send /grill-me as a message of its own; do not carry out its workflow from memory. If they only mention it, do not run it.",
+      '</skill_mentions>',
+    ].join('\n'),
+  )
+  const long = mentionBlock([{ name: 'grill-me', by: 'person', file: '/home/u/.claude/skills/grill-me/SKILL.md', body: 'x'.repeat(MENTION_BODY_CHARS + 1) }])
+  expect(long).toContain('so read its instructions in /home/u/.claude/skills/grill-me/SKILL.md. If they are asking you to run it, follow these instructions from here on')
+  expect(long.length).toBeLessThan(700)
+  // A command file has no directory of its own; a skill that takes arguments is told where they are.
+  const command = mentionBlock([{ name: 'ask', by: 'person', file: '/home/u/.claude/commands/ask.md', body: 'Answer $ARGUMENTS.' }])
+  expect(command).not.toContain('Base directory')
+  expect(command).toContain('Where they say $ARGUMENTS, read what the user wrote in this message.')
+})
+
+test('the names a message types as /name: after the start or whitespace and up to whitespace, the command it starts with and pasted text left out', () => {
+  expect(typedNames('先 /tdd 再 /ship:release\n/code-review')).toEqual(['tdd', 'ship:release', 'code-review'])
+  expect(typedNames('/implement #19 然后 /tdd')).toEqual(['tdd'])
+  expect(typedNames('按/tdd来 /tdd。 a/tdd /Users/u/x <pasted_content id="1">\n/tdd\n</pasted_content>')).toEqual([])
+  // Each once; a short name two skills end with names neither.
+  const options: SkillOption[] = [
+    { name: 'tdd', description: '', by: 'model' },
+    { name: 'ship:release', description: '', by: 'person' },
+    { name: 'notes:release', description: '', by: 'model' },
+    { name: 'ship:tag', description: '', by: 'person' },
+  ]
+  expect(namedSkills('先 /tdd 再 /tdd，/release 之后 /tag 和 /notes:release', options).map((skill) => skill.name)).toEqual(['tdd', 'ship:tag', 'notes:release'])
 })
 
 // A project's own skills: `$.command.list()` gives a project's file the same
