@@ -8,7 +8,7 @@ import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
 import { turnStartPart } from '../hooks/decision/turn-start.ts'
 import { workflowWorld } from './support/workflow.ts'
-import { jev, KEY, OWN_EFFORT as OWN, REPORT_EFFORT as REPORT, type Reply, UNRESOLVED_ON, world } from './support/world.ts'
+import { jev, KEY, kind, OWN_EFFORT as OWN, REPORT_EFFORT as REPORT, type Reply, UNRESOLVED_ON, world } from './support/world.ts'
 
 test('a message gets one Jev decision, and its turn goes out at the decided effort', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: UNRESOLVED_ON, backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })
@@ -163,7 +163,7 @@ test('a decision that comes back after a failure leaves no reason on the next tu
   expect((await w.board()).main?.why).toBeUndefined()
 })
 
-test("what is not the person's own new message is not decided, and changes no turn's effort", { options: KEY }, async ($, on) => {
+test("what is not the person's own new message gets no decision of a message; a report delivered into a running turn is looked at by the mid-run effort (ADR 0020), once", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
   await w.submit('把这个模块重构一下')
   await w.step({ index: 0 })
@@ -176,7 +176,8 @@ test("what is not the person's own new message is not decided, and changes no tu
   await w.command('compact', 'keep the API notes')
   await w.submit('   ')
 
-  expect(w.requests).toHaveLength(1)
+  // The first report asks about the run (its second, in the same step, does not ask again); the answer keeps the level.
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midrun.level'])
   expect(w.steps.map((s) => `${s.turnId}:${String(s.effort)}`)).toEqual(['t1:high', 't1:high'])
 })
 
@@ -227,12 +228,13 @@ test("the person's lock holds over a report's decision: the turn goes out at the
   expect((await w.board()).main).toMatchObject({ effort: 'max', locked: true })
 })
 
-test('a report delivered into a running turn starts no turn and is not decided; a failed decision for one that does leaves the engine effort and says why', { options: KEY }, async ($, on) => {
+test('a report delivered into a running turn starts no turn (the mid-run effort asks about it, and a request that fails moves nothing); a failed decision for one that does start a turn leaves the engine effort and says why', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: (request, n) => (n === 1 ? jev([0, 0, 1, 0, 0])(request) : { status: 500, body: 'down' }) })
   await w.submit('把这个模块重构一下')
   await w.step({ index: 0 })
   await w.submit('<agent-message from="a1">done</agent-message>', { origin: { kind: 'peer' }, turnId: 't1' })
-  expect(w.requests).toHaveLength(1)
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midrun.level'])
+  expect(w.turnIds).toEqual(['t1'])
 
   await w.submit('Background task "lint" completed', { origin: { kind: 'task-notification' } })
   await w.step({ index: 0, effort: 'medium' })

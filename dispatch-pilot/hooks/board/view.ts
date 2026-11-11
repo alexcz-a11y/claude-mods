@@ -64,7 +64,7 @@ export type AgentRow = {
 export type BandEvent = { at: number } & (
   | { kind: 'decided'; who: string; main: boolean; model?: Model; effort?: Effort; reason: string; ok: boolean }
   | { kind: 'workflow'; name: string; calls: number; models: Partial<Record<Model, number>>; sentBack: boolean; byLabel: boolean }
-  | { kind: 'raise'; who: string; from: string; to: string; failed: number; blocked: number }
+  | { kind: 'raise'; who: string; what: 'model' | 'effort'; from: string; to: string; failed: number; blocked: number }
   | { kind: 'change'; who: string; from: Reading; to: Reading }
   | { kind: 'skills'; suggest: { name: string; relevance: number }[]; tried: { name: string; relevance: number }[] }
   | { kind: 'find'; query: string; found: { name: string; relevance: number }[] }
@@ -137,6 +137,8 @@ export const FEATURE_WORDS: Readonly<Record<string, string>> = {
   'workflow-agents': 'Workflow 里的 agent',
   'workflow-labels': 'Workflow 兜底',
   escalation: '失败升模型',
+  'midrun-effort': '中途换档',
+  'midrun-down': '中途降档',
   skills: 'skill 推荐',
   'find-skill': 'skill 查询',
   'decision-model': '决策模型',
@@ -296,8 +298,6 @@ function traceReason(trace: readonly RuleStep[] | undefined): string {
   if (lift !== undefined) return `${FLOOR_WORDS[lift.rule]}：至少 ${String(lift.level)}`
   const peaks = trace.find((one) => one.rule === 'two-peaked')
   if (peaks?.applied === true) return `双峰（${String(peaks.peak)} ${pctText(peaks.p)}），上取一档`
-  const unsure = trace.find((one) => one.rule === 'low-confidence')
-  if (unsure?.applied === true && typeof unsure.confidence === 'number') return `置信度 ${unsure.confidence.toFixed(2)}，上取一档`
   const position = trace.find((one) => one.rule === 'position')
   return position === undefined || typeof position.position !== 'number' ? '' : `位置 ${position.position.toFixed(1)} → ${String(position.level)}`
 }
@@ -363,7 +363,7 @@ function eventsOf(board: Board, log: readonly LogEntry[], nodes: readonly BoardN
     flush()
     if (feature === 'main-effort' || feature === 'dispatched-agents') add(decidedOf(entry, nodes), entry.n)
     else if (feature === 'escalation' && entry.forced !== undefined) {
-      add({ at, kind: 'raise', who: whoOf(entry.agent, nodes, entry.subject), from: entry.forced.from, to: entry.forced.to, failed: entry.counts?.failed ?? 0, blocked: entry.counts?.blocked ?? 0 }, entry.n)
+      add({ at, kind: 'raise', who: whoOf(entry.agent, nodes, entry.subject), what: entry.forced.kind, from: entry.forced.from, to: entry.forced.to, failed: entry.counts?.failed ?? 0, blocked: entry.counts?.blocked ?? 0 }, entry.n)
     } else if (feature === 'skills' && entry.skills !== undefined && (entry.skills.suggest.length > 0 || entry.skills.try.length > 0)) {
       add({ at, kind: 'skills', suggest: entry.skills.suggest, tried: entry.skills.try }, entry.n)
     } else if (feature === 'find-skill') {
@@ -406,7 +406,7 @@ function agentReason(trace: readonly RuleStep[] | undefined): string {
           ? `路由拿不准 → ${String(route.wanted)}`
           : `路由 ${String(route.tier)} ${typeof route.p === 'number' ? pctText(route.p) : ''}`.trim()
         : `模型表 ${String(table?.row)}`
-  return pick === undefined ? rules : `${rules} · ${pick.outcome === 'upgraded' ? '升级' : '保留'} ${String(pick.requested)}`
+  return pick === undefined ? rules : `${rules} · ${pick.outcome === 'upgraded' ? '升级' : pick.outcome === 'lowered' ? '降级' : '保留'} ${String(pick.requested)}`
 }
 
 function decidedOf(entry: LogEntry, nodes: readonly BoardNode[]): BandEvent {

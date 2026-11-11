@@ -1,7 +1,9 @@
 // How a yes/no answer (a Noul) is read: the decision model's guide, not ours (decision/guides.ts; ADR 0014, ADR 0017).
 // TypeSafe's for Jev and pplx (docs.typesafe.ai: "A good starting point is 0.7 for yes and 0.3 for no ... Values between 0.3
 // and 0.7 can go to a person rather than either code path"), Liquid's for d1-ultra (yes above 0.8, no below 0.2). The band
-// between has its own row in every rule that reads a Noul (decision/message-effort.ts, decision/unresolved.ts).
+// between is no yes and no no: each rule that reads a Noul says what it does with it (decision/message-effort.ts lifts nothing
+// on it, ADR 0022; decision/unresolved.ts, decision/midrun.ts's unknown cause; decision/dispatched-agent.ts's table reads only a clear yes or a
+// clear no, ADR 0023).
 //
 // Pure (see system-one.ts).
 

@@ -125,6 +125,8 @@ export type WorldOptions = {
    * base64 and ffmpeg when `programs` names them), each call is recorded in `w.ran`. `true` for the defaults.
    */
   process?: true | ProcessWorld
+  /** The engine refuses every row the mod appends (`$.session.append`), with this reason. */
+  appendRefused?: string
   /** What `$.session.id()` answers (`s1` by default); `w.setSessionId` gives the process another, as a /clear does. */
   sessionId?: string
   /**
@@ -268,7 +270,7 @@ export type StepOptions = {
    * 2.1.289), so a hook on `tool.call` sees it inside the step.
    */
   tools?: ToolRun[]
-  /** The step's tool calls run at once, as the engine runs several calls of one response (each ends `ok`). */
+  /** The step's tool calls run at once, as the engine runs several calls of one response: each ends `ok`, or all end as their `ends` says when they share one. */
   parallel?: boolean
 }
 
@@ -349,6 +351,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const paneActs: { act: 'open' | 'close'; id: string; focus: boolean }[] = []
   const logs: { text: string; to: string | undefined }[] = []
   const steps: Step[] = []
+  /** The rows the mod appended to a conversation (`$.session.append`): the row's type and text, the agent whose conversation it joined, and how many model requests had gone out by then. */
+  const appended: { type: string; text: string; agentId: string | undefined; afterStep: number }[] = []
   const prompts: { text: string; context: readonly string[] | undefined; origin: unknown }[] = []
   const turnIds: string[] = []
   const toolCalls: { tool: string; id: string; input: Record<string, unknown>; isError: boolean; text: string | undefined }[] = []
@@ -617,6 +621,18 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     return { text, context: e.context }
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  // Beneath the mod's `session.append` hooks: a row the mod appends itself (`$.session.append({ message, agentId? })`: a user
+  // row the model reads, door `note`; ADR 0020) is recorded in `w.appended`, or refused when the test says so; every row then
+  // goes on to the kit's own bottom, which keeps it.
+  on('session.append', async (_$, e, next) => {
+    const row = e as { message: { type: string; content?: unknown }; door?: string; agentId?: string }
+    if (row.door === 'note') {
+      if (options.appendRefused !== undefined) return { deny: options.appendRefused }
+      const blocks = Array.isArray(row.message.content) ? (row.message.content as { type?: string; text?: string }[]) : []
+      appended.push({ type: row.message.type, text: blocks.map((block) => (block.type === 'text' ? (block.text ?? '') : '')).join(''), agentId: row.agentId, afterStep: steps.length })
+    }
+    return next(e)
+  })
   // The engine's roster of the agents it spawned (a Workflow's agents are not in it), and where a loop's turn ends.
   on('agent.list', () => {
     looked.roster += 1
@@ -650,7 +666,9 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     const call = (run: ToolRun) => $.tool.call({ tool: run.tool, ...(run.input ?? {}), ...(e.agentId !== undefined ? { agentId: e.agentId } : {}) } as never)
     if (parallel) {
       for (const [i, run] of tools.entries()) yield { kind: 'tool' as const, index: i + 1, id: `toolu_${e.turnId}_${e.index}_${i}`, name: run.tool }
+      ending = tools.every((run) => run.ends === tools[0]?.ends) ? tools[0]?.ends : undefined
       await Promise.all(tools.map(call))
+      ending = undefined
     }
     for (const [i, run] of (parallel ? [] : tools).entries()) {
       yield { kind: 'tool' as const, index: i + 1, id: `toolu_${e.turnId}_${e.index}_${i}`, name: run.tool }
@@ -723,6 +741,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     statuses,
     logs,
     steps,
+    appended,
     prompts,
     turnIds,
     spawned,
@@ -783,6 +802,8 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       const rows = at.rows ?? 12
       const props: RenderPropsOf['AbovePrompt'] = {
         hasSurvey: at.hasSurvey ?? false,
+        // 2.1.322 on: whether the person collapsed the band (nothing of the tree is on screen then); never in these tests.
+        isCollapsed: false,
         isWorking: at.isWorking ?? true,
         maxRows: rows,
         bodyColumns: columns - 5,
@@ -1016,7 +1037,8 @@ function jevImageRefusal(request: Sent): string | null {
   if (assets === undefined && !hasBox) return null
   const header = Object.entries(request.headers).find(([name]) => name.toLowerCase() === JEV_IMAGES_HEADER.toLowerCase())
   if (header?.[1] !== 'true') return `A request with images or a Box question needs the ${JEV_IMAGES_HEADER}: true header`
-  if (hasBox && !['jev-1.14.0', 'jev-preview'].includes(String(body.model))) return `Box questions need jev-1.14.0, not ${String(body.model)}`
+  // Both aliases point to jev-1.14.0 (docs.typesafe.ai/models, 2026-11-10).
+  if (hasBox && !['jev-1.14.0', 'jev-latest', 'jev-preview'].includes(String(body.model))) return `Box questions need jev-1.14.0, not ${String(body.model)}`
   const text = JSON.stringify({ state: body.state, questions: body.questions })
   const unused = Object.keys(assets ?? {}).filter((reference) => !text.includes(JSON.stringify(reference).slice(1, -1)))
   return unused.length > 0 ? `asset ${unused[0]} is not referenced by the state or a question` : null
@@ -1024,13 +1046,14 @@ function jevImageRefusal(request: Sent): string | null {
 
 /**
  * The yes/no answers about an agent's brief (by id within its part) that lead the model table (decision/dispatched-agent.ts,
- * ADR 0015) to the most probable model of `model`: haiku a read-only lookup of a step or two, sonnet nothing at all, opus an
- * approach left open, fable a frontier problem (asked with agentFable only).
+ * ADR 0015, ADR 0023) to the most probable model of `model`: haiku work that is only carried out (nothing to judge, no code
+ * to follow), sonnet work with a judgment in it and nothing harder, opus a design left open, fable a frontier problem
+ * (asked with agentFable only).
  */
 export function leadsTo(model: Readonly<Record<string, number>> | undefined): Record<string, number> {
-  if (model === undefined) return {}
-  const top = Object.entries(model).reduce<[string, number] | null>((best, entry) => (best === null || entry[1] > best[1] ? entry : best), null)?.[0]
-  return top === 'haiku' ? { writes: 0, few_steps: 1, report_only: 1 } : top === 'opus' ? { design_open: 1 } : top === 'fable' ? { frontier: 1 } : {}
+  const top = model === undefined ? null : Object.entries(model).reduce<[string, number] | null>((best, entry) => (best === null || entry[1] > best[1] ? entry : best), null)?.[0]
+  const ordinary = { judges: 1, logic: 1 }
+  return top === 'haiku' ? { judges: 0, logic: 0 } : top === 'opus' ? { ...ordinary, design_open: 1 } : top === 'fable' ? { ...ordinary, frontier: 1 } : ordinary
 }
 
 /** The ids, within an agent's part, of the yes/no questions about its brief. */
@@ -1043,10 +1066,10 @@ const BRIEF_IDS: ReadonlySet<string> = new Set(BRIEF_NOULS)
  * (or its first), or the probabilities `shares` gives for its question id
  * (options it leaves out get 0), each `noul` the value `nouls` gives for its
  * question id, else 0.5; the effort part's Nouls (`effort.stakes.undo`,
- * `effort.still_failing` ...) else 0: no stake, no failure, no count moves.
- * An agent's Nouls about its brief (`agent.writes`, `agent-2.design_open` ...)
- * lead the model table to the model `choice` names (`leadsTo`), else read 0:
- * sonnet, nothing lifted.
+ * `effort.still_failing` ...) and the mid-run part's (`midrun.cause_unknown` ...) else 0: no stake, no failure, no count moves.
+ * An agent's Nouls about its brief (`agent.judges`, `agent-2.design_open` ...)
+ * lead the model table to the model `choice` names (`leadsTo`): without one,
+ * `judges` and `logic` read 1 and every other 0, which is sonnet, nothing lifted.
  */
 export function jev(levels: readonly number[], extra: AnswerExtra = {}) {
   return (request: Sent): Reply => {
@@ -1077,7 +1100,7 @@ export function jev(levels: readonly number[], extra: AnswerExtra = {}) {
         const local = id.slice(id.indexOf('.') + 1)
         const brief = id.startsWith('agent') && BRIEF_IDS.has(local)
         const led = brief ? (leadsTo(extra.choice === undefined ? undefined : { [extra.choice]: 1 })[local] ?? 0) : undefined
-        answers[id] = { type: 'noul', noul: extra.nouls?.[id] ?? led ?? (id.startsWith('effort.') ? 0 : 0.5) }
+        answers[id] = { type: 'noul', noul: extra.nouls?.[id] ?? led ?? (id.startsWith('effort.') || id.startsWith('midrun.') ? 0 : 0.5) }
       }
     }
     return { status: 200, body: { model: JEV_MODEL, answers, usage: { input_tokens: 300, output_tokens: 0 } } }
@@ -1119,11 +1142,12 @@ export function withoutBrief(ids: readonly string[]): string[] {
 
 /**
  * The ids of a request's questions, joined: `effort.level` for a message, `agent.effort` for an agent. The Nouls that travel
- * in a message's effort part beside its effort question (ADR 0014), and an agent's about its brief (ADR 0015), are left out.
+ * in a message's effort part beside its effort question (ADR 0014), in a mid-run request beside `midrun.level` (ADR 0020), and an
+ * agent's about its brief (ADR 0015), are left out.
  */
 export function kind(request: Sent | undefined): string {
   return withoutBrief(Object.keys(request?.body?.questions ?? {}))
-    .filter((id) => !id.startsWith('effort.') || id === 'effort.level')
+    .filter((id) => (!id.startsWith('effort.') || id === 'effort.level') && (!id.startsWith('midrun.') || id === 'midrun.level'))
     .join(',')
 }
 
@@ -1141,7 +1165,8 @@ export function fitsSkill(instructions: unknown): string {
  * Jev answering both requests a message's skills take (ADR 0018): the first (each Score `levels`, effort medium by
  * default; `skills.which`, the skills the main agent can load, and `skills.hint`, those only the person can start, each
  * these `shares` of its own options; the three gate questions each saying a skill is needed with 1 less the share `shares`
- * gives `(none)`, `prose_suffices` the other way round, so `{ '(none)': 1 }` reads as "nothing here needs a skill"), and
+ * gives `(none)`, `prose_suffices` the other way round, so `{ '(none)': 1 }` reads as "nothing here needs a skill"; and
+ * `skills.named` (ADR 0021) the share `shares` gives `(named)`, 0 when left out: the message names no method), and
  * the second, where each `skills.fits.<i>` is the fit `fits` gives the skill it names (0 when left out) and each Choice
  * picks the best-fitting of its options. `model` is the decision model that answers (`jev` by default, or `pplx`).
  */
@@ -1149,7 +1174,12 @@ export function rates(shares: Record<string, number>, fits: Record<string, numbe
   return (request: Sent): Reply => {
     if (!isSecondSkillsRequest(request)) {
       const needed = 1 - (shares['(none)'] ?? 0)
-      const gate = { 'skills.gate.acts_on_user_system': needed, 'skills.gate.would_follow_documented_procedure': needed, 'skills.gate.prose_suffices': 1 - needed }
+      const gate = {
+        'skills.gate.acts_on_user_system': needed,
+        'skills.gate.would_follow_documented_procedure': needed,
+        'skills.gate.prose_suffices': 1 - needed,
+        'skills.named': shares['(named)'] ?? 0,
+      }
       // A Choice whose options `shares` names none of spreads evenly, as a real one sums to 1.
       const asked = (request.body?.questions ?? {}) as Record<string, { criteria?: Record<string, unknown> }>
       const spread = (id: string) => {

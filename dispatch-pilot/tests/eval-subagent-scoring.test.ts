@@ -103,8 +103,8 @@ test('each answer is graded on its model and on its effort; haiku carries no eff
     'b en': { model: HAIKU, effort: HIGH },
     'c zh': { model: SONNET, effort: LOW },
     'c en': { model: OPUS, effort: LOW },
-    // The table gives haiku: the main agent's opus is never lowered.
-    'd zh': { model: HAIKU, effort: MAX },
+    // The table gives sonnet: the main agent's opus, one tier up, is kept.
+    'd zh': { model: SONNET, effort: MAX },
     'd en': { model: OPUS, effort: MAX },
   })
   const rows = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['nouls'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
@@ -129,7 +129,7 @@ test('each answer is graded on its model and on its effort; haiku carries no eff
  *   a  opus medium (model; low lifted to the floor) | sonnet high (both)
  *   b  sonnet medium (none) | haiku (both)
  *   c  sonnet medium (model; low lifted to the floor) | opus medium (none)
- *   d  opus max, the table's haiku not lowering the main agent's opus (both) | opus max, its pick kept (both)
+ *   d  opus max, the table's sonnet not lowering the main agent's opus (both) | opus max, its pick kept (both)
  *   w  sonnet medium (both) | sonnet high (both)      a workflow's agent
  *   u  sonnet, named at 0.8 (both; its low lifted to medium) | haiku, named at only 0.3 (none)
  */
@@ -149,7 +149,7 @@ const SIX_ANSWERS: Record<string, Answers> = {
   'b en': { model: HAIKU, effort: HIGH },
   'c zh': { model: SONNET, effort: LOW },
   'c en': { model: OPUS, effort: LOW },
-  'd zh': { model: HAIKU, effort: MAX },
+  'd zh': { model: SONNET, effort: MAX },
   'd en': { model: OPUS, effort: MAX },
   'w zh': { model: SONNET, effort: MEDIUM },
   'w en': { model: SONNET, effort: HIGH },
@@ -197,38 +197,40 @@ test("the suite's own figures: each part agreed on in both languages, each kind 
       'priority:main-kept': { zh: { requested: 1 }, en: { requested: 1 } },
       'priority:user': { zh: { user: 1 }, en: { table: 1 } },
     },
-    // zh: a 3, b c w 5, d 4, u 1; en: a w 5, b u 4, c d 3. With the model right: zh a, c w, d, u; en a w, b, d.
+    // zh: a 3, b c d w 5, u 1; en: a w 5, b u 4, c d 3. With the model right: zh a, c d w, u; en a w, b, d.
     rows: {
       '1': { zh: { answers: 1, model: 1 }, en: { answers: 0, model: 0 } },
       '3': { zh: { answers: 1, model: 1 }, en: { answers: 2, model: 1 } },
-      '4': { zh: { answers: 1, model: 1 }, en: { answers: 2, model: 1 } },
-      '5': { zh: { answers: 3, model: 2 }, en: { answers: 2, model: 2 } },
+      '4': { zh: { answers: 0, model: 0 }, en: { answers: 2, model: 1 } },
+      '5': { zh: { answers: 4, model: 3 }, en: { answers: 2, model: 2 } },
     },
   })
 })
 
-test('what an answer records: where its model came from, the table\'s row, the main agent\'s pick kept or raised, and the raw answers to decide again from', async () => {
+test('what an answer records: where its model came from, the table\'s row, the main agent\'s pick kept, raised or lowered, and the raw answers to decide again from', async () => {
   const items = [item('d', { model: 'opus', effort: 'max' }, { model: ['opus'], effort: ['xhigh', 'max'] }, { requested: 'opus', tags: ['priority:main-kept'], words: ' 别用 sonnet' })]
   const net = network({ 'd zh': { model: { haiku: 0.9, sonnet: 0.02, opus: 0.08 }, effort: MAX, nouls: { 'named.sonnet': 0.1, 'banned.sonnet': 0.95 } } })
   const [row] = await runSuite(agentSuite(items), items, { backend: jevBackend('k'), ...net, settings: settingsFrom({ decisionModel: 'jev' }), variants: ['nouls'], languages: ['zh'], timeoutMs: 10_000, retries: 0, concurrency: 1 })
 
-  // The table gives haiku (a lookup); the main agent's opus is kept, never lowered.
-  expect(row?.shown).toBe('opus max')
+  // The table gives haiku (work that is only carried out): the main agent's opus, two tiers up, gives way to it (ADR 0024).
+  expect(row?.shown).toBe('haiku')
   expect(row?.detail).toEqual({
-    source: 'requested',
+    source: 'table',
     row: '4',
-    requested: 'kept',
+    requested: 'lowered',
     p_effort: [0, 0, 0, 0.2, 0.8],
     nouls: {
-      writes: 0,
-      few_steps: 1,
-      report_only: 1,
+      judges: 0,
+      logic: 0,
       'stakes.undo': 0,
       'stakes.live': 0,
       'stakes.access': 0,
       cause_unknown: 0,
+      diagnosis: 0,
       design_open: 0,
-      outside_facts: 0,
+      security: 0,
+      concurrency: 0,
+      money: 0,
       science_code: 0,
       'named.sonnet': 0.1,
       'banned.sonnet': 0.95,

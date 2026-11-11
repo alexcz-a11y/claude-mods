@@ -1,5 +1,5 @@
 // The decision backend's interface: one implementation per decision model
-// (Jev's in jev.ts, pplx's in pplx.ts, d1-ultra's in liquid.ts), the same requests and answers.
+// (Jev's in jev.ts, pplx's in pplx.ts, d1-ultra's and d1.1's in liquid.ts), the same requests and answers.
 //
 // Pure (see system-one.ts): a backend reaches the network only through the
 // `io` it is handed, which the mod builds from `$` in the hook that calls it
@@ -8,10 +8,10 @@
 import type { HttpInit, HttpResponse } from 'claude-code'
 import { readResponse, type DecisionRequest } from './system-one.ts'
 
-/** The decision models that may take requests with images (core/setup.ts `chooseImageBackend`): Jev, else pplx. Never d1-ultra. */
+/** The decision models that may take requests with images (core/setup.ts `chooseImageBackend`): Jev, else pplx. Never Liquid's (d1-ultra, d1.1). */
 export type ImageBackendName = 'pplx' | 'jev'
 /** The decision models there are, by the name the person sets (`decisionModel`) and the code keys its tables by. */
-export type BackendName = ImageBackendName | 'd1-ultra'
+export type BackendName = ImageBackendName | 'd1-ultra' | 'd1.1'
 
 /** What a backend needs from the host, as closures. */
 export type BackendIo = {
@@ -250,8 +250,8 @@ const FAILURE_WORDS: { readonly [K in Failure['kind']]: { words: (failure: Named
     },
   },
   network: { words: () => '连不上决策模型', means: () => '网络不通，请求没有发出去', line: (backend) => `${backend}：连不上` },
-  // A 429 from pplx is the rate limit the mod itself keeps to (pplxQps, pplx-rate.ts), and d1-ultra's is Liquid's rate limit (20
-  // requests a second a model): 「被限速」. Jev's is 「繁忙」, as in 0.3.1.
+  // A 429 from pplx is the rate limit the mod itself keeps to (pplxQps, pplx-rate.ts), and d1-ultra's and d1.1's is Liquid's rate
+  // limit (20 requests a second a model): 「被限速」. Jev's is 「繁忙」, as in 0.3.1.
   busy: {
     words: (failure) => (rateLimited(failure.backend, failure) ? '决策模型被限速' : '决策模型繁忙'),
     means: (failure) => (rateLimited(failure.backend, failure) ? '请求太密，被决策模型限速了（状态码 429）' : '决策模型一时繁忙（状态码 429 之类）'),
@@ -284,7 +284,7 @@ export function failureMeaning(failure: NamedFailure): string {
 /** A failure with the decision model it came from, as the board keeps it. */
 export type NamedFailure = Failure & { backend: string }
 
-/** Whether a 429 is a rate limit: the one the mod keeps pplx to, or Liquid's for d1-ultra (Jev's 429 is its own busy). */
+/** Whether a 429 is a rate limit: the one the mod keeps pplx to, or Liquid's for d1-ultra and d1.1 (Jev's 429 is its own busy). */
 function rateLimited(backend: string, failure: Failure): boolean {
-  return (backend === 'pplx' || backend === 'd1-ultra') && failure.status === 429
+  return (backend === 'pplx' || backend === 'd1-ultra' || backend === 'd1.1') && failure.status === 429
 }

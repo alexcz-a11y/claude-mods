@@ -200,7 +200,7 @@ test('every question is asked in English, the effort question beside a message t
   for (const request of w.requests) for (const name of instructionNames(request)) expect(name).toMatch(/^[a-z_]+$/)
   const effort = w.requests[0]?.body.questions['effort.level']
   expect(Object.keys(effort.instructions)).toEqual(['question', 'work', 'rate', 'short_replies'])
-  expect(effort.criteria[0]).toMatch(/^Answered from what is already known/)
+  expect(effort.criteria[0]).toMatch(/^A short answer from what is already known/)
 })
 
 // ---- how long it is waited for -------------------------------------------------------------------

@@ -12,6 +12,7 @@
 import { messageLimits, type Config } from '../../hooks/core/setup.ts'
 import { turnStartState, type ContextMessage } from '../../hooks/decision/context.ts'
 import { EFFORTS, LEVEL, readEffort, type Effort, type EffortAsk, type EffortReading } from '../../hooks/decision/effort.ts'
+import { LIQUID_GUIDE, TYPESAFE_GUIDE, type Guide } from '../../hooks/decision/guides.ts'
 import { decideMessage, messageSignals, type MessageDecision, type MessageSignals } from '../../hooks/decision/message-effort.ts'
 import { turnStartPart } from '../../hooks/decision/turn-start.ts'
 import { countAfter, judgeUnresolved, readUnresolved, type UnresolvedJudgement } from '../../hooks/decision/unresolved.ts'
@@ -41,6 +42,11 @@ function variantAsk(variant: string): EffortAsk {
   return variantIn(SUBMIT_VARIANTS, variant)
 }
 
+/** The guide an answer is read by: its maker's (decision/guides.ts), by the model that answered; the settings' where the answer did not name one. */
+export function guideFor(model: string | null, settings: { guide: Guide }): Guide {
+  return model !== null && /^d1/i.test(model) ? LIQUID_GUIDE : settings.guide
+}
+
 /**
  * An effort scores against an item's levels: right when it is acceptable,
  * exact when it is gold; a wrong one is `under` (below every acceptable
@@ -60,7 +66,7 @@ export const effortSubmit: Suite<EffortSubmitItem, Effort> = {
     const { request, part } = submitRequest(item, language, variantAsk(variant), settings)
     const { asked } = await ask(request)
     if (!asked.ok) return requestFailed(asked.failure)
-    const decided = decideMessageEffort(answersFor(part, asked.answers), { text: item[language].message, count: 0, lastTurn: null, maxAfter: settings.unresolved.maxAfter })
+    const decided = decideMessageEffort(answersFor(part, asked.answers), { text: item[language].message, count: 0, lastTurn: null, maxAfter: settings.unresolved.maxAfter, guide: guideFor(asked.model, settings) })
     if (decided === null) return { ok: false, failure: 'parse: no effort answer' }
     return { ok: true, prediction: decided.decision.effort, detail: decisionDetail(decided) }
   },
@@ -71,35 +77,43 @@ export const effortSubmit: Suite<EffortSubmitItem, Effort> = {
 }
 
 /** A message's effort decided from its effort part's answers, as the mod decides it (features/main-effort.ts). */
-export type MessageEffort = { reading: EffortReading; judged: UnresolvedJudgement | null; count: number; signals: MessageSignals; decision: MessageDecision }
+export type MessageEffort = { reading: EffortReading; judged: UnresolvedJudgement | null; count: number; signals: MessageSignals; decision: MessageDecision; guide: Guide }
 
 /**
  * The effort of a message from its part's answers (by the part's own ids): the answers move the count as the mod's do
- * (`count` is the count before the message), then decision/message-effort.ts decides. Null without an effort answer.
+ * (`count` is the count before the message), then decision/message-effort.ts decides, reading the answers by `guide`
+ * (TypeSafe's unless given). Null without an effort answer.
  */
-export function decideMessageEffort(answers: Readonly<Record<string, Answer>>, input: { text: string; count: number; lastTurn: MessageSignals['lastTurn']; maxAfter: number; own?: boolean }): MessageEffort | null {
+export function decideMessageEffort(answers: Readonly<Record<string, Answer>>, input: { text: string; count: number; lastTurn: MessageSignals['lastTurn']; maxAfter: number; own?: boolean; guide?: Guide }): MessageEffort | null {
   const reading = readEffort(answers[LEVEL])
   if (reading === null) return null
   const own = input.own !== false
   const unresolved = own ? readUnresolved(answers) : null
-  const judged = unresolved === null ? null : judgeUnresolved(unresolved)
+  const guide = input.guide ?? TYPESAFE_GUIDE
+  const judged = unresolved === null ? null : judgeUnresolved(unresolved, guide.noul)
   const count = judged === null ? input.count : countAfter(input.count, judged.change)
   const signals = messageSignals(answers, { own, text: input.text, lastTurn: input.lastTurn, count, maxAfter: input.maxAfter, lock: null })
-  return { reading, judged, count, signals, decision: decideMessage(reading, signals) }
+  return { reading, judged, count, signals, decision: decideMessage(reading, signals, guide), guide }
 }
 
-/** What a result row keeps of a message's decision: the levels' probabilities, the confidence, the Nouls' answers and the rule that lifted the level. */
+/** What a result row keeps of a message's decision: the levels' probabilities, the confidence, the Nouls' answers, the rule that lifted the level and the guide it was read by, so another reading of the answers needs no new request. */
 export function decisionDetail(decided: MessageEffort): Record<string, unknown> {
   const round = (p: number | null) => (p === null ? null : Math.round(p * 1000) / 1000)
   const { signals, judged, decision } = decided
   return {
     p: decided.reading.probabilities.map((p) => Math.round(p * 1000) / 1000),
     confidence: decided.reading.confidence,
-    base: decision.steps.find((step) => step.rule === 'two-peaked')?.level ?? null,
+    // The base: the level after the position and, on TypeSafe's guide, the two peaks; before any floor.
+    base: (decision.steps.find((step) => step.rule === 'two-peaked') ?? decision.steps.find((step) => step.rule === 'position'))?.level ?? null,
     stakes: { undo: round(signals.stakes.undo), live: round(signals.stakes.live), access: round(signals.stakes.access) },
     cause: round(signals.causeUnknown),
+    still_failing: round(signals.stillFailing),
+    confirm: round(signals.confirm),
+    escalate: round(signals.escalate),
+    ultrathink: signals.ultrathink,
     ...(judged === null ? {} : { unresolved: { ...judged.probabilities }, change: judged.change }),
     lifted: decision.lifted,
+    guide: decided.guide.name,
   }
 }
 

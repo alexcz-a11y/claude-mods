@@ -187,7 +187,7 @@ test('the nouls-zh variant asks what nouls asks, every question written in Chine
   }
   // The questions as the mod writes them in Chinese (decision/dispatched-agent.ts), the brief's field named in them.
   const asked = await evalRequest(LONG, 'zh', {}, [LONG], 'nouls-zh')
-  expect(asked.questions['agent.design_open']?.instructions).toMatchObject({ 问题: '`brief.prompt` 是否要求 agent 自己选一个任务里没给出的做法？' })
+  expect(asked.questions['agent.design_open']?.instructions).toMatchObject({ 问题: '`brief.prompt` 是否要求 agent 设计我们自己系统的各部分应当怎样配合？' })
   expect(JSON.stringify(asked.questions)).not.toContain('sonnet')
   expect(asked.questions['agent.effort']?.instructions).toMatchObject({ 问题: '一个派出的 agent 要完成 `brief`，需要多少逐步推理？' })
 })
@@ -243,8 +243,10 @@ function agentItem(id: string, asked: Partial<AgentItem['zh']>): AgentItem {
 
 test("the eval decides an agent as the mod does from the same answers, under the mod's options (agentFable)", { options: { decisionModel: 'jev', typesafeApiKey: 'k', agentFable: true } }, async ($, on) => {
   const cases: { item: AgentItem; answers: Answers }[] = [
-    // The table gives haiku: the main agent's opus is never lowered.
-    { item: agentItem('keep', { requested_model: 'opus' }), answers: { model: { haiku: 0.9, sonnet: 0.05, opus: 0.05, fable: 0 }, effort: [0, 0, 0, 1, 0] } },
+    // The table gives haiku: the main agent's opus, two tiers up, gives way to it (ADR 0024).
+    { item: agentItem('lower', { requested_model: 'opus' }), answers: { model: { haiku: 0.9, sonnet: 0.05, opus: 0.05, fable: 0 }, effort: [0, 0, 0, 1, 0] } },
+    // The table gives sonnet: the main agent's opus, one tier up, is kept.
+    { item: agentItem('keep', { requested_model: 'opus' }), answers: { model: { haiku: 0.05, sonnet: 0.9, opus: 0.05, fable: 0 }, effort: [0, 0, 0, 1, 0] } },
     // The frontier question is asked (agentFable) and says yes: the main agent's sonnet is raised to fable.
     { item: agentItem('fable', { requested_model: 'sonnet' }), answers: { model: { haiku: 0, sonnet: 0, opus: 0.02, fable: 0.98 }, effort: [0, 0, 0, 0.3, 0.7] } },
     // The person names sonnet for the work: it wins over the main agent's opus and the decision model's haiku.
@@ -277,6 +279,6 @@ test("the eval decides an agent as the mod does from the same answers, under the
     )
     evaluated.push(decided.ok ? `${item.id}: ${decided.prediction.model} ${decided.prediction.effort ?? '—'}` : `${item.id}: ${decided.failure}`)
   }
-  expect(mod).toEqual(['keep: opus xhigh', 'fable: fable max', 'named: sonnet medium', 'haiku: haiku high'])
-  expect(evaluated).toEqual(['keep: opus xhigh', 'fable: fable max', 'named: sonnet medium', 'haiku: haiku —'])
+  expect(mod).toEqual(['lower: haiku xhigh', 'keep: opus xhigh', 'fable: fable max', 'named: sonnet medium', 'haiku: haiku high'])
+  expect(evaluated).toEqual(['lower: haiku —', 'keep: opus xhigh', 'fable: fable max', 'named: sonnet medium', 'haiku: haiku —'])
 })

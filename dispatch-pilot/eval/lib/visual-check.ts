@@ -225,8 +225,8 @@ export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualChe
       if (!(VISUAL_VARIANTS as readonly string[]).includes(variant)) throw new RangeError(`no variant "${variant}" (${VISUAL_VARIANTS.join(', ')})`)
       if (images === undefined) return { ok: false, failure: 'config: this run has no host for pictures and programs (SuiteHost.images)' }
       const backend = settings.backend
-      // The pictures go to Jev or pplx only (ADR 0017): d1-ultra takes none.
-      if (backend === 'd1-ultra') return { ok: false, failure: 'config: d1-ultra takes no pictures; run the visual-check suite with --backend jev or pplx' }
+      // The pictures go to Jev or pplx only (ADR 0017): Liquid's models take none here.
+      if (backend === 'd1-ultra' || backend === 'd1.1') return { ok: false, failure: `config: ${backend} takes no pictures; run the visual-check suite with --backend jev or pplx` }
       if (item.kind === 'complexity') return decideComplexity(item, ask, backend, images)
       if (item.kind === 'anim') return decideAnim(item, ask, backend, images)
       return decideCompared(item, variant, ask, backend, images)

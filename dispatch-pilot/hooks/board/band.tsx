@@ -436,7 +436,7 @@ function eventParts(t: TT, event: BandEvent): { glyph: RenderNode; tag: string; 
         tagColor: WARN,
         body: (
           <Text color={WARN} wrap="truncate-end">
-            {`${event.who}  升模型 ${event.from} → ${event.to}`}
+            {`${event.who}  ${event.what === 'effort' ? '升 effort' : '升模型'} ${event.from} → ${event.to}`}
             <Text color={MUTED}>{`  工具调用失败 ${event.failed}${event.blocked > 0 ? ` · 拦截 ${event.blocked}` : ''}`}</Text>
           </Text>
         ),

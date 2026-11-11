@@ -24,7 +24,7 @@ const SKILLS: SkillsWorld = {
 
 const ids = (request: Sent) => Object.keys(request.body.questions)
 /** The skills' first request over two skills (ADR 0018): the Choice, then the gate. */
-const SKILLS_FIRST = ['skills.which', 'skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices']
+const SKILLS_FIRST = ['skills.which', 'skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices', 'skills.named']
 const isEffort = (request: Sent) => ids(request).some((id) => id.startsWith('effort.'))
 const isSkills = (request: Sent) => ids(request).some((id) => id.startsWith('skills.'))
 

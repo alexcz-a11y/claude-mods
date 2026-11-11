@@ -20,7 +20,9 @@ import {
   nearestAllowed,
   type AgentModel,
   type Dispatch,
+  type DispatchDecision,
 } from '../hooks/decision/dispatched-agent.ts'
+import { stepLines } from '../hooks/board/rationale.ts'
 import { mergeParts, QUESTION_ID, type Answer } from '../hooks/decision/system-one.ts'
 
 /** subagent.jsonl's item shape (`zh`). */
@@ -50,12 +52,16 @@ function noul(p: number): Answer {
   return { type: 'noul', noul: p }
 }
 
-/** Every Noul about the brief answered: each at 0 (no) unless `given` says otherwise; a medium effort unless `effort` does. */
+/**
+ * Every Noul about the brief answered: ordinary work (a judgment to reach and code to follow, each 1; every other at 0, no)
+ * unless `given` says otherwise; a medium effort unless `effort` does.
+ */
 function brief(given: Record<string, number> = {}, effort: readonly number[] = [0, 1, 0, 0, 0]): Record<string, Answer> {
-  return { ...Object.fromEntries(BRIEF_NOULS.map((id) => [id, noul(given[id] ?? 0)])), effort: score(effort) }
+  const said: Record<string, number> = { judges: 1, logic: 1, ...given }
+  return { ...Object.fromEntries(BRIEF_NOULS.map((id) => [id, noul(said[id] ?? 0)])), effort: score(effort) }
 }
-/** A read-only lookup of a step or two: the table's row 4. */
-const LOOKUP = { writes: 0.05, few_steps: 0.9, report_only: 0.85 }
+/** Work that is only carried out, with nothing to judge and no code to follow: the table's row 4. */
+const LOOKUP = { judges: 0.05, logic: 0.1 }
 const WITH_FABLE = { models: AGENT_MODELS }
 
 test("the state about one agent: its brief first, then the person's words; secrets masked; the words take at most a third of the budget, cut keeping their end", () => {
@@ -101,7 +107,7 @@ test("a workflow's agent: the workflow's description and the agent()'s label joi
 
 test('the questions: one yes/no question per judgment about the brief, each naming the fields it reads, true as yes; frontier only with fable; the effort Score; in English unless asked in Chinese', () => {
   const part = dispatchPart(REVIEW)
-  expect(Object.keys(part.questions)).toEqual(['writes', 'few_steps', 'report_only', 'stakes.undo', 'stakes.live', 'stakes.access', 'cause_unknown', 'design_open', 'outside_facts', 'science_code', 'effort'])
+  expect(Object.keys(part.questions)).toEqual(['judges', 'logic', 'stakes.undo', 'stakes.live', 'stakes.access', 'cause_unknown', 'diagnosis', 'design_open', 'security', 'concurrency', 'money', 'science_code', 'effort'])
   for (const id of BRIEF_NOULS.filter((id) => id !== 'frontier')) {
     const question = part.questions[id]
     expect(question?.type).toBe('noul')
@@ -110,16 +116,21 @@ test('the questions: one yes/no question per judgment about the brief, each nami
     expect(text).toContain('`user_message`')
     expect(question?.type === 'noul' && Object.keys(question.criteria ?? {})).toEqual(['true', 'false'])
   }
-  expect(part.questions.writes?.instructions).toMatchObject({ question: 'Does `brief.prompt` ask the agent to create, change or delete files, or to run commands that change something?' })
-  expect(part.questions.few_steps?.instructions).toMatchObject({ question: 'Can the work in `brief.prompt` be done with one or two tool calls?' })
-  expect(part.questions.report_only?.instructions).toMatchObject({ question: 'Is the result of `brief.prompt` only gathered and laid out as asked (a list, a table, a count), with nothing to decide?' })
+  expect(part.questions.judges?.instructions).toMatchObject({ question: 'Does the work in `brief.prompt` need the agent to reach a judgment of its own?' })
+  expect(part.questions.logic?.instructions).toMatchObject({ question: 'Does the work in `brief.prompt` require following the logic of program code?' })
+  expect(part.questions.diagnosis?.instructions).toMatchObject({ question: 'Does `brief.prompt` leave it to the agent to work out how to find the cause of a failure?' })
+  // Each sign reads the work, not its topic: its `false` names the work on the same topic that is only carried out (ADR 0023).
+  expect(JSON.stringify(part.questions.security)).toContain('lists facts such as where secrets are read')
+  expect(JSON.stringify(part.questions.concurrency)).toContain('a model checker to run and report')
+  expect(JSON.stringify(part.questions.design_open)).toContain('which existing library, tool or product to adopt')
+  expect(JSON.stringify(part.questions.money)).toContain('implements a billing or pricing rule the brief specifies')
   expect(part.questions.effort?.type).toBe('score')
   // No question names the main agent's pick: it never anchors a judgment (the table weighs it afterwards).
   expect(JSON.stringify(part.questions)).not.toContain('opus')
 
   expect(Object.keys(dispatchPart(REVIEW, WITH_FABLE).questions)).toContain('frontier')
   const chinese = dispatchPart(REVIEW, { ask: { language: 'zh', primitive: 'choice' } })
-  expect(JSON.stringify(chinese.questions.design_open)).toMatch(/自己选一个任务里没给出的做法/)
+  expect(JSON.stringify(chinese.questions.design_open)).toMatch(/设计我们自己系统的各部分应当怎样配合/)
   expect(chinese.questions.effort?.type).toBe('choice')
 })
 
@@ -129,8 +140,8 @@ test('several agents can share one request: each has its own part name and brief
   const second = dispatchPart(search, { part: 'agent-1', field: 'brief_1' })
   const request = mergeParts({ brief_0: dispatchBrief(REVIEW, 600), brief_1: dispatchBrief(search, 600), user_message: REVIEW.user_message }, [first, second])
 
-  expect(Object.keys(request.questions)).toHaveLength(22)
-  expect(Object.keys(request.questions).slice(0, 2)).toEqual(['agent-0.writes', 'agent-0.few_steps'])
+  expect(Object.keys(request.questions)).toHaveLength(26)
+  expect(Object.keys(request.questions).slice(0, 2)).toEqual(['agent-0.judges', 'agent-0.logic'])
   expect(JSON.stringify(request.questions['agent-1.cause_unknown']?.instructions)).toContain('`brief_1.prompt`')
   for (const id of Object.keys(request.questions)) expect(QUESTION_ID.test(id)).toBe(true)
 })
@@ -144,44 +155,69 @@ test('the model table, row by row: the first that matches wins; a Noul reads yes
   expect(row({ frontier: 0.8, 'stakes.undo': 0.9 }, WITH_FABLE)).toEqual({ row: '2', model: 'fable' })
   expect(row({ frontier: 0.8 })).toEqual({ row: '5', model: 'sonnet' })
   expect(row({ frontier: 0.6 }, WITH_FABLE)).toEqual({ row: '5', model: 'sonnet' })
-  // Row 3: any of the seven careful Nouls yes, even beside a lookup.
-  for (const id of ['stakes.undo', 'stakes.live', 'stakes.access', 'cause_unknown', 'design_open', 'outside_facts', 'science_code']) {
-    expect(row({ [id]: 0.7, ...LOOKUP })).toEqual({ row: '3', model: 'opus' })
+  // Row 3: what the agent itself does cannot be taken back, or acts on production: opus whatever else is read, even of work that is only carried out.
+  for (const id of ['stakes.undo', 'stakes.live']) expect(row({ [id]: 0.7, ...LOOKUP })).toEqual({ row: '3', model: 'opus' })
+  // Row 3: any of the six hard signs yes, of work with a judgment in it (yes) or one not settled (the band).
+  for (const id of ['diagnosis', 'design_open', 'security', 'concurrency', 'money', 'science_code']) {
+    expect(row({ [id]: 0.7 })).toEqual({ row: '3', model: 'opus' })
+    expect(row({ [id]: 0.7, judges: 0.5 })).toEqual({ row: '3', model: 'opus' })
+    // Of work nothing is judged in, a hard sign is the topic speaking: it does not count, and the work is still haiku's when no code is followed.
+    expect(row({ [id]: 0.95, ...LOOKUP })).toEqual({ row: '4', model: 'haiku' })
+    expect(row({ [id]: 0.95, judges: 0.2 })).toEqual({ row: '5', model: 'sonnet' })
+    // In the band it lifts nothing and holds nothing back.
+    expect(row({ [id]: 0.69 })).toEqual({ row: '5', model: 'sonnet' })
+    expect(row({ [id]: 0.5, ...LOOKUP })).toEqual({ row: '4', model: 'haiku' })
   }
-  // Row 3b: none of them yes, one in the band: sonnet (and max effort, below).
-  expect(row({ design_open: 0.5, ...LOOKUP })).toEqual({ row: '3b', model: 'sonnet' })
-  expect(row({ outside_facts: 0.31 })).toEqual({ row: '3b', model: 'sonnet' })
-  expect(row({ outside_facts: 0.3 })).toEqual({ row: '5', model: 'sonnet' })
-  // Row 4: writes no, few_steps yes and report_only yes.
+  expect(decideDispatch(brief({ security: 0.9, concurrency: 0.8, ...LOOKUP }), FREE, {}).table).toMatchObject({ row: '4', why: ['judges', 'logic'], disarmed: ['security', 'concurrency'] })
+  expect(decideDispatch(brief({ security: 0.9, 'stakes.live': 0.8 }), FREE, {}).table).toMatchObject({ row: '3', why: ['stakes.live', 'security'], disarmed: [] })
+  // The signs the effort's floors alone read make no opus: a change to permissions, a cause the brief does not name.
+  expect(row({ 'stakes.access': 0.9 })).toEqual({ row: '5', model: 'sonnet' })
+  expect(row({ cause_unknown: 0.9 })).toEqual({ row: '5', model: 'sonnet' })
+  // Row 4: nothing to judge and no code to follow, both said.
   expect(row(LOOKUP)).toEqual({ row: '4', model: 'haiku' })
-  expect(row({ ...LOOKUP, writes: 0.4 })).toEqual({ row: '5', model: 'sonnet' })
-  expect(row({ ...LOOKUP, few_steps: 0.69 })).toEqual({ row: '5', model: 'sonnet' })
-  expect(row({ ...LOOKUP, report_only: 0.5 })).toEqual({ row: '5', model: 'sonnet' })
+  expect(row({ judges: 0.3, logic: 0.3 })).toEqual({ row: '4', model: 'haiku' })
+  expect(row({ ...LOOKUP, judges: 0.31 })).toEqual({ row: '5', model: 'sonnet' })
+  expect(row({ ...LOOKUP, logic: 0.5 })).toEqual({ row: '5', model: 'sonnet' })
   // Row 5: anything else.
-  expect(row({ writes: 0.9 })).toEqual({ row: '5', model: 'sonnet' })
-  // A missing answer makes no haiku: the three must be said.
-  const { writes: _, ...unsaid } = brief(LOOKUP)
+  expect(row({})).toEqual({ row: '5', model: 'sonnet' })
+  expect(row({ judges: 0.1 })).toEqual({ row: '5', model: 'sonnet' })
+  // A missing answer makes no haiku, and disarms nothing: both must be said.
+  const { judges: _, ...unsaid } = brief(LOOKUP)
   expect(decideDispatch(unsaid, FREE, {})).toMatchObject({ model: 'sonnet', table: { row: '5' } })
+  expect(decideDispatch({ ...unsaid, security: noul(0.9) }, FREE, {})).toMatchObject({ model: 'opus', table: { row: '3', why: ['security'] } })
+  const { logic: __, ...halfSaid } = brief(LOOKUP)
+  expect(decideDispatch(halfSaid, FREE, {})).toMatchObject({ model: 'sonnet', table: { row: '5' } })
   // Nothing about the brief answered (a failed request): no table, and the engine's model stands unless the main agent asked for one.
   expect(decideDispatch({}, FREE, {})).toMatchObject({ model: null, source: 'none', table: null, answered: false })
   expect(decideDispatch({ effort: score([0, 0, 1, 0, 0]) }, REVIEW, {})).toMatchObject({ model: 'opus', source: 'requested', table: null, answered: true })
 })
 
-test("the main agent's pick: kept unless the table's model is stronger, then raised to it; never lowered", () => {
+test("the main agent's pick: raised to the table's stronger model; lowered to the table's haiku from opus or fable; otherwise kept", () => {
   const as = (requested: AgentModel, given: Record<string, number>, settings = {}) => {
     const decision = decideDispatch(brief(given), { ...REVIEW, requested_model: requested }, settings)
     return { model: decision.model, source: decision.source, requested: decision.requested }
   }
-  // The table says haiku: opus and sonnet stay as asked; haiku is haiku.
-  expect(as('opus', LOOKUP)).toEqual({ model: 'opus', source: 'requested', requested: { model: 'opus', outcome: 'kept' } })
+  // The table says haiku (the work is only carried out): opus and fable, two tiers up or more, give way to it (ADR 0024);
+  // sonnet, one tier up, stays as asked; haiku is haiku.
+  expect(as('opus', LOOKUP)).toEqual({ model: 'haiku', source: 'table', requested: { model: 'opus', outcome: 'lowered' } })
+  expect(as('fable', LOOKUP)).toEqual({ model: 'haiku', source: 'table', requested: { model: 'fable', outcome: 'lowered' } })
   expect(as('sonnet', LOOKUP)).toEqual({ model: 'sonnet', source: 'requested', requested: { model: 'sonnet', outcome: 'kept' } })
   expect(as('haiku', LOOKUP)).toEqual({ model: 'haiku', source: 'requested', requested: { model: 'haiku', outcome: 'kept' } })
+  // The table says sonnet (ordinary work): no pick is lowered to it, fable included (no row says the work is not fable's).
+  expect(as('fable', {})).toEqual({ model: 'fable', source: 'requested', requested: { model: 'fable', outcome: 'kept' } })
+  // A haiku that only stands in for the models the person ruled out lowers nothing: the table did not read the work as haiku's.
+  const standIn = decideDispatch({ ...brief({}), 'banned.sonnet': noul(0.9), 'banned.opus': noul(0.9) }, { ...REVIEW, requested_model: 'fable' }, {})
+  expect(standIn).toMatchObject({ model: 'fable', source: 'requested', table: { row: '5', wanted: 'sonnet', model: 'haiku' }, requested: { model: 'fable', outcome: 'kept' } })
   // The table says opus: haiku and sonnet are raised; fable, stronger, is kept (agentFable or not).
-  expect(as('haiku', { cause_unknown: 0.9 })).toEqual({ model: 'opus', source: 'table', requested: { model: 'haiku', outcome: 'upgraded' } })
-  expect(as('sonnet', { cause_unknown: 0.9 })).toEqual({ model: 'opus', source: 'table', requested: { model: 'sonnet', outcome: 'upgraded' } })
-  expect(as('fable', { cause_unknown: 0.9 })).toEqual({ model: 'fable', source: 'requested', requested: { model: 'fable', outcome: 'kept' } })
+  expect(as('haiku', { diagnosis: 0.9 })).toEqual({ model: 'opus', source: 'table', requested: { model: 'haiku', outcome: 'upgraded' } })
+  expect(as('sonnet', { diagnosis: 0.9 })).toEqual({ model: 'opus', source: 'table', requested: { model: 'sonnet', outcome: 'upgraded' } })
+  expect(as('fable', { diagnosis: 0.9 })).toEqual({ model: 'fable', source: 'requested', requested: { model: 'fable', outcome: 'kept' } })
+  // The table says sonnet (ordinary work): haiku is raised to it, opus kept.
+  expect(as('haiku', {})).toEqual({ model: 'sonnet', source: 'table', requested: { model: 'haiku', outcome: 'upgraded' } })
+  expect(as('opus', {})).toEqual({ model: 'opus', source: 'requested', requested: { model: 'opus', outcome: 'kept' } })
   // An id counts by its family.
   expect(decideDispatch(brief(LOOKUP), { ...REVIEW, requested_model: 'claude-sonnet-5-5' }, {})).toMatchObject({ model: 'sonnet', source: 'requested' })
+  expect(decideDispatch(brief(LOOKUP), { ...REVIEW, requested_model: 'claude-opus-5-5' }, {})).toMatchObject({ model: 'haiku', source: 'table', requested: { model: 'opus', outcome: 'lowered' } })
   // The steps say whose pick it was: a Workflow call's is the script's.
   const script = decideDispatch(brief({ design_open: 0.9 }), { ...REVIEW, kind: 'workflow', requested_model: 'sonnet' }, {})
   expect(script.steps.find((step) => step.rule === 'main-pick')).toMatchObject({ asker: 'script', requested: 'sonnet', table: 'opus', model: 'opus', outcome: 'upgraded' })
@@ -248,30 +284,34 @@ test("an effort the person names: asked only when their words may name one; the 
   // Under 0.7, or none the most probable: the decided effort stands.
   expect(decideDispatch({ ...brief({}, xhigh), named_effort: choice({ none: 0.1, low: 0.6, medium: 0.3 }) }, FREE, {})).toMatchObject({ effort: 'xhigh', namedEffort: null, effortSource: 'decided' })
   expect(decideDispatch({ ...brief({}, xhigh), named_effort: choice({ none: 0.6, low: 0.4 }) }, FREE, {})).toMatchObject({ effort: 'xhigh', namedEffort: null })
-  // No floor touches it: not the stakes' max, not row 3b's, not the model's.
+  // No floor touches it: not the stakes' max, not the model's.
   const stakes = { 'stakes.undo': 0.9, 'stakes.live': 0.9 }
   expect(decideDispatch({ ...brief(stakes, [1, 0, 0, 0, 0]), named_effort: choice({ none: 0, low: 1 }) }, FREE, {})).toMatchObject({ model: 'opus', effort: 'low', effortSource: 'user' })
-  expect(decideDispatch({ ...brief({ design_open: 0.5 }), named_effort: choice({ none: 0, medium: 1 }) }, FREE, {})).toMatchObject({ table: { row: '3b' }, effort: 'medium' })
+  expect(decideDispatch({ ...brief({ design_open: 0.5 }), named_effort: choice({ none: 0, medium: 1 }) }, FREE, {})).toMatchObject({ table: { row: '5' }, effort: 'medium' })
   // Without an effort answer the named level still stands; on haiku too, which takes an effort since Haiku 5.5.
   const { effort: _, ...noEffort } = brief(LOOKUP)
   expect(decideDispatch({ ...noEffort, named_effort: choice({ none: 0, max: 1 }) }, FREE, {})).toMatchObject({ model: 'haiku', effort: 'max', effortSource: 'user' })
 })
 
-test('the effort floors over the base: the stakes, the unknown cause, row 3b and the model; each only lifts, the highest stands', () => {
+test('the effort floors over the base: the stakes, the unknown cause and the model; each only lifts, the highest stands; the floors read their own signs, whatever the model table made of the brief', () => {
   const effort = (given: Record<string, number>, levels: number[], requested: AgentModel | null = null) => {
     const decision = decideDispatch(brief(given, levels), { ...REVIEW, requested_model: requested }, {})
     return { model: decision.model, effort: decision.effort, lifted: decision.lifted }
   }
   const LOW = [1, 0, 0, 0, 0]
-  // The stakes: undo and live (or access) yes → max; any one yes → xhigh; any in the band → high.
+  // The stakes: undo and live (or access) yes → max; any one yes → high; one in the band lifts nothing.
   expect(effort({ 'stakes.undo': 0.9, 'stakes.live': 0.8 }, LOW)).toEqual({ model: 'opus', effort: 'max', lifted: { from: 'low', by: 'stakes' } })
   expect(effort({ 'stakes.undo': 0.9, 'stakes.access': 0.8 }, LOW)).toMatchObject({ effort: 'max' })
-  expect(effort({ 'stakes.access': 0.9 }, LOW)).toEqual({ model: 'opus', effort: 'xhigh', lifted: { from: 'low', by: 'stakes' } })
-  expect(effort({ 'stakes.live': 0.5 }, LOW)).toEqual({ model: 'sonnet', effort: 'max', lifted: { from: 'low', by: 'unsure' } })
-  // The unknown cause: yes → xhigh; in the band → high (and row 3b's max over it).
-  expect(effort({ cause_unknown: 0.9 }, LOW)).toEqual({ model: 'opus', effort: 'xhigh', lifted: { from: 'low', by: 'cause-unknown' } })
-  // Row 3b: max, whatever the base, also when the main agent's opus is kept.
-  expect(effort({ science_code: 0.4 }, [0, 1, 0, 0, 0], 'opus')).toEqual({ model: 'opus', effort: 'max', lifted: { from: 'medium', by: 'unsure' } })
+  // A change to permissions lifts the effort and leaves the model to the table (sonnet: ordinary work).
+  expect(effort({ 'stakes.access': 0.9 }, LOW)).toEqual({ model: 'sonnet', effort: 'high', lifted: { from: 'low', by: 'stakes' } })
+  // A sign in the band lifts nothing: only the model's floor.
+  expect(effort({ 'stakes.live': 0.5 }, LOW)).toEqual({ model: 'sonnet', effort: 'medium', lifted: { from: 'low', by: 'model-floor' } })
+  // The unknown cause: yes → high; the model is the table's (opus only when finding the cause is left to the agent, `diagnosis`).
+  expect(effort({ cause_unknown: 0.9 }, LOW)).toEqual({ model: 'sonnet', effort: 'high', lifted: { from: 'low', by: 'cause-unknown' } })
+  expect(effort({ cause_unknown: 0.9, diagnosis: 0.9 }, LOW)).toEqual({ model: 'opus', effort: 'high', lifted: { from: 'low', by: 'cause-unknown' } })
+  // A hard sign in the band keeps the base, also when the main agent's opus is kept; max comes from the effort answer itself.
+  expect(effort({ science_code: 0.4 }, [0, 1, 0, 0, 0], 'opus')).toEqual({ model: 'opus', effort: 'medium', lifted: undefined })
+  expect(effort({ science_code: 0.4 }, [0, 0, 0, 0, 1], 'opus')).toEqual({ model: 'opus', effort: 'max', lifted: undefined })
   // Row 3 with no stake and a known cause: only the model's floor, medium.
   expect(effort({ design_open: 0.9 }, LOW)).toEqual({ model: 'opus', effort: 'medium', lifted: { from: 'low', by: 'model-floor' } })
   // The model's floor: sonnet and opus at medium; haiku and fable have none.
@@ -279,7 +319,7 @@ test('the effort floors over the base: the stakes, the unknown cause, row 3b and
   expect(effort(LOOKUP, LOW)).toEqual({ model: 'haiku', effort: 'low', lifted: undefined })
   expect(decideDispatch(brief({ frontier: 0.9 }, LOW), FREE, WITH_FABLE)).toMatchObject({ model: 'fable', effort: 'low' })
   // A floor never lowers: a base above it stands, unlifted.
-  expect(effort({ 'stakes.access': 0.9 }, [0, 0, 0, 0, 1])).toEqual({ model: 'opus', effort: 'max', lifted: undefined })
+  expect(effort({ 'stakes.access': 0.9 }, [0, 0, 0, 0, 1])).toEqual({ model: 'sonnet', effort: 'max', lifted: undefined })
   // The base: the position rounded, one up when two-peaked (decision/effort.ts).
   expect(effort({}, [0.6, 0, 0, 0, 0.4])).toMatchObject({ effort: 'xhigh' })
   // Without an effort answer nothing is decided about it.
@@ -288,32 +328,82 @@ test('the effort floors over the base: the stakes, the unknown cause, row 3b and
 })
 
 test("the rules' working, step by step, for the card (ADR 0004): the Nouls, the table, the pick, the base, the floors; the log and the main agent's note say the same", () => {
-  const decision = decideDispatch(brief({ cause_unknown: 0.45 }, [1, 0, 0, 0, 0]), { ...REVIEW, requested_model: 'haiku' }, {})
+  const decision = decideDispatch(brief({ diagnosis: 0.45 }, [1, 0, 0, 0, 0]), { ...REVIEW, requested_model: 'haiku' }, {})
   expect(decision.steps.map((step) => [step.rule, step.applied])).toEqual([
     ['lookup-signs', false],
-    ['careful-signs', true],
+    ['careful-signs', false],
     ['model-table', true],
     ['main-pick', true],
     ['position', true],
     ['two-peaked', false],
     ['stakes', false],
-    ['cause-unknown', true],
-    ['unsure', true],
-    ['model-floor', false],
+    ['cause-unknown', false],
+    ['model-floor', true],
   ])
-  expect(decision.steps[1]).toMatchObject({ cause: 0.45, causeVerdict: 'band', design: 0, designVerdict: 'no', yes: 0.7, no: 0.3 })
-  expect(decision.steps[2]).toMatchObject({ row: '3b', wanted: 'sonnet', model: 'sonnet', why: 'cause', banned: null })
+  expect(decision.steps[0]).toMatchObject({ judges: 1, judgesVerdict: 'yes', logic: 1, logicVerdict: 'yes', yes: 0.7, no: 0.3 })
+  expect(decision.steps[1]).toMatchObject({ diagnosis: 0.45, diagnosisVerdict: 'band', design: 0, designVerdict: 'no', undo: 0, undoVerdict: 'no', yes: 0.7, no: 0.3 })
+  // The signs the floors alone read are not the table's: they are in the floors' own steps.
+  expect('cause' in (decision.steps[1] ?? {})).toBe(false)
+  expect(decision.steps[2]).toMatchObject({ row: '5', wanted: 'sonnet', model: 'sonnet', why: null, disarmed: null, banned: null })
   expect(decision.steps[3]).toMatchObject({ asker: 'main', requested: 'haiku', table: 'sonnet', model: 'sonnet', outcome: 'upgraded' })
-  expect(decision.steps[7]).toMatchObject({ level: 'high', floor: 'high' })
-  expect(decision.steps[8]).toMatchObject({ level: 'max', floor: 'max', row: '3b' })
-  expect(dispatchReason(decision, 'haiku', '主 agent 指定的')).toMatch(/^模型表第 3b 行（原因未知拿不准） → sonnet，effort 至少 max；主 agent 指定的 haiku 升级到 sonnet；effort 从 low 抬到 max（拿不准要不要 opus（第 3b 行））；effort 概率 /)
+  expect(decision.steps[7]).toMatchObject({ rule: 'cause-unknown', level: 'low', floor: null, verdict: 'no' })
+  expect(decision.steps[8]).toMatchObject({ rule: 'model-floor', level: 'medium', floor: 'medium' })
+  expect(decision.steps.map((step) => step.rule)).not.toContain('unsure')
+  expect(dispatchReason(decision, 'haiku', '主 agent 指定的')).toMatch(/^模型表第 5 行 → sonnet；主 agent 指定的 haiku 升级到 sonnet；effort 从 low 抬到 medium（模型下限）；effort 概率 /)
   const note = dispatchNote({ routed: true, decision, started: 'claude-sonnet-5-5', requested: 'haiku' })
-  expect(note).toContain('started this agent on sonnet at effort max')
-  expect(note).toContain('raised from the haiku you asked for: its rules read the brief as work that may need careful judgment (cause_unknown), which gets sonnet at max effort')
-  expect(note).toContain('low lifted to max, as it is unclear whether the work needs careful judgment')
-  const kept = decideDispatch(brief(LOOKUP), REVIEW, {})
-  expect(dispatchReason(kept, 'opus', '主 agent 指定的')).toMatch(/^沿用主 agent 指定的 opus（模型表第 4 行（写入、一两步、只汇报） → haiku，不比它强）/)
-  expect(dispatchNote({ routed: true, decision: kept, started: 'opus', requested: 'opus' })).toContain('kept the opus you asked for (its rules read the brief as a read-only lookup of a step or two whose result is only reported (writes, few_steps, report_only), which gets haiku, which is not stronger)')
+  expect(note).toContain('started this agent on sonnet at effort medium')
+  expect(note).toContain('raised from the haiku you asked for: its rules read the brief as ordinary work, which gets sonnet')
+  expect(note).not.toContain('max')
+  expect(note).toContain('low lifted to medium')
+  // A sonnet pick for work that is only carried out is kept: one tier up.
+  const kept = decideDispatch(brief(LOOKUP), { ...REVIEW, requested_model: 'sonnet' }, {})
+  expect(dispatchReason(kept, 'sonnet', '主 agent 指定的')).toMatch(/^沿用主 agent 指定的 sonnet（模型表第 4 行（不用判断、不用读懂代码） → haiku，不比它强）/)
+  expect(dispatchNote({ routed: true, decision: kept, started: 'sonnet', requested: 'sonnet' })).toContain('kept the sonnet you asked for (its rules read the brief as work that only carries out what the brief spells out, with nothing to judge and no code to follow (judges, logic), which gets haiku, which is not stronger)')
+  // An opus pick for it is lowered (REVIEW asks for opus): the step, the log, the card and the note all say so.
+  const lowered = decideDispatch(brief(LOOKUP), REVIEW, {})
+  expect(lowered.steps.find((step) => step.rule === 'main-pick')).toMatchObject({ requested: 'opus', table: 'haiku', model: 'haiku', outcome: 'lowered' })
+  expect(dispatchReason(lowered, 'opus', '主 agent 指定的')).toMatch(/^模型表第 4 行（不用判断、不用读懂代码） → haiku；主 agent 指定的 opus 高出两档以上，降到 haiku；/)
+  expect(stepLines(lowered.steps as never).find((line) => line.head === '主 agent')?.body).toBe('指定 opus；表里的 haiku 低两档以上（这项工作只是照做），降到 haiku')
+  expect(dispatchNote({ routed: true, decision: lowered, started: 'haiku', requested: 'opus' })).toContain('Model: lowered from the opus you asked for: its rules read the brief as work that only carries out what the brief spells out, with nothing to judge and no code to follow (judges, logic), which gets haiku.')
+  // A hard sign read of work nothing is judged in: the step, the log and the card say it did not count.
+  const topical = decideDispatch(brief({ security: 0.9, ...LOOKUP }), FREE, {})
+  expect(topical.steps[2]).toMatchObject({ row: '4', wanted: 'haiku', why: 'judges,logic', disarmed: 'security' })
+  expect(dispatchReason(topical, null, '主 agent 指定的')).toMatch(/^模型表第 4 行（不用判断、不用读懂代码） → haiku；找攻击面读成是，但这项工作不用判断，不算；/)
+  const hard = decideDispatch(brief({ diagnosis: 0.9, concurrency: 0.8 }), FREE, {})
+  expect(hard.steps[1]).toMatchObject({ rule: 'careful-signs', applied: true })
+  expect(dispatchReason(hard, null, '主 agent 指定的')).toMatch(/^模型表第 3 行（自己找原因、并发时序） → opus；/)
+  // Not judged, but code to follow (row 5), and not judged but on production (row 3): the sign that did not count is named in both.
+  const followed = decideDispatch(brief({ security: 0.9, judges: 0.1 }), FREE, {})
+  expect(dispatchReason(followed, null, '主 agent 指定的')).toMatch(/^模型表第 5 行 → sonnet；找攻击面读成是，但这项工作不用判断，不算；/)
+  const live = decideDispatch(brief({ security: 0.9, 'stakes.live': 0.9, ...LOOKUP }), FREE, {})
+  expect(dispatchReason(live, null, '主 agent 指定的')).toMatch(/^模型表第 3 行（线上或真钱） → opus；找攻击面读成是，但这项工作不用判断，不算；/)
+  // The card writes the same from the steps alone (ADR 0004).
+  const cardOf = (decision: DispatchDecision) => Object.fromEntries(stepLines(decision.steps as never).map((line) => [line.head, `${line.mark}: ${line.body}`]))
+  expect(cardOf(topical)['模型表']).toBe('hit: 第 4 行（不用判断、不用读懂代码） → haiku；找攻击面读成是，但这项工作不用判断，不算')
+  expect(cardOf(topical)['照做']).toBe('hit: 要判断 .05（否） · 要读懂代码 .10（否）')
+  expect(cardOf(hard)['模型表']).toBe('hit: 第 3 行（自己找原因、并发时序） → opus')
+  expect(cardOf(live)['模型表']).toBe('hit: 第 3 行（线上或真钱） → opus；找攻击面读成是，但这项工作不用判断，不算')
+  expect(cardOf(hard)['审慎']).toMatch(/^hit: 难以挽回 \.00（否） · 线上或真钱 \.00（否） · 自己找原因 \.90（是） · 要做设计 \.00（否） · 找攻击面 \.00（否） · 并发时序 \.80（是） · 核对算钱的逻辑 \.00（否） · 科学计算 \.00（否）$/)
+})
+
+test('a log entry written by the table before it was redone still reads on the card: its own signs, its row 3b and its floor', () => {
+  const held = { yes: 0.7, no: 0.3, inclusive: true }
+  const old = [
+    { rule: 'lookup-signs', applied: false, writes: 0.05, writesVerdict: 'no', fewSteps: 0.2, fewStepsVerdict: 'no', reportOnly: 0.9, reportOnlyVerdict: 'yes', ...held },
+    { rule: 'careful-signs', applied: true, undo: 0, undoVerdict: 'no', access: 0.1, accessVerdict: 'no', cause: 0.1, causeVerdict: 'no', design: 0.5, designVerdict: 'band', outside: 0.1, outsideVerdict: 'no', science: 0, scienceVerdict: 'no', ...held },
+    { rule: 'model-table', applied: true, row: '3b', wanted: 'sonnet', model: 'sonnet', why: 'design', banned: null },
+    { rule: 'unsure', applied: true, level: 'max', floor: 'max', row: '3b' },
+    { rule: 'low-confidence', applied: true, level: 'high', confidence: 0.3, threshold: 0.5 },
+  ]
+  const lines = stepLines(old as never).map((line) => `${line.head}: ${line.body}`)
+  expect(lines[0]).toBe('只读查找: 写入 .05（否） · 一两步 .20（否） · 只汇报 .90（是）')
+  expect(lines[1]).toContain('方案未定 .50（拿不准）')
+  expect(lines[1]).toContain('仓库外事实 .10（否）')
+  expect(lines[2]).toBe('模型表: 第 3b 行（方案未定拿不准） → sonnet')
+  expect(lines[3]).toBe('拿不准: 模型表第 3b 行：要不要 opus 拿不准 → 下限 max，抬到 max')
+  expect(lines[4]).toBe('置信度: 0.30 < 0.5，拿不准，上取一档到 high')
+  // An old row 4 keeps its own three signs.
+  expect(stepLines([{ rule: 'model-table', applied: true, row: '4', wanted: 'haiku', model: 'haiku', why: 'writes,fewSteps,reportOnly', banned: null }] as never)[0]?.body).toBe('第 4 行（写入、一两步、只汇报） → haiku')
 })
 
 test('the default models: haiku, sonnet and opus; fable only with agentFable', () => {

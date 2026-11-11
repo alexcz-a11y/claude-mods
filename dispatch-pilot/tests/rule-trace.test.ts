@@ -61,12 +61,13 @@ test('every floor row of the truth table: the highest of the base and the floors
     { name: 'R1 ultrathink', signals: { ultrathink: true }, effort: 'xhigh', lifted: 'ultrathink' },
     { name: 'R2 undo and live', signals: { stakes: { undo: 0.9, live: 0.8, access: 0.1 } }, effort: 'max', lifted: 'stakes' },
     { name: 'R2 undo and access', signals: { stakes: { undo: 0.75, live: 0.1, access: 0.7 } }, effort: 'max', lifted: 'stakes' },
-    { name: 'R2 one stake yes', signals: { stakes: { undo: 0.1, live: 0.9, access: 0.1 } }, effort: 'xhigh', lifted: 'stakes' },
-    { name: 'R2 undo yes alone', signals: { stakes: { undo: 0.8, live: 0.5, access: 0.1 } }, effort: 'xhigh', lifted: 'stakes' },
-    { name: 'R2 a stake in the band', signals: { stakes: { undo: 0.5, live: 0.1, access: 0.1 } }, effort: 'high', lifted: 'stakes' },
+    { name: 'R2 one stake yes', signals: { stakes: { undo: 0.1, live: 0.9, access: 0.1 } }, effort: 'high', lifted: 'stakes' },
+    { name: 'R2 undo yes alone', signals: { stakes: { undo: 0.8, live: 0.5, access: 0.1 } }, effort: 'high', lifted: 'stakes' },
+    { name: 'R2 live and access, not hard to undo', signals: { stakes: { undo: 0.1, live: 0.9, access: 0.9 } }, effort: 'high', lifted: 'stakes' },
+    { name: 'R2 a stake in the band lifts nothing', signals: { stakes: { undo: 0.5, live: 0.69, access: 0.31 } }, effort: 'medium', lifted: null },
     { name: 'R2 missing answers lift nothing', signals: { stakes: { undo: null, live: null, access: null } }, effort: 'medium', lifted: null },
-    { name: 'R3 cause unknown yes', signals: { causeUnknown: 0.85 }, effort: 'xhigh', lifted: 'cause-unknown' },
-    { name: 'R3 cause unknown in the band', signals: { causeUnknown: 0.4 }, effort: 'high', lifted: 'cause-unknown' },
+    { name: 'R3 cause unknown yes', signals: { causeUnknown: 0.85 }, effort: 'high', lifted: 'cause-unknown' },
+    { name: 'R3 cause unknown in the band lifts nothing', signals: { causeUnknown: 0.4 }, effort: 'medium', lifted: null },
     { name: 'R4 still failing after a stuck turn', signals: { stillFailing: 0.9, lastTurn: { effort: 'high', stuck: true } }, effort: 'xhigh', lifted: 'stuck-again' },
     { name: 'R4 a turn that was not stuck', signals: { stillFailing: 0.9, lastTurn: { effort: 'high', stuck: false } }, effort: 'medium', lifted: null },
     { name: 'R4 still failing in the band', signals: { stillFailing: 0.5, lastTurn: { effort: 'high', stuck: true } }, effort: 'medium', lifted: null },
@@ -82,10 +83,13 @@ test('every floor row of the truth table: the highest of the base and the floors
     // The trace's last level is what goes out: no lock here.
     expect([row.name, decided.steps.at(-1)?.level]).toEqual([row.name, row.effort])
   }
-  // A base already above a floor stays: xhigh with a stake in the band is still xhigh, and the step says it did not lift.
-  const high = decideMessage(read([0, 0, 0, 1, 0]), { ...QUIET, stakes: { undo: 0.5, live: 0, access: 0 } })
+  // A base already above a floor stays: xhigh with one stake is still xhigh, and the step says it did not lift.
+  const high = decideMessage(read([0, 0, 0, 1, 0]), { ...QUIET, stakes: { undo: 0.9, live: 0, access: 0 }, causeUnknown: 0.9 })
   expect(high.effort).toBe('xhigh')
-  expect(step(high.steps, 'stakes')).toMatchObject({ applied: false, floor: 'high', level: 'xhigh', undoVerdict: 'band' })
+  expect(step(high.steps, 'stakes')).toMatchObject({ applied: false, floor: 'high', level: 'xhigh', undoVerdict: 'yes' })
+  expect(step(high.steps, 'cause-unknown')).toMatchObject({ applied: false, floor: 'high', level: 'xhigh', verdict: 'yes' })
+  // The floors under a low reading: an unknown cause takes it to high, no further.
+  expect(decideMessage(read([1, 0, 0, 0, 0]), { ...QUIET, causeUnknown: 0.99 }).effort).toBe('high')
 })
 
 test('the lock wins over every rule, and the trace says what the rules had decided', () => {
@@ -95,9 +99,11 @@ test('the lock wins over every rule, and the trace says what the rules had decid
 })
 
 test('the steps come in a fixed order, each with its probabilities and verdicts', () => {
-  const decided = decideMessage(read([0, 1, 0, 0, 0]), { ...QUIET, causeUnknown: 0.5 })
+  const decided = decideMessage(read([0, 1, 0, 0, 0]), { ...QUIET, causeUnknown: 0.7 })
   expect(decided.steps.map((s) => s.rule)).toEqual(['position', 'two-peaked', 'ultrathink', 'escalate', 'confirm', 'stakes', 'cause-unknown', 'stuck-again', 'unresolved-count'])
-  expect(step(decided.steps, 'cause-unknown')).toEqual({ rule: 'cause-unknown', applied: true, level: 'high', floor: 'high', p: 0.5, verdict: 'band', yes: 0.7, no: 0.3, inclusive: true })
+  expect(step(decided.steps, 'cause-unknown')).toEqual({ rule: 'cause-unknown', applied: true, level: 'high', floor: 'high', p: 0.7, verdict: 'yes', yes: 0.7, no: 0.3, inclusive: true })
+  const band = decideMessage(read([0, 1, 0, 0, 0]), { ...QUIET, causeUnknown: 0.5 })
+  expect(step(band.steps, 'cause-unknown')).toEqual({ rule: 'cause-unknown', applied: false, level: 'medium', floor: null, p: 0.5, verdict: 'band', yes: 0.7, no: 0.3, inclusive: true })
 })
 
 test('ultrathink is asked for where Claude Code would take it: a word of its own, not quoted, not in a path or a code block', () => {
@@ -133,7 +139,7 @@ test("a dispatched agent's effort: the base rule, the floors and its model's flo
   const dispatch: Dispatch = { description: 'd', prompt: 'p', agent_type: 'general-purpose', user_message: '改一下', requested_model: null }
   const score = (probabilities: Record<string, number>) => ({ type: 'score' as const, score: 0, probabilities, confidence: 0.5 })
   const noul = (p: number) => ({ type: 'noul' as const, noul: p })
-  const nouls = (given: Record<string, number>) => Object.fromEntries(['writes', 'few_steps', 'report_only', 'stakes.undo', 'stakes.live', 'stakes.access', 'cause_unknown', 'design_open', 'outside_facts', 'science_code'].map((id) => [id, noul(given[id] ?? 0)]))
+  const nouls = (given: Record<string, number>) => Object.fromEntries(['judges', 'logic', 'stakes.undo', 'stakes.live', 'stakes.access', 'cause_unknown', 'diagnosis', 'design_open', 'security', 'concurrency', 'money', 'science_code'].map((id) => [id, noul(given[id] ?? (id === 'judges' || id === 'logic' ? 1 : 0))]))
   // Two-peaked on sonnet (row 5): low 0.6, max 0.4 → xhigh.
   const torn = decideDispatch({ ...nouls({}), effort: score({ 0: 0.6, 1: 0, 2: 0, 3: 0, 4: 0.4 }) }, dispatch, {})
   expect([torn.model, torn.effort]).toEqual(['sonnet', 'xhigh'])
@@ -143,5 +149,5 @@ test("a dispatched agent's effort: the base rule, the floors and its model's flo
   expect(step(floored.steps, 'model-floor')).toEqual({ rule: 'model-floor', applied: true, level: 'medium', from: 'low', model: 'opus', floor: 'medium' })
   // A stake: the same step a message's stakes take.
   const staked = decideDispatch({ ...nouls({ 'stakes.access': 0.8 }), effort: score({ 0: 1, 1: 0, 2: 0, 3: 0, 4: 0 }) }, dispatch, {})
-  expect(step(staked.steps, 'stakes')).toEqual({ rule: 'stakes', applied: true, level: 'xhigh', floor: 'xhigh', undo: 0, undoVerdict: 'no', live: 0, liveVerdict: 'no', access: 0.8, accessVerdict: 'yes', yes: 0.7, no: 0.3, inclusive: true })
+  expect(step(staked.steps, 'stakes')).toEqual({ rule: 'stakes', applied: true, level: 'high', floor: 'high', undo: 0, undoVerdict: 'no', live: 0, liveVerdict: 'no', access: 0.8, accessVerdict: 'yes', yes: 0.7, no: 0.3, inclusive: true })
 })

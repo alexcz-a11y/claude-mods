@@ -3,17 +3,19 @@
 //
 //   stage one  in the message's skills request (the effort question has its own, ADR 0005): a Choice over the skills
 //              the main agent can load, each described as it describes itself (`skills.which`; no "none of these"
-//              option, the cookbook asks that apart), one over those only the person can start (`skills.hint`), and
+//              option, the cookbook asks that apart), one over those only the person can start (`skills.hint`),
 //              three yes/no questions on whether the message wants something done rather than explained
-//              (`skills.gate.<key>`). Their mean, `prose_suffices` counted the other way round, decides whether to look
-//              any further: below the guide's bar nothing is suggested and stage two is not asked.
+//              (`skills.gate.<key>`), and one on whether it names a tool, format, template or method to use
+//              (`skills.named`, ADR 0021). The three's mean, `prose_suffices` counted the other way round, and `named`
+//              each have a bar of the guide's: when both are below theirs nothing is suggested and stage two is not
+//              asked (the cookbook's `needs_skill`: either reason is enough).
 //   stage two  a request of its own about the same state, for the SHORTLIST skills of each Choice stage one rated
 //              highest: each re-read with its description and the opening of its SKILL.md, the same Choice over those
 //              (which one), and a yes/no each on whether it does the specific thing asked (`skills.fits.<i>`). The best
 //              of those decides whether to say anything at all, the Choice which skill.
 //
-// find_skill (#12) ranks through the same ranker without the gate (the main agent asked for a skill) and with a shortlist
-// of findSkillMax, and returns every candidate whose fit reaches the bar, best first.
+// find_skill (#12) ranks through the same ranker without the gate and `named` (the main agent asked for a skill) and with a
+// shortlist of findSkillMax, and returns every candidate whose fit reaches the bar, best first.
 //
 // `modRanker` is the one entry: the message's suggestion (features/skills.ts), find_skill (features/find-skill.ts) and the
 // eval (#16) rank through it. Pure (see system-one.ts): the mod and the eval build the same questions from the same code.
@@ -34,11 +36,12 @@ import { answersFor, mergeParts, type Answer, type DecisionRequest, type Part, t
  */
 export type SkillOption = { name: string; description: string; by: 'model' | 'person' }
 
-/** The skills part's name and its questions' ids: `skills.which`, `skills.hint` and `skills.gate.<key>` (stage one), `skills.which`, `skills.hint` and `skills.fits.<i>` (stage two). */
+/** The skills part's name and its questions' ids: `skills.which`, `skills.hint`, `skills.gate.<key>` and `skills.named` (stage one), `skills.which`, `skills.hint` and `skills.fits.<i>` (stage two). */
 export const SKILLS_PART = 'skills'
 export const WHICH = 'which'
 export const HINT = 'hint'
 export const GATE = 'gate'
+export const NAMED = 'named'
 export const FITS = 'fits'
 
 /** The cookbook's SHORTLIST: the candidates of each Choice carried from the first request into the second. */
@@ -65,6 +68,14 @@ export const GATE_QUESTIONS = {
 export type GateKey = keyof typeof GATE_QUESTIONS
 const GATE_KEYS = Object.keys(GATE_QUESTIONS) as GateKey[]
 const INVERTED: ReadonlySet<GateKey> = new Set<GateKey>(['prose_suffices'])
+
+/**
+ * The cookbook's NAMED_QUESTION, word for word (rendered 2026-10-30, ADR 0021): whether the message names a method a skill
+ * owns, the other reason a turn needs a skill (a meme template wants no action on the person's things). It is read on a bar
+ * of its own, not in the gate's mean, "where the three action answers would outvote it". "The request" is the cookbook's
+ * word, as in the gate's questions; the state calls it `user_message`.
+ */
+export const NAMED_QUESTION = 'Does the request ask for a specific named tool, format, template, or method to be used, rather than for general help?'
 
 /** The cookbook's RERANK_INSTRUCTIONS, word for word. */
 const RERANK_INSTRUCTIONS = "Exactly one of these skills is the right one to load for the user's latest request. Which one? Read what each actually does, not just its name."
@@ -102,8 +113,8 @@ export function questionBudget(contextTokens: number): number {
 /**
  * The part a message's skills request carries (stage one): `which`, a Choice over the skills the main agent can load
  * (`by: 'model'`), and `hint`, one over those only the person can start (`by: 'person'`), each when it has two options or
- * more (one alone goes to stage two as it is); and, unless `gate` is false (find_skill), the three gate questions. Null
- * when there is nothing to ask.
+ * more (one alone goes to stage two as it is); and, unless `gate` is false (find_skill), the three gate questions and
+ * `named`. Null when there is nothing to ask.
  */
 export function skillsPart(options: readonly SkillOption[], ask: { budget?: number; gate?: boolean } = {}): Part | null {
   const budget = ask.budget ?? Number.POSITIVE_INFINITY
@@ -113,7 +124,10 @@ export function skillsPart(options: readonly SkillOption[], ask: { budget?: numb
   const questions: Record<string, Question> = {}
   if (loadable.length >= 2) questions[WHICH] = skillsChoice(loadable, CHOICE_INSTRUCTIONS, budget)
   if (persons.length >= 2) questions[HINT] = skillsChoice(persons, HINT_INSTRUCTIONS, budget)
-  if (ask.gate !== false) for (const key of GATE_KEYS) questions[`${GATE}.${key}`] = { type: 'noul', instructions: GATE_QUESTIONS[key] }
+  if (ask.gate !== false) {
+    for (const key of GATE_KEYS) questions[`${GATE}.${key}`] = { type: 'noul', instructions: GATE_QUESTIONS[key] }
+    questions[NAMED] = { type: 'noul', instructions: NAMED_QUESTION }
+  }
   return Object.keys(questions).length === 0 ? null : { part: SKILLS_PART, questions }
 }
 
@@ -221,15 +235,18 @@ export function skillsRequest(
 export type SkillShare = { name: string; share: number }
 /** A candidate stage two judged on its own: its "does it do this" answer. */
 export type SkillFit = { name: string; fit: number; by: SkillOption['by'] }
-/** The gate's three answers (each as answered) and their mean, `prose_suffices` counted the other way round. */
-export type GateReading = { mean: number; values: Readonly<Partial<Record<GateKey, number>>> }
+/**
+ * The gate's three answers (each as answered) and their mean, `prose_suffices` counted the other way round; and the `named`
+ * answer, null when it did not come back (it then wants no skill: the mean decides alone, as before ADR 0021).
+ */
+export type GateReading = { mean: number; values: Readonly<Partial<Record<GateKey, number>>>; named: number | null }
 
 /**
  * What the two requests said. `gate`: the gate's reading (null when it was not asked: find_skill). `shortlist` and `hints`:
  * what each Choice of stage one put forward, with its share. `fits`: stage two's answer for each candidate, those the main
  * agent can load first; `winner` and `hintWinner`: whom stage two's Choices picked (the one candidate of its kind when
- * there was one); `shares`: those Choices' shares, for ties. `stopped: 'gate'`: the gate said no, and stage two was not
- * asked. `failed`: stage two did not answer, and nothing is suggested.
+ * there was one); `shares`: those Choices' shares, for ties. `stopped: 'gate'`: the gate's mean and `named` were both below
+ * their bars (`wantsSkill`), and stage two was not asked. `failed`: stage two did not answer, and nothing is suggested.
  */
 export type SkillRanking = {
   gate: GateReading | null
@@ -243,19 +260,31 @@ export type SkillRanking = {
   failed?: Failure
 }
 
-/** The gate as answered: each question's value and their mean, `prose_suffices` turned round; null when none came back. */
+/**
+ * The gate as answered: each question's value and their mean, `prose_suffices` turned round, and `named` (null when it did
+ * not come back); null when none of the three came back.
+ */
 export function readGate(answers: Readonly<Record<string, Answer>>): GateReading | null {
   const values: Partial<Record<GateKey, number>> = {}
   const oriented: number[] = []
+  const clamped = (answer: Answer | undefined) => (answer?.type === 'noul' && Number.isFinite(answer.noul) ? Math.min(1, Math.max(0, answer.noul)) : null)
   for (const key of GATE_KEYS) {
-    const answer = answers[`${GATE}.${key}`]
-    if (answer?.type !== 'noul' || !Number.isFinite(answer.noul)) continue
-    const p = Math.min(1, Math.max(0, answer.noul))
+    const p = clamped(answers[`${GATE}.${key}`])
+    if (p === null) continue
     values[key] = p
     oriented.push(INVERTED.has(key) ? 1 - p : p)
   }
   if (oriented.length === 0) return null
-  return { mean: oriented.reduce((sum, p) => sum + p, 0) / oriented.length, values }
+  return { mean: oriented.reduce((sum, p) => sum + p, 0) / oriented.length, values, named: clamped(answers[NAMED]) }
+}
+
+/**
+ * Whether the gate wants a skill, the cookbook's `needs_skill`: "Either reason is enough: an action is wanted, or a named
+ * method is asked for". The mean reaching `gateBelow`, or `named` reaching `namedBelow` (a value on a bar counts, the
+ * cookbook's `>=`); a `named` that did not come back is no reason.
+ */
+export function wantsSkill(gate: GateReading, bars: SkillBars): boolean {
+  return gate.mean >= bars.gateBelow || (gate.named !== null && gate.named >= bars.namedBelow)
 }
 
 /**
@@ -314,7 +343,7 @@ export type SkillRankerIo = {
 
 /** How the mod's ranker ranks (core/skills.ts `rankingSettings`). */
 export type RankerSettings = {
-  /** Whether stage one asks the gate and reads it (a message: yes; find_skill: no). */
+  /** Whether stage one asks the gate and `named` and reads them (a message: yes; find_skill: no). */
   gate: boolean
   /** How many skills of each Choice of stage one stage two re-reads (SHORTLIST beside a message, findSkillMax for find_skill). */
   shortlist: number
@@ -345,8 +374,8 @@ export function modRanker(io: SkillRankerIo, settings: RankerSettings): SkillRan
     if (settings.gate && gate === null) return null
     const shortlist = putForward(answers[WHICH], options.filter((option) => option.by === 'model'), count)
     const hints = putForward(answers[HINT], options.filter((option) => option.by === 'person'), count)
-    // The gate first: below its bar nothing is suggested, whatever the Choices said.
-    if (gate !== null && gate.mean < settings.bars.gateBelow) return { gate, shortlist: shortlist ?? [], hints: hints ?? [], fits: [], winner: null, hintWinner: null, shares: {}, stopped: 'gate' }
+    // The gate first: with its mean and `named` both below their bars nothing is suggested, whatever the Choices said.
+    if (gate !== null && !wantsSkill(gate, settings.bars)) return { gate, shortlist: shortlist ?? [], hints: hints ?? [], fits: [], winner: null, hintWinner: null, shares: {}, stopped: 'gate' }
     if (shortlist === null || hints === null) return null
     const base: SkillRanking = { gate, shortlist, hints, fits: [], winner: null, hintWinner: null, shares: {} }
     const byName = new Map(options.map((option) => [option.name, option]))

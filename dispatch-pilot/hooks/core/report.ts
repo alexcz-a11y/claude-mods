@@ -200,6 +200,8 @@ export type LogEntry = {
   unresolved?: UnresolvedRecord
   /** A visual_check call (#58): its checks and their verdicts, whether the zoomed re-check was done, how long it took. */
   visualCheck?: VisualCheckRecord
+  /** A level looked at again in the middle of a run (`midrun-effort`, ADR 0020): where it was, where it went, and at what event. */
+  midrun?: MidrunMoveRecord
   /** An entry of feature `decision-model`: which requests the fallback is about; `images` since 0.9.0, `text` only in an entry an earlier version wrote (the decision model no longer falls back, ADR 0014). */
   fallbackFor?: 'text' | 'images'
 }
@@ -221,8 +223,19 @@ export type UnresolvedRecord = {
   thresholds: UnresolvedThresholds
 }
 
-/** A model step-up the failures forced on a dispatched agent (features/escalation.ts): the model it went from and to. */
-export type ForcedRaise = { kind: 'model'; from: string; to: string }
+/**
+ * What the failures forced on a dispatched agent (features/escalation.ts): its effort one level up first (ADR 0020), then
+ * the next model up; each with what it went from and to.
+ */
+export type ForcedRaise = { kind: 'model'; from: string; to: string } | { kind: 'effort'; from: Effort; to: Effort }
+
+/**
+ * A mid-run look at the main agent's level (features/midrun-effort.ts): the level it was on, the one its steps go out at
+ * from here (`to`, the same for a level kept), the level its message was decided at, what came of it, the event that asked
+ * (`failure`, `resolved`, `report`, `handback`, `skill`, `todo`), and whether the step that takes it carried input already
+ * (`free`: no row was appended).
+ */
+export type MidrunMoveRecord = { from: Effort; to: Effort; base: Effort; move: 'raise' | 'return' | 'down' | 'keep'; event: string; free: boolean }
 
 /** The skills a message (or a find_skill call) got: those suggested to the main agent, and those only the person can start (「可试 /x」), each with its relevance. */
 export type SkillsPicked = { suggest: { name: string; relevance: number }[]; try: { name: string; relevance: number }[] }
@@ -289,6 +302,7 @@ export type Decided = About & {
   unresolved?: UnresolvedRecord
   /** A visual_check call: what was checked, the verdicts, the times (#58). */
   visualCheck?: VisualCheckRecord
+  midrun?: MidrunMoveRecord
 }
 
 /** A decision the feature could not make: the decision request failed. Not an entry of the log; it says why on the agent's node. */
@@ -1044,6 +1058,7 @@ function entryOf(decision: Decided, turn: number, at: number): Omit<LogEntry, 'n
     ...(decision.reference === undefined ? {} : { reference: decision.reference }),
     ...(decision.unresolved === undefined ? {} : { unresolved: decision.unresolved }),
     ...(decision.visualCheck === undefined ? {} : { visualCheck: decision.visualCheck }),
+    ...(decision.midrun === undefined ? {} : { midrun: decision.midrun }),
     ...(decision.sentBack === true ? { sentBack: true as const } : {}),
   }
 }
@@ -1161,6 +1176,7 @@ const DECISION_MODELS: Readonly<Record<BackendName, { name: string; keys: string
   pplx: { name: 'pplx', keys: 'perplexityApiKey 或环境变量 PERPLEXITY_API_KEY' },
   jev: { name: 'Jev', keys: 'typesafeApiKey 或环境变量 TYPESAFE_API_KEY' },
   'd1-ultra': { name: 'd1-ultra', keys: 'liquidApiKey 或环境变量 LIQUID_API_KEY' },
+  'd1.1': { name: 'd1.1', keys: 'liquidApiKey 或环境变量 LIQUID_API_KEY' },
 }
 
 /** The feature name of the entry the fallback leaves in the decision log. */

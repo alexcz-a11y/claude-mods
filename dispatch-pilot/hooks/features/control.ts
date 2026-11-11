@@ -63,7 +63,7 @@ export function registerControl(on: On, ctx: Ctx): void {
     if (images === null) $.ui.log('images: no decision model takes them (no TypeSafe or Perplexity key)', { to: 'debug' })
     else if (images.fellBack) await report(modelIo, { fellBack: { asked: 'jev', using: images.name, for: 'images' } })
     if (ctx.config.backend === 'pplx') $.ui.log(`pplx key: ${keySource(ctx.config.perplexityApiKey, ctx.secrets.perplexityEnvKey, 'PERPLEXITY_API_KEY')}`, { to: 'debug' })
-    if (ctx.config.backend === 'd1-ultra') $.ui.log(`d1-ultra key: ${keySource(ctx.config.liquidApiKey, ctx.secrets.liquidEnvKey, 'LIQUID_API_KEY')}`, { to: 'debug' })
+    if (ctx.config.backend === 'd1-ultra' || ctx.config.backend === 'd1.1') $.ui.log(`${ctx.config.backend} key: ${keySource(ctx.config.liquidApiKey, ctx.secrets.liquidEnvKey, 'LIQUID_API_KEY')}`, { to: 'debug' })
     // Jev's key serves the decisions when Jev decides and the images when Jev takes them (whatever decides the rest).
     if (ctx.config.backend === 'jev' || images?.name === 'jev') $.ui.log(`jev key: ${keySource(ctx.config.typesafeApiKey, ctx.secrets.typesafeEnvKey, 'TYPESAFE_API_KEY')}`, { to: 'debug' })
     // A decisionModel left over in the person's settings that names a model since removed: the engine reads it as the default.

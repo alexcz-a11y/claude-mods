@@ -7,16 +7,28 @@
 // no failure, one a hook blocked counts toward escalating only with
 // `hook-block-failures` on.
 //
-// Since Claude Code 2.1.312 an effort raised in the middle of a turn does not
-// go out (a model keeps its level from one message with input to the next), so
-// the counts raise no effort and ask the decision model nothing:
-//   - a dispatched agent (a plain one or a Workflow's) whose counted failures
-//     reach `escalateAfter` goes on as the next model up (decision/escalation.ts
-//     `stepUp`: haiku to `escalateHaikuTo`, then opus, fable only with
-//     `agentFable`), written into its plan at once, so the core's step writer
-//     names it from the agent's next step on; at most `escalateLimit` times a
-//     run, never past a model the person named. The counts start over after a
-//     step-up, and after one that could not be made.
+// The counts ask the decision model nothing:
+//   - a dispatched agent whose counted failures reach `escalateAfter` for the
+//     first time has its effort raised one level, to max at most (ADR 0020, ADR 0022;
+//     Anthropic: "Raise effort before you change models", and a new model
+//     costs the agent its cache): a row is appended to its conversation
+//     (`$.session.append` with its `agentId`), since a model takes a new level
+//     only at a step with input, and its plan is written. Not when the person
+//     named its effort, not for a Workflow's agent (short, and dispatched many
+//     at once at one level), and not with `midrun-effort` off.
+//   - after that, or where the effort cannot go up, a dispatched agent (a plain
+//     one or a Workflow's) whose counted failures reach `escalateAfter` goes on
+//     as the next model up (decision/escalation.ts `stepUp`: haiku to
+//     `escalateHaikuTo`, then opus, fable only with `agentFable`), written into
+//     its plan at once, so the core's step writer names it from the agent's
+//     next step on; at most `escalateLimit` times a run, never past a model the
+//     person named. The counts start over after either, and after a step-up
+//     that could not be made; with no step-up left and no level left to go up
+//     to, they run on and nothing more is raised.
+//   - where the model cannot go up (its step-ups are used up, it is on the top
+//     model, the person named it), the effort goes up another level instead,
+//     as the main agent's does, to max. With `escalateLimit` 0 that is all a
+//     failing agent gets: its model is never changed once it is dispatched.
 //   - the main agent's turn keeps its facts (the effort its steps went out at,
 //     its calls, failures and hook blocks, the last error lines); when a turn
 //     the person's own message started ends, they go on its turn record
@@ -25,13 +37,15 @@
 import type { EngineInterface, On, TurnStepInput } from 'claude-code'
 import { errorText } from '../decision/backend.ts'
 import { briefOf, errorLine, outcomeOf, rowsFromTranscript, stepUp, withError, type StepUpSettings, type TranscriptRow, type TurnFacts } from '../decision/escalation.ts'
-import { isEffort, type Effort } from '../decision/effort.ts'
+import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
+import { switchNote } from '../decision/midrun.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { wasBlocked } from '../core/outcomes.ts'
 import { MAIN, planStep, replace, turnKey, update, type AgentPlan, type Cell, type TurnRecord } from '../core/plans.ts'
 import { report, type Decided, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
 import { defineSwitch, isOn, masterOn } from '../core/switches.ts'
+import { MIDRUN_SWITCH } from './midrun-effort.ts'
 
 const ESCALATION = { plugin: 'dispatch-pilot', key: 'escalation' } as const
 const TURNS = { plugin: 'dispatch-pilot', key: 'turns' } as const
@@ -66,8 +80,13 @@ type LoopRecord = {
   /** The loop's latest step, and the model the engine named on it: where an agent's step-up starts when its plan names none. */
   step: number | null
   model: string | null
-  /** The main agent's: the effort its latest step went out at, as the core sends it; null for none. */
+  /** The effort the loop's latest step went out at, as the core sends it; null for none. */
   effort: Effort | null
+  /** An agent's: times its failures raised its effort instead of its model (the effort goes first; again where the model cannot go up), and the step it was last raised in. */
+  effortRaises?: number
+  effortStep?: number | null
+  /** An agent's: the step its model was last stepped up in. */
+  raiseStep?: number | null
   /** The main agent's: the last failed or blocked calls, at most two (decision/escalation.ts `errorLine`). */
   errors: string[]
   /** The escalation switch was off when the loop was last seen: what was counted meanwhile is written off once it is back on. */
@@ -85,7 +104,7 @@ type Settings = StepUpSettings & {
 }
 
 export function registerEscalation(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: '派出的 agent 工具调用接连失败时，改用更强的模型；主 agent 这一轮的失败记下来，留给下一条消息', parts: ['counts'] })
+  defineSwitch({ name: SWITCH, info: '派出的 agent 工具调用接连失败时，先升一档 effort，再失败就改用更强的模型（escalateLimit 设成 0 就不换模型，只一档一档升 effort）；主 agent 这一轮的失败记下来，留给下一条消息', parts: ['counts'] })
   defineSwitch({ name: BLOCKS_SWITCH, info: '数工具调用的失败时，把被你的 hook 拦下的调用也算上', default: false })
   // Read at each use: which decision model's settings these are is settled at the session start (core/setup.ts, `Ctx`).
   const settings: Settings = {
@@ -173,10 +192,13 @@ async function countMain($: EngineInterface, ended: string, failed: string | nul
 }
 
 /**
- * An agent's failed (or blocked) call: counted, and when the counted failures reach `escalateAfter` (and the agent has
- * step-ups left), the agent goes on as the next model up, or the decision says why it cannot. Either way the counts start
- * over from there. Where it would go is worked out before the count lands; the write that lands the count is the one that
- * takes the step-up, so of the calls of a step that fail together only one does.
+ * An agent's failed (or blocked) call: counted, and when the counted failures reach `escalateAfter`, the agent's effort goes
+ * one level up (the first time, where it can: `effortUp`), else the agent goes on as the next model up (while it has
+ * step-ups left), else its effort goes up again (where the model cannot: no step-up left, `escalateLimit` 0, the top
+ * model, a model the person named), or the decision says why nothing can. Either way the counts start over from there.
+ * Where it would go is worked out before the count lands; the write that lands the count is the one that takes the raise,
+ * and a step in which the effort or the model went up raises nothing more (`raisedIn`), so of the calls of a step that
+ * fail together only one raises anything, however many times they reach the bar between them.
  */
 async function countAgent($: EngineInterface, s: Settings, agentId: string, ended: 'failed' | 'blocked'): Promise<void> {
   const ref = { ...ESCALATION, id: agentId }
@@ -188,12 +210,26 @@ async function countAgent($: EngineInterface, s: Settings, agentId: string, ende
   const from = planned?.model ?? seen?.model ?? ''
   const where = stepUp(from, s, planned?.terms ?? null)
   const enabled = isOn(SWITCH)
+  // The effort first, and again wherever the model cannot go up: for an agent the engine lists (a Workflow's are not in the
+  // roster), on a level that can go up.
+  const modelLeft = (loop: Pick<LoopRecord, 'raises'>) => loop.raises < s.limit && 'to' in where
+  const mayRaise = (seen?.effortRaises ?? 0) === 0 || !modelLeft(seen ?? { raises: 0 })
+  const effort = enabled && isOn(MIDRUN_SWITCH) && mayRaise ? effortUp(seen?.effort ?? null, planned) : null
+  const listed = effort === null ? false : (await $.agent.list().catch(() => [])).some((agent) => agent.id === agentId)
   const { before, after } = await replace(cell, (r) => {
     const loop = r ?? newLoop('')
     const counted = { ...loop, failures: loop.failures + (ended === 'failed' ? 1 : 0), hookBlocks: loop.hookBlocks + (ended === 'blocked' ? 1 : 0) }
-    if (!enabled || total(countedOf(counted)) < s.after || counted.raises >= s.limit) return counted
-    // This call reaches the bar: the counts start over from here, a step-up counted when there is one to make.
-    return { ...counted, base: countedNow(counted), raises: counted.raises + ('to' in where ? 1 : 0) }
+    if (!enabled || total(countedOf(counted)) < s.after) return counted
+    // This call reaches the bar: the counts start over from here, with the raise that is made.
+    // The effort or the model went up in this very step and no step has run on it yet: the step's other failing calls
+    // start the count over and raise nothing (the next raise would land before the new level or model was ever used; and
+    // `where` was worked out from the model the step began on, so a second step-up here would be the first one again).
+    const sameStep = raisedIn(counted, counted.step)
+    const first = (counted.effortRaises ?? 0) === 0
+    if (effort !== null && listed && !sameStep && (first || !modelLeft(counted))) return { ...counted, base: countedNow(counted), effortRaises: (counted.effortRaises ?? 0) + 1, effortStep: counted.step }
+    if (sameStep) return { ...counted, base: countedNow(counted) }
+    if (counted.raises >= s.limit) return counted
+    return { ...counted, base: countedNow(counted), ...('to' in where ? { raises: counted.raises + 1, raiseStep: counted.step } : {}) }
   })
   if (!enabled) return
   const wasBase = before?.base ?? { failures: 0, hookBlocks: 0 }
@@ -201,29 +237,113 @@ async function countAgent($: EngineInterface, s: Settings, agentId: string, ende
     await showCounts($, agentId, after)
     return
   }
+  // The bar reached again in the step the effort or the model was raised in: counted afresh, nothing more to raise yet.
+  if ((after.effortRaises ?? 0) === (before?.effortRaises ?? 0) && after.raises === (before?.raises ?? 0) && raisedIn(after, after.step)) {
+    await showCounts($, agentId, after)
+    return
+  }
   // What reached the bar: the counts since they last started over, as they stood when this call ended.
   const reached = total(countedOf({ ...after, base: wasBase }))
   const rows = await agentRows($, agentId)
   const about = aboutOf(agentId, rows === null ? '' : briefOf(rows), after.step, reached)
+  let record = after
+  if (effort !== null && (after.effortRaises ?? 0) > (before?.effortRaises ?? 0)) {
+    if (await raiseEffort($, agentId, planCell, effort)) {
+      await decide($, agentId, after, {
+        outcome: `effort ${effort.to}（原 ${effort.from}）`,
+        about,
+        reason: modelLeft(after)
+          ? `工具调用失败 ${reached} 次（门槛 ${s.after}），先把 effort 升一档：给它追加了一行提示，从下一步起生效，不动它的缓存；再失败到门槛才换模型`
+          : `工具调用失败 ${reached} 次（门槛 ${s.after}），把 effort 升一档：给它追加了一行提示，从下一步起生效，不动它的缓存；不换模型（${noModelWhy(after, s, where)}），${effort.to === 'max' ? '已经到 max，之后不再升' : '再失败到门槛就再升一档，直到 max'}`,
+        tone: 'warn',
+        forced: { kind: 'effort', from: effort.from, to: effort.to },
+      })
+      await showCounts($, agentId, after)
+      return
+    }
+    // The row could not be appended: the level would not go out. The raise is not counted as made; the model goes up as
+    // it would have, where it can, and where it cannot the decision says so.
+    record = await update(cell, (r) => {
+      const loop = r ?? after
+      return { ...loop, effortRaises: Math.max(0, (loop.effortRaises ?? 1) - 1), effortStep: null }
+    })
+    if (!modelLeft(record)) {
+      await decide($, agentId, record, {
+        outcome: `effort ${effort.from}（保持）`,
+        about,
+        reason: `工具调用失败 ${reached} 次（门槛 ${s.after}），本想把 effort 升到 ${effort.to}，但给它追加提示行不成，这一档发不出去；不换模型（${noModelWhy(record, s, where)}）`,
+        tone: 'info',
+      })
+      await showCounts($, agentId, record)
+      return
+    }
+    record = await update(cell, (r) => {
+      const loop = r ?? record
+      return { ...loop, raises: loop.raises + 1, raiseStep: loop.step }
+    })
+  }
   if ('to' in where) {
     const to = where.to.id
     await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), model: to }))
-    await decide($, agentId, after, {
+    await decide($, agentId, record, {
       outcome: `model ${to}（原 ${from}）`,
       about,
-      reason: `工具调用失败 ${reached} 次（门槛 ${s.after}），从它的下一步起改用 ${to}${where.note}；effort 在一轮中途改了也不生效，所以只换模型`,
+      reason: `工具调用失败 ${reached} 次（门槛 ${s.after}），从它的下一步起改用 ${to}${where.note}${(record.effortRaises ?? 0) > 0 ? '；effort 已经升过一档' : ''}`,
       tone: 'warn',
       forced: { kind: 'model', from, to },
     })
   } else {
-    await decide($, agentId, after, { outcome: `model ${from === '' ? '不变' : `${from}（保持）`}`, about, reason: `工具调用失败 ${reached} 次（门槛 ${s.after}），没有升模型：${where.why}`, tone: 'info' })
+    await decide($, agentId, record, { outcome: `model ${from === '' ? '不变' : `${from}（保持）`}`, about, reason: `工具调用失败 ${reached} 次（门槛 ${s.after}），没有升模型：${where.why}`, tone: 'info' })
   }
-  await showCounts($, agentId, after)
+  await showCounts($, agentId, record)
+}
+
+/** Whether the loop's effort or model was raised in `step`: no step has run on the new level or model yet. */
+function raisedIn(record: Pick<LoopRecord, 'effortStep' | 'raiseStep'>, step: number | null): boolean {
+  return typeof step === 'number' && (record.effortStep === step || record.raiseStep === step)
+}
+
+/** Why a failing agent's model does not go up, in the person's words: its step-ups are switched off or used up, or the step-up says why. */
+function noModelWhy(record: Pick<LoopRecord, 'raises'>, s: Settings, where: ReturnType<typeof stepUp>): string {
+  if (s.limit === 0) return 'escalateLimit 是 0'
+  if (record.raises >= s.limit) return `已经换过 ${record.raises} 次，escalateLimit 是 ${s.limit}`
+  return 'to' in where ? '' : where.why
 }
 
 /**
- * At a loop's step: keeps where the loop is, the model the engine names on it and, for the main agent, the effort the
- * step goes out at (core/plans.ts `planStep`, the core's own rules); a new main turn starts its counts afresh. Back on
+ * Where a failing agent's effort goes, one level up: from the level its latest step went out at, to max at most (ADR 0022: no
+ * cap in the middle of a run). Null when it cannot: the person named the agent's effort, the level is not known (a model
+ * without effort, no step seen), or it is on max already.
+ */
+function effortUp(sent: Effort | null, planned: AgentPlan | undefined): { from: Effort; to: Effort } | null {
+  if (sent === null || planned?.terms?.effort != null) return null
+  const at = EFFORTS.indexOf(sent)
+  return at >= EFFORTS.length - 1 ? null : { from: sent, to: EFFORTS[at + 1] as Effort }
+}
+
+/**
+ * Raises a running agent's effort: a row appended to its conversation, so that its next step carries input and takes the
+ * level, then its plan. False when the row could not be appended (the plan is left as it was: a level written for a step of
+ * tool results would not go out).
+ */
+async function raiseEffort($: EngineInterface, agentId: string, planCell: Cell<AgentPlan>, effort: { from: Effort; to: Effort }): Promise<boolean> {
+  try {
+    const appended = await $.session.append({ agentId, message: { type: 'user', content: [{ type: 'text', text: switchNote(effort.from, effort.to, 'failures') }] } })
+    if (typeof appended.deny === 'string') {
+      $.ui.log(`escalation: the row for agent ${agentId}'s effort was refused: ${appended.deny}`, { to: 'debug' })
+      return false
+    }
+  } catch (error) {
+    $.ui.log(`escalation: the row for agent ${agentId}'s effort could not be appended: ${errorText(error)}`, { to: 'debug' })
+    return false
+  }
+  await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), effort: effort.to }))
+  return true
+}
+
+/**
+ * At a loop's step: keeps where the loop is, the model the engine names on it and the effort the step goes out at
+ * (core/plans.ts `planStep`, the core's own rules); a new main turn starts its counts afresh. Back on
  * after being off, what was counted meanwhile is written off.
  */
 async function atStep($: EngineInterface, e: TurnStepInput): Promise<void> {
@@ -231,12 +351,13 @@ async function atStep($: EngineInterface, e: TurnStepInput): Promise<void> {
   const id = e.agentId ?? MAIN
   const ref = { ...ESCALATION, id }
   const cell: Cell<LoopRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
-  let effort: Effort | null = null
-  if (main) {
-    const [{ value: lock = null }, { value: turn }] = await Promise.all([$.state.get(LOCK), $.state.get({ ...TURNS, id: turnKey(e.turnId, undefined) })])
-    const sent = planStep(e, { lock, turn, agent: undefined }).step.effort
-    effort = isEffort(sent) ? sent : null
-  }
+  const [{ value: lock = null }, { value: turn }, { value: agent }] = await Promise.all([
+    main ? $.state.get(LOCK) : Promise.resolve({ value: null }),
+    $.state.get({ ...TURNS, id: turnKey(e.turnId, e.agentId) }),
+    main ? Promise.resolve({ value: undefined }) : $.state.get({ ...AGENTS, id: id }),
+  ])
+  const sent = planStep(e, { lock, turn, agent }).step.effort
+  const effort: Effort | null = isEffort(sent) ? sent : null
   const enabled = isOn(SWITCH)
   /** Whether a record belongs to an earlier main turn (or there is none): this step starts the turn's counts afresh. */
   const startsTurn = (r: LoopRecord | undefined) => main && (r === undefined || r.turnId !== e.turnId)

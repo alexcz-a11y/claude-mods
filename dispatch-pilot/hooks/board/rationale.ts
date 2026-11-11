@@ -56,7 +56,7 @@ export type Card = {
   count: number
   /** The decision its route came from (its node's `decision`). */
   route: LogEntry | undefined
-  /** Model step-ups of its loop (escalation), oldest first. */
+  /** What moved its loop beside its route, oldest first: an agent's effort and model step-ups (escalation), the main agent's level moved in the middle of its turn (midrun-effort). */
   raises: LogEntry[]
 }
 
@@ -70,7 +70,7 @@ export function cardOf(view: ScreenView, log: readonly LogEntry[]): Card {
   const route = node.decision === undefined ? undefined : log.find((entry) => entry.n === node.decision)
   // An agent's id is its own across turns; the main agent's entries are those of its node's turn.
   const mine = (entry: LogEntry) => agentOf(entry) === node.id && (node.id !== 'main' || entry.turn === node.turn)
-  const raises = log.filter((entry) => mine(entry) && featureOf(entry.feature) === 'escalation' && entry.forced !== undefined)
+  const raises = log.filter((entry) => mine(entry) && ((featureOf(entry.feature) === 'escalation' && entry.forced !== undefined) || (featureOf(entry.feature) === 'midrun-effort' && entry.midrun !== undefined && entry.midrun.move !== 'keep')))
   return { row, index, count: view.rows.length, route, raises }
 }
 
@@ -124,6 +124,9 @@ export function stepLines(trace: readonly RuleStep[]): StepLine[] {
 }
 
 const VERDICTS: Readonly<Record<string, string>> = { yes: '是', band: '拿不准', no: '否' }
+/** A mid-run bar as the card writes it: `≥ 30%` (a value on the bar counts) or `> 20%`. */
+const bar = (step: RuleStep, value: unknown) => `${step.inclusive === false ? '>' : '≥'} ${pctText(value)}`
+const reached = (step: RuleStep) => (step.inclusive === false ? '>' : '≥')
 /** A Noul's probability and verdict as the card writes them: `62%（拿不准）`, or 没回答. */
 const said = (p: unknown, verdict: unknown) => (typeof p === 'number' ? `${pctText(p)}（${VERDICTS[String(verdict)] ?? word(verdict)}）` : '没回答')
 /** A floor step: lifted (`lift`), a floor that did not need to lift (`pass`), or no floor at all (`pass`). */
@@ -132,22 +135,43 @@ const floorLine = (step: RuleStep, head: string, body: string): StepLine => {
   return { mark: step.applied ? 'lift' : 'pass', head, body: `${body} → ${floor}` }
 }
 
-/** A Noul about an agent's brief by its field in the steps (decision/dispatched-agent.ts SIGNS): `cause` is 原因未知. */
-const SIGN_WORDS: Readonly<Record<string, string>> = Object.fromEntries(Object.values(SIGNS).map(({ key, words }) => [key, words]))
-/** The Nouls a step about an agent's brief holds, as the card writes them: `写入 5%（否） · 一两步 91%（是）`. */
+/**
+ * A Noul about an agent's brief by its field in the steps (decision/dispatched-agent.ts SIGNS): `cause` is 原因未知. The four
+ * the table read until 0.11.0 (ADR 0015) keep their words, for a log entry written before the table was redone (ADR 0023).
+ */
+const SIGN_WORDS: Readonly<Record<string, string>> = {
+  writes: '写入',
+  fewSteps: '一两步',
+  reportOnly: '只汇报',
+  outside: '仓库外事实',
+  ...Object.fromEntries(Object.values(SIGNS).map(({ key, words }) => [key, words])),
+}
+/** What `design` asked until 0.11.0: whether the approach was left to the agent. */
+const OLD_WORDS: Readonly<Record<string, string>> = { ...SIGN_WORDS, design: '方案未定' }
+/**
+ * Whether a step was written by the table before it was redone (ADR 0023): its sign steps hold the Nouls it read
+ * (`writes`, `outside`), and its row has no `disarmed` field (the redone table always writes one).
+ */
+const oldTable = (step: RuleStep) => 'writes' in step || 'outside' in step || (step.rule === 'model-table' && !('disarmed' in step))
+/** The Nouls a step about an agent's brief holds, as the card writes them: `要判断 5%（否） · 要读懂代码 9%（否）`. */
 const signsBody = (step: RuleStep) =>
-  Object.entries(SIGN_WORDS)
+  Object.entries(oldTable(step) ? OLD_WORDS : SIGN_WORDS)
     .filter(([key]) => `${key}Verdict` in step)
     .map(([key, words]) => `${words} ${said(step[key], step[`${key}Verdict`])}`)
     .join(' · ')
 
-/** The model table's row as the card writes it: `第 3b 行（原因未知拿不准）→ sonnet，effort 至少 max`, and what stood in for a model ruled out. */
+/**
+ * The model table's row as the card writes it: `第 3 行（自己找原因、并发时序）→ opus`, the signs that read yes of work
+ * nothing is judged in (`disarmed`), and what stood in for a model ruled out. Row 3b is the table's before 0.11.0.
+ */
 function tableBody(step: RuleStep): string {
   if (step.row === '1') return `第 1 行：你点名了 ${word(step.model)}`
-  const why = typeof step.why === 'string' ? `（${step.why.split(',').map((key) => SIGN_WORDS[key] ?? key).join('、')}${step.row === '3b' ? '拿不准' : ''}）` : ''
-  const effort = step.row === '3b' ? '，effort 至少 max' : ''
+  const words = oldTable(step) ? OLD_WORDS : SIGN_WORDS
+  const signs = (keys: string) => keys.split(',').map((key) => words[key] ?? key).join('、')
+  const why = typeof step.why !== 'string' ? '' : step.row === '4' && !oldTable(step) ? '（不用判断、不用读懂代码）' : `（${signs(step.why)}${step.row === '3b' ? '拿不准' : ''}）`
+  const disarmed = typeof step.disarmed === 'string' ? `；${signs(step.disarmed)}读成是，但这项工作不用判断，不算` : ''
   const skipped = step.model === step.wanted ? '' : step.model === null ? `；${word(step.wanted)} 被你排除，没有别的可用` : `；${word(step.wanted)} 被你排除，取最近的 ${word(step.model)}`
-  return `第 ${word(step.row)} 行${why} → ${word(step.wanted)}${effort}${skipped}`
+  return `第 ${word(step.row)} 行${why} → ${word(step.wanted)}${disarmed}${skipped}`
 }
 
 /** The route's step as the card writes it (d1-ultra): `powerful 62%（置信度 0.71）→ opus`, or the fall back, and what stood in for a model ruled out. */
@@ -162,7 +186,8 @@ function stepLine(step: RuleStep): StepLine {
   const on = step.applied
   switch (step.rule) {
     case 'lookup-signs':
-      return { mark: on ? 'hit' : 'pass', head: '只读查找', body: signsBody(step) }
+      // Until 0.11.0 the step held the three signs of a read-only lookup (`writes` among them).
+      return { mark: on ? 'hit' : 'pass', head: oldTable(step) ? '只读查找' : '照做', body: signsBody(step) }
     case 'careful-signs':
       return { mark: on ? 'hit' : 'pass', head: '审慎', body: signsBody(step) }
     case 'model-table':
@@ -176,10 +201,13 @@ function stepLine(step: RuleStep): StepLine {
       // `by`: the rules' model came from the route (d1-ultra) or the table (an entry without it: the table).
       const theirs = step.by === 'route' ? '路由给的' : '表里的'
       if (step.outcome === 'upgraded') return { mark: 'lift', head: who, body: `指定 ${word(step.requested)}；${theirs} ${word(step.table)} 更强，升级到 ${word(step.model)}` }
-      return { mark: 'hit', head: who, body: `指定 ${word(step.requested)}；${step.table === null ? '决策模型没回答关于任务的题' : `${theirs} ${word(step.table)} 不比它强`}，保留（只升不降）` }
+      // ADR 0024: an opus or fable pick for work that is only carried out.
+      if (step.outcome === 'lowered') return { mark: 'hit', head: who, body: `指定 ${word(step.requested)}；${theirs} ${word(step.table)} 低两档以上（这项工作只是照做），降到 ${word(step.model)}` }
+      return { mark: 'hit', head: who, body: `指定 ${word(step.requested)}；${step.table === null ? '决策模型没回答关于任务的题' : `${theirs} ${word(step.table)} 不比它强`}，保留` }
     }
     case 'unsure':
-      return floorLine(step, '拿不准', step.row === '3b' ? '模型表第 3b 行：要不要 opus 拿不准' : step.row === null ? '没有模型表' : `模型表第 ${word(step.row)} 行`)
+      // Until 0.11.0 (ADR 0022): the floor of the table's row 3b, in an entry written then.
+      return floorLine(step, '拿不准', step.row === '3b' ? '模型表第 3b 行：要不要 opus 拿不准' : step.row === null || step.row === undefined ? '没有模型表' : `模型表第 ${word(step.row)} 行`)
     case 'named-effort':
       return { mark: 'hit', head: '点名', body: `你点名了 effort ${word(step.level)}（规则定的是 ${word(step.decided)}），下限不动它` }
     case 'position':
@@ -188,6 +216,7 @@ function stepLine(step: RuleStep): StepLine {
       if (on) return { mark: 'hit', head: '双峰', body: `${word(step.peak)} ${pctText(step.p)} ≥ ${pctText(step.threshold)}，上取一档到 ${word(step.level)}` }
       return { mark: 'pass', head: '双峰', body: `高两档以上没有一档 ≥ ${pctText(step.threshold)}` }
     case 'low-confidence': {
+      // Until 0.11.0 (ADR 0022): Liquid's effort answer taken one level up on a low confidence, in an entry written then.
       const confidence = typeof step.confidence === 'number' ? step.confidence.toFixed(2) : '没有'
       if (on) return { mark: 'hit', head: '置信度', body: `${confidence} < ${word(step.threshold)}，拿不准，上取一档到 ${word(step.level)}` }
       return { mark: 'pass', head: '置信度', body: typeof step.confidence === 'number' ? `${confidence}，不低于 ${word(step.threshold)}` : '没有给出置信度，不动' }
@@ -213,12 +242,43 @@ function stepLine(step: RuleStep): StepLine {
       return floorLine(step, '未解决次数', `仍未解决 ${said(step.p, step.verdict)} · 次数 ${word(step.count)}，门槛 ${step.maxAfter === 0 ? '不用' : word(step.maxAfter)}`)
     case 'lock':
       return { mark: 'hit', head: '锁定', body: `锁在 ${word(step.level)}（规则定的是 ${word(step.decided)}）` }
+    case 'mid-sides':
+      return { mark: 'hit', head: '两侧', body: `读出 ${word(step.picked)}，现在 ${word(step.level)}；更高各档合计 ${pctText(step.up)}（升档要 ${bar(step, step.upBar)}），更低各档合计 ${pctText(step.down)}（降档要 ${bar(step, step.downBar)}）` }
+    case 'mid-stakes':
+      return floorLine(step, '出错代价', `难以挽回 ${said(step.undo, step.undoVerdict)} · 线上或真钱 ${said(step.live, step.liveVerdict)} · 权限 ${said(step.access, step.accessVerdict)}`)
+    case 'mid-cause': {
+      if (step.failure !== true) return { mark: 'pass', head: '原因未知', body: `${said(step.p, step.verdict)}：这次不是失败复现，不按它升` }
+      const signs = `${said(step.p, step.verdict)} · 环境故障 ${said(step.env, step.envVerdict)}${typeof step.same === 'number' ? ` · 同一个故障 ${said(step.same, step.sameVerdict)}` : ''}`
+      if (step.envVerdict === 'yes') return { mark: 'pass', head: '原因未知', body: `${signs} → 环境的失败，不升档` }
+      if (step.verdict === 'yes' && step.floor === null) return { mark: 'pass', head: '原因未知', body: step.level === 'max' ? `${signs} → 已在 max，没有更高的档` : `${signs} → 已在 high 以上：这一轮再有一次这样的失败才升` }
+      return floorLine(step, '原因未知', signs)
+    }
+    case 'mid-up':
+      if (on) return { mark: 'lift', head: '升档', body: `读出 ${word(step.picked)}，更高各档合计 ${pctText(step.up)} ${reached(step)} ${pctText(step.bar)}：${word(step.from)} 升到 ${word(step.level)}` }
+      if (step.env === true) return { mark: 'pass', head: '升档', body: `读出 ${word(step.picked)}，更高各档合计 ${pctText(step.up)}，但这次失败来自环境：不升` }
+      return { mark: 'pass', head: '升档', body: `读出 ${word(step.picked)}，更高各档合计 ${pctText(step.up)}：不升` }
+    case 'mid-return':
+      if (on) return { mark: 'hit', head: '回到原档', body: `读出 ${word(step.picked)}，不高于发消息时的 ${word(step.base)}，更低各档合计 ${pctText(step.down)} ${reached(step)} ${pctText(step.bar)}：回到 ${word(step.level)}` }
+      return { mark: 'pass', head: '回到原档', body: step.raised === true ? `升过档，但读出 ${word(step.picked)}、更低各档合计 ${pctText(step.down)}，不够回到 ${word(step.base)}` : '没有升过档' }
+    case 'mid-down': {
+      const signs = `只是照做 ${said(step.mechanical, step.mechanicalVerdict)} · 发现新工作 ${said(step.ground, step.groundVerdict)} · 更低各档合计 ${pctText(step.down)}`
+      if (on) return { mark: 'hit', head: '降一档', body: `${signs} ${reached(step)} ${pctText(step.bar)}：降到 ${word(step.level)}` }
+      const why = step.allowed !== true ? '中途降档已关闭' : step.ratchet === true ? '这一轮出过红旗，不再降' : step.atBase !== true ? '不在发消息时的档上' : ''
+      return { mark: 'pass', head: '降一档', body: `${signs}${why === '' ? '：不降' : `；${why}`}${step.ruleFloor === null || step.ruleFloor === undefined ? '' : `（规则下限 ${word(step.ruleFloor)}）`}` }
+    }
+    case 'mid-hold':
+      return { mark: 'hit', head: '防抖', body: step.why === 'cap' ? `本想换到 ${word(step.wanted)}，但这一轮追加换档已有 ${word(step.switches)} 次（${step.lowering === true ? '最后一次留给升档，往回最多' : '最多'} ${word(step.most)}）：保持 ${word(step.level)}` : `本想换到 ${word(step.wanted)}，但离上一次换档只有 ${word(step.sinceSwitch)} 步（至少 ${word(step.gap)}）：保持 ${word(step.level)}` }
+    case 'mid-resolved':
+      return { mark: on ? 'hit' : 'pass', head: '问题消失', body: `${word(step.command)} 重新通过，升档后过了 ${word(step.sinceRaise)} 步：${on ? (step.floor !== null && step.floor !== undefined && step.level !== step.base ? `回到出错代价要的 ${word(step.level)}（发消息时是 ${word(step.base)}）` : `回到发消息时的 ${word(step.level)}`) : '已经在原档'}` }
     default: {
       const fields = Object.entries(step).filter(([key]) => key !== 'rule' && key !== 'applied').map(([key, value]) => `${key} ${word(value)}`)
       return { mark: on ? 'hit' : 'pass', head: step.rule, body: fields.join(' · ') }
     }
   }
 }
+
+/** What a mid-run look at the level came to, as the log's verb. */
+const MIDRUN_VERBS: Readonly<Record<string, string>> = { raise: '升档', return: '回到原档', down: '降一档', keep: '保持' }
 
 // ---- the log ----------------------------------------------------------------------
 
@@ -233,7 +293,9 @@ export function entryVerb(entry: LogEntry): string {
     case 'workflow-labels':
       return entry.sentBack === true ? '退回改写' : '已决定'
     case 'escalation':
-      return entry.forced !== undefined ? '升模型' : '没升模型'
+      return entry.forced === undefined ? '没升模型' : entry.forced.kind === 'effort' ? '升 effort' : '升模型'
+    case 'midrun-effort':
+      return MIDRUN_VERBS[entry.midrun?.move ?? 'keep'] ?? '保持'
     case 'unresolved':
       return entry.unresolved === undefined ? '记录' : unresolvedWords(entry.unresolved).verdict
     case 'skills':

@@ -9,9 +9,11 @@
 //   node dispatch-pilot/eval/run.ts visual-check --ids anim-linear,anim-spring --variants mod --repeat 3
 //                                                                          only those items, each asked three times (--repeat)
 //
-// Options: --backend jev|pplx (jev), --model <id> (Jev's: the mod's pinned version by default, jev-1.14.0;
+// Options: --backend jev|pplx|d1.1|d1 (jev), --model <id> (Jev's: the mod's by default, the jev-latest alias, ADR 0021;
+// the result records the version that answered (backend.answeredBy); give a version such as jev-1.14.0 to hold a run to it;
 // Perplexity's: pplx-decider-v1.1-27b by default, or pplx-decider-v1-27b; a run on it reads the mod's settings from
-// pplx's own row of the defaults table, core/setup.ts BACKEND_DEFAULTS: its questions, state budgets and timeout),
+// pplx's own row of the defaults table, core/setup.ts BACKEND_DEFAULTS: its questions, state budgets and timeout; d1.1, Liquid's,
+// reads its own row the same way and is estimated as Liquid bills, the state once and each question's own tokens),
 // --variants en-score,zh-score (all), --languages zh,en (both), --ids a,b or
 // --limit N (all items), --concurrency 1 (Jev 1.13 answered one key's short
 // requests one after another: on 2026-10-04 the p50 was 271 ms at 1 in flight,
@@ -44,12 +46,16 @@
 //
 // --backend d1 (DEVELOPMENT.md 「d1-ultra 核验」): Liquid's d1-ultra (lib/d1.ts), asked with Jev's row of the defaults (its
 // questions, thresholds and budgets), so the requests are those Jev is asked; it reads at most 32768 tokens for the state
-// with any one question and counts the state once for each question, so a run on it gives --state-tokens 28000 and is
-// estimated question by question. --merge: the questions of every request with the same state go in one request
-// (lib/merge.ts: an item's variants that differ only in their question, a Workflow's agents); the result records it.
+// with any one question and counted the state once for each question when those runs were made, so a run on it gives
+// --state-tokens 28000 and is estimated question by question (high now: lib/estimate.ts). --merge: the questions of every
+// request with the same state go in one request (lib/merge.ts: an item's variants that differ only in their question, a
+// Workflow's agents); the result records it.
 //
-// Credentials: TYPESAFE_API_KEY for Jev; PERPLEXITY_API_KEY for Perplexity; LIQUID_API_KEY for d1: the environment first, then
-// ~/.config/dispatch-pilot/eval.env. Never printed or saved.
+// --backend d1.1 (ADR 0021): Liquid's d1.1 as the mod asks it, with its own row of the defaults (Liquid's guide); the effort
+// suites read every backend's answers at TypeSafe's bars (lib/effort-submit.ts), the skill and subagent suites at its guide's.
+//
+// Credentials: TYPESAFE_API_KEY for Jev; PERPLEXITY_API_KEY for Perplexity; LIQUID_API_KEY for d1 and d1.1: the environment
+// first, then ~/.config/dispatch-pilot/eval.env. Never printed or saved.
 //
 // Saves eval/results/<suite>/<date>-<backend>[-<label>].json: the settings,
 // the backend and the model that answered, hashes of the dataset and of the
@@ -65,6 +71,7 @@ import type { PluginOptions } from 'claude-code'
 import type { BackendName } from '../hooks/core/setup.ts'
 import type { Backend } from '../hooks/decision/backend.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
+import { D1_1_MODEL } from '../hooks/decision/liquid.ts'
 import { PPLX_MODEL } from '../hooks/decision/pplx.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
@@ -109,7 +116,7 @@ function fail(message: string): never {
   process.exit(2)
 }
 
-const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|pplx|d1] [--merge] [--label <word>] ...')
+const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|pplx|d1.1|d1] [--merge] [--label <word>] ...')
 const entry = SUITES[name] ?? fail(`no suite for "${name}" yet (suites: ${Object.keys(SUITES).join(', ')})`)
 const sha = (text: string) => createHash('sha256').update(text).digest('hex')
 /** The dataset: a kind's JSONL, checked against its format; or eval-v2.jsonl, checked against generated.json, with its final gold. */
@@ -160,7 +167,7 @@ if (items.length === 0) fail('no item to run: --ids names none of the dataset\'s
 // unset, the backend's defaults (readConfig).
 const manifest = readManifest()
 const asked = values.backend as BackendName | 'd1'
-if (asked !== 'jev' && asked !== 'pplx' && asked !== 'd1') fail(`no backend "${asked}" (jev, pplx, d1)`)
+if (asked !== 'jev' && asked !== 'pplx' && asked !== 'd1.1' && asked !== 'd1') fail(`no backend "${asked}" (jev, pplx, d1.1, d1)`)
 /** The row of the defaults the run reads (d1 has none of its own: Jev's, lib/d1.ts). */
 const backendName: BackendName = asked === 'd1' ? 'jev' : asked
 const longContext = values['long-context'] === true
@@ -191,7 +198,7 @@ const widened = stateTokens === null ? settingsFrom(options as PluginOptions) : 
 const settings = stateMessages === null ? widened : withStateMessages(widened, stateMessages)
 /** How long one attempt may take: --timeout, else four times the mod's timeoutMs for this backend, at least 10 s (lib/runner.ts). */
 const attemptMs = timeoutFlag === null ? defaultAttemptMs(settings.timeoutMs) : timeoutFlag
-const model = values.model ?? (asked === 'd1' ? D1_MODEL : asked === 'pplx' ? PPLX_MODEL : JEV_MODEL)
+const model = values.model ?? (asked === 'd1' ? D1_MODEL : asked === 'd1.1' ? D1_1_MODEL : asked === 'pplx' ? PPLX_MODEL : JEV_MODEL)
 const price = asked === 'd1' ? D1_PRICE : PRICES[backendName]
 if (merged && repeats !== 1) fail('--merge asks each item once: no --repeat')
 // A flow file run with another backend or state than this run's is allowed (say, the 48000 flow under a 135000 state), and said.

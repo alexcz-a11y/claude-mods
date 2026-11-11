@@ -19,6 +19,7 @@ import { registerEscalation } from './features/escalation.ts'
 import { registerFindSkill } from './features/find-skill.ts'
 import { registerImageRouting } from './features/image-routing.ts'
 import { registerMainEffort } from './features/main-effort.ts'
+import { registerMidrunEffort } from './features/midrun-effort.ts'
 import { registerPromptHint } from './features/prompt-hint.ts'
 import { registerUnresolved } from './features/unresolved.ts'
 import { registerVisualCheck } from './features/visual-check.ts'
@@ -43,6 +44,8 @@ export const register: Register = (on, options) => {
   // Features, outermost first.
   registerControl(on, ctx)
   registerMainEffort(on, ctx)
+  // Beneath main-effort: a message typed into a running turn is decided before the run's own events are read against it.
+  registerMidrunEffort(on, ctx)
   registerUnresolved(on, ctx)
   registerEscalation(on, ctx)
   registerDispatchedAgents(on, ctx)

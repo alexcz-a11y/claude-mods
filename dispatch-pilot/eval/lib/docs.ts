@@ -6,11 +6,11 @@
 // `node dispatch-pilot/eval/validate.ts` runs it on the real README.md and plugin.json, which a test file cannot read.
 //
 // The table is every row under the README's `## 配置` heading (its `###`
-// groups included) whose first cell is an option's name in backticks:
+// groups included) whose first cell is an option's name in backticks, then a cell for each decision model (BACKENDS):
 //
-//   | 选项 | 作用 | Jev | pplx |
-//   | `timeoutMs` | how long a message waits | `1500` | `8000` |
-//   | `contextTokens` | the state's budget | `6000` | `6000` |
+//   | 选项 | 作用 | Jev | pplx | d1-ultra | d1.1 |
+//   | `timeoutMs` | how long a message waits | `1500` | `8000` | `4000` | `3500` |
+//   | `contextTokens` | the state's budget | `6000` | `6000` | `6000` | `6000` |
 //
 // Each default cell starts with the default in backticks (`空` for an empty
 // text or list, `true` or `false` for a boolean) and may go on with a note
@@ -31,6 +31,7 @@ const BACKENDS: readonly { label: string; backend: BackendName }[] = [
   { label: 'Jev', backend: 'jev' },
   { label: 'pplx', backend: 'pplx' },
   { label: 'd1-ultra', backend: 'd1-ultra' },
+  { label: 'd1.1', backend: 'd1.1' },
 ]
 
 /** Where the default columns start in a row: the option, then what it does. */

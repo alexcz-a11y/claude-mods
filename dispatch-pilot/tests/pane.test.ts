@@ -60,8 +60,8 @@ async function steps(ui: Ui, prefix = 'pane-card-step-'): Promise<string[]> {
 }
 
 test("the main agent's card: why, the effort's probabilities, the rules' working step by step, the result, and its confidence, which only goes on record", { options: KEY }, async ($, on) => {
-  // Position 2.30 rounds to high; the cause of a failure is unknown (a Noul at 0.8): R3 lifts it to xhigh.
-  const w = world($, on, { backend: jev([0, 0.05, 0.6, 0.35, 0], { confidence: 0.25, nouls: { 'effort.cause_unknown': 0.8 } }) })
+  // Position 1.30 rounds to medium; the cause of a failure is unknown (a Noul at 0.8): R3 lifts it to high.
+  const w = world($, on, { backend: jev([0, 0.75, 0.2, 0.05, 0], { confidence: 0.25, nouls: { 'effort.cause_unknown': 0.8 } }) })
   await w.submit('这个方案往死里挑刺')
   await w.step({ index: 0, model: 'claude-opus-5-5' })
 
@@ -71,10 +71,10 @@ test("the main agent's card: why, the effort's probabilities, the rules' working
   const reason = (await w.board()).log.find((entry) => entry.feature === 'main-effort')?.reason ?? ''
   expect(reason).toContain('置信度 0.25')
   expect(shown(await ui.find({ key: 'pane-card-reason' }))).toContain(reason)
-  expect(shown(await ui.find({ key: 'pane-card-probs' }))).toMatch(/low \.00 medium \.05 high \.60 xhigh \.35 max \.00/)
+  expect(shown(await ui.find({ key: 'pane-card-probs' }))).toMatch(/low \.00 medium \.75 high \.20 xhigh \.05 max \.00/)
   expect(await ui.find({ key: 'pane-card-probs-bar' })).toMatchObject({ type: 'Raster' })
   const rules = await steps(ui)
-  expect(rules[0]).toMatch(/●.*位置.*2\.30，四舍五入到 high/)
+  expect(rules[0]).toMatch(/●.*位置.*1\.30，四舍五入到 medium/)
   expect(rules[1]).toMatch(/○.*双峰/)
   expect(rules[3]).toMatch(/○.*要求多想/)
   expect(rules[4]).toMatch(/○.*确认/)
@@ -82,7 +82,8 @@ test("the main agent's card: why, the effort's probabilities, the rules' working
   expect(rules[6]).toMatch(/▲.*原因未知/)
   // The base, the second peak and the seven floors of the person's message, in order.
   expect(rules).toHaveLength(9)
-  expect(shown(await ui.find({ key: 'pane-card-result' }))).toContain('xhigh')
+  expect(shown(await ui.find({ key: 'pane-card-result' }))).toContain('high')
+  expect(shown(await ui.find({ key: 'pane-card-result' }))).not.toContain('xhigh')
   expect(shown(await ui.find({ key: 'pane-card-conf' }))).toMatch(/\.25：只记录，不参与定档/)
 })
 
@@ -128,8 +129,8 @@ test("a dispatched agent's card: the model it was given and why, then the rules'
   // Why, in the decision report's own words.
   expect(shown(await ui.find({ key: 'pane-card-reason' }))).toContain('模型表第 5 行 → sonnet')
   const rules = await steps(ui)
-  expect(rules[0]).toMatch(/只读查找写入 \.00（否） · 一两步 \.00（否） · 只汇报 \.00（否）/)
-  expect(rules[1]).toMatch(/审慎难以挽回 \.00（否）.*科学计算 \.00（否）/)
+  expect(rules[0]).toMatch(/照做要判断 1\.0（是） · 要读懂代码 1\.0（是）/)
+  expect(rules[1]).toMatch(/审慎难以挽回 \.00（否）.*自己找原因 \.00（否）.*科学计算 \.00（否）/)
   expect(rules[2]).toMatch(/模型表.*第 5 行 → sonnet/)
   expect(rules.at(-1)).toMatch(/▲.*模型下限.*sonnet 至少 medium，low 抬到 medium/)
   expect(shown(await ui.find({ key: 'pane-card-result' }))).toContain('medium')

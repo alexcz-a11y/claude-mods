@@ -37,18 +37,18 @@ export const STAKES = [STAKES_UNDO, STAKES_LIVE, STAKES_ACCESS] as const
 /** One description per level, lowest first: what the work is, never what it risks or what happened before. */
 const LEVELS: Record<Language, readonly string[]> = {
   en: [
-    'Answered from what is already known, or mechanical work with nothing to work out: a lookup, a single command, a rename or find-and-replace (even across many files), a search that lists what it finds, formatting, a one-line change.',
-    'An ordinary, well-specified change to one or a few files, or a direct question about code already in view.',
-    'A change across several files that needs working out, a bug whose cause is described but has to be traced, writing tests, or reviewing a diff with care.',
-    'Design across several components, a bug whose cause is unknown, a refactor with many dependents, or careful reasoning about concurrency, performance or failure modes.',
-    'Novel architecture, a proof, a hard concurrency problem, or a security or data-integrity question that has to be reasoned through step by step.',
+    'A short answer from what is already known (a fact, a yes or no, a preference), or mechanical work with nothing to work out: a lookup, a single command, a rename or find-and-replace (even across many files), a search that lists what it finds, formatting, a one-line change.',
+    'An ordinary, well-specified change to one or a few files, a direct question about code already in view, an explanation or advice given in words whatever its topic, or tests for a small piece of code whose cases are given.',
+    'A change across several files that needs working out (moving or splitting code among them counts), a bug whose cause is described but has to be traced, tests whose cases or setup have to be worked out, or reviewing a diff or a short piece of code with care.',
+    'Design across several components, a bug whose cause is unknown, a refactor that changes behaviour or interfaces many dependents rely on, or work that depends on careful reasoning about concurrency, performance or failure modes.',
+    'Novel architecture, a proof, a hard concurrency problem, or an audit of the security or data integrity of a whole mechanism, reasoned through step by step.',
   ],
   zh: [
-    '凭已知信息就能回答，或没有需要想清楚之处的机械性工作：查一个东西、执行一条命令、重命名或查找替换（即使跨很多文件）、列出搜索结果、格式化、改一行。',
-    '对一个或几个文件做常规、需求明确的修改，或针对眼前代码的直接提问。',
-    '跨多个文件、需要想清楚的修改，原因已经描述但仍需追查的 bug，编写测试，或仔细审查一份 diff。',
-    '跨多个组件的设计，原因未知的 bug，牵连很多依赖方的重构，或需要仔细推敲并发、性能或故障模式的工作。',
-    '全新的架构、证明、疑难的并发问题，或需要一步步推敲的安全或数据完整性问题。',
+    '凭已知信息就能给出的简短回答（一个事实、是或否、一个偏好），或没有需要想清楚之处的机械性工作：查一个东西、执行一条命令、重命名或查找替换（即使跨很多文件）、列出搜索结果、格式化、改一行。',
+    '对一个或几个文件做常规、需求明确的修改，针对眼前代码的直接提问，用文字给出的解释或建议（不论话题），或给一小段代码写用例已经给定的测试。',
+    '跨多个文件、需要想清楚的修改（在文件之间搬动或拆分代码也算），原因已经描述但仍需追查的 bug，用例或准备工作需要想清楚的测试，或仔细审查一份 diff 或一小段代码。',
+    '跨多个组件的设计，原因未知的 bug，改变很多依赖方所依赖的行为或接口的重构，或要靠仔细推敲并发、性能或故障模式才能做对的工作。',
+    '全新的架构、证明、疑难的并发问题，或对一整套机制的安全或数据完整性做审计，要一步步推敲。',
   ],
 }
 
@@ -94,29 +94,29 @@ const NOULS: Record<Language, Record<(typeof STAKES)[number] | typeof CAUSE_UNKN
       question: 'Would a mistake in the work that `user_message` asks for be hard to undo, such as deleted data, a sent message, or a published release?',
       reads: 'Judge from `user_message` and `recent_context`.',
       extra: (has) => (has.constraints === true ? '`standing_constraints` holds rules the person set earlier, in their own words.' : null),
-      yes: 'The work deletes or overwrites data, sends something to people or systems outside, publishes or deploys, or the person said it cannot be rolled back.',
-      no: 'The work only changes files that can be reverted, or it reads, explains or plans.',
+      yes: 'The assistant itself, in this work, deletes or overwrites data that is still needed (rewriting git history that others share counts), sends something to people or systems outside, publishes or deploys, or the person said the step cannot be rolled back.',
+      no: 'The work only changes files that can be reverted, including code, configuration or a pipeline that would do such a thing later when someone runs it; or it reads, explains, reviews or plans; or what it deletes is throwaway (a temporary table, test data, build output).',
     },
     [STAKES_LIVE]: {
       question: 'Does the work that `user_message` asks for act on a live production system or on real money?',
       reads: 'Judge from `user_message` and `recent_context`.',
       extra: (has) => (has.constraints === true ? '`standing_constraints` holds rules the person set earlier, in their own words.' : null),
-      yes: 'It runs against servers, databases or accounts that real users or payments depend on, or it moves or charges real money.',
-      no: 'It runs locally, in tests, or on a staging or sandbox system, or it only edits code without running it against production.',
+      yes: 'The assistant itself changes something on servers, databases or accounts that real users or payments depend on (a deploy, a restart, a migration, a write), or it moves or charges real money.',
+      no: 'It runs locally, in tests, or on a staging or sandbox system; or it only reads from production (a setting, a log, a query that changes nothing); or it only edits files, even production configuration, that someone applies later.',
     },
     [STAKES_ACCESS]: {
       question: 'Does the work that `user_message` asks for change permissions, authentication, or secrets?',
       reads: 'Judge from `user_message` and `recent_context`.',
       extra: (has) => (has.constraints === true ? '`standing_constraints` holds rules the person set earlier, in their own words.' : null),
-      yes: 'It changes who can access what: roles, permissions, login or token handling, keys, passwords or other secrets.',
-      no: 'It does not touch access control, authentication or secrets.',
+      yes: 'It changes who can access what: it edits roles, permissions, login or token handling, or it creates, rotates or exposes keys, passwords or other secrets.',
+      no: 'It changes none of that. Reading, reviewing or explaining code about access is not a change to it, and neither is using a credential that is already set up.',
     },
     [CAUSE_UNKNOWN]: {
       question: 'Does the work that `user_message` asks for include finding the cause of a failure that `recent_context` has not already found?',
       reads: 'Judge from `user_message` and `recent_context`.',
       extra: (has) => (has.lastTurn === true ? "`last_turn` lists the tool calls that failed in the assistant's last turn." : null),
       yes: 'Something fails or misbehaves and nobody has said why yet: the work has to trace the cause.',
-      no: 'There is no failure to explain, or its cause is already named in `recent_context` and the work is to fix it.',
+      no: 'There is no failure to explain; or its cause is already named in `recent_context` and the work is to fix it; or the person asks only for a set step (run a given command or search, collect or count what failed) and not for the reason.',
     },
   },
   zh: {
@@ -124,29 +124,29 @@ const NOULS: Record<Language, Record<(typeof STAKES)[number] | typeof CAUSE_UNKN
       question: '`user_message` 所要求的工作一旦出错，是否难以挽回，比如删掉的数据、已经发出的消息、已经发布的版本？',
       reads: '根据 `user_message` 和 `recent_context` 判断。',
       extra: (has) => (has.constraints === true ? '`standing_constraints` 是用户早先定下的规矩，用户的原话。' : null),
-      yes: '这项工作会删除或覆盖数据、向外部的人或系统发送东西、发布或部署，或者用户说过不能回滚。',
-      no: '这项工作只改动可以撤回的文件，或者只是阅读、解释、规划。',
+      yes: '助手自己在这项工作里删除或覆盖还有用的数据（改写别人也在用的 git 历史也算）、向外部的人或系统发送东西、发布或部署，或者用户说过这一步不能回滚。',
+      no: '这项工作只改动可以撤回的文件，包括以后有人运行时才会做这些事的代码、配置或流水线；或者只是阅读、解释、审查、规划；或者删掉的是用完即弃的东西（临时表、测试数据、构建产物）。',
     },
     [STAKES_LIVE]: {
       question: '`user_message` 所要求的工作是否作用在线上生产系统或真钱上？',
       reads: '根据 `user_message` 和 `recent_context` 判断。',
       extra: (has) => (has.constraints === true ? '`standing_constraints` 是用户早先定下的规矩，用户的原话。' : null),
-      yes: '它会在真实用户或付款依赖的服务器、数据库、账户上运行，或者转移、扣收真钱。',
-      no: '它在本地、测试里、预发或沙箱系统上运行，或者只改代码、不在生产环境上运行。',
+      yes: '助手自己改动真实用户或付款依赖的服务器、数据库、账户上的东西（部署、重启、迁移、写入），或者转移、扣收真钱。',
+      no: '它在本地、测试里、预发或沙箱系统上运行；或者只是从生产环境读东西（一个配置值、一份日志、一条不改任何东西的查询）；或者只改文件，即使是生产环境的配置，由别人之后去应用。',
     },
     [STAKES_ACCESS]: {
       question: '`user_message` 所要求的工作是否改动权限、认证或密钥？',
       reads: '根据 `user_message` 和 `recent_context` 判断。',
       extra: (has) => (has.constraints === true ? '`standing_constraints` 是用户早先定下的规矩，用户的原话。' : null),
-      yes: '它会改变谁能访问什么：角色、权限、登录或 token 处理、密钥、密码或其他 secret。',
-      no: '它不涉及访问控制、认证或 secret。',
+      yes: '它会改变谁能访问什么：改角色、权限、登录或 token 处理，或者新建、轮换、暴露密钥、密码或其他 secret。',
+      no: '这些它都不改。阅读、审查或解释和访问有关的代码不算改动，使用一个已经配好的凭证也不算。',
     },
     [CAUSE_UNKNOWN]: {
       question: '`user_message` 所要求的工作是否包括找出一个 `recent_context` 里还没找到原因的故障？',
       reads: '根据 `user_message` 和 `recent_context` 判断。',
       extra: (has) => (has.lastTurn === true ? '`last_turn` 列出了助手上一轮失败的工具调用。' : null),
       yes: '有东西出错或表现不对，而且还没有人说清原因：这项工作得追查原因。',
-      no: '没有要解释的故障，或者原因已经写在 `recent_context` 里，要做的是修。',
+      no: '没有要解释的故障；或者原因已经写在 `recent_context` 里，要做的是修；或者用户只要一个定好的步骤（跑一条给定的命令或搜索、把出错的收集或统计出来），没有问原因。',
     },
   },
 }
@@ -167,6 +167,20 @@ export function stakeQuestions(language: Language, has: StateHas = {}): Record<s
   const words = NOULS[language]
   const ids: readonly ((typeof STAKES)[number] | typeof CAUSE_UNKNOWN)[] = [...STAKES, CAUSE_UNKNOWN]
   return Object.fromEntries(ids.map((id) => [id, noul(words[id], language, has)]))
+}
+
+/** The five level descriptions, lowest first, in `language`: the same wherever an effort is asked (a message, an agent, a running loop). */
+export function effortLevels(language: Language): readonly string[] {
+  return LEVELS[language]
+}
+
+/**
+ * What a yes and a no are for each stake, in English: the mid-run stakes (decision/midrun.ts) ask about the work still ahead
+ * and hold it to the same situations as a message's.
+ */
+export function stakeSituations(id: (typeof STAKES)[number]): { yes: string; no: string } {
+  const { yes, no } = NOULS.en[id]
+  return { yes, no }
 }
 
 /**
@@ -199,7 +213,7 @@ export function readEffort(answer: Answer | undefined): EffortReading | null {
 /**
  * The probability a level two or more above the base needs for the answer to count as two-peaked (TypeSafe: a Score's
  * position can be pulled toward the middle and hide a second peak). TypeSafe's starting value for "not a no" (a Noul's 0.3),
- * not one of the eval's; Jev's and pplx's rule (decision/guides.ts), d1-ultra's is its confidence instead.
+ * not one of the eval's; Jev's and pplx's rule (decision/guides.ts). The Liquid models' answer has no such rule.
  */
 export const SECOND_PEAK = TYPESAFE_GUIDE.scoreUnsure.rule === 'two-peaked' ? TYPESAFE_GUIDE.scoreUnsure.secondPeak : 0.3
 
@@ -213,8 +227,6 @@ export type EffortStep =
   | { rule: 'position'; applied: true; level: Effort; position: number }
   /** A level `peak` two or more above the base had `p` ≥ `threshold`: the base went one level up. `peak` null: none did. (TypeSafe's rule.) */
   | { rule: 'two-peaked'; applied: boolean; level: Effort; peak: Effort | null; p: number; threshold: number }
-  /** The answer's `confidence` was below `threshold`: the base went one level up. `confidence` null: none came back, nothing moved. (Liquid's rule.) */
-  | { rule: 'low-confidence'; applied: boolean; level: Effort; confidence: number | null; threshold: number }
   /** The agent's model has a floor (sonnet and opus: medium; `floor` null for none) and the level was under it. */
   | { rule: 'model-floor'; applied: boolean; level: Effort; from: Effort; model: string; floor: Effort | null }
 
@@ -233,9 +245,10 @@ export function positionOf(reading: EffortReading): number {
 
 /**
  * The base level of an effort answer (the decision model's guide, decision/guides.ts; none of it tuned on our evals): the
- * position rounded to the nearest level, half going up; then one level higher when the answer is unsure, as `unsure` says:
- * TypeSafe's (the default) when a level two or more above that has at least `SECOND_PEAK`, Liquid's when the answer's
- * confidence is below its bar. The model's floor lifts it afterwards when `lifts` gives one (an agent's).
+ * position rounded to the nearest level, half going up; then, on TypeSafe's guide (the default), one level higher when a level
+ * two or more above that has at least `SECOND_PEAK`. Liquid's guide has no such rule (`none`): its "confidence below 0.5,
+ * take the strongest" is its router's, and read onto the effort answer it put 13 to 18 in 100 messages a level too high
+ * (effort-submit, ADR 0022). The model's floor lifts the level afterwards when `lifts` gives one (an agent's).
  */
 export function traceEffort(reading: EffortReading, lifts: EffortLifts = {}, unsure: ScoreUnsure = TYPESAFE_GUIDE.scoreUnsure): EffortTrace {
   const last = EFFORTS.length - 1
@@ -244,12 +257,7 @@ export function traceEffort(reading: EffortReading, lifts: EffortLifts = {}, uns
   const position = positionOf(reading)
   let level = Math.min(Math.floor(position + 0.5), last)
   const steps: EffortStep[] = [{ rule: 'position', applied: true, level: name(level), position }]
-  if (unsure.rule === 'low-confidence') {
-    const { confidence } = reading
-    const low = confidence !== null && confidence < unsure.below
-    if (low) level = Math.min(level + 1, last)
-    steps.push({ rule: 'low-confidence', applied: low, level: name(level), confidence, threshold: unsure.below })
-  } else {
+  if (unsure.rule === 'two-peaked') {
     let peak: number | null = null
     for (let i = level + 2; i <= last; i++) if (at(i) >= unsure.secondPeak && (peak === null || at(i) > at(peak))) peak = i
     if (peak !== null) level = Math.min(level + 1, last)
@@ -281,8 +289,8 @@ export function probsOf(reading: EffortReading): Record<Effort, number> {
 
 /**
  * Every level's probability and the backend's confidence, as the decision log gives them: `概率 low 0.00, medium 0.05, ...；
- * 位置 1.40；置信度 0.80（只记录）`, with `note` before the confidence. `confidenceRead`: a rule read the confidence (Liquid's,
- * decision/guides.ts), so it is not 「只记录」.
+ * 位置 1.40；置信度 0.80（只记录）`, with `note` before the confidence. `confidenceRead`: a rule read the confidence (a running
+ * loop's lowering, decision/midrun.ts), so it is not 「只记录」.
  */
 export function readingText(reading: EffortReading, note?: string, confidenceRead = false): string {
   const confidence = reading.confidence === null ? '没有' : reading.confidence.toFixed(2)

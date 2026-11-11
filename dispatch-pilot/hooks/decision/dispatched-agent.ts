@@ -8,18 +8,24 @@
 //
 //   model   1   a model the person named for the work                                         → that model
 //           2   fable offered (agentFable) and frontier yes                                   → fable
-//           3   any of stakes.undo, stakes.live, stakes.access, cause_unknown, design_open,
-//               outside_facts, science_code yes                                               → opus
-//           3b  none of those yes, one or more of them in the band                            → sonnet, effort max
-//           4   writes no, few_steps yes and report_only yes                                  → haiku
+//           3   stakes.undo or stakes.live yes; or, unless judges is no, any of diagnosis,
+//               design_open, security, concurrency, money, science_code yes                   → opus
+//           4   judges no and logic no                                                        → haiku
 //           5   otherwise                                                                     → sonnet
 //           The first row that matches wins. A model the person ruled out is skipped for the nearest one allowed, the
-//           next stronger first, else the next weaker. The main agent's pick (a Workflow call's: the script's) is kept
-//           unless the table's model is stronger: a pick is raised, never lowered.
+//           next stronger first, else the next weaker. The main agent's pick (a Workflow call's: the script's) is raised
+//           to the table's model when that is stronger, and gives way to row 4's haiku when it is opus or fable (ADR
+//           0024: the work is only carried out, and the pick is two tiers or more above what that takes). Otherwise it
+//           is kept: sonnet for work that is only carried out, opus for ordinary work.
+//           Each Noul reads the work the brief asks for, not its topic (ADR 0023): a brief about security that only lists
+//           where secrets are read asks for no judgment, and a sign that says yes of work `judges` reads as carried out
+//           (no) does not count. The table before 0.11.0 (ADR 0015: writes, few_steps and report_only for haiku; the
+//           stakes, cause_unknown, design_open, outside_facts and science_code for opus, their band for sonnet) gave the
+//           acceptable model for 65 of 100 answers on the subagent eval; this one for 90.
 //   effort  the person's named effort as it is; else the Score's base (its position rounded, one level up when it is
-//           two-peaked), lifted by the stakes (undo and live or access yes → max; any yes → xhigh; any in the band →
-//           high), by the unknown cause (yes → xhigh; band → high), by row 3b (max) and by the model's floor (sonnet and
-//           opus: medium). A floor only lifts; the highest stands.
+//           two-peaked), lifted by the stakes (undo and live or access yes → max; any yes → high), by the unknown cause
+//           (yes → high) and by the model's floor (sonnet and opus: medium). A floor only lifts; the highest stands.
+//           The levels are a message's (decision/message-effort.ts; ADR 0022).
 //
 // A Noul reads yes from 0.7 and no up to 0.3, the band between (decision/nouls.ts, TypeSafe's starting values); so do the
 // person's named and ruled-out models and their named effort. A missing answer lifts nothing and makes no haiku.
@@ -29,9 +35,8 @@
 // opus, and frontier → fable while fable is offered), its top tier taken, and the strongest model allowed when its
 // confidence is below 0.5 ("If the router is uncertain, fall back to the most capable tier"). A tier whose model the person
 // ruled out gives way to the allowed tier the route rates highest. The person's named model comes first and the main agent's
-// pick is raised, never lowered, as with the table. Its effort is read as the table's is, at Liquid's bars (yes above 0.8, no
-// below 0.2) and with its rule for an unsure Score (confidence below 0.5: one level up); the stakes and the unknown cause are
-// still asked for their floors, and there is no row 3b, so no floor of max.
+// pick is raised, or gives way to the fast tier's haiku when it is opus or fable, as with the table. Its effort is read as the table's is, at Liquid's bars (yes above 0.8, no
+// below 0.2), the Score as it stands; the stakes and the unknown cause are still asked for their floors.
 //
 // Pure (see system-one.ts). The input is the eval item's shape (subagent.jsonl's `zh` / `en`), so the eval (#15) builds the
 // same request from an item as the mod builds from an agent.spawn (ADR 0005).
@@ -133,23 +138,29 @@ export const NAMED_EFFORT = 'named_effort'
 /** The named-effort question's option for no effort asked for. */
 const NO_EFFORT = 'none'
 
-/** The yes/no questions about the brief, by id within the part (ADR 0015); the stakes and the unknown cause keep a message's ids (decision/effort.ts). */
-export const WRITES = 'writes'
-export const FEW_STEPS = 'few_steps'
-export const REPORT_ONLY = 'report_only'
+/** The yes/no questions about the brief, by id within the part (ADR 0015, ADR 0023); the stakes and the unknown cause keep a message's ids (decision/effort.ts). */
+export const JUDGES = 'judges'
+export const LOGIC = 'logic'
+export const DIAGNOSIS = 'diagnosis'
 export const DESIGN_OPEN = 'design_open'
-export const OUTSIDE_FACTS = 'outside_facts'
+export const SECURITY = 'security'
+export const CONCURRENCY = 'concurrency'
+export const MONEY = 'money'
 export const SCIENCE_CODE = 'science_code'
 export const FRONTIER = 'frontier'
-/** The three that together make a lookup haiku can carry out (row 4). */
-export const LOOKUP = [WRITES, FEW_STEPS, REPORT_ONLY] as const
-/** Those whose yes sends the work to opus (row 3), and whose band to sonnet at max effort (row 3b). */
-export const CAREFUL = [STAKES_UNDO, STAKES_LIVE, STAKES_ACCESS, CAUSE_UNKNOWN, DESIGN_OPEN, OUTSIDE_FACTS, SCIENCE_CODE] as const
-/** Every Noul about the brief, in the order asked; `frontier` only while fable is offered. */
-export const BRIEF_NOULS = [...LOOKUP, ...CAREFUL, FRONTIER] as const
-export type BriefNoul = (typeof BRIEF_NOULS)[number]
+/** The two that together make work haiku can carry out (row 4): nothing to judge, and no code to follow. */
+export const ROTE = [JUDGES, LOGIC] as const
+/** Those whose yes sends the work to opus whatever else is read (row 3): what the agent itself does cannot be taken back, or acts on production. */
+export const GRAVE = [STAKES_UNDO, STAKES_LIVE] as const
+/** Those whose yes sends the work to opus (row 3) unless `judges` reads no: the kinds of reasoning the work asks for. */
+export const HARD = [DIAGNOSIS, DESIGN_OPEN, SECURITY, CONCURRENCY, MONEY, SCIENCE_CODE] as const
+/** Every Noul row 3 reads. */
+export const CAREFUL = [...GRAVE, ...HARD] as const
 /** The Nouls about the brief the route asks beside it (d1-ultra, ADR 0017): only those the effort's floors read. */
 export const FLOOR_NOULS = [STAKES_UNDO, STAKES_LIVE, STAKES_ACCESS, CAUSE_UNKNOWN] as const
+/** Every Noul about the brief, in the order asked; `frontier` only while fable is offered. */
+export const BRIEF_NOULS = [...ROTE, ...FLOOR_NOULS, ...HARD, FRONTIER] as const
+export type BriefNoul = (typeof BRIEF_NOULS)[number]
 
 /** The question id of the model tier, with d1-ultra (Liquid's routing, ADR 0017). */
 export const ROUTE = 'route'
@@ -164,15 +175,17 @@ export const TIER_MODELS: Readonly<Record<RouteTier, AgentModel>> = { fast: 'hai
  * (Chinese, as the card and the log speak).
  */
 export const SIGNS: Readonly<Record<BriefNoul, { key: string; words: string }>> = {
-  [WRITES]: { key: 'writes', words: '写入' },
-  [FEW_STEPS]: { key: 'fewSteps', words: '一两步' },
-  [REPORT_ONLY]: { key: 'reportOnly', words: '只汇报' },
+  [JUDGES]: { key: 'judges', words: '要判断' },
+  [LOGIC]: { key: 'logic', words: '要读懂代码' },
   [STAKES_UNDO]: { key: 'undo', words: '难以挽回' },
   [STAKES_LIVE]: { key: 'live', words: '线上或真钱' },
   [STAKES_ACCESS]: { key: 'access', words: '权限' },
   [CAUSE_UNKNOWN]: { key: 'cause', words: '原因未知' },
-  [DESIGN_OPEN]: { key: 'design', words: '方案未定' },
-  [OUTSIDE_FACTS]: { key: 'outside', words: '仓库外事实' },
+  [DIAGNOSIS]: { key: 'diagnosis', words: '自己找原因' },
+  [DESIGN_OPEN]: { key: 'design', words: '要做设计' },
+  [SECURITY]: { key: 'security', words: '找攻击面' },
+  [CONCURRENCY]: { key: 'concurrency', words: '并发时序' },
+  [MONEY]: { key: 'money', words: '核对算钱的逻辑' },
   [SCIENCE_CODE]: { key: 'science', words: '科学计算' },
   [FRONTIER]: { key: 'frontier', words: '前沿难题' },
 }
@@ -185,55 +198,65 @@ function briefWords(language: Language, field: string): Record<BriefNoul, NoulTe
   const task = `\`${field}.prompt\``
   if (language === 'zh') {
     return {
-      [WRITES]: {
-        question: `${task} 是否要求 agent 创建、修改或删除文件，或者执行会改变什么的命令？`,
-        yes: 'agent 会编辑、新建、移动或删除文件，提交或推送，安装或迁移东西，或者执行会改变文件、数据或系统的命令。',
-        no: 'agent 只读、只搜索并汇报，或者只执行查看、检查类的命令，比如搜索、列目录、跑测试。',
+      [JUDGES]: {
+        question: `${task} 里的工作是否需要 agent 自己做出判断？`,
+        yes: 'agent 得权衡之后下结论：代码对不对、有没有风险，哪个方案更好，事情为什么发生，应该怎么做，一段文字写得好不好。',
+        no: 'agent 照任务写明的去做，把结果交回来：执行给定的命令、搜索给定的东西，或者套用给定的规则。任务说了「列出来、留给人决定」的情况不算判断。',
       },
-      [FEW_STEPS]: {
-        question: `${task} 里的工作能否用一两次工具调用完成？`,
-        yes: '一两次搜索、读文件、执行命令或查找就能得出答案。',
-        no: '这项工作要连续多次工具调用：探查、跨文件追引用、试一下再检查，或者很多次分开的查找。',
-      },
-      [REPORT_ONLY]: {
-        question: `${task} 的结果是否只是按要求收集并排版（列表、表格、计数），没有需要判断的东西？`,
-        yes: 'agent 按要求交回它找到的东西：匹配项、文件路径、计数、命令输出或文件内容。',
-        no: 'agent 要做判断、比较、推荐、解释原因、审查，或者产出计划、设计或修改。',
+      [LOGIC]: {
+        question: `${task} 里的工作是否需要读懂程序代码的逻辑？`,
+        yes: 'agent 得读代码并弄清它做什么：追调用链、看各部分怎么配合、判断两种实现的行为是否一致、知道一处改动会影响什么，或者写出能融进去的代码。',
+        no: '不需要读懂任何代码：agent 执行给定的命令和工具，把输出汇报或整理成表，按名字或模式搜索，在文档里查一个事实，或者按任务规定的规则改文件（重命名、改格式、合并、翻译）。',
       },
       [STAKES_UNDO]: {
         question: `${task} 所要求的工作一旦出错，是否难以挽回，比如删掉的数据、已经发出的消息、已经发布的版本？`,
-        yes: '这项工作会删除或覆盖数据、向外部的人或系统发送东西、发布或部署，或者任务里说了不能回滚。',
-        no: '这项工作只改动可以撤回的文件，或者只是阅读、解释、规划。',
+        yes: 'agent 自己在这项工作里删除或覆盖还有用的数据（改写别人也在用的 git 历史也算）、向外部的人或系统发送东西、发布或部署，或者任务里说了这一步不能回滚。',
+        no: '这项工作只改动可以撤回的文件，包括以后有人运行时才会做这些事的代码、配置或流水线；或者只是阅读、解释、审查、规划；或者删掉的是用完即弃的东西（临时表、测试数据、构建产物）。',
       },
       [STAKES_LIVE]: {
         question: `${task} 所要求的工作是否作用在线上生产系统或真钱上？`,
-        yes: '它会在真实用户或付款依赖的服务器、数据库、账户上运行，或者转移、扣收真钱。',
-        no: '它在本地、测试里、预发或沙箱系统上运行，或者只改代码、不在生产环境上运行。',
+        yes: 'agent 自己改动真实用户或付款依赖的服务器、数据库、账户上的东西（部署、重启、迁移、写入），或者转移、扣收真钱。',
+        no: '它在本地、测试里、预发或沙箱系统上运行；或者只是从生产环境读东西（一个配置值、一份日志、一条不改任何东西的查询）；或者只改文件，即使是生产环境的配置，由别人之后去应用。',
       },
       [STAKES_ACCESS]: {
         question: `${task} 所要求的工作是否改动权限、认证或密钥？`,
-        yes: '它会改变谁能访问什么：角色、权限、登录或 token 处理、密钥、密码或其他 secret。',
-        no: '它不涉及访问控制、认证或 secret。',
+        yes: '它会改变谁能访问什么：改角色、权限、登录或 token 处理，或者新建、轮换、暴露密钥、密码或其他 secret。',
+        no: '这些它都不改。阅读、审查或解释和访问有关的代码不算改动，使用一个已经配好的凭证也不算。',
       },
       [CAUSE_UNKNOWN]: {
         question: `${task} 所要求的工作是否包括找出一个任务里没写明原因的故障？`,
         yes: '有东西出错或表现不对，而任务里没说为什么：agent 得追查原因。',
-        no: '没有要解释的故障，或者任务里已经写明了原因，要做的是修。',
+        no: '没有要解释的故障；或者任务里已经写明了原因，要做的是修；或者任务只要一个定好的步骤（跑一条给定的命令或搜索、把出错的收集或统计出来），没有问原因。',
+      },
+      [DIAGNOSIS]: {
+        question: `${task} 是否把「怎么找出故障原因」留给 agent 自己去想？`,
+        yes: '有东西出错或表现不对，任务给了现象，也许还给了可读的材料（日志、trace、dump、执行计划），agent 得自己提出解释并验证。',
+        no: '没有要解释的故障。或者任务已经写明原因，要做的是修。或者任务给了找出原因的步骤：对这些提交做二分、逐条处理这份编译或测试报错、对照某一天的改动。',
       },
       [DESIGN_OPEN]: {
-        question: `${task} 是否要求 agent 自己选一个任务里没给出的做法？`,
-        yes: '任务只给了目标或问题，做法留给 agent 定：采用哪种设计、结构、接口或取舍。',
-        no: '任务已经说了怎么做（文件、步骤或做法），或者没有要设计的东西：查找、按给定标准检查，或原因已知的修复。',
+        question: `${task} 是否要求 agent 设计我们自己系统的各部分应当怎样配合？`,
+        yes: 'agent 提出或选定架构、数据模型、隔离或一致性方案、切换或迁移策略、共用的接口，并权衡任务没有定下来的取舍。',
+        no: '没有要设计的东西。或者任务已经定了要做什么，agent 只是去实现，哪怕要改好几个文件。或者计划只是一份已知步骤的清单。或者问题是采用哪个现成的库、工具或产品，对比它们的文档就能回答。',
       },
-      [OUTSIDE_FACTS]: {
-        question: `${task} 的结论是否取决于仓库之外、无法在仓库或文档里查证的事实，比如某个 API 的行为、某个标准、版本之间的差异？`,
-        yes: '答案靠 agent 对外部库、服务、标准或版本的记忆，记错了也不会被发现。',
-        no: '这项工作需要的东西都在仓库里、任务里，或者在 agent 能读到并核对的文档和网页里。',
+      [SECURITY]: {
+        question: `${task} 是否要求 agent 自己想出代码或系统可能怎样被攻击？`,
+        yes: '开放式的安全审计或审查、判断一处改动能否被利用、尝试利用一个已报告的弱点，或者堵一个漏洞时要 agent 自己找出攻击者还能碰到什么。',
+        no: '没有问安全问题。或者 agent 只是逐条核对任务列出的检查点（这个值转义了没有、这条路由挂没挂这个中间件），只说一处改动有没有碰到敏感区域，只列事实（比如哪里读取了密钥），或者实现一个已经写明做法的安全改动。',
+      },
+      [CONCURRENCY]: {
+        question: `${task} 里的工作要做对，是否取决于想清楚「事情同时发生或先后顺序不定时会出什么错」？`,
+        yes: 'agent 得发现、修复或审查这类问题，或者在设计里避开它们：竞态、死锁、加锁顺序、重试或重复投递的消息、会和写入交错的缓存失效，或者只在特定时序下失败的测试。',
+        no: '这项工作是顺序的：一次一个请求、一个脚本或一个文件。或者任务已经列出要覆盖的情形或要执行的命令（按给定清单写测试、运行模型检查器并汇报）。或者 agent 只是描述这类代码怎么工作，不判断它对不对。',
+      },
+      [MONEY]: {
+        question: `${task} 是否要求 agent 自己弄清一段算钱或记账的逻辑对不对？`,
+        yes: 'agent 审查或排查计算、写入扣款、价格、打款、余额、营收或库存的逻辑：它得自己构造具体的例子，算出金额应该是多少，细小的错误就会多收、多付或记错。',
+        no: '这项工作不要求弄清这类逻辑对不对：它按任务写明的规则实现计费或定价、按给定清单写测试、读取或展示这些记录、测速度、合并或汇总别人的结论、改无关的代码，或者只汇报。',
       },
       [SCIENCE_CODE]: {
-        question: `${task} 里的工作是否涉及数值、算法或科学计算代码？`,
-        yes: '数值方法、需要推敲正确性或复杂度的算法、统计、模拟、几何、密码学或其他科学计算。',
-        no: '普通的应用代码、配置、脚本、文档或文字，或者查找。',
+        question: `${task} 里的工作是否是编写或检查数值计算、科学计算代码？`,
+        yes: '数值方法、统计、模拟、几何、信号处理、最优化，或者密码学原语的内部实现：代码对不对取决于数学。',
+        no: '普通的应用代码，包括通过 API 调用数学库或密码库、解析格式、算合计和百分比的代码；或者配置、脚本、文档、查找。',
       },
       [FRONTIER]: {
         question: `${task} 是否要求严格的证明，或者没有现成答案的全新算法或架构？`,
@@ -243,55 +266,65 @@ function briefWords(language: Language, field: string): Record<BriefNoul, NoulTe
     }
   }
   return {
-    [WRITES]: {
-      question: `Does ${task} ask the agent to create, change or delete files, or to run commands that change something?`,
-      yes: 'The agent edits, creates, moves or deletes files, commits or pushes, installs or migrates something, or runs a command that changes files, data or a system.',
-      no: 'The agent only reads, searches and reports, or runs commands that only look or check, such as a search, a listing or a test run.',
+    [JUDGES]: {
+      question: `Does the work in ${task} need the agent to reach a judgment of its own?`,
+      yes: 'The agent has to weigh something and conclude: whether code is correct or risky, which option is better, why something happens, what should be done, how good a text is.',
+      no: 'The agent carries out what the brief spells out and hands back what came out: it runs the given commands, searches for the given things or applies the given rules. Cases the brief says to list and leave to a person are not judged.',
     },
-    [FEW_STEPS]: {
-      question: `Can the work in ${task} be done with one or two tool calls?`,
-      yes: 'One or two searches, file reads, commands or lookups give the answer.',
-      no: 'The work takes a run of tool calls: exploring, following references across files, trying something and checking it, or many separate lookups.',
-    },
-    [REPORT_ONLY]: {
-      question: `Is the result of ${task} only gathered and laid out as asked (a list, a table, a count), with nothing to decide?`,
-      yes: "The agent hands back what it found, as asked: matches, file paths, a count, a command's output or a file's contents.",
-      no: 'The agent has to judge, compare, recommend, explain why, review, or produce a plan, a design or a change.',
+    [LOGIC]: {
+      question: `Does the work in ${task} require following the logic of program code?`,
+      yes: 'The agent has to read code and work out what it does: trace a call path, see how parts interact, tell whether two implementations behave the same, know what a change would break, or write code that fits in.',
+      no: 'No code has to be understood: the agent runs given commands and tools and reports or tabulates their output, searches for names or patterns, looks a fact up in documentation, or edits files by a rule the brief dictates (renaming, reformatting, merging, translating).',
     },
     [STAKES_UNDO]: {
       question: `Would a mistake in the work that ${task} asks for be hard to undo, such as deleted data, a sent message, or a published release?`,
-      yes: 'The work deletes or overwrites data, sends something to people or systems outside, publishes or deploys, or the brief says it cannot be rolled back.',
-      no: 'The work only changes files that can be reverted, or it reads, explains or plans.',
+      yes: 'The agent itself, in this work, deletes or overwrites data that is still needed (rewriting git history that others share counts), sends something to people or systems outside, publishes or deploys, or the brief says the step cannot be rolled back.',
+      no: 'The work only changes files that can be reverted, including code, configuration or a pipeline that would do such a thing later when someone runs it; or it reads, explains, reviews or plans; or what it deletes is throwaway (a temporary table, test data, build output).',
     },
     [STAKES_LIVE]: {
       question: `Does the work that ${task} asks for act on a live production system or on real money?`,
-      yes: 'It runs against servers, databases or accounts that real users or payments depend on, or it moves or charges real money.',
-      no: 'It runs locally, in tests, or on a staging or sandbox system, or it only edits code without running it against production.',
+      yes: 'The agent itself changes something on servers, databases or accounts that real users or payments depend on (a deploy, a restart, a migration, a write), or it moves or charges real money.',
+      no: 'It runs locally, in tests, or on a staging or sandbox system; or it only reads from production (a setting, a log, a query that changes nothing); or it only edits files, even production configuration, that someone applies later.',
     },
     [STAKES_ACCESS]: {
       question: `Does the work that ${task} asks for change permissions, authentication, or secrets?`,
-      yes: 'It changes who can access what: roles, permissions, login or token handling, keys, passwords or other secrets.',
-      no: 'It does not touch access control, authentication or secrets.',
+      yes: 'It changes who can access what: it edits roles, permissions, login or token handling, or it creates, rotates or exposes keys, passwords or other secrets.',
+      no: 'It changes none of that. Reading, reviewing or explaining code about access is not a change to it, and neither is using a credential that is already set up.',
     },
     [CAUSE_UNKNOWN]: {
       question: `Does the work that ${task} asks for include finding the cause of a failure that the brief does not already name?`,
       yes: 'Something fails or misbehaves and the brief does not say why: the agent has to trace the cause.',
-      no: 'There is no failure to explain, or the brief already names its cause and the work is to fix it.',
+      no: 'There is no failure to explain; or the brief already names its cause and the work is to fix it; or the brief asks only for a set step (run a given command or search, collect or count what failed) and not for the reason.',
+    },
+    [DIAGNOSIS]: {
+      question: `Does ${task} leave it to the agent to work out how to find the cause of a failure?`,
+      yes: 'Something fails or misbehaves, the brief gives the symptom and perhaps material to read (logs, traces, a dump, query plans), and the agent has to form and test its own explanations.',
+      no: 'There is no failure to explain. Or the brief names the cause and the work is to fix it. Or the brief gives the procedure that finds it: bisect these commits, go through this list of compiler or test errors, compare with the changes of a given day.',
     },
     [DESIGN_OPEN]: {
-      question: `Does ${task} ask the agent to choose an approach that the brief does not already give?`,
-      yes: 'The brief gives a goal or a problem and leaves the approach open: which design, structure, interface or trade-off to take is for the agent to decide.',
-      no: 'The brief already says how (the files, the steps or the approach), or there is nothing to design: a lookup, a check against given criteria, or a fix whose cause is known.',
+      question: `Does ${task} ask the agent to design how parts of our own system should work together?`,
+      yes: 'The agent proposes or picks an architecture, a data model, an isolation or consistency scheme, a cutover or migration strategy, or a shared interface, weighing trade-offs the brief leaves open.',
+      no: 'Nothing is designed. Or the brief already fixes what to build and the agent implements it, even across several files. Or the plan is a checklist of known steps. Or the question is which existing library, tool or product to adopt, answered by comparing what their documentation says.',
     },
-    [OUTSIDE_FACTS]: {
-      question: `Does the conclusion of ${task} depend on facts from outside the repository, such as how an API behaves, a standard, or differences between versions, that cannot be checked in the repository or in documents?`,
-      yes: 'The answer rests on what the agent recalls about an outside library, service, standard or version, and a wrong recollection would go unnoticed.',
-      no: 'What the work needs is in the repository, in the brief, or in documents and pages the agent can read and check.',
+    [SECURITY]: {
+      question: `Does ${task} ask the agent to work out for itself how code or a system could be attacked?`,
+      yes: 'An open security audit or review, a verdict on whether a change is exploitable, an attempt to exploit a reported weakness, or closing a hole where the agent must find what else an attacker could reach.',
+      no: 'No security question is asked. Or the agent goes through points the brief lists (this value is escaped, this route has this middleware), only says whether a change touches a sensitive area, lists facts such as where secrets are read, or implements a security change that is fully specified.',
+    },
+    [CONCURRENCY]: {
+      question: `Does getting the work in ${task} right depend on working out what can go wrong when things happen at the same time or in an uncertain order?`,
+      yes: 'The agent has to find, fix, review or design around a race, a deadlock, a lock order, a retry or a message delivered twice, a cache invalidation that can interleave with a write, or a test that fails only under some timing.',
+      no: 'The work is sequential: one request, one script or one file at a time. Or the brief already lists the cases to cover or the command to run (tests for a given list of cases, a model checker to run and report). Or the agent only describes how such code works without deciding whether it is correct.',
+    },
+    [MONEY]: {
+      question: `Does ${task} ask the agent to establish for itself whether logic that computes or records money is right?`,
+      yes: 'The agent reviews or debugs the logic behind charges, prices, payouts, balances, revenue or stock: it has to construct concrete cases and work out what the amounts should be, and a subtle mistake would charge, pay or record the wrong thing.',
+      no: "The work does not ask whether such logic is right: it implements a billing or pricing rule the brief specifies, writes tests for a given list of cases, reads or displays such records, measures speed, merges or summarises other people's findings, changes unrelated code, or only reports.",
     },
     [SCIENCE_CODE]: {
-      question: `Does the work in ${task} involve numerical, algorithmic or scientific code?`,
-      yes: 'Numerical methods, algorithms whose correctness or complexity has to be reasoned out, statistics, simulation, geometry, cryptography or other scientific computation.',
-      no: 'Ordinary application code, configuration, scripts, documents or text, or a lookup.',
+      question: `Is the work in ${task} to write or check numerical or scientific code?`,
+      yes: 'Numerical methods, statistics, simulation, geometry, signal processing, optimisation, or the inside of a cryptographic primitive: code whose correctness rests on the mathematics.',
+      no: 'Ordinary application code, including code that calls a maths or cryptography library through its API, parses a format, or computes sums and percentages; or configuration, scripts, documents or a lookup.',
     },
     [FRONTIER]: {
       question: `Does ${task} ask for a rigorous proof, or for a new algorithm or architecture with no known answer?`,
@@ -565,17 +598,18 @@ export type DispatchSettings = DispatchShape
 export type SignRead = { p: number | null; verdict: Verdict }
 
 /** The rows of the model table, in the order they are tried (the header above). */
-export type ModelRow = '1' | '2' | '3' | '3b' | '4' | '5'
+export type ModelRow = '1' | '2' | '3' | '4' | '5'
 
 /**
  * Where the model came from: the person named it (row 1), the table gave it (the main agent named none, or ruled out by
- * the person, or the table's was stronger: `requested.outcome` upgraded), the route gave it (d1-ultra, the same cases), the
- * main agent's pick was kept, or nothing applies (no usable answer: the engine's choice stands).
+ * the person, or the table's was stronger, `requested.outcome` upgraded, or its haiku took an opus or fable pick's place,
+ * lowered), the route gave it (d1-ultra, the same cases), the main agent's pick was kept, or nothing applies (no usable
+ * answer: the engine's choice stands).
  */
 export type ModelSource = 'user' | 'table' | 'route' | 'requested' | 'none'
 
 /** The table's reading: its row, the model the row gives (`wanted`), the model after any the person ruled out (null: none is left), the Nouls that settled the row. */
-export type TableRead = { row: ModelRow; wanted: AgentModel; model: AgentModel | null; why: BriefNoul[] }
+export type TableRead = { row: ModelRow; wanted: AgentModel; model: AgentModel | null; why: BriefNoul[]; disarmed: BriefNoul[] }
 
 /**
  * The route's reading (d1-ultra): its top tier and that tier's probability, its confidence, whether it fell back to the
@@ -595,7 +629,7 @@ export type RouteRead = {
 }
 
 /** The floors that may lift an agent's decided effort. */
-export type AgentFloor = 'stakes' | 'cause-unknown' | 'unsure' | 'model-floor'
+export type AgentFloor = 'stakes' | 'cause-unknown' | 'model-floor'
 
 type Fields = Record<string, string | number | boolean | null>
 
@@ -608,7 +642,7 @@ type Fields = Record<string, string | number | boolean | null>
 export type AgentStep =
   | EffortStep
   | ({ rule: 'lookup-signs' | 'careful-signs' | 'model-table' | 'route' | 'named-model' | 'main-pick'; applied: boolean } & Fields)
-  | ({ rule: 'stakes' | 'cause-unknown' | 'unsure'; applied: boolean; level: Effort; floor: Effort | null } & Fields)
+  | ({ rule: 'stakes' | 'cause-unknown'; applied: boolean; level: Effort; floor: Effort | null } & Fields)
   | { rule: 'named-effort'; applied: true; level: Effort; decided: Effort | null }
 
 export type DispatchDecision = {
@@ -622,10 +656,11 @@ export type DispatchDecision = {
   /** The route's reading (d1-ultra); null with the table, when the person named the model, or without a usable answer. */
   route: RouteRead | null
   /**
-   * The main agent's pick (a Workflow call's: the script's) against the table: kept, or upgraded to the table's stronger
-   * model. Null when it named none, or its pick does not count (the person named a model, or ruled the pick out).
+   * The main agent's pick (a Workflow call's: the script's) against the rules' model: kept, upgraded to the rules' stronger
+   * model, or lowered to their haiku (an opus or fable pick for work that is only carried out, ADR 0024). Null when it
+   * named none, or its pick does not count (the person named a model, or ruled the pick out).
    */
-  requested: { model: AgentModel; outcome: 'kept' | 'upgraded' } | null
+  requested: { model: AgentModel; outcome: 'kept' | 'upgraded' | 'lowered' } | null
   /** The models the person ruled out for this agent. */
   banned: AgentModel[]
   /** Each Noul about the brief that was asked, by id. */
@@ -650,20 +685,31 @@ function strength(model: AgentModel): number {
 }
 
 /**
- * The table's row for the brief's Nouls, rows 2 to 5 (row 1, a model the person named, is read before it), with the model
- * the row gives and the Nouls that settled it. `fable`: fable is offered (agentFable), so row 2 can match.
+ * A pick of this model or a stronger one gives way to the rules' haiku (ADR 0024): two tiers or more above it. On the
+ * subagent eval the rule made 36 of 600 answers right and none wrong (the model right for 95.7%, from 89.7%); following the
+ * rules whatever the pick gave 94.7% (an opus pick for ordinary work is a call the main agent is placed to make).
  */
-export function tableRow(signs: Readonly<Partial<Record<BriefNoul, SignRead>>>, fable: boolean): { row: Exclude<ModelRow, '1'>; model: AgentModel; why: BriefNoul[] } {
+const LOWERED_FROM: AgentModel = 'opus'
+
+/**
+ * The table's row for the brief's Nouls, rows 2 to 5 (row 1, a model the person named, is read before it), with the model
+ * the row gives and the Nouls that settled it. `fable`: fable is offered (agentFable), so row 2 can match. `disarmed`: the
+ * hard signs that read yes of work `judges` reads as carried out, and so did not count.
+ */
+export function tableRow(signs: Readonly<Partial<Record<BriefNoul, SignRead>>>, fable: boolean): { row: Exclude<ModelRow, '1'>; model: AgentModel; why: BriefNoul[]; disarmed: BriefNoul[] } {
   const verdict = (id: BriefNoul): Verdict => signs[id]?.verdict ?? 'no'
-  if (fable && verdict(FRONTIER) === 'yes') return { row: '2', model: 'fable', why: [FRONTIER] }
-  const yes = CAREFUL.filter((id) => verdict(id) === 'yes')
-  if (yes.length > 0) return { row: '3', model: 'opus', why: yes }
-  const band = CAREFUL.filter((id) => verdict(id) === 'band')
-  if (band.length > 0) return { row: '3b', model: 'sonnet', why: band }
-  // The cheaper model only on answers that say so: a missing one makes no haiku.
-  const said = (id: BriefNoul): Verdict | null => (signs[id]?.p ?? null) === null ? null : verdict(id)
-  if (said(WRITES) === 'no' && said(FEW_STEPS) === 'yes' && said(REPORT_ONLY) === 'yes') return { row: '4', model: 'haiku', why: [...LOOKUP] }
-  return { row: '5', model: 'sonnet', why: [] }
+  // A verdict only of an answer that came: a missing one makes no haiku and disarms nothing.
+  const said = (id: BriefNoul): Verdict | null => ((signs[id]?.p ?? null) === null ? null : verdict(id))
+  if (fable && verdict(FRONTIER) === 'yes') return { row: '2', model: 'fable', why: [FRONTIER], disarmed: [] }
+  const grave = GRAVE.filter((id) => verdict(id) === 'yes')
+  const hard = HARD.filter((id) => verdict(id) === 'yes')
+  // The hard signs read the work, not its topic: where nothing is judged, a yes among them is the topic speaking.
+  const carriedOut = said(JUDGES) === 'no'
+  const counted = carriedOut ? [] : hard
+  const disarmed = carriedOut ? hard : []
+  if (grave.length > 0 || counted.length > 0) return { row: '3', model: 'opus', why: [...grave, ...counted], disarmed }
+  if (carriedOut && said(LOGIC) === 'no') return { row: '4', model: 'haiku', why: [...ROTE], disarmed }
+  return { row: '5', model: 'sonnet', why: [], disarmed }
 }
 
 /** `wanted` when it is allowed; else the nearest allowed model, the next stronger first, else the next weaker; null when none is allowed. */
@@ -722,7 +768,8 @@ export function readRoute(answer: Answer | undefined, offered: readonly AgentMod
 /**
  * The model and effort for one agent, from its part's answers (by their ids within the part, as `answersFor` gives them),
  * by the rules in the header: the person's named model, else the table on the Nouls about the brief, a model they ruled
- * out skipped, the main agent's pick raised and never lowered; the effort they named, else the base lifted by the floors.
+ * out skipped, the main agent's pick raised, or lowered to the rules' haiku from opus or fable; the effort they named, else
+ * the base lifted by the floors.
  */
 export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispatch: Dispatch, settings: DispatchSettings): DispatchDecision {
   const guide = settings.guide ?? TYPESAFE_GUIDE
@@ -744,37 +791,51 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
   const row = !routed && heardSigns ? tableRow(signs, fable) : null
   const route = routed && named === null ? readRoute(answers[ROUTE], offered, allowed, guide.routeFallbackBelow) : null
   const table: TableRead | null =
-    named !== null ? { row: '1', wanted: named, model: named, why: [] } : row === null ? null : { row: row.row, wanted: row.model, model: nearestAllowed(row.model, allowed), why: row.why }
+    named !== null ? { row: '1', wanted: named, model: named, why: [], disarmed: [] } : row === null ? null : { row: row.row, wanted: row.model, model: nearestAllowed(row.model, allowed), why: row.why, disarmed: row.disarmed }
   const heard = heardSigns || route !== null
-  // The main agent's pick counts unless the person ruled it out; it is kept unless the rules' model is stronger.
+  // The main agent's pick counts unless the person ruled it out. It is raised to the rules' model when that is stronger, and
+  // gives way to the rules' haiku when it is opus or fable (ADR 0024): the rules read the work as only carried out (row 4,
+  // or the route's fast tier; not a haiku that stands in for a model the person ruled out), and the pick is two tiers or
+  // more above what that takes. Anything between is kept.
   const asked = modelFamily(dispatch.requested_model)
   const pick = asked !== null && !banned.includes(asked) ? asked : null
   const given = route?.model ?? table?.model ?? null
+  const carriedOut = given === 'haiku' && (route !== null ? route.wanted === 'haiku' : table?.row === '4')
+  const lowered = pick !== null && carriedOut && strength(pick) >= strength(LOWERED_FROM)
   let model: AgentModel | null = null
   let source: ModelSource = 'none'
   let requested: DispatchDecision['requested'] = null
   if (named !== null) {
     model = named
     source = 'user'
-  } else if (pick !== null && (given === null || strength(given) <= strength(pick))) {
+  } else if (pick !== null && !lowered && (given === null || strength(given) <= strength(pick))) {
     model = pick
     source = 'requested'
     requested = { model: pick, outcome: 'kept' }
   } else if (given !== null) {
     model = given
     source = routed ? 'route' : 'table'
-    if (pick !== null) requested = { model: pick, outcome: 'upgraded' }
+    if (pick !== null) requested = { model: pick, outcome: lowered ? 'lowered' : 'upgraded' }
   }
 
   const steps: AgentStep[] = []
   if (heardSigns && !routed) {
     const at = table?.row
-    steps.push({ rule: 'lookup-signs', applied: at === '4', ...signFields(LOOKUP, signs, bars) })
-    steps.push({ rule: 'careful-signs', applied: at === '2' || at === '3' || at === '3b', ...signFields([...CAREFUL, FRONTIER], signs, bars) })
+    steps.push({ rule: 'lookup-signs', applied: at === '4', ...signFields(ROTE, signs, bars) })
+    steps.push({ rule: 'careful-signs', applied: at === '2' || at === '3', ...signFields([...CAREFUL, FRONTIER], signs, bars) })
   }
   if (routed && named !== null) steps.push({ rule: 'named-model', applied: true, model: named })
   else if (table !== null) {
-    steps.push({ rule: 'model-table', applied: true, row: table.row, wanted: table.wanted, model: table.model, why: table.why.map((id) => SIGNS[id].key).join(',') || null, banned: banned.join(',') || null })
+    steps.push({
+      rule: 'model-table',
+      applied: true,
+      row: table.row,
+      wanted: table.wanted,
+      model: table.model,
+      why: table.why.map((id) => SIGNS[id].key).join(',') || null,
+      disarmed: table.disarmed.map((id) => SIGNS[id].key).join(',') || null,
+      banned: banned.join(',') || null,
+    })
   }
   if (route !== null) {
     steps.push({
@@ -805,7 +866,7 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
     steps.push(...base.steps)
     let level = base.effort
     let by: AgentFloor | null = null
-    const floorStep = (rule: 'stakes' | 'cause-unknown' | 'unsure', floor: Effort | null, fields: Fields) => {
+    const floorStep = (rule: 'stakes' | 'cause-unknown', floor: Effort | null, fields: Fields) => {
       const after = higherEffort(level, floor) as Effort
       if (after !== level) by = rule
       steps.push({ rule, applied: after !== level, level: after, floor, ...fields })
@@ -823,8 +884,6 @@ export function decideDispatch(answers: Readonly<Record<string, Answer>>, dispat
       ...held,
     })
     floorStep('cause-unknown', causeFloor(verdict(CAUSE_UNKNOWN)), { p: kept(signs[CAUSE_UNKNOWN]?.p), verdict: verdict(CAUSE_UNKNOWN), ...held })
-    // Row 3b's max: the table's only (the route has no such row).
-    if (!routed) floorStep('unsure', table?.row === '3b' ? 'max' : null, { row: table?.row ?? null })
     const floor = effortFloor(model)
     const from = level
     level = higherEffort(level, floor) as Effort
@@ -930,7 +989,6 @@ export function dispatchEvidence(decision: DispatchDecision): { probs?: Record<E
 const FLOOR_WORDS: Readonly<Record<AgentFloor, string>> = {
   stakes: '出错代价',
   'cause-unknown': '原因未知',
-  unsure: '拿不准要不要 opus（第 3b 行）',
   'model-floor': '模型下限',
 }
 
@@ -946,13 +1004,13 @@ function routeWords(route: RouteRead): string {
   return route.model === null || route.replaced === null ? `${head}；${route.wanted} 被你排除，没有别的可用` : `${head}；${route.wanted} 被你排除，取可用的里概率最高的 ${route.replaced}（${route.model}）`
 }
 
-/** A table row in the log's words: `模型表第 3 行（原因未知、方案未定）→ opus`, and what stood in for a model ruled out. */
+/** A table row in the log's words: `模型表第 3 行（自己找原因、并发时序）→ opus`, the hard signs that did not count, and what stood in for a model ruled out. */
 function rowWords(table: TableRead): string {
   if (table.row === '1') return `你在消息里点名了 ${table.wanted}`
-  const why = table.why.length === 0 ? '' : `（${table.why.map((id) => SIGNS[id].words).join('、')}${table.row === '3b' ? '拿不准' : ''}）`
-  const effort = table.row === '3b' ? '，effort 至少 max' : ''
+  const why = table.why.length === 0 ? '' : `（${table.row === '4' ? '不用判断、不用读懂代码' : table.why.map((id) => SIGNS[id].words).join('、')}）`
+  const disarmed = table.disarmed.length === 0 ? '' : `；${table.disarmed.map((id) => SIGNS[id].words).join('、')}读成是，但这项工作不用判断，不算`
   const skipped = table.model === table.wanted ? '' : table.model === null ? `；${table.wanted} 被你排除，没有别的可用` : `；${table.wanted} 被你排除，取最近的 ${table.model}`
-  return `模型表第 ${table.row} 行${why} → ${table.wanted}${effort}${skipped}`
+  return `模型表第 ${table.row} 行${why} → ${table.wanted}${disarmed}${skipped}`
 }
 
 /**
@@ -971,6 +1029,7 @@ export function dispatchReason(decision: DispatchDecision, requested: string | n
   else if ((decision.source === 'table' || decision.source === 'route') && rules !== null) {
     parts.push(rules)
     if (decision.requested?.outcome === 'upgraded') parts.push(`${asker} ${decision.requested.model} 升级到 ${decision.model}`)
+    if (decision.requested?.outcome === 'lowered') parts.push(`${asker} ${decision.requested.model} 高出两档以上，降到 ${decision.model}`)
   } else parts.push('沿用引擎的模型')
   if (decision.banned.length > 0) parts.push(`排除了 ${decision.banned.join('、')}`)
   if (decision.lifted !== undefined && decision.effort !== null) parts.push(`effort 从 ${decision.lifted.from} 抬到 ${decision.effort}（${FLOOR_WORDS[decision.lifted.by]}）`)
@@ -984,8 +1043,7 @@ const ROW_WHY: Readonly<Record<ModelRow, string>> = {
   '1': 'the model the user named',
   '2': 'a rigorous proof, or a new algorithm or architecture with no known answer',
   '3': 'work that needs careful judgment',
-  '3b': 'work that may need careful judgment',
-  '4': 'a read-only lookup of a step or two whose result is only reported',
+  '4': 'work that only carries out what the brief spells out, with nothing to judge and no code to follow',
   '5': 'ordinary work',
 }
 
@@ -993,7 +1051,7 @@ const ROW_WHY: Readonly<Record<ModelRow, string>> = {
 export function tableWhy(table: TableRead): string {
   const why = table.why.length === 0 ? '' : ` (${table.why.join(', ')})`
   const skipped = table.model === table.wanted ? '' : `; the user ruled ${table.wanted} out, so ${table.model ?? 'no model is left'}`
-  return `its rules read the brief as ${ROW_WHY[table.row]}${why}, which gets ${table.wanted}${table.row === '3b' ? ' at max effort' : ''}${skipped}`
+  return `its rules read the brief as ${ROW_WHY[table.row]}${why}, which gets ${table.wanted}${skipped}`
 }
 
 /** What each tier says of the work, for the main agent (English: the model's words). */
@@ -1021,7 +1079,6 @@ export function rulesWhy(decision: Pick<DispatchDecision, 'table' | 'route'>): s
 export function floorWhy(by: AgentFloor, model: string): string {
   if (by === 'stakes') return 'a mistake in this work would be costly'
   if (by === 'cause-unknown') return 'the work includes finding a cause nobody has named'
-  if (by === 'unsure') return 'it is unclear whether the work needs careful judgment'
   return `the floor for ${model}`
 }
 
@@ -1045,7 +1102,8 @@ export function dispatchNote(note: DispatchNote): string {
   }
   const { decision } = note
   const on = decision.effort === null ? `on ${model}` : `on ${model} at effort ${decision.effort}`
-  const policy = "This is the user's routing policy: a model the user names is used as named, and a model you ask for is kept unless the work calls for a stronger one."
+  const policy =
+    "This is the user's routing policy: a model the user names is used as named, and a model you ask for is kept unless the work calls for a stronger one, or you asked for opus or fable for work that is only carried out, which goes to haiku."
   return `${head} started this agent ${on}. Model: ${modelWhose(note)}. Effort: ${effortWhose(decision, model)}. ${policy}`
 }
 
@@ -1057,6 +1115,7 @@ function modelWhose({ decision, requested }: Extract<DispatchNote, { routed: tru
   if (decision.source === 'requested') return why === null || given === requested ? `kept the ${requested} you asked for` : `kept the ${requested} you asked for (${why}, which is not stronger)`
   if (decision.source === 'none' || why === null) return "the engine's"
   if (decision.requested?.outcome === 'upgraded') return `raised from the ${requested} you asked for: ${why}`
+  if (decision.requested?.outcome === 'lowered') return `lowered from the ${requested} you asked for: ${why}`
   if (requested !== null && decision.banned.includes(requested)) return `the user ruled out the ${requested} you asked for; ${why}`
   return why
 }

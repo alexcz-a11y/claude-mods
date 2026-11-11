@@ -34,7 +34,7 @@ import { answersFor, type DecisionRequest, type Part } from '../../hooks/decisio
 import { messageRequest, turnStartPart } from '../../hooks/decision/turn-start.ts'
 import { UNRESOLVED_OPTIONS, type UnresolvedChange, type UnresolvedJudgement, type UnresolvedOption } from '../../hooks/decision/unresolved.ts'
 import { OVER_BUDGET, TRIAGES, type Language, type Triage, type UnresolvedAsked, type UnresolvedItem } from './datasets.ts'
-import { contextMessages, decideMessageEffort, decisionDetail, gradeEffort } from './effort-submit.ts'
+import { contextMessages, decideMessageEffort, decisionDetail, gradeEffort, guideFor } from './effort-submit.ts'
 import { percentText, share, type VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
 import { requestFailed, variantIn, type Ask, type Decided, type Grade, type Settings, type Suite } from './suite.ts'
@@ -107,7 +107,8 @@ export async function askUnresolved(sent: { request: DecisionRequest; part: Part
   const { asked } = await ask(sent.request)
   if (!asked.ok) return requestFailed(asked.failure)
   const answers = answersFor(sent.part, asked.answers)
-  const decided = decideMessageEffort(answers, { text: sent.text, count: sent.count?.count ?? 0, lastTurn: null, maxAfter: sent.count?.maxAfter ?? settings.unresolved.maxAfter })
+  // Read by the answering model's own guide, as the mod reads it (features/main-effort.ts).
+  const decided = decideMessageEffort(answers, { text: sent.text, count: sent.count?.count ?? 0, lastTurn: null, maxAfter: sent.count?.maxAfter ?? settings.unresolved.maxAfter, guide: guideFor(asked.model, settings) })
   if (decided === null) return { ok: false, failure: 'parse: no effort answer' }
   if (decided.judged === null) return { ok: false, failure: 'parse: no answer about the problem' }
   const triage = triageOf(decided.judged)

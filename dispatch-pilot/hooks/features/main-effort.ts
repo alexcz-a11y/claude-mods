@@ -2,8 +2,8 @@
 // a dispatched agent's hand-back or a background task's notice reaching the idle session (those turns are usually a look at a
 // result and the next dispatch; the session's own effort would be a waste). It adds the effort part to the message's ballot
 // (the core sends it); the code turns the answers into the effort of the turn the message starts (decision/message-effort.ts,
-// ADR 0014), on every step of that turn (the core's turn.step writer). The effort is decided here only: a level changed in the
-// middle of a turn does not go out (ADR 0013).
+// ADR 0014), on every step of that turn (the core's turn.step writer). This is the level the turn starts from; at an event of
+// the run it is looked at again (features/midrun-effort.ts, ADR 0020).
 //
 // What the part asks and reads (decision/turn-start.ts): the effort question, the stakes and the unknown cause; for the
 // person's own words also whether the earlier attempt failed, the problem is solved, another task begins, whether they
@@ -32,7 +32,7 @@ import { errorText } from '../decision/backend.ts'
 import { CONSTRAINT, constraintOf, withConstraint, type StandingConstraint } from '../decision/constraints.ts'
 import { LEVEL, probsOf, readEffort, readingText, type Effort } from '../decision/effort.ts'
 import type { TurnFacts } from '../decision/escalation.ts'
-import { decideMessage, messageSignals, type MessageDecision } from '../decision/message-effort.ts'
+import { decideMessage, messageSignals, ruleFloorOf, type MessageDecision } from '../decision/message-effort.ts'
 import { yesBar } from '../decision/guides.ts'
 import { readNoul, verdictOf } from '../decision/nouls.ts'
 import { quoteStart } from '../decision/redact.ts'
@@ -106,8 +106,8 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
     let added: PendingDecision | null = null
 
     /** The message waits for its turn, decided or not: the turn it starts is the person's own (such a turn keeps its facts as it ends). */
-    const wait = async (effort: Effort | null) => {
-      const entry: PendingDecision = { text: e.text, effort, at: await $.clock.now(), ...(handBack ? { report: true as const } : {}) }
+    const wait = async (effort: Effort | null, ruleFloor: Effort | null = null) => {
+      const entry: PendingDecision = { text: e.text, effort, at: await $.clock.now(), ...(handBack ? { report: true as const } : {}), ...(ruleFloor === null ? {} : { ruleFloor }) }
       await update(pending, (list) => addPending(list ?? [], entry))
       added = entry
     }
@@ -187,7 +187,7 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
           outcome: `effort ${effort}`,
           // The level as data: what reads the log (the band, the pane) never reads it out of the words.
           effort,
-          reason: readingText(reading, liftNote(decision), ctx.config.guide.scoreUnsure.rule === 'low-confidence'),
+          reason: readingText(reading, liftNote(decision)),
           probs: probsOf(reading),
           ...(reading.confidence === null ? {} : { conf: reading.confidence }),
           // The rules' working: the board shows the steps, never recomputes them (ADR 0004).
@@ -197,12 +197,14 @@ export function registerMainEffort(on: On, ctx: Ctx): void {
           ...(unresolved === undefined ? {} : { unresolved }),
         },
       })
-      await wait(effort)
+      // What the rules of this decision do not let the turn go under, when its level is looked at again in the middle of the run (ADR 0020).
+      const ruleFloor = ruleFloorOf(decision)
+      await wait(effort, ruleFloor)
       const running = e.turnId
       if (running !== undefined) {
         const ref = { ...TURNS, id: turnKey(running, undefined) }
         const turn: Cell<TurnRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
-        await update(turn, (record) => revise(record, effort))
+        await update(turn, (record) => revise(record, effort, ruleFloor))
       }
       return effort
     }

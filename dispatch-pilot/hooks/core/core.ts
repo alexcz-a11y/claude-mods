@@ -104,7 +104,7 @@ export function registerCore(on: On, ctx: Ctx): void {
     // pending entry, decided or not, says the person's own message started the turn (only such a turn keeps its facts as
     // it ends); one marked `report` says a report did.
     const prompt = messageText(started, saidTokens(ctx.config))
-    await $.state.set({ ...TURNS, id: turnKey(e.turnId, undefined) }, newTurn(prompt, own?.effort ?? null, own !== null && own.report !== true))
+    await $.state.set({ ...TURNS, id: turnKey(e.turnId, undefined) }, newTurn(prompt, own?.effort ?? null, own !== null && own.report !== true, own?.ruleFloor ?? null))
     return next(e)
   })
 

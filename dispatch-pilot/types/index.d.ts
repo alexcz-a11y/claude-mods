@@ -15,7 +15,7 @@ declare module 'claude-code' {
        * first, at most 16. `effort` null: the decision failed (the turn is
        * still the person's own, so it keeps its facts as it ends).
        */
-      pending: { text: string; effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null; at: number; report?: true }[]
+      pending: { text: string; effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null; at: number; report?: true; ruleFloor?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' }[]
       /**
        * One record per turn of each loop, id `<loop>:<turnId>` where loop is
        * `main` or the agentId. The core's turn.step writer sends what it says.
@@ -35,6 +35,14 @@ declare module 'claude-code' {
         changes: number
         /** Whether the person's own message started the turn (decided at its start or not). */
         person: boolean
+        /**
+         * The level the turn's latest message was decided at (ADR 0020): `effort` is this until the level moves in the
+         * middle of the run, and where a raise returns to. Absent in a record an earlier version wrote; null: no message
+         * of the turn was decided.
+         */
+        base?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+        /** The highest floor that decision's rules gave: nothing lowers the turn under it. Absent or null for none. */
+        ruleFloor?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
         /**
          * What the turn did, for the next message's decision (ADR 0013; features/escalation.ts writes it as a turn the
          * person's own message started ends, absent until then): the effort its steps went out at (the last one's; null
@@ -223,8 +231,25 @@ declare module 'claude-code' {
          */
         model?: 'haiku' | 'sonnet' | 'opus' | 'fable'
         effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-        /** A model step-up the failures forced on a dispatched agent (escalation): the model it went from and to, as its steps name them. */
-        forced?: { kind: 'model'; from: string; to: string }
+        /**
+         * What the failures forced on a dispatched agent (escalation): its effort one level up first (ADR 0020), then the
+         * next model up, as its steps name them; each with what it went from and to.
+         */
+        forced?: { kind: 'model'; from: string; to: string } | { kind: 'effort'; from: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; to: 'low' | 'medium' | 'high' | 'xhigh' | 'max' }
+        /**
+         * A mid-run look at the main agent's level (`midrun-effort`, ADR 0020): the level it was on, the one its steps go
+         * out at from here (the same for a level kept), the level its message was decided at, what came of it, the event
+         * that asked (`failure`, `resolved`, `report`, `handback`, `skill`, `todo`), and whether the step that takes it
+         * carried input already (no row was appended).
+         */
+        midrun?: {
+          from: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          to: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          base: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+          move: 'raise' | 'return' | 'down' | 'keep'
+          event: string
+          free: boolean
+        }
         /** The skills a message or a find_skill call got: those suggested to the main agent, and those only the person can start (「可试 /x」), each with its relevance. */
         skills?: { suggest: { name: string; relevance: number }[]; try: { name: string; relevance: number }[] }
         /** The loop's counts when its failures were dealt with (escalation). */
@@ -395,12 +420,58 @@ declare module 'claude-code' {
         /** The loop's latest step and the model the engine named on it. */
         step: number | null
         model: string | null
-        /** The main agent's: the effort its latest step went out at, as the core sends it; null for none. */
+        /** The effort the loop's latest step went out at, as the core sends it; null for none (the main agent's facts, and where a failing agent's effort is raised from). */
         effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
         /** The main agent's: the last failed or blocked calls (at most two), each the tool and the first line it said, masked and clipped. */
         errors: string[]
         /** The escalation switch was off when the loop was last seen: what was counted meanwhile is written off once it is on. */
         paused: boolean
+        /** An agent's: times its failures raised its effort instead of its model (ADR 0020: the effort first; ADR 0023: again where its model cannot go up); absent in a record an earlier version wrote. */
+        effortRaises?: number
+        /** An agent's: the step its effort was last raised in (its other failures of that step raise nothing more). */
+        effortStep?: number | null
+        /** An agent's: the step its model was last stepped up in (its other failures of that step raise nothing more); absent in a record an earlier version wrote. */
+        raiseStep?: number | null
+      }>
+      /**
+       * The main agent's run as the mid-run effort feature keeps it (ADR 0020; features/midrun-effort.ts, shape
+       * decision/midrun-track.ts `MidrunRecord`), id `main`: one turn's, started afresh by the next turn's first step.
+       */
+      midrun: StateFamily<{
+        turnId: string
+        /** The latest step, the engine's own effort on it (null for a model without one), and the tool calls that ended in it so far. */
+        step: number
+        engine: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+        toolsInStep: number
+        /** The tool calls the latest step's response asked for; null until the response is in. */
+        uses: number | null
+        /** Tool calls that ended in the turn, and those that failed. */
+        calls: number
+        failed: number
+        /** The latest steps, oldest first (at most 10): the end of what the assistant wrote, and each tool call's target, outcome and first error line, masked and clipped. */
+        recent: { step: number; assistant_text: string; earlier_calls_not_shown?: number; tools: readonly { tool: string; target: string; outcome: 'ok' | 'failed' | 'blocked' | 'denied'; error?: string }[] }[]
+        /** The shell commands seen, by class (at most 16): how often each passed and failed, how it last ended, the count of file edits then, its failures in a row after an edit, its latest error line, the step it was last seen in. */
+        commands: Record<string, { ok: number; failed: number; last: 'ok' | 'failed'; editsAtLast: number; refails: number; error: string; seenAt: number }>
+        /** File edits that went through. */
+        edits: number
+        /** The latest failing step's first error line, the key two failures are compared by, and its step. */
+        lastError: { line: string; key: string; step: number } | null
+        /** The task list's item in progress when it was last written. */
+        todo: string | null
+        /** The command a raise was for (null: not raised for a failure), the step of the raise, whether that command has passed since. */
+        raisedFor: string | null
+        raisedAt: number | null
+        resolved: boolean
+        /** A red flag raised the level this turn: nothing lowers it under its base again. A failure of this turn already read as one whose cause is not found (`stuck`). */
+        ratchet: boolean
+        stuck: boolean
+        /** The highest level the stakes asked for this turn: a raise taken back when its command passes goes no lower. */
+        stakesFloor: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+        /** Rows appended for a switch this turn and the step of the last; times the decision model was asked and the step of the last. */
+        switches: number
+        switchedAt: number | null
+        judged: number
+        judgedAt: number | null
       }>
       /**
        * The person's own words this turn, masked and clipped (core/setup.ts
