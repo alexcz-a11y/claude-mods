@@ -398,6 +398,11 @@ export type Config = {
   context: ContextLimits
   /** The tokens the state of each other kind of request may take: the decision model's default for the kind, or what the person set if smaller. */
   contextByKind: Readonly<Record<ContextKind, number>>
+  /** The main agent's effort while its turn runs (ADR 0020, ADR 0025). */
+  midrun: {
+    /** Steps without a look after which the level is looked at again, with `midrun-steps` switched on (`midrunEverySteps`). */
+    everySteps: number
+  }
   /** Forced escalation (#7, ADR 0013): a dispatched agent whose calls keep failing goes on as the next model up. */
   escalation: {
     /** Counted failures that make an agent step up. */
@@ -604,6 +609,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
     ask: defaults.ask,
     context,
     contextByKind,
+    midrun: { everySteps: whole(options.midrunEverySteps, 6, 60, 15) },
     escalation: {
       after: whole(options.escalateAfter, 1, 20, 2),
       limit: whole(options.escalateLimit, 0, 10, 2),

@@ -78,7 +78,7 @@ export type MidrunStep = { step: number; assistant_text: string; earlier_calls_n
  * What made the code ask (the run's events, decision/midrun-track.ts): a failure that came back, a report delivered into the
  * run, a dispatched agent's result handed back, a skill loaded, the task list moving to its next item.
  */
-export type MidrunEventKind = 'failure' | 'report' | 'handback' | 'skill' | 'todo'
+export type MidrunEventKind = 'failure' | 'report' | 'handback' | 'skill' | 'todo' | 'steps'
 
 /** What a mid-run request is built from. */
 export type MidrunInput = {
@@ -343,6 +343,10 @@ export const HOLD_STEPS = 3
 /** The decision model is asked at most this many times a turn, and (but for a failure) no sooner than this many steps after the last time. */
 export const MAX_JUDGMENTS = 12
 export const JUDGE_GAP_STEPS = 4
+/** A look by step count that wants the level moved is asked again this many steps on, and moves it only when both agree (`mid-hold`, `confirm`). */
+export const CONFIRM_STEPS = JUDGE_GAP_STEPS
+/** Looks by step count a turn gets at most, counted apart from the questions its events ask: neither takes the other's. */
+export const MAX_STEP_LOOKS = 12
 
 /**
  * The rows a turn may have had and still take one more for this move: a raise may take the last, a move down may not,
@@ -373,6 +377,11 @@ export type MidrunPosition = {
   /** Steps since the last appended switch (null: none yet), and how many the turn has had. */
   sinceSwitch: number | null
   switches: number
+  /**
+   * A look by step count only (`event: 'steps'`): the way the look before it wanted the level to go and did not take it
+   * (`MidrunDecision.awaits`); null or left out when it wanted none.
+   */
+  awaited?: 'raise' | 'lower' | null
 }
 
 type Fields = Record<string, string | number | boolean | null>
@@ -397,6 +406,8 @@ export type MidrunDecision = {
   /** The level the stakes ask for at least, null for none: a raise the code takes back goes no lower than the highest of the turn. */
   stakes: Effort | null
   steps: MidrunStepTrace[]
+  /** A look by step count wanted the level moved this way and waits for the next look to say the same (`MidrunPosition.awaited`). */
+  awaits?: 'raise' | 'lower'
 }
 
 const at = (level: Effort): number => EFFORTS.indexOf(level)
@@ -533,6 +544,18 @@ export function decideMidrun(reading: EffortReading, signals: MidrunSignals, pos
     // `inclusive` among them: a guide counts a value on a bar the same way for a yes/no and for a side of the Score.
     ...held,
   })
+
+  // A look by step count has no event behind it, and most of them should change nothing: of the looks that should keep the
+  // level about one in twelve reads otherwise (DEVELOPMENT.md, effort-midrun), and a long turn has many. So what such a look
+  // wants is taken only when the look before it wanted the same way; the first one waits (`awaits`: the feature asks again
+  // `CONFIRM_STEPS` on). The stakes do not wait: a red flag is read by the highest, at once.
+  if (position.event === 'steps' && move !== 'keep' && reason !== 'stakes') {
+    const way = move === 'raise' ? 'raise' : 'lower'
+    if (position.awaited !== way) {
+      steps.push({ rule: 'mid-hold', applied: true, level: current, wanted: level, why: 'confirm', lowering: move !== 'raise', again: CONFIRM_STEPS })
+      return { effort: current, move: 'keep', reason: 'held', picked, flagged, stuck, stakes: stakesFloor, steps, awaits: way }
+    }
+  }
 
   // A move that needs a row appended keeps to the turn's cap and the gap since the last one; a raise for a red flag does not wait
   // out the gap. The turn's last row is a raise's: a loop that could no longer be raised is worse off than one left a level high

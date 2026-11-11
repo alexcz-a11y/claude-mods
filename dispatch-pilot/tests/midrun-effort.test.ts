@@ -5,8 +5,8 @@
 
 import { expect, test } from 'claude-code/testing'
 import { LIQUID_GUIDE, TYPESAFE_GUIDE } from '../hooks/decision/guides.ts'
-import { decideMidrun, MAX_SWITCHES, midrunPart, midrunState, resolvedDecision, rowsFor, switchNote, type MidrunPosition, type MidrunSignals } from '../hooks/decision/midrun.ts'
-import { commandClass, errorKey, factsOf, newRecord, noteCall, type CallEnd, type MidrunRecord } from '../hooks/decision/midrun-track.ts'
+import { CONFIRM_STEPS, decideMidrun, MAX_SWITCHES, midrunPart, midrunState, resolvedDecision, rowsFor, switchNote, type MidrunPosition, type MidrunSignals } from '../hooks/decision/midrun.ts'
+import { commandClass, errorKey, factsOf, newRecord, noteCall, stepsDue, type CallEnd, type MidrunRecord } from '../hooks/decision/midrun-track.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { stepLines } from '../hooks/board/rationale.ts'
 import { jev, KEY, kind, type Reply, type Sent, type StepOptions, type World, world } from './support/world.ts'
@@ -853,3 +853,126 @@ test('a dispatched agent whose calls of one step reach the bar twice has its eff
   await w.step({ index: 3, agentId: 'a1', model: 'claude-sonnet-5-5', effort: 'medium' })
   expect(w.steps.filter((s) => s.agentId === 'a1').at(-1)).toMatchObject({ model: 'claude-opus-5-5', effort: 'high' })
 })
+
+// ---- by step count (ADR 0025) -------------------------------------------------------
+//
+// Claude Code offers its task list tools by default only up to Opus 4.7, Sonnet 4.6 and Haiku 4.5 (2.1.233, 2.1.268), so on a
+// newer model a run with no failure, no skill and no report has no event at all. `/dp midrun-steps on` looks every
+// `midrunEverySteps` steps as well; what such a look wants is taken only when the look a few steps on wants the same.
+
+const EVERY_6 = { ...KEY, midrunEverySteps: 6 }
+const STEPS_ON = { 'midrun-steps': true }
+/** A turn at `first` of nothing but quiet steps, up to and with step `last`. */
+async function quietTurn(w: World, last: number) {
+  await w.submit('把这个模块按新接口重写一遍')
+  for (let index = 0; index <= last; index++) await w.step(quiet(index))
+}
+
+test('a look by step count that wants the level moved waits: asked again a few steps on, it moves the level only when both looks want the same way', () => {
+  const steps = (more: Partial<MidrunPosition> = {}) => at('medium', { event: 'steps', ...more })
+  const first = decideMidrun(reading(HIGH), NO_SIGNALS, steps())
+  expect(first).toMatchObject({ effort: 'medium', move: 'keep', reason: 'held', awaits: 'raise' })
+  expect(first.steps.at(-1)).toMatchObject({ rule: 'mid-hold', why: 'confirm', wanted: 'high', level: 'medium', again: CONFIRM_STEPS })
+  expect(stepLines([first.steps.at(-1) as never]).at(-1)).toMatchObject({ head: '等确认', body: '按步数看的这一次本想换到 high：4 步后再看一次，两次方向一致才换，保持 medium' })
+  expect(decideMidrun(reading(HIGH), NO_SIGNALS, steps({ awaited: 'raise' }))).toMatchObject({ effort: 'high', move: 'raise', reason: 'reading' })
+  // The look before wanted the other way: this one waits in its turn.
+  expect(decideMidrun(reading(HIGH), NO_SIGNALS, steps({ awaited: 'lower' }))).toMatchObject({ effort: 'medium', move: 'keep', awaits: 'raise' })
+  // Back to the message's level, and one under it, wait the same way.
+  const raised = steps({ current: 'high', base: 'medium' })
+  expect(decideMidrun(reading([0, 0.8, 0.2, 0, 0]), NO_SIGNALS, raised)).toMatchObject({ effort: 'high', move: 'keep', awaits: 'lower' })
+  expect(decideMidrun(reading([0, 0.8, 0.2, 0, 0]), NO_SIGNALS, { ...raised, awaited: 'lower' })).toMatchObject({ effort: 'medium', move: 'return' })
+  const rest: MidrunSignals = { ...NO_SIGNALS, mechanicalRest: 0.9, newGround: 0.05 }
+  expect(decideMidrun(reading([0.1, 0.8, 0.1, 0, 0]), rest, at('high', { event: 'steps' }))).toMatchObject({ effort: 'high', move: 'keep', awaits: 'lower' })
+  expect(decideMidrun(reading([0.1, 0.8, 0.1, 0, 0]), rest, at('high', { event: 'steps', awaited: 'lower' }))).toMatchObject({ effort: 'medium', move: 'down' })
+  // A red flag does not wait, and a look that wants nothing awaits nothing.
+  expect(decideMidrun(reading(MEDIUM), { ...NO_SIGNALS, stakes: { undo: 0.9, live: null, access: null } }, steps())).toMatchObject({ effort: 'high', move: 'raise', reason: 'stakes' })
+  expect(decideMidrun(reading(MEDIUM), NO_SIGNALS, steps({ awaited: 'raise' })).awaits).toBe(undefined)
+  // At an event of the run nothing waits: the same answer moves the level at once.
+  expect(decideMidrun(reading(HIGH), NO_SIGNALS, at('medium', { event: 'skill' }))).toMatchObject({ effort: 'high', move: 'raise' })
+})
+
+test('when a look by step count is due: so many steps since the level was last looked at (or the turn began), sooner after a look that waits; it has no sentence among the facts', () => {
+  const record = (more: Partial<MidrunRecord>): MidrunRecord => ({ ...newRecord('t1'), ...more })
+  expect(stepsDue(record({ step: 14 }), 15, 4)).toBe(null)
+  expect(stepsDue(record({ step: 15 }), 15, 4)).toEqual({ kind: 'steps', since: 15 })
+  expect(stepsDue(record({ step: 20, judgedAt: 9 }), 15, 4)).toBe(null)
+  expect(stepsDue(record({ step: 24, judgedAt: 9 }), 15, 4)).toEqual({ kind: 'steps', since: 15 })
+  expect(stepsDue(record({ step: 24, judgedAt: 9, tickedAt: 12 }), 15, 4)).toBe(null)
+  // A look that wanted a move is asked again after the gap; once another look came between, the wait is over.
+  expect(stepsDue(record({ step: 13, tickedAt: 9, wanted: { way: 'raise', step: 9 } }), 15, 4)).toEqual({ kind: 'steps', since: 4 })
+  expect(stepsDue(record({ step: 12, tickedAt: 9, wanted: { way: 'raise', step: 9 } }), 15, 4)).toBe(null)
+  expect(stepsDue(record({ step: 13, tickedAt: 5, judgedAt: 9, wanted: { way: 'raise', step: 5 } }), 15, 4)).toBe(null)
+  expect(factsOf(record({ step: 15 }), { kind: 'steps', since: 15 })).toEqual(['The assistant has not edited any file in this run.'])
+})
+
+test('midrun-steps is off until the person switches it on: a run without an event keeps its message\'s level and nothing is asked', { options: EVERY_6 }, async ($, on) => {
+  const w = world($, on, { backend: backend(MEDIUM, [{ levels: HIGH }]) })
+  await quietTurn(w, 20)
+  expect(w.requests.map(kind)).toEqual(['effort.level'])
+  expect(w.appended).toEqual([])
+  expect(await w.command('dp', 'status')).toMatch(/关 +midrun-steps +\S/)
+})
+
+test('with midrun-steps on, a run without an event is looked at every midrunEverySteps steps; two looks that both read higher raise the level, with one row', { options: EVERY_6 }, async ($, on) => {
+  const w = world($, on, { backend: backend(MEDIUM, [{ levels: HIGH }]), switches: STEPS_ON })
+  await quietTurn(w, 12)
+  // Asked as step 6 ends (six steps since the turn began), and again four steps on.
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midrun.level', 'midrun.level'])
+  expect(w.appended).toHaveLength(1)
+  expect(w.appended[0]).toMatchObject({ afterStep: 11 })
+  expect(efforts(w)).toEqual([...Array(11).fill('medium'), 'high', 'high'])
+  const [waited, moved] = await midrunLog(w)
+  expect(waited).toMatchObject({ outcome: 'effort medium（保持）', subject: '第 6 步（按步数再看：离上一次看已过 6 步）', midrun: { move: 'keep', event: 'steps' } })
+  expect(waited?.reason).toContain('读数想往上换到 high，按步数看的要 4 步后再看一次、两次一致才换，保持 medium')
+  expect(moved).toMatchObject({ outcome: 'effort high（原 medium）', subject: '第 10 步（按步数再看：离上一次看已过 4 步）', midrun: { move: 'raise', event: 'steps', from: 'medium', to: 'high' } })
+  // The state is the one an event sends: no field of the look's own, and no sentence about the steps.
+  const state = w.requests[1]?.body.state as Record<string, unknown>
+  expect(Object.keys(state).sort()).toEqual(['facts', 'progress_note', 'recent_steps', 'task'])
+  expect(state.facts).toEqual(['The assistant has not edited any file in this run.'])
+})
+
+test('a second look that no longer reads higher moves nothing, and the count starts over from it', { options: EVERY_6 }, async ($, on) => {
+  const w = world($, on, { backend: backend(MEDIUM, [{ levels: HIGH }, { levels: MEDIUM }]), switches: STEPS_ON })
+  await quietTurn(w, 17)
+  // Step 6 (wants high), step 10 (medium: nothing waits any more), then six steps on, at step 16.
+  expect((await midrunLog(w)).map((entry) => entry.subject?.split('（')[0])).toEqual(['第 6 步', '第 10 步', '第 16 步'])
+  expect(w.appended).toEqual([])
+  expect(efforts(w).every((effort) => effort === 'medium')).toBe(true)
+})
+
+test('an event of the run is a look too: the steps are counted from it, and what a look by step count was waiting for is dropped', { options: EVERY_6 }, async ($, on) => {
+  const w = world($, on, { backend: backend(MEDIUM, [{ levels: HIGH }, { levels: MEDIUM }]), switches: STEPS_ON })
+  await w.submit('把这个模块按新接口重写一遍')
+  for (let index = 0; index <= 7; index++) await w.step(quiet(index))
+  // Step 6 wanted high; at step 8 a skill is loaded (asked about though the look was two steps ago: the two are counted apart)
+  // and reads medium: the wait ends, and the next look is six steps from there.
+  await w.step({ index: 8, tools: [{ tool: 'Skill', input: { skill: 'changelog' } }] })
+  for (let index = 9; index <= 15; index++) await w.step(quiet(index))
+  expect((await midrunLog(w)).map((entry) => entry.midrun?.event)).toEqual(['steps', 'skill', 'steps'])
+  expect((await midrunLog(w)).at(-1)?.subject).toBe('第 14 步（按步数再看：离上一次看已过 6 步）')
+  expect(w.appended).toEqual([])
+})
+
+test('at a look by step count the stakes raise the level at once', { options: EVERY_6 }, async ($, on) => {
+  const w = world($, on, { backend: backend(MEDIUM, [{ levels: MEDIUM, nouls: { 'midrun.stakes.undo': 0.9 } }]), switches: STEPS_ON })
+  await quietTurn(w, 8)
+  expect(w.appended).toHaveLength(1)
+  expect(efforts(w).slice(6)).toEqual(['medium', 'high', 'high'])
+})
+
+test('midrunEverySteps is kept between 6 and 60, and is 15 when left out', { options: { ...KEY, midrunEverySteps: 2 } }, async ($, on) => {
+  const w = world($, on, { backend: backend(MEDIUM, [{ levels: MEDIUM }]), switches: STEPS_ON })
+  await quietTurn(w, 5)
+  expect(w.requests.map(kind)).toEqual(['effort.level'])
+  await w.step(quiet(6))
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midrun.level'])
+})
+
+test('left out, the level is looked at every 15 steps', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: backend(MEDIUM, [{ levels: MEDIUM }]), switches: STEPS_ON })
+  await quietTurn(w, 14)
+  expect(w.requests.map(kind)).toEqual(['effort.level'])
+  await w.step(quiet(15))
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midrun.level'])
+})
+

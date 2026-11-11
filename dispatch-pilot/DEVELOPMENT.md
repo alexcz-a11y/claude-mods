@@ -77,6 +77,12 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev）�
 
 ### 一轮中途的 effort（0.11.0，ADR 0020）
 
+- **按步数再看（0.12.0，ADR 0025，开关 `midrun-steps` 默认关，选项 `midrunEverySteps` 默认 15、6 到 60）。** 起因是任务清单的事件在新模型上不再出现：Claude Code 2.1.233 起 `TodoWrite` 和 `TaskCreate`/`TaskGet`/`TaskUpdate`/`TaskList` 在 Opus 4.8、Sonnet 5、Fable 5、Mythos 5 和更新的模型上默认不提供，2.1.268 改成只在 Claude 3.x、Opus 4.0–4.7、Sonnet 4.0–4.6、Haiku 4.5 上默认提供；`CLAUDE_CODE_ENABLE_TODO_TOOLS=1` 让所有模型都有，有这组工具时默认是四个 Task 工具，`CLAUDE_CODE_ENABLE_TASKS=0` 换回 `TodoWrite`（2026-11-11 读官方 `CHANGELOG.md`、`tools-reference.md`、`env-vars.md` 原文；本机近 20 天的会话记录里没有一次这几个工具的调用）。
+  - **什么时候看。** `tool.call` 结束而这次调用不是事件时，`stepsDue`（`decision/midrun-track.ts`）看离上一次看过了几步：上一次看是任何事件上的（`judgedAt`）或按步数的（`tickedAt`）里较晚的一个，这一轮还没看过就从第 0 步算。满 `midrunEverySteps` 步就问；上一次按步数的看想换档、正等着确认时，满 `CONFIRM_STEPS`（4）步就问。
+  - **怎么问。** 和事件上完全一样（`judge`，事件种类 `steps`）：`factsOf` 不为它写事实句，state 没有它自己的字段，题面没有改。
+  - **怎么定。** `decideMidrun` 照常走完各条规则；事件是 `steps`、结果要换档、理由不是出错代价时，看 `MidrunPosition.awaited`（上一次按步数的看想往哪边换）：和这一次同向才换，否则保持，推演里记一步 `mid-hold`（`why: 'confirm'`，依据卡片的「等确认」），`MidrunDecision.awaits` 交回方向，功能把它记进记录的 `wanted`。任何一次看（事件上的也算）不再想换，或换成了，`wanted` 清掉；你在这一轮里又发消息也清掉。
+  - **次数。** 按步数的看记在 `ticks`，每轮最多 `MAX_STEP_LOOKS`（12）次，不计入 `judged`，也不让事件等 `JUDGE_GAP_STEPS`：共用一个计数时，一次按步数的看会把两步之后加载的 skill 挤掉。追加换档每轮最多 4 次仍是共用的；追加用完之后不再按步数问。
+  - **没有评测。** `effort-midrun` 的题都是事件上的；评测集的校验认识 `steps` 这种事件（`eval/lib/midrun-items.ts`：它没有自己的事实句，不带 `report`、`next_item`、`failures`），题还没有写。
 - **来历。** 0.8.x 在一轮进行中每隔几步（`rejudgeEvery`），以及主 agent 派出 agent、启动 Workflow 或加载 skill 时，再问一次决策模型，按防抖规则（`thetaUp`、`thetaDown`、`holdSteps`）改这一轮的 effort（#5）。2.1.312 起引擎按消息取 effort：一档从一条带输入的消息用到下一条，`turn.step` 在只带工具结果的一步上改的 effort 不生效，看板却写出一次次从没发出去的改档，所以 0.9.0 删掉了它（ADR 0013）。0.11.0 换了做法重新做（ADR 0020，`features/midrun-effort.ts`）：只在事件上看，要换档时追加一行让下一步带上输入。0.8.x 的选项（`rejudgeEvery`、`rejudgeSteps`、`rejudgeWaitMs`、`thetaUp`、`thetaDown`、`holdSteps`）、`$.state` 的 `midturn`、`mainStep`、计划表的 `floorUntil`、`raisedAt` 和 `decision/midturn.ts` 都没有恢复。
 - **发消息时定的是起点。** 一轮进行中你又输入的消息照常判断（`features/main-effort.ts`）：它在下一步送进这一轮，那一步带着输入，所以从那一步起用它的档，这一档也成为这一轮新的 `base`。带图的这样一条消息只定一次：2.1.316 起在发消息时读图、带着读数定（0.10.0，ADR 0019），更早的引擎上只按文字定（0.9.0，ADR 0014）。主 agent 一轮中途读的参考图不触发判断。
 - **记什么**（`$.state` 的 `midrun`，id `main`，`decision/midrun-track.ts` 的 `MidrunRecord`；新的一轮的第一步把它换成新的）：这一轮在第几步、引擎自己的 effort、这一步已经结束了几个调用；最近 10 步（助手文字的结尾，每个调用的工具、对象、成败和失败时的首条出错行，都脱敏、截短）；见过的命令（`commandClass`，最多 16 类），每类记通过和失败的次数、上次的结局、那时的文件编辑数、改过之后连续失败的次数；文件编辑数；这一步的回答要了几个工具调用（`uses`，回答到齐之前是 null）；最近一条出错行；任务清单里进行中的一项；为哪条命令升过档、在第几步升的、它是否已经重新通过；这一轮出没出过红旗（`ratchet`）、有没有过一次原因未知的失败（`stuck`）；追加换档的次数和上次在第几步，问过几次和上次在第几步。
@@ -864,7 +870,7 @@ hooks/
 │   ├── escalation.ts       失败计数（#7，ADR 0013）：派出 agent 的失败到 `escalateAfter` 时从下一步起升一档模型（写进它的计划，同一步一起失败的几个调用只升一次）；主 agent 这一轮结束时把事实写进它的一轮记录（`facts`），也存进 `$.state` 的 `lastTurn`（下一条消息的 `last_turn` 和规则 R4 读它）；Workflow agent 的任务按它的 `agent-<id>.jsonl` 找，只用来在日志里写是哪个 agent
 │   ├── find-skill.ts       主 agent 的 find_skill 工具：会话开始时注册，被调用时按查询给 skill 排序（#12）
 │   ├── image-routing.ts    带图路由（#63、#64，ADR 0008、0013、0019）：开关 `image-routing`（默认关）；`prompt.submit` 用 `$.prompt.media` 读图（`attachedImages`，2.1.316 起），带读数的 effort part 进投票箱；读不到时 `session.append`（door 为 prompt）记下用户贴的图，`turn.start` 读出复杂度读数、再发 effort 题、写成待用的决定由核心认领，一轮进行中输入的按文字定；导出 `IMAGE_ROUTING_SWITCH`、`hasImage`、`attachedImages`
-│   ├── midrun-effort.ts    一轮中途的 effort（ADR 0020）：开关 `midrun-effort`、`midrun-down`；`tool.call` 结束时记这一轮的记录、认事件、问决策模型、追加一行并改这一轮的计划；`turn.step` 记步和助手文字，带输入的步上收回欠着的档；`prompt.submit` 认送进这一轮的报告
+│   ├── midrun-effort.ts    一轮中途的 effort（ADR 0020、ADR 0025）：开关 `midrun-effort`、`midrun-down`、`midrun-steps`（按步数再看，默认关）；`tool.call` 结束时记这一轮的记录、认事件、问决策模型、追加一行并改这一轮的计划；`turn.step` 记步和助手文字，带输入的步上收回欠着的档；`prompt.submit` 认送进这一轮的报告
 │   ├── main-effort.ts      发消息时判断主 agent 的 effort（#2，ADR 0014）：effort part（effort 题加是非题）放进投票箱，回答动未解决次数、按 decision/message-effort.ts 的规则定档、记下长期约束
 │   ├── prompt-hint.ts      提示框里草稿后面的灰字提示（`virtualText`，2.1.300 起）：`prompt.edit` 每次编辑带上，`prompt.change`（翻历史）时把同一段草稿带着提示重新放回去；开关 `prompt-hint`
 │   ├── reference-hint.ts   `sessionReading(readings, debug)`：派出 agent、Workflow 批和当场判断取本会话最近一次的复杂度读数（#64）
@@ -918,8 +924,8 @@ hooks/
     ├── system-one.ts       System One 请求和回答的类型；mergeParts、answersFor
     ├── effort.ts           effort 问题（英文或中文 × Score 或 Choice）、出错代价和原因未知的是非题、读回答、基础档（位置四舍五入加双峰，`traceEffort`，ADR 0014）
     ├── message-effort.ts   发消息时的定档规则（ADR 0014，eval 共用）：`messageSignals`（从是非题的回答和会话记下的事读信号）、`decideMessage`（基础档、R1–R5、锁定，每一步进 trace）、`namesUltrathink`
-    ├── midrun.ts           一轮中途的 effort 的题面、state 和规则（ADR 0020）：`midrunPart`（`midrun.level` 加信号的是非题）、`midrunState`（任务、读法、最近几步、事实句，4000 token 以内）、`decideMidrun`（两侧合计、红旗、升档、回到原档、降一档、防抖，每步进推演）、`switchNote`（追加行的文字）
-    ├── midrun-track.ts     一轮进行中的记录和事件（ADR 0020）：`noteCall`（失败复现、问题消失、skill、交回、任务清单）、`commandClass`、`errorKey`、`factsOf`（代码数好的事实句）
+    ├── midrun.ts           一轮中途的 effort 的题面、state 和规则（ADR 0020）：`midrunPart`（`midrun.level` 加信号的是非题）、`midrunState`（任务、读法、最近几步、事实句，4000 token 以内）、`decideMidrun`（两侧合计、红旗、升档、回到原档、降一档、按步数的看等确认、防抖，每步进推演）、`switchNote`（追加行的文字）
+    ├── midrun-track.ts     一轮进行中的记录和事件（ADR 0020）：`noteCall`（失败复现、问题消失、skill、交回、任务清单）、`stepsDue`（按步数的看到没到，ADR 0025）、`commandClass`、`errorKey`、`factsOf`（代码数好的事实句）
     ├── nouls.ts            是非题的读法：按决策模型的指南（`guides.ts`）定的线读 `verdictOf`、`isYes`、`readNoul`；`NOUL_YES`、`NOUL_NO` 是 TypeSafe 的 0.7 / 0.3
     ├── guides.ts           各决策模型的读法，只写在这里（ADR 0014、ADR 0017）：TypeSafe 的（Jev、pplx：是非题 ≥ 0.7 / ≤ 0.3，effort 双峰往上一档，派出 agent 用模型表）和 Liquid 的（d1-ultra、d1.1：> 0.8 / < 0.2，effort 题按回答本身读（ADR 0022），派出 agent 用 route 选择题，置信度 < 0.5 退到最强）；`yesBar`、`noBar`（卡片和日志写 ≥ 还是 >）
     ├── asks.ts             用户这条消息对工作的要求（ADR 0016）：`confirm`（只是同意、继续或选给出的选项）和 `escalate`（要求多想、更仔细或更强的模型）两道是非题，只问用户自己的话

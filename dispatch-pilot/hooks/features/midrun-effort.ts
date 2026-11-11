@@ -2,7 +2,9 @@
 //
 // A message's effort is decided once, as it is sent (features/main-effort.ts). A long turn goes through work the message
 // did not show: a failure that will not go away, a result handed back, a skill's instructions, a rest that is only carrying
-// out. This feature looks at the level again at such events of the run, and only then: never on a timer.
+// out. This feature looks at the level again at such events of the run. By step count too, where the person switched that on
+// (`/dp midrun-steps on`, every `midrunEverySteps` steps without a look): a run with no event otherwise keeps its message's
+// level to its end, and Claude Code's task list tools, whose moves were an event, are off by default on the newer models.
 //
 // How a level changes in the middle of a turn (measured on Claude Code 2.1.322, DEVELOPMENT.md 「已实测的引擎行为」): a
 // model takes a new level only at a step with input, and a step whose new input is tool results has none. So when the level
@@ -15,6 +17,8 @@
 //                    a failure that came back, a skill loaded, an agent's hand-back, the task list moving on:
 //                                the decision model is asked (decision/midrun.ts), the code decides, the level moves
 //                    the command a raise was for passes again: the level goes back, no question asked
+//                    none of these, `midrun-steps` on and the steps since the last look up: asked as at an event; what
+//                                the answer wants is taken once the look a few steps on wants the same
 //   turn.step      where the run is, what the assistant wrote in the step; a step after one without tool calls carries
 //                  input, so a return the code owes is taken there without a row
 //   prompt.submit  a report delivered into the running turn (a background task's notice, an agent's hand-back): asked
@@ -34,10 +38,12 @@ import { describeState } from '../decision/context.ts'
 import { EFFORTS, isEffort, probsOf, readEffort, readingText, type Effort } from '../decision/effort.ts'
 import { outcomeOf } from '../decision/escalation.ts'
 import {
+  CONFIRM_STEPS,
   decideMidrun,
   HOLD_STEPS,
   JUDGE_GAP_STEPS,
   MAX_JUDGMENTS,
+  MAX_STEP_LOOKS,
   MAX_SWITCHES,
   MIDRUN_LEVEL,
   MIN_GAP_STEPS,
@@ -51,7 +57,7 @@ import {
   type MidrunInput,
   type MidrunPosition,
 } from '../decision/midrun.ts'
-import { atStep, factsOf, newRecord, noteCall, withResponse, type CallEnd, type MidrunEvent, type MidrunRecord } from '../decision/midrun-track.ts'
+import { atStep, factsOf, newRecord, noteCall, stepsDue, withResponse, type CallEnd, type MidrunEvent, type MidrunRecord } from '../decision/midrun-track.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { wasBlocked } from '../core/outcomes.ts'
@@ -72,6 +78,8 @@ const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 /** The feature's switch (`/dp midrun-effort on|off`), and the one for lowering under a message's level (`/dp midrun-down on|off`). */
 export const MIDRUN_SWITCH = 'midrun-effort'
 export const MIDRUN_DOWN_SWITCH = 'midrun-down'
+/** The switch for looking by step count as well (`/dp midrun-steps on|off`), off until the person turns it on. */
+export const MIDRUN_STEPS_SWITCH = 'midrun-steps'
 
 /** A step's text is kept this long at most as the record holds it (the state cuts it again). */
 const TEXT_CHARS = 1200
@@ -120,6 +128,7 @@ function isReportIntoTurn(e: { text: string; origin?: PromptOrigin; turnId?: str
 export function registerMidrunEffort(on: On, ctx: Ctx): void {
   defineSwitch({ name: MIDRUN_SWITCH, info: '一轮进行中，在失败复现、结果交回、加载 skill 这类事件上重新判断主 agent 的 effort' })
   defineSwitch({ name: MIDRUN_DOWN_SWITCH, info: '一轮进行中，剩下的只是照做时把 effort 降到比发消息时低一档' })
+  defineSwitch({ name: MIDRUN_STEPS_SWITCH, info: '一轮进行中，没有事件时也每隔 midrunEverySteps 步重新判断一次主 agent 的 effort', default: false })
 
   on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {
     // The main agent's own calls only: not a dispatched agent's, nor another plugin's `$.tool.call`.
@@ -162,7 +171,7 @@ export function registerMidrunEffort(on: On, ctx: Ctx): void {
       try {
         const cell = recordCell($)
         const { value: record } = await cell.get()
-        if (record !== undefined && record.turnId === e.turnId) await update(cell, (r) => ({ ...(r ?? record), stakesFloor: null, ratchet: false, stuck: false, raisedFor: null, raisedAt: null, resolved: false }))
+        if (record !== undefined && record.turnId === e.turnId) await update(cell, (r) => ({ ...(r ?? record), stakesFloor: null, ratchet: false, stuck: false, raisedFor: null, raisedAt: null, resolved: false, wanted: null }))
       } catch (error) {
         $.ui.log(`midrun: ${errorText(error)}`, { to: 'debug' })
       }
@@ -214,6 +223,9 @@ async function afterCall($: EngineInterface, ctx: Ctx, ended: Omit<CallEnd, 'ste
   if (made === null || made.kind === 'resolved') {
     // The command a raise was for passes again (now, or earlier and the hold has since run out).
     await settleResolved($, record, false)
+    // No event, and the steps since the last look are up: a look by step count, where the person switched it on.
+    const due = made === null && isOn(MIDRUN_STEPS_SWITCH) ? stepsDue(record, ctx.config.midrun.everySteps, CONFIRM_STEPS) : null
+    if (due !== null) await judge($, ctx, record, due as JudgedEvent, false)
     return
   }
   await judge($, ctx, record, made, false)
@@ -243,6 +255,8 @@ function eventWords(event: JudgedEvent | { kind: 'resolved'; command: string }):
       return `${event.tool} 交回结果`
     case 'todo':
       return event.item === '' ? '任务清单换到下一项' : `任务清单换到下一项：${quoteStart(event.item)}`
+    case 'steps':
+      return `按步数再看：离上一次看已过 ${event.since} 步`
     case 'report':
       return `送进这一轮的报告：${quoteStart(event.text)}`
   }
@@ -261,6 +275,7 @@ function moveWords(decision: MidrunDecision, from: Effort): string {
   }
   if (decision.reason === 'held') {
     const hold = decision.steps.find((step) => step.rule === 'mid-hold')
+    if (hold !== undefined && 'why' in hold && hold.why === 'confirm') return `读数想${hold.lowering === true ? '往下' : '往上'}换到 ${String(hold.wanted)}，按步数看的要 ${CONFIRM_STEPS} 步后再看一次、两次一致才换，保持 ${from}`
     if (hold === undefined || !('why' in hold) || hold.why !== 'cap') return `离上一次换档不到 ${MIN_GAP_STEPS} 步，保持 ${from}`
     return hold.lowering === true ? `这一轮只剩一次追加换档，留给升档，保持 ${from}` : `这一轮追加换档已满 ${MAX_SWITCHES} 次，保持 ${from}`
   }
@@ -283,9 +298,12 @@ function moveWords(decision: MidrunDecision, from: Effort): string {
  * has had its rows and this one would need another.
  */
 async function judge($: EngineInterface, ctx: Ctx, record: MidrunRecord, event: JudgedEvent, free: boolean): Promise<void> {
-  if (ctx.backend.configured === false || busy.has(record.turnId) || record.judged >= MAX_JUDGMENTS) return
+  if (ctx.backend.configured === false || busy.has(record.turnId)) return
+  // A look by step count is counted apart: it takes none of the events' questions, and an event is not held off by one.
+  const tick = event.kind === 'steps'
+  if (tick ? (record.ticks ?? 0) >= MAX_STEP_LOOKS : record.judged >= MAX_JUDGMENTS) return
   const cameBack = event.kind === 'failure' && event.why !== 'regression'
-  if (!cameBack && record.judgedAt !== null && record.step - record.judgedAt < JUDGE_GAP_STEPS) return
+  if (!tick && !cameBack && record.judgedAt !== null && record.step - record.judgedAt < JUDGE_GAP_STEPS) return
   if (!free && record.switches >= MAX_SWITCHES) return
   // Taken before anything is awaited: the calls of a step end together.
   busy.add(record.turnId)
@@ -305,7 +323,10 @@ async function judge($: EngineInterface, ctx: Ctx, record: MidrunRecord, event: 
     const part = midrunPart(ctx.config.ask.turnStart, failures === undefined ? {} : { failures })
     const request = mergeParts(midrunState(input), [part])
     const cell = recordCell($)
-    await update(cell, (r) => ({ ...(r ?? record), judged: (r ?? record).judged + 1, judgedAt: (r ?? record).step }))
+    await update(cell, (r) => {
+      const kept = r ?? record
+      return tick ? { ...kept, ticks: (kept.ticks ?? 0) + 1, tickedAt: kept.step } : { ...kept, judged: kept.judged + 1, judgedAt: kept.step }
+    })
     const sentAt = await $.clock.now()
     const asked: Asked = await ctx.backend.ask(backendIo($), request, ctx.config.timeoutMs)
     $.ui.log(`request [midrun.${MIDRUN_LEVEL} +${Object.keys(part.questions).length - 1}] at step ${record.step} (${event.kind}) to ${ctx.backend.name}: ${describeAsked(asked, (await $.clock.now()) - sentAt)}; ${describeState(request.state)}`, { to: 'debug' })
@@ -334,10 +355,15 @@ async function judge($: EngineInterface, ctx: Ctx, record: MidrunRecord, event: 
       free,
       sinceSwitch: now.switchedAt === null ? null : now.step - now.switchedAt,
       switches: now.switches,
+      // What the look before this one wanted counts only for a look by step count, and only while no other look came between.
+      awaited: event.kind === 'steps' && now.wanted != null && now.wanted.step !== record.step ? now.wanted.way : null,
     }
     const decision = decideMidrun(reading, midrunSignals(answers), position, ctx.config.guide)
     const moved = decision.effort !== standsNow.current && (await move($, now, standsNow, decision, free, event.kind === 'failure' ? event.command : null))
     const sent = moved ? decision.effort : standsNow.current
+    // What a look by step count wanted and did not take waits for the next one; any other look, or a move, ends the wait.
+    const wanted = decision.awaits === undefined ? null : { way: decision.awaits, step: record.step }
+    if (wanted !== null || now.wanted != null) await update(cell, (r) => ({ ...(r ?? now), wanted }))
     // A flag that lifted nothing still closes the way down for the rest of the turn; a failure read as stuck is remembered for
     // the next; and the level the stakes ask for stays the floor of a raise taken back when its command passes.
     if ((decision.flagged && !now.ratchet) || (decision.stuck && !now.stuck) || higherOf(now.stakesFloor ?? null, decision.stakes) !== (now.stakesFloor ?? null)) {

@@ -17,7 +17,7 @@ import { exactKeys, isRecord, nonEmpty, type Add } from './validators.ts'
 export const MIDRUN_FIELDS = ['id', 'zh', 'en', 'event', 'current', 'base', 'rule_floor', 'stuck_before', 'gold', 'accept', 'rationale', 'difficulty', 'tags'] as const
 
 /** The events of a run at which the mod asks (decision/midrun-track.ts). */
-export const MIDRUN_EVENTS = ['failure', 'report', 'handback', 'skill', 'todo'] as const satisfies readonly MidrunEventKind[]
+export const MIDRUN_EVENTS = ['failure', 'report', 'handback', 'skill', 'todo', 'steps'] as const satisfies readonly MidrunEventKind[]
 const OUTCOMES = ['ok', 'failed', 'blocked', 'denied'] as const satisfies readonly CallOutcome[]
 // A kind or an outcome the mod gains is a type error here until the dataset's rules know it.
 type KnownEvents = [Exclude<MidrunEventKind, (typeof MIDRUN_EVENTS)[number]>] extends [never] ? true : never
@@ -147,9 +147,10 @@ function checkSteps(value: unknown, side: string, add: Add): Step[] | null {
 function checkFacts(facts: readonly string[], steps: readonly Step[], asked: Record<string, unknown>, event: unknown, side: string, add: Add): void {
   const say = (message: string) => add(`${side}.facts: ${message}`)
   const calls = steps.flatMap((step) => step.tools)
-  const first = facts[0]
+  // A look by step count has no sentence of its own (decision/midrun-track.ts `factsOf`): its facts are the counts alone.
+  const first = event === 'steps' ? '' : facts[0]
   if (first === undefined) return say('the event has a sentence of its own, first')
-  let rest = facts.slice(1)
+  let rest = event === 'steps' ? [...facts] : facts.slice(1)
   switch (event) {
     case 'failure':
       if (!FACT.refail.test(first) && !FACT.regression.test(first) && !FACT.sameLine.test(first)) say(`a failure event starts with one of the three sentences for a failure that came back, not ${JSON.stringify(first)}`)
@@ -176,6 +177,8 @@ function checkFacts(facts: readonly string[], steps: readonly Step[], asked: Rec
       else if (Number(list[1]) >= Number(list[2])) say(`${list[1]} of ${list[2]} items done: the item it moved on to is not done yet`)
       break
     }
+    case 'steps':
+      break
     case 'report':
       if (first !== FACT.report) say(`a report event starts with the sentence for a report delivered, not ${JSON.stringify(first)}`)
       break
@@ -237,7 +240,7 @@ export function midrunQuotas(items: readonly Record<string, unknown>[]): string[
     const n = typed.filter((item) => midrunDirection(item as { gold: Effort; current: Effort }) === direction).length
     if (n < 20) warnings.push(`${n} items should go ${direction}; the drafting rules ask for at least 20`)
   }
-  const least: Record<(typeof MIDRUN_EVENTS)[number], number> = { failure: 10, report: 3, handback: 3, skill: 2, todo: 20 }
+  const least: Record<(typeof MIDRUN_EVENTS)[number], number> = { failure: 10, report: 3, handback: 3, skill: 2, todo: 20, steps: 0 }
   for (const event of MIDRUN_EVENTS) {
     const n = items.filter((item) => item.event === event).length
     if (n < least[event]) warnings.push(`${n} items are at a ${event} event; the drafting rules ask for at least ${least[event]}`)

@@ -139,6 +139,7 @@ export const FEATURE_WORDS: Readonly<Record<string, string>> = {
   escalation: '失败升模型',
   'midrun-effort': '中途换档',
   'midrun-down': '中途降档',
+  'midrun-steps': '按步数再看',
   skills: 'skill 推荐',
   'find-skill': 'skill 查询',
   'decision-model': '决策模型',
