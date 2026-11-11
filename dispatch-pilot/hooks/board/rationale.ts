@@ -267,6 +267,7 @@ function stepLine(step: RuleStep): StepLine {
       return { mark: 'pass', head: '降一档', body: `${signs}${why === '' ? '：不降' : `；${why}`}${step.ruleFloor === null || step.ruleFloor === undefined ? '' : `（规则下限 ${word(step.ruleFloor)}）`}` }
     }
     case 'mid-hold':
+      if (step.why === 'confirm') return { mark: 'hit', head: '等确认', body: `按步数看的这一次本想换到 ${word(step.wanted)}：${word(step.again)} 步后再看一次，两次方向一致才换，保持 ${word(step.level)}` }
       return { mark: 'hit', head: '防抖', body: step.why === 'cap' ? `本想换到 ${word(step.wanted)}，但这一轮追加换档已有 ${word(step.switches)} 次（${step.lowering === true ? '最后一次留给升档，往回最多' : '最多'} ${word(step.most)}）：保持 ${word(step.level)}` : `本想换到 ${word(step.wanted)}，但离上一次换档只有 ${word(step.sinceSwitch)} 步（至少 ${word(step.gap)}）：保持 ${word(step.level)}` }
     case 'mid-resolved':
       return { mark: on ? 'hit' : 'pass', head: '问题消失', body: `${word(step.command)} 重新通过，升档后过了 ${word(step.sinceRaise)} 步：${on ? (step.floor !== null && step.floor !== undefined && step.level !== step.base ? `回到出错代价要的 ${word(step.level)}（发消息时是 ${word(step.base)}）` : `回到发消息时的 ${word(step.level)}`) : '已经在原档'}` }

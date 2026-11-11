@@ -239,7 +239,7 @@ declare module 'claude-code' {
         /**
          * A mid-run look at the main agent's level (`midrun-effort`, ADR 0020): the level it was on, the one its steps go
          * out at from here (the same for a level kept), the level its message was decided at, what came of it, the event
-         * that asked (`failure`, `resolved`, `report`, `handback`, `skill`, `todo`), and whether the step that takes it
+         * that asked (`failure`, `resolved`, `report`, `handback`, `skill`, `todo`, `steps`), and whether the step that takes it
          * carried input already (no row was appended).
          */
         midrun?: {
@@ -472,6 +472,10 @@ declare module 'claude-code' {
         switchedAt: number | null
         judged: number
         judgedAt: number | null
+        /** Looks by step count this turn (`midrun-steps`) and the step of the last; what the latest wanted and did not take, and its step. */
+        ticks?: number
+        tickedAt?: number | null
+        wanted?: { way: 'raise' | 'lower'; step: number } | null
       }>
       /**
        * The person's own words this turn, masked and clipped (core/setup.ts

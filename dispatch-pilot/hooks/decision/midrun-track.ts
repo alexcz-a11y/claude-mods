@@ -1,6 +1,7 @@
 // What a running loop's tool calls say about it, kept as the calls end (ADR 0020): the latest steps the decision model is
-// shown, the counts the state gives as facts, and the events at which the code asks again. The events are the run's own, never
-// a timer: 0.8.x asked every few steps, and of the answers that should have kept the level three in ten moved it.
+// shown, the counts the state gives as facts, and the events at which the code asks again. The events are the run's own; a
+// look by step count is apart and off until the person switches it on (`steps`, below): 0.8.x asked every few steps, and of
+// the answers that should have kept the level three in ten moved it.
 //
 //   failure    a command failed again after a fix was tried (a file was edited since it last failed), a command that
 //              passed earlier fails after an edit, or the same first error line came back on the next failing step.
@@ -10,7 +11,12 @@
 //   skill      a skill was loaded: its instructions are the work ahead
 //   handback   a dispatched agent or a Workflow ran in the foreground and handed its result back with its call (one only
 //              launched answers at once, and its result comes later as a report: features/midrun-effort.ts)
-//   todo       the assistant's task list moved to another item (TodoWrite, TaskUpdate, a host's plan tool)
+//   todo       the assistant's task list moved to another item (TodoWrite, TaskUpdate, a host's plan tool). Claude Code
+//              offers its own list tools by default only up to Opus 4.7, Sonnet 4.6 and Haiku 4.5 (2.1.233, 2.1.268;
+//              `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` brings them back): on a newer model this event does not come
+//   steps      nothing happened, and the run has gone `midrunEverySteps` steps since the level was last looked at (the
+//              switch `midrun-steps`, off by default; `stepsDue`). What such a look wants is taken only when the next
+//              one, a few steps on, wants the same (decision/midrun.ts, `mid-hold` `confirm`)
 //
 // A call a hook or the person refused is nobody's failure and moves nothing here.
 //
@@ -88,10 +94,18 @@ export type MidrunRecord = {
   /** Times the decision model was asked this turn, and the step of the last. */
   judged: number
   judgedAt: number | null
+  /**
+   * Looks by step count this turn and the step of the last (`midrun-steps`), counted apart from `judged`: an event is asked
+   * about however lately the steps were, and neither uses up the other's questions. And the way the latest such look wanted
+   * the level to go without taking it, with its step; null for none. All absent in a record kept from before 0.12.0.
+   */
+  ticks?: number
+  tickedAt?: number | null
+  wanted?: { way: 'raise' | 'lower'; step: number } | null
 }
 
 export function newRecord(turnId: string): MidrunRecord {
-  return { turnId, step: 0, engine: null, toolsInStep: 0, uses: null, calls: 0, failed: 0, recent: [], commands: {}, edits: 0, lastError: null, todo: null, raisedFor: null, raisedAt: null, resolved: false, ratchet: false, stuck: false, stakesFloor: null, switches: 0, switchedAt: null, judged: 0, judgedAt: null }
+  return { turnId, step: 0, engine: null, toolsInStep: 0, uses: null, calls: 0, failed: 0, recent: [], commands: {}, edits: 0, lastError: null, todo: null, raisedFor: null, raisedAt: null, resolved: false, ratchet: false, stuck: false, stakesFloor: null, switches: 0, switchedAt: null, judged: 0, judgedAt: null, ticks: 0, tickedAt: null, wanted: null }
 }
 
 /** An event of the run at which the level is looked at again. */
@@ -101,6 +115,7 @@ export type MidrunEvent =
   | { kind: 'skill'; name: string }
   | { kind: 'handback'; tool: string; what: string }
   | { kind: 'todo'; item: string; done: number; total: number }
+  | { kind: 'steps'; since: number }
 
 /** A tool call as it ended. */
 export type CallEnd = {
@@ -323,11 +338,23 @@ export function noteCall(record: MidrunRecord, call: CallEnd): { record: MidrunR
 }
 
 /**
+ * Whether a look by step count is due: `every` steps since the level was last looked at (by any event, or since the turn
+ * began), or `again` steps since a look that wanted the level moved and waits to be confirmed. The event it makes, or null.
+ */
+export function stepsDue(record: MidrunRecord, every: number, again: number): MidrunEvent | null {
+  const since = record.step - Math.max(record.judgedAt ?? 0, record.tickedAt ?? 0)
+  const waits = record.wanted != null && record.wanted.step === record.tickedAt && (record.judgedAt ?? -1) < record.wanted.step
+  return since >= (waits ? again : every) ? { kind: 'steps', since } : null
+}
+
+/**
  * What the code counted, as sentences the state gives the decision model (`facts`): it does not count reliably and reads
  * times as text (TypeSafe's model jaggedness), so the counting is done here.
  */
 export function factsOf(record: MidrunRecord, event: MidrunEvent | { kind: 'report' }): string[] {
   const facts: string[] = []
+  // A look by step count has no sentence of its own: how long the run has gone is not what the level is read from (the
+  // question says so), and a field no question needs sways the answers (TypeSafe's state guide).
   if (event.kind === 'failure') {
     if (event.why === 'refail') facts.push(`The command \`${event.command}\` failed again after the assistant edited files since its last failure${event.refails > 1 ? `: ${event.refails} times in a row now` : ''}.`)
     if (event.why === 'regression') facts.push(`The command \`${event.command}\` passed earlier in this run and fails now, after the assistant edited files.`)
