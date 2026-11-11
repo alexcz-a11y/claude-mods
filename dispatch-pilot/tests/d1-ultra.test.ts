@@ -1,5 +1,5 @@
 // d1-ultra, Liquid's decision model (ADR 0017): its answers read by Liquid's guide, apart from Jev's and pplx's (TypeSafe's):
-// a yes/no is yes above 0.8 and no below 0.2, an effort answer with a confidence below 0.5 goes one level up, and a dispatched
+// a yes/no is yes above 0.8 and no below 0.2, an effort answer is read as it stands whatever its confidence (ADR 0022), and a dispatched
 // agent's model is one Choice of a tier (`route`), the strongest model allowed when its confidence is below 0.5. The images
 // stay with Jev whatever decides the rest; without a Liquid key nothing is sent. Pure modules first, then seam 1.
 
@@ -32,27 +32,28 @@ test("a yes/no on each guide's bars: TypeSafe's yes at 0.7 and no at 0.3 count; 
   expect([0.81, 0.8, 0.75, 0.2, 0.19].map((p) => verdictOf(p, LIQUID_GUIDE.noul))).toEqual(['yes', 'band', 'band', 'band', 'no'])
 })
 
-test("an unsure effort answer: TypeSafe's two peaks, Liquid's confidence below 0.5; each guide reads only its own rule", () => {
-  // Position 1.6, high; max holds 0.4: two peaks on TypeSafe's (xhigh), a confident answer on Liquid's (high).
+test("an unsure effort answer: TypeSafe's two peaks go one level up; Liquid's answer is read as it stands, whatever its confidence", () => {
+  // Position 1.6, high; max holds 0.4: two peaks on TypeSafe's (xhigh), the position alone on Liquid's (high).
   const torn = read([0.6, 0, 0, 0, 0.4], 0.9)
   expect(traceEffort(torn, {}, TYPESAFE_GUIDE.scoreUnsure).effort).toBe('xhigh')
   expect(traceEffort(torn, {}, LIQUID_GUIDE.scoreUnsure).effort).toBe('high')
-  const low = traceEffort(read([0, 1, 0, 0, 0], 0.49), {}, LIQUID_GUIDE.scoreUnsure)
-  expect(low.effort).toBe('high')
-  expect(low.steps[1]).toEqual({ rule: 'low-confidence', applied: true, level: 'high', confidence: 0.49, threshold: 0.5 })
-  expect(traceEffort(read([0, 1, 0, 0, 0], 0.5), {}, LIQUID_GUIDE.scoreUnsure).effort).toBe('medium')
-  expect(traceEffort(read([0, 1, 0, 0, 0], null), {}, LIQUID_GUIDE.scoreUnsure).steps[1]).toMatchObject({ applied: false, confidence: null })
+  // A low confidence moves nothing: Liquid's "below 0.5, take the strongest" is its router's rule, not the effort answer's.
+  const low = traceEffort(read([0, 1, 0, 0, 0], 0.1), {}, LIQUID_GUIDE.scoreUnsure)
+  expect(low.effort).toBe('medium')
+  expect(low.steps.map((step) => step.rule)).toEqual(['position'])
   expect(traceEffort(read([0, 0, 0, 0, 1], 0.1), {}, LIQUID_GUIDE.scoreUnsure).effort).toBe('max')
 })
 
 test("a message's floors at Liquid's bars: 0.75 is a yes on TypeSafe's and the band on Liquid's", () => {
   const base = read([0, 1, 0, 0, 0], 0.9)
   const stakes = { ...QUIET, stakes: { undo: 0.75, live: 0, access: 0 } }
-  expect(decideMessage(base, stakes).effort).toBe('xhigh')
-  expect(decideMessage(base, stakes, LIQUID_GUIDE).effort).toBe('high')
+  expect(decideMessage(base, stakes).effort).toBe('high')
+  expect(decideMessage(base, stakes, LIQUID_GUIDE).effort).toBe('medium')
   expect(decideMessage(base, { ...QUIET, stakes: { undo: 0.85, live: 0.9, access: 0 } }, LIQUID_GUIDE).effort).toBe('max')
-  expect(decideMessage(base, { ...QUIET, causeUnknown: 0.81 }, LIQUID_GUIDE).effort).toBe('xhigh')
-  expect(decideMessage(base, { ...QUIET, causeUnknown: 0.5 }, LIQUID_GUIDE).effort).toBe('high')
+  expect(decideMessage(base, { ...QUIET, causeUnknown: 0.81 }, LIQUID_GUIDE).effort).toBe('high')
+  expect(decideMessage(base, { ...QUIET, causeUnknown: 0.8 }, LIQUID_GUIDE).effort).toBe('medium')
+  // A low confidence takes no level up.
+  expect(decideMessage(read([0, 1, 0, 0, 0], 0.2), QUIET, LIQUID_GUIDE).effort).toBe('medium')
   // R4 and R5 read still_failing at the same bars.
   expect(decideMessage(base, { ...QUIET, stillFailing: 0.78, lastTurn: { effort: 'high', stuck: true } }, LIQUID_GUIDE).effort).toBe('medium')
   expect(decideMessage(base, { ...QUIET, stillFailing: 0.9, lastTurn: { effort: 'high', stuck: true } }, LIQUID_GUIDE).effort).toBe('xhigh')
@@ -79,7 +80,7 @@ test("d1-ultra's request about an agent: the route and the Nouls the effort's fl
   expect(withFable?.type === 'choice' && Object.keys(withFable.criteria)).toEqual(['fast', 'standard', 'powerful', 'frontier'])
   expect(JSON.stringify(question)).toContain('Which model tier should handle the work in `brief.prompt`?')
   // Jev's keeps its table.
-  expect(Object.keys(dispatchPart(FREE).questions)).toContain('writes')
+  expect(Object.keys(dispatchPart(FREE).questions)).toContain('judges')
 })
 
 test('the route takes its top tier; below a confidence of 0.5 the strongest model allowed; a tier ruled out gives way to the allowed one rated highest', () => {
@@ -97,13 +98,20 @@ test('the route takes its top tier; below a confidence of 0.5 the strongest mode
   expect(readRoute(noul(0.9), all, all, 0.5)).toBeNull()
 })
 
-test("the main agent's pick is raised, never lowered; the person's named model comes first, read at Liquid's 0.8", () => {
+test("the main agent's pick is raised, and lowered to the fast tier's haiku from opus or fable; the person's named model comes first, read at Liquid's 0.8", () => {
   const answers = (tier: Record<string, number>, confidence = 0.9) => ({ route: route(tier, confidence), effort: score([0, 1, 0, 0, 0]) })
   const kept = decideDispatch(answers({ fast: 1 }), { ...FREE, requested_model: 'sonnet' }, LIQUID)
   expect(kept).toMatchObject({ model: 'sonnet', source: 'requested', requested: { model: 'sonnet', outcome: 'kept' }, route: { wanted: 'haiku' } })
   const raised = decideDispatch(answers({ powerful: 1 }), { ...FREE, requested_model: 'sonnet' }, LIQUID)
   expect(raised).toMatchObject({ model: 'opus', source: 'route', requested: { model: 'sonnet', outcome: 'upgraded' } })
   expect(raised.steps.find((step) => step.rule === 'main-pick')).toMatchObject({ by: 'route', table: 'opus', outcome: 'upgraded' })
+  // An opus pick for work the route puts on the fast tier gives way to its haiku (ADR 0024); for the standard tier it is kept.
+  const lowered = decideDispatch(answers({ fast: 1 }), { ...FREE, requested_model: 'opus' }, LIQUID)
+  expect(lowered).toMatchObject({ model: 'haiku', source: 'route', requested: { model: 'opus', outcome: 'lowered' } })
+  expect(lowered.steps.find((step) => step.rule === 'main-pick')).toMatchObject({ by: 'route', table: 'haiku', outcome: 'lowered' })
+  expect(decideDispatch(answers({ standard: 1 }), { ...FREE, requested_model: 'opus' }, LIQUID)).toMatchObject({ model: 'opus', source: 'requested' })
+  // An unsure route falls back to the strongest model: nothing is lowered on it.
+  expect(decideDispatch(answers({ fast: 0.4, standard: 0.3, powerful: 0.3 }, 0.2), { ...FREE, requested_model: 'opus' }, LIQUID)).toMatchObject({ model: 'opus' })
   const words = { ...FREE, user_message: 'use haiku for this' }
   expect(decideDispatch({ ...answers({ powerful: 1 }), 'named.haiku': noul(0.9) }, words, LIQUID)).toMatchObject({ model: 'haiku', source: 'user', route: null })
   expect(decideDispatch({ ...answers({ powerful: 1 }), 'named.haiku': noul(0.8) }, words, LIQUID)).toMatchObject({ model: 'opus', source: 'route' })
@@ -114,12 +122,12 @@ test("the main agent's pick is raised, never lowered; the person's named model c
 
 test("an agent's effort on d1-ultra: the floors at Liquid's bars, no row 3b, and a fall back adds no floor of its own", () => {
   const unsure = decideDispatch({ route: route({ standard: 0.5, powerful: 0.5 }, 0.2), effort: score([1, 0, 0, 0, 0]), 'stakes.undo': noul(0.75) }, FREE, LIQUID)
-  // The stakes in the band: high; opus from the fall back; nothing lifts to max.
-  expect(unsure).toMatchObject({ model: 'opus', effort: 'high', route: { fellBack: true } })
+  // The stakes in the band lift nothing; opus from the fall back, at its model's floor; nothing lifts to max.
+  expect(unsure).toMatchObject({ model: 'opus', effort: 'medium', route: { fellBack: true } })
   expect(unsure.steps.map((step) => step.rule)).not.toContain('unsure')
-  expect(decideDispatch({ route: route({ standard: 1 }, 0.9), effort: score([1, 0, 0, 0, 0]), cause_unknown: noul(0.9) }, FREE, LIQUID)).toMatchObject({ model: 'sonnet', effort: 'xhigh' })
-  // An unsure effort answer goes one level up, as a message's does.
-  expect(decideDispatch({ route: route({ fast: 1 }, 0.9), effort: score([0, 1, 0, 0, 0], 0.3) }, FREE, LIQUID)).toMatchObject({ model: 'haiku', effort: 'high' })
+  expect(decideDispatch({ route: route({ standard: 1 }, 0.9), effort: score([1, 0, 0, 0, 0]), cause_unknown: noul(0.9) }, FREE, LIQUID)).toMatchObject({ model: 'sonnet', effort: 'high' })
+  // An effort answer with a low confidence is read as it stands, as a message's is.
+  expect(decideDispatch({ route: route({ fast: 1 }, 0.9), effort: score([0, 1, 0, 0, 0], 0.3) }, FREE, LIQUID)).toMatchObject({ model: 'haiku', effort: 'medium' })
 })
 
 // ---- setup and the backend -------------------------------------------------------------------------
@@ -186,17 +194,17 @@ const liquid = (levels: number[], extra: { nouls?: Record<string, number>; tiers
   return base
 }
 
-test("with d1-ultra a message goes to Liquid, its answers read at Liquid's bars: a stake at 0.75 is the band, so high, not xhigh", { options: D1 }, async ($, on) => {
+test("with d1-ultra a message goes to Liquid, its answers read at Liquid's bars: a stake at 0.75 is the band and lifts nothing, where TypeSafe's bars would lift to high", { options: D1 }, async ($, on) => {
   const w = world($, on, { backend: liquid([0, 1, 0, 0, 0], { nouls: { 'effort.stakes.undo': 0.75 } }) })
   await w.submit('把这张表的数据迁过去')
   await w.step({ index: 0 })
   expect(w.requests[0]?.url).toBe(LIQUID_URL)
   expect(w.requests[0]?.body.model).toBe('d1-ultra')
-  expect(w.steps.map((s) => s.effort)).toEqual(['high'])
+  expect(w.steps.map((s) => s.effort)).toEqual(['medium'])
   const entry = (await w.board()).log.find((one) => one.feature === 'main-effort')
-  expect(entry?.trace?.find((step) => step.rule === 'stakes')).toMatchObject({ undoVerdict: 'band', yes: 0.8, no: 0.2, inclusive: false })
-  // The confidence is read by a rule here, so the log does not say it only goes on record.
-  expect(entry?.reason).not.toContain('只记录')
+  expect(entry?.trace?.find((step) => step.rule === 'stakes')).toMatchObject({ applied: false, floor: null, undoVerdict: 'band', yes: 0.8, no: 0.2, inclusive: false })
+  // No rule of a message reads the confidence: the log says it only goes on record.
+  expect(entry?.reason).toContain('只记录')
 })
 
 test('with d1-ultra a dispatched agent is routed by its tier: powerful raises the main agent\'s sonnet to opus', { options: D1 }, async ($, on) => {

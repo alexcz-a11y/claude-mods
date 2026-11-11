@@ -9,17 +9,20 @@ import type { DecisionRequest } from './system-one.ts'
 
 const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
 /**
- * The Jev every decision without images is asked of: a version, not the `jev-latest` alias, so the thresholds stay those the
- * eval measured on it (docs.typesafe.ai/models: "If you have tuned confidence thresholds against one version, send that
- * version's ID instead of the alias"). 1.14 since 2026-10-15 (DEVELOPMENT.md 「Jev 1.14」): it ran the evals of 1.13 as well
- * as 1.13 did, and the agents' questions in Chinese better. Move it when the eval says so.
+ * The Jev every decision without images is asked of: the `jev-latest` alias, "The most recent stable, official release"
+ * (docs.typesafe.ai/models), so the mod moves to each new Jev when TypeSafe moves the alias (the person's decision,
+ * 2026-11-10, ADR 0021; `jev-1.14.0` was pinned from 2026-10-15 to then). The docs name what that gives up: "If you have
+ * tuned confidence thresholds against one version, send that version's ID instead of the alias". The bars are TypeSafe's
+ * starting values, tuned on no version (ADR 0014). Each answer's `model` names the version that answered, and the debug log
+ * writes it with every request (backend.ts `describeAsked`).
  */
-export const JEV_MODEL = 'jev-1.14.0'
+export const JEV_MODEL = 'jev-latest'
 /**
- * The model a request with images is pinned to (#56, ADR 0008): the Box question is only in 1.14, and images are a
- * "Dreamer-ready" feature that may change from one version to the next, so it moves when the eval says so, not with `jev-latest`.
+ * The model a request with images goes to, whatever model the backend is built with (#56, ADR 0008): the alias too (ADR 0021).
+ * The Box question needs 1.14, which the alias names (docs.typesafe.ai/models, 2026-11-10). Images are a "Dreamer-ready"
+ * feature that may change from one version to the next; the answer's `model` says which version read them.
  */
-const JEV_IMAGE_MODEL = 'jev-1.14.0'
+const JEV_IMAGE_MODEL = 'jev-latest'
 /** Each request containing an image needs this header, else Jev answers 400. */
 const JEV_IMAGES_HEADER = 'TypeSafe-Danger-Zone-Images'
 /**
@@ -93,7 +96,7 @@ export function jevBackend(apiKey: string | (() => string), options: { url?: str
 /**
  * The extra headers and the body a request goes out with. Without images: the body it always had. With images (their
  * references start with `id`): the images in the top-level `assets` (JSON with base64: a module's http body is a string, so no
- * multipart), the references where the state and the questions had `imageRef`s, the pinned model and the images header.
+ * multipart), the references where the state and the questions had `imageRef`s, JEV_IMAGE_MODEL and the images header.
  * Throws a RangeError for a request Jev would answer 400 (see `placeImages`).
  */
 function jevRequest(request: DecisionRequest, model: string, id: string): { headers: Record<string, string>; body: unknown } {

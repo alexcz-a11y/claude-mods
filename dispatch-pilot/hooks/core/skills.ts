@@ -7,19 +7,19 @@
 // in as closures the hook that owns `$` builds (DEVELOPMENT.md, 开发).
 
 import { fitsBar, fitsBarText, type SkillBars } from '../decision/guides.ts'
-import { questionBudget, SHORTLIST, type RankerSettings, type SkillOption, type SkillRanking, type SkillShare } from '../decision/skills.ts'
+import { questionBudget, SHORTLIST, type GateReading, type RankerSettings, type SkillOption, type SkillRanking, type SkillShare } from '../decision/skills.ts'
 import type { Config } from './setup.ts'
 
 /**
- * What the two requests of a ranking said, for a decision's reason (ADR 0018): the gate's mean against its bar (when it
- * was asked), what each Choice of stage one put forward with its share, each candidate's fit by stage two against the
- * bar, and, beside a message, of each kind whose best fit reaches it, whom stage two's Choice picked (find_skill returns
- * by the fits alone); or that the gate stopped it.
+ * What the two requests of a ranking said, for a decision's reason (ADR 0018): the gate's mean and `named` against their
+ * bars (when they were asked), what each Choice of stage one put forward with its share, each candidate's fit by stage two
+ * against the bar, and, beside a message, of each kind whose best fit reaches it, whom stage two's Choice picked
+ * (find_skill returns by the fits alone); or that the gate stopped it.
  */
 export function describeStages(ranking: SkillRanking, bars: SkillBars, kind: RankingKind = 'message'): string {
   const shares = (entries: readonly SkillShare[]) => entries.map((entry) => `${entry.name} ${entry.share.toFixed(2)}`).join('、')
   const parts: string[] = []
-  if (ranking.gate !== null) parts.push(`要不要 skill ${ranking.gate.mean.toFixed(2)}（低于 ${bars.gateBelow.toFixed(2)} 不推荐）`)
+  if (ranking.gate !== null) parts.push(gateText(ranking.gate, bars))
   if (ranking.stopped === 'gate') return parts.join('；')
   if (ranking.shortlist.length > 0) parts.push(`第一段 ${shares(ranking.shortlist)}`)
   if (ranking.hints.length > 0) parts.push(`只能你触发的 ${shares(ranking.hints)}`)
@@ -30,6 +30,17 @@ export function describeStages(ranking: SkillRanking, bars: SkillBars, kind: Ran
     parts.push(`第二段相关度 ${fits}（${fitsBarText(bars)} 才${kind === 'find' ? '返回' : '推荐'}）${picked.length > 0 ? `，选择题选 ${picked.join('、')}` : ''}`)
   }
   return parts.join('；')
+}
+
+/**
+ * The gate as a reason writes it: the mean of its three answers (`要不要 skill 0.86（低于 0.30 不推荐）`, as before ADR 0021
+ * when `named` did not come back), and `named` beside it with the rule for both (`要不要 skill 0.12、点名方法 0.87（两项分别低于
+ * 0.30、0.50 才不推荐）`): either reaching its bar is enough (`wantsSkill`).
+ */
+function gateText(gate: GateReading, bars: SkillBars): string {
+  const mean = `要不要 skill ${gate.mean.toFixed(2)}`
+  if (gate.named === null) return `${mean}（低于 ${bars.gateBelow.toFixed(2)} 不推荐）`
+  return `${mean}、点名方法 ${gate.named.toFixed(2)}（两项分别低于 ${bars.gateBelow.toFixed(2)}、${bars.namedBelow.toFixed(2)} 才不推荐）`
 }
 
 /** Where skills are ranked: beside a message (with the gate, the cookbook's shortlist) or for find_skill (no gate, findSkillMax). */

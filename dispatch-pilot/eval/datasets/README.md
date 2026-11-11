@@ -9,7 +9,7 @@
 | 文件 | 评测的是 | 票 |
 |---|---|---|
 | `effort-submit.jsonl` | 发消息时主 agent 的 effort | #4 |
-| `effort-midturn.jsonl` | 一轮中途重新判断主 agent 的 effort | #14 |
+| `effort-midrun.jsonl` | 一轮中途在事件上（失败复现、交回结果、加载 skill、任务清单换项、送进这一轮的报告）重新判断主 agent 的 effort；0.8.x `effort-midturn` 的 100 题转过来，再加 22 题 | ADR 0020 |
 | `subagent.jsonl` | 派出 agent（普通派发，以及 Workflow 里的 `agent()`）的模型和 effort | #15 |
 | `skill.jsonl`，加上 `skill-catalog.json` | skill 匹配（用本机真实的 skill 目录出题） | #16 |
 | `unresolved.jsonl` | 和主 agent 为同一个问题来回多轮都没解决时，发消息时判出的主 agent effort（以及这条消息和之前的问题是什么关系） | #37（spec #36） |
@@ -75,39 +75,41 @@ effort 题的 `accept` 必须是连续的档位（例如 `["high","xhigh"]`，�
 - `gold`：一个 effort 档位；`accept`：档位数组。
 - 附加约定：85 题的 `accept` 是相邻两档，所以「每题都答 high」就能对 55%。报告准确率时同时给出这个常数基线和 gold 命中率。
 
-### effort-midturn（#14）
+### effort-midrun（ADR 0020）
+
+0.8.x 的 `effort-midturn`（每隔几步重判，100 题）随一轮中途重判在 0.9.0 删掉；0.11.0 的一轮中途换档只在事件上问（`decision/midrun-track.ts`：失败复现、前台的派出 agent 或 Workflow 交回结果、加载 skill、任务清单换项、送进这一轮的报告），请求和读法都是新的（`decision/midrun.ts`）。这套题是旧的 100 题转成新的输入，再加 22 道旧题没有的情形。每题是「mod 此刻去问决策模型」的一个时刻：
 
 ```json
-"zh": {
-  "message": "本轮用户消息原文",
-  "step": 7,
-  "current_effort": "medium",
-  "counts": { "judgments": 2, "changes": 1, "failures": 0, "hook_blocks": 0 },
-  "recent_steps": [
-    {
-      "assistant_text": "主 agent 这一步最后写的文字",
-      "tools": [
-        { "name": "Bash", "result": "失败：npx vitest run duration：7 个新用例失败", "input": { "command": "npx vitest run duration" } }
-      ]
-    }
-  ]
+{
+  "id": "midrun-006",
+  "zh": {
+    "task": "用 TDD 给优惠券加一个规则：满 200 减 20，但不能和会员折扣叠加",
+    "recent_steps": [
+      { "step": 2, "assistant_text": "跑一下，应该失败，规则类还没写。",
+        "tools": [ { "tool": "Bash", "target": "pytest tests/coupon_rules_test.py", "outcome": "failed",
+                     "error": "ImportError: cannot import name 'FullReductionRule'", "result": "pytest tests/coupon_rules_test.py：3 个失败，ImportError: …" } ] }
+    ],
+    "facts": ["The command `pytest tests/coupon_rules_test.py` failed again after the assistant edited files since its last failure.", "2 of the 5 tool calls of this run failed."],
+    "failures": { "latest": "Bash: 2 个断言失败（期望 180，实际 200）", "earlier": "Bash: ImportError: cannot import name 'FullReductionRule'" }
+  },
+  "en": { ... },
+  "event": "failure", "current": "medium", "base": "medium", "rule_floor": null, "stuck_before": false,
+  "gold": "medium", "accept": ["medium"], "rationale": "……", "difficulty": "hard", "tags": ["expected-failure", "tdd-red"]
 }
 ```
 
-- 每题是一段真实执行轨迹的片段，问的是「下一步应该用哪档 effort」：标的是从这一步到下一次重判之前的工作需要的档位。`recent_steps` 按时间顺序，最后一项是最新的一步。
-- 覆盖：任务从探索转入实现、从实现转入收尾（应降档）；连续失败、方向错误（应升档）；工作内容没变（应保持）；刚升档不久；`current_effort` 已经是 `max` 或 `low` 的边界情况。
-- `gold`：一个 effort 档位；`accept`：档位数组。
-- 附加约定：
-  - `step` 是即将发出的那个 `turn.step` 的下标，从 0 开始，和 `e.index` 相同。
-  - 每个调用的 `result` 以「成功：」「失败：」「被 hook 拦截：」「用户拒绝：」开头（英文版是 `Success: `、`Failed: `、`Blocked by hook: `、`Denied by user: `，和 mod 写的一样，见 `hooks/decision/midturn.ts` 的 `OUTCOME_WORDS`），后面是人写的「做的是什么、结果如何」。中英文两版同一个调用的结局相同。
-  - 每个调用的 `input`（第 1 轮审查后加上）是这个调用说明自己做的是什么的参数，只取 mod 的 `toolDetail` 读的那几个（`DETAIL_KEYS`：`description`、`skill`、`name`、`file_path`、`notebook_path`、`pattern`、`query`、`url`、`command`），不写它写进去的内容（`content`、`new_string`）和返回的任何东西；没有可写的（TodoWrite、ExitPlanMode、按脚本启动的 Workflow）写 `{}`。评测按 mod 的写法把它和 `result` 开头的结局写成一行发出去（`成功：utils/duration.ts`），`result` 后面「结果如何」的部分 mod 从来不发，只留给审核和标注（`raw-results` 变体照原文发，用来量这部分信息的影响）。
-    - 路径、命令、搜索的模式、网址在中英文两版里相同；`description`（模型自己写的几个字：Bash 调用的说明、Agent 的任务描述）跟着各自的语言写。
-    - Bash 调用：`result` 写出了命令的，`input` 是 `command`；`result` 只用文字说明做了什么的（「只读查询」「压测 10 分钟」），`input` 是 `description`，就是那句说明。真实的 Bash 调用多半两样都有，mod 发的是 `description`，评测集里只有一样，这是已知的差别。
-    - `input` 是起草之后补写的：照 `result` 里写到的文件、命令和搜索还原；`result` 没写全的（只写了类名的文件、Grep 的模式、WebFetch 的网址），按题意补一个合理的值。
-  - `counts.failures` 是自上次清零以来（这一轮开始，或上一次强制升档）的失败次数，和 mod 的计数同义；hook 拦截和用户拒绝不计入。
-  - `accept` 最多两档宽；降两档以上时不接受「保持当前档」；因为真实的失败或新发现的大问题而升档时，也不接受「保持」。
-  - 「每题都保持当前档」能对 52%，这是常数基线。
-  - midturn-006、017、051、053、056、057 的 `failures` 已到 2，正是强制升档再判断的时刻（评测的 `trouble` 变体这几题照 #7 的请求发）。006 的两次失败都是计划内的 TDD 红灯，标「保持」：按用户的拍板（issue #1），失败是不是预期内的由决策模型判断，预期内的不强制升档。
+- **`zh` / `en` 是 mod 给决策模型的输入**（`MidrunInput`，`midrunState` 照它拼 state）：`task` 是这一轮的消息；`recent_steps` 按时间先后，每步是 `step`（下标，递增）、助手这一步最后写的文字、各个工具调用，每个调用是 `tool`、`target`（`toolTarget` 从调用的参数读出的「做的是什么」：说明、skill 或 agent 名、路径末两段、搜索词、网址、命令第一行；路径和命令两种语言相同，模型自己写的说明跟着语言走）、`outcome`（`ok`、`failed`、`blocked` 被 hook 拦、`denied` 被用户拒，后两种不是失败）、`error`（只有失败的调用有，工具说的第一行，工具什么都没说时没有）；`facts` 是代码数出来的事实，**照 `factsOf` 的句式写，两种语言里逐字相同**（mod 的事实句永远是英文）；事件带来的字段：`next_item`（任务清单换到的那一项，`todo` 事件）、`report`（送进这一轮的报告原文，`report` 事件）、`failures`（失败复现时 `same_failure` 比较的两条报错，`Bash: <首行>` 的形式，最新的和之前的；原先通过的命令改过之后失败没有）。可选的 `constraints` 同 mod（用户早先定下的规矩）。
+- **`result` 不是 mod 发的。** 每个调用另带 `result`：0.8.x 评测集里这个调用的「结果如何」（新题照同样的写法），只有 `with-outputs` 变体发，放进 `error`（mod 的 state 里调用唯一能带一行话的地方，成功的调用也一样），再按 mod 的规矩截成一行。mod 从不发工具返回的内容，所以这个变体量的是 mod 不发它的代价。
+- **位置** 是 `decideMidrun` 要的 `MidrunPosition`：`event`（`failure`、`report`、`handback`、`skill`、`todo`）、`current`（这一轮现在发出去的档）、`base`（发消息时定的档：没有升过档的题等于 `current`；带 `just-upgraded` 标签的 3 题刚在中途升过，`base` 低一档）、`rule_floor`（发消息时那几条规则下限里最高的，现在都是 null）、`stuck_before`（这一轮此前已有一次失败被读成「原因未找到」：为它升过档，档位不再降，高于 high 的升档也由它放行）。评测不记的：离上次换档的步数和这一轮换过几次（都当作没有，不会遇到「等间隔」和每轮上限），`/dp midrun-down`（开着，默认值）；`report` 事件是本来就带输入的一步（`free`，不追加提示行）。
+- **事件按 mod 会在哪里问来定，不按旧题的写法。** 失败复现是 `noteCall` 认的三种：同一类命令改过文件后又失败（`refail`，`facts` 里写连续次数）、原先通过的命令改过之后失败（`regression`）、报错首行和上一次相同（`same-line`）；**第一次失败不是事件**（一次失败多半是被拦的调用或打错的命令，本机记录里报错的步 59% 不思考），所以旧题里最近一步是失败、却只失败了一次的 001、005、008、009，事件是任务清单换到下一项（`todo`），不是 `failure`。旧题里失败过不止一次的 6 题（006、017、051、053、056、057）是失败事件；017 的两次失败是 Edit 的，`noteCall` 只在 Bash 上认失败，这一类 mod 不会问，题留着是为了量决策模型。`handback` 是前台的派出 agent 或 Workflow 交回了结果（081、082、085、086、088 和新题 122）；后台派出（087）和 Workflow 刚启动（090）没有交回，事件是 `todo`。`skill` 只在 skill 刚加载的那一刻（083、089）；084 的 skill 是前几步加载的，这一题是任务清单换项时再问，事件是 `todo`。其余旧题的事件是 `todo`（一段工作的边界），`next_item` 写成这一项在清单里会有的样子（任务层面的一句话，不写做法），`done`/`total` 是编的小数字。
+- **旧题的转换**（一次性的，转换脚本没有留在仓库里，规则如下）：`outcome` 取旧结果行开头的「成功：/失败：/被 hook 拦截：/用户拒绝：」；`target` 是旧题 `input` 经 `toolTarget` 得到的；失败调用的 `error` 是旧结果行去掉前缀和 `target` 之后的第一个分句（38 个失败调用里 13 个就是这样取的；2 个没有 `error`，`rg`、`grep` 无匹配的退出码 1 工具什么都没说；23 个分句取得不对，按旧结果行的意思手写，如 `pytest` 的 `3 failed` 改成 `ImportError: cannot import name …`）；旧的 `counts.judgments`、`changes` 不再有（新 state 不给），`counts.failures` 和 `step` 只用来算 `facts` 里「N of M tool calls failed」；`step` 下标按旧题 `step` 往回数；`facts` 照 `factsOf` 写（失败复现句的命令类 `command` 取调用的前三个词，没有命令的调用补了一个合理的）；旧题没有的 `result` 取旧结果行去掉前缀的整句。**21 道题的理由改了几句**：凡是提到 `failures=`、`changes=`、「卡住标记」「强制升档」「防抖规则」「每 N 步重判」的句子，改成新机制里的说法（001、002、005、006、007、015、019、021、026、038、039、044、053、056、057、061、065、081、084、087、090），答案字段（`gold`、`accept`）一个都没动。另有两处按新状态改了：081 的三个 Agent 调用在新 state 里是已经结束的调用，`result` 从「结果还没回来」改成「已交回」；006 第二次 `pytest` 的命令改得和第一次同类，才算「又失败」。
+- **新题 101–122**（22 道，旧题没有的情形，中英文各写）：环境的失败，该保持（101 超时、102 限流、103 缺程序、104 凭证过期；105 hook 连拒三次，之后用项目自己的脚本）；助手说修好了、下一次结果仍失败，该升（106，107 是已经在 high 且此前被判过卡住的，该再升一档）；预期内的红灯，该保持（108 TDD 连续三次红灯但一次比一次少，109 改 token 之后快照会变，是预告过的）；原因助手已经点明的失败复现，该保持（110 tsc、111 mvn）；送进这一轮的报告（112 后台测试通过，只说完成，保持；113 agent 交回的盘点挖出了账本归属的设计问题，该升；114 agent 写完测试，只说完成）；只剩照做（115 xhigh 的迁移剩 7 个服务，116 high 的 20 个 DTO，117 获批的目录整理，各降一档）；看似照做其实不是（118 `Date.now()` 换 `Clock`，租约和退避各要判断）；看似收尾其实有一步没验证（119 最后一次测试之后又改了代码，120 测试跑的不是改动的那几个模块）；任务没写到的新工作（121 导出 200 万行要流式或后台生成）；Workflow 交回的几份报告互相矛盾（122）。
+- **附加约定：**
+  - `accept` 同其他 effort 题：连续的档位，最多两档宽，包含 `gold`。降两档以上的题，`accept` 里没有「保持当前档」。
+  - **有 6 道题 `decideMidrun` 一次事件答不出**（`reachableLevels`：能发出去的档是现在这一档、升到 high（high 以上一次一档，可以到 max；出错代价直接到 xhigh）、回到发消息时的档、比发消息时低一档、失败事件里不降也不回）：007、061、066、068、091 的 `accept` 比现在的档低两档以上（发消息时的档被话题字样带高，一轮中途只能降一档），017 要 medium 而失败事件里原因未找到只能升到 high。0.11.0 放开一轮中途的上限之前（ADR 0022）还有 053：要 max，而那时中途最高到 xhigh；2026-11-11 及之前存的结果文件里 `breakdown.reachable` 仍按 7 题算。它们留在集里，汇总另给不含这几题的准确率（`breakdown.reachable`）。
+  - 「每题都保持当前档」的基线是 `current`，在汇总里和常数基线一起评分。
+
+**suite**（`lib/effort-midrun.ts`）：请求是 mod 在事件上发的那一个，**只用 mod 的函数拼**：`midrunState`（state）、`midrunPart`（问题，失败复现时带两条报错）、`mergeParts`，回答用 `answersFor`、`readEffort`、`midrunSignals` 读，评分的档位是 `decideMidrun` 返回的那一档（`sent`）：Score 的位置和两侧、红旗、一轮里只升不降的棘轮、决策模型自己指南的门槛都在里面（回答的 `model` 以 `d1` 开头读 Liquid 的指南，别的读设置里的，TypeSafe 的）。每个回答另记 `picked`（只看 Score 选出的档）、`move`、`reason`、每道是非题的概率（`noul`）、各档概率（`p`）、置信度和读它用的指南。变体：`mod`（mod 发的 state）、`no-facts`（去掉 `facts`）、`with-outputs`（每个调用的 `error` 是旧评测集的 `result`，不是 mod 的请求）；题面永远是英文（`midrunPart` 就是这样），`zh`/`en` 是 state 内容的语言，每个变体两种都问。汇总（`breakdown`）：按该升、该降、该保持分组的准确率，该保持的题被动了多少（动到 `accept` 之外多少）、该降的题没降够多少、该升的题没升够多少，`picked` 的准确率，不含答不出的题的准确率，每种 `move` 的次数，按事件和按标签组（`MIDRUN_TAG_GROUPS`）的准确率。
 
 ### subagent（#15）
 

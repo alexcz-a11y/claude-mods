@@ -17,7 +17,7 @@ import type { ImageFilesIo, LoadedImage } from './image-files.ts'
 /** What the zoomed re-check needs of the world: files and programs, and the decision model that takes images. */
 export type ZoomDeps = {
   files: ImageFilesIo
-  /** One request to the decision model that takes images (Jev: the Box questions and the pinned model are its own). */
+  /** One request to the decision model that takes images (Jev: the Box questions and the images' model are its own). */
   ask: (request: DecisionRequest) => Promise<Asked>
   /** The name the decision model goes by in a reason. */
   backend: string

@@ -77,30 +77,32 @@ test('why a Workflow call was left as written, and why a call got its model and 
 })
 
 test("the note beside a dispatched agent's Agent tool result is English, word for word (#34)", () => {
-  const opus = { row: '3' as const, wanted: 'opus' as const, model: 'opus' as const, why: ['cause_unknown' as const] }
-  const haiku = { row: '4' as const, wanted: 'haiku' as const, model: 'haiku' as const, why: ['writes' as const, 'few_steps' as const, 'report_only' as const] }
+  const opus = { row: '3' as const, wanted: 'opus' as const, model: 'opus' as const, why: ['diagnosis' as const], disarmed: [] }
+  const haiku = { row: '4' as const, wanted: 'haiku' as const, model: 'haiku' as const, why: ['judges' as const, 'logic' as const], disarmed: [] }
   const decided: DispatchDecision = { model: 'opus', effort: 'high', source: 'table', table: opus, route: null, requested: null, banned: [], signs: {}, reading: null, answered: true, namedEffort: null, effortSource: 'decided', steps: [] }
   const failure: Failure = { kind: 'http', detail: 'HTTP 500', status: 500 }
   const routed = (decision: DispatchDecision, started: string, requested: 'haiku' | 'sonnet' | 'opus' | null) => dispatchNote({ routed: true, decision, started, requested })
-  const policy = " This is the user's routing policy: a model the user names is used as named, and a model you ask for is kept unless the work calls for a stronger one."
+  const policy = " This is the user's routing policy: a model the user names is used as named, and a model you ask for is kept unless the work calls for a stronger one, or you asked for opus or fable for work that is only carried out, which goes to haiku."
   expect([
     routed({ ...decided, requested: { model: 'sonnet', outcome: 'upgraded' } }, 'claude-opus-5-5', 'sonnet'),
     routed({ ...decided, model: 'sonnet', banned: ['opus'], table: { ...opus, model: 'sonnet' } }, 'claude-sonnet-5-5', 'opus'),
     routed(decided, 'claude-opus-5-5', null),
-    routed({ ...decided, source: 'requested', model: 'opus', effort: 'medium', table: haiku, requested: { model: 'opus', outcome: 'kept' }, lifted: { from: 'low', by: 'model-floor' } }, 'opus', 'opus'),
+    routed({ ...decided, source: 'requested', model: 'sonnet', effort: 'medium', table: haiku, requested: { model: 'sonnet', outcome: 'kept' }, lifted: { from: 'low', by: 'model-floor' } }, 'sonnet', 'sonnet'),
+    routed({ ...decided, model: 'haiku', effort: 'low', table: haiku, requested: { model: 'opus', outcome: 'lowered' } }, 'claude-haiku-5-5', 'opus'),
     routed({ ...decided, source: 'requested', requested: { model: 'opus', outcome: 'kept' } }, 'opus', 'opus'),
-    routed({ ...decided, effort: 'xhigh', lifted: { from: 'medium', by: 'cause-unknown' } }, 'opus', null),
-    routed({ ...decided, source: 'user', model: 'haiku', effort: 'low', table: { row: '1', wanted: 'haiku', model: 'haiku', why: [] } }, 'haiku', null),
+    routed({ ...decided, effort: 'high', lifted: { from: 'medium', by: 'cause-unknown' } }, 'opus', null),
+    routed({ ...decided, source: 'user', model: 'haiku', effort: 'low', table: { row: '1', wanted: 'haiku', model: 'haiku', why: [], disarmed: [] } }, 'haiku', null),
     routed({ ...decided, source: 'none', model: null, table: null, effort: null, effortSource: 'none' }, 'claude-opus-5-5', null),
     dispatchNote({ routed: false, started: 'claude-sonnet-5-5', why: { failure, backend: 'jev' } }),
     dispatchNote({ routed: false, started: 'opus', why: 'off' }),
   ]).toEqual([
-    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort high. Model: raised from the sonnet you asked for: its rules read the brief as work that needs careful judgment (cause_unknown), which gets opus. Effort: chosen by its decision model." + policy,
-    "Dispatch Pilot (the user's routing plugin) started this agent on sonnet at effort high. Model: the user ruled out the opus you asked for; its rules read the brief as work that needs careful judgment (cause_unknown), which gets opus; the user ruled opus out, so sonnet. Effort: chosen by its decision model." + policy,
-    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort high. Model: its rules read the brief as work that needs careful judgment (cause_unknown), which gets opus. Effort: chosen by its decision model." + policy,
-    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort medium. Model: kept the opus you asked for (its rules read the brief as a read-only lookup of a step or two whose result is only reported (writes, few_steps, report_only), which gets haiku, which is not stronger). Effort: low lifted to medium, as the floor for opus." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort high. Model: raised from the sonnet you asked for: its rules read the brief as work that needs careful judgment (diagnosis), which gets opus. Effort: chosen by its decision model." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on sonnet at effort high. Model: the user ruled out the opus you asked for; its rules read the brief as work that needs careful judgment (diagnosis), which gets opus; the user ruled opus out, so sonnet. Effort: chosen by its decision model." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort high. Model: its rules read the brief as work that needs careful judgment (diagnosis), which gets opus. Effort: chosen by its decision model." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on sonnet at effort medium. Model: kept the sonnet you asked for (its rules read the brief as work that only carries out what the brief spells out, with nothing to judge and no code to follow (judges, logic), which gets haiku, which is not stronger). Effort: low lifted to medium, as the floor for sonnet." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on haiku at effort low. Model: lowered from the opus you asked for: its rules read the brief as work that only carries out what the brief spells out, with nothing to judge and no code to follow (judges, logic), which gets haiku. Effort: chosen by its decision model." + policy,
     "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort high. Model: kept the opus you asked for. Effort: chosen by its decision model." + policy,
-    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort xhigh. Model: its rules read the brief as work that needs careful judgment (cause_unknown), which gets opus. Effort: medium lifted to xhigh, as the work includes finding a cause nobody has named." + policy,
+    "Dispatch Pilot (the user's routing plugin) started this agent on opus at effort high. Model: its rules read the brief as work that needs careful judgment (diagnosis), which gets opus. Effort: medium lifted to high, as the work includes finding a cause nobody has named." + policy,
     "Dispatch Pilot (the user's routing plugin) started this agent on haiku at effort low. Model: the user named it. Effort: chosen by its decision model." + policy,
     "Dispatch Pilot (the user's routing plugin) started this agent on opus. Model: the engine's. Effort: the session's." + policy,
     "Dispatch Pilot (the user's routing plugin) did not route this agent (jev: HTTP 500): it started as you asked, on sonnet, at the effort Claude Code gives it.",

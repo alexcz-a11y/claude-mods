@@ -16,6 +16,7 @@ import type { BackendName } from '../hooks/core/setup.ts'
 import type { Backend, BackendIo } from '../hooks/decision/backend.ts'
 import { readImageHeader } from '../hooks/decision/image-header.ts'
 import { jevBackend } from '../hooks/decision/jev.ts'
+import { D1_1_MODEL, liquidBackend } from '../hooks/decision/liquid.ts'
 import { pplxBackend } from '../hooks/decision/pplx.ts'
 import { isKind, parseJsonl, type Kind } from './lib/datasets.ts'
 import { buildEvalV2, checkFinalGold, checkGold, checkItem, checkSegment, datasetWarnings, evalV2Jsonl, generatedFile, type Built, type FinalGold, type Segment, type V2Item, type V2Record } from './lib/eval-v2.ts'
@@ -77,7 +78,7 @@ export function resultFile(path: string): string | undefined {
 export function datasetFile(nameOrPath: string): { kind: Kind; path: string } {
   const path = nameOrPath.endsWith('.jsonl') ? resolve(nameOrPath) : join(DATASETS_DIR, `${nameOrPath}.jsonl`)
   const kind = basename(path, '.jsonl')
-  if (!isKind(kind)) throw new Error(`${basename(path)}: a dataset file is named after its kind (effort-submit, subagent, skill, unresolved, long-context, visual-check)`)
+  if (!isKind(kind)) throw new Error(`${basename(path)}: a dataset file is named after its kind (effort-submit, effort-midrun, subagent, skill, unresolved, long-context, visual-check)`)
   return { kind, path }
 }
 
@@ -204,7 +205,7 @@ export function credential(name: string): string | undefined {
 }
 
 /**
- * The decision backend under evaluation (`jev`, `pplx`, or `d1`: Liquid's d1-ultra, lib/d1.ts), with the
+ * The decision backend under evaluation (`jev`, `pplx`, `d1.1`: Liquid's newest, or `d1`: Liquid's d1-ultra, lib/d1.ts), with the
  * credentials it needs (`credential`); `secrets` are those values, to keep
  * them out of anything written. `longContext`: Jev's requests carry the
  * long-context header (eval/run.ts --long-context). Throws, saying what is
@@ -222,12 +223,13 @@ export function backendFor(name: string, model?: string, options: { longContext?
     if (key === undefined) throw new Error(`no PERPLEXITY_API_KEY in the environment or ${CREDENTIALS_FILE}`)
     return { backend: pplxBackend(key, model === undefined ? {} : { model }), secrets: [key] }
   }
-  if (name === 'd1') {
+  if (name === 'd1' || name === 'd1.1') {
     const key = credential('LIQUID_API_KEY')
     if (key === undefined) throw new Error(`no LIQUID_API_KEY in the environment or ${CREDENTIALS_FILE}`)
+    if (name === 'd1.1') return { backend: liquidBackend(key, { model: model ?? D1_1_MODEL }), secrets: [key] }
     return { backend: d1Backend(key, model === undefined ? {} : { model }), secrets: [key] }
   }
-  throw new Error(`no backend "${name}" (jev, pplx, d1)`)
+  throw new Error(`no backend "${name}" (jev, pplx, d1.1, d1)`)
 }
 
 /** A result file's text: pretty JSON, each answer on a line of its own (eval/run.ts writes it, eval/resummarize.ts rewrites it). */
@@ -238,9 +240,10 @@ export function formatResult(result: Record<string, unknown> & { answers: readon
 }
 
 /**
- * Input price per million tokens, by backend; output is free on all (docs.typesafe.ai/models, 2026-10-04; Perplexity: docs.perplexity.ai/docs/decisions/quickstart, Pricing, 2026-10-07).
+ * Input price per million tokens, by backend; output is free on all (docs.typesafe.ai/models, 2026-10-04; Perplexity: docs.perplexity.ai/docs/decisions/quickstart, Pricing, 2026-10-07;
+ * Liquid: liquid.ai/pricing, 2026-10-15, and the `usage.cost` its answers carry, 2026-11-10: d1-ultra 0.042, d1.1 0.02).
  */
-export const PRICES: Readonly<Record<BackendName, number>> = { jev: 0.042, pplx: 0.02 }
+export const PRICES: Readonly<Record<BackendName, number>> = { jev: 0.042, pplx: 0.02, 'd1-ultra': 0.042, 'd1.1': 0.02 }
 
 /** A number flag's value; a typo stops the script (exit 2) before anything is sent, as `Number()` would read it as NaN and pass every check made with it (lib/numbers.ts). */
 export function numberFlag(flag: string, text: string, rule: NumberRule): number {

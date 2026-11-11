@@ -362,7 +362,16 @@ export function cardRows(t: TT, card: Card, input: PaneInput, w: number, marks: 
   if (route !== undefined) rows.push(...decisionRows(t, route, main, w, marks, app))
   for (const raise of card.raises) {
     rows.push(blank(t, `pane-raise-gap-${raise.n}`))
-    rows.push(hang(t, `pane-raise-${raise.n}`, '升模型', text(`#${raise.n} ${raise.subject}${raise.counts === undefined ? '' : `：工具调用失败 ${raise.counts.failed}${raise.counts.blocked > 0 ? ` · 被 hook 拦下 ${raise.counts.blocked}` : ''} · 第 ${raise.counts.raised} 次升模型`}`, WARN), w, 10))
+    if (raise.midrun !== undefined) {
+      // The main agent's level moved in the middle of its turn: what asked, where it went, and the rules' working.
+      rows.push(hang(t, `pane-raise-${raise.n}`, '中途换档', text(`#${raise.n} ${raise.subject}`, WARN), w, 10))
+      rows.push(hang(t, `pane-raise-${raise.n}-result`, '结果', text(`${raise.midrun.from} → ${raise.midrun.to}${raise.midrun.free ? '（这一步本来就带输入，没有追加提示行）' : ''}`), w))
+      rows.push(hang(t, `pane-raise-${raise.n}-reason`, '理由', text(raise.reason, MUTED), w))
+      rows.push(...traceRows(t, `pane-raise-${raise.n}-step`, raise.trace ?? [], w, app))
+      continue
+    }
+    const what = raise.forced?.kind === 'effort' ? '升 effort' : '升模型'
+    rows.push(hang(t, `pane-raise-${raise.n}`, what, text(`#${raise.n} ${raise.subject}${raise.counts === undefined ? '' : `：工具调用失败 ${raise.counts.failed}${raise.counts.blocked > 0 ? ` · 被 hook 拦下 ${raise.counts.blocked}` : ''}${raise.forced?.kind === 'effort' ? '' : ` · 第 ${raise.counts.raised} 次升模型`}`}`, WARN), w, 10))
     if (raise.forced !== undefined) rows.push(hang(t, `pane-raise-${raise.n}-result`, '结果', text(`${raise.forced.from || '（不明）'} → ${raise.forced.to}`), w))
   }
   return rows

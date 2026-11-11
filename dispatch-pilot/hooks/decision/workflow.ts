@@ -84,11 +84,16 @@ export function tellsTheWork(prompt: string | null, template = false): prompt is
 const MAX_CALLS = 24
 /**
  * At most this many calls share one request: every question reads the whole state, so each brief added to it dilutes the
- * others (guide §2.1 S5, S6), and an agent takes 12 questions (13 with fable; ADR 0015) of the 64 a request holds.
+ * others (guide §2.1 S5, S6), and an agent takes 13 questions (14 with fable; ADR 0015, ADR 0023) of the 64 a request holds.
  */
 export const MAX_PER_REQUEST = 4
-/** At most this many requests are sent for one script, one lane at a time (core/agent-lane.ts): MAX_CALLS at MAX_PER_REQUEST each. */
-const MAX_REQUESTS = 6
+/**
+ * At most this many requests are sent for one script, as the lanes allow (core/agent-lane.ts): MAX_CALLS at three calls
+ * each. Three is what a request holds once the person's words mention a model or two (17 to 21 questions a call: a
+ * named and a ruled-out question for each); with 6, the count until the table was redone (ADR 0023), such a script had
+ * 6 of its 24 calls left undecided. Two rounds of the four lanes, as 6 were.
+ */
+const MAX_REQUESTS = 8
 
 /** The most a hook waits for requests about agents in all: the hook has 10 seconds, and what follows them must still fit. */
 export const BATCHES_BUDGET_MS = 8000
@@ -447,10 +452,10 @@ export function whyOf(decision: DispatchDecision): string {
     decision.source === 'user'
       ? 'model: you asked for it'
       : decision.source === 'requested'
-        ? "model: the script's own kept, never lowered"
+        ? "model: the script's own kept"
         : rulesWhy(decision) === null
           ? ''
-          : `model: ${rulesWhy(decision)}${decision.requested?.outcome === 'upgraded' ? `, raised from the script's ${decision.requested.model}` : ''}`
+          : `model: ${rulesWhy(decision)}${decision.requested?.outcome === 'upgraded' ? `, raised from the script's ${decision.requested.model}` : decision.requested?.outcome === 'lowered' ? `, lowered from the script's ${decision.requested.model}` : ''}`
   const level = decision.effort === null ? -1 : EFFORTS.indexOf(decision.effort)
   const effort =
     decision.effort === null

@@ -55,7 +55,6 @@ test("an agent's effort is lifted to its model's floor, and the log says so: son
     ['two-peaked', false, 'low'],
     ['stakes', false, 'low'],
     ['cause-unknown', false, 'low'],
-    ['unsure', false, 'low'],
     ['model-floor', true, 'medium'],
   ])
   // The effort the person asked for is theirs: the rules' working ends with it, over the decided one.
@@ -73,7 +72,7 @@ test('an agent sent to haiku goes out at the effort decided for it on every step
   expect(w.steps.map((s) => String(s.effort))).toEqual(['xhigh', 'xhigh'])
 })
 
-test("the main agent's pick is never in a question; it is kept unless the table's model is stronger, then raised to it, never lowered (ADR 0015)", { options: KEY }, async ($, on) => {
+test("the main agent's pick is never in a question; a sonnet pick is kept over the table's haiku and raised to the table's opus (ADR 0015)", { options: KEY }, async ($, on) => {
   // The first brief reads as a lookup (haiku), the second as a design left open (opus).
   const w = world($, on, { backend: (request, n) => agentJev({ model: n === 1 ? { haiku: 1 } : { opus: 1 } })(request) })
   await w.spawn({ prompt: 'Run `pnpm test` and list the failing tests by package. Do not fix anything.', model: 'sonnet' })
@@ -82,8 +81,8 @@ test("the main agent's pick is never in a question; it is kept unless the table'
   expect(w.spawned.map((s) => s.model)).toEqual(['sonnet', 'opus'])
   expect(JSON.stringify(w.requests.map((request) => request.body.questions))).not.toContain('sonnet')
   const reasons = (await w.board()).log.map((entry) => entry.reason)
-  expect(reasons[0]).toMatch(/^沿用主 agent 指定的 sonnet（模型表第 4 行（写入、一两步、只汇报） → haiku，不比它强）/)
-  expect(reasons[1]).toMatch(/^模型表第 3 行（方案未定） → opus；主 agent 指定的 sonnet 升级到 opus/)
+  expect(reasons[0]).toMatch(/^沿用主 agent 指定的 sonnet（模型表第 4 行（不用判断、不用读懂代码） → haiku，不比它强）/)
+  expect(reasons[1]).toMatch(/^模型表第 3 行（要做设计） → opus；主 agent 指定的 sonnet 升级到 opus/)
 })
 
 test("a model the person names for the work in this turn's message wins over the decision model and the main agent", { options: KEY }, async ($, on) => {
@@ -291,7 +290,7 @@ test('agents dispatched together share one request: what they share once, each b
   expect(w.spawned.map((s) => `${s.description}: ${String(s.model)}`).sort()).toEqual(['Design cache invalidation: opus', 'LRU tests: sonnet'])
   expect(w.steps.map((s) => `${String(s.agentId)} ${String(s.effort)}`)).toEqual([`${design.agentId} xhigh`, `${tests.agentId} high`])
   // One line in the debug log for the request, naming both agents.
-  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^request \[agent-0\.writes, .*\] to jev for agent "Design cache invalidation"（general-purpose）, agent "LRU tests"（general-purpose）: answered/))
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^request \[agent-0\.judges, .*\] to jev for agent "Design cache invalidation"（general-purpose）, agent "LRU tests"（general-purpose）: answered/))
 })
 
 test("agents dispatched together read the problem summary (the cheap model's, Haiku 5.5 by default, its switch on as by default) and the count once, in their shared request", { options: KEY }, async ($, on) => {
@@ -394,7 +393,7 @@ test('agents dispatched together each have their own decision on the board: mode
   expect(read.find((node) => node.id === design.agentId)).toMatchObject({ state: 'running', model: 'opus', effort: 'xhigh', routed: true })
   expect(read.find((node) => node.id === tests.agentId)).toMatchObject({ state: 'running', model: 'sonnet', effort: 'high', routed: true })
   expect(board.log.filter((entry) => entry.feature === 'dispatched-agents').map((entry) => entry.outcome)).toEqual(['opus xhigh', 'sonnet high'])
-  expect(board.log.find((entry) => entry.agent === design.agentId)?.reason).toMatch(/^模型表第 3 行（方案未定） → opus/)
+  expect(board.log.find((entry) => entry.agent === design.agentId)?.reason).toMatch(/^模型表第 3 行（要做设计） → opus/)
 })
 
 test("an agent the decision model could not be asked about is on the board as not routed, with the reason, next to the one that was routed", { options: KEY }, async ($, on) => {
@@ -450,7 +449,7 @@ test("the board keeps every dispatched agent's decision: the model and effort de
         n === 1
           ? { model: { haiku: 0.05, sonnet: 0.9, opus: 0.05 }, effort: [0, 0, 1, 0, 0] }
           : n === 2
-            ? { model: { haiku: 0.4, sonnet: 0.3, opus: 0.3 }, effort: [0, 1, 0, 0, 0] }
+            ? { model: { haiku: 0.3, sonnet: 0.4, opus: 0.3 }, effort: [0, 1, 0, 0, 0] }
             : { model: { opus: 1 }, nouls: { 'named.haiku': 0.9 } },
       )(request),
   })
@@ -459,7 +458,7 @@ test("the board keeps every dispatched agent's decision: the model and effort de
   await w.submit('这次用 haiku 把日志里的报错列出来就行')
   await w.spawn({ prompt: 'List the errors in logs/app.log.' })
 
-  // The decision model's sonnet, the main agent's opus it kept, the person's haiku.
+  // The decision model's sonnet, the main agent's opus it kept (the table's sonnet is one tier down), the person's haiku.
   expect((await w.board()).log.filter((entry) => entry.feature === 'dispatched-agents').map((entry) => [entry.model, entry.effort])).toEqual([
     ['sonnet', 'high'],
     ['opus', 'medium'],
@@ -647,14 +646,15 @@ test("the Agent tool's result tells the main agent the model and effort its agen
   expect(note).toContain('raised from the haiku you asked for: its rules read the brief as work that needs careful judgment (design_open), which gets opus')
 })
 
-test("the note says whose choice the model was: the main agent's pick kept, the user's named model, the table's with no pick (#34)", { options: KEY }, async ($, on) => {
-  const unsure = { haiku: 0.5, sonnet: 0.3, opus: 0.2 }
+test("the note says whose choice the model was: the main agent's pick kept or lowered, the user's named model, the table's with no pick (#34)", { options: KEY }, async ($, on) => {
+  const unsure = { haiku: 0.3, sonnet: 0.5, opus: 0.2 }
   const w = world($, on, {
     backend: (request) => {
       // The message's own effort request has no brief.
       const prompt = String(request.body.state.brief?.prompt ?? '')
       if (prompt.startsWith('A')) return agentJev({ model: unsure })(request)
       if (prompt.startsWith('B')) return agentJev({ model: { opus: 0.95, haiku: 0.02, sonnet: 0.03 }, nouls: { 'named.haiku': 0.93 } })(request)
+      if (prompt.startsWith('D')) return agentJev({ model: { haiku: 0.9, sonnet: 0.05, opus: 0.05 } })(request)
       return agentJev({ model: { haiku: 0.05, sonnet: 0.9, opus: 0.05 } })(request)
     },
   })
@@ -663,8 +663,12 @@ test("the note says whose choice the model was: the main agent's pick kept, the 
   const kept = noteOf(await w.agentTool({ prompt: 'A: run `pnpm lint` and list the warnings.', model: 'opus' }))
   const named = noteOf(await w.agentTool({ prompt: 'B: list the TODOs under src/.', model: 'sonnet' }))
   const decided = noteOf(await w.agentTool({ prompt: 'C: rename the helper.' }))
+  const lowered = noteOf(await w.agentTool({ prompt: 'D: run `pnpm test` and list what fails.', model: 'opus' }))
 
   expect(kept).toMatch(/kept the opus you asked for/)
+  // An opus pick for work that is only carried out gives way to the table's haiku, and the note says so (ADR 0024).
+  expect(lowered).toMatch(/started this agent on haiku.*Model: lowered from the opus you asked for: its rules read the brief as work that only carries out what the brief spells out/)
+  expect(lowered).toContain('or you asked for opus or fable for work that is only carried out, which goes to haiku.')
   expect(named).toMatch(/haiku at effort high.*the user named it/)
   expect(named).toContain('Effort: chosen by its decision model')
   expect(decided).toMatch(/sonnet.*Model: its rules read the brief as ordinary work, which gets sonnet\./)

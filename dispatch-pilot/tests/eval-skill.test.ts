@@ -119,8 +119,8 @@ function network(answer: (request: Sent) => Reply) {
 /** How the decision model rates this session's skills for the item: tdd first by far; on a second look tdd fits, code-review less, grill-me does. */
 const ANSWER = rates({ tdd: 0.55, 'code-review': 0.2, 'grill-me': 0.15, run: 0.02, '(none)': 0.08 }, { tdd: 0.93, 'code-review': 0.4, 'grill-me': 0.81 })
 
-/** The gate's three questions, as stage one asks them beside the Choices. */
-const GATE = ['skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices']
+/** The gate's three questions and `named` (ADR 0021), as stage one asks them beside the Choices. */
+const GATE = ['skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices', 'skills.named']
 
 for (const language of ['zh', 'en'] as const) {
   test(`the eval asks about an item what the mod asks when the person sends its message after its conversation, in both stages, each skill by its own description (${language})`, { options: { decisionModel: 'jev', typesafeApiKey: 'k' } }, async ($, on) => {
@@ -305,6 +305,7 @@ test("what an answer records: the gate, what stage one put forward, how well eac
 
   expect(row('a en')?.detail).toEqual({
     gate: 0.9,
+    named: 0,
     stopped: false,
     first: [
       { name: 'tdd', share: 0.556 },
@@ -322,8 +323,8 @@ test("what an answer records: the gate, what stage one put forward, how well eac
     hint_winner: 'grill-me',
     stages_ms: [300, 200],
   })
-  // The gate said no: no second request.
-  expect(row('b zh')?.detail).toMatchObject({ gate: 0, stopped: true, fits: [], winner: null, stages_ms: [300] })
+  // The gate and `named` said no: no second request.
+  expect(row('b zh')?.detail).toMatchObject({ gate: 0, named: 0, stopped: true, fits: [], winner: null, stages_ms: [300] })
   expect(row('b zh')?.ms).toBe(300)
   expect(rows.map((r) => `${r.id} ${r.language}: ${r.shown} ${r.correct ? 'right' : `wrong (${r.miss})`}`)).toEqual([
     'a zh: tdd right',

@@ -41,7 +41,7 @@ function reread(n: number): string[] {
   return [...(n >= 2 ? ['skills.which'] : []), ...Array.from({ length: n }, (_, i) => `skills.fits.${i}`)]
 }
 /** A message's stage one over SKILLS: the Choice over the three the main agent can load (grill-me alone has no Choice) and the gate. */
-const MESSAGE_FIRST = ['skills.which', 'skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices']
+const MESSAGE_FIRST = ['skills.which', 'skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices', 'skills.named']
 
 // ---- Registration -------------------------------------------------------------
 

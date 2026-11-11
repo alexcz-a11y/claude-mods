@@ -49,3 +49,5 @@ Liquid 的依据（docs.liquid.ai/guides/decision-model-guide，2026-10-28 重�
 - 没有跑评测（用户的决定）；cookbook 和 Liquid 的门槛都没有在我们的评测集上量过。
 
 版本号保持 0.9.0（和 ADR 0013 到 0017 是同一个版本）。
+
+后来被 ADR 0021 改了：cookbook 2026-10-30 的版本在第一段加了点名题 `named`（这条消息是否点名要用某个具体的工具、格式、模板或方法），不并进门控的平均，自己一条门槛（TypeSafe 0.50，到了就算；Liquid 0.2）：平均和它都低才不推荐，有一个过了就发第二段。cookbook 的 `GATE_THRESHOLD` 改名 `ACTION_THRESHOLD`，值不变。

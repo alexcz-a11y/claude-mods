@@ -35,6 +35,13 @@ export type TurnRecord = Plan & {
   changes: number
   /** Whether the person's own message started the turn, decided at its start or not: only such a turn keeps its facts. */
   person: boolean
+  /**
+   * The level the turn's latest message was decided at (ADR 0020): `effort` is this until the level moves in the middle of
+   * the run (features/midrun-effort.ts), and where a raise returns to. Absent or null: no message of the turn was decided.
+   */
+  base?: Effort | null
+  /** The highest floor the rules of that decision gave (its stakes, an unknown cause, `ultrathink`, ...): nothing lowers the turn under it. Absent or null for none. */
+  ruleFloor?: Effort | null
   /** What the turn did (features/escalation.ts), written as a turn the person's own message started ends; absent until then. */
   facts?: TurnFacts
 }
@@ -43,7 +50,15 @@ export type TurnRecord = Plan & {
  * A prompt's decided effort, waiting for the turn the prompt starts. `effort`
  * null: the person's message whose decision failed (its turn is still theirs).
  */
-export type PendingDecision = { text: string; effort: Effort | null; at: number; /** A report (a dispatched agent's hand-back, a task notice) started this turn, not the person's own message. */ report?: true }
+export type PendingDecision = {
+  text: string
+  effort: Effort | null
+  at: number
+  /** A report (a dispatched agent's hand-back, a task notice) started this turn, not the person's own message. */
+  report?: true
+  /** The highest floor the decision's rules gave (ADR 0020: nothing lowers the turn under it in the middle of the run); absent for none. */
+  ruleFloor?: Effort
+}
 
 /** The main agent's name wherever loops go by agent: in turn keys (`main:<turnId>`) and as its id in the `escalation` table. */
 export const MAIN = 'main'
@@ -54,15 +69,27 @@ export function turnKey(turnId: string, agentId: string | undefined): string {
 }
 
 /** A main turn's record as it starts: with the effort its prompt was decided at (or none), and whether the person's message started it. */
-export function newTurn(prompt: string, effort: Effort | null, person: boolean): TurnRecord {
-  return { effort, floor: null, model: null, prompt, decisions: effort === null ? 0 : 1, changes: 0, person }
+export function newTurn(prompt: string, effort: Effort | null, person: boolean, ruleFloor: Effort | null = null): TurnRecord {
+  return { effort, floor: null, model: null, prompt, decisions: effort === null ? 0 : 1, changes: 0, person, base: effort, ruleFloor }
 }
 
-/** The record after a new decision for the turn (`record` undefined: a turn whose start was not seen). */
-export function revise(record: TurnRecord | undefined, effort: Effort): TurnRecord {
+/**
+ * The record after a new decision of a message for the turn (`record` undefined: a turn whose start was not seen): the level,
+ * and with it where the turn's level starts from again (`base`, `ruleFloor`).
+ */
+export function revise(record: TurnRecord | undefined, effort: Effort, ruleFloor: Effort | null = null): TurnRecord {
   const base = record ?? newTurn('', null, false)
   const moved = base.effort !== null && base.effort !== effort
-  return { ...base, effort, decisions: base.decisions + 1, changes: base.changes + (moved ? 1 : 0) }
+  return { ...base, effort, decisions: base.decisions + 1, changes: base.changes + (moved ? 1 : 0), base: effort, ruleFloor }
+}
+
+/**
+ * The record after the level moved in the middle of the run (ADR 0020): the steps go out at `effort` from the next one with
+ * input; what the turn's message was decided at (`base`) stays, which is where a raise returns to. A record that had no level
+ * (its message's decision failed) takes `from`, the level its steps went out at, as its base.
+ */
+export function shifted(record: TurnRecord, effort: Effort, from: Effort): TurnRecord {
+  return { ...record, effort, changes: record.changes + (effort === from ? 0 : 1), base: record.base ?? from }
 }
 
 /** At most this many decisions wait for their turns. */

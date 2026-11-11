@@ -137,7 +137,7 @@ test("with Jev, the effort part beside a message is written in English, and so a
 
   const effort = w.requests[0]?.body.questions['effort.level']
   expect(Object.keys(effort.instructions)).toEqual(['question', 'work', 'rate', 'short_replies'])
-  expect(effort.criteria[0]).toMatch(/^Answered from what is already known/)
+  expect(effort.criteria[0]).toMatch(/^A short answer from what is already known/)
   // Chinese only in a quoted example of what the person may type (`"继续"`).
   expect(JSON.stringify(w.requests[0]?.body.questions).replace(/\\"[^\\"]*\\"/g, '')).not.toMatch(/[一-鿿]/)
   // The skills' questions are the cookbook's English words (ADR 0018).
@@ -173,8 +173,9 @@ test("the skills' bars are the decision model's guide's, no option (ADR 0018): w
   const w = world($, on, { backend: rates({ tdd: 0.5, 'code-review': 0.4, '(none)': 0.1 }, { tdd: 0.29, 'code-review': 0.2 }), skills: SKILLS })
   await w.submit('先写测试，再审一下这个分支')
   expect(w.prompts[0]?.context?.[0]).toContain('No skill in the roster appears relevant to this request.')
-  expect(readConfig({ decisionModel: 'jev' }).guide.skills).toEqual({ gateBelow: 0.3, fits: 0.3, fitsInclusive: true })
-  expect(readConfig({ decisionModel: 'd1-ultra' }).guide.skills).toEqual({ gateBelow: 0.2, fits: 0.5, fitsInclusive: false })
+  expect(readConfig({ decisionModel: 'jev' }).guide.skills).toEqual({ gateBelow: 0.3, namedBelow: 0.5, fits: 0.3, fitsInclusive: true })
+  expect(readConfig({ decisionModel: 'd1-ultra' }).guide.skills).toEqual({ gateBelow: 0.2, namedBelow: 0.2, fits: 0.5, fitsInclusive: false })
+  expect(readConfig({ decisionModel: 'd1.1' }).guide.skills).toEqual(readConfig({ decisionModel: 'd1-ultra' }).guide.skills)
 })
 
 test("at session start the debug log says which options took the decision model's defaults, and one cut to Jev's most", { options: { ...KEY, contextTokens: 20000 } }, async ($, on) => {
@@ -263,7 +264,7 @@ test("Jev's context budget by default, kind of request by kind: every kind keeps
   const effort = size(turnStartPart({ ask: { language: 'en' }, constraints: [{ person_said: 'x', assistant_before: 'y' }], lastTurn: { effort: 'high', calls: 1, failed: 1, blocked: 0, stuck: false, errors: [] } }))
   // The most an agent asks: every Noul about its brief with fable's, the effort, a named and a ruled-out question for each model mentioned, the named effort.
   const agent = size(dispatchPart(mentions, { models: [...DEFAULT_AGENT_MODELS, 'fable'] }))
-  // A request holds 64 questions: MAX_PER_REQUEST agents asking all of theirs with no model mentioned fit (12 each with fable).
+  // A request holds 64 questions: MAX_PER_REQUEST agents asking all of theirs with no model mentioned fit (14 each with fable).
   expect(MAX_PER_REQUEST * Object.keys(dispatchPart({ ...mentions, user_message: 'fix it' }, { models: [...DEFAULT_AGENT_MODELS, 'fable'] }).questions).length).toBeLessThanOrEqual(MAX_QUESTIONS)
   // Each kind of request: the budget its state takes, the longest question it carries and all its questions together (Jev's count).
   const kinds = {
@@ -466,7 +467,7 @@ test('readConfig for pplx: its row of the table stands where the person set noth
   expect(config.contextByKind).toEqual({ messagePlain: 48000, agent: 32000, workflow: 48000 })
   expect(config.agents.background).toBe(true)
   // The skills' bars are TypeSafe's, as Jev's (pplx answers as Jev does).
-  expect(config.guide.skills).toEqual({ gateBelow: 0.3, fits: 0.3, fitsInclusive: true })
+  expect(config.guide.skills).toEqual({ gateBelow: 0.3, namedBelow: 0.5, fits: 0.3, fitsInclusive: true })
   // Every question in English, the effort question beside a message too.
   expect(config.ask).toEqual({ turnStart: { language: 'en', primitive: 'score' }, agent: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } })
   expect(config.defaults.used.map(([option]) => option)).toEqual([...PER_BACKEND_OPTIONS])
@@ -484,10 +485,12 @@ test("readConfig for pplx: a value the person sets comes first, within pplx's ow
   expect([less.context.tokens, less.contextByKind]).toEqual([6000, { messagePlain: 20000, agent: 20000, workflow: 20000 }])
 })
 
-test('readConfig: Jev is the decision model unless decisionModel says pplx; anything else (unset, a typo, clef) reads as unset', () => {
-  for (const decisionModel of [undefined, 'jev', 'pplx-typo', 'clef']) expect(readConfig(decisionModel === undefined ? {} : { decisionModel }).backend).toBe('jev')
+test('readConfig: Jev is the decision model unless decisionModel names pplx, d1-ultra or d1.1; anything else (unset, a typo, clef) reads as unset', () => {
+  for (const decisionModel of [undefined, 'jev', 'pplx-typo', 'clef', 'd1', 'd1:latest', 'd1.1:latest']) expect(readConfig(decisionModel === undefined ? {} : { decisionModel }).backend).toBe('jev')
   expect(readConfig({ decisionModel: 'pplx' }).backend).toBe('pplx')
   expect(backendNameOf({ decisionModel: 'pplx' })).toBe('pplx')
+  expect(backendNameOf({ decisionModel: 'd1-ultra' })).toBe('d1-ultra')
+  expect(backendNameOf({ decisionModel: 'd1.1' })).toBe('d1.1')
   expect(backendNameOf({})).toBe('jev')
 })
 

@@ -74,7 +74,7 @@ test("with Jev, an item compared with a reference is asked as the mod asks a cal
   const { w, sent, decided } = await bothAsk($, on, UI, { images: ['/set/ui/c1.png'], reference: ['/set/ui/ref.png'], checks: [BUTTON, TAB_BAR] }, KEY, ZOOMING)
 
   expect(decided.ok).toBe(true)
-  // Two requests each, and each pair is the same on the wire: the URL, the headers (the key and the images header), the body (the pinned model, the state, the assets, the questions).
+  // Two requests each, and each pair is the same on the wire: the URL, the headers (the key and the images header), the body (the model, the state, the assets, the questions).
   expect(w.requests).toHaveLength(2)
   expect(sent.map((request) => comparable(request))).toEqual(w.requests.map((request) => comparable(request)))
   // What they hold, so that the equality is not of two empty things.

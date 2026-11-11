@@ -2,13 +2,15 @@
 // dispatched agent whose calls keep failing goes on as, what is kept of the
 // main agent's turn for the next message, and how an agent's transcript reads.
 //
-// Pure (see system-one.ts). Claude Code 2.1.312 keeps a model's effort from
-// one message with input to the next: an effort written on a step whose new
-// input is tool results does not go out, a model written on any step does
-// (measured, DEVELOPMENT.md 「已实测的引擎行为」). So nothing here raises an
-// effort mid-turn or asks the decision model: a failing dispatched agent goes
-// on as the next model up, and the main agent's turn leaves its facts
-// (`TurnFacts`) for the next message's decision.
+// Pure (see system-one.ts). Claude Code keeps a model's effort from one
+// message with input to the next (2.1.312 on): an effort written on a step
+// whose new input is tool results does not go out, a model written on any step
+// does (measured, DEVELOPMENT.md 「已实测的引擎行为」). A failing dispatched
+// agent's effort goes up first, with a row appended to its conversation so its
+// next step carries input (features/escalation.ts, ADR 0020), then it goes on
+// as the next model up; the main agent's turn leaves its facts (`TurnFacts`)
+// for the next message's decision, and its level is looked at again at the
+// run's events (features/midrun-effort.ts).
 
 import { clipToTokens, withoutReminders } from './context.ts'
 import { AGENT_MODELS, modelFamily, type AgentModel, type Terms } from './dispatched-agent.ts'

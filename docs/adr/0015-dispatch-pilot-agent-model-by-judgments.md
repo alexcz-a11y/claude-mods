@@ -32,3 +32,9 @@ ADR 0014 按 TypeSafe 的官方指南重做了发消息时的判断，派出 age
 版本号保持 0.9.0（和 ADR 0013、0014 是同一个版本）。
 
 后来 ADR 0017 加了可选的 d1-ultra：选它时不用模型表，改按 Liquid 官方的路由示例问一道选择题（`route`：fast、standard、powerful，开了 `agentFable` 加 frontier），置信度低于 0.5 退到最强的可用模型；只升不降、点名和排除照旧，线是 Liquid 的 0.8 / 0.2。模型表仍是 Jev 和 pplx 的做法。
+
+后来被 ADR 0022（2026-11-11，0.11.0） 改了：模型表第 ③b 行仍给 sonnet，但不再把 effort 抬到 max（`unsure` 这一步删了；`subagent` 评测里它抬到 max 的 22 个 agent 有 19 个基础档本来是对的）。effort 的下限跟着发消息时的改：出错代价两道同为是 max、任一为是至少 high，原因未知为是至少 high，拿不准的不抬；模型下限不变。max 只来自 effort 题自己的读数、出错代价两道同为是，或用户点名。四道题的判据和 effort 题的档位描述也跟着改细了。模型表本身（哪一行给哪个模型）没有动。
+
+后来被 ADR 0023（2026-11-11，0.11.0） 改了：模型表的题和行重做了。删掉 `writes`、`few_steps`、`report_only`、`outside_facts` 四道题和第 ③b 行，`stakes.access` 和 `cause_unknown` 不再进模型表（仍然问，只用来定 effort 的下限）；新加 `judges`、`logic`、`diagnosis`、`security`、`concurrency`、`money`，`design_open` 和 `science_code` 改了题面。现在第 ③ 行是 `stakes.undo` 或 `stakes.live` 为是，或者（`judges` 不为否时）`diagnosis`、`design_open`、`security`、`concurrency`、`money`、`science_code` 任一为是，opus；第 ④ 行是 `judges` 否而且 `logic` 否，haiku；其余 sonnet。每道题读的是任务要 agent 做的工作，不是它的话题。`subagent` 评测（Jev，`nouls`，3 次）模型对 90.0% / 89.3%，原来的表是 65% / 64%（1 次）。「主 agent 的指定只升不降」、点名和排除、effort 的定法和本文其余的决定都不变。
+
+后来被 ADR 0024（2026-11-11，0.11.0）改了一条：「主 agent 的指定只升不降」不再是绝对的。规则读成这项工作只是照做（模型表停在第 ④ 行，或 Liquid 的路由选了 `fast`）而主 agent 指定的是 opus 或 fable 时，降到 haiku；其余仍然保留它的指定。`subagent` 评测上模型对的从 90% 到 96%，降下来的回答没有一个降错。

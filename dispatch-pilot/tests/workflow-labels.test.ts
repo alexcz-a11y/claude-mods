@@ -199,7 +199,7 @@ test("each agent of a script that cannot be read has its own decision on the boa
   ])
   expect(started.map((node) => board.log.find((entry) => entry.n === node.decision)?.agent)).toEqual(['wa1', 'wa2'])
   expect(board.log[0]).toMatchObject({ feature: 'workflow-labels', subject: expect.stringContaining('"first"（Workflow') })
-  expect(board.log[0]?.reason).toMatch(/^按它启动时的任务；模型表第 3 行（方案未定） → opus/)
+  expect(board.log[0]?.reason).toMatch(/^按它启动时的任务；模型表第 3 行（要做设计） → opus/)
   expect(board.log[0]?.trace?.map((step) => step.rule)).toContain('position')
 })
 
@@ -243,7 +243,7 @@ test("each decision is logged with its reason, in the debug log and /dp log, nev
 
   const shown = await w.command('dp', 'log 10')
   expect(shown).toMatch(/workflow-labels：sonnet medium · "rename"（Workflow tidy-api）：模型表第 5 行 → sonnet；effort 概率 low 0\.00, medium 1\.00/)
-  expect(shown).toMatch(/workflow-labels：opus high · "review"（Workflow tidy-api）：模型表第 3 行（方案未定） → opus/)
+  expect(shown).toMatch(/workflow-labels：opus high · "review"（Workflow tidy-api）：模型表第 3 行（要做设计） → opus/)
   // (The tool's result names the workflow; this stub's does not, so it is `unnamed` here.)
   expect(shown).toMatch(/workflow-labels：sonnet medium · "first"（Workflow \S+）：按它启动时的任务；模型表第 5 行 → sonnet/)
   const debug = w.logs.filter((log) => log.to === 'debug').map((log) => log.text)

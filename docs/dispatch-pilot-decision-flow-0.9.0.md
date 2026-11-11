@@ -23,7 +23,7 @@
 
 - **是非题怎么读**：按决策模型的官方读法（`decision/guides.ts`）。Jev 和 pplx：概率 ≥ 0.7 算「是」，≤ 0.3 算「否」（TypeSafe 官方给的起点）；d1-ultra：大于 0.8 算「是」，小于 0.2 算「否」（Liquid 指南的示例）。中间算「中间带」，各有自己的去向。
 - **一轮里 effort 不再变**：Claude Code 2.1.312 起，一轮中途改 effort 要等到下一条有新输入的消息才生效。所以主 agent 的 effort 只在消息到达时定一次；你在一轮进行中发的排队消息带着新输入，可以改它。排队消息带了图也只按文字判一次，不读图：读完图再判的那一次可能落在只带工具结果的一步上，那一步改 effort 不生效，看板却会写着它。
-- **置信度**：Jev 和 pplx 的门槛都读概率，不读置信度。d1-ultra 按 Liquid 官方读法用置信度 0.5：effort 回答的置信度低于 0.5 再往上一档，派出 agent 的路由置信度低于 0.5 退到最强的模型。
+- **置信度**：Jev 和 pplx 的门槛都读概率，不读置信度。d1-ultra 和 d1.1 只在派出 agent 的路由上用置信度 0.5（低于 0.5 退到最强的模型）；effort 回答按它本身读，置信度只记录（0.11.0 起，ADR 0022：原来低于 0.5 再往上一档）。
 
 目录：
 
@@ -136,7 +136,7 @@ flowchart TD
 %%{init: {"flowchart": {"wrappingWidth": 360}}}%%
 flowchart TD
     P["effort.level 的五档概率<br/>low · medium · high · xhigh · max"] --> POS["① 基础档：加权位置四舍五入（新）<br/>位置 = 0×p(low) + 1×p(medium) + 2×p(high) + 3×p(xhigh) + 4×p(max)"]
-    POS --> TWO{"② 拿不准吗？<br/>Jev、pplx：比基础档高两档以上的某一档概率 ≥ 0.3（双峰）<br/>d1-ultra（新）：回答的置信度低于 0.5"}
+    POS --> TWO{"② 拿不准吗？<br/>Jev、pplx：比基础档高两档以上的某一档概率 ≥ 0.3（双峰）<br/>d1-ultra、d1.1：不看，回答按它本身读（ADR 0022）"}
     TWO -->|"是"| UP1["基础档往上一档（新）"]
     TWO -->|否| KEEP["基础档不变"]
     UP1 --> FL["③ 下限：下面每条都可能给出一个下限（新）"]
@@ -144,8 +144,8 @@ flowchart TD
     FL --> R1["R1：消息里写了 ultrathink → 至少 xhigh"]
     FL --> ESC["（新）要求升级：escalate 是 → 至少 xhigh"]
     FL --> CON["（新）确认：confirm 是 → 至少上一轮的档位<br/>（不碰未解决次数）"]
-    FL --> R2["R2：stakes.undo 是，且 stakes.live 或 stakes.access 是 → max<br/>任一 stakes 是 → 至少 xhigh；在中间带 → 至少 high"]
-    FL --> R3["R3：cause_unknown 是 → 至少 xhigh；在中间带 → 至少 high"]
+    FL --> R2["R2：stakes.undo 是，且 stakes.live 或 stakes.access 是 → max<br/>任一 stakes 是 → 至少 high；在中间带不抬（ADR 0022）"]
+    FL --> R3["R3：cause_unknown 是 → 至少 high；在中间带不抬（ADR 0022）"]
     FL --> R4["R4：still_failing 是，且上一轮失败达到 escalateAfter<br/>→ 至少比上一轮高一档"]
     FL --> R5["R5：still_failing 是，且算上这条的未解决次数 ≥ unresolvedMaxAfter<br/>→ max"]
     R1 --> RES["④ 结果 = 基础档和所有下限里最高的那个"]
@@ -173,7 +173,7 @@ flowchart TD
 |---|---|---|
 | 加权位置（`score`） | | 打分题的「平均落点」，0 到 4 之间。四舍五入到最近一档就是基础档（官方 cookbook 的做法） |
 | 双峰 | | 概率同时堆在低处和高处，平均落点会被拉到中间、看不出来。官方提醒要看各档概率；比基础档高两档以上的某档概率 ≥ 0.3，就往上一档。Jev 和 pplx 用它 |
-| 置信度低（新） | | d1-ultra 用它代替双峰：打分题回答的置信度低于 0.5 就往上一档（借 Liquid 路由示例的 0.5，Liquid 没写打分题怎么办） |
+| 置信度低 | | 0.11.0 起不用了（ADR 0022）：d1-ultra 和 d1.1 的打分题按回答本身读。原来置信度低于 0.5 就往上一档（借 Liquid 路由示例的 0.5，Liquid 没写打分题怎么办），评测里判高的多 |
 | `escalate` | 要求升级（是非题，新） | 你是否要求多想、做得更仔细，或用更强的模型（「仔细一点」「认真想想再改」），没写 ultrathink 也算。为是至少 xhigh |
 | `confirm` | 确认（是非题，新） | 你是否只是同意、让继续或从助手给出的选项里选一个（「好，就这么做」「继续」「选 2」）。为是这一轮至少等于上一轮的档位：要做的就是上一轮定下的事 |
 | `ultrathink` | 深度思考关键词 | 你在消息里写了它（不在引号里、不在路径里），引擎会把这一轮抬到 xhigh；dp 不再把它压下去。0.9.2 起，环境变量 `CLAUDE_CODE_DISABLE_ULTRATHINK`（2.1.316）关掉这个关键词时引擎不抬，R1 也不抬 |
@@ -255,11 +255,17 @@ flowchart TD
 | `hook-block-failures` | hook 拦截算失败 | 打开后，你自己的 settings hook 拦下的调用也算失败 | 关 |
 | 为什么升模型不升 effort | | 2.1.312 实测：一轮中途换模型立即生效，改 effort 不生效 | |
 
+后来改了（0.11.0，2026-11-11，ADR 0020、0022、0023）：派出 agent 第一次到门槛先升一档 effort（追加一行提示让它生效，最高到 max），再到门槛才换模型，最多换 `escalateLimit` 次；换不了模型时（`escalateLimit` 是 0、已经换满、已经是最强的、你点名了模型），每到 `escalateAfter` 次就把 effort 再升一档，直到 max。`escalateLimit` 设成 0，agent 派出之后就从不换模型。上图画的是 0.9.0。
+
 ---
 
 ## 图 5　派出 agent 的模型和 effort
 
-选 Jev 或 pplx 时，决策模型只回答关于任务的是非题，模型由代码按一张表定（ADR 0015，TypeSafe 的「判断交给模型，决定写在代码里」）。（新）选 d1-ultra 时改按 Liquid 官方的路由示例：一道选择题选档位，置信度低于 0.5 退到最强的模型（ADR 0017）。
+选 Jev 或 pplx 时，决策模型只回答关于任务的是非题，模型由代码按一张表定（ADR 0015，TypeSafe 的「判断交给模型，决定写在代码里」）。
+
+后来改了（0.11.0，2026-11-11，ADR 0023）：模型表的题和行重做了，下面的图和表画的是 0.9.0 的。现在关于任务的是非题是十二道（加 effort 题共 13 道，开了 `agentFable` 14 道）：`judges`（要不要 agent 自己判断）、`logic`（要不要读懂代码的逻辑）、`stakes.undo`、`stakes.live`、`stakes.access`、`cause_unknown`、`diagnosis`（怎么找原因留给 agent）、`design_open`（设计自己系统各部分怎样配合）、`security`（自己想出怎样被攻击）、`concurrency`（并发和时序）、`money`（核对算钱的逻辑）、`science_code`；`writes`、`few_steps`、`report_only`、`outside_facts` 删了。表：① 你点名的模型；② 开了 `agentFable` 而且 `frontier` 为是，fable；③ `stakes.undo` 或 `stakes.live` 为是，或者（`judges` 不为否时）`diagnosis`、`design_open`、`security`、`concurrency`、`money`、`science_code` 任一为是，opus；④ `judges` 否而且 `logic` 否，haiku；⑤ 其余 sonnet。没有 ③b 了：拿不准的既不抬也不拦。`stakes.access` 和 `cause_unknown` 仍然问，只用来定 effort 的下限。每道题读的是任务要 agent 做的工作，不是它的话题。`subagent` 评测（Jev，jev-1.14.0，`nouls`，3 次）模型对 90.0% / 89.3%，原来的表是 65% / 64%（1 次）。
+
+（新）选 d1-ultra 时改按 Liquid 官方的路由示例：一道选择题选档位，置信度低于 0.5 退到最强的模型（ADR 0017）。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 360}}}%%
@@ -280,7 +286,7 @@ flowchart TD
     R2 -->|否| R3{"③ 出错代价三题、原因未知、方案未定、<br/>仓库外事实、科学计算，任一为是？"}
     R3 -->|是| OP["opus"]
     R3 -->|否| R3B{"③b 这七题任一拿不准？"}
-    R3B -->|是| SB["sonnet，effort 下限 max"]
+    R3B -->|是| SB["sonnet（effort 不因此抬高，ADR 0022）"]
     R3B -->|否| R4{"④ writes 否、few_steps 是、<br/>report_only 是？"}
     R4 -->|是| HA["haiku"]
     R4 -->|否| SO["⑤ sonnet"]
@@ -300,7 +306,7 @@ flowchart TD
     UP --> EF
     KEEP --> EF
     EF -->|是| E1["用你点名的，任何下限都不动它"]
-    EF -->|否| E2["基础档：按图 2 的 ①② 定<br/>再按下限抬（只抬不压，取最高）：<br/>出错代价：难以挽回为是且线上或权限为是 max，任一为是 xhigh，任一拿不准 high<br/>原因未知：是 xhigh，拿不准 high<br/>表停在 ③b：max（d1-ultra 没有 ③b）<br/>模型下限：sonnet、opus 至少 medium"]
+    EF -->|否| E2["基础档：按图 2 的 ①② 定<br/>再按下限抬（只抬不压，取最高）：<br/>出错代价：难以挽回为是且线上或权限为是 max，任一为是 high<br/>原因未知：为是 high<br/>拿不准的不抬，表停在 ③b 也不抬（ADR 0022）<br/>模型下限：sonnet、opus 至少 medium"]
     E1 --> SP["改 spawn 的 model，启动 agent<br/>计划表记下它的 effort 和你的点名"]
     E2 --> SP
     SP --> STEPS["这个 agent 的每一步：核心按计划写 effort，见图 3<br/>失败多了升一级模型，见图 4"]
@@ -337,7 +343,7 @@ flowchart TD
 | `contextTokens` | state 预算 | 留在常规上限内。一个 agent 11 到 19 道题，一个请求最多 64 道，所以一个请求最多 4 个 agent | 24000 |
 | `route` | 路由（选择题，新） | 只在 d1-ultra 上问，代替模型表那几道是非题：「这件事该交给哪一档模型」。`fast` 收集、查找、按要求列出；`standard` 方法已知的常规软件工作；`powerful` 出错代价高、原因未知、要选做法、靠仓库外事实、数值或科学计算；`frontier` 严格证明或没有现成答案的新算法、新架构（开了 `agentFable` 才有） | |
 | 退到最强 | | d1-ultra 的路由置信度低于 0.5 时，用可用模型里最强的：opus，开了 `agentFable` 是 fable；最强的被你排除就取次强的 | |
-| d1-ultra 的 effort | | 仍问出错代价三题和原因未知，只用来抬 effort；线是 0.8 / 0.2；没有 ③b 的 max；拿不准按置信度 | |
+| d1-ultra 的 effort | | 仍问出错代价三题和原因未知，只用来抬 effort（下限和模型表那一路相同）；线是 0.8 / 0.2；effort 回答按它本身读，置信度只用在路由上（ADR 0022） | |
 
 ---
 
@@ -428,6 +434,8 @@ flowchart TD
 ## 图 8　skill 推荐和 find_skill
 
 照 TypeSafe 的 skill 推荐 cookbook（ADR 0018）：先判断这条消息要不要 skill，再细看最相关的三个，最多推荐一个。问题是 cookbook 的原话；两道门槛按各家的官方指南，写在 `decision/guides.ts`，不是选项。主 agent 的 skill 列表照旧被拿走（派出 agent 的不动），`find_skill` 照旧只为主 agent 工作。
+
+ADR 0021 起第一段在三道门控题旁边多问一道点名题 `skills.named`（这条消息是否点名要用某个具体的工具、格式、模板或方法），它自己一条门槛（Jev、pplx 0.50，d1-ultra、d1.1 0.2）：下图「低于门槛吗」要三道的平均和点名题都低于各自的门槛才走「是」。图里写 d1-ultra 的地方，d1.1 一样。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 340}}}%%

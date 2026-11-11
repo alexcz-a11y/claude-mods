@@ -53,3 +53,9 @@ Liquid 的依据（2026-10-28 读的原文）：
 版本号保持 0.9.0。
 
 后来 ADR 0018 照 TypeSafe 的 skill 推荐 cookbook 重写了 skill 推荐和 `find_skill`，上面「门槛沿用 Jev 的」不再成立：d1-ultra 的两道门槛按 Liquid 的，三道门控题的平均低于 0.2 不推荐，候选的「是否正好做这件事」要高于 0.5（重排示例）才推荐或返回。
+
+后来被 ADR 0021 改了：Liquid 的 `d1.1`（2026-10-19，Liquid 写的默认托管决策模型）也可以选，`decisionModel: d1.1`。同一个后端和读法，固定模型 `d1.1`，预算沿用 d1-ultra 的，等待按 2026-11-10 的实测（`timeoutMs` 3500）；图仍给 Jev。同一天在两个模型上核实了计费：state 只算一次，每道题加它自己的 token。skill 推荐多了点名题，Liquid 的线也是 0.2。
+
+后来被 ADR 0022（2026-11-11，0.11.0） 改了：effort 题「置信度低于 0.5 再往上取一档」去掉了，d1-ultra 和 d1.1 的回答按它本身读（位置四舍五入），发消息时、派出 agent 和一轮中途都一样（`LIQUID_GUIDE.scoreUnsure` 是 `none`，`low-confidence` 这一步删了）。那一条是我们从路由示例借来的，`effort-submit` 上它把每 100 条消息里的 13 到 18 条判高了一档。路由的「置信度低于 0.5 退到最强」不变；是非题的 0.8 / 0.2 不变；下限的档位跟着 ADR 0022 改（单独一道出错代价为是、原因未知为是都至少 high，拿不准不抬）。
+
+后来 ADR 0023（2026-11-11，0.11.0）重做了模型表，d1-ultra 和 d1.1 上不问的题跟着变成 `judges`、`logic`、`diagnosis`、`design_open`、`security`、`concurrency`、`money`、`science_code`、`frontier`；`route` 和为 effort 下限问的四道（`stakes.undo`、`stakes.live`、`stakes.access`、`cause_unknown`）不变。

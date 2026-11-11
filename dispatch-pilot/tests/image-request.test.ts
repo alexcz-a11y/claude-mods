@@ -1,7 +1,7 @@
 // Decision requests that carry images (#56, ADR 0008): how each backend sends them. Seam 2 (the backend's `ask` over a fake
 // network, as pplx.test.ts has it): a request holds `images` (a name, the bytes as base64, the size) and its state and
 // questions refer to each by `imageRef(name)`; Jev sends them in the top-level `assets` under references that start with a
-// new id for each request, with the images header and the pinned model; pplx sends a state that is an array of text and
+// new id for each request, with the images header and the images' own model; pplx sends a state that is an array of text and
 // `image_url` parts. A request without images goes out exactly as before (pplx.test.ts and the rest of the suite).
 
 import type { HttpResponse } from 'claude-code'
@@ -63,14 +63,14 @@ test('a Jev request with images has the images in a top-level assets map, under 
   expect(Object.keys(sent?.body).sort()).toEqual(['assets', 'model', 'questions', 'state'])
 })
 
-test('a Jev request with images carries the images header and pins the model to jev-1.14.0, whatever model the backend is built with', async () => {
+test('a Jev request with images carries the images header and goes to jev-latest (ADR 0021), whatever model the backend is built with', async () => {
   const net = network(() => ANSWER)
   await jevBackend(KEY, { model: 'jev-1.13.0' }).ask(net.io, COMPARE, 1500)
 
   const [sent] = net.seen
   expect(sent?.headers['TypeSafe-Danger-Zone-Images']).toBe('true')
   expect(sent?.headers.authorization).toBe(`Bearer ${KEY}`)
-  expect(sent?.body.model).toBe('jev-1.14.0')
+  expect(sent?.body.model).toBe('jev-latest')
 })
 
 test('each Jev request gets references of its own: the same images in two requests are not under the same references', async () => {

@@ -5,6 +5,7 @@
 // (`w.board()`) out.
 
 import { expect, test } from 'claude-code/testing'
+import { describeStages } from '../hooks/core/skills.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { LIQUID_GUIDE, TYPESAFE_GUIDE } from '../hooks/decision/guides.ts'
 import {
@@ -17,6 +18,7 @@ import {
   skillOpening,
   skillsPart,
   skillsRequest,
+  wantsSkill,
   type SkillOption,
   type SkillRanking,
 } from '../hooks/decision/skills.ts'
@@ -201,12 +203,14 @@ test('every skill the main agent can load in skillsNeverSuggested: none could be
   expect(await w.listing(LISTING)).toEqual({ text: LISTING })
 })
 
-test("a message's skills request asks, in the cookbook's words, which skill the main agent could load for it, each by its own description, and three questions on whether it needs one at all", { options: KEY }, async ($, on) => {
+test("a message's skills request asks, in the cookbook's words, which skill the main agent could load for it, each by its own description, three questions on whether it needs one at all and one on whether it names a method", { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS })
   await w.submit('先写一个失败的测试，再实现登录限流')
 
   const questions = w.withoutEffort[0]?.body.questions
-  expect(Object.keys(questions)).toEqual(['skills.which', 'skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices'])
+  expect(Object.keys(questions)).toEqual(['skills.which', 'skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices', 'skills.named'])
+  // The cookbook's NAMED_QUESTION, word for word (ADR 0021): "the request", as the gate's questions say it.
+  expect(questions['skills.named']).toEqual({ type: 'noul', instructions: 'Does the request ask for a specific named tool, format, template, or method to be used, rather than for general help?' })
   const which = questions['skills.which']
   expect(which.type).toBe('choice')
   // The names the Skill tool takes (a synced skill with its prefix); no "none of these" option (the gate asks that).
@@ -253,14 +257,32 @@ test("as in the cookbook's deck example, the Choice settles which skill and the 
   expect((await skillDecisions(w))[0]?.skills?.suggest[0]?.relevance).toBe(0.38)
 })
 
-test('when the three gate questions say the message needs no skill, nothing is asked a second time, and the main agent is told none appears relevant', { options: KEY }, async ($, on) => {
+test('when the three gate questions say the message needs no skill and it names no method, nothing is asked a second time, and the main agent is told none appears relevant', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 0.03, 'code-review': 0.04, 'anthropic-skills:computer-use': 0.02, '(none)': 0.91 }), skills: SKILLS })
   await w.submit('这个函数为什么返回 undefined？')
   await w.step({ index: 0 })
   expect(w.withoutEffort).toHaveLength(1)
   expect(w.prompts[0]?.context).toEqual([NONE_BLOCK])
-  expect((await skillDecisions(w))[0]).toMatchObject({ outcome: '没有推荐 skill', reason: '要不要 skill 0.09（低于 0.30 不推荐）' })
+  expect((await skillDecisions(w))[0]).toMatchObject({ outcome: '没有推荐 skill', reason: '要不要 skill 0.09、点名方法 0.00（两项分别低于 0.30、0.50 才不推荐）' })
 })
+
+// The cookbook's second reason (ADR 0021): a turn that names a method a skill owns needs it though it wants no action on the
+// person's things (its meme example: action 0.12, names a method 0.87, suggest). `named` has a bar of its own, 0.50, and a
+// value on it counts (`>=`).
+for (const { named, asked } of [
+  { named: 0.87, asked: true },
+  { named: 0.5, asked: true },
+  { named: 0.49, asked: false },
+]) {
+  test(`with the action mean below its bar, a named method of ${named} ${asked ? 'still asks stage two' : 'does not'} (TypeSafe's bar: 0.50)`, { options: KEY }, async ($, on) => {
+    const w = world($, on, { backend: rates({ tdd: 0.05, 'code-review': 0.9, '(none)': 0.88, '(named)': named }, { 'code-review': 0.84 }), skills: SKILLS })
+    await w.submit('按 Conventional Comments 的格式审一下这个 diff')
+    await w.step({ index: 0 })
+    expect(w.withoutEffort).toHaveLength(asked ? 2 : 1)
+    expect(await picked(w)).toEqual({ suggest: asked ? ['code-review'] : [], try: [] })
+    expect((await skillDecisions(w))[0]?.reason).toMatch(new RegExp(`^要不要 skill 0\\.12、点名方法 ${named.toFixed(2).replace('.', '\\.')}（两项分别低于 0\\.30、0\\.50 才不推荐）${asked ? '；第一段' : '$'}`))
+  })
+}
 
 test('when no candidate does the specific thing asked (the best fit under 0.30), nothing is suggested, and the main agent is told so', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 0.3, 'code-review': 0.2, '(none)': 0.5 }, { tdd: 0.12, 'code-review': 0.05 }), skills: SKILLS })
@@ -306,7 +328,7 @@ test('skills only the person can start (disable-model-invocation in their SKILL.
   const w = world($, on, { backend: rates({}), skills: WITH_PERSONS, disk: PERSON_FILES })
   await w.submit('这个方案往死里挑刺')
   const questions = w.withoutEffort[0]?.body.questions
-  expect(Object.keys(questions)).toEqual(['skills.which', 'skills.hint', 'skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices'])
+  expect(Object.keys(questions)).toEqual(['skills.which', 'skills.hint', 'skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices', 'skills.named'])
   expect(Object.keys(questions['skills.which'].criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:computer-use'])
   const hint = questions['skills.hint']
   expect(hint.type).toBe('choice')
@@ -362,7 +384,7 @@ test('with only skills the person can start to ask about, the main agent keeps i
   await w.step({ index: 0 })
 
   // One skill of that kind: no Choice to ask, it goes to stage two as it is.
-  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices'])
+  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices', 'skills.named'])
   expect(Object.keys(w.withoutEffort[1]?.body.questions)).toEqual(['skills.fits.0'])
   expect(w.prompts[0]?.context).toEqual([NONE_BLOCK])
   expect(await picked(w)).toEqual({ suggest: [], try: ['grill-me'] })
@@ -586,13 +608,13 @@ test('each decision about the skills goes to the decision log (/dp log) and the 
   await w.submit('这个方案往死里挑刺')
   await w.submit('这个报错什么意思')
 
-  // The gate against its bar; what each Choice of stage one put forward with its share; each candidate's fit against the
-  // bar, and whom stage two's Choice picked of a kind whose best fit reached it; or that the gate stopped it.
+  // The gate and `named` against their bars; what each Choice of stage one put forward with its share; each candidate's fit
+  // against the bar, and whom stage two's Choice picked of a kind whose best fit reached it; or that the gate stopped it.
   const first =
-    '推荐 tdd · "先写一个失败的测试再实现登录限流"：要不要 skill 0.86（低于 0.30 不推荐）；第一段 tdd 0.72、code-review 0.27、anthropic-skills:computer-use 0.01；只能你触发的 grill-me 0.50、ship:release 0.50；第二段相关度 tdd 0.97、code-review 0.41、anthropic-skills:computer-use 0.00、grill-me 0.00、ship:release 0.00（≥ 0.30 才推荐），选择题选 tdd'
+    '推荐 tdd · "先写一个失败的测试再实现登录限流"：要不要 skill 0.86、点名方法 0.00（两项分别低于 0.30、0.50 才不推荐）；第一段 tdd 0.72、code-review 0.27、anthropic-skills:computer-use 0.01；只能你触发的 grill-me 0.50、ship:release 0.50；第二段相关度 tdd 0.97、code-review 0.41、anthropic-skills:computer-use 0.00、grill-me 0.00、ship:release 0.00（≥ 0.30 才推荐），选择题选 tdd'
   const second =
-    '没有推荐 skill；可试 /grill-me · "这个方案往死里挑刺"：要不要 skill 0.40（低于 0.30 不推荐）；第一段 tdd 0.33、code-review 0.33、anthropic-skills:computer-use 0.33；只能你触发的 grill-me 1.00、ship:release 0.00；第二段相关度 tdd 0.00、code-review 0.00、anthropic-skills:computer-use 0.00、grill-me 0.93、ship:release 0.00（≥ 0.30 才推荐），选择题选 grill-me'
-  const third = '没有推荐 skill · "这个报错什么意思"：要不要 skill 0.02（低于 0.30 不推荐）'
+    '没有推荐 skill；可试 /grill-me · "这个方案往死里挑刺"：要不要 skill 0.40、点名方法 0.00（两项分别低于 0.30、0.50 才不推荐）；第一段 tdd 0.33、code-review 0.33、anthropic-skills:computer-use 0.33；只能你触发的 grill-me 1.00、ship:release 0.00；第二段相关度 tdd 0.00、code-review 0.00、anthropic-skills:computer-use 0.00、grill-me 0.93、ship:release 0.00（≥ 0.30 才推荐），选择题选 grill-me'
+  const third = '没有推荐 skill · "这个报错什么意思"：要不要 skill 0.02、点名方法 0.00（两项分别低于 0.30、0.50 才不推荐）'
   expect(w.logs.filter((log) => log.text.startsWith('推荐 ') || log.text.startsWith('没有推荐 '))).toEqual([
     { text: first, to: 'debug' },
     { text: second, to: 'debug' },
@@ -659,10 +681,10 @@ test("stage one's questions: a Choice over the skills the main agent can load, o
     const question = part?.questions[id]
     return question?.type === 'choice' ? question.criteria : {}
   }
-  expect(Object.keys(part?.questions ?? {})).toEqual(['which', 'hint', 'gate.acts_on_user_system', 'gate.would_follow_documented_procedure', 'gate.prose_suffices'])
+  expect(Object.keys(part?.questions ?? {})).toEqual(['which', 'hint', 'gate.acts_on_user_system', 'gate.would_follow_documented_procedure', 'gate.prose_suffices', 'named'])
   expect(criteria('which')).toEqual({ pr: 'Use when writing a PR body.', 'code-review': 'Review the changes since a fixed point.' })
   expect(Object.keys(criteria('hint'))).toEqual(['grill-me', 'ship'])
-  // find_skill's: no gate.
+  // find_skill's: no gate, no `named`.
   expect(Object.keys(skillsPart(OPTIONS, { gate: false })?.questions ?? {})).toEqual(['which', 'hint'])
   // One skill of a kind: no Choice over it.
   expect(Object.keys(skillsPart(OPTIONS.slice(0, 3), { gate: false })?.questions ?? {})).toEqual(['which'])
@@ -683,18 +705,37 @@ test('a Choice takes at most 255 options, and past its budget every description 
   expect(String(texts[0]).startsWith('Skill number 0.')).toBe(true)
 })
 
-test("the gate reads as the mean of its three answers, prose_suffices turned round; none answered, no reading", () => {
+test("the gate reads as the mean of its three answers, prose_suffices turned round, with `named` apart (null when it did not come back); none of the three answered, no reading", () => {
   const noul = (p: number) => ({ type: 'noul' as const, noul: p })
-  const gate = readGate({ 'gate.acts_on_user_system': noul(0.9), 'gate.would_follow_documented_procedure': noul(0.6), 'gate.prose_suffices': noul(0.3) })
+  const three = { 'gate.acts_on_user_system': noul(0.9), 'gate.would_follow_documented_procedure': noul(0.6), 'gate.prose_suffices': noul(0.3) }
+  const gate = readGate({ ...three, named: noul(0.4) })
   expect(Math.abs((gate?.mean ?? 0) - (0.9 + 0.6 + 0.7) / 3)).toBeLessThan(1e-9)
   expect(gate?.values).toEqual({ acts_on_user_system: 0.9, would_follow_documented_procedure: 0.6, prose_suffices: 0.3 })
+  expect(gate?.named).toBe(0.4)
+  expect(readGate(three)?.named).toBeNull()
+  expect(readGate({ named: noul(0.9) })).toBeNull()
   expect(readGate({})).toBeNull()
+})
+
+test("the cookbook's needs_skill (ADR 0021): either reason is enough, a value on a bar counts; TypeSafe's bars 0.30 and 0.50, Liquid's clear no below 0.2 for both; a `named` that did not come back is no reason", () => {
+  const gate = (mean: number, named: number | null) => ({ mean, values: {}, named })
+  const typesafe = TYPESAFE_GUIDE.skills
+  const liquid = LIQUID_GUIDE.skills
+  expect([gate(0.3, 0), gate(0.29, 0.5), gate(0.29, 0.49), gate(0.29, null)].map((one) => wantsSkill(one, typesafe))).toEqual([true, true, false, false])
+  expect([gate(0.2, 0), gate(0.19, 0.2), gate(0.19, 0.19), gate(0.19, null)].map((one) => wantsSkill(one, liquid))).toEqual([true, true, false, false])
+})
+
+test("the reason says the gate's mean and `named` against their bars, each guide's; without a `named` answer, the mean alone, as before ADR 0021", () => {
+  const stopped = (named: number | null): SkillRanking => ({ gate: { mean: 0.02, values: {}, named }, shortlist: [], hints: [], fits: [], winner: null, hintWinner: null, shares: {}, stopped: 'gate' })
+  expect(describeStages(stopped(null), TYPESAFE_GUIDE.skills)).toBe('要不要 skill 0.02（低于 0.30 不推荐）')
+  expect(describeStages(stopped(0.12), TYPESAFE_GUIDE.skills)).toBe('要不要 skill 0.02、点名方法 0.12（两项分别低于 0.30、0.50 才不推荐）')
+  expect(describeStages(stopped(0.12), LIQUID_GUIDE.skills)).toBe('要不要 skill 0.02、点名方法 0.12（两项分别低于 0.20、0.20 才不推荐）')
 })
 
 /** A ranking as stage two leaves it. */
 function ranking(fits: { name: string; fit: number; by?: 'model' | 'person' }[], winner: string | null, hintWinner: string | null = null): SkillRanking {
   return {
-    gate: { mean: 0.8, values: {} },
+    gate: { mean: 0.8, values: {}, named: null },
     shortlist: [],
     hints: [],
     fits: fits.map((fit) => ({ name: fit.name, fit: fit.fit, by: fit.by ?? 'model' })),
@@ -756,14 +797,23 @@ test("stage two reads the opening of a SKILL.md as the cookbook's body[:700]: th
   expect(skillOpening('---\nname: x\n---\n')).toBe('')
 })
 
-test('the gate below its bar stops the ranking before stage two: nothing more is sent; find_skill asks no gate and re-reads as many as it may return', async () => {
+test('the gate and `named` below their bars stop the ranking before stage two: nothing more is sent; find_skill asks neither and re-reads as many as it may return', async () => {
   let sent = 0
   const io = { ask: async () => ((sent += 1), { ok: false as const, failure: { kind: 'timeout' as const, detail: 'not sent' } }), opening: async () => null }
   const noul = (p: number) => ({ type: 'noul' as const, noul: p })
   const message = modRanker(io, { gate: true, shortlist: 3, timeoutMs: 1000, bars: TYPESAFE_GUIDE.skills })
-  const stopped = await message.rank({ 'gate.acts_on_user_system': noul(0.1), 'gate.would_follow_documented_procedure': noul(0.2), 'gate.prose_suffices': noul(0.9) }, OPTIONS, { state: {} })
+  const low = { 'gate.acts_on_user_system': noul(0.1), 'gate.would_follow_documented_procedure': noul(0.2), 'gate.prose_suffices': noul(0.9) }
+  // `named` missing (an answer from before ADR 0021, or one left out) is no reason: the mean decides alone.
+  const stopped = await message.rank(low, OPTIONS, { state: {} })
   expect(stopped?.stopped).toBe('gate')
+  expect(stopped?.gate?.named).toBeNull()
+  expect((await message.rank({ ...low, named: noul(0.3) }, OPTIONS, { state: {} }))?.stopped).toBe('gate')
   expect(sent).toBe(0)
+  // A named method is enough on its own: stage two is asked.
+  const which = { type: 'choice' as const, choice: 'pr', probabilities: { pr: 0.9, 'code-review': 0.1 }, confidence: 0.9 }
+  const hint = { type: 'choice' as const, choice: 'ship', probabilities: { 'grill-me': 0.4, ship: 0.6 }, confidence: 0.2 }
+  expect((await message.rank({ ...low, named: noul(0.8), which, hint }, OPTIONS, { state: {} }))?.stopped).toBeUndefined()
+  expect(sent).toBe(1)
   // No gate answered where it was asked: no ranking.
   expect(await message.rank({ which: { type: 'choice', choice: 'pr', probabilities: { pr: 1, 'code-review': 0 }, confidence: 1 } }, OPTIONS, { state: {} })).toBeNull()
   const find = modRanker(io, { gate: false, shortlist: 5, timeoutMs: 1000, bars: TYPESAFE_GUIDE.skills })
@@ -771,5 +821,5 @@ test('the gate below its bar stops the ranking before stage two: nothing more is
   const failed = await find.rank({ which: { type: 'choice', choice: 'pr', probabilities: { pr: 0.9, 'code-review': 0.1 }, confidence: 0.9 }, hint: { type: 'choice', choice: 'ship', probabilities: { 'grill-me': 0.4, ship: 0.6 }, confidence: 0.2 } }, OPTIONS, { state: {} })
   expect(failed?.shortlist.map((entry) => entry.name)).toEqual(['pr', 'code-review'])
   expect(failed?.failed?.kind).toBe('timeout')
-  expect(sent).toBe(1)
+  expect(sent).toBe(2)
 })

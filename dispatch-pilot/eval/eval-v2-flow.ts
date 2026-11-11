@@ -20,7 +20,10 @@
 // network, timeout, after --retries) stops that item, to be gone on with by the next run; a refused key or a spent quota
 // stops the run.
 //
-// Options: --model (the backend's: jev-1.14.0, pplx-decider-v1.1-27b), --state-tokens N and --state-messages N (as run.ts;
+// --backend jev or pplx: the flow moves the count at TypeSafe's bars (UNRESOLVED_THRESHOLDS), and Liquid's d1-ultra and d1.1
+// are read at their guide's (decision/guides.ts), so they are not run here.
+//
+// Options: --model (the backend's: jev-latest, pplx-decider-v1.1-27b), --state-tokens N and --state-messages N (as run.ts;
 // the mod's contextByKind.messagePlain and contextMessages for the backend otherwise), --language zh|en (the questions; the decision model's ask.turnStart, core/setup.ts BACKEND_DEFAULTS, otherwise),
 // --option name=value (a mod option, as run.ts), --ids a,b,
 // --limit N, --concurrency 4 (items at once; the messages of one item go one after another), --timeout <ms>, --retries 2,

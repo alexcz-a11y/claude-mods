@@ -19,7 +19,7 @@ import type { EffortAsk } from '../decision/effort.ts'
 import { LIQUID_GUIDE, TYPESAFE_GUIDE, type Guide } from '../decision/guides.ts'
 import { jevBackend, JEV_REGULAR_STATE } from '../decision/jev.ts'
 import { JEV_DEFAULT_LIMITS, jevRateLimited, type JevLimits } from '../decision/jev-rate.ts'
-import { liquidBackend } from '../decision/liquid.ts'
+import { D1_1_MODEL, liquidBackend } from '../decision/liquid.ts'
 import { resolveModel, type ResolvedModel } from '../decision/model-ids.ts'
 import { pplxBackend } from '../decision/pplx.ts'
 import { rateLimited } from '../decision/pplx-rate.ts'
@@ -27,16 +27,19 @@ import type { DecisionRequest } from '../decision/system-one.ts'
 import { BATCHES_BUDGET_MS } from '../decision/workflow.ts'
 import { listSwitches } from './switches.ts'
 
-/** The decision models the person can choose (`decisionModel`): TypeSafe's Jev, Perplexity's pplx-decider and Liquid's d1-ultra (decision/backend.ts, where the pure modules read it). */
+/** The decision models the person can choose (`decisionModel`): TypeSafe's Jev, Perplexity's pplx-decider and Liquid's d1-ultra and d1.1 (decision/backend.ts, where the pure modules read it). */
 export type { BackendName, ImageBackendName }
 
+/** The decision models `decisionModel` must name to be used: Jev is the one it need not. */
+const NAMED_ONLY: readonly BackendName[] = ['pplx', 'd1-ultra', 'd1.1']
+
 /**
- * The decision model that decides (ADR 0014, ADR 0017): pplx or d1-ultra only when `decisionModel` names it, else Jev, the
- * default. Anything else (unset, a typo, the `clef` of a 0.3.x configuration) reads as unset. Nothing falls back on the keys:
- * without its key the model chosen fails every request with that key named as the one missing, and the board says so.
+ * The decision model that decides (ADR 0014, ADR 0017, ADR 0021): pplx, d1-ultra or d1.1 only when `decisionModel` names it,
+ * else Jev, the default. Anything else (unset, a typo, the `clef` of a 0.3.x configuration) reads as unset. Nothing falls back
+ * on the keys: without its key the model chosen fails every request with that key named as the one missing, and the board says so.
  */
 export function backendNameOf(options: PluginOptions): BackendName {
-  return options.decisionModel === 'pplx' ? 'pplx' : options.decisionModel === 'd1-ultra' ? 'd1-ultra' : 'jev'
+  return NAMED_ONLY.find((name) => name === options.decisionModel) ?? 'jev'
 }
 
 /** Which decision model takes the requests with images, and whether it is not Jev (`chooseImageBackend`). */
@@ -46,7 +49,9 @@ export type Choice = { backend: ImageBackendName; fellBack: boolean }
  * The decision model that takes requests with images (#56, ADR 0008), apart from the one that decides everything else and
  * whatever `decisionModel` says: Jev with a TypeSafe key (its Box question and one-time image tokens make zooming possible);
  * else pplx with a Perplexity key, which cannot zoom (`fellBack`); else none (null), and the features that need images are
- * unavailable. Never d1-ultra (ADR 0017): with it deciding the rest, the images are still Jev's.
+ * unavailable. Never Liquid's (ADR 0017, ADR 0021): with d1-ultra or d1.1 deciding the rest, the images are still Jev's.
+ * Liquid's models take images now (GET /decisions/v1/models lists `image` for each, 2026-11-10), but the zoomed re-check
+ * asks Jev's Box question, which Liquid's API does not have.
  */
 export function chooseImageBackend(keys: { perplexity: string; typesafe: string }): Choice | null {
   if (keys.typesafe !== '') return { backend: 'jev', fellBack: false }
@@ -100,8 +105,11 @@ export type ContextKind = (typeof CONTEXT_KINDS)[number]
  * `decisionModel` value that names it) and `chooseImageBackend` (whether it takes images); `DECISION_MODELS` in
  * core/report.ts (its name and key settings, for the entry about images); `decisionModel`'s options in plugin.json, its key option and the README's
  * configuration tables (a column each); and, for the eval, `backendFor` and `PRICES` in eval/node.ts, `--backend` in
- * eval/run.ts and eval/eval-v2-flow.ts, and the BACKENDS list in eval/lib/docs.ts. A `Record<BackendName, ...>` the compiler
- * checks (this table, `setup()`, PRICES, DECISION_MODELS); the rest it does not, and tests/docs-sync.test.ts only the README tables.
+ * eval/run.ts and eval/eval-v2-flow.ts (the flow reads the count at TypeSafe's bars: a model read by another guide is left
+ * out of it, as d1-ultra and d1.1 are), ESTIMATE_FACTOR in eval/lib/estimate.ts, and the BACKENDS list in eval/lib/docs.ts. A
+ * `Record<BackendName, ...>` the compiler checks (this table, `setup()`, DECISION_MODELS, ESTIMATE_FACTOR); PRICES is one too,
+ * but tsc does not reach eval/node.ts (the tsconfig takes hooks/ and tests/), nor the rest, and tests/docs-sync.test.ts
+ * checks only the README tables.
  */
 export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
   /** `contextTokens` above this reads as this. */
@@ -152,7 +160,7 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
    * and in find_skill); null: only what the first left. Not an option: set by the latency measured.
    */
   skillsSecondStageMs: number | null
-  /** How its answers are read: its maker's guide (decision/guides.ts; Jev and pplx TypeSafe's, d1-ultra Liquid's). Not an option. */
+  /** How its answers are read: its maker's guide (decision/guides.ts; Jev and pplx TypeSafe's, d1-ultra and d1.1 Liquid's). Not an option. */
   guide: Guide
 }
 
@@ -177,8 +185,8 @@ const JEV_DEFAULTS: BackendDefaults = {
   // requests that need it"): the state takes what 32k leaves beside the request's longest question at 90%, with Jev counting
   // about 1.2 of each estimated token, `JEV_REGULAR_STATE` (24000). The effort request's longest question, the effort Score,
   // is about 450 estimated tokens and its nine questions about 2000 together; an agent's longest is its effort Score, about
-  // 330, and its 11 to 19 questions (ADR 0015) about 2,900 at most, 4 agents a request (the 64 questions a request holds,
-  // decision/workflow.ts MAX_PER_REQUEST) about 11,500, so the request stays within the 64k too (`JEV_REGULAR_REQUEST`). What lies further back
+  // 330, and its 13 to 23 questions (ADR 0015, ADR 0023) about 4,000 at most, 4 agents a request (the 64 questions a request
+  // holds, decision/workflow.ts MAX_PER_REQUEST) about 16,000, so the request stays within the 64k too (`JEV_REGULAR_REQUEST`). What lies further back
   // in a long conversation reaches the effort request as code-kept facts instead: the problem summary, the person's lasting
   // rules (`standing_constraints`) and the previous turn's failures (`last_turn`).
   contextByKind: { messagePlain: JEV_REGULAR_STATE, agent: JEV_REGULAR_STATE, workflow: JEV_REGULAR_STATE },
@@ -269,11 +277,41 @@ const LIQUID_DEFAULTS: BackendDefaults = {
   guide: LIQUID_GUIDE,
 }
 
+/**
+ * d1.1's, Liquid's newest decision model (2026-10-19), used only when `decisionModel` names it (ADR 0021; no eval, the
+ * person's choice). The same API, answers and guide as d1-ultra (decision/liquid.ts, LIQUID_GUIDE), and its budgets: d1.1
+ * reads 65,536 tokens a question, twice d1-ultra's, but a longer state is slower (TypeSafe: "slower and less accurate";
+ * Liquid's docs say nothing of it), and a state of 48000 estimated tokens took 4.6 s (2026-11-10, DEVELOPMENT.md 「d1.1 的预算」);
+ * 24000 is 22-26k of its tokens (it counts 0.93-1.09 of each estimated one), 40% of its limit. Alone, a full message request
+ * (11 questions, 23,670 of its tokens) took 1.3-2.0 s, 2.3 s as the first of a process (it opens the connection), where
+ * d1-ultra took 0.9-1.7 s; so a message waits 3500 ms (`timeoutMs`, about one and a half times the slowest).
+ */
+const D1_1_DEFAULTS: BackendDefaults = {
+  timeoutMs: 3500,
+  contextMessages: 2000,
+  contextMessagesMax: 2000,
+  contextTokens: 6000,
+  contextTokensMax: 16000,
+  contextByKind: { messagePlain: JEV_REGULAR_STATE, agent: JEV_REGULAR_STATE, workflow: JEV_REGULAR_STATE },
+  agentBackground: true,
+  // No long-context header: every request stays within its regular limits.
+  longWaitMs: null,
+  // Four, as d1-ultra's: four full requests sent at once were all answered within 2.7-3.3 s (2026-11-10).
+  agentLanes: 4,
+  // As long as a message waits: the skills' two stages took 0.66-0.69 s and 0.40-0.63 s (2026-11-10), 1.1-1.3 s together.
+  findSkillWaitMs: null,
+  // Above the second stage's slowest (0.63 s) and the slowest request of a few thousand tokens (0.80 s); a message waits 4.5 s at most then.
+  skillsSecondStageMs: 1000,
+  ask: { turnStart: { language: 'en', primitive: 'score' }, agent: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
+  guide: LIQUID_GUIDE,
+}
+
 /** The defaults by decision model: the only place they are written. */
 export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = {
   pplx: PPLX_DEFAULTS,
   jev: JEV_DEFAULTS,
   'd1-ultra': LIQUID_DEFAULTS,
+  'd1.1': D1_1_DEFAULTS,
 }
 
 /**
@@ -461,7 +499,7 @@ export function keySource(option: string, environment: string, variable: string)
 /**
  * What the entry hands every feature's register: data and pure functions, never `$`.
  *
- * The decision model is the one `decisionModel` names (Jev unless it names pplx), known at register. Which model takes the
+ * The decision model is the one `decisionModel` names (Jev unless it names another, `backendNameOf`), known at register. Which model takes the
  * images depends on the keys, which the session start reads from the environment (`secrets`), so `images` is read afresh at
  * each use.
  */
@@ -489,7 +527,12 @@ export type Ctx = {
 export function setup(options: PluginOptions, table: Readonly<Record<BackendName, BackendDefaults>> = BACKEND_DEFAULTS): Ctx {
   const asked = backendNameOf(options)
   // Both are worked out here (pure and cheap): the one asked for decides, and the other may still take the images (`chooseImageBackend`).
-  const configs: Record<BackendName, Config> = { pplx: readConfig(options, table, 'pplx'), jev: readConfig(options, table, 'jev'), 'd1-ultra': readConfig(options, table, 'd1-ultra') }
+  const configs: Record<BackendName, Config> = {
+    pplx: readConfig(options, table, 'pplx'),
+    jev: readConfig(options, table, 'jev'),
+    'd1-ultra': readConfig(options, table, 'd1-ultra'),
+    'd1.1': readConfig(options, table, 'd1.1'),
+  }
   const secrets: Secrets = { perplexityEnvKey: '', typesafeEnvKey: '', liquidEnvKey: '' }
   const backends: Record<BackendName, Backend> = {
     // Every request goes through its account's rate limit: pplx's (#51), Jev's (requests and input tokens a second).
@@ -497,6 +540,7 @@ export function setup(options: PluginOptions, table: Readonly<Record<BackendName
     jev: jevRateLimited(jevBackend(() => typesafeKey(configs.jev, secrets)), () => configs.jev.jevLimits),
     // No limit of the mod's own: Liquid's 20 a second is far above what a session sends; its 429 is a busy failure (fail open).
     'd1-ultra': liquidBackend(() => liquidKey(configs['d1-ultra'], secrets)),
+    'd1.1': liquidBackend(() => liquidKey(configs['d1.1'], secrets), { model: D1_1_MODEL }),
   }
   const keys = () => ({ perplexity: perplexityKey(configs.pplx, secrets), typesafe: typesafeKey(configs.jev, secrets) })
   return {

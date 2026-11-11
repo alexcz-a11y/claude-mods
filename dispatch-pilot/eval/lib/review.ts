@@ -35,6 +35,7 @@ export type Reviewed = {
 /** The fields a review may change, by kind. */
 const EDITABLE: Record<Kind, readonly string[]> = {
   'effort-submit': ['gold', 'accept'],
+  'effort-midrun': ['gold', 'accept'],
   subagent: ['gold', 'accept'],
   skill: ['gold', 'accept', 'must_not', 'user_only_hint'],
   unresolved: ['gold', 'accept', 'triage'],

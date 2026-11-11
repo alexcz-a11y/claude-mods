@@ -388,9 +388,13 @@ function rowsOfTable(items: readonly AgentItem[], answered: Record<Language, Ans
 /**
  * The decision made again from what a run kept of an answer (detailOf),
  * under `shape`, as the mod would make it: null when there would be no
- * model to start the agent on.
+ * model to start the agent on. Throws for an answer kept before the model
+ * table was redone (ADR 0023): it holds the Nouls that table read, and this
+ * one would read every one of its own as unanswered.
  */
 export function redecide(item: AgentItem, language: Language, detail: Readonly<Record<string, unknown>>, shape: DispatchSettings): AgentAnswer | null {
+  const kept = isRecord(detail.nouls) ? detail.nouls : {}
+  if ('writes' in kept && !('judges' in kept)) throw new RangeError(`${item.id}: this answer was kept before the model table was redone (ADR 0023) and cannot be decided again by it`)
   const decision = decideDispatch(answersOf(detail), item[language], shape)
   return decision.answered && decision.model !== null ? { model: decision.model, effort: gradedEffort(decision) } : null
 }

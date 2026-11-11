@@ -1,22 +1,26 @@
 // The main agent's effort for a message, from the answers of its effort part (ADR 0014): the decision model judges, the code
 // decides (TypeSafe's guide: "Judgments from Jev, decisions in code"; every combination of answers has its row).
 //
-//   base   the effort question's position, rounded; one level up when the answer is unsure, as the decision model's guide
-//          says (decision/guides.ts: two-peaked for Jev and pplx, confidence below 0.5 for d1-ultra; decision/effort.ts `traceEffort`)
+//   base   the effort question's position, rounded; for Jev and pplx one level up when the answer is two-peaked
+//          (decision/guides.ts; decision/effort.ts `traceEffort`). The Liquid models' answer is read as it stands.
 //   R1     `ultrathink` in the person's message                                   → at least xhigh
 //          (none while CLAUDE_CODE_DISABLE_ULTRATHINK turns the keyword off, as the engine reads it: `ultrathinkOffBy`)
 //   ask    escalate yes: the person asks for more thought or a stronger model     → at least xhigh (ADR 0016)
 //          confirm yes: the person only goes on with what was offered             → at least the previous turn's effort
 //   R2     stakes.undo yes, and stakes.live or stakes.access yes                   → max
-//          any stake yes                                                           → at least xhigh
-//          any stake in the band                                                   → at least high
-//   R3     cause_unknown yes → at least xhigh; in the band → at least high
+//          any stake yes                                                           → at least high
+//   R3     cause_unknown yes                                                       → at least high
 //   R4     still_failing yes, and the person's previous turn stuck (its failures reached escalateAfter)
 //                                                                                  → at least that turn's effort, one up
 //   R5     still_failing yes, and the unresolved count with this message ≥ unresolvedMaxAfter (0: never) → max
 //   result the highest of the base and every floor; a lock wins over all of it (the core's `planStep`, and the last step here)
 //
-// A floor only lifts, never lowers. A missing answer lifts nothing; a Noul in the band lifts only where a row says so. A Noul is
+// The levels of R2 and R3 are measured ones (ADR 0022): a single stake at xhigh and an unknown cause at xhigh, and the band at
+// high, raised more messages past every acceptable level than they brought up to one (effort-submit, three decision models).
+// The effort question's own levels already place a bug of unknown cause, and hard-to-undo live work is the one combination a
+// low reading has to be lifted over.
+//
+// A floor only lifts, never lowers. A missing answer lifts nothing, and neither does a Noul in the band. A Noul is
 // read at the guide's bars (Jev and pplx: yes from 0.7, no up to 0.3; d1-ultra: yes above 0.8, no below 0.2), and the bars go
 // into each step. Each row is a step of the trace the card words (ADR 0004).
 //
@@ -101,17 +105,16 @@ function oneUp(level: Effort | null): Effort | null {
   return EFFORTS[Math.min(EFFORTS.indexOf(level) + 1, EFFORTS.length - 1)] as Effort
 }
 
-/** R2's floor from the three stakes' verdicts. */
+/** R2's floor from the three stakes' verdicts: hard to undo together with live or access is max; one of them alone, high. */
 export function stakesFloor(undo: Verdict, live: Verdict, access: Verdict): Effort | null {
   if (undo === 'yes' && (live === 'yes' || access === 'yes')) return 'max'
-  if (undo === 'yes' || live === 'yes' || access === 'yes') return 'xhigh'
-  if (undo === 'band' || live === 'band' || access === 'band') return 'high'
+  if (undo === 'yes' || live === 'yes' || access === 'yes') return 'high'
   return null
 }
 
-/** R3's floor from the unknown cause's verdict. */
+/** R3's floor from the unknown cause's verdict: high (the effort question's own levels take a hard one higher). */
 export function causeFloor(cause: Verdict): Effort | null {
-  return cause === 'yes' ? 'xhigh' : cause === 'band' ? 'high' : null
+  return cause === 'yes' ? 'high' : null
 }
 
 /** The decision for a message: the base, then every floor in order, then the lock; read as `guide` says (TypeSafe's unless given). */
@@ -158,6 +161,19 @@ export function decideMessage(reading: EffortReading, signals: MessageSignals, g
   const decided = level
   if (signals.lock !== null) steps.push({ rule: 'lock', applied: true, level: signals.lock, floor: null, decided })
   return { effort: decided, sent: signals.lock ?? decided, steps, lifted }
+}
+
+/**
+ * The highest floor a message's rules gave (the lock is no rule of the work), null when none gave one: what the turn is not
+ * lowered under in the middle of its run (ADR 0020), whether or not the floor had to lift the level.
+ */
+export function ruleFloorOf(decision: MessageDecision): Effort | null {
+  let floor: Effort | null = null
+  for (const step of decision.steps) {
+    if (!('floor' in step) || step.rule === 'lock' || step.rule === 'model-floor') continue
+    floor = higherEffort(floor, step.floor as Effort | null)
+  }
+  return floor
 }
 
 /**

@@ -69,7 +69,7 @@ test('each agent() of a submitted script is written with the model and effort de
   ])
   expect(board.log[1]).toMatchObject({ outcome: 'opus xhigh' })
   // The rules' working, the same steps a dispatched agent's take (ADR 0015): the review's open design sends it to opus.
-  expect(board.log[1]?.trace?.map((step) => step.rule)).toEqual(['lookup-signs', 'careful-signs', 'model-table', 'position', 'two-peaked', 'stakes', 'cause-unknown', 'unsure', 'model-floor'])
+  expect(board.log[1]?.trace?.map((step) => step.rule)).toEqual(['lookup-signs', 'careful-signs', 'model-table', 'position', 'two-peaked', 'stakes', 'cause-unknown', 'model-floor'])
   expect(board.log[1]?.trace?.[2]).toMatchObject({ rule: 'model-table', row: '3', model: 'opus', why: 'design' })
 })
 
@@ -82,10 +82,10 @@ return files
   const result = await w.workflow({ script: scan })
 
   expect(w.reached.map((r) => r.script)).toEqual([scan.replace("{ label: 'scan', effort: 'high' }", "{ label: 'scan', effort: 'xhigh', model: 'haiku' }")])
-  expect((result.context ?? []).join('\n')).toContain('"scan": haiku xhigh (model: its rules read the brief as a read-only lookup of a step or two whose result is only reported (writes, few_steps, report_only), which gets haiku; effort: p 1.00)')
+  expect((result.context ?? []).join('\n')).toContain('"scan": haiku xhigh (model: its rules read the brief as work that only carries out what the brief spells out, with nothing to judge and no code to follow (judges, logic), which gets haiku; effort: p 1.00)')
 })
 
-test("the model the script wrote is in no question: it is kept unless the table's model is stronger, then raised to it, never lowered (ADR 0015)", { options: KEY }, async ($, on) => {
+test("the model the script wrote is in no question: it is raised to the table's stronger model, and an opus written for work that is only carried out gives way to the table's haiku (ADR 0015, ADR 0024)", { options: KEY }, async ($, on) => {
   const triage = `export const meta = { name: 'triage', description: 'Triage the failing checks', phases: [] }
 const failing = await agent('Run \`pnpm test\` and list the failing tests by package. Do not fix anything.', { model: 'opus', label: 'list' })
 const lint = await agent('Run \`pnpm lint\` and list the warnings by file. Do not fix anything.', { label: 'lint', model: 'claude-opus-5-5' })
@@ -100,7 +100,7 @@ return { failing, lint }
   // No question names the script's model (ADR 0015): the table weighs it afterwards.
   expect(JSON.stringify(w.requests[0]?.body.questions)).not.toContain('opus')
   expect(w.reached.map((r) => r.script)).toEqual([
-    triage.replace("{ model: 'opus', label: 'list' }", "{ model: 'opus', label: 'list', effort: 'high' }").replace("model: 'claude-opus-5-5' }", "model: 'claude-opus-5-5', effort: 'medium' }"),
+    triage.replace("{ model: 'opus', label: 'list' }", "{ model: 'opus', label: 'list', effort: 'high' }").replace("model: 'claude-opus-5-5' }", "model: 'haiku', effort: 'medium' }"),
   ])
 })
 
@@ -277,7 +277,7 @@ return files
   const result = await w.workflow({ script: scan })
 
   expect(w.reached.map((r) => r.script)).toEqual([scan.replace("{ label: 'scan', effort: 'low' }", "{ label: 'scan', effort: 'xhigh', model: 'haiku' }")])
-  expect((result.context ?? []).join('\n')).toContain('"scan": haiku xhigh (model: its rules read the brief as a read-only lookup of a step or two whose result is only reported (writes, few_steps, report_only), which gets haiku; effort: you asked for it)')
+  expect((result.context ?? []).join('\n')).toContain('"scan": haiku xhigh (model: its rules read the brief as work that only carries out what the brief spells out, with nothing to judge and no code to follow (judges, logic), which gets haiku; effort: you asked for it)')
   expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/你在消息里点名了 effort（xhigh）/))
 })
 
@@ -388,7 +388,7 @@ test('a script with many agent() calls is asked about in several requests sent t
   await running
 
   const ids = w.requests.map((request) => Object.keys(request.body.questions))
-  expect(ids.map((list) => list.length)).toEqual([44, 44, 44, 44])
+  expect(ids.map((list) => list.length)).toEqual([52, 52, 52, 52])
   expect(withoutBrief(ids.flat()).sort()).toEqual(Array.from({ length: 16 }, (_, i) => `agent-${i}.effort`).sort())
   expect((w.reached[0]?.script ?? '').match(/\{ label: 'pkg-\d+', model: 'sonnet', effort: 'high' \}/g)).toHaveLength(16)
   // Every one of the 16 has its own node and its own entry in the log.
@@ -402,12 +402,12 @@ test('a script with many agent() calls is asked about in several requests sent t
 
 test("a request holds at most 64 questions: the models the person's words mention add questions to each call, so fewer calls share a request", { options: KEY }, async ($, on) => {
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { sonnet: 1 } })) })
-  // Four models mentioned: a yes/no question each for "named" and for "banned" beside the ten about the brief and the
-  // effort, 19 a call: three calls to a request, not four.
+  // Four models mentioned: a yes/no question each for "named" and for "banned" beside the twelve about the brief and the
+  // effort, 21 a call: three calls to a request (63 questions), not four.
   await w.submit('这周额度紧张：别用 opus 和 fable，haiku 和 sonnet 看着用')
   await w.workflow({ script: manyAgents(12) })
 
-  expect(w.requests.slice(1).map((request) => Object.keys(request.body.questions).length)).toEqual([57, 57, 57, 57])
+  expect(w.requests.slice(1).map((request) => Object.keys(request.body.questions).length)).toEqual([63, 63, 63, 63])
   expect((await w.board()).agents.filter((node) => node.routed)).toHaveLength(12)
 })
 
@@ -535,11 +535,11 @@ test("each agent's decision is logged with its reason: in the debug log, never i
 
   expect(w.logs.length).toBeGreaterThan(0)
   expect(w.logs.every((log) => log.to === 'debug')).toBe(true)
-  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^request \[agent-0\.writes, .*, agent-1\.effort\] to jev for workflow "tidy-api": answered in \d+ ms/))
+  expect(w.logs.map((log) => log.text)).toContainEqual(expect.stringMatching(/^request \[agent-0\.judges, .*, agent-1\.effort\] to jev for workflow "tidy-api": answered in \d+ ms/))
   const log = (await w.command('dp', 'log 10')).split('\n')
   expect(log[0]).toBe('最近 2 条决定，最新的在最后')
   expect(log[1]).toMatch(/^#1 workflow-agents：sonnet high · "rename"（Workflow tidy-api）：模型表第 5 行 → sonnet；effort 概率 /)
-  expect(log[2]).toMatch(/^#2 workflow-agents：opus high · "review"（Workflow tidy-api）：模型表第 3 行（方案未定） → opus；effort 概率 /)
+  expect(log[2]).toMatch(/^#2 workflow-agents：opus high · "review"（Workflow tidy-api）：模型表第 3 行（要做设计） → opus；effort 概率 /)
 })
 
 test("the person's terms for each call are kept, before the tool runs, for the plans of the call's agents (read beneath, in the same call, by the label fallback)", { options: KEY }, async ($, on) => {

@@ -7,6 +7,7 @@
 // from the dataset's items (the `subagent` suite: a Workflow's agents are asked
 // about together).
 
+import { effortMidrun } from './effort-midrun.ts'
 import { effortSubmit } from './effort-submit.ts'
 import type { FlowFile } from './eval-v2-flow.ts'
 import { evalV2Suite } from './eval-v2-suite.ts'
@@ -31,6 +32,8 @@ export type SuiteFactory = (host: SuiteHost, items: readonly unknown[], run?: Su
 // metrics are generic over them, so the table holds them loosely.
 export const SUITES: Readonly<Record<string, Suite<any, any> | SuiteFactory>> = {
   'effort-submit': effortSubmit,
+  // The main agent's effort at an event of a running turn (ADR 0020); the 0.8.x `effort-midturn` suite's successor.
+  'effort-midrun': effortMidrun,
   subagent: async (_host, items) => agentSuite(items as readonly AgentItem[]),
   skill: (host) => skillSuite({ catalog: host.beside('skill-catalog.json'), read: host.read }),
   unresolved,

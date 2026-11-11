@@ -14,15 +14,18 @@
 // Pure: no Node API. The tests and the Node scripts import it as it is.
 
 import { BACKEND_DEFAULTS } from '../../hooks/core/setup.ts'
+import type { StandingConstraint } from '../../hooks/decision/constraints.ts'
 import { estimateTokens, recentLines, said, type ContextMessage } from '../../hooks/decision/context.ts'
 import { EFFORTS, isEffort, type Effort } from '../../hooks/decision/effort.ts'
+import type { CallOutcome, MidrunEventKind } from '../../hooks/decision/midrun.ts'
 import { conversationOf, conversationTokens, decisiveMark } from './long-conversation.ts'
+import { checkMidrun, MIDRUN_FIELDS, midrunQuotas } from './midrun-items.ts'
 import { adjacent, exactKeys, isRecord, nonEmpty, type Add } from './validators.ts'
 import { checkVisualCheck, visualCheckQuotas, VISUAL_CHECK_FIELDS } from './visual-check-items.ts'
 
 export { isRecord }
 
-export const KINDS = ['effort-submit', 'subagent', 'skill', 'unresolved', 'long-context', 'visual-check'] as const
+export const KINDS = ['effort-submit', 'effort-midrun', 'subagent', 'skill', 'unresolved', 'long-context', 'visual-check'] as const
 export type Kind = (typeof KINDS)[number]
 
 export function isKind(name: string): name is Kind {
@@ -50,6 +53,36 @@ export type Item<Asked, Answer, Accept> = {
 /** effort-submit: the message the person sent and what came before it. */
 export type SubmitAsked = { message: string; recent_context: ContextEntry[] }
 export type EffortSubmitItem = Item<SubmitAsked, Effort, Effort[]>
+
+/**
+ * effort-midrun (ADR 0020): the main agent's effort at an event of a running turn. `zh` and `en` are the state's content in
+ * each language, in the shape the mod gives the decision model (`MidrunInput`, decision/midrun.ts): the turn's `task`, its
+ * latest steps (each tool call as the run's record holds it), the `facts` the code counted, and what the event brings
+ * (`next_item` at a task list moving on, `report` at one delivered into the turn, `failures` at a failure that came back).
+ * The rest of an item is where the turn stands (`MidrunPosition`) and the answer: the event, the level it goes out at
+ * (`current`), the level its message was decided at (`base`), the highest of the message's rule floors, whether an earlier
+ * failure of the turn already read as one whose cause is not found, and `gold`/`accept`: the level the work still ahead needs.
+ * A tool call also keeps `result`, what the 0.8.x dataset said of how it went: the mod never sends it, the `with-outputs`
+ * variant does.
+ */
+export type MidrunRowTool = { tool: string; target: string; outcome: CallOutcome; error?: string; result: string }
+export type MidrunRowStep = { step: number; assistant_text: string; tools: MidrunRowTool[] }
+export type MidrunAsked = {
+  task: string
+  recent_steps: MidrunRowStep[]
+  facts: string[]
+  constraints?: StandingConstraint[]
+  report?: string
+  next_item?: string
+  failures?: { latest: string; earlier: string }
+}
+export type EffortMidrunItem = Item<MidrunAsked, Effort, Effort[]> & {
+  event: MidrunEventKind
+  current: Effort
+  base: Effort
+  rule_floor: Effort | null
+  stuck_before: boolean
+}
 
 /**
  * unresolved: an effort-submit item (the message and the conversation before
@@ -190,6 +223,7 @@ export function validateDataset(kind: Kind, items: readonly unknown[], extra: Ex
 /** Top-level fields of each kind's items. */
 const FIELDS: Record<Kind, readonly string[]> = {
   'effort-submit': ['id', 'zh', 'en', 'gold', 'accept', 'rationale', 'difficulty', 'tags'],
+  'effort-midrun': MIDRUN_FIELDS,
   subagent: ['id', 'zh', 'en', 'gold', 'accept', 'rationale', 'difficulty', 'tags'],
   skill: ['id', 'zh', 'en', 'gold', 'accept', 'must_not', 'user_only_hint', 'rationale', 'difficulty', 'tags'],
   unresolved: ['id', 'zh', 'en', 'gold', 'accept', 'triage', 'rationale', 'difficulty', 'tags'],
@@ -210,6 +244,10 @@ function checkCommon(kind: Kind, item: Record<string, unknown>, add: Add): void 
 const RULES: Record<Kind, (item: Record<string, unknown>, add: Add) => void> = {
   'effort-submit': (item, add) => {
     checkSubmitAsked(item, add)
+    checkEffortAnswer(item, add)
+  },
+  'effort-midrun': (item, add) => {
+    checkMidrun(item, add)
     checkEffortAnswer(item, add)
   },
   subagent: (item, add) => {
@@ -520,6 +558,7 @@ function hardQuota(items: readonly Record<string, unknown>[]): string[] {
 /** Each kind's own dataset-wide shares. */
 const QUOTAS: Record<Kind, (items: readonly Record<string, unknown>[]) => string[]> = {
   'effort-submit': () => [],
+  'effort-midrun': midrunQuotas,
   subagent: (items) => {
     const workflow = share(items, (item) => isRecord(item.zh) && item.zh.kind === 'workflow')
     return workflow < 0.3 ? [`workflow agents are ${percent(workflow)} of items; the drafting rules ask for at least 30%`] : []

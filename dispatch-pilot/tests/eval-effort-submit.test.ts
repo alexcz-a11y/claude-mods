@@ -84,8 +84,8 @@ test("with skills to ask about, the mod's effort request is the eval's as it is,
   const { request } = submitRequest(ITEM, 'zh', SUBMIT_VARIANTS['en-score'] as EffortAsk, settingsFrom({ decisionModel: 'jev' }))
   expect(w.requests[0]?.body).toEqual({ model: JEV_MODEL, state: request.state, questions: request.questions })
   expect(Object.keys(request.questions)).toEqual(OWN)
-  // One skill: no Choice over it (ADR 0018), only the gate.
-  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices'])
+  // One skill: no Choice over it (ADR 0018), only the gate and `named` (ADR 0021).
+  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices', 'skills.named'])
 })
 
 test("the eval cuts the conversation to the mod's limits as the mod does", { options: { decisionModel: 'jev', typesafeApiKey: 'k', contextMessages: 2, contextTokens: 100 } }, async ($, on) => {

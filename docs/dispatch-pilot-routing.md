@@ -1,6 +1,6 @@
 # Dispatch Pilot 的路由逻辑：普通子 agent 与 Workflow agent
 
-本文最初对应 dispatch-pilot 0.4.1（Claude Code 2.1.296 实测），现按 0.7.0 的代码更新（Workflow agent 在派出时路由，Claude Code 2.1.300 起）；决策模型读到什么、预算多大，见第四节（ADR 0007、0009）。0.9.0 起模型由是非题加代码里的模型表定（ADR 0015），下面的「模型和 effort 怎么定」按它改过。主 agent 自己的模型从不改变，这里只讲它派出去的 agent。
+本文最初对应 dispatch-pilot 0.4.1（Claude Code 2.1.296 实测），现按 0.7.0 的代码更新（Workflow agent 在派出时路由，Claude Code 2.1.300 起）；决策模型读到什么、预算多大，见第四节（ADR 0007、0009）。0.9.0 起模型由是非题加代码里的模型表定（ADR 0015），下面的「模型和 effort 怎么定」按它改过；0.11.0 模型表的题和行重做了（ADR 0023），失败时换不了模型就继续升 effort，下面按它们改过。主 agent 自己的模型从不改变，这里只讲它派出去的 agent。
 
 两类 agent 的根本区别：
 
@@ -34,7 +34,7 @@ sequenceDiagram
     alt fork、teammate、被唤醒的 agent（e.resume）或功能关着
         D->>E: 原样放行
     else 正常路由
-        D->>J: 一个请求：关于任务的十道是非题（改不改东西、几步、只汇报、出错代价、原因未知、方案未定、仓库外事实、科学计算；开了 agentFable 加前沿难题）<br/>每步用哪档 effort？你点名或排除了哪个模型、哪档 effort？<br/>（读任务和你的话，再读派出它的对话；同一条消息里派出的几个 agent 合进一个请求，每个请求最多 4 个，ADR 0009、0015）
+        D->>J: 一个请求：关于任务的十二道是非题（要不要判断、要不要读懂代码、三道出错代价、原因未知、自己找原因、要做设计、找攻击面、并发时序、核对算钱的逻辑、科学计算；开了 agentFable 加前沿难题），加 effort 题共 13 道<br/>每步用哪档 effort？你点名或排除了哪个模型、哪档 effort？<br/>（读任务和你的话，再读派出它的对话；同一条消息里派出的几个 agent 合进一个请求，每个请求最多 4 个，ADR 0009、0015、0023）
         J-->>D: 每道是非题的概率、各档概率
         D->>D: decideDispatch 按模型表定模型，按基础档和下限定 effort
         D->>E: next(spawn)，model 改成决定的别名
@@ -53,29 +53,31 @@ sequenceDiagram
 
 ### 模型和 effort 怎么定（decideDispatch）
 
-是非题 ≥ 0.7 算是、≤ 0.3 算否，中间拿不准（TypeSafe 的起点）；你点名、排除的模型和点名的 effort 也按 0.7 算。
+是非题 ≥ 0.7 算是、≤ 0.3 算否，中间拿不准（TypeSafe 的起点）；你点名、排除的模型和点名的 effort 也按 0.7 算。每道题读的是任务要 agent 做的工作，不是它的话题（ADR 0023）；模型表只认明确的是和明确的否，拿不准的既不抬也不拦。`stakes.access`（权限）和 `cause_unknown`（原因未知）仍然问，只用来定 effort 的下限。
 
 ```mermaid
 flowchart TD
     A["决策模型的回答"] --> B{"① 你在消息里<br/>点名了模型？"}
     B -- 是 --> M1["用你点名的模型"]
-    B -- 否 --> T{"模型表，第一条成立的定模型<br/>② 开了 agentFable 且前沿难题是 → fable<br/>③ 出错代价、原因未知、方案未定、仓库外事实、科学计算任一为是 → opus<br/>③b 这七题任一拿不准 → sonnet，effort 至少 max<br/>④ 不改东西、一两步、只汇报 → haiku<br/>⑤ 其余 → sonnet"}
+    B -- 否 --> T{"模型表，第一条成立的定模型<br/>② 开了 agentFable 且前沿难题是 → fable<br/>③ 难以挽回或线上为是；或者（要判断不为否时）自己找原因、要做设计、找攻击面、<br/>并发时序、核对算钱的逻辑、科学计算任一为是 → opus<br/>④ 要判断为否、要读懂代码为否 → haiku<br/>⑤ 其余 → sonnet"}
     T --> X{"表给的被你排除了？"}
     X -- 是 --> N["换最近的可用模型<br/>先往强的找，没有再往弱的找"]
     X -- 否 --> C
     N --> C{"主 agent 指定了模型<br/>（你没排除它）？"}
     C -- 否 --> M2["用表给的"]
     C -->|是，表给的更强| M3["升级到表给的"]
-    C -->|是，表给的不比它强| M4["保留主 agent 的指定（只升不降）"]
+    C -->|是，表停在 ④ 给 haiku<br/>而它指定的是 opus 或 fable| M5["降到 haiku（ADR 0024）"]
+    C -->|是，其余| M4["保留主 agent 的指定"]
 
     M1 --> E
     M2 --> E
     M3 --> E
     M4 --> E
+    M5 --> E
     E{"你在消息里<br/>点名了 effort？"}
     E -- 是 --> F1["用你点名的 effort<br/>（不受任何下限影响）"]
     E -- 否 --> F2["基础档：各档概率的加权位置四舍五入，双峰再高一档"]
-    F2 --> G["按下限抬，只抬不压，取最高：<br/>出错代价（max / xhigh / high）、原因未知（xhigh / high）<br/>表停在 ③b（max）、模型下限（sonnet、opus 至少 medium）"]
+    F2 --> G["按下限抬，只抬不压，取最高：<br/>出错代价（两道同为是 max，任一为是 high）、原因未知（为是 high）<br/>模型下限（sonnet、opus 至少 medium）；拿不准的不抬（ADR 0022）"]
 ```
 
 haiku（Haiku 5.5）和其他模型一样带 effort，没有模型下限。
@@ -176,12 +178,16 @@ flowchart LR
     B --> C["看板记下这一步实际发出的模型和 effort"]
     T["工具调用结束"] --> D{"计入的失败累计<br/>达到 escalateAfter？"}
     D -- 否 --> T
-    D -- 是 --> F{"能升吗？<br/>没点名模型、没到 escalateLimit、<br/>往上还有没被排除的模型"}
-    F -- 能 --> G["计划的模型升一档，下一步起生效：<br/>haiku → escalateHaikuTo（默认 sonnet）<br/>sonnet → opus → fable（要 agentFable）<br/>effort 不变，不问决策模型"]
-    F -- 不能 --> I["保持，记一条决定写明原因"]
+    D -- 是 --> H{"第一次到门槛，<br/>而且 effort 能升？"}
+    H -- 是 --> J["effort 升一档（追加一行提示，下一步起生效，最高到 max）"]
+    H -- 否 --> F{"能换模型吗？<br/>没点名模型、没到 escalateLimit、<br/>往上还有没被排除的模型"}
+    F -- 能 --> G["计划的模型升一档，下一步起生效：<br/>haiku → escalateHaikuTo（默认 sonnet）<br/>sonnet → opus → fable（要 agentFable）<br/>不问决策模型"]
+    F -- 不能 --> K{"effort 还能升？"}
+    K -- 能 --> J
+    K -- 不能 --> I["保持，记一条决定写明原因"]
 ```
 
-0.9.0 起（ADR 0013）失败到门槛不再问决策模型「是不是预期内的」，也不升 effort（2.1.312 起一轮中途改 effort 不生效），只换模型。
+失败到门槛不问决策模型（ADR 0013）。0.11.0 起（ADR 0020、0022）先升一档 effort，再到门槛才换模型，最多换 `escalateLimit` 次；换不了模型时（`escalateLimit` 是 0、已经换满、已经是最强的、你点名了模型），每到 `escalateAfter` 次就把 effort 再升一档，直到 max。`escalateLimit` 设成 0，agent 派出之后就从不换模型。你点名了 effort 的 agent、Workflow 里的 agent 和 `midrun-effort` 关着时不升 effort。
 
 看板上：依据面板里的「模型」是**决定**，agent 行上的模型是**实际发出的**。两者不一致说明决定没生效，以 agent 行为准。
 

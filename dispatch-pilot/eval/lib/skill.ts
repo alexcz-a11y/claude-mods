@@ -176,7 +176,7 @@ export async function skillSuite(sources: SkillSources): Promise<Suite<SkillItem
 }
 
 const SCORING =
-  "suggest (the skill the main agent is shown: at most one, the cookbook's; nothing when the three gate questions average below the decision model's bar, or when the best fit of the three re-read is under its bar): where no skill fits (gold empty), right only when nothing is suggested; otherwise right when the suggested skill is in accept and not in must_not. A neutral skill (in neither list) suggested alone misses. hint (the skill only the person can start, named on the status line, at most one a message): where user_only_hint is empty, right only when nothing is hinted; otherwise right when the hinted skill is in user_only_hint. Whole answer (accuracy): both parts right; exact (gold): the suggested skills are the gold ones and the hinted ones those of user_only_hint, no more and no fewer. No decision (a request failed, no answer about the skills, the second request failed) is wrong. Misses: must-not, extra (a skill where none fits), neutral-only, missed (none where one fits), hint-extra, hint-missed, hint-other. Latency: both stages together (the mod gives them one wait, timeoutMs); the eval does not cut stage two to what stage one left of it, it counts the answers past timeoutMs."
+  "suggest (the skill the main agent is shown: at most one, the cookbook's; nothing when the three gate questions average below the decision model's bar and the `named` question is below its own, or when the best fit of the three re-read is under its bar): where no skill fits (gold empty), right only when nothing is suggested; otherwise right when the suggested skill is in accept and not in must_not. A neutral skill (in neither list) suggested alone misses. hint (the skill only the person can start, named on the status line, at most one a message): where user_only_hint is empty, right only when nothing is hinted; otherwise right when the hinted skill is in user_only_hint. Whole answer (accuracy): both parts right; exact (gold): the suggested skills are the gold ones and the hinted ones those of user_only_hint, no more and no fewer. No decision (a request failed, no answer about the skills, the second request failed) is wrong. Misses: must-not, extra (a skill where none fits), neutral-only, missed (none where one fits), hint-extra, hint-missed, hint-other. Latency: both stages together (the mod gives them one wait, timeoutMs); the eval does not cut stage two to what stage one left of it, it counts the answers past timeoutMs."
 
 /** The lines eval/run.ts prints about a variant's own figures. */
 function reportLines(summary: VariantSummary): string[] {
@@ -249,14 +249,15 @@ function showAnswer(answer: SkillAnswer): string {
 }
 
 /**
- * What a run keeps of an answer: the gate's mean (null when it was not read) and whether it stopped the ranking; what each
- * Choice of stage one put forward, with its share; stage two's fit for each candidate and whom its Choices picked; how long
- * each stage's request took, in ms.
+ * What a run keeps of an answer: the gate's mean and its `named` answer (null when it was not read) and whether they stopped
+ * the ranking; what each Choice of stage one put forward, with its share; stage two's fit for each candidate and whom its
+ * Choices picked; how long each stage's request took, in ms.
  */
 function detailOf(ranking: SkillRanking, stages: readonly number[]): Record<string, unknown> {
   const shares = (entries: SkillRanking['shortlist']) => entries.map((entry) => ({ name: entry.name, share: round(entry.share) }))
   return {
     gate: ranking.gate === null ? null : round(ranking.gate.mean),
+    named: ranking.gate === null || ranking.gate.named === null ? null : round(ranking.gate.named),
     stopped: ranking.stopped === 'gate',
     first: shares(ranking.shortlist),
     hints: shares(ranking.hints),
