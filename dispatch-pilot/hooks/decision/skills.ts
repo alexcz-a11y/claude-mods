@@ -99,6 +99,90 @@ export function skillOpening(markdown: string): string {
   return Array.from(redactSecrets(body)).slice(0, EXCERPT_CHARS).join('')
 }
 
+/** A SKILL.md's instructions as the engine hands them to the model: the text after the frontmatter, as written. */
+export function skillBody(markdown: string): string {
+  const frontmatter = /^﻿?---\r?\n[\s\S]*?\r?\n---[^\n]*(?:\r?\n|$)/.exec(markdown)
+  return (frontmatter ? markdown.slice(frontmatter[0].length) : markdown).trim()
+}
+
+/**
+ * The names a message types as `/name`, in order, read as the engine reads a skill mention (its `skill_mention` note and
+ * the Skill tool's "the user typed it this turn", 2.1.322): after the start or whitespace, up to whitespace or the end.
+ * Not the command a message starts with (`/name args`: the engine runs that one), and not what stands in pasted text
+ * (`<pasted_content>`: not the person's typing).
+ */
+export function typedNames(text: string): string[] {
+  const typed = text.replace(/<pasted_content\b[^>]*>[\s\S]*?<\/pasted_content>/g, ' ')
+  const names: string[] = []
+  let leading = typed.startsWith('/')
+  let from = 0
+  for (const match of typed.matchAll(/(?<!\S)\/([a-zA-Z][a-zA-Z0-9.:_-]*)(?!\S)/g)) {
+    if (leading && typed.slice(from, match.index).trim() === '') {
+      from = match.index + match[0].length
+      continue
+    }
+    leading = false
+    names.push(match[1] as string)
+  }
+  return names
+}
+
+/**
+ * The skills a message names by typing `/name` (`typedNames`), each once, in the order named: by its full name, or a
+ * plugin's or synced skill's by the part after its prefix (`/release` for `ship:release`) when no other skill ends so.
+ */
+export function namedSkills<T extends SkillOption>(text: string, options: readonly T[]): T[] {
+  const named: T[] = []
+  for (const name of typedNames(text)) {
+    const short = options.filter((option) => option.name.endsWith(`:${name}`))
+    const option = options.find((candidate) => candidate.name === name) ?? (short.length === 1 ? short[0] : undefined)
+    if (option !== undefined && !named.includes(option)) named.push(option)
+  }
+  return named
+}
+
+/**
+ * A skill named in a message typed into a running turn, as the note beside it needs it. One only the person can start
+ * brings its instructions: `file`, its SKILL.md (or command file), and `body`, that file's text after the frontmatter
+ * (`skillBody`); null when it could not be read.
+ */
+export type Mention = { name: string; by: 'model' } | { name: string; by: 'person'; file: string | null; body: string | null }
+
+/** Past this many characters a skill's instructions are not put beside the message: the main agent is pointed at the file. */
+export const MENTION_BODY_CHARS = 40_000
+
+/**
+ * What the main agent reads beside a message typed into a running turn that names skills (`/name`). The engine says
+ * nothing about such a message (its `skill_mention` note is for the message a turn starts with), and its Skill tool
+ * refuses a skill only the person can start there (it looks for the name in the turn's first message): measured on
+ * 2.1.322, DEVELOPMENT.md. So a skill the main agent can load gets the engine's own note, word for word; one only the
+ * person can start gets its instructions here, as the engine words a loaded skill (`Base directory for this skill`),
+ * since typing its name is the person starting it. "May refuse", "no need to call the Skill tool": a message typed over
+ * a turn that ends before it is delivered starts a turn of its own, where the engine's note arrives too and the Skill
+ * tool does load the skill; either way then serves.
+ */
+export function mentionBlock(mentions: readonly Mention[]): string {
+  const notes = mentions.map((mention) => {
+    const only = 'If they only mention it, do not run it.'
+    if (mention.by === 'model') {
+      return `The user's message contains /${mention.name}, which is the name of a skill. If they are asking you to run it, call the Skill tool with skill: "${mention.name}", passing any arguments they gave as args. ${only}`
+    }
+    const typed = `The user's message contains /${mention.name}, which is the name of a skill only the user can start. They typed it while you were working, where the Skill tool may refuse to load it`
+    const follow = 'follow these instructions from here on as if the skill had been loaded; there is no need to call the Skill tool for it'
+    if (mention.body === null || mention.body === '' || mention.file === null) {
+      return `${typed}, and Dispatch Pilot could not read its instructions. If they are asking you to run it, tell them to send /${mention.name} as a message of its own; do not carry out its workflow from memory. ${only}`
+    }
+    if (mention.body.length > MENTION_BODY_CHARS) {
+      return `${typed}, so read its instructions in ${mention.file}. If they are asking you to run it, ${follow}. ${only}`
+    }
+    const slash = mention.file.lastIndexOf('/')
+    const base = mention.file.endsWith('/SKILL.md') ? [`Base directory for this skill: ${mention.file.slice(0, slash)}`, ''] : []
+    const args = mention.body.includes('$ARGUMENTS') ? ' Where they say $ARGUMENTS, read what the user wrote in this message.' : ''
+    return [`${typed}, so its instructions are below: typing its name is the user starting the skill. If they are asking you to run it, ${follow}.${args} ${only}`, `<skill name="${mention.name}">`, ...base, mention.body, '</skill>'].join('\n')
+  })
+  return ['<skill_mentions>', notes.join('\n\n'), '</skill_mentions>'].join('\n')
+}
+
 /**
  * Jev reads at most 32k tokens of "the state and the longest question" (the
  * skills Choice is the longest). Stage one's question gets what the state may
