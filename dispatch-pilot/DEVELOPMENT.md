@@ -179,7 +179,7 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev）�
 
 给人看的读数都在看板上（#29，ADR 0004），终端上不再有 `$.ui.status` 那一行（它前面的 ⚠ 关不掉，一行也放不下几个 agent）；不带终端的会话用它写 band 的一行摘要（ADR 0011，见下面「非终端端」）：
 
-- **prompt 上方的 band。** 一轮进行中，顶上一条状态条（第几轮、用时、agent 的运行 / 完成 / 失败 / 排队数、Workflow 的进度），下面每个 agent 一行：主 agent 在最前，其余按开始的先后，各带数字键（0 是主 agent，1–9 按先后）、名字（太长时末尾截断）、模型标签、effort 标签、状态符号、一条时间色带（同一根时间轴，看得出谁和谁并行），最后是状态格：运行或完成了多久、失败、排队，或者「未路由 · 原因」（决策模型超时、出错、没配好、功能已关……，完整的原因在依据面板）。再下面是这一轮的事件流：每个决定、派出 agent 失败后的升模型（标签「升级」，写哪个 agent、从哪个模型升到哪个、失败了几次）、skill 推荐和「可试 /x」、skill 查询，以及请求失败、回答迟到这类以前只在状态行出现的事。一轮结束后 band 折成一行：主 agent 的模型·effort、这一档是怎么来的（例如「位置 2.3 → high」「出错代价：至少 xhigh」，或未路由的原因）、「可试 /x」、agent 的结果。引擎给 band 不到 4 行时，退成一行摘要。同一位置上别的 mod 画的内容保留在上面。
+- **prompt 上方的 band。** 一轮进行中，顶上一条状态条（第几轮、用时、agent 的运行 / 完成 / 失败 / 排队数、Workflow 的进度），下面每个 agent 一行：主 agent 在最前，其余按开始的先后，各带数字键（0 是主 agent，1–9 按先后）、名字（太长时末尾截断）、模型标签、effort 标签、状态符号、一条时间色带（同一根时间轴，看得出谁和谁并行），最后是状态格：运行或完成了多久、失败、排队，或者「未路由 · 原因」（决策模型超时、出错、没配好、功能已关……，完整的原因在依据面板）。再下面是这一轮的事件流：每个决定、派出 agent 失败后的升模型（标签「升级」，写哪个 agent、从哪个模型升到哪个、失败了几次）、skill 推荐和「可试 /x」、skill 查询，以及请求失败、回答迟到这类以前只在状态行出现的事。一轮结束后 band 折成一行：主 agent 的模型·effort、这一档是怎么来的（例如「位置 2.3 → high」「出错代价：至少 xhigh」，或未路由的原因）、「可试 /x」、agent 的结果。引擎给 band 不到 4 行时，退成一行摘要。同一位置上别的 mod 画的内容保留在上面（到 Claude Code 2.1.322 是这样：`next(e)` 交回下面画的内容，mod 把它放在自己的行上面；2.1.323 起 band 里 `next(e)` 交回的是引擎自己的元素 `{ type: 'engine' }`，下面画的内容由引擎排在 mod 的树后面，mod 把那个元素放哪里、放不放都一样，这是在 `claude plugin test` 里量到的，更新日志没写，脚部不受影响）。
 - **脚部右端的摘要。** 不超过 12 列（引擎在那里写着模式、或别的 mod 画了东西时，隔开它们的那一列也算在内）：状态符号（有 agent 在跑时是转圈）、主 agent 的模型·effort、`+N` 个运行中的 agent；放不下时 effort 先写短（`xhi`），再省掉模型。band 收起时也看得到。
 - **几条读法**（`view.ts`、`kit.tsx`）。更早一轮开始、这一轮仍在跑的 agent（Workflow 跨轮），状态格的「运行 m:ss」从它自己的开始算，不是这一轮已经过的时间。更早一轮的主 agent 不带进后面的一轮，哪怕它的节点还写着在跑（下一轮开始，主 agent 的那一轮就结束了）。band 窄于 70 列时 effort 格只剩五格 pip。卡片上未解决那一行（`pane-card-unresolved-odds`）读记录里存的 `verdicts`，不重新套 0.7 / 0.3。格宽（`kit.tsx` 的 `cells`）把 emoji 和 CJK 扩展 B 的字符按 2 格算。模型·effort 的读数（`readout`）、skill 提示的文字（`skillsText`）和百分比（`pctText`）在 kit.tsx 各写一份，band、脚部和面板共用。
 - **toast。** 路由失败（主 agent 或某个 agent 的决策请求失败）时弹一个，写谁没路由、原因和细节；按数字键要的依据面板没被放出来时也弹一个，写原因和 `/dp log 10`；在面板里按 x 要看的对话引擎没切过去时也弹一个（`unviewed`），写引擎给的原因。离上一个 toast 不到 2 秒的不弹（失败照样在看板上）：2.1.290 之前是引擎会丢掉同一个插件 2 秒内的第二个 toast，现在不丢了（官方排错页），这条限频留着，免得几个 agent 一起失败时刷屏。
@@ -704,6 +704,37 @@ Liquid 在 2026-10-19 发布 `d1.1`。`GET /decisions/v1/models` 列出 `d1`（2
 - **等待（`BACKEND_DEFAULTS['d1.1']`）。** `timeoutMs` 3500：满预算的请求单发最慢 2.27 秒（进程里第一个，要建连接；连接建好后最慢 1.97 秒），按 d1-ultra 的算法取约 1.5 倍。`skillsSecondStageMs` 1000：第二段最慢 0.63 秒，几千 token 的小请求最慢 0.80 秒，留出约 1.6 倍；这时一条消息最多等 4.5 秒。`findSkillWaitMs` 不另设（`null`，和一条消息一样等 3500）：两段加起来 1.1–1.3 秒。`agentLanes` 4：4 个满预算的请求同时发，最慢 3.33 秒，一个 agent 最多等 7000（`agentWaitMs`）。
 - **和 d1-ultra 比。** 这一天满预算的请求 d1-ultra 反而更快（中位约 1.06 秒对 1.7 秒），小请求和 skill 的两段 d1.1 快一点。2026-10-28 d1-ultra 同样的请求要 2.0–2.7 秒：同一个模型在不同的日子差一倍，所以等待按慢的那次留余地。d1-ultra 的默认值没有跟着改。
 
+## Drex Max v1.1（2026-11-13，ADR 0026）
+
+Nace 在 2026-10-28 发布 `drex-max-v1.1`，和 Jev 是同一套 System One 协议。调研在 `docs/research/drex-max-decision-model.md`。用户要的是一次不复杂的对照：每种题型跑一遍，和 Jev 比。两边同一天、同一份数据集、同一套题面和代码（结果文件里的 `questions` 和 `code` 逐项相同），各跑一遍，并发 1，没有失败的请求。结果文件是各套件下的 `2026-11-13-drex-v1-1.json` 和 `2026-11-13-jev-drex-control.json`，共约 0.32 美元。
+
+| 套件（变体） | Jev 1.14.0 中 / 英 | Drex Max v1.1 中 / 英 | 只有 Jev 对 / 只有 Drex 对 | 符号检验 p |
+|---|---|---|---|---|
+| `effort-submit`（`en-score`） | 97.0% / 94.0% | 94.0% / 95.0% | 6 / 4 | 0.75 |
+| `effort-midrun`（`mod`） | 78.7% / 79.5% | 83.6% / 83.6% | 3 / 14 | 0.013 |
+| `subagent`（`nouls`） | 89.0% / 89.0% | 87.0% / 87.0% | 9 / 5 | 0.42 |
+| `skill`（`cookbook`） | 25.7% / 30.3% | 86.2% / 83.5% | 6 / 130 | < 0.0001 |
+
+- skill 的差距主要在「提示只有用户能启动的 skill」（hint）：Jev 41.3% / 45.9%，Drex 91.7% / 92.7%；Jev 中文有 54 题只错在多给了提示，而永远不提示就有 84.4%。推荐（suggest）是 77.1% / 78.0% 对 92.7% / 89.0%。Jev 这一项为什么这么低没有查。
+- 延迟（一个接一个发）：Drex 单个请求 p50 523–557 毫秒、p90 571–782；skill 两段合计 1180 / 1364（第一段 674 / 784，第二段 513 / 622），218 个回答里 2 个超过 1500。Jev 是 270–284 / 336–348，skill 578 / 688。所以 `timeoutMs` 取 2500，`skillsSecondStageMs` 1000。Nace 的文档说繁忙时一个请求可能排队到 55 秒，没有给 p95。
+- token：同样的请求 Drex 计的约是 Jev 的 0.83 倍（mod 估算的 0.88–0.93 倍，`ESTIMATE_FACTOR.drex` 取 0.95）。价格每百万 input token 0.03 美元，Nace 说是五折的发布价；四套文字题 Drex 0.109 美元，Jev 0.180。
+- 题面没有为 Drex 改：mod 的问法已经是 Nace 的 Questions 页推荐的形式（是非题两侧都写 criteria、量表从低到高写具体情形、一份 state 问多题）。skill 的选择题没有逐条对照 Nace 的建议（兜底选项、短描述）。门槛是 TypeSafe 的，没有在 Drex 上重定：Nace 不给数值，只说「Choose a threshold from a labeled sample」。回答里存着原始概率，`eval/rescore.ts` 可以离线重扫。
+- 回答的形状和 Jev 的差别（实测一个三题请求）：是非题多一个 `confidence`（`max(p, 1 − p)`），顶层多 `evaluation_time_ms` 和 `request_id`，`legend` 是数组，概率是完整精度（Jev 四舍五入到两位）。选择题和打分题的 `confidence` 和 TypeSafe 文档的公式对得上（各一例）。mod 只读 `model`、`answers` 和 `usage.input_tokens`，都不受影响。
+
+**看图没有换**（用户的决定，按下面的对照）。Drex 没有 Box 题，放大复核做不了。试了两种不靠 Box 的问法，都在 `visual-check` 套件里（`eval/lib/visual-check-criteria.ts`）：`criteria`（整图，每条检查带 criteria，题面里写 Image N）和 `tiles`（两张图同一视角时，各切三条有重叠的分块放大，和整图放进同一个请求，共 8 张；答案看着放大块给，所以可以判过）。24 题、55 条检查，各跑一遍：
+
+| | Jev `mod`（Box 加放大复核） | Drex `tiles` |
+|---|---|---|
+| 20 处差异里抓到 | 15 | 15 |
+| 差异判成过（不该有） | 1（`ui-c4-weight`） | 2（`ui-c2-margin`、`ui-c5-shift`） |
+| 相同判成没过 | 0 | 2（都在动画的「一直移动到 TARGET」那条，题面有歧义） |
+| 没把握 | 16 | 11 |
+| 整题全对 | 45.8% | 50.0% |
+| p50 / 最慢 | 1573 / 4585 毫秒 | 2251 / 4505 毫秒 |
+| input token | 233,048 | 157,195 |
+
+整图的原始概率区分成立和不成立的 AUC：Jev 0.900，Drex 0.931（`criteria`）；加不加 criteria 两个模型都只差 0.00–0.02。Drex 的 `tiles` 把两处细微的界面差异判成过（0.87 和 0.98），Jev 对这两处是没把握；8 张图的一个请求比 Jev 的两个请求还慢。样本小，2 对 1 不显著，但没有证据说 Drex 更好。mod 的 `decision/drex.ts` 不收图；`eval/lib/drex.ts` 收，只为这套评测。
+
 ## d1-ultra 核验（2026-10-16）
 
 > 下面 `effort-midturn` 的数字和「中途重判」的结论只作记录：0.9.0 删了中途重判（ADR 0013）。
@@ -960,6 +991,7 @@ hooks/
     ├── screenshot-takeover.ts  截图接管的判断（#62，纯）：给 agent 的说明 `takeoverNote`、Read 结果的文本形态 `noteAsReadResult`、从工具结果里找 image 块并换掉（`imageOf` 认 MCP 和 Messages API 两种写法，`swapImages`）
     ├── jev.ts              Jev 后端（`JEV_MODEL` 和带图的 `JEV_IMAGE_MODEL` 都是 `jev-latest`，ADR 0021；带图时：顶层 `assets`、`TypeSafe-Danger-Zone-Images` 头）；`needsLongContext` 判断带不带长上下文请求头（0.9.0 起默认值都留在常规上限内，只有合并的 agent 请求可能超出，ADR 0014）
     ├── pplx.ts             Perplexity 后端（Decisions API，pplx-decider-v1.1-27b，#43、#50；`decisionModel: pplx` 选它；带图时 state 是数组）
+    ├── drex.ts             Drex Max v1.1 的后端（Nace，默认的决策模型，ADR 0026）：TypeSafe 的 System One 请求和回答，固定模型 `drex-max-v1.1`（`DREX_MODEL`），整个请求一个 262,144 token 的上限、没有长上下文请求头，不收图和 Box 题（图仍走 Jev）
     ├── liquid.ts           d1-ultra 和 d1.1 的后端（Liquid，ADR 0017、0021）：TypeSafe 的 System One 请求和回答，固定模型 `d1-ultra` 或 `d1.1`（`D1_1_MODEL`），没有长上下文请求头、不收图和 Box 题（图仍走 Jev）；`LIQUID_QUESTION_TOKENS` 32,768、`D1_1_QUESTION_TOKENS` 65,536、`LIQUID_PER_ESTIMATED_TOKEN` 1.092（实测）
     ├── rate-queue.ts       两个限速共用的排队（pplx-rate、jev-rate）：`rateQueue()`（`ticket`、`place`、`nudge`）、`priorityOf`（effort 题优先）、`handedOver`（交出去前去掉 `retryAfterMs`、带上 notes）、`LEAST_SEND_MS`（200）
     ├── pplx-rate.ts        pplx 的限速和 429 重试（#51）：`rateLimited(backend, qps)` 把后端包起来，按 `pplxQps` 排队（队列是 rate-queue.ts 的），effort 先发
@@ -1301,6 +1333,7 @@ const { suggest, hint } = pickSkills(ranking, options, ctx.config.guide.skills)
 - `jevBackend(apiKey)`：`POST https://api.typesafe.ai/v1/systemone`，Bearer 认证，回答在响应的顶层 `answers`。`apiKey` 和 `pplxBackend` 的一样，可以是字符串，也可以是每次 `ask` 时才取的函数。
 - `pplxBackend(apiKey)`（`decision/pplx.ts`，#43）：Perplexity 的决策模型 `pplx-decider-v1.1-27b`，`POST https://api.perplexity.ai/v1/decisions`，Bearer 认证。请求体只有 `model`、`state`、`questions`（多一个顶层字段文档说返回 400），问题部分和 Jev 一字不差；回答在顶层 `answers`，`score` 的 `legend` 和 `probabilities`、`choice` 的 `probabilities` 都按字符串下标或选项名，`readResponse` 照常读。mod 里用 `decisionModel` 选它（#50），#52 起它是默认。模型名固定（API 只认 `pplx-decider-v1.1-27b` 和 `pplx-decider-v1-27b`，没有 `-latest`）。失败：401 和 403 记 `config`；402（账号没有额度）记 `quota`；429、500、502、503、529 记 `busy`（429 的说明带 `Retry-After` 的秒数）；504 和 408 记 `timeout`（504 是模型一分钟内没答，body 可能是 HTML，说明里写「an HTML page, not JSON」，不抄进日志）；其余（400、413、404、405）记 `http`，说明是 `error.type: error.message`，404 和 405 的 body 是空的写「empty body」；2xx 不是 JSON 或没有 `answers` 记 `parse`；说明里出现密钥的地方换成 `[REDACTED]`。实测（2026-10-07 探针，`tests/pplx.test.ts` 按文档的响应写）：`instructions` 是对象或数组、问题带多余字段、问题 ID 带点号、Choice 的描述是对象，API 都照收（200），所以 mod 的请求原样可发；Score 只有一档时 `usage.input_tokens` 是 0。
 - 两个后端都包着各自账号的限速：pplx 的 `rateLimited`（「限速和 429」），Jev 的 `jevRateLimited`（「Jev 的限速」）；Jev 的 429、529 带 `Retry-After` 时 `httpFailure` 把它读成 `retryAfterMs`。
+- `drexBackend(apiKey, { model? })`（`decision/drex.ts`，ADR 0026）：Nace 的 Drex Max v1.1，0.13.0 起默认的决策模型，`POST https://console.nace.ai/v1/systemone`，Bearer 认证，请求和回答都是 Jev 的（共用 `postJson`、`readPosted`）。固定模型 `drex-max-v1.1`，不带任何请求头，不收图和 Box 题（图走 Jev）。key 是 `naceApiKey` 或 `NACE_API_KEY`。没有 mod 自己的限速：免费档每分钟 120 个请求、同时 8 个，429 读成 `busy`（看板写「被限速」）。读法是 `TYPESAFE_GUIDE`，默认值是 `DREX_DEFAULTS`（题面和预算同 Jev，`timeoutMs` 2500）。eval 的 `lib/drex.ts` 是它加上带图的一份（顶层 `images`、题面里写 Image N），只给评测用。
 - `liquidBackend(apiKey, { model? })`（`decision/liquid.ts`，ADR 0017、ADR 0021）：Liquid 的 `d1-ultra`，`model: D1_1_MODEL` 时是 `d1.1`（看板和日志里的名字跟着模型），`POST https://api.liquid.ai/decisions/v1/systemone`，Bearer 认证，请求和回答都是 Jev 的（共用 `postJson`、`readPosted`）。固定模型，不带长上下文头，不收图和 Box 题（图走 Jev；Liquid 的模型现在也收图，但放大复核要 Jev 的 Box 题）。key 是 `liquidApiKey` 或 `LIQUID_API_KEY`。没有 mod 自己的限速：Liquid 每个模型每秒 20 个请求、所有 key 共用，429 读成 `busy`（看板写「被限速」）。eval 的 `lib/d1.ts` 是它换了名字（`d1`）的一份。
 - `core/setup.ts` 的 `setup()` 每个决策模型的后端都建（Jev、pplx、d1-ultra、d1.1），`ctx.backend` 是 `decisionModel` 选的那一个（`backendNameOf`，0.9.0 起不按密钥换，ADR 0014）；一次请求失败时不会改用另一个。带图的请求另按密钥选（`chooseImageBackend`：Jev，没有 TypeSafe key 时 pplx，从不选 Liquid 的）。
 - `Backend.configured` 为 `false` 表示用户还没配好这个后端（Jev 没有 key），这时它的每次 `ask` 都会立刻以 `config` 失败返回。拿东西去换决策的功能，在这种情况下不应该动手：skill 推荐在这时不隐藏列表。新增后端时，要按自己的凭证设置这个字段。

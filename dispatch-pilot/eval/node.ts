@@ -23,6 +23,7 @@ import { buildEvalV2, checkFinalGold, checkGold, checkItem, checkSegment, datase
 import { v2Item, type V2EvalItem } from './lib/eval-v2-suite.ts'
 import { readNumber, type NumberRule } from './lib/numbers.ts'
 import { d1Backend } from './lib/d1.ts'
+import { drexBackend, DREX_PRICE } from './lib/drex.ts'
 import { attemptMs } from './lib/runner.ts'
 import { optionsFor, settingsFrom, type ImageHost, type OptionSpec, type SuiteHost } from './lib/suite.ts'
 import { picturesOf, type VisualCheckItem } from './lib/visual-check-items.ts'
@@ -205,7 +206,8 @@ export function credential(name: string): string | undefined {
 }
 
 /**
- * The decision backend under evaluation (`jev`, `pplx`, `d1.1`: Liquid's newest, or `d1`: Liquid's d1-ultra, lib/d1.ts), with the
+ * The decision backend under evaluation (`jev`, `pplx`, `d1.1`: Liquid's newest, `d1`: Liquid's d1-ultra, lib/d1.ts, or `drex`: Nace's
+ * Drex Max v1.1, lib/drex.ts), with the
  * credentials it needs (`credential`); `secrets` are those values, to keep
  * them out of anything written. `longContext`: Jev's requests carry the
  * long-context header (eval/run.ts --long-context). Throws, saying what is
@@ -229,7 +231,12 @@ export function backendFor(name: string, model?: string, options: { longContext?
     if (name === 'd1.1') return { backend: liquidBackend(key, { model: model ?? D1_1_MODEL }), secrets: [key] }
     return { backend: d1Backend(key, model === undefined ? {} : { model }), secrets: [key] }
   }
-  throw new Error(`no backend "${name}" (jev, pplx, d1.1, d1)`)
+  if (name === 'drex') {
+    const key = credential('NACE_API_KEY')
+    if (key === undefined) throw new Error(`no NACE_API_KEY in the environment or ${CREDENTIALS_FILE}`)
+    return { backend: drexBackend(key, model === undefined ? {} : { model }), secrets: [key] }
+  }
+  throw new Error(`no backend "${name}" (jev, pplx, d1.1, d1, drex)`)
 }
 
 /** A result file's text: pretty JSON, each answer on a line of its own (eval/run.ts writes it, eval/resummarize.ts rewrites it). */
@@ -241,9 +248,10 @@ export function formatResult(result: Record<string, unknown> & { answers: readon
 
 /**
  * Input price per million tokens, by backend; output is free on all (docs.typesafe.ai/models, 2026-10-04; Perplexity: docs.perplexity.ai/docs/decisions/quickstart, Pricing, 2026-10-07;
- * Liquid: liquid.ai/pricing, 2026-10-15, and the `usage.cost` its answers carry, 2026-11-10: d1-ultra 0.042, d1.1 0.02).
+ * Liquid: liquid.ai/pricing, 2026-10-15, and the `usage.cost` its answers carry, 2026-11-10: d1-ultra 0.042, d1.1 0.02;
+ * Nace: console.nace.ai/docs/drex/reference/pricing, 2026-11-12, a launch price).
  */
-export const PRICES: Readonly<Record<BackendName, number>> = { jev: 0.042, pplx: 0.02, 'd1-ultra': 0.042, 'd1.1': 0.02 }
+export const PRICES: Readonly<Record<BackendName, number>> = { drex: DREX_PRICE, jev: 0.042, pplx: 0.02, 'd1-ultra': 0.042, 'd1.1': 0.02 }
 
 /** A number flag's value; a typo stops the script (exit 2) before anything is sent, as `Number()` would read it as NaN and pass every check made with it (lib/numbers.ts). */
 export function numberFlag(flag: string, text: string, rule: NumberRule): number {

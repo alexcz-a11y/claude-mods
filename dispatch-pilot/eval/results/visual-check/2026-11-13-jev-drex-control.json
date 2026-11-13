@@ -1,0 +1,2335 @@
+{
+  "suite": "visual-check",
+  "label": "drex-control",
+  "date": "2026-11-13T06:24:30.472Z",
+  "backend": {
+    "name": "jev",
+    "model": "jev-latest",
+    "answeredBy": [
+      "jev-1.14.0"
+    ]
+  },
+  "dataset": {
+    "path": "eval/datasets/visual-check.jsonl",
+    "items": 24,
+    "sha256": "6afaaffc9b41519207388fcd47e6df4a0d59a42df024d7c1352d89db07d54fe8",
+    "review": {
+      "file": null,
+      "decided": 0
+    }
+  },
+  "code": {
+    "hooks/board/band.tsx": "cac130f080aa3cff",
+    "hooks/board/footer.tsx": "a5659ab084077ae0",
+    "hooks/board/kit.tsx": "2cadb66c563e2570",
+    "hooks/board/pane-app.tsx": "4fee39ef5acc974e",
+    "hooks/board/pane.tsx": "87fffc4134a4a34f",
+    "hooks/board/rationale.ts": "79f9565dc2e979af",
+    "hooks/board/reference.ts": "86407b19f188cdcf",
+    "hooks/board/screens.tsx": "0c3267116c0caa99",
+    "hooks/board/status-line.ts": "f0023b1503c20a21",
+    "hooks/board/view.ts": "df94affe25770897",
+    "hooks/core/agent-lane.ts": "6cc03c90cb057f2a",
+    "hooks/core/ask-group.ts": "dd8cc4a0679c44f5",
+    "hooks/core/ballot.ts": "53f87cfdff6dc1b4",
+    "hooks/core/call-budget.ts": "f9180f81a0a5995a",
+    "hooks/core/commands.ts": "f522e95c7fc293d2",
+    "hooks/core/complexity.ts": "d328de8b3a38d111",
+    "hooks/core/core.ts": "480d94d04b5dcac7",
+    "hooks/core/deferred.ts": "b625d2b402cf4f3d",
+    "hooks/core/image-crops.ts": "860f412f07f56606",
+    "hooks/core/image-files.ts": "ec701ece1adb2526",
+    "hooks/core/loop-start.ts": "c290fc6e746d7b2b",
+    "hooks/core/outcomes.ts": "531de3e34ce1b157",
+    "hooks/core/plans.ts": "138a2245c16e7e70",
+    "hooks/core/prompts.ts": "ceb6aa21cf73ca5f",
+    "hooks/core/quality-series.ts": "31abc6d60a07d230",
+    "hooks/core/report.ts": "59983ffa0f72fad0",
+    "hooks/core/setup.ts": "3bd9cb9dc9855ff2",
+    "hooks/core/skills.ts": "112101c9436f64bd",
+    "hooks/core/switches.ts": "19a0df21c323e5ec",
+    "hooks/core/takeover-report.ts": "8a65b0eeae059a77",
+    "hooks/core/unresolved.ts": "f87eebccd7f9b74f",
+    "hooks/core/video-frames.ts": "0ca71bcf50207792",
+    "hooks/core/visual-check-report.ts": "b63acdc3717938fc",
+    "hooks/core/work-files.ts": "6636260697cf054c",
+    "hooks/core/workflow-report.ts": "b450f1a8fb36dc90",
+    "hooks/core/zoom-review.ts": "656e0fe5359eed54",
+    "hooks/decision/asks.ts": "20d6b12b432ce5e5",
+    "hooks/decision/backend.ts": "1b51ecbd8f768e63",
+    "hooks/decision/complexity.ts": "678fc175c3ae2737",
+    "hooks/decision/constraints.ts": "1dd8faf5ee354815",
+    "hooks/decision/context.ts": "0bd024e2787487af",
+    "hooks/decision/dispatched-agent.ts": "bf198a46da6ac172",
+    "hooks/decision/effort.ts": "90db92b6054b1421",
+    "hooks/decision/escalation.ts": "dddc0ebb77d078d6",
+    "hooks/decision/guides.ts": "241f4c1b66151159",
+    "hooks/decision/image-fit.ts": "46f00ef665f32279",
+    "hooks/decision/image-header.ts": "1ee2601beb24931a",
+    "hooks/decision/images.ts": "02607b07e7454a0d",
+    "hooks/decision/jev-rate.ts": "23c8a346193400ab",
+    "hooks/decision/jev.ts": "1142aaf2f21979d9",
+    "hooks/decision/keep-newest.ts": "862cfe18a916f1d3",
+    "hooks/decision/liquid.ts": "0f82de38e8d9274d",
+    "hooks/decision/message-effort.ts": "2f2b2bc47a8fe5ba",
+    "hooks/decision/midrun-track.ts": "9f5ef39f099aaea6",
+    "hooks/decision/midrun.ts": "80338a8a987cffe4",
+    "hooks/decision/model-ids.ts": "464f8e447a48dcd7",
+    "hooks/decision/nouls.ts": "83243bde173e4d0b",
+    "hooks/decision/pplx-rate.ts": "392f16176929216f",
+    "hooks/decision/pplx.ts": "78da80996c6c8d02",
+    "hooks/decision/prompt-hint.ts": "b7f1f77563a13f95",
+    "hooks/decision/rate-queue.ts": "4858efb4c352a908",
+    "hooks/decision/redact.ts": "83c4b02966429254",
+    "hooks/decision/screenshot-takeover.ts": "fe524314e8a4a8e6",
+    "hooks/decision/skills.ts": "7f0e7482c39c4fb2",
+    "hooks/decision/summary.ts": "5fc59b44f55080ea",
+    "hooks/decision/system-one.ts": "6d4f9957aca29d8b",
+    "hooks/decision/turn-start.ts": "f3d15377de80fb08",
+    "hooks/decision/unresolved.ts": "c94549bf8d6bed3e",
+    "hooks/decision/visual-check-frames.ts": "199b0beb4e55c61f",
+    "hooks/decision/visual-check-record.ts": "051b7ba2f0684644",
+    "hooks/decision/visual-check-sequence-text.ts": "f7aa2a42cda1204f",
+    "hooks/decision/visual-check-sequence.ts": "e9c6c586030fd442",
+    "hooks/decision/visual-check-tool.ts": "1fec6714cf72044f",
+    "hooks/decision/visual-check-zoom.ts": "b598f5ebfedf172d",
+    "hooks/decision/visual-check.ts": "1754e94614788d71",
+    "hooks/decision/workflow-labels.ts": "e2bc1e796baf5fe8",
+    "hooks/decision/workflow-script.ts": "39285b69edca9799",
+    "hooks/decision/workflow.ts": "be7b8c3b61aebc14",
+    "hooks/decision/zoom.ts": "bef1c79f03bddd6a",
+    "hooks/dispatch-pilot.ts": "2dbfd30f1ab1079f",
+    "hooks/features/control.ts": "1309a8bbaf3dfd2b",
+    "hooks/features/dispatched-agents.ts": "ee2ed74f62a5a599",
+    "hooks/features/escalation.ts": "18dfb9b342b50505",
+    "hooks/features/find-skill.ts": "1f48d0a0e06867eb",
+    "hooks/features/image-routing.ts": "2b2e000d62f215cb",
+    "hooks/features/main-effort.ts": "5f87cad25eb404be",
+    "hooks/features/midrun-effort.ts": "4e79cda579181e1e",
+    "hooks/features/prompt-hint.ts": "4730915e0b087966",
+    "hooks/features/reference-hint.ts": "35a1b5d07780187f",
+    "hooks/features/screenshot-takeover.ts": "c1556a7be2aac634",
+    "hooks/features/skills.ts": "efec87406e7d7fe3",
+    "hooks/features/unresolved.ts": "704f984e5ae4ebbc",
+    "hooks/features/visual-check-look.ts": "9a2c38140cfa4662",
+    "hooks/features/visual-check-series.ts": "65bef2743e2fddb6",
+    "hooks/features/visual-check.ts": "24d4a250b2f713a6",
+    "hooks/features/workflow-agents.ts": "a18de36386824e4a",
+    "hooks/features/workflow-labels.ts": "49f4f5fd8fcaea4a",
+    "hooks/hooks.json": "1b25c5b4d076064d",
+    "eval/lib/compare.ts": "bed9bff37206a970",
+    "eval/lib/ctx30.ts": "04753affd0757be6",
+    "eval/lib/d1.ts": "ffc7ba6d7dcaccb6",
+    "eval/lib/datasets.ts": "ac3a6dc825e6d8e6",
+    "eval/lib/docs.ts": "9eb6dde6e616d12c",
+    "eval/lib/drex.ts": "545b8336adac4c67",
+    "eval/lib/effort-midrun.ts": "19304beaf688304f",
+    "eval/lib/effort-submit.ts": "14b1ce9b002cd9b6",
+    "eval/lib/estimate.ts": "3ea3fecfad14747e",
+    "eval/lib/eval-v2-flow.ts": "7b2ba50088157511",
+    "eval/lib/eval-v2-suite.ts": "845f93b9cbc404e6",
+    "eval/lib/eval-v2.ts": "67b061c5bb58843b",
+    "eval/lib/long-context.ts": "2fce46a4519427f9",
+    "eval/lib/long-conversation.ts": "8bf092f7993911ed",
+    "eval/lib/long-filler.ts": "7db067908915c1f9",
+    "eval/lib/long-summaries.ts": "d6e09e9a8ca4136d",
+    "eval/lib/merge.ts": "0c9519d041e4027f",
+    "eval/lib/metrics.ts": "27508762628793de",
+    "eval/lib/midrun-items.ts": "b2781d1409de1a8f",
+    "eval/lib/numbers.ts": "60166dc71ec8ffbf",
+    "eval/lib/paired.ts": "4b6611b474fc7d89",
+    "eval/lib/random.ts": "c45cc17953bbbf52",
+    "eval/lib/rescore.ts": "01049f101dedf2bf",
+    "eval/lib/resummarize.ts": "8b5f6877b8f20abb",
+    "eval/lib/review.ts": "168e705a7066e5c2",
+    "eval/lib/runner.ts": "00836b7aff2812aa",
+    "eval/lib/skill.ts": "5812ec32655b792c",
+    "eval/lib/subagent.ts": "59b45093b6d8f90f",
+    "eval/lib/suite.ts": "e5dd71de8a70e773",
+    "eval/lib/suites.ts": "8d2a64faa1b3171a",
+    "eval/lib/unresolved.ts": "b169cbf0896c1b42",
+    "eval/lib/validators.ts": "2b7e0fcddc697df1",
+    "eval/lib/visual-check-criteria.ts": "a7f6b5e18dac6df0",
+    "eval/lib/visual-check-items.ts": "8cbf99b236b0a5ac",
+    "eval/lib/visual-check-rescore.ts": "8abe86377a4cf213",
+    "eval/lib/visual-check.ts": "2c069eaab667599d"
+  },
+  "settings": {
+    "context": {
+      "messages": 2000,
+      "tokens": 6000
+    },
+    "messageStateTokens": 24000,
+    "stateMessagesLimit": 2000,
+    "unresolvedMaxAfter": 3,
+    "timeoutMs": 1500,
+    "options": {
+      "decisionModel": "jev",
+      "pplxQps": 5,
+      "jevQps": 80,
+      "jevTokensPerSecond": 100000,
+      "midrunEverySteps": 15,
+      "escalateAfter": 2,
+      "escalateLimit": 2,
+      "escalateHaikuTo": "sonnet",
+      "agentFable": false,
+      "skillsAlwaysListed": [],
+      "skillsNeverSuggested": [],
+      "findSkillMax": 5,
+      "workflowMode": "rewrite",
+      "summaryModel": "haiku",
+      "unresolvedMaxAfter": 3
+    },
+    "backendDefaults": {
+      "timeoutMs": 1500,
+      "contextMessages": 2000,
+      "contextTokens": 6000
+    }
+  },
+  "run": {
+    "items": 24,
+    "variants": [
+      "mod",
+      "whole",
+      "criteria"
+    ],
+    "languages": [
+      "zh"
+    ],
+    "timeoutMs": 10000,
+    "retries": 2,
+    "concurrency": 1,
+    "requests": 88,
+    "attempts": 88,
+    "inputTokens": 590797,
+    "usd": 0.0248
+  },
+  "questions": {
+    "mod": {
+      "againstAReference": {
+        "check.0": {
+          "type": "noul",
+          "instructions": "In `candidate`, is the <property> of <part> the same as in `reference`?"
+        }
+      },
+      "againstASpec": {
+        "check.0": {
+          "type": "noul",
+          "instructions": "In `screenshot`, does <part> meet this requirement: <property>? The specification it belongs to is in `specification`."
+        }
+      },
+      "frames": {
+        "check.0": {
+          "type": "noul",
+          "instructions": "`frames` are 1 frames of a screen recording, in order of time (`seconds` is the time of each). Looking at how the picture changes from one frame to the next, does <part> meet this requirement: <property>? The specification it belongs to is in `specification`."
+        }
+      },
+      "complexity": {
+        "complexity.level": {
+          "type": "score",
+          "instructions": "The images in `reference_images` are references for something that is going to be built to match them (an interface, a 3D model, a scene, an animation). How complex is it to build it so that it matches them? Rate the work of reproducing what the images show, not how important or well known the subject is.",
+          "criteria": [
+            "A single plain shape or flat graphic with almost nothing to it and no fine detail, such as a plain cube, a solid-colour logo or one basic button.",
+            "A few plain elements laid out simply, with little detail: a basic screen with a handful of standard controls, or an object made of a few primitive shapes.",
+            "A moderate number of distinct parts with some detail or styling: an ordinary app screen, a recognisable object of several components, or a small scene with a few materials.",
+            "Many distinct parts with fine detail, layered materials, lighting or effects: a dense interface, a detailed model, or a scene with several kinds of surfaces.",
+            "A very large amount of intricate detail: a whole city or environment, an organic or highly detailed model with many parts, a scene with many interacting effects, or a screen of many interacting elements."
+          ]
+        }
+      },
+      "locating": {
+        "box.0.candidate": {
+          "type": "box",
+          "instructions": "<part> in `candidate`."
+        },
+        "box.0.reference": {
+          "type": "box",
+          "instructions": "<part> in `reference`."
+        },
+        "where.screen": {
+          "type": "box",
+          "instructions": "The region of `candidate` that differs from `reference`."
+        }
+      },
+      "zoomedReCheck": {
+        "zoom.0.0": {
+          "type": "noul",
+          "instructions": {
+            "question": "Both images are enlarged crops that show <part>, cut out of two images. Is the <property> of <part> the same in `candidate_crop` as in `reference_crop`?",
+            "candidate_crop": "⟦image:crop⟧",
+            "reference_crop": "⟦image:other⟧"
+          }
+        }
+      }
+    },
+    "whole": {
+      "againstAReference": {
+        "check.0": {
+          "type": "noul",
+          "instructions": "In `candidate`, is the <property> of <part> the same as in `reference`?"
+        }
+      },
+      "againstASpec": {
+        "check.0": {
+          "type": "noul",
+          "instructions": "In `screenshot`, does <part> meet this requirement: <property>? The specification it belongs to is in `specification`."
+        }
+      },
+      "frames": {
+        "check.0": {
+          "type": "noul",
+          "instructions": "`frames` are 1 frames of a screen recording, in order of time (`seconds` is the time of each). Looking at how the picture changes from one frame to the next, does <part> meet this requirement: <property>? The specification it belongs to is in `specification`."
+        }
+      },
+      "complexity": {
+        "complexity.level": {
+          "type": "score",
+          "instructions": "The images in `reference_images` are references for something that is going to be built to match them (an interface, a 3D model, a scene, an animation). How complex is it to build it so that it matches them? Rate the work of reproducing what the images show, not how important or well known the subject is.",
+          "criteria": [
+            "A single plain shape or flat graphic with almost nothing to it and no fine detail, such as a plain cube, a solid-colour logo or one basic button.",
+            "A few plain elements laid out simply, with little detail: a basic screen with a handful of standard controls, or an object made of a few primitive shapes.",
+            "A moderate number of distinct parts with some detail or styling: an ordinary app screen, a recognisable object of several components, or a small scene with a few materials.",
+            "Many distinct parts with fine detail, layered materials, lighting or effects: a dense interface, a detailed model, or a scene with several kinds of surfaces.",
+            "A very large amount of intricate detail: a whole city or environment, an organic or highly detailed model with many parts, a scene with many interacting effects, or a screen of many interacting elements."
+          ]
+        }
+      }
+    },
+    "criteria": {
+      "againstAReference": {
+        "check.0": {
+          "type": "noul",
+          "instructions": "Is the <property> of <part> in ⟦image:candidate⟧ the same as in ⟦image:reference⟧?",
+          "criteria": {
+            "true": "The <property> of <part> looks the same: a person comparing the images side by side would see no difference in it.",
+            "false": "The <property> of <part> is visibly different between the images, or <part> is missing from one of them."
+          }
+        },
+        "plain.0": {
+          "type": "noul",
+          "instructions": "In `candidate`, is the <property> of <part> the same as in `reference`?"
+        }
+      },
+      "againstASpec": {
+        "check.0": {
+          "type": "noul",
+          "instructions": "In `screenshot`, does <part> meet this requirement: <property>? The specification it belongs to is in `specification`."
+        }
+      },
+      "frames": {
+        "check.0": {
+          "type": "noul",
+          "instructions": "`frames` are 1 frames of a screen recording, in order of time (`seconds` is the time of each). Looking at how the picture changes from one frame to the next, does <part> meet this requirement: <property>? The specification it belongs to is in `specification`.",
+          "criteria": {
+            "true": "From frame to frame, <part> does what the requirement says.",
+            "false": "From frame to frame, <part> does something other than what the requirement says, or the frames do not show it."
+          }
+        },
+        "plain.0": {
+          "type": "noul",
+          "instructions": "`frames` are 1 frames of a screen recording, in order of time (`seconds` is the time of each). Looking at how the picture changes from one frame to the next, does <part> meet this requirement: <property>? The specification it belongs to is in `specification`."
+        }
+      },
+      "complexity": {
+        "complexity.level": {
+          "type": "score",
+          "instructions": "The images in `reference_images` are references for something that is going to be built to match them (an interface, a 3D model, a scene, an animation). How complex is it to build it so that it matches them? Rate the work of reproducing what the images show, not how important or well known the subject is.",
+          "criteria": [
+            "A single plain shape or flat graphic with almost nothing to it and no fine detail, such as a plain cube, a solid-colour logo or one basic button.",
+            "A few plain elements laid out simply, with little detail: a basic screen with a handful of standard controls, or an object made of a few primitive shapes.",
+            "A moderate number of distinct parts with some detail or styling: an ordinary app screen, a recognisable object of several components, or a small scene with a few materials.",
+            "Many distinct parts with fine detail, layered materials, lighting or effects: a dense interface, a detailed model, or a scene with several kinds of surfaces.",
+            "A very large amount of intricate detail: a whole city or environment, an organic or highly detailed model with many parts, a scene with many interacting effects, or a screen of many interacting elements."
+          ]
+        }
+      }
+    }
+  },
+  "scoring": "An item with checks: each check holds (the part is the same as in the reference, or the frames meet the requirement) or does not. A check that holds is right when it is judged PASS, a check that does not hold when it is judged FAIL; UNSURE is neither right nor wrong. The item is `correct` when none of its checks is judged the wrong way round (`false-pass`: a part that differs judged PASS, which must not happen; `false-fail`: a part that is the same judged FAIL), `exact` when every check is right: an item all UNSURE is correct and not exact, so read `exact` and the figures, not `correct` alone. A complexity item: right when the level the group reads as is in gold.accept, exact when it is gold.level; whether the groups read in the order of their rank is in the figures (`complexity`). The verdicts are the mod's (PASS from 0.8, FAIL up to 0.2 for a screenshot and up to 0.4 for the frames of a motion, as of 2026-10-15; against a reference a PASS is the crop's and a whole image only fails, ADR 0008); the raw probabilities are kept with each answer, and `thresholds` gives what other bars would have said. Controls are the items in which nothing differs.",
+  "about": {
+    "variants": "`mod`: as the mod asks with the run's decision model: against a reference, Jev gets the checks and the Box questions in the first request and the zoomed re-check on the crops after it, pplx the first request alone; a motion is its frames in one request against its spec; a group of references is the complexity reading. `whole`: the first request alone with every decision model, so that what the zoomed re-check adds can be read from the two. `criteria`: the first request alone, each check with criteria for both sides and its images named in the question (Nace's guide), the mod's wording beside it as `plain.<i>` (its probability is each check's `plain`); a motion is 8 frames.",
+    "images": "The experiment's pictures (2026-10-15), copied into eval/datasets/visual-check/; sized and cut as the mod does (core/image-files.ts, core/zoom-review.ts, sips). A motion is its 12 frames as files (8 of them for pplx), not a recording: the mod's ffmpeg is not run."
+  },
+  "summary": {
+    "items": 24,
+    "variants": [
+      {
+        "variant": "mod",
+        "zh": {
+          "items": 24,
+          "answered": 24,
+          "failed": 0,
+          "accuracy": 0.9583,
+          "exact": 0.4583,
+          "misses": {
+            "false-pass": 1
+          },
+          "late": 12,
+          "retried": 0,
+          "inTime": 0.4583
+        },
+        "en": {
+          "items": 24,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": null,
+        "pass": null,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 24,
+          "p50": 1500,
+          "p90": 4007,
+          "max": 4585,
+          "slow": 12
+        },
+        "tags": [
+          {
+            "tag": "blind-spot",
+            "items": 2,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            }
+          },
+          {
+            "tag": "font",
+            "items": 1,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            }
+          },
+          {
+            "tag": "alignment",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "city",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "color",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "control",
+            "items": 4,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "corner_radius",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "cube",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "ease_out",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "identical",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "janky",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "linear",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "missing_element",
+            "items": 2,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "ocean",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "same-sea-other-moment",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "spacing",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "spring",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "text",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "wrong_end",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          }
+        ],
+        "breakdown": {
+          "checks": {
+            "total": 55,
+            "differ": 20,
+            "same": 35,
+            "controlChecks": 12,
+            "answeredItems": 21
+          },
+          "falsePass": {
+            "count": 1,
+            "of": 20,
+            "items": [
+              "ui-c4-weight"
+            ]
+          },
+          "controlFails": {
+            "count": 0,
+            "of": 12,
+            "items": []
+          },
+          "falseFail": {
+            "count": 0,
+            "of": 35
+          },
+          "caught": {
+            "count": 15,
+            "of": 20,
+            "rate": 0.75
+          },
+          "unsure": {
+            "count": 16,
+            "of": 55,
+            "rate": 0.2909,
+            "onDiffering": 0.2,
+            "onSame": 0.3429
+          },
+          "byKind": {
+            "ui": {
+              "checks": 19,
+              "differ": 8,
+              "caught": 5,
+              "falsePass": 1,
+              "same": 11,
+              "falseFail": 0,
+              "unsure": 0.1053
+            },
+            "sea": {
+              "checks": 21,
+              "differ": 9,
+              "caught": 7,
+              "falsePass": 0,
+              "same": 12,
+              "falseFail": 0,
+              "unsure": 0.5238
+            },
+            "anim": {
+              "checks": 15,
+              "differ": 3,
+              "caught": 3,
+              "falsePass": 0,
+              "same": 12,
+              "falseFail": 0,
+              "unsure": 0.2
+            }
+          },
+          "elsewhere": {
+            "reported": 1,
+            "onControls": []
+          },
+          "cost": {
+            "all": {
+              "items": 24,
+              "images": 101,
+              "tokens": 233048,
+              "perImage": {
+                "tokens": 2307,
+                "ms": 461,
+                "usd": 0.000097
+              },
+              "perItem": {
+                "tokens": 9710,
+                "ms": 1940,
+                "usd": 0.000408
+              },
+              "usd": 0.009788
+            },
+            "byKind": {
+              "ui": {
+                "items": 9,
+                "images": 18,
+                "tokens": 110221,
+                "perImage": {
+                  "tokens": 6123,
+                  "ms": 791,
+                  "usd": 0.000257
+                },
+                "perItem": {
+                  "tokens": 12247,
+                  "ms": 1582,
+                  "usd": 0.000514
+                },
+                "usd": 0.004629
+              },
+              "sea": {
+                "items": 7,
+                "images": 14,
+                "tokens": 80383,
+                "perImage": {
+                  "tokens": 5742,
+                  "ms": 1796,
+                  "usd": 0.000241
+                },
+                "perItem": {
+                  "tokens": 11483,
+                  "ms": 3593,
+                  "usd": 0.000482
+                },
+                "usd": 0.003376
+              },
+              "anim": {
+                "items": 5,
+                "images": 60,
+                "tokens": 33368,
+                "perImage": {
+                  "tokens": 556,
+                  "ms": 76,
+                  "usd": 0.000023
+                },
+                "perItem": {
+                  "tokens": 6674,
+                  "ms": 910,
+                  "usd": 0.00028
+                },
+                "usd": 0.001401
+              },
+              "complexity": {
+                "items": 3,
+                "images": 9,
+                "tokens": 9076,
+                "perImage": {
+                  "tokens": 1008,
+                  "ms": 292,
+                  "usd": 0.000042
+                },
+                "perItem": {
+                  "tokens": 3025,
+                  "ms": 877,
+                  "usd": 0.000127
+                },
+                "usd": 0.000381
+              }
+            },
+            "requests": 40,
+            "latencyMs": {
+              "p50": 1500,
+              "max": 4585
+            }
+          },
+          "complexity": {
+            "groups": [
+              {
+                "id": "complexity-cube",
+                "rank": 0,
+                "gold": 0,
+                "level": 0,
+                "expected": 0.08,
+                "p": [
+                  0.93,
+                  0.06,
+                  0.01,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": "complexity-ocean",
+                "rank": 1,
+                "gold": 2,
+                "level": 2,
+                "expected": 2.45,
+                "p": [
+                  0,
+                  0.06,
+                  0.47,
+                  0.43,
+                  0.04
+                ]
+              },
+              {
+                "id": "complexity-city",
+                "rank": 2,
+                "gold": 3,
+                "level": 4,
+                "expected": 3.93,
+                "p": [
+                  0,
+                  0,
+                  0.01,
+                  0.05,
+                  0.94
+                ]
+              }
+            ],
+            "inOrder": true,
+            "strictlyInOrder": true,
+            "expectedStrictlyInOrder": true,
+            "meanLevelError": 0.33
+          },
+          "thresholds": [
+            {
+              "passAt": 0.7,
+              "failAt": 0.1,
+              "falsePass": 2,
+              "caught": 6,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.3818
+            },
+            {
+              "passAt": 0.7,
+              "failAt": 0.2,
+              "falsePass": 2,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.2545
+            },
+            {
+              "passAt": 0.7,
+              "failAt": 0.3,
+              "falsePass": 2,
+              "caught": 16,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.2
+            },
+            {
+              "passAt": 0.7,
+              "failAt": 0.4,
+              "falsePass": 2,
+              "caught": 18,
+              "differ": 20,
+              "falseFail": 2,
+              "same": 35,
+              "unsureRate": 0.1273
+            },
+            {
+              "passAt": 0.75,
+              "failAt": 0.1,
+              "falsePass": 1,
+              "caught": 6,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.4182
+            },
+            {
+              "passAt": 0.75,
+              "failAt": 0.2,
+              "falsePass": 1,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.2909
+            },
+            {
+              "passAt": 0.75,
+              "failAt": 0.3,
+              "falsePass": 1,
+              "caught": 16,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.2364
+            },
+            {
+              "passAt": 0.75,
+              "failAt": 0.4,
+              "falsePass": 1,
+              "caught": 18,
+              "differ": 20,
+              "falseFail": 2,
+              "same": 35,
+              "unsureRate": 0.1636
+            },
+            {
+              "passAt": 0.8,
+              "failAt": 0.1,
+              "falsePass": 1,
+              "caught": 6,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.4545
+            },
+            {
+              "passAt": 0.8,
+              "failAt": 0.2,
+              "falsePass": 1,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.3273
+            },
+            {
+              "passAt": 0.8,
+              "failAt": 0.3,
+              "falsePass": 1,
+              "caught": 16,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.2727
+            },
+            {
+              "passAt": 0.8,
+              "failAt": 0.4,
+              "falsePass": 1,
+              "caught": 18,
+              "differ": 20,
+              "falseFail": 2,
+              "same": 35,
+              "unsureRate": 0.2
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.1,
+              "falsePass": 1,
+              "caught": 6,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.5273
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.2,
+              "falsePass": 1,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.4
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.3,
+              "falsePass": 1,
+              "caught": 16,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.3455
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.4,
+              "falsePass": 1,
+              "caught": 18,
+              "differ": 20,
+              "falseFail": 2,
+              "same": 35,
+              "unsureRate": 0.2727
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 6,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.5818
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.4545
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 16,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.4
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.4,
+              "falsePass": 0,
+              "caught": 18,
+              "differ": 20,
+              "falseFail": 2,
+              "same": 35,
+              "unsureRate": 0.3273
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 6,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.6545
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.5273
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 16,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.4727
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.4,
+              "falsePass": 0,
+              "caught": 18,
+              "differ": 20,
+              "falseFail": 2,
+              "same": 35,
+              "unsureRate": 0.4
+            }
+          ]
+        }
+      },
+      {
+        "variant": "whole",
+        "zh": {
+          "items": 24,
+          "answered": 24,
+          "failed": 0,
+          "accuracy": 0.9583,
+          "exact": 0.125,
+          "misses": {
+            "false-fail": 1
+          },
+          "late": 2,
+          "retried": 0,
+          "inTime": 0.875
+        },
+        "en": {
+          "items": 24,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": null,
+        "pass": null,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 24,
+          "p50": 750,
+          "p90": 998,
+          "max": 1893,
+          "slow": 2
+        },
+        "tags": [
+          {
+            "tag": "alignment",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "blind-spot",
+            "items": 2,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "city",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "color",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "control",
+            "items": 4,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "corner_radius",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "cube",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "ease_out",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "font",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "identical",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "janky",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "linear",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "missing_element",
+            "items": 2,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "ocean",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "same-sea-other-moment",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "spacing",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "spring",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "text",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "wrong_end",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          }
+        ],
+        "breakdown": {
+          "checks": {
+            "total": 55,
+            "differ": 20,
+            "same": 35,
+            "controlChecks": 12,
+            "answeredItems": 21
+          },
+          "falsePass": {
+            "count": 0,
+            "of": 20,
+            "items": []
+          },
+          "controlFails": {
+            "count": 0,
+            "of": 12,
+            "items": []
+          },
+          "falseFail": {
+            "count": 1,
+            "of": 35
+          },
+          "caught": {
+            "count": 15,
+            "of": 20,
+            "rate": 0.75
+          },
+          "unsure": {
+            "count": 31,
+            "of": 55,
+            "rate": 0.5636,
+            "onDiffering": 0.25,
+            "onSame": 0.7429
+          },
+          "byKind": {
+            "ui": {
+              "checks": 19,
+              "differ": 8,
+              "caught": 4,
+              "falsePass": 0,
+              "same": 11,
+              "falseFail": 0,
+              "unsure": 0.7895
+            },
+            "sea": {
+              "checks": 21,
+              "differ": 9,
+              "caught": 8,
+              "falsePass": 0,
+              "same": 12,
+              "falseFail": 1,
+              "unsure": 0.5714
+            },
+            "anim": {
+              "checks": 15,
+              "differ": 3,
+              "caught": 3,
+              "falsePass": 0,
+              "same": 12,
+              "falseFail": 0,
+              "unsure": 0.2667
+            }
+          },
+          "elsewhere": {
+            "reported": 0,
+            "onControls": []
+          },
+          "cost": {
+            "all": {
+              "items": 24,
+              "images": 101,
+              "tokens": 110455,
+              "perImage": {
+                "tokens": 1094,
+                "ms": 202,
+                "usd": 0.000046
+              },
+              "perItem": {
+                "tokens": 4602,
+                "ms": 851,
+                "usd": 0.000193
+              },
+              "usd": 0.004639
+            },
+            "byKind": {
+              "ui": {
+                "items": 9,
+                "images": 18,
+                "tokens": 55212,
+                "perImage": {
+                  "tokens": 3067,
+                  "ms": 369,
+                  "usd": 0.000129
+                },
+                "perItem": {
+                  "tokens": 6135,
+                  "ms": 737,
+                  "usd": 0.000258
+                },
+                "usd": 0.002319
+              },
+              "sea": {
+                "items": 7,
+                "images": 14,
+                "tokens": 12659,
+                "perImage": {
+                  "tokens": 904,
+                  "ms": 420,
+                  "usd": 0.000038
+                },
+                "perItem": {
+                  "tokens": 1808,
+                  "ms": 840,
+                  "usd": 0.000076
+                },
+                "usd": 0.000532
+              },
+              "anim": {
+                "items": 5,
+                "images": 60,
+                "tokens": 33488,
+                "perImage": {
+                  "tokens": 558,
+                  "ms": 81,
+                  "usd": 0.000023
+                },
+                "perItem": {
+                  "tokens": 6698,
+                  "ms": 967,
+                  "usd": 0.000281
+                },
+                "usd": 0.001406
+              },
+              "complexity": {
+                "items": 3,
+                "images": 9,
+                "tokens": 9096,
+                "perImage": {
+                  "tokens": 1011,
+                  "ms": 341,
+                  "usd": 0.000042
+                },
+                "perItem": {
+                  "tokens": 3032,
+                  "ms": 1022,
+                  "usd": 0.000127
+                },
+                "usd": 0.000382
+              }
+            },
+            "requests": 24,
+            "latencyMs": {
+              "p50": 750,
+              "max": 1893
+            }
+          },
+          "complexity": {
+            "groups": [
+              {
+                "id": "complexity-cube",
+                "rank": 0,
+                "gold": 0,
+                "level": 0,
+                "expected": 0.11,
+                "p": [
+                  0.9,
+                  0.09,
+                  0.01,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": "complexity-ocean",
+                "rank": 1,
+                "gold": 2,
+                "level": 3,
+                "expected": 2.5,
+                "p": [
+                  0,
+                  0.06,
+                  0.42,
+                  0.48,
+                  0.04
+                ]
+              },
+              {
+                "id": "complexity-city",
+                "rank": 2,
+                "gold": 3,
+                "level": 4,
+                "expected": 3.93,
+                "p": [
+                  0,
+                  0,
+                  0.01,
+                  0.05,
+                  0.94
+                ]
+              }
+            ],
+            "inOrder": true,
+            "strictlyInOrder": true,
+            "expectedStrictlyInOrder": true,
+            "meanLevelError": 0.67
+          },
+          "thresholds": [
+            {
+              "passAt": 0.7,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 8,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.6727
+            },
+            {
+              "passAt": 0.7,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.5636
+            },
+            {
+              "passAt": 0.7,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 15,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.5273
+            },
+            {
+              "passAt": 0.7,
+              "failAt": 0.4,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 4,
+              "same": 35,
+              "unsureRate": 0.4364
+            },
+            {
+              "passAt": 0.75,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 8,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.6727
+            },
+            {
+              "passAt": 0.75,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.5636
+            },
+            {
+              "passAt": 0.75,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 15,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.5273
+            },
+            {
+              "passAt": 0.75,
+              "failAt": 0.4,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 4,
+              "same": 35,
+              "unsureRate": 0.4364
+            },
+            {
+              "passAt": 0.8,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 8,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.7091
+            },
+            {
+              "passAt": 0.8,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6
+            },
+            {
+              "passAt": 0.8,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 15,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.5636
+            },
+            {
+              "passAt": 0.8,
+              "failAt": 0.4,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 4,
+              "same": 35,
+              "unsureRate": 0.4727
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 8,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.7455
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6364
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 15,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.4,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 4,
+              "same": 35,
+              "unsureRate": 0.5091
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 8,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.7818
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6727
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 15,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6364
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.4,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 4,
+              "same": 35,
+              "unsureRate": 0.5455
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 8,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.8182
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.7091
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 15,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6727
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.4,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 4,
+              "same": 35,
+              "unsureRate": 0.5818
+            }
+          ]
+        }
+      },
+      {
+        "variant": "criteria",
+        "zh": {
+          "items": 24,
+          "answered": 24,
+          "failed": 0,
+          "accuracy": 0.9583,
+          "exact": 0.125,
+          "misses": {
+            "false-fail": 1
+          },
+          "late": 1,
+          "retried": 0,
+          "inTime": 0.9167
+        },
+        "en": {
+          "items": 24,
+          "answered": 0,
+          "failed": 0,
+          "accuracy": 0,
+          "exact": 0,
+          "misses": {},
+          "late": 0,
+          "retried": 0,
+          "inTime": 0
+        },
+        "gap": null,
+        "pass": null,
+        "agreement": {
+          "items": 0,
+          "same": 0,
+          "rate": null
+        },
+        "latency": {
+          "answers": 24,
+          "p50": 760,
+          "p90": 888,
+          "max": 2590,
+          "slow": 1
+        },
+        "tags": [
+          {
+            "tag": "alignment",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "blind-spot",
+            "items": 2,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "city",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "color",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "control",
+            "items": 4,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "corner_radius",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "cube",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "ease_out",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "font",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "identical",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "janky",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "linear",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "missing_element",
+            "items": 2,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "ocean",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "same-sea-other-moment",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "spacing",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "spring",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "text",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "wrong_end",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          }
+        ],
+        "breakdown": {
+          "checks": {
+            "total": 55,
+            "differ": 20,
+            "same": 35,
+            "controlChecks": 12,
+            "answeredItems": 21
+          },
+          "falsePass": {
+            "count": 0,
+            "of": 20,
+            "items": []
+          },
+          "controlFails": {
+            "count": 0,
+            "of": 12,
+            "items": []
+          },
+          "falseFail": {
+            "count": 1,
+            "of": 35
+          },
+          "caught": {
+            "count": 15,
+            "of": 20,
+            "rate": 0.75
+          },
+          "unsure": {
+            "count": 32,
+            "of": 55,
+            "rate": 0.5818,
+            "onDiffering": 0.25,
+            "onSame": 0.7714
+          },
+          "byKind": {
+            "ui": {
+              "checks": 19,
+              "differ": 8,
+              "caught": 3,
+              "falsePass": 0,
+              "same": 11,
+              "falseFail": 0,
+              "unsure": 0.8421
+            },
+            "sea": {
+              "checks": 21,
+              "differ": 9,
+              "caught": 9,
+              "falsePass": 0,
+              "same": 12,
+              "falseFail": 1,
+              "unsure": 0.5238
+            },
+            "anim": {
+              "checks": 15,
+              "differ": 3,
+              "caught": 3,
+              "falsePass": 0,
+              "same": 12,
+              "falseFail": 0,
+              "unsure": 0.3333
+            }
+          },
+          "elsewhere": {
+            "reported": 0,
+            "onControls": []
+          },
+          "cost": {
+            "all": {
+              "items": 24,
+              "images": 81,
+              "tokens": 247294,
+              "perImage": {
+                "tokens": 3053,
+                "ms": 243,
+                "usd": 0.000128
+              },
+              "perItem": {
+                "tokens": 10304,
+                "ms": 819,
+                "usd": 0.000433
+              },
+              "usd": 0.010386
+            },
+            "byKind": {
+              "ui": {
+                "items": 9,
+                "images": 18,
+                "tokens": 167392,
+                "perImage": {
+                  "tokens": 9300,
+                  "ms": 426,
+                  "usd": 0.000391
+                },
+                "perItem": {
+                  "tokens": 18599,
+                  "ms": 852,
+                  "usd": 0.000781
+                },
+                "usd": 0.00703
+              },
+              "sea": {
+                "items": 7,
+                "images": 14,
+                "tokens": 45283,
+                "perImage": {
+                  "tokens": 3235,
+                  "ms": 352,
+                  "usd": 0.000136
+                },
+                "perItem": {
+                  "tokens": 6469,
+                  "ms": 704,
+                  "usd": 0.000272
+                },
+                "usd": 0.001902
+              },
+              "anim": {
+                "items": 5,
+                "images": 40,
+                "tokens": 25514,
+                "perImage": {
+                  "tokens": 638,
+                  "ms": 84,
+                  "usd": 0.000027
+                },
+                "perItem": {
+                  "tokens": 5103,
+                  "ms": 675,
+                  "usd": 0.000214
+                },
+                "usd": 0.001072
+              },
+              "complexity": {
+                "items": 3,
+                "images": 9,
+                "tokens": 9105,
+                "perImage": {
+                  "tokens": 1012,
+                  "ms": 410,
+                  "usd": 0.000042
+                },
+                "perItem": {
+                  "tokens": 3035,
+                  "ms": 1230,
+                  "usd": 0.000127
+                },
+                "usd": 0.000382
+              }
+            },
+            "requests": 24,
+            "latencyMs": {
+              "p50": 760,
+              "max": 2590
+            }
+          },
+          "complexity": {
+            "groups": [
+              {
+                "id": "complexity-cube",
+                "rank": 0,
+                "gold": 0,
+                "level": 0,
+                "expected": 0.1,
+                "p": [
+                  0.91,
+                  0.08,
+                  0.01,
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": "complexity-ocean",
+                "rank": 1,
+                "gold": 2,
+                "level": 2,
+                "expected": 2.45,
+                "p": [
+                  0,
+                  0.07,
+                  0.45,
+                  0.44,
+                  0.04
+                ]
+              },
+              {
+                "id": "complexity-city",
+                "rank": 2,
+                "gold": 3,
+                "level": 4,
+                "expected": 3.92,
+                "p": [
+                  0,
+                  0,
+                  0.01,
+                  0.06,
+                  0.93
+                ]
+              }
+            ],
+            "inOrder": true,
+            "strictlyInOrder": true,
+            "expectedStrictlyInOrder": true,
+            "meanLevelError": 0.33
+          },
+          "thresholds": [
+            {
+              "passAt": 0.7,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 10,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.6364
+            },
+            {
+              "passAt": 0.7,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.5636
+            },
+            {
+              "passAt": 0.7,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.4909
+            },
+            {
+              "passAt": 0.7,
+              "failAt": 0.4,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.4909
+            },
+            {
+              "passAt": 0.75,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 10,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.6364
+            },
+            {
+              "passAt": 0.75,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.5636
+            },
+            {
+              "passAt": 0.75,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.4909
+            },
+            {
+              "passAt": 0.75,
+              "failAt": 0.4,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.4909
+            },
+            {
+              "passAt": 0.8,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 10,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.6909
+            },
+            {
+              "passAt": 0.8,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6182
+            },
+            {
+              "passAt": 0.8,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.5455
+            },
+            {
+              "passAt": 0.8,
+              "failAt": 0.4,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.5455
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 10,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.7455
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6727
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6
+            },
+            {
+              "passAt": 0.85,
+              "failAt": 0.4,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 10,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.7455
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6727
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6
+            },
+            {
+              "passAt": 0.9,
+              "failAt": 0.4,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.1,
+              "falsePass": 0,
+              "caught": 10,
+              "differ": 20,
+              "falseFail": 0,
+              "same": 35,
+              "unsureRate": 0.7636
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.2,
+              "falsePass": 0,
+              "caught": 13,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6909
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.3,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6182
+            },
+            {
+              "passAt": 0.95,
+              "failAt": 0.4,
+              "falsePass": 0,
+              "caught": 17,
+              "differ": 20,
+              "falseFail": 1,
+              "same": 35,
+              "unsureRate": 0.6182
+            }
+          ]
+        }
+      }
+    ],
+    "constants": [
+      {
+        "answer": "always pass",
+        "accuracy": 0.1667,
+        "exact": 0.1667
+      },
+      {
+        "answer": "always fail",
+        "accuracy": 0,
+        "exact": 0
+      },
+      {
+        "answer": "always unsure",
+        "accuracy": 0.875,
+        "exact": 0
+      }
+    ]
+  },
+  "answers": [
+    {"id":"ui-c1-radius","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"fail pass","correct":true,"gold":true,"kind":"ui","images":2,"checks":[{"part":"the primary button (\"Upgrade to Premium\")","property":"corner radius","holds":false,"verdict":"fail","p":0.16,"basis":"zoom","trust":"both","whole":0.33},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"pass","p":0.96,"basis":"zoom","trust":"both","whole":0.98}],"requests":[{"questions":7,"images":2,"ms":983,"tokens":6217},{"questions":2,"images":4,"ms":784,"tokens":4915}],"ms":1767,"attempts":2,"tokens":11132,"model":"jev-1.14.0"},"whole":{"answer":"unsure unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the primary button (\"Upgrade to Premium\")","property":"corner radius","holds":false,"verdict":"unsure","p":0.36,"basis":"whole","trust":"fail","whole":0.36,"why":"the decision model is not sure either way"},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"unsure","p":0.99,"basis":"whole","trust":"fail","whole":0.99,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":2,"images":2,"ms":681,"tokens":6128}],"ms":681,"attempts":1,"tokens":6128,"model":"jev-1.14.0"},"criteria":{"answer":"unsure unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the primary button (\"Upgrade to Premium\")","property":"corner radius","holds":false,"verdict":"unsure","p":0.28,"basis":"whole","trust":"fail","whole":0.28,"plain":0.4,"why":"the decision model is not sure either way"},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"unsure","p":0.99,"basis":"whole","trust":"fail","whole":0.99,"plain":0.98,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":4,"images":2,"ms":760,"tokens":17935}],"ms":760,"attempts":1,"tokens":17935,"model":"jev-1.14.0"}},
+    {"id":"ui-c2-margin","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"unsure pass","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the primary button (\"Upgrade to Premium\")","property":"distance to the left and right screen edges","holds":false,"verdict":"unsure","p":0.74,"basis":"zoom","trust":"both","whole":0.77,"why":"the decision model is not sure either way"},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"pass","p":0.97,"basis":"zoom","trust":"both","whole":0.98}],"elsewhere":{"confidence":0.23,"area":0.06299999999999994},"requests":[{"questions":7,"images":2,"ms":762,"tokens":6231},{"questions":2,"images":4,"ms":711,"tokens":4773}],"ms":1474,"attempts":2,"tokens":11004,"model":"jev-1.14.0"},"whole":{"answer":"unsure unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the primary button (\"Upgrade to Premium\")","property":"distance to the left and right screen edges","holds":false,"verdict":"unsure","p":0.8,"basis":"whole","trust":"fail","whole":0.8,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"unsure","p":0.98,"basis":"whole","trust":"fail","whole":0.98,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":2,"images":2,"ms":811,"tokens":6132}],"ms":811,"attempts":1,"tokens":6132,"model":"jev-1.14.0"},"criteria":{"answer":"unsure unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the primary button (\"Upgrade to Premium\")","property":"distance to the left and right screen edges","holds":false,"verdict":"unsure","p":0.83,"basis":"whole","trust":"fail","whole":0.83,"plain":0.75,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"unsure","p":0.99,"basis":"whole","trust":"fail","whole":0.99,"plain":0.98,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":4,"images":2,"ms":851,"tokens":17949}],"ms":851,"attempts":1,"tokens":17949,"model":"jev-1.14.0"}},
+    {"id":"ui-c3-color","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"fail pass","correct":true,"gold":true,"kind":"ui","images":2,"checks":[{"part":"the primary button (\"Upgrade to Premium\")","property":"fill color","holds":false,"verdict":"fail","p":0.11,"basis":"zoom","trust":"both","whole":0.16},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"pass","p":0.97,"basis":"zoom","trust":"both","whole":0.99}],"requests":[{"questions":7,"images":2,"ms":846,"tokens":6225},{"questions":2,"images":4,"ms":748,"tokens":4911}],"ms":1594,"attempts":2,"tokens":11136,"model":"jev-1.14.0"},"whole":{"answer":"fail unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the primary button (\"Upgrade to Premium\")","property":"fill color","holds":false,"verdict":"fail","p":0.16,"basis":"whole","trust":"fail","whole":0.16},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"unsure","p":0.98,"basis":"whole","trust":"fail","whole":0.98,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":2,"images":2,"ms":750,"tokens":6132}],"ms":750,"attempts":1,"tokens":6132,"model":"jev-1.14.0"},"criteria":{"answer":"unsure unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the primary button (\"Upgrade to Premium\")","property":"fill color","holds":false,"verdict":"unsure","p":0.26,"basis":"whole","trust":"fail","whole":0.26,"plain":0.13,"why":"the decision model is not sure either way"},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"unsure","p":0.99,"basis":"whole","trust":"fail","whole":0.99,"plain":0.98,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":4,"images":2,"ms":847,"tokens":17931}],"ms":847,"attempts":1,"tokens":17931,"model":"jev-1.14.0"}},
+    {"id":"ui-c4-weight","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"pass pass","correct":false,"gold":false,"miss":"false-pass","kind":"ui","images":2,"checks":[{"part":"the label of the primary button (\"Upgrade to Premium\")","property":"font weight","holds":false,"verdict":"pass","p":0.85,"basis":"zoom","trust":"both","whole":0.95},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"pass","p":0.97,"basis":"zoom","trust":"both","whole":0.99}],"requests":[{"questions":7,"images":2,"ms":683,"tokens":6224},{"questions":2,"images":4,"ms":761,"tokens":4781}],"ms":1444,"attempts":2,"tokens":11005,"model":"jev-1.14.0"},"whole":{"answer":"unsure unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the label of the primary button (\"Upgrade to Premium\")","property":"font weight","holds":false,"verdict":"unsure","p":0.94,"basis":"whole","trust":"fail","whole":0.94,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"unsure","p":0.98,"basis":"whole","trust":"fail","whole":0.98,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":2,"images":2,"ms":744,"tokens":6129}],"ms":744,"attempts":1,"tokens":6129,"model":"jev-1.14.0"},"criteria":{"answer":"unsure unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the label of the primary button (\"Upgrade to Premium\")","property":"font weight","holds":false,"verdict":"unsure","p":0.96,"basis":"whole","trust":"fail","whole":0.96,"plain":0.94,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"unsure","p":0.99,"basis":"whole","trust":"fail","whole":0.99,"plain":0.99,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":4,"images":2,"ms":824,"tokens":17916}],"ms":824,"attempts":1,"tokens":17916,"model":"jev-1.14.0"}},
+    {"id":"ui-c5-shift","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"unsure pass","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the leading icon of the second list row (\"Privacy & Security\")","property":"horizontal position","holds":false,"verdict":"unsure","p":0.38,"basis":"zoom","trust":"both","whole":0.93,"why":"the decision model is not sure either way"},{"part":"the primary button (\"Upgrade to Premium\")","property":"fill color","holds":true,"verdict":"pass","p":0.99,"basis":"zoom","trust":"both","whole":0.98}],"requests":[{"questions":7,"images":2,"ms":706,"tokens":6235},{"questions":2,"images":4,"ms":793,"tokens":7671}],"ms":1500,"attempts":2,"tokens":13906,"model":"jev-1.14.0"},"whole":{"answer":"unsure unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the leading icon of the second list row (\"Privacy & Security\")","property":"horizontal position","holds":false,"verdict":"unsure","p":0.92,"basis":"whole","trust":"fail","whole":0.92,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the primary button (\"Upgrade to Premium\")","property":"fill color","holds":true,"verdict":"unsure","p":0.98,"basis":"whole","trust":"fail","whole":0.98,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":2,"images":2,"ms":836,"tokens":6128}],"ms":836,"attempts":1,"tokens":6128,"model":"jev-1.14.0"},"criteria":{"answer":"unsure unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the leading icon of the second list row (\"Privacy & Security\")","property":"horizontal position","holds":false,"verdict":"unsure","p":0.97,"basis":"whole","trust":"fail","whole":0.97,"plain":0.92,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the primary button (\"Upgrade to Premium\")","property":"fill color","holds":true,"verdict":"unsure","p":0.98,"basis":"whole","trust":"fail","whole":0.98,"plain":0.97,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":4,"images":2,"ms":953,"tokens":17950}],"ms":953,"attempts":1,"tokens":17950,"model":"jev-1.14.0"}},
+    {"id":"ui-c6-noicon","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"fail pass","correct":true,"gold":true,"kind":"ui","images":2,"checks":[{"part":"the leading icon of the third list row (\"Payment Methods\")","property":"presence","holds":false,"verdict":"fail","p":0.03,"basis":"zoom","trust":"both","whole":0.02},{"part":"the primary button (\"Upgrade to Premium\")","property":"fill color","holds":true,"verdict":"pass","p":0.98,"basis":"zoom","trust":"both","whole":0.99}],"requests":[{"questions":7,"images":2,"ms":750,"tokens":6233},{"questions":2,"images":4,"ms":968,"tokens":7668}],"ms":1718,"attempts":2,"tokens":13901,"model":"jev-1.14.0"},"whole":{"answer":"fail unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the leading icon of the third list row (\"Payment Methods\")","property":"presence","holds":false,"verdict":"fail","p":0.02,"basis":"whole","trust":"fail","whole":0.02},{"part":"the primary button (\"Upgrade to Premium\")","property":"fill color","holds":true,"verdict":"unsure","p":0.99,"basis":"whole","trust":"fail","whole":0.99,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":2,"images":2,"ms":735,"tokens":6130}],"ms":735,"attempts":1,"tokens":6130,"model":"jev-1.14.0"},"criteria":{"answer":"fail unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the leading icon of the third list row (\"Payment Methods\")","property":"presence","holds":false,"verdict":"fail","p":0.02,"basis":"whole","trust":"fail","whole":0.02,"plain":0.01},{"part":"the primary button (\"Upgrade to Premium\")","property":"fill color","holds":true,"verdict":"unsure","p":0.99,"basis":"whole","trust":"fail","whole":0.99,"plain":0.99,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":4,"images":2,"ms":809,"tokens":17939}],"ms":809,"attempts":1,"tokens":17939,"model":"jev-1.14.0"}},
+    {"id":"ui-c7-truncate","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"fail pass","correct":true,"gold":true,"kind":"ui","images":2,"checks":[{"part":"the title of the first list row (\"Notifications\")","property":"text (complete or cut off)","holds":false,"verdict":"fail","p":0.17,"basis":"zoom","trust":"both","whole":0.05},{"part":"the primary button (\"Upgrade to Premium\")","property":"fill color","holds":true,"verdict":"pass","p":0.99,"basis":"zoom","trust":"both","whole":0.99}],"requests":[{"questions":7,"images":2,"ms":711,"tokens":6231},{"questions":2,"images":4,"ms":785,"tokens":6082}],"ms":1496,"attempts":2,"tokens":12313,"model":"jev-1.14.0"},"whole":{"answer":"fail unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the title of the first list row (\"Notifications\")","property":"text (complete or cut off)","holds":false,"verdict":"fail","p":0.06,"basis":"whole","trust":"fail","whole":0.06},{"part":"the primary button (\"Upgrade to Premium\")","property":"fill color","holds":true,"verdict":"unsure","p":0.99,"basis":"whole","trust":"fail","whole":0.99,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":2,"images":2,"ms":713,"tokens":6142}],"ms":713,"attempts":1,"tokens":6142,"model":"jev-1.14.0"},"criteria":{"answer":"fail unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the title of the first list row (\"Notifications\")","property":"text (complete or cut off)","holds":false,"verdict":"fail","p":0.02,"basis":"whole","trust":"fail","whole":0.02,"plain":0.04},{"part":"the primary button (\"Upgrade to Premium\")","property":"fill color","holds":true,"verdict":"unsure","p":0.99,"basis":"whole","trust":"fail","whole":0.99,"plain":0.99,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":4,"images":2,"ms":856,"tokens":17955}],"ms":856,"attempts":1,"tokens":17955,"model":"jev-1.14.0"}},
+    {"id":"ui-c8-tabs","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"fail pass","correct":true,"gold":true,"kind":"ui","images":2,"checks":[{"part":"the tab bar at the bottom","property":"number of tabs","holds":false,"verdict":"fail","p":0.04,"basis":"zoom","trust":"both","whole":0.02},{"part":"the primary button (\"Upgrade to Premium\")","property":"corner radius","holds":true,"verdict":"pass","p":0.96,"basis":"zoom","trust":"both","whole":0.86}],"requests":[{"questions":7,"images":2,"ms":702,"tokens":6217},{"questions":2,"images":4,"ms":769,"tokens":4907}],"ms":1471,"attempts":2,"tokens":11124,"model":"jev-1.14.0"},"whole":{"answer":"fail unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the tab bar at the bottom","property":"number of tabs","holds":false,"verdict":"fail","p":0.03,"basis":"whole","trust":"fail","whole":0.03},{"part":"the primary button (\"Upgrade to Premium\")","property":"corner radius","holds":true,"verdict":"unsure","p":0.8,"basis":"whole","trust":"fail","whole":0.8,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":2,"images":2,"ms":698,"tokens":6124}],"ms":698,"attempts":1,"tokens":6124,"model":"jev-1.14.0"},"criteria":{"answer":"fail unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the tab bar at the bottom","property":"number of tabs","holds":false,"verdict":"fail","p":0.07,"basis":"whole","trust":"fail","whole":0.07,"plain":0.02},{"part":"the primary button (\"Upgrade to Premium\")","property":"corner radius","holds":true,"verdict":"unsure","p":0.97,"basis":"whole","trust":"fail","whole":0.97,"plain":0.84,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":4,"images":2,"ms":888,"tokens":17929}],"ms":888,"attempts":1,"tokens":17929,"model":"jev-1.14.0"}},
+    {"id":"ui-c9-same","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"pass pass pass","correct":true,"gold":true,"kind":"ui","images":2,"checks":[{"part":"the primary button (\"Upgrade to Premium\")","property":"corner radius","holds":true,"verdict":"pass","p":0.95,"basis":"zoom","trust":"both","whole":0.88},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"pass","p":0.97,"basis":"zoom","trust":"both","whole":0.98},{"part":"the title of the first list row (\"Notifications\")","property":"text (complete or cut off)","holds":true,"verdict":"pass","p":0.99,"basis":"zoom","trust":"both","whole":0.99}],"requests":[{"questions":10,"images":2,"ms":653,"tokens":6300},{"questions":3,"images":6,"ms":1121,"tokens":8400}],"ms":1773,"attempts":2,"tokens":14700,"model":"jev-1.14.0"},"whole":{"answer":"unsure unsure unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the primary button (\"Upgrade to Premium\")","property":"corner radius","holds":true,"verdict":"unsure","p":0.87,"basis":"whole","trust":"fail","whole":0.87,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"unsure","p":0.99,"basis":"whole","trust":"fail","whole":0.99,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the title of the first list row (\"Notifications\")","property":"text (complete or cut off)","holds":true,"verdict":"unsure","p":0.99,"basis":"whole","trust":"fail","whole":0.99,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":3,"images":2,"ms":666,"tokens":6167}],"ms":666,"attempts":1,"tokens":6167,"model":"jev-1.14.0"},"criteria":{"answer":"unsure unsure unsure","correct":true,"gold":false,"kind":"ui","images":2,"checks":[{"part":"the primary button (\"Upgrade to Premium\")","property":"corner radius","holds":true,"verdict":"unsure","p":0.96,"basis":"whole","trust":"fail","whole":0.96,"plain":0.86,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the tab bar at the bottom","property":"number of tabs","holds":true,"verdict":"unsure","p":0.99,"basis":"whole","trust":"fail","whole":0.99,"plain":0.98,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the title of the first list row (\"Notifications\")","property":"text (complete or cut off)","holds":true,"verdict":"unsure","p":0.98,"basis":"whole","trust":"fail","whole":0.98,"plain":0.99,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":6,"images":2,"ms":882,"tokens":23888}],"ms":882,"attempts":1,"tokens":23888,"model":"jev-1.14.0"}},
+    {"id":"sea-fogNone","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"pass pass fail","correct":true,"gold":true,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":true,"verdict":"pass","p":0.92,"basis":"zoom","trust":"both","whole":0.91},{"part":"the white foam on the wave crests","property":"amount","holds":true,"verdict":"pass","p":0.93,"basis":"zoom","trust":"both","whole":0.8},{"part":"the fog or haze over the water","property":"density","holds":false,"verdict":"fail","p":0.13,"basis":"zoom","trust":"both","whole":0.2}],"requests":[{"questions":10,"images":2,"ms":868,"tokens":1920},{"questions":3,"images":6,"ms":3139,"tokens":8961}],"ms":4007,"attempts":2,"tokens":10881,"model":"jev-1.14.0"},"whole":{"answer":"unsure unsure fail","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":true,"verdict":"unsure","p":0.9,"basis":"whole","trust":"fail","whole":0.9,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the white foam on the wave crests","property":"amount","holds":true,"verdict":"unsure","p":0.8,"basis":"whole","trust":"fail","whole":0.8,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the fog or haze over the water","property":"density","holds":false,"verdict":"fail","p":0.19,"basis":"whole","trust":"fail","whole":0.19}],"requests":[{"questions":3,"images":2,"ms":958,"tokens":1803}],"ms":958,"attempts":1,"tokens":1803,"model":"jev-1.14.0"},"criteria":{"answer":"unsure unsure fail","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":true,"verdict":"unsure","p":0.95,"basis":"whole","trust":"fail","whole":0.95,"plain":0.89,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the white foam on the wave crests","property":"amount","holds":true,"verdict":"unsure","p":0.91,"basis":"whole","trust":"fail","whole":0.91,"plain":0.79,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the fog or haze over the water","property":"density","holds":false,"verdict":"fail","p":0.14,"basis":"whole","trust":"fail","whole":0.14,"plain":0.19}],"requests":[{"questions":6,"images":2,"ms":862,"tokens":6487}],"ms":862,"attempts":1,"tokens":6487,"model":"jev-1.14.0"}},
+    {"id":"sea-fogDense","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"unsure unsure unsure","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":true,"verdict":"unsure","p":0.61,"basis":"zoom","trust":"both","whole":0.33,"why":"the decision model is not sure either way"},{"part":"the white foam on the wave crests","property":"amount","holds":true,"verdict":"unsure","p":0.31,"basis":"zoom","trust":"both","whole":0.45,"why":"the decision model is not sure either way"},{"part":"the fog or haze over the water","property":"density","holds":false,"verdict":"unsure","p":0.3,"basis":"zoom","trust":"both","whole":0.2,"why":"the decision model is not sure either way"}],"requests":[{"questions":10,"images":2,"ms":657,"tokens":1934},{"questions":3,"images":6,"ms":2452,"tokens":9399}],"ms":3109,"attempts":2,"tokens":11333,"model":"jev-1.14.0"},"whole":{"answer":"unsure unsure unsure","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":true,"verdict":"unsure","p":0.33,"basis":"whole","trust":"fail","whole":0.33,"why":"the decision model is not sure either way"},{"part":"the white foam on the wave crests","property":"amount","holds":true,"verdict":"unsure","p":0.48,"basis":"whole","trust":"fail","whole":0.48,"why":"the decision model is not sure either way"},{"part":"the fog or haze over the water","property":"density","holds":false,"verdict":"unsure","p":0.22,"basis":"whole","trust":"fail","whole":0.22,"why":"the decision model is not sure either way"}],"requests":[{"questions":3,"images":2,"ms":725,"tokens":1809}],"ms":725,"attempts":1,"tokens":1809,"model":"jev-1.14.0"},"criteria":{"answer":"unsure unsure fail","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":true,"verdict":"unsure","p":0.54,"basis":"whole","trust":"fail","whole":0.54,"plain":0.34,"why":"the decision model is not sure either way"},{"part":"the white foam on the wave crests","property":"amount","holds":true,"verdict":"unsure","p":0.47,"basis":"whole","trust":"fail","whole":0.47,"plain":0.49,"why":"the decision model is not sure either way"},{"part":"the fog or haze over the water","property":"density","holds":false,"verdict":"fail","p":0.15,"basis":"whole","trust":"fail","whole":0.15,"plain":0.2}],"requests":[{"questions":6,"images":2,"ms":675,"tokens":6479}],"ms":675,"attempts":1,"tokens":6479,"model":"jev-1.14.0"}},
+    {"id":"sea-big","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"unsure fail unsure","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":false,"verdict":"unsure","p":0.23,"basis":"zoom","trust":"both","whole":0.13,"why":"the decision model is not sure either way"},{"part":"the white foam on the wave crests","property":"amount","holds":false,"verdict":"fail","p":0.17,"basis":"zoom","trust":"both","whole":0.15},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"unsure","p":0.53,"basis":"zoom","trust":"both","whole":0.45,"why":"the decision model is not sure either way"}],"requests":[{"questions":10,"images":2,"ms":738,"tokens":1930},{"questions":3,"images":6,"ms":2243,"tokens":10689}],"ms":2981,"attempts":2,"tokens":12619,"model":"jev-1.14.0"},"whole":{"answer":"fail fail unsure","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":false,"verdict":"fail","p":0.11,"basis":"whole","trust":"fail","whole":0.11},{"part":"the white foam on the wave crests","property":"amount","holds":false,"verdict":"fail","p":0.14,"basis":"whole","trust":"fail","whole":0.14},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"unsure","p":0.42,"basis":"whole","trust":"fail","whole":0.42,"why":"the decision model is not sure either way"}],"requests":[{"questions":3,"images":2,"ms":641,"tokens":1811}],"ms":641,"attempts":1,"tokens":1811,"model":"jev-1.14.0"},"criteria":{"answer":"fail fail unsure","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":false,"verdict":"fail","p":0.08,"basis":"whole","trust":"fail","whole":0.08,"plain":0.11},{"part":"the white foam on the wave crests","property":"amount","holds":false,"verdict":"fail","p":0.07,"basis":"whole","trust":"fail","whole":0.07,"plain":0.14},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"unsure","p":0.57,"basis":"whole","trust":"fail","whole":0.57,"plain":0.44,"why":"the decision model is not sure either way"}],"requests":[{"questions":6,"images":2,"ms":712,"tokens":6455}],"ms":712,"attempts":1,"tokens":6455,"model":"jev-1.14.0"}},
+    {"id":"sea-calm","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"fail fail unsure","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":false,"verdict":"fail","p":0.12,"basis":"zoom","trust":"both","whole":0.07},{"part":"the white foam on the wave crests","property":"amount","holds":false,"verdict":"fail","p":0.08,"basis":"zoom","trust":"both","whole":0.06},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"unsure","p":0.69,"basis":"zoom","trust":"both","whole":0.47,"why":"the decision model is not sure either way"}],"requests":[{"questions":10,"images":2,"ms":650,"tokens":1934},{"questions":3,"images":6,"ms":3781,"tokens":10683}],"ms":4430,"attempts":2,"tokens":12617,"model":"jev-1.14.0"},"whole":{"answer":"fail fail unsure","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":false,"verdict":"fail","p":0.06,"basis":"whole","trust":"fail","whole":0.06},{"part":"the white foam on the wave crests","property":"amount","holds":false,"verdict":"fail","p":0.07,"basis":"whole","trust":"fail","whole":0.07},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"unsure","p":0.33,"basis":"whole","trust":"fail","whole":0.33,"why":"the decision model is not sure either way"}],"requests":[{"questions":3,"images":2,"ms":664,"tokens":1813}],"ms":664,"attempts":1,"tokens":1813,"model":"jev-1.14.0"},"criteria":{"answer":"fail fail unsure","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":false,"verdict":"fail","p":0.05,"basis":"whole","trust":"fail","whole":0.05,"plain":0.07},{"part":"the white foam on the wave crests","property":"amount","holds":false,"verdict":"fail","p":0.04,"basis":"whole","trust":"fail","whole":0.04,"plain":0.06},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"unsure","p":0.51,"basis":"whole","trust":"fail","whole":0.51,"plain":0.4,"why":"the decision model is not sure either way"}],"requests":[{"questions":6,"images":2,"ms":663,"tokens":6479}],"ms":663,"attempts":1,"tokens":6479,"model":"jev-1.14.0"}},
+    {"id":"sea-flat","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"fail fail unsure","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":false,"verdict":"fail","p":0.08,"basis":"zoom","trust":"both","whole":0.03},{"part":"the white foam on the wave crests","property":"amount","holds":false,"verdict":"fail","p":0.05,"basis":"zoom","trust":"both","whole":0.03},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"unsure","p":0.39,"basis":"zoom","trust":"both","whole":0.13,"why":"the decision model is not sure either way"}],"requests":[{"questions":10,"images":2,"ms":494,"tokens":1926},{"questions":3,"images":6,"ms":2524,"tokens":9663}],"ms":3019,"attempts":2,"tokens":11589,"model":"jev-1.14.0"},"whole":{"answer":"fail fail fail","correct":false,"gold":false,"miss":"false-fail","kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":false,"verdict":"fail","p":0.04,"basis":"whole","trust":"fail","whole":0.04},{"part":"the white foam on the wave crests","property":"amount","holds":false,"verdict":"fail","p":0.03,"basis":"whole","trust":"fail","whole":0.03},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"fail","p":0.13,"basis":"whole","trust":"fail","whole":0.13}],"requests":[{"questions":3,"images":2,"ms":454,"tokens":1813}],"ms":454,"attempts":1,"tokens":1813,"model":"jev-1.14.0"},"criteria":{"answer":"fail fail fail","correct":false,"gold":false,"miss":"false-fail","kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":false,"verdict":"fail","p":0.02,"basis":"whole","trust":"fail","whole":0.02,"plain":0.03},{"part":"the white foam on the wave crests","property":"amount","holds":false,"verdict":"fail","p":0.02,"basis":"whole","trust":"fail","whole":0.02,"plain":0.03},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"fail","p":0.15,"basis":"whole","trust":"fail","whole":0.15,"plain":0.12}],"requests":[{"questions":6,"images":2,"ms":471,"tokens":6463}],"ms":471,"attempts":1,"tokens":6463,"model":"jev-1.14.0"}},
+    {"id":"sea-noFoam","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"unsure fail pass","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":true,"verdict":"unsure","p":0.75,"basis":"zoom","trust":"both","whole":0.84,"why":"the decision model is not sure either way"},{"part":"the white foam on the wave crests","property":"amount","holds":false,"verdict":"fail","p":0.06,"basis":"zoom","trust":"both","whole":0.12},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"pass","p":0.8,"basis":"zoom","trust":"both","whole":0.66}],"requests":[{"questions":10,"images":2,"ms":654,"tokens":1930},{"questions":3,"images":6,"ms":2363,"tokens":9675}],"ms":3017,"attempts":2,"tokens":11605,"model":"jev-1.14.0"},"whole":{"answer":"unsure fail unsure","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":true,"verdict":"unsure","p":0.81,"basis":"whole","trust":"fail","whole":0.81,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the white foam on the wave crests","property":"amount","holds":false,"verdict":"fail","p":0.09,"basis":"whole","trust":"fail","whole":0.09},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"unsure","p":0.71,"basis":"whole","trust":"fail","whole":0.71,"why":"the decision model is not sure either way"}],"requests":[{"questions":3,"images":2,"ms":1543,"tokens":1805}],"ms":1543,"attempts":1,"tokens":1805,"model":"jev-1.14.0"},"criteria":{"answer":"unsure fail unsure","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":true,"verdict":"unsure","p":0.91,"basis":"whole","trust":"fail","whole":0.91,"plain":0.8,"why":"a match with a reference cannot be confirmed from the whole image"},{"part":"the white foam on the wave crests","property":"amount","holds":false,"verdict":"fail","p":0.05,"basis":"whole","trust":"fail","whole":0.05,"plain":0.1},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"unsure","p":0.83,"basis":"whole","trust":"fail","whole":0.83,"plain":0.69,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":6,"images":2,"ms":688,"tokens":6479}],"ms":688,"attempts":1,"tokens":6479,"model":"jev-1.14.0"}},
+    {"id":"sea-twin","language":"zh","state":{"candidate":"⟦image:candidate⟧","reference":"⟦image:reference⟧"},"mod":{"answer":"unsure unsure unsure","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":true,"verdict":"unsure","p":0.68,"basis":"zoom","trust":"both","whole":0.58,"why":"the decision model is not sure either way"},{"part":"the white foam on the wave crests","property":"amount","holds":true,"verdict":"unsure","p":0.41,"basis":"zoom","trust":"both","whole":0.38,"why":"the decision model is not sure either way"},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"unsure","p":0.72,"basis":"zoom","trust":"both","whole":0.78,"why":"the decision model is not sure either way"}],"requests":[{"questions":10,"images":2,"ms":850,"tokens":1930},{"questions":3,"images":6,"ms":3736,"tokens":7809}],"ms":4585,"attempts":2,"tokens":9739,"model":"jev-1.14.0"},"whole":{"answer":"unsure unsure unsure","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":true,"verdict":"unsure","p":0.56,"basis":"whole","trust":"fail","whole":0.56,"why":"the decision model is not sure either way"},{"part":"the white foam on the wave crests","property":"amount","holds":true,"verdict":"unsure","p":0.37,"basis":"whole","trust":"fail","whole":0.37,"why":"the decision model is not sure either way"},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"unsure","p":0.75,"basis":"whole","trust":"fail","whole":0.75,"why":"the decision model is not sure either way"}],"requests":[{"questions":3,"images":2,"ms":895,"tokens":1805}],"ms":895,"attempts":1,"tokens":1805,"model":"jev-1.14.0"},"criteria":{"answer":"unsure unsure unsure","correct":true,"gold":false,"kind":"sea","images":2,"checks":[{"part":"the waves","property":"height","holds":true,"verdict":"unsure","p":0.69,"basis":"whole","trust":"fail","whole":0.69,"plain":0.57,"why":"the decision model is not sure either way"},{"part":"the white foam on the wave crests","property":"amount","holds":true,"verdict":"unsure","p":0.48,"basis":"whole","trust":"fail","whole":0.48,"plain":0.37,"why":"the decision model is not sure either way"},{"part":"the fog or haze over the water","property":"density","holds":true,"verdict":"unsure","p":0.83,"basis":"whole","trust":"fail","whole":0.83,"plain":0.78,"why":"a match with a reference cannot be confirmed from the whole image"}],"requests":[{"questions":6,"images":2,"ms":857,"tokens":6441}],"ms":857,"attempts":1,"tokens":6441,"model":"jev-1.14.0"}},
+    {"id":"anim-linear","language":"zh","state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"pass pass pass","correct":true,"gold":true,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"pass","p":0.81,"basis":"whole","trust":"both","whole":0.81},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"pass","p":0.91,"basis":"whole","trust":"both","whole":0.91},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.96,"basis":"whole","trust":"both","whole":0.96}],"requests":[{"questions":3,"images":12,"ms":909,"tokens":6676}],"ms":909,"attempts":1,"tokens":6676,"model":"jev-1.14.0"},"whole":{"answer":"pass pass pass","correct":true,"gold":true,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"pass","p":0.82,"basis":"whole","trust":"both","whole":0.82},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"pass","p":0.92,"basis":"whole","trust":"both","whole":0.92},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.95,"basis":"whole","trust":"both","whole":0.95}],"requests":[{"questions":3,"images":12,"ms":990,"tokens":6676}],"ms":990,"attempts":1,"tokens":6676,"model":"jev-1.14.0"},"criteria":{"answer":"unsure unsure pass","correct":true,"gold":false,"kind":"anim","images":8,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.78,"basis":"whole","trust":"both","whole":0.78,"plain":0.78,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.77,"basis":"whole","trust":"both","whole":0.77,"plain":0.85,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.95,"basis":"whole","trust":"both","whole":0.95,"plain":0.96}],"requests":[{"questions":6,"images":8,"ms":649,"tokens":5114}],"ms":649,"attempts":1,"tokens":5114,"model":"jev-1.14.0","state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.1,"frame":"⟦image:frame-2⟧"},{"seconds":0.15,"frame":"⟦image:frame-3⟧"},{"seconds":0.25,"frame":"⟦image:frame-4⟧"},{"seconds":0.3,"frame":"⟦image:frame-5⟧"},{"seconds":0.4,"frame":"⟦image:frame-6⟧"},{"seconds":0.45,"frame":"⟦image:frame-7⟧"},{"seconds":0.55,"frame":"⟦image:frame-8⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."}}},
+    {"id":"anim-ease_out","language":"zh","state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"unsure pass pass","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.79,"basis":"whole","trust":"both","whole":0.79,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"pass","p":0.86,"basis":"whole","trust":"both","whole":0.86},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.91,"basis":"whole","trust":"both","whole":0.91}],"requests":[{"questions":3,"images":12,"ms":919,"tokens":6676}],"ms":919,"attempts":1,"tokens":6676,"model":"jev-1.14.0"},"whole":{"answer":"unsure pass pass","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.78,"basis":"whole","trust":"both","whole":0.78,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"pass","p":0.85,"basis":"whole","trust":"both","whole":0.85},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.9,"basis":"whole","trust":"both","whole":0.9}],"requests":[{"questions":3,"images":12,"ms":998,"tokens":6712}],"ms":998,"attempts":1,"tokens":6712,"model":"jev-1.14.0"},"criteria":{"answer":"pass unsure pass","correct":true,"gold":false,"kind":"anim","images":8,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"pass","p":0.8,"basis":"whole","trust":"both","whole":0.8,"plain":0.8},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.79,"basis":"whole","trust":"both","whole":0.79,"plain":0.83,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.96,"basis":"whole","trust":"both","whole":0.96,"plain":0.95}],"requests":[{"questions":6,"images":8,"ms":699,"tokens":5090}],"ms":699,"attempts":1,"tokens":5090,"model":"jev-1.14.0","state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.1,"frame":"⟦image:frame-2⟧"},{"seconds":0.15,"frame":"⟦image:frame-3⟧"},{"seconds":0.25,"frame":"⟦image:frame-4⟧"},{"seconds":0.3,"frame":"⟦image:frame-5⟧"},{"seconds":0.4,"frame":"⟦image:frame-6⟧"},{"seconds":0.45,"frame":"⟦image:frame-7⟧"},{"seconds":0.55,"frame":"⟦image:frame-8⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."}}},
+    {"id":"anim-spring","language":"zh","state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"fail unsure pass","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":false,"verdict":"fail","p":0.23,"basis":"whole","trust":"both","whole":0.23},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.5,"basis":"whole","trust":"both","whole":0.5,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.86,"basis":"whole","trust":"both","whole":0.86}],"requests":[{"questions":3,"images":12,"ms":841,"tokens":6712}],"ms":841,"attempts":1,"tokens":6712,"model":"jev-1.14.0"},"whole":{"answer":"fail unsure pass","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":false,"verdict":"fail","p":0.23,"basis":"whole","trust":"both","whole":0.23},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.5,"basis":"whole","trust":"both","whole":0.5,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.85,"basis":"whole","trust":"both","whole":0.85}],"requests":[{"questions":3,"images":12,"ms":919,"tokens":6688}],"ms":919,"attempts":1,"tokens":6688,"model":"jev-1.14.0"},"criteria":{"answer":"fail unsure pass","correct":true,"gold":false,"kind":"anim","images":8,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":false,"verdict":"fail","p":0.13,"basis":"whole","trust":"both","whole":0.13,"plain":0.14},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.47,"basis":"whole","trust":"both","whole":0.47,"plain":0.41,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.9,"basis":"whole","trust":"both","whole":0.9,"plain":0.88}],"requests":[{"questions":6,"images":8,"ms":647,"tokens":5090}],"ms":647,"attempts":1,"tokens":5090,"model":"jev-1.14.0","state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.1,"frame":"⟦image:frame-2⟧"},{"seconds":0.15,"frame":"⟦image:frame-3⟧"},{"seconds":0.25,"frame":"⟦image:frame-4⟧"},{"seconds":0.3,"frame":"⟦image:frame-5⟧"},{"seconds":0.4,"frame":"⟦image:frame-6⟧"},{"seconds":0.45,"frame":"⟦image:frame-7⟧"},{"seconds":0.55,"frame":"⟦image:frame-8⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."}}},
+    {"id":"anim-janky","language":"zh","state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"pass fail pass","correct":true,"gold":true,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"pass","p":0.81,"basis":"whole","trust":"both","whole":0.81},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":false,"verdict":"fail","p":0.37,"basis":"whole","trust":"both","whole":0.37},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.96,"basis":"whole","trust":"both","whole":0.96}],"requests":[{"questions":3,"images":12,"ms":958,"tokens":6688}],"ms":958,"attempts":1,"tokens":6688,"model":"jev-1.14.0"},"whole":{"answer":"pass fail pass","correct":true,"gold":true,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"pass","p":0.84,"basis":"whole","trust":"both","whole":0.84},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":false,"verdict":"fail","p":0.35,"basis":"whole","trust":"both","whole":0.35},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.97,"basis":"whole","trust":"both","whole":0.97}],"requests":[{"questions":3,"images":12,"ms":971,"tokens":6712}],"ms":971,"attempts":1,"tokens":6712,"model":"jev-1.14.0"},"criteria":{"answer":"pass fail pass","correct":true,"gold":true,"kind":"anim","images":8,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"pass","p":0.81,"basis":"whole","trust":"both","whole":0.81,"plain":0.82},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":false,"verdict":"fail","p":0.27,"basis":"whole","trust":"both","whole":0.27,"plain":0.3},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":true,"verdict":"pass","p":0.95,"basis":"whole","trust":"both","whole":0.95,"plain":0.96}],"requests":[{"questions":6,"images":8,"ms":653,"tokens":5114}],"ms":653,"attempts":1,"tokens":5114,"model":"jev-1.14.0","state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.1,"frame":"⟦image:frame-2⟧"},{"seconds":0.15,"frame":"⟦image:frame-3⟧"},{"seconds":0.25,"frame":"⟦image:frame-4⟧"},{"seconds":0.3,"frame":"⟦image:frame-5⟧"},{"seconds":0.4,"frame":"⟦image:frame-6⟧"},{"seconds":0.45,"frame":"⟦image:frame-7⟧"},{"seconds":0.55,"frame":"⟦image:frame-8⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."}}},
+    {"id":"anim-wrong_end","language":"zh","state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.05,"frame":"⟦image:frame-2⟧"},{"seconds":0.1,"frame":"⟦image:frame-3⟧"},{"seconds":0.15,"frame":"⟦image:frame-4⟧"},{"seconds":0.2,"frame":"⟦image:frame-5⟧"},{"seconds":0.25,"frame":"⟦image:frame-6⟧"},{"seconds":0.3,"frame":"⟦image:frame-7⟧"},{"seconds":0.35,"frame":"⟦image:frame-8⟧"},{"seconds":0.4,"frame":"⟦image:frame-9⟧"},{"seconds":0.45,"frame":"⟦image:frame-10⟧"},{"seconds":0.5,"frame":"⟦image:frame-11⟧"},{"seconds":0.55,"frame":"⟦image:frame-12⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."},"mod":{"answer":"pass unsure fail","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"pass","p":0.81,"basis":"whole","trust":"both","whole":0.81},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.64,"basis":"whole","trust":"both","whole":0.64,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":false,"verdict":"fail","p":0.14,"basis":"whole","trust":"both","whole":0.14}],"requests":[{"questions":3,"images":12,"ms":924,"tokens":6616}],"ms":924,"attempts":1,"tokens":6616,"model":"jev-1.14.0"},"whole":{"answer":"unsure unsure fail","correct":true,"gold":false,"kind":"anim","images":12,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"unsure","p":0.79,"basis":"whole","trust":"both","whole":0.79,"why":"the decision model is not sure either way"},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.62,"basis":"whole","trust":"both","whole":0.62,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":false,"verdict":"fail","p":0.14,"basis":"whole","trust":"both","whole":0.14}],"requests":[{"questions":3,"images":12,"ms":955,"tokens":6700}],"ms":955,"attempts":1,"tokens":6700,"model":"jev-1.14.0"},"criteria":{"answer":"pass unsure fail","correct":true,"gold":false,"kind":"anim","images":8,"checks":[{"part":"the card","property":"it never moves past the green dashed TARGET box and comes back (its right edge never goes beyond the right edge of the box and then returns: no overshoot, no bounce)","holds":true,"verdict":"pass","p":0.82,"basis":"whole","trust":"both","whole":0.82,"plain":0.84},{"part":"the card","property":"it keeps moving until it reaches the TARGET box: it does not stay at the same position for several frames in the middle of the motion and then jump ahead","holds":true,"verdict":"unsure","p":0.62,"basis":"whole","trust":"both","whole":0.62,"plain":0.6,"why":"the decision model is not sure either way"},{"part":"the card in the last frame","property":"it sits exactly inside the green dashed TARGET box","holds":false,"verdict":"fail","p":0.3,"basis":"whole","trust":"both","whole":0.3,"plain":0.19}],"requests":[{"questions":6,"images":8,"ms":727,"tokens":5106}],"ms":727,"attempts":1,"tokens":5106,"model":"jev-1.14.0","state":{"frames":[{"seconds":0,"frame":"⟦image:frame-1⟧"},{"seconds":0.1,"frame":"⟦image:frame-2⟧"},{"seconds":0.15,"frame":"⟦image:frame-3⟧"},{"seconds":0.25,"frame":"⟦image:frame-4⟧"},{"seconds":0.3,"frame":"⟦image:frame-5⟧"},{"seconds":0.4,"frame":"⟦image:frame-6⟧"},{"seconds":0.45,"frame":"⟦image:frame-7⟧"},{"seconds":0.55,"frame":"⟦image:frame-8⟧"}],"specification":"A card slides in from the left over 12 frames, one every 50 ms (t=0 to t=550 ms). The end point is marked in every frame by a box the same size as the card, outlined in green dashes and labelled TARGET above it; the box is drawn on top of the card. The card should come to rest exactly inside the TARGET box."}}},
+    {"id":"complexity-cube","language":"zh","state":{"reference_images":[{"image":"⟦image:reference-1⟧"},{"image":"⟦image:reference-2⟧"}]},"mod":{"answer":"level 0","correct":true,"gold":true,"kind":"complexity","images":2,"p":[0.93,0.06,0.01,0,0],"expected":0.08,"requests":[{"questions":1,"images":2,"ms":265,"tokens":2293}],"ms":265,"attempts":1,"tokens":2293,"model":"jev-1.14.0"},"whole":{"answer":"level 0","correct":true,"gold":true,"kind":"complexity","images":2,"p":[0.9,0.09,0.01,0,0],"expected":0.11,"requests":[{"questions":1,"images":2,"ms":262,"tokens":2293}],"ms":262,"attempts":1,"tokens":2293,"model":"jev-1.14.0"},"criteria":{"answer":"level 0","correct":true,"gold":true,"kind":"complexity","images":2,"p":[0.91,0.08,0.01,0,0],"expected":0.1,"requests":[{"questions":1,"images":2,"ms":276,"tokens":2293}],"ms":276,"attempts":1,"tokens":2293,"model":"jev-1.14.0"}},
+    {"id":"complexity-ocean","language":"zh","state":{"reference_images":[{"image":"⟦image:reference-1⟧"},{"image":"⟦image:reference-2⟧"},{"image":"⟦image:reference-3⟧"}]},"mod":{"answer":"level 2","correct":true,"gold":true,"kind":"complexity","images":3,"p":[0,0.06,0.47,0.43,0.04],"expected":2.45,"requests":[{"questions":1,"images":3,"ms":793,"tokens":2762}],"ms":793,"attempts":1,"tokens":2762,"model":"jev-1.14.0"},"whole":{"answer":"level 3","correct":true,"gold":false,"kind":"complexity","images":3,"p":[0,0.06,0.42,0.48,0.04],"expected":2.5,"requests":[{"questions":1,"images":3,"ms":912,"tokens":2762}],"ms":912,"attempts":1,"tokens":2762,"model":"jev-1.14.0"},"criteria":{"answer":"level 2","correct":true,"gold":true,"kind":"complexity","images":3,"p":[0,0.07,0.45,0.44,0.04],"expected":2.45,"requests":[{"questions":1,"images":3,"ms":823,"tokens":2759}],"ms":823,"attempts":1,"tokens":2759,"model":"jev-1.14.0"}},
+    {"id":"complexity-city","language":"zh","state":{"reference_images":[{"image":"⟦image:reference-1⟧"},{"image":"⟦image:reference-2⟧"},{"image":"⟦image:reference-3⟧"},{"image":"⟦image:reference-4⟧"}]},"mod":{"answer":"level 4","correct":true,"gold":false,"kind":"complexity","images":4,"p":[0,0,0.01,0.05,0.94],"expected":3.93,"requests":[{"questions":1,"images":4,"ms":1573,"tokens":4021}],"ms":1573,"attempts":1,"tokens":4021,"model":"jev-1.14.0"},"whole":{"answer":"level 4","correct":true,"gold":false,"kind":"complexity","images":4,"p":[0,0,0.01,0.05,0.94],"expected":3.93,"requests":[{"questions":1,"images":4,"ms":1893,"tokens":4041}],"ms":1893,"attempts":1,"tokens":4041,"model":"jev-1.14.0"},"criteria":{"answer":"level 4","correct":true,"gold":false,"kind":"complexity","images":4,"p":[0,0,0.01,0.06,0.93],"expected":3.92,"requests":[{"questions":1,"images":4,"ms":2590,"tokens":4053}],"ms":2590,"attempts":1,"tokens":4053,"model":"jev-1.14.0"}}
+  ]
+}

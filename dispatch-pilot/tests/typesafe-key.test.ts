@@ -29,7 +29,7 @@ const writtenOut = async (w: ReturnType<typeof world>, state: string[]) => JSON.
 // ---- the choice ----------------------------------------------------------------------------------
 
 test('typesafeKey: the options first, the environment where they are empty, else none; keySource says where it came from, never what', () => {
-  const secrets = { perplexityEnvKey: '', typesafeEnvKey: 'env-key', liquidEnvKey: '' }
+  const secrets = { perplexityEnvKey: '', typesafeEnvKey: 'env-key', liquidEnvKey: '', naceEnvKey: '' }
   expect(typesafeKey(readConfig({ typesafeApiKey: 'opt-key' }), secrets)).toBe('opt-key')
   expect(typesafeKey(readConfig({}), secrets)).toBe('env-key')
   expect(typesafeKey(readConfig({}), { ...secrets, typesafeEnvKey: '' })).toBe('')
@@ -40,8 +40,8 @@ test('typesafeKey: the options first, the environment where they are empty, else
   ])
 })
 
-test('a TypeSafe key only in the environment, once read, is the one Jev (the default) decides with and takes images with', () => {
-  const ctx = setup({})
+test('a TypeSafe key only in the environment, once read, is the one Jev decides with and takes images with', () => {
+  const ctx = setup({ decisionModel: 'jev' })
   expect([ctx.backend.name, ctx.backend.configured, ctx.images]).toEqual(['jev', false, null])
   ctx.secrets.typesafeEnvKey = 'env-key'
   expect([ctx.backend.name, ctx.backend.configured, ctx.images?.name, ctx.images?.backend.configured, ctx.images?.fellBack]).toEqual(['jev', true, 'jev', true, false])
@@ -65,7 +65,7 @@ test('only TYPESAFE_API_KEY, with decisionModel jev: Jev is asked with it, the t
   expect(await writtenOut(w, state)).not.toContain('env-key-7c1d')
 })
 
-test('only TYPESAFE_API_KEY and no decisionModel: Jev, the default, decides with it, and nothing is said about the choice', { options: {} }, async ($, on) => {
+test('only TYPESAFE_API_KEY and decisionModel jev: Jev decides with it, and nothing is said about the choice', { options: { decisionModel: 'jev' } }, async ($, on) => {
   const w = world($, on, { session: true, env: { TYPESAFE_API_KEY: 'env-key' }, backend: jev([0, 0, 1, 0, 0]) })
   await w.start()
   await w.submit('解释一下这个函数做了什么')
@@ -132,7 +132,7 @@ test('no TypeSafe key in the options or the environment, with decisionModel jev:
   expect(keyLine(w)).toEqual(['jev key: not set'])
 })
 
-test('only a Perplexity key, and no TypeSafe key anywhere: the decision log says images go to pplx, naming both places for the TypeSafe key; Jev, which decides, has none', { options: { perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
+test('only a Perplexity key, and no TypeSafe key anywhere: the decision log says images go to pplx, naming both places for the TypeSafe key; Jev, which decides, has none', { options: { decisionModel: 'jev', perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
   const w = world($, on, { session: true, env: {} })
   await w.start()
   expect((await w.board()).log.filter((entry) => entry.feature === 'decision-model')).toMatchObject([

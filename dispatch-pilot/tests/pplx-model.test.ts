@@ -50,10 +50,10 @@ test('a message gets one pplx decision on the Decisions API with the Bearer key,
   expect((await w.board()).main).toMatchObject({ effort: 'high', routed: true })
 })
 
-test('without decisionModel the decision goes to Jev, the default (ADR 0014), though a Perplexity key is there too', { options: { typesafeApiKey: 'ts-test-key', perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
+test('without decisionModel the decision goes to Drex Max, the default (ADR 0026), though a Perplexity and a TypeSafe key are there too', { options: { naceApiKey: 'nace-test-key', typesafeApiKey: 'ts-test-key', perplexityApiKey: 'pplx-test-key' } }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
   await w.submit('解释一下这个函数做了什么')
-  expect(w.requests.map((request) => request.url)).toEqual(['https://api.typesafe.ai/v1/systemone'])
+  expect(w.requests.map((request) => request.url)).toEqual(['https://console.nace.ai/v1/systemone'])
 })
 
 // ---- the key -------------------------------------------------------------------------------------

@@ -67,8 +67,28 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 - Workflow 在后台运行、你又发了消息时，等到 agent 启动才判断的那些 agent（prompt 是数据的调用、读不了的脚本），读的仍是启动 Workflow 那一轮你的话、那时的问题摘要和到那次调用为止的对话，不是你后来的消息。
 - 打开 skill 推荐时：本会话每个 skill 的名字和描述，以及排在前面的三个 skill（`find_skill` 是最多 `findSkillMax` 个）的描述和 SKILL.md 开头 700 个字符。
 - 发送前对常见的 secret 格式脱敏，替换成 `[REDACTED]`：各家的 API key 和 token（含 Perplexity 的 `pplx-...`）、`password=...` 这类赋值（键名带引号的 JSON 写法 `"apiKey": "..."` 也算）、URL 里的密码、私钥和 JWT。
-- 请求发往你用的决策模型：默认的 Jev 发往 TypeSafe（`api.typesafe.ai`），选 pplx 时发往 Perplexity（`api.perplexity.ai`），选 d1-ultra 或 d1.1 时发往 Liquid（`api.liquid.ai`）。**带图的请求不是这样，见下一节。**
+- 请求发往你用的决策模型：默认的 Drex Max 发往 Nace（`console.nace.ai`），选 jev 时发往 TypeSafe（`api.typesafe.ai`），选 pplx 时发往 Perplexity（`api.perplexity.ai`），选 d1-ultra 或 d1.1 时发往 Liquid（`api.liquid.ai`）。**带图的请求不是这样，见下一节。**
 - 每次请求的结果和每个决定都写进 debug log（`claude --debug-file <路径>`），不进入会话。
+
+### Drex Max（默认）
+
+0.13.0 起，文字的判断默认由 Nace 的 Drex Max v1.1 做（ADR 0026）；看图核对、带图路由和截图接管仍用 Jev，要 TypeSafe 的 key。它和 Jev 是同一套 System One 接口，用的是同一套英文题面、同样的预算，回答也按 TypeSafe 的线读（是非题 0.7 / 0.3 等）：Nace 的指南不给门槛，只说在标注样本上定，下面的对照就是按这套读法跑的。固定版本 `drex-max-v1.1`（不用会自动更新的 `drex-latest`）。key 填在 `naceApiKey`，或者放进环境变量 `NACE_API_KEY`；没有 key 时不发请求，看板写明缺哪个，不会换成别的模型。
+
+换的依据是 2026-11-13 的一次对照：同一天、同一份评测集、同一套题面，Drex Max v1.1 和 Jev 1.14.0 各跑一遍（中文 / 英文）：
+
+| 评测 | Jev 1.14.0 | Drex Max v1.1 |
+|---|---|---|
+| 发消息时的 effort（100 题） | 97.0% / 94.0% | 94.0% / 95.0% |
+| 一轮中途的 effort（122 题） | 78.7% / 79.5% | 83.6% / 83.6% |
+| 派出 agent 的模型加 effort（100 题） | 89.0% / 89.0% | 87.0% / 87.0% |
+| skill 推荐（109 题） | 25.7% / 30.3% | 86.2% / 83.5% |
+
+前两行和第三行里只有一轮中途的 effort 差距显著；skill 推荐的差距主要在「提示只有你能启动的 skill」那一部分，Jev 在那里提示得太多。各只跑了一遍，Jev 同一套题重复三遍时自己有 1 到 2 个点的波动。
+
+- **比 Jev 慢约一倍**：单个请求中位约 0.52 秒（Jev 0.27），skill 推荐的两段合计约 1.2 秒。所以一条消息默认最多等 2500 毫秒，skill 第二段至少给 1000 毫秒。Nace 的文档说繁忙时请求可能排队到 55 秒；过了等待时间，消息不经路由地放行。
+- **更便宜**：每百万 input token 0.03 美元（Jev 0.042），同样的请求它计的 token 也少约两成；Nace 说这是五折的发布价。
+- **不看图**：Drex Max 能读图，但没有框题，放大复核做不了。试过不靠框题的做法（把两张图切成放大的分块放进同一个请求），抓到的差异和 Jev 一样多，但多放过一处差异，也更慢，所以图留在 Jev。
+- **数据保留**：Nace 的 Drex 文档没有写它是否保留请求里的内容。在意的话，把 `decisionModel` 设成 `jev`，或设成 `d1-ultra`、`d1.1`（Liquid 写明零数据保留）。
 
 ### d1-ultra
 
@@ -126,7 +146,7 @@ Dispatch Pilot 是 `alex-mods` marketplace 里的一个 Claude Code mod。它在
 
 - **Claude Code 2.1.300 及以上**，mod 在 Claude Code 里默认启用。兜底在 `agent.spawn` 上设 Workflow agent 的模型，2.1.300 起才生效；更早的版本上这些 agent 只改得了 effort，模型按脚本或引擎的走。**0.12.0 测试用的是 Claude Code 2.1.322**（按步数再看：只有测试，没有在真实会话里跑过，也没有评测），**0.11.1 测试用的是 Claude Code 2.1.322**（主 agent 干活途中你点名的 skill：在交互界面里实测，途中输入「接下来按 /名字 来」，只能由你触发的探针 skill 的说明送到了主 agent，它照着做了；关掉 `skills` 时同一句话 Skill 工具拒绝加载），**0.11.0 测试用的是 Claude Code 2.1.322**（一轮中途的 effort，ADR 0020：追加一行让新档生效是在 2.1.322 上实测的，主 agent 测了 Sonnet 5.5、Opus 5.5、Fable 5.2 和 Haiku 5.5，派出 agent 测了 Sonnet 5.5 和 Haiku 5.5；整条链路用 d1-ultra 做决策模型在真实会话里跑过（`claude -p` 和交互界面各一次升档、一次回到原档；追加的行在交互界面里不显示），用 Jev（`jev-latest`，答题的是 jev-1.14.0）在 `claude -p` 里跑过三次（low 升到 high 再到 xhigh；high 升到 xhigh、命令通过后回到 high），ADR 0022 改完之后又跑过两次（只读一个生产配置值的消息定在 low；同一条命令连着失败，low 升到 high、xhigh、max，命令通过后追加一行回到 low）；更早的引擎上追加不了时不换档，其余照旧。Workflow 里的 agent 没有测，也不做中途换档），**0.10.0 测试用的是 Claude Code 2.1.316**（带图路由在发消息时读图，ADR 0019：引擎读得到时一轮进行中输入的带图消息也带着读数定；测试框架模拟不了 `$.prompt.media`，所以只有读图和等待时间两个纯函数有单元测试，world 里的带图测试走的都是旧引擎那条路；新路没有在真实会话里跑过），**0.9.2 测试用的是 Claude Code 2.1.316 和 Desktop 自带的 2.1.309**（适配 2.1.313–2.1.316：设了 `CLAUDE_CODE_DISABLE_ULTRATHINK` 时 R1 不再抬档，和引擎一样；没路由的 agent，给主 agent 的说明不再说它按会话的 effort 运行，因为设了 `CLAUDE_CODE_SUBAGENT_EFFORT` 时不是。用测试里扮演引擎的 world 验证，引擎读这个变量的办法从 2.1.316 的二进制里核对过；没有在真实会话里设过这个变量），**0.9.1 测试用的是 Claude Code 2.1.312 和 Desktop 自带的 2.1.309**（命令轮的参数末尾带空白时，判断落不到这一轮上、按会话的 effort 发出：引擎在命令轮开始时去掉参数的首尾空白，dp 却按原文比对；用 Desktop 的 2.1.309 以 stream-json 输入复现并验证了修复），**0.9.0 测试用的是 Claude Code 2.1.312**（按 TypeSafe 的官方指南重做发消息时的判断，ADR 0014：Jev 成为默认、不再按密钥自动换，所有问题用英文、请求留在 Jev 的常规上限内，effort 题旁边加八道是非题，档位按写在代码里的规则定，次数、长期约束和上一轮的情况进 state；用测试里扮演引擎的 world 验证过，真实的 Jev 只用 `claude -p` 跑过一次冒烟，没有重跑评测。之后又加了确认、要求升级两道题（ADR 0016）和可选的 d1-ultra（ADR 0017），同样只用 world 和冒烟验证：d1-ultra 3 次请求、Jev 1 次，见 DEVELOPMENT.md 的「d1-ultra 的预算」。skill 推荐照 TypeSafe 的 skill 推荐 cookbook 重写（ADR 0018），用 world 验证，再用 `claude -p` 核对主 agent 确实看不到 skill 列表（只加载工作区的 dp 时模型列出 0 个，关掉 dp 列出 126 个），这一次真实的 Jev 跑了两段 skill 请求；d1-ultra 只跑了一次第一段。还有删掉一轮中途重判；派出 agent 失败后改为升模型，主 agent 只记下这一轮的情况。依据是用临时探针在 2.1.312 的真实会话里实测的引擎行为：一轮中途改 effort 不生效，改模型从下一步起生效，见 DEVELOPMENT.md 的「已实测的引擎行为」和 ADR 0013；改动本身用测试里扮演引擎的 world 验证过，没有在真实会话里跑过一轮），**0.8.2 测试用的是 Claude Code 2.1.302**（选 Jev 时 skill 推荐的第二段至少等 800 毫秒：同一个 key 上几个会话同时发消息时，第一段变慢，共用的 1500 毫秒不够第二段用；用测试里扮演引擎的 world 验证，并用 5 个并行的无头会话在真实 Jev 上实测过；同样的改动在 0.8.2-desktop.1 里，用 Desktop 自带的 2.1.299 跑过同样的并行实测），**0.8.1 也是**（Desktop 等非终端端按「点」来画，ADR 0012：重画放慢到 5 秒、运行中的色带用 SMIL 自己长、band 的「依据」按钮、依据面板的 agent 标签和底部开关、Desktop 上不写状态行；同样的改动用兼容版 0.8.0-desktop.1 在 Desktop 自带的 2.1.299 上真机点过一遍），**0.8.0 测试用的是 Claude Code 2.1.302**（Desktop 等非终端端的 Svg 标记、等宽字、band 折叠和状态行只用测试里扮演引擎的 world 验证过，SVG 渲染出来看过；没在 Desktop 上亲眼看过，Desktop 自带的 2.1.299 加载不了 dp），0.7.1 也是（`TYPESAFE_API_KEY` 的环境变量兜底，用测试里扮演引擎的 world 验证过；为它而做的 Claude Desktop 没法试，Desktop 内置的 2.1.299 加载不了 0.7.0 起的 mod，见「安装」的「Claude Desktop」），0.7.0 也是（兜底改在 `agent.spawn` 上：派出时改模型对 Workflow agent 生效、派出带着 label 和任务、没写 label 的调用 label 是 prompt 前 60 个字符、运行的第一个 agent 在 Workflow 工具返回之前就派出而工具不等它，用临时探针在真实会话里实测过；新的兜底用测试里扮演引擎的 world 验证过，没有在真实会话里跑过一轮），0.6.2 用的是 Claude Code 2.1.301（强提示改成另问一道 effort 题、按同一请求的三选一取用、max 门槛用 `hintThetaMax`：用测试里扮演引擎的 world 和评测里的真实 Jev 验证过，没有在真实会话里跑过一轮），0.6.1 也是（全面代码审查的修复，用测试里扮演引擎的 world 验证过，没有在真实会话里跑过一轮），0.6.0 也是（Jev 1.14 的长上下文、一起派出的 agent 合进一个请求和 Jev 的限速，用测试里扮演引擎的 world 和评测里的真实 Jev 验证过，没有在真实会话里跑过一轮），0.5.0 用的是 Claude Code 2.1.300（图像功能用到的引擎行为用 event-probe 实测过：引擎里图块的形状、引擎把图缩到长边 2000、换掉 Read 的图片结果又不留 `[Image: …]` 文字的写法、注册工具的回答能用哪些形式、hook 的 10 秒只算 mod 自己的代码；整套图像功能没有在真实会话里跑通一轮，见「局限」），0.4.5 也是（`find_skill` 直接在主 agent 的工具列表里，用 event-probe 实测过；看板的模型名新字色在浅色终端上目测过），0.4.4 也是（派出 agent 自己那一轮的 `turn.start`、被 SendMessage 唤醒的 agent 的 `agent.spawn`，在真实会话里实测过），0.4.3 用的是 Claude Code 2.1.296（选 pplx 时派出 agent 和 Workflow 请求里的对话和脚本、agent 启动时才判断的读启动那一轮，在真实会话里实测过），0.4.2 也是（被 TaskStop 停掉的 Workflow agent 的结束实测过），0.4.1 也是（Workflow agent 的 `agent.spawn`、Haiku 5.5 的 effort 在真实会话里实测过），0.4.0 用的是 Claude Code 2.1.294（默认的 pplx 配置跑通一轮真实流程，见 #53），此前版本用的是 2.1.291（订阅登录，看板和依据面板在终端里看过）和 jev-1.13.0；缓存和评测的实测是在 2.1.289 上做的；跑 `eval/` 和 `scripts/` 里的 Node 脚本用的是 Node 26.5，用 mod 本身不需要 Node。
 - **只支持 Claude Code 订阅**（ADR 0001，`docs/adr/0001-main-agent-effort-only-no-model-switch.md`）。Dispatch Pilot 每轮、每一步都改主 agent 的 effort，但从不改它的模型：换模型必然让 prompt cache 失效，而在订阅下，同一个模型内切换 effort 保留缓存（2.1.289 上 Opus 5.5 加订阅实测）。Bedrock、Vertex 和各种网关上切换 effort 会让缓存失效，不在支持范围内。Claude Code 的文档只点名了 Opus 5.5、Sonnet 5.5 和 Fable 5.1 保留缓存，其他大多数模型上每档 effort 各有一份缓存，切换会重算整段请求（见 `docs/research/decision-models-and-caching.md` 的 3.4）。
-- **一个决策模型的账号。** 默认的决策模型是 Jev，要 TypeSafe 的 API key；把 `decisionModel` 设成 `pplx` 才用 pplx，要 Perplexity 的 API key（Decisions API）；设成 `d1-ultra` 或 `d1.1` 才用 Liquid 的这两个模型，要 Liquid 的 API key（图像功能仍要 TypeSafe 的）。不按密钥自动换（ADR 0014）：所选模型的 key 没有时 mod 不发任何请求，每一轮都按会话自己的 effort 走，看板上写明缺的是哪个 key。0.9.0 之前默认是 pplx，没有 Perplexity 的 key 时退回 Jev；只填了 Perplexity 的 key、没设 `decisionModel` 的，升级后要么补上 TypeSafe 的 key，要么把 `decisionModel` 设成 `pplx`。
+- **一个决策模型的账号。** 默认的决策模型是 Drex Max v1.1，要 Nace 的 API key（0.13.0 起，ADR 0026）；把 `decisionModel` 设成 `jev` 才用 Jev，要 TypeSafe 的 API key；设成 `pplx` 才用 pplx，要 Perplexity 的 API key（Decisions API）；设成 `d1-ultra` 或 `d1.1` 才用 Liquid 的这两个模型，要 Liquid 的 API key（图像功能仍要 TypeSafe 的）。不按密钥自动换（ADR 0014）：所选模型的 key 没有时 mod 不发任何请求，每一轮都按会话自己的 effort 走，看板上写明缺的是哪个 key。0.9.0 之前默认是 pplx，没有 Perplexity 的 key 时退回 Jev；只填了 Perplexity 的 key、没设 `decisionModel` 的，升级后要么补上 TypeSafe 的 key，要么把 `decisionModel` 设成 `pplx`。
 - **要用全部图像功能，需要 TypeSafe 的 API key。** 放大复核、全屏「哪里不同」、档位序列、录屏取 12 帧都靠 Jev 1.14。只有 Perplexity 的 key 时（没有 TypeSafe 的 key），三项图像功能仍可用，但看图核对只做整图判断：不框、不裁、没有放大复核，有参考图时「过」只能记没把握；档位序列不可用；一个请求最多 8 张图，录屏取 8 帧。两个 key 都没有，图像功能都不可用。图发给谁见「图像：发给谁，什么时候发」。
 - **缩图、裁图用 macOS 自带的 `sips`，录屏抽帧用 `ffmpeg`**（要自己装）。只有看图核对和带图路由需要它们，其余功能不需要。截图接管把 MCP 工具返回的图存成临时文件，用的是 macOS 的 `base64 -D`（Linux 的 base64 不认这个参数）；存不下来时图原样留给 agent。
 
@@ -167,9 +187,11 @@ claude plugin install dispatch-pilot@alex-mods --scope user
 
 Desktop 内置的 Claude Code 版本还要在 2.1.300 及以上（在 Desktop 的会话里运行 `/status`，看 Claude Code 那一行）。0.7.0 起 mod 用到 `prompt.change` 事件，2.1.299 不认它，整个模块加载失败，而且界面上什么也不报：没有看板，`/dp` 也没有，只有 `--debug-file` 的日志里有一行 `hooks module dispatch-pilot@alex-mods failed to load`。0.7.1 的环境变量兜底（`TYPESAFE_API_KEY`）只用测试里扮演引擎的 world 验证过，没有在真实的 Desktop 会话里试过：写这段时 Desktop 内置的是 2.1.299，加载不了 Dispatch Pilot。2026-10-22 起 Desktop 内置的是 2.1.308，可以加载；2026-10-31 是 2.1.309。
 
-**从 0.8.x 升级的。** 只有 TypeSafe 的 key 的，不用改任何配置：Jev 就是默认，决策日志里不再有「改用 Jev」那一条。`decisionModel` 没设、只有 Perplexity 的 key 的，升级后不再路由（看板写缺 TypeSafe 的 key）：补上 TypeSafe 的 key，或者把 `decisionModel` 设成 `pplx`。
+**从 0.12.0 及更早升级的。** 没设 `decisionModel` 的，文字的判断从 Jev 换成了 Drex Max：补上 Nace 的 key（`naceApiKey` 或 `NACE_API_KEY`），或者把 `decisionModel` 设成 `jev` 保持原样；不补的话不再路由，看板写缺 Nace 的 key。TypeSafe 的 key 要留着，图像功能仍用它。
 
-`decisionModel` 在 `/config` 里是下拉选择，有 `jev`（默认）、`pplx`、`d1-ultra` 和 `d1.1` 四项；填了别的值（包括已移除的 `clef`），按没设处理，也就是默认的 Jev。
+**从 0.8.x 升级的（当时的说明，默认已在 0.13.0 换成 Drex Max）。** 只有 TypeSafe 的 key 的，不用改任何配置：Jev 就是默认，决策日志里不再有「改用 Jev」那一条。`decisionModel` 没设、只有 Perplexity 的 key 的，升级后不再路由（看板写缺 TypeSafe 的 key）：补上 TypeSafe 的 key，或者把 `decisionModel` 设成 `pplx`。
+
+`decisionModel` 在 `/config` 里是下拉选择，有 `drex`（默认）、`jev`、`pplx`、`d1-ultra` 和 `d1.1` 五项；填了别的值（包括已移除的 `clef`），按没设处理，也就是默认的 Drex Max。
 
 ## 更新
 
@@ -214,7 +236,9 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 
 选项留空就取决策模型的默认值：`timeoutMs`、`contextMessages`、`contextTokens` 这 3 项在 manifest 里没有默认值，所以 `/config` 里显示为空，你不设时 Dispatch Pilot 取表里你选的决策模型的那一列。你自己设了某一项，就用你设的值。会话开始时 debug log 会写一行哪些选项用了默认值。
 
-另有几个值也随决策模型而定，但不是选项，`/config` 里改不了，也不在下面的表里：问题怎么问（0.9.0 起每个决策模型的所有问题都用英文，ADR 0014、ADR 0017；effort 是 Score，其余是是非题或选择题），`contextMessages` 的上限（都是 2000；Jev 在 2026-10-15 之前是 32），合并的 agent 请求超出常规上限时的等待（Jev 3000 毫秒，见「发给决策模型的内容」），以及同时在途的 agent 请求数（Jev、d1-ultra、d1.1 4，pplx 5）。它们和上面那些默认值一起写在 `core/setup.ts` 的 `BACKEND_DEFAULTS`，评测和 mod 读的是同一张表。定档的规则不随决策模型变；是非题的线、effort 拿不准时的规则和派出 agent 选模型的方法按各家的官方指南：Jev 和 pplx 按 TypeSafe 的（0.7 / 0.3、分在两头、模型表，ADR 0014、0015），d1-ultra 和 d1.1 按 Liquid 的（0.8 / 0.2、置信度低于 0.5、路由选择题，ADR 0017），skill 推荐的门槛也是（Jev 和 pplx 用 TypeSafe cookbook 的 0.30、0.50 和 0.30，d1-ultra 和 d1.1 用 Liquid 的 0.2、0.2 和 0.5，ADR 0018、ADR 0021），写在 `decision/guides.ts`，都不是选项。
+另有几个值也随决策模型而定，但不是选项，`/config` 里改不了，也不在下面的表里：问题怎么问（0.9.0 起每个决策模型的所有问题都用英文，ADR 0014、ADR 0017；effort 是 Score，其余是是非题或选择题），`contextMessages` 的上限（都是 2000；Jev 在 2026-10-15 之前是 32），合并的 agent 请求超出常规上限时的等待（Jev 3000 毫秒，见「发给决策模型的内容」），以及同时在途的 agent 请求数（Drex Max、Jev、d1-ultra、d1.1 4，pplx 5）。它们和上面那些默认值一起写在 `core/setup.ts` 的 `BACKEND_DEFAULTS`，评测和 mod 读的是同一张表。定档的规则不随决策模型变；是非题的线、effort 拿不准时的规则和派出 agent 选模型的方法按各家的官方指南：Jev 和 pplx 按 TypeSafe 的（0.7 / 0.3、分在两头、模型表，ADR 0014、0015；Drex Max 也按这一套，Nace 的指南不给门槛，ADR 0026），d1-ultra 和 d1.1 按 Liquid 的（0.8 / 0.2、置信度低于 0.5、路由选择题，ADR 0017），skill 推荐的门槛也是（Jev 和 pplx 用 TypeSafe cookbook 的 0.30、0.50 和 0.30，d1-ultra 和 d1.1 用 Liquid 的 0.2、0.2 和 0.5，ADR 0018、ADR 0021），写在 `decision/guides.ts`，都不是选项。
+
+**Drex Max 的默认值**（ADR 0026）：预算和 Jev 一样（effort、派出 agent 和 Workflow 24000，带 skill 题的 6000）。Drex Max 整个请求能收 262,144 token，不用长上下文请求头，但评测用的是这组预算，更长的 state 要多久、准不准没有量过。2026-11-13 的评测里，请求一个接一个发，发消息和派出 agent 的请求中位 523–557 毫秒、九成在 571–782 毫秒以内，skill 推荐第一段 674 / 784、第二段 513 / 622，两段合计 1180 / 1364，所以 `timeoutMs` 取 2500，第二段至少给 1000 毫秒，`find_skill` 和一条消息等得一样久。同时在途的 agent 请求最多 4 个；Nace 免费档每分钟 120 个请求、同时 8 个，mod 不另外限速，遇到 429 写「被限速」放行。
 
 **pplx 的默认值**（B′，ADR 0006，`docs/adr/0006-dispatch-pilot-pplx-default-decision-model.md`；预算和限速见 ADR 0007）：pplx 一个请求最多收 262,144 token（state 加全部问题），不受 Jev 那 32k 的限制，但真正限制它的是时间：请求越长回答越慢（Perplexity 文档：9 万 token 约 5 秒、19 万约 14 秒、接近上限约 23 秒），而一次决策最多等 8000 毫秒（hook 自己的上限是 10 秒）。2026-10-13 实测，pplx 数的 token 约是 mod 估算的 2.2 倍，48000 估算 token 的 state 单发要 4.3–5.9 秒，72000 要 8.3–8.8 秒，已经超过等待时间。所以发消息时的 effort 题和 Workflow 的一个请求各取 48000；派出 agent 常常几个一起派，每个请求又会被对话填满，同时发 5 个 32000 的都在 5.2 秒内答完，3 个 48000 的最慢要 7.6 秒，所以派出 agent 取 32000（Workflow 的调用分成几个请求时、以及 agent 启动时才判断的，每个请求也是 32000）。最近 2000 条消息（由 token 预算截断，不是条数），skill 的两段排序仍是 6000，因为 B′ 没有评测过 skill 题。`find_skill` 等 6000 毫秒。所有问题都用英文问。0.9.0 起它的回答按和 Jev 一样的规则读，0.8.x 为它离线定的 `thetaMax` 0.47 和往上取一档的 0.45 一起去掉了；pplx 不再评测。skill 推荐的门槛和 Jev 一样用 TypeSafe cookbook 的。用户自己设的值总是优先。
 
@@ -224,65 +248,66 @@ Dispatch Pilot 和 jev-pilot 不能共存：两者都在 `turn.step` 上改主 a
 
 **d1.1 的默认值**（ADR 0021）：预算和 d1-ultra 一样（effort、派出 agent 和 Workflow 24000，带 skill 题的 6000）。d1.1 每道题连同 state 能收 65,536 token，但 state 越长越慢（TypeSafe 说长上下文更慢、也不那么准，Liquid 的文档没说）：2026-11-10 实测，一份 48000 估算 token 的 state 要 4.6 秒，24000 的只用到它上限的约四成（它数的 token 是 mod 估算的 0.93–1.09 倍）。同一天满预算的发消息请求（11 道题，它计 23,670 token）单发 1.3–2.0 秒，进程里第一个请求要建连接，2.3 秒，所以 `timeoutMs` 取 3500（约最慢那次的 1.5 倍）。skill 推荐第一段（6000 的 state 加 100 个 skill 的选择题）0.66–0.69 秒，第二段 0.40–0.63 秒，所以第二段至少给 1000 毫秒，`find_skill` 的两段和一条消息等得一样久（3500 毫秒）。同时发 4 个满预算的请求最慢 3.3 秒，同时在途的 agent 请求仍是最多 4 个。
 
-下表的 Jev、pplx、d1-ultra 和 d1.1 四列是各自的默认值。`起点`：这个默认值是暂定的起点，还没有评测数据支持。`按 Jev 的上限`：按上面的算法取 Jev 能接受的最大值，没有评测。`按 AA 基准`：按 Artificial Analysis 的基准校正过（见「模型和 effort 的依据」），没有在这套评测集上量过。没有标注的，是按测到的数据定的，或者本来就不需要校准。
+下表的 Drex Max、Jev、pplx、d1-ultra 和 d1.1 五列是各自的默认值。`起点`：这个默认值是暂定的起点，还没有评测数据支持。`按 Jev 的上限`：按上面的算法取 Jev 能接受的最大值，没有评测。`按 AA 基准`：按 Artificial Analysis 的基准校正过（见「模型和 effort 的依据」），没有在这套评测集上量过。没有标注的，是按测到的数据定的，或者本来就不需要校准。
 
 ### 决策模型和密钥
 
-| 选项 | 作用 | Jev | pplx | d1-ultra | d1.1 |
-|---|---|---|---|---|---|
-| `decisionModel` | 决策模型，在 `/config` 里是下拉选择：`jev`（TypeSafe 的 Jev，用 `jev-latest`）、`pplx`（Perplexity 的 `pplx-decider-v1.1-27b`，0.9.0 起不再评测）、`d1-ultra`（Liquid 的 d1-ultra，按 Liquid 官方的读法，见「d1-ultra」）或 `d1.1`（Liquid 最新的 d1.1，读法同 d1-ultra，见「d1.1」）。默认 `jev`；填了别的值（包括已移除的 `clef`），按没设处理。不按密钥自动换：所选模型的 key 没有时不发请求，看板写明缺哪个 key | `jev` | `jev` | `jev` | `jev` |
-| `typesafeApiKey` | TypeSafe 的 API key，默认的决策模型 Jev 用它；全部图像功能也要它。敏感项。为空时读环境变量 `TYPESAFE_API_KEY`，两处都有就用这里的。key 只放在请求头里，不进日志、看板和 `$.state` | `空` | `空` | `空` | `空` |
-| `perplexityApiKey` | Perplexity 的 API key，`decisionModel` 设成 `pplx` 时用；没有 TypeSafe 的 key 时图像功能也改用它（不能放大复核）。敏感项。为空时读环境变量 `PERPLEXITY_API_KEY`，两处都有就用这里的。key 只放在请求头里，不进日志、看板和 `$.state` | `空` | `空` | `空` | `空` |
-| `liquidApiKey` | Liquid 的 API key（以 `liquid_` 开头），`decisionModel` 设成 `d1-ultra` 或 `d1.1` 时用；图像功能不用它，仍用 TypeSafe 的 key。敏感项。为空时读环境变量 `LIQUID_API_KEY`，两处都有就用这里的。key 只放在请求头里，不进日志、看板和 `$.state` | `空` | `空` | `空` | `空` |
-| `pplxQps` | 每秒最多向 Perplexity 发几个请求（1–50），只对 `pplx` 有用，Jev 看下面两项。Perplexity 的文档写每个组织每秒 10 个；默认 5，几个同时派出的 agent 可以一起发出（实测同时发 5 到 8 个都没有 429，而按 1 个每秒排队时第 4、5 个要 8.5 秒、10.7 秒才答完），也给同一个 key 的其他会话留出余量。超出的在 mod 里排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待。遇到 429 时，剩余等待时间不少于 `Retry-After` 加约 5 秒就按 `Retry-After` 重试一次，不够就不经路由地放行，看板写「被限速」 | `5` 仅 `pplx` 用 | `5` | `5` 仅 `pplx` 用 | `5` 仅 `pplx` 用 |
-| `jevQps` | 每秒最多向 TypeSafe 发几个请求（1–1000），只对 `jev` 有用。填你的账号在 TypeSafe 控制台 Rate limits 页上的限额，默认 80 是默认套餐的值。超出的在 mod 里排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待 | `80` 默认套餐 | `80` 仅 `jev` 用 | `80` 仅 `jev` 用 | `80` 仅 `jev` 用 |
-| `jevTokensPerSecond` | 每秒最多向 TypeSafe 发多少 input token（10000–100000000），只对 `jev` 有用。填控制台上的限额，默认 100000 是默认套餐的值。mod 按令牌桶算：桶里最多存 5 秒的额度（默认 50 万 token，约 4 个带满对话的请求），之后按每秒的额度补；请求按估算的 token 数（mod 的估算乘 1.3）取出，答完按 Jev 报的实数多退少补。额度不够的请求排队，effort 题最先发；排到时离它自己的等待结束不到 200 毫秒的，不发，按超时处理。遇到 429 或 529，所有请求按 `Retry-After` 暂停，最多暂停 5 秒（写一个小时也只停 5 秒；没有 `Retry-After` 就 1 秒，529 是 0.5 秒）；收到的那个请求剩余等待时间够用就重试一次，重试遇到的第二次 429 也让所有请求暂停；被暂停挡得在自己的等待里发不出去的请求不发，看板写「繁忙」，不写「超时」 | `100000` 默认套餐 | `100000` 仅 `jev` 用 | `100000` 仅 `jev` 用 | `100000` 仅 `jev` 用 |
+| 选项 | 作用 | Drex Max | Jev | pplx | d1-ultra | d1.1 |
+|---|---|---|---|---|---|---|
+| `decisionModel` | 决策模型，在 `/config` 里是下拉选择：`jev`（TypeSafe 的 Jev，用 `jev-latest`）、`pplx`（Perplexity 的 `pplx-decider-v1.1-27b`，0.9.0 起不再评测）、`d1-ultra`（Liquid 的 d1-ultra，按 Liquid 官方的读法，见「d1-ultra」）或 `d1.1`（Liquid 最新的 d1.1，读法同 d1-ultra，见「d1.1」）。默认 `jev`；填了别的值（包括已移除的 `clef`），按没设处理。不按密钥自动换：所选模型的 key 没有时不发请求，看板写明缺哪个 key | `drex` | `drex` | `drex` | `drex` | `drex` |
+| `typesafeApiKey` | TypeSafe 的 API key，默认的决策模型 Jev 用它；全部图像功能也要它。敏感项。为空时读环境变量 `TYPESAFE_API_KEY`，两处都有就用这里的。key 只放在请求头里，不进日志、看板和 `$.state` | `空` | `空` | `空` | `空` | `空` |
+| `perplexityApiKey` | Perplexity 的 API key，`decisionModel` 设成 `pplx` 时用；没有 TypeSafe 的 key 时图像功能也改用它（不能放大复核）。敏感项。为空时读环境变量 `PERPLEXITY_API_KEY`，两处都有就用这里的。key 只放在请求头里，不进日志、看板和 `$.state` | `空` | `空` | `空` | `空` | `空` |
+| `liquidApiKey` | Liquid 的 API key（以 `liquid_` 开头），`decisionModel` 设成 `d1-ultra` 或 `d1.1` 时用；图像功能不用它，仍用 TypeSafe 的 key。敏感项。为空时读环境变量 `LIQUID_API_KEY`，两处都有就用这里的。key 只放在请求头里，不进日志、看板和 `$.state` | `空` | `空` | `空` | `空` | `空` |
+| `naceApiKey` | Nace 的 API key（以 `nace_sk_` 开头），默认的决策模型 Drex Max 用它；图像功能不用它，仍用 TypeSafe 的 key。敏感项。为空时读环境变量 `NACE_API_KEY`，两处都有就用这里的。key 只放在请求头里，不进日志、看板和 `$.state` | `空` | `空` | `空` | `空` | `空` |
+| `pplxQps` | 每秒最多向 Perplexity 发几个请求（1–50），只对 `pplx` 有用，Jev 看下面两项。Perplexity 的文档写每个组织每秒 10 个；默认 5，几个同时派出的 agent 可以一起发出（实测同时发 5 到 8 个都没有 429，而按 1 个每秒排队时第 4、5 个要 8.5 秒、10.7 秒才答完），也给同一个 key 的其他会话留出余量。超出的在 mod 里排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待。遇到 429 时，剩余等待时间不少于 `Retry-After` 加约 5 秒就按 `Retry-After` 重试一次，不够就不经路由地放行，看板写「被限速」 | `5` 仅 `pplx` 用 | `5` 仅 `pplx` 用 | `5` | `5` 仅 `pplx` 用 | `5` 仅 `pplx` 用 |
+| `jevQps` | 每秒最多向 TypeSafe 发几个请求（1–1000），只对 `jev` 有用。填你的账号在 TypeSafe 控制台 Rate limits 页上的限额，默认 80 是默认套餐的值。超出的在 mod 里排队，发消息时的 effort 题最先发，排队的时间算进该请求自己的等待 | `80` 仅 `jev` 用 | `80` 默认套餐 | `80` 仅 `jev` 用 | `80` 仅 `jev` 用 | `80` 仅 `jev` 用 |
+| `jevTokensPerSecond` | 每秒最多向 TypeSafe 发多少 input token（10000–100000000），只对 `jev` 有用。填控制台上的限额，默认 100000 是默认套餐的值。mod 按令牌桶算：桶里最多存 5 秒的额度（默认 50 万 token，约 4 个带满对话的请求），之后按每秒的额度补；请求按估算的 token 数（mod 的估算乘 1.3）取出，答完按 Jev 报的实数多退少补。额度不够的请求排队，effort 题最先发；排到时离它自己的等待结束不到 200 毫秒的，不发，按超时处理。遇到 429 或 529，所有请求按 `Retry-After` 暂停，最多暂停 5 秒（写一个小时也只停 5 秒；没有 `Retry-After` 就 1 秒，529 是 0.5 秒）；收到的那个请求剩余等待时间够用就重试一次，重试遇到的第二次 429 也让所有请求暂停；被暂停挡得在自己的等待里发不出去的请求不发，看板写「繁忙」，不写「超时」 | `100000` 仅 `jev` 用 | `100000` 默认套餐 | `100000` 仅 `jev` 用 | `100000` 仅 `jev` 用 | `100000` 仅 `jev` 用 |
 
 ### 等多久，读多少
 
-| 选项 | 作用 | Jev | pplx | d1-ultra | d1.1 |
-|---|---|---|---|---|---|
-| `timeoutMs` | 一条消息等决策模型的最长时间（200–8000 毫秒），超过就不经路由地放行 | `1500` | `8000` | `4000` 按冒烟实测（满预算的请求 2.0–2.7 秒） | `3500` 按实测（满预算的请求 1.3–2.3 秒） |
-| `contextMessages` | 随你的消息一起发的最近消息条数，从 0 到决策模型能接受的条数（都是 2000）。各个模型都默认取上限，由 `contextTokens` 决定实际发多少 | `2000` 按上限 | `2000` | `2000` | `2000` |
-| `contextTokens` | 发给决策模型的 state 的 token 预算（100–16000，pplx 到 48000）：你的消息加上最近的消息（以及摘要、次数、长期约束、上一轮的情况），按发出去的样子数（连同字段名和转义），中英文按同一个尺度数，旧消息先丢。按请求的种类取：默认值带 skill 题的请求 6000；发消息时单独发的 effort 请求（见上面，它恒单独成一个请求，预算恒按这一档）、派出 agent 和 Workflow 里的 agent，Jev 24000（常规上限之内，不带长上下文请求头），pplx 48000（派出 agent 32000）；你设了就每个种类取它和自己上限里较小的 | `6000` 按 Jev 的上限，其余种类 24000（常规上限） | `6000`，派出 agent 32000，其余种类 48000，按 pplx 的回答时间 | `6000` 按 d1-ultra 的上限，其余种类 24000 | `6000`，其余种类 24000，同 d1-ultra |
+| 选项 | 作用 | Drex Max | Jev | pplx | d1-ultra | d1.1 |
+|---|---|---|---|---|---|---|
+| `timeoutMs` | 一条消息等决策模型的最长时间（200–8000 毫秒），超过就不经路由地放行 | `2500` 按 2026-11-13 的评测（单个请求 p50 约 0.52 秒、p90 0.57–0.78 秒，skill 两段合计 p90 1.36 秒） | `1500` | `8000` | `4000` 按冒烟实测（满预算的请求 2.0–2.7 秒） | `3500` 按实测（满预算的请求 1.3–2.3 秒） |
+| `contextMessages` | 随你的消息一起发的最近消息条数，从 0 到决策模型能接受的条数（都是 2000）。各个模型都默认取上限，由 `contextTokens` 决定实际发多少 | `2000` 按上限 | `2000` 按上限 | `2000` | `2000` | `2000` |
+| `contextTokens` | 发给决策模型的 state 的 token 预算（100–16000，pplx 到 48000）：你的消息加上最近的消息（以及摘要、次数、长期约束、上一轮的情况），按发出去的样子数（连同字段名和转义），中英文按同一个尺度数，旧消息先丢。按请求的种类取：默认值带 skill 题的请求 6000；发消息时单独发的 effort 请求（见上面，它恒单独成一个请求，预算恒按这一档）、派出 agent 和 Workflow 里的 agent，Jev 24000（常规上限之内，不带长上下文请求头），pplx 48000（派出 agent 32000）；你设了就每个种类取它和自己上限里较小的 | `6000`，其余种类 24000，同 Jev（评测用的就是这组预算） | `6000` 按 Jev 的上限，其余种类 24000（常规上限） | `6000`，派出 agent 32000，其余种类 48000，按 pplx 的回答时间 | `6000` 按 d1-ultra 的上限，其余种类 24000 | `6000`，其余种类 24000，同 d1-ultra |
 
 ### effort
 
-| 选项 | 作用 | Jev | pplx | d1-ultra | d1.1 |
-|---|---|---|---|---|---|
-| `unresolvedMaxAfter` | 规则 R5：这条消息被判为仍未解决、而且未解决次数（算上这一条）达到它时，这一轮直接用 max。0 表示从不，最大 10。次数一直在数，不受开关影响 | `3` 暂定 | `3` 暂定 | `3` 暂定 | `3` 暂定 |
+| 选项 | 作用 | Drex Max | Jev | pplx | d1-ultra | d1.1 |
+|---|---|---|---|---|---|---|
+| `unresolvedMaxAfter` | 规则 R5：这条消息被判为仍未解决、而且未解决次数（算上这一条）达到它时，这一轮直接用 max。0 表示从不，最大 10。次数一直在数，不受开关影响 | `3` 暂定 | `3` 暂定 | `3` 暂定 | `3` 暂定 | `3` 暂定 |
 
 ### 失败时升模型
 
-| 选项 | 作用 | Jev | pplx | d1-ultra | d1.1 |
-|---|---|---|---|---|---|
-| `midrunEverySteps` | `/dp midrun-steps on` 打开之后（默认关），主 agent 的一轮里没有事件时每隔几步重新看一次 effort（6–60）。这一次想换档要 4 步后再看一次、两次一致才换 | `15` | `15` | `15` | `15` |
-| `escalateAfter` | 派出的 agent 计入的工具调用失败满几次，就升一次：第一次升一档 effort，之后升一档模型，换不了模型时再升一档 effort（1–20）。主 agent 这一轮结束时记下失败是否到了这个数 | `2` 起点 | `2` 起点 | `2` 起点 | `2` 起点 |
-| `escalateLimit` | 一个派出 agent 最多升几次模型（0–10）。`0`：派出之后从不换模型，失败只一档一档升 effort，直到 max（Workflow 里的 agent 和 `midrun-effort` 关着时什么都不变）。换满之后也只升 effort。每升一次失败重新数 | `2` 起点 | `2` 起点 | `2` 起点 | `2` 起点 |
-| `escalateHaikuTo` | 失败的 haiku agent 升到哪个模型：`sonnet`、`opus`、`fable` 或完整的模型 id；留空表示 haiku 不升。你为这个 agent 点名的模型不换，你排除的模型跳过 | `sonnet` | `sonnet` | `sonnet` | `sonnet` |
+| 选项 | 作用 | Drex Max | Jev | pplx | d1-ultra | d1.1 |
+|---|---|---|---|---|---|---|
+| `midrunEverySteps` | `/dp midrun-steps on` 打开之后（默认关），主 agent 的一轮里没有事件时每隔几步重新看一次 effort（6–60）。这一次想换档要 4 步后再看一次、两次一致才换 | `15` | `15` | `15` | `15` | `15` |
+| `escalateAfter` | 派出的 agent 计入的工具调用失败满几次，就升一次：第一次升一档 effort，之后升一档模型，换不了模型时再升一档 effort（1–20）。主 agent 这一轮结束时记下失败是否到了这个数 | `2` 起点 | `2` 起点 | `2` 起点 | `2` 起点 | `2` 起点 |
+| `escalateLimit` | 一个派出 agent 最多升几次模型（0–10）。`0`：派出之后从不换模型，失败只一档一档升 effort，直到 max（Workflow 里的 agent 和 `midrun-effort` 关着时什么都不变）。换满之后也只升 effort。每升一次失败重新数 | `2` 起点 | `2` 起点 | `2` 起点 | `2` 起点 | `2` 起点 |
+| `escalateHaikuTo` | 失败的 haiku agent 升到哪个模型：`sonnet`、`opus`、`fable` 或完整的模型 id；留空表示 haiku 不升。你为这个 agent 点名的模型不换，你排除的模型跳过 | `sonnet` | `sonnet` | `sonnet` | `sonnet` | `sonnet` |
 
 ### 派出 agent 和 Workflow
 
-| 选项 | 作用 | Jev | pplx | d1-ultra | d1.1 |
-|---|---|---|---|---|---|
-| `agentFable` | 打开后，决策模型可以为派出 agent（包括 Workflow 里的）选 fable，fable 比 opus 贵；你自己点名 fable 时不受这个开关限制 | `false` | `false` | `false` | `false` |
-| `workflowMode` | `rewrite`：把决定写进脚本再运行；`return`：第一次提交被拒绝并附上逐个 agent 的推荐，让主 agent 自己写进去，同一个 Workflow 第二次提交直接放行 | `rewrite` | `rewrite` | `rewrite` | `rewrite` |
+| 选项 | 作用 | Drex Max | Jev | pplx | d1-ultra | d1.1 |
+|---|---|---|---|---|---|---|
+| `agentFable` | 打开后，决策模型可以为派出 agent（包括 Workflow 里的）选 fable，fable 比 opus 贵；你自己点名 fable 时不受这个开关限制 | `false` | `false` | `false` | `false` | `false` |
+| `workflowMode` | `rewrite`：把决定写进脚本再运行；`return`：第一次提交被拒绝并附上逐个 agent 的推荐，让主 agent 自己写进去，同一个 Workflow 第二次提交直接放行 | `rewrite` | `rewrite` | `rewrite` | `rewrite` | `rewrite` |
 
 ### skill
 
 每条消息最多推荐一个 skill，门槛不是选项（ADR 0018、ADR 0021）：Jev 和 pplx 按 TypeSafe 的 skill 推荐 cookbook，三道「要不要动手」的是非题平均低于 0.30、而且点名题（是否点名要用某个工具、格式、模板或方法）低于 0.50 时不推荐（两个理由有一个就够），细看的三个候选里「是否正好做这件事」最高的不到 0.30 也不推荐；d1-ultra 和 d1.1 按 Liquid，平均和点名都低于 0.2 不推荐，要高于 0.5 才推荐。0.8.x 的 `skillsMax`、`skillsMinRelevance`、`skillsShortlist`、`findSkillMinRelevance`、`skillsProfileModel` 和 `skillsProfilesPerSession` 去掉了，存下的值不再起作用。
 
-| 选项 | 作用 | Jev | pplx | d1-ultra | d1.1 |
-|---|---|---|---|---|---|
-| `skillsAlwaysListed` | 一直留在主 agent 的 skill 列表里的 skill，写列表里的名字（同步来的 skill 带前缀，例如 `anthropic-skills:pdf`）。列表项，不在 `/config` 里 | `空` | `空` | `空` | `空` |
-| `skillsNeverSuggested` | 从不推荐给主 agent、也不提示你的 skill，写法同上。它们照常安装，Skill 工具仍能按名字加载，`find_skill` 也不返回它们。列表项，不在 `/config` 里 | `空` | `空` | `空` | `空` |
-| `findSkillMax` | `find_skill` 一次最多返回几个 skill（1–10）：第一段排在前面的这么多个在第二段逐个判断，过了决策模型的门槛（Jev、pplx ≥ 0.30，d1-ultra、d1.1 > 0.5）的才返回 | `5` | `5` | `5` | `5` |
+| 选项 | 作用 | Drex Max | Jev | pplx | d1-ultra | d1.1 |
+|---|---|---|---|---|---|---|
+| `skillsAlwaysListed` | 一直留在主 agent 的 skill 列表里的 skill，写列表里的名字（同步来的 skill 带前缀，例如 `anthropic-skills:pdf`）。列表项，不在 `/config` 里 | `空` | `空` | `空` | `空` | `空` |
+| `skillsNeverSuggested` | 从不推荐给主 agent、也不提示你的 skill，写法同上。它们照常安装，Skill 工具仍能按名字加载，`find_skill` 也不返回它们。列表项，不在 `/config` 里 | `空` | `空` | `空` | `空` | `空` |
+| `findSkillMax` | `find_skill` 一次最多返回几个 skill（1–10）：第一段排在前面的这么多个在第二段逐个判断，过了决策模型的门槛（Jev、pplx ≥ 0.30，d1-ultra、d1.1 > 0.5）的才返回 | `5` | `5` | `5` | `5` | `5` |
 
 ### 问题摘要
 
-| 选项 | 作用 | Jev | pplx | d1-ultra | d1.1 |
-|---|---|---|---|---|---|
-| `summaryModel` | 在你本人的消息开始的那一轮结束后，在后台用英文续写问题摘要的模型，写别名（`haiku`）或完整的模型 id。通过你的 Claude Code 登录调用，算在你的用量里；摘要是对话的转述，所以 `contextMessages` 为 0 或 `summary` 开关关着时不写 | `haiku` | `haiku` | `haiku` | `haiku` |
+| 选项 | 作用 | Drex Max | Jev | pplx | d1-ultra | d1.1 |
+|---|---|---|---|---|---|---|
+| `summaryModel` | 在你本人的消息开始的那一轮结束后，在后台用英文续写问题摘要的模型，写别名（`haiku`）或完整的模型 id。通过你的 Claude Code 登录调用，算在你的用量里；摘要是对话的转述，所以 `contextMessages` 为 0 或 `summary` 开关关着时不写 | `haiku` | `haiku` | `haiku` | `haiku` | `haiku` |
 
 ## 控制：`/dp`
 

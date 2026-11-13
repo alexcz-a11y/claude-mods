@@ -542,13 +542,13 @@ for (const failure of failures) {
   })
 }
 
-test('no key of either kind: nothing is sent, the agent starts as the main agent asked, and the board says to set the TypeSafe key', async ($, on) => {
+test('no key of any kind: nothing is sent, the agent starts as the main agent asked, and the board says to set the Nace key', async ($, on) => {
   const w = world($, on, { backend: agentJev({ model: { haiku: 1 } }) })
   await w.spawn({ prompt: 'Summarize what src/billing/invoice.ts does.', model: 'sonnet' })
 
   expect(w.requests).toHaveLength(0)
   expect(w.spawned.map((s) => s.model)).toEqual(['sonnet'])
-  expect((await w.board()).agents).toMatchObject([{ routed: false, why: 'jev：没有填 typesafeApiKey 或 TYPESAFE_API_KEY', failure: { backend: 'jev', kind: 'config' } }])
+  expect((await w.board()).agents).toMatchObject([{ routed: false, why: 'drex：没有填 naceApiKey 或 NACE_API_KEY', failure: { backend: 'drex', kind: 'config' } }])
 })
 
 test('a spawn refused beneath, after the decision failed, started no agent: nothing of it on the board, no toast, nothing left running', { options: KEY }, async ($, on) => {

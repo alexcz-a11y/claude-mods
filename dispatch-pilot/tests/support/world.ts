@@ -585,7 +585,9 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   })
   on('ui.panes', () => ({ value: panes.map((pane) => ({ id: pane.id, title: pane.title, isShown: pane.placed, isFocused: pane.focus && pane.placed, isPlaced: pane.placed })) }))
   // The engine's own drawing beneath the mod's render hooks: what another mod drew in the same place, when the
-  // test says one did (`beneath.render`), else an empty box.
+  // test says one did (`beneath.render`), else an empty box. In the band (`AbovePrompt`) Claude Code 2.1.323 no longer hands
+  // this to the mod's hook as the result of `next(e)` (that is `{ type: 'engine' }` there) and lays it after the mod's tree;
+  // up to 2.1.322, and still in the footer, `next(e)` returns it (tests/screens.test.ts).
   on('ui.render', (_$, e) => {
     const { Box, Text } = _$.ui.resolve(e)
     const other = options.beneath?.render?.[e.component]

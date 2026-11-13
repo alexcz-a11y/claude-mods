@@ -485,22 +485,26 @@ test("readConfig for pplx: a value the person sets comes first, within pplx's ow
   expect([less.context.tokens, less.contextByKind]).toEqual([6000, { messagePlain: 20000, agent: 20000, workflow: 20000 }])
 })
 
-test('readConfig: Jev is the decision model unless decisionModel names pplx, d1-ultra or d1.1; anything else (unset, a typo, clef) reads as unset', () => {
-  for (const decisionModel of [undefined, 'jev', 'pplx-typo', 'clef', 'd1', 'd1:latest', 'd1.1:latest']) expect(readConfig(decisionModel === undefined ? {} : { decisionModel }).backend).toBe('jev')
+test('readConfig: Drex Max is the decision model unless decisionModel names Jev, pplx, d1-ultra or d1.1; anything else (unset, a typo, clef) reads as unset', () => {
+  for (const decisionModel of [undefined, 'drex', 'pplx-typo', 'clef', 'd1', 'd1:latest', 'd1.1:latest', 'drex-latest']) expect(readConfig(decisionModel === undefined ? {} : { decisionModel }).backend).toBe('drex')
+  expect(readConfig({ decisionModel: 'jev' }).backend).toBe('jev')
   expect(readConfig({ decisionModel: 'pplx' }).backend).toBe('pplx')
   expect(backendNameOf({ decisionModel: 'pplx' })).toBe('pplx')
   expect(backendNameOf({ decisionModel: 'd1-ultra' })).toBe('d1-ultra')
   expect(backendNameOf({ decisionModel: 'd1.1' })).toBe('d1.1')
-  expect(backendNameOf({})).toBe('jev')
+  expect(backendNameOf({})).toBe('drex')
 })
 
 // No fallback on the keys (ADR 0014): the decision model is the one asked for, whichever keys there are.
-test('the decision model never falls back: Jev without a TypeSafe key stays Jev (unconfigured), pplx only when asked for', () => {
-  const onlyPerplexity = setup({ perplexityApiKey: 'p' })
-  expect([onlyPerplexity.backend.name, onlyPerplexity.backend.configured]).toEqual(['jev', false])
+test('the decision model never falls back: Drex Max without a Nace key stays Drex Max (unconfigured), whatever other keys there are; Jev and pplx only when asked for', () => {
+  const onlyPerplexity = setup({ perplexityApiKey: 'p', typesafeApiKey: 't' })
+  expect([onlyPerplexity.backend.name, onlyPerplexity.backend.configured]).toEqual(['drex', false])
+  expect([setup({ naceApiKey: 'n' }).backend.name, setup({ naceApiKey: 'n' }).backend.configured]).toEqual(['drex', true])
+  const jevAsked = setup({ decisionModel: 'jev', perplexityApiKey: 'p' })
+  expect([jevAsked.backend.name, jevAsked.backend.configured]).toEqual(['jev', false])
   const asked = setup({ decisionModel: 'pplx', typesafeApiKey: 't' })
   expect([asked.backend.name, asked.backend.configured]).toEqual(['pplx', false])
-  expect(setup({ typesafeApiKey: 't' }).backend.name).toBe('jev')
+  expect(setup({ decisionModel: 'jev', typesafeApiKey: 't' }).backend.name).toBe('jev')
 })
 
 // A key lives in the options and in the backend built from them, nowhere that gets written down by accident: `Config` is

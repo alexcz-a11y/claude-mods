@@ -14,9 +14,10 @@ import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
  * factor) its input tokens were 0.7 times for the skill suite, 0.9 for effort-submit, 1.0 for the mid-turn suite (since removed), 1.7 for subagent and
  * 2.9 for unresolved (2026-10-07: the long logs of its conversations tokenize four times as densely as the estimate's four
  * characters a token), so its factor is 3, so as never to estimate less than a run costs. Liquid's d1-ultra and d1.1 count
- * alike (one tokenizer): see D1_ESTIMATE_FACTOR.
+ * alike (one tokenizer): see D1_ESTIMATE_FACTOR. Nace's Drex Max counted 0.88-0.93 of the estimate over the four text suites
+ * (2026-11-13: 0.553-0.578 of what Jev's factor gave), so 0.95.
  */
-export const ESTIMATE_FACTOR: Readonly<Record<BackendName, number>> = { jev: 1.6, pplx: 3, 'd1-ultra': 1.1, 'd1.1': 1.1 }
+export const ESTIMATE_FACTOR: Readonly<Record<BackendName, number>> = { drex: 0.95, jev: 1.6, pplx: 3, 'd1-ultra': 1.1, 'd1.1': 1.1 }
 
 /**
  * What Liquid's d1-ultra counted over the mod's estimate (lib/d1.ts): 0.86-0.97 of it for effort-submit's requests and a
@@ -43,7 +44,8 @@ export function estimateRunPerQuestion(requests: readonly DecisionRequest[], opt
 export function estimateRequest(request: DecisionRequest, model: string, backend: BackendName): { text: number; images: number } {
   const { images = [], ...text } = request
   // Liquid's models are sent no images (they stay with Jev, ADR 0017): a request of d1-ultra or d1.1 has none to count.
-  const pictures = backend === 'd1-ultra' || backend === 'd1.1' ? 0 : imageTokens(backend, images, Object.keys(request.questions).length)
+  // Drex Max is sent images only by the eval (lib/drex.ts); it counted about a fifth of Jev's tokens for them (2026-11-13), so Jev's count is high, never low.
+  const pictures = backend === 'd1-ultra' || backend === 'd1.1' ? 0 : imageTokens(backend === 'drex' ? 'jev' : backend, images, Object.keys(request.questions).length)
   return { text: estimateTokens(JSON.stringify({ model, ...text })), images: pictures }
 }
 
