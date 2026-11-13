@@ -349,13 +349,24 @@ test("squeezed under four rows, a turn going is one line, with the main agent's 
   expect(await (await w.band({ rows: 4 })).find({ key: 'band' })).toBeDefined()
 })
 
-test("what another mod draws in the band keeps its place, above Dispatch Pilot's; in the footer the engine's modes come first", { options: KEY }, async ($, on) => {
+test("what is drawn beneath the band stays, and what next(e) gave stands above Dispatch Pilot's own rows; in the footer the engine's modes come first", { options: KEY }, async ($, on) => {
   const w = runWorld($, on, { backend: jev([0, 0, 1, 0, 0]), beneath: { render: { AbovePrompt: 'another mod', SessionMode: 'focus' } } })
   await w.submit('改个错别字')
   await w.step({ index: 0 })
-  const band = shown(await (await w.band()).drawn())
-  expect(band.indexOf('another mod')).toBe(0)
+  const drawn = await (await w.band()).drawn()
+  const band = shown(drawn)
+  // Both are in the band: the mod's tree does not take the place of what is drawn beneath it.
+  expect(band).toContain('another mod')
   expect(band).toContain('第 1 轮')
+  // What the mod decides is where `next(e)`'s result goes in its own tree: first, above its rows. Up to Claude Code 2.1.322
+  // that result is the drawing beneath (the text itself); from 2.1.323 it is the engine's own element (`{ type: 'engine' }`),
+  // and the engine lays the drawing beneath after the mod's tree, wherever the mod put that element (measured, not in the changelog).
+  type Node = { type?: string; props?: { key?: string; children?: unknown[] }; children?: unknown[] }
+  const kids = (node: Node): Node[] => ((Array.isArray(node.props?.children) ? node.props.children : (node.children ?? [])) as unknown[]).filter((kid): kid is Node => typeof kid === 'object' && kid !== null)
+  const holder = (node: Node): Node | undefined => (kids(node).some((kid) => kid.props?.key === 'band') ? node : kids(node).map(holder).find((found) => found !== undefined))
+  const own = kids(holder(drawn as Node) as Node)
+  expect(own.map((kid) => kid.props?.key).indexOf('band')).toBe(1)
+  expect(own[0]?.type === 'engine' || shown(own[0]) === 'another mod').toBe(true)
   const footer = shown(await (await w.footer()).drawn())
   expect(footer.indexOf('focus')).toBe(0)
   expect(footer).toContain('opus·high')

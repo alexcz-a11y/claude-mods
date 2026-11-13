@@ -44,7 +44,7 @@ test('a run with no host for pictures says so, for each item: nothing is asked',
 
 test("the questions are the mod's English ones whatever the language, so an item in another language is not asked, and a variant that is not one is refused", async () => {
   expect((await decide(UI, answering, { language: 'en' })).decided).toMatchObject({ ok: false, failure: expect.stringContaining('--languages zh') })
-  await expect(decide(UI, answering, { variant: 'zh-score' })).rejects.toThrow(/no variant "zh-score" \(mod, whole\)/)
+  await expect(decide(UI, answering, { variant: 'zh-score' })).rejects.toThrow(/no variant "zh-score" \(mod, whole, criteria, tiles\)/)
 })
 
 test('a picture that is not there is why an item has no answer, before anything is sent', async () => {

@@ -8,9 +8,9 @@
 // The table is every row under the README's `## 配置` heading (its `###`
 // groups included) whose first cell is an option's name in backticks, then a cell for each decision model (BACKENDS):
 //
-//   | 选项 | 作用 | Jev | pplx | d1-ultra | d1.1 |
-//   | `timeoutMs` | how long a message waits | `1500` | `8000` | `4000` | `3500` |
-//   | `contextTokens` | the state's budget | `6000` | `6000` | `6000` | `6000` |
+//   | 选项 | 作用 | Drex Max | Jev | pplx | d1-ultra | d1.1 |
+//   | `timeoutMs` | how long a message waits | `2500` | `1500` | `8000` | `4000` | `3500` |
+//   | `contextTokens` | the state's budget | `6000` | `6000` | `6000` | `6000` | `6000` |
 //
 // Each default cell starts with the default in backticks (`空` for an empty
 // text or list, `true` or `false` for a boolean) and may go on with a note
@@ -28,6 +28,7 @@ type Row = { option: string; cells: string[] }
  * for it in every row of the README's tables.
  */
 const BACKENDS: readonly { label: string; backend: BackendName }[] = [
+  { label: 'Drex Max', backend: 'drex' },
   { label: 'Jev', backend: 'jev' },
   { label: 'pplx', backend: 'pplx' },
   { label: 'd1-ultra', backend: 'd1-ultra' },

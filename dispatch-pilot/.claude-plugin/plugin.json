@@ -1,7 +1,7 @@
 {
   "name": "dispatch-pilot",
-  "version": "0.12.0",
-  "description": "Dispatch Pilot：一个在 Claude 之外的决策模型（TypeSafe 的 Jev；也可以显式改用 Perplexity 的 pplx，或 Liquid 的 d1-ultra、d1.1）在你每次发消息时回答几道窄题：这项工作要想多少、出错能不能挽回、是不是线上或真钱、动不动权限、原因是否未知、你是不是在说上次没修好、有没有给出长期规矩；再由代码按固定规则定出主 agent 这一轮开始时的 effort；一轮进行中只在事件上再看一次（改了又失败的命令、交回来的结果、新加载的 skill、送进来的报告），要换档时往对话里追加一行给模型看的提示，让新档从下一步起生效；也为主 agent 派出的每个 agent 和 Workflow 脚本里的每个 agent 按 Artificial Analysis 的基准选模型和 effort（sonnet 和 opus 至少 medium）。主 agent 的模型从不改变，prompt cache 不受影响（只在 Claude Code 订阅下成立；Bedrock、Vertex 和网关上切换 effort 会让缓存失效）。它还不让主 agent 读完整的 skill 列表，改为在你发消息时照 TypeSafe 的 skill 推荐 cookbook 先判断要不要 skill、最多推荐一个，一轮中途主 agent 可以用 find_skill 工具查 skill。它还能替 agent 看图核对：agent 交上截图或录屏和几条检查项，由 TypeSafe 的 Jev（没有 TypeSafe key 时用 pplx）一两秒内回答过、不过或没把握，不必自己看；可选的截图接管把 agent 自己生成的图换成一句说明，带图路由按参考图的复杂度定 effort（这两项默认关。图没法脱敏：带图路由会把你贴的参考图发给 TypeSafe 或 Perplexity，看图核对会把 agent 交上来的图发过去；截图接管自己不发图）。派出的 agent 工具调用失败累计到一定次数时先升一档 effort，再失败就改用更强的模型（haiku 换 sonnet，再换 opus）；主 agent 这一轮的失败记下来，留给下一条消息的判断。所有判断和理由都放在看板上：prompt 上方的 band 列出本轮每个 agent 的模型和 effort，脚部一个短摘要，/dp 打开的依据面板写明每个决定的依据和决策日志。",
+  "version": "0.13.0",
+  "description": "Dispatch Pilot：一个在 Claude 之外的决策模型（Nace 的 Drex Max v1.1；也可以显式改用 TypeSafe 的 Jev、Perplexity 的 pplx，或 Liquid 的 d1-ultra、d1.1；看图一直用 Jev）在你每次发消息时回答几道窄题：这项工作要想多少、出错能不能挽回、是不是线上或真钱、动不动权限、原因是否未知、你是不是在说上次没修好、有没有给出长期规矩；再由代码按固定规则定出主 agent 这一轮开始时的 effort；一轮进行中只在事件上再看一次（改了又失败的命令、交回来的结果、新加载的 skill、送进来的报告），要换档时往对话里追加一行给模型看的提示，让新档从下一步起生效；也为主 agent 派出的每个 agent 和 Workflow 脚本里的每个 agent 按 Artificial Analysis 的基准选模型和 effort（sonnet 和 opus 至少 medium）。主 agent 的模型从不改变，prompt cache 不受影响（只在 Claude Code 订阅下成立；Bedrock、Vertex 和网关上切换 effort 会让缓存失效）。它还不让主 agent 读完整的 skill 列表，改为在你发消息时照 TypeSafe 的 skill 推荐 cookbook 先判断要不要 skill、最多推荐一个，一轮中途主 agent 可以用 find_skill 工具查 skill。它还能替 agent 看图核对：agent 交上截图或录屏和几条检查项，由 TypeSafe 的 Jev（没有 TypeSafe key 时用 pplx）一两秒内回答过、不过或没把握，不必自己看；可选的截图接管把 agent 自己生成的图换成一句说明，带图路由按参考图的复杂度定 effort（这两项默认关。图没法脱敏：带图路由会把你贴的参考图发给 TypeSafe 或 Perplexity，看图核对会把 agent 交上来的图发过去；截图接管自己不发图）。派出的 agent 工具调用失败累计到一定次数时先升一档 effort，再失败就改用更强的模型（haiku 换 sonnet，再换 opus）；主 agent 这一轮的失败记下来，留给下一条消息的判断。所有判断和理由都放在看板上：prompt 上方的 band 列出本轮每个 agent 的模型和 effort，脚部一个短摘要，/dp 打开的依据面板写明每个决定的依据和决策日志。",
   "author": {
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
@@ -13,14 +13,21 @@
     "decisionModel": {
       "type": "string",
       "title": "决策模型",
-      "description": "由哪个模型做决定：jev（默认，TypeSafe 的 Jev，始终用最新的正式版本 jev-latest，要 TypeSafe 的 API key）、pplx（Perplexity 的 pplx-decider-v1.1-27b，要 Perplexity 的 API key；0.9.0 起不再评测）、d1-ultra（Liquid 的 d1-ultra，要 Liquid 的 API key；按 Liquid 官方的读法：是非题 > 0.8 为是、< 0.2 为否，派出 agent 用一道选模型档位的选择题；没有评测；看图仍用 Jev）或 d1.1（Liquid 最新的 d1.1，key、读法和 d1-ultra 一样，价格不到它的一半；没有评测）。不会按密钥自动换：选 jev 而没有 TypeSafe key 时，不发请求，看板写明缺 key，每一轮都按会话自己的 effort 走。以前版本里的 clef 已移除，设成 clef 的老配置按没设处理，debug log 会记一条。出错时，消息不经路由地放行。有几项选项的默认值随决策模型而定：Jev 的请求都留在它的常规上限之内（带 skill 题的消息请求上下文预算 6000 token，发消息时的 effort 题、派出 agent 和 Workflow 里的 agent 24000），所有问题用英文问，等 1500 毫秒；pplx 的窗口大得多，除 skill 题以外的请求预算 48000 token，等待时间也长（发消息 8000 毫秒，find_skill 6000）；d1-ultra 和 d1.1 的预算同 Jev，发消息分别等 4000 和 3500 毫秒。",
-      "options": ["jev", "pplx", "d1-ultra", "d1.1"],
-      "default": "jev"
+      "description": "由哪个模型做决定：drex（默认，Nace 的 Drex Max v1.1，固定版本 drex-max-v1.1，要 Nace 的 API key；题面、预算和读法同 Jev；只管文字，看图仍用 Jev，要 TypeSafe 的 key）、jev（TypeSafe 的 Jev，始终用最新的正式版本 jev-latest，要 TypeSafe 的 API key；0.9.0 到 0.12.0 的默认）、pplx（Perplexity 的 pplx-decider-v1.1-27b，要 Perplexity 的 API key；0.9.0 起不再评测）、d1-ultra（Liquid 的 d1-ultra，要 Liquid 的 API key；按 Liquid 官方的读法：是非题 > 0.8 为是、< 0.2 为否，派出 agent 用一道选模型档位的选择题；没有评测；看图仍用 Jev）或 d1.1（Liquid 最新的 d1.1，key、读法和 d1-ultra 一样，价格不到它的一半；没有评测）。不会按密钥自动换：所选模型的 key 没有时（默认的 drex 要 Nace 的 key），不发请求，看板写明缺 key，每一轮都按会话自己的 effort 走。以前版本里的 clef 已移除，设成 clef 的老配置按没设处理，debug log 会记一条。出错时，消息不经路由地放行。有几项选项的默认值随决策模型而定：Drex Max 的预算同 Jev，发消息等 2500 毫秒；Jev 的请求都留在它的常规上限之内（带 skill 题的消息请求上下文预算 6000 token，发消息时的 effort 题、派出 agent 和 Workflow 里的 agent 24000），所有问题用英文问，等 1500 毫秒；pplx 的窗口大得多，除 skill 题以外的请求预算 48000 token，等待时间也长（发消息 8000 毫秒，find_skill 6000）；d1-ultra 和 d1.1 的预算同 Jev，发消息分别等 4000 和 3500 毫秒。",
+      "options": ["drex", "jev", "pplx", "d1-ultra", "d1.1"],
+      "default": "drex"
+    },
+    "naceApiKey": {
+      "type": "string",
+      "title": "Nace API key",
+      "description": "Nace 的 API key（以 nace_sk_ 开头），默认的决策模型 Drex Max v1.1 用它；看图核对和带图路由不用它，仍用 TypeSafe 的 key。留空就读环境变量 NACE_API_KEY；两处都有，用这里的。key 只放在请求头里，不进日志、看板和状态。Claude Desktop 的 Code 标签收不到这里填的值（#35），在那里把 NACE_API_KEY 放进 Desktop 的本地环境编辑器（prompt 框的环境下拉 → 悬停 Local → 齿轮）。Nace 的 Drex 文档没有写它是否保留请求里的内容。",
+      "default": "",
+      "sensitive": true
     },
     "typesafeApiKey": {
       "type": "string",
       "title": "TypeSafe API key",
-      "description": "TypeSafe System One 的 API key，Jev 在那里运行（默认的决策模型要它；全部图像功能也要它）。留空就读环境变量 TYPESAFE_API_KEY；两处都有，用这里的。key 只放在请求头里，不进日志、看板和状态。Claude Desktop 的 Code 标签收不到这里填的值（#35），在那里把 TYPESAFE_API_KEY 放进 Desktop 的本地环境编辑器（prompt 框的环境下拉 → 悬停 Local → 齿轮）。",
+      "description": "TypeSafe System One 的 API key，Jev 在那里运行（全部图像功能要它；decisionModel 设成 jev 时文字的判断也要它）。留空就读环境变量 TYPESAFE_API_KEY；两处都有，用这里的。key 只放在请求头里，不进日志、看板和状态。Claude Desktop 的 Code 标签收不到这里填的值（#35），在那里把 TYPESAFE_API_KEY 放进 Desktop 的本地环境编辑器（prompt 框的环境下拉 → 悬停 Local → 齿轮）。",
       "default": "",
       "sensitive": true
     },

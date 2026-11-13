@@ -63,10 +63,42 @@ desktop_check() {
   fi
 }
 
+# `plugin validate --strict`, less one finding. Claude Code 2.1.323 added a type check of every TypeScript file to
+# `plugin validate` ("each finding is a warning, and `--strict` fails on it"), run with its own compiler options and not the
+# mod's tsconfig.json, so every relative import that ends in `.ts` is TS5097 there. The mods keep those endings: Node runs
+# the same files (dispatch-pilot's eval/ and scripts/) and resolves nothing else, and each mod's tsconfig.json allows them
+# (`allowImportingTsExtensions`), which `tsc -p` below checks with. A strict failure made of nothing but TS5097 warnings is a
+# note; any error, or any other warning (another type error among them), still fails.
+strict_validate() {
+  local mod=$1 out tally
+  if out=$(command claude plugin validate "./$mod" --strict 2>&1); then
+    print -r -- "ok    $mod: validate --strict"
+    return
+  fi
+  if tally=$(command claude plugin validate "./$mod" --strict --json 2>/dev/null | node -e '
+      let text = ""
+      process.stdin.on("data", (chunk) => (text += chunk)).on("end", () => {
+        const report = JSON.parse(text)
+        const files = [report.manifest, ...(report.contents ?? [])].filter(Boolean)
+        const errors = files.flatMap((file) => file.errors ?? [])
+        const warnings = files.flatMap((file) => file.warnings ?? [])
+        const endings = warnings.filter((warning) => /\bTS5097\b/.test(warning.message ?? ""))
+        if (errors.length > 0 || endings.length === 0 || endings.length !== warnings.length) process.exit(1)
+        console.log(endings.length)
+      })' 2>/dev/null); then
+    print -r -- "ok    $mod: validate --strict"
+    print -r -- "note  $mod: $tally imports end in .ts, which the validator's own type check warns of (TS5097); the mod's tsconfig.json allows them, and tsc checks with it"
+  else
+    print -r -- "FAIL  $mod: validate --strict"
+    print -r -- "$out" | grep -v 'error TS5097' | tail -40
+    failed=1
+  fi
+}
+
 step "marketplace manifest" command claude plugin validate .
 for mod in $mods; do
   step "$mod: tests" command claude plugin test "./$mod"
-  step "$mod: validate --strict" command claude plugin validate "./$mod" --strict
+  strict_validate "$mod"
   if [[ -f $mod/tsconfig.json ]]; then
     # The generated types are gitignored, so a fresh worktree has none: take the main checkout's.
     main=${${(f)"$(git worktree list --porcelain)"}[1]#worktree }

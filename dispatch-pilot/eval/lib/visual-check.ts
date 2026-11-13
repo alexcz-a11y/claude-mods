@@ -26,11 +26,14 @@ import { imageMegapixelBudget, PPLX_MAX_IMAGES } from '../../hooks/decision/imag
 import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
 import { FRAME_COUNT, framesRequest } from '../../hooks/decision/visual-check-frames.ts'
 import { batchPairs, locatePlan, readLocated, withBoxes, zoomRequest, type ZoomPair } from '../../hooks/decision/visual-check-zoom.ts'
-import { comparedNames, FAIL_AT, judge, PASS_AT, readWholeImage, RECORDING_BARS, RECORDING_FAIL_AT, SERIES_PASS_AT, wholeImageRequest, type Basis, type Check, type CheckResult, type Comparison, type Verdict } from '../../hooks/decision/visual-check.ts'
+import { requestImage, comparedNames, FAIL_AT, judge, PASS_AT, readWholeImage, RECORDING_BARS, RECORDING_FAIL_AT, SERIES_PASS_AT, wholeImageRequest, type Basis, type Check, type CheckResult, type Comparison, type Verdict } from '../../hooks/decision/visual-check.ts'
 import { sameView } from '../../hooks/decision/zoom.ts'
 import type { Language } from './datasets.ts'
 import { nearestRank, percentText, share, type VariantSummary } from './metrics.ts'
 import type { Row } from './runner.ts'
+import { cropImage } from '../../hooks/core/image-crops.ts'
+import { scaleRect } from '../../hooks/decision/zoom.ts'
+import { bandsOf, comparedWording, CRITERIA_FRAMES, framesWording, plainOf, withBands, withCriteria, type BandPair } from './visual-check-criteria.ts'
 import { requestFailed, type Ask, type Decided, type Grade, type ImageHost, type Sent, type Settings, type Suite } from './suite.ts'
 import { CONTROL, type AnimItem, type ComparedItem, type ComplexityItem, type VisualCheckItem } from './visual-check-items.ts'
 
@@ -49,9 +52,13 @@ export type VisualPrediction = { kind: 'checks'; outcomes: CheckOutcome[] } | { 
 /**
  * How it asks. `mod`: as the mod does with the decision model of the run: Jev gets the Box questions beside the checks and the zoomed
  * re-check after them (#59), pplx the whole images only. `whole`: the first request alone, the whole images, as before #59 and as pplx
- * does it: what the zoom adds is what the two give apart.
+ * does it: what the zoom adds is what the two give apart. `criteria`: the first request alone, each check asked as Nace's guide writes
+ * a question about images (criteria for both sides, the images named in the question) with the mod's wording beside it, a motion as 8
+ * frames (lib/visual-check-criteria.ts): what Drex Max is asked (`--backend drex`), and Jev too, to tell the wording from the model.
+ * `tiles`: `criteria`, and where the two images show the same view, three enlarged bands of each after them in the same request (8
+ * images, what Drex Max takes); the answer rests on enlarged pieces, so it may pass as well as fail. A way to zoom without a Box question.
  */
-export const VISUAL_VARIANTS = ['mod', 'whole'] as const
+export const VISUAL_VARIANTS = ['mod', 'whole', 'criteria', 'tiles'] as const
 
 /** One request of an item, for the figures: what it held and what it cost. */
 export type RequestDetail = { questions: number; images: number; ms: number; tokens: number | null }
@@ -70,6 +77,8 @@ export type CheckDetail = {
   trust: 'both' | 'fail'
   /** The probability the whole images gave, whatever the verdict rests on. */
   whole: number | null
+  /** The `criteria` variant: the probability the mod's own wording got in the same request (the verdict rests on the other). */
+  plain?: number | null
   why?: string
 }
 
@@ -136,10 +145,27 @@ export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualChe
     const names = comparedNames(comparison, others.length)
     const sameViews = others.map((other) => sameView(item.asked.same_view, candidate, other))
     const plan = backend === 'jev' && variant === 'mod' ? locatePlan(names, sameViews, checks) : null
-    const sent = await traces.ask(plan === null ? whole.request : withBoxes(whole, plan))
+    const worded = variant === 'criteria' || variant === 'tiles'
+    let first = worded ? withCriteria(whole.request, checks, comparedWording(names)) : whole.request
+    // `tiles`: one reference of the same view, so the same bands of both can be cut without knowing where a part is.
+    const theOther = others[0] as LoadedImage
+    const tiled = variant === 'tiles' && others.length === 1 && sameViews[0] === true
+    if (tiled) {
+      const pairs: BandPair[] = []
+      for (const band of bandsOf(candidate)) {
+        const [mine, theirs] = await Promise.all([cropImage(host.io, candidate, band.rect, band.longSide), cropImage(host.io, theOther, scaleRect(band.rect, candidate, theOther), band.longSide)])
+        if (!mine.ok || !theirs.ok) return { ok: false, failure: `images: ${mine.ok ? (theirs as { reason: string }).reason : mine.reason}` }
+        pairs.push({ label: band.label, candidate: requestImage(`candidate-${band.label}`, mine.crop), reference: requestImage(`reference-${band.label}`, theirs.crop) })
+      }
+      first = withBands(first, pairs)
+    }
+    const sent = await traces.ask(plan === null ? first : withBoxes(whole, plan))
     if (!sent.asked.ok) return requestFailed(sent.asked.failure)
+    const answers = sent.asked.answers
+    const plain = worded ? checks.map((_, i) => plainOf(answers, i)) : null
     const wholeResults = readWholeImage(comparison, whole.part, sent.asked.answers, checks)
-    let results = wholeResults
+    // With the enlarged bands in the request the answer rests on them: it may pass, as a crop's may.
+    let results = tiled ? wholeResults.map((result): CheckResult => ({ check: result.check, probability: result.probability, basis: 'zoom', ...judge(result.probability, 'both') })) : wholeResults
     let elsewhere: CheckedDetail['elsewhere'] = null
     // The zoomed re-check: the crops decide where they could be made; the whole images give only a fail where they could not.
     if (plan !== null) {
@@ -147,26 +173,29 @@ export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualChe
       results = zoomed.results
       if (zoomed.elsewhere !== null) elsewhere = { confidence: zoomed.elsewhere.place.confidence, area: areaOf(zoomed.elsewhere.place.box) }
     }
-    return decided(item, results, wholeResults, true, loaded.images.length, elsewhere, traces.sent)
+    return decided(item, results, wholeResults, true, sent.request.images?.length ?? loaded.images.length, elsewhere, traces.sent, plain)
   }
 
-  async function decideAnim(item: AnimItem, ask: Ask, backend: ImageBackendName, host: ImageHost): Promise<Decided<VisualPrediction>> {
+  async function decideAnim(item: AnimItem, variant: string, ask: Ask, backend: ImageBackendName, host: ImageHost): Promise<Decided<VisualPrediction>> {
     const { checks, spec } = item.asked
     // pplx takes eight frames at the most: a recording is cut into fewer for it (FRAME_COUNT), here the dataset's frames are spread so.
-    const frames = evenly(item.asked.frames, FRAME_COUNT[backend])
+    const frames = evenly(item.asked.frames, variant === 'criteria' || variant === 'tiles' ? CRITERIA_FRAMES : FRAME_COUNT[backend])
     const loaded = await loadCompared(host.io, frames.map((frame) => host.path(frame.file)), backend, checks.length)
     if (!loaded.ok) return { ok: false, failure: `images: ${loaded.reason}` }
     const traces = traced(ask)
     const { request, part } = framesRequest(spec, loaded.images.map((picture, i) => ({ picture, seconds: (frames[i] as { seconds: number }).seconds })), checks)
-    const sent = await traces.ask(request)
+    const worded = variant === 'criteria' || variant === 'tiles'
+    const sent = await traces.ask(worded ? withCriteria(request, checks, framesWording(loaded.images.length, spec)) : request)
     if (!sent.asked.ok) return requestFailed(sent.asked.failure)
+    const answers = sent.asked.answers
+    const plain = worded ? checks.map((_, i) => plainOf(answers, i)) : null
     // A motion is judged by the bars of a recording, as the mod judges the frames of one.
     const results = readWholeImage(comparisonOf(item), part, sent.asked.answers, checks, RECORDING_BARS)
-    return decided(item, results, results, false, loaded.images.length, null, traces.sent)
+    return decided(item, results, results, false, loaded.images.length, null, traces.sent, plain)
   }
 
   /** The row's prediction and detail for an item with checks. */
-  function decided(item: ComparedItem | AnimItem, results: readonly CheckResult[], wholeResults: readonly CheckResult[], compared: boolean, images: number, elsewhere: CheckedDetail['elsewhere'], sent: readonly Sent[]): Decided<VisualPrediction> {
+  function decided(item: ComparedItem | AnimItem, results: readonly CheckResult[], wholeResults: readonly CheckResult[], compared: boolean, images: number, elsewhere: CheckedDetail['elsewhere'], sent: readonly Sent[], plain: readonly (number | null)[] | null = null): Decided<VisualPrediction> {
     const read = results.map((result, i) => outcomeOf(result, wholeResults[i], compared))
     const detail: CheckedDetail = {
       kind: item.kind,
@@ -180,6 +209,7 @@ export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualChe
         basis: outcome.basis,
         trust,
         whole,
+        ...(plain === null ? {} : { plain: plain[i] ?? null }),
         ...(outcome.why === undefined ? {} : { why: outcome.why }),
       })),
       elsewhere,
@@ -224,11 +254,12 @@ export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualChe
       if (language !== 'zh') return { ok: false, failure: 'the questions are in English whichever the language: run with --languages zh' }
       if (!(VISUAL_VARIANTS as readonly string[]).includes(variant)) throw new RangeError(`no variant "${variant}" (${VISUAL_VARIANTS.join(', ')})`)
       if (images === undefined) return { ok: false, failure: 'config: this run has no host for pictures and programs (SuiteHost.images)' }
-      const backend = settings.backend
-      // The pictures go to Jev or pplx only (ADR 0017): Liquid's models take none here.
+      // The pictures go to Jev or pplx only (ADR 0017): Liquid's models take none here. Drex Max takes them from the eval alone
+      // (lib/drex.ts, ADR 0026): sized as Jev's are, and asked with --variants criteria or tiles (it has no Box question).
+      const backend = settings.backend === 'drex' ? 'jev' : settings.backend
       if (backend === 'd1-ultra' || backend === 'd1.1') return { ok: false, failure: `config: ${backend} takes no pictures; run the visual-check suite with --backend jev or pplx` }
       if (item.kind === 'complexity') return decideComplexity(item, ask, backend, images)
-      if (item.kind === 'anim') return decideAnim(item, ask, backend, images)
+      if (item.kind === 'anim') return decideAnim(item, variant, ask, backend, images)
       return decideCompared(item, variant, ask, backend, images)
     },
     grade: gradeItem,
@@ -257,7 +288,8 @@ export function visualCheckSuite(images: ImageHost | undefined): Suite<VisualChe
     about: {
       variants:
         '`mod`: as the mod asks with the run\'s decision model: against a reference, Jev gets the checks and the Box questions in the first request and the zoomed re-check on the crops after it, pplx the first request alone; a motion is its frames in one request against its spec; a group of references is the complexity reading. ' +
-        '`whole`: the first request alone with every decision model, so that what the zoomed re-check adds can be read from the two.',
+        '`whole`: the first request alone with every decision model, so that what the zoomed re-check adds can be read from the two. ' +
+        '`criteria`: the first request alone, each check with criteria for both sides and its images named in the question (Nace\'s guide), the mod\'s wording beside it as `plain.<i>` (its probability is each check\'s `plain`); a motion is 8 frames.',
       images: 'The experiment\'s pictures (2026-10-15), copied into eval/datasets/visual-check/; sized and cut as the mod does (core/image-files.ts, core/zoom-review.ts, sips). A motion is its 12 frames as files (8 of them for pplx), not a recording: the mod\'s ffmpeg is not run.',
     },
   }
@@ -318,6 +350,10 @@ function questionsOf(variant: string): unknown {
     const crop = { name: 'crop', picture }
     const pair: ZoomPair = { index: 0, reference: 0, check, candidate: crop, other: { name: 'other', picture }, otherField: 'reference_crop' }
     out.zoomedReCheck = zoomRequest(batchPairs([pair])[0] as ZoomPair[]).request.questions
+  }
+  if (variant === 'criteria' || variant === 'tiles') {
+    out.againstAReference = withCriteria(compared.request, [check], comparedWording(['reference'])).questions
+    out.frames = withCriteria(framesRequest('<spec>', [{ picture, seconds: 0 }], [check]).request, [check], framesWording(1, '<spec>')).questions
   }
   return out
 }

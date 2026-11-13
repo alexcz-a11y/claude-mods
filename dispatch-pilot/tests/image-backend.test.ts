@@ -23,8 +23,12 @@ test('the ctx gives the features the image backend beside the decision backend, 
   const jevChosenPplxKey = setup({ decisionModel: 'jev', perplexityApiKey: 'p-key' })
   expect([jevChosenPplxKey.backend.name, jevChosenPplxKey.images?.name, jevChosenPplxKey.images?.fellBack]).toEqual(['jev', 'pplx', true])
 
-  const none = setup({})
-  expect([none.backend.name, none.images]).toEqual(['jev', null])
+  // Drex Max, the default, decides and takes no image: they are Jev's with a TypeSafe key, whatever Nace key there is.
+  const drex = setup({ naceApiKey: 'n-key', typesafeApiKey: 't-key' })
+  expect([drex.backend.name, drex.images?.name, drex.images?.backend.name, drex.images?.fellBack]).toEqual(['drex', 'jev', 'jev', false])
+
+  const none = setup({ naceApiKey: 'n-key' })
+  expect([none.backend.name, none.images]).toEqual(['drex', null])
 })
 
 test('a Perplexity key that is only in the environment, read at the session start, is found too', () => {

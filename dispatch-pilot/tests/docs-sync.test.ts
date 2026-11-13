@@ -1,5 +1,5 @@
 // The README's configuration table against what the mod ships (#18): every
-// option plugin.json declares has a row, and the Jev, pplx, d1-ultra and d1.1 cells give the
+// option plugin.json declares has a row, and the Drex Max, Jev, pplx, d1-ultra and d1.1 cells give the
 // default the mod really uses (the manifest's `default`, or for the options
 // whose default depends on the decision model, core/setup.ts BACKEND_DEFAULTS).
 //
@@ -16,6 +16,7 @@ import { checkConfigTable, checkEngineStaysHome, checkOneWriter, checkStructureT
 /** The decision models' defaults as these tests state them. */
 const DEFAULTS = {
   ...BACKEND_DEFAULTS,
+  drex: { ...BACKEND_DEFAULTS.drex, timeoutMs: 2500, contextMessages: 30 },
   jev: { ...BACKEND_DEFAULTS.jev, timeoutMs: 1500, contextMessages: 40 },
   pplx: { ...BACKEND_DEFAULTS.pplx, timeoutMs: 8000, contextMessages: 0 },
   'd1-ultra': { ...BACKEND_DEFAULTS['d1-ultra'], timeoutMs: 4000, contextMessages: 50 },
@@ -33,15 +34,15 @@ const MANIFEST = {
   contextMessages: { type: 'number' },
 }
 
-/** The rows that agree with MANIFEST and DEFAULTS: the option, what it does, the Jev cell, the pplx cell, the d1-ultra cell, the d1.1 cell. */
+/** The rows that agree with MANIFEST and DEFAULTS: the option, what it does, the Drex Max cell, the Jev cell, the pplx cell, the d1-ultra cell, the d1.1 cell. */
 const ROWS = {
-  decisionModel: '| `decisionModel` | Which decision model decides | `jev` | `jev` | `jev` | `jev` |',
-  typesafeApiKey: '| `typesafeApiKey` | TypeSafe API key | `空` | `空` | `空` | `空` |',
-  escalateAfter: '| `escalateAfter` | Failures before an agent steps up | `3` 起点 | `3` 起点 | `3` 起点 | `3` 起点 |',
-  agentFable: '| `agentFable` | Let agents run on fable | `false` | `false` | `false` | `false` |',
-  skillsAlwaysListed: '| `skillsAlwaysListed` | Skills always listed | `空` | `空` | `空` | `空` |',
-  timeoutMs: '| `timeoutMs` | How long a message waits | `1500` | `8000` | `4000` | `3000` |',
-  contextMessages: '| `contextMessages` | How many messages are read | `40` 起点 | `0` 起点 | `50` 起点 | `60` 起点 |',
+  decisionModel: '| `decisionModel` | Which decision model decides | `jev` | `jev` | `jev` | `jev` | `jev` |',
+  typesafeApiKey: '| `typesafeApiKey` | TypeSafe API key | `空` | `空` | `空` | `空` | `空` |',
+  escalateAfter: '| `escalateAfter` | Failures before an agent steps up | `3` 起点 | `3` 起点 | `3` 起点 | `3` 起点 | `3` 起点 |',
+  agentFable: '| `agentFable` | Let agents run on fable | `false` | `false` | `false` | `false` | `false` |',
+  skillsAlwaysListed: '| `skillsAlwaysListed` | Skills always listed | `空` | `空` | `空` | `空` | `空` |',
+  timeoutMs: '| `timeoutMs` | How long a message waits | `2500` | `1500` | `8000` | `4000` | `3000` |',
+  contextMessages: '| `contextMessages` | How many messages are read | `30` 起点 | `40` 起点 | `0` 起点 | `50` 起点 | `60` 起点 |',
 }
 
 /** The rows but those for `options`. */
@@ -54,16 +55,16 @@ function readme(rows: readonly string[], heading = '## 配置'): string {
     '',
     '## 要求',
     '',
-    '| 选项 | 作用 | Jev | pplx | d1-ultra | d1.1 |',
-    '|---|---|---|---|---|---|',
-    '| `notAnOption` | a row outside the configuration section | `1` | `1` | `1` | `1` |',
+    '| 选项 | 作用 | Drex Max | Jev | pplx | d1-ultra | d1.1 |',
+    '|---|---|---|---|---|---|---|',
+    '| `notAnOption` | a row outside the configuration section | `1` | `1` | `1` | `1` | `1` |',
     '',
     heading,
     '',
     '### 决策模型',
     '',
-    '| 选项 | 作用 | Jev | pplx | d1-ultra | d1.1 |',
-    '|---|---|---|---|---|---|',
+    '| 选项 | 作用 | Drex Max | Jev | pplx | d1-ultra | d1.1 |',
+    '|---|---|---|---|---|---|---|',
     ...rows,
     '',
     '## 控制',
@@ -85,21 +86,21 @@ test('an option the table leaves out is named', () => {
 })
 
 test("a default that is not the manifest's is reported with both values", () => {
-  const stale = '| `escalateAfter` | Failures before an agent steps up | `5` 起点 | `3` 起点 | `3` 起点 | `3` 起点 |'
+  const stale = '| `escalateAfter` | Failures before an agent steps up | `3` 起点 | `5` 起点 | `3` 起点 | `3` 起点 | `3` 起点 |'
   const problems = checkConfigTable(readme([...without('escalateAfter'), stale]), MANIFEST, DEFAULTS)
   expect(problems).toHaveLength(1)
   expect(problems[0]).toMatch(/`escalateAfter`.*Jev.*5.*3/)
 })
 
 test("an option whose default depends on the decision model is held to the model's own value", () => {
-  const stale = '| `timeoutMs` | How long a message waits | `3000` | `8000` | `4000` | `3000` |'
+  const stale = '| `timeoutMs` | How long a message waits | `2500` | `3000` | `8000` | `4000` | `3000` |'
   const problems = checkConfigTable(readme([...without('timeoutMs'), stale]), MANIFEST, DEFAULTS)
   expect(problems).toHaveLength(1)
   expect(problems[0]).toMatch(/`timeoutMs`.*Jev.*3000.*1500/)
 })
 
 test("each decision model's column is held to its own value: pplx's cell that says Jev's is reported, with both values", () => {
-  const jevsInBoth = '| `timeoutMs` | How long a message waits | `1500` | `1500` | `4000` | `3000` |'
+  const jevsInBoth = '| `timeoutMs` | How long a message waits | `2500` | `1500` | `1500` | `4000` | `3000` |'
   const problems = checkConfigTable(readme([...without('timeoutMs'), jevsInBoth]), MANIFEST, DEFAULTS)
   expect(problems).toHaveLength(1)
   expect(problems[0]).toMatch(/`timeoutMs`.*pplx.*1500.*8000/)
@@ -107,7 +108,7 @@ test("each decision model's column is held to its own value: pplx's cell that sa
 
 test('an empty default is written 空 and a boolean true or false: another way of writing them is reported', () => {
   const problems = checkConfigTable(
-    readme([...without('typesafeApiKey', 'agentFable'), '| `typesafeApiKey` | TypeSafe API key | `""` | `空` | `空` | `空` |', '| `agentFable` | Let agents run on fable | `关` | `false` | `false` | `false` |']),
+    readme([...without('typesafeApiKey', 'agentFable'), '| `typesafeApiKey` | TypeSafe API key | `空` | `""` | `空` | `空` | `空` |', '| `agentFable` | Let agents run on fable | `false` | `关` | `false` | `false` | `false` |']),
     MANIFEST,
     DEFAULTS,
   )
@@ -117,18 +118,18 @@ test('an empty default is written 空 and a boolean true or false: another way o
 })
 
 test('a cell that does not start with its value in backticks is reported', () => {
-  const problems = checkConfigTable(readme([...without('escalateAfter'), '| `escalateAfter` | Failures before an agent steps up | 3 | `3` | `3` | `3` |']), MANIFEST, DEFAULTS)
+  const problems = checkConfigTable(readme([...without('escalateAfter'), '| `escalateAfter` | Failures before an agent steps up | `3` 起点 | 3 | `3` | `3` | `3` |']), MANIFEST, DEFAULTS)
   expect(problems).toHaveLength(1)
   expect(problems[0]).toMatch(/`escalateAfter`.*Jev.*backticks/)
 })
 
 test('a number is compared by value, whatever way it is written', () => {
-  const problems = checkConfigTable(readme([...without('contextMessages', 'timeoutMs'), '| `contextMessages` | How many messages are read | `40.0` | `0.0` | `50.00` | `60` |', '| `timeoutMs` | How long a message waits | `1500.0` | `8000` | `4000` | `3000.0` |']), MANIFEST, DEFAULTS)
+  const problems = checkConfigTable(readme([...without('contextMessages', 'timeoutMs'), '| `contextMessages` | How many messages are read | `30` 起点 | `40.0` | `0.0` | `50.00` | `60` |', '| `timeoutMs` | How long a message waits | `2500` | `1500.0` | `8000` | `4000` | `3000.0` |']), MANIFEST, DEFAULTS)
   expect(problems).toEqual([])
 })
 
 test('a row for an option plugin.json does not declare is reported: it is left over from an option that was removed or renamed', () => {
-  const problems = checkConfigTable(readme([...Object.values(ROWS), '| `escalateAfterN` | Failures before an agent steps up | `3` | `3` | `3` | `3` |']), MANIFEST, DEFAULTS)
+  const problems = checkConfigTable(readme([...Object.values(ROWS), '| `escalateAfterN` | Failures before an agent steps up | `3` | `3` | `3` | `3` | `3` |']), MANIFEST, DEFAULTS)
   expect(problems).toHaveLength(1)
   expect(problems[0]).toContain('`escalateAfterN`')
   expect(problems[0]).toContain('plugin.json')
@@ -140,10 +141,10 @@ test('an option with two rows is reported', () => {
   expect(problems[0]).toMatch(/`escalateAfter`.*(two|2) rows/)
 })
 
-test('a row that does not have six cells is reported: a | inside a cell shifts the cells after it', () => {
-  const problems = checkConfigTable(readme([...without('escalateAfter'), '| `escalateAfter` | Failures | or blocks | `3` | `3` | `3` | `3` |']), MANIFEST, DEFAULTS)
+test('a row that does not have seven cells is reported: a | inside a cell shifts the cells after it', () => {
+  const problems = checkConfigTable(readme([...without('escalateAfter'), '| `escalateAfter` | Failures | or blocks | `3` | `3` | `3` | `3` | `3` |']), MANIFEST, DEFAULTS)
   expect(problems).toHaveLength(1)
-  expect(problems[0]).toMatch(/`escalateAfter`.*7 cells.*6/)
+  expect(problems[0]).toMatch(/`escalateAfter`.*8 cells.*7/)
 })
 
 test('a README with no configuration section is one problem, not one for each option', () => {
@@ -151,7 +152,7 @@ test('a README with no configuration section is one problem, not one for each op
 })
 
 test('an option the manifest gives no default and that no decision model gives one has nothing to compare: reported once', () => {
-  const problems = checkConfigTable(readme([...Object.values(ROWS), '| `mystery` | An option without a default | `1` | `1` | `1` | `1` |']), { ...MANIFEST, mystery: { type: 'number' } }, DEFAULTS)
+  const problems = checkConfigTable(readme([...Object.values(ROWS), '| `mystery` | An option without a default | `1` | `1` | `1` | `1` | `1` |']), { ...MANIFEST, mystery: { type: 'number' } }, DEFAULTS)
   expect(problems).toHaveLength(1)
   expect(problems[0]).toContain('`mystery`')
 })

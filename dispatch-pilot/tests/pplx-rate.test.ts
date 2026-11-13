@@ -79,7 +79,7 @@ test("the effort request of a message goes before a skills request that was queu
   ])
 })
 
-test("Jev is paced by the account's limits, not queued like pplx: at the default plan's the same message sends all its requests at once, and no pplx record is written", { options: { typesafeApiKey: 'ts-test-key' } }, async ($, on) => {
+test("Jev is paced by the account's limits, not queued like pplx: at the default plan's the same message sends all its requests at once, and no pplx record is written", { options: { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' } }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 }, [0, 1, 0, 0, 0]), skills: SKILLS })
   await w.submit('先写一个失败的测试')
   expect(w.requests.map((request) => request.url)).toEqual(Array(3).fill('https://api.typesafe.ai/v1/systemone'))

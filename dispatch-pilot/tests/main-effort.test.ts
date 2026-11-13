@@ -142,14 +142,14 @@ test("a 429 whose Retry-After the wait covers is asked once more after it (decis
   expect((await w.board()).main).toMatchObject({ effort: 'high', routed: true })
 })
 
-test('no key of either kind: nothing is sent, the turn keeps the engine effort, the board says to set the TypeSafe key (Jev decides by default)', async ($, on) => {
+test('no key of any kind: nothing is sent, the turn keeps the engine effort, the board says to set the Nace key (Drex Max decides by default)', async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
   await w.submit('解释一下这个函数做了什么')
   await w.step({ index: 0, effort: 'medium' })
 
   expect(w.requests).toHaveLength(0)
   expect(w.steps.map((s) => s.effort)).toEqual(['medium'])
-  expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, why: 'jev：没有填 typesafeApiKey 或 TYPESAFE_API_KEY', failure: { backend: 'jev', kind: 'config', detail: 'no TypeSafe API key: set typesafeApiKey or TYPESAFE_API_KEY' } })
+  expect((await w.board()).main).toMatchObject({ effort: 'medium', routed: false, why: 'drex：没有填 naceApiKey 或 NACE_API_KEY', failure: { backend: 'drex', kind: 'config', detail: 'no Nace API key: set naceApiKey or NACE_API_KEY' } })
 })
 
 test('a decision that comes back after a failure leaves no reason on the next turn', { options: KEY }, async ($, on) => {

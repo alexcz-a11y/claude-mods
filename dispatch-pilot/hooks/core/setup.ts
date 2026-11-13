@@ -15,6 +15,7 @@ import type { PluginOptions } from 'claude-code'
 import type { Backend, BackendName, ImageBackendName } from '../decision/backend.ts'
 import type { ContextLimits } from '../decision/context.ts'
 import { DEFAULT_AGENT_MODELS, WORDS_SHARE, type AgentModel, type DispatchAsk, type DispatchSettings } from '../decision/dispatched-agent.ts'
+import { drexBackend } from '../decision/drex.ts'
 import type { EffortAsk } from '../decision/effort.ts'
 import { LIQUID_GUIDE, TYPESAFE_GUIDE, type Guide } from '../decision/guides.ts'
 import { jevBackend, JEV_REGULAR_STATE } from '../decision/jev.ts'
@@ -27,19 +28,23 @@ import type { DecisionRequest } from '../decision/system-one.ts'
 import { BATCHES_BUDGET_MS } from '../decision/workflow.ts'
 import { listSwitches } from './switches.ts'
 
-/** The decision models the person can choose (`decisionModel`): TypeSafe's Jev, Perplexity's pplx-decider and Liquid's d1-ultra and d1.1 (decision/backend.ts, where the pure modules read it). */
+/** The decision models the person can choose (`decisionModel`): Nace's Drex Max, TypeSafe's Jev, Perplexity's pplx-decider and Liquid's d1-ultra and d1.1 (decision/backend.ts, where the pure modules read it). */
 export type { BackendName, ImageBackendName }
 
-/** The decision models `decisionModel` must name to be used: Jev is the one it need not. */
-const NAMED_ONLY: readonly BackendName[] = ['pplx', 'd1-ultra', 'd1.1']
+/** The decision model when `decisionModel` names none: Drex Max v1.1 since 0.13.0 (ADR 0026); Jev from 0.9.0 to 0.12.0 (ADR 0014). */
+export const DEFAULT_BACKEND: BackendName = 'drex'
+
+/** The decision models `decisionModel` must name to be used: the default is the one it need not. */
+const NAMED_ONLY: readonly BackendName[] = ['jev', 'pplx', 'd1-ultra', 'd1.1']
 
 /**
- * The decision model that decides (ADR 0014, ADR 0017, ADR 0021): pplx, d1-ultra or d1.1 only when `decisionModel` names it,
- * else Jev, the default. Anything else (unset, a typo, the `clef` of a 0.3.x configuration) reads as unset. Nothing falls back
- * on the keys: without its key the model chosen fails every request with that key named as the one missing, and the board says so.
+ * The decision model that decides (ADR 0014, ADR 0017, ADR 0021, ADR 0026): Jev, pplx, d1-ultra or d1.1 only when
+ * `decisionModel` names it, else Drex Max, the default. Anything else (unset, a typo, the `clef` of a 0.3.x configuration)
+ * reads as unset. Nothing falls back on the keys: without its key the model chosen fails every request with that key named as
+ * the one missing, and the board says so.
  */
 export function backendNameOf(options: PluginOptions): BackendName {
-  return NAMED_ONLY.find((name) => name === options.decisionModel) ?? 'jev'
+  return NAMED_ONLY.find((name) => name === options.decisionModel) ?? DEFAULT_BACKEND
 }
 
 /** Which decision model takes the requests with images, and whether it is not Jev (`chooseImageBackend`). */
@@ -49,7 +54,8 @@ export type Choice = { backend: ImageBackendName; fellBack: boolean }
  * The decision model that takes requests with images (#56, ADR 0008), apart from the one that decides everything else and
  * whatever `decisionModel` says: Jev with a TypeSafe key (its Box question and one-time image tokens make zooming possible);
  * else pplx with a Perplexity key, which cannot zoom (`fellBack`); else none (null), and the features that need images are
- * unavailable. Never Liquid's (ADR 0017, ADR 0021): with d1-ultra or d1.1 deciding the rest, the images are still Jev's.
+ * unavailable. Never Liquid's (ADR 0017, ADR 0021) nor Nace's (ADR 0026): with d1-ultra, d1.1 or Drex Max deciding the rest,
+ * the images are still Jev's (Drex Max has no Box question either, and a zoom without one did no better: decision/drex.ts).
  * Liquid's models take images now (GET /decisions/v1/models lists `image` for each, 2026-11-10), but the zoomed re-check
  * asks Jev's Box question, which Liquid's API does not have.
  */
@@ -160,12 +166,12 @@ export type BackendDefaults = Readonly<Record<PerBackendOption, number>> & {
    * and in find_skill); null: only what the first left. Not an option: set by the latency measured.
    */
   skillsSecondStageMs: number | null
-  /** How its answers are read: its maker's guide (decision/guides.ts; Jev and pplx TypeSafe's, d1-ultra and d1.1 Liquid's). Not an option. */
+  /** How its answers are read: its maker's guide (decision/guides.ts; Jev and pplx TypeSafe's, d1-ultra and d1.1 Liquid's; Drex Max TypeSafe's, since Nace's names no bars). Not an option. */
   guide: Guide
 }
 
 /**
- * Jev's, the default decision model (ADR 0014). Jev takes 64k tokens a request and 32k for "the state and the longest
+ * Jev's, the default decision model from 0.9.0 to 0.12.0 (ADR 0014), now used when `decisionModel` names it. Jev takes 64k tokens a request and 32k for "the state and the longest
  * question" (262k for both with its long-context header, which the docs call slower and less accurate: decision/jev.ts sends
  * it only for a request that would not fit otherwise). The longest question is the first stage of the skills, a Choice over
  * every skill (measured with 111 skills offered by their profiles, before ADR 0018: about 16k tokens as the mod counts, 21.9k
@@ -306,8 +312,43 @@ const D1_1_DEFAULTS: BackendDefaults = {
   guide: LIQUID_GUIDE,
 }
 
+/**
+ * Drex Max v1.1's, Nace's decision model and the default (ADR 0026). It is asked Jev's questions with Jev's budgets and read
+ * at TypeSafe's bars: that is the request the eval of 2026-11-13 sent it, one pass of each suite beside Jev 1.14.0 on the same
+ * day (effort-submit 94.0% / 95.0% to Jev's 97.0% / 94.0%, effort-midrun 83.6% / 83.6% to 78.7% / 79.5%, subagent 87.0% / 87.0%
+ * to 89.0% / 89.0%, skill 86.2% / 83.5% to 25.7% / 30.3%; DEVELOPMENT.md 「Drex Max v1.1」). Nace's guide gives no bars of its
+ * own ("There is no built-in cutoff"; "Choose a threshold from a labeled sample"), and the labelled sample is that eval.
+ *
+ * A request holds 262,144 tokens in all, so every one fits without a header (`longWaitMs` null), and Drex counted about 0.83
+ * of Jev's tokens for the same requests. It answers at about twice Jev's time: a request about a message or an agent took
+ * 523-557 ms at the median and 571-782 ms at the 90th percentile, the skills' two requests 1180 and 1364 ms together (stage
+ * one 674 / 784, stage two 513 / 622), one request after another. So a message waits 2500 ms (`timeoutMs`; two of 218 skill
+ * answers took more than 1500), and a ranking's second request is given 1000 at least. Nace says a busy Drex may hold a
+ * request 55 s; a hook has 10, so past the wait the message goes on unrouted, as with any model.
+ */
+const DREX_DEFAULTS: BackendDefaults = {
+  timeoutMs: 2500,
+  contextMessages: 2000,
+  contextMessagesMax: 2000,
+  contextTokens: 6000,
+  contextTokensMax: 16000,
+  // Jev's budgets, the ones evaluated; the window would take ten times as much, at a time nobody has measured.
+  contextByKind: { messagePlain: JEV_REGULAR_STATE, agent: JEV_REGULAR_STATE, workflow: JEV_REGULAR_STATE },
+  agentBackground: true,
+  // No long-context header: one limit for every request.
+  longWaitMs: null,
+  // Four, as Jev's: the free tier takes 8 at once, and a message's own requests go out beside the agents'.
+  agentLanes: 4,
+  findSkillWaitMs: null,
+  // Above the second stage's 90th percentile (622 ms); a message with skills waits 3.5 s at most then.
+  skillsSecondStageMs: 1000,
+  ask: { turnStart: { language: 'en', primitive: 'score' }, agent: { language: 'en', primitive: 'score' }, other: { language: 'en', primitive: 'score' } },
+  guide: TYPESAFE_GUIDE,
+}
+
 /** The defaults by decision model: the only place they are written. */
 export const BACKEND_DEFAULTS: Readonly<Record<BackendName, BackendDefaults>> = {
+  drex: DREX_DEFAULTS,
   pplx: PPLX_DEFAULTS,
   jev: JEV_DEFAULTS,
   'd1-ultra': LIQUID_DEFAULTS,
@@ -337,7 +378,7 @@ export function saidTokens(config: Pick<Config, 'contextByKind'>): number {
 /**
  * How long an agent waits for its decision at most (`Config.agents.waitMs`): the request about it and one ahead of it in
  * the lane (core/agent-lane.ts), each as long as a long request may wait, within what a hook can spare (BATCHES_BUDGET_MS).
- * Jev 6000, pplx 8000.
+ * Jev 6000, pplx 8000, Drex Max 5000.
  */
 export function agentWaitMs(timeoutMs: number, longWaitMs: number | null): number {
   return Math.min(BATCHES_BUDGET_MS, 2 * Math.max(timeoutMs, longWaitMs ?? 0))
@@ -369,6 +410,8 @@ export type Config = {
   readonly perplexityApiKey: string
   /** The Liquid key in the options (`liquidApiKey`, trimmed; '' if unset; not enumerable either): the environment's (`Secrets`) stands where this is empty. */
   readonly liquidApiKey: string
+  /** The Nace key in the options (`naceApiKey`, trimmed; '' if unset; not enumerable either): the environment's (`Secrets`) stands where this is empty. */
+  readonly naceApiKey: string
   /** How the answers are read: the decision model's guide (BACKEND_DEFAULTS guide; decision/guides.ts). */
   guide: Guide
   /** How many pplx requests the mod sends in a second at most (`pplxQps`; the account's limit): the rest wait their turn (decision/pplx-rate.ts). */
@@ -467,6 +510,8 @@ export type Secrets = {
   typesafeEnvKey: string
   /** `LIQUID_API_KEY`, trimmed; '' while unread or unset. */
   liquidEnvKey: string
+  /** `NACE_API_KEY`, trimmed; '' while unread or unset. */
+  naceEnvKey: string
 }
 
 /**
@@ -493,6 +538,11 @@ export function liquidKey(config: Pick<Config, 'liquidApiKey'>, secrets: Secrets
   return config.liquidApiKey !== '' ? config.liquidApiKey : secrets.liquidEnvKey
 }
 
+/** The Nace key in use: the options' (`naceApiKey`) first, else the environment's. '' for none. */
+export function naceKey(config: Pick<Config, 'naceApiKey'>, secrets: Secrets): string {
+  return config.naceApiKey !== '' ? config.naceApiKey : secrets.naceEnvKey
+}
+
 /**
  * Where a key in use came from, for the session start's debug line: `from the options`, `from <variable>` or `not set`.
  * Never the key itself.
@@ -504,7 +554,7 @@ export function keySource(option: string, environment: string, variable: string)
 /**
  * What the entry hands every feature's register: data and pure functions, never `$`.
  *
- * The decision model is the one `decisionModel` names (Jev unless it names another, `backendNameOf`), known at register. Which model takes the
+ * The decision model is the one `decisionModel` names (Drex Max unless it names another, `backendNameOf`), known at register. Which model takes the
  * images depends on the keys, which the session start reads from the environment (`secrets`), so `images` is read afresh at
  * each use.
  */
@@ -533,13 +583,16 @@ export function setup(options: PluginOptions, table: Readonly<Record<BackendName
   const asked = backendNameOf(options)
   // Both are worked out here (pure and cheap): the one asked for decides, and the other may still take the images (`chooseImageBackend`).
   const configs: Record<BackendName, Config> = {
+    drex: readConfig(options, table, 'drex'),
     pplx: readConfig(options, table, 'pplx'),
     jev: readConfig(options, table, 'jev'),
     'd1-ultra': readConfig(options, table, 'd1-ultra'),
     'd1.1': readConfig(options, table, 'd1.1'),
   }
-  const secrets: Secrets = { perplexityEnvKey: '', typesafeEnvKey: '', liquidEnvKey: '' }
+  const secrets: Secrets = { perplexityEnvKey: '', typesafeEnvKey: '', liquidEnvKey: '', naceEnvKey: '' }
   const backends: Record<BackendName, Backend> = {
+    // No limit of the mod's own: Nace's 120 requests a minute (the free tier's) is above what a session sends; its 429 is a busy failure (fail open).
+    drex: drexBackend(() => naceKey(configs.drex, secrets)),
     // Every request goes through its account's rate limit: pplx's (#51), Jev's (requests and input tokens a second).
     pplx: rateLimited(pplxBackend(() => perplexityKey(configs.pplx, secrets)), configs.pplx.pplxQps),
     jev: jevRateLimited(jevBackend(() => typesafeKey(configs.jev, secrets)), () => configs.jev.jevLimits),
@@ -595,7 +648,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
   const haikuToWritten = stringOf(options.escalateHaikuTo, 'sonnet').trim()
   // A hook's own budget is 10 s and the timer's wait counts toward it.
   const timeoutMs = own('timeoutMs', 200, 8000)
-  const config: Omit<Config, 'typesafeApiKey' | 'perplexityApiKey' | 'liquidApiKey'> = {
+  const config: Omit<Config, 'typesafeApiKey' | 'perplexityApiKey' | 'liquidApiKey' | 'naceApiKey'> = {
     backend,
     defaults: { used, capped },
     guide: defaults.guide,
@@ -643,6 +696,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
     typesafeApiKey: { value: stringOf(options.typesafeApiKey, '').trim(), enumerable: false },
     perplexityApiKey: { value: stringOf(options.perplexityApiKey, '').trim(), enumerable: false },
     liquidApiKey: { value: stringOf(options.liquidApiKey, '').trim(), enumerable: false },
+    naceApiKey: { value: stringOf(options.naceApiKey, '').trim(), enumerable: false },
   }) as Config
 }
 

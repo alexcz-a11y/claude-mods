@@ -9,7 +9,7 @@
 //   node dispatch-pilot/eval/run.ts visual-check --ids anim-linear,anim-spring --variants mod --repeat 3
 //                                                                          only those items, each asked three times (--repeat)
 //
-// Options: --backend jev|pplx|d1.1|d1 (jev), --model <id> (Jev's: the mod's by default, the jev-latest alias, ADR 0021;
+// Options: --backend jev|pplx|d1.1|d1|drex (jev), --model <id> (Jev's: the mod's by default, the jev-latest alias, ADR 0021;
 // the result records the version that answered (backend.answeredBy); give a version such as jev-1.14.0 to hold a run to it;
 // Perplexity's: pplx-decider-v1.1-27b by default, or pplx-decider-v1-27b; a run on it reads the mod's settings from
 // pplx's own row of the defaults table, core/setup.ts BACKEND_DEFAULTS: its questions, state budgets and timeout; d1.1, Liquid's,
@@ -54,7 +54,11 @@
 // --backend d1.1 (ADR 0021): Liquid's d1.1 as the mod asks it, with its own row of the defaults (Liquid's guide); the effort
 // suites read every backend's answers at TypeSafe's bars (lib/effort-submit.ts), the skill and subagent suites at its guide's.
 //
-// Credentials: TYPESAFE_API_KEY for Jev; PERPLEXITY_API_KEY for Perplexity; LIQUID_API_KEY for d1 and d1.1: the environment
+// --backend drex (ADR 0026): Nace's Drex Max v1.1, the mod's default, with its own row of the defaults (Jev's questions, bars
+// and budgets); one attempt may take 60 s (Nace's advice). The mod sends it no images; the eval does (lib/drex.ts), so the
+// visual-check suite can be asked of it with --variants criteria or tiles (it has no Box question, and takes 8 images a request).
+//
+// Credentials: TYPESAFE_API_KEY for Jev; PERPLEXITY_API_KEY for Perplexity; LIQUID_API_KEY for d1 and d1.1; NACE_API_KEY for drex: the environment
 // first, then ~/.config/dispatch-pilot/eval.env. Never printed or saved.
 //
 // Saves eval/results/<suite>/<date>-<backend>[-<label>].json: the settings,
@@ -76,6 +80,7 @@ import { PPLX_MODEL } from '../hooks/decision/pplx.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
 import { D1_MODEL, D1_PRICE } from './lib/d1.ts'
+import { DREX_ATTEMPT_MS, DREX_MODEL } from './lib/drex.ts'
 import { D1_ESTIMATE_FACTOR, ESTIMATE_FACTOR, estimateRun, estimateRunPerQuestion } from './lib/estimate.ts'
 import { runSuiteMerged } from './lib/merge.ts'
 import type { FlowFile } from './lib/eval-v2-flow.ts'
@@ -116,7 +121,7 @@ function fail(message: string): never {
   process.exit(2)
 }
 
-const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|pplx|d1.1|d1] [--merge] [--label <word>] ...')
+const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|pplx|d1.1|d1|drex] [--merge] [--label <word>] ...')
 const entry = SUITES[name] ?? fail(`no suite for "${name}" yet (suites: ${Object.keys(SUITES).join(', ')})`)
 const sha = (text: string) => createHash('sha256').update(text).digest('hex')
 /** The dataset: a kind's JSONL, checked against its format; or eval-v2.jsonl, checked against generated.json, with its final gold. */
@@ -167,7 +172,7 @@ if (items.length === 0) fail('no item to run: --ids names none of the dataset\'s
 // unset, the backend's defaults (readConfig).
 const manifest = readManifest()
 const asked = values.backend as BackendName | 'd1'
-if (asked !== 'jev' && asked !== 'pplx' && asked !== 'd1.1' && asked !== 'd1') fail(`no backend "${asked}" (jev, pplx, d1.1, d1)`)
+if (asked !== 'jev' && asked !== 'pplx' && asked !== 'd1.1' && asked !== 'd1' && asked !== 'drex') fail(`no backend "${asked}" (jev, pplx, d1.1, d1, drex)`)
 /** The row of the defaults the run reads (d1 has none of its own: Jev's, lib/d1.ts). */
 const backendName: BackendName = asked === 'd1' ? 'jev' : asked
 const longContext = values['long-context'] === true
@@ -196,9 +201,9 @@ const maxUsd = numberFlag('--max-usd', values['max-usd'], { min: 0 })
 const repeats = numberFlag('--repeat', values.repeat, { min: 1, integer: true })
 const widened = stateTokens === null ? settingsFrom(options as PluginOptions) : withStateTokens(settingsFrom(options as PluginOptions), stateTokens)
 const settings = stateMessages === null ? widened : withStateMessages(widened, stateMessages)
-/** How long one attempt may take: --timeout, else four times the mod's timeoutMs for this backend, at least 10 s (lib/runner.ts). */
-const attemptMs = timeoutFlag === null ? defaultAttemptMs(settings.timeoutMs) : timeoutFlag
-const model = values.model ?? (asked === 'd1' ? D1_MODEL : asked === 'd1.1' ? D1_1_MODEL : asked === 'pplx' ? PPLX_MODEL : JEV_MODEL)
+/** How long one attempt may take: --timeout, else four times the mod's timeoutMs for this backend, at least 10 s (lib/runner.ts); Drex's 60 s. */
+const attemptMs = timeoutFlag !== null ? timeoutFlag : asked === 'drex' ? DREX_ATTEMPT_MS : defaultAttemptMs(settings.timeoutMs)
+const model = values.model ?? (asked === 'drex' ? DREX_MODEL : asked === 'd1' ? D1_MODEL : asked === 'd1.1' ? D1_1_MODEL : asked === 'pplx' ? PPLX_MODEL : JEV_MODEL)
 const price = asked === 'd1' ? D1_PRICE : PRICES[backendName]
 if (merged && repeats !== 1) fail('--merge asks each item once: no --repeat')
 // A flow file run with another backend or state than this run's is allowed (say, the 48000 flow under a 135000 state), and said.

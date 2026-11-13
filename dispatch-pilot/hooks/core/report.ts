@@ -1173,6 +1173,7 @@ export type DecisionModelEvent = {
 
 /** What a person reads of each decision model: its name, and the settings that hold its key (the options' names and the environment variable they type). The one place both are written. */
 const DECISION_MODELS: Readonly<Record<BackendName, { name: string; keys: string }>> = {
+  drex: { name: 'Drex Max', keys: 'naceApiKey 或环境变量 NACE_API_KEY' },
   pplx: { name: 'pplx', keys: 'perplexityApiKey 或环境变量 PERPLEXITY_API_KEY' },
   jev: { name: 'Jev', keys: 'typesafeApiKey 或环境变量 TYPESAFE_API_KEY' },
   'd1-ultra': { name: 'd1-ultra', keys: 'liquidApiKey 或环境变量 LIQUID_API_KEY' },

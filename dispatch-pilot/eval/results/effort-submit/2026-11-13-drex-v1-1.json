@@ -1,0 +1,927 @@
+{
+  "suite": "effort-submit",
+  "label": "v1.1",
+  "date": "2026-11-13T06:31:46.332Z",
+  "backend": {
+    "name": "drex",
+    "model": "drex-max-v1.1",
+    "answeredBy": [
+      "drex-max-v1.1"
+    ]
+  },
+  "dataset": {
+    "path": "eval/datasets/effort-submit.jsonl",
+    "items": 100,
+    "sha256": "80b2a32f7ac37e611320201797363c2c51d1464d0d83c3dc54ffe0a7cf2043ff",
+    "review": {
+      "file": "eval/review/effort-submit.review.jsonl",
+      "decided": 100
+    }
+  },
+  "code": {
+    "hooks/board/band.tsx": "cac130f080aa3cff",
+    "hooks/board/footer.tsx": "a5659ab084077ae0",
+    "hooks/board/kit.tsx": "2cadb66c563e2570",
+    "hooks/board/pane-app.tsx": "4fee39ef5acc974e",
+    "hooks/board/pane.tsx": "87fffc4134a4a34f",
+    "hooks/board/rationale.ts": "79f9565dc2e979af",
+    "hooks/board/reference.ts": "86407b19f188cdcf",
+    "hooks/board/screens.tsx": "0c3267116c0caa99",
+    "hooks/board/status-line.ts": "f0023b1503c20a21",
+    "hooks/board/view.ts": "df94affe25770897",
+    "hooks/core/agent-lane.ts": "6cc03c90cb057f2a",
+    "hooks/core/ask-group.ts": "dd8cc4a0679c44f5",
+    "hooks/core/ballot.ts": "53f87cfdff6dc1b4",
+    "hooks/core/call-budget.ts": "f9180f81a0a5995a",
+    "hooks/core/commands.ts": "f522e95c7fc293d2",
+    "hooks/core/complexity.ts": "d328de8b3a38d111",
+    "hooks/core/core.ts": "480d94d04b5dcac7",
+    "hooks/core/deferred.ts": "b625d2b402cf4f3d",
+    "hooks/core/image-crops.ts": "860f412f07f56606",
+    "hooks/core/image-files.ts": "ec701ece1adb2526",
+    "hooks/core/loop-start.ts": "c290fc6e746d7b2b",
+    "hooks/core/outcomes.ts": "531de3e34ce1b157",
+    "hooks/core/plans.ts": "138a2245c16e7e70",
+    "hooks/core/prompts.ts": "ceb6aa21cf73ca5f",
+    "hooks/core/quality-series.ts": "31abc6d60a07d230",
+    "hooks/core/report.ts": "59983ffa0f72fad0",
+    "hooks/core/setup.ts": "3bd9cb9dc9855ff2",
+    "hooks/core/skills.ts": "112101c9436f64bd",
+    "hooks/core/switches.ts": "19a0df21c323e5ec",
+    "hooks/core/takeover-report.ts": "8a65b0eeae059a77",
+    "hooks/core/unresolved.ts": "f87eebccd7f9b74f",
+    "hooks/core/video-frames.ts": "0ca71bcf50207792",
+    "hooks/core/visual-check-report.ts": "b63acdc3717938fc",
+    "hooks/core/work-files.ts": "6636260697cf054c",
+    "hooks/core/workflow-report.ts": "b450f1a8fb36dc90",
+    "hooks/core/zoom-review.ts": "656e0fe5359eed54",
+    "hooks/decision/asks.ts": "20d6b12b432ce5e5",
+    "hooks/decision/backend.ts": "1b51ecbd8f768e63",
+    "hooks/decision/complexity.ts": "678fc175c3ae2737",
+    "hooks/decision/constraints.ts": "1dd8faf5ee354815",
+    "hooks/decision/context.ts": "0bd024e2787487af",
+    "hooks/decision/dispatched-agent.ts": "bf198a46da6ac172",
+    "hooks/decision/effort.ts": "90db92b6054b1421",
+    "hooks/decision/escalation.ts": "dddc0ebb77d078d6",
+    "hooks/decision/guides.ts": "241f4c1b66151159",
+    "hooks/decision/image-fit.ts": "46f00ef665f32279",
+    "hooks/decision/image-header.ts": "1ee2601beb24931a",
+    "hooks/decision/images.ts": "02607b07e7454a0d",
+    "hooks/decision/jev-rate.ts": "23c8a346193400ab",
+    "hooks/decision/jev.ts": "1142aaf2f21979d9",
+    "hooks/decision/keep-newest.ts": "862cfe18a916f1d3",
+    "hooks/decision/liquid.ts": "0f82de38e8d9274d",
+    "hooks/decision/message-effort.ts": "2f2b2bc47a8fe5ba",
+    "hooks/decision/midrun-track.ts": "9f5ef39f099aaea6",
+    "hooks/decision/midrun.ts": "80338a8a987cffe4",
+    "hooks/decision/model-ids.ts": "464f8e447a48dcd7",
+    "hooks/decision/nouls.ts": "83243bde173e4d0b",
+    "hooks/decision/pplx-rate.ts": "392f16176929216f",
+    "hooks/decision/pplx.ts": "78da80996c6c8d02",
+    "hooks/decision/prompt-hint.ts": "b7f1f77563a13f95",
+    "hooks/decision/rate-queue.ts": "4858efb4c352a908",
+    "hooks/decision/redact.ts": "83c4b02966429254",
+    "hooks/decision/screenshot-takeover.ts": "fe524314e8a4a8e6",
+    "hooks/decision/skills.ts": "7f0e7482c39c4fb2",
+    "hooks/decision/summary.ts": "5fc59b44f55080ea",
+    "hooks/decision/system-one.ts": "6d4f9957aca29d8b",
+    "hooks/decision/turn-start.ts": "f3d15377de80fb08",
+    "hooks/decision/unresolved.ts": "c94549bf8d6bed3e",
+    "hooks/decision/visual-check-frames.ts": "199b0beb4e55c61f",
+    "hooks/decision/visual-check-record.ts": "051b7ba2f0684644",
+    "hooks/decision/visual-check-sequence-text.ts": "f7aa2a42cda1204f",
+    "hooks/decision/visual-check-sequence.ts": "e9c6c586030fd442",
+    "hooks/decision/visual-check-tool.ts": "1fec6714cf72044f",
+    "hooks/decision/visual-check-zoom.ts": "b598f5ebfedf172d",
+    "hooks/decision/visual-check.ts": "1754e94614788d71",
+    "hooks/decision/workflow-labels.ts": "e2bc1e796baf5fe8",
+    "hooks/decision/workflow-script.ts": "39285b69edca9799",
+    "hooks/decision/workflow.ts": "be7b8c3b61aebc14",
+    "hooks/decision/zoom.ts": "bef1c79f03bddd6a",
+    "hooks/dispatch-pilot.ts": "2dbfd30f1ab1079f",
+    "hooks/features/control.ts": "1309a8bbaf3dfd2b",
+    "hooks/features/dispatched-agents.ts": "ee2ed74f62a5a599",
+    "hooks/features/escalation.ts": "18dfb9b342b50505",
+    "hooks/features/find-skill.ts": "1f48d0a0e06867eb",
+    "hooks/features/image-routing.ts": "2b2e000d62f215cb",
+    "hooks/features/main-effort.ts": "5f87cad25eb404be",
+    "hooks/features/midrun-effort.ts": "4e79cda579181e1e",
+    "hooks/features/prompt-hint.ts": "4730915e0b087966",
+    "hooks/features/reference-hint.ts": "35a1b5d07780187f",
+    "hooks/features/screenshot-takeover.ts": "c1556a7be2aac634",
+    "hooks/features/skills.ts": "efec87406e7d7fe3",
+    "hooks/features/unresolved.ts": "704f984e5ae4ebbc",
+    "hooks/features/visual-check-look.ts": "9a2c38140cfa4662",
+    "hooks/features/visual-check-series.ts": "65bef2743e2fddb6",
+    "hooks/features/visual-check.ts": "24d4a250b2f713a6",
+    "hooks/features/workflow-agents.ts": "a18de36386824e4a",
+    "hooks/features/workflow-labels.ts": "49f4f5fd8fcaea4a",
+    "hooks/hooks.json": "1b25c5b4d076064d",
+    "eval/lib/compare.ts": "bed9bff37206a970",
+    "eval/lib/ctx30.ts": "04753affd0757be6",
+    "eval/lib/d1.ts": "ffc7ba6d7dcaccb6",
+    "eval/lib/datasets.ts": "ac3a6dc825e6d8e6",
+    "eval/lib/docs.ts": "9eb6dde6e616d12c",
+    "eval/lib/drex.ts": "545b8336adac4c67",
+    "eval/lib/effort-midrun.ts": "19304beaf688304f",
+    "eval/lib/effort-submit.ts": "14b1ce9b002cd9b6",
+    "eval/lib/estimate.ts": "3ea3fecfad14747e",
+    "eval/lib/eval-v2-flow.ts": "7b2ba50088157511",
+    "eval/lib/eval-v2-suite.ts": "845f93b9cbc404e6",
+    "eval/lib/eval-v2.ts": "67b061c5bb58843b",
+    "eval/lib/long-context.ts": "2fce46a4519427f9",
+    "eval/lib/long-conversation.ts": "8bf092f7993911ed",
+    "eval/lib/long-filler.ts": "7db067908915c1f9",
+    "eval/lib/long-summaries.ts": "d6e09e9a8ca4136d",
+    "eval/lib/merge.ts": "0c9519d041e4027f",
+    "eval/lib/metrics.ts": "27508762628793de",
+    "eval/lib/midrun-items.ts": "b2781d1409de1a8f",
+    "eval/lib/numbers.ts": "60166dc71ec8ffbf",
+    "eval/lib/paired.ts": "4b6611b474fc7d89",
+    "eval/lib/random.ts": "c45cc17953bbbf52",
+    "eval/lib/rescore.ts": "01049f101dedf2bf",
+    "eval/lib/resummarize.ts": "8b5f6877b8f20abb",
+    "eval/lib/review.ts": "168e705a7066e5c2",
+    "eval/lib/runner.ts": "00836b7aff2812aa",
+    "eval/lib/skill.ts": "5812ec32655b792c",
+    "eval/lib/subagent.ts": "59b45093b6d8f90f",
+    "eval/lib/suite.ts": "e5dd71de8a70e773",
+    "eval/lib/suites.ts": "8d2a64faa1b3171a",
+    "eval/lib/unresolved.ts": "b169cbf0896c1b42",
+    "eval/lib/validators.ts": "2b7e0fcddc697df1",
+    "eval/lib/visual-check-criteria.ts": "a7f6b5e18dac6df0",
+    "eval/lib/visual-check-items.ts": "8cbf99b236b0a5ac",
+    "eval/lib/visual-check-rescore.ts": "8abe86377a4cf213",
+    "eval/lib/visual-check.ts": "2c069eaab667599d"
+  },
+  "settings": {
+    "context": {
+      "messages": 2000,
+      "tokens": 6000
+    },
+    "messageStateTokens": 24000,
+    "stateMessagesLimit": 2000,
+    "defaultsOf": "jev",
+    "unresolvedMaxAfter": 3,
+    "timeoutMs": 1500,
+    "options": {
+      "decisionModel": "jev",
+      "pplxQps": 5,
+      "jevQps": 80,
+      "jevTokensPerSecond": 100000,
+      "midrunEverySteps": 15,
+      "escalateAfter": 2,
+      "escalateLimit": 2,
+      "escalateHaikuTo": "sonnet",
+      "agentFable": false,
+      "skillsAlwaysListed": [],
+      "skillsNeverSuggested": [],
+      "findSkillMax": 5,
+      "workflowMode": "rewrite",
+      "summaryModel": "haiku",
+      "unresolvedMaxAfter": 3
+    },
+    "backendDefaults": {
+      "timeoutMs": 1500,
+      "contextMessages": 2000,
+      "contextTokens": 6000
+    }
+  },
+  "run": {
+    "items": 100,
+    "variants": [
+      "en-score"
+    ],
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "timeoutMs": 60000,
+    "retries": 2,
+    "concurrency": 1,
+    "requests": 200,
+    "attempts": 200,
+    "inputTokens": 395686,
+    "usd": 0.0119
+  },
+  "questions": {
+    "en-score": {
+      "level": {
+        "type": "score",
+        "instructions": {
+          "question": "How much step-by-step reasoning does the work that `user_message` asks for need, given `recent_context`?",
+          "work": "The work is everything the assistant does for `user_message` until it next stops and waits for the person.",
+          "rate": "Rate the work the request asks for, not how important its topic sounds. Advice or an explanation given in words, even about architecture or security, is not design work.",
+          "short_replies": "When `user_message` only approves, continues or picks an option (such as \"go ahead\", \"1\", \"继续\"), rate the work it approves, as described at the end of `recent_context`."
+        },
+        "criteria": [
+          "A short answer from what is already known (a fact, a yes or no, a preference), or mechanical work with nothing to work out: a lookup, a single command, a rename or find-and-replace (even across many files), a search that lists what it finds, formatting, a one-line change.",
+          "An ordinary, well-specified change to one or a few files, a direct question about code already in view, an explanation or advice given in words whatever its topic, or tests for a small piece of code whose cases are given.",
+          "A change across several files that needs working out (moving or splitting code among them counts), a bug whose cause is described but has to be traced, tests whose cases or setup have to be worked out, or reviewing a diff or a short piece of code with care.",
+          "Design across several components, a bug whose cause is unknown, a refactor that changes behaviour or interfaces many dependents rely on, or work that depends on careful reasoning about concurrency, performance or failure modes.",
+          "Novel architecture, a proof, a hard concurrency problem, or an audit of the security or data integrity of a whole mechanism, reasoned through step by step."
+        ]
+      },
+      "stakes.undo": {
+        "type": "noul",
+        "instructions": {
+          "question": "Would a mistake in the work that `user_message` asks for be hard to undo, such as deleted data, a sent message, or a published release?",
+          "reads": "Judge from `user_message` and `recent_context`."
+        },
+        "criteria": {
+          "true": "The assistant itself, in this work, deletes or overwrites data that is still needed (rewriting git history that others share counts), sends something to people or systems outside, publishes or deploys, or the person said the step cannot be rolled back.",
+          "false": "The work only changes files that can be reverted, including code, configuration or a pipeline that would do such a thing later when someone runs it; or it reads, explains, reviews or plans; or what it deletes is throwaway (a temporary table, test data, build output)."
+        }
+      },
+      "stakes.live": {
+        "type": "noul",
+        "instructions": {
+          "question": "Does the work that `user_message` asks for act on a live production system or on real money?",
+          "reads": "Judge from `user_message` and `recent_context`."
+        },
+        "criteria": {
+          "true": "The assistant itself changes something on servers, databases or accounts that real users or payments depend on (a deploy, a restart, a migration, a write), or it moves or charges real money.",
+          "false": "It runs locally, in tests, or on a staging or sandbox system; or it only reads from production (a setting, a log, a query that changes nothing); or it only edits files, even production configuration, that someone applies later."
+        }
+      },
+      "stakes.access": {
+        "type": "noul",
+        "instructions": {
+          "question": "Does the work that `user_message` asks for change permissions, authentication, or secrets?",
+          "reads": "Judge from `user_message` and `recent_context`."
+        },
+        "criteria": {
+          "true": "It changes who can access what: it edits roles, permissions, login or token handling, or it creates, rotates or exposes keys, passwords or other secrets.",
+          "false": "It changes none of that. Reading, reviewing or explaining code about access is not a change to it, and neither is using a credential that is already set up."
+        }
+      },
+      "cause_unknown": {
+        "type": "noul",
+        "instructions": {
+          "question": "Does the work that `user_message` asks for include finding the cause of a failure that `recent_context` has not already found?",
+          "reads": "Judge from `user_message` and `recent_context`."
+        },
+        "criteria": {
+          "true": "Something fails or misbehaves and nobody has said why yet: the work has to trace the cause.",
+          "false": "There is no failure to explain; or its cause is already named in `recent_context` and the work is to fix it; or the person asks only for a set step (run a given command or search, collect or count what failed) and not for the reason."
+        }
+      },
+      "still_failing": {
+        "type": "noul",
+        "instructions": {
+          "question": "Does `user_message` say that what was tried for the problem the person and the assistant were last working on, at the end of `recent_context`, did not work, or that the problem still happens?",
+          "results": "Only the person's own words count. What the assistant said about its own work, such as \"fixed\" or \"should work now\", is not a result."
+        },
+        "criteria": {
+          "true": "The person says the earlier attempt did not work or the problem is still there: the same error again, the same wrong behaviour, a request to look at the same problem once more, or a pasted error that is the one from before.",
+          "false": "The person does not say the earlier attempt failed: they accept it, ask for something else, or `recent_context` holds no earlier problem."
+        }
+      },
+      "solved": {
+        "type": "noul",
+        "instructions": {
+          "question": "Does `user_message` say that the problem the person and the assistant were last working on, at the end of `recent_context`, is solved, or accept the result?",
+          "results": "Only the person's own words count. What the assistant said about its own work, such as \"fixed\" or \"should work now\", is not a result."
+        },
+        "criteria": {
+          "true": "The person says the problem is solved or accepts the result: it works now, thanks, looks good, or a request to commit, push or wrap up what was done for it.",
+          "false": "The person does not say the problem is solved and does not accept a result: they only agree to a plan or tell the assistant to go ahead or continue (\"ok, do it\", \"continue\", \"选 2\"), which is not the problem solved, or they say nothing of it."
+        }
+      },
+      "new_task": {
+        "type": "noul",
+        "instructions": {
+          "question": "Does `user_message` turn to a different problem or task than the one the person and the assistant were last working on at the end of `recent_context`?",
+          "results": "Only the person's own words count. What the assistant said about its own work, such as \"fixed\" or \"should work now\", is not a result."
+        },
+        "criteria": {
+          "true": "The person turns to another problem or task, asks something that has nothing to do with that problem, or `recent_context` holds no earlier problem to speak of.",
+          "false": "The person stays with the same problem or task."
+        }
+      },
+      "constraint": {
+        "type": "noul",
+        "instructions": "Does `user_message` set a rule for the rest of this work, such as something that must not be touched or cannot be rolled back?",
+        "criteria": {
+          "true": "The person states a lasting rule or limit for the work ahead: something must not be touched or deleted, cannot be rolled back, involves real money or production, or must always or never be done.",
+          "false": "The person only asks for this piece of work, without a rule meant to hold for what comes after."
+        }
+      },
+      "confirm": {
+        "type": "noul",
+        "instructions": {
+          "question": "Does `user_message` only agree to, continue, or pick from what the assistant offered at the end of `recent_context`, asking for nothing new?",
+          "reads": "Judge from `user_message` and the end of `recent_context`."
+        },
+        "criteria": {
+          "true": "The person only says to go ahead with what the assistant proposed or asked about, with no new request: \"ok, do it\", \"continue\", \"go ahead\", \"yes, the first one\", \"选 2\", \"继续\".",
+          "false": "The person asks for something new, reports a problem or a result, or changes what should be done; or the end of `recent_context` offers nothing to agree to."
+        }
+      },
+      "escalate": {
+        "type": "noul",
+        "instructions": {
+          "question": "Does `user_message` ask the assistant to think harder, work more carefully, or use a stronger model?",
+          "reads": "Judge from `user_message` only."
+        },
+        "criteria": {
+          "true": "The person asks for more thought or care in the work, or for a stronger model: \"think it through carefully\", \"take your time and get it right\", \"仔细一点\", \"认真想想再改\", \"use the strongest model\".",
+          "false": "The person asks for the work without saying how hard to think or which model to use, or asks for less: \"quick answer\", \"just do it\"."
+        }
+      }
+    }
+  },
+  "summary": {
+    "items": 100,
+    "variants": [
+      {
+        "variant": "en-score",
+        "zh": {
+          "items": 100,
+          "answered": 100,
+          "failed": 0,
+          "accuracy": 0.94,
+          "exact": 0.65,
+          "misses": {
+            "over": 3,
+            "under": 3
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.94
+        },
+        "en": {
+          "items": 100,
+          "answered": 100,
+          "failed": 0,
+          "accuracy": 0.95,
+          "exact": 0.69,
+          "misses": {
+            "over": 3,
+            "under": 2
+          },
+          "late": 0,
+          "retried": 0,
+          "inTime": 0.95
+        },
+        "gap": -0.01,
+        "pass": true,
+        "agreement": {
+          "items": 100,
+          "same": 93,
+          "rate": 0.93
+        },
+        "latency": {
+          "answers": 200,
+          "p50": 523,
+          "p90": 585,
+          "max": 1049,
+          "slow": 0
+        },
+        "tags": [
+          {
+            "tag": "mechanical",
+            "items": 4,
+            "wrong": {
+              "zh": 2,
+              "en": 2
+            }
+          },
+          {
+            "tag": "security",
+            "items": 12,
+            "wrong": {
+              "zh": 2,
+              "en": 2
+            }
+          },
+          {
+            "tag": "config",
+            "items": 12,
+            "wrong": {
+              "zh": 1,
+              "en": 1
+            }
+          },
+          {
+            "tag": "data",
+            "items": 14,
+            "wrong": {
+              "zh": 1,
+              "en": 1
+            }
+          },
+          {
+            "tag": "design",
+            "items": 11,
+            "wrong": {
+              "zh": 1,
+              "en": 1
+            }
+          },
+          {
+            "tag": "git",
+            "items": 8,
+            "wrong": {
+              "zh": 1,
+              "en": 1
+            }
+          },
+          {
+            "tag": "long-but-easy",
+            "items": 4,
+            "wrong": {
+              "zh": 1,
+              "en": 1
+            }
+          },
+          {
+            "tag": "misleading-debug",
+            "items": 6,
+            "wrong": {
+              "zh": 1,
+              "en": 1
+            }
+          },
+          {
+            "tag": "misleading-topic",
+            "items": 12,
+            "wrong": {
+              "zh": 1,
+              "en": 1
+            }
+          },
+          {
+            "tag": "understated",
+            "items": 4,
+            "wrong": {
+              "zh": 1,
+              "en": 1
+            }
+          },
+          {
+            "tag": "misleading-mechanical",
+            "items": 4,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            }
+          },
+          {
+            "tag": "refactor",
+            "items": 14,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            }
+          },
+          {
+            "tag": "workflow",
+            "items": 1,
+            "wrong": {
+              "zh": 1,
+              "en": 0
+            }
+          },
+          {
+            "tag": "ambiguous",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "audit",
+            "items": 2,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "calm-tone",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "chat",
+            "items": 4,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "code-switching",
+            "items": 17,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "concurrency",
+            "items": 8,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "context-dependent",
+            "items": 5,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "continuation",
+            "items": 2,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "cross-file",
+            "items": 2,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "debug",
+            "items": 15,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "docs",
+            "items": 5,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "follow-up",
+            "items": 18,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "idiom",
+            "items": 7,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "irreversible",
+            "items": 3,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "jargon",
+            "items": 4,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "misleading-irreversible",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "misleading-scale",
+            "items": 5,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "perf",
+            "items": 7,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "proof",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "question-only",
+            "items": 12,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "review",
+            "items": 3,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "short-but-hard",
+            "items": 13,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "tests",
+            "items": 5,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "topic-switch",
+            "items": 1,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "trivial",
+            "items": 10,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          },
+          {
+            "tag": "urgent-tone",
+            "items": 2,
+            "wrong": {
+              "zh": 0,
+              "en": 0
+            }
+          }
+        ]
+      }
+    ],
+    "constants": [
+      {
+        "answer": "low",
+        "accuracy": 0.3,
+        "exact": 0.22
+      },
+      {
+        "answer": "medium",
+        "accuracy": 0.49,
+        "exact": 0.26
+      },
+      {
+        "answer": "high",
+        "accuracy": 0.55,
+        "exact": 0.26
+      },
+      {
+        "answer": "xhigh",
+        "accuracy": 0.39,
+        "exact": 0.18
+      },
+      {
+        "answer": "max",
+        "accuracy": 0.12,
+        "exact": 0.08
+      }
+    ]
+  },
+  "answers": [
+    {"id":"submit-001","language":"zh","state":{"user_message":"先说下背景：我们这周在把整个后端从 docker-compose 迁到 k8s，redis、postgres、kafka 都要搬，下周还要上 Istio，事情一大堆。不过这些你都先不用管，redis 新版本的兼容性我已经在 staging 验证过了。现在只要你把 `docker-compose.yml` 里 redis 的镜像从 `redis:6.2-alpine` 改成 `redis:7.2-alpine`，别的一个字都不要动。","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.982,0.015,0.001,0.001,0.001],"confidence":0.9804818851534688,"base":"low","stakes":{"undo":0.002,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.002,"escalate":0.018,"ultrathink":false,"unresolved":{"still_failing":0.0008836173991471774,"solved":0.0012398726826923275,"new_task":0.998446115372203},"change":"reset","guide":"typesafe","ms":716,"attempts":1,"tokens":2015,"model":"drex-max-v1.1"}},
+    {"id":"submit-001","language":"en","state":{"user_message":"Some background first: this week we're moving the whole backend from docker-compose to k8s — redis, postgres and kafka all have to move, and next week we're rolling out Istio too, so there's a ton going on. But you don't need to worry about any of that for now; I've already verified the new redis version's compatibility on staging. Right now I just need you to change the redis image in `docker-compose.yml` from `redis:6.2-alpine` to `redis:7.2-alpine`, and don't touch a single other character.","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.98,0.017,0.001,0.001,0.001],"confidence":0.979199310437608,"base":"low","stakes":{"undo":0.003,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.002,"escalate":0.026,"ultrathink":false,"unresolved":{"still_failing":0.0005752531185660534,"solved":0.001991704773752899,"new_task":0.9988148726628778},"change":"reset","guide":"typesafe","ms":512,"attempts":1,"tokens":2034,"model":"drex-max-v1.1"}},
+    {"id":"submit-002","language":"zh","state":{"user_message":"我们是个跑了五年的 Django 单体，想先把订单模块拆成独立服务。帮我设计下拆分方案：服务边界怎么划、订单相关的表怎么迁、过渡期用双写还是 CDC、怎么灰度切流。先出方案，代码后面再说","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.025,0.027,0.008,0.791,0.149],"confidence":0.761322844482509,"base":"xhigh","stakes":{"undo":0.003,"live":0.002,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.002,"escalate":0.02,"ultrathink":false,"unresolved":{"still_failing":0.0009038020398237347,"solved":0.00249565329548045,"new_task":0.9987878095257019},"change":"reset","guide":"typesafe","ms":472,"attempts":1,"tokens":1968,"model":"drex-max-v1.1"}},
+    {"id":"submit-002","language":"en","state":{"user_message":"We have a Django monolith that's been running for five years, and we want to start by splitting the order module out into a separate service. Design the split for me: how to draw the service boundary, how to migrate the order-related tables, whether to use dual writes or CDC during the transition, and how to shift traffic gradually. Plan first; the code comes later.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.009,0.008,0.007,0.839,0.137],"confidence":0.8441934948316434,"base":"xhigh","stakes":{"undo":0.001,"live":0.002,"access":0.001},"cause":0,"still_failing":0,"confirm":0.001,"escalate":0.019,"ultrathink":false,"unresolved":{"still_failing":0.0003344529702791458,"solved":0.0020836290752932213,"new_task":0.9994976766633055},"change":"reset","guide":"typesafe","ms":483,"attempts":1,"tokens":1989,"model":"drex-max-v1.1"}},
+    {"id":"submit-003","language":"zh","state":{"user_message":"这个页面一打开就疯狂发请求，Network 里一秒几十个，应该是 `useEffect` 的 deps 写得有问题，你帮我瞅瞅 `ProductList.tsx`","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.017,0.098,0.75,0.129,0.006],"confidence":0.7728602696749278,"base":"high","stakes":{"undo":0.005,"live":0.002,"access":0.001},"cause":0.764,"still_failing":0.013,"confirm":0.002,"escalate":0.022,"ultrathink":false,"unresolved":{"still_failing":0.012863226905782434,"solved":0.0032708491701344132,"new_task":0.9959940924253232},"change":"reset","guide":"typesafe","ms":479,"attempts":1,"tokens":1950,"model":"drex-max-v1.1"}},
+    {"id":"submit-003","language":"en","state":{"user_message":"As soon as this page opens it fires requests like crazy — dozens per second in the Network tab. Something's probably wrong with the `useEffect` deps; take a look at `ProductList.tsx` for me.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.012,0.252,0.454,0.276,0.006],"confidence":0.5303936280364909,"base":"high","stakes":{"undo":0.003,"live":0.001,"access":0.001},"cause":0.975,"still_failing":0.004,"confirm":0.001,"escalate":0.007,"ultrathink":false,"unresolved":{"still_failing":0.00419040413981097,"solved":0.0015893566691355708,"new_task":0.9987601273173077},"change":"reset","guide":"typesafe","ms":508,"attempts":1,"tokens":1957,"model":"drex-max-v1.1"}},
+    {"id":"submit-004","language":"zh","state":{"user_message":"上传超过 10MB 的文件就报 413，nginx 的 `client_max_body_size` 我已经改成 100m 并且 reload 过了，还是 413。我们前面还有一层 ingress，后端是 Spring Boot","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.018,0.426,0.126,0.426,0.003],"confidence":0.16103705576614202,"base":"high","stakes":{"undo":0.016,"live":0.041,"access":0.004},"cause":0.997,"still_failing":0.094,"confirm":0.002,"escalate":0.004,"ultrathink":false,"unresolved":{"still_failing":0.094435280229764,"solved":0.005247753060828087,"new_task":0.9965004315866645},"change":"reset","guide":"typesafe","ms":530,"attempts":1,"tokens":1968,"model":"drex-max-v1.1"}},
+    {"id":"submit-004","language":"en","state":{"user_message":"Uploading any file over 10MB returns 413. I've already changed nginx's `client_max_body_size` to 100m and reloaded it, but it's still 413. There's also an ingress layer in front of it, and the backend is Spring Boot.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.02,0.329,0.106,0.541,0.003],"confidence":0.3101559058586777,"base":"high","stakes":{"undo":0.02,"live":0.039,"access":0.003},"cause":0.995,"still_failing":0.17,"confirm":0.001,"escalate":0.005,"ultrathink":false,"unresolved":{"still_failing":0.1704486608505249,"solved":0.007862331799664135,"new_task":0.9952037817490387},"change":"reset","guide":"typesafe","ms":521,"attempts":1,"tokens":1977,"model":"drex-max-v1.1"}},
+    {"id":"submit-005","language":"zh","state":{"user_message":"继续","recent_context":"user: 把代码里所有的 `fetchData` 统一改名成 `loadData`，测试里的也要改\nassistant: [tools: Grep, Edit] 共 112 个文件，已改完 70 个，还剩 `src/legacy/` 和 `tests/` 下的 42 个，改法完全相同。为免单次输出过长先停一下，要继续吗？"},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.998,0,0.001,0.001,0],"confidence":0.9964352036564584,"base":"low","stakes":{"undo":0,"live":0,"access":0},"cause":0,"still_failing":0,"confirm":1,"escalate":0.002,"ultrathink":false,"unresolved":{"still_failing":0.00015864363028913464,"solved":0.00040988598523983375,"new_task":0.0005624019360143069},"change":"keep","guide":"typesafe","ms":525,"attempts":1,"tokens":2006,"model":"drex-max-v1.1"}},
+    {"id":"submit-005","language":"en","state":{"user_message":"Continue.","recent_context":"user: Rename every `fetchData` in the code to `loadData`, including the ones in tests.\nassistant: [tools: Grep, Edit] There are 112 files in total; 70 are done, and the remaining 42, under `src/legacy/` and `tests/`, need exactly the same change. I'm pausing here so a single output doesn't get too long — shall I continue?"},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.999,0.001,0.001,0,0],"confidence":0.9978013668685539,"base":"low","stakes":{"undo":0,"live":0,"access":0},"cause":0,"still_failing":0,"confirm":1,"escalate":0.002,"ultrathink":false,"unresolved":{"still_failing":0.0003499161264817308,"solved":0.0003744615438653495,"new_task":0.0007892521355523027},"change":"keep","guide":"typesafe","ms":537,"attempts":1,"tokens":2007,"model":"drex-max-v1.1"}},
+    {"id":"submit-006","language":"zh","state":{"user_message":"继续","recent_context":"user: 把项目从 Vue 2 迁到 Vue 3，Vuex 换成 Pinia，组件库从 Element UI 换成 Element Plus\nassistant: [tools: Read, Edit, Bash, Grep] 进度：构建已切到 Vite，6 个 Vuex store 里迁完了 4 个。还剩：2 个 store；`src/views/` 下 38 个页面组件，里面大量用了 `$listeners`、filters 和 `.sync`，都要改写；Element Plus 的表单校验 API 也有差异，要逐个核对。先停在这里，要继续吗？"},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.006,0.002,0.044,0.945,0.003],"confidence":0.9430307795832655,"base":"xhigh","stakes":{"undo":0.001,"live":0,"access":0},"cause":0.001,"still_failing":0,"confirm":1,"escalate":0.001,"ultrathink":false,"unresolved":{"still_failing":0.00014824274034289553,"solved":0.00029204255555153154,"new_task":0.0004694014147040952},"change":"keep","guide":"typesafe","ms":615,"attempts":1,"tokens":2046,"model":"drex-max-v1.1"}},
+    {"id":"submit-006","language":"en","state":{"user_message":"Continue.","recent_context":"user: Migrate the project from Vue 2 to Vue 3, replace Vuex with Pinia, and switch the component library from Element UI to Element Plus.\nassistant: [tools: Read, Edit, Bash, Grep] Progress: the build has been switched to Vite, and 4 of the 6 Vuex stores have been migrated. Remaining: 2 stores; 38 page components under `src/views/` that make heavy use of `$listeners`, filters and `.sync`, all of which need rewriting; and the Element Plus form-validation API also differs, so each form needs checking. I'll stop here for now — shall I continue?"},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.01,0.002,0.042,0.943,0.003],"confidence":0.9346401452336139,"base":"xhigh","stakes":{"undo":0.001,"live":0,"access":0},"cause":0.002,"still_failing":0,"confirm":1,"escalate":0.002,"ultrathink":false,"unresolved":{"still_failing":0.0002608379425500075,"solved":0.00029871821810903225,"new_task":0.0004486601902401376},"change":"keep","guide":"typesafe","ms":565,"attempts":1,"tokens":2049,"model":"drex-max-v1.1"}},
+    {"id":"submit-007","language":"zh","state":{"user_message":"支付回调偶尔会重复入账，帮我查查","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.008,0.061,0.039,0.877,0.016],"confidence":0.8328991147233498,"base":"xhigh","stakes":{"undo":0.009,"live":0.02,"access":0.007},"cause":0.999,"still_failing":0.002,"confirm":0.001,"escalate":0.012,"ultrathink":false,"unresolved":{"still_failing":0.0015192037929143332,"solved":0.0006296611030361076,"new_task":0.9993107886011723},"change":"reset","guide":"typesafe","ms":442,"attempts":1,"tokens":1922,"model":"drex-max-v1.1"}},
+    {"id":"submit-007","language":"en","state":{"user_message":"Payment callbacks occasionally credit the account twice. Look into it for me.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.008,0.036,0.029,0.898,0.029],"confidence":0.8706408779930773,"base":"xhigh","stakes":{"undo":0.022,"live":0.037,"access":0.009},"cause":0.999,"still_failing":0.001,"confirm":0.001,"escalate":0.025,"ultrathink":false,"unresolved":{"still_failing":0.0014521442407822022,"solved":0.0008257259426356427,"new_task":0.9986429444313366},"change":"reset","guide":"typesafe","ms":630,"attempts":1,"tokens":1926,"model":"drex-max-v1.1"}},
+    {"id":"submit-008","language":"zh","state":{"user_message":"单体和微服务到底该怎么选？我们团队就 6 个人，产品方向还没定下来，老板天天念叨要上微服务","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.022,0.97,0.001,0.005,0.002],"confidence":0.9672710421641101,"base":"medium","stakes":{"undo":0,"live":0,"access":0},"cause":0,"still_failing":0,"confirm":0,"escalate":0.006,"ultrathink":false,"unresolved":{"still_failing":0.0003499161264817308,"solved":0.00035791370949593413,"new_task":0.9997965774947964},"change":"reset","guide":"typesafe","ms":441,"attempts":1,"tokens":1942,"model":"drex-max-v1.1"}},
+    {"id":"submit-008","language":"en","state":{"user_message":"How should we actually choose between a monolith and microservices? Our team is only six people, the product direction hasn't been settled yet, and the boss keeps going on about moving to microservices.","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.028,0.954,0.003,0.009,0.006],"confidence":0.9445626050671972,"base":"medium","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.05,"ultrathink":false,"unresolved":{"still_failing":0.001297142322808518,"solved":0.00105859669587347,"new_task":0.9988148726628778},"change":"reset","guide":"typesafe","ms":478,"attempts":1,"tokens":1953,"model":"drex-max-v1.1"}},
+    {"id":"submit-009","language":"zh","state":{"user_message":"把 `Customer` 这个概念统一改叫 `Account`，类名、数据库表名、API 返回的字段名都要改，前端也在用这些字段","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.054,0.007,0.04,0.896,0.004],"confidence":0.8168681482517712,"base":"xhigh","stakes":{"undo":0.12,"live":0.074,"access":0.005},"cause":0.001,"still_failing":0.002,"confirm":0.001,"escalate":0.008,"ultrathink":false,"unresolved":{"still_failing":0.00249565329548045,"solved":0.001297142322808518,"new_task":0.9989881511410895},"change":"reset","guide":"typesafe","ms":481,"attempts":1,"tokens":1948,"model":"drex-max-v1.1"}},
+    {"id":"submit-009","language":"en","state":{"user_message":"Rename the `Customer` concept to `Account` everywhere — class names, database table names, and the field names in API responses all need to change, and the frontend also uses these fields.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.205,0.009,0.119,0.663,0.005],"confidence":0.37073792964433394,"base":"high","stakes":{"undo":0.077,"live":0.039,"access":0.003},"cause":0.001,"still_failing":0.001,"confirm":0.002,"escalate":0.009,"ultrathink":false,"unresolved":{"still_failing":0.0014852966288539284,"solved":0.0019472704993082253,"new_task":0.9987601278986626},"change":"reset","guide":"typesafe","ms":528,"attempts":1,"tokens":1951,"model":"drex-max-v1.1"}},
+    {"id":"submit-010","language":"zh","state":{"user_message":"急急急！！线上告警炸了，老板在群里疯狂@我，你赶紧帮我看一眼 `.env.production` 里 `API_TIMEOUT` 现在配的多少！","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.979,0.015,0.003,0.003,0.001],"confidence":0.9731632847817695,"base":"low","stakes":{"undo":0.002,"live":0.009,"access":0.026},"cause":0.039,"still_failing":0.002,"confirm":0.001,"escalate":0.011,"ultrathink":false,"unresolved":{"still_failing":0.002495651901983066,"solved":0.0008445884529488826,"new_task":0.9968020297144775},"change":"reset","guide":"typesafe","ms":523,"attempts":1,"tokens":1948,"model":"drex-max-v1.1"}},
+    {"id":"submit-010","language":"en","state":{"user_message":"Urgent!! Production alerts are going off everywhere and my boss keeps @-ing me in the group chat — quick, check what `API_TIMEOUT` is currently set to in `.env.production`!","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.978,0.014,0.004,0.003,0.001],"confidence":0.9714527158376625,"base":"low","stakes":{"undo":0.002,"live":0.01,"access":0.023},"cause":0.046,"still_failing":0.002,"confirm":0.001,"escalate":0.015,"ultrathink":false,"unresolved":{"still_failing":0.0015893566691355708,"solved":0.0007210647838876167,"new_task":0.9981386501175429},"change":"reset","guide":"typesafe","ms":523,"attempts":1,"tokens":1953,"model":"drex-max-v1.1"}},
+    {"id":"submit-011","language":"zh","state":{"user_message":"那第二个方案呢？具体要动哪些地方","recent_context":"user: 商品详情接口太慢了，有什么办法？\nassistant: [tools: Read, Grep] 有两个方案：1. 在服务内加进程内 LRU 缓存，改动小，但多实例之间缓存不一致；2. 引入 Redis 做集中缓存，一致性更好，但要新增一个依赖，还要处理商品更新时的缓存失效。我倾向先用方案 1 顶上。"},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.132,0.561,0.115,0.181,0.011],"confidence":0.464274489409052,"base":"medium","stakes":{"undo":0.01,"live":0.004,"access":0.001},"cause":0.039,"still_failing":0.001,"confirm":0.721,"escalate":0.024,"ultrathink":false,"unresolved":{"still_failing":0.001107503438796302,"solved":0.002385591681318525,"new_task":0.00132676121723459},"change":"keep","guide":"typesafe","ms":527,"attempts":1,"tokens":2009,"model":"drex-max-v1.1"}},
+    {"id":"submit-011","language":"en","state":{"user_message":"What about the second option? What exactly would need to change?","recent_context":"user: The product detail endpoint is too slow. Any ideas?\nassistant: [tools: Read, Grep] There are two options: 1. Add an in-process LRU cache inside the service — a small change, but the cache will be inconsistent across instances; 2. Bring in Redis as a centralized cache — better consistency, but it adds a dependency, and cache invalidation on product updates has to be handled. I'd lean toward option 1 as a stopgap."},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.14,0.682,0.054,0.112,0.012],"confidence":0.6225204175086028,"base":"medium","stakes":{"undo":0.01,"live":0.005,"access":0.003},"cause":0.029,"still_failing":0.002,"confirm":0.5,"escalate":0.041,"ultrathink":false,"unresolved":{"still_failing":0.0017006947969001598,"solved":0.0024400022164545363,"new_task":0.0010585972773339185},"change":"keep","guide":"typesafe","ms":522,"attempts":1,"tokens":2025,"model":"drex-max-v1.1"}},
+    {"id":"submit-012","language":"zh","state":{"user_message":"那就第二个方案吧，一劳永逸","recent_context":"user: 订单状态老是对不上，有时候支付成功了，订单还是待支付\nassistant: [tools: Read, Grep, Bash] 根因是订单状态由订单、支付、物流三个服务各自更新，没有单一的事实来源。两个方案：1. 在支付回调里补一次状态同步，改动小，但治标不治本；2. 把订单状态改成由订单服务统一维护的状态机，其他服务改为发事件，需要改 3 个服务和消息契约，并迁移存量订单的状态数据。"},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.006,0.005,0.008,0.964,0.017],"confidence":0.9559257286625011,"base":"xhigh","stakes":{"undo":0.378,"live":0.236,"access":0.004},"cause":0.001,"still_failing":0.001,"confirm":0.999,"escalate":0.029,"ultrathink":false,"unresolved":{"still_failing":0.0014197295755350348,"solved":0.00048012832909024927,"new_task":0.0008072831669359137},"change":"keep","guide":"typesafe","ms":527,"attempts":1,"tokens":2036,"model":"drex-max-v1.1"}},
+    {"id":"submit-012","language":"en","state":{"user_message":"Then let's go with the second option — solve it once and for all.","recent_context":"user: Order statuses keep getting out of sync — sometimes the payment succeeds but the order still says awaiting payment.\nassistant: [tools: Read, Grep, Bash] The root cause is that the order status is updated independently by three services — orders, payments and shipping — with no single source of truth. Two options: 1. Add an extra status sync in the payment callback — a small change, but it treats the symptom, not the cause; 2. Turn the order status into a state machine maintained solely by the order service, with the other services emitting events instead — this requires changing 3 services and the message contracts, and migrating the status data of existing orders."},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.01,0.006,0.011,0.938,0.035],"confidence":0.9261988905747567,"base":"xhigh","stakes":{"undo":0.4,"live":0.19,"access":0.004},"cause":0.002,"still_failing":0.001,"confirm":0.997,"escalate":0.071,"ultrathink":false,"unresolved":{"still_failing":0.0014197308542854275,"solved":0.0012121916370401464,"new_task":0.0008836165268037437},"change":"keep","guide":"typesafe","ms":520,"attempts":1,"tokens":2067,"model":"drex-max-v1.1"}},
+    {"id":"submit-013","language":"zh","state":{"user_message":"这玩意儿并发安全吗？","recent_context":"user: 帮我看下 `TokenCache` 这个类\nassistant: [tools: Read] `TokenCache` 用一个普通的 `HashMap` 存 token；`get` 时如果发现过期，就调用 `refresh()` 重新拉取再 `put` 回去，`refresh()` 内部会发一次 HTTP 请求。这个类的单例在所有请求线程之间共享。"},"en-score":{"answer":"medium","correct":true,"gold":false,"p":[0.13,0.602,0.094,0.135,0.038],"confidence":0.49209810743357174,"base":"medium","stakes":{"undo":0.002,"live":0.001,"access":0.007},"cause":0.021,"still_failing":0.002,"confirm":0.012,"escalate":0.009,"ultrathink":false,"unresolved":{"still_failing":0.0019472704993082253,"solved":0.0006440479064865364,"new_task":0.02097768320904908},"change":"keep","guide":"typesafe","ms":524,"attempts":1,"tokens":2000,"model":"drex-max-v1.1"}},
+    {"id":"submit-013","language":"en","state":{"user_message":"Is this thing thread-safe?","recent_context":"user: Take a look at the `TokenCache` class for me.\nassistant: [tools: Read] `TokenCache` stores tokens in a plain `HashMap`; on `get`, if the token has expired, it calls `refresh()` to fetch a new one and `put`s it back, and `refresh()` makes an HTTP request internally. A singleton of this class is shared across all request threads."},"en-score":{"answer":"medium","correct":true,"gold":false,"p":[0.133,0.567,0.127,0.127,0.045],"confidence":0.4575968187640229,"base":"medium","stakes":{"undo":0.002,"live":0.001,"access":0.007},"cause":0.022,"still_failing":0.001,"confirm":0.007,"escalate":0.008,"ultrathink":false,"unresolved":{"still_failing":0.0013570548711193313,"solved":0.001107504020228265,"new_task":0.04417244799756348},"change":"keep","guide":"typesafe","ms":523,"attempts":1,"tokens":2002,"model":"drex-max-v1.1"}},
+    {"id":"submit-014","language":"zh","state":{"user_message":"从 v2.0 到现在，不知道哪个 commit 开始把 `npm test` 搞挂了，中间两百来个 commit，用 git bisect 帮我找出来是哪个","recent_context":""},"en-score":{"answer":"high","correct":false,"gold":false,"miss":"over","p":[0.055,0.366,0.48,0.094,0.004],"confidence":0.5177116589477204,"base":"high","stakes":{"undo":0.036,"live":0.002,"access":0.001},"cause":0.99,"still_failing":0.002,"confirm":0.001,"escalate":0.005,"ultrathink":false,"unresolved":{"still_failing":0.0021311683829915887,"solved":0.0031979719101249376,"new_task":0.9989650408805127},"change":"reset","guide":"typesafe","ms":1049,"attempts":1,"tokens":1949,"model":"drex-max-v1.1"}},
+    {"id":"submit-014","language":"en","state":{"user_message":"Somewhere between v2.0 and now, some commit started breaking `npm test`, and there are about two hundred commits in between. Use git bisect to find out which one it is.","recent_context":""},"en-score":{"answer":"high","correct":false,"gold":false,"miss":"over","p":[0.057,0.276,0.569,0.093,0.004],"confidence":0.590275936501294,"base":"high","stakes":{"undo":0.024,"live":0.002,"access":0.002},"cause":0.981,"still_failing":0.002,"confirm":0.001,"escalate":0.004,"ultrathink":false,"unresolved":{"still_failing":0.002229516948099428,"solved":0.002131167221319311,"new_task":0.9994501627430229},"change":"reset","guide":"typesafe","ms":524,"attempts":1,"tokens":1952,"model":"drex-max-v1.1"}},
+    {"id":"submit-015","language":"zh","state":{"user_message":"Raft 里线性一致读是怎么保证的？ReadIndex 和 Lease Read 各自的前提是什么，Lease Read 为啥会依赖时钟？","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.029,0.911,0.004,0.023,0.032],"confidence":0.8527076151041553,"base":"medium","stakes":{"undo":0,"live":0,"access":0},"cause":0.001,"still_failing":0,"confirm":0.001,"escalate":0.005,"ultrathink":false,"unresolved":{"still_failing":0.00036609414294403353,"solved":0.0005498370242744958,"new_task":0.9994501627430229},"change":"reset","guide":"typesafe","ms":528,"attempts":1,"tokens":1944,"model":"drex-max-v1.1"}},
+    {"id":"submit-015","language":"en","state":{"user_message":"How are linearizable reads guaranteed in Raft? What are the preconditions for ReadIndex and Lease Read respectively, and why does Lease Read depend on clocks?","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.046,0.863,0.007,0.036,0.048],"confidence":0.7756904266905053,"base":"medium","stakes":{"undo":0.001,"live":0,"access":0},"cause":0,"still_failing":0,"confirm":0.001,"escalate":0.01,"ultrathink":false,"unresolved":{"still_failing":0.00024373871191845883,"solved":0.0007049580194345328,"new_task":0.9995807465683236},"change":"reset","guide":"typesafe","ms":521,"attempts":1,"tokens":1944,"model":"drex-max-v1.1"}},
+    {"id":"submit-016","language":"zh","state":{"user_message":"这是我们自己写的无锁 MPMC 队列（基于 CAS 加序号），在 `queue/mpmc.rs`。帮我证明它是 linearizable 的；证不出来的话，就构造一个具体的反例交错序列","recent_context":""},"en-score":{"answer":"max","correct":true,"gold":true,"p":[0.002,0.001,0.001,0.003,0.993],"confidence":0.9870040715484714,"base":"max","stakes":{"undo":0,"live":0,"access":0.001},"cause":0.003,"still_failing":0,"confirm":0.001,"escalate":0.017,"ultrathink":false,"unresolved":{"still_failing":0.0002550088784564875,"solved":0.00037446134021482927,"new_task":0.9995613642117973},"change":"reset","guide":"typesafe","ms":541,"attempts":1,"tokens":1958,"model":"drex-max-v1.1"}},
+    {"id":"submit-016","language":"en","state":{"user_message":"This is a lock-free MPMC queue we wrote ourselves (based on CAS plus sequence numbers), in `queue/mpmc.rs`. Prove that it's linearizable; if you can't, construct a concrete counterexample interleaving.","recent_context":""},"en-score":{"answer":"max","correct":true,"gold":true,"p":[0.002,0.001,0.001,0.003,0.993],"confidence":0.9870243790485952,"base":"max","stakes":{"undo":0.001,"live":0,"access":0.001},"cause":0.006,"still_failing":0,"confirm":0,"escalate":0.012,"ultrathink":false,"unresolved":{"still_failing":0.0002608379425500075,"solved":0.0007543888396496784,"new_task":0.9996169803199318},"change":"reset","guide":"typesafe","ms":506,"attempts":1,"tokens":1958,"model":"drex-max-v1.1"}},
+    {"id":"submit-017","language":"zh","state":{"user_message":"把项目里的 moment 全换成 dayjs，包太大了。大概 40 处用到，有几处用了 `tz` 和 `locale`","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.085,0.01,0.624,0.277,0.004],"confidence":0.6126793498478205,"base":"high","stakes":{"undo":0.002,"live":0.001,"access":0},"cause":0.001,"still_failing":0.002,"confirm":0.001,"escalate":0.005,"ultrathink":false,"unresolved":{"still_failing":0.0017006947969001598,"solved":0.00261077439588156,"new_task":0.9975599977835454},"change":"reset","guide":"typesafe","ms":523,"attempts":1,"tokens":1945,"model":"drex-max-v1.1"}},
+    {"id":"submit-017","language":"en","state":{"user_message":"Replace all the moment usage in the project with dayjs — the bundle is too big. It's used in about 40 places, and a few of them use `tz` and `locale`.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.116,0.011,0.493,0.376,0.004],"confidence":0.4775157256751854,"base":"high","stakes":{"undo":0.003,"live":0.001,"access":0.001},"cause":0.003,"still_failing":0.002,"confirm":0.001,"escalate":0.016,"ultrathink":false,"unresolved":{"still_failing":0.0017006940995961469,"solved":0.0039167158340969776,"new_task":0.9985147041848429},"change":"reset","guide":"typesafe","ms":544,"attempts":1,"tokens":1954,"model":"drex-max-v1.1"}},
+    {"id":"submit-018","language":"zh","state":{"user_message":"monorepo 里所有 `@acme/utils` 的 import 都改成 `@acme/shared-utils`。新包已经发布了，导出的东西一模一样，纯粹是换个包名。大概三百多个文件，改完跑一下 `pnpm -r build`，能过就行","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.978,0.003,0.015,0.003,0.001],"confidence":0.9619972760936084,"base":"low","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0.002,"still_failing":0.002,"confirm":0.001,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.002280373916613098,"solved":0.0011327965556631413,"new_task":0.9987601273173077},"change":"reset","guide":"typesafe","ms":508,"attempts":1,"tokens":1975,"model":"drex-max-v1.1"}},
+    {"id":"submit-018","language":"en","state":{"user_message":"Change every `@acme/utils` import in the monorepo to `@acme/shared-utils`. The new package is already published and exports exactly the same things — it's purely a package rename. It's about 300-odd files; after you're done, run `pnpm -r build`, and as long as it passes we're good.","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.993,0.001,0.004,0.002,0],"confidence":0.9873018590184627,"base":"low","stakes":{"undo":0.001,"live":0.001,"access":0},"cause":0.001,"still_failing":0.001,"confirm":0,"escalate":0.002,"ultrathink":false,"unresolved":{"still_failing":0.0005375537549702262,"solved":0.0011851267557354567,"new_task":0.9992789356232722},"change":"reset","guide":"typesafe","ms":616,"attempts":1,"tokens":1988,"model":"drex-max-v1.1"}},
+    {"id":"submit-019","language":"zh","state":{"user_message":"那把 strict 打开吧，tsc 得过","recent_context":"user: 项目的 TS 配置现在是什么情况？\nassistant: [tools: Read, Glob, Grep] 看了下 `tsconfig.json`：`strict` 是关的，`noImplicitAny` 也关着。项目一共约 240 个 `.ts`/`.tsx` 文件，很多函数参数没写类型（隐式 any），可选属性也大量没判空就直接访问。"},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.171,0.05,0.441,0.322,0.016],"confidence":0.3792536540106558,"base":"high","stakes":{"undo":0.004,"live":0.002,"access":0.001},"cause":0.048,"still_failing":0.002,"confirm":0.06,"escalate":0.011,"ultrathink":false,"unresolved":{"still_failing":0.002440003377767186,"solved":0.01607361667063879,"new_task":0.02984636118492448},"change":"keep","guide":"typesafe","ms":455,"attempts":1,"tokens":2016,"model":"drex-max-v1.1"}},
+    {"id":"submit-019","language":"en","state":{"user_message":"Then turn strict on — tsc has to pass.","recent_context":"user: What's the current state of the project's TS config?\nassistant: [tools: Read, Glob, Grep] I looked at `tsconfig.json`: `strict` is off, and so is `noImplicitAny`. The project has about 240 `.ts`/`.tsx` files; many function parameters have no type annotations (implicit any), and optional properties are accessed directly without null checks in lots of places."},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.138,0.03,0.409,0.409,0.013],"confidence":0.38157619858622716,"base":"high","stakes":{"undo":0.003,"live":0.001,"access":0.002},"cause":0.071,"still_failing":0.003,"confirm":0.048,"escalate":0.012,"ultrathink":false,"unresolved":{"still_failing":0.00285715514793984,"solved":0.016804530966214374,"new_task":0.02856465354535305},"change":"keep","guide":"typesafe","ms":568,"attempts":1,"tokens":2014,"model":"drex-max-v1.1"}},
+    {"id":"submit-020","language":"zh","state":{"user_message":"帮我 review 下这个 PR，就改了登录接口的参数校验，diff 二十来行，主要是加了手机号格式和密码长度的检查，看看有没有明显问题","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.03,0.031,0.932,0.004,0.002],"confidence":0.9162260938014567,"base":"high","stakes":{"undo":0.001,"live":0.001,"access":0.033},"cause":0.002,"still_failing":0.001,"confirm":0.001,"escalate":0.044,"ultrathink":false,"unresolved":{"still_failing":0.0009892526495934855,"solved":0.001819818336566915,"new_task":0.9984461146747965},"change":"reset","guide":"typesafe","ms":458,"attempts":1,"tokens":1946,"model":"drex-max-v1.1"}},
+    {"id":"submit-020","language":"en","state":{"user_message":"Review this PR for me — it only changes the parameter validation on the login endpoint, a diff of about twenty lines, mainly adding checks for phone number format and password length. See if there are any obvious problems.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.032,0.048,0.912,0.006,0.003],"confidence":0.8973270972585187,"base":"high","stakes":{"undo":0.001,"live":0.001,"access":0.025},"cause":0.001,"still_failing":0.001,"confirm":0,"escalate":0.041,"ultrathink":false,"unresolved":{"still_failing":0.0006587640104349621,"solved":0.0015893566691355708,"new_task":0.9989650408805127},"change":"reset","guide":"typesafe","ms":520,"attempts":1,"tokens":1955,"model":"drex-max-v1.1"}},
+    {"id":"submit-021","language":"zh","state":{"user_message":"我们没用现成的库，JWT 的签名和校验是自己手写的（`auth/jwt.ts`，200 行左右）。帮我审一下有没有安全问题，比如 alg 混淆、`none` 算法、时序攻击、过期时间处理这些","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.018,0.01,0.227,0.009,0.736],"confidence":0.5285832036009643,"base":"xhigh","stakes":{"undo":0.001,"live":0.001,"access":0.014},"cause":0.004,"still_failing":0,"confirm":0,"escalate":0.018,"ultrathink":false,"unresolved":{"still_failing":0.0004386357882026407,"solved":0.0006587636614190511,"new_task":0.9997271012314066},"change":"reset","guide":"typesafe","ms":520,"attempts":1,"tokens":1967,"model":"drex-max-v1.1"}},
+    {"id":"submit-021","language":"en","state":{"user_message":"We didn't use an off-the-shelf library — we hand-wrote JWT signing and verification ourselves (`auth/jwt.ts`, about 200 lines). Audit it for security problems, such as algorithm confusion, the `none` algorithm, timing attacks, and expiry handling.","recent_context":""},"en-score":{"answer":"max","correct":true,"gold":true,"p":[0.014,0.006,0.053,0.006,0.921],"confidence":0.8453116602172472,"base":"max","stakes":{"undo":0.002,"live":0.001,"access":0.015},"cause":0.006,"still_failing":0,"confirm":0,"escalate":0.009,"ultrathink":false,"unresolved":{"still_failing":0.0003744611656572404,"solved":0.0003344529702791458,"new_task":0.9995992724456632},"change":"reset","guide":"typesafe","ms":548,"attempts":1,"tokens":1969,"model":"drex-max-v1.1"}},
+    {"id":"submit-022","language":"zh","state":{"user_message":"下面这段报错帮我翻成中文就行，不用修，我就是想发给不太懂英文的同事看：\n```\nError: EACCES: permission denied, open '/var/log/app/server.log'\n    at Object.openSync (node:fs:603:3)\n    at Object.writeFileSync (node:fs:2324:35)\n    at Logger.flush (/srv/app/dist/logger.js:88:12)\n    at process.<anonymous> (/srv/app/dist/index.js:41:10)\n    at process.emit (node:events:519:28)\n```","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.822,0.162,0.009,0.005,0.002],"confidence":0.831215087428344,"base":"low","stakes":{"undo":0.004,"live":0.001,"access":0.002},"cause":0.011,"still_failing":0.003,"confirm":0.001,"escalate":0.011,"ultrathink":false,"unresolved":{"still_failing":0.002922289095240005,"solved":0.0009671614811130648,"new_task":0.9963391675943982},"change":"reset","guide":"typesafe","ms":504,"attempts":1,"tokens":2049,"model":"drex-max-v1.1"}},
+    {"id":"submit-022","language":"en","state":{"user_message":"Just translate the error below into Chinese for me — no need to fix it, I only want to send it to a colleague who doesn't read English well:\n```\nError: EACCES: permission denied, open '/var/log/app/server.log'\n    at Object.openSync (node:fs:603:3)\n    at Object.writeFileSync (node:fs:2324:35)\n    at Logger.flush (/srv/app/dist/logger.js:88:12)\n    at process.<anonymous> (/srv/app/dist/index.js:41:10)\n    at process.emit (node:events:519:28)\n```","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.869,0.119,0.006,0.004,0.002],"confidence":0.8747847274752841,"base":"low","stakes":{"undo":0.005,"live":0.001,"access":0.001},"cause":0.007,"still_failing":0.002,"confirm":0.001,"escalate":0.01,"ultrathink":false,"unresolved":{"still_failing":0.002131167221319311,"solved":0.0009671623533835202,"new_task":0.992482612763819},"change":"reset","guide":"typesafe","ms":528,"attempts":1,"tokens":2058,"model":"drex-max-v1.1"}},
+    {"id":"submit-023","language":"zh","state":{"user_message":"部署了，还是白屏","recent_context":"user: 生产环境点开订单详情页白屏，控制台报 `Cannot read properties of undefined (reading 'map')`\nassistant: [tools: Read, Edit] 定位到 `OrderDetail.tsx` 第 87 行的 `order.items.map`，`items` 可能为空。已改成 `(order.items ?? []).map`，本地验证页面能正常打开。"},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.071,0.331,0.276,0.316,0.006],"confidence":0.1683010345110182,"base":"high","stakes":{"undo":0.141,"live":0.177,"access":0.006},"cause":0.854,"still_failing":0.999,"confirm":0.002,"escalate":0.004,"ultrathink":false,"unresolved":{"still_failing":0.9988672034443369,"solved":0.008600027959420392,"new_task":0.0009892535799948068},"change":"add","guide":"typesafe","ms":519,"attempts":1,"tokens":2000,"model":"drex-max-v1.1"}},
+    {"id":"submit-023","language":"en","state":{"user_message":"Deployed it — still a blank screen.","recent_context":"user: In production, opening the order detail page shows a blank screen, and the console reports `Cannot read properties of undefined (reading 'map')`.\nassistant: [tools: Read, Edit] I traced it to `order.items.map` on line 87 of `OrderDetail.tsx`; `items` can be missing. I changed it to `(order.items ?? []).map` and verified locally that the page opens normally."},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.078,0.317,0.202,0.397,0.006],"confidence":0.10363780755892893,"base":"high","stakes":{"undo":0.125,"live":0.228,"access":0.008},"cause":0.854,"still_failing":0.999,"confirm":0.002,"escalate":0.008,"ultrathink":false,"unresolved":{"still_failing":0.9985802691457146,"solved":0.01150424553706918,"new_task":0.001034959119487251},"change":"add","guide":"typesafe","ms":528,"attempts":1,"tokens":2011,"model":"drex-max-v1.1"}},
+    {"id":"submit-024","language":"zh","state":{"user_message":"我们现在用 Kafka + Flink 做实时数仓，exactly-once 靠两阶段提交的 sink 保证。最近在调研湖仓，Iceberg 和 Paimon 都看了。想请教下：upsert 场景下 Paimon 的 LSM 结构和 Iceberg 的 merge-on-read 本质区别在哪？不用改代码，就想把概念搞明白","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.027,0.946,0.004,0.015,0.008],"confidence":0.92827088100723,"base":"medium","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.022,"ultrathink":false,"unresolved":{"still_failing":0.0007716237589735388,"solved":0.0008072827598112409,"new_task":0.9987601278986626},"change":"reset","guide":"typesafe","ms":522,"attempts":1,"tokens":1992,"model":"drex-max-v1.1"}},
+    {"id":"submit-024","language":"en","state":{"user_message":"We currently run a real-time data warehouse on Kafka + Flink, with exactly-once guaranteed by a two-phase-commit sink. Lately we've been researching lakehouses and have looked at both Iceberg and Paimon. I'd like to ask: in upsert scenarios, what's the fundamental difference between Paimon's LSM structure and Iceberg's merge-on-read? No code changes needed — I just want to get the concepts straight.","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.017,0.974,0.002,0.005,0.002],"confidence":0.9705688757288005,"base":"medium","stakes":{"undo":0,"live":0,"access":0.001},"cause":0,"still_failing":0,"confirm":0.001,"escalate":0.005,"ultrathink":false,"unresolved":{"still_failing":0.00036609414294403353,"solved":0.0005624016451396921,"new_task":0.9989172253953991},"change":"reset","guide":"typesafe","ms":677,"attempts":1,"tokens":2003,"model":"drex-max-v1.1"}},
+    {"id":"submit-025","language":"zh","state":{"user_message":"CI 上的集成测试偶尔挂，大概十次挂一次，报 `ECONNRESET`，本地怎么跑都复现不了，而且挂的不总是同一个 case。烦死了，帮我搞定它","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.005,0.018,0.011,0.959,0.006],"confidence":0.94285351206265,"base":"xhigh","stakes":{"undo":0.009,"live":0.022,"access":0.002},"cause":0.999,"still_failing":0.006,"confirm":0.001,"escalate":0.006,"ultrathink":false,"unresolved":{"still_failing":0.006005504864984002,"solved":0.0010118483937203682,"new_task":0.9991361168498806},"change":"reset","guide":"typesafe","ms":459,"attempts":1,"tokens":1955,"model":"drex-max-v1.1"}},
+    {"id":"submit-025","language":"en","state":{"user_message":"The integration tests on CI fail every so often — about one run in ten — with `ECONNRESET`. I can't reproduce it locally no matter how I run it, and it's not always the same case that fails. It's driving me nuts; get it sorted for me.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.006,0.013,0.014,0.962,0.005],"confidence":0.9475213612302434,"base":"xhigh","stakes":{"undo":0.008,"live":0.024,"access":0.002},"cause":0.998,"still_failing":0.005,"confirm":0,"escalate":0.016,"ultrathink":false,"unresolved":{"still_failing":0.005489128544653354,"solved":0.0014197301567852136,"new_task":0.9990107468852059},"change":"reset","guide":"typesafe","ms":465,"attempts":1,"tokens":1970,"model":"drex-max-v1.1"}},
+    {"id":"submit-026","language":"zh","state":{"user_message":"那把这个 bug 修了","recent_context":"user: 重试逻辑好像没生效，请求一失败就直接报错了\nassistant: [tools: Read, Grep] 找到原因了：`retry.ts` 第 12 行读的是 `config.MAX_RETRIES`，但配置里的键叫 `MAX_RETRY`，所以读到的是 `undefined`，重试循环一次都没执行。把这一处的键名改对就行。"},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.943,0.048,0.007,0.002,0.001],"confidence":0.9426245839965498,"base":"low","stakes":{"undo":0.002,"live":0.001,"access":0.001},"cause":0,"still_failing":0.005,"confirm":0.954,"escalate":0.01,"ultrathink":false,"unresolved":{"still_failing":0.004796218250961326,"solved":0.007862335495665165,"new_task":0.0015538853252035501},"change":"keep","guide":"typesafe","ms":519,"attempts":1,"tokens":2002,"model":"drex-max-v1.1"}},
+    {"id":"submit-026","language":"en","state":{"user_message":"Then fix this bug.","recent_context":"user: The retry logic doesn't seem to be working — as soon as a request fails it errors out immediately.\nassistant: [tools: Read, Grep] Found the cause: line 12 of `retry.ts` reads `config.MAX_RETRIES`, but the key in the config is called `MAX_RETRY`, so it reads `undefined` and the retry loop never runs at all. Just fixing the key name in that one spot will do it."},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.947,0.044,0.007,0.002,0.001],"confidence":0.9449845566365607,"base":"low","stakes":{"undo":0.002,"live":0.001,"access":0.002},"cause":0.001,"still_failing":0.004,"confirm":0.969,"escalate":0.008,"ultrathink":false,"unresolved":{"still_failing":0.0035792953423342275,"solved":0.008600027959420392,"new_task":0.0026107755569953987},"change":"keep","guide":"typesafe","ms":601,"attempts":1,"tokens":2011,"model":"drex-max-v1.1"}},
+    {"id":"submit-027","language":"zh","state":{"user_message":"好的，按你说的改","recent_context":"user: 库存偶尔会被扣成负数\nassistant: [tools: Read, Grep, Bash] 原因找到了：`deductStock` 先查库存再更新，中间没有加锁，并发下单时两个请求可能都读到库存为 1。修复方案：改成条件更新 `UPDATE ... SET stock = stock - ? WHERE id = ? AND stock >= ?` 并检查影响行数；`OrderService`、`FlashSaleService`、`CartCheckout` 三处都调用了这段逻辑，各自对扣减失败的处理要统一；再补一个并发测试复现这个竞态。"},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.013,0.008,0.458,0.501,0.019],"confidence":0.5558948623493598,"base":"xhigh","stakes":{"undo":0.003,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0,"confirm":0.999,"escalate":0.002,"ultrathink":false,"unresolved":{"still_failing":0.00046940118198275985,"solved":0.0003499161264817308,"new_task":0.00019443178002778852},"change":"keep","guide":"typesafe","ms":470,"attempts":1,"tokens":2049,"model":"drex-max-v1.1"}},
+    {"id":"submit-027","language":"en","state":{"user_message":"OK, change it the way you said.","recent_context":"user: Inventory occasionally gets deducted below zero.\nassistant: [tools: Read, Grep, Bash] Found the cause: `deductStock` reads the stock and then updates it with no lock in between, so with concurrent orders two requests can both read a stock of 1. The fix: switch to a conditional update `UPDATE ... SET stock = stock - ? WHERE id = ? AND stock >= ?` and check the affected row count; `OrderService`, `FlashSaleService` and `CartCheckout` all call this logic, and their handling of a failed deduction needs to be made consistent; and add a concurrency test that reproduces the race."},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.01,0.007,0.19,0.773,0.02],"confidence":0.788558840096135,"base":"xhigh","stakes":{"undo":0.003,"live":0.002,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.999,"escalate":0.008,"ultrathink":false,"unresolved":{"still_failing":0.0008072827598112409,"solved":0.0010585972773339185,"new_task":0.001034959119487251},"change":"keep","guide":"typesafe","ms":534,"attempts":1,"tokens":2056,"model":"drex-max-v1.1"}},
+    {"id":"submit-028","language":"zh","state":{"user_message":"先别改代码，你给我解释下为啥两个请求会都读到 1？数据库不是有事务吗","recent_context":"user: 库存偶尔会扣成负数，帮我查一下\nassistant: [tools: Read, Grep] 原因找到了：`deductStock` 先 `SELECT` 库存再 `UPDATE`，两步之间没有加锁，两个并发请求可能都读到库存为 1，然后都扣减成功。建议改成带条件的原子更新。要我改吗？"},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.078,0.896,0.006,0.01,0.01],"confidence":0.8882370492078225,"base":"medium","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0.004,"still_failing":0.001,"confirm":0.013,"escalate":0.011,"ultrathink":false,"unresolved":{"still_failing":0.0011586666666736516,"solved":0.006570131707632991,"new_task":0.0009244472213876495},"change":"keep","guide":"typesafe","ms":519,"attempts":1,"tokens":2015,"model":"drex-max-v1.1"}},
+    {"id":"submit-028","language":"en","state":{"user_message":"Don't change the code yet. Explain to me why both requests would read 1 — doesn't the database have transactions?","recent_context":"user: Inventory occasionally gets deducted below zero — look into it for me.\nassistant: [tools: Read, Grep] Found the cause: `deductStock` does a `SELECT` of the stock and then an `UPDATE`, with no lock between the two steps, so two concurrent requests can both read a stock of 1 and both deduct successfully. I suggest switching to an atomic conditional update. Shall I make the change?"},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.072,0.906,0.006,0.009,0.008],"confidence":0.9012516660239718,"base":"medium","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0.002,"still_failing":0.001,"confirm":0.005,"escalate":0.011,"ultrathink":false,"unresolved":{"still_failing":0.0009455636087575519,"solved":0.003057033146788182,"new_task":0.0005883978559968116},"change":"keep","guide":"typesafe","ms":494,"attempts":1,"tokens":2026,"model":"drex-max-v1.1"}},
+    {"id":"submit-029","language":"zh","state":{"user_message":"改","recent_context":"user: README 帮我检查下有没有错别字\nassistant: [tools: Read] 找到 3 处：第 12 行 `seperate` 应为 `separate`，第 40 行 `recieve` 应为 `receive`，第 58 行 `occured` 应为 `occurred`。要我直接改掉吗？"},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.916,0.076,0.004,0.002,0.001],"confidence":0.9202701016608283,"base":"low","stakes":{"undo":0.002,"live":0,"access":0},"cause":0.001,"still_failing":0,"confirm":0.998,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.0004486603938755434,"solved":0.001625636509589113,"new_task":0.001107504020228265},"change":"keep","guide":"typesafe","ms":561,"attempts":1,"tokens":1995,"model":"drex-max-v1.1"}},
+    {"id":"submit-029","language":"en","state":{"user_message":"Fix them.","recent_context":"user: Check the README for typos for me.\nassistant: [tools: Read] Found 3: on line 12, `seperate` should be `separate`; on line 40, `recieve` should be `receive`; on line 58, `occured` should be `occurred`. Shall I just fix them?"},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.884,0.106,0.005,0.003,0.002],"confidence":0.889282111011053,"base":"low","stakes":{"undo":0.002,"live":0.001,"access":0.001},"cause":0,"still_failing":0.001,"confirm":0.998,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.0008638831501194725,"solved":0.004585167299142405,"new_task":0.0011586666666736516},"change":"keep","guide":"typesafe","ms":513,"attempts":1,"tokens":1991,"model":"drex-max-v1.1"}},
+    {"id":"submit-030","language":"zh","state":{"user_message":"那你抓几份对比下看是哪个，然后搞定它","recent_context":"user: Node 服务的内存一直涨，现在每天凌晨靠定时重启续命\nassistant: [tools: Read, Bash] 看了下监控：RSS 每小时涨约 80MB，heap used 也在涨，GC 之后不回落。可能的原因有好几个：全局缓存没有上限、事件监听器没有解绑、闭包持有大对象。需要间隔一段时间抓几份 heap snapshot 对比才能确定。"},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.02,0.135,0.086,0.75,0.01],"confidence":0.6460194721375512,"base":"xhigh","stakes":{"undo":0.046,"live":0.19,"access":0.002},"cause":0.991,"still_failing":0.004,"confirm":0.983,"escalate":0.015,"ultrathink":false,"unresolved":{"still_failing":0.004383366375353075,"solved":0.0016627436063818674,"new_task":0.0009455636087575519},"change":"keep","guide":"typesafe","ms":519,"attempts":1,"tokens":2015,"model":"drex-max-v1.1"}},
+    {"id":"submit-030","language":"en","state":{"user_message":"Then take a few and compare them to see which one it is, and then fix it.","recent_context":"user: Our Node service's memory keeps growing; right now we keep it alive with a scheduled restart every night.\nassistant: [tools: Read, Bash] I looked at the monitoring: RSS grows by about 80MB an hour, heap used is growing too, and it doesn't drop back after GC. There are several possible causes: a global cache with no size limit, event listeners that are never removed, or closures holding on to large objects. We'd need to take a few heap snapshots some time apart and compare them to be sure."},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.038,0.149,0.163,0.634,0.015],"confidence":0.5068015708100678,"base":"high","stakes":{"undo":0.041,"live":0.125,"access":0.002},"cause":0.913,"still_failing":0.014,"confirm":0.87,"escalate":0.03,"ultrathink":false,"unresolved":{"still_failing":0.014063474761499488,"solved":0.009837047041179799,"new_task":0.0016627436063818674},"change":"keep","guide":"typesafe","ms":481,"attempts":1,"tokens":2044,"model":"drex-max-v1.1"}},
+    {"id":"submit-031","language":"zh","state":{"user_message":"给登录和发短信验证码这两个接口加限流，按用户和 IP 两个维度限，用 Redis 做，多实例部署也要生效","recent_context":""},"en-score":{"answer":"xhigh","correct":false,"gold":false,"miss":"over","p":[0.023,0.015,0.096,0.843,0.023],"confidence":0.8191267775264542,"base":"xhigh","stakes":{"undo":0.006,"live":0.007,"access":0.141},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.002,"ultrathink":false,"unresolved":{"still_failing":0.0009455632598418398,"solved":0.0015538846277970313,"new_task":0.99864294559391},"change":"reset","guide":"typesafe","ms":522,"attempts":1,"tokens":1943,"model":"drex-max-v1.1"}},
+    {"id":"submit-031","language":"en","state":{"user_message":"Add rate limiting to the login endpoint and the send-SMS-verification-code endpoint, limiting on two dimensions — per user and per IP — using Redis, and it has to work across a multi-instance deployment too.","recent_context":""},"en-score":{"answer":"xhigh","correct":false,"gold":false,"miss":"over","p":[0.024,0.019,0.084,0.841,0.032],"confidence":0.8125560308512856,"base":"xhigh","stakes":{"undo":0.011,"live":0.014,"access":0.433},"cause":0.002,"still_failing":0.002,"confirm":0.002,"escalate":0.009,"ultrathink":false,"unresolved":{"still_failing":0.0022803760073105027,"solved":0.006005504864984002,"new_task":0.9975599966222328},"change":"reset","guide":"typesafe","ms":525,"attempts":1,"tokens":1955,"model":"drex-max-v1.1"}},
+    {"id":"submit-032","language":"zh","state":{"user_message":"完了完了，我手滑 `git reset --hard` 了，昨天写的东西没 commit，但是 `git add` 过，还能找回来吗？？","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.244,0.722,0.022,0.009,0.003],"confidence":0.7559309376310173,"base":"medium","stakes":{"undo":0.141,"live":0.003,"access":0.001},"cause":0.06,"still_failing":0.002,"confirm":0.001,"escalate":0.007,"ultrathink":false,"unresolved":{"still_failing":0.0019472704993082253,"solved":0.0023855926104193663,"new_task":0.9991742748715987},"change":"reset","guide":"typesafe","ms":522,"attempts":1,"tokens":1947,"model":"drex-max-v1.1"}},
+    {"id":"submit-032","language":"en","state":{"user_message":"Oh no, oh no — I slipped and ran `git reset --hard`. What I wrote yesterday wasn't committed, but I had run `git add` on it. Can I still get it back??","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.251,0.709,0.027,0.009,0.004],"confidence":0.7439673659893085,"base":"medium","stakes":{"undo":0.152,"live":0.007,"access":0.001},"cause":0.039,"still_failing":0.001,"confirm":0.001,"escalate":0.004,"ultrathink":false,"unresolved":{"still_failing":0.0014197301567852136,"solved":0.0013570548711193313,"new_task":0.9989172253953991},"change":"reset","guide":"typesafe","ms":526,"attempts":1,"tokens":1955,"model":"drex-max-v1.1"}},
+    {"id":"submit-033","language":"zh","state":{"user_message":"就是把生产环境的日志级别从 debug 调成 info，在 `config/prod.yaml` 里。杀鸡焉用牛刀，别给我整什么动态日志级别、配置中心那一套","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.937,0.057,0.003,0.002,0.001],"confidence":0.9376393460669995,"base":"low","stakes":{"undo":0.005,"live":0.002,"access":0.002},"cause":0.001,"still_failing":0.001,"confirm":0.007,"escalate":0.013,"ultrathink":false,"unresolved":{"still_failing":0.0012681844245457834,"solved":0.003421609738079036,"new_task":0.9965004315866645},"change":"reset","guide":"typesafe","ms":523,"attempts":1,"tokens":1954,"model":"drex-max-v1.1"}},
+    {"id":"submit-033","language":"en","state":{"user_message":"All I want is to change the production log level from debug to info, in `config/prod.yaml`. No need to take a sledgehammer to crack a nut — don't hand me any of that dynamic log level or config center stuff.","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.936,0.057,0.004,0.003,0.001],"confidence":0.9361418951693062,"base":"low","stakes":{"undo":0.003,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.002,"confirm":0.002,"escalate":0.017,"ultrathink":false,"unresolved":{"still_failing":0.002131167221319311,"solved":0.00312671172063503,"new_task":0.9980527295006918},"change":"reset","guide":"typesafe","ms":557,"attempts":1,"tokens":1962,"model":"drex-max-v1.1"}},
+    {"id":"submit-034","language":"zh","state":{"user_message":"生产库 `orders` 表的主键是 int，自增值已经到 19 亿了，大概两个月后就要溢出。表里 8 亿行，业务 7×24 不能停。帮我出个在线把主键改成 bigint 的方案，迁移脚本和回滚预案也一起写好","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.013,0.015,0.012,0.87,0.091],"confidence":0.8573309449714185,"base":"xhigh","stakes":{"undo":0.046,"live":0.055,"access":0.003},"cause":0.011,"still_failing":0.001,"confirm":0.003,"escalate":0.024,"ultrathink":false,"unresolved":{"still_failing":0.0008836173991471774,"solved":0.0021311683829915887,"new_task":0.9985147033711461},"change":"reset","guide":"typesafe","ms":536,"attempts":1,"tokens":1981,"model":"drex-max-v1.1"}},
+    {"id":"submit-034","language":"en","state":{"user_message":"The primary key of the `orders` table in our production database is an int, and the auto-increment value is already at 1.9 billion — it'll overflow in about two months. The table has 800 million rows, and the business runs 24/7 and can't stop. Give me a plan for changing the primary key to bigint online, and write the migration script and the rollback plan along with it.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.018,0.014,0.011,0.873,0.083],"confidence":0.852700000589465,"base":"xhigh","stakes":{"undo":0.034,"live":0.027,"access":0.002},"cause":0.008,"still_failing":0,"confirm":0.001,"escalate":0.014,"ultrathink":false,"unresolved":{"still_failing":0.00046940118198275985,"solved":0.00419040553094096,"new_task":0.9989650408805127},"change":"reset","guide":"typesafe","ms":480,"attempts":1,"tokens":2002,"model":"drex-max-v1.1"}},
+    {"id":"submit-035","language":"zh","state":{"user_message":"yarn 换 pnpm","recent_context":"user: 我们 monorepo 里有多少个 package？\nassistant: [tools: Glob, Read] `packages/` 下有 23 个 package，用的是 yarn 1 的 workspaces；根目录的 `resolutions` 覆盖了几个依赖的版本；CI 里写死了 `yarn install --frozen-lockfile`。"},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.094,0.042,0.437,0.418,0.01],"confidence":0.44461122673181186,"base":"high","stakes":{"undo":0.03,"live":0.003,"access":0.001},"cause":0.004,"still_failing":0.003,"confirm":0.05,"escalate":0.009,"ultrathink":false,"unresolved":{"still_failing":0.0026107755569953987,"solved":0.020518404483938026,"new_task":0.43259352445602417},"change":"keep","guide":"typesafe","ms":523,"attempts":1,"tokens":1994,"model":"drex-max-v1.1"}},
+    {"id":"submit-035","language":"en","state":{"user_message":"Switch from yarn to pnpm.","recent_context":"user: How many packages are in our monorepo?\nassistant: [tools: Glob, Read] There are 23 packages under `packages/`, using yarn 1 workspaces; the `resolutions` field in the root overrides the versions of a few dependencies; and CI hard-codes `yarn install --frozen-lockfile`."},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.059,0.02,0.376,0.539,0.006],"confidence":0.5014284196323147,"base":"high","stakes":{"undo":0.026,"live":0.002,"access":0.001},"cause":0.001,"still_failing":0.004,"confirm":0.014,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.003660830781753841,"solved":0.016073603841698328,"new_task":0.5562764406204224},"change":"keep","guide":"typesafe","ms":532,"attempts":1,"tokens":1992,"model":"drex-max-v1.1"}},
+    {"id":"submit-036","language":"zh","state":{"user_message":"测试框架从 Jest 迁到 Vitest，大概 300 个测试文件。`jest.fn`、`jest.mock` 这些用得很多，还有几个文件用了 fake timers","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.084,0.043,0.374,0.491,0.007],"confidence":0.39999168729354606,"base":"high","stakes":{"undo":0.004,"live":0.002,"access":0.001},"cause":0.002,"still_failing":0.001,"confirm":0.001,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.0008638822777588561,"solved":0.001107503438796302,"new_task":0.9990961984254166},"change":"reset","guide":"typesafe","ms":591,"attempts":1,"tokens":1953,"model":"drex-max-v1.1"}},
+    {"id":"submit-036","language":"en","state":{"user_message":"Migrate the test framework from Jest to Vitest — about 300 test files. `jest.fn`, `jest.mock` and the like are used a lot, and a few files use fake timers.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.081,0.011,0.41,0.491,0.007],"confidence":0.4325012798751374,"base":"high","stakes":{"undo":0.003,"live":0.002,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.004,"ultrathink":false,"unresolved":{"still_failing":0.0006587640104349621,"solved":0.0009038020398237347,"new_task":0.9989172243487957},"change":"reset","guide":"typesafe","ms":483,"attempts":1,"tokens":1955,"model":"drex-max-v1.1"}},
+    {"id":"submit-037","language":"zh","state":{"user_message":"我们这套权限现在是东一榔头西一棒子，到处都是 `if (user.role === 'admin')`，加个新角色要改十几个地方。我想推倒重来，搞成 RBAC 加资源级 ACL。你先摸清楚现在的权限判断都散在哪，再出个方案，别急着动代码","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.157,0.039,0.053,0.581,0.171],"confidence":0.3576547821027094,"base":"xhigh","stakes":{"undo":0.004,"live":0.005,"access":0.111},"cause":0.009,"still_failing":0.003,"confirm":0.001,"escalate":0.135,"ultrathink":false,"unresolved":{"still_failing":0.0030570347716203363,"solved":0.002229514857295665,"new_task":0.9985802698432148},"change":"reset","guide":"typesafe","ms":489,"attempts":1,"tokens":1981,"model":"drex-max-v1.1"}},
+    {"id":"submit-037","language":"en","state":{"user_message":"Our permissions setup right now is all over the place — there's `if (user.role === 'admin')` everywhere, and adding a new role means changing a dozen-plus places. I want to tear it down and start over with RBAC plus resource-level ACLs. First figure out where all the current permission checks are scattered, then come up with a plan — don't rush into changing code.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.078,0.021,0.029,0.681,0.192],"confidence":0.5869512834003959,"base":"xhigh","stakes":{"undo":0.004,"live":0.004,"access":0.057},"cause":0.005,"still_failing":0.002,"confirm":0.002,"escalate":0.152,"ultrathink":false,"unresolved":{"still_failing":0.0016256356960065858,"solved":0.002280375078111657,"new_task":0.9990961984254166},"change":"reset","guide":"typesafe","ms":582,"attempts":1,"tokens":1993,"model":"drex-max-v1.1"}},
+    {"id":"submit-038","language":"zh","state":{"user_message":"`getUsrInfo` 这名字拼得太难受了，改成 `getUserInfo`。别看它是鉴权链路的核心函数、牵一发而动全身，其实我 grep 过了，除了定义就只有 `auth/session.ts` 里两处调用","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.983,0.011,0.004,0.002,0],"confidence":0.9784079668768426,"base":"low","stakes":{"undo":0.001,"live":0.001,"access":0.029},"cause":0.001,"still_failing":0,"confirm":0.001,"escalate":0.007,"ultrathink":false,"unresolved":{"still_failing":0.00042883505521413575,"solved":0.00312671172063503,"new_task":0.9994247468814339},"change":"reset","guide":"typesafe","ms":523,"attempts":1,"tokens":1963,"model":"drex-max-v1.1"}},
+    {"id":"submit-038","language":"en","state":{"user_message":"The name `getUsrInfo` is painfully misspelled — rename it to `getUserInfo`. It may be a core function in the auth chain where touching one thing affects everything, but I've actually grepped it: apart from the definition, there are only two call sites, both in `auth/session.ts`.","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.986,0.01,0.003,0.001,0],"confidence":0.982026111337033,"base":"low","stakes":{"undo":0.001,"live":0.001,"access":0.03},"cause":0.001,"still_failing":0.001,"confirm":0,"escalate":0.016,"ultrathink":false,"unresolved":{"still_failing":0.0007210640277336745,"solved":0.0007892521355523027,"new_task":0.9995992724456632},"change":"reset","guide":"typesafe","ms":469,"attempts":1,"tokens":1978,"model":"drex-max-v1.1"}},
+    {"id":"submit-039","language":"zh","state":{"user_message":"上线前帮我过一遍路由，看看哪些接口忘了挂 `requireAuth` 中间件。有的是在 router 级别统一挂的，有的是单个路由自己挂的","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.131,0.032,0.638,0.042,0.157],"confidence":0.45796750160343,"base":"high","stakes":{"undo":0.007,"live":0.003,"access":0.062},"cause":0.02,"still_failing":0.001,"confirm":0.001,"escalate":0.083,"ultrathink":false,"unresolved":{"still_failing":0.0011851279185089265,"solved":0.00285715514793984,"new_task":0.9989650408805127},"change":"reset","guide":"typesafe","ms":521,"attempts":1,"tokens":1948,"model":"drex-max-v1.1"}},
+    {"id":"submit-039","language":"en","state":{"user_message":"Before launch, go through the routes for me and see which endpoints forgot to attach the `requireAuth` middleware. Some attach it at the router level for everything, and some routes attach it individually.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.148,0.038,0.658,0.038,0.118],"confidence":0.49320016294519353,"base":"high","stakes":{"undo":0.004,"live":0.002,"access":0.031},"cause":0.029,"still_failing":0.003,"confirm":0.002,"escalate":0.055,"ultrathink":false,"unresolved":{"still_failing":0.0026703101457842943,"solved":0.0031979702855224395,"new_task":0.9987601278986626},"change":"reset","guide":"typesafe","ms":621,"attempts":1,"tokens":1952,"model":"drex-max-v1.1"}},
+    {"id":"submit-040","language":"zh","state":{"user_message":"修一下","recent_context":"user: 把 `@types/node` 升到最新\nassistant: [tools: Edit, Bash] 已升级并提交。CI 的 `typecheck` 步骤失败了：`@types/node` 从 18 升到 22 之后，4 个文件里出现 11 个类型错误，主要是 `setTimeout` 返回值的类型和 `Buffer` 相关的签名变了。"},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.097,0.045,0.847,0.01,0.002],"confidence":0.7900431521248953,"base":"high","stakes":{"undo":0.004,"live":0.001,"access":0.001},"cause":0.002,"still_failing":0.074,"confirm":0.27,"escalate":0.007,"ultrathink":false,"unresolved":{"still_failing":0.07365045170934355,"solved":0.01230158629339368,"new_task":0.012301581694064614},"change":"keep","guide":"typesafe","ms":484,"attempts":1,"tokens":2002,"model":"drex-max-v1.1"}},
+    {"id":"submit-040","language":"en","state":{"user_message":"Fix it.","recent_context":"user: Upgrade `@types/node` to the latest version.\nassistant: [tools: Edit, Bash] Upgraded and committed. The `typecheck` step in CI failed: after `@types/node` went from 18 to 22, 11 type errors appeared across 4 files, mainly because the return type of `setTimeout` and some `Buffer`-related signatures changed."},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.076,0.031,0.877,0.014,0.002],"confidence":0.8324725478291831,"base":"high","stakes":{"undo":0.005,"live":0.001,"access":0.001},"cause":0.002,"still_failing":0.12,"confirm":0.212,"escalate":0.009,"ultrathink":false,"unresolved":{"still_failing":0.12032390296217871,"solved":0.020977692326904777,"new_task":0.015373993836797705},"change":"keep","guide":"typesafe","ms":529,"attempts":1,"tokens":1999,"model":"drex-max-v1.1"}},
+    {"id":"submit-041","language":"zh","state":{"user_message":"照下面改，不用问我：\n1. `src/config.ts` 里 `MAX_RETRY` 从 3 改成 5\n2. `src/api/client.ts` 第 42 行那个 `console.log` 删掉\n3. `README.md` 里 Node 版本要求从 16 改成 18\n4. `package.json` 的 `version` 改成 `2.4.1`\n5. `.github/workflows/ci.yml` 里的 `node-version` 改成 18\n6. `CHANGELOG.md` 顶部加一行 `## 2.4.1 - 2026-10-04`","recent_context":""},"en-score":{"answer":"medium","correct":false,"gold":false,"miss":"over","p":[0.486,0.338,0.164,0.008,0.003],"confidence":0.41328823929447833,"base":"medium","stakes":{"undo":0.006,"live":0.001,"access":0.002},"cause":0.001,"still_failing":0.002,"confirm":0.003,"escalate":0.013,"ultrathink":false,"unresolved":{"still_failing":0.0024400022164545363,"solved":0.01075801866169765,"new_task":0.995809594469059},"change":"reset","guide":"typesafe","ms":478,"attempts":1,"tokens":2065,"model":"drex-max-v1.1"}},
+    {"id":"submit-041","language":"en","state":{"user_message":"Make the following changes, no need to ask me:\n1. In `src/config.ts`, change `MAX_RETRY` from 3 to 5\n2. Delete the `console.log` on line 42 of `src/api/client.ts`\n3. In `README.md`, change the Node version requirement from 16 to 18\n4. Change `version` in `package.json` to `2.4.1`\n5. In `.github/workflows/ci.yml`, change `node-version` to 18\n6. Add a line `## 2.4.1 - 2026-10-04` at the top of `CHANGELOG.md`","recent_context":""},"en-score":{"answer":"medium","correct":false,"gold":false,"miss":"over","p":[0.356,0.407,0.226,0.008,0.003],"confidence":0.49477564789622663,"base":"medium","stakes":{"undo":0.005,"live":0.001,"access":0.002},"cause":0.001,"still_failing":0.002,"confirm":0.001,"escalate":0.011,"ultrathink":false,"unresolved":{"still_failing":0.0021311683829915887,"solved":0.014063487616648558,"new_task":0.9975599977835454},"change":"reset","guide":"typesafe","ms":527,"attempts":1,"tokens":2063,"model":"drex-max-v1.1"}},
+    {"id":"submit-042","language":"zh","state":{"user_message":"订单结算这块代码就是个大泥球，牵一发而动全身，谁都不敢碰。我想先补测试把现有行为兜住，再一步步重构。你看着办，但千万别把线上搞挂了","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.036,0.032,0.14,0.781,0.011],"confidence":0.7314362415210979,"base":"xhigh","stakes":{"undo":0.091,"live":0.044,"access":0.005},"cause":0.003,"still_failing":0.001,"confirm":0.009,"escalate":0.22,"ultrathink":false,"unresolved":{"still_failing":0.0007210643767278018,"solved":0.004383362666392227,"new_task":0.998446115372203},"change":"reset","guide":"typesafe","ms":585,"attempts":1,"tokens":1955,"model":"drex-max-v1.1"}},
+    {"id":"submit-042","language":"en","state":{"user_message":"The order checkout code is a big ball of mud — touch one thing and everything moves, and nobody dares to touch it. I want to first add tests to lock in the existing behavior, then refactor it step by step. Use your judgment, but whatever you do, don't break production.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.03,0.02,0.108,0.827,0.014],"confidence":0.7878898344083008,"base":"xhigh","stakes":{"undo":0.057,"live":0.041,"access":0.004},"cause":0.003,"still_failing":0.001,"confirm":0.004,"escalate":0.253,"ultrathink":false,"unresolved":{"still_failing":0.001185127337122192,"solved":0.003057033146788182,"new_task":0.9963391692182462},"change":"reset","guide":"typesafe","ms":549,"attempts":1,"tokens":1972,"model":"drex-max-v1.1"}},
+    {"id":"submit-043","language":"zh","state":{"user_message":"我想搞清楚一个请求从进 controller 到最后写库，中间到底经过了哪些拦截器、过滤器和 AOP 切面，执行顺序是怎样的。这些东西散在好几个模块里，我自己看得一头雾水","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":false,"p":[0.192,0.378,0.275,0.128,0.027],"confidence":0.3294053108302849,"base":"medium","stakes":{"undo":0.002,"live":0.003,"access":0.004},"cause":0.011,"still_failing":0.001,"confirm":0.002,"escalate":0.042,"ultrathink":false,"unresolved":{"still_failing":0.0012121916370401464,"solved":0.0015893573665173909,"new_task":0.9982207862565482},"change":"reset","guide":"typesafe","ms":518,"attempts":1,"tokens":1956,"model":"drex-max-v1.1"}},
+    {"id":"submit-043","language":"en","state":{"user_message":"I want to figure out exactly which interceptors, filters and AOP aspects a request passes through from entering the controller to finally being written to the database, and in what order they run. These things are scattered across several modules, and reading them myself has left me completely confused.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.169,0.277,0.318,0.177,0.06],"confidence":0.24114175928204218,"base":"high","stakes":{"undo":0.004,"live":0.004,"access":0.006},"cause":0.01,"still_failing":0.001,"confirm":0.001,"escalate":0.057,"ultrathink":false,"unresolved":{"still_failing":0.0005023233366945509,"solved":0.001625636509589113,"new_task":0.9990755527786124},"change":"reset","guide":"typesafe","ms":496,"attempts":1,"tokens":1968,"model":"drex-max-v1.1"}},
+    {"id":"submit-044","language":"zh","state":{"user_message":"`pricing/` 模块里的缓存到底什么时候失效？我看到有 TTL，改价的时候好像也会删缓存，还有个定时任务，看了半天没看懂","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.119,0.505,0.28,0.079,0.017],"confidence":0.4930641667446898,"base":"medium","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0.022,"still_failing":0.001,"confirm":0.001,"escalate":0.018,"ultrathink":false,"unresolved":{"still_failing":0.0007210643767278018,"solved":0.0009038015745833483,"new_task":0.9990544363912425},"change":"reset","guide":"typesafe","ms":573,"attempts":1,"tokens":1944,"model":"drex-max-v1.1"}},
+    {"id":"submit-044","language":"en","state":{"user_message":"When exactly does the cache in the `pricing/` module get invalidated? I see a TTL, it also looks like the cache gets deleted when a price changes, and there's a scheduled job too. I've been staring at it for ages and still don't get it.","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.136,0.553,0.224,0.066,0.02],"confidence":0.5386871413348561,"base":"medium","stakes":{"undo":0.002,"live":0.003,"access":0.001},"cause":0.023,"still_failing":0.001,"confirm":0.001,"escalate":0.013,"ultrathink":false,"unresolved":{"still_failing":0.0010585976262101873,"solved":0.00151920449034507,"new_task":0.9982207862565482},"change":"reset","guide":"typesafe","ms":488,"attempts":1,"tokens":1968,"model":"drex-max-v1.1"}},
+    {"id":"submit-045","language":"zh","state":{"user_message":"还是会死锁，压测跑半小时必现，你前面那几个改法都没用","recent_context":"user: 压测的时候服务会卡死，线程 dump 看着像死锁\nassistant: [tools: Read, Edit, Bash] 第一次尝试：统一了 `InventoryService` 和 `OrderService` 的加锁顺序。压测 10 分钟未复现。\nuser: 跑久一点还是会卡\nassistant: [tools: Edit, Bash] 第二次尝试：把 `reserveStock` 里的 `synchronized` 换成带超时的 `ReentrantLock.tryLock`，并缩小了临界区。压测 20 分钟未复现。\nuser: 半小时左右还是会卡死\nassistant: [tools: Read, Edit, Bash] 第三次尝试：发现持锁期间会去连接池拿连接，连接池耗尽时线程之间会互相等待，已把获取连接移到加锁之前。压测 25 分钟未复现，建议你再跑一次长时间压测确认。"},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.013,0.058,0.02,0.444,0.465],"confidence":0.4074154211282659,"base":"xhigh","stakes":{"undo":0.005,"live":0.007,"access":0.001},"cause":0.898,"still_failing":0.998,"confirm":0.006,"escalate":0.026,"ultrathink":false,"unresolved":{"still_failing":0.9984106440282462,"solved":0.014063474761499488,"new_task":0.0011075046016602273},"change":"add","guide":"typesafe","ms":454,"attempts":1,"tokens":2133,"model":"drex-max-v1.1"}},
+    {"id":"submit-045","language":"en","state":{"user_message":"It still deadlocks — it reproduces every time after half an hour of load testing. None of your earlier fixes worked.","recent_context":"user: The service hangs during load testing, and the thread dump looks like a deadlock.\nassistant: [tools: Read, Edit, Bash] First attempt: made the lock ordering consistent between `InventoryService` and `OrderService`. A 10-minute load test didn't reproduce it.\nuser: It still hangs if it runs longer.\nassistant: [tools: Edit, Bash] Second attempt: replaced the `synchronized` in `reserveStock` with `ReentrantLock.tryLock` with a timeout, and narrowed the critical section. A 20-minute load test didn't reproduce it.\nuser: It still hangs at around half an hour.\nassistant: [tools: Read, Edit, Bash] Third attempt: found that connections are taken from the connection pool while a lock is held, so when the pool is exhausted threads end up waiting on each other; I moved connection acquisition to before the lock. A 25-minute load test didn't reproduce it — I suggest you run another long load test to confirm."},"en-score":{"answer":"max","correct":true,"gold":true,"p":[0.008,0.032,0.011,0.292,0.658],"confidence":0.6339567128686696,"base":"max","stakes":{"undo":0.003,"live":0.003,"access":0.001},"cause":0.913,"still_failing":0.999,"confirm":0.015,"escalate":0.019,"ultrathink":false,"unresolved":{"still_failing":0.9991361177222411,"solved":0.005247753060828087,"new_task":0.00040988598523983375},"change":"add","guide":"typesafe","ms":512,"attempts":1,"tokens":2150,"model":"drex-max-v1.1"}},
+    {"id":"submit-046","language":"zh","state":{"user_message":"提交吧，message 你看着写","recent_context":"user: 把 `billing` 模块的回调全改成 async/await，顺便把错误处理统一一下\nassistant: [tools: Read, Edit, Bash] 改完了：`billing/` 下 14 个文件的回调都改成了 async/await，错误统一用 `BillingError` 抛出，测试全部通过（126 passed）。需要我提交吗？"},"en-score":{"answer":"medium","correct":true,"gold":false,"p":[0.622,0.112,0.093,0.168,0.006],"confidence":0.3132024692992369,"base":"medium","stakes":{"undo":0.12,"live":0.01,"access":0.004},"cause":0.001,"still_failing":0.001,"confirm":0.993,"escalate":0.018,"ultrathink":false,"unresolved":{"still_failing":0.0011586672480758207,"solved":0.9947522492552602,"new_task":0.0017395125159614582},"change":"reset","guide":"typesafe","ms":525,"attempts":1,"tokens":2004,"model":"drex-max-v1.1"}},
+    {"id":"submit-046","language":"en","state":{"user_message":"Commit it — write the message however you see fit.","recent_context":"user: Convert all the callbacks in the `billing` module to async/await, and unify the error handling while you're at it.\nassistant: [tools: Read, Edit, Bash] Done: the callbacks in 14 files under `billing/` have all been converted to async/await, errors are now thrown uniformly as `BillingError`, and all tests pass (126 passed). Shall I commit?"},"en-score":{"answer":"medium","correct":true,"gold":false,"p":[0.612,0.073,0.039,0.271,0.005],"confidence":0.18017885602411,"base":"medium","stakes":{"undo":0.08,"live":0.009,"access":0.004},"cause":0.002,"still_failing":0.001,"confirm":0.99,"escalate":0.022,"ultrathink":false,"unresolved":{"still_failing":0.0009455632598418398,"solved":0.9977704842134583,"new_task":0.004585167299142405},"change":"reset","guide":"typesafe","ms":523,"attempts":1,"tokens":2010,"model":"drex-max-v1.1"}},
+    {"id":"submit-047","language":"zh","state":{"user_message":"有空帮我看看哈，月底给商户结算的时候金额偶尔会差一分钱。不急，这周内搞定就行","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.004,0.162,0.042,0.787,0.005],"confidence":0.6806409669238229,"base":"xhigh","stakes":{"undo":0.014,"live":0.021,"access":0.002},"cause":0.999,"still_failing":0.001,"confirm":0.001,"escalate":0.048,"ultrathink":false,"unresolved":{"still_failing":0.0014197301567852136,"solved":0.0016256372069455639,"new_task":0.9991361168498806},"change":"reset","guide":"typesafe","ms":530,"attempts":1,"tokens":1935,"model":"drex-max-v1.1"}},
+    {"id":"submit-047","language":"en","state":{"user_message":"When you have time, take a look for me: when we settle with merchants at the end of the month, the amount is occasionally off by one cent. No rush — anytime this week is fine.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.006,0.166,0.051,0.771,0.006],"confidence":0.6609575284939916,"base":"xhigh","stakes":{"undo":0.023,"live":0.03,"access":0.003},"cause":0.999,"still_failing":0.002,"confirm":0.001,"escalate":0.062,"ultrathink":false,"unresolved":{"still_failing":0.0017006947969001598,"solved":0.0011327965556631413,"new_task":0.9988148720814911},"change":"reset","guide":"typesafe","ms":611,"attempts":1,"tokens":1953,"model":"drex-max-v1.1"}},
+    {"id":"submit-048","language":"zh","state":{"user_message":"给我们的 JS SDK 写一份完整的 API 文档，40 来个公开方法，每个都要有参数说明、返回值、可能抛的错误码和一个调用示例，放到 `docs/api.md`","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.138,0.373,0.427,0.056,0.007],"confidence":0.4014835309126711,"base":"medium","stakes":{"undo":0.003,"live":0.001,"access":0.001},"cause":0,"still_failing":0,"confirm":0.001,"escalate":0.015,"ultrathink":false,"unresolved":{"still_failing":0.00040988578159652223,"solved":0.0019917036119183468,"new_task":0.9985802698432148},"change":"reset","guide":"typesafe","ms":520,"attempts":1,"tokens":1953,"model":"drex-max-v1.1"}},
+    {"id":"submit-048","language":"en","state":{"user_message":"Write complete API documentation for our JS SDK — about 40 public methods, each with parameter descriptions, the return value, the error codes it may throw, and a usage example — and put it in `docs/api.md`.","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.143,0.323,0.444,0.08,0.01],"confidence":0.408513850338419,"base":"medium","stakes":{"undo":0.004,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.015,"ultrathink":false,"unresolved":{"still_failing":0.0007543888396496784,"solved":0.0013570548711193313,"new_task":0.9992107475154773},"change":"reset","guide":"typesafe","ms":527,"attempts":1,"tokens":1959,"model":"drex-max-v1.1"}},
+    {"id":"submit-049","language":"zh","state":{"user_message":"行，那把它改成字符串类型吧，以后要兼容第三方的 uid","recent_context":"user: `user_id` 都在哪些地方用到了？\nassistant: [tools: Grep, Read] `user_id` 目前是 bigint。它是订单库分库分表的 sharding key，同时被支付、积分、消息、风控、报表 5 个服务当外键引用，Kafka 的消息体里也带着它。"},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.047,0.009,0.015,0.841,0.088],"confidence":0.7825950747215389,"base":"xhigh","stakes":{"undo":0.098,"live":0.036,"access":0.005},"cause":0.002,"still_failing":0.003,"confirm":0.042,"escalate":0.013,"ultrathink":false,"unresolved":{"still_failing":0.00255256759917958,"solved":0.1463772781733084,"new_task":0.07679525476711785},"change":"keep","guide":"typesafe","ms":527,"attempts":1,"tokens":2003,"model":"drex-max-v1.1"}},
+    {"id":"submit-049","language":"en","state":{"user_message":"OK, then change it to a string type — we'll need to support third-party uids in the future.","recent_context":"user: Where is `user_id` used?\nassistant: [tools: Grep, Read] `user_id` is currently a bigint. It's the sharding key for the sharded order database, and it's also referenced as a foreign key by 5 services — payments, points, messaging, risk control and reporting — and it's carried in the Kafka message payloads as well."},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.061,0.011,0.025,0.881,0.022],"confidence":0.7896937669826354,"base":"xhigh","stakes":{"undo":0.046,"live":0.017,"access":0.002},"cause":0.001,"still_failing":0.002,"confirm":0.044,"escalate":0.012,"ultrathink":false,"unresolved":{"still_failing":0.0023855926104193663,"solved":0.05963723795517783,"new_task":0.06222383050448397},"change":"keep","guide":"typesafe","ms":584,"attempts":1,"tokens":2015,"model":"drex-max-v1.1"}},
+    {"id":"submit-050","language":"zh","state":{"user_message":"测试库里那张 `tmp_import_0912` 临时表没用了，drop 掉。连接串在 `.env.test` 里","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.958,0.034,0.005,0.002,0.001],"confidence":0.9549225764293836,"base":"low","stakes":{"undo":0.005,"live":0.002,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.002,"ultrathink":false,"unresolved":{"still_failing":0.0007375389894508991,"solved":0.00151920449034507,"new_task":0.9985802698432148},"change":"reset","guide":"typesafe","ms":467,"attempts":1,"tokens":1944,"model":"drex-max-v1.1"}},
+    {"id":"submit-050","language":"en","state":{"user_message":"That `tmp_import_0912` temp table in the test database isn't needed anymore — drop it. The connection string is in `.env.test`.","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.952,0.038,0.006,0.002,0.001],"confidence":0.9487707847814552,"base":"low","stakes":{"undo":0.004,"live":0.001,"access":0.001},"cause":0,"still_failing":0,"confirm":0.001,"escalate":0.002,"ultrathink":false,"unresolved":{"still_failing":0.00036609414294403353,"solved":0.0019917036119183468,"new_task":0.9994976764305917},"change":"reset","guide":"typesafe","ms":460,"attempts":1,"tokens":1946,"model":"drex-max-v1.1"}},
+    {"id":"submit-051","language":"zh","state":{"user_message":"2","recent_context":"user: 跑一下 lint 看看\nassistant: [tools: Bash] ESLint 一共 14 个 warning：9 个 `no-unused-vars`，5 个 `react-hooks/exhaustive-deps`。前者可以直接删；后者不能无脑补依赖，有几处补上后会导致重复请求甚至死循环，需要逐个看。要修哪些？1. 只修 unused 2. 全部"},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.104,0.048,0.729,0.109,0.01],"confidence":0.6788420306641607,"base":"high","stakes":{"undo":0.005,"live":0.001,"access":0.002},"cause":0.018,"still_failing":0.002,"confirm":0.999,"escalate":0.008,"ultrathink":false,"unresolved":{"still_failing":0.0020836290752932213,"solved":0.001861350812046181,"new_task":0.001739511702471706},"change":"keep","guide":"typesafe","ms":487,"attempts":1,"tokens":2005,"model":"drex-max-v1.1"}},
+    {"id":"submit-051","language":"en","state":{"user_message":"2","recent_context":"user: Run lint and see what comes up.\nassistant: [tools: Bash] ESLint reports 14 warnings in total: 9 `no-unused-vars` and 5 `react-hooks/exhaustive-deps`. The former can simply be deleted; the latter can't be fixed by blindly adding dependencies — in a few places, adding them would cause duplicate requests or even infinite loops, so each needs a look. Which should I fix? 1. Only the unused ones 2. All of them"},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.1,0.058,0.762,0.073,0.007],"confidence":0.7129722778876579,"base":"high","stakes":{"undo":0.005,"live":0.002,"access":0.002},"cause":0.022,"still_failing":0.002,"confirm":0.999,"escalate":0.007,"ultrathink":false,"unresolved":{"still_failing":0.002280375078111657,"solved":0.0031979719101249376,"new_task":0.0034995684133355526},"change":"keep","guide":"typesafe","ms":526,"attempts":1,"tokens":2019,"model":"drex-max-v1.1"}},
+    {"id":"submit-052","language":"zh","state":{"user_message":"下面这段有没有 SQL 注入风险？\n```python\ndef list_users(sort_by, keyword):\n    sql = f\"SELECT id, name FROM users WHERE name LIKE %s ORDER BY {sort_by}\"\n    return db.execute(sql, (f\"%{keyword}%\",)).fetchall()\n```","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.055,0.634,0.294,0.007,0.01],"confidence":0.6723006612857303,"base":"medium","stakes":{"undo":0.002,"live":0.002,"access":0.003},"cause":0.012,"still_failing":0.002,"confirm":0.002,"escalate":0.009,"ultrathink":false,"unresolved":{"still_failing":0.0017792128137862555,"solved":0.0014852966288539284,"new_task":0.9969429682459251},"change":"reset","guide":"typesafe","ms":523,"attempts":1,"tokens":1979,"model":"drex-max-v1.1"}},
+    {"id":"submit-052","language":"en","state":{"user_message":"Is there a SQL injection risk in the code below?\n```python\ndef list_users(sort_by, keyword):\n    sql = f\"SELECT id, name FROM users WHERE name LIKE %s ORDER BY {sort_by}\"\n    return db.execute(sql, (f\"%{keyword}%\",)).fetchall()\n```","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.051,0.729,0.206,0.007,0.008],"confidence":0.7560123042779051,"base":"medium","stakes":{"undo":0.002,"live":0.001,"access":0.001},"cause":0.013,"still_failing":0.001,"confirm":0.001,"escalate":0.004,"ultrathink":false,"unresolved":{"still_failing":0.0008638822777588561,"solved":0.0013570544060899884,"new_task":0.9991742748715987},"change":"reset","guide":"typesafe","ms":524,"attempts":1,"tokens":1981,"model":"drex-max-v1.1"}},
+    {"id":"submit-053","language":"zh","state":{"user_message":"帮我看看项目依赖有没有已知漏洞，列出来就行，先别升级","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.798,0.1,0.066,0.011,0.026],"confidence":0.6941883685296246,"base":"low","stakes":{"undo":0.003,"live":0.004,"access":0.003},"cause":0.002,"still_failing":0.002,"confirm":0.004,"escalate":0.021,"ultrathink":false,"unresolved":{"still_failing":0.0017792128137862555,"solved":0.0018613498824571395,"new_task":0.9968732899040834},"change":"reset","guide":"typesafe","ms":525,"attempts":1,"tokens":1928,"model":"drex-max-v1.1"}},
+    {"id":"submit-053","language":"en","state":{"user_message":"Check whether the project's dependencies have any known vulnerabilities — just list them, don't upgrade anything yet.","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.887,0.051,0.029,0.007,0.026],"confidence":0.8047186950350963,"base":"low","stakes":{"undo":0.003,"live":0.003,"access":0.003},"cause":0.002,"still_failing":0.002,"confirm":0.003,"escalate":0.012,"ultrathink":false,"unresolved":{"still_failing":0.0019472704993082253,"solved":0.0011586672480758207,"new_task":0.9973296912474692},"change":"reset","guide":"typesafe","ms":523,"attempts":1,"tokens":1933,"model":"drex-max-v1.1"}},
+    {"id":"submit-054","language":"zh","state":{"user_message":"auth 从 session 换成 JWT + refresh token，要支持多端同时登录、单端踢下线、改密码后所有端失效。前后端都要改","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.008,0.013,0.03,0.887,0.062],"confidence":0.8815936384033696,"base":"xhigh","stakes":{"undo":0.014,"live":0.008,"access":0.999},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.000737538582297806,"solved":0.0012681850058842254,"new_task":0.9991361177222411},"change":"reset","guide":"typesafe","ms":609,"attempts":1,"tokens":1947,"model":"drex-max-v1.1"}},
+    {"id":"submit-054","language":"en","state":{"user_message":"Switch auth from sessions to JWT + refresh tokens. It must support being logged in on multiple devices at the same time, kicking a single device offline, and invalidating all devices after a password change. Both the frontend and the backend need to change.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.009,0.009,0.02,0.897,0.065],"confidence":0.891986456271324,"base":"xhigh","stakes":{"undo":0.014,"live":0.005,"access":0.999},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.004,"ultrathink":false,"unresolved":{"still_failing":0.0006738156942395677,"solved":0.0012681850058842254,"new_task":0.9988672022815025},"change":"reset","guide":"typesafe","ms":531,"attempts":1,"tokens":1962,"model":"drex-max-v1.1"}},
+    {"id":"submit-055","language":"zh","state":{"user_message":"给 `OrderService` 补单测，覆盖率要到 80% 以上。它依赖了 MySQL、Redis 和 RocketMQ，测试里全部 mock 掉，不要连真实服务","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.021,0.04,0.91,0.026,0.003],"confidence":0.9052454193832572,"base":"high","stakes":{"undo":0.004,"live":0.004,"access":0.002},"cause":0.001,"still_failing":0.001,"confirm":0.003,"escalate":0.014,"ultrathink":false,"unresolved":{"still_failing":0.0014197301567852136,"solved":0.0012681850058842254,"new_task":0.9989650404153334},"change":"reset","guide":"typesafe","ms":483,"attempts":1,"tokens":1954,"model":"drex-max-v1.1"}},
+    {"id":"submit-055","language":"en","state":{"user_message":"Add unit tests for `OrderService` and get coverage above 80%. It depends on MySQL, Redis and RocketMQ — mock all of them in the tests and don't connect to any real services.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.02,0.038,0.908,0.031,0.003],"confidence":0.9039114942939637,"base":"high","stakes":{"undo":0.003,"live":0.004,"access":0.003},"cause":0.001,"still_failing":0,"confirm":0.002,"escalate":0.005,"ultrathink":false,"unresolved":{"still_failing":0.0004486601902401376,"solved":0.0012681850058842254,"new_task":0.9990961984254166},"change":"reset","guide":"typesafe","ms":475,"attempts":1,"tokens":1954,"model":"drex-max-v1.1"}},
+    {"id":"submit-056","language":"zh","state":{"user_message":"给 `formatPrice` 补几个单测，负数、0、小数位超过两位、超大金额这几种都覆盖一下。函数在 `utils/price.ts`，就二十来行","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.005,0.987,0.007,0.001,0],"confidence":0.9875123154327681,"base":"medium","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.0008257255355184705,"solved":0.0007210647838876167,"new_task":0.9990755531856893},"change":"reset","guide":"typesafe","ms":521,"attempts":1,"tokens":1955,"model":"drex-max-v1.1"}},
+    {"id":"submit-056","language":"en","state":{"user_message":"Add a few unit tests for `formatPrice`, covering negative numbers, 0, more than two decimal places, and very large amounts. The function is in `utils/price.ts` and is only about twenty lines.","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.004,0.989,0.006,0.001,0],"confidence":0.9897161251261538,"base":"medium","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0,"still_failing":0.001,"confirm":0.001,"escalate":0.002,"ultrathink":false,"unresolved":{"still_failing":0.00105859669587347,"solved":0.0008072827598112409,"new_task":0.9987601273173077},"change":"reset","guide":"typesafe","ms":525,"attempts":1,"tokens":1957,"model":"drex-max-v1.1"}},
+    {"id":"submit-057","language":"zh","state":{"user_message":"完了，有人把 AWS 的 access key 提交进仓库了，已经 push 到 main 好几天，大家都 pull 过了。帮我处理一下，要从 git 历史里彻底清掉","recent_context":""},"en-score":{"answer":"max","correct":true,"gold":true,"p":[0.101,0.239,0.43,0.209,0.021],"confidence":0.42348922089334096,"base":"high","stakes":{"undo":0.996,"live":0.12,"access":0.948},"cause":0.018,"still_failing":0.001,"confirm":0.002,"escalate":0.019,"ultrathink":false,"unresolved":{"still_failing":0.001132797718497528,"solved":0.012301581694064614,"new_task":0.9990107468852059},"change":"reset","lifted":"stakes","guide":"typesafe","ms":597,"attempts":1,"tokens":1954,"model":"drex-max-v1.1"}},
+    {"id":"submit-057","language":"en","state":{"user_message":"Oh no — someone committed an AWS access key to the repo, and it's been pushed to main for several days; everyone has already pulled. Help me deal with it — it has to be completely scrubbed from the git history.","recent_context":""},"en-score":{"answer":"max","correct":true,"gold":true,"p":[0.126,0.355,0.324,0.165,0.03],"confidence":0.2750373781799308,"base":"high","stakes":{"undo":0.982,"live":0.177,"access":0.945},"cause":0.014,"still_failing":0.001,"confirm":0.002,"escalate":0.044,"ultrathink":false,"unresolved":{"still_failing":0.001082774604600908,"solved":0.007350587553040045,"new_task":0.9985147041848429},"change":"reset","lifted":"stakes","guide":"typesafe","ms":475,"attempts":1,"tokens":1959,"model":"drex-max-v1.1"}},
+    {"id":"submit-058","language":"zh","state":{"user_message":"`git rebase --onto` 后面那三个参数到底各是啥意思？我每次用都记反，上次差点把分支搞乱","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":false,"p":[0.114,0.875,0.006,0.003,0.001],"confidence":0.8912532304170768,"base":"medium","stakes":{"undo":0.002,"live":0.001,"access":0.001},"cause":0.011,"still_failing":0.001,"confirm":0.001,"escalate":0.006,"ultrathink":false,"unresolved":{"still_failing":0.0014521435433045792,"solved":0.0008836169338973462,"new_task":0.9987028569796056},"change":"reset","guide":"typesafe","ms":532,"attempts":1,"tokens":1943,"model":"drex-max-v1.1"}},
+    {"id":"submit-058","language":"en","state":{"user_message":"What exactly does each of the three arguments after `git rebase --onto` mean? I mix them up every time I use it, and last time I nearly messed up a branch.","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":false,"p":[0.217,0.771,0.006,0.004,0.002],"confidence":0.8035274682851614,"base":"medium","stakes":{"undo":0.001,"live":0.001,"access":0},"cause":0.002,"still_failing":0.001,"confirm":0.001,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.0006155950842572061,"solved":0.0010118483937203682,"new_task":0.9993703388969639},"change":"reset","guide":"typesafe","ms":494,"attempts":1,"tokens":1950,"model":"drex-max-v1.1"}},
+    {"id":"submit-059","language":"zh","state":{"user_message":"rebase 到最新的 main 冲突了，二十多个文件。大部分是 main 上跑了一遍 prettier 导致的格式冲突，但有三四个文件是真冲突，main 那边重构了 `PaymentService` 的接口。帮我把冲突解决掉，别把我这边的改动弄丢了","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.045,0.023,0.851,0.078,0.003],"confidence":0.8356873890985301,"base":"high","stakes":{"undo":0.146,"live":0.002,"access":0.006},"cause":0.024,"still_failing":0.005,"confirm":0.002,"escalate":0.107,"ultrathink":false,"unresolved":{"still_failing":0.005489131323284573,"solved":0.00273119699765312,"new_task":0.9975599966222328},"change":"reset","guide":"typesafe","ms":547,"attempts":1,"tokens":1973,"model":"drex-max-v1.1"}},
+    {"id":"submit-059","language":"en","state":{"user_message":"Rebasing onto the latest main hit conflicts in twenty-odd files. Most are formatting conflicts because main ran prettier over everything, but three or four files are real conflicts — main refactored the `PaymentService` interface. Resolve the conflicts for me, and don't lose my changes.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.057,0.024,0.825,0.09,0.003],"confidence":0.8038710472063861,"base":"high","stakes":{"undo":0.116,"live":0.005,"access":0.005},"cause":0.022,"still_failing":0.009,"confirm":0.003,"escalate":0.05,"ultrathink":false,"unresolved":{"still_failing":0.008600027959420392,"solved":0.004585167299142405,"new_task":0.9969429668532118},"change":"reset","guide":"typesafe","ms":686,"attempts":1,"tokens":1972,"model":"drex-max-v1.1"}},
+    {"id":"submit-060","language":"zh","state":{"user_message":"把 `fix/2.3` 分支上跟支付相关的那几个 commit 挑到 `release/2.3` 上，别的 commit 别带过去","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.193,0.455,0.332,0.016,0.005],"confidence":0.5250032586238602,"base":"medium","stakes":{"undo":0.288,"live":0.006,"access":0.009},"cause":0.004,"still_failing":0.001,"confirm":0.003,"escalate":0.021,"ultrathink":false,"unresolved":{"still_failing":0.0013570544060899884,"solved":0.018365708597962504,"new_task":0.9956166373336077},"change":"reset","guide":"typesafe","ms":468,"attempts":1,"tokens":1949,"model":"drex-max-v1.1"}},
+    {"id":"submit-060","language":"en","state":{"user_message":"Cherry-pick the payment-related commits from the `fix/2.3` branch onto `release/2.3`, and don't bring over any other commits.","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.178,0.244,0.55,0.023,0.005],"confidence":0.47256682310941434,"base":"medium","stakes":{"undo":0.298,"live":0.008,"access":0.012},"cause":0.004,"still_failing":0.003,"confirm":0.003,"escalate":0.023,"ultrathink":false,"unresolved":{"still_failing":0.0027934681330248428,"solved":0.02192665734559256,"new_task":0.9968020297144775},"change":"reset","guide":"typesafe","ms":500,"attempts":1,"tokens":1947,"model":"drex-max-v1.1"}},
+    {"id":"submit-061","language":"zh","state":{"user_message":"这活儿挺机械的：我们有 40 个微服务仓库还在用 log4j 1.x，帮我起个 Workflow 并行处理，每个仓库升到 log4j2、改配置、跑测试，成功的开 PR，失败的连原因一起汇总给我","recent_context":""},"en-score":{"answer":"medium","correct":false,"gold":false,"miss":"under","p":[0.463,0.058,0.308,0.157,0.014],"confidence":0.0007495399327558383,"base":"medium","stakes":{"undo":0.556,"live":0.025,"access":0.004},"cause":0.357,"still_failing":0.008,"confirm":0.002,"escalate":0.025,"ultrathink":false,"unresolved":{"still_failing":0.008222986538132386,"solved":0.007517387236180957,"new_task":0.9972065332600566},"change":"reset","guide":"typesafe","ms":441,"attempts":1,"tokens":1969,"model":"drex-max-v1.1"}},
+    {"id":"submit-061","language":"en","state":{"user_message":"This job is pretty mechanical: we have 40 microservice repos still on log4j 1.x. Start a Workflow to handle them in parallel for me — upgrade each repo to log4j2, update the config and run the tests; open PRs for the ones that succeed, and give me a summary of the ones that fail along with the reasons.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.678,0.122,0.167,0.027,0.005],"confidence":0.5337902938638768,"base":"medium","stakes":{"undo":0.712,"live":0.022,"access":0.003},"cause":0.164,"still_failing":0.01,"confirm":0.002,"escalate":0.023,"ultrathink":false,"unresolved":{"still_failing":0.009837051651985257,"solved":0.008600032575986096,"new_task":0.997962850109948},"change":"reset","lifted":"stakes","guide":"typesafe","ms":504,"attempts":1,"tokens":1987,"model":"drex-max-v1.1"}},
+    {"id":"submit-062","language":"zh","state":{"user_message":"线上 5xx 突然多起来了，先别急着查原因。你把 `logs/access-2026-10-03.log` 里所有 5xx 的请求捞出来，按 endpoint 统计下次数，给我个 top 10，我先发群里","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.815,0.14,0.031,0.011,0.003],"confidence":0.7946338672198106,"base":"low","stakes":{"undo":0.021,"live":0.003,"access":0.001},"cause":0.002,"still_failing":0.002,"confirm":0.001,"escalate":0.008,"ultrathink":false,"unresolved":{"still_failing":0.0024400022164545363,"solved":0.001861350812046181,"new_task":0.998446115372203},"change":"reset","guide":"typesafe","ms":521,"attempts":1,"tokens":1973,"model":"drex-max-v1.1"}},
+    {"id":"submit-062","language":"en","state":{"user_message":"5xx errors in production have suddenly spiked, but don't rush into looking for the cause yet. Pull every 5xx request out of `logs/access-2026-10-03.log`, count them by endpoint, and give me a top 10 — I'll post it in the group chat first.","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.81,0.139,0.033,0.014,0.004],"confidence":0.7799849219471677,"base":"low","stakes":{"undo":0.018,"live":0.003,"access":0.002},"cause":0.003,"still_failing":0.002,"confirm":0.003,"escalate":0.037,"ultrathink":false,"unresolved":{"still_failing":0.002037148960626665,"solved":0.0008072827598112409,"new_task":0.9984461146747965},"change":"reset","guide":"typesafe","ms":521,"attempts":1,"tokens":1980,"model":"drex-max-v1.1"}},
+    {"id":"submit-063","language":"zh","state":{"user_message":"帮我写个对账的小脚本：银行流水 CSV 跟系统订单表对一下，金额对不上的、只有一边有的都找出来。注意银行那边手续费是单独一笔，还有跨日入账的","recent_context":""},"en-score":{"answer":"medium","correct":false,"gold":false,"miss":"under","p":[0.077,0.538,0.327,0.051,0.007],"confidence":0.5613785610095421,"base":"medium","stakes":{"undo":0.009,"live":0.023,"access":0.001},"cause":0.013,"still_failing":0.002,"confirm":0.002,"escalate":0.037,"ultrathink":false,"unresolved":{"still_failing":0.0023323926067320873,"solved":0.001903825568117947,"new_task":0.997962850109948},"change":"reset","guide":"typesafe","ms":548,"attempts":1,"tokens":1958,"model":"drex-max-v1.1"}},
+    {"id":"submit-063","language":"en","state":{"user_message":"Write me a little reconciliation script: match the bank statement CSV against the system's orders table and find everything where the amounts don't match or that exists on only one side. Note that on the bank side the fee is a separate entry, and some payments post on a different day.","recent_context":""},"en-score":{"answer":"medium","correct":false,"gold":false,"miss":"under","p":[0.099,0.459,0.383,0.052,0.008],"confidence":0.49245924346752723,"base":"medium","stakes":{"undo":0.009,"live":0.036,"access":0.001},"cause":0.024,"still_failing":0.004,"confirm":0.001,"escalate":0.014,"ultrathink":false,"unresolved":{"still_failing":0.00419040553094096,"solved":0.002610776950332002,"new_task":0.9987878089443308},"change":"reset","guide":"typesafe","ms":500,"attempts":1,"tokens":1969,"model":"drex-max-v1.1"}},
+    {"id":"submit-064","language":"zh","state":{"user_message":"写个 Python 脚本，把 `images/` 下面两万多张 PNG 都压到 200KB 以内，尺寸不变，输出到 `out/`，压不到的打印出来","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.099,0.633,0.104,0.156,0.008],"confidence":0.5520094867892572,"base":"medium","stakes":{"undo":0.062,"live":0.003,"access":0.001},"cause":0.001,"still_failing":0,"confirm":0,"escalate":0.002,"ultrathink":false,"unresolved":{"still_failing":0.00037446134021482927,"solved":0.0007049583684343104,"new_task":0.9997079574444485},"change":"reset","guide":"typesafe","ms":525,"attempts":1,"tokens":1956,"model":"drex-max-v1.1"}},
+    {"id":"submit-064","language":"en","state":{"user_message":"Write a Python script that compresses the 20,000-plus PNGs under `images/` to under 200KB each without changing their dimensions, writes them to `out/`, and prints out any it can't get under that.","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.093,0.544,0.161,0.192,0.009],"confidence":0.4444301706331363,"base":"medium","stakes":{"undo":0.087,"live":0.005,"access":0.001},"cause":0.002,"still_failing":0.001,"confirm":0.001,"escalate":0.007,"ultrathink":false,"unresolved":{"still_failing":0.0012121904742981174,"solved":0.0012398721013374054,"new_task":0.9993107892410154},"change":"reset","guide":"typesafe","ms":523,"attempts":1,"tokens":1966,"model":"drex-max-v1.1"}},
+    {"id":"submit-065","language":"zh","state":{"user_message":"两份客户数据要合并去重：一份是老 CRM 导出的，手机号有的带 +86 有的不带、有的中间有空格，名字有简体也有繁体，邮箱大小写也不统一；另一份是新系统的。合并规则你来定，最后给我一份合并后的数据，再加一份冲突报告，把你拿不准的记录列出来","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.095,0.104,0.666,0.119,0.015],"confidence":0.6297731510951243,"base":"high","stakes":{"undo":0.152,"live":0.03,"access":0.002},"cause":0.004,"still_failing":0.002,"confirm":0.001,"escalate":0.031,"ultrathink":false,"unresolved":{"still_failing":0.002385591681318525,"solved":0.001819818336566915,"new_task":0.9993844049157428},"change":"reset","guide":"typesafe","ms":526,"attempts":1,"tokens":1983,"model":"drex-max-v1.1"}},
+    {"id":"submit-065","language":"en","state":{"user_message":"Two sets of customer data need to be merged and deduplicated: one was exported from the old CRM — some phone numbers have +86 and some don't, some have spaces in the middle, names are in both simplified and traditional Chinese, and email casing is inconsistent; the other is from the new system. You decide the merge rules. In the end, give me the merged data plus a conflict report listing the records you're unsure about.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.089,0.081,0.567,0.24,0.023],"confidence":0.5454460105885852,"base":"high","stakes":{"undo":0.198,"live":0.055,"access":0.003},"cause":0.006,"still_failing":0.003,"confirm":0.001,"escalate":0.022,"ultrathink":false,"unresolved":{"still_failing":0.002793466739943377,"solved":0.004689514636993408,"new_task":0.9989414023737898},"change":"reset","guide":"typesafe","ms":523,"attempts":1,"tokens":2002,"model":"drex-max-v1.1"}},
+    {"id":"submit-066","language":"zh","state":{"user_message":"我们的 App 要支持离线编辑，网络恢复后自动同步，多端同时改同一条笔记时要能合并。你看下现在的数据层，给个能落地的同步方案，冲突怎么处理要讲清楚","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.021,0.027,0.011,0.67,0.271],"confidence":0.6671763119571673,"base":"xhigh","stakes":{"undo":0.005,"live":0.003,"access":0.002},"cause":0.003,"still_failing":0.001,"confirm":0.001,"escalate":0.041,"ultrathink":false,"unresolved":{"still_failing":0.0008836169338973462,"solved":0.002179789717999128,"new_task":0.9984106426334826},"change":"reset","guide":"typesafe","ms":571,"attempts":1,"tokens":1957,"model":"drex-max-v1.1"}},
+    {"id":"submit-066","language":"en","state":{"user_message":"Our app needs to support offline editing, sync automatically once the network is back, and be able to merge edits when multiple devices change the same note at the same time. Look at the current data layer and give me a sync design we can actually implement, with a clear explanation of how conflicts are handled.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.011,0.009,0.008,0.674,0.299],"confidence":0.7030047923105232,"base":"xhigh","stakes":{"undo":0.006,"live":0.004,"access":0.002},"cause":0.002,"still_failing":0.001,"confirm":0.001,"escalate":0.031,"ultrathink":false,"unresolved":{"still_failing":0.0010585972773339185,"solved":0.0017006947969001598,"new_task":0.9987878089443308},"change":"reset","guide":"typesafe","ms":494,"attempts":1,"tokens":1973,"model":"drex-max-v1.1"}},
+    {"id":"submit-067","language":"zh","state":{"user_message":"哈哈今天被这个 bug 折磨得够呛，总算修好了。话说你平时最怕遇到哪种 bug？","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.759,0.224,0.008,0.006,0.003],"confidence":0.7744790273957374,"base":"low","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0.003,"still_failing":0.003,"confirm":0.004,"escalate":0.002,"ultrathink":false,"unresolved":{"still_failing":0.0034995684133355526,"solved":0.32664342681428354,"new_task":0.935085106980769},"change":"reset","guide":"typesafe","ms":534,"attempts":1,"tokens":1936,"model":"drex-max-v1.1"}},
+    {"id":"submit-067","language":"en","state":{"user_message":"Haha, this bug really put me through the wringer today, but it's finally fixed. By the way, what kind of bug do you dread running into the most?","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.862,0.123,0.006,0.005,0.003],"confidence":0.8649516116447462,"base":"low","stakes":{"undo":0,"live":0,"access":0.001},"cause":0.002,"still_failing":0.001,"confirm":0.004,"escalate":0.002,"ultrathink":false,"unresolved":{"still_failing":0.001082774604600908,"solved":0.8358493322752516,"new_task":0.9452364935140704},"change":"reset","guide":"typesafe","ms":495,"attempts":1,"tokens":1948,"model":"drex-max-v1.1"}},
+    {"id":"submit-068","language":"zh","state":{"user_message":"说实话，你觉得这架构烂不烂？有没有必要大改","recent_context":"user: 帮我大概看下这个项目的整体结构\nassistant: [tools: Glob, Read, Grep] 项目是 Express + TypeScript：`routes/` 直接调用 `models/` 里的 Sequelize 模型，业务逻辑大多写在路由处理函数里，`services/` 目录只有 3 个文件；没有依赖注入，配置通过全局 `config` 对象读取；测试只覆盖了 `utils/`。"},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.118,0.861,0.007,0.01,0.005],"confidence":0.8673011380103222,"base":"medium","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.029,"escalate":0.029,"ultrathink":false,"unresolved":{"still_failing":0.0014521435433045792,"solved":0.01150424553706918,"new_task":0.10245699301105696},"change":"keep","guide":"typesafe","ms":635,"attempts":1,"tokens":2017,"model":"drex-max-v1.1"}},
+    {"id":"submit-068","language":"en","state":{"user_message":"Honestly, do you think this architecture is bad? Is a major overhaul necessary?","recent_context":"user: Take a rough look at the overall structure of this project for me.\nassistant: [tools: Glob, Read, Grep] The project is Express + TypeScript: `routes/` calls the Sequelize models in `models/` directly, most business logic is written inside the route handlers, and the `services/` directory has only 3 files; there's no dependency injection, configuration is read through a global `config` object, and the tests only cover `utils/`."},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.123,0.857,0.006,0.009,0.005],"confidence":0.8654293078505613,"base":"medium","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.037,"escalate":0.057,"ultrathink":false,"unresolved":{"still_failing":0.0008072827598112409,"solved":0.008600027959420392,"new_task":0.05963720993018426},"change":"keep","guide":"typesafe","ms":551,"attempts":1,"tokens":2029,"model":"drex-max-v1.1"}},
+    {"id":"submit-069","language":"zh","state":{"user_message":"下个月要上线，安全那边要求先做一轮审计。帮我把后端所有接口的鉴权和权限校验过一遍，重点看水平越权、IDOR，还有管理后台那些接口有没有漏校验的，发现的问题按严重程度列出来","recent_context":""},"en-score":{"answer":"max","correct":true,"gold":true,"p":[0.012,0.002,0.01,0.006,0.97],"confidence":0.9336142041372967,"base":"max","stakes":{"undo":0.004,"live":0.003,"access":0.012},"cause":0.008,"still_failing":0.001,"confirm":0.001,"escalate":0.033,"ultrathink":false,"unresolved":{"still_failing":0.0007716240497872763,"solved":0.0005883978559968116,"new_task":0.9992950416315657},"change":"reset","guide":"typesafe","ms":445,"attempts":1,"tokens":1963,"model":"drex-max-v1.1"}},
+    {"id":"submit-069","language":"en","state":{"user_message":"We go live next month, and the security team wants an audit first. Go through the authentication and authorization checks on every backend endpoint for me — focus on horizontal privilege escalation and IDOR, and on whether any admin-panel endpoints are missing checks — and list the problems you find by severity.","recent_context":""},"en-score":{"answer":"max","correct":true,"gold":true,"p":[0.007,0.002,0.004,0.003,0.984],"confidence":0.961538514038786,"base":"max","stakes":{"undo":0.003,"live":0.006,"access":0.005},"cause":0.008,"still_failing":0.001,"confirm":0.001,"escalate":0.033,"ultrathink":false,"unresolved":{"still_failing":0.0009892531147941465,"solved":0.0011586666666736516,"new_task":0.9988672028629196},"change":"reset","guide":"typesafe","ms":465,"attempts":1,"tokens":1970,"model":"drex-max-v1.1"}},
+    {"id":"submit-070","language":"zh","state":{"user_message":"有个校验邮箱的正则，碰到某些特别长的输入 CPU 直接飙到 100%，接口卡死。正则在 `validators/email.ts`，帮我修一下，已有的测试用例都得过","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.026,0.187,0.441,0.336,0.01],"confidence":0.5050815735589751,"base":"high","stakes":{"undo":0.003,"live":0.002,"access":0.015},"cause":0.865,"still_failing":0.009,"confirm":0.003,"escalate":0.015,"ultrathink":false,"unresolved":{"still_failing":0.008994205074287663,"solved":0.007350581543940548,"new_task":0.996339165738572},"change":"reset","guide":"typesafe","ms":523,"attempts":1,"tokens":1955,"model":"drex-max-v1.1"}},
+    {"id":"submit-070","language":"en","state":{"user_message":"There's an email-validation regex that sends the CPU straight to 100% on certain extra-long inputs, and the endpoint hangs. The regex is in `validators/email.ts`. Fix it for me — all the existing test cases have to pass.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.04,0.112,0.653,0.184,0.011],"confidence":0.6692853645051178,"base":"high","stakes":{"undo":0.005,"live":0.002,"access":0.011},"cause":0.643,"still_failing":0.009,"confirm":0.002,"escalate":0.009,"ultrathink":false,"unresolved":{"still_failing":0.008600032575986096,"solved":0.006281517768374472,"new_task":0.9983743627930545},"change":"reset","guide":"typesafe","ms":525,"attempts":1,"tokens":1963,"model":"drex-max-v1.1"}},
+    {"id":"submit-071","language":"zh","state":{"user_message":"生产环境 nginx 的 `client_max_body_size` 从 1m 改成 20m，配置在 `deploy/nginx/prod.conf`，改完跑下 `nginx -t` 检查语法，reload 我自己来","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.855,0.134,0.006,0.003,0.001],"confidence":0.8650136099388801,"base":"low","stakes":{"undo":0.009,"live":0.005,"access":0.001},"cause":0.002,"still_failing":0.001,"confirm":0.002,"escalate":0.006,"ultrathink":false,"unresolved":{"still_failing":0.0007543884325034436,"solved":0.002793466739943377,"new_task":0.9977704842134583},"change":"reset","guide":"typesafe","ms":523,"attempts":1,"tokens":1963,"model":"drex-max-v1.1"}},
+    {"id":"submit-071","language":"en","state":{"user_message":"Change `client_max_body_size` in the production nginx config from 1m to 20m. The config is in `deploy/nginx/prod.conf`. After the change, run `nginx -t` to check the syntax — I'll do the reload myself.","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.893,0.097,0.005,0.003,0.001],"confidence":0.8985744849370303,"base":"low","stakes":{"undo":0.007,"live":0.001,"access":0.001},"cause":0.002,"still_failing":0,"confirm":0.001,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.0004386360209311552,"solved":0.0008836169338973462,"new_task":0.9990544363912425},"change":"reset","guide":"typesafe","ms":525,"attempts":1,"tokens":1967,"model":"drex-max-v1.1"}},
+    {"id":"submit-072","language":"zh","state":{"user_message":"k8s 的 HPA 不生效，CPU 都 90% 了 pod 还是 2 个。`kubectl get hpa` 里 TARGETS 那一列显示的是 `<unknown>/70%`","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.035,0.552,0.087,0.321,0.005],"confidence":0.3512648482166705,"base":"high","stakes":{"undo":0.025,"live":0.08,"access":0.006},"cause":0.989,"still_failing":0.003,"confirm":0.001,"escalate":0.004,"ultrathink":false,"unresolved":{"still_failing":0.0031979719101249376,"solved":0.0010118478122326973,"new_task":0.9985147033711461},"change":"reset","guide":"typesafe","ms":631,"attempts":1,"tokens":1963,"model":"drex-max-v1.1"}},
+    {"id":"submit-072","language":"en","state":{"user_message":"The k8s HPA isn't taking effect — CPU is at 90% and there are still 2 pods. In `kubectl get hpa`, the TARGETS column shows `<unknown>/70%`.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.036,0.542,0.102,0.315,0.006],"confidence":0.34610169419303205,"base":"high","stakes":{"undo":0.06,"live":0.19,"access":0.008},"cause":0.987,"still_failing":0.008,"confirm":0.001,"escalate":0.009,"ultrathink":false,"unresolved":{"still_failing":0.007517387236180957,"solved":0.0013267606359303045,"new_task":0.9991742744644815},"change":"reset","guide":"typesafe","ms":487,"attempts":1,"tokens":1958,"model":"drex-max-v1.1"}},
+    {"id":"submit-073","language":"zh","state":{"user_message":"把项目从 webpack 4 迁到 vite。我们有个自定义的 svg loader、一堆 `process.env.XXX`、`@` 和 `~` 两套 alias、dev server 的 proxy 配了七八条，还有多页面入口。迁完要保证 `dev` 和 `build` 都正常，产物放到老的 nginx 下面能跑","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.012,0.01,0.358,0.615,0.005],"confidence":0.651655966962381,"base":"xhigh","stakes":{"undo":0.009,"live":0.01,"access":0.002},"cause":0.004,"still_failing":0,"confirm":0.001,"escalate":0.008,"ultrathink":false,"unresolved":{"still_failing":0.00040988598523983375,"solved":0.0010585976262101873,"new_task":0.9993107892410154},"change":"reset","guide":"typesafe","ms":494,"attempts":1,"tokens":1990,"model":"drex-max-v1.1"}},
+    {"id":"submit-073","language":"en","state":{"user_message":"Migrate the project from webpack 4 to vite. We have a custom svg loader, a bunch of `process.env.XXX`, two sets of aliases (`@` and `~`), seven or eight proxy rules in the dev server config, and multi-page entries. After the migration, both `dev` and `build` must work properly, and the build output has to run when placed under our old nginx.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.015,0.011,0.252,0.713,0.009],"confidence":0.7271271924156361,"base":"xhigh","stakes":{"undo":0.008,"live":0.007,"access":0.006},"cause":0.008,"still_failing":0.001,"confirm":0.001,"escalate":0.006,"ultrathink":false,"unresolved":{"still_failing":0.0007543888396496784,"solved":0.0032708491701344132,"new_task":0.9990107468852059},"change":"reset","guide":"typesafe","ms":512,"attempts":1,"tokens":1997,"model":"drex-max-v1.1"}},
+    {"id":"submit-074","language":"zh","state":{"user_message":"这个 Python 脚本处理一天的 nginx 日志（2GB 左右），现在跑一次要 40 分钟。帮我优化到 5 分钟以内，输出必须跟现在一模一样","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.04,0.033,0.06,0.858,0.01],"confidence":0.7879618030645329,"base":"xhigh","stakes":{"undo":0.006,"live":0.012,"access":0.002},"cause":0.152,"still_failing":0.003,"confirm":0.001,"escalate":0.027,"ultrathink":false,"unresolved":{"still_failing":0.00255256759917958,"solved":0.002552565276816433,"new_task":0.9969429652283797},"change":"reset","guide":"typesafe","ms":509,"attempts":1,"tokens":1952,"model":"drex-max-v1.1"}},
+    {"id":"submit-074","language":"en","state":{"user_message":"This Python script processes a day's worth of nginx logs (about 2GB), and right now a single run takes 40 minutes. Optimize it to under 5 minutes for me — the output must be exactly the same as it is now.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.037,0.026,0.045,0.884,0.008],"confidence":0.8193134025429456,"base":"xhigh","stakes":{"undo":0.004,"live":0.011,"access":0.001},"cause":0.198,"still_failing":0.004,"confirm":0.001,"escalate":0.021,"ultrathink":false,"unresolved":{"still_failing":0.003829500784175035,"solved":0.003126710095916532,"new_task":0.9987028569796056},"change":"reset","guide":"typesafe","ms":529,"attempts":1,"tokens":1964,"model":"drex-max-v1.1"}},
+    {"id":"submit-075","language":"zh","state":{"user_message":"说真的，缩进用 tab 还是空格？给个痛快话，别和稀泥","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.766,0.216,0.008,0.007,0.003],"confidence":0.7791141690219616,"base":"low","stakes":{"undo":0.003,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.002,"escalate":0.039,"ultrathink":false,"unresolved":{"still_failing":0.0012121910556691321,"solved":0.0023323926067320873,"new_task":0.9931280881173113},"change":"reset","guide":"typesafe","ms":515,"attempts":1,"tokens":1933,"model":"drex-max-v1.1"}},
+    {"id":"submit-075","language":"en","state":{"user_message":"Seriously — tabs or spaces for indentation? Give me a straight answer, don't sit on the fence.","recent_context":""},"en-score":{"answer":"low","correct":true,"gold":true,"p":[0.821,0.161,0.008,0.007,0.003],"confidence":0.825837703719319,"base":"low","stakes":{"undo":0.002,"live":0,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.002,"escalate":0.13,"ultrathink":false,"unresolved":{"still_failing":0.0008445889182168818,"solved":0.0012681844245457834,"new_task":0.995809594469059},"change":"reset","guide":"typesafe","ms":655,"attempts":1,"tokens":1933,"model":"drex-max-v1.1"}},
+    {"id":"submit-076","language":"zh","state":{"user_message":"`/api/orders` 列表接口有 N+1 查询，每个订单都单独查一次 user 和 items。帮我改成批量查，返回结构别变","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.07,0.426,0.407,0.092,0.006],"confidence":0.43582129795846736,"base":"high","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0.016,"still_failing":0.001,"confirm":0.001,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.0006155947933980627,"solved":0.001107504020228265,"new_task":0.999370339536845},"change":"reset","guide":"typesafe","ms":491,"attempts":1,"tokens":1947,"model":"drex-max-v1.1"}},
+    {"id":"submit-076","language":"en","state":{"user_message":"The `/api/orders` list endpoint has an N+1 query problem — every order queries its user and items separately. Change it to batch queries, and don't change the response structure.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.092,0.115,0.536,0.248,0.009],"confidence":0.5295275580669628,"base":"high","stakes":{"undo":0.003,"live":0.001,"access":0.001},"cause":0.039,"still_failing":0.002,"confirm":0.002,"escalate":0.01,"ultrathink":false,"unresolved":{"still_failing":0.0017792128137862555,"solved":0.0014521435433045792,"new_task":0.9989650404153334},"change":"reset","guide":"typesafe","ms":482,"attempts":1,"tokens":1950,"model":"drex-max-v1.1"}},
+    {"id":"submit-077","language":"zh","state":{"user_message":"线上 goroutine 一直涨，都十几万了，pprof 看全卡在 `chan send` 上，帮忙 fix 下","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.021,0.064,0.131,0.669,0.115],"confidence":0.6360211737523722,"base":"xhigh","stakes":{"undo":0.012,"live":0.034,"access":0.003},"cause":0.836,"still_failing":0.009,"confirm":0.002,"escalate":0.011,"ultrathink":false,"unresolved":{"still_failing":0.009406287047894913,"solved":0.0035792953423342275,"new_task":0.996170499215825},"change":"reset","guide":"typesafe","ms":464,"attempts":1,"tokens":1942,"model":"drex-max-v1.1"}},
+    {"id":"submit-077","language":"en","state":{"user_message":"Goroutines in production keep piling up — over a hundred thousand now — and pprof shows them all stuck on `chan send`. Help fix it.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.02,0.05,0.099,0.576,0.255],"confidence":0.5708844044006289,"base":"xhigh","stakes":{"undo":0.022,"live":0.065,"access":0.005},"cause":0.78,"still_failing":0.011,"confirm":0.003,"escalate":0.017,"ultrathink":false,"unresolved":{"still_failing":0.011249975123210272,"solved":0.0018613498824571395,"new_task":0.9982993042733611},"change":"reset","guide":"typesafe","ms":600,"attempts":1,"tokens":1944,"model":"drex-max-v1.1"}},
+    {"id":"submit-078","language":"zh","state":{"user_message":"首页聚合接口的 p99 从 200ms 涨到了 2s，就是上周五发版之后开始的，那次发版合了 30 多个 PR。帮我定位一下是哪里拖慢的，然后修掉","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.004,0.036,0.027,0.93,0.003],"confidence":0.9045110102348196,"base":"xhigh","stakes":{"undo":0.007,"live":0.018,"access":0.001},"cause":0.999,"still_failing":0.002,"confirm":0.001,"escalate":0.005,"ultrathink":false,"unresolved":{"still_failing":0.0018613489528680961,"solved":0.0021311683829915887,"new_task":0.9989650408805127},"change":"reset","guide":"typesafe","ms":506,"attempts":1,"tokens":1965,"model":"drex-max-v1.1"}},
+    {"id":"submit-078","language":"en","state":{"user_message":"The p99 of the homepage aggregation endpoint went from 200ms up to 2s, starting right after last Friday's release, which merged 30-plus PRs. Help me pin down what's slowing it down, and then fix it.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.005,0.018,0.032,0.942,0.004],"confidence":0.9292785380677102,"base":"xhigh","stakes":{"undo":0.011,"live":0.019,"access":0.002},"cause":0.999,"still_failing":0.002,"confirm":0.001,"escalate":0.01,"ultrathink":false,"unresolved":{"still_failing":0.0021311683829915887,"solved":0.002037149890052013,"new_task":0.9987028569796056},"change":"reset","guide":"typesafe","ms":459,"attempts":1,"tokens":1966,"model":"drex-max-v1.1"}},
+    {"id":"submit-079","language":"zh","state":{"user_message":"算了，这个方向不对，你刚才改的都撤回吧","recent_context":"user: 试试把图片懒加载改成用 IntersectionObserver 实现\nassistant: [tools: Read, Edit, Write] 已修改 `components/LazyImage.tsx` 和 `hooks/useInView.ts`，并新增了 `utils/observer.ts`。本地预览时，滚动到位置图片能正常加载。"},"en-score":{"answer":"medium","correct":true,"gold":false,"p":[0.641,0.198,0.144,0.013,0.004],"confidence":0.5500559962904912,"base":"medium","stakes":{"undo":0.046,"live":0.002,"access":0.001},"cause":0.003,"still_failing":0.27,"confirm":0.011,"escalate":0.006,"ultrathink":false,"unresolved":{"still_failing":0.26998803824150674,"solved":0.020518404483938026,"new_task":0.05715158752058707},"change":"keep","guide":"typesafe","ms":533,"attempts":1,"tokens":1992,"model":"drex-max-v1.1"}},
+    {"id":"submit-079","language":"en","state":{"user_message":"Never mind, this direction is wrong — revert everything you just changed.","recent_context":"user: Try reimplementing the image lazy-loading with IntersectionObserver.\nassistant: [tools: Read, Edit, Write] I modified `components/LazyImage.tsx` and `hooks/useInView.ts`, and added a new `utils/observer.ts`. In the local preview, images load properly when you scroll to them."},"en-score":{"answer":"medium","correct":true,"gold":false,"p":[0.513,0.26,0.208,0.015,0.004],"confidence":0.38613183923926897,"base":"medium","stakes":{"undo":0.034,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.288,"confirm":0.009,"escalate":0.004,"ultrathink":false,"unresolved":{"still_failing":0.2881763193554783,"solved":0.022917532738432427,"new_task":0.06771398285244418},"change":"keep","guide":"typesafe","ms":516,"attempts":1,"tokens":1993,"model":"drex-max-v1.1"}},
+    {"id":"submit-080","language":"zh","state":{"user_message":"把 `UserProfile.jsx` 这个 class 组件改成函数组件加 hooks，300 来行，用到了 `componentDidMount`、`componentDidUpdate`（里面比较了 prevProps 的 userId）和 `componentWillUnmount`","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.041,0.397,0.416,0.14,0.005],"confidence":0.47394076229276016,"base":"high","stakes":{"undo":0.004,"live":0.001,"access":0.002},"cause":0.001,"still_failing":0.002,"confirm":0.002,"escalate":0.01,"ultrathink":false,"unresolved":{"still_failing":0.0019472713126286434,"solved":0.0017792137434518504,"new_task":0.998138651047132},"change":"reset","guide":"typesafe","ms":524,"attempts":1,"tokens":1965,"model":"drex-max-v1.1"}},
+    {"id":"submit-080","language":"en","state":{"user_message":"Convert the `UserProfile.jsx` class component into a function component with hooks. It's about 300 lines and uses `componentDidMount`, `componentDidUpdate` (which compares prevProps' userId) and `componentWillUnmount`.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.044,0.481,0.32,0.149,0.006],"confidence":0.4339429226394532,"base":"high","stakes":{"undo":0.002,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.005,"ultrathink":false,"unresolved":{"still_failing":0.0005138024517817749,"solved":0.0010349586543078966,"new_task":0.99864294559391},"change":"reset","guide":"typesafe","ms":521,"attempts":1,"tokens":1962,"model":"drex-max-v1.1"}},
+    {"id":"submit-081","language":"zh","state":{"user_message":"好，执行吧","recent_context":"user: 生产库里有一批重复注册的账号（同一个手机号注册了多个），帮我出个合并方案\nassistant: [tools: Read, Write, Bash] 方案已写好：按手机号分组，保留最早注册的账号作为主账号，把订单、余额、积分、优惠券迁到主账号，其余账号标记为注销。涉及 6 张表，共约 1.2 万个账号。脚本 `scripts/merge_dup_users.sql` 已在 staging 演练通过。生产执行后无法自动回滚，建议先全量备份相关表。要在生产执行吗？"},"en-score":{"answer":"max","correct":true,"gold":true,"p":[0.335,0.195,0.149,0.306,0.014],"confidence":0,"base":"high","stakes":{"undo":0.994,"live":0.999,"access":0.008},"cause":0.002,"still_failing":0,"confirm":0.999,"escalate":0.002,"ultrathink":false,"unresolved":{"still_failing":0.00018168518913314754,"solved":0.0017006957266388423,"new_task":0.00040988578159652223},"change":"keep","lifted":"stakes","guide":"typesafe","ms":532,"attempts":1,"tokens":2041,"model":"drex-max-v1.1"}},
+    {"id":"submit-081","language":"en","state":{"user_message":"OK, go ahead and run it.","recent_context":"user: There's a batch of duplicate accounts in the production database (several accounts registered with the same phone number). Come up with a merge plan for me.\nassistant: [tools: Read, Write, Bash] The plan is ready: group by phone number, keep the earliest-registered account as the primary account, move orders, balances, points and coupons to the primary account, and mark the other accounts as closed. It touches 6 tables and about 12,000 accounts in total. The script `scripts/merge_dup_users.sql` has passed a dry run on staging. Once executed in production it cannot be rolled back automatically, so I recommend taking a full backup of the affected tables first. Shall I run it in production?"},"en-score":{"answer":"max","correct":true,"gold":true,"p":[0.252,0.146,0.168,0.414,0.02],"confidence":0,"base":"high","stakes":{"undo":0.994,"live":0.999,"access":0.003},"cause":0.002,"still_failing":0,"confirm":0.999,"escalate":0.006,"ultrathink":false,"unresolved":{"still_failing":0.0003830198546242237,"solved":0.001034959119487251,"new_task":0.0006440482555075637},"change":"keep","lifted":"stakes","guide":"typesafe","ms":519,"attempts":1,"tokens":2074,"model":"drex-max-v1.1"}},
+    {"id":"submit-082","language":"zh","state":{"user_message":"那日志里加个 request id 吧，方便串起来排查","recent_context":"user: 我们这套系统的日志现在是怎么打的？\nassistant: [tools: Grep, Read] 系统由网关和 6 个下游服务组成，服务之间走 HTTP 和 RocketMQ，另外还有一批定时任务和异步 worker。各服务用各自的 logger 打到本地文件，再由 filebeat 收集；日志里目前没有任何能把一次请求串起来的字段。"},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.051,0.011,0.084,0.839,0.015],"confidence":0.7715857897671763,"base":"xhigh","stakes":{"undo":0.003,"live":0.003,"access":0.001},"cause":0.003,"still_failing":0.003,"confirm":0.037,"escalate":0.005,"ultrathink":false,"unresolved":{"still_failing":0.0026703087525308416,"solved":0.015373986500762151,"new_task":0.05715156293389739},"change":"keep","guide":"typesafe","ms":523,"attempts":1,"tokens":2008,"model":"drex-max-v1.1"}},
+    {"id":"submit-082","language":"en","state":{"user_message":"Then add a request id to the logs, so we can tie things together when troubleshooting.","recent_context":"user: How is logging done in our system right now?\nassistant: [tools: Grep, Read] The system consists of a gateway and 6 downstream services; the services talk to each other over HTTP and RocketMQ, and there's also a set of scheduled jobs and async workers. Each service writes to local files with its own logger, which filebeat then collects; right now the logs have no field that ties together a single request."},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.053,0.01,0.083,0.833,0.02],"confidence":0.7643359878599696,"base":"xhigh","stakes":{"undo":0.005,"live":0.003,"access":0.001},"cause":0.002,"still_failing":0.003,"confirm":0.018,"escalate":0.007,"ultrathink":false,"unresolved":{"still_failing":0.002922290720291731,"solved":0.019629166478795628,"new_task":0.08006274014758125},"change":"keep","guide":"typesafe","ms":526,"attempts":1,"tokens":2021,"model":"drex-max-v1.1"}},
+    {"id":"submit-083","language":"zh","state":{"user_message":"好，就这么定了。按这个写个 ADR 放到 `docs/adr/` 下面","recent_context":"user: Postgres 和 MongoDB 我们选哪个？\nassistant: 结论：选 Postgres。理由：1. 订单和库存之间强关联，需要事务和外键；2. 团队熟悉 SQL；3. JSONB 足以覆盖少量半结构化字段；4. 运维已有成熟的 Postgres 备份方案。MongoDB 的优势（灵活的 schema、水平扩展）在当前规模下用不上。"},"en-score":{"answer":"medium","correct":true,"gold":false,"p":[0.164,0.799,0.015,0.016,0.006],"confidence":0.8104179168954697,"base":"medium","stakes":{"undo":0.003,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.511,"escalate":0.017,"ultrathink":false,"unresolved":{"still_failing":0.0009892531147941465,"solved":0.6733565731857165,"new_task":0.14637724001339794},"change":"keep","guide":"typesafe","ms":521,"attempts":1,"tokens":2022,"model":"drex-max-v1.1"}},
+    {"id":"submit-083","language":"en","state":{"user_message":"OK, that's settled. Write an ADR based on this and put it under `docs/adr/`.","recent_context":"user: Postgres or MongoDB — which should we pick?\nassistant: Conclusion: pick Postgres. Reasons: 1. orders and inventory are strongly related and need transactions and foreign keys; 2. the team knows SQL well; 3. JSONB is enough to cover the few semi-structured fields; 4. ops already has a mature Postgres backup setup. MongoDB's strengths (flexible schema, horizontal scaling) aren't needed at our current scale."},"en-score":{"answer":"medium","correct":true,"gold":false,"p":[0.211,0.75,0.016,0.017,0.006],"confidence":0.7672589664977851,"base":"medium","stakes":{"undo":0.002,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.003,"confirm":0.368,"escalate":0.017,"ultrathink":false,"unresolved":{"still_failing":0.002552565276816433,"solved":0.8163820030746163,"new_task":0.1975624323980913},"change":"reset","guide":"typesafe","ms":562,"attempts":1,"tokens":2032,"model":"drex-max-v1.1"}},
+    {"id":"submit-084","language":"zh","state":{"user_message":"我们要从单租户改成 SaaS 多租户。数据隔离是用独立库、独立 schema，还是共享表加 tenant_id，你结合现在的代码帮我选一个，再评估下改造量，列出要动的模块","recent_context":""},"en-score":{"answer":"high","correct":false,"gold":false,"miss":"under","p":[0.157,0.338,0.021,0.405,0.079],"confidence":0,"base":"high","stakes":{"undo":0.008,"live":0.004,"access":0.019},"cause":0,"still_failing":0.001,"confirm":0.001,"escalate":0.023,"ultrathink":false,"unresolved":{"still_failing":0.0009892535799948068,"solved":0.0027934681330248428,"new_task":0.999262461010549},"change":"reset","guide":"typesafe","ms":489,"attempts":1,"tokens":1958,"model":"drex-max-v1.1"}},
+    {"id":"submit-084","language":"en","state":{"user_message":"We need to go from single-tenant to SaaS multi-tenant. Help me choose the data isolation approach based on our current code — separate databases, separate schemas, or shared tables plus a tenant_id — then estimate the amount of rework and list the modules that need to change.","recent_context":""},"en-score":{"answer":"high","correct":false,"gold":false,"miss":"under","p":[0.125,0.581,0.025,0.206,0.063],"confidence":0.37419950686703307,"base":"high","stakes":{"undo":0.006,"live":0.003,"access":0.024},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.016,"ultrathink":false,"unresolved":{"still_failing":0.0007716237589735388,"solved":0.0017792128137862555,"new_task":0.9990544358678689},"change":"reset","guide":"typesafe","ms":529,"attempts":1,"tokens":1970,"model":"drex-max-v1.1"}},
+    {"id":"submit-085","language":"zh","state":{"user_message":"顺手写个 GitHub Actions 吧：打 `v*` tag 的时候自动构建 amd64 和 arm64 两个架构的 Docker 镜像推到 GHCR，再根据 commit 生成 changelog 发个 release","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.061,0.489,0.34,0.105,0.005],"confidence":0.4782599540379979,"base":"high","stakes":{"undo":0.018,"live":0.007,"access":0.091},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.008,"ultrathink":false,"unresolved":{"still_failing":0.0012121916370401464,"solved":0.009619281761617611,"new_task":0.9852956331553833},"change":"reset","guide":"typesafe","ms":520,"attempts":1,"tokens":1961,"model":"drex-max-v1.1"}},
+    {"id":"submit-085","language":"en","state":{"user_message":"While you're at it, write a GitHub Actions workflow: when a `v*` tag is pushed, automatically build Docker images for both amd64 and arm64 and push them to GHCR, then generate a changelog from the commits and publish a release.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.057,0.349,0.365,0.222,0.007],"confidence":0.41736402732110367,"base":"high","stakes":{"undo":0.027,"live":0.01,"access":0.062},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.005,"ultrathink":false,"unresolved":{"still_failing":0.0011327965556631413,"solved":0.010287334625128592,"new_task":0.9901629483480148},"change":"reset","guide":"typesafe","ms":610,"attempts":1,"tokens":1967,"model":"drex-max-v1.1"}},
+    {"id":"submit-086","language":"zh","state":{"user_message":"可以，按你的思路把剩下的也迁了","recent_context":"user: 先拿 `user` 模块试试，把 REST 接口迁到 tRPC\nassistant: [tools: Read, Edit, Write, Bash] `user` 模块已迁到 tRPC，作为示例。剩下 11 个模块的结构和 `user` 基本一致，只有 `report` 和 `upload` 两个模块用了流式响应和文件上传，tRPC 需要特殊处理。"},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.051,0.02,0.358,0.563,0.008],"confidence":0.5335965160573749,"base":"high","stakes":{"undo":0.01,"live":0.003,"access":0.02},"cause":0.004,"still_failing":0.003,"confirm":0.978,"escalate":0.02,"ultrathink":false,"unresolved":{"still_failing":0.0030570347716203363,"solved":0.21994949549511827,"new_task":0.016804536460247075},"change":"keep","guide":"typesafe","ms":446,"attempts":1,"tokens":2014,"model":"drex-max-v1.1"}},
+    {"id":"submit-086","language":"en","state":{"user_message":"OK — migrate the rest too, following your approach.","recent_context":"user: Let's try it on the `user` module first — migrate its REST endpoints to tRPC.\nassistant: [tools: Read, Edit, Write, Bash] The `user` module has been migrated to tRPC as an example. The remaining 11 modules are structured much like `user`; only two of them, `report` and `upload`, use streaming responses and file uploads, which need special handling in tRPC."},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.069,0.032,0.385,0.505,0.01],"confidence":0.4454683935671655,"base":"high","stakes":{"undo":0.01,"live":0.002,"access":0.015},"cause":0.003,"still_failing":0.003,"confirm":0.865,"escalate":0.025,"ultrathink":false,"unresolved":{"still_failing":0.00312671172063503,"solved":0.28817641735076904,"new_task":0.04050810816175229},"change":"keep","guide":"typesafe","ms":521,"attempts":1,"tokens":2014,"model":"drex-max-v1.1"}},
+    {"id":"submit-087","language":"zh","state":{"user_message":"对了，问个不相干的：`^(?=.*\\d)(?=.*[a-z])(?=.*[A-Z])(?!.*\\s).{8,32}$` 这串是啥意思？看着就头大","recent_context":"user: 把支付模块的对账逻辑重构一下，拆成独立的 reconciler\nassistant: [tools: Read, Edit, Write, Bash] 重构完成：在 `payments/reconciler/` 下新增 6 个文件，原来的 `PaymentJob` 改为调用 reconciler，补了 24 个测试，全部通过。"},"en-score":{"answer":"medium","correct":true,"gold":false,"p":[0.136,0.832,0.026,0.004,0.002],"confidence":0.8522642235921212,"base":"medium","stakes":{"undo":0.001,"live":0.001,"access":0.002},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.0008257255355184705,"solved":0.003829500784175035,"new_task":0.9992283759502127},"change":"reset","guide":"typesafe","ms":520,"attempts":1,"tokens":2034,"model":"drex-max-v1.1"}},
+    {"id":"submit-087","language":"en","state":{"user_message":"Oh, an unrelated question: what does `^(?=.*\\d)(?=.*[a-z])(?=.*[A-Z])(?!.*\\s).{8,32}$` mean? Just looking at it gives me a headache.","recent_context":"user: Refactor the payment module's reconciliation logic and split it out into a standalone reconciler.\nassistant: [tools: Read, Edit, Write, Bash] Refactor done: added 6 files under `payments/reconciler/`, changed the original `PaymentJob` to call the reconciler, and added 24 tests, all passing."},"en-score":{"answer":"medium","correct":true,"gold":false,"p":[0.191,0.777,0.022,0.006,0.004],"confidence":0.8029723603951191,"base":"medium","stakes":{"undo":0.001,"live":0.001,"access":0.002},"cause":0.001,"still_failing":0.001,"confirm":0.003,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.0008072827598112409,"solved":0.007862340115666415,"new_task":0.9989172253953991},"change":"reset","guide":"typesafe","ms":521,"attempts":1,"tokens":2032,"model":"drex-max-v1.1"}},
+    {"id":"submit-088","language":"zh","state":{"user_message":"把全局的 `EventBus` 单例干掉，改成依赖注入。现在大概有 60 多处直接调 `EventBus.getInstance()`，有些是在模块顶层调的，测试里也到处在 mock 它","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.007,0.002,0.02,0.965,0.007],"confidence":0.9576107752482498,"base":"xhigh","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0,"still_failing":0.001,"confirm":0,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.000704957670434755,"solved":0.0006296611030361076,"new_task":0.9989650404153334},"change":"reset","guide":"typesafe","ms":523,"attempts":1,"tokens":1960,"model":"drex-max-v1.1"}},
+    {"id":"submit-088","language":"en","state":{"user_message":"Get rid of the global `EventBus` singleton and switch to dependency injection. Right now there are 60-plus places that call `EventBus.getInstance()` directly; some of them call it at module top level, and the tests mock it all over the place.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.007,0.002,0.014,0.967,0.009],"confidence":0.9595857561483836,"base":"xhigh","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0,"still_failing":0.001,"confirm":0.001,"escalate":0.004,"ultrathink":false,"unresolved":{"still_failing":0.0006018425609817395,"solved":0.0007543888396496784,"new_task":0.999210747166507},"change":"reset","guide":"typesafe","ms":539,"attempts":1,"tokens":1966,"model":"drex-max-v1.1"}},
+    {"id":"submit-089","language":"zh","state":{"user_message":"`utils/date.ts` 里导出的那 5 个函数都没注释，帮我补上 JSDoc，参数、返回值、边界行为都写清楚","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.078,0.823,0.09,0.007,0.002],"confidence":0.843446236242877,"base":"medium","stakes":{"undo":0.001,"live":0,"access":0},"cause":0.001,"still_failing":0,"confirm":0,"escalate":0.021,"ultrathink":false,"unresolved":{"still_failing":0.00036609414294403353,"solved":0.0006296611030361076,"new_task":0.999599272591124},"change":"reset","guide":"typesafe","ms":510,"attempts":1,"tokens":1946,"model":"drex-max-v1.1"}},
+    {"id":"submit-089","language":"en","state":{"user_message":"None of the 5 functions exported from `utils/date.ts` have comments. Add JSDoc to them for me, clearly describing the parameters, return values and edge-case behavior.","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.086,0.823,0.078,0.009,0.003],"confidence":0.8402293543641801,"base":"medium","stakes":{"undo":0.001,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.037,"ultrathink":false,"unresolved":{"still_failing":0.0007892524845226363,"solved":0.0008638826848604772,"new_task":0.9988672034443369},"change":"reset","guide":"typesafe","ms":529,"attempts":1,"tokens":1949,"model":"drex-max-v1.1"}},
+    {"id":"submit-090","language":"zh","state":{"user_message":"写个一次性的迁移脚本，把 MongoDB 里的 `users` 集合导到 Postgres。文档里的 `addresses` 是个嵌套数组，要拆到单独的 `user_addresses` 表；有些老数据的 `createdAt` 是字符串，有些是时间戳。导完要能核对条数","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.06,0.221,0.547,0.161,0.011],"confidence":0.5637605033639794,"base":"high","stakes":{"undo":0.083,"live":0.177,"access":0.009},"cause":0.003,"still_failing":0.004,"confirm":0.002,"escalate":0.016,"ultrathink":false,"unresolved":{"still_failing":0.00400590757467678,"solved":0.00261077439588156,"new_task":0.9980082970851823},"change":"reset","guide":"typesafe","ms":518,"attempts":1,"tokens":1977,"model":"drex-max-v1.1"}},
+    {"id":"submit-090","language":"en","state":{"user_message":"Write a one-off migration script that moves the `users` collection from MongoDB into Postgres. The `addresses` field in each document is a nested array and needs to be split out into a separate `user_addresses` table; in some old data `createdAt` is a string, and in some it's a timestamp. After the import, the row counts need to be verifiable.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.064,0.182,0.514,0.228,0.013],"confidence":0.5308499347503888,"base":"high","stakes":{"undo":0.13,"live":0.205,"access":0.003},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.008,"ultrathink":false,"unresolved":{"still_failing":0.0012398721013374054,"solved":0.003829500784175035,"new_task":0.9990544367401581},"change":"reset","guide":"typesafe","ms":578,"attempts":1,"tokens":1990,"model":"drex-max-v1.1"}},
+    {"id":"submit-091","language":"zh","state":{"user_message":"我们 DSL 的递归下降 parser 太慢了，表达式一长就指数级变慢。帮我改成 Pratt parser，现有测试都要过，报错信息的格式和位置也不能变","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.028,0.022,0.132,0.803,0.015],"confidence":0.7708003931354435,"base":"xhigh","stakes":{"undo":0.003,"live":0.001,"access":0.001},"cause":0.146,"still_failing":0.01,"confirm":0.002,"escalate":0.029,"ultrathink":false,"unresolved":{"still_failing":0.010287334625128592,"solved":0.0044831355423611274,"new_task":0.9974474335620019},"change":"reset","guide":"typesafe","ms":473,"attempts":1,"tokens":1950,"model":"drex-max-v1.1"}},
+    {"id":"submit-091","language":"en","state":{"user_message":"The recursive-descent parser for our DSL is too slow — it slows down exponentially once expressions get long. Rewrite it as a Pratt parser for me; all the existing tests must pass, and the error messages' format and positions must not change.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.028,0.027,0.125,0.798,0.022],"confidence":0.7621576339558243,"base":"xhigh","stakes":{"undo":0.002,"live":0.001,"access":0.002},"cause":0.111,"still_failing":0.009,"confirm":0.001,"escalate":0.015,"ultrathink":false,"unresolved":{"still_failing":0.009406287047894913,"solved":0.0044831355423611274,"new_task":0.9963391675943982},"change":"reset","guide":"typesafe","ms":521,"attempts":1,"tokens":1961,"model":"drex-max-v1.1"}},
+    {"id":"submit-092","language":"zh","state":{"user_message":"这项目到底跑在哪个 Node 版本上？`.nvmrc` 写的 18，`package.json` 的 `engines` 写的 `>=16`，Dockerfile 里又是 `node:20-alpine`，CI 用的啥我也不知道","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.324,0.354,0.283,0.032,0.007],"confidence":0.42322558556672685,"base":"medium","stakes":{"undo":0.008,"live":0.005,"access":0.002},"cause":0.125,"still_failing":0.002,"confirm":0.001,"escalate":0.01,"ultrathink":false,"unresolved":{"still_failing":0.002332390516143769,"solved":0.002280375078111657,"new_task":0.9996082266412167},"change":"reset","guide":"typesafe","ms":525,"attempts":1,"tokens":1973,"model":"drex-max-v1.1"}},
+    {"id":"submit-092","language":"en","state":{"user_message":"Which Node version does this project actually run on? `.nvmrc` says 18, the `engines` field in `package.json` says `>=16`, the Dockerfile uses `node:20-alpine`, and I don't even know what CI uses.","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.353,0.443,0.179,0.02,0.005],"confidence":0.510177779118075,"base":"medium","stakes":{"undo":0.005,"live":0.003,"access":0.001},"cause":0.094,"still_failing":0.001,"confirm":0.001,"escalate":0.008,"ultrathink":false,"unresolved":{"still_failing":0.0009671614811130648,"solved":0.0013880393702005243,"new_task":0.9990961984254166},"change":"reset","guide":"typesafe","ms":520,"attempts":1,"tokens":1971,"model":"drex-max-v1.1"}},
+    {"id":"submit-093","language":"zh","state":{"user_message":"给这个 CLI 加个 `--dry-run` 参数，所有会写文件、调外部 API、改数据库的地方都要认这个参数，只打印将要做什么","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.024,0.029,0.787,0.155,0.006],"confidence":0.7974607963256631,"base":"high","stakes":{"undo":0.006,"live":0.004,"access":0.002},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.007,"ultrathink":false,"unresolved":{"still_failing":0.0009892526495934855,"solved":0.0011586672480758207,"new_task":0.9972065318669752},"change":"reset","guide":"typesafe","ms":532,"attempts":1,"tokens":1948,"model":"drex-max-v1.1"}},
+    {"id":"submit-093","language":"en","state":{"user_message":"Add a `--dry-run` flag to this CLI. Every place that writes files, calls external APIs or modifies the database has to respect this flag and only print what it would do.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.024,0.017,0.66,0.293,0.006],"confidence":0.6911600158555866,"base":"high","stakes":{"undo":0.009,"live":0.004,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.011,"ultrathink":false,"unresolved":{"still_failing":0.0006892111079899411,"solved":0.0007892524845226363,"new_task":0.9982207854430908},"change":"reset","guide":"typesafe","ms":517,"attempts":1,"tokens":1950,"model":"drex-max-v1.1"}},
+    {"id":"submit-094","language":"zh","state":{"user_message":"升到 Node 22 之后，Jest 跑到一半会随机 segfault，换回 Node 20 就好了。每次挂在不同的测试文件上","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.01,0.251,0.049,0.68,0.009],"confidence":0.5071242195873673,"base":"high","stakes":{"undo":0.008,"live":0.003,"access":0.001},"cause":0.994,"still_failing":0.003,"confirm":0.001,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.0034995684133355526,"solved":0.0123015927324543,"new_task":0.9992283759502127},"change":"reset","guide":"typesafe","ms":525,"attempts":1,"tokens":1946,"model":"drex-max-v1.1"}},
+    {"id":"submit-094","language":"en","state":{"user_message":"After upgrading to Node 22, Jest randomly segfaults partway through a run, and switching back to Node 20 makes it go away. It crashes on a different test file each time.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":true,"p":[0.006,0.118,0.042,0.826,0.008],"confidence":0.7463151273657366,"base":"xhigh","stakes":{"undo":0.006,"live":0.001,"access":0.001},"cause":0.998,"still_failing":0.001,"confirm":0.001,"escalate":0.002,"ultrathink":false,"unresolved":{"still_failing":0.001485295815157061,"solved":0.0021797885563835735,"new_task":0.9996500838735183},"change":"reset","guide":"typesafe","ms":524,"attempts":1,"tokens":1954,"model":"drex-max-v1.1"}},
+    {"id":"submit-095","language":"zh","state":{"user_message":"ESLint 从 `.eslintrc.js` 迁到 flat config（`eslint.config.js`），就是换个配置文件格式而已。我们用了 `typescript-eslint`、`react`、`import` 三个插件，还有一个针对 `tests/` 的 override","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.13,0.551,0.28,0.035,0.005],"confidence":0.5877876636612285,"base":"medium","stakes":{"undo":0.008,"live":0.002,"access":0.001},"cause":0.004,"still_failing":0.001,"confirm":0.001,"escalate":0.019,"ultrathink":false,"unresolved":{"still_failing":0.0007892524845226363,"solved":0.0032708507946180637,"new_task":0.9996255388343428},"change":"reset","guide":"typesafe","ms":659,"attempts":1,"tokens":1969,"model":"drex-max-v1.1"}},
+    {"id":"submit-095","language":"en","state":{"user_message":"Migrate ESLint from `.eslintrc.js` to flat config (`eslint.config.js`) — it's just a change of config file format. We use three plugins — `typescript-eslint`, `react` and `import` — plus an override for `tests/`.","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.123,0.716,0.141,0.017,0.004],"confidence":0.7434392052589365,"base":"medium","stakes":{"undo":0.007,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0,"confirm":0.001,"escalate":0.013,"ultrathink":false,"unresolved":{"still_failing":0.000491100558552373,"solved":0.0014852966288539284,"new_task":0.9995613643863438},"change":"reset","guide":"typesafe","ms":550,"attempts":1,"tokens":1969,"model":"drex-max-v1.1"}},
+    {"id":"submit-096","language":"zh","state":{"user_message":"Next.js 的页面在 Safari 上报 hydration mismatch，Chrome 和 Firefox 都没事。报错指向一个显示日期的组件，但那个组件我看着也没啥问题","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.006,0.202,0.071,0.717,0.003],"confidence":0.5863153372855495,"base":"xhigh","stakes":{"undo":0.004,"live":0.002,"access":0.001},"cause":0.998,"still_failing":0.001,"confirm":0.001,"escalate":0.008,"ultrathink":false,"unresolved":{"still_failing":0.0014197308542854275,"solved":0.0006296607540100687,"new_task":0.99937033924599},"change":"reset","guide":"typesafe","ms":471,"attempts":1,"tokens":1948,"model":"drex-max-v1.1"}},
+    {"id":"submit-096","language":"en","state":{"user_message":"A Next.js page throws a hydration mismatch on Safari, while Chrome and Firefox are both fine. The error points to a component that displays a date, but that component doesn't look like it has any problem to me.","recent_context":""},"en-score":{"answer":"xhigh","correct":true,"gold":false,"p":[0.005,0.104,0.053,0.835,0.003],"confidence":0.7665957374163366,"base":"xhigh","stakes":{"undo":0.002,"live":0.002,"access":0.001},"cause":0.999,"still_failing":0.001,"confirm":0,"escalate":0.004,"ultrathink":false,"unresolved":{"still_failing":0.0006296607540100687,"solved":0.0003917737078924172,"new_task":0.9996803271002084},"change":"reset","guide":"typesafe","ms":450,"attempts":1,"tokens":1956,"model":"drex-max-v1.1"}},
+    {"id":"submit-097","language":"zh","state":{"user_message":"README 里补一节「本地开发」，照着 `package.json` 里的 scripts 和 `.env.example` 写清楚怎么装依赖、怎么配环境变量、怎么启动","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.073,0.879,0.042,0.004,0.001],"confidence":0.8931719007715568,"base":"medium","stakes":{"undo":0.002,"live":0.001,"access":0.005},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.003,"ultrathink":false,"unresolved":{"still_failing":0.0006296611030361076,"solved":0.0009671618881726108,"new_task":0.9992107478644477},"change":"reset","guide":"typesafe","ms":489,"attempts":1,"tokens":1950,"model":"drex-max-v1.1"}},
+    {"id":"submit-097","language":"en","state":{"user_message":"Add a \"Local development\" section to the README, based on the scripts in `package.json` and on `.env.example`, explaining clearly how to install dependencies, how to configure the environment variables, and how to start the app.","recent_context":""},"en-score":{"answer":"medium","correct":true,"gold":true,"p":[0.057,0.866,0.069,0.006,0.002],"confidence":0.8804554646281907,"base":"medium","stakes":{"undo":0.002,"live":0.001,"access":0.005},"cause":0.001,"still_failing":0.001,"confirm":0.001,"escalate":0.011,"ultrathink":false,"unresolved":{"still_failing":0.0008836165268037437,"solved":0.0007892521355523027,"new_task":0.9990544358678689},"change":"reset","guide":"typesafe","ms":626,"attempts":1,"tokens":1959,"model":"drex-max-v1.1"}},
+    {"id":"submit-098","language":"zh","state":{"user_message":"`OrderController` 已经 1500 行了，业务逻辑全写在里面。帮我把业务逻辑下沉到 service 层，controller 只留参数校验和响应组装，对外行为不能有任何变化","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.016,0.01,0.838,0.131,0.004],"confidence":0.8487955126117424,"base":"high","stakes":{"undo":0.003,"live":0.001,"access":0.001},"cause":0.001,"still_failing":0.001,"confirm":0.002,"escalate":0.031,"ultrathink":false,"unresolved":{"still_failing":0.0007375389894508991,"solved":0.0012398726826923275,"new_task":0.9986732393640697},"change":"reset","guide":"typesafe","ms":492,"attempts":1,"tokens":1957,"model":"drex-max-v1.1"}},
+    {"id":"submit-098","language":"en","state":{"user_message":"`OrderController` is already 1,500 lines, with all the business logic written inside it. Move the business logic down into the service layer, leaving only parameter validation and response assembly in the controller — the external behavior must not change in any way.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.014,0.007,0.916,0.061,0.003],"confidence":0.9160471765013339,"base":"high","stakes":{"undo":0.002,"live":0.001,"access":0.001},"cause":0,"still_failing":0.001,"confirm":0.001,"escalate":0.022,"ultrathink":false,"unresolved":{"still_failing":0.0007543891304684174,"solved":0.0005138027426705402,"new_task":0.9993107888920101},"change":"reset","guide":"typesafe","ms":527,"attempts":1,"tokens":1965,"model":"drex-max-v1.1"}},
+    {"id":"submit-099","language":"zh","state":{"user_message":"`src/utils.js` 已经 800 多行了，啥都往里塞。帮我按功能拆成几个文件（日期、字符串、请求、存储这些），所有 import 的地方也一起改了，函数本身一行都别动","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.007,0.003,0.98,0.009,0.001],"confidence":0.9765151701143497,"base":"high","stakes":{"undo":0.001,"live":0.001,"access":0.005},"cause":0.001,"still_failing":0.002,"confirm":0.002,"escalate":0.022,"ultrathink":false,"unresolved":{"still_failing":0.0015893559717537497,"solved":0.00273119699765312,"new_task":0.9981386501175429},"change":"reset","guide":"typesafe","ms":508,"attempts":1,"tokens":1963,"model":"drex-max-v1.1"}},
+    {"id":"submit-099","language":"en","state":{"user_message":"`src/utils.js` is already over 800 lines — everything gets stuffed in there. Split it into several files by function (dates, strings, requests, storage and so on), update every place that imports it as well, and don't change a single line of the functions themselves.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":false,"p":[0.006,0.003,0.984,0.007,0],"confidence":0.9814762233336705,"base":"high","stakes":{"undo":0.001,"live":0,"access":0.002},"cause":0,"still_failing":0.001,"confirm":0.001,"escalate":0.015,"ultrathink":false,"unresolved":{"still_failing":0.0007375389894508991,"solved":0.0008638822777588561,"new_task":0.9993981572063277},"change":"reset","guide":"typesafe","ms":483,"attempts":1,"tokens":1971,"model":"drex-max-v1.1"}},
+    {"id":"submit-100","language":"zh","state":{"user_message":"`reports/monthly.sql` 这条报表 SQL 要跑 30 秒，三张表 join 再套一个子查询，表结构和现有索引都在 `db/schema.sql` 里。帮我看看怎么优化，改 SQL 或者加索引都行","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.035,0.123,0.334,0.501,0.007],"confidence":0.42362273363213865,"base":"high","stakes":{"undo":0.016,"live":0.012,"access":0.002},"cause":0.739,"still_failing":0.005,"confirm":0.001,"escalate":0.025,"ultrathink":false,"unresolved":{"still_failing":0.004796218250961326,"solved":0.005247750744739841,"new_task":0.9974474335620019},"change":"reset","guide":"typesafe","ms":507,"attempts":1,"tokens":1967,"model":"drex-max-v1.1"}},
+    {"id":"submit-100","language":"en","state":{"user_message":"The reporting SQL in `reports/monthly.sql` takes 30 seconds to run — a three-table join wrapped around a subquery. The table definitions and existing indexes are all in `db/schema.sql`. Take a look at how to optimize it; rewriting the SQL or adding indexes are both fine.","recent_context":""},"en-score":{"answer":"high","correct":true,"gold":true,"p":[0.038,0.078,0.252,0.623,0.009],"confidence":0.5582102787082963,"base":"high","stakes":{"undo":0.025,"live":0.013,"access":0.002},"cause":0.511,"still_failing":0.01,"confirm":0.002,"escalate":0.03,"ultrathink":false,"unresolved":{"still_failing":0.010059702654271818,"solved":0.007027929147096714,"new_task":0.9973296912474692},"change":"reset","guide":"typesafe","ms":552,"attempts":1,"tokens":1973,"model":"drex-max-v1.1"}}
+  ]
+}

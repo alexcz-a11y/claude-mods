@@ -48,6 +48,7 @@ export function registerControl(on: On, ctx: Ctx): void {
     ctx.secrets.perplexityEnvKey = ((await $.env.get('PERPLEXITY_API_KEY').catch(() => undefined)) ?? '').trim()
     ctx.secrets.typesafeEnvKey = ((await $.env.get('TYPESAFE_API_KEY').catch(() => undefined)) ?? '').trim()
     ctx.secrets.liquidEnvKey = ((await $.env.get('LIQUID_API_KEY').catch(() => undefined)) ?? '').trim()
+    ctx.secrets.naceEnvKey = ((await $.env.get('NACE_API_KEY').catch(() => undefined)) ?? '').trim()
     // Claude Code's switch for the `ultrathink` keyword (2.1.316): off there, R1 lifts nothing either (decision/message-effort.ts).
     ctx.engineEnv.ultrathinkOff = ultrathinkOffBy(await $.env.get('CLAUDE_CODE_DISABLE_ULTRATHINK').catch(() => undefined))
     if (ctx.engineEnv.ultrathinkOff) $.ui.log('CLAUDE_CODE_DISABLE_ULTRATHINK turns the ultrathink keyword off: rule R1 lifts nothing', { to: 'debug' })
@@ -62,6 +63,7 @@ export function registerControl(on: On, ctx: Ctx): void {
     const images = ctx.images
     if (images === null) $.ui.log('images: no decision model takes them (no TypeSafe or Perplexity key)', { to: 'debug' })
     else if (images.fellBack) await report(modelIo, { fellBack: { asked: 'jev', using: images.name, for: 'images' } })
+    if (ctx.config.backend === 'drex') $.ui.log(`drex key: ${keySource(ctx.config.naceApiKey, ctx.secrets.naceEnvKey, 'NACE_API_KEY')}`, { to: 'debug' })
     if (ctx.config.backend === 'pplx') $.ui.log(`pplx key: ${keySource(ctx.config.perplexityApiKey, ctx.secrets.perplexityEnvKey, 'PERPLEXITY_API_KEY')}`, { to: 'debug' })
     if (ctx.config.backend === 'd1-ultra' || ctx.config.backend === 'd1.1') $.ui.log(`${ctx.config.backend} key: ${keySource(ctx.config.liquidApiKey, ctx.secrets.liquidEnvKey, 'LIQUID_API_KEY')}`, { to: 'debug' })
     // Jev's key serves the decisions when Jev decides and the images when Jev takes them (whatever decides the rest).

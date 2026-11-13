@@ -667,14 +667,14 @@ for (const failure of failures) {
   })
 }
 
-test('no key of either kind: nothing is sent, the script goes through as written, and the board says to set the TypeSafe key', async ($, on) => {
+test('no key of any kind: nothing is sent, the script goes through as written, and the board says to set the Nace key', async ($, on) => {
   const w = workflowWorld($, on, { backend: siteJev(() => ({ model: { haiku: 1 } })) })
   await w.workflow({ script: TIDY })
 
   expect(w.requests).toHaveLength(0)
   expect(w.reached.map((r) => r.script)).toEqual([TIDY])
   expect((await w.board()).agents.map((node) => [node.name, node.routed, node.why, node.failure?.kind])).toEqual([
-    ['rename', false, 'jev：没有填 typesafeApiKey 或 TYPESAFE_API_KEY', 'config'],
-    ['review', false, 'jev：没有填 typesafeApiKey 或 TYPESAFE_API_KEY', 'config'],
+    ['rename', false, 'drex：没有填 naceApiKey 或 NACE_API_KEY', 'config'],
+    ['review', false, 'drex：没有填 naceApiKey 或 NACE_API_KEY', 'config'],
   ])
 })
