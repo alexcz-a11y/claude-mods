@@ -129,7 +129,7 @@ test('a model the person names is used even when it is not among the options (fa
   const w = world($, on, { backend: agentJev({ model: { opus: 1 }, effort: [0, 0, 0, 0.3, 0.7], nouls: { 'named.fable': 0.9 } }) })
   await w.submit('这个调度算法的正确性证明交给 fable 做，其他的先不用管')
   const started = await w.spawn({ prompt: '证明 docs/scheduler.md 第 3 节的优先级继承调度算法满足两条性质；不成立就构造反例。', description: '证明调度算法正确性' })
-  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-fable-5-1', effort: 'xhigh' })
+  await w.step({ index: 0, turnId: 'sub-1', agentId: started.agentId, model: 'claude-fable-5-2', effort: 'xhigh' })
 
   // Without agentFable the frontier question is not asked: the person's fable stands all the same.
   expect(Object.keys(w.requests[1]?.body.questions)).not.toContain('agent.frontier')

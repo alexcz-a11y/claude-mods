@@ -341,7 +341,7 @@ export type WorkflowSpawnOptions = { runId: string; agentIndex: number; agentId:
 const READ_LIMIT = 4 * 1024 * 1024
 
 /** What the engine resolves a model alias to as it starts an agent (2.1.289; `haiku` is Haiku 5.5 from 2.1.296, DEVELOPMENT.md 「已实测的引擎行为」). */
-const ENGINE_IDS: Record<string, string> = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5', fable: 'claude-fable-5-1' }
+const ENGINE_IDS: Record<string, string> = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5', fable: 'claude-fable-5-2' }
 
 /** The agent.spawn the engine raises for one Agent tool call (`id`, the call's tool_use_id). */
 function spawnInput(id: string, spawn: SpawnOptions & { workflow?: { runId: string; agentIndex: number } }) {

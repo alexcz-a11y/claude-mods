@@ -336,7 +336,7 @@ return [a, b, c, d]
   }
 
   expect(w.spawned.map((spawn) => spawn.model)).toEqual(['haiku', 'sonnet', undefined, 'fable'])
-  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model}`)).toEqual(['wh claude-haiku-5-5', 'ws claude-sonnet-5-5', 'wo claude-opus-5-5', 'wf claude-fable-5-1'])
+  expect(w.steps.map((s) => `${String(s.agentId)} ${s.model}`)).toEqual(['wh claude-haiku-5-5', 'ws claude-sonnet-5-5', 'wo claude-opus-5-5', 'wf claude-fable-5-2'])
 })
 
 test("no answer within an agent's wait as it is spawned (with Jev 6000 ms): it starts and goes out as the engine made it, and the board says why", { options: { ...KEY, timeoutMs: 800 } }, async ($, on) => {
