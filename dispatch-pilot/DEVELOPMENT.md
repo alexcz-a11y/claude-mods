@@ -931,7 +931,8 @@ hooks/
 │   ├── workflow-report.ts  Workflow 的两个功能（workflow-agents、workflow-labels）交给 report.ts 的东西：每个 agent() 调用一份报告（`callReports`）、整个 Workflow 没走路由的说明（`workflowLeft`）、没读全脚本时 Workflow 的名字
 │   ├── plans.ts            计划表的类型和纯函数（planStep 决定每一步发出什么）；`MAIN`（主 agent 的 id `main`）；`Cell` 是 `decision/backend.ts` 的 `StateCell` 的别名，读改写用的 `update`、`replace` 也在这里（二十多个文件在用）
 │   ├── outcomes.ts         哪些工具调用被 settings hook 拦下（核心的 classic.PreToolUse 记，#7 读）
-│   ├── bridge.ts           桥（ADR 0028）：Code Mode 不允许 mod 挂的事件（`tool.call`、`agent.spawn`、`classic.PreToolUse`）的 hook 不在这个 plugin 里注册，写成 `on('dispatchPilot.start', { name })` 的主体，由 dispatch-pilot-extras 在事件上的几行经 `$.dispatchPilot` 调过来；`bridgeStart` 把 hook 跑到它的 `next`，`bridgeResume` 把引擎的结果交回去让它跑完；`HookGiven` 给主体里的 `e` 和 `next` 定类型
+│   ├── calls.ts            从对话的行里读工具调用（ADR 0028）：没有 dispatch-pilot-extras 的会话（Code Mode）里 `tool.call` 的 hook 不跑，`session.append` 的 response 行给出调用的 id、工具和参数（`noteUses`），tool-result 行给出它怎么结束（`callsEnded`：`is_error` 和报错文字）；Code Mode 自己的 `REPL` 和 `Poll` 不算调用，脚本里的每个调用各有一对行；`takeAgentCall` 按任务文字找出派出某个 agent 的 Agent 调用；`onlyWaits` 认只有 `Poll` 的一步
+│   ├── bridge.ts           桥（ADR 0028）：Code Mode 不允许 mod 挂的事件（`tool.call`、`agent.spawn`、`classic.PreToolUse`）的 hook 不在这个 plugin 里注册，写成 `on('dispatchPilot.start', { name })` 的主体，由 dispatch-pilot-extras 在事件上的几行经 `$.dispatchPilot` 调过来；`bridgeStart` 把 hook 跑到它的 `next`，`bridgeResume` 把引擎的结果交回去让它跑完；`HookGiven` 给主体里的 `e` 和 `next` 定类型；`hasExtras` 问另一个 plugin 在不在（它在 `$` 上加了自己的名词），每次加载问一次
 │   ├── commands.ts         命令轮（#19）：command.run 记下的命令和随后提交的 prompt 对上，命令在决策请求里的说明，从引擎的命令消息读回输入的命令
 │   ├── prompts.ts          isPersonsMessage：判断哪些 prompt 是用户本人的新消息
 │   ├── visual-check-report.ts  看图核对的汇报（#58）：一次调用的 aside 决定、增量的计数、失败的 note（`reportCall`）

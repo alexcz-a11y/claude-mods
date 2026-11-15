@@ -38,9 +38,10 @@
 //     (`facts`) for the next message's decision.
 
 import type { EngineInterface, On, TurnStepInput } from 'claude-code'
-import { bridgeStart, type HookGiven } from '../core/bridge.ts'
+import { bridgeStart, hasExtras, type HookGiven } from '../core/bridge.ts'
+import { callsEnded } from '../core/calls.ts'
 import { errorText } from '../decision/backend.ts'
-import { briefOf, errorLine, outcomeOf, rowsFromTranscript, stepUp, withError, type StepUpSettings, type TranscriptRow, type TurnFacts } from '../decision/escalation.ts'
+import { blockedByHookText, briefOf, errorLine, outcomeOf, rowsFromTranscript, stepUp, withError, type StepUpSettings, type TranscriptRow, type TurnFacts } from '../decision/escalation.ts'
 import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
 import { switchNote } from '../decision/midrun.ts'
 import { quoteStart } from '../decision/redact.ts'
@@ -158,6 +159,25 @@ export function registerEscalation(on: On, ctx: Ctx): void {
     }
     return result
   }) }))
+
+  // Without dispatch-pilot-extras (a Code Mode session) the hook above does not run: every loop's calls are counted as their
+  // results are stored (core/calls.ts). A Workflow's run is not noted there (its agents are not routed without the other plugin).
+  on('session.append', { door: 'tool-result' }, async ($, e, next) => {
+    const stored = await next(e)
+    if (!masterOn()) return stored
+    try {
+      if (await hasExtras(() => $.dispatchPilotExtras.present())) return stored
+      for (const call of callsEnded(e, await $.clock.now())) {
+        const ended = outcomeOf(call.tool, { isError: call.isError, text: call.text }, call.isError && blockedByHookText(call.text))
+        const failing = ended === 'failed' || ended === 'blocked'
+        if (call.agentId === undefined) await countMain($, ended, failing ? errorLine(call.tool, call.text) : null)
+        else if (failing) await countAgent($, settings, call.agentId, ended)
+      }
+    } catch (error) {
+      $.ui.log(`escalation: ${errorText(error)}`, { to: 'debug' })
+    }
+    return stored
+  })
 
   on('turn.step', { turnId: /(?:)/ }, async function* ($, e, next) {
     if (masterOn()) {

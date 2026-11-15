@@ -539,3 +539,12 @@ export function relevanceBlock(suggest: SkillPick | null, described: ReadonlySet
   const about = suggest !== null && !described.has(suggest.name) && suggest.description.trim() !== '' ? [`${suggest.name}: ${suggest.description.trim()}`] : []
   return ['<skill_relevance>', body, ...about, '</skill_relevance>'].join('\n')
 }
+
+/** find_skill as the Skill tool names it (#12, ADR 0028): this plugin's own skill, whose prompt the mod answers (features/find-skill.ts). */
+export const FIND_SKILL = 'dispatch-pilot:find-skill'
+
+/** Whether a skill's name is find_skill's: as the Skill tool names it, or bare (a plugin loaded from a folder names it either way). */
+export function isFindSkill(name: string): boolean {
+  return name === FIND_SKILL || name === 'find-skill'
+}
+

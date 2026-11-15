@@ -85,3 +85,24 @@ export function bridgeResume(answer: BridgeAnswer): Promise<BridgeStep> {
     else pending.resolve(answer.result)
   })
 }
+
+/** Whether dispatch-pilot-extras is loaded, as this load of the module found it; undefined before it asked. */
+let extras: boolean | undefined
+
+/**
+ * Whether dispatch-pilot-extras is loaded beside this plugin: it adds a noun of its own to `$`, and a call on a noun
+ * nobody added throws. `present` is that call, made where `$` is (`() => $.dispatchPilotExtras.present()`). Asked once
+ * a load: both plugins hook `engine.create`, so a plugin switched on or off reloads every module (and this one's answer
+ * with it). With it, the bridged hooks run; without it (a Code Mode session) the features read tool calls and starting
+ * agents another way.
+ */
+export async function hasExtras(present: () => Promise<boolean>): Promise<boolean> {
+  if (extras === undefined) {
+    try {
+      extras = (await present()) === true
+    } catch {
+      extras = false
+    }
+  }
+  return extras
+}

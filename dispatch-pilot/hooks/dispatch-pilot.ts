@@ -10,6 +10,7 @@
 import type { Register } from 'claude-code'
 import { registerScreens, registerStatus } from './board/screens.tsx'
 import { bridgeResume, type BridgeStep } from './core/bridge.ts'
+import { registerCalls } from './core/calls.ts'
 import { registerCore } from './core/core.ts'
 import { registerLoopStart } from './core/loop-start.ts'
 import { registerReport } from './core/report.ts'
@@ -52,6 +53,9 @@ export const register: Register = (on, options) => {
   registerReport(on)
   // The screens draw the report's data (the band, the footer); no feature touches them.
   registerScreens(on)
+
+  // The tool calls a session's rows name, for the features that read them where no `tool.call` hook of theirs runs (a Code Mode session).
+  registerCalls(on)
 
   // When each loop began (the screenshot takeover and the routing's reference images read it): no switch, no decision.
   registerLoopStart(on)

@@ -1,7 +1,7 @@
 // Feature: find_skill (#12). Most skills are left out of the main agent's
 // listing (features/skills.ts, ADR 0002), so when, partway through a turn,
 // the work turns out to need a skill nobody suggested, the main agent can ask:
-// it calls the tool with a few words on the work, and the decision model rates
+// it names the work in a few words, and the decision model rates
 // the session's skills against them with the ranker it picks a message's skill
 // with (`modRanker`, ADR 0018), over the same skills by their own descriptions,
 // with the recent conversation read by the same rules. Two differences: the
@@ -9,20 +9,27 @@
 // all) is not asked; and it may get several back, so stage two re-reads as
 // many as it may return (findSkillMax) and returns every one whose fit reaches
 // the bar, best first. Nothing is pushed: the skills come back only as the
-// tool's answer.
+// answer.
+//
+// It is asked as a skill (ADR 0028): this plugin ships `skills/find-skill`, the
+// main agent loads `dispatch-pilot:find-skill` with the Skill tool and the work
+// as its args, and the mod answers the skill's prompt (`skill.prompt`) with the
+// skills that fit. Until 0.14.0 it was a tool the mod registered and answered in
+// `tool.call`, an event Claude Code's Code Mode refuses a mod for; `skill.prompt`
+// is raised in a Code Mode session too, for a Skill call a script makes (measured
+// on 2.1.325). The event does not say which loop loaded the skill, so a
+// dispatched agent that loads it is answered as the main agent is.
 //
 // Its switch is `find-skill` (`/dp find-skill off`), apart from `skills`
-// (spec #56). The tool stays registered whatever the switches say, with a
-// description that never changes (the tool list is part of the prompt cache);
-// switched off, it says so when called.
+// (spec #56). The skill is the plugin's whatever the switches say, with a
+// description that never changes; switched off, it says so when loaded.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { bridgeStart, type HookGiven } from '../core/bridge.ts'
 import { type Asked, type BackendIo, describeAsked, errorText, failureText } from '../decision/backend.ts'
 import { turnStartState } from '../decision/context.ts'
 import { fitsBarText, type SkillBars } from '../decision/guides.ts'
 import { quoteStart } from '../decision/redact.ts'
-import { findSkills, modRanker, skillOpening, type SkillPick } from '../decision/skills.ts'
+import { findSkills, isFindSkill, modRanker, skillOpening, type SkillPick } from '../decision/skills.ts'
 import { answersFor, mergeParts, type DecisionRequest } from '../decision/system-one.ts'
 import { report, type ReportIo } from '../core/report.ts'
 import type { Ctx } from '../core/setup.ts'
@@ -36,24 +43,8 @@ const PPLX_RATE = { plugin: 'dispatch-pilot', key: 'pplxRate' } as const
 
 /** The switch's name, in `/dp` and in the decision log. */
 const SWITCH = 'find-skill'
-/** The tool's name; the model calls it as `mcp__dispatch-pilot__find_skill`. */
-const TOOL = 'find_skill'
-const TOOL_CALLED = 'mcp__dispatch-pilot__find_skill'
-
-/** What the model reads about the tool. Fixed: nothing of the session goes into it. */
-const DESCRIPTION =
-  "Searches this session's skills for the ones that fit a piece of work, and returns each one's exact name, its relevance (0 to 1) and what it is for. Use it when the work at hand might have a skill you have not been shown: a file format, a service or its tooling, or a way of working such as reviewing, planning, testing or releasing. Load a skill it returns with the Skill tool by that exact name. Skills only the user can start are never returned."
-const INPUT = {
-  type: 'object',
-  properties: {
-    query: {
-      type: 'string',
-      description: 'The kind of work you need a skill for, in a few words, such as "fill in a form in a PDF file" or "review a branch before merging".',
-    },
-  },
-  required: ['query'],
-  additionalProperties: false,
-}
+/** Where the work is in the skill's prompt as the engine expands it (skills/find-skill/SKILL.md: `Query: $ARGUMENTS`). */
+const QUERY = /^Query:[ \t]*(.*)$/m
 /** How an answer that brings no skill ends: the main agent's way on. */
 const CARRY_ON = 'Carry on without it, or load a skill you know with the Skill tool by its exact name.'
 
@@ -110,33 +101,18 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
   /** How the mod's ranker ranks for find_skill: no gate, as many re-read as may come back. */
   const rankBy = rankingSettings(ctx, 'find')
 
-  // Registered once every plugin is loaded, under a match-all matcher (other
-  // features set themselves up at session start too). Without a decision
-  // model nothing could rate the skills, and the main agent keeps its listing.
-  on('session.start', { cwd: /(?:)/ }, async ($, e, next) => {
-    const result = await next(e)
-    if (ctx.backend.configured === false) return result
-    try {
-      // In the prompt's tool list (2.1.293 on; older engines put it behind ToolSearch, as the listing's hint allows for):
-      // the main agent's skill listing is cut short, and this is its way to the rest. Its description never changes.
-      const { tool } = await $.tool.register({ name: TOOL, description: DESCRIPTION, inputSchema: INPUT, isDeferred: false })
-      if (tool !== TOOL_CALLED) $.ui.log(`find_skill is registered as ${tool}, but the hook answers ${TOOL_CALLED}: its calls will fail`, { to: 'debug' })
-    } catch (error) {
-      $.ui.log(`find_skill was not registered: ${errorText(error)}`, { to: 'debug' })
-    }
-    return result
-  })
+  // The main agent's question: answered here, never passed on. Whatever goes wrong, the answer says so at once (fail
+  // open: the turn goes on without a skill). Another plugin's skill of the same bare name is not this one.
+  on('skill.prompt', { skill: /(?:^|:)find-skill$/ }, async ($, e, next) => {
+    if (!isFindSkill(e.skill) || (e.pluginName !== undefined && e.pluginName !== 'dispatch-pilot')) return next(e)
+    return { text: (await rate(e.text)).result }
 
-  // The model's call: answered here, never passed on. Whatever goes wrong,
-  // the answer says so at once (fail open: the turn goes on without a skill).
-  on('dispatchPilot.start', { name: 'find-skill.call' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'tool.call', { tool: typeof TOOL_CALLED }>>>(started, async (e) => {
+    /** What find_skill answers the skill's prompt `text` with. */
+    async function rate(text: string): Promise<{ result: string }> {
     if (!masterOn()) return { result: `Dispatch Pilot is switched off (/dp on turns it back on), so find_skill rated no skills. ${CARRY_ON}` }
     if (!isOn(SWITCH)) return { result: `find_skill is switched off (/dp ${SWITCH} on turns it back on), so it rated no skills. ${CARRY_ON}` }
-    // A dispatched agent's listing is left whole (ADR 0002): it has every skill in view.
-    if (e.agentId !== undefined) {
-      return { result: "find_skill rates skills for the main agent, whose skill listing is cut short. Yours lists this session's skills: pick from it and load one with the Skill tool by its exact name." }
-    }
-    const query = typeof e.query === 'string' ? e.query.replace(/\s+/g, ' ').trim() : ''
+    if (ctx.backend.configured === false) return { result: `find_skill has no decision model to rate the skills with, so it rated none. ${CARRY_ON}` }
+    const query = (QUERY.exec(text)?.[1] ?? '').replace(/\s+/g, ' ').trim()
     if (query === '') return { result: 'find_skill needs a query: a few words on the kind of work you need a skill for.' }
     const io: ReportIo = {
       board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
@@ -150,7 +126,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
     try {
       // The skills the main agent can load (those only the person can start never come back), each by its own description.
       const known = await sessionCatalog($)
-      const candidates = known?.filter((skill) => skill.by === 'model' && !neverSuggested.has(skill.name)) ?? null
+      const candidates = known?.filter((skill) => skill.by === 'model' && !neverSuggested.has(skill.name) && !isFindSkill(skill.name)) ?? null
       if (candidates === null) {
         await report(io, { decision: { ...call, skipped: 'unread' as const } })
         return { result: `find_skill could not read this session's skills. ${CARRY_ON}` }
@@ -207,7 +183,8 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       await report(io, { decision: { ...call, skipped: 'error' as const } })
       return { result: `find_skill could not rate the skills (an error in Dispatch Pilot, written to the debug log). ${CARRY_ON}` }
     }
-  }) }))
+    }
+  })
 }
 
 /** The answer: the skills that fit, each by name, relevance and description, most relevant first; or that none does. */

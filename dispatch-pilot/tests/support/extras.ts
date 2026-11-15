@@ -50,12 +50,16 @@ export const EXTRAS: Plugin = {
       return (await next(e as never)) as never
     }
 
+    on('engine.create', async (_$, e, next) => {
+      const built = await next(e)
+      return { ...built, dispatchPilotExtras: { present: async () => true } }
+    })
+
     on('tool.call', { tool: /(?:)/ }, ($, e, next) => through((call) => $.dispatchPilot.start(call), (answer) => $.dispatchPilot.resume(answer), e, next, 'midrun.call'))
     on('tool.call', { tool: /(?:)/ }, ($, e, next) => through((call) => $.dispatchPilot.start(call), (answer) => $.dispatchPilot.resume(answer), e, next, 'escalation.call'))
     on('tool.call', { tool: 'Agent' }, ($, e, next) => through((call) => $.dispatchPilot.start(call), (answer) => $.dispatchPilot.resume(answer), e, next, 'agents.call'))
     on('tool.call', { tool: 'Workflow' }, ($, e, next) => through((call) => $.dispatchPilot.start(call), (answer) => $.dispatchPilot.resume(answer), e, next, 'workflow-agents.call'))
     on('tool.call', { tool: 'Workflow' }, ($, e, next) => through((call) => $.dispatchPilot.start(call), (answer) => $.dispatchPilot.resume(answer), e, next, 'workflow-labels.call'))
-    on('tool.call', { tool: 'mcp__dispatch-pilot__find_skill' }, ($, e, next) => through((call) => $.dispatchPilot.start(call), (answer) => $.dispatchPilot.resume(answer), e, next, 'find-skill.call'))
     on('tool.call', { tool: 'mcp__dispatch-pilot__visual_check' }, ($, e, next) => through((call) => $.dispatchPilot.start(call), (answer) => $.dispatchPilot.resume(answer), e, next, 'visual-check.call'))
     on('tool.call', { tool: 'Read' }, ($, e, next) => through((call) => $.dispatchPilot.start(call), (answer) => $.dispatchPilot.resume(answer), e, next, 'takeover.read'))
     on('tool.call', { tool: /^mcp__/ }, ($, e, next) => through((call) => $.dispatchPilot.start(call), (answer) => $.dispatchPilot.resume(answer), e, next, 'takeover.mcp'))

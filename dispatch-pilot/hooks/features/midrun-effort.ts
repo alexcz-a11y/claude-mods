@@ -13,7 +13,8 @@
 // level holds for the tool steps after it. A step that carries input anyway (a report delivered into the turn, the step
 // after a Stop hook's feedback) needs no row.
 //
-//   tool.call      as a call of the main agent ends: the run's record (decision/midrun-track.ts), then at an event
+//   tool.call      (bridged, core/bridge.ts; without dispatch-pilot-extras the same from `session.append`, as a call's result is stored)
+//                  as a call of the main agent ends: the run's record (decision/midrun-track.ts), then at an event
 //                    a failure that came back, a skill loaded, an agent's hand-back, the task list moving on:
 //                                the decision model is asked (decision/midrun.ts), the code decides, the level moves
 //                    the command a raise was for passes again: the level goes back, no question asked
@@ -32,12 +33,13 @@
 // record through (both lost on a hot reload: the call that asked goes on without its answer, as a failed request would).
 
 import type { EngineInterface, HttpInit, On, PromptOrigin, TurnStepInput } from 'claude-code'
-import { bridgeStart, type HookGiven } from '../core/bridge.ts'
+import { bridgeStart, hasExtras, type HookGiven } from '../core/bridge.ts'
+import { callsEnded, onlyWaits } from '../core/calls.ts'
 import { describeAsked, errorText, type Asked, type BackendIo } from '../decision/backend.ts'
 import type { StandingConstraint } from '../decision/constraints.ts'
 import { describeState } from '../decision/context.ts'
 import { EFFORTS, isEffort, probsOf, readEffort, readingText, type Effort } from '../decision/effort.ts'
-import { outcomeOf } from '../decision/escalation.ts'
+import { blockedByHookText, outcomeOf } from '../decision/escalation.ts'
 import {
   CONFIRM_STEPS,
   decideMidrun,
@@ -145,6 +147,24 @@ export function registerMidrunEffort(on: On, ctx: Ctx): void {
     return result
   }) }))
 
+  // Without dispatch-pilot-extras (a Code Mode session) the hook above does not run: the main agent's calls are read as their
+  // results are stored (core/calls.ts), and the run's record, its events and the row that moves the level go on from there
+  // as they do from a call's end. A hook's block is told by Claude Code's words for it (no `classic.PreToolUse` hook runs).
+  on('session.append', { door: 'tool-result' }, async ($, e, next) => {
+    const stored = await next(e)
+    if (e.agentId !== undefined || !isOn(MIDRUN_SWITCH)) return stored
+    try {
+      if (await hasExtras(() => $.dispatchPilotExtras.present())) return stored
+      for (const call of callsEnded(e, await $.clock.now())) {
+        const ended = outcomeOf(call.tool, { isError: call.isError, text: call.text }, call.isError && blockedByHookText(call.text))
+        await afterCall($, ctx, { tool: call.tool, input: call.input, outcome: ended, ...(call.text === '' ? {} : { text: call.text }), durationMs: call.durationMs })
+      }
+    } catch (error) {
+      $.ui.log(`midrun: ${errorText(error)}`, { to: 'debug' })
+    }
+    return stored
+  })
+
   on('turn.step', { turnId: /(?:)/ }, async function* ($, e, next) {
     if (e.agentId !== undefined || !isOn(MIDRUN_SWITCH)) return yield* next(e)
     try {
@@ -157,7 +177,7 @@ export function registerMidrunEffort(on: On, ctx: Ctx): void {
     const result = await stream.result
     try {
       const text = result.answer.trim().slice(-TEXT_CHARS)
-      await update(recordCell($), (r) => (r === undefined || r.turnId !== e.turnId ? (r ?? newRecord(e.turnId)) : withResponse(r, e.index, text, result.toolUses.length)))
+      await update(recordCell($), (r) => (r === undefined || r.turnId !== e.turnId ? (r ?? newRecord(e.turnId)) : withResponse(r, e.index, text, result.toolUses.length, onlyWaits(result.toolUses))))
     } catch (error) {
       $.ui.log(`midrun: ${errorText(error)}`, { to: 'debug' })
     }
@@ -326,7 +346,9 @@ async function judge($: EngineInterface, ctx: Ctx, record: MidrunRecord, event: 
     const cell = recordCell($)
     await update(cell, (r) => {
       const kept = r ?? record
-      return tick ? { ...kept, ticks: (kept.ticks ?? 0) + 1, tickedAt: kept.step } : { ...kept, judged: kept.judged + 1, judgedAt: kept.step }
+      // A look starts the count of steps anew, and with it the steps that only waited.
+      const looked = kept.idle === undefined ? kept : { ...kept, idle: 0 }
+      return tick ? { ...looked, ticks: (kept.ticks ?? 0) + 1, tickedAt: kept.step } : { ...looked, judged: kept.judged + 1, judgedAt: kept.step }
     })
     const sentAt = await $.clock.now()
     const asked: Asked = await ctx.backend.ask(backendIo($), request, ctx.config.timeoutMs)

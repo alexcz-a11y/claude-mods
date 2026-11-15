@@ -280,6 +280,17 @@ export type StepOptions = {
   tools?: ToolRun[]
   /** The step's tool calls run at once, as the engine runs several calls of one response: each ends `ok`, or all end as their `ends` says when they share one. */
   parallel?: boolean
+  /**
+   * A Code Mode step (2.1.325): the response makes one `REPL` call, a script, and `tools` are the calls the script makes. The
+   * engine appends the script's rows (the `REPL` call, `(dispatched #n)`), then for each call of the script a response row
+   * whose model is `<synthetic>` and its `tool_result` under a `repl_…` id: no text for a call that passed, the error's for one
+   * that failed. No `tool.call` is raised for a mod there; the world still records the call.
+   */
+  script?: boolean
+  /** A Code Mode step in which the model only waits for a script's events: its response makes one `Poll` call. */
+  poll?: boolean
+  /** An agent's step 0: the text its turn starts with (its task), '' when not given. */
+  task?: string
 }
 
 /** A tool call the model makes in a step, and how it ends. */
@@ -409,7 +420,9 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const commandTurns = new Map<string, string>()
   const tools: RegisteredToolSpec[] = []
   /** What the step being sent streams and runs (set by `step()`, read by the engine's turn.step below). */
-  let streaming: Pick<StepOptions, 'answer' | 'tools' | 'parallel'> = {}
+  let streaming: Pick<StepOptions, 'answer' | 'tools' | 'parallel' | 'script' | 'poll'> = {}
+  /** Scripts dispatched so far (a Code Mode step's `(dispatched #n)`). */
+  let scripts = 0
   /** How the tool call running now ends (set around each `$.tool.call` below). */
   let ending: ToolRun['ends'] | undefined
 
@@ -691,20 +704,54 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   // response still streams, as Claude Code does.
   on('turn.step', async function* (_$, e) {
     steps.push({ turnId: e.turnId, index: e.index, model: e.model, effort: e.effort, agentId: e.agentId })
-    const { answer = '', tools = [], parallel = false } = streaming
+    const { answer = '', tools = [], parallel = false, script = false, poll = false } = streaming
     streaming = {}
     if (answer) yield { kind: 'text' as const, index: 0, text: answer }
-    const call = (run: ToolRun) => $.tool.call({ tool: run.tool, ...(run.input ?? {}), ...(e.agentId !== undefined ? { agentId: e.agentId } : {}) } as never)
+    const loop = e.agentId !== undefined ? { agentId: e.agentId } : {}
+    /** A row the engine appends to the loop's conversation: a response block, or a tool's result. */
+    const row = (door: 'response' | 'tool-result', message: { type: 'assistant' | 'user'; role: 'assistant' | 'user'; content: unknown[] }, origin: unknown) =>
+      $.session.append({ message, door, origin, uuid: `row-${++rowCount}`, ...loop } as never)
+    const named = (id: string, tool: string, input: unknown, model: string) => row('response', { type: 'assistant', role: 'assistant', content: [{ type: 'tool_use', id, name: tool, input }] }, { kind: 'model', model })
+    const ended = (id: string, tool: string, content: string, isError: boolean) => row('tool-result', { type: 'user', role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] }, { kind: 'tool', tool })
+    /** One call: its row, the tool, its result's row. A hook's block reads as Claude Code words it; a script's call that passed has no text. */
+    const call = async (run: ToolRun, id: string, inScript: boolean) => {
+      await named(id, run.tool, run.input ?? {}, inScript ? '<synthetic>' : e.model)
+      const result = (await $.tool.call({ tool: run.tool, ...(run.input ?? {}), ...loop } as never)) as { text?: string; isError?: boolean; deny?: string }
+      const blocked = run.ends !== undefined && 'blockedByHook' in run.ends ? `PreToolUse:${run.tool} hook error: [policy.sh]: ${run.ends.blockedByHook}` : undefined
+      const failed = result.isError === true || result.deny !== undefined || blocked !== undefined
+      await ended(id, run.tool, blocked ?? (failed ? (result.deny ?? result.text ?? '') : inScript ? '' : (result.text ?? '')), failed)
+      return result
+    }
+    if (poll) {
+      const id = `toolu_${e.turnId}_${e.index}_poll`
+      yield { kind: 'tool' as const, index: 1, id, name: 'Poll' }
+      await named(id, 'Poll', {}, e.model)
+      await ended(id, 'Poll', '(no pending events)', false)
+      return { turnId: e.turnId, index: e.index, answer, toolUses: [{ name: 'Poll', input: {} }], stopReason: 'tool_use' as const, usage: null }
+    }
+    if (script) {
+      const id = `toolu_${e.turnId}_${e.index}_repl`
+      const code = tools.map((run) => `await tools.${run.tool}(${JSON.stringify(run.input ?? {})})`).join('\n')
+      yield { kind: 'tool' as const, index: 1, id, name: 'REPL' }
+      await named(id, 'REPL', { code }, e.model)
+      await ended(id, 'REPL', `(dispatched #${++scripts})`, false)
+      for (const [i, run] of tools.entries()) {
+        ending = run.ends
+        await call(run, `repl_${e.turnId}_${e.index}_${i}`, true)
+        ending = undefined
+      }
+      return { turnId: e.turnId, index: e.index, answer, toolUses: [{ name: 'REPL', input: { code } }], stopReason: 'tool_use' as const, usage: null }
+    }
     if (parallel) {
       for (const [i, run] of tools.entries()) yield { kind: 'tool' as const, index: i + 1, id: `toolu_${e.turnId}_${e.index}_${i}`, name: run.tool }
       ending = tools.every((run) => run.ends === tools[0]?.ends) ? tools[0]?.ends : undefined
-      await Promise.all(tools.map(call))
+      await Promise.all(tools.map((run, i) => call(run, `toolu_${e.turnId}_${e.index}_${i}`, false)))
       ending = undefined
     }
     for (const [i, run] of (parallel ? [] : tools).entries()) {
       yield { kind: 'tool' as const, index: i + 1, id: `toolu_${e.turnId}_${e.index}_${i}`, name: run.tool }
       ending = run.ends
-      await call(run)
+      await call(run, `toolu_${e.turnId}_${e.index}_${i}`, false)
       ending = undefined
     }
     const toolUses = tools.map((run) => ({ name: run.tool, input: run.input ?? {} }))
@@ -968,11 +1015,15 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     /** The session ends for another reason (`resume`, `logout`, `prompt_input_exit`, `other`; needs `session`): what the mod keeps for one session starts over, as for a new session. */
     end: (reason: SessionEndReason) => $.session.end({ reason, sessionId: 's1', resume: { id: 's1' } }),
     /**
-     * The model calls the mod's find_skill tool with this query (`agentId`: from a dispatched agent's loop);
-     * resolves to the tool's answer, `{ result }`.
+     * The main agent loads the mod's find_skill skill with this query as its args (the Skill tool, `dispatch-pilot:find-skill`):
+     * the engine expands the skill's prompt (skills/find-skill/SKILL.md) and raises `skill.prompt`; resolves to what the model
+     * then reads, as `{ result }`.
      */
-    findSkill: (query: unknown, call: { agentId?: string } = {}) =>
-      $.tool.call({ tool: 'mcp__dispatch-pilot__find_skill', query, ...(call.agentId !== undefined ? { agentId: call.agentId } : {}) }),
+    findSkill: async (query: unknown) => {
+      const expanded = `Base directory for this skill: /plugins/dispatch-pilot/skills/find-skill\n\nQuery: ${typeof query === 'string' ? query : ''}\n`
+      const answered = await $.skill.prompt({ skill: 'dispatch-pilot:find-skill', text: expanded, frontmatter: { name: 'find-skill' }, source: 'plugin', pluginName: 'dispatch-pilot' })
+      return { result: answered.text }
+    },
     /**
      * The agent calls the mod's visual_check tool with this input (`agentId`: from a dispatched agent's loop); resolves to the
      * tool's answer, `{ result }`: a string, or an array of Messages API blocks.
@@ -1022,7 +1073,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     /** Sends one model request through the mod, drained to its end (its text streamed, its tools run). */
     step: async (step: StepOptions) => {
       await booted()
-      streaming = { answer: step.answer, tools: step.tools, parallel: step.parallel }
+      streaming = { answer: step.answer, tools: step.tools, parallel: step.parallel, script: step.script, poll: step.poll }
       const effort = step.effort === undefined ? 'xhigh' : step.effort
       const input = {
         turnId: step.turnId ?? turnIds.at(-1) ?? 't0',
@@ -1033,7 +1084,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
         ...(step.agentId !== undefined ? { agentId: step.agentId } : {}),
       }
       // An agent's run is a turn of its loop, and starts with a turn.start of its own before its first request (2.1.299 on).
-      if (step.agentId !== undefined && step.index === 0) await $.turn.start({ text: '', turnId: input.turnId, agentId: step.agentId })
+      if (step.agentId !== undefined && step.index === 0) await $.turn.start({ text: step.task ?? '', turnId: input.turnId, agentId: step.agentId })
       for await (const _chunk of $.turn.step(input)) {
         // drained: the hooks run as the stream is read
       }

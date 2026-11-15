@@ -33,6 +33,17 @@ export type ToolEnding = { deny?: string; isError?: boolean; text?: string }
 const DENIED = /^(?:The user doesn't want to (?:proceed with this tool use|take this action)|Permission (?:to use|for this)\b)/
 
 /**
+ * Claude Code's words when a PreToolUse settings hook refuses a call, as the tool's result carries them: what a session
+ * without dispatch-pilot-extras tells a hook's block by (core/calls.ts), since its `classic.PreToolUse` hook does not run.
+ */
+const BLOCKED_BY_HOOK = /^(?:PreToolUse:\S+ hook (?:blocking )?error\b|Hook PreToolUse:\S+ denied this tool\b)/
+
+/** Whether a failed call's text is a PreToolUse settings hook's refusal. */
+export function blockedByHookText(text: string | undefined): boolean {
+  return BLOCKED_BY_HOOK.test((text ?? '').trim())
+}
+
+/**
  * A call's outcome: `blocked` when a hook refused it (`{ deny }` from a hook
  * beneath, or a PreToolUse settings hook, `blockedByHook`); `denied` when
  * the error is the engine's refusal on the person's behalf (matched on its

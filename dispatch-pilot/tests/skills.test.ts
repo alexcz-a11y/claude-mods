@@ -69,7 +69,7 @@ const SKILLS: SkillsWorld = {
 // What the main agent reads in place of the listing: a fixed note on how to
 // come by a skill, naming none (the attachment is part of the prompt cache).
 const HINT =
-  "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it. For any other skill, call the find_skill tool (mcp__dispatch-pilot__find_skill; load it with ToolSearch first if it is deferred) with a few words on the work, then load a skill it returns with the Skill tool by its exact name."
+  "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it. For any other skill, load the skill dispatch-pilot:find-skill with the Skill tool, with a few words on the work as its args: it answers with the skills that fit. Then load one of them with the Skill tool by its exact name."
 
 test("the main agent's skill listing is withheld, a fixed note on finding skills in its place; a dispatched agent's reaches it as the engine wrote it", { options: KEY }, async ($, on) => {
   const w = world($, on, { skills: SKILLS })
@@ -77,7 +77,7 @@ test("the main agent's skill listing is withheld, a fixed note on finding skills
   expect(await w.listing(LISTING, 'a1')).toEqual({ text: LISTING })
 })
 
-// The note with the find_skill tool switched off: it does not send the main agent to it.
+// The note with find_skill switched off: it does not send the main agent to it.
 const HINT_WITHOUT_FIND_SKILL =
   "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it; load one, or any skill you know, with the Skill tool by its exact name."
 

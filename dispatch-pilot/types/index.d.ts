@@ -476,6 +476,8 @@ declare module 'claude-code' {
         ticks?: number
         tickedAt?: number | null
         wanted?: { way: 'raise' | 'lower'; step: number } | null
+        /** Steps since the last look in which the model only waited (Code Mode's `Poll`): a look by step count leaves them out. */
+        idle?: number
       }>
       /**
        * The person's own words this turn, masked and clipped (core/setup.ts
@@ -614,6 +616,8 @@ declare module 'claude-code' {
    * `resume` hands it what the engine's `next` came to.
    */
   interface EngineInterface {
+    /** dispatch-pilot-extras' own noun: there when that plugin is loaded (hooks/core/bridge.ts `hasExtras`); a call on it throws when it is not. */
+    dispatchPilotExtras: { present: () => Promise<boolean> }
     dispatchPilot: {
       start: (call: { name: string; id: string; e: unknown; origin?: { plugin?: string } }) => Promise<DispatchPilotStep>
       resume: (answer: { id: string; result?: unknown; error?: string }) => Promise<DispatchPilotStep>

@@ -47,12 +47,18 @@ async function through($, e, next, name) {
 }
 
 export function register(on) {
+  // A noun of this plugin's own, so that Dispatch Pilot can tell it is loaded (`$.dispatchPilotExtras.present()`):
+  // without it Dispatch Pilot reads tool calls and starting agents from the conversation's rows and the agents' turns.
+  on('engine.create', async ($, e, next) => {
+    const built = await next(e)
+    return { ...built, dispatchPilotExtras: { present: async () => true } }
+  })
+
   on('tool.call', { tool: /(?:)/ }, ($, e, next) => through($, e, next, 'midrun.call'))
   on('tool.call', { tool: /(?:)/ }, ($, e, next) => through($, e, next, 'escalation.call'))
   on('tool.call', { tool: 'Agent' }, ($, e, next) => through($, e, next, 'agents.call'))
   on('tool.call', { tool: 'Workflow' }, ($, e, next) => through($, e, next, 'workflow-agents.call'))
   on('tool.call', { tool: 'Workflow' }, ($, e, next) => through($, e, next, 'workflow-labels.call'))
-  on('tool.call', { tool: 'mcp__dispatch-pilot__find_skill' }, ($, e, next) => through($, e, next, 'find-skill.call'))
   on('tool.call', { tool: 'mcp__dispatch-pilot__visual_check' }, ($, e, next) => through($, e, next, 'visual-check.call'))
   on('tool.call', { tool: 'Read' }, ($, e, next) => through($, e, next, 'takeover.read'))
   on('tool.call', { tool: /^mcp__/ }, ($, e, next) => through($, e, next, 'takeover.mcp'))

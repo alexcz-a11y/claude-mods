@@ -18,7 +18,7 @@
 // Its switch is `workflow-labels` (`/dp workflow-labels off`).
 
 import type { AgentSpawnInput, EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
-import { bridgeStart, type HookGiven } from '../core/bridge.ts'
+import { bridgeStart, hasExtras, type HookGiven } from '../core/bridge.ts'
 import { errorText, failureLine, failureText, timedOut, within, type Failure } from '../decision/backend.ts'
 import { clipToTokens, conversationUpTo, type ContextMessage } from '../decision/context.ts'
 import { dispatchEvidence, modelFamily, termsOf, type AgentModel, type DispatchSettings, type Terms } from '../decision/dispatched-agent.ts'
@@ -115,7 +115,8 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
   // and keeps it, so the words never change and the prompt cache holds.
   on('tool.describe', { tool: 'Workflow' }, async ($, e, next) => {
     const described = await next(e)
-    if (!isOn(SWITCH) || ctx.backend.configured === false) return described
+    // Without dispatch-pilot-extras (a Code Mode session) no Workflow agent is routed, by label or otherwise: the hint would promise what does not happen.
+    if (!isOn(SWITCH) || ctx.backend.configured === false || !(await hasExtras(() => $.dispatchPilotExtras.present()))) return described
     return { ...described, description: `${described.description}\n\n${LABEL_HINT}` }
   })
 

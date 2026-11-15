@@ -11,7 +11,7 @@
 // Whatever goes wrong in a stage, the checks it touches end unsure with the reason, and the tool never fails.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
-import { bridgeStart, type HookGiven } from '../core/bridge.ts'
+import { bridgeStart, hasExtras, type HookGiven } from '../core/bridge.ts'
 import { type Asked, type BackendIo, describeAsked, errorText, type Failure, failureText } from '../decision/backend.ts'
 import { imageMegapixelBudget, PPLX_MAX_IMAGES, type Picture } from '../decision/images.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
@@ -84,6 +84,9 @@ export function registerVisualCheck(on: On, ctx: Ctx): void {
     const images = ctx.images
     if (images === null) return result
     try {
+      // The tool is answered in `tool.call`, a hook dispatch-pilot-extras runs (core/bridge.ts): without that plugin (a Code Mode
+      // session) a call of it would find no answer, so the tool is not offered there.
+      if (!(await hasExtras(() => $.dispatchPilotExtras.present()))) return result
       const { tool } = await $.tool.register({
         name: VISUAL_CHECK_TOOL,
         description: visualCheckDescription(images.name),
